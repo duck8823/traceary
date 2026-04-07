@@ -95,18 +95,18 @@ func run() error {
 	if err != nil {
 		return xerrors.Errorf("MCP server の初期化に失敗しました: %w", err)
 	}
-	rootCmd := cli.NewRootCLI(
-		initializeStoreUsecase,
-		recordLogUsecase,
-		recordSessionBoundaryUsecase,
-		recordCommandAuditUsecase,
-		collectGarbageUsecase,
-		searchEventsQueryService,
-		listRecentEventsQueryService,
-		getEventDetailsQueryService,
-		findLatestSessionQueryService,
-		mcpServer,
-	).Command()
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:        initializeStoreUsecase,
+		RecordLogUsecase:              recordLogUsecase,
+		RecordSessionBoundaryUsecase:  recordSessionBoundaryUsecase,
+		RecordCommandAuditUsecase:     recordCommandAuditUsecase,
+		CollectGarbageUsecase:         collectGarbageUsecase,
+		SearchEventsQueryService:      searchEventsQueryService,
+		ListEventsQueryService:        listRecentEventsQueryService,
+		GetEventDetailsQueryService:   getEventDetailsQueryService,
+		FindLatestSessionQueryService: findLatestSessionQueryService,
+		MCPServerRunner:               mcpServer,
+	}).Command()
 	rootCmd.Version = versionString()
 	rootCmd.SetVersionTemplate("{{.Name}} {{.Version}}\n")
 

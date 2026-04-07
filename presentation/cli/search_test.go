@@ -69,7 +69,10 @@ func TestRootCLI_SearchCommand(t *testing.T) {
 		},
 	}
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(initStub, nil, nil, nil, nil, searchStub, nil, nil, nil, nil).Command()
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:   initStub,
+		SearchEventsQueryService: searchStub,
+	}).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
@@ -134,7 +137,10 @@ func TestRootCLI_SearchCommand_JSON(t *testing.T) {
 		},
 	}
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(initStub, nil, nil, nil, nil, searchStub, nil, nil, nil, nil).Command()
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:   initStub,
+		SearchEventsQueryService: searchStub,
+	}).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
