@@ -23,6 +23,7 @@ Traceary は、作業ログと audit log をひとつのローカルストアに
 - 作業ログと audit log を SQLite にローカル保存する
 - テキスト検索と日付範囲検索を提供する
 - Claude Code / Codex / Gemini 間で MCP 経由の文脈共有を行う
+- Claude Code / Codex / Gemini の hooks からセッション境界と shell audit を取り込めるようにする
 - git remote URL でリポジトリを識別する
 - `client` / `agent` / `session_id` による attribution を保持する
 - 保持期間と `gc` により長期的なデータ肥大化を抑える
@@ -40,6 +41,8 @@ traceary session start
 traceary session end
 traceary gc
 ```
+
+Hooks 導入: [`docs/hooks/README.md`](./docs/hooks/README.md)
 
 ## スコープ外
 

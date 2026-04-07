@@ -23,6 +23,7 @@ so multiple AI tools can read and write the same history.
 - Store session logs and audit logs locally in SQLite
 - Search logs by text and date range
 - Share context across Claude Code / Codex / Gemini via MCP
+- Ingest session boundaries and shell audits from Claude Code / Codex / Gemini hooks
 - Associate records with repositories by git remote URL
 - Keep attribution with `client`, `agent`, and `session_id`
 - Manage long-term data growth with retention and `gc`
@@ -40,6 +41,8 @@ traceary session start
 traceary session end
 traceary gc
 ```
+
+Hook setup: [`docs/hooks/README.md`](./docs/hooks/README.md)
 
 ## Non-goals
 
