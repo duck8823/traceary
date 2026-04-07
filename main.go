@@ -77,12 +77,14 @@ func run() error {
 	recordLogUsecase := usecase.NewRecordLogUsecase(datasource)
 	recordSessionBoundaryUsecase := usecase.NewRecordSessionBoundaryUsecase(datasource)
 	recordCommandAuditUsecase := usecase.NewRecordCommandAuditUsecase(datasource)
+	collectGarbageUsecase := usecase.NewCollectGarbageUsecase(datasource)
 	listRecentEventsQueryService := queryservice.NewListRecentEventsQueryService(datasource)
 	rootCmd := cli.NewRootCLI(
 		initializeStoreUsecase,
 		recordLogUsecase,
 		recordSessionBoundaryUsecase,
 		recordCommandAuditUsecase,
+		collectGarbageUsecase,
 		listRecentEventsQueryService,
 	).Command()
 	rootCmd.Version = versionString()

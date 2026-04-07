@@ -13,6 +13,7 @@ type RootCLI struct {
 	recordLogUsecase             usecase.RecordLogUsecase
 	recordSessionBoundaryUsecase usecase.RecordSessionBoundaryUsecase
 	recordCommandAuditUsecase    usecase.RecordCommandAuditUsecase
+	collectGarbageUsecase        usecase.CollectGarbageUsecase
 	listEventsQueryService       queryservice.ListRecentEventsQueryService
 }
 
@@ -22,6 +23,7 @@ func NewRootCLI(
 	recordLogUsecase usecase.RecordLogUsecase,
 	recordSessionBoundaryUsecase usecase.RecordSessionBoundaryUsecase,
 	recordCommandAuditUsecase usecase.RecordCommandAuditUsecase,
+	collectGarbageUsecase usecase.CollectGarbageUsecase,
 	listEventsQueryService queryservice.ListRecentEventsQueryService,
 ) *RootCLI {
 	return &RootCLI{
@@ -29,6 +31,7 @@ func NewRootCLI(
 		recordLogUsecase:             recordLogUsecase,
 		recordSessionBoundaryUsecase: recordSessionBoundaryUsecase,
 		recordCommandAuditUsecase:    recordCommandAuditUsecase,
+		collectGarbageUsecase:        collectGarbageUsecase,
 		listEventsQueryService:       listEventsQueryService,
 	}
 }
@@ -43,6 +46,7 @@ func (c *RootCLI) Command() *cobra.Command {
 	rootCmd.AddCommand(c.newInitCommand())
 	rootCmd.AddCommand(c.newLogCommand())
 	rootCmd.AddCommand(c.newAuditCommand())
+	rootCmd.AddCommand(c.newGCCommand())
 	rootCmd.AddCommand(c.newListCommand())
 	rootCmd.AddCommand(c.newSessionCommand())
 	return rootCmd
