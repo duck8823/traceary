@@ -236,7 +236,8 @@ func (c *RootCLI) runSessionLatest(
 	})
 	if err != nil {
 		if queryservice.IsSessionLookupNotFound(err) {
-			return fmt.Errorf("%w", err)
+			//nolint:wrapcheck // not found は user-facing message を保つためそのまま返す
+			return err
 		}
 		if input.activeOnly {
 			return xerrors.Errorf("アクティブ session の取得に失敗しました: %w", err)

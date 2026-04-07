@@ -3,7 +3,6 @@ package queryservice
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -67,7 +66,8 @@ func (s *findLatestSessionQueryService) Run(
 	event, err := s.latestSessionFinder.FindLatestSessionStartedEvent(ctx, dbPath, input)
 	if err != nil {
 		if errors.Is(err, ErrSessionNotFound) || errors.Is(err, ErrActiveSessionNotFound) {
-			return nil, fmt.Errorf("%w", err)
+			//nolint:wrapcheck // not found は user-facing message を保つためそのまま返す
+			return nil, err
 		}
 		return nil, xerrors.Errorf("直近セッション取得に失敗しました: %w", err)
 	}
