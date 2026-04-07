@@ -83,7 +83,7 @@ func (c *RootCLI) runLog(ctx context.Context, output io.Writer, input logCommand
 		Client:    resolveOptionalValue(input.client, "TRACEARY_CLIENT", defaultClientValue),
 		Agent:     resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue),
 		SessionID: resolveOptionalValue(input.sessionID, "TRACEARY_SESSION_ID", defaultSessionIDValue),
-		Repo:      resolveOptionalValue(input.repo, "TRACEARY_REPO", ""),
+		Repo:      resolveRepoValue(ctx, input.repo),
 	})
 	if err != nil {
 		return xerrors.Errorf("ログ記録に失敗しました: %w", err)

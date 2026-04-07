@@ -73,7 +73,7 @@ func TestRootCLI_AuditCommand(t *testing.T) {
 		commandAudit: commandAudit,
 	}
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(initStub, nil, nil, auditStub, nil, nil).Command()
+	rootCmd := cli.NewRootCLI(initStub, nil, nil, auditStub, nil, nil, nil).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{

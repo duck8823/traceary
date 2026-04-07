@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"time"
 )
@@ -26,4 +27,14 @@ func SetGCNowFunc(f func() time.Time) {
 // ResetGCNowFunc はテスト用に現在時刻関数を戻します。
 func ResetGCNowFunc() {
 	gcNowFunc = time.Now
+}
+
+// SetDetectRepoContextFunc はテスト用に work context 解決関数を差し替えます。
+func SetDetectRepoContextFunc(f func(context.Context) (string, error)) {
+	detectRepoContextFunc = f
+}
+
+// ResetDetectRepoContextFunc はテスト用に work context 解決関数を戻します。
+func ResetDetectRepoContextFunc() {
+	detectRepoContextFunc = detectRepoContext
 }
