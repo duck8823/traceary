@@ -2,8 +2,8 @@ package sqlite_test
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
-	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -158,8 +158,8 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		if err == nil {
 			t.Fatalf("FindLatestSessionStartedEvent() error = nil, want error")
 		}
-		if !strings.Contains(err.Error(), "条件に一致する session は存在しません") {
-			t.Fatalf("error = %q, want no rows message", err.Error())
+		if !errors.Is(err, queryservice.ErrSessionNotFound) {
+			t.Fatalf("error = %v, want ErrSessionNotFound", err)
 		}
 	})
 
@@ -177,8 +177,8 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		if err == nil {
 			t.Fatalf("FindLatestSessionStartedEvent() error = nil, want error")
 		}
-		if !strings.Contains(err.Error(), "条件に一致する active session は存在しません") {
-			t.Fatalf("error = %q, want active no rows message", err.Error())
+		if !errors.Is(err, queryservice.ErrActiveSessionNotFound) {
+			t.Fatalf("error = %v, want ErrActiveSessionNotFound", err)
 		}
 	})
 }
