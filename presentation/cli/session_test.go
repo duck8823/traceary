@@ -218,7 +218,65 @@ func TestRootCLI_SessionLatestCommand(t *testing.T) {
 	if latestStub.receivedInput.Agent != "codex" {
 		t.Fatalf("Agent = %q, want %q", latestStub.receivedInput.Agent, "codex")
 	}
+	if latestStub.receivedInput.ActiveOnly {
+		t.Fatalf("ActiveOnly = %t, want false", latestStub.receivedInput.ActiveOnly)
+	}
 	if stdout.String() != "session-latest\n" {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), "session-latest\n")
+	}
+}
+
+func TestRootCLI_SessionActiveCommand(t *testing.T) {
+	t.Parallel()
+
+	eventID, err := types.EventIDOf("event-4")
+	if err != nil {
+		t.Fatalf("EventIDOf() error = %v", err)
+	}
+	agent, err := types.AgentOf("codex")
+	if err != nil {
+		t.Fatalf("AgentOf() error = %v", err)
+	}
+	sessionID, err := types.SessionIDOf("session-active")
+	if err != nil {
+		t.Fatalf("SessionIDOf() error = %v", err)
+	}
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	initStub := &initializeStoreUsecaseStub{}
+	latestStub := &findLatestSessionQueryServiceStub{
+		event: model.EventOf(
+			eventID,
+			types.EventKindSessionStarted,
+			"cli",
+			agent,
+			sessionID,
+			"duck8823/traceary",
+			"session started",
+			time.Date(2026, 4, 8, 14, 0, 0, 0, time.UTC),
+		),
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(initStub, nil, nil, nil, nil, nil, nil, nil, latestStub, nil).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"session",
+		"active",
+		"--db-path", dbPath,
+		"--agent", "codex",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !latestStub.called {
+		t.Fatalf("FindLatestSessionQueryService.Run() was not called")
+	}
+	if !latestStub.receivedInput.ActiveOnly {
+		t.Fatalf("ActiveOnly = %t, want true", latestStub.receivedInput.ActiveOnly)
+	}
+	if stdout.String() != "session-active\n" {
+		t.Fatalf("stdout = %q, want %q", stdout.String(), "session-active\n")
 	}
 }
