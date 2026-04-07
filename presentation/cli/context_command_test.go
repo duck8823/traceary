@@ -1,0 +1,231 @@
+package cli_test
+
+import (
+	"bytes"
+	"context"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/types"
+	"github.com/duck8823/traceary/presentation/cli"
+)
+
+type getContextQueryServiceStub struct {
+	receivedPath  string
+	receivedInput queryservice.GetContextInput
+	called        bool
+	events        []*model.Event
+	err           error
+}
+
+func (s *getContextQueryServiceStub) Run(
+	_ context.Context,
+	dbPath string,
+	input queryservice.GetContextInput,
+) ([]*model.Event, error) {
+	s.called = true
+	s.receivedPath = dbPath
+	s.receivedInput = input
+	return s.events, s.err
+}
+
+var _ queryservice.GetContextQueryService = (*getContextQueryServiceStub)(nil)
+
+type contextLatestSessionQueryServiceStub struct {
+	receivedPath  string
+	receivedInput queryservice.FindLatestSessionInput
+	called        bool
+	event         *model.Event
+	err           error
+}
+
+func (s *contextLatestSessionQueryServiceStub) Run(
+	_ context.Context,
+	dbPath string,
+	input queryservice.FindLatestSessionInput,
+) (*model.Event, error) {
+	s.called = true
+	s.receivedPath = dbPath
+	s.receivedInput = input
+	return s.event, s.err
+}
+
+var _ queryservice.FindLatestSessionQueryService = (*contextLatestSessionQueryServiceStub)(nil)
+
+func TestRootCLI_ContextCommand(t *testing.T) {
+	t.Setenv("TRACEARY_REPO", "")
+	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
+		return "github.com/duck8823/traceary", nil
+	})
+	defer cli.ResetDetectRepoContextFunc()
+
+	eventID, err := types.EventIDOf("event-1")
+	if err != nil {
+		t.Fatalf("EventIDOf() error = %v", err)
+	}
+	agent, err := types.AgentOf("codex")
+	if err != nil {
+		t.Fatalf("AgentOf() error = %v", err)
+	}
+	sessionID, err := types.SessionIDOf("session-1")
+	if err != nil {
+		t.Fatalf("SessionIDOf() error = %v", err)
+	}
+
+	t.Run("直近 session を解決して文脈を表示できる", func(t *testing.T) {
+		t.Parallel()
+
+		dbPath := filepath.Join(t.TempDir(), "traceary.db")
+		initStub := &initializeStoreUsecaseStub{}
+		contextStub := &getContextQueryServiceStub{
+			events: []*model.Event{
+				model.EventOf(
+					eventID,
+					types.EventKindNote,
+					"cli",
+					agent,
+					sessionID,
+					"github.com/duck8823/traceary",
+					"README を更新した\n次に release note を確認する",
+					time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC),
+				),
+			},
+		}
+		latestStub := &contextLatestSessionQueryServiceStub{
+			event: model.EventOf(
+				eventID,
+				types.EventKindSessionStarted,
+				"cli",
+				agent,
+				sessionID,
+				"github.com/duck8823/traceary",
+				"session started",
+				time.Date(2026, 4, 8, 11, 0, 0, 0, time.UTC),
+			),
+		}
+
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase:        initStub,
+			GetContextQueryService:        contextStub,
+			FindLatestSessionQueryService: latestStub,
+		}).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"context", "--db-path", dbPath, "--limit", "5"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		if !latestStub.called {
+			t.Fatalf("FindLatestSessionQueryService.Run() was not called")
+		}
+		if !contextStub.called {
+			t.Fatalf("GetContextQueryService.Run() was not called")
+		}
+		if contextStub.receivedInput.SessionID != "session-1" {
+			t.Fatalf("SessionID = %q, want %q", contextStub.receivedInput.SessionID, "session-1")
+		}
+		want := "" +
+			"TRACEARY CONTEXT\n" +
+			"SESSION_ID: session-1\n" +
+			"REPO: github.com/duck8823/traceary\n" +
+			"EVENTS:\n" +
+			"- 2026-04-08T12:00:00Z [note] event-1 cli/codex README を更新した 次に release note を確認する\n"
+		if stdout.String() != want {
+			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+		}
+	})
+
+	t.Run("JSON 形式で文脈を表示できる", func(t *testing.T) {
+		t.Parallel()
+
+		dbPath := filepath.Join(t.TempDir(), "traceary.db")
+		initStub := &initializeStoreUsecaseStub{}
+		contextStub := &getContextQueryServiceStub{
+			events: []*model.Event{
+				model.EventOf(
+					eventID,
+					types.EventKindNote,
+					"cli",
+					agent,
+					sessionID,
+					"github.com/duck8823/traceary",
+					"hello context",
+					time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC),
+				),
+			},
+		}
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase: initStub,
+			GetContextQueryService: contextStub,
+		}).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{
+			"context",
+			"--db-path", dbPath,
+			"--session-id", "session-1",
+			"--json",
+		})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		want := "" +
+			"{\n" +
+			"  \"resolved_session_id\": \"session-1\",\n" +
+			"  \"resolved_repo\": \"github.com/duck8823/traceary\",\n" +
+			"  \"events\": [\n" +
+			"    {\n" +
+			"      \"event_id\": \"event-1\",\n" +
+			"      \"kind\": \"note\",\n" +
+			"      \"client\": \"cli\",\n" +
+			"      \"agent\": \"codex\",\n" +
+			"      \"session_id\": \"session-1\",\n" +
+			"      \"repo\": \"github.com/duck8823/traceary\",\n" +
+			"      \"message\": \"hello context\",\n" +
+			"      \"created_at\": \"2026-04-08T12:00:00Z\"\n" +
+			"    }\n" +
+			"  ]\n" +
+			"}\n"
+		if stdout.String() != want {
+			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+		}
+	})
+
+	t.Run("直近 session がなくても repo 文脈へフォールバックできる", func(t *testing.T) {
+		t.Parallel()
+
+		dbPath := filepath.Join(t.TempDir(), "traceary.db")
+		initStub := &initializeStoreUsecaseStub{}
+		contextStub := &getContextQueryServiceStub{}
+		latestStub := &contextLatestSessionQueryServiceStub{
+			err: queryservice.ErrSessionNotFound,
+		}
+
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase:        initStub,
+			GetContextQueryService:        contextStub,
+			FindLatestSessionQueryService: latestStub,
+		}).Command()
+		rootCmd.SetOut(&bytes.Buffer{})
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"context", "--db-path", dbPath})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		if contextStub.receivedInput.SessionID != "" {
+			t.Fatalf("SessionID = %q, want empty", contextStub.receivedInput.SessionID)
+		}
+		if contextStub.receivedInput.Repo != "github.com/duck8823/traceary" {
+			t.Fatalf("Repo = %q, want %q", contextStub.receivedInput.Repo, "github.com/duck8823/traceary")
+		}
+	})
+}

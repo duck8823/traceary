@@ -103,6 +103,7 @@ func run() error {
 		CollectGarbageUsecase:         collectGarbageUsecase,
 		SearchEventsQueryService:      searchEventsQueryService,
 		ListEventsQueryService:        listRecentEventsQueryService,
+		GetContextQueryService:        getContextQueryService,
 		GetEventDetailsQueryService:   getEventDetailsQueryService,
 		FindLatestSessionQueryService: findLatestSessionQueryService,
 		MCPServerRunner:               mcpServer,
