@@ -113,6 +113,8 @@ If the destination already exists, Traceary stops with an error instead of overw
 3. Start Gemini CLI and run at least one shell command.
 4. Verify the resulting events with `traceary list --limit 10` or `traceary search "<command>"`.
 
+When a Traceary CLI command fails, stderr is a plain `Error: ...` line. Hook scripts can rely on the exit code and stderr text without stripping structured JSON logs.
+
 ## References
 
 - Claude Code hooks reference: https://code.claude.com/docs/en/hooks

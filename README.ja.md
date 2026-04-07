@@ -135,6 +135,8 @@ Hooks 導入: [`docs/hooks/README.md`](./docs/hooks/README.md)
 
 `traceary audit` は既定で input/output をそれぞれ `64 KiB` まで保存します。より厳しくしたい場合は `--max-input-bytes`, `--max-output-bytes`, `TRACEARY_MAX_AUDIT_INPUT_BYTES`, `TRACEARY_MAX_AUDIT_OUTPUT_BYTES` を使ってください。切り詰めが発生したときは CLI に通知を出します。
 
+CLI の失敗は stderr に plain text の `Error: ...` 形式で出力されます。hooks や shell script から JSON ログを剥がさず扱えるようにするためです。
+
 ## スコープ外
 
 - セマンティック検索 / 埋め込みベクトル

@@ -57,9 +57,10 @@ func NewRootCLI(options RootCLIOptions) *RootCLI {
 // Command は traceary のルートコマンドを返します。
 func (c *RootCLI) Command() *cobra.Command {
 	rootCmd := &cobra.Command{
-		Use:          "traceary",
-		Short:        "AI エージェントの作業履歴をローカルに記録する CLI",
-		SilenceUsage: true,
+		Use:           "traceary",
+		Short:         "AI エージェントの作業履歴をローカルに記録する CLI",
+		SilenceErrors: true,
+		SilenceUsage:  true,
 	}
 	rootCmd.AddCommand(c.newInitCommand())
 	rootCmd.AddCommand(c.newLogCommand())
