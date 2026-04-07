@@ -5,14 +5,18 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
+
+const defaultActiveSessionStaleAfter = 24 * time.Hour
 
 func (c *RootCLI) newSessionCommand() *cobra.Command {
 	sessionCmd := &cobra.Command{
@@ -137,19 +141,23 @@ type sessionLatestCommandInput struct {
 	agent      string
 	repo       string
 	activeOnly bool
+	staleAfter time.Duration
+	allowStale bool
 }
 
 func (c *RootCLI) newSessionActiveCommand() *cobra.Command {
 	var (
-		dbPath string
-		client string
-		agent  string
-		repo   string
+		dbPath     string
+		client     string
+		agent      string
+		repo       string
+		staleAfter time.Duration
+		allowStale bool
 	)
 
 	activeCmd := &cobra.Command{
 		Use:   "active",
-		Short: "現在アクティブなセッション ID を表示する",
+		Short: "現在アクティブな session ID を表示する (既定では 24h 超の stale を除外)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runSessionLatest(cmd.Context(), cmd.OutOrStdout(), sessionLatestCommandInput{
@@ -158,6 +166,8 @@ func (c *RootCLI) newSessionActiveCommand() *cobra.Command {
 				agent:      agent,
 				repo:       repo,
 				activeOnly: true,
+				staleAfter: staleAfter,
+				allowStale: allowStale,
 			})
 		},
 	}
@@ -165,6 +175,13 @@ func (c *RootCLI) newSessionActiveCommand() *cobra.Command {
 	activeCmd.Flags().StringVar(&client, "client", "", "記録経路で絞り込む")
 	activeCmd.Flags().StringVar(&agent, "agent", "", "作業主体で絞り込む")
 	activeCmd.Flags().StringVar(&repo, "repo", "", "補助的なコンテキスト識別子で絞り込む")
+	activeCmd.Flags().DurationVar(
+		&staleAfter,
+		"stale-after",
+		defaultActiveSessionStaleAfter,
+		"この duration を超える active session は stale とみなす",
+	)
+	activeCmd.Flags().BoolVar(&allowStale, "allow-stale", false, "stale な session も返す")
 
 	return activeCmd
 }
@@ -244,10 +261,30 @@ func (c *RootCLI) runSessionLatest(
 		}
 		return xerrors.Errorf("直近セッションの取得に失敗しました: %w", err)
 	}
+	if err := validateActiveSessionFreshness(event, input); err != nil {
+		return err
+	}
 
 	if _, err := fmt.Fprintln(output, event.SessionID()); err != nil {
 		return xerrors.Errorf("session ID の出力に失敗しました: %w", err)
 	}
 
 	return nil
+}
+
+func validateActiveSessionFreshness(event *model.Event, input sessionLatestCommandInput) error {
+	if !input.activeOnly || input.allowStale || input.staleAfter <= 0 || event == nil {
+		return nil
+	}
+
+	staleCutoff := time.Now().Add(-input.staleAfter)
+	if !event.CreatedAt().Before(staleCutoff) {
+		return nil
+	}
+
+	return xerrors.Errorf(
+		"active session %s は %s を超えており stale です。--allow-stale を使うか session end で閉じてください",
+		event.SessionID(),
+		input.staleAfter,
+	)
 }

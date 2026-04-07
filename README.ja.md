@@ -87,6 +87,11 @@ $ traceary session active
 session-1ceee1eaa50a31687cfdb2c8a6fcc85d
 ```
 
+補足:
+
+- `traceary session active` は既定で `24h` を超えた session を stale とみなします
+- 古い未終了 session を確認したいときは `traceary session active --allow-stale` を使います
+
 この時点で分かる価値:
 
 - 過去のコマンド出力を文字列検索で引ける
@@ -109,6 +114,8 @@ traceary session active
 traceary show <event-id>
 traceary gc
 ```
+
+`traceary session active` は既定で `--stale-after 24h` を使います。古い未終了 session も見たい場合は `--allow-stale` を付けてください。
 
 Hooks 導入: [`docs/hooks/README.md`](./docs/hooks/README.md)
 
