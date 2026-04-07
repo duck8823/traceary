@@ -218,6 +218,13 @@ func (c *RootCLI) runSessionBoundary(
 		return xerrors.Errorf("session 境界の記録に失敗しました: %w", err)
 	}
 
+	if input.kind == types.EventKindSessionEnded {
+		if _, err := fmt.Fprintf(output, "記録しました: %s\n", event.EventID()); err != nil {
+			return xerrors.Errorf("session end 結果の出力に失敗しました: %w", err)
+		}
+		return nil
+	}
+
 	if _, err := fmt.Fprintln(output, event.SessionID()); err != nil {
 		return xerrors.Errorf("session ID の出力に失敗しました: %w", err)
 	}
