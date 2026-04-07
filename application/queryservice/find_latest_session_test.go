@@ -2,6 +2,7 @@ package queryservice_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -80,6 +81,25 @@ func TestFindLatestSessionQueryService_Run(t *testing.T) {
 		}
 		if got.SessionID() != sessionID {
 			t.Fatalf("SessionID() = %q, want %q", got.SessionID(), sessionID)
+		}
+	})
+
+	t.Run("not found エラーは追加で wrap しない", func(t *testing.T) {
+		t.Parallel()
+
+		stub := &latestSessionFinderStub{
+			err: queryservice.ErrActiveSessionNotFound,
+		}
+		sut := queryservice.NewFindLatestSessionQueryService(stub)
+
+		_, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.FindLatestSessionInput{
+			ActiveOnly: true,
+		})
+		if !errors.Is(err, queryservice.ErrActiveSessionNotFound) {
+			t.Fatalf("Run() error = %v, want ErrActiveSessionNotFound", err)
+		}
+		if err.Error() != queryservice.ErrActiveSessionNotFound.Error() {
+			t.Fatalf("error = %q, want %q", err.Error(), queryservice.ErrActiveSessionNotFound.Error())
 		}
 	})
 }

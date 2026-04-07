@@ -139,6 +139,14 @@ type sessionLatestCommandInput struct {
 	activeOnly bool
 }
 
+type sessionLookupNotFoundCLIError struct {
+	err error
+}
+
+func (e *sessionLookupNotFoundCLIError) Error() string { return e.err.Error() }
+
+func (e *sessionLookupNotFoundCLIError) Unwrap() error { return e.err }
+
 func (c *RootCLI) newSessionActiveCommand() *cobra.Command {
 	var (
 		dbPath string
@@ -235,6 +243,9 @@ func (c *RootCLI) runSessionLatest(
 		ActiveOnly: input.activeOnly,
 	})
 	if err != nil {
+		if queryservice.IsSessionLookupNotFound(err) {
+			return wrapSessionLookupNotFoundError(err)
+		}
 		if input.activeOnly {
 			return xerrors.Errorf("アクティブ session の取得に失敗しました: %w", err)
 		}
@@ -246,4 +257,15 @@ func (c *RootCLI) runSessionLatest(
 	}
 
 	return nil
+}
+
+func wrapSessionLookupNotFoundError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if wrappedErr, ok := err.(*sessionLookupNotFoundCLIError); ok {
+		return wrappedErr
+	}
+
+	return &sessionLookupNotFoundCLIError{err: err}
 }

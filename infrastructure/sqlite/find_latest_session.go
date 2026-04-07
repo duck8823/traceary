@@ -67,9 +67,9 @@ func (d *Datasource) FindLatestSessionStartedEvent(
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			if input.ActiveOnly {
-				return nil, xerrors.Errorf("条件に一致する active session は存在しません")
+				return nil, queryservice.ErrActiveSessionNotFound
 			}
-			return nil, xerrors.Errorf("条件に一致する session は存在しません")
+			return nil, queryservice.ErrSessionNotFound
 		}
 		return nil, xerrors.Errorf("直近セッションイベントの復元に失敗しました: %w", err)
 	}

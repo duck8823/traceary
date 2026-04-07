@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -290,5 +291,30 @@ func TestRootCLI_SessionActiveCommand(t *testing.T) {
 	}
 	if stdout.String() != "session-active\n" {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), "session-active\n")
+	}
+}
+
+func TestRootCLI_SessionLatestCommand_NotFoundError(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	initStub := &initializeStoreUsecaseStub{}
+	latestStub := &findLatestSessionQueryServiceStub{
+		err: queryservice.ErrSessionNotFound,
+	}
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:        initStub,
+		FindLatestSessionQueryService: latestStub,
+	}).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"session", "latest", "--db-path", dbPath})
+
+	err := rootCmd.Execute()
+	if !errors.Is(err, queryservice.ErrSessionNotFound) {
+		t.Fatalf("Execute() error = %v, want ErrSessionNotFound", err)
+	}
+	if err.Error() != queryservice.ErrSessionNotFound.Error() {
+		t.Fatalf("error = %q, want %q", err.Error(), queryservice.ErrSessionNotFound.Error())
 	}
 }
