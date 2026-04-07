@@ -76,10 +76,20 @@ func TestResolveDBPath(t *testing.T) {
 			wantSuffix: filepath.Join("tmp", "traceary.db"),
 			wantErr:    false,
 		},
+		{
+			name:       "TRACEARY_DB_PATH があればそれを使う",
+			input:      "",
+			userHome:   t.TempDir(),
+			wantSuffix: filepath.Join("env", "traceary.db"),
+			wantErr:    false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.name == "TRACEARY_DB_PATH があればそれを使う" {
+				t.Setenv("TRACEARY_DB_PATH", filepath.Join(tt.userHome, "env", "traceary.db"))
+			}
 			cli.SetUserHomeDirFunc(func() (string, error) {
 				return tt.userHome, nil
 			})
@@ -96,5 +106,31 @@ func TestResolveDBPath(t *testing.T) {
 				t.Fatalf("ResolveDBPath() path = %q, want absolute path", got)
 			}
 		})
+	}
+}
+
+func TestRootCLI_InitCommand_UsesTracearyDBPathEnv(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	t.Setenv("TRACEARY_DB_PATH", dbPath)
+
+	stub := &initializeStoreUsecaseStub{}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase: stub,
+	}).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(stderr)
+	rootCmd.SetArgs([]string{"init"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stub.receivedPath != dbPath {
+		t.Fatalf("Run() path = %q, want %q", stub.receivedPath, dbPath)
+	}
+	wantOutput := "初期化しました: " + dbPath + "\n"
+	if stdout.String() != wantOutput {
+		t.Fatalf("stdout = %q, want %q", stdout.String(), wantOutput)
 	}
 }

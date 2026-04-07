@@ -131,6 +131,8 @@ traceary search --kind session_started
 
 Hook setup: [`docs/hooks/README.md`](./docs/hooks/README.md)
 
+All commands resolve the SQLite path in this order: `--db-path` → `TRACEARY_DB_PATH` → `~/.config/traceary/traceary.db`.
+
 `traceary audit` keeps input/output at `64 KiB` each by default. Use `--max-input-bytes`, `--max-output-bytes`, or `TRACEARY_MAX_AUDIT_INPUT_BYTES` / `TRACEARY_MAX_AUDIT_OUTPUT_BYTES` when you want a stricter limit. The CLI prints a notice when truncation happens.
 
 ## Non-goals

@@ -41,7 +41,7 @@ func (c *RootCLI) newContextCommand() *cobra.Command {
 			})
 		},
 	}
-	contextCmd.Flags().StringVar(&dbPath, "db-path", "", "SQLite DB パス")
+	contextCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
 	contextCmd.Flags().StringVar(&sessionID, "session-id", "", "対象の session ID")
 	contextCmd.Flags().StringVar(&client, "client", "", "作業主体の入口で絞り込む")
 	contextCmd.Flags().StringVar(&agent, "agent", "", "作業主体で絞り込む")

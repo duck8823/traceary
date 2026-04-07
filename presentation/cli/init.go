@@ -14,6 +14,11 @@ import (
 
 var userHomeDirFunc = os.UserHomeDir
 
+const (
+	dbPathEnvKey    = "TRACEARY_DB_PATH"
+	dbPathFlagUsage = "SQLite DB パス (env: TRACEARY_DB_PATH)"
+)
+
 func (c *RootCLI) newInitCommand() *cobra.Command {
 	var dbPath string
 
@@ -25,7 +30,7 @@ func (c *RootCLI) newInitCommand() *cobra.Command {
 			return c.runInit(cmd.Context(), cmd.OutOrStdout(), dbPath)
 		},
 	}
-	initCmd.Flags().StringVar(&dbPath, "db-path", "", "SQLite DB パス")
+	initCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
 
 	return initCmd
 }
@@ -46,6 +51,9 @@ func (c *RootCLI) runInit(ctx context.Context, output io.Writer, dbPath string) 
 
 func resolveDBPath(dbPath string) (string, error) {
 	trimmedPath := strings.TrimSpace(dbPath)
+	if trimmedPath == "" {
+		trimmedPath = strings.TrimSpace(os.Getenv(dbPathEnvKey))
+	}
 	if trimmedPath == "" {
 		homeDir, err := userHomeDirFunc()
 		if err != nil {
