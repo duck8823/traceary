@@ -28,9 +28,60 @@ so multiple AI tools can read and write the same history.
 - Keep attribution with `client`, `agent`, and `session_id`
 - Manage long-term data growth with retention and `gc`
 
-## Planned commands
+## Quick start
 
-For v0.1:
+If you only want to see what Traceary changes in daily work, this is the shortest loop.
+
+```sh
+traceary init
+sid=$(traceary session start --client dogfood --agent codex)
+traceary log --client dogfood --agent codex --session-id "$sid" "Investigating failing tests"
+event_id=$(
+  traceary audit \
+    --client dogfood \
+    --agent codex \
+    --session-id "$sid" \
+    "go test ./..." \
+    '{"stdin":""}' \
+    '{"stdout":"panic: boom","stderr":"stacktrace","exitCode":1}' |
+    sed -n 's/^記録しました: //p'
+)
+traceary search boom --json
+traceary show "$event_id" --json
+traceary session active
+```
+
+Example output:
+
+```text
+$ traceary init
+初期化しました: /Users/you/.config/traceary/traceary.db
+
+$ traceary session start --client dogfood --agent codex
+session-1ceee1eaa50a31687cfdb2c8a6fcc85d
+
+$ traceary search boom --json
+[
+  {
+    "event_id": "0dc6d0c579df5e539c27df56e131570a",
+    "kind": "command_executed",
+    "message": "go test ./..."
+  }
+]
+
+$ traceary session active
+session-1ceee1eaa50a31687cfdb2c8a6fcc85d
+```
+
+What changes after this:
+
+- you can search past command output by text
+- you can recover the current session ID without manually tracking it
+- you can inspect one event in detail and hand it to another AI tool
+
+## Core commands
+
+Current core commands:
 
 ```sh
 traceary log <message>
@@ -39,6 +90,9 @@ traceary search <query>
 traceary list
 traceary session start
 traceary session end
+traceary session latest
+traceary session active
+traceary show <event-id>
 traceary gc
 ```
 
