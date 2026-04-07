@@ -131,6 +131,8 @@ traceary search --kind session_started
 
 `traceary session active` defaults to `--stale-after 24h`; pass `--allow-stale` to inspect an older unclosed session.
 
+`traceary session start` prints the session ID so scripts can capture it immediately. `traceary session end` prints the recorded event ID because the caller already knows which session it is closing.
+
 Hook setup: [`docs/hooks/README.md`](./docs/hooks/README.md)
 
 All commands resolve the SQLite path in this order: `--db-path` → `TRACEARY_DB_PATH` → `~/.config/traceary/traceary.db`.
