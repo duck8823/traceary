@@ -12,7 +12,7 @@ import (
 	"golang.org/x/xerrors"
 )
 
-var userConfigDirFunc = os.UserConfigDir
+var userHomeDirFunc = os.UserHomeDir
 
 func (c *RootCLI) newInitCommand() *cobra.Command {
 	var dbPath string
@@ -47,11 +47,11 @@ func (c *RootCLI) runInit(ctx context.Context, output io.Writer, dbPath string) 
 func resolveDBPath(dbPath string) (string, error) {
 	trimmedPath := strings.TrimSpace(dbPath)
 	if trimmedPath == "" {
-		configDir, err := userConfigDirFunc()
+		homeDir, err := userHomeDirFunc()
 		if err != nil {
-			return "", xerrors.Errorf("ユーザー設定ディレクトリの取得に失敗しました: %w", err)
+			return "", xerrors.Errorf("ユーザーホームディレクトリの取得に失敗しました: %w", err)
 		}
-		trimmedPath = filepath.Join(configDir, "traceary", "traceary.db")
+		trimmedPath = filepath.Join(homeDir, ".config", "traceary", "traceary.db")
 	}
 
 	absolutePath, err := filepath.Abs(trimmedPath)

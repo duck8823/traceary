@@ -54,34 +54,34 @@ func TestRootCLI_InitCommand(t *testing.T) {
 
 func TestResolveDBPath(t *testing.T) {
 	tests := []struct {
-		name          string
-		input         string
-		userConfigDir string
-		wantSuffix    string
-		wantErr       bool
+		name       string
+		input      string
+		userHome   string
+		wantSuffix string
+		wantErr    bool
 	}{
 		{
-			name:          "未指定時はユーザー設定ディレクトリ配下を返す",
-			input:         "",
-			userConfigDir: t.TempDir(),
-			wantSuffix:    filepath.Join("traceary", "traceary.db"),
-			wantErr:       false,
+			name:       "未指定時はホーム配下の .config を返す",
+			input:      "",
+			userHome:   t.TempDir(),
+			wantSuffix: filepath.Join(".config", "traceary", "traceary.db"),
+			wantErr:    false,
 		},
 		{
-			name:          "指定時は指定パスを絶対パス化する",
-			input:         filepath.Join(".", "tmp", "traceary.db"),
-			userConfigDir: t.TempDir(),
-			wantSuffix:    filepath.Join("tmp", "traceary.db"),
-			wantErr:       false,
+			name:       "指定時は指定パスを絶対パス化する",
+			input:      filepath.Join(".", "tmp", "traceary.db"),
+			userHome:   t.TempDir(),
+			wantSuffix: filepath.Join("tmp", "traceary.db"),
+			wantErr:    false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cli.SetUserConfigDirFunc(func() (string, error) {
-				return tt.userConfigDir, nil
+			cli.SetUserHomeDirFunc(func() (string, error) {
+				return tt.userHome, nil
 			})
-			defer cli.ResetUserConfigDirFunc()
+			defer cli.ResetUserHomeDirFunc()
 
 			got, err := cli.ResolveDBPath(tt.input)
 			if (err != nil) != tt.wantErr {
