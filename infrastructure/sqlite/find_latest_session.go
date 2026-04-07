@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 
 	"golang.org/x/xerrors"
 
@@ -43,7 +44,7 @@ func (d *Datasource) FindLatestSessionStartedEvent(
 
 	event, err := d.scanEvent(row)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, xerrors.Errorf("条件に一致する session は存在しません")
 		}
 		return nil, xerrors.Errorf("直近セッションイベントの復元に失敗しました: %w", err)
