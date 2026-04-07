@@ -124,7 +124,7 @@ func (c *RootCLI) runSessionBoundary(
 		Client:    resolveOptionalValue(input.client, "TRACEARY_CLIENT", defaultClientValue),
 		Agent:     resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue),
 		SessionID: input.sessionID,
-		Repo:      resolveOptionalValue(input.repo, "TRACEARY_REPO", ""),
+		Repo:      resolveRepoValue(ctx, input.repo),
 		Kind:      input.kind,
 	})
 	if err != nil {
