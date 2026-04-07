@@ -63,8 +63,13 @@ func TestSearchEventsQueryService_Run(t *testing.T) {
 		sut := queryservice.NewSearchEventsQueryService(stub)
 
 		got, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.SearchEventsInput{
-			Query: "traceary",
-			Limit: 10,
+			Query:     "traceary",
+			Repo:      "github.com/duck8823/traceary",
+			SessionID: "session-1",
+			Client:    "cli",
+			Agent:     "codex",
+			Kind:      "note",
+			Limit:     10,
 		})
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
@@ -75,18 +80,54 @@ func TestSearchEventsQueryService_Run(t *testing.T) {
 		if stub.receivedInput.Query != "traceary" {
 			t.Fatalf("received query = %q, want %q", stub.receivedInput.Query, "traceary")
 		}
+		if stub.receivedInput.Kind != "note" {
+			t.Fatalf("received kind = %q, want %q", stub.receivedInput.Kind, "note")
+		}
 		if len(got) != 1 {
 			t.Fatalf("len(events) = %d, want 1", len(got))
 		}
 	})
 
-	t.Run("検索語が空ならエラー", func(t *testing.T) {
+	t.Run("検索語が空でも構造フィルタがあれば検索できる", func(t *testing.T) {
+		t.Parallel()
+
+		stub := &eventSearcherStub{}
+		sut := queryservice.NewSearchEventsQueryService(stub)
+
+		_, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.SearchEventsInput{
+			SessionID: "session-1",
+			Limit:     10,
+		})
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if stub.receivedInput.SessionID != "session-1" {
+			t.Fatalf("received session_id = %q, want %q", stub.receivedInput.SessionID, "session-1")
+		}
+	})
+
+	t.Run("検索条件が空ならエラー", func(t *testing.T) {
 		t.Parallel()
 
 		sut := queryservice.NewSearchEventsQueryService(&eventSearcherStub{})
 
 		_, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.SearchEventsInput{
 			Query: "   ",
+			Limit: 10,
+		})
+		if err == nil {
+			t.Fatalf("Run() error = nil, want error")
+		}
+	})
+
+	t.Run("未知の kind ならエラー", func(t *testing.T) {
+		t.Parallel()
+
+		sut := queryservice.NewSearchEventsQueryService(&eventSearcherStub{})
+
+		_, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.SearchEventsInput{
+			Query: "traceary",
+			Kind:  "unknown",
 			Limit: 10,
 		})
 		if err == nil {
