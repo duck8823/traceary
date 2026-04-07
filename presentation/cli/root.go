@@ -16,6 +16,7 @@ type RootCLI struct {
 	collectGarbageUsecase         usecase.CollectGarbageUsecase
 	searchEventsQueryService      queryservice.SearchEventsQueryService
 	listEventsQueryService        queryservice.ListRecentEventsQueryService
+	getContextQueryService        queryservice.GetContextQueryService
 	getEventDetailsQueryService   queryservice.GetEventDetailsQueryService
 	findLatestSessionQueryService queryservice.FindLatestSessionQueryService
 	mcpServerRunner               MCPServerRunner
@@ -30,6 +31,7 @@ type RootCLIOptions struct {
 	CollectGarbageUsecase         usecase.CollectGarbageUsecase
 	SearchEventsQueryService      queryservice.SearchEventsQueryService
 	ListEventsQueryService        queryservice.ListRecentEventsQueryService
+	GetContextQueryService        queryservice.GetContextQueryService
 	GetEventDetailsQueryService   queryservice.GetEventDetailsQueryService
 	FindLatestSessionQueryService queryservice.FindLatestSessionQueryService
 	MCPServerRunner               MCPServerRunner
@@ -45,6 +47,7 @@ func NewRootCLI(options RootCLIOptions) *RootCLI {
 		collectGarbageUsecase:         options.CollectGarbageUsecase,
 		searchEventsQueryService:      options.SearchEventsQueryService,
 		listEventsQueryService:        options.ListEventsQueryService,
+		getContextQueryService:        options.GetContextQueryService,
 		getEventDetailsQueryService:   options.GetEventDetailsQueryService,
 		findLatestSessionQueryService: options.FindLatestSessionQueryService,
 		mcpServerRunner:               options.MCPServerRunner,
@@ -63,6 +66,7 @@ func (c *RootCLI) Command() *cobra.Command {
 	rootCmd.AddCommand(c.newAuditCommand())
 	rootCmd.AddCommand(c.newGCCommand())
 	rootCmd.AddCommand(c.newSearchCommand())
+	rootCmd.AddCommand(c.newContextCommand())
 	rootCmd.AddCommand(c.newListCommand())
 	rootCmd.AddCommand(c.newShowCommand())
 	rootCmd.AddCommand(c.newSessionCommand())
