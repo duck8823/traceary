@@ -5,6 +5,7 @@ package main
 import (
 	"embed"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"log/slog"
@@ -29,6 +30,18 @@ var (
 	commit  = "none"
 	date    = "unknown"
 )
+
+type cliCommandError struct {
+	err error
+}
+
+func (e cliCommandError) Error() string {
+	return e.err.Error()
+}
+
+func (e cliCommandError) Unwrap() error {
+	return e.err
+}
 
 func init() {
 	level := slog.LevelInfo
@@ -112,7 +125,7 @@ func run() error {
 	rootCmd.SetVersionTemplate("{{.Name}} {{.Version}}\n")
 
 	if err := rootCmd.Execute(); err != nil {
-		return xerrors.Errorf("CLI の実行に失敗しました: %w", err)
+		return cliCommandError{err: err}
 	}
 
 	return nil
@@ -120,7 +133,21 @@ func run() error {
 
 func main() {
 	if err := run(); err != nil {
-		slog.Error("traceary の実行に失敗しました", slog.Any("error", err))
+		if writeErr := writeCLIError(os.Stderr, err); writeErr != nil {
+			log.Printf("CLI error の出力に失敗しました: %v", writeErr)
+		}
 		os.Exit(1)
 	}
+}
+
+func writeCLIError(output io.Writer, err error) error {
+	if err == nil {
+		return nil
+	}
+
+	if _, writeErr := fmt.Fprintf(output, "Error: %v\n", err); writeErr != nil {
+		return xerrors.Errorf("CLI error の出力に失敗しました: %w", writeErr)
+	}
+
+	return nil
 }
