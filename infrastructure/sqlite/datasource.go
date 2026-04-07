@@ -34,7 +34,7 @@ func (d *Datasource) Initialize(ctx context.Context, dbPath string) (err error) 
 		return xerrors.Errorf("DB パスは空にできません")
 	}
 
-	if err := os.MkdirAll(filepath.Dir(trimmedPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(trimmedPath), 0o700); err != nil {
 		return xerrors.Errorf("DB ディレクトリの作成に失敗しました: %w", err)
 	}
 
@@ -50,6 +50,9 @@ func (d *Datasource) Initialize(ctx context.Context, dbPath string) (err error) 
 
 	if err := db.PingContext(ctx); err != nil {
 		return xerrors.Errorf("SQLite への接続確認に失敗しました: %w", err)
+	}
+	if err := os.Chmod(trimmedPath, 0o600); err != nil {
+		return xerrors.Errorf("SQLite DB ファイル権限の設定に失敗しました: %w", err)
 	}
 
 	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON;`); err != nil {
