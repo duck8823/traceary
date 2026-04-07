@@ -106,3 +106,77 @@ func TestRootCLI_AuditCommand(t *testing.T) {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), "記録しました: event-1\n")
 	}
 }
+
+func TestRootCLI_AuditCommand_TruncationNotice(t *testing.T) {
+	t.Setenv("TRACEARY_SESSION_ID", "session-env")
+	t.Setenv("TRACEARY_MAX_AUDIT_OUTPUT_BYTES", "128")
+
+	eventID, err := types.EventIDOf("event-2")
+	if err != nil {
+		t.Fatalf("EventIDOf() error = %v", err)
+	}
+	agent, err := types.AgentOf("codex")
+	if err != nil {
+		t.Fatalf("AgentOf() error = %v", err)
+	}
+	sessionID, err := types.SessionIDOf("session-env")
+	if err != nil {
+		t.Fatalf("SessionIDOf() error = %v", err)
+	}
+	commandAudit, err := model.NewCommandAudit(
+		eventID,
+		"go test ./...",
+		"stdin",
+		"stdout",
+		false,
+		true,
+	)
+	if err != nil {
+		t.Fatalf("NewCommandAudit() error = %v", err)
+	}
+
+	initStub := &initializeStoreUsecaseStub{}
+	auditStub := &recordCommandAuditUsecaseStub{
+		event: model.EventOf(
+			eventID,
+			types.EventKindCommandExecuted,
+			"cli",
+			agent,
+			sessionID,
+			"duck8823/traceary",
+			"go test ./...",
+			time.Date(2026, 4, 7, 15, 0, 0, 0, time.UTC),
+		),
+		commandAudit: commandAudit,
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:    initStub,
+		RecordCommandAuditUsecase: auditStub,
+	}).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"audit",
+		"--db-path", "/tmp/traceary.db",
+		"--agent", "codex",
+		"--client", "cli",
+		"--repo", "duck8823/traceary",
+		"go test ./...",
+		"stdin",
+		"stdout",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if auditStub.receivedInput.MaxOutputBytes != 128 {
+		t.Fatalf("MaxOutputBytes = %d, want 128", auditStub.receivedInput.MaxOutputBytes)
+	}
+	want := "" +
+		"記録しました: event-2\n" +
+		"出力は切り詰めて保存しました\n"
+	if stdout.String() != want {
+		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+	}
+}

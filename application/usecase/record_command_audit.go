@@ -28,14 +28,16 @@ type CommandAuditSaver interface {
 
 // RecordCommandAuditInput は traceary audit の入力です。
 type RecordCommandAuditInput struct {
-	DBPath    string
-	Command   string
-	Input     string
-	Output    string
-	Client    string
-	Agent     string
-	SessionID string
-	Repo      string
+	DBPath         string
+	Command        string
+	Input          string
+	Output         string
+	Client         string
+	Agent          string
+	SessionID      string
+	Repo           string
+	MaxInputBytes  int
+	MaxOutputBytes int
 }
 
 // RecordCommandAuditUsecase はコマンド監査イベントを保存します。
@@ -80,8 +82,17 @@ func (u *recordCommandAuditUsecase) Run(
 		return nil, nil, xerrors.Errorf("event ID の生成に失敗しました: %w", err)
 	}
 
-	normalizedInput, inputTruncated := truncateAuditPayload(input.Input, maxAuditInputLength)
-	normalizedOutput, outputTruncated := truncateAuditPayload(input.Output, maxAuditOutputLength)
+	maxInputBytes, err := resolveAuditPayloadLimit(input.MaxInputBytes, maxAuditInputLength)
+	if err != nil {
+		return nil, nil, xerrors.Errorf("input 上限の解決に失敗しました: %w", err)
+	}
+	maxOutputBytes, err := resolveAuditPayloadLimit(input.MaxOutputBytes, maxAuditOutputLength)
+	if err != nil {
+		return nil, nil, xerrors.Errorf("output 上限の解決に失敗しました: %w", err)
+	}
+
+	normalizedInput, inputTruncated := truncateAuditPayload(input.Input, maxInputBytes)
+	normalizedOutput, outputTruncated := truncateAuditPayload(input.Output, maxOutputBytes)
 	commandAudit, err := model.NewCommandAudit(
 		eventID,
 		input.Command,
@@ -128,4 +139,15 @@ func truncateAuditPayload(value string, limit int) (string, bool) {
 	}
 
 	return value[:limit-len(suffix)] + suffix, true
+}
+
+func resolveAuditPayloadLimit(value int, defaultValue int) (int, error) {
+	if value < 0 {
+		return 0, xerrors.Errorf("0 以上で指定してください")
+	}
+	if value == 0 {
+		return defaultValue, nil
+	}
+
+	return value, nil
 }
