@@ -74,6 +74,24 @@ By default the generated commands use `TRACEARY_BIN='traceary'`, so the hook kee
 
 Use `--project-dir` to point at another repository and `--traceary-bin` when you intentionally want to pin a specific binary path.
 
+### Write config to the standard path
+
+Use `traceary hooks install --client <claude|codex|gemini>` when you want Traceary to write the generated config file for you.
+
+Examples:
+
+- `traceary hooks install --client claude`
+- `traceary hooks install --client codex`
+- `traceary hooks install --client gemini`
+
+Default destinations:
+
+- Claude: `<project>/.claude/settings.json`
+- Codex: `~/.codex/hooks.json`
+- Gemini: `<project>/.gemini/settings.json`
+
+If the destination already exists, Traceary stops with an error instead of overwriting it. Review the diff first, then rerun with `--force` only when replacing the existing file is intentional.
+
 ### Claude Code
 
 1. Copy `examples/hooks/claude.settings.json` into `.claude/settings.json` and merge with existing settings.
