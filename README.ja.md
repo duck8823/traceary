@@ -116,6 +116,17 @@ traceary show <event-id>
 traceary gc
 ```
 
+`search --kind` でよく使う例:
+
+```sh
+traceary search --kind command_executed
+traceary search --kind note
+traceary search --kind session_started
+```
+
+- 有効値: `note`, `command_executed`, `reviewed`, `session_started`, `session_ended`
+- alias: `audit` = `command_executed`
+
 `traceary session active` は既定で `--stale-after 24h` を使います。古い未終了 session も見たい場合は `--allow-stale` を付けてください。
 
 Hooks 導入: [`docs/hooks/README.md`](./docs/hooks/README.md)

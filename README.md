@@ -116,6 +116,17 @@ traceary show <event-id>
 traceary gc
 ```
 
+Useful `search --kind` values:
+
+```sh
+traceary search --kind command_executed
+traceary search --kind note
+traceary search --kind session_started
+```
+
+- valid values: `note`, `command_executed`, `reviewed`, `session_started`, `session_ended`
+- alias: `audit` = `command_executed`
+
 `traceary session active` defaults to `--stale-after 24h`; pass `--allow-stale` to inspect an older unclosed session.
 
 Hook setup: [`docs/hooks/README.md`](./docs/hooks/README.md)

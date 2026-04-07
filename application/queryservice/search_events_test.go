@@ -134,4 +134,23 @@ func TestSearchEventsQueryService_Run(t *testing.T) {
 			t.Fatalf("Run() error = nil, want error")
 		}
 	})
+
+	t.Run("search kind alias audit を受け付ける", func(t *testing.T) {
+		t.Parallel()
+
+		stub := &eventSearcherStub{}
+		sut := queryservice.NewSearchEventsQueryService(stub)
+
+		_, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.SearchEventsInput{
+			Query: "go test",
+			Kind:  "audit",
+			Limit: 10,
+		})
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if stub.receivedInput.Kind != "command_executed" {
+			t.Fatalf("received kind = %q, want %q", stub.receivedInput.Kind, "command_executed")
+		}
+	})
 }
