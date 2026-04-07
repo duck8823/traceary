@@ -62,7 +62,7 @@ func TestRootCLI_SessionStartCommand(t *testing.T) {
 		),
 	}
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(initStub, nil, sessionStub, nil, nil, nil, nil).Command()
+	rootCmd := cli.NewRootCLI(initStub, nil, sessionStub, nil, nil, nil, nil, nil).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
@@ -119,7 +119,7 @@ func TestRootCLI_SessionEndCommand(t *testing.T) {
 		),
 	}
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(initStub, nil, sessionStub, nil, nil, nil, nil).Command()
+	rootCmd := cli.NewRootCLI(initStub, nil, sessionStub, nil, nil, nil, nil, nil).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"session", "end", "--db-path", dbPath})

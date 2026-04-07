@@ -18,6 +18,7 @@ import (
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 	"github.com/duck8823/traceary/presentation/cli"
+	"github.com/duck8823/traceary/presentation/mcpserver"
 )
 
 //go:embed schema/sqlite/migrations/*.sql
@@ -54,7 +55,7 @@ func init() {
 			AddSource: true,
 		})
 	default:
-		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		handler = slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 			Level: level,
 		})
 	}
@@ -80,6 +81,18 @@ func run() error {
 	collectGarbageUsecase := usecase.NewCollectGarbageUsecase(datasource)
 	searchEventsQueryService := queryservice.NewSearchEventsQueryService(datasource)
 	listRecentEventsQueryService := queryservice.NewListRecentEventsQueryService(datasource)
+	getContextQueryService := queryservice.NewGetContextQueryService(datasource)
+	mcpServer, err := mcpserver.NewServer(
+		version,
+		initializeStoreUsecase,
+		recordLogUsecase,
+		recordCommandAuditUsecase,
+		searchEventsQueryService,
+		getContextQueryService,
+	)
+	if err != nil {
+		return xerrors.Errorf("MCP server の初期化に失敗しました: %w", err)
+	}
 	rootCmd := cli.NewRootCLI(
 		initializeStoreUsecase,
 		recordLogUsecase,
@@ -88,6 +101,7 @@ func run() error {
 		collectGarbageUsecase,
 		searchEventsQueryService,
 		listRecentEventsQueryService,
+		mcpServer,
 	).Command()
 	rootCmd.Version = versionString()
 	rootCmd.SetVersionTemplate("{{.Name}} {{.Version}}\n")
