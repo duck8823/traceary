@@ -60,6 +60,18 @@ The script exits successfully without recording anything when:
 
 ## Installation flow
 
+### Generate config from CLI
+
+Use `traceary hooks print --client <claude|codex|gemini>` when you want a ready-to-paste config with the current project path and `traceary` binary path embedded.
+
+Examples:
+
+- `traceary hooks print --client claude > .claude/settings.json`
+- `traceary hooks print --client codex > ~/.codex/hooks.json`
+- `traceary hooks print --client gemini > .gemini/settings.json`
+
+You can override the detected paths with `--project-dir` and `--traceary-bin`.
+
 ### Claude Code
 
 1. Copy `examples/hooks/claude.settings.json` into `.claude/settings.json` and merge with existing settings.
