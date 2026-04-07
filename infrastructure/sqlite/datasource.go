@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,7 +39,7 @@ func (d *Datasource) Initialize(ctx context.Context, dbPath string) (err error) 
 		return xerrors.Errorf("DB ディレクトリの作成に失敗しました: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", trimmedPath)
+	db, err := sql.Open("sqlite", sqliteDSN(trimmedPath))
 	if err != nil {
 		return xerrors.Errorf("SQLite 接続の初期化に失敗しました: %w", err)
 	}
@@ -55,13 +56,20 @@ func (d *Datasource) Initialize(ctx context.Context, dbPath string) (err error) 
 		return xerrors.Errorf("SQLite DB ファイル権限の設定に失敗しました: %w", err)
 	}
 
-	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON;`); err != nil {
-		return xerrors.Errorf("SQLite の PRAGMA 設定に失敗しました: %w", err)
-	}
-
 	if err := d.migrate(ctx, db); err != nil {
 		return xerrors.Errorf("SQLite マイグレーションに失敗しました: %w", err)
 	}
 
 	return nil
+}
+
+func sqliteDSN(dbPath string) string {
+	values := url.Values{}
+	values.Add("_pragma", "foreign_keys(1)")
+
+	return (&url.URL{
+		Scheme:   "file",
+		Path:     dbPath,
+		RawQuery: values.Encode(),
+	}).String()
 }
