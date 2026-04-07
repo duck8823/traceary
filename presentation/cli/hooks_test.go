@@ -81,6 +81,16 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("traceary-bin 未指定時は stable command 名を使う", func(t *testing.T) {
+		t.Parallel()
+
+		settings := executeHooksPrintWithoutTracearyBin(t, "claude", projectDir)
+		if got, want := settings.Hooks["SessionStart"][0].Hooks[0].Command,
+			`TRACEARY_BIN='traceary' bash '/tmp/traceary repo/scripts/hooks/traceary-session.sh' 'claude' 'start'`; got != want {
+			t.Fatalf("SessionStart command = %q, want %q", got, want)
+		}
+	})
+
 	t.Run("未対応 client はエラー", func(t *testing.T) {
 		t.Parallel()
 
@@ -119,6 +129,36 @@ func executeHooksPrint(
 		"--client", client,
 		"--project-dir", projectDir,
 		"--traceary-bin", tracearyBin,
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	var settings printedHooksSettings
+	if err := json.Unmarshal(stdout.Bytes(), &settings); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	return &settings
+}
+
+func executeHooksPrintWithoutTracearyBin(
+	t *testing.T,
+	client string,
+	projectDir string,
+) *printedHooksSettings {
+	t.Helper()
+
+	rootCmd := cli.NewRootCLI(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).Command()
+	stdout := &bytes.Buffer{}
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"hooks",
+		"print",
+		"--client", client,
+		"--project-dir", projectDir,
 	})
 
 	if err := rootCmd.Execute(); err != nil {

@@ -62,7 +62,7 @@ The script exits successfully without recording anything when:
 
 ### Generate config from CLI
 
-Use `traceary hooks print --client <claude|codex|gemini>` when you want a ready-to-paste config with the current project path and `traceary` binary path embedded.
+Use `traceary hooks print --client <claude|codex|gemini>` when you want a ready-to-paste config with the current project path embedded.
 
 Examples:
 
@@ -70,7 +70,9 @@ Examples:
 - `traceary hooks print --client codex > ~/.codex/hooks.json`
 - `traceary hooks print --client gemini > .gemini/settings.json`
 
-You can override the detected paths with `--project-dir` and `--traceary-bin`.
+By default the generated commands use `TRACEARY_BIN='traceary'`, so the hook keeps following whichever stable `traceary` command is available in `PATH`.
+
+Use `--project-dir` to point at another repository and `--traceary-bin` when you intentionally want to pin a specific binary path.
 
 ### Claude Code
 
