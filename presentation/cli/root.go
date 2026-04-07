@@ -63,6 +63,7 @@ func (c *RootCLI) Command() *cobra.Command {
 	rootCmd.AddCommand(c.newListCommand())
 	rootCmd.AddCommand(c.newShowCommand())
 	rootCmd.AddCommand(c.newSessionCommand())
+	rootCmd.AddCommand(c.newHooksCommand())
 	rootCmd.AddCommand(c.newMCPServerCommand())
 	return rootCmd
 }
