@@ -19,6 +19,7 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 		from   string
 		to     string
 		limit  int
+		asJSON bool
 	)
 
 	searchCmd := &cobra.Command{
@@ -33,6 +34,7 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 				to:     to,
 				limit:  limit,
 				query:  args[0],
+				asJSON: asJSON,
 			})
 		},
 	}
@@ -41,6 +43,7 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 	searchCmd.Flags().StringVar(&from, "from", "", "開始日 (`YYYY-MM-DD`)")
 	searchCmd.Flags().StringVar(&to, "to", "", "終了日 (`YYYY-MM-DD`)")
 	searchCmd.Flags().IntVar(&limit, "limit", 20, "表示件数")
+	searchCmd.Flags().BoolVar(&asJSON, "json", false, "JSON 形式で出力する")
 
 	return searchCmd
 }
@@ -52,6 +55,7 @@ type searchCommandInput struct {
 	to     string
 	limit  int
 	query  string
+	asJSON bool
 }
 
 func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchCommandInput) error {
@@ -90,7 +94,7 @@ func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchC
 		return xerrors.Errorf("検索に失敗しました: %w", err)
 	}
 
-	if err := writeEvents(output, events); err != nil {
+	if err := writeEventsByFormat(output, events, input.asJSON); err != nil {
 		return xerrors.Errorf("検索結果の出力に失敗しました: %w", err)
 	}
 
