@@ -2,8 +2,6 @@ package usecase
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -82,18 +80,4 @@ func (u *recordLogUsecase) Run(ctx context.Context, input RecordLogInput) (*mode
 	}
 
 	return event, nil
-}
-
-func newEventID() (types.EventID, error) {
-	var raw [16]byte
-	if _, err := rand.Read(raw[:]); err != nil {
-		return types.EventID(""), xerrors.Errorf("乱数生成に失敗しました: %w", err)
-	}
-
-	eventID, err := types.EventIDOf(hex.EncodeToString(raw[:]))
-	if err != nil {
-		return types.EventID(""), xerrors.Errorf("event ID への変換に失敗しました: %w", err)
-	}
-
-	return eventID, nil
 }

@@ -75,10 +75,12 @@ func run() error {
 	datasource := sqlite.NewDatasource(migrationsSubFS)
 	initializeStoreUsecase := usecase.NewInitializeStoreUsecase(datasource)
 	recordLogUsecase := usecase.NewRecordLogUsecase(datasource)
+	recordSessionBoundaryUsecase := usecase.NewRecordSessionBoundaryUsecase(datasource)
 	listRecentEventsQueryService := queryservice.NewListRecentEventsQueryService(datasource)
 	rootCmd := cli.NewRootCLI(
 		initializeStoreUsecase,
 		recordLogUsecase,
+		recordSessionBoundaryUsecase,
 		listRecentEventsQueryService,
 	).Command()
 	rootCmd.Version = versionString()

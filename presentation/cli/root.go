@@ -9,21 +9,24 @@ import (
 
 // RootCLI は traceary のルートコマンドを提供します。
 type RootCLI struct {
-	initializeStoreUsecase usecase.InitializeStoreUsecase
-	recordLogUsecase       usecase.RecordLogUsecase
-	listEventsQueryService queryservice.ListRecentEventsQueryService
+	initializeStoreUsecase       usecase.InitializeStoreUsecase
+	recordLogUsecase             usecase.RecordLogUsecase
+	recordSessionBoundaryUsecase usecase.RecordSessionBoundaryUsecase
+	listEventsQueryService       queryservice.ListRecentEventsQueryService
 }
 
 // NewRootCLI は新しい RootCLI を生成します。
 func NewRootCLI(
 	initializeStoreUsecase usecase.InitializeStoreUsecase,
 	recordLogUsecase usecase.RecordLogUsecase,
+	recordSessionBoundaryUsecase usecase.RecordSessionBoundaryUsecase,
 	listEventsQueryService queryservice.ListRecentEventsQueryService,
 ) *RootCLI {
 	return &RootCLI{
-		initializeStoreUsecase: initializeStoreUsecase,
-		recordLogUsecase:       recordLogUsecase,
-		listEventsQueryService: listEventsQueryService,
+		initializeStoreUsecase:       initializeStoreUsecase,
+		recordLogUsecase:             recordLogUsecase,
+		recordSessionBoundaryUsecase: recordSessionBoundaryUsecase,
+		listEventsQueryService:       listEventsQueryService,
 	}
 }
 
@@ -37,5 +40,6 @@ func (c *RootCLI) Command() *cobra.Command {
 	rootCmd.AddCommand(c.newInitCommand())
 	rootCmd.AddCommand(c.newLogCommand())
 	rootCmd.AddCommand(c.newListCommand())
+	rootCmd.AddCommand(c.newSessionCommand())
 	return rootCmd
 }
