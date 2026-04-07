@@ -97,3 +97,71 @@ func TestRootCLI_SearchCommand(t *testing.T) {
 		t.Fatalf("stdout is empty")
 	}
 }
+
+func TestRootCLI_SearchCommand_JSON(t *testing.T) {
+	t.Setenv("TRACEARY_REPO", "")
+	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
+		return "github.com/duck8823/traceary", nil
+	})
+	defer cli.ResetDetectRepoContextFunc()
+
+	eventID, err := types.EventIDOf("event-2")
+	if err != nil {
+		t.Fatalf("EventIDOf() error = %v", err)
+	}
+	agent, err := types.AgentOf("codex")
+	if err != nil {
+		t.Fatalf("AgentOf() error = %v", err)
+	}
+	sessionID, err := types.SessionIDOf("session-2")
+	if err != nil {
+		t.Fatalf("SessionIDOf() error = %v", err)
+	}
+
+	initStub := &initializeStoreUsecaseStub{}
+	searchStub := &searchEventsQueryServiceStub{
+		events: []*model.Event{
+			model.EventOf(
+				eventID,
+				types.EventKindNote,
+				"cli",
+				agent,
+				sessionID,
+				"github.com/duck8823/traceary",
+				"hello json search",
+				time.Date(2026, 4, 7, 13, 0, 0, 0, time.UTC),
+			),
+		},
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(initStub, nil, nil, nil, nil, searchStub, nil, nil, nil, nil).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"search",
+		"--db-path", "/tmp/traceary.db",
+		"--json",
+		"traceary",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	want := "" +
+		"[\n" +
+		"  {\n" +
+		"    \"event_id\": \"event-2\",\n" +
+		"    \"kind\": \"note\",\n" +
+		"    \"client\": \"cli\",\n" +
+		"    \"agent\": \"codex\",\n" +
+		"    \"session_id\": \"session-2\",\n" +
+		"    \"repo\": \"github.com/duck8823/traceary\",\n" +
+		"    \"message\": \"hello json search\",\n" +
+		"    \"created_at\": \"2026-04-07T13:00:00Z\"\n" +
+		"  }\n" +
+		"]\n"
+	if stdout.String() != want {
+		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+	}
+}

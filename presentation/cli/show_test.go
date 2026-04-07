@@ -158,4 +158,68 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 			t.Fatalf("stdout contains command audit section: %q", stdout.String())
 		}
 	})
+
+	t.Run("JSON 形式でイベント詳細を表示できる", func(t *testing.T) {
+		t.Parallel()
+
+		dbPath := filepath.Join(t.TempDir(), "traceary.db")
+		initStub := &initializeStoreUsecaseStub{}
+		eventDetails, err := queryservice.NewEventDetails(
+			model.EventOf(
+				eventID,
+				types.EventKindCommandExecuted,
+				"cli",
+				agent,
+				sessionID,
+				"duck8823/traceary",
+				"go test ./...",
+				time.Date(2026, 4, 8, 12, 30, 0, 0, time.UTC),
+			),
+			model.CommandAuditOf(
+				eventID,
+				"go test ./...",
+				"stdin",
+				"stdout",
+				true,
+				false,
+			),
+		)
+		if err != nil {
+			t.Fatalf("NewEventDetails() error = %v", err)
+		}
+		showStub := &getEventDetailsQueryServiceStub{eventDetails: eventDetails}
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(initStub, nil, nil, nil, nil, nil, nil, showStub, nil, nil).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"show", "--db-path", dbPath, "--json", "event-1"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		want := "" +
+			"{\n" +
+			"  \"event\": {\n" +
+			"    \"event_id\": \"event-1\",\n" +
+			"    \"kind\": \"command_executed\",\n" +
+			"    \"client\": \"cli\",\n" +
+			"    \"agent\": \"codex\",\n" +
+			"    \"session_id\": \"session-1\",\n" +
+			"    \"repo\": \"duck8823/traceary\",\n" +
+			"    \"message\": \"go test ./...\",\n" +
+			"    \"created_at\": \"2026-04-08T12:30:00Z\"\n" +
+			"  },\n" +
+			"  \"command_audit\": {\n" +
+			"    \"command\": \"go test ./...\",\n" +
+			"    \"input\": \"stdin\",\n" +
+			"    \"output\": \"stdout\",\n" +
+			"    \"input_truncated\": true,\n" +
+			"    \"output_truncated\": false\n" +
+			"  }\n" +
+			"}\n"
+		if stdout.String() != want {
+			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+		}
+	})
 }

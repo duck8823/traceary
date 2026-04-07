@@ -12,6 +12,7 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 	var (
 		dbPath string
 		limit  int
+		asJSON bool
 	)
 
 	listCmd := &cobra.Command{
@@ -19,16 +20,17 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 		Short: "直近のログを一覧表示する",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return c.runList(cmd.Context(), cmd.OutOrStdout(), dbPath, limit)
+			return c.runList(cmd.Context(), cmd.OutOrStdout(), dbPath, limit, asJSON)
 		},
 	}
 	listCmd.Flags().StringVar(&dbPath, "db-path", "", "SQLite DB パス")
 	listCmd.Flags().IntVar(&limit, "limit", 20, "表示件数")
+	listCmd.Flags().BoolVar(&asJSON, "json", false, "JSON 形式で出力する")
 
 	return listCmd
 }
 
-func (c *RootCLI) runList(ctx context.Context, output io.Writer, dbPath string, limit int) error {
+func (c *RootCLI) runList(ctx context.Context, output io.Writer, dbPath string, limit int, asJSON bool) error {
 	if c.initializeStoreUsecase == nil {
 		return xerrors.Errorf("ストア初期化ユースケースが設定されていません")
 	}
@@ -48,7 +50,7 @@ func (c *RootCLI) runList(ctx context.Context, output io.Writer, dbPath string, 
 	if err != nil {
 		return xerrors.Errorf("イベント一覧の取得に失敗しました: %w", err)
 	}
-	if err := writeEvents(output, events); err != nil {
+	if err := writeEventsByFormat(output, events, asJSON); err != nil {
 		return xerrors.Errorf("一覧出力に失敗しました: %w", err)
 	}
 

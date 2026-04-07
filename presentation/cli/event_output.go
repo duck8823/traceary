@@ -6,8 +6,17 @@ import (
 
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
 )
+
+func writeEventsByFormat(output io.Writer, events []*model.Event, asJSON bool) error {
+	if asJSON {
+		return writeEventsJSON(output, events)
+	}
+
+	return writeEvents(output, events)
+}
 
 func writeEvents(output io.Writer, events []*model.Event) error {
 	if len(events) == 0 {
@@ -37,6 +46,14 @@ func writeEvents(output io.Writer, events []*model.Event) error {
 	}
 
 	return nil
+}
+
+func writeEventDetailsByFormat(output io.Writer, eventDetails *queryservice.EventDetails, asJSON bool) error {
+	if asJSON {
+		return writeEventDetailsJSON(output, eventDetails)
+	}
+
+	return writeEventDetails(output, eventDetails)
 }
 
 func formatOptionalColumn(value string) string {

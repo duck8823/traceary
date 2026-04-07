@@ -12,22 +12,26 @@ import (
 )
 
 func (c *RootCLI) newShowCommand() *cobra.Command {
-	var dbPath string
+	var (
+		dbPath string
+		asJSON bool
+	)
 
 	showCmd := &cobra.Command{
 		Use:   "show <event-id>",
 		Short: "イベント詳細を表示する",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return c.runShow(cmd.Context(), cmd.OutOrStdout(), dbPath, args[0])
+			return c.runShow(cmd.Context(), cmd.OutOrStdout(), dbPath, args[0], asJSON)
 		},
 	}
 	showCmd.Flags().StringVar(&dbPath, "db-path", "", "SQLite DB パス")
+	showCmd.Flags().BoolVar(&asJSON, "json", false, "JSON 形式で出力する")
 
 	return showCmd
 }
 
-func (c *RootCLI) runShow(ctx context.Context, output io.Writer, dbPath string, eventID string) error {
+func (c *RootCLI) runShow(ctx context.Context, output io.Writer, dbPath string, eventID string, asJSON bool) error {
 	if c.initializeStoreUsecase == nil {
 		return xerrors.Errorf("ストア初期化ユースケースが設定されていません")
 	}
@@ -48,7 +52,7 @@ func (c *RootCLI) runShow(ctx context.Context, output io.Writer, dbPath string, 
 		return xerrors.Errorf("イベント詳細の取得に失敗しました: %w", err)
 	}
 
-	if err := writeEventDetails(output, eventDetails); err != nil {
+	if err := writeEventDetailsByFormat(output, eventDetails, asJSON); err != nil {
 		return xerrors.Errorf("イベント詳細の出力に失敗しました: %w", err)
 	}
 
