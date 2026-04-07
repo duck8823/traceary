@@ -97,6 +97,7 @@ session-1ceee1eaa50a31687cfdb2c8a6fcc85d
 - 過去のコマンド出力を文字列検索で引ける
 - いま使っている session ID を手で覚えなくてよい
 - 1件のイベント詳細を取り出して別の AI に渡しやすい
+- 大きすぎる audit payload は DB を膨らませすぎないよう切り詰められる
 
 ## コアコマンド
 
@@ -118,6 +119,8 @@ traceary gc
 `traceary session active` は既定で `--stale-after 24h` を使います。古い未終了 session も見たい場合は `--allow-stale` を付けてください。
 
 Hooks 導入: [`docs/hooks/README.md`](./docs/hooks/README.md)
+
+`traceary audit` は既定で input/output をそれぞれ `64 KiB` まで保存します。より厳しくしたい場合は `--max-input-bytes`, `--max-output-bytes`, `TRACEARY_MAX_AUDIT_INPUT_BYTES`, `TRACEARY_MAX_AUDIT_OUTPUT_BYTES` を使ってください。切り詰めが発生したときは CLI に通知を出します。
 
 ## スコープ外
 

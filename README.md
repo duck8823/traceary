@@ -97,6 +97,7 @@ What changes after this:
 - you can search past command output by text
 - you can recover the current session ID without manually tracking it
 - you can inspect one event in detail and hand it to another AI tool
+- large audit payloads are truncated before they grow the DB too much
 
 ## Core commands
 
@@ -118,6 +119,8 @@ traceary gc
 `traceary session active` defaults to `--stale-after 24h`; pass `--allow-stale` to inspect an older unclosed session.
 
 Hook setup: [`docs/hooks/README.md`](./docs/hooks/README.md)
+
+`traceary audit` keeps input/output at `64 KiB` each by default. Use `--max-input-bytes`, `--max-output-bytes`, or `TRACEARY_MAX_AUDIT_INPUT_BYTES` / `TRACEARY_MAX_AUDIT_OUTPUT_BYTES` when you want a stricter limit. The CLI prints a notice when truncation happens.
 
 ## Non-goals
 
