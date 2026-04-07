@@ -69,7 +69,7 @@ func TestRootCLI_SearchCommand(t *testing.T) {
 		},
 	}
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(initStub, nil, nil, nil, nil, searchStub, nil, nil, nil).Command()
+	rootCmd := cli.NewRootCLI(initStub, nil, nil, nil, nil, searchStub, nil, nil, nil, nil).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
