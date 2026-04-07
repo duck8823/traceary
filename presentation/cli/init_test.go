@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/duck8823/traceary/application/usecase"
@@ -86,8 +87,8 @@ func TestResolveDBPath(t *testing.T) {
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("ResolveDBPath() error = %v, wantErr %v", err, tt.wantErr)
 			}
-			if filepath.Base(got) != filepath.Base(tt.wantSuffix) {
-				t.Fatalf("ResolveDBPath() base = %q, want %q", filepath.Base(got), filepath.Base(tt.wantSuffix))
+			if !strings.HasSuffix(got, tt.wantSuffix) {
+				t.Fatalf("ResolveDBPath() path = %q, want suffix %q", got, tt.wantSuffix)
 			}
 			if !filepath.IsAbs(got) {
 				t.Fatalf("ResolveDBPath() path = %q, want absolute path", got)
