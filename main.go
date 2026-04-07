@@ -78,6 +78,7 @@ func run() error {
 	recordSessionBoundaryUsecase := usecase.NewRecordSessionBoundaryUsecase(datasource)
 	recordCommandAuditUsecase := usecase.NewRecordCommandAuditUsecase(datasource)
 	collectGarbageUsecase := usecase.NewCollectGarbageUsecase(datasource)
+	searchEventsQueryService := queryservice.NewSearchEventsQueryService(datasource)
 	listRecentEventsQueryService := queryservice.NewListRecentEventsQueryService(datasource)
 	rootCmd := cli.NewRootCLI(
 		initializeStoreUsecase,
@@ -85,6 +86,7 @@ func run() error {
 		recordSessionBoundaryUsecase,
 		recordCommandAuditUsecase,
 		collectGarbageUsecase,
+		searchEventsQueryService,
 		listRecentEventsQueryService,
 	).Command()
 	rootCmd.Version = versionString()

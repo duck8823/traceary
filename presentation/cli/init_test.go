@@ -32,7 +32,7 @@ func TestRootCLI_InitCommand(t *testing.T) {
 	stub := &initializeStoreUsecaseStub{}
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(stub, nil, nil, nil, nil, nil).Command()
+	rootCmd := cli.NewRootCLI(stub, nil, nil, nil, nil, nil, nil).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(stderr)
 	rootCmd.SetArgs([]string{"init", "--db-path", dbPath})

@@ -70,7 +70,7 @@ func TestRootCLI_ListCommand(t *testing.T) {
 			},
 		}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(initStub, nil, nil, nil, nil, listStub).Command()
+		rootCmd := cli.NewRootCLI(initStub, nil, nil, nil, nil, nil, listStub).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"list", "--db-path", dbPath, "--limit", "5"})
@@ -104,7 +104,7 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		initStub := &initializeStoreUsecaseStub{}
 		listStub := &listEventsQueryServiceStub{}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(initStub, nil, nil, nil, nil, listStub).Command()
+		rootCmd := cli.NewRootCLI(initStub, nil, nil, nil, nil, nil, listStub).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"list", "--db-path", dbPath})
@@ -112,8 +112,8 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		if stdout.String() != "記録はまだありません\n" {
-			t.Fatalf("stdout = %q, want %q", stdout.String(), "記録はまだありません\n")
+		if stdout.String() != "一致する記録はありません\n" {
+			t.Fatalf("stdout = %q, want %q", stdout.String(), "一致する記録はありません\n")
 		}
 	})
 }
