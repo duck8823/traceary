@@ -112,6 +112,28 @@ func (d *Datasource) scanEvent(rowScanner interface {
 		return nil, xerrors.Errorf("イベント行の scan に失敗しました: %w", err)
 	}
 
+	return d.restoreEvent(
+		eventIDValue,
+		eventKindValue,
+		clientValue,
+		agentValue,
+		sessionIDValue,
+		repoValue,
+		bodyValue,
+		createdAtValue,
+	)
+}
+
+func (d *Datasource) restoreEvent(
+	eventIDValue string,
+	eventKindValue string,
+	clientValue string,
+	agentValue string,
+	sessionIDValue string,
+	repoValue string,
+	bodyValue string,
+	createdAtValue string,
+) (*model.Event, error) {
 	eventID, err := types.EventIDOf(eventIDValue)
 	if err != nil {
 		return nil, xerrors.Errorf("event ID の復元に失敗しました: %w", err)

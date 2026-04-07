@@ -42,6 +42,25 @@ func NewCommandAudit(
 	}, nil
 }
 
+// CommandAuditOf は復元用に CommandAudit を生成します。
+func CommandAuditOf(
+	eventID types.EventID,
+	command string,
+	input string,
+	output string,
+	inputTruncated bool,
+	outputTruncated bool,
+) *CommandAudit {
+	return &CommandAudit{
+		eventID:         eventID,
+		command:         command,
+		input:           input,
+		output:          output,
+		inputTruncated:  inputTruncated,
+		outputTruncated: outputTruncated,
+	}
+}
+
 // EventID は紐づくイベント ID を返します。
 func (a *CommandAudit) EventID() types.EventID { return a.eventID }
 
