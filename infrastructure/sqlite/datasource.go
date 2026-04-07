@@ -2,7 +2,6 @@ package sqlite
 
 import (
 	"context"
-	"database/sql"
 	"io/fs"
 	"net/url"
 	"os"
@@ -39,7 +38,7 @@ func (d *Datasource) Initialize(ctx context.Context, dbPath string) (err error) 
 		return xerrors.Errorf("DB ディレクトリの作成に失敗しました: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", sqliteDSN(trimmedPath))
+	db, err := d.openDB(ctx, trimmedPath)
 	if err != nil {
 		return xerrors.Errorf("SQLite 接続の初期化に失敗しました: %w", err)
 	}
@@ -48,10 +47,6 @@ func (d *Datasource) Initialize(ctx context.Context, dbPath string) (err error) 
 			err = xerrors.Errorf("SQLite 接続のクローズに失敗しました: %w", closeErr)
 		}
 	}()
-
-	if err := db.PingContext(ctx); err != nil {
-		return xerrors.Errorf("SQLite への接続確認に失敗しました: %w", err)
-	}
 	if err := os.Chmod(trimmedPath, 0o600); err != nil {
 		return xerrors.Errorf("SQLite DB ファイル権限の設定に失敗しました: %w", err)
 	}

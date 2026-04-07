@@ -15,8 +15,10 @@ var nowFunc = time.Now
 type Event struct {
 	eventID   types.EventID
 	kind      types.EventKind
+	client    string
 	agent     types.Agent
 	sessionID types.SessionID
+	repo      string
 	body      string
 	createdAt time.Time
 }
@@ -25,8 +27,10 @@ type Event struct {
 func NewEvent(
 	eventID types.EventID,
 	kind types.EventKind,
+	client string,
 	agent types.Agent,
 	sessionID types.SessionID,
+	repo string,
 	body string,
 ) (*Event, error) {
 	trimmedBody := strings.TrimSpace(body)
@@ -36,8 +40,10 @@ func NewEvent(
 	return &Event{
 		eventID:   eventID,
 		kind:      kind,
+		client:    strings.TrimSpace(client),
 		agent:     agent,
 		sessionID: sessionID,
+		repo:      strings.TrimSpace(repo),
 		body:      trimmedBody,
 		createdAt: nowFunc(),
 	}, nil
@@ -47,16 +53,20 @@ func NewEvent(
 func EventOf(
 	eventID types.EventID,
 	kind types.EventKind,
+	client string,
 	agent types.Agent,
 	sessionID types.SessionID,
+	repo string,
 	body string,
 	createdAt time.Time,
 ) *Event {
 	return &Event{
 		eventID:   eventID,
 		kind:      kind,
+		client:    client,
 		agent:     agent,
 		sessionID: sessionID,
+		repo:      repo,
 		body:      body,
 		createdAt: createdAt,
 	}
@@ -68,11 +78,17 @@ func (e *Event) EventID() types.EventID { return e.eventID }
 // Kind はイベント種別を返します。
 func (e *Event) Kind() types.EventKind { return e.kind }
 
+// Client はイベントの記録経路を返します。
+func (e *Event) Client() string { return e.client }
+
 // Agent はイベントを発生させた主体を返します。
 func (e *Event) Agent() types.Agent { return e.agent }
 
 // SessionID はイベントが属するセッション ID を返します。
 func (e *Event) SessionID() types.SessionID { return e.sessionID }
+
+// Repo はイベントに紐づく補助的なコンテキスト識別子を返します。
+func (e *Event) Repo() string { return e.repo }
 
 // Body はイベント本文を返します。
 func (e *Event) Body() string { return e.body }

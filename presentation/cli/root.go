@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/spf13/cobra"
 
 	"github.com/duck8823/traceary/application/usecase"
@@ -9,11 +10,21 @@ import (
 // RootCLI は traceary のルートコマンドを提供します。
 type RootCLI struct {
 	initializeStoreUsecase usecase.InitializeStoreUsecase
+	recordLogUsecase       usecase.RecordLogUsecase
+	listEventsQueryService queryservice.ListRecentEventsQueryService
 }
 
 // NewRootCLI は新しい RootCLI を生成します。
-func NewRootCLI(initializeStoreUsecase usecase.InitializeStoreUsecase) *RootCLI {
-	return &RootCLI{initializeStoreUsecase: initializeStoreUsecase}
+func NewRootCLI(
+	initializeStoreUsecase usecase.InitializeStoreUsecase,
+	recordLogUsecase usecase.RecordLogUsecase,
+	listEventsQueryService queryservice.ListRecentEventsQueryService,
+) *RootCLI {
+	return &RootCLI{
+		initializeStoreUsecase: initializeStoreUsecase,
+		recordLogUsecase:       recordLogUsecase,
+		listEventsQueryService: listEventsQueryService,
+	}
 }
 
 // Command は traceary のルートコマンドを返します。
@@ -24,5 +35,7 @@ func (c *RootCLI) Command() *cobra.Command {
 		SilenceUsage: true,
 	}
 	rootCmd.AddCommand(c.newInitCommand())
+	rootCmd.AddCommand(c.newLogCommand())
+	rootCmd.AddCommand(c.newListCommand())
 	return rootCmd
 }

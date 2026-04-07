@@ -1,0 +1,94 @@
+package usecase_test
+
+import (
+	"context"
+	"testing"
+
+	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/model"
+)
+
+type eventRepositoryStub struct {
+	receivedPath string
+	savedEvent   *model.Event
+	err          error
+}
+
+func (s *eventRepositoryStub) Save(_ context.Context, dbPath string, event *model.Event) error {
+	s.receivedPath = dbPath
+	s.savedEvent = event
+	return s.err
+}
+
+func TestRecordLogUsecase_Run(t *testing.T) {
+	t.Parallel()
+
+	t.Run("イベントを保存できる", func(t *testing.T) {
+		t.Parallel()
+
+		stub := &eventRepositoryStub{}
+		sut := usecase.NewRecordLogUsecase(stub)
+
+		got, err := sut.Run(context.Background(), usecase.RecordLogInput{
+			DBPath:    "/tmp/traceary.db",
+			Message:   "  hello traceary  ",
+			Client:    " cli ",
+			Agent:     "codex",
+			SessionID: "session-1",
+			Repo:      "  duck8823/traceary  ",
+		})
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if got == nil {
+			t.Fatalf("Run() event is nil")
+		}
+		if stub.savedEvent == nil {
+			t.Fatalf("Save() event is nil")
+		}
+		if got != stub.savedEvent {
+			t.Fatalf("saved event mismatch")
+		}
+		if stub.receivedPath != "/tmp/traceary.db" {
+			t.Fatalf("Save() path = %q, want %q", stub.receivedPath, "/tmp/traceary.db")
+		}
+		if got.EventID().String() == "" {
+			t.Fatalf("EventID() is empty")
+		}
+		if got.Body() != "hello traceary" {
+			t.Fatalf("Body() = %q, want %q", got.Body(), "hello traceary")
+		}
+		if got.Client() != "cli" {
+			t.Fatalf("Client() = %q, want %q", got.Client(), "cli")
+		}
+		if got.Agent().String() != "codex" {
+			t.Fatalf("Agent() = %q, want %q", got.Agent(), "codex")
+		}
+		if got.SessionID().String() != "session-1" {
+			t.Fatalf("SessionID() = %q, want %q", got.SessionID(), "session-1")
+		}
+		if got.Repo() != "duck8823/traceary" {
+			t.Fatalf("Repo() = %q, want %q", got.Repo(), "duck8823/traceary")
+		}
+	})
+
+	t.Run("必須項目が不正な場合はエラー", func(t *testing.T) {
+		t.Parallel()
+
+		stub := &eventRepositoryStub{}
+		sut := usecase.NewRecordLogUsecase(stub)
+
+		_, err := sut.Run(context.Background(), usecase.RecordLogInput{
+			DBPath:    "/tmp/traceary.db",
+			Message:   "hello",
+			Agent:     "",
+			SessionID: "session-1",
+		})
+		if err == nil {
+			t.Fatalf("Run() error = nil, want error")
+		}
+		if stub.savedEvent != nil {
+			t.Fatalf("Save() should not be called")
+		}
+	})
+}

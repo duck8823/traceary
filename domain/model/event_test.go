@@ -52,8 +52,10 @@ func TestNewEvent(t *testing.T) {
 			got, err := model.NewEvent(
 				eventID,
 				types.EventKindNote,
+				"cli",
 				agent,
 				sessionID,
+				"duck8823/traceary",
 				tt.body,
 			)
 			if (err != nil) != tt.wantErr {
@@ -64,6 +66,12 @@ func TestNewEvent(t *testing.T) {
 			}
 			if got.Body() != tt.wantBody {
 				t.Fatalf("Body() = %q, want %q", got.Body(), tt.wantBody)
+			}
+			if got.Client() != "cli" {
+				t.Fatalf("Client() = %q, want %q", got.Client(), "cli")
+			}
+			if got.Repo() != "duck8823/traceary" {
+				t.Fatalf("Repo() = %q, want %q", got.Repo(), "duck8823/traceary")
 			}
 			if got.CreatedAt() != tt.wantCreated {
 				t.Fatalf("CreatedAt() = %v, want %v", got.CreatedAt(), tt.wantCreated)
