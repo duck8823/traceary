@@ -82,6 +82,7 @@ func run() error {
 	searchEventsQueryService := queryservice.NewSearchEventsQueryService(datasource)
 	listRecentEventsQueryService := queryservice.NewListRecentEventsQueryService(datasource)
 	getContextQueryService := queryservice.NewGetContextQueryService(datasource)
+	getEventDetailsQueryService := queryservice.NewGetEventDetailsQueryService(datasource)
 	mcpServer, err := mcpserver.NewServer(
 		version,
 		initializeStoreUsecase,
@@ -101,6 +102,7 @@ func run() error {
 		collectGarbageUsecase,
 		searchEventsQueryService,
 		listRecentEventsQueryService,
+		getEventDetailsQueryService,
 		mcpServer,
 	).Command()
 	rootCmd.Version = versionString()
