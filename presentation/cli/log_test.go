@@ -60,7 +60,10 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		}
 		stdout := &bytes.Buffer{}
 		stderr := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(initStub, logStub, nil, nil, nil, nil, nil, nil, nil, nil).Command()
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase: initStub,
+			RecordLogUsecase:       logStub,
+		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(stderr)
 		rootCmd.SetArgs([]string{
@@ -116,7 +119,10 @@ func TestRootCLI_LogCommand(t *testing.T) {
 				fixedLogTime(),
 			),
 		}
-		rootCmd := cli.NewRootCLI(initStub, logStub, nil, nil, nil, nil, nil, nil, nil, nil).Command()
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase: initStub,
+			RecordLogUsecase:       logStub,
+		}).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"log", "--db-path", dbPath, "hello"})

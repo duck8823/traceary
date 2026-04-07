@@ -39,7 +39,10 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		}
 		initStub := &initializeStoreUsecaseStub{}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(initStub, nil, nil, nil, stub, nil, nil, nil, nil, nil).Command()
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase: initStub,
+			CollectGarbageUsecase:  stub,
+		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30", "--dry-run"})
@@ -68,7 +71,10 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		}
 		initStub := &initializeStoreUsecaseStub{}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(initStub, nil, nil, nil, stub, nil, nil, nil, nil, nil).Command()
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase: initStub,
+			CollectGarbageUsecase:  stub,
+		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30"})

@@ -84,7 +84,10 @@ func TestRootCLI_SessionStartCommand(t *testing.T) {
 		),
 	}
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(initStub, nil, sessionStub, nil, nil, nil, nil, nil, nil, nil).Command()
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:       initStub,
+		RecordSessionBoundaryUsecase: sessionStub,
+	}).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
@@ -141,7 +144,10 @@ func TestRootCLI_SessionEndCommand(t *testing.T) {
 		),
 	}
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(initStub, nil, sessionStub, nil, nil, nil, nil, nil, nil, nil).Command()
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:       initStub,
+		RecordSessionBoundaryUsecase: sessionStub,
+	}).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"session", "end", "--db-path", dbPath})
@@ -191,7 +197,10 @@ func TestRootCLI_SessionLatestCommand(t *testing.T) {
 		),
 	}
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(initStub, nil, nil, nil, nil, nil, nil, nil, latestStub, nil).Command()
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:        initStub,
+		FindLatestSessionQueryService: latestStub,
+	}).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
@@ -257,7 +266,10 @@ func TestRootCLI_SessionActiveCommand(t *testing.T) {
 		),
 	}
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(initStub, nil, nil, nil, nil, nil, nil, nil, latestStub, nil).Command()
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:        initStub,
+		FindLatestSessionQueryService: latestStub,
+	}).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{

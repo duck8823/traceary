@@ -94,7 +94,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 	t.Run("未対応 client はエラー", func(t *testing.T) {
 		t.Parallel()
 
-		rootCmd := cli.NewRootCLI(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).Command()
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
@@ -119,7 +119,7 @@ func executeHooksPrint(
 ) *printedHooksSettings {
 	t.Helper()
 
-	rootCmd := cli.NewRootCLI(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).Command()
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
 	stdout := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -150,7 +150,7 @@ func executeHooksPrintWithoutTracearyBin(
 ) *printedHooksSettings {
 	t.Helper()
 
-	rootCmd := cli.NewRootCLI(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).Command()
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
 	stdout := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})

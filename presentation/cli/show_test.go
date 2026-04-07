@@ -80,7 +80,10 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 		}
 		showStub := &getEventDetailsQueryServiceStub{eventDetails: eventDetails}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(initStub, nil, nil, nil, nil, nil, nil, showStub, nil, nil).Command()
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase:      initStub,
+			GetEventDetailsQueryService: showStub,
+		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"show", "--db-path", dbPath, "event-1"})
@@ -146,7 +149,10 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 		}
 		showStub := &getEventDetailsQueryServiceStub{eventDetails: eventDetails}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(initStub, nil, nil, nil, nil, nil, nil, showStub, nil, nil).Command()
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase:      initStub,
+			GetEventDetailsQueryService: showStub,
+		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"show", "--db-path", dbPath, "event-1"})
@@ -189,7 +195,10 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 		}
 		showStub := &getEventDetailsQueryServiceStub{eventDetails: eventDetails}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(initStub, nil, nil, nil, nil, nil, nil, showStub, nil, nil).Command()
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase:      initStub,
+			GetEventDetailsQueryService: showStub,
+		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"show", "--db-path", dbPath, "--json", "event-1"})
