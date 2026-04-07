@@ -32,6 +32,8 @@ so multiple AI tools can read and write the same history.
 
 If you only want to see what Traceary changes in daily work, this is the shortest loop.
 
+`traceary init` is optional. Every command creates the SQLite DB and applies migrations on demand. Use `init` when you want to bootstrap the DB path explicitly or verify write permissions before a session starts.
+
 ```sh
 traceary init
 sid=$(traceary session start --client dogfood --agent codex)

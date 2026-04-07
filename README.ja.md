@@ -32,6 +32,8 @@ Traceary は、作業ログと audit log をひとつのローカルストアに
 
 まずは「日常の作業がどう変わるか」だけを見る最短導線です。
 
+`traceary init` は任意です。すべてのコマンドは必要に応じて SQLite DB を自動作成し、マイグレーションを適用します。`init` は DB パスを明示的に先に作りたいときや、書き込み権限を事前に確認したいときに使います。
+
 ```sh
 traceary init
 sid=$(traceary session start --client dogfood --agent codex)
