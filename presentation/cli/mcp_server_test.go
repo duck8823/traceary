@@ -25,7 +25,7 @@ func TestRootCLI_MCPServer(t *testing.T) {
 		t.Parallel()
 
 		runner := &mcpServerRunnerStub{}
-		sut := cli.NewRootCLI(nil, nil, nil, nil, nil, nil, nil, runner)
+		sut := cli.NewRootCLI(nil, nil, nil, nil, nil, nil, nil, nil, runner)
 		command := sut.Command()
 		stdout := &bytes.Buffer{}
 		stderr := &bytes.Buffer{}
@@ -44,7 +44,7 @@ func TestRootCLI_MCPServer(t *testing.T) {
 	t.Run("ランナー未設定ならエラー", func(t *testing.T) {
 		t.Parallel()
 
-		sut := cli.NewRootCLI(nil, nil, nil, nil, nil, nil, nil, nil)
+		sut := cli.NewRootCLI(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 		command := sut.Command()
 		command.SetArgs([]string{"mcp-server"})
 

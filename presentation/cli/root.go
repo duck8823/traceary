@@ -16,6 +16,7 @@ type RootCLI struct {
 	collectGarbageUsecase        usecase.CollectGarbageUsecase
 	searchEventsQueryService     queryservice.SearchEventsQueryService
 	listEventsQueryService       queryservice.ListRecentEventsQueryService
+	getEventDetailsQueryService  queryservice.GetEventDetailsQueryService
 	mcpServerRunner              MCPServerRunner
 }
 
@@ -28,6 +29,7 @@ func NewRootCLI(
 	collectGarbageUsecase usecase.CollectGarbageUsecase,
 	searchEventsQueryService queryservice.SearchEventsQueryService,
 	listEventsQueryService queryservice.ListRecentEventsQueryService,
+	getEventDetailsQueryService queryservice.GetEventDetailsQueryService,
 	mcpServerRunner MCPServerRunner,
 ) *RootCLI {
 	return &RootCLI{
@@ -38,6 +40,7 @@ func NewRootCLI(
 		collectGarbageUsecase:        collectGarbageUsecase,
 		searchEventsQueryService:     searchEventsQueryService,
 		listEventsQueryService:       listEventsQueryService,
+		getEventDetailsQueryService:  getEventDetailsQueryService,
 		mcpServerRunner:              mcpServerRunner,
 	}
 }
@@ -55,6 +58,7 @@ func (c *RootCLI) Command() *cobra.Command {
 	rootCmd.AddCommand(c.newGCCommand())
 	rootCmd.AddCommand(c.newSearchCommand())
 	rootCmd.AddCommand(c.newListCommand())
+	rootCmd.AddCommand(c.newShowCommand())
 	rootCmd.AddCommand(c.newSessionCommand())
 	rootCmd.AddCommand(c.newMCPServerCommand())
 	return rootCmd
