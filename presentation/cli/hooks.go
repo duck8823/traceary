@@ -36,14 +36,58 @@ type hooksPrintCommandInput struct {
 	tracearyBin string
 }
 
+type hooksInstallCommandInput struct {
+	client      string
+	projectDir  string
+	tracearyBin string
+	outputPath  string
+	force       bool
+}
+
 func (c *RootCLI) newHooksCommand() *cobra.Command {
 	hooksCmd := &cobra.Command{
 		Use:   "hooks",
 		Short: "hook 設定例を生成する",
 	}
+	hooksCmd.AddCommand(c.newHooksInstallCommand())
 	hooksCmd.AddCommand(c.newHooksPrintCommand())
 
 	return hooksCmd
+}
+
+func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
+	var (
+		client      string
+		projectDir  string
+		tracearyBin string
+		outputPath  string
+		force       bool
+	)
+
+	installCmd := &cobra.Command{
+		Use:   "install",
+		Short: "標準の設定パスへ hook 設定例を書き出す",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return c.runHooksInstall(cmd.Context(), cmd.OutOrStdout(), hooksInstallCommandInput{
+				client:      client,
+				projectDir:  projectDir,
+				tracearyBin: tracearyBin,
+				outputPath:  outputPath,
+				force:       force,
+			})
+		},
+	}
+	installCmd.Flags().StringVar(&client, "client", "", "対象クライアント (claude|codex|gemini)")
+	installCmd.Flags().StringVar(&projectDir, "project-dir", "", "hook script があるプロジェクトディレクトリ")
+	installCmd.Flags().StringVar(&tracearyBin, "traceary-bin", "", "traceary バイナリパス")
+	installCmd.Flags().StringVar(&outputPath, "output", "", "書き出し先を明示する")
+	installCmd.Flags().BoolVar(&force, "force", false, "既存ファイルがある場合でも上書きする")
+	if err := installCmd.MarkFlagRequired("client"); err != nil {
+		panic(err)
+	}
+
+	return installCmd
 }
 
 func (c *RootCLI) newHooksPrintCommand() *cobra.Command {
@@ -105,6 +149,42 @@ func (c *RootCLI) runHooksPrint(
 	return nil
 }
 
+func (c *RootCLI) runHooksInstall(
+	_ context.Context,
+	output io.Writer,
+	input hooksInstallCommandInput,
+) error {
+	resolvedProjectDir, err := resolveHooksProjectDir(input.projectDir)
+	if err != nil {
+		return xerrors.Errorf("project directory の解決に失敗しました: %w", err)
+	}
+	resolvedTracearyBin, err := resolveHooksTracearyBin(input.tracearyBin)
+	if err != nil {
+		return xerrors.Errorf("traceary binary path の解決に失敗しました: %w", err)
+	}
+	settings, err := buildHooksSettings(input.client, resolvedProjectDir, resolvedTracearyBin)
+	if err != nil {
+		return xerrors.Errorf("hook 設定例の生成に失敗しました: %w", err)
+	}
+	resolvedOutputPath, err := resolveHooksInstallOutputPath(input.client, resolvedProjectDir, input.outputPath)
+	if err != nil {
+		return xerrors.Errorf("出力先の解決に失敗しました: %w", err)
+	}
+	if err := writeHooksSettingsFile(resolvedOutputPath, settings, input.force); err != nil {
+		return xerrors.Errorf("hook 設定ファイルの書き出しに失敗しました: %w", err)
+	}
+
+	if _, err := fmt.Fprintf(
+		output,
+		"hook 設定を書き出しました: %s\n既存設定がある環境では差分を確認してから --force を使ってください\n",
+		resolvedOutputPath,
+	); err != nil {
+		return xerrors.Errorf("hook 設定書き出し結果の出力に失敗しました: %w", err)
+	}
+
+	return nil
+}
+
 func resolveHooksProjectDir(flagValue string) (string, error) {
 	if strings.TrimSpace(flagValue) == "" {
 		currentDir, err := os.Getwd()
@@ -138,6 +218,60 @@ func resolveHooksTracearyBin(flagValue string) (string, error) {
 	}
 
 	return resolvedPath, nil
+}
+
+func resolveHooksInstallOutputPath(client string, projectDir string, flagValue string) (string, error) {
+	trimmedFlagValue := strings.TrimSpace(flagValue)
+	if trimmedFlagValue != "" {
+		resolvedPath, err := filepath.Abs(trimmedFlagValue)
+		if err != nil {
+			return "", xerrors.Errorf("絶対パス化に失敗しました: %w", err)
+		}
+
+		return resolvedPath, nil
+	}
+
+	switch strings.ToLower(strings.TrimSpace(client)) {
+	case "claude":
+		return filepath.Join(projectDir, ".claude", "settings.json"), nil
+	case "gemini":
+		return filepath.Join(projectDir, ".gemini", "settings.json"), nil
+	case "codex":
+		homeDir, err := userHomeDirFunc()
+		if err != nil {
+			return "", xerrors.Errorf("ユーザーホームディレクトリの取得に失敗しました: %w", err)
+		}
+
+		return filepath.Join(homeDir, ".codex", "hooks.json"), nil
+	default:
+		return "", xerrors.Errorf("未対応の client です: %s", client)
+	}
+}
+
+func writeHooksSettingsFile(outputPath string, settings *hooksSettings, force bool) error {
+	if settings == nil {
+		return xerrors.Errorf("hook 設定は nil にできません")
+	}
+
+	if _, err := os.Stat(outputPath); err == nil && !force {
+		return xerrors.Errorf("既存ファイルがあるため上書きしません: %s", outputPath)
+	} else if err != nil && !os.IsNotExist(err) {
+		return xerrors.Errorf("既存ファイルの確認に失敗しました: %w", err)
+	}
+
+	encoded, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return xerrors.Errorf("hook 設定例の JSON 変換に失敗しました: %w", err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+		return xerrors.Errorf("出力先ディレクトリの作成に失敗しました: %w", err)
+	}
+	if err := os.WriteFile(outputPath, append(encoded, '\n'), 0o644); err != nil {
+		return xerrors.Errorf("設定ファイルの書き出しに失敗しました: %w", err)
+	}
+
+	return nil
 }
 
 func buildHooksSettings(

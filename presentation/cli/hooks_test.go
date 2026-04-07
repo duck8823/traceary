@@ -3,7 +3,9 @@ package cli_test
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/duck8823/traceary/presentation/cli"
@@ -107,6 +109,133 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 
 		if err := rootCmd.Execute(); err == nil {
 			t.Fatalf("Execute() error = nil, want error")
+		}
+	})
+}
+
+func TestRootCLI_HooksInstallCommand(t *testing.T) {
+	projectDir := t.TempDir()
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) {
+		return homeDir, nil
+	})
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	t.Run("Claude 向け設定を標準パスへ書き出せる", func(t *testing.T) {
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{
+			"hooks",
+			"install",
+			"--client", "claude",
+			"--project-dir", projectDir,
+			"--traceary-bin", "traceary",
+		})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		outputPath := filepath.Join(projectDir, ".claude", "settings.json")
+		content, err := os.ReadFile(outputPath)
+		if err != nil {
+			t.Fatalf("ReadFile() error = %v", err)
+		}
+
+		var settings printedHooksSettings
+		if err := json.Unmarshal(content, &settings); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v", err)
+		}
+		if _, ok := settings.Hooks["SessionStart"]; !ok {
+			t.Fatalf("SessionStart hook not found")
+		}
+		if !strings.Contains(stdout.String(), outputPath) {
+			t.Fatalf("stdout = %q, want path %q", stdout.String(), outputPath)
+		}
+	})
+
+	t.Run("Codex 向け設定はホーム配下の標準パスへ書き出す", func(t *testing.T) {
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+		rootCmd.SetOut(&bytes.Buffer{})
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{
+			"hooks",
+			"install",
+			"--client", "codex",
+			"--project-dir", projectDir,
+			"--traceary-bin", "traceary",
+		})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		outputPath := filepath.Join(homeDir, ".codex", "hooks.json")
+		if _, err := os.Stat(outputPath); err != nil {
+			t.Fatalf("Stat() error = %v", err)
+		}
+	})
+
+	t.Run("既存ファイルがあるとき force なしでは失敗する", func(t *testing.T) {
+		outputPath := filepath.Join(projectDir, ".gemini", "settings.json")
+		if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+			t.Fatalf("MkdirAll() error = %v", err)
+		}
+		if err := os.WriteFile(outputPath, []byte("{\"existing\":true}\n"), 0o644); err != nil {
+			t.Fatalf("WriteFile() error = %v", err)
+		}
+
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+		rootCmd.SetOut(&bytes.Buffer{})
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{
+			"hooks",
+			"install",
+			"--client", "gemini",
+			"--project-dir", projectDir,
+		})
+
+		err := rootCmd.Execute()
+		if err == nil {
+			t.Fatalf("Execute() error = nil, want error")
+		}
+		if !strings.Contains(err.Error(), "既存ファイルがあるため上書きしません") {
+			t.Fatalf("error = %q, want overwrite warning", err.Error())
+		}
+	})
+
+	t.Run("force を付けると既存ファイルを上書きできる", func(t *testing.T) {
+		outputPath := filepath.Join(projectDir, ".gemini", "settings.json")
+		if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+			t.Fatalf("MkdirAll() error = %v", err)
+		}
+		if err := os.WriteFile(outputPath, []byte("{\"existing\":true}\n"), 0o644); err != nil {
+			t.Fatalf("WriteFile() error = %v", err)
+		}
+
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+		rootCmd.SetOut(&bytes.Buffer{})
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{
+			"hooks",
+			"install",
+			"--client", "gemini",
+			"--project-dir", projectDir,
+			"--force",
+		})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		content, err := os.ReadFile(outputPath)
+		if err != nil {
+			t.Fatalf("ReadFile() error = %v", err)
+		}
+		if strings.Contains(string(content), "\"existing\":true") {
+			t.Fatalf("settings.json was not overwritten")
 		}
 	})
 }
