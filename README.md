@@ -135,6 +135,8 @@ All commands resolve the SQLite path in this order: `--db-path` → `TRACEARY_DB
 
 `traceary audit` keeps input/output at `64 KiB` each by default. Use `--max-input-bytes`, `--max-output-bytes`, or `TRACEARY_MAX_AUDIT_INPUT_BYTES` / `TRACEARY_MAX_AUDIT_OUTPUT_BYTES` when you want a stricter limit. The CLI prints a notice when truncation happens.
 
+CLI failures are printed to stderr as plain `Error: ...` lines so hooks and shell scripts can parse them without JSON log noise.
+
 ## Non-goals
 
 - Semantic search / embeddings
