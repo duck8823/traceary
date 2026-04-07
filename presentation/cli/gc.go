@@ -35,7 +35,7 @@ func (c *RootCLI) newGCCommand() *cobra.Command {
 			})
 		},
 	}
-	gcCmd.Flags().StringVar(&dbPath, "db-path", "", "SQLite DB パス")
+	gcCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
 	gcCmd.Flags().IntVar(&keepDays, "keep-days", defaultRetentionDays, "保持する日数")
 	gcCmd.Flags().BoolVar(&dryRun, "dry-run", false, "削除対象件数のみ表示する")
 

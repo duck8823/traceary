@@ -43,7 +43,7 @@ func (c *RootCLI) newLogCommand() *cobra.Command {
 			})
 		},
 	}
-	logCmd.Flags().StringVar(&dbPath, "db-path", "", "SQLite DB パス")
+	logCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
 	logCmd.Flags().StringVar(&client, "client", "", "記録経路 (env: TRACEARY_CLIENT)")
 	logCmd.Flags().StringVar(&agent, "agent", "", "作業主体 (env: TRACEARY_AGENT)")
 	logCmd.Flags().StringVar(&sessionID, "session-id", "", "セッション ID (env: TRACEARY_SESSION_ID)")

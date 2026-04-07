@@ -54,7 +54,7 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 			})
 		},
 	}
-	searchCmd.Flags().StringVar(&dbPath, "db-path", "", "SQLite DB パス")
+	searchCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
 	searchCmd.Flags().StringVar(&repo, "repo", "", "絞り込む work context (env: TRACEARY_REPO / current git remote)")
 	searchCmd.Flags().StringVar(&sessionID, "session-id", "", "絞り込む session ID")
 	searchCmd.Flags().StringVar(&client, "client", "", "絞り込む client")

@@ -23,7 +23,7 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 			return c.runList(cmd.Context(), cmd.OutOrStdout(), dbPath, limit, asJSON)
 		},
 	}
-	listCmd.Flags().StringVar(&dbPath, "db-path", "", "SQLite DB パス")
+	listCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
 	listCmd.Flags().IntVar(&limit, "limit", 20, "表示件数")
 	listCmd.Flags().BoolVar(&asJSON, "json", false, "JSON 形式で出力する")
 
