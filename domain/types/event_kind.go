@@ -1,6 +1,7 @@
 package types
 
 import (
+	"slices"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -22,6 +23,14 @@ const (
 // EventKind はイベント種別を表す値オブジェクトです。
 type EventKind string
 
+var knownEventKinds = []EventKind{
+	EventKindNote,
+	EventKindCommandExecuted,
+	EventKindReviewed,
+	EventKindSessionStarted,
+	EventKindSessionEnded,
+}
+
 // EventKindOf は文字列から EventKind を生成します。
 func EventKindOf(value string) (EventKind, error) {
 	trimmedValue := strings.TrimSpace(value)
@@ -29,17 +38,26 @@ func EventKindOf(value string) (EventKind, error) {
 		return EventKind(""), xerrors.Errorf("event kind は空にできません")
 	}
 
-	switch EventKind(trimmedValue) {
-	case EventKindNote,
-		EventKindCommandExecuted,
-		EventKindReviewed,
-		EventKindSessionStarted,
-		EventKindSessionEnded:
+	if slices.Contains(knownEventKinds, EventKind(trimmedValue)) {
 		return EventKind(trimmedValue), nil
-	default:
-		return EventKind(""), xerrors.Errorf("未知の event kind です: %s", trimmedValue)
 	}
+
+	return EventKind(""), xerrors.Errorf(
+		"未知の event kind です: %s (有効な値: %s)",
+		trimmedValue,
+		strings.Join(KnownEventKindStrings(), ", "),
+	)
 }
 
 // String は EventKind を文字列化します。
 func (e EventKind) String() string { return string(e) }
+
+// KnownEventKindStrings は既知の event kind 一覧を返します。
+func KnownEventKindStrings() []string {
+	values := make([]string, 0, len(knownEventKinds))
+	for _, kind := range knownEventKinds {
+		values = append(values, kind.String())
+	}
+
+	return values
+}

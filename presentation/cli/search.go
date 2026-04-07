@@ -59,7 +59,12 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 	searchCmd.Flags().StringVar(&sessionID, "session-id", "", "絞り込む session ID")
 	searchCmd.Flags().StringVar(&client, "client", "", "絞り込む client")
 	searchCmd.Flags().StringVar(&agent, "agent", "", "絞り込む agent")
-	searchCmd.Flags().StringVar(&kind, "kind", "", "絞り込む kind")
+	searchCmd.Flags().StringVar(
+		&kind,
+		"kind",
+		"",
+		"絞り込む kind (note, command_executed, reviewed, session_started, session_ended; alias: audit)",
+	)
 	searchCmd.Flags().StringVar(&from, "from", "", "開始日 (`YYYY-MM-DD`)")
 	searchCmd.Flags().StringVar(&since, "since", "", "開始日 (`YYYY-MM-DD`) (`--from` の別名)")
 	searchCmd.Flags().StringVar(&to, "to", "", "終了日 (`YYYY-MM-DD`)")

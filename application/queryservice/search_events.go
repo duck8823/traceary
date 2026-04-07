@@ -2,6 +2,7 @@ package queryservice
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"time"
 
@@ -101,6 +102,9 @@ func resolveOptionalSearchKind(value string) (types.EventKind, error) {
 	trimmedValue := strings.TrimSpace(value)
 	if trimmedValue == "" {
 		return "", nil
+	}
+	if slices.Contains([]string{"audit"}, trimmedValue) {
+		return types.EventKindCommandExecuted, nil
 	}
 
 	kind, err := types.EventKindOf(trimmedValue)
