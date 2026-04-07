@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -263,7 +264,7 @@ func TestRootCLI_SessionActiveCommand(t *testing.T) {
 			sessionID,
 			"duck8823/traceary",
 			"session started",
-			time.Date(2026, 4, 8, 14, 0, 0, 0, time.UTC),
+			time.Now().Add(-1*time.Hour),
 		),
 	}
 	stdout := &bytes.Buffer{}
@@ -291,6 +292,109 @@ func TestRootCLI_SessionActiveCommand(t *testing.T) {
 	}
 	if stdout.String() != "session-active\n" {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), "session-active\n")
+	}
+}
+
+func TestRootCLI_SessionActiveCommand_StaleError(t *testing.T) {
+	t.Parallel()
+
+	eventID, err := types.EventIDOf("event-5")
+	if err != nil {
+		t.Fatalf("EventIDOf() error = %v", err)
+	}
+	agent, err := types.AgentOf("codex")
+	if err != nil {
+		t.Fatalf("AgentOf() error = %v", err)
+	}
+	sessionID, err := types.SessionIDOf("session-stale")
+	if err != nil {
+		t.Fatalf("SessionIDOf() error = %v", err)
+	}
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	initStub := &initializeStoreUsecaseStub{}
+	latestStub := &findLatestSessionQueryServiceStub{
+		event: model.EventOf(
+			eventID,
+			types.EventKindSessionStarted,
+			"cli",
+			agent,
+			sessionID,
+			"duck8823/traceary",
+			"session started",
+			time.Now().Add(-48*time.Hour),
+		),
+	}
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:        initStub,
+		FindLatestSessionQueryService: latestStub,
+	}).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"session",
+		"active",
+		"--db-path", dbPath,
+	})
+
+	err = rootCmd.Execute()
+	if err == nil {
+		t.Fatalf("Execute() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "stale") {
+		t.Fatalf("error = %q, want stale error", err.Error())
+	}
+}
+
+func TestRootCLI_SessionActiveCommand_AllowStale(t *testing.T) {
+	t.Parallel()
+
+	eventID, err := types.EventIDOf("event-6")
+	if err != nil {
+		t.Fatalf("EventIDOf() error = %v", err)
+	}
+	agent, err := types.AgentOf("codex")
+	if err != nil {
+		t.Fatalf("AgentOf() error = %v", err)
+	}
+	sessionID, err := types.SessionIDOf("session-stale")
+	if err != nil {
+		t.Fatalf("SessionIDOf() error = %v", err)
+	}
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	initStub := &initializeStoreUsecaseStub{}
+	latestStub := &findLatestSessionQueryServiceStub{
+		event: model.EventOf(
+			eventID,
+			types.EventKindSessionStarted,
+			"cli",
+			agent,
+			sessionID,
+			"duck8823/traceary",
+			"session started",
+			time.Now().Add(-48*time.Hour),
+		),
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:        initStub,
+		FindLatestSessionQueryService: latestStub,
+	}).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"session",
+		"active",
+		"--db-path", dbPath,
+		"--allow-stale",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stdout.String() != "session-stale\n" {
+		t.Fatalf("stdout = %q, want %q", stdout.String(), "session-stale\n")
 	}
 }
 
