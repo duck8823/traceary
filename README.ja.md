@@ -28,9 +28,74 @@ Traceary は、作業ログと audit log をひとつのローカルストアに
 - `client` / `agent` / `session_id` による attribution を保持する
 - 保持期間と `gc` により長期的なデータ肥大化を抑える
 
-## 予定しているコマンド
+## クイックスタート
 
-v0.1 で予定しているコマンド:
+まずは「日常の作業がどう変わるか」だけを見る最短導線です。
+
+```sh
+traceary init
+sid=$(traceary session start --client dogfood --agent codex)
+traceary log --client dogfood --agent codex --session-id "$sid" "失敗したテストを調査している"
+event_id=$(
+  traceary audit \
+    --client dogfood \
+    --agent codex \
+    --session-id "$sid" \
+    "go test ./..." \
+    '{"stdin":""}' \
+    '{"stdout":"panic: boom","stderr":"stacktrace","exitCode":1}' |
+    awk '{print $2}'
+)
+traceary search boom --json
+traceary show "$event_id" --json
+traceary session active
+```
+
+出力例:
+
+```text
+$ traceary init
+初期化しました: /Users/you/.config/traceary/traceary.db
+
+$ traceary session start --client dogfood --agent codex
+session-1ceee1eaa50a31687cfdb2c8a6fcc85d
+
+$ traceary audit ... | awk '{print $2}'
+0dc6d0c579df5e539c27df56e131570a
+
+$ traceary search boom --json
+[
+  {
+    "event_id": "0dc6d0c579df5e539c27df56e131570a",
+    "kind": "command_executed",
+    "message": "go test ./..."
+  }
+]
+
+$ traceary show 0dc6d0c579df5e539c27df56e131570a --json
+{
+  "event": {
+    "kind": "command_executed",
+    "message": "go test ./..."
+  },
+  "command_audit": {
+    "output": "{\"stdout\":\"panic: boom\",\"stderr\":\"stacktrace\",\"exitCode\":1}"
+  }
+}
+
+$ traceary session active
+session-1ceee1eaa50a31687cfdb2c8a6fcc85d
+```
+
+この時点で分かる価値:
+
+- 過去のコマンド出力を文字列検索で引ける
+- いま使っている session ID を手で覚えなくてよい
+- 1件のイベント詳細を取り出して別の AI に渡しやすい
+
+## コアコマンド
+
+現時点の主要コマンド:
 
 ```sh
 traceary log <message>
@@ -39,6 +104,9 @@ traceary search <query>
 traceary list
 traceary session start
 traceary session end
+traceary session latest
+traceary session active
+traceary show <event-id>
 traceary gc
 ```
 
