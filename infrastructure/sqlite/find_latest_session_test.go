@@ -3,6 +3,7 @@ package sqlite_test
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -105,6 +106,9 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		)
 		if err == nil {
 			t.Fatalf("FindLatestSessionStartedEvent() error = nil, want error")
+		}
+		if !strings.Contains(err.Error(), "条件に一致する session は存在しません") {
+			t.Fatalf("error = %q, want no rows message", err.Error())
 		}
 	})
 }
