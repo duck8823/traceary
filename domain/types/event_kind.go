@@ -28,7 +28,17 @@ func EventKindOf(value string) (EventKind, error) {
 	if trimmedValue == "" {
 		return EventKind(""), xerrors.Errorf("event kind は空にできません")
 	}
-	return EventKind(trimmedValue), nil
+
+	switch EventKind(trimmedValue) {
+	case EventKindNote,
+		EventKindCommandExecuted,
+		EventKindReviewed,
+		EventKindSessionStarted,
+		EventKindSessionEnded:
+		return EventKind(trimmedValue), nil
+	default:
+		return EventKind(""), xerrors.Errorf("未知の event kind です: %s", trimmedValue)
+	}
 }
 
 // String は EventKind を文字列化します。
