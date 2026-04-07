@@ -44,7 +44,7 @@ event_id=$(
     "go test ./..." \
     '{"stdin":""}' \
     '{"stdout":"panic: boom","stderr":"stacktrace","exitCode":1}' |
-    sed -n 's/^記録しました: //p'
+    awk '{print $2}'
 )
 traceary search boom --json
 traceary show "$event_id" --json
@@ -60,6 +60,9 @@ $ traceary init
 $ traceary session start --client dogfood --agent codex
 session-1ceee1eaa50a31687cfdb2c8a6fcc85d
 
+$ traceary audit ... | awk '{print $2}'
+0dc6d0c579df5e539c27df56e131570a
+
 $ traceary search boom --json
 [
   {
@@ -68,6 +71,17 @@ $ traceary search boom --json
     "message": "go test ./..."
   }
 ]
+
+$ traceary show 0dc6d0c579df5e539c27df56e131570a --json
+{
+  "event": {
+    "kind": "command_executed",
+    "message": "go test ./..."
+  },
+  "command_audit": {
+    "output": "{\"stdout\":\"panic: boom\",\"stderr\":\"stacktrace\",\"exitCode\":1}"
+  }
+}
 
 $ traceary session active
 session-1ceee1eaa50a31687cfdb2c8a6fcc85d
