@@ -22,6 +22,7 @@ func (c *RootCLI) newSessionCommand() *cobra.Command {
 	sessionCmd.AddCommand(c.newSessionStartCommand())
 	sessionCmd.AddCommand(c.newSessionEndCommand())
 	sessionCmd.AddCommand(c.newSessionLatestCommand())
+	sessionCmd.AddCommand(c.newSessionActiveCommand())
 
 	return sessionCmd
 }
@@ -131,10 +132,41 @@ type sessionBoundaryCommandInput struct {
 }
 
 type sessionLatestCommandInput struct {
-	dbPath string
-	client string
-	agent  string
-	repo   string
+	dbPath     string
+	client     string
+	agent      string
+	repo       string
+	activeOnly bool
+}
+
+func (c *RootCLI) newSessionActiveCommand() *cobra.Command {
+	var (
+		dbPath string
+		client string
+		agent  string
+		repo   string
+	)
+
+	activeCmd := &cobra.Command{
+		Use:   "active",
+		Short: "現在アクティブなセッション ID を表示する",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return c.runSessionLatest(cmd.Context(), cmd.OutOrStdout(), sessionLatestCommandInput{
+				dbPath:     dbPath,
+				client:     client,
+				agent:      agent,
+				repo:       repo,
+				activeOnly: true,
+			})
+		},
+	}
+	activeCmd.Flags().StringVar(&dbPath, "db-path", "", "SQLite DB パス")
+	activeCmd.Flags().StringVar(&client, "client", "", "記録経路で絞り込む")
+	activeCmd.Flags().StringVar(&agent, "agent", "", "作業主体で絞り込む")
+	activeCmd.Flags().StringVar(&repo, "repo", "", "補助的なコンテキスト識別子で絞り込む")
+
+	return activeCmd
 }
 
 func (c *RootCLI) runSessionBoundary(
@@ -197,11 +229,15 @@ func (c *RootCLI) runSessionLatest(
 	}
 
 	event, err := c.findLatestSessionQueryService.Run(ctx, resolvedPath, queryservice.FindLatestSessionInput{
-		Client: resolveOptionalValue(input.client, "TRACEARY_CLIENT", ""),
-		Agent:  resolveOptionalValue(input.agent, "TRACEARY_AGENT", ""),
-		Repo:   resolveRepoValue(ctx, input.repo),
+		Client:     resolveOptionalValue(input.client, "TRACEARY_CLIENT", ""),
+		Agent:      resolveOptionalValue(input.agent, "TRACEARY_AGENT", ""),
+		Repo:       resolveRepoValue(ctx, input.repo),
+		ActiveOnly: input.activeOnly,
 	})
 	if err != nil {
+		if input.activeOnly {
+			return xerrors.Errorf("アクティブ session の取得に失敗しました: %w", err)
+		}
 		return xerrors.Errorf("直近セッションの取得に失敗しました: %w", err)
 	}
 

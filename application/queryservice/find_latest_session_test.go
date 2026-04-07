@@ -61,9 +61,10 @@ func TestFindLatestSessionQueryService_Run(t *testing.T) {
 		sut := queryservice.NewFindLatestSessionQueryService(stub)
 
 		got, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.FindLatestSessionInput{
-			Client: "cli",
-			Agent:  "codex",
-			Repo:   "github.com/duck8823/traceary",
+			Client:     "cli",
+			Agent:      "codex",
+			Repo:       "github.com/duck8823/traceary",
+			ActiveOnly: true,
 		})
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
@@ -73,6 +74,9 @@ func TestFindLatestSessionQueryService_Run(t *testing.T) {
 		}
 		if stub.receivedInput.Agent != "codex" {
 			t.Fatalf("received agent = %q, want %q", stub.receivedInput.Agent, "codex")
+		}
+		if !stub.receivedInput.ActiveOnly {
+			t.Fatalf("received activeOnly = %t, want true", stub.receivedInput.ActiveOnly)
 		}
 		if got.SessionID() != sessionID {
 			t.Fatalf("SessionID() = %q, want %q", got.SessionID(), sessionID)

@@ -11,9 +11,10 @@ import (
 
 // FindLatestSessionInput は直近セッション取得の入力です。
 type FindLatestSessionInput struct {
-	Client string
-	Agent  string
-	Repo   string
+	Client     string
+	Agent      string
+	Repo       string
+	ActiveOnly bool
 }
 
 // LatestSessionFinder は直近セッション開始イベントの取得を提供します。
