@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 	"github.com/duck8823/traceary/presentation/cli"
@@ -73,7 +74,13 @@ func run() error {
 
 	datasource := sqlite.NewDatasource(migrationsSubFS)
 	initializeStoreUsecase := usecase.NewInitializeStoreUsecase(datasource)
-	rootCmd := cli.NewRootCLI(initializeStoreUsecase).Command()
+	recordLogUsecase := usecase.NewRecordLogUsecase(datasource)
+	listRecentEventsQueryService := queryservice.NewListRecentEventsQueryService(datasource)
+	rootCmd := cli.NewRootCLI(
+		initializeStoreUsecase,
+		recordLogUsecase,
+		listRecentEventsQueryService,
+	).Command()
 	rootCmd.Version = versionString()
 	rootCmd.SetVersionTemplate("{{.Name}} {{.Version}}\n")
 
