@@ -70,7 +70,7 @@ func TestRootCLI_ListCommand(t *testing.T) {
 			},
 		}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(initStub, nil, nil, nil, nil, nil, listStub).Command()
+		rootCmd := cli.NewRootCLI(initStub, nil, nil, nil, nil, nil, listStub, nil).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"list", "--db-path", dbPath, "--limit", "5"})
@@ -104,7 +104,7 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		initStub := &initializeStoreUsecaseStub{}
 		listStub := &listEventsQueryServiceStub{}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(initStub, nil, nil, nil, nil, nil, listStub).Command()
+		rootCmd := cli.NewRootCLI(initStub, nil, nil, nil, nil, nil, listStub, nil).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"list", "--db-path", dbPath})

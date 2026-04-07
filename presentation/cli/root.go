@@ -16,6 +16,7 @@ type RootCLI struct {
 	collectGarbageUsecase        usecase.CollectGarbageUsecase
 	searchEventsQueryService     queryservice.SearchEventsQueryService
 	listEventsQueryService       queryservice.ListRecentEventsQueryService
+	mcpServerRunner              MCPServerRunner
 }
 
 // NewRootCLI は新しい RootCLI を生成します。
@@ -27,6 +28,7 @@ func NewRootCLI(
 	collectGarbageUsecase usecase.CollectGarbageUsecase,
 	searchEventsQueryService queryservice.SearchEventsQueryService,
 	listEventsQueryService queryservice.ListRecentEventsQueryService,
+	mcpServerRunner MCPServerRunner,
 ) *RootCLI {
 	return &RootCLI{
 		initializeStoreUsecase:       initializeStoreUsecase,
@@ -36,6 +38,7 @@ func NewRootCLI(
 		collectGarbageUsecase:        collectGarbageUsecase,
 		searchEventsQueryService:     searchEventsQueryService,
 		listEventsQueryService:       listEventsQueryService,
+		mcpServerRunner:              mcpServerRunner,
 	}
 }
 
@@ -53,5 +56,6 @@ func (c *RootCLI) Command() *cobra.Command {
 	rootCmd.AddCommand(c.newSearchCommand())
 	rootCmd.AddCommand(c.newListCommand())
 	rootCmd.AddCommand(c.newSessionCommand())
+	rootCmd.AddCommand(c.newMCPServerCommand())
 	return rootCmd
 }
