@@ -87,6 +87,11 @@ $ traceary session active
 session-1ceee1eaa50a31687cfdb2c8a6fcc85d
 ```
 
+Notes:
+
+- `traceary session active` treats sessions older than `24h` as stale by default
+- use `traceary session active --allow-stale` when you need to inspect an old unclosed session
+
 What changes after this:
 
 - you can search past command output by text
@@ -109,6 +114,8 @@ traceary session active
 traceary show <event-id>
 traceary gc
 ```
+
+`traceary session active` defaults to `--stale-after 24h`; pass `--allow-stale` to inspect an older unclosed session.
 
 Hook setup: [`docs/hooks/README.md`](./docs/hooks/README.md)
 
