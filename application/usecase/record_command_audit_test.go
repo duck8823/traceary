@@ -103,4 +103,56 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 			t.Fatalf("Output() suffix = %q, want truncated suffix", commandAudit.Output()[len(commandAudit.Output())-16:])
 		}
 	})
+
+	t.Run("明示した上限で input/output を切り詰める", func(t *testing.T) {
+		t.Parallel()
+
+		stub := &commandAuditSaverStub{}
+		sut := usecase.NewRecordCommandAuditUsecase(stub)
+
+		_, commandAudit, err := sut.Run(context.Background(), usecase.RecordCommandAuditInput{
+			DBPath:         "/tmp/traceary.db",
+			Command:        "go test ./...",
+			Input:          strings.Repeat("i", 32),
+			Output:         strings.Repeat("o", 32),
+			Client:         "cli",
+			Agent:          "codex",
+			SessionID:      "session-1",
+			MaxInputBytes:  16,
+			MaxOutputBytes: 20,
+		})
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if len(commandAudit.Input()) != 16 {
+			t.Fatalf("len(Input()) = %d, want 16", len(commandAudit.Input()))
+		}
+		if len(commandAudit.Output()) != 20 {
+			t.Fatalf("len(Output()) = %d, want 20", len(commandAudit.Output()))
+		}
+		if !commandAudit.InputTruncated() || !commandAudit.OutputTruncated() {
+			t.Fatalf("truncated flags = (%t, %t), want both true", commandAudit.InputTruncated(), commandAudit.OutputTruncated())
+		}
+	})
+
+	t.Run("負の上限はエラー", func(t *testing.T) {
+		t.Parallel()
+
+		stub := &commandAuditSaverStub{}
+		sut := usecase.NewRecordCommandAuditUsecase(stub)
+
+		_, _, err := sut.Run(context.Background(), usecase.RecordCommandAuditInput{
+			DBPath:        "/tmp/traceary.db",
+			Command:       "go test ./...",
+			Input:         "stdin",
+			Output:        "stdout",
+			Client:        "cli",
+			Agent:         "codex",
+			SessionID:     "session-1",
+			MaxInputBytes: -1,
+		})
+		if err == nil {
+			t.Fatalf("Run() error = nil, want error")
+		}
+	})
 }
