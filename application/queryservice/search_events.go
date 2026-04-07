@@ -8,15 +8,20 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 // SearchEventsInput は検索入力です。
 type SearchEventsInput struct {
-	Query string
-	Repo  string
-	From  time.Time
-	To    time.Time
-	Limit int
+	Query     string
+	Repo      string
+	SessionID string
+	Client    string
+	Agent     string
+	Kind      string
+	From      time.Time
+	To        time.Time
+	Limit     int
 }
 
 // EventSearcher はイベント検索を提供します。
@@ -52,8 +57,8 @@ func (s *searchEventsQueryService) Run(
 	if strings.TrimSpace(dbPath) == "" {
 		return nil, xerrors.Errorf("DB パスは空にできません")
 	}
-	if strings.TrimSpace(input.Query) == "" {
-		return nil, xerrors.Errorf("検索語は空にできません")
+	if !hasSearchConstraint(input) {
+		return nil, xerrors.Errorf("検索条件は1つ以上必要です")
 	}
 	if input.Limit <= 0 {
 		return nil, xerrors.Errorf("limit は 1 以上である必要があります")
@@ -61,6 +66,17 @@ func (s *searchEventsQueryService) Run(
 	if !input.From.IsZero() && !input.To.IsZero() && input.From.After(input.To) {
 		return nil, xerrors.Errorf("from は to より前である必要があります")
 	}
+	input.Query = strings.TrimSpace(input.Query)
+	input.Repo = strings.TrimSpace(input.Repo)
+	input.SessionID = strings.TrimSpace(input.SessionID)
+	input.Client = strings.TrimSpace(input.Client)
+	input.Agent = strings.TrimSpace(input.Agent)
+
+	kind, err := resolveOptionalSearchKind(input.Kind)
+	if err != nil {
+		return nil, err
+	}
+	input.Kind = kind.String()
 
 	events, err := s.eventSearcher.SearchEvents(ctx, dbPath, input)
 	if err != nil {
@@ -68,4 +84,29 @@ func (s *searchEventsQueryService) Run(
 	}
 
 	return events, nil
+}
+
+func hasSearchConstraint(input SearchEventsInput) bool {
+	return strings.TrimSpace(input.Query) != "" ||
+		strings.TrimSpace(input.Repo) != "" ||
+		strings.TrimSpace(input.SessionID) != "" ||
+		strings.TrimSpace(input.Client) != "" ||
+		strings.TrimSpace(input.Agent) != "" ||
+		strings.TrimSpace(input.Kind) != "" ||
+		!input.From.IsZero() ||
+		!input.To.IsZero()
+}
+
+func resolveOptionalSearchKind(value string) (types.EventKind, error) {
+	trimmedValue := strings.TrimSpace(value)
+	if trimmedValue == "" {
+		return "", nil
+	}
+
+	kind, err := types.EventKindOf(trimmedValue)
+	if err != nil {
+		return "", xerrors.Errorf("kind の解決に失敗しました: %w", err)
+	}
+
+	return kind, nil
 }

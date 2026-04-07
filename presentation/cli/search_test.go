@@ -78,8 +78,14 @@ func TestRootCLI_SearchCommand(t *testing.T) {
 	rootCmd.SetArgs([]string{
 		"search",
 		"--db-path", "/tmp/traceary.db",
+		"--session-id", "session-1",
+		"--client", "cli",
+		"--agent", "codex",
+		"--kind", "note",
 		"--from", "2026-04-07",
+		"--since", "2026-04-07",
 		"--to", "2026-04-07",
+		"--until", "2026-04-07",
 		"--limit", "5",
 		"traceary",
 	})
@@ -95,6 +101,18 @@ func TestRootCLI_SearchCommand(t *testing.T) {
 	}
 	if searchStub.receivedInput.Repo != "github.com/duck8823/traceary" {
 		t.Fatalf("Repo = %q, want %q", searchStub.receivedInput.Repo, "github.com/duck8823/traceary")
+	}
+	if searchStub.receivedInput.SessionID != "session-1" {
+		t.Fatalf("SessionID = %q, want %q", searchStub.receivedInput.SessionID, "session-1")
+	}
+	if searchStub.receivedInput.Client != "cli" {
+		t.Fatalf("Client = %q, want %q", searchStub.receivedInput.Client, "cli")
+	}
+	if searchStub.receivedInput.Agent != "codex" {
+		t.Fatalf("Agent = %q, want %q", searchStub.receivedInput.Agent, "codex")
+	}
+	if searchStub.receivedInput.Kind != "note" {
+		t.Fatalf("Kind = %q, want %q", searchStub.receivedInput.Kind, "note")
 	}
 	if stdout.String() == "" {
 		t.Fatalf("stdout is empty")
@@ -169,5 +187,40 @@ func TestRootCLI_SearchCommand_JSON(t *testing.T) {
 		"]\n"
 	if stdout.String() != want {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+	}
+}
+
+func TestRootCLI_SearchCommand_FilterOnly(t *testing.T) {
+	t.Setenv("TRACEARY_REPO", "")
+	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
+		return "github.com/duck8823/traceary", nil
+	})
+	defer cli.ResetDetectRepoContextFunc()
+
+	initStub := &initializeStoreUsecaseStub{}
+	searchStub := &searchEventsQueryServiceStub{}
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:   initStub,
+		SearchEventsQueryService: searchStub,
+	}).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"search",
+		"--db-path", "/tmp/traceary.db",
+		"--session-id", "session-42",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !searchStub.called {
+		t.Fatalf("SearchEventsQueryService.Run() was not called")
+	}
+	if searchStub.receivedInput.Query != "" {
+		t.Fatalf("Query = %q, want empty", searchStub.receivedInput.Query)
+	}
+	if searchStub.receivedInput.SessionID != "session-42" {
+		t.Fatalf("SessionID = %q, want %q", searchStub.receivedInput.SessionID, "session-42")
 	}
 }

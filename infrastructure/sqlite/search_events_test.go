@@ -89,6 +89,28 @@ CREATE TABLE command_audits (
 	if got[0].EventID().String() != "event-audit" {
 		t.Fatalf("EventID() = %q, want %q", got[0].EventID(), "event-audit")
 	}
+
+	t.Run("構造フィルタだけで検索できる", func(t *testing.T) {
+		t.Parallel()
+
+		filtered, err := sut.SearchEvents(context.Background(), dbPath, queryservice.SearchEventsInput{
+			Repo:      "github.com/duck8823/traceary",
+			SessionID: "session-1",
+			Client:    "cli",
+			Agent:     "codex",
+			Kind:      "note",
+			Limit:     10,
+		})
+		if err != nil {
+			t.Fatalf("SearchEvents() error = %v", err)
+		}
+		if len(filtered) != 1 {
+			t.Fatalf("len(filtered) = %d, want 1", len(filtered))
+		}
+		if filtered[0].EventID().String() != "event-note" {
+			t.Fatalf("EventID() = %q, want %q", filtered[0].EventID(), "event-note")
+		}
+	})
 }
 
 func newSearchEventFixture(
