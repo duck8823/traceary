@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -20,8 +21,38 @@ func (c *RootCLI) newSessionCommand() *cobra.Command {
 	}
 	sessionCmd.AddCommand(c.newSessionStartCommand())
 	sessionCmd.AddCommand(c.newSessionEndCommand())
+	sessionCmd.AddCommand(c.newSessionLatestCommand())
 
 	return sessionCmd
+}
+
+func (c *RootCLI) newSessionLatestCommand() *cobra.Command {
+	var (
+		dbPath string
+		client string
+		agent  string
+		repo   string
+	)
+
+	latestCmd := &cobra.Command{
+		Use:   "latest",
+		Short: "直近のセッション ID を表示する",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return c.runSessionLatest(cmd.Context(), cmd.OutOrStdout(), sessionLatestCommandInput{
+				dbPath: dbPath,
+				client: client,
+				agent:  agent,
+				repo:   repo,
+			})
+		},
+	}
+	latestCmd.Flags().StringVar(&dbPath, "db-path", "", "SQLite DB パス")
+	latestCmd.Flags().StringVar(&client, "client", "", "記録経路で絞り込む")
+	latestCmd.Flags().StringVar(&agent, "agent", "", "作業主体で絞り込む")
+	latestCmd.Flags().StringVar(&repo, "repo", "", "補助的なコンテキスト識別子で絞り込む")
+
+	return latestCmd
 }
 
 func (c *RootCLI) newSessionStartCommand() *cobra.Command {
@@ -99,6 +130,13 @@ type sessionBoundaryCommandInput struct {
 	kind      types.EventKind
 }
 
+type sessionLatestCommandInput struct {
+	dbPath string
+	client string
+	agent  string
+	repo   string
+}
+
 func (c *RootCLI) runSessionBoundary(
 	ctx context.Context,
 	output io.Writer,
@@ -129,6 +167,42 @@ func (c *RootCLI) runSessionBoundary(
 	})
 	if err != nil {
 		return xerrors.Errorf("session 境界の記録に失敗しました: %w", err)
+	}
+
+	if _, err := fmt.Fprintln(output, event.SessionID()); err != nil {
+		return xerrors.Errorf("session ID の出力に失敗しました: %w", err)
+	}
+
+	return nil
+}
+
+func (c *RootCLI) runSessionLatest(
+	ctx context.Context,
+	output io.Writer,
+	input sessionLatestCommandInput,
+) error {
+	if c.initializeStoreUsecase == nil {
+		return xerrors.Errorf("ストア初期化ユースケースが設定されていません")
+	}
+	if c.findLatestSessionQueryService == nil {
+		return xerrors.Errorf("直近セッションクエリサービスが設定されていません")
+	}
+
+	resolvedPath, err := resolveDBPath(input.dbPath)
+	if err != nil {
+		return xerrors.Errorf("DB パスの解決に失敗しました: %w", err)
+	}
+	if err := c.initializeStoreUsecase.Run(ctx, resolvedPath); err != nil {
+		return xerrors.Errorf("ストアの初期化に失敗しました: %w", err)
+	}
+
+	event, err := c.findLatestSessionQueryService.Run(ctx, resolvedPath, queryservice.FindLatestSessionInput{
+		Client: resolveOptionalValue(input.client, "TRACEARY_CLIENT", ""),
+		Agent:  resolveOptionalValue(input.agent, "TRACEARY_AGENT", ""),
+		Repo:   resolveRepoValue(ctx, input.repo),
+	})
+	if err != nil {
+		return xerrors.Errorf("直近セッションの取得に失敗しました: %w", err)
 	}
 
 	if _, err := fmt.Fprintln(output, event.SessionID()); err != nil {

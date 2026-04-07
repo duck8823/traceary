@@ -9,15 +9,16 @@ import (
 
 // RootCLI は traceary のルートコマンドを提供します。
 type RootCLI struct {
-	initializeStoreUsecase       usecase.InitializeStoreUsecase
-	recordLogUsecase             usecase.RecordLogUsecase
-	recordSessionBoundaryUsecase usecase.RecordSessionBoundaryUsecase
-	recordCommandAuditUsecase    usecase.RecordCommandAuditUsecase
-	collectGarbageUsecase        usecase.CollectGarbageUsecase
-	searchEventsQueryService     queryservice.SearchEventsQueryService
-	listEventsQueryService       queryservice.ListRecentEventsQueryService
-	getEventDetailsQueryService  queryservice.GetEventDetailsQueryService
-	mcpServerRunner              MCPServerRunner
+	initializeStoreUsecase        usecase.InitializeStoreUsecase
+	recordLogUsecase              usecase.RecordLogUsecase
+	recordSessionBoundaryUsecase  usecase.RecordSessionBoundaryUsecase
+	recordCommandAuditUsecase     usecase.RecordCommandAuditUsecase
+	collectGarbageUsecase         usecase.CollectGarbageUsecase
+	searchEventsQueryService      queryservice.SearchEventsQueryService
+	listEventsQueryService        queryservice.ListRecentEventsQueryService
+	getEventDetailsQueryService   queryservice.GetEventDetailsQueryService
+	findLatestSessionQueryService queryservice.FindLatestSessionQueryService
+	mcpServerRunner               MCPServerRunner
 }
 
 // NewRootCLI は新しい RootCLI を生成します。
@@ -30,18 +31,20 @@ func NewRootCLI(
 	searchEventsQueryService queryservice.SearchEventsQueryService,
 	listEventsQueryService queryservice.ListRecentEventsQueryService,
 	getEventDetailsQueryService queryservice.GetEventDetailsQueryService,
+	findLatestSessionQueryService queryservice.FindLatestSessionQueryService,
 	mcpServerRunner MCPServerRunner,
 ) *RootCLI {
 	return &RootCLI{
-		initializeStoreUsecase:       initializeStoreUsecase,
-		recordLogUsecase:             recordLogUsecase,
-		recordSessionBoundaryUsecase: recordSessionBoundaryUsecase,
-		recordCommandAuditUsecase:    recordCommandAuditUsecase,
-		collectGarbageUsecase:        collectGarbageUsecase,
-		searchEventsQueryService:     searchEventsQueryService,
-		listEventsQueryService:       listEventsQueryService,
-		getEventDetailsQueryService:  getEventDetailsQueryService,
-		mcpServerRunner:              mcpServerRunner,
+		initializeStoreUsecase:        initializeStoreUsecase,
+		recordLogUsecase:              recordLogUsecase,
+		recordSessionBoundaryUsecase:  recordSessionBoundaryUsecase,
+		recordCommandAuditUsecase:     recordCommandAuditUsecase,
+		collectGarbageUsecase:         collectGarbageUsecase,
+		searchEventsQueryService:      searchEventsQueryService,
+		listEventsQueryService:        listEventsQueryService,
+		getEventDetailsQueryService:   getEventDetailsQueryService,
+		findLatestSessionQueryService: findLatestSessionQueryService,
+		mcpServerRunner:               mcpServerRunner,
 	}
 }
 

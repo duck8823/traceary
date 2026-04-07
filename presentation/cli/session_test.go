@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -30,6 +31,27 @@ func (s *recordSessionBoundaryUsecaseStub) Run(
 }
 
 var _ usecase.RecordSessionBoundaryUsecase = (*recordSessionBoundaryUsecaseStub)(nil)
+
+type findLatestSessionQueryServiceStub struct {
+	receivedPath  string
+	receivedInput queryservice.FindLatestSessionInput
+	called        bool
+	event         *model.Event
+	err           error
+}
+
+func (s *findLatestSessionQueryServiceStub) Run(
+	_ context.Context,
+	dbPath string,
+	input queryservice.FindLatestSessionInput,
+) (*model.Event, error) {
+	s.called = true
+	s.receivedPath = dbPath
+	s.receivedInput = input
+	return s.event, s.err
+}
+
+var _ queryservice.FindLatestSessionQueryService = (*findLatestSessionQueryServiceStub)(nil)
 
 func TestRootCLI_SessionStartCommand(t *testing.T) {
 	t.Parallel()
@@ -62,7 +84,7 @@ func TestRootCLI_SessionStartCommand(t *testing.T) {
 		),
 	}
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(initStub, nil, sessionStub, nil, nil, nil, nil, nil, nil).Command()
+	rootCmd := cli.NewRootCLI(initStub, nil, sessionStub, nil, nil, nil, nil, nil, nil, nil).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
@@ -119,7 +141,7 @@ func TestRootCLI_SessionEndCommand(t *testing.T) {
 		),
 	}
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(initStub, nil, sessionStub, nil, nil, nil, nil, nil, nil).Command()
+	rootCmd := cli.NewRootCLI(initStub, nil, sessionStub, nil, nil, nil, nil, nil, nil, nil).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"session", "end", "--db-path", dbPath})
@@ -135,5 +157,68 @@ func TestRootCLI_SessionEndCommand(t *testing.T) {
 	}
 	if stdout.String() != "session-env\n" {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), "session-env\n")
+	}
+}
+
+func TestRootCLI_SessionLatestCommand(t *testing.T) {
+	t.Parallel()
+
+	eventID, err := types.EventIDOf("event-3")
+	if err != nil {
+		t.Fatalf("EventIDOf() error = %v", err)
+	}
+	agent, err := types.AgentOf("codex")
+	if err != nil {
+		t.Fatalf("AgentOf() error = %v", err)
+	}
+	sessionID, err := types.SessionIDOf("session-latest")
+	if err != nil {
+		t.Fatalf("SessionIDOf() error = %v", err)
+	}
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	initStub := &initializeStoreUsecaseStub{}
+	latestStub := &findLatestSessionQueryServiceStub{
+		event: model.EventOf(
+			eventID,
+			types.EventKindSessionStarted,
+			"cli",
+			agent,
+			sessionID,
+			"duck8823/traceary",
+			"session started",
+			time.Date(2026, 4, 8, 13, 0, 0, 0, time.UTC),
+		),
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(initStub, nil, nil, nil, nil, nil, nil, nil, latestStub, nil).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"session",
+		"latest",
+		"--db-path", dbPath,
+		"--client", "cli",
+		"--agent", "codex",
+		"--repo", "duck8823/traceary",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !initStub.called {
+		t.Fatalf("InitializeStoreUsecase.Run() was not called")
+	}
+	if !latestStub.called {
+		t.Fatalf("FindLatestSessionQueryService.Run() was not called")
+	}
+	if latestStub.receivedPath != dbPath {
+		t.Fatalf("dbPath = %q, want %q", latestStub.receivedPath, dbPath)
+	}
+	if latestStub.receivedInput.Agent != "codex" {
+		t.Fatalf("Agent = %q, want %q", latestStub.receivedInput.Agent, "codex")
+	}
+	if stdout.String() != "session-latest\n" {
+		t.Fatalf("stdout = %q, want %q", stdout.String(), "session-latest\n")
 	}
 }
