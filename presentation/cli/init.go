@@ -24,8 +24,18 @@ func (c *RootCLI) newInitCommand() *cobra.Command {
 
 	initCmd := &cobra.Command{
 		Use:   "init",
-		Short: "ローカル SQLite ストアを初期化する",
-		Args:  cobra.NoArgs,
+		Short: "ローカル SQLite ストアを明示的に初期化する",
+		Long: strings.Join([]string{
+			"ローカル SQLite ストアを明示的に初期化します。",
+			"",
+			"traceary の他コマンドも必要に応じて DB を自動作成し、マイグレーションを適用します。",
+			"init は DB パスや書き込み権限を事前に確認したいときに使います。",
+		}, "\n"),
+		Example: strings.Join([]string{
+			"  traceary init",
+			"  TRACEARY_DB_PATH=/tmp/traceary.db traceary init",
+		}, "\n"),
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runInit(cmd.Context(), cmd.OutOrStdout(), dbPath)
 		},

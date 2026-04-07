@@ -134,3 +134,26 @@ func TestRootCLI_InitCommand_UsesTracearyDBPathEnv(t *testing.T) {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), wantOutput)
 	}
 }
+
+func TestRootCLI_InitHelp_ExplainsOptionalBootstrap(t *testing.T) {
+	t.Parallel()
+
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(stderr)
+	rootCmd.SetArgs([]string{"init", "--help"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "他コマンドも必要に応じて DB を自動作成") {
+		t.Fatalf("stdout = %q, want init help to mention automatic DB creation", output)
+	}
+	if !strings.Contains(output, "DB パスや書き込み権限を事前に確認") {
+		t.Fatalf("stdout = %q, want init help to mention explicit bootstrap purpose", output)
+	}
+}
