@@ -1,0 +1,35 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /absolute/path/to/traceary/scripts/hooks/traceary-session.sh codex start"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /absolute/path/to/traceary/scripts/hooks/traceary-session.sh codex stop"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /absolute/path/to/traceary/scripts/hooks/traceary-audit.sh codex"
+          }
+        ]
+      }
+    ]
+  }
+}
