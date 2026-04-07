@@ -123,15 +123,16 @@ func resolveHooksProjectDir(flagValue string) (string, error) {
 }
 
 func resolveHooksTracearyBin(flagValue string) (string, error) {
-	if strings.TrimSpace(flagValue) == "" {
-		executablePath, err := os.Executable()
-		if err != nil {
-			return "", xerrors.Errorf("実行中バイナリパスの取得に失敗しました: %w", err)
-		}
-		flagValue = executablePath
+	trimmedValue := strings.TrimSpace(flagValue)
+	if trimmedValue == "" {
+		return "traceary", nil
 	}
 
-	resolvedPath, err := filepath.Abs(strings.TrimSpace(flagValue))
+	if filepath.Base(trimmedValue) == trimmedValue && !strings.HasPrefix(trimmedValue, ".") {
+		return trimmedValue, nil
+	}
+
+	resolvedPath, err := filepath.Abs(trimmedValue)
 	if err != nil {
 		return "", xerrors.Errorf("絶対パス化に失敗しました: %w", err)
 	}
