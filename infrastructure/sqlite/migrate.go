@@ -31,27 +31,54 @@ func (d *Datasource) migrate(ctx context.Context, db *sql.DB) error {
 		return xerrors.Errorf("マイグレーションファイルが見つかりません")
 	}
 
-	sort.Strings(migrationPaths)
+	migrations := make([]migrationFile, 0, len(migrationPaths))
+	seenVersions := make(map[int64]struct{}, len(migrationPaths))
 	for _, migrationPath := range migrationPaths {
 		version, err := parseMigrationVersion(migrationPath)
 		if err != nil {
 			return xerrors.Errorf("マイグレーションバージョンの解析に失敗しました: %w", err)
 		}
-		if _, exists := appliedVersions[version]; exists {
+		if _, exists := seenVersions[version]; exists {
+			return xerrors.Errorf("重複したマイグレーションバージョンです: %d", version)
+		}
+		seenVersions[version] = struct{}{}
+		migrations = append(migrations, migrationFile{
+			path:    migrationPath,
+			version: version,
+		})
+	}
+
+	sort.Slice(migrations, func(i int, j int) bool {
+		return migrations[i].version < migrations[j].version
+	})
+
+	for _, migration := range migrations {
+		if _, exists := appliedVersions[migration.version]; exists {
 			continue
 		}
 
-		migrationSQL, err := fs.ReadFile(d.migrations, migrationPath)
+		migrationSQL, err := fs.ReadFile(d.migrations, migration.path)
 		if err != nil {
 			return xerrors.Errorf("マイグレーションファイルの読み込みに失敗しました: %w", err)
 		}
 
-		if err := applyMigration(ctx, db, version, filepath.Base(migrationPath), string(migrationSQL)); err != nil {
+		if err := applyMigration(
+			ctx,
+			db,
+			migration.version,
+			filepath.Base(migration.path),
+			string(migrationSQL),
+		); err != nil {
 			return xerrors.Errorf("マイグレーションの適用に失敗しました: %w", err)
 		}
 	}
 
 	return nil
+}
+
+type migrationFile struct {
+	path    string
+	version int64
 }
 
 func ensureSchemaMigrationsTable(ctx context.Context, db *sql.DB) error {
