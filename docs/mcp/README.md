@@ -64,7 +64,7 @@ Flags:
 
 ## Exposed tools
 
-Traceary currently exposes eight MCP tools.
+Traceary currently exposes nine MCP tools.
 
 ### `start_session`
 
@@ -109,6 +109,18 @@ Inputs:
 - `repo`
 - `allow_stale` (default: `false`)
 - `stale_after_seconds` (`0` or omitted uses the default `86400`)
+
+### `list_events`
+
+Returns recent events in reverse chronological order.
+
+Inputs:
+
+- `limit` (default: `20`)
+- `offset` (default: `0`)
+
+Use `list_events` when the client wants the same "recent feed" view as `traceary list`.
+Use `search` when the client needs structured filters such as `repo`, `session_id`, or a text query.
 
 ### `add_log`
 
@@ -191,9 +203,10 @@ One practical pattern is:
 1. use hooks to record session boundaries and command audits automatically
 2. connect the same Traceary DB through MCP
 3. let the client call `active_session` or `latest_session` when it needs to resume a session explicitly
-4. let the client call `get_context` before a new task
-5. let the client call `search` when it needs old command output or notes
-6. optionally use `start_session` / `end_session` / `add_log` / `add_audit` when the client should manage session lifecycle itself
+4. let the client call `list_events` when it wants a recent feed without filters
+5. let the client call `get_context` before a new task
+6. let the client call `search` when it needs old command output or notes
+7. optionally use `start_session` / `end_session` / `add_log` / `add_audit` when the client should manage session lifecycle itself
 
 This keeps passive ingestion and active context lookup in one local store.
 
