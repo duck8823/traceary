@@ -162,6 +162,8 @@ type addAuditOutput struct {
 	SessionID       string `json:"session_id" jsonschema:"セッション識別子"`
 	Repo            string `json:"repo,omitempty" jsonschema:"補助的な work context 識別子"`
 	Command         string `json:"command" jsonschema:"実行したコマンド"`
+	InputRedacted   bool   `json:"input_redacted" jsonschema:"入力が伏せ字化されたか"`
+	OutputRedacted  bool   `json:"output_redacted" jsonschema:"出力が伏せ字化されたか"`
 	InputTruncated  bool   `json:"input_truncated" jsonschema:"入力が切り詰められたか"`
 	OutputTruncated bool   `json:"output_truncated" jsonschema:"出力が切り詰められたか"`
 	CreatedAt       string `json:"created_at" jsonschema:"イベント記録時刻 (RFC3339Nano)"`
@@ -245,6 +247,8 @@ func (s *Server) addAudit(dbPath string) mcp.ToolHandlerFor[addAuditInput, addAu
 			SessionID:       event.SessionID().String(),
 			Repo:            event.Repo(),
 			Command:         audit.Command(),
+			InputRedacted:   audit.InputRedacted(),
+			OutputRedacted:  audit.OutputRedacted(),
 			InputTruncated:  audit.InputTruncated(),
 			OutputTruncated: audit.OutputTruncated(),
 			CreatedAt:       event.CreatedAt().UTC().Format(time.RFC3339Nano),

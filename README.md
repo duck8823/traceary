@@ -170,6 +170,8 @@ All commands resolve the SQLite path in this order: `--db-path` → `TRACEARY_DB
 
 `traceary audit` keeps input/output at `64 KiB` each by default. Use `--max-input-bytes`, `--max-output-bytes`, or `TRACEARY_MAX_AUDIT_INPUT_BYTES` / `TRACEARY_MAX_AUDIT_OUTPUT_BYTES` when you want a stricter limit. The CLI prints a notice when truncation happens.
 
+`traceary audit` also redacts common secret-like values before they reach SQLite (for example `Authorization:` headers, `TOKEN=...`, JSON `access_token`, and private key blocks). This is a best-effort safeguard, not a complete DLP system. Use `--allow-secrets` or `TRACEARY_ALLOW_SECRETS=true` only when you intentionally want raw payload persistence.
+
 CLI failures are printed to stderr as plain `Error: ...` lines so hooks and shell scripts can parse them without JSON log noise.
 
 ## License

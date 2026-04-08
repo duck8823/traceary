@@ -75,6 +75,8 @@ Inputs:
 
 Records a shell-command audit event.
 
+Like the CLI, `add_audit` redacts common secret-like values before they are written to SQLite. Treat that redaction as best-effort, not a complete guarantee. The MCP surface intentionally does not expose an `allow-secrets` override; use the direct CLI only when you intentionally want raw payload persistence.
+
 Inputs:
 
 - `command` (required)

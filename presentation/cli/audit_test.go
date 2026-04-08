@@ -180,3 +180,140 @@ func TestRootCLI_AuditCommand_TruncationNotice(t *testing.T) {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 	}
 }
+
+func TestRootCLI_AuditCommand_RedactionNotice(t *testing.T) {
+	t.Setenv("TRACEARY_SESSION_ID", "session-env")
+
+	eventID, err := types.EventIDOf("event-3")
+	if err != nil {
+		t.Fatalf("EventIDOf() error = %v", err)
+	}
+	agent, err := types.AgentOf("codex")
+	if err != nil {
+		t.Fatalf("AgentOf() error = %v", err)
+	}
+	sessionID, err := types.SessionIDOf("session-env")
+	if err != nil {
+		t.Fatalf("SessionIDOf() error = %v", err)
+	}
+	commandAudit, err := model.NewCommandAudit(
+		eventID,
+		"curl https://example.test",
+		`{"access_token":"[REDACTED]"}`,
+		"Authorization: Bearer [REDACTED]",
+		false,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("NewCommandAudit() error = %v", err)
+	}
+	commandAudit.SetRedaction(true, true)
+
+	initStub := &initializeStoreUsecaseStub{}
+	auditStub := &recordCommandAuditUsecaseStub{
+		event: model.EventOf(
+			eventID,
+			types.EventKindCommandExecuted,
+			"cli",
+			agent,
+			sessionID,
+			"duck8823/traceary",
+			"curl https://example.test",
+			time.Date(2026, 4, 7, 15, 0, 0, 0, time.UTC),
+		),
+		commandAudit: commandAudit,
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:    initStub,
+		RecordCommandAuditUsecase: auditStub,
+	}).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"audit",
+		"--db-path", "/tmp/traceary.db",
+		"--agent", "codex",
+		"--client", "cli",
+		"curl https://example.test",
+		`{"access_token":"top-secret"}`,
+		"Authorization: Bearer token-value",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	want := "" +
+		"Recorded: event-3\n" +
+		"Input was redacted before storing\n" +
+		"Output was redacted before storing\n"
+	if stdout.String() != want {
+		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+	}
+}
+
+func TestRootCLI_AuditCommand_AllowSecretsEnv(t *testing.T) {
+	t.Setenv("TRACEARY_SESSION_ID", "session-env")
+	t.Setenv("TRACEARY_ALLOW_SECRETS", "true")
+
+	eventID, err := types.EventIDOf("event-4")
+	if err != nil {
+		t.Fatalf("EventIDOf() error = %v", err)
+	}
+	agent, err := types.AgentOf("codex")
+	if err != nil {
+		t.Fatalf("AgentOf() error = %v", err)
+	}
+	sessionID, err := types.SessionIDOf("session-env")
+	if err != nil {
+		t.Fatalf("SessionIDOf() error = %v", err)
+	}
+	commandAudit, err := model.NewCommandAudit(
+		eventID,
+		"curl https://example.test",
+		`{"access_token":"top-secret"}`,
+		"Authorization: Bearer token-value",
+		false,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("NewCommandAudit() error = %v", err)
+	}
+
+	initStub := &initializeStoreUsecaseStub{}
+	auditStub := &recordCommandAuditUsecaseStub{
+		event: model.EventOf(
+			eventID,
+			types.EventKindCommandExecuted,
+			"cli",
+			agent,
+			sessionID,
+			"duck8823/traceary",
+			"curl https://example.test",
+			time.Date(2026, 4, 7, 15, 0, 0, 0, time.UTC),
+		),
+		commandAudit: commandAudit,
+	}
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:    initStub,
+		RecordCommandAuditUsecase: auditStub,
+	}).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"audit",
+		"--db-path", "/tmp/traceary.db",
+		"--agent", "codex",
+		"--client", "cli",
+		"curl https://example.test",
+		`{"access_token":"top-secret"}`,
+		"Authorization: Bearer token-value",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !auditStub.receivedInput.AllowSecrets {
+		t.Fatalf("AllowSecrets = false, want true")
+	}
+}
