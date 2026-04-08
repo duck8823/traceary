@@ -78,5 +78,6 @@ GitHub Actions runs the same check in CI.
 - environment reference: `docs/environment/README.md` / `docs/environment/README.ja.md`
 - MCP guide: `docs/mcp/README.md` / `docs/mcp/README.ja.md`
 - backup guide: `docs/backup/README.md` / `docs/backup/README.ja.md`
+- operational assumptions: `docs/operations/README.md` / `docs/operations/README.ja.md`
 - storage model: `docs/storage/README.md` / `docs/storage/README.ja.md`
 - release guide: `docs/release/README.md` / `docs/release/README.ja.md`

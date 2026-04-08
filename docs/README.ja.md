@@ -78,5 +78,6 @@ GitHub Actions でも同じ検証を行います。
 - environment reference: `docs/environment/README.md` / `docs/environment/README.ja.md`
 - MCP ガイド: `docs/mcp/README.md` / `docs/mcp/README.ja.md`
 - バックアップガイド: `docs/backup/README.md` / `docs/backup/README.ja.md`
+- 運用前提: `docs/operations/README.md` / `docs/operations/README.ja.md`
 - ストレージモデル: `docs/storage/README.md` / `docs/storage/README.ja.md`
 - release ガイド: `docs/release/README.md` / `docs/release/README.ja.md`
