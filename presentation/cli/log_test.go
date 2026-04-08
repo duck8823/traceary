@@ -3,9 +3,11 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -177,8 +179,143 @@ func TestRootCLI_LogCommand(t *testing.T) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), "event-1\n")
 		}
 	})
+
+	t.Run("active session を既定利用できる", func(t *testing.T) {
+		t.Setenv("TRACEARY_SESSION_ID", "")
+		cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
+			return "github.com/duck8823/traceary", nil
+		})
+		defer cli.ResetDetectRepoContextFunc()
+
+		dbPath := t.TempDir() + "/traceary.db"
+		activeEventID, err := types.EventIDOf("event-session-start")
+		if err != nil {
+			t.Fatalf("EventIDOf() error = %v", err)
+		}
+		activeSessionID, err := types.SessionIDOf("session-active")
+		if err != nil {
+			t.Fatalf("SessionIDOf() error = %v", err)
+		}
+
+		initStub := &initializeStoreUsecaseStub{}
+		queryStub := &findLatestSessionQueryServiceStub{
+			event: model.EventOf(
+				activeEventID,
+				types.EventKindSessionStarted,
+				"cli",
+				agent,
+				activeSessionID,
+				"github.com/duck8823/traceary",
+				"session started",
+				time.Now().Add(-1*time.Hour),
+			),
+		}
+		logStub := &recordLogUsecaseStub{
+			event: model.EventOf(
+				eventID,
+				types.EventKindNote,
+				"cli",
+				agent,
+				activeSessionID,
+				"github.com/duck8823/traceary",
+				"hello",
+				fixedLogTime(),
+			),
+		}
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase:        initStub,
+			RecordLogUsecase:              logStub,
+			FindLatestSessionQueryService: queryStub,
+		}).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"log", "--db-path", dbPath, "hello"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		if !queryStub.called {
+			t.Fatal("FindLatestSessionQueryService.Run() was not called")
+		}
+		if queryStub.receivedInput != (queryservice.FindLatestSessionInput{
+			Repo:       "github.com/duck8823/traceary",
+			ActiveOnly: true,
+		}) {
+			t.Fatalf("receivedInput = %+v", queryStub.receivedInput)
+		}
+		if logStub.receivedInput.SessionID != "session-active" {
+			t.Fatalf("SessionID = %q, want %q", logStub.receivedInput.SessionID, "session-active")
+		}
+		want := "" +
+			"Using active session: session-active\n" +
+			"Recorded: event-1\n"
+		if stdout.String() != want {
+			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+		}
+	})
+
+	t.Run("work context が無い場合は default session に fallback する", func(t *testing.T) {
+		t.Setenv("TRACEARY_SESSION_ID", "")
+		cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
+			return "", errors.New("no git remote")
+		})
+		defer cli.ResetDetectRepoContextFunc()
+
+		dbPath := t.TempDir() + "/traceary.db"
+		initStub := &initializeStoreUsecaseStub{}
+		queryStub := &findLatestSessionQueryServiceStub{}
+		logStub := &recordLogUsecaseStub{
+			event: model.EventOf(
+				eventID,
+				types.EventKindNote,
+				"cli",
+				agent,
+				mustSessionID(t, "default"),
+				"",
+				"hello",
+				fixedLogTime(),
+			),
+		}
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase:        initStub,
+			RecordLogUsecase:              logStub,
+			FindLatestSessionQueryService: queryStub,
+		}).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"log", "--db-path", dbPath, "hello"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		if queryStub.called {
+			t.Fatal("FindLatestSessionQueryService.Run() should not have been called")
+		}
+		if logStub.receivedInput.SessionID != "default" {
+			t.Fatalf("SessionID = %q, want %q", logStub.receivedInput.SessionID, "default")
+		}
+		want := "" +
+			"No work context was detected; using default session ID\n" +
+			"Recorded: event-1\n"
+		if stdout.String() != want {
+			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+		}
+	})
 }
 
 func fixedLogTime() time.Time {
 	return time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC)
+}
+
+func mustSessionID(t *testing.T, value string) types.SessionID {
+	t.Helper()
+
+	sessionID, err := types.SessionIDOf(value)
+	if err != nil {
+		t.Fatalf("SessionIDOf() error = %v", err)
+	}
+
+	return sessionID
 }

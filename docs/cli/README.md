@@ -26,6 +26,12 @@ Useful flags:
 - `--repo`
 - `--id-only`
 
+Session resolution rules:
+
+- explicit `--session-id` or `TRACEARY_SESSION_ID` wins
+- otherwise Traceary reuses the latest non-stale active session for the resolved repo/work context
+- if no repo/work context or no matching active session is found, Traceary falls back to the historical `default` session ID
+
 ### `traceary audit [<command> <input> <output>]`
 
 Record a command execution audit event.
@@ -48,6 +54,8 @@ Useful flags:
 - `--allow-secrets`
 - `--max-input-bytes`
 - `--max-output-bytes`
+
+Session resolution follows the same rules as `traceary log`.
 
 ## Read/query commands
 

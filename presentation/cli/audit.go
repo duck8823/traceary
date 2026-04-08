@@ -70,7 +70,15 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 	auditCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	auditCmd.Flags().StringVar(&client, "client", "", Localize("recording channel (env: TRACEARY_CLIENT)", "記録経路 (env: TRACEARY_CLIENT)"))
 	auditCmd.Flags().StringVar(&agent, "agent", "", Localize("actor name (env: TRACEARY_AGENT)", "作業主体 (env: TRACEARY_AGENT)"))
-	auditCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID (env: TRACEARY_SESSION_ID)", "セッション ID (env: TRACEARY_SESSION_ID)"))
+	auditCmd.Flags().StringVar(
+		&sessionID,
+		"session-id",
+		"",
+		Localize(
+			"session ID (env: TRACEARY_SESSION_ID, otherwise active session or default)",
+			"セッション ID (env: TRACEARY_SESSION_ID。未指定時は active session、なければ既定値)",
+		),
+	)
 	auditCmd.Flags().StringVar(&repo, "repo", "", Localize("auxiliary work context identifier (env: TRACEARY_REPO)", "補助的なコンテキスト識別子 (env: TRACEARY_REPO)"))
 	auditCmd.Flags().StringVar(&command, "command", "", Localize("command text to record", "記録する command 文字列"))
 	auditCmd.Flags().StringVar(&auditInput, "input", "", Localize("command input payload", "command input"))
@@ -144,6 +152,17 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
+	resolvedRepo := resolveRepoValue(ctx, input.repo)
+	sessionResolution, err := c.resolveManualSessionID(
+		ctx,
+		resolvedPath,
+		resolveOptionalValue(input.sessionID, "TRACEARY_SESSION_ID", ""),
+		resolvedRepo,
+	)
+	if err != nil {
+		return err
+	}
+
 	maxInputBytes, err := resolveAuditMaxBytes(input.maxInputBytes, "TRACEARY_MAX_AUDIT_INPUT_BYTES")
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve input byte limit", "input 上限の解決に失敗しました"), err)
@@ -164,8 +183,8 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		Output:         input.output,
 		Client:         resolveOptionalValue(input.client, "TRACEARY_CLIENT", defaultClientValue),
 		Agent:          resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue),
-		SessionID:      resolveOptionalValue(input.sessionID, "TRACEARY_SESSION_ID", defaultSessionIDValue),
-		Repo:           resolveRepoValue(ctx, input.repo),
+		SessionID:      sessionResolution.sessionID,
+		Repo:           resolvedRepo,
 		AllowSecrets:   allowSecrets,
 		MaxInputBytes:  maxInputBytes,
 		MaxOutputBytes: maxOutputBytes,
@@ -181,6 +200,9 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		return nil
 	}
 
+	if err := writeManualSessionNotice(output, sessionResolution.notice); err != nil {
+		return err
+	}
 	if _, err := fmt.Fprintf(output, "%s: %s\n", Localize("Recorded", "記録しました"), event.EventID()); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print record result", "監査ログ記録結果の出力に失敗しました"), err)
 	}

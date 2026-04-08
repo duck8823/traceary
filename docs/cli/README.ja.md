@@ -26,6 +26,12 @@ note event を追記します。
 - `--repo`
 - `--id-only`
 
+session 解決ルール:
+
+- 明示 `--session-id` または `TRACEARY_SESSION_ID` を最優先
+- それ以外では、解決できた repo / work context に対する最新の non-stale active session を再利用
+- repo / work context が無い、または一致する active session が無い場合は、従来どおり `default` session ID に fallback
+
 ### `traceary audit [<command> <input> <output>]`
 
 command execution audit event を記録します。
@@ -48,6 +54,8 @@ command execution audit event を記録します。
 - `--allow-secrets`
 - `--max-input-bytes`
 - `--max-output-bytes`
+
+session 解決ルールは `traceary log` と同じです。
 
 ## 参照・検索コマンド
 

@@ -203,6 +203,8 @@ traceary audit --id-only --command "go test ./..." --input '{}' --output '{}'
 traceary session end --session-id "$sid" --id-only
 ```
 
+`traceary log` / `traceary audit` で `--session-id` を省略した場合、Traceary はまず解決できた repo / work context に対する最新の non-stale active session を使います。該当がなければ、従来どおり `default` session ID に fallback し、人間向け出力ではその旨を通知します。
+
 `search --kind` でよく使う例:
 
 ```sh
