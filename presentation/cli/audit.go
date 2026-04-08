@@ -21,25 +21,46 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 		agent          string
 		sessionID      string
 		repo           string
+		command        string
+		commandFlagSet bool
+		auditInput     string
+		inputFlagSet   bool
+		auditOutput    string
+		outputFlagSet  bool
+		idOnly         bool
 		allowSecrets   bool
 		maxInputBytes  int
 		maxOutputBytes int
 	)
 
 	auditCmd := &cobra.Command{
-		Use:   "audit <command> <input> <output>",
+		Use:   "audit [<command> <input> <output>]",
 		Short: Localize("Record a command execution audit event", "コマンド実行の監査ログを記録する"),
-		Args:  exactArgsJP(3),
+		Args:  maximumNArgsJP(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			commandValue, inputValue, outputValue, err := resolveAuditPayload(auditPayloadInput{
+				positionalArgs: args,
+				command:        command,
+				commandFlagSet: commandFlagSet,
+				input:          auditInput,
+				inputFlagSet:   inputFlagSet,
+				output:         auditOutput,
+				outputFlagSet:  outputFlagSet,
+			})
+			if err != nil {
+				return err
+			}
+
 			return c.runAudit(cmd.Context(), cmd.OutOrStdout(), auditCommandInput{
 				dbPath:         dbPath,
-				command:        args[0],
-				input:          args[1],
-				output:         args[2],
+				command:        commandValue,
+				input:          inputValue,
+				output:         outputValue,
 				client:         client,
 				agent:          agent,
 				sessionID:      sessionID,
 				repo:           repo,
+				idOnly:         idOnly,
 				allowSecrets:   allowSecrets,
 				maxInputBytes:  maxInputBytes,
 				maxOutputBytes: maxOutputBytes,
@@ -51,6 +72,10 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 	auditCmd.Flags().StringVar(&agent, "agent", "", Localize("actor name (env: TRACEARY_AGENT)", "作業主体 (env: TRACEARY_AGENT)"))
 	auditCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID (env: TRACEARY_SESSION_ID)", "セッション ID (env: TRACEARY_SESSION_ID)"))
 	auditCmd.Flags().StringVar(&repo, "repo", "", Localize("auxiliary work context identifier (env: TRACEARY_REPO)", "補助的なコンテキスト識別子 (env: TRACEARY_REPO)"))
+	auditCmd.Flags().StringVar(&command, "command", "", Localize("command text to record", "記録する command 文字列"))
+	auditCmd.Flags().StringVar(&auditInput, "input", "", Localize("command input payload", "command input"))
+	auditCmd.Flags().StringVar(&auditOutput, "output", "", Localize("command output payload", "command output"))
+	auditCmd.Flags().BoolVar(&idOnly, "id-only", false, Localize("print only the recorded event ID", "記録した event ID だけを出力する"))
 	auditCmd.Flags().BoolVar(
 		&allowSecrets,
 		"allow-secrets",
@@ -69,8 +94,23 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 		0,
 		Localize("maximum stored output bytes (env: TRACEARY_MAX_AUDIT_OUTPUT_BYTES, 0 uses default)", "出力保存サイズ上限 (env: TRACEARY_MAX_AUDIT_OUTPUT_BYTES, 0 なら既定値)"),
 	)
+	auditCmd.PreRun = func(cmd *cobra.Command, _ []string) {
+		commandFlagSet = cmd.Flags().Changed("command")
+		inputFlagSet = cmd.Flags().Changed("input")
+		outputFlagSet = cmd.Flags().Changed("output")
+	}
 
 	return auditCmd
+}
+
+type auditPayloadInput struct {
+	positionalArgs []string
+	command        string
+	commandFlagSet bool
+	input          string
+	inputFlagSet   bool
+	output         string
+	outputFlagSet  bool
 }
 
 type auditCommandInput struct {
@@ -82,6 +122,7 @@ type auditCommandInput struct {
 	agent          string
 	sessionID      string
 	repo           string
+	idOnly         bool
 	allowSecrets   bool
 	maxInputBytes  int
 	maxOutputBytes int
@@ -133,6 +174,13 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		return xerrors.Errorf("%s: %w", Localize("failed to record command audit", "監査ログ記録に失敗しました"), err)
 	}
 
+	if input.idOnly {
+		if _, err := fmt.Fprintln(output, event.EventID()); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print record result", "監査ログ記録結果の出力に失敗しました"), err)
+		}
+		return nil
+	}
+
 	if _, err := fmt.Fprintf(output, "%s: %s\n", Localize("Recorded", "記録しました"), event.EventID()); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print record result", "監査ログ記録結果の出力に失敗しました"), err)
 	}
@@ -160,6 +208,77 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 	}
 
 	return nil
+}
+
+func resolveAuditPayload(input auditPayloadInput) (string, string, string, error) {
+	commandValue, err := resolveAuditPayloadField(
+		input.command,
+		input.commandFlagSet,
+		input.positionalArgs,
+		0,
+		Localize("--command", "--command"),
+		true,
+	)
+	if err != nil {
+		return "", "", "", err
+	}
+	inputValue, err := resolveAuditPayloadField(
+		input.input,
+		input.inputFlagSet,
+		input.positionalArgs,
+		1,
+		Localize("--input", "--input"),
+		false,
+	)
+	if err != nil {
+		return "", "", "", err
+	}
+	outputValue, err := resolveAuditPayloadField(
+		input.output,
+		input.outputFlagSet,
+		input.positionalArgs,
+		2,
+		Localize("--output", "--output"),
+		false,
+	)
+	if err != nil {
+		return "", "", "", err
+	}
+
+	return commandValue, inputValue, outputValue, nil
+}
+
+func resolveAuditPayloadField(
+	flagValue string,
+	flagSet bool,
+	positionalArgs []string,
+	position int,
+	flagName string,
+	requireNonEmpty bool,
+) (string, error) {
+	hasPositionalValue := len(positionalArgs) > position
+	if flagSet && hasPositionalValue {
+		return "", xerrors.Errorf(
+			localizef("do not provide both %s and positional argument %d", "%s と位置引数 %d を同時に指定しないでください", flagName, position+1),
+		)
+	}
+
+	if flagSet {
+		if requireNonEmpty && strings.TrimSpace(flagValue) == "" {
+			return "", xerrors.Errorf(localizef("%s must not be empty", "%s は空にできません", flagName))
+		}
+		return flagValue, nil
+	}
+	if hasPositionalValue {
+		if requireNonEmpty && strings.TrimSpace(positionalArgs[position]) == "" {
+			return "", xerrors.Errorf(localizef("positional argument %d must not be empty", "位置引数 %d は空にできません", position+1))
+		}
+		return positionalArgs[position], nil
+	}
+	if requireNonEmpty {
+		return "", xerrors.Errorf(localizef("either %s or positional argument %d is required", "%s または位置引数 %d が必要です", flagName, position+1))
+	}
+	return "", xerrors.Errorf(localizef("either %s or positional argument %d is required, even when empty", "%s または位置引数 %d が必要です (空文字でも明示してください)", flagName, position+1))
 }
 
 func resolveAuditMaxBytes(flagValue int, envKey string) (int, error) {

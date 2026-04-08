@@ -84,10 +84,10 @@ event_id=$(
     --client dogfood \
     --agent codex \
     --session-id "$sid" \
-    "go test ./..." \
-    '{"stdin":""}' \
-    '{"stdout":"panic: boom","stderr":"stacktrace","exitCode":1}' |
-    awk '{print $2}'
+    --id-only \
+    --command "go test ./..." \
+    --input '{"stdin":""}' \
+    --output '{"stdout":"panic: boom","stderr":"stacktrace","exitCode":1}'
 )
 traceary search boom --json
 traceary show "$event_id" --json
@@ -103,7 +103,7 @@ Initialized: /Users/you/.config/traceary/traceary.db
 $ traceary session start --client dogfood --agent codex
 session-1ceee1eaa50a31687cfdb2c8a6fcc85d
 
-$ traceary audit ... | awk '{print $2}'
+$ traceary audit --id-only ...
 0dc6d0c579df5e539c27df56e131570a
 
 $ traceary search boom --json
@@ -149,7 +149,7 @@ Current core commands:
 ```sh
 traceary init
 traceary log <message>
-traceary audit <command> <input> <output>
+traceary audit [<command> <input> <output>]
 traceary search <query>
 traceary list
 traceary context
@@ -166,6 +166,14 @@ traceary hooks print --client <claude|codex|gemini>
 traceary hooks install --client <claude|codex|gemini>
 traceary mcp-server
 traceary gc
+```
+
+Use `--id-only` with mutating commands when a shell script wants the resulting identifier without parsing human-readable text.
+
+```sh
+traceary log --id-only "Investigating failing tests"
+traceary audit --id-only --command "go test ./..." --input '{}' --output '{}'
+traceary session end --session-id "$sid" --id-only
 ```
 
 Useful `search --kind` values:
