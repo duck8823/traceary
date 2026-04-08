@@ -6,6 +6,8 @@
 
 [文書ガイド](./docs/README.ja.md)
 
+[コントリビューション](./CONTRIBUTING.ja.md)
+
 [リリースガイド](./docs/release/README.ja.md)
 
 Traceary は、AI エージェントの作業ログと audit log をローカルに記録・検索する local-first な CLI / MCP サーバーです。
