@@ -210,12 +210,34 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("existing file without force fails in English by default", func(t *testing.T) {
+	t.Run("existing file without force merges supported JSON settings", func(t *testing.T) {
 		outputPath := filepath.Join(projectDir, ".gemini", "settings.json")
 		if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
 			t.Fatalf("MkdirAll() error = %v", err)
 		}
-		if err := os.WriteFile(outputPath, []byte("{\"existing\":true}\n"), 0o644); err != nil {
+		if err := os.WriteFile(outputPath, []byte(`{
+  "theme": "dark",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "custom-session-start",
+            "type": "command",
+            "command": "echo custom-start"
+          },
+          {
+            "name": "traceary-session-start",
+            "type": "command",
+            "command": "bash '/old/scripts/traceary-session.sh' 'gemini' 'start'"
+          }
+        ]
+      }
+    ]
+  }
+}
+`), 0o644); err != nil {
 			t.Fatalf("WriteFile() error = %v", err)
 		}
 
@@ -229,12 +251,22 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 			"--project-dir", projectDir,
 		})
 
-		err := rootCmd.Execute()
-		if err == nil {
-			t.Fatalf("Execute() error = nil, want error")
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
 		}
-		if !strings.Contains(err.Error(), "refusing to overwrite existing file") {
-			t.Fatalf("error = %q, want overwrite warning", err.Error())
+
+		content, err := os.ReadFile(outputPath)
+		if err != nil {
+			t.Fatalf("ReadFile() error = %v", err)
+		}
+		if !strings.Contains(string(content), `"theme": "dark"`) {
+			t.Fatalf("merged settings lost unrelated top-level field: %s", content)
+		}
+		if !strings.Contains(string(content), `"command": "echo custom-start"`) {
+			t.Fatalf("merged settings lost custom hook: %s", content)
+		}
+		if strings.Count(string(content), "traceary-session-start") != 1 {
+			t.Fatalf("merged settings should contain exactly one traceary session start hook: %s", content)
 		}
 	})
 
@@ -270,7 +302,37 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 			t.Fatalf("settings.json was not overwritten")
 		}
 	})
+
+	t.Run("invalid existing JSON fails with a merge error", func(t *testing.T) {
+		outputPath := filepath.Join(projectDir, ".claude", "settings.json")
+		if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+			t.Fatalf("MkdirAll() error = %v", err)
+		}
+		if err := os.WriteFile(outputPath, []byte("{invalid json"), 0o644); err != nil {
+			t.Fatalf("WriteFile() error = %v", err)
+		}
+
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+		rootCmd.SetOut(&bytes.Buffer{})
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{
+			"hooks",
+			"install",
+			"--client", "claude",
+			"--project-dir", projectDir,
+			"--traceary-bin", "traceary",
+		})
+
+		err := rootCmd.Execute()
+		if err == nil {
+			t.Fatalf("Execute() error = nil, want error")
+		}
+		if !strings.Contains(err.Error(), "failed to merge existing hook configuration") {
+			t.Fatalf("error = %q, want merge error", err.Error())
+		}
+	})
 }
+
 
 func assertInstalledHookScripts(t *testing.T, scriptsDir string) {
 	t.Helper()

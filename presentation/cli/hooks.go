@@ -64,6 +64,7 @@ func (c *RootCLI) newHooksCommand() *cobra.Command {
 	}
 	hooksCmd.AddCommand(c.newHooksInstallCommand())
 	hooksCmd.AddCommand(c.newHooksPrintCommand())
+	hooksCmd.AddCommand(c.newHooksHelperCommand())
 
 	return hooksCmd
 }
@@ -275,19 +276,13 @@ func writeHooksSettingsFile(outputPath string, settings *hooksSettings, force bo
 		return xerrors.Errorf(Localize("hook settings must not be nil", "hook 設定は nil にできません"))
 	}
 
-	if _, err := os.Stat(outputPath); err == nil && !force {
-		return xerrors.Errorf(localizef("refusing to overwrite existing file: %s", "既存ファイルがあるため上書きしません: %s", outputPath))
-	} else if err != nil && !os.IsNotExist(err) {
-		return xerrors.Errorf("%s: %w", Localize("failed to inspect existing file", "既存ファイルの確認に失敗しました"), err)
-	}
-
-	encoded, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to marshal hook configuration example", "hook 設定例の JSON 変換に失敗しました"), err)
-	}
-
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to create output directory", "出力先ディレクトリの作成に失敗しました"), err)
+	}
+
+	encoded, err := marshalHooksSettingsFile(outputPath, settings, force)
+	if err != nil {
+		return err
 	}
 	if err := os.WriteFile(outputPath, append(encoded, '\n'), 0o644); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to write settings file", "設定ファイルの書き出しに失敗しました"), err)
