@@ -2,6 +2,7 @@ package mcpserver_test
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"testing"
 	"testing/fstest"
@@ -110,6 +111,75 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 	})
 
+	t.Run("session tools が動作する", func(t *testing.T) {
+		startResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "start_session",
+			Arguments: map[string]any{
+				"agent": "codex",
+				"repo":  "github.com/duck8823/traceary",
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(start_session) error = %v", err)
+		}
+		if startResult.IsError {
+			t.Fatalf("CallTool(start_session) returned tool error")
+		}
+
+		activeResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "active_session",
+			Arguments: map[string]any{
+				"repo": "github.com/duck8823/traceary",
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(active_session) error = %v", err)
+		}
+		if activeResult.IsError {
+			t.Fatalf("CallTool(active_session) returned tool error")
+		}
+
+		latestResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "latest_session",
+			Arguments: map[string]any{
+				"repo": "github.com/duck8823/traceary",
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(latest_session) error = %v", err)
+		}
+		if latestResult.IsError {
+			t.Fatalf("CallTool(latest_session) returned tool error")
+		}
+
+		sessionID := extractJSONStringValue(t, startResult, "session_id")
+		if sessionID == "" {
+			t.Fatalf("session_id = empty, want non-empty")
+		}
+		if got := extractJSONStringValue(t, activeResult, "session_id"); got != sessionID {
+			t.Fatalf("active session_id = %q, want %q", got, sessionID)
+		}
+		if got := extractJSONStringValue(t, latestResult, "session_id"); got != sessionID {
+			t.Fatalf("latest session_id = %q, want %q", got, sessionID)
+		}
+
+		endResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "end_session",
+			Arguments: map[string]any{
+				"session_id": sessionID,
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(end_session) error = %v", err)
+		}
+		if endResult.IsError {
+			t.Fatalf("CallTool(end_session) returned tool error")
+		}
+		if got := extractJSONStringValue(t, endResult, "kind"); got != "session_ended" {
+			t.Fatalf("end kind = %q, want %q", got, "session_ended")
+		}
+	})
+
 	t.Run("tool error を返せる", func(t *testing.T) {
 		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 			Name: "add_log",
@@ -124,6 +194,36 @@ func TestServer_BuildAndTools(t *testing.T) {
 			t.Fatalf("CallTool(add_log) IsError = false, want true")
 		}
 	})
+}
+
+func extractJSONStringValue(t *testing.T, result *mcp.CallToolResult, key string) string {
+	t.Helper()
+
+	if len(result.Content) == 0 {
+		t.Fatalf("tool result content is empty")
+	}
+
+	textContent, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("unexpected content type: %T", result.Content[0])
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal([]byte(textContent.Text), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	value, ok := payload[key]
+	if !ok {
+		return ""
+	}
+
+	stringValue, ok := value.(string)
+	if !ok {
+		t.Fatalf("payload[%q] type = %T, want string", key, value)
+	}
+
+	return stringValue
 }
 
 func newTestServer(t *testing.T) (*mcpserver.Server, string) {
@@ -162,14 +262,18 @@ CREATE TABLE command_audits (
 	datasource := sqlite.NewDatasource(migrations)
 	initializeStoreUsecase := usecase.NewInitializeStoreUsecase(datasource)
 	recordLogUsecase := usecase.NewRecordLogUsecase(datasource)
+	recordSessionBoundaryUsecase := usecase.NewRecordSessionBoundaryUsecase(datasource, datasource)
 	recordCommandAuditUsecase := usecase.NewRecordCommandAuditUsecase(datasource)
+	findLatestSessionQueryService := queryservice.NewFindLatestSessionQueryService(datasource)
 	searchEventsQueryService := queryservice.NewSearchEventsQueryService(datasource)
 	getContextQueryService := queryservice.NewGetContextQueryService(datasource)
 	server, err := mcpserver.NewServer(
 		"test-version",
 		initializeStoreUsecase,
 		recordLogUsecase,
+		recordSessionBoundaryUsecase,
 		recordCommandAuditUsecase,
+		findLatestSessionQueryService,
 		searchEventsQueryService,
 		getContextQueryService,
 	)

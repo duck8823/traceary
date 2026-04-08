@@ -18,7 +18,7 @@ Use the simplest path that matches your workflow.
 Hooks and MCP are complementary:
 
 - hooks are best for passive ingestion of session starts, session ends, and shell audits
-- MCP is best when the client should actively call tools such as `search` or `get_context`
+- MCP is best when the client should actively call tools such as `search`, `get_context`, or the explicit session tools
 
 ## Platform support
 
@@ -64,7 +64,51 @@ Flags:
 
 ## Exposed tools
 
-Traceary currently exposes four MCP tools.
+Traceary currently exposes eight MCP tools.
+
+### `start_session`
+
+Records a `session_started` event.
+
+Inputs:
+
+- `client` (default: `mcp`)
+- `agent` (default: `manual`)
+- `session_id` (optional; Traceary generates one when omitted)
+- `repo` (optional work-context string)
+
+### `end_session`
+
+Records a `session_ended` event.
+
+Inputs:
+
+- `session_id` (required)
+- `client` (optional; when omitted, Traceary prefers attribution from the matching `session_started` event)
+- `agent` (optional; when omitted, Traceary prefers attribution from the matching `session_started` event)
+- `repo` (optional work-context string)
+
+### `latest_session`
+
+Returns the newest matching session.
+
+Inputs:
+
+- `client`
+- `agent`
+- `repo`
+
+### `active_session`
+
+Returns the newest matching active session.
+
+Inputs:
+
+- `client`
+- `agent`
+- `repo`
+- `allow_stale` (default: `false`)
+- `stale_after_seconds` (`0` or omitted uses the default `86400`)
 
 ### `add_log`
 
@@ -146,9 +190,10 @@ One practical pattern is:
 
 1. use hooks to record session boundaries and command audits automatically
 2. connect the same Traceary DB through MCP
-3. let the client call `get_context` before a new task
-4. let the client call `search` when it needs old command output or notes
-5. optionally use `add_log` or `add_audit` for client-side annotations that did not come from hooks
+3. let the client call `active_session` or `latest_session` when it needs to resume a session explicitly
+4. let the client call `get_context` before a new task
+5. let the client call `search` when it needs old command output or notes
+6. optionally use `start_session` / `end_session` / `add_log` / `add_audit` when the client should manage session lifecycle itself
 
 This keeps passive ingestion and active context lookup in one local store.
 
