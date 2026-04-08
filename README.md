@@ -52,6 +52,11 @@ brew install traceary
 Tagged releases publish macOS and Linux archives on GitHub Releases.
 See the [release guide](./docs/release/README.md) when you want the packaging details.
 
+### Native agent packages
+
+Traceary also ships native packages for Claude Code, Codex, and Gemini CLI.
+See the [native integrations guide](./docs/integrations/README.md) when you want host-specific install, update, uninstall, and doctor flows.
+
 ## Quick start
 
 `traceary init` is optional. Commands create the database and run migrations on demand.
@@ -127,6 +132,7 @@ Use the [documentation index](./docs/README.md) for the full map.
 The most common next pages are:
 
 - [CLI reference](./docs/cli/README.md)
+- [Native integrations](./docs/integrations/README.md)
 - [Hooks guide](./docs/hooks/README.md)
 - [MCP guide](./docs/mcp/README.md)
 - [Environment and storage notes](./docs/environment/README.md)

@@ -52,6 +52,11 @@ brew install traceary
 タグ付きリリースでは macOS / Linux 向けアーカイブを GitHub Releases に公開します。
 配布形態の詳細は [リリースガイド](./docs/release/README.ja.md) を参照してください。
 
+### ネイティブ連携パッケージ
+
+Claude Code / Codex / Gemini CLI 向けのネイティブ連携パッケージも配布します。
+host ごとの install / update / uninstall / doctor は [ネイティブ連携ガイド](./docs/integrations/README.ja.md) を参照してください。
+
 ## クイックスタート
 
 `traceary init` は必須ではありません。通常のコマンドを実行すれば、必要に応じて DB 作成とマイグレーションが自動で行われます。
@@ -127,6 +132,7 @@ traceary gc
 最初によく参照するのは次のページです。
 
 - [CLI リファレンス](./docs/cli/README.ja.md)
+- [ネイティブ連携ガイド](./docs/integrations/README.ja.md)
 - [Hooks ガイド](./docs/hooks/README.ja.md)
 - [MCP ガイド](./docs/mcp/README.ja.md)
 - [環境変数と保存モデル](./docs/environment/README.ja.md)

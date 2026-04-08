@@ -12,6 +12,7 @@
 
 ## 連携まわり
 
+- [ネイティブ連携ガイド](./integrations/README.ja.md): Claude / Codex / Gemini 向け package、導入手順、smoke test
 - [Hooks ガイド](./hooks/README.ja.md): Claude Code / Codex / Gemini の hook 設定、導入手順、トラブルシュート
 - [MCP ガイド](./mcp/README.ja.md): `traceary mcp-server` の起動方法、ツール一覧、MCP クライアント連携
 - [インタラクティブ運用メモ](./interactive/README.ja.md): 日常利用で効いた改善点と、その判断理由
