@@ -42,7 +42,7 @@ func (c *RootCLI) newSessionLatestCommand() *cobra.Command {
 	latestCmd := &cobra.Command{
 		Use:   "latest",
 		Short: "直近のセッション ID を表示する",
-		Args:  cobra.NoArgs,
+		Args:  noArgsJP(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runSessionLatest(cmd.Context(), cmd.OutOrStdout(), sessionLatestCommandInput{
 				dbPath: dbPath,
@@ -72,7 +72,7 @@ func (c *RootCLI) newSessionStartCommand() *cobra.Command {
 	startCmd := &cobra.Command{
 		Use:   "start",
 		Short: "セッション開始を記録する",
-		Args:  cobra.NoArgs,
+		Args:  noArgsJP(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runSessionBoundary(cmd.Context(), cmd.OutOrStdout(), sessionBoundaryCommandInput{
 				dbPath:    dbPath,
@@ -105,7 +105,7 @@ func (c *RootCLI) newSessionEndCommand() *cobra.Command {
 	endCmd := &cobra.Command{
 		Use:   "end",
 		Short: "セッション終了を記録する",
-		Args:  cobra.NoArgs,
+		Args:  noArgsJP(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runSessionBoundary(cmd.Context(), cmd.OutOrStdout(), sessionBoundaryCommandInput{
 				dbPath:    dbPath,
@@ -158,7 +158,7 @@ func (c *RootCLI) newSessionActiveCommand() *cobra.Command {
 	activeCmd := &cobra.Command{
 		Use:   "active",
 		Short: "現在アクティブな session ID を表示する (既定では 24h 超の stale を除外)",
-		Args:  cobra.NoArgs,
+		Args:  noArgsJP(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runSessionLatest(cmd.Context(), cmd.OutOrStdout(), sessionLatestCommandInput{
 				dbPath:     dbPath,

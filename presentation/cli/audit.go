@@ -28,7 +28,7 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 	auditCmd := &cobra.Command{
 		Use:   "audit <command> <input> <output>",
 		Short: "コマンド実行の監査ログを記録する",
-		Args:  cobra.ExactArgs(3),
+		Args:  exactArgsJP(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return c.runAudit(cmd.Context(), cmd.OutOrStdout(), auditCommandInput{
 				dbPath:         dbPath,

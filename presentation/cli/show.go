@@ -20,7 +20,7 @@ func (c *RootCLI) newShowCommand() *cobra.Command {
 	showCmd := &cobra.Command{
 		Use:   "show <event-id>",
 		Short: "イベント詳細を表示する",
-		Args:  cobra.ExactArgs(1),
+		Args:  exactArgsJP(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return c.runShow(cmd.Context(), cmd.OutOrStdout(), dbPath, args[0], asJSON)
 		},
