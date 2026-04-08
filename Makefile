@@ -21,5 +21,8 @@ docs/check: ## 文書の多言語ペアを検証する
 
 ci: docs/check code/lint code/test ## CI 相当の検証をまとめて実行する
 
+release/snapshot: ## snapshot release artifact を dist/ に出力する
+	@goreleaser release --snapshot --clean
+
 install: ## 依存関係をダウンロードする
 	@go mod download

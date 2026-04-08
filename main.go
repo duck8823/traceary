@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"runtime"
+	"runtime/debug"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -76,11 +77,71 @@ func init() {
 	slog.SetDefault(slog.New(handler))
 }
 
+type buildMetadata struct {
+	version string
+	commit  string
+	date    string
+}
+
+var readBuildInfo = debug.ReadBuildInfo
+
 func versionString() string {
-	return fmt.Sprintf("%s (commit=%s, date=%s, go=%s)", version, commit, date, runtime.Version())
+	metadata := resolveBuildMetadata(version, commit, date, readBuildInfo)
+	return fmt.Sprintf("%s (commit=%s, date=%s, go=%s)", metadata.version, metadata.commit, metadata.date, runtime.Version())
+}
+
+func resolveBuildMetadata(
+	explicitVersion string,
+	explicitCommit string,
+	explicitDate string,
+	readInfo func() (*debug.BuildInfo, bool),
+) buildMetadata {
+	metadata := buildMetadata{
+		version: explicitVersion,
+		commit:  explicitCommit,
+		date:    explicitDate,
+	}
+
+	if readInfo == nil {
+		return metadata
+	}
+	info, ok := readInfo()
+	if !ok || info == nil {
+		return metadata
+	}
+
+	if (metadata.version == "" || metadata.version == "dev") && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		metadata.version = info.Main.Version
+	}
+	if metadata.commit == "" || metadata.commit == "none" || metadata.commit == "unknown" {
+		if value := findBuildSetting(info, "vcs.revision"); value != "" {
+			metadata.commit = value
+		}
+	}
+	if metadata.date == "" || metadata.date == "unknown" {
+		if value := findBuildSetting(info, "vcs.time"); value != "" {
+			metadata.date = value
+		}
+	}
+
+	return metadata
+}
+
+func findBuildSetting(info *debug.BuildInfo, key string) string {
+	if info == nil {
+		return ""
+	}
+	for _, setting := range info.Settings {
+		if setting.Key == key {
+			return setting.Value
+		}
+	}
+	return ""
 }
 
 func run() error {
+	metadata := resolveBuildMetadata(version, commit, date, readBuildInfo)
+
 	migrationsSubFS, err := fs.Sub(migrationsFS, "schema/sqlite/migrations")
 	if err != nil {
 		return xerrors.Errorf("マイグレーションファイルの読み込みに失敗しました: %w", err)
@@ -98,7 +159,7 @@ func run() error {
 	getEventDetailsQueryService := queryservice.NewGetEventDetailsQueryService(datasource)
 	findLatestSessionQueryService := queryservice.NewFindLatestSessionQueryService(datasource)
 	mcpServer, err := mcpserver.NewServer(
-		version,
+		metadata.version,
 		initializeStoreUsecase,
 		recordLogUsecase,
 		recordCommandAuditUsecase,

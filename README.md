@@ -6,6 +6,8 @@
 
 [Documentation guide](./docs/README.md)
 
+[Release guide](./docs/release/README.md)
+
 Traceary is a local-first CLI and MCP server for recording and searching AI agent work logs and audit logs.
 
 ## Why
@@ -31,6 +33,19 @@ so multiple AI tools can read and write the same history.
 - Associate records with repositories by git remote URL
 - Keep attribution with `client`, `agent`, and `session_id`
 - Manage long-term data growth with retention and `gc`
+
+## Install
+
+### go install
+
+```sh
+go install github.com/duck8823/traceary@latest
+```
+
+### Prebuilt binaries
+
+Tagged releases publish macOS and Linux archives on GitHub Releases.
+See [`docs/release/README.md`](./docs/release/README.md) for the release flow and local snapshot builds.
 
 ## Quick start
 

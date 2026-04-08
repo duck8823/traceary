@@ -72,3 +72,4 @@ GitHub Actions runs the same check in CI.
 - root overview: `README.md` / `README.ja.md`
 - release history: `CHANGELOG.md` / `CHANGELOG.ja.md`
 - hooks guide: `docs/hooks/README.md` / `docs/hooks/README.ja.md`
+- release guide: `docs/release/README.md` / `docs/release/README.ja.md`
