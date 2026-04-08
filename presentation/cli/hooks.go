@@ -13,6 +13,17 @@ import (
 	"golang.org/x/xerrors"
 )
 
+var hooksClientAliases = map[string]string{
+	"claude":      "claude",
+	"claude-code": "claude",
+	"codex":       "codex",
+	"codex-cli":   "codex",
+	"gemini":      "gemini",
+	"gemini-cli":  "gemini",
+}
+
+const hooksClientFlagUsage = "対象クライアント (claude|codex|gemini; alias: claude-code, codex-cli, gemini-cli)"
+
 type hooksSettings struct {
 	Hooks map[string][]hookMatcher `json:"hooks"`
 }
@@ -78,7 +89,7 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 			})
 		},
 	}
-	installCmd.Flags().StringVar(&client, "client", "", "対象クライアント (claude|codex|gemini)")
+	installCmd.Flags().StringVar(&client, "client", "", hooksClientFlagUsage)
 	installCmd.Flags().StringVar(&projectDir, "project-dir", "", "hook script があるプロジェクトディレクトリ")
 	installCmd.Flags().StringVar(&tracearyBin, "traceary-bin", "", "traceary バイナリパス")
 	installCmd.Flags().StringVar(&outputPath, "output", "", "書き出し先を明示する")
@@ -109,7 +120,7 @@ func (c *RootCLI) newHooksPrintCommand() *cobra.Command {
 			})
 		},
 	}
-	printCmd.Flags().StringVar(&client, "client", "", "対象クライアント (claude|codex|gemini)")
+	printCmd.Flags().StringVar(&client, "client", "", hooksClientFlagUsage)
 	printCmd.Flags().StringVar(&projectDir, "project-dir", "", "hook script があるプロジェクトディレクトリ")
 	printCmd.Flags().StringVar(&tracearyBin, "traceary-bin", "", "traceary バイナリパス")
 	if err := printCmd.MarkFlagRequired("client"); err != nil {
@@ -221,6 +232,11 @@ func resolveHooksTracearyBin(flagValue string) (string, error) {
 }
 
 func resolveHooksInstallOutputPath(client string, projectDir string, flagValue string) (string, error) {
+	resolvedClient, err := normalizeHooksClient(client)
+	if err != nil {
+		return "", err
+	}
+
 	trimmedFlagValue := strings.TrimSpace(flagValue)
 	if trimmedFlagValue != "" {
 		resolvedPath, err := filepath.Abs(trimmedFlagValue)
@@ -231,7 +247,7 @@ func resolveHooksInstallOutputPath(client string, projectDir string, flagValue s
 		return resolvedPath, nil
 	}
 
-	switch strings.ToLower(strings.TrimSpace(client)) {
+	switch resolvedClient {
 	case "claude":
 		return filepath.Join(projectDir, ".claude", "settings.json"), nil
 	case "gemini":
@@ -279,7 +295,12 @@ func buildHooksSettings(
 	projectDir string,
 	tracearyBin string,
 ) (*hooksSettings, error) {
-	switch strings.ToLower(strings.TrimSpace(client)) {
+	resolvedClient, err := normalizeHooksClient(client)
+	if err != nil {
+		return nil, err
+	}
+
+	switch resolvedClient {
 	case "claude":
 		return buildClaudeHooksSettings(projectDir, tracearyBin), nil
 	case "codex":
@@ -289,6 +310,18 @@ func buildHooksSettings(
 	default:
 		return nil, xerrors.Errorf("未対応の client です: %s", client)
 	}
+}
+
+func normalizeHooksClient(client string) (string, error) {
+	trimmedClient := strings.ToLower(strings.TrimSpace(client))
+	if resolvedClient, ok := hooksClientAliases[trimmedClient]; ok {
+		return resolvedClient, nil
+	}
+
+	return "", xerrors.Errorf(
+		"未対応の client です: %s (有効値: claude, codex, gemini; alias: claude-code, codex-cli, gemini-cli)",
+		client,
+	)
 }
 
 func buildClaudeHooksSettings(projectDir string, tracearyBin string) *hooksSettings {

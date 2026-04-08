@@ -51,6 +51,16 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("Claude Code alias でも設定を出力できる", func(t *testing.T) {
+		t.Parallel()
+
+		settings := executeHooksPrint(t, "claude-code", projectDir, tracearyBin)
+		if got, want := settings.Hooks["SessionStart"][0].Hooks[0].Command,
+			`TRACEARY_BIN='/tmp/traceary bin/traceary' bash '/tmp/traceary repo/scripts/hooks/traceary-session.sh' 'claude' 'start'`; got != want {
+			t.Fatalf("SessionStart command = %q, want %q", got, want)
+		}
+	})
+
 	t.Run("Codex 向け設定を出力できる", func(t *testing.T) {
 		t.Parallel()
 
@@ -107,8 +117,12 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 			"--traceary-bin", tracearyBin,
 		})
 
-		if err := rootCmd.Execute(); err == nil {
+		err := rootCmd.Execute()
+		if err == nil {
 			t.Fatalf("Execute() error = nil, want error")
+		}
+		if !strings.Contains(err.Error(), "有効値: claude, codex, gemini") {
+			t.Fatalf("error = %q, want valid values", err.Error())
 		}
 	})
 }
@@ -156,6 +170,29 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("Codex CLI alias でも標準パスへ書き出せる", func(t *testing.T) {
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+		rootCmd.SetOut(&bytes.Buffer{})
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{
+			"hooks",
+			"install",
+			"--client", "codex-cli",
+			"--project-dir", projectDir,
+			"--traceary-bin", "traceary",
+			"--force",
+		})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		outputPath := filepath.Join(homeDir, ".codex", "hooks.json")
+		if _, err := os.Stat(outputPath); err != nil {
+			t.Fatalf("Stat() error = %v", err)
+		}
+	})
+
 	t.Run("Codex 向け設定はホーム配下の標準パスへ書き出す", func(t *testing.T) {
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
@@ -166,6 +203,7 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 			"--client", "codex",
 			"--project-dir", projectDir,
 			"--traceary-bin", "traceary",
+			"--force",
 		})
 
 		if err := rootCmd.Execute(); err != nil {
