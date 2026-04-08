@@ -75,7 +75,7 @@ Inputs:
 
 shell command audit イベントを記録します。
 
-CLI と同様に、`add_audit` も SQLite へ書き込む前に一般的な secret っぽい値を伏せ字化します。これは完全保証ではなく、best-effort の保護です。
+CLI と同様に、`add_audit` も SQLite へ書き込む前に一般的な secret っぽい値を伏せ字化します。これは完全保証ではなく、best-effort の保護です。MCP surface では意図的に `allow-secrets` 相当の override は提供していません。raw payload を残したい場合だけ direct CLI を使ってください。
 
 Inputs:
 
