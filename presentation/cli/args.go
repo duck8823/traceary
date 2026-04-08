@@ -11,7 +11,11 @@ func noArgsJP() cobra.PositionalArgs {
 			return nil
 		}
 
-		return xerrors.Errorf("引数は不要です (受け取った引数数: %d)", len(args))
+		return xerrors.Errorf(localizef(
+			"this command does not accept positional arguments (received: %d)",
+			"引数は不要です (受け取った引数数: %d)",
+			len(args),
+		))
 	}
 }
 
@@ -21,11 +25,12 @@ func exactArgsJP(expected int) cobra.PositionalArgs {
 			return nil
 		}
 
-		return xerrors.Errorf(
+		return xerrors.Errorf(localizef(
+			"expected exactly %d positional argument(s) (received: %d)",
 			"引数はちょうど %d 個必要です (受け取った引数数: %d)",
 			expected,
 			len(args),
-		)
+		))
 	}
 }
 
@@ -35,10 +40,11 @@ func maximumNArgsJP(maxArgs int) cobra.PositionalArgs {
 			return nil
 		}
 
-		return xerrors.Errorf(
+		return xerrors.Errorf(localizef(
+			"expected at most %d positional argument(s) (received: %d)",
 			"引数は最大 %d 個まで指定できます (受け取った引数数: %d)",
 			maxArgs,
 			len(args),
-		)
+		))
 	}
 }

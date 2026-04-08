@@ -60,8 +60,8 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		if !stub.receivedInput.Before.Equal(wantCutoff) {
 			t.Fatalf("Before = %v, want %v", stub.receivedInput.Before, wantCutoff)
 		}
-		if stdout.String() != "削除対象: 3 件\n" {
-			t.Fatalf("stdout = %q, want %q", stdout.String(), "削除対象: 3 件\n")
+		if stdout.String() != "Candidates: 3\n" {
+			t.Fatalf("stdout = %q, want %q", stdout.String(), "Candidates: 3\n")
 		}
 	})
 
@@ -82,8 +82,8 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		if stdout.String() != "削除しました: 2 件\n" {
-			t.Fatalf("stdout = %q, want %q", stdout.String(), "削除しました: 2 件\n")
+		if stdout.String() != "Deleted: 2\n" {
+			t.Fatalf("stdout = %q, want %q", stdout.String(), "Deleted: 2\n")
 		}
 	})
 }

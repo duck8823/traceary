@@ -19,41 +19,41 @@ func (c *RootCLI) newShowCommand() *cobra.Command {
 
 	showCmd := &cobra.Command{
 		Use:   "show <event-id>",
-		Short: "イベント詳細を表示する",
+		Short: Localize("Show event details", "イベント詳細を表示する"),
 		Args:  exactArgsJP(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return c.runShow(cmd.Context(), cmd.OutOrStdout(), dbPath, args[0], asJSON)
 		},
 	}
-	showCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
-	showCmd.Flags().BoolVar(&asJSON, "json", false, "JSON 形式で出力する")
+	showCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
+	showCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 
 	return showCmd
 }
 
 func (c *RootCLI) runShow(ctx context.Context, output io.Writer, dbPath string, eventID string, asJSON bool) error {
 	if c.initializeStoreUsecase == nil {
-		return xerrors.Errorf("ストア初期化ユースケースが設定されていません")
+		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.getEventDetailsQueryService == nil {
-		return xerrors.Errorf("イベント詳細クエリサービスが設定されていません")
+		return xerrors.Errorf(Localize("get event details query service is not configured", "イベント詳細クエリサービスが設定されていません"))
 	}
 
 	resolvedPath, err := resolveDBPath(dbPath)
 	if err != nil {
-		return xerrors.Errorf("DB パスの解決に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
 	if err := c.initializeStoreUsecase.Run(ctx, resolvedPath); err != nil {
-		return xerrors.Errorf("ストアの初期化に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
 	eventDetails, err := c.getEventDetailsQueryService.Run(ctx, resolvedPath, eventID)
 	if err != nil {
-		return xerrors.Errorf("イベント詳細の取得に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to get event details", "イベント詳細の取得に失敗しました"), err)
 	}
 
 	if err := writeEventDetailsByFormat(output, eventDetails, asJSON); err != nil {
-		return xerrors.Errorf("イベント詳細の出力に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to print event details", "イベント詳細の出力に失敗しました"), err)
 	}
 
 	return nil
@@ -61,7 +61,7 @@ func (c *RootCLI) runShow(ctx context.Context, output io.Writer, dbPath string, 
 
 func writeEventDetails(output io.Writer, eventDetails *queryservice.EventDetails) error {
 	if eventDetails == nil {
-		return xerrors.Errorf("イベント詳細は nil にできません")
+		return xerrors.Errorf(Localize("event details must not be nil", "イベント詳細は nil にできません"))
 	}
 
 	event := eventDetails.Event()
@@ -77,7 +77,7 @@ func writeEventDetails(output io.Writer, eventDetails *queryservice.EventDetails
 		event.CreatedAt().UTC().Format("2006-01-02T15:04:05Z07:00"),
 		event.Body(),
 	); err != nil {
-		return xerrors.Errorf("イベント共通項目の出力に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to print event fields", "イベント共通項目の出力に失敗しました"), err)
 	}
 
 	commandAudit := eventDetails.CommandAudit()
@@ -94,7 +94,7 @@ func writeEventDetails(output io.Writer, eventDetails *queryservice.EventDetails
 		commandAudit.OutputTruncated(),
 		commandAudit.Output(),
 	); err != nil {
-		return xerrors.Errorf("command audit 詳細の出力に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to print command audit details", "command audit 詳細の出力に失敗しました"), err)
 	}
 
 	return nil

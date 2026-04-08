@@ -27,7 +27,7 @@ func (c *RootCLI) newContextCommand() *cobra.Command {
 	contextCmd := &cobra.Command{
 		Use:     "context",
 		Aliases: []string{"handoff"},
-		Short:   "次の AI session に渡す文脈を表示する",
+		Short:   Localize("Print context for the next AI session", "次の AI session に渡す文脈を表示する"),
 		Args:    noArgsJP(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runContext(cmd.Context(), cmd.OutOrStdout(), contextCommandInput{
@@ -41,13 +41,13 @@ func (c *RootCLI) newContextCommand() *cobra.Command {
 			})
 		},
 	}
-	contextCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
-	contextCmd.Flags().StringVar(&sessionID, "session-id", "", "対象の session ID")
-	contextCmd.Flags().StringVar(&client, "client", "", "作業主体の入口で絞り込む")
-	contextCmd.Flags().StringVar(&agent, "agent", "", "作業主体で絞り込む")
-	contextCmd.Flags().StringVar(&repo, "repo", "", "補助的なコンテキスト識別子で絞り込む")
-	contextCmd.Flags().IntVar(&limit, "limit", 10, "表示件数")
-	contextCmd.Flags().BoolVar(&asJSON, "json", false, "JSON 形式で出力する")
+	contextCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
+	contextCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("target session ID", "対象の session ID"))
+	contextCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "作業主体の入口で絞り込む"))
+	contextCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "作業主体で絞り込む"))
+	contextCmd.Flags().StringVar(&repo, "repo", "", Localize("filter by auxiliary work context identifier", "補助的なコンテキスト識別子で絞り込む"))
+	contextCmd.Flags().IntVar(&limit, "limit", 10, Localize("maximum number of events to include", "表示件数"))
+	contextCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 
 	return contextCmd
 }
@@ -70,18 +70,21 @@ type contextOutput struct {
 
 func (c *RootCLI) runContext(ctx context.Context, output io.Writer, input contextCommandInput) error {
 	if c.initializeStoreUsecase == nil {
-		return xerrors.Errorf("ストア初期化ユースケースが設定されていません")
+		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.getContextQueryService == nil {
-		return xerrors.Errorf("文脈クエリサービスが設定されていません")
+		return xerrors.Errorf(Localize("get context query service is not configured", "文脈クエリサービスが設定されていません"))
+	}
+	if input.limit <= 0 {
+		return xerrors.Errorf(Localize("limit must be greater than or equal to 1", "limit は 1 以上である必要があります"))
 	}
 
 	resolvedPath, err := resolveDBPath(input.dbPath)
 	if err != nil {
-		return xerrors.Errorf("DB パスの解決に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
 	if err := c.initializeStoreUsecase.Run(ctx, resolvedPath); err != nil {
-		return xerrors.Errorf("ストアの初期化に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
 	resolvedRepo := resolveRepoValue(ctx, input.repo)
@@ -101,7 +104,7 @@ func (c *RootCLI) runContext(ctx context.Context, output io.Writer, input contex
 		Limit:     input.limit,
 	})
 	if err != nil {
-		return xerrors.Errorf("文脈の取得に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to get context", "文脈の取得に失敗しました"), err)
 	}
 
 	if input.asJSON {
@@ -133,7 +136,7 @@ func (c *RootCLI) resolveContextSessionID(
 		if queryservice.IsSessionLookupNotFound(err) {
 			return "", nil
 		}
-		return "", xerrors.Errorf("文脈用の直近 session 解決に失敗しました: %w", err)
+		return "", xerrors.Errorf("%s: %w", Localize("failed to resolve latest session for context", "文脈用の直近 session 解決に失敗しました"), err)
 	}
 
 	return event.SessionID().String(), nil
@@ -154,20 +157,20 @@ func writeContextJSON(output io.Writer, sessionID string, repo string, events []
 
 func writeContextText(output io.Writer, sessionID string, repo string, events []*model.Event) error {
 	if _, err := fmt.Fprintln(output, "TRACEARY CONTEXT"); err != nil {
-		return xerrors.Errorf("文脈ヘッダーの出力に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to print context header", "文脈ヘッダーの出力に失敗しました"), err)
 	}
 	if _, err := fmt.Fprintf(output, "SESSION_ID: %s\n", formatOptionalColumn(sessionID)); err != nil {
-		return xerrors.Errorf("session ID の出力に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to print session ID", "session ID の出力に失敗しました"), err)
 	}
 	if _, err := fmt.Fprintf(output, "REPO: %s\n", formatOptionalColumn(repo)); err != nil {
-		return xerrors.Errorf("repo の出力に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to print repo", "repo の出力に失敗しました"), err)
 	}
 	if _, err := fmt.Fprintln(output, "EVENTS:"); err != nil {
-		return xerrors.Errorf("文脈イベント見出しの出力に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to print context events heading", "文脈イベント見出しの出力に失敗しました"), err)
 	}
 	if len(events) == 0 {
-		if _, err := fmt.Fprintln(output, "- 一致する文脈はありません"); err != nil {
-			return xerrors.Errorf("空文脈メッセージの出力に失敗しました: %w", err)
+		if _, err := fmt.Fprintln(output, Localize("- No matching context.", "- 一致する文脈はありません")); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print empty context message", "空文脈メッセージの出力に失敗しました"), err)
 		}
 		return nil
 	}
@@ -183,7 +186,7 @@ func writeContextText(output io.Writer, sessionID string, repo string, events []
 			event.Agent(),
 			singleLineSummary(event.Body()),
 		); err != nil {
-			return xerrors.Errorf("文脈イベントの出力に失敗しました: %w", err)
+			return xerrors.Errorf("%s: %w", Localize("failed to print context event", "文脈イベントの出力に失敗しました"), err)
 		}
 	}
 

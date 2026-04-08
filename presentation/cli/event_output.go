@@ -20,14 +20,14 @@ func writeEventsByFormat(output io.Writer, events []*model.Event, asJSON bool) e
 
 func writeEvents(output io.Writer, events []*model.Event) error {
 	if len(events) == 0 {
-		if _, err := fmt.Fprintln(output, "一致する記録はありません"); err != nil {
-			return xerrors.Errorf("空一覧メッセージの出力に失敗しました: %w", err)
+		if _, err := fmt.Fprintln(output, Localize("No matching records.", "一致する記録はありません")); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print empty list message", "空一覧メッセージの出力に失敗しました"), err)
 		}
 		return nil
 	}
 
 	if _, err := fmt.Fprintln(output, "CREATED_AT\tKIND\tCLIENT\tAGENT\tSESSION_ID\tREPO\tMESSAGE"); err != nil {
-		return xerrors.Errorf("一覧ヘッダーの出力に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to print list header", "一覧ヘッダーの出力に失敗しました"), err)
 	}
 	for _, event := range events {
 		if _, err := fmt.Fprintf(
@@ -41,7 +41,7 @@ func writeEvents(output io.Writer, events []*model.Event) error {
 			formatOptionalColumn(event.Repo()),
 			event.Body(),
 		); err != nil {
-			return xerrors.Errorf("イベント一覧行の出力に失敗しました: %w", err)
+			return xerrors.Errorf("%s: %w", Localize("failed to print event row", "イベント一覧行の出力に失敗しました"), err)
 		}
 	}
 

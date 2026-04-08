@@ -48,7 +48,7 @@ func TestRootCLI_InitCommand(t *testing.T) {
 	if stub.receivedPath != dbPath {
 		t.Fatalf("Run() path = %q, want %q", stub.receivedPath, dbPath)
 	}
-	wantOutput := "初期化しました: " + dbPath + "\n"
+	wantOutput := "Initialized: " + dbPath + "\n"
 	if stdout.String() != wantOutput {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), wantOutput)
 	}
@@ -129,7 +129,7 @@ func TestRootCLI_InitCommand_UsesTracearyDBPathEnv(t *testing.T) {
 	if stub.receivedPath != dbPath {
 		t.Fatalf("Run() path = %q, want %q", stub.receivedPath, dbPath)
 	}
-	wantOutput := "初期化しました: " + dbPath + "\n"
+	wantOutput := "Initialized: " + dbPath + "\n"
 	if stdout.String() != wantOutput {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), wantOutput)
 	}
@@ -150,10 +150,32 @@ func TestRootCLI_InitHelp_ExplainsOptionalBootstrap(t *testing.T) {
 	}
 
 	output := stdout.String()
-	if !strings.Contains(output, "他コマンドも必要に応じて DB を自動作成") {
+	if !strings.Contains(output, "Other traceary commands create the DB and apply migrations on demand.") {
 		t.Fatalf("stdout = %q, want init help to mention automatic DB creation", output)
 	}
-	if !strings.Contains(output, "DB パスや書き込み権限を事前に確認") {
+	if !strings.Contains(output, "Use init when you want to verify the DB path or write permissions before a session starts.") {
 		t.Fatalf("stdout = %q, want init help to mention explicit bootstrap purpose", output)
+	}
+	if !strings.Contains(output, "SQLite DB path (env: TRACEARY_DB_PATH)") {
+		t.Fatalf("stdout = %q, want English db-path help", output)
+	}
+}
+
+func TestRootCLI_InitHelp_CanUseJapaneseFlagHelp(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "ja")
+
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(stderr)
+	rootCmd.SetArgs([]string{"init", "--help"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "SQLite DB パス (env: TRACEARY_DB_PATH)") {
+		t.Fatalf("stdout = %q, want Japanese db-path help", stdout.String())
 	}
 }

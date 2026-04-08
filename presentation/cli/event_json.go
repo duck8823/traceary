@@ -45,7 +45,7 @@ func writeEventsJSON(output io.Writer, events []*model.Event) error {
 
 func writeEventDetailsJSON(output io.Writer, eventDetails *queryservice.EventDetails) error {
 	if eventDetails == nil {
-		return xerrors.Errorf("イベント詳細は nil にできません")
+		return xerrors.Errorf(Localize("event details must not be nil", "イベント詳細は nil にできません"))
 	}
 
 	serializedEventDetails := eventDetailsJSON{
@@ -88,10 +88,10 @@ func newCommandAuditJSON(commandAudit *model.CommandAudit) *commandAuditJSON {
 func writeJSON(output io.Writer, value any) error {
 	encoded, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
-		return xerrors.Errorf("JSON 変換に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to encode JSON", "JSON 変換に失敗しました"), err)
 	}
 	if _, err := output.Write(append(encoded, '\n')); err != nil {
-		return xerrors.Errorf("JSON 出力に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to write JSON", "JSON 出力に失敗しました"), err)
 	}
 
 	return nil

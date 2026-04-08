@@ -103,7 +103,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("未対応 client はエラー", func(t *testing.T) {
+	t.Run("unsupported client returns an English error by default", func(t *testing.T) {
 		t.Parallel()
 
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
@@ -121,7 +121,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 		if err == nil {
 			t.Fatalf("Execute() error = nil, want error")
 		}
-		if !strings.Contains(err.Error(), "有効値: claude, codex, gemini") {
+		if !strings.Contains(err.Error(), "valid values: claude, codex, gemini") {
 			t.Fatalf("error = %q, want valid values", err.Error())
 		}
 	})
@@ -216,7 +216,7 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("既存ファイルがあるとき force なしでは失敗する", func(t *testing.T) {
+	t.Run("existing file without force fails in English by default", func(t *testing.T) {
 		outputPath := filepath.Join(projectDir, ".gemini", "settings.json")
 		if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
 			t.Fatalf("MkdirAll() error = %v", err)
@@ -239,7 +239,7 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 		if err == nil {
 			t.Fatalf("Execute() error = nil, want error")
 		}
-		if !strings.Contains(err.Error(), "既存ファイルがあるため上書きしません") {
+		if !strings.Contains(err.Error(), "refusing to overwrite existing file") {
 			t.Fatalf("error = %q, want overwrite warning", err.Error())
 		}
 	})

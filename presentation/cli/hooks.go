@@ -22,7 +22,10 @@ var hooksClientAliases = map[string]string{
 	"gemini-cli":  "gemini",
 }
 
-const hooksClientFlagUsage = "対象クライアント (claude|codex|gemini; alias: claude-code, codex-cli, gemini-cli)"
+var hooksClientFlagUsage = Localize(
+	"target client (claude|codex|gemini; aliases: claude-code, codex-cli, gemini-cli)",
+	"対象クライアント (claude|codex|gemini; alias: claude-code, codex-cli, gemini-cli)",
+)
 
 type hooksSettings struct {
 	Hooks map[string][]hookMatcher `json:"hooks"`
@@ -58,7 +61,7 @@ type hooksInstallCommandInput struct {
 func (c *RootCLI) newHooksCommand() *cobra.Command {
 	hooksCmd := &cobra.Command{
 		Use:   "hooks",
-		Short: "hook 設定例を生成する",
+		Short: Localize("Generate hook configuration examples", "hook 設定例を生成する"),
 	}
 	hooksCmd.AddCommand(c.newHooksInstallCommand())
 	hooksCmd.AddCommand(c.newHooksPrintCommand())
@@ -77,7 +80,7 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 
 	installCmd := &cobra.Command{
 		Use:   "install",
-		Short: "標準の設定パスへ hook 設定例を書き出す",
+		Short: Localize("Write hook configuration examples to the standard config path", "標準の設定パスへ hook 設定例を書き出す"),
 		Args:  noArgsJP(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runHooksInstall(cmd.Context(), cmd.OutOrStdout(), hooksInstallCommandInput{
@@ -90,10 +93,10 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 		},
 	}
 	installCmd.Flags().StringVar(&client, "client", "", hooksClientFlagUsage)
-	installCmd.Flags().StringVar(&projectDir, "project-dir", "", "hook script があるプロジェクトディレクトリ")
-	installCmd.Flags().StringVar(&tracearyBin, "traceary-bin", "", "traceary バイナリパス")
-	installCmd.Flags().StringVar(&outputPath, "output", "", "書き出し先を明示する")
-	installCmd.Flags().BoolVar(&force, "force", false, "既存ファイルがある場合でも上書きする")
+	installCmd.Flags().StringVar(&projectDir, "project-dir", "", Localize("project directory used by generated hook commands", "hook script があるプロジェクトディレクトリ"))
+	installCmd.Flags().StringVar(&tracearyBin, "traceary-bin", "", Localize("traceary binary path or command name", "traceary バイナリパス"))
+	installCmd.Flags().StringVar(&outputPath, "output", "", Localize("override the output file path", "書き出し先を明示する"))
+	installCmd.Flags().BoolVar(&force, "force", false, Localize("overwrite the file if it already exists", "既存ファイルがある場合でも上書きする"))
 	if err := installCmd.MarkFlagRequired("client"); err != nil {
 		panic(err)
 	}
@@ -110,7 +113,7 @@ func (c *RootCLI) newHooksPrintCommand() *cobra.Command {
 
 	printCmd := &cobra.Command{
 		Use:   "print",
-		Short: "現在の環境向けの hook 設定例を出力する",
+		Short: Localize("Print hook configuration examples for the current environment", "現在の環境向けの hook 設定例を出力する"),
 		Args:  noArgsJP(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runHooksPrint(cmd.Context(), cmd.OutOrStdout(), hooksPrintCommandInput{
@@ -121,8 +124,8 @@ func (c *RootCLI) newHooksPrintCommand() *cobra.Command {
 		},
 	}
 	printCmd.Flags().StringVar(&client, "client", "", hooksClientFlagUsage)
-	printCmd.Flags().StringVar(&projectDir, "project-dir", "", "hook script があるプロジェクトディレクトリ")
-	printCmd.Flags().StringVar(&tracearyBin, "traceary-bin", "", "traceary バイナリパス")
+	printCmd.Flags().StringVar(&projectDir, "project-dir", "", Localize("project directory used by generated hook commands", "hook script があるプロジェクトディレクトリ"))
+	printCmd.Flags().StringVar(&tracearyBin, "traceary-bin", "", Localize("traceary binary path or command name", "traceary バイナリパス"))
 	if err := printCmd.MarkFlagRequired("client"); err != nil {
 		panic(err)
 	}
@@ -137,24 +140,24 @@ func (c *RootCLI) runHooksPrint(
 ) error {
 	resolvedProjectDir, err := resolveHooksProjectDir(input.projectDir)
 	if err != nil {
-		return xerrors.Errorf("project directory の解決に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve project directory", "project directory の解決に失敗しました"), err)
 	}
 	resolvedTracearyBin, err := resolveHooksTracearyBin(input.tracearyBin)
 	if err != nil {
-		return xerrors.Errorf("traceary binary path の解決に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve traceary binary path", "traceary binary path の解決に失敗しました"), err)
 	}
 
 	settings, err := buildHooksSettings(input.client, resolvedProjectDir, resolvedTracearyBin)
 	if err != nil {
-		return xerrors.Errorf("hook 設定例の生成に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to build hook configuration example", "hook 設定例の生成に失敗しました"), err)
 	}
 
 	encoded, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
-		return xerrors.Errorf("hook 設定例の JSON 変換に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to marshal hook configuration example", "hook 設定例の JSON 変換に失敗しました"), err)
 	}
 	if _, err := fmt.Fprintf(output, "%s\n", encoded); err != nil {
-		return xerrors.Errorf("hook 設定例の出力に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to print hook configuration example", "hook 設定例の出力に失敗しました"), err)
 	}
 
 	return nil
@@ -167,30 +170,33 @@ func (c *RootCLI) runHooksInstall(
 ) error {
 	resolvedProjectDir, err := resolveHooksProjectDir(input.projectDir)
 	if err != nil {
-		return xerrors.Errorf("project directory の解決に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve project directory", "project directory の解決に失敗しました"), err)
 	}
 	resolvedTracearyBin, err := resolveHooksTracearyBin(input.tracearyBin)
 	if err != nil {
-		return xerrors.Errorf("traceary binary path の解決に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve traceary binary path", "traceary binary path の解決に失敗しました"), err)
 	}
 	settings, err := buildHooksSettings(input.client, resolvedProjectDir, resolvedTracearyBin)
 	if err != nil {
-		return xerrors.Errorf("hook 設定例の生成に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to build hook configuration example", "hook 設定例の生成に失敗しました"), err)
 	}
 	resolvedOutputPath, err := resolveHooksInstallOutputPath(input.client, resolvedProjectDir, input.outputPath)
 	if err != nil {
-		return xerrors.Errorf("出力先の解決に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve output path", "出力先の解決に失敗しました"), err)
 	}
 	if err := writeHooksSettingsFile(resolvedOutputPath, settings, input.force); err != nil {
-		return xerrors.Errorf("hook 設定ファイルの書き出しに失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to write hook configuration file", "hook 設定ファイルの書き出しに失敗しました"), err)
 	}
 
 	if _, err := fmt.Fprintf(
 		output,
-		"hook 設定を書き出しました: %s\n既存設定がある環境では差分を確認してから --force を使ってください\n",
+		Localize(
+			"Wrote hook configuration: %s\nIf a config file already exists in that environment, review the diff before re-running with --force.\n",
+			"hook 設定を書き出しました: %s\n既存設定がある環境では差分を確認してから --force を使ってください\n",
+		),
 		resolvedOutputPath,
 	); err != nil {
-		return xerrors.Errorf("hook 設定書き出し結果の出力に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to print hook install result", "hook 設定書き出し結果の出力に失敗しました"), err)
 	}
 
 	return nil
@@ -200,14 +206,14 @@ func resolveHooksProjectDir(flagValue string) (string, error) {
 	if strings.TrimSpace(flagValue) == "" {
 		currentDir, err := os.Getwd()
 		if err != nil {
-			return "", xerrors.Errorf("カレントディレクトリの取得に失敗しました: %w", err)
+			return "", xerrors.Errorf("%s: %w", Localize("failed to get current directory", "カレントディレクトリの取得に失敗しました"), err)
 		}
 		flagValue = currentDir
 	}
 
 	resolvedPath, err := filepath.Abs(strings.TrimSpace(flagValue))
 	if err != nil {
-		return "", xerrors.Errorf("絶対パス化に失敗しました: %w", err)
+		return "", xerrors.Errorf("%s: %w", Localize("failed to resolve absolute path", "絶対パス化に失敗しました"), err)
 	}
 
 	return resolvedPath, nil
@@ -225,7 +231,7 @@ func resolveHooksTracearyBin(flagValue string) (string, error) {
 
 	resolvedPath, err := filepath.Abs(trimmedValue)
 	if err != nil {
-		return "", xerrors.Errorf("絶対パス化に失敗しました: %w", err)
+		return "", xerrors.Errorf("%s: %w", Localize("failed to resolve absolute path", "絶対パス化に失敗しました"), err)
 	}
 
 	return resolvedPath, nil
@@ -241,7 +247,7 @@ func resolveHooksInstallOutputPath(client string, projectDir string, flagValue s
 	if trimmedFlagValue != "" {
 		resolvedPath, err := filepath.Abs(trimmedFlagValue)
 		if err != nil {
-			return "", xerrors.Errorf("絶対パス化に失敗しました: %w", err)
+			return "", xerrors.Errorf("%s: %w", Localize("failed to resolve absolute path", "絶対パス化に失敗しました"), err)
 		}
 
 		return resolvedPath, nil
@@ -255,36 +261,36 @@ func resolveHooksInstallOutputPath(client string, projectDir string, flagValue s
 	case "codex":
 		homeDir, err := userHomeDirFunc()
 		if err != nil {
-			return "", xerrors.Errorf("ユーザーホームディレクトリの取得に失敗しました: %w", err)
+			return "", xerrors.Errorf("%s: %w", Localize("failed to get user home directory", "ユーザーホームディレクトリの取得に失敗しました"), err)
 		}
 
 		return filepath.Join(homeDir, ".codex", "hooks.json"), nil
 	default:
-		return "", xerrors.Errorf("未対応の client です: %s", client)
+		return "", xerrors.Errorf(localizef("unsupported client: %s", "未対応の client です: %s", client))
 	}
 }
 
 func writeHooksSettingsFile(outputPath string, settings *hooksSettings, force bool) error {
 	if settings == nil {
-		return xerrors.Errorf("hook 設定は nil にできません")
+		return xerrors.Errorf(Localize("hook settings must not be nil", "hook 設定は nil にできません"))
 	}
 
 	if _, err := os.Stat(outputPath); err == nil && !force {
-		return xerrors.Errorf("既存ファイルがあるため上書きしません: %s", outputPath)
+		return xerrors.Errorf(localizef("refusing to overwrite existing file: %s", "既存ファイルがあるため上書きしません: %s", outputPath))
 	} else if err != nil && !os.IsNotExist(err) {
-		return xerrors.Errorf("既存ファイルの確認に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to inspect existing file", "既存ファイルの確認に失敗しました"), err)
 	}
 
 	encoded, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
-		return xerrors.Errorf("hook 設定例の JSON 変換に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to marshal hook configuration example", "hook 設定例の JSON 変換に失敗しました"), err)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
-		return xerrors.Errorf("出力先ディレクトリの作成に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to create output directory", "出力先ディレクトリの作成に失敗しました"), err)
 	}
 	if err := os.WriteFile(outputPath, append(encoded, '\n'), 0o644); err != nil {
-		return xerrors.Errorf("設定ファイルの書き出しに失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to write settings file", "設定ファイルの書き出しに失敗しました"), err)
 	}
 
 	return nil
@@ -308,7 +314,7 @@ func buildHooksSettings(
 	case "gemini":
 		return buildGeminiHooksSettings(projectDir, tracearyBin), nil
 	default:
-		return nil, xerrors.Errorf("未対応の client です: %s", client)
+		return nil, xerrors.Errorf(localizef("unsupported client: %s", "未対応の client です: %s", client))
 	}
 }
 
@@ -319,7 +325,10 @@ func normalizeHooksClient(client string) (string, error) {
 	}
 
 	return "", xerrors.Errorf(
-		"未対応の client です: %s (有効値: claude, codex, gemini; alias: claude-code, codex-cli, gemini-cli)",
+		Localize(
+			"unsupported client: %s (valid values: claude, codex, gemini; aliases: claude-code, codex-cli, gemini-cli)",
+			"未対応の client です: %s (有効値: claude, codex, gemini; alias: claude-code, codex-cli, gemini-cli)",
+		),
 		client,
 	)
 }

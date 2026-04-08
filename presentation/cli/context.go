@@ -31,12 +31,12 @@ func resolveExplicitRepoValue(flagValue string) string {
 func detectRepoContext(ctx context.Context) (string, error) {
 	output, err := exec.CommandContext(ctx, "git", "config", "--get", "remote.origin.url").Output()
 	if err != nil {
-		return "", xerrors.Errorf("git remote origin の取得に失敗しました: %w", err)
+		return "", xerrors.Errorf("%s: %w", Localize("failed to read git remote.origin.url", "git remote origin の取得に失敗しました"), err)
 	}
 
 	normalized := normalizeGitRemoteURL(string(output))
 	if normalized == "" {
-		return "", xerrors.Errorf("git remote origin が空です")
+		return "", xerrors.Errorf(Localize("git remote origin is empty", "git remote origin が空です"))
 	}
 
 	return normalized, nil

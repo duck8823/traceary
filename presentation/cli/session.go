@@ -21,7 +21,7 @@ const defaultActiveSessionStaleAfter = 24 * time.Hour
 func (c *RootCLI) newSessionCommand() *cobra.Command {
 	sessionCmd := &cobra.Command{
 		Use:   "session",
-		Short: "セッション境界を記録する",
+		Short: Localize("Record session lifecycle events", "セッション境界を記録する"),
 	}
 	sessionCmd.AddCommand(c.newSessionStartCommand())
 	sessionCmd.AddCommand(c.newSessionEndCommand())
@@ -41,7 +41,7 @@ func (c *RootCLI) newSessionLatestCommand() *cobra.Command {
 
 	latestCmd := &cobra.Command{
 		Use:   "latest",
-		Short: "直近のセッション ID を表示する",
+		Short: Localize("Print the latest session ID", "直近のセッション ID を表示する"),
 		Args:  noArgsJP(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runSessionLatest(cmd.Context(), cmd.OutOrStdout(), sessionLatestCommandInput{
@@ -52,10 +52,10 @@ func (c *RootCLI) newSessionLatestCommand() *cobra.Command {
 			})
 		},
 	}
-	latestCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
-	latestCmd.Flags().StringVar(&client, "client", "", "記録経路で絞り込む")
-	latestCmd.Flags().StringVar(&agent, "agent", "", "作業主体で絞り込む")
-	latestCmd.Flags().StringVar(&repo, "repo", "", "補助的なコンテキスト識別子で絞り込む")
+	latestCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
+	latestCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "記録経路で絞り込む"))
+	latestCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "作業主体で絞り込む"))
+	latestCmd.Flags().StringVar(&repo, "repo", "", Localize("filter by auxiliary work context identifier", "補助的なコンテキスト識別子で絞り込む"))
 
 	return latestCmd
 }
@@ -71,7 +71,7 @@ func (c *RootCLI) newSessionStartCommand() *cobra.Command {
 
 	startCmd := &cobra.Command{
 		Use:   "start",
-		Short: "セッション開始を記録する",
+		Short: Localize("Record session start", "セッション開始を記録する"),
 		Args:  noArgsJP(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runSessionBoundary(cmd.Context(), cmd.OutOrStdout(), sessionBoundaryCommandInput{
@@ -84,11 +84,11 @@ func (c *RootCLI) newSessionStartCommand() *cobra.Command {
 			})
 		},
 	}
-	startCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
-	startCmd.Flags().StringVar(&client, "client", "", "記録経路 (env: TRACEARY_CLIENT)")
-	startCmd.Flags().StringVar(&agent, "agent", "", "作業主体 (env: TRACEARY_AGENT)")
-	startCmd.Flags().StringVar(&sessionID, "session-id", "", "開始するセッション ID")
-	startCmd.Flags().StringVar(&repo, "repo", "", "補助的なコンテキスト識別子 (env: TRACEARY_REPO)")
+	startCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
+	startCmd.Flags().StringVar(&client, "client", "", Localize("recording channel (env: TRACEARY_CLIENT)", "記録経路 (env: TRACEARY_CLIENT)"))
+	startCmd.Flags().StringVar(&agent, "agent", "", Localize("actor name (env: TRACEARY_AGENT)", "作業主体 (env: TRACEARY_AGENT)"))
+	startCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID to start", "開始するセッション ID"))
+	startCmd.Flags().StringVar(&repo, "repo", "", Localize("auxiliary work context identifier (env: TRACEARY_REPO)", "補助的なコンテキスト識別子 (env: TRACEARY_REPO)"))
 
 	return startCmd
 }
@@ -104,7 +104,7 @@ func (c *RootCLI) newSessionEndCommand() *cobra.Command {
 
 	endCmd := &cobra.Command{
 		Use:   "end",
-		Short: "セッション終了を記録する",
+		Short: Localize("Record session end", "セッション終了を記録する"),
 		Args:  noArgsJP(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runSessionBoundary(cmd.Context(), cmd.OutOrStdout(), sessionBoundaryCommandInput{
@@ -117,11 +117,11 @@ func (c *RootCLI) newSessionEndCommand() *cobra.Command {
 			})
 		},
 	}
-	endCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
-	endCmd.Flags().StringVar(&client, "client", "", "記録経路 (env: TRACEARY_CLIENT)")
-	endCmd.Flags().StringVar(&agent, "agent", "", "作業主体 (env: TRACEARY_AGENT)")
-	endCmd.Flags().StringVar(&sessionID, "session-id", "", "終了するセッション ID (env: TRACEARY_SESSION_ID)")
-	endCmd.Flags().StringVar(&repo, "repo", "", "補助的なコンテキスト識別子 (env: TRACEARY_REPO)")
+	endCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
+	endCmd.Flags().StringVar(&client, "client", "", Localize("recording channel (env: TRACEARY_CLIENT)", "記録経路 (env: TRACEARY_CLIENT)"))
+	endCmd.Flags().StringVar(&agent, "agent", "", Localize("actor name (env: TRACEARY_AGENT)", "作業主体 (env: TRACEARY_AGENT)"))
+	endCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID to end (env: TRACEARY_SESSION_ID)", "終了するセッション ID (env: TRACEARY_SESSION_ID)"))
+	endCmd.Flags().StringVar(&repo, "repo", "", Localize("auxiliary work context identifier (env: TRACEARY_REPO)", "補助的なコンテキスト識別子 (env: TRACEARY_REPO)"))
 
 	return endCmd
 }
@@ -157,7 +157,7 @@ func (c *RootCLI) newSessionActiveCommand() *cobra.Command {
 
 	activeCmd := &cobra.Command{
 		Use:   "active",
-		Short: "現在アクティブな session ID を表示する (既定では 24h 超の stale を除外)",
+		Short: Localize("Print the active session ID (stale sessions older than 24h are excluded by default)", "現在アクティブな session ID を表示する (既定では 24h 超の stale を除外)"),
 		Args:  noArgsJP(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runSessionLatest(cmd.Context(), cmd.OutOrStdout(), sessionLatestCommandInput{
@@ -171,17 +171,17 @@ func (c *RootCLI) newSessionActiveCommand() *cobra.Command {
 			})
 		},
 	}
-	activeCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
-	activeCmd.Flags().StringVar(&client, "client", "", "記録経路で絞り込む")
-	activeCmd.Flags().StringVar(&agent, "agent", "", "作業主体で絞り込む")
-	activeCmd.Flags().StringVar(&repo, "repo", "", "補助的なコンテキスト識別子で絞り込む")
+	activeCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
+	activeCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "記録経路で絞り込む"))
+	activeCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "作業主体で絞り込む"))
+	activeCmd.Flags().StringVar(&repo, "repo", "", Localize("filter by auxiliary work context identifier", "補助的なコンテキスト識別子で絞り込む"))
 	activeCmd.Flags().DurationVar(
 		&staleAfter,
 		"stale-after",
 		defaultActiveSessionStaleAfter,
-		"この duration を超える active session は stale とみなす",
+		Localize("mark active sessions older than this duration as stale", "この duration を超える active session は stale とみなす"),
 	)
-	activeCmd.Flags().BoolVar(&allowStale, "allow-stale", false, "stale な session も返す")
+	activeCmd.Flags().BoolVar(&allowStale, "allow-stale", false, Localize("allow stale sessions to be returned", "stale な session も返す"))
 
 	return activeCmd
 }
@@ -192,18 +192,18 @@ func (c *RootCLI) runSessionBoundary(
 	input sessionBoundaryCommandInput,
 ) error {
 	if c.initializeStoreUsecase == nil {
-		return xerrors.Errorf("ストア初期化ユースケースが設定されていません")
+		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.recordSessionBoundaryUsecase == nil {
-		return xerrors.Errorf("session 境界ユースケースが設定されていません")
+		return xerrors.Errorf(Localize("record session boundary usecase is not configured", "session 境界ユースケースが設定されていません"))
 	}
 
 	resolvedPath, err := resolveDBPath(input.dbPath)
 	if err != nil {
-		return xerrors.Errorf("DB パスの解決に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
 	if err := c.initializeStoreUsecase.Run(ctx, resolvedPath); err != nil {
-		return xerrors.Errorf("ストアの初期化に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
 	event, err := c.recordSessionBoundaryUsecase.Run(ctx, usecase.RecordSessionBoundaryInput{
@@ -218,18 +218,18 @@ func (c *RootCLI) runSessionBoundary(
 		Kind:          input.kind,
 	})
 	if err != nil {
-		return xerrors.Errorf("session 境界の記録に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to record session boundary", "session 境界の記録に失敗しました"), err)
 	}
 
 	if input.kind == types.EventKindSessionEnded {
-		if _, err := fmt.Fprintf(output, "記録しました: %s\n", event.EventID()); err != nil {
-			return xerrors.Errorf("session end 結果の出力に失敗しました: %w", err)
+		if _, err := fmt.Fprintf(output, "%s: %s\n", Localize("Recorded", "記録しました"), event.EventID()); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print session end result", "session end 結果の出力に失敗しました"), err)
 		}
 		return nil
 	}
 
 	if _, err := fmt.Fprintln(output, event.SessionID()); err != nil {
-		return xerrors.Errorf("session ID の出力に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to print session ID", "session ID の出力に失敗しました"), err)
 	}
 
 	return nil
@@ -265,18 +265,18 @@ func (c *RootCLI) runSessionLatest(
 	input sessionLatestCommandInput,
 ) error {
 	if c.initializeStoreUsecase == nil {
-		return xerrors.Errorf("ストア初期化ユースケースが設定されていません")
+		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.findLatestSessionQueryService == nil {
-		return xerrors.Errorf("直近セッションクエリサービスが設定されていません")
+		return xerrors.Errorf(Localize("find latest session query service is not configured", "直近セッションクエリサービスが設定されていません"))
 	}
 
 	resolvedPath, err := resolveDBPath(input.dbPath)
 	if err != nil {
-		return xerrors.Errorf("DB パスの解決に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
 	if err := c.initializeStoreUsecase.Run(ctx, resolvedPath); err != nil {
-		return xerrors.Errorf("ストアの初期化に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
 	event, err := c.findLatestSessionQueryService.Run(ctx, resolvedPath, queryservice.FindLatestSessionInput{
@@ -287,20 +287,22 @@ func (c *RootCLI) runSessionLatest(
 	})
 	if err != nil {
 		if queryservice.IsSessionLookupNotFound(err) {
-			//nolint:wrapcheck // not found は user-facing message を保つためそのまま返す
-			return err
+			if input.activeOnly {
+				return xerrors.Errorf(Localize("no matching active session found", "条件に一致する active session は存在しません"))
+			}
+			return xerrors.Errorf(Localize("no matching session found", "条件に一致する session は存在しません"))
 		}
 		if input.activeOnly {
-			return xerrors.Errorf("アクティブ session の取得に失敗しました: %w", err)
+			return xerrors.Errorf("%s: %w", Localize("failed to get active session", "アクティブ session の取得に失敗しました"), err)
 		}
-		return xerrors.Errorf("直近セッションの取得に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to get latest session", "直近セッションの取得に失敗しました"), err)
 	}
 	if err := validateActiveSessionFreshness(event, input); err != nil {
 		return err
 	}
 
 	if _, err := fmt.Fprintln(output, event.SessionID()); err != nil {
-		return xerrors.Errorf("session ID の出力に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to print session ID", "session ID の出力に失敗しました"), err)
 	}
 
 	return nil
@@ -317,7 +319,10 @@ func validateActiveSessionFreshness(event *model.Event, input sessionLatestComma
 	}
 
 	return xerrors.Errorf(
-		"active session %s は %s を超えており stale です。--allow-stale を使うか session end で閉じてください",
+		Localize(
+			"active session %s is older than %s and considered stale; use --allow-stale or close it with session end",
+			"active session %s は %s を超えており stale です。--allow-stale を使うか session end で閉じてください",
+		),
 		event.SessionID(),
 		input.staleAfter,
 	)

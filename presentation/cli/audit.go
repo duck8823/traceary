@@ -27,7 +27,7 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 
 	auditCmd := &cobra.Command{
 		Use:   "audit <command> <input> <output>",
-		Short: "コマンド実行の監査ログを記録する",
+		Short: Localize("Record a command execution audit event", "コマンド実行の監査ログを記録する"),
 		Args:  exactArgsJP(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return c.runAudit(cmd.Context(), cmd.OutOrStdout(), auditCommandInput{
@@ -44,22 +44,22 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 			})
 		},
 	}
-	auditCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
-	auditCmd.Flags().StringVar(&client, "client", "", "記録経路 (env: TRACEARY_CLIENT)")
-	auditCmd.Flags().StringVar(&agent, "agent", "", "作業主体 (env: TRACEARY_AGENT)")
-	auditCmd.Flags().StringVar(&sessionID, "session-id", "", "セッション ID (env: TRACEARY_SESSION_ID)")
-	auditCmd.Flags().StringVar(&repo, "repo", "", "補助的なコンテキスト識別子 (env: TRACEARY_REPO)")
+	auditCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
+	auditCmd.Flags().StringVar(&client, "client", "", Localize("recording channel (env: TRACEARY_CLIENT)", "記録経路 (env: TRACEARY_CLIENT)"))
+	auditCmd.Flags().StringVar(&agent, "agent", "", Localize("actor name (env: TRACEARY_AGENT)", "作業主体 (env: TRACEARY_AGENT)"))
+	auditCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID (env: TRACEARY_SESSION_ID)", "セッション ID (env: TRACEARY_SESSION_ID)"))
+	auditCmd.Flags().StringVar(&repo, "repo", "", Localize("auxiliary work context identifier (env: TRACEARY_REPO)", "補助的なコンテキスト識別子 (env: TRACEARY_REPO)"))
 	auditCmd.Flags().IntVar(
 		&maxInputBytes,
 		"max-input-bytes",
 		0,
-		"入力保存サイズ上限 (env: TRACEARY_MAX_AUDIT_INPUT_BYTES, 0 なら既定値)",
+		Localize("maximum stored input bytes (env: TRACEARY_MAX_AUDIT_INPUT_BYTES, 0 uses default)", "入力保存サイズ上限 (env: TRACEARY_MAX_AUDIT_INPUT_BYTES, 0 なら既定値)"),
 	)
 	auditCmd.Flags().IntVar(
 		&maxOutputBytes,
 		"max-output-bytes",
 		0,
-		"出力保存サイズ上限 (env: TRACEARY_MAX_AUDIT_OUTPUT_BYTES, 0 なら既定値)",
+		Localize("maximum stored output bytes (env: TRACEARY_MAX_AUDIT_OUTPUT_BYTES, 0 uses default)", "出力保存サイズ上限 (env: TRACEARY_MAX_AUDIT_OUTPUT_BYTES, 0 なら既定値)"),
 	)
 
 	return auditCmd
@@ -80,27 +80,27 @@ type auditCommandInput struct {
 
 func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCommandInput) error {
 	if c.initializeStoreUsecase == nil {
-		return xerrors.Errorf("ストア初期化ユースケースが設定されていません")
+		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.recordCommandAuditUsecase == nil {
-		return xerrors.Errorf("監査ログ記録ユースケースが設定されていません")
+		return xerrors.Errorf(Localize("record command audit usecase is not configured", "監査ログ記録ユースケースが設定されていません"))
 	}
 
 	resolvedPath, err := resolveDBPath(input.dbPath)
 	if err != nil {
-		return xerrors.Errorf("DB パスの解決に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
 	if err := c.initializeStoreUsecase.Run(ctx, resolvedPath); err != nil {
-		return xerrors.Errorf("ストアの初期化に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
 	maxInputBytes, err := resolveAuditMaxBytes(input.maxInputBytes, "TRACEARY_MAX_AUDIT_INPUT_BYTES")
 	if err != nil {
-		return xerrors.Errorf("input 上限の解決に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve input byte limit", "input 上限の解決に失敗しました"), err)
 	}
 	maxOutputBytes, err := resolveAuditMaxBytes(input.maxOutputBytes, "TRACEARY_MAX_AUDIT_OUTPUT_BYTES")
 	if err != nil {
-		return xerrors.Errorf("output 上限の解決に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve output byte limit", "output 上限の解決に失敗しました"), err)
 	}
 
 	event, commandAudit, err := c.recordCommandAuditUsecase.Run(ctx, usecase.RecordCommandAuditInput{
@@ -116,21 +116,21 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		MaxOutputBytes: maxOutputBytes,
 	})
 	if err != nil {
-		return xerrors.Errorf("監査ログ記録に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to record command audit", "監査ログ記録に失敗しました"), err)
 	}
 
-	if _, err := fmt.Fprintf(output, "記録しました: %s\n", event.EventID()); err != nil {
-		return xerrors.Errorf("監査ログ記録結果の出力に失敗しました: %w", err)
+	if _, err := fmt.Fprintf(output, "%s: %s\n", Localize("Recorded", "記録しました"), event.EventID()); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print record result", "監査ログ記録結果の出力に失敗しました"), err)
 	}
 	if commandAudit != nil {
 		if commandAudit.InputTruncated() {
-			if _, err := fmt.Fprintln(output, "入力は切り詰めて保存しました"); err != nil {
-				return xerrors.Errorf("input 切り詰め通知の出力に失敗しました: %w", err)
+			if _, err := fmt.Fprintln(output, Localize("Input was truncated before storing", "入力は切り詰めて保存しました")); err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to print input truncation notice", "input 切り詰め通知の出力に失敗しました"), err)
 			}
 		}
 		if commandAudit.OutputTruncated() {
-			if _, err := fmt.Fprintln(output, "出力は切り詰めて保存しました"); err != nil {
-				return xerrors.Errorf("output 切り詰め通知の出力に失敗しました: %w", err)
+			if _, err := fmt.Fprintln(output, Localize("Output was truncated before storing", "出力は切り詰めて保存しました")); err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to print output truncation notice", "output 切り詰め通知の出力に失敗しました"), err)
 			}
 		}
 	}
@@ -141,7 +141,7 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 func resolveAuditMaxBytes(flagValue int, envKey string) (int, error) {
 	if flagValue != 0 {
 		if flagValue < 0 {
-			return 0, xerrors.Errorf("0 以上で指定してください")
+			return 0, xerrors.Errorf(Localize("value must be greater than or equal to 0", "0 以上で指定してください"))
 		}
 		return flagValue, nil
 	}
@@ -158,10 +158,10 @@ func resolveAuditMaxBytes(flagValue int, envKey string) (int, error) {
 
 	parsedValue, err := strconv.Atoi(trimmedEnvValue)
 	if err != nil {
-		return 0, xerrors.Errorf("%s は整数で指定してください: %w", envKey, err)
+		return 0, xerrors.Errorf("%s: %w", localizef("%s must be an integer", "%s は整数で指定してください", envKey), err)
 	}
 	if parsedValue < 0 {
-		return 0, xerrors.Errorf("%s は 0 以上で指定してください", envKey)
+		return 0, xerrors.Errorf(localizef("%s must be greater than or equal to 0", "%s は 0 以上で指定してください", envKey))
 	}
 
 	return parsedValue, nil
