@@ -5,6 +5,34 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.1.8] - 2026-04-08
+
+### Added
+- `traceary doctor` / `traceary status` for DB and hooks diagnostics
+- public `SECURITY.md` / `SECURITY.ja.md`
+- `traceary backup create` / `traceary backup restore`
+- dedicated backup / transfer guides under `docs/backup/`
+- MCP session lifecycle tools: `start_session`, `end_session`, `latest_session`, and `active_session`
+
+### Changed
+- `hooks install` now merges Traceary-managed hooks into supported existing client config files by default instead of forcing full replacement
+- portable hook scripts no longer require `python3` at runtime
+- `traceary audit` now redacts common secret-like values before persistence and reports redaction in CLI / MCP output
+- public README / hooks / MCP docs now align command surface and platform support expectations
+- `traceary list` and `traceary search` now support stable offset pagination with `--offset`
+
+### Included issues
+- #88 operational safety and public usability
+- #89 safe hooks config merge
+- #90 doctor / status diagnostics
+- #91 audit secret persistence hardening
+- #92 public security policy
+- #93 README / platform support alignment
+- #94 list / search pagination
+- #95 MCP session ergonomics
+- #96 backup / export / import story
+- #97 reduce hook runtime dependency friction
+
 ## [v0.1.7] - 2026-04-08
 
 ### Added
@@ -144,3 +172,4 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 [v0.1.5]: https://github.com/duck8823/traceary/releases/tag/v0.1.5
 [v0.1.6]: https://github.com/duck8823/traceary/releases/tag/v0.1.6
 [v0.1.7]: https://github.com/duck8823/traceary/releases/tag/v0.1.7
+[v0.1.8]: https://github.com/duck8823/traceary/releases/tag/v0.1.8
