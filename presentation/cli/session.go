@@ -207,12 +207,15 @@ func (c *RootCLI) runSessionBoundary(
 	}
 
 	event, err := c.recordSessionBoundaryUsecase.Run(ctx, usecase.RecordSessionBoundaryInput{
-		DBPath:    resolvedPath,
-		Client:    resolveOptionalValue(input.client, "TRACEARY_CLIENT", defaultClientValue),
-		Agent:     resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue),
-		SessionID: input.sessionID,
-		Repo:      resolveRepoValue(ctx, input.repo),
-		Kind:      input.kind,
+		DBPath:        resolvedPath,
+		Client:        resolveSessionBoundaryClient(input),
+		DefaultClient: defaultClientValue,
+		Agent:         resolveSessionBoundaryAgent(input),
+		DefaultAgent:  defaultAgentValue,
+		SessionID:     input.sessionID,
+		Repo:          resolveSessionBoundaryRepo(input),
+		DefaultRepo:   resolveRepoValue(ctx, input.repo),
+		Kind:          input.kind,
 	})
 	if err != nil {
 		return xerrors.Errorf("session 境界の記録に失敗しました: %w", err)
@@ -230,6 +233,30 @@ func (c *RootCLI) runSessionBoundary(
 	}
 
 	return nil
+}
+
+func resolveSessionBoundaryClient(input sessionBoundaryCommandInput) string {
+	if input.kind == types.EventKindSessionEnded {
+		return resolveOptionalValue(input.client, "TRACEARY_CLIENT", "")
+	}
+
+	return resolveOptionalValue(input.client, "TRACEARY_CLIENT", defaultClientValue)
+}
+
+func resolveSessionBoundaryAgent(input sessionBoundaryCommandInput) string {
+	if input.kind == types.EventKindSessionEnded {
+		return resolveOptionalValue(input.agent, "TRACEARY_AGENT", "")
+	}
+
+	return resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue)
+}
+
+func resolveSessionBoundaryRepo(input sessionBoundaryCommandInput) string {
+	if input.kind == types.EventKindSessionEnded {
+		return resolveExplicitRepoValue(input.repo)
+	}
+
+	return resolveRepoValue(context.Background(), input.repo)
 }
 
 func (c *RootCLI) runSessionLatest(

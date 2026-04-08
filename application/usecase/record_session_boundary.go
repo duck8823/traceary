@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -12,12 +13,28 @@ import (
 
 // RecordSessionBoundaryInput は session start/end の入力です。
 type RecordSessionBoundaryInput struct {
-	DBPath    string
-	Client    string
-	Agent     string
-	SessionID string
-	Repo      string
-	Kind      types.EventKind
+	DBPath        string
+	Client        string
+	DefaultClient string
+	Agent         string
+	DefaultAgent  string
+	SessionID     string
+	Repo          string
+	DefaultRepo   string
+	Kind          types.EventKind
+}
+
+// ErrSessionStartedEventNotFound は対象 session の開始イベントが存在しないことを表します。
+var ErrSessionStartedEventNotFound = xerrors.New("対象 session の開始イベントが存在しません")
+
+// SessionStartedEventFinder は session_started イベントの取得を提供します。
+type SessionStartedEventFinder interface {
+	// FindSessionStartedEvent は対象 session の直近の session_started イベントを返します。
+	FindSessionStartedEvent(
+		ctx context.Context,
+		dbPath string,
+		sessionID types.SessionID,
+	) (*model.Event, error)
 }
 
 // RecordSessionBoundaryUsecase は session 開始/終了イベントを記録します。
@@ -27,12 +44,19 @@ type RecordSessionBoundaryUsecase interface {
 }
 
 type recordSessionBoundaryUsecase struct {
-	eventSaver EventSaver
+	eventSaver                EventSaver
+	sessionStartedEventFinder SessionStartedEventFinder
 }
 
 // NewRecordSessionBoundaryUsecase は session 境界イベント記録ユースケースを生成します。
-func NewRecordSessionBoundaryUsecase(eventSaver EventSaver) RecordSessionBoundaryUsecase {
-	return &recordSessionBoundaryUsecase{eventSaver: eventSaver}
+func NewRecordSessionBoundaryUsecase(
+	eventSaver EventSaver,
+	sessionStartedEventFinder SessionStartedEventFinder,
+) RecordSessionBoundaryUsecase {
+	return &recordSessionBoundaryUsecase{
+		eventSaver:                eventSaver,
+		sessionStartedEventFinder: sessionStartedEventFinder,
+	}
 }
 
 // Run は session 境界イベントを保存します。
@@ -48,13 +72,22 @@ func (u *recordSessionBoundaryUsecase) Run(
 		return nil, xerrors.Errorf("DB パスは空にできません")
 	}
 
-	agent, err := types.AgentOf(input.Agent)
-	if err != nil {
-		return nil, xerrors.Errorf("agent の解決に失敗しました: %w", err)
-	}
 	sessionID, err := resolveSessionBoundaryID(input.Kind, input.SessionID)
 	if err != nil {
 		return nil, xerrors.Errorf("session ID の解決に失敗しました: %w", err)
+	}
+	resolvedClient, resolvedAgentValue, resolvedRepo, err := u.resolveSessionBoundaryAttribution(
+		ctx,
+		trimmedDBPath,
+		input,
+		sessionID,
+	)
+	if err != nil {
+		return nil, xerrors.Errorf("session 境界の attribution 解決に失敗しました: %w", err)
+	}
+	agent, err := types.AgentOf(resolvedAgentValue)
+	if err != nil {
+		return nil, xerrors.Errorf("agent の解決に失敗しました: %w", err)
 	}
 	eventID, err := newEventID()
 	if err != nil {
@@ -64,10 +97,10 @@ func (u *recordSessionBoundaryUsecase) Run(
 	event, err := model.NewEvent(
 		eventID,
 		input.Kind,
-		strings.TrimSpace(input.Client),
+		resolvedClient,
 		agent,
 		sessionID,
-		strings.TrimSpace(input.Repo),
+		resolvedRepo,
 		sessionBoundaryBody(input.Kind),
 	)
 	if err != nil {
@@ -78,6 +111,49 @@ func (u *recordSessionBoundaryUsecase) Run(
 	}
 
 	return event, nil
+}
+
+func (u *recordSessionBoundaryUsecase) resolveSessionBoundaryAttribution(
+	ctx context.Context,
+	dbPath string,
+	input RecordSessionBoundaryInput,
+	sessionID types.SessionID,
+) (string, string, string, error) {
+	resolvedClient := strings.TrimSpace(input.Client)
+	resolvedAgentValue := strings.TrimSpace(input.Agent)
+	resolvedRepo := strings.TrimSpace(input.Repo)
+
+	if input.Kind == types.EventKindSessionEnded && u.sessionStartedEventFinder != nil {
+		if resolvedClient == "" || resolvedAgentValue == "" || resolvedRepo == "" {
+			startedEvent, err := u.sessionStartedEventFinder.FindSessionStartedEvent(ctx, dbPath, sessionID)
+			if err != nil && !errors.Is(err, ErrSessionStartedEventNotFound) {
+				return "", "", "", xerrors.Errorf("session_started イベントの取得に失敗しました: %w", err)
+			}
+			if err == nil && startedEvent != nil {
+				if resolvedClient == "" {
+					resolvedClient = startedEvent.Client()
+				}
+				if resolvedAgentValue == "" {
+					resolvedAgentValue = startedEvent.Agent().String()
+				}
+				if resolvedRepo == "" {
+					resolvedRepo = startedEvent.Repo()
+				}
+			}
+		}
+	}
+
+	if resolvedClient == "" {
+		resolvedClient = strings.TrimSpace(input.DefaultClient)
+	}
+	if resolvedAgentValue == "" {
+		resolvedAgentValue = strings.TrimSpace(input.DefaultAgent)
+	}
+	if resolvedRepo == "" {
+		resolvedRepo = strings.TrimSpace(input.DefaultRepo)
+	}
+
+	return resolvedClient, resolvedAgentValue, resolvedRepo, nil
 }
 
 func resolveSessionBoundaryID(

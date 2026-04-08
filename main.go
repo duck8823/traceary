@@ -89,7 +89,7 @@ func run() error {
 	datasource := sqlite.NewDatasource(migrationsSubFS)
 	initializeStoreUsecase := usecase.NewInitializeStoreUsecase(datasource)
 	recordLogUsecase := usecase.NewRecordLogUsecase(datasource)
-	recordSessionBoundaryUsecase := usecase.NewRecordSessionBoundaryUsecase(datasource)
+	recordSessionBoundaryUsecase := usecase.NewRecordSessionBoundaryUsecase(datasource, datasource)
 	recordCommandAuditUsecase := usecase.NewRecordCommandAuditUsecase(datasource)
 	collectGarbageUsecase := usecase.NewCollectGarbageUsecase(datasource)
 	searchEventsQueryService := queryservice.NewSearchEventsQueryService(datasource)
