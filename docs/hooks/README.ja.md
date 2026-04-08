@@ -138,6 +138,8 @@ hooks やローカル SQLite store の挙動がおかしいときは `traceary d
 
 `doctor` は対象 client 自体を起動するわけではありません。file path、DB access、Traceary 管理下の hook entry の存在は確認できますが、第三者 client が検証時とまったく同じ形で hook を発火することまでは保証しません。
 
+SQLite concurrency の前提、PPID ベース hook state の注意点、その他の運用上の既知前提は [`../operations/README.ja.md`](../operations/README.ja.md) を参照してください。
+
 ### Claude Code
 
 1. `examples/hooks/claude.settings.json` を `.claude/settings.json` にコピーし、既存設定と merge する
