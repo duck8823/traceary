@@ -26,7 +26,7 @@ const (
 	defaultActiveStaleAfter = 24 * time.Hour
 )
 
-// Server は Traceary の MCP server を提供します。
+// Server provides the Traceary MCP server.
 type Server struct {
 	serverName                    string
 	serverVersion                 string
@@ -40,7 +40,7 @@ type Server struct {
 	getContextQueryService        queryservice.GetContextQueryService
 }
 
-// NewServer は新しい MCP server を生成します。
+// NewServer creates a new MCP server.
 func NewServer(
 	serverVersion string,
 	initializeStoreUsecase usecase.InitializeStoreUsecase,
@@ -53,28 +53,28 @@ func NewServer(
 	getContextQueryService queryservice.GetContextQueryService,
 ) (*Server, error) {
 	if initializeStoreUsecase == nil {
-		return nil, xerrors.Errorf("ストア初期化ユースケースが設定されていません")
+		return nil, xerrors.Errorf("initialize store usecase is not configured")
 	}
 	if recordLogUsecase == nil {
-		return nil, xerrors.Errorf("ログ記録ユースケースが設定されていません")
+		return nil, xerrors.Errorf("record log usecase is not configured")
 	}
 	if recordSessionBoundaryUsecase == nil {
-		return nil, xerrors.Errorf("session 境界ユースケースが設定されていません")
+		return nil, xerrors.Errorf("record session boundary usecase is not configured")
 	}
 	if recordCommandAuditUsecase == nil {
-		return nil, xerrors.Errorf("監査ログ記録ユースケースが設定されていません")
+		return nil, xerrors.Errorf("record command audit usecase is not configured")
 	}
 	if findLatestSessionQueryService == nil {
-		return nil, xerrors.Errorf("直近セッションクエリサービスが設定されていません")
+		return nil, xerrors.Errorf("find latest session query service is not configured")
 	}
 	if listEventsQueryService == nil {
-		return nil, xerrors.Errorf("イベント一覧クエリサービスが設定されていません")
+		return nil, xerrors.Errorf("list recent events query service is not configured")
 	}
 	if searchEventsQueryService == nil {
-		return nil, xerrors.Errorf("検索クエリサービスが設定されていません")
+		return nil, xerrors.Errorf("search events query service is not configured")
 	}
 	if getContextQueryService == nil {
-		return nil, xerrors.Errorf("文脈取得クエリサービスが設定されていません")
+		return nil, xerrors.Errorf("get context query service is not configured")
 	}
 
 	trimmedVersion := strings.TrimSpace(serverVersion)
@@ -96,14 +96,14 @@ func NewServer(
 	}, nil
 }
 
-// Build は起動済みストアを参照する MCP server を構築します。
+// Build creates an MCP server backed by an initialized store.
 func (s *Server) Build(ctx context.Context, dbPath string) (*mcp.Server, error) {
 	trimmedDBPath := strings.TrimSpace(dbPath)
 	if trimmedDBPath == "" {
-		return nil, xerrors.Errorf("DB パスは空にできません")
+		return nil, xerrors.Errorf("DB path must not be empty")
 	}
 	if err := s.initializeStoreUsecase.Run(ctx, trimmedDBPath); err != nil {
-		return nil, xerrors.Errorf("ストアの初期化に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to initialize store: %w", err)
 	}
 
 	server := mcp.NewServer(&mcp.Implementation{
@@ -113,165 +113,165 @@ func (s *Server) Build(ctx context.Context, dbPath string) (*mcp.Server, error) 
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "add_log",
-		Description: "Traceary にログイベントを追加します",
+		Description: "Add a log event to Traceary",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
 	}, s.addLog(trimmedDBPath))
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "start_session",
-		Description: "Traceary に session started イベントを追加します",
+		Description: "Add a session_started event to Traceary",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
 	}, s.startSession(trimmedDBPath))
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "end_session",
-		Description: "Traceary に session ended イベントを追加します",
+		Description: "Add a session_ended event to Traceary",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
 	}, s.endSession(trimmedDBPath))
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "latest_session",
-		Description: "条件に一致する最新 session を返します",
+		Description: "Return the latest session matching the filters",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.latestSession(trimmedDBPath))
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "active_session",
-		Description: "条件に一致する現在 active な session を返します",
+		Description: "Return the active session matching the filters",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.activeSession(trimmedDBPath))
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_events",
-		Description: "Traceary の最近のイベントを一覧します",
+		Description: "List recent events in Traceary",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.listEvents(trimmedDBPath))
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "add_audit",
-		Description: "Traceary にコマンド監査イベントを追加します",
+		Description: "Add a command audit event to Traceary",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
 	}, s.addAudit(trimmedDBPath))
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search",
-		Description: "Traceary のイベントを検索します",
+		Description: "Search events in Traceary",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.search(trimmedDBPath))
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_context",
-		Description: "指定条件の最近のイベント文脈を取得します",
+		Description: "Get recent context events matching the filters",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.getContext(trimmedDBPath))
 
 	return server, nil
 }
 
-// Run は stdio transport 上で MCP server を起動します。
+// Run starts the MCP server over stdio transport.
 func (s *Server) Run(ctx context.Context, dbPath string) error {
 	server, err := s.Build(ctx, dbPath)
 	if err != nil {
-		return xerrors.Errorf("MCP server の構築に失敗しました: %w", err)
+		return xerrors.Errorf("failed to build MCP server: %w", err)
 	}
 	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil {
-		return xerrors.Errorf("MCP server の実行に失敗しました: %w", err)
+		return xerrors.Errorf("failed to run MCP server: %w", err)
 	}
 
 	return nil
 }
 
 type addLogInput struct {
-	Message   string `json:"message" jsonschema:"記録するログ本文"`
-	Client    string `json:"client,omitempty" jsonschema:"記録経路。省略時は mcp"`
-	Agent     string `json:"agent,omitempty" jsonschema:"作業主体。省略時は manual"`
-	SessionID string `json:"session_id,omitempty" jsonschema:"セッション識別子。省略時は default"`
-	Repo      string `json:"repo,omitempty" jsonschema:"補助的な work context 識別子"`
+	Message   string `json:"message" jsonschema:"log body to record"`
+	Client    string `json:"client,omitempty" jsonschema:"recording channel (default: mcp)"`
+	Agent     string `json:"agent,omitempty" jsonschema:"actor name (default: manual)"`
+	SessionID string `json:"session_id,omitempty" jsonschema:"session ID (default: default)"`
+	Repo      string `json:"repo,omitempty" jsonschema:"auxiliary work context identifier"`
 }
 
 type addLogOutput struct {
-	EventID   string `json:"event_id" jsonschema:"保存したイベント ID"`
-	Kind      string `json:"kind" jsonschema:"イベント種別"`
-	Client    string `json:"client" jsonschema:"記録経路"`
-	Agent     string `json:"agent" jsonschema:"作業主体"`
-	SessionID string `json:"session_id" jsonschema:"セッション識別子"`
-	Repo      string `json:"repo,omitempty" jsonschema:"補助的な work context 識別子"`
-	Body      string `json:"body" jsonschema:"イベント本文"`
-	CreatedAt string `json:"created_at" jsonschema:"イベント記録時刻 (RFC3339Nano)"`
+	EventID   string `json:"event_id" jsonschema:"saved event ID"`
+	Kind      string `json:"kind" jsonschema:"event kind"`
+	Client    string `json:"client" jsonschema:"recording channel"`
+	Agent     string `json:"agent" jsonschema:"actor"`
+	SessionID string `json:"session_id" jsonschema:"session identifier"`
+	Repo      string `json:"repo,omitempty" jsonschema:"auxiliary work context identifier"`
+	Body      string `json:"body" jsonschema:"event body"`
+	CreatedAt string `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
 }
 
 type sessionBoundaryInput struct {
-	Client    string `json:"client,omitempty" jsonschema:"記録経路。省略時は start で mcp、end では開始イベントの attribution を優先"`
-	Agent     string `json:"agent,omitempty" jsonschema:"作業主体。省略時は start で manual、end では開始イベントの attribution を優先"`
-	SessionID string `json:"session_id,omitempty" jsonschema:"対象セッション識別子。start は省略時に新規生成、end は必須"`
-	Repo      string `json:"repo,omitempty" jsonschema:"補助的な work context 識別子"`
+	Client    string `json:"client,omitempty" jsonschema:"recording channel (start default: mcp; end falls back to the start event attribution)"`
+	Agent     string `json:"agent,omitempty" jsonschema:"actor name (start default: manual; end falls back to the start event attribution)"`
+	SessionID string `json:"session_id,omitempty" jsonschema:"session identifier (start auto-generates when omitted; end requires it)"`
+	Repo      string `json:"repo,omitempty" jsonschema:"auxiliary work context identifier"`
 }
 
 type sessionLookupInput struct {
-	Client            string `json:"client,omitempty" jsonschema:"記録経路で絞り込む"`
-	Agent             string `json:"agent,omitempty" jsonschema:"作業主体で絞り込む"`
-	Repo              string `json:"repo,omitempty" jsonschema:"補助的な work context 識別子で絞り込む"`
-	AllowStale        bool   `json:"allow_stale,omitempty" jsonschema:"stale な active session も返す"`
-	StaleAfterSeconds int    `json:"stale_after_seconds,omitempty" jsonschema:"この秒数を超える active session を stale 扱いにする。0 または省略時は 86400"`
+	Client            string `json:"client,omitempty" jsonschema:"filter by recording channel"`
+	Agent             string `json:"agent,omitempty" jsonschema:"filter by actor"`
+	Repo              string `json:"repo,omitempty" jsonschema:"filter by auxiliary work context identifier"`
+	AllowStale        bool   `json:"allow_stale,omitempty" jsonschema:"allow stale active sessions"`
+	StaleAfterSeconds int    `json:"stale_after_seconds,omitempty" jsonschema:"mark active sessions older than this many seconds as stale (0 or omitted: 86400)"`
 }
 
 type sessionEventOutput struct {
-	EventID   string `json:"event_id" jsonschema:"保存または参照したイベント ID"`
-	Kind      string `json:"kind" jsonschema:"イベント種別"`
-	Client    string `json:"client" jsonschema:"記録経路"`
-	Agent     string `json:"agent" jsonschema:"作業主体"`
-	SessionID string `json:"session_id" jsonschema:"セッション識別子"`
-	Repo      string `json:"repo,omitempty" jsonschema:"補助的な work context 識別子"`
-	CreatedAt string `json:"created_at" jsonschema:"イベント時刻 (RFC3339Nano)"`
+	EventID   string `json:"event_id" jsonschema:"saved or referenced event ID"`
+	Kind      string `json:"kind" jsonschema:"event kind"`
+	Client    string `json:"client" jsonschema:"recording channel"`
+	Agent     string `json:"agent" jsonschema:"actor"`
+	SessionID string `json:"session_id" jsonschema:"session identifier"`
+	Repo      string `json:"repo,omitempty" jsonschema:"auxiliary work context identifier"`
+	CreatedAt string `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
 }
 
 type addAuditInput struct {
-	Command   string `json:"command" jsonschema:"実行したコマンド"`
-	Input     string `json:"input,omitempty" jsonschema:"コマンド入力"`
-	Output    string `json:"output,omitempty" jsonschema:"コマンド出力"`
-	Client    string `json:"client,omitempty" jsonschema:"記録経路。省略時は mcp"`
-	Agent     string `json:"agent,omitempty" jsonschema:"作業主体。省略時は manual"`
-	SessionID string `json:"session_id,omitempty" jsonschema:"セッション識別子。省略時は default"`
-	Repo      string `json:"repo,omitempty" jsonschema:"補助的な work context 識別子"`
+	Command   string `json:"command" jsonschema:"executed command"`
+	Input     string `json:"input,omitempty" jsonschema:"command input"`
+	Output    string `json:"output,omitempty" jsonschema:"command output"`
+	Client    string `json:"client,omitempty" jsonschema:"recording channel (default: mcp)"`
+	Agent     string `json:"agent,omitempty" jsonschema:"actor name (default: manual)"`
+	SessionID string `json:"session_id,omitempty" jsonschema:"session ID (default: default)"`
+	Repo      string `json:"repo,omitempty" jsonschema:"auxiliary work context identifier"`
 }
 
 type addAuditOutput struct {
-	EventID         string `json:"event_id" jsonschema:"保存したイベント ID"`
-	Kind            string `json:"kind" jsonschema:"イベント種別"`
-	SessionID       string `json:"session_id" jsonschema:"セッション識別子"`
-	Repo            string `json:"repo,omitempty" jsonschema:"補助的な work context 識別子"`
-	Command         string `json:"command" jsonschema:"実行したコマンド"`
-	InputRedacted   bool   `json:"input_redacted" jsonschema:"入力が伏せ字化されたか"`
-	OutputRedacted  bool   `json:"output_redacted" jsonschema:"出力が伏せ字化されたか"`
-	InputTruncated  bool   `json:"input_truncated" jsonschema:"入力が切り詰められたか"`
-	OutputTruncated bool   `json:"output_truncated" jsonschema:"出力が切り詰められたか"`
-	CreatedAt       string `json:"created_at" jsonschema:"イベント記録時刻 (RFC3339Nano)"`
+	EventID         string `json:"event_id" jsonschema:"saved event ID"`
+	Kind            string `json:"kind" jsonschema:"event kind"`
+	SessionID       string `json:"session_id" jsonschema:"session identifier"`
+	Repo            string `json:"repo,omitempty" jsonschema:"auxiliary work context identifier"`
+	Command         string `json:"command" jsonschema:"executed command"`
+	InputRedacted   bool   `json:"input_redacted" jsonschema:"whether input was redacted"`
+	OutputRedacted  bool   `json:"output_redacted" jsonschema:"whether output was redacted"`
+	InputTruncated  bool   `json:"input_truncated" jsonschema:"whether input was truncated"`
+	OutputTruncated bool   `json:"output_truncated" jsonschema:"whether output was truncated"`
+	CreatedAt       string `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
 }
 
 type listEventsInput struct {
-	Limit  int `json:"limit,omitempty" jsonschema:"返却件数。省略時は 20"`
-	Offset int `json:"offset,omitempty" jsonschema:"先頭からスキップする件数。省略時は 0"`
+	Limit  int `json:"limit,omitempty" jsonschema:"result limit (default: 20)"`
+	Offset int `json:"offset,omitempty" jsonschema:"offset from the newest result (default: 0)"`
 }
 
 type searchInput struct {
-	Query string `json:"query" jsonschema:"検索語"`
-	Repo  string `json:"repo,omitempty" jsonschema:"絞り込む work context"`
-	From  string `json:"from,omitempty" jsonschema:"開始時刻。YYYY-MM-DD または RFC3339"`
-	To    string `json:"to,omitempty" jsonschema:"終了時刻。YYYY-MM-DD または RFC3339"`
-	Limit int    `json:"limit,omitempty" jsonschema:"返却件数。省略時は 20"`
+	Query string `json:"query" jsonschema:"search query"`
+	Repo  string `json:"repo,omitempty" jsonschema:"work context filter"`
+	From  string `json:"from,omitempty" jsonschema:"start time (YYYY-MM-DD or RFC3339)"`
+	To    string `json:"to,omitempty" jsonschema:"end time (YYYY-MM-DD or RFC3339)"`
+	Limit int    `json:"limit,omitempty" jsonschema:"result limit (default: 20)"`
 }
 
 type getContextInput struct {
-	Repo      string `json:"repo,omitempty" jsonschema:"絞り込む work context"`
-	SessionID string `json:"session_id,omitempty" jsonschema:"絞り込むセッション識別子"`
-	Limit     int    `json:"limit,omitempty" jsonschema:"返却件数。省略時は 20"`
+	Repo      string `json:"repo,omitempty" jsonschema:"work context filter"`
+	SessionID string `json:"session_id,omitempty" jsonschema:"session identifier filter"`
+	Limit     int    `json:"limit,omitempty" jsonschema:"result limit (default: 20)"`
 }
 
 type eventsOutput struct {
-	Events []eventOutput `json:"events" jsonschema:"条件に一致したイベント一覧"`
+	Events []eventOutput `json:"events" jsonschema:"events matching the filters"`
 }
 
 type eventOutput struct {
-	EventID   string `json:"event_id" jsonschema:"イベント ID"`
-	Kind      string `json:"kind" jsonschema:"イベント種別"`
-	Client    string `json:"client" jsonschema:"記録経路"`
-	Agent     string `json:"agent" jsonschema:"作業主体"`
-	SessionID string `json:"session_id" jsonschema:"セッション識別子"`
-	Repo      string `json:"repo,omitempty" jsonschema:"補助的な work context 識別子"`
-	Body      string `json:"body" jsonschema:"イベント本文"`
-	CreatedAt string `json:"created_at" jsonschema:"イベント記録時刻 (RFC3339Nano)"`
+	EventID   string `json:"event_id" jsonschema:"event ID"`
+	Kind      string `json:"kind" jsonschema:"event kind"`
+	Client    string `json:"client" jsonschema:"recording channel"`
+	Agent     string `json:"agent" jsonschema:"actor"`
+	SessionID string `json:"session_id" jsonschema:"session identifier"`
+	Repo      string `json:"repo,omitempty" jsonschema:"auxiliary work context identifier"`
+	Body      string `json:"body" jsonschema:"event body"`
+	CreatedAt string `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
 }
 
 func (s *Server) addLog(dbPath string) mcp.ToolHandlerFor[addLogInput, addLogOutput] {
@@ -285,7 +285,7 @@ func (s *Server) addLog(dbPath string) mcp.ToolHandlerFor[addLogInput, addLogOut
 			Repo:      strings.TrimSpace(input.Repo),
 		})
 		if err != nil {
-			return nil, addLogOutput{}, xerrors.Errorf("ログ記録に失敗しました: %w", err)
+			return nil, addLogOutput{}, xerrors.Errorf("failed to record log: %w", err)
 		}
 
 		return nil, addLogOutput{
@@ -315,7 +315,7 @@ func (s *Server) startSession(dbPath string) mcp.ToolHandlerFor[sessionBoundaryI
 			Kind:          types.EventKindSessionStarted,
 		})
 		if err != nil {
-			return nil, sessionEventOutput{}, xerrors.Errorf("session start の記録に失敗しました: %w", err)
+			return nil, sessionEventOutput{}, xerrors.Errorf("failed to record session start: %w", err)
 		}
 
 		return nil, newSessionEventOutput(event), nil
@@ -326,7 +326,7 @@ func (s *Server) endSession(dbPath string) mcp.ToolHandlerFor[sessionBoundaryInp
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input sessionBoundaryInput) (*mcp.CallToolResult, sessionEventOutput, error) {
 		sessionID := strings.TrimSpace(input.SessionID)
 		if sessionID == "" {
-			return nil, sessionEventOutput{}, xerrors.Errorf("session_id は必須です")
+			return nil, sessionEventOutput{}, xerrors.Errorf("session_id is required")
 		}
 
 		event, err := s.recordSessionBoundaryUsecase.Run(ctx, usecase.RecordSessionBoundaryInput{
@@ -341,7 +341,7 @@ func (s *Server) endSession(dbPath string) mcp.ToolHandlerFor[sessionBoundaryInp
 			Kind:          types.EventKindSessionEnded,
 		})
 		if err != nil {
-			return nil, sessionEventOutput{}, xerrors.Errorf("session end の記録に失敗しました: %w", err)
+			return nil, sessionEventOutput{}, xerrors.Errorf("failed to record session end: %w", err)
 		}
 
 		return nil, newSessionEventOutput(event), nil
@@ -357,9 +357,9 @@ func (s *Server) latestSession(dbPath string) mcp.ToolHandlerFor[sessionLookupIn
 		})
 		if err != nil {
 			if errors.Is(err, queryservice.ErrSessionNotFound) {
-				return nil, sessionEventOutput{}, xerrors.Errorf("条件に一致する session は存在しません")
+				return nil, sessionEventOutput{}, xerrors.Errorf("no matching session found")
 			}
-			return nil, sessionEventOutput{}, xerrors.Errorf("直近 session の取得に失敗しました: %w", err)
+			return nil, sessionEventOutput{}, xerrors.Errorf("failed to get latest session: %w", err)
 		}
 
 		return nil, newSessionEventOutput(event), nil
@@ -376,9 +376,9 @@ func (s *Server) activeSession(dbPath string) mcp.ToolHandlerFor[sessionLookupIn
 		})
 		if err != nil {
 			if errors.Is(err, queryservice.ErrActiveSessionNotFound) {
-				return nil, sessionEventOutput{}, xerrors.Errorf("条件に一致する active session は存在しません")
+				return nil, sessionEventOutput{}, xerrors.Errorf("no matching active session found")
 			}
-			return nil, sessionEventOutput{}, xerrors.Errorf("active session の取得に失敗しました: %w", err)
+			return nil, sessionEventOutput{}, xerrors.Errorf("failed to get active session: %w", err)
 		}
 		if err := validateActiveSession(event, input); err != nil {
 			return nil, sessionEventOutput{}, err
@@ -401,7 +401,7 @@ func (s *Server) addAudit(dbPath string) mcp.ToolHandlerFor[addAuditInput, addAu
 			Repo:      strings.TrimSpace(input.Repo),
 		})
 		if err != nil {
-			return nil, addAuditOutput{}, xerrors.Errorf("監査ログ記録に失敗しました: %w", err)
+			return nil, addAuditOutput{}, xerrors.Errorf("failed to record command audit: %w", err)
 		}
 
 		return nil, addAuditOutput{
@@ -426,7 +426,7 @@ func (s *Server) listEvents(dbPath string) mcp.ToolHandlerFor[listEventsInput, e
 			Offset: resolveOffset(input.Offset),
 		})
 		if err != nil {
-			return nil, eventsOutput{}, xerrors.Errorf("イベント一覧の取得に失敗しました: %w", err)
+			return nil, eventsOutput{}, xerrors.Errorf("failed to list events: %w", err)
 		}
 
 		return nil, eventsOutput{Events: convertEvents(events)}, nil
@@ -455,7 +455,7 @@ func validateActiveSession(event *model.Event, input sessionLookupInput) error {
 		staleAfter = time.Duration(input.StaleAfterSeconds) * time.Second
 	}
 	if input.StaleAfterSeconds < 0 {
-		return xerrors.Errorf("stale_after_seconds は 0 以上で指定してください")
+		return xerrors.Errorf("stale_after_seconds must be greater than or equal to 0")
 	}
 
 	if !event.CreatedAt().Before(time.Now().Add(-staleAfter)) {
@@ -469,11 +469,11 @@ func (s *Server) search(dbPath string) mcp.ToolHandlerFor[searchInput, eventsOut
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input searchInput) (*mcp.CallToolResult, eventsOutput, error) {
 		from, err := parseFlexibleTime(input.From, false)
 		if err != nil {
-			return nil, eventsOutput{}, xerrors.Errorf("from の解決に失敗しました: %w", err)
+			return nil, eventsOutput{}, xerrors.Errorf("failed to resolve from: %w", err)
 		}
 		to, err := parseFlexibleTime(input.To, true)
 		if err != nil {
-			return nil, eventsOutput{}, xerrors.Errorf("to の解決に失敗しました: %w", err)
+			return nil, eventsOutput{}, xerrors.Errorf("failed to resolve to: %w", err)
 		}
 		limit := resolveLimit(input.Limit, defaultSearchLimit)
 		events, err := s.searchEventsQueryService.Run(ctx, dbPath, queryservice.SearchEventsInput{
@@ -484,7 +484,7 @@ func (s *Server) search(dbPath string) mcp.ToolHandlerFor[searchInput, eventsOut
 			Limit: limit,
 		})
 		if err != nil {
-			return nil, eventsOutput{}, xerrors.Errorf("検索に失敗しました: %w", err)
+			return nil, eventsOutput{}, xerrors.Errorf("failed to search events: %w", err)
 		}
 
 		return nil, eventsOutput{Events: convertEvents(events)}, nil
@@ -499,7 +499,7 @@ func (s *Server) getContext(dbPath string) mcp.ToolHandlerFor[getContextInput, e
 			Limit:     resolveLimit(input.Limit, defaultContextLimit),
 		})
 		if err != nil {
-			return nil, eventsOutput{}, xerrors.Errorf("文脈取得に失敗しました: %w", err)
+			return nil, eventsOutput{}, xerrors.Errorf("failed to get context: %w", err)
 		}
 
 		return nil, eventsOutput{Events: convertEvents(events)}, nil
@@ -543,7 +543,7 @@ func parseFlexibleTime(value string, endExclusive bool) (time.Time, error) {
 
 	parsedDate, err := time.Parse("2006-01-02", trimmedValue)
 	if err != nil {
-		return time.Time{}, xerrors.Errorf("時刻は RFC3339 または YYYY-MM-DD 形式で指定してください: %w", err)
+		return time.Time{}, xerrors.Errorf("time must be RFC3339 or YYYY-MM-DD: %w", err)
 	}
 	if endExclusive {
 		return parsedDate.AddDate(0, 0, 1), nil
