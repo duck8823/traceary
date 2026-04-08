@@ -56,7 +56,10 @@ func mergeHooksSettingsJSON(existingContent []byte, settings *hooksSettings) ([]
 	existingHooks := map[string][]hookMatcher{}
 	if hooksValue, ok := root["hooks"]; ok && len(strings.TrimSpace(string(hooksValue))) > 0 {
 		if err := json.Unmarshal(hooksValue, &existingHooks); err != nil {
-			return nil, xerrors.Errorf(Localize("existing hooks field must be a JSON object", "既存 hooks フィールドは JSON object である必要があります"))
+			return nil, xerrors.Errorf(Localize(
+				"existing hooks field must be a JSON object whose values are hook arrays",
+				"既存 hooks フィールドは hook 配列を値に持つ JSON object である必要があります",
+			))
 		}
 	}
 
