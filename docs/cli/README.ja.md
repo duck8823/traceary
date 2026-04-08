@@ -176,6 +176,16 @@ session end 境界を記録し、生成された event ID を出力します。
 - `--output`
 - `--force`
 
+### `traceary hooks guide`
+
+対応 client ごとの install / check / verify 手順を出力します。
+
+主な flag:
+
+- `--client`
+- `--project-dir`
+- `--output`
+
 ### `traceary doctor`
 
 DB access、hook script、client config 統合状態を診断します。

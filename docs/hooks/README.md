@@ -76,6 +76,8 @@ The script exits successfully without recording anything when:
 
 Use `traceary hooks print --client <claude|codex|gemini>` when you want a ready-to-paste config. `claude-code`, `codex-cli`, and `gemini-cli` are accepted aliases.
 
+If you want the install/check/verify flow first, run `traceary hooks guide --client <claude|codex|gemini>`.
+
 Examples:
 
 - `traceary hooks print --client claude > .claude/settings.json`
@@ -106,6 +108,7 @@ Default destinations:
 
 If the destination already exists, Traceary stops with an error instead of overwriting it. Review the diff first, then rerun with `--force` only when replacing the existing file is intentional.
 For supported JSON config files, `hooks install` first tries to merge Traceary-managed entries into the existing file while preserving unrelated settings. `--force` skips merge and replaces the file completely.
+After `hooks install`, Traceary prints the matching `doctor` command so you can immediately verify the generated config in the same environment.
 
 ### Merge behavior and failure modes
 

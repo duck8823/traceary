@@ -179,6 +179,7 @@ traceary backup create --output <path>
 traceary backup restore --input <path>
 traceary hooks print --client <claude|codex|gemini>
 traceary hooks install --client <claude|codex|gemini>
+traceary hooks guide --client <claude|codex|gemini>
 traceary mcp-server
 traceary gc
 ```

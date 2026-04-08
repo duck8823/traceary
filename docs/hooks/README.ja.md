@@ -76,6 +76,8 @@ Traceary v0.1 は、既存の `traceary session ...` / `traceary audit ...` を 
 
 `traceary hooks print --client <claude|codex|gemini>` は、貼り付け用の config を出力します。`claude-code`, `codex-cli`, `gemini-cli` も alias として使えます。
 
+まず install / check / verify の流れだけ見たい場合は、`traceary hooks guide --client <claude|codex|gemini>` を使ってください。
+
 例:
 
 - `traceary hooks print --client claude > .claude/settings.json`
@@ -106,6 +108,7 @@ Traceary v0.1 は、既存の `traceary session ...` / `traceary audit ...` を 
 
 既存 file がある場合、Traceary は上書きせずエラーにします。まず差分を確認し、既存 file を置き換える意図があるときだけ `--force` を使ってください。
 対応している JSON config であれば、`hooks install` はまず既存設定へ Traceary 管理下の hook entry をマージし、無関係な設定は保持します。`--force` を付けた場合だけ完全上書きします。
+`hooks install` の実行後には、同じ環境ですぐ確認できる `doctor` コマンドも出力します。
 
 ### merge 挙動と失敗条件
 

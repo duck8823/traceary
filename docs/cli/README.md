@@ -176,6 +176,16 @@ Useful flags:
 - `--output`
 - `--force`
 
+### `traceary hooks guide`
+
+Print the recommended install/check/verify steps for a supported client.
+
+Useful flags:
+
+- `--client`
+- `--project-dir`
+- `--output`
+
 ### `traceary doctor`
 
 Diagnose DB access, hook script availability, and client config integration.
