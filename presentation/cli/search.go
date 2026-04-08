@@ -54,7 +54,7 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 			})
 		},
 	}
-	searchCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
+	searchCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	searchCmd.Flags().StringVar(&repo, "repo", "", Localize("filter by work context (env: TRACEARY_REPO / current git remote)", "絞り込む work context (env: TRACEARY_REPO / current git remote)"))
 	searchCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("filter by session ID", "絞り込む session ID"))
 	searchCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "絞り込む client"))

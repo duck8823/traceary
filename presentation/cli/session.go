@@ -52,7 +52,7 @@ func (c *RootCLI) newSessionLatestCommand() *cobra.Command {
 			})
 		},
 	}
-	latestCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
+	latestCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	latestCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "記録経路で絞り込む"))
 	latestCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "作業主体で絞り込む"))
 	latestCmd.Flags().StringVar(&repo, "repo", "", Localize("filter by auxiliary work context identifier", "補助的なコンテキスト識別子で絞り込む"))
@@ -84,7 +84,7 @@ func (c *RootCLI) newSessionStartCommand() *cobra.Command {
 			})
 		},
 	}
-	startCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
+	startCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	startCmd.Flags().StringVar(&client, "client", "", Localize("recording channel (env: TRACEARY_CLIENT)", "記録経路 (env: TRACEARY_CLIENT)"))
 	startCmd.Flags().StringVar(&agent, "agent", "", Localize("actor name (env: TRACEARY_AGENT)", "作業主体 (env: TRACEARY_AGENT)"))
 	startCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID to start", "開始するセッション ID"))
@@ -117,7 +117,7 @@ func (c *RootCLI) newSessionEndCommand() *cobra.Command {
 			})
 		},
 	}
-	endCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
+	endCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	endCmd.Flags().StringVar(&client, "client", "", Localize("recording channel (env: TRACEARY_CLIENT)", "記録経路 (env: TRACEARY_CLIENT)"))
 	endCmd.Flags().StringVar(&agent, "agent", "", Localize("actor name (env: TRACEARY_AGENT)", "作業主体 (env: TRACEARY_AGENT)"))
 	endCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID to end (env: TRACEARY_SESSION_ID)", "終了するセッション ID (env: TRACEARY_SESSION_ID)"))
@@ -171,7 +171,7 @@ func (c *RootCLI) newSessionActiveCommand() *cobra.Command {
 			})
 		},
 	}
-	activeCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
+	activeCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	activeCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "記録経路で絞り込む"))
 	activeCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "作業主体で絞り込む"))
 	activeCmd.Flags().StringVar(&repo, "repo", "", Localize("filter by auxiliary work context identifier", "補助的なコンテキスト識別子で絞り込む"))

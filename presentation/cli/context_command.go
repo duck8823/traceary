@@ -41,7 +41,7 @@ func (c *RootCLI) newContextCommand() *cobra.Command {
 			})
 		},
 	}
-	contextCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
+	contextCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	contextCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("target session ID", "対象の session ID"))
 	contextCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "作業主体の入口で絞り込む"))
 	contextCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "作業主体で絞り込む"))

@@ -25,7 +25,7 @@ func (c *RootCLI) newMCPServerCommand() *cobra.Command {
 			return c.runMCPServer(cmd.Context(), cmd.OutOrStdout(), dbPath)
 		},
 	}
-	mcpServerCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
+	mcpServerCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 
 	return mcpServerCmd
 }

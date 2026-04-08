@@ -43,7 +43,7 @@ func (c *RootCLI) newLogCommand() *cobra.Command {
 			})
 		},
 	}
-	logCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
+	logCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	logCmd.Flags().StringVar(&client, "client", "", Localize("recording channel (env: TRACEARY_CLIENT)", "記録経路 (env: TRACEARY_CLIENT)"))
 	logCmd.Flags().StringVar(&agent, "agent", "", Localize("actor name (env: TRACEARY_AGENT)", "作業主体 (env: TRACEARY_AGENT)"))
 	logCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID (env: TRACEARY_SESSION_ID)", "セッション ID (env: TRACEARY_SESSION_ID)"))

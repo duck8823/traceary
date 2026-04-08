@@ -44,7 +44,7 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 			})
 		},
 	}
-	auditCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
+	auditCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	auditCmd.Flags().StringVar(&client, "client", "", Localize("recording channel (env: TRACEARY_CLIENT)", "記録経路 (env: TRACEARY_CLIENT)"))
 	auditCmd.Flags().StringVar(&agent, "agent", "", Localize("actor name (env: TRACEARY_AGENT)", "作業主体 (env: TRACEARY_AGENT)"))
 	auditCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID (env: TRACEARY_SESSION_ID)", "セッション ID (env: TRACEARY_SESSION_ID)"))

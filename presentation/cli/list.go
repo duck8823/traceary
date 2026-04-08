@@ -23,7 +23,7 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 			return c.runList(cmd.Context(), cmd.OutOrStdout(), dbPath, limit, asJSON)
 		},
 	}
-	listCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
+	listCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	listCmd.Flags().IntVar(&limit, "limit", 20, Localize("number of events to display", "表示件数"))
 	listCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 

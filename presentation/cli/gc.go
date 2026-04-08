@@ -35,7 +35,7 @@ func (c *RootCLI) newGCCommand() *cobra.Command {
 			})
 		},
 	}
-	gcCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
+	gcCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	gcCmd.Flags().IntVar(&keepDays, "keep-days", defaultRetentionDays, Localize("number of days to retain", "保持する日数"))
 	gcCmd.Flags().BoolVar(&dryRun, "dry-run", false, Localize("print the number of candidate records only", "削除対象件数のみ表示する"))
 

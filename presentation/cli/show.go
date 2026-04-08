@@ -25,7 +25,7 @@ func (c *RootCLI) newShowCommand() *cobra.Command {
 			return c.runShow(cmd.Context(), cmd.OutOrStdout(), dbPath, args[0], asJSON)
 		},
 	}
-	showCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage)
+	showCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	showCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 
 	return showCmd
