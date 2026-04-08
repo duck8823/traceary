@@ -65,6 +65,8 @@ Traceary は `traceary --version` で version metadata を表示します。
 
 Homebrew formula は repository 直下の `Formula/` に置き、GoReleaser が自動生成します。手動編集は前提にしません。
 
+この Homebrew step は、release workflow が `main` へ push できることを前提にしています。将来、bot の直接 push を禁止する branch protection を追加した場合は、次の tag を出す前に GoReleaser の brew target を見直してください。
+
 ## ローカル snapshot build
 
 tag を打つ前に release artifact を確認したい場合は、ローカル snapshot target を使います。
