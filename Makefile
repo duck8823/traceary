@@ -16,5 +16,10 @@ code/lint: ## コードを静的解析する
 code/test: ## コードをテストする
 	@go test ./...
 
+docs/check: ## 文書の多言語ペアを検証する
+	@python3 scripts/verify_docs_i18n.py
+
+ci: docs/check code/lint code/test ## CI 相当の検証をまとめて実行する
+
 install: ## 依存関係をダウンロードする
 	@go mod download
