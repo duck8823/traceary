@@ -163,8 +163,8 @@ func TestRootCLI_SessionEndCommand(t *testing.T) {
 	if sessionStub.receivedInput.SessionID != "session-env" {
 		t.Fatalf("SessionID = %q, want %q", sessionStub.receivedInput.SessionID, "session-env")
 	}
-	if stdout.String() != "session-env\n" {
-		t.Fatalf("stdout = %q, want %q", stdout.String(), "session-env\n")
+	if stdout.String() != "記録しました: event-2\n" {
+		t.Fatalf("stdout = %q, want %q", stdout.String(), "記録しました: event-2\n")
 	}
 }
 

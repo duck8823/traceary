@@ -131,6 +131,8 @@ traceary search --kind session_started
 
 `traceary session active` は既定で `--stale-after 24h` を使います。古い未終了 session も見たい場合は `--allow-stale` を付けてください。
 
+`traceary session start` は生成された session ID をそのまま出力します。`traceary session end` は、終了対象の session ID は呼び出し側が既に知っている前提で、記録した event ID を出力します。
+
 Hooks 導入: [`docs/hooks/README.md`](./docs/hooks/README.md)
 
 すべてのコマンドは SQLite path を `--db-path` → `TRACEARY_DB_PATH` → `~/.config/traceary/traceary.db` の順で解決します。
