@@ -1,0 +1,16 @@
+{
+  "name": "traceary-plugins",
+  "owner": {
+    "name": "Shunsuke Maeda",
+    "email": "duck8823@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "traceary",
+      "description": "Local-first Traceary integration for Claude Code with a shared MCP server and automatic session/audit hooks.",
+      "category": "development",
+      "source": "./integrations/claude-plugin",
+      "homepage": "https://github.com/duck8823/traceary/tree/main/integrations/claude-plugin"
+    }
+  ]
+}
