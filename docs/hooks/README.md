@@ -1,5 +1,7 @@
 # Hooks integration
 
+[日本語](./README.ja.md)
+
 Traceary v0.1 can ingest session boundaries and shell-command audits from Claude Code, Codex CLI, and Gemini CLI by calling the existing `traceary session ...` and `traceary audit ...` commands from hook scripts.
 
 ## Files
