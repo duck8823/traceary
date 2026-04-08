@@ -102,6 +102,16 @@ Traceary v0.1 は、既存の `traceary session ...` / `traceary audit ...` を 
 既存 file がある場合、Traceary は上書きせずエラーにします。まず差分を確認し、既存 file を置き換える意図があるときだけ `--force` を使ってください。
 対応している JSON config であれば、`hooks install` はまず既存設定へ Traceary 管理下の hook entry をマージし、無関係な設定は保持します。`--force` を付けた場合だけ完全上書きします。
 
+## トラブルシューティング
+
+hooks やローカル SQLite store の挙動がおかしいときは `traceary doctor --client <claude|codex|gemini>` を実行してください。
+
+この診断コマンドでは次を確認します。
+
+- DB path の解決と store 初期化可否
+- hook script の materialize と executable 権限
+- 想定される client config path と、そこに Traceary 管理下の hook が入っているか
+
 ### Claude Code
 
 1. `examples/hooks/claude.settings.json` を `.claude/settings.json` にコピーし、既存設定と merge する
