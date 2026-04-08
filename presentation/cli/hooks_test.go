@@ -29,41 +29,36 @@ type printedHookCommand struct {
 }
 
 func TestRootCLI_HooksPrintCommand(t *testing.T) {
-	t.Parallel()
-
 	projectDir := filepath.Join("/tmp", "traceary repo")
 	tracearyBin := filepath.Join("/tmp", "traceary bin", "traceary")
+	scriptsDir := filepath.Join(t.TempDir(), "hook scripts")
+	t.Setenv("TRACEARY_HOOK_SCRIPTS_DIR", scriptsDir)
 
 	t.Run("Claude 向け設定を出力できる", func(t *testing.T) {
-		t.Parallel()
-
 		settings := executeHooksPrint(t, "claude", projectDir, tracearyBin)
 		if got, want := *settings.Hooks["SessionStart"][0].Matcher, "*"; got != want {
 			t.Fatalf("SessionStart matcher = %q, want %q", got, want)
 		}
 		if got, want := settings.Hooks["SessionStart"][0].Hooks[0].Command,
-			`TRACEARY_BIN='/tmp/traceary bin/traceary' bash '/tmp/traceary repo/scripts/hooks/traceary-session.sh' 'claude' 'start'`; got != want {
+			`TRACEARY_BIN='/tmp/traceary bin/traceary' bash '`+filepath.Join(scriptsDir, "traceary-session.sh")+`' 'claude' 'start'`; got != want {
 			t.Fatalf("SessionStart command = %q, want %q", got, want)
 		}
 		if got, want := settings.Hooks["PostToolUseFailure"][0].Hooks[0].Command,
-			`TRACEARY_BIN='/tmp/traceary bin/traceary' bash '/tmp/traceary repo/scripts/hooks/traceary-audit.sh' 'claude'`; got != want {
+			`TRACEARY_BIN='/tmp/traceary bin/traceary' bash '`+filepath.Join(scriptsDir, "traceary-audit.sh")+`' 'claude'`; got != want {
 			t.Fatalf("PostToolUseFailure command = %q, want %q", got, want)
 		}
+		assertInstalledHookScripts(t, scriptsDir)
 	})
 
 	t.Run("Claude Code alias でも設定を出力できる", func(t *testing.T) {
-		t.Parallel()
-
 		settings := executeHooksPrint(t, "claude-code", projectDir, tracearyBin)
 		if got, want := settings.Hooks["SessionStart"][0].Hooks[0].Command,
-			`TRACEARY_BIN='/tmp/traceary bin/traceary' bash '/tmp/traceary repo/scripts/hooks/traceary-session.sh' 'claude' 'start'`; got != want {
+			`TRACEARY_BIN='/tmp/traceary bin/traceary' bash '`+filepath.Join(scriptsDir, "traceary-session.sh")+`' 'claude' 'start'`; got != want {
 			t.Fatalf("SessionStart command = %q, want %q", got, want)
 		}
 	})
 
 	t.Run("Codex 向け設定を出力できる", func(t *testing.T) {
-		t.Parallel()
-
 		settings := executeHooksPrint(t, "codex", projectDir, tracearyBin)
 		if settings.Hooks["SessionStart"][0].Matcher != nil {
 			t.Fatalf("SessionStart matcher = %v, want nil", settings.Hooks["SessionStart"][0].Matcher)
@@ -72,14 +67,12 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 			t.Fatalf("PostToolUse matcher = %q, want %q", got, want)
 		}
 		if got, want := settings.Hooks["Stop"][0].Hooks[0].Command,
-			`TRACEARY_BIN='/tmp/traceary bin/traceary' bash '/tmp/traceary repo/scripts/hooks/traceary-session.sh' 'codex' 'stop'`; got != want {
+			`TRACEARY_BIN='/tmp/traceary bin/traceary' bash '`+filepath.Join(scriptsDir, "traceary-session.sh")+`' 'codex' 'stop'`; got != want {
 			t.Fatalf("Stop command = %q, want %q", got, want)
 		}
 	})
 
 	t.Run("Gemini 向け設定を出力できる", func(t *testing.T) {
-		t.Parallel()
-
 		settings := executeHooksPrint(t, "gemini", projectDir, tracearyBin)
 		if got, want := *settings.Hooks["AfterTool"][0].Matcher, "run_shell_command"; got != want {
 			t.Fatalf("AfterTool matcher = %q, want %q", got, want)
@@ -94,18 +87,14 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 	})
 
 	t.Run("traceary-bin 未指定時は stable command 名を使う", func(t *testing.T) {
-		t.Parallel()
-
 		settings := executeHooksPrintWithoutTracearyBin(t, "claude", projectDir)
 		if got, want := settings.Hooks["SessionStart"][0].Hooks[0].Command,
-			`TRACEARY_BIN='traceary' bash '/tmp/traceary repo/scripts/hooks/traceary-session.sh' 'claude' 'start'`; got != want {
+			`TRACEARY_BIN='traceary' bash '`+filepath.Join(scriptsDir, "traceary-session.sh")+`' 'claude' 'start'`; got != want {
 			t.Fatalf("SessionStart command = %q, want %q", got, want)
 		}
 	})
 
 	t.Run("unsupported client returns an English error by default", func(t *testing.T) {
-		t.Parallel()
-
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -130,6 +119,8 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 func TestRootCLI_HooksInstallCommand(t *testing.T) {
 	projectDir := t.TempDir()
 	homeDir := t.TempDir()
+	scriptsDir := filepath.Join(t.TempDir(), "hook scripts")
+	t.Setenv("TRACEARY_HOOK_SCRIPTS_DIR", scriptsDir)
 	cli.SetUserHomeDirFunc(func() (string, error) {
 		return homeDir, nil
 	})
@@ -165,9 +156,14 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 		if _, ok := settings.Hooks["SessionStart"]; !ok {
 			t.Fatalf("SessionStart hook not found")
 		}
+		if got, want := settings.Hooks["SessionStart"][0].Hooks[0].Command,
+			`TRACEARY_BIN='traceary' bash '`+filepath.Join(scriptsDir, "traceary-session.sh")+`' 'claude' 'start'`; got != want {
+			t.Fatalf("SessionStart command = %q, want %q", got, want)
+		}
 		if !strings.Contains(stdout.String(), outputPath) {
 			t.Fatalf("stdout = %q, want path %q", stdout.String(), outputPath)
 		}
+		assertInstalledHookScripts(t, scriptsDir)
 	})
 
 	t.Run("Codex CLI alias でも標準パスへ書き出せる", func(t *testing.T) {
@@ -276,6 +272,21 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 			t.Fatalf("settings.json was not overwritten")
 		}
 	})
+}
+
+func assertInstalledHookScripts(t *testing.T, scriptsDir string) {
+	t.Helper()
+
+	for _, scriptName := range []string{"common.sh", "traceary-session.sh", "traceary-audit.sh"} {
+		scriptPath := filepath.Join(scriptsDir, scriptName)
+		info, err := os.Stat(scriptPath)
+		if err != nil {
+			t.Fatalf("Stat(%q) error = %v", scriptPath, err)
+		}
+		if info.Mode().Perm()&0o111 == 0 {
+			t.Fatalf("%q is not executable: mode=%#o", scriptPath, info.Mode().Perm())
+		}
+	}
 }
 
 func executeHooksPrint(
