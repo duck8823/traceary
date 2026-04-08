@@ -6,6 +6,8 @@
 
 [文書ガイド](./docs/README.ja.md)
 
+[リリースガイド](./docs/release/README.ja.md)
+
 Traceary は、AI エージェントの作業ログと audit log をローカルに記録・検索する local-first な CLI / MCP サーバーです。
 
 ## 背景と課題
@@ -31,6 +33,19 @@ Traceary は、作業ログと audit log をひとつのローカルストアに
 - git remote URL でリポジトリを識別する
 - `client` / `agent` / `session_id` による attribution を保持する
 - 保持期間と `gc` により長期的なデータ肥大化を抑える
+
+## インストール
+
+### go install
+
+```sh
+go install github.com/duck8823/traceary@latest
+```
+
+### 事前ビルド済みバイナリ
+
+タグ付き release では macOS / Linux 向け archive を GitHub Releases に公開します。
+release 導線とローカル snapshot build は [`docs/release/README.ja.md`](./docs/release/README.ja.md) を参照してください。
 
 ## クイックスタート
 
