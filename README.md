@@ -8,6 +8,8 @@
 
 [Contributing](./CONTRIBUTING.md)
 
+[MCP guide](./docs/mcp/README.md)
+
 [Release guide](./docs/release/README.md)
 
 Traceary is a local-first CLI and MCP server for recording and searching AI agent work logs and audit logs.
@@ -161,6 +163,8 @@ traceary search --kind session_started
 `traceary session start` prints the session ID so scripts can capture it immediately. `traceary session end` prints the recorded event ID because the caller already knows which session it is closing.
 
 Hook setup: [`docs/hooks/README.md`](./docs/hooks/README.md)
+
+MCP integration: [`docs/mcp/README.md`](./docs/mcp/README.md)
 
 All commands resolve the SQLite path in this order: `--db-path` → `TRACEARY_DB_PATH` → `~/.config/traceary/traceary.db`.
 
