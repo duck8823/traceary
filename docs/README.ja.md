@@ -75,4 +75,5 @@ GitHub Actions でも同じ検証を行います。
 - release 履歴: `CHANGELOG.md` / `CHANGELOG.ja.md`
 - hooks ガイド: `docs/hooks/README.md` / `docs/hooks/README.ja.md`
 - MCP ガイド: `docs/mcp/README.md` / `docs/mcp/README.ja.md`
+- バックアップガイド: `docs/backup/README.md` / `docs/backup/README.ja.md`
 - release ガイド: `docs/release/README.md` / `docs/release/README.ja.md`

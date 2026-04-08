@@ -12,6 +12,8 @@
 
 [MCP ガイド](./docs/mcp/README.ja.md)
 
+[バックアップガイド](./docs/backup/README.ja.md)
+
 [リリースガイド](./docs/release/README.ja.md)
 
 Traceary は、AI エージェントの作業ログと audit log をローカルに記録・検索する local-first な CLI / MCP サーバーです。
@@ -158,6 +160,8 @@ traceary session latest
 traceary session active
 traceary show <event-id>
 traceary doctor
+traceary backup create --output <path>
+traceary backup restore --input <path>
 traceary hooks print --client <claude|codex|gemini>
 traceary hooks install --client <claude|codex|gemini>
 traceary mcp-server
@@ -190,6 +194,8 @@ traceary search boom --limit 20 --offset 40 --json
 Hooks 導入: [`docs/hooks/README.ja.md`](./docs/hooks/README.ja.md)
 
 MCP integration: [`docs/mcp/README.ja.md`](./docs/mcp/README.ja.md)
+
+バックアップとマシン移行: [`docs/backup/README.ja.md`](./docs/backup/README.ja.md)
 
 すべてのコマンドは SQLite path を `--db-path` → `TRACEARY_DB_PATH` → `~/.config/traceary/traceary.db` の順で解決します。
 
