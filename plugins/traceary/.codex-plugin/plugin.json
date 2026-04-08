@@ -1,0 +1,44 @@
+{
+  "name": "traceary",
+  "version": "0.1.12",
+  "description": "Local-first Traceary integration for Codex with MCP tools and automatic session/audit hooks.",
+  "author": {
+    "name": "Shunsuke Maeda",
+    "email": "duck8823@gmail.com",
+    "url": "https://github.com/duck8823"
+  },
+  "homepage": "https://github.com/duck8823/traceary/tree/main/plugins/traceary",
+  "repository": "https://github.com/duck8823/traceary",
+  "license": "MIT",
+  "keywords": [
+    "traceary",
+    "codex",
+    "mcp",
+    "audit-trail",
+    "session-history"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks.json",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Traceary",
+    "shortDescription": "Session history and audit trail for Codex",
+    "longDescription": "Use Traceary in Codex through a shared local CLI/MCP runtime with automatic session-boundary and shell-audit hooks.",
+    "developerName": "duck8823",
+    "category": "Coding",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/duck8823/traceary",
+    "privacyPolicyURL": "https://github.com/duck8823/traceary/blob/main/CONTRIBUTING.md",
+    "termsOfServiceURL": "https://github.com/duck8823/traceary/blob/main/LICENSE",
+    "defaultPrompt": [
+      "Show me the recent Traceary events for this workspace",
+      "Find the latest session and summarize what changed",
+      "Run the Traceary doctor flow for the current Codex setup"
+    ],
+    "brandColor": "#1F7A8C"
+  }
+}
