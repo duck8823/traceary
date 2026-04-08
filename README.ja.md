@@ -54,6 +54,15 @@ Traceary は、作業ログと audit log をひとつのローカルストアに
 go install github.com/duck8823/traceary@latest
 ```
 
+### Homebrew
+
+tagged release によって `Formula/traceary.rb` が更新されると、macOS では Homebrew でも Traceary を導入できます。
+
+```sh
+brew tap duck8823/traceary https://github.com/duck8823/traceary
+brew install traceary
+```
+
 ### 事前ビルド済みバイナリ
 
 タグ付き release では macOS / Linux 向け archive を GitHub Releases に公開します。
