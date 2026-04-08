@@ -2,7 +2,7 @@
 
 [日本語](./README.ja.md)
 
-Traceary supports three public installation paths.
+Traceary supports three public CLI installation paths and release-coupled agent packages.
 
 ## Install
 
@@ -38,6 +38,13 @@ Tagged releases publish compressed binaries for:
 
 Download the archive that matches your platform from the GitHub Releases page and extract the `traceary` binary into a directory on `PATH`.
 
+### Native agent packages
+
+Tagged releases also publish the Traceary Gemini CLI extension archive as `traceary.tar.gz`.
+Claude Code and Codex packages are versioned in-repo and tracked in the same release tag.
+
+See the [native integrations guide](../integrations/README.md) for the host-specific install flows.
+
 ## Version metadata
 
 Traceary exposes version metadata through `traceary --version`.
@@ -60,6 +67,7 @@ That workflow:
 3. runs GoReleaser in release mode for tag refs, or snapshot mode for manual branch runs
 4. publishes GitHub release artifacts and checksums for tagged releases
 5. updates `Formula/traceary.rb` on `main` for Homebrew installs
+6. packages and uploads the Gemini CLI extension archive (`traceary.tar.gz`)
 
 `workflow_dispatch` is mainly for dry-running the pipeline on a branch. To publish an actual release, push a `v*` tag (or manually run the workflow against a tag ref).
 
@@ -76,6 +84,12 @@ make release/snapshot
 ```
 
 This runs `goreleaser release --snapshot --clean` and writes artifacts under `dist/`.
+
+To build the Gemini extension archive locally as well:
+
+```sh
+make release/gemini-extension
+```
 
 ## References
 

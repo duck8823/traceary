@@ -2,7 +2,7 @@
 
 [English](./README.md)
 
-Traceary には、公開向けの導入方法を 3 つ用意します。
+Traceary では、CLI 本体の公開導入方法を 3 つ用意し、あわせて release と同期した agent package も配布します。
 
 ## インストール
 
@@ -38,6 +38,13 @@ brew install traceary
 
 GitHub Releases から自分の platform に合う archive を取得し、展開した `traceary` binary を `PATH` 上の directory に配置してください。
 
+### ネイティブ連携パッケージ
+
+tagged release では、Gemini CLI extension 用の `traceary.tar.gz` も公開します。
+Claude Code / Codex 向け package は repository 内で version を揃え、同じ release tag で管理します。
+
+host ごとの install 手順は [ネイティブ連携ガイド](../integrations/README.ja.md) を参照してください。
+
 ## version metadata
 
 Traceary は `traceary --version` で version metadata を表示します。
@@ -60,6 +67,7 @@ Traceary は `traceary --version` で version metadata を表示します。
 3. tag ref では release mode、手動で branch から起動したときは snapshot mode で GoReleaser を実行する
 4. tag release のときに GitHub Releases へ成果物とチェックサムを公開する
 5. Homebrew 向けに `main` branch の `Formula/traceary.rb` を更新する
+6. Gemini CLI extension archive (`traceary.tar.gz`) を package して release asset に追加する
 
 `workflow_dispatch` は主にブランチ上でパイプラインを dry-run するためのものです。実際に公開リリースしたい場合は `v*` tag を push するか、tag ref を指定して手動実行してください。
 
@@ -76,6 +84,12 @@ make release/snapshot
 ```
 
 これは `goreleaser release --snapshot --clean` を実行し、artifact を `dist/` に出力します。
+
+Gemini extension archive もローカルで確認したい場合は、次を使います。
+
+```sh
+make release/gemini-extension
+```
 
 ## 参考
 
