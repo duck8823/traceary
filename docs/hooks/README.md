@@ -62,7 +62,7 @@ The script exits successfully without recording anything when:
 
 ### Generate config from CLI
 
-Use `traceary hooks print --client <claude|codex|gemini>` when you want a ready-to-paste config with the current project path embedded.
+Use `traceary hooks print --client <claude|codex|gemini>` when you want a ready-to-paste config with the current project path embedded. `claude-code`, `codex-cli`, and `gemini-cli` are accepted aliases.
 
 Examples:
 
@@ -76,7 +76,7 @@ Use `--project-dir` to point at another repository and `--traceary-bin` when you
 
 ### Write config to the standard path
 
-Use `traceary hooks install --client <claude|codex|gemini>` when you want Traceary to write the generated config file for you.
+Use `traceary hooks install --client <claude|codex|gemini>` when you want Traceary to write the generated config file for you. `claude-code`, `codex-cli`, and `gemini-cli` are accepted aliases.
 
 Examples:
 
