@@ -145,7 +145,7 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 			DBPath:    "/tmp/traceary.db",
 			Command:   "curl https://example.test",
 			Input:     `{"access_token":"top-secret","note":"keep"}`,
-			Output:    "Authorization: Bearer token-value\nexport API_KEY=abc123",
+			Output:    "Authorization: Bearer token-value\nexport API_KEY=\"abc123\"",
 			Client:    "cli",
 			Agent:     "codex",
 			SessionID: "session-1",

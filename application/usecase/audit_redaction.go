@@ -29,16 +29,16 @@ var auditPayloadRedactors = []auditPayloadRedactor{
 		replacement: `${1}` + redactedAuditValue + `${3}`,
 	},
 	{
-		pattern:     regexp.MustCompile(`(?im)((?:^|[\s])(?:export\s+)?(?:access_token|refresh_token|id_token|token|api[_-]?key|secret|client_secret|password|passwd|session[_-]?token)=)([^\s"']+)`),
-		replacement: `${1}` + redactedAuditValue,
-	},
-	{
 		pattern:     regexp.MustCompile(`(?im)((?:^|[\s])(?:export\s+)?(?:access_token|refresh_token|id_token|token|api[_-]?key|secret|client_secret|password|passwd|session[_-]?token)=")([^"]*)(")`),
 		replacement: `${1}` + redactedAuditValue + `${3}`,
 	},
 	{
 		pattern:     regexp.MustCompile(`(?im)((?:^|[\s])(?:export\s+)?(?:access_token|refresh_token|id_token|token|api[_-]?key|secret|client_secret|password|passwd|session[_-]?token)=')([^']*)(')`),
 		replacement: `${1}` + redactedAuditValue + `${3}`,
+	},
+	{
+		pattern:     regexp.MustCompile(`(?im)((?:^|[\s])(?:export\s+)?(?:access_token|refresh_token|id_token|token|api[_-]?key|secret|client_secret|password|passwd|session[_-]?token)=)([^\s"']+)`),
+		replacement: `${1}` + redactedAuditValue,
 	},
 	{
 		pattern:     regexp.MustCompile(`(?i)([?&](?:access_token|refresh_token|id_token|token|api[_-]?key|secret|client_secret|password|passwd|session[_-]?token)=)([^&\s]+)`),
