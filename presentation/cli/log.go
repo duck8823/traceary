@@ -48,7 +48,15 @@ func (c *RootCLI) newLogCommand() *cobra.Command {
 	logCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	logCmd.Flags().StringVar(&client, "client", "", Localize("recording channel (env: TRACEARY_CLIENT)", "記録経路 (env: TRACEARY_CLIENT)"))
 	logCmd.Flags().StringVar(&agent, "agent", "", Localize("actor name (env: TRACEARY_AGENT)", "作業主体 (env: TRACEARY_AGENT)"))
-	logCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID (env: TRACEARY_SESSION_ID)", "セッション ID (env: TRACEARY_SESSION_ID)"))
+	logCmd.Flags().StringVar(
+		&sessionID,
+		"session-id",
+		"",
+		Localize(
+			"session ID (env: TRACEARY_SESSION_ID, otherwise active session or default)",
+			"セッション ID (env: TRACEARY_SESSION_ID。未指定時は active session、なければ既定値)",
+		),
+	)
 	logCmd.Flags().StringVar(&repo, "repo", "", Localize("auxiliary work context identifier (env: TRACEARY_REPO)", "補助的なコンテキスト識別子 (env: TRACEARY_REPO)"))
 	logCmd.Flags().BoolVar(&idOnly, "id-only", false, Localize("print only the recorded event ID", "記録した event ID だけを出力する"))
 
@@ -81,13 +89,24 @@ func (c *RootCLI) runLog(ctx context.Context, output io.Writer, input logCommand
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
+	resolvedRepo := resolveRepoValue(ctx, input.repo)
+	sessionResolution, err := c.resolveManualSessionID(
+		ctx,
+		resolvedPath,
+		resolveOptionalValue(input.sessionID, "TRACEARY_SESSION_ID", ""),
+		resolvedRepo,
+	)
+	if err != nil {
+		return err
+	}
+
 	event, err := c.recordLogUsecase.Run(ctx, usecase.RecordLogInput{
 		DBPath:    resolvedPath,
 		Message:   input.message,
 		Client:    resolveOptionalValue(input.client, "TRACEARY_CLIENT", defaultClientValue),
 		Agent:     resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue),
-		SessionID: resolveOptionalValue(input.sessionID, "TRACEARY_SESSION_ID", defaultSessionIDValue),
-		Repo:      resolveRepoValue(ctx, input.repo),
+		SessionID: sessionResolution.sessionID,
+		Repo:      resolvedRepo,
 	})
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to record log", "ログ記録に失敗しました"), err)
@@ -100,6 +119,9 @@ func (c *RootCLI) runLog(ctx context.Context, output io.Writer, input logCommand
 		return nil
 	}
 
+	if err := writeManualSessionNotice(output, sessionResolution.notice); err != nil {
+		return err
+	}
 	if _, err := fmt.Fprintf(output, "%s: %s\n", Localize("Recorded", "記録しました"), event.EventID()); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print record result", "ログ記録結果の出力に失敗しました"), err)
 	}
