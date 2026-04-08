@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -77,8 +78,38 @@ func (d *Datasource) RestoreBackup(ctx context.Context, inputPath string, dbPath
 		return xerrors.Errorf("復元先ファイルの準備に失敗しました: %w", err)
 	}
 
-	if err := copyFileViaTempRename(sourcePath, destinationPath); err != nil {
+	restoredTempPath, err := copyFileToTempPath(sourcePath, filepath.Dir(destinationPath))
+	if err != nil {
 		return xerrors.Errorf("バックアップファイルのコピーに失敗しました: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = os.Remove(restoredTempPath)
+		}
+	}()
+
+	cleanupOldDestination := func() error { return nil }
+	rollbackOldDestination := func() error { return nil }
+	if overwrite {
+		cleanupOldDestination, rollbackOldDestination, err = stageRestoreDestination(destinationPath)
+		if err != nil {
+			return xerrors.Errorf("既存の復元先バックアップに失敗しました: %w", err)
+		}
+		defer func() {
+			if err != nil {
+				if rollbackErr := rollbackOldDestination(); rollbackErr != nil {
+					err = xerrors.Errorf("復元失敗後のロールバックにも失敗しました: %w (original error: %v)", rollbackErr, err)
+				}
+				return
+			}
+			if cleanupErr := cleanupOldDestination(); cleanupErr != nil {
+				err = xerrors.Errorf("旧復元先バックアップのクリーンアップに失敗しました: %w", cleanupErr)
+			}
+		}()
+	}
+
+	if err := os.Rename(restoredTempPath, destinationPath); err != nil {
+		return xerrors.Errorf("復元先ファイルの配置に失敗しました: %w", err)
 	}
 	for _, candidate := range []string{destinationPath + "-wal", destinationPath + "-shm"} {
 		if err := removeFileIfExists(candidate); err != nil {
@@ -168,10 +199,10 @@ func removeFileIfExists(path string) error {
 	return nil
 }
 
-func copyFileViaTempRename(sourcePath string, destinationPath string) (err error) {
+func copyFileToTempPath(sourcePath string, destinationDir string) (_ string, err error) {
 	sourceFile, err := os.Open(sourcePath)
 	if err != nil {
-		return xerrors.Errorf("入力ファイルのオープンに失敗しました: %w", err)
+		return "", xerrors.Errorf("入力ファイルのオープンに失敗しました: %w", err)
 	}
 	defer func() {
 		if closeErr := sourceFile.Close(); closeErr != nil && err == nil {
@@ -179,34 +210,102 @@ func copyFileViaTempRename(sourcePath string, destinationPath string) (err error
 		}
 	}()
 
-	tempFile, err := os.CreateTemp(filepath.Dir(destinationPath), "traceary-restore-*.db")
+	tempFile, err := os.CreateTemp(destinationDir, "traceary-restore-*.db")
 	if err != nil {
-		return xerrors.Errorf("一時ファイルの作成に失敗しました: %w", err)
+		return "", xerrors.Errorf("一時ファイルの作成に失敗しました: %w", err)
 	}
 	tempPath := tempFile.Name()
-	defer func() {
-		if err != nil {
-			_ = os.Remove(tempPath)
-		}
-	}()
 
 	if err := tempFile.Chmod(0o600); err != nil {
-		return xerrors.Errorf("一時ファイル権限の設定に失敗しました: %w", err)
+		return "", xerrors.Errorf("一時ファイル権限の設定に失敗しました: %w", err)
 	}
 	if _, err := io.Copy(tempFile, sourceFile); err != nil {
-		return xerrors.Errorf("入力ファイルのコピーに失敗しました: %w", err)
+		return "", xerrors.Errorf("入力ファイルのコピーに失敗しました: %w", err)
 	}
 	if err := tempFile.Sync(); err != nil {
-		return xerrors.Errorf("一時ファイルの同期に失敗しました: %w", err)
+		return "", xerrors.Errorf("一時ファイルの同期に失敗しました: %w", err)
 	}
 	if err := tempFile.Close(); err != nil {
-		return xerrors.Errorf("一時ファイルのクローズに失敗しました: %w", err)
+		return "", xerrors.Errorf("一時ファイルのクローズに失敗しました: %w", err)
 	}
-	if err := os.Rename(tempPath, destinationPath); err != nil {
-		return xerrors.Errorf("一時ファイルの配置に失敗しました: %w", err)
+
+	return tempPath, nil
+}
+
+func stageRestoreDestination(path string) (func() error, func() error, error) {
+	candidates := []string{path, path + "-wal", path + "-shm"}
+	backups := map[string]string{}
+
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, nil, xerrors.Errorf("既存ファイルの確認に失敗しました: %w", err)
+		}
+
+		backupPath, err := reserveTempPath(filepath.Dir(candidate), filepath.Base(candidate)+".traceary-restore-old-*")
+		if err != nil {
+			return nil, nil, xerrors.Errorf("退避先一時パスの確保に失敗しました: %w", err)
+		}
+		if err := os.Rename(candidate, backupPath); err != nil {
+			_ = restoreRenamedFiles(backups)
+			return nil, nil, xerrors.Errorf("既存ファイルの退避に失敗しました: %w", err)
+		}
+		backups[candidate] = backupPath
+	}
+
+	cleanup := func() error {
+		for _, backupPath := range backups {
+			if err := removeFileIfExists(backupPath); err != nil {
+				return xerrors.Errorf("退避ファイルの削除に失敗しました: %w", err)
+			}
+		}
+
+		return nil
+	}
+	rollback := func() error {
+		return restoreRenamedFiles(backups)
+	}
+
+	return cleanup, rollback, nil
+}
+
+func restoreRenamedFiles(backups map[string]string) error {
+	candidates := []string{}
+	for originalPath := range backups {
+		candidates = append(candidates, originalPath)
+	}
+	sort.Strings(candidates)
+
+	for index := len(candidates) - 1; index >= 0; index-- {
+		originalPath := candidates[index]
+		backupPath := backups[originalPath]
+		if err := removeFileIfExists(originalPath); err != nil {
+			return xerrors.Errorf("復元前の既存ファイル削除に失敗しました: %w", err)
+		}
+		if err := os.Rename(backupPath, originalPath); err != nil {
+			return xerrors.Errorf("退避ファイルの復元に失敗しました: %w", err)
+		}
 	}
 
 	return nil
+}
+
+func reserveTempPath(dir string, pattern string) (string, error) {
+	tempFile, err := os.CreateTemp(dir, pattern)
+	if err != nil {
+		return "", xerrors.Errorf("一時ファイル名の確保に失敗しました: %w", err)
+	}
+	tempPath := tempFile.Name()
+	if err := tempFile.Close(); err != nil {
+		return "", xerrors.Errorf("一時ファイルのクローズに失敗しました: %w", err)
+	}
+	if err := os.Remove(tempPath); err != nil {
+		return "", xerrors.Errorf("一時ファイルの削除に失敗しました: %w", err)
+	}
+
+	return tempPath, nil
 }
 
 func quoteSQLiteStringLiteral(value string) string {

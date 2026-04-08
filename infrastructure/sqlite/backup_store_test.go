@@ -194,9 +194,15 @@ func TestDatasource_RestoreBackup_失敗時は既存DBを保持する(t *testing
 	if err := os.WriteFile(dbPath, []byte("existing"), 0o600); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)
 	}
+	invalidBackupPath := filepath.Join(t.TempDir(), "backup", "invalid-backup.db")
+	if err := os.MkdirAll(filepath.Dir(invalidBackupPath), 0o700); err != nil {
+		t.Fatalf("os.MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(invalidBackupPath, []byte("not-a-sqlite-db"), 0o600); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
 
-	missingBackupPath := filepath.Join(t.TempDir(), "missing", "traceary-backup.db")
-	err := sut.RestoreBackup(context.Background(), missingBackupPath, dbPath, true)
+	err := sut.RestoreBackup(context.Background(), invalidBackupPath, dbPath, true)
 	if err == nil {
 		t.Fatal("RestoreBackup() error = nil, want error")
 	}
