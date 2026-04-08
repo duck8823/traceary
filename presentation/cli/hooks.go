@@ -46,7 +46,6 @@ type hookCommand struct {
 
 type hooksPrintCommandInput struct {
 	client      string
-	projectDir  string
 	tracearyBin string
 }
 
@@ -93,7 +92,7 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 		},
 	}
 	installCmd.Flags().StringVar(&client, "client", "", hooksClientFlagUsage)
-	installCmd.Flags().StringVar(&projectDir, "project-dir", "", Localize("project directory used by generated hook commands", "hook script があるプロジェクトディレクトリ"))
+	installCmd.Flags().StringVar(&projectDir, "project-dir", "", Localize("project directory whose config file should be written", "設定ファイルを書き出す対象のプロジェクトディレクトリ"))
 	installCmd.Flags().StringVar(&tracearyBin, "traceary-bin", "", Localize("traceary binary path or command name", "traceary バイナリパス"))
 	installCmd.Flags().StringVar(&outputPath, "output", "", Localize("override the output file path", "書き出し先を明示する"))
 	installCmd.Flags().BoolVar(&force, "force", false, Localize("overwrite the file if it already exists", "既存ファイルがある場合でも上書きする"))
@@ -107,7 +106,6 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 func (c *RootCLI) newHooksPrintCommand() *cobra.Command {
 	var (
 		client      string
-		projectDir  string
 		tracearyBin string
 	)
 
@@ -118,13 +116,11 @@ func (c *RootCLI) newHooksPrintCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runHooksPrint(cmd.Context(), cmd.OutOrStdout(), hooksPrintCommandInput{
 				client:      client,
-				projectDir:  projectDir,
 				tracearyBin: tracearyBin,
 			})
 		},
 	}
 	printCmd.Flags().StringVar(&client, "client", "", hooksClientFlagUsage)
-	printCmd.Flags().StringVar(&projectDir, "project-dir", "", Localize("project directory used by generated hook commands", "hook script があるプロジェクトディレクトリ"))
 	printCmd.Flags().StringVar(&tracearyBin, "traceary-bin", "", Localize("traceary binary path or command name", "traceary バイナリパス"))
 	if err := printCmd.MarkFlagRequired("client"); err != nil {
 		panic(err)

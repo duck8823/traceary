@@ -29,13 +29,12 @@ type printedHookCommand struct {
 }
 
 func TestRootCLI_HooksPrintCommand(t *testing.T) {
-	projectDir := filepath.Join("/tmp", "traceary repo")
 	tracearyBin := filepath.Join("/tmp", "traceary bin", "traceary")
 	scriptsDir := filepath.Join(t.TempDir(), "hook scripts")
 	t.Setenv("TRACEARY_HOOK_SCRIPTS_DIR", scriptsDir)
 
 	t.Run("Claude 向け設定を出力できる", func(t *testing.T) {
-		settings := executeHooksPrint(t, "claude", projectDir, tracearyBin)
+		settings := executeHooksPrint(t, "claude", tracearyBin)
 		if got, want := *settings.Hooks["SessionStart"][0].Matcher, "*"; got != want {
 			t.Fatalf("SessionStart matcher = %q, want %q", got, want)
 		}
@@ -51,7 +50,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 	})
 
 	t.Run("Claude Code alias でも設定を出力できる", func(t *testing.T) {
-		settings := executeHooksPrint(t, "claude-code", projectDir, tracearyBin)
+		settings := executeHooksPrint(t, "claude-code", tracearyBin)
 		if got, want := settings.Hooks["SessionStart"][0].Hooks[0].Command,
 			`TRACEARY_BIN='/tmp/traceary bin/traceary' bash '`+filepath.Join(scriptsDir, "traceary-session.sh")+`' 'claude' 'start'`; got != want {
 			t.Fatalf("SessionStart command = %q, want %q", got, want)
@@ -59,7 +58,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 	})
 
 	t.Run("Codex 向け設定を出力できる", func(t *testing.T) {
-		settings := executeHooksPrint(t, "codex", projectDir, tracearyBin)
+		settings := executeHooksPrint(t, "codex", tracearyBin)
 		if settings.Hooks["SessionStart"][0].Matcher != nil {
 			t.Fatalf("SessionStart matcher = %v, want nil", settings.Hooks["SessionStart"][0].Matcher)
 		}
@@ -73,7 +72,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 	})
 
 	t.Run("Gemini 向け設定を出力できる", func(t *testing.T) {
-		settings := executeHooksPrint(t, "gemini", projectDir, tracearyBin)
+		settings := executeHooksPrint(t, "gemini", tracearyBin)
 		if got, want := *settings.Hooks["AfterTool"][0].Matcher, "run_shell_command"; got != want {
 			t.Fatalf("AfterTool matcher = %q, want %q", got, want)
 		}
@@ -87,7 +86,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 	})
 
 	t.Run("traceary-bin 未指定時は stable command 名を使う", func(t *testing.T) {
-		settings := executeHooksPrintWithoutTracearyBin(t, "claude", projectDir)
+		settings := executeHooksPrintWithoutTracearyBin(t, "claude")
 		if got, want := settings.Hooks["SessionStart"][0].Hooks[0].Command,
 			`TRACEARY_BIN='traceary' bash '`+filepath.Join(scriptsDir, "traceary-session.sh")+`' 'claude' 'start'`; got != want {
 			t.Fatalf("SessionStart command = %q, want %q", got, want)
@@ -102,7 +101,6 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 			"hooks",
 			"print",
 			"--client", "unknown",
-			"--project-dir", projectDir,
 			"--traceary-bin", tracearyBin,
 		})
 
@@ -292,7 +290,6 @@ func assertInstalledHookScripts(t *testing.T, scriptsDir string) {
 func executeHooksPrint(
 	t *testing.T,
 	client string,
-	projectDir string,
 	tracearyBin string,
 ) *printedHooksSettings {
 	t.Helper()
@@ -305,7 +302,6 @@ func executeHooksPrint(
 		"hooks",
 		"print",
 		"--client", client,
-		"--project-dir", projectDir,
 		"--traceary-bin", tracearyBin,
 	})
 
@@ -324,7 +320,6 @@ func executeHooksPrint(
 func executeHooksPrintWithoutTracearyBin(
 	t *testing.T,
 	client string,
-	projectDir string,
 ) *printedHooksSettings {
 	t.Helper()
 
@@ -336,7 +331,6 @@ func executeHooksPrintWithoutTracearyBin(
 		"hooks",
 		"print",
 		"--client", client,
-		"--project-dir", projectDir,
 	})
 
 	if err := rootCmd.Execute(); err != nil {
