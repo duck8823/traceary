@@ -2,56 +2,35 @@
 
 [English](./README.md)
 
+<p align="center">
+  <img src="./docs/assets/traceary-mark.svg" alt="Traceary mark" width="120">
+</p>
+
 [![CI](https://github.com/duck8823/traceary/actions/workflows/ci.yml/badge.svg)](https://github.com/duck8823/traceary/actions/workflows/ci.yml)
 [![Release](https://github.com/duck8823/traceary/actions/workflows/release.yml/badge.svg)](https://github.com/duck8823/traceary/actions/workflows/release.yml)
 
-[Changelog](./CHANGELOG.ja.md)
+Traceary は、AI エージェントの作業ログ、セッション境界、シェルコマンド監査をローカルの SQLite に残して検索できる CLI / MCP サーバーです。
 
-[文書ガイド](./docs/README.ja.md)
+## Traceary が必要になる場面
 
-[コントリビューション](./CONTRIBUTING.ja.md)
+AI を使った開発では、次のような困りごとが起きがちです。
 
-[セキュリティポリシー](./SECURITY.ja.md)
+- `clear` や `compact` のあとにセッション文脈が消える
+- Git 履歴だけでは「何を変えたか」は分かっても、「なぜそうしたか」が残りにくい
+- どのエージェントがどのコマンドを実行したか追いにくい
+- Claude、Codex、Gemini、手元のターミナル操作が別々に散らばる
+- 並列セッションや worktree の移動で履歴の流れが見えにくくなる
 
-[MCP ガイド](./docs/mcp/README.ja.md)
+Traceary は、こうした記録をひとつのローカルストアにまとめ、CLI・hooks・MCP から同じ履歴を使えるようにします。
 
-[バックアップガイド](./docs/backup/README.ja.md)
+## 記録するもの
 
-[ストレージモデル](./docs/storage/README.ja.md)
+- メモやレビュー記録
+- セッション開始・終了イベント
+- シェルコマンドの実行監査
+- `client`、`agent`、`session_id`、リポジトリ/作業文脈などの付帯情報
 
-[リリースガイド](./docs/release/README.ja.md)
-
-[CLI リファレンス](./docs/cli/README.ja.md)
-
-[Interactive ergonomics](./docs/interactive/README.ja.md)
-
-[環境変数リファレンス](./docs/environment/README.ja.md)
-
-Traceary は、AI エージェントの作業ログと audit log をローカルに記録・検索する local-first な CLI / MCP サーバーです。
-
-## 背景と課題
-
-AI エージェントを日常的に使うと、次のような問題が起きます。
-
-- `clear` / `compact` でセッション文脈が失われやすい
-- Git 履歴では「何をしたか」は追えても、「なぜそうしたか」は残りにくい
-- どのエージェントがどのコマンドを実行したかを確認しづらい
-- Claude / Codex / Gemini 間で文脈が分断されやすい
-- 並列セッションや worktree 移動で履歴が追いにくくなる
-- ログが増え続けるため、保持期間や `gc` が必要になる
-
-Traceary は、作業ログと audit log をひとつのローカルストアに集約し、
-複数の AI ツールから同じ履歴を読み書きできるようにすることを目指します。
-
-## 機能
-
-- 作業ログと audit log を SQLite にローカル保存する
-- テキスト検索と日付範囲検索を提供する
-- Claude Code / Codex / Gemini 間で MCP 経由の文脈共有を行う
-- Claude Code / Codex / Gemini の hooks からセッション境界と shell audit を取り込めるようにする
-- git remote URL でリポジトリを識別する
-- `client` / `agent` / `session_id` による attribution を保持する
-- 保持期間と `gc` により長期的なデータ肥大化を抑える
+Traceary はローカルファーストです。データは手元の SQLite に保存され、組み込みのテレメトリ、分析送信、ホスト型ストレージはありません。
 
 ## インストール
 
@@ -63,8 +42,6 @@ go install github.com/duck8823/traceary@latest
 
 ### Homebrew
 
-tagged release によって `Formula/traceary.rb` が更新されると、macOS では Homebrew でも Traceary を導入できます。
-
 ```sh
 brew tap duck8823/traceary https://github.com/duck8823/traceary
 brew install traceary
@@ -72,44 +49,15 @@ brew install traceary
 
 ### 事前ビルド済みバイナリ
 
-タグ付き release では macOS / Linux 向け archive を GitHub Releases に公開します。
-release 導線とローカル snapshot build は [`docs/release/README.ja.md`](./docs/release/README.ja.md) を参照してください。
-
-## 対応プラットフォーム
-
-- 事前ビルド済み release archive は macOS / Linux 向けに公開します
-- core CLI と `traceary mcp-server` は macOS / Linux で継続的に検証しています
-- `go install` によって他の Go 対応 Unix 系環境でも動く可能性はありますが、現時点の support promise には含めていません
-- hooks は bash ベースの Unix 系環境を前提にしており、Windows の PowerShell / `cmd.exe` workflow はまだ正式対応していません
-- Windows で使う場合は、現時点では WSL などの POSIX 互換環境を推奨します
-
-## CLI 言語
-
-- デフォルトの help / success message / よくある error は英語です
-- 日本語 UI を使いたい場合は `TRACEARY_LANG=ja` を指定してください
-- `--json` 出力は言語設定の影響を受けません
-
-## プライバシーとテレメトリ
-
-- Traceary は local-first であり、ローカル SQLite file に書き込むだけで、専用の hosted Traceary service は必要ありません
-- built-in の telemetry / analytics / crash reporting は含みません
-- データがマシン外へ出るのは、SQLite file を自分でコピーする、backup を公開する、別 tool 連携を自分で構成する、といった明示操作をした場合だけです
-
-ストレージの詳細は [`docs/storage/README.ja.md`](./docs/storage/README.ja.md)、脆弱性報告の窓口は [`SECURITY.ja.md`](./SECURITY.ja.md) を参照してください。
-
-## サポート期待値
-
-- Traceary は活発に変化している OSS tool であり、SLA つきの managed service ではありません
-- bug report や改善提案は GitHub Issues で受け付けます
-- `v0.x` の間は automation 周辺の変更が比較的速く起こりうるため、upgrade 前に changelog を確認してください
+タグ付きリリースでは macOS / Linux 向けアーカイブを GitHub Releases に公開します。
+配布形態の詳細は [リリースガイド](./docs/release/README.ja.md) を参照してください。
 
 ## クイックスタート
 
-`traceary init` は任意です。すべてのコマンドは必要に応じて SQLite DB を自動作成し、マイグレーションを適用します。`init` は DB パスを明示的に先に作りたいときや、書き込み権限を事前に確認したいときだけ使います。
+`traceary init` は必須ではありません。通常のコマンドを実行すれば、必要に応じて DB 作成とマイグレーションが自動で行われます。
+`init` を使うのは、あらかじめ DB の保存先を用意したいときや、書き込み権限を先に確認したいときだけです。
 
-### 最初の 1 回を成功させる
-
-まずは、DB 作成、session 記録、event lookup が通る最短ループです。
+### 1. セッションを開始してメモを残す
 
 ```sh
 sid=$(traceary session start --client dogfood --agent codex)
@@ -117,105 +65,22 @@ event_id=$(traceary log --client dogfood --agent codex --session-id "$sid" --id-
 traceary show "$event_id" --json
 ```
 
-### 同じ session に command output を足す
-
-最初の note が通ったら、command audit を追加して検索で引き直します。
+### 2. 同じセッションにコマンド実行結果を残す
 
 ```sh
-event_id=$(
-  traceary audit \
-    --client dogfood \
-    --agent codex \
-    --session-id "$sid" \
-    --id-only \
-    --command "go test ./..." \
-    --input '{"stdin":""}' \
-    --output '{"stdout":"panic: boom","stderr":"stacktrace","exitCode":1}'
-)
+traceary audit \
+  --client dogfood \
+  --agent codex \
+  --session-id "$sid" \
+  --command "go test ./..." \
+  --input '{"stdin":""}' \
+  --output '{"stdout":"panic: boom","stderr":"stacktrace","exitCode":1}'
+
 traceary search boom --json
-traceary show "$event_id" --json
 traceary session active
 ```
 
-出力例:
-
-```text
-$ traceary init
-Initialized: /Users/you/.config/traceary/traceary.db
-
-$ traceary session start --client dogfood --agent codex
-session-1ceee1eaa50a31687cfdb2c8a6fcc85d
-
-$ traceary audit --id-only ...
-0dc6d0c579df5e539c27df56e131570a
-
-$ traceary search boom --json
-[
-  {
-    "event_id": "0dc6d0c579df5e539c27df56e131570a",
-    "kind": "command_executed",
-    "message": "go test ./..."
-  }
-]
-
-$ traceary show 0dc6d0c579df5e539c27df56e131570a --json
-{
-  "event": {
-    "kind": "command_executed",
-    "message": "go test ./..."
-  },
-  "command_audit": {
-    "output": "{\"stdout\":\"panic: boom\",\"stderr\":\"stacktrace\",\"exitCode\":1}"
-  }
-}
-
-$ traceary session active
-session-1ceee1eaa50a31687cfdb2c8a6fcc85d
-```
-
-補足:
-
-- `traceary session active` は既定で `24h` を超えた session を stale とみなします
-- 古い未終了 session を確認したいときは `traceary session active --allow-stale` を使います
-- `traceary session start` は既定で script-friendly な session ID をそのまま出力します
-- 最初の導線ではなく全コマンドを見たいときは `docs/cli/README.ja.md` を見てください
-
-この時点で分かる価値:
-
-- 過去のコマンド出力を文字列検索で引ける
-- いま使っている session ID を手で覚えなくてよい
-- 1件のイベント詳細を取り出して別の AI に渡しやすい
-- 大きすぎる audit payload は DB を膨らませすぎないよう切り詰められる
-
-## コアコマンド
-
-現時点の主要コマンド:
-
-```sh
-traceary init
-traceary log <message>
-traceary audit [<command> <input> <output>]
-traceary search <query>
-traceary list
-traceary context
-traceary handoff
-traceary session start
-traceary session end
-traceary session latest
-traceary session active
-traceary show <event-id>
-traceary completion <bash|zsh|fish|powershell>
-traceary doctor
-traceary backup create --output <path>
-traceary backup restore --input <path>
-traceary hooks print --client <claude|codex|gemini>
-traceary hooks install --client <claude|codex|gemini>
-traceary hooks guide --client <claude|codex|gemini>
-traceary mcp-server
-traceary gc
-```
-
-shell script からは、mutating command に `--id-only` を付けると、人間向けテキストを解析せずに識別子だけを受け取れます。
+### 3. スクリプトからは `--id-only` を使う
 
 ```sh
 traceary log --id-only "Investigating failing tests"
@@ -223,60 +88,51 @@ traceary audit --id-only --command "go test ./..." --input '{}' --output '{}'
 traceary session end --session-id "$sid" --id-only
 ```
 
-`traceary log` / `traceary audit` で `--session-id` を省略した場合、Traceary はまず解決できた repo / work context に対する最新の non-stale active session を使います。該当がなければ、従来どおり `default` session ID に fallback し、人間向け出力ではその旨を通知します。
-
-`search --kind` でよく使う例:
+## 主なコマンド
 
 ```sh
-traceary search --kind command_executed
-traceary search --kind note
-traceary search --kind session_started
+traceary init
+traceary log <message>
+traceary audit [<command> <input> <output>]
+traceary list
+traceary search <query>
+traceary show <event-id>
+traceary context
+traceary handoff
+traceary session start
+traceary session end
+traceary session latest
+traceary session active
+traceary hooks print --client <claude|codex|gemini>
+traceary hooks install --client <claude|codex|gemini>
+traceary hooks guide --client <claude|codex|gemini>
+traceary mcp-server
+traceary doctor
+traceary backup create --output <path>
+traceary backup restore --input <path>
+traceary gc
 ```
 
-- 有効値: `note`, `command_executed`, `reviewed`, `session_started`, `session_ended`
-- alias: `audit` = `command_executed`
+## 先に知っておくと楽なこと
 
-`list` と `search` は `ORDER BY created_at DESC, event_id DESC` による安定した offset pagination を使います。
-次ページが欲しい場合は、同じ filter 条件のまま `--offset` を増やしてください。
+- `traceary log` / `traceary audit` で `--session-id` を省くと、解決できた repo / work context に対する最新の non-stale アクティブなセッション を優先して使います
+- `traceary session active` は既定で `24h` を超えたセッションを stale とみなします。必要なら `--allow-stale` を付けてください
+- `traceary session start` はセッション ID を出力し、`traceary session end` は記録したイベント ID を出力します
+- CLI の通常メッセージは英語が既定です。日本語表示にしたい場合は `TRACEARY_LANG=ja` を指定してください
+- `--json` 出力は言語設定の影響を受けません
 
-```sh
-traceary list --limit 20 --offset 20
-traceary search boom --limit 20 --offset 40 --json
-```
+## ドキュメント
 
-`traceary session active` は既定で `--stale-after 24h` を使います。古い未終了 session も見たい場合は `--allow-stale` を付けてください。
+詳しい一覧は [ドキュメント索引](./docs/README.ja.md) にまとめています。
+最初によく参照するのは次のページです。
 
-`traceary session start` は生成された session ID をそのまま出力します。`traceary session end` は、終了対象の session ID は呼び出し側が既に知っている前提で、記録した event ID を出力します。
+- [CLI リファレンス](./docs/cli/README.ja.md)
+- [Hooks ガイド](./docs/hooks/README.ja.md)
+- [MCP ガイド](./docs/mcp/README.ja.md)
+- [環境変数と保存モデル](./docs/environment/README.ja.md)
 
-Hooks 導入: [`docs/hooks/README.ja.md`](./docs/hooks/README.ja.md)
+## コントリビュートとサポート
 
-Full CLI reference: [`docs/cli/README.ja.md`](./docs/cli/README.ja.md)
-
-Environment variables and runtime assumptions: [`docs/environment/README.ja.md`](./docs/environment/README.ja.md)
-
-MCP integration: [`docs/mcp/README.ja.md`](./docs/mcp/README.ja.md)
-
-バックアップとマシン移行: [`docs/backup/README.ja.md`](./docs/backup/README.ja.md)
-
-ストレージモデル、schema、GC 既定値: [`docs/storage/README.ja.md`](./docs/storage/README.ja.md)
-
-すべてのコマンドは SQLite path を `--db-path` → `TRACEARY_DB_PATH` → `~/.config/traceary/traceary.db` の順で解決します。
-
-`traceary audit` は既定で input/output をそれぞれ `64 KiB` まで保存します。より厳しくしたい場合は `--max-input-bytes`, `--max-output-bytes`, `TRACEARY_MAX_AUDIT_INPUT_BYTES`, `TRACEARY_MAX_AUDIT_OUTPUT_BYTES` を使ってください。切り詰めが発生したときは CLI に通知を出します。
-
-`traceary audit` は SQLite に書き込む前に、一般的な secret っぽい値（例: `Authorization:` header、`TOKEN=...`、JSON の `access_token`、private key block）も既定で伏せ字化します。これは完全な DLP ではなく best-effort の保護です。raw payload を意図的に残したい場合だけ `--allow-secrets` または `TRACEARY_ALLOW_SECRETS=true` を使ってください。
-
-CLI の失敗は stderr に plain text の `Error: ...` 形式で出力されます。hooks や shell script から JSON ログを剥がさず扱えるようにするためです。
-
-## ライセンス
-
-MIT License です。詳細は [`LICENSE`](./LICENSE) を参照してください。
-
-## スコープ外
-
-- セマンティック検索 / 埋め込みベクトル
-- チーム共有やクラウド同期
-- Web UI / ダッシュボード
-- エンタープライズ向け監査 / RBAC
-- ファイル状態の完全再現
-- リアルタイム可視化
+- バグ報告や改善提案は GitHub Issues へお願いします
+- 脆弱性の連絡先は [CONTRIBUTING.ja.md](./CONTRIBUTING.ja.md) を参照してください
+- まだ `v0.x` の OSS なので、自動化に組み込む前には [変更履歴](./CHANGELOG.ja.md) を確認してください

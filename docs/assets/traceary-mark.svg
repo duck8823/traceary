@@ -1,0 +1,10 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="tracearyTitle tracearyDesc">
+  <title id="tracearyTitle">Traceary mark</title>
+  <desc id="tracearyDesc">A minimal mark with three connected nodes forming a traced path.</desc>
+  <rect width="256" height="256" rx="56" fill="#0F172A"/>
+  <path d="M72 176C72 138.445 102.445 108 140 108H168" stroke="#38BDF8" stroke-width="20" stroke-linecap="round"/>
+  <path d="M88 80H148" stroke="#F8FAFC" stroke-width="20" stroke-linecap="round"/>
+  <circle cx="72" cy="176" r="22" fill="#22C55E"/>
+  <circle cx="88" cy="80" r="22" fill="#F8FAFC"/>
+  <circle cx="184" cy="108" r="22" fill="#38BDF8"/>
+</svg>

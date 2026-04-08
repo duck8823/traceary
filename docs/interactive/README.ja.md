@@ -1,9 +1,9 @@
-# Interactive ergonomics
+# インタラクティブ運用メモ
 
 [English](./README.md)
 
-この文書は、Traceary の interactive inspection UX の現状を整理するためのメモです。
-`v0.1.9` で直接改善したものと、あえて後続 release line に送ったものを分けて記録します。
+この文書は、Traceary を対話的に使うときの使い勝手を整理するためのメモです。
+`v0.1.9` で直接改善したものと、あえて後続リリースに回したものを分けて記録します。
 
 ## `v0.1.9` で入れたもの
 

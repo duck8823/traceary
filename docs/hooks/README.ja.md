@@ -1,12 +1,12 @@
-# Hooks integration
+# Hooks ガイド
 
 [English](./README.md)
 
-Traceary v0.1 は、既存の `traceary session ...` / `traceary audit ...` を hook script から呼び出すことで、Claude Code / Codex CLI / Gemini CLI の session 境界と shell command audit を取り込めます。
+Traceary v0.1 では、既存の `traceary session ...` / `traceary audit ...` を hook スクリプトから呼び出すことで、Claude Code / Codex CLI / Gemini CLI のセッション境界とシェルコマンド監査を取り込めます。
 
-現在の generated hook config は、対応している client 設定ファイルであれば既存 JSON にマージしながら Traceary hook を追加できます。既定で破壊的な置き換えはしません。
+現在の生成済み hook 設定は、対応しているクライアント設定ファイルであれば既存 JSON にマージしながら Traceary の hook を追加できます。既定では破壊的な置き換えを行いません。
 
-## ファイル
+## 含まれるファイル
 
 - `scripts/hooks/traceary-session.sh`: session start/end 境界を記録
 - `scripts/hooks/traceary-audit.sh`: tool 実行後の shell command audit を記録
@@ -14,15 +14,15 @@ Traceary v0.1 は、既存の `traceary session ...` / `traceary audit ...` を 
 - `examples/hooks/codex.hooks.json`: Codex CLI の例
 - `examples/hooks/gemini.settings.json`: Gemini CLI の例
 
-`traceary hooks print/install` は、既定ではこれらの portable copy も `~/.config/traceary/hook-scripts` 配下へ書き出します。installed binary でも source checkout 前提になりません。
+`traceary hooks print/install` は、既定でこれらの持ち運び用コピーも `~/.config/traceary/hook-scripts` 配下へ書き出します。インストール済みバイナリでもソースチェックアウトに依存しません。
 
 ## 前提条件
 
 - `traceary` が `PATH` にある、または `TRACEARY_BIN` が binary を指している
 - `git` は任意。ある場合は `remote.origin.url` を Traceary の `repo` field に正規化し、無い場合は hook の `cwd` を使う
-- 生成される portable script は `#!/usr/bin/env bash` を使うため、`bash` が必要です
+- 生成される持ち運び用スクリプトは `#!/usr/bin/env bash` を使うため、`bash` が必要です
 - 現在の hook 例は shell ベースの client を前提にしているため、Unix 系環境を想定しています
-- Windows の PowerShell / `cmd.exe` workflow はまだ正式対応していません。Windows で hooks を使う場合は、WSL などの POSIX 互換環境を使ってください
+- Windows の PowerShell / `cmd.exe` 向け hook 実行はまだ正式対応していません。Windows で hooks を使う場合は、WSL などの POSIX 互換環境を使ってください
 - generated hooks は、対象 client が外部 command 実行と、以下で説明する JSON payload / stdin の受け渡しに対応している前提です
 
 ## 共通環境変数
@@ -72,11 +72,11 @@ Traceary v0.1 は、既存の `traceary session ...` / `traceary audit ...` を 
 
 ## 導入フロー
 
-### CLI で設定を生成する
+### CLI で設定を出力する
 
 `traceary hooks print --client <claude|codex|gemini>` は、貼り付け用の config を出力します。`claude-code`, `codex-cli`, `gemini-cli` も alias として使えます。
 
-まず install / check / verify の流れだけ見たい場合は、`traceary hooks guide --client <claude|codex|gemini>` を使ってください。
+まず install / check / verify の流れだけ確認したい場合は、`traceary hooks guide --client <claude|codex|gemini>` を使ってください。
 
 例:
 
@@ -84,9 +84,9 @@ Traceary v0.1 は、既存の `traceary session ...` / `traceary audit ...` を 
 - `traceary hooks print --client codex > ~/.codex/hooks.json`
 - `traceary hooks print --client gemini > .gemini/settings.json`
 
-既定では生成コマンドに `TRACEARY_BIN='traceary'` を使うため、hook は `PATH` 上の安定した `traceary` command を追従します。
+既定では生成コマンドに `TRACEARY_BIN='traceary'` を使うため、hook は `PATH` 上の `traceary` コマンドを参照します。
 
-最初の `hooks print/install` 実行時に、portable script も `~/.config/traceary/hook-scripts`（または `TRACEARY_HOOK_SCRIPTS_DIR`）へ書き出します。生成される config は `<project>/scripts/hooks/...` ではなく、その安定した directory を参照するため、source checkout の外にある installed Traceary binary でも動きます。
+最初の `hooks print/install` 実行時に、持ち運び用スクリプトも `~/.config/traceary/hook-scripts`（または `TRACEARY_HOOK_SCRIPTS_DIR`）へ書き出します。生成される設定は `<project>/scripts/hooks/...` ではなく、その安定したディレクトリを参照するため、ソースチェックアウトの外にあるインストール済み Traceary バイナリでも動きます。
 
 特定の binary path に pin したいときは `--traceary-bin` を使います。
 
@@ -126,7 +126,7 @@ Traceary v0.1 は、既存の `traceary session ...` / `traceary audit ...` を 
 
 その場合は file を自分で確認し、本当に置き換えてよいときだけ `--force` を使ってください。
 
-## トラブルシューティング
+## トラブルシュート
 
 hooks やローカル SQLite store の挙動がおかしいときは `traceary doctor --client <claude|codex|gemini>` を実行してください。
 
