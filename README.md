@@ -175,6 +175,14 @@ traceary search --kind session_started
 - valid values: `note`, `command_executed`, `reviewed`, `session_started`, `session_ended`
 - alias: `audit` = `command_executed`
 
+`list` and `search` use stable offset pagination with `ORDER BY created_at DESC, event_id DESC`.
+Use the same filters with a larger `--offset` when you want the next page.
+
+```sh
+traceary list --limit 20 --offset 20
+traceary search boom --limit 20 --offset 40 --json
+```
+
 `traceary session active` defaults to `--stale-after 24h`; pass `--allow-stale` to inspect an older unclosed session.
 
 `traceary session start` prints the session ID so scripts can capture it immediately. `traceary session end` prints the recorded event ID because the caller already knows which session it is closing.

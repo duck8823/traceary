@@ -175,6 +175,14 @@ traceary search --kind session_started
 - 有効値: `note`, `command_executed`, `reviewed`, `session_started`, `session_ended`
 - alias: `audit` = `command_executed`
 
+`list` と `search` は `ORDER BY created_at DESC, event_id DESC` による安定した offset pagination を使います。
+次ページが欲しい場合は、同じ filter 条件のまま `--offset` を増やしてください。
+
+```sh
+traceary list --limit 20 --offset 20
+traceary search boom --limit 20 --offset 40 --json
+```
+
 `traceary session active` は既定で `--stale-after 24h` を使います。古い未終了 session も見たい場合は `--allow-stale` を付けてください。
 
 `traceary session start` は生成された session ID をそのまま出力します。`traceary session end` は、終了対象の session ID は呼び出し側が既に知っている前提で、記録した event ID を出力します。
