@@ -75,4 +75,5 @@ GitHub Actions runs the same check in CI.
 - release history: `CHANGELOG.md` / `CHANGELOG.ja.md`
 - hooks guide: `docs/hooks/README.md` / `docs/hooks/README.ja.md`
 - MCP guide: `docs/mcp/README.md` / `docs/mcp/README.ja.md`
+- backup guide: `docs/backup/README.md` / `docs/backup/README.ja.md`
 - release guide: `docs/release/README.md` / `docs/release/README.ja.md`

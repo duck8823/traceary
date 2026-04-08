@@ -149,6 +149,8 @@ func run() error {
 
 	datasource := sqlite.NewDatasource(migrationsSubFS)
 	initializeStoreUsecase := usecase.NewInitializeStoreUsecase(datasource)
+	createStoreBackupUsecase := usecase.NewCreateStoreBackupUsecase(datasource)
+	restoreStoreBackupUsecase := usecase.NewRestoreStoreBackupUsecase(datasource)
 	recordLogUsecase := usecase.NewRecordLogUsecase(datasource)
 	recordSessionBoundaryUsecase := usecase.NewRecordSessionBoundaryUsecase(datasource, datasource)
 	recordCommandAuditUsecase := usecase.NewRecordCommandAuditUsecase(datasource)
@@ -173,6 +175,8 @@ func run() error {
 	}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
 		InitializeStoreUsecase:        initializeStoreUsecase,
+		CreateStoreBackupUsecase:      createStoreBackupUsecase,
+		RestoreStoreBackupUsecase:     restoreStoreBackupUsecase,
 		RecordLogUsecase:              recordLogUsecase,
 		RecordSessionBoundaryUsecase:  recordSessionBoundaryUsecase,
 		RecordCommandAuditUsecase:     recordCommandAuditUsecase,

@@ -12,6 +12,8 @@
 
 [MCP guide](./docs/mcp/README.md)
 
+[Backup guide](./docs/backup/README.md)
+
 [Release guide](./docs/release/README.md)
 
 Traceary is a local-first CLI and MCP server for recording and searching AI agent work logs and audit logs.
@@ -158,6 +160,8 @@ traceary session latest
 traceary session active
 traceary show <event-id>
 traceary doctor
+traceary backup create --output <path>
+traceary backup restore --input <path>
 traceary hooks print --client <claude|codex|gemini>
 traceary hooks install --client <claude|codex|gemini>
 traceary mcp-server
@@ -190,6 +194,8 @@ traceary search boom --limit 20 --offset 40 --json
 Hook setup: [`docs/hooks/README.md`](./docs/hooks/README.md)
 
 MCP integration: [`docs/mcp/README.md`](./docs/mcp/README.md)
+
+Backup and machine transfer: [`docs/backup/README.md`](./docs/backup/README.md)
 
 All commands resolve the SQLite path in this order: `--db-path` → `TRACEARY_DB_PATH` → `~/.config/traceary/traceary.db`.
 
