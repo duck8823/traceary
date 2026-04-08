@@ -215,6 +215,13 @@ func copyFileToTempPath(sourcePath string, destinationDir string) (_ string, err
 		return "", xerrors.Errorf("一時ファイルの作成に失敗しました: %w", err)
 	}
 	tempPath := tempFile.Name()
+	defer func() {
+		if err == nil {
+			return
+		}
+		_ = tempFile.Close()
+		_ = os.Remove(tempPath)
+	}()
 
 	if err := tempFile.Chmod(0o600); err != nil {
 		return "", xerrors.Errorf("一時ファイル権限の設定に失敗しました: %w", err)
@@ -300,9 +307,6 @@ func reserveTempPath(dir string, pattern string) (string, error) {
 	tempPath := tempFile.Name()
 	if err := tempFile.Close(); err != nil {
 		return "", xerrors.Errorf("一時ファイルのクローズに失敗しました: %w", err)
-	}
-	if err := os.Remove(tempPath); err != nil {
-		return "", xerrors.Errorf("一時ファイルの削除に失敗しました: %w", err)
 	}
 
 	return tempPath, nil
