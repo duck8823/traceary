@@ -20,7 +20,7 @@ func (c *RootCLI) newShowCommand() *cobra.Command {
 	showCmd := &cobra.Command{
 		Use:   "show <event-id>",
 		Short: Localize("Show event details", "イベント詳細を表示する"),
-		Args:  exactArgsJP(1),
+		Args:  exactArgsLocalized(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return c.runShow(cmd.Context(), cmd.OutOrStdout(), dbPath, args[0], asJSON)
 		},

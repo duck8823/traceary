@@ -1,2 +1,2 @@
-// Package mcpserver は Traceary の MCP server を提供します。
+// Package mcpserver provides the Traceary MCP server.
 package mcpserver

@@ -1,2 +1,2 @@
-// Package presentation は CLI などの外部インターフェースを提供します。
+// Package presentation provides external interfaces such as the CLI.
 package presentation

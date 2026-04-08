@@ -32,7 +32,7 @@ func (c *RootCLI) newLogCommand() *cobra.Command {
 	logCmd := &cobra.Command{
 		Use:   "log <message>",
 		Short: Localize("Append a session note", "セッションログを追記する"),
-		Args:  exactArgsJP(1),
+		Args:  exactArgsLocalized(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return c.runLog(cmd.Context(), cmd.OutOrStdout(), logCommandInput{
 				dbPath:    dbPath,
