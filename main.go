@@ -57,7 +57,7 @@ func init() {
 		case "error":
 			level = slog.LevelError
 		default:
-			log.Fatalf("ログレベルが不正です: %s", logLevel)
+			log.Fatalf("%s", cli.Localizef("invalid LOG_LEVEL: %s", "ログレベルが不正です: %s", logLevel))
 		}
 	}
 
@@ -144,7 +144,7 @@ func run() error {
 
 	migrationsSubFS, err := fs.Sub(migrationsFS, "schema/sqlite/migrations")
 	if err != nil {
-		return xerrors.Errorf("マイグレーションファイルの読み込みに失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", cli.Localize("failed to read migration files", "マイグレーションファイルの読み込みに失敗しました"), err)
 	}
 
 	datasource := sqlite.NewDatasource(migrationsSubFS)
@@ -167,7 +167,7 @@ func run() error {
 		getContextQueryService,
 	)
 	if err != nil {
-		return xerrors.Errorf("MCP server の初期化に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", cli.Localize("failed to initialize MCP server", "MCP server の初期化に失敗しました"), err)
 	}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
 		InitializeStoreUsecase:        initializeStoreUsecase,
@@ -195,7 +195,7 @@ func run() error {
 func main() {
 	if err := run(); err != nil {
 		if writeErr := writeCLIError(os.Stderr, err); writeErr != nil {
-			log.Printf("CLI error の出力に失敗しました: %v", writeErr)
+			log.Printf("%s: %v", cli.Localize("failed to print CLI error", "CLI error の出力に失敗しました"), writeErr)
 		}
 		os.Exit(1)
 	}
@@ -207,7 +207,7 @@ func writeCLIError(output io.Writer, err error) error {
 	}
 
 	if _, writeErr := fmt.Fprintf(output, "Error: %v\n", err); writeErr != nil {
-		return xerrors.Errorf("CLI error の出力に失敗しました: %w", writeErr)
+		return xerrors.Errorf("%s: %w", cli.Localize("failed to print CLI error", "CLI error の出力に失敗しました"), writeErr)
 	}
 
 	return nil

@@ -19,7 +19,7 @@ func (c *RootCLI) newMCPServerCommand() *cobra.Command {
 
 	mcpServerCmd := &cobra.Command{
 		Use:   "mcp-server",
-		Short: "Traceary の MCP server を stdio で起動する",
+		Short: Localize("Run the Traceary MCP server over stdio", "Traceary の MCP server を stdio で起動する"),
 		Args:  noArgsJP(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runMCPServer(cmd.Context(), cmd.OutOrStdout(), dbPath)
@@ -32,15 +32,15 @@ func (c *RootCLI) newMCPServerCommand() *cobra.Command {
 
 func (c *RootCLI) runMCPServer(ctx context.Context, _ io.Writer, dbPath string) error {
 	if c.mcpServerRunner == nil {
-		return xerrors.Errorf("MCP server ランナーが設定されていません")
+		return xerrors.Errorf(Localize("MCP server runner is not configured", "MCP server ランナーが設定されていません"))
 	}
 
 	resolvedPath, err := resolveDBPath(dbPath)
 	if err != nil {
-		return xerrors.Errorf("DB パスの解決に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
 	if err := c.mcpServerRunner.Run(ctx, resolvedPath); err != nil {
-		return xerrors.Errorf("MCP server の起動に失敗しました: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to start MCP server", "MCP server の起動に失敗しました"), err)
 	}
 
 	return nil

@@ -8,7 +8,7 @@ import (
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
-func TestRootCLI_ArgumentErrorsAreLocalized(t *testing.T) {
+func TestRootCLI_ArgumentErrorsDefaultToEnglish(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -17,24 +17,24 @@ func TestRootCLI_ArgumentErrorsAreLocalized(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:    "log の引数不足は日本語",
+			name:    "log の引数不足は英語",
 			args:    []string{"log"},
-			wantErr: "引数はちょうど 1 個必要です (受け取った引数数: 0)",
+			wantErr: "expected exactly 1 positional argument(s) (received: 0)",
 		},
 		{
-			name:    "audit の引数不足は日本語",
+			name:    "audit の引数不足は英語",
 			args:    []string{"audit", "go test ./..."},
-			wantErr: "引数はちょうど 3 個必要です (受け取った引数数: 1)",
+			wantErr: "expected exactly 3 positional argument(s) (received: 1)",
 		},
 		{
-			name:    "search の引数超過は日本語",
+			name:    "search の引数超過は英語",
 			args:    []string{"search", "foo", "bar"},
-			wantErr: "引数は最大 1 個まで指定できます (受け取った引数数: 2)",
+			wantErr: "expected at most 1 positional argument(s) (received: 2)",
 		},
 		{
-			name:    "init の余分な引数は日本語",
+			name:    "init の余分な引数は英語",
 			args:    []string{"init", "extra"},
-			wantErr: "引数は不要です (受け取った引数数: 1)",
+			wantErr: "this command does not accept positional arguments (received: 1)",
 		},
 	}
 
@@ -55,5 +55,22 @@ func TestRootCLI_ArgumentErrorsAreLocalized(t *testing.T) {
 				t.Fatalf("error = %q, want substring %q", err.Error(), tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestRootCLI_ArgumentErrorsCanUseJapanese(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "ja")
+
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"log"})
+
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "引数はちょうど 1 個必要です (受け取った引数数: 0)") {
+		t.Fatalf("error = %q", err.Error())
 	}
 }

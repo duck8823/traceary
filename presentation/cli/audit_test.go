@@ -102,8 +102,8 @@ func TestRootCLI_AuditCommand(t *testing.T) {
 	if auditStub.receivedInput.SessionID != "session-env" {
 		t.Fatalf("SessionID = %q, want %q", auditStub.receivedInput.SessionID, "session-env")
 	}
-	if stdout.String() != "記録しました: event-1\n" {
-		t.Fatalf("stdout = %q, want %q", stdout.String(), "記録しました: event-1\n")
+	if stdout.String() != "Recorded: event-1\n" {
+		t.Fatalf("stdout = %q, want %q", stdout.String(), "Recorded: event-1\n")
 	}
 }
 
@@ -174,8 +174,8 @@ func TestRootCLI_AuditCommand_TruncationNotice(t *testing.T) {
 		t.Fatalf("MaxOutputBytes = %d, want 128", auditStub.receivedInput.MaxOutputBytes)
 	}
 	want := "" +
-		"記録しました: event-2\n" +
-		"出力は切り詰めて保存しました\n"
+		"Recorded: event-2\n" +
+		"Output was truncated before storing\n"
 	if stdout.String() != want {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 	}

@@ -48,7 +48,7 @@ func TestRootCLI_InitCommand(t *testing.T) {
 	if stub.receivedPath != dbPath {
 		t.Fatalf("Run() path = %q, want %q", stub.receivedPath, dbPath)
 	}
-	wantOutput := "初期化しました: " + dbPath + "\n"
+	wantOutput := "Initialized: " + dbPath + "\n"
 	if stdout.String() != wantOutput {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), wantOutput)
 	}
@@ -129,7 +129,7 @@ func TestRootCLI_InitCommand_UsesTracearyDBPathEnv(t *testing.T) {
 	if stub.receivedPath != dbPath {
 		t.Fatalf("Run() path = %q, want %q", stub.receivedPath, dbPath)
 	}
-	wantOutput := "初期化しました: " + dbPath + "\n"
+	wantOutput := "Initialized: " + dbPath + "\n"
 	if stdout.String() != wantOutput {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), wantOutput)
 	}
@@ -150,10 +150,10 @@ func TestRootCLI_InitHelp_ExplainsOptionalBootstrap(t *testing.T) {
 	}
 
 	output := stdout.String()
-	if !strings.Contains(output, "他コマンドも必要に応じて DB を自動作成") {
+	if !strings.Contains(output, "Other traceary commands create the DB and apply migrations on demand.") {
 		t.Fatalf("stdout = %q, want init help to mention automatic DB creation", output)
 	}
-	if !strings.Contains(output, "DB パスや書き込み権限を事前に確認") {
+	if !strings.Contains(output, "Use init when you want to verify the DB path or write permissions before a session starts.") {
 		t.Fatalf("stdout = %q, want init help to mention explicit bootstrap purpose", output)
 	}
 }

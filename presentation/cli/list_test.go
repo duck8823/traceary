@@ -181,8 +181,8 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		if stdout.String() != "一致する記録はありません\n" {
-			t.Fatalf("stdout = %q, want %q", stdout.String(), "一致する記録はありません\n")
+		if stdout.String() != "No matching records.\n" {
+			t.Fatalf("stdout = %q, want %q", stdout.String(), "No matching records.\n")
 		}
 	})
 }

@@ -94,8 +94,8 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		if logStub.receivedInput.Client != "cli" {
 			t.Fatalf("Client = %q, want %q", logStub.receivedInput.Client, "cli")
 		}
-		if stdout.String() != "記録しました: event-1\n" {
-			t.Fatalf("stdout = %q, want %q", stdout.String(), "記録しました: event-1\n")
+		if stdout.String() != "Recorded: event-1\n" {
+			t.Fatalf("stdout = %q, want %q", stdout.String(), "Recorded: event-1\n")
 		}
 	})
 

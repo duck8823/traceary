@@ -3,7 +3,6 @@ package cli_test
 import (
 	"bytes"
 	"context"
-	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -236,8 +235,8 @@ func TestRootCLI_SessionEndCommand(t *testing.T) {
 	if sessionStub.receivedInput.DefaultRepo != "github.com/duck8823/traceary" {
 		t.Fatalf("DefaultRepo = %q, want %q", sessionStub.receivedInput.DefaultRepo, "github.com/duck8823/traceary")
 	}
-	if stdout.String() != "記録しました: event-2\n" {
-		t.Fatalf("stdout = %q, want %q", stdout.String(), "記録しました: event-2\n")
+	if stdout.String() != "Recorded: event-2\n" {
+		t.Fatalf("stdout = %q, want %q", stdout.String(), "Recorded: event-2\n")
 	}
 }
 
@@ -488,10 +487,10 @@ func TestRootCLI_SessionLatestCommand_NotFoundError(t *testing.T) {
 	rootCmd.SetArgs([]string{"session", "latest", "--db-path", dbPath})
 
 	err := rootCmd.Execute()
-	if !errors.Is(err, queryservice.ErrSessionNotFound) {
-		t.Fatalf("Execute() error = %v, want ErrSessionNotFound", err)
+	if err == nil {
+		t.Fatal("Execute() error = nil, want error")
 	}
-	if err.Error() != queryservice.ErrSessionNotFound.Error() {
-		t.Fatalf("error = %q, want %q", err.Error(), queryservice.ErrSessionNotFound.Error())
+	if err.Error() != "no matching session found" {
+		t.Fatalf("error = %q, want %q", err.Error(), "no matching session found")
 	}
 }

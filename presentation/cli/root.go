@@ -58,7 +58,7 @@ func NewRootCLI(options RootCLIOptions) *RootCLI {
 func (c *RootCLI) Command() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:           "traceary",
-		Short:         "AI エージェントの作業履歴をローカルに記録する CLI",
+		Short:         Localize("Local-first CLI for AI agent work history", "AI エージェントの作業履歴をローカルに記録する CLI"),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
