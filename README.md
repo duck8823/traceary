@@ -54,6 +54,15 @@ so multiple AI tools can read and write the same history.
 go install github.com/duck8823/traceary@latest
 ```
 
+### Homebrew
+
+After a tagged release updates `Formula/traceary.rb`, macOS users can install Traceary with Homebrew:
+
+```sh
+brew tap duck8823/traceary https://github.com/duck8823/traceary
+brew install traceary
+```
+
 ### Prebuilt binaries
 
 Tagged releases publish macOS and Linux archives on GitHub Releases.

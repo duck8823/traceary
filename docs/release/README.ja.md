@@ -2,7 +2,7 @@
 
 [English](./README.md)
 
-Traceary には、公開向けの導入方法を 2 つ用意します。
+Traceary には、公開向けの導入方法を 3 つ用意します。
 
 ## インストール
 
@@ -17,7 +17,16 @@ go install github.com/duck8823/traceary@latest
 特定の release を使いたい場合は、tag を明示します。
 
 ```sh
-go install github.com/duck8823/traceary@v0.1.7
+go install github.com/duck8823/traceary@v0.1.8
+```
+
+### Homebrew
+
+tagged release では、この repository の `main` branch にある `Formula/traceary.rb` も更新されるため、macOS では tap 形式の Homebrew formula として導入できます。
+
+```sh
+brew tap duck8823/traceary https://github.com/duck8823/traceary
+brew install traceary
 ```
 
 ### 事前ビルド済みバイナリ
@@ -50,8 +59,13 @@ Traceary は `traceary --version` で version metadata を表示します。
 2. Go をセットアップする
 3. tag ref では release mode、手動で branch から起動したときは snapshot mode で GoReleaser を実行する
 4. tag release のときに GitHub Releases へ成果物とチェックサムを公開する
+5. Homebrew 向けに `main` branch の `Formula/traceary.rb` を更新する
 
 `workflow_dispatch` は主に branch 上でパイプラインを dry-run するためのものです。実際に公開リリースしたい場合は `v*` tag を push するか、tag ref を指定して手動実行してください。
+
+Homebrew formula は repository 直下の `Formula/` に置き、GoReleaser が自動生成します。手動編集は前提にしません。
+
+この Homebrew step は、release workflow が `main` へ push できることを前提にしています。将来、bot の直接 push を禁止する branch protection を追加した場合は、次の tag を出す前に GoReleaser の brew target を見直してください。
 
 ## ローカル snapshot build
 
