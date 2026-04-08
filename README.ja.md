@@ -47,6 +47,12 @@ go install github.com/duck8823/traceary@latest
 タグ付き release では macOS / Linux 向け archive を GitHub Releases に公開します。
 release 導線とローカル snapshot build は [`docs/release/README.ja.md`](./docs/release/README.ja.md) を参照してください。
 
+## CLI 言語
+
+- デフォルトの help / success message / よくある error は英語です
+- 日本語 UI を使いたい場合は `TRACEARY_LANG=ja` を指定してください
+- `--json` 出力は言語設定の影響を受けません
+
 ## クイックスタート
 
 まずは「日常の作業がどう変わるか」だけを見る最短導線です。
@@ -76,7 +82,7 @@ traceary session active
 
 ```text
 $ traceary init
-初期化しました: /Users/you/.config/traceary/traceary.db
+Initialized: /Users/you/.config/traceary/traceary.db
 
 $ traceary session start --client dogfood --agent codex
 session-1ceee1eaa50a31687cfdb2c8a6fcc85d

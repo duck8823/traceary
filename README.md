@@ -47,6 +47,12 @@ go install github.com/duck8823/traceary@latest
 Tagged releases publish macOS and Linux archives on GitHub Releases.
 See [`docs/release/README.md`](./docs/release/README.md) for the release flow and local snapshot builds.
 
+## CLI language
+
+- default operator-facing help, success messages, and common errors use English
+- set `TRACEARY_LANG=ja` when you want Japanese CLI messaging instead
+- `--json` output is language-neutral
+
 ## Quick start
 
 If you only want to see what Traceary changes in daily work, this is the shortest loop.
@@ -76,7 +82,7 @@ Example output:
 
 ```text
 $ traceary init
-初期化しました: /Users/you/.config/traceary/traceary.db
+Initialized: /Users/you/.config/traceary/traceary.db
 
 $ traceary session start --client dogfood --agent codex
 session-1ceee1eaa50a31687cfdb2c8a6fcc85d
