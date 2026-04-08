@@ -2,6 +2,9 @@
 
 [日本語](./README.ja.md)
 
+[![CI](https://github.com/duck8823/traceary/actions/workflows/ci.yml/badge.svg)](https://github.com/duck8823/traceary/actions/workflows/ci.yml)
+[![Release](https://github.com/duck8823/traceary/actions/workflows/release.yml/badge.svg)](https://github.com/duck8823/traceary/actions/workflows/release.yml)
+
 [Changelog](./CHANGELOG.md)
 
 [Documentation guide](./docs/README.md)
@@ -83,6 +86,20 @@ See [`docs/release/README.md`](./docs/release/README.md) for the release flow an
 - default operator-facing help, success messages, and common errors use English
 - set `TRACEARY_LANG=ja` when you want Japanese CLI messaging instead
 - `--json` output is language-neutral
+
+## Privacy and telemetry
+
+- Traceary is local-first: it writes to a local SQLite file and does not require a hosted Traceary service
+- the project does not include built-in telemetry, analytics, or crash reporting
+- your data leaves the machine only when you explicitly copy the SQLite file, publish a backup, or wire Traceary into another tool yourself
+
+See [`docs/storage/README.md`](./docs/storage/README.md) for the storage model and [`SECURITY.md`](./SECURITY.md) for the security disclosure path.
+
+## Support expectations
+
+- Traceary is maintained as an actively evolving OSS tool, not a managed service with an SLA
+- bug reports and improvement requests belong in GitHub Issues
+- changes can still happen quickly within `v0.x`, so read the changelog before upgrading automation around it
 
 ## Quick start
 

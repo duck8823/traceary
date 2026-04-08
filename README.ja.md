@@ -2,6 +2,9 @@
 
 [English](./README.md)
 
+[![CI](https://github.com/duck8823/traceary/actions/workflows/ci.yml/badge.svg)](https://github.com/duck8823/traceary/actions/workflows/ci.yml)
+[![Release](https://github.com/duck8823/traceary/actions/workflows/release.yml/badge.svg)](https://github.com/duck8823/traceary/actions/workflows/release.yml)
+
 [Changelog](./CHANGELOG.ja.md)
 
 [文書ガイド](./docs/README.ja.md)
@@ -83,6 +86,20 @@ release 導線とローカル snapshot build は [`docs/release/README.ja.md`](.
 - デフォルトの help / success message / よくある error は英語です
 - 日本語 UI を使いたい場合は `TRACEARY_LANG=ja` を指定してください
 - `--json` 出力は言語設定の影響を受けません
+
+## プライバシーとテレメトリ
+
+- Traceary は local-first であり、ローカル SQLite file に書き込むだけで、専用の hosted Traceary service は必要ありません
+- built-in の telemetry / analytics / crash reporting は含みません
+- データがマシン外へ出るのは、SQLite file を自分でコピーする、backup を公開する、別 tool 連携を自分で構成する、といった明示操作をした場合だけです
+
+ストレージの詳細は [`docs/storage/README.ja.md`](./docs/storage/README.ja.md)、脆弱性報告の窓口は [`SECURITY.ja.md`](./SECURITY.ja.md) を参照してください。
+
+## サポート期待値
+
+- Traceary は活発に変化している OSS tool であり、SLA つきの managed service ではありません
+- bug report や改善提案は GitHub Issues で受け付けます
+- `v0.x` の間は automation 周辺の変更が比較的速く起こりうるため、upgrade 前に changelog を確認してください
 
 ## クイックスタート
 
