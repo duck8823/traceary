@@ -32,3 +32,12 @@ jobs:
           args: ${{ github.ref_type == 'tag' && 'release --clean' || 'release --snapshot --clean' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Package Gemini extension archive
+        run: ./scripts/package_gemini_extension.sh
+
+      - name: Upload Gemini extension archive
+        if: github.ref_type == 'tag'
+        run: gh release upload "${GITHUB_REF_NAME}" dist/traceary.tar.gz --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

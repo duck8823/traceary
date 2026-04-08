@@ -19,7 +19,13 @@ code/test: ## コードをテストする
 docs/check: ## 文書の多言語ペアを検証する
 	@python3 scripts/verify_docs_i18n.py
 
-ci: docs/check code/lint code/test ## CI 相当の検証をまとめて実行する
+integrations/check: ## native integration package を検証する
+	@python3 scripts/verify_integrations.py
+
+release/gemini-extension: ## Gemini CLI extension archive を dist/ に出力する
+	@./scripts/package_gemini_extension.sh
+
+ci: docs/check integrations/check code/lint code/test ## CI 相当の検証をまとめて実行する
 
 release/snapshot: ## snapshot release artifact を dist/ に出力する
 	@goreleaser release --snapshot --clean
