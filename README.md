@@ -145,6 +145,10 @@ All commands resolve the SQLite path in this order: `--db-path` → `TRACEARY_DB
 
 CLI failures are printed to stderr as plain `Error: ...` lines so hooks and shell scripts can parse them without JSON log noise.
 
+## License
+
+MIT. See [`LICENSE`](./LICENSE).
+
 ## Non-goals
 
 - Semantic search / embeddings

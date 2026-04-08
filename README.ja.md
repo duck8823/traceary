@@ -145,6 +145,10 @@ Hooks 導入: [`docs/hooks/README.ja.md`](./docs/hooks/README.ja.md)
 
 CLI の失敗は stderr に plain text の `Error: ...` 形式で出力されます。hooks や shell script から JSON ログを剥がさず扱えるようにするためです。
 
+## ライセンス
+
+MIT License です。詳細は [`LICENSE`](./LICENSE) を参照してください。
+
 ## スコープ外
 
 - セマンティック検索 / 埋め込みベクトル
