@@ -1,11 +1,11 @@
-# MCP integration
+# MCP ガイド
 
 [English](./README.md)
 
-Traceary は、ローカル SQLite 履歴を stdio MCP server として公開できます。
-別の AI client から、CLI を直接 shell 実行する代わりに MCP tool 経由で Traceary の読み書きをさせたいときに使います。
+Traceary は、ローカル SQLite 履歴を stdio で動く MCP サーバーとして公開できます。
+別の AI クライアントから CLI を直接シェル実行する代わりに、MCP ツール経由で Traceary を読み書きさせたいときに使います。
 
-## どの統合経路を使うべきか
+## どの経路を使うべきか
 
 用途に対して最も単純な経路を選んでください。
 
@@ -22,15 +22,15 @@ hooks と MCP は競合ではなく補完関係です。
 
 ## 対応プラットフォーム
 
-- `traceary mcp-server` は core CLI と同じ support promise に従い、macOS / Linux で継続的に検証しています
+- `traceary mcp-server` は CLI 本体と同じ対応方針で、macOS / Linux で継続的に検証しています
 - 事前ビルド済み binary は macOS / Linux 向けに公開し、他の Go 対応 Unix 系環境は `go install` で動く可能性があります
 - standalone の MCP server 自体には `bash` は不要ですが、hooks 連携には引き続き `bash` が必要です
 - Windows native の正式対応はまだ約束していないため、必要な場合は WSL などの POSIX 互換環境を使ってください
 
-## server の起動
+## サーバーの起動
 
-MCP server は stdio を使います。
-network port は開きません。
+MCP サーバーは stdio を使います。
+ネットワークポートは開きません。
 
 ```sh
 traceary mcp-server
@@ -62,9 +62,9 @@ Flags:
   -h, --help             help for mcp-server
 ```
 
-## 公開される tools
+## 公開されるツール
 
-現在の Traceary MCP server は 9 つの tool を公開します。
+現在の Traceary MCP サーバーは 9 つのツールを公開します。
 
 ### `start_session`
 
@@ -172,7 +172,7 @@ Inputs:
 - `session_id`
 - `limit`（既定: `20`）
 
-## 実用的な client 設定例
+## 実用的なクライアント設定例
 
 stdio MCP client の多くは、次のような `mcpServers` entry を受け取れます。
 

@@ -2,15 +2,15 @@
 
 [English](./README.md)
 
-このページは、Traceary の公開 CLI surface の安定したリファレンスです。
-最初の導入には `README.ja.md` の quick start と合わせて使ってください。
+このページは、Traceary の公開 CLI の挙動をまとめたリファレンスです。
+導入時は `README.ja.md` のクイックスタートと合わせて参照してください。
 
 ## 共通ルール
 
 - DB path の解決順: `--db-path` → `TRACEARY_DB_PATH` → `~/.config/traceary/traceary.db`
 - 更新系コマンドは既定で人間向けテキストを出力します
-- event / session の識別子を返すコマンドは、script 向けに `--id-only` をサポートします
-- structured output があるコマンドは `--json` をサポートします
+- イベント / セッションの識別子を返すコマンドは、スクリプト向けに `--id-only` をサポートします
+- 構造化出力を持つコマンドは `--json` をサポートします
 
 ## イベント記録コマンド
 
@@ -34,7 +34,7 @@ session 解決ルール:
 
 ### `traceary audit [<command> <input> <output>]`
 
-command execution audit event を記録します。
+コマンド実行の監査イベントを記録します。
 
 入力方法:
 
@@ -169,7 +169,7 @@ interactive 利用向けの shell completion script を生成します。
 
 ### `traceary hooks print`
 
-対応 client 向けの generated hook config を出力します。
+対応クライアント向けの生成済み hook 設定を出力します。
 
 主な flag:
 
@@ -178,7 +178,7 @@ interactive 利用向けの shell completion script を生成します。
 
 ### `traceary hooks install`
 
-対応 client の標準 config path に generated hook config を書き出します。
+対応クライアントの標準設定パスに生成済み hook 設定を書き出します。
 
 主な flag:
 
@@ -190,7 +190,7 @@ interactive 利用向けの shell completion script を生成します。
 
 ### `traceary hooks guide`
 
-対応 client ごとの install / check / verify 手順を出力します。
+対応クライアントごとの install / check / verify 手順を出力します。
 
 主な flag:
 
@@ -200,7 +200,7 @@ interactive 利用向けの shell completion script を生成します。
 
 ### `traceary doctor`
 
-DB access、hook script、client config 統合状態を診断します。
+DB アクセス、hook スクリプト、クライアント設定の統合状態を診断します。
 
 alias:
 
@@ -221,7 +221,7 @@ DB 作成と migration 適用を明示的に先行実行します。
 
 ### `traceary backup create`
 
-compact な SQLite backup file を作成します。
+コンパクトな SQLite バックアップファイルを作成します。
 
 主な flag:
 
@@ -231,7 +231,7 @@ compact な SQLite backup file を作成します。
 
 ### `traceary backup restore`
 
-backup file から DB を復元します。
+バックアップファイルから DB を復元します。
 
 主な flag:
 
@@ -242,7 +242,7 @@ backup file から DB を復元します。
 
 ### `traceary gc`
 
-古い event を削除し、必要に応じて SQLite store を compact します。
+古いイベントを削除し、必要に応じて SQLite ストアを圧縮します。
 
 主な flag:
 
@@ -255,9 +255,9 @@ backup file から DB を復元します。
 
 ### `traceary mcp-server`
 
-AI client 統合向けに MCP server を stdio で起動します。
+AI クライアント統合向けに MCP サーバーを stdio で起動します。
 
-## 関連 docs
+## 関連ドキュメント
 
 - onboarding / quick start: [`../../README.ja.md`](../../README.ja.md)
 - 環境変数と runtime 前提: [`../environment/README.ja.md`](../environment/README.ja.md)
