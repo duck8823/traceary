@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -26,13 +27,22 @@ type backupRestoreCommandInput struct {
 	inputPath string
 	force     bool
 	assumeYes bool
+	prompter  *backupRestorePrompter
 }
 
-var (
-	backupRestorePromptReader = io.Reader(nil)
-	backupRestoreStdinFile    = os.Stdin
-	backupRestoreStdoutFile   = os.Stdout
-)
+var errBackupRestoreCanceled = xerrors.New(Localize("restore canceled", "復元を中止しました"))
+
+type backupRestorePrompter struct {
+	reader      io.Reader
+	interactive bool
+}
+
+func newDefaultBackupRestorePrompter() *backupRestorePrompter {
+	return &backupRestorePrompter{
+		reader:      os.Stdin,
+		interactive: isTerminalFile(os.Stdin) && isTerminalFile(os.Stdout),
+	}
+}
 
 func (c *RootCLI) newBackupCommand() *cobra.Command {
 	backupCmd := &cobra.Command{
@@ -163,11 +173,18 @@ func (c *RootCLI) runBackupRestore(
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to inspect destination DB", "復元先 DB の確認に失敗しました"), err)
 	}
-	if destinationExists && input.force && !input.assumeYes && backupRestoreNeedsInteractiveConfirmation() {
-		if err := confirmBackupRestore(output, resolvedDBPath); err != nil {
-			return err
+	if destinationExists && input.force && !input.assumeYes {
+		prompter := input.prompter
+		if prompter == nil {
+			prompter = newDefaultBackupRestorePrompter()
+		}
+		if prompter.needsInteractiveConfirmation() {
+			if err := prompter.confirm(output, resolvedDBPath); err != nil {
+				return err
+			}
 		}
 	}
+	// `--force` を付けない既存 DB への restore は usecase 側が拒否します。
 	if err := c.restoreStoreBackupUsecase.Run(ctx, usecase.RestoreStoreBackupInput{
 		DBPath:    resolvedDBPath,
 		InputPath: resolvedInputPath,
@@ -195,14 +212,18 @@ func pathExists(path string) (bool, error) {
 	return false, xerrors.Errorf("%s: %w", Localize("failed to inspect path", "パスの確認に失敗しました"), err)
 }
 
-func backupRestoreNeedsInteractiveConfirmation() bool {
-	return isTerminalFile(backupRestoreStdinFile) && isTerminalFile(backupRestoreStdoutFile)
+func (p *backupRestorePrompter) needsInteractiveConfirmation() bool {
+	if p == nil {
+		return false
+	}
+
+	return p.interactive
 }
 
-func confirmBackupRestore(output io.Writer, destinationPath string) error {
-	reader := backupRestorePromptReader
-	if reader == nil {
-		reader = backupRestoreStdinFile
+func (p *backupRestorePrompter) confirm(output io.Writer, destinationPath string) error {
+	reader := io.Reader(os.Stdin)
+	if p != nil && p.reader != nil {
+		reader = p.reader
 	}
 
 	prompt := Localize(
@@ -214,7 +235,7 @@ func confirmBackupRestore(output io.Writer, destinationPath string) error {
 	}
 
 	line, err := bufio.NewReader(reader).ReadString('\n')
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return xerrors.Errorf("%s: %w", Localize("failed to read restore confirmation", "復元確認の読み取りに失敗しました"), err)
 	}
 
@@ -222,7 +243,7 @@ func confirmBackupRestore(output io.Writer, destinationPath string) error {
 	case "y", "yes":
 		return nil
 	default:
-		return xerrors.Errorf(Localize("restore canceled", "復元を中止しました"))
+		return errBackupRestoreCanceled
 	}
 }
 
