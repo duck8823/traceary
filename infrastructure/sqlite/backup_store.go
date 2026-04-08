@@ -22,6 +22,9 @@ func (d *Datasource) CreateBackup(ctx context.Context, dbPath string, outputPath
 	if err != nil {
 		return xerrors.Errorf("バックアップパスの検証に失敗しました: %w", err)
 	}
+	if err := d.Initialize(ctx, sourcePath); err != nil {
+		return xerrors.Errorf("バックアップ元ストアの初期化に失敗しました: %w", err)
+	}
 	if err := ensureParentDir(destinationPath); err != nil {
 		return xerrors.Errorf("バックアップ出力先ディレクトリの準備に失敗しました: %w", err)
 	}
@@ -70,7 +73,7 @@ func (d *Datasource) RestoreBackup(ctx context.Context, inputPath string, dbPath
 		return xerrors.Errorf("復元先ファイルの準備に失敗しました: %w", err)
 	}
 
-	if err := copyFileAtomically(sourcePath, destinationPath); err != nil {
+	if err := copyFileViaTempRename(sourcePath, destinationPath); err != nil {
 		return xerrors.Errorf("バックアップファイルのコピーに失敗しました: %w", err)
 	}
 	if err := os.Chmod(destinationPath, 0o600); err != nil {
@@ -144,7 +147,7 @@ func removeFileIfExists(path string) error {
 	return nil
 }
 
-func copyFileAtomically(sourcePath string, destinationPath string) (err error) {
+func copyFileViaTempRename(sourcePath string, destinationPath string) (err error) {
 	sourceFile, err := os.Open(sourcePath)
 	if err != nil {
 		return xerrors.Errorf("入力ファイルのオープンに失敗しました: %w", err)

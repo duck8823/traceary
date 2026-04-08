@@ -99,9 +99,6 @@ func (c *RootCLI) runBackupCreate(
 	output io.Writer,
 	input backupCreateCommandInput,
 ) error {
-	if c.initializeStoreUsecase == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
-	}
 	if c.createStoreBackupUsecase == nil {
 		return xerrors.Errorf(Localize("create store backup usecase is not configured", "バックアップ作成ユースケースが設定されていません"))
 	}
@@ -110,10 +107,6 @@ func (c *RootCLI) runBackupCreate(
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.initializeStoreUsecase.Run(ctx, resolvedDBPath); err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
-	}
-
 	resolvedOutputPath, err := resolveRequiredAbsolutePath(input.outputPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve backup output path", "バックアップ出力先パスの解決に失敗しました"), err)

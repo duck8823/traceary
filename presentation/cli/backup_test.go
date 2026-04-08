@@ -41,11 +41,9 @@ func TestRootCLI_BackupCreateCommand(t *testing.T) {
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	outputPath := filepath.Join(t.TempDir(), "traceary-backup.db")
-	initializeStore := &initializeStoreUsecaseStub{}
 	createBackup := &createStoreBackupUsecaseStub{}
 
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		InitializeStoreUsecase:   initializeStore,
 		CreateStoreBackupUsecase: createBackup,
 	}).Command()
 	stdout := &bytes.Buffer{}
@@ -60,9 +58,6 @@ func TestRootCLI_BackupCreateCommand(t *testing.T) {
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
-	}
-	if !initializeStore.called {
-		t.Fatal("initialize store usecase was not called")
 	}
 	if !createBackup.called {
 		t.Fatal("create store backup usecase was not called")
