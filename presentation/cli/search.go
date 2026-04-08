@@ -31,7 +31,7 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 	searchCmd := &cobra.Command{
 		Use:   "search [query]",
 		Short: "記録を検索する",
-		Args:  cobra.MaximumNArgs(1),
+		Args:  maximumNArgsJP(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			query := ""
 			if len(args) == 1 {

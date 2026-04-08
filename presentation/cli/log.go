@@ -31,7 +31,7 @@ func (c *RootCLI) newLogCommand() *cobra.Command {
 	logCmd := &cobra.Command{
 		Use:   "log <message>",
 		Short: "セッションログを追記する",
-		Args:  cobra.ExactArgs(1),
+		Args:  exactArgsJP(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return c.runLog(cmd.Context(), cmd.OutOrStdout(), logCommandInput{
 				dbPath:    dbPath,

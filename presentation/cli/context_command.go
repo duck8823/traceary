@@ -28,7 +28,7 @@ func (c *RootCLI) newContextCommand() *cobra.Command {
 		Use:     "context",
 		Aliases: []string{"handoff"},
 		Short:   "次の AI session に渡す文脈を表示する",
-		Args:    cobra.NoArgs,
+		Args:    noArgsJP(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runContext(cmd.Context(), cmd.OutOrStdout(), contextCommandInput{
 				dbPath:    dbPath,

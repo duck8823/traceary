@@ -78,7 +78,7 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 	installCmd := &cobra.Command{
 		Use:   "install",
 		Short: "標準の設定パスへ hook 設定例を書き出す",
-		Args:  cobra.NoArgs,
+		Args:  noArgsJP(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runHooksInstall(cmd.Context(), cmd.OutOrStdout(), hooksInstallCommandInput{
 				client:      client,
@@ -111,7 +111,7 @@ func (c *RootCLI) newHooksPrintCommand() *cobra.Command {
 	printCmd := &cobra.Command{
 		Use:   "print",
 		Short: "現在の環境向けの hook 設定例を出力する",
-		Args:  cobra.NoArgs,
+		Args:  noArgsJP(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runHooksPrint(cmd.Context(), cmd.OutOrStdout(), hooksPrintCommandInput{
 				client:      client,

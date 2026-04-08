@@ -18,7 +18,7 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 	listCmd := &cobra.Command{
 		Use:   "list",
 		Short: "直近のログを一覧表示する",
-		Args:  cobra.NoArgs,
+		Args:  noArgsJP(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runList(cmd.Context(), cmd.OutOrStdout(), dbPath, limit, asJSON)
 		},

@@ -20,7 +20,7 @@ func (c *RootCLI) newMCPServerCommand() *cobra.Command {
 	mcpServerCmd := &cobra.Command{
 		Use:   "mcp-server",
 		Short: "Traceary の MCP server を stdio で起動する",
-		Args:  cobra.NoArgs,
+		Args:  noArgsJP(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runMCPServer(cmd.Context(), cmd.OutOrStdout(), dbPath)
 		},
