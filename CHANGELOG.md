@@ -5,6 +5,29 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.1.7] - 2026-04-08
+
+### Added
+- added the MIT `LICENSE`
+- added public `CONTRIBUTING.md` / `CONTRIBUTING.ja.md`
+- added public MCP integration guides under `docs/mcp/`
+
+### Changed
+- `traceary session end` now inherits `client`, `agent`, and `repo` from the matching `session_started` event when those flags are omitted
+- added public install/release distribution docs plus GitHub Actions release automation
+- switched default operator-facing CLI messaging to English, with `TRACEARY_LANG=ja` as the Japanese opt-in
+- changed hooks installation to materialize portable scripts outside the source checkout by default
+
+### Included issues
+- #72 public release readiness
+- #73 add a project license
+- #74 preserve start-time attribution on session end
+- #75 make public CLI messaging viable in English
+- #76 add public install and release distribution flow
+- #77 make hooks install portable outside the source tree
+- #78 add CONTRIBUTING guide
+- #79 document public MCP server integration
+
 ## [v0.1.6] - 2026-04-08
 
 ### Changed
@@ -120,3 +143,4 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 [v0.1.4]: https://github.com/duck8823/traceary/releases/tag/v0.1.4
 [v0.1.5]: https://github.com/duck8823/traceary/releases/tag/v0.1.5
 [v0.1.6]: https://github.com/duck8823/traceary/releases/tag/v0.1.6
+[v0.1.7]: https://github.com/duck8823/traceary/releases/tag/v0.1.7
