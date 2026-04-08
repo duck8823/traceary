@@ -33,9 +33,11 @@ Useful flags:
 
 - `--db-path` to restore into a non-default destination
 - `--force` to overwrite an existing destination DB
+- `--yes` to skip the interactive confirmation prompt when you intentionally overwrite an existing destination DB from a TTY
 
 Restore copies the backup file into the destination path, then runs the normal store initialization flow so newer migrations are applied automatically.
 When you use `--force`, treat restore as a destructive replacement of the destination DB and take a fresh backup first if that data still matters.
+On an interactive terminal, Traceary asks for confirmation before the overwrite unless you also pass `--yes`.
 
 ## Moving between machines
 

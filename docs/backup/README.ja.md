@@ -33,9 +33,11 @@ traceary backup restore --input /tmp/traceary-backup.db --force
 
 - `--db-path`: 既定以外の復元先に入れたいとき
 - `--force`: 既存の destination DB を上書きしたいとき
+- `--yes`: 対話端末で既存 destination DB を上書きするときの確認を省略したいとき
 
 復元では、まず backup file を destination path にコピーし、その後に通常の store initialization flow を通して newer migration を自動適用します。
 `--force` を使う場合、restore は destination DB を破壊的に置き換える操作として扱い、必要なら先に新しい backup を取ってください。
+対話端末では、`--yes` を付けない限り、上書き前に Traceary が確認を求めます。
 
 ## マシン移行の基本フロー
 
