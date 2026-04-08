@@ -8,6 +8,8 @@
 
 [コントリビューション](./CONTRIBUTING.ja.md)
 
+[MCP ガイド](./docs/mcp/README.ja.md)
+
 [リリースガイド](./docs/release/README.ja.md)
 
 Traceary は、AI エージェントの作業ログと audit log をローカルに記録・検索する local-first な CLI / MCP サーバーです。
@@ -161,6 +163,8 @@ traceary search --kind session_started
 `traceary session start` は生成された session ID をそのまま出力します。`traceary session end` は、終了対象の session ID は呼び出し側が既に知っている前提で、記録した event ID を出力します。
 
 Hooks 導入: [`docs/hooks/README.ja.md`](./docs/hooks/README.ja.md)
+
+MCP integration: [`docs/mcp/README.ja.md`](./docs/mcp/README.ja.md)
 
 すべてのコマンドは SQLite path を `--db-path` → `TRACEARY_DB_PATH` → `~/.config/traceary/traceary.db` の順で解決します。
 
