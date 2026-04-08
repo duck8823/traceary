@@ -4,6 +4,8 @@
 
 Traceary v0.1 は、既存の `traceary session ...` / `traceary audit ...` を hook script から呼び出すことで、Claude Code / Codex CLI / Gemini CLI の session 境界と shell command audit を取り込めます。
 
+現在の generated hook config は、対応している client 設定ファイルであれば既存 JSON にマージしながら Traceary hook を追加できます。既定で破壊的な置き換えはしません。
+
 ## ファイル
 
 - `scripts/hooks/traceary-session.sh`: session start/end 境界を記録
@@ -17,8 +19,8 @@ Traceary v0.1 は、既存の `traceary session ...` / `traceary audit ...` を 
 ## 前提条件
 
 - `traceary` が `PATH` にある、または `TRACEARY_BIN` が binary を指している
-- hook script 内の JSON パースのために `python3` がある
 - `git` は任意。ある場合は `remote.origin.url` を Traceary の `repo` field に正規化し、無い場合は hook の `cwd` を使う
+- 現在の hook 例は shell ベースの client を前提にしているため、Unix 系環境を想定しています
 
 ## 共通環境変数
 
@@ -98,6 +100,7 @@ Traceary v0.1 は、既存の `traceary session ...` / `traceary audit ...` を 
 - Gemini: `<project>/.gemini/settings.json`
 
 既存 file がある場合、Traceary は上書きせずエラーにします。まず差分を確認し、既存 file を置き換える意図があるときだけ `--force` を使ってください。
+対応している JSON config であれば、`hooks install` はまず既存設定へ Traceary 管理下の hook entry をマージし、無関係な設定は保持します。`--force` を付けた場合だけ完全上書きします。
 
 ### Claude Code
 

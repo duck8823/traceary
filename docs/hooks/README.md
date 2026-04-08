@@ -4,6 +4,8 @@
 
 Traceary v0.1 can ingest session boundaries and shell-command audits from Claude Code, Codex CLI, and Gemini CLI by calling the existing `traceary session ...` and `traceary audit ...` commands from hook scripts.
 
+Current generated hook configs merge into existing supported client config files when possible, so adding Traceary hooks does not require destructive replacement by default.
+
 ## Files
 
 - `scripts/hooks/traceary-session.sh`: records session start/end boundaries
@@ -17,8 +19,8 @@ Traceary v0.1 can ingest session boundaries and shell-command audits from Claude
 ## Requirements
 
 - `traceary` is installed and available in `PATH`, or `TRACEARY_BIN` points to the binary
-- `python3` is available for JSON parsing inside the hook scripts
 - `git` is optional; if available, the scripts normalize `remote.origin.url` into Traceary's `repo` field. If not, they fall back to the hook `cwd`.
+- current hook examples assume Unix-like environments because the generated commands and compatibility scripts target shell-based clients
 
 ## Common environment variables
 
@@ -98,6 +100,7 @@ Default destinations:
 - Gemini: `<project>/.gemini/settings.json`
 
 If the destination already exists, Traceary stops with an error instead of overwriting it. Review the diff first, then rerun with `--force` only when replacing the existing file is intentional.
+For supported JSON config files, `hooks install` first tries to merge Traceary-managed entries into the existing file while preserving unrelated settings. `--force` skips merge and replaces the file completely.
 
 ### Claude Code
 
