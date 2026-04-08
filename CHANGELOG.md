@@ -5,6 +5,25 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.1.11] - 2026-04-09
+
+### Added
+- a minimal Traceary mark for README and release surfaces
+
+### Changed
+- simplified the top-level README into a shorter landing page and moved the detailed navigation into the docs index
+- reorganized `docs/README.md` / `docs/README.ja.md` as the central detailed documentation map
+- rewrote the main Japanese docs and high-traffic guide pages into more natural Japanese
+- moved private security-reporting guidance into `CONTRIBUTING.md` / `CONTRIBUTING.ja.md` and removed the standalone `SECURITY.md` files
+
+### Included issues
+- #133 public surface polish
+- #134 rewrite Japanese docs into natural Japanese
+- #135 simplify README and reduce link sprawl
+- #137 reorganize docs landing pages and cross-links
+- #138 reassess and minimize the security-policy footprint
+- #139 add a minimal visual identity
+
 ## [v0.1.10] - 2026-04-09
 
 ### Fixed
@@ -213,3 +232,6 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 [v0.1.7]: https://github.com/duck8823/traceary/releases/tag/v0.1.7
 [v0.1.8]: https://github.com/duck8823/traceary/releases/tag/v0.1.8
 [v0.1.9]: https://github.com/duck8823/traceary/releases/tag/v0.1.9
+
+[v0.1.10]: https://github.com/duck8823/traceary/releases/tag/v0.1.10
+[v0.1.11]: https://github.com/duck8823/traceary/releases/tag/v0.1.11
