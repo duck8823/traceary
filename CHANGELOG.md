@@ -5,6 +5,40 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.1.9] - 2026-04-09
+
+### Added
+- safer backup restore flow with interactive confirmation and `--yes`
+- script-friendly `--id-only` output for mutating commands
+- named `--command`, `--input`, and `--output` flags for `traceary audit`
+- dedicated CLI/environment/storage/operations/interactive docs
+- Homebrew distribution flow backed by GoReleaser formula automation
+- `list_events` as a read-only MCP tool for recent-event parity
+- `traceary completion` for Bash, Zsh, Fish, and PowerShell
+
+### Changed
+- onboarding and hooks docs now point users at guided setup and failure-mode checks earlier
+- `traceary log` and `traceary audit` now reuse the latest non-stale active session for the resolved repo/work context before falling back to `default`
+- the public README now includes CI/release badges plus explicit privacy / no-telemetry / support posture
+- hooks, storage, and operations docs now document runtime assumptions more explicitly
+
+### Included issues
+- #106 onboarding and daily-use ergonomics
+- #107 safer backup restore flow
+- #108 script-friendly mutating command output
+- #109 named audit flags
+- #110 CLI / env reference docs
+- #111 onboarding / first-run docs
+- #112 Homebrew distribution flow
+- #113 guided setup for supported clients
+- #114 storage model / schema / gc docs
+- #115 active session defaults for manual log / audit
+- #116 hook edge cases and failure-mode docs
+- #117 MCP read workflow parity
+- #118 public OSS trust and polish
+- #119 concurrency / hook-state assumptions
+- #120 interactive inspection ergonomics
+
 ## [v0.1.8] - 2026-04-08
 
 ### Added
@@ -173,3 +207,4 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 [v0.1.6]: https://github.com/duck8823/traceary/releases/tag/v0.1.6
 [v0.1.7]: https://github.com/duck8823/traceary/releases/tag/v0.1.7
 [v0.1.8]: https://github.com/duck8823/traceary/releases/tag/v0.1.8
+[v0.1.9]: https://github.com/duck8823/traceary/releases/tag/v0.1.9
