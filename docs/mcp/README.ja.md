@@ -20,6 +20,13 @@ hooks と MCP は競合ではなく補完関係です。
 - hooks は session start / end や shell audit の受動的な取り込みに向いています
 - MCP は `search` や `get_context` のような tool を client が能動的に呼びたいときに向いています
 
+## 対応プラットフォーム
+
+- `traceary mcp-server` は core CLI と同じ support promise に従い、macOS / Linux で継続的に検証しています
+- 事前ビルド済み binary は macOS / Linux 向けに公開し、他の Go 対応 Unix 系環境は `go install` で動く可能性があります
+- standalone の MCP server 自体には `bash` は不要ですが、hooks 連携には引き続き `bash` が必要です
+- Windows native の正式対応はまだ約束していないため、必要な場合は WSL などの POSIX 互換環境を使ってください
+
 ## server の起動
 
 MCP server は stdio を使います。

@@ -20,6 +20,13 @@ Hooks and MCP are complementary:
 - hooks are best for passive ingestion of session starts, session ends, and shell audits
 - MCP is best when the client should actively call tools such as `search` or `get_context`
 
+## Platform support
+
+- `traceary mcp-server` follows the same support promise as the core CLI: actively tested on macOS and Linux
+- prebuilt binaries are published for macOS and Linux; other Go-supported Unix-like environments may work via `go install`
+- the standalone MCP server does not require `bash`, but hook integration still does
+- native Windows support is not promised today; use WSL or another POSIX-compatible environment if you need it
+
 ## Start the server
 
 The MCP server uses stdio.
