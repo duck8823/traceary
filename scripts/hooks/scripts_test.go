@@ -221,10 +221,74 @@ func writeFakeTraceary(t *testing.T, path string) {
 set -euo pipefail
 python3 - "$TRACEARY_FAKE_LOG" "$@" <<'PY'
 import json
+import os
 import sys
+from urllib.parse import urlparse
 
 log_path = sys.argv[1]
 args = sys.argv[2:]
+
+if len(args) >= 3 and args[0] == 'hooks' and args[1] == 'helper':
+    helper_name = args[2]
+    raw = os.environ.get('TRACEARY_HOOK_INPUT', '')
+    if helper_name == 'json-get':
+        path = args[3]
+        default_value = args[4] if len(args) >= 5 else ''
+        if not raw.strip():
+            sys.stdout.write(default_value)
+            raise SystemExit(0)
+        try:
+            current = json.loads(raw)
+        except json.JSONDecodeError:
+            sys.stdout.write(default_value)
+            raise SystemExit(0)
+        for part in path.split('.'):
+            if not part:
+                continue
+            if isinstance(current, dict) and part in current:
+                current = current[part]
+                continue
+            sys.stdout.write(default_value)
+            raise SystemExit(0)
+        if current is None:
+            sys.stdout.write(default_value)
+        elif isinstance(current, (dict, list)):
+            sys.stdout.write(json.dumps(current, ensure_ascii=False, separators=(",", ":"), sort_keys=True))
+        else:
+            sys.stdout.write(str(current))
+        raise SystemExit(0)
+    if helper_name == 'build-failure-output':
+        if not raw.strip():
+            raise SystemExit(0)
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            raise SystemExit(0)
+        result = {}
+        if payload.get('error') not in (None, ''):
+            result['error'] = payload['error']
+        if 'is_interrupt' in payload:
+            result['is_interrupt'] = payload['is_interrupt']
+        if result:
+            sys.stdout.write(json.dumps(result, ensure_ascii=False, separators=(",", ":"), sort_keys=True))
+        raise SystemExit(0)
+    if helper_name == 'normalize-git-remote':
+        raw_remote = args[3] if len(args) >= 4 else ''
+        raw_remote = raw_remote.strip()
+        if raw_remote.endswith('.git'):
+            raw_remote = raw_remote[:-4]
+        if raw_remote.startswith('git@') and ':' in raw_remote:
+            host_and_path = raw_remote[4:]
+            host, path = host_and_path.split(':', 1)
+            sys.stdout.write(host.lower().strip('/') + '/' + path.strip('/'))
+            raise SystemExit(0)
+        parsed = urlparse(raw_remote)
+        if parsed.hostname:
+            sys.stdout.write(parsed.hostname.lower() + '/' + parsed.path.strip('/'))
+            raise SystemExit(0)
+        sys.stdout.write(raw_remote)
+        raise SystemExit(0)
+
 with open(log_path, 'a', encoding='utf-8') as f:
     f.write(json.dumps(args, ensure_ascii=False) + "\n")
 

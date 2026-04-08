@@ -32,104 +32,36 @@ traceary_read_hook_input() {
   export TRACEARY_HOOK_INPUT
 }
 
+traceary_helper_command() {
+  local helper_name="${1:-}"
+  shift || true
+
+  local traceary_cmd="${TRACEARY_CMD:-}"
+  if [[ -z "$traceary_cmd" ]]; then
+    traceary_cmd="$(traceary_resolve_bin 2>/dev/null || true)"
+  fi
+  if [[ -z "$traceary_cmd" ]]; then
+    return 1
+  fi
+
+  TRACEARY_HOOK_INPUT="${TRACEARY_HOOK_INPUT:-}" "$traceary_cmd" hooks helper "$helper_name" "$@" 2>/dev/null
+}
+
 traceary_json_get() {
   local path="${1:-}"
   local default_value="${2:-}"
 
-  python3 - "$path" "$default_value" <<'PY'
-import json
-import os
-import sys
-
-path = sys.argv[1]
-default_value = sys.argv[2]
-raw = os.environ.get("TRACEARY_HOOK_INPUT", "")
-
-if not raw.strip():
-    sys.stdout.write(default_value)
-    raise SystemExit(0)
-
-try:
-    current = json.loads(raw)
-except json.JSONDecodeError:
-    sys.stdout.write(default_value)
-    raise SystemExit(0)
-
-for part in path.split("."):
-    if not part:
-        continue
-    if isinstance(current, dict) and part in current:
-        current = current[part]
-        continue
-
-    sys.stdout.write(default_value)
-    raise SystemExit(0)
-
-if current is None:
-    sys.stdout.write(default_value)
-elif isinstance(current, (dict, list)):
-    sys.stdout.write(json.dumps(current, ensure_ascii=False, separators=(",", ":"), sort_keys=True))
-else:
-    sys.stdout.write(str(current))
-PY
+  traceary_helper_command json-get "$path" "$default_value" || printf '%s' "$default_value"
 }
 
 traceary_build_failure_output() {
-  python3 <<'PY'
-import json
-import os
-import sys
-
-raw = os.environ.get("TRACEARY_HOOK_INPUT", "")
-if not raw.strip():
-    raise SystemExit(0)
-
-try:
-    payload = json.loads(raw)
-except json.JSONDecodeError:
-    raise SystemExit(0)
-
-result = {}
-error = payload.get("error")
-if error not in (None, ""):
-    result["error"] = error
-is_interrupt = payload.get("is_interrupt")
-if is_interrupt is not None:
-    result["is_interrupt"] = is_interrupt
-
-if not result:
-    raise SystemExit(0)
-
-sys.stdout.write(json.dumps(result, ensure_ascii=False, separators=(",", ":"), sort_keys=True))
-PY
+  traceary_helper_command build-failure-output || true
 }
 
 traceary_normalize_git_remote() {
   local raw="${1:-}"
 
-  python3 - "$raw" <<'PY'
-import sys
-from urllib.parse import urlparse
-
-raw = sys.argv[1].strip()
-if raw.endswith('.git'):
-    raw = raw[:-4]
-if not raw:
-    raise SystemExit(0)
-
-if raw.startswith('git@') and ':' in raw:
-    host_and_path = raw[4:]
-    host, path = host_and_path.split(':', 1)
-    sys.stdout.write(host.lower().strip('/') + '/' + path.strip('/'))
-    raise SystemExit(0)
-
-parsed = urlparse(raw)
-if parsed.hostname:
-    sys.stdout.write(parsed.hostname.lower() + '/' + parsed.path.strip('/'))
-    raise SystemExit(0)
-
-sys.stdout.write(raw)
-PY
+  traceary_helper_command normalize-git-remote "$raw" || true
 }
 
 traceary_resolve_repo() {
