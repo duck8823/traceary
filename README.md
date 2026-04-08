@@ -2,6 +2,8 @@
 
 [日本語](./README.ja.md)
 
+[Changelog](./CHANGELOG.md)
+
 Traceary is a local-first CLI and MCP server for recording and searching AI agent work logs and audit logs.
 
 ## Why
