@@ -50,7 +50,7 @@ func (c *RootCLI) newHooksHelperBuildFailureOutputCommand() *cobra.Command {
 		Use:    "build-failure-output",
 		Short:  "Extract a compact failure payload for audit hooks",
 		Hidden: true,
-		Args:   noArgsJP(),
+		Args:   noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runHooksHelperBuildFailureOutput(cmd.InOrStdin(), cmd.OutOrStdout())
 		},
@@ -73,7 +73,7 @@ func (c *RootCLI) newHooksHelperNormalizeGitRemoteCommand() *cobra.Command {
 
 			normalized := normalizeGitRemote(raw)
 			if _, err := io.WriteString(cmd.OutOrStdout(), normalized); err != nil {
-				return xerrors.Errorf("normalized remote の出力に失敗しました: %w", err)
+				return xerrors.Errorf("failed to write normalized remote: %w", err)
 			}
 
 			return nil
@@ -133,7 +133,7 @@ func runHooksHelperBuildFailureOutput(input io.Reader, output io.Writer) error {
 	}
 
 	if _, err := output.Write(encodedValue); err != nil {
-		return xerrors.Errorf("failure payload の出力に失敗しました: %w", err)
+		return xerrors.Errorf("failed to write failure payload: %w", err)
 	}
 
 	return nil
@@ -149,7 +149,7 @@ func readHookPayload(input io.Reader) ([]byte, error) {
 
 	payload, err := io.ReadAll(input)
 	if err != nil {
-		return nil, xerrors.Errorf("hook payload の読み込みに失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to read hook payload: %w", err)
 	}
 	if len(bytes.TrimSpace(payload)) == 0 {
 		return nil, nil
@@ -203,7 +203,7 @@ func renderHookHelperValue(value any) (string, error) {
 	case map[string]any, []any:
 		encodedValue, err := marshalStableJSON(value)
 		if err != nil {
-			return "", xerrors.Errorf("JSON 値のレンダリングに失敗しました: %w", err)
+			return "", xerrors.Errorf("failed to render JSON value: %w", err)
 		}
 
 		return string(encodedValue), nil
@@ -212,7 +212,7 @@ func renderHookHelperValue(value any) (string, error) {
 	default:
 		encodedValue, err := marshalStableJSON(value)
 		if err != nil {
-			return "", xerrors.Errorf("スカラー値のレンダリングに失敗しました: %w", err)
+			return "", xerrors.Errorf("failed to render scalar value: %w", err)
 		}
 
 		return strings.Trim(string(encodedValue), `"`), nil
@@ -221,7 +221,7 @@ func renderHookHelperValue(value any) (string, error) {
 
 func writeHookHelperOutput(output io.Writer, value string) error {
 	if _, err := io.WriteString(output, value); err != nil {
-		return xerrors.Errorf("hook helper 出力に失敗しました: %w", err)
+		return xerrors.Errorf("failed to write hook helper output: %w", err)
 	}
 
 	return nil
@@ -243,13 +243,13 @@ func writeStableJSON(buffer *bytes.Buffer, value any) error {
 	case bool, float64, json.Number:
 		encodedValue, err := json.Marshal(typedValue)
 		if err != nil {
-			return xerrors.Errorf("JSON marshal に失敗しました: %w", err)
+			return xerrors.Errorf("failed to marshal JSON value: %w", err)
 		}
 		buffer.Write(encodedValue)
 	case string:
 		encodedValue, err := json.Marshal(typedValue)
 		if err != nil {
-			return xerrors.Errorf("文字列 JSON marshal に失敗しました: %w", err)
+			return xerrors.Errorf("failed to marshal JSON string: %w", err)
 		}
 		buffer.Write(encodedValue)
 	case []any:
@@ -277,7 +277,7 @@ func writeStableJSON(buffer *bytes.Buffer, value any) error {
 
 			encodedKey, err := json.Marshal(key)
 			if err != nil {
-				return xerrors.Errorf("JSON key marshal に失敗しました: %w", err)
+				return xerrors.Errorf("failed to marshal JSON key: %w", err)
 			}
 			buffer.Write(encodedKey)
 			buffer.WriteByte(':')
@@ -289,7 +289,7 @@ func writeStableJSON(buffer *bytes.Buffer, value any) error {
 	default:
 		encodedValue, err := json.Marshal(typedValue)
 		if err != nil {
-			return xerrors.Errorf("未知の値の JSON marshal に失敗しました: %w", err)
+			return xerrors.Errorf("failed to marshal unknown JSON value: %w", err)
 		}
 		buffer.Write(encodedValue)
 	}

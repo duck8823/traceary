@@ -10,13 +10,13 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-// EventSaver はイベント保存処理を提供します。
+// EventSaver provides event persistence.
 type EventSaver interface {
-	// Save は指定された DB にイベントを保存します。
+	// Save persists an event into the target DB.
 	Save(ctx context.Context, dbPath string, event *model.Event) error
 }
 
-// RecordLogInput は traceary log の入力です。
+// RecordLogInput is the input for traceary log recording.
 type RecordLogInput struct {
 	DBPath    string
 	Message   string
@@ -26,9 +26,9 @@ type RecordLogInput struct {
 	Repo      string
 }
 
-// RecordLogUsecase はログイベントを永続化するユースケースです。
+// RecordLogUsecase persists note events.
 type RecordLogUsecase interface {
-	// Run はログイベントを保存します。
+	// Run persists a note event.
 	Run(ctx context.Context, input RecordLogInput) (*model.Event, error)
 }
 
@@ -36,31 +36,31 @@ type recordLogUsecase struct {
 	eventSaver EventSaver
 }
 
-// NewRecordLogUsecase はログ記録ユースケースを生成します。
+// NewRecordLogUsecase creates a RecordLogUsecase.
 func NewRecordLogUsecase(eventSaver EventSaver) RecordLogUsecase {
 	return &recordLogUsecase{eventSaver: eventSaver}
 }
 
-// Run はログイベントを保存します。
+// Run persists a note event.
 func (u *recordLogUsecase) Run(ctx context.Context, input RecordLogInput) (*model.Event, error) {
 	if u.eventSaver == nil {
-		return nil, xerrors.Errorf("イベント保存先が設定されていません")
+		return nil, xerrors.Errorf("event saver is not configured")
 	}
 	if strings.TrimSpace(input.DBPath) == "" {
-		return nil, xerrors.Errorf("DB パスは空にできません")
+		return nil, xerrors.Errorf("DB path must not be empty")
 	}
 
 	agent, err := types.AgentOf(input.Agent)
 	if err != nil {
-		return nil, xerrors.Errorf("agent の解決に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to resolve agent: %w", err)
 	}
 	sessionID, err := types.SessionIDOf(input.SessionID)
 	if err != nil {
-		return nil, xerrors.Errorf("session ID の解決に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to resolve session ID: %w", err)
 	}
 	eventID, err := newEventID()
 	if err != nil {
-		return nil, xerrors.Errorf("event ID の生成に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to generate event ID: %w", err)
 	}
 
 	event, err := model.NewEvent(
@@ -73,10 +73,10 @@ func (u *recordLogUsecase) Run(ctx context.Context, input RecordLogInput) (*mode
 		input.Message,
 	)
 	if err != nil {
-		return nil, xerrors.Errorf("ログイベントの生成に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to build log event: %w", err)
 	}
 	if err := u.eventSaver.Save(ctx, input.DBPath, event); err != nil {
-		return nil, xerrors.Errorf("ログイベントの保存に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to save log event: %w", err)
 	}
 
 	return event, nil

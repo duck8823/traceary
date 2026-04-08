@@ -9,7 +9,7 @@ func (c *RootCLI) newCompletionCommand(rootCmd *cobra.Command) *cobra.Command {
 	completionCmd := &cobra.Command{
 		Use:   "completion",
 		Short: Localize("Generate shell completion scripts", "shell completion script を生成する"),
-		Args:  noArgsJP(),
+		Args:  noArgsLocalized(),
 	}
 
 	completionCmd.AddCommand(newCompletionSubcommand(
@@ -68,7 +68,7 @@ func newCompletionSubcommand(
 	return &cobra.Command{
 		Use:   use,
 		Short: short,
-		Args:  noArgsJP(),
+		Args:  noArgsLocalized(),
 		RunE:  runE,
 	}
 }

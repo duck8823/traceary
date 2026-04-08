@@ -7,7 +7,7 @@ import (
 	"github.com/duck8823/traceary/application/usecase"
 )
 
-// RootCLI は traceary のルートコマンドを提供します。
+// RootCLI provides the Traceary root command.
 type RootCLI struct {
 	initializeStoreUsecase        usecase.InitializeStoreUsecase
 	createStoreBackupUsecase      usecase.CreateStoreBackupUsecase
@@ -24,7 +24,7 @@ type RootCLI struct {
 	mcpServerRunner               MCPServerRunner
 }
 
-// RootCLIOptions は RootCLI の依存関係をまとめた設定です。
+// RootCLIOptions holds the dependencies used by RootCLI.
 type RootCLIOptions struct {
 	InitializeStoreUsecase        usecase.InitializeStoreUsecase
 	CreateStoreBackupUsecase      usecase.CreateStoreBackupUsecase
@@ -41,7 +41,7 @@ type RootCLIOptions struct {
 	MCPServerRunner               MCPServerRunner
 }
 
-// NewRootCLI は新しい RootCLI を生成します。
+// NewRootCLI creates a new RootCLI.
 func NewRootCLI(options RootCLIOptions) *RootCLI {
 	return &RootCLI{
 		initializeStoreUsecase:        options.InitializeStoreUsecase,
@@ -60,7 +60,7 @@ func NewRootCLI(options RootCLIOptions) *RootCLI {
 	}
 }
 
-// Command は traceary のルートコマンドを返します。
+// Command returns the Traceary root command.
 func (c *RootCLI) Command() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:           "traceary",

@@ -26,7 +26,7 @@ func (c *RootCLI) newHooksGuideCommand() *cobra.Command {
 	guideCmd := &cobra.Command{
 		Use:   "guide",
 		Short: Localize("Print guided setup steps for a supported client", "対応 client 向けの guided setup 手順を出力する"),
-		Args:  noArgsJP(),
+		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runHooksGuide(cmd.Context(), cmd.OutOrStdout(), hooksGuideCommandInput{
 				client:     client,

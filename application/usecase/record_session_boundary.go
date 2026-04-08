@@ -11,7 +11,7 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-// RecordSessionBoundaryInput は session start/end の入力です。
+// RecordSessionBoundaryInput is the input for session start/end recording.
 type RecordSessionBoundaryInput struct {
 	DBPath        string
 	Client        string
@@ -24,12 +24,12 @@ type RecordSessionBoundaryInput struct {
 	Kind          types.EventKind
 }
 
-// ErrSessionStartedEventNotFound は対象 session の開始イベントが存在しないことを表します。
-var ErrSessionStartedEventNotFound = xerrors.New("対象 session の開始イベントが存在しません")
+// ErrSessionStartedEventNotFound indicates the target session has no start event.
+var ErrSessionStartedEventNotFound = xerrors.New("session_started event was not found for the target session")
 
-// SessionStartedEventFinder は session_started イベントの取得を提供します。
+// SessionStartedEventFinder provides lookup for session_started events.
 type SessionStartedEventFinder interface {
-	// FindSessionStartedEvent は対象 session の直近の session_started イベントを返します。
+	// FindSessionStartedEvent returns the latest session_started event for the target session.
 	FindSessionStartedEvent(
 		ctx context.Context,
 		dbPath string,
@@ -37,9 +37,9 @@ type SessionStartedEventFinder interface {
 	) (*model.Event, error)
 }
 
-// RecordSessionBoundaryUsecase は session 開始/終了イベントを記録します。
+// RecordSessionBoundaryUsecase records session boundary events.
 type RecordSessionBoundaryUsecase interface {
-	// Run は session 境界イベントを保存します。
+	// Run persists a session boundary event.
 	Run(ctx context.Context, input RecordSessionBoundaryInput) (*model.Event, error)
 }
 
@@ -48,7 +48,7 @@ type recordSessionBoundaryUsecase struct {
 	sessionStartedEventFinder SessionStartedEventFinder
 }
 
-// NewRecordSessionBoundaryUsecase は session 境界イベント記録ユースケースを生成します。
+// NewRecordSessionBoundaryUsecase creates RecordSessionBoundaryUsecase.
 func NewRecordSessionBoundaryUsecase(
 	eventSaver EventSaver,
 	sessionStartedEventFinder SessionStartedEventFinder,
@@ -59,22 +59,22 @@ func NewRecordSessionBoundaryUsecase(
 	}
 }
 
-// Run は session 境界イベントを保存します。
+// Run persists a session boundary event.
 func (u *recordSessionBoundaryUsecase) Run(
 	ctx context.Context,
 	input RecordSessionBoundaryInput,
 ) (*model.Event, error) {
 	if u.eventSaver == nil {
-		return nil, xerrors.Errorf("イベント保存先が設定されていません")
+		return nil, xerrors.Errorf("event saver is not configured")
 	}
 	trimmedDBPath := strings.TrimSpace(input.DBPath)
 	if trimmedDBPath == "" {
-		return nil, xerrors.Errorf("DB パスは空にできません")
+		return nil, xerrors.Errorf("DB path must not be empty")
 	}
 
 	sessionID, err := resolveSessionBoundaryID(input.Kind, input.SessionID)
 	if err != nil {
-		return nil, xerrors.Errorf("session ID の解決に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to resolve session ID: %w", err)
 	}
 	resolvedClient, resolvedAgentValue, resolvedRepo, err := u.resolveSessionBoundaryAttribution(
 		ctx,
@@ -83,15 +83,15 @@ func (u *recordSessionBoundaryUsecase) Run(
 		sessionID,
 	)
 	if err != nil {
-		return nil, xerrors.Errorf("session 境界の attribution 解決に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to resolve session boundary attribution: %w", err)
 	}
 	agent, err := types.AgentOf(resolvedAgentValue)
 	if err != nil {
-		return nil, xerrors.Errorf("agent の解決に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to resolve agent: %w", err)
 	}
 	eventID, err := newEventID()
 	if err != nil {
-		return nil, xerrors.Errorf("event ID の生成に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to generate event ID: %w", err)
 	}
 
 	event, err := model.NewEvent(
@@ -104,10 +104,10 @@ func (u *recordSessionBoundaryUsecase) Run(
 		sessionBoundaryBody(input.Kind),
 	)
 	if err != nil {
-		return nil, xerrors.Errorf("session 境界イベントの生成に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to build session boundary event: %w", err)
 	}
 	if err := u.eventSaver.Save(ctx, trimmedDBPath, event); err != nil {
-		return nil, xerrors.Errorf("session 境界イベントの保存に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to save session boundary event: %w", err)
 	}
 
 	return event, nil
@@ -127,7 +127,7 @@ func (u *recordSessionBoundaryUsecase) resolveSessionBoundaryAttribution(
 		if resolvedClient == "" || resolvedAgentValue == "" || resolvedRepo == "" {
 			startedEvent, err := u.sessionStartedEventFinder.FindSessionStartedEvent(ctx, dbPath, sessionID)
 			if err != nil && !errors.Is(err, ErrSessionStartedEventNotFound) {
-				return "", "", "", xerrors.Errorf("session_started イベントの取得に失敗しました: %w", err)
+				return "", "", "", xerrors.Errorf("failed to get session_started event: %w", err)
 			}
 			if err == nil && startedEvent != nil {
 				if resolvedClient == "" {
@@ -166,26 +166,26 @@ func resolveSessionBoundaryID(
 		if trimmedValue == "" {
 			sessionID, err := newSessionID()
 			if err != nil {
-				return types.SessionID(""), xerrors.Errorf("session ID の生成に失敗しました: %w", err)
+				return types.SessionID(""), xerrors.Errorf("failed to generate session ID: %w", err)
 			}
 			return sessionID, nil
 		}
 
 		sessionID, err := types.SessionIDOf(trimmedValue)
 		if err != nil {
-			return types.SessionID(""), xerrors.Errorf("session ID の変換に失敗しました: %w", err)
+			return types.SessionID(""), xerrors.Errorf("failed to convert session ID: %w", err)
 		}
 
 		return sessionID, nil
 	case types.EventKindSessionEnded:
 		sessionID, err := types.SessionIDOf(sessionIDValue)
 		if err != nil {
-			return types.SessionID(""), xerrors.Errorf("session ID の変換に失敗しました: %w", err)
+			return types.SessionID(""), xerrors.Errorf("failed to convert session ID: %w", err)
 		}
 
 		return sessionID, nil
 	default:
-		return types.SessionID(""), xerrors.Errorf("session 境界で扱えない event kind です: %s", eventKind)
+		return types.SessionID(""), xerrors.Errorf("unsupported event kind for session boundary: %s", eventKind)
 	}
 }
 

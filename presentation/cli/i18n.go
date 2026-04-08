@@ -8,7 +8,7 @@ import (
 
 const cliLanguageEnvKey = "TRACEARY_LANG"
 
-// Localize は CLI の表示言語に応じて英語または日本語の文字列を返します。
+// Localize returns the English or Japanese string for the active CLI locale.
 func Localize(english string, japanese string) string {
 	if isJapaneseCLI() {
 		return japanese
@@ -17,7 +17,7 @@ func Localize(english string, japanese string) string {
 	return english
 }
 
-// Localizef は CLI の表示言語に応じて英語または日本語のフォーマット文字列を整形します。
+// Localizef formats the English or Japanese string for the active CLI locale.
 func Localizef(english string, japanese string, args ...any) string {
 	return fmt.Sprintf(Localize(english, japanese), args...)
 }

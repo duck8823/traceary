@@ -6,17 +6,17 @@ import (
 	"golang.org/x/xerrors"
 )
 
-// SessionID は作業セッション識別子を表す値オブジェクトです。
+// SessionID is a value object representing a work session identifier.
 type SessionID string
 
-// SessionIDOf は文字列から SessionID を生成します。
+// SessionIDOf creates a SessionID from a string.
 func SessionIDOf(value string) (SessionID, error) {
 	trimmedValue := strings.TrimSpace(value)
 	if trimmedValue == "" {
-		return SessionID(""), xerrors.Errorf("session ID は空にできません")
+		return SessionID(""), xerrors.Errorf("session ID must not be empty")
 	}
 	return SessionID(trimmedValue), nil
 }
 
-// String は SessionID を文字列化します。
+// String returns the string representation.
 func (s SessionID) String() string { return string(s) }

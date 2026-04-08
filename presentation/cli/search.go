@@ -32,7 +32,7 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 	searchCmd := &cobra.Command{
 		Use:   "search [query]",
 		Short: Localize("Search recorded events", "記録を検索する"),
-		Args:  maximumNArgsJP(1),
+		Args:  maximumNArgsLocalized(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			query := ""
 			if len(args) == 1 {

@@ -8,9 +8,9 @@ import (
 	"golang.org/x/xerrors"
 )
 
-// MCPServerRunner は MCP server の起動を提供します。
+// MCPServerRunner provides MCP server startup.
 type MCPServerRunner interface {
-	// Run は指定 DB を参照して MCP server を起動します。
+	// Run starts an MCP server backed by the given DB.
 	Run(ctx context.Context, dbPath string) error
 }
 
@@ -20,7 +20,7 @@ func (c *RootCLI) newMCPServerCommand() *cobra.Command {
 	mcpServerCmd := &cobra.Command{
 		Use:   "mcp-server",
 		Short: Localize("Run the Traceary MCP server over stdio", "Traceary の MCP server を stdio で起動する"),
-		Args:  noArgsJP(),
+		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runMCPServer(cmd.Context(), cmd.OutOrStdout(), dbPath)
 		},

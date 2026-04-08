@@ -21,7 +21,7 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 	listCmd := &cobra.Command{
 		Use:   "list",
 		Short: Localize("List recent events", "直近のログを一覧表示する"),
-		Args:  noArgsJP(),
+		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runList(cmd.Context(), cmd.OutOrStdout(), listCommandInput{
 				dbPath: dbPath,

@@ -1,5 +1,5 @@
-// Package main は traceary の起動関数を定義するパッケージです。
-// 環境変数の読み込みと依存関係の組み立てはこのパッケージのみで行います。
+// Package main defines the Traceary entrypoint.
+// Environment loading and dependency wiring happen only in this package.
 package main
 
 import (

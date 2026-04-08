@@ -36,7 +36,7 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 	auditCmd := &cobra.Command{
 		Use:   "audit [<command> <input> <output>]",
 		Short: Localize("Record a command execution audit event", "コマンド実行の監査ログを記録する"),
-		Args:  maximumNArgsJP(3),
+		Args:  maximumNArgsLocalized(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			commandValue, inputValue, outputValue, err := resolveAuditPayload(auditPayloadInput{
 				positionalArgs: args,

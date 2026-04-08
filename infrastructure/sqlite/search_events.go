@@ -12,7 +12,7 @@ import (
 
 var _ queryservice.EventSearcher = (*Datasource)(nil)
 
-// SearchEvents は条件に一致するイベントを新しい順に返します。
+// SearchEvents returns matching events in descending time order.
 func (d *Datasource) SearchEvents(
 	ctx context.Context,
 	dbPath string,
@@ -20,7 +20,7 @@ func (d *Datasource) SearchEvents(
 ) ([]*model.Event, error) {
 	db, err := d.openDB(ctx, dbPath)
 	if err != nil {
-		return nil, xerrors.Errorf("検索用の DB オープンに失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to open DB for event search: %w", err)
 	}
 	defer func() { _ = db.Close() }()
 
@@ -77,7 +77,7 @@ func (d *Datasource) SearchEvents(
 		input.Offset,
 	)
 	if err != nil {
-		return nil, xerrors.Errorf("イベント検索クエリに失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to query events: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -85,12 +85,12 @@ func (d *Datasource) SearchEvents(
 	for rows.Next() {
 		event, err := d.scanEvent(rows)
 		if err != nil {
-			return nil, xerrors.Errorf("検索結果行の復元に失敗しました: %w", err)
+			return nil, xerrors.Errorf("failed to restore search result row: %w", err)
 		}
 		events = append(events, event)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, xerrors.Errorf("検索結果の走査に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to iterate search result rows: %w", err)
 	}
 
 	return events, nil

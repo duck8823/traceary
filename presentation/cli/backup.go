@@ -65,7 +65,7 @@ func (c *RootCLI) newBackupCreateCommand() *cobra.Command {
 	createCmd := &cobra.Command{
 		Use:   "create",
 		Short: Localize("Create a compact SQLite backup file", "コンパクトな SQLite バックアップファイルを作成する"),
-		Args:  noArgsJP(),
+		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runBackupCreate(cmd.Context(), cmd.OutOrStdout(), backupCreateCommandInput{
 				dbPath:     dbPath,
@@ -95,7 +95,7 @@ func (c *RootCLI) newBackupRestoreCommand() *cobra.Command {
 	restoreCmd := &cobra.Command{
 		Use:   "restore",
 		Short: Localize("Restore the SQLite store from a backup file", "バックアップファイルから SQLite ストアを復元する"),
-		Args:  noArgsJP(),
+		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runBackupRestore(cmd.Context(), cmd.OutOrStdout(), backupRestoreCommandInput{
 				dbPath:    dbPath,
@@ -184,7 +184,7 @@ func (c *RootCLI) runBackupRestore(
 			}
 		}
 	}
-	// `--force` を付けない既存 DB への restore は usecase 側が拒否します。
+	// The use case rejects restores into an existing DB unless --force is set.
 	if err := c.restoreStoreBackupUsecase.Run(ctx, usecase.RestoreStoreBackupInput{
 		DBPath:    resolvedDBPath,
 		InputPath: resolvedInputPath,

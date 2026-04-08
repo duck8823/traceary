@@ -43,7 +43,7 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 		Use:     "doctor",
 		Aliases: []string{"status"},
 		Short:   Localize("Diagnose Traceary DB and hooks configuration", "Traceary の DB と hooks 設定を診断する"),
-		Args:    noArgsJP(),
+		Args:    noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runDoctor(cmd.Context(), cmd.OutOrStdout(), doctorCommandInput{
 				dbPath:     dbPath,

@@ -6,17 +6,17 @@ import (
 	"golang.org/x/xerrors"
 )
 
-// EventID はイベント識別子を表す値オブジェクトです。
+// EventID is a value object representing an event identifier.
 type EventID string
 
-// EventIDOf は文字列から EventID を生成します。
+// EventIDOf creates an EventID from a string.
 func EventIDOf(value string) (EventID, error) {
 	trimmedValue := strings.TrimSpace(value)
 	if trimmedValue == "" {
-		return EventID(""), xerrors.Errorf("event ID は空にできません")
+		return EventID(""), xerrors.Errorf("event ID must not be empty")
 	}
 	return EventID(trimmedValue), nil
 }
 
-// String は EventID を文字列化します。
+// String returns the string representation.
 func (e EventID) String() string { return string(e) }

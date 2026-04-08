@@ -11,7 +11,7 @@ import (
 
 var _ usecase.GarbageCollector = (*Datasource)(nil)
 
-// CollectGarbage は指定日時より古いイベントを削除します。
+// CollectGarbage deletes events older than the given time.
 func (d *Datasource) CollectGarbage(
 	ctx context.Context,
 	dbPath string,
@@ -20,7 +20,7 @@ func (d *Datasource) CollectGarbage(
 ) (int, error) {
 	db, err := d.openDB(ctx, dbPath)
 	if err != nil {
-		return 0, xerrors.Errorf("gc 用の DB オープンに失敗しました: %w", err)
+		return 0, xerrors.Errorf("failed to open DB for garbage collection: %w", err)
 	}
 	defer func() { _ = db.Close() }()
 
@@ -32,7 +32,7 @@ func (d *Datasource) CollectGarbage(
 		`SELECT COUNT(*) FROM events WHERE created_at < ?`,
 		beforeValue,
 	).Scan(&deleteCount); err != nil {
-		return 0, xerrors.Errorf("削除対象件数の取得に失敗しました: %w", err)
+		return 0, xerrors.Errorf("failed to count deletable events: %w", err)
 	}
 
 	if dryRun || deleteCount == 0 {
@@ -41,7 +41,7 @@ func (d *Datasource) CollectGarbage(
 
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, xerrors.Errorf("gc トランザクション開始に失敗しました: %w", err)
+		return 0, xerrors.Errorf("failed to begin garbage-collection transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
@@ -50,15 +50,15 @@ func (d *Datasource) CollectGarbage(
 		`DELETE FROM events WHERE created_at < ?`,
 		beforeValue,
 	); err != nil {
-		return 0, xerrors.Errorf("古いイベントの削除に失敗しました: %w", err)
+		return 0, xerrors.Errorf("failed to delete old events: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
-		return 0, xerrors.Errorf("gc トランザクションの commit に失敗しました: %w", err)
+		return 0, xerrors.Errorf("failed to commit garbage-collection transaction: %w", err)
 	}
 
 	if _, err := db.ExecContext(ctx, `VACUUM`); err != nil {
-		return 0, xerrors.Errorf("VACUUM に失敗しました: %w", err)
+		return 0, xerrors.Errorf("failed to run VACUUM: %w", err)
 	}
 
 	return deleteCount, nil

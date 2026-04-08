@@ -42,7 +42,7 @@ func (c *RootCLI) newInitCommand() *cobra.Command {
 			"  traceary init",
 			"  TRACEARY_DB_PATH=/tmp/traceary.db traceary init",
 		}, "\n"),
-		Args: noArgsJP(),
+		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runInit(cmd.Context(), cmd.OutOrStdout(), dbPath)
 		},

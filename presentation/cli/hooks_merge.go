@@ -69,13 +69,13 @@ func mergeHooksSettingsJSON(existingContent []byte, settings *hooksSettings) ([]
 
 	encodedHooks, err := json.MarshalIndent(existingHooks, "", "  ")
 	if err != nil {
-		return nil, xerrors.Errorf("merged hooks の JSON 変換に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to marshal merged hooks JSON: %w", err)
 	}
 	root["hooks"] = encodedHooks
 
 	encodedRoot, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
-		return nil, xerrors.Errorf("merged settings の JSON 変換に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to marshal merged settings JSON: %w", err)
 	}
 
 	return encodedRoot, nil

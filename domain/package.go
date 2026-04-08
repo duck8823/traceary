@@ -1,2 +1,2 @@
-// Package domain は traceary のドメイン層を提供します。
+// Package domain provides the Traceary domain layer.
 package domain

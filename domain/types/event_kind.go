@@ -8,19 +8,19 @@ import (
 )
 
 const (
-	// EventKindNote はメモ系イベントを表します。
+	// EventKindNote represents note events.
 	EventKindNote EventKind = "note"
-	// EventKindCommandExecuted はコマンド実行イベントを表します。
+	// EventKindCommandExecuted represents command execution events.
 	EventKindCommandExecuted EventKind = "command_executed"
-	// EventKindReviewed はレビューイベントを表します。
+	// EventKindReviewed represents review events.
 	EventKindReviewed EventKind = "reviewed"
-	// EventKindSessionStarted はセッション開始イベントを表します。
+	// EventKindSessionStarted represents session start events.
 	EventKindSessionStarted EventKind = "session_started"
-	// EventKindSessionEnded はセッション終了イベントを表します。
+	// EventKindSessionEnded represents session end events.
 	EventKindSessionEnded EventKind = "session_ended"
 )
 
-// EventKind はイベント種別を表す値オブジェクトです。
+// EventKind is a value object that represents an event kind.
 type EventKind string
 
 var knownEventKinds = []EventKind{
@@ -31,11 +31,11 @@ var knownEventKinds = []EventKind{
 	EventKindSessionEnded,
 }
 
-// EventKindOf は文字列から EventKind を生成します。
+// EventKindOf builds EventKind from a string value.
 func EventKindOf(value string) (EventKind, error) {
 	trimmedValue := strings.TrimSpace(value)
 	if trimmedValue == "" {
-		return EventKind(""), xerrors.Errorf("event kind は空にできません")
+		return EventKind(""), xerrors.Errorf("event kind must not be empty")
 	}
 
 	if slices.Contains(knownEventKinds, EventKind(trimmedValue)) {
@@ -43,16 +43,16 @@ func EventKindOf(value string) (EventKind, error) {
 	}
 
 	return EventKind(""), xerrors.Errorf(
-		"未知の event kind です: %s (有効な値: %s)",
+		"unknown event kind: %s (allowed values: %s)",
 		trimmedValue,
 		strings.Join(KnownEventKindStrings(), ", "),
 	)
 }
 
-// String は EventKind を文字列化します。
+// String returns the string representation.
 func (e EventKind) String() string { return string(e) }
 
-// KnownEventKindStrings は既知の event kind 一覧を返します。
+// KnownEventKindStrings returns the list of known event kind values.
 func KnownEventKindStrings() []string {
 	values := make([]string, 0, len(knownEventKinds))
 	for _, kind := range knownEventKinds {

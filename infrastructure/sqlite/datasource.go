@@ -8,51 +8,51 @@ import (
 	"path/filepath"
 	"strings"
 
-	_ "modernc.org/sqlite" // SQLite ドライバーを登録するために必要です。
+	_ "modernc.org/sqlite" // Required to register the SQLite driver.
 
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/application/usecase"
 )
 
-// Datasource は SQLite ベースのデータソースです。
+// Datasource is a SQLite-backed data source.
 type Datasource struct {
 	migrations fs.FS
 }
 
 var _ usecase.StoreInitializer = (*Datasource)(nil)
 
-// NewDatasource は新しい Datasource を生成します。
+// NewDatasource creates a new Datasource.
 func NewDatasource(migrations fs.FS) *Datasource {
 	return &Datasource{migrations: migrations}
 }
 
-// Initialize は SQLite ストアを初期化します。
+// Initialize initializes the SQLite store.
 func (d *Datasource) Initialize(ctx context.Context, dbPath string) (err error) {
 	trimmedPath := strings.TrimSpace(dbPath)
 	if trimmedPath == "" {
-		return xerrors.Errorf("DB パスは空にできません")
+		return xerrors.Errorf("DB path must not be empty")
 	}
 
 	if err := os.MkdirAll(filepath.Dir(trimmedPath), 0o700); err != nil {
-		return xerrors.Errorf("DB ディレクトリの作成に失敗しました: %w", err)
+		return xerrors.Errorf("failed to create DB directory: %w", err)
 	}
 
 	db, err := d.openDB(ctx, trimmedPath)
 	if err != nil {
-		return xerrors.Errorf("SQLite 接続の初期化に失敗しました: %w", err)
+		return xerrors.Errorf("failed to initialize SQLite connection: %w", err)
 	}
 	defer func() {
 		if closeErr := db.Close(); closeErr != nil && err == nil {
-			err = xerrors.Errorf("SQLite 接続のクローズに失敗しました: %w", closeErr)
+			err = xerrors.Errorf("failed to close SQLite connection: %w", closeErr)
 		}
 	}()
 	if err := os.Chmod(trimmedPath, 0o600); err != nil {
-		return xerrors.Errorf("SQLite DB ファイル権限の設定に失敗しました: %w", err)
+		return xerrors.Errorf("failed to set SQLite DB file permissions: %w", err)
 	}
 
 	if err := d.migrate(ctx, db); err != nil {
-		return xerrors.Errorf("SQLite マイグレーションに失敗しました: %w", err)
+		return xerrors.Errorf("failed to run SQLite migrations: %w", err)
 	}
 
 	return nil

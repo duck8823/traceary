@@ -7,15 +7,15 @@ import (
 	"golang.org/x/xerrors"
 )
 
-// StoreInitializer はストア初期化処理を提供するインターフェースです。
+// StoreInitializer provides store-initialization behavior.
 type StoreInitializer interface {
-	// Initialize は指定された DB パスにストアを初期化します。
+	// Initialize initializes a store at the given DB path.
 	Initialize(ctx context.Context, dbPath string) error
 }
 
-// InitializeStoreUsecase はローカルストア初期化のユースケースです。
+// InitializeStoreUsecase initializes the local store.
 type InitializeStoreUsecase interface {
-	// Run はローカルストアを初期化します。
+	// Run initializes the local store.
 	Run(ctx context.Context, dbPath string) error
 }
 
@@ -23,19 +23,19 @@ type initializeStoreUsecase struct {
 	storeInitializer StoreInitializer
 }
 
-// NewInitializeStoreUsecase はストア初期化ユースケースを生成します。
+// NewInitializeStoreUsecase creates an InitializeStoreUsecase.
 func NewInitializeStoreUsecase(storeInitializer StoreInitializer) InitializeStoreUsecase {
 	return &initializeStoreUsecase{storeInitializer: storeInitializer}
 }
 
-// Run はローカルストアを初期化します。
+// Run initializes the local store.
 func (u *initializeStoreUsecase) Run(ctx context.Context, dbPath string) error {
 	trimmedPath := strings.TrimSpace(dbPath)
 	if trimmedPath == "" {
-		return xerrors.Errorf("DB パスは空にできません")
+		return xerrors.Errorf("DB path must not be empty")
 	}
 	if err := u.storeInitializer.Initialize(ctx, trimmedPath); err != nil {
-		return xerrors.Errorf("ストアの初期化に失敗しました: %w", err)
+		return xerrors.Errorf("failed to initialize store: %w", err)
 	}
 	return nil
 }

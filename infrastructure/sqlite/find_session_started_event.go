@@ -14,7 +14,7 @@ import (
 
 var _ usecase.SessionStartedEventFinder = (*Datasource)(nil)
 
-// FindSessionStartedEvent は対象 session の直近の session_started イベントを返します。
+// FindSessionStartedEvent returns the latest session_started event for the target session.
 func (d *Datasource) FindSessionStartedEvent(
 	ctx context.Context,
 	dbPath string,
@@ -22,7 +22,7 @@ func (d *Datasource) FindSessionStartedEvent(
 ) (*model.Event, error) {
 	db, err := d.openDB(ctx, dbPath)
 	if err != nil {
-		return nil, xerrors.Errorf("session_started 取得用の DB オープンに失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to open DB for session_started lookup: %w", err)
 	}
 	defer func() { _ = db.Close() }()
 
@@ -43,7 +43,7 @@ func (d *Datasource) FindSessionStartedEvent(
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, usecase.ErrSessionStartedEventNotFound
 		}
-		return nil, xerrors.Errorf("session_started イベントの復元に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to restore session_started event: %w", err)
 	}
 
 	return event, nil

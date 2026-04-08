@@ -17,18 +17,18 @@ func TestEventKindOf(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:    "既知の event kind を受け付ける",
+			name:    "accepts known event kind",
 			value:   "note",
 			want:    types.EventKindNote,
 			wantErr: false,
 		},
 		{
-			name:    "未知の event kind はエラー",
+			name:    "returns error for unknown event kind",
 			value:   "unknown",
 			wantErr: true,
 		},
 		{
-			name:    "空文字はエラー",
+			name:    "returns error for empty value",
 			value:   " ",
 			wantErr: true,
 		},
@@ -44,8 +44,8 @@ func TestEventKindOf(t *testing.T) {
 				t.Fatalf("EventKindOf() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.wantErr {
-				if tt.name == "未知の event kind はエラー" &&
-					!strings.Contains(err.Error(), "有効な値: note, command_executed, reviewed, session_started, session_ended") {
+				if tt.name == "returns error for unknown event kind" &&
+					!strings.Contains(err.Error(), "allowed values: note, command_executed, reviewed, session_started, session_ended") {
 					t.Fatalf("error = %q, want valid kind list", err.Error())
 				}
 				return

@@ -1,3 +1,3 @@
-// Package application はユースケースやクエリサービスなどの
-// アプリケーション層を提供します。
+// Package application provides the application layer, including use cases
+// and query services.
 package application

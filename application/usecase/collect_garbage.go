@@ -8,29 +8,29 @@ import (
 	"golang.org/x/xerrors"
 )
 
-// GarbageCollector は古いイベント削除を提供します。
+// GarbageCollector provides old-event deletion.
 type GarbageCollector interface {
-	// CollectGarbage は指定日時より古いイベントを削除します。
+	// CollectGarbage deletes events older than the given time.
 	CollectGarbage(ctx context.Context, dbPath string, before time.Time, dryRun bool) (int, error)
 }
 
-// CollectGarbageInput は gc の入力です。
+// CollectGarbageInput is the input for garbage collection.
 type CollectGarbageInput struct {
 	DBPath string
 	Before time.Time
 	DryRun bool
 }
 
-// CollectGarbageResult は gc 実行結果です。
+// CollectGarbageResult is the result of a garbage-collection run.
 type CollectGarbageResult struct {
 	DeletedCount int
 	Before       time.Time
 	DryRun       bool
 }
 
-// CollectGarbageUsecase は retention に基づく削除を行います。
+// CollectGarbageUsecase deletes events based on retention.
 type CollectGarbageUsecase interface {
-	// Run は古いイベントの削除または dry-run を実行します。
+	// Run executes garbage collection or a dry run.
 	Run(ctx context.Context, input CollectGarbageInput) (*CollectGarbageResult, error)
 }
 
@@ -38,24 +38,24 @@ type collectGarbageUsecase struct {
 	garbageCollector GarbageCollector
 }
 
-// NewCollectGarbageUsecase は新しい CollectGarbageUsecase を生成します。
+// NewCollectGarbageUsecase creates a CollectGarbageUsecase.
 func NewCollectGarbageUsecase(garbageCollector GarbageCollector) CollectGarbageUsecase {
 	return &collectGarbageUsecase{garbageCollector: garbageCollector}
 }
 
-// Run は古いイベントの削除または dry-run を実行します。
+// Run executes garbage collection or a dry run.
 func (u *collectGarbageUsecase) Run(
 	ctx context.Context,
 	input CollectGarbageInput,
 ) (*CollectGarbageResult, error) {
 	if u.garbageCollector == nil {
-		return nil, xerrors.Errorf("gc 実行先が設定されていません")
+		return nil, xerrors.Errorf("garbage collector is not configured")
 	}
 	if strings.TrimSpace(input.DBPath) == "" {
-		return nil, xerrors.Errorf("DB パスは空にできません")
+		return nil, xerrors.Errorf("DB path must not be empty")
 	}
 	if input.Before.IsZero() {
-		return nil, xerrors.Errorf("削除基準時刻は必須です")
+		return nil, xerrors.Errorf("before timestamp is required")
 	}
 
 	deletedCount, err := u.garbageCollector.CollectGarbage(
@@ -65,7 +65,7 @@ func (u *collectGarbageUsecase) Run(
 		input.DryRun,
 	)
 	if err != nil {
-		return nil, xerrors.Errorf("gc の実行に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to collect garbage: %w", err)
 	}
 
 	return &CollectGarbageResult{

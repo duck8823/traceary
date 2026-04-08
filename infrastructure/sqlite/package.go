@@ -1,2 +1,2 @@
-// Package sqlite は SQLite を使った永続化実装を提供します。
+// Package sqlite provides SQLite-based persistence implementations.
 package sqlite

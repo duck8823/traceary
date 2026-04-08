@@ -1,2 +1,2 @@
-// Package hooks は traceary の hook 用補助スクリプトに対する smoke test を保持します。
+// Package hooks holds smoke tests for Traceary hook helper scripts.
 package hooks

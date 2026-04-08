@@ -2,12 +2,12 @@ package model
 
 import "time"
 
-// SetNowFunc はテスト用に現在時刻関数を差し替えます。
+// SetNowFunc replaces the current-time function for tests.
 func SetNowFunc(f func() time.Time) {
 	nowFunc = f
 }
 
-// ResetNowFunc はテスト用に現在時刻関数をデフォルトへ戻します。
+// ResetNowFunc restores the default current-time function for tests.
 func ResetNowFunc() {
 	nowFunc = time.Now
 }

@@ -26,7 +26,7 @@ func (c *RootCLI) newGCCommand() *cobra.Command {
 	gcCmd := &cobra.Command{
 		Use:   "gc",
 		Short: Localize("Delete old events and compact the store", "古いイベントを削除してストアを最適化する"),
-		Args:  noArgsJP(),
+		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runGC(cmd.Context(), cmd.OutOrStdout(), gcCommandInput{
 				dbPath:   dbPath,

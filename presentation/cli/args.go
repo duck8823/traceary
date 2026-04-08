@@ -5,7 +5,7 @@ import (
 	"golang.org/x/xerrors"
 )
 
-func noArgsJP() cobra.PositionalArgs {
+func noArgsLocalized() cobra.PositionalArgs {
 	return func(_ *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return nil
@@ -19,7 +19,7 @@ func noArgsJP() cobra.PositionalArgs {
 	}
 }
 
-func exactArgsJP(expected int) cobra.PositionalArgs {
+func exactArgsLocalized(expected int) cobra.PositionalArgs {
 	return func(_ *cobra.Command, args []string) error {
 		if len(args) == expected {
 			return nil
@@ -34,7 +34,7 @@ func exactArgsJP(expected int) cobra.PositionalArgs {
 	}
 }
 
-func maximumNArgsJP(maxArgs int) cobra.PositionalArgs {
+func maximumNArgsLocalized(maxArgs int) cobra.PositionalArgs {
 	return func(_ *cobra.Command, args []string) error {
 		if len(args) <= maxArgs {
 			return nil

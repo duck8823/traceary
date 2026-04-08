@@ -1,2 +1,2 @@
-// Package types は traceary の値オブジェクトを提供します。
+// Package types provides Traceary value objects.
 package types
