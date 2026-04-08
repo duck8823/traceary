@@ -14,7 +14,7 @@ import (
 
 var _ queryservice.EventDetailsFinder = (*Datasource)(nil)
 
-// GetEventDetails は指定 event ID の詳細を返します。
+// GetEventDetails returns the details for the given event ID.
 func (d *Datasource) GetEventDetails(
 	ctx context.Context,
 	dbPath string,
@@ -22,7 +22,7 @@ func (d *Datasource) GetEventDetails(
 ) (*queryservice.EventDetails, error) {
 	db, err := d.openDB(ctx, dbPath)
 	if err != nil {
-		return nil, xerrors.Errorf("イベント詳細取得用の DB オープンに失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to open DB for event details lookup: %w", err)
 	}
 	defer func() { _ = db.Close() }()
 
@@ -55,16 +55,16 @@ func (d *Datasource) GetEventDetails(
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, xerrors.Errorf("指定された event は存在しません: %s", eventID)
+			return nil, xerrors.Errorf("event not found: %s", eventID)
 		}
-		return nil, xerrors.Errorf("イベント詳細行の復元に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to restore event details row: %w", err)
 	}
 
 	var commandAudit *model.CommandAudit
 	if commandTextValue.Valid {
 		eventIDValue, err := types.EventIDOf(eventID)
 		if err != nil {
-			return nil, xerrors.Errorf("event ID の復元に失敗しました: %w", err)
+			return nil, xerrors.Errorf("failed to restore event ID: %w", err)
 		}
 		commandAudit = model.CommandAuditOf(
 			eventIDValue,
@@ -78,7 +78,7 @@ func (d *Datasource) GetEventDetails(
 
 	eventDetails, err := queryservice.NewEventDetails(event, commandAudit)
 	if err != nil {
-		return nil, xerrors.Errorf("イベント詳細の生成に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to build event details: %w", err)
 	}
 
 	return eventDetails, nil
@@ -120,7 +120,7 @@ func (d *Datasource) scanEventWithAudit(
 		inputTruncatedValue,
 		outputTruncatedValue,
 	); err != nil {
-		return nil, xerrors.Errorf("イベント詳細行の scan に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to scan event details row: %w", err)
 	}
 
 	return d.restoreEvent(

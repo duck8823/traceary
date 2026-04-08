@@ -15,20 +15,20 @@ import (
 
 func (d *Datasource) migrate(ctx context.Context, db *sql.DB) error {
 	if err := ensureSchemaMigrationsTable(ctx, db); err != nil {
-		return xerrors.Errorf("schema_migrations の作成に失敗しました: %w", err)
+		return xerrors.Errorf("failed to create schema_migrations table: %w", err)
 	}
 
 	appliedVersions, err := loadAppliedVersions(ctx, db)
 	if err != nil {
-		return xerrors.Errorf("適用済みマイグレーションの読み込みに失敗しました: %w", err)
+		return xerrors.Errorf("failed to load applied migrations: %w", err)
 	}
 
 	migrationPaths, err := fs.Glob(d.migrations, "*.sql")
 	if err != nil {
-		return xerrors.Errorf("マイグレーションファイル一覧の取得に失敗しました: %w", err)
+		return xerrors.Errorf("failed to list migration files: %w", err)
 	}
 	if len(migrationPaths) == 0 {
-		return xerrors.Errorf("マイグレーションファイルが見つかりません")
+		return xerrors.Errorf("no migration files found")
 	}
 
 	migrations := make([]migrationFile, 0, len(migrationPaths))
@@ -36,10 +36,10 @@ func (d *Datasource) migrate(ctx context.Context, db *sql.DB) error {
 	for _, migrationPath := range migrationPaths {
 		version, err := parseMigrationVersion(migrationPath)
 		if err != nil {
-			return xerrors.Errorf("マイグレーションバージョンの解析に失敗しました: %w", err)
+			return xerrors.Errorf("failed to parse migration version: %w", err)
 		}
 		if _, exists := seenVersions[version]; exists {
-			return xerrors.Errorf("重複したマイグレーションバージョンです: %d", version)
+			return xerrors.Errorf("duplicate migration version: %d", version)
 		}
 		seenVersions[version] = struct{}{}
 		migrations = append(migrations, migrationFile{
@@ -59,7 +59,7 @@ func (d *Datasource) migrate(ctx context.Context, db *sql.DB) error {
 
 		migrationSQL, err := fs.ReadFile(d.migrations, migration.path)
 		if err != nil {
-			return xerrors.Errorf("マイグレーションファイルの読み込みに失敗しました: %w", err)
+			return xerrors.Errorf("failed to read migration file: %w", err)
 		}
 
 		if err := applyMigration(
@@ -69,7 +69,7 @@ func (d *Datasource) migrate(ctx context.Context, db *sql.DB) error {
 			filepath.Base(migration.path),
 			string(migrationSQL),
 		); err != nil {
-			return xerrors.Errorf("マイグレーションの適用に失敗しました: %w", err)
+			return xerrors.Errorf("failed to apply migration: %w", err)
 		}
 	}
 
@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 );`
 
 	if _, err := db.ExecContext(ctx, query); err != nil {
-		return xerrors.Errorf("schema_migrations テーブル作成クエリの実行に失敗しました: %w", err)
+		return xerrors.Errorf("failed to execute schema_migrations creation query: %w", err)
 	}
 	return nil
 }
@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 func loadAppliedVersions(ctx context.Context, db *sql.DB) (map[int64]struct{}, error) {
 	rows, err := db.QueryContext(ctx, `SELECT version FROM schema_migrations;`)
 	if err != nil {
-		return nil, xerrors.Errorf("schema_migrations の取得に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to query schema_migrations: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -106,12 +106,12 @@ func loadAppliedVersions(ctx context.Context, db *sql.DB) (map[int64]struct{}, e
 	for rows.Next() {
 		var version int64
 		if err := rows.Scan(&version); err != nil {
-			return nil, xerrors.Errorf("schema_migrations の読み取りに失敗しました: %w", err)
+			return nil, xerrors.Errorf("failed to scan schema_migrations row: %w", err)
 		}
 		versions[version] = struct{}{}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, xerrors.Errorf("schema_migrations の走査に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to iterate schema_migrations rows: %w", err)
 	}
 	return versions, nil
 }
@@ -120,11 +120,11 @@ func parseMigrationVersion(path string) (int64, error) {
 	baseName := filepath.Base(path)
 	versionPart, _, found := strings.Cut(baseName, "_")
 	if !found {
-		return 0, xerrors.Errorf("マイグレーションファイル名が不正です: %s", baseName)
+		return 0, xerrors.Errorf("invalid migration filename: %s", baseName)
 	}
 	version, err := strconv.ParseInt(versionPart, 10, 64)
 	if err != nil {
-		return 0, xerrors.Errorf("マイグレーションバージョンが不正です(%s): %w", versionPart, err)
+		return 0, xerrors.Errorf("invalid migration version (%s): %w", versionPart, err)
 	}
 	return version, nil
 }
@@ -132,18 +132,18 @@ func parseMigrationVersion(path string) (int64, error) {
 func applyMigration(ctx context.Context, db *sql.DB, version int64, name string, migrationSQL string) (err error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return xerrors.Errorf("トランザクション開始に失敗しました: %w", err)
+		return xerrors.Errorf("failed to begin transaction: %w", err)
 	}
 	defer func() {
 		if err != nil {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
-				err = xerrors.Errorf("ロールバックに失敗しました: %w: %w", rollbackErr, err)
+				err = xerrors.Errorf("failed to roll back migration transaction: %w: %w", rollbackErr, err)
 			}
 		}
 	}()
 
 	if _, err := tx.ExecContext(ctx, migrationSQL); err != nil {
-		return xerrors.Errorf("マイグレーション SQL の実行に失敗しました(version=%d): %w", version, err)
+		return xerrors.Errorf("failed to execute migration SQL (version=%d): %w", version, err)
 	}
 	if _, err := tx.ExecContext(
 		ctx,
@@ -152,10 +152,10 @@ func applyMigration(ctx context.Context, db *sql.DB, version int64, name string,
 		name,
 		time.Now().UTC().Format(time.RFC3339Nano),
 	); err != nil {
-		return xerrors.Errorf("schema_migrations への記録に失敗しました(version=%d): %w", version, err)
+		return xerrors.Errorf("failed to insert schema_migrations record (version=%d): %w", version, err)
 	}
 	if err := tx.Commit(); err != nil {
-		return xerrors.Errorf("マイグレーションのコミットに失敗しました(version=%d): %w", version, err)
+		return xerrors.Errorf("failed to commit migration (version=%d): %w", version, err)
 	}
 
 	return nil

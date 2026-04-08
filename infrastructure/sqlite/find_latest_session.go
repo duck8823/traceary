@@ -14,7 +14,7 @@ import (
 
 var _ queryservice.LatestSessionFinder = (*Datasource)(nil)
 
-// FindLatestSessionStartedEvent は直近の session_started イベントを返します。
+// FindLatestSessionStartedEvent returns the latest session_started event.
 func (d *Datasource) FindLatestSessionStartedEvent(
 	ctx context.Context,
 	dbPath string,
@@ -22,7 +22,7 @@ func (d *Datasource) FindLatestSessionStartedEvent(
 ) (*model.Event, error) {
 	db, err := d.openDB(ctx, dbPath)
 	if err != nil {
-		return nil, xerrors.Errorf("直近セッション取得用の DB オープンに失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to open DB for latest session lookup: %w", err)
 	}
 	defer func() { _ = db.Close() }()
 
@@ -71,7 +71,7 @@ func (d *Datasource) FindLatestSessionStartedEvent(
 			}
 			return nil, queryservice.ErrSessionNotFound
 		}
-		return nil, xerrors.Errorf("直近セッションイベントの復元に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to restore latest session event: %w", err)
 	}
 
 	return event, nil

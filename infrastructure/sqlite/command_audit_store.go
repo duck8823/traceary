@@ -11,7 +11,7 @@ import (
 
 var _ usecase.CommandAuditSaver = (*Datasource)(nil)
 
-// SaveCommandAudit はイベントとコマンド監査情報を同一トランザクションで保存します。
+// SaveCommandAudit persists an event and command-audit data in one transaction.
 func (d *Datasource) SaveCommandAudit(
 	ctx context.Context,
 	dbPath string,
@@ -19,21 +19,21 @@ func (d *Datasource) SaveCommandAudit(
 	commandAudit *model.CommandAudit,
 ) error {
 	if event == nil {
-		return xerrors.Errorf("イベントは nil にできません")
+		return xerrors.Errorf("event must not be nil")
 	}
 	if commandAudit == nil {
-		return xerrors.Errorf("コマンド監査情報は nil にできません")
+		return xerrors.Errorf("command audit must not be nil")
 	}
 
 	db, err := d.openDB(ctx, dbPath)
 	if err != nil {
-		return xerrors.Errorf("コマンド監査保存用の DB オープンに失敗しました: %w", err)
+		return xerrors.Errorf("failed to open DB for command audit save: %w", err)
 	}
 	defer func() { _ = db.Close() }()
 
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return xerrors.Errorf("コマンド監査保存トランザクション開始に失敗しました: %w", err)
+		return xerrors.Errorf("failed to begin command audit transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
@@ -50,7 +50,7 @@ func (d *Datasource) SaveCommandAudit(
 		event.Body(),
 		formatTimestamp(event.CreatedAt()),
 	); err != nil {
-		return xerrors.Errorf("イベントの INSERT に失敗しました: %w", err)
+		return xerrors.Errorf("failed to insert event: %w", err)
 	}
 
 	if _, err := tx.ExecContext(
@@ -64,11 +64,11 @@ func (d *Datasource) SaveCommandAudit(
 		commandAudit.InputTruncated(),
 		commandAudit.OutputTruncated(),
 	); err != nil {
-		return xerrors.Errorf("コマンド監査情報の INSERT に失敗しました: %w", err)
+		return xerrors.Errorf("failed to insert command audit: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
-		return xerrors.Errorf("コマンド監査保存トランザクションの commit に失敗しました: %w", err)
+		return xerrors.Errorf("failed to commit command audit transaction: %w", err)
 	}
 
 	return nil

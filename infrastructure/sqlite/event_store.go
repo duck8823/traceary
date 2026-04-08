@@ -14,15 +14,15 @@ import (
 
 var _ queryservice.RecentEventFinder = (*Datasource)(nil)
 
-// Save はイベントを保存します。
+// Save persists an event.
 func (d *Datasource) Save(ctx context.Context, dbPath string, event *model.Event) error {
 	if event == nil {
-		return xerrors.Errorf("イベントは nil にできません")
+		return xerrors.Errorf("event must not be nil")
 	}
 
 	db, err := d.openDB(ctx, dbPath)
 	if err != nil {
-		return xerrors.Errorf("イベント保存用の DB オープンに失敗しました: %w", err)
+		return xerrors.Errorf("failed to open DB for event save: %w", err)
 	}
 	defer func() { _ = db.Close() }()
 
@@ -39,28 +39,28 @@ func (d *Datasource) Save(ctx context.Context, dbPath string, event *model.Event
 		event.Body(),
 		formatTimestamp(event.CreatedAt()),
 	); err != nil {
-		return xerrors.Errorf("イベントの INSERT に失敗しました: %w", err)
+		return xerrors.Errorf("failed to insert event: %w", err)
 	}
 
 	return nil
 }
 
-// ListRecent は新しい順にイベントを返します。
+// ListRecent returns events in descending time order.
 func (d *Datasource) ListRecent(
 	ctx context.Context,
 	dbPath string,
 	input queryservice.ListRecentEventsInput,
 ) ([]*model.Event, error) {
 	if input.Limit <= 0 {
-		return nil, xerrors.Errorf("limit は 1 以上である必要があります")
+		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
 	}
 	if input.Offset < 0 {
-		return nil, xerrors.Errorf("offset は 0 以上である必要があります")
+		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
 	}
 
 	db, err := d.openDB(ctx, dbPath)
 	if err != nil {
-		return nil, xerrors.Errorf("イベント一覧取得用の DB オープンに失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to open DB for event listing: %w", err)
 	}
 	defer func() { _ = db.Close() }()
 
@@ -74,7 +74,7 @@ func (d *Datasource) ListRecent(
 		input.Offset,
 	)
 	if err != nil {
-		return nil, xerrors.Errorf("イベント一覧クエリに失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to query recent events: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -82,12 +82,12 @@ func (d *Datasource) ListRecent(
 	for rows.Next() {
 		event, err := d.scanEvent(rows)
 		if err != nil {
-			return nil, xerrors.Errorf("イベント行の復元に失敗しました: %w", err)
+			return nil, xerrors.Errorf("failed to restore event row: %w", err)
 		}
 		events = append(events, event)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, xerrors.Errorf("イベント一覧の走査に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to iterate recent event rows: %w", err)
 	}
 
 	return events, nil
@@ -117,7 +117,7 @@ func (d *Datasource) scanEvent(rowScanner interface {
 		&bodyValue,
 		&createdAtValue,
 	); err != nil {
-		return nil, xerrors.Errorf("イベント行の scan に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to scan event row: %w", err)
 	}
 
 	return d.restoreEvent(
@@ -144,23 +144,23 @@ func (d *Datasource) restoreEvent(
 ) (*model.Event, error) {
 	eventID, err := types.EventIDOf(eventIDValue)
 	if err != nil {
-		return nil, xerrors.Errorf("event ID の復元に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to restore event ID: %w", err)
 	}
 	eventKind, err := types.EventKindOf(eventKindValue)
 	if err != nil {
-		return nil, xerrors.Errorf("event kind の復元に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to restore event kind: %w", err)
 	}
 	agent, err := types.AgentOf(agentValue)
 	if err != nil {
-		return nil, xerrors.Errorf("agent の復元に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to restore agent: %w", err)
 	}
 	sessionID, err := types.SessionIDOf(sessionIDValue)
 	if err != nil {
-		return nil, xerrors.Errorf("session ID の復元に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to restore session ID: %w", err)
 	}
 	createdAt, err := time.Parse(time.RFC3339Nano, createdAtValue)
 	if err != nil {
-		return nil, xerrors.Errorf("作成時刻の復元に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to restore created_at: %w", err)
 	}
 
 	return model.EventOf(
@@ -182,7 +182,7 @@ func formatTimestamp(timestamp time.Time) string {
 func (d *Datasource) openDB(ctx context.Context, dbPath string) (_ *sql.DB, err error) {
 	db, err := sql.Open("sqlite", sqliteDSN(dbPath))
 	if err != nil {
-		return nil, xerrors.Errorf("SQLite 接続の初期化に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to initialize SQLite connection: %w", err)
 	}
 	defer func() {
 		if err != nil {
@@ -191,7 +191,7 @@ func (d *Datasource) openDB(ctx context.Context, dbPath string) (_ *sql.DB, err 
 	}()
 
 	if err := db.PingContext(ctx); err != nil {
-		return nil, xerrors.Errorf("SQLite への接続確認に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to ping SQLite DB: %w", err)
 	}
 
 	return db, nil

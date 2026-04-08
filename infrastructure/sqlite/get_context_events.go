@@ -12,7 +12,7 @@ import (
 
 var _ queryservice.ContextEventFinder = (*Datasource)(nil)
 
-// GetContextEvents は指定文脈に一致するイベントを新しい順に返します。
+// GetContextEvents returns events matching the requested context in descending time order.
 func (d *Datasource) GetContextEvents(
 	ctx context.Context,
 	dbPath string,
@@ -20,7 +20,7 @@ func (d *Datasource) GetContextEvents(
 ) ([]*model.Event, error) {
 	db, err := d.openDB(ctx, dbPath)
 	if err != nil {
-		return nil, xerrors.Errorf("文脈取得用の DB オープンに失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to open DB for context lookup: %w", err)
 	}
 	defer func() { _ = db.Close() }()
 
@@ -41,7 +41,7 @@ func (d *Datasource) GetContextEvents(
 		input.Limit,
 	)
 	if err != nil {
-		return nil, xerrors.Errorf("文脈イベント一覧クエリに失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to query context events: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -49,12 +49,12 @@ func (d *Datasource) GetContextEvents(
 	for rows.Next() {
 		event, err := d.scanEvent(rows)
 		if err != nil {
-			return nil, xerrors.Errorf("文脈イベント行の復元に失敗しました: %w", err)
+			return nil, xerrors.Errorf("failed to restore context event row: %w", err)
 		}
 		events = append(events, event)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, xerrors.Errorf("文脈イベント一覧の走査に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to iterate context event rows: %w", err)
 	}
 
 	return events, nil
