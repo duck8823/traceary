@@ -1,0 +1,13 @@
+description = "Run the Traceary doctor flow for Gemini CLI and summarize the result."
+prompt = """
+Diagnose the current Traceary + Gemini CLI setup.
+
+Run `traceary doctor --client gemini --json` first when possible.
+Summarize the result in this order:
+1. failing checks
+2. warnings
+3. passing checks worth mentioning
+
+When the JSON output includes a DB path, hook script location, or Gemini config status, include those details in the summary.
+Recommend the smallest next action at the end.
+"""
