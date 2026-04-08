@@ -1,0 +1,54 @@
+version: 2
+
+project_name: traceary
+
+builds:
+  - id: traceary
+    binary: traceary
+    main: .
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - >-
+        -s -w
+        -X main.version={{ .Version }}
+        -X main.commit={{ .FullCommit }}
+        -X main.date={{ .Date }}
+
+archives:
+  - id: binaries
+    ids:
+      - traceary
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - LICENSE
+      - README.md
+      - README.ja.md
+      - CHANGELOG.md
+      - CHANGELOG.ja.md
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ .Version }}-next"
+
+release:
+  github:
+    owner: duck8823
+    name: traceary
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^chore:'
+      - '^test:'

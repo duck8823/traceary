@@ -2,3 +2,4 @@ traceary
 *.db
 *.sqlite
 .DS_Store
+dist/
