@@ -8,21 +8,21 @@ import (
 	"github.com/duck8823/traceary/domain/model"
 )
 
-// ListRecentEventsInput は直近イベント一覧取得の入力です。
+// ListRecentEventsInput is the input for recent event listing.
 type ListRecentEventsInput struct {
 	Limit  int
 	Offset int
 }
 
-// RecentEventFinder は直近イベント一覧の取得を提供します。
+// RecentEventFinder provides recent event lookup.
 type RecentEventFinder interface {
-	// ListRecent は新しい順にイベントを取得します。
+	// ListRecent returns events in descending time order.
 	ListRecent(ctx context.Context, dbPath string, input ListRecentEventsInput) ([]*model.Event, error)
 }
 
-// ListRecentEventsQueryService は直近イベント一覧を返すクエリサービスです。
+// ListRecentEventsQueryService returns recent events.
 type ListRecentEventsQueryService interface {
-	// Run は直近イベント一覧を返します。
+	// Run executes the recent event query.
 	Run(ctx context.Context, dbPath string, input ListRecentEventsInput) ([]*model.Event, error)
 }
 
@@ -30,33 +30,33 @@ type listRecentEventsQueryService struct {
 	recentEventFinder RecentEventFinder
 }
 
-// NewListRecentEventsQueryService は直近イベント一覧クエリサービスを生成します。
+// NewListRecentEventsQueryService creates a ListRecentEventsQueryService.
 func NewListRecentEventsQueryService(recentEventFinder RecentEventFinder) ListRecentEventsQueryService {
 	return &listRecentEventsQueryService{recentEventFinder: recentEventFinder}
 }
 
-// Run は直近イベント一覧を返します。
+// Run executes the recent event query.
 func (s *listRecentEventsQueryService) Run(
 	ctx context.Context,
 	dbPath string,
 	input ListRecentEventsInput,
 ) ([]*model.Event, error) {
 	if s.recentEventFinder == nil {
-		return nil, xerrors.Errorf("直近イベント取得元が設定されていません")
+		return nil, xerrors.Errorf("recent event finder is not configured")
 	}
 	if dbPath == "" {
-		return nil, xerrors.Errorf("DB パスは空にできません")
+		return nil, xerrors.Errorf("DB path must not be empty")
 	}
 	if input.Limit <= 0 {
-		return nil, xerrors.Errorf("limit は 1 以上である必要があります")
+		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
 	}
 	if input.Offset < 0 {
-		return nil, xerrors.Errorf("offset は 0 以上である必要があります")
+		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
 	}
 
 	events, err := s.recentEventFinder.ListRecent(ctx, dbPath, input)
 	if err != nil {
-		return nil, xerrors.Errorf("直近イベントの取得に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to list recent events: %w", err)
 	}
 
 	return events, nil

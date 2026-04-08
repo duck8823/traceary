@@ -8,7 +8,7 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-// CommandAudit はコマンド実行の詳細監査情報です。
+// CommandAudit holds detailed audit information for a command execution.
 type CommandAudit struct {
 	eventID         types.EventID
 	command         string
@@ -20,7 +20,7 @@ type CommandAudit struct {
 	outputRedacted  bool
 }
 
-// NewCommandAudit は新しい CommandAudit を生成します。
+// NewCommandAudit creates a new CommandAudit.
 func NewCommandAudit(
 	eventID types.EventID,
 	command string,
@@ -31,7 +31,7 @@ func NewCommandAudit(
 ) (*CommandAudit, error) {
 	trimmedCommand := strings.TrimSpace(command)
 	if trimmedCommand == "" {
-		return nil, xerrors.Errorf("command は空にできません")
+		return nil, xerrors.Errorf("command must not be empty")
 	}
 
 	return &CommandAudit{
@@ -44,7 +44,7 @@ func NewCommandAudit(
 	}, nil
 }
 
-// CommandAuditOf は復元用に CommandAudit を生成します。
+// CommandAuditOf restores a CommandAudit from persisted values.
 func CommandAuditOf(
 	eventID types.EventID,
 	command string,
@@ -63,25 +63,25 @@ func CommandAuditOf(
 	}
 }
 
-// EventID は紐づくイベント ID を返します。
+// EventID returns the linked event ID.
 func (a *CommandAudit) EventID() types.EventID { return a.eventID }
 
-// Command は実行コマンドを返します。
+// Command returns the executed command.
 func (a *CommandAudit) Command() string { return a.command }
 
-// Input はコマンド入力を返します。
+// Input returns the command input payload.
 func (a *CommandAudit) Input() string { return a.input }
 
-// Output はコマンド出力を返します。
+// Output returns the command output payload.
 func (a *CommandAudit) Output() string { return a.output }
 
-// InputTruncated は入力が切り詰められたかを返します。
+// InputTruncated reports whether input was truncated.
 func (a *CommandAudit) InputTruncated() bool { return a.inputTruncated }
 
-// OutputTruncated は出力が切り詰められたかを返します。
+// OutputTruncated reports whether output was truncated.
 func (a *CommandAudit) OutputTruncated() bool { return a.outputTruncated }
 
-// SetRedaction は capture 時に redaction されたかを設定します。
+// SetRedaction sets whether redaction was applied during capture.
 func (a *CommandAudit) SetRedaction(inputRedacted bool, outputRedacted bool) {
 	if a == nil {
 		return
@@ -91,8 +91,8 @@ func (a *CommandAudit) SetRedaction(inputRedacted bool, outputRedacted bool) {
 	a.outputRedacted = outputRedacted
 }
 
-// InputRedacted は入力に redaction が適用されたかを返します。
+// InputRedacted reports whether input redaction was applied.
 func (a *CommandAudit) InputRedacted() bool { return a.inputRedacted }
 
-// OutputRedacted は出力に redaction が適用されたかを返します。
+// OutputRedacted reports whether output redaction was applied.
 func (a *CommandAudit) OutputRedacted() bool { return a.outputRedacted }
