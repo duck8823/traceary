@@ -1,0 +1,315 @@
+package cli
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"strings"
+
+	"github.com/spf13/cobra"
+	"golang.org/x/xerrors"
+)
+
+const (
+	doctorStatusPass = "pass"
+	doctorStatusWarn = "warn"
+	doctorStatusFail = "fail"
+)
+
+type doctorCheck struct {
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+type doctorReport struct {
+	DBPath         string        `json:"db_path"`
+	HookScriptsDir string        `json:"hook_scripts_dir,omitempty"`
+	Clients        []string      `json:"clients"`
+	Checks         []doctorCheck `json:"checks"`
+}
+
+func (c *RootCLI) newDoctorCommand() *cobra.Command {
+	var (
+		dbPath     string
+		client     string
+		projectDir string
+		asJSON     bool
+	)
+
+	doctorCmd := &cobra.Command{
+		Use:     "doctor",
+		Aliases: []string{"status"},
+		Short:   Localize("Diagnose Traceary DB and hooks configuration", "Traceary の DB と hooks 設定を診断する"),
+		Args:    noArgsJP(),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return c.runDoctor(cmd.Context(), cmd.OutOrStdout(), doctorCommandInput{
+				dbPath:     dbPath,
+				client:     client,
+				projectDir: projectDir,
+				asJSON:     asJSON,
+			})
+		},
+	}
+	doctorCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
+	doctorCmd.Flags().StringVar(&client, "client", "", hooksClientFlagUsage)
+	doctorCmd.Flags().StringVar(&projectDir, "project-dir", "", Localize("project directory used for client config checks", "client 設定チェックに使う project directory"))
+	doctorCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
+
+	return doctorCmd
+}
+
+type doctorCommandInput struct {
+	dbPath     string
+	client     string
+	projectDir string
+	asJSON     bool
+}
+
+func (c *RootCLI) runDoctor(ctx context.Context, output io.Writer, input doctorCommandInput) error {
+	if c.initializeStoreUsecase == nil {
+		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+	}
+
+	report, err := c.buildDoctorReport(ctx, input)
+	if err != nil {
+		return err
+	}
+	if err := writeDoctorReport(output, report, input.asJSON); err != nil {
+		return err
+	}
+	if reportHasFailures(report) {
+		return xerrors.Errorf(Localize("doctor found failing checks", "doctor で失敗したチェックがあります"))
+	}
+
+	return nil
+}
+
+func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInput) (*doctorReport, error) {
+	resolvedClients, err := resolveDoctorClients(input.client)
+	if err != nil {
+		return nil, err
+	}
+
+	report := &doctorReport{
+		Clients: resolvedClients,
+		Checks:  make([]doctorCheck, 0, 8),
+	}
+
+	resolvedDBPath, err := resolveDBPath(input.dbPath)
+	if err != nil {
+		report.Checks = append(report.Checks, doctorCheck{
+			Name:    "db-path",
+			Status:  doctorStatusFail,
+			Message: localizef("failed to resolve DB path: %v", "DB パスの解決に失敗しました: %v", err),
+		})
+		return report, nil
+	}
+	report.DBPath = resolvedDBPath
+	report.Checks = append(report.Checks, doctorCheck{
+		Name:    "db-path",
+		Status:  doctorStatusPass,
+		Message: localizef("resolved DB path: %s", "解決した DB パス: %s", resolvedDBPath),
+	})
+
+	if err := c.initializeStoreUsecase.Run(ctx, resolvedDBPath); err != nil {
+		report.Checks = append(report.Checks, doctorCheck{
+			Name:    "db-write",
+			Status:  doctorStatusFail,
+			Message: localizef("failed to initialize the SQLite store: %v", "SQLite ストアの初期化に失敗しました: %v", err),
+		})
+	} else {
+		report.Checks = append(report.Checks, doctorCheck{
+			Name:    "db-write",
+			Status:  doctorStatusPass,
+			Message: localizef("initialized SQLite store: %s", "SQLite ストアを初期化しました: %s", resolvedDBPath),
+		})
+	}
+
+	hookScriptsDir, err := ensureHookScriptsInstalled()
+	if err != nil {
+		report.Checks = append(report.Checks, doctorCheck{
+			Name:    "hook-scripts",
+			Status:  doctorStatusFail,
+			Message: localizef("failed to prepare hook scripts: %v", "hook script の準備に失敗しました: %v", err),
+		})
+	} else {
+		report.HookScriptsDir = hookScriptsDir
+		report.Checks = append(report.Checks, doctorCheck{
+			Name:    "hook-scripts",
+			Status:  doctorStatusPass,
+			Message: localizef("hook scripts are available: %s", "hook script を利用できます: %s", hookScriptsDir),
+		})
+	}
+
+	resolvedProjectDir, err := resolveHooksProjectDir(input.projectDir)
+	if err != nil {
+		report.Checks = append(report.Checks, doctorCheck{
+			Name:    "project-dir",
+			Status:  doctorStatusFail,
+			Message: localizef("failed to resolve project directory: %v", "project directory の解決に失敗しました: %v", err),
+		})
+		return report, nil
+	}
+	report.Checks = append(report.Checks, doctorCheck{
+		Name:    "project-dir",
+		Status:  doctorStatusPass,
+		Message: localizef("resolved project directory: %s", "解決した project directory: %s", resolvedProjectDir),
+	})
+
+	strictClientCheck := strings.TrimSpace(input.client) != ""
+	for _, targetClient := range resolvedClients {
+		outputPath, pathErr := resolveHooksInstallOutputPath(targetClient, resolvedProjectDir, "")
+		if pathErr != nil {
+			report.Checks = append(report.Checks, doctorCheck{
+				Name:    targetClient + "-config",
+				Status:  doctorStatusFail,
+				Message: localizef("failed to resolve %s config path: %v", "%s の設定パス解決に失敗しました: %v", targetClient, pathErr),
+			})
+			continue
+		}
+
+		report.Checks = append(report.Checks, inspectDoctorConfigFile(targetClient, outputPath, strictClientCheck))
+	}
+
+	return report, nil
+}
+
+func resolveDoctorClients(client string) ([]string, error) {
+	if strings.TrimSpace(client) == "" {
+		return []string{"claude", "codex", "gemini"}, nil
+	}
+
+	resolvedClient, err := normalizeHooksClient(client)
+	if err != nil {
+		return nil, err
+	}
+
+	return []string{resolvedClient}, nil
+}
+
+func inspectDoctorConfigFile(client string, outputPath string, strict bool) doctorCheck {
+	content, err := os.ReadFile(outputPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			status := doctorStatusWarn
+			if strict {
+				status = doctorStatusFail
+			}
+			return doctorCheck{
+				Name:    client + "-config",
+				Status:  status,
+				Message: localizef("%s config file does not exist yet: %s", "%s の設定ファイルはまだ存在しません: %s", client, outputPath),
+			}
+		}
+
+		return doctorCheck{
+			Name:    client + "-config",
+			Status:  doctorStatusFail,
+			Message: localizef("failed to read %s config file: %v", "%s の設定ファイル読み込みに失敗しました: %v", client, err),
+		}
+	}
+
+	root := map[string]json.RawMessage{}
+	if err := json.Unmarshal(content, &root); err != nil {
+		return doctorCheck{
+			Name:    client + "-config",
+			Status:  doctorStatusFail,
+			Message: localizef("%s config file must be a JSON object: %s", "%s の設定ファイルは JSON object である必要があります: %s", client, outputPath),
+		}
+	}
+
+	hooksValue, ok := root["hooks"]
+	if !ok {
+		status := doctorStatusWarn
+		if strict {
+			status = doctorStatusFail
+		}
+		return doctorCheck{
+			Name:    client + "-config",
+			Status:  status,
+			Message: localizef("%s config does not contain a hooks field yet: %s", "%s の設定には hooks フィールドがまだありません: %s", client, outputPath),
+		}
+	}
+
+	hooksMap := map[string][]hookMatcher{}
+	if err := json.Unmarshal(hooksValue, &hooksMap); err != nil {
+		return doctorCheck{
+			Name:    client + "-config",
+			Status:  doctorStatusFail,
+			Message: localizef("%s hooks field must be an object of hook arrays: %s", "%s の hooks フィールドは hook 配列を値に持つ object である必要があります: %s", client, outputPath),
+		}
+	}
+
+	for _, matchers := range hooksMap {
+		for _, matcher := range matchers {
+			for _, hook := range matcher.Hooks {
+				if isTracearyManagedHookCommand(hook) {
+					return doctorCheck{
+						Name:    client + "-config",
+						Status:  doctorStatusPass,
+						Message: localizef("%s config contains Traceary-managed hooks: %s", "%s の設定には Traceary 管理下の hook があります: %s", client, outputPath),
+					}
+				}
+			}
+		}
+	}
+
+	status := doctorStatusWarn
+	if strict {
+		status = doctorStatusFail
+	}
+
+	return doctorCheck{
+		Name:    client + "-config",
+		Status:  status,
+		Message: localizef("%s config exists but no Traceary-managed hook was found: %s", "%s の設定はありますが Traceary 管理下の hook が見つかりません: %s", client, outputPath),
+	}
+}
+
+func writeDoctorReport(output io.Writer, report *doctorReport, asJSON bool) error {
+	if report == nil {
+		return xerrors.Errorf(Localize("doctor report must not be nil", "doctor report は nil にできません"))
+	}
+
+	if asJSON {
+		return writeJSON(output, report)
+	}
+
+	if _, err := fmt.Fprintln(output, "TRACEARY DOCTOR"); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print doctor header", "doctor ヘッダーの出力に失敗しました"), err)
+	}
+	if report.DBPath != "" {
+		if _, err := fmt.Fprintf(output, "DB_PATH: %s\n", report.DBPath); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print DB path", "DB パスの出力に失敗しました"), err)
+		}
+	}
+	if report.HookScriptsDir != "" {
+		if _, err := fmt.Fprintf(output, "HOOK_SCRIPTS_DIR: %s\n", report.HookScriptsDir); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print hook scripts directory", "hook script directory の出力に失敗しました"), err)
+		}
+	}
+	for _, check := range report.Checks {
+		if _, err := fmt.Fprintf(output, "[%s] %s: %s\n", strings.ToUpper(check.Status), check.Name, check.Message); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print doctor check", "doctor チェックの出力に失敗しました"), err)
+		}
+	}
+
+	return nil
+}
+
+func reportHasFailures(report *doctorReport) bool {
+	if report == nil {
+		return false
+	}
+
+	for _, check := range report.Checks {
+		if check.Status == doctorStatusFail {
+			return true
+		}
+	}
+
+	return false
+}

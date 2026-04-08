@@ -102,6 +102,16 @@ Default destinations:
 If the destination already exists, Traceary stops with an error instead of overwriting it. Review the diff first, then rerun with `--force` only when replacing the existing file is intentional.
 For supported JSON config files, `hooks install` first tries to merge Traceary-managed entries into the existing file while preserving unrelated settings. `--force` skips merge and replaces the file completely.
 
+## Troubleshooting
+
+Run `traceary doctor --client <claude|codex|gemini>` when hooks or the local SQLite store do not behave as expected.
+
+The diagnostic command checks:
+
+- DB path resolution and whether Traceary can initialize the store
+- hook script materialization and executability
+- the expected client config location and whether it already contains Traceary-managed hooks
+
 ### Claude Code
 
 1. Copy `examples/hooks/claude.settings.json` into `.claude/settings.json` and merge with existing settings.
