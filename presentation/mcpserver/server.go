@@ -35,6 +35,7 @@ type Server struct {
 	recordSessionBoundaryUsecase  usecase.RecordSessionBoundaryUsecase
 	recordCommandAuditUsecase     usecase.RecordCommandAuditUsecase
 	findLatestSessionQueryService queryservice.FindLatestSessionQueryService
+	listEventsQueryService        queryservice.ListRecentEventsQueryService
 	searchEventsQueryService      queryservice.SearchEventsQueryService
 	getContextQueryService        queryservice.GetContextQueryService
 }
@@ -47,6 +48,7 @@ func NewServer(
 	recordSessionBoundaryUsecase usecase.RecordSessionBoundaryUsecase,
 	recordCommandAuditUsecase usecase.RecordCommandAuditUsecase,
 	findLatestSessionQueryService queryservice.FindLatestSessionQueryService,
+	listEventsQueryService queryservice.ListRecentEventsQueryService,
 	searchEventsQueryService queryservice.SearchEventsQueryService,
 	getContextQueryService queryservice.GetContextQueryService,
 ) (*Server, error) {
@@ -64,6 +66,9 @@ func NewServer(
 	}
 	if findLatestSessionQueryService == nil {
 		return nil, xerrors.Errorf("直近セッションクエリサービスが設定されていません")
+	}
+	if listEventsQueryService == nil {
+		return nil, xerrors.Errorf("イベント一覧クエリサービスが設定されていません")
 	}
 	if searchEventsQueryService == nil {
 		return nil, xerrors.Errorf("検索クエリサービスが設定されていません")
@@ -85,6 +90,7 @@ func NewServer(
 		recordSessionBoundaryUsecase:  recordSessionBoundaryUsecase,
 		recordCommandAuditUsecase:     recordCommandAuditUsecase,
 		findLatestSessionQueryService: findLatestSessionQueryService,
+		listEventsQueryService:        listEventsQueryService,
 		searchEventsQueryService:      searchEventsQueryService,
 		getContextQueryService:        getContextQueryService,
 	}, nil
@@ -130,6 +136,11 @@ func (s *Server) Build(ctx context.Context, dbPath string) (*mcp.Server, error) 
 		Description: "条件に一致する現在 active な session を返します",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.activeSession(trimmedDBPath))
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "list_events",
+		Description: "Traceary の最近のイベントを一覧します",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+	}, s.listEvents(trimmedDBPath))
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "add_audit",
 		Description: "Traceary にコマンド監査イベントを追加します",
@@ -227,6 +238,11 @@ type addAuditOutput struct {
 	InputTruncated  bool   `json:"input_truncated" jsonschema:"入力が切り詰められたか"`
 	OutputTruncated bool   `json:"output_truncated" jsonschema:"出力が切り詰められたか"`
 	CreatedAt       string `json:"created_at" jsonschema:"イベント記録時刻 (RFC3339Nano)"`
+}
+
+type listEventsInput struct {
+	Limit  int `json:"limit,omitempty" jsonschema:"返却件数。省略時は 20"`
+	Offset int `json:"offset,omitempty" jsonschema:"先頭からスキップする件数。省略時は 0"`
 }
 
 type searchInput struct {
@@ -403,6 +419,20 @@ func (s *Server) addAudit(dbPath string) mcp.ToolHandlerFor[addAuditInput, addAu
 	}
 }
 
+func (s *Server) listEvents(dbPath string) mcp.ToolHandlerFor[listEventsInput, eventsOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, input listEventsInput) (*mcp.CallToolResult, eventsOutput, error) {
+		events, err := s.listEventsQueryService.Run(ctx, dbPath, queryservice.ListRecentEventsInput{
+			Limit:  resolveLimit(input.Limit, defaultSearchLimit),
+			Offset: resolveOffset(input.Offset),
+		})
+		if err != nil {
+			return nil, eventsOutput{}, xerrors.Errorf("イベント一覧の取得に失敗しました: %w", err)
+		}
+
+		return nil, eventsOutput{Events: convertEvents(events)}, nil
+	}
+}
+
 func newSessionEventOutput(event *model.Event) sessionEventOutput {
 	return sessionEventOutput{
 		EventID:   event.EventID().String(),
@@ -491,6 +521,14 @@ func resolveLimit(value int, defaultValue int) int {
 	}
 
 	return defaultValue
+}
+
+func resolveOffset(value int) int {
+	if value > 0 {
+		return value
+	}
+
+	return 0
 }
 
 func parseFlexibleTime(value string, endExclusive bool) (time.Time, error) {

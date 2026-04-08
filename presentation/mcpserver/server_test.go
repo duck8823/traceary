@@ -72,6 +72,23 @@ func TestServer_BuildAndTools(t *testing.T) {
 		if len(searchResult.Content) == 0 {
 			t.Fatalf("search result content is empty")
 		}
+
+		listResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "list_events",
+			Arguments: map[string]any{
+				"limit":  10,
+				"offset": 0,
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(list_events) error = %v", err)
+		}
+		if listResult.IsError {
+			t.Fatalf("CallTool(list_events) returned tool error")
+		}
+		if len(listResult.Content) == 0 {
+			t.Fatalf("list_events result content is empty")
+		}
 	})
 
 	t.Run("add_audit と get_context が動作する", func(t *testing.T) {
@@ -274,6 +291,7 @@ CREATE TABLE command_audits (
 		recordSessionBoundaryUsecase,
 		recordCommandAuditUsecase,
 		findLatestSessionQueryService,
+		queryservice.NewListRecentEventsQueryService(datasource),
 		searchEventsQueryService,
 		getContextQueryService,
 	)
