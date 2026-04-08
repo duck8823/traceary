@@ -59,6 +59,8 @@ Traceary v0.1 は、既存の `traceary session ...` / `traceary audit ...` を 
 - `input`: `tool_input` の compact JSON
 - `output`: `tool_response` の compact JSON、失敗時は `{error, is_interrupt}`
 
+`input` / `output` に含まれる secret っぽい値は、SQLite に書き込む前に既定で伏せ字化されます。これは完全保証ではなく、best-effort の保護です。
+
 次の場合、script は何も記録せず成功終了します。
 
 - `traceary` が入っていない

@@ -59,6 +59,8 @@ The resolved session ID is persisted in a per-process state file so later audit 
 - `input`: compact JSON of `tool_input`
 - `output`: compact JSON of `tool_response`, or `{error, is_interrupt}` for failure payloads
 
+Secret-like values inside `input` / `output` are redacted by default before they are written to SQLite. Traceary treats this as best-effort protection, not a complete guarantee.
+
 The script exits successfully without recording anything when:
 
 - `traceary` is not installed

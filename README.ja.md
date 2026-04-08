@@ -170,6 +170,8 @@ MCP integration: [`docs/mcp/README.ja.md`](./docs/mcp/README.ja.md)
 
 `traceary audit` は既定で input/output をそれぞれ `64 KiB` まで保存します。より厳しくしたい場合は `--max-input-bytes`, `--max-output-bytes`, `TRACEARY_MAX_AUDIT_INPUT_BYTES`, `TRACEARY_MAX_AUDIT_OUTPUT_BYTES` を使ってください。切り詰めが発生したときは CLI に通知を出します。
 
+`traceary audit` は SQLite に書き込む前に、一般的な secret っぽい値（例: `Authorization:` header、`TOKEN=...`、JSON の `access_token`、private key block）も既定で伏せ字化します。これは完全な DLP ではなく best-effort の保護です。raw payload を意図的に残したい場合だけ `--allow-secrets` または `TRACEARY_ALLOW_SECRETS=true` を使ってください。
+
 CLI の失敗は stderr に plain text の `Error: ...` 形式で出力されます。hooks や shell script から JSON ログを剥がさず扱えるようにするためです。
 
 ## ライセンス
