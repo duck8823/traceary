@@ -20,7 +20,9 @@ Traceary v0.1 は、既存の `traceary session ...` / `traceary audit ...` を 
 
 - `traceary` が `PATH` にある、または `TRACEARY_BIN` が binary を指している
 - `git` は任意。ある場合は `remote.origin.url` を Traceary の `repo` field に正規化し、無い場合は hook の `cwd` を使う
+- 生成される portable script は `#!/usr/bin/env bash` を使うため、`bash` が必要です
 - 現在の hook 例は shell ベースの client を前提にしているため、Unix 系環境を想定しています
+- Windows の PowerShell / `cmd.exe` workflow はまだ正式対応していません。Windows で hooks を使う場合は、WSL などの POSIX 互換環境を使ってください
 
 ## 共通環境変数
 

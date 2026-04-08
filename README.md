@@ -8,6 +8,8 @@
 
 [Contributing](./CONTRIBUTING.md)
 
+[Security policy](./SECURITY.md)
+
 [MCP guide](./docs/mcp/README.md)
 
 [Release guide](./docs/release/README.md)
@@ -50,6 +52,14 @@ go install github.com/duck8823/traceary@latest
 
 Tagged releases publish macOS and Linux archives on GitHub Releases.
 See [`docs/release/README.md`](./docs/release/README.md) for the release flow and local snapshot builds.
+
+## Platform support
+
+- prebuilt release archives are published for macOS and Linux
+- the core CLI and `traceary mcp-server` are actively tested on macOS and Linux
+- other Go-supported Unix-like environments may work via `go install`, but they are not part of the current support promise
+- hooks currently target bash-based Unix-like environments; native Windows PowerShell / `cmd.exe` workflows are not supported today
+- if you need Windows today, use WSL or another POSIX-compatible environment
 
 ## CLI language
 
@@ -135,15 +145,22 @@ What changes after this:
 Current core commands:
 
 ```sh
+traceary init
 traceary log <message>
 traceary audit <command> <input> <output>
 traceary search <query>
 traceary list
+traceary context
+traceary handoff
 traceary session start
 traceary session end
 traceary session latest
 traceary session active
 traceary show <event-id>
+traceary doctor
+traceary hooks print --client <claude|codex|gemini>
+traceary hooks install --client <claude|codex|gemini>
+traceary mcp-server
 traceary gc
 ```
 

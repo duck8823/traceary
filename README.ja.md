@@ -8,6 +8,8 @@
 
 [コントリビューション](./CONTRIBUTING.ja.md)
 
+[セキュリティポリシー](./SECURITY.ja.md)
+
 [MCP ガイド](./docs/mcp/README.ja.md)
 
 [リリースガイド](./docs/release/README.ja.md)
@@ -50,6 +52,14 @@ go install github.com/duck8823/traceary@latest
 
 タグ付き release では macOS / Linux 向け archive を GitHub Releases に公開します。
 release 導線とローカル snapshot build は [`docs/release/README.ja.md`](./docs/release/README.ja.md) を参照してください。
+
+## 対応プラットフォーム
+
+- 事前ビルド済み release archive は macOS / Linux 向けに公開します
+- core CLI と `traceary mcp-server` は macOS / Linux で継続的に検証しています
+- `go install` によって他の Go 対応 Unix 系環境でも動く可能性はありますが、現時点の support promise には含めていません
+- hooks は bash ベースの Unix 系環境を前提にしており、Windows の PowerShell / `cmd.exe` workflow はまだ正式対応していません
+- Windows で使う場合は、現時点では WSL などの POSIX 互換環境を推奨します
 
 ## CLI 言語
 
@@ -135,15 +145,22 @@ session-1ceee1eaa50a31687cfdb2c8a6fcc85d
 現時点の主要コマンド:
 
 ```sh
+traceary init
 traceary log <message>
 traceary audit <command> <input> <output>
 traceary search <query>
 traceary list
+traceary context
+traceary handoff
 traceary session start
 traceary session end
 traceary session latest
 traceary session active
 traceary show <event-id>
+traceary doctor
+traceary hooks print --client <claude|codex|gemini>
+traceary hooks install --client <claude|codex|gemini>
+traceary mcp-server
 traceary gc
 ```
 
