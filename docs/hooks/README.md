@@ -6,6 +6,8 @@ Traceary v0.1 can ingest session boundaries and shell-command audits from Claude
 
 Current generated hook configs merge into existing supported client config files when possible, so adding Traceary hooks does not require destructive replacement by default.
 
+If you want host-native packages instead of manual hook wiring, start with the [native integrations guide](../integrations/README.md).
+
 ## Files
 
 - `scripts/hooks/traceary-session.sh`: records session start/end boundaries
