@@ -162,7 +162,9 @@ func run() error {
 		metadata.version,
 		initializeStoreUsecase,
 		recordLogUsecase,
+		recordSessionBoundaryUsecase,
 		recordCommandAuditUsecase,
+		findLatestSessionQueryService,
 		searchEventsQueryService,
 		getContextQueryService,
 	)
