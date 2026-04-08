@@ -193,7 +193,7 @@ type sessionLookupInput struct {
 	Agent             string `json:"agent,omitempty" jsonschema:"作業主体で絞り込む"`
 	Repo              string `json:"repo,omitempty" jsonschema:"補助的な work context 識別子で絞り込む"`
 	AllowStale        bool   `json:"allow_stale,omitempty" jsonschema:"stale な active session も返す"`
-	StaleAfterSeconds int    `json:"stale_after_seconds,omitempty" jsonschema:"この秒数を超える active session を stale 扱いにする。省略時は 86400"`
+	StaleAfterSeconds int    `json:"stale_after_seconds,omitempty" jsonschema:"この秒数を超える active session を stale 扱いにする。0 または省略時は 86400"`
 }
 
 type sessionEventOutput struct {
@@ -295,7 +295,7 @@ func (s *Server) startSession(dbPath string) mcp.ToolHandlerFor[sessionBoundaryI
 			DefaultAgent:  defaultAgentValue,
 			SessionID:     strings.TrimSpace(input.SessionID),
 			Repo:          strings.TrimSpace(input.Repo),
-			DefaultRepo:   strings.TrimSpace(input.Repo),
+			DefaultRepo:   "",
 			Kind:          types.EventKindSessionStarted,
 		})
 		if err != nil {
@@ -321,7 +321,7 @@ func (s *Server) endSession(dbPath string) mcp.ToolHandlerFor[sessionBoundaryInp
 			DefaultAgent:  defaultAgentValue,
 			SessionID:     sessionID,
 			Repo:          strings.TrimSpace(input.Repo),
-			DefaultRepo:   strings.TrimSpace(input.Repo),
+			DefaultRepo:   "",
 			Kind:          types.EventKindSessionEnded,
 		})
 		if err != nil {

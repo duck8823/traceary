@@ -108,7 +108,7 @@ Inputs:
 - `agent`
 - `repo`
 - `allow_stale`（既定: `false`）
-- `stale_after_seconds`（既定: `86400`）
+- `stale_after_seconds`（`0` または省略時は既定の `86400`）
 
 ### `add_log`
 

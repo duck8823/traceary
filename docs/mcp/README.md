@@ -108,7 +108,7 @@ Inputs:
 - `agent`
 - `repo`
 - `allow_stale` (default: `false`)
-- `stale_after_seconds` (default: `86400`)
+- `stale_after_seconds` (`0` or omitted uses the default `86400`)
 
 ### `add_log`
 
