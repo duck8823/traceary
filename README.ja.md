@@ -14,6 +14,8 @@
 
 [バックアップガイド](./docs/backup/README.ja.md)
 
+[ストレージモデル](./docs/storage/README.ja.md)
+
 [リリースガイド](./docs/release/README.ja.md)
 
 [CLI リファレンス](./docs/cli/README.ja.md)
@@ -233,6 +235,8 @@ Environment variables and runtime assumptions: [`docs/environment/README.ja.md`]
 MCP integration: [`docs/mcp/README.ja.md`](./docs/mcp/README.ja.md)
 
 バックアップとマシン移行: [`docs/backup/README.ja.md`](./docs/backup/README.ja.md)
+
+ストレージモデル、schema、GC 既定値: [`docs/storage/README.ja.md`](./docs/storage/README.ja.md)
 
 すべてのコマンドは SQLite path を `--db-path` → `TRACEARY_DB_PATH` → `~/.config/traceary/traceary.db` の順で解決します。
 
