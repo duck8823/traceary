@@ -53,7 +53,7 @@ Traceary は `traceary --version` で version metadata を表示します。
 
 `.github/workflows/release.yml` は `v*` tag push で起動し、公式 GoReleaser GitHub Action を呼び出します。
 
-この workflow は次を行います。
+このワークフローでは次を行います。
 
 1. git history を完全取得する
 2. Go をセットアップする
@@ -61,11 +61,11 @@ Traceary は `traceary --version` で version metadata を表示します。
 4. tag release のときに GitHub Releases へ成果物とチェックサムを公開する
 5. Homebrew 向けに `main` branch の `Formula/traceary.rb` を更新する
 
-`workflow_dispatch` は主に branch 上でパイプラインを dry-run するためのものです。実際に公開リリースしたい場合は `v*` tag を push するか、tag ref を指定して手動実行してください。
+`workflow_dispatch` は主にブランチ上でパイプラインを dry-run するためのものです。実際に公開リリースしたい場合は `v*` tag を push するか、tag ref を指定して手動実行してください。
 
 Homebrew formula は repository 直下の `Formula/` に置き、GoReleaser が自動生成します。手動編集は前提にしません。
 
-この Homebrew step は、release workflow が `main` へ push できることを前提にしています。将来、bot の直接 push を禁止する branch protection を追加した場合は、次の tag を出す前に GoReleaser の brew target を見直してください。
+この Homebrew step は、release ワークフローが `main` へ push できることを前提にしています。将来、bot の直接 push を禁止する ブランチ保護 を追加した場合は、次の tag を出す前に GoReleaser の brew target を見直してください。
 
 ## ローカル snapshot build
 

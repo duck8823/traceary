@@ -41,7 +41,7 @@
 - release archive も現状は macOS / Linux 向けです
 - hooks は現在 `bash` と Unix-like shell semantics を前提にしています
 - `git` は任意です。使える場合、hook script は `remote.origin.url` を保存用の `repo` field に正規化します
-- Windows の native PowerShell / `cmd.exe` hook workflow はまだ正式対応していません。Windows で hooks を使う場合は WSL などの POSIX 互換環境を使ってください
+- Windows の native PowerShell / `cmd.exe` 向け hook 実行はまだ正式対応していません。Windows で hooks を使う場合は WSL などの POSIX 互換環境を使ってください
 
 ## Privacy posture
 

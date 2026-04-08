@@ -25,7 +25,7 @@ Traceary は、process 間調停を SQLite 自身に委ねています。
 
 - 1 台のマシンで数本の並列 AI session を回す用途はスコープ内
 - 同じ DB path に対する極端に高い write volume は、現時点で tuning 対象ではない
-- SQLite lock error が繰り返し出る場合は、並列 writer を減らす、workflow ごとに DB path を分ける、競合 process が終わってから再実行する、の順で対処してください
+- SQLite lock error が繰り返し出る場合は、並列 writer を減らす、作業フローごとに DB path を分ける、競合 process が終わってから再実行する、の順で対処してください
 
 ## Hook session state の前提
 
@@ -76,7 +76,7 @@ session end の精度が重要なら、明示的な end hook を持つ client in
 現在 support している範囲:
 
 - 1 台のマシン
-- workflow / project group ごとに使う 1 つの local SQLite file
+- 作業フロー / project group ごとに使う 1 つの local SQLite file
 - write volume が常識的な範囲の複数 human / AI session
 
 動く可能性はあるが積極的には tuning していない範囲:
@@ -88,7 +88,7 @@ session end の精度が重要なら、明示的な end hook を持つ client in
 ## 推奨 mitigation
 
 1. hook generation を疑う前に `traceary doctor` を使う
-2. 複数 workflow で DB を分けたい場合は `TRACEARY_DB_PATH` を明示する
+2. 複数の作業フローで DB を分けたい場合は `TRACEARY_DB_PATH` を明示する
 3. PPID grouping が不安定なら `TRACEARY_HOOK_STATE_KEY` を明示する
 4. risky cleanup や手動調査の前に `traceary backup create` を実行する
 5. best-effort session-end hook に依存する場合は、自分たちの team automation に client 固有注意点を明記する

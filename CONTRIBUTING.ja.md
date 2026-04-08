@@ -7,12 +7,12 @@ Traceary へのコントリビュートありがとうございます。
 
 ## ローカルセットアップ
 
-`go.mod` に記載している Go バージョンを使い、リポジトリを clone して `main` から切った作業ブランチで進めてください。
+`go.mod` に記載している Go バージョンを使い、リポジトリを clone し、`main` から切った作業ブランチで進めてください。
 
 ```sh
 git clone https://github.com/duck8823/traceary.git
 cd traceary
-git switch -c your-topic-ブランチ
+git switch -c your-topic-branch
 ```
 
 ## よく使う検証コマンド

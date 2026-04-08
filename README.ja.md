@@ -6,8 +6,8 @@
   <img src="./docs/assets/traceary-mark.svg" alt="Traceary mark" width="120">
 </p>
 
-[![CI](https://github.com/duck8823/traceary/actions/手順s/ci.yml/badge.svg)](https://github.com/duck8823/traceary/actions/手順s/ci.yml)
-[![Release](https://github.com/duck8823/traceary/actions/手順s/release.yml/badge.svg)](https://github.com/duck8823/traceary/actions/手順s/release.yml)
+[![CI](https://github.com/duck8823/traceary/actions/workflows/ci.yml/badge.svg)](https://github.com/duck8823/traceary/actions/workflows/ci.yml)
+[![Release](https://github.com/duck8823/traceary/actions/workflows/release.yml/badge.svg)](https://github.com/duck8823/traceary/actions/workflows/release.yml)
 
 Traceary は、AI エージェントの作業ログ、セッション境界、シェルコマンド監査をローカルの SQLite に残して検索できる CLI / MCP サーバーです。
 
@@ -60,7 +60,7 @@ brew install traceary
 ### 1. セッションを開始してメモを残す
 
 ```sh
-sid=$(traceary セッション開始 --client dogfood --agent codex)
+sid=$(traceary session start --client dogfood --agent codex)
 event_id=$(traceary log --client dogfood --agent codex --session-id "$sid" --id-only "失敗したテストを調査している")
 traceary show "$event_id" --json
 ```
@@ -85,7 +85,7 @@ traceary session active
 ```sh
 traceary log --id-only "Investigating failing tests"
 traceary audit --id-only --command "go test ./..." --input '{}' --output '{}'
-traceary セッション終了 --session-id "$sid" --id-only
+traceary session end --session-id "$sid" --id-only
 ```
 
 ## 主なコマンド
@@ -99,8 +99,8 @@ traceary search <query>
 traceary show <event-id>
 traceary context
 traceary handoff
-traceary セッション開始
-traceary セッション終了
+traceary session start
+traceary session end
 traceary session latest
 traceary session active
 traceary hooks print --client <claude|codex|gemini>
@@ -109,7 +109,7 @@ traceary hooks guide --client <claude|codex|gemini>
 traceary mcp-server
 traceary doctor
 traceary backup create --output <path>
-traceary バックアップ復元 --input <path>
+traceary backup restore --input <path>
 traceary gc
 ```
 
@@ -117,7 +117,7 @@ traceary gc
 
 - `traceary log` / `traceary audit` で `--session-id` を省くと、解決できた repo / work context に対する最新の non-stale アクティブなセッション を優先して使います
 - `traceary session active` は既定で `24h` を超えたセッションを stale とみなします。必要なら `--allow-stale` を付けてください
-- `traceary セッション開始` はセッション ID を出力し、`traceary セッション終了` は記録した イベント ID を出力します
+- `traceary session start` はセッション ID を出力し、`traceary session end` は記録したイベント ID を出力します
 - CLI の通常メッセージは英語が既定です。日本語表示にしたい場合は `TRACEARY_LANG=ja` を指定してください
 - `--json` 出力は言語設定の影響を受けません
 
