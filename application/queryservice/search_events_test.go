@@ -70,6 +70,7 @@ func TestSearchEventsQueryService_Run(t *testing.T) {
 			Agent:     "codex",
 			Kind:      "note",
 			Limit:     10,
+			Offset:    3,
 		})
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
@@ -82,6 +83,9 @@ func TestSearchEventsQueryService_Run(t *testing.T) {
 		}
 		if stub.receivedInput.Kind != "note" {
 			t.Fatalf("received kind = %q, want %q", stub.receivedInput.Kind, "note")
+		}
+		if stub.receivedInput.Offset != 3 {
+			t.Fatalf("received offset = %d, want %d", stub.receivedInput.Offset, 3)
 		}
 		if len(got) != 1 {
 			t.Fatalf("len(events) = %d, want 1", len(got))
@@ -129,6 +133,21 @@ func TestSearchEventsQueryService_Run(t *testing.T) {
 			Query: "traceary",
 			Kind:  "unknown",
 			Limit: 10,
+		})
+		if err == nil {
+			t.Fatalf("Run() error = nil, want error")
+		}
+	})
+
+	t.Run("offset が負ならエラー", func(t *testing.T) {
+		t.Parallel()
+
+		sut := queryservice.NewSearchEventsQueryService(&eventSearcherStub{})
+
+		_, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.SearchEventsInput{
+			Query:  "traceary",
+			Limit:  10,
+			Offset: -1,
 		})
 		if err == nil {
 			t.Fatalf("Run() error = nil, want error")

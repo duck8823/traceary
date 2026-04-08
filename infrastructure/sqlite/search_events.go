@@ -53,7 +53,7 @@ func (d *Datasource) SearchEvents(
 		    AND (? = '' OR e.created_at >= ?)
 		    AND (? = '' OR e.created_at < ?)
 		  ORDER BY e.created_at DESC, e.id DESC
-		  LIMIT ?`,
+		  LIMIT ? OFFSET ?`,
 		queryValue,
 		likeQuery,
 		likeQuery,
@@ -74,6 +74,7 @@ func (d *Datasource) SearchEvents(
 		toValue,
 		toValue,
 		input.Limit,
+		input.Offset,
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("イベント検索クエリに失敗しました: %w", err)

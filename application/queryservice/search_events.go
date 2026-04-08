@@ -23,6 +23,7 @@ type SearchEventsInput struct {
 	From      time.Time
 	To        time.Time
 	Limit     int
+	Offset    int
 }
 
 // EventSearcher はイベント検索を提供します。
@@ -63,6 +64,9 @@ func (s *searchEventsQueryService) Run(
 	}
 	if input.Limit <= 0 {
 		return nil, xerrors.Errorf("limit は 1 以上である必要があります")
+	}
+	if input.Offset < 0 {
+		return nil, xerrors.Errorf("offset は 0 以上である必要があります")
 	}
 	if !input.From.IsZero() && !input.To.IsZero() && input.From.After(input.To) {
 		return nil, xerrors.Errorf("from は to より前である必要があります")

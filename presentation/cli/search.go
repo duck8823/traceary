@@ -25,6 +25,7 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 		to        string
 		until     string
 		limit     int
+		offset    int
 		asJSON    bool
 	)
 
@@ -49,6 +50,7 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 				to:        to,
 				until:     until,
 				limit:     limit,
+				offset:    offset,
 				query:     query,
 				asJSON:    asJSON,
 			})
@@ -73,6 +75,7 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 	searchCmd.Flags().StringVar(&to, "to", "", Localize("end date (`YYYY-MM-DD`)", "終了日 (`YYYY-MM-DD`)"))
 	searchCmd.Flags().StringVar(&until, "until", "", Localize("end date (`YYYY-MM-DD`) (alias for `--to`)", "終了日 (`YYYY-MM-DD`) (`--to` の別名)"))
 	searchCmd.Flags().IntVar(&limit, "limit", 20, Localize("maximum number of results", "表示件数"))
+	searchCmd.Flags().IntVar(&offset, "offset", 0, Localize("number of matching events to skip before returning results", "結果を返す前にスキップする件数"))
 	searchCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 
 	return searchCmd
@@ -90,6 +93,7 @@ type searchCommandInput struct {
 	to        string
 	until     string
 	limit     int
+	offset    int
 	query     string
 	asJSON    bool
 }
@@ -103,6 +107,9 @@ func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchC
 	}
 	if input.limit <= 0 {
 		return xerrors.Errorf(Localize("limit must be greater than or equal to 1", "limit は 1 以上である必要があります"))
+	}
+	if input.offset < 0 {
+		return xerrors.Errorf(Localize("offset must be greater than or equal to 0", "offset は 0 以上である必要があります"))
 	}
 
 	resolvedPath, err := resolveDBPath(input.dbPath)
@@ -151,6 +158,7 @@ func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchC
 		From:      fromTime,
 		To:        toTime,
 		Limit:     input.limit,
+		Offset:    input.offset,
 	})
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to search events", "検索に失敗しました"), err)

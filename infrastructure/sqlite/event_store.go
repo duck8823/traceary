@@ -46,9 +46,16 @@ func (d *Datasource) Save(ctx context.Context, dbPath string, event *model.Event
 }
 
 // ListRecent は新しい順にイベントを返します。
-func (d *Datasource) ListRecent(ctx context.Context, dbPath string, limit int) ([]*model.Event, error) {
-	if limit <= 0 {
+func (d *Datasource) ListRecent(
+	ctx context.Context,
+	dbPath string,
+	input queryservice.ListRecentEventsInput,
+) ([]*model.Event, error) {
+	if input.Limit <= 0 {
 		return nil, xerrors.Errorf("limit は 1 以上である必要があります")
+	}
+	if input.Offset < 0 {
+		return nil, xerrors.Errorf("offset は 0 以上である必要があります")
 	}
 
 	db, err := d.openDB(ctx, dbPath)
@@ -62,15 +69,16 @@ func (d *Datasource) ListRecent(ctx context.Context, dbPath string, limit int) (
 		`SELECT id, kind, client, agent, session_id, repo, body, created_at
 		   FROM events
 		  ORDER BY created_at DESC, id DESC
-		  LIMIT ?`,
-		limit,
+		  LIMIT ? OFFSET ?`,
+		input.Limit,
+		input.Offset,
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("イベント一覧クエリに失敗しました: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	events := make([]*model.Event, 0, limit)
+	events := make([]*model.Event, 0, input.Limit)
 	for rows.Next() {
 		event, err := d.scanEvent(rows)
 		if err != nil {
