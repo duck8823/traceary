@@ -5,6 +5,11 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.1.10] - 2026-04-09
+
+### Fixed
+- corrected the GoReleaser Homebrew configuration to reference the generated archive ID, allowing tagged releases to publish archives and the tap formula successfully again
+
 ## [v0.1.9] - 2026-04-09
 
 ### Added
