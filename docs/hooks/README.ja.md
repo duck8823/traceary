@@ -12,6 +12,8 @@ Traceary v0.1 は、既存の `traceary session ...` / `traceary audit ...` を 
 - `examples/hooks/codex.hooks.json`: Codex CLI の例
 - `examples/hooks/gemini.settings.json`: Gemini CLI の例
 
+`traceary hooks print/install` は、既定ではこれらの portable copy も `~/.config/traceary/hook-scripts` 配下へ書き出します。installed binary でも source checkout 前提になりません。
+
 ## 前提条件
 
 - `traceary` が `PATH` にある、または `TRACEARY_BIN` が binary を指している
@@ -23,6 +25,7 @@ Traceary v0.1 は、既存の `traceary session ...` / `traceary audit ...` を 
 - `TRACEARY_BIN`: `traceary` binary の絶対 path
 - `TRACEARY_DB_PATH`: 既定の `~/.config/traceary/traceary.db` ではなく明示的な SQLite path を使いたいときに指定
 - `TRACEARY_REPO`: 明示的な work-context 文字列。auto-detection を上書きしたいときに使う
+- `TRACEARY_HOOK_SCRIPTS_DIR`: `traceary hooks print/install` が portable hook script を書き出す先を上書き
 - `TRACEARY_HOOK_STATE_DIR`: 一時 session state の保存先を上書き
 - `TRACEARY_HOOK_STATE_KEY`: 既定の `PPID` ベース key が合わないときに process ごとの state key を上書き
 
@@ -64,7 +67,7 @@ Traceary v0.1 は、既存の `traceary session ...` / `traceary audit ...` を 
 
 ### CLI で設定を生成する
 
-`traceary hooks print --client <claude|codex|gemini>` は、現在の project path を埋め込んだ貼り付け用 config を出力します。`claude-code`, `codex-cli`, `gemini-cli` も alias として使えます。
+`traceary hooks print --client <claude|codex|gemini>` は、貼り付け用の config を出力します。`claude-code`, `codex-cli`, `gemini-cli` も alias として使えます。
 
 例:
 
@@ -74,7 +77,9 @@ Traceary v0.1 は、既存の `traceary session ...` / `traceary audit ...` を 
 
 既定では生成コマンドに `TRACEARY_BIN='traceary'` を使うため、hook は `PATH` 上の安定した `traceary` command を追従します。
 
-別の repository を向けたいときは `--project-dir`、特定の binary path に pin したいときは `--traceary-bin` を使います。
+最初の `hooks print/install` 実行時に、portable script も `~/.config/traceary/hook-scripts`（または `TRACEARY_HOOK_SCRIPTS_DIR`）へ書き出します。生成される config は `<project>/scripts/hooks/...` ではなく、その安定した directory を参照するため、source checkout の外にある installed Traceary binary でも動きます。
+
+特定の binary path に pin したいときは `--traceary-bin` を使います。
 
 ### 標準 path に設定を書き出す
 
@@ -97,7 +102,7 @@ Traceary v0.1 は、既存の `traceary session ...` / `traceary audit ...` を 
 ### Claude Code
 
 1. `examples/hooks/claude.settings.json` を `.claude/settings.json` にコピーし、既存設定と merge する
-2. script path がこの repository を指していることを確認する。同じ project に hooks があるなら example のままでよい
+2. `PATH` に依存しない場合は、生成された config が使いたい Traceary binary を指していることを確認する
 3. project で Claude Code を起動する
 4. 短い session のあと `traceary list --limit 10` を実行し、`session_started`, `session_ended`, `command_executed` が入っていることを確認する
 

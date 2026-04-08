@@ -12,6 +12,8 @@ Traceary v0.1 can ingest session boundaries and shell-command audits from Claude
 - `examples/hooks/codex.hooks.json`: Codex CLI example
 - `examples/hooks/gemini.settings.json`: Gemini CLI example
 
+`traceary hooks print/install` also writes portable copies of those scripts under `~/.config/traceary/hook-scripts` by default, so installed binaries do not depend on a checked-out repository layout.
+
 ## Requirements
 
 - `traceary` is installed and available in `PATH`, or `TRACEARY_BIN` points to the binary
@@ -23,6 +25,7 @@ Traceary v0.1 can ingest session boundaries and shell-command audits from Claude
 - `TRACEARY_BIN`: absolute path to the `traceary` binary
 - `TRACEARY_DB_PATH`: explicit SQLite path when you do not want the default `~/.config/traceary/traceary.db`
 - `TRACEARY_REPO`: explicit work-context string. Use this to override auto-detection.
+- `TRACEARY_HOOK_SCRIPTS_DIR`: override where `traceary hooks print/install` materializes portable hook scripts
 - `TRACEARY_HOOK_STATE_DIR`: override where temporary session state is stored
 - `TRACEARY_HOOK_STATE_KEY`: override the per-process state key when the default `PPID`-based key is not suitable
 
@@ -64,7 +67,7 @@ The script exits successfully without recording anything when:
 
 ### Generate config from CLI
 
-Use `traceary hooks print --client <claude|codex|gemini>` when you want a ready-to-paste config with the current project path embedded. `claude-code`, `codex-cli`, and `gemini-cli` are accepted aliases.
+Use `traceary hooks print --client <claude|codex|gemini>` when you want a ready-to-paste config. `claude-code`, `codex-cli`, and `gemini-cli` are accepted aliases.
 
 Examples:
 
@@ -74,7 +77,9 @@ Examples:
 
 By default the generated commands use `TRACEARY_BIN='traceary'`, so the hook keeps following whichever stable `traceary` command is available in `PATH`.
 
-Use `--project-dir` to point at another repository and `--traceary-bin` when you intentionally want to pin a specific binary path.
+The first `hooks print/install` run also materializes portable script copies under `~/.config/traceary/hook-scripts` (or `TRACEARY_HOOK_SCRIPTS_DIR`). Generated configs point at that stable directory instead of `<project>/scripts/hooks/...`, so they keep working from an installed Traceary binary outside the source checkout.
+
+Use `--traceary-bin` when you intentionally want to pin a specific binary path.
 
 ### Write config to the standard path
 
@@ -97,7 +102,7 @@ If the destination already exists, Traceary stops with an error instead of overw
 ### Claude Code
 
 1. Copy `examples/hooks/claude.settings.json` into `.claude/settings.json` and merge with existing settings.
-2. Ensure the script path points to this repository, or keep the example if the hooks live in the same project.
+2. Ensure the generated config points at your installed Traceary binary when you are not relying on `PATH`.
 3. Start Claude Code in the project.
 4. Run `traceary list --limit 10` after a short session to verify `session_started`, `session_ended`, and `command_executed` events.
 
