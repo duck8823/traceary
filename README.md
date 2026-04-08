@@ -8,6 +8,8 @@
 
 [Contributing](./CONTRIBUTING.md)
 
+[Security policy](./SECURITY.md)
+
 [MCP guide](./docs/mcp/README.md)
 
 [Release guide](./docs/release/README.md)

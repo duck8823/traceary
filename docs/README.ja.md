@@ -71,6 +71,7 @@ GitHub Actions でも同じ検証を行います。
 
 - 全体概要: `README.md` / `README.ja.md`
 - コントリビューションガイド: `CONTRIBUTING.md` / `CONTRIBUTING.ja.md`
+- セキュリティポリシー: `SECURITY.md` / `SECURITY.ja.md`
 - release 履歴: `CHANGELOG.md` / `CHANGELOG.ja.md`
 - hooks ガイド: `docs/hooks/README.md` / `docs/hooks/README.ja.md`
 - MCP ガイド: `docs/mcp/README.md` / `docs/mcp/README.ja.md`

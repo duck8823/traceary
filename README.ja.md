@@ -8,6 +8,8 @@
 
 [コントリビューション](./CONTRIBUTING.ja.md)
 
+[セキュリティポリシー](./SECURITY.ja.md)
+
 [MCP ガイド](./docs/mcp/README.ja.md)
 
 [リリースガイド](./docs/release/README.ja.md)
