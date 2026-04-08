@@ -7,11 +7,6 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-TOP_LEVEL_DOCS = {
-    Path("README.md"),
-    Path("CHANGELOG.md"),
-}
-TOP_LEVEL_DOCS_JA = {Path("README.ja.md"), Path("CHANGELOG.ja.md")}
 TOP_LINES_TO_CHECK = 8
 
 
@@ -26,29 +21,37 @@ def en_variant(path: Path) -> Path:
 
 
 def is_in_scope(path: Path) -> bool:
-    if path in TOP_LEVEL_DOCS or path in TOP_LEVEL_DOCS_JA:
-        return True
-
     if path.parts and path.parts[0] == "docs":
         return path.suffix == ".md"
 
-    return False
+    return path.parent == Path('.') and path.suffix == '.md'
 
 
 def collect_markdown_files() -> tuple[set[Path], set[Path]]:
-    english: set[Path] = set(TOP_LEVEL_DOCS)
-    japanese: set[Path] = set(TOP_LEVEL_DOCS_JA)
+    english: set[Path] = set()
+    japanese: set[Path] = set()
 
-    for abs_path in (REPO_ROOT / "docs").rglob("*.md"):
+    for abs_path in REPO_ROOT.glob("*.md"):
         rel_path = abs_path.relative_to(REPO_ROOT)
+        if not is_in_scope(rel_path):
+            continue
+
         if rel_path.name.endswith(".ja.md"):
             japanese.add(rel_path)
             continue
 
         english.add(rel_path)
 
-    english = {path for path in english if is_in_scope(path)}
-    japanese = {path for path in japanese if is_in_scope(path)}
+    for abs_path in (REPO_ROOT / "docs").rglob("*.md"):
+        rel_path = abs_path.relative_to(REPO_ROOT)
+        if not is_in_scope(rel_path):
+            continue
+
+        if rel_path.name.endswith(".ja.md"):
+            japanese.add(rel_path)
+            continue
+
+        english.add(rel_path)
 
     return english, japanese
 

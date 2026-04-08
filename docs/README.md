@@ -47,6 +47,7 @@ Every paired document must include a language switch link near the top of the fi
 - Japanese files should link to the English variant with `[English](...)`
 
 Keep the link immediately below the top-level title unless the document has a strong reason to do otherwise.
+Use a same-directory relative link such as `./README.ja.md`.
 
 ## Update policy
 
