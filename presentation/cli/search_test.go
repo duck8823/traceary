@@ -87,6 +87,7 @@ func TestRootCLI_SearchCommand(t *testing.T) {
 		"--to", "2026-04-07",
 		"--until", "2026-04-07",
 		"--limit", "5",
+		"--offset", "2",
 		"traceary",
 	})
 
@@ -113,6 +114,9 @@ func TestRootCLI_SearchCommand(t *testing.T) {
 	}
 	if searchStub.receivedInput.Kind != "note" {
 		t.Fatalf("Kind = %q, want %q", searchStub.receivedInput.Kind, "note")
+	}
+	if searchStub.receivedInput.Offset != 2 {
+		t.Fatalf("Offset = %d, want %d", searchStub.receivedInput.Offset, 2)
 	}
 	if stdout.String() == "" {
 		t.Fatalf("stdout is empty")
@@ -222,5 +226,30 @@ func TestRootCLI_SearchCommand_FilterOnly(t *testing.T) {
 	}
 	if searchStub.receivedInput.SessionID != "session-42" {
 		t.Fatalf("SessionID = %q, want %q", searchStub.receivedInput.SessionID, "session-42")
+	}
+}
+
+func TestRootCLI_SearchCommand_NegativeOffset(t *testing.T) {
+	t.Setenv("TRACEARY_REPO", "")
+	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
+		return "github.com/duck8823/traceary", nil
+	})
+	defer cli.ResetDetectRepoContextFunc()
+
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:   &initializeStoreUsecaseStub{},
+		SearchEventsQueryService: &searchEventsQueryServiceStub{},
+	}).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"search",
+		"--db-path", "/tmp/traceary.db",
+		"--offset", "-1",
+		"traceary",
+	})
+
+	if err := rootCmd.Execute(); err == nil {
+		t.Fatalf("Execute() error = nil, want error")
 	}
 }

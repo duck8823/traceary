@@ -15,7 +15,7 @@ import (
 
 type listEventsQueryServiceStub struct {
 	receivedPath  string
-	receivedLimit int
+	receivedInput queryservice.ListRecentEventsInput
 	called        bool
 	events        []*model.Event
 	err           error
@@ -24,11 +24,11 @@ type listEventsQueryServiceStub struct {
 func (s *listEventsQueryServiceStub) Run(
 	_ context.Context,
 	dbPath string,
-	limit int,
+	input queryservice.ListRecentEventsInput,
 ) ([]*model.Event, error) {
 	s.called = true
 	s.receivedPath = dbPath
-	s.receivedLimit = limit
+	s.receivedInput = input
 	return s.events, s.err
 }
 
@@ -76,7 +76,7 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"list", "--db-path", dbPath, "--limit", "5"})
+		rootCmd.SetArgs([]string{"list", "--db-path", dbPath, "--limit", "5", "--offset", "2"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -90,8 +90,11 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		if listStub.receivedPath != dbPath {
 			t.Fatalf("dbPath = %q, want %q", listStub.receivedPath, dbPath)
 		}
-		if listStub.receivedLimit != 5 {
-			t.Fatalf("limit = %d, want %d", listStub.receivedLimit, 5)
+		if listStub.receivedInput.Limit != 5 {
+			t.Fatalf("limit = %d, want %d", listStub.receivedInput.Limit, 5)
+		}
+		if listStub.receivedInput.Offset != 2 {
+			t.Fatalf("offset = %d, want %d", listStub.receivedInput.Offset, 2)
 		}
 		want := "CREATED_AT\tKIND\tCLIENT\tAGENT\tSESSION_ID\tREPO\tMESSAGE\n" +
 			"2026-04-07T12:00:00Z\tnote\tcli\tcodex\tsession-1\tduck8823/traceary\thello\n"
@@ -183,6 +186,23 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		}
 		if stdout.String() != "No matching records.\n" {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), "No matching records.\n")
+		}
+	})
+
+	t.Run("offset が負ならエラー", func(t *testing.T) {
+		t.Parallel()
+
+		dbPath := filepath.Join(t.TempDir(), "traceary.db")
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase: &initializeStoreUsecaseStub{},
+			ListEventsQueryService: &listEventsQueryServiceStub{},
+		}).Command()
+		rootCmd.SetOut(&bytes.Buffer{})
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"list", "--db-path", dbPath, "--offset", "-1"})
+
+		if err := rootCmd.Execute(); err == nil {
+			t.Fatalf("Execute() error = nil, want error")
 		}
 	})
 }

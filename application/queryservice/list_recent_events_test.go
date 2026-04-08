@@ -12,14 +12,18 @@ import (
 
 type recentEventFinderStub struct {
 	receivedPath  string
-	receivedLimit int
+	receivedInput queryservice.ListRecentEventsInput
 	events        []*model.Event
 	err           error
 }
 
-func (s *recentEventFinderStub) ListRecent(_ context.Context, dbPath string, limit int) ([]*model.Event, error) {
+func (s *recentEventFinderStub) ListRecent(
+	_ context.Context,
+	dbPath string,
+	input queryservice.ListRecentEventsInput,
+) ([]*model.Event, error) {
 	s.receivedPath = dbPath
-	s.receivedLimit = limit
+	s.receivedInput = input
 	return s.events, s.err
 }
 
@@ -58,15 +62,21 @@ func TestListRecentEventsQueryService_Run(t *testing.T) {
 		}
 		sut := queryservice.NewListRecentEventsQueryService(stub)
 
-		got, err := sut.Run(context.Background(), "/tmp/traceary.db", 5)
+		got, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.ListRecentEventsInput{
+			Limit:  5,
+			Offset: 2,
+		})
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
 		}
 		if stub.receivedPath != "/tmp/traceary.db" {
 			t.Fatalf("received path = %q, want %q", stub.receivedPath, "/tmp/traceary.db")
 		}
-		if stub.receivedLimit != 5 {
-			t.Fatalf("received limit = %d, want %d", stub.receivedLimit, 5)
+		if stub.receivedInput.Limit != 5 {
+			t.Fatalf("received limit = %d, want %d", stub.receivedInput.Limit, 5)
+		}
+		if stub.receivedInput.Offset != 2 {
+			t.Fatalf("received offset = %d, want %d", stub.receivedInput.Offset, 2)
 		}
 		if len(got) != 1 {
 			t.Fatalf("len(events) = %d, want 1", len(got))
@@ -81,7 +91,21 @@ func TestListRecentEventsQueryService_Run(t *testing.T) {
 
 		sut := queryservice.NewListRecentEventsQueryService(&recentEventFinderStub{})
 
-		_, err := sut.Run(context.Background(), "/tmp/traceary.db", 0)
+		_, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.ListRecentEventsInput{})
+		if err == nil {
+			t.Fatalf("Run() error = nil, want error")
+		}
+	})
+
+	t.Run("offset が負ならエラー", func(t *testing.T) {
+		t.Parallel()
+
+		sut := queryservice.NewListRecentEventsQueryService(&recentEventFinderStub{})
+
+		_, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.ListRecentEventsInput{
+			Limit:  10,
+			Offset: -1,
+		})
 		if err == nil {
 			t.Fatalf("Run() error = nil, want error")
 		}
