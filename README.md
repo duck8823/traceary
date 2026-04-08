@@ -203,6 +203,8 @@ traceary audit --id-only --command "go test ./..." --input '{}' --output '{}'
 traceary session end --session-id "$sid" --id-only
 ```
 
+When `traceary log` or `traceary audit` omit `--session-id`, Traceary first tries the latest non-stale active session for the resolved repo/work context. If none matches, it falls back to the historical `default` session ID and prints a notice in human-readable mode.
+
 Useful `search --kind` values:
 
 ```sh
