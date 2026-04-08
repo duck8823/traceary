@@ -88,6 +88,19 @@ func TestDatasource_CreateBackup_既存ファイルはforceなしで上書きし
 	}
 }
 
+func TestDatasource_CreateBackup_バックアップ元が存在しない場合はエラー(t *testing.T) {
+	t.Parallel()
+
+	sut := sqlite.NewDatasource(backupTestMigrations())
+	dbPath := filepath.Join(t.TempDir(), "missing", "traceary.db")
+	outputPath := filepath.Join(t.TempDir(), "backup", "traceary-backup.db")
+
+	err := sut.CreateBackup(context.Background(), dbPath, outputPath, false)
+	if err == nil {
+		t.Fatal("CreateBackup() error = nil, want error")
+	}
+}
+
 func TestDatasource_RestoreBackup(t *testing.T) {
 	t.Parallel()
 
@@ -167,6 +180,33 @@ func TestDatasource_RestoreBackup_既存ファイルはforceなしで上書き�
 	err := sut.RestoreBackup(context.Background(), backupPath, dbPath, false)
 	if err == nil {
 		t.Fatal("RestoreBackup() error = nil, want error")
+	}
+}
+
+func TestDatasource_RestoreBackup_失敗時は既存DBを保持する(t *testing.T) {
+	t.Parallel()
+
+	sut := sqlite.NewDatasource(backupTestMigrations())
+	dbPath := filepath.Join(t.TempDir(), "restored", "traceary.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
+		t.Fatalf("os.MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(dbPath, []byte("existing"), 0o600); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	missingBackupPath := filepath.Join(t.TempDir(), "missing", "traceary-backup.db")
+	err := sut.RestoreBackup(context.Background(), missingBackupPath, dbPath, true)
+	if err == nil {
+		t.Fatal("RestoreBackup() error = nil, want error")
+	}
+
+	content, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile() error = %v", err)
+	}
+	if string(content) != "existing" {
+		t.Fatalf("restored DB content = %q, want existing content to remain", string(content))
 	}
 }
 

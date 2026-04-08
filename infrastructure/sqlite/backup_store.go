@@ -22,13 +22,17 @@ func (d *Datasource) CreateBackup(ctx context.Context, dbPath string, outputPath
 	if err != nil {
 		return xerrors.Errorf("バックアップパスの検証に失敗しました: %w", err)
 	}
-	if err := d.Initialize(ctx, sourcePath); err != nil {
-		return xerrors.Errorf("バックアップ元ストアの初期化に失敗しました: %w", err)
+	sourceInfo, err := os.Stat(sourcePath)
+	if err != nil {
+		return xerrors.Errorf("バックアップ元 DB の確認に失敗しました: %w", err)
+	}
+	if !sourceInfo.Mode().IsRegular() {
+		return xerrors.Errorf("バックアップ元 DB は通常ファイルである必要があります")
 	}
 	if err := ensureParentDir(destinationPath); err != nil {
 		return xerrors.Errorf("バックアップ出力先ディレクトリの準備に失敗しました: %w", err)
 	}
-	if err := prepareDestinationFile(destinationPath, overwrite); err != nil {
+	if err := prepareBackupCreateDestination(destinationPath, overwrite); err != nil {
 		return xerrors.Errorf("バックアップ出力先の準備に失敗しました: %w", err)
 	}
 
@@ -69,12 +73,17 @@ func (d *Datasource) RestoreBackup(ctx context.Context, inputPath string, dbPath
 	if err := ensureParentDir(destinationPath); err != nil {
 		return xerrors.Errorf("復元先ディレクトリの準備に失敗しました: %w", err)
 	}
-	if err := prepareDestinationFile(destinationPath, overwrite); err != nil {
+	if err := prepareRestoreDestination(destinationPath, overwrite); err != nil {
 		return xerrors.Errorf("復元先ファイルの準備に失敗しました: %w", err)
 	}
 
 	if err := copyFileViaTempRename(sourcePath, destinationPath); err != nil {
 		return xerrors.Errorf("バックアップファイルのコピーに失敗しました: %w", err)
+	}
+	for _, candidate := range []string{destinationPath + "-wal", destinationPath + "-shm"} {
+		if err := removeFileIfExists(candidate); err != nil {
+			return xerrors.Errorf("復元先 sidecar ファイルの削除に失敗しました: %w", err)
+		}
 	}
 	if err := os.Chmod(destinationPath, 0o600); err != nil {
 		return xerrors.Errorf("復元した DB ファイル権限の設定に失敗しました: %w", err)
@@ -119,7 +128,7 @@ func ensureParentDir(path string) error {
 	return nil
 }
 
-func prepareDestinationFile(path string, overwrite bool) error {
+func prepareBackupCreateDestination(path string, overwrite bool) error {
 	if !overwrite {
 		if _, err := os.Stat(path); err == nil {
 			return xerrors.Errorf("出力先はすでに存在します")
@@ -133,6 +142,18 @@ func prepareDestinationFile(path string, overwrite bool) error {
 	for _, candidate := range []string{path, path + "-wal", path + "-shm"} {
 		if err := removeFileIfExists(candidate); err != nil {
 			return xerrors.Errorf("既存ファイルの削除に失敗しました: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func prepareRestoreDestination(path string, overwrite bool) error {
+	if !overwrite {
+		if _, err := os.Stat(path); err == nil {
+			return xerrors.Errorf("出力先はすでに存在します")
+		} else if !os.IsNotExist(err) {
+			return xerrors.Errorf("出力先の確認に失敗しました: %w", err)
 		}
 	}
 

@@ -2,7 +2,7 @@
 
 [日本語](./README.ja.md)
 
-Traceary's v0.1.8 backup / export / import story is intentionally simple:
+Traceary's current backup / export / import story is intentionally simple:
 
 - the supported export format is a compact SQLite backup file
 - `traceary backup create` writes that file explicitly
@@ -21,7 +21,7 @@ Useful flags:
 - `--db-path` to back up a non-default DB
 - `--force` to overwrite an existing backup file
 
-Traceary initializes the source DB first, so backing up a freshly installed environment still creates a valid SQLite snapshot.
+`backup create` expects the source DB to exist already. If you have never recorded anything yet, create the DB intentionally first (for example with `traceary init` or your normal logging flow).
 
 ## Restore a backup
 
@@ -35,6 +35,7 @@ Useful flags:
 - `--force` to overwrite an existing destination DB
 
 Restore copies the backup file into the destination path, then runs the normal store initialization flow so newer migrations are applied automatically.
+When you use `--force`, treat restore as a destructive replacement of the destination DB and take a fresh backup first if that data still matters.
 
 ## Moving between machines
 
@@ -54,7 +55,7 @@ One practical flow is:
 
 ## Non-goals for this release
 
-v0.1.8 does **not** add:
+This release does **not** add:
 
 - structured JSON / CSV export
 - partial import of selected events
