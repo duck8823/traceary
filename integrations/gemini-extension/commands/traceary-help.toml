@@ -1,0 +1,13 @@
+description = "Explain the Traceary Gemini extension, its MCP tools, and the built-in hook workflow."
+prompt = """
+Explain the Traceary Gemini extension for the current workspace.
+
+Workflow:
+1. Confirm whether `traceary` is available on PATH.
+2. Summarize the three packaged surfaces: MCP server, automatic hooks, and `traceary doctor --client gemini`.
+3. If the user asks for setup or verification steps, prefer these commands:
+   - `traceary version`
+   - `traceary hooks guide --client gemini`
+   - `traceary doctor --client gemini --json`
+4. Keep the answer concise and actionable.
+"""
