@@ -15,9 +15,9 @@ const (
 	maxAuditOutputLength = 64 * 1024
 )
 
-// CommandAuditSaver はイベントとコマンド監査情報の保存を提供します。
+// CommandAuditSaver provides persistence for events and command-audit data.
 type CommandAuditSaver interface {
-	// SaveCommandAudit はイベントとコマンド監査情報を同一トランザクションで保存します。
+	// SaveCommandAudit persists an event and command-audit data in one transaction.
 	SaveCommandAudit(
 		ctx context.Context,
 		dbPath string,
@@ -26,7 +26,7 @@ type CommandAuditSaver interface {
 	) error
 }
 
-// RecordCommandAuditInput は traceary audit の入力です。
+// RecordCommandAuditInput is the input for traceary audit recording.
 type RecordCommandAuditInput struct {
 	DBPath         string
 	Command        string
@@ -41,9 +41,9 @@ type RecordCommandAuditInput struct {
 	MaxOutputBytes int
 }
 
-// RecordCommandAuditUsecase はコマンド監査イベントを保存します。
+// RecordCommandAuditUsecase persists command-audit events.
 type RecordCommandAuditUsecase interface {
-	// Run はコマンド監査イベントを保存します。
+	// Run persists a command-audit event.
 	Run(ctx context.Context, input RecordCommandAuditInput) (*model.Event, *model.CommandAudit, error)
 }
 
@@ -51,45 +51,45 @@ type recordCommandAuditUsecase struct {
 	commandAuditSaver CommandAuditSaver
 }
 
-// NewRecordCommandAuditUsecase はコマンド監査ユースケースを生成します。
+// NewRecordCommandAuditUsecase creates a RecordCommandAuditUsecase.
 func NewRecordCommandAuditUsecase(commandAuditSaver CommandAuditSaver) RecordCommandAuditUsecase {
 	return &recordCommandAuditUsecase{commandAuditSaver: commandAuditSaver}
 }
 
-// Run はコマンド監査イベントを保存します。
+// Run persists a command-audit event.
 func (u *recordCommandAuditUsecase) Run(
 	ctx context.Context,
 	input RecordCommandAuditInput,
 ) (*model.Event, *model.CommandAudit, error) {
 	if u.commandAuditSaver == nil {
-		return nil, nil, xerrors.Errorf("コマンド監査保存先が設定されていません")
+		return nil, nil, xerrors.Errorf("command audit saver is not configured")
 	}
 
 	trimmedDBPath := strings.TrimSpace(input.DBPath)
 	if trimmedDBPath == "" {
-		return nil, nil, xerrors.Errorf("DB パスは空にできません")
+		return nil, nil, xerrors.Errorf("DB path must not be empty")
 	}
 
 	agent, err := types.AgentOf(input.Agent)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("agent の解決に失敗しました: %w", err)
+		return nil, nil, xerrors.Errorf("failed to resolve agent: %w", err)
 	}
 	sessionID, err := types.SessionIDOf(input.SessionID)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("session ID の解決に失敗しました: %w", err)
+		return nil, nil, xerrors.Errorf("failed to resolve session ID: %w", err)
 	}
 	eventID, err := newEventID()
 	if err != nil {
-		return nil, nil, xerrors.Errorf("event ID の生成に失敗しました: %w", err)
+		return nil, nil, xerrors.Errorf("failed to generate event ID: %w", err)
 	}
 
 	maxInputBytes, err := resolveAuditPayloadLimit(input.MaxInputBytes, maxAuditInputLength)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("input 上限の解決に失敗しました: %w", err)
+		return nil, nil, xerrors.Errorf("failed to resolve input limit: %w", err)
 	}
 	maxOutputBytes, err := resolveAuditPayloadLimit(input.MaxOutputBytes, maxAuditOutputLength)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("output 上限の解決に失敗しました: %w", err)
+		return nil, nil, xerrors.Errorf("failed to resolve output limit: %w", err)
 	}
 
 	normalizedInput := input.Input
@@ -112,7 +112,7 @@ func (u *recordCommandAuditUsecase) Run(
 		outputTruncated,
 	)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("コマンド監査情報の生成に失敗しました: %w", err)
+		return nil, nil, xerrors.Errorf("failed to build command audit: %w", err)
 	}
 	commandAudit.SetRedaction(inputRedacted, outputRedacted)
 
@@ -126,11 +126,11 @@ func (u *recordCommandAuditUsecase) Run(
 		commandAudit.Command(),
 	)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("監査イベントの生成に失敗しました: %w", err)
+		return nil, nil, xerrors.Errorf("failed to build audit event: %w", err)
 	}
 
 	if err := u.commandAuditSaver.SaveCommandAudit(ctx, trimmedDBPath, event, commandAudit); err != nil {
-		return nil, nil, xerrors.Errorf("監査イベントの保存に失敗しました: %w", err)
+		return nil, nil, xerrors.Errorf("failed to save audit event: %w", err)
 	}
 
 	return event, commandAudit, nil
@@ -154,7 +154,7 @@ func truncateAuditPayload(value string, limit int) (string, bool) {
 
 func resolveAuditPayloadLimit(value int, defaultValue int) (int, error) {
 	if value < 0 {
-		return 0, xerrors.Errorf("0 以上で指定してください")
+		return 0, xerrors.Errorf("value must be greater than or equal to 0")
 	}
 	if value == 0 {
 		return defaultValue, nil

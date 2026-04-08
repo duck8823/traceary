@@ -1,2 +1,2 @@
-// Package usecase は traceary のユースケースを提供します。
+// Package usecase provides Traceary use cases.
 package usecase

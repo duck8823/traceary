@@ -10,7 +10,7 @@ import (
 	"github.com/duck8823/traceary/domain/model"
 )
 
-// FindLatestSessionInput は直近セッション取得の入力です。
+// FindLatestSessionInput is the input for latest-session lookup.
 type FindLatestSessionInput struct {
 	Client     string
 	Agent      string
@@ -19,15 +19,15 @@ type FindLatestSessionInput struct {
 }
 
 var (
-	// ErrSessionNotFound は条件に一致する session が存在しないことを表します。
-	ErrSessionNotFound = xerrors.New("条件に一致する session は存在しません")
-	// ErrActiveSessionNotFound は条件に一致する active session が存在しないことを表します。
-	ErrActiveSessionNotFound = xerrors.New("条件に一致する active session は存在しません")
+	// ErrSessionNotFound indicates that no session matches the filters.
+	ErrSessionNotFound = xerrors.New("no matching session found")
+	// ErrActiveSessionNotFound indicates that no active session matches the filters.
+	ErrActiveSessionNotFound = xerrors.New("no matching active session found")
 )
 
-// LatestSessionFinder は直近セッション開始イベントの取得を提供します。
+// LatestSessionFinder provides access to the latest session-started event.
 type LatestSessionFinder interface {
-	// FindLatestSessionStartedEvent は直近の session_started イベントを返します。
+	// FindLatestSessionStartedEvent returns the latest session_started event.
 	FindLatestSessionStartedEvent(
 		ctx context.Context,
 		dbPath string,
@@ -35,9 +35,9 @@ type LatestSessionFinder interface {
 	) (*model.Event, error)
 }
 
-// FindLatestSessionQueryService は直近セッション取得クエリサービスです。
+// FindLatestSessionQueryService returns the latest session.
 type FindLatestSessionQueryService interface {
-	// Run は直近の session_started イベントを返します。
+	// Run executes the latest-session query.
 	Run(ctx context.Context, dbPath string, input FindLatestSessionInput) (*model.Event, error)
 }
 
@@ -45,37 +45,37 @@ type findLatestSessionQueryService struct {
 	latestSessionFinder LatestSessionFinder
 }
 
-// NewFindLatestSessionQueryService は FindLatestSessionQueryService を生成します。
+// NewFindLatestSessionQueryService creates a FindLatestSessionQueryService.
 func NewFindLatestSessionQueryService(latestSessionFinder LatestSessionFinder) FindLatestSessionQueryService {
 	return &findLatestSessionQueryService{latestSessionFinder: latestSessionFinder}
 }
 
-// Run は直近の session_started イベントを返します。
+// Run executes the latest-session query.
 func (s *findLatestSessionQueryService) Run(
 	ctx context.Context,
 	dbPath string,
 	input FindLatestSessionInput,
 ) (*model.Event, error) {
 	if s.latestSessionFinder == nil {
-		return nil, xerrors.Errorf("直近セッション取得元が設定されていません")
+		return nil, xerrors.Errorf("latest session finder is not configured")
 	}
 	if strings.TrimSpace(dbPath) == "" {
-		return nil, xerrors.Errorf("DB パスは空にできません")
+		return nil, xerrors.Errorf("DB path must not be empty")
 	}
 
 	event, err := s.latestSessionFinder.FindLatestSessionStartedEvent(ctx, dbPath, input)
 	if err != nil {
 		if errors.Is(err, ErrSessionNotFound) || errors.Is(err, ErrActiveSessionNotFound) {
-			//nolint:wrapcheck // not found は user-facing message を保つためそのまま返す
+			//nolint:wrapcheck // Preserve the user-facing not-found message.
 			return nil, err
 		}
-		return nil, xerrors.Errorf("直近セッション取得に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to get latest session: %w", err)
 	}
 
 	return event, nil
 }
 
-// IsSessionLookupNotFound は session lookup 系の not found かどうかを返します。
+// IsSessionLookupNotFound reports whether err is a session-lookup not-found error.
 func IsSessionLookupNotFound(err error) bool {
 	return errors.Is(err, ErrSessionNotFound) || errors.Is(err, ErrActiveSessionNotFound)
 }

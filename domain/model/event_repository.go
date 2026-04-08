@@ -2,8 +2,8 @@ package model
 
 import "context"
 
-// EventRepository はイベント永続化のインターフェースです。
+// EventRepository defines event persistence.
 type EventRepository interface {
-	// Save はイベントを保存します。
+	// Save persists an event.
 	Save(ctx context.Context, event *Event) error
 }

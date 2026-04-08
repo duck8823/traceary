@@ -1,2 +1,2 @@
-// Package queryservice は読み取り専用のクエリサービスを提供します。
+// Package queryservice provides read-only query services.
 package queryservice

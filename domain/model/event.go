@@ -11,7 +11,7 @@ import (
 
 var nowFunc = time.Now
 
-// Event は traceary に記録される最小単位の履歴を表すエンティティです。
+// Event is the smallest recorded unit in Traceary history.
 type Event struct {
 	eventID   types.EventID
 	kind      types.EventKind
@@ -23,7 +23,7 @@ type Event struct {
 	createdAt time.Time
 }
 
-// NewEvent は新しい Event を生成します。
+// NewEvent creates a new Event.
 func NewEvent(
 	eventID types.EventID,
 	kind types.EventKind,
@@ -35,7 +35,7 @@ func NewEvent(
 ) (*Event, error) {
 	trimmedBody := strings.TrimSpace(body)
 	if trimmedBody == "" {
-		return nil, xerrors.Errorf("イベント本文は空にできません")
+		return nil, xerrors.Errorf("event body must not be empty")
 	}
 	return &Event{
 		eventID:   eventID,
@@ -49,7 +49,7 @@ func NewEvent(
 	}, nil
 }
 
-// EventOf は復元用に Event を生成します。
+// EventOf restores an Event from persisted values.
 func EventOf(
 	eventID types.EventID,
 	kind types.EventKind,
@@ -72,26 +72,26 @@ func EventOf(
 	}
 }
 
-// EventID はイベント ID を返します。
+// EventID returns the event ID.
 func (e *Event) EventID() types.EventID { return e.eventID }
 
-// Kind はイベント種別を返します。
+// Kind returns the event kind.
 func (e *Event) Kind() types.EventKind { return e.kind }
 
-// Client はイベントの記録経路を返します。
+// Client returns the recording channel.
 func (e *Event) Client() string { return e.client }
 
-// Agent はイベントを発生させた主体を返します。
+// Agent returns the actor that produced the event.
 func (e *Event) Agent() types.Agent { return e.agent }
 
-// SessionID はイベントが属するセッション ID を返します。
+// SessionID returns the session ID that owns the event.
 func (e *Event) SessionID() types.SessionID { return e.sessionID }
 
-// Repo はイベントに紐づく補助的なコンテキスト識別子を返します。
+// Repo returns the auxiliary work-context identifier linked to the event.
 func (e *Event) Repo() string { return e.repo }
 
-// Body はイベント本文を返します。
+// Body returns the event body.
 func (e *Event) Body() string { return e.body }
 
-// CreatedAt はイベント作成時刻を返します。
+// CreatedAt returns the event creation time.
 func (e *Event) CreatedAt() time.Time { return e.createdAt }

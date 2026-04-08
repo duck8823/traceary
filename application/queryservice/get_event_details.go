@@ -9,16 +9,16 @@ import (
 	"github.com/duck8823/traceary/domain/model"
 )
 
-// EventDetails は 1 件のイベント詳細を表します。
+// EventDetails represents the details for a single event.
 type EventDetails struct {
 	event        *model.Event
 	commandAudit *model.CommandAudit
 }
 
-// NewEventDetails は EventDetails を生成します。
+// NewEventDetails creates an EventDetails value.
 func NewEventDetails(event *model.Event, commandAudit *model.CommandAudit) (*EventDetails, error) {
 	if event == nil {
-		return nil, xerrors.Errorf("イベントは nil にできません")
+		return nil, xerrors.Errorf("event must not be nil")
 	}
 
 	return &EventDetails{
@@ -27,21 +27,21 @@ func NewEventDetails(event *model.Event, commandAudit *model.CommandAudit) (*Eve
 	}, nil
 }
 
-// Event は対象イベントを返します。
+// Event returns the event.
 func (d *EventDetails) Event() *model.Event { return d.event }
 
-// CommandAudit は紐づく command audit を返します。
+// CommandAudit returns the linked command audit.
 func (d *EventDetails) CommandAudit() *model.CommandAudit { return d.commandAudit }
 
-// EventDetailsFinder はイベント詳細取得を提供します。
+// EventDetailsFinder provides event-details lookup.
 type EventDetailsFinder interface {
-	// GetEventDetails は event ID に対応する詳細を返します。
+	// GetEventDetails returns the details for the given event ID.
 	GetEventDetails(ctx context.Context, dbPath string, eventID string) (*EventDetails, error)
 }
 
-// GetEventDetailsQueryService はイベント詳細クエリサービスです。
+// GetEventDetailsQueryService returns event details.
 type GetEventDetailsQueryService interface {
-	// Run は event ID に対応する詳細を返します。
+	// Run executes the event-details query.
 	Run(ctx context.Context, dbPath string, eventID string) (*EventDetails, error)
 }
 
@@ -49,30 +49,30 @@ type getEventDetailsQueryService struct {
 	eventDetailsFinder EventDetailsFinder
 }
 
-// NewGetEventDetailsQueryService は GetEventDetailsQueryService を生成します。
+// NewGetEventDetailsQueryService creates a GetEventDetailsQueryService.
 func NewGetEventDetailsQueryService(eventDetailsFinder EventDetailsFinder) GetEventDetailsQueryService {
 	return &getEventDetailsQueryService{eventDetailsFinder: eventDetailsFinder}
 }
 
-// Run は event ID に対応する詳細を返します。
+// Run executes the event-details query.
 func (s *getEventDetailsQueryService) Run(
 	ctx context.Context,
 	dbPath string,
 	eventID string,
 ) (*EventDetails, error) {
 	if s.eventDetailsFinder == nil {
-		return nil, xerrors.Errorf("イベント詳細取得元が設定されていません")
+		return nil, xerrors.Errorf("event details finder is not configured")
 	}
 	if strings.TrimSpace(dbPath) == "" {
-		return nil, xerrors.Errorf("DB パスは空にできません")
+		return nil, xerrors.Errorf("DB path must not be empty")
 	}
 	if strings.TrimSpace(eventID) == "" {
-		return nil, xerrors.Errorf("event ID は空にできません")
+		return nil, xerrors.Errorf("event ID must not be empty")
 	}
 
 	eventDetails, err := s.eventDetailsFinder.GetEventDetails(ctx, dbPath, eventID)
 	if err != nil {
-		return nil, xerrors.Errorf("イベント詳細の取得に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to get event details: %w", err)
 	}
 
 	return eventDetails, nil

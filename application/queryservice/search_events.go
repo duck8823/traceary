@@ -12,7 +12,7 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-// SearchEventsInput は検索入力です。
+// SearchEventsInput is the input for event search.
 type SearchEventsInput struct {
 	Query     string
 	Repo      string
@@ -26,15 +26,15 @@ type SearchEventsInput struct {
 	Offset    int
 }
 
-// EventSearcher はイベント検索を提供します。
+// EventSearcher provides event search.
 type EventSearcher interface {
-	// SearchEvents は条件に一致するイベントを新しい順に返します。
+	// SearchEvents returns matching events in descending time order.
 	SearchEvents(ctx context.Context, dbPath string, input SearchEventsInput) ([]*model.Event, error)
 }
 
-// SearchEventsQueryService はイベント検索クエリサービスです。
+// SearchEventsQueryService searches events.
 type SearchEventsQueryService interface {
-	// Run は条件に一致するイベントを返します。
+	// Run executes the event search query.
 	Run(ctx context.Context, dbPath string, input SearchEventsInput) ([]*model.Event, error)
 }
 
@@ -42,34 +42,34 @@ type searchEventsQueryService struct {
 	eventSearcher EventSearcher
 }
 
-// NewSearchEventsQueryService は SearchEventsQueryService を生成します。
+// NewSearchEventsQueryService creates a SearchEventsQueryService.
 func NewSearchEventsQueryService(eventSearcher EventSearcher) SearchEventsQueryService {
 	return &searchEventsQueryService{eventSearcher: eventSearcher}
 }
 
-// Run は条件に一致するイベントを返します。
+// Run executes the event search query.
 func (s *searchEventsQueryService) Run(
 	ctx context.Context,
 	dbPath string,
 	input SearchEventsInput,
 ) ([]*model.Event, error) {
 	if s.eventSearcher == nil {
-		return nil, xerrors.Errorf("イベント検索元が設定されていません")
+		return nil, xerrors.Errorf("event searcher is not configured")
 	}
 	if strings.TrimSpace(dbPath) == "" {
-		return nil, xerrors.Errorf("DB パスは空にできません")
+		return nil, xerrors.Errorf("DB path must not be empty")
 	}
 	if !hasSearchConstraint(input) {
-		return nil, xerrors.Errorf("検索条件は1つ以上必要です")
+		return nil, xerrors.Errorf("at least one search filter is required")
 	}
 	if input.Limit <= 0 {
-		return nil, xerrors.Errorf("limit は 1 以上である必要があります")
+		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
 	}
 	if input.Offset < 0 {
-		return nil, xerrors.Errorf("offset は 0 以上である必要があります")
+		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
 	}
 	if !input.From.IsZero() && !input.To.IsZero() && input.From.After(input.To) {
-		return nil, xerrors.Errorf("from は to より前である必要があります")
+		return nil, xerrors.Errorf("from must be earlier than to")
 	}
 	input.Query = strings.TrimSpace(input.Query)
 	input.Repo = strings.TrimSpace(input.Repo)
@@ -85,7 +85,7 @@ func (s *searchEventsQueryService) Run(
 
 	events, err := s.eventSearcher.SearchEvents(ctx, dbPath, input)
 	if err != nil {
-		return nil, xerrors.Errorf("イベント検索に失敗しました: %w", err)
+		return nil, xerrors.Errorf("failed to search events: %w", err)
 	}
 
 	return events, nil
@@ -113,7 +113,7 @@ func resolveOptionalSearchKind(value string) (types.EventKind, error) {
 
 	kind, err := types.EventKindOf(trimmedValue)
 	if err != nil {
-		return "", xerrors.Errorf("kind の解決に失敗しました: %w", err)
+		return "", xerrors.Errorf("failed to resolve kind: %w", err)
 	}
 
 	return kind, nil

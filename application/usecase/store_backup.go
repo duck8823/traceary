@@ -7,41 +7,41 @@ import (
 	"golang.org/x/xerrors"
 )
 
-// StoreBackupCreator は Traceary ストアのバックアップ作成を提供します。
+// StoreBackupCreator provides Traceary store backup creation.
 type StoreBackupCreator interface {
-	// CreateBackup は DB ファイルからバックアップファイルを作成します。
+	// CreateBackup creates a backup file from a DB file.
 	CreateBackup(ctx context.Context, dbPath string, outputPath string, overwrite bool) error
 }
 
-// StoreBackupRestorer は Traceary ストアの復元を提供します。
+// StoreBackupRestorer provides Traceary store restoration.
 type StoreBackupRestorer interface {
-	// RestoreBackup はバックアップファイルから DB ファイルを復元します。
+	// RestoreBackup restores a DB file from a backup file.
 	RestoreBackup(ctx context.Context, inputPath string, dbPath string, overwrite bool) error
 }
 
-// CreateStoreBackupInput はバックアップ作成の入力です。
+// CreateStoreBackupInput is the input for backup creation.
 type CreateStoreBackupInput struct {
 	DBPath     string
 	OutputPath string
 	Overwrite  bool
 }
 
-// RestoreStoreBackupInput はバックアップ復元の入力です。
+// RestoreStoreBackupInput is the input for backup restoration.
 type RestoreStoreBackupInput struct {
 	DBPath    string
 	InputPath string
 	Overwrite bool
 }
 
-// CreateStoreBackupUsecase は Traceary ストアのバックアップを作成します。
+// CreateStoreBackupUsecase creates Traceary store backups.
 type CreateStoreBackupUsecase interface {
-	// Run は DB ファイルからバックアップファイルを作成します。
+	// Run creates a backup file from a DB file.
 	Run(ctx context.Context, input CreateStoreBackupInput) error
 }
 
-// RestoreStoreBackupUsecase は Traceary ストアをバックアップから復元します。
+// RestoreStoreBackupUsecase restores the Traceary store from a backup.
 type RestoreStoreBackupUsecase interface {
-	// Run はバックアップファイルから DB ファイルを復元します。
+	// Run restores a DB file from a backup file.
 	Run(ctx context.Context, input RestoreStoreBackupInput) error
 }
 
@@ -53,47 +53,47 @@ type restoreStoreBackupUsecase struct {
 	storeBackupRestorer StoreBackupRestorer
 }
 
-// NewCreateStoreBackupUsecase は新しいバックアップ作成ユースケースを返します。
+// NewCreateStoreBackupUsecase creates a CreateStoreBackupUsecase.
 func NewCreateStoreBackupUsecase(storeBackupCreator StoreBackupCreator) CreateStoreBackupUsecase {
 	return &createStoreBackupUsecase{storeBackupCreator: storeBackupCreator}
 }
 
-// NewRestoreStoreBackupUsecase は新しいバックアップ復元ユースケースを返します。
+// NewRestoreStoreBackupUsecase creates a RestoreStoreBackupUsecase.
 func NewRestoreStoreBackupUsecase(storeBackupRestorer StoreBackupRestorer) RestoreStoreBackupUsecase {
 	return &restoreStoreBackupUsecase{storeBackupRestorer: storeBackupRestorer}
 }
 
-// Run はバックアップを作成します。
+// Run creates a backup.
 func (u *createStoreBackupUsecase) Run(ctx context.Context, input CreateStoreBackupInput) error {
 	if u.storeBackupCreator == nil {
-		return xerrors.Errorf("バックアップ作成先が設定されていません")
+		return xerrors.Errorf("store backup creator is not configured")
 	}
 	if strings.TrimSpace(input.DBPath) == "" {
-		return xerrors.Errorf("DB パスは空にできません")
+		return xerrors.Errorf("DB path must not be empty")
 	}
 	if strings.TrimSpace(input.OutputPath) == "" {
-		return xerrors.Errorf("出力先パスは空にできません")
+		return xerrors.Errorf("output path must not be empty")
 	}
 	if err := u.storeBackupCreator.CreateBackup(ctx, strings.TrimSpace(input.DBPath), strings.TrimSpace(input.OutputPath), input.Overwrite); err != nil {
-		return xerrors.Errorf("バックアップ作成に失敗しました: %w", err)
+		return xerrors.Errorf("failed to create store backup: %w", err)
 	}
 
 	return nil
 }
 
-// Run はバックアップから復元します。
+// Run restores from a backup.
 func (u *restoreStoreBackupUsecase) Run(ctx context.Context, input RestoreStoreBackupInput) error {
 	if u.storeBackupRestorer == nil {
-		return xerrors.Errorf("バックアップ復元先が設定されていません")
+		return xerrors.Errorf("store backup restorer is not configured")
 	}
 	if strings.TrimSpace(input.DBPath) == "" {
-		return xerrors.Errorf("DB パスは空にできません")
+		return xerrors.Errorf("DB path must not be empty")
 	}
 	if strings.TrimSpace(input.InputPath) == "" {
-		return xerrors.Errorf("入力ファイルパスは空にできません")
+		return xerrors.Errorf("input path must not be empty")
 	}
 	if err := u.storeBackupRestorer.RestoreBackup(ctx, strings.TrimSpace(input.InputPath), strings.TrimSpace(input.DBPath), input.Overwrite); err != nil {
-		return xerrors.Errorf("バックアップ復元に失敗しました: %w", err)
+		return xerrors.Errorf("failed to restore store backup: %w", err)
 	}
 
 	return nil
