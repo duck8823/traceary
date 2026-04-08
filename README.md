@@ -14,6 +14,8 @@
 
 [Backup guide](./docs/backup/README.md)
 
+[Storage model](./docs/storage/README.md)
+
 [Release guide](./docs/release/README.md)
 
 [CLI reference](./docs/cli/README.md)
@@ -233,6 +235,8 @@ Environment variables and runtime assumptions: [`docs/environment/README.md`](./
 MCP integration: [`docs/mcp/README.md`](./docs/mcp/README.md)
 
 Backup and machine transfer: [`docs/backup/README.md`](./docs/backup/README.md)
+
+Storage model, schema, and GC defaults: [`docs/storage/README.md`](./docs/storage/README.md)
 
 All commands resolve the SQLite path in this order: `--db-path` → `TRACEARY_DB_PATH` → `~/.config/traceary/traceary.db`.
 
