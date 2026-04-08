@@ -12,7 +12,7 @@ import (
 var detectRepoContextFunc = detectRepoContext
 
 func resolveRepoValue(ctx context.Context, flagValue string) string {
-	if repo := resolveOptionalValue(flagValue, "TRACEARY_REPO", ""); repo != "" {
+	if repo := resolveExplicitRepoValue(flagValue); repo != "" {
 		return repo
 	}
 
@@ -22,6 +22,10 @@ func resolveRepoValue(ctx context.Context, flagValue string) string {
 	}
 
 	return repo
+}
+
+func resolveExplicitRepoValue(flagValue string) string {
+	return resolveOptionalValue(flagValue, "TRACEARY_REPO", "")
 }
 
 func detectRepoContext(ctx context.Context) (string, error) {

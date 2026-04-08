@@ -115,8 +115,63 @@ func TestRootCLI_SessionStartCommand(t *testing.T) {
 	}
 }
 
+func TestRootCLI_SessionStartCommand_UsesDetectedRepoByDefault(t *testing.T) {
+	t.Setenv("TRACEARY_REPO", "")
+	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
+		return "github.com/duck8823/traceary", nil
+	})
+	defer cli.ResetDetectRepoContextFunc()
+
+	eventID, err := types.EventIDOf("event-1b")
+	if err != nil {
+		t.Fatalf("EventIDOf() error = %v", err)
+	}
+	agent, err := types.AgentOf("codex")
+	if err != nil {
+		t.Fatalf("AgentOf() error = %v", err)
+	}
+	sessionID, err := types.SessionIDOf("session-auto-repo")
+	if err != nil {
+		t.Fatalf("SessionIDOf() error = %v", err)
+	}
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	initStub := &initializeStoreUsecaseStub{}
+	sessionStub := &recordSessionBoundaryUsecaseStub{
+		event: model.EventOf(
+			eventID,
+			types.EventKindSessionStarted,
+			"cli",
+			agent,
+			sessionID,
+			"github.com/duck8823/traceary",
+			"session started",
+			time.Date(2026, 4, 7, 13, 5, 0, 0, time.UTC),
+		),
+	}
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:       initStub,
+		RecordSessionBoundaryUsecase: sessionStub,
+	}).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"session", "start", "--db-path", dbPath})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if sessionStub.receivedInput.Repo != "github.com/duck8823/traceary" {
+		t.Fatalf("Repo = %q, want %q", sessionStub.receivedInput.Repo, "github.com/duck8823/traceary")
+	}
+}
+
 func TestRootCLI_SessionEndCommand(t *testing.T) {
 	t.Setenv("TRACEARY_SESSION_ID", "session-env")
+	t.Setenv("TRACEARY_REPO", "")
+	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
+		return "github.com/duck8823/traceary", nil
+	})
+	defer cli.ResetDetectRepoContextFunc()
 
 	eventID, err := types.EventIDOf("event-2")
 	if err != nil {
@@ -162,6 +217,24 @@ func TestRootCLI_SessionEndCommand(t *testing.T) {
 	}
 	if sessionStub.receivedInput.SessionID != "session-env" {
 		t.Fatalf("SessionID = %q, want %q", sessionStub.receivedInput.SessionID, "session-env")
+	}
+	if sessionStub.receivedInput.Client != "" {
+		t.Fatalf("Client = %q, want empty", sessionStub.receivedInput.Client)
+	}
+	if sessionStub.receivedInput.Agent != "" {
+		t.Fatalf("Agent = %q, want empty", sessionStub.receivedInput.Agent)
+	}
+	if sessionStub.receivedInput.DefaultClient != "cli" {
+		t.Fatalf("DefaultClient = %q, want %q", sessionStub.receivedInput.DefaultClient, "cli")
+	}
+	if sessionStub.receivedInput.DefaultAgent != "manual" {
+		t.Fatalf("DefaultAgent = %q, want %q", sessionStub.receivedInput.DefaultAgent, "manual")
+	}
+	if sessionStub.receivedInput.Repo != "" {
+		t.Fatalf("Repo = %q, want empty", sessionStub.receivedInput.Repo)
+	}
+	if sessionStub.receivedInput.DefaultRepo != "github.com/duck8823/traceary" {
+		t.Fatalf("DefaultRepo = %q, want %q", sessionStub.receivedInput.DefaultRepo, "github.com/duck8823/traceary")
 	}
 	if stdout.String() != "記録しました: event-2\n" {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), "記録しました: event-2\n")
