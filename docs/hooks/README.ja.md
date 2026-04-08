@@ -23,6 +23,7 @@ Traceary v0.1 は、既存の `traceary session ...` / `traceary audit ...` を 
 - 生成される portable script は `#!/usr/bin/env bash` を使うため、`bash` が必要です
 - 現在の hook 例は shell ベースの client を前提にしているため、Unix 系環境を想定しています
 - Windows の PowerShell / `cmd.exe` workflow はまだ正式対応していません。Windows で hooks を使う場合は、WSL などの POSIX 互換環境を使ってください
+- generated hooks は、対象 client が外部 command 実行と、以下で説明する JSON payload / stdin の受け渡しに対応している前提です
 
 ## 共通環境変数
 
@@ -75,6 +76,8 @@ Traceary v0.1 は、既存の `traceary session ...` / `traceary audit ...` を 
 
 `traceary hooks print --client <claude|codex|gemini>` は、貼り付け用の config を出力します。`claude-code`, `codex-cli`, `gemini-cli` も alias として使えます。
 
+まず install / check / verify の流れだけ見たい場合は、`traceary hooks guide --client <claude|codex|gemini>` を使ってください。
+
 例:
 
 - `traceary hooks print --client claude > .claude/settings.json`
@@ -105,6 +108,23 @@ Traceary v0.1 は、既存の `traceary session ...` / `traceary audit ...` を 
 
 既存 file がある場合、Traceary は上書きせずエラーにします。まず差分を確認し、既存 file を置き換える意図があるときだけ `--force` を使ってください。
 対応している JSON config であれば、`hooks install` はまず既存設定へ Traceary 管理下の hook entry をマージし、無関係な設定は保持します。`--force` を付けた場合だけ完全上書きします。
+`hooks install` の実行後には、同じ環境ですぐ確認できる `doctor` コマンドも出力します。
+
+### merge 挙動と失敗条件
+
+`hooks install` が既存 file へ merge できるのは、次をすべて満たす場合です。
+
+- destination file が既に存在する
+- root が JSON object である
+- 既存 `hooks` field が未設定か、Traceary が期待する `map[string][]hookMatcher` 形状になっている
+
+次の場合、推測で書き換えずに失敗します。
+
+- 既存 file が valid JSON ではない
+- JSON root が object ではない
+- 既存 `hooks` field の shape が Traceary の想定と違う
+
+その場合は file を自分で確認し、本当に置き換えてよいときだけ `--force` を使ってください。
 
 ## トラブルシューティング
 
@@ -115,6 +135,8 @@ hooks やローカル SQLite store の挙動がおかしいときは `traceary d
 - DB path の解決と store 初期化可否
 - hook script の materialize と executable 権限
 - 想定される client config path と、そこに Traceary 管理下の hook が入っているか
+
+`doctor` は対象 client 自体を起動するわけではありません。file path、DB access、Traceary 管理下の hook entry の存在は確認できますが、第三者 client が検証時とまったく同じ形で hook を発火することまでは保証しません。
 
 ### Claude Code
 
@@ -130,10 +152,12 @@ hooks やローカル SQLite store の挙動がおかしいときは `traceary d
 3. Codex session を開始し、`traceary list --limit 10` を確認する
 4. installed Codex build で `Stop` が per-turn だと分かった場合は、session-start hook は維持しつつ stop hook は best-effort として扱う
 
+Codex の session end capture は意図的に best-effort 扱いです。installed build が `Stop` を出している間は有用な stop event を記録できますが、Claude Code や Gemini CLI と同じ fidelity を約束するものではありません。
+
 ### Gemini CLI
 
 1. `examples/hooks/gemini.settings.json` を `.gemini/settings.json` または `~/.gemini/settings.json` に merge する
-2. `hooksConfig.enabled` が既に `true` になっていることを確認する
+2. `hooksConfig.enabled` が既に `true` になっていることを確認する。Traceary はここを自動変更しません
 3. Gemini CLI を起動して、少なくとも 1 回 shell command を実行する
 4. `traceary list --limit 10` または `traceary search "<command>"` で記録結果を確認する
 

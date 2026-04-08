@@ -16,6 +16,10 @@
 
 [リリースガイド](./docs/release/README.ja.md)
 
+[CLI リファレンス](./docs/cli/README.ja.md)
+
+[環境変数リファレンス](./docs/environment/README.ja.md)
+
 Traceary は、AI エージェントの作業ログと audit log をローカルに記録・検索する local-first な CLI / MCP サーバーです。
 
 ## 背景と課題
@@ -71,14 +75,23 @@ release 導線とローカル snapshot build は [`docs/release/README.ja.md`](.
 
 ## クイックスタート
 
-まずは「日常の作業がどう変わるか」だけを見る最短導線です。
+`traceary init` は任意です。すべてのコマンドは必要に応じて SQLite DB を自動作成し、マイグレーションを適用します。`init` は DB パスを明示的に先に作りたいときや、書き込み権限を事前に確認したいときだけ使います。
 
-`traceary init` は任意です。すべてのコマンドは必要に応じて SQLite DB を自動作成し、マイグレーションを適用します。`init` は DB パスを明示的に先に作りたいときや、書き込み権限を事前に確認したいときに使います。
+### 最初の 1 回を成功させる
+
+まずは、DB 作成、session 記録、event lookup が通る最短ループです。
 
 ```sh
-traceary init
 sid=$(traceary session start --client dogfood --agent codex)
-traceary log --client dogfood --agent codex --session-id "$sid" "失敗したテストを調査している"
+event_id=$(traceary log --client dogfood --agent codex --session-id "$sid" --id-only "失敗したテストを調査している")
+traceary show "$event_id" --json
+```
+
+### 同じ session に command output を足す
+
+最初の note が通ったら、command audit を追加して検索で引き直します。
+
+```sh
 event_id=$(
   traceary audit \
     --client dogfood \
@@ -134,6 +147,8 @@ session-1ceee1eaa50a31687cfdb2c8a6fcc85d
 
 - `traceary session active` は既定で `24h` を超えた session を stale とみなします
 - 古い未終了 session を確認したいときは `traceary session active --allow-stale` を使います
+- `traceary session start` は既定で script-friendly な session ID をそのまま出力します
+- 最初の導線ではなく全コマンドを見たいときは `docs/cli/README.ja.md` を見てください
 
 この時点で分かる価値:
 
@@ -164,6 +179,7 @@ traceary backup create --output <path>
 traceary backup restore --input <path>
 traceary hooks print --client <claude|codex|gemini>
 traceary hooks install --client <claude|codex|gemini>
+traceary hooks guide --client <claude|codex|gemini>
 traceary mcp-server
 traceary gc
 ```
@@ -200,6 +216,10 @@ traceary search boom --limit 20 --offset 40 --json
 `traceary session start` は生成された session ID をそのまま出力します。`traceary session end` は、終了対象の session ID は呼び出し側が既に知っている前提で、記録した event ID を出力します。
 
 Hooks 導入: [`docs/hooks/README.ja.md`](./docs/hooks/README.ja.md)
+
+Full CLI reference: [`docs/cli/README.ja.md`](./docs/cli/README.ja.md)
+
+Environment variables and runtime assumptions: [`docs/environment/README.ja.md`](./docs/environment/README.ja.md)
 
 MCP integration: [`docs/mcp/README.ja.md`](./docs/mcp/README.ja.md)
 

@@ -161,6 +161,9 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 		if !strings.Contains(stdout.String(), outputPath) {
 			t.Fatalf("stdout = %q, want path %q", stdout.String(), outputPath)
 		}
+		if !strings.Contains(stdout.String(), "traceary doctor --client claude") {
+			t.Fatalf("stdout = %q, want doctor hint", stdout.String())
+		}
 		assertInstalledHookScripts(t, scriptsDir)
 	})
 
@@ -332,7 +335,6 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 		}
 	})
 }
-
 
 func assertInstalledHookScripts(t *testing.T, scriptsDir string) {
 	t.Helper()

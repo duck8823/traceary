@@ -74,6 +74,8 @@ GitHub Actions runs the same check in CI.
 - security policy: `SECURITY.md` / `SECURITY.ja.md`
 - release history: `CHANGELOG.md` / `CHANGELOG.ja.md`
 - hooks guide: `docs/hooks/README.md` / `docs/hooks/README.ja.md`
+- CLI reference: `docs/cli/README.md` / `docs/cli/README.ja.md`
+- environment reference: `docs/environment/README.md` / `docs/environment/README.ja.md`
 - MCP guide: `docs/mcp/README.md` / `docs/mcp/README.ja.md`
 - backup guide: `docs/backup/README.md` / `docs/backup/README.ja.md`
 - release guide: `docs/release/README.md` / `docs/release/README.ja.md`

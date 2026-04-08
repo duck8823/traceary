@@ -16,6 +16,10 @@
 
 [Release guide](./docs/release/README.md)
 
+[CLI reference](./docs/cli/README.md)
+
+[Environment reference](./docs/environment/README.md)
+
 Traceary is a local-first CLI and MCP server for recording and searching AI agent work logs and audit logs.
 
 ## Why
@@ -71,14 +75,23 @@ See [`docs/release/README.md`](./docs/release/README.md) for the release flow an
 
 ## Quick start
 
-If you only want to see what Traceary changes in daily work, this is the shortest loop.
+`traceary init` is optional. Every command creates the SQLite DB and applies migrations on demand. Use `init` only when you want to bootstrap the DB path explicitly or verify write permissions before a session starts.
 
-`traceary init` is optional. Every command creates the SQLite DB and applies migrations on demand. Use `init` when you want to bootstrap the DB path explicitly or verify write permissions before a session starts.
+### First successful trace
+
+This is the shortest loop that proves the DB, session recording, and event lookup all work.
 
 ```sh
-traceary init
 sid=$(traceary session start --client dogfood --agent codex)
-traceary log --client dogfood --agent codex --session-id "$sid" "Investigating failing tests"
+event_id=$(traceary log --client dogfood --agent codex --session-id "$sid" --id-only "Investigating failing tests")
+traceary show "$event_id" --json
+```
+
+### Add command output to the same session
+
+After the first note works, add a command audit and search it back.
+
+```sh
 event_id=$(
   traceary audit \
     --client dogfood \
@@ -134,6 +147,8 @@ Notes:
 
 - `traceary session active` treats sessions older than `24h` as stale by default
 - use `traceary session active --allow-stale` when you need to inspect an old unclosed session
+- `traceary session start` already prints a script-friendly session ID, so shell wrappers do not need extra parsing
+- use `docs/cli/README.md` when you want the full command reference instead of the first-run path
 
 What changes after this:
 
@@ -164,6 +179,7 @@ traceary backup create --output <path>
 traceary backup restore --input <path>
 traceary hooks print --client <claude|codex|gemini>
 traceary hooks install --client <claude|codex|gemini>
+traceary hooks guide --client <claude|codex|gemini>
 traceary mcp-server
 traceary gc
 ```
@@ -200,6 +216,10 @@ traceary search boom --limit 20 --offset 40 --json
 `traceary session start` prints the session ID so scripts can capture it immediately. `traceary session end` prints the recorded event ID because the caller already knows which session it is closing.
 
 Hook setup: [`docs/hooks/README.md`](./docs/hooks/README.md)
+
+Full CLI reference: [`docs/cli/README.md`](./docs/cli/README.md)
+
+Environment variables and runtime assumptions: [`docs/environment/README.md`](./docs/environment/README.md)
 
 MCP integration: [`docs/mcp/README.md`](./docs/mcp/README.md)
 

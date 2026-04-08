@@ -64,6 +64,7 @@ func (c *RootCLI) newHooksCommand() *cobra.Command {
 	}
 	hooksCmd.AddCommand(c.newHooksInstallCommand())
 	hooksCmd.AddCommand(c.newHooksPrintCommand())
+	hooksCmd.AddCommand(c.newHooksGuideCommand())
 	hooksCmd.AddCommand(c.newHooksHelperCommand())
 
 	return hooksCmd
@@ -192,15 +193,26 @@ func (c *RootCLI) runHooksInstall(
 	if _, err := fmt.Fprintf(
 		output,
 		Localize(
-			"Wrote hook configuration: %s\nIf a config file already exists in that environment, review the diff before re-running with --force.\n",
-			"hook 設定を書き出しました: %s\n既存設定がある環境では差分を確認してから --force を使ってください\n",
+			"Wrote hook configuration: %s\nIf a config file already exists in that environment, review the diff before re-running with --force.\nNext step: traceary doctor --client %s --project-dir %s\nThen start the target client and verify with: traceary list --limit 10\n",
+			"hook 設定を書き出しました: %s\n既存設定がある環境では差分を確認してから --force を使ってください\n次の確認: traceary doctor --client %s --project-dir %s\nその後、対象 client を起動して traceary list --limit 10 で確認してください\n",
 		),
 		resolvedOutputPath,
+		normalizeHooksClientForDisplay(input.client),
+		shellQuote(resolvedProjectDir),
 	); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print hook install result", "hook 設定書き出し結果の出力に失敗しました"), err)
 	}
 
 	return nil
+}
+
+func normalizeHooksClientForDisplay(client string) string {
+	resolvedClient, err := normalizeHooksClient(client)
+	if err != nil {
+		return client
+	}
+
+	return resolvedClient
 }
 
 func resolveHooksProjectDir(flagValue string) (string, error) {
