@@ -23,6 +23,7 @@ Current generated hook configs merge into existing supported client config files
 - `bash` is required because the generated portable scripts use `#!/usr/bin/env bash`
 - current hook examples assume Unix-like environments because the generated commands and compatibility scripts target shell-based clients
 - native Windows PowerShell / `cmd.exe` workflows are not supported today; use WSL or another POSIX-compatible environment if you need hooks on Windows
+- generated hooks assume the target client can invoke external commands and pass JSON payloads/stdin in the formats described below
 
 ## Common environment variables
 
@@ -106,6 +107,22 @@ Default destinations:
 If the destination already exists, Traceary stops with an error instead of overwriting it. Review the diff first, then rerun with `--force` only when replacing the existing file is intentional.
 For supported JSON config files, `hooks install` first tries to merge Traceary-managed entries into the existing file while preserving unrelated settings. `--force` skips merge and replaces the file completely.
 
+### Merge behavior and failure modes
+
+`hooks install` can merge into an existing file when all of the following are true:
+
+- the destination file already exists
+- the destination is a JSON object at the root
+- the existing `hooks` field is either absent or already shaped as `map[string][]hookMatcher`
+
+`hooks install` fails instead of guessing when:
+
+- the existing file is not valid JSON
+- the JSON root is not an object
+- the existing `hooks` field has a different shape than Traceary expects
+
+In those cases, inspect the file yourself and only rerun with `--force` when replacing the file is truly acceptable.
+
 ## Troubleshooting
 
 Run `traceary doctor --client <claude|codex|gemini>` when hooks or the local SQLite store do not behave as expected.
@@ -115,6 +132,8 @@ The diagnostic command checks:
 - DB path resolution and whether Traceary can initialize the store
 - hook script materialization and executability
 - the expected client config location and whether it already contains Traceary-managed hooks
+
+`doctor` does not execute the target client for you. It verifies file paths, DB access, and whether Traceary-managed hook entries are present, but it cannot prove that a third-party client will actually fire every hook in the same way as the validated local builds.
 
 ### Claude Code
 
@@ -130,10 +149,12 @@ The diagnostic command checks:
 3. Start a Codex session and inspect `traceary list --limit 10`.
 4. If `Stop` proves to be per-turn in your installed Codex build, keep the session-start hook and treat the stop hook as best-effort only.
 
+Codex session end capture is intentionally documented as best effort. Traceary can record a useful stop event when the installed Codex build exposes `Stop`, but it does not promise the same session-end fidelity as Claude Code or Gemini CLI.
+
 ### Gemini CLI
 
 1. Merge `examples/hooks/gemini.settings.json` into `.gemini/settings.json` or `~/.gemini/settings.json`.
-2. Ensure `hooksConfig.enabled` is already `true`.
+2. Ensure `hooksConfig.enabled` is already `true`. Traceary does not toggle this for you.
 3. Start Gemini CLI and run at least one shell command.
 4. Verify the resulting events with `traceary list --limit 10` or `traceary search "<command>"`.
 
