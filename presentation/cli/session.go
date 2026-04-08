@@ -67,6 +67,7 @@ func (c *RootCLI) newSessionStartCommand() *cobra.Command {
 		agent     string
 		sessionID string
 		repo      string
+		idOnly    bool
 	)
 
 	startCmd := &cobra.Command{
@@ -81,6 +82,7 @@ func (c *RootCLI) newSessionStartCommand() *cobra.Command {
 				sessionID: strings.TrimSpace(sessionID),
 				repo:      repo,
 				kind:      types.EventKindSessionStarted,
+				idOnly:    idOnly,
 			})
 		},
 	}
@@ -89,6 +91,7 @@ func (c *RootCLI) newSessionStartCommand() *cobra.Command {
 	startCmd.Flags().StringVar(&agent, "agent", "", Localize("actor name (env: TRACEARY_AGENT)", "作業主体 (env: TRACEARY_AGENT)"))
 	startCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID to start", "開始するセッション ID"))
 	startCmd.Flags().StringVar(&repo, "repo", "", Localize("auxiliary work context identifier (env: TRACEARY_REPO)", "補助的なコンテキスト識別子 (env: TRACEARY_REPO)"))
+	startCmd.Flags().BoolVar(&idOnly, "id-only", false, Localize("print only the resulting identifier", "結果の識別子だけを出力する"))
 
 	return startCmd
 }
@@ -100,6 +103,7 @@ func (c *RootCLI) newSessionEndCommand() *cobra.Command {
 		agent     string
 		sessionID string
 		repo      string
+		idOnly    bool
 	)
 
 	endCmd := &cobra.Command{
@@ -114,6 +118,7 @@ func (c *RootCLI) newSessionEndCommand() *cobra.Command {
 				sessionID: resolveOptionalValue(sessionID, "TRACEARY_SESSION_ID", ""),
 				repo:      repo,
 				kind:      types.EventKindSessionEnded,
+				idOnly:    idOnly,
 			})
 		},
 	}
@@ -122,6 +127,7 @@ func (c *RootCLI) newSessionEndCommand() *cobra.Command {
 	endCmd.Flags().StringVar(&agent, "agent", "", Localize("actor name (env: TRACEARY_AGENT)", "作業主体 (env: TRACEARY_AGENT)"))
 	endCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID to end (env: TRACEARY_SESSION_ID)", "終了するセッション ID (env: TRACEARY_SESSION_ID)"))
 	endCmd.Flags().StringVar(&repo, "repo", "", Localize("auxiliary work context identifier (env: TRACEARY_REPO)", "補助的なコンテキスト識別子 (env: TRACEARY_REPO)"))
+	endCmd.Flags().BoolVar(&idOnly, "id-only", false, Localize("print only the resulting identifier", "結果の識別子だけを出力する"))
 
 	return endCmd
 }
@@ -133,6 +139,7 @@ type sessionBoundaryCommandInput struct {
 	sessionID string
 	repo      string
 	kind      types.EventKind
+	idOnly    bool
 }
 
 type sessionLatestCommandInput struct {
@@ -222,6 +229,12 @@ func (c *RootCLI) runSessionBoundary(
 	}
 
 	if input.kind == types.EventKindSessionEnded {
+		if input.idOnly {
+			if _, err := fmt.Fprintln(output, event.EventID()); err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to print session end result", "session end 結果の出力に失敗しました"), err)
+			}
+			return nil
+		}
 		if _, err := fmt.Fprintf(output, "%s: %s\n", Localize("Recorded", "記録しました"), event.EventID()); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print session end result", "session end 結果の出力に失敗しました"), err)
 		}

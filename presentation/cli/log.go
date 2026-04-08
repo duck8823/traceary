@@ -26,6 +26,7 @@ func (c *RootCLI) newLogCommand() *cobra.Command {
 		agent     string
 		sessionID string
 		repo      string
+		idOnly    bool
 	)
 
 	logCmd := &cobra.Command{
@@ -40,6 +41,7 @@ func (c *RootCLI) newLogCommand() *cobra.Command {
 				agent:     agent,
 				sessionID: sessionID,
 				repo:      repo,
+				idOnly:    idOnly,
 			})
 		},
 	}
@@ -48,6 +50,7 @@ func (c *RootCLI) newLogCommand() *cobra.Command {
 	logCmd.Flags().StringVar(&agent, "agent", "", Localize("actor name (env: TRACEARY_AGENT)", "作業主体 (env: TRACEARY_AGENT)"))
 	logCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID (env: TRACEARY_SESSION_ID)", "セッション ID (env: TRACEARY_SESSION_ID)"))
 	logCmd.Flags().StringVar(&repo, "repo", "", Localize("auxiliary work context identifier (env: TRACEARY_REPO)", "補助的なコンテキスト識別子 (env: TRACEARY_REPO)"))
+	logCmd.Flags().BoolVar(&idOnly, "id-only", false, Localize("print only the recorded event ID", "記録した event ID だけを出力する"))
 
 	return logCmd
 }
@@ -59,6 +62,7 @@ type logCommandInput struct {
 	agent     string
 	sessionID string
 	repo      string
+	idOnly    bool
 }
 
 func (c *RootCLI) runLog(ctx context.Context, output io.Writer, input logCommandInput) error {
@@ -87,6 +91,13 @@ func (c *RootCLI) runLog(ctx context.Context, output io.Writer, input logCommand
 	})
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to record log", "ログ記録に失敗しました"), err)
+	}
+
+	if input.idOnly {
+		if _, err := fmt.Fprintln(output, event.EventID()); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print record result", "ログ記録結果の出力に失敗しました"), err)
+		}
+		return nil
 	}
 
 	if _, err := fmt.Fprintf(output, "%s: %s\n", Localize("Recorded", "記録しました"), event.EventID()); err != nil {

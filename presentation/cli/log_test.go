@@ -143,6 +143,40 @@ func TestRootCLI_LogCommand(t *testing.T) {
 			t.Fatalf("Repo = %q, want %q", logStub.receivedInput.Repo, "duck8823/traceary")
 		}
 	})
+
+	t.Run("id-only で event ID だけを出力できる", func(t *testing.T) {
+		t.Parallel()
+
+		dbPath := t.TempDir() + "/traceary.db"
+		initStub := &initializeStoreUsecaseStub{}
+		logStub := &recordLogUsecaseStub{
+			event: model.EventOf(
+				eventID,
+				types.EventKindNote,
+				"cli",
+				agent,
+				sessionID,
+				"duck8823/traceary",
+				"hello",
+				fixedLogTime(),
+			),
+		}
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase: initStub,
+			RecordLogUsecase:       logStub,
+		}).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"log", "--db-path", dbPath, "--id-only", "hello"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		if stdout.String() != "event-1\n" {
+			t.Fatalf("stdout = %q, want %q", stdout.String(), "event-1\n")
+		}
+	})
 }
 
 func fixedLogTime() time.Time {

@@ -114,6 +114,53 @@ func TestRootCLI_SessionStartCommand(t *testing.T) {
 	}
 }
 
+func TestRootCLI_SessionStartCommand_IdOnly(t *testing.T) {
+	t.Parallel()
+
+	eventID, err := types.EventIDOf("event-start-id-only")
+	if err != nil {
+		t.Fatalf("EventIDOf() error = %v", err)
+	}
+	agent, err := types.AgentOf("codex")
+	if err != nil {
+		t.Fatalf("AgentOf() error = %v", err)
+	}
+	sessionID, err := types.SessionIDOf("session-start-id-only")
+	if err != nil {
+		t.Fatalf("SessionIDOf() error = %v", err)
+	}
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	initStub := &initializeStoreUsecaseStub{}
+	sessionStub := &recordSessionBoundaryUsecaseStub{
+		event: model.EventOf(
+			eventID,
+			types.EventKindSessionStarted,
+			"cli",
+			agent,
+			sessionID,
+			"duck8823/traceary",
+			"session started",
+			time.Date(2026, 4, 7, 13, 0, 0, 0, time.UTC),
+		),
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:       initStub,
+		RecordSessionBoundaryUsecase: sessionStub,
+	}).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"session", "start", "--db-path", dbPath, "--id-only"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stdout.String() != "session-start-id-only\n" {
+		t.Fatalf("stdout = %q, want %q", stdout.String(), "session-start-id-only\n")
+	}
+}
+
 func TestRootCLI_SessionStartCommand_UsesDetectedRepoByDefault(t *testing.T) {
 	t.Setenv("TRACEARY_REPO", "")
 	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
@@ -237,6 +284,53 @@ func TestRootCLI_SessionEndCommand(t *testing.T) {
 	}
 	if stdout.String() != "Recorded: event-2\n" {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), "Recorded: event-2\n")
+	}
+}
+
+func TestRootCLI_SessionEndCommand_IdOnly(t *testing.T) {
+	t.Setenv("TRACEARY_SESSION_ID", "session-env")
+
+	eventID, err := types.EventIDOf("event-end-id-only")
+	if err != nil {
+		t.Fatalf("EventIDOf() error = %v", err)
+	}
+	agent, err := types.AgentOf("codex")
+	if err != nil {
+		t.Fatalf("AgentOf() error = %v", err)
+	}
+	sessionID, err := types.SessionIDOf("session-env")
+	if err != nil {
+		t.Fatalf("SessionIDOf() error = %v", err)
+	}
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	initStub := &initializeStoreUsecaseStub{}
+	sessionStub := &recordSessionBoundaryUsecaseStub{
+		event: model.EventOf(
+			eventID,
+			types.EventKindSessionEnded,
+			"cli",
+			agent,
+			sessionID,
+			"",
+			"session ended",
+			time.Date(2026, 4, 7, 13, 30, 0, 0, time.UTC),
+		),
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:       initStub,
+		RecordSessionBoundaryUsecase: sessionStub,
+	}).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"session", "end", "--db-path", dbPath, "--id-only", "--session-id", "session-env"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stdout.String() != "event-end-id-only\n" {
+		t.Fatalf("stdout = %q, want %q", stdout.String(), "event-end-id-only\n")
 	}
 }
 
