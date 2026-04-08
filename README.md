@@ -6,6 +6,8 @@
 
 [Documentation guide](./docs/README.md)
 
+[Contributing](./CONTRIBUTING.md)
+
 [Release guide](./docs/release/README.md)
 
 Traceary is a local-first CLI and MCP server for recording and searching AI agent work logs and audit logs.

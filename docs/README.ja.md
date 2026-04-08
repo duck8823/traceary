@@ -70,6 +70,7 @@ GitHub Actions でも同じ検証を行います。
 ## 現在の文書セット
 
 - 全体概要: `README.md` / `README.ja.md`
+- コントリビューションガイド: `CONTRIBUTING.md` / `CONTRIBUTING.ja.md`
 - release 履歴: `CHANGELOG.md` / `CHANGELOG.ja.md`
 - hooks ガイド: `docs/hooks/README.md` / `docs/hooks/README.ja.md`
 - release ガイド: `docs/release/README.md` / `docs/release/README.ja.md`
