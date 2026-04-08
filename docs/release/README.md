@@ -48,8 +48,10 @@ That workflow:
 
 1. checks out the full git history
 2. sets up Go
-3. runs `goreleaser release --clean`
-4. publishes GitHub release artifacts and checksums
+3. runs GoReleaser in release mode for tag refs, or snapshot mode for manual branch runs
+4. publishes GitHub release artifacts and checksums for tagged releases
+
+`workflow_dispatch` is mainly for dry-running the pipeline on a branch. To publish an actual release, push a `v*` tag (or manually run the workflow against a tag ref).
 
 ## Local snapshot builds
 

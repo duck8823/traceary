@@ -48,8 +48,10 @@ Traceary は `traceary --version` で version metadata を表示します。
 
 1. git history を完全取得する
 2. Go をセットアップする
-3. `goreleaser release --clean` を実行する
-4. GitHub release artifact と checksums を公開する
+3. tag ref では release mode、手動で branch から起動したときは snapshot mode で GoReleaser を実行する
+4. tag release のときに GitHub Releases へ成果物とチェックサムを公開する
+
+`workflow_dispatch` は主に branch 上でパイプラインを dry-run するためのものです。実際に公開リリースしたい場合は `v*` tag を push するか、tag ref を指定して手動実行してください。
 
 ## ローカル snapshot build
 
