@@ -167,6 +167,7 @@ func run() error {
 		recordSessionBoundaryUsecase,
 		recordCommandAuditUsecase,
 		findLatestSessionQueryService,
+		listRecentEventsQueryService,
 		searchEventsQueryService,
 		getContextQueryService,
 	)
