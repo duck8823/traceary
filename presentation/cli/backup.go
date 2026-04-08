@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -23,7 +25,14 @@ type backupRestoreCommandInput struct {
 	dbPath    string
 	inputPath string
 	force     bool
+	assumeYes bool
 }
+
+var (
+	backupRestorePromptReader = io.Reader(nil)
+	backupRestoreStdinFile    = os.Stdin
+	backupRestoreStdoutFile   = os.Stdout
+)
 
 func (c *RootCLI) newBackupCommand() *cobra.Command {
 	backupCmd := &cobra.Command{
@@ -70,6 +79,7 @@ func (c *RootCLI) newBackupRestoreCommand() *cobra.Command {
 		dbPath    string
 		inputPath string
 		force     bool
+		assumeYes bool
 	)
 
 	restoreCmd := &cobra.Command{
@@ -81,15 +91,21 @@ func (c *RootCLI) newBackupRestoreCommand() *cobra.Command {
 				dbPath:    dbPath,
 				inputPath: inputPath,
 				force:     force,
+				assumeYes: assumeYes,
 			})
 		},
 	}
 	restoreCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	restoreCmd.Flags().StringVar(&inputPath, "input", "", Localize("backup input path", "バックアップ入力パス"))
 	restoreCmd.Flags().BoolVar(&force, "force", false, Localize("overwrite the destination DB if it already exists", "復元先 DB が既に存在する場合は上書きする"))
+	restoreCmd.Flags().BoolVar(&assumeYes, "yes", false, Localize("skip the interactive confirmation prompt when overwriting an existing destination DB", "既存 DB を上書きするときの対話確認を省略する"))
 	if err := restoreCmd.MarkFlagRequired("input"); err != nil {
 		panic(err)
 	}
+	restoreCmd.Long = Localize(
+		"Restore a Traceary SQLite backup into the destination DB path.\n\nIf the destination DB already exists, you must pass --force. On an interactive terminal, Traceary asks for confirmation before the destructive overwrite unless you also pass --yes.",
+		"Traceary の SQLite バックアップを復元先 DB path へ戻します。\n\n復元先 DB が既に存在する場合は --force が必要です。対話端末では、破壊的な上書きを行う前に Traceary が確認を求めます。--yes を付けると確認を省略します。",
+	)
 
 	return restoreCmd
 }
@@ -143,6 +159,15 @@ func (c *RootCLI) runBackupRestore(
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve backup input path", "バックアップ入力パスの解決に失敗しました"), err)
 	}
+	destinationExists, err := pathExists(resolvedDBPath)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to inspect destination DB", "復元先 DB の確認に失敗しました"), err)
+	}
+	if destinationExists && input.force && !input.assumeYes && backupRestoreNeedsInteractiveConfirmation() {
+		if err := confirmBackupRestore(output, resolvedDBPath); err != nil {
+			return err
+		}
+	}
 	if err := c.restoreStoreBackupUsecase.Run(ctx, usecase.RestoreStoreBackupInput{
 		DBPath:    resolvedDBPath,
 		InputPath: resolvedInputPath,
@@ -156,6 +181,62 @@ func (c *RootCLI) runBackupRestore(
 	}
 
 	return nil
+}
+
+func pathExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+
+	return false, xerrors.Errorf("%s: %w", Localize("failed to inspect path", "パスの確認に失敗しました"), err)
+}
+
+func backupRestoreNeedsInteractiveConfirmation() bool {
+	return isTerminalFile(backupRestoreStdinFile) && isTerminalFile(backupRestoreStdoutFile)
+}
+
+func confirmBackupRestore(output io.Writer, destinationPath string) error {
+	reader := backupRestorePromptReader
+	if reader == nil {
+		reader = backupRestoreStdinFile
+	}
+
+	prompt := Localize(
+		"Warning: this will overwrite the existing destination DB.\nDestination: %s\nIf that data still matters, create a fresh backup first.\nContinue with restore? [y/N]: ",
+		"警告: 既存の復元先 DB を上書きします。\n復元先: %s\nそのデータがまだ必要なら、先に新しいバックアップを作成してください。\n復元を続行しますか? [y/N]: ",
+	)
+	if _, err := fmt.Fprintf(output, prompt, destinationPath); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print restore confirmation", "復元確認の出力に失敗しました"), err)
+	}
+
+	line, err := bufio.NewReader(reader).ReadString('\n')
+	if err != nil && err != io.EOF {
+		return xerrors.Errorf("%s: %w", Localize("failed to read restore confirmation", "復元確認の読み取りに失敗しました"), err)
+	}
+
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "y", "yes":
+		return nil
+	default:
+		return xerrors.Errorf(Localize("restore canceled", "復元を中止しました"))
+	}
+}
+
+func isTerminalFile(file *os.File) bool {
+	if file == nil {
+		return false
+	}
+
+	info, err := file.Stat()
+	if err != nil {
+		return false
+	}
+
+	return (info.Mode() & os.ModeCharDevice) != 0
 }
 
 func resolveRequiredAbsolutePath(path string) (string, error) {
