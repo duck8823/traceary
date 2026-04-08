@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "traceary": {
+      "command": "traceary",
+      "args": [
+        "mcp-server"
+      ],
+      "note": "Shared local Traceary MCP server for session history, event search, and command-audit context."
+    }
+  }
+}
