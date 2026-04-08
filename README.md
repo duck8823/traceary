@@ -23,6 +23,8 @@
 
 [CLI reference](./docs/cli/README.md)
 
+[Interactive ergonomics](./docs/interactive/README.md)
+
 [Environment reference](./docs/environment/README.md)
 
 Traceary is a local-first CLI and MCP server for recording and searching AI agent work logs and audit logs.
@@ -202,6 +204,7 @@ traceary session end
 traceary session latest
 traceary session active
 traceary show <event-id>
+traceary completion <bash|zsh|fish|powershell>
 traceary doctor
 traceary backup create --output <path>
 traceary backup restore --input <path>

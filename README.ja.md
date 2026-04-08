@@ -23,6 +23,8 @@
 
 [CLI リファレンス](./docs/cli/README.ja.md)
 
+[Interactive ergonomics](./docs/interactive/README.ja.md)
+
 [環境変数リファレンス](./docs/environment/README.ja.md)
 
 Traceary は、AI エージェントの作業ログと audit log をローカルに記録・検索する local-first な CLI / MCP サーバーです。
@@ -202,6 +204,7 @@ traceary session end
 traceary session latest
 traceary session active
 traceary show <event-id>
+traceary completion <bash|zsh|fish|powershell>
 traceary doctor
 traceary backup create --output <path>
 traceary backup restore --input <path>

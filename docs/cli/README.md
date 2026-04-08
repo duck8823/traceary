@@ -163,6 +163,10 @@ Useful flags:
 
 ## Hooks and diagnostics
 
+### `traceary completion <bash|zsh|fish|powershell>`
+
+Generate shell completion scripts for interactive use.
+
 ### `traceary hooks print`
 
 Print generated hook configuration for a supported client.

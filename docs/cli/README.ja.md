@@ -163,6 +163,10 @@ session end 境界を記録し、生成された event ID を出力します。
 
 ## Hooks と診断
 
+### `traceary completion <bash|zsh|fish|powershell>`
+
+interactive 利用向けの shell completion script を生成します。
+
 ### `traceary hooks print`
 
 対応 client 向けの generated hook config を出力します。
