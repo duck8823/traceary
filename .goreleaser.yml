@@ -39,7 +39,7 @@ checksum:
 
 brews:
   - ids:
-      - traceary
+      - binaries
     directory: Formula
     repository:
       owner: duck8823
