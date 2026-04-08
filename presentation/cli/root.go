@@ -10,6 +10,8 @@ import (
 // RootCLI は traceary のルートコマンドを提供します。
 type RootCLI struct {
 	initializeStoreUsecase        usecase.InitializeStoreUsecase
+	createStoreBackupUsecase      usecase.CreateStoreBackupUsecase
+	restoreStoreBackupUsecase     usecase.RestoreStoreBackupUsecase
 	recordLogUsecase              usecase.RecordLogUsecase
 	recordSessionBoundaryUsecase  usecase.RecordSessionBoundaryUsecase
 	recordCommandAuditUsecase     usecase.RecordCommandAuditUsecase
@@ -25,6 +27,8 @@ type RootCLI struct {
 // RootCLIOptions は RootCLI の依存関係をまとめた設定です。
 type RootCLIOptions struct {
 	InitializeStoreUsecase        usecase.InitializeStoreUsecase
+	CreateStoreBackupUsecase      usecase.CreateStoreBackupUsecase
+	RestoreStoreBackupUsecase     usecase.RestoreStoreBackupUsecase
 	RecordLogUsecase              usecase.RecordLogUsecase
 	RecordSessionBoundaryUsecase  usecase.RecordSessionBoundaryUsecase
 	RecordCommandAuditUsecase     usecase.RecordCommandAuditUsecase
@@ -41,6 +45,8 @@ type RootCLIOptions struct {
 func NewRootCLI(options RootCLIOptions) *RootCLI {
 	return &RootCLI{
 		initializeStoreUsecase:        options.InitializeStoreUsecase,
+		createStoreBackupUsecase:      options.CreateStoreBackupUsecase,
+		restoreStoreBackupUsecase:     options.RestoreStoreBackupUsecase,
 		recordLogUsecase:              options.RecordLogUsecase,
 		recordSessionBoundaryUsecase:  options.RecordSessionBoundaryUsecase,
 		recordCommandAuditUsecase:     options.RecordCommandAuditUsecase,
@@ -63,6 +69,7 @@ func (c *RootCLI) Command() *cobra.Command {
 		SilenceUsage:  true,
 	}
 	rootCmd.AddCommand(c.newInitCommand())
+	rootCmd.AddCommand(c.newBackupCommand())
 	rootCmd.AddCommand(c.newLogCommand())
 	rootCmd.AddCommand(c.newAuditCommand())
 	rootCmd.AddCommand(c.newGCCommand())
