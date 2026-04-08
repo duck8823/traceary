@@ -21,6 +21,7 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 		agent          string
 		sessionID      string
 		repo           string
+		allowSecrets   bool
 		maxInputBytes  int
 		maxOutputBytes int
 	)
@@ -39,6 +40,7 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 				agent:          agent,
 				sessionID:      sessionID,
 				repo:           repo,
+				allowSecrets:   allowSecrets,
 				maxInputBytes:  maxInputBytes,
 				maxOutputBytes: maxOutputBytes,
 			})
@@ -49,6 +51,12 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 	auditCmd.Flags().StringVar(&agent, "agent", "", Localize("actor name (env: TRACEARY_AGENT)", "作業主体 (env: TRACEARY_AGENT)"))
 	auditCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID (env: TRACEARY_SESSION_ID)", "セッション ID (env: TRACEARY_SESSION_ID)"))
 	auditCmd.Flags().StringVar(&repo, "repo", "", Localize("auxiliary work context identifier (env: TRACEARY_REPO)", "補助的なコンテキスト識別子 (env: TRACEARY_REPO)"))
+	auditCmd.Flags().BoolVar(
+		&allowSecrets,
+		"allow-secrets",
+		false,
+		Localize("store input/output without the default secret redaction (env: TRACEARY_ALLOW_SECRETS)", "既定の secret redaction を行わずに input/output を保存する (env: TRACEARY_ALLOW_SECRETS)"),
+	)
 	auditCmd.Flags().IntVar(
 		&maxInputBytes,
 		"max-input-bytes",
@@ -74,6 +82,7 @@ type auditCommandInput struct {
 	agent          string
 	sessionID      string
 	repo           string
+	allowSecrets   bool
 	maxInputBytes  int
 	maxOutputBytes int
 }
@@ -102,6 +111,10 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve output byte limit", "output 上限の解決に失敗しました"), err)
 	}
+	allowSecrets, err := resolveAuditAllowSecrets(input.allowSecrets)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve secret handling policy", "secret 取り扱いポリシーの解決に失敗しました"), err)
+	}
 
 	event, commandAudit, err := c.recordCommandAuditUsecase.Run(ctx, usecase.RecordCommandAuditInput{
 		DBPath:         resolvedPath,
@@ -112,6 +125,7 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		Agent:          resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue),
 		SessionID:      resolveOptionalValue(input.sessionID, "TRACEARY_SESSION_ID", defaultSessionIDValue),
 		Repo:           resolveRepoValue(ctx, input.repo),
+		AllowSecrets:   allowSecrets,
 		MaxInputBytes:  maxInputBytes,
 		MaxOutputBytes: maxOutputBytes,
 	})
@@ -123,6 +137,16 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		return xerrors.Errorf("%s: %w", Localize("failed to print record result", "監査ログ記録結果の出力に失敗しました"), err)
 	}
 	if commandAudit != nil {
+		if commandAudit.InputRedacted() {
+			if _, err := fmt.Fprintln(output, Localize("Input was redacted before storing", "入力は伏せ字化して保存しました")); err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to print input redaction notice", "input 伏せ字化通知の出力に失敗しました"), err)
+			}
+		}
+		if commandAudit.OutputRedacted() {
+			if _, err := fmt.Fprintln(output, Localize("Output was redacted before storing", "出力は伏せ字化して保存しました")); err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to print output redaction notice", "output 伏せ字化通知の出力に失敗しました"), err)
+			}
+		}
 		if commandAudit.InputTruncated() {
 			if _, err := fmt.Fprintln(output, Localize("Input was truncated before storing", "入力は切り詰めて保存しました")); err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to print input truncation notice", "input 切り詰め通知の出力に失敗しました"), err)
@@ -162,6 +186,29 @@ func resolveAuditMaxBytes(flagValue int, envKey string) (int, error) {
 	}
 	if parsedValue < 0 {
 		return 0, xerrors.Errorf(localizef("%s must be greater than or equal to 0", "%s は 0 以上で指定してください", envKey))
+	}
+
+	return parsedValue, nil
+}
+
+func resolveAuditAllowSecrets(flagValue bool) (bool, error) {
+	if flagValue {
+		return true, nil
+	}
+
+	envValue, exists := os.LookupEnv("TRACEARY_ALLOW_SECRETS")
+	if !exists {
+		return false, nil
+	}
+
+	trimmedEnvValue := strings.TrimSpace(envValue)
+	if trimmedEnvValue == "" {
+		return false, nil
+	}
+
+	parsedValue, err := strconv.ParseBool(trimmedEnvValue)
+	if err != nil {
+		return false, xerrors.Errorf("%s: %w", Localize("TRACEARY_ALLOW_SECRETS must be a boolean", "TRACEARY_ALLOW_SECRETS は boolean で指定してください"), err)
 	}
 
 	return parsedValue, nil

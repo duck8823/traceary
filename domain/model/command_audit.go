@@ -16,6 +16,8 @@ type CommandAudit struct {
 	output          string
 	inputTruncated  bool
 	outputTruncated bool
+	inputRedacted   bool
+	outputRedacted  bool
 }
 
 // NewCommandAudit は新しい CommandAudit を生成します。
@@ -78,3 +80,19 @@ func (a *CommandAudit) InputTruncated() bool { return a.inputTruncated }
 
 // OutputTruncated は出力が切り詰められたかを返します。
 func (a *CommandAudit) OutputTruncated() bool { return a.outputTruncated }
+
+// SetRedaction は capture 時に redaction されたかを設定します。
+func (a *CommandAudit) SetRedaction(inputRedacted bool, outputRedacted bool) {
+	if a == nil {
+		return
+	}
+
+	a.inputRedacted = inputRedacted
+	a.outputRedacted = outputRedacted
+}
+
+// InputRedacted は入力に redaction が適用されたかを返します。
+func (a *CommandAudit) InputRedacted() bool { return a.inputRedacted }
+
+// OutputRedacted は出力に redaction が適用されたかを返します。
+func (a *CommandAudit) OutputRedacted() bool { return a.outputRedacted }

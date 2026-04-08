@@ -38,6 +38,13 @@ func TestNewCommandAudit(t *testing.T) {
 		if got.OutputTruncated() {
 			t.Fatalf("OutputTruncated() = true, want false")
 		}
+		got.SetRedaction(true, false)
+		if !got.InputRedacted() {
+			t.Fatalf("InputRedacted() = false, want true")
+		}
+		if got.OutputRedacted() {
+			t.Fatalf("OutputRedacted() = true, want false")
+		}
 	})
 
 	t.Run("空コマンドはエラー", func(t *testing.T) {

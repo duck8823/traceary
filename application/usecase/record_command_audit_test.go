@@ -135,6 +135,78 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		}
 	})
 
+	t.Run("一般的な secret は既定で伏せ字にする", func(t *testing.T) {
+		t.Parallel()
+
+		stub := &commandAuditSaverStub{}
+		sut := usecase.NewRecordCommandAuditUsecase(stub)
+
+		_, commandAudit, err := sut.Run(context.Background(), usecase.RecordCommandAuditInput{
+			DBPath:    "/tmp/traceary.db",
+			Command:   "curl https://example.test",
+			Input:     `{"access_token":"top-secret","note":"keep"}`,
+			Output:    "Authorization: Bearer token-value\nexport API_KEY=abc123",
+			Client:    "cli",
+			Agent:     "codex",
+			SessionID: "session-1",
+		})
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if !commandAudit.InputRedacted() {
+			t.Fatalf("InputRedacted() = false, want true")
+		}
+		if !commandAudit.OutputRedacted() {
+			t.Fatalf("OutputRedacted() = false, want true")
+		}
+		if strings.Contains(commandAudit.Input(), "top-secret") {
+			t.Fatalf("Input() leaked secret: %q", commandAudit.Input())
+		}
+		if strings.Contains(commandAudit.Output(), "token-value") || strings.Contains(commandAudit.Output(), "abc123") {
+			t.Fatalf("Output() leaked secret: %q", commandAudit.Output())
+		}
+		if !strings.Contains(commandAudit.Input(), "[REDACTED]") {
+			t.Fatalf("Input() = %q, want redaction marker", commandAudit.Input())
+		}
+		if !strings.Contains(commandAudit.Output(), "[REDACTED]") {
+			t.Fatalf("Output() = %q, want redaction marker", commandAudit.Output())
+		}
+	})
+
+	t.Run("allow secrets が有効なら raw payload を保存する", func(t *testing.T) {
+		t.Parallel()
+
+		stub := &commandAuditSaverStub{}
+		sut := usecase.NewRecordCommandAuditUsecase(stub)
+
+		_, commandAudit, err := sut.Run(context.Background(), usecase.RecordCommandAuditInput{
+			DBPath:        "/tmp/traceary.db",
+			Command:       "curl https://example.test",
+			Input:         `{"access_token":"top-secret"}`,
+			Output:        "Authorization: Bearer token-value",
+			Client:        "cli",
+			Agent:         "codex",
+			SessionID:     "session-1",
+			AllowSecrets:  true,
+			MaxInputBytes: 256,
+		})
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if commandAudit.InputRedacted() {
+			t.Fatalf("InputRedacted() = true, want false")
+		}
+		if commandAudit.OutputRedacted() {
+			t.Fatalf("OutputRedacted() = true, want false")
+		}
+		if !strings.Contains(commandAudit.Input(), "top-secret") {
+			t.Fatalf("Input() = %q, want raw secret", commandAudit.Input())
+		}
+		if !strings.Contains(commandAudit.Output(), "token-value") {
+			t.Fatalf("Output() = %q, want raw secret", commandAudit.Output())
+		}
+	})
+
 	t.Run("負の上限はエラー", func(t *testing.T) {
 		t.Parallel()
 

@@ -36,6 +36,7 @@ type RecordCommandAuditInput struct {
 	Agent          string
 	SessionID      string
 	Repo           string
+	AllowSecrets   bool
 	MaxInputBytes  int
 	MaxOutputBytes int
 }
@@ -91,8 +92,17 @@ func (u *recordCommandAuditUsecase) Run(
 		return nil, nil, xerrors.Errorf("output 上限の解決に失敗しました: %w", err)
 	}
 
-	normalizedInput, inputTruncated := truncateAuditPayload(input.Input, maxInputBytes)
-	normalizedOutput, outputTruncated := truncateAuditPayload(input.Output, maxOutputBytes)
+	normalizedInput := input.Input
+	normalizedOutput := input.Output
+	var inputRedacted bool
+	var outputRedacted bool
+	if !input.AllowSecrets {
+		normalizedInput, inputRedacted = redactAuditPayload(normalizedInput)
+		normalizedOutput, outputRedacted = redactAuditPayload(normalizedOutput)
+	}
+
+	normalizedInput, inputTruncated := truncateAuditPayload(normalizedInput, maxInputBytes)
+	normalizedOutput, outputTruncated := truncateAuditPayload(normalizedOutput, maxOutputBytes)
 	commandAudit, err := model.NewCommandAudit(
 		eventID,
 		input.Command,
@@ -104,6 +114,7 @@ func (u *recordCommandAuditUsecase) Run(
 	if err != nil {
 		return nil, nil, xerrors.Errorf("コマンド監査情報の生成に失敗しました: %w", err)
 	}
+	commandAudit.SetRedaction(inputRedacted, outputRedacted)
 
 	event, err := model.NewEvent(
 		eventID,
