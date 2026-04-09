@@ -3,34 +3,36 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import shutil
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PLUGIN_NAME = 'traceary'
+MARKETPLACE_NAME = 'local-traceary-plugins'
+PLUGIN_ID = f'{PLUGIN_NAME}@{MARKETPLACE_NAME}'
+PLUGIN_VERSION = 'local'
 
 
 def load_marketplace(path: Path) -> dict:
     if not path.exists():
         return {
-            'name': 'local-traceary-plugins',
+            'name': MARKETPLACE_NAME,
             'interface': {'displayName': 'Local Traceary Plugins'},
             'plugins': [],
         }
     return json.loads(path.read_text(encoding='utf-8'))
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description='Install the packaged Traceary Codex plugin into a local marketplace directory.')
-    parser.add_argument('--repo-root', type=Path, default=ROOT)
-    parser.add_argument('--target-root', type=Path, default=Path.home() / '.agents' / 'plugins')
-    args = parser.parse_args()
+def write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + '\n', encoding='utf-8')
 
-    source_plugin = args.repo_root / 'plugins' / PLUGIN_NAME
-    target_root = args.target_root.expanduser().resolve()
-    target_plugins = target_root / 'plugins'
+
+def install_marketplace_copy(source_plugin: Path, marketplace_root: Path) -> Path:
+    target_plugins = marketplace_root / 'plugins'
     target_plugin = target_plugins / PLUGIN_NAME
-    marketplace_path = target_root / 'marketplace.json'
+    marketplace_path = marketplace_root / 'marketplace.json'
 
     target_plugins.mkdir(parents=True, exist_ok=True)
     if target_plugin.exists():
@@ -48,10 +50,177 @@ def main() -> None:
         }
     )
     marketplace['plugins'] = plugins
-    marketplace_path.write_text(json.dumps(marketplace, indent=2) + '\n', encoding='utf-8')
+    write_json(marketplace_path, marketplace)
+    return target_plugin
 
-    print(f'installed {PLUGIN_NAME} plugin at {target_plugin}')
-    print(f'updated marketplace manifest at {marketplace_path}')
+
+def install_plugin_cache_copy(source_plugin: Path, codex_home: Path) -> Path:
+    plugin_root = codex_home / 'plugins' / 'cache' / MARKETPLACE_NAME / PLUGIN_NAME / PLUGIN_VERSION
+    base_root = plugin_root.parent
+    if base_root.exists():
+        shutil.rmtree(base_root)
+    plugin_root.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source_plugin, plugin_root)
+    return plugin_root
+
+
+def find_table_bounds(lines: list[str], header: str) -> tuple[int, int] | None:
+    start = None
+    for index, line in enumerate(lines):
+        if line.strip() == header:
+            start = index
+            break
+    if start is None:
+        return None
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        stripped = lines[index].strip()
+        if stripped.startswith('[') and stripped.endswith(']'):
+            end = index
+            break
+    return start, end
+
+
+def normalize_toml_text(lines: list[str]) -> str:
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return ('\n'.join(lines) + '\n') if lines else ''
+
+
+def upsert_toml_bool(text: str, header: str, key: str, value: bool) -> str:
+    lines = text.splitlines()
+    bounds = find_table_bounds(lines, header)
+    rendered_value = 'true' if value else 'false'
+    setting = f'{key} = {rendered_value}'
+
+    if bounds is None:
+        if lines and lines[-1].strip():
+            lines.append('')
+        lines.extend([header, setting])
+        return normalize_toml_text(lines)
+
+    start, end = bounds
+    for index in range(start + 1, end):
+        stripped = lines[index].strip()
+        if stripped == key or stripped.startswith(f'{key} =') or stripped.startswith(f'{key}='):
+            lines[index] = setting
+            return normalize_toml_text(lines)
+
+    lines.insert(end, setting)
+    return normalize_toml_text(lines)
+
+
+def write_codex_config(codex_home: Path) -> Path:
+    config_path = codex_home / 'config.toml'
+    current = config_path.read_text(encoding='utf-8') if config_path.exists() else ''
+    current = upsert_toml_bool(current, '[features]', 'codex_hooks', True)
+    current = upsert_toml_bool(current, f'[plugins."{PLUGIN_ID}"]', 'enabled', True)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(current, encoding='utf-8')
+    return config_path
+
+
+def shell_quote(value: str) -> str:
+    return shlex.quote(value)
+
+
+def build_hook_command(installed_plugin_root: Path, traceary_bin: str, script_name: str, *args: str) -> str:
+    parts = [
+        f'TRACEARY_BIN={shell_quote(traceary_bin)}',
+        'bash',
+        shell_quote(str(installed_plugin_root / 'scripts' / script_name)),
+    ]
+    parts.extend(shell_quote(arg) for arg in args)
+    return ' '.join(parts)
+
+
+def build_codex_hooks(installed_plugin_root: Path, traceary_bin: str) -> dict:
+    empty_matcher = ''
+    return {
+        'SessionStart': [
+            {
+                'hooks': [
+                    {
+                        'type': 'command',
+                        'command': build_hook_command(installed_plugin_root, traceary_bin, 'traceary-session.sh', 'codex', 'start'),
+                    }
+                ]
+            }
+        ],
+        'Stop': [
+            {
+                'hooks': [
+                    {
+                        'type': 'command',
+                        'command': build_hook_command(installed_plugin_root, traceary_bin, 'traceary-session.sh', 'codex', 'stop'),
+                    }
+                ]
+            }
+        ],
+        'PostToolUse': [
+            {
+                'matcher': empty_matcher,
+                'hooks': [
+                    {
+                        'type': 'command',
+                        'command': build_hook_command(installed_plugin_root, traceary_bin, 'traceary-audit.sh', 'codex'),
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def is_traceary_codex_hook(command: str) -> bool:
+    return ('traceary-session.sh' in command or 'traceary-audit.sh' in command) and 'codex' in command
+
+
+def merge_codex_hooks(hooks_path: Path, installed_plugin_root: Path, traceary_bin: str) -> Path:
+    existing = {'hooks': {}}
+    if hooks_path.exists():
+        existing = json.loads(hooks_path.read_text(encoding='utf-8'))
+    hooks = existing.setdefault('hooks', {})
+    generated = build_codex_hooks(installed_plugin_root, traceary_bin)
+
+    for event_name, matchers in generated.items():
+        cleaned_matchers = []
+        for matcher in hooks.get(event_name, []):
+            matcher_hooks = matcher.get('hooks', [])
+            remaining = [hook for hook in matcher_hooks if not is_traceary_codex_hook(str(hook.get('command', '')))]
+            if remaining:
+                updated = dict(matcher)
+                updated['hooks'] = remaining
+                cleaned_matchers.append(updated)
+        cleaned_matchers.extend(matchers)
+        hooks[event_name] = cleaned_matchers
+
+    write_json(hooks_path, existing)
+    return hooks_path
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description='Install the packaged Traceary Codex plugin into the active Codex runtime and local marketplace.')
+    parser.add_argument('--repo-root', type=Path, default=ROOT)
+    parser.add_argument('--codex-home', type=Path, default=Path.home() / '.codex')
+    parser.add_argument('--marketplace-root', type=Path, default=Path.home() / '.agents' / 'plugins')
+    parser.add_argument('--traceary-bin', default='traceary')
+    args = parser.parse_args()
+
+    source_plugin = args.repo_root.expanduser().resolve() / 'plugins' / PLUGIN_NAME
+    codex_home = args.codex_home.expanduser().resolve()
+    marketplace_root = args.marketplace_root.expanduser().resolve()
+    traceary_bin = args.traceary_bin
+
+    marketplace_copy = install_marketplace_copy(source_plugin, marketplace_root)
+    installed_plugin_root = install_plugin_cache_copy(source_plugin, codex_home)
+    config_path = write_codex_config(codex_home)
+    hooks_path = merge_codex_hooks(codex_home / 'hooks.json', installed_plugin_root, traceary_bin)
+
+    print(f'installed marketplace copy at {marketplace_copy}')
+    print(f'installed active Codex plugin at {installed_plugin_root}')
+    print(f'updated Codex config at {config_path}')
+    print(f'updated Codex hooks at {hooks_path}')
+    print(f'enabled plugin id {PLUGIN_ID}')
 
 
 if __name__ == '__main__':

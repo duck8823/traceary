@@ -2,8 +2,15 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
+
+try:
+    import tomllib  # type: ignore[attr-defined]
+except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback
+    tomllib = None
 
 ROOT = Path(__file__).resolve().parent.parent
 HOOK_SOURCES = [
@@ -30,6 +37,45 @@ def read_json(path: Path) -> dict:
         fail(f'missing file: {path.relative_to(ROOT)}')
     except json.JSONDecodeError as exc:
         fail(f'invalid json in {path.relative_to(ROOT)}: {exc}')
+
+
+def read_toml(path: Path) -> dict:
+    try:
+        contents = path.read_text(encoding='utf-8')
+    except FileNotFoundError:
+        return {}
+    if tomllib is not None:
+        try:
+            return tomllib.loads(contents)
+        except tomllib.TOMLDecodeError as exc:
+            fail(f'invalid toml in {path.relative_to(ROOT)}: {exc}')
+
+    result: dict = {}
+    current_table: list[str] = []
+    for raw_line in contents.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith('#'):
+            continue
+        if line.startswith('[') and line.endswith(']'):
+            header = line[1:-1]
+            current = result
+            current_table = []
+            for part in header.split('.'):
+                normalized = part.strip().strip('"')
+                current_table.append(normalized)
+                current = current.setdefault(normalized, {})
+            continue
+        if '=' not in line:
+            continue
+        key, value = [part.strip() for part in line.split('=', 1)]
+        current = result
+        for part in current_table:
+            current = current.setdefault(part, {})
+        if value in {'true', 'false'}:
+            current[key] = value == 'true'
+        else:
+            current[key] = value.strip('"')
+    return result
 
 
 def require(condition: bool, message: str) -> None:
@@ -95,6 +141,78 @@ def check_codex() -> None:
     require((ROOT / 'plugins' / 'traceary' / 'commands' / 'help.md').exists(), 'missing Codex help command')
     require((ROOT / 'plugins' / 'traceary' / 'commands' / 'doctor.md').exists(), 'missing Codex doctor command')
     require((ROOT / 'plugins' / 'traceary' / 'skills' / 'traceary-session-history' / 'SKILL.md').exists(), 'missing Codex traceary-session-history skill')
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_root = Path(temp_dir)
+        codex_home = temp_root / 'codex-home'
+        marketplace_root = temp_root / 'agents' / 'plugins'
+        subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / 'scripts' / 'codex' / 'install_plugin.py'),
+                '--repo-root',
+                str(ROOT),
+                '--codex-home',
+                str(codex_home),
+                '--marketplace-root',
+                str(marketplace_root),
+                '--traceary-bin',
+                '/tmp/traceary',
+            ],
+            check=True,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+        cached_plugin_manifest = codex_home / 'plugins' / 'cache' / 'local-traceary-plugins' / 'traceary' / 'local' / '.codex-plugin' / 'plugin.json'
+        require(cached_plugin_manifest.exists(), 'Codex install helper must install the plugin into the active cache')
+
+        local_config = read_toml(codex_home / 'config.toml')
+        features = local_config.get('features', {})
+        plugins_config = local_config.get('plugins', {})
+        require(features.get('codex_hooks') is True, 'Codex install helper must enable codex_hooks')
+        require(
+            plugins_config.get('traceary@local-traceary-plugins', {}).get('enabled') is True,
+            'Codex install helper must enable the Traceary plugin in config.toml',
+        )
+
+        installed_hooks = read_json(codex_home / 'hooks.json')
+        require('SessionStart' in installed_hooks['hooks'], 'Codex install helper must write SessionStart hooks')
+        require('Stop' in installed_hooks['hooks'], 'Codex install helper must write Stop hooks')
+        require('PostToolUse' in installed_hooks['hooks'], 'Codex install helper must write PostToolUse hooks')
+        hook_commands = json.dumps(installed_hooks['hooks'])
+        require('/tmp/traceary' in hook_commands, 'Codex install helper must carry the configured traceary binary into hooks.json')
+        require(
+            str(cached_plugin_manifest.parent.parent) in hook_commands,
+            'Codex install helper must point hooks.json at the installed plugin scripts',
+        )
+
+        subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / 'scripts' / 'codex' / 'uninstall_plugin.py'),
+                '--codex-home',
+                str(codex_home),
+                '--marketplace-root',
+                str(marketplace_root),
+            ],
+            check=True,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+        require(not cached_plugin_manifest.exists(), 'Codex uninstall helper must remove the cached plugin')
+        local_config = read_toml(codex_home / 'config.toml')
+        require(
+            'traceary@local-traceary-plugins' not in local_config.get('plugins', {}),
+            'Codex uninstall helper must remove the Traceary plugin config entry',
+        )
+        if (codex_home / 'hooks.json').exists():
+            remaining_hooks = json.dumps(read_json(codex_home / 'hooks.json'))
+            require('traceary-session.sh' not in remaining_hooks, 'Codex uninstall helper must remove Traceary session hooks')
+            require('traceary-audit.sh' not in remaining_hooks, 'Codex uninstall helper must remove Traceary audit hooks')
 
 
 def check_gemini() -> None:
