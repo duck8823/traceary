@@ -5,6 +5,25 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.1.15] - 2026-04-09
+
+This release closes the last dogfood follow-ups from `v0.1.14` by making local-only git repositories behave like stable work contexts and by making `traceary doctor` clearer on first run.
+
+### Fixed
+- local-only git repositories now fall back to the git worktree root when `remote.origin.url` is missing, so `traceary log` / `traceary audit` reuse the active session instead of dropping back to `default`
+- packaged hook scripts now use the same local-only git fallback, keeping Claude / Codex / Gemini integrations aligned with the CLI
+- `traceary doctor` now reports first-run host config states as `warn` instead of generic failures and keeps JSON output machine-readable
+- hook-script materialization problems that block setup guidance but do not necessarily mean a broken install are now surfaced as `warn` with clearer messages
+
+### Changed
+- documented the local-only git worktree fallback and the `warn` vs `fail` `traceary doctor` semantics across the root README and the CLI / hooks / environment docs
+- updated release-facing integration manifests to version `0.1.15`
+- refreshed the release guide examples to point at `v0.1.15`
+
+### Included issues
+- #165 Make doctor clearer on first-run integration states
+- #166 Improve work-context detection for local-only git repositories
+
 ## [v0.1.14] - 2026-04-09
 
 This release packages the integration/runtime fixes merged after `v0.1.13` together with the release-metadata alignment needed to publish them cleanly.
