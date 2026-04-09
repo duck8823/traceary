@@ -51,11 +51,19 @@ type auditPayloadRedactor struct {
 	replacement string
 }
 
-func redactAuditPayload(value string) (string, bool) {
+func redactAuditPayload(value string, extraRedactors []auditPayloadRedactor) (string, bool) {
 	redacted := false
 	normalizedValue := value
 
 	for _, redactor := range auditPayloadRedactors {
+		updatedValue := redactor.pattern.ReplaceAllString(normalizedValue, redactor.replacement)
+		if updatedValue != normalizedValue {
+			redacted = true
+			normalizedValue = updatedValue
+		}
+	}
+
+	for _, redactor := range extraRedactors {
 		updatedValue := redactor.pattern.ReplaceAllString(normalizedValue, redactor.replacement)
 		if updatedValue != normalizedValue {
 			redacted = true
