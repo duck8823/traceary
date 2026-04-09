@@ -18,6 +18,11 @@
 
 note event を追記します。
 
+既定値:
+
+- `--client` / `--agent` / `--repo`: flag → `TRACEARY_CLIENT` / `TRACEARY_AGENT` / `TRACEARY_REPO` → `cli` / `manual` / 検出した repo
+- `--session-id`: flag → `TRACEARY_SESSION_ID` → 解決した repo の最新 non-stale active session → `default`
+
 主な flag:
 
 - `--client`
@@ -25,6 +30,7 @@ note event を追記します。
 - `--session-id`
 - `--repo`
 - `--id-only`
+- `--json`
 
 session 解決ルール:
 
@@ -32,12 +38,13 @@ session 解決ルール:
 - それ以外では、解決できた repo / work context に対する最新の non-stale active session を再利用
 - repo / work context が無い、または一致する active session が無い場合は、従来どおり `default` session ID に fallback
 
-### `traceary audit [<command> <input> <output>]`
+### `traceary audit <command> [<input>] [<output>]`
 
 コマンド実行の監査イベントを記録します。
 
 入力方法:
 
+- command だけの位置引数: `traceary audit "go test ./..."`
 - 位置引数: `traceary audit "go test ./..." '{}' '{}'`
 - named flags: `traceary audit --command "go test ./..." --input '{}' --output '{}'`
 
@@ -51,6 +58,7 @@ session 解決ルール:
 - `--session-id`
 - `--repo`
 - `--id-only`
+- `--json`
 - `--allow-secrets`
 - `--max-input-bytes`
 - `--max-output-bytes`
@@ -63,8 +71,11 @@ session 解決ルールは `traceary log` と同じです。
 
 最近の event を一覧表示します。
 
+`list` は直近履歴を素早く絞るためのコマンドです。kind / client / agent / session / repo が決まっているときはこちらを使い、キーワード検索や期間条件が必要なときは `search` を使います。
+
 主な flag:
 
+- `--kind`
 - `--limit`
 - `--offset`
 - `--json`
@@ -119,6 +130,11 @@ alias:
 
 session start 境界を記録し、session ID を出力します。
 
+既定値:
+
+- `--client` / `--agent` / `--repo`: flag → `TRACEARY_CLIENT` / `TRACEARY_AGENT` / `TRACEARY_REPO` → `cli` / `manual` / 検出した repo
+- `--session-id`: 省略時は新しい ID を採番
+
 主な flag:
 
 - `--client`
@@ -126,11 +142,17 @@ session start 境界を記録し、session ID を出力します。
 - `--session-id`
 - `--repo`
 - `--id-only`
+- `--json`
 
 ### `traceary session end`
 
 session end 境界を記録し、生成された event ID を出力します。
 
+既定値:
+
+- `--session-id`: flag → `TRACEARY_SESSION_ID`
+- `--client` / `--agent` / `--repo` の不足分は、対応する `session start` から補完できる場合は補完
+
 主な flag:
 
 - `--client`
@@ -138,16 +160,20 @@ session end 境界を記録し、生成された event ID を出力します。
 - `--session-id`
 - `--repo`
 - `--id-only`
+- `--json`
 
 ### `traceary session latest`
 
 条件に一致する最新 session ID を表示します。
+
+ここでの「最新」は、一致した session のうち最新の lifecycle boundary (`session start` または `session end`) が最も新しいものです。
 
 主な flag:
 
 - `--client`
 - `--agent`
 - `--repo`
+- `--json`
 
 ### `traceary session active`
 
@@ -160,6 +186,7 @@ session end 境界を記録し、生成された event ID を出力します。
 - `--repo`
 - `--stale-after`
 - `--allow-stale`
+- `--json`
 
 ## Hooks と診断
 
@@ -170,6 +197,9 @@ interactive 利用向けの shell completion script を生成します。
 ### `traceary hooks print`
 
 対応クライアント向けの生成済み hook 設定を出力します。
+
+対応 client: `claude`, `codex`, `gemini`
+alias: `claude-code`, `codex-cli`, `gemini-cli`
 
 主な flag:
 
