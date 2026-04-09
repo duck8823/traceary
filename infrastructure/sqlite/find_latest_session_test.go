@@ -107,8 +107,6 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 	}
 
 	t.Run("直近の session_started を返す", func(t *testing.T) {
-		t.Parallel()
-
 		got, err := sut.FindLatestSessionStartedEvent(
 			context.Background(),
 			dbPath,
@@ -171,8 +169,6 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 	})
 
 	t.Run("active only のとき未終了 session を返す", func(t *testing.T) {
-		t.Parallel()
-
 		got, err := sut.FindLatestSessionStartedEvent(
 			context.Background(),
 			dbPath,
@@ -191,9 +187,38 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		}
 	})
 
-	t.Run("一致する session がなければエラー", func(t *testing.T) {
-		t.Parallel()
+	t.Run("同じ session_id に複数の start があれば最新 start を返す", func(t *testing.T) {
+		repeatedStartEvent := newFindLatestSessionEventFixture(
+			t,
+			"event-8",
+			types.EventKindSessionStarted,
+			"session-overlapping",
+			"github.com/duck8823/traceary",
+			"session started",
+			time.Date(2026, 4, 11, 15, 0, 0, 0, time.UTC),
+		)
+		if err := sut.Save(context.Background(), dbPath, repeatedStartEvent); err != nil {
+			t.Fatalf("Save(repeated start) error = %v", err)
+		}
 
+		got, err := sut.FindLatestSessionStartedEvent(
+			context.Background(),
+			dbPath,
+			queryservice.FindLatestSessionInput{
+				Client: "cli",
+				Agent:  "codex",
+				Repo:   "github.com/duck8823/traceary",
+			},
+		)
+		if err != nil {
+			t.Fatalf("FindLatestSessionStartedEvent() error = %v", err)
+		}
+		if got.EventID().String() != "event-8" {
+			t.Fatalf("EventID() = %q, want %q", got.EventID(), "event-8")
+		}
+	})
+
+	t.Run("一致する session がなければエラー", func(t *testing.T) {
 		_, err := sut.FindLatestSessionStartedEvent(
 			context.Background(),
 			dbPath,
@@ -208,8 +233,6 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 	})
 
 	t.Run("一致する active session がなければエラー", func(t *testing.T) {
-		t.Parallel()
-
 		_, err := sut.FindLatestSessionStartedEvent(
 			context.Background(),
 			dbPath,

@@ -58,6 +58,19 @@ func (d *Datasource) FindLatestSessionStartedEvent(
 		        AND (? = '' OR started.client = ?)
 		        AND (? = '' OR started.agent = ?)
 		        AND (? = '' OR started.repo = ?)
+		        AND NOT EXISTS (
+		             SELECT 1
+		               FROM events newer_started
+		              WHERE newer_started.kind = ?
+		                AND newer_started.session_id = started.session_id
+		                AND (? = '' OR newer_started.client = ?)
+		                AND (? = '' OR newer_started.agent = ?)
+		                AND (? = '' OR newer_started.repo = ?)
+		                AND (
+		                     newer_started.created_at > started.created_at OR
+		                     (newer_started.created_at = started.created_at AND newer_started.id > started.id)
+		                )
+		        )
 		        AND (
 		             ? = 0 OR NOT EXISTS (
 		                 SELECT 1
@@ -87,6 +100,10 @@ func (d *Datasource) FindLatestSessionStartedEvent(
 		types.EventKindSessionEnded.String(),
 		types.EventKindSessionStarted.String(),
 		types.EventKindSessionEnded.String(),
+		types.EventKindSessionStarted.String(),
+		input.Client, input.Client,
+		input.Agent, input.Agent,
+		input.Repo, input.Repo,
 		types.EventKindSessionStarted.String(),
 		input.Client, input.Client,
 		input.Agent, input.Agent,
