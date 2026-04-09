@@ -210,8 +210,9 @@ func inspectDoctorConfigFile(client string, outputPath string) doctorCheck {
 				Name:   client + "-config",
 				Status: doctorStatusWarn,
 				Message: localizef(
-					"%s config file does not exist yet (first-run / pre-install state): %s",
-					"%s の設定ファイルはまだありません (first-run / pre-install 状態): %s",
+					"%s config file does not exist yet (run `traceary hooks install --client %s` to fix) (first-run / pre-install state): %s",
+					"%s の設定ファイルはまだありません (`traceary hooks install --client %s` で設定できます) (first-run / pre-install 状態): %s",
+					client,
 					client,
 					outputPath,
 				),
@@ -230,7 +231,7 @@ func inspectDoctorConfigFile(client string, outputPath string) doctorCheck {
 		return doctorCheck{
 			Name:    client + "-config",
 			Status:  doctorStatusFail,
-			Message: localizef("%s config file must be a JSON object: %s", "%s の設定ファイルは JSON object である必要があります: %s", client, outputPath),
+			Message: localizef("%s config file must be a JSON object: %s", "%s の設定ファイルは JSON object である必要があります: %s", client, client, client, client, client, outputPath),
 		}
 	}
 
@@ -240,8 +241,9 @@ func inspectDoctorConfigFile(client string, outputPath string) doctorCheck {
 			Name:   client + "-config",
 			Status: doctorStatusWarn,
 			Message: localizef(
-				"%s config exists but does not contain a hooks field yet: %s",
-				"%s の設定はありますが hooks フィールドはまだありません: %s",
+				"%s config exists but does not contain a hooks field yet (run `traceary hooks install --client %s` to fix): %s",
+				"%s の設定はありますが hooks フィールドはまだありません (`traceary hooks install --client %s` で設定できます): %s",
+				client,
 				client,
 				outputPath,
 			),
@@ -253,7 +255,7 @@ func inspectDoctorConfigFile(client string, outputPath string) doctorCheck {
 		return doctorCheck{
 			Name:    client + "-config",
 			Status:  doctorStatusFail,
-			Message: localizef("%s hooks field must be an object of hook arrays: %s", "%s の hooks フィールドは hook 配列を値に持つ object である必要があります: %s", client, outputPath),
+			Message: localizef("%s hooks field must be an object of hook arrays: %s", "%s の hooks フィールドは hook 配列を値に持つ object である必要があります: %s", client, client, client, client, client, outputPath),
 		}
 	}
 
@@ -264,7 +266,7 @@ func inspectDoctorConfigFile(client string, outputPath string) doctorCheck {
 					return doctorCheck{
 						Name:    client + "-config",
 						Status:  doctorStatusPass,
-						Message: localizef("%s config contains Traceary-managed hooks: %s", "%s の設定には Traceary 管理下の hook があります: %s", client, outputPath),
+						Message: localizef("%s config contains Traceary-managed hooks: %s", "%s の設定には Traceary 管理下の hook があります: %s", client, client, client, client, client, outputPath),
 					}
 				}
 			}
@@ -275,8 +277,9 @@ func inspectDoctorConfigFile(client string, outputPath string) doctorCheck {
 		Name:   client + "-config",
 		Status: doctorStatusWarn,
 		Message: localizef(
-			"%s config exists but no Traceary-managed hook was found yet: %s",
-			"%s の設定はありますが Traceary 管理下の hook はまだ見つかっていません: %s",
+			"%s config exists but no Traceary-managed hook was found yet (run `traceary hooks install --client %s` to fix): %s",
+			"%s の設定はありますが Traceary 管理下の hook はまだ見つかっていません (`traceary hooks install --client %s` で設定できます): %s",
+			client,
 			client,
 			outputPath,
 		),
