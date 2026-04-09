@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -22,7 +23,11 @@ func (d *Datasource) SearchEvents(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for event search: %w", err)
 	}
-	defer func() { _ = db.Close() }()
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
 
 	queryValue := strings.TrimSpace(input.Query)
 	likeQuery := "%" + escapeLikeQuery(queryValue) + "%"
@@ -79,7 +84,11 @@ func (d *Datasource) SearchEvents(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query events: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
 
 	events := make([]*model.Event, 0, input.Limit)
 	for rows.Next() {

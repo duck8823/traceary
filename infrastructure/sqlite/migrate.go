@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"log/slog"
 	"database/sql"
 	"io/fs"
 	"path/filepath"
@@ -100,7 +101,11 @@ func loadAppliedVersions(ctx context.Context, db *sql.DB) (map[int64]struct{}, e
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query schema_migrations: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
 
 	versions := make(map[int64]struct{})
 	for rows.Next() {
