@@ -13,6 +13,7 @@ import (
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
+	"github.com/duck8823/traceary/presentation"
 )
 
 const (
@@ -390,15 +391,18 @@ func (s *Server) activeSession(dbPath string) mcp.ToolHandlerFor[sessionLookupIn
 
 func (s *Server) addAudit(dbPath string) mcp.ToolHandlerFor[addAuditInput, addAuditOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input addAuditInput) (*mcp.CallToolResult, addAuditOutput, error) {
+		config := presentation.LoadConfig()
+
 		event, audit, err := s.recordCommandAuditUsecase.Run(ctx, usecase.RecordCommandAuditInput{
-			DBPath:    dbPath,
-			Command:   input.Command,
-			Input:     input.Input,
-			Output:    input.Output,
-			Client:    resolveValue(input.Client, defaultClientValue),
-			Agent:     resolveValue(input.Agent, defaultAgentValue),
-			SessionID: resolveValue(input.SessionID, defaultSessionValue),
-			Repo:      strings.TrimSpace(input.Repo),
+			DBPath:              dbPath,
+			Command:             input.Command,
+			Input:               input.Input,
+			Output:              input.Output,
+			Client:              resolveValue(input.Client, defaultClientValue),
+			Agent:               resolveValue(input.Agent, defaultAgentValue),
+			SessionID:           resolveValue(input.SessionID, defaultSessionValue),
+			Repo:                strings.TrimSpace(input.Repo),
+			ExtraRedactPatterns: config.Redact.ExtraPatterns,
 		})
 		if err != nil {
 			return nil, addAuditOutput{}, xerrors.Errorf("failed to record command audit: %w", err)
