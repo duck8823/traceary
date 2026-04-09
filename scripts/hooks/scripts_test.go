@@ -143,6 +143,52 @@ func TestTracearySessionScript_StopIsIdempotentForDuplicateSessionEnd(t *testing
 	}
 }
 
+func TestTracearySessionScript_UsesGitRootForLocalOnlyRepositories(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	fakeLogPath := filepath.Join(tempDir, "traceary.log")
+	fakeTracearyPath := filepath.Join(tempDir, "traceary")
+	writeFakeTraceary(t, fakeTracearyPath)
+
+	homeDir := filepath.Join(tempDir, "home")
+	if err := os.MkdirAll(homeDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	repoDir := filepath.Join(tempDir, "repo")
+	if err := os.MkdirAll(filepath.Join(repoDir, "nested", "workspace"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(repo) error = %v", err)
+	}
+	runGitCommand(t, repoDir, "init")
+
+	env := append(os.Environ(),
+		"TRACEARY_BIN="+fakeTracearyPath,
+		"TRACEARY_FAKE_LOG="+fakeLogPath,
+		"HOME="+homeDir,
+	)
+
+	startInput := `{"session_id":"local-session","cwd":"` + filepath.ToSlash(filepath.Join(repoDir, "nested", "workspace")) + `"}`
+	if err := runHookScript(t, filepath.Join(".", "traceary-session.sh"), env, startInput, "claude", "start"); err != nil {
+		t.Fatalf("runHookScript(start) error = %v", err)
+	}
+
+	stopInput := `{"cwd":"` + filepath.ToSlash(filepath.Join(repoDir, "nested", "workspace")) + `"}`
+	if err := runHookScript(t, filepath.Join(".", "traceary-session.sh"), env, stopInput, "claude", "stop"); err != nil {
+		t.Fatalf("runHookScript(stop) error = %v", err)
+	}
+
+	calls := readLoggedCalls(t, fakeLogPath)
+	wantRepo := gitTopLevelPath(t, repoDir)
+	want := [][]string{
+		{"session", "start", "--client", "hook", "--agent", "claude", "--repo", wantRepo, "--session-id", "local-session"},
+		{"session", "end", "--client", "hook", "--agent", "claude", "--session-id", "local-session", "--repo", wantRepo},
+	}
+	if !reflect.DeepEqual(calls, want) {
+		t.Fatalf("logged calls = %#v, want %#v", calls, want)
+	}
+}
+
 func TestTracearyAuditScript_UsesHookPayloadAndSessionState(t *testing.T) {
 	t.Parallel()
 
@@ -246,6 +292,28 @@ func runHookScript(t *testing.T, scriptPath string, env []string, input string, 
 		return &hookScriptError{err: err, output: string(output)}
 	}
 	return nil
+}
+
+func runGitCommand(t *testing.T, dir string, args ...string) {
+	t.Helper()
+
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v error = %v, output = %s", args, err, string(output))
+	}
+}
+
+func gitTopLevelPath(t *testing.T, dir string) string {
+	t.Helper()
+
+	cmd := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git rev-parse --show-toplevel error = %v, output = %s", err, string(output))
+	}
+
+	return strings.TrimSpace(string(output))
 }
 
 type hookScriptError struct {

@@ -61,6 +61,13 @@ traceary_resolve_repo() {
       traceary_normalize_git_remote "$remote"
       return 0
     fi
+
+    local repo_root
+    repo_root="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || true)"
+    if [[ -n "$repo_root" ]]; then
+      printf '%s' "$repo_root"
+      return 0
+    fi
   fi
 
   printf '%s' "$cwd"

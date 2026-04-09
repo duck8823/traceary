@@ -3,7 +3,9 @@ package cli
 import (
 	"context"
 	"net/url"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -29,17 +31,55 @@ func resolveExplicitRepoValue(flagValue string) string {
 }
 
 func detectRepoContext(ctx context.Context) (string, error) {
-	output, err := exec.CommandContext(ctx, "git", "config", "--get", "remote.origin.url").Output()
+	cwd, err := os.Getwd()
 	if err != nil {
-		return "", xerrors.Errorf("%s: %w", Localize("failed to read git remote.origin.url", "git remote origin の取得に失敗しました"), err)
+		return "", xerrors.Errorf("%s: %w", Localize("failed to get current working directory", "現在の working directory の取得に失敗しました"), err)
 	}
 
-	normalized := normalizeGitRemoteURL(string(output))
-	if normalized == "" {
-		return "", xerrors.Errorf(Localize("git remote origin is empty", "git remote origin が空です"))
+	return detectRepoContextFromDir(ctx, cwd)
+}
+
+func detectRepoContextFromDir(ctx context.Context, cwd string) (string, error) {
+	trimmedCWD := strings.TrimSpace(cwd)
+	if trimmedCWD == "" {
+		return "", xerrors.Errorf(Localize("working directory must not be empty", "working directory は空にできません"))
 	}
 
-	return normalized, nil
+	remote, remoteErr := gitOutput(ctx, trimmedCWD, "config", "--get", "remote.origin.url")
+	if remoteErr == nil {
+		normalized := normalizeGitRemoteURL(remote)
+		if normalized != "" {
+			return normalized, nil
+		}
+	}
+
+	repoRoot, repoRootErr := gitOutput(ctx, trimmedCWD, "rev-parse", "--show-toplevel")
+	if repoRootErr == nil {
+		normalized := normalizeLocalWorkContextPath(repoRoot)
+		if normalized != "" {
+			return normalized, nil
+		}
+	}
+
+	if remoteErr != nil && repoRootErr != nil {
+		return "", xerrors.Errorf(
+			"%s: %w",
+			Localize("failed to detect git work context", "git work context の検出に失敗しました"),
+			repoRootErr,
+		)
+	}
+
+	return "", xerrors.Errorf(Localize("git work context could not be resolved", "git work context を解決できませんでした"))
+}
+
+func gitOutput(ctx context.Context, cwd string, args ...string) (string, error) {
+	commandArgs := append([]string{"-C", cwd}, args...)
+	output, err := exec.CommandContext(ctx, "git", commandArgs...).Output()
+	if err != nil {
+		return "", xerrors.Errorf("git %s failed: %w", strings.Join(args, " "), err)
+	}
+
+	return string(output), nil
 }
 
 func normalizeGitRemoteURL(raw string) string {
@@ -63,4 +103,18 @@ func normalizeGitRemoteURL(raw string) string {
 	}
 
 	return trimmed
+}
+
+func normalizeLocalWorkContextPath(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+
+	resolvedPath, err := filepath.Abs(trimmed)
+	if err != nil {
+		resolvedPath = trimmed
+	}
+
+	return filepath.ToSlash(filepath.Clean(resolvedPath))
 }
