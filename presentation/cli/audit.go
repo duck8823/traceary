@@ -13,6 +13,7 @@ import (
 
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/presentation"
 )
 
 func (c *RootCLI) newAuditCommand() *cobra.Command {
@@ -191,18 +192,21 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve secret handling policy", "secret 取り扱いポリシーの解決に失敗しました"), err)
 	}
 
+	config := presentation.LoadConfig()
+
 	event, commandAudit, err := c.recordCommandAuditUsecase.Run(ctx, usecase.RecordCommandAuditInput{
-		DBPath:         resolvedPath,
-		Command:        input.command,
-		Input:          input.input,
-		Output:         input.output,
-		Client:         resolveOptionalValue(input.client, "TRACEARY_CLIENT", defaultClientValue),
-		Agent:          resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue),
-		SessionID:      sessionResolution.sessionID,
-		Repo:           resolvedRepo,
-		AllowSecrets:   allowSecrets,
-		MaxInputBytes:  maxInputBytes,
-		MaxOutputBytes: maxOutputBytes,
+		DBPath:              resolvedPath,
+		Command:             input.command,
+		Input:               input.input,
+		Output:              input.output,
+		Client:              resolveOptionalValue(input.client, "TRACEARY_CLIENT", defaultClientValue),
+		Agent:               resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue),
+		SessionID:           sessionResolution.sessionID,
+		Repo:                resolvedRepo,
+		AllowSecrets:        allowSecrets,
+		MaxInputBytes:       maxInputBytes,
+		MaxOutputBytes:      maxOutputBytes,
+		ExtraRedactPatterns: config.Redact.ExtraPatterns,
 	})
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to record command audit", "監査ログ記録に失敗しました"), err)

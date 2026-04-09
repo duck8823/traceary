@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"regexp"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -28,17 +29,18 @@ type CommandAuditSaver interface {
 
 // RecordCommandAuditInput is the input for traceary audit recording.
 type RecordCommandAuditInput struct {
-	DBPath         string
-	Command        string
-	Input          string
-	Output         string
-	Client         string
-	Agent          string
-	SessionID      string
-	Repo           string
-	AllowSecrets   bool
-	MaxInputBytes  int
-	MaxOutputBytes int
+	DBPath              string
+	Command             string
+	Input               string
+	Output              string
+	Client              string
+	Agent               string
+	SessionID           string
+	Repo                string
+	AllowSecrets        bool
+	MaxInputBytes       int
+	MaxOutputBytes      int
+	ExtraRedactPatterns []string
 }
 
 // RecordCommandAuditUsecase persists command-audit events.
@@ -92,13 +94,18 @@ func (u *recordCommandAuditUsecase) Run(
 		return nil, nil, xerrors.Errorf("failed to resolve output limit: %w", err)
 	}
 
+	extraRedactors, err := compileExtraRedactPatterns(input.ExtraRedactPatterns)
+	if err != nil {
+		return nil, nil, xerrors.Errorf("failed to compile extra redaction patterns: %w", err)
+	}
+
 	normalizedInput := input.Input
 	normalizedOutput := input.Output
 	var inputRedacted bool
 	var outputRedacted bool
 	if !input.AllowSecrets {
-		normalizedInput, inputRedacted = redactAuditPayload(normalizedInput)
-		normalizedOutput, outputRedacted = redactAuditPayload(normalizedOutput)
+		normalizedInput, inputRedacted = redactAuditPayload(normalizedInput, extraRedactors)
+		normalizedOutput, outputRedacted = redactAuditPayload(normalizedOutput, extraRedactors)
 	}
 
 	normalizedInput, inputTruncated := truncateAuditPayload(normalizedInput, maxInputBytes)
@@ -134,6 +141,30 @@ func (u *recordCommandAuditUsecase) Run(
 	}
 
 	return event, commandAudit, nil
+}
+
+func compileExtraRedactPatterns(patterns []string) ([]auditPayloadRedactor, error) {
+	if len(patterns) == 0 {
+		return nil, nil
+	}
+
+	redactors := make([]auditPayloadRedactor, 0, len(patterns))
+	for _, raw := range patterns {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			continue
+		}
+		compiled, err := regexp.Compile(trimmed)
+		if err != nil {
+			return nil, xerrors.Errorf("invalid redaction pattern %q: %w", trimmed, err)
+		}
+		redactors = append(redactors, auditPayloadRedactor{
+			pattern:     compiled,
+			replacement: redactedAuditValue,
+		})
+	}
+
+	return redactors, nil
 }
 
 func truncateAuditPayload(value string, limit int) (string, bool) {

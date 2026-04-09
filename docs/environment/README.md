@@ -34,6 +34,26 @@ This page centralizes Traceary's environment variables, runtime assumptions, and
 | `LOG_LEVEL` | Configure structured log verbosity (`debug`, `info`, `warn`, `error`) |
 | `LOG_OPTION` | Use `development` for text logs with source info; default is JSON logs |
 
+## Configuration file
+
+Traceary reads an optional JSON configuration file from `~/.config/traceary/config.json`.
+
+| Key | Type | Purpose |
+| --- | --- | --- |
+| `redact.extra_patterns` | string array | Extra regex patterns for audit redaction. Each entry is compiled as a Go `regexp` pattern and matched content is replaced with `[REDACTED]`. Applied after the built-in redaction rules in both the CLI (`traceary audit`) and MCP server (`add_audit`). |
+
+Example:
+
+```json
+{
+  "redact": {
+    "extra_patterns": ["my_custom_secret", "internal_auth_header:\\s*\\S+"]
+  }
+}
+```
+
+If the file does not exist, Traceary uses the built-in redaction patterns only.
+
 ## Runtime assumptions
 
 - Traceary is local-first and stores data in SQLite on the current machine
