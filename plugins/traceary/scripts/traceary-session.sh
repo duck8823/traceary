@@ -47,6 +47,7 @@ case "$ACTION" in
     ACTUAL_SESSION_ID="$("${COMMAND[@]}" 2>/dev/null | tail -n 1 | tr -d '\r' || true)"
     if [[ -n "$ACTUAL_SESSION_ID" ]]; then
       traceary_write_state "$CLIENT" "$ACTUAL_SESSION_ID"
+      traceary_clear_session_end_marker "$CLIENT" "$ACTUAL_SESSION_ID"
     fi
     ;;
   end|stop)
@@ -54,6 +55,11 @@ case "$ACTION" in
       SESSION_ID="$(traceary_read_state "$CLIENT")"
     fi
     if [[ -z "$SESSION_ID" ]]; then
+      exit 0
+    fi
+
+    if traceary_session_end_already_recorded "$CLIENT" "$SESSION_ID"; then
+      traceary_clear_state "$CLIENT"
       exit 0
     fi
 
@@ -66,6 +72,7 @@ case "$ACTION" in
     fi
     "${COMMAND[@]}" >/dev/null 2>&1 || exit 0
     traceary_clear_state "$CLIENT"
+    traceary_mark_session_ended "$CLIENT" "$SESSION_ID"
     ;;
   *)
     echo "unsupported action: $ACTION" >&2
