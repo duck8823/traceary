@@ -3,12 +3,15 @@ package cli
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
 )
+
+const messageColumnMaxWidth = 80
 
 func writeEventsByFormat(output io.Writer, events []*model.Event, asJSON bool) error {
 	if asJSON {
@@ -39,7 +42,7 @@ func writeEvents(output io.Writer, events []*model.Event) error {
 			event.Agent(),
 			event.SessionID(),
 			formatOptionalColumn(event.Repo()),
-			event.Body(),
+			truncateMessage(event.Body()),
 		); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print event row", "イベント一覧行の出力に失敗しました"), err)
 		}
@@ -54,6 +57,14 @@ func writeEventDetailsByFormat(output io.Writer, eventDetails *queryservice.Even
 	}
 
 	return writeEventDetails(output, eventDetails)
+}
+
+func truncateMessage(s string) string {
+	normalized := strings.Join(strings.Fields(s), " ")
+	if len([]rune(normalized)) <= messageColumnMaxWidth {
+		return normalized
+	}
+	return string([]rune(normalized)[:messageColumnMaxWidth]) + "…"
 }
 
 func formatOptionalColumn(value string) string {
