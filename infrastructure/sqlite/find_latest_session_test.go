@@ -250,6 +250,160 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 	})
 }
 
+func TestDatasource_FindLatestSessionStartedEvent_ignoresBoundariesFromOtherContexts(t *testing.T) {
+	t.Parallel()
+
+	migrations := fstest.MapFS{
+		"000001_init.sql": {
+			Data: []byte(`
+CREATE TABLE events (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);`),
+		},
+		"000002_add_event_metadata.sql": {
+			Data: []byte(`
+ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
+ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
+		},
+	}
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	sut := sqlite.NewDatasource(migrations)
+	if err := sut.Initialize(context.Background(), dbPath); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	sharedStart := newFindLatestSessionEventFixture(
+		t,
+		"event-1",
+		types.EventKindSessionStarted,
+		"default",
+		"github.com/duck8823/traceary",
+		"session started",
+		time.Date(2026, 4, 9, 10, 0, 0, 0, time.UTC),
+	)
+	if err := sut.Save(context.Background(), dbPath, sharedStart); err != nil {
+		t.Fatalf("Save(shared start) error = %v", err)
+	}
+
+	localLatest := newFindLatestSessionEventFixture(
+		t,
+		"event-2",
+		types.EventKindSessionStarted,
+		"session-local",
+		"github.com/duck8823/traceary",
+		"session started",
+		time.Date(2026, 4, 9, 11, 0, 0, 0, time.UTC),
+	)
+	if err := sut.Save(context.Background(), dbPath, localLatest); err != nil {
+		t.Fatalf("Save(local latest) error = %v", err)
+	}
+
+	otherRepoBoundary := newFindLatestSessionEventFixture(
+		t,
+		"event-3",
+		types.EventKindSessionEnded,
+		"default",
+		"github.com/duck8823/other",
+		"session ended",
+		time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
+	)
+	if err := sut.Save(context.Background(), dbPath, otherRepoBoundary); err != nil {
+		t.Fatalf("Save(other repo boundary) error = %v", err)
+	}
+
+	got, err := sut.FindLatestSessionStartedEvent(
+		context.Background(),
+		dbPath,
+		queryservice.FindLatestSessionInput{
+			Client: "cli",
+			Agent:  "codex",
+			Repo:   "github.com/duck8823/traceary",
+		},
+	)
+	if err != nil {
+		t.Fatalf("FindLatestSessionStartedEvent() error = %v", err)
+	}
+	if got.EventID().String() != "event-2" {
+		t.Fatalf("EventID() = %q, want %q", got.EventID(), "event-2")
+	}
+}
+
+func TestDatasource_FindLatestSessionStartedEvent_activeOnlyIgnoresEndsFromOtherContexts(t *testing.T) {
+	t.Parallel()
+
+	migrations := fstest.MapFS{
+		"000001_init.sql": {
+			Data: []byte(`
+CREATE TABLE events (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);`),
+		},
+		"000002_add_event_metadata.sql": {
+			Data: []byte(`
+ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
+ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
+		},
+	}
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	sut := sqlite.NewDatasource(migrations)
+	if err := sut.Initialize(context.Background(), dbPath); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	sharedStart := newFindLatestSessionEventFixture(
+		t,
+		"event-1",
+		types.EventKindSessionStarted,
+		"default",
+		"github.com/duck8823/traceary",
+		"session started",
+		time.Date(2026, 4, 9, 10, 0, 0, 0, time.UTC),
+	)
+	if err := sut.Save(context.Background(), dbPath, sharedStart); err != nil {
+		t.Fatalf("Save(shared start) error = %v", err)
+	}
+
+	otherRepoEnd := newFindLatestSessionEventFixture(
+		t,
+		"event-2",
+		types.EventKindSessionEnded,
+		"default",
+		"github.com/duck8823/other",
+		"session ended",
+		time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
+	)
+	if err := sut.Save(context.Background(), dbPath, otherRepoEnd); err != nil {
+		t.Fatalf("Save(other repo end) error = %v", err)
+	}
+
+	got, err := sut.FindLatestSessionStartedEvent(
+		context.Background(),
+		dbPath,
+		queryservice.FindLatestSessionInput{
+			Client:     "cli",
+			Agent:      "codex",
+			Repo:       "github.com/duck8823/traceary",
+			ActiveOnly: true,
+		},
+	)
+	if err != nil {
+		t.Fatalf("FindLatestSessionStartedEvent() error = %v", err)
+	}
+	if got.EventID().String() != "event-1" {
+		t.Fatalf("EventID() = %q, want %q", got.EventID(), "event-1")
+	}
+}
+
 func newFindLatestSessionEventFixture(
 	t *testing.T,
 	eventIDValue string,
