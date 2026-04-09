@@ -51,6 +51,10 @@ go tool golangci-lint run
 
 ### Git workflow
 
+- **1 issue = 1 branch = 1 PR (no exceptions)**
+  - Create a dedicated branch for each issue before starting implementation
+  - A single PR must close exactly one sub-issue
+  - Never bundle multiple issues into one branch or PR
 - Branch naming: `feature/`, `fix/`, `maintenance/` prefixes
 - Commits: conventional-style (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`)
 - PRs: merge (not squash), draft first
