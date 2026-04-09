@@ -64,6 +64,7 @@ release:
   github:
     owner: duck8823
     name: traceary
+  replace_existing_artifacts: true
 
 changelog:
   sort: asc
