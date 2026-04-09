@@ -188,6 +188,18 @@ def check_codex() -> None:
             'Codex install helper must point hooks.json at the installed plugin scripts',
         )
 
+        config_path = codex_home / 'config.toml'
+        config_path.write_text(
+            config_path.read_text(encoding='utf-8')
+            + '\n'
+            + '[plugins."traceary@local-traceary-plugins".auth]\n'
+            + 'provider = "local"\n'
+            + '\n'
+            + '[plugins."other-plugin"]\n'
+            + 'enabled = true\n',
+            encoding='utf-8',
+        )
+
         subprocess.run(
             [
                 sys.executable,
@@ -208,6 +220,10 @@ def check_codex() -> None:
         require(
             'traceary@local-traceary-plugins' not in local_config.get('plugins', {}),
             'Codex uninstall helper must remove the Traceary plugin config entry',
+        )
+        require(
+            local_config.get('plugins', {}).get('other-plugin', {}).get('enabled') is True,
+            'Codex uninstall helper must preserve unrelated plugin config entries',
         )
         if (codex_home / 'hooks.json').exists():
             remaining_hooks = json.dumps(read_json(codex_home / 'hooks.json'))

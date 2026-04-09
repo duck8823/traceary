@@ -26,7 +26,25 @@ def write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, indent=2) + '\n', encoding='utf-8')
 
 
+def parse_toml_header(line: str) -> tuple[str, bool] | None:
+    stripped = line.strip()
+    if stripped.startswith('[[') and stripped.endswith(']]'):
+        return stripped[2:-2].strip(), True
+    if stripped.startswith('[') and stripped.endswith(']'):
+        return stripped[1:-1].strip(), False
+    return None
+
+
+def is_same_or_descendant_table(header_name: str, candidate_name: str) -> bool:
+    return candidate_name == header_name or candidate_name.startswith(f'{header_name}.')
+
+
 def find_table_bounds(lines: list[str], header: str) -> tuple[int, int] | None:
+    parsed_header = parse_toml_header(header)
+    if parsed_header is None:
+        raise ValueError(f'invalid toml header: {header}')
+    header_name, _ = parsed_header
+
     start = None
     for index, line in enumerate(lines):
         if line.strip() == header:
@@ -36,8 +54,11 @@ def find_table_bounds(lines: list[str], header: str) -> tuple[int, int] | None:
         return None
     end = len(lines)
     for index in range(start + 1, len(lines)):
-        stripped = lines[index].strip()
-        if stripped.startswith('[') and stripped.endswith(']'):
+        parsed_candidate = parse_toml_header(lines[index])
+        if parsed_candidate is None:
+            continue
+        candidate_name, _ = parsed_candidate
+        if not is_same_or_descendant_table(header_name, candidate_name):
             end = index
             break
     return start, end
