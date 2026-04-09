@@ -80,9 +80,17 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 	)
 
 	installCmd := &cobra.Command{
-		Use:   "install",
+		Use:   "install --client <claude|codex|gemini>",
 		Short: Localize("Write hook configuration examples to the standard config path", "標準の設定パスへ hook 設定例を書き出す"),
-		Args:  noArgsLocalized(),
+		Long: Localize(
+			"Generate hook configuration for a supported client and write it to the standard config path.\nSupported clients: claude, codex, gemini.\nAliases: claude-code, codex-cli, gemini-cli.",
+			"対応 client 向けの hook 設定を生成し、標準の設定パスへ書き出します。\n対応 client: claude, codex, gemini。\nalias: claude-code, codex-cli, gemini-cli。",
+		),
+		Example: strings.Join([]string{
+			"  traceary hooks install --client claude --project-dir .",
+			"  traceary hooks install --client codex-cli --force",
+		}, "\n"),
+		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runHooksInstall(cmd.Context(), cmd.OutOrStdout(), hooksInstallCommandInput{
 				client:      client,
@@ -98,9 +106,6 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 	installCmd.Flags().StringVar(&tracearyBin, "traceary-bin", "", Localize("traceary binary path or command name", "traceary バイナリパス"))
 	installCmd.Flags().StringVar(&outputPath, "output", "", Localize("override the output file path", "書き出し先を明示する"))
 	installCmd.Flags().BoolVar(&force, "force", false, Localize("overwrite the file if it already exists", "既存ファイルがある場合でも上書きする"))
-	if err := installCmd.MarkFlagRequired("client"); err != nil {
-		panic(err)
-	}
 
 	return installCmd
 }
@@ -112,9 +117,17 @@ func (c *RootCLI) newHooksPrintCommand() *cobra.Command {
 	)
 
 	printCmd := &cobra.Command{
-		Use:   "print",
+		Use:   "print --client <claude|codex|gemini>",
 		Short: Localize("Print hook configuration examples for the current environment", "現在の環境向けの hook 設定例を出力する"),
-		Args:  noArgsLocalized(),
+		Long: Localize(
+			"Print generated hook configuration for a supported client.\nSupported clients: claude, codex, gemini.\nAliases: claude-code, codex-cli, gemini-cli.\nWhen --traceary-bin is omitted, generated hooks call `traceary` from PATH.",
+			"対応 client 向けの生成済み hook 設定を出力します。\n対応 client: claude, codex, gemini。\nalias: claude-code, codex-cli, gemini-cli。\n--traceary-bin を省略した場合、生成される hook は PATH 上の `traceary` を呼びます。",
+		),
+		Example: strings.Join([]string{
+			"  traceary hooks print --client claude",
+			"  traceary hooks print --client gemini-cli --traceary-bin ~/bin/traceary",
+		}, "\n"),
+		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runHooksPrint(cmd.Context(), cmd.OutOrStdout(), hooksPrintCommandInput{
 				client:      client,
@@ -124,9 +137,6 @@ func (c *RootCLI) newHooksPrintCommand() *cobra.Command {
 	}
 	printCmd.Flags().StringVar(&client, "client", "", hooksClientFlagUsage)
 	printCmd.Flags().StringVar(&tracearyBin, "traceary-bin", "", Localize("traceary binary path or command name", "traceary バイナリパス"))
-	if err := printCmd.MarkFlagRequired("client"); err != nil {
-		panic(err)
-	}
 
 	return printCmd
 }
@@ -136,6 +146,9 @@ func (c *RootCLI) runHooksPrint(
 	output io.Writer,
 	input hooksPrintCommandInput,
 ) error {
+	if err := requireHooksClient(input.client); err != nil {
+		return err
+	}
 	resolvedTracearyBin, err := resolveHooksTracearyBin(input.tracearyBin)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve traceary binary path", "traceary binary path の解決に失敗しました"), err)
@@ -166,6 +179,9 @@ func (c *RootCLI) runHooksInstall(
 	output io.Writer,
 	input hooksInstallCommandInput,
 ) error {
+	if err := requireHooksClient(input.client); err != nil {
+		return err
+	}
 	resolvedProjectDir, err := resolveHooksProjectDir(input.projectDir)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve project directory", "project directory の解決に失敗しました"), err)
@@ -213,6 +229,19 @@ func normalizeHooksClientForDisplay(client string) string {
 	}
 
 	return resolvedClient
+}
+
+func requireHooksClient(client string) error {
+	if strings.TrimSpace(client) != "" {
+		return nil
+	}
+
+	return xerrors.Errorf(
+		Localize(
+			"--client is required (supported: claude, codex, gemini; aliases: claude-code, codex-cli, gemini-cli)",
+			"--client は必須です (対応 client: claude, codex, gemini; alias: claude-code, codex-cli, gemini-cli)",
+		),
+	)
 }
 
 func resolveHooksProjectDir(flagValue string) (string, error) {

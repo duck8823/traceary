@@ -18,6 +18,11 @@ Use it together with the quick-start section in `README.md`.
 
 Append a note event.
 
+Defaults:
+
+- `--client` / `--agent` / `--repo`: flag → `TRACEARY_CLIENT` / `TRACEARY_AGENT` / `TRACEARY_REPO` → `cli` / `manual` / detected repo
+- `--session-id`: flag → `TRACEARY_SESSION_ID` → latest non-stale active session for the resolved repo → `default`
+
 Useful flags:
 
 - `--client`
@@ -25,6 +30,7 @@ Useful flags:
 - `--session-id`
 - `--repo`
 - `--id-only`
+- `--json`
 
 Session resolution rules:
 
@@ -32,12 +38,13 @@ Session resolution rules:
 - otherwise Traceary reuses the latest non-stale active session for the resolved repo/work context
 - if no repo/work context or no matching active session is found, Traceary falls back to the historical `default` session ID
 
-### `traceary audit [<command> <input> <output>]`
+### `traceary audit <command> [<input>] [<output>]`
 
 Record a command execution audit event.
 
 Input styles:
 
+- positional with command only: `traceary audit "go test ./..."`
 - positional: `traceary audit "go test ./..." '{}' '{}'`
 - named: `traceary audit --command "go test ./..." --input '{}' --output '{}'`
 
@@ -51,6 +58,7 @@ Useful flags:
 - `--session-id`
 - `--repo`
 - `--id-only`
+- `--json`
 - `--allow-secrets`
 - `--max-input-bytes`
 - `--max-output-bytes`
@@ -63,8 +71,11 @@ Session resolution follows the same rules as `traceary log`.
 
 List recent events.
 
+`list` is the fast recent-history view. Use it when you already know the event kind / client / agent / session / repo filters you want. Switch to `search` when you need keyword matching or date-range filtering.
+
 Useful flags:
 
+- `--kind`
 - `--limit`
 - `--offset`
 - `--json`
@@ -119,6 +130,11 @@ Useful flags:
 
 Record a session start boundary and print the session ID.
 
+Defaults:
+
+- `--client` / `--agent` / `--repo`: flag → `TRACEARY_CLIENT` / `TRACEARY_AGENT` / `TRACEARY_REPO` → `cli` / `manual` / detected repo
+- `--session-id`: generate a new ID when omitted
+
 Useful flags:
 
 - `--client`
@@ -126,11 +142,17 @@ Useful flags:
 - `--session-id`
 - `--repo`
 - `--id-only`
+- `--json`
 
 ### `traceary session end`
 
 Record a session end boundary and print the resulting event ID.
 
+Defaults:
+
+- `--session-id`: flag → `TRACEARY_SESSION_ID`
+- missing `--client` / `--agent` / `--repo` values are backfilled from the matching `session start` when available
+
 Useful flags:
 
 - `--client`
@@ -138,16 +160,20 @@ Useful flags:
 - `--session-id`
 - `--repo`
 - `--id-only`
+- `--json`
 
 ### `traceary session latest`
 
 Print the latest session ID matching the current filters.
+
+`latest` means the session whose most recent lifecycle boundary (`session start` or `session end`) is newest among the matches.
 
 Useful flags:
 
 - `--client`
 - `--agent`
 - `--repo`
+- `--json`
 
 ### `traceary session active`
 
@@ -160,6 +186,7 @@ Useful flags:
 - `--repo`
 - `--stale-after`
 - `--allow-stale`
+- `--json`
 
 ## Hooks and diagnostics
 
@@ -170,6 +197,9 @@ Generate shell completion scripts for interactive use.
 ### `traceary hooks print`
 
 Print generated hook configuration for a supported client.
+
+Supported clients: `claude`, `codex`, `gemini`
+Aliases: `claude-code`, `codex-cli`, `gemini-cli`
 
 Useful flags:
 

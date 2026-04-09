@@ -112,6 +112,21 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 			t.Fatalf("error = %q, want valid values", err.Error())
 		}
 	})
+
+	t.Run("missing client returns a discoverable error", func(t *testing.T) {
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+		rootCmd.SetOut(&bytes.Buffer{})
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"hooks", "print"})
+
+		err := rootCmd.Execute()
+		if err == nil {
+			t.Fatalf("Execute() error = nil, want error")
+		}
+		if !strings.Contains(err.Error(), "supported: claude, codex, gemini") {
+			t.Fatalf("error = %q, want supported client list", err.Error())
+		}
+	})
 }
 
 func TestRootCLI_HooksInstallCommand(t *testing.T) {
