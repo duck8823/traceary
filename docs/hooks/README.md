@@ -21,7 +21,7 @@ If you want host-native packages instead of manual hook wiring, start with the [
 ## Requirements
 
 - `traceary` is installed and available in `PATH`, or `TRACEARY_BIN` points to the binary
-- `git` is optional; if available, the scripts normalize `remote.origin.url` into Traceary's `repo` field. If not, they fall back to the hook `cwd`.
+- `git` is optional; if available, the scripts prefer a normalized `remote.origin.url`, then fall back to the local git worktree root. If git is unavailable entirely, they fall back to the hook `cwd`.
 - `bash` is required because the generated portable scripts use `#!/usr/bin/env bash`
 - current hook examples assume Unix-like environments because the generated commands and compatibility scripts target shell-based clients
 - native Windows PowerShell / `cmd.exe` workflows are not supported today; use WSL or another POSIX-compatible environment if you need hooks on Windows

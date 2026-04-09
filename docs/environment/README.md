@@ -40,7 +40,7 @@ This page centralizes Traceary's environment variables, runtime assumptions, and
 - the core CLI and `traceary mcp-server` are actively tested on macOS and Linux
 - release archives are currently published for macOS and Linux
 - hooks currently assume `bash` and Unix-like shell semantics
-- `git` is optional; when available, hook scripts normalize `remote.origin.url` into the stored `repo` field
+- `git` is optional; when available, Traceary prefers a normalized `remote.origin.url`, then falls back to the local git worktree root before giving up on automatic work-context detection
 - native Windows PowerShell / `cmd.exe` hook workflows are not supported today; use WSL or another POSIX-compatible environment when you need hooks on Windows
 
 ## Privacy posture

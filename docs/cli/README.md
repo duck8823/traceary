@@ -36,6 +36,7 @@ Session resolution rules:
 
 - explicit `--session-id` or `TRACEARY_SESSION_ID` wins
 - otherwise Traceary reuses the latest non-stale active session for the resolved repo/work context
+- when `remote.origin.url` is unavailable but the current directory is still inside a git worktree, Traceary falls back to the worktree root path as the work-context key
 - if no repo/work context or no matching active session is found, Traceary falls back to the historical `default` session ID
 
 ### `traceary audit <command> [<input>] [<output>]`

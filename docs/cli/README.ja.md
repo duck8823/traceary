@@ -36,6 +36,7 @@ session 解決ルール:
 
 - 明示 `--session-id` または `TRACEARY_SESSION_ID` を最優先
 - それ以外では、解決できた repo / work context に対する最新の non-stale active session を再利用
+- `remote.origin.url` が無くても Git worktree 内であれば、work-context key として worktree ルートパスを使います
 - repo / work context が無い、または一致する active session が無い場合は、従来どおり `default` session ID に fallback
 
 ### `traceary audit <command> [<input>] [<output>]`

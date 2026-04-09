@@ -21,7 +21,7 @@ host ごとの native package を使いたい場合は、まず [ネイティブ
 ## 前提条件
 
 - `traceary` が `PATH` にある、または `TRACEARY_BIN` が binary を指している
-- `git` は任意。ある場合は `remote.origin.url` を Traceary の `repo` field に正規化し、無い場合は hook の `cwd` を使う
+- `git` は任意です。使える場合は、まず `remote.origin.url` を正規化して使い、無いときはローカル Git worktree のルートへ fallback します。`git` 自体が使えない場合だけ hook の `cwd` を使います
 - 生成される持ち運び用スクリプトは `#!/usr/bin/env bash` を使うため、`bash` が必要です
 - 現在の hook 例は shell ベースの client を前提にしているため、Unix 系環境を想定しています
 - Windows の PowerShell / `cmd.exe` 向け hook 実行はまだ正式対応していません。Windows で hooks を使う場合は、WSL などの POSIX 互換環境を使ってください
