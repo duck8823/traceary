@@ -106,6 +106,17 @@ traceary_resolve_bin() {
   return 1
 }
 
+traceary_resolve_agent() {
+  local client="$1"
+  local agent_type
+  agent_type="$(traceary_json_get 'agent_type')"
+  if [[ -n "$agent_type" ]]; then
+    printf '%s/%s' "$client" "$agent_type"
+  else
+    printf '%s' "$client"
+  fi
+}
+
 traceary_session_state_path() {
   local client="$1"
   local state_dir="${TRACEARY_HOOK_STATE_DIR:-${HOME}/.config/traceary/hooks}"
@@ -215,9 +226,11 @@ if [[ -n "${TRACEARY_DB_PATH:-}" ]]; then
 fi
 COMMON_ARGS+=("${ACTION/start/start}")
 
+AGENT_VALUE="$(traceary_resolve_agent "$CLIENT")"
+
 case "$ACTION" in
   start)
-    COMMAND=("$TRACEARY_CMD" session start --client hook --agent "$CLIENT")
+    COMMAND=("$TRACEARY_CMD" session start --client hook --agent "$AGENT_VALUE")
     if [[ -n "${TRACEARY_DB_PATH:-}" ]]; then
       COMMAND+=(--db-path "$TRACEARY_DB_PATH")
     fi
@@ -247,7 +260,7 @@ case "$ACTION" in
       exit 0
     fi
 
-    COMMAND=("$TRACEARY_CMD" session end --client hook --agent "$CLIENT" --session-id "$SESSION_ID")
+    COMMAND=("$TRACEARY_CMD" session end --client hook --agent "$AGENT_VALUE" --session-id "$SESSION_ID")
     if [[ -n "${TRACEARY_DB_PATH:-}" ]]; then
       COMMAND+=(--db-path "$TRACEARY_DB_PATH")
     fi
@@ -312,7 +325,9 @@ if [[ -z "$AUDIT_OUTPUT" ]]; then
   AUDIT_OUTPUT="$(traceary_build_failure_output || true)"
 fi
 
-COMMAND=("$TRACEARY_CMD" audit "$COMMAND_VALUE" "$AUDIT_INPUT" "$AUDIT_OUTPUT" --client hook --agent "$CLIENT" --session-id "$SESSION_ID")
+AGENT_VALUE="$(traceary_resolve_agent "$CLIENT")"
+
+COMMAND=("$TRACEARY_CMD" audit "$COMMAND_VALUE" "$AUDIT_INPUT" "$AUDIT_OUTPUT" --client hook --agent "$AGENT_VALUE" --session-id "$SESSION_ID")
 if [[ -n "${TRACEARY_DB_PATH:-}" ]]; then
   COMMAND+=(--db-path "$TRACEARY_DB_PATH")
 fi

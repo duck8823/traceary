@@ -31,9 +31,11 @@ if [[ -n "${TRACEARY_DB_PATH:-}" ]]; then
 fi
 COMMON_ARGS+=("${ACTION/start/start}")
 
+AGENT_VALUE="$(traceary_resolve_agent "$CLIENT")"
+
 case "$ACTION" in
   start)
-    COMMAND=("$TRACEARY_CMD" session start --client hook --agent "$CLIENT")
+    COMMAND=("$TRACEARY_CMD" session start --client hook --agent "$AGENT_VALUE")
     if [[ -n "${TRACEARY_DB_PATH:-}" ]]; then
       COMMAND+=(--db-path "$TRACEARY_DB_PATH")
     fi
@@ -63,7 +65,7 @@ case "$ACTION" in
       exit 0
     fi
 
-    COMMAND=("$TRACEARY_CMD" session end --client hook --agent "$CLIENT" --session-id "$SESSION_ID")
+    COMMAND=("$TRACEARY_CMD" session end --client hook --agent "$AGENT_VALUE" --session-id "$SESSION_ID")
     if [[ -n "${TRACEARY_DB_PATH:-}" ]]; then
       COMMAND+=(--db-path "$TRACEARY_DB_PATH")
     fi
