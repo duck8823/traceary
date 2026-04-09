@@ -9,6 +9,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TOP_LINES_TO_CHECK = 8
 
+# AI agent instruction files — not user-facing documentation, no i18n pair needed.
+I18N_EXCLUDE = {"CLAUDE.md", "AGENTS.md", "GEMINI.md"}
+
 
 def ja_variant(path: Path) -> Path:
     return path.with_name(f"{path.stem}.ja{path.suffix}")
@@ -24,6 +27,8 @@ def is_in_scope(path: Path) -> bool:
     if path.parts and path.parts[0] == "docs":
         return path.suffix == ".md"
 
+    if path.name in I18N_EXCLUDE:
+        return False
     return path.parent == Path('.') and path.suffix == '.md'
 
 
