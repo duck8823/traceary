@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/usecase"
 )
 
@@ -28,15 +29,25 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 		auditOutput    string
 		outputFlagSet  bool
 		idOnly         bool
+		asJSON         bool
 		allowSecrets   bool
 		maxInputBytes  int
 		maxOutputBytes int
 	)
 
 	auditCmd := &cobra.Command{
-		Use:   "audit [<command> <input> <output>]",
+		Use:   "audit <command> [<input>] [<output>]",
 		Short: Localize("Record a command execution audit event", "コマンド実行の監査ログを記録する"),
-		Args:  maximumNArgsLocalized(3),
+		Long: Localize(
+			"Record a shell-command audit.\n\nDefaults:\n- DB path: --db-path -> TRACEARY_DB_PATH -> ~/.config/traceary/traceary.db\n- client / agent / repo: flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_REPO -> cli / manual / detected repo\n- session ID: --session-id -> TRACEARY_SESSION_ID -> latest non-stale active session for the resolved repo -> default\n- input / output: optional; omit them when you only need the command text\n- secret policy: --allow-secrets or TRACEARY_ALLOW_SECRETS disables best-effort redaction",
+			"shell command の監査ログを記録します。\n\n既定値の解決順:\n- DB path: --db-path -> TRACEARY_DB_PATH -> ~/.config/traceary/traceary.db\n- client / agent / repo: flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_REPO -> cli / manual / 検出した repo\n- session ID: --session-id -> TRACEARY_SESSION_ID -> 解決した repo の最新 non-stale active session -> default\n- input / output: 任意。command 文字列だけを記録したい場合は省略できます\n- secret policy: --allow-secrets または TRACEARY_ALLOW_SECRETS で best-effort redaction を無効化します",
+		),
+		Example: strings.Join([]string{
+			"  traceary audit \"go test ./...\"",
+			"  traceary audit \"go test ./...\" '{}' '{\"exitCode\":0}'",
+			"  traceary audit --command \"npm test\" --input '{}' --output '{\"exitCode\":1}' --json",
+		}, "\n"),
+		Args: maximumNArgsLocalized(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			commandValue, inputValue, outputValue, err := resolveAuditPayload(auditPayloadInput{
 				positionalArgs: args,
@@ -61,6 +72,7 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 				sessionID:      sessionID,
 				repo:           repo,
 				idOnly:         idOnly,
+				asJSON:         asJSON,
 				allowSecrets:   allowSecrets,
 				maxInputBytes:  maxInputBytes,
 				maxOutputBytes: maxOutputBytes,
@@ -81,9 +93,10 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 	)
 	auditCmd.Flags().StringVar(&repo, "repo", "", Localize("auxiliary work context identifier (env: TRACEARY_REPO)", "補助的なコンテキスト識別子 (env: TRACEARY_REPO)"))
 	auditCmd.Flags().StringVar(&command, "command", "", Localize("command text to record", "記録する command 文字列"))
-	auditCmd.Flags().StringVar(&auditInput, "input", "", Localize("command input payload", "command input"))
-	auditCmd.Flags().StringVar(&auditOutput, "output", "", Localize("command output payload", "command output"))
+	auditCmd.Flags().StringVar(&auditInput, "input", "", Localize("optional command input payload", "任意の command input"))
+	auditCmd.Flags().StringVar(&auditOutput, "output", "", Localize("optional command output payload", "任意の command output"))
 	auditCmd.Flags().BoolVar(&idOnly, "id-only", false, Localize("print only the recorded event ID", "記録した event ID だけを出力する"))
+	auditCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	auditCmd.Flags().BoolVar(
 		&allowSecrets,
 		"allow-secrets",
@@ -107,6 +120,7 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 		inputFlagSet = cmd.Flags().Changed("input")
 		outputFlagSet = cmd.Flags().Changed("output")
 	}
+	auditCmd.MarkFlagsMutuallyExclusive("id-only", "json")
 
 	return auditCmd
 }
@@ -131,6 +145,7 @@ type auditCommandInput struct {
 	sessionID      string
 	repo           string
 	idOnly         bool
+	asJSON         bool
 	allowSecrets   bool
 	maxInputBytes  int
 	maxOutputBytes int
@@ -191,6 +206,16 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 	})
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to record command audit", "監査ログ記録に失敗しました"), err)
+	}
+	if input.asJSON {
+		eventDetails, err := queryservice.NewEventDetails(event, commandAudit)
+		if err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to build audit result", "監査ログ結果の構築に失敗しました"), err)
+		}
+		if err := writeEventDetailsJSON(output, eventDetails); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print record result", "監査ログ記録結果の出力に失敗しました"), err)
+		}
+		return nil
 	}
 
 	if input.idOnly {
@@ -300,7 +325,7 @@ func resolveAuditPayloadField(
 	if requireNonEmpty {
 		return "", xerrors.Errorf(localizef("either %s or positional argument %d is required", "%s または位置引数 %d が必要です", flagName, position+1))
 	}
-	return "", xerrors.Errorf(localizef("either %s or positional argument %d is required, even when empty", "%s または位置引数 %d が必要です (空文字でも明示してください)", flagName, position+1))
+	return "", nil
 }
 
 func resolveAuditMaxBytes(flagValue int, envKey string) (int, error) {

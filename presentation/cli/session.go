@@ -37,18 +37,24 @@ func (c *RootCLI) newSessionLatestCommand() *cobra.Command {
 		client string
 		agent  string
 		repo   string
+		asJSON bool
 	)
 
 	latestCmd := &cobra.Command{
 		Use:   "latest",
 		Short: Localize("Print the latest session ID", "直近のセッション ID を表示する"),
-		Args:  noArgsLocalized(),
+		Long: Localize(
+			"Print the latest matching session ID.\n\n\"latest\" means the session whose most recent lifecycle boundary (start or end) is newest among the matches.\nFilters resolve as flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_REPO, and --repo falls back to the detected work context when omitted.",
+			"条件に一致する直近の session ID を表示します。\n\nここでの「直近」は、一致した session のうち最新の lifecycle boundary (start または end) が最も新しいものを意味します。\nfilter は flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_REPO の順に解決し、--repo 省略時は検出した work context を使います。",
+		),
+		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runSessionLatest(cmd.Context(), cmd.OutOrStdout(), sessionLatestCommandInput{
 				dbPath: dbPath,
 				client: client,
 				agent:  agent,
 				repo:   repo,
+				asJSON: asJSON,
 			})
 		},
 	}
@@ -56,6 +62,7 @@ func (c *RootCLI) newSessionLatestCommand() *cobra.Command {
 	latestCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "記録経路で絞り込む"))
 	latestCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "作業主体で絞り込む"))
 	latestCmd.Flags().StringVar(&repo, "repo", "", Localize("filter by auxiliary work context identifier", "補助的なコンテキスト識別子で絞り込む"))
+	latestCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 
 	return latestCmd
 }
@@ -68,12 +75,17 @@ func (c *RootCLI) newSessionStartCommand() *cobra.Command {
 		sessionID string
 		repo      string
 		idOnly    bool
+		asJSON    bool
 	)
 
 	startCmd := &cobra.Command{
 		Use:   "start",
 		Short: Localize("Record session start", "セッション開始を記録する"),
-		Args:  noArgsLocalized(),
+		Long: Localize(
+			"Record a session-start boundary.\n\nDefaults:\n- DB path: --db-path -> TRACEARY_DB_PATH -> ~/.config/traceary/traceary.db\n- client / agent / repo: flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_REPO -> cli / manual / detected repo\n- session ID: generate a new ID when --session-id is omitted",
+			"session 開始境界を記録します。\n\n既定値の解決順:\n- DB path: --db-path -> TRACEARY_DB_PATH -> ~/.config/traceary/traceary.db\n- client / agent / repo: flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_REPO -> cli / manual / 検出した repo\n- session ID: --session-id を省略した場合は新しく採番します",
+		),
+		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runSessionBoundary(cmd.Context(), cmd.OutOrStdout(), sessionBoundaryCommandInput{
 				dbPath:    dbPath,
@@ -83,6 +95,7 @@ func (c *RootCLI) newSessionStartCommand() *cobra.Command {
 				repo:      repo,
 				kind:      types.EventKindSessionStarted,
 				idOnly:    idOnly,
+				asJSON:    asJSON,
 			})
 		},
 	}
@@ -92,6 +105,8 @@ func (c *RootCLI) newSessionStartCommand() *cobra.Command {
 	startCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID to start", "開始するセッション ID"))
 	startCmd.Flags().StringVar(&repo, "repo", "", Localize("auxiliary work context identifier (env: TRACEARY_REPO)", "補助的なコンテキスト識別子 (env: TRACEARY_REPO)"))
 	startCmd.Flags().BoolVar(&idOnly, "id-only", false, Localize("print only the resulting identifier", "結果の識別子だけを出力する"))
+	startCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
+	startCmd.MarkFlagsMutuallyExclusive("id-only", "json")
 
 	return startCmd
 }
@@ -104,12 +119,17 @@ func (c *RootCLI) newSessionEndCommand() *cobra.Command {
 		sessionID string
 		repo      string
 		idOnly    bool
+		asJSON    bool
 	)
 
 	endCmd := &cobra.Command{
 		Use:   "end",
 		Short: Localize("Record session end", "セッション終了を記録する"),
-		Args:  noArgsLocalized(),
+		Long: Localize(
+			"Record a session-end boundary.\n\nDefaults:\n- session ID: --session-id -> TRACEARY_SESSION_ID\n- client / agent / repo: use explicit flags first, then backfill from the matching session start when possible",
+			"session 終了境界を記録します。\n\n既定値の解決順:\n- session ID: --session-id -> TRACEARY_SESSION_ID\n- client / agent / repo: 明示 flag を優先し、足りない値は対応する session start から補完します",
+		),
+		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runSessionBoundary(cmd.Context(), cmd.OutOrStdout(), sessionBoundaryCommandInput{
 				dbPath:    dbPath,
@@ -119,6 +139,7 @@ func (c *RootCLI) newSessionEndCommand() *cobra.Command {
 				repo:      repo,
 				kind:      types.EventKindSessionEnded,
 				idOnly:    idOnly,
+				asJSON:    asJSON,
 			})
 		},
 	}
@@ -128,6 +149,8 @@ func (c *RootCLI) newSessionEndCommand() *cobra.Command {
 	endCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID to end (env: TRACEARY_SESSION_ID)", "終了するセッション ID (env: TRACEARY_SESSION_ID)"))
 	endCmd.Flags().StringVar(&repo, "repo", "", Localize("auxiliary work context identifier (env: TRACEARY_REPO)", "補助的なコンテキスト識別子 (env: TRACEARY_REPO)"))
 	endCmd.Flags().BoolVar(&idOnly, "id-only", false, Localize("print only the resulting identifier", "結果の識別子だけを出力する"))
+	endCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
+	endCmd.MarkFlagsMutuallyExclusive("id-only", "json")
 
 	return endCmd
 }
@@ -140,6 +163,7 @@ type sessionBoundaryCommandInput struct {
 	repo      string
 	kind      types.EventKind
 	idOnly    bool
+	asJSON    bool
 }
 
 type sessionLatestCommandInput struct {
@@ -150,6 +174,7 @@ type sessionLatestCommandInput struct {
 	activeOnly bool
 	staleAfter time.Duration
 	allowStale bool
+	asJSON     bool
 }
 
 func (c *RootCLI) newSessionActiveCommand() *cobra.Command {
@@ -160,12 +185,17 @@ func (c *RootCLI) newSessionActiveCommand() *cobra.Command {
 		repo       string
 		staleAfter time.Duration
 		allowStale bool
+		asJSON     bool
 	)
 
 	activeCmd := &cobra.Command{
 		Use:   "active",
 		Short: Localize("Print the active session ID (stale sessions older than 24h are excluded by default)", "現在アクティブな session ID を表示する (既定では 24h 超の stale を除外)"),
-		Args:  noArgsLocalized(),
+		Long: Localize(
+			"Print the active matching session ID.\n\nUnlike session latest, this only returns non-ended sessions. By default, sessions older than 24h are treated as stale unless --allow-stale is set.\nFilters resolve as flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_REPO, and --repo falls back to the detected work context when omitted.",
+			"条件に一致する active session ID を表示します。\n\nsession latest と違って、未終了の session だけを返します。既定では 24h を超える session は --allow-stale を指定しない限り stale とみなします。\nfilter は flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_REPO の順に解決し、--repo 省略時は検出した work context を使います。",
+		),
+		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runSessionLatest(cmd.Context(), cmd.OutOrStdout(), sessionLatestCommandInput{
 				dbPath:     dbPath,
@@ -175,6 +205,7 @@ func (c *RootCLI) newSessionActiveCommand() *cobra.Command {
 				activeOnly: true,
 				staleAfter: staleAfter,
 				allowStale: allowStale,
+				asJSON:     asJSON,
 			})
 		},
 	}
@@ -189,6 +220,7 @@ func (c *RootCLI) newSessionActiveCommand() *cobra.Command {
 		Localize("mark active sessions older than this duration as stale", "この duration を超える active session は stale とみなす"),
 	)
 	activeCmd.Flags().BoolVar(&allowStale, "allow-stale", false, Localize("allow stale sessions to be returned", "stale な session も返す"))
+	activeCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 
 	return activeCmd
 }
@@ -226,6 +258,12 @@ func (c *RootCLI) runSessionBoundary(
 	})
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to record session boundary", "session 境界の記録に失敗しました"), err)
+	}
+	if input.asJSON {
+		if err := writeEventJSON(output, event); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print session boundary result", "session 境界結果の出力に失敗しました"), err)
+		}
+		return nil
 	}
 
 	if input.kind == types.EventKindSessionEnded {
@@ -312,6 +350,12 @@ func (c *RootCLI) runSessionLatest(
 	}
 	if err := validateActiveSessionFreshness(event, input); err != nil {
 		return err
+	}
+	if input.asJSON {
+		if err := writeEventJSON(output, event); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print session result", "session 結果の出力に失敗しました"), err)
+		}
+		return nil
 	}
 
 	if _, err := fmt.Fprintln(output, event.SessionID()); err != nil {

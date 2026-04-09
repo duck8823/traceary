@@ -58,6 +58,14 @@ func writeEventDetailsJSON(output io.Writer, eventDetails *queryservice.EventDet
 	return writeJSON(output, serializedEventDetails)
 }
 
+func writeEventJSON(output io.Writer, event *model.Event) error {
+	if event == nil {
+		return xerrors.Errorf(Localize("event must not be nil", "イベントは nil にできません"))
+	}
+
+	return writeJSON(output, newEventJSON(event))
+}
+
 func newEventJSON(event *model.Event) eventJSON {
 	return eventJSON{
 		EventID:   event.EventID().String(),

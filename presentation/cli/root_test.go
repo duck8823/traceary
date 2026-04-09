@@ -51,3 +51,40 @@ func TestRootCLI_HelpCanUseJapanese(t *testing.T) {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
 }
+
+func TestRootCLI_AuditHelpMentionsDefaults(t *testing.T) {
+	t.Parallel()
+
+	stdout := &bytes.Buffer{}
+	rootCmd := NewRootCLI(RootCLIOptions{}).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"audit", "--help"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !strings.Contains(stdout.String(), "TRACEARY_SESSION_ID") {
+		t.Fatalf("stdout = %q, want TRACEARY_SESSION_ID", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "TRACEARY_ALLOW_SECRETS") {
+		t.Fatalf("stdout = %q, want TRACEARY_ALLOW_SECRETS", stdout.String())
+	}
+}
+
+func TestRootCLI_SessionLatestHelpExplainsSemantics(t *testing.T) {
+	t.Parallel()
+
+	stdout := &bytes.Buffer{}
+	rootCmd := NewRootCLI(RootCLIOptions{}).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"session", "latest", "--help"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !strings.Contains(stdout.String(), "most recent lifecycle boundary") {
+		t.Fatalf("stdout = %q, want lifecycle boundary explanation", stdout.String())
+	}
+}

@@ -341,6 +341,71 @@ func TestRootCLI_AuditCommand_NamedFlags(t *testing.T) {
 	}
 }
 
+func TestRootCLI_AuditCommand_AllowsOmittedInputAndOutput(t *testing.T) {
+	t.Setenv("TRACEARY_SESSION_ID", "session-env")
+
+	eventID := mustEventID(t, "event-audit-optional")
+	agent := mustAgent(t, "codex")
+	sessionID := mustSessionID(t, "session-env")
+	commandAudit, err := model.NewCommandAudit(eventID, "go test ./...", "", "", false, false)
+	if err != nil {
+		t.Fatalf("NewCommandAudit() error = %v", err)
+	}
+
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:    &initializeStoreUsecaseStub{},
+		RecordCommandAuditUsecase: &recordCommandAuditUsecaseStub{event: model.EventOf(eventID, types.EventKindCommandExecuted, "cli", agent, sessionID, "duck8823/traceary", "go test ./...", time.Date(2026, 4, 7, 16, 30, 0, 0, time.UTC)), commandAudit: commandAudit},
+	}).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"audit", "--db-path", "/tmp/traceary.db", "go test ./..."})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+}
+
+func TestRootCLI_AuditCommand_JSON(t *testing.T) {
+	t.Setenv("TRACEARY_SESSION_ID", "session-env")
+
+	eventID := mustEventID(t, "event-audit-json")
+	agent := mustAgent(t, "codex")
+	sessionID := mustSessionID(t, "session-env")
+	commandAudit, err := model.NewCommandAudit(eventID, "go test ./...", "stdin", "stdout", false, false)
+	if err != nil {
+		t.Fatalf("NewCommandAudit() error = %v", err)
+	}
+
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:    &initializeStoreUsecaseStub{},
+		RecordCommandAuditUsecase: &recordCommandAuditUsecaseStub{event: model.EventOf(eventID, types.EventKindCommandExecuted, "cli", agent, sessionID, "duck8823/traceary", "go test ./...", time.Date(2026, 4, 7, 17, 0, 0, 0, time.UTC)), commandAudit: commandAudit},
+	}).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"audit", "--db-path", "/tmp/traceary.db", "--json", "go test ./...", "stdin", "stdout"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	payload := decodeJSONMap(t, stdout.String())
+	eventPayload, ok := payload["event"].(map[string]any)
+	if !ok {
+		t.Fatalf("event payload = %#v, want object", payload["event"])
+	}
+	if got, want := eventPayload["event_id"], "event-audit-json"; got != want {
+		t.Fatalf("event.event_id = %v, want %q", got, want)
+	}
+	commandAuditPayload, ok := payload["command_audit"].(map[string]any)
+	if !ok {
+		t.Fatalf("command_audit payload = %#v, want object", payload["command_audit"])
+	}
+	if got, want := commandAuditPayload["command"], "go test ./..."; got != want {
+		t.Fatalf("command_audit.command = %v, want %q", got, want)
+	}
+}
+
 func TestRootCLI_AuditCommand_DoesNotAllowDuplicateFlagAndPositional(t *testing.T) {
 	t.Setenv("TRACEARY_SESSION_ID", "session-env")
 
