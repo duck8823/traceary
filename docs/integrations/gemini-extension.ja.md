@@ -23,10 +23,10 @@ brew install traceary
 GO111MODULE=on go install github.com/duck8823/traceary@latest
 ```
 
-2. 最新の Traceary GitHub release から extension を install します。
+2. Traceary の GitHub release から extension を install します。
 
 ```sh
-gemini extensions install https://github.com/duck8823/traceary --ref v0.1.12
+gemini extensions install https://github.com/duck8823/traceary --ref <tag>
 ```
 
 Traceary では、archive root が Gemini CLI の期待する extension root になる `traceary.tar.gz` asset を release ごとに公開します。

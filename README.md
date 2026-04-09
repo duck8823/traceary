@@ -11,6 +11,8 @@
 
 Traceary is a local-first CLI and MCP server for recording and searching AI agent work logs, session boundaries, and shell command audits.
 
+If your goal is automatic recording, start with the host integration instead of the raw CLI.
+
 ## Why Traceary
 
 AI-assisted development gets messy quickly when:
@@ -32,7 +34,19 @@ Traceary keeps those records in one local SQLite store so the same history can b
 
 Traceary is local-first. It writes to SQLite on your machine and does not include built-in telemetry, analytics, or hosted storage.
 
-## Install
+## Install into your agent host
+
+These are the fastest paths when you want Traceary to record sessions and shell commands automatically.
+
+| Host | Install path | Guide |
+| --- | --- | --- |
+| Claude Code | `claude plugins marketplace add https://github.com/duck8823/traceary` then `claude plugins install traceary@traceary-plugins --scope user` | [Claude Code plugin](./docs/integrations/claude-plugin.md) |
+| Codex | `git clone https://github.com/duck8823/traceary ~/src/traceary` then `python3 ~/src/traceary/scripts/codex/install_plugin.py` | [Codex plugin](./docs/integrations/codex-plugin.md) |
+| Gemini CLI | `gemini extensions install https://github.com/duck8823/traceary --ref <tag>` | [Gemini CLI extension](./docs/integrations/gemini-extension.md) |
+
+For the integration overview, use the [native integrations guide](./docs/integrations/README.md).
+
+## Install the Traceary CLI
 
 ### go install
 
@@ -51,11 +65,6 @@ brew install traceary
 
 Tagged releases publish macOS and Linux archives on GitHub Releases.
 See the [release guide](./docs/release/README.md) when you want the packaging details.
-
-### Native agent packages
-
-Traceary also ships native packages for Claude Code, Codex, and Gemini CLI.
-See the [native integrations guide](./docs/integrations/README.md) when you want host-specific install, update, uninstall, and doctor flows.
 
 ## Quick start
 
@@ -93,30 +102,17 @@ traceary audit --id-only --command "go test ./..." --input '{}' --output '{}'
 traceary session end --session-id "$sid" --id-only
 ```
 
-## Core commands
+## Manual CLI workflows
 
-```sh
-traceary init
-traceary log <message>
-traceary audit [<command> <input> <output>]
-traceary list
-traceary search <query>
-traceary show <event-id>
-traceary context
-traceary handoff
-traceary session start
-traceary session end
-traceary session latest
-traceary session active
-traceary hooks print --client <claude|codex|gemini>
-traceary hooks install --client <claude|codex|gemini>
-traceary hooks guide --client <claude|codex|gemini>
-traceary mcp-server
-traceary doctor
-traceary backup create --output <path>
-traceary backup restore --input <path>
-traceary gc
-```
+If you need one-off/manual usage outside the host integrations, the usual entry points are:
+
+- `traceary session start`
+- `traceary log`
+- `traceary audit`
+- `traceary list` / `traceary search`
+- `traceary doctor`
+
+Use the [CLI reference](./docs/cli/README.md) for the full command surface.
 
 ## Defaults worth knowing
 
@@ -131,8 +127,8 @@ traceary gc
 Use the [documentation index](./docs/README.md) for the full map.
 The most common next pages are:
 
-- [CLI reference](./docs/cli/README.md)
 - [Native integrations](./docs/integrations/README.md)
+- [CLI reference](./docs/cli/README.md)
 - [Hooks guide](./docs/hooks/README.md)
 - [MCP guide](./docs/mcp/README.md)
 - [Environment and storage notes](./docs/environment/README.md)

@@ -2,7 +2,7 @@
 
 [English](./README.md)
 
-Traceary v0.1.12 では、Claude Code / Codex / Gemini CLI 向けのネイティブ連携パッケージを追加します。
+Traceary は、Claude Code / Codex / Gemini CLI 向けのネイティブ連携パッケージを用意しています。
 
 これらのパッケージは、次の共通ランタイム契約で揃えています。
 
@@ -19,14 +19,14 @@ Traceary v0.1.12 では、Claude Code / Codex / Gemini CLI 向けのネイティ
 | session hook | session start/end（Codex は `Stop`）を Traceary event として記録する |
 | shell audit hook | `traceary audit` を通して shell command 実行を記録する |
 | doctor flow | `traceary doctor --client <host>` を共通のトラブルシュート入口にする |
-| versioning | package manifest の version は Traceary の release tag に揃える |
+| versioning | integration package は Traceary の release と一緒に公開する |
 
 ## host ごとの package root
 
-| Host | Package root | 配布の基点 |
+| Host | Package root | 実際に書き込まれる場所 |
 | --- | --- | --- |
 | Claude Code | `integrations/claude-plugin/` | `.claude-plugin/marketplace.json` を基点にした Claude marketplace |
-| Codex | `plugins/traceary/` | `.agents/plugins/marketplace.json` を基点にした Codex marketplace 形式 |
+| Codex | `plugins/traceary/` | helper が `~/.codex/plugins/cache/...` の plugin cache と `~/.codex/hooks.json` の Traceary hooks をセットアップ |
 | Gemini CLI | `integrations/gemini-extension/` | `gemini-extension.json` を root にした Gemini extension archive |
 
 ## host 別ガイド
@@ -42,8 +42,8 @@ Traceary v0.1.12 では、Claude Code / Codex / Gemini CLI 向けのネイティ
 1. `python3 scripts/verify_integrations.py` による構造検証
 2. `./scripts/smoke_test_integrations.sh` によるローカル smoke test
 
-smoke test では、現時点で各 host が公開している install surface に合わせて確認します。
+smoke test では、各 host の install surface に合わせて確認します。
 
 - Claude Code: marketplace validate と一時 home での install
 - Gemini CLI: extension validate と一時 home での link
-- Codex: marketplace / plugin manifest の構造検証を基本にし、plugin-enabled build がある場合だけ runtime probe を追加実行する
+- Codex: helper install / uninstall による plugin cache・config・hooks の確認を行い、認証済み環境では runtime probe も追加できる

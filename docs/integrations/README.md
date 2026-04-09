@@ -2,7 +2,7 @@
 
 [日本語](./README.ja.md)
 
-Traceary v0.1.12 introduces native integration packages for Claude Code, Codex, and Gemini CLI.
+Traceary ships native integration packages for Claude Code, Codex, and Gemini CLI.
 
 These packages all share the same runtime contract:
 
@@ -19,14 +19,14 @@ These packages all share the same runtime contract:
 | Session hooks | records session start/end (or `Stop` on Codex) as Traceary events |
 | Shell audit hooks | records shell-command executions through `traceary audit` |
 | Doctor flow | uses `traceary doctor --client <host>` for troubleshooting |
-| Versioning | package manifests track the same release tag as the Traceary repository |
+| Versioning | integration packages are published together with Traceary releases |
 
 ## Host packages
 
-| Host | Package root | Install path |
+| Host | Package root | Installed surface |
 | --- | --- | --- |
 | Claude Code | `integrations/claude-plugin/` | Claude marketplace rooted at `.claude-plugin/marketplace.json` |
-| Codex | `plugins/traceary/` | Codex repo/local marketplace rooted at `.agents/plugins/marketplace.json` |
+| Codex | `plugins/traceary/` | helper installs the plugin cache under `~/.codex/plugins/cache/...` and Traceary hooks into `~/.codex/hooks.json` |
 | Gemini CLI | `integrations/gemini-extension/` | Gemini extension archive rooted at `gemini-extension.json` |
 
 ## Per-host guides
@@ -46,4 +46,4 @@ The smoke-test script focuses on the installation surfaces that each host curren
 
 - Claude Code: marketplace validation + install into a temporary home
 - Gemini CLI: extension validation + link flow in a temporary home
-- Codex: structural verification from the packaged marketplace and plugin manifests, with an optional runtime probe when a plugin-enabled Codex build is available
+- Codex: helper install/uninstall verification for the plugin cache, config, and hooks, plus an optional authenticated runtime probe
