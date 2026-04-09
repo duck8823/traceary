@@ -63,8 +63,13 @@ func TestListRecentEventsQueryService_Run(t *testing.T) {
 		sut := queryservice.NewListRecentEventsQueryService(stub)
 
 		got, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.ListRecentEventsInput{
-			Limit:  5,
-			Offset: 2,
+			Limit:     5,
+			Offset:    2,
+			Kind:      "note",
+			Client:    "cli",
+			Agent:     "codex",
+			SessionID: "session-1",
+			Repo:      "duck8823/traceary",
 		})
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
@@ -77,6 +82,12 @@ func TestListRecentEventsQueryService_Run(t *testing.T) {
 		}
 		if stub.receivedInput.Offset != 2 {
 			t.Fatalf("received offset = %d, want %d", stub.receivedInput.Offset, 2)
+		}
+		if stub.receivedInput.Kind != "note" {
+			t.Fatalf("received kind = %q, want %q", stub.receivedInput.Kind, "note")
+		}
+		if stub.receivedInput.SessionID != "session-1" {
+			t.Fatalf("received session_id = %q, want %q", stub.receivedInput.SessionID, "session-1")
 		}
 		if len(got) != 1 {
 			t.Fatalf("len(events) = %d, want 1", len(got))

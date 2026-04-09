@@ -218,6 +218,106 @@ CREATE INDEX idx_events_created_at
 	}
 }
 
+func TestDatasource_ListRecent_Filters(t *testing.T) {
+	t.Parallel()
+
+	migrations := fstest.MapFS{
+		"000001_init.sql": {
+			Data: []byte(`
+CREATE TABLE events (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);`),
+		},
+		"000002_add_event_metadata.sql": {
+			Data: []byte(`
+ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
+ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';
+
+CREATE INDEX idx_events_created_at
+    ON events(created_at DESC, id DESC);`),
+		},
+	}
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	sut := sqlite.NewDatasource(migrations)
+
+	if err := sut.Initialize(context.Background(), dbPath); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	firstEventID := mustEventIDForSQLite(t, "event-note")
+	secondEventID := mustEventIDForSQLite(t, "event-command")
+	codexAgent := mustAgentForSQLite(t, "codex")
+	claudeAgent := mustAgentForSQLite(t, "claude")
+	sessionOne := mustSessionIDForSQLite(t, "session-1")
+	sessionTwo := mustSessionIDForSQLite(t, "session-2")
+
+	events := []*model.Event{
+		model.EventOf(firstEventID, types.EventKindNote, "cli", codexAgent, sessionOne, "duck8823/traceary", "first", time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC)),
+		model.EventOf(secondEventID, types.EventKindCommandExecuted, "hook", claudeAgent, sessionTwo, "other/repo", "second", time.Date(2026, 4, 7, 12, 1, 0, 0, time.UTC)),
+	}
+	for _, event := range events {
+		if err := sut.Save(context.Background(), dbPath, event); err != nil {
+			t.Fatalf("Save(%s) error = %v", event.EventID(), err)
+		}
+	}
+
+	got, err := sut.ListRecent(context.Background(), dbPath, queryservice.ListRecentEventsInput{
+		Limit:     10,
+		Kind:      types.EventKindNote.String(),
+		Client:    "cli",
+		Agent:     "codex",
+		SessionID: "session-1",
+		Repo:      "duck8823/traceary",
+	})
+	if err != nil {
+		t.Fatalf("ListRecent() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(events) = %d, want 1", len(got))
+	}
+	if got[0].EventID().String() != "event-note" {
+		t.Fatalf("got[0].EventID() = %q, want %q", got[0].EventID(), "event-note")
+	}
+}
+
+func mustEventIDForSQLite(t *testing.T, value string) types.EventID {
+	t.Helper()
+
+	eventID, err := types.EventIDOf(value)
+	if err != nil {
+		t.Fatalf("EventIDOf() error = %v", err)
+	}
+
+	return eventID
+}
+
+func mustAgentForSQLite(t *testing.T, value string) types.Agent {
+	t.Helper()
+
+	agent, err := types.AgentOf(value)
+	if err != nil {
+		t.Fatalf("AgentOf() error = %v", err)
+	}
+
+	return agent
+}
+
+func mustSessionIDForSQLite(t *testing.T, value string) types.SessionID {
+	t.Helper()
+
+	sessionID, err := types.SessionIDOf(value)
+	if err != nil {
+		t.Fatalf("SessionIDOf() error = %v", err)
+	}
+
+	return sessionID
+}
+
 func newEventForSQLiteTest(
 	t *testing.T,
 	eventIDValue string,

@@ -3,19 +3,26 @@ package cli
 import (
 	"context"
 	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 func (c *RootCLI) newListCommand() *cobra.Command {
 	var (
-		dbPath string
-		limit  int
-		offset int
-		asJSON bool
+		dbPath    string
+		limit     int
+		offset    int
+		kind      string
+		client    string
+		agent     string
+		sessionID string
+		repo      string
+		asJSON    bool
 	)
 
 	listCmd := &cobra.Command{
@@ -24,26 +31,41 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runList(cmd.Context(), cmd.OutOrStdout(), listCommandInput{
-				dbPath: dbPath,
-				limit:  limit,
-				offset: offset,
-				asJSON: asJSON,
+				dbPath:    dbPath,
+				limit:     limit,
+				offset:    offset,
+				kind:      kind,
+				client:    client,
+				agent:     agent,
+				sessionID: sessionID,
+				repo:      repo,
+				asJSON:    asJSON,
 			})
 		},
 	}
 	listCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	listCmd.Flags().IntVar(&limit, "limit", 20, Localize("number of events to display", "表示件数"))
 	listCmd.Flags().IntVar(&offset, "offset", 0, Localize("number of events to skip before listing", "一覧表示前にスキップする件数"))
+	listCmd.Flags().StringVar(&kind, "kind", "", Localize("filter by event kind", "イベント種別で絞り込む"))
+	listCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "記録経路で絞り込む"))
+	listCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "作業主体で絞り込む"))
+	listCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("filter by session ID", "session ID で絞り込む"))
+	listCmd.Flags().StringVar(&repo, "repo", "", Localize("filter by auxiliary work context identifier", "補助的なコンテキスト識別子で絞り込む"))
 	listCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 
 	return listCmd
 }
 
 type listCommandInput struct {
-	dbPath string
-	limit  int
-	offset int
-	asJSON bool
+	dbPath    string
+	limit     int
+	offset    int
+	kind      string
+	client    string
+	agent     string
+	sessionID string
+	repo      string
+	asJSON    bool
 }
 
 func (c *RootCLI) runList(ctx context.Context, output io.Writer, input listCommandInput) error {
@@ -59,6 +81,10 @@ func (c *RootCLI) runList(ctx context.Context, output io.Writer, input listComma
 	if input.offset < 0 {
 		return xerrors.Errorf(Localize("offset must be greater than or equal to 0", "offset は 0 以上である必要があります"))
 	}
+	resolvedKind, err := resolveListKind(input.kind)
+	if err != nil {
+		return err
+	}
 
 	resolvedPath, err := resolveDBPath(input.dbPath)
 	if err != nil {
@@ -69,8 +95,13 @@ func (c *RootCLI) runList(ctx context.Context, output io.Writer, input listComma
 	}
 
 	events, err := c.listEventsQueryService.Run(ctx, resolvedPath, queryservice.ListRecentEventsInput{
-		Limit:  input.limit,
-		Offset: input.offset,
+		Limit:     input.limit,
+		Offset:    input.offset,
+		Kind:      resolvedKind,
+		Client:    strings.TrimSpace(input.client),
+		Agent:     strings.TrimSpace(input.agent),
+		SessionID: strings.TrimSpace(input.sessionID),
+		Repo:      resolveRepoValue(ctx, input.repo),
 	})
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to list events", "イベント一覧の取得に失敗しました"), err)
@@ -80,4 +111,18 @@ func (c *RootCLI) runList(ctx context.Context, output io.Writer, input listComma
 	}
 
 	return nil
+}
+
+func resolveListKind(value string) (string, error) {
+	trimmedValue := strings.TrimSpace(value)
+	if trimmedValue == "" {
+		return "", nil
+	}
+
+	kind, err := types.EventKindOf(trimmedValue)
+	if err != nil {
+		return "", xerrors.Errorf("%s: %w", Localize("invalid event kind", "不正なイベント種別です"), err)
+	}
+
+	return kind.String(), nil
 }

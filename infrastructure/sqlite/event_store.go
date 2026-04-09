@@ -68,8 +68,18 @@ func (d *Datasource) ListRecent(
 		ctx,
 		`SELECT id, kind, client, agent, session_id, repo, body, created_at
 		   FROM events
+		  WHERE (? = '' OR kind = ?)
+		    AND (? = '' OR client = ?)
+		    AND (? = '' OR agent = ?)
+		    AND (? = '' OR session_id = ?)
+		    AND (? = '' OR repo = ?)
 		  ORDER BY created_at DESC, id DESC
 		  LIMIT ? OFFSET ?`,
+		input.Kind, input.Kind,
+		input.Client, input.Client,
+		input.Agent, input.Agent,
+		input.SessionID, input.SessionID,
+		input.Repo, input.Repo,
 		input.Limit,
 		input.Offset,
 	)

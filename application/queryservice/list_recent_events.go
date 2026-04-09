@@ -10,8 +10,13 @@ import (
 
 // ListRecentEventsInput is the input for recent event listing.
 type ListRecentEventsInput struct {
-	Limit  int
-	Offset int
+	Limit     int
+	Offset    int
+	Kind      string
+	Client    string
+	Agent     string
+	SessionID string
+	Repo      string
 }
 
 // RecentEventFinder provides recent event lookup.
