@@ -148,4 +148,38 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 			t.Fatalf("JSON output should contain duration_sec, got: %s", output)
 		}
 	})
+
+	t.Run("--from が不正な形式ならエラー", func(t *testing.T) {
+		t.Parallel()
+
+		dbPath := filepath.Join(t.TempDir(), "traceary.db")
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase:   &initializeStoreUsecaseStub{},
+			ListSessionsQueryService: &listSessionsQueryServiceStub{},
+		}).Command()
+		rootCmd.SetOut(&bytes.Buffer{})
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"session", "list", "--db-path", dbPath, "--from", "invalid"})
+
+		if err := rootCmd.Execute(); err == nil {
+			t.Fatalf("Execute() error = nil, want error")
+		}
+	})
+
+	t.Run("--to が不正な形式ならエラー", func(t *testing.T) {
+		t.Parallel()
+
+		dbPath := filepath.Join(t.TempDir(), "traceary.db")
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase:   &initializeStoreUsecaseStub{},
+			ListSessionsQueryService: &listSessionsQueryServiceStub{},
+		}).Command()
+		rootCmd.SetOut(&bytes.Buffer{})
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"session", "list", "--db-path", dbPath, "--to", "not-a-date"})
+
+		if err := rootCmd.Execute(); err == nil {
+			t.Fatalf("Execute() error = nil, want error")
+		}
+	})
 }

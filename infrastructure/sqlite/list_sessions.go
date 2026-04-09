@@ -97,7 +97,7 @@ func scanSessionSummary(row interface {
 		endedAtStr   sql.NullString
 		totalEvents  int
 		commandCount int
-		agentsStr    string
+		agentsStr    sql.NullString
 	)
 
 	if err := row.Scan(
@@ -129,8 +129,8 @@ func scanSessionSummary(row interface {
 	}
 
 	var agents []string
-	if agentsStr != "" {
-		agents = strings.Split(agentsStr, ",")
+	if agentsStr.Valid && agentsStr.String != "" {
+		agents = strings.Split(agentsStr.String, ",")
 	}
 
 	return &queryservice.SessionSummary{

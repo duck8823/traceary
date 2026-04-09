@@ -46,6 +46,17 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 				return xerrors.Errorf("%s", Localize("offset must be >= 0", "offset は 0 以上でなければなりません"))
 			}
 
+			if from != "" {
+				if _, err := time.Parse("2006-01-02", from); err != nil {
+					return xerrors.Errorf("%s: %w", Localize("--from must be YYYY-MM-DD", "--from は YYYY-MM-DD 形式でなければなりません"), err)
+				}
+			}
+			if to != "" {
+				if _, err := time.Parse("2006-01-02", to); err != nil {
+					return xerrors.Errorf("%s: %w", Localize("--to must be YYYY-MM-DD", "--to は YYYY-MM-DD 形式でなければなりません"), err)
+				}
+			}
+
 			resolvedRepo := resolveRepoValue(ctx, repo)
 
 			summaries, err := c.listSessionsQueryService.Run(ctx, resolvedDBPath, queryservice.ListSessionsInput{
