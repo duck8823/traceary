@@ -100,6 +100,49 @@ func TestTracearySessionScript_UsesGeneratedSessionIDWhenInputIsEmpty(t *testing
 	}
 }
 
+func TestTracearySessionScript_StopIsIdempotentForDuplicateSessionEnd(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	fakeLogPath := filepath.Join(tempDir, "traceary.log")
+	fakeTracearyPath := filepath.Join(tempDir, "traceary")
+	writeFakeTraceary(t, fakeTracearyPath)
+
+	homeDir := filepath.Join(tempDir, "home")
+	if err := os.MkdirAll(homeDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	env := append(os.Environ(),
+		"TRACEARY_BIN="+fakeTracearyPath,
+		"TRACEARY_FAKE_LOG="+fakeLogPath,
+		"TRACEARY_REPO=work-context",
+		"HOME="+homeDir,
+	)
+
+	startInput := `{"session_id":"gemini-session","cwd":"/tmp/project"}`
+	if err := runHookScript(t, filepath.Join(".", "traceary-session.sh"), env, startInput, "gemini", "start"); err != nil {
+		t.Fatalf("runHookScript(start) error = %v", err)
+	}
+
+	stopInput := `{"session_id":"gemini-session","cwd":"/tmp/project"}`
+	if err := runHookScript(t, filepath.Join(".", "traceary-session.sh"), env, stopInput, "gemini", "end"); err != nil {
+		t.Fatalf("runHookScript(end) error = %v", err)
+	}
+	if err := runHookScript(t, filepath.Join(".", "traceary-session.sh"), env, stopInput, "gemini", "end"); err != nil {
+		t.Fatalf("runHookScript(end duplicate) error = %v", err)
+	}
+
+	calls := readLoggedCalls(t, fakeLogPath)
+	want := [][]string{
+		{"session", "start", "--client", "hook", "--agent", "gemini", "--repo", "work-context", "--session-id", "gemini-session"},
+		{"session", "end", "--client", "hook", "--agent", "gemini", "--session-id", "gemini-session", "--repo", "work-context"},
+	}
+	if !reflect.DeepEqual(calls, want) {
+		t.Fatalf("logged calls = %#v, want %#v", calls, want)
+	}
+}
+
 func TestTracearyAuditScript_UsesHookPayloadAndSessionState(t *testing.T) {
 	t.Parallel()
 

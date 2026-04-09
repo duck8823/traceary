@@ -86,6 +86,22 @@ traceary_session_state_path() {
   printf '%s/%s-%s' "$state_dir" "$client" "${TRACEARY_HOOK_STATE_KEY:-${PPID:-$$}}"
 }
 
+traceary_sanitize_state_key() {
+  local value="${1:-}"
+
+  printf '%s' "$value" | tr -cs 'A-Za-z0-9._-' '_'
+}
+
+traceary_session_end_marker_path() {
+  local client="$1"
+  local session_id="$2"
+  local state_dir="${TRACEARY_HOOK_STATE_DIR:-${HOME}/.config/traceary/hooks}"
+  local sanitized_session_id
+  sanitized_session_id="$(traceary_sanitize_state_key "$session_id")"
+  mkdir -p "$state_dir/ended"
+  printf '%s/ended/%s-%s' "$state_dir" "$client" "$sanitized_session_id"
+}
+
 traceary_write_state() {
   local client="$1"
   local session_id="$2"
@@ -110,4 +126,28 @@ traceary_clear_state() {
   local state_file
   state_file="$(traceary_session_state_path "$client")"
   rm -f "$state_file"
+}
+
+traceary_mark_session_ended() {
+  local client="$1"
+  local session_id="$2"
+  local marker_file
+  marker_file="$(traceary_session_end_marker_path "$client" "$session_id")"
+  : > "$marker_file"
+}
+
+traceary_session_end_already_recorded() {
+  local client="$1"
+  local session_id="$2"
+  local marker_file
+  marker_file="$(traceary_session_end_marker_path "$client" "$session_id")"
+  [[ -f "$marker_file" ]]
+}
+
+traceary_clear_session_end_marker() {
+  local client="$1"
+  local session_id="$2"
+  local marker_file
+  marker_file="$(traceary_session_end_marker_path "$client" "$session_id")"
+  rm -f "$marker_file"
 }
