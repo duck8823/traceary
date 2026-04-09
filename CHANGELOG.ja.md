@@ -5,6 +5,25 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.1.15] - 2026-04-09
+
+この release では、`v0.1.14` の dogfood で残っていた follow-up を閉じ、ローカル専用 Git repository の扱いと `traceary doctor` の first-run 表示を実用的に整えました。
+
+### Fixed
+- `remote.origin.url` が無いローカル専用 Git repository でも、Git worktree ルートへ fallback するようにし、`traceary log` / `traceary audit` が active session を再利用できるようにした
+- packaged hook script でも同じ fallback を使うようにし、Claude / Codex / Gemini integration と CLI の挙動をそろえた
+- `traceary doctor` が host config 未作成などの first-run 状態を generic failure ではなく `warn` として返すようにした
+- setup ガイダンスを妨げる hook script materialize 問題は、必ずしも壊れた install を意味しないため、より明確な `warn` メッセージで出すようにした
+
+### Changed
+- root README と CLI / hooks / environment docs に、local-only Git worktree fallback と `traceary doctor` の `warn` / `fail` の意味を追記した
+- release 向け integration manifest version を `0.1.15` に更新した
+- release guide の固定 tag 例を `v0.1.15` に更新した
+
+### Included issues
+- #165 Make doctor clearer on first-run integration states
+- #166 Improve work-context detection for local-only git repositories
+
 ## [v0.1.14] - 2026-04-09
 
 この release では、`v0.1.13` 以降に main へ入っていた integration / runtime 修正と、それを公開するための release metadata 整備をまとめて収録しています。
