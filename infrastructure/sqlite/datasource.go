@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"io/fs"
+	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -47,8 +48,10 @@ func (d *Datasource) Initialize(ctx context.Context, dbPath string) (err error) 
 			err = xerrors.Errorf("failed to close SQLite connection: %w", closeErr)
 		}
 	}()
-	if err := os.Chmod(trimmedPath, 0o600); err != nil {
-		return xerrors.Errorf("failed to set SQLite DB file permissions: %w", err)
+	// chmod is best-effort; ignore errors on read-only filesystems or
+	// when the DB file is owned by another user.
+	if chmodErr := os.Chmod(trimmedPath, 0o600); chmodErr != nil {
+		slog.Debug("failed to set DB file permissions (best-effort)", "error", chmodErr)
 	}
 
 	if err := d.migrate(ctx, db); err != nil {
