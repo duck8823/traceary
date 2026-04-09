@@ -233,6 +233,10 @@ Useful flags:
 
 Diagnose DB access, hook script availability, and client config integration.
 
+`warn` means Traceary found a first-run / not-configured-yet state, such as a missing host config file before hooks are installed.
+`fail` means Traceary found a broken runtime state, such as DB access problems or unreadable / invalid config.
+Only `fail` checks make `traceary doctor` exit non-zero.
+
 Alias:
 
 - `traceary status`

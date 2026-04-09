@@ -77,7 +77,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 		assertDoctorCheckStatus(t, report.Checks, "gemini-config", "warn")
 	})
 
-	t.Run("specific client without config fails", func(t *testing.T) {
+	t.Run("specific client without config warns", func(t *testing.T) {
 		initializeStore := &doctorInitializeStoreUsecaseStub{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
 			InitializeStoreUsecase: initializeStore,
@@ -92,16 +92,47 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 			"--json",
 		})
 
-		err := rootCmd.Execute()
-		if err == nil {
-			t.Fatalf("Execute() error = nil, want error")
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
 		}
 
 		var report doctorReportJSON
 		if unmarshalErr := json.Unmarshal(stdout.Bytes(), &report); unmarshalErr != nil {
 			t.Fatalf("json.Unmarshal() error = %v", unmarshalErr)
 		}
-		assertDoctorCheckStatus(t, report.Checks, "claude-config", "fail")
+		assertDoctorCheckStatus(t, report.Checks, "claude-config", "warn")
+	})
+
+	t.Run("hook script materialization issues warn instead of failing", func(t *testing.T) {
+		initializeStore := &doctorInitializeStoreUsecaseStub{}
+		blockedPath := filepath.Join(t.TempDir(), "blocked")
+		if err := os.WriteFile(blockedPath, []byte("not-a-directory"), 0o644); err != nil {
+			t.Fatalf("WriteFile() error = %v", err)
+		}
+		t.Setenv("TRACEARY_HOOK_SCRIPTS_DIR", blockedPath)
+
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase: initializeStore,
+		}).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{
+			"doctor",
+			"--client", "claude",
+			"--project-dir", projectDir,
+			"--json",
+		})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		var report doctorReportJSON
+		if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v", err)
+		}
+		assertDoctorCheckStatus(t, report.Checks, "hook-scripts", "warn")
 	})
 
 	t.Run("existing Traceary config passes", func(t *testing.T) {

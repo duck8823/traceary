@@ -233,6 +233,10 @@ alias: `claude-code`, `codex-cli`, `gemini-cli`
 
 DB アクセス、hook スクリプト、クライアント設定の統合状態を診断します。
 
+`warn` は、hooks 未導入などの first-run / 未設定状態です。
+`fail` は、DB アクセス不良や unreadable / invalid config のような壊れた状態です。
+`traceary doctor` が非 0 で終了するのは `fail` があるときだけです。
+
 alias:
 
 - `traceary status`

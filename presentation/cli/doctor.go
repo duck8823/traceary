@@ -128,20 +128,33 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		})
 	}
 
-	hookScriptsDir, err := ensureHookScriptsInstalled()
+	hookScriptsDir, err := resolveHooksScriptsDir()
 	if err != nil {
 		report.Checks = append(report.Checks, doctorCheck{
 			Name:    "hook-scripts",
 			Status:  doctorStatusFail,
-			Message: localizef("failed to prepare hook scripts: %v", "hook script の準備に失敗しました: %v", err),
+			Message: localizef("failed to resolve hook scripts directory: %v", "hook script directory の解決に失敗しました: %v", err),
 		})
 	} else {
 		report.HookScriptsDir = hookScriptsDir
-		report.Checks = append(report.Checks, doctorCheck{
-			Name:    "hook-scripts",
-			Status:  doctorStatusPass,
-			Message: localizef("hook scripts are available: %s", "hook script を利用できます: %s", hookScriptsDir),
-		})
+		if _, ensureErr := ensureHookScriptsInstalled(); ensureErr != nil {
+			report.Checks = append(report.Checks, doctorCheck{
+				Name:   "hook-scripts",
+				Status: doctorStatusWarn,
+				Message: localizef(
+					"portable hook scripts are not ready yet at %s: %v",
+					"portable hook script はまだ %s で利用可能ではありません: %v",
+					hookScriptsDir,
+					ensureErr,
+				),
+			})
+		} else {
+			report.Checks = append(report.Checks, doctorCheck{
+				Name:    "hook-scripts",
+				Status:  doctorStatusPass,
+				Message: localizef("hook scripts are available: %s", "hook script を利用できます: %s", hookScriptsDir),
+			})
+		}
 	}
 
 	resolvedProjectDir, err := resolveHooksProjectDir(input.projectDir)
@@ -159,7 +172,6 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		Message: localizef("resolved project directory: %s", "解決した project directory: %s", resolvedProjectDir),
 	})
 
-	strictClientCheck := strings.TrimSpace(input.client) != ""
 	for _, targetClient := range resolvedClients {
 		outputPath, pathErr := resolveHooksInstallOutputPath(targetClient, resolvedProjectDir, "")
 		if pathErr != nil {
@@ -171,7 +183,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			continue
 		}
 
-		report.Checks = append(report.Checks, inspectDoctorConfigFile(targetClient, outputPath, strictClientCheck))
+		report.Checks = append(report.Checks, inspectDoctorConfigFile(targetClient, outputPath))
 	}
 
 	return report, nil
@@ -190,18 +202,19 @@ func resolveDoctorClients(client string) ([]string, error) {
 	return []string{resolvedClient}, nil
 }
 
-func inspectDoctorConfigFile(client string, outputPath string, strict bool) doctorCheck {
+func inspectDoctorConfigFile(client string, outputPath string) doctorCheck {
 	content, err := os.ReadFile(outputPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			status := doctorStatusWarn
-			if strict {
-				status = doctorStatusFail
-			}
 			return doctorCheck{
-				Name:    client + "-config",
-				Status:  status,
-				Message: localizef("%s config file does not exist yet: %s", "%s の設定ファイルはまだ存在しません: %s", client, outputPath),
+				Name:   client + "-config",
+				Status: doctorStatusWarn,
+				Message: localizef(
+					"%s config file does not exist yet (first-run / pre-install state): %s",
+					"%s の設定ファイルはまだありません (first-run / pre-install 状態): %s",
+					client,
+					outputPath,
+				),
 			}
 		}
 
@@ -223,14 +236,15 @@ func inspectDoctorConfigFile(client string, outputPath string, strict bool) doct
 
 	hooksValue, ok := root["hooks"]
 	if !ok {
-		status := doctorStatusWarn
-		if strict {
-			status = doctorStatusFail
-		}
 		return doctorCheck{
-			Name:    client + "-config",
-			Status:  status,
-			Message: localizef("%s config does not contain a hooks field yet: %s", "%s の設定には hooks フィールドがまだありません: %s", client, outputPath),
+			Name:   client + "-config",
+			Status: doctorStatusWarn,
+			Message: localizef(
+				"%s config exists but does not contain a hooks field yet: %s",
+				"%s の設定はありますが hooks フィールドはまだありません: %s",
+				client,
+				outputPath,
+			),
 		}
 	}
 
@@ -257,15 +271,15 @@ func inspectDoctorConfigFile(client string, outputPath string, strict bool) doct
 		}
 	}
 
-	status := doctorStatusWarn
-	if strict {
-		status = doctorStatusFail
-	}
-
 	return doctorCheck{
-		Name:    client + "-config",
-		Status:  status,
-		Message: localizef("%s config exists but no Traceary-managed hook was found: %s", "%s の設定はありますが Traceary 管理下の hook が見つかりません: %s", client, outputPath),
+		Name:   client + "-config",
+		Status: doctorStatusWarn,
+		Message: localizef(
+			"%s config exists but no Traceary-managed hook was found yet: %s",
+			"%s の設定はありますが Traceary 管理下の hook はまだ見つかっていません: %s",
+			client,
+			outputPath,
+		),
 	}
 }
 

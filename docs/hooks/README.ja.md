@@ -138,6 +138,9 @@ hooks やローカル SQLite store の挙動がおかしいときは `traceary d
 - hook script の materialize と executable 権限
 - 想定される client config path と、そこに Traceary 管理下の hook が入っているか
 
+hooks 未導入などの first-run 状態では `warn` が出るのが自然です。たとえば host 側 config file がまだ無い場合は `fail` ではなく `warn` になります。
+`fail` は、DB アクセス不良、config 読み込み失敗、invalid な config shape のような「壊れている状態」に限って使います。
+
 `doctor` は対象 client 自体を起動するわけではありません。file path、DB access、Traceary 管理下の hook entry の存在は確認できますが、第三者 client が検証時とまったく同じ形で hook を発火することまでは保証しません。
 
 SQLite concurrency の前提、PPID ベース hook state の注意点、その他の運用上の既知前提は [`../operations/README.ja.md`](../operations/README.ja.md) を参照してください。

@@ -138,6 +138,9 @@ The diagnostic command checks:
 - hook script materialization and executability
 - the expected client config location and whether it already contains Traceary-managed hooks
 
+Warnings are expected on first run before you install a host package or generated hooks. For example, a missing host config file is reported as `warn`, not `fail`.
+`fail` is reserved for broken states such as DB access problems, unreadable config, or invalid config shape.
+
 `doctor` does not execute the target client for you. It verifies file paths, DB access, and whether Traceary-managed hook entries are present, but it cannot prove that a third-party client will actually fire every hook in the same way as the validated local builds.
 
 For SQLite concurrency expectations, PPID-based hook state caveats, and other known operational assumptions, see [`../operations/README.md`](../operations/README.md).
