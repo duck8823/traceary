@@ -25,9 +25,9 @@ var (
 	ErrActiveSessionNotFound = xerrors.New("no matching active session found")
 )
 
-// LatestSessionFinder provides access to the latest session-started event.
+// LatestSessionFinder provides access to the latest matching session start event.
 type LatestSessionFinder interface {
-	// FindLatestSessionStartedEvent returns the latest session_started event.
+	// FindLatestSessionStartedEvent returns the session_started event for the latest matching session.
 	FindLatestSessionStartedEvent(
 		ctx context.Context,
 		dbPath string,

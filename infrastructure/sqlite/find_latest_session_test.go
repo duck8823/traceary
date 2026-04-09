@@ -126,6 +126,50 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		}
 	})
 
+	t.Run("終了境界が最後の session も latest として選ばれる", func(t *testing.T) {
+		laterStartEvent := newFindLatestSessionEventFixture(
+			t,
+			"event-6",
+			types.EventKindSessionStarted,
+			"session-overlapping",
+			"github.com/duck8823/traceary",
+			"session started",
+			time.Date(2026, 4, 11, 13, 0, 0, 0, time.UTC),
+		)
+		if err := sut.Save(context.Background(), dbPath, laterStartEvent); err != nil {
+			t.Fatalf("Save(later start) error = %v", err)
+		}
+
+		overlapEndEvent := newFindLatestSessionEventFixture(
+			t,
+			"event-7",
+			types.EventKindSessionEnded,
+			"session-finished",
+			"github.com/duck8823/traceary",
+			"session ended",
+			time.Date(2026, 4, 11, 14, 0, 0, 0, time.UTC),
+		)
+		if err := sut.Save(context.Background(), dbPath, overlapEndEvent); err != nil {
+			t.Fatalf("Save(overlap end) error = %v", err)
+		}
+
+		got, err := sut.FindLatestSessionStartedEvent(
+			context.Background(),
+			dbPath,
+			queryservice.FindLatestSessionInput{
+				Client: "cli",
+				Agent:  "codex",
+				Repo:   "github.com/duck8823/traceary",
+			},
+		)
+		if err != nil {
+			t.Fatalf("FindLatestSessionStartedEvent() error = %v", err)
+		}
+		if got.EventID().String() != "event-4" {
+			t.Fatalf("EventID() = %q, want %q", got.EventID(), "event-4")
+		}
+	})
+
 	t.Run("active only のとき未終了 session を返す", func(t *testing.T) {
 		t.Parallel()
 
@@ -142,8 +186,8 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		if err != nil {
 			t.Fatalf("FindLatestSessionStartedEvent() error = %v", err)
 		}
-		if got.EventID().String() != "event-3" {
-			t.Fatalf("EventID() = %q, want %q", got.EventID(), "event-3")
+		if got.EventID().String() != "event-6" {
+			t.Fatalf("EventID() = %q, want %q", got.EventID(), "event-6")
 		}
 	})
 
