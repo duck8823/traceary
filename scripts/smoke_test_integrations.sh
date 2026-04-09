@@ -45,15 +45,26 @@ run_gemini() {
 
 run_codex() {
   python3 "${ROOT_DIR}/scripts/verify_integrations.py"
-  local tmp_root
+  local tmp_root tmp_codex_home tmp_marketplace_root
   tmp_root="$(mktemp -d)"
-  python3 "${ROOT_DIR}/scripts/codex/install_plugin.py" --target-root "${tmp_root}"
-  test -f "${tmp_root}/plugins/traceary/.codex-plugin/plugin.json"
-  test -f "${tmp_root}/marketplace.json"
-  python3 "${ROOT_DIR}/scripts/codex/uninstall_plugin.py" --target-root "${tmp_root}"
+  tmp_codex_home="${tmp_root}/codex-home"
+  tmp_marketplace_root="${tmp_root}/agents/plugins"
+  python3 "${ROOT_DIR}/scripts/codex/install_plugin.py" \
+    --codex-home "${tmp_codex_home}" \
+    --marketplace-root "${tmp_marketplace_root}" \
+    --traceary-bin /tmp/traceary
+  test -f "${tmp_marketplace_root}/plugins/traceary/.codex-plugin/plugin.json"
+  test -f "${tmp_marketplace_root}/marketplace.json"
+  test -f "${tmp_codex_home}/plugins/cache/local-traceary-plugins/traceary/local/.codex-plugin/plugin.json"
+  test -f "${tmp_codex_home}/hooks.json"
+  grep -q 'codex_hooks = true' "${tmp_codex_home}/config.toml"
+  grep -q 'traceary@local-traceary-plugins' "${tmp_codex_home}/config.toml"
+  python3 "${ROOT_DIR}/scripts/codex/uninstall_plugin.py" \
+    --codex-home "${tmp_codex_home}" \
+    --marketplace-root "${tmp_marketplace_root}"
   rm -rf "${tmp_root}"
   if [[ "${TRACEARY_ENABLE_CODEX_RUNTIME_SMOKE:-0}" != "1" ]]; then
-    echo 'ok: codex smoke test passed (set TRACEARY_ENABLE_CODEX_RUNTIME_SMOKE=1 for runtime probe)'
+    echo 'ok: codex smoke test passed (set TRACEARY_ENABLE_CODEX_RUNTIME_SMOKE=1 for an authenticated runtime probe)'
     return 0
   fi
 
