@@ -86,6 +86,17 @@ traceary_resolve_bin() {
   return 1
 }
 
+traceary_resolve_agent() {
+  local client="$1"
+  local agent_type
+  agent_type="$(traceary_json_get 'agent_type')"
+  if [[ -n "$agent_type" ]]; then
+    printf '%s/%s' "$client" "$agent_type"
+  else
+    printf '%s' "$client"
+  fi
+}
+
 traceary_session_state_path() {
   local client="$1"
   local state_dir="${TRACEARY_HOOK_STATE_DIR:-${HOME}/.config/traceary/hooks}"
