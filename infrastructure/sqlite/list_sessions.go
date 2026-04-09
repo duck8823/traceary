@@ -39,10 +39,11 @@ func (d *Datasource) ListSessionSummaries(
 	}
 	toValue := ""
 	if input.To != "" {
-		if _, err := time.Parse("2006-01-02", input.To); err != nil {
+		parsed, err := time.Parse("2006-01-02", input.To)
+		if err != nil {
 			return nil, xerrors.Errorf("invalid to date %q: %w", input.To, err)
 		}
-		toValue = input.To + "T23:59:59Z"
+		toValue = formatTimestamp(parsed.AddDate(0, 0, 1))
 	}
 
 	rows, err := db.QueryContext(
@@ -59,7 +60,7 @@ func (d *Datasource) ListSessionSummaries(
 		 WHERE (? = '' OR e.repo = ?)
 		   AND (? = '' OR e.agent = ?)
 		   AND (? = '' OR e.created_at >= ?)
-		   AND (? = '' OR e.created_at <= ?)
+		   AND (? = '' OR e.created_at < ?)
 		 GROUP BY e.session_id
 		 ORDER BY started_at DESC
 		 LIMIT ? OFFSET ?`,
