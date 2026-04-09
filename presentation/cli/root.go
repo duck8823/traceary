@@ -21,6 +21,7 @@ type RootCLI struct {
 	getContextQueryService        queryservice.GetContextQueryService
 	getEventDetailsQueryService   queryservice.GetEventDetailsQueryService
 	findLatestSessionQueryService queryservice.FindLatestSessionQueryService
+	listSessionsQueryService      queryservice.ListSessionsQueryService
 	mcpServerRunner               MCPServerRunner
 }
 
@@ -38,6 +39,7 @@ type RootCLIOptions struct {
 	GetContextQueryService        queryservice.GetContextQueryService
 	GetEventDetailsQueryService   queryservice.GetEventDetailsQueryService
 	FindLatestSessionQueryService queryservice.FindLatestSessionQueryService
+	ListSessionsQueryService      queryservice.ListSessionsQueryService
 	MCPServerRunner               MCPServerRunner
 }
 
@@ -56,6 +58,7 @@ func NewRootCLI(options RootCLIOptions) *RootCLI {
 		getContextQueryService:        options.GetContextQueryService,
 		getEventDetailsQueryService:   options.GetEventDetailsQueryService,
 		findLatestSessionQueryService: options.FindLatestSessionQueryService,
+		listSessionsQueryService:      options.ListSessionsQueryService,
 		mcpServerRunner:               options.MCPServerRunner,
 	}
 }
