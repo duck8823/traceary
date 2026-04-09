@@ -2,7 +2,8 @@
 
 [English](./codex-plugin.md)
 
-Codex 向け package は `plugins/traceary/` にあり、repository root の `.agents/plugins/marketplace.json` を配布基点にした Codex marketplace 形式で管理します。
+Codex 向け package は `plugins/traceary/` にあります。
+Codex では、MCP / skill / slash command を載せる plugin 本体と、自動記録に使う `~/.codex/hooks.json` / `codex_hooks` の両方が必要になるため、Traceary ではそれをまとめて入れる helper script を用意しています。
 
 ## 自動で組み込むもの
 
@@ -13,7 +14,7 @@ Codex 向け package は `plugins/traceary/` にあり、repository root の `.a
 
 ## ローカル checkout から install する
 
-Codex は現時点で Claude や Gemini のような公開 install CLI を持たないため、Traceary では標準 local plugin directory 向け helper script を同梱します。
+Codex は現時点で Claude や Gemini のような公開 install CLI を持たないため、Traceary では plugin 本体と hooks をまとめて入れる helper script を同梱します。
 
 1. 先に Traceary CLI を入れます。
 
@@ -30,14 +31,22 @@ GO111MODULE=on go install github.com/duck8823/traceary@latest
 git clone https://github.com/duck8823/traceary ~/src/traceary
 ```
 
-3. package 済み plugin を `~/.agents/plugins` に install します。
+3. package 済み plugin を install し、Codex config と hooks もまとめて設定します。
 
 ```sh
 cd ~/src/traceary
 python3 scripts/codex/install_plugin.py
 ```
 
-この command は `plugins/traceary/` を標準 local plugin directory へコピーし、対応する marketplace entry も upsert します。
+既定では、この helper が次を行います。
+
+- `plugins/traceary/` を `~/.agents/plugins` 配下の local marketplace にコピー
+- `~/.codex/plugins/cache/local-traceary-plugins/traceary/local` に active plugin cache を配置
+- `~/.codex/config.toml` の `[plugins."traceary@local-traceary-plugins"]` を有効化
+- `[features].codex_hooks = true` を有効化
+- `~/.codex/hooks.json` に Traceary 用の hook 設定をマージ
+
+`traceary` が `PATH` にいない場合は `--traceary-bin /absolute/path/to/traceary` を付けてください。
 
 ## Update
 
@@ -53,6 +62,8 @@ python3 scripts/codex/install_plugin.py
 cd ~/src/traceary
 python3 scripts/codex/uninstall_plugin.py
 ```
+
+uninstall helper は Traceary の plugin cache、plugin config entry、Traceary が管理する Codex hook entry を外します。`[features].codex_hooks` は、他の hook 利用を壊さないため残します。
 
 ## Doctor と smoke test
 
@@ -74,4 +85,4 @@ python3 scripts/verify_integrations.py
 ./scripts/smoke_test_integrations.sh codex
 ```
 
-Codex 向け smoke test は、既定では package 済み marketplace/plugin layout の検証を行い、plugin-enabled build がある場合だけ runtime probe を追加で試します。
+Codex 向け smoke test は、helper が作る plugin cache・config・hooks の状態を確認します。認証済みの環境で runtime probe まで見たい場合は `TRACEARY_ENABLE_CODEX_RUNTIME_SMOKE=1` を付けてください。

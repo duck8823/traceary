@@ -23,10 +23,10 @@ brew install traceary
 GO111MODULE=on go install github.com/duck8823/traceary@latest
 ```
 
-2. Install the extension from the latest Traceary GitHub release.
+2. Install the extension from a Traceary GitHub release.
 
 ```sh
-gemini extensions install https://github.com/duck8823/traceary --ref v0.1.12
+gemini extensions install https://github.com/duck8823/traceary --ref <tag>
 ```
 
 Traceary publishes a dedicated `traceary.tar.gz` release asset whose archive root is the extension root expected by Gemini CLI.
