@@ -13,6 +13,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback
     tomllib = None
 
 ROOT = Path(__file__).resolve().parent.parent
+INTEGRATION_VERSION = '0.1.14'
 HOOK_SOURCES = [
     ROOT / 'scripts' / 'hooks' / 'common.sh',
     ROOT / 'scripts' / 'hooks' / 'traceary-session.sh',
@@ -104,7 +105,7 @@ def check_claude() -> None:
     require(plugin_entry['source'] == './integrations/claude-plugin', 'unexpected Claude plugin source path')
 
     plugin_manifest = read_json(ROOT / 'integrations' / 'claude-plugin' / '.claude-plugin' / 'plugin.json')
-    require(plugin_manifest['version'] == '0.1.12', 'Claude plugin version must track v0.1.12')
+    require(plugin_manifest['version'] == INTEGRATION_VERSION, f'Claude plugin version must track v{INTEGRATION_VERSION}')
 
     mcp = read_json(ROOT / 'integrations' / 'claude-plugin' / '.mcp.json')
     require(mcp['traceary']['command'] == 'traceary', 'Claude MCP must call traceary')
@@ -127,7 +128,7 @@ def check_codex() -> None:
     require(entry['source']['path'] == './plugins/traceary', 'unexpected Codex plugin source path')
 
     plugin_manifest = read_json(ROOT / 'plugins' / 'traceary' / '.codex-plugin' / 'plugin.json')
-    require(plugin_manifest['version'] == '0.1.12', 'Codex plugin version must track v0.1.12')
+    require(plugin_manifest['version'] == INTEGRATION_VERSION, f'Codex plugin version must track v{INTEGRATION_VERSION}')
 
     mcp = read_json(ROOT / 'plugins' / 'traceary' / '.mcp.json')
     traceary = mcp['mcpServers']['traceary']
@@ -234,7 +235,7 @@ def check_codex() -> None:
 def check_gemini() -> None:
     manifest = read_json(ROOT / 'integrations' / 'gemini-extension' / 'gemini-extension.json')
     require(manifest['name'] == 'traceary', 'unexpected Gemini extension name')
-    require(manifest['version'] == '0.1.12', 'Gemini extension version must track v0.1.12')
+    require(manifest['version'] == INTEGRATION_VERSION, f'Gemini extension version must track v{INTEGRATION_VERSION}')
     traceary = manifest['mcpServers']['traceary']
     require(traceary['command'] == 'traceary', 'Gemini MCP must call traceary')
     require(traceary['args'] == ['mcp-server'], 'Gemini MCP args must be traceary mcp-server')

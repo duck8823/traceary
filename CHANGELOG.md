@@ -5,6 +5,68 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.1.14] - 2026-04-09
+
+### Fixed
+- made shared `SessionEnd` handling idempotent so duplicate Gemini session-end hook invocations record only one `session_ended` event
+- fixed the Codex local install helper so it installs the active plugin cache, enables `codex_hooks`, and merges the Traceary-managed hooks into `~/.codex/hooks.json`
+- fixed the Codex uninstall helper so nested plugin subtables are removed cleanly from `config.toml`
+- corrected the GoReleaser Homebrew formula test to use `traceary --version`
+
+### Changed
+- reorganized the root README and host integration docs around plugin / extension installation before manual CLI workflows
+- updated release-facing integration manifests to version `0.1.14`
+- filled in the missing `v0.1.12` and `v0.1.13` changelog entries and removed stale pinned release examples from the release guide
+
+### Included issues
+- #159 Codex local install does not activate the Traceary plugin runtime
+- #160 Gemini extension records duplicate `session_ended` events
+- #161 Root README should prioritize plugin and extension install flows
+- #163 Align release metadata with the current release line
+- #164 Use --version in the generated Homebrew formula test
+
+## [v0.1.13] - 2026-04-09
+
+### Added
+- `--json` support for `traceary log`, `traceary audit`, and `traceary session {start,end,latest,active}`
+- structured filters for `traceary list`: `--kind`, `--client`, `--agent`, `--session-id`, and `--repo`
+
+### Changed
+- redefined `traceary session latest` to prefer the newest lifecycle boundary while keeping lookups scoped to the same session context
+- improved manual command ergonomics around defaults, JSON output, and hooks guidance in CLI help and docs
+
+### Fixed
+- preferred the newest `session_started` event when the same session is started more than once
+- ignored lifecycle boundaries from other repos or agents that reuse the same `session_id`
+- added regression coverage for cross-context latest-session and active-session lookups
+
+### Included issues
+- #146 dogfood ergonomics follow-up
+- #147 fix session latest semantics for ended sessions
+- #148 align machine-readable output for mutating and session helper commands
+- #149 improve `traceary audit` ergonomics
+- #150 add structured filters to `traceary list`
+- #151 surface environment variables and defaults in CLI help
+- #152 improve `hooks print` discoverability
+- #153 clarify and standardize manual CLI defaults
+
+## [v0.1.12] - 2026-04-09
+
+### Added
+- a shared native integration contract for Claude Code, Codex, and Gemini CLI
+- a Claude Code plugin package with the Traceary MCP server, hooks, commands, and skill surfaces
+- a Codex plugin package with the Traceary MCP server, hooks, commands, and skill surfaces
+- a Gemini CLI extension package with the Traceary MCP server, hooks, commands, and skill surfaces
+- integration validation / packaging coverage plus install, update, uninstall, and smoke-test guidance
+
+### Included issues
+- #140 native agent integrations
+- #141 define the shared integration contract
+- #142 publish a Claude Code plugin
+- #143 publish a Codex plugin
+- #144 publish a Gemini CLI extension
+- #145 add install/update/uninstall/doctor guidance and smoke tests
+
 ## [v0.1.11] - 2026-04-09
 
 ### Added
@@ -235,3 +297,6 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 [v0.1.10]: https://github.com/duck8823/traceary/releases/tag/v0.1.10
 [v0.1.11]: https://github.com/duck8823/traceary/releases/tag/v0.1.11
+[v0.1.12]: https://github.com/duck8823/traceary/releases/tag/v0.1.12
+[v0.1.13]: https://github.com/duck8823/traceary/releases/tag/v0.1.13
+[v0.1.14]: https://github.com/duck8823/traceary/releases/tag/v0.1.14
