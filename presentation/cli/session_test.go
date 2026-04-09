@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -158,6 +159,49 @@ func TestRootCLI_SessionStartCommand_IdOnly(t *testing.T) {
 	}
 	if stdout.String() != "session-start-id-only\n" {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), "session-start-id-only\n")
+	}
+}
+
+func TestRootCLI_SessionStartCommand_JSON(t *testing.T) {
+	t.Parallel()
+
+	eventID := mustEventID(t, "event-start-json")
+	agent := mustAgent(t, "codex")
+	sessionID := mustSessionID(t, "session-start-json")
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	initStub := &initializeStoreUsecaseStub{}
+	sessionStub := &recordSessionBoundaryUsecaseStub{
+		event: model.EventOf(
+			eventID,
+			types.EventKindSessionStarted,
+			"cli",
+			agent,
+			sessionID,
+			"duck8823/traceary",
+			"session started",
+			time.Date(2026, 4, 7, 13, 0, 0, 0, time.UTC),
+		),
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:       initStub,
+		RecordSessionBoundaryUsecase: sessionStub,
+	}).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"session", "start", "--db-path", dbPath, "--json"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	payload := decodeJSONMap(t, stdout.String())
+	if got, want := payload["event_id"], "event-start-json"; got != want {
+		t.Fatalf("event_id = %v, want %q", got, want)
+	}
+	if got, want := payload["session_id"], "session-start-json"; got != want {
+		t.Fatalf("session_id = %v, want %q", got, want)
 	}
 }
 
@@ -334,6 +378,49 @@ func TestRootCLI_SessionEndCommand_IdOnly(t *testing.T) {
 	}
 }
 
+func TestRootCLI_SessionEndCommand_JSON(t *testing.T) {
+	t.Parallel()
+
+	eventID := mustEventID(t, "event-end-json")
+	agent := mustAgent(t, "codex")
+	sessionID := mustSessionID(t, "session-end-json")
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	initStub := &initializeStoreUsecaseStub{}
+	sessionStub := &recordSessionBoundaryUsecaseStub{
+		event: model.EventOf(
+			eventID,
+			types.EventKindSessionEnded,
+			"cli",
+			agent,
+			sessionID,
+			"duck8823/traceary",
+			"session ended",
+			time.Date(2026, 4, 7, 13, 30, 0, 0, time.UTC),
+		),
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:       initStub,
+		RecordSessionBoundaryUsecase: sessionStub,
+	}).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"session", "end", "--db-path", dbPath, "--session-id", "session-end-json", "--json"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	payload := decodeJSONMap(t, stdout.String())
+	if got, want := payload["event_id"], "event-end-json"; got != want {
+		t.Fatalf("event_id = %v, want %q", got, want)
+	}
+	if got, want := payload["kind"], "session_ended"; got != want {
+		t.Fatalf("kind = %v, want %q", got, want)
+	}
+}
+
 func TestRootCLI_SessionLatestCommand(t *testing.T) {
 	t.Parallel()
 
@@ -400,6 +487,45 @@ func TestRootCLI_SessionLatestCommand(t *testing.T) {
 	}
 	if stdout.String() != "session-latest\n" {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), "session-latest\n")
+	}
+}
+
+func TestRootCLI_SessionLatestCommand_JSON(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	initStub := &initializeStoreUsecaseStub{}
+	latestStub := &findLatestSessionQueryServiceStub{
+		event: model.EventOf(
+			mustEventID(t, "event-latest-json"),
+			types.EventKindSessionStarted,
+			"cli",
+			mustAgent(t, "codex"),
+			mustSessionID(t, "session-latest-json"),
+			"duck8823/traceary",
+			"session started",
+			time.Date(2026, 4, 8, 13, 0, 0, 0, time.UTC),
+		),
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:        initStub,
+		FindLatestSessionQueryService: latestStub,
+	}).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"session", "latest", "--db-path", dbPath, "--json"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	payload := decodeJSONMap(t, stdout.String())
+	if got, want := payload["event_id"], "event-latest-json"; got != want {
+		t.Fatalf("event_id = %v, want %q", got, want)
+	}
+	if got, want := payload["session_id"], "session-latest-json"; got != want {
+		t.Fatalf("session_id = %v, want %q", got, want)
 	}
 }
 
@@ -587,4 +713,26 @@ func TestRootCLI_SessionLatestCommand_NotFoundError(t *testing.T) {
 	if err.Error() != "no matching session found" {
 		t.Fatalf("error = %q, want %q", err.Error(), "no matching session found")
 	}
+}
+
+func decodeJSONMap(t *testing.T, value string) map[string]any {
+	t.Helper()
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(value), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	return payload
+}
+
+func mustAgent(t *testing.T, value string) types.Agent {
+	t.Helper()
+
+	agent, err := types.AgentOf(value)
+	if err != nil {
+		t.Fatalf("AgentOf() error = %v", err)
+	}
+
+	return agent
 }

@@ -180,6 +180,45 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("json で構造化出力できる", func(t *testing.T) {
+		t.Parallel()
+
+		dbPath := t.TempDir() + "/traceary.db"
+		initStub := &initializeStoreUsecaseStub{}
+		logStub := &recordLogUsecaseStub{
+			event: model.EventOf(
+				eventID,
+				types.EventKindNote,
+				"cli",
+				agent,
+				sessionID,
+				"duck8823/traceary",
+				"hello",
+				fixedLogTime(),
+			),
+		}
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase: initStub,
+			RecordLogUsecase:       logStub,
+		}).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"log", "--db-path", dbPath, "--session-id", "session-1", "--json", "hello"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		payload := decodeJSONMap(t, stdout.String())
+		if got, want := payload["event_id"], "event-1"; got != want {
+			t.Fatalf("event_id = %v, want %q", got, want)
+		}
+		if got, want := payload["message"], "hello"; got != want {
+			t.Fatalf("message = %v, want %q", got, want)
+		}
+	})
+
 	t.Run("active session を既定利用できる", func(t *testing.T) {
 		t.Setenv("TRACEARY_SESSION_ID", "")
 		cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {

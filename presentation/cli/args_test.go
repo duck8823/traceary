@@ -23,8 +23,8 @@ func TestRootCLI_ArgumentErrorsDefaultToEnglish(t *testing.T) {
 		},
 		{
 			name:    "audit の引数不足は英語",
-			args:    []string{"audit", "go test ./..."},
-			wantErr: "either --input or positional argument 2 is required, even when empty",
+			args:    []string{"audit"},
+			wantErr: "either --command or positional argument 1 is required",
 		},
 		{
 			name:    "search の引数超過は英語",
