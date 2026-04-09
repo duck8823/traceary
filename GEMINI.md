@@ -53,8 +53,14 @@ go tool golangci-lint run
 
 - Branch naming: `feature/`, `fix/`, `maintenance/` prefixes
 - Commits: conventional-style (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`)
-- PRs: merge (not squash), draft first, close related issues via `Closes #N`
+- PRs: merge (not squash), draft first
 - AI commits include `Co-authored-by` trailer
+
+### Issue closing policy
+
+- Implementation PRs close **sub-issues** only (`Closes #<sub-issue>`)
+- Parent (version) issues are closed by the **release PR** that updates metadata and CHANGELOG (`Closes #<parent>`)
+- Never put `Closes #<parent>` in an implementation PR — the parent stays open until all sub-issues are done and the release is prepared
 
 ### Code style
 
