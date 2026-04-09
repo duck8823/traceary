@@ -76,7 +76,17 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"list", "--db-path", dbPath, "--limit", "5", "--offset", "2"})
+		rootCmd.SetArgs([]string{
+			"list",
+			"--db-path", dbPath,
+			"--limit", "5",
+			"--offset", "2",
+			"--kind", "note",
+			"--client", "cli",
+			"--agent", "codex",
+			"--session-id", "session-1",
+			"--repo", "duck8823/traceary",
+		})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -95,6 +105,12 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		}
 		if listStub.receivedInput.Offset != 2 {
 			t.Fatalf("offset = %d, want %d", listStub.receivedInput.Offset, 2)
+		}
+		if listStub.receivedInput.Kind != "note" {
+			t.Fatalf("kind = %q, want %q", listStub.receivedInput.Kind, "note")
+		}
+		if listStub.receivedInput.SessionID != "session-1" {
+			t.Fatalf("session_id = %q, want %q", listStub.receivedInput.SessionID, "session-1")
 		}
 		want := "CREATED_AT\tKIND\tCLIENT\tAGENT\tSESSION_ID\tREPO\tMESSAGE\n" +
 			"2026-04-07T12:00:00Z\tnote\tcli\tcodex\tsession-1\tduck8823/traceary\thello\n"
@@ -200,6 +216,23 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"list", "--db-path", dbPath, "--offset", "-1"})
+
+		if err := rootCmd.Execute(); err == nil {
+			t.Fatalf("Execute() error = nil, want error")
+		}
+	})
+
+	t.Run("kind が不正ならエラー", func(t *testing.T) {
+		t.Parallel()
+
+		dbPath := filepath.Join(t.TempDir(), "traceary.db")
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase: &initializeStoreUsecaseStub{},
+			ListEventsQueryService: &listEventsQueryServiceStub{},
+		}).Command()
+		rootCmd.SetOut(&bytes.Buffer{})
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"list", "--db-path", dbPath, "--kind", "unknown"})
 
 		if err := rootCmd.Execute(); err == nil {
 			t.Fatalf("Execute() error = nil, want error")
