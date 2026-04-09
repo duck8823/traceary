@@ -5,6 +5,30 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.1.17] - 2026-04-09
+
+This release focuses on multi-agent workflow improvements and CLI ergonomics.
+
+### Added
+- `traceary session list` command — aggregated session summaries with status, duration, event/command counts, and agent breakdown per session
+- sub-agent identification for Claude Code — hooks now read `agent_type` from the payload and record hierarchical agent names (e.g. `claude/Explore`) when running inside a subagent
+- `--from`, `--to` date filters for `session list` with YYYY-MM-DD validation
+
+### Fixed
+- MESSAGE column in `list`/`search` table output is now truncated to 80 characters with newline normalization — prevents terminal layout breakage from long command bodies
+- `chmod(0600)` errors during DB initialization are now best-effort — read-only commands work on read-only filesystems or when the DB is owned by another user
+
+### Changed
+- enforced "1 issue = 1 branch = 1 PR (no exceptions)" rule in CLAUDE.md, AGENTS.md, and GEMINI.md
+- updated integration manifests to version `0.1.17`
+
+### Included issues
+- #185 Truncate MESSAGE column in list/search output
+- #186 Add session summary command (`session list`)
+- #187 Support sub-agent identification for Claude Code
+- #188 Make read-only commands safe on read-only filesystems
+- #194 Add hook guardrail for 1-issue-1-PR rule
+
 ## [v0.1.16] - 2026-04-09
 
 This release improves code quality, adds user-configurable audit redaction patterns, and enriches debug-level diagnostics across the CLI and MCP server.
