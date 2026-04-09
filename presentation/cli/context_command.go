@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -124,6 +125,7 @@ func (c *RootCLI) resolveContextSessionID(
 		return trimmedSessionID, nil
 	}
 	if c.findLatestSessionQueryService == nil {
+		slog.Debug("no query service configured for context session resolution")
 		return "", nil
 	}
 
@@ -134,6 +136,7 @@ func (c *RootCLI) resolveContextSessionID(
 	})
 	if err != nil {
 		if queryservice.IsSessionLookupNotFound(err) {
+			slog.Debug("no session found for context, using empty session", "client", input.client, "agent", input.agent, "repo", input.repo)
 			return "", nil
 		}
 		return "", xerrors.Errorf("%s: %w", Localize("failed to resolve latest session for context", "文脈用の直近 session 解決に失敗しました"), err)

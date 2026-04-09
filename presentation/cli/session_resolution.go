@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -30,6 +31,7 @@ func (c *RootCLI) resolveManualSessionID(
 
 	trimmedRepo := strings.TrimSpace(repo)
 	if trimmedRepo == "" || c.findLatestSessionQueryService == nil {
+		slog.Debug("no work context or query service, using default session", "repo", trimmedRepo, "has_query_service", c.findLatestSessionQueryService != nil)
 		return &manualSessionResolution{
 			sessionID: defaultSessionIDValue,
 			notice: Localize(
@@ -45,6 +47,7 @@ func (c *RootCLI) resolveManualSessionID(
 	})
 	if err != nil {
 		if queryservice.IsSessionLookupNotFound(err) {
+			slog.Debug("no active session found for repo, using default", "repo", trimmedRepo)
 			return &manualSessionResolution{
 				sessionID: defaultSessionIDValue,
 				notice: localizef(
@@ -62,6 +65,7 @@ func (c *RootCLI) resolveManualSessionID(
 	}
 
 	if isStaleSession(event, defaultActiveSessionStaleAfter) {
+		slog.Debug("active session is stale, using default", "session_id", event.SessionID(), "created_at", event.CreatedAt())
 		return &manualSessionResolution{
 			sessionID: defaultSessionIDValue,
 			notice: localizef(
