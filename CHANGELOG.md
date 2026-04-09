@@ -7,6 +7,8 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [v0.1.14] - 2026-04-09
 
+This release packages the integration/runtime fixes merged after `v0.1.13` together with the release-metadata alignment needed to publish them cleanly.
+
 ### Fixed
 - made shared `SessionEnd` handling idempotent so duplicate Gemini session-end hook invocations record only one `session_ended` event
 - fixed the Codex local install helper so it installs the active plugin cache, enables `codex_hooks`, and merges the Traceary-managed hooks into `~/.codex/hooks.json`
