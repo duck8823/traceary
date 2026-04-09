@@ -34,6 +34,26 @@
 | `LOG_LEVEL` | structured log の verbosity を設定する (`debug`, `info`, `warn`, `error`) |
 | `LOG_OPTION` | `development` を指定すると source 付き text log、既定は JSON log |
 
+## 設定ファイル
+
+Traceary はオプションの JSON 設定ファイルを `~/.config/traceary/config.json` から読み込みます。
+
+| キー | 型 | 用途 |
+| --- | --- | --- |
+| `redact.extra_patterns` | 文字列配列 | 監査リダクション用の追加正規表現パターン。各エントリは Go の `regexp` パターンとしてコンパイルされ、マッチした内容が `[REDACTED]` に置換されます。CLI（`traceary audit`）と MCP サーバー（`add_audit`）の両方で、組み込みルールの後に適用されます。 |
+
+例:
+
+```json
+{
+  "redact": {
+    "extra_patterns": ["my_custom_secret", "internal_auth_header:\\s*\\S+"]
+  }
+}
+```
+
+ファイルが存在しない場合、Traceary は組み込みのリダクションパターンのみを使用します。
+
 ## Runtime 前提
 
 - Traceary は local-first で、データは現在の machine の SQLite に保存します
