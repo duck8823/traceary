@@ -55,7 +55,7 @@ brews:
     install: |
       bin.install "traceary"
     test: |
-      system "#{bin}/traceary", "version"
+      system "#{bin}/traceary", "--version"
 
 snapshot:
   version_template: "{{ .Version }}-next"
