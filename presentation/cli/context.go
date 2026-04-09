@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"log/slog"
 	"net/url"
 	"os"
 	"os/exec"
@@ -20,6 +21,7 @@ func resolveRepoValue(ctx context.Context, flagValue string) string {
 
 	repo, err := detectRepoContextFunc(ctx)
 	if err != nil {
+		slog.Debug("repo context detection failed, using empty value", "error", err)
 		return ""
 	}
 
@@ -55,6 +57,9 @@ func detectRepoContextFromDir(ctx context.Context, cwd string) (string, error) {
 
 	repoRoot, repoRootErr := gitOutput(ctx, trimmedCWD, "rev-parse", "--show-toplevel")
 	if repoRootErr == nil {
+		if remoteErr != nil {
+			slog.Debug("git remote not available, using local worktree root", "error", remoteErr, "worktree", strings.TrimSpace(repoRoot))
+		}
 		normalized := normalizeLocalWorkContextPath(repoRoot)
 		if normalized != "" {
 			return normalized, nil
