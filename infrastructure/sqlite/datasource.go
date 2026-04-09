@@ -47,8 +47,8 @@ func (d *Datasource) Initialize(ctx context.Context, dbPath string) (err error) 
 			err = xerrors.Errorf("failed to close SQLite connection: %w", closeErr)
 		}
 	}()
-	if err := os.Chmod(trimmedPath, 0o600); err != nil {
-		return xerrors.Errorf("failed to set SQLite DB file permissions: %w", err)
+	if chmodErr := os.Chmod(trimmedPath, 0o600); chmodErr != nil && !os.IsPermission(chmodErr) {
+		return xerrors.Errorf("failed to set SQLite DB file permissions: %w", chmodErr)
 	}
 
 	if err := d.migrate(ctx, db); err != nil {
