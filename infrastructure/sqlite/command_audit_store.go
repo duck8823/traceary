@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"log/slog"
 
 	"golang.org/x/xerrors"
 
@@ -29,13 +30,21 @@ func (d *Datasource) SaveCommandAudit(
 	if err != nil {
 		return xerrors.Errorf("failed to open DB for command audit save: %w", err)
 	}
-	defer func() { _ = db.Close() }()
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
 
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return xerrors.Errorf("failed to begin command audit transaction: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			slog.Debug("failed to rollback transaction", "error", err)
+		}
+	}()
 
 	if _, err := tx.ExecContext(
 		ctx,

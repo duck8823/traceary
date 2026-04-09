@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -22,7 +23,11 @@ func (d *Datasource) CollectGarbage(
 	if err != nil {
 		return 0, xerrors.Errorf("failed to open DB for garbage collection: %w", err)
 	}
-	defer func() { _ = db.Close() }()
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
 
 	beforeValue := formatTimestamp(before)
 
@@ -43,7 +48,11 @@ func (d *Datasource) CollectGarbage(
 	if err != nil {
 		return 0, xerrors.Errorf("failed to begin garbage-collection transaction: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			slog.Debug("failed to rollback transaction", "error", err)
+		}
+	}()
 
 	if _, err := tx.ExecContext(
 		ctx,

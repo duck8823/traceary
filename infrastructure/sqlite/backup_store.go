@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"log/slog"
 	"fmt"
 	"io"
 	"os"
@@ -84,7 +85,9 @@ func (d *Datasource) RestoreBackup(ctx context.Context, inputPath string, dbPath
 	}
 	defer func() {
 		if err != nil {
-			_ = os.Remove(restoredTempPath)
+			if err := os.Remove(restoredTempPath); err != nil {
+				slog.Debug("failed to remove file", "path", restoredTempPath, "error", err)
+			}
 		}
 	}()
 
@@ -219,8 +222,12 @@ func copyFileToTempPath(sourcePath string, destinationDir string) (_ string, err
 		if err == nil {
 			return
 		}
-		_ = tempFile.Close()
-		_ = os.Remove(tempPath)
+		if err := tempFile.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+		if err := os.Remove(tempPath); err != nil {
+			slog.Debug("failed to remove file", "path", tempPath, "error", err)
+		}
 	}()
 
 	if err := tempFile.Chmod(0o600); err != nil {

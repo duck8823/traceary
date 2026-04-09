@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"log/slog"
 	"database/sql"
 	"errors"
 
@@ -24,7 +25,11 @@ func (d *Datasource) FindSessionStartedEvent(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for session_started lookup: %w", err)
 	}
-	defer func() { _ = db.Close() }()
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
 
 	row := db.QueryRowContext(
 		ctx,

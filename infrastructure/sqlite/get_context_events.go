@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -22,7 +23,11 @@ func (d *Datasource) GetContextEvents(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for context lookup: %w", err)
 	}
-	defer func() { _ = db.Close() }()
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
 
 	trimmedRepo := strings.TrimSpace(input.Repo)
 	trimmedSessionID := strings.TrimSpace(input.SessionID)
@@ -43,7 +48,11 @@ func (d *Datasource) GetContextEvents(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query context events: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
 
 	events := make([]*model.Event, 0, input.Limit)
 	for rows.Next() {

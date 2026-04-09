@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"log/slog"
 	"database/sql"
 	"time"
 
@@ -24,7 +25,11 @@ func (d *Datasource) Save(ctx context.Context, dbPath string, event *model.Event
 	if err != nil {
 		return xerrors.Errorf("failed to open DB for event save: %w", err)
 	}
-	defer func() { _ = db.Close() }()
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
 
 	if _, err := db.ExecContext(
 		ctx,
@@ -62,7 +67,11 @@ func (d *Datasource) ListRecent(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for event listing: %w", err)
 	}
-	defer func() { _ = db.Close() }()
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
 
 	rows, err := db.QueryContext(
 		ctx,
@@ -86,7 +95,11 @@ func (d *Datasource) ListRecent(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query recent events: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
 
 	events := make([]*model.Event, 0, input.Limit)
 	for rows.Next() {
@@ -196,7 +209,9 @@ func (d *Datasource) openDB(ctx context.Context, dbPath string) (_ *sql.DB, err 
 	}
 	defer func() {
 		if err != nil {
-			_ = db.Close()
+			if err := db.Close(); err != nil {
+				slog.Debug("failed to close resource", "error", err)
+			}
 		}
 	}()
 
