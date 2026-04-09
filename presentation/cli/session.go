@@ -27,6 +27,7 @@ func (c *RootCLI) newSessionCommand() *cobra.Command {
 	sessionCmd.AddCommand(c.newSessionEndCommand())
 	sessionCmd.AddCommand(c.newSessionLatestCommand())
 	sessionCmd.AddCommand(c.newSessionActiveCommand())
+	sessionCmd.AddCommand(c.newSessionListCommand())
 
 	return sessionCmd
 }

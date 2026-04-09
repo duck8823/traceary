@@ -1,0 +1,151 @@
+package cli_test
+
+import (
+	"bytes"
+	"context"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/presentation/cli"
+)
+
+type listSessionsQueryServiceStub struct {
+	receivedPath  string
+	receivedInput queryservice.ListSessionsInput
+	called        bool
+	summaries     []*queryservice.SessionSummary
+	err           error
+}
+
+func (s *listSessionsQueryServiceStub) Run(
+	_ context.Context,
+	dbPath string,
+	input queryservice.ListSessionsInput,
+) ([]*queryservice.SessionSummary, error) {
+	s.called = true
+	s.receivedPath = dbPath
+	s.receivedInput = input
+	return s.summaries, s.err
+}
+
+var _ queryservice.ListSessionsQueryService = (*listSessionsQueryServiceStub)(nil)
+
+func TestRootCLI_SessionListCommand(t *testing.T) {
+	t.Parallel()
+
+	t.Run("セッション一覧を表示できる", func(t *testing.T) {
+		t.Parallel()
+
+		endedAt := time.Date(2026, 4, 9, 13, 30, 0, 0, time.UTC)
+		dbPath := filepath.Join(t.TempDir(), "traceary.db")
+		initStub := &initializeStoreUsecaseStub{}
+		listStub := &listSessionsQueryServiceStub{
+			summaries: []*queryservice.SessionSummary{
+				{
+					SessionID:    "session-1",
+					Repo:         "duck8823/traceary",
+					StartedAt:    time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
+					EndedAt:      &endedAt,
+					Status:       "ended",
+					TotalEvents:  42,
+					CommandCount: 30,
+					Agents:       []string{"claude", "codex"},
+				},
+			},
+		}
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase:   initStub,
+			ListSessionsQueryService: listStub,
+		}).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{
+			"session", "list",
+			"--db-path", dbPath,
+			"--repo", "duck8823/traceary",
+			"--agent", "claude",
+			"--limit", "10",
+		})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		if !listStub.called {
+			t.Fatalf("ListSessionsQueryService.Run() was not called")
+		}
+		output := stdout.String()
+		if !strings.Contains(output, "session-1") {
+			t.Fatalf("output should contain session-1, got: %s", output)
+		}
+		if !strings.Contains(output, "1h30m") {
+			t.Fatalf("output should contain duration 1h30m, got: %s", output)
+		}
+		if !strings.Contains(output, "claude, codex") {
+			t.Fatalf("output should contain agents, got: %s", output)
+		}
+	})
+
+	t.Run("セッションがない場合はメッセージを表示する", func(t *testing.T) {
+		t.Parallel()
+
+		dbPath := filepath.Join(t.TempDir(), "traceary.db")
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase:   &initializeStoreUsecaseStub{},
+			ListSessionsQueryService: &listSessionsQueryServiceStub{},
+		}).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"session", "list", "--db-path", dbPath})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		if stdout.String() != "No sessions found.\n" {
+			t.Fatalf("stdout = %q, want empty message", stdout.String())
+		}
+	})
+
+	t.Run("JSON 形式で出力できる", func(t *testing.T) {
+		t.Parallel()
+
+		endedAt := time.Date(2026, 4, 9, 12, 5, 0, 0, time.UTC)
+		dbPath := filepath.Join(t.TempDir(), "traceary.db")
+		listStub := &listSessionsQueryServiceStub{
+			summaries: []*queryservice.SessionSummary{
+				{
+					SessionID:    "session-json",
+					StartedAt:    time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
+					EndedAt:      &endedAt,
+					Status:       "ended",
+					TotalEvents:  5,
+					CommandCount: 3,
+					Agents:       []string{"claude"},
+				},
+			},
+		}
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase:   &initializeStoreUsecaseStub{},
+			ListSessionsQueryService: listStub,
+		}).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"session", "list", "--db-path", dbPath, "--json"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		output := stdout.String()
+		if !strings.Contains(output, `"session_id": "session-json"`) {
+			t.Fatalf("JSON output should contain session_id, got: %s", output)
+		}
+		if !strings.Contains(output, `"duration_sec"`) {
+			t.Fatalf("JSON output should contain duration_sec, got: %s", output)
+		}
+	})
+}
