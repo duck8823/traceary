@@ -5,6 +5,33 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.1.16] - 2026-04-09
+
+この release では、コード品質の改善、ユーザー設定可能な監査リダクションパターンの追加、CLI / MCP サーバー全体での debug レベル診断の充実を行いました。
+
+### Added
+- `~/.config/traceary/config.json` による監査リダクションパターンのユーザー設定 — 追加の正規表現パターンが CLI（`traceary audit`）と MCP サーバー（`add_audit`）の両方で組み込みルールの後に適用される
+- `infrastructure/sqlite/` 全体で、抑制されていたクリーンアップエラーの debug レベルログ出力
+- セッションおよびリポジトリコンテキスト解決の各フォールバック段階での debug レベルログ出力
+- AI エージェントの動作統一のための `CLAUDE.md`、`AGENTS.md`、`GEMINI.md` プロジェクト規約ファイル
+- `LoadConfig`、`compileExtraRedactPatterns`、`setupLogger` のテスト追加
+
+### Fixed
+- `init()` 内の `log.Fatalf` を `run()` からの graceful error return に置換 — 不正な `LOG_LEVEL` でスタックトレースではなくクリーンなエラーメッセージを出力
+- MCP サーバーがリクエストごとではなく起動時に一度だけ config を読み込むよう修正
+
+### Changed
+- エージェント設定ファイルにイシュークローズポリシーを追加（実装 PR はサブイシューのみクローズ、親イシューはリリース PR でクローズ）
+- AI エージェント設定ファイルを docs i18n チェックから除外
+- 環境リファレンスドキュメントに config.json と追加リダクションパターンの説明を追記
+- release 向け integration manifest version を `0.1.16` に更新
+
+### Included issues
+- #170 Replace panic calls in CLI initialization with graceful errors
+- #171 Make audit redaction patterns user-configurable
+- #172 Add debug logging for suppressed cleanup errors
+- #173 Clarify error propagation in session resolution logic
+
 ## [v0.1.15] - 2026-04-09
 
 この release では、`v0.1.14` の dogfood で残っていた follow-up を閉じ、ローカル専用 Git repository の扱いと `traceary doctor` の first-run 表示を実用的に整えました。
