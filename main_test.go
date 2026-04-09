@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"os"
 	"runtime/debug"
 	"testing"
 )
@@ -52,6 +53,40 @@ func TestCLICommandError_Unwrap(t *testing.T) {
 type testError string
 
 func (e testError) Error() string { return string(e) }
+
+func TestSetupLogger(t *testing.T) {
+	t.Run("有効な LOG_LEVEL はエラーなく設定される", func(t *testing.T) {
+		for _, level := range []string{"debug", "info", "warn", "warning", "error", "DEBUG", "Info"} {
+			t.Setenv("LOG_LEVEL", level)
+			if err := setupLogger(); err != nil {
+				t.Errorf("setupLogger() with LOG_LEVEL=%q returned error: %v", level, err)
+			}
+		}
+	})
+
+	t.Run("不正な LOG_LEVEL はエラーを返す", func(t *testing.T) {
+		t.Setenv("LOG_LEVEL", "invalid")
+		if err := setupLogger(); err == nil {
+			t.Fatal("setupLogger() with LOG_LEVEL=invalid returned nil, want error")
+		}
+	})
+
+	t.Run("LOG_LEVEL 未設定はエラーなし", func(t *testing.T) {
+		if err := os.Unsetenv("LOG_LEVEL"); err != nil {
+			t.Fatal(err)
+		}
+		if err := setupLogger(); err != nil {
+			t.Fatalf("setupLogger() without LOG_LEVEL returned error: %v", err)
+		}
+	})
+
+	t.Run("LOG_OPTION=development はエラーなし", func(t *testing.T) {
+		t.Setenv("LOG_OPTION", "development")
+		if err := setupLogger(); err != nil {
+			t.Fatalf("setupLogger() with LOG_OPTION=development returned error: %v", err)
+		}
+	})
+}
 
 func TestResolveBuildMetadata(t *testing.T) {
 	t.Parallel()

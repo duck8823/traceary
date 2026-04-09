@@ -207,6 +207,57 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		}
 	})
 
+	t.Run("追加リダクションパターンでカスタムフィールドを伏せ字にする", func(t *testing.T) {
+		t.Parallel()
+
+		stub := &commandAuditSaverStub{}
+		sut := usecase.NewRecordCommandAuditUsecase(stub)
+
+		_, commandAudit, err := sut.Run(context.Background(), usecase.RecordCommandAuditInput{
+			DBPath:              "/tmp/traceary.db",
+			Command:             "curl https://example.test",
+			Input:               "my_custom_secret=hunter2",
+			Output:              "internal_token: abc123",
+			Client:              "cli",
+			Agent:               "codex",
+			SessionID:           "session-1",
+			ExtraRedactPatterns: []string{"my_custom_secret=\\S+", "internal_token:\\s*\\S+"},
+		})
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if strings.Contains(commandAudit.Input(), "hunter2") {
+			t.Fatalf("Input() leaked custom secret: %q", commandAudit.Input())
+		}
+		if strings.Contains(commandAudit.Output(), "abc123") {
+			t.Fatalf("Output() leaked custom secret: %q", commandAudit.Output())
+		}
+		if !commandAudit.InputRedacted() || !commandAudit.OutputRedacted() {
+			t.Fatalf("redacted flags = (%t, %t), want both true", commandAudit.InputRedacted(), commandAudit.OutputRedacted())
+		}
+	})
+
+	t.Run("不正な追加リダクションパターンはエラーを返す", func(t *testing.T) {
+		t.Parallel()
+
+		stub := &commandAuditSaverStub{}
+		sut := usecase.NewRecordCommandAuditUsecase(stub)
+
+		_, _, err := sut.Run(context.Background(), usecase.RecordCommandAuditInput{
+			DBPath:              "/tmp/traceary.db",
+			Command:             "test",
+			Input:               "",
+			Output:              "",
+			Client:              "cli",
+			Agent:               "codex",
+			SessionID:           "session-1",
+			ExtraRedactPatterns: []string{"[invalid"},
+		})
+		if err == nil {
+			t.Fatalf("Run() error = nil, want error for invalid regex")
+		}
+	})
+
 	t.Run("負の上限はエラー", func(t *testing.T) {
 		t.Parallel()
 
