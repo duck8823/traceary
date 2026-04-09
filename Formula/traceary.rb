@@ -5,21 +5,21 @@
 class Traceary < Formula
   desc "Local-first CLI and MCP server for AI agent work history"
   homepage "https://github.com/duck8823/traceary"
-  version "0.1.14"
+  version "0.1.15"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.intel?
-      url "https://github.com/duck8823/traceary/releases/download/v0.1.14/traceary_0.1.14_darwin_amd64.tar.gz"
-      sha256 "e8777fbbf043f615b2821ad7ac5777a0e136063026f0a7415388ae9025d219b4"
+      url "https://github.com/duck8823/traceary/releases/download/v0.1.15/traceary_0.1.15_darwin_amd64.tar.gz"
+      sha256 "86be7f36751d2528d11a133b2236215a50e6128a1e205648002711dc9d010422"
 
       define_method(:install) do
         bin.install "traceary"
       end
     end
     if Hardware::CPU.arm?
-      url "https://github.com/duck8823/traceary/releases/download/v0.1.14/traceary_0.1.14_darwin_arm64.tar.gz"
-      sha256 "cb4042c921384c24437f9a6f9dc5125061f5ec05062aada216bd2d5f5e2b3248"
+      url "https://github.com/duck8823/traceary/releases/download/v0.1.15/traceary_0.1.15_darwin_arm64.tar.gz"
+      sha256 "377b8f2863ed086ba272b7457ee87207ff9f50268b699081c50e05fd73a7e7d6"
 
       define_method(:install) do
         bin.install "traceary"
@@ -29,15 +29,15 @@ class Traceary < Formula
 
   on_linux do
     if Hardware::CPU.intel? && Hardware::CPU.is_64_bit?
-      url "https://github.com/duck8823/traceary/releases/download/v0.1.14/traceary_0.1.14_linux_amd64.tar.gz"
-      sha256 "1d69aea6ceab16b278489880087519f0f1eb8c92c95bed005163e93ae17c11da"
+      url "https://github.com/duck8823/traceary/releases/download/v0.1.15/traceary_0.1.15_linux_amd64.tar.gz"
+      sha256 "83f1a4095dfebc99005625168ff0256ed889e81a40cf4867bf42146a24aa0b15"
       define_method(:install) do
         bin.install "traceary"
       end
     end
     if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
-      url "https://github.com/duck8823/traceary/releases/download/v0.1.14/traceary_0.1.14_linux_arm64.tar.gz"
-      sha256 "c80baae25ac3cec2d6e59f137b51235e1d5f201ddea6443144de3947e6abc8fb"
+      url "https://github.com/duck8823/traceary/releases/download/v0.1.15/traceary_0.1.15_linux_arm64.tar.gz"
+      sha256 "18567235c1b2f3b9afead29cfc169a28fe1f5761891ef0789093fc861bf46b94"
       define_method(:install) do
         bin.install "traceary"
       end
