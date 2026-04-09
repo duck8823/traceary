@@ -17,7 +17,7 @@ go install github.com/duck8823/traceary@latest
 特定の release を使いたい場合は、tag を明示します。
 
 ```sh
-go install github.com/duck8823/traceary@v0.1.15
+go install github.com/duck8823/traceary@v0.1.16
 ```
 
 ### Homebrew

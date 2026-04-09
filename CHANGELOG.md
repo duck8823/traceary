@@ -5,6 +5,33 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.1.16] - 2026-04-09
+
+This release improves code quality, adds user-configurable audit redaction patterns, and enriches debug-level diagnostics across the CLI and MCP server.
+
+### Added
+- user-configurable audit redaction patterns via `~/.config/traceary/config.json` — extra regex patterns are applied after the built-in rules in both the CLI (`traceary audit`) and the MCP server (`add_audit`)
+- debug-level logging for suppressed cleanup errors across all `infrastructure/sqlite/` files
+- debug-level logging for each fallback stage in session and repo context resolution
+- `CLAUDE.md`, `AGENTS.md`, and `GEMINI.md` project convention files for consistent AI agent behavior
+- tests for `LoadConfig`, `compileExtraRedactPatterns`, and `setupLogger`
+
+### Fixed
+- replaced `log.Fatalf` in `init()` with a graceful error return from `run()` — invalid `LOG_LEVEL` now prints a clean error instead of a stack trace
+- MCP server now loads config once at startup instead of per-request
+
+### Changed
+- added issue closing policy to agent instruction files (implementation PRs close sub-issues only; parent issues are closed by release PRs)
+- excluded AI agent instruction files from the docs i18n check
+- documented config.json and extra redaction patterns in the environment reference docs
+- updated release-facing integration manifests to version `0.1.16`
+
+### Included issues
+- #170 Replace panic calls in CLI initialization with graceful errors
+- #171 Make audit redaction patterns user-configurable
+- #172 Add debug logging for suppressed cleanup errors
+- #173 Clarify error propagation in session resolution logic
+
 ## [v0.1.15] - 2026-04-09
 
 This release closes the last dogfood follow-ups from `v0.1.14` by making local-only git repositories behave like stable work contexts and by making `traceary doctor` clearer on first run.
