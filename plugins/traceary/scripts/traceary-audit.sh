@@ -41,7 +41,9 @@ if [[ -z "$AUDIT_OUTPUT" ]]; then
   AUDIT_OUTPUT="$(traceary_build_failure_output || true)"
 fi
 
-COMMAND=("$TRACEARY_CMD" audit "$COMMAND_VALUE" "$AUDIT_INPUT" "$AUDIT_OUTPUT" --client hook --agent "$CLIENT" --session-id "$SESSION_ID")
+AGENT_VALUE="$(traceary_resolve_agent "$CLIENT")"
+
+COMMAND=("$TRACEARY_CMD" audit "$COMMAND_VALUE" "$AUDIT_INPUT" "$AUDIT_OUTPUT" --client hook --agent "$AGENT_VALUE" --session-id "$SESSION_ID")
 if [[ -n "${TRACEARY_DB_PATH:-}" ]]; then
   COMMAND+=(--db-path "$TRACEARY_DB_PATH")
 fi
