@@ -44,7 +44,7 @@ func (e cliCommandError) Unwrap() error {
 	return e.err
 }
 
-func init() {
+func setupLogger() error {
 	level := slog.LevelInfo
 	if logLevel, exists := os.LookupEnv("LOG_LEVEL"); exists {
 		switch strings.ToLower(logLevel) {
@@ -57,7 +57,7 @@ func init() {
 		case "error":
 			level = slog.LevelError
 		default:
-			log.Fatalf("%s", cli.Localizef("invalid LOG_LEVEL: %s", "ログレベルが不正です: %s", logLevel))
+			return xerrors.Errorf("%s", cli.Localizef("invalid LOG_LEVEL: %s", "ログレベルが不正です: %s", logLevel))
 		}
 	}
 
@@ -75,6 +75,7 @@ func init() {
 	}
 
 	slog.SetDefault(slog.New(handler))
+	return nil
 }
 
 type buildMetadata struct {
@@ -140,6 +141,10 @@ func findBuildSetting(info *debug.BuildInfo, key string) string {
 }
 
 func run() error {
+	if err := setupLogger(); err != nil {
+		return err
+	}
+
 	metadata := resolveBuildMetadata(version, commit, date, readBuildInfo)
 
 	migrationsSubFS, err := fs.Sub(migrationsFS, "schema/sqlite/migrations")
