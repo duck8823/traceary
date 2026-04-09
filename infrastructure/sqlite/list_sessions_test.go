@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
@@ -163,6 +164,70 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		}
 		if summaries[0].SessionID != "s1" {
 			t.Fatalf("session = %q, want s1", summaries[0].SessionID)
+		}
+	})
+
+	t.Run("from フィルタで対象外セッションが除外される", func(t *testing.T) {
+		t.Parallel()
+
+		dbPath := filepath.Join(t.TempDir(), "traceary.db")
+		ds := infra.NewDatasource(listSessionsTestMigrations())
+		ctx := context.Background()
+
+		if err := ds.Initialize(ctx, dbPath); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// Insert two sessions on different dates using EventOf with explicit timestamps
+		for _, e := range []struct {
+			id, sid  string
+			dayOfMon int
+		}{
+			{"e1", "s-old", 1},
+			{"e2", "s-new", 10},
+		} {
+			eid, _ := types.EventIDOf(e.id)
+			agent, _ := types.AgentOf("claude")
+			sid, _ := types.SessionIDOf(e.sid)
+			ts := time.Date(2026, 4, e.dayOfMon, 12, 0, 0, 0, time.UTC)
+			event := model.EventOf(eid, types.EventKindSessionStarted, "hook", agent, sid, "repo", "start", ts)
+			if err := ds.Save(ctx, dbPath, event); err != nil {
+				t.Fatalf("Save() error = %v", err)
+			}
+		}
+
+		summaries, err := ds.ListSessionSummaries(ctx, dbPath, queryservice.ListSessionsInput{
+			Limit: 10,
+			From:  "2026-04-05",
+		})
+		if err != nil {
+			t.Fatalf("ListSessionSummaries() error = %v", err)
+		}
+		if len(summaries) != 1 {
+			t.Fatalf("got %d summaries, want 1", len(summaries))
+		}
+		if summaries[0].SessionID != "s-new" {
+			t.Fatalf("session = %q, want s-new", summaries[0].SessionID)
+		}
+	})
+
+	t.Run("不正な from 日付でエラーを返す", func(t *testing.T) {
+		t.Parallel()
+
+		dbPath := filepath.Join(t.TempDir(), "traceary.db")
+		ds := infra.NewDatasource(listSessionsTestMigrations())
+		ctx := context.Background()
+
+		if err := ds.Initialize(ctx, dbPath); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		_, err := ds.ListSessionSummaries(ctx, dbPath, queryservice.ListSessionsInput{
+			Limit: 10,
+			From:  "invalid",
+		})
+		if err == nil {
+			t.Fatalf("ListSessionSummaries() error = nil, want error")
 		}
 	})
 }

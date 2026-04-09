@@ -32,10 +32,16 @@ func (d *Datasource) ListSessionSummaries(
 
 	fromValue := ""
 	if input.From != "" {
+		if _, err := time.Parse("2006-01-02", input.From); err != nil {
+			return nil, xerrors.Errorf("invalid from date %q: %w", input.From, err)
+		}
 		fromValue = input.From + "T00:00:00Z"
 	}
 	toValue := ""
 	if input.To != "" {
+		if _, err := time.Parse("2006-01-02", input.To); err != nil {
+			return nil, xerrors.Errorf("invalid to date %q: %w", input.To, err)
+		}
 		toValue = input.To + "T23:59:59Z"
 	}
 
