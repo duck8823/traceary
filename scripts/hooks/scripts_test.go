@@ -316,6 +316,53 @@ func TestTracearySessionScript_UsesAgentTypeFromPayload(t *testing.T) {
 	}
 }
 
+func TestTracearySessionScript_AgentTypeStartEndMismatch(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	fakeLogPath := filepath.Join(tempDir, "traceary.log")
+	fakeTracearyPath := filepath.Join(tempDir, "traceary")
+	writeFakeTraceary(t, fakeTracearyPath)
+
+	homeDir := filepath.Join(tempDir, "home")
+	if err := os.MkdirAll(homeDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	env := append(os.Environ(),
+		"TRACEARY_BIN="+fakeTracearyPath,
+		"TRACEARY_FAKE_LOG="+fakeLogPath,
+		"TRACEARY_REPO=work-context",
+		"HOME="+homeDir,
+	)
+
+	// start with agent_type
+	startInput := `{"session_id":"sub-session","cwd":"/tmp/project","agent_type":"Explore"}`
+	if err := runHookScript(t, filepath.Join(".", "traceary-session.sh"), env, startInput, "claude", "start"); err != nil {
+		t.Fatalf("runHookScript(start) error = %v", err)
+	}
+
+	// stop without agent_type — agent falls back to plain "claude"
+	stopInput := `{"cwd":"/tmp/project"}`
+	if err := runHookScript(t, filepath.Join(".", "traceary-session.sh"), env, stopInput, "claude", "stop"); err != nil {
+		t.Fatalf("runHookScript(stop) error = %v", err)
+	}
+
+	calls := readLoggedCalls(t, fakeLogPath)
+	if len(calls) != 2 {
+		t.Fatalf("len(calls) = %d, want 2", len(calls))
+	}
+
+	// start uses hierarchical agent
+	if calls[0][5] != "claude/Explore" {
+		t.Fatalf("start --agent = %q, want %q", calls[0][5], "claude/Explore")
+	}
+	// end falls back to plain client since no agent_type in payload
+	if calls[1][5] != "claude" {
+		t.Fatalf("stop --agent = %q, want %q", calls[1][5], "claude")
+	}
+}
+
 func TestTracearyAuditScript_UsesAgentTypeFromPayload(t *testing.T) {
 	t.Parallel()
 
