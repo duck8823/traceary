@@ -31,6 +31,7 @@ const (
 type Server struct {
 	serverName                    string
 	serverVersion                 string
+	extraRedactPatterns           []string
 	initializeStoreUsecase        usecase.InitializeStoreUsecase
 	recordLogUsecase              usecase.RecordLogUsecase
 	recordSessionBoundaryUsecase  usecase.RecordSessionBoundaryUsecase
@@ -83,9 +84,12 @@ func NewServer(
 		trimmedVersion = defaultServerVersion
 	}
 
+	config := presentation.LoadConfig()
+
 	return &Server{
 		serverName:                    defaultServerName,
 		serverVersion:                 trimmedVersion,
+		extraRedactPatterns:           config.Redact.ExtraPatterns,
 		initializeStoreUsecase:        initializeStoreUsecase,
 		recordLogUsecase:              recordLogUsecase,
 		recordSessionBoundaryUsecase:  recordSessionBoundaryUsecase,
@@ -391,8 +395,6 @@ func (s *Server) activeSession(dbPath string) mcp.ToolHandlerFor[sessionLookupIn
 
 func (s *Server) addAudit(dbPath string) mcp.ToolHandlerFor[addAuditInput, addAuditOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input addAuditInput) (*mcp.CallToolResult, addAuditOutput, error) {
-		config := presentation.LoadConfig()
-
 		event, audit, err := s.recordCommandAuditUsecase.Run(ctx, usecase.RecordCommandAuditInput{
 			DBPath:              dbPath,
 			Command:             input.Command,
@@ -402,7 +404,7 @@ func (s *Server) addAudit(dbPath string) mcp.ToolHandlerFor[addAuditInput, addAu
 			Agent:               resolveValue(input.Agent, defaultAgentValue),
 			SessionID:           resolveValue(input.SessionID, defaultSessionValue),
 			Repo:                strings.TrimSpace(input.Repo),
-			ExtraRedactPatterns: config.Redact.ExtraPatterns,
+			ExtraRedactPatterns: s.extraRedactPatterns,
 		})
 		if err != nil {
 			return nil, addAuditOutput{}, xerrors.Errorf("failed to record command audit: %w", err)
