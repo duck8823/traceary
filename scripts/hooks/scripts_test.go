@@ -279,6 +279,93 @@ func TestTracearyAuditScript_UsesFailurePayloadWhenToolResponseIsMissing(t *test
 	}
 }
 
+func TestTracearySessionScript_UsesAgentTypeFromPayload(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	fakeLogPath := filepath.Join(tempDir, "traceary.log")
+	fakeTracearyPath := filepath.Join(tempDir, "traceary")
+	writeFakeTraceary(t, fakeTracearyPath)
+
+	homeDir := filepath.Join(tempDir, "home")
+	if err := os.MkdirAll(homeDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	env := append(os.Environ(),
+		"TRACEARY_BIN="+fakeTracearyPath,
+		"TRACEARY_FAKE_LOG="+fakeLogPath,
+		"TRACEARY_REPO=work-context",
+		"HOME="+homeDir,
+	)
+
+	startInput := `{"session_id":"sub-session","cwd":"/tmp/project","agent_type":"Explore"}`
+	if err := runHookScript(t, filepath.Join(".", "traceary-session.sh"), env, startInput, "claude", "start"); err != nil {
+		t.Fatalf("runHookScript(start) error = %v", err)
+	}
+
+	calls := readLoggedCalls(t, fakeLogPath)
+	if len(calls) != 1 {
+		t.Fatalf("len(calls) = %d, want 1", len(calls))
+	}
+	want := []string{
+		"session", "start", "--client", "hook", "--agent", "claude/Explore", "--repo", "work-context", "--session-id", "sub-session",
+	}
+	if !reflect.DeepEqual(calls[0], want) {
+		t.Fatalf("session start call = %#v, want %#v", calls[0], want)
+	}
+}
+
+func TestTracearyAuditScript_UsesAgentTypeFromPayload(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	fakeLogPath := filepath.Join(tempDir, "traceary.log")
+	fakeTracearyPath := filepath.Join(tempDir, "traceary")
+	writeFakeTraceary(t, fakeTracearyPath)
+
+	homeDir := filepath.Join(tempDir, "home")
+	if err := os.MkdirAll(homeDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	env := append(os.Environ(),
+		"TRACEARY_BIN="+fakeTracearyPath,
+		"TRACEARY_FAKE_LOG="+fakeLogPath,
+		"TRACEARY_REPO=work-context",
+		"HOME="+homeDir,
+	)
+
+	// Start session first to set state
+	if err := runHookScript(t, filepath.Join(".", "traceary-session.sh"), env, `{"cwd":"/tmp/project"}`, "claude", "start"); err != nil {
+		t.Fatalf("runHookScript(start) error = %v", err)
+	}
+
+	auditInput := `{"cwd":"/tmp/project","agent_type":"Explore","tool_input":{"command":"grep -r foo"},"tool_response":{"exitCode":0,"stderr":"","stdout":"found"}}`
+	if err := runHookScript(t, filepath.Join(".", "traceary-audit.sh"), env, auditInput, "claude"); err != nil {
+		t.Fatalf("runHookScript(audit) error = %v", err)
+	}
+
+	calls := readLoggedCalls(t, fakeLogPath)
+	if len(calls) != 2 {
+		t.Fatalf("len(calls) = %d, want 2", len(calls))
+	}
+
+	wantAudit := []string{
+		"audit",
+		"grep -r foo",
+		`{"command":"grep -r foo"}`,
+		`{"exitCode":0,"stderr":"","stdout":"found"}`,
+		"--client", "hook",
+		"--agent", "claude/Explore",
+		"--session-id", "generated-session",
+		"--repo", "work-context",
+	}
+	if !reflect.DeepEqual(calls[1], wantAudit) {
+		t.Fatalf("audit call = %#v, want %#v", calls[1], wantAudit)
+	}
+}
+
 func runHookScript(t *testing.T, scriptPath string, env []string, input string, args ...string) error {
 	t.Helper()
 
