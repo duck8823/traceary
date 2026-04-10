@@ -18,6 +18,7 @@ const (
 	doctorStatusPass = "pass"
 	doctorStatusWarn = "warn"
 	doctorStatusFail = "fail"
+	doctorStatusSkip = "skip"
 )
 
 type doctorCheck struct {
@@ -48,10 +49,11 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 		Args:    noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runDoctor(cmd.Context(), cmd.OutOrStdout(), doctorCommandInput{
-				dbPath:     dbPath,
-				client:     client,
-				projectDir: projectDir,
-				asJSON:     asJSON,
+				dbPath:         dbPath,
+				client:         client,
+				projectDir:     projectDir,
+				currentVersion: cmd.Root().Version,
+				asJSON:         asJSON,
 			})
 		},
 	}
@@ -64,10 +66,11 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 }
 
 type doctorCommandInput struct {
-	dbPath     string
-	client     string
-	projectDir string
-	asJSON     bool
+	dbPath         string
+	client         string
+	projectDir     string
+	currentVersion string
+	asJSON         bool
 }
 
 func (c *RootCLI) runDoctor(ctx context.Context, output io.Writer, input doctorCommandInput) error {
@@ -189,6 +192,8 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 
 		report.Checks = append(report.Checks, inspectDoctorConfigFile(targetClient, outputPath))
 	}
+
+	report.Checks = append(report.Checks, checkLatestVersion(input.currentVersion))
 
 	return report, nil
 }
