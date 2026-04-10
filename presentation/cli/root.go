@@ -84,6 +84,7 @@ func (c *RootCLI) Command() *cobra.Command {
 	rootCmd.AddCommand(c.newListCommand())
 	rootCmd.AddCommand(c.newShowCommand())
 	rootCmd.AddCommand(c.newSessionCommand())
+	rootCmd.AddCommand(c.newCompactSummaryCommand())
 	rootCmd.AddCommand(c.newCompletionCommand(rootCmd))
 	rootCmd.AddCommand(c.newHooksCommand())
 	rootCmd.AddCommand(c.newDoctorCommand())

@@ -10,6 +10,15 @@
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/traceary-session.sh\" claude start"
           }
         ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/traceary-compact.sh\" claude session-start-compact"
+          }
+        ]
       }
     ],
     "SessionEnd": [
@@ -39,6 +48,17 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/traceary-audit.sh\" claude"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/traceary-compact.sh\" claude post-compact"
           }
         ]
       }

@@ -115,6 +115,8 @@ def check_claude() -> None:
     require('SessionStart' in hooks['hooks'], 'Claude hooks must include SessionStart')
     require('SessionEnd' in hooks['hooks'], 'Claude hooks must include SessionEnd')
     require('PostToolUse' in hooks['hooks'], 'Claude hooks must include PostToolUse')
+    require('PostCompact' in hooks['hooks'], 'Claude hooks must include PostCompact')
+    require((ROOT / 'integrations' / 'claude-plugin' / 'scripts' / 'traceary-compact.sh').exists(), 'missing Claude compact hook script')
     require((ROOT / 'integrations' / 'claude-plugin' / 'skills' / 'traceary-help' / 'SKILL.md').exists(), 'missing Claude traceary-help skill')
     require((ROOT / 'integrations' / 'claude-plugin' / 'skills' / 'traceary-session-history' / 'SKILL.md').exists(), 'missing Claude traceary-session-history skill')
 
