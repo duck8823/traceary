@@ -54,11 +54,25 @@ go install github.com/duck8823/traceary@latest
 
 ### Step 2: エージェントにプラグインをインストール
 
-| Host | 導入コマンド | ガイド |
-| --- | --- | --- |
-| Claude Code | `claude plugins marketplace add https://github.com/duck8823/traceary` のあと `claude plugins install traceary@traceary-plugins --scope user` | [Claude Code plugin](./docs/integrations/claude-plugin.ja.md) |
-| Codex | `git clone https://github.com/duck8823/traceary ~/src/traceary` のあと `python3 ~/src/traceary/scripts/codex/install_plugin.py` | [Codex plugin](./docs/integrations/codex-plugin.ja.md) |
-| Gemini CLI | `bash <(curl -sL https://raw.githubusercontent.com/duck8823/traceary/main/scripts/install-gemini-extension.sh)` | [Gemini CLI extension](./docs/integrations/gemini-extension.ja.md) |
+**Claude Code** ([ガイド](./docs/integrations/claude-plugin.ja.md))
+
+```sh
+claude plugins marketplace add https://github.com/duck8823/traceary
+claude plugins install traceary@traceary-plugins --scope user
+```
+
+**Codex** ([ガイド](./docs/integrations/codex-plugin.ja.md))
+
+```sh
+git clone https://github.com/duck8823/traceary ~/src/traceary
+python3 ~/src/traceary/scripts/codex/install_plugin.py
+```
+
+**Gemini CLI** ([ガイド](./docs/integrations/gemini-extension.ja.md))
+
+```sh
+bash <(curl -sL https://raw.githubusercontent.com/duck8823/traceary/main/scripts/install-gemini-extension.sh)
+```
 
 全体像は [ネイティブ連携ガイド](./docs/integrations/README.ja.md) にまとめています。
 

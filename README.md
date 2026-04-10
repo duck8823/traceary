@@ -54,11 +54,25 @@ See the [release guide](./docs/release/README.md) for packaging details.
 
 ### Step 2: Install the plugin for your agent host
 
-| Host | Install command | Guide |
-| --- | --- | --- |
-| Claude Code | `claude plugins marketplace add https://github.com/duck8823/traceary` then `claude plugins install traceary@traceary-plugins --scope user` | [Claude Code plugin](./docs/integrations/claude-plugin.md) |
-| Codex | `git clone https://github.com/duck8823/traceary ~/src/traceary` then `python3 ~/src/traceary/scripts/codex/install_plugin.py` | [Codex plugin](./docs/integrations/codex-plugin.md) |
-| Gemini CLI | `bash <(curl -sL https://raw.githubusercontent.com/duck8823/traceary/main/scripts/install-gemini-extension.sh)` | [Gemini CLI extension](./docs/integrations/gemini-extension.md) |
+**Claude Code** ([guide](./docs/integrations/claude-plugin.md))
+
+```sh
+claude plugins marketplace add https://github.com/duck8823/traceary
+claude plugins install traceary@traceary-plugins --scope user
+```
+
+**Codex** ([guide](./docs/integrations/codex-plugin.md))
+
+```sh
+git clone https://github.com/duck8823/traceary ~/src/traceary
+python3 ~/src/traceary/scripts/codex/install_plugin.py
+```
+
+**Gemini CLI** ([guide](./docs/integrations/gemini-extension.md))
+
+```sh
+bash <(curl -sL https://raw.githubusercontent.com/duck8823/traceary/main/scripts/install-gemini-extension.sh)
+```
 
 For the integration overview, use the [native integrations guide](./docs/integrations/README.md).
 
