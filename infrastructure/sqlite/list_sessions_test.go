@@ -261,6 +261,51 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		}
 	})
 
+	t.Run("session_id filter returns only the matching session", func(t *testing.T) {
+		t.Parallel()
+
+		dbPath := filepath.Join(t.TempDir(), "traceary.db")
+		ds := infra.NewDatasource(listSessionsTestMigrations())
+		ctx := context.Background()
+
+		if err := ds.Initialize(ctx, dbPath); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		for _, e := range []struct {
+			id, agent, sid string
+		}{
+			{"e1", "claude", "s1"},
+			{"e2", "claude", "s2"},
+		} {
+			eid, _ := types.EventIDOf(e.id)
+			agent, _ := types.AgentOf(e.agent)
+			sid, _ := types.SessionIDOf(e.sid)
+			event, _ := model.NewEvent(eid, types.EventKindSessionStarted, "hook", agent, sid, "repo", "start")
+			if err := ds.Save(ctx, dbPath, event); err != nil {
+				t.Fatalf("Save() error = %v", err)
+			}
+		}
+
+		now := time.Now().UTC()
+		saveTestSession(ctx, t, ds, dbPath, "s1", now, nil, "claude", "repo")
+		saveTestSession(ctx, t, ds, dbPath, "s2", now.Add(time.Second), nil, "claude", "repo")
+
+		summaries, err := ds.ListSessionSummaries(ctx, dbPath, port.ListSessionsInput{
+			Limit:     10,
+			SessionID: "s1",
+		})
+		if err != nil {
+			t.Fatalf("ListSessionSummaries() error = %v", err)
+		}
+		if len(summaries) != 1 {
+			t.Fatalf("got %d summaries, want 1", len(summaries))
+		}
+		if summaries[0].SessionID != "s1" {
+			t.Fatalf("session = %q, want s1", summaries[0].SessionID)
+		}
+	})
+
 	t.Run("to filter excludes out-of-range sessions", func(t *testing.T) {
 		t.Parallel()
 

@@ -100,6 +100,44 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("--session-id flag is passed to session query service", func(t *testing.T) {
+		t.Parallel()
+
+		dbPath := filepath.Join(t.TempDir(), "traceary.db")
+		initStub := &initializeStoreUsecaseStub{}
+		listEventsStub := &listEventsQueryServiceStub{}
+		listSessionsStub := &listSessionsQueryServiceStub{
+			summaries: []*port.SessionSummary{
+				{
+					SessionID: "target-session",
+					Repo:      "duck8823/traceary",
+					StartedAt: time.Now().Add(-time.Hour),
+				},
+			},
+		}
+
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase:   initStub,
+			ListEventsQueryService:   listEventsStub,
+			ListSessionsQueryService: listSessionsStub,
+		}).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"compact-summary", "--db-path", dbPath, "--session-id", "target-session"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		if listSessionsStub.receivedInput.SessionID != "target-session" {
+			t.Errorf("session query received SessionID = %q, want %q", listSessionsStub.receivedInput.SessionID, "target-session")
+		}
+		if !strings.Contains(stdout.String(), "target-session") {
+			t.Errorf("output missing session ID, got: %s", stdout.String())
+		}
+	})
+
 	t.Run("output stays within token limit", func(t *testing.T) {
 		t.Parallel()
 

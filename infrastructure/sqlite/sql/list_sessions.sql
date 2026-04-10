@@ -19,7 +19,8 @@ LEFT JOIN (
   FROM events e
   GROUP BY e.session_id
 ) agg ON agg.session_id = s.session_id
-WHERE (? = '' OR s.repo = ?)
+WHERE (? = '' OR s.session_id = ?)
+  AND (? = '' OR s.repo = ?)
   AND (? = '' OR s.client = ?)
   AND (? = '' OR s.agent = ?)
   AND (? = '' OR s.label = ?)

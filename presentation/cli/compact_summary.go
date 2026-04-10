@@ -72,8 +72,9 @@ func (c *RootCLI) printCompactSummary(
 
 	// Get session info
 	sessions, err := c.listSessionsQueryService.Run(ctx, dbPath, port.ListSessionsInput{
-		Limit: 1,
-		Repo:  repo,
+		Limit:     1,
+		SessionID: sessionID,
+		Repo:      repo,
 	})
 	if err != nil {
 		return xerrors.Errorf("failed to list sessions: %w", err)
