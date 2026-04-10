@@ -10,20 +10,20 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/domain/port"
 )
 
 //go:embed sql/list_sessions.sql
 var listSessionsQuery string
 
-var _ queryservice.SessionSummaryFinder = (*Datasource)(nil)
+var _ port.SessionSummaryFinder = (*Datasource)(nil)
 
 // ListSessionSummaries returns aggregated session information.
 func (d *Datasource) ListSessionSummaries(
 	ctx context.Context,
 	dbPath string,
-	input queryservice.ListSessionsInput,
-) ([]*queryservice.SessionSummary, error) {
+	input port.ListSessionsInput,
+) ([]*port.SessionSummary, error) {
 	db, err := d.openDB(ctx, dbPath)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for session list: %w", err)
@@ -63,7 +63,7 @@ func (d *Datasource) ListSessionSummaries(
 		}
 	}()
 
-	summaries := make([]*queryservice.SessionSummary, 0)
+	summaries := make([]*port.SessionSummary, 0)
 	for rows.Next() {
 		summary, err := scanSessionSummary(rows)
 		if err != nil {
@@ -80,7 +80,7 @@ func (d *Datasource) ListSessionSummaries(
 
 func scanSessionSummary(row interface {
 	Scan(dest ...any) error
-}) (*queryservice.SessionSummary, error) {
+}) (*port.SessionSummary, error) {
 	var (
 		sessionID       string
 		repo            string
@@ -132,7 +132,7 @@ func scanSessionSummary(row interface {
 		agents = strings.Split(agentsStr.String, ",")
 	}
 
-	return &queryservice.SessionSummary{
+	return &port.SessionSummary{
 		SessionID:       sessionID,
 		Repo:            repo,
 		StartedAt:       startedAt,

@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/domain/port"
 )
 
 func (c *RootCLI) newSearchCommand() *cobra.Command {
@@ -152,7 +152,7 @@ func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchC
 		return err
 	}
 
-	events, err := c.searchEventsQueryService.Run(ctx, resolvedPath, queryservice.SearchEventsInput{
+	events, err := c.searchEventsQueryService.Run(ctx, resolvedPath, port.SearchEventsInput{
 		Query:        input.query,
 		Repo:         resolveRepoValue(ctx, input.repo),
 		SessionID:    input.sessionID,

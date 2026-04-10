@@ -12,6 +12,7 @@ import (
 
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/port"
 )
 
 type manualSessionResolution struct {
@@ -41,7 +42,7 @@ func (c *RootCLI) resolveManualSessionID(
 		}, nil
 	}
 
-	event, err := c.findLatestSessionQueryService.Run(ctx, dbPath, queryservice.FindLatestSessionInput{
+	event, err := c.findLatestSessionQueryService.Run(ctx, dbPath, port.FindLatestSessionInput{
 		Repo:       trimmedRepo,
 		ActiveOnly: true,
 	})

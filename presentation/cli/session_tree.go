@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/domain/port"
 )
 
 func (c *RootCLI) newSessionTreeCommand() *cobra.Command {
@@ -35,7 +35,7 @@ func (c *RootCLI) newSessionTreeCommand() *cobra.Command {
 
 			resolvedRepo := resolveRepoValue(ctx, repo)
 
-			summaries, err := c.listSessionsQueryService.Run(ctx, resolvedDBPath, queryservice.ListSessionsInput{
+			summaries, err := c.listSessionsQueryService.Run(ctx, resolvedDBPath, port.ListSessionsInput{
 				Limit: limit,
 				Repo:  resolvedRepo,
 			})
@@ -55,11 +55,11 @@ func (c *RootCLI) newSessionTreeCommand() *cobra.Command {
 }
 
 type sessionNode struct {
-	summary  *queryservice.SessionSummary
+	summary  *port.SessionSummary
 	children []*sessionNode
 }
 
-func writeSessionTree(output io.Writer, summaries []*queryservice.SessionSummary) error {
+func writeSessionTree(output io.Writer, summaries []*port.SessionSummary) error {
 	if len(summaries) == 0 {
 		if _, err := fmt.Fprintln(output, Localize("No sessions found.", "セッションが見つかりません")); err != nil {
 			return xerrors.Errorf("failed to print empty message: %w", err)

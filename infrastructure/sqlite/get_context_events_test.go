@@ -7,7 +7,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
@@ -75,7 +75,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		t.Fatalf("Save(third) error = %v", err)
 	}
 
-	got, err := sut.GetContextEvents(context.Background(), dbPath, queryservice.GetContextInput{
+	got, err := sut.GetContextEvents(context.Background(), dbPath, port.GetContextInput{
 		Repo:      " github.com/duck8823/traceary ",
 		SessionID: "session-1",
 		Limit:     10,

@@ -7,12 +7,13 @@ import (
 
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 )
 
 type eventSearcherStub struct {
 	receivedPath  string
-	receivedInput queryservice.SearchEventsInput
+	receivedInput port.SearchEventsInput
 	events        []*model.Event
 	err           error
 }
@@ -20,7 +21,7 @@ type eventSearcherStub struct {
 func (s *eventSearcherStub) SearchEvents(
 	_ context.Context,
 	dbPath string,
-	input queryservice.SearchEventsInput,
+	input port.SearchEventsInput,
 ) ([]*model.Event, error) {
 	s.receivedPath = dbPath
 	s.receivedInput = input
@@ -62,7 +63,7 @@ func TestSearchEventsQueryService_Run(t *testing.T) {
 		}
 		sut := queryservice.NewSearchEventsQueryService(stub)
 
-		got, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.SearchEventsInput{
+		got, err := sut.Run(context.Background(), "/tmp/traceary.db", port.SearchEventsInput{
 			Query:     "traceary",
 			Repo:      "github.com/duck8823/traceary",
 			SessionID: "session-1",
@@ -98,7 +99,7 @@ func TestSearchEventsQueryService_Run(t *testing.T) {
 		stub := &eventSearcherStub{}
 		sut := queryservice.NewSearchEventsQueryService(stub)
 
-		_, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.SearchEventsInput{
+		_, err := sut.Run(context.Background(), "/tmp/traceary.db", port.SearchEventsInput{
 			SessionID: "session-1",
 			Limit:     10,
 		})
@@ -115,7 +116,7 @@ func TestSearchEventsQueryService_Run(t *testing.T) {
 
 		sut := queryservice.NewSearchEventsQueryService(&eventSearcherStub{})
 
-		_, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.SearchEventsInput{
+		_, err := sut.Run(context.Background(), "/tmp/traceary.db", port.SearchEventsInput{
 			Query: "   ",
 			Limit: 10,
 		})
@@ -129,7 +130,7 @@ func TestSearchEventsQueryService_Run(t *testing.T) {
 
 		sut := queryservice.NewSearchEventsQueryService(&eventSearcherStub{})
 
-		_, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.SearchEventsInput{
+		_, err := sut.Run(context.Background(), "/tmp/traceary.db", port.SearchEventsInput{
 			Query: "traceary",
 			Kind:  "unknown",
 			Limit: 10,
@@ -144,7 +145,7 @@ func TestSearchEventsQueryService_Run(t *testing.T) {
 
 		sut := queryservice.NewSearchEventsQueryService(&eventSearcherStub{})
 
-		_, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.SearchEventsInput{
+		_, err := sut.Run(context.Background(), "/tmp/traceary.db", port.SearchEventsInput{
 			Query:  "traceary",
 			Limit:  10,
 			Offset: -1,
@@ -160,7 +161,7 @@ func TestSearchEventsQueryService_Run(t *testing.T) {
 		stub := &eventSearcherStub{}
 		sut := queryservice.NewSearchEventsQueryService(stub)
 
-		_, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.SearchEventsInput{
+		_, err := sut.Run(context.Background(), "/tmp/traceary.db", port.SearchEventsInput{
 			Query: "go test",
 			Kind:  "audit",
 			Limit: 10,

@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/domain/port"
 )
 
 func (c *RootCLI) newShowCommand() *cobra.Command {
@@ -59,7 +59,7 @@ func (c *RootCLI) runShow(ctx context.Context, output io.Writer, dbPath string, 
 	return nil
 }
 
-func writeEventDetails(output io.Writer, eventDetails *queryservice.EventDetails) error {
+func writeEventDetails(output io.Writer, eventDetails *port.EventDetails) error {
 	if eventDetails == nil {
 		return xerrors.Errorf(Localize("event details must not be nil", "イベント詳細は nil にできません"))
 	}

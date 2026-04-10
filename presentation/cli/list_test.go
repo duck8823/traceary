@@ -9,13 +9,14 @@ import (
 
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
 type listEventsQueryServiceStub struct {
 	receivedPath  string
-	receivedInput queryservice.ListRecentEventsInput
+	receivedInput port.ListRecentEventsInput
 	called        bool
 	events        []*model.Event
 	err           error
@@ -24,7 +25,7 @@ type listEventsQueryServiceStub struct {
 func (s *listEventsQueryServiceStub) Run(
 	_ context.Context,
 	dbPath string,
-	input queryservice.ListRecentEventsInput,
+	input port.ListRecentEventsInput,
 ) ([]*model.Event, error) {
 	s.called = true
 	s.receivedPath = dbPath

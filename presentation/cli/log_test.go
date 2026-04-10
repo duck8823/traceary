@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
@@ -277,7 +277,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		if !queryStub.called {
 			t.Fatal("FindLatestSessionQueryService.Run() was not called")
 		}
-		if queryStub.receivedInput != (queryservice.FindLatestSessionInput{
+		if queryStub.receivedInput != (port.FindLatestSessionInput{
 			Repo:       "github.com/duck8823/traceary",
 			ActiveOnly: true,
 		}) {

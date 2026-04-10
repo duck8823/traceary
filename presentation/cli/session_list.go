@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/domain/port"
 )
 
 func (c *RootCLI) newSessionListCommand() *cobra.Command {
@@ -62,7 +62,7 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 
 			resolvedRepo := resolveRepoValue(ctx, repo)
 
-			summaries, err := c.listSessionsQueryService.Run(ctx, resolvedDBPath, queryservice.ListSessionsInput{
+			summaries, err := c.listSessionsQueryService.Run(ctx, resolvedDBPath, port.ListSessionsInput{
 				Limit:  limit,
 				Offset: offset,
 				Repo:   resolvedRepo,
@@ -94,7 +94,7 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 	return listCmd
 }
 
-func writeSessionSummaries(output io.Writer, summaries []*queryservice.SessionSummary, asJSON bool) error {
+func writeSessionSummaries(output io.Writer, summaries []*port.SessionSummary, asJSON bool) error {
 	if asJSON {
 		return writeSessionSummariesJSON(output, summaries)
 	}
@@ -142,7 +142,7 @@ func writeSessionSummaries(output io.Writer, summaries []*queryservice.SessionSu
 	return nil
 }
 
-func writeSessionSummariesJSON(output io.Writer, summaries []*queryservice.SessionSummary) error {
+func writeSessionSummariesJSON(output io.Writer, summaries []*port.SessionSummary) error {
 	type jsonSummary struct {
 		SessionID       string   `json:"session_id"`
 		Repo            string   `json:"repo,omitempty"`

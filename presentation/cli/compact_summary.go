@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/domain/port"
 )
 
 func (c *RootCLI) newCompactSummaryCommand() *cobra.Command {
@@ -60,7 +60,7 @@ func (c *RootCLI) printCompactSummary(
 	recentCount int,
 ) error {
 	// Get recent events for context
-	events, err := c.listEventsQueryService.Run(ctx, dbPath, queryservice.ListRecentEventsInput{
+	events, err := c.listEventsQueryService.Run(ctx, dbPath, port.ListRecentEventsInput{
 		Limit:     recentCount + 5, // fetch extra to find commands
 		SessionID: sessionID,
 		Repo:      repo,
@@ -71,7 +71,7 @@ func (c *RootCLI) printCompactSummary(
 	}
 
 	// Get session info
-	sessions, err := c.listSessionsQueryService.Run(ctx, dbPath, queryservice.ListSessionsInput{
+	sessions, err := c.listSessionsQueryService.Run(ctx, dbPath, port.ListSessionsInput{
 		Limit: 1,
 		Repo:  repo,
 	})

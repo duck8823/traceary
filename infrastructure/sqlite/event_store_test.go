@@ -7,7 +7,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
@@ -84,7 +84,7 @@ CREATE TABLE command_audits (
 		t.Fatalf("Save(newer) error = %v", err)
 	}
 
-	got, err := sut.ListRecent(context.Background(), dbPath, queryservice.ListRecentEventsInput{
+	got, err := sut.ListRecent(context.Background(), dbPath, port.ListRecentEventsInput{
 		Limit: 10,
 	})
 	if err != nil {
@@ -166,7 +166,7 @@ CREATE TABLE command_audits (
 		t.Fatalf("Save() error = %v", err)
 	}
 
-	got, err := sut.ListRecent(context.Background(), dbPath, queryservice.ListRecentEventsInput{
+	got, err := sut.ListRecent(context.Background(), dbPath, port.ListRecentEventsInput{
 		Limit: 1,
 	})
 	if err != nil {
@@ -239,7 +239,7 @@ CREATE TABLE command_audits (
 		}
 	}
 
-	got, err := sut.ListRecent(context.Background(), dbPath, queryservice.ListRecentEventsInput{
+	got, err := sut.ListRecent(context.Background(), dbPath, port.ListRecentEventsInput{
 		Limit:  1,
 		Offset: 1,
 	})
@@ -314,7 +314,7 @@ CREATE TABLE command_audits (
 		}
 	}
 
-	got, err := sut.ListRecent(context.Background(), dbPath, queryservice.ListRecentEventsInput{
+	got, err := sut.ListRecent(context.Background(), dbPath, port.ListRecentEventsInput{
 		Limit:     10,
 		Kind:      types.EventKindNote.String(),
 		Client:    "cli",

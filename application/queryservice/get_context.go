@@ -7,33 +7,21 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/port"
 )
-
-// GetContextInput is the input for context retrieval.
-type GetContextInput struct {
-	Repo      string
-	SessionID string
-	Limit     int
-}
-
-// ContextEventFinder provides contextual event lookup.
-type ContextEventFinder interface {
-	// GetContextEvents returns matching events in descending time order.
-	GetContextEvents(ctx context.Context, dbPath string, input GetContextInput) ([]*model.Event, error)
-}
 
 // GetContextQueryService returns contextual events.
 type GetContextQueryService interface {
 	// Run executes the context query.
-	Run(ctx context.Context, dbPath string, input GetContextInput) ([]*model.Event, error)
+	Run(ctx context.Context, dbPath string, input port.GetContextInput) ([]*model.Event, error)
 }
 
 type getContextQueryService struct {
-	contextEventFinder ContextEventFinder
+	contextEventFinder port.ContextEventFinder
 }
 
 // NewGetContextQueryService creates a GetContextQueryService.
-func NewGetContextQueryService(contextEventFinder ContextEventFinder) GetContextQueryService {
+func NewGetContextQueryService(contextEventFinder port.ContextEventFinder) GetContextQueryService {
 	return &getContextQueryService{contextEventFinder: contextEventFinder}
 }
 
@@ -41,7 +29,7 @@ func NewGetContextQueryService(contextEventFinder ContextEventFinder) GetContext
 func (s *getContextQueryService) Run(
 	ctx context.Context,
 	dbPath string,
-	input GetContextInput,
+	input port.GetContextInput,
 ) ([]*model.Event, error) {
 	if s.contextEventFinder == nil {
 		return nil, xerrors.Errorf("context event finder is not configured")

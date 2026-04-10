@@ -11,6 +11,7 @@ import (
 
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
@@ -36,7 +37,7 @@ var _ usecase.RecordSessionBoundaryUsecase = (*recordSessionBoundaryUsecaseStub)
 
 type findLatestSessionQueryServiceStub struct {
 	receivedPath  string
-	receivedInput queryservice.FindLatestSessionInput
+	receivedInput port.FindLatestSessionInput
 	called        bool
 	event         *model.Event
 	err           error
@@ -45,7 +46,7 @@ type findLatestSessionQueryServiceStub struct {
 func (s *findLatestSessionQueryServiceStub) Run(
 	_ context.Context,
 	dbPath string,
-	input queryservice.FindLatestSessionInput,
+	input port.FindLatestSessionInput,
 ) (*model.Event, error) {
 	s.called = true
 	s.receivedPath = dbPath
@@ -696,7 +697,7 @@ func TestRootCLI_SessionLatestCommand_NotFoundError(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	initStub := &initializeStoreUsecaseStub{}
 	latestStub := &findLatestSessionQueryServiceStub{
-		err: queryservice.ErrSessionNotFound,
+		err: port.ErrSessionNotFound,
 	}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
 		InitializeStoreUsecase:        initStub,

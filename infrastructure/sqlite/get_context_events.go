@@ -7,17 +7,17 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/port"
 )
 
-var _ queryservice.ContextEventFinder = (*Datasource)(nil)
+var _ port.ContextEventFinder = (*Datasource)(nil)
 
 // GetContextEvents returns events matching the requested context in descending time order.
 func (d *Datasource) GetContextEvents(
 	ctx context.Context,
 	dbPath string,
-	input queryservice.GetContextInput,
+	input port.GetContextInput,
 ) ([]*model.Event, error) {
 	db, err := d.openDB(ctx, dbPath)
 	if err != nil {

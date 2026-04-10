@@ -7,13 +7,14 @@ import (
 
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 )
 
 type eventDetailsFinderStub struct {
 	receivedPath    string
 	receivedEventID string
-	eventDetails    *queryservice.EventDetails
+	eventDetails    *port.EventDetails
 	err             error
 }
 
@@ -21,7 +22,7 @@ func (s *eventDetailsFinderStub) GetEventDetails(
 	_ context.Context,
 	dbPath string,
 	eventID string,
-) (*queryservice.EventDetails, error) {
+) (*port.EventDetails, error) {
 	s.receivedPath = dbPath
 	s.receivedEventID = eventID
 	return s.eventDetails, s.err
@@ -46,7 +47,7 @@ func TestGetEventDetailsQueryService_Run(t *testing.T) {
 	t.Run("returns event details", func(t *testing.T) {
 		t.Parallel()
 
-		eventDetails, err := queryservice.NewEventDetails(
+		eventDetails, err := port.NewEventDetails(
 			model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,

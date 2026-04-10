@@ -7,7 +7,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
@@ -74,7 +74,7 @@ CREATE TABLE command_audits (
 		t.Fatalf("SaveCommandAudit() error = %v", err)
 	}
 
-	got, err := sut.SearchEvents(context.Background(), dbPath, queryservice.SearchEventsInput{
+	got, err := sut.SearchEvents(context.Background(), dbPath, port.SearchEventsInput{
 		Query: "stdout",
 		Repo:  "github.com/duck8823/traceary",
 		From:  time.Date(2026, 4, 8, 0, 0, 0, 0, time.UTC),
@@ -94,7 +94,7 @@ CREATE TABLE command_audits (
 	t.Run("searches with structural filters only", func(t *testing.T) {
 		t.Parallel()
 
-		filtered, err := sut.SearchEvents(context.Background(), dbPath, queryservice.SearchEventsInput{
+		filtered, err := sut.SearchEvents(context.Background(), dbPath, port.SearchEventsInput{
 			Repo:      "github.com/duck8823/traceary",
 			SessionID: "session-1",
 			Client:    "cli",
@@ -116,7 +116,7 @@ CREATE TABLE command_audits (
 	t.Run("offset で 2 ページ目を取得できる", func(t *testing.T) {
 		t.Parallel()
 
-		filtered, err := sut.SearchEvents(context.Background(), dbPath, queryservice.SearchEventsInput{
+		filtered, err := sut.SearchEvents(context.Background(), dbPath, port.SearchEventsInput{
 			Repo:   "github.com/duck8823/traceary",
 			Limit:  1,
 			Offset: 1,

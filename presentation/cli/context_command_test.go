@@ -9,13 +9,14 @@ import (
 
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
 type getContextQueryServiceStub struct {
 	receivedPath  string
-	receivedInput queryservice.GetContextInput
+	receivedInput port.GetContextInput
 	called        bool
 	events        []*model.Event
 	err           error
@@ -24,7 +25,7 @@ type getContextQueryServiceStub struct {
 func (s *getContextQueryServiceStub) Run(
 	_ context.Context,
 	dbPath string,
-	input queryservice.GetContextInput,
+	input port.GetContextInput,
 ) ([]*model.Event, error) {
 	s.called = true
 	s.receivedPath = dbPath
@@ -36,7 +37,7 @@ var _ queryservice.GetContextQueryService = (*getContextQueryServiceStub)(nil)
 
 type contextLatestSessionQueryServiceStub struct {
 	receivedPath  string
-	receivedInput queryservice.FindLatestSessionInput
+	receivedInput port.FindLatestSessionInput
 	called        bool
 	event         *model.Event
 	err           error
@@ -45,7 +46,7 @@ type contextLatestSessionQueryServiceStub struct {
 func (s *contextLatestSessionQueryServiceStub) Run(
 	_ context.Context,
 	dbPath string,
-	input queryservice.FindLatestSessionInput,
+	input port.FindLatestSessionInput,
 ) (*model.Event, error) {
 	s.called = true
 	s.receivedPath = dbPath
@@ -206,7 +207,7 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 		initStub := &initializeStoreUsecaseStub{}
 		contextStub := &getContextQueryServiceStub{}
 		latestStub := &contextLatestSessionQueryServiceStub{
-			err: queryservice.ErrSessionNotFound,
+			err: port.ErrSessionNotFound,
 		}
 
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{

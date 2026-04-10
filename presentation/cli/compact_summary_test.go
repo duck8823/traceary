@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
 )
@@ -31,7 +31,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 			},
 		}
 		listSessionsStub := &listSessionsQueryServiceStub{
-			summaries: []*queryservice.SessionSummary{
+			summaries: []*port.SessionSummary{
 				{
 					SessionID: "session-abc",
 					Repo:      "duck8823/traceary",
@@ -118,7 +118,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 			InitializeStoreUsecase: &initializeStoreUsecaseStub{},
 			ListEventsQueryService: &listEventsQueryServiceStub{events: events},
 			ListSessionsQueryService: &listSessionsQueryServiceStub{
-				summaries: []*queryservice.SessionSummary{{SessionID: "s1", Repo: "repo"}},
+				summaries: []*port.SessionSummary{{SessionID: "s1", Repo: "repo"}},
 			},
 		}).Command()
 		rootCmd.SetOut(stdout)

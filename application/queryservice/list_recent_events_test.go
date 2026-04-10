@@ -7,12 +7,13 @@ import (
 
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 )
 
 type recentEventFinderStub struct {
 	receivedPath  string
-	receivedInput queryservice.ListRecentEventsInput
+	receivedInput port.ListRecentEventsInput
 	events        []*model.Event
 	err           error
 }
@@ -20,7 +21,7 @@ type recentEventFinderStub struct {
 func (s *recentEventFinderStub) ListRecent(
 	_ context.Context,
 	dbPath string,
-	input queryservice.ListRecentEventsInput,
+	input port.ListRecentEventsInput,
 ) ([]*model.Event, error) {
 	s.receivedPath = dbPath
 	s.receivedInput = input
@@ -62,7 +63,7 @@ func TestListRecentEventsQueryService_Run(t *testing.T) {
 		}
 		sut := queryservice.NewListRecentEventsQueryService(stub)
 
-		got, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.ListRecentEventsInput{
+		got, err := sut.Run(context.Background(), "/tmp/traceary.db", port.ListRecentEventsInput{
 			Limit:     5,
 			Offset:    2,
 			Kind:      "note",
@@ -102,7 +103,7 @@ func TestListRecentEventsQueryService_Run(t *testing.T) {
 
 		sut := queryservice.NewListRecentEventsQueryService(&recentEventFinderStub{})
 
-		_, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.ListRecentEventsInput{})
+		_, err := sut.Run(context.Background(), "/tmp/traceary.db", port.ListRecentEventsInput{})
 		if err == nil {
 			t.Fatalf("Run() error = nil, want error")
 		}
@@ -113,7 +114,7 @@ func TestListRecentEventsQueryService_Run(t *testing.T) {
 
 		sut := queryservice.NewListRecentEventsQueryService(&recentEventFinderStub{})
 
-		_, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.ListRecentEventsInput{
+		_, err := sut.Run(context.Background(), "/tmp/traceary.db", port.ListRecentEventsInput{
 			Limit:  10,
 			Offset: -1,
 		})

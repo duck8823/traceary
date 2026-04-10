@@ -7,12 +7,13 @@ import (
 
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 )
 
 type contextEventFinderStub struct {
 	receivedPath  string
-	receivedInput queryservice.GetContextInput
+	receivedInput port.GetContextInput
 	events        []*model.Event
 	err           error
 }
@@ -20,7 +21,7 @@ type contextEventFinderStub struct {
 func (s *contextEventFinderStub) GetContextEvents(
 	_ context.Context,
 	dbPath string,
-	input queryservice.GetContextInput,
+	input port.GetContextInput,
 ) ([]*model.Event, error) {
 	s.receivedPath = dbPath
 	s.receivedInput = input
@@ -62,7 +63,7 @@ func TestGetContextQueryService_Run(t *testing.T) {
 		}
 		sut := queryservice.NewGetContextQueryService(stub)
 
-		got, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.GetContextInput{
+		got, err := sut.Run(context.Background(), "/tmp/traceary.db", port.GetContextInput{
 			Repo:      "github.com/duck8823/traceary",
 			SessionID: "session-1",
 			Limit:     10,
@@ -86,7 +87,7 @@ func TestGetContextQueryService_Run(t *testing.T) {
 
 		sut := queryservice.NewGetContextQueryService(&contextEventFinderStub{})
 
-		_, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.GetContextInput{Limit: 0})
+		_, err := sut.Run(context.Background(), "/tmp/traceary.db", port.GetContextInput{Limit: 0})
 		if err == nil {
 			t.Fatalf("Run() error = nil, want error")
 		}

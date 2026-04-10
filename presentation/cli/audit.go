@@ -11,8 +11,8 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/presentation"
 )
 
@@ -224,7 +224,7 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		return xerrors.Errorf("%s: %w", Localize("failed to record command audit", "監査ログ記録に失敗しました"), err)
 	}
 	if input.asJSON {
-		eventDetails, err := queryservice.NewEventDetails(event, commandAudit)
+		eventDetails, err := port.NewEventDetails(event, commandAudit)
 		if err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to build audit result", "監査ログ結果の構築に失敗しました"), err)
 		}

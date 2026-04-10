@@ -12,6 +12,7 @@ import (
 
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/port"
 )
 
 func (c *RootCLI) newContextCommand() *cobra.Command {
@@ -99,7 +100,7 @@ func (c *RootCLI) runContext(ctx context.Context, output io.Writer, input contex
 		return err
 	}
 
-	events, err := c.getContextQueryService.Run(ctx, resolvedPath, queryservice.GetContextInput{
+	events, err := c.getContextQueryService.Run(ctx, resolvedPath, port.GetContextInput{
 		Repo:      resolvedRepo,
 		SessionID: resolvedSessionID,
 		Limit:     input.limit,
@@ -129,7 +130,7 @@ func (c *RootCLI) resolveContextSessionID(
 		return "", nil
 	}
 
-	event, err := c.findLatestSessionQueryService.Run(ctx, dbPath, queryservice.FindLatestSessionInput{
+	event, err := c.findLatestSessionQueryService.Run(ctx, dbPath, port.FindLatestSessionInput{
 		Client: strings.TrimSpace(input.client),
 		Agent:  strings.TrimSpace(input.agent),
 		Repo:   strings.TrimSpace(input.repo),
