@@ -61,19 +61,21 @@ func (c *RootCLI) newBackupCreateCommand() *cobra.Command {
 		outputPath string
 		force      bool
 	)
-	var commandSetupErr error
-
 	createCmd := &cobra.Command{
-		Use:   "create",
+		Use:   "create [output-path]",
 		Short: Localize("Create a compact SQLite backup file", "コンパクトな SQLite バックアップファイルを作成する"),
-		Args:  noArgsLocalized(),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if commandSetupErr != nil {
-				return commandSetupErr
+		Args:  maximumNArgsLocalized(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			resolvedOutput := outputPath
+			if len(args) == 1 && resolvedOutput == "" {
+				resolvedOutput = args[0]
+			}
+			if resolvedOutput == "" {
+				return xerrors.Errorf(Localize("output path is required (positional argument or --output flag)", "出力先パスが必要です（位置引数または --output フラグ）"))
 			}
 			return c.runBackupCreate(cmd.Context(), cmd.OutOrStdout(), backupCreateCommandInput{
 				dbPath:     dbPath,
-				outputPath: outputPath,
+				outputPath: resolvedOutput,
 				force:      force,
 			})
 		},
@@ -81,7 +83,6 @@ func (c *RootCLI) newBackupCreateCommand() *cobra.Command {
 	createCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	createCmd.Flags().StringVar(&outputPath, "output", "", Localize("backup output path", "バックアップ出力先パス"))
 	createCmd.Flags().BoolVar(&force, "force", false, Localize("overwrite the backup file if it already exists", "既存のバックアップファイルがあれば上書きする"))
-	commandSetupErr = configureRequiredFlag(createCmd, "output")
 
 	return createCmd
 }
