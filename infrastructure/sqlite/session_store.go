@@ -59,7 +59,7 @@ func (d *Datasource) SaveSession(ctx context.Context, dbPath string, session *mo
 			return xerrors.Errorf("failed to check rows affected: %w", err)
 		}
 		if rowsAffected == 0 {
-			slog.Debug("session not found for ended_at update, skipping", "session_id", session.SessionID().String())
+			return xerrors.Errorf("session not found: %s", session.SessionID().String())
 		}
 		return nil
 	}
