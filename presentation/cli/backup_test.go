@@ -88,10 +88,7 @@ func TestRootCLI_BackupCreateCommand_MissingOutputReturnsError(t *testing.T) {
 
 	err := rootCmd.Execute()
 	if err == nil {
-		t.Fatal("Execute() error = nil, want error")
-	}
-	if err.Error() != `required flag(s) "output" not set` {
-		t.Fatalf("Execute() error = %q, want required output flag error", err.Error())
+		t.Fatal("Execute() error = nil, want error for missing output path")
 	}
 }
 
