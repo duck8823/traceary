@@ -7,6 +7,8 @@ import (
 
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/domain/port"
+
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -16,16 +18,8 @@ const (
 	maxAuditOutputLength = 64 * 1024
 )
 
-// CommandAuditSaver provides persistence for events and command-audit data.
-type CommandAuditSaver interface {
-	// SaveCommandAudit persists an event and command-audit data in one transaction.
-	SaveCommandAudit(
-		ctx context.Context,
-		dbPath string,
-		event *model.Event,
-		commandAudit *model.CommandAudit,
-	) error
-}
+// CommandAuditSaver is defined in domain/port.
+type CommandAuditSaver = port.CommandAuditSaver
 
 // RecordCommandAuditInput is the input for traceary audit recording.
 type RecordCommandAuditInput struct {

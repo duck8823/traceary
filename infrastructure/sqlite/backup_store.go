@@ -12,11 +12,11 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/port"
 )
 
-var _ usecase.StoreBackupCreator = (*Datasource)(nil)
-var _ usecase.StoreBackupRestorer = (*Datasource)(nil)
+var _ port.StoreBackupCreator = (*Datasource)(nil)
+var _ port.StoreBackupRestorer = (*Datasource)(nil)
 
 // CreateBackup creates a backup of the SQLite DB.
 func (d *Datasource) CreateBackup(ctx context.Context, dbPath string, outputPath string, overwrite bool) (err error) {

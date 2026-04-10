@@ -8,12 +8,12 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
 
-var _ usecase.SessionStartedEventFinder = (*Datasource)(nil)
+var _ port.SessionStartedEventFinder = (*Datasource)(nil)
 
 // FindSessionStartedEvent returns the latest session_started event for the target session.
 func (d *Datasource) FindSessionStartedEvent(
@@ -46,7 +46,7 @@ func (d *Datasource) FindSessionStartedEvent(
 	event, err := d.scanEvent(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, usecase.ErrSessionStartedEventNotFound
+			return nil, port.ErrSessionStartedEventNotFound
 		}
 		return nil, xerrors.Errorf("failed to restore session_started event: %w", err)
 	}

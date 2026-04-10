@@ -7,10 +7,10 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/port"
 )
 
-var _ usecase.GarbageCollector = (*Datasource)(nil)
+var _ port.GarbageCollector = (*Datasource)(nil)
 
 // CollectGarbage deletes events older than the given time.
 func (d *Datasource) CollectGarbage(
