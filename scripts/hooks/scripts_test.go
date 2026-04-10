@@ -237,6 +237,7 @@ func TestTracearyAuditScript_UsesHookPayloadAndSessionState(t *testing.T) {
 		"--client", "hook",
 		"--agent", "codex",
 		"--session-id", "generated-session",
+		"--exit-code", "0",
 		"--repo", "work-context",
 	}
 	if !reflect.DeepEqual(calls[1], wantAudit) {
@@ -516,6 +517,7 @@ func TestTracearyAuditScript_UsesAgentTypeFromPayload(t *testing.T) {
 		"--client", "hook",
 		"--agent", "claude/Explore",
 		"--session-id", "generated-session",
+		"--exit-code", "0",
 		"--repo", "work-context",
 	}
 	if !reflect.DeepEqual(calls[1], wantAudit) {

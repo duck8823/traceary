@@ -64,6 +64,7 @@ func TestGetEventDetailsQueryService_Run(t *testing.T) {
 				"stdout",
 				false,
 				false,
+				nil,
 			),
 		)
 		if err != nil {

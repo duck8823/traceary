@@ -62,7 +62,7 @@ func TestCommandAuditOf(t *testing.T) {
 
 	eventID, _ := types.EventIDOf("event-2")
 
-	audit := model.CommandAuditOf(eventID, "go build", "input-data", "output-data", false, true)
+	audit := model.CommandAuditOf(eventID, "go build", "input-data", "output-data", false, true, nil)
 
 	if audit.EventID() != eventID {
 		t.Errorf("EventID() = %v, want %v", audit.EventID(), eventID)

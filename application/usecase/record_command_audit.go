@@ -41,6 +41,7 @@ type RecordCommandAuditInput struct {
 	MaxInputBytes       int
 	MaxOutputBytes      int
 	ExtraRedactPatterns []string
+	ExitCode            *int
 }
 
 // RecordCommandAuditUsecase persists command-audit events.
@@ -122,6 +123,7 @@ func (u *recordCommandAuditUsecase) Run(
 		return nil, nil, xerrors.Errorf("failed to build command audit: %w", err)
 	}
 	commandAudit.SetRedaction(inputRedacted, outputRedacted)
+	commandAudit.SetExitCode(input.ExitCode)
 
 	event, err := model.NewEvent(
 		eventID,
