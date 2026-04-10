@@ -50,6 +50,9 @@ case "$ACTION" in
     if [[ -n "$ACTUAL_SESSION_ID" ]]; then
       traceary_write_state "$CLIENT" "$ACTUAL_SESSION_ID"
       traceary_clear_session_end_marker "$CLIENT" "$ACTUAL_SESSION_ID"
+      if [[ -n "$REPO_VALUE" ]]; then
+        traceary_write_repo_state "$CLIENT" "$REPO_VALUE"
+      fi
     fi
     ;;
   end|stop)
@@ -74,6 +77,7 @@ case "$ACTION" in
     fi
     "${COMMAND[@]}" >/dev/null 2>&1 || exit 0
     traceary_clear_state "$CLIENT"
+    traceary_clear_repo_state "$CLIENT"
     traceary_mark_session_ended "$CLIENT" "$SESSION_ID"
     ;;
   *)
