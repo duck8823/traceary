@@ -73,6 +73,15 @@ func (d *Datasource) ListRecent(
 		}
 	}()
 
+	fromValue := ""
+	if !input.From.IsZero() {
+		fromValue = formatTimestamp(input.From)
+	}
+	toValue := ""
+	if !input.To.IsZero() {
+		toValue = formatTimestamp(input.To)
+	}
+
 	rows, err := db.QueryContext(
 		ctx,
 		`SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.repo, e.body, e.created_at
@@ -84,6 +93,8 @@ func (d *Datasource) ListRecent(
 		    AND (? = '' OR e.session_id = ?)
 		    AND (? = '' OR e.repo = ?)
 		    AND (? = 0 OR (ca.exit_code IS NOT NULL AND ca.exit_code != 0))
+		    AND (? = '' OR e.created_at >= ?)
+		    AND (? = '' OR e.created_at < ?)
 		  ORDER BY e.created_at DESC, e.id DESC
 		  LIMIT ? OFFSET ?`,
 		input.Kind, input.Kind,
@@ -92,6 +103,8 @@ func (d *Datasource) ListRecent(
 		input.SessionID, input.SessionID,
 		input.Repo, input.Repo,
 		boolToInt(input.FailuresOnly),
+		fromValue, fromValue,
+		toValue, toValue,
 		input.Limit,
 		input.Offset,
 	)

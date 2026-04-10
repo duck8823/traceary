@@ -2,6 +2,7 @@ package queryservice
 
 import (
 	"context"
+	"time"
 
 	"golang.org/x/xerrors"
 
@@ -18,6 +19,8 @@ type ListRecentEventsInput struct {
 	SessionID    string
 	Repo         string
 	FailuresOnly bool
+	From         time.Time
+	To           time.Time
 }
 
 // RecentEventFinder provides recent event lookup.
