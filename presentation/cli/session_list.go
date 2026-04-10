@@ -51,7 +51,7 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to resolve --from", "from の解決に失敗しました"), err)
 			}
-			toTime, err := parseFlexibleTimePtr(to, true)
+			toTime, err := parseFlexibleTimePtr(to, false)
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to resolve --to", "to の解決に失敗しました"), err)
 			}
