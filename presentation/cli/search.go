@@ -141,7 +141,7 @@ func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchC
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve --to", "to の解決に失敗しました"), err)
 	}
-	if !hasSearchConstraint(input.query, input.repo, input.sessionID, input.client, input.agent, input.kind, fromTime, toTime) {
+	if !hasSearchConstraint(input.query, input.repo, input.sessionID, input.client, input.agent, input.kind, fromTime, toTime, input.failuresOnly) {
 		return xerrors.Errorf(Localize("at least one search filter is required", "検索条件は1つ以上必要です"))
 	}
 	if !fromTime.IsZero() && !toTime.IsZero() && fromTime.After(toTime) {
@@ -207,6 +207,7 @@ func hasSearchConstraint(
 	kind string,
 	from time.Time,
 	to time.Time,
+	failuresOnly bool,
 ) bool {
 	return strings.TrimSpace(query) != "" ||
 		strings.TrimSpace(repo) != "" ||
@@ -215,7 +216,8 @@ func hasSearchConstraint(
 		strings.TrimSpace(agent) != "" ||
 		strings.TrimSpace(kind) != "" ||
 		!from.IsZero() ||
-		!to.IsZero()
+		!to.IsZero() ||
+		failuresOnly
 }
 
 func validateSearchKind(value string) (string, error) {
