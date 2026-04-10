@@ -36,6 +36,18 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';
 CREATE INDEX idx_events_created_at
     ON events(created_at DESC, id DESC);`),
 		},
+		"000003_create_command_audits.sql": {
+			Data: []byte(`
+CREATE TABLE command_audits (
+    event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+    command_text TEXT NOT NULL,
+    input_text TEXT NOT NULL,
+    output_text TEXT NOT NULL,
+    input_truncated INTEGER NOT NULL DEFAULT 0,
+    output_truncated INTEGER NOT NULL DEFAULT 0,
+    exit_code INTEGER
+);`),
+		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
 	sut := sqlite.NewDatasource(migrations)
@@ -92,7 +104,7 @@ CREATE INDEX idx_events_created_at
 	}
 }
 
-func TestDatasource_Initialize_既存DBへイベントメタデータ列を追加できる(t *testing.T) {
+func TestDatasource_Initialize_addsEventMetadataColumnsToExistingDB(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
@@ -120,6 +132,18 @@ CREATE TABLE events (
 			Data: []byte(`
 ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
 ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
+		},
+		"000003_create_command_audits.sql": {
+			Data: []byte(`
+CREATE TABLE command_audits (
+    event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+    command_text TEXT NOT NULL,
+    input_text TEXT NOT NULL,
+    output_text TEXT NOT NULL,
+    input_truncated INTEGER NOT NULL DEFAULT 0,
+    output_truncated INTEGER NOT NULL DEFAULT 0,
+    exit_code INTEGER
+);`),
 		},
 	}
 	sut := sqlite.NewDatasource(updatedMigrations)
@@ -178,6 +202,18 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';
 
 CREATE INDEX idx_events_created_at
     ON events(created_at DESC, id DESC);`),
+		},
+		"000003_create_command_audits.sql": {
+			Data: []byte(`
+CREATE TABLE command_audits (
+    event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+    command_text TEXT NOT NULL,
+    input_text TEXT NOT NULL,
+    output_text TEXT NOT NULL,
+    input_truncated INTEGER NOT NULL DEFAULT 0,
+    output_truncated INTEGER NOT NULL DEFAULT 0,
+    exit_code INTEGER
+);`),
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
@@ -240,6 +276,18 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';
 
 CREATE INDEX idx_events_created_at
     ON events(created_at DESC, id DESC);`),
+		},
+		"000003_create_command_audits.sql": {
+			Data: []byte(`
+CREATE TABLE command_audits (
+    event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+    command_text TEXT NOT NULL,
+    input_text TEXT NOT NULL,
+    output_text TEXT NOT NULL,
+    input_truncated INTEGER NOT NULL DEFAULT 0,
+    output_truncated INTEGER NOT NULL DEFAULT 0,
+    exit_code INTEGER
+);`),
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")

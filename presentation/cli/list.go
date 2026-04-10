@@ -15,14 +15,15 @@ import (
 func (c *RootCLI) newListCommand() *cobra.Command {
 	var (
 		dbPath    string
-		limit     int
-		offset    int
-		kind      string
-		client    string
-		agent     string
-		sessionID string
-		repo      string
-		asJSON    bool
+		limit        int
+		offset       int
+		kind         string
+		client       string
+		agent        string
+		sessionID    string
+		repo         string
+		failuresOnly bool
+		asJSON       bool
 	)
 
 	listCmd := &cobra.Command{
@@ -31,15 +32,16 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runList(cmd.Context(), cmd.OutOrStdout(), listCommandInput{
-				dbPath:    dbPath,
-				limit:     limit,
-				offset:    offset,
-				kind:      kind,
-				client:    client,
-				agent:     agent,
-				sessionID: sessionID,
-				repo:      repo,
-				asJSON:    asJSON,
+				dbPath:       dbPath,
+				limit:        limit,
+				offset:       offset,
+				kind:         kind,
+				client:       client,
+				agent:        agent,
+				sessionID:    sessionID,
+				repo:         repo,
+				failuresOnly: failuresOnly,
+				asJSON:       asJSON,
 			})
 		},
 	}
@@ -51,21 +53,23 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 	listCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "作業主体で絞り込む"))
 	listCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("filter by session ID", "session ID で絞り込む"))
 	listCmd.Flags().StringVar(&repo, "repo", "", Localize("filter by auxiliary work context identifier", "補助的なコンテキスト識別子で絞り込む"))
+	listCmd.Flags().BoolVar(&failuresOnly, "failures", false, Localize("show only failed commands", "失敗したコマンドのみ表示"))
 	listCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 
 	return listCmd
 }
 
 type listCommandInput struct {
-	dbPath    string
-	limit     int
-	offset    int
-	kind      string
-	client    string
-	agent     string
-	sessionID string
-	repo      string
-	asJSON    bool
+	dbPath       string
+	limit        int
+	offset       int
+	kind         string
+	client       string
+	agent        string
+	sessionID    string
+	repo         string
+	failuresOnly bool
+	asJSON       bool
 }
 
 func (c *RootCLI) runList(ctx context.Context, output io.Writer, input listCommandInput) error {
@@ -95,13 +99,14 @@ func (c *RootCLI) runList(ctx context.Context, output io.Writer, input listComma
 	}
 
 	events, err := c.listEventsQueryService.Run(ctx, resolvedPath, queryservice.ListRecentEventsInput{
-		Limit:     input.limit,
-		Offset:    input.offset,
-		Kind:      resolvedKind,
-		Client:    strings.TrimSpace(input.client),
-		Agent:     strings.TrimSpace(input.agent),
-		SessionID: strings.TrimSpace(input.sessionID),
-		Repo:      resolveRepoValue(ctx, input.repo),
+		Limit:        input.limit,
+		Offset:       input.offset,
+		Kind:         resolvedKind,
+		Client:       strings.TrimSpace(input.client),
+		Agent:        strings.TrimSpace(input.agent),
+		SessionID:    strings.TrimSpace(input.sessionID),
+		Repo:         resolveRepoValue(ctx, input.repo),
+		FailuresOnly: input.failuresOnly,
 	})
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to list events", "イベント一覧の取得に失敗しました"), err)
