@@ -48,6 +48,10 @@ func checkLatestVersion(currentVersion string) doctorCheck {
 
 	latestVersion := strings.TrimPrefix(release.TagName, "v")
 	normalizedCurrent := strings.TrimPrefix(currentVersion, "v")
+	// Strip build metadata: "0.2.4 (commit=..., date=..., go=...)" → "0.2.4"
+	if idx := strings.IndexAny(normalizedCurrent, " +"); idx >= 0 {
+		normalizedCurrent = normalizedCurrent[:idx]
+	}
 
 	if normalizedCurrent == latestVersion {
 		return doctorCheck{
