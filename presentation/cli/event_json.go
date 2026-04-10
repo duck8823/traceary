@@ -27,6 +27,7 @@ type commandAuditJSON struct {
 	Output          string `json:"output"`
 	InputTruncated  bool   `json:"input_truncated"`
 	OutputTruncated bool   `json:"output_truncated"`
+	ExitCode        *int   `json:"exit_code,omitempty"`
 }
 
 type eventDetailsJSON struct {
@@ -90,6 +91,7 @@ func newCommandAuditJSON(commandAudit *model.CommandAudit) *commandAuditJSON {
 		Output:          commandAudit.Output(),
 		InputTruncated:  commandAudit.InputTruncated(),
 		OutputTruncated: commandAudit.OutputTruncated(),
+		ExitCode:        commandAudit.ExitCode(),
 	}
 }
 
