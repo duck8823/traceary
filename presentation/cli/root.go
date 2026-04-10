@@ -22,6 +22,7 @@ type RootCLI struct {
 	getEventDetailsQueryService   queryservice.GetEventDetailsQueryService
 	findLatestSessionQueryService queryservice.FindLatestSessionQueryService
 	listSessionsQueryService      queryservice.ListSessionsQueryService
+	updateSessionLabelUsecase     usecase.UpdateSessionLabelUsecase
 	mcpServerRunner               MCPServerRunner
 }
 
@@ -40,6 +41,7 @@ type RootCLIOptions struct {
 	GetEventDetailsQueryService   queryservice.GetEventDetailsQueryService
 	FindLatestSessionQueryService queryservice.FindLatestSessionQueryService
 	ListSessionsQueryService      queryservice.ListSessionsQueryService
+	UpdateSessionLabelUsecase     usecase.UpdateSessionLabelUsecase
 	MCPServerRunner               MCPServerRunner
 }
 
@@ -59,6 +61,7 @@ func NewRootCLI(options RootCLIOptions) *RootCLI {
 		getEventDetailsQueryService:   options.GetEventDetailsQueryService,
 		findLatestSessionQueryService: options.FindLatestSessionQueryService,
 		listSessionsQueryService:      options.ListSessionsQueryService,
+		updateSessionLabelUsecase:     options.UpdateSessionLabelUsecase,
 		mcpServerRunner:               options.MCPServerRunner,
 	}
 }
