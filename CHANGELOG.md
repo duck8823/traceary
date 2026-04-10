@@ -5,6 +5,57 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.2.0] - 2026-04-11
+
+Context preservation and production readiness release.
+
+### Added
+- Automatic context preservation: PostCompact and SessionStart(compact) hooks inject lightweight context pointer after compact/clear
+- `traceary compact-summary` command for LLM-free context pointer generation
+- `traceary session handoff` command for concise session state summary
+- `traceary session tree` command for parent-child session visualization
+- `traceary list --failures` flag for failure-first view (filter by non-zero exit code)
+- `exit_code` column in command_audits for failure tracking (migration 000005)
+- Version check in `traceary doctor` via GitHub API with 3s timeout
+- Hook contract documentation defining capability tiers across Claude, Codex, Gemini
+- Integration contract tests verifying hooks.json structure for all 3 clients
+- Migration regression tests (empty DB, idempotency, backfill accuracy)
+
+### Changed
+- Gemini CLI AfterTool expanded from `run_shell_command` to all tools
+- Stale session detection: active sessions >24h marked as "stale" in session list
+- README restructured as CLI-first install flow (Step 1: CLI, Step 2: Plugin)
+- Makefile translated to English with `code/build` and `code/cover` targets added
+- All test names migrated from Japanese to English for OSS contributors
+- Repository interfaces moved to `domain/port` package (fixing infrastructure → application dependency)
+- `list_sessions` SQL extracted to embedded file via go:embed
+
+### Improved
+- domain/model coverage: 48.8% → 97.6%, domain/types: 42.3% → 100%
+- scripts/hooks coverage: 14.3% → 78.6%
+- mcpserver coverage: 66.7% → 73.8%
+
+### Included issues
+- #236 Automatic context preservation across compact/clear
+- #237 Session handoff command
+- #238 Session tree visualization
+- #239 Failure-first view in list
+- #240 Gemini full tool audit
+- #241 Codex SessionEnd reliability (stale detection)
+- #242 Unified hook contract across clients
+- #243 scripts/hooks test coverage
+- #244 domain model/types test coverage
+- #245 main/mcpserver test coverage
+- #246 Hook payload normalization (exit_code)
+- #247 Integration contract tests
+- #248 Migration regression tests
+- #249 Version check in doctor
+- #250 README CLI-first restructure
+- #251 Repository interfaces to domain/port
+- #252 SQL extraction to go:embed
+- #253 Test names English migration
+- #254 Makefile improvements
+
 ## [v0.1.19] - 2026-04-10
 
 This release improves CLI visibility, makes config failures visible before they silently weaken redaction behavior, and removes drift-prone hook asset duplication.
