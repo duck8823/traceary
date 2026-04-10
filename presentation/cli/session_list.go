@@ -47,20 +47,13 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 				return xerrors.Errorf("%s", Localize("offset must be >= 0", "offset は 0 以上でなければなりません"))
 			}
 
-			var fromTime, toTime *time.Time
-			if from != "" {
-				t, err := time.Parse("2006-01-02", from)
-				if err != nil {
-					return xerrors.Errorf("%s: %w", Localize("--from must be YYYY-MM-DD", "--from は YYYY-MM-DD 形式でなければなりません"), err)
-				}
-				fromTime = &t
+			fromTime, err := parseFlexibleTimePtr(from, false)
+			if err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to resolve --from", "from の解決に失敗しました"), err)
 			}
-			if to != "" {
-				t, err := time.Parse("2006-01-02", to)
-				if err != nil {
-					return xerrors.Errorf("%s: %w", Localize("--to must be YYYY-MM-DD", "--to は YYYY-MM-DD 形式でなければなりません"), err)
-				}
-				toTime = &t
+			toTime, err := parseFlexibleTimePtr(to, false)
+			if err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to resolve --to", "to の解決に失敗しました"), err)
 			}
 
 			resolvedRepo := resolveRepoValue(ctx, repo)
@@ -86,8 +79,8 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 	listCmd.Flags().StringVar(&repo, "repo", "", Localize("filter by repo", "リポジトリでフィルタ"))
 	listCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "エージェントでフィルタ"))
 	listCmd.Flags().StringVar(&label, "label", "", Localize("filter by label", "ラベルでフィルタ"))
-	listCmd.Flags().StringVar(&from, "from", "", Localize("start date (YYYY-MM-DD)", "開始日 (YYYY-MM-DD)"))
-	listCmd.Flags().StringVar(&to, "to", "", Localize("end date (YYYY-MM-DD)", "終了日 (YYYY-MM-DD)"))
+	listCmd.Flags().StringVar(&from, "from", "", Localize("start date (YYYY-MM-DD or RFC3339)", "開始日 (YYYY-MM-DD または RFC3339)"))
+	listCmd.Flags().StringVar(&to, "to", "", Localize("end date (YYYY-MM-DD or RFC3339)", "終了日 (YYYY-MM-DD または RFC3339)"))
 	listCmd.Flags().IntVar(&limit, "limit", 20, Localize("maximum number of sessions", "最大表示セッション数"))
 	listCmd.Flags().IntVar(&offset, "offset", 0, Localize("number of sessions to skip", "スキップするセッション数"))
 	listCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))

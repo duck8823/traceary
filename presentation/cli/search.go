@@ -72,10 +72,10 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 			"絞り込む kind (note, command_executed, reviewed, session_started, session_ended; alias: audit)",
 		),
 	)
-	searchCmd.Flags().StringVar(&from, "from", "", Localize("start date (`YYYY-MM-DD`)", "開始日 (`YYYY-MM-DD`)"))
-	searchCmd.Flags().StringVar(&since, "since", "", Localize("start date (`YYYY-MM-DD`) (alias for `--from`)", "開始日 (`YYYY-MM-DD`) (`--from` の別名)"))
-	searchCmd.Flags().StringVar(&to, "to", "", Localize("end date (`YYYY-MM-DD`)", "終了日 (`YYYY-MM-DD`)"))
-	searchCmd.Flags().StringVar(&until, "until", "", Localize("end date (`YYYY-MM-DD`) (alias for `--to`)", "終了日 (`YYYY-MM-DD`) (`--to` の別名)"))
+	searchCmd.Flags().StringVar(&from, "from", "", Localize("start date (`YYYY-MM-DD` or RFC3339)", "開始日 (`YYYY-MM-DD` または RFC3339)"))
+	searchCmd.Flags().StringVar(&since, "since", "", Localize("start date (`YYYY-MM-DD` or RFC3339) (alias for `--from`)", "開始日 (`YYYY-MM-DD` または RFC3339) (`--from` の別名)"))
+	searchCmd.Flags().StringVar(&to, "to", "", Localize("end date (`YYYY-MM-DD` or RFC3339)", "終了日 (`YYYY-MM-DD` または RFC3339)"))
+	searchCmd.Flags().StringVar(&until, "until", "", Localize("end date (`YYYY-MM-DD` or RFC3339) (alias for `--to`)", "終了日 (`YYYY-MM-DD` または RFC3339) (`--to` の別名)"))
 	searchCmd.Flags().IntVar(&limit, "limit", 20, Localize("maximum number of results", "表示件数"))
 	searchCmd.Flags().IntVar(&offset, "offset", 0, Localize("number of matching events to skip before returning results", "結果を返す前にスキップする件数"))
 	searchCmd.Flags().BoolVar(&failuresOnly, "failures", false, Localize("show only failed commands", "失敗したコマンドのみ表示"))
@@ -176,21 +176,10 @@ func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchC
 	return nil
 }
 
+// parseSearchDate delegates to parseFlexibleTime, which accepts both
+// RFC3339 and YYYY-MM-DD formats.
 func parseSearchDate(value string, endExclusive bool) (time.Time, error) {
-	trimmedValue := strings.TrimSpace(value)
-	if trimmedValue == "" {
-		return time.Time{}, nil
-	}
-
-	parsedTime, err := time.Parse("2006-01-02", trimmedValue)
-	if err != nil {
-		return time.Time{}, xerrors.Errorf("%s: %w", Localize("date must use YYYY-MM-DD format", "日付は YYYY-MM-DD 形式で指定してください"), err)
-	}
-	if endExclusive {
-		return parsedTime.AddDate(0, 0, 1), nil
-	}
-
-	return parsedTime, nil
+	return parseFlexibleTime(value, endExclusive)
 }
 
 func resolveSearchDateValue(primary string, alias string, primaryName string, aliasName string) (string, error) {
