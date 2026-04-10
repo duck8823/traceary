@@ -73,6 +73,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 				"stdout",
 				true,
 				false,
+				nil,
 			),
 		)
 		if err != nil {
@@ -188,6 +189,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 				"stdout",
 				true,
 				false,
+				nil,
 			),
 		)
 		if err != nil {

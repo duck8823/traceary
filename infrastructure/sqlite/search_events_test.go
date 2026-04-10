@@ -41,7 +41,8 @@ CREATE TABLE command_audits (
     input_text TEXT NOT NULL,
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
-    output_truncated INTEGER NOT NULL DEFAULT 0
+    output_truncated INTEGER NOT NULL DEFAULT 0,
+    exit_code INTEGER
 );`),
 		},
 	}

@@ -34,7 +34,7 @@ func (d *Datasource) GetEventDetails(
 	row := db.QueryRowContext(
 		ctx,
 		`SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.repo, e.body, e.created_at,
-		        ca.command_text, ca.input_text, ca.output_text, ca.input_truncated, ca.output_truncated
+		        ca.command_text, ca.input_text, ca.output_text, ca.input_truncated, ca.output_truncated, ca.exit_code
 		   FROM events AS e
 		   LEFT JOIN command_audits AS ca
 		     ON ca.event_id = e.id
@@ -48,6 +48,7 @@ func (d *Datasource) GetEventDetails(
 		outputTextValue      sql.NullString
 		inputTruncatedValue  sql.NullBool
 		outputTruncatedValue sql.NullBool
+		exitCodeValue        sql.NullInt64
 	)
 
 	event, err := d.scanEventWithAudit(
@@ -57,6 +58,7 @@ func (d *Datasource) GetEventDetails(
 		&outputTextValue,
 		&inputTruncatedValue,
 		&outputTruncatedValue,
+		&exitCodeValue,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -71,6 +73,11 @@ func (d *Datasource) GetEventDetails(
 		if err != nil {
 			return nil, xerrors.Errorf("failed to restore event ID: %w", err)
 		}
+		var exitCode *int
+		if exitCodeValue.Valid {
+			v := int(exitCodeValue.Int64)
+			exitCode = &v
+		}
 		commandAudit = model.CommandAuditOf(
 			eventIDValue,
 			commandTextValue.String,
@@ -78,6 +85,7 @@ func (d *Datasource) GetEventDetails(
 			outputTextValue.String,
 			inputTruncatedValue.Bool,
 			outputTruncatedValue.Bool,
+			exitCode,
 		)
 	}
 
@@ -98,6 +106,7 @@ func (d *Datasource) scanEventWithAudit(
 	outputTextValue *sql.NullString,
 	inputTruncatedValue *sql.NullBool,
 	outputTruncatedValue *sql.NullBool,
+	exitCodeValue *sql.NullInt64,
 ) (*model.Event, error) {
 	var (
 		eventIDValue   string
@@ -124,6 +133,7 @@ func (d *Datasource) scanEventWithAudit(
 		outputTextValue,
 		inputTruncatedValue,
 		outputTruncatedValue,
+		exitCodeValue,
 	); err != nil {
 		return nil, xerrors.Errorf("failed to scan event details row: %w", err)
 	}

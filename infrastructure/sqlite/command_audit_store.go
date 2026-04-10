@@ -64,14 +64,15 @@ func (d *Datasource) SaveCommandAudit(
 
 	if _, err := tx.ExecContext(
 		ctx,
-		`INSERT INTO command_audits(event_id, command_text, input_text, output_text, input_truncated, output_truncated)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO command_audits(event_id, command_text, input_text, output_text, input_truncated, output_truncated, exit_code)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		commandAudit.EventID().String(),
 		commandAudit.Command(),
 		commandAudit.Input(),
 		commandAudit.Output(),
 		commandAudit.InputTruncated(),
 		commandAudit.OutputTruncated(),
+		commandAudit.ExitCode(),
 	); err != nil {
 		return xerrors.Errorf("failed to insert command audit: %w", err)
 	}

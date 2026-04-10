@@ -36,7 +36,8 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
     input_text TEXT NOT NULL,
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
-    output_truncated INTEGER NOT NULL DEFAULT 0
+    output_truncated INTEGER NOT NULL DEFAULT 0,
+    exit_code INTEGER
 );`),
 		},
 		"000004_create_sessions.sql": {
