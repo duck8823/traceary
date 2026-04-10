@@ -7,8 +7,6 @@ import (
 )
 
 func TestEnsureHookScriptsInstalled_MaterializesCanonicalScripts(t *testing.T) {
-	t.Parallel()
-
 	homeDir := t.TempDir()
 	SetUserHomeDirFunc(func() (string, error) {
 		return homeDir, nil
