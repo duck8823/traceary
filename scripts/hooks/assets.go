@@ -3,6 +3,7 @@ package hooks
 import (
 	"embed"
 	"io/fs"
+	"strings"
 
 	"golang.org/x/xerrors"
 )
@@ -35,9 +36,14 @@ func Assets() ([]ScriptAsset, error) {
 		}
 		assets = append(assets, ScriptAsset{
 			Name:    entry.Name(),
-			Content: string(content),
+			Content: normalizeScriptContent(string(content)),
 		})
 	}
 
 	return assets, nil
+}
+
+func normalizeScriptContent(content string) string {
+	normalized := strings.ReplaceAll(content, "\r\n", "\n")
+	return strings.ReplaceAll(normalized, "\r", "\n")
 }
