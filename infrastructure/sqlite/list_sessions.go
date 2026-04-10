@@ -47,6 +47,7 @@ func (d *Datasource) ListSessionSummaries(
 		ctx,
 		listSessionsQuery,
 		input.Repo, input.Repo,
+		input.Client, input.Client,
 		input.Agent, input.Agent,
 		input.Label, input.Label,
 		fromValue, fromValue,
