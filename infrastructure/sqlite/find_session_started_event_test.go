@@ -92,7 +92,7 @@ CREATE INDEX idx_events_created_at
 		}
 	}
 
-	t.Run("対象 session の直近 session_started を返す", func(t *testing.T) {
+	t.Run("returns latest session_started for target session", func(t *testing.T) {
 		t.Parallel()
 
 		sessionID, err := types.SessionIDOf("session-1")
@@ -118,7 +118,7 @@ CREATE INDEX idx_events_created_at
 		}
 	})
 
-	t.Run("見つからない場合は not found を返す", func(t *testing.T) {
+	t.Run("returns not found when no match exists", func(t *testing.T) {
 		t.Parallel()
 
 		sessionID, err := types.SessionIDOf("session-missing")

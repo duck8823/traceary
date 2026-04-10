@@ -61,7 +61,7 @@ func TestCollectGarbageUsecase_Run(t *testing.T) {
 		}
 	})
 
-	t.Run("基準時刻がない場合はエラー", func(t *testing.T) {
+	t.Run("returns error when cutoff time is missing", func(t *testing.T) {
 		t.Parallel()
 
 		sut := usecase.NewCollectGarbageUsecase(&garbageCollectorStub{})

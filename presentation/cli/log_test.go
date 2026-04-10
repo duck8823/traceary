@@ -43,7 +43,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		t.Fatalf("SessionIDOf() error = %v", err)
 	}
 
-	t.Run("フラグ値でログを記録できる", func(t *testing.T) {
+	t.Run("records log with flag values", func(t *testing.T) {
 		t.Parallel()
 
 		dbPath := t.TempDir() + "/traceary.db"
@@ -101,7 +101,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("環境変数デフォルトを利用できる", func(t *testing.T) {
+	t.Run("uses environment variable defaults", func(t *testing.T) {
 		t.Setenv("TRACEARY_AGENT", "claude")
 		t.Setenv("TRACEARY_SESSION_ID", "session-env")
 		t.Setenv("TRACEARY_CLIENT", "hook")

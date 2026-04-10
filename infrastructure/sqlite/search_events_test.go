@@ -90,7 +90,7 @@ CREATE TABLE command_audits (
 		t.Fatalf("EventID() = %q, want %q", got[0].EventID(), "event-audit")
 	}
 
-	t.Run("構造フィルタだけで検索できる", func(t *testing.T) {
+	t.Run("searches with structural filters only", func(t *testing.T) {
 		t.Parallel()
 
 		filtered, err := sut.SearchEvents(context.Background(), dbPath, queryservice.SearchEventsInput{

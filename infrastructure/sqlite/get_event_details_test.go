@@ -76,7 +76,7 @@ CREATE TABLE command_audits (
 		}
 	})
 
-	t.Run("存在しない event ID ならエラー", func(t *testing.T) {
+	t.Run("returns error for nonexistent event ID", func(t *testing.T) {
 		t.Parallel()
 
 		_, err := sut.GetEventDetails(context.Background(), dbPath, "missing")

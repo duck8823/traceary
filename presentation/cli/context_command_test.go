@@ -75,7 +75,7 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 		t.Fatalf("SessionIDOf() error = %v", err)
 	}
 
-	t.Run("直近 session を解決して文脈を表示できる", func(t *testing.T) {
+	t.Run("resolves latest session and displays context", func(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
@@ -199,7 +199,7 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("直近 session がなくても repo 文脈へフォールバックできる", func(t *testing.T) {
+	t.Run("falls back to repo context when no latest session exists", func(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")

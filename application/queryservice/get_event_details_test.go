@@ -43,7 +43,7 @@ func TestGetEventDetailsQueryService_Run(t *testing.T) {
 		t.Fatalf("SessionIDOf() error = %v", err)
 	}
 
-	t.Run("イベント詳細を返す", func(t *testing.T) {
+	t.Run("returns event details", func(t *testing.T) {
 		t.Parallel()
 
 		eventDetails, err := queryservice.NewEventDetails(

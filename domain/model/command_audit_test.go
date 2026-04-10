@@ -15,7 +15,7 @@ func TestNewCommandAudit(t *testing.T) {
 		t.Fatalf("EventIDOf() error = %v", err)
 	}
 
-	t.Run("コマンド監査情報を生成できる", func(t *testing.T) {
+	t.Run("creates command audit successfully", func(t *testing.T) {
 		t.Parallel()
 
 		got, err := model.NewCommandAudit(
@@ -47,7 +47,7 @@ func TestNewCommandAudit(t *testing.T) {
 		}
 	})
 
-	t.Run("空コマンドはエラー", func(t *testing.T) {
+	t.Run("returns error for empty command", func(t *testing.T) {
 		t.Parallel()
 
 		_, err := model.NewCommandAudit(eventID, "   ", "", "", false, false)
