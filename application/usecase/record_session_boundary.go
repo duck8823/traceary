@@ -27,6 +27,12 @@ type RecordSessionBoundaryInput struct {
 // ErrSessionStartedEventNotFound indicates the target session has no start event.
 var ErrSessionStartedEventNotFound = xerrors.New("session_started event was not found for the target session")
 
+// SessionSaver persists session metadata.
+type SessionSaver interface {
+	// SaveSession creates or updates a session record.
+	SaveSession(ctx context.Context, dbPath string, session *model.Session) error
+}
+
 // SessionStartedEventFinder provides lookup for session_started events.
 type SessionStartedEventFinder interface {
 	// FindSessionStartedEvent returns the latest session_started event for the target session.
@@ -45,6 +51,7 @@ type RecordSessionBoundaryUsecase interface {
 
 type recordSessionBoundaryUsecase struct {
 	eventSaver                EventSaver
+	sessionSaver              SessionSaver
 	sessionStartedEventFinder SessionStartedEventFinder
 }
 
@@ -52,9 +59,15 @@ type recordSessionBoundaryUsecase struct {
 func NewRecordSessionBoundaryUsecase(
 	eventSaver EventSaver,
 	sessionStartedEventFinder SessionStartedEventFinder,
+	sessionSavers ...SessionSaver,
 ) RecordSessionBoundaryUsecase {
+	var sessionSaver SessionSaver
+	if len(sessionSavers) > 0 {
+		sessionSaver = sessionSavers[0]
+	}
 	return &recordSessionBoundaryUsecase{
 		eventSaver:                eventSaver,
+		sessionSaver:              sessionSaver,
 		sessionStartedEventFinder: sessionStartedEventFinder,
 	}
 }
@@ -110,7 +123,38 @@ func (u *recordSessionBoundaryUsecase) Run(
 		return nil, xerrors.Errorf("failed to save session boundary event: %w", err)
 	}
 
+	if u.sessionSaver != nil {
+		session := buildSessionFromBoundary(event, input.Kind)
+		if err := u.sessionSaver.SaveSession(ctx, trimmedDBPath, session); err != nil {
+			return nil, xerrors.Errorf("failed to save session metadata: %w", err)
+		}
+	}
+
 	return event, nil
+}
+
+func buildSessionFromBoundary(event *model.Event, kind types.EventKind) *model.Session {
+	switch kind {
+	case types.EventKindSessionStarted:
+		return model.NewSession(
+			event.SessionID(),
+			event.CreatedAt(),
+			event.Client(),
+			event.Agent(),
+			event.Repo(),
+		)
+	default:
+		endedAt := event.CreatedAt()
+		return model.SessionOf(
+			event.SessionID(),
+			event.CreatedAt(),
+			&endedAt,
+			event.Client(),
+			event.Agent(),
+			event.Repo(),
+			"", "", "",
+		)
+	}
 }
 
 func (u *recordSessionBoundaryUsecase) resolveSessionBoundaryAttribution(

@@ -42,20 +42,31 @@ func (d *Datasource) ListSessionSummaries(
 	rows, err := db.QueryContext(
 		ctx,
 		`SELECT
-		   e.session_id,
-		   MAX(e.repo) AS repo,
-		   MIN(e.created_at) AS started_at,
-		   MAX(CASE WHEN e.kind = 'session_ended' THEN e.created_at END) AS ended_at,
-		   COUNT(*) AS total_events,
-		   SUM(CASE WHEN e.kind = 'command_executed' THEN 1 ELSE 0 END) AS command_count,
-		   GROUP_CONCAT(DISTINCT e.agent) AS agents
-		 FROM events e
-		 WHERE (? = '' OR e.repo = ?)
-		   AND (? = '' OR e.agent = ?)
-		   AND (? = '' OR e.created_at >= ?)
-		   AND (? = '' OR e.created_at < ?)
-		 GROUP BY e.session_id
-		 ORDER BY started_at DESC
+		   s.session_id,
+		   s.repo,
+		   s.started_at,
+		   s.ended_at,
+		   COALESCE(agg.total_events, 0) AS total_events,
+		   COALESCE(agg.command_count, 0) AS command_count,
+		   COALESCE(agg.agents, '') AS agents,
+		   s.label,
+		   s.summary,
+		   COALESCE(s.parent_session_id, '') AS parent_session_id
+		 FROM sessions s
+		 LEFT JOIN (
+		   SELECT
+		     e.session_id,
+		     COUNT(*) AS total_events,
+		     SUM(CASE WHEN e.kind = 'command_executed' THEN 1 ELSE 0 END) AS command_count,
+		     GROUP_CONCAT(DISTINCT e.agent) AS agents
+		   FROM events e
+		   GROUP BY e.session_id
+		 ) agg ON agg.session_id = s.session_id
+		 WHERE (? = '' OR s.repo = ?)
+		   AND (? = '' OR s.agent = ?)
+		   AND (? = '' OR s.started_at >= ?)
+		   AND (? = '' OR s.started_at < ?)
+		 ORDER BY s.started_at DESC
 		 LIMIT ? OFFSET ?`,
 		input.Repo, input.Repo,
 		input.Agent, input.Agent,
@@ -91,13 +102,16 @@ func scanSessionSummary(row interface {
 	Scan(dest ...any) error
 }) (*queryservice.SessionSummary, error) {
 	var (
-		sessionID    string
-		repo         string
-		startedAtStr string
-		endedAtStr   sql.NullString
-		totalEvents  int
-		commandCount int
-		agentsStr    sql.NullString
+		sessionID       string
+		repo            string
+		startedAtStr    string
+		endedAtStr      sql.NullString
+		totalEvents     int
+		commandCount    int
+		agentsStr       sql.NullString
+		label           string
+		summary         string
+		parentSessionID string
 	)
 
 	if err := row.Scan(
@@ -108,6 +122,9 @@ func scanSessionSummary(row interface {
 		&totalEvents,
 		&commandCount,
 		&agentsStr,
+		&label,
+		&summary,
+		&parentSessionID,
 	); err != nil {
 		return nil, xerrors.Errorf("failed to scan session summary: %w", err)
 	}
@@ -134,13 +151,16 @@ func scanSessionSummary(row interface {
 	}
 
 	return &queryservice.SessionSummary{
-		SessionID:    sessionID,
-		Repo:         repo,
-		StartedAt:    startedAt,
-		EndedAt:      endedAt,
-		Status:       status,
-		TotalEvents:  totalEvents,
-		CommandCount: commandCount,
-		Agents:       agents,
+		SessionID:       sessionID,
+		Repo:            repo,
+		StartedAt:       startedAt,
+		EndedAt:         endedAt,
+		Status:          status,
+		TotalEvents:     totalEvents,
+		CommandCount:    commandCount,
+		Agents:          agents,
+		Label:           label,
+		Summary:         summary,
+		ParentSessionID: parentSessionID,
 	}, nil
 }
