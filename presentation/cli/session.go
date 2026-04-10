@@ -120,6 +120,7 @@ func (c *RootCLI) newSessionEndCommand() *cobra.Command {
 		agent     string
 		sessionID string
 		repo      string
+		summary   string
 		idOnly    bool
 		asJSON    bool
 	)
@@ -139,6 +140,7 @@ func (c *RootCLI) newSessionEndCommand() *cobra.Command {
 				agent:     agent,
 				sessionID: resolveOptionalValue(sessionID, "TRACEARY_SESSION_ID", ""),
 				repo:      repo,
+				summary:   summary,
 				kind:      types.EventKindSessionEnded,
 				idOnly:    idOnly,
 				asJSON:    asJSON,
@@ -150,6 +152,7 @@ func (c *RootCLI) newSessionEndCommand() *cobra.Command {
 	endCmd.Flags().StringVar(&agent, "agent", "", Localize("actor name (env: TRACEARY_AGENT)", "作業主体 (env: TRACEARY_AGENT)"))
 	endCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID to end (env: TRACEARY_SESSION_ID)", "終了するセッション ID (env: TRACEARY_SESSION_ID)"))
 	endCmd.Flags().StringVar(&repo, "repo", "", Localize("auxiliary work context identifier (env: TRACEARY_REPO)", "補助的なコンテキスト識別子 (env: TRACEARY_REPO)"))
+	endCmd.Flags().StringVar(&summary, "summary", "", Localize("session summary text", "セッションサマリーテキスト"))
 	endCmd.Flags().BoolVar(&idOnly, "id-only", false, Localize("print only the resulting identifier", "結果の識別子だけを出力する"))
 	endCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	endCmd.MarkFlagsMutuallyExclusive("id-only", "json")
@@ -163,6 +166,7 @@ type sessionBoundaryCommandInput struct {
 	agent     string
 	sessionID string
 	repo      string
+	summary   string
 	kind      types.EventKind
 	idOnly    bool
 	asJSON    bool
@@ -257,6 +261,7 @@ func (c *RootCLI) runSessionBoundary(
 		Repo:          resolveSessionBoundaryRepo(input),
 		DefaultRepo:   resolveRepoValue(ctx, input.repo),
 		Kind:          input.kind,
+		Summary:       input.summary,
 	})
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to record session boundary", "session 境界の記録に失敗しました"), err)

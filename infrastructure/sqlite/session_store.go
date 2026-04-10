@@ -30,8 +30,10 @@ func (d *Datasource) SaveSession(ctx context.Context, dbPath string, session *mo
 		// Session end: update ended_at
 		result, err := db.ExecContext(
 			ctx,
-			`UPDATE sessions SET ended_at = ? WHERE session_id = ?`,
+			`UPDATE sessions SET ended_at = ?, summary = CASE WHEN ? != '' THEN ? ELSE summary END WHERE session_id = ?`,
 			formatTimestamp(*session.EndedAt()),
+			session.Summary(),
+			session.Summary(),
 			session.SessionID().String(),
 		)
 		if err != nil {
