@@ -66,17 +66,17 @@ Traceary は `traceary --version` で version metadata を表示します。
 2. Go をセットアップする
 3. tag ref では release mode、手動で branch から起動したときは snapshot mode で GoReleaser を実行する
 4. tag release のときに GitHub Releases へ成果物とチェックサムを公開する
-5. Homebrew 向けに `main` branch の `Formula/traceary.rb` を更新する
+5. 保護された `main` へ direct push せず、Homebrew formula 更新用の専用 PR（`maintenance/homebrew-vX.Y.Z`）を作成または更新する
 6. Gemini CLI extension archive (`traceary.tar.gz`) を package して release asset に追加する
 7. tag 付き GitHub Release が成功したあとで、対応する open 状態の親 release issue（`vX.Y.Z: ...`）を閉じる
 
-`workflow_dispatch` は主にブランチ上でパイプラインを dry-run するためのものです。実際に公開リリースしたい場合は `v*` tag を push するか、tag ref を指定して手動実行してください。
+`workflow_dispatch` は主にブランチ上でパイプラインを dry-run するためのものですが、`tag` input を渡すことで既存の `v*` tag に対する release 完了処理の再実行にも使えます。
 
 release 準備用 PR では metadata / docs / manifest を揃えてよいですが、親 release issue を閉じてはいけません。親 issue は、tag 付き release workflow が成功するまで open のままにします。
 
 Homebrew formula は repository 直下の `Formula/` に置き、GoReleaser が自動生成します。手動編集は前提にしません。
 
-この Homebrew step は、release ワークフローが `main` へ push できることを前提にしています。将来、bot の直接 push を禁止する ブランチ保護 を追加した場合は、次の tag を出す前に GoReleaser の brew target を見直してください。
+`main` は保護されているため、release ワークフローは Homebrew 更新を direct push せず、専用 PR を開く方式にしています。
 
 ## ローカル snapshot build
 

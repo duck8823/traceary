@@ -2,6 +2,11 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing v* tag to publish or recover
+        required: false
+        type: string
   push:
     tags:
       - 'v*'
@@ -9,15 +14,32 @@ on:
 permissions:
   contents: write
   issues: write
+  pull-requests: write
 
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag != '' && inputs.tag || github.ref_name }}
+      RELEASE_REF: ${{ inputs.tag != '' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+      IS_TAG_RELEASE: ${{ inputs.tag != '' || github.ref_type == 'tag' }}
     steps:
+      - name: Validate requested tag
+        if: github.event_name == 'workflow_dispatch' && inputs.tag != ''
+        run: |
+          case "${{ inputs.tag }}" in
+            v*) ;;
+            *)
+              echo "workflow_dispatch tag input must start with v" >&2
+              exit 1
+              ;;
+          esac
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ env.RELEASE_REF }}
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -30,7 +52,7 @@ jobs:
         with:
           distribution: goreleaser
           version: '~> v2'
-          args: ${{ github.ref_type == 'tag' && 'release --clean' || 'release --snapshot --clean' }}
+          args: ${{ env.IS_TAG_RELEASE == 'true' && 'release --clean' || 'release --snapshot --clean' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -38,17 +60,58 @@ jobs:
         run: ./scripts/package_gemini_extension.sh
 
       - name: Upload Gemini extension archive
-        if: github.ref_type == 'tag'
-        run: gh release upload "${GITHUB_REF_NAME}" dist/traceary.tar.gz --clobber
+        if: env.IS_TAG_RELEASE == 'true'
+        run: gh release upload "${RELEASE_TAG}" dist/traceary.tar.gz --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+
+      - name: Open or update Homebrew formula PR
+        if: env.IS_TAG_RELEASE == 'true'
+        run: |
+          set -euo pipefail
+
+          branch="maintenance/homebrew-${RELEASE_TAG}"
+          title="chore(homebrew): update formula for traceary ${RELEASE_TAG}"
+          body=$(cat <<EOF
+          ## Summary
+
+          - update \`Formula/traceary.rb\` for ${RELEASE_TAG}
+          - generated from release workflow ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          EOF
+          )
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout -B "${branch}" origin/main
+          cp dist/homebrew/Formula/traceary.rb Formula/traceary.rb
+
+          if git diff --quiet -- Formula/traceary.rb; then
+            echo "Formula/traceary.rb is already up to date on main."
+            exit 0
+          fi
+
+          git add Formula/traceary.rb
+          git commit -m "${title}"
+          git push --force-with-lease origin "${branch}"
+
+          existing_pr="$(gh pr list --head "${branch}" --state open --json number --jq '.[0].number // empty')"
+          if [[ -n "${existing_pr}" ]]; then
+            gh pr edit "${existing_pr}" --title "${title}" --body "${body}"
+          else
+            gh pr create --base main --head "${branch}" --title "${title}" --body "${body}"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
 
       - name: Close matching parent release issue
-        if: github.ref_type == 'tag'
+        if: env.IS_TAG_RELEASE == 'true'
         uses: actions/github-script@v8
         with:
           script: |
-            const tag = context.ref.replace('refs/tags/', '');
+            const tag = process.env.RELEASE_TAG;
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
@@ -90,3 +153,5 @@ jobs:
               issue_number: issue.number,
               state: 'closed',
             });
+        env:
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
