@@ -36,6 +36,11 @@ release/gemini-extension: ## Package Gemini CLI extension archive to dist/
 release/snapshot: ## Build snapshot release artifacts to dist/
 	@goreleaser release --snapshot --clean
 
+release/bump: ## Bump version across all manifests (usage: make release/bump VERSION=X.Y.Z)
+	@test -n "$(VERSION)" || (echo "Usage: make release/bump VERSION=X.Y.Z" >&2 && exit 1)
+	@python3 scripts/bump_version.py --version "$(VERSION)"
+	@python3 scripts/verify_integrations.py
+
 ci: docs/check integrations/check code/lint code/test ## Run full CI validation
 
 install: ## Download Go module dependencies
