@@ -59,3 +59,19 @@ type StoreBackupRestorer interface {
 type GarbageCollector interface {
 	CollectGarbage(ctx context.Context, dbPath string, before time.Time, dryRun bool) (int, error)
 }
+
+// StaleSessionCloserInput defines the criteria for closing stale sessions.
+type StaleSessionCloserInput struct {
+	StaleAfter time.Duration
+	DryRun     bool
+}
+
+// StaleSessionCloserResult contains the count of closed sessions.
+type StaleSessionCloserResult struct {
+	ClosedCount int
+}
+
+// StaleSessionCloser closes sessions that have been active beyond a threshold.
+type StaleSessionCloser interface {
+	CloseStaleSessions(ctx context.Context, dbPath string, input StaleSessionCloserInput) (*StaleSessionCloserResult, error)
+}

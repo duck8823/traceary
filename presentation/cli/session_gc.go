@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
-	infra "github.com/duck8823/traceary/infrastructure/sqlite"
+	"github.com/duck8823/traceary/application/usecase"
 )
 
 func (c *RootCLI) newSessionGCCommand() *cobra.Command {
@@ -33,8 +33,8 @@ func (c *RootCLI) newSessionGCCommand() *cobra.Command {
 				return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 			}
 
-			ds := infra.NewDatasource(nil)
-			result, err := ds.CloseStaleSessions(ctx, resolvedDBPath, infra.CloseStaleSessionsInput{
+			result, err := c.closeStaleSessionsUsecase.Run(ctx, usecase.CloseStaleSessionsInput{
+				DBPath:     resolvedDBPath,
 				StaleAfter: staleAfter,
 				DryRun:     dryRun,
 			})

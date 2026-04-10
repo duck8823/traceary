@@ -16,6 +16,7 @@ type RootCLI struct {
 	recordSessionBoundaryUsecase  usecase.RecordSessionBoundaryUsecase
 	recordCommandAuditUsecase     usecase.RecordCommandAuditUsecase
 	collectGarbageUsecase         usecase.CollectGarbageUsecase
+	closeStaleSessionsUsecase     usecase.CloseStaleSessionsUsecase
 	searchEventsQueryService      queryservice.SearchEventsQueryService
 	listEventsQueryService        queryservice.ListRecentEventsQueryService
 	getContextQueryService        queryservice.GetContextQueryService
@@ -35,6 +36,7 @@ type RootCLIOptions struct {
 	RecordSessionBoundaryUsecase  usecase.RecordSessionBoundaryUsecase
 	RecordCommandAuditUsecase     usecase.RecordCommandAuditUsecase
 	CollectGarbageUsecase         usecase.CollectGarbageUsecase
+	CloseStaleSessionsUsecase     usecase.CloseStaleSessionsUsecase
 	SearchEventsQueryService      queryservice.SearchEventsQueryService
 	ListEventsQueryService        queryservice.ListRecentEventsQueryService
 	GetContextQueryService        queryservice.GetContextQueryService
@@ -55,6 +57,7 @@ func NewRootCLI(options RootCLIOptions) *RootCLI {
 		recordSessionBoundaryUsecase:  options.RecordSessionBoundaryUsecase,
 		recordCommandAuditUsecase:     options.RecordCommandAuditUsecase,
 		collectGarbageUsecase:         options.CollectGarbageUsecase,
+		closeStaleSessionsUsecase:     options.CloseStaleSessionsUsecase,
 		searchEventsQueryService:      options.SearchEventsQueryService,
 		listEventsQueryService:        options.ListEventsQueryService,
 		getContextQueryService:        options.GetContextQueryService,

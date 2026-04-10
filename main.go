@@ -160,6 +160,7 @@ func run() error {
 	recordSessionBoundaryUsecase := usecase.NewRecordSessionBoundaryUsecase(datasource, datasource, datasource)
 	recordCommandAuditUsecase := usecase.NewRecordCommandAuditUsecase(datasource)
 	collectGarbageUsecase := usecase.NewCollectGarbageUsecase(datasource)
+	closeStaleSessionsUsecase := usecase.NewCloseStaleSessionsUsecase(datasource)
 	searchEventsQueryService := queryservice.NewSearchEventsQueryService(datasource)
 	listRecentEventsQueryService := queryservice.NewListRecentEventsQueryService(datasource)
 	getContextQueryService := queryservice.NewGetContextQueryService(datasource)
@@ -190,6 +191,7 @@ func run() error {
 		RecordSessionBoundaryUsecase:  recordSessionBoundaryUsecase,
 		RecordCommandAuditUsecase:     recordCommandAuditUsecase,
 		CollectGarbageUsecase:         collectGarbageUsecase,
+		CloseStaleSessionsUsecase:     closeStaleSessionsUsecase,
 		SearchEventsQueryService:      searchEventsQueryService,
 		ListEventsQueryService:        listRecentEventsQueryService,
 		GetContextQueryService:        getContextQueryService,

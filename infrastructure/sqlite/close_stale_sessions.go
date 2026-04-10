@@ -6,25 +6,18 @@ import (
 	"time"
 
 	"golang.org/x/xerrors"
+
+	"github.com/duck8823/traceary/domain/port"
 )
 
-// CloseStaleSessionsInput defines the criteria for closing stale sessions.
-type CloseStaleSessionsInput struct {
-	StaleAfter time.Duration
-	DryRun     bool
-}
-
-// CloseStaleSessionsResult contains the count of closed sessions.
-type CloseStaleSessionsResult struct {
-	ClosedCount int
-}
+var _ port.StaleSessionCloser = (*Datasource)(nil)
 
 // CloseStaleSessions closes active sessions that have no recent events.
 func (d *Datasource) CloseStaleSessions(
 	ctx context.Context,
 	dbPath string,
-	input CloseStaleSessionsInput,
-) (*CloseStaleSessionsResult, error) {
+	input port.StaleSessionCloserInput,
+) (*port.StaleSessionCloserResult, error) {
 	db, err := d.openDB(ctx, dbPath)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB: %w", err)
@@ -46,7 +39,7 @@ func (d *Datasource) CloseStaleSessions(
 		).Scan(&count); err != nil {
 			return nil, xerrors.Errorf("failed to count stale sessions: %w", err)
 		}
-		return &CloseStaleSessionsResult{ClosedCount: count}, nil
+		return &port.StaleSessionCloserResult{ClosedCount: count}, nil
 	}
 
 	now := formatTimestamp(time.Now())
@@ -64,5 +57,5 @@ func (d *Datasource) CloseStaleSessions(
 		return nil, xerrors.Errorf("failed to check rows affected: %w", err)
 	}
 
-	return &CloseStaleSessionsResult{ClosedCount: int(rowsAffected)}, nil
+	return &port.StaleSessionCloserResult{ClosedCount: int(rowsAffected)}, nil
 }
