@@ -173,6 +173,49 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("text output sanitizes metadata columns", func(t *testing.T) {
+		t.Parallel()
+
+		dbPath := filepath.Join(t.TempDir(), "traceary.db")
+		listStub := &listSessionsQueryServiceStub{
+			summaries: []*queryservice.SessionSummary{
+				{
+					SessionID:       "session-sanitized",
+					Label:           "release\tcandidate",
+					Summary:         "Keep summary output readable",
+					ParentSessionID: "root\nsession",
+					StartedAt:       time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
+					Status:          "active",
+				},
+			},
+		}
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase:   &initializeStoreUsecaseStub{},
+			ListSessionsQueryService: listStub,
+		}).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"session", "list", "--db-path", dbPath})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		output := stdout.String()
+		if strings.Contains(output, "release\tcandidate") {
+			t.Fatalf("text output should not contain raw tab characters in label, got: %q", output)
+		}
+		if strings.Contains(output, "root\nsession") {
+			t.Fatalf("text output should not contain raw newlines in parent session id, got: %q", output)
+		}
+		if !strings.Contains(output, "release candidate") {
+			t.Fatalf("text output should normalize label whitespace, got: %q", output)
+		}
+		if !strings.Contains(output, "root session") {
+			t.Fatalf("text output should normalize parent session id whitespace, got: %q", output)
+		}
+	})
+
 	t.Run("--from が不正な形式ならエラー", func(t *testing.T) {
 		t.Parallel()
 
