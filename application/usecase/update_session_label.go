@@ -6,13 +6,13 @@ import (
 
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/domain/port"
+
 	"github.com/duck8823/traceary/domain/types"
 )
 
-// SessionLabelUpdater updates a session label.
-type SessionLabelUpdater interface {
-	UpdateSessionLabel(ctx context.Context, dbPath string, sessionID types.SessionID, label string) error
-}
+// SessionLabelUpdater is defined in domain/port.
+type SessionLabelUpdater = port.SessionLabelUpdater
 
 // UpdateSessionLabelInput is the input for updating a session label.
 type UpdateSessionLabelInput struct {

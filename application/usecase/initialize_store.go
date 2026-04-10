@@ -5,13 +5,12 @@ import (
 	"strings"
 
 	"golang.org/x/xerrors"
+
+	"github.com/duck8823/traceary/domain/port"
 )
 
-// StoreInitializer provides store-initialization behavior.
-type StoreInitializer interface {
-	// Initialize initializes a store at the given DB path.
-	Initialize(ctx context.Context, dbPath string) error
-}
+// StoreInitializer is defined in domain/port.
+type StoreInitializer = port.StoreInitializer
 
 // InitializeStoreUsecase initializes the local store.
 type InitializeStoreUsecase interface {

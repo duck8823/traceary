@@ -6,15 +6,14 @@ import (
 
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/domain/port"
+
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
 
-// EventSaver provides event persistence.
-type EventSaver interface {
-	// Save persists an event into the target DB.
-	Save(ctx context.Context, dbPath string, event *model.Event) error
-}
+// EventSaver is defined in domain/port.
+type EventSaver = port.EventSaver
 
 // RecordLogInput is the input for traceary log recording.
 type RecordLogInput struct {

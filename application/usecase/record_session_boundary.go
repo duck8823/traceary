@@ -8,6 +8,8 @@ import (
 
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/domain/port"
+
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -27,24 +29,14 @@ type RecordSessionBoundaryInput struct {
 	ParentSessionID   string
 }
 
-// ErrSessionStartedEventNotFound indicates the target session has no start event.
-var ErrSessionStartedEventNotFound = xerrors.New("session_started event was not found for the target session")
+// ErrSessionStartedEventNotFound is defined in domain/port.
+var ErrSessionStartedEventNotFound = port.ErrSessionStartedEventNotFound
 
-// SessionSaver persists session metadata.
-type SessionSaver interface {
-	// SaveSession creates or updates a session record.
-	SaveSession(ctx context.Context, dbPath string, session *model.Session) error
-}
+// SessionSaver is defined in domain/port.
+type SessionSaver = port.SessionSaver
 
-// SessionStartedEventFinder provides lookup for session_started events.
-type SessionStartedEventFinder interface {
-	// FindSessionStartedEvent returns the latest session_started event for the target session.
-	FindSessionStartedEvent(
-		ctx context.Context,
-		dbPath string,
-		sessionID types.SessionID,
-	) (*model.Event, error)
-}
+// SessionStartedEventFinder is defined in domain/port.
+type SessionStartedEventFinder = port.SessionStartedEventFinder
 
 // RecordSessionBoundaryUsecase records session boundary events.
 type RecordSessionBoundaryUsecase interface {

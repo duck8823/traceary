@@ -6,11 +6,11 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/model"
 )
 
-var _ usecase.CommandAuditSaver = (*Datasource)(nil)
+var _ port.CommandAuditSaver = (*Datasource)(nil)
 
 // SaveCommandAudit persists an event and command-audit data in one transaction.
 func (d *Datasource) SaveCommandAudit(

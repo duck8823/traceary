@@ -13,7 +13,7 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/port"
 )
 
 // Datasource is a SQLite-backed data source.
@@ -21,7 +21,7 @@ type Datasource struct {
 	migrations fs.FS
 }
 
-var _ usecase.StoreInitializer = (*Datasource)(nil)
+var _ port.StoreInitializer = (*Datasource)(nil)
 
 // NewDatasource creates a new Datasource.
 func NewDatasource(migrations fs.FS) *Datasource {

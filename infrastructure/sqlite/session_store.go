@@ -6,11 +6,11 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/model"
 )
 
-var _ usecase.SessionSaver = (*Datasource)(nil)
+var _ port.SessionSaver = (*Datasource)(nil)
 
 // SaveSession creates or updates a session record.
 // On session start, a new row is inserted.

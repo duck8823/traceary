@@ -5,19 +5,15 @@ import (
 	"strings"
 
 	"golang.org/x/xerrors"
+
+	"github.com/duck8823/traceary/domain/port"
 )
 
-// StoreBackupCreator provides Traceary store backup creation.
-type StoreBackupCreator interface {
-	// CreateBackup creates a backup file from a DB file.
-	CreateBackup(ctx context.Context, dbPath string, outputPath string, overwrite bool) error
-}
+// StoreBackupCreator is defined in domain/port.
+type StoreBackupCreator = port.StoreBackupCreator
 
-// StoreBackupRestorer provides Traceary store restoration.
-type StoreBackupRestorer interface {
-	// RestoreBackup restores a DB file from a backup file.
-	RestoreBackup(ctx context.Context, inputPath string, dbPath string, overwrite bool) error
-}
+// StoreBackupRestorer is defined in domain/port.
+type StoreBackupRestorer = port.StoreBackupRestorer
 
 // CreateStoreBackupInput is the input for backup creation.
 type CreateStoreBackupInput struct {

@@ -6,13 +6,12 @@ import (
 	"time"
 
 	"golang.org/x/xerrors"
+
+	"github.com/duck8823/traceary/domain/port"
 )
 
-// GarbageCollector provides old-event deletion.
-type GarbageCollector interface {
-	// CollectGarbage deletes events older than the given time.
-	CollectGarbage(ctx context.Context, dbPath string, before time.Time, dryRun bool) (int, error)
-}
+// GarbageCollector is defined in domain/port.
+type GarbageCollector = port.GarbageCollector
 
 // CollectGarbageInput is the input for garbage collection.
 type CollectGarbageInput struct {
