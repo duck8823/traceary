@@ -92,6 +92,46 @@ func TestRootCLI_BackupCreateCommand_MissingOutputReturnsError(t *testing.T) {
 	}
 }
 
+func TestRootCLI_BackupCreateCommand_PositionalArgument(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	outputPath := filepath.Join(t.TempDir(), "traceary-backup.db")
+	createBackup := &createStoreBackupUsecaseStub{}
+	initStub := &initializeStoreUsecaseStub{}
+
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:   initStub,
+		CreateStoreBackupUsecase: createBackup,
+	}).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"backup", "create", "--db-path", dbPath, outputPath})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if createBackup.input.OutputPath != outputPath {
+		t.Fatalf("output = %q, want %q", createBackup.input.OutputPath, outputPath)
+	}
+}
+
+func TestRootCLI_BackupCreateCommand_DuplicateOutputReturnsError(t *testing.T) {
+	t.Parallel()
+
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		CreateStoreBackupUsecase: &createStoreBackupUsecaseStub{},
+	}).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"backup", "create", "--output", "/tmp/a.db", "/tmp/b.db"})
+
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want error for duplicate output path")
+	}
+}
+
 func TestRootCLI_BackupRestoreCommand(t *testing.T) {
 	t.Parallel()
 
