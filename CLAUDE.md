@@ -63,11 +63,9 @@ go tool golangci-lint run
 
 ### Code review policy
 
-- **Multi-AI review is required for every PR before merge** — quality over speed
-- At least one review from Gemini (scout) or Codex (verifier) in addition to Claude
-- Review comment must include the reviewing AI name (e.g., `Gemini scout: ✅`)
-- Claude's self-review alone is never sufficient for merge
-- This rule applies to all PRs including documentation and test-only changes
+- Maintainers should obtain an additional AI review (e.g., Gemini scout or Codex verifier) before merge when available
+- External contributors are not required to use specific AI tools
+- Review comments should include the reviewing AI name when applicable (e.g., `Gemini scout: ✅`)
 
 ### Issue closing policy
 
