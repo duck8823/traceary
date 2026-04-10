@@ -32,11 +32,29 @@
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/traceary-audit.sh\" claude"
           }
         ]
+      },
+      {
+        "matcher": "mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/traceary-audit.sh\" claude"
+          }
+        ]
       }
     ],
     "PostToolUseFailure": [
       {
         "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/traceary-audit.sh\" claude"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__.*",
         "hooks": [
           {
             "type": "command",
