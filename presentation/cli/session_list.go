@@ -56,6 +56,9 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to resolve --to", "to の解決に失敗しました"), err)
 			}
+			if fromTime != nil && toTime != nil && fromTime.After(*toTime) {
+				return xerrors.Errorf(Localize("--from must be earlier than --to", "from は to より前である必要があります"))
+			}
 
 			resolvedRepo := resolveRepoValue(ctx, repo)
 
