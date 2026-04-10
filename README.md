@@ -42,7 +42,7 @@ These are the fastest paths when you want Traceary to record sessions and shell 
 | --- | --- | --- |
 | Claude Code | `claude plugins marketplace add https://github.com/duck8823/traceary` then `claude plugins install traceary@traceary-plugins --scope user` | [Claude Code plugin](./docs/integrations/claude-plugin.md) |
 | Codex | `git clone https://github.com/duck8823/traceary ~/src/traceary` then `python3 ~/src/traceary/scripts/codex/install_plugin.py` | [Codex plugin](./docs/integrations/codex-plugin.md) |
-| Gemini CLI | `gemini extensions install https://github.com/duck8823/traceary --ref <tag>` | [Gemini CLI extension](./docs/integrations/gemini-extension.md) |
+| Gemini CLI | `bash <(curl -sL https://raw.githubusercontent.com/duck8823/traceary/main/scripts/install-gemini-extension.sh)` | [Gemini CLI extension](./docs/integrations/gemini-extension.md) |
 
 For the integration overview, use the [native integrations guide](./docs/integrations/README.md).
 
