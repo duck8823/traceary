@@ -56,3 +56,30 @@ func TestNewCommandAudit(t *testing.T) {
 		}
 	})
 }
+
+func TestCommandAuditOf(t *testing.T) {
+	t.Parallel()
+
+	eventID, _ := types.EventIDOf("event-2")
+
+	audit := model.CommandAuditOf(eventID, "go build", "input-data", "output-data", false, true)
+
+	if audit.EventID() != eventID {
+		t.Errorf("EventID() = %v, want %v", audit.EventID(), eventID)
+	}
+	if audit.Command() != "go build" {
+		t.Errorf("Command() = %q, want %q", audit.Command(), "go build")
+	}
+	if audit.Input() != "input-data" {
+		t.Errorf("Input() = %q, want %q", audit.Input(), "input-data")
+	}
+	if audit.Output() != "output-data" {
+		t.Errorf("Output() = %q, want %q", audit.Output(), "output-data")
+	}
+	if audit.InputTruncated() {
+		t.Errorf("InputTruncated() = true, want false")
+	}
+	if !audit.OutputTruncated() {
+		t.Errorf("OutputTruncated() = false, want true")
+	}
+}
