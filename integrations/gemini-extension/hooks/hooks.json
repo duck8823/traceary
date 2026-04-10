@@ -30,14 +30,14 @@
     ],
     "AfterTool": [
       {
-        "matcher": "run_shell_command",
+        "matcher": "*",
         "hooks": [
           {
             "name": "traceary-audit",
             "type": "command",
             "command": "bash \"${extensionPath}/scripts/traceary-audit.sh\" gemini",
             "timeout": 5000,
-            "description": "Record shell command audits in Traceary"
+            "description": "Record tool execution audits in Traceary"
           }
         ]
       }
