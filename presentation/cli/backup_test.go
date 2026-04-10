@@ -76,6 +76,21 @@ func TestRootCLI_BackupCreateCommand(t *testing.T) {
 	}
 }
 
+func TestRootCLI_BackupCreateCommand_MissingOutputReturnsError(t *testing.T) {
+	t.Parallel()
+
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		CreateStoreBackupUsecase: &createStoreBackupUsecaseStub{},
+	}).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"backup", "create"})
+
+	if err := rootCmd.Execute(); err == nil {
+		t.Fatal("Execute() error = nil, want error")
+	}
+}
+
 func TestRootCLI_BackupRestoreCommand(t *testing.T) {
 	t.Parallel()
 
@@ -113,6 +128,21 @@ func TestRootCLI_BackupRestoreCommand(t *testing.T) {
 	}
 	if stdout.String() != "Restored backup to: "+dbPath+"\n" {
 		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestRootCLI_BackupRestoreCommand_MissingInputReturnsError(t *testing.T) {
+	t.Parallel()
+
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		RestoreStoreBackupUsecase: &restoreStoreBackupUsecaseStub{},
+	}).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"backup", "restore"})
+
+	if err := rootCmd.Execute(); err == nil {
+		t.Fatal("Execute() error = nil, want error")
 	}
 }
 

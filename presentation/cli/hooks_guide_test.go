@@ -42,3 +42,16 @@ func TestRootCLI_HooksGuideCommand(t *testing.T) {
 		t.Fatalf("stdout = %q, want Gemini note", stdout.String())
 	}
 }
+
+func TestRootCLI_HooksGuideCommand_MissingClientReturnsError(t *testing.T) {
+	t.Parallel()
+
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"hooks", "guide"})
+
+	if err := rootCmd.Execute(); err == nil {
+		t.Fatal("Execute() error = nil, want error")
+	}
+}

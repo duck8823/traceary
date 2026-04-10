@@ -38,9 +38,6 @@ func (c *RootCLI) newHooksGuideCommand() *cobra.Command {
 	guideCmd.Flags().StringVar(&client, "client", "", hooksClientFlagUsage)
 	guideCmd.Flags().StringVar(&projectDir, "project-dir", "", Localize("project directory used for project-local client configs", "project-local client config に使う project directory"))
 	guideCmd.Flags().StringVar(&outputPath, "output", "", Localize("override the expected config file path", "想定 config file path を上書きする"))
-	if err := guideCmd.MarkFlagRequired("client"); err != nil {
-		panic(err)
-	}
 
 	return guideCmd
 }
@@ -50,6 +47,9 @@ func (c *RootCLI) runHooksGuide(
 	output io.Writer,
 	input hooksGuideCommandInput,
 ) error {
+	if err := requireHooksClient(input.client); err != nil {
+		return err
+	}
 	resolvedProjectDir, err := resolveHooksProjectDir(input.projectDir)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve project directory", "project directory の解決に失敗しました"), err)
