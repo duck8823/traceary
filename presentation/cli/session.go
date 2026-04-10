@@ -71,13 +71,14 @@ func (c *RootCLI) newSessionLatestCommand() *cobra.Command {
 
 func (c *RootCLI) newSessionStartCommand() *cobra.Command {
 	var (
-		dbPath    string
-		client    string
-		agent     string
-		sessionID string
-		repo      string
-		idOnly    bool
-		asJSON    bool
+		dbPath          string
+		client          string
+		agent           string
+		sessionID       string
+		repo            string
+		parentSessionID string
+		idOnly          bool
+		asJSON          bool
 	)
 
 	startCmd := &cobra.Command{
@@ -90,14 +91,15 @@ func (c *RootCLI) newSessionStartCommand() *cobra.Command {
 		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runSessionBoundary(cmd.Context(), cmd.OutOrStdout(), sessionBoundaryCommandInput{
-				dbPath:    dbPath,
-				client:    client,
-				agent:     agent,
-				sessionID: strings.TrimSpace(sessionID),
-				repo:      repo,
-				kind:      types.EventKindSessionStarted,
-				idOnly:    idOnly,
-				asJSON:    asJSON,
+				dbPath:          dbPath,
+				client:          client,
+				agent:           agent,
+				sessionID:       strings.TrimSpace(sessionID),
+				repo:            repo,
+				parentSessionID: strings.TrimSpace(parentSessionID),
+				kind:            types.EventKindSessionStarted,
+				idOnly:          idOnly,
+				asJSON:          asJSON,
 			})
 		},
 	}
@@ -106,6 +108,7 @@ func (c *RootCLI) newSessionStartCommand() *cobra.Command {
 	startCmd.Flags().StringVar(&agent, "agent", "", Localize("actor name (env: TRACEARY_AGENT)", "作業主体 (env: TRACEARY_AGENT)"))
 	startCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID to start", "開始するセッション ID"))
 	startCmd.Flags().StringVar(&repo, "repo", "", Localize("auxiliary work context identifier (env: TRACEARY_REPO)", "補助的なコンテキスト識別子 (env: TRACEARY_REPO)"))
+	startCmd.Flags().StringVar(&parentSessionID, "parent-session-id", "", Localize("parent session ID for sub-agent sessions", "サブエージェントセッションの親セッション ID"))
 	startCmd.Flags().BoolVar(&idOnly, "id-only", false, Localize("print only the resulting identifier", "結果の識別子だけを出力する"))
 	startCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	startCmd.MarkFlagsMutuallyExclusive("id-only", "json")
@@ -161,15 +164,16 @@ func (c *RootCLI) newSessionEndCommand() *cobra.Command {
 }
 
 type sessionBoundaryCommandInput struct {
-	dbPath    string
-	client    string
-	agent     string
-	sessionID string
-	repo      string
-	summary   string
-	kind      types.EventKind
-	idOnly    bool
-	asJSON    bool
+	dbPath          string
+	client          string
+	agent           string
+	sessionID       string
+	repo            string
+	summary         string
+	parentSessionID string
+	kind            types.EventKind
+	idOnly          bool
+	asJSON          bool
 }
 
 type sessionLatestCommandInput struct {
@@ -260,8 +264,9 @@ func (c *RootCLI) runSessionBoundary(
 		SessionID:     input.sessionID,
 		Repo:          resolveSessionBoundaryRepo(input),
 		DefaultRepo:   resolveRepoValue(ctx, input.repo),
-		Kind:          input.kind,
-		Summary:       input.summary,
+		Kind:              input.kind,
+		Summary:           input.summary,
+		ParentSessionID:   input.parentSessionID,
 	})
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to record session boundary", "session 境界の記録に失敗しました"), err)
