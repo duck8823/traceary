@@ -340,7 +340,11 @@ if [[ -z "$TRACEARY_CMD" ]]; then
   exit 0
 fi
 
+# For Bash tools, use tool_input.command; for MCP/other tools, use tool_name
 COMMAND_VALUE="$(traceary_json_get 'tool_input.command')"
+if [[ -z "$COMMAND_VALUE" ]]; then
+  COMMAND_VALUE="$(traceary_json_get 'tool_name')"
+fi
 if [[ -z "$COMMAND_VALUE" ]]; then
   exit 0
 fi

@@ -302,6 +302,52 @@ func TestTracearyAuditScript_UsesRepoFromSessionState(t *testing.T) {
 	}
 }
 
+func TestTracearyAuditScript_UsesToolNameForMCPTools(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	fakeLogPath := filepath.Join(tempDir, "traceary.log")
+	fakeTracearyPath := filepath.Join(tempDir, "traceary")
+	writeFakeTraceary(t, fakeTracearyPath)
+
+	homeDir := filepath.Join(tempDir, "home")
+	if err := os.MkdirAll(homeDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	env := append(os.Environ(),
+		"TRACEARY_BIN="+fakeTracearyPath,
+		"TRACEARY_FAKE_LOG="+fakeLogPath,
+		"TRACEARY_REPO=work-context",
+		"HOME="+homeDir,
+	)
+
+	// Start session first
+	if err := runHookScript(t, filepath.Join(".", "traceary-session.sh"), env, `{"cwd":"/tmp/project"}`, "claude", "start"); err != nil {
+		t.Fatalf("runHookScript(start) error = %v", err)
+	}
+
+	// MCP tool call — no tool_input.command, but has tool_name
+	mcpInput := `{"cwd":"/tmp/project","tool_name":"mcp__atlassian__getPage","tool_input":{"pageId":"12345"},"tool_response":{"content":"page content"}}`
+	if err := runHookScript(t, filepath.Join(".", "traceary-audit.sh"), env, mcpInput, "claude"); err != nil {
+		t.Fatalf("runHookScript(mcp audit) error = %v", err)
+	}
+
+	calls := readLoggedCalls(t, fakeLogPath)
+	if len(calls) != 2 {
+		t.Fatalf("len(calls) = %d, want 2", len(calls))
+	}
+
+	auditCall := calls[1]
+	// First positional arg to "audit" should be the tool_name
+	if auditCall[0] != "audit" {
+		t.Fatalf("call[0] = %q, want audit", auditCall[0])
+	}
+	if auditCall[1] != "mcp__atlassian__getPage" {
+		t.Fatalf("audit command = %q, want mcp__atlassian__getPage", auditCall[1])
+	}
+}
+
 func TestTracearyAuditScript_UsesFailurePayloadWhenToolResponseIsMissing(t *testing.T) {
 	t.Parallel()
 
