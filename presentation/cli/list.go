@@ -113,16 +113,22 @@ func (c *RootCLI) runList(ctx context.Context, output io.Writer, input listComma
 	if err != nil {
 		return err
 	}
-	fromTime, err := parseFlexibleTime(fromValue, false)
+	// Validate raw dates before applying endExclusive offset.
+	fromRaw, err := parseFlexibleTime(fromValue, false)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve --from", "from の解決に失敗しました"), err)
 	}
-	toTime, err := parseFlexibleTime(toValue, true)
+	toRaw, err := parseFlexibleTime(toValue, false)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve --to", "to の解決に失敗しました"), err)
 	}
-	if !fromTime.IsZero() && !toTime.IsZero() && fromTime.After(toTime) {
+	if !fromRaw.IsZero() && !toRaw.IsZero() && fromRaw.After(toRaw) {
 		return xerrors.Errorf(Localize("--from must be earlier than --to", "from は to より前である必要があります"))
+	}
+	fromTime := fromRaw
+	toTime, err := parseFlexibleTime(toValue, true)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve --to", "to の解決に失敗しました"), err)
 	}
 
 	resolvedPath, err := resolveDBPath(input.dbPath)
