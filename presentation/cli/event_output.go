@@ -60,11 +60,15 @@ func writeEventDetailsByFormat(output io.Writer, eventDetails *queryservice.Even
 }
 
 func truncateMessage(s string) string {
-	normalized := strings.Join(strings.Fields(s), " ")
+	normalized := normalizeTabularColumn(s)
 	if len([]rune(normalized)) <= messageColumnMaxWidth {
 		return normalized
 	}
 	return string([]rune(normalized)[:messageColumnMaxWidth]) + "…"
+}
+
+func normalizeTabularColumn(value string) string {
+	return strings.Join(strings.Fields(value), " ")
 }
 
 func formatOptionalColumn(value string) string {

@@ -107,7 +107,10 @@ func writeSessionSummaries(output io.Writer, summaries []*queryservice.SessionSu
 		return nil
 	}
 
-	if _, err := fmt.Fprintln(output, "STARTED_AT\tSTATUS\tDURATION\tSESSION_ID\tREPO\tEVENTS\tCMDS\tAGENTS"); err != nil {
+	if _, err := fmt.Fprintln(
+		output,
+		"STARTED_AT\tSTATUS\tDURATION\tSESSION_ID\tREPO\tLABEL\tSUMMARY\tPARENT_SESSION_ID\tEVENTS\tCMDS\tAGENTS",
+	); err != nil {
 		return xerrors.Errorf("failed to print header: %w", err)
 	}
 	for _, s := range summaries {
@@ -120,12 +123,15 @@ func writeSessionSummaries(output io.Writer, summaries []*queryservice.SessionSu
 
 		if _, err := fmt.Fprintf(
 			output,
-			"%s\t%s\t%s\t%s\t%s\t%d\t%d\t%s\n",
+			"%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%d\t%s\n",
 			s.StartedAt.UTC().Format("2006-01-02T15:04:05Z"),
 			s.Status,
 			duration,
 			s.SessionID,
 			formatOptionalColumn(s.Repo),
+			formatOptionalColumn(normalizeTabularColumn(s.Label)),
+			formatOptionalColumn(truncateMessage(s.Summary)),
+			formatOptionalColumn(normalizeTabularColumn(s.ParentSessionID)),
 			s.TotalEvents,
 			s.CommandCount,
 			agentSummary,
@@ -139,27 +145,33 @@ func writeSessionSummaries(output io.Writer, summaries []*queryservice.SessionSu
 
 func writeSessionSummariesJSON(output io.Writer, summaries []*queryservice.SessionSummary) error {
 	type jsonSummary struct {
-		SessionID    string   `json:"session_id"`
-		Repo         string   `json:"repo,omitempty"`
-		StartedAt    string   `json:"started_at"`
-		EndedAt      *string  `json:"ended_at,omitempty"`
-		Status       string   `json:"status"`
-		DurationSec  *float64 `json:"duration_sec,omitempty"`
-		TotalEvents  int      `json:"total_events"`
-		CommandCount int      `json:"command_count"`
-		Agents       []string `json:"agents"`
+		SessionID       string   `json:"session_id"`
+		Repo            string   `json:"repo,omitempty"`
+		Label           string   `json:"label,omitempty"`
+		Summary         string   `json:"summary,omitempty"`
+		ParentSessionID string   `json:"parent_session_id,omitempty"`
+		StartedAt       string   `json:"started_at"`
+		EndedAt         *string  `json:"ended_at,omitempty"`
+		Status          string   `json:"status"`
+		DurationSec     *float64 `json:"duration_sec,omitempty"`
+		TotalEvents     int      `json:"total_events"`
+		CommandCount    int      `json:"command_count"`
+		Agents          []string `json:"agents"`
 	}
 
 	items := make([]jsonSummary, 0, len(summaries))
 	for _, s := range summaries {
 		item := jsonSummary{
-			SessionID:    s.SessionID,
-			Repo:         s.Repo,
-			StartedAt:    s.StartedAt.UTC().Format(time.RFC3339),
-			Status:       s.Status,
-			TotalEvents:  s.TotalEvents,
-			CommandCount: s.CommandCount,
-			Agents:       s.Agents,
+			SessionID:       s.SessionID,
+			Repo:            s.Repo,
+			Label:           s.Label,
+			Summary:         s.Summary,
+			ParentSessionID: s.ParentSessionID,
+			StartedAt:       s.StartedAt.UTC().Format(time.RFC3339),
+			Status:          s.Status,
+			TotalEvents:     s.TotalEvents,
+			CommandCount:    s.CommandCount,
+			Agents:          s.Agents,
 		}
 		if s.EndedAt != nil {
 			endStr := s.EndedAt.UTC().Format(time.RFC3339)

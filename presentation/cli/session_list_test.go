@@ -45,14 +45,17 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		listStub := &listSessionsQueryServiceStub{
 			summaries: []*queryservice.SessionSummary{
 				{
-					SessionID:    "session-1",
-					Repo:         "duck8823/traceary",
-					StartedAt:    time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
-					EndedAt:      &endedAt,
-					Status:       "ended",
-					TotalEvents:  42,
-					CommandCount: 30,
-					Agents:       []string{"claude", "codex"},
+					SessionID:       "session-1",
+					Repo:            "duck8823/traceary",
+					Label:           "docs",
+					Summary:         "Document the public session metadata surface for operators.",
+					ParentSessionID: "parent-1",
+					StartedAt:       time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
+					EndedAt:         &endedAt,
+					Status:          "ended",
+					TotalEvents:     42,
+					CommandCount:    30,
+					Agents:          []string{"claude", "codex"},
 				},
 			},
 		}
@@ -87,6 +90,15 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		if !strings.Contains(output, "claude, codex") {
 			t.Fatalf("output should contain agents, got: %s", output)
 		}
+		if !strings.Contains(output, "docs") {
+			t.Fatalf("output should contain label, got: %s", output)
+		}
+		if !strings.Contains(output, "parent-1") {
+			t.Fatalf("output should contain parent session id, got: %s", output)
+		}
+		if !strings.Contains(output, "Document the public session metadata surface for operators.") {
+			t.Fatalf("output should contain summary, got: %s", output)
+		}
 	})
 
 	t.Run("セッションがない場合はメッセージを表示する", func(t *testing.T) {
@@ -118,13 +130,16 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		listStub := &listSessionsQueryServiceStub{
 			summaries: []*queryservice.SessionSummary{
 				{
-					SessionID:    "session-json",
-					StartedAt:    time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
-					EndedAt:      &endedAt,
-					Status:       "ended",
-					TotalEvents:  5,
-					CommandCount: 3,
-					Agents:       []string{"claude"},
+					SessionID:       "session-json",
+					Label:           "release",
+					Summary:         "Prepare release notes",
+					ParentSessionID: "root-session",
+					StartedAt:       time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
+					EndedAt:         &endedAt,
+					Status:          "ended",
+					TotalEvents:     5,
+					CommandCount:    3,
+					Agents:          []string{"claude"},
 				},
 			},
 		}
@@ -146,6 +161,58 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		}
 		if !strings.Contains(output, `"duration_sec"`) {
 			t.Fatalf("JSON output should contain duration_sec, got: %s", output)
+		}
+		if !strings.Contains(output, `"label": "release"`) {
+			t.Fatalf("JSON output should contain label, got: %s", output)
+		}
+		if !strings.Contains(output, `"summary": "Prepare release notes"`) {
+			t.Fatalf("JSON output should contain summary, got: %s", output)
+		}
+		if !strings.Contains(output, `"parent_session_id": "root-session"`) {
+			t.Fatalf("JSON output should contain parent_session_id, got: %s", output)
+		}
+	})
+
+	t.Run("text output sanitizes metadata columns", func(t *testing.T) {
+		t.Parallel()
+
+		dbPath := filepath.Join(t.TempDir(), "traceary.db")
+		listStub := &listSessionsQueryServiceStub{
+			summaries: []*queryservice.SessionSummary{
+				{
+					SessionID:       "session-sanitized",
+					Label:           "release\tcandidate",
+					Summary:         "Keep summary output readable",
+					ParentSessionID: "root\nsession",
+					StartedAt:       time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
+					Status:          "active",
+				},
+			},
+		}
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase:   &initializeStoreUsecaseStub{},
+			ListSessionsQueryService: listStub,
+		}).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"session", "list", "--db-path", dbPath})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		output := stdout.String()
+		if strings.Contains(output, "release\tcandidate") {
+			t.Fatalf("text output should not contain raw tab characters in label, got: %q", output)
+		}
+		if strings.Contains(output, "root\nsession") {
+			t.Fatalf("text output should not contain raw newlines in parent session id, got: %q", output)
+		}
+		if !strings.Contains(output, "release candidate") {
+			t.Fatalf("text output should normalize label whitespace, got: %q", output)
+		}
+		if !strings.Contains(output, "root session") {
+			t.Fatalf("text output should normalize parent session id whitespace, got: %q", output)
 		}
 	})
 

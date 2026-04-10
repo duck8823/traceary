@@ -142,6 +142,7 @@ Useful flags:
 - `--agent`
 - `--session-id`
 - `--repo`
+- `--parent-session-id`
 - `--id-only`
 - `--json`
 
@@ -160,8 +161,39 @@ Useful flags:
 - `--agent`
 - `--session-id`
 - `--repo`
+- `--summary`
 - `--id-only`
 - `--json`
+
+### `traceary session list`
+
+List session summaries.
+
+The session list view surfaces session metadata such as `label`, `summary`, and `parent_session_id` together with status, duration, and aggregate counts.
+
+Useful flags:
+
+- `--repo`
+- `--agent`
+- `--label`
+- `--from`
+- `--to`
+- `--limit`
+- `--offset`
+- `--json`
+
+### `traceary session label <label-text>`
+
+Set or update a session label.
+
+Defaults:
+
+- `--session-id`: flag → `TRACEARY_SESSION_ID`
+
+Useful flags:
+
+- `--session-id`
+- `--db-path`
 
 ### `traceary session latest`
 
