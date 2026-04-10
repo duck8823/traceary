@@ -99,8 +99,15 @@ jobs:
           existing_pr="$(gh pr list --head "${branch}" --state open --json number --jq '.[0].number // empty')"
           if [[ -n "${existing_pr}" ]]; then
             gh pr edit "${existing_pr}" --title "${title}" --body "${body}"
+            pr_number="${existing_pr}"
           else
-            gh pr create --base main --head "${branch}" --title "${title}" --body "${body}"
+            pr_url="$(gh pr create --base main --head "${branch}" --title "${title}" --body "${body}")"
+            pr_number="$(echo "${pr_url}" | grep -oE '[0-9]+$')"
+          fi
+
+          # Enable auto-merge so the PR merges after CI passes
+          if [[ -n "${pr_number}" ]]; then
+            gh pr merge "${pr_number}" --auto --merge || true
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
