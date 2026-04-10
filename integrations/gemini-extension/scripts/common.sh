@@ -128,6 +128,31 @@ traceary_write_state() {
   printf '%s' "$session_id" > "$state_file"
 }
 
+traceary_write_repo_state() {
+  local client="$1"
+  local repo="$2"
+  local state_file
+  state_file="$(traceary_session_state_path "$client")-repo"
+  printf '%s' "$repo" > "$state_file"
+}
+
+traceary_read_repo_state() {
+  local client="$1"
+  local state_file
+  state_file="$(traceary_session_state_path "$client")-repo"
+  if [[ ! -f "$state_file" ]]; then
+    return 0
+  fi
+  cat "$state_file"
+}
+
+traceary_clear_repo_state() {
+  local client="$1"
+  local state_file
+  state_file="$(traceary_session_state_path "$client")-repo"
+  rm -f "$state_file"
+}
+
 traceary_read_state() {
   local client="$1"
   local state_file

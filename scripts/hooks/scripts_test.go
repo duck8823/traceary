@@ -141,6 +141,12 @@ func TestTracearySessionScript_StopIsIdempotentForDuplicateSessionEnd(t *testing
 	if !reflect.DeepEqual(calls, want) {
 		t.Fatalf("logged calls = %#v, want %#v", calls, want)
 	}
+
+	// Verify repo state file is cleaned up after duplicate stop
+	repoStatePath := filepath.Join(homeDir, ".config", "traceary", "hooks", "gemini-"+pidString()+"-repo")
+	if _, err := os.Stat(repoStatePath); !os.IsNotExist(err) {
+		t.Fatalf("repo state file should not exist after stop, got: %v", err)
+	}
 }
 
 func TestTracearySessionScript_UsesGitRootForLocalOnlyRepositories(t *testing.T) {
@@ -235,6 +241,64 @@ func TestTracearyAuditScript_UsesHookPayloadAndSessionState(t *testing.T) {
 	}
 	if !reflect.DeepEqual(calls[1], wantAudit) {
 		t.Fatalf("audit call = %#v, want %#v", calls[1], wantAudit)
+	}
+}
+
+func TestTracearyAuditScript_UsesRepoFromSessionState(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	fakeLogPath := filepath.Join(tempDir, "traceary.log")
+	fakeTracearyPath := filepath.Join(tempDir, "traceary")
+	writeFakeTraceary(t, fakeTracearyPath)
+
+	homeDir := filepath.Join(tempDir, "home")
+	if err := os.MkdirAll(homeDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	env := append(os.Environ(),
+		"TRACEARY_BIN="+fakeTracearyPath,
+		"TRACEARY_FAKE_LOG="+fakeLogPath,
+		"TRACEARY_REPO=session-repo",
+		"HOME="+homeDir,
+	)
+
+	// Start session — repo "session-repo" is saved to state
+	if err := runHookScript(t, filepath.Join(".", "traceary-session.sh"), env, `{"cwd":"/tmp/project"}`, "claude", "start"); err != nil {
+		t.Fatalf("runHookScript(start) error = %v", err)
+	}
+
+	// Run audit WITHOUT TRACEARY_REPO — should use repo from session state
+	auditEnv := append(os.Environ(),
+		"TRACEARY_BIN="+fakeTracearyPath,
+		"TRACEARY_FAKE_LOG="+fakeLogPath,
+		"HOME="+homeDir,
+	)
+	auditInput := `{"cwd":"/tmp/other-dir","tool_input":{"command":"ls"},"tool_response":{"exitCode":0,"stderr":"","stdout":"files"}}`
+	if err := runHookScript(t, filepath.Join(".", "traceary-audit.sh"), auditEnv, auditInput, "claude"); err != nil {
+		t.Fatalf("runHookScript(audit) error = %v", err)
+	}
+
+	calls := readLoggedCalls(t, fakeLogPath)
+	if len(calls) != 2 {
+		t.Fatalf("len(calls) = %d, want 2", len(calls))
+	}
+
+	// Verify audit used session-repo, not CWD-based detection
+	auditCall := calls[1]
+	repoIdx := -1
+	for i, arg := range auditCall {
+		if arg == "--repo" && i+1 < len(auditCall) {
+			repoIdx = i + 1
+			break
+		}
+	}
+	if repoIdx == -1 {
+		t.Fatalf("audit call missing --repo flag: %#v", auditCall)
+	}
+	if auditCall[repoIdx] != "session-repo" {
+		t.Fatalf("audit --repo = %q, want %q", auditCall[repoIdx], "session-repo")
 	}
 }
 

@@ -148,6 +148,31 @@ traceary_write_state() {
   printf '%s' "$session_id" > "$state_file"
 }
 
+traceary_write_repo_state() {
+  local client="$1"
+  local repo="$2"
+  local state_file
+  state_file="$(traceary_session_state_path "$client")-repo"
+  printf '%s' "$repo" > "$state_file"
+}
+
+traceary_read_repo_state() {
+  local client="$1"
+  local state_file
+  state_file="$(traceary_session_state_path "$client")-repo"
+  if [[ ! -f "$state_file" ]]; then
+    return 0
+  fi
+  cat "$state_file"
+}
+
+traceary_clear_repo_state() {
+  local client="$1"
+  local state_file
+  state_file="$(traceary_session_state_path "$client")-repo"
+  rm -f "$state_file"
+}
+
 traceary_read_state() {
   local client="$1"
   local state_file
@@ -245,6 +270,9 @@ case "$ACTION" in
     if [[ -n "$ACTUAL_SESSION_ID" ]]; then
       traceary_write_state "$CLIENT" "$ACTUAL_SESSION_ID"
       traceary_clear_session_end_marker "$CLIENT" "$ACTUAL_SESSION_ID"
+      if [[ -n "$REPO_VALUE" ]]; then
+        traceary_write_repo_state "$CLIENT" "$REPO_VALUE"
+      fi
     fi
     ;;
   end|stop)
@@ -257,7 +285,14 @@ case "$ACTION" in
 
     if traceary_session_end_already_recorded "$CLIENT" "$SESSION_ID"; then
       traceary_clear_state "$CLIENT"
+      traceary_clear_repo_state "$CLIENT"
       exit 0
+    fi
+
+    # Use repo from session state if available (prevents CWD drift)
+    REPO_STATE="$(traceary_read_repo_state "$CLIENT")"
+    if [[ -n "$REPO_STATE" ]]; then
+      REPO_VALUE="$REPO_STATE"
     fi
 
     COMMAND=("$TRACEARY_CMD" session end --client hook --agent "$AGENT_VALUE" --session-id "$SESSION_ID")
@@ -269,6 +304,7 @@ case "$ACTION" in
     fi
     "${COMMAND[@]}" >/dev/null 2>&1 || exit 0
     traceary_clear_state "$CLIENT"
+    traceary_clear_repo_state "$CLIENT"
     traceary_mark_session_ended "$CLIENT" "$SESSION_ID"
     ;;
   *)
@@ -317,8 +353,12 @@ if [[ -z "$SESSION_ID" ]]; then
   exit 0
 fi
 
-HOOK_CWD="$(traceary_json_get 'cwd')"
-REPO_VALUE="$(traceary_resolve_repo "$HOOK_CWD")"
+# Prefer repo from session state (set at session start) over CWD-based detection
+REPO_VALUE="$(traceary_read_repo_state "$CLIENT")"
+if [[ -z "$REPO_VALUE" ]]; then
+  HOOK_CWD="$(traceary_json_get 'cwd')"
+  REPO_VALUE="$(traceary_resolve_repo "$HOOK_CWD")"
+fi
 AUDIT_INPUT="$(traceary_json_get 'tool_input' '{}')"
 AUDIT_OUTPUT="$(traceary_json_get 'tool_response')"
 if [[ -z "$AUDIT_OUTPUT" ]]; then
