@@ -116,6 +116,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 			"MESSAGE: go test ./...\n" +
 			"\n" +
 			"COMMAND: go test ./...\n" +
+			"EXIT_CODE: -\n" +
 			"INPUT_TRUNCATED: true\n" +
 			"INPUT:\n" +
 			"stdin\n" +
@@ -232,5 +233,79 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 		if stdout.String() != want {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 		}
+	})
+
+	t.Run("exit_code is included in JSON and text output when present", func(t *testing.T) {
+		t.Parallel()
+
+		dbPath := filepath.Join(t.TempDir(), "traceary.db")
+		initStub := &initializeStoreUsecaseStub{}
+		exitCode := 1
+		eventDetails, err := queryservice.NewEventDetails(
+			model.EventOf(
+				eventID,
+				types.EventKindCommandExecuted,
+				"cli",
+				agent,
+				sessionID,
+				"duck8823/traceary",
+				"go test ./...",
+				time.Date(2026, 4, 8, 13, 0, 0, 0, time.UTC),
+			),
+			model.CommandAuditOf(
+				eventID,
+				"go test ./...",
+				"stdin",
+				"stderr",
+				false,
+				false,
+				&exitCode,
+			),
+		)
+		if err != nil {
+			t.Fatalf("NewEventDetails() error = %v", err)
+		}
+
+		t.Run("text format", func(t *testing.T) {
+			t.Parallel()
+
+			showStub := &getEventDetailsQueryServiceStub{eventDetails: eventDetails}
+			stdout := &bytes.Buffer{}
+			rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+				InitializeStoreUsecase:      initStub,
+				GetEventDetailsQueryService: showStub,
+			}).Command()
+			rootCmd.SetOut(stdout)
+			rootCmd.SetErr(&bytes.Buffer{})
+			rootCmd.SetArgs([]string{"show", "--db-path", dbPath, "event-1"})
+
+			if err := rootCmd.Execute(); err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			if !bytes.Contains(stdout.Bytes(), []byte("EXIT_CODE: 1\n")) {
+				t.Fatalf("expected EXIT_CODE: 1 in output, got %q", stdout.String())
+			}
+		})
+
+		t.Run("json format", func(t *testing.T) {
+			t.Parallel()
+
+			showStub := &getEventDetailsQueryServiceStub{eventDetails: eventDetails}
+			stdout := &bytes.Buffer{}
+			rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+				InitializeStoreUsecase:      initStub,
+				GetEventDetailsQueryService: showStub,
+			}).Command()
+			rootCmd.SetOut(stdout)
+			rootCmd.SetErr(&bytes.Buffer{})
+			rootCmd.SetArgs([]string{"show", "--db-path", dbPath, "--json", "event-1"})
+
+			if err := rootCmd.Execute(); err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			if !bytes.Contains(stdout.Bytes(), []byte(`"exit_code": 1`)) {
+				t.Fatalf("expected exit_code in JSON output, got %q", stdout.String())
+			}
+		})
 	})
 }

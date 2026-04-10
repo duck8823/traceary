@@ -85,10 +85,16 @@ func writeEventDetails(output io.Writer, eventDetails *queryservice.EventDetails
 		return nil
 	}
 
+	exitCodeDisplay := "-"
+	if commandAudit.ExitCode() != nil {
+		exitCodeDisplay = fmt.Sprintf("%d", *commandAudit.ExitCode())
+	}
+
 	if _, err := fmt.Fprintf(
 		output,
-		"\nCOMMAND: %s\nINPUT_TRUNCATED: %t\nINPUT:\n%s\nOUTPUT_TRUNCATED: %t\nOUTPUT:\n%s\n",
+		"\nCOMMAND: %s\nEXIT_CODE: %s\nINPUT_TRUNCATED: %t\nINPUT:\n%s\nOUTPUT_TRUNCATED: %t\nOUTPUT:\n%s\n",
 		commandAudit.Command(),
+		exitCodeDisplay,
 		commandAudit.InputTruncated(),
 		commandAudit.Input(),
 		commandAudit.OutputTruncated(),
