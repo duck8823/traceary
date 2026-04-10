@@ -5,6 +5,32 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.1.19] - 2026-04-10
+
+This release improves CLI visibility, makes config failures visible before they silently weaken redaction behavior, and removes drift-prone hook asset duplication.
+
+### Added
+- `traceary doctor` now reports config health states for missing, loaded, unreadable, and invalid `config.json` files
+- CLI and MCP config loading now emit operator-visible warnings when a broken config disables extra redaction patterns
+- regression coverage for embedded hook script line-ending normalization and required-flag setup behavior
+
+### Fixed
+- `traceary session list` text and JSON output now surface `label`, `summary`, and `parent_session_id` consistently
+- CLI docs and top-level docs now document `traceary session label` and the richer `session list` metadata surface
+- tabular session metadata output now normalizes tabs/newlines to avoid terminal layout breakage
+- packaged hook scripts now normalize embedded line endings to LF before installation, avoiding `/bin/bash\r` shebang regressions on Windows checkouts
+
+### Changed
+- packaged hook assets are now derived from the canonical `scripts/hooks/*.sh` sources instead of duplicate handwritten string literals
+- the remaining Cobra required-flag setup panics were replaced with graceful command-construction errors while preserving required-flag semantics
+- updated integration manifests to version `0.1.19`
+
+### Included issues
+- #219 Surface session metadata consistently in CLI output and docs
+- #220 Make config load failures visible to operators
+- #221 Make hook scripts single-source for packaging and tests
+- #222 Replace remaining CLI setup panics with graceful errors
+
 ## [v0.1.18] - 2026-04-10
 
 This release introduces a dedicated sessions table, enriches session metadata with labels, summaries, and parent-child relationships, and improves data quality.

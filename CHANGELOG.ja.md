@@ -5,6 +5,32 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.1.19] - 2026-04-10
+
+この release では、CLI の可視性を高め、redaction を黙って弱める config 異常を見えるようにし、hook asset の重複管理を解消しました。
+
+### 追加
+- `traceary doctor` が `config.json` の状態を missing / loaded / unreadable / invalid で判別して表示
+- 壊れた config により追加 redaction パターンが無効化されるとき、CLI / MCP の config 読み込みで警告を表示
+- hook script の改行正規化と required flag セットアップ挙動の回帰テスト
+
+### 修正
+- `traceary session list` の text / JSON 出力で `label` / `summary` / `parent_session_id` を一貫して表示
+- `traceary session label` と `session list` の拡張メタデータを CLI docs / top-level docs に反映
+- セッションメタデータの表形式出力で tab / newline を正規化し、ターミナル表示崩れを防止
+- package 化された hook script の改行を install 前に LF へ正規化し、Windows checkout 時の `/bin/bash\r` shebang 退行を防止
+
+### 変更
+- packaged hook asset を重複した文字列リテラルではなく、canonical な `scripts/hooks/*.sh` から生成するよう変更
+- 残っていた Cobra required flag セットアップ時の panic を、required flag の挙動を維持したまま graceful error に置換
+- 統合マニフェストのバージョンを `0.1.19` に更新
+
+### 含まれるイシュー
+- #219 CLI 出力と docs でセッションメタデータを一貫表示
+- #220 config 読み込み失敗をオペレーターに可視化
+- #221 hook script を packaging / test 共通の単一ソースに統一
+- #222 残る CLI setup panic を graceful error に置換
+
 ## [v0.1.18] - 2026-04-10
 
 セッションメタデータの充実とデータ品質の向上を行いました。
