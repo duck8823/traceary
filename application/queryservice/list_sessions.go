@@ -25,8 +25,8 @@ type ListSessionsInput struct {
 	Offset int
 	Repo   string
 	Agent  string
-	From   string
-	To     string
+	From   *time.Time
+	To     *time.Time
 }
 
 // SessionSummaryFinder provides session summary lookup.

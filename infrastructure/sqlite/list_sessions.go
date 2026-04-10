@@ -31,19 +31,12 @@ func (d *Datasource) ListSessionSummaries(
 	}()
 
 	fromValue := ""
-	if input.From != "" {
-		if _, err := time.Parse("2006-01-02", input.From); err != nil {
-			return nil, xerrors.Errorf("invalid from date %q: %w", input.From, err)
-		}
-		fromValue = input.From + "T00:00:00Z"
+	if input.From != nil {
+		fromValue = formatTimestamp(*input.From)
 	}
 	toValue := ""
-	if input.To != "" {
-		parsed, err := time.Parse("2006-01-02", input.To)
-		if err != nil {
-			return nil, xerrors.Errorf("invalid to date %q: %w", input.To, err)
-		}
-		toValue = formatTimestamp(parsed.AddDate(0, 0, 1))
+	if input.To != nil {
+		toValue = formatTimestamp(input.To.AddDate(0, 0, 1))
 	}
 
 	rows, err := db.QueryContext(
