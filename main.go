@@ -177,6 +177,7 @@ func run() error {
 		listRecentEventsQueryService,
 		searchEventsQueryService,
 		getContextQueryService,
+		listSessionsQueryService,
 	)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", cli.Localize("failed to initialize MCP server", "MCP server の初期化に失敗しました"), err)

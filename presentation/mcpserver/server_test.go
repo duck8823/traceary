@@ -295,6 +295,7 @@ CREATE TABLE command_audits (
 		queryservice.NewListRecentEventsQueryService(datasource),
 		searchEventsQueryService,
 		getContextQueryService,
+		queryservice.NewListSessionsQueryService(datasource),
 	)
 	if err != nil {
 		t.Fatalf("NewServer() error = %v", err)

@@ -40,6 +40,7 @@ type Server struct {
 	listEventsQueryService        queryservice.ListRecentEventsQueryService
 	searchEventsQueryService      queryservice.SearchEventsQueryService
 	getContextQueryService        queryservice.GetContextQueryService
+	listSessionsQueryService      queryservice.ListSessionsQueryService
 }
 
 // NewServer creates a new MCP server.
@@ -53,6 +54,7 @@ func NewServer(
 	listEventsQueryService queryservice.ListRecentEventsQueryService,
 	searchEventsQueryService queryservice.SearchEventsQueryService,
 	getContextQueryService queryservice.GetContextQueryService,
+	listSessionsQueryService queryservice.ListSessionsQueryService,
 ) (*Server, error) {
 	if initializeStoreUsecase == nil {
 		return nil, xerrors.Errorf("initialize store usecase is not configured")
@@ -98,6 +100,7 @@ func NewServer(
 		listEventsQueryService:        listEventsQueryService,
 		searchEventsQueryService:      searchEventsQueryService,
 		getContextQueryService:        getContextQueryService,
+		listSessionsQueryService:      listSessionsQueryService,
 	}, nil
 }
 
@@ -161,6 +164,11 @@ func (s *Server) Build(ctx context.Context, dbPath string) (*mcp.Server, error) 
 		Description: "Get recent context events matching the filters",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.getContext(trimmedDBPath))
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "session_handoff",
+		Description: "Get a concise session summary for handoff or context resumption",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+	}, s.sessionHandoff(trimmedDBPath))
 
 	return server, nil
 }
@@ -509,6 +517,70 @@ func (s *Server) getContext(dbPath string) mcp.ToolHandlerFor[getContextInput, e
 		}
 
 		return nil, eventsOutput{Events: convertEvents(events)}, nil
+	}
+}
+
+type sessionHandoffInput struct {
+	SessionID string `json:"session_id,omitempty"`
+	Repo      string `json:"repo,omitempty"`
+}
+
+type sessionHandoffOutput struct {
+	SessionID    string   `json:"session_id,omitempty"`
+	Repo         string   `json:"repo,omitempty"`
+	Label        string   `json:"label,omitempty"`
+	Status       string   `json:"status,omitempty"`
+	TotalEvents  int      `json:"total_events"`
+	CommandCount int      `json:"command_count"`
+	Agents       []string `json:"agents,omitempty"`
+	Summary      string   `json:"summary,omitempty"`
+	RecentCommands []string `json:"recent_commands,omitempty"`
+}
+
+func (s *Server) sessionHandoff(dbPath string) mcp.ToolHandlerFor[sessionHandoffInput, sessionHandoffOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, input sessionHandoffInput) (*mcp.CallToolResult, sessionHandoffOutput, error) {
+		sessions, err := s.listSessionsQueryService.Run(ctx, dbPath, queryservice.ListSessionsInput{
+			Limit: 1,
+			Repo:  strings.TrimSpace(input.Repo),
+		})
+		if err != nil {
+			return nil, sessionHandoffOutput{}, xerrors.Errorf("failed to list sessions: %w", err)
+		}
+
+		if len(sessions) == 0 {
+			return nil, sessionHandoffOutput{}, nil
+		}
+
+		session := sessions[0]
+		events, err := s.listEventsQueryService.Run(ctx, dbPath, queryservice.ListRecentEventsInput{
+			Limit:     5,
+			SessionID: session.SessionID,
+			Kind:      "command_executed",
+		})
+		if err != nil {
+			return nil, sessionHandoffOutput{}, xerrors.Errorf("failed to list events: %w", err)
+		}
+
+		var recentCommands []string
+		for _, e := range events {
+			cmd := e.Body()
+			if len([]rune(cmd)) > 60 {
+				cmd = string([]rune(cmd)[:60]) + "…"
+			}
+			recentCommands = append(recentCommands, cmd)
+		}
+
+		return nil, sessionHandoffOutput{
+			SessionID:      session.SessionID,
+			Repo:           session.Repo,
+			Label:          session.Label,
+			Status:         session.Status,
+			TotalEvents:    session.TotalEvents,
+			CommandCount:   session.CommandCount,
+			Agents:         session.Agents,
+			Summary:        session.Summary,
+			RecentCommands: recentCommands,
+		}, nil
 	}
 }
 
