@@ -7,7 +7,7 @@
 </p>
 
 [![CI](https://github.com/duck8823/traceary/actions/workflows/ci.yml/badge.svg)](https://github.com/duck8823/traceary/actions/workflows/ci.yml)
-[![Release](https://github.com/duck8823/traceary/actions/workflows/release.yml/badge.svg)](https://github.com/duck8823/traceary/actions/workflows/release.yml)
+[![Release](https://github.com/duck8823/traceary/actions/workflows/release.yml/badge.svg?event=push)](https://github.com/duck8823/traceary/actions/workflows/release.yml)
 
 Traceary は、AI エージェントの作業ログ、セッション境界、シェルコマンド監査をローカルの SQLite に残して検索できる CLI / MCP サーバーです。
 
