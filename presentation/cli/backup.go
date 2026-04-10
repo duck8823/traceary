@@ -67,7 +67,13 @@ func (c *RootCLI) newBackupCreateCommand() *cobra.Command {
 		Args:  maximumNArgsLocalized(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resolvedOutput := outputPath
-			if len(args) == 1 && resolvedOutput == "" {
+			if len(args) == 1 && resolvedOutput != "" {
+				return xerrors.Errorf(Localize(
+					"output path specified twice: positional argument and --output flag",
+					"出力先パスが二重に指定されています（位置引数と --output フラグ）",
+				))
+			}
+			if len(args) == 1 {
 				resolvedOutput = args[0]
 			}
 			if resolvedOutput == "" {

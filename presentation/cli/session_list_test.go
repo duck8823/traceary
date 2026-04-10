@@ -249,4 +249,28 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 			t.Fatalf("Execute() error = nil, want error")
 		}
 	})
+
+	t.Run("--client filter is passed to query service", func(t *testing.T) {
+		t.Parallel()
+
+		dbPath := filepath.Join(t.TempDir(), "traceary.db")
+		listStub := &listSessionsQueryServiceStub{}
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase:   &initializeStoreUsecaseStub{},
+			ListSessionsQueryService: listStub,
+		}).Command()
+		rootCmd.SetOut(&bytes.Buffer{})
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"session", "list", "--db-path", dbPath, "--client", "hook"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		if !listStub.called {
+			t.Fatal("ListSessionsQueryService.Run() was not called")
+		}
+		if listStub.receivedInput.Client != "hook" {
+			t.Fatalf("Client = %q, want %q", listStub.receivedInput.Client, "hook")
+		}
+	})
 }

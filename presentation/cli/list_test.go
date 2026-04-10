@@ -238,4 +238,28 @@ func TestRootCLI_ListCommand(t *testing.T) {
 			t.Fatalf("Execute() error = nil, want error")
 		}
 	})
+
+	t.Run("--kind audit resolves to command_executed", func(t *testing.T) {
+		t.Parallel()
+
+		dbPath := filepath.Join(t.TempDir(), "traceary.db")
+		listStub := &listEventsQueryServiceStub{}
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			InitializeStoreUsecase: &initializeStoreUsecaseStub{},
+			ListEventsQueryService: listStub,
+		}).Command()
+		rootCmd.SetOut(&bytes.Buffer{})
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"list", "--db-path", dbPath, "--kind", "audit"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		if !listStub.called {
+			t.Fatal("ListRecentEventsQueryService.Run() was not called")
+		}
+		if listStub.receivedInput.Kind != "command_executed" {
+			t.Fatalf("Kind = %q, want %q", listStub.receivedInput.Kind, "command_executed")
+		}
+	})
 }
