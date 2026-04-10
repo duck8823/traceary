@@ -106,7 +106,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		t.Fatalf("Save(finished end) error = %v", err)
 	}
 
-	t.Run("直近の session_started を返す", func(t *testing.T) {
+	t.Run("returns latest session_started", func(t *testing.T) {
 		got, err := sut.FindLatestSessionStartedEvent(
 			context.Background(),
 			dbPath,
@@ -124,7 +124,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		}
 	})
 
-	t.Run("終了境界が最後の session も latest として選ばれる", func(t *testing.T) {
+	t.Run("session with end boundary as last event is selected as latest", func(t *testing.T) {
 		laterStartEvent := newFindLatestSessionEventFixture(
 			t,
 			"event-6",
@@ -187,7 +187,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		}
 	})
 
-	t.Run("同じ session_id に複数の start があれば最新 start を返す", func(t *testing.T) {
+	t.Run("returns newest start when multiple starts exist for same session_id", func(t *testing.T) {
 		repeatedStartEvent := newFindLatestSessionEventFixture(
 			t,
 			"event-8",
@@ -218,7 +218,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		}
 	})
 
-	t.Run("一致する session がなければエラー", func(t *testing.T) {
+	t.Run("returns error when no matching session exists", func(t *testing.T) {
 		_, err := sut.FindLatestSessionStartedEvent(
 			context.Background(),
 			dbPath,
@@ -232,7 +232,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		}
 	})
 
-	t.Run("一致する active session がなければエラー", func(t *testing.T) {
+	t.Run("returns error when no matching active session exists", func(t *testing.T) {
 		_, err := sut.FindLatestSessionStartedEvent(
 			context.Background(),
 			dbPath,

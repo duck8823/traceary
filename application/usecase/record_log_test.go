@@ -23,7 +23,7 @@ func (s *eventRepositoryStub) Save(_ context.Context, dbPath string, event *mode
 func TestRecordLogUsecase_Run(t *testing.T) {
 	t.Parallel()
 
-	t.Run("イベントを保存できる", func(t *testing.T) {
+	t.Run("saves event successfully", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventRepositoryStub{}
@@ -72,7 +72,7 @@ func TestRecordLogUsecase_Run(t *testing.T) {
 		}
 	})
 
-	t.Run("必須項目が不正な場合はエラー", func(t *testing.T) {
+	t.Run("returns error for invalid required fields", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventRepositoryStub{}

@@ -43,7 +43,7 @@ func TestRootCLI_MCPServer(t *testing.T) {
 		}
 	})
 
-	t.Run("ランナー未設定ならエラー", func(t *testing.T) {
+	t.Run("returns error when runner is not configured", func(t *testing.T) {
 		t.Parallel()
 
 		sut := cli.NewRootCLI(cli.RootCLIOptions{})

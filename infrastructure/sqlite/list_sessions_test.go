@@ -84,7 +84,7 @@ func saveTestSession(ctx context.Context, t *testing.T, ds *infra.Datasource, db
 func TestDatasource_ListSessionSummaries(t *testing.T) {
 	t.Parallel()
 
-	t.Run("セッションサマリーを取得できる", func(t *testing.T) {
+	t.Run("retrieves session summaries", func(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")

@@ -50,7 +50,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 		t.Fatalf("SessionIDOf() error = %v", err)
 	}
 
-	t.Run("イベント詳細を表示できる", func(t *testing.T) {
+	t.Run("displays event details", func(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")

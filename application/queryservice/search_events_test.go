@@ -43,7 +43,7 @@ func TestSearchEventsQueryService_Run(t *testing.T) {
 		t.Fatalf("SessionIDOf() error = %v", err)
 	}
 
-	t.Run("検索結果を返す", func(t *testing.T) {
+	t.Run("returns search results", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventSearcherStub{
@@ -92,7 +92,7 @@ func TestSearchEventsQueryService_Run(t *testing.T) {
 		}
 	})
 
-	t.Run("検索語が空でも構造フィルタがあれば検索できる", func(t *testing.T) {
+	t.Run("searches with structural filters when query is empty", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventSearcherStub{}
@@ -110,7 +110,7 @@ func TestSearchEventsQueryService_Run(t *testing.T) {
 		}
 	})
 
-	t.Run("検索条件が空ならエラー", func(t *testing.T) {
+	t.Run("returns error when all search conditions are empty", func(t *testing.T) {
 		t.Parallel()
 
 		sut := queryservice.NewSearchEventsQueryService(&eventSearcherStub{})
@@ -124,7 +124,7 @@ func TestSearchEventsQueryService_Run(t *testing.T) {
 		}
 	})
 
-	t.Run("未知の kind ならエラー", func(t *testing.T) {
+	t.Run("returns error for unknown kind", func(t *testing.T) {
 		t.Parallel()
 
 		sut := queryservice.NewSearchEventsQueryService(&eventSearcherStub{})

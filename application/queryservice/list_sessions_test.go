@@ -28,7 +28,7 @@ func (s *sessionSummaryFinderStub) ListSessionSummaries(
 func TestListSessionsQueryService_Run(t *testing.T) {
 	t.Parallel()
 
-	t.Run("セッションサマリーを返す", func(t *testing.T) {
+	t.Run("returns session summaries", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &sessionSummaryFinderStub{

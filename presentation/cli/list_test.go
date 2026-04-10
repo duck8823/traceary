@@ -37,7 +37,7 @@ var _ queryservice.ListRecentEventsQueryService = (*listEventsQueryServiceStub)(
 func TestRootCLI_ListCommand(t *testing.T) {
 	t.Parallel()
 
-	t.Run("イベント一覧を表示できる", func(t *testing.T) {
+	t.Run("displays event list", func(t *testing.T) {
 		t.Parallel()
 
 		eventID, err := types.EventIDOf("event-1")
@@ -182,7 +182,7 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("イベントがない場合はメッセージを表示する", func(t *testing.T) {
+	t.Run("displays message when no events exist", func(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")

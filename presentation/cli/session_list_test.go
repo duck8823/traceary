@@ -36,7 +36,7 @@ var _ queryservice.ListSessionsQueryService = (*listSessionsQueryServiceStub)(ni
 func TestRootCLI_SessionListCommand(t *testing.T) {
 	t.Parallel()
 
-	t.Run("セッション一覧を表示できる", func(t *testing.T) {
+	t.Run("displays session list", func(t *testing.T) {
 		t.Parallel()
 
 		endedAt := time.Date(2026, 4, 9, 13, 30, 0, 0, time.UTC)
@@ -101,7 +101,7 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("セッションがない場合はメッセージを表示する", func(t *testing.T) {
+	t.Run("displays message when no sessions exist", func(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")

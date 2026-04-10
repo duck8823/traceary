@@ -65,7 +65,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("削除件数を表示できる", func(t *testing.T) {
+	t.Run("displays deletion count", func(t *testing.T) {
 		stub := &collectGarbageUsecaseStub{
 			result: &usecase.CollectGarbageResult{DeletedCount: 2, DryRun: false},
 		}

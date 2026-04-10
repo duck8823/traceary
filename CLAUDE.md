@@ -71,5 +71,5 @@ go tool golangci-lint run
 
 - `go tool golangci-lint run` must pass before committing
 - `go test ./...` must pass before committing
-- Test names use Japanese descriptions (table-driven with subtests)
+- Test names use English descriptions (table-driven with subtests)
 - No `panic()` in runtime paths — reserved only for programming errors in init-time assertions

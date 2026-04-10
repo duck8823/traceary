@@ -31,7 +31,7 @@ func (s *commandAuditSaverStub) SaveCommandAudit(
 func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 	t.Parallel()
 
-	t.Run("監査イベントを保存できる", func(t *testing.T) {
+	t.Run("saves audit event successfully", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &commandAuditSaverStub{}
@@ -70,7 +70,7 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		}
 	})
 
-	t.Run("長い input/output は切り詰めて保存する", func(t *testing.T) {
+	t.Run("truncates long input/output before saving", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &commandAuditSaverStub{}
@@ -104,7 +104,7 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		}
 	})
 
-	t.Run("明示した上限で input/output を切り詰める", func(t *testing.T) {
+	t.Run("truncates input/output at explicit limit", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &commandAuditSaverStub{}
@@ -135,7 +135,7 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		}
 	})
 
-	t.Run("一般的な secret は既定で伏せ字にする", func(t *testing.T) {
+	t.Run("redacts common secrets by default", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &commandAuditSaverStub{}
@@ -207,7 +207,7 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		}
 	})
 
-	t.Run("追加リダクションパターンでカスタムフィールドを伏せ字にする", func(t *testing.T) {
+	t.Run("redacts custom fields with extra patterns", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &commandAuditSaverStub{}
@@ -237,7 +237,7 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		}
 	})
 
-	t.Run("不正な追加リダクションパターンはエラーを返す", func(t *testing.T) {
+	t.Run("returns error for invalid extra redaction pattern", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &commandAuditSaverStub{}
@@ -258,7 +258,7 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		}
 	})
 
-	t.Run("負の上限はエラー", func(t *testing.T) {
+	t.Run("returns error for negative limit", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &commandAuditSaverStub{}

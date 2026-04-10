@@ -43,7 +43,7 @@ func TestListRecentEventsQueryService_Run(t *testing.T) {
 		t.Fatalf("SessionIDOf() error = %v", err)
 	}
 
-	t.Run("イベント一覧を返す", func(t *testing.T) {
+	t.Run("returns event list", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &recentEventFinderStub{

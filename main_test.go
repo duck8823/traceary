@@ -55,7 +55,7 @@ type testError string
 func (e testError) Error() string { return string(e) }
 
 func TestSetupLogger(t *testing.T) {
-	t.Run("有効な LOG_LEVEL はエラーなく設定される", func(t *testing.T) {
+	t.Run("valid LOG_LEVEL is set without error", func(t *testing.T) {
 		for _, level := range []string{"debug", "info", "warn", "warning", "error", "DEBUG", "Info"} {
 			t.Setenv("LOG_LEVEL", level)
 			if err := setupLogger(); err != nil {
@@ -64,7 +64,7 @@ func TestSetupLogger(t *testing.T) {
 		}
 	})
 
-	t.Run("不正な LOG_LEVEL はエラーを返す", func(t *testing.T) {
+	t.Run("invalid LOG_LEVEL returns error", func(t *testing.T) {
 		t.Setenv("LOG_LEVEL", "invalid")
 		if err := setupLogger(); err == nil {
 			t.Fatal("setupLogger() with LOG_LEVEL=invalid returned nil, want error")
@@ -91,7 +91,7 @@ func TestSetupLogger(t *testing.T) {
 func TestResolveBuildMetadata(t *testing.T) {
 	t.Parallel()
 
-	t.Run("明示値がある場合は build info より優先する", func(t *testing.T) {
+	t.Run("explicit values take precedence over build info", func(t *testing.T) {
 		t.Parallel()
 
 		got := resolveBuildMetadata("v1.2.3", "commit-explicit", "2026-04-08T00:00:00Z", func() (*debug.BuildInfo, bool) {

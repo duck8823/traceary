@@ -43,7 +43,7 @@ func TestGetContextQueryService_Run(t *testing.T) {
 		t.Fatalf("SessionIDOf() error = %v", err)
 	}
 
-	t.Run("文脈イベントを返す", func(t *testing.T) {
+	t.Run("returns context events", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &contextEventFinderStub{

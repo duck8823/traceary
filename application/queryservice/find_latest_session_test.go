@@ -44,7 +44,7 @@ func TestFindLatestSessionQueryService_Run(t *testing.T) {
 		t.Fatalf("SessionIDOf() error = %v", err)
 	}
 
-	t.Run("直近セッションイベントを返す", func(t *testing.T) {
+	t.Run("returns latest session event", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &latestSessionFinderStub{
