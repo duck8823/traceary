@@ -27,6 +27,7 @@ type ListSessionsInput struct {
 	Limit  int
 	Offset int
 	Repo   string
+	Client string
 	Agent  string
 	Label  string
 	From   *time.Time

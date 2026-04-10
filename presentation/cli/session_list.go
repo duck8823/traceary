@@ -17,6 +17,7 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 	var (
 		dbPath string
 		repo   string
+		client string
 		agent  string
 		label  string
 		from   string
@@ -69,6 +70,7 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 				Limit:  limit,
 				Offset: offset,
 				Repo:   resolvedRepo,
+				Client: client,
 				Agent:  agent,
 				Label:  label,
 				From:   fromTime,
@@ -84,6 +86,7 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 
 	listCmd.Flags().StringVar(&dbPath, "db-path", "", Localize("SQLite DB path (env: TRACEARY_DB_PATH)", "SQLite DB パス (env: TRACEARY_DB_PATH)"))
 	listCmd.Flags().StringVar(&repo, "repo", "", Localize("filter by repo", "リポジトリでフィルタ"))
+	listCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "記録経路でフィルタ"))
 	listCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "エージェントでフィルタ"))
 	listCmd.Flags().StringVar(&label, "label", "", Localize("filter by label", "ラベルでフィルタ"))
 	listCmd.Flags().StringVar(&from, "from", "", Localize("start date (YYYY-MM-DD)", "開始日 (YYYY-MM-DD)"))
