@@ -50,14 +50,20 @@ func (d *Datasource) SaveSession(ctx context.Context, dbPath string, session *mo
 	}
 
 	// Session start: insert new row
+	var parentSessionID *string
+	if session.ParentSessionID() != "" {
+		v := session.ParentSessionID()
+		parentSessionID = &v
+	}
 	_, err = db.ExecContext(
 		ctx,
-		`INSERT OR IGNORE INTO sessions (session_id, started_at, client, agent, repo) VALUES (?, ?, ?, ?, ?)`,
+		`INSERT OR IGNORE INTO sessions (session_id, started_at, client, agent, repo, parent_session_id) VALUES (?, ?, ?, ?, ?, ?)`,
 		session.SessionID().String(),
 		formatTimestamp(session.StartedAt()),
 		session.Client(),
 		session.Agent().String(),
 		session.Repo(),
+		parentSessionID,
 	)
 	if err != nil {
 		return xerrors.Errorf("failed to insert session: %w", err)

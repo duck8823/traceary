@@ -22,8 +22,9 @@ type RecordSessionBoundaryInput struct {
 	SessionID     string
 	Repo          string
 	DefaultRepo   string
-	Kind          types.EventKind
-	Summary       string
+	Kind              types.EventKind
+	Summary           string
+	ParentSessionID   string
 }
 
 // ErrSessionStartedEventNotFound indicates the target session has no start event.
@@ -126,7 +127,7 @@ func (u *recordSessionBoundaryUsecase) Run(
 	}
 
 	if u.sessionSaver != nil {
-		session := buildSessionFromBoundary(event, input.Kind, input.Summary)
+		session := buildSessionFromBoundary(event, input.Kind, input.Summary, input.ParentSessionID)
 		if err := u.sessionSaver.SaveSession(ctx, trimmedDBPath, session); err != nil {
 			return nil, xerrors.Errorf("failed to save session metadata: %w", err)
 		}
@@ -135,15 +136,17 @@ func (u *recordSessionBoundaryUsecase) Run(
 	return event, nil
 }
 
-func buildSessionFromBoundary(event *model.Event, kind types.EventKind, summary string) *model.Session {
+func buildSessionFromBoundary(event *model.Event, kind types.EventKind, summary string, parentSessionID string) *model.Session {
 	switch kind {
 	case types.EventKindSessionStarted:
-		return model.NewSession(
+		return model.SessionOf(
 			event.SessionID(),
 			event.CreatedAt(),
+			nil,
 			event.Client(),
 			event.Agent(),
 			event.Repo(),
+			"", "", parentSessionID,
 		)
 	default:
 		// For session end, started_at is not available from the event.
