@@ -73,22 +73,30 @@ func (d *Datasource) ListRecent(
 		}
 	}()
 
+	failuresFilter := 0
+	if input.FailuresOnly {
+		failuresFilter = 1
+	}
+
 	rows, err := db.QueryContext(
 		ctx,
-		`SELECT id, kind, client, agent, session_id, repo, body, created_at
-		   FROM events
-		  WHERE (? = '' OR kind = ?)
-		    AND (? = '' OR client = ?)
-		    AND (? = '' OR agent = ?)
-		    AND (? = '' OR session_id = ?)
-		    AND (? = '' OR repo = ?)
-		  ORDER BY created_at DESC, id DESC
+		`SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.repo, e.body, e.created_at
+		   FROM events e
+		   LEFT JOIN command_audits ca ON ca.event_id = e.id
+		  WHERE (? = '' OR e.kind = ?)
+		    AND (? = '' OR e.client = ?)
+		    AND (? = '' OR e.agent = ?)
+		    AND (? = '' OR e.session_id = ?)
+		    AND (? = '' OR e.repo = ?)
+		    AND (? = 0 OR (ca.exit_code IS NOT NULL AND ca.exit_code != 0))
+		  ORDER BY e.created_at DESC, e.id DESC
 		  LIMIT ? OFFSET ?`,
 		input.Kind, input.Kind,
 		input.Client, input.Client,
 		input.Agent, input.Agent,
 		input.SessionID, input.SessionID,
 		input.Repo, input.Repo,
+		failuresFilter,
 		input.Limit,
 		input.Offset,
 	)
