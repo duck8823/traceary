@@ -46,15 +46,20 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 				return xerrors.Errorf("%s", Localize("offset must be >= 0", "offset は 0 以上でなければなりません"))
 			}
 
+			var fromTime, toTime *time.Time
 			if from != "" {
-				if _, err := time.Parse("2006-01-02", from); err != nil {
+				t, err := time.Parse("2006-01-02", from)
+				if err != nil {
 					return xerrors.Errorf("%s: %w", Localize("--from must be YYYY-MM-DD", "--from は YYYY-MM-DD 形式でなければなりません"), err)
 				}
+				fromTime = &t
 			}
 			if to != "" {
-				if _, err := time.Parse("2006-01-02", to); err != nil {
+				t, err := time.Parse("2006-01-02", to)
+				if err != nil {
 					return xerrors.Errorf("%s: %w", Localize("--to must be YYYY-MM-DD", "--to は YYYY-MM-DD 形式でなければなりません"), err)
 				}
+				toTime = &t
 			}
 
 			resolvedRepo := resolveRepoValue(ctx, repo)
@@ -64,8 +69,8 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 				Offset: offset,
 				Repo:   resolvedRepo,
 				Agent:  agent,
-				From:   from,
-				To:     to,
+				From:   fromTime,
+				To:     toTime,
 			})
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to list sessions", "セッション一覧の取得に失敗しました"), err)

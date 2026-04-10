@@ -196,9 +196,10 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 			}
 		}
 
+		fromDate := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
 		summaries, err := ds.ListSessionSummaries(ctx, dbPath, queryservice.ListSessionsInput{
 			Limit: 10,
-			From:  "2026-04-05",
+			From:  &fromDate,
 		})
 		if err != nil {
 			t.Fatalf("ListSessionSummaries() error = %v", err)
@@ -239,9 +240,10 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 			}
 		}
 
+		toDate := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
 		summaries, err := ds.ListSessionSummaries(ctx, dbPath, queryservice.ListSessionsInput{
 			Limit: 10,
-			To:    "2026-04-05",
+			To:    &toDate,
 		})
 		if err != nil {
 			t.Fatalf("ListSessionSummaries() error = %v", err)
@@ -254,23 +256,4 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		}
 	})
 
-	t.Run("不正な from 日付でエラーを返す", func(t *testing.T) {
-		t.Parallel()
-
-		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		ds := infra.NewDatasource(listSessionsTestMigrations())
-		ctx := context.Background()
-
-		if err := ds.Initialize(ctx, dbPath); err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
-
-		_, err := ds.ListSessionSummaries(ctx, dbPath, queryservice.ListSessionsInput{
-			Limit: 10,
-			From:  "invalid",
-		})
-		if err == nil {
-			t.Fatalf("ListSessionSummaries() error = nil, want error")
-		}
-	})
 }
