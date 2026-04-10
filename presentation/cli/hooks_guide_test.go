@@ -51,7 +51,11 @@ func TestRootCLI_HooksGuideCommand_MissingClientReturnsError(t *testing.T) {
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"hooks", "guide"})
 
-	if err := rootCmd.Execute(); err == nil {
+	err := rootCmd.Execute()
+	if err == nil {
 		t.Fatal("Execute() error = nil, want error")
+	}
+	if err.Error() != `required flag(s) "client" not set` {
+		t.Fatalf("Execute() error = %q, want required client flag error", err.Error())
 	}
 }

@@ -22,12 +22,16 @@ func (c *RootCLI) newHooksGuideCommand() *cobra.Command {
 		projectDir string
 		outputPath string
 	)
+	var commandSetupErr error
 
 	guideCmd := &cobra.Command{
 		Use:   "guide",
 		Short: Localize("Print guided setup steps for a supported client", "対応 client 向けの guided setup 手順を出力する"),
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if commandSetupErr != nil {
+				return commandSetupErr
+			}
 			return c.runHooksGuide(cmd.Context(), cmd.OutOrStdout(), hooksGuideCommandInput{
 				client:     client,
 				projectDir: projectDir,
@@ -38,6 +42,7 @@ func (c *RootCLI) newHooksGuideCommand() *cobra.Command {
 	guideCmd.Flags().StringVar(&client, "client", "", hooksClientFlagUsage)
 	guideCmd.Flags().StringVar(&projectDir, "project-dir", "", Localize("project directory used for project-local client configs", "project-local client config に使う project directory"))
 	guideCmd.Flags().StringVar(&outputPath, "output", "", Localize("override the expected config file path", "想定 config file path を上書きする"))
+	commandSetupErr = configureRequiredFlag(guideCmd, "client")
 
 	return guideCmd
 }

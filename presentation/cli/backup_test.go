@@ -86,8 +86,12 @@ func TestRootCLI_BackupCreateCommand_MissingOutputReturnsError(t *testing.T) {
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"backup", "create"})
 
-	if err := rootCmd.Execute(); err == nil {
+	err := rootCmd.Execute()
+	if err == nil {
 		t.Fatal("Execute() error = nil, want error")
+	}
+	if err.Error() != `required flag(s) "output" not set` {
+		t.Fatalf("Execute() error = %q, want required output flag error", err.Error())
 	}
 }
 
@@ -141,8 +145,12 @@ func TestRootCLI_BackupRestoreCommand_MissingInputReturnsError(t *testing.T) {
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"backup", "restore"})
 
-	if err := rootCmd.Execute(); err == nil {
+	err := rootCmd.Execute()
+	if err == nil {
 		t.Fatal("Execute() error = nil, want error")
+	}
+	if err.Error() != `required flag(s) "input" not set` {
+		t.Fatalf("Execute() error = %q, want required input flag error", err.Error())
 	}
 }
 
