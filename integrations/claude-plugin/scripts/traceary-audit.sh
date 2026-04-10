@@ -51,7 +51,13 @@ fi
 
 AGENT_VALUE="$(traceary_resolve_agent "$CLIENT")"
 
+# Extract exit code from tool_response if available
+EXIT_CODE="$(traceary_json_get 'tool_response.exitCode')"
+
 COMMAND=("$TRACEARY_CMD" audit "$COMMAND_VALUE" "$AUDIT_INPUT" "$AUDIT_OUTPUT" --client hook --agent "$AGENT_VALUE" --session-id "$SESSION_ID")
+if [[ -n "$EXIT_CODE" ]]; then
+  COMMAND+=(--exit-code "$EXIT_CODE")
+fi
 if [[ -n "${TRACEARY_DB_PATH:-}" ]]; then
   COMMAND+=(--db-path "$TRACEARY_DB_PATH")
 fi

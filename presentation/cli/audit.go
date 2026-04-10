@@ -29,6 +29,8 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 		inputFlagSet   bool
 		auditOutput    string
 		outputFlagSet  bool
+		exitCode       int
+		exitCodeSet    bool
 		idOnly         bool
 		asJSON         bool
 		allowSecrets   bool
@@ -63,6 +65,11 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 				return err
 			}
 
+			var exitCodePtr *int
+			if exitCodeSet {
+				exitCodePtr = &exitCode
+			}
+
 			return c.runAudit(cmd.Context(), cmd.OutOrStdout(), auditCommandInput{
 				dbPath:         dbPath,
 				command:        commandValue,
@@ -72,6 +79,7 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 				agent:          agent,
 				sessionID:      sessionID,
 				repo:           repo,
+				exitCode:       exitCodePtr,
 				idOnly:         idOnly,
 				asJSON:         asJSON,
 				allowSecrets:   allowSecrets,
@@ -116,10 +124,12 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 		0,
 		Localize("maximum stored output bytes (env: TRACEARY_MAX_AUDIT_OUTPUT_BYTES, 0 uses default)", "出力保存サイズ上限 (env: TRACEARY_MAX_AUDIT_OUTPUT_BYTES, 0 なら既定値)"),
 	)
+	auditCmd.Flags().IntVar(&exitCode, "exit-code", 0, Localize("command exit code", "コマンド終了コード"))
 	auditCmd.PreRun = func(cmd *cobra.Command, _ []string) {
 		commandFlagSet = cmd.Flags().Changed("command")
 		inputFlagSet = cmd.Flags().Changed("input")
 		outputFlagSet = cmd.Flags().Changed("output")
+		exitCodeSet = cmd.Flags().Changed("exit-code")
 	}
 	auditCmd.MarkFlagsMutuallyExclusive("id-only", "json")
 
@@ -145,6 +155,7 @@ type auditCommandInput struct {
 	agent          string
 	sessionID      string
 	repo           string
+	exitCode       *int
 	idOnly         bool
 	asJSON         bool
 	allowSecrets   bool
@@ -207,6 +218,7 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		MaxInputBytes:       maxInputBytes,
 		MaxOutputBytes:      maxOutputBytes,
 		ExtraRedactPatterns: config.Redact.ExtraPatterns,
+		ExitCode:            input.exitCode,
 	})
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to record command audit", "監査ログ記録に失敗しました"), err)
