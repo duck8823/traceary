@@ -141,6 +141,12 @@ func TestTracearySessionScript_StopIsIdempotentForDuplicateSessionEnd(t *testing
 	if !reflect.DeepEqual(calls, want) {
 		t.Fatalf("logged calls = %#v, want %#v", calls, want)
 	}
+
+	// Verify repo state file is cleaned up after duplicate stop
+	repoStatePath := filepath.Join(homeDir, ".config", "traceary", "hooks", "gemini-"+pidString()+"-repo")
+	if _, err := os.Stat(repoStatePath); !os.IsNotExist(err) {
+		t.Fatalf("repo state file should not exist after stop, got: %v", err)
+	}
 }
 
 func TestTracearySessionScript_UsesGitRootForLocalOnlyRepositories(t *testing.T) {

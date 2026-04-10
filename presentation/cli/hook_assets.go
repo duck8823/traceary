@@ -285,7 +285,14 @@ case "$ACTION" in
 
     if traceary_session_end_already_recorded "$CLIENT" "$SESSION_ID"; then
       traceary_clear_state "$CLIENT"
+      traceary_clear_repo_state "$CLIENT"
       exit 0
+    fi
+
+    # Use repo from session state if available (prevents CWD drift)
+    REPO_STATE="$(traceary_read_repo_state "$CLIENT")"
+    if [[ -n "$REPO_STATE" ]]; then
+      REPO_VALUE="$REPO_STATE"
     fi
 
     COMMAND=("$TRACEARY_CMD" session end --client hook --agent "$AGENT_VALUE" --session-id "$SESSION_ID")
