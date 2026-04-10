@@ -22,6 +22,8 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 		label  string
 		from   string
 		to     string
+		since  string
+		until  string
 		limit  int
 		offset int
 		asJSON bool
@@ -48,11 +50,19 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 				return xerrors.Errorf("%s", Localize("offset must be >= 0", "offset は 0 以上でなければなりません"))
 			}
 
-			fromTime, err := parseFlexibleTimePtr(from, false)
+			fromValue, err := resolveSearchDateValue(from, since, "from", "since")
+			if err != nil {
+				return err
+			}
+			toValue, err := resolveSearchDateValue(to, until, "to", "until")
+			if err != nil {
+				return err
+			}
+			fromTime, err := parseFlexibleTimePtr(fromValue, false)
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to resolve --from", "from の解決に失敗しました"), err)
 			}
-			toTime, err := parseFlexibleTimePtr(to, false)
+			toTime, err := parseFlexibleTimePtr(toValue, false)
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to resolve --to", "to の解決に失敗しました"), err)
 			}
@@ -87,6 +97,8 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 	listCmd.Flags().StringVar(&label, "label", "", Localize("filter by label", "ラベルでフィルタ"))
 	listCmd.Flags().StringVar(&from, "from", "", Localize("start date (YYYY-MM-DD or RFC3339)", "開始日 (YYYY-MM-DD または RFC3339)"))
 	listCmd.Flags().StringVar(&to, "to", "", Localize("end date (YYYY-MM-DD or RFC3339)", "終了日 (YYYY-MM-DD または RFC3339)"))
+	listCmd.Flags().StringVar(&since, "since", "", Localize("start date (alias for --from)", "開始日 (--from の別名)"))
+	listCmd.Flags().StringVar(&until, "until", "", Localize("end date (alias for --to)", "終了日 (--to の別名)"))
 	listCmd.Flags().IntVar(&limit, "limit", 20, Localize("maximum number of sessions", "最大表示セッション数"))
 	listCmd.Flags().IntVar(&offset, "offset", 0, Localize("number of sessions to skip", "スキップするセッション数"))
 	listCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
