@@ -54,7 +54,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 INSERT OR IGNORE INTO sessions (session_id, started_at, ended_at, client, agent, repo)
 SELECT
     e.session_id,
-    MIN(CASE WHEN e.kind = 'session_started' THEN e.created_at ELSE e.created_at END),
+    COALESCE(MIN(CASE WHEN e.kind = 'session_started' THEN e.created_at END), MIN(e.created_at)),
     MAX(CASE WHEN e.kind = 'session_ended' THEN e.created_at END),
     COALESCE(MAX(CASE WHEN e.kind = 'session_started' THEN e.client END), MAX(e.client)),
     COALESCE(MAX(CASE WHEN e.kind = 'session_started' THEN e.agent END), MAX(e.agent)),
