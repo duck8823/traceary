@@ -29,20 +29,12 @@ if [[ -z "$COMMAND_VALUE" ]]; then
   exit 0
 fi
 
-SESSION_ID="$(traceary_json_get 'session_id')"
-if [[ -z "$SESSION_ID" ]]; then
-  SESSION_ID="$(traceary_read_state "$CLIENT")"
-fi
+SESSION_ID="$(traceary_resolve_session_id "$CLIENT")"
 if [[ -z "$SESSION_ID" ]]; then
   exit 0
 fi
 
-# Prefer repo from session state (set at session start) over CWD-based detection
-REPO_VALUE="$(traceary_read_repo_state "$CLIENT")"
-if [[ -z "$REPO_VALUE" ]]; then
-  HOOK_CWD="$(traceary_json_get 'cwd')"
-  REPO_VALUE="$(traceary_resolve_repo "$HOOK_CWD")"
-fi
+REPO_VALUE="$(traceary_resolve_effective_repo "$CLIENT")"
 AUDIT_INPUT="$(traceary_json_get 'tool_input' '{}')"
 AUDIT_OUTPUT="$(traceary_json_get 'tool_response')"
 if [[ -z "$AUDIT_OUTPUT" ]]; then

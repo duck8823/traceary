@@ -86,6 +86,28 @@ traceary_resolve_bin() {
   return 1
 }
 
+traceary_resolve_session_id() {
+  local client="$1"
+  local session_id
+  session_id="$(traceary_json_get 'session_id')"
+  if [[ -z "$session_id" ]]; then
+    session_id="$(traceary_read_state "$client")"
+  fi
+  printf '%s' "$session_id"
+}
+
+traceary_resolve_effective_repo() {
+  local client="$1"
+  local repo
+  repo="$(traceary_read_repo_state "$client")"
+  if [[ -z "$repo" ]]; then
+    local cwd
+    cwd="$(traceary_json_get 'cwd')"
+    repo="$(traceary_resolve_repo "$cwd")"
+  fi
+  printf '%s' "$repo"
+}
+
 traceary_resolve_agent() {
   local client="$1"
   local agent_type
