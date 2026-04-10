@@ -36,6 +36,13 @@ fi
 
 REPO_VALUE="$(traceary_resolve_effective_repo "$CLIENT")"
 AUDIT_INPUT="$(traceary_json_get 'tool_input' '{}')"
+# For MCP tools, ensure tool_input includes at least the tool name when empty
+if [[ "$AUDIT_INPUT" == "{}" || -z "$AUDIT_INPUT" ]]; then
+  TOOL_NAME="$(traceary_json_get 'tool_name')"
+  if [[ -n "$TOOL_NAME" ]]; then
+    AUDIT_INPUT="{\"tool_name\":\"$TOOL_NAME\"}"
+  fi
+fi
 AUDIT_OUTPUT="$(traceary_json_get 'tool_response')"
 if [[ -z "$AUDIT_OUTPUT" ]]; then
   AUDIT_OUTPUT="$(traceary_build_failure_output || true)"
