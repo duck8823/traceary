@@ -8,45 +8,21 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/port"
 )
-
-// FindLatestSessionInput is the input for latest-session lookup.
-type FindLatestSessionInput struct {
-	Client     string
-	Agent      string
-	Repo       string
-	ActiveOnly bool
-}
-
-var (
-	// ErrSessionNotFound indicates that no session matches the filters.
-	ErrSessionNotFound = xerrors.New("no matching session found")
-	// ErrActiveSessionNotFound indicates that no active session matches the filters.
-	ErrActiveSessionNotFound = xerrors.New("no matching active session found")
-)
-
-// LatestSessionFinder provides access to the latest matching session start event.
-type LatestSessionFinder interface {
-	// FindLatestSessionStartedEvent returns the session_started event for the latest matching session.
-	FindLatestSessionStartedEvent(
-		ctx context.Context,
-		dbPath string,
-		input FindLatestSessionInput,
-	) (*model.Event, error)
-}
 
 // FindLatestSessionQueryService returns the latest session.
 type FindLatestSessionQueryService interface {
 	// Run executes the latest-session query.
-	Run(ctx context.Context, dbPath string, input FindLatestSessionInput) (*model.Event, error)
+	Run(ctx context.Context, dbPath string, input port.FindLatestSessionInput) (*model.Event, error)
 }
 
 type findLatestSessionQueryService struct {
-	latestSessionFinder LatestSessionFinder
+	latestSessionFinder port.LatestSessionFinder
 }
 
 // NewFindLatestSessionQueryService creates a FindLatestSessionQueryService.
-func NewFindLatestSessionQueryService(latestSessionFinder LatestSessionFinder) FindLatestSessionQueryService {
+func NewFindLatestSessionQueryService(latestSessionFinder port.LatestSessionFinder) FindLatestSessionQueryService {
 	return &findLatestSessionQueryService{latestSessionFinder: latestSessionFinder}
 }
 
@@ -54,7 +30,7 @@ func NewFindLatestSessionQueryService(latestSessionFinder LatestSessionFinder) F
 func (s *findLatestSessionQueryService) Run(
 	ctx context.Context,
 	dbPath string,
-	input FindLatestSessionInput,
+	input port.FindLatestSessionInput,
 ) (*model.Event, error) {
 	if s.latestSessionFinder == nil {
 		return nil, xerrors.Errorf("latest session finder is not configured")
@@ -65,7 +41,7 @@ func (s *findLatestSessionQueryService) Run(
 
 	event, err := s.latestSessionFinder.FindLatestSessionStartedEvent(ctx, dbPath, input)
 	if err != nil {
-		if errors.Is(err, ErrSessionNotFound) || errors.Is(err, ErrActiveSessionNotFound) {
+		if errors.Is(err, port.ErrSessionNotFound) || errors.Is(err, port.ErrActiveSessionNotFound) {
 			//nolint:wrapcheck // Preserve the user-facing not-found message.
 			return nil, err
 		}
@@ -77,5 +53,5 @@ func (s *findLatestSessionQueryService) Run(
 
 // IsSessionLookupNotFound reports whether err is a session-lookup not-found error.
 func IsSessionLookupNotFound(err error) bool {
-	return errors.Is(err, ErrSessionNotFound) || errors.Is(err, ErrActiveSessionNotFound)
+	return errors.Is(err, port.ErrSessionNotFound) || errors.Is(err, port.ErrActiveSessionNotFound)
 }

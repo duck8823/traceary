@@ -12,6 +12,7 @@ import (
 
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -345,7 +346,7 @@ func (c *RootCLI) runSessionLatest(
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
-	event, err := c.findLatestSessionQueryService.Run(ctx, resolvedPath, queryservice.FindLatestSessionInput{
+	event, err := c.findLatestSessionQueryService.Run(ctx, resolvedPath, port.FindLatestSessionInput{
 		Client:     resolveOptionalValue(input.client, "TRACEARY_CLIENT", ""),
 		Agent:      resolveOptionalValue(input.agent, "TRACEARY_AGENT", ""),
 		Repo:       resolveRepoValue(ctx, input.repo),

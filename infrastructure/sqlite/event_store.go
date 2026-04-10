@@ -8,12 +8,12 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 )
 
-var _ queryservice.RecentEventFinder = (*Datasource)(nil)
+var _ port.RecentEventFinder = (*Datasource)(nil)
 
 // Save persists an event.
 func (d *Datasource) Save(ctx context.Context, dbPath string, event *model.Event) error {
@@ -54,7 +54,7 @@ func (d *Datasource) Save(ctx context.Context, dbPath string, event *model.Event
 func (d *Datasource) ListRecent(
 	ctx context.Context,
 	dbPath string,
-	input queryservice.ListRecentEventsInput,
+	input port.ListRecentEventsInput,
 ) ([]*model.Event, error) {
 	if input.Limit <= 0 {
 		return nil, xerrors.Errorf("limit must be greater than or equal to 1")

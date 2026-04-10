@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/domain/port"
 )
 
 func (c *RootCLI) newListCommand() *cobra.Command {
@@ -133,7 +133,7 @@ func (c *RootCLI) runList(ctx context.Context, output io.Writer, input listComma
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
-	events, err := c.listEventsQueryService.Run(ctx, resolvedPath, queryservice.ListRecentEventsInput{
+	events, err := c.listEventsQueryService.Run(ctx, resolvedPath, port.ListRecentEventsInput{
 		Limit:        input.limit,
 		Offset:       input.offset,
 		Kind:         resolvedKind,

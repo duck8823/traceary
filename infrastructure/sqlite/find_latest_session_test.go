@@ -8,7 +8,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
@@ -110,7 +110,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		got, err := sut.FindLatestSessionStartedEvent(
 			context.Background(),
 			dbPath,
-			queryservice.FindLatestSessionInput{
+			port.FindLatestSessionInput{
 				Client: "cli",
 				Agent:  "codex",
 				Repo:   "github.com/duck8823/traceary",
@@ -154,7 +154,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		got, err := sut.FindLatestSessionStartedEvent(
 			context.Background(),
 			dbPath,
-			queryservice.FindLatestSessionInput{
+			port.FindLatestSessionInput{
 				Client: "cli",
 				Agent:  "codex",
 				Repo:   "github.com/duck8823/traceary",
@@ -172,7 +172,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		got, err := sut.FindLatestSessionStartedEvent(
 			context.Background(),
 			dbPath,
-			queryservice.FindLatestSessionInput{
+			port.FindLatestSessionInput{
 				Client:     "cli",
 				Agent:      "codex",
 				Repo:       "github.com/duck8823/traceary",
@@ -204,7 +204,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		got, err := sut.FindLatestSessionStartedEvent(
 			context.Background(),
 			dbPath,
-			queryservice.FindLatestSessionInput{
+			port.FindLatestSessionInput{
 				Client: "cli",
 				Agent:  "codex",
 				Repo:   "github.com/duck8823/traceary",
@@ -222,12 +222,12 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		_, err := sut.FindLatestSessionStartedEvent(
 			context.Background(),
 			dbPath,
-			queryservice.FindLatestSessionInput{Agent: "claude"},
+			port.FindLatestSessionInput{Agent: "claude"},
 		)
 		if err == nil {
 			t.Fatalf("FindLatestSessionStartedEvent() error = nil, want error")
 		}
-		if !errors.Is(err, queryservice.ErrSessionNotFound) {
+		if !errors.Is(err, port.ErrSessionNotFound) {
 			t.Fatalf("error = %v, want ErrSessionNotFound", err)
 		}
 	})
@@ -236,7 +236,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		_, err := sut.FindLatestSessionStartedEvent(
 			context.Background(),
 			dbPath,
-			queryservice.FindLatestSessionInput{
+			port.FindLatestSessionInput{
 				Agent:      "claude",
 				ActiveOnly: true,
 			},
@@ -244,7 +244,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		if err == nil {
 			t.Fatalf("FindLatestSessionStartedEvent() error = nil, want error")
 		}
-		if !errors.Is(err, queryservice.ErrActiveSessionNotFound) {
+		if !errors.Is(err, port.ErrActiveSessionNotFound) {
 			t.Fatalf("error = %v, want ErrActiveSessionNotFound", err)
 		}
 	})
@@ -319,7 +319,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 	got, err := sut.FindLatestSessionStartedEvent(
 		context.Background(),
 		dbPath,
-		queryservice.FindLatestSessionInput{
+		port.FindLatestSessionInput{
 			Client: "cli",
 			Agent:  "codex",
 			Repo:   "github.com/duck8823/traceary",
@@ -389,7 +389,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 	got, err := sut.FindLatestSessionStartedEvent(
 		context.Background(),
 		dbPath,
-		queryservice.FindLatestSessionInput{
+		port.FindLatestSessionInput{
 			Client:     "cli",
 			Agent:      "codex",
 			Repo:       "github.com/duck8823/traceary",

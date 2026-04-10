@@ -2,45 +2,25 @@ package queryservice
 
 import (
 	"context"
-	"time"
 
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/port"
 )
-
-// ListRecentEventsInput is the input for recent event listing.
-type ListRecentEventsInput struct {
-	Limit        int
-	Offset       int
-	Kind         string
-	Client       string
-	Agent        string
-	SessionID    string
-	Repo         string
-	FailuresOnly bool
-	From         time.Time
-	To           time.Time
-}
-
-// RecentEventFinder provides recent event lookup.
-type RecentEventFinder interface {
-	// ListRecent returns events in descending time order.
-	ListRecent(ctx context.Context, dbPath string, input ListRecentEventsInput) ([]*model.Event, error)
-}
 
 // ListRecentEventsQueryService returns recent events.
 type ListRecentEventsQueryService interface {
 	// Run executes the recent event query.
-	Run(ctx context.Context, dbPath string, input ListRecentEventsInput) ([]*model.Event, error)
+	Run(ctx context.Context, dbPath string, input port.ListRecentEventsInput) ([]*model.Event, error)
 }
 
 type listRecentEventsQueryService struct {
-	recentEventFinder RecentEventFinder
+	recentEventFinder port.RecentEventFinder
 }
 
 // NewListRecentEventsQueryService creates a ListRecentEventsQueryService.
-func NewListRecentEventsQueryService(recentEventFinder RecentEventFinder) ListRecentEventsQueryService {
+func NewListRecentEventsQueryService(recentEventFinder port.RecentEventFinder) ListRecentEventsQueryService {
 	return &listRecentEventsQueryService{recentEventFinder: recentEventFinder}
 }
 
@@ -48,7 +28,7 @@ func NewListRecentEventsQueryService(recentEventFinder RecentEventFinder) ListRe
 func (s *listRecentEventsQueryService) Run(
 	ctx context.Context,
 	dbPath string,
-	input ListRecentEventsInput,
+	input port.ListRecentEventsInput,
 ) ([]*model.Event, error) {
 	if s.recentEventFinder == nil {
 		return nil, xerrors.Errorf("recent event finder is not configured")

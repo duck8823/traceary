@@ -8,18 +8,18 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 )
 
-var _ queryservice.LatestSessionFinder = (*Datasource)(nil)
+var _ port.LatestSessionFinder = (*Datasource)(nil)
 
 // FindLatestSessionStartedEvent returns the latest session_started event.
 func (d *Datasource) FindLatestSessionStartedEvent(
 	ctx context.Context,
 	dbPath string,
-	input queryservice.FindLatestSessionInput,
+	input port.FindLatestSessionInput,
 ) (*model.Event, error) {
 	db, err := d.openDB(ctx, dbPath)
 	if err != nil {
@@ -129,9 +129,9 @@ func (d *Datasource) FindLatestSessionStartedEvent(
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			if input.ActiveOnly {
-				return nil, queryservice.ErrActiveSessionNotFound
+				return nil, port.ErrActiveSessionNotFound
 			}
-			return nil, queryservice.ErrSessionNotFound
+			return nil, port.ErrSessionNotFound
 		}
 		return nil, xerrors.Errorf("failed to restore latest session event: %w", err)
 	}

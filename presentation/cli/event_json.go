@@ -6,7 +6,7 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/model"
 )
 
@@ -44,7 +44,7 @@ func writeEventsJSON(output io.Writer, events []*model.Event) error {
 	return writeJSON(output, serializedEvents)
 }
 
-func writeEventDetailsJSON(output io.Writer, eventDetails *queryservice.EventDetails) error {
+func writeEventDetailsJSON(output io.Writer, eventDetails *port.EventDetails) error {
 	if eventDetails == nil {
 		return xerrors.Errorf(Localize("event details must not be nil", "イベント詳細は nil にできません"))
 	}

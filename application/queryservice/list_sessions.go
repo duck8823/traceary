@@ -2,62 +2,31 @@ package queryservice
 
 import (
 	"context"
-	"time"
 
 	"golang.org/x/xerrors"
+
+	"github.com/duck8823/traceary/domain/port"
 )
-
-// SessionSummary holds aggregated information about a single session.
-type SessionSummary struct {
-	SessionID       string
-	Repo            string
-	StartedAt       time.Time
-	EndedAt         *time.Time
-	Status          string
-	TotalEvents     int
-	CommandCount    int
-	Agents          []string
-	Label           string
-	Summary         string
-	ParentSessionID string
-}
-
-// ListSessionsInput is the input for session listing.
-type ListSessionsInput struct {
-	Limit  int
-	Offset int
-	Repo   string
-	Client string
-	Agent  string
-	Label  string
-	From   *time.Time
-	To     *time.Time
-}
-
-// SessionSummaryFinder provides session summary lookup.
-type SessionSummaryFinder interface {
-	ListSessionSummaries(ctx context.Context, dbPath string, input ListSessionsInput) ([]*SessionSummary, error)
-}
 
 // ListSessionsQueryService returns session summaries.
 type ListSessionsQueryService interface {
-	Run(ctx context.Context, dbPath string, input ListSessionsInput) ([]*SessionSummary, error)
+	Run(ctx context.Context, dbPath string, input port.ListSessionsInput) ([]*port.SessionSummary, error)
 }
 
 type listSessionsQueryService struct {
-	finder SessionSummaryFinder
+	finder port.SessionSummaryFinder
 }
 
 // NewListSessionsQueryService creates a ListSessionsQueryService.
-func NewListSessionsQueryService(finder SessionSummaryFinder) ListSessionsQueryService {
+func NewListSessionsQueryService(finder port.SessionSummaryFinder) ListSessionsQueryService {
 	return &listSessionsQueryService{finder: finder}
 }
 
 func (s *listSessionsQueryService) Run(
 	ctx context.Context,
 	dbPath string,
-	input ListSessionsInput,
-) ([]*SessionSummary, error) {
+	input port.ListSessionsInput,
+) ([]*port.SessionSummary, error) {
 	if s.finder == nil {
 		return nil, xerrors.Errorf("session summary finder is not configured")
 	}

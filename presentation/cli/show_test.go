@@ -9,6 +9,7 @@ import (
 
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
 )
@@ -17,7 +18,7 @@ type getEventDetailsQueryServiceStub struct {
 	receivedPath    string
 	receivedEventID string
 	called          bool
-	eventDetails    *queryservice.EventDetails
+	eventDetails    *port.EventDetails
 	err             error
 }
 
@@ -25,7 +26,7 @@ func (s *getEventDetailsQueryServiceStub) Run(
 	_ context.Context,
 	dbPath string,
 	eventID string,
-) (*queryservice.EventDetails, error) {
+) (*port.EventDetails, error) {
 	s.called = true
 	s.receivedPath = dbPath
 	s.receivedEventID = eventID
@@ -55,7 +56,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		initStub := &initializeStoreUsecaseStub{}
-		eventDetails, err := queryservice.NewEventDetails(
+		eventDetails, err := port.NewEventDetails(
 			model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,
@@ -133,7 +134,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		initStub := &initializeStoreUsecaseStub{}
-		eventDetails, err := queryservice.NewEventDetails(
+		eventDetails, err := port.NewEventDetails(
 			model.EventOf(
 				eventID,
 				types.EventKindNote,
@@ -172,7 +173,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		initStub := &initializeStoreUsecaseStub{}
-		eventDetails, err := queryservice.NewEventDetails(
+		eventDetails, err := port.NewEventDetails(
 			model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,
@@ -241,7 +242,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		initStub := &initializeStoreUsecaseStub{}
 		exitCode := 1
-		eventDetails, err := queryservice.NewEventDetails(
+		eventDetails, err := port.NewEventDetails(
 			model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,

@@ -8,20 +8,20 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/port"
 )
 
 //go:embed sql/search_events.sql
 var searchEventsQuery string
 
-var _ queryservice.EventSearcher = (*Datasource)(nil)
+var _ port.EventSearcher = (*Datasource)(nil)
 
 // SearchEvents returns matching events in descending time order.
 func (d *Datasource) SearchEvents(
 	ctx context.Context,
 	dbPath string,
-	input queryservice.SearchEventsInput,
+	input port.SearchEventsInput,
 ) ([]*model.Event, error) {
 	db, err := d.openDB(ctx, dbPath)
 	if err != nil {

@@ -8,12 +8,13 @@ import (
 
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 )
 
 type latestSessionFinderStub struct {
 	receivedPath  string
-	receivedInput queryservice.FindLatestSessionInput
+	receivedInput port.FindLatestSessionInput
 	event         *model.Event
 	err           error
 }
@@ -21,7 +22,7 @@ type latestSessionFinderStub struct {
 func (s *latestSessionFinderStub) FindLatestSessionStartedEvent(
 	_ context.Context,
 	dbPath string,
-	input queryservice.FindLatestSessionInput,
+	input port.FindLatestSessionInput,
 ) (*model.Event, error) {
 	s.receivedPath = dbPath
 	s.receivedInput = input
@@ -61,7 +62,7 @@ func TestFindLatestSessionQueryService_Run(t *testing.T) {
 		}
 		sut := queryservice.NewFindLatestSessionQueryService(stub)
 
-		got, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.FindLatestSessionInput{
+		got, err := sut.Run(context.Background(), "/tmp/traceary.db", port.FindLatestSessionInput{
 			Client:     "cli",
 			Agent:      "codex",
 			Repo:       "github.com/duck8823/traceary",
@@ -88,18 +89,18 @@ func TestFindLatestSessionQueryService_Run(t *testing.T) {
 		t.Parallel()
 
 		stub := &latestSessionFinderStub{
-			err: queryservice.ErrActiveSessionNotFound,
+			err: port.ErrActiveSessionNotFound,
 		}
 		sut := queryservice.NewFindLatestSessionQueryService(stub)
 
-		_, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.FindLatestSessionInput{
+		_, err := sut.Run(context.Background(), "/tmp/traceary.db", port.FindLatestSessionInput{
 			ActiveOnly: true,
 		})
-		if !errors.Is(err, queryservice.ErrActiveSessionNotFound) {
+		if !errors.Is(err, port.ErrActiveSessionNotFound) {
 			t.Fatalf("Run() error = %v, want ErrActiveSessionNotFound", err)
 		}
-		if err.Error() != queryservice.ErrActiveSessionNotFound.Error() {
-			t.Fatalf("error = %q, want %q", err.Error(), queryservice.ErrActiveSessionNotFound.Error())
+		if err.Error() != port.ErrActiveSessionNotFound.Error() {
+			t.Fatalf("error = %q, want %q", err.Error(), port.ErrActiveSessionNotFound.Error())
 		}
 	})
 }

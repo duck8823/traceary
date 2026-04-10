@@ -6,20 +6,21 @@ import (
 	"time"
 
 	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/domain/port"
 )
 
 type sessionSummaryFinderStub struct {
 	receivedPath  string
-	receivedInput queryservice.ListSessionsInput
-	summaries     []*queryservice.SessionSummary
+	receivedInput port.ListSessionsInput
+	summaries     []*port.SessionSummary
 	err           error
 }
 
 func (s *sessionSummaryFinderStub) ListSessionSummaries(
 	_ context.Context,
 	dbPath string,
-	input queryservice.ListSessionsInput,
-) ([]*queryservice.SessionSummary, error) {
+	input port.ListSessionsInput,
+) ([]*port.SessionSummary, error) {
 	s.receivedPath = dbPath
 	s.receivedInput = input
 	return s.summaries, s.err
@@ -32,7 +33,7 @@ func TestListSessionsQueryService_Run(t *testing.T) {
 		t.Parallel()
 
 		stub := &sessionSummaryFinderStub{
-			summaries: []*queryservice.SessionSummary{
+			summaries: []*port.SessionSummary{
 				{
 					SessionID:    "s1",
 					StartedAt:    time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
@@ -44,7 +45,7 @@ func TestListSessionsQueryService_Run(t *testing.T) {
 		}
 		sut := queryservice.NewListSessionsQueryService(stub)
 
-		got, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.ListSessionsInput{
+		got, err := sut.Run(context.Background(), "/tmp/traceary.db", port.ListSessionsInput{
 			Limit: 10,
 			Repo:  "duck8823/traceary",
 		})
@@ -66,7 +67,7 @@ func TestListSessionsQueryService_Run(t *testing.T) {
 		t.Parallel()
 
 		sut := queryservice.NewListSessionsQueryService(nil)
-		_, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.ListSessionsInput{Limit: 10})
+		_, err := sut.Run(context.Background(), "/tmp/traceary.db", port.ListSessionsInput{Limit: 10})
 		if err == nil {
 			t.Fatalf("Run() error = nil, want error")
 		}
@@ -76,7 +77,7 @@ func TestListSessionsQueryService_Run(t *testing.T) {
 		t.Parallel()
 
 		sut := queryservice.NewListSessionsQueryService(&sessionSummaryFinderStub{})
-		_, err := sut.Run(context.Background(), "", queryservice.ListSessionsInput{Limit: 10})
+		_, err := sut.Run(context.Background(), "", port.ListSessionsInput{Limit: 10})
 		if err == nil {
 			t.Fatalf("Run() error = nil, want error")
 		}
@@ -86,7 +87,7 @@ func TestListSessionsQueryService_Run(t *testing.T) {
 		t.Parallel()
 
 		sut := queryservice.NewListSessionsQueryService(&sessionSummaryFinderStub{})
-		_, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.ListSessionsInput{Limit: 0})
+		_, err := sut.Run(context.Background(), "/tmp/traceary.db", port.ListSessionsInput{Limit: 0})
 		if err == nil {
 			t.Fatalf("Run() error = nil, want error")
 		}
@@ -96,7 +97,7 @@ func TestListSessionsQueryService_Run(t *testing.T) {
 		t.Parallel()
 
 		sut := queryservice.NewListSessionsQueryService(&sessionSummaryFinderStub{})
-		_, err := sut.Run(context.Background(), "/tmp/traceary.db", queryservice.ListSessionsInput{Limit: 10, Offset: -1})
+		_, err := sut.Run(context.Background(), "/tmp/traceary.db", port.ListSessionsInput{Limit: 10, Offset: -1})
 		if err == nil {
 			t.Fatalf("Run() error = nil, want error")
 		}

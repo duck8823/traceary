@@ -4,47 +4,26 @@ import (
 	"context"
 	"slices"
 	"strings"
-	"time"
 
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 )
-
-// SearchEventsInput is the input for event search.
-type SearchEventsInput struct {
-	Query        string
-	Repo         string
-	SessionID    string
-	Client       string
-	Agent        string
-	Kind         string
-	From         time.Time
-	To           time.Time
-	Limit        int
-	Offset       int
-	FailuresOnly bool
-}
-
-// EventSearcher provides event search.
-type EventSearcher interface {
-	// SearchEvents returns matching events in descending time order.
-	SearchEvents(ctx context.Context, dbPath string, input SearchEventsInput) ([]*model.Event, error)
-}
 
 // SearchEventsQueryService searches events.
 type SearchEventsQueryService interface {
 	// Run executes the event search query.
-	Run(ctx context.Context, dbPath string, input SearchEventsInput) ([]*model.Event, error)
+	Run(ctx context.Context, dbPath string, input port.SearchEventsInput) ([]*model.Event, error)
 }
 
 type searchEventsQueryService struct {
-	eventSearcher EventSearcher
+	eventSearcher port.EventSearcher
 }
 
 // NewSearchEventsQueryService creates a SearchEventsQueryService.
-func NewSearchEventsQueryService(eventSearcher EventSearcher) SearchEventsQueryService {
+func NewSearchEventsQueryService(eventSearcher port.EventSearcher) SearchEventsQueryService {
 	return &searchEventsQueryService{eventSearcher: eventSearcher}
 }
 
@@ -52,7 +31,7 @@ func NewSearchEventsQueryService(eventSearcher EventSearcher) SearchEventsQueryS
 func (s *searchEventsQueryService) Run(
 	ctx context.Context,
 	dbPath string,
-	input SearchEventsInput,
+	input port.SearchEventsInput,
 ) ([]*model.Event, error) {
 	if s.eventSearcher == nil {
 		return nil, xerrors.Errorf("event searcher is not configured")
@@ -92,7 +71,7 @@ func (s *searchEventsQueryService) Run(
 	return events, nil
 }
 
-func hasSearchConstraint(input SearchEventsInput) bool {
+func hasSearchConstraint(input port.SearchEventsInput) bool {
 	return strings.TrimSpace(input.Query) != "" ||
 		strings.TrimSpace(input.Repo) != "" ||
 		strings.TrimSpace(input.SessionID) != "" ||

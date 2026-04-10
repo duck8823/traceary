@@ -8,13 +8,14 @@ import (
 
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
 type searchEventsQueryServiceStub struct {
 	receivedPath  string
-	receivedInput queryservice.SearchEventsInput
+	receivedInput port.SearchEventsInput
 	called        bool
 	events        []*model.Event
 	err           error
@@ -23,7 +24,7 @@ type searchEventsQueryServiceStub struct {
 func (s *searchEventsQueryServiceStub) Run(
 	_ context.Context,
 	dbPath string,
-	input queryservice.SearchEventsInput,
+	input port.SearchEventsInput,
 ) ([]*model.Event, error) {
 	s.called = true
 	s.receivedPath = dbPath

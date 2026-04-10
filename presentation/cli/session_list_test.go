@@ -9,22 +9,23 @@ import (
 	"time"
 
 	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
 type listSessionsQueryServiceStub struct {
 	receivedPath  string
-	receivedInput queryservice.ListSessionsInput
+	receivedInput port.ListSessionsInput
 	called        bool
-	summaries     []*queryservice.SessionSummary
+	summaries     []*port.SessionSummary
 	err           error
 }
 
 func (s *listSessionsQueryServiceStub) Run(
 	_ context.Context,
 	dbPath string,
-	input queryservice.ListSessionsInput,
-) ([]*queryservice.SessionSummary, error) {
+	input port.ListSessionsInput,
+) ([]*port.SessionSummary, error) {
 	s.called = true
 	s.receivedPath = dbPath
 	s.receivedInput = input
@@ -43,7 +44,7 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		initStub := &initializeStoreUsecaseStub{}
 		listStub := &listSessionsQueryServiceStub{
-			summaries: []*queryservice.SessionSummary{
+			summaries: []*port.SessionSummary{
 				{
 					SessionID:       "session-1",
 					Repo:            "duck8823/traceary",
@@ -128,7 +129,7 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		endedAt := time.Date(2026, 4, 9, 12, 5, 0, 0, time.UTC)
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		listStub := &listSessionsQueryServiceStub{
-			summaries: []*queryservice.SessionSummary{
+			summaries: []*port.SessionSummary{
 				{
 					SessionID:       "session-json",
 					Label:           "release",
@@ -178,7 +179,7 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		listStub := &listSessionsQueryServiceStub{
-			summaries: []*queryservice.SessionSummary{
+			summaries: []*port.SessionSummary{
 				{
 					SessionID:       "session-sanitized",
 					Label:           "release\tcandidate",

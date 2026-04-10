@@ -7,7 +7,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	infra "github.com/duck8823/traceary/infrastructure/sqlite"
@@ -126,7 +126,7 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		saveTestSession(ctx, t, ds, dbPath, "s1", time.Now().Add(-time.Hour).UTC(), &s1End, "claude", "duck8823/traceary")
 		saveTestSession(ctx, t, ds, dbPath, "s2", time.Now().UTC(), nil, "codex", "duck8823/traceary")
 
-		summaries, err := ds.ListSessionSummaries(ctx, dbPath, queryservice.ListSessionsInput{
+		summaries, err := ds.ListSessionSummaries(ctx, dbPath, port.ListSessionsInput{
 			Limit: 10,
 		})
 		if err != nil {
@@ -201,7 +201,7 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		saveTestSession(ctx, t, ds, dbPath, "s1", now, nil, "claude", "repo")
 		saveTestSession(ctx, t, ds, dbPath, "s2", now.Add(time.Second), nil, "codex", "repo")
 
-		summaries, err := ds.ListSessionSummaries(ctx, dbPath, queryservice.ListSessionsInput{
+		summaries, err := ds.ListSessionSummaries(ctx, dbPath, port.ListSessionsInput{
 			Limit: 10,
 			Agent: "claude",
 		})
@@ -246,7 +246,7 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		}
 
 		fromDate := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
-		summaries, err := ds.ListSessionSummaries(ctx, dbPath, queryservice.ListSessionsInput{
+		summaries, err := ds.ListSessionSummaries(ctx, dbPath, port.ListSessionsInput{
 			Limit: 10,
 			From:  &fromDate,
 		})
@@ -291,7 +291,7 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		}
 
 		toDate := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
-		summaries, err := ds.ListSessionSummaries(ctx, dbPath, queryservice.ListSessionsInput{
+		summaries, err := ds.ListSessionSummaries(ctx, dbPath, port.ListSessionsInput{
 			Limit: 10,
 			To:    &toDate,
 		})
