@@ -39,6 +39,8 @@ Session resolution rules:
 - when `remote.origin.url` is unavailable but the current directory is still inside a git worktree, Traceary falls back to the worktree root path as the work-context key
 - if no repo/work context or no matching active session is found, Traceary falls back to the historical `default` session ID
 
+> **Note:** `log` and `audit` accept any `--session-id` value without validating whether the session actually exists. This is by design — hooks record events at high frequency and the extra DB lookup per write would add unacceptable overhead. If you pass a nonexistent session ID, the event is still recorded; it will simply not appear in session-scoped queries.
+
 ### `traceary audit <command> [<input>] [<output>]`
 
 Record a command execution audit event.

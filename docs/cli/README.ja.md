@@ -39,6 +39,8 @@ session 解決ルール:
 - `remote.origin.url` が無くても Git worktree 内であれば、work-context key として worktree ルートパスを使います
 - repo / work context が無い、または一致する active session が無い場合は、従来どおり `default` session ID に fallback
 
+> **注意:** `log` と `audit` は `--session-id` の値を検証せずにそのまま受け入れます。これは設計上の意図です — hook は高頻度でイベントを記録するため、書き込みごとに DB ルックアップを追加するとオーバーヘッドが無視できません。存在しないセッション ID を渡してもイベントは記録されますが、セッション単位のクエリには表示されません。
+
 ### `traceary audit <command> [<input>] [<output>]`
 
 コマンド実行の監査イベントを記録します。
