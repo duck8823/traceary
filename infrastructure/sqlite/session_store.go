@@ -70,7 +70,7 @@ func (d *Datasource) SaveSession(ctx context.Context, dbPath string, session *mo
 		v := session.ParentSessionID()
 		parentSessionID = &v
 	}
-	_, err = db.ExecContext(
+	result, err := db.ExecContext(
 		ctx,
 		`INSERT OR IGNORE INTO sessions (session_id, started_at, client, agent, repo, parent_session_id) VALUES (?, ?, ?, ?, ?, ?)`,
 		session.SessionID().String(),
@@ -82,6 +82,15 @@ func (d *Datasource) SaveSession(ctx context.Context, dbPath string, session *mo
 	)
 	if err != nil {
 		return xerrors.Errorf("failed to insert session: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return xerrors.Errorf("failed to check rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		slog.Warn("session already exists, ignoring duplicate start",
+			"session_id", session.SessionID().String(),
+		)
 	}
 
 	return nil
