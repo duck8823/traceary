@@ -46,6 +46,7 @@ func (d *Datasource) ListSessionSummaries(
 	rows, err := db.QueryContext(
 		ctx,
 		listSessionsQuery,
+		input.SessionID, input.SessionID,
 		input.Repo, input.Repo,
 		input.Client, input.Client,
 		input.Agent, input.Agent,

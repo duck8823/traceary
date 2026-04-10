@@ -147,14 +147,15 @@ type SessionSummary struct {
 
 // ListSessionsInput is the input for session listing.
 type ListSessionsInput struct {
-	Limit  int
-	Offset int
-	Repo   string
-	Client string
-	Agent  string
-	Label  string
-	From   *time.Time
-	To     *time.Time
+	Limit     int
+	Offset    int
+	SessionID string
+	Repo      string
+	Client    string
+	Agent     string
+	Label     string
+	From      *time.Time
+	To        *time.Time
 }
 
 // SessionSummaryFinder provides session summary lookup.
