@@ -14,16 +14,17 @@ import (
 
 // SearchEventsInput is the input for event search.
 type SearchEventsInput struct {
-	Query     string
-	Repo      string
-	SessionID string
-	Client    string
-	Agent     string
-	Kind      string
-	From      time.Time
-	To        time.Time
-	Limit     int
-	Offset    int
+	Query        string
+	Repo         string
+	SessionID    string
+	Client       string
+	Agent        string
+	Kind         string
+	From         time.Time
+	To           time.Time
+	Limit        int
+	Offset       int
+	FailuresOnly bool
 }
 
 // EventSearcher provides event search.
@@ -99,7 +100,8 @@ func hasSearchConstraint(input SearchEventsInput) bool {
 		strings.TrimSpace(input.Agent) != "" ||
 		strings.TrimSpace(input.Kind) != "" ||
 		!input.From.IsZero() ||
-		!input.To.IsZero()
+		!input.To.IsZero() ||
+		input.FailuresOnly
 }
 
 func resolveOptionalSearchKind(value string) (types.EventKind, error) {
