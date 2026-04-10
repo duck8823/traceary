@@ -5,6 +5,40 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.1.18] - 2026-04-10
+
+セッションメタデータの充実とデータ品質の向上を行いました。
+
+### 追加
+- `sessions` テーブル新設 + 既存 events からのバックフィルマイグレーション
+- `traceary session label <text> --session-id <id>` コマンド — セッションにラベルを付与
+- `session list --label` フィルタ
+- `traceary session end --summary` フラグ — セッション終了時にサマリーを記録
+- `traceary session start --parent-session-id` フラグ — サブエージェントの親子関係を記録
+- Claude Code hooks で MCP ツール呼び出し（`mcp__.*`）を記録
+- Gemini CLI ワンコマンドインストールスクリプト
+
+### 修正
+- audit hooks でセッション開始時の repo を永続化し、CWD ベースの repo drift を防止
+- MCP ツール呼び出し時に `tool_name` へ fallback するよう audit スクリプトを改善
+- 日付バリデーションを queryservice 層に集約（infra 層の冗長なバリデーションを除去）
+- doctor 設定チェックの `localizef` 引数過剰を修正
+
+### 変更
+- `session list` クエリを sessions テーブル主体に書き換え（events JOIN で集計）
+- `SessionSummary` DTO に `label`/`summary`/`parent_session_id` を追加
+- 統合マニフェストのバージョンを `0.1.18` に更新
+
+### 含まれるイシュー
+- #196 日付バリデーションの queryservice 層集約
+- #200 hooks による MCP ツール呼び出し記録
+- #201 セッションにラベル/タスク名を付与
+- #202 セッション間の親子関係を記録
+- #203 repo フィールドの正規化
+- #204 セッション終了時にサマリーを記録
+- #206 セッションメタデータモデルの導入
+- #207 Gemini CLI インストール体験の改善
+
 ## [v0.1.17] - 2026-04-09
 
 マルチエージェントワークフローの改善と CLI の使い勝手向上を行いました。
