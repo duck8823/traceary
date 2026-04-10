@@ -254,8 +254,15 @@ type addAuditOutput struct {
 }
 
 type listEventsInput struct {
-	Limit  int `json:"limit,omitempty" jsonschema:"result limit (default: 20)"`
-	Offset int `json:"offset,omitempty" jsonschema:"offset from the newest result (default: 0)"`
+	Limit     int    `json:"limit,omitempty" jsonschema:"result limit (default: 20)"`
+	Offset    int    `json:"offset,omitempty" jsonschema:"offset from the newest result (default: 0)"`
+	Kind      string `json:"kind,omitempty" jsonschema:"filter by event kind (note, command_executed, reviewed, session_started, session_ended; alias: audit)"`
+	Client    string `json:"client,omitempty" jsonschema:"filter by client"`
+	Agent     string `json:"agent,omitempty" jsonschema:"filter by agent"`
+	SessionID string `json:"session_id,omitempty" jsonschema:"filter by session ID"`
+	Repo      string `json:"repo,omitempty" jsonschema:"filter by work context"`
+	From      string `json:"from,omitempty" jsonschema:"start time (YYYY-MM-DD or RFC3339)"`
+	To        string `json:"to,omitempty" jsonschema:"end time (YYYY-MM-DD or RFC3339)"`
 }
 
 type searchInput struct {
@@ -435,9 +442,25 @@ func (s *Server) addAudit(dbPath string) mcp.ToolHandlerFor[addAuditInput, addAu
 
 func (s *Server) listEvents(dbPath string) mcp.ToolHandlerFor[listEventsInput, eventsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input listEventsInput) (*mcp.CallToolResult, eventsOutput, error) {
+		from, err := parseFlexibleTime(input.From, false)
+		if err != nil {
+			return nil, eventsOutput{}, xerrors.Errorf("failed to resolve from: %w", err)
+		}
+		to, err := parseFlexibleTime(input.To, true)
+		if err != nil {
+			return nil, eventsOutput{}, xerrors.Errorf("failed to resolve to: %w", err)
+		}
+
 		events, err := s.listEventsQueryService.Run(ctx, dbPath, queryservice.ListRecentEventsInput{
-			Limit:  resolveLimit(input.Limit, defaultSearchLimit),
-			Offset: resolveOffset(input.Offset),
+			Limit:     resolveLimit(input.Limit, defaultSearchLimit),
+			Offset:    resolveOffset(input.Offset),
+			Kind:      strings.TrimSpace(input.Kind),
+			Client:    strings.TrimSpace(input.Client),
+			Agent:     strings.TrimSpace(input.Agent),
+			SessionID: strings.TrimSpace(input.SessionID),
+			Repo:      strings.TrimSpace(input.Repo),
+			From:      from,
+			To:        to,
 		})
 		if err != nil {
 			return nil, eventsOutput{}, xerrors.Errorf("failed to list events: %w", err)
