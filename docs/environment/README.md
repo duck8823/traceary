@@ -53,6 +53,7 @@ Example:
 ```
 
 If the file does not exist, Traceary uses the built-in redaction patterns only.
+If the file exists but is unreadable or invalid JSON, Traceary falls back to the built-in redaction patterns, emits an operator-visible warning when config-backed redaction would have been used, and reports the broken state in `traceary doctor`.
 
 ## Runtime assumptions
 
