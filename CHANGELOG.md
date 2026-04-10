@@ -5,6 +5,33 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.2.1] - 2026-04-11
+
+Complete v0.2.0 scope gaps.
+
+### Added
+- `traceary session gc` command to close stale sessions with `--dry-run` support
+- `session_handoff` MCP tool for structured session summary
+- `traceary search --failures` flag for failure-first search
+- Compact-summary command tests (3 cases)
+- Golden file test for session start hook output
+- `traceary_resolve_session_id` and `traceary_resolve_effective_repo` shared helpers in common.sh
+
+### Changed
+- Extracted `search_events` SQL to go:embed file
+- Consolidated shared hook resolution functions to reduce duplication
+- Fixed goreleaser formula generation (`skip_upload: true` instead of invalid `disable: true`)
+- Added auto-merge for Homebrew formula PRs in release workflow
+
+### Included issues
+- #277 Extract remaining SQL
+- #278 Session handoff MCP tool
+- #279 Compact-summary tests
+- #280 Search --failures flag
+- #281 Session gc command
+- #283 Hook function consolidation
+- #284 Golden file tests
+
 ## [v0.2.0] - 2026-04-11
 
 Context preservation and production readiness release.
