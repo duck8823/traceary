@@ -206,10 +206,17 @@ type addLogOutput struct {
 	CreatedAt string `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
 }
 
-type sessionBoundaryInput struct {
-	Client    string `json:"client,omitempty" jsonschema:"recording channel (start default: mcp; end falls back to the start event attribution)"`
-	Agent     string `json:"agent,omitempty" jsonschema:"actor name (start default: manual; end falls back to the start event attribution)"`
-	SessionID string `json:"session_id,omitempty" jsonschema:"session identifier (start auto-generates when omitted; end requires it)"`
+type startSessionInput struct {
+	Client    string `json:"client,omitempty" jsonschema:"recording channel (default: mcp)"`
+	Agent     string `json:"agent,omitempty" jsonschema:"actor name (default: manual)"`
+	SessionID string `json:"session_id,omitempty" jsonschema:"session identifier (auto-generates when omitted)"`
+	Repo      string `json:"repo,omitempty" jsonschema:"auxiliary work context identifier"`
+}
+
+type endSessionInput struct {
+	Client    string `json:"client,omitempty" jsonschema:"recording channel (falls back to the start event attribution)"`
+	Agent     string `json:"agent,omitempty" jsonschema:"actor name (falls back to the start event attribution)"`
+	SessionID string `json:"session_id" jsonschema:"required,session identifier to end"`
 	Repo      string `json:"repo,omitempty" jsonschema:"auxiliary work context identifier"`
 }
 
@@ -322,8 +329,8 @@ func (s *Server) addLog(dbPath string) mcp.ToolHandlerFor[addLogInput, addLogOut
 	}
 }
 
-func (s *Server) startSession(dbPath string) mcp.ToolHandlerFor[sessionBoundaryInput, sessionEventOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, input sessionBoundaryInput) (*mcp.CallToolResult, sessionEventOutput, error) {
+func (s *Server) startSession(dbPath string) mcp.ToolHandlerFor[startSessionInput, sessionEventOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, input startSessionInput) (*mcp.CallToolResult, sessionEventOutput, error) {
 		event, err := s.recordSessionBoundaryUsecase.Run(ctx, usecase.RecordSessionBoundaryInput{
 			DBPath:        dbPath,
 			Client:        strings.TrimSpace(input.Client),
@@ -343,8 +350,8 @@ func (s *Server) startSession(dbPath string) mcp.ToolHandlerFor[sessionBoundaryI
 	}
 }
 
-func (s *Server) endSession(dbPath string) mcp.ToolHandlerFor[sessionBoundaryInput, sessionEventOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, input sessionBoundaryInput) (*mcp.CallToolResult, sessionEventOutput, error) {
+func (s *Server) endSession(dbPath string) mcp.ToolHandlerFor[endSessionInput, sessionEventOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, input endSessionInput) (*mcp.CallToolResult, sessionEventOutput, error) {
 		sessionID := strings.TrimSpace(input.SessionID)
 		if sessionID == "" {
 			return nil, sessionEventOutput{}, xerrors.Errorf("session_id is required")
