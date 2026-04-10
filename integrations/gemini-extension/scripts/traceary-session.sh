@@ -45,6 +45,10 @@ case "$ACTION" in
     if [[ -n "$SESSION_ID" ]]; then
       COMMAND+=(--session-id "$SESSION_ID")
     fi
+    PARENT_SESSION_ID="${TRACEARY_PARENT_SESSION_ID:-}"
+    if [[ -n "$PARENT_SESSION_ID" ]]; then
+      COMMAND+=(--parent-session-id "$PARENT_SESSION_ID")
+    fi
 
     ACTUAL_SESSION_ID="$("${COMMAND[@]}" 2>/dev/null | tail -n 1 | tr -d '\r' || true)"
     if [[ -n "$ACTUAL_SESSION_ID" ]]; then
