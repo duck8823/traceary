@@ -60,6 +60,11 @@ go tool golangci-lint run
 - PRs: merge (not squash), draft first
 - AI commits include `Co-authored-by` trailer
 
+### Code review policy
+
+- Maintainers should obtain an additional AI review (e.g., Gemini scout or Codex verifier) before merge when available
+- External contributors are not required to use specific AI tools
+- Review comments should include the reviewing AI name when applicable (e.g., `Gemini scout: ✅`)
 ### Issue closing policy
 
 - Implementation PRs close **sub-issues** only (`Closes #<sub-issue>`)
