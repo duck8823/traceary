@@ -1,34 +1,42 @@
 .PHONY: $(shell egrep -o '^[a-zA-Z_/.-]+:' $(MAKEFILE_LIST) | sed 's/://')
 SHELL=/bin/bash
 
-help: ## ヘルプを表示する
+help: ## Show available targets
 	@echo 'Usage: make [target]'
 	@echo ''
 	@echo 'Targets:'
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z].+:.*?## / {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-code/fmt: ## コードのフォーマットを整える
+code/build: ## Build all packages
+	@go build ./...
+
+code/fmt: ## Format source code
 	@go fmt ./...
 
-code/lint: ## コードを静的解析する
+code/lint: ## Run static analysis
 	@go tool golangci-lint run --timeout=5m
 
-code/test: ## コードをテストする
+code/test: ## Run all tests
 	@go test ./...
 
-docs/check: ## 文書の多言語ペアを検証する
+code/cover: ## Run tests with coverage report
+	@go test -coverprofile=coverage.out ./...
+	@go tool cover -func=coverage.out | tail -1
+	@echo 'HTML report: go tool cover -html=coverage.out'
+
+docs/check: ## Verify bilingual documentation pairs
 	@python3 scripts/verify_docs_i18n.py
 
-integrations/check: ## native integration package を検証する
+integrations/check: ## Verify native integration packages
 	@python3 scripts/verify_integrations.py
 
-release/gemini-extension: ## Gemini CLI extension archive を dist/ に出力する
+release/gemini-extension: ## Package Gemini CLI extension archive to dist/
 	@./scripts/package_gemini_extension.sh
 
-ci: docs/check integrations/check code/lint code/test ## CI 相当の検証をまとめて実行する
-
-release/snapshot: ## snapshot release artifact を dist/ に出力する
+release/snapshot: ## Build snapshot release artifacts to dist/
 	@goreleaser release --snapshot --clean
 
-install: ## 依存関係をダウンロードする
+ci: docs/check integrations/check code/lint code/test ## Run full CI validation
+
+install: ## Download Go module dependencies
 	@go mod download
