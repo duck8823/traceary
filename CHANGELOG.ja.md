@@ -5,6 +5,33 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.2.0] - 2026-04-11
+
+コンテキスト保全と本番運用対応のリリースです。
+
+### 追加
+- compact/clear 後の自動コンテキスト保全（PostCompact + SessionStart hooks）
+- `traceary compact-summary` コマンド（LLM不要のコンテキストポインタ生成）
+- `traceary session handoff` コマンド（簡潔なセッション状態サマリー）
+- `traceary session tree` コマンド（親子セッション階層の可視化）
+- `traceary list --failures` フラグ（失敗コマンドのフィルタ表示）
+- `exit_code` カラム追加（マイグレーション 000005）
+- `traceary doctor` のバージョンチェック
+- Hook contract ドキュメント（Claude/Codex/Gemini の能力ティア定義）
+- 統合 contract テスト、マイグレーション回帰テスト
+
+### 変更
+- Gemini CLI の AfterTool を全ツール対応に拡張
+- 24h 超の active セッションを stale として表示
+- README を CLI ファーストのインストールフローに再構成
+- Makefile を英語化 + ターゲット追加
+- テスト名を全て日本語から英語に移行
+- リポジトリインターフェースを `domain/port` に移動
+- `list_sessions` の SQL を go:embed ファイルに外出し
+
+### 含まれるイシュー
+#236-#254（20件、#255 は合理的にクローズ）
+
 ## [v0.1.19] - 2026-04-10
 
 この release では、CLI の可視性を高め、redaction を黙って弱める config 異常を見えるようにし、hook asset の重複管理を解消しました。
