@@ -253,3 +253,35 @@ func TestRootCLI_SearchCommand_NegativeOffset(t *testing.T) {
 		t.Fatalf("Execute() error = nil, want error")
 	}
 }
+
+func TestRootCLI_SearchCommand_FailuresOnlyAsConstraint(t *testing.T) {
+	t.Setenv("TRACEARY_REPO", "")
+	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
+		return "github.com/duck8823/traceary", nil
+	})
+	defer cli.ResetDetectRepoContextFunc()
+
+	initStub := &initializeStoreUsecaseStub{}
+	searchStub := &searchEventsQueryServiceStub{}
+	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+		InitializeStoreUsecase:   initStub,
+		SearchEventsQueryService: searchStub,
+	}).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"search",
+		"--db-path", "/tmp/traceary.db",
+		"--failures",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v; --failures alone should count as a valid search constraint", err)
+	}
+	if !searchStub.called {
+		t.Fatalf("SearchEventsQueryService.Run() was not called")
+	}
+	if !searchStub.receivedInput.FailuresOnly {
+		t.Fatalf("FailuresOnly = false, want true")
+	}
+}
