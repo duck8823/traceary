@@ -61,12 +61,16 @@ func (c *RootCLI) newBackupCreateCommand() *cobra.Command {
 		outputPath string
 		force      bool
 	)
+	var commandSetupErr error
 
 	createCmd := &cobra.Command{
 		Use:   "create",
 		Short: Localize("Create a compact SQLite backup file", "コンパクトな SQLite バックアップファイルを作成する"),
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if commandSetupErr != nil {
+				return commandSetupErr
+			}
 			return c.runBackupCreate(cmd.Context(), cmd.OutOrStdout(), backupCreateCommandInput{
 				dbPath:     dbPath,
 				outputPath: outputPath,
@@ -77,9 +81,7 @@ func (c *RootCLI) newBackupCreateCommand() *cobra.Command {
 	createCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	createCmd.Flags().StringVar(&outputPath, "output", "", Localize("backup output path", "バックアップ出力先パス"))
 	createCmd.Flags().BoolVar(&force, "force", false, Localize("overwrite the backup file if it already exists", "既存のバックアップファイルがあれば上書きする"))
-	if err := createCmd.MarkFlagRequired("output"); err != nil {
-		panic(err)
-	}
+	commandSetupErr = configureRequiredFlag(createCmd, "output")
 
 	return createCmd
 }
@@ -91,12 +93,16 @@ func (c *RootCLI) newBackupRestoreCommand() *cobra.Command {
 		force     bool
 		assumeYes bool
 	)
+	var commandSetupErr error
 
 	restoreCmd := &cobra.Command{
 		Use:   "restore",
 		Short: Localize("Restore the SQLite store from a backup file", "バックアップファイルから SQLite ストアを復元する"),
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if commandSetupErr != nil {
+				return commandSetupErr
+			}
 			return c.runBackupRestore(cmd.Context(), cmd.OutOrStdout(), backupRestoreCommandInput{
 				dbPath:    dbPath,
 				inputPath: inputPath,
@@ -109,9 +115,7 @@ func (c *RootCLI) newBackupRestoreCommand() *cobra.Command {
 	restoreCmd.Flags().StringVar(&inputPath, "input", "", Localize("backup input path", "バックアップ入力パス"))
 	restoreCmd.Flags().BoolVar(&force, "force", false, Localize("overwrite the destination DB if it already exists", "復元先 DB が既に存在する場合は上書きする"))
 	restoreCmd.Flags().BoolVar(&assumeYes, "yes", false, Localize("skip the interactive confirmation prompt when overwriting an existing destination DB", "既存 DB を上書きするときの対話確認を省略する"))
-	if err := restoreCmd.MarkFlagRequired("input"); err != nil {
-		panic(err)
-	}
+	commandSetupErr = configureRequiredFlag(restoreCmd, "input")
 	restoreCmd.Long = Localize(
 		"Restore a Traceary SQLite backup into the destination DB path.\n\nIf the destination DB already exists, you must pass --force. On an interactive terminal, Traceary asks for confirmation before the destructive overwrite unless you also pass --yes.",
 		"Traceary の SQLite バックアップを復元先 DB path へ戻します。\n\n復元先 DB が既に存在する場合は --force が必要です。対話端末では、破壊的な上書きを行う前に Traceary が確認を求めます。--yes を付けると確認を省略します。",
