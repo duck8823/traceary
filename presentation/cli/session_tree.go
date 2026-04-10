@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
@@ -15,6 +17,7 @@ func (c *RootCLI) newSessionTreeCommand() *cobra.Command {
 		dbPath string
 		repo   string
 		limit  int
+		asJSON bool
 	)
 
 	cmd := &cobra.Command{
@@ -43,13 +46,14 @@ func (c *RootCLI) newSessionTreeCommand() *cobra.Command {
 				return xerrors.Errorf("%s: %w", Localize("failed to list sessions", "セッション一覧の取得に失敗しました"), err)
 			}
 
-			return writeSessionTree(output, summaries)
+			return writeSessionTree(output, summaries, asJSON)
 		},
 	}
 
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	cmd.Flags().StringVar(&repo, "repo", "", Localize("filter by repo", "リポジトリでフィルタ"))
 	cmd.Flags().IntVar(&limit, "limit", 50, Localize("maximum number of sessions to load", "読み込む最大セッション数"))
+	cmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 
 	return cmd
 }
@@ -59,8 +63,14 @@ type sessionNode struct {
 	children []*sessionNode
 }
 
-func writeSessionTree(output io.Writer, summaries []*port.SessionSummary) error {
+func writeSessionTree(output io.Writer, summaries []*port.SessionSummary, asJSON bool) error {
 	if len(summaries) == 0 {
+		if asJSON {
+			if _, err := fmt.Fprintln(output, "[]"); err != nil {
+				return xerrors.Errorf("failed to print empty JSON array: %w", err)
+			}
+			return nil
+		}
 		if _, err := fmt.Fprintln(output, Localize("No sessions found.", "セッションが見つかりません")); err != nil {
 			return xerrors.Errorf("failed to print empty message: %w", err)
 		}
@@ -86,12 +96,70 @@ func writeSessionTree(output io.Writer, summaries []*port.SessionSummary) error 
 		roots = append(roots, node)
 	}
 
+	if asJSON {
+		return writeSessionTreeJSON(output, roots)
+	}
+
 	for _, root := range roots {
 		if err := printNode(output, root, "", true); err != nil {
 			return err
 		}
 	}
 
+	return nil
+}
+
+type jsonTreeNode struct {
+	SessionID    string          `json:"session_id"`
+	Repo         string          `json:"repo,omitempty"`
+	Label        string          `json:"label,omitempty"`
+	Summary      string          `json:"summary,omitempty"`
+	StartedAt    string          `json:"started_at"`
+	EndedAt      *string         `json:"ended_at,omitempty"`
+	Status       string          `json:"status"`
+	DurationSec  *float64        `json:"duration_sec,omitempty"`
+	TotalEvents  int             `json:"total_events"`
+	CommandCount int             `json:"command_count"`
+	Agents       []string        `json:"agents"`
+	Children     []*jsonTreeNode `json:"children"`
+}
+
+func sessionNodeToJSON(node *sessionNode) *jsonTreeNode {
+	s := node.summary
+	jn := &jsonTreeNode{
+		SessionID:    s.SessionID,
+		Repo:         s.Repo,
+		Label:        s.Label,
+		Summary:      s.Summary,
+		StartedAt:    s.StartedAt.UTC().Format(time.RFC3339),
+		Status:       s.Status,
+		TotalEvents:  s.TotalEvents,
+		CommandCount: s.CommandCount,
+		Agents:       s.Agents,
+		Children:     make([]*jsonTreeNode, 0, len(node.children)),
+	}
+	if s.EndedAt != nil {
+		endStr := s.EndedAt.UTC().Format(time.RFC3339)
+		jn.EndedAt = &endStr
+		dur := s.EndedAt.Sub(s.StartedAt).Seconds()
+		jn.DurationSec = &dur
+	}
+	for _, child := range node.children {
+		jn.Children = append(jn.Children, sessionNodeToJSON(child))
+	}
+	return jn
+}
+
+func writeSessionTreeJSON(output io.Writer, roots []*sessionNode) error {
+	items := make([]*jsonTreeNode, 0, len(roots))
+	for _, root := range roots {
+		items = append(items, sessionNodeToJSON(root))
+	}
+	encoder := json.NewEncoder(output)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(items); err != nil {
+		return xerrors.Errorf("failed to encode JSON: %w", err)
+	}
 	return nil
 }
 
