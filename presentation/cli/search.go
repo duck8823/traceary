@@ -24,9 +24,10 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 		since     string
 		to        string
 		until     string
-		limit     int
-		offset    int
-		asJSON    bool
+		limit        int
+		offset       int
+		failuresOnly bool
+		asJSON       bool
 	)
 
 	searchCmd := &cobra.Command{
@@ -39,20 +40,21 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 				query = args[0]
 			}
 			return c.runSearch(cmd.Context(), cmd.OutOrStdout(), searchCommandInput{
-				dbPath:    dbPath,
-				repo:      repo,
-				sessionID: sessionID,
-				client:    client,
-				agent:     agent,
-				kind:      kind,
-				from:      from,
-				since:     since,
-				to:        to,
-				until:     until,
-				limit:     limit,
-				offset:    offset,
-				query:     query,
-				asJSON:    asJSON,
+				dbPath:       dbPath,
+				repo:         repo,
+				sessionID:    sessionID,
+				client:       client,
+				agent:        agent,
+				kind:         kind,
+				from:         from,
+				since:        since,
+				to:           to,
+				until:        until,
+				limit:        limit,
+				offset:       offset,
+				query:        query,
+				failuresOnly: failuresOnly,
+				asJSON:       asJSON,
 			})
 		},
 	}
@@ -76,26 +78,28 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 	searchCmd.Flags().StringVar(&until, "until", "", Localize("end date (`YYYY-MM-DD`) (alias for `--to`)", "終了日 (`YYYY-MM-DD`) (`--to` の別名)"))
 	searchCmd.Flags().IntVar(&limit, "limit", 20, Localize("maximum number of results", "表示件数"))
 	searchCmd.Flags().IntVar(&offset, "offset", 0, Localize("number of matching events to skip before returning results", "結果を返す前にスキップする件数"))
+	searchCmd.Flags().BoolVar(&failuresOnly, "failures", false, Localize("show only failed commands", "失敗したコマンドのみ表示"))
 	searchCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 
 	return searchCmd
 }
 
 type searchCommandInput struct {
-	dbPath    string
-	repo      string
-	sessionID string
-	client    string
-	agent     string
-	kind      string
-	from      string
-	since     string
-	to        string
-	until     string
-	limit     int
-	offset    int
-	query     string
-	asJSON    bool
+	dbPath       string
+	repo         string
+	sessionID    string
+	client       string
+	agent        string
+	kind         string
+	from         string
+	since        string
+	to           string
+	until        string
+	limit        int
+	offset       int
+	query        string
+	failuresOnly bool
+	asJSON       bool
 }
 
 func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchCommandInput) error {
@@ -149,16 +153,17 @@ func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchC
 	}
 
 	events, err := c.searchEventsQueryService.Run(ctx, resolvedPath, queryservice.SearchEventsInput{
-		Query:     input.query,
-		Repo:      resolveRepoValue(ctx, input.repo),
-		SessionID: input.sessionID,
-		Client:    input.client,
-		Agent:     input.agent,
-		Kind:      resolvedKind,
-		From:      fromTime,
-		To:        toTime,
-		Limit:     input.limit,
-		Offset:    input.offset,
+		Query:        input.query,
+		Repo:         resolveRepoValue(ctx, input.repo),
+		SessionID:    input.sessionID,
+		Client:       input.client,
+		Agent:        input.agent,
+		Kind:         resolvedKind,
+		From:         fromTime,
+		To:           toTime,
+		Limit:        input.limit,
+		Offset:       input.offset,
+		FailuresOnly: input.failuresOnly,
 	})
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to search events", "検索に失敗しました"), err)

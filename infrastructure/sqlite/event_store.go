@@ -73,11 +73,6 @@ func (d *Datasource) ListRecent(
 		}
 	}()
 
-	failuresFilter := 0
-	if input.FailuresOnly {
-		failuresFilter = 1
-	}
-
 	rows, err := db.QueryContext(
 		ctx,
 		`SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.repo, e.body, e.created_at
@@ -96,7 +91,7 @@ func (d *Datasource) ListRecent(
 		input.Agent, input.Agent,
 		input.SessionID, input.SessionID,
 		input.Repo, input.Repo,
-		failuresFilter,
+		boolToInt(input.FailuresOnly),
 		input.Limit,
 		input.Offset,
 	)
@@ -228,4 +223,11 @@ func (d *Datasource) openDB(ctx context.Context, dbPath string) (_ *sql.DB, err 
 	}
 
 	return db, nil
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
