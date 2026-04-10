@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"golang.org/x/xerrors"
 
@@ -144,10 +145,12 @@ func buildSessionFromBoundary(event *model.Event, kind types.EventKind) *model.S
 			event.Repo(),
 		)
 	default:
+		// For session end, started_at is not available from the event.
+		// Use zero value since SaveSession only updates ended_at.
 		endedAt := event.CreatedAt()
 		return model.SessionOf(
 			event.SessionID(),
-			event.CreatedAt(),
+			time.Time{},
 			&endedAt,
 			event.Client(),
 			event.Agent(),

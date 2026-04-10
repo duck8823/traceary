@@ -262,3 +262,89 @@ func mustTime(t *testing.T) time.Time {
 
 	return time.Date(2026, 4, 8, 13, 0, 0, 0, time.UTC)
 }
+
+type sessionSaverStub struct {
+	called  bool
+	session *model.Session
+	err     error
+}
+
+func (s *sessionSaverStub) SaveSession(_ context.Context, _ string, session *model.Session) error {
+	s.called = true
+	s.session = session
+	return s.err
+}
+
+func TestRecordSessionBoundaryUsecase_Run_SessionSaver(t *testing.T) {
+	t.Parallel()
+
+	t.Run("session start で SessionSaver が呼ばれる", func(t *testing.T) {
+		t.Parallel()
+
+		eventStub := &eventRepositoryStub{}
+		sessionStub := &sessionSaverStub{}
+		sut := usecase.NewRecordSessionBoundaryUsecase(eventStub, nil, sessionStub)
+
+		_, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
+			DBPath: "/tmp/traceary.db",
+			Client: "cli",
+			Agent:  "claude",
+			Repo:   "duck8823/traceary",
+			Kind:   types.EventKindSessionStarted,
+		})
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if !sessionStub.called {
+			t.Fatalf("SessionSaver.SaveSession() was not called")
+		}
+		if sessionStub.session.EndedAt() != nil {
+			t.Fatalf("session.EndedAt() should be nil for start")
+		}
+	})
+
+	t.Run("session end で SessionSaver が呼ばれる", func(t *testing.T) {
+		t.Parallel()
+
+		eventStub := &eventRepositoryStub{}
+		sessionStub := &sessionSaverStub{}
+		sut := usecase.NewRecordSessionBoundaryUsecase(eventStub, nil, sessionStub)
+
+		_, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
+			DBPath:    "/tmp/traceary.db",
+			Client:    "cli",
+			Agent:     "claude",
+			Repo:      "duck8823/traceary",
+			SessionID: "test-session",
+			Kind:      types.EventKindSessionEnded,
+		})
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if !sessionStub.called {
+			t.Fatalf("SessionSaver.SaveSession() was not called")
+		}
+		if sessionStub.session.EndedAt() == nil {
+			t.Fatalf("session.EndedAt() should not be nil for end")
+		}
+	})
+
+	t.Run("SessionSaver がエラーを返したら Run もエラーを返す", func(t *testing.T) {
+		t.Parallel()
+
+		eventStub := &eventRepositoryStub{}
+		sessionStub := &sessionSaverStub{err: errors.New("save failed")}
+		sut := usecase.NewRecordSessionBoundaryUsecase(eventStub, nil, sessionStub)
+
+		_, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
+			DBPath: "/tmp/traceary.db",
+			Client: "cli",
+			Agent:  "claude",
+			Repo:   "duck8823/traceary",
+			Kind:   types.EventKindSessionStarted,
+		})
+		if err == nil {
+			t.Fatalf("Run() error = nil, want error")
+		}
+	})
+}

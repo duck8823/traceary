@@ -28,7 +28,7 @@ func (d *Datasource) SaveSession(ctx context.Context, dbPath string, session *mo
 
 	if session.EndedAt() != nil {
 		// Session end: update ended_at
-		_, err := db.ExecContext(
+		result, err := db.ExecContext(
 			ctx,
 			`UPDATE sessions SET ended_at = ? WHERE session_id = ?`,
 			formatTimestamp(*session.EndedAt()),
@@ -36,6 +36,13 @@ func (d *Datasource) SaveSession(ctx context.Context, dbPath string, session *mo
 		)
 		if err != nil {
 			return xerrors.Errorf("failed to update session ended_at: %w", err)
+		}
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return xerrors.Errorf("failed to check rows affected: %w", err)
+		}
+		if rowsAffected == 0 {
+			slog.Debug("session not found for ended_at update, skipping", "session_id", session.SessionID().String())
 		}
 		return nil
 	}
