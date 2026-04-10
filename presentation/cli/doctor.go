@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -190,7 +191,14 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			continue
 		}
 
-		report.Checks = append(report.Checks, inspectDoctorConfigFile(targetClient, outputPath))
+		check := inspectDoctorConfigFile(targetClient, outputPath)
+		if check.Status == doctorStatusWarn && targetClient == "claude" {
+			pluginCheck := inspectDoctorPluginPackage(resolvedProjectDir)
+			if pluginCheck.Status == doctorStatusPass {
+				check = pluginCheck
+			}
+		}
+		report.Checks = append(report.Checks, check)
 	}
 
 	report.Checks = append(report.Checks, checkLatestVersion(input.currentVersion))
@@ -333,6 +341,57 @@ func inspectDoctorConfigFile(client string, outputPath string) doctorCheck {
 			client,
 			client,
 			outputPath,
+		),
+	}
+}
+
+func inspectDoctorPluginPackage(projectDir string) doctorCheck {
+	pluginHooksPath := filepath.Join(projectDir, "integrations", "claude-plugin", "hooks", "hooks.json")
+	content, err := os.ReadFile(pluginHooksPath)
+	if err != nil {
+		return doctorCheck{
+			Name:   "claude-config",
+			Status: doctorStatusWarn,
+			Message: localizef(
+				"claude plugin package not found at %s",
+				"claude plugin パッケージが見つかりません: %s",
+				pluginHooksPath,
+			),
+		}
+	}
+
+	var hooksMap map[string]json.RawMessage
+	if err := json.Unmarshal(content, &hooksMap); err != nil {
+		return doctorCheck{
+			Name:   "claude-config",
+			Status: doctorStatusWarn,
+			Message: localizef(
+				"claude plugin hooks.json is not valid JSON: %s",
+				"claude plugin の hooks.json が不正な JSON です: %s",
+				pluginHooksPath,
+			),
+		}
+	}
+
+	if _, ok := hooksMap["hooks"]; !ok {
+		return doctorCheck{
+			Name:   "claude-config",
+			Status: doctorStatusWarn,
+			Message: localizef(
+				"claude plugin hooks.json does not contain a hooks field: %s",
+				"claude plugin の hooks.json に hooks フィールドがありません: %s",
+				pluginHooksPath,
+			),
+		}
+	}
+
+	return doctorCheck{
+		Name:   "claude-config",
+		Status: doctorStatusPass,
+		Message: localizef(
+			"claude hooks are managed by plugin package: %s",
+			"claude の hooks は plugin パッケージで管理されています: %s",
+			pluginHooksPath,
 		),
 	}
 }
