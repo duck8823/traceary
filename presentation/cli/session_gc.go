@@ -33,6 +33,10 @@ func (c *RootCLI) newSessionGCCommand() *cobra.Command {
 				return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 			}
 
+			if staleAfter <= 0 {
+				return xerrors.Errorf("--stale-after must be greater than 0")
+			}
+
 			result, err := c.closeStaleSessionsUsecase.Run(ctx, usecase.CloseStaleSessionsInput{
 				DBPath:     resolvedDBPath,
 				StaleAfter: staleAfter,
