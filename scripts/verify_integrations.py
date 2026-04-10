@@ -13,7 +13,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback
     tomllib = None
 
 ROOT = Path(__file__).resolve().parent.parent
-INTEGRATION_VERSION = '0.1.17'
+INTEGRATION_VERSION = '0.1.18'
 HOOK_SOURCES = [
     ROOT / 'scripts' / 'hooks' / 'common.sh',
     ROOT / 'scripts' / 'hooks' / 'traceary-session.sh',

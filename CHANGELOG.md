@@ -5,6 +5,40 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.1.18] - 2026-04-10
+
+This release introduces a dedicated sessions table, enriches session metadata with labels, summaries, and parent-child relationships, and improves data quality.
+
+### Added
+- `sessions` table with migration and backfill from existing events
+- `traceary session label <text> --session-id <id>` command to tag sessions
+- `--label` filter for `session list` command
+- `--summary` flag on `traceary session end` to record session summaries
+- `--parent-session-id` flag on `traceary session start` for sub-agent hierarchy
+- MCP tool call recording via `mcp__.*` matcher in Claude Code hooks
+- Gemini CLI one-command install script (`scripts/install-gemini-extension.sh`)
+
+### Fixed
+- Audit hooks now persist repo from session start and reuse it, preventing CWD-based repo drift in sub-agents
+- Audit script falls back to `tool_name` when `tool_input.command` is absent (MCP tools)
+- Consolidated date validation into queryservice layer (removed redundant infra-layer validation)
+- Fixed excess `localizef` arguments in doctor config checks
+
+### Changed
+- `session list` query rewritten to use sessions table with events JOIN for aggregated counts
+- `SessionSummary` DTO now includes `label`, `summary`, `parent_session_id`
+- Updated integration manifests to version `0.1.18`
+
+### Included issues
+- #196 Consolidate date validation into queryservice layer
+- #200 Record MCP tool calls via hooks
+- #201 Add searchable labels/task names to sessions
+- #202 Record parent-child relationships between agent sessions
+- #203 Normalize repo field to prevent CWD-based drift
+- #204 Record session summary on session end
+- #206 Introduce session metadata model
+- #207 Improve Gemini CLI installation experience
+
 ## [v0.1.17] - 2026-04-09
 
 This release focuses on multi-agent workflow improvements and CLI ergonomics.
