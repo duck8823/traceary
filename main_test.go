@@ -11,7 +11,7 @@ import (
 func TestWriteCLIError(t *testing.T) {
 	t.Parallel()
 
-	t.Run("plain text で user-facing error を出力する", func(t *testing.T) {
+	t.Run("prints user-facing error as plain text", func(t *testing.T) {
 		t.Parallel()
 
 		buffer := &bytes.Buffer{}
@@ -23,7 +23,7 @@ func TestWriteCLIError(t *testing.T) {
 		}
 	})
 
-	t.Run("nil error なら何も出力しない", func(t *testing.T) {
+	t.Run("prints nothing for nil error", func(t *testing.T) {
 		t.Parallel()
 
 		buffer := &bytes.Buffer{}
@@ -71,7 +71,7 @@ func TestSetupLogger(t *testing.T) {
 		}
 	})
 
-	t.Run("LOG_LEVEL 未設定はエラーなし", func(t *testing.T) {
+	t.Run("no error when LOG_LEVEL is unset", func(t *testing.T) {
 		if err := os.Unsetenv("LOG_LEVEL"); err != nil {
 			t.Fatal(err)
 		}
@@ -80,7 +80,7 @@ func TestSetupLogger(t *testing.T) {
 		}
 	})
 
-	t.Run("LOG_OPTION=development はエラーなし", func(t *testing.T) {
+	t.Run("no error when LOG_OPTION=development", func(t *testing.T) {
 		t.Setenv("LOG_OPTION", "development")
 		if err := setupLogger(); err != nil {
 			t.Fatalf("setupLogger() with LOG_OPTION=development returned error: %v", err)
@@ -109,7 +109,7 @@ func TestResolveBuildMetadata(t *testing.T) {
 		}
 	})
 
-	t.Run("dev build は build info を使って埋める", func(t *testing.T) {
+	t.Run("dev build fills from build info", func(t *testing.T) {
 		t.Parallel()
 
 		got := resolveBuildMetadata("dev", "none", "unknown", func() (*debug.BuildInfo, bool) {

@@ -170,7 +170,7 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		}
 	})
 
-	t.Run("agent フィルタが機能する", func(t *testing.T) {
+	t.Run("agent filter works", func(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
@@ -215,7 +215,7 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		}
 	})
 
-	t.Run("from フィルタで対象外セッションが除外される", func(t *testing.T) {
+	t.Run("from filter excludes out-of-range sessions", func(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
@@ -260,7 +260,7 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		}
 	})
 
-	t.Run("to フィルタで対象外セッションが除外される", func(t *testing.T) {
+	t.Run("to filter excludes out-of-range sessions", func(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
