@@ -28,6 +28,7 @@ type ListSessionsInput struct {
 	Offset int
 	Repo   string
 	Agent  string
+	Label  string
 	From   *time.Time
 	To     *time.Time
 }

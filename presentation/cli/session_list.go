@@ -18,6 +18,7 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 		dbPath string
 		repo   string
 		agent  string
+		label  string
 		from   string
 		to     string
 		limit  int
@@ -69,6 +70,7 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 				Offset: offset,
 				Repo:   resolvedRepo,
 				Agent:  agent,
+				Label:  label,
 				From:   fromTime,
 				To:     toTime,
 			})
@@ -83,6 +85,7 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 	listCmd.Flags().StringVar(&dbPath, "db-path", "", Localize("SQLite DB path (env: TRACEARY_DB_PATH)", "SQLite DB パス (env: TRACEARY_DB_PATH)"))
 	listCmd.Flags().StringVar(&repo, "repo", "", Localize("filter by repo", "リポジトリでフィルタ"))
 	listCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "エージェントでフィルタ"))
+	listCmd.Flags().StringVar(&label, "label", "", Localize("filter by label", "ラベルでフィルタ"))
 	listCmd.Flags().StringVar(&from, "from", "", Localize("start date (YYYY-MM-DD)", "開始日 (YYYY-MM-DD)"))
 	listCmd.Flags().StringVar(&to, "to", "", Localize("end date (YYYY-MM-DD)", "終了日 (YYYY-MM-DD)"))
 	listCmd.Flags().IntVar(&limit, "limit", 20, Localize("maximum number of sessions", "最大表示セッション数"))

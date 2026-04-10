@@ -64,12 +64,14 @@ func (d *Datasource) ListSessionSummaries(
 		 ) agg ON agg.session_id = s.session_id
 		 WHERE (? = '' OR s.repo = ?)
 		   AND (? = '' OR s.agent = ?)
+		   AND (? = '' OR s.label = ?)
 		   AND (? = '' OR s.started_at >= ?)
 		   AND (? = '' OR s.started_at < ?)
 		 ORDER BY s.started_at DESC
 		 LIMIT ? OFFSET ?`,
 		input.Repo, input.Repo,
 		input.Agent, input.Agent,
+		input.Label, input.Label,
 		fromValue, fromValue,
 		toValue, toValue,
 		input.Limit, input.Offset,

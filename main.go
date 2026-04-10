@@ -166,6 +166,7 @@ func run() error {
 	getEventDetailsQueryService := queryservice.NewGetEventDetailsQueryService(datasource)
 	findLatestSessionQueryService := queryservice.NewFindLatestSessionQueryService(datasource)
 	listSessionsQueryService := queryservice.NewListSessionsQueryService(datasource)
+	updateSessionLabelUsecase := usecase.NewUpdateSessionLabelUsecase(datasource)
 	mcpServer, err := mcpserver.NewServer(
 		metadata.version,
 		initializeStoreUsecase,
@@ -194,6 +195,7 @@ func run() error {
 		GetEventDetailsQueryService:   getEventDetailsQueryService,
 		FindLatestSessionQueryService: findLatestSessionQueryService,
 		ListSessionsQueryService:      listSessionsQueryService,
+		UpdateSessionLabelUsecase:     updateSessionLabelUsecase,
 		MCPServerRunner:               mcpServer,
 	}).Command()
 	rootCmd.Version = versionString()
