@@ -145,6 +145,8 @@ func scanSessionSummary(row interface {
 		}
 		endedAt = &t
 		status = "ended"
+	} else if time.Since(startedAt) > 24*time.Hour {
+		status = "stale"
 	}
 
 	var agents []string
