@@ -68,8 +68,11 @@ Traceary は `traceary --version` で version metadata を表示します。
 4. tag release のときに GitHub Releases へ成果物とチェックサムを公開する
 5. Homebrew 向けに `main` branch の `Formula/traceary.rb` を更新する
 6. Gemini CLI extension archive (`traceary.tar.gz`) を package して release asset に追加する
+7. tag 付き GitHub Release が成功したあとで、対応する open 状態の親 release issue（`vX.Y.Z: ...`）を閉じる
 
 `workflow_dispatch` は主にブランチ上でパイプラインを dry-run するためのものです。実際に公開リリースしたい場合は `v*` tag を push するか、tag ref を指定して手動実行してください。
+
+release 準備用 PR では metadata / docs / manifest を揃えてよいですが、親 release issue を閉じてはいけません。親 issue は、tag 付き release workflow が成功するまで open のままにします。
 
 Homebrew formula は repository 直下の `Formula/` に置き、GoReleaser が自動生成します。手動編集は前提にしません。
 

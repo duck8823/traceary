@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   goreleaser:
@@ -41,3 +42,51 @@ jobs:
         run: gh release upload "${GITHUB_REF_NAME}" dist/traceary.tar.gz --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Close matching parent release issue
+        if: github.ref_type == 'tag'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const tag = context.ref.replace('refs/tags/', '');
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const { data: release } = await github.rest.repos.getReleaseByTag({
+              owner,
+              repo,
+              tag,
+            });
+
+            const query = `repo:${owner}/${repo} is:issue is:open in:title "${tag}:"`;
+            const { data: search } = await github.rest.search.issuesAndPullRequests({
+              q: query,
+              per_page: 10,
+            });
+
+            const issues = search.items.filter((item) => !item.pull_request && item.title.startsWith(`${tag}:`));
+
+            if (issues.length === 0) {
+              core.info(`No open parent release issue matched ${tag}.`);
+              return;
+            }
+
+            if (issues.length > 1) {
+              core.setFailed(`Ambiguous parent release issue for ${tag}: ${issues.map((item) => `#${item.number}`).join(', ')}`);
+              return;
+            }
+
+            const issue = issues[0];
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: issue.number,
+              body: `Closing automatically because the GitHub Release [${tag}](${release.html_url}) published successfully.`,
+            });
+
+            await github.rest.issues.update({
+              owner,
+              repo,
+              issue_number: issue.number,
+              state: 'closed',
+            });

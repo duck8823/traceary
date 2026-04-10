@@ -64,8 +64,8 @@ go tool golangci-lint run
 ### Issue closing policy
 
 - Implementation PRs close **sub-issues** only (`Closes #<sub-issue>`)
-- Parent (version) issues are closed by the **release PR** that updates metadata and CHANGELOG (`Closes #<parent>`)
-- Never put `Closes #<parent>` in an implementation PR — the parent stays open until all sub-issues are done and the release is prepared
+- Parent (version) issues stay open through release-preparation PRs and are closed only after the **tagged release workflow** publishes the actual release
+- Never put `Closes #<parent>` in an implementation PR or release-preparation PR
 
 ### Code style
 
