@@ -2,12 +2,13 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/port"
 )
 
 var _ port.SessionSaver = (*Datasource)(nil)
@@ -27,6 +28,20 @@ func (d *Datasource) SaveSession(ctx context.Context, dbPath string, session *mo
 	}()
 
 	if session.EndedAt() != nil {
+		// Check if session is already ended
+		var existingEndedAt sql.NullString
+		_ = db.QueryRowContext(
+			ctx,
+			`SELECT ended_at FROM sessions WHERE session_id = ?`,
+			session.SessionID().String(),
+		).Scan(&existingEndedAt)
+		if existingEndedAt.Valid {
+			slog.Warn("session already ended, overwriting ended_at",
+				"session_id", session.SessionID().String(),
+				"existing_ended_at", existingEndedAt.String,
+			)
+		}
+
 		// Session end: update ended_at
 		result, err := db.ExecContext(
 			ctx,
