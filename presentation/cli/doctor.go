@@ -231,7 +231,7 @@ func inspectDoctorConfigFile(client string, outputPath string) doctorCheck {
 		return doctorCheck{
 			Name:    client + "-config",
 			Status:  doctorStatusFail,
-			Message: localizef("%s config file must be a JSON object: %s", "%s の設定ファイルは JSON object である必要があります: %s", client, client, client, client, client, outputPath),
+			Message: localizef("%s config file must be a JSON object: %s", "%s の設定ファイルは JSON object である必要があります: %s", client, outputPath),
 		}
 	}
 
@@ -255,7 +255,7 @@ func inspectDoctorConfigFile(client string, outputPath string) doctorCheck {
 		return doctorCheck{
 			Name:    client + "-config",
 			Status:  doctorStatusFail,
-			Message: localizef("%s hooks field must be an object of hook arrays: %s", "%s の hooks フィールドは hook 配列を値に持つ object である必要があります: %s", client, client, client, client, client, outputPath),
+			Message: localizef("%s hooks field must be an object of hook arrays: %s", "%s の hooks フィールドは hook 配列を値に持つ object である必要があります: %s", client, outputPath),
 		}
 	}
 
@@ -266,7 +266,7 @@ func inspectDoctorConfigFile(client string, outputPath string) doctorCheck {
 					return doctorCheck{
 						Name:    client + "-config",
 						Status:  doctorStatusPass,
-						Message: localizef("%s config contains Traceary-managed hooks: %s", "%s の設定には Traceary 管理下の hook があります: %s", client, client, client, client, client, outputPath),
+						Message: localizef("%s config contains Traceary-managed hooks: %s", "%s の設定には Traceary 管理下の hook があります: %s", client, outputPath),
 					}
 				}
 			}
