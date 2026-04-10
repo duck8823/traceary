@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"log/slog"
+	"strings"
 
 	"golang.org/x/xerrors"
 
@@ -81,6 +82,9 @@ func (d *Datasource) SaveSession(ctx context.Context, dbPath string, session *mo
 		parentSessionID,
 	)
 	if err != nil {
+		if strings.Contains(err.Error(), "FOREIGN KEY constraint failed") && session.ParentSessionID() != "" {
+			return xerrors.Errorf("parent session not found: %s", session.ParentSessionID())
+		}
 		return xerrors.Errorf("failed to insert session: %w", err)
 	}
 
