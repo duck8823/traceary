@@ -17,7 +17,7 @@ go install github.com/duck8823/traceary@latest
 If you prefer a specific release, pin the tag explicitly.
 
 ```sh
-go install github.com/duck8823/traceary@v0.1.18
+go install github.com/duck8823/traceary@v0.1.19
 ```
 
 ### Homebrew
