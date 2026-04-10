@@ -60,7 +60,7 @@ func TestMigrations_applyToEmptyDatabase(t *testing.T) {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
-	db, err := sql.Open("sqlite", "file:"+dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
@@ -77,12 +77,24 @@ func TestMigrations_applyToEmptyDatabase(t *testing.T) {
 		}
 	}
 
+	// Count migration files dynamically
+	entries, err := os.ReadDir("../../schema/sqlite/migrations")
+	if err != nil {
+		t.Fatalf("ReadDir() error = %v", err)
+	}
+	wantMigrations := 0
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) == ".sql" {
+			wantMigrations++
+		}
+	}
+
 	var migrationCount int
 	if err := db.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&migrationCount); err != nil {
 		t.Fatalf("count schema_migrations error = %v", err)
 	}
-	if migrationCount != 4 {
-		t.Errorf("schema_migrations count = %d, want 4", migrationCount)
+	if migrationCount != wantMigrations {
+		t.Errorf("schema_migrations count = %d, want %d", migrationCount, wantMigrations)
 	}
 }
 
@@ -99,18 +111,29 @@ func TestMigrations_idempotentOnExistingDatabase(t *testing.T) {
 		t.Fatalf("Initialize() second error = %v", err)
 	}
 
-	db, err := sql.Open("sqlite", "file:"+dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
 	defer func() { _ = db.Close() }()
 
+	entries, err := os.ReadDir("../../schema/sqlite/migrations")
+	if err != nil {
+		t.Fatalf("ReadDir() error = %v", err)
+	}
+	wantMigrations := 0
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) == ".sql" {
+			wantMigrations++
+		}
+	}
+
 	var count int
 	if err := db.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&count); err != nil {
 		t.Fatalf("count error = %v", err)
 	}
-	if count != 4 {
-		t.Errorf("schema_migrations count = %d, want 4", count)
+	if count != wantMigrations {
+		t.Errorf("schema_migrations count = %d, want %d", count, wantMigrations)
 	}
 }
 
@@ -119,7 +142,7 @@ func TestMigrations_backfillPopulatesSessionsFromEvents(t *testing.T) {
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 
-	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=foreign_keys(1)")
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
@@ -154,7 +177,7 @@ func TestMigrations_backfillPopulatesSessionsFromEvents(t *testing.T) {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
-	db2, err := sql.Open("sqlite", "file:"+dbPath)
+	db2, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
@@ -168,15 +191,27 @@ func TestMigrations_backfillPopulatesSessionsFromEvents(t *testing.T) {
 		t.Errorf("sessions count = %d, want 1", sessionCount)
 	}
 
-	var sessionID, repo string
+	var sessionID, repo, client, agent, startedAt string
 	var endedAt *string
-	if err := db2.QueryRow("SELECT session_id, repo, ended_at FROM sessions WHERE session_id = 's1'").Scan(&sessionID, &repo, &endedAt); err != nil {
+	if err := db2.QueryRow("SELECT session_id, repo, client, agent, started_at, ended_at FROM sessions WHERE session_id = 's1'").Scan(&sessionID, &repo, &client, &agent, &startedAt, &endedAt); err != nil {
 		t.Fatalf("QueryRow sessions error = %v", err)
 	}
 	if repo != "duck8823/traceary" {
 		t.Errorf("repo = %q, want duck8823/traceary", repo)
 	}
+	if client != "hook" {
+		t.Errorf("client = %q, want hook", client)
+	}
+	if agent != "claude" {
+		t.Errorf("agent = %q, want claude", agent)
+	}
+	if startedAt != "2026-04-10T12:00:00Z" {
+		t.Errorf("started_at = %q, want 2026-04-10T12:00:00Z", startedAt)
+	}
 	if endedAt == nil {
-		t.Error("ended_at should not be nil")
+		t.Fatal("ended_at should not be nil")
+	}
+	if *endedAt != "2026-04-10T13:00:00Z" {
+		t.Errorf("ended_at = %q, want 2026-04-10T13:00:00Z", *endedAt)
 	}
 }
