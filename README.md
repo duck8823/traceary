@@ -11,7 +11,7 @@
 
 Traceary is a local-first CLI and MCP server for recording and searching AI agent work logs, session boundaries, and shell command audits.
 
-If your goal is automatic recording, start with the host integration instead of the raw CLI.
+Install the CLI first, then add the plugin for your AI agent host to enable automatic recording.
 
 ## Why Traceary
 
@@ -34,11 +34,27 @@ Traceary keeps those records in one local SQLite store so the same history can b
 
 Traceary is local-first. It writes to SQLite on your machine and does not include built-in telemetry, analytics, or hosted storage.
 
-## Install into your agent host
+## Getting started
 
-These are the fastest paths when you want Traceary to record sessions and shell commands automatically.
+### Step 1: Install the Traceary CLI
 
-| Host | Install path | Guide |
+The CLI is required first — agent plugins invoke the `traceary` binary via hooks.
+
+```sh
+# Homebrew (recommended)
+brew tap duck8823/traceary https://github.com/duck8823/traceary
+brew install traceary
+
+# or go install
+go install github.com/duck8823/traceary@latest
+```
+
+Tagged releases also publish macOS and Linux archives on [GitHub Releases](https://github.com/duck8823/traceary/releases).
+See the [release guide](./docs/release/README.md) for packaging details.
+
+### Step 2: Install the plugin for your agent host
+
+| Host | Install command | Guide |
 | --- | --- | --- |
 | Claude Code | `claude plugins marketplace add https://github.com/duck8823/traceary` then `claude plugins install traceary@traceary-plugins --scope user` | [Claude Code plugin](./docs/integrations/claude-plugin.md) |
 | Codex | `git clone https://github.com/duck8823/traceary ~/src/traceary` then `python3 ~/src/traceary/scripts/codex/install_plugin.py` | [Codex plugin](./docs/integrations/codex-plugin.md) |
@@ -46,25 +62,11 @@ These are the fastest paths when you want Traceary to record sessions and shell 
 
 For the integration overview, use the [native integrations guide](./docs/integrations/README.md).
 
-## Install the Traceary CLI
-
-### go install
+### Step 3: Verify
 
 ```sh
-go install github.com/duck8823/traceary@latest
+traceary doctor
 ```
-
-### Homebrew
-
-```sh
-brew tap duck8823/traceary https://github.com/duck8823/traceary
-brew install traceary
-```
-
-### Prebuilt binaries
-
-Tagged releases publish macOS and Linux archives on GitHub Releases.
-See the [release guide](./docs/release/README.md) when you want the packaging details.
 
 ## Quick start
 
