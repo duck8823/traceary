@@ -5,6 +5,22 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.2.1] - 2026-04-11
+
+v0.2.0 で残したスコープの補完リリースです。
+
+### 追加
+- `traceary session gc` コマンド（stale セッションの自動終了、`--dry-run` 対応）
+- `session_handoff` MCP ツール
+- `traceary search --failures` フラグ
+- compact-summary テスト、golden file テスト
+- hook 共通関数の集約
+
+### 変更
+- search_events SQL の go:embed 外出し
+- goreleaser の formula 生成修正（`skip_upload: true`）
+- release workflow に Homebrew PR の auto-merge 追加
+
 ## [v0.2.0] - 2026-04-11
 
 コンテキスト保全と本番運用対応のリリースです。
