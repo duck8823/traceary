@@ -53,6 +53,7 @@ Traceary はオプションの JSON 設定ファイルを `~/.config/traceary/co
 ```
 
 ファイルが存在しない場合、Traceary は組み込みのリダクションパターンのみを使用します。
+ファイルが存在しても unreadable または不正な JSON の場合、Traceary は組み込みのリダクションパターンへ fallback し、config ベースの redaction が必要な場面では operator 向け warning を出し、`traceary doctor` でもその壊れた状態を報告します。
 
 ## Runtime 前提
 
