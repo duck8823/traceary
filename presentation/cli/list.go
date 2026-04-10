@@ -13,7 +13,7 @@ import (
 
 func (c *RootCLI) newListCommand() *cobra.Command {
 	var (
-		dbPath    string
+		dbPath       string
 		limit        int
 		offset       int
 		kind         string
@@ -21,6 +21,10 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 		agent        string
 		sessionID    string
 		repo         string
+		from         string
+		since        string
+		to           string
+		until        string
 		failuresOnly bool
 		asJSON       bool
 	)
@@ -39,6 +43,10 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 				agent:        agent,
 				sessionID:    sessionID,
 				repo:         repo,
+				from:         from,
+				since:        since,
+				to:           to,
+				until:        until,
 				failuresOnly: failuresOnly,
 				asJSON:       asJSON,
 			})
@@ -52,6 +60,10 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 	listCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "作業主体で絞り込む"))
 	listCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("filter by session ID", "session ID で絞り込む"))
 	listCmd.Flags().StringVar(&repo, "repo", "", Localize("filter by auxiliary work context identifier", "補助的なコンテキスト識別子で絞り込む"))
+	listCmd.Flags().StringVar(&from, "from", "", Localize("start date (`YYYY-MM-DD` or RFC3339)", "開始日 (`YYYY-MM-DD` または RFC3339)"))
+	listCmd.Flags().StringVar(&since, "since", "", Localize("start date (`YYYY-MM-DD` or RFC3339) (alias for `--from`)", "開始日 (`YYYY-MM-DD` または RFC3339) (`--from` の別名)"))
+	listCmd.Flags().StringVar(&to, "to", "", Localize("end date (`YYYY-MM-DD` or RFC3339)", "終了日 (`YYYY-MM-DD` または RFC3339)"))
+	listCmd.Flags().StringVar(&until, "until", "", Localize("end date (`YYYY-MM-DD` or RFC3339) (alias for `--to`)", "終了日 (`YYYY-MM-DD` または RFC3339) (`--to` の別名)"))
 	listCmd.Flags().BoolVar(&failuresOnly, "failures", false, Localize("show only failed commands", "失敗したコマンドのみ表示"))
 	listCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 
@@ -67,6 +79,10 @@ type listCommandInput struct {
 	agent        string
 	sessionID    string
 	repo         string
+	from         string
+	since        string
+	to           string
+	until        string
 	failuresOnly bool
 	asJSON       bool
 }
@@ -89,6 +105,26 @@ func (c *RootCLI) runList(ctx context.Context, output io.Writer, input listComma
 		return err
 	}
 
+	fromValue, err := resolveSearchDateValue(input.from, input.since, "from", "since")
+	if err != nil {
+		return err
+	}
+	toValue, err := resolveSearchDateValue(input.to, input.until, "to", "until")
+	if err != nil {
+		return err
+	}
+	fromTime, err := parseFlexibleTime(fromValue, false)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve --from", "from の解決に失敗しました"), err)
+	}
+	toTime, err := parseFlexibleTime(toValue, true)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve --to", "to の解決に失敗しました"), err)
+	}
+	if !fromTime.IsZero() && !toTime.IsZero() && fromTime.After(toTime) {
+		return xerrors.Errorf(Localize("--from must be earlier than --to", "from は to より前である必要があります"))
+	}
+
 	resolvedPath, err := resolveDBPath(input.dbPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
@@ -106,6 +142,8 @@ func (c *RootCLI) runList(ctx context.Context, output io.Writer, input listComma
 		SessionID:    strings.TrimSpace(input.sessionID),
 		Repo:         resolveRepoValue(ctx, input.repo),
 		FailuresOnly: input.failuresOnly,
+		From:         fromTime,
+		To:           toTime,
 	})
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to list events", "イベント一覧の取得に失敗しました"), err)
