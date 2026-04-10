@@ -157,7 +157,7 @@ func run() error {
 	createStoreBackupUsecase := usecase.NewCreateStoreBackupUsecase(datasource)
 	restoreStoreBackupUsecase := usecase.NewRestoreStoreBackupUsecase(datasource)
 	recordLogUsecase := usecase.NewRecordLogUsecase(datasource)
-	recordSessionBoundaryUsecase := usecase.NewRecordSessionBoundaryUsecase(datasource, datasource)
+	recordSessionBoundaryUsecase := usecase.NewRecordSessionBoundaryUsecase(datasource, datasource, datasource)
 	recordCommandAuditUsecase := usecase.NewRecordCommandAuditUsecase(datasource)
 	collectGarbageUsecase := usecase.NewCollectGarbageUsecase(datasource)
 	searchEventsQueryService := queryservice.NewSearchEventsQueryService(datasource)

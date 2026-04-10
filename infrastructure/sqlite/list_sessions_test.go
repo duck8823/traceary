@@ -39,6 +39,45 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
     output_truncated INTEGER NOT NULL DEFAULT 0
 );`),
 		},
+		"000004_create_sessions.sql": {
+			Data: []byte(`CREATE TABLE IF NOT EXISTS sessions (
+    session_id TEXT PRIMARY KEY,
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    client TEXT NOT NULL DEFAULT '',
+    agent TEXT NOT NULL DEFAULT '',
+    repo TEXT NOT NULL DEFAULT '',
+    label TEXT NOT NULL DEFAULT '',
+    summary TEXT NOT NULL DEFAULT '',
+    parent_session_id TEXT REFERENCES sessions(session_id)
+);
+INSERT OR IGNORE INTO sessions (session_id, started_at, ended_at, client, agent, repo)
+SELECT
+    e.session_id,
+    MIN(CASE WHEN e.kind = 'session_started' THEN e.created_at ELSE e.created_at END),
+    MAX(CASE WHEN e.kind = 'session_ended' THEN e.created_at END),
+    COALESCE(MAX(CASE WHEN e.kind = 'session_started' THEN e.client END), MAX(e.client)),
+    COALESCE(MAX(CASE WHEN e.kind = 'session_started' THEN e.agent END), MAX(e.agent)),
+    COALESCE(MAX(CASE WHEN e.kind = 'session_started' THEN e.repo END), MAX(e.repo))
+FROM events e
+GROUP BY e.session_id;`),
+		},
+	}
+}
+
+func saveTestSession(ctx context.Context, t *testing.T, ds *infra.Datasource, dbPath string, sessionID string, startedAt time.Time, endedAt *time.Time, agent string, repo string) {
+	t.Helper()
+	ag, _ := types.AgentOf(agent)
+	sid, _ := types.SessionIDOf(sessionID)
+	session := model.NewSession(sid, startedAt, "hook", ag, repo)
+	if err := ds.SaveSession(ctx, dbPath, session); err != nil {
+		t.Fatalf("SaveSession(start) error = %v", err)
+	}
+	if endedAt != nil {
+		endSession := model.SessionOf(sid, startedAt, endedAt, "hook", ag, repo, "", "", "")
+		if err := ds.SaveSession(ctx, dbPath, endSession); err != nil {
+			t.Fatalf("SaveSession(end) error = %v", err)
+		}
 	}
 }
 
@@ -80,6 +119,11 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 				t.Fatalf("Save() error = %v", err)
 			}
 		}
+
+		// Save session metadata
+		s1End := time.Now().UTC()
+		saveTestSession(ctx, t, ds, dbPath, "s1", time.Now().Add(-time.Hour).UTC(), &s1End, "claude", "duck8823/traceary")
+		saveTestSession(ctx, t, ds, dbPath, "s2", time.Now().UTC(), nil, "codex", "duck8823/traceary")
 
 		summaries, err := ds.ListSessionSummaries(ctx, dbPath, queryservice.ListSessionsInput{
 			Limit: 10,
@@ -152,6 +196,10 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 			}
 		}
 
+		now := time.Now().UTC()
+		saveTestSession(ctx, t, ds, dbPath, "s1", now, nil, "claude", "repo")
+		saveTestSession(ctx, t, ds, dbPath, "s2", now.Add(time.Second), nil, "codex", "repo")
+
 		summaries, err := ds.ListSessionSummaries(ctx, dbPath, queryservice.ListSessionsInput{
 			Limit: 10,
 			Agent: "claude",
@@ -178,7 +226,6 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
-		// Insert two sessions on different dates using EventOf with explicit timestamps
 		for _, e := range []struct {
 			id, sid  string
 			dayOfMon int
@@ -194,6 +241,7 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 			if err := ds.Save(ctx, dbPath, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
+			saveTestSession(ctx, t, ds, dbPath, e.sid, ts, nil, "claude", "repo")
 		}
 
 		fromDate := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
@@ -238,6 +286,7 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 			if err := ds.Save(ctx, dbPath, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
+			saveTestSession(ctx, t, ds, dbPath, e.sid, ts, nil, "claude", "repo")
 		}
 
 		toDate := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)

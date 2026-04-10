@@ -9,14 +9,17 @@ import (
 
 // SessionSummary holds aggregated information about a single session.
 type SessionSummary struct {
-	SessionID    string
-	Repo         string
-	StartedAt    time.Time
-	EndedAt      *time.Time
-	Status       string
-	TotalEvents  int
-	CommandCount int
-	Agents       []string
+	SessionID       string
+	Repo            string
+	StartedAt       time.Time
+	EndedAt         *time.Time
+	Status          string
+	TotalEvents     int
+	CommandCount    int
+	Agents          []string
+	Label           string
+	Summary         string
+	ParentSessionID string
 }
 
 // ListSessionsInput is the input for session listing.
