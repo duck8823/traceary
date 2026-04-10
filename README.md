@@ -107,6 +107,8 @@ traceary session end --session-id "$sid" --id-only
 If you need one-off/manual usage outside the host integrations, the usual entry points are:
 
 - `traceary session start`
+- `traceary session list`
+- `traceary session label`
 - `traceary log`
 - `traceary audit`
 - `traceary list` / `traceary search`
@@ -119,6 +121,7 @@ Use the [CLI reference](./docs/cli/README.md) for the full command surface.
 - `traceary log` and `traceary audit` reuse the latest non-stale active session for the resolved repo/work context when `--session-id` is omitted; when `remote.origin.url` is missing inside a git worktree, Traceary falls back to the worktree root path
 - `traceary session active` treats sessions older than `24h` as stale unless you pass `--allow-stale`
 - `traceary session start` prints a session ID; `traceary session end` prints the recorded event ID
+- `traceary session list --json` includes `label`, `summary`, and `parent_session_id` when present
 - default operator-facing CLI output is English; set `TRACEARY_LANG=ja` when you want Japanese messaging
 - `--json` output stays language-neutral
 

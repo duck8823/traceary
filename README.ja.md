@@ -107,6 +107,8 @@ traceary session end --session-id "$sid" --id-only
 連携ではなく、単発で手動記録したいときによく使うのは次です。
 
 - `traceary session start`
+- `traceary session list`
+- `traceary session label`
 - `traceary log`
 - `traceary audit`
 - `traceary list` / `traceary search`
@@ -119,6 +121,7 @@ traceary session end --session-id "$sid" --id-only
 - `traceary log` / `traceary audit` で `--session-id` を省くと、解決できた repo / work context に対する最新の non-stale アクティブなセッション を優先して使います。`remote.origin.url` が無い Git worktree 内では、worktree ルートパスへ fallback します
 - `traceary session active` は既定で `24h` を超えたセッションを stale とみなします。必要なら `--allow-stale` を付けてください
 - `traceary session start` はセッション ID を出力し、`traceary session end` は記録したイベント ID を出力します
+- `traceary session list --json` では、値がある場合に `label` / `summary` / `parent_session_id` も確認できます
 - CLI の通常メッセージは英語が既定です。日本語表示にしたい場合は `TRACEARY_LANG=ja` を指定してください
 - `--json` 出力は言語設定の影響を受けません
 

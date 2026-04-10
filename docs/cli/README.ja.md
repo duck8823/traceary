@@ -142,6 +142,7 @@ session start 境界を記録し、session ID を出力します。
 - `--agent`
 - `--session-id`
 - `--repo`
+- `--parent-session-id`
 - `--id-only`
 - `--json`
 
@@ -160,8 +161,39 @@ session end 境界を記録し、生成された event ID を出力します。
 - `--agent`
 - `--session-id`
 - `--repo`
+- `--summary`
 - `--id-only`
 - `--json`
+
+### `traceary session list`
+
+session の一覧サマリーを表示します。
+
+`session list` では、status / duration / 集計件数に加えて、`label`、`summary`、`parent_session_id` も確認できます。
+
+主な flag:
+
+- `--repo`
+- `--agent`
+- `--label`
+- `--from`
+- `--to`
+- `--limit`
+- `--offset`
+- `--json`
+
+### `traceary session label <label-text>`
+
+session の label を設定または更新します。
+
+既定値:
+
+- `--session-id`: flag → `TRACEARY_SESSION_ID`
+
+主な flag:
+
+- `--session-id`
+- `--db-path`
 
 ### `traceary session latest`
 
