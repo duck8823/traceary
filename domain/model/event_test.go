@@ -34,14 +34,14 @@ func TestNewEvent(t *testing.T) {
 		wantErr     bool
 	}{
 		{
-			name:        "前後空白を除去してイベントを生成できる",
+			name:        "trims whitespace and creates event",
 			body:        "  hello traceary  ",
 			wantBody:    "hello traceary",
 			wantCreated: fixedTime,
 			wantErr:     false,
 		},
 		{
-			name:    "空白のみの本文はエラー",
+			name:    "returns error for whitespace-only body",
 			body:    "   ",
 			wantErr: true,
 		},
@@ -77,5 +77,32 @@ func TestNewEvent(t *testing.T) {
 				t.Fatalf("CreatedAt() = %v, want %v", got.CreatedAt(), tt.wantCreated)
 			}
 		})
+	}
+}
+
+func TestEventOf(t *testing.T) {
+	t.Parallel()
+
+	eventID, _ := types.EventIDOf("event-1")
+	agent, _ := types.AgentOf("claude")
+	sessionID, _ := types.SessionIDOf("session-1")
+	ts := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+
+	event := model.EventOf(eventID, types.EventKindNote, "cli", agent, sessionID, "duck8823/traceary", "hello", ts)
+
+	if event.EventID() != eventID {
+		t.Errorf("EventID() = %v, want %v", event.EventID(), eventID)
+	}
+	if event.Kind() != types.EventKindNote {
+		t.Errorf("Kind() = %v, want %v", event.Kind(), types.EventKindNote)
+	}
+	if event.Agent() != agent {
+		t.Errorf("Agent() = %v, want %v", event.Agent(), agent)
+	}
+	if event.SessionID() != sessionID {
+		t.Errorf("SessionID() = %v, want %v", event.SessionID(), sessionID)
+	}
+	if event.CreatedAt() != ts {
+		t.Errorf("CreatedAt() = %v, want %v", event.CreatedAt(), ts)
 	}
 }
