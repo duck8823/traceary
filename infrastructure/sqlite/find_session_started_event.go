@@ -2,16 +2,20 @@ package sqlite
 
 import (
 	"context"
-	"log/slog"
 	"database/sql"
+	_ "embed"
 	"errors"
+	"log/slog"
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 )
+
+//go:embed sql/find_session_started_event.sql
+var findSessionStartedEventQuery string
 
 var _ port.SessionStartedEventFinder = (*Datasource)(nil)
 
@@ -33,12 +37,7 @@ func (d *Datasource) FindSessionStartedEvent(
 
 	row := db.QueryRowContext(
 		ctx,
-		`SELECT id, kind, client, agent, session_id, repo, body, created_at
-		   FROM events
-		  WHERE kind = ?
-		    AND session_id = ?
-		  ORDER BY created_at DESC, id DESC
-		  LIMIT 1`,
+		findSessionStartedEventQuery,
 		types.EventKindSessionStarted.String(),
 		sessionID.String(),
 	)

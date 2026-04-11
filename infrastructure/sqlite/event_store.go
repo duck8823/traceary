@@ -2,8 +2,9 @@ package sqlite
 
 import (
 	"context"
-	"log/slog"
 	"database/sql"
+	_ "embed"
+	"log/slog"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -12,6 +13,12 @@ import (
 	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 )
+
+//go:embed sql/insert_event.sql
+var insertEventQuery string
+
+//go:embed sql/select_recent_events.sql
+var selectRecentEventsQuery string
 
 var _ port.RecentEventFinder = (*Datasource)(nil)
 
@@ -33,8 +40,7 @@ func (d *Datasource) Save(ctx context.Context, dbPath string, event *model.Event
 
 	if _, err := db.ExecContext(
 		ctx,
-		`INSERT INTO events(id, kind, client, agent, session_id, repo, body, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		insertEventQuery,
 		event.EventID().String(),
 		event.Kind().String(),
 		event.Client(),
@@ -84,19 +90,7 @@ func (d *Datasource) ListRecent(
 
 	rows, err := db.QueryContext(
 		ctx,
-		`SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.repo, e.body, e.created_at
-		   FROM events e
-		   LEFT JOIN command_audits ca ON ca.event_id = e.id
-		  WHERE (? = '' OR e.kind = ?)
-		    AND (? = '' OR e.client = ?)
-		    AND (? = '' OR e.agent = ?)
-		    AND (? = '' OR e.session_id = ?)
-		    AND (? = '' OR e.repo = ?)
-		    AND (? = 0 OR (ca.exit_code IS NOT NULL AND ca.exit_code != 0))
-		    AND (? = '' OR e.created_at >= ?)
-		    AND (? = '' OR e.created_at < ?)
-		  ORDER BY e.created_at DESC, e.id DESC
-		  LIMIT ? OFFSET ?`,
+		selectRecentEventsQuery,
 		input.Kind, input.Kind,
 		input.Client, input.Client,
 		input.Agent, input.Agent,

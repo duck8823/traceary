@@ -2,9 +2,10 @@ package sqlite
 
 import (
 	"context"
-	"log/slog"
 	"database/sql"
+	_ "embed"
 	"errors"
+	"log/slog"
 
 	"golang.org/x/xerrors"
 
@@ -12,6 +13,9 @@ import (
 	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 )
+
+//go:embed sql/get_event_details.sql
+var getEventDetailsQuery string
 
 var _ port.EventDetailsFinder = (*Datasource)(nil)
 
@@ -33,12 +37,7 @@ func (d *Datasource) GetEventDetails(
 
 	row := db.QueryRowContext(
 		ctx,
-		`SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.repo, e.body, e.created_at,
-		        ca.command_text, ca.input_text, ca.output_text, ca.input_truncated, ca.output_truncated, ca.exit_code
-		   FROM events AS e
-		   LEFT JOIN command_audits AS ca
-		     ON ca.event_id = e.id
-		  WHERE e.id = ?`,
+		getEventDetailsQuery,
 		eventID,
 	)
 
