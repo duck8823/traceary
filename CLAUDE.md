@@ -73,6 +73,19 @@ go tool golangci-lint run
 - Parent (version) issues stay open through release-preparation PRs and are closed only after the **tagged release workflow** publishes the actual release
 - Never put `Closes #<parent>` in an implementation PR or release-preparation PR
 
+### Release process
+
+1. `make release/bump VERSION=X.Y.Z` — update VERSION file and plugin manifests
+2. Create release branch, commit, push, open PR
+3. Multi-AI review → merge release PR
+4. `git tag vX.Y.Z && git push origin vX.Y.Z` — trigger release workflow
+5. `gh run watch` — wait for release workflow to complete
+6. Verify: `gh release view vX.Y.Z` — release published
+7. Verify the **Homebrew formula PR** (auto-created on `maintenance/homebrew-vX.Y.Z`) is merged — the release workflow enables auto-merge, but confirm it completed
+8. `brew update && brew upgrade traceary` — verify Homebrew installation
+9. Verify: `traceary -v` — correct version
+10. Confirm parent release issue is auto-closed
+
 ### Code style
 
 - `go tool golangci-lint run` must pass before committing
