@@ -118,10 +118,79 @@ func (c *RootCLI) printCompactSummary(
 		sb.WriteString("\n")
 	}
 
+	// Retrieve the latest compact_summary event for richer context
+	compactSummaryEvents, err := c.event.List(ctx, usecase.EventListCriteria{
+		Limit:     1,
+		SessionID: types.SessionID(sessionID),
+		Workspace: types.Workspace(repo),
+		Kind:      types.EventKindCompactSummary,
+	})
+	if err == nil && len(compactSummaryEvents) > 0 {
+		body := compactSummaryEvents[0].Body()
+		summary := extractCompactSummarySections(body)
+		if summary != "" {
+			sb.WriteString("  summary: ")
+			sb.WriteString(summary)
+			sb.WriteString("\n")
+		}
+	}
+
 	sb.WriteString("  Run list_events for full history.\n")
 
 	if _, err := fmt.Fprint(output, sb.String()); err != nil {
 		return xerrors.Errorf("failed to print compact summary: %w", err)
 	}
 	return nil
+}
+
+const maxCompactSummaryLen = 500
+
+// extractCompactSummarySections extracts "Current Work" and "Pending Tasks"
+// sections from a compact_summary body. Returns a truncated single-line string.
+func extractCompactSummarySections(body string) string {
+	sections := []string{"Current Work", "Pending Tasks"}
+	var parts []string
+
+	for _, section := range sections {
+		header := fmt.Sprintf("%s:", section)
+		idx := strings.Index(body, header)
+		if idx < 0 {
+			// Try numbered section format (e.g., "8. Current Work:")
+			for i := 1; i <= 9; i++ {
+				alt := fmt.Sprintf("%d. %s:", i, section)
+				idx = strings.Index(body, alt)
+				if idx >= 0 {
+					idx += len(alt)
+					break
+				}
+			}
+			if idx < 0 {
+				continue
+			}
+		} else {
+			idx += len(header)
+		}
+
+		// Extract content until next section header or end
+		rest := body[idx:]
+		endIdx := len(rest)
+		for i := 1; i <= 9; i++ {
+			nextHeader := fmt.Sprintf("\n%d. ", i)
+			if pos := strings.Index(rest, nextHeader); pos > 0 && pos < endIdx {
+				endIdx = pos
+			}
+		}
+		content := strings.TrimSpace(rest[:endIdx])
+		// Collapse to single line
+		content = strings.Join(strings.Fields(content), " ")
+		if content != "" {
+			parts = append(parts, content)
+		}
+	}
+
+	result := strings.Join(parts, " | ")
+	if len([]rune(result)) > maxCompactSummaryLen {
+		result = string([]rune(result)[:maxCompactSummaryLen]) + "…"
+	}
+	return result
 }
