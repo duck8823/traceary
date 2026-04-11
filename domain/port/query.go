@@ -161,3 +161,30 @@ type ListSessionsInput struct {
 type SessionSummaryFinder interface {
 	ListSessionSummaries(ctx context.Context, input ListSessionsInput) ([]*SessionSummary, error)
 }
+
+// --- Timeline Blocks ---
+
+// TimelineBlock represents a contiguous work block separated by idle gaps.
+type TimelineBlock struct {
+	BlockNum   int
+	BlockStart time.Time
+	BlockEnd   time.Time
+	EventCount int
+	Workspaces []string
+	Agents     []string
+	Kinds      []string
+}
+
+// ListTimelineBlocksInput is the input for timeline block listing.
+type ListTimelineBlocksInput struct {
+	Workspace  string
+	From       time.Time
+	To         time.Time
+	GapSeconds int
+	Limit      int
+}
+
+// TimelineBlockFinder provides timeline block lookup.
+type TimelineBlockFinder interface {
+	ListTimelineBlocks(ctx context.Context, input ListTimelineBlocksInput) ([]*TimelineBlock, error)
+}

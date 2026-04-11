@@ -70,3 +70,13 @@ type SessionLookupCriteria struct {
 	Workspace  types.Workspace
 	ActiveOnly bool
 }
+
+// TimelineCriteria holds filter parameters for work timeline block listing.
+// Zero-value fields are ignored (no filter applied).
+type TimelineCriteria struct {
+	Workspace  types.Workspace
+	From       time.Time
+	To         time.Time
+	GapSeconds int
+	Limit      int
+}
