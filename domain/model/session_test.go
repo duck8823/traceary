@@ -78,3 +78,32 @@ func TestSessionOf(t *testing.T) {
 		t.Errorf("ParentSessionID() = %q, want %q", session.ParentSessionID(), "parent-123")
 	}
 }
+
+func TestSession_SetLabel(t *testing.T) {
+	t.Parallel()
+
+	agent, _ := types.AgentOf("claude")
+	sid, _ := types.SessionIDOf("session-3")
+	now := time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC)
+
+	session := model.NewSession(sid, now, "cli", agent, "duck8823/traceary")
+
+	if session.Label() != "" {
+		t.Fatalf("Label() = %q, want empty before SetLabel", session.Label())
+	}
+
+	session.SetLabel("sprint-1")
+	if session.Label() != "sprint-1" {
+		t.Errorf("Label() = %q, want %q after SetLabel", session.Label(), "sprint-1")
+	}
+
+	session.SetLabel("updated-label")
+	if session.Label() != "updated-label" {
+		t.Errorf("Label() = %q, want %q after second SetLabel", session.Label(), "updated-label")
+	}
+
+	session.SetLabel("")
+	if session.Label() != "" {
+		t.Errorf("Label() = %q, want empty after clearing with SetLabel", session.Label())
+	}
+}
