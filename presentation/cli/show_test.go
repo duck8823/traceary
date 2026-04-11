@@ -73,7 +73,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 			"CLIENT: cli\n" +
 			"AGENT: codex\n" +
 			"SESSION_ID: session-1\n" +
-			"REPO: duck8823/traceary\n" +
+			"WORKSPACE: duck8823/traceary\n" +
 			"CREATED_AT: 2026-04-08T12:00:00Z\n" +
 			"MESSAGE: go test ./...\n" +
 			"\n" +

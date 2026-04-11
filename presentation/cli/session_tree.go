@@ -53,7 +53,7 @@ func (c *RootCLI) newSessionTreeCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by repo", "リポジトリでフィルタ"))
+	cmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by workspace", "ワークスペースでフィルタ"))
 	cmd.Flags().IntVar(&limit, "limit", 50, Localize("maximum number of sessions to load", "読み込む最大セッション数"))
 	cmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 
@@ -113,7 +113,7 @@ func writeSessionTree(output io.Writer, summaries []*usecase.SessionSummary, asJ
 
 type jsonTreeNode struct {
 	SessionID    string          `json:"session_id"`
-	Workspace string          `json:"repo,omitempty"`
+	Workspace string          `json:"workspace,omitempty"`
 	Label        string          `json:"label,omitempty"`
 	Summary      string          `json:"summary,omitempty"`
 	StartedAt    string          `json:"started_at"`

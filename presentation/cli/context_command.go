@@ -167,8 +167,8 @@ func writeContextText(output io.Writer, sessionID string, repo string, events []
 	if _, err := fmt.Fprintf(output, "SESSION_ID: %s\n", formatOptionalColumn(sessionID)); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print session ID", "session ID の出力に失敗しました"), err)
 	}
-	if _, err := fmt.Fprintf(output, "REPO: %s\n", formatOptionalColumn(repo)); err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to print repo", "repo の出力に失敗しました"), err)
+	if _, err := fmt.Fprintf(output, "WORKSPACE: %s\n", formatOptionalColumn(repo)); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print workspace", "workspace の出力に失敗しました"), err)
 	}
 	if _, err := fmt.Fprintln(output, "EVENTS:"); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print context events heading", "文脈イベント見出しの出力に失敗しました"), err)

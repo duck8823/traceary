@@ -21,7 +21,6 @@ type SessionUsecase interface {
 	Label(ctx context.Context, sessionID types.SessionID, label string) error
 
 	// List returns session summaries matching the criteria.
-	// SessionSummary.Workspace maps to the existing Repo field in infrastructure.
 	List(ctx context.Context, criteria SessionListCriteria) ([]*SessionSummary, error)
 
 	// Tree returns session summaries as a hierarchy for the given workspace.

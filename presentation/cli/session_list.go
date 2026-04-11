@@ -93,7 +93,7 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 	}
 
 	listCmd.Flags().StringVar(&dbPath, "db-path", "", Localize("SQLite DB path (env: TRACEARY_DB_PATH)", "SQLite DB パス (env: TRACEARY_DB_PATH)"))
-	listCmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by repo", "リポジトリでフィルタ"))
+	listCmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by workspace", "ワークスペースでフィルタ"))
 	listCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "記録経路でフィルタ"))
 	listCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "エージェントでフィルタ"))
 	listCmd.Flags().StringVar(&label, "label", "", Localize("filter by label", "ラベルでフィルタ"))
@@ -122,7 +122,7 @@ func writeSessionSummaries(output io.Writer, summaries []*usecase.SessionSummary
 
 	if _, err := fmt.Fprintln(
 		output,
-		"STARTED_AT\tSTATUS\tDURATION\tSESSION_ID\tREPO\tLABEL\tSUMMARY\tPARENT_SESSION_ID\tEVENTS\tCMDS\tAGENTS",
+		"STARTED_AT\tSTATUS\tDURATION\tSESSION_ID\tWORKSPACE\tLABEL\tSUMMARY\tPARENT_SESSION_ID\tEVENTS\tCMDS\tAGENTS",
 	); err != nil {
 		return xerrors.Errorf("failed to print header: %w", err)
 	}
