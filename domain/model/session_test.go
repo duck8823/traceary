@@ -101,4 +101,9 @@ func TestSession_SetLabel(t *testing.T) {
 	if session.Label() != "updated-label" {
 		t.Errorf("Label() = %q, want %q after second SetLabel", session.Label(), "updated-label")
 	}
+
+	session.SetLabel("")
+	if session.Label() != "" {
+		t.Errorf("Label() = %q, want empty after clearing with SetLabel", session.Label())
+	}
 }

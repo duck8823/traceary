@@ -82,7 +82,7 @@ func (s *Session) Repo() string { return s.repo }
 // Label returns the user-assigned label.
 func (s *Session) Label() string { return s.label }
 
-// SetLabel updates the session label.
+// SetLabel updates the session label. An empty string clears the label.
 func (s *Session) SetLabel(label string) { s.label = label }
 
 // Summary returns the session summary text.
