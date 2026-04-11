@@ -2,12 +2,16 @@ package sqlite
 
 import (
 	"context"
+	_ "embed"
 	"log/slog"
 
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/domain/types"
 )
+
+//go:embed sql/update_session_label.sql
+var updateSessionLabelQuery string
 
 // UpdateSessionLabel sets the label for a session.
 func (d *Datasource) UpdateSessionLabel(ctx context.Context, dbPath string, sessionID types.SessionID, label string) error {
@@ -23,7 +27,7 @@ func (d *Datasource) UpdateSessionLabel(ctx context.Context, dbPath string, sess
 
 	result, err := db.ExecContext(
 		ctx,
-		`UPDATE sessions SET label = ? WHERE session_id = ?`,
+		updateSessionLabelQuery,
 		label,
 		sessionID.String(),
 	)

@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	_ "embed"
 	"log/slog"
 	"strings"
 
@@ -10,6 +11,9 @@ import (
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/port"
 )
+
+//go:embed sql/get_context_events.sql
+var getContextEventsQuery string
 
 var _ port.ContextEventFinder = (*Datasource)(nil)
 
@@ -33,12 +37,7 @@ func (d *Datasource) GetContextEvents(
 	trimmedSessionID := strings.TrimSpace(input.SessionID)
 	rows, err := db.QueryContext(
 		ctx,
-		`SELECT id, kind, client, agent, session_id, repo, body, created_at
-		   FROM events
-		  WHERE (? = '' OR repo = ?)
-		    AND (? = '' OR session_id = ?)
-		  ORDER BY created_at DESC, id DESC
-		  LIMIT ?`,
+		getContextEventsQuery,
 		trimmedRepo,
 		trimmedRepo,
 		trimmedSessionID,

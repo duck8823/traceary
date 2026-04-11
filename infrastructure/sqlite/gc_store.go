@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	_ "embed"
 	"log/slog"
 	"time"
 
@@ -9,6 +10,12 @@ import (
 
 	"github.com/duck8823/traceary/domain/port"
 )
+
+//go:embed sql/count_deletable_events.sql
+var countDeletableEventsQuery string
+
+//go:embed sql/delete_old_events.sql
+var deleteOldEventsQuery string
 
 var _ port.GarbageCollector = (*Datasource)(nil)
 
@@ -34,7 +41,7 @@ func (d *Datasource) CollectGarbage(
 	var deleteCount int
 	if err := db.QueryRowContext(
 		ctx,
-		`SELECT COUNT(*) FROM events WHERE created_at < ?`,
+		countDeletableEventsQuery,
 		beforeValue,
 	).Scan(&deleteCount); err != nil {
 		return 0, xerrors.Errorf("failed to count deletable events: %w", err)
@@ -56,7 +63,7 @@ func (d *Datasource) CollectGarbage(
 
 	if _, err := tx.ExecContext(
 		ctx,
-		`DELETE FROM events WHERE created_at < ?`,
+		deleteOldEventsQuery,
 		beforeValue,
 	); err != nil {
 		return 0, xerrors.Errorf("failed to delete old events: %w", err)

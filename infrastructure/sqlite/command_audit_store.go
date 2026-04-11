@@ -2,13 +2,17 @@ package sqlite
 
 import (
 	"context"
+	_ "embed"
 	"log/slog"
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/port"
 )
+
+//go:embed sql/insert_command_audit.sql
+var insertCommandAuditQuery string
 
 var _ port.CommandAuditSaver = (*Datasource)(nil)
 
@@ -48,8 +52,7 @@ func (d *Datasource) SaveCommandAudit(
 
 	if _, err := tx.ExecContext(
 		ctx,
-		`INSERT INTO events(id, kind, client, agent, session_id, repo, body, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		insertEventQuery,
 		event.EventID().String(),
 		event.Kind().String(),
 		event.Client(),
@@ -64,8 +67,7 @@ func (d *Datasource) SaveCommandAudit(
 
 	if _, err := tx.ExecContext(
 		ctx,
-		`INSERT INTO command_audits(event_id, command_text, input_text, output_text, input_truncated, output_truncated, exit_code)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		insertCommandAuditQuery,
 		commandAudit.EventID().String(),
 		commandAudit.Command(),
 		commandAudit.Input(),

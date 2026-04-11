@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	_ "embed"
 	"log/slog"
 	"strings"
 
@@ -11,6 +12,15 @@ import (
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/port"
 )
+
+//go:embed sql/select_session_ended_at.sql
+var selectSessionEndedAtQuery string
+
+//go:embed sql/update_session_ended_at.sql
+var updateSessionEndedAtQuery string
+
+//go:embed sql/insert_session.sql
+var insertSessionQuery string
 
 var _ port.SessionSaver = (*Datasource)(nil)
 
@@ -33,7 +43,7 @@ func (d *Datasource) SaveSession(ctx context.Context, dbPath string, session *mo
 		var existingEndedAt sql.NullString
 		_ = db.QueryRowContext(
 			ctx,
-			`SELECT ended_at FROM sessions WHERE session_id = ?`,
+			selectSessionEndedAtQuery,
 			session.SessionID().String(),
 		).Scan(&existingEndedAt)
 		if existingEndedAt.Valid {
@@ -46,7 +56,7 @@ func (d *Datasource) SaveSession(ctx context.Context, dbPath string, session *mo
 		// Session end: update ended_at
 		result, err := db.ExecContext(
 			ctx,
-			`UPDATE sessions SET ended_at = ?, summary = CASE WHEN ? != '' THEN ? ELSE summary END WHERE session_id = ?`,
+			updateSessionEndedAtQuery,
 			formatTimestamp(*session.EndedAt()),
 			session.Summary(),
 			session.Summary(),
@@ -73,7 +83,7 @@ func (d *Datasource) SaveSession(ctx context.Context, dbPath string, session *mo
 	}
 	result, err := db.ExecContext(
 		ctx,
-		`INSERT OR IGNORE INTO sessions (session_id, started_at, client, agent, repo, parent_session_id) VALUES (?, ?, ?, ?, ?, ?)`,
+		insertSessionQuery,
 		session.SessionID().String(),
 		formatTimestamp(session.StartedAt()),
 		session.Client(),

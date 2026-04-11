@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	_ "embed"
 	"log/slog"
 	"time"
 
@@ -9,6 +10,12 @@ import (
 
 	"github.com/duck8823/traceary/domain/port"
 )
+
+//go:embed sql/count_stale_sessions.sql
+var countStaleSessionsQuery string
+
+//go:embed sql/update_stale_sessions.sql
+var updateStaleSessionsQuery string
 
 var _ port.StaleSessionCloser = (*Datasource)(nil)
 
@@ -34,7 +41,7 @@ func (d *Datasource) CloseStaleSessions(
 		var count int
 		if err := db.QueryRowContext(
 			ctx,
-			`SELECT COUNT(*) FROM sessions WHERE ended_at IS NULL AND started_at < ?`,
+			countStaleSessionsQuery,
 			cutoff,
 		).Scan(&count); err != nil {
 			return nil, xerrors.Errorf("failed to count stale sessions: %w", err)
@@ -45,7 +52,7 @@ func (d *Datasource) CloseStaleSessions(
 	now := formatTimestamp(time.Now())
 	result, err := db.ExecContext(
 		ctx,
-		`UPDATE sessions SET ended_at = ? WHERE ended_at IS NULL AND started_at < ?`,
+		updateStaleSessionsQuery,
 		now, cutoff,
 	)
 	if err != nil {
