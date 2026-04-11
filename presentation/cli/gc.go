@@ -59,17 +59,16 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 		return xerrors.Errorf(Localize("--keep-days must be greater than or equal to 1", "keep-days は 1 以上である必要があります"))
 	}
 
-	resolvedPath, err := resolveDBPath(input.dbPath)
+	_, err := resolveDBPath(input.dbPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.initializeStoreUsecase.Run(ctx, resolvedPath); err != nil {
+	if err := c.initializeStoreUsecase.Run(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
 	cutoff := gcNowFunc().AddDate(0, 0, -input.keepDays)
 	result, err := c.collectGarbageUsecase.Run(ctx, usecase.CollectGarbageInput{
-		DBPath: resolvedPath,
 		Before: cutoff,
 		DryRun: input.dryRun,
 	})

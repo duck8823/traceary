@@ -46,7 +46,6 @@ func TestRootCLI_LogCommand(t *testing.T) {
 	t.Run("records log with flag values", func(t *testing.T) {
 		t.Parallel()
 
-		dbPath := t.TempDir() + "/traceary.db"
 		initStub := &initializeStoreUsecaseStub{}
 		logStub := &recordLogUsecaseStub{
 			event: model.EventOf(
@@ -70,7 +69,8 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		rootCmd.SetErr(stderr)
 		rootCmd.SetArgs([]string{
 			"log",
-			"--db-path", dbPath,
+			"--db-path",
+		"/tmp/test-traceary.db",
 			"--client", "cli",
 			"--agent", "codex",
 			"--session-id", "session-1",
@@ -87,10 +87,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		if !logStub.called {
 			t.Fatalf("RecordLogUsecase.Run() was not called")
 		}
-		if logStub.receivedInput.DBPath != dbPath {
-			t.Fatalf("DBPath = %q, want %q", logStub.receivedInput.DBPath, dbPath)
-		}
-		if logStub.receivedInput.Agent != "codex" {
+			if logStub.receivedInput.Agent != "codex" {
 			t.Fatalf("Agent = %q, want %q", logStub.receivedInput.Agent, "codex")
 		}
 		if logStub.receivedInput.Client != "cli" {
@@ -107,7 +104,6 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		t.Setenv("TRACEARY_CLIENT", "hook")
 		t.Setenv("TRACEARY_REPO", "duck8823/traceary")
 
-		dbPath := t.TempDir() + "/traceary.db"
 		initStub := &initializeStoreUsecaseStub{}
 		logStub := &recordLogUsecaseStub{
 			event: model.EventOf(
@@ -127,7 +123,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		}).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"log", "--db-path", dbPath, "hello"})
+		rootCmd.SetArgs([]string{"log", "--db-path", "/tmp/test-traceary.db", "hello"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -149,7 +145,6 @@ func TestRootCLI_LogCommand(t *testing.T) {
 	t.Run("id-only で event ID だけを出力できる", func(t *testing.T) {
 		t.Parallel()
 
-		dbPath := t.TempDir() + "/traceary.db"
 		initStub := &initializeStoreUsecaseStub{}
 		logStub := &recordLogUsecaseStub{
 			event: model.EventOf(
@@ -170,7 +165,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"log", "--db-path", dbPath, "--id-only", "hello"})
+		rootCmd.SetArgs([]string{"log", "--db-path", "/tmp/test-traceary.db", "--id-only", "hello"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -183,7 +178,6 @@ func TestRootCLI_LogCommand(t *testing.T) {
 	t.Run("json で構造化出力できる", func(t *testing.T) {
 		t.Parallel()
 
-		dbPath := t.TempDir() + "/traceary.db"
 		initStub := &initializeStoreUsecaseStub{}
 		logStub := &recordLogUsecaseStub{
 			event: model.EventOf(
@@ -204,7 +198,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"log", "--db-path", dbPath, "--session-id", "session-1", "--json", "hello"})
+		rootCmd.SetArgs([]string{"log", "--db-path", "/tmp/test-traceary.db", "--session-id", "session-1", "--json", "hello"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -226,7 +220,6 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		})
 		defer cli.ResetDetectRepoContextFunc()
 
-		dbPath := t.TempDir() + "/traceary.db"
 		activeEventID, err := types.EventIDOf("event-session-start")
 		if err != nil {
 			t.Fatalf("EventIDOf() error = %v", err)
@@ -269,7 +262,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"log", "--db-path", dbPath, "hello"})
+		rootCmd.SetArgs([]string{"log", "--db-path", "/tmp/test-traceary.db", "hello"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -301,7 +294,6 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		})
 		defer cli.ResetDetectRepoContextFunc()
 
-		dbPath := t.TempDir() + "/traceary.db"
 		initStub := &initializeStoreUsecaseStub{}
 		queryStub := &findLatestSessionQueryServiceStub{}
 		logStub := &recordLogUsecaseStub{
@@ -324,7 +316,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"log", "--db-path", dbPath, "hello"})
+		rootCmd.SetArgs([]string{"log", "--db-path", "/tmp/test-traceary.db", "hello"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)

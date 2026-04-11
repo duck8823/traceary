@@ -17,7 +17,6 @@ type EventSaver = port.EventSaver
 
 // RecordLogInput is the input for traceary log recording.
 type RecordLogInput struct {
-	DBPath    string
 	Message   string
 	Client    string
 	Agent     string
@@ -45,10 +44,6 @@ func (u *recordLogUsecase) Run(ctx context.Context, input RecordLogInput) (*mode
 	if u.eventSaver == nil {
 		return nil, xerrors.Errorf("event saver is not configured")
 	}
-	if strings.TrimSpace(input.DBPath) == "" {
-		return nil, xerrors.Errorf("DB path must not be empty")
-	}
-
 	agent, err := types.AgentOf(input.Agent)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to resolve agent: %w", err)
@@ -74,7 +69,7 @@ func (u *recordLogUsecase) Run(ctx context.Context, input RecordLogInput) (*mode
 	if err != nil {
 		return nil, xerrors.Errorf("failed to build log event: %w", err)
 	}
-	if err := u.eventSaver.Save(ctx, input.DBPath, event); err != nil {
+	if err := u.eventSaver.Save(ctx, event); err != nil {
 		return nil, xerrors.Errorf("failed to save log event: %w", err)
 	}
 

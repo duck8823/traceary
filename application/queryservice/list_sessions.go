@@ -10,7 +10,7 @@ import (
 
 // ListSessionsQueryService returns session summaries.
 type ListSessionsQueryService interface {
-	Run(ctx context.Context, dbPath string, input port.ListSessionsInput) ([]*port.SessionSummary, error)
+	Run(ctx context.Context, input port.ListSessionsInput) ([]*port.SessionSummary, error)
 }
 
 type listSessionsQueryService struct {
@@ -24,14 +24,10 @@ func NewListSessionsQueryService(finder port.SessionSummaryFinder) ListSessionsQ
 
 func (s *listSessionsQueryService) Run(
 	ctx context.Context,
-	dbPath string,
 	input port.ListSessionsInput,
 ) ([]*port.SessionSummary, error) {
 	if s.finder == nil {
 		return nil, xerrors.Errorf("session summary finder is not configured")
-	}
-	if dbPath == "" {
-		return nil, xerrors.Errorf("DB path must not be empty")
 	}
 	if input.Limit <= 0 {
 		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
@@ -40,7 +36,7 @@ func (s *listSessionsQueryService) Run(
 		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
 	}
 
-	summaries, err := s.finder.ListSessionSummaries(ctx, dbPath, input)
+	summaries, err := s.finder.ListSessionSummaries(ctx, input)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list session summaries: %w", err)
 	}

@@ -16,7 +16,6 @@ import (
 
 // RecordSessionBoundaryInput is the input for session start/end recording.
 type RecordSessionBoundaryInput struct {
-	DBPath        string
 	Client        string
 	DefaultClient string
 	Agent         string
@@ -75,10 +74,6 @@ func (u *recordSessionBoundaryUsecase) Run(
 	if u.eventSaver == nil {
 		return nil, xerrors.Errorf("event saver is not configured")
 	}
-	trimmedDBPath := strings.TrimSpace(input.DBPath)
-	if trimmedDBPath == "" {
-		return nil, xerrors.Errorf("DB path must not be empty")
-	}
 
 	sessionID, err := resolveSessionBoundaryID(input.Kind, input.SessionID)
 	if err != nil {
@@ -86,7 +81,6 @@ func (u *recordSessionBoundaryUsecase) Run(
 	}
 	resolvedClient, resolvedAgentValue, resolvedRepo, err := u.resolveSessionBoundaryAttribution(
 		ctx,
-		trimmedDBPath,
 		input,
 		sessionID,
 	)
@@ -114,13 +108,13 @@ func (u *recordSessionBoundaryUsecase) Run(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to build session boundary event: %w", err)
 	}
-	if err := u.eventSaver.Save(ctx, trimmedDBPath, event); err != nil {
+	if err := u.eventSaver.Save(ctx, event); err != nil {
 		return nil, xerrors.Errorf("failed to save session boundary event: %w", err)
 	}
 
 	if u.sessionSaver != nil {
 		session := buildSessionFromBoundary(event, input.Kind, input.Summary, input.ParentSessionID)
-		if err := u.sessionSaver.SaveSession(ctx, trimmedDBPath, session); err != nil {
+		if err := u.sessionSaver.SaveSession(ctx, session); err != nil {
 			return nil, xerrors.Errorf("failed to save session metadata: %w", err)
 		}
 	}
@@ -158,7 +152,6 @@ func buildSessionFromBoundary(event *model.Event, kind types.EventKind, summary 
 
 func (u *recordSessionBoundaryUsecase) resolveSessionBoundaryAttribution(
 	ctx context.Context,
-	dbPath string,
 	input RecordSessionBoundaryInput,
 	sessionID types.SessionID,
 ) (string, string, string, error) {
@@ -168,7 +161,7 @@ func (u *recordSessionBoundaryUsecase) resolveSessionBoundaryAttribution(
 
 	if input.Kind == types.EventKindSessionEnded && u.sessionStartedEventFinder != nil {
 		if resolvedClient == "" || resolvedAgentValue == "" || resolvedRepo == "" {
-			startedEvent, err := u.sessionStartedEventFinder.FindSessionStartedEvent(ctx, dbPath, sessionID)
+			startedEvent, err := u.sessionStartedEventFinder.FindSessionStartedEvent(ctx, sessionID)
 			if err != nil && !errors.Is(err, ErrSessionStartedEventNotFound) {
 				return "", "", "", xerrors.Errorf("failed to get session_started event: %w", err)
 			}

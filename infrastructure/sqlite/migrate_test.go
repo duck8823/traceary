@@ -29,9 +29,9 @@ INSERT INTO events(id) VALUES ('seed');`),
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(migrations)
+	sut := sqlite.NewDatasource(dbPath, migrations)
 
-	if err := sut.Initialize(context.Background(), dbPath); err != nil {
+	if err := sut.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -54,9 +54,9 @@ func TestMigrations_applyToEmptyDatabase(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	ds := sqlite.NewDatasource(os.DirFS("../../schema/sqlite/migrations"))
+	ds := sqlite.NewDatasource(dbPath, os.DirFS("../../schema/sqlite/migrations"))
 
-	if err := ds.Initialize(context.Background(), dbPath); err != nil {
+	if err := ds.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -102,12 +102,12 @@ func TestMigrations_idempotentOnExistingDatabase(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	ds := sqlite.NewDatasource(os.DirFS("../../schema/sqlite/migrations"))
+	ds := sqlite.NewDatasource(dbPath, os.DirFS("../../schema/sqlite/migrations"))
 
-	if err := ds.Initialize(context.Background(), dbPath); err != nil {
+	if err := ds.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() first error = %v", err)
 	}
-	if err := ds.Initialize(context.Background(), dbPath); err != nil {
+	if err := ds.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() second error = %v", err)
 	}
 
@@ -172,8 +172,8 @@ func TestMigrations_backfillPopulatesSessionsFromEvents(t *testing.T) {
 	_ = db.Close()
 
 	// Apply remaining migrations via Initialize
-	ds := sqlite.NewDatasource(os.DirFS("../../schema/sqlite/migrations"))
-	if err := ds.Initialize(context.Background(), dbPath); err != nil {
+	ds := sqlite.NewDatasource(dbPath, os.DirFS("../../schema/sqlite/migrations"))
+	if err := ds.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 

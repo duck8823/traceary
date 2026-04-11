@@ -111,7 +111,7 @@ func (s *Server) Build(ctx context.Context, dbPath string) (*mcp.Server, error) 
 	if trimmedDBPath == "" {
 		return nil, xerrors.Errorf("DB path must not be empty")
 	}
-	if err := s.initializeStoreUsecase.Run(ctx, trimmedDBPath); err != nil {
+	if err := s.initializeStoreUsecase.Run(ctx); err != nil {
 		return nil, xerrors.Errorf("failed to initialize store: %w", err)
 	}
 
@@ -302,10 +302,9 @@ type eventOutput struct {
 	CreatedAt string `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
 }
 
-func (s *Server) addLog(dbPath string) mcp.ToolHandlerFor[addLogInput, addLogOutput] {
+func (s *Server) addLog(_ string) mcp.ToolHandlerFor[addLogInput, addLogOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input addLogInput) (*mcp.CallToolResult, addLogOutput, error) {
 		event, err := s.recordLogUsecase.Run(ctx, usecase.RecordLogInput{
-			DBPath:    dbPath,
 			Message:   input.Message,
 			Client:    resolveValue(input.Client, defaultClientValue),
 			Agent:     resolveValue(input.Agent, defaultAgentValue),
@@ -329,10 +328,9 @@ func (s *Server) addLog(dbPath string) mcp.ToolHandlerFor[addLogInput, addLogOut
 	}
 }
 
-func (s *Server) startSession(dbPath string) mcp.ToolHandlerFor[startSessionInput, sessionEventOutput] {
+func (s *Server) startSession(_ string) mcp.ToolHandlerFor[startSessionInput, sessionEventOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input startSessionInput) (*mcp.CallToolResult, sessionEventOutput, error) {
 		event, err := s.recordSessionBoundaryUsecase.Run(ctx, usecase.RecordSessionBoundaryInput{
-			DBPath:        dbPath,
 			Client:        strings.TrimSpace(input.Client),
 			DefaultClient: defaultClientValue,
 			Agent:         strings.TrimSpace(input.Agent),
@@ -350,7 +348,7 @@ func (s *Server) startSession(dbPath string) mcp.ToolHandlerFor[startSessionInpu
 	}
 }
 
-func (s *Server) endSession(dbPath string) mcp.ToolHandlerFor[endSessionInput, sessionEventOutput] {
+func (s *Server) endSession(_ string) mcp.ToolHandlerFor[endSessionInput, sessionEventOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input endSessionInput) (*mcp.CallToolResult, sessionEventOutput, error) {
 		sessionID := strings.TrimSpace(input.SessionID)
 		if sessionID == "" {
@@ -358,7 +356,6 @@ func (s *Server) endSession(dbPath string) mcp.ToolHandlerFor[endSessionInput, s
 		}
 
 		event, err := s.recordSessionBoundaryUsecase.Run(ctx, usecase.RecordSessionBoundaryInput{
-			DBPath:        dbPath,
 			Client:        strings.TrimSpace(input.Client),
 			DefaultClient: defaultClientValue,
 			Agent:         strings.TrimSpace(input.Agent),
@@ -376,9 +373,9 @@ func (s *Server) endSession(dbPath string) mcp.ToolHandlerFor[endSessionInput, s
 	}
 }
 
-func (s *Server) latestSession(dbPath string) mcp.ToolHandlerFor[sessionLookupInput, sessionEventOutput] {
+func (s *Server) latestSession(_ string) mcp.ToolHandlerFor[sessionLookupInput, sessionEventOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input sessionLookupInput) (*mcp.CallToolResult, sessionEventOutput, error) {
-		event, err := s.findLatestSessionQueryService.Run(ctx, dbPath, port.FindLatestSessionInput{
+		event, err := s.findLatestSessionQueryService.Run(ctx, port.FindLatestSessionInput{
 			Client: strings.TrimSpace(input.Client),
 			Agent:  strings.TrimSpace(input.Agent),
 			Repo:   strings.TrimSpace(input.Repo),
@@ -394,9 +391,9 @@ func (s *Server) latestSession(dbPath string) mcp.ToolHandlerFor[sessionLookupIn
 	}
 }
 
-func (s *Server) activeSession(dbPath string) mcp.ToolHandlerFor[sessionLookupInput, sessionEventOutput] {
+func (s *Server) activeSession(_ string) mcp.ToolHandlerFor[sessionLookupInput, sessionEventOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input sessionLookupInput) (*mcp.CallToolResult, sessionEventOutput, error) {
-		event, err := s.findLatestSessionQueryService.Run(ctx, dbPath, port.FindLatestSessionInput{
+		event, err := s.findLatestSessionQueryService.Run(ctx, port.FindLatestSessionInput{
 			Client:     strings.TrimSpace(input.Client),
 			Agent:      strings.TrimSpace(input.Agent),
 			Repo:       strings.TrimSpace(input.Repo),
@@ -416,10 +413,9 @@ func (s *Server) activeSession(dbPath string) mcp.ToolHandlerFor[sessionLookupIn
 	}
 }
 
-func (s *Server) addAudit(dbPath string) mcp.ToolHandlerFor[addAuditInput, addAuditOutput] {
+func (s *Server) addAudit(_ string) mcp.ToolHandlerFor[addAuditInput, addAuditOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input addAuditInput) (*mcp.CallToolResult, addAuditOutput, error) {
 		event, audit, err := s.recordCommandAuditUsecase.Run(ctx, usecase.RecordCommandAuditInput{
-			DBPath:              dbPath,
 			Command:             input.Command,
 			Input:               input.Input,
 			Output:              input.Output,
@@ -448,7 +444,7 @@ func (s *Server) addAudit(dbPath string) mcp.ToolHandlerFor[addAuditInput, addAu
 	}
 }
 
-func (s *Server) listEvents(dbPath string) mcp.ToolHandlerFor[listEventsInput, eventsOutput] {
+func (s *Server) listEvents(_ string) mcp.ToolHandlerFor[listEventsInput, eventsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input listEventsInput) (*mcp.CallToolResult, eventsOutput, error) {
 		from, err := parseFlexibleTime(input.From, false)
 		if err != nil {
@@ -459,7 +455,7 @@ func (s *Server) listEvents(dbPath string) mcp.ToolHandlerFor[listEventsInput, e
 			return nil, eventsOutput{}, xerrors.Errorf("failed to resolve to: %w", err)
 		}
 
-		events, err := s.listEventsQueryService.Run(ctx, dbPath, port.ListRecentEventsInput{
+		events, err := s.listEventsQueryService.Run(ctx, port.ListRecentEventsInput{
 			Limit:     resolveLimit(input.Limit, defaultSearchLimit),
 			Offset:    resolveOffset(input.Offset),
 			Kind:      strings.TrimSpace(input.Kind),
@@ -510,7 +506,7 @@ func validateActiveSession(event *model.Event, input sessionLookupInput) error {
 	return xerrors.Errorf("active session %s is older than %s and considered stale", event.SessionID(), staleAfter)
 }
 
-func (s *Server) search(dbPath string) mcp.ToolHandlerFor[searchInput, eventsOutput] {
+func (s *Server) search(_ string) mcp.ToolHandlerFor[searchInput, eventsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input searchInput) (*mcp.CallToolResult, eventsOutput, error) {
 		from, err := parseFlexibleTime(input.From, false)
 		if err != nil {
@@ -521,7 +517,7 @@ func (s *Server) search(dbPath string) mcp.ToolHandlerFor[searchInput, eventsOut
 			return nil, eventsOutput{}, xerrors.Errorf("failed to resolve to: %w", err)
 		}
 		limit := resolveLimit(input.Limit, defaultSearchLimit)
-		events, err := s.searchEventsQueryService.Run(ctx, dbPath, port.SearchEventsInput{
+		events, err := s.searchEventsQueryService.Run(ctx, port.SearchEventsInput{
 			Query: strings.TrimSpace(input.Query),
 			Repo:  strings.TrimSpace(input.Repo),
 			From:  from,
@@ -536,9 +532,9 @@ func (s *Server) search(dbPath string) mcp.ToolHandlerFor[searchInput, eventsOut
 	}
 }
 
-func (s *Server) getContext(dbPath string) mcp.ToolHandlerFor[getContextInput, eventsOutput] {
+func (s *Server) getContext(_ string) mcp.ToolHandlerFor[getContextInput, eventsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input getContextInput) (*mcp.CallToolResult, eventsOutput, error) {
-		events, err := s.getContextQueryService.Run(ctx, dbPath, port.GetContextInput{
+		events, err := s.getContextQueryService.Run(ctx, port.GetContextInput{
 			Repo:      strings.TrimSpace(input.Repo),
 			SessionID: strings.TrimSpace(input.SessionID),
 			Limit:     resolveLimit(input.Limit, defaultContextLimit),
@@ -568,9 +564,9 @@ type sessionHandoffOutput struct {
 	RecentCommands []string `json:"recent_commands,omitempty"`
 }
 
-func (s *Server) sessionHandoff(dbPath string) mcp.ToolHandlerFor[sessionHandoffInput, sessionHandoffOutput] {
+func (s *Server) sessionHandoff(_ string) mcp.ToolHandlerFor[sessionHandoffInput, sessionHandoffOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input sessionHandoffInput) (*mcp.CallToolResult, sessionHandoffOutput, error) {
-		sessions, err := s.listSessionsQueryService.Run(ctx, dbPath, port.ListSessionsInput{
+		sessions, err := s.listSessionsQueryService.Run(ctx, port.ListSessionsInput{
 			Limit:     1,
 			SessionID: strings.TrimSpace(input.SessionID),
 			Repo:      strings.TrimSpace(input.Repo),
@@ -584,7 +580,7 @@ func (s *Server) sessionHandoff(dbPath string) mcp.ToolHandlerFor[sessionHandoff
 		}
 
 		session := sessions[0]
-		events, err := s.listEventsQueryService.Run(ctx, dbPath, port.ListRecentEventsInput{
+		events, err := s.listEventsQueryService.Run(ctx, port.ListRecentEventsInput{
 			Limit:     5,
 			SessionID: session.SessionID,
 			Kind:      "command_executed",

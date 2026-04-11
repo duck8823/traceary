@@ -17,9 +17,9 @@ import (
 func TestDatasource_CreateBackup(t *testing.T) {
 	t.Parallel()
 
-	sut := sqlite.NewDatasource(backupTestMigrations())
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	if err := sut.Initialize(context.Background(), dbPath); err != nil {
+	sut := sqlite.NewDatasource(dbPath, backupTestMigrations())
+	if err := sut.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -33,12 +33,12 @@ func TestDatasource_CreateBackup(t *testing.T) {
 		"hello",
 		time.Date(2026, 4, 8, 9, 0, 0, 0, time.UTC),
 	)
-	if err := sut.Save(context.Background(), dbPath, event); err != nil {
+	if err := sut.Save(context.Background(), event); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
 
 	outputPath := filepath.Join(t.TempDir(), "backup", "traceary-backup.db")
-	if err := sut.CreateBackup(context.Background(), dbPath, outputPath, false); err != nil {
+	if err := sut.CreateBackup(context.Background(), outputPath, false); err != nil {
 		t.Fatalf("CreateBackup() error = %v", err)
 	}
 
@@ -68,9 +68,9 @@ func TestDatasource_CreateBackup(t *testing.T) {
 func TestDatasource_CreateBackup_既存ファイルはforceなしで上書きしない(t *testing.T) {
 	t.Parallel()
 
-	sut := sqlite.NewDatasource(backupTestMigrations())
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	if err := sut.Initialize(context.Background(), dbPath); err != nil {
+	sut := sqlite.NewDatasource(dbPath, backupTestMigrations())
+	if err := sut.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -82,7 +82,7 @@ func TestDatasource_CreateBackup_既存ファイルはforceなしで上書きし
 		t.Fatalf("os.WriteFile() error = %v", err)
 	}
 
-	err := sut.CreateBackup(context.Background(), dbPath, outputPath, false)
+	err := sut.CreateBackup(context.Background(), outputPath, false)
 	if err == nil {
 		t.Fatal("CreateBackup() error = nil, want error")
 	}
@@ -91,11 +91,11 @@ func TestDatasource_CreateBackup_既存ファイルはforceなしで上書きし
 func TestDatasource_CreateBackup_バックアップ元が存在しない場合はエラー(t *testing.T) {
 	t.Parallel()
 
-	sut := sqlite.NewDatasource(backupTestMigrations())
 	dbPath := filepath.Join(t.TempDir(), "missing", "traceary.db")
+	sut := sqlite.NewDatasource(dbPath, backupTestMigrations())
 	outputPath := filepath.Join(t.TempDir(), "backup", "traceary-backup.db")
 
-	err := sut.CreateBackup(context.Background(), dbPath, outputPath, false)
+	err := sut.CreateBackup(context.Background(), outputPath, false)
 	if err == nil {
 		t.Fatal("CreateBackup() error = nil, want error")
 	}
@@ -104,9 +104,9 @@ func TestDatasource_CreateBackup_バックアップ元が存在しない場合�
 func TestDatasource_RestoreBackup(t *testing.T) {
 	t.Parallel()
 
-	sut := sqlite.NewDatasource(backupTestMigrations())
 	sourceDBPath := filepath.Join(t.TempDir(), "source", "traceary.db")
-	if err := sut.Initialize(context.Background(), sourceDBPath); err != nil {
+	sut := sqlite.NewDatasource(sourceDBPath, backupTestMigrations())
+	if err := sut.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -120,17 +120,18 @@ func TestDatasource_RestoreBackup(t *testing.T) {
 		"restored",
 		time.Date(2026, 4, 8, 10, 0, 0, 0, time.UTC),
 	)
-	if err := sut.Save(context.Background(), sourceDBPath, event); err != nil {
+	if err := sut.Save(context.Background(), event); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
 
 	backupPath := filepath.Join(t.TempDir(), "backup", "traceary-backup.db")
-	if err := sut.CreateBackup(context.Background(), sourceDBPath, backupPath, false); err != nil {
+	if err := sut.CreateBackup(context.Background(), backupPath, false); err != nil {
 		t.Fatalf("CreateBackup() error = %v", err)
 	}
 
 	restoredDBPath := filepath.Join(t.TempDir(), "restored", "traceary.db")
-	if err := sut.RestoreBackup(context.Background(), backupPath, restoredDBPath, false); err != nil {
+	restoreSut := sqlite.NewDatasource(restoredDBPath, backupTestMigrations())
+	if err := restoreSut.RestoreBackup(context.Background(), backupPath, false); err != nil {
 		t.Fatalf("RestoreBackup() error = %v", err)
 	}
 
@@ -160,7 +161,8 @@ func TestDatasource_RestoreBackup(t *testing.T) {
 func TestDatasource_RestoreBackup_既存ファイルはforceなしで上書きしない(t *testing.T) {
 	t.Parallel()
 
-	sut := sqlite.NewDatasource(backupTestMigrations())
+	restoreDBPath := filepath.Join(t.TempDir(), "traceary.db")
+	sut := sqlite.NewDatasource(restoreDBPath, backupTestMigrations())
 	backupPath := filepath.Join(t.TempDir(), "backup", "traceary-backup.db")
 	if err := os.MkdirAll(filepath.Dir(backupPath), 0o700); err != nil {
 		t.Fatalf("os.MkdirAll() error = %v", err)
@@ -173,11 +175,11 @@ func TestDatasource_RestoreBackup_既存ファイルはforceなしで上書き�
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
 		t.Fatalf("os.MkdirAll() error = %v", err)
 	}
-	if err := os.WriteFile(dbPath, []byte("existing"), 0o600); err != nil {
+	if err := os.WriteFile(backupPath, []byte("existing"), 0o600); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)
 	}
 
-	err := sut.RestoreBackup(context.Background(), backupPath, dbPath, false)
+	err := sut.RestoreBackup(context.Background(), backupPath, false)
 	if err == nil {
 		t.Fatal("RestoreBackup() error = nil, want error")
 	}
@@ -186,8 +188,8 @@ func TestDatasource_RestoreBackup_既存ファイルはforceなしで上書き�
 func TestDatasource_RestoreBackup_preservesExistingDBOnFailure(t *testing.T) {
 	t.Parallel()
 
-	sut := sqlite.NewDatasource(backupTestMigrations())
 	dbPath := filepath.Join(t.TempDir(), "restored", "traceary.db")
+	sut := sqlite.NewDatasource(dbPath, backupTestMigrations())
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
 		t.Fatalf("os.MkdirAll() error = %v", err)
 	}
@@ -202,7 +204,7 @@ func TestDatasource_RestoreBackup_preservesExistingDBOnFailure(t *testing.T) {
 		t.Fatalf("os.WriteFile() error = %v", err)
 	}
 
-	err := sut.RestoreBackup(context.Background(), invalidBackupPath, dbPath, true)
+	err := sut.RestoreBackup(context.Background(), invalidBackupPath, true)
 	if err == nil {
 		t.Fatal("RestoreBackup() error = nil, want error")
 	}

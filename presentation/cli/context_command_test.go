@@ -15,7 +15,6 @@ import (
 )
 
 type getContextQueryServiceStub struct {
-	receivedPath  string
 	receivedInput port.GetContextInput
 	called        bool
 	events        []*model.Event
@@ -24,11 +23,9 @@ type getContextQueryServiceStub struct {
 
 func (s *getContextQueryServiceStub) Run(
 	_ context.Context,
-	dbPath string,
 	input port.GetContextInput,
 ) ([]*model.Event, error) {
 	s.called = true
-	s.receivedPath = dbPath
 	s.receivedInput = input
 	return s.events, s.err
 }
@@ -36,7 +33,6 @@ func (s *getContextQueryServiceStub) Run(
 var _ queryservice.GetContextQueryService = (*getContextQueryServiceStub)(nil)
 
 type contextLatestSessionQueryServiceStub struct {
-	receivedPath  string
 	receivedInput port.FindLatestSessionInput
 	called        bool
 	event         *model.Event
@@ -45,11 +41,9 @@ type contextLatestSessionQueryServiceStub struct {
 
 func (s *contextLatestSessionQueryServiceStub) Run(
 	_ context.Context,
-	dbPath string,
 	input port.FindLatestSessionInput,
 ) (*model.Event, error) {
 	s.called = true
-	s.receivedPath = dbPath
 	s.receivedInput = input
 	return s.event, s.err
 }
@@ -79,7 +73,6 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 	t.Run("resolves latest session and displays context", func(t *testing.T) {
 		t.Parallel()
 
-		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		initStub := &initializeStoreUsecaseStub{}
 		contextStub := &getContextQueryServiceStub{
 			events: []*model.Event{
@@ -116,7 +109,7 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"context", "--db-path", dbPath, "--limit", "5"})
+		rootCmd.SetArgs([]string{"context", "--db-path", "/tmp/test-traceary.db", "--limit", "5"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -144,7 +137,6 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 	t.Run("JSON 形式で文脈を表示できる", func(t *testing.T) {
 		t.Parallel()
 
-		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		initStub := &initializeStoreUsecaseStub{}
 		contextStub := &getContextQueryServiceStub{
 			events: []*model.Event{
@@ -169,7 +161,8 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
 			"context",
-			"--db-path", dbPath,
+			"--db-path",
+		"/tmp/test-traceary.db",
 			"--session-id", "session-1",
 			"--json",
 		})

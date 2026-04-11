@@ -94,18 +94,17 @@ func (c *RootCLI) runLog(ctx context.Context, output io.Writer, input logCommand
 		return xerrors.Errorf(Localize("record log usecase is not configured", "ログ記録ユースケースが設定されていません"))
 	}
 
-	resolvedPath, err := resolveDBPath(input.dbPath)
+	_, err := resolveDBPath(input.dbPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.initializeStoreUsecase.Run(ctx, resolvedPath); err != nil {
+	if err := c.initializeStoreUsecase.Run(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
 	resolvedRepo := resolveRepoValue(ctx, input.repo)
 	sessionResolution, err := c.resolveManualSessionID(
 		ctx,
-		resolvedPath,
 		resolveOptionalValue(input.sessionID, "TRACEARY_SESSION_ID", ""),
 		resolvedRepo,
 	)
@@ -114,7 +113,6 @@ func (c *RootCLI) runLog(ctx context.Context, output io.Writer, input logCommand
 	}
 
 	event, err := c.recordLogUsecase.Run(ctx, usecase.RecordLogInput{
-		DBPath:    resolvedPath,
 		Message:   input.message,
 		Client:    resolveOptionalValue(input.client, "TRACEARY_CLIENT", defaultClientValue),
 		Agent:     resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue),

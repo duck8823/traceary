@@ -24,12 +24,12 @@ func (c *RootCLI) newSessionLabelCommand() *cobra.Command {
 			ctx := cmd.Context()
 			output := cmd.OutOrStdout()
 
-			resolvedDBPath, err := resolveDBPath(dbPath)
+			_, err := resolveDBPath(dbPath)
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 			}
 
-			if err := c.initializeStoreUsecase.Run(ctx, resolvedDBPath); err != nil {
+			if err := c.initializeStoreUsecase.Run(ctx); err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 			}
 
@@ -39,7 +39,6 @@ func (c *RootCLI) newSessionLabelCommand() *cobra.Command {
 			}
 
 			if err := c.updateSessionLabelUsecase.Run(ctx, usecase.UpdateSessionLabelInput{
-				DBPath:    resolvedDBPath,
 				SessionID: resolvedSessionID,
 				Label:     args[0],
 			}); err != nil {

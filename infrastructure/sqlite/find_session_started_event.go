@@ -22,10 +22,9 @@ var _ port.SessionStartedEventFinder = (*Datasource)(nil)
 // FindSessionStartedEvent returns the latest session_started event for the target session.
 func (d *Datasource) FindSessionStartedEvent(
 	ctx context.Context,
-	dbPath string,
 	sessionID types.SessionID,
 ) (*model.Event, error) {
-	db, err := d.openDB(ctx, dbPath)
+	db, err := d.openDB(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for session_started lookup: %w", err)
 	}

@@ -14,8 +14,8 @@ import (
 var updateSessionLabelQuery string
 
 // UpdateSessionLabel sets the label for a session.
-func (d *Datasource) UpdateSessionLabel(ctx context.Context, dbPath string, sessionID types.SessionID, label string) error {
-	db, err := d.openDB(ctx, dbPath)
+func (d *Datasource) UpdateSessionLabel(ctx context.Context, sessionID types.SessionID, label string) error {
+	db, err := d.openDB(ctx)
 	if err != nil {
 		return xerrors.Errorf("failed to open DB: %w", err)
 	}

@@ -12,12 +12,12 @@ import (
 )
 
 type doctorInitializeStoreUsecaseStub struct {
-	paths []string
-	err   error
+	callCount int
+	err       error
 }
 
-func (s *doctorInitializeStoreUsecaseStub) Run(_ context.Context, dbPath string) error {
-	s.paths = append(s.paths, dbPath)
+func (s *doctorInitializeStoreUsecaseStub) Run(_ context.Context) error {
+	s.callCount++
 	return s.err
 }
 
@@ -70,8 +70,8 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 		if len(report.Clients) != 3 {
 			t.Fatalf("len(report.Clients) = %d, want 3", len(report.Clients))
 		}
-		if len(initializeStore.paths) != 1 {
-			t.Fatalf("len(initializeStore.paths) = %d, want 1", len(initializeStore.paths))
+		if initializeStore.callCount != 1 {
+			t.Fatalf("initializeStore.callCount = %d, want 1", initializeStore.callCount)
 		}
 		assertDoctorCheckStatus(t, report.Checks, "config", "pass")
 		assertDoctorCheckStatus(t, report.Checks, "claude-config", "warn")

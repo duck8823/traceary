@@ -22,7 +22,6 @@ func TestDatasource_CollectGarbage_DryRun(t *testing.T) {
 
 	deletedCount, err := sut.CollectGarbage(
 		context.Background(),
-		dbPath,
 		time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC),
 		true,
 	)
@@ -45,7 +44,6 @@ func TestDatasource_CollectGarbage_古いイベントと監査情報を削除す
 
 	deletedCount, err := sut.CollectGarbage(
 		context.Background(),
-		dbPath,
 		time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC),
 		false,
 	)
@@ -98,13 +96,13 @@ CREATE TABLE command_audits (
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(migrations)
-	if err := sut.Initialize(context.Background(), dbPath); err != nil {
+	sut := sqlite.NewDatasource(dbPath, migrations)
+	if err := sut.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
 	oldAuditEvent, oldCommandAudit := newOldAuditFixture(t)
-	if err := sut.SaveCommandAudit(context.Background(), dbPath, oldAuditEvent, oldCommandAudit); err != nil {
+	if err := sut.SaveCommandAudit(context.Background(), oldAuditEvent, oldCommandAudit); err != nil {
 		t.Fatalf("SaveCommandAudit(old) error = %v", err)
 	}
 	newNoteEvent := newGCEventFixture(
@@ -114,7 +112,7 @@ CREATE TABLE command_audits (
 		"recent note",
 		time.Date(2026, 4, 8, 0, 0, 0, 0, time.UTC),
 	)
-	if err := sut.Save(context.Background(), dbPath, newNoteEvent); err != nil {
+	if err := sut.Save(context.Background(), newNoteEvent); err != nil {
 		t.Fatalf("Save(new) error = %v", err)
 	}
 
@@ -183,7 +181,7 @@ func newGCEventFixture(
 func countEvents(t *testing.T, dbPath string) int {
 	t.Helper()
 
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open("sqlite", "file:" + dbPath)
 	if err != nil {
 		t.Fatalf("sql.Open() error = %v", err)
 	}
@@ -200,7 +198,7 @@ func countEvents(t *testing.T, dbPath string) int {
 func countCommandAudits(t *testing.T, dbPath string) int {
 	t.Helper()
 
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open("sqlite", "file:" + dbPath)
 	if err != nil {
 		t.Fatalf("sql.Open() error = %v", err)
 	}

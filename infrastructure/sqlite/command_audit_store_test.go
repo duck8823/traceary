@@ -49,8 +49,8 @@ CREATE TABLE command_audits (
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(migrations)
-	if err := sut.Initialize(context.Background(), dbPath); err != nil {
+	sut := sqlite.NewDatasource(dbPath, migrations)
+	if err := sut.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -88,7 +88,7 @@ CREATE TABLE command_audits (
 		t.Fatalf("NewCommandAudit() error = %v", err)
 	}
 
-	if err := sut.SaveCommandAudit(context.Background(), dbPath, event, commandAudit); err != nil {
+	if err := sut.SaveCommandAudit(context.Background(), event, commandAudit); err != nil {
 		t.Fatalf("SaveCommandAudit() error = %v", err)
 	}
 

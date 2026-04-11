@@ -15,7 +15,7 @@ import (
 // SearchEventsQueryService searches events.
 type SearchEventsQueryService interface {
 	// Run executes the event search query.
-	Run(ctx context.Context, dbPath string, input port.SearchEventsInput) ([]*model.Event, error)
+	Run(ctx context.Context, input port.SearchEventsInput) ([]*model.Event, error)
 }
 
 type searchEventsQueryService struct {
@@ -30,14 +30,10 @@ func NewSearchEventsQueryService(eventSearcher port.EventSearcher) SearchEventsQ
 // Run executes the event search query.
 func (s *searchEventsQueryService) Run(
 	ctx context.Context,
-	dbPath string,
 	input port.SearchEventsInput,
 ) ([]*model.Event, error) {
 	if s.eventSearcher == nil {
 		return nil, xerrors.Errorf("event searcher is not configured")
-	}
-	if strings.TrimSpace(dbPath) == "" {
-		return nil, xerrors.Errorf("DB path must not be empty")
 	}
 	if !hasSearchConstraint(input) {
 		return nil, xerrors.Errorf("at least one search filter is required")
@@ -63,7 +59,7 @@ func (s *searchEventsQueryService) Run(
 	}
 	input.Kind = kind.String()
 
-	events, err := s.eventSearcher.SearchEvents(ctx, dbPath, input)
+	events, err := s.eventSearcher.SearchEvents(ctx, input)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to search events: %w", err)
 	}

@@ -10,7 +10,6 @@ import (
 )
 
 type commandAuditSaverStub struct {
-	receivedPath      string
 	savedEvent        *model.Event
 	savedCommandAudit *model.CommandAudit
 	err               error
@@ -18,11 +17,9 @@ type commandAuditSaverStub struct {
 
 func (s *commandAuditSaverStub) SaveCommandAudit(
 	_ context.Context,
-	dbPath string,
 	event *model.Event,
 	commandAudit *model.CommandAudit,
 ) error {
-	s.receivedPath = dbPath
 	s.savedEvent = event
 	s.savedCommandAudit = commandAudit
 	return s.err
@@ -38,7 +35,6 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		sut := usecase.NewRecordCommandAuditUsecase(stub)
 
 		event, commandAudit, err := sut.Run(context.Background(), usecase.RecordCommandAuditInput{
-			DBPath:    "/tmp/traceary.db",
 			Command:   "go test ./...",
 			Input:     "stdin",
 			Output:    "stdout",
@@ -52,9 +48,6 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		}
 		if event == nil || commandAudit == nil {
 			t.Fatalf("Run() returned nil values")
-		}
-		if stub.receivedPath != "/tmp/traceary.db" {
-			t.Fatalf("received path = %q, want %q", stub.receivedPath, "/tmp/traceary.db")
 		}
 		if stub.savedEvent != event {
 			t.Fatalf("saved event mismatch")
@@ -79,7 +72,6 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		longOutput := strings.Repeat("o", 70*1024)
 
 		_, commandAudit, err := sut.Run(context.Background(), usecase.RecordCommandAuditInput{
-			DBPath:    "/tmp/traceary.db",
 			Command:   "go test ./...",
 			Input:     longInput,
 			Output:    longOutput,
@@ -111,7 +103,6 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		sut := usecase.NewRecordCommandAuditUsecase(stub)
 
 		_, commandAudit, err := sut.Run(context.Background(), usecase.RecordCommandAuditInput{
-			DBPath:         "/tmp/traceary.db",
 			Command:        "go test ./...",
 			Input:          strings.Repeat("i", 32),
 			Output:         strings.Repeat("o", 32),
@@ -142,7 +133,6 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		sut := usecase.NewRecordCommandAuditUsecase(stub)
 
 		_, commandAudit, err := sut.Run(context.Background(), usecase.RecordCommandAuditInput{
-			DBPath:    "/tmp/traceary.db",
 			Command:   "curl https://example.test",
 			Input:     `{"access_token":"top-secret","note":"keep"}`,
 			Output:    "Authorization: Bearer token-value\nexport API_KEY=\"abc123\"",
@@ -180,7 +170,6 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		sut := usecase.NewRecordCommandAuditUsecase(stub)
 
 		_, commandAudit, err := sut.Run(context.Background(), usecase.RecordCommandAuditInput{
-			DBPath:        "/tmp/traceary.db",
 			Command:       "curl https://example.test",
 			Input:         `{"access_token":"top-secret"}`,
 			Output:        "Authorization: Bearer token-value",
@@ -214,7 +203,6 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		sut := usecase.NewRecordCommandAuditUsecase(stub)
 
 		_, commandAudit, err := sut.Run(context.Background(), usecase.RecordCommandAuditInput{
-			DBPath:              "/tmp/traceary.db",
 			Command:             "curl https://example.test",
 			Input:               "my_custom_secret=hunter2",
 			Output:              "internal_token: abc123",
@@ -244,7 +232,6 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		sut := usecase.NewRecordCommandAuditUsecase(stub)
 
 		_, _, err := sut.Run(context.Background(), usecase.RecordCommandAuditInput{
-			DBPath:              "/tmp/traceary.db",
 			Command:             "test",
 			Input:               "",
 			Output:              "",
@@ -265,7 +252,6 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		sut := usecase.NewRecordCommandAuditUsecase(stub)
 
 		_, _, err := sut.Run(context.Background(), usecase.RecordCommandAuditInput{
-			DBPath:        "/tmp/traceary.db",
 			Command:       "go test ./...",
 			Input:         "stdin",
 			Output:        "stdout",

@@ -21,10 +21,9 @@ var _ port.SessionSummaryFinder = (*Datasource)(nil)
 // ListSessionSummaries returns aggregated session information.
 func (d *Datasource) ListSessionSummaries(
 	ctx context.Context,
-	dbPath string,
 	input port.ListSessionsInput,
 ) ([]*port.SessionSummary, error) {
-	db, err := d.openDB(ctx, dbPath)
+	db, err := d.openDB(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for session list: %w", err)
 	}

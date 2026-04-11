@@ -20,10 +20,9 @@ var _ port.EventSearcher = (*Datasource)(nil)
 // SearchEvents returns matching events in descending time order.
 func (d *Datasource) SearchEvents(
 	ctx context.Context,
-	dbPath string,
 	input port.SearchEventsInput,
 ) ([]*model.Event, error) {
-	db, err := d.openDB(ctx, dbPath)
+	db, err := d.openDB(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for event search: %w", err)
 	}

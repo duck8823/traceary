@@ -19,8 +19,8 @@ var _ port.StoreBackupCreator = (*Datasource)(nil)
 var _ port.StoreBackupRestorer = (*Datasource)(nil)
 
 // CreateBackup creates a backup of the SQLite DB.
-func (d *Datasource) CreateBackup(ctx context.Context, dbPath string, outputPath string, overwrite bool) (err error) {
-	sourcePath, destinationPath, err := validateDistinctDBPaths(dbPath, outputPath)
+func (d *Datasource) CreateBackup(ctx context.Context, outputPath string, overwrite bool) (err error) {
+	sourcePath, destinationPath, err := validateDistinctDBPaths(d.dbPath, outputPath)
 	if err != nil {
 		return xerrors.Errorf("failed to validate backup paths: %w", err)
 	}
@@ -38,7 +38,7 @@ func (d *Datasource) CreateBackup(ctx context.Context, dbPath string, outputPath
 		return xerrors.Errorf("failed to prepare backup output path: %w", err)
 	}
 
-	db, err := d.openDB(ctx, sourcePath)
+	db, err := d.openDB(ctx)
 	if err != nil {
 		return xerrors.Errorf("failed to open source DB for backup: %w", err)
 	}
@@ -60,8 +60,8 @@ func (d *Datasource) CreateBackup(ctx context.Context, dbPath string, outputPath
 }
 
 // RestoreBackup restores the SQLite DB from a backup file.
-func (d *Datasource) RestoreBackup(ctx context.Context, inputPath string, dbPath string, overwrite bool) (err error) {
-	sourcePath, destinationPath, err := validateDistinctDBPaths(inputPath, dbPath)
+func (d *Datasource) RestoreBackup(ctx context.Context, inputPath string, overwrite bool) (err error) {
+	sourcePath, destinationPath, err := validateDistinctDBPaths(inputPath, d.dbPath)
 	if err != nil {
 		return xerrors.Errorf("failed to validate restore paths: %w", err)
 	}
@@ -122,7 +122,7 @@ func (d *Datasource) RestoreBackup(ctx context.Context, inputPath string, dbPath
 	if err := os.Chmod(destinationPath, 0o600); err != nil {
 		return xerrors.Errorf("failed to set restored DB file permissions: %w", err)
 	}
-	if err := d.Initialize(ctx, destinationPath); err != nil {
+	if err := d.Initialize(ctx); err != nil {
 		return xerrors.Errorf("failed to initialize store after restore: %w", err)
 	}
 

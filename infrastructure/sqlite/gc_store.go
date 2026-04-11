@@ -22,11 +22,10 @@ var _ port.GarbageCollector = (*Datasource)(nil)
 // CollectGarbage deletes events older than the given time.
 func (d *Datasource) CollectGarbage(
 	ctx context.Context,
-	dbPath string,
 	before time.Time,
 	dryRun bool,
 ) (int, error) {
-	db, err := d.openDB(ctx, dbPath)
+	db, err := d.openDB(ctx)
 	if err != nil {
 		return 0, xerrors.Errorf("failed to open DB for garbage collection: %w", err)
 	}

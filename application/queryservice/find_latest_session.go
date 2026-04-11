@@ -3,7 +3,6 @@ package queryservice
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"golang.org/x/xerrors"
 
@@ -14,7 +13,7 @@ import (
 // FindLatestSessionQueryService returns the latest session.
 type FindLatestSessionQueryService interface {
 	// Run executes the latest-session query.
-	Run(ctx context.Context, dbPath string, input port.FindLatestSessionInput) (*model.Event, error)
+	Run(ctx context.Context, input port.FindLatestSessionInput) (*model.Event, error)
 }
 
 type findLatestSessionQueryService struct {
@@ -29,17 +28,13 @@ func NewFindLatestSessionQueryService(latestSessionFinder port.LatestSessionFind
 // Run executes the latest-session query.
 func (s *findLatestSessionQueryService) Run(
 	ctx context.Context,
-	dbPath string,
 	input port.FindLatestSessionInput,
 ) (*model.Event, error) {
 	if s.latestSessionFinder == nil {
 		return nil, xerrors.Errorf("latest session finder is not configured")
 	}
-	if strings.TrimSpace(dbPath) == "" {
-		return nil, xerrors.Errorf("DB path must not be empty")
-	}
 
-	event, err := s.latestSessionFinder.FindLatestSessionStartedEvent(ctx, dbPath, input)
+	event, err := s.latestSessionFinder.FindLatestSessionStartedEvent(ctx, input)
 	if err != nil {
 		if errors.Is(err, port.ErrSessionNotFound) || errors.Is(err, port.ErrActiveSessionNotFound) {
 			//nolint:wrapcheck // Preserve the user-facing not-found message.

@@ -14,7 +14,6 @@ import (
 )
 
 type listSessionsQueryServiceStub struct {
-	receivedPath  string
 	receivedInput port.ListSessionsInput
 	called        bool
 	summaries     []*port.SessionSummary
@@ -23,11 +22,9 @@ type listSessionsQueryServiceStub struct {
 
 func (s *listSessionsQueryServiceStub) Run(
 	_ context.Context,
-	dbPath string,
 	input port.ListSessionsInput,
 ) ([]*port.SessionSummary, error) {
 	s.called = true
-	s.receivedPath = dbPath
 	s.receivedInput = input
 	return s.summaries, s.err
 }
@@ -41,7 +38,6 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		t.Parallel()
 
 		endedAt := time.Date(2026, 4, 9, 13, 30, 0, 0, time.UTC)
-		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		initStub := &initializeStoreUsecaseStub{}
 		listStub := &listSessionsQueryServiceStub{
 			summaries: []*port.SessionSummary{
@@ -69,7 +65,8 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
 			"session", "list",
-			"--db-path", dbPath,
+			"--db-path",
+		"/tmp/test-traceary.db",
 			"--repo", "duck8823/traceary",
 			"--agent", "claude",
 			"--limit", "10",
@@ -127,7 +124,6 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		t.Parallel()
 
 		endedAt := time.Date(2026, 4, 9, 12, 5, 0, 0, time.UTC)
-		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		listStub := &listSessionsQueryServiceStub{
 			summaries: []*port.SessionSummary{
 				{
@@ -151,7 +147,7 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"session", "list", "--db-path", dbPath, "--json"})
+		rootCmd.SetArgs([]string{"session", "list", "--db-path", "/tmp/test-traceary.db", "--json"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -220,14 +216,13 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 	t.Run("--from が不正な形式ならエラー", func(t *testing.T) {
 		t.Parallel()
 
-		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
 			InitializeStoreUsecase:   &initializeStoreUsecaseStub{},
 			ListSessionsQueryService: &listSessionsQueryServiceStub{},
 		}).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"session", "list", "--db-path", dbPath, "--from", "invalid"})
+		rootCmd.SetArgs([]string{"session", "list", "--db-path", "/tmp/test-traceary.db", "--from", "invalid"})
 
 		if err := rootCmd.Execute(); err == nil {
 			t.Fatalf("Execute() error = nil, want error")
@@ -237,14 +232,13 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 	t.Run("--to が不正な形式ならエラー", func(t *testing.T) {
 		t.Parallel()
 
-		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
 			InitializeStoreUsecase:   &initializeStoreUsecaseStub{},
 			ListSessionsQueryService: &listSessionsQueryServiceStub{},
 		}).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"session", "list", "--db-path", dbPath, "--to", "not-a-date"})
+		rootCmd.SetArgs([]string{"session", "list", "--db-path", "/tmp/test-traceary.db", "--to", "not-a-date"})
 
 		if err := rootCmd.Execute(); err == nil {
 			t.Fatalf("Execute() error = nil, want error")
@@ -254,7 +248,6 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 	t.Run("--client filter is passed to query service", func(t *testing.T) {
 		t.Parallel()
 
-		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		listStub := &listSessionsQueryServiceStub{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
 			InitializeStoreUsecase:   &initializeStoreUsecaseStub{},
@@ -262,7 +255,7 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		}).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"session", "list", "--db-path", dbPath, "--client", "hook"})
+		rootCmd.SetArgs([]string{"session", "list", "--db-path", "/tmp/test-traceary.db", "--client", "hook"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)

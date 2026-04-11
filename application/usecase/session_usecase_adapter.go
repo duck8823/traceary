@@ -12,7 +12,6 @@ import (
 )
 
 type sessionUsecaseAdapter struct {
-	dbPath            string
 	recordBoundary    RecordSessionBoundaryUsecase
 	updateLabel       UpdateSessionLabelUsecase
 	findLatestSession queryservice.FindLatestSessionQueryService
@@ -22,15 +21,13 @@ type sessionUsecaseAdapter struct {
 
 // NewSessionUsecaseAdapter creates a SessionUsecase that delegates to existing usecases and queryservices.
 func NewSessionUsecaseAdapter(
-	dbPath string,
-	recordBoundary RecordSessionBoundaryUsecase,
+		recordBoundary RecordSessionBoundaryUsecase,
 	updateLabel UpdateSessionLabelUsecase,
 	findLatestSession queryservice.FindLatestSessionQueryService,
 	listSessions queryservice.ListSessionsQueryService,
 	listRecentEvents queryservice.ListRecentEventsQueryService,
 ) SessionUsecase {
 	return &sessionUsecaseAdapter{
-		dbPath:            dbPath,
 		recordBoundary:    recordBoundary,
 		updateLabel:       updateLabel,
 		findLatestSession: findLatestSession,
@@ -41,7 +38,6 @@ func NewSessionUsecaseAdapter(
 
 func (a *sessionUsecaseAdapter) Start(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, parentSessionID types.SessionID) (*model.Event, error) {
 	event, err := a.recordBoundary.Run(ctx, RecordSessionBoundaryInput{
-		DBPath:          a.dbPath,
 		Client:          client.String(),
 		Agent:           agent.String(),
 		SessionID:       sessionID.String(),
@@ -57,7 +53,6 @@ func (a *sessionUsecaseAdapter) Start(ctx context.Context, client types.Client, 
 
 func (a *sessionUsecaseAdapter) End(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, summary string) (*model.Event, error) {
 	event, err := a.recordBoundary.Run(ctx, RecordSessionBoundaryInput{
-		DBPath:    a.dbPath,
 		Client:    client.String(),
 		Agent:     agent.String(),
 		SessionID: sessionID.String(),
@@ -73,7 +68,6 @@ func (a *sessionUsecaseAdapter) End(ctx context.Context, client types.Client, ag
 
 func (a *sessionUsecaseAdapter) Label(ctx context.Context, sessionID types.SessionID, label string) error {
 	if err := a.updateLabel.Run(ctx, UpdateSessionLabelInput{
-		DBPath:    a.dbPath,
 		SessionID: sessionID.String(),
 		Label:     label,
 	}); err != nil {
@@ -83,7 +77,7 @@ func (a *sessionUsecaseAdapter) Label(ctx context.Context, sessionID types.Sessi
 }
 
 func (a *sessionUsecaseAdapter) List(ctx context.Context, criteria SessionListCriteria) ([]*SessionSummary, error) {
-	portSummaries, err := a.listSessions.Run(ctx, a.dbPath, port.ListSessionsInput{
+	portSummaries, err := a.listSessions.Run(ctx, port.ListSessionsInput{
 		Limit:     criteria.Limit,
 		Offset:    criteria.Offset,
 		SessionID: criteria.SessionID.String(),
@@ -101,7 +95,7 @@ func (a *sessionUsecaseAdapter) List(ctx context.Context, criteria SessionListCr
 }
 
 func (a *sessionUsecaseAdapter) Tree(ctx context.Context, workspace types.Workspace, limit int) ([]*SessionSummary, error) {
-	portSummaries, err := a.listSessions.Run(ctx, a.dbPath, port.ListSessionsInput{
+	portSummaries, err := a.listSessions.Run(ctx, port.ListSessionsInput{
 		Limit: limit,
 		Repo:  workspace.String(),
 	})
@@ -112,7 +106,7 @@ func (a *sessionUsecaseAdapter) Tree(ctx context.Context, workspace types.Worksp
 }
 
 func (a *sessionUsecaseAdapter) Active(ctx context.Context, criteria SessionLookupCriteria) (*model.Event, error) {
-	event, err := a.findLatestSession.Run(ctx, a.dbPath, port.FindLatestSessionInput{
+	event, err := a.findLatestSession.Run(ctx, port.FindLatestSessionInput{
 		Client:     criteria.Client.String(),
 		Agent:      criteria.Agent.String(),
 		Repo:       criteria.Workspace.String(),
@@ -125,7 +119,7 @@ func (a *sessionUsecaseAdapter) Active(ctx context.Context, criteria SessionLook
 }
 
 func (a *sessionUsecaseAdapter) Latest(ctx context.Context, criteria SessionLookupCriteria) (*model.Event, error) {
-	event, err := a.findLatestSession.Run(ctx, a.dbPath, port.FindLatestSessionInput{
+	event, err := a.findLatestSession.Run(ctx, port.FindLatestSessionInput{
 		Client:     criteria.Client.String(),
 		Agent:      criteria.Agent.String(),
 		Repo:       criteria.Workspace.String(),
@@ -138,7 +132,7 @@ func (a *sessionUsecaseAdapter) Latest(ctx context.Context, criteria SessionLook
 }
 
 func (a *sessionUsecaseAdapter) Handoff(ctx context.Context, sessionID types.SessionID, workspace types.Workspace, recent int) (*HandoffSummary, error) {
-	sessions, err := a.listSessions.Run(ctx, a.dbPath, port.ListSessionsInput{
+	sessions, err := a.listSessions.Run(ctx, port.ListSessionsInput{
 		Limit:     1,
 		SessionID: sessionID.String(),
 		Repo:      workspace.String(),
@@ -151,7 +145,7 @@ func (a *sessionUsecaseAdapter) Handoff(ctx context.Context, sessionID types.Ses
 	}
 
 	session := sessions[0]
-	events, err := a.listRecentEvents.Run(ctx, a.dbPath, port.ListRecentEventsInput{
+	events, err := a.listRecentEvents.Run(ctx, port.ListRecentEventsInput{
 		Limit:     recent,
 		SessionID: session.SessionID,
 		Kind:      types.EventKindCommandExecuted.String(),

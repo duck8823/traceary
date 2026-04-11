@@ -15,7 +15,6 @@ import (
 )
 
 type listEventsQueryServiceStub struct {
-	receivedPath  string
 	receivedInput port.ListRecentEventsInput
 	called        bool
 	events        []*model.Event
@@ -24,11 +23,9 @@ type listEventsQueryServiceStub struct {
 
 func (s *listEventsQueryServiceStub) Run(
 	_ context.Context,
-	dbPath string,
 	input port.ListRecentEventsInput,
 ) ([]*model.Event, error) {
 	s.called = true
-	s.receivedPath = dbPath
 	s.receivedInput = input
 	return s.events, s.err
 }
@@ -54,7 +51,6 @@ func TestRootCLI_ListCommand(t *testing.T) {
 			t.Fatalf("SessionIDOf() error = %v", err)
 		}
 
-		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		initStub := &initializeStoreUsecaseStub{}
 		listStub := &listEventsQueryServiceStub{
 			events: []*model.Event{
@@ -79,7 +75,8 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
 			"list",
-			"--db-path", dbPath,
+			"--db-path",
+		"/tmp/test-traceary.db",
 			"--limit", "5",
 			"--offset", "2",
 			"--kind", "note",
@@ -97,9 +94,6 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		}
 		if !listStub.called {
 			t.Fatalf("ListRecentEventsQueryService.Run() was not called")
-		}
-		if listStub.receivedPath != dbPath {
-			t.Fatalf("dbPath = %q, want %q", listStub.receivedPath, dbPath)
 		}
 		if listStub.receivedInput.Limit != 5 {
 			t.Fatalf("limit = %d, want %d", listStub.receivedInput.Limit, 5)
@@ -136,7 +130,6 @@ func TestRootCLI_ListCommand(t *testing.T) {
 			t.Fatalf("SessionIDOf() error = %v", err)
 		}
 
-		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		initStub := &initializeStoreUsecaseStub{}
 		listStub := &listEventsQueryServiceStub{
 			events: []*model.Event{
@@ -159,7 +152,7 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"list", "--db-path", dbPath, "--json"})
+		rootCmd.SetArgs([]string{"list", "--db-path", "/tmp/test-traceary.db", "--json"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -209,14 +202,13 @@ func TestRootCLI_ListCommand(t *testing.T) {
 	t.Run("offset が負ならエラー", func(t *testing.T) {
 		t.Parallel()
 
-		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
 			InitializeStoreUsecase: &initializeStoreUsecaseStub{},
 			ListEventsQueryService: &listEventsQueryServiceStub{},
 		}).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"list", "--db-path", dbPath, "--offset", "-1"})
+		rootCmd.SetArgs([]string{"list", "--db-path", "/tmp/test-traceary.db", "--offset", "-1"})
 
 		if err := rootCmd.Execute(); err == nil {
 			t.Fatalf("Execute() error = nil, want error")
@@ -226,14 +218,13 @@ func TestRootCLI_ListCommand(t *testing.T) {
 	t.Run("kind が不正ならエラー", func(t *testing.T) {
 		t.Parallel()
 
-		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
 			InitializeStoreUsecase: &initializeStoreUsecaseStub{},
 			ListEventsQueryService: &listEventsQueryServiceStub{},
 		}).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"list", "--db-path", dbPath, "--kind", "unknown"})
+		rootCmd.SetArgs([]string{"list", "--db-path", "/tmp/test-traceary.db", "--kind", "unknown"})
 
 		if err := rootCmd.Execute(); err == nil {
 			t.Fatalf("Execute() error = nil, want error")
@@ -243,7 +234,6 @@ func TestRootCLI_ListCommand(t *testing.T) {
 	t.Run("--kind audit resolves to command_executed", func(t *testing.T) {
 		t.Parallel()
 
-		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		listStub := &listEventsQueryServiceStub{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
 			InitializeStoreUsecase: &initializeStoreUsecaseStub{},
@@ -251,7 +241,7 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		}).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"list", "--db-path", dbPath, "--kind", "audit"})
+		rootCmd.SetArgs([]string{"list", "--db-path", "/tmp/test-traceary.db", "--kind", "audit"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)

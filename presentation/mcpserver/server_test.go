@@ -277,7 +277,7 @@ CREATE TABLE command_audits (
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	datasource := sqlite.NewDatasource(migrations)
+	datasource := sqlite.NewDatasource(dbPath, migrations)
 	initializeStoreUsecase := usecase.NewInitializeStoreUsecase(datasource)
 	recordLogUsecase := usecase.NewRecordLogUsecase(datasource)
 	recordSessionBoundaryUsecase := usecase.NewRecordSessionBoundaryUsecase(datasource, datasource)

@@ -47,8 +47,8 @@ CREATE TABLE command_audits (
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(migrations)
-	if err := sut.Initialize(context.Background(), dbPath); err != nil {
+	sut := sqlite.NewDatasource(dbPath, migrations)
+	if err := sut.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -60,7 +60,7 @@ CREATE TABLE command_audits (
 		"hello traceary",
 		time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC),
 	)
-	if err := sut.Save(context.Background(), dbPath, noteEvent); err != nil {
+	if err := sut.Save(context.Background(), noteEvent); err != nil {
 		t.Fatalf("Save(note) error = %v", err)
 	}
 
@@ -70,11 +70,11 @@ CREATE TABLE command_audits (
 		"github.com/duck8823/traceary",
 		time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC),
 	)
-	if err := sut.SaveCommandAudit(context.Background(), dbPath, auditEvent, commandAudit); err != nil {
+	if err := sut.SaveCommandAudit(context.Background(), auditEvent, commandAudit); err != nil {
 		t.Fatalf("SaveCommandAudit() error = %v", err)
 	}
 
-	got, err := sut.SearchEvents(context.Background(), dbPath, port.SearchEventsInput{
+	got, err := sut.SearchEvents(context.Background(), port.SearchEventsInput{
 		Query: "stdout",
 		Repo:  "github.com/duck8823/traceary",
 		From:  time.Date(2026, 4, 8, 0, 0, 0, 0, time.UTC),
@@ -94,7 +94,7 @@ CREATE TABLE command_audits (
 	t.Run("searches with structural filters only", func(t *testing.T) {
 		t.Parallel()
 
-		filtered, err := sut.SearchEvents(context.Background(), dbPath, port.SearchEventsInput{
+		filtered, err := sut.SearchEvents(context.Background(), port.SearchEventsInput{
 			Repo:      "github.com/duck8823/traceary",
 			SessionID: "session-1",
 			Client:    "cli",
@@ -116,7 +116,7 @@ CREATE TABLE command_audits (
 	t.Run("offset で 2 ページ目を取得できる", func(t *testing.T) {
 		t.Parallel()
 
-		filtered, err := sut.SearchEvents(context.Background(), dbPath, port.SearchEventsInput{
+		filtered, err := sut.SearchEvents(context.Background(), port.SearchEventsInput{
 			Repo:   "github.com/duck8823/traceary",
 			Limit:  1,
 			Offset: 1,

@@ -28,7 +28,7 @@ type ListRecentEventsInput struct {
 // RecentEventFinder provides recent event lookup.
 type RecentEventFinder interface {
 	// ListRecent returns events in descending time order.
-	ListRecent(ctx context.Context, dbPath string, input ListRecentEventsInput) ([]*model.Event, error)
+	ListRecent(ctx context.Context, input ListRecentEventsInput) ([]*model.Event, error)
 }
 
 // --- Search Events ---
@@ -51,7 +51,7 @@ type SearchEventsInput struct {
 // EventSearcher provides event search.
 type EventSearcher interface {
 	// SearchEvents returns matching events in descending time order.
-	SearchEvents(ctx context.Context, dbPath string, input SearchEventsInput) ([]*model.Event, error)
+	SearchEvents(ctx context.Context, input SearchEventsInput) ([]*model.Event, error)
 }
 
 // --- Get Context ---
@@ -66,7 +66,7 @@ type GetContextInput struct {
 // ContextEventFinder provides contextual event lookup.
 type ContextEventFinder interface {
 	// GetContextEvents returns matching events in descending time order.
-	GetContextEvents(ctx context.Context, dbPath string, input GetContextInput) ([]*model.Event, error)
+	GetContextEvents(ctx context.Context, input GetContextInput) ([]*model.Event, error)
 }
 
 // --- Get Event Details ---
@@ -98,7 +98,7 @@ func (d *EventDetails) CommandAudit() *model.CommandAudit { return d.commandAudi
 // EventDetailsFinder provides event-details lookup.
 type EventDetailsFinder interface {
 	// GetEventDetails returns the details for the given event ID.
-	GetEventDetails(ctx context.Context, dbPath string, eventID string) (*EventDetails, error)
+	GetEventDetails(ctx context.Context, eventID string) (*EventDetails, error)
 }
 
 // --- Find Latest Session ---
@@ -123,7 +123,6 @@ type LatestSessionFinder interface {
 	// FindLatestSessionStartedEvent returns the session_started event for the latest matching session.
 	FindLatestSessionStartedEvent(
 		ctx context.Context,
-		dbPath string,
 		input FindLatestSessionInput,
 	) (*model.Event, error)
 }
@@ -160,5 +159,5 @@ type ListSessionsInput struct {
 
 // SessionSummaryFinder provides session summary lookup.
 type SessionSummaryFinder interface {
-	ListSessionSummaries(ctx context.Context, dbPath string, input ListSessionsInput) ([]*SessionSummary, error)
+	ListSessionSummaries(ctx context.Context, input ListSessionsInput) ([]*SessionSummary, error)
 }

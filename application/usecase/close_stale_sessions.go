@@ -2,7 +2,6 @@ package usecase
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -12,7 +11,6 @@ import (
 
 // CloseStaleSessionsInput is the input for closing stale sessions.
 type CloseStaleSessionsInput struct {
-	DBPath     string
 	StaleAfter time.Duration
 	DryRun     bool
 }
@@ -44,13 +42,8 @@ func (u *closeStaleSessionsUsecase) Run(
 	if u.staleSessionCloser == nil {
 		return nil, xerrors.Errorf("stale session closer is not configured")
 	}
-	if strings.TrimSpace(input.DBPath) == "" {
-		return nil, xerrors.Errorf("DB path must not be empty")
-	}
-
 	result, err := u.staleSessionCloser.CloseStaleSessions(
 		ctx,
-		strings.TrimSpace(input.DBPath),
 		port.StaleSessionCloserInput{
 			StaleAfter: input.StaleAfter,
 			DryRun:     input.DryRun,

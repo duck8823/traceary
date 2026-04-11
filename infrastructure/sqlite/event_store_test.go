@@ -50,9 +50,9 @@ CREATE TABLE command_audits (
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(migrations)
+	sut := sqlite.NewDatasource(dbPath, migrations)
 
-	if err := sut.Initialize(context.Background(), dbPath); err != nil {
+	if err := sut.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -77,14 +77,14 @@ CREATE TABLE command_audits (
 		time.Date(2026, 4, 7, 12, 30, 0, 0, time.UTC),
 	)
 
-	if err := sut.Save(context.Background(), dbPath, olderEvent); err != nil {
+	if err := sut.Save(context.Background(), olderEvent); err != nil {
 		t.Fatalf("Save(older) error = %v", err)
 	}
-	if err := sut.Save(context.Background(), dbPath, newerEvent); err != nil {
+	if err := sut.Save(context.Background(), newerEvent); err != nil {
 		t.Fatalf("Save(newer) error = %v", err)
 	}
 
-	got, err := sut.ListRecent(context.Background(), dbPath, port.ListRecentEventsInput{
+	got, err := sut.ListRecent(context.Background(), port.ListRecentEventsInput{
 		Limit: 10,
 	})
 	if err != nil {
@@ -122,7 +122,7 @@ CREATE TABLE events (
 );`),
 		},
 	}
-	if err := sqlite.NewDatasource(initialMigrations).Initialize(context.Background(), dbPath); err != nil {
+	if err := sqlite.NewDatasource(dbPath, initialMigrations).Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize(initial) error = %v", err)
 	}
 
@@ -146,9 +146,9 @@ CREATE TABLE command_audits (
 );`),
 		},
 	}
-	sut := sqlite.NewDatasource(updatedMigrations)
+	sut := sqlite.NewDatasource(dbPath, updatedMigrations)
 
-	if err := sut.Initialize(context.Background(), dbPath); err != nil {
+	if err := sut.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize(updated) error = %v", err)
 	}
 
@@ -162,11 +162,11 @@ CREATE TABLE command_audits (
 		"hello",
 		time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC),
 	)
-	if err := sut.Save(context.Background(), dbPath, event); err != nil {
+	if err := sut.Save(context.Background(), event); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
 
-	got, err := sut.ListRecent(context.Background(), dbPath, port.ListRecentEventsInput{
+	got, err := sut.ListRecent(context.Background(), port.ListRecentEventsInput{
 		Limit: 1,
 	})
 	if err != nil {
@@ -217,9 +217,9 @@ CREATE TABLE command_audits (
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(migrations)
+	sut := sqlite.NewDatasource(dbPath, migrations)
 
-	if err := sut.Initialize(context.Background(), dbPath); err != nil {
+	if err := sut.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -234,12 +234,12 @@ CREATE TABLE command_audits (
 			eventID,
 			time.Date(2026, 4, 7, 12, index, 0, 0, time.UTC),
 		)
-		if err := sut.Save(context.Background(), dbPath, event); err != nil {
+		if err := sut.Save(context.Background(), event); err != nil {
 			t.Fatalf("Save(%s) error = %v", eventID, err)
 		}
 	}
 
-	got, err := sut.ListRecent(context.Background(), dbPath, port.ListRecentEventsInput{
+	got, err := sut.ListRecent(context.Background(), port.ListRecentEventsInput{
 		Limit:  1,
 		Offset: 1,
 	})
@@ -291,9 +291,9 @@ CREATE TABLE command_audits (
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(migrations)
+	sut := sqlite.NewDatasource(dbPath, migrations)
 
-	if err := sut.Initialize(context.Background(), dbPath); err != nil {
+	if err := sut.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -309,12 +309,12 @@ CREATE TABLE command_audits (
 		model.EventOf(secondEventID, types.EventKindCommandExecuted, "hook", claudeAgent, sessionTwo, "other/repo", "second", time.Date(2026, 4, 7, 12, 1, 0, 0, time.UTC)),
 	}
 	for _, event := range events {
-		if err := sut.Save(context.Background(), dbPath, event); err != nil {
+		if err := sut.Save(context.Background(), event); err != nil {
 			t.Fatalf("Save(%s) error = %v", event.EventID(), err)
 		}
 	}
 
-	got, err := sut.ListRecent(context.Background(), dbPath, port.ListRecentEventsInput{
+	got, err := sut.ListRecent(context.Background(), port.ListRecentEventsInput{
 		Limit:     10,
 		Kind:      types.EventKindNote.String(),
 		Client:    "cli",

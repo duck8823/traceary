@@ -8,7 +8,6 @@ import (
 )
 
 type storeMaintenanceUsecaseAdapter struct {
-	dbPath             string
 	initializeStore    InitializeStoreUsecase
 	createBackup       CreateStoreBackupUsecase
 	restoreBackup      RestoreStoreBackupUsecase
@@ -18,15 +17,13 @@ type storeMaintenanceUsecaseAdapter struct {
 
 // NewStoreMaintenanceUsecaseAdapter creates a StoreMaintenanceUsecase that delegates to existing usecases.
 func NewStoreMaintenanceUsecaseAdapter(
-	dbPath string,
-	initializeStore InitializeStoreUsecase,
+		initializeStore InitializeStoreUsecase,
 	createBackup CreateStoreBackupUsecase,
 	restoreBackup RestoreStoreBackupUsecase,
 	collectGarbage CollectGarbageUsecase,
 	closeStaleSessions CloseStaleSessionsUsecase,
 ) StoreMaintenanceUsecase {
 	return &storeMaintenanceUsecaseAdapter{
-		dbPath:             dbPath,
 		initializeStore:    initializeStore,
 		createBackup:       createBackup,
 		restoreBackup:      restoreBackup,
@@ -36,7 +33,7 @@ func NewStoreMaintenanceUsecaseAdapter(
 }
 
 func (a *storeMaintenanceUsecaseAdapter) Initialize(ctx context.Context) error {
-	if err := a.initializeStore.Run(ctx, a.dbPath); err != nil {
+	if err := a.initializeStore.Run(ctx); err != nil {
 		return xerrors.Errorf("failed to initialize store: %w", err)
 	}
 	return nil
@@ -44,7 +41,6 @@ func (a *storeMaintenanceUsecaseAdapter) Initialize(ctx context.Context) error {
 
 func (a *storeMaintenanceUsecaseAdapter) CreateBackup(ctx context.Context, outputPath string, overwrite bool) error {
 	if err := a.createBackup.Run(ctx, CreateStoreBackupInput{
-		DBPath:     a.dbPath,
 		OutputPath: outputPath,
 		Overwrite:  overwrite,
 	}); err != nil {
@@ -55,7 +51,6 @@ func (a *storeMaintenanceUsecaseAdapter) CreateBackup(ctx context.Context, outpu
 
 func (a *storeMaintenanceUsecaseAdapter) RestoreBackup(ctx context.Context, inputPath string, overwrite bool) error {
 	if err := a.restoreBackup.Run(ctx, RestoreStoreBackupInput{
-		DBPath:    a.dbPath,
 		InputPath: inputPath,
 		Overwrite: overwrite,
 	}); err != nil {
@@ -66,7 +61,6 @@ func (a *storeMaintenanceUsecaseAdapter) RestoreBackup(ctx context.Context, inpu
 
 func (a *storeMaintenanceUsecaseAdapter) CollectGarbage(ctx context.Context, before time.Time, dryRun bool) (*CollectGarbageResult, error) {
 	result, err := a.collectGarbage.Run(ctx, CollectGarbageInput{
-		DBPath: a.dbPath,
 		Before: before,
 		DryRun: dryRun,
 	})
@@ -78,7 +72,6 @@ func (a *storeMaintenanceUsecaseAdapter) CollectGarbage(ctx context.Context, bef
 
 func (a *storeMaintenanceUsecaseAdapter) CloseStaleSessions(ctx context.Context, staleAfter time.Duration, dryRun bool) (*CloseStaleSessionsResult, error) {
 	result, err := a.closeStaleSessions.Run(ctx, CloseStaleSessionsInput{
-		DBPath:     a.dbPath,
 		StaleAfter: staleAfter,
 		DryRun:     dryRun,
 	})

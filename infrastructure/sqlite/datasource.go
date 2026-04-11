@@ -18,19 +18,20 @@ import (
 
 // Datasource is a SQLite-backed data source.
 type Datasource struct {
+	dbPath     string
 	migrations fs.FS
 }
 
 var _ port.StoreInitializer = (*Datasource)(nil)
 
-// NewDatasource creates a new Datasource.
-func NewDatasource(migrations fs.FS) *Datasource {
-	return &Datasource{migrations: migrations}
+// NewDatasource creates a new Datasource bound to the given database path.
+func NewDatasource(dbPath string, migrations fs.FS) *Datasource {
+	return &Datasource{dbPath: strings.TrimSpace(dbPath), migrations: migrations}
 }
 
 // Initialize initializes the SQLite store.
-func (d *Datasource) Initialize(ctx context.Context, dbPath string) (err error) {
-	trimmedPath := strings.TrimSpace(dbPath)
+func (d *Datasource) Initialize(ctx context.Context) (err error) {
+	trimmedPath := d.dbPath
 	if trimmedPath == "" {
 		return xerrors.Errorf("DB path must not be empty")
 	}
@@ -39,7 +40,7 @@ func (d *Datasource) Initialize(ctx context.Context, dbPath string) (err error) 
 		return xerrors.Errorf("failed to create DB directory: %w", err)
 	}
 
-	db, err := d.openDB(ctx, trimmedPath)
+	db, err := d.openDB(ctx)
 	if err != nil {
 		return xerrors.Errorf("failed to initialize SQLite connection: %w", err)
 	}

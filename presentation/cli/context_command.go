@@ -81,16 +81,16 @@ func (c *RootCLI) runContext(ctx context.Context, output io.Writer, input contex
 		return xerrors.Errorf(Localize("limit must be greater than or equal to 1", "limit は 1 以上である必要があります"))
 	}
 
-	resolvedPath, err := resolveDBPath(input.dbPath)
+	_, err := resolveDBPath(input.dbPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.initializeStoreUsecase.Run(ctx, resolvedPath); err != nil {
+	if err := c.initializeStoreUsecase.Run(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
 	resolvedRepo := resolveRepoValue(ctx, input.repo)
-	resolvedSessionID, err := c.resolveContextSessionID(ctx, resolvedPath, contextCommandInput{
+	resolvedSessionID, err := c.resolveContextSessionID(ctx, contextCommandInput{
 		sessionID: input.sessionID,
 		client:    input.client,
 		agent:     input.agent,
@@ -100,7 +100,7 @@ func (c *RootCLI) runContext(ctx context.Context, output io.Writer, input contex
 		return err
 	}
 
-	events, err := c.getContextQueryService.Run(ctx, resolvedPath, port.GetContextInput{
+	events, err := c.getContextQueryService.Run(ctx, port.GetContextInput{
 		Repo:      resolvedRepo,
 		SessionID: resolvedSessionID,
 		Limit:     input.limit,
@@ -118,7 +118,6 @@ func (c *RootCLI) runContext(ctx context.Context, output io.Writer, input contex
 
 func (c *RootCLI) resolveContextSessionID(
 	ctx context.Context,
-	dbPath string,
 	input contextCommandInput,
 ) (string, error) {
 	trimmedSessionID := strings.TrimSpace(input.sessionID)
@@ -130,7 +129,7 @@ func (c *RootCLI) resolveContextSessionID(
 		return "", nil
 	}
 
-	event, err := c.findLatestSessionQueryService.Run(ctx, dbPath, port.FindLatestSessionInput{
+	event, err := c.findLatestSessionQueryService.Run(ctx, port.FindLatestSessionInput{
 		Client: strings.TrimSpace(input.client),
 		Agent:  strings.TrimSpace(input.agent),
 		Repo:   strings.TrimSpace(input.repo),

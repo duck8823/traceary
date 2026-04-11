@@ -12,7 +12,6 @@ import (
 )
 
 type eventDetailsFinderStub struct {
-	receivedPath    string
 	receivedEventID string
 	eventDetails    *port.EventDetails
 	err             error
@@ -20,10 +19,8 @@ type eventDetailsFinderStub struct {
 
 func (s *eventDetailsFinderStub) GetEventDetails(
 	_ context.Context,
-	dbPath string,
 	eventID string,
 ) (*port.EventDetails, error) {
-	s.receivedPath = dbPath
 	s.receivedEventID = eventID
 	return s.eventDetails, s.err
 }
@@ -74,12 +71,9 @@ func TestGetEventDetailsQueryService_Run(t *testing.T) {
 		stub := &eventDetailsFinderStub{eventDetails: eventDetails}
 		sut := queryservice.NewGetEventDetailsQueryService(stub)
 
-		got, err := sut.Run(context.Background(), "/tmp/traceary.db", "event-1")
+		got, err := sut.Run(context.Background(), "event-1")
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
-		}
-		if stub.receivedPath != "/tmp/traceary.db" {
-			t.Fatalf("received path = %q, want %q", stub.receivedPath, "/tmp/traceary.db")
 		}
 		if stub.receivedEventID != "event-1" {
 			t.Fatalf("received event ID = %q, want %q", stub.receivedEventID, "event-1")
@@ -97,7 +91,7 @@ func TestGetEventDetailsQueryService_Run(t *testing.T) {
 
 		sut := queryservice.NewGetEventDetailsQueryService(&eventDetailsFinderStub{})
 
-		_, err := sut.Run(context.Background(), "/tmp/traceary.db", "   ")
+		_, err := sut.Run(context.Background(), "")
 		if err == nil {
 			t.Fatalf("Run() error = nil, want error")
 		}

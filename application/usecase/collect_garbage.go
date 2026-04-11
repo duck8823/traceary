@@ -2,7 +2,6 @@ package usecase
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -15,7 +14,6 @@ type GarbageCollector = port.GarbageCollector
 
 // CollectGarbageInput is the input for garbage collection.
 type CollectGarbageInput struct {
-	DBPath string
 	Before time.Time
 	DryRun bool
 }
@@ -50,16 +48,12 @@ func (u *collectGarbageUsecase) Run(
 	if u.garbageCollector == nil {
 		return nil, xerrors.Errorf("garbage collector is not configured")
 	}
-	if strings.TrimSpace(input.DBPath) == "" {
-		return nil, xerrors.Errorf("DB path must not be empty")
-	}
 	if input.Before.IsZero() {
 		return nil, xerrors.Errorf("before timestamp is required")
 	}
 
 	deletedCount, err := u.garbageCollector.CollectGarbage(
 		ctx,
-		strings.TrimSpace(input.DBPath),
 		input.Before,
 		input.DryRun,
 	)

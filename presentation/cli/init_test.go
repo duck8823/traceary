@@ -12,14 +12,12 @@ import (
 )
 
 type initializeStoreUsecaseStub struct {
-	receivedPath string
 	called       bool
 	err          error
 }
 
-func (s *initializeStoreUsecaseStub) Run(_ context.Context, dbPath string) error {
+func (s *initializeStoreUsecaseStub) Run(_ context.Context) error {
 	s.called = true
-	s.receivedPath = dbPath
 	return s.err
 }
 
@@ -44,9 +42,6 @@ func TestRootCLI_InitCommand(t *testing.T) {
 	}
 	if !stub.called {
 		t.Fatalf("Run() was not called")
-	}
-	if stub.receivedPath != dbPath {
-		t.Fatalf("Run() path = %q, want %q", stub.receivedPath, dbPath)
 	}
 	wantOutput := "Initialized: " + dbPath + "\n"
 	if stdout.String() != wantOutput {
@@ -125,9 +120,6 @@ func TestRootCLI_InitCommand_UsesTracearyDBPathEnv(t *testing.T) {
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
-	}
-	if stub.receivedPath != dbPath {
-		t.Fatalf("Run() path = %q, want %q", stub.receivedPath, dbPath)
 	}
 	wantOutput := "Initialized: " + dbPath + "\n"
 	if stdout.String() != wantOutput {

@@ -22,10 +22,9 @@ var _ port.StaleSessionCloser = (*Datasource)(nil)
 // CloseStaleSessions closes active sessions that have no recent events.
 func (d *Datasource) CloseStaleSessions(
 	ctx context.Context,
-	dbPath string,
 	input port.StaleSessionCloserInput,
 ) (*port.StaleSessionCloserResult, error) {
-	db, err := d.openDB(ctx, dbPath)
+	db, err := d.openDB(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB: %w", err)
 	}

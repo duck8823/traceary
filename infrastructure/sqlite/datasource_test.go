@@ -30,9 +30,9 @@ CREATE TABLE events (
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(migrations)
+	sut := sqlite.NewDatasource(dbPath, migrations)
 
-	if err := sut.Initialize(context.Background(), dbPath); err != nil {
+	if err := sut.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -68,9 +68,9 @@ CREATE TABLE events (
 	}
 	dbDir := filepath.Join(t.TempDir(), "traceary-private")
 	dbPath := filepath.Join(dbDir, "traceary.db")
-	sut := sqlite.NewDatasource(migrations)
+	sut := sqlite.NewDatasource(dbPath, migrations)
 
-	if err := sut.Initialize(context.Background(), dbPath); err != nil {
+	if err := sut.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
