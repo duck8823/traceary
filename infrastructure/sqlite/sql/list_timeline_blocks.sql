@@ -1,3 +1,7 @@
+-- Gap-based work block detection.
+-- When workspace is filtered, LAG operates only on matching rows (correct).
+-- When workspace is empty (all workspaces), cross-workspace gaps are treated
+-- as continuous work, which is the intended behavior for overview timelines.
 WITH ordered_events AS (
   SELECT
     e.id,
