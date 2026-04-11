@@ -118,7 +118,9 @@ func (c *RootCLI) printCompactSummary(
 		sb.WriteString("\n")
 	}
 
-	// Retrieve the latest compact_summary event for richer context
+	// Retrieve the latest compact_summary event for richer context.
+	// Errors are intentionally ignored: this output is injected into hook stdout
+	// and must not fail even if the compact_summary query encounters a DB issue.
 	compactSummaryEvents, err := c.event.List(ctx, usecase.EventListCriteria{
 		Limit:     1,
 		SessionID: types.SessionID(sessionID),
@@ -176,7 +178,17 @@ func extractCompactSummarySections(body string) string {
 		endIdx := len(rest)
 		for i := 1; i <= 9; i++ {
 			nextHeader := fmt.Sprintf("\n%d. ", i)
-			if pos := strings.Index(rest, nextHeader); pos > 0 && pos < endIdx {
+			if pos := strings.Index(rest, nextHeader); pos >= 0 && pos < endIdx {
+				endIdx = pos
+			}
+		}
+		// Also check for plain (unnumbered) section headers
+		for _, otherSection := range sections {
+			if otherSection == section {
+				continue
+			}
+			plainHeader := "\n" + otherSection + ":"
+			if pos := strings.Index(rest, plainHeader); pos >= 0 && pos < endIdx {
 				endIdx = pos
 			}
 		}
