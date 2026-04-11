@@ -2,7 +2,6 @@ package usecase
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
@@ -25,9 +24,6 @@ type RecordSessionBoundaryInput struct {
 	Summary           string
 	ParentSessionID   string
 }
-
-// ErrSessionStartedEventNotFound is defined in domain/model.
-var ErrSessionStartedEventNotFound = model.ErrSessionStartedEventNotFound
 
 // RecordSessionBoundaryUsecase records session boundary events.
 type RecordSessionBoundaryUsecase interface {
@@ -146,11 +142,12 @@ func (u *recordSessionBoundaryUsecase) resolveSessionBoundaryAttribution(
 
 	if input.Kind == types.EventKindSessionEnded && u.sessionRepo != nil {
 		if resolvedClient == "" || resolvedAgentValue == "" || resolvedWorkspace == "" {
-			startedSession, err := u.sessionRepo.FindByID(ctx, sessionID)
-			if err != nil && !errors.Is(err, ErrSessionStartedEventNotFound) {
+			result, err := u.sessionRepo.FindByID(ctx, sessionID)
+			if err != nil {
 				return "", "", "", xerrors.Errorf("failed to get session: %w", err)
 			}
-			if err == nil && startedSession != nil {
+			if result.IsPresent() {
+				startedSession := result.Get()
 				if resolvedClient == "" {
 					resolvedClient = startedSession.Client()
 				}

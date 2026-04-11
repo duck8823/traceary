@@ -2,13 +2,11 @@ package sqlite_test
 
 import (
 	"context"
-	"errors"
 	"path/filepath"
 	"testing"
 	"testing/fstest"
 	"time"
 
-	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
@@ -107,15 +105,18 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 	}
 
 	t.Run("returns latest session_started", func(t *testing.T) {
-		got, err := sut.FindLatest(
+		result, err := sut.FindLatest(
 			context.Background(),
 			types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), false,
 		)
 		if err != nil {
 			t.Fatalf("FindLatest() error = %v", err)
 		}
-		if got.EventID().String() != "event-4" {
-			t.Fatalf("EventID() = %q, want %q", got.EventID(), "event-4")
+		if !result.IsPresent() {
+			t.Fatalf("FindLatest() returned empty, want present")
+		}
+		if result.Get().EventID().String() != "event-4" {
+			t.Fatalf("EventID() = %q, want %q", result.Get().EventID(), "event-4")
 		}
 	})
 
@@ -146,28 +147,34 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 			t.Fatalf("Save(overlap end) error = %v", err)
 		}
 
-		got, err := sut.FindLatest(
+		result, err := sut.FindLatest(
 			context.Background(),
 			types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), false,
 		)
 		if err != nil {
 			t.Fatalf("FindLatest() error = %v", err)
 		}
-		if got.EventID().String() != "event-4" {
-			t.Fatalf("EventID() = %q, want %q", got.EventID(), "event-4")
+		if !result.IsPresent() {
+			t.Fatalf("FindLatest() returned empty, want present")
+		}
+		if result.Get().EventID().String() != "event-4" {
+			t.Fatalf("EventID() = %q, want %q", result.Get().EventID(), "event-4")
 		}
 	})
 
 	t.Run("active only のとき未終了 session を返す", func(t *testing.T) {
-		got, err := sut.FindLatest(
+		result, err := sut.FindLatest(
 			context.Background(),
 			types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), true,
 		)
 		if err != nil {
 			t.Fatalf("FindLatest() error = %v", err)
 		}
-		if got.EventID().String() != "event-6" {
-			t.Fatalf("EventID() = %q, want %q", got.EventID(), "event-6")
+		if !result.IsPresent() {
+			t.Fatalf("FindLatest() returned empty, want present")
+		}
+		if result.Get().EventID().String() != "event-6" {
+			t.Fatalf("EventID() = %q, want %q", result.Get().EventID(), "event-6")
 		}
 	})
 
@@ -185,41 +192,44 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 			t.Fatalf("Save(repeated start) error = %v", err)
 		}
 
-		got, err := sut.FindLatest(
+		result, err := sut.FindLatest(
 			context.Background(),
 			types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), false,
 		)
 		if err != nil {
 			t.Fatalf("FindLatest() error = %v", err)
 		}
-		if got.EventID().String() != "event-8" {
-			t.Fatalf("EventID() = %q, want %q", got.EventID(), "event-8")
+		if !result.IsPresent() {
+			t.Fatalf("FindLatest() returned empty, want present")
+		}
+		if result.Get().EventID().String() != "event-8" {
+			t.Fatalf("EventID() = %q, want %q", result.Get().EventID(), "event-8")
 		}
 	})
 
-	t.Run("returns error when no matching session exists", func(t *testing.T) {
-		_, err := sut.FindLatest(
+	t.Run("returns empty Optional when no matching session exists", func(t *testing.T) {
+		result, err := sut.FindLatest(
 			context.Background(),
 			types.Client(""), types.Agent("claude"), types.Workspace(""), false,
 		)
-		if err == nil {
-			t.Fatalf("FindLatest() error = nil, want error")
+		if err != nil {
+			t.Fatalf("FindLatest() error = %v, want nil", err)
 		}
-		if !errors.Is(err, queryservice.ErrSessionNotFound) {
-			t.Fatalf("error = %v, want ErrSessionNotFound", err)
+		if result.IsPresent() {
+			t.Fatalf("FindLatest() returned present, want empty")
 		}
 	})
 
-	t.Run("returns error when no matching active session exists", func(t *testing.T) {
-		_, err := sut.FindLatest(
+	t.Run("returns empty Optional when no matching active session exists", func(t *testing.T) {
+		result, err := sut.FindLatest(
 			context.Background(),
 			types.Client(""), types.Agent("claude"), types.Workspace(""), true,
 		)
-		if err == nil {
-			t.Fatalf("FindLatest() error = nil, want error")
+		if err != nil {
+			t.Fatalf("FindLatest() error = %v, want nil", err)
 		}
-		if !errors.Is(err, queryservice.ErrActiveSessionNotFound) {
-			t.Fatalf("error = %v, want ErrActiveSessionNotFound", err)
+		if result.IsPresent() {
+			t.Fatalf("FindLatest() returned present, want empty")
 		}
 	})
 }
@@ -290,15 +300,18 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		t.Fatalf("Save(other workspace boundary) error = %v", err)
 	}
 
-	got, err := sut.FindLatest(
+	result, err := sut.FindLatest(
 		context.Background(),
 		types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), false,
 	)
 	if err != nil {
 		t.Fatalf("FindLatest() error = %v", err)
 	}
-	if got.EventID().String() != "event-2" {
-		t.Fatalf("EventID() = %q, want %q", got.EventID(), "event-2")
+	if !result.IsPresent() {
+		t.Fatalf("FindLatest() returned empty, want present")
+	}
+	if result.Get().EventID().String() != "event-2" {
+		t.Fatalf("EventID() = %q, want %q", result.Get().EventID(), "event-2")
 	}
 }
 
@@ -355,15 +368,18 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		t.Fatalf("Save(other workspace end) error = %v", err)
 	}
 
-	got, err := sut.FindLatest(
+	result, err := sut.FindLatest(
 		context.Background(),
 		types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), true,
 	)
 	if err != nil {
 		t.Fatalf("FindLatest() error = %v", err)
 	}
-	if got.EventID().String() != "event-1" {
-		t.Fatalf("EventID() = %q, want %q", got.EventID(), "event-1")
+	if !result.IsPresent() {
+		t.Fatalf("FindLatest() returned empty, want present")
+	}
+	if result.Get().EventID().String() != "event-1" {
+		t.Fatalf("EventID() = %q, want %q", result.Get().EventID(), "event-1")
 	}
 }
 

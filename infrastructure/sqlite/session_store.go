@@ -112,10 +112,11 @@ func (d *Datasource) SaveSession(ctx context.Context, session *model.Session) er
 }
 
 // FindByID returns the session for the given ID.
-func (d *Datasource) FindByID(ctx context.Context, sessionID types.SessionID) (*model.Session, error) {
+// Returns an empty Optional when the session does not exist.
+func (d *Datasource) FindByID(ctx context.Context, sessionID types.SessionID) (types.Optional[*model.Session], error) {
 	db, err := d.openDB(ctx)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to open DB for session lookup: %w", err)
+		return types.Empty[*model.Session](), xerrors.Errorf("failed to open DB for session lookup: %w", err)
 	}
 	defer func() {
 		if err := db.Close(); err != nil {
@@ -149,34 +150,34 @@ func (d *Datasource) FindByID(ctx context.Context, sessionID types.SessionID) (*
 		&parentSessionIDValue,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, model.ErrSessionStartedEventNotFound
+			return types.Empty[*model.Session](), nil
 		}
-		return nil, xerrors.Errorf("failed to scan session row: %w", err)
+		return types.Empty[*model.Session](), xerrors.Errorf("failed to scan session row: %w", err)
 	}
 
 	sid, err := types.SessionIDOf(sessionIDValue)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to restore session ID: %w", err)
+		return types.Empty[*model.Session](), xerrors.Errorf("failed to restore session ID: %w", err)
 	}
 	startedAt, err := time.Parse(time.RFC3339Nano, startedAtValue)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to parse started_at: %w", err)
+		return types.Empty[*model.Session](), xerrors.Errorf("failed to parse started_at: %w", err)
 	}
 	agent, err := types.AgentOf(agentValue)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to restore agent: %w", err)
+		return types.Empty[*model.Session](), xerrors.Errorf("failed to restore agent: %w", err)
 	}
 
 	var endedAt *time.Time
 	if endedAtValue.Valid {
 		t, err := time.Parse(time.RFC3339Nano, endedAtValue.String)
 		if err != nil {
-			return nil, xerrors.Errorf("failed to parse ended_at: %w", err)
+			return types.Empty[*model.Session](), xerrors.Errorf("failed to parse ended_at: %w", err)
 		}
 		endedAt = &t
 	}
 
-	return model.SessionOf(
+	return types.Of(model.SessionOf(
 		sid,
 		startedAt,
 		endedAt,
@@ -186,5 +187,5 @@ func (d *Datasource) FindByID(ctx context.Context, sessionID types.SessionID) (*
 		labelValue,
 		summaryValue,
 		parentSessionIDValue,
-	), nil
+	)), nil
 }

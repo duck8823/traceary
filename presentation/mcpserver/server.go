@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -341,7 +342,7 @@ func (s *Server) latestSession(_ string) mcp.ToolHandlerFor[sessionLookupInput, 
 			Workspace: types.Workspace(strings.TrimSpace(input.Workspace)),
 		})
 		if err != nil {
-			if usecase.IsSessionLookupNotFound(err) {
+			if errors.Is(err, usecase.ErrSessionNotFound) {
 				return nil, sessionEventOutput{}, xerrors.Errorf("no matching session found")
 			}
 			return nil, sessionEventOutput{}, xerrors.Errorf("failed to get latest session: %w", err)
@@ -359,7 +360,7 @@ func (s *Server) activeSession(_ string) mcp.ToolHandlerFor[sessionLookupInput, 
 			Workspace: types.Workspace(strings.TrimSpace(input.Workspace)),
 		})
 		if err != nil {
-			if usecase.IsSessionLookupNotFound(err) {
+			if errors.Is(err, usecase.ErrSessionNotFound) {
 				return nil, sessionEventOutput{}, xerrors.Errorf("no matching active session found")
 			}
 			return nil, sessionEventOutput{}, xerrors.Errorf("failed to get active session: %w", err)

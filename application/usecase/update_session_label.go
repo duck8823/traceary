@@ -44,11 +44,15 @@ func (u *updateSessionLabelUsecase) Run(ctx context.Context, input UpdateSession
 		return xerrors.Errorf("failed to resolve session ID: %w", err)
 	}
 
-	session, err := u.sessionRepo.FindByID(ctx, sessionID)
+	result, err := u.sessionRepo.FindByID(ctx, sessionID)
 	if err != nil {
 		return xerrors.Errorf("failed to find session: %w", err)
 	}
+	if !result.IsPresent() {
+		return xerrors.Errorf("session not found: %s", sessionID)
+	}
 
+	session := result.Get()
 	session.SetLabel(input.Label)
 
 	if err := u.sessionRepo.SaveSession(ctx, session); err != nil {

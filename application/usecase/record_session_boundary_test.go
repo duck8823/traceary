@@ -185,7 +185,7 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventRepositoryStub{}
-		sessionStub := &sessionRepositoryStub{findErr: usecase.ErrSessionStartedEventNotFound}
+		sessionStub := &sessionRepositoryStub{empty: true}
 		sut := usecase.NewRecordSessionBoundaryUsecase(stub, sessionStub)
 
 		got, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
@@ -226,6 +226,7 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 
 type sessionRepositoryStub struct {
 	session    *model.Session
+	empty      bool
 	findErr    error
 	saveCalled bool
 	saved      *model.Session
@@ -235,8 +236,14 @@ type sessionRepositoryStub struct {
 func (s *sessionRepositoryStub) FindByID(
 	_ context.Context,
 	_ types.SessionID,
-) (*model.Session, error) {
-	return s.session, s.findErr
+) (types.Optional[*model.Session], error) {
+	if s.findErr != nil {
+		return types.Empty[*model.Session](), s.findErr
+	}
+	if s.empty || s.session == nil {
+		return types.Empty[*model.Session](), nil
+	}
+	return types.Of(s.session), nil
 }
 
 func (s *sessionRepositoryStub) SaveSession(_ context.Context, session *model.Session) error {

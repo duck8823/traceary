@@ -9,7 +9,6 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -18,14 +17,15 @@ import (
 var findLatestSessionQuery string
 
 // FindLatest returns the session_started event for the latest matching session.
+// Returns an empty Optional when no matching session exists.
 func (d *Datasource) FindLatest(
 	ctx context.Context,
 	client types.Client, agent types.Agent, workspace types.Workspace,
 	activeOnly bool,
-) (*model.Event, error) {
+) (types.Optional[*model.Event], error) {
 	db, err := d.openDB(ctx)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to open DB for latest session lookup: %w", err)
+		return types.Empty[*model.Event](), xerrors.Errorf("failed to open DB for latest session lookup: %w", err)
 	}
 	defer func() {
 		if err := db.Close(); err != nil {
@@ -54,13 +54,10 @@ func (d *Datasource) FindLatest(
 	event, err := d.scanEvent(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			if activeOnly {
-				return nil, queryservice.ErrActiveSessionNotFound
-			}
-			return nil, queryservice.ErrSessionNotFound
+			return types.Empty[*model.Event](), nil
 		}
-		return nil, xerrors.Errorf("failed to restore latest session event: %w", err)
+		return types.Empty[*model.Event](), xerrors.Errorf("failed to restore latest session event: %w", err)
 	}
 
-	return event, nil
+	return types.Of(event), nil
 }

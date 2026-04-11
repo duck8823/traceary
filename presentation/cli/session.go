@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -367,7 +368,7 @@ func (c *RootCLI) runSessionLatest(
 		event, err = c.session.Latest(ctx, criteria)
 	}
 	if err != nil {
-		if usecase.IsSessionLookupNotFound(err) {
+		if errors.Is(err, usecase.ErrSessionNotFound) {
 			if input.activeOnly {
 				return xerrors.Errorf(Localize("no matching active session found", "条件に一致する active session は存在しません"))
 			}

@@ -1,12 +1,6 @@
 package usecase
 
-import (
-	"errors"
+import "golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/queryservice"
-)
-
-// IsSessionLookupNotFound reports whether err is a session-lookup not-found error.
-func IsSessionLookupNotFound(err error) bool {
-	return errors.Is(err, queryservice.ErrSessionNotFound) || errors.Is(err, queryservice.ErrActiveSessionNotFound)
-}
+// ErrSessionNotFound indicates that no matching session was found.
+var ErrSessionNotFound = xerrors.New("no matching session found")

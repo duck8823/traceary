@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -9,11 +10,10 @@ import (
 	"time"
 
 	"golang.org/x/xerrors"
+
 	"github.com/duck8823/traceary/application/usecase"
-
-	"github.com/duck8823/traceary/domain/types"
-
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 type manualSessionResolution struct {
@@ -46,7 +46,7 @@ func (c *RootCLI) resolveManualSessionID(
 		Workspace: types.Workspace(trimmedRepo),
 	})
 	if err != nil {
-		if usecase.IsSessionLookupNotFound(err) {
+		if errors.Is(err, usecase.ErrSessionNotFound) {
 			slog.Debug("no active session found for repo, using default", "workspace", trimmedRepo)
 			return &manualSessionResolution{
 				sessionID: defaultSessionIDValue,

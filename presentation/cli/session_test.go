@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
-var errSessionNotFound = queryservice.ErrSessionNotFound
+var errSessionNotFound = usecase.ErrSessionNotFound
 
 func TestRootCLI_SessionStartCommand(t *testing.T) {
 	t.Parallel()
