@@ -23,7 +23,7 @@ fi
 
 HOOK_CWD="$(traceary_json_get 'cwd')"
 SESSION_ID="$(traceary_json_get 'session_id')"
-REPO_VALUE="$(traceary_resolve_workspace "$HOOK_CWD")"
+WORKSPACE_VALUE="$(traceary_resolve_workspace "$HOOK_CWD")"
 
 COMMON_ARGS=(session)
 if [[ -n "${TRACEARY_DB_PATH:-}" ]]; then
@@ -39,8 +39,8 @@ case "$ACTION" in
     if [[ -n "${TRACEARY_DB_PATH:-}" ]]; then
       COMMAND+=(--db-path "$TRACEARY_DB_PATH")
     fi
-    if [[ -n "$REPO_VALUE" ]]; then
-      COMMAND+=(--workspace "$REPO_VALUE")
+    if [[ -n "$WORKSPACE_VALUE" ]]; then
+      COMMAND+=(--workspace "$WORKSPACE_VALUE")
     fi
     if [[ -n "$SESSION_ID" ]]; then
       COMMAND+=(--session-id "$SESSION_ID")
@@ -54,8 +54,8 @@ case "$ACTION" in
     if [[ -n "$ACTUAL_SESSION_ID" ]]; then
       traceary_write_state "$CLIENT" "$ACTUAL_SESSION_ID"
       traceary_clear_session_end_marker "$CLIENT" "$ACTUAL_SESSION_ID"
-      if [[ -n "$REPO_VALUE" ]]; then
-        traceary_write_repo_state "$CLIENT" "$REPO_VALUE"
+      if [[ -n "$WORKSPACE_VALUE" ]]; then
+        traceary_write_workspace_state "$CLIENT" "$WORKSPACE_VALUE"
       fi
     fi
     ;;
@@ -74,17 +74,17 @@ case "$ACTION" in
     fi
 
     # Use repo from session state if available (prevents CWD drift)
-    REPO_STATE="$(traceary_read_repo_state "$CLIENT")"
+    REPO_STATE="$(traceary_read_workspace_state "$CLIENT")"
     if [[ -n "$REPO_STATE" ]]; then
-      REPO_VALUE="$REPO_STATE"
+      WORKSPACE_VALUE="$REPO_STATE"
     fi
 
     COMMAND=("$TRACEARY_CMD" session end --client hook --agent "$AGENT_VALUE" --session-id "$SESSION_ID")
     if [[ -n "${TRACEARY_DB_PATH:-}" ]]; then
       COMMAND+=(--db-path "$TRACEARY_DB_PATH")
     fi
-    if [[ -n "$REPO_VALUE" ]]; then
-      COMMAND+=(--workspace "$REPO_VALUE")
+    if [[ -n "$WORKSPACE_VALUE" ]]; then
+      COMMAND+=(--workspace "$WORKSPACE_VALUE")
     fi
     "${COMMAND[@]}" >/dev/null 2>&1 || exit 0
     traceary_clear_state "$CLIENT"

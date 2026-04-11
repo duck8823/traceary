@@ -62,10 +62,10 @@ traceary_resolve_workspace() {
       return 0
     fi
 
-    local repo_root
-    repo_root="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || true)"
-    if [[ -n "$repo_root" ]]; then
-      printf '%s' "$repo_root"
+    local workspace_root
+    workspace_root="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || true)"
+    if [[ -n "$workspace_root" ]]; then
+      printf '%s' "$workspace_root"
       return 0
     fi
   fi
@@ -96,16 +96,16 @@ traceary_resolve_session_id() {
   printf '%s' "$session_id"
 }
 
-traceary_resolve_effective_repo() {
+traceary_resolve_effective_workspace() {
   local client="$1"
-  local repo
-  repo="$(traceary_read_repo_state "$client")"
-  if [[ -z "$repo" ]]; then
+  local ws
+  ws="$(traceary_read_workspace_state "$client")"
+  if [[ -z "$ws" ]]; then
     local cwd
     cwd="$(traceary_json_get 'cwd')"
-    repo="$(traceary_resolve_workspace "$cwd")"
+    ws="$(traceary_resolve_workspace "$cwd")"
   fi
-  printf '%s' "$repo"
+  printf '%s' "$ws"
 }
 
 traceary_resolve_agent() {
@@ -150,15 +150,15 @@ traceary_write_state() {
   printf '%s' "$session_id" > "$state_file"
 }
 
-traceary_write_repo_state() {
+traceary_write_workspace_state() {
   local client="$1"
-  local repo="$2"
+  local ws="$2"
   local state_file
   state_file="$(traceary_session_state_path "$client")-repo"
-  printf '%s' "$repo" > "$state_file"
+  printf '%s' "$ws" > "$state_file"
 }
 
-traceary_read_repo_state() {
+traceary_read_workspace_state() {
   local client="$1"
   local state_file
   state_file="$(traceary_session_state_path "$client")-repo"
