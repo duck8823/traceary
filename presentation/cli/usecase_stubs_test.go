@@ -26,7 +26,7 @@ type eventUsecaseStub struct {
 	contextErr     error
 }
 
-func (s *eventUsecaseStub) Log(_ context.Context, _ string, _ types.Client, _ types.Agent, _ types.SessionID, _ types.Workspace) (*model.Event, error) {
+func (s *eventUsecaseStub) Log(_ context.Context, _ string, _ types.EventKind, _ types.Client, _ types.Agent, _ types.SessionID, _ types.Workspace) (*model.Event, error) {
 	return s.logEvent, s.logErr
 }
 func (s *eventUsecaseStub) Audit(_ context.Context, _ string, _ string, _ string, _ types.Client, _ types.Agent, _ types.SessionID, _ types.Workspace, _ *int, _ usecase.AuditRedaction) (*model.Event, *model.CommandAudit, error) {

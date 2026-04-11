@@ -22,6 +22,7 @@ const (
 func (c *RootCLI) newLogCommand() *cobra.Command {
 	var (
 		dbPath    string
+		kind      string
 		client    string
 		agent     string
 		sessionID string
@@ -46,6 +47,7 @@ func (c *RootCLI) newLogCommand() *cobra.Command {
 			return c.runLog(cmd.Context(), cmd.OutOrStdout(), logCommandInput{
 				dbPath:    dbPath,
 				message:   args[0],
+				kind:      kind,
 				client:    client,
 				agent:     agent,
 				sessionID: sessionID,
@@ -56,6 +58,7 @@ func (c *RootCLI) newLogCommand() *cobra.Command {
 		},
 	}
 	logCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
+	logCmd.Flags().StringVar(&kind, "kind", "", Localize("event kind (default: note)", "イベント種別 (既定: note)"))
 	logCmd.Flags().StringVar(&client, "client", "", Localize("recording channel (env: TRACEARY_CLIENT)", "記録経路 (env: TRACEARY_CLIENT)"))
 	logCmd.Flags().StringVar(&agent, "agent", "", Localize("actor name (env: TRACEARY_AGENT)", "作業主体 (env: TRACEARY_AGENT)"))
 	logCmd.Flags().StringVar(
@@ -78,6 +81,7 @@ func (c *RootCLI) newLogCommand() *cobra.Command {
 type logCommandInput struct {
 	dbPath    string
 	message   string
+	kind      string
 	client    string
 	agent     string
 	sessionID string
@@ -116,7 +120,8 @@ func (c *RootCLI) runLog(ctx context.Context, output io.Writer, input logCommand
 	agent, _ := types.AgentOf(resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue))
 	sessionID, _ := types.SessionIDOf(sessionResolution.sessionID)
 	workspace := types.Workspace(resolvedRepo)
-	event, err := c.event.Log(ctx, input.message, client, agent, sessionID, workspace)
+	kind := types.EventKind(strings.TrimSpace(input.kind))
+	event, err := c.event.Log(ctx, input.message, kind, client, agent, sessionID, workspace)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to record log", "ログ記録に失敗しました"), err)
 	}

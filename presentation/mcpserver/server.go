@@ -153,6 +153,7 @@ func (s *Server) Run(ctx context.Context, dbPath string) error {
 
 type addLogInput struct {
 	Message   string `json:"message" jsonschema:"log body to record"`
+	Kind      string `json:"kind,omitempty" jsonschema:"event kind (default: note; allowed: note, compact_summary, prompt)"`
 	Client    string `json:"client,omitempty" jsonschema:"recording channel (default: mcp)"`
 	Agent     string `json:"agent,omitempty" jsonschema:"actor name (default: manual)"`
 	SessionID string `json:"session_id,omitempty" jsonschema:"session ID (default: default)"`
@@ -228,7 +229,7 @@ type addAuditOutput struct {
 type listEventsInput struct {
 	Limit     int    `json:"limit,omitempty" jsonschema:"result limit (default: 20)"`
 	Offset    int    `json:"offset,omitempty" jsonschema:"offset from the newest result (default: 0)"`
-	Kind      string `json:"kind,omitempty" jsonschema:"filter by event kind (note, command_executed, reviewed, session_started, session_ended; alias: audit)"`
+	Kind      string `json:"kind,omitempty" jsonschema:"filter by event kind (note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt; alias: audit)"`
 	Client    string `json:"client,omitempty" jsonschema:"filter by client"`
 	Agent     string `json:"agent,omitempty" jsonschema:"filter by agent"`
 	SessionID string `json:"session_id,omitempty" jsonschema:"filter by session ID"`
@@ -270,6 +271,7 @@ func (s *Server) addLog(_ string) mcp.ToolHandlerFor[addLogInput, addLogOutput] 
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input addLogInput) (*mcp.CallToolResult, addLogOutput, error) {
 		event, err := s.event.Log(ctx,
 			input.Message,
+			types.EventKind(strings.TrimSpace(input.Kind)),
 			types.Client(resolveValue(input.Client, defaultClientValue)),
 			types.Agent(resolveValue(input.Agent, defaultAgentValue)),
 			types.SessionID(resolveValue(input.SessionID, defaultSessionValue)),
