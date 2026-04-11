@@ -374,6 +374,7 @@ func buildClaudeHooksSettings(scriptsDir string, tracearyBin string) *hooksSetti
 	endCommand := buildHookScriptCommand(scriptsDir, tracearyBin, "traceary-session.sh", "claude", "end")
 	auditCommand := buildHookScriptCommand(scriptsDir, tracearyBin, "traceary-audit.sh", "claude")
 	compactCommand := buildHookScriptCommand(scriptsDir, tracearyBin, "traceary-compact.sh", "claude", "post-compact")
+	compactResumeCommand := buildHookScriptCommand(scriptsDir, tracearyBin, "traceary-compact.sh", "claude", "session-start-compact")
 	promptCommand := buildHookScriptCommand(scriptsDir, tracearyBin, "traceary-prompt.sh", "claude")
 
 	return &hooksSettings{
@@ -382,6 +383,10 @@ func buildClaudeHooksSettings(scriptsDir string, tracearyBin string) *hooksSetti
 				newHookMatcher("*", hookCommand{
 					Type:    "command",
 					Command: startCommand,
+				}),
+				newHookMatcher("compact", hookCommand{
+					Type:    "command",
+					Command: compactResumeCommand,
 				}),
 			},
 			"SessionEnd": {
@@ -395,9 +400,17 @@ func buildClaudeHooksSettings(scriptsDir string, tracearyBin string) *hooksSetti
 					Type:    "command",
 					Command: auditCommand,
 				}),
+				newHookMatcher("mcp__.*", hookCommand{
+					Type:    "command",
+					Command: auditCommand,
+				}),
 			},
 			"PostToolUseFailure": {
 				newHookMatcher("Bash", hookCommand{
+					Type:    "command",
+					Command: auditCommand,
+				}),
+				newHookMatcher("mcp__.*", hookCommand{
 					Type:    "command",
 					Command: auditCommand,
 				}),
