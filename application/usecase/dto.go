@@ -44,7 +44,7 @@ type SessionSummary struct {
 	Agents          []string
 	Label           string
 	Summary         string
-	ParentSessionID string
+	ParentSessionID types.SessionID
 }
 
 // HandoffSummary holds information for session handoff between agents.

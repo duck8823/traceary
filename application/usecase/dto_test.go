@@ -38,7 +38,10 @@ func TestNewEventDetails(t *testing.T) {
 
 	t.Run("with event and command audit", func(t *testing.T) {
 		t.Parallel()
-		audit, _ := model.NewCommandAudit(eventID, "ls -la", "", "", false, false)
+		audit, err := model.NewCommandAudit(eventID, "ls -la", "", "", false, false)
+		if err != nil {
+			t.Fatalf("NewCommandAudit() error = %v", err)
+		}
 		details, err := usecase.NewEventDetails(event, audit)
 		if err != nil {
 			t.Fatalf("NewEventDetails() error = %v", err)

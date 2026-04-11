@@ -65,7 +65,8 @@ type SessionListCriteria struct {
 // (active session, latest session).
 // Zero-value fields are ignored (no filter applied).
 type SessionLookupCriteria struct {
-	Client    types.Client
-	Agent     types.Agent
-	Workspace types.Workspace
+	Client     types.Client
+	Agent      types.Agent
+	Workspace  types.Workspace
+	ActiveOnly bool
 }
