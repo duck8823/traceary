@@ -32,11 +32,12 @@ case "$ACTION" in
     if [[ -n "$SESSION_ID" ]]; then
       COMPACT_SUMMARY="$(traceary_json_get 'compact_summary')"
       WORKSPACE="$(traceary_resolve_effective_workspace "$CLIENT")"
+      AGENT="$(traceary_resolve_agent "$CLIENT")"
 
       if [[ -n "$COMPACT_SUMMARY" ]]; then
-        COMMAND=("$TRACEARY_CMD" log "$COMPACT_SUMMARY" --kind compact_summary --client hook --agent "$CLIENT" --session-id "$SESSION_ID")
+        COMMAND=("$TRACEARY_CMD" log "$COMPACT_SUMMARY" --kind compact_summary --client hook --agent "$AGENT" --session-id "$SESSION_ID")
       else
-        COMMAND=("$TRACEARY_CMD" log "compact triggered" --client hook --agent "$CLIENT" --session-id "$SESSION_ID")
+        COMMAND=("$TRACEARY_CMD" log "compact triggered" --client hook --agent "$AGENT" --session-id "$SESSION_ID")
       fi
       if [[ -n "$WORKSPACE" ]]; then
         COMMAND+=(--workspace "$WORKSPACE")
