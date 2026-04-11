@@ -15,7 +15,7 @@ import (
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
-func TestDatasource_SaveCommandAudit(t *testing.T) {
+func TestDatasource_SaveWithAudit(t *testing.T) {
 	t.Parallel()
 
 	migrations := fstest.MapFS{
@@ -88,8 +88,8 @@ CREATE TABLE command_audits (
 		t.Fatalf("NewCommandAudit() error = %v", err)
 	}
 
-	if err := sut.SaveCommandAudit(context.Background(), event, commandAudit); err != nil {
-		t.Fatalf("SaveCommandAudit() error = %v", err)
+	if err := sut.SaveWithAudit(context.Background(), event, commandAudit); err != nil {
+		t.Fatalf("SaveWithAudit() error = %v", err)
 	}
 
 	db, err := sql.Open("sqlite", dbPath)

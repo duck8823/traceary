@@ -102,8 +102,8 @@ CREATE TABLE command_audits (
 	}
 
 	oldAuditEvent, oldCommandAudit := newOldAuditFixture(t)
-	if err := sut.SaveCommandAudit(context.Background(), oldAuditEvent, oldCommandAudit); err != nil {
-		t.Fatalf("SaveCommandAudit(old) error = %v", err)
+	if err := sut.SaveWithAudit(context.Background(), oldAuditEvent, oldCommandAudit); err != nil {
+		t.Fatalf("SaveWithAudit(old) error = %v", err)
 	}
 	newNoteEvent := newGCEventFixture(
 		t,

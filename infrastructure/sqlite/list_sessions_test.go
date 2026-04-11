@@ -7,7 +7,6 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	infra "github.com/duck8823/traceary/infrastructure/sqlite"
@@ -82,7 +81,7 @@ func saveTestSession(ctx context.Context, t *testing.T, ds *infra.Datasource, se
 	}
 }
 
-func TestDatasource_ListSessionSummaries(t *testing.T) {
+func TestDatasource_ListSummaries(t *testing.T) {
 	t.Parallel()
 
 	t.Run("retrieves session summaries", func(t *testing.T) {
@@ -126,11 +125,9 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		saveTestSession(ctx, t, ds, "s1", time.Now().Add(-time.Hour).UTC(), &s1End, "claude", "duck8823/traceary")
 		saveTestSession(ctx, t, ds, "s2", time.Now().UTC(), nil, "codex", "duck8823/traceary")
 
-		summaries, err := ds.ListSessionSummaries(ctx, port.ListSessionsInput{
-			Limit: 10,
-		})
+		summaries, err := ds.ListSummaries(ctx, 10, 0, "", "", "", "", "", nil, nil)
 		if err != nil {
-			t.Fatalf("ListSessionSummaries() error = %v", err)
+			t.Fatalf("ListSummaries() error = %v", err)
 		}
 		if len(summaries) != 2 {
 			t.Fatalf("got %d summaries, want 2", len(summaries))
@@ -201,12 +198,9 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		saveTestSession(ctx, t, ds, "s1", now, nil, "claude", "workspace")
 		saveTestSession(ctx, t, ds, "s2", now.Add(time.Second), nil, "codex", "workspace")
 
-		summaries, err := ds.ListSessionSummaries(ctx, port.ListSessionsInput{
-			Limit: 10,
-			Agent: "claude",
-		})
+		summaries, err := ds.ListSummaries(ctx, 10, 0, "", "", "", "claude", "", nil, nil)
 		if err != nil {
-			t.Fatalf("ListSessionSummaries() error = %v", err)
+			t.Fatalf("ListSummaries() error = %v", err)
 		}
 		if len(summaries) != 1 {
 			t.Fatalf("got %d summaries, want 1", len(summaries))
@@ -246,12 +240,9 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		}
 
 		fromDate := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
-		summaries, err := ds.ListSessionSummaries(ctx, port.ListSessionsInput{
-			Limit: 10,
-			From:  &fromDate,
-		})
+		summaries, err := ds.ListSummaries(ctx, 10, 0, "", "", "", "", "", &fromDate, nil)
 		if err != nil {
-			t.Fatalf("ListSessionSummaries() error = %v", err)
+			t.Fatalf("ListSummaries() error = %v", err)
 		}
 		if len(summaries) != 1 {
 			t.Fatalf("got %d summaries, want 1", len(summaries))
@@ -291,12 +282,9 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		saveTestSession(ctx, t, ds, "s1", now, nil, "claude", "workspace")
 		saveTestSession(ctx, t, ds, "s2", now.Add(time.Second), nil, "claude", "workspace")
 
-		summaries, err := ds.ListSessionSummaries(ctx, port.ListSessionsInput{
-			Limit:     10,
-			SessionID: "s1",
-		})
+		summaries, err := ds.ListSummaries(ctx, 10, 0, "s1", "", "", "", "", nil, nil)
 		if err != nil {
-			t.Fatalf("ListSessionSummaries() error = %v", err)
+			t.Fatalf("ListSummaries() error = %v", err)
 		}
 		if len(summaries) != 1 {
 			t.Fatalf("got %d summaries, want 1", len(summaries))
@@ -336,12 +324,9 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		}
 
 		toDate := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
-		summaries, err := ds.ListSessionSummaries(ctx, port.ListSessionsInput{
-			Limit: 10,
-			To:    &toDate,
-		})
+		summaries, err := ds.ListSummaries(ctx, 10, 0, "", "", "", "", "", nil, &toDate)
 		if err != nil {
-			t.Fatalf("ListSessionSummaries() error = %v", err)
+			t.Fatalf("ListSummaries() error = %v", err)
 		}
 		if len(summaries) != 1 {
 			t.Fatalf("got %d summaries, want 1", len(summaries))

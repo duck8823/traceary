@@ -7,13 +7,12 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
-func TestDatasource_SearchEvents(t *testing.T) {
+func TestDatasource_Search(t *testing.T) {
 	t.Parallel()
 
 	migrations := fstest.MapFS{
@@ -70,19 +69,13 @@ CREATE TABLE command_audits (
 		"github.com/duck8823/traceary",
 		time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC),
 	)
-	if err := sut.SaveCommandAudit(context.Background(), auditEvent, commandAudit); err != nil {
-		t.Fatalf("SaveCommandAudit() error = %v", err)
+	if err := sut.SaveWithAudit(context.Background(), auditEvent, commandAudit); err != nil {
+		t.Fatalf("SaveWithAudit() error = %v", err)
 	}
 
-	got, err := sut.SearchEvents(context.Background(), port.SearchEventsInput{
-		Query: "stdout",
-		Workspace:  "github.com/duck8823/traceary",
-		From:  time.Date(2026, 4, 8, 0, 0, 0, 0, time.UTC),
-		To:    time.Date(2026, 4, 9, 0, 0, 0, 0, time.UTC),
-		Limit: 10,
-	})
+	got, err := sut.Search(context.Background(), "stdout", "github.com/duck8823/traceary", "", "", "", "", time.Date(2026, 4, 8, 0, 0, 0, 0, time.UTC), time.Date(2026, 4, 9, 0, 0, 0, 0, time.UTC), 10, 0, false)
 	if err != nil {
-		t.Fatalf("SearchEvents() error = %v", err)
+		t.Fatalf("Search() error = %v", err)
 	}
 	if len(got) != 1 {
 		t.Fatalf("len(events) = %d, want 1", len(got))
@@ -94,16 +87,9 @@ CREATE TABLE command_audits (
 	t.Run("searches with structural filters only", func(t *testing.T) {
 		t.Parallel()
 
-		filtered, err := sut.SearchEvents(context.Background(), port.SearchEventsInput{
-			Workspace:      "github.com/duck8823/traceary",
-			SessionID: "session-1",
-			Client:    "cli",
-			Agent:     "codex",
-			Kind:      "note",
-			Limit:     10,
-		})
+		filtered, err := sut.Search(context.Background(), "", "github.com/duck8823/traceary", "session-1", "cli", "codex", "note", time.Time{}, time.Time{}, 10, 0, false)
 		if err != nil {
-			t.Fatalf("SearchEvents() error = %v", err)
+			t.Fatalf("Search() error = %v", err)
 		}
 		if len(filtered) != 1 {
 			t.Fatalf("len(filtered) = %d, want 1", len(filtered))
@@ -116,13 +102,9 @@ CREATE TABLE command_audits (
 	t.Run("offset で 2 ページ目を取得できる", func(t *testing.T) {
 		t.Parallel()
 
-		filtered, err := sut.SearchEvents(context.Background(), port.SearchEventsInput{
-			Workspace:   "github.com/duck8823/traceary",
-			Limit:  1,
-			Offset: 1,
-		})
+		filtered, err := sut.Search(context.Background(), "", "github.com/duck8823/traceary", "", "", "", "", time.Time{}, time.Time{}, 1, 1, false)
 		if err != nil {
-			t.Fatalf("SearchEvents() error = %v", err)
+			t.Fatalf("Search() error = %v", err)
 		}
 		if len(filtered) != 1 {
 			t.Fatalf("len(filtered) = %d, want 1", len(filtered))

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/duck8823/traceary/domain/model"
-	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
@@ -69,10 +68,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		saveEvent(t, ds, "e4", "ws", time.Date(2026, 4, 10, 9, 40, 0, 0, time.UTC))
 		saveEvent(t, ds, "e5", "ws", time.Date(2026, 4, 10, 9, 45, 0, 0, time.UTC))
 
-		blocks, err := ds.ListTimelineBlocks(context.Background(), port.ListTimelineBlocksInput{
-			GapSeconds: 900, // 15 minutes
-			Limit:      10,
-		})
+		blocks, err := ds.ListTimelineBlocks(context.Background(), "", time.Time{}, time.Time{}, 900, 10)
 		if err != nil {
 			t.Fatalf("ListTimelineBlocks() error = %v", err)
 		}
@@ -96,11 +92,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		saveEvent(t, ds, "e2", "ws-b", time.Date(2026, 4, 10, 9, 5, 0, 0, time.UTC))
 		saveEvent(t, ds, "e3", "ws-a", time.Date(2026, 4, 10, 9, 10, 0, 0, time.UTC))
 
-		blocks, err := ds.ListTimelineBlocks(context.Background(), port.ListTimelineBlocksInput{
-			Workspace:  "ws-a",
-			GapSeconds: 900,
-			Limit:      10,
-		})
+		blocks, err := ds.ListTimelineBlocks(context.Background(), "ws-a", time.Time{}, time.Time{}, 900, 10)
 		if err != nil {
 			t.Fatalf("ListTimelineBlocks() error = %v", err)
 		}
@@ -116,10 +108,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		t.Parallel()
 		ds := newDatasource(t)
 
-		blocks, err := ds.ListTimelineBlocks(context.Background(), port.ListTimelineBlocksInput{
-			GapSeconds: 900,
-			Limit:      10,
-		})
+		blocks, err := ds.ListTimelineBlocks(context.Background(), "", time.Time{}, time.Time{}, 900, 10)
 		if err != nil {
 			t.Fatalf("ListTimelineBlocks() error = %v", err)
 		}
@@ -137,10 +126,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		saveEvent(t, ds, "e2", "ws", time.Date(2026, 4, 10, 10, 0, 0, 0, time.UTC))
 		saveEvent(t, ds, "e3", "ws", time.Date(2026, 4, 10, 11, 0, 0, 0, time.UTC))
 
-		blocks, err := ds.ListTimelineBlocks(context.Background(), port.ListTimelineBlocksInput{
-			GapSeconds: 900,
-			Limit:      2,
-		})
+		blocks, err := ds.ListTimelineBlocks(context.Background(), "", time.Time{}, time.Time{}, 900, 2)
 		if err != nil {
 			t.Fatalf("ListTimelineBlocks() error = %v", err)
 		}

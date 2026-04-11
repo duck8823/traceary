@@ -8,13 +8,13 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/duck8823/traceary/domain/port"
+	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
-func TestDatasource_FindLatestSessionStartedEvent(t *testing.T) {
+func TestDatasource_FindLatest(t *testing.T) {
 	t.Parallel()
 
 	migrations := fstest.MapFS{
@@ -107,16 +107,12 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 	}
 
 	t.Run("returns latest session_started", func(t *testing.T) {
-		got, err := sut.FindLatestSessionStartedEvent(
+		got, err := sut.FindLatest(
 			context.Background(),
-			port.FindLatestSessionInput{
-				Client: "cli",
-				Agent:  "codex",
-				Workspace:   "github.com/duck8823/traceary",
-			},
+			"cli", "codex", "github.com/duck8823/traceary", false,
 		)
 		if err != nil {
-			t.Fatalf("FindLatestSessionStartedEvent() error = %v", err)
+			t.Fatalf("FindLatest() error = %v", err)
 		}
 		if got.EventID().String() != "event-4" {
 			t.Fatalf("EventID() = %q, want %q", got.EventID(), "event-4")
@@ -150,16 +146,12 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 			t.Fatalf("Save(overlap end) error = %v", err)
 		}
 
-		got, err := sut.FindLatestSessionStartedEvent(
+		got, err := sut.FindLatest(
 			context.Background(),
-			port.FindLatestSessionInput{
-				Client: "cli",
-				Agent:  "codex",
-				Workspace:   "github.com/duck8823/traceary",
-			},
+			"cli", "codex", "github.com/duck8823/traceary", false,
 		)
 		if err != nil {
-			t.Fatalf("FindLatestSessionStartedEvent() error = %v", err)
+			t.Fatalf("FindLatest() error = %v", err)
 		}
 		if got.EventID().String() != "event-4" {
 			t.Fatalf("EventID() = %q, want %q", got.EventID(), "event-4")
@@ -167,17 +159,12 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 	})
 
 	t.Run("active only のとき未終了 session を返す", func(t *testing.T) {
-		got, err := sut.FindLatestSessionStartedEvent(
+		got, err := sut.FindLatest(
 			context.Background(),
-			port.FindLatestSessionInput{
-				Client:     "cli",
-				Agent:      "codex",
-				Workspace:       "github.com/duck8823/traceary",
-				ActiveOnly: true,
-			},
+			"cli", "codex", "github.com/duck8823/traceary", true,
 		)
 		if err != nil {
-			t.Fatalf("FindLatestSessionStartedEvent() error = %v", err)
+			t.Fatalf("FindLatest() error = %v", err)
 		}
 		if got.EventID().String() != "event-6" {
 			t.Fatalf("EventID() = %q, want %q", got.EventID(), "event-6")
@@ -198,16 +185,12 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 			t.Fatalf("Save(repeated start) error = %v", err)
 		}
 
-		got, err := sut.FindLatestSessionStartedEvent(
+		got, err := sut.FindLatest(
 			context.Background(),
-			port.FindLatestSessionInput{
-				Client: "cli",
-				Agent:  "codex",
-				Workspace:   "github.com/duck8823/traceary",
-			},
+			"cli", "codex", "github.com/duck8823/traceary", false,
 		)
 		if err != nil {
-			t.Fatalf("FindLatestSessionStartedEvent() error = %v", err)
+			t.Fatalf("FindLatest() error = %v", err)
 		}
 		if got.EventID().String() != "event-8" {
 			t.Fatalf("EventID() = %q, want %q", got.EventID(), "event-8")
@@ -215,36 +198,33 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 	})
 
 	t.Run("returns error when no matching session exists", func(t *testing.T) {
-		_, err := sut.FindLatestSessionStartedEvent(
+		_, err := sut.FindLatest(
 			context.Background(),
-			port.FindLatestSessionInput{Agent: "claude"},
+			"", "claude", "", false,
 		)
 		if err == nil {
-			t.Fatalf("FindLatestSessionStartedEvent() error = nil, want error")
+			t.Fatalf("FindLatest() error = nil, want error")
 		}
-		if !errors.Is(err, port.ErrSessionNotFound) {
+		if !errors.Is(err, queryservice.ErrSessionNotFound) {
 			t.Fatalf("error = %v, want ErrSessionNotFound", err)
 		}
 	})
 
 	t.Run("returns error when no matching active session exists", func(t *testing.T) {
-		_, err := sut.FindLatestSessionStartedEvent(
+		_, err := sut.FindLatest(
 			context.Background(),
-			port.FindLatestSessionInput{
-				Agent:      "claude",
-				ActiveOnly: true,
-			},
+			"", "claude", "", true,
 		)
 		if err == nil {
-			t.Fatalf("FindLatestSessionStartedEvent() error = nil, want error")
+			t.Fatalf("FindLatest() error = nil, want error")
 		}
-		if !errors.Is(err, port.ErrActiveSessionNotFound) {
+		if !errors.Is(err, queryservice.ErrActiveSessionNotFound) {
 			t.Fatalf("error = %v, want ErrActiveSessionNotFound", err)
 		}
 	})
 }
 
-func TestDatasource_FindLatestSessionStartedEvent_ignoresBoundariesFromOtherContexts(t *testing.T) {
+func TestDatasource_FindLatest_ignoresBoundariesFromOtherContexts(t *testing.T) {
 	t.Parallel()
 
 	migrations := fstest.MapFS{
@@ -310,23 +290,19 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		t.Fatalf("Save(other workspace boundary) error = %v", err)
 	}
 
-	got, err := sut.FindLatestSessionStartedEvent(
+	got, err := sut.FindLatest(
 		context.Background(),
-		port.FindLatestSessionInput{
-			Client: "cli",
-			Agent:  "codex",
-			Workspace:   "github.com/duck8823/traceary",
-		},
+		"cli", "codex", "github.com/duck8823/traceary", false,
 	)
 	if err != nil {
-		t.Fatalf("FindLatestSessionStartedEvent() error = %v", err)
+		t.Fatalf("FindLatest() error = %v", err)
 	}
 	if got.EventID().String() != "event-2" {
 		t.Fatalf("EventID() = %q, want %q", got.EventID(), "event-2")
 	}
 }
 
-func TestDatasource_FindLatestSessionStartedEvent_activeOnlyIgnoresEndsFromOtherContexts(t *testing.T) {
+func TestDatasource_FindLatest_activeOnlyIgnoresEndsFromOtherContexts(t *testing.T) {
 	t.Parallel()
 
 	migrations := fstest.MapFS{
@@ -379,17 +355,12 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		t.Fatalf("Save(other workspace end) error = %v", err)
 	}
 
-	got, err := sut.FindLatestSessionStartedEvent(
+	got, err := sut.FindLatest(
 		context.Background(),
-		port.FindLatestSessionInput{
-			Client:     "cli",
-			Agent:      "codex",
-			Workspace:       "github.com/duck8823/traceary",
-			ActiveOnly: true,
-		},
+		"cli", "codex", "github.com/duck8823/traceary", true,
 	)
 	if err != nil {
-		t.Fatalf("FindLatestSessionStartedEvent() error = %v", err)
+		t.Fatalf("FindLatest() error = %v", err)
 	}
 	if got.EventID().String() != "event-1" {
 		t.Fatalf("EventID() = %q, want %q", got.EventID(), "event-1")

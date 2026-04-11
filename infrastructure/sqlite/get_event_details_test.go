@@ -10,7 +10,7 @@ import (
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
-func TestDatasource_GetEventDetails(t *testing.T) {
+func TestDatasource_GetDetails(t *testing.T) {
 	t.Parallel()
 
 	migrations := fstest.MapFS{
@@ -55,16 +55,16 @@ CREATE TABLE command_audits (
 		"github.com/duck8823/traceary",
 		time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC),
 	)
-	if err := sut.SaveCommandAudit(context.Background(), event, commandAudit); err != nil {
-		t.Fatalf("SaveCommandAudit() error = %v", err)
+	if err := sut.SaveWithAudit(context.Background(), event, commandAudit); err != nil {
+		t.Fatalf("SaveWithAudit() error = %v", err)
 	}
 
 	t.Run("event と command audit を返す", func(t *testing.T) {
 		t.Parallel()
 
-		got, err := sut.GetEventDetails(context.Background(), "event-audit")
+		got, err := sut.GetDetails(context.Background(), "event-audit")
 		if err != nil {
-			t.Fatalf("GetEventDetails() error = %v", err)
+			t.Fatalf("GetDetails() error = %v", err)
 		}
 		if got.Event().EventID().String() != "event-audit" {
 			t.Fatalf("EventID() = %q, want %q", got.Event().EventID(), "event-audit")
@@ -80,9 +80,9 @@ CREATE TABLE command_audits (
 	t.Run("returns error for nonexistent event ID", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := sut.GetEventDetails(context.Background(), "missing")
+		_, err := sut.GetDetails(context.Background(), "missing")
 		if err == nil {
-			t.Fatalf("GetEventDetails() error = nil, want error")
+			t.Fatalf("GetDetails() error = nil, want error")
 		}
 	})
 }

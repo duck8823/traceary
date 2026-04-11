@@ -7,7 +7,6 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
@@ -84,9 +83,7 @@ CREATE TABLE command_audits (
 		t.Fatalf("Save(newer) error = %v", err)
 	}
 
-	got, err := sut.ListRecent(context.Background(), port.ListRecentEventsInput{
-		Limit: 10,
-	})
+	got, err := sut.ListRecent(context.Background(), 10, 0, "", "", "", "", "", false, time.Time{}, time.Time{})
 	if err != nil {
 		t.Fatalf("ListRecent() error = %v", err)
 	}
@@ -166,9 +163,7 @@ CREATE TABLE command_audits (
 		t.Fatalf("Save() error = %v", err)
 	}
 
-	got, err := sut.ListRecent(context.Background(), port.ListRecentEventsInput{
-		Limit: 1,
-	})
+	got, err := sut.ListRecent(context.Background(), 1, 0, "", "", "", "", "", false, time.Time{}, time.Time{})
 	if err != nil {
 		t.Fatalf("ListRecent() error = %v", err)
 	}
@@ -239,10 +234,7 @@ CREATE TABLE command_audits (
 		}
 	}
 
-	got, err := sut.ListRecent(context.Background(), port.ListRecentEventsInput{
-		Limit:  1,
-		Offset: 1,
-	})
+	got, err := sut.ListRecent(context.Background(), 1, 1, "", "", "", "", "", false, time.Time{}, time.Time{})
 	if err != nil {
 		t.Fatalf("ListRecent() error = %v", err)
 	}
@@ -314,14 +306,7 @@ CREATE TABLE command_audits (
 		}
 	}
 
-	got, err := sut.ListRecent(context.Background(), port.ListRecentEventsInput{
-		Limit:     10,
-		Kind:      types.EventKindNote.String(),
-		Client:    "cli",
-		Agent:     "codex",
-		SessionID: "session-1",
-		Workspace:      "duck8823/traceary",
-	})
+	got, err := sut.ListRecent(context.Background(), 10, 0, types.EventKindNote.String(), "cli", "codex", "session-1", "duck8823/traceary", false, time.Time{}, time.Time{})
 	if err != nil {
 		t.Fatalf("ListRecent() error = %v", err)
 	}

@@ -7,12 +7,11 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
-func TestDatasource_GetContextEvents(t *testing.T) {
+func TestDatasource_GetContext(t *testing.T) {
 	t.Parallel()
 
 	migrations := fstest.MapFS{
@@ -75,13 +74,9 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		t.Fatalf("Save(third) error = %v", err)
 	}
 
-	got, err := sut.GetContextEvents(context.Background(), port.GetContextInput{
-		Workspace:      " github.com/duck8823/traceary ",
-		SessionID: "session-1",
-		Limit:     10,
-	})
+	got, err := sut.GetContext(context.Background(), " github.com/duck8823/traceary ", "session-1", 10)
 	if err != nil {
-		t.Fatalf("GetContextEvents() error = %v", err)
+		t.Fatalf("GetContext() error = %v", err)
 	}
 	if len(got) != 2 {
 		t.Fatalf("len(events) = %d, want 2", len(got))
