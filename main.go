@@ -152,7 +152,11 @@ func run() error {
 		return xerrors.Errorf("%s: %w", cli.Localize("failed to read migration files", "マイグレーションファイルの読み込みに失敗しました"), err)
 	}
 
-	datasource := sqlite.NewDatasource(migrationsSubFS)
+	dbPath, err := cli.ResolveDefaultDBPath()
+	if err != nil {
+		return xerrors.Errorf("%s: %w", cli.Localize("failed to resolve DB path", "DBパスの解決に失敗しました"), err)
+	}
+	datasource := sqlite.NewDatasource(dbPath, migrationsSubFS)
 	initializeStoreUsecase := usecase.NewInitializeStoreUsecase(datasource)
 	createStoreBackupUsecase := usecase.NewCreateStoreBackupUsecase(datasource)
 	restoreStoreBackupUsecase := usecase.NewRestoreStoreBackupUsecase(datasource)

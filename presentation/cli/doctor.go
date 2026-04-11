@@ -122,7 +122,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 
 	report.Checks = append(report.Checks, inspectDoctorConfig())
 
-	if err := c.initializeStoreUsecase.Run(ctx, resolvedDBPath); err != nil {
+	if err := c.initializeStoreUsecase.Run(ctx); err != nil {
 		report.Checks = append(report.Checks, doctorCheck{
 			Name:    "db-write",
 			Status:  doctorStatusFail,

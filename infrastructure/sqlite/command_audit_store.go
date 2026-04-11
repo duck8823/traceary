@@ -19,7 +19,6 @@ var _ port.CommandAuditSaver = (*Datasource)(nil)
 // SaveCommandAudit persists an event and command-audit data in one transaction.
 func (d *Datasource) SaveCommandAudit(
 	ctx context.Context,
-	dbPath string,
 	event *model.Event,
 	commandAudit *model.CommandAudit,
 ) error {
@@ -30,7 +29,7 @@ func (d *Datasource) SaveCommandAudit(
 		return xerrors.Errorf("command audit must not be nil")
 	}
 
-	db, err := d.openDB(ctx, dbPath)
+	db, err := d.openDB(ctx)
 	if err != nil {
 		return xerrors.Errorf("failed to open DB for command audit save: %w", err)
 	}

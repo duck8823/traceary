@@ -12,7 +12,6 @@ import (
 )
 
 type eventUsecaseAdapter struct {
-	dbPath          string
 	recordLog       RecordLogUsecase
 	recordAudit     RecordCommandAuditUsecase
 	listRecent      queryservice.ListRecentEventsQueryService
@@ -23,8 +22,7 @@ type eventUsecaseAdapter struct {
 
 // NewEventUsecaseAdapter creates an EventUsecase that delegates to existing usecases and queryservices.
 func NewEventUsecaseAdapter(
-	dbPath string,
-	recordLog RecordLogUsecase,
+		recordLog RecordLogUsecase,
 	recordAudit RecordCommandAuditUsecase,
 	listRecent queryservice.ListRecentEventsQueryService,
 	searchEvents queryservice.SearchEventsQueryService,
@@ -32,7 +30,6 @@ func NewEventUsecaseAdapter(
 	getContext queryservice.GetContextQueryService,
 ) EventUsecase {
 	return &eventUsecaseAdapter{
-		dbPath:          dbPath,
 		recordLog:       recordLog,
 		recordAudit:     recordAudit,
 		listRecent:      listRecent,
@@ -44,7 +41,6 @@ func NewEventUsecaseAdapter(
 
 func (a *eventUsecaseAdapter) Log(ctx context.Context, message string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace) (*model.Event, error) {
 	event, err := a.recordLog.Run(ctx, RecordLogInput{
-		DBPath:    a.dbPath,
 		Message:   message,
 		Client:    client.String(),
 		Agent:     agent.String(),
@@ -59,7 +55,6 @@ func (a *eventUsecaseAdapter) Log(ctx context.Context, message string, client ty
 
 func (a *eventUsecaseAdapter) Audit(ctx context.Context, command string, input string, output string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, exitCode *int, redaction AuditRedaction) (*model.Event, *model.CommandAudit, error) {
 	event, audit, err := a.recordAudit.Run(ctx, RecordCommandAuditInput{
-		DBPath:              a.dbPath,
 		Command:             command,
 		Input:               input,
 		Output:              output,
@@ -80,7 +75,7 @@ func (a *eventUsecaseAdapter) Audit(ctx context.Context, command string, input s
 }
 
 func (a *eventUsecaseAdapter) Search(ctx context.Context, criteria EventSearchCriteria) ([]*model.Event, error) {
-	events, err := a.searchEvents.Run(ctx, a.dbPath, port.SearchEventsInput{
+	events, err := a.searchEvents.Run(ctx, port.SearchEventsInput{
 		Query:        criteria.Query,
 		Repo:         criteria.Workspace.String(),
 		SessionID:    criteria.SessionID.String(),
@@ -100,7 +95,7 @@ func (a *eventUsecaseAdapter) Search(ctx context.Context, criteria EventSearchCr
 }
 
 func (a *eventUsecaseAdapter) List(ctx context.Context, criteria EventListCriteria) ([]*model.Event, error) {
-	events, err := a.listRecent.Run(ctx, a.dbPath, port.ListRecentEventsInput{
+	events, err := a.listRecent.Run(ctx, port.ListRecentEventsInput{
 		Limit:        criteria.Limit,
 		Offset:       criteria.Offset,
 		Kind:         criteria.Kind.String(),
@@ -119,7 +114,7 @@ func (a *eventUsecaseAdapter) List(ctx context.Context, criteria EventListCriter
 }
 
 func (a *eventUsecaseAdapter) Show(ctx context.Context, eventID types.EventID) (*EventDetails, error) {
-	portDetails, err := a.getEventDetails.Run(ctx, a.dbPath, eventID.String())
+	portDetails, err := a.getEventDetails.Run(ctx, eventID.String())
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get event details: %w", err)
 	}
@@ -127,7 +122,7 @@ func (a *eventUsecaseAdapter) Show(ctx context.Context, eventID types.EventID) (
 }
 
 func (a *eventUsecaseAdapter) Context(ctx context.Context, criteria EventContextCriteria) ([]*model.Event, error) {
-	events, err := a.getContext.Run(ctx, a.dbPath, port.GetContextInput{
+	events, err := a.getContext.Run(ctx, port.GetContextInput{
 		Repo:      criteria.Workspace.String(),
 		SessionID: criteria.SessionID.String(),
 		Limit:     criteria.Limit,

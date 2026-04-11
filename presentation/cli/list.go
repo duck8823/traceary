@@ -131,15 +131,15 @@ func (c *RootCLI) runList(ctx context.Context, output io.Writer, input listComma
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve --to", "to の解決に失敗しました"), err)
 	}
 
-	resolvedPath, err := resolveDBPath(input.dbPath)
+	_, err = resolveDBPath(input.dbPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.initializeStoreUsecase.Run(ctx, resolvedPath); err != nil {
+	if err := c.initializeStoreUsecase.Run(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
-	events, err := c.listEventsQueryService.Run(ctx, resolvedPath, port.ListRecentEventsInput{
+	events, err := c.listEventsQueryService.Run(ctx, port.ListRecentEventsInput{
 		Limit:        input.limit,
 		Offset:       input.offset,
 		Kind:         resolvedKind,

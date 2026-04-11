@@ -171,18 +171,17 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		return xerrors.Errorf(Localize("record command audit usecase is not configured", "監査ログ記録ユースケースが設定されていません"))
 	}
 
-	resolvedPath, err := resolveDBPath(input.dbPath)
+	_, err := resolveDBPath(input.dbPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.initializeStoreUsecase.Run(ctx, resolvedPath); err != nil {
+	if err := c.initializeStoreUsecase.Run(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
 	resolvedRepo := resolveRepoValue(ctx, input.repo)
 	sessionResolution, err := c.resolveManualSessionID(
 		ctx,
-		resolvedPath,
 		resolveOptionalValue(input.sessionID, "TRACEARY_SESSION_ID", ""),
 		resolvedRepo,
 	)
@@ -206,7 +205,6 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 	config := presentation.LoadConfig()
 
 	event, commandAudit, err := c.recordCommandAuditUsecase.Run(ctx, usecase.RecordCommandAuditInput{
-		DBPath:              resolvedPath,
 		Command:             input.command,
 		Input:               input.input,
 		Output:              input.output,

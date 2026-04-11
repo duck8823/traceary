@@ -39,15 +39,15 @@ func (c *RootCLI) runShow(ctx context.Context, output io.Writer, dbPath string, 
 		return xerrors.Errorf(Localize("get event details query service is not configured", "イベント詳細クエリサービスが設定されていません"))
 	}
 
-	resolvedPath, err := resolveDBPath(dbPath)
+	_, err := resolveDBPath(dbPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.initializeStoreUsecase.Run(ctx, resolvedPath); err != nil {
+	if err := c.initializeStoreUsecase.Run(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
-	eventDetails, err := c.getEventDetailsQueryService.Run(ctx, resolvedPath, eventID)
+	eventDetails, err := c.getEventDetailsQueryService.Run(ctx, eventID)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to get event details", "イベント詳細の取得に失敗しました"), err)
 	}

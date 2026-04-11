@@ -32,7 +32,7 @@ func (c *RootCLI) newCompactSummaryCommand() *cobra.Command {
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 			}
-			if err := c.initializeStoreUsecase.Run(ctx, resolvedDBPath); err != nil {
+			if err := c.initializeStoreUsecase.Run(ctx); err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 			}
 
@@ -54,13 +54,13 @@ func (c *RootCLI) newCompactSummaryCommand() *cobra.Command {
 func (c *RootCLI) printCompactSummary(
 	ctx context.Context,
 	output io.Writer,
-	dbPath string,
+	_ string, // dbPath (resolved at Datasource construction)
 	sessionID string,
 	repo string,
 	recentCount int,
 ) error {
 	// Get recent events for context
-	events, err := c.listEventsQueryService.Run(ctx, dbPath, port.ListRecentEventsInput{
+	events, err := c.listEventsQueryService.Run(ctx, port.ListRecentEventsInput{
 		Limit:     recentCount + 5, // fetch extra to find commands
 		SessionID: sessionID,
 		Repo:      repo,
@@ -71,7 +71,7 @@ func (c *RootCLI) printCompactSummary(
 	}
 
 	// Get session info
-	sessions, err := c.listSessionsQueryService.Run(ctx, dbPath, port.ListSessionsInput{
+	sessions, err := c.listSessionsQueryService.Run(ctx, port.ListSessionsInput{
 		Limit:     1,
 		SessionID: sessionID,
 		Repo:      repo,

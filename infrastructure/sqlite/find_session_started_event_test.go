@@ -17,7 +17,7 @@ func TestDatasource_FindSessionStartedEvent(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	sut := NewDatasource(fstest.MapFS{
+	sut := NewDatasource(dbPath, fstest.MapFS{
 		"000001_init.sql": {
 			Data: []byte(`
 CREATE TABLE events (
@@ -37,7 +37,7 @@ CREATE INDEX idx_events_created_at
     ON events(created_at DESC, id DESC);`),
 		},
 	})
-	if err := sut.Initialize(context.Background(), dbPath); err != nil {
+	if err := sut.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -87,7 +87,7 @@ CREATE INDEX idx_events_created_at
 	)
 	fixtures := []*model.Event{started, ended, newerStarted, otherSession}
 	for _, fixture := range fixtures {
-		if err := sut.Save(context.Background(), dbPath, fixture); err != nil {
+		if err := sut.Save(context.Background(), fixture); err != nil {
 			t.Fatalf("Save() error = %v", err)
 		}
 	}
@@ -100,7 +100,7 @@ CREATE INDEX idx_events_created_at
 			t.Fatalf("SessionIDOf() error = %v", err)
 		}
 
-		got, err := sut.FindSessionStartedEvent(context.Background(), dbPath, sessionID)
+		got, err := sut.FindSessionStartedEvent(context.Background(), sessionID)
 		if err != nil {
 			t.Fatalf("FindSessionStartedEvent() error = %v", err)
 		}
@@ -126,7 +126,7 @@ CREATE INDEX idx_events_created_at
 			t.Fatalf("SessionIDOf() error = %v", err)
 		}
 
-		_, err = sut.FindSessionStartedEvent(context.Background(), dbPath, sessionID)
+		_, err = sut.FindSessionStartedEvent(context.Background(), sessionID)
 		if !errors.Is(err, usecase.ErrSessionStartedEventNotFound) {
 			t.Fatalf("error = %v, want ErrSessionStartedEventNotFound", err)
 		}

@@ -251,16 +251,15 @@ func (c *RootCLI) runSessionBoundary(
 		return xerrors.Errorf(Localize("record session boundary usecase is not configured", "session 境界ユースケースが設定されていません"))
 	}
 
-	resolvedPath, err := resolveDBPath(input.dbPath)
+	_, err := resolveDBPath(input.dbPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.initializeStoreUsecase.Run(ctx, resolvedPath); err != nil {
+	if err := c.initializeStoreUsecase.Run(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
 	event, err := c.recordSessionBoundaryUsecase.Run(ctx, usecase.RecordSessionBoundaryInput{
-		DBPath:        resolvedPath,
 		Client:        resolveSessionBoundaryClient(input),
 		DefaultClient: defaultClientValue,
 		Agent:         resolveSessionBoundaryAgent(input),
@@ -338,15 +337,15 @@ func (c *RootCLI) runSessionLatest(
 		return xerrors.Errorf(Localize("find latest session query service is not configured", "直近セッションクエリサービスが設定されていません"))
 	}
 
-	resolvedPath, err := resolveDBPath(input.dbPath)
+	_, err := resolveDBPath(input.dbPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.initializeStoreUsecase.Run(ctx, resolvedPath); err != nil {
+	if err := c.initializeStoreUsecase.Run(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
-	event, err := c.findLatestSessionQueryService.Run(ctx, resolvedPath, port.FindLatestSessionInput{
+	event, err := c.findLatestSessionQueryService.Run(ctx, port.FindLatestSessionInput{
 		Client:     resolveOptionalValue(input.client, "TRACEARY_CLIENT", ""),
 		Agent:      resolveOptionalValue(input.agent, "TRACEARY_AGENT", ""),
 		Repo:       resolveRepoValue(ctx, input.repo),

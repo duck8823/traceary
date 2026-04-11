@@ -3,7 +3,6 @@ package cli_test
 import (
 	"bytes"
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -15,7 +14,6 @@ import (
 )
 
 type getEventDetailsQueryServiceStub struct {
-	receivedPath    string
 	receivedEventID string
 	called          bool
 	eventDetails    *port.EventDetails
@@ -24,11 +22,9 @@ type getEventDetailsQueryServiceStub struct {
 
 func (s *getEventDetailsQueryServiceStub) Run(
 	_ context.Context,
-	dbPath string,
 	eventID string,
 ) (*port.EventDetails, error) {
 	s.called = true
-	s.receivedPath = dbPath
 	s.receivedEventID = eventID
 	return s.eventDetails, s.err
 }
@@ -54,7 +50,6 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 	t.Run("displays event details", func(t *testing.T) {
 		t.Parallel()
 
-		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		initStub := &initializeStoreUsecaseStub{}
 		eventDetails, err := port.NewEventDetails(
 			model.EventOf(
@@ -88,7 +83,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"show", "--db-path", dbPath, "event-1"})
+		rootCmd.SetArgs([]string{"show", "--db-path", "/tmp/test-traceary.db", "event-1"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -98,9 +93,6 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 		}
 		if !showStub.called {
 			t.Fatalf("GetEventDetailsQueryService.Run() was not called")
-		}
-		if showStub.receivedPath != dbPath {
-			t.Fatalf("dbPath = %q, want %q", showStub.receivedPath, dbPath)
 		}
 		if showStub.receivedEventID != "event-1" {
 			t.Fatalf("eventID = %q, want %q", showStub.receivedEventID, "event-1")
@@ -132,7 +124,6 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 	t.Run("command audit がないイベントも表示できる", func(t *testing.T) {
 		t.Parallel()
 
-		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		initStub := &initializeStoreUsecaseStub{}
 		eventDetails, err := port.NewEventDetails(
 			model.EventOf(
@@ -158,7 +149,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"show", "--db-path", dbPath, "event-1"})
+		rootCmd.SetArgs([]string{"show", "--db-path", "/tmp/test-traceary.db", "event-1"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -171,7 +162,6 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 	t.Run("JSON 形式でイベント詳細を表示できる", func(t *testing.T) {
 		t.Parallel()
 
-		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		initStub := &initializeStoreUsecaseStub{}
 		eventDetails, err := port.NewEventDetails(
 			model.EventOf(
@@ -205,7 +195,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"show", "--db-path", dbPath, "--json", "event-1"})
+		rootCmd.SetArgs([]string{"show", "--db-path", "/tmp/test-traceary.db", "--json", "event-1"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -239,7 +229,6 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 	t.Run("exit_code is included in JSON and text output when present", func(t *testing.T) {
 		t.Parallel()
 
-		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		initStub := &initializeStoreUsecaseStub{}
 		exitCode := 1
 		eventDetails, err := port.NewEventDetails(
@@ -278,7 +267,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 			}).Command()
 			rootCmd.SetOut(stdout)
 			rootCmd.SetErr(&bytes.Buffer{})
-			rootCmd.SetArgs([]string{"show", "--db-path", dbPath, "event-1"})
+			rootCmd.SetArgs([]string{"show", "--db-path", "/tmp/test-traceary.db", "event-1"})
 
 			if err := rootCmd.Execute(); err != nil {
 				t.Fatalf("Execute() error = %v", err)
@@ -299,7 +288,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 			}).Command()
 			rootCmd.SetOut(stdout)
 			rootCmd.SetErr(&bytes.Buffer{})
-			rootCmd.SetArgs([]string{"show", "--db-path", dbPath, "--json", "event-1"})
+			rootCmd.SetArgs([]string{"show", "--db-path", "/tmp/test-traceary.db", "--json", "event-1"})
 
 			if err := rootCmd.Execute(); err != nil {
 				t.Fatalf("Execute() error = %v", err)

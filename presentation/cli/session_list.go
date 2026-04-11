@@ -37,12 +37,12 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 			ctx := cmd.Context()
 			output := cmd.OutOrStdout()
 
-			resolvedDBPath, err := resolveDBPath(dbPath)
+			_, err := resolveDBPath(dbPath)
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 			}
 
-			if err := c.initializeStoreUsecase.Run(ctx, resolvedDBPath); err != nil {
+			if err := c.initializeStoreUsecase.Run(ctx); err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 			}
 
@@ -72,7 +72,7 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 
 			resolvedRepo := resolveRepoValue(ctx, repo)
 
-			summaries, err := c.listSessionsQueryService.Run(ctx, resolvedDBPath, port.ListSessionsInput{
+			summaries, err := c.listSessionsQueryService.Run(ctx, port.ListSessionsInput{
 				Limit:  limit,
 				Offset: offset,
 				Repo:   resolvedRepo,

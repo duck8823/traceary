@@ -8,14 +8,12 @@ import (
 )
 
 type storeInitializerStub struct {
-	receivedPath string
-	called       bool
-	err          error
+	called bool
+	err    error
 }
 
-func (s *storeInitializerStub) Initialize(_ context.Context, dbPath string) error {
+func (s *storeInitializerStub) Initialize(_ context.Context) error {
 	s.called = true
-	s.receivedPath = dbPath
 	return s.err
 }
 
@@ -24,35 +22,22 @@ func TestInitializeStoreUsecase_Run(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		dbPath     string
 		stub       *storeInitializerStub
 		wantCalled bool
-		wantPath   string
 		wantErr    bool
 	}{
 		{
-			name:       "DB パスを渡して初期化できる",
-			dbPath:     "/tmp/traceary.db",
+			name:       "initializes successfully",
 			stub:       &storeInitializerStub{},
 			wantCalled: true,
-			wantPath:   "/tmp/traceary.db",
 			wantErr:    false,
 		},
 		{
-			name:       "DB パスが空文字の場合はエラー",
-			dbPath:     "   ",
-			stub:       &storeInitializerStub{},
-			wantCalled: false,
-			wantErr:    true,
-		},
-		{
-			name:   "初期化に失敗した場合はエラー",
-			dbPath: "/tmp/traceary.db",
+			name: "returns error when initialization fails",
 			stub: &storeInitializerStub{
 				err: context.DeadlineExceeded,
 			},
 			wantCalled: true,
-			wantPath:   "/tmp/traceary.db",
 			wantErr:    true,
 		},
 	}
@@ -63,16 +48,13 @@ func TestInitializeStoreUsecase_Run(t *testing.T) {
 
 			sut := usecase.NewInitializeStoreUsecase(tt.stub)
 
-			err := sut.Run(context.Background(), tt.dbPath)
+			err := sut.Run(context.Background())
 
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.stub.called != tt.wantCalled {
 				t.Fatalf("Initialize() called = %v, want %v", tt.stub.called, tt.wantCalled)
-			}
-			if tt.stub.receivedPath != tt.wantPath {
-				t.Fatalf("Initialize() path = %q, want %q", tt.stub.receivedPath, tt.wantPath)
 			}
 		})
 	}

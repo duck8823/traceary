@@ -57,13 +57,18 @@ func (c *RootCLI) runInit(ctx context.Context, output io.Writer, dbPath string) 
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.initializeStoreUsecase.Run(ctx, resolvedPath); err != nil {
+	if err := c.initializeStoreUsecase.Run(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 	if _, err := fmt.Fprintf(output, "%s: %s\n", Localize("Initialized", "初期化しました"), resolvedPath); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print init result", "初期化結果の出力に失敗しました"), err)
 	}
 	return nil
+}
+
+// ResolveDefaultDBPath resolves the default database path from environment or conventions.
+func ResolveDefaultDBPath() (string, error) {
+	return resolveDBPath("")
 }
 
 func resolveDBPath(dbPath string) (string, error) {

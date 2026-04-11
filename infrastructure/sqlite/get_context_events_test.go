@@ -34,8 +34,8 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(migrations)
-	if err := sut.Initialize(context.Background(), dbPath); err != nil {
+	sut := sqlite.NewDatasource(dbPath, migrations)
+	if err := sut.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -47,7 +47,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		"hello traceary",
 		time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC),
 	)
-	if err := sut.Save(context.Background(), dbPath, firstEvent); err != nil {
+	if err := sut.Save(context.Background(), firstEvent); err != nil {
 		t.Fatalf("Save(first) error = %v", err)
 	}
 
@@ -59,7 +59,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		"follow up",
 		time.Date(2026, 4, 7, 13, 0, 0, 0, time.UTC),
 	)
-	if err := sut.Save(context.Background(), dbPath, secondEvent); err != nil {
+	if err := sut.Save(context.Background(), secondEvent); err != nil {
 		t.Fatalf("Save(second) error = %v", err)
 	}
 
@@ -71,11 +71,11 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		"other repo",
 		time.Date(2026, 4, 7, 14, 0, 0, 0, time.UTC),
 	)
-	if err := sut.Save(context.Background(), dbPath, thirdEvent); err != nil {
+	if err := sut.Save(context.Background(), thirdEvent); err != nil {
 		t.Fatalf("Save(third) error = %v", err)
 	}
 
-	got, err := sut.GetContextEvents(context.Background(), dbPath, port.GetContextInput{
+	got, err := sut.GetContextEvents(context.Background(), port.GetContextInput{
 		Repo:      " github.com/duck8823/traceary ",
 		SessionID: "session-1",
 		Limit:     10,

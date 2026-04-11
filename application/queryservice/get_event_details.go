@@ -12,7 +12,7 @@ import (
 // GetEventDetailsQueryService returns event details.
 type GetEventDetailsQueryService interface {
 	// Run executes the event-details query.
-	Run(ctx context.Context, dbPath string, eventID string) (*port.EventDetails, error)
+	Run(ctx context.Context, eventID string) (*port.EventDetails, error)
 }
 
 type getEventDetailsQueryService struct {
@@ -27,20 +27,16 @@ func NewGetEventDetailsQueryService(eventDetailsFinder port.EventDetailsFinder) 
 // Run executes the event-details query.
 func (s *getEventDetailsQueryService) Run(
 	ctx context.Context,
-	dbPath string,
 	eventID string,
 ) (*port.EventDetails, error) {
 	if s.eventDetailsFinder == nil {
 		return nil, xerrors.Errorf("event details finder is not configured")
 	}
-	if strings.TrimSpace(dbPath) == "" {
-		return nil, xerrors.Errorf("DB path must not be empty")
-	}
 	if strings.TrimSpace(eventID) == "" {
 		return nil, xerrors.Errorf("event ID must not be empty")
 	}
 
-	eventDetails, err := s.eventDetailsFinder.GetEventDetails(ctx, dbPath, eventID)
+	eventDetails, err := s.eventDetailsFinder.GetEventDetails(ctx, eventID)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get event details: %w", err)
 	}

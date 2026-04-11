@@ -13,7 +13,6 @@ import (
 )
 
 type latestSessionFinderStub struct {
-	receivedPath  string
 	receivedInput port.FindLatestSessionInput
 	event         *model.Event
 	err           error
@@ -21,10 +20,8 @@ type latestSessionFinderStub struct {
 
 func (s *latestSessionFinderStub) FindLatestSessionStartedEvent(
 	_ context.Context,
-	dbPath string,
 	input port.FindLatestSessionInput,
 ) (*model.Event, error) {
-	s.receivedPath = dbPath
 	s.receivedInput = input
 	return s.event, s.err
 }
@@ -62,7 +59,7 @@ func TestFindLatestSessionQueryService_Run(t *testing.T) {
 		}
 		sut := queryservice.NewFindLatestSessionQueryService(stub)
 
-		got, err := sut.Run(context.Background(), "/tmp/traceary.db", port.FindLatestSessionInput{
+		got, err := sut.Run(context.Background(), port.FindLatestSessionInput{
 			Client:     "cli",
 			Agent:      "codex",
 			Repo:       "github.com/duck8823/traceary",
@@ -70,9 +67,6 @@ func TestFindLatestSessionQueryService_Run(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
-		}
-		if stub.receivedPath != "/tmp/traceary.db" {
-			t.Fatalf("received path = %q, want %q", stub.receivedPath, "/tmp/traceary.db")
 		}
 		if stub.receivedInput.Agent != "codex" {
 			t.Fatalf("received agent = %q, want %q", stub.receivedInput.Agent, "codex")
@@ -93,7 +87,7 @@ func TestFindLatestSessionQueryService_Run(t *testing.T) {
 		}
 		sut := queryservice.NewFindLatestSessionQueryService(stub)
 
-		_, err := sut.Run(context.Background(), "/tmp/traceary.db", port.FindLatestSessionInput{
+		_, err := sut.Run(context.Background(), port.FindLatestSessionInput{
 			ActiveOnly: true,
 		})
 		if !errors.Is(err, port.ErrActiveSessionNotFound) {

@@ -27,8 +27,8 @@ var _ port.SessionSaver = (*Datasource)(nil)
 // SaveSession creates or updates a session record.
 // On session start, a new row is inserted.
 // On session end, the existing row is updated with ended_at.
-func (d *Datasource) SaveSession(ctx context.Context, dbPath string, session *model.Session) error {
-	db, err := d.openDB(ctx, dbPath)
+func (d *Datasource) SaveSession(ctx context.Context, session *model.Session) error {
+	db, err := d.openDB(ctx)
 	if err != nil {
 		return xerrors.Errorf("failed to open DB for session save: %w", err)
 	}

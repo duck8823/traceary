@@ -14,7 +14,6 @@ import (
 )
 
 type searchEventsQueryServiceStub struct {
-	receivedPath  string
 	receivedInput port.SearchEventsInput
 	called        bool
 	events        []*model.Event
@@ -23,11 +22,9 @@ type searchEventsQueryServiceStub struct {
 
 func (s *searchEventsQueryServiceStub) Run(
 	_ context.Context,
-	dbPath string,
 	input port.SearchEventsInput,
 ) ([]*model.Event, error) {
 	s.called = true
-	s.receivedPath = dbPath
 	s.receivedInput = input
 	return s.events, s.err
 }

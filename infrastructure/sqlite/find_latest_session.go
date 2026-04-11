@@ -22,10 +22,9 @@ var _ port.LatestSessionFinder = (*Datasource)(nil)
 // FindLatestSessionStartedEvent returns the latest session_started event.
 func (d *Datasource) FindLatestSessionStartedEvent(
 	ctx context.Context,
-	dbPath string,
 	input port.FindLatestSessionInput,
 ) (*model.Event, error) {
-	db, err := d.openDB(ctx, dbPath)
+	db, err := d.openDB(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for latest session lookup: %w", err)
 	}

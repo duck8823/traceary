@@ -36,7 +36,6 @@ func (s *recordSessionBoundaryUsecaseStub) Run(
 var _ usecase.RecordSessionBoundaryUsecase = (*recordSessionBoundaryUsecaseStub)(nil)
 
 type findLatestSessionQueryServiceStub struct {
-	receivedPath  string
 	receivedInput port.FindLatestSessionInput
 	called        bool
 	event         *model.Event
@@ -45,11 +44,9 @@ type findLatestSessionQueryServiceStub struct {
 
 func (s *findLatestSessionQueryServiceStub) Run(
 	_ context.Context,
-	dbPath string,
 	input port.FindLatestSessionInput,
 ) (*model.Event, error) {
 	s.called = true
-	s.receivedPath = dbPath
 	s.receivedInput = input
 	return s.event, s.err
 }
@@ -72,7 +69,6 @@ func TestRootCLI_SessionStartCommand(t *testing.T) {
 		t.Fatalf("SessionIDOf() error = %v", err)
 	}
 
-	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	initStub := &initializeStoreUsecaseStub{}
 	sessionStub := &recordSessionBoundaryUsecaseStub{
 		event: model.EventOf(
@@ -96,7 +92,8 @@ func TestRootCLI_SessionStartCommand(t *testing.T) {
 	rootCmd.SetArgs([]string{
 		"session",
 		"start",
-		"--db-path", dbPath,
+		"--db-path",
+		"/tmp/test-traceary.db",
 		"--client", "cli",
 		"--agent", "codex",
 		"--repo", "duck8823/traceary",
@@ -132,7 +129,6 @@ func TestRootCLI_SessionStartCommand_IdOnly(t *testing.T) {
 		t.Fatalf("SessionIDOf() error = %v", err)
 	}
 
-	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	initStub := &initializeStoreUsecaseStub{}
 	sessionStub := &recordSessionBoundaryUsecaseStub{
 		event: model.EventOf(
@@ -153,7 +149,7 @@ func TestRootCLI_SessionStartCommand_IdOnly(t *testing.T) {
 	}).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"session", "start", "--db-path", dbPath, "--id-only"})
+	rootCmd.SetArgs([]string{"session", "start", "--db-path", "/tmp/test-traceary.db", "--id-only"})
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -170,7 +166,6 @@ func TestRootCLI_SessionStartCommand_JSON(t *testing.T) {
 	agent := mustAgent(t, "codex")
 	sessionID := mustSessionID(t, "session-start-json")
 
-	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	initStub := &initializeStoreUsecaseStub{}
 	sessionStub := &recordSessionBoundaryUsecaseStub{
 		event: model.EventOf(
@@ -191,7 +186,7 @@ func TestRootCLI_SessionStartCommand_JSON(t *testing.T) {
 	}).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"session", "start", "--db-path", dbPath, "--json"})
+	rootCmd.SetArgs([]string{"session", "start", "--db-path", "/tmp/test-traceary.db", "--json"})
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -348,7 +343,6 @@ func TestRootCLI_SessionEndCommand_IdOnly(t *testing.T) {
 		t.Fatalf("SessionIDOf() error = %v", err)
 	}
 
-	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	initStub := &initializeStoreUsecaseStub{}
 	sessionStub := &recordSessionBoundaryUsecaseStub{
 		event: model.EventOf(
@@ -369,7 +363,7 @@ func TestRootCLI_SessionEndCommand_IdOnly(t *testing.T) {
 	}).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"session", "end", "--db-path", dbPath, "--id-only", "--session-id", "session-env"})
+	rootCmd.SetArgs([]string{"session", "end", "--db-path", "/tmp/test-traceary.db", "--id-only", "--session-id", "session-env"})
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -386,7 +380,6 @@ func TestRootCLI_SessionEndCommand_JSON(t *testing.T) {
 	agent := mustAgent(t, "codex")
 	sessionID := mustSessionID(t, "session-end-json")
 
-	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	initStub := &initializeStoreUsecaseStub{}
 	sessionStub := &recordSessionBoundaryUsecaseStub{
 		event: model.EventOf(
@@ -407,7 +400,7 @@ func TestRootCLI_SessionEndCommand_JSON(t *testing.T) {
 	}).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"session", "end", "--db-path", dbPath, "--session-id", "session-end-json", "--json"})
+	rootCmd.SetArgs([]string{"session", "end", "--db-path", "/tmp/test-traceary.db", "--session-id", "session-end-json", "--json"})
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -438,7 +431,6 @@ func TestRootCLI_SessionLatestCommand(t *testing.T) {
 		t.Fatalf("SessionIDOf() error = %v", err)
 	}
 
-	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	initStub := &initializeStoreUsecaseStub{}
 	latestStub := &findLatestSessionQueryServiceStub{
 		event: model.EventOf(
@@ -462,7 +454,8 @@ func TestRootCLI_SessionLatestCommand(t *testing.T) {
 	rootCmd.SetArgs([]string{
 		"session",
 		"latest",
-		"--db-path", dbPath,
+		"--db-path",
+		"/tmp/test-traceary.db",
 		"--client", "cli",
 		"--agent", "codex",
 		"--repo", "duck8823/traceary",
@@ -476,9 +469,6 @@ func TestRootCLI_SessionLatestCommand(t *testing.T) {
 	}
 	if !latestStub.called {
 		t.Fatalf("FindLatestSessionQueryService.Run() was not called")
-	}
-	if latestStub.receivedPath != dbPath {
-		t.Fatalf("dbPath = %q, want %q", latestStub.receivedPath, dbPath)
 	}
 	if latestStub.receivedInput.Agent != "codex" {
 		t.Fatalf("Agent = %q, want %q", latestStub.receivedInput.Agent, "codex")
@@ -494,7 +484,6 @@ func TestRootCLI_SessionLatestCommand(t *testing.T) {
 func TestRootCLI_SessionLatestCommand_JSON(t *testing.T) {
 	t.Parallel()
 
-	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	initStub := &initializeStoreUsecaseStub{}
 	latestStub := &findLatestSessionQueryServiceStub{
 		event: model.EventOf(
@@ -515,7 +504,7 @@ func TestRootCLI_SessionLatestCommand_JSON(t *testing.T) {
 	}).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"session", "latest", "--db-path", dbPath, "--json"})
+	rootCmd.SetArgs([]string{"session", "latest", "--db-path", "/tmp/test-traceary.db", "--json"})
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -546,7 +535,6 @@ func TestRootCLI_SessionActiveCommand(t *testing.T) {
 		t.Fatalf("SessionIDOf() error = %v", err)
 	}
 
-	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	initStub := &initializeStoreUsecaseStub{}
 	latestStub := &findLatestSessionQueryServiceStub{
 		event: model.EventOf(
@@ -570,7 +558,8 @@ func TestRootCLI_SessionActiveCommand(t *testing.T) {
 	rootCmd.SetArgs([]string{
 		"session",
 		"active",
-		"--db-path", dbPath,
+		"--db-path",
+		"/tmp/test-traceary.db",
 		"--agent", "codex",
 	})
 
@@ -604,7 +593,6 @@ func TestRootCLI_SessionActiveCommand_StaleError(t *testing.T) {
 		t.Fatalf("SessionIDOf() error = %v", err)
 	}
 
-	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	initStub := &initializeStoreUsecaseStub{}
 	latestStub := &findLatestSessionQueryServiceStub{
 		event: model.EventOf(
@@ -627,7 +615,8 @@ func TestRootCLI_SessionActiveCommand_StaleError(t *testing.T) {
 	rootCmd.SetArgs([]string{
 		"session",
 		"active",
-		"--db-path", dbPath,
+		"--db-path",
+		"/tmp/test-traceary.db",
 	})
 
 	err = rootCmd.Execute()
@@ -655,7 +644,6 @@ func TestRootCLI_SessionActiveCommand_AllowStale(t *testing.T) {
 		t.Fatalf("SessionIDOf() error = %v", err)
 	}
 
-	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	initStub := &initializeStoreUsecaseStub{}
 	latestStub := &findLatestSessionQueryServiceStub{
 		event: model.EventOf(
@@ -679,7 +667,8 @@ func TestRootCLI_SessionActiveCommand_AllowStale(t *testing.T) {
 	rootCmd.SetArgs([]string{
 		"session",
 		"active",
-		"--db-path", dbPath,
+		"--db-path",
+		"/tmp/test-traceary.db",
 		"--allow-stale",
 	})
 

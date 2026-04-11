@@ -116,11 +116,11 @@ func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchC
 		return xerrors.Errorf(Localize("offset must be greater than or equal to 0", "offset は 0 以上である必要があります"))
 	}
 
-	resolvedPath, err := resolveDBPath(input.dbPath)
+	_, err := resolveDBPath(input.dbPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.initializeStoreUsecase.Run(ctx, resolvedPath); err != nil {
+	if err := c.initializeStoreUsecase.Run(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
@@ -152,7 +152,7 @@ func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchC
 		return err
 	}
 
-	events, err := c.searchEventsQueryService.Run(ctx, resolvedPath, port.SearchEventsInput{
+	events, err := c.searchEventsQueryService.Run(ctx, port.SearchEventsInput{
 		Query:        input.query,
 		Repo:         resolveRepoValue(ctx, input.repo),
 		SessionID:    input.sessionID,

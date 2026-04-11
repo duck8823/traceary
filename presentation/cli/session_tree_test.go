@@ -19,7 +19,6 @@ func TestRootCLI_SessionTreeCommand_JSON(t *testing.T) {
 		t.Parallel()
 
 		endedAt := time.Date(2026, 4, 9, 13, 30, 0, 0, time.UTC)
-		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		initStub := &initializeStoreUsecaseStub{}
 		listStub := &listSessionsQueryServiceStub{
 			summaries: []*port.SessionSummary{
@@ -55,7 +54,7 @@ func TestRootCLI_SessionTreeCommand_JSON(t *testing.T) {
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
 			"session", "tree",
-			"--db-path", dbPath,
+			"--db-path", "/tmp/test-traceary.db",
 			"--json",
 		})
 

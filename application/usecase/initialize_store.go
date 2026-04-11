@@ -2,7 +2,6 @@ package usecase
 
 import (
 	"context"
-	"strings"
 
 	"golang.org/x/xerrors"
 
@@ -15,7 +14,7 @@ type StoreInitializer = port.StoreInitializer
 // InitializeStoreUsecase initializes the local store.
 type InitializeStoreUsecase interface {
 	// Run initializes the local store.
-	Run(ctx context.Context, dbPath string) error
+	Run(ctx context.Context) error
 }
 
 type initializeStoreUsecase struct {
@@ -28,12 +27,8 @@ func NewInitializeStoreUsecase(storeInitializer StoreInitializer) InitializeStor
 }
 
 // Run initializes the local store.
-func (u *initializeStoreUsecase) Run(ctx context.Context, dbPath string) error {
-	trimmedPath := strings.TrimSpace(dbPath)
-	if trimmedPath == "" {
-		return xerrors.Errorf("DB path must not be empty")
-	}
-	if err := u.storeInitializer.Initialize(ctx, trimmedPath); err != nil {
+func (u *initializeStoreUsecase) Run(ctx context.Context) error {
+	if err := u.storeInitializer.Initialize(ctx); err != nil {
 		return xerrors.Errorf("failed to initialize store: %w", err)
 	}
 	return nil

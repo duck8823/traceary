@@ -66,17 +66,17 @@ GROUP BY e.session_id;`),
 	}
 }
 
-func saveTestSession(ctx context.Context, t *testing.T, ds *infra.Datasource, dbPath string, sessionID string, startedAt time.Time, endedAt *time.Time, agent string, repo string) {
+func saveTestSession(ctx context.Context, t *testing.T, ds *infra.Datasource, sessionID string, startedAt time.Time, endedAt *time.Time, agent string, repo string) {
 	t.Helper()
 	ag, _ := types.AgentOf(agent)
 	sid, _ := types.SessionIDOf(sessionID)
 	session := model.NewSession(sid, startedAt, "hook", ag, repo)
-	if err := ds.SaveSession(ctx, dbPath, session); err != nil {
+	if err := ds.SaveSession(ctx, session); err != nil {
 		t.Fatalf("SaveSession(start) error = %v", err)
 	}
 	if endedAt != nil {
 		endSession := model.SessionOf(sid, startedAt, endedAt, "hook", ag, repo, "", "", "")
-		if err := ds.SaveSession(ctx, dbPath, endSession); err != nil {
+		if err := ds.SaveSession(ctx, endSession); err != nil {
 			t.Fatalf("SaveSession(end) error = %v", err)
 		}
 	}
@@ -89,10 +89,10 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		ds := infra.NewDatasource(listSessionsTestMigrations())
+		ds := infra.NewDatasource(dbPath, listSessionsTestMigrations())
 		ctx := context.Background()
 
-		if err := ds.Initialize(ctx, dbPath); err != nil {
+		if err := ds.Initialize(ctx); err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
@@ -116,17 +116,17 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 			agent, _ := types.AgentOf(e.agent)
 			sid, _ := types.SessionIDOf(e.sessionID)
 			event, _ := model.NewEvent(eid, e.kind, "hook", agent, sid, "duck8823/traceary", e.body)
-			if err := ds.Save(ctx, dbPath, event); err != nil {
+			if err := ds.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
 		}
 
 		// Save session metadata
 		s1End := time.Now().UTC()
-		saveTestSession(ctx, t, ds, dbPath, "s1", time.Now().Add(-time.Hour).UTC(), &s1End, "claude", "duck8823/traceary")
-		saveTestSession(ctx, t, ds, dbPath, "s2", time.Now().UTC(), nil, "codex", "duck8823/traceary")
+		saveTestSession(ctx, t, ds, "s1", time.Now().Add(-time.Hour).UTC(), &s1End, "claude", "duck8823/traceary")
+		saveTestSession(ctx, t, ds, "s2", time.Now().UTC(), nil, "codex", "duck8823/traceary")
 
-		summaries, err := ds.ListSessionSummaries(ctx, dbPath, port.ListSessionsInput{
+		summaries, err := ds.ListSessionSummaries(ctx, port.ListSessionsInput{
 			Limit: 10,
 		})
 		if err != nil {
@@ -175,10 +175,10 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		ds := infra.NewDatasource(listSessionsTestMigrations())
+		ds := infra.NewDatasource(dbPath, listSessionsTestMigrations())
 		ctx := context.Background()
 
-		if err := ds.Initialize(ctx, dbPath); err != nil {
+		if err := ds.Initialize(ctx); err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
@@ -192,16 +192,16 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 			agent, _ := types.AgentOf(e.agent)
 			sid, _ := types.SessionIDOf(e.sid)
 			event, _ := model.NewEvent(eid, types.EventKindSessionStarted, "hook", agent, sid, "repo", "start")
-			if err := ds.Save(ctx, dbPath, event); err != nil {
+			if err := ds.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
 		}
 
 		now := time.Now().UTC()
-		saveTestSession(ctx, t, ds, dbPath, "s1", now, nil, "claude", "repo")
-		saveTestSession(ctx, t, ds, dbPath, "s2", now.Add(time.Second), nil, "codex", "repo")
+		saveTestSession(ctx, t, ds, "s1", now, nil, "claude", "repo")
+		saveTestSession(ctx, t, ds, "s2", now.Add(time.Second), nil, "codex", "repo")
 
-		summaries, err := ds.ListSessionSummaries(ctx, dbPath, port.ListSessionsInput{
+		summaries, err := ds.ListSessionSummaries(ctx, port.ListSessionsInput{
 			Limit: 10,
 			Agent: "claude",
 		})
@@ -220,10 +220,10 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		ds := infra.NewDatasource(listSessionsTestMigrations())
+		ds := infra.NewDatasource(dbPath, listSessionsTestMigrations())
 		ctx := context.Background()
 
-		if err := ds.Initialize(ctx, dbPath); err != nil {
+		if err := ds.Initialize(ctx); err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
@@ -239,14 +239,14 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 			sid, _ := types.SessionIDOf(e.sid)
 			ts := time.Date(2026, 4, e.dayOfMon, 12, 0, 0, 0, time.UTC)
 			event := model.EventOf(eid, types.EventKindSessionStarted, "hook", agent, sid, "repo", "start", ts)
-			if err := ds.Save(ctx, dbPath, event); err != nil {
+			if err := ds.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
-			saveTestSession(ctx, t, ds, dbPath, e.sid, ts, nil, "claude", "repo")
+			saveTestSession(ctx, t, ds, e.sid, ts, nil, "claude", "repo")
 		}
 
 		fromDate := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
-		summaries, err := ds.ListSessionSummaries(ctx, dbPath, port.ListSessionsInput{
+		summaries, err := ds.ListSessionSummaries(ctx, port.ListSessionsInput{
 			Limit: 10,
 			From:  &fromDate,
 		})
@@ -265,10 +265,10 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		ds := infra.NewDatasource(listSessionsTestMigrations())
+		ds := infra.NewDatasource(dbPath, listSessionsTestMigrations())
 		ctx := context.Background()
 
-		if err := ds.Initialize(ctx, dbPath); err != nil {
+		if err := ds.Initialize(ctx); err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
@@ -282,16 +282,16 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 			agent, _ := types.AgentOf(e.agent)
 			sid, _ := types.SessionIDOf(e.sid)
 			event, _ := model.NewEvent(eid, types.EventKindSessionStarted, "hook", agent, sid, "repo", "start")
-			if err := ds.Save(ctx, dbPath, event); err != nil {
+			if err := ds.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
 		}
 
 		now := time.Now().UTC()
-		saveTestSession(ctx, t, ds, dbPath, "s1", now, nil, "claude", "repo")
-		saveTestSession(ctx, t, ds, dbPath, "s2", now.Add(time.Second), nil, "claude", "repo")
+		saveTestSession(ctx, t, ds, "s1", now, nil, "claude", "repo")
+		saveTestSession(ctx, t, ds, "s2", now.Add(time.Second), nil, "claude", "repo")
 
-		summaries, err := ds.ListSessionSummaries(ctx, dbPath, port.ListSessionsInput{
+		summaries, err := ds.ListSessionSummaries(ctx, port.ListSessionsInput{
 			Limit:     10,
 			SessionID: "s1",
 		})
@@ -310,10 +310,10 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		ds := infra.NewDatasource(listSessionsTestMigrations())
+		ds := infra.NewDatasource(dbPath, listSessionsTestMigrations())
 		ctx := context.Background()
 
-		if err := ds.Initialize(ctx, dbPath); err != nil {
+		if err := ds.Initialize(ctx); err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
@@ -329,14 +329,14 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 			sid, _ := types.SessionIDOf(e.sid)
 			ts := time.Date(2026, 4, e.dayOfMon, 12, 0, 0, 0, time.UTC)
 			event := model.EventOf(eid, types.EventKindSessionStarted, "hook", agent, sid, "repo", "start", ts)
-			if err := ds.Save(ctx, dbPath, event); err != nil {
+			if err := ds.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
-			saveTestSession(ctx, t, ds, dbPath, e.sid, ts, nil, "claude", "repo")
+			saveTestSession(ctx, t, ds, e.sid, ts, nil, "claude", "repo")
 		}
 
 		toDate := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
-		summaries, err := ds.ListSessionSummaries(ctx, dbPath, port.ListSessionsInput{
+		summaries, err := ds.ListSessionSummaries(ctx, port.ListSessionsInput{
 			Limit: 10,
 			To:    &toDate,
 		})

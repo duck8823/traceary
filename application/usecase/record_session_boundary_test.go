@@ -22,7 +22,6 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 		sut := usecase.NewRecordSessionBoundaryUsecase(stub, nil)
 
 		got, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
-			DBPath: "/tmp/traceary.db",
 			Client: "cli",
 			Agent:  "codex",
 			Repo:   "duck8823/traceary",
@@ -52,7 +51,6 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 		sut := usecase.NewRecordSessionBoundaryUsecase(stub, nil)
 
 		_, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
-			DBPath: "/tmp/traceary.db",
 			Agent:  "codex",
 			Kind:   types.EventKindSessionEnded,
 		})
@@ -68,7 +66,6 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 		sut := usecase.NewRecordSessionBoundaryUsecase(stub, nil)
 
 		got, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
-			DBPath:    "/tmp/traceary.db",
 			Client:    "cli",
 			Agent:     "codex",
 			SessionID: "session-1",
@@ -117,7 +114,6 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 		sut := usecase.NewRecordSessionBoundaryUsecase(stub, finder)
 
 		got, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
-			DBPath:        "/tmp/traceary.db",
 			DefaultClient: "cli",
 			DefaultAgent:  "manual",
 			SessionID:     "session-1",
@@ -165,7 +161,6 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 		sut := usecase.NewRecordSessionBoundaryUsecase(stub, finder)
 
 		got, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
-			DBPath:        "/tmp/traceary.db",
 			Client:        "cli",
 			Agent:         "codex",
 			DefaultClient: "cli",
@@ -196,7 +191,6 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 		sut := usecase.NewRecordSessionBoundaryUsecase(stub, finder)
 
 		got, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
-			DBPath:        "/tmp/traceary.db",
 			DefaultClient: "cli",
 			DefaultAgent:  "manual",
 			SessionID:     "session-1",
@@ -221,7 +215,6 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 		sut := usecase.NewRecordSessionBoundaryUsecase(stub, finder)
 
 		_, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
-			DBPath:        "/tmp/traceary.db",
 			DefaultClient: "cli",
 			DefaultAgent:  "manual",
 			SessionID:     "session-1",
@@ -240,7 +233,6 @@ type sessionStartedEventFinderStub struct {
 
 func (s *sessionStartedEventFinderStub) FindSessionStartedEvent(
 	_ context.Context,
-	_ string,
 	_ types.SessionID,
 ) (*model.Event, error) {
 	return s.event, s.err
@@ -269,7 +261,7 @@ type sessionSaverStub struct {
 	err     error
 }
 
-func (s *sessionSaverStub) SaveSession(_ context.Context, _ string, session *model.Session) error {
+func (s *sessionSaverStub) SaveSession(_ context.Context, session *model.Session) error {
 	s.called = true
 	s.session = session
 	return s.err
@@ -286,7 +278,6 @@ func TestRecordSessionBoundaryUsecase_Run_SessionSaver(t *testing.T) {
 		sut := usecase.NewRecordSessionBoundaryUsecase(eventStub, nil, sessionStub)
 
 		_, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
-			DBPath: "/tmp/traceary.db",
 			Client: "cli",
 			Agent:  "claude",
 			Repo:   "duck8823/traceary",
@@ -311,7 +302,6 @@ func TestRecordSessionBoundaryUsecase_Run_SessionSaver(t *testing.T) {
 		sut := usecase.NewRecordSessionBoundaryUsecase(eventStub, nil, sessionStub)
 
 		_, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
-			DBPath:    "/tmp/traceary.db",
 			Client:    "cli",
 			Agent:     "claude",
 			Repo:      "duck8823/traceary",
@@ -337,7 +327,6 @@ func TestRecordSessionBoundaryUsecase_Run_SessionSaver(t *testing.T) {
 		sut := usecase.NewRecordSessionBoundaryUsecase(eventStub, nil, sessionStub)
 
 		_, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
-			DBPath: "/tmp/traceary.db",
 			Client: "cli",
 			Agent:  "claude",
 			Repo:   "duck8823/traceary",

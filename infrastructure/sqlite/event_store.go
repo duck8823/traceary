@@ -23,12 +23,12 @@ var selectRecentEventsQuery string
 var _ port.RecentEventFinder = (*Datasource)(nil)
 
 // Save persists an event.
-func (d *Datasource) Save(ctx context.Context, dbPath string, event *model.Event) error {
+func (d *Datasource) Save(ctx context.Context, event *model.Event) error {
 	if event == nil {
 		return xerrors.Errorf("event must not be nil")
 	}
 
-	db, err := d.openDB(ctx, dbPath)
+	db, err := d.openDB(ctx)
 	if err != nil {
 		return xerrors.Errorf("failed to open DB for event save: %w", err)
 	}
@@ -59,7 +59,6 @@ func (d *Datasource) Save(ctx context.Context, dbPath string, event *model.Event
 // ListRecent returns events in descending time order.
 func (d *Datasource) ListRecent(
 	ctx context.Context,
-	dbPath string,
 	input port.ListRecentEventsInput,
 ) ([]*model.Event, error) {
 	if input.Limit <= 0 {
@@ -69,7 +68,7 @@ func (d *Datasource) ListRecent(
 		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
 	}
 
-	db, err := d.openDB(ctx, dbPath)
+	db, err := d.openDB(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for event listing: %w", err)
 	}
@@ -212,8 +211,8 @@ func formatTimestamp(timestamp time.Time) string {
 	return timestamp.UTC().Format(time.RFC3339Nano)
 }
 
-func (d *Datasource) openDB(ctx context.Context, dbPath string) (_ *sql.DB, err error) {
-	db, err := sql.Open("sqlite", sqliteDSN(dbPath))
+func (d *Datasource) openDB(ctx context.Context) (_ *sql.DB, err error) {
+	db, err := sql.Open("sqlite", sqliteDSN(d.dbPath))
 	if err != nil {
 		return nil, xerrors.Errorf("failed to initialize SQLite connection: %w", err)
 	}

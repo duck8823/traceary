@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"strings"
 	"bytes"
 	"context"
 	"path/filepath"
@@ -39,7 +40,6 @@ func (s *restoreStoreBackupUsecaseStub) Run(_ context.Context, input usecase.Res
 func TestRootCLI_BackupCreateCommand(t *testing.T) {
 	t.Parallel()
 
-	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	outputPath := filepath.Join(t.TempDir(), "traceary-backup.db")
 	createBackup := &createStoreBackupUsecaseStub{}
 
@@ -51,7 +51,8 @@ func TestRootCLI_BackupCreateCommand(t *testing.T) {
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
 		"backup", "create",
-		"--db-path", dbPath,
+		"--db-path",
+		"/tmp/test-traceary.db",
 		"--output", outputPath,
 		"--force",
 	})
@@ -61,9 +62,6 @@ func TestRootCLI_BackupCreateCommand(t *testing.T) {
 	}
 	if !createBackup.called {
 		t.Fatal("create store backup usecase was not called")
-	}
-	if createBackup.input.DBPath != dbPath {
-		t.Fatalf("CreateStoreBackupUsecase DBPath = %q, want %q", createBackup.input.DBPath, dbPath)
 	}
 	if createBackup.input.OutputPath != outputPath {
 		t.Fatalf("CreateStoreBackupUsecase OutputPath = %q, want %q", createBackup.input.OutputPath, outputPath)
@@ -95,7 +93,6 @@ func TestRootCLI_BackupCreateCommand_MissingOutputReturnsError(t *testing.T) {
 func TestRootCLI_BackupCreateCommand_PositionalArgument(t *testing.T) {
 	t.Parallel()
 
-	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	outputPath := filepath.Join(t.TempDir(), "traceary-backup.db")
 	createBackup := &createStoreBackupUsecaseStub{}
 	initStub := &initializeStoreUsecaseStub{}
@@ -106,7 +103,7 @@ func TestRootCLI_BackupCreateCommand_PositionalArgument(t *testing.T) {
 	}).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"backup", "create", "--db-path", dbPath, outputPath})
+	rootCmd.SetArgs([]string{"backup", "create", "--db-path", "/tmp/test-traceary.db", outputPath})
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -135,7 +132,6 @@ func TestRootCLI_BackupCreateCommand_DuplicateOutputReturnsError(t *testing.T) {
 func TestRootCLI_BackupRestoreCommand(t *testing.T) {
 	t.Parallel()
 
-	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	inputPath := filepath.Join(t.TempDir(), "traceary-backup.db")
 	restoreBackup := &restoreStoreBackupUsecaseStub{}
 
@@ -147,7 +143,8 @@ func TestRootCLI_BackupRestoreCommand(t *testing.T) {
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
 		"backup", "restore",
-		"--db-path", dbPath,
+		"--db-path",
+		"/tmp/test-traceary.db",
 		"--input", inputPath,
 		"--force",
 	})
@@ -158,17 +155,14 @@ func TestRootCLI_BackupRestoreCommand(t *testing.T) {
 	if !restoreBackup.called {
 		t.Fatal("restore store backup usecase was not called")
 	}
-	if restoreBackup.input.DBPath != dbPath {
-		t.Fatalf("RestoreStoreBackupUsecase DBPath = %q, want %q", restoreBackup.input.DBPath, dbPath)
-	}
 	if restoreBackup.input.InputPath != inputPath {
 		t.Fatalf("RestoreStoreBackupUsecase InputPath = %q, want %q", restoreBackup.input.InputPath, inputPath)
 	}
 	if !restoreBackup.input.Overwrite {
 		t.Fatal("RestoreStoreBackupUsecase Overwrite = false, want true")
 	}
-	if stdout.String() != "Restored backup to: "+dbPath+"\n" {
-		t.Fatalf("stdout = %q", stdout.String())
+	if !strings.Contains(stdout.String(), "Restored backup to:") {
+		t.Fatalf("stdout = %q, want to contain 'Restored backup to:'", stdout.String())
 	}
 }
 

@@ -9,13 +9,11 @@ import (
 )
 
 type eventRepositoryStub struct {
-	receivedPath string
 	savedEvent   *model.Event
 	err          error
 }
 
-func (s *eventRepositoryStub) Save(_ context.Context, dbPath string, event *model.Event) error {
-	s.receivedPath = dbPath
+func (s *eventRepositoryStub) Save(_ context.Context, event *model.Event) error {
 	s.savedEvent = event
 	return s.err
 }
@@ -30,7 +28,6 @@ func TestRecordLogUsecase_Run(t *testing.T) {
 		sut := usecase.NewRecordLogUsecase(stub)
 
 		got, err := sut.Run(context.Background(), usecase.RecordLogInput{
-			DBPath:    "/tmp/traceary.db",
 			Message:   "  hello traceary  ",
 			Client:    " cli ",
 			Agent:     "codex",
@@ -48,9 +45,6 @@ func TestRecordLogUsecase_Run(t *testing.T) {
 		}
 		if got != stub.savedEvent {
 			t.Fatalf("saved event mismatch")
-		}
-		if stub.receivedPath != "/tmp/traceary.db" {
-			t.Fatalf("Save() path = %q, want %q", stub.receivedPath, "/tmp/traceary.db")
 		}
 		if got.EventID().String() == "" {
 			t.Fatalf("EventID() is empty")
@@ -79,7 +73,6 @@ func TestRecordLogUsecase_Run(t *testing.T) {
 		sut := usecase.NewRecordLogUsecase(stub)
 
 		_, err := sut.Run(context.Background(), usecase.RecordLogInput{
-			DBPath:    "/tmp/traceary.db",
 			Message:   "hello",
 			Agent:     "",
 			SessionID: "session-1",

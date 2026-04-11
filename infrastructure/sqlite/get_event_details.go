@@ -22,10 +22,9 @@ var _ port.EventDetailsFinder = (*Datasource)(nil)
 // GetEventDetails returns the details for the given event ID.
 func (d *Datasource) GetEventDetails(
 	ctx context.Context,
-	dbPath string,
 	eventID string,
 ) (*port.EventDetails, error) {
-	db, err := d.openDB(ctx, dbPath)
+	db, err := d.openDB(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for event details lookup: %w", err)
 	}

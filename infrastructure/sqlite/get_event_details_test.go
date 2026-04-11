@@ -44,8 +44,8 @@ CREATE TABLE command_audits (
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(migrations)
-	if err := sut.Initialize(context.Background(), dbPath); err != nil {
+	sut := sqlite.NewDatasource(dbPath, migrations)
+	if err := sut.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -55,14 +55,14 @@ CREATE TABLE command_audits (
 		"github.com/duck8823/traceary",
 		time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC),
 	)
-	if err := sut.SaveCommandAudit(context.Background(), dbPath, event, commandAudit); err != nil {
+	if err := sut.SaveCommandAudit(context.Background(), event, commandAudit); err != nil {
 		t.Fatalf("SaveCommandAudit() error = %v", err)
 	}
 
 	t.Run("event と command audit を返す", func(t *testing.T) {
 		t.Parallel()
 
-		got, err := sut.GetEventDetails(context.Background(), dbPath, "event-audit")
+		got, err := sut.GetEventDetails(context.Background(), "event-audit")
 		if err != nil {
 			t.Fatalf("GetEventDetails() error = %v", err)
 		}
@@ -80,7 +80,7 @@ CREATE TABLE command_audits (
 	t.Run("returns error for nonexistent event ID", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := sut.GetEventDetails(context.Background(), dbPath, "missing")
+		_, err := sut.GetEventDetails(context.Background(), "missing")
 		if err == nil {
 			t.Fatalf("GetEventDetails() error = nil, want error")
 		}

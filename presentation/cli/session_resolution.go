@@ -22,7 +22,6 @@ type manualSessionResolution struct {
 
 func (c *RootCLI) resolveManualSessionID(
 	ctx context.Context,
-	dbPath string,
 	explicitSessionID string,
 	repo string,
 ) (*manualSessionResolution, error) {
@@ -42,7 +41,7 @@ func (c *RootCLI) resolveManualSessionID(
 		}, nil
 	}
 
-	event, err := c.findLatestSessionQueryService.Run(ctx, dbPath, port.FindLatestSessionInput{
+	event, err := c.findLatestSessionQueryService.Run(ctx, port.FindLatestSessionInput{
 		Repo:       trimmedRepo,
 		ActiveOnly: true,
 	})

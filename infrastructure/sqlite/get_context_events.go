@@ -20,10 +20,9 @@ var _ port.ContextEventFinder = (*Datasource)(nil)
 // GetContextEvents returns events matching the requested context in descending time order.
 func (d *Datasource) GetContextEvents(
 	ctx context.Context,
-	dbPath string,
 	input port.GetContextInput,
 ) ([]*model.Event, error) {
-	db, err := d.openDB(ctx, dbPath)
+	db, err := d.openDB(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for context lookup: %w", err)
 	}

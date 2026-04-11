@@ -9,7 +9,6 @@ import (
 )
 
 type garbageCollectorStub struct {
-	receivedPath   string
 	receivedBefore time.Time
 	receivedDryRun bool
 	deletedCount   int
@@ -18,11 +17,9 @@ type garbageCollectorStub struct {
 
 func (s *garbageCollectorStub) CollectGarbage(
 	_ context.Context,
-	dbPath string,
 	before time.Time,
 	dryRun bool,
 ) (int, error) {
-	s.receivedPath = dbPath
 	s.receivedBefore = before
 	s.receivedDryRun = dryRun
 	return s.deletedCount, s.err
@@ -40,15 +37,11 @@ func TestCollectGarbageUsecase_Run(t *testing.T) {
 		sut := usecase.NewCollectGarbageUsecase(stub)
 
 		got, err := sut.Run(context.Background(), usecase.CollectGarbageInput{
-			DBPath: "/tmp/traceary.db",
 			Before: cutoff,
 			DryRun: true,
 		})
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
-		}
-		if stub.receivedPath != "/tmp/traceary.db" {
-			t.Fatalf("received path = %q, want %q", stub.receivedPath, "/tmp/traceary.db")
 		}
 		if !stub.receivedBefore.Equal(cutoff) {
 			t.Fatalf("received before = %v, want %v", stub.receivedBefore, cutoff)
@@ -67,7 +60,6 @@ func TestCollectGarbageUsecase_Run(t *testing.T) {
 		sut := usecase.NewCollectGarbageUsecase(&garbageCollectorStub{})
 
 		_, err := sut.Run(context.Background(), usecase.CollectGarbageInput{
-			DBPath: "/tmp/traceary.db",
 		})
 		if err == nil {
 			t.Fatalf("Run() error = nil, want error")

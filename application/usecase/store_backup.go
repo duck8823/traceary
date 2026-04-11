@@ -17,14 +17,12 @@ type StoreBackupRestorer = port.StoreBackupRestorer
 
 // CreateStoreBackupInput is the input for backup creation.
 type CreateStoreBackupInput struct {
-	DBPath     string
 	OutputPath string
 	Overwrite  bool
 }
 
 // RestoreStoreBackupInput is the input for backup restoration.
 type RestoreStoreBackupInput struct {
-	DBPath    string
 	InputPath string
 	Overwrite bool
 }
@@ -64,13 +62,10 @@ func (u *createStoreBackupUsecase) Run(ctx context.Context, input CreateStoreBac
 	if u.storeBackupCreator == nil {
 		return xerrors.Errorf("store backup creator is not configured")
 	}
-	if strings.TrimSpace(input.DBPath) == "" {
-		return xerrors.Errorf("DB path must not be empty")
-	}
 	if strings.TrimSpace(input.OutputPath) == "" {
 		return xerrors.Errorf("output path must not be empty")
 	}
-	if err := u.storeBackupCreator.CreateBackup(ctx, strings.TrimSpace(input.DBPath), strings.TrimSpace(input.OutputPath), input.Overwrite); err != nil {
+	if err := u.storeBackupCreator.CreateBackup(ctx, strings.TrimSpace(input.OutputPath), input.Overwrite); err != nil {
 		return xerrors.Errorf("failed to create store backup: %w", err)
 	}
 
@@ -82,13 +77,10 @@ func (u *restoreStoreBackupUsecase) Run(ctx context.Context, input RestoreStoreB
 	if u.storeBackupRestorer == nil {
 		return xerrors.Errorf("store backup restorer is not configured")
 	}
-	if strings.TrimSpace(input.DBPath) == "" {
-		return xerrors.Errorf("DB path must not be empty")
-	}
 	if strings.TrimSpace(input.InputPath) == "" {
 		return xerrors.Errorf("input path must not be empty")
 	}
-	if err := u.storeBackupRestorer.RestoreBackup(ctx, strings.TrimSpace(input.InputPath), strings.TrimSpace(input.DBPath), input.Overwrite); err != nil {
+	if err := u.storeBackupRestorer.RestoreBackup(ctx, strings.TrimSpace(input.InputPath), input.Overwrite); err != nil {
 		return xerrors.Errorf("failed to restore store backup: %w", err)
 	}
 

@@ -12,7 +12,6 @@ import (
 )
 
 type recentEventFinderStub struct {
-	receivedPath  string
 	receivedInput port.ListRecentEventsInput
 	events        []*model.Event
 	err           error
@@ -20,10 +19,8 @@ type recentEventFinderStub struct {
 
 func (s *recentEventFinderStub) ListRecent(
 	_ context.Context,
-	dbPath string,
 	input port.ListRecentEventsInput,
 ) ([]*model.Event, error) {
-	s.receivedPath = dbPath
 	s.receivedInput = input
 	return s.events, s.err
 }
@@ -63,7 +60,7 @@ func TestListRecentEventsQueryService_Run(t *testing.T) {
 		}
 		sut := queryservice.NewListRecentEventsQueryService(stub)
 
-		got, err := sut.Run(context.Background(), "/tmp/traceary.db", port.ListRecentEventsInput{
+		got, err := sut.Run(context.Background(), port.ListRecentEventsInput{
 			Limit:     5,
 			Offset:    2,
 			Kind:      "note",
@@ -74,9 +71,6 @@ func TestListRecentEventsQueryService_Run(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
-		}
-		if stub.receivedPath != "/tmp/traceary.db" {
-			t.Fatalf("received path = %q, want %q", stub.receivedPath, "/tmp/traceary.db")
 		}
 		if stub.receivedInput.Limit != 5 {
 			t.Fatalf("received limit = %d, want %d", stub.receivedInput.Limit, 5)
@@ -103,7 +97,7 @@ func TestListRecentEventsQueryService_Run(t *testing.T) {
 
 		sut := queryservice.NewListRecentEventsQueryService(&recentEventFinderStub{})
 
-		_, err := sut.Run(context.Background(), "/tmp/traceary.db", port.ListRecentEventsInput{})
+		_, err := sut.Run(context.Background(), port.ListRecentEventsInput{})
 		if err == nil {
 			t.Fatalf("Run() error = nil, want error")
 		}
@@ -114,7 +108,7 @@ func TestListRecentEventsQueryService_Run(t *testing.T) {
 
 		sut := queryservice.NewListRecentEventsQueryService(&recentEventFinderStub{})
 
-		_, err := sut.Run(context.Background(), "/tmp/traceary.db", port.ListRecentEventsInput{
+		_, err := sut.Run(context.Background(), port.ListRecentEventsInput{
 			Limit:  10,
 			Offset: -1,
 		})

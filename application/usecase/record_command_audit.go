@@ -23,7 +23,6 @@ type CommandAuditSaver = port.CommandAuditSaver
 
 // RecordCommandAuditInput is the input for traceary audit recording.
 type RecordCommandAuditInput struct {
-	DBPath              string
 	Command             string
 	Input               string
 	Output              string
@@ -62,10 +61,6 @@ func (u *recordCommandAuditUsecase) Run(
 		return nil, nil, xerrors.Errorf("command audit saver is not configured")
 	}
 
-	trimmedDBPath := strings.TrimSpace(input.DBPath)
-	if trimmedDBPath == "" {
-		return nil, nil, xerrors.Errorf("DB path must not be empty")
-	}
 
 	agent, err := types.AgentOf(input.Agent)
 	if err != nil {
@@ -132,7 +127,7 @@ func (u *recordCommandAuditUsecase) Run(
 		return nil, nil, xerrors.Errorf("failed to build audit event: %w", err)
 	}
 
-	if err := u.commandAuditSaver.SaveCommandAudit(ctx, trimmedDBPath, event, commandAudit); err != nil {
+	if err := u.commandAuditSaver.SaveCommandAudit(ctx, event, commandAudit); err != nil {
 		return nil, nil, xerrors.Errorf("failed to save audit event: %w", err)
 	}
 
