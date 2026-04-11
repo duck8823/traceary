@@ -57,7 +57,7 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 	listCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	listCmd.Flags().IntVar(&limit, "limit", 20, Localize("number of events to display", "表示件数"))
 	listCmd.Flags().IntVar(&offset, "offset", 0, Localize("number of events to skip before listing", "一覧表示前にスキップする件数"))
-	listCmd.Flags().StringVar(&kind, "kind", "", Localize("filter by event kind (note, command_executed, reviewed, session_started, session_ended; alias: audit)", "イベント種別で絞り込む (note, command_executed, reviewed, session_started, session_ended; alias: audit)"))
+	listCmd.Flags().StringVar(&kind, "kind", "", Localize("filter by event kind (note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt; alias: audit)", "イベント種別で絞り込む (note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt; alias: audit)"))
 	listCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "記録経路で絞り込む"))
 	listCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "作業主体で絞り込む"))
 	listCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("filter by session ID", "session ID で絞り込む"))
