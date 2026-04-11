@@ -571,8 +571,9 @@ type sessionHandoffOutput struct {
 func (s *Server) sessionHandoff(dbPath string) mcp.ToolHandlerFor[sessionHandoffInput, sessionHandoffOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input sessionHandoffInput) (*mcp.CallToolResult, sessionHandoffOutput, error) {
 		sessions, err := s.listSessionsQueryService.Run(ctx, dbPath, port.ListSessionsInput{
-			Limit: 1,
-			Repo:  strings.TrimSpace(input.Repo),
+			Limit:     1,
+			SessionID: strings.TrimSpace(input.SessionID),
+			Repo:      strings.TrimSpace(input.Repo),
 		})
 		if err != nil {
 			return nil, sessionHandoffOutput{}, xerrors.Errorf("failed to list sessions: %w", err)
