@@ -261,11 +261,11 @@ func TestTracearyAuditScript_UsesRepoFromSessionState(t *testing.T) {
 	env := append(os.Environ(),
 		"TRACEARY_BIN="+fakeTracearyPath,
 		"TRACEARY_FAKE_LOG="+fakeLogPath,
-		"TRACEARY_WORKSPACE=session-repo",
+		"TRACEARY_WORKSPACE=session-workspace",
 		"HOME="+homeDir,
 	)
 
-	// Start session — repo "session-repo" is saved to state
+	// Start session — repo "session-workspace" is saved to state
 	if err := runHookScript(t, filepath.Join(".", "traceary-session.sh"), env, `{"cwd":"/tmp/project"}`, "claude", "start"); err != nil {
 		t.Fatalf("runHookScript(start) error = %v", err)
 	}
@@ -286,20 +286,20 @@ func TestTracearyAuditScript_UsesRepoFromSessionState(t *testing.T) {
 		t.Fatalf("len(calls) = %d, want 2", len(calls))
 	}
 
-	// Verify audit used session-repo, not CWD-based detection
+	// Verify audit used session-workspace, not CWD-based detection
 	auditCall := calls[1]
-	repoIdx := -1
+	wsIdx := -1
 	for i, arg := range auditCall {
 		if arg == "--workspace" && i+1 < len(auditCall) {
-			repoIdx = i + 1
+			wsIdx = i + 1
 			break
 		}
 	}
-	if repoIdx == -1 {
-		t.Fatalf("audit call missing --repo flag: %#v", auditCall)
+	if wsIdx == -1 {
+		t.Fatalf("audit call missing --workspace flag: %#v", auditCall)
 	}
-	if auditCall[repoIdx] != "session-repo" {
-		t.Fatalf("audit --repo = %q, want %q", auditCall[repoIdx], "session-repo")
+	if auditCall[wsIdx] != "session-workspace" {
+		t.Fatalf("audit --workspace = %q, want %q", auditCall[wsIdx], "session-workspace")
 	}
 }
 

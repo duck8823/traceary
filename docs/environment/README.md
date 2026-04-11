@@ -13,7 +13,7 @@ This page centralizes Traceary's environment variables, runtime assumptions, and
 | `TRACEARY_CLIENT` | Default `client` attribution for `log`, `audit`, and session commands |
 | `TRACEARY_AGENT` | Default `agent` attribution for `log`, `audit`, and session commands |
 | `TRACEARY_SESSION_ID` | Default session ID for `log`, `audit`, and `session end` |
-| `TRACEARY_REPO` | Override the auxiliary work-context identifier |
+| `TRACEARY_WORKSPACE` | Override the auxiliary work-context identifier |
 | `TRACEARY_ALLOW_SECRETS` | Disable best-effort secret redaction for `traceary audit` |
 | `TRACEARY_MAX_AUDIT_INPUT_BYTES` | Default stored input size limit for `traceary audit` |
 | `TRACEARY_MAX_AUDIT_OUTPUT_BYTES` | Default stored output size limit for `traceary audit` |
