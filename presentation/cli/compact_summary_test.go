@@ -34,7 +34,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 			summaries: []*port.SessionSummary{
 				{
 					SessionID: "session-abc",
-					Repo:      "duck8823/traceary",
+					Workspace:      "duck8823/traceary",
 					Label:     "v0.2.1 sprint",
 					StartedAt: time.Now().Add(-time.Hour),
 				},
@@ -110,7 +110,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 			summaries: []*port.SessionSummary{
 				{
 					SessionID: "target-session",
-					Repo:      "duck8823/traceary",
+					Workspace:      "duck8823/traceary",
 					StartedAt: time.Now().Add(-time.Hour),
 				},
 			},
@@ -147,7 +147,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 			eid, _ := types.EventIDOf("e" + string(rune('0'+i)))
 			agent, _ := types.AgentOf("claude")
 			sid, _ := types.SessionIDOf("s1")
-			events = append(events, model.EventOf(eid, types.EventKindCommandExecuted, "hook", agent, sid, "repo", strings.Repeat("x", 200), time.Now()))
+			events = append(events, model.EventOf(eid, types.EventKindCommandExecuted, "hook", agent, sid, "workspace", strings.Repeat("x", 200), time.Now()))
 		}
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
@@ -156,7 +156,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 			InitializeStoreUsecase: &initializeStoreUsecaseStub{},
 			ListEventsQueryService: &listEventsQueryServiceStub{events: events},
 			ListSessionsQueryService: &listSessionsQueryServiceStub{
-				summaries: []*port.SessionSummary{{SessionID: "s1", Repo: "repo"}},
+				summaries: []*port.SessionSummary{{SessionID: "s1", Workspace: "workspace"}},
 			},
 		}).Command()
 		rootCmd.SetOut(stdout)

@@ -44,7 +44,7 @@ func TestListSessionsQueryService_Run(t *testing.T) {
 
 		got, err := sut.Run(context.Background(), port.ListSessionsInput{
 			Limit: 10,
-			Repo:  "duck8823/traceary",
+			Workspace:  "duck8823/traceary",
 		})
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
@@ -52,8 +52,8 @@ func TestListSessionsQueryService_Run(t *testing.T) {
 		if len(got) != 1 {
 			t.Fatalf("len(got) = %d, want 1", len(got))
 		}
-		if stub.receivedInput.Repo != "duck8823/traceary" {
-			t.Fatalf("received repo = %q, want %q", stub.receivedInput.Repo, "duck8823/traceary")
+		if stub.receivedInput.Workspace != "duck8823/traceary" {
+			t.Fatalf("received repo = %q, want %q", stub.receivedInput.Workspace, "duck8823/traceary")
 		}
 	})
 

@@ -31,7 +31,7 @@ CREATE TABLE events (
 		"000002_add_event_metadata.sql": {
 			Data: []byte(`
 ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
-ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';
+ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';
 
 CREATE INDEX idx_events_created_at
     ON events(created_at DESC, id DESC);`),
@@ -99,8 +99,8 @@ CREATE TABLE command_audits (
 	if got[0].Client() != "hook" {
 		t.Fatalf("got[0].Client() = %q, want %q", got[0].Client(), "hook")
 	}
-	if got[1].Repo() != "duck8823/traceary" {
-		t.Fatalf("got[1].Repo() = %q, want %q", got[1].Repo(), "duck8823/traceary")
+	if got[1].Workspace() != "duck8823/traceary" {
+		t.Fatalf("got[1].Workspace() = %q, want %q", got[1].Workspace(), "duck8823/traceary")
 	}
 }
 
@@ -131,7 +131,7 @@ CREATE TABLE events (
 		"000002_add_event_metadata.sql": {
 			Data: []byte(`
 ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
-ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
+ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		},
 		"000003_create_command_audits.sql": {
 			Data: []byte(`
@@ -198,7 +198,7 @@ CREATE TABLE events (
 		"000002_add_event_metadata.sql": {
 			Data: []byte(`
 ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
-ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';
+ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';
 
 CREATE INDEX idx_events_created_at
     ON events(created_at DESC, id DESC);`),
@@ -272,7 +272,7 @@ CREATE TABLE events (
 		"000002_add_event_metadata.sql": {
 			Data: []byte(`
 ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
-ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';
+ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';
 
 CREATE INDEX idx_events_created_at
     ON events(created_at DESC, id DESC);`),
@@ -306,7 +306,7 @@ CREATE TABLE command_audits (
 
 	events := []*model.Event{
 		model.EventOf(firstEventID, types.EventKindNote, "cli", codexAgent, sessionOne, "duck8823/traceary", "first", time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC)),
-		model.EventOf(secondEventID, types.EventKindCommandExecuted, "hook", claudeAgent, sessionTwo, "other/repo", "second", time.Date(2026, 4, 7, 12, 1, 0, 0, time.UTC)),
+		model.EventOf(secondEventID, types.EventKindCommandExecuted, "hook", claudeAgent, sessionTwo, "other/workspace", "second", time.Date(2026, 4, 7, 12, 1, 0, 0, time.UTC)),
 	}
 	for _, event := range events {
 		if err := sut.Save(context.Background(), event); err != nil {
@@ -320,7 +320,7 @@ CREATE TABLE command_audits (
 		Client:    "cli",
 		Agent:     "codex",
 		SessionID: "session-1",
-		Repo:      "duck8823/traceary",
+		Workspace:      "duck8823/traceary",
 	})
 	if err != nil {
 		t.Fatalf("ListRecent() error = %v", err)
@@ -372,7 +372,7 @@ func newEventForSQLiteTest(
 	client string,
 	agentValue string,
 	sessionIDValue string,
-	repo string,
+	workspace string,
 	body string,
 	createdAt time.Time,
 ) *model.Event {
@@ -397,7 +397,7 @@ func newEventForSQLiteTest(
 		client,
 		agent,
 		sessionID,
-		repo,
+		workspace,
 		body,
 		createdAt,
 	)

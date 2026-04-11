@@ -17,7 +17,7 @@ func TestNewEventDetails(t *testing.T) {
 	agent, _ := types.AgentOf("claude")
 	sid, _ := types.SessionIDOf("session-1")
 
-	event, err := model.NewEvent(eventID, kind, "cli", agent, sid, "repo", "test body")
+	event, err := model.NewEvent(eventID, kind, "cli", agent, sid, "workspace", "test body")
 	if err != nil {
 		t.Fatalf("NewEvent() error = %v", err)
 	}

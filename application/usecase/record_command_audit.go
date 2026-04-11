@@ -29,7 +29,7 @@ type RecordCommandAuditInput struct {
 	Client              string
 	Agent               string
 	SessionID           string
-	Repo                string
+	Workspace string
 	AllowSecrets        bool
 	MaxInputBytes       int
 	MaxOutputBytes      int
@@ -120,7 +120,7 @@ func (u *recordCommandAuditUsecase) Run(
 		strings.TrimSpace(input.Client),
 		agent,
 		sessionID,
-		strings.TrimSpace(input.Repo),
+		strings.TrimSpace(input.Workspace),
 		commandAudit.Command(),
 	)
 	if err != nil {

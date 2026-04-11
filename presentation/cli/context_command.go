@@ -47,7 +47,7 @@ func (c *RootCLI) newContextCommand() *cobra.Command {
 	contextCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("target session ID", "対象の session ID"))
 	contextCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "作業主体の入口で絞り込む"))
 	contextCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "作業主体で絞り込む"))
-	contextCmd.Flags().StringVar(&repo, "repo", "", Localize("filter by auxiliary work context identifier", "補助的なコンテキスト識別子で絞り込む"))
+	contextCmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by auxiliary work context identifier", "補助的なコンテキスト識別子で絞り込む"))
 	contextCmd.Flags().IntVar(&limit, "limit", 10, Localize("maximum number of events to include", "表示件数"))
 	contextCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 
@@ -66,7 +66,7 @@ type contextCommandInput struct {
 
 type contextOutput struct {
 	ResolvedSessionID string      `json:"resolved_session_id,omitempty"`
-	ResolvedRepo      string      `json:"resolved_repo,omitempty"`
+	ResolvedWorkspace      string      `json:"resolved_workspace,omitempty"`
 	Events            []eventJSON `json:"events"`
 }
 
@@ -89,19 +89,19 @@ func (c *RootCLI) runContext(ctx context.Context, output io.Writer, input contex
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
-	resolvedRepo := resolveRepoValue(ctx, input.repo)
+	resolvedWorkspace := resolveWorkspaceValue(ctx, input.repo)
 	resolvedSessionID, err := c.resolveContextSessionID(ctx, contextCommandInput{
 		sessionID: input.sessionID,
 		client:    input.client,
 		agent:     input.agent,
-		repo:      resolvedRepo,
+		repo:      resolvedWorkspace,
 	})
 	if err != nil {
 		return err
 	}
 
 	events, err := c.getContextQueryService.Run(ctx, port.GetContextInput{
-		Repo:      resolvedRepo,
+		Workspace:      resolvedWorkspace,
 		SessionID: resolvedSessionID,
 		Limit:     input.limit,
 	})
@@ -110,10 +110,10 @@ func (c *RootCLI) runContext(ctx context.Context, output io.Writer, input contex
 	}
 
 	if input.asJSON {
-		return writeContextJSON(output, resolvedSessionID, resolvedRepo, events)
+		return writeContextJSON(output, resolvedSessionID, resolvedWorkspace, events)
 	}
 
-	return writeContextText(output, resolvedSessionID, resolvedRepo, events)
+	return writeContextText(output, resolvedSessionID, resolvedWorkspace, events)
 }
 
 func (c *RootCLI) resolveContextSessionID(
@@ -132,11 +132,11 @@ func (c *RootCLI) resolveContextSessionID(
 	event, err := c.findLatestSessionQueryService.Run(ctx, port.FindLatestSessionInput{
 		Client: strings.TrimSpace(input.client),
 		Agent:  strings.TrimSpace(input.agent),
-		Repo:   strings.TrimSpace(input.repo),
+		Workspace:   strings.TrimSpace(input.repo),
 	})
 	if err != nil {
 		if queryservice.IsSessionLookupNotFound(err) {
-			slog.Debug("no session found for context, using empty session", "client", input.client, "agent", input.agent, "repo", input.repo)
+			slog.Debug("no session found for context, using empty session", "client", input.client, "agent", input.agent, "workspace", input.repo)
 			return "", nil
 		}
 		return "", xerrors.Errorf("%s: %w", Localize("failed to resolve latest session for context", "文脈用の直近 session 解決に失敗しました"), err)
@@ -153,7 +153,7 @@ func writeContextJSON(output io.Writer, sessionID string, repo string, events []
 
 	return writeJSON(output, contextOutput{
 		ResolvedSessionID: sessionID,
-		ResolvedRepo:      repo,
+		ResolvedWorkspace: repo,
 		Events:            serializedEvents,
 	})
 }

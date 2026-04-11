@@ -62,7 +62,7 @@ func TestSearchEventsQueryService_Run(t *testing.T) {
 
 		got, err := sut.Run(context.Background(), port.SearchEventsInput{
 			Query:     "traceary",
-			Repo:      "github.com/duck8823/traceary",
+			Workspace:      "github.com/duck8823/traceary",
 			SessionID: "session-1",
 			Client:    "cli",
 			Agent:     "codex",

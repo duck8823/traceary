@@ -48,7 +48,7 @@ func (s *searchEventsQueryService) Run(
 		return nil, xerrors.Errorf("from must be earlier than to")
 	}
 	input.Query = strings.TrimSpace(input.Query)
-	input.Repo = strings.TrimSpace(input.Repo)
+	input.Workspace = strings.TrimSpace(input.Workspace)
 	input.SessionID = strings.TrimSpace(input.SessionID)
 	input.Client = strings.TrimSpace(input.Client)
 	input.Agent = strings.TrimSpace(input.Agent)
@@ -69,7 +69,7 @@ func (s *searchEventsQueryService) Run(
 
 func hasSearchConstraint(input port.SearchEventsInput) bool {
 	return strings.TrimSpace(input.Query) != "" ||
-		strings.TrimSpace(input.Repo) != "" ||
+		strings.TrimSpace(input.Workspace) != "" ||
 		strings.TrimSpace(input.SessionID) != "" ||
 		strings.TrimSpace(input.Client) != "" ||
 		strings.TrimSpace(input.Agent) != "" ||

@@ -34,8 +34,8 @@ func (c *RootCLI) newLogCommand() *cobra.Command {
 		Use:   "log <message>",
 		Short: Localize("Append a session note", "セッションログを追記する"),
 		Long: Localize(
-			"Append a note to Traceary.\n\nDefaults:\n- DB path: --db-path -> TRACEARY_DB_PATH -> ~/.config/traceary/traceary.db\n- client / agent / repo: flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_REPO -> cli / manual / detected repo\n- session ID: --session-id -> TRACEARY_SESSION_ID -> latest non-stale active session for the resolved repo -> default",
-			"Traceary にメモを追記します。\n\n既定値の解決順:\n- DB path: --db-path -> TRACEARY_DB_PATH -> ~/.config/traceary/traceary.db\n- client / agent / repo: flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_REPO -> cli / manual / 検出した repo\n- session ID: --session-id -> TRACEARY_SESSION_ID -> 解決した repo の最新 non-stale active session -> default",
+			"Append a note to Traceary.\n\nDefaults:\n- DB path: --db-path -> TRACEARY_DB_PATH -> ~/.config/traceary/traceary.db\n- client / agent / repo: flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE -> cli / manual / detected repo\n- session ID: --session-id -> TRACEARY_SESSION_ID -> latest non-stale active session for the resolved repo -> default",
+			"Traceary にメモを追記します。\n\n既定値の解決順:\n- DB path: --db-path -> TRACEARY_DB_PATH -> ~/.config/traceary/traceary.db\n- client / agent / repo: flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE -> cli / manual / 検出した repo\n- session ID: --session-id -> TRACEARY_SESSION_ID -> 解決した repo の最新 non-stale active session -> default",
 		),
 		Example: strings.Join([]string{
 			"  traceary log \"investigate retry behavior\"",
@@ -67,7 +67,7 @@ func (c *RootCLI) newLogCommand() *cobra.Command {
 			"セッション ID (env: TRACEARY_SESSION_ID。未指定時は active session、なければ既定値)",
 		),
 	)
-	logCmd.Flags().StringVar(&repo, "repo", "", Localize("auxiliary work context identifier (env: TRACEARY_REPO)", "補助的なコンテキスト識別子 (env: TRACEARY_REPO)"))
+	logCmd.Flags().StringVar(&repo, "workspace", "", Localize("auxiliary work context identifier (env: TRACEARY_WORKSPACE)", "補助的なコンテキスト識別子 (env: TRACEARY_WORKSPACE)"))
 	logCmd.Flags().BoolVar(&idOnly, "id-only", false, Localize("print only the recorded event ID", "記録した event ID だけを出力する"))
 	logCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	logCmd.MarkFlagsMutuallyExclusive("id-only", "json")
@@ -102,7 +102,7 @@ func (c *RootCLI) runLog(ctx context.Context, output io.Writer, input logCommand
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
-	resolvedRepo := resolveRepoValue(ctx, input.repo)
+	resolvedRepo := resolveWorkspaceValue(ctx, input.repo)
 	sessionResolution, err := c.resolveManualSessionID(
 		ctx,
 		resolveOptionalValue(input.sessionID, "TRACEARY_SESSION_ID", ""),
@@ -117,7 +117,7 @@ func (c *RootCLI) runLog(ctx context.Context, output io.Writer, input logCommand
 		Client:    resolveOptionalValue(input.client, "TRACEARY_CLIENT", defaultClientValue),
 		Agent:     resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue),
 		SessionID: sessionResolution.sessionID,
-		Repo:      resolvedRepo,
+		Workspace:      resolvedRepo,
 	})
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to record log", "ログ記録に失敗しました"), err)

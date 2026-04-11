@@ -1,2 +1,2 @@
-INSERT INTO events(id, kind, client, agent, session_id, repo, body, created_at)
+INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)

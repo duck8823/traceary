@@ -32,7 +32,7 @@ CREATE TABLE events (
 		"000002_add_event_metadata.sql": {
 			Data: []byte(`
 ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
-ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';
+ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';
 CREATE INDEX idx_events_created_at
     ON events(created_at DESC, id DESC);`),
 		},
@@ -113,8 +113,8 @@ CREATE INDEX idx_events_created_at
 		if got.Agent().String() != "claude" {
 			t.Fatalf("Agent() = %q, want %q", got.Agent(), "claude")
 		}
-		if got.Repo() != "repo-2" {
-			t.Fatalf("Repo() = %q, want %q", got.Repo(), "repo-2")
+		if got.Workspace() != "repo-2" {
+			t.Fatalf("Repo() = %q, want %q", got.Workspace(), "repo-2")
 		}
 	})
 
@@ -140,7 +140,7 @@ func newFindSessionStartedEventFixture(
 	client string,
 	agentValue string,
 	sessionIDValue string,
-	repo string,
+	workspace string,
 	body string,
 	createdAt time.Time,
 ) *model.Event {
@@ -159,5 +159,5 @@ func newFindSessionStartedEventFixture(
 		t.Fatalf("SessionIDOf() error = %v", err)
 	}
 
-	return model.EventOf(eventID, kind, client, agent, sessionID, repo, body, createdAt)
+	return model.EventOf(eventID, kind, client, agent, sessionID, workspace, body, createdAt)
 }

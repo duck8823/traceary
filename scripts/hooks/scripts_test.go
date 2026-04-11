@@ -28,7 +28,7 @@ func TestTracearySessionScript_StartAndStop(t *testing.T) {
 	env := append(os.Environ(),
 		"TRACEARY_BIN="+fakeTracearyPath,
 		"TRACEARY_FAKE_LOG="+fakeLogPath,
-		"TRACEARY_REPO=work-context",
+		"TRACEARY_WORKSPACE=work-context",
 		"HOME="+homeDir,
 	)
 
@@ -52,8 +52,8 @@ func TestTracearySessionScript_StartAndStop(t *testing.T) {
 
 	calls := readLoggedCalls(t, fakeLogPath)
 	want := [][]string{
-		{"session", "start", "--client", "hook", "--agent", "claude", "--repo", "work-context", "--session-id", "claude-session"},
-		{"session", "end", "--client", "hook", "--agent", "claude", "--session-id", "claude-session", "--repo", "work-context"},
+		{"session", "start", "--client", "hook", "--agent", "claude", "--workspace", "work-context", "--session-id", "claude-session"},
+		{"session", "end", "--client", "hook", "--agent", "claude", "--session-id", "claude-session", "--workspace", "work-context"},
 	}
 	if !reflect.DeepEqual(calls, want) {
 		t.Fatalf("logged calls = %#v, want %#v", calls, want)
@@ -79,7 +79,7 @@ func TestTracearySessionScript_UsesGeneratedSessionIDWhenInputIsEmpty(t *testing
 	env := append(os.Environ(),
 		"TRACEARY_BIN="+fakeTracearyPath,
 		"TRACEARY_FAKE_LOG="+fakeLogPath,
-		"TRACEARY_REPO=work-context",
+		"TRACEARY_WORKSPACE=work-context",
 		"HOME="+homeDir,
 	)
 
@@ -92,8 +92,8 @@ func TestTracearySessionScript_UsesGeneratedSessionIDWhenInputIsEmpty(t *testing
 
 	calls := readLoggedCalls(t, fakeLogPath)
 	want := [][]string{
-		{"session", "start", "--client", "hook", "--agent", "codex", "--repo", "work-context"},
-		{"session", "end", "--client", "hook", "--agent", "codex", "--session-id", "generated-session", "--repo", "work-context"},
+		{"session", "start", "--client", "hook", "--agent", "codex", "--workspace", "work-context"},
+		{"session", "end", "--client", "hook", "--agent", "codex", "--session-id", "generated-session", "--workspace", "work-context"},
 	}
 	if !reflect.DeepEqual(calls, want) {
 		t.Fatalf("logged calls = %#v, want %#v", calls, want)
@@ -116,7 +116,7 @@ func TestTracearySessionScript_StopIsIdempotentForDuplicateSessionEnd(t *testing
 	env := append(os.Environ(),
 		"TRACEARY_BIN="+fakeTracearyPath,
 		"TRACEARY_FAKE_LOG="+fakeLogPath,
-		"TRACEARY_REPO=work-context",
+		"TRACEARY_WORKSPACE=work-context",
 		"HOME="+homeDir,
 	)
 
@@ -135,8 +135,8 @@ func TestTracearySessionScript_StopIsIdempotentForDuplicateSessionEnd(t *testing
 
 	calls := readLoggedCalls(t, fakeLogPath)
 	want := [][]string{
-		{"session", "start", "--client", "hook", "--agent", "gemini", "--repo", "work-context", "--session-id", "gemini-session"},
-		{"session", "end", "--client", "hook", "--agent", "gemini", "--session-id", "gemini-session", "--repo", "work-context"},
+		{"session", "start", "--client", "hook", "--agent", "gemini", "--workspace", "work-context", "--session-id", "gemini-session"},
+		{"session", "end", "--client", "hook", "--agent", "gemini", "--session-id", "gemini-session", "--workspace", "work-context"},
 	}
 	if !reflect.DeepEqual(calls, want) {
 		t.Fatalf("logged calls = %#v, want %#v", calls, want)
@@ -162,7 +162,7 @@ func TestTracearySessionScript_UsesGitRootForLocalOnlyRepositories(t *testing.T)
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 
-	repoDir := filepath.Join(tempDir, "repo")
+	repoDir := filepath.Join(tempDir, "workspace")
 	if err := os.MkdirAll(filepath.Join(repoDir, "nested", "workspace"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(repo) error = %v", err)
 	}
@@ -187,8 +187,8 @@ func TestTracearySessionScript_UsesGitRootForLocalOnlyRepositories(t *testing.T)
 	calls := readLoggedCalls(t, fakeLogPath)
 	wantRepo := gitTopLevelPath(t, repoDir)
 	want := [][]string{
-		{"session", "start", "--client", "hook", "--agent", "claude", "--repo", wantRepo, "--session-id", "local-session"},
-		{"session", "end", "--client", "hook", "--agent", "claude", "--session-id", "local-session", "--repo", wantRepo},
+		{"session", "start", "--client", "hook", "--agent", "claude", "--workspace", wantRepo, "--session-id", "local-session"},
+		{"session", "end", "--client", "hook", "--agent", "claude", "--session-id", "local-session", "--workspace", wantRepo},
 	}
 	if !reflect.DeepEqual(calls, want) {
 		t.Fatalf("logged calls = %#v, want %#v", calls, want)
@@ -211,7 +211,7 @@ func TestTracearyAuditScript_UsesHookPayloadAndSessionState(t *testing.T) {
 	env := append(os.Environ(),
 		"TRACEARY_BIN="+fakeTracearyPath,
 		"TRACEARY_FAKE_LOG="+fakeLogPath,
-		"TRACEARY_REPO=work-context",
+		"TRACEARY_WORKSPACE=work-context",
 		"HOME="+homeDir,
 	)
 
@@ -238,7 +238,7 @@ func TestTracearyAuditScript_UsesHookPayloadAndSessionState(t *testing.T) {
 		"--agent", "codex",
 		"--session-id", "generated-session",
 		"--exit-code", "0",
-		"--repo", "work-context",
+		"--workspace", "work-context",
 	}
 	if !reflect.DeepEqual(calls[1], wantAudit) {
 		t.Fatalf("audit call = %#v, want %#v", calls[1], wantAudit)
@@ -261,7 +261,7 @@ func TestTracearyAuditScript_UsesRepoFromSessionState(t *testing.T) {
 	env := append(os.Environ(),
 		"TRACEARY_BIN="+fakeTracearyPath,
 		"TRACEARY_FAKE_LOG="+fakeLogPath,
-		"TRACEARY_REPO=session-repo",
+		"TRACEARY_WORKSPACE=session-repo",
 		"HOME="+homeDir,
 	)
 
@@ -270,7 +270,7 @@ func TestTracearyAuditScript_UsesRepoFromSessionState(t *testing.T) {
 		t.Fatalf("runHookScript(start) error = %v", err)
 	}
 
-	// Run audit WITHOUT TRACEARY_REPO — should use repo from session state
+	// Run audit WITHOUT TRACEARY_WORKSPACE — should use repo from session state
 	auditEnv := append(os.Environ(),
 		"TRACEARY_BIN="+fakeTracearyPath,
 		"TRACEARY_FAKE_LOG="+fakeLogPath,
@@ -290,7 +290,7 @@ func TestTracearyAuditScript_UsesRepoFromSessionState(t *testing.T) {
 	auditCall := calls[1]
 	repoIdx := -1
 	for i, arg := range auditCall {
-		if arg == "--repo" && i+1 < len(auditCall) {
+		if arg == "--workspace" && i+1 < len(auditCall) {
 			repoIdx = i + 1
 			break
 		}
@@ -319,7 +319,7 @@ func TestTracearyAuditScript_UsesToolNameForMCPTools(t *testing.T) {
 	env := append(os.Environ(),
 		"TRACEARY_BIN="+fakeTracearyPath,
 		"TRACEARY_FAKE_LOG="+fakeLogPath,
-		"TRACEARY_REPO=work-context",
+		"TRACEARY_WORKSPACE=work-context",
 		"HOME="+homeDir,
 	)
 
@@ -365,7 +365,7 @@ func TestTracearyAuditScript_UsesFailurePayloadWhenToolResponseIsMissing(t *test
 	env := append(os.Environ(),
 		"TRACEARY_BIN="+fakeTracearyPath,
 		"TRACEARY_FAKE_LOG="+fakeLogPath,
-		"TRACEARY_REPO=work-context",
+		"TRACEARY_WORKSPACE=work-context",
 		"HOME="+homeDir,
 	)
 
@@ -383,7 +383,7 @@ func TestTracearyAuditScript_UsesFailurePayloadWhenToolResponseIsMissing(t *test
 		"--client", "hook",
 		"--agent", "claude",
 		"--session-id", "session-123",
-		"--repo", "work-context",
+		"--workspace", "work-context",
 	}
 	if !reflect.DeepEqual(calls[0], want) {
 		t.Fatalf("audit call = %#v, want %#v", calls[0], want)
@@ -406,7 +406,7 @@ func TestTracearySessionScript_UsesAgentTypeFromPayload(t *testing.T) {
 	env := append(os.Environ(),
 		"TRACEARY_BIN="+fakeTracearyPath,
 		"TRACEARY_FAKE_LOG="+fakeLogPath,
-		"TRACEARY_REPO=work-context",
+		"TRACEARY_WORKSPACE=work-context",
 		"HOME="+homeDir,
 	)
 
@@ -420,7 +420,7 @@ func TestTracearySessionScript_UsesAgentTypeFromPayload(t *testing.T) {
 		t.Fatalf("len(calls) = %d, want 1", len(calls))
 	}
 	want := []string{
-		"session", "start", "--client", "hook", "--agent", "claude/Explore", "--repo", "work-context", "--session-id", "sub-session",
+		"session", "start", "--client", "hook", "--agent", "claude/Explore", "--workspace", "work-context", "--session-id", "sub-session",
 	}
 	if !reflect.DeepEqual(calls[0], want) {
 		t.Fatalf("session start call = %#v, want %#v", calls[0], want)
@@ -443,7 +443,7 @@ func TestTracearySessionScript_AgentTypeStartEndMismatch(t *testing.T) {
 	env := append(os.Environ(),
 		"TRACEARY_BIN="+fakeTracearyPath,
 		"TRACEARY_FAKE_LOG="+fakeLogPath,
-		"TRACEARY_REPO=work-context",
+		"TRACEARY_WORKSPACE=work-context",
 		"HOME="+homeDir,
 	)
 
@@ -490,7 +490,7 @@ func TestTracearyAuditScript_UsesAgentTypeFromPayload(t *testing.T) {
 	env := append(os.Environ(),
 		"TRACEARY_BIN="+fakeTracearyPath,
 		"TRACEARY_FAKE_LOG="+fakeLogPath,
-		"TRACEARY_REPO=work-context",
+		"TRACEARY_WORKSPACE=work-context",
 		"HOME="+homeDir,
 	)
 
@@ -518,7 +518,7 @@ func TestTracearyAuditScript_UsesAgentTypeFromPayload(t *testing.T) {
 		"--agent", "claude/Explore",
 		"--session-id", "generated-session",
 		"--exit-code", "0",
-		"--repo", "work-context",
+		"--workspace", "work-context",
 	}
 	if !reflect.DeepEqual(calls[1], wantAudit) {
 		t.Fatalf("audit call = %#v, want %#v", calls[1], wantAudit)

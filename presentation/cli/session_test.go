@@ -96,7 +96,7 @@ func TestRootCLI_SessionStartCommand(t *testing.T) {
 		"/tmp/test-traceary.db",
 		"--client", "cli",
 		"--agent", "codex",
-		"--repo", "duck8823/traceary",
+		"--workspace", "duck8823/traceary",
 	})
 
 	if err := rootCmd.Execute(); err != nil {
@@ -202,7 +202,7 @@ func TestRootCLI_SessionStartCommand_JSON(t *testing.T) {
 }
 
 func TestRootCLI_SessionStartCommand_UsesDetectedRepoByDefault(t *testing.T) {
-	t.Setenv("TRACEARY_REPO", "")
+	t.Setenv("TRACEARY_WORKSPACE", "")
 	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
 		return "github.com/duck8823/traceary", nil
 	})
@@ -246,14 +246,14 @@ func TestRootCLI_SessionStartCommand_UsesDetectedRepoByDefault(t *testing.T) {
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if sessionStub.receivedInput.Repo != "github.com/duck8823/traceary" {
-		t.Fatalf("Repo = %q, want %q", sessionStub.receivedInput.Repo, "github.com/duck8823/traceary")
+	if sessionStub.receivedInput.Workspace != "github.com/duck8823/traceary" {
+		t.Fatalf("Repo = %q, want %q", sessionStub.receivedInput.Workspace, "github.com/duck8823/traceary")
 	}
 }
 
 func TestRootCLI_SessionEndCommand(t *testing.T) {
 	t.Setenv("TRACEARY_SESSION_ID", "session-env")
-	t.Setenv("TRACEARY_REPO", "")
+	t.Setenv("TRACEARY_WORKSPACE", "")
 	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
 		return "github.com/duck8823/traceary", nil
 	})
@@ -316,11 +316,11 @@ func TestRootCLI_SessionEndCommand(t *testing.T) {
 	if sessionStub.receivedInput.DefaultAgent != "manual" {
 		t.Fatalf("DefaultAgent = %q, want %q", sessionStub.receivedInput.DefaultAgent, "manual")
 	}
-	if sessionStub.receivedInput.Repo != "" {
-		t.Fatalf("Repo = %q, want empty", sessionStub.receivedInput.Repo)
+	if sessionStub.receivedInput.Workspace != "" {
+		t.Fatalf("Repo = %q, want empty", sessionStub.receivedInput.Workspace)
 	}
-	if sessionStub.receivedInput.DefaultRepo != "github.com/duck8823/traceary" {
-		t.Fatalf("DefaultRepo = %q, want %q", sessionStub.receivedInput.DefaultRepo, "github.com/duck8823/traceary")
+	if sessionStub.receivedInput.DefaultWorkspace != "github.com/duck8823/traceary" {
+		t.Fatalf("DefaultWorkspace = %q, want %q", sessionStub.receivedInput.DefaultWorkspace, "github.com/duck8823/traceary")
 	}
 	if stdout.String() != "Recorded: event-2\n" {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), "Recorded: event-2\n")
@@ -458,7 +458,7 @@ func TestRootCLI_SessionLatestCommand(t *testing.T) {
 		"/tmp/test-traceary.db",
 		"--client", "cli",
 		"--agent", "codex",
-		"--repo", "duck8823/traceary",
+		"--workspace", "duck8823/traceary",
 	})
 
 	if err := rootCmd.Execute(); err != nil {

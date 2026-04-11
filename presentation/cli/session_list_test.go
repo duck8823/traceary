@@ -43,7 +43,7 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 			summaries: []*port.SessionSummary{
 				{
 					SessionID:       "session-1",
-					Repo:            "duck8823/traceary",
+					Workspace:            "duck8823/traceary",
 					Label:           "docs",
 					Summary:         "Document the public session metadata surface for operators.",
 					ParentSessionID: "parent-1",
@@ -67,7 +67,7 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 			"session", "list",
 			"--db-path",
 		"/tmp/test-traceary.db",
-			"--repo", "duck8823/traceary",
+			"--workspace", "duck8823/traceary",
 			"--agent", "claude",
 			"--limit", "10",
 		})

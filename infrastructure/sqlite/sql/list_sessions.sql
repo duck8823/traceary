@@ -1,6 +1,6 @@
 SELECT
   s.session_id,
-  s.repo,
+  s.workspace,
   s.started_at,
   s.ended_at,
   COALESCE(agg.total_events, 0) AS total_events,
@@ -20,7 +20,7 @@ LEFT JOIN (
   GROUP BY e.session_id
 ) agg ON agg.session_id = s.session_id
 WHERE (? = '' OR s.session_id = ?)
-  AND (? = '' OR s.repo = ?)
+  AND (? = '' OR s.workspace = ?)
   AND (? = '' OR s.client = ?)
   AND (? = '' OR s.agent = ?)
   AND (? = '' OR s.label = ?)

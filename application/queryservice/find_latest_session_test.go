@@ -62,7 +62,7 @@ func TestFindLatestSessionQueryService_Run(t *testing.T) {
 		got, err := sut.Run(context.Background(), port.FindLatestSessionInput{
 			Client:     "cli",
 			Agent:      "codex",
-			Repo:       "github.com/duck8823/traceary",
+			Workspace:       "github.com/duck8823/traceary",
 			ActiveOnly: true,
 		})
 		if err != nil {

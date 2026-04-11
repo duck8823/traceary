@@ -31,7 +31,7 @@ CREATE TABLE events (
 		"000002_add_event_metadata.sql": {
 			Data: []byte(`
 ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
-ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
+ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		},
 		"000003_create_command_audits.sql": {
 			Data: []byte(`
@@ -76,7 +76,7 @@ CREATE TABLE command_audits (
 
 	got, err := sut.SearchEvents(context.Background(), port.SearchEventsInput{
 		Query: "stdout",
-		Repo:  "github.com/duck8823/traceary",
+		Workspace:  "github.com/duck8823/traceary",
 		From:  time.Date(2026, 4, 8, 0, 0, 0, 0, time.UTC),
 		To:    time.Date(2026, 4, 9, 0, 0, 0, 0, time.UTC),
 		Limit: 10,
@@ -95,7 +95,7 @@ CREATE TABLE command_audits (
 		t.Parallel()
 
 		filtered, err := sut.SearchEvents(context.Background(), port.SearchEventsInput{
-			Repo:      "github.com/duck8823/traceary",
+			Workspace:      "github.com/duck8823/traceary",
 			SessionID: "session-1",
 			Client:    "cli",
 			Agent:     "codex",
@@ -117,7 +117,7 @@ CREATE TABLE command_audits (
 		t.Parallel()
 
 		filtered, err := sut.SearchEvents(context.Background(), port.SearchEventsInput{
-			Repo:   "github.com/duck8823/traceary",
+			Workspace:   "github.com/duck8823/traceary",
 			Limit:  1,
 			Offset: 1,
 		})
@@ -137,7 +137,7 @@ func newSearchEventFixture(
 	t *testing.T,
 	eventIDValue string,
 	kind types.EventKind,
-	repo string,
+	workspace string,
 	body string,
 	createdAt time.Time,
 ) *model.Event {
@@ -162,7 +162,7 @@ func newSearchEventFixture(
 		"cli",
 		agent,
 		sessionID,
-		repo,
+		workspace,
 		body,
 		createdAt,
 	)
@@ -171,7 +171,7 @@ func newSearchEventFixture(
 func newSearchAuditFixture(
 	t *testing.T,
 	eventIDValue string,
-	repo string,
+	workspace string,
 	createdAt time.Time,
 ) (*model.Event, *model.CommandAudit) {
 	t.Helper()
@@ -180,7 +180,7 @@ func newSearchAuditFixture(
 		t,
 		eventIDValue,
 		types.EventKindCommandExecuted,
-		repo,
+		workspace,
 		"go test ./...",
 		createdAt,
 	)

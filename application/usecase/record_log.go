@@ -21,7 +21,7 @@ type RecordLogInput struct {
 	Client    string
 	Agent     string
 	SessionID string
-	Repo      string
+	Workspace string
 }
 
 // RecordLogUsecase persists note events.
@@ -63,7 +63,7 @@ func (u *recordLogUsecase) Run(ctx context.Context, input RecordLogInput) (*mode
 		strings.TrimSpace(input.Client),
 		agent,
 		sessionID,
-		strings.TrimSpace(input.Repo),
+		strings.TrimSpace(input.Workspace),
 		input.Message,
 	)
 	if err != nil {

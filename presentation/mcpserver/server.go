@@ -192,7 +192,7 @@ type addLogInput struct {
 	Client    string `json:"client,omitempty" jsonschema:"recording channel (default: mcp)"`
 	Agent     string `json:"agent,omitempty" jsonschema:"actor name (default: manual)"`
 	SessionID string `json:"session_id,omitempty" jsonschema:"session ID (default: default)"`
-	Repo      string `json:"repo,omitempty" jsonschema:"auxiliary work context identifier"`
+	Workspace string `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
 }
 
 type addLogOutput struct {
@@ -201,7 +201,7 @@ type addLogOutput struct {
 	Client    string `json:"client" jsonschema:"recording channel"`
 	Agent     string `json:"agent" jsonschema:"actor"`
 	SessionID string `json:"session_id" jsonschema:"session identifier"`
-	Repo      string `json:"repo,omitempty" jsonschema:"auxiliary work context identifier"`
+	Workspace string `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
 	Body      string `json:"body" jsonschema:"event body"`
 	CreatedAt string `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
 }
@@ -210,20 +210,20 @@ type startSessionInput struct {
 	Client    string `json:"client,omitempty" jsonschema:"recording channel (default: mcp)"`
 	Agent     string `json:"agent,omitempty" jsonschema:"actor name (default: manual)"`
 	SessionID string `json:"session_id,omitempty" jsonschema:"session identifier (auto-generates when omitted)"`
-	Repo      string `json:"repo,omitempty" jsonschema:"auxiliary work context identifier"`
+	Workspace string `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
 }
 
 type endSessionInput struct {
 	Client    string `json:"client,omitempty" jsonschema:"recording channel (falls back to the start event attribution)"`
 	Agent     string `json:"agent,omitempty" jsonschema:"actor name (falls back to the start event attribution)"`
 	SessionID string `json:"session_id" jsonschema:"required,session identifier to end"`
-	Repo      string `json:"repo,omitempty" jsonschema:"auxiliary work context identifier"`
+	Workspace string `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
 }
 
 type sessionLookupInput struct {
 	Client            string `json:"client,omitempty" jsonschema:"filter by recording channel"`
 	Agent             string `json:"agent,omitempty" jsonschema:"filter by actor"`
-	Repo              string `json:"repo,omitempty" jsonschema:"filter by auxiliary work context identifier"`
+	Workspace string `json:"workspace,omitempty" jsonschema:"filter by auxiliary work context identifier"`
 	AllowStale        bool   `json:"allow_stale,omitempty" jsonschema:"allow stale active sessions"`
 	StaleAfterSeconds int    `json:"stale_after_seconds,omitempty" jsonschema:"mark active sessions older than this many seconds as stale (0 or omitted: 86400)"`
 }
@@ -234,7 +234,7 @@ type sessionEventOutput struct {
 	Client    string `json:"client" jsonschema:"recording channel"`
 	Agent     string `json:"agent" jsonschema:"actor"`
 	SessionID string `json:"session_id" jsonschema:"session identifier"`
-	Repo      string `json:"repo,omitempty" jsonschema:"auxiliary work context identifier"`
+	Workspace string `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
 	CreatedAt string `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
 }
 
@@ -245,14 +245,14 @@ type addAuditInput struct {
 	Client    string `json:"client,omitempty" jsonschema:"recording channel (default: mcp)"`
 	Agent     string `json:"agent,omitempty" jsonschema:"actor name (default: manual)"`
 	SessionID string `json:"session_id,omitempty" jsonschema:"session ID (default: default)"`
-	Repo      string `json:"repo,omitempty" jsonschema:"auxiliary work context identifier"`
+	Workspace string `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
 }
 
 type addAuditOutput struct {
 	EventID         string `json:"event_id" jsonschema:"saved event ID"`
 	Kind            string `json:"kind" jsonschema:"event kind"`
 	SessionID       string `json:"session_id" jsonschema:"session identifier"`
-	Repo            string `json:"repo,omitempty" jsonschema:"auxiliary work context identifier"`
+	Workspace string `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
 	Command         string `json:"command" jsonschema:"executed command"`
 	InputRedacted   bool   `json:"input_redacted" jsonschema:"whether input was redacted"`
 	OutputRedacted  bool   `json:"output_redacted" jsonschema:"whether output was redacted"`
@@ -268,21 +268,21 @@ type listEventsInput struct {
 	Client    string `json:"client,omitempty" jsonschema:"filter by client"`
 	Agent     string `json:"agent,omitempty" jsonschema:"filter by agent"`
 	SessionID string `json:"session_id,omitempty" jsonschema:"filter by session ID"`
-	Repo      string `json:"repo,omitempty" jsonschema:"filter by work context"`
+	Workspace string `json:"workspace,omitempty" jsonschema:"filter by work context"`
 	From      string `json:"from,omitempty" jsonschema:"start time (YYYY-MM-DD or RFC3339)"`
 	To        string `json:"to,omitempty" jsonschema:"end time (YYYY-MM-DD or RFC3339)"`
 }
 
 type searchInput struct {
 	Query string `json:"query" jsonschema:"search query"`
-	Repo  string `json:"repo,omitempty" jsonschema:"work context filter"`
+	Workspace string `json:"workspace,omitempty" jsonschema:"work context filter"`
 	From  string `json:"from,omitempty" jsonschema:"start time (YYYY-MM-DD or RFC3339)"`
 	To    string `json:"to,omitempty" jsonschema:"end time (YYYY-MM-DD or RFC3339)"`
 	Limit int    `json:"limit,omitempty" jsonschema:"result limit (default: 20)"`
 }
 
 type getContextInput struct {
-	Repo      string `json:"repo,omitempty" jsonschema:"work context filter"`
+	Workspace string `json:"workspace,omitempty" jsonschema:"work context filter"`
 	SessionID string `json:"session_id,omitempty" jsonschema:"session identifier filter"`
 	Limit     int    `json:"limit,omitempty" jsonschema:"result limit (default: 20)"`
 }
@@ -297,7 +297,7 @@ type eventOutput struct {
 	Client    string `json:"client" jsonschema:"recording channel"`
 	Agent     string `json:"agent" jsonschema:"actor"`
 	SessionID string `json:"session_id" jsonschema:"session identifier"`
-	Repo      string `json:"repo,omitempty" jsonschema:"auxiliary work context identifier"`
+	Workspace string `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
 	Body      string `json:"body" jsonschema:"event body"`
 	CreatedAt string `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
 }
@@ -309,7 +309,7 @@ func (s *Server) addLog(_ string) mcp.ToolHandlerFor[addLogInput, addLogOutput] 
 			Client:    resolveValue(input.Client, defaultClientValue),
 			Agent:     resolveValue(input.Agent, defaultAgentValue),
 			SessionID: resolveValue(input.SessionID, defaultSessionValue),
-			Repo:      strings.TrimSpace(input.Repo),
+			Workspace:      strings.TrimSpace(input.Workspace),
 		})
 		if err != nil {
 			return nil, addLogOutput{}, xerrors.Errorf("failed to record log: %w", err)
@@ -321,7 +321,7 @@ func (s *Server) addLog(_ string) mcp.ToolHandlerFor[addLogInput, addLogOutput] 
 			Client:    event.Client(),
 			Agent:     event.Agent().String(),
 			SessionID: event.SessionID().String(),
-			Repo:      event.Repo(),
+			Workspace:      event.Workspace(),
 			Body:      event.Body(),
 			CreatedAt: event.CreatedAt().UTC().Format(time.RFC3339Nano),
 		}, nil
@@ -336,8 +336,8 @@ func (s *Server) startSession(_ string) mcp.ToolHandlerFor[startSessionInput, se
 			Agent:         strings.TrimSpace(input.Agent),
 			DefaultAgent:  defaultAgentValue,
 			SessionID:     strings.TrimSpace(input.SessionID),
-			Repo:          strings.TrimSpace(input.Repo),
-			DefaultRepo:   "",
+			Workspace:          strings.TrimSpace(input.Workspace),
+			DefaultWorkspace: "",
 			Kind:          types.EventKindSessionStarted,
 		})
 		if err != nil {
@@ -361,8 +361,8 @@ func (s *Server) endSession(_ string) mcp.ToolHandlerFor[endSessionInput, sessio
 			Agent:         strings.TrimSpace(input.Agent),
 			DefaultAgent:  defaultAgentValue,
 			SessionID:     sessionID,
-			Repo:          strings.TrimSpace(input.Repo),
-			DefaultRepo:   "",
+			Workspace:          strings.TrimSpace(input.Workspace),
+			DefaultWorkspace: "",
 			Kind:          types.EventKindSessionEnded,
 		})
 		if err != nil {
@@ -378,7 +378,7 @@ func (s *Server) latestSession(_ string) mcp.ToolHandlerFor[sessionLookupInput, 
 		event, err := s.findLatestSessionQueryService.Run(ctx, port.FindLatestSessionInput{
 			Client: strings.TrimSpace(input.Client),
 			Agent:  strings.TrimSpace(input.Agent),
-			Repo:   strings.TrimSpace(input.Repo),
+			Workspace:   strings.TrimSpace(input.Workspace),
 		})
 		if err != nil {
 			if errors.Is(err, port.ErrSessionNotFound) {
@@ -396,7 +396,7 @@ func (s *Server) activeSession(_ string) mcp.ToolHandlerFor[sessionLookupInput, 
 		event, err := s.findLatestSessionQueryService.Run(ctx, port.FindLatestSessionInput{
 			Client:     strings.TrimSpace(input.Client),
 			Agent:      strings.TrimSpace(input.Agent),
-			Repo:       strings.TrimSpace(input.Repo),
+			Workspace:       strings.TrimSpace(input.Workspace),
 			ActiveOnly: true,
 		})
 		if err != nil {
@@ -422,7 +422,7 @@ func (s *Server) addAudit(_ string) mcp.ToolHandlerFor[addAuditInput, addAuditOu
 			Client:              resolveValue(input.Client, defaultClientValue),
 			Agent:               resolveValue(input.Agent, defaultAgentValue),
 			SessionID:           resolveValue(input.SessionID, defaultSessionValue),
-			Repo:                strings.TrimSpace(input.Repo),
+			Workspace:                strings.TrimSpace(input.Workspace),
 			ExtraRedactPatterns: s.extraRedactPatterns,
 		})
 		if err != nil {
@@ -433,7 +433,7 @@ func (s *Server) addAudit(_ string) mcp.ToolHandlerFor[addAuditInput, addAuditOu
 			EventID:         event.EventID().String(),
 			Kind:            event.Kind().String(),
 			SessionID:       event.SessionID().String(),
-			Repo:            event.Repo(),
+			Workspace:            event.Workspace(),
 			Command:         audit.Command(),
 			InputRedacted:   audit.InputRedacted(),
 			OutputRedacted:  audit.OutputRedacted(),
@@ -462,7 +462,7 @@ func (s *Server) listEvents(_ string) mcp.ToolHandlerFor[listEventsInput, events
 			Client:    strings.TrimSpace(input.Client),
 			Agent:     strings.TrimSpace(input.Agent),
 			SessionID: strings.TrimSpace(input.SessionID),
-			Repo:      strings.TrimSpace(input.Repo),
+			Workspace:      strings.TrimSpace(input.Workspace),
 			From:      from,
 			To:        to,
 		})
@@ -481,7 +481,7 @@ func newSessionEventOutput(event *model.Event) sessionEventOutput {
 		Client:    event.Client(),
 		Agent:     event.Agent().String(),
 		SessionID: event.SessionID().String(),
-		Repo:      event.Repo(),
+		Workspace:      event.Workspace(),
 		CreatedAt: event.CreatedAt().UTC().Format(time.RFC3339Nano),
 	}
 }
@@ -519,7 +519,7 @@ func (s *Server) search(_ string) mcp.ToolHandlerFor[searchInput, eventsOutput] 
 		limit := resolveLimit(input.Limit, defaultSearchLimit)
 		events, err := s.searchEventsQueryService.Run(ctx, port.SearchEventsInput{
 			Query: strings.TrimSpace(input.Query),
-			Repo:  strings.TrimSpace(input.Repo),
+			Workspace:  strings.TrimSpace(input.Workspace),
 			From:  from,
 			To:    to,
 			Limit: limit,
@@ -535,7 +535,7 @@ func (s *Server) search(_ string) mcp.ToolHandlerFor[searchInput, eventsOutput] 
 func (s *Server) getContext(_ string) mcp.ToolHandlerFor[getContextInput, eventsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input getContextInput) (*mcp.CallToolResult, eventsOutput, error) {
 		events, err := s.getContextQueryService.Run(ctx, port.GetContextInput{
-			Repo:      strings.TrimSpace(input.Repo),
+			Workspace:      strings.TrimSpace(input.Workspace),
 			SessionID: strings.TrimSpace(input.SessionID),
 			Limit:     resolveLimit(input.Limit, defaultContextLimit),
 		})
@@ -549,12 +549,12 @@ func (s *Server) getContext(_ string) mcp.ToolHandlerFor[getContextInput, events
 
 type sessionHandoffInput struct {
 	SessionID string `json:"session_id,omitempty"`
-	Repo      string `json:"repo,omitempty"`
+	Workspace string `json:"workspace,omitempty"`
 }
 
 type sessionHandoffOutput struct {
 	SessionID    string   `json:"session_id,omitempty"`
-	Repo         string   `json:"repo,omitempty"`
+	Workspace string   `json:"workspace,omitempty"`
 	Label        string   `json:"label,omitempty"`
 	Status       string   `json:"status,omitempty"`
 	TotalEvents  int      `json:"total_events"`
@@ -569,7 +569,7 @@ func (s *Server) sessionHandoff(_ string) mcp.ToolHandlerFor[sessionHandoffInput
 		sessions, err := s.listSessionsQueryService.Run(ctx, port.ListSessionsInput{
 			Limit:     1,
 			SessionID: strings.TrimSpace(input.SessionID),
-			Repo:      strings.TrimSpace(input.Repo),
+			Workspace:      strings.TrimSpace(input.Workspace),
 		})
 		if err != nil {
 			return nil, sessionHandoffOutput{}, xerrors.Errorf("failed to list sessions: %w", err)
@@ -600,7 +600,7 @@ func (s *Server) sessionHandoff(_ string) mcp.ToolHandlerFor[sessionHandoffInput
 
 		return nil, sessionHandoffOutput{
 			SessionID:      session.SessionID,
-			Repo:           session.Repo,
+			Workspace:           session.Workspace,
 			Label:          session.Label,
 			Status:         session.Status,
 			TotalEvents:    session.TotalEvents,
@@ -667,7 +667,7 @@ func convertEvents(events []*model.Event) []eventOutput {
 			Client:    event.Client(),
 			Agent:     event.Agent().String(),
 			SessionID: event.SessionID().String(),
-			Repo:      event.Repo(),
+			Workspace:      event.Workspace(),
 			Body:      event.Body(),
 			CreatedAt: event.CreatedAt().UTC().Format(time.RFC3339Nano),
 		})

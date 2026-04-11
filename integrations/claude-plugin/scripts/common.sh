@@ -44,11 +44,11 @@ traceary_normalize_git_remote() {
   traceary_helper_command normalize-git-remote "$raw" || true
 }
 
-traceary_resolve_repo() {
+traceary_resolve_workspace() {
   local cwd="${1:-}"
 
-  if [[ -n "${TRACEARY_REPO:-}" ]]; then
-    printf '%s' "$TRACEARY_REPO"
+  if [[ -n "${TRACEARY_WORKSPACE:-}" ]]; then
+    printf '%s' "$TRACEARY_WORKSPACE"
     return 0
   fi
   if [[ -z "$cwd" ]]; then
@@ -103,7 +103,7 @@ traceary_resolve_effective_repo() {
   if [[ -z "$repo" ]]; then
     local cwd
     cwd="$(traceary_json_get 'cwd')"
-    repo="$(traceary_resolve_repo "$cwd")"
+    repo="$(traceary_resolve_workspace "$cwd")"
   fi
   printf '%s' "$repo"
 }

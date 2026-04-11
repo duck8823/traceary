@@ -4,7 +4,7 @@ WITH candidate_sessions AS (
             started.client,
             started.agent,
             started.session_id,
-            started.repo,
+            started.workspace,
             started.body,
             started.created_at,
             (
@@ -13,7 +13,7 @@ WITH candidate_sessions AS (
                WHERE boundary.session_id = started.session_id
                  AND boundary.client = started.client
                  AND boundary.agent = started.agent
-                 AND boundary.repo = started.repo
+                 AND boundary.workspace = started.workspace
                  AND boundary.kind IN (?, ?)
                ORDER BY boundary.created_at DESC, boundary.id DESC
                LIMIT 1
@@ -24,7 +24,7 @@ WITH candidate_sessions AS (
                WHERE boundary.session_id = started.session_id
                  AND boundary.client = started.client
                  AND boundary.agent = started.agent
-                 AND boundary.repo = started.repo
+                 AND boundary.workspace = started.workspace
                  AND boundary.kind IN (?, ?)
                ORDER BY boundary.created_at DESC, boundary.id DESC
                LIMIT 1
@@ -33,7 +33,7 @@ WITH candidate_sessions AS (
       WHERE started.kind = ?
         AND (? = '' OR started.client = ?)
         AND (? = '' OR started.agent = ?)
-        AND (? = '' OR started.repo = ?)
+        AND (? = '' OR started.workspace = ?)
         AND NOT EXISTS (
              SELECT 1
                FROM events newer_started
@@ -41,7 +41,7 @@ WITH candidate_sessions AS (
                 AND newer_started.session_id = started.session_id
                 AND newer_started.client = started.client
                 AND newer_started.agent = started.agent
-                AND newer_started.repo = started.repo
+                AND newer_started.workspace = started.workspace
                 AND (
                      newer_started.created_at > started.created_at OR
                      (newer_started.created_at = started.created_at AND newer_started.id > started.id)
@@ -55,7 +55,7 @@ WITH candidate_sessions AS (
                     AND ended.session_id = started.session_id
                     AND ended.client = started.client
                     AND ended.agent = started.agent
-                    AND ended.repo = started.repo
+                    AND ended.workspace = started.workspace
                     AND (
                          ended.created_at > started.created_at OR
                          (ended.created_at = started.created_at AND ended.id > started.id)
@@ -68,7 +68,7 @@ SELECT id,
        client,
        agent,
        session_id,
-       repo,
+       workspace,
        body,
        created_at
   FROM candidate_sessions

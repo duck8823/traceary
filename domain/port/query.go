@@ -19,7 +19,7 @@ type ListRecentEventsInput struct {
 	Client       string
 	Agent        string
 	SessionID    string
-	Repo         string
+	Workspace string
 	FailuresOnly bool
 	From         time.Time
 	To           time.Time
@@ -36,7 +36,7 @@ type RecentEventFinder interface {
 // SearchEventsInput is the input for event search.
 type SearchEventsInput struct {
 	Query        string
-	Repo         string
+	Workspace string
 	SessionID    string
 	Client       string
 	Agent        string
@@ -58,7 +58,7 @@ type EventSearcher interface {
 
 // GetContextInput is the input for context retrieval.
 type GetContextInput struct {
-	Repo      string
+	Workspace string
 	SessionID string
 	Limit     int
 }
@@ -107,7 +107,7 @@ type EventDetailsFinder interface {
 type FindLatestSessionInput struct {
 	Client     string
 	Agent      string
-	Repo       string
+	Workspace string
 	ActiveOnly bool
 }
 
@@ -132,7 +132,7 @@ type LatestSessionFinder interface {
 // SessionSummary holds aggregated information about a single session.
 type SessionSummary struct {
 	SessionID       string
-	Repo            string
+	Workspace string
 	StartedAt       time.Time
 	EndedAt         *time.Time
 	Status          string
@@ -149,7 +149,7 @@ type ListSessionsInput struct {
 	Limit     int
 	Offset    int
 	SessionID string
-	Repo      string
+	Workspace string
 	Client    string
 	Agent     string
 	Label     string

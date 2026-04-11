@@ -32,7 +32,7 @@ CREATE TABLE events (
 		"000002_add_event_metadata.sql": {
 			Data: []byte(`
 ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
-ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
+ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
@@ -112,7 +112,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 			port.FindLatestSessionInput{
 				Client: "cli",
 				Agent:  "codex",
-				Repo:   "github.com/duck8823/traceary",
+				Workspace:   "github.com/duck8823/traceary",
 			},
 		)
 		if err != nil {
@@ -155,7 +155,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 			port.FindLatestSessionInput{
 				Client: "cli",
 				Agent:  "codex",
-				Repo:   "github.com/duck8823/traceary",
+				Workspace:   "github.com/duck8823/traceary",
 			},
 		)
 		if err != nil {
@@ -172,7 +172,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 			port.FindLatestSessionInput{
 				Client:     "cli",
 				Agent:      "codex",
-				Repo:       "github.com/duck8823/traceary",
+				Workspace:       "github.com/duck8823/traceary",
 				ActiveOnly: true,
 			},
 		)
@@ -203,7 +203,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 			port.FindLatestSessionInput{
 				Client: "cli",
 				Agent:  "codex",
-				Repo:   "github.com/duck8823/traceary",
+				Workspace:   "github.com/duck8823/traceary",
 			},
 		)
 		if err != nil {
@@ -262,7 +262,7 @@ CREATE TABLE events (
 		"000002_add_event_metadata.sql": {
 			Data: []byte(`
 ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
-ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
+ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
@@ -307,7 +307,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
 	)
 	if err := sut.Save(context.Background(), otherRepoBoundary); err != nil {
-		t.Fatalf("Save(other repo boundary) error = %v", err)
+		t.Fatalf("Save(other workspace boundary) error = %v", err)
 	}
 
 	got, err := sut.FindLatestSessionStartedEvent(
@@ -315,7 +315,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		port.FindLatestSessionInput{
 			Client: "cli",
 			Agent:  "codex",
-			Repo:   "github.com/duck8823/traceary",
+			Workspace:   "github.com/duck8823/traceary",
 		},
 	)
 	if err != nil {
@@ -344,7 +344,7 @@ CREATE TABLE events (
 		"000002_add_event_metadata.sql": {
 			Data: []byte(`
 ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
-ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
+ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
@@ -376,7 +376,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
 	)
 	if err := sut.Save(context.Background(), otherRepoEnd); err != nil {
-		t.Fatalf("Save(other repo end) error = %v", err)
+		t.Fatalf("Save(other workspace end) error = %v", err)
 	}
 
 	got, err := sut.FindLatestSessionStartedEvent(
@@ -384,7 +384,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 		port.FindLatestSessionInput{
 			Client:     "cli",
 			Agent:      "codex",
-			Repo:       "github.com/duck8823/traceary",
+			Workspace:       "github.com/duck8823/traceary",
 			ActiveOnly: true,
 		},
 	)
@@ -401,7 +401,7 @@ func newFindLatestSessionEventFixture(
 	eventIDValue string,
 	kind types.EventKind,
 	sessionIDValue string,
-	repo string,
+	workspace string,
 	body string,
 	createdAt time.Time,
 ) *model.Event {
@@ -426,7 +426,7 @@ func newFindLatestSessionEventFixture(
 		"cli",
 		agent,
 		sessionID,
-		repo,
+		workspace,
 		body,
 		createdAt,
 	)

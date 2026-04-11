@@ -45,7 +45,7 @@ func (a *eventUsecaseAdapter) Log(ctx context.Context, message string, client ty
 		Client:    client.String(),
 		Agent:     agent.String(),
 		SessionID: sessionID.String(),
-		Repo:      workspace.String(),
+		Workspace:      workspace.String(),
 	})
 	if err != nil {
 		return nil, xerrors.Errorf("failed to record log: %w", err)
@@ -61,7 +61,7 @@ func (a *eventUsecaseAdapter) Audit(ctx context.Context, command string, input s
 		Client:              client.String(),
 		Agent:               agent.String(),
 		SessionID:           sessionID.String(),
-		Repo:                workspace.String(),
+		Workspace:                workspace.String(),
 		ExitCode:            exitCode,
 		AllowSecrets:        redaction.AllowSecrets,
 		MaxInputBytes:       redaction.MaxInputBytes,
@@ -77,7 +77,7 @@ func (a *eventUsecaseAdapter) Audit(ctx context.Context, command string, input s
 func (a *eventUsecaseAdapter) Search(ctx context.Context, criteria EventSearchCriteria) ([]*model.Event, error) {
 	events, err := a.searchEvents.Run(ctx, port.SearchEventsInput{
 		Query:        criteria.Query,
-		Repo:         criteria.Workspace.String(),
+		Workspace:         criteria.Workspace.String(),
 		SessionID:    criteria.SessionID.String(),
 		Client:       criteria.Client.String(),
 		Agent:        criteria.Agent.String(),
@@ -102,7 +102,7 @@ func (a *eventUsecaseAdapter) List(ctx context.Context, criteria EventListCriter
 		Client:       criteria.Client.String(),
 		Agent:        criteria.Agent.String(),
 		SessionID:    criteria.SessionID.String(),
-		Repo:         criteria.Workspace.String(),
+		Workspace:         criteria.Workspace.String(),
 		FailuresOnly: criteria.FailuresOnly,
 		From:         criteria.From,
 		To:           criteria.To,
@@ -123,7 +123,7 @@ func (a *eventUsecaseAdapter) Show(ctx context.Context, eventID types.EventID) (
 
 func (a *eventUsecaseAdapter) Context(ctx context.Context, criteria EventContextCriteria) ([]*model.Event, error) {
 	events, err := a.getContext.Run(ctx, port.GetContextInput{
-		Repo:      criteria.Workspace.String(),
+		Workspace:      criteria.Workspace.String(),
 		SessionID: criteria.SessionID.String(),
 		Limit:     criteria.Limit,
 	})

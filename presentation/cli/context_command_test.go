@@ -51,7 +51,7 @@ func (s *contextLatestSessionQueryServiceStub) Run(
 var _ queryservice.FindLatestSessionQueryService = (*contextLatestSessionQueryServiceStub)(nil)
 
 func TestRootCLI_ContextCommand(t *testing.T) {
-	t.Setenv("TRACEARY_REPO", "")
+	t.Setenv("TRACEARY_WORKSPACE", "")
 	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
 		return "github.com/duck8823/traceary", nil
 	})
@@ -174,7 +174,7 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 		want := "" +
 			"{\n" +
 			"  \"resolved_session_id\": \"session-1\",\n" +
-			"  \"resolved_repo\": \"github.com/duck8823/traceary\",\n" +
+			"  \"resolved_workspace\": \"github.com/duck8823/traceary\",\n" +
 			"  \"events\": [\n" +
 			"    {\n" +
 			"      \"event_id\": \"event-1\",\n" +
@@ -182,7 +182,7 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 			"      \"client\": \"cli\",\n" +
 			"      \"agent\": \"codex\",\n" +
 			"      \"session_id\": \"session-1\",\n" +
-			"      \"repo\": \"github.com/duck8823/traceary\",\n" +
+			"      \"workspace\": \"github.com/duck8823/traceary\",\n" +
 			"      \"message\": \"hello context\",\n" +
 			"      \"created_at\": \"2026-04-08T12:00:00Z\"\n" +
 			"    }\n" +
@@ -218,8 +218,8 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 		if contextStub.receivedInput.SessionID != "" {
 			t.Fatalf("SessionID = %q, want empty", contextStub.receivedInput.SessionID)
 		}
-		if contextStub.receivedInput.Repo != "github.com/duck8823/traceary" {
-			t.Fatalf("Repo = %q, want %q", contextStub.receivedInput.Repo, "github.com/duck8823/traceary")
+		if contextStub.receivedInput.Workspace != "github.com/duck8823/traceary" {
+			t.Fatalf("Repo = %q, want %q", contextStub.receivedInput.Workspace, "github.com/duck8823/traceary")
 		}
 	})
 }

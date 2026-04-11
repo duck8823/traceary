@@ -32,7 +32,7 @@ func (s *searchEventsQueryServiceStub) Run(
 var _ queryservice.SearchEventsQueryService = (*searchEventsQueryServiceStub)(nil)
 
 func TestRootCLI_SearchCommand(t *testing.T) {
-	t.Setenv("TRACEARY_REPO", "")
+	t.Setenv("TRACEARY_WORKSPACE", "")
 	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
 		return "github.com/duck8823/traceary", nil
 	})
@@ -98,8 +98,8 @@ func TestRootCLI_SearchCommand(t *testing.T) {
 	if searchStub.receivedInput.Query != "traceary" {
 		t.Fatalf("Query = %q, want %q", searchStub.receivedInput.Query, "traceary")
 	}
-	if searchStub.receivedInput.Repo != "github.com/duck8823/traceary" {
-		t.Fatalf("Repo = %q, want %q", searchStub.receivedInput.Repo, "github.com/duck8823/traceary")
+	if searchStub.receivedInput.Workspace != "github.com/duck8823/traceary" {
+		t.Fatalf("Repo = %q, want %q", searchStub.receivedInput.Workspace, "github.com/duck8823/traceary")
 	}
 	if searchStub.receivedInput.SessionID != "session-1" {
 		t.Fatalf("SessionID = %q, want %q", searchStub.receivedInput.SessionID, "session-1")
@@ -122,7 +122,7 @@ func TestRootCLI_SearchCommand(t *testing.T) {
 }
 
 func TestRootCLI_SearchCommand_JSON(t *testing.T) {
-	t.Setenv("TRACEARY_REPO", "")
+	t.Setenv("TRACEARY_WORKSPACE", "")
 	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
 		return "github.com/duck8823/traceary", nil
 	})
@@ -182,7 +182,7 @@ func TestRootCLI_SearchCommand_JSON(t *testing.T) {
 		"    \"client\": \"cli\",\n" +
 		"    \"agent\": \"codex\",\n" +
 		"    \"session_id\": \"session-2\",\n" +
-		"    \"repo\": \"github.com/duck8823/traceary\",\n" +
+		"    \"workspace\": \"github.com/duck8823/traceary\",\n" +
 		"    \"message\": \"hello json search\",\n" +
 		"    \"created_at\": \"2026-04-07T13:00:00Z\"\n" +
 		"  }\n" +
@@ -193,7 +193,7 @@ func TestRootCLI_SearchCommand_JSON(t *testing.T) {
 }
 
 func TestRootCLI_SearchCommand_FilterOnly(t *testing.T) {
-	t.Setenv("TRACEARY_REPO", "")
+	t.Setenv("TRACEARY_WORKSPACE", "")
 	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
 		return "github.com/duck8823/traceary", nil
 	})
@@ -228,7 +228,7 @@ func TestRootCLI_SearchCommand_FilterOnly(t *testing.T) {
 }
 
 func TestRootCLI_SearchCommand_NegativeOffset(t *testing.T) {
-	t.Setenv("TRACEARY_REPO", "")
+	t.Setenv("TRACEARY_WORKSPACE", "")
 	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
 		return "github.com/duck8823/traceary", nil
 	})
@@ -253,7 +253,7 @@ func TestRootCLI_SearchCommand_NegativeOffset(t *testing.T) {
 }
 
 func TestRootCLI_SearchCommand_FailuresOnlyAsConstraint(t *testing.T) {
-	t.Setenv("TRACEARY_REPO", "")
+	t.Setenv("TRACEARY_WORKSPACE", "")
 	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
 		return "github.com/duck8823/traceary", nil
 	})

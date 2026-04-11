@@ -50,8 +50,8 @@ func (c *RootCLI) newSessionLatestCommand() *cobra.Command {
 		Use:   "latest",
 		Short: Localize("Print the latest session ID", "直近のセッション ID を表示する"),
 		Long: Localize(
-			"Print the latest matching session ID.\n\n\"latest\" means the session whose most recent lifecycle boundary (start or end) is newest among the matches.\nFilters resolve as flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_REPO, and --repo falls back to the detected work context when omitted.",
-			"条件に一致する直近の session ID を表示します。\n\nここでの「直近」は、一致した session のうち最新の lifecycle boundary (start または end) が最も新しいものを意味します。\nfilter は flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_REPO の順に解決し、--repo 省略時は検出した work context を使います。",
+			"Print the latest matching session ID.\n\n\"latest\" means the session whose most recent lifecycle boundary (start or end) is newest among the matches.\nFilters resolve as flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE, and --repo falls back to the detected work context when omitted.",
+			"条件に一致する直近の session ID を表示します。\n\nここでの「直近」は、一致した session のうち最新の lifecycle boundary (start または end) が最も新しいものを意味します。\nfilter は flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE の順に解決し、--repo 省略時は検出した work context を使います。",
 		),
 		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -67,7 +67,7 @@ func (c *RootCLI) newSessionLatestCommand() *cobra.Command {
 	latestCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	latestCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "記録経路で絞り込む"))
 	latestCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "作業主体で絞り込む"))
-	latestCmd.Flags().StringVar(&repo, "repo", "", Localize("filter by auxiliary work context identifier", "補助的なコンテキスト識別子で絞り込む"))
+	latestCmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by auxiliary work context identifier", "補助的なコンテキスト識別子で絞り込む"))
 	latestCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 
 	return latestCmd
@@ -89,8 +89,8 @@ func (c *RootCLI) newSessionStartCommand() *cobra.Command {
 		Use:   "start",
 		Short: Localize("Record session start", "セッション開始を記録する"),
 		Long: Localize(
-			"Record a session-start boundary.\n\nDefaults:\n- DB path: --db-path -> TRACEARY_DB_PATH -> ~/.config/traceary/traceary.db\n- client / agent / repo: flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_REPO -> cli / manual / detected repo\n- session ID: generate a new ID when --session-id is omitted",
-			"session 開始境界を記録します。\n\n既定値の解決順:\n- DB path: --db-path -> TRACEARY_DB_PATH -> ~/.config/traceary/traceary.db\n- client / agent / repo: flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_REPO -> cli / manual / 検出した repo\n- session ID: --session-id を省略した場合は新しく採番します",
+			"Record a session-start boundary.\n\nDefaults:\n- DB path: --db-path -> TRACEARY_DB_PATH -> ~/.config/traceary/traceary.db\n- client / agent / repo: flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE -> cli / manual / detected repo\n- session ID: generate a new ID when --session-id is omitted",
+			"session 開始境界を記録します。\n\n既定値の解決順:\n- DB path: --db-path -> TRACEARY_DB_PATH -> ~/.config/traceary/traceary.db\n- client / agent / repo: flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE -> cli / manual / 検出した repo\n- session ID: --session-id を省略した場合は新しく採番します",
 		),
 		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -111,7 +111,7 @@ func (c *RootCLI) newSessionStartCommand() *cobra.Command {
 	startCmd.Flags().StringVar(&client, "client", "", Localize("recording channel (env: TRACEARY_CLIENT)", "記録経路 (env: TRACEARY_CLIENT)"))
 	startCmd.Flags().StringVar(&agent, "agent", "", Localize("actor name (env: TRACEARY_AGENT)", "作業主体 (env: TRACEARY_AGENT)"))
 	startCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID to start", "開始するセッション ID"))
-	startCmd.Flags().StringVar(&repo, "repo", "", Localize("auxiliary work context identifier (env: TRACEARY_REPO)", "補助的なコンテキスト識別子 (env: TRACEARY_REPO)"))
+	startCmd.Flags().StringVar(&repo, "workspace", "", Localize("auxiliary work context identifier (env: TRACEARY_WORKSPACE)", "補助的なコンテキスト識別子 (env: TRACEARY_WORKSPACE)"))
 	startCmd.Flags().StringVar(&parentSessionID, "parent-session-id", "", Localize("parent session ID for sub-agent sessions", "サブエージェントセッションの親セッション ID"))
 	startCmd.Flags().BoolVar(&idOnly, "id-only", false, Localize("print only the resulting identifier", "結果の識別子だけを出力する"))
 	startCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
@@ -158,7 +158,7 @@ func (c *RootCLI) newSessionEndCommand() *cobra.Command {
 	endCmd.Flags().StringVar(&client, "client", "", Localize("recording channel (env: TRACEARY_CLIENT)", "記録経路 (env: TRACEARY_CLIENT)"))
 	endCmd.Flags().StringVar(&agent, "agent", "", Localize("actor name (env: TRACEARY_AGENT)", "作業主体 (env: TRACEARY_AGENT)"))
 	endCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID to end (env: TRACEARY_SESSION_ID)", "終了するセッション ID (env: TRACEARY_SESSION_ID)"))
-	endCmd.Flags().StringVar(&repo, "repo", "", Localize("auxiliary work context identifier (env: TRACEARY_REPO)", "補助的なコンテキスト識別子 (env: TRACEARY_REPO)"))
+	endCmd.Flags().StringVar(&repo, "workspace", "", Localize("auxiliary work context identifier (env: TRACEARY_WORKSPACE)", "補助的なコンテキスト識別子 (env: TRACEARY_WORKSPACE)"))
 	endCmd.Flags().StringVar(&summary, "summary", "", Localize("session summary text", "セッションサマリーテキスト"))
 	endCmd.Flags().BoolVar(&idOnly, "id-only", false, Localize("print only the resulting identifier", "結果の識別子だけを出力する"))
 	endCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
@@ -206,8 +206,8 @@ func (c *RootCLI) newSessionActiveCommand() *cobra.Command {
 		Use:   "active",
 		Short: Localize("Print the active session ID (stale sessions older than 24h are excluded by default)", "現在アクティブな session ID を表示する (既定では 24h 超の stale を除外)"),
 		Long: Localize(
-			"Print the active matching session ID.\n\nUnlike session latest, this only returns non-ended sessions. By default, sessions older than 24h are treated as stale unless --allow-stale is set.\nFilters resolve as flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_REPO, and --repo falls back to the detected work context when omitted.",
-			"条件に一致する active session ID を表示します。\n\nsession latest と違って、未終了の session だけを返します。既定では 24h を超える session は --allow-stale を指定しない限り stale とみなします。\nfilter は flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_REPO の順に解決し、--repo 省略時は検出した work context を使います。",
+			"Print the active matching session ID.\n\nUnlike session latest, this only returns non-ended sessions. By default, sessions older than 24h are treated as stale unless --allow-stale is set.\nFilters resolve as flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE, and --repo falls back to the detected work context when omitted.",
+			"条件に一致する active session ID を表示します。\n\nsession latest と違って、未終了の session だけを返します。既定では 24h を超える session は --allow-stale を指定しない限り stale とみなします。\nfilter は flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE の順に解決し、--repo 省略時は検出した work context を使います。",
 		),
 		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -226,7 +226,7 @@ func (c *RootCLI) newSessionActiveCommand() *cobra.Command {
 	activeCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	activeCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "記録経路で絞り込む"))
 	activeCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "作業主体で絞り込む"))
-	activeCmd.Flags().StringVar(&repo, "repo", "", Localize("filter by auxiliary work context identifier", "補助的なコンテキスト識別子で絞り込む"))
+	activeCmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by auxiliary work context identifier", "補助的なコンテキスト識別子で絞り込む"))
 	activeCmd.Flags().DurationVar(
 		&staleAfter,
 		"stale-after",
@@ -265,8 +265,8 @@ func (c *RootCLI) runSessionBoundary(
 		Agent:         resolveSessionBoundaryAgent(input),
 		DefaultAgent:  defaultAgentValue,
 		SessionID:     input.sessionID,
-		Repo:          resolveSessionBoundaryRepo(input),
-		DefaultRepo:   resolveRepoValue(ctx, input.repo),
+		Workspace:          resolveSessionBoundaryRepo(input),
+		DefaultWorkspace: resolveWorkspaceValue(ctx, input.repo),
 		Kind:              input.kind,
 		Summary:           input.summary,
 		ParentSessionID:   input.parentSessionID,
@@ -319,10 +319,10 @@ func resolveSessionBoundaryAgent(input sessionBoundaryCommandInput) string {
 
 func resolveSessionBoundaryRepo(input sessionBoundaryCommandInput) string {
 	if input.kind == types.EventKindSessionEnded {
-		return resolveExplicitRepoValue(input.repo)
+		return resolveExplicitWorkspaceValue(input.repo)
 	}
 
-	return resolveRepoValue(context.Background(), input.repo)
+	return resolveWorkspaceValue(context.Background(), input.repo)
 }
 
 func (c *RootCLI) runSessionLatest(
@@ -348,7 +348,7 @@ func (c *RootCLI) runSessionLatest(
 	event, err := c.findLatestSessionQueryService.Run(ctx, port.FindLatestSessionInput{
 		Client:     resolveOptionalValue(input.client, "TRACEARY_CLIENT", ""),
 		Agent:      resolveOptionalValue(input.agent, "TRACEARY_AGENT", ""),
-		Repo:       resolveRepoValue(ctx, input.repo),
+		Workspace:       resolveWorkspaceValue(ctx, input.repo),
 		ActiveOnly: input.activeOnly,
 	})
 	if err != nil {

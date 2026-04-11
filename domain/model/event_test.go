@@ -70,8 +70,8 @@ func TestNewEvent(t *testing.T) {
 			if got.Client() != "cli" {
 				t.Fatalf("Client() = %q, want %q", got.Client(), "cli")
 			}
-			if got.Repo() != "duck8823/traceary" {
-				t.Fatalf("Repo() = %q, want %q", got.Repo(), "duck8823/traceary")
+			if got.Workspace() != "duck8823/traceary" {
+				t.Fatalf("Repo() = %q, want %q", got.Workspace(), "duck8823/traceary")
 			}
 			if got.CreatedAt() != tt.wantCreated {
 				t.Fatalf("CreatedAt() = %v, want %v", got.CreatedAt(), tt.wantCreated)

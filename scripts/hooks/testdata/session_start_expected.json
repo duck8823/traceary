@@ -1,1 +1,1 @@
-["session","start","--client","hook","--agent","claude","--repo","golden-repo","--session-id","golden-session"]
+["session","start","--client","hook","--agent","claude","--workspace","golden-repo","--session-id","golden-session"]

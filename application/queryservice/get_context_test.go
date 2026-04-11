@@ -61,7 +61,7 @@ func TestGetContextQueryService_Run(t *testing.T) {
 		sut := queryservice.NewGetContextQueryService(stub)
 
 		got, err := sut.Run(context.Background(), port.GetContextInput{
-			Repo:      "github.com/duck8823/traceary",
+			Workspace:      "github.com/duck8823/traceary",
 			SessionID: "session-1",
 			Limit:     10,
 		})

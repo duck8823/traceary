@@ -21,8 +21,8 @@ type RecordSessionBoundaryInput struct {
 	Agent         string
 	DefaultAgent  string
 	SessionID     string
-	Repo          string
-	DefaultRepo   string
+	Workspace string
+	DefaultWorkspace   string
 	Kind              types.EventKind
 	Summary           string
 	ParentSessionID   string
@@ -79,7 +79,7 @@ func (u *recordSessionBoundaryUsecase) Run(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to resolve session ID: %w", err)
 	}
-	resolvedClient, resolvedAgentValue, resolvedRepo, err := u.resolveSessionBoundaryAttribution(
+	resolvedClient, resolvedAgentValue, resolvedWorkspace, err := u.resolveSessionBoundaryAttribution(
 		ctx,
 		input,
 		sessionID,
@@ -102,7 +102,7 @@ func (u *recordSessionBoundaryUsecase) Run(
 		resolvedClient,
 		agent,
 		sessionID,
-		resolvedRepo,
+		resolvedWorkspace,
 		sessionBoundaryBody(input.Kind),
 	)
 	if err != nil {
@@ -131,7 +131,7 @@ func buildSessionFromBoundary(event *model.Event, kind types.EventKind, summary 
 			nil,
 			event.Client(),
 			event.Agent(),
-			event.Repo(),
+			event.Workspace(),
 			"", "", parentSessionID,
 		)
 	default:
@@ -144,7 +144,7 @@ func buildSessionFromBoundary(event *model.Event, kind types.EventKind, summary 
 			&endedAt,
 			event.Client(),
 			event.Agent(),
-			event.Repo(),
+			event.Workspace(),
 			"", summary, "",
 		)
 	}
@@ -157,10 +157,10 @@ func (u *recordSessionBoundaryUsecase) resolveSessionBoundaryAttribution(
 ) (string, string, string, error) {
 	resolvedClient := strings.TrimSpace(input.Client)
 	resolvedAgentValue := strings.TrimSpace(input.Agent)
-	resolvedRepo := strings.TrimSpace(input.Repo)
+	resolvedWorkspace := strings.TrimSpace(input.Workspace)
 
 	if input.Kind == types.EventKindSessionEnded && u.sessionStartedEventFinder != nil {
-		if resolvedClient == "" || resolvedAgentValue == "" || resolvedRepo == "" {
+		if resolvedClient == "" || resolvedAgentValue == "" || resolvedWorkspace == "" {
 			startedEvent, err := u.sessionStartedEventFinder.FindSessionStartedEvent(ctx, sessionID)
 			if err != nil && !errors.Is(err, ErrSessionStartedEventNotFound) {
 				return "", "", "", xerrors.Errorf("failed to get session_started event: %w", err)
@@ -172,8 +172,8 @@ func (u *recordSessionBoundaryUsecase) resolveSessionBoundaryAttribution(
 				if resolvedAgentValue == "" {
 					resolvedAgentValue = startedEvent.Agent().String()
 				}
-				if resolvedRepo == "" {
-					resolvedRepo = startedEvent.Repo()
+				if resolvedWorkspace == "" {
+					resolvedWorkspace = startedEvent.Workspace()
 				}
 			}
 		}
@@ -185,11 +185,11 @@ func (u *recordSessionBoundaryUsecase) resolveSessionBoundaryAttribution(
 	if resolvedAgentValue == "" {
 		resolvedAgentValue = strings.TrimSpace(input.DefaultAgent)
 	}
-	if resolvedRepo == "" {
-		resolvedRepo = strings.TrimSpace(input.DefaultRepo)
+	if resolvedWorkspace == "" {
+		resolvedWorkspace = strings.TrimSpace(input.DefaultWorkspace)
 	}
 
-	return resolvedClient, resolvedAgentValue, resolvedRepo, nil
+	return resolvedClient, resolvedAgentValue, resolvedWorkspace, nil
 }
 
 func resolveSessionBoundaryID(

@@ -34,7 +34,7 @@ func (c *RootCLI) newSessionHandoffCommand() *cobra.Command {
 				return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 			}
 
-			resolvedRepo := resolveRepoValue(ctx, repo)
+			resolvedRepo := resolveWorkspaceValue(ctx, repo)
 			resolvedSessionID := resolveOptionalValue(sessionID, "TRACEARY_SESSION_ID", "")
 
 			return c.printCompactSummary(ctx, output, resolvedDBPath, resolvedSessionID, resolvedRepo, recent)
@@ -43,7 +43,7 @@ func (c *RootCLI) newSessionHandoffCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	cmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID", "セッション ID"))
-	cmd.Flags().StringVar(&repo, "repo", "", Localize("filter by repo", "リポジトリでフィルタ"))
+	cmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by repo", "リポジトリでフィルタ"))
 	cmd.Flags().IntVar(&recent, "recent", 5, Localize("number of recent commands to show", "表示する直近コマンド数"))
 
 	return cmd

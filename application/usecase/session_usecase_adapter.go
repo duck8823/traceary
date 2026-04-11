@@ -41,7 +41,7 @@ func (a *sessionUsecaseAdapter) Start(ctx context.Context, client types.Client, 
 		Client:          client.String(),
 		Agent:           agent.String(),
 		SessionID:       sessionID.String(),
-		Repo:            workspace.String(),
+		Workspace:            workspace.String(),
 		Kind:            types.EventKindSessionStarted,
 		ParentSessionID: parentSessionID.String(),
 	})
@@ -56,7 +56,7 @@ func (a *sessionUsecaseAdapter) End(ctx context.Context, client types.Client, ag
 		Client:    client.String(),
 		Agent:     agent.String(),
 		SessionID: sessionID.String(),
-		Repo:      workspace.String(),
+		Workspace:      workspace.String(),
 		Kind:      types.EventKindSessionEnded,
 		Summary:   summary,
 	})
@@ -81,7 +81,7 @@ func (a *sessionUsecaseAdapter) List(ctx context.Context, criteria SessionListCr
 		Limit:     criteria.Limit,
 		Offset:    criteria.Offset,
 		SessionID: criteria.SessionID.String(),
-		Repo:      criteria.Workspace.String(),
+		Workspace:      criteria.Workspace.String(),
 		Client:    criteria.Client.String(),
 		Agent:     criteria.Agent.String(),
 		Label:     criteria.Label,
@@ -97,7 +97,7 @@ func (a *sessionUsecaseAdapter) List(ctx context.Context, criteria SessionListCr
 func (a *sessionUsecaseAdapter) Tree(ctx context.Context, workspace types.Workspace, limit int) ([]*SessionSummary, error) {
 	portSummaries, err := a.listSessions.Run(ctx, port.ListSessionsInput{
 		Limit: limit,
-		Repo:  workspace.String(),
+		Workspace:  workspace.String(),
 	})
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list sessions for tree: %w", err)
@@ -109,7 +109,7 @@ func (a *sessionUsecaseAdapter) Active(ctx context.Context, criteria SessionLook
 	event, err := a.findLatestSession.Run(ctx, port.FindLatestSessionInput{
 		Client:     criteria.Client.String(),
 		Agent:      criteria.Agent.String(),
-		Repo:       criteria.Workspace.String(),
+		Workspace:       criteria.Workspace.String(),
 		ActiveOnly: true,
 	})
 	if err != nil {
@@ -122,7 +122,7 @@ func (a *sessionUsecaseAdapter) Latest(ctx context.Context, criteria SessionLook
 	event, err := a.findLatestSession.Run(ctx, port.FindLatestSessionInput{
 		Client:     criteria.Client.String(),
 		Agent:      criteria.Agent.String(),
-		Repo:       criteria.Workspace.String(),
+		Workspace:       criteria.Workspace.String(),
 		ActiveOnly: false,
 	})
 	if err != nil {
@@ -135,7 +135,7 @@ func (a *sessionUsecaseAdapter) Handoff(ctx context.Context, sessionID types.Ses
 	sessions, err := a.listSessions.Run(ctx, port.ListSessionsInput{
 		Limit:     1,
 		SessionID: sessionID.String(),
-		Repo:      workspace.String(),
+		Workspace:      workspace.String(),
 	})
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list sessions for handoff: %w", err)
@@ -164,7 +164,7 @@ func (a *sessionUsecaseAdapter) Handoff(ctx context.Context, sessionID types.Ses
 	}
 
 	sid := types.SessionID(session.SessionID)
-	ws := types.Workspace(session.Repo)
+	ws := types.Workspace(session.Workspace)
 
 	return &HandoffSummary{
 		SessionID:      sid,
@@ -184,7 +184,7 @@ func convertSessionSummaries(portSummaries []*port.SessionSummary) []*SessionSum
 	for _, ps := range portSummaries {
 		summaries = append(summaries, &SessionSummary{
 			SessionID:       types.SessionID(ps.SessionID),
-			Workspace:       types.Workspace(ps.Repo),
+			Workspace:       types.Workspace(ps.Workspace),
 			StartedAt:       ps.StartedAt,
 			EndedAt:         ps.EndedAt,
 			Status:          ps.Status,

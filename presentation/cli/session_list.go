@@ -70,12 +70,12 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 				return xerrors.Errorf(Localize("--from must be earlier than --to", "from は to より前である必要があります"))
 			}
 
-			resolvedRepo := resolveRepoValue(ctx, repo)
+			resolvedRepo := resolveWorkspaceValue(ctx, repo)
 
 			summaries, err := c.listSessionsQueryService.Run(ctx, port.ListSessionsInput{
 				Limit:  limit,
 				Offset: offset,
-				Repo:   resolvedRepo,
+				Workspace:   resolvedRepo,
 				Client: client,
 				Agent:  agent,
 				Label:  label,
@@ -91,7 +91,7 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 	}
 
 	listCmd.Flags().StringVar(&dbPath, "db-path", "", Localize("SQLite DB path (env: TRACEARY_DB_PATH)", "SQLite DB パス (env: TRACEARY_DB_PATH)"))
-	listCmd.Flags().StringVar(&repo, "repo", "", Localize("filter by repo", "リポジトリでフィルタ"))
+	listCmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by repo", "リポジトリでフィルタ"))
 	listCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "記録経路でフィルタ"))
 	listCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "エージェントでフィルタ"))
 	listCmd.Flags().StringVar(&label, "label", "", Localize("filter by label", "ラベルでフィルタ"))
@@ -139,7 +139,7 @@ func writeSessionSummaries(output io.Writer, summaries []*port.SessionSummary, a
 			s.Status,
 			duration,
 			s.SessionID,
-			formatOptionalColumn(s.Repo),
+			formatOptionalColumn(s.Workspace),
 			formatOptionalColumn(normalizeTabularColumn(s.Label)),
 			formatOptionalColumn(truncateMessage(s.Summary)),
 			formatOptionalColumn(normalizeTabularColumn(s.ParentSessionID)),
@@ -157,7 +157,7 @@ func writeSessionSummaries(output io.Writer, summaries []*port.SessionSummary, a
 func writeSessionSummariesJSON(output io.Writer, summaries []*port.SessionSummary) error {
 	type jsonSummary struct {
 		SessionID       string   `json:"session_id"`
-		Repo            string   `json:"repo,omitempty"`
+		Workspace string   `json:"repo,omitempty"`
 		Label           string   `json:"label,omitempty"`
 		Summary         string   `json:"summary,omitempty"`
 		ParentSessionID string   `json:"parent_session_id,omitempty"`
@@ -174,7 +174,7 @@ func writeSessionSummariesJSON(output io.Writer, summaries []*port.SessionSummar
 	for _, s := range summaries {
 		item := jsonSummary{
 			SessionID:       s.SessionID,
-			Repo:            s.Repo,
+			Workspace:            s.Workspace,
 			Label:           s.Label,
 			Summary:         s.Summary,
 			ParentSessionID: s.ParentSessionID,

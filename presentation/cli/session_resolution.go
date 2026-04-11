@@ -31,7 +31,7 @@ func (c *RootCLI) resolveManualSessionID(
 
 	trimmedRepo := strings.TrimSpace(repo)
 	if trimmedRepo == "" || c.findLatestSessionQueryService == nil {
-		slog.Debug("no work context or query service, using default session", "repo", trimmedRepo, "has_query_service", c.findLatestSessionQueryService != nil)
+		slog.Debug("no work context or query service, using default session", "workspace", trimmedRepo, "has_query_service", c.findLatestSessionQueryService != nil)
 		return &manualSessionResolution{
 			sessionID: defaultSessionIDValue,
 			notice: Localize(
@@ -42,12 +42,12 @@ func (c *RootCLI) resolveManualSessionID(
 	}
 
 	event, err := c.findLatestSessionQueryService.Run(ctx, port.FindLatestSessionInput{
-		Repo:       trimmedRepo,
+		Workspace:       trimmedRepo,
 		ActiveOnly: true,
 	})
 	if err != nil {
 		if queryservice.IsSessionLookupNotFound(err) {
-			slog.Debug("no active session found for repo, using default", "repo", trimmedRepo)
+			slog.Debug("no active session found for repo, using default", "workspace", trimmedRepo)
 			return &manualSessionResolution{
 				sessionID: defaultSessionIDValue,
 				notice: localizef(

@@ -59,7 +59,7 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 		},
 	}
 	searchCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
-	searchCmd.Flags().StringVar(&repo, "repo", "", Localize("filter by work context (env: TRACEARY_REPO / current git remote)", "絞り込む work context (env: TRACEARY_REPO / current git remote)"))
+	searchCmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by work context (env: TRACEARY_WORKSPACE / current git remote)", "絞り込む work context (env: TRACEARY_WORKSPACE / current git remote)"))
 	searchCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("filter by session ID", "絞り込む session ID"))
 	searchCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "絞り込む client"))
 	searchCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "絞り込む agent"))
@@ -154,7 +154,7 @@ func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchC
 
 	events, err := c.searchEventsQueryService.Run(ctx, port.SearchEventsInput{
 		Query:        input.query,
-		Repo:         resolveRepoValue(ctx, input.repo),
+		Workspace:         resolveWorkspaceValue(ctx, input.repo),
 		SessionID:    input.sessionID,
 		Client:       input.client,
 		Agent:        input.agent,
