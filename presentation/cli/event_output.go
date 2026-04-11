@@ -7,7 +7,7 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/domain/port"
+	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 )
 
@@ -51,7 +51,7 @@ func writeEvents(output io.Writer, events []*model.Event) error {
 	return nil
 }
 
-func writeEventDetailsByFormat(output io.Writer, eventDetails *port.EventDetails, asJSON bool) error {
+func writeEventDetailsByFormat(output io.Writer, eventDetails *usecase.EventDetails, asJSON bool) error {
 	if asJSON {
 		return writeEventDetailsJSON(output, eventDetails)
 	}

@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/usecase"
 )
 
 func (c *RootCLI) newSessionGCCommand() *cobra.Command {
@@ -29,7 +28,7 @@ func (c *RootCLI) newSessionGCCommand() *cobra.Command {
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 			}
-			if err := c.initializeStoreUsecase.Run(ctx); err != nil {
+			if err := c.storeMaintenance.Initialize(ctx); err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 			}
 
@@ -37,10 +36,7 @@ func (c *RootCLI) newSessionGCCommand() *cobra.Command {
 				return xerrors.Errorf("--stale-after must be greater than 0")
 			}
 
-			result, err := c.closeStaleSessionsUsecase.Run(ctx, usecase.CloseStaleSessionsInput{
-				StaleAfter: staleAfter,
-				DryRun:     dryRun,
-			})
+			result, err := c.storeMaintenance.CloseStaleSessions(ctx, staleAfter, dryRun)
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to close stale sessions", "stale セッションの終了に失敗しました"), err)
 			}

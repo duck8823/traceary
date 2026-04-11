@@ -8,8 +8,10 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
+	"github.com/duck8823/traceary/application/usecase"
 
-	"github.com/duck8823/traceary/domain/port"
+	"github.com/duck8823/traceary/domain/types"
+
 )
 
 func (c *RootCLI) newSessionTreeCommand() *cobra.Command {
@@ -32,15 +34,15 @@ func (c *RootCLI) newSessionTreeCommand() *cobra.Command {
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 			}
-			if err := c.initializeStoreUsecase.Run(ctx); err != nil {
+			if err := c.storeMaintenance.Initialize(ctx); err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 			}
 
 			resolvedRepo := resolveWorkspaceValue(ctx, repo)
 
-			summaries, err := c.listSessionsQueryService.Run(ctx, port.ListSessionsInput{
+			summaries, err := c.session.List(ctx, usecase.SessionListCriteria{
 				Limit: limit,
-				Workspace:  resolvedRepo,
+				Workspace: types.Workspace(resolvedRepo),
 			})
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to list sessions", "セッション一覧の取得に失敗しました"), err)
@@ -59,11 +61,11 @@ func (c *RootCLI) newSessionTreeCommand() *cobra.Command {
 }
 
 type sessionNode struct {
-	summary  *port.SessionSummary
+	summary  *usecase.SessionSummary
 	children []*sessionNode
 }
 
-func writeSessionTree(output io.Writer, summaries []*port.SessionSummary, asJSON bool) error {
+func writeSessionTree(output io.Writer, summaries []*usecase.SessionSummary, asJSON bool) error {
 	if len(summaries) == 0 {
 		if asJSON {
 			if _, err := fmt.Fprintln(output, "[]"); err != nil {
@@ -82,13 +84,13 @@ func writeSessionTree(output io.Writer, summaries []*port.SessionSummary, asJSON
 	var roots []*sessionNode
 
 	for _, s := range summaries {
-		nodeMap[s.SessionID] = &sessionNode{summary: s}
+		nodeMap[s.SessionID.String()] = &sessionNode{summary: s}
 	}
 
 	for _, s := range summaries {
-		node := nodeMap[s.SessionID]
-		if s.ParentSessionID != "" {
-			if parent, ok := nodeMap[s.ParentSessionID]; ok {
+		node := nodeMap[s.SessionID.String()]
+		if s.ParentSessionID.String() != "" {
+			if parent, ok := nodeMap[s.ParentSessionID.String()]; ok {
 				parent.children = append(parent.children, node)
 				continue
 			}
@@ -127,8 +129,8 @@ type jsonTreeNode struct {
 func sessionNodeToJSON(node *sessionNode) *jsonTreeNode {
 	s := node.summary
 	jn := &jsonTreeNode{
-		SessionID:    s.SessionID,
-		Workspace:         s.Workspace,
+		SessionID: string(s.SessionID),
+		Workspace: string(s.Workspace),
 		Label:        s.Label,
 		Summary:      s.Summary,
 		StartedAt:    s.StartedAt.UTC().Format(time.RFC3339),
@@ -188,7 +190,7 @@ func printNode(output io.Writer, node *sessionNode, prefix string, isLast bool) 
 		prefix, connector,
 		s.SessionID,
 		s.Status,
-		formatOptionalColumn(s.Workspace),
+		formatOptionalColumn(s.Workspace.String()),
 		duration,
 		s.CommandCount,
 		label,

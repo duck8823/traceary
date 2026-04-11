@@ -12,7 +12,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/application/usecase"
-	"github.com/duck8823/traceary/domain/port"
+	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation"
 )
 
@@ -164,10 +164,10 @@ type auditCommandInput struct {
 }
 
 func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCommandInput) error {
-	if c.initializeStoreUsecase == nil {
+	if c.storeMaintenance == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
-	if c.recordCommandAuditUsecase == nil {
+	if c.event == nil {
 		return xerrors.Errorf(Localize("record command audit usecase is not configured", "監査ログ記録ユースケースが設定されていません"))
 	}
 
@@ -175,7 +175,7 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.initializeStoreUsecase.Run(ctx); err != nil {
+	if err := c.storeMaintenance.Initialize(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
@@ -204,25 +204,25 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 
 	config := presentation.LoadConfig()
 
-	event, commandAudit, err := c.recordCommandAuditUsecase.Run(ctx, usecase.RecordCommandAuditInput{
-		Command:             input.command,
-		Input:               input.input,
-		Output:              input.output,
-		Client:              resolveOptionalValue(input.client, "TRACEARY_CLIENT", defaultClientValue),
-		Agent:               resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue),
-		SessionID:           sessionResolution.sessionID,
-		Workspace:                resolvedRepo,
-		AllowSecrets:        allowSecrets,
-		MaxInputBytes:       maxInputBytes,
-		MaxOutputBytes:      maxOutputBytes,
-		ExtraRedactPatterns: config.Redact.ExtraPatterns,
-		ExitCode:            input.exitCode,
-	})
+	client, _ := types.ClientOf(resolveOptionalValue(input.client, "TRACEARY_CLIENT", defaultClientValue))
+	agent, _ := types.AgentOf(resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue))
+	sid, _ := types.SessionIDOf(sessionResolution.sessionID)
+	event, commandAudit, err := c.event.Audit(ctx,
+		input.command, input.input, input.output,
+		client, agent, sid, types.Workspace(resolvedRepo),
+		input.exitCode,
+		usecase.AuditRedaction{
+			AllowSecrets:        allowSecrets,
+			MaxInputBytes:       maxInputBytes,
+			MaxOutputBytes:      maxOutputBytes,
+			ExtraRedactPatterns: config.Redact.ExtraPatterns,
+		},
+	)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to record command audit", "監査ログ記録に失敗しました"), err)
 	}
 	if input.asJSON {
-		eventDetails, err := port.NewEventDetails(event, commandAudit)
+		eventDetails, err := usecase.NewEventDetails(event, commandAudit)
 		if err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to build audit result", "監査ログ結果の構築に失敗しました"), err)
 		}

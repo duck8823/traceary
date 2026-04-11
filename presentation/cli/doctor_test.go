@@ -2,7 +2,6 @@ package cli_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -10,16 +9,6 @@ import (
 
 	"github.com/duck8823/traceary/presentation/cli"
 )
-
-type doctorInitializeStoreUsecaseStub struct {
-	callCount int
-	err       error
-}
-
-func (s *doctorInitializeStoreUsecaseStub) Run(_ context.Context) error {
-	s.callCount++
-	return s.err
-}
 
 type doctorReportJSON struct {
 	DBPath         string            `json:"db_path"`
@@ -46,9 +35,9 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 	t.Cleanup(cli.ResetUserHomeDirFunc)
 
 	t.Run("all clients without config only warns", func(t *testing.T) {
-		initializeStore := &doctorInitializeStoreUsecaseStub{}
+		initStub := &storeMaintenanceUsecaseStub{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase: initializeStore,
+			StoreMaintenance: initStub,
 		}).Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
@@ -70,8 +59,8 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 		if len(report.Clients) != 3 {
 			t.Fatalf("len(report.Clients) = %d, want 3", len(report.Clients))
 		}
-		if initializeStore.callCount != 1 {
-			t.Fatalf("initializeStore.callCount = %d, want 1", initializeStore.callCount)
+		if !initStub.initCalled {
+			t.Fatalf("initCalled = false, want true")
 		}
 		assertDoctorCheckStatus(t, report.Checks, "config", "pass")
 		assertDoctorCheckStatus(t, report.Checks, "claude-config", "warn")
@@ -80,9 +69,9 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 	})
 
 	t.Run("specific client without config warns", func(t *testing.T) {
-		initializeStore := &doctorInitializeStoreUsecaseStub{}
+		initStub := &storeMaintenanceUsecaseStub{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase: initializeStore,
+			StoreMaintenance: initStub,
 		}).Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
@@ -107,7 +96,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 	})
 
 	t.Run("hook script materialization issues warn instead of failing", func(t *testing.T) {
-		initializeStore := &doctorInitializeStoreUsecaseStub{}
+		initStub := &storeMaintenanceUsecaseStub{}
 		blockedPath := filepath.Join(t.TempDir(), "blocked")
 		if err := os.WriteFile(blockedPath, []byte("not-a-directory"), 0o644); err != nil {
 			t.Fatalf("WriteFile() error = %v", err)
@@ -115,7 +104,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 		t.Setenv("TRACEARY_HOOK_SCRIPTS_DIR", blockedPath)
 
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase: initializeStore,
+			StoreMaintenance: initStub,
 		}).Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
@@ -170,9 +159,9 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 			t.Fatalf("WriteFile() error = %v", err)
 		}
 
-		initializeStore := &doctorInitializeStoreUsecaseStub{}
+		initStub := &storeMaintenanceUsecaseStub{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase: initializeStore,
+			StoreMaintenance: initStub,
 		}).Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
@@ -208,9 +197,9 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 			t.Fatalf("WriteFile() error = %v", err)
 		}
 
-		initializeStore := &doctorInitializeStoreUsecaseStub{}
+		initStub := &storeMaintenanceUsecaseStub{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase: initializeStore,
+			StoreMaintenance: initStub,
 		}).Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)

@@ -9,10 +9,12 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
+	"github.com/duck8823/traceary/application/usecase"
+
+	"github.com/duck8823/traceary/domain/types"
 
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
-	"github.com/duck8823/traceary/domain/port"
 )
 
 func (c *RootCLI) newContextCommand() *cobra.Command {
@@ -71,10 +73,10 @@ type contextOutput struct {
 }
 
 func (c *RootCLI) runContext(ctx context.Context, output io.Writer, input contextCommandInput) error {
-	if c.initializeStoreUsecase == nil {
+	if c.storeMaintenance == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
-	if c.getContextQueryService == nil {
+	if c.event == nil {
 		return xerrors.Errorf(Localize("get context query service is not configured", "文脈クエリサービスが設定されていません"))
 	}
 	if input.limit <= 0 {
@@ -85,7 +87,7 @@ func (c *RootCLI) runContext(ctx context.Context, output io.Writer, input contex
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.initializeStoreUsecase.Run(ctx); err != nil {
+	if err := c.storeMaintenance.Initialize(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
@@ -100,9 +102,9 @@ func (c *RootCLI) runContext(ctx context.Context, output io.Writer, input contex
 		return err
 	}
 
-	events, err := c.getContextQueryService.Run(ctx, port.GetContextInput{
-		Workspace:      resolvedWorkspace,
-		SessionID: resolvedSessionID,
+	events, err := c.event.Context(ctx, usecase.EventContextCriteria{
+		Workspace: types.Workspace(resolvedWorkspace),
+		SessionID: types.SessionID(resolvedSessionID),
 		Limit:     input.limit,
 	})
 	if err != nil {
@@ -124,15 +126,15 @@ func (c *RootCLI) resolveContextSessionID(
 	if trimmedSessionID != "" {
 		return trimmedSessionID, nil
 	}
-	if c.findLatestSessionQueryService == nil {
+	if c.session == nil {
 		slog.Debug("no query service configured for context session resolution")
 		return "", nil
 	}
 
-	event, err := c.findLatestSessionQueryService.Run(ctx, port.FindLatestSessionInput{
-		Client: strings.TrimSpace(input.client),
-		Agent:  strings.TrimSpace(input.agent),
-		Workspace:   strings.TrimSpace(input.repo),
+	event, err := c.session.Active(ctx, usecase.SessionLookupCriteria{
+		Client:    types.Client(strings.TrimSpace(input.client)),
+		Agent:     types.Agent(strings.TrimSpace(input.agent)),
+		Workspace: types.Workspace(strings.TrimSpace(input.repo)),
 	})
 	if err != nil {
 		if queryservice.IsSessionLookupNotFound(err) {

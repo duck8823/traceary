@@ -8,8 +8,10 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
+	"github.com/duck8823/traceary/application/usecase"
 
-	"github.com/duck8823/traceary/domain/port"
+	"github.com/duck8823/traceary/domain/types"
+
 )
 
 func (c *RootCLI) newCompactSummaryCommand() *cobra.Command {
@@ -32,7 +34,7 @@ func (c *RootCLI) newCompactSummaryCommand() *cobra.Command {
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 			}
-			if err := c.initializeStoreUsecase.Run(ctx); err != nil {
+			if err := c.storeMaintenance.Initialize(ctx); err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 			}
 
@@ -60,21 +62,21 @@ func (c *RootCLI) printCompactSummary(
 	recentCount int,
 ) error {
 	// Get recent events for context
-	events, err := c.listEventsQueryService.Run(ctx, port.ListRecentEventsInput{
+	events, err := c.event.List(ctx, usecase.EventListCriteria{
 		Limit:     recentCount + 5, // fetch extra to find commands
-		SessionID: sessionID,
-		Workspace:      repo,
-		Kind:      "command_executed",
+		SessionID: types.SessionID(sessionID),
+		Workspace: types.Workspace(repo),
+		Kind:      types.EventKindCommandExecuted,
 	})
 	if err != nil {
 		return xerrors.Errorf("failed to list events: %w", err)
 	}
 
 	// Get session info
-	sessions, err := c.listSessionsQueryService.Run(ctx, port.ListSessionsInput{
+	sessions, err := c.session.List(ctx, usecase.SessionListCriteria{
 		Limit:     1,
-		SessionID: sessionID,
-		Workspace:      repo,
+		SessionID: types.SessionID(sessionID),
+		Workspace: types.Workspace(repo),
 	})
 	if err != nil {
 		return xerrors.Errorf("failed to list sessions: %w", err)

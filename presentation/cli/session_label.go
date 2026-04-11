@@ -7,7 +7,8 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/types"
+
 )
 
 func (c *RootCLI) newSessionLabelCommand() *cobra.Command {
@@ -29,7 +30,7 @@ func (c *RootCLI) newSessionLabelCommand() *cobra.Command {
 				return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 			}
 
-			if err := c.initializeStoreUsecase.Run(ctx); err != nil {
+			if err := c.storeMaintenance.Initialize(ctx); err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 			}
 
@@ -38,10 +39,7 @@ func (c *RootCLI) newSessionLabelCommand() *cobra.Command {
 				return xerrors.Errorf("%s", Localize("--session-id is required", "--session-id は必須です"))
 			}
 
-			if err := c.updateSessionLabelUsecase.Run(ctx, usecase.UpdateSessionLabelInput{
-				SessionID: resolvedSessionID,
-				Label:     args[0],
-			}); err != nil {
+			if err := c.session.Label(ctx, types.SessionID(resolvedSessionID), args[0]); err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to update session label", "セッションラベルの更新に失敗しました"), err)
 			}
 

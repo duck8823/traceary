@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/spf13/cobra"
 
 	"github.com/duck8823/traceary/application/usecase"
@@ -9,63 +8,27 @@ import (
 
 // RootCLI provides the Traceary root command.
 type RootCLI struct {
-	initializeStoreUsecase        usecase.InitializeStoreUsecase
-	createStoreBackupUsecase      usecase.CreateStoreBackupUsecase
-	restoreStoreBackupUsecase     usecase.RestoreStoreBackupUsecase
-	recordLogUsecase              usecase.RecordLogUsecase
-	recordSessionBoundaryUsecase  usecase.RecordSessionBoundaryUsecase
-	recordCommandAuditUsecase     usecase.RecordCommandAuditUsecase
-	collectGarbageUsecase         usecase.CollectGarbageUsecase
-	closeStaleSessionsUsecase     usecase.CloseStaleSessionsUsecase
-	searchEventsQueryService      queryservice.SearchEventsQueryService
-	listEventsQueryService        queryservice.ListRecentEventsQueryService
-	getContextQueryService        queryservice.GetContextQueryService
-	getEventDetailsQueryService   queryservice.GetEventDetailsQueryService
-	findLatestSessionQueryService queryservice.FindLatestSessionQueryService
-	listSessionsQueryService      queryservice.ListSessionsQueryService
-	updateSessionLabelUsecase     usecase.UpdateSessionLabelUsecase
-	mcpServerRunner               MCPServerRunner
+	event            usecase.EventUsecase
+	session          usecase.SessionUsecase
+	storeMaintenance usecase.StoreMaintenanceUsecase
+	mcpServerRunner  MCPServerRunner
 }
 
 // RootCLIOptions holds the dependencies used by RootCLI.
 type RootCLIOptions struct {
-	InitializeStoreUsecase        usecase.InitializeStoreUsecase
-	CreateStoreBackupUsecase      usecase.CreateStoreBackupUsecase
-	RestoreStoreBackupUsecase     usecase.RestoreStoreBackupUsecase
-	RecordLogUsecase              usecase.RecordLogUsecase
-	RecordSessionBoundaryUsecase  usecase.RecordSessionBoundaryUsecase
-	RecordCommandAuditUsecase     usecase.RecordCommandAuditUsecase
-	CollectGarbageUsecase         usecase.CollectGarbageUsecase
-	CloseStaleSessionsUsecase     usecase.CloseStaleSessionsUsecase
-	SearchEventsQueryService      queryservice.SearchEventsQueryService
-	ListEventsQueryService        queryservice.ListRecentEventsQueryService
-	GetContextQueryService        queryservice.GetContextQueryService
-	GetEventDetailsQueryService   queryservice.GetEventDetailsQueryService
-	FindLatestSessionQueryService queryservice.FindLatestSessionQueryService
-	ListSessionsQueryService      queryservice.ListSessionsQueryService
-	UpdateSessionLabelUsecase     usecase.UpdateSessionLabelUsecase
-	MCPServerRunner               MCPServerRunner
+	Event            usecase.EventUsecase
+	Session          usecase.SessionUsecase
+	StoreMaintenance usecase.StoreMaintenanceUsecase
+	MCPServerRunner  MCPServerRunner
 }
 
 // NewRootCLI creates a new RootCLI.
 func NewRootCLI(options RootCLIOptions) *RootCLI {
 	return &RootCLI{
-		initializeStoreUsecase:        options.InitializeStoreUsecase,
-		createStoreBackupUsecase:      options.CreateStoreBackupUsecase,
-		restoreStoreBackupUsecase:     options.RestoreStoreBackupUsecase,
-		recordLogUsecase:              options.RecordLogUsecase,
-		recordSessionBoundaryUsecase:  options.RecordSessionBoundaryUsecase,
-		recordCommandAuditUsecase:     options.RecordCommandAuditUsecase,
-		collectGarbageUsecase:         options.CollectGarbageUsecase,
-		closeStaleSessionsUsecase:     options.CloseStaleSessionsUsecase,
-		searchEventsQueryService:      options.SearchEventsQueryService,
-		listEventsQueryService:        options.ListEventsQueryService,
-		getContextQueryService:        options.GetContextQueryService,
-		getEventDetailsQueryService:   options.GetEventDetailsQueryService,
-		findLatestSessionQueryService: options.FindLatestSessionQueryService,
-		listSessionsQueryService:      options.ListSessionsQueryService,
-		updateSessionLabelUsecase:     options.UpdateSessionLabelUsecase,
-		mcpServerRunner:               options.MCPServerRunner,
+		event:            options.Event,
+		session:          options.Session,
+		storeMaintenance: options.StoreMaintenance,
+		mcpServerRunner:  options.MCPServerRunner,
 	}
 }
 

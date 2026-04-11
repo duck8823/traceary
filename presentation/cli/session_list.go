@@ -9,8 +9,10 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
+	"github.com/duck8823/traceary/application/usecase"
 
-	"github.com/duck8823/traceary/domain/port"
+	"github.com/duck8823/traceary/domain/types"
+
 )
 
 func (c *RootCLI) newSessionListCommand() *cobra.Command {
@@ -42,7 +44,7 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 				return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 			}
 
-			if err := c.initializeStoreUsecase.Run(ctx); err != nil {
+			if err := c.storeMaintenance.Initialize(ctx); err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 			}
 
@@ -72,12 +74,12 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 
 			resolvedRepo := resolveWorkspaceValue(ctx, repo)
 
-			summaries, err := c.listSessionsQueryService.Run(ctx, port.ListSessionsInput{
+			summaries, err := c.session.List(ctx, usecase.SessionListCriteria{
 				Limit:  limit,
 				Offset: offset,
-				Workspace:   resolvedRepo,
-				Client: client,
-				Agent:  agent,
+				Workspace: types.Workspace(resolvedRepo),
+				Client: types.Client(client),
+				Agent: types.Agent(agent),
 				Label:  label,
 				From:   fromTime,
 				To:     toTime,
@@ -106,7 +108,7 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 	return listCmd
 }
 
-func writeSessionSummaries(output io.Writer, summaries []*port.SessionSummary, asJSON bool) error {
+func writeSessionSummaries(output io.Writer, summaries []*usecase.SessionSummary, asJSON bool) error {
 	if asJSON {
 		return writeSessionSummariesJSON(output, summaries)
 	}
@@ -139,10 +141,10 @@ func writeSessionSummaries(output io.Writer, summaries []*port.SessionSummary, a
 			s.Status,
 			duration,
 			s.SessionID,
-			formatOptionalColumn(s.Workspace),
+			formatOptionalColumn(s.Workspace.String()),
 			formatOptionalColumn(normalizeTabularColumn(s.Label)),
 			formatOptionalColumn(truncateMessage(s.Summary)),
-			formatOptionalColumn(normalizeTabularColumn(s.ParentSessionID)),
+			formatOptionalColumn(normalizeTabularColumn(s.ParentSessionID.String())),
 			s.TotalEvents,
 			s.CommandCount,
 			agentSummary,
@@ -154,10 +156,10 @@ func writeSessionSummaries(output io.Writer, summaries []*port.SessionSummary, a
 	return nil
 }
 
-func writeSessionSummariesJSON(output io.Writer, summaries []*port.SessionSummary) error {
+func writeSessionSummariesJSON(output io.Writer, summaries []*usecase.SessionSummary) error {
 	type jsonSummary struct {
 		SessionID       string   `json:"session_id"`
-		Workspace string   `json:"repo,omitempty"`
+		Workspace string   `json:"workspace,omitempty"`
 		Label           string   `json:"label,omitempty"`
 		Summary         string   `json:"summary,omitempty"`
 		ParentSessionID string   `json:"parent_session_id,omitempty"`
@@ -173,11 +175,11 @@ func writeSessionSummariesJSON(output io.Writer, summaries []*port.SessionSummar
 	items := make([]jsonSummary, 0, len(summaries))
 	for _, s := range summaries {
 		item := jsonSummary{
-			SessionID:       s.SessionID,
-			Workspace:            s.Workspace,
+			SessionID: string(s.SessionID),
+			Workspace: string(s.Workspace),
 			Label:           s.Label,
 			Summary:         s.Summary,
-			ParentSessionID: s.ParentSessionID,
+			ParentSessionID: string(s.ParentSessionID),
 			StartedAt:       s.StartedAt.UTC().Format(time.RFC3339),
 			Status:          s.Status,
 			TotalEvents:     s.TotalEvents,

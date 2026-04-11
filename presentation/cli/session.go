@@ -12,7 +12,6 @@ import (
 
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/usecase"
-	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -244,10 +243,10 @@ func (c *RootCLI) runSessionBoundary(
 	output io.Writer,
 	input sessionBoundaryCommandInput,
 ) error {
-	if c.initializeStoreUsecase == nil {
+	if c.storeMaintenance == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
-	if c.recordSessionBoundaryUsecase == nil {
+	if c.session == nil {
 		return xerrors.Errorf(Localize("record session boundary usecase is not configured", "session 境界ユースケースが設定されていません"))
 	}
 
@@ -255,22 +254,34 @@ func (c *RootCLI) runSessionBoundary(
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.initializeStoreUsecase.Run(ctx); err != nil {
+	if err := c.storeMaintenance.Initialize(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
-	event, err := c.recordSessionBoundaryUsecase.Run(ctx, usecase.RecordSessionBoundaryInput{
-		Client:        resolveSessionBoundaryClient(input),
-		DefaultClient: defaultClientValue,
-		Agent:         resolveSessionBoundaryAgent(input),
-		DefaultAgent:  defaultAgentValue,
-		SessionID:     input.sessionID,
-		Workspace:          resolveSessionBoundaryRepo(input),
-		DefaultWorkspace: resolveWorkspaceValue(ctx, input.repo),
-		Kind:              input.kind,
-		Summary:           input.summary,
-		ParentSessionID:   input.parentSessionID,
-	})
+	client := types.Client(resolveSessionBoundaryClient(input))
+	if client == "" {
+		client = types.Client(defaultClientValue)
+	}
+	agentStr := resolveSessionBoundaryAgent(input)
+	if agentStr == "" {
+		agentStr = defaultAgentValue
+	}
+	agent, _ := types.AgentOf(agentStr)
+	sid := types.SessionID(input.sessionID)
+	ws := types.Workspace(resolveSessionBoundaryRepo(input))
+	if ws == "" {
+		ws = types.Workspace(resolveWorkspaceValue(ctx, input.repo))
+	}
+
+	var event *model.Event
+	switch input.kind {
+	case types.EventKindSessionStarted:
+		event, err = c.session.Start(ctx, client, agent, sid, ws, types.SessionID(input.parentSessionID))
+	case types.EventKindSessionEnded:
+		event, err = c.session.End(ctx, client, agent, sid, ws, input.summary)
+	default:
+		return xerrors.Errorf("unsupported session boundary kind: %s", input.kind)
+	}
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to record session boundary", "session 境界の記録に失敗しました"), err)
 	}
@@ -330,10 +341,10 @@ func (c *RootCLI) runSessionLatest(
 	output io.Writer,
 	input sessionLatestCommandInput,
 ) error {
-	if c.initializeStoreUsecase == nil {
+	if c.storeMaintenance == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
-	if c.findLatestSessionQueryService == nil {
+	if c.session == nil {
 		return xerrors.Errorf(Localize("find latest session query service is not configured", "直近セッションクエリサービスが設定されていません"))
 	}
 
@@ -341,16 +352,21 @@ func (c *RootCLI) runSessionLatest(
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.initializeStoreUsecase.Run(ctx); err != nil {
+	if err := c.storeMaintenance.Initialize(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
-	event, err := c.findLatestSessionQueryService.Run(ctx, port.FindLatestSessionInput{
-		Client:     resolveOptionalValue(input.client, "TRACEARY_CLIENT", ""),
-		Agent:      resolveOptionalValue(input.agent, "TRACEARY_AGENT", ""),
-		Workspace:       resolveWorkspaceValue(ctx, input.repo),
-		ActiveOnly: input.activeOnly,
-	})
+	criteria := usecase.SessionLookupCriteria{
+		Client:    types.Client(resolveOptionalValue(input.client, "TRACEARY_CLIENT", "")),
+		Agent:     types.Agent(resolveOptionalValue(input.agent, "TRACEARY_AGENT", "")),
+		Workspace: types.Workspace(resolveWorkspaceValue(ctx, input.repo)),
+	}
+	var event *model.Event
+	if input.activeOnly {
+		event, err = c.session.Active(ctx, criteria)
+	} else {
+		event, err = c.session.Latest(ctx, criteria)
+	}
 	if err != nil {
 		if queryservice.IsSessionLookupNotFound(err) {
 			if input.activeOnly {

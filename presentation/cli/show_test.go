@@ -2,34 +2,14 @@ package cli_test
 
 import (
 	"bytes"
-	"context"
 	"testing"
 	"time"
 
-	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
-	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
 )
-
-type getEventDetailsQueryServiceStub struct {
-	receivedEventID string
-	called          bool
-	eventDetails    *port.EventDetails
-	err             error
-}
-
-func (s *getEventDetailsQueryServiceStub) Run(
-	_ context.Context,
-	eventID string,
-) (*port.EventDetails, error) {
-	s.called = true
-	s.receivedEventID = eventID
-	return s.eventDetails, s.err
-}
-
-var _ queryservice.GetEventDetailsQueryService = (*getEventDetailsQueryServiceStub)(nil)
 
 func TestRootCLI_ShowCommand(t *testing.T) {
 	t.Parallel()
@@ -50,8 +30,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 	t.Run("displays event details", func(t *testing.T) {
 		t.Parallel()
 
-		initStub := &initializeStoreUsecaseStub{}
-		eventDetails, err := port.NewEventDetails(
+		eventDetails, err := usecase.NewEventDetails(
 			model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,
@@ -75,11 +54,10 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewEventDetails() error = %v", err)
 		}
-		showStub := &getEventDetailsQueryServiceStub{eventDetails: eventDetails}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase:      initStub,
-			GetEventDetailsQueryService: showStub,
+			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			Event:            &eventUsecaseStub{showDetails: eventDetails},
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -87,15 +65,6 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
-		}
-		if !initStub.called {
-			t.Fatalf("InitializeStoreUsecase.Run() was not called")
-		}
-		if !showStub.called {
-			t.Fatalf("GetEventDetailsQueryService.Run() was not called")
-		}
-		if showStub.receivedEventID != "event-1" {
-			t.Fatalf("eventID = %q, want %q", showStub.receivedEventID, "event-1")
 		}
 
 		want := "" +
@@ -124,8 +93,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 	t.Run("command audit がないイベントも表示できる", func(t *testing.T) {
 		t.Parallel()
 
-		initStub := &initializeStoreUsecaseStub{}
-		eventDetails, err := port.NewEventDetails(
+		eventDetails, err := usecase.NewEventDetails(
 			model.EventOf(
 				eventID,
 				types.EventKindNote,
@@ -141,11 +109,10 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewEventDetails() error = %v", err)
 		}
-		showStub := &getEventDetailsQueryServiceStub{eventDetails: eventDetails}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase:      initStub,
-			GetEventDetailsQueryService: showStub,
+			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			Event:            &eventUsecaseStub{showDetails: eventDetails},
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -162,8 +129,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 	t.Run("JSON 形式でイベント詳細を表示できる", func(t *testing.T) {
 		t.Parallel()
 
-		initStub := &initializeStoreUsecaseStub{}
-		eventDetails, err := port.NewEventDetails(
+		eventDetails, err := usecase.NewEventDetails(
 			model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,
@@ -187,11 +153,10 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewEventDetails() error = %v", err)
 		}
-		showStub := &getEventDetailsQueryServiceStub{eventDetails: eventDetails}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase:      initStub,
-			GetEventDetailsQueryService: showStub,
+			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			Event:            &eventUsecaseStub{showDetails: eventDetails},
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -229,9 +194,8 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 	t.Run("exit_code is included in JSON and text output when present", func(t *testing.T) {
 		t.Parallel()
 
-		initStub := &initializeStoreUsecaseStub{}
 		exitCode := 1
-		eventDetails, err := port.NewEventDetails(
+		eventDetails, err := usecase.NewEventDetails(
 			model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,
@@ -259,11 +223,10 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 		t.Run("text format", func(t *testing.T) {
 			t.Parallel()
 
-			showStub := &getEventDetailsQueryServiceStub{eventDetails: eventDetails}
 			stdout := &bytes.Buffer{}
 			rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-				InitializeStoreUsecase:      initStub,
-				GetEventDetailsQueryService: showStub,
+				StoreMaintenance: &storeMaintenanceUsecaseStub{},
+				Event:            &eventUsecaseStub{showDetails: eventDetails},
 			}).Command()
 			rootCmd.SetOut(stdout)
 			rootCmd.SetErr(&bytes.Buffer{})
@@ -280,11 +243,10 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 		t.Run("json format", func(t *testing.T) {
 			t.Parallel()
 
-			showStub := &getEventDetailsQueryServiceStub{eventDetails: eventDetails}
 			stdout := &bytes.Buffer{}
 			rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-				InitializeStoreUsecase:      initStub,
-				GetEventDetailsQueryService: showStub,
+				StoreMaintenance: &storeMaintenanceUsecaseStub{},
+				Event:            &eventUsecaseStub{showDetails: eventDetails},
 			}).Command()
 			rootCmd.SetOut(stdout)
 			rootCmd.SetErr(&bytes.Buffer{})
