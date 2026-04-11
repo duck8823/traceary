@@ -18,6 +18,10 @@ const (
 	EventKindSessionStarted EventKind = "session_started"
 	// EventKindSessionEnded represents session end events.
 	EventKindSessionEnded EventKind = "session_ended"
+	// EventKindCompactSummary represents compact summary events.
+	EventKindCompactSummary EventKind = "compact_summary"
+	// EventKindPrompt represents user prompt events.
+	EventKindPrompt EventKind = "prompt"
 )
 
 // EventKind is a value object that represents an event kind.
@@ -29,6 +33,8 @@ var knownEventKinds = []EventKind{
 	EventKindReviewed,
 	EventKindSessionStarted,
 	EventKindSessionEnded,
+	EventKindCompactSummary,
+	EventKindPrompt,
 }
 
 // EventKindOf builds EventKind from a string value.

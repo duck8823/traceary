@@ -67,6 +67,45 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("records log with specified kind", func(t *testing.T) {
+		t.Parallel()
+
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			Event: &eventUsecaseStub{
+				logEvent: model.EventOf(
+					eventID,
+					types.EventKindCompactSummary,
+					"hook",
+					agent,
+					sessionID,
+					"duck8823/traceary",
+					"summary text",
+					fixedLogTime(),
+				),
+			},
+		}).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{
+			"log",
+			"--db-path", "/tmp/test-traceary.db",
+			"--kind", "compact_summary",
+			"--client", "hook",
+			"--agent", "codex",
+			"--session-id", "session-1",
+			"summary text",
+		})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		if stdout.String() != "Recorded: event-1\n" {
+			t.Fatalf("stdout = %q, want %q", stdout.String(), "Recorded: event-1\n")
+		}
+	})
+
 	t.Run("uses environment variable defaults", func(t *testing.T) {
 		t.Setenv("TRACEARY_AGENT", "claude")
 		t.Setenv("TRACEARY_SESSION_ID", "session-env")

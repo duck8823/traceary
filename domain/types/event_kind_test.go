@@ -23,6 +23,18 @@ func TestEventKindOf(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name:    "accepts compact_summary kind",
+			value:   "compact_summary",
+			want:    types.EventKindCompactSummary,
+			wantErr: false,
+		},
+		{
+			name:    "accepts prompt kind",
+			value:   "prompt",
+			want:    types.EventKindPrompt,
+			wantErr: false,
+		},
+		{
 			name:    "returns error for unknown event kind",
 			value:   "unknown",
 			wantErr: true,
@@ -45,7 +57,7 @@ func TestEventKindOf(t *testing.T) {
 			}
 			if tt.wantErr {
 				if tt.name == "returns error for unknown event kind" &&
-					!strings.Contains(err.Error(), "allowed values: note, command_executed, reviewed, session_started, session_ended") {
+					!strings.Contains(err.Error(), "allowed values: note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt") {
 					t.Fatalf("error = %q, want valid kind list", err.Error())
 				}
 				return

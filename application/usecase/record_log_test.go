@@ -66,6 +66,66 @@ func TestRecordLogUsecase_Run(t *testing.T) {
 		}
 	})
 
+	t.Run("saves event with specified kind", func(t *testing.T) {
+		t.Parallel()
+
+		stub := &eventRepositoryStub{}
+		sut := usecase.NewRecordLogUsecase(stub)
+
+		got, err := sut.Run(context.Background(), usecase.RecordLogInput{
+			Message:   "compact summary text",
+			Kind:      "compact_summary",
+			Client:    "hook",
+			Agent:     "claude",
+			SessionID: "session-1",
+			Workspace: "duck8823/traceary",
+		})
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if got.Kind().String() != "compact_summary" {
+			t.Fatalf("Kind() = %q, want %q", got.Kind(), "compact_summary")
+		}
+	})
+
+	t.Run("defaults to note when kind is empty", func(t *testing.T) {
+		t.Parallel()
+
+		stub := &eventRepositoryStub{}
+		sut := usecase.NewRecordLogUsecase(stub)
+
+		got, err := sut.Run(context.Background(), usecase.RecordLogInput{
+			Message:   "hello",
+			Client:    "cli",
+			Agent:     "manual",
+			SessionID: "session-1",
+		})
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if got.Kind().String() != "note" {
+			t.Fatalf("Kind() = %q, want %q", got.Kind(), "note")
+		}
+	})
+
+	t.Run("returns error for invalid kind", func(t *testing.T) {
+		t.Parallel()
+
+		stub := &eventRepositoryStub{}
+		sut := usecase.NewRecordLogUsecase(stub)
+
+		_, err := sut.Run(context.Background(), usecase.RecordLogInput{
+			Message:   "hello",
+			Kind:      "invalid_kind",
+			Client:    "cli",
+			Agent:     "manual",
+			SessionID: "session-1",
+		})
+		if err == nil {
+			t.Fatalf("Run() error = nil, want error for invalid kind")
+		}
+	})
+
 	t.Run("returns error for invalid required fields", func(t *testing.T) {
 		t.Parallel()
 

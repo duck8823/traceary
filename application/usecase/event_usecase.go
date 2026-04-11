@@ -17,8 +17,8 @@ type AuditRedaction struct {
 
 // EventUsecase consolidates event recording and query operations.
 type EventUsecase interface {
-	// Log records a note event.
-	Log(ctx context.Context, message string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace) (*model.Event, error)
+	// Log records a log event. Zero-value kind defaults to note.
+	Log(ctx context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace) (*model.Event, error)
 
 	// Audit records a command execution audit event.
 	Audit(ctx context.Context, command string, input string, output string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, exitCode *int, redaction AuditRedaction) (*model.Event, *model.CommandAudit, error)
