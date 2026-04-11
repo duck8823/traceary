@@ -39,9 +39,10 @@ func NewEventUsecaseAdapter(
 	}
 }
 
-func (a *eventUsecaseAdapter) Log(ctx context.Context, message string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace) (*model.Event, error) {
+func (a *eventUsecaseAdapter) Log(ctx context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace) (*model.Event, error) {
 	event, err := a.recordLog.Run(ctx, RecordLogInput{
 		Message:   message,
+		Kind:      kind.String(),
 		Client:    client.String(),
 		Agent:     agent.String(),
 		SessionID: sessionID.String(),

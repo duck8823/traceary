@@ -18,6 +18,7 @@ type EventSaver = port.EventSaver
 // RecordLogInput is the input for traceary log recording.
 type RecordLogInput struct {
 	Message   string
+	Kind      string
 	Client    string
 	Agent     string
 	SessionID string
@@ -52,6 +53,14 @@ func (u *recordLogUsecase) Run(ctx context.Context, input RecordLogInput) (*mode
 	if err != nil {
 		return nil, xerrors.Errorf("failed to resolve session ID: %w", err)
 	}
+	kind := types.EventKindNote
+	if strings.TrimSpace(input.Kind) != "" {
+		kind, err = types.EventKindOf(input.Kind)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to resolve event kind: %w", err)
+		}
+	}
+
 	eventID, err := newEventID()
 	if err != nil {
 		return nil, xerrors.Errorf("failed to generate event ID: %w", err)
@@ -59,7 +68,7 @@ func (u *recordLogUsecase) Run(ctx context.Context, input RecordLogInput) (*mode
 
 	event, err := model.NewEvent(
 		eventID,
-		types.EventKindNote,
+		kind,
 		strings.TrimSpace(input.Client),
 		agent,
 		sessionID,
