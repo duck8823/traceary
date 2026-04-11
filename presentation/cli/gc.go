@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/usecase"
 )
 
 const defaultRetentionDays = 90
@@ -49,10 +48,10 @@ type gcCommandInput struct {
 }
 
 func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandInput) error {
-	if c.initializeStoreUsecase == nil {
+	if c.storeMaintenance == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
-	if c.collectGarbageUsecase == nil {
+	if c.storeMaintenance == nil {
 		return xerrors.Errorf(Localize("garbage collection usecase is not configured", "gc ユースケースが設定されていません"))
 	}
 	if input.keepDays <= 0 {
@@ -63,15 +62,12 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.initializeStoreUsecase.Run(ctx); err != nil {
+	if err := c.storeMaintenance.Initialize(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
 	cutoff := gcNowFunc().AddDate(0, 0, -input.keepDays)
-	result, err := c.collectGarbageUsecase.Run(ctx, usecase.CollectGarbageInput{
-		Before: cutoff,
-		DryRun: input.dryRun,
-	})
+	result, err := c.storeMaintenance.CollectGarbage(ctx, cutoff, input.dryRun)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to run garbage collection", "gc の実行に失敗しました"), err)
 	}

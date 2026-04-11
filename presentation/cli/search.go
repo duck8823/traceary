@@ -8,8 +8,10 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
+	"github.com/duck8823/traceary/application/usecase"
 
-	"github.com/duck8823/traceary/domain/port"
+	"github.com/duck8823/traceary/domain/types"
+
 )
 
 func (c *RootCLI) newSearchCommand() *cobra.Command {
@@ -103,10 +105,10 @@ type searchCommandInput struct {
 }
 
 func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchCommandInput) error {
-	if c.initializeStoreUsecase == nil {
+	if c.storeMaintenance == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
-	if c.searchEventsQueryService == nil {
+	if c.event == nil {
 		return xerrors.Errorf(Localize("search events query service is not configured", "検索クエリサービスが設定されていません"))
 	}
 	if input.limit <= 0 {
@@ -120,7 +122,7 @@ func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchC
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.initializeStoreUsecase.Run(ctx); err != nil {
+	if err := c.storeMaintenance.Initialize(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
@@ -152,13 +154,13 @@ func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchC
 		return err
 	}
 
-	events, err := c.searchEventsQueryService.Run(ctx, port.SearchEventsInput{
+	events, err := c.event.Search(ctx, usecase.EventSearchCriteria{
 		Query:        input.query,
-		Workspace:         resolveWorkspaceValue(ctx, input.repo),
-		SessionID:    input.sessionID,
-		Client:       input.client,
-		Agent:        input.agent,
-		Kind:         resolvedKind,
+		Workspace:    types.Workspace(resolveWorkspaceValue(ctx, input.repo)),
+		SessionID:    types.SessionID(input.sessionID),
+		Client:       types.Client(input.client),
+		Agent:        types.Agent(input.agent),
+		Kind: types.EventKind(resolvedKind),
 		From:         fromTime,
 		To:           toTime,
 		Limit:        input.limit,

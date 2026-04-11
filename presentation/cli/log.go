@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 const (
@@ -87,10 +87,10 @@ type logCommandInput struct {
 }
 
 func (c *RootCLI) runLog(ctx context.Context, output io.Writer, input logCommandInput) error {
-	if c.initializeStoreUsecase == nil {
+	if c.storeMaintenance == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
-	if c.recordLogUsecase == nil {
+	if c.event == nil {
 		return xerrors.Errorf(Localize("record log usecase is not configured", "ログ記録ユースケースが設定されていません"))
 	}
 
@@ -98,7 +98,7 @@ func (c *RootCLI) runLog(ctx context.Context, output io.Writer, input logCommand
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.initializeStoreUsecase.Run(ctx); err != nil {
+	if err := c.storeMaintenance.Initialize(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
@@ -112,13 +112,11 @@ func (c *RootCLI) runLog(ctx context.Context, output io.Writer, input logCommand
 		return err
 	}
 
-	event, err := c.recordLogUsecase.Run(ctx, usecase.RecordLogInput{
-		Message:   input.message,
-		Client:    resolveOptionalValue(input.client, "TRACEARY_CLIENT", defaultClientValue),
-		Agent:     resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue),
-		SessionID: sessionResolution.sessionID,
-		Workspace:      resolvedRepo,
-	})
+	client, _ := types.ClientOf(resolveOptionalValue(input.client, "TRACEARY_CLIENT", defaultClientValue))
+	agent, _ := types.AgentOf(resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue))
+	sessionID, _ := types.SessionIDOf(sessionResolution.sessionID)
+	workspace := types.Workspace(resolvedRepo)
+	event, err := c.event.Log(ctx, input.message, client, agent, sessionID, workspace)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to record log", "ログ記録に失敗しました"), err)
 	}

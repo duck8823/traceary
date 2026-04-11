@@ -7,8 +7,10 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
+	"github.com/duck8823/traceary/application/usecase"
 
-	"github.com/duck8823/traceary/domain/port"
+	"github.com/duck8823/traceary/domain/types"
+
 )
 
 func (c *RootCLI) newListCommand() *cobra.Command {
@@ -88,10 +90,10 @@ type listCommandInput struct {
 }
 
 func (c *RootCLI) runList(ctx context.Context, output io.Writer, input listCommandInput) error {
-	if c.initializeStoreUsecase == nil {
+	if c.storeMaintenance == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
-	if c.listEventsQueryService == nil {
+	if c.event == nil {
 		return xerrors.Errorf(Localize("list events query service is not configured", "イベント一覧クエリサービスが設定されていません"))
 	}
 	if input.limit <= 0 {
@@ -135,18 +137,18 @@ func (c *RootCLI) runList(ctx context.Context, output io.Writer, input listComma
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.initializeStoreUsecase.Run(ctx); err != nil {
+	if err := c.storeMaintenance.Initialize(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
-	events, err := c.listEventsQueryService.Run(ctx, port.ListRecentEventsInput{
+	events, err := c.event.List(ctx, usecase.EventListCriteria{
 		Limit:        input.limit,
 		Offset:       input.offset,
-		Kind:         resolvedKind,
-		Client:       strings.TrimSpace(input.client),
-		Agent:        strings.TrimSpace(input.agent),
-		SessionID:    strings.TrimSpace(input.sessionID),
-		Workspace:         resolveWorkspaceValue(ctx, input.repo),
+		Kind: types.EventKind(resolvedKind),
+		Client: types.Client(strings.TrimSpace(input.client)),
+		Agent: types.Agent(strings.TrimSpace(input.agent)),
+		SessionID: types.SessionID(strings.TrimSpace(input.sessionID)),
+		Workspace:    types.Workspace(resolveWorkspaceValue(ctx, input.repo)),
 		FailuresOnly: input.failuresOnly,
 		From:         fromTime,
 		To:           toTime,

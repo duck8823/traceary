@@ -156,54 +156,56 @@ func run() error {
 	if err != nil {
 		return xerrors.Errorf("%s: %w", cli.Localize("failed to resolve DB path", "DBパスの解決に失敗しました"), err)
 	}
-	datasource := sqlite.NewDatasource(dbPath, migrationsSubFS)
-	initializeStoreUsecase := usecase.NewInitializeStoreUsecase(datasource)
-	createStoreBackupUsecase := usecase.NewCreateStoreBackupUsecase(datasource)
-	restoreStoreBackupUsecase := usecase.NewRestoreStoreBackupUsecase(datasource)
-	recordLogUsecase := usecase.NewRecordLogUsecase(datasource)
-	recordSessionBoundaryUsecase := usecase.NewRecordSessionBoundaryUsecase(datasource, datasource, datasource)
-	recordCommandAuditUsecase := usecase.NewRecordCommandAuditUsecase(datasource)
-	collectGarbageUsecase := usecase.NewCollectGarbageUsecase(datasource)
-	closeStaleSessionsUsecase := usecase.NewCloseStaleSessionsUsecase(datasource)
-	searchEventsQueryService := queryservice.NewSearchEventsQueryService(datasource)
-	listRecentEventsQueryService := queryservice.NewListRecentEventsQueryService(datasource)
-	getContextQueryService := queryservice.NewGetContextQueryService(datasource)
-	getEventDetailsQueryService := queryservice.NewGetEventDetailsQueryService(datasource)
-	findLatestSessionQueryService := queryservice.NewFindLatestSessionQueryService(datasource)
-	listSessionsQueryService := queryservice.NewListSessionsQueryService(datasource)
-	updateSessionLabelUsecase := usecase.NewUpdateSessionLabelUsecase(datasource)
+	ds := sqlite.NewDatasource(dbPath, migrationsSubFS)
+	initStore := usecase.NewInitializeStoreUsecase(ds)
+	recordLog := usecase.NewRecordLogUsecase(ds)
+	recordAudit := usecase.NewRecordCommandAuditUsecase(ds)
+	recordBoundary := usecase.NewRecordSessionBoundaryUsecase(ds, ds, ds)
+	updateLabel := usecase.NewUpdateSessionLabelUsecase(ds)
+	createBackup := usecase.NewCreateStoreBackupUsecase(ds)
+	restoreBackup := usecase.NewRestoreStoreBackupUsecase(ds)
+	collectGarbage := usecase.NewCollectGarbageUsecase(ds)
+	closeStaleSessions := usecase.NewCloseStaleSessionsUsecase(ds)
+	searchEvents := queryservice.NewSearchEventsQueryService(ds)
+	listRecent := queryservice.NewListRecentEventsQueryService(ds)
+	getContext := queryservice.NewGetContextQueryService(ds)
+	getDetails := queryservice.NewGetEventDetailsQueryService(ds)
+	findLatest := queryservice.NewFindLatestSessionQueryService(ds)
+	listSessions := queryservice.NewListSessionsQueryService(ds)
+
+	eventUsecase := usecase.NewEventUsecaseAdapter(
+		recordLog, recordAudit,
+		listRecent, searchEvents, getDetails, getContext,
+	)
+	sessionUsecase := usecase.NewSessionUsecaseAdapter(
+		recordBoundary, updateLabel,
+		findLatest, listSessions, listRecent,
+	)
+	storeMaintenanceUsecase := usecase.NewStoreMaintenanceUsecaseAdapter(
+		initStore, createBackup, restoreBackup,
+		collectGarbage, closeStaleSessions,
+	)
+
 	mcpServer, err := mcpserver.NewServer(
 		metadata.version,
-		initializeStoreUsecase,
-		recordLogUsecase,
-		recordSessionBoundaryUsecase,
-		recordCommandAuditUsecase,
-		findLatestSessionQueryService,
-		listRecentEventsQueryService,
-		searchEventsQueryService,
-		getContextQueryService,
-		listSessionsQueryService,
+		initStore,
+		recordLog,
+		recordBoundary,
+		recordAudit,
+		findLatest,
+		listRecent,
+		searchEvents,
+		getContext,
+		listSessions,
 	)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", cli.Localize("failed to initialize MCP server", "MCP server の初期化に失敗しました"), err)
 	}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		InitializeStoreUsecase:        initializeStoreUsecase,
-		CreateStoreBackupUsecase:      createStoreBackupUsecase,
-		RestoreStoreBackupUsecase:     restoreStoreBackupUsecase,
-		RecordLogUsecase:              recordLogUsecase,
-		RecordSessionBoundaryUsecase:  recordSessionBoundaryUsecase,
-		RecordCommandAuditUsecase:     recordCommandAuditUsecase,
-		CollectGarbageUsecase:         collectGarbageUsecase,
-		CloseStaleSessionsUsecase:     closeStaleSessionsUsecase,
-		SearchEventsQueryService:      searchEventsQueryService,
-		ListEventsQueryService:        listRecentEventsQueryService,
-		GetContextQueryService:        getContextQueryService,
-		GetEventDetailsQueryService:   getEventDetailsQueryService,
-		FindLatestSessionQueryService: findLatestSessionQueryService,
-		ListSessionsQueryService:      listSessionsQueryService,
-		UpdateSessionLabelUsecase:     updateSessionLabelUsecase,
-		MCPServerRunner:               mcpServer,
+		Event:            eventUsecase,
+		Session:          sessionUsecase,
+		StoreMaintenance: storeMaintenanceUsecase,
+		MCPServerRunner:  mcpServer,
 	}).Command()
 	rootCmd.Version = versionString()
 	rootCmd.SetVersionTemplate("{{.Name}} {{.Version}}\n")

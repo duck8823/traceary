@@ -7,8 +7,10 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
+	"github.com/duck8823/traceary/application/usecase"
 
-	"github.com/duck8823/traceary/domain/port"
+	"github.com/duck8823/traceary/domain/types"
+
 )
 
 func (c *RootCLI) newShowCommand() *cobra.Command {
@@ -32,10 +34,10 @@ func (c *RootCLI) newShowCommand() *cobra.Command {
 }
 
 func (c *RootCLI) runShow(ctx context.Context, output io.Writer, dbPath string, eventID string, asJSON bool) error {
-	if c.initializeStoreUsecase == nil {
+	if c.storeMaintenance == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
-	if c.getEventDetailsQueryService == nil {
+	if c.event == nil {
 		return xerrors.Errorf(Localize("get event details query service is not configured", "イベント詳細クエリサービスが設定されていません"))
 	}
 
@@ -43,11 +45,11 @@ func (c *RootCLI) runShow(ctx context.Context, output io.Writer, dbPath string, 
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.initializeStoreUsecase.Run(ctx); err != nil {
+	if err := c.storeMaintenance.Initialize(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
-	eventDetails, err := c.getEventDetailsQueryService.Run(ctx, eventID)
+	eventDetails, err := c.event.Show(ctx, types.EventID(eventID))
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to get event details", "イベント詳細の取得に失敗しました"), err)
 	}
@@ -59,7 +61,7 @@ func (c *RootCLI) runShow(ctx context.Context, output io.Writer, dbPath string, 
 	return nil
 }
 
-func writeEventDetails(output io.Writer, eventDetails *port.EventDetails) error {
+func writeEventDetails(output io.Writer, eventDetails *usecase.EventDetails) error {
 	if eventDetails == nil {
 		return xerrors.Errorf(Localize("event details must not be nil", "イベント詳細は nil にできません"))
 	}

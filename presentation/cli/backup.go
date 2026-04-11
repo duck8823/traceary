@@ -13,7 +13,6 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/usecase"
 )
 
 type backupCreateCommandInput struct {
@@ -136,7 +135,7 @@ func (c *RootCLI) runBackupCreate(
 	output io.Writer,
 	input backupCreateCommandInput,
 ) error {
-	if c.createStoreBackupUsecase == nil {
+	if c.storeMaintenance == nil {
 		return xerrors.Errorf(Localize("create store backup usecase is not configured", "バックアップ作成ユースケースが設定されていません"))
 	}
 
@@ -148,10 +147,7 @@ func (c *RootCLI) runBackupCreate(
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve backup output path", "バックアップ出力先パスの解決に失敗しました"), err)
 	}
-	if err := c.createStoreBackupUsecase.Run(ctx, usecase.CreateStoreBackupInput{
-		OutputPath: resolvedOutputPath,
-		Overwrite:  input.force,
-	}); err != nil {
+	if err := c.storeMaintenance.CreateBackup(ctx, resolvedOutputPath, input.force); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to create backup", "バックアップ作成に失敗しました"), err)
 	}
 
@@ -167,7 +163,7 @@ func (c *RootCLI) runBackupRestore(
 	output io.Writer,
 	input backupRestoreCommandInput,
 ) error {
-	if c.restoreStoreBackupUsecase == nil {
+	if c.storeMaintenance == nil {
 		return xerrors.Errorf(Localize("restore store backup usecase is not configured", "バックアップ復元ユースケースが設定されていません"))
 	}
 
@@ -195,10 +191,7 @@ func (c *RootCLI) runBackupRestore(
 		}
 	}
 	// The use case rejects restores into an existing DB unless --force is set.
-	if err := c.restoreStoreBackupUsecase.Run(ctx, usecase.RestoreStoreBackupInput{
-		InputPath: resolvedInputPath,
-		Overwrite: input.force,
-	}); err != nil {
+	if err := c.storeMaintenance.RestoreBackup(ctx, resolvedInputPath, input.force); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to restore backup", "バックアップ復元に失敗しました"), err)
 	}
 

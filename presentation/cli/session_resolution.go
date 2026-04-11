@@ -9,10 +9,12 @@ import (
 	"time"
 
 	"golang.org/x/xerrors"
+	"github.com/duck8823/traceary/application/usecase"
+
+	"github.com/duck8823/traceary/domain/types"
 
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
-	"github.com/duck8823/traceary/domain/port"
 )
 
 type manualSessionResolution struct {
@@ -30,8 +32,8 @@ func (c *RootCLI) resolveManualSessionID(
 	}
 
 	trimmedRepo := strings.TrimSpace(repo)
-	if trimmedRepo == "" || c.findLatestSessionQueryService == nil {
-		slog.Debug("no work context or query service, using default session", "workspace", trimmedRepo, "has_query_service", c.findLatestSessionQueryService != nil)
+	if trimmedRepo == "" || c.session == nil {
+		slog.Debug("no work context or query service, using default session", "workspace", trimmedRepo, "has_query_service", c.session != nil)
 		return &manualSessionResolution{
 			sessionID: defaultSessionIDValue,
 			notice: Localize(
@@ -41,9 +43,8 @@ func (c *RootCLI) resolveManualSessionID(
 		}, nil
 	}
 
-	event, err := c.findLatestSessionQueryService.Run(ctx, port.FindLatestSessionInput{
-		Workspace:       trimmedRepo,
-		ActiveOnly: true,
+	event, err := c.session.Active(ctx, usecase.SessionLookupCriteria{
+		Workspace: types.Workspace(trimmedRepo),
 	})
 	if err != nil {
 		if queryservice.IsSessionLookupNotFound(err) {
