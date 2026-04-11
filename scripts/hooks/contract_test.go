@@ -32,7 +32,7 @@ func TestHooksContract_AllClientsHaveRequiredEvents(t *testing.T) {
 		{
 			name:           "claude",
 			hooksPath:      "../../integrations/claude-plugin/hooks/hooks.json",
-			requiredEvents: []string{"SessionStart", "SessionEnd", "PostToolUse"},
+			requiredEvents: []string{"SessionStart", "SessionEnd", "PostToolUse", "PostToolUseFailure", "PostCompact", "UserPromptSubmit"},
 		},
 		{
 			name:           "codex",
