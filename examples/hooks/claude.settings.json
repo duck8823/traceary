@@ -43,6 +43,17 @@
           }
         ]
       }
+    ],
+    "PostCompact": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/hooks/traceary-compact.sh\" claude post-compact"
+          }
+        ]
+      }
     ]
   }
 }

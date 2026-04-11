@@ -28,9 +28,19 @@ fi
 
 case "$ACTION" in
   post-compact)
-    # Record that a compact happened
+    # Record compact summary or fallback note
     if [[ -n "$SESSION_ID" ]]; then
-      COMMAND=("$TRACEARY_CMD" log "compact triggered" --client hook --agent "$CLIENT" --session-id "$SESSION_ID")
+      COMPACT_SUMMARY="$(traceary_json_get 'compact_summary')"
+      WORKSPACE="$(traceary_resolve_effective_workspace "$CLIENT")"
+
+      if [[ -n "$COMPACT_SUMMARY" ]]; then
+        COMMAND=("$TRACEARY_CMD" log "$COMPACT_SUMMARY" --kind compact_summary --client hook --agent "$CLIENT" --session-id "$SESSION_ID")
+      else
+        COMMAND=("$TRACEARY_CMD" log "compact triggered" --client hook --agent "$CLIENT" --session-id "$SESSION_ID")
+      fi
+      if [[ -n "$WORKSPACE" ]]; then
+        COMMAND+=(--workspace "$WORKSPACE")
+      fi
       if [[ -n "${TRACEARY_DB_PATH:-}" ]]; then
         COMMAND+=(--db-path "$TRACEARY_DB_PATH")
       fi

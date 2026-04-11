@@ -373,6 +373,7 @@ func buildClaudeHooksSettings(scriptsDir string, tracearyBin string) *hooksSetti
 	startCommand := buildHookScriptCommand(scriptsDir, tracearyBin, "traceary-session.sh", "claude", "start")
 	endCommand := buildHookScriptCommand(scriptsDir, tracearyBin, "traceary-session.sh", "claude", "end")
 	auditCommand := buildHookScriptCommand(scriptsDir, tracearyBin, "traceary-audit.sh", "claude")
+	compactCommand := buildHookScriptCommand(scriptsDir, tracearyBin, "traceary-compact.sh", "claude", "post-compact")
 
 	return &hooksSettings{
 		Hooks: map[string][]hookMatcher{
@@ -398,6 +399,12 @@ func buildClaudeHooksSettings(scriptsDir string, tracearyBin string) *hooksSetti
 				newHookMatcher("Bash", hookCommand{
 					Type:    "command",
 					Command: auditCommand,
+				}),
+			},
+			"PostCompact": {
+				newHookMatcher("*", hookCommand{
+					Type:    "command",
+					Command: compactCommand,
 				}),
 			},
 		},
