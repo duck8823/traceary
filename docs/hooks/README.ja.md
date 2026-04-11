@@ -31,7 +31,7 @@ host ごとの native package を使いたい場合は、まず [ネイティブ
 
 - `TRACEARY_BIN`: `traceary` binary の絶対 path
 - `TRACEARY_DB_PATH`: 既定の `~/.config/traceary/traceary.db` ではなく明示的な SQLite path を使いたいときに指定
-- `TRACEARY_REPO`: 明示的な work-context 文字列。auto-detection を上書きしたいときに使う
+- `TRACEARY_WORKSPACE`: 明示的な work-context 文字列。auto-detection を上書きしたいときに使う
 - `TRACEARY_HOOK_SCRIPTS_DIR`: `traceary hooks print/install` が portable hook script を書き出す先を上書き
 - `TRACEARY_HOOK_STATE_DIR`: 一時 session state の保存先を上書き
 - `TRACEARY_HOOK_STATE_KEY`: 既定の `PPID` ベース key が合わないときに process ごとの state key を上書き

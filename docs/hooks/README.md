@@ -31,7 +31,7 @@ If you want host-native packages instead of manual hook wiring, start with the [
 
 - `TRACEARY_BIN`: absolute path to the `traceary` binary
 - `TRACEARY_DB_PATH`: explicit SQLite path when you do not want the default `~/.config/traceary/traceary.db`
-- `TRACEARY_REPO`: explicit work-context string. Use this to override auto-detection.
+- `TRACEARY_WORKSPACE`: explicit work-context string. Use this to override auto-detection.
 - `TRACEARY_HOOK_SCRIPTS_DIR`: override where `traceary hooks print/install` materializes portable hook scripts
 - `TRACEARY_HOOK_STATE_DIR`: override where temporary session state is stored
 - `TRACEARY_HOOK_STATE_KEY`: override the per-process state key when the default `PPID`-based key is not suitable

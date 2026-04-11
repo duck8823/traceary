@@ -13,7 +13,7 @@
 | `TRACEARY_CLIENT` | `log` / `audit` / session command の既定 `client` attribution |
 | `TRACEARY_AGENT` | `log` / `audit` / session command の既定 `agent` attribution |
 | `TRACEARY_SESSION_ID` | `log` / `audit` / `session end` の既定 session ID |
-| `TRACEARY_REPO` | 補助的な work-context identifier を上書きする |
+| `TRACEARY_WORKSPACE` | 補助的な work-context identifier を上書きする |
 | `TRACEARY_ALLOW_SECRETS` | `traceary audit` の best-effort secret redaction を無効化する |
 | `TRACEARY_MAX_AUDIT_INPUT_BYTES` | `traceary audit` の input 保存サイズ上限の既定値 |
 | `TRACEARY_MAX_AUDIT_OUTPUT_BYTES` | `traceary audit` の output 保存サイズ上限の既定値 |
