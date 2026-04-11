@@ -188,15 +188,9 @@ func run() error {
 
 	mcpServer, err := mcpserver.NewServer(
 		metadata.version,
-		initStore,
-		recordLog,
-		recordBoundary,
-		recordAudit,
-		findLatest,
-		listRecent,
-		searchEvents,
-		getContext,
-		listSessions,
+		eventUsecase,
+		sessionUsecase,
+		storeMaintenanceUsecase,
 	)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", cli.Localize("failed to initialize MCP server", "MCP server の初期化に失敗しました"), err)

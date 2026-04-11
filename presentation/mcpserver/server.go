@@ -2,16 +2,13 @@ package mcpserver
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/usecase"
-	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation"
@@ -30,56 +27,29 @@ const (
 
 // Server provides the Traceary MCP server.
 type Server struct {
-	serverName                    string
-	serverVersion                 string
-	extraRedactPatterns           []string
-	initializeStoreUsecase        usecase.InitializeStoreUsecase
-	recordLogUsecase              usecase.RecordLogUsecase
-	recordSessionBoundaryUsecase  usecase.RecordSessionBoundaryUsecase
-	recordCommandAuditUsecase     usecase.RecordCommandAuditUsecase
-	findLatestSessionQueryService queryservice.FindLatestSessionQueryService
-	listEventsQueryService        queryservice.ListRecentEventsQueryService
-	searchEventsQueryService      queryservice.SearchEventsQueryService
-	getContextQueryService        queryservice.GetContextQueryService
-	listSessionsQueryService      queryservice.ListSessionsQueryService
+	serverName          string
+	serverVersion       string
+	extraRedactPatterns []string
+	event               usecase.EventUsecase
+	session             usecase.SessionUsecase
+	storeMaintenance    usecase.StoreMaintenanceUsecase
 }
 
 // NewServer creates a new MCP server.
 func NewServer(
 	serverVersion string,
-	initializeStoreUsecase usecase.InitializeStoreUsecase,
-	recordLogUsecase usecase.RecordLogUsecase,
-	recordSessionBoundaryUsecase usecase.RecordSessionBoundaryUsecase,
-	recordCommandAuditUsecase usecase.RecordCommandAuditUsecase,
-	findLatestSessionQueryService queryservice.FindLatestSessionQueryService,
-	listEventsQueryService queryservice.ListRecentEventsQueryService,
-	searchEventsQueryService queryservice.SearchEventsQueryService,
-	getContextQueryService queryservice.GetContextQueryService,
-	listSessionsQueryService queryservice.ListSessionsQueryService,
+	event usecase.EventUsecase,
+	session usecase.SessionUsecase,
+	storeMaintenance usecase.StoreMaintenanceUsecase,
 ) (*Server, error) {
-	if initializeStoreUsecase == nil {
-		return nil, xerrors.Errorf("initialize store usecase is not configured")
+	if event == nil {
+		return nil, xerrors.Errorf("event usecase is not configured")
 	}
-	if recordLogUsecase == nil {
-		return nil, xerrors.Errorf("record log usecase is not configured")
+	if session == nil {
+		return nil, xerrors.Errorf("session usecase is not configured")
 	}
-	if recordSessionBoundaryUsecase == nil {
-		return nil, xerrors.Errorf("record session boundary usecase is not configured")
-	}
-	if recordCommandAuditUsecase == nil {
-		return nil, xerrors.Errorf("record command audit usecase is not configured")
-	}
-	if findLatestSessionQueryService == nil {
-		return nil, xerrors.Errorf("find latest session query service is not configured")
-	}
-	if listEventsQueryService == nil {
-		return nil, xerrors.Errorf("list recent events query service is not configured")
-	}
-	if searchEventsQueryService == nil {
-		return nil, xerrors.Errorf("search events query service is not configured")
-	}
-	if getContextQueryService == nil {
-		return nil, xerrors.Errorf("get context query service is not configured")
+	if storeMaintenance == nil {
+		return nil, xerrors.Errorf("store maintenance usecase is not configured")
 	}
 
 	trimmedVersion := strings.TrimSpace(serverVersion)
@@ -90,18 +60,12 @@ func NewServer(
 	config := presentation.LoadConfig()
 
 	return &Server{
-		serverName:                    defaultServerName,
-		serverVersion:                 trimmedVersion,
-		extraRedactPatterns:           config.Redact.ExtraPatterns,
-		initializeStoreUsecase:        initializeStoreUsecase,
-		recordLogUsecase:              recordLogUsecase,
-		recordSessionBoundaryUsecase:  recordSessionBoundaryUsecase,
-		recordCommandAuditUsecase:     recordCommandAuditUsecase,
-		findLatestSessionQueryService: findLatestSessionQueryService,
-		listEventsQueryService:        listEventsQueryService,
-		searchEventsQueryService:      searchEventsQueryService,
-		getContextQueryService:        getContextQueryService,
-		listSessionsQueryService:      listSessionsQueryService,
+		serverName:          defaultServerName,
+		serverVersion:       trimmedVersion,
+		extraRedactPatterns: config.Redact.ExtraPatterns,
+		event:               event,
+		session:             session,
+		storeMaintenance:    storeMaintenance,
 	}, nil
 }
 
@@ -111,7 +75,7 @@ func (s *Server) Build(ctx context.Context, dbPath string) (*mcp.Server, error) 
 	if trimmedDBPath == "" {
 		return nil, xerrors.Errorf("DB path must not be empty")
 	}
-	if err := s.initializeStoreUsecase.Run(ctx); err != nil {
+	if err := s.storeMaintenance.Initialize(ctx); err != nil {
 		return nil, xerrors.Errorf("failed to initialize store: %w", err)
 	}
 
@@ -304,13 +268,13 @@ type eventOutput struct {
 
 func (s *Server) addLog(_ string) mcp.ToolHandlerFor[addLogInput, addLogOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input addLogInput) (*mcp.CallToolResult, addLogOutput, error) {
-		event, err := s.recordLogUsecase.Run(ctx, usecase.RecordLogInput{
-			Message:   input.Message,
-			Client:    resolveValue(input.Client, defaultClientValue),
-			Agent:     resolveValue(input.Agent, defaultAgentValue),
-			SessionID: resolveValue(input.SessionID, defaultSessionValue),
-			Workspace:      strings.TrimSpace(input.Workspace),
-		})
+		event, err := s.event.Log(ctx,
+			input.Message,
+			types.Client(resolveValue(input.Client, defaultClientValue)),
+			types.Agent(resolveValue(input.Agent, defaultAgentValue)),
+			types.SessionID(resolveValue(input.SessionID, defaultSessionValue)),
+			types.Workspace(strings.TrimSpace(input.Workspace)),
+		)
 		if err != nil {
 			return nil, addLogOutput{}, xerrors.Errorf("failed to record log: %w", err)
 		}
@@ -321,7 +285,7 @@ func (s *Server) addLog(_ string) mcp.ToolHandlerFor[addLogInput, addLogOutput] 
 			Client:    event.Client(),
 			Agent:     event.Agent().String(),
 			SessionID: event.SessionID().String(),
-			Workspace:      event.Workspace(),
+			Workspace: event.Workspace(),
 			Body:      event.Body(),
 			CreatedAt: event.CreatedAt().UTC().Format(time.RFC3339Nano),
 		}, nil
@@ -330,16 +294,13 @@ func (s *Server) addLog(_ string) mcp.ToolHandlerFor[addLogInput, addLogOutput] 
 
 func (s *Server) startSession(_ string) mcp.ToolHandlerFor[startSessionInput, sessionEventOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input startSessionInput) (*mcp.CallToolResult, sessionEventOutput, error) {
-		event, err := s.recordSessionBoundaryUsecase.Run(ctx, usecase.RecordSessionBoundaryInput{
-			Client:        strings.TrimSpace(input.Client),
-			DefaultClient: defaultClientValue,
-			Agent:         strings.TrimSpace(input.Agent),
-			DefaultAgent:  defaultAgentValue,
-			SessionID:     strings.TrimSpace(input.SessionID),
-			Workspace:          strings.TrimSpace(input.Workspace),
-			DefaultWorkspace: "",
-			Kind:          types.EventKindSessionStarted,
-		})
+		event, err := s.session.Start(ctx,
+			types.Client(resolveValue(input.Client, defaultClientValue)),
+			types.Agent(resolveValue(input.Agent, defaultAgentValue)),
+			types.SessionID(strings.TrimSpace(input.SessionID)),
+			types.Workspace(strings.TrimSpace(input.Workspace)),
+			types.SessionID(""), // no parent session
+		)
 		if err != nil {
 			return nil, sessionEventOutput{}, xerrors.Errorf("failed to record session start: %w", err)
 		}
@@ -355,16 +316,13 @@ func (s *Server) endSession(_ string) mcp.ToolHandlerFor[endSessionInput, sessio
 			return nil, sessionEventOutput{}, xerrors.Errorf("session_id is required")
 		}
 
-		event, err := s.recordSessionBoundaryUsecase.Run(ctx, usecase.RecordSessionBoundaryInput{
-			Client:        strings.TrimSpace(input.Client),
-			DefaultClient: defaultClientValue,
-			Agent:         strings.TrimSpace(input.Agent),
-			DefaultAgent:  defaultAgentValue,
-			SessionID:     sessionID,
-			Workspace:          strings.TrimSpace(input.Workspace),
-			DefaultWorkspace: "",
-			Kind:          types.EventKindSessionEnded,
-		})
+		event, err := s.session.End(ctx,
+			types.Client(strings.TrimSpace(input.Client)),
+			types.Agent(strings.TrimSpace(input.Agent)),
+			types.SessionID(sessionID),
+			types.Workspace(strings.TrimSpace(input.Workspace)),
+			"", // no summary from MCP
+		)
 		if err != nil {
 			return nil, sessionEventOutput{}, xerrors.Errorf("failed to record session end: %w", err)
 		}
@@ -375,13 +333,13 @@ func (s *Server) endSession(_ string) mcp.ToolHandlerFor[endSessionInput, sessio
 
 func (s *Server) latestSession(_ string) mcp.ToolHandlerFor[sessionLookupInput, sessionEventOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input sessionLookupInput) (*mcp.CallToolResult, sessionEventOutput, error) {
-		event, err := s.findLatestSessionQueryService.Run(ctx, port.FindLatestSessionInput{
-			Client: strings.TrimSpace(input.Client),
-			Agent:  strings.TrimSpace(input.Agent),
-			Workspace:   strings.TrimSpace(input.Workspace),
+		event, err := s.session.Latest(ctx, usecase.SessionLookupCriteria{
+			Client:    types.Client(strings.TrimSpace(input.Client)),
+			Agent:     types.Agent(strings.TrimSpace(input.Agent)),
+			Workspace: types.Workspace(strings.TrimSpace(input.Workspace)),
 		})
 		if err != nil {
-			if errors.Is(err, port.ErrSessionNotFound) {
+			if usecase.IsSessionLookupNotFound(err) {
 				return nil, sessionEventOutput{}, xerrors.Errorf("no matching session found")
 			}
 			return nil, sessionEventOutput{}, xerrors.Errorf("failed to get latest session: %w", err)
@@ -393,14 +351,13 @@ func (s *Server) latestSession(_ string) mcp.ToolHandlerFor[sessionLookupInput, 
 
 func (s *Server) activeSession(_ string) mcp.ToolHandlerFor[sessionLookupInput, sessionEventOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input sessionLookupInput) (*mcp.CallToolResult, sessionEventOutput, error) {
-		event, err := s.findLatestSessionQueryService.Run(ctx, port.FindLatestSessionInput{
-			Client:     strings.TrimSpace(input.Client),
-			Agent:      strings.TrimSpace(input.Agent),
-			Workspace:       strings.TrimSpace(input.Workspace),
-			ActiveOnly: true,
+		event, err := s.session.Active(ctx, usecase.SessionLookupCriteria{
+			Client:    types.Client(strings.TrimSpace(input.Client)),
+			Agent:     types.Agent(strings.TrimSpace(input.Agent)),
+			Workspace: types.Workspace(strings.TrimSpace(input.Workspace)),
 		})
 		if err != nil {
-			if errors.Is(err, port.ErrActiveSessionNotFound) {
+			if usecase.IsSessionLookupNotFound(err) {
 				return nil, sessionEventOutput{}, xerrors.Errorf("no matching active session found")
 			}
 			return nil, sessionEventOutput{}, xerrors.Errorf("failed to get active session: %w", err)
@@ -415,16 +372,19 @@ func (s *Server) activeSession(_ string) mcp.ToolHandlerFor[sessionLookupInput, 
 
 func (s *Server) addAudit(_ string) mcp.ToolHandlerFor[addAuditInput, addAuditOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input addAuditInput) (*mcp.CallToolResult, addAuditOutput, error) {
-		event, audit, err := s.recordCommandAuditUsecase.Run(ctx, usecase.RecordCommandAuditInput{
-			Command:             input.Command,
-			Input:               input.Input,
-			Output:              input.Output,
-			Client:              resolveValue(input.Client, defaultClientValue),
-			Agent:               resolveValue(input.Agent, defaultAgentValue),
-			SessionID:           resolveValue(input.SessionID, defaultSessionValue),
-			Workspace:                strings.TrimSpace(input.Workspace),
-			ExtraRedactPatterns: s.extraRedactPatterns,
-		})
+		event, audit, err := s.event.Audit(ctx,
+			input.Command,
+			input.Input,
+			input.Output,
+			types.Client(resolveValue(input.Client, defaultClientValue)),
+			types.Agent(resolveValue(input.Agent, defaultAgentValue)),
+			types.SessionID(resolveValue(input.SessionID, defaultSessionValue)),
+			types.Workspace(strings.TrimSpace(input.Workspace)),
+			nil, // no exit code from MCP
+			usecase.AuditRedaction{
+				ExtraRedactPatterns: s.extraRedactPatterns,
+			},
+		)
 		if err != nil {
 			return nil, addAuditOutput{}, xerrors.Errorf("failed to record command audit: %w", err)
 		}
@@ -433,7 +393,7 @@ func (s *Server) addAudit(_ string) mcp.ToolHandlerFor[addAuditInput, addAuditOu
 			EventID:         event.EventID().String(),
 			Kind:            event.Kind().String(),
 			SessionID:       event.SessionID().String(),
-			Workspace:            event.Workspace(),
+			Workspace:       event.Workspace(),
 			Command:         audit.Command(),
 			InputRedacted:   audit.InputRedacted(),
 			OutputRedacted:  audit.OutputRedacted(),
@@ -455,14 +415,14 @@ func (s *Server) listEvents(_ string) mcp.ToolHandlerFor[listEventsInput, events
 			return nil, eventsOutput{}, xerrors.Errorf("failed to resolve to: %w", err)
 		}
 
-		events, err := s.listEventsQueryService.Run(ctx, port.ListRecentEventsInput{
+		events, err := s.event.List(ctx, usecase.EventListCriteria{
 			Limit:     resolveLimit(input.Limit, defaultSearchLimit),
 			Offset:    resolveOffset(input.Offset),
-			Kind:      strings.TrimSpace(input.Kind),
-			Client:    strings.TrimSpace(input.Client),
-			Agent:     strings.TrimSpace(input.Agent),
-			SessionID: strings.TrimSpace(input.SessionID),
-			Workspace:      strings.TrimSpace(input.Workspace),
+			Kind:      types.EventKind(strings.TrimSpace(input.Kind)),
+			Client:    types.Client(strings.TrimSpace(input.Client)),
+			Agent:     types.Agent(strings.TrimSpace(input.Agent)),
+			SessionID: types.SessionID(strings.TrimSpace(input.SessionID)),
+			Workspace: types.Workspace(strings.TrimSpace(input.Workspace)),
 			From:      from,
 			To:        to,
 		})
@@ -517,12 +477,12 @@ func (s *Server) search(_ string) mcp.ToolHandlerFor[searchInput, eventsOutput] 
 			return nil, eventsOutput{}, xerrors.Errorf("failed to resolve to: %w", err)
 		}
 		limit := resolveLimit(input.Limit, defaultSearchLimit)
-		events, err := s.searchEventsQueryService.Run(ctx, port.SearchEventsInput{
-			Query: strings.TrimSpace(input.Query),
-			Workspace:  strings.TrimSpace(input.Workspace),
-			From:  from,
-			To:    to,
-			Limit: limit,
+		events, err := s.event.Search(ctx, usecase.EventSearchCriteria{
+			Query:     strings.TrimSpace(input.Query),
+			Workspace: types.Workspace(strings.TrimSpace(input.Workspace)),
+			From:      from,
+			To:        to,
+			Limit:     limit,
 		})
 		if err != nil {
 			return nil, eventsOutput{}, xerrors.Errorf("failed to search events: %w", err)
@@ -534,9 +494,9 @@ func (s *Server) search(_ string) mcp.ToolHandlerFor[searchInput, eventsOutput] 
 
 func (s *Server) getContext(_ string) mcp.ToolHandlerFor[getContextInput, eventsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input getContextInput) (*mcp.CallToolResult, eventsOutput, error) {
-		events, err := s.getContextQueryService.Run(ctx, port.GetContextInput{
-			Workspace:      strings.TrimSpace(input.Workspace),
-			SessionID: strings.TrimSpace(input.SessionID),
+		events, err := s.event.Context(ctx, usecase.EventContextCriteria{
+			Workspace: types.Workspace(strings.TrimSpace(input.Workspace)),
+			SessionID: types.SessionID(strings.TrimSpace(input.SessionID)),
 			Limit:     resolveLimit(input.Limit, defaultContextLimit),
 		})
 		if err != nil {
@@ -566,48 +526,29 @@ type sessionHandoffOutput struct {
 
 func (s *Server) sessionHandoff(_ string) mcp.ToolHandlerFor[sessionHandoffInput, sessionHandoffOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input sessionHandoffInput) (*mcp.CallToolResult, sessionHandoffOutput, error) {
-		sessions, err := s.listSessionsQueryService.Run(ctx, port.ListSessionsInput{
-			Limit:     1,
-			SessionID: strings.TrimSpace(input.SessionID),
-			Workspace:      strings.TrimSpace(input.Workspace),
-		})
+		summary, err := s.session.Handoff(ctx,
+			types.SessionID(strings.TrimSpace(input.SessionID)),
+			types.Workspace(strings.TrimSpace(input.Workspace)),
+			5,
+		)
 		if err != nil {
-			return nil, sessionHandoffOutput{}, xerrors.Errorf("failed to list sessions: %w", err)
+			return nil, sessionHandoffOutput{}, xerrors.Errorf("failed to get session handoff: %w", err)
 		}
 
-		if len(sessions) == 0 {
+		if summary == nil {
 			return nil, sessionHandoffOutput{}, nil
 		}
 
-		session := sessions[0]
-		events, err := s.listEventsQueryService.Run(ctx, port.ListRecentEventsInput{
-			Limit:     5,
-			SessionID: session.SessionID,
-			Kind:      "command_executed",
-		})
-		if err != nil {
-			return nil, sessionHandoffOutput{}, xerrors.Errorf("failed to list events: %w", err)
-		}
-
-		var recentCommands []string
-		for _, e := range events {
-			cmd := e.Body()
-			if len([]rune(cmd)) > 60 {
-				cmd = string([]rune(cmd)[:60]) + "…"
-			}
-			recentCommands = append(recentCommands, cmd)
-		}
-
 		return nil, sessionHandoffOutput{
-			SessionID:      session.SessionID,
-			Workspace:           session.Workspace,
-			Label:          session.Label,
-			Status:         session.Status,
-			TotalEvents:    session.TotalEvents,
-			CommandCount:   session.CommandCount,
-			Agents:         session.Agents,
-			Summary:        session.Summary,
-			RecentCommands: recentCommands,
+			SessionID:      summary.SessionID.String(),
+			Workspace:      summary.Workspace.String(),
+			Label:          summary.Label,
+			Status:         summary.Status,
+			TotalEvents:    summary.TotalEvents,
+			CommandCount:   summary.CommandCount,
+			Agents:         summary.Agents,
+			Summary:        summary.Summary,
+			RecentCommands: summary.RecentCommands,
 		}, nil
 	}
 }
