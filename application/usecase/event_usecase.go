@@ -35,4 +35,7 @@ type EventUsecase interface {
 
 	// Context returns recent events for the given context.
 	Context(ctx context.Context, criteria EventContextCriteria) ([]*model.Event, error)
+
+	// Timeline returns work blocks separated by idle gaps.
+	Timeline(ctx context.Context, criteria TimelineCriteria) ([]*TimelineBlock, error)
 }

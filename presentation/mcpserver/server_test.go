@@ -311,9 +311,11 @@ CREATE TABLE command_audits (
 	findLatest := queryservice.NewFindLatestSessionQueryService(datasource)
 	listSessions := queryservice.NewListSessionsQueryService(datasource)
 
+	listTimeline := queryservice.NewListTimelineBlocksQueryService(datasource)
 	eventUsecase := usecase.NewEventUsecaseAdapter(
 		recordLog, recordAudit,
 		listRecent, searchEvents, getDetails, getContext,
+		listTimeline,
 	)
 	sessionUsecase := usecase.NewSessionUsecaseAdapter(
 		recordBoundary, nil,

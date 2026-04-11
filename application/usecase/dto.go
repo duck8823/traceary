@@ -59,3 +59,13 @@ type HandoffSummary struct {
 	Summary        string
 	RecentCommands []string
 }
+
+// TimelineBlock represents a contiguous work block separated by an idle gap.
+type TimelineBlock struct {
+	BlockStart time.Time
+	BlockEnd   time.Time
+	EventCount int
+	Workspaces []string
+	Agents     []string
+	KindCounts map[string]int
+}
