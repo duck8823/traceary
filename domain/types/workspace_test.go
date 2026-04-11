@@ -18,6 +18,7 @@ func TestWorkspaceOf(t *testing.T) {
 		{name: "github repo path", input: "github.com/duck8823/traceary", want: "github.com/duck8823/traceary"},
 		{name: "absolute path", input: "/home/user/project", want: "/home/user/project"},
 		{name: "trims whitespace", input: "  github.com/org/repo  ", want: "github.com/org/repo"},
+		{name: "accepts any non-empty string", input: "my-workspace", want: "my-workspace"},
 		{name: "empty string returns error", input: "", wantErr: true},
 		{name: "whitespace-only returns error", input: "   ", wantErr: true},
 	}

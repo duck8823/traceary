@@ -6,7 +6,9 @@ import (
 	"golang.org/x/xerrors"
 )
 
-// Client is a value object representing the recording channel (e.g. cli, hook, mcp).
+// Client is a value object representing the recording channel.
+// Values are not restricted to a fixed set; new channels may be introduced
+// by additional integrations (e.g. cli, hook, mcp).
 type Client string
 
 // ClientOf creates a Client from a string.

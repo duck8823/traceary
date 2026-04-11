@@ -6,7 +6,9 @@ import (
 	"golang.org/x/xerrors"
 )
 
-// Workspace is a value object representing the work context (e.g. github.com/org/repo, /abs/path).
+// Workspace is a value object representing the work context.
+// The format is not restricted; typical values include GitHub repository
+// paths (github.com/org/repo) and absolute filesystem paths.
 type Workspace string
 
 // WorkspaceOf creates a Workspace from a string.
