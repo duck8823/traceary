@@ -20,7 +20,7 @@ Append a note event.
 
 Defaults:
 
-- `--client` / `--agent` / `--repo`: flag → `TRACEARY_CLIENT` / `TRACEARY_AGENT` / `TRACEARY_REPO` → `cli` / `manual` / detected repo
+- `--client` / `--agent` / `--workspace`: flag → `TRACEARY_CLIENT` / `TRACEARY_AGENT` / `TRACEARY_WORKSPACE` → `cli` / `manual` / detected workspace
 - `--session-id`: flag → `TRACEARY_SESSION_ID` → latest non-stale active session for the resolved repo → `default`
 
 Useful flags:
@@ -28,7 +28,7 @@ Useful flags:
 - `--client`
 - `--agent`
 - `--session-id`
-- `--repo`
+- `--workspace`
 - `--id-only`
 - `--json`
 
@@ -59,7 +59,7 @@ Useful flags:
 - `--client`
 - `--agent`
 - `--session-id`
-- `--repo`
+- `--workspace`
 - `--id-only`
 - `--json`
 - `--allow-secrets`
@@ -84,7 +84,7 @@ Useful flags:
 - `--json`
 - `--client`
 - `--agent`
-- `--repo`
+- `--workspace`
 - `--session-id`
 
 ### `traceary search [<query>]`
@@ -96,7 +96,7 @@ Useful flags:
 - `--kind`
 - `--client`
 - `--agent`
-- `--repo`
+- `--workspace`
 - `--session-id`
 - `--since`
 - `--until`
@@ -123,7 +123,7 @@ Alias:
 Useful flags:
 
 - `--session-id`
-- `--repo`
+- `--workspace`
 - `--limit`
 - `--json`
 
@@ -135,7 +135,7 @@ Record a session start boundary and print the session ID.
 
 Defaults:
 
-- `--client` / `--agent` / `--repo`: flag → `TRACEARY_CLIENT` / `TRACEARY_AGENT` / `TRACEARY_REPO` → `cli` / `manual` / detected repo
+- `--client` / `--agent` / `--workspace`: flag → `TRACEARY_CLIENT` / `TRACEARY_AGENT` / `TRACEARY_WORKSPACE` → `cli` / `manual` / detected workspace
 - `--session-id`: generate a new ID when omitted
 
 Useful flags:
@@ -143,7 +143,7 @@ Useful flags:
 - `--client`
 - `--agent`
 - `--session-id`
-- `--repo`
+- `--workspace`
 - `--parent-session-id`
 - `--id-only`
 - `--json`
@@ -155,14 +155,14 @@ Record a session end boundary and print the resulting event ID.
 Defaults:
 
 - `--session-id`: flag → `TRACEARY_SESSION_ID`
-- missing `--client` / `--agent` / `--repo` values are backfilled from the matching `session start` when available
+- missing `--client` / `--agent` / `--workspace` values are backfilled from the matching `session start` when available
 
 Useful flags:
 
 - `--client`
 - `--agent`
 - `--session-id`
-- `--repo`
+- `--workspace`
 - `--summary`
 - `--id-only`
 - `--json`
@@ -175,7 +175,7 @@ The session list view surfaces session metadata such as `label`, `summary`, and 
 
 Useful flags:
 
-- `--repo`
+- `--workspace`
 - `--agent`
 - `--label`
 - `--from`
@@ -207,7 +207,7 @@ Useful flags:
 
 - `--client`
 - `--agent`
-- `--repo`
+- `--workspace`
 - `--json`
 
 ### `traceary session active`
@@ -218,7 +218,7 @@ Useful flags:
 
 - `--client`
 - `--agent`
-- `--repo`
+- `--workspace`
 - `--stale-after`
 - `--allow-stale`
 - `--json`
