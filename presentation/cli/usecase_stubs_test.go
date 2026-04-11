@@ -24,6 +24,8 @@ type eventUsecaseStub struct {
 	showErr        error
 	contextEvents  []*model.Event
 	contextErr     error
+	timelineBlocks []*usecase.TimelineBlock
+	timelineErr    error
 }
 
 func (s *eventUsecaseStub) Log(_ context.Context, _ string, _ types.EventKind, _ types.Client, _ types.Agent, _ types.SessionID, _ types.Workspace) (*model.Event, error) {
@@ -43,6 +45,9 @@ func (s *eventUsecaseStub) Show(_ context.Context, _ types.EventID) (*usecase.Ev
 }
 func (s *eventUsecaseStub) Context(_ context.Context, _ usecase.EventContextCriteria) ([]*model.Event, error) {
 	return s.contextEvents, s.contextErr
+}
+func (s *eventUsecaseStub) Timeline(_ context.Context, _ usecase.TimelineCriteria) ([]*usecase.TimelineBlock, error) {
+	return s.timelineBlocks, s.timelineErr
 }
 
 // sessionUsecaseStub implements usecase.SessionUsecase for testing.

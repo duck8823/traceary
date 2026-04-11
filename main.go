@@ -172,10 +172,12 @@ func run() error {
 	getDetails := queryservice.NewGetEventDetailsQueryService(ds)
 	findLatest := queryservice.NewFindLatestSessionQueryService(ds)
 	listSessions := queryservice.NewListSessionsQueryService(ds)
+	listTimeline := queryservice.NewListTimelineBlocksQueryService(ds)
 
 	eventUsecase := usecase.NewEventUsecaseAdapter(
 		recordLog, recordAudit,
 		listRecent, searchEvents, getDetails, getContext,
+		listTimeline,
 	)
 	sessionUsecase := usecase.NewSessionUsecaseAdapter(
 		recordBoundary, updateLabel,

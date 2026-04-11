@@ -18,6 +18,7 @@ type eventUsecaseAdapter struct {
 	searchEvents    queryservice.SearchEventsQueryService
 	getEventDetails queryservice.GetEventDetailsQueryService
 	getContext      queryservice.GetContextQueryService
+	listTimeline    queryservice.ListTimelineBlocksQueryService
 }
 
 // NewEventUsecaseAdapter creates an EventUsecase that delegates to existing usecases and queryservices.
@@ -28,6 +29,7 @@ func NewEventUsecaseAdapter(
 	searchEvents queryservice.SearchEventsQueryService,
 	getEventDetails queryservice.GetEventDetailsQueryService,
 	getContext queryservice.GetContextQueryService,
+	listTimeline queryservice.ListTimelineBlocksQueryService,
 ) EventUsecase {
 	return &eventUsecaseAdapter{
 		recordLog:       recordLog,
@@ -36,6 +38,7 @@ func NewEventUsecaseAdapter(
 		searchEvents:    searchEvents,
 		getEventDetails: getEventDetails,
 		getContext:      getContext,
+		listTimeline:    listTimeline,
 	}
 }
 
@@ -132,4 +135,34 @@ func (a *eventUsecaseAdapter) Context(ctx context.Context, criteria EventContext
 		return nil, xerrors.Errorf("failed to get context events: %w", err)
 	}
 	return events, nil
+}
+
+func (a *eventUsecaseAdapter) Timeline(ctx context.Context, criteria TimelineCriteria) ([]*TimelineBlock, error) {
+	portBlocks, err := a.listTimeline.Run(ctx, port.ListTimelineBlocksInput{
+		Workspace:  criteria.Workspace.String(),
+		From:       criteria.From,
+		To:         criteria.To,
+		GapSeconds: criteria.GapSeconds,
+		Limit:      criteria.Limit,
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("failed to list timeline blocks: %w", err)
+	}
+
+	blocks := make([]*TimelineBlock, 0, len(portBlocks))
+	for _, pb := range portBlocks {
+		kindCounts := make(map[string]int)
+		for _, k := range pb.Kinds {
+			kindCounts[k]++
+		}
+		blocks = append(blocks, &TimelineBlock{
+			BlockStart: pb.BlockStart,
+			BlockEnd:   pb.BlockEnd,
+			EventCount: pb.EventCount,
+			Workspaces: pb.Workspaces,
+			Agents:     pb.Agents,
+			KindCounts: kindCounts,
+		})
+	}
+	return blocks, nil
 }
