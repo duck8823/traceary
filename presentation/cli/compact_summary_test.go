@@ -132,6 +132,50 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("includes summary from compact_summary event", func(t *testing.T) {
+		t.Parallel()
+
+		eventID, _ := types.EventIDOf("e1")
+		agent, _ := types.AgentOf("claude")
+		sessionID, _ := types.SessionIDOf("session-abc")
+
+		dbPath := filepath.Join(t.TempDir(), "traceary.db")
+		eventStub := &eventUsecaseStub{
+			listEvents: []*model.Event{
+				model.EventOf(eventID, types.EventKindCompactSummary, "hook", agent, sessionID, "duck8823/traceary",
+					"<summary>\n8. Current Work:\n   Implementing feature X\n9. Optional Next Step:\n   Deploy\n</summary>",
+					time.Now()),
+			},
+		}
+		sessionStub := &sessionUsecaseStub{
+			listResult: []*usecase.SessionSummary{
+				{SessionID: "session-abc", Workspace: "duck8823/traceary", StartedAt: time.Now()},
+			},
+		}
+
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
+			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			Event:            eventStub,
+			Session:          sessionStub,
+		}).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"compact-summary", "--db-path", dbPath})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		output := stdout.String()
+		if !strings.Contains(output, "summary:") {
+			t.Errorf("output missing summary section, got: %s", output)
+		}
+		if !strings.Contains(output, "Implementing feature X") {
+			t.Errorf("output missing current work content, got: %s", output)
+		}
+	})
+
 	t.Run("output stays within token limit", func(t *testing.T) {
 		t.Parallel()
 
