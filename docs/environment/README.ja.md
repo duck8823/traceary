@@ -69,6 +69,7 @@ Traceary はオプションの JSON 設定ファイルを `~/.config/traceary/co
 - Traceary はホスト型サービスを前提にしていません
 - Traceary 自身の backend へ telemetry を送信しません
 - `traceary audit` の payload は、redaction / truncation がかからない限り、ローカル SQLite store に保存されます
+- `prompt` イベント（`UserPromptSubmit` hook 経由）と `compact_summary` イベント（`PostCompact` hook 経由）は、redaction / truncation なしでそのまま保存されます — ユーザーの意図を記録することが Traceary の目的であるため、これは設計上の選択です
 - secret redaction はベストエフォートであり、完全な DLP ではありません
 
 ## 関連ドキュメント

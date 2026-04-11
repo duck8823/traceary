@@ -69,6 +69,7 @@ If the file exists but is unreadable or invalid JSON, Traceary falls back to the
 - Traceary has no hosted service requirement
 - Traceary does not send telemetry to a Traceary-owned backend
 - when you run `traceary audit`, payloads are written to your local SQLite store unless redaction or truncation changes them first
+- `prompt` events (from `UserPromptSubmit` hooks) and `compact_summary` events (from `PostCompact` hooks) are stored as-is without redaction or truncation — this is by design, as recording the user's intent is a core purpose of Traceary
 - secret redaction is best effort, not a complete data-loss-prevention system
 
 ## Related docs
