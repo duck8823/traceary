@@ -108,5 +108,6 @@ func isTracearyManagedHookCommand(hook hookCommand) bool {
 
 	commandValue := strings.TrimSpace(hook.Command)
 	return strings.Contains(commandValue, "traceary-session.sh") ||
-		strings.Contains(commandValue, "traceary-audit.sh")
+		strings.Contains(commandValue, "traceary-audit.sh") ||
+		strings.Contains(commandValue, "traceary-compact.sh")
 }
