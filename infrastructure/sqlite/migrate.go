@@ -142,7 +142,7 @@ func applyMigration(ctx context.Context, db *sql.DB, version int64, name string,
 	defer func() {
 		if err != nil {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
-				err = xerrors.Errorf("failed to roll back migration transaction: %w: %w", rollbackErr, err)
+				err = xerrors.Errorf("failed to roll back migration transaction: %w (original error: %v)", rollbackErr, err)
 			}
 		}
 	}()
