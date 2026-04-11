@@ -20,7 +20,7 @@ note event を追記します。
 
 既定値:
 
-- `--client` / `--agent` / `--repo`: flag → `TRACEARY_CLIENT` / `TRACEARY_AGENT` / `TRACEARY_REPO` → `cli` / `manual` / 検出した repo
+- `--client` / `--agent` / `--workspace`: flag → `TRACEARY_CLIENT` / `TRACEARY_AGENT` / `TRACEARY_WORKSPACE` → `cli` / `manual` / 検出した workspace
 - `--session-id`: flag → `TRACEARY_SESSION_ID` → 解決した repo の最新 non-stale active session → `default`
 
 主な flag:
@@ -28,7 +28,7 @@ note event を追記します。
 - `--client`
 - `--agent`
 - `--session-id`
-- `--repo`
+- `--workspace`
 - `--id-only`
 - `--json`
 
@@ -59,7 +59,7 @@ session 解決ルール:
 - `--client`
 - `--agent`
 - `--session-id`
-- `--repo`
+- `--workspace`
 - `--id-only`
 - `--json`
 - `--allow-secrets`
@@ -84,7 +84,7 @@ session 解決ルールは `traceary log` と同じです。
 - `--json`
 - `--client`
 - `--agent`
-- `--repo`
+- `--workspace`
 - `--session-id`
 
 ### `traceary search [<query>]`
@@ -96,7 +96,7 @@ session 解決ルールは `traceary log` と同じです。
 - `--kind`
 - `--client`
 - `--agent`
-- `--repo`
+- `--workspace`
 - `--session-id`
 - `--since`
 - `--until`
@@ -123,7 +123,7 @@ alias:
 主な flag:
 
 - `--session-id`
-- `--repo`
+- `--workspace`
 - `--limit`
 - `--json`
 
@@ -135,7 +135,7 @@ session start 境界を記録し、session ID を出力します。
 
 既定値:
 
-- `--client` / `--agent` / `--repo`: flag → `TRACEARY_CLIENT` / `TRACEARY_AGENT` / `TRACEARY_REPO` → `cli` / `manual` / 検出した repo
+- `--client` / `--agent` / `--workspace`: flag → `TRACEARY_CLIENT` / `TRACEARY_AGENT` / `TRACEARY_WORKSPACE` → `cli` / `manual` / 検出した workspace
 - `--session-id`: 省略時は新しい ID を採番
 
 主な flag:
@@ -143,7 +143,7 @@ session start 境界を記録し、session ID を出力します。
 - `--client`
 - `--agent`
 - `--session-id`
-- `--repo`
+- `--workspace`
 - `--parent-session-id`
 - `--id-only`
 - `--json`
@@ -155,14 +155,14 @@ session end 境界を記録し、生成された event ID を出力します。
 既定値:
 
 - `--session-id`: flag → `TRACEARY_SESSION_ID`
-- `--client` / `--agent` / `--repo` の不足分は、対応する `session start` から補完できる場合は補完
+- `--client` / `--agent` / `--workspace` の不足分は、対応する `session start` から補完できる場合は補完
 
 主な flag:
 
 - `--client`
 - `--agent`
 - `--session-id`
-- `--repo`
+- `--workspace`
 - `--summary`
 - `--id-only`
 - `--json`
@@ -175,7 +175,7 @@ session の一覧サマリーを表示します。
 
 主な flag:
 
-- `--repo`
+- `--workspace`
 - `--agent`
 - `--label`
 - `--from`
@@ -207,7 +207,7 @@ session の label を設定または更新します。
 
 - `--client`
 - `--agent`
-- `--repo`
+- `--workspace`
 - `--json`
 
 ### `traceary session active`
@@ -218,7 +218,7 @@ session の label を設定または更新します。
 
 - `--client`
 - `--agent`
-- `--repo`
+- `--workspace`
 - `--stale-after`
 - `--allow-stale`
 - `--json`
