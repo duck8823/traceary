@@ -91,6 +91,27 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 	})
 
+	t.Run("add_log with kind saves event with specified kind", func(t *testing.T) {
+		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "add_log",
+			Arguments: map[string]any{
+				"message":    "compact summary text",
+				"kind":       "compact_summary",
+				"agent":      "claude",
+				"session_id": "session-1",
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(add_log) error = %v", err)
+		}
+		if result.IsError {
+			t.Fatalf("CallTool(add_log) returned tool error")
+		}
+		if got := extractJSONStringValue(t, result, "kind"); got != "compact_summary" {
+			t.Fatalf("kind = %q, want %q", got, "compact_summary")
+		}
+	})
+
 	t.Run("add_audit と get_context が動作する", func(t *testing.T) {
 		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 			Name: "add_audit",
