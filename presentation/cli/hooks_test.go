@@ -42,9 +42,22 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 			`TRACEARY_BIN='/tmp/traceary bin/traceary' bash '`+filepath.Join(scriptsDir, "traceary-session.sh")+`' 'claude' 'start'`; got != want {
 			t.Fatalf("SessionStart command = %q, want %q", got, want)
 		}
+		if got, want := *settings.Hooks["SessionStart"][1].Matcher, "compact"; got != want {
+			t.Fatalf("SessionStart[1] matcher = %q, want %q", got, want)
+		}
+		if got, want := settings.Hooks["SessionStart"][1].Hooks[0].Command,
+			`TRACEARY_BIN='/tmp/traceary bin/traceary' bash '`+filepath.Join(scriptsDir, "traceary-compact.sh")+`' 'claude' 'session-start-compact'`; got != want {
+			t.Fatalf("SessionStart[1] command = %q, want %q", got, want)
+		}
+		if got, want := *settings.Hooks["PostToolUse"][1].Matcher, "mcp__.*"; got != want {
+			t.Fatalf("PostToolUse[1] matcher = %q, want %q", got, want)
+		}
 		if got, want := settings.Hooks["PostToolUseFailure"][0].Hooks[0].Command,
 			`TRACEARY_BIN='/tmp/traceary bin/traceary' bash '`+filepath.Join(scriptsDir, "traceary-audit.sh")+`' 'claude'`; got != want {
 			t.Fatalf("PostToolUseFailure command = %q, want %q", got, want)
+		}
+		if got, want := *settings.Hooks["PostToolUseFailure"][1].Matcher, "mcp__.*"; got != want {
+			t.Fatalf("PostToolUseFailure[1] matcher = %q, want %q", got, want)
 		}
 		if got, want := *settings.Hooks["PostCompact"][0].Matcher, "*"; got != want {
 			t.Fatalf("PostCompact matcher = %q, want %q", got, want)
