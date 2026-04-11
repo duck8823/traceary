@@ -32,7 +32,8 @@ fi
 
 if [[ -n "$SESSION_ID" ]]; then
   WORKSPACE="$(traceary_resolve_effective_workspace "$CLIENT")"
-  COMMAND=("$TRACEARY_CMD" log "$PROMPT_TEXT" --kind prompt --client hook --agent "$CLIENT" --session-id "$SESSION_ID")
+  AGENT="$(traceary_resolve_agent "$CLIENT")"
+  COMMAND=("$TRACEARY_CMD" log "$PROMPT_TEXT" --kind prompt --client hook --agent "$AGENT" --session-id "$SESSION_ID")
   if [[ -n "$WORKSPACE" ]]; then
     COMMAND+=(--workspace "$WORKSPACE")
   fi
