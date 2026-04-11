@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
@@ -147,7 +146,7 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
 			StoreMaintenance: &storeMaintenanceUsecaseStub{},
 			Event:            &eventUsecaseStub{},
-			Session:          &sessionUsecaseStub{activeErr: usecase.ErrSessionNotFound},
+			Session:          &sessionUsecaseStub{},
 		}).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})

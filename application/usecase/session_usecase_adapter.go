@@ -89,26 +89,20 @@ func (a *sessionUsecaseAdapter) Tree(ctx context.Context, workspace types.Worksp
 	return convertSessionSummaries(qsSummaries), nil
 }
 
-func (a *sessionUsecaseAdapter) Active(ctx context.Context, criteria SessionLookupCriteria) (*model.Event, error) {
+func (a *sessionUsecaseAdapter) Active(ctx context.Context, criteria SessionLookupCriteria) (types.Optional[*model.Event], error) {
 	result, err := a.sessionQuery.FindLatest(ctx, criteria.Client, criteria.Agent, criteria.Workspace, true)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to find active session: %w", err)
+		return types.Empty[*model.Event](), xerrors.Errorf("failed to find active session: %w", err)
 	}
-	if !result.IsPresent() {
-		return nil, ErrSessionNotFound
-	}
-	return result.Get(), nil
+	return result, nil
 }
 
-func (a *sessionUsecaseAdapter) Latest(ctx context.Context, criteria SessionLookupCriteria) (*model.Event, error) {
+func (a *sessionUsecaseAdapter) Latest(ctx context.Context, criteria SessionLookupCriteria) (types.Optional[*model.Event], error) {
 	result, err := a.sessionQuery.FindLatest(ctx, criteria.Client, criteria.Agent, criteria.Workspace, false)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to find latest session: %w", err)
+		return types.Empty[*model.Event](), xerrors.Errorf("failed to find latest session: %w", err)
 	}
-	if !result.IsPresent() {
-		return nil, ErrSessionNotFound
-	}
-	return result.Get(), nil
+	return result, nil
 }
 
 func (a *sessionUsecaseAdapter) Handoff(ctx context.Context, sessionID types.SessionID, workspace types.Workspace, recent int) (*HandoffSummary, error) {

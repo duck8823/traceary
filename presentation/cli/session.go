@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -361,24 +360,25 @@ func (c *RootCLI) runSessionLatest(
 		Agent:     types.Agent(resolveOptionalValue(input.agent, "TRACEARY_AGENT", "")),
 		Workspace: types.Workspace(resolveWorkspaceValue(ctx, input.repo)),
 	}
-	var event *model.Event
+	var result types.Optional[*model.Event]
 	if input.activeOnly {
-		event, err = c.session.Active(ctx, criteria)
+		result, err = c.session.Active(ctx, criteria)
 	} else {
-		event, err = c.session.Latest(ctx, criteria)
+		result, err = c.session.Latest(ctx, criteria)
 	}
 	if err != nil {
-		if errors.Is(err, usecase.ErrSessionNotFound) {
-			if input.activeOnly {
-				return xerrors.Errorf(Localize("no matching active session found", "条件に一致する active session は存在しません"))
-			}
-			return xerrors.Errorf(Localize("no matching session found", "条件に一致する session は存在しません"))
-		}
 		if input.activeOnly {
 			return xerrors.Errorf("%s: %w", Localize("failed to get active session", "アクティブ session の取得に失敗しました"), err)
 		}
 		return xerrors.Errorf("%s: %w", Localize("failed to get latest session", "直近セッションの取得に失敗しました"), err)
 	}
+	if !result.IsPresent() {
+		if input.activeOnly {
+			return xerrors.Errorf(Localize("no matching active session found", "条件に一致する active session は存在しません"))
+		}
+		return xerrors.Errorf(Localize("no matching session found", "条件に一致する session は存在しません"))
+	}
+	event := result.Get()
 	if err := validateActiveSessionFreshness(event, input); err != nil {
 		return err
 	}

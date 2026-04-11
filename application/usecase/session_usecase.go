@@ -28,12 +28,12 @@ type SessionUsecase interface {
 	Tree(ctx context.Context, workspace types.Workspace, limit int) ([]*SessionSummary, error)
 
 	// Active returns the session_started event for the active session matching the criteria.
-	// ActiveOnly in criteria is ignored; this method always filters for active sessions.
-	Active(ctx context.Context, criteria SessionLookupCriteria) (*model.Event, error)
+	// Returns an empty Optional when no active session exists.
+	Active(ctx context.Context, criteria SessionLookupCriteria) (types.Optional[*model.Event], error)
 
 	// Latest returns the session_started event for the latest session matching the criteria.
-	// ActiveOnly in criteria is ignored; this method returns the latest session regardless of status.
-	Latest(ctx context.Context, criteria SessionLookupCriteria) (*model.Event, error)
+	// Returns an empty Optional when no matching session exists.
+	Latest(ctx context.Context, criteria SessionLookupCriteria) (types.Optional[*model.Event], error)
 
 	// Handoff returns a concise summary for session context transfer between agents.
 	// Zero-value workspace means no workspace filter.

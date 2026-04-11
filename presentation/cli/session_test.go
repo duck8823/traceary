@@ -9,13 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
 )
-
-var errSessionNotFound = usecase.ErrSessionNotFound
 
 func TestRootCLI_SessionStartCommand(t *testing.T) {
 	t.Parallel()
@@ -575,9 +572,7 @@ func TestRootCLI_SessionLatestCommand_NotFoundError(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
 		StoreMaintenance: &storeMaintenanceUsecaseStub{},
-		Session: &sessionUsecaseStub{
-			latestErr: errSessionNotFound,
-		},
+		Session:          &sessionUsecaseStub{},
 	}).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})

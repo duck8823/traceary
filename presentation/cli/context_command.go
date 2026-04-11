@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -130,20 +129,20 @@ func (c *RootCLI) resolveContextSessionID(
 		return "", nil
 	}
 
-	event, err := c.session.Active(ctx, usecase.SessionLookupCriteria{
+	result, err := c.session.Active(ctx, usecase.SessionLookupCriteria{
 		Client:    types.Client(strings.TrimSpace(input.client)),
 		Agent:     types.Agent(strings.TrimSpace(input.agent)),
 		Workspace: types.Workspace(strings.TrimSpace(input.repo)),
 	})
 	if err != nil {
-		if errors.Is(err, usecase.ErrSessionNotFound) {
-			slog.Debug("no session found for context, using empty session", "client", input.client, "agent", input.agent, "workspace", input.repo)
-			return "", nil
-		}
 		return "", xerrors.Errorf("%s: %w", Localize("failed to resolve latest session for context", "文脈用の直近 session 解決に失敗しました"), err)
 	}
+	if !result.IsPresent() {
+		slog.Debug("no session found for context, using empty session", "client", input.client, "agent", input.agent, "workspace", input.repo)
+		return "", nil
+	}
 
-	return event.SessionID().String(), nil
+	return result.Get().SessionID().String(), nil
 }
 
 func writeContextJSON(output io.Writer, sessionID string, repo string, events []*model.Event) error {

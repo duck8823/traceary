@@ -2,7 +2,6 @@ package mcpserver
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
@@ -336,40 +335,40 @@ func (s *Server) endSession(_ string) mcp.ToolHandlerFor[endSessionInput, sessio
 
 func (s *Server) latestSession(_ string) mcp.ToolHandlerFor[sessionLookupInput, sessionEventOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input sessionLookupInput) (*mcp.CallToolResult, sessionEventOutput, error) {
-		event, err := s.session.Latest(ctx, usecase.SessionLookupCriteria{
+		result, err := s.session.Latest(ctx, usecase.SessionLookupCriteria{
 			Client:    types.Client(strings.TrimSpace(input.Client)),
 			Agent:     types.Agent(strings.TrimSpace(input.Agent)),
 			Workspace: types.Workspace(strings.TrimSpace(input.Workspace)),
 		})
 		if err != nil {
-			if errors.Is(err, usecase.ErrSessionNotFound) {
-				return nil, sessionEventOutput{}, xerrors.Errorf("no matching session found")
-			}
 			return nil, sessionEventOutput{}, xerrors.Errorf("failed to get latest session: %w", err)
 		}
+		if !result.IsPresent() {
+			return nil, sessionEventOutput{}, xerrors.Errorf("no matching session found")
+		}
 
-		return nil, newSessionEventOutput(event), nil
+		return nil, newSessionEventOutput(result.Get()), nil
 	}
 }
 
 func (s *Server) activeSession(_ string) mcp.ToolHandlerFor[sessionLookupInput, sessionEventOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input sessionLookupInput) (*mcp.CallToolResult, sessionEventOutput, error) {
-		event, err := s.session.Active(ctx, usecase.SessionLookupCriteria{
+		result, err := s.session.Active(ctx, usecase.SessionLookupCriteria{
 			Client:    types.Client(strings.TrimSpace(input.Client)),
 			Agent:     types.Agent(strings.TrimSpace(input.Agent)),
 			Workspace: types.Workspace(strings.TrimSpace(input.Workspace)),
 		})
 		if err != nil {
-			if errors.Is(err, usecase.ErrSessionNotFound) {
-				return nil, sessionEventOutput{}, xerrors.Errorf("no matching active session found")
-			}
 			return nil, sessionEventOutput{}, xerrors.Errorf("failed to get active session: %w", err)
 		}
-		if err := validateActiveSession(event, input); err != nil {
+		if !result.IsPresent() {
+			return nil, sessionEventOutput{}, xerrors.Errorf("no matching active session found")
+		}
+		if err := validateActiveSession(result.Get(), input); err != nil {
 			return nil, sessionEventOutput{}, err
 		}
 
-		return nil, newSessionEventOutput(event), nil
+		return nil, newSessionEventOutput(result.Get()), nil
 	}
 }
 

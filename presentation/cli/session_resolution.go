@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -42,28 +41,29 @@ func (c *RootCLI) resolveManualSessionID(
 		}, nil
 	}
 
-	event, err := c.session.Active(ctx, usecase.SessionLookupCriteria{
+	result, err := c.session.Active(ctx, usecase.SessionLookupCriteria{
 		Workspace: types.Workspace(trimmedRepo),
 	})
 	if err != nil {
-		if errors.Is(err, usecase.ErrSessionNotFound) {
-			slog.Debug("no active session found for repo, using default", "workspace", trimmedRepo)
-			return &manualSessionResolution{
-				sessionID: defaultSessionIDValue,
-				notice: localizef(
-					"No active session found for %s; using default session ID",
-					"%s に対応する active session が見つからなかったため、既定の session ID を使います",
-					trimmedRepo,
-				),
-			}, nil
-		}
 		return nil, xerrors.Errorf(
 			"%s: %w",
 			Localize("failed to resolve active session", "active session の解決に失敗しました"),
 			err,
 		)
 	}
+	if !result.IsPresent() {
+		slog.Debug("no active session found for repo, using default", "workspace", trimmedRepo)
+		return &manualSessionResolution{
+			sessionID: defaultSessionIDValue,
+			notice: localizef(
+				"No active session found for %s; using default session ID",
+				"%s に対応する active session が見つからなかったため、既定の session ID を使います",
+				trimmedRepo,
+			),
+		}, nil
+	}
 
+	event := result.Get()
 	if isStaleSession(event, defaultActiveSessionStaleAfter) {
 		slog.Debug("active session is stale, using default", "session_id", event.SessionID(), "created_at", event.CreatedAt())
 		return &manualSessionResolution{

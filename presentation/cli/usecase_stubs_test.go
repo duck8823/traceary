@@ -84,11 +84,23 @@ func (s *sessionUsecaseStub) List(_ context.Context, _ usecase.SessionListCriter
 func (s *sessionUsecaseStub) Tree(_ context.Context, _ types.Workspace, _ int) ([]*usecase.SessionSummary, error) {
 	return s.treeResult, s.treeErr
 }
-func (s *sessionUsecaseStub) Active(_ context.Context, _ usecase.SessionLookupCriteria) (*model.Event, error) {
-	return s.activeEvent, s.activeErr
+func (s *sessionUsecaseStub) Active(_ context.Context, _ usecase.SessionLookupCriteria) (types.Optional[*model.Event], error) {
+	if s.activeEvent == nil && s.activeErr == nil {
+		return types.Empty[*model.Event](), nil
+	}
+	if s.activeErr != nil {
+		return types.Empty[*model.Event](), s.activeErr
+	}
+	return types.Of(s.activeEvent), nil
 }
-func (s *sessionUsecaseStub) Latest(_ context.Context, _ usecase.SessionLookupCriteria) (*model.Event, error) {
-	return s.latestEvent, s.latestErr
+func (s *sessionUsecaseStub) Latest(_ context.Context, _ usecase.SessionLookupCriteria) (types.Optional[*model.Event], error) {
+	if s.latestEvent == nil && s.latestErr == nil {
+		return types.Empty[*model.Event](), nil
+	}
+	if s.latestErr != nil {
+		return types.Empty[*model.Event](), s.latestErr
+	}
+	return types.Of(s.latestEvent), nil
 }
 func (s *sessionUsecaseStub) Handoff(_ context.Context, _ types.SessionID, _ types.Workspace, _ int) (*usecase.HandoffSummary, error) {
 	return s.handoff, s.handoffErr
