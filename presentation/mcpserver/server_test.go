@@ -278,24 +278,35 @@ CREATE TABLE command_audits (
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
 	datasource := sqlite.NewDatasource(dbPath, migrations)
-	initializeStoreUsecase := usecase.NewInitializeStoreUsecase(datasource)
-	recordLogUsecase := usecase.NewRecordLogUsecase(datasource)
-	recordSessionBoundaryUsecase := usecase.NewRecordSessionBoundaryUsecase(datasource, datasource)
-	recordCommandAuditUsecase := usecase.NewRecordCommandAuditUsecase(datasource)
-	findLatestSessionQueryService := queryservice.NewFindLatestSessionQueryService(datasource)
-	searchEventsQueryService := queryservice.NewSearchEventsQueryService(datasource)
-	getContextQueryService := queryservice.NewGetContextQueryService(datasource)
+
+	initStore := usecase.NewInitializeStoreUsecase(datasource)
+	recordLog := usecase.NewRecordLogUsecase(datasource)
+	recordAudit := usecase.NewRecordCommandAuditUsecase(datasource)
+	recordBoundary := usecase.NewRecordSessionBoundaryUsecase(datasource, datasource)
+	searchEvents := queryservice.NewSearchEventsQueryService(datasource)
+	listRecent := queryservice.NewListRecentEventsQueryService(datasource)
+	getContext := queryservice.NewGetContextQueryService(datasource)
+	getDetails := queryservice.NewGetEventDetailsQueryService(datasource)
+	findLatest := queryservice.NewFindLatestSessionQueryService(datasource)
+	listSessions := queryservice.NewListSessionsQueryService(datasource)
+
+	eventUsecase := usecase.NewEventUsecaseAdapter(
+		recordLog, recordAudit,
+		listRecent, searchEvents, getDetails, getContext,
+	)
+	sessionUsecase := usecase.NewSessionUsecaseAdapter(
+		recordBoundary, nil,
+		findLatest, listSessions, listRecent,
+	)
+	storeMaintenanceUsecase := usecase.NewStoreMaintenanceUsecaseAdapter(
+		initStore, nil, nil, nil, nil,
+	)
+
 	server, err := mcpserver.NewServer(
 		"test-version",
-		initializeStoreUsecase,
-		recordLogUsecase,
-		recordSessionBoundaryUsecase,
-		recordCommandAuditUsecase,
-		findLatestSessionQueryService,
-		queryservice.NewListRecentEventsQueryService(datasource),
-		searchEventsQueryService,
-		getContextQueryService,
-		queryservice.NewListSessionsQueryService(datasource),
+		eventUsecase,
+		sessionUsecase,
+		storeMaintenanceUsecase,
 	)
 	if err != nil {
 		t.Fatalf("NewServer() error = %v", err)
