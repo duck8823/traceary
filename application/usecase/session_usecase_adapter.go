@@ -163,14 +163,14 @@ func (a *sessionUsecaseAdapter) Handoff(ctx context.Context, sessionID types.Ses
 	recentCommands := make([]string, 0, len(events))
 	for _, event := range events {
 		cmd := event.Body()
-		if len(cmd) > 60 {
-			cmd = cmd[:57] + "..."
+		if runes := []rune(cmd); len(runes) > 60 {
+			cmd = string(runes[:60]) + "…"
 		}
 		recentCommands = append(recentCommands, cmd)
 	}
 
-	sid, _ := types.SessionIDOf(session.SessionID)
-	ws, _ := types.WorkspaceOf(session.Repo)
+	sid := types.SessionID(session.SessionID)
+	ws := types.Workspace(session.Repo)
 
 	return &HandoffSummary{
 		SessionID:      sid,
@@ -188,15 +188,9 @@ func (a *sessionUsecaseAdapter) Handoff(ctx context.Context, sessionID types.Ses
 func convertSessionSummaries(portSummaries []*port.SessionSummary) []*SessionSummary {
 	summaries := make([]*SessionSummary, 0, len(portSummaries))
 	for _, ps := range portSummaries {
-		sid, _ := types.SessionIDOf(ps.SessionID)
-		ws, _ := types.WorkspaceOf(ps.Repo)
-		var parentSID types.SessionID
-		if ps.ParentSessionID != "" {
-			parentSID, _ = types.SessionIDOf(ps.ParentSessionID)
-		}
 		summaries = append(summaries, &SessionSummary{
-			SessionID:       sid,
-			Workspace:       ws,
+			SessionID:       types.SessionID(ps.SessionID),
+			Workspace:       types.Workspace(ps.Repo),
 			StartedAt:       ps.StartedAt,
 			EndedAt:         ps.EndedAt,
 			Status:          ps.Status,
@@ -205,7 +199,7 @@ func convertSessionSummaries(portSummaries []*port.SessionSummary) []*SessionSum
 			Agents:          ps.Agents,
 			Label:           ps.Label,
 			Summary:         ps.Summary,
-			ParentSessionID: parentSID,
+			ParentSessionID: types.SessionID(ps.ParentSessionID),
 		})
 	}
 	return summaries
