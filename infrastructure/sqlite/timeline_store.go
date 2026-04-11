@@ -60,7 +60,7 @@ func (d *Datasource) ListTimelineBlocks(
 	var blocks []*port.TimelineBlock
 	for rows.Next() {
 		var (
-			blockNum   int
+			blockNum   int // scanned but unused (SQL internal grouping key)
 			blockStart string
 			blockEnd   string
 			eventCount int
@@ -82,7 +82,6 @@ func (d *Datasource) ListTimelineBlocks(
 		}
 
 		blocks = append(blocks, &port.TimelineBlock{
-			BlockNum:   blockNum,
 			BlockStart: parsedStart,
 			BlockEnd:   parsedEnd,
 			EventCount: eventCount,
