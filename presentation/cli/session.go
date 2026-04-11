@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -368,7 +367,7 @@ func (c *RootCLI) runSessionLatest(
 		event, err = c.session.Latest(ctx, criteria)
 	}
 	if err != nil {
-		if queryservice.IsSessionLookupNotFound(err) {
+		if usecase.IsSessionLookupNotFound(err) {
 			if input.activeOnly {
 				return xerrors.Errorf(Localize("no matching active session found", "条件に一致する active session は存在しません"))
 			}
