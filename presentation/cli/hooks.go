@@ -374,6 +374,7 @@ func buildClaudeHooksSettings(scriptsDir string, tracearyBin string) *hooksSetti
 	endCommand := buildHookScriptCommand(scriptsDir, tracearyBin, "traceary-session.sh", "claude", "end")
 	auditCommand := buildHookScriptCommand(scriptsDir, tracearyBin, "traceary-audit.sh", "claude")
 	compactCommand := buildHookScriptCommand(scriptsDir, tracearyBin, "traceary-compact.sh", "claude", "post-compact")
+	promptCommand := buildHookScriptCommand(scriptsDir, tracearyBin, "traceary-prompt.sh", "claude")
 
 	return &hooksSettings{
 		Hooks: map[string][]hookMatcher{
@@ -405,6 +406,12 @@ func buildClaudeHooksSettings(scriptsDir string, tracearyBin string) *hooksSetti
 				newHookMatcher("*", hookCommand{
 					Type:    "command",
 					Command: compactCommand,
+				}),
+			},
+			"UserPromptSubmit": {
+				newHookMatcher("*", hookCommand{
+					Type:    "command",
+					Command: promptCommand,
 				}),
 			},
 		},
