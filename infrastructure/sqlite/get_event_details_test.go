@@ -7,6 +7,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
@@ -62,7 +63,7 @@ CREATE TABLE command_audits (
 	t.Run("event と command audit を返す", func(t *testing.T) {
 		t.Parallel()
 
-		got, err := sut.GetDetails(context.Background(), "event-audit")
+		got, err := sut.GetDetails(context.Background(), types.EventID("event-audit"))
 		if err != nil {
 			t.Fatalf("GetDetails() error = %v", err)
 		}
@@ -80,7 +81,7 @@ CREATE TABLE command_audits (
 	t.Run("returns error for nonexistent event ID", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := sut.GetDetails(context.Background(), "missing")
+		_, err := sut.GetDetails(context.Background(), types.EventID("missing"))
 		if err == nil {
 			t.Fatalf("GetDetails() error = nil, want error")
 		}

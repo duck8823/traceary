@@ -20,7 +20,7 @@ var getEventDetailsQuery string
 // GetDetails returns the details for the given event ID.
 func (d *Datasource) GetDetails(
 	ctx context.Context,
-	eventID string,
+	eventID types.EventID,
 ) (*queryservice.EventDetails, error) {
 	db, err := d.openDB(ctx)
 	if err != nil {
@@ -35,7 +35,7 @@ func (d *Datasource) GetDetails(
 	row := db.QueryRowContext(
 		ctx,
 		getEventDetailsQuery,
-		eventID,
+		eventID.String(),
 	)
 
 	var (
@@ -65,17 +65,13 @@ func (d *Datasource) GetDetails(
 
 	var commandAudit *model.CommandAudit
 	if commandTextValue.Valid {
-		eventIDValue, err := types.EventIDOf(eventID)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to restore event ID: %w", err)
-		}
 		var exitCode *int
 		if exitCodeValue.Valid {
 			v := int(exitCodeValue.Int64)
 			exitCode = &v
 		}
 		commandAudit = model.CommandAuditOf(
-			eventIDValue,
+			eventID,
 			commandTextValue.String,
 			inputTextValue.String,
 			outputTextValue.String,

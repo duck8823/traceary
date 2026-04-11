@@ -10,6 +10,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 //go:embed sql/list_timeline_blocks.sql
@@ -18,7 +19,7 @@ var listTimelineBlocksQuery string
 // ListTimelineBlocks returns work blocks separated by idle gaps.
 func (d *Datasource) ListTimelineBlocks(
 	ctx context.Context,
-	workspace string,
+	workspace types.Workspace,
 	from, to time.Time,
 	gapSeconds, limit int,
 ) ([]*queryservice.TimelineBlock, error) {
@@ -44,7 +45,7 @@ func (d *Datasource) ListTimelineBlocks(
 	rows, err := db.QueryContext(
 		ctx,
 		listTimelineBlocksQuery,
-		workspace, workspace,
+		workspace.String(), workspace.String(),
 		fromValue, fromValue,
 		toValue, toValue,
 		gapSeconds,

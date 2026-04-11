@@ -20,7 +20,7 @@ var findLatestSessionQuery string
 // FindLatest returns the session_started event for the latest matching session.
 func (d *Datasource) FindLatest(
 	ctx context.Context,
-	client, agent, workspace string,
+	client types.Client, agent types.Agent, workspace types.Workspace,
 	activeOnly bool,
 ) (*model.Event, error) {
 	db, err := d.openDB(ctx)
@@ -41,9 +41,9 @@ func (d *Datasource) FindLatest(
 		types.EventKindSessionStarted.String(),
 		types.EventKindSessionEnded.String(),
 		types.EventKindSessionStarted.String(),
-		client, client,
-		agent, agent,
-		workspace, workspace,
+		client.String(), client.String(),
+		agent.String(), agent.String(),
+		workspace.String(), workspace.String(),
 		types.EventKindSessionStarted.String(),
 		activeOnly,
 		types.EventKindSessionEnded.String(),

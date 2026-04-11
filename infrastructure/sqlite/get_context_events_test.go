@@ -74,7 +74,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		t.Fatalf("Save(third) error = %v", err)
 	}
 
-	got, err := sut.GetContext(context.Background(), " github.com/duck8823/traceary ", "session-1", 10)
+	got, err := sut.GetContext(context.Background(), types.Workspace(" github.com/duck8823/traceary "), types.SessionID("session-1"), 10)
 	if err != nil {
 		t.Fatalf("GetContext() error = %v", err)
 	}

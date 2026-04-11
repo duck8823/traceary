@@ -11,6 +11,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 //go:embed sql/list_sessions.sql
@@ -20,7 +21,7 @@ var listSessionsQuery string
 func (d *Datasource) ListSummaries(
 	ctx context.Context,
 	limit, offset int,
-	sessionID, workspace, client, agent, label string,
+	sessionID types.SessionID, workspace types.Workspace, client types.Client, agent types.Agent, label string,
 	from, to *time.Time,
 ) ([]*queryservice.SessionSummary, error) {
 	db, err := d.openDB(ctx)
@@ -45,10 +46,10 @@ func (d *Datasource) ListSummaries(
 	rows, err := db.QueryContext(
 		ctx,
 		listSessionsQuery,
-		sessionID, sessionID,
-		workspace, workspace,
-		client, client,
-		agent, agent,
+		sessionID.String(), sessionID.String(),
+		workspace.String(), workspace.String(),
+		client.String(), client.String(),
+		agent.String(), agent.String(),
 		label, label,
 		fromValue, fromValue,
 		toValue, toValue,

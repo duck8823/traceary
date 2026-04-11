@@ -74,7 +74,7 @@ func (a *sessionUsecaseAdapter) Label(ctx context.Context, sessionID types.Sessi
 }
 
 func (a *sessionUsecaseAdapter) List(ctx context.Context, criteria SessionListCriteria) ([]*SessionSummary, error) {
-	qsSummaries, err := a.sessionQuery.ListSummaries(ctx, criteria.Limit, criteria.Offset, criteria.SessionID.String(), criteria.Workspace.String(), criteria.Client.String(), criteria.Agent.String(), criteria.Label, criteria.From, criteria.To)
+	qsSummaries, err := a.sessionQuery.ListSummaries(ctx, criteria.Limit, criteria.Offset, criteria.SessionID, criteria.Workspace, criteria.Client, criteria.Agent, criteria.Label, criteria.From, criteria.To)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list sessions: %w", err)
 	}
@@ -82,7 +82,7 @@ func (a *sessionUsecaseAdapter) List(ctx context.Context, criteria SessionListCr
 }
 
 func (a *sessionUsecaseAdapter) Tree(ctx context.Context, workspace types.Workspace, limit int) ([]*SessionSummary, error) {
-	qsSummaries, err := a.sessionQuery.ListSummaries(ctx, limit, 0, "", workspace.String(), "", "", "", nil, nil)
+	qsSummaries, err := a.sessionQuery.ListSummaries(ctx, limit, 0, types.SessionID(""), workspace, types.Client(""), types.Agent(""), "", nil, nil)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list sessions for tree: %w", err)
 	}
@@ -90,7 +90,7 @@ func (a *sessionUsecaseAdapter) Tree(ctx context.Context, workspace types.Worksp
 }
 
 func (a *sessionUsecaseAdapter) Active(ctx context.Context, criteria SessionLookupCriteria) (*model.Event, error) {
-	event, err := a.sessionQuery.FindLatest(ctx, criteria.Client.String(), criteria.Agent.String(), criteria.Workspace.String(), true)
+	event, err := a.sessionQuery.FindLatest(ctx, criteria.Client, criteria.Agent, criteria.Workspace, true)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to find active session: %w", err)
 	}
@@ -98,7 +98,7 @@ func (a *sessionUsecaseAdapter) Active(ctx context.Context, criteria SessionLook
 }
 
 func (a *sessionUsecaseAdapter) Latest(ctx context.Context, criteria SessionLookupCriteria) (*model.Event, error) {
-	event, err := a.sessionQuery.FindLatest(ctx, criteria.Client.String(), criteria.Agent.String(), criteria.Workspace.String(), false)
+	event, err := a.sessionQuery.FindLatest(ctx, criteria.Client, criteria.Agent, criteria.Workspace, false)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to find latest session: %w", err)
 	}
@@ -106,7 +106,7 @@ func (a *sessionUsecaseAdapter) Latest(ctx context.Context, criteria SessionLook
 }
 
 func (a *sessionUsecaseAdapter) Handoff(ctx context.Context, sessionID types.SessionID, workspace types.Workspace, recent int) (*HandoffSummary, error) {
-	sessions, err := a.sessionQuery.ListSummaries(ctx, 1, 0, sessionID.String(), workspace.String(), "", "", "", nil, nil)
+	sessions, err := a.sessionQuery.ListSummaries(ctx, 1, 0, sessionID, workspace, types.Client(""), types.Agent(""), "", nil, nil)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list sessions for handoff: %w", err)
 	}
@@ -115,7 +115,7 @@ func (a *sessionUsecaseAdapter) Handoff(ctx context.Context, sessionID types.Ses
 	}
 
 	session := sessions[0]
-	events, err := a.eventQuery.ListRecent(ctx, recent, 0, types.EventKindCommandExecuted.String(), "", "", session.SessionID, "", false, time.Time{}, time.Time{})
+	events, err := a.eventQuery.ListRecent(ctx, recent, 0, types.EventKindCommandExecuted, types.Client(""), types.Agent(""), types.SessionID(session.SessionID), types.Workspace(""), false, time.Time{}, time.Time{})
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list recent events for handoff: %w", err)
 	}

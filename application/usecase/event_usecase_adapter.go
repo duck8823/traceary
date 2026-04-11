@@ -66,7 +66,7 @@ func (a *eventUsecaseAdapter) Audit(ctx context.Context, command string, input s
 }
 
 func (a *eventUsecaseAdapter) Search(ctx context.Context, criteria EventSearchCriteria) ([]*model.Event, error) {
-	events, err := a.eventQuery.Search(ctx, criteria.Query, criteria.Workspace.String(), criteria.SessionID.String(), criteria.Client.String(), criteria.Agent.String(), criteria.Kind.String(), criteria.From, criteria.To, criteria.Limit, criteria.Offset, criteria.FailuresOnly)
+	events, err := a.eventQuery.Search(ctx, criteria.Query, criteria.Workspace, criteria.SessionID, criteria.Client, criteria.Agent, criteria.Kind, criteria.From, criteria.To, criteria.Limit, criteria.Offset, criteria.FailuresOnly)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to search events: %w", err)
 	}
@@ -74,7 +74,7 @@ func (a *eventUsecaseAdapter) Search(ctx context.Context, criteria EventSearchCr
 }
 
 func (a *eventUsecaseAdapter) List(ctx context.Context, criteria EventListCriteria) ([]*model.Event, error) {
-	events, err := a.eventQuery.ListRecent(ctx, criteria.Limit, criteria.Offset, criteria.Kind.String(), criteria.Client.String(), criteria.Agent.String(), criteria.SessionID.String(), criteria.Workspace.String(), criteria.FailuresOnly, criteria.From, criteria.To)
+	events, err := a.eventQuery.ListRecent(ctx, criteria.Limit, criteria.Offset, criteria.Kind, criteria.Client, criteria.Agent, criteria.SessionID, criteria.Workspace, criteria.FailuresOnly, criteria.From, criteria.To)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list events: %w", err)
 	}
@@ -82,7 +82,7 @@ func (a *eventUsecaseAdapter) List(ctx context.Context, criteria EventListCriter
 }
 
 func (a *eventUsecaseAdapter) Show(ctx context.Context, eventID types.EventID) (*EventDetails, error) {
-	qsDetails, err := a.eventQuery.GetDetails(ctx, eventID.String())
+	qsDetails, err := a.eventQuery.GetDetails(ctx, eventID)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get event details: %w", err)
 	}
@@ -90,7 +90,7 @@ func (a *eventUsecaseAdapter) Show(ctx context.Context, eventID types.EventID) (
 }
 
 func (a *eventUsecaseAdapter) Context(ctx context.Context, criteria EventContextCriteria) ([]*model.Event, error) {
-	events, err := a.eventQuery.GetContext(ctx, criteria.Workspace.String(), criteria.SessionID.String(), criteria.Limit)
+	events, err := a.eventQuery.GetContext(ctx, criteria.Workspace, criteria.SessionID, criteria.Limit)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get context events: %w", err)
 	}
@@ -98,7 +98,7 @@ func (a *eventUsecaseAdapter) Context(ctx context.Context, criteria EventContext
 }
 
 func (a *eventUsecaseAdapter) Timeline(ctx context.Context, criteria TimelineCriteria) ([]*TimelineBlock, error) {
-	qsBlocks, err := a.eventQuery.ListTimelineBlocks(ctx, criteria.Workspace.String(), criteria.From, criteria.To, criteria.GapSeconds, criteria.Limit)
+	qsBlocks, err := a.eventQuery.ListTimelineBlocks(ctx, criteria.Workspace, criteria.From, criteria.To, criteria.GapSeconds, criteria.Limit)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list timeline blocks: %w", err)
 	}

@@ -129,7 +129,7 @@ func (d *Datasource) SaveWithAudit(
 func (d *Datasource) ListRecent(
 	ctx context.Context,
 	limit, offset int,
-	kind, client, agent, sessionID, workspace string,
+	kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace,
 	failuresOnly bool,
 	from, to time.Time,
 ) ([]*model.Event, error) {
@@ -162,11 +162,11 @@ func (d *Datasource) ListRecent(
 	rows, err := db.QueryContext(
 		ctx,
 		selectRecentEventsQuery,
-		kind, kind,
-		client, client,
-		agent, agent,
-		sessionID, sessionID,
-		workspace, workspace,
+		kind.String(), kind.String(),
+		client.String(), client.String(),
+		agent.String(), agent.String(),
+		sessionID.String(), sessionID.String(),
+		workspace.String(), workspace.String(),
 		boolToInt(failuresOnly),
 		fromValue, fromValue,
 		toValue, toValue,

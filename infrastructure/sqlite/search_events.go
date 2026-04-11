@@ -10,6 +10,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 //go:embed sql/search_events.sql
@@ -18,7 +19,7 @@ var searchEventsQuery string
 // Search returns matching events in descending time order.
 func (d *Datasource) Search(
 	ctx context.Context,
-	query, workspace, sessionID, client, agent, kind string,
+	query string, workspace types.Workspace, sessionID types.SessionID, client types.Client, agent types.Agent, kind types.EventKind,
 	from, to time.Time,
 	limit, offset int,
 	failuresOnly bool,
@@ -52,16 +53,16 @@ func (d *Datasource) Search(
 		likeQuery,
 		likeQuery,
 		likeQuery,
-		workspace,
-		workspace,
-		sessionID,
-		sessionID,
-		client,
-		client,
-		agent,
-		agent,
-		kind,
-		kind,
+		workspace.String(),
+		workspace.String(),
+		sessionID.String(),
+		sessionID.String(),
+		client.String(),
+		client.String(),
+		agent.String(),
+		agent.String(),
+		kind.String(),
+		kind.String(),
 		fromValue,
 		fromValue,
 		toValue,

@@ -9,6 +9,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 //go:embed sql/get_context_events.sql
@@ -17,7 +18,7 @@ var getContextEventsQuery string
 // GetContext returns events matching the requested context in descending time order.
 func (d *Datasource) GetContext(
 	ctx context.Context,
-	workspace, sessionID string,
+	workspace types.Workspace, sessionID types.SessionID,
 	limit int,
 ) ([]*model.Event, error) {
 	db, err := d.openDB(ctx)
@@ -30,8 +31,8 @@ func (d *Datasource) GetContext(
 		}
 	}()
 
-	trimmedWorkspace := strings.TrimSpace(workspace)
-	trimmedSessionID := strings.TrimSpace(sessionID)
+	trimmedWorkspace := strings.TrimSpace(workspace.String())
+	trimmedSessionID := strings.TrimSpace(sessionID.String())
 	rows, err := db.QueryContext(
 		ctx,
 		getContextEventsQuery,

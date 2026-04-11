@@ -109,7 +109,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 	t.Run("returns latest session_started", func(t *testing.T) {
 		got, err := sut.FindLatest(
 			context.Background(),
-			"cli", "codex", "github.com/duck8823/traceary", false,
+			types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), false,
 		)
 		if err != nil {
 			t.Fatalf("FindLatest() error = %v", err)
@@ -148,7 +148,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 
 		got, err := sut.FindLatest(
 			context.Background(),
-			"cli", "codex", "github.com/duck8823/traceary", false,
+			types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), false,
 		)
 		if err != nil {
 			t.Fatalf("FindLatest() error = %v", err)
@@ -161,7 +161,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 	t.Run("active only のとき未終了 session を返す", func(t *testing.T) {
 		got, err := sut.FindLatest(
 			context.Background(),
-			"cli", "codex", "github.com/duck8823/traceary", true,
+			types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), true,
 		)
 		if err != nil {
 			t.Fatalf("FindLatest() error = %v", err)
@@ -187,7 +187,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 
 		got, err := sut.FindLatest(
 			context.Background(),
-			"cli", "codex", "github.com/duck8823/traceary", false,
+			types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), false,
 		)
 		if err != nil {
 			t.Fatalf("FindLatest() error = %v", err)
@@ -200,7 +200,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 	t.Run("returns error when no matching session exists", func(t *testing.T) {
 		_, err := sut.FindLatest(
 			context.Background(),
-			"", "claude", "", false,
+			types.Client(""), types.Agent("claude"), types.Workspace(""), false,
 		)
 		if err == nil {
 			t.Fatalf("FindLatest() error = nil, want error")
@@ -213,7 +213,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 	t.Run("returns error when no matching active session exists", func(t *testing.T) {
 		_, err := sut.FindLatest(
 			context.Background(),
-			"", "claude", "", true,
+			types.Client(""), types.Agent("claude"), types.Workspace(""), true,
 		)
 		if err == nil {
 			t.Fatalf("FindLatest() error = nil, want error")
@@ -292,7 +292,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 
 	got, err := sut.FindLatest(
 		context.Background(),
-		"cli", "codex", "github.com/duck8823/traceary", false,
+		types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), false,
 	)
 	if err != nil {
 		t.Fatalf("FindLatest() error = %v", err)
@@ -357,7 +357,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 
 	got, err := sut.FindLatest(
 		context.Background(),
-		"cli", "codex", "github.com/duck8823/traceary", true,
+		types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), true,
 	)
 	if err != nil {
 		t.Fatalf("FindLatest() error = %v", err)

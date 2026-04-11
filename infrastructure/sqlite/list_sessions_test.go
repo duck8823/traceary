@@ -125,7 +125,7 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		saveTestSession(ctx, t, ds, "s1", time.Now().Add(-time.Hour).UTC(), &s1End, "claude", "duck8823/traceary")
 		saveTestSession(ctx, t, ds, "s2", time.Now().UTC(), nil, "codex", "duck8823/traceary")
 
-		summaries, err := ds.ListSummaries(ctx, 10, 0, "", "", "", "", "", nil, nil)
+		summaries, err := ds.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent(""), "", nil, nil)
 		if err != nil {
 			t.Fatalf("ListSummaries() error = %v", err)
 		}
@@ -198,7 +198,7 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		saveTestSession(ctx, t, ds, "s1", now, nil, "claude", "workspace")
 		saveTestSession(ctx, t, ds, "s2", now.Add(time.Second), nil, "codex", "workspace")
 
-		summaries, err := ds.ListSummaries(ctx, 10, 0, "", "", "", "claude", "", nil, nil)
+		summaries, err := ds.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent("claude"), "", nil, nil)
 		if err != nil {
 			t.Fatalf("ListSummaries() error = %v", err)
 		}
@@ -240,7 +240,7 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		}
 
 		fromDate := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
-		summaries, err := ds.ListSummaries(ctx, 10, 0, "", "", "", "", "", &fromDate, nil)
+		summaries, err := ds.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent(""), "", &fromDate, nil)
 		if err != nil {
 			t.Fatalf("ListSummaries() error = %v", err)
 		}
@@ -282,7 +282,7 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		saveTestSession(ctx, t, ds, "s1", now, nil, "claude", "workspace")
 		saveTestSession(ctx, t, ds, "s2", now.Add(time.Second), nil, "claude", "workspace")
 
-		summaries, err := ds.ListSummaries(ctx, 10, 0, "s1", "", "", "", "", nil, nil)
+		summaries, err := ds.ListSummaries(ctx, 10, 0, types.SessionID("s1"), types.Workspace(""), types.Client(""), types.Agent(""), "", nil, nil)
 		if err != nil {
 			t.Fatalf("ListSummaries() error = %v", err)
 		}
@@ -324,7 +324,7 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		}
 
 		toDate := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
-		summaries, err := ds.ListSummaries(ctx, 10, 0, "", "", "", "", "", nil, &toDate)
+		summaries, err := ds.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent(""), "", nil, &toDate)
 		if err != nil {
 			t.Fatalf("ListSummaries() error = %v", err)
 		}

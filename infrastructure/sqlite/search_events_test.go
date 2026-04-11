@@ -73,7 +73,7 @@ CREATE TABLE command_audits (
 		t.Fatalf("SaveWithAudit() error = %v", err)
 	}
 
-	got, err := sut.Search(context.Background(), "stdout", "github.com/duck8823/traceary", "", "", "", "", time.Date(2026, 4, 8, 0, 0, 0, 0, time.UTC), time.Date(2026, 4, 9, 0, 0, 0, 0, time.UTC), 10, 0, false)
+	got, err := sut.Search(context.Background(), "stdout", types.Workspace("github.com/duck8823/traceary"), types.SessionID(""), types.Client(""), types.Agent(""), types.EventKind(""), time.Date(2026, 4, 8, 0, 0, 0, 0, time.UTC), time.Date(2026, 4, 9, 0, 0, 0, 0, time.UTC), 10, 0, false)
 	if err != nil {
 		t.Fatalf("Search() error = %v", err)
 	}
@@ -87,7 +87,7 @@ CREATE TABLE command_audits (
 	t.Run("searches with structural filters only", func(t *testing.T) {
 		t.Parallel()
 
-		filtered, err := sut.Search(context.Background(), "", "github.com/duck8823/traceary", "session-1", "cli", "codex", "note", time.Time{}, time.Time{}, 10, 0, false)
+		filtered, err := sut.Search(context.Background(), "", types.Workspace("github.com/duck8823/traceary"), types.SessionID("session-1"), types.Client("cli"), types.Agent("codex"), types.EventKind("note"), time.Time{}, time.Time{}, 10, 0, false)
 		if err != nil {
 			t.Fatalf("Search() error = %v", err)
 		}
@@ -102,7 +102,7 @@ CREATE TABLE command_audits (
 	t.Run("offset で 2 ページ目を取得できる", func(t *testing.T) {
 		t.Parallel()
 
-		filtered, err := sut.Search(context.Background(), "", "github.com/duck8823/traceary", "", "", "", "", time.Time{}, time.Time{}, 1, 1, false)
+		filtered, err := sut.Search(context.Background(), "", types.Workspace("github.com/duck8823/traceary"), types.SessionID(""), types.Client(""), types.Agent(""), types.EventKind(""), time.Time{}, time.Time{}, 1, 1, false)
 		if err != nil {
 			t.Fatalf("Search() error = %v", err)
 		}
