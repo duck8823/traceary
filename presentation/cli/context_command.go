@@ -13,7 +13,6 @@ import (
 
 	"github.com/duck8823/traceary/domain/types"
 
-	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
 )
 
@@ -137,7 +136,7 @@ func (c *RootCLI) resolveContextSessionID(
 		Workspace: types.Workspace(strings.TrimSpace(input.repo)),
 	})
 	if err != nil {
-		if queryservice.IsSessionLookupNotFound(err) {
+		if usecase.IsSessionLookupNotFound(err) {
 			slog.Debug("no session found for context, using empty session", "client", input.client, "agent", input.agent, "workspace", input.repo)
 			return "", nil
 		}

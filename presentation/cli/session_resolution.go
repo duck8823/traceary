@@ -13,7 +13,6 @@ import (
 
 	"github.com/duck8823/traceary/domain/types"
 
-	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
 )
 
@@ -47,7 +46,7 @@ func (c *RootCLI) resolveManualSessionID(
 		Workspace: types.Workspace(trimmedRepo),
 	})
 	if err != nil {
-		if queryservice.IsSessionLookupNotFound(err) {
+		if usecase.IsSessionLookupNotFound(err) {
 			slog.Debug("no active session found for repo, using default", "workspace", trimmedRepo)
 			return &manualSessionResolution{
 				sessionID: defaultSessionIDValue,
