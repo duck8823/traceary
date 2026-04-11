@@ -6,14 +6,9 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/domain/port"
-
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
-
-// EventSaver is defined in domain/port.
-type EventSaver = port.EventSaver
 
 // RecordLogInput is the input for traceary log recording.
 type RecordLogInput struct {
@@ -32,18 +27,18 @@ type RecordLogUsecase interface {
 }
 
 type recordLogUsecase struct {
-	eventSaver EventSaver
+	eventRepo model.EventRepository
 }
 
 // NewRecordLogUsecase creates a RecordLogUsecase.
-func NewRecordLogUsecase(eventSaver EventSaver) RecordLogUsecase {
-	return &recordLogUsecase{eventSaver: eventSaver}
+func NewRecordLogUsecase(eventRepo model.EventRepository) RecordLogUsecase {
+	return &recordLogUsecase{eventRepo: eventRepo}
 }
 
 // Run persists a note event.
 func (u *recordLogUsecase) Run(ctx context.Context, input RecordLogInput) (*model.Event, error) {
-	if u.eventSaver == nil {
-		return nil, xerrors.Errorf("event saver is not configured")
+	if u.eventRepo == nil {
+		return nil, xerrors.Errorf("event repository is not configured")
 	}
 	agent, err := types.AgentOf(input.Agent)
 	if err != nil {
@@ -78,7 +73,7 @@ func (u *recordLogUsecase) Run(ctx context.Context, input RecordLogInput) (*mode
 	if err != nil {
 		return nil, xerrors.Errorf("failed to build log event: %w", err)
 	}
-	if err := u.eventSaver.Save(ctx, event); err != nil {
+	if err := u.eventRepo.Save(ctx, event); err != nil {
 		return nil, xerrors.Errorf("failed to save log event: %w", err)
 	}
 

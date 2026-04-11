@@ -6,14 +6,8 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/domain/port"
+	"github.com/duck8823/traceary/application"
 )
-
-// StoreBackupCreator is defined in domain/port.
-type StoreBackupCreator = port.StoreBackupCreator
-
-// StoreBackupRestorer is defined in domain/port.
-type StoreBackupRestorer = port.StoreBackupRestorer
 
 // CreateStoreBackupInput is the input for backup creation.
 type CreateStoreBackupInput struct {
@@ -40,32 +34,32 @@ type RestoreStoreBackupUsecase interface {
 }
 
 type createStoreBackupUsecase struct {
-	storeBackupCreator StoreBackupCreator
+	storeManager application.StoreManager
 }
 
 type restoreStoreBackupUsecase struct {
-	storeBackupRestorer StoreBackupRestorer
+	storeManager application.StoreManager
 }
 
 // NewCreateStoreBackupUsecase creates a CreateStoreBackupUsecase.
-func NewCreateStoreBackupUsecase(storeBackupCreator StoreBackupCreator) CreateStoreBackupUsecase {
-	return &createStoreBackupUsecase{storeBackupCreator: storeBackupCreator}
+func NewCreateStoreBackupUsecase(storeManager application.StoreManager) CreateStoreBackupUsecase {
+	return &createStoreBackupUsecase{storeManager: storeManager}
 }
 
 // NewRestoreStoreBackupUsecase creates a RestoreStoreBackupUsecase.
-func NewRestoreStoreBackupUsecase(storeBackupRestorer StoreBackupRestorer) RestoreStoreBackupUsecase {
-	return &restoreStoreBackupUsecase{storeBackupRestorer: storeBackupRestorer}
+func NewRestoreStoreBackupUsecase(storeManager application.StoreManager) RestoreStoreBackupUsecase {
+	return &restoreStoreBackupUsecase{storeManager: storeManager}
 }
 
 // Run creates a backup.
 func (u *createStoreBackupUsecase) Run(ctx context.Context, input CreateStoreBackupInput) error {
-	if u.storeBackupCreator == nil {
-		return xerrors.Errorf("store backup creator is not configured")
+	if u.storeManager == nil {
+		return xerrors.Errorf("store manager is not configured")
 	}
 	if strings.TrimSpace(input.OutputPath) == "" {
 		return xerrors.Errorf("output path must not be empty")
 	}
-	if err := u.storeBackupCreator.CreateBackup(ctx, strings.TrimSpace(input.OutputPath), input.Overwrite); err != nil {
+	if err := u.storeManager.CreateBackup(ctx, strings.TrimSpace(input.OutputPath), input.Overwrite); err != nil {
 		return xerrors.Errorf("failed to create store backup: %w", err)
 	}
 
@@ -74,13 +68,13 @@ func (u *createStoreBackupUsecase) Run(ctx context.Context, input CreateStoreBac
 
 // Run restores from a backup.
 func (u *restoreStoreBackupUsecase) Run(ctx context.Context, input RestoreStoreBackupInput) error {
-	if u.storeBackupRestorer == nil {
-		return xerrors.Errorf("store backup restorer is not configured")
+	if u.storeManager == nil {
+		return xerrors.Errorf("store manager is not configured")
 	}
 	if strings.TrimSpace(input.InputPath) == "" {
 		return xerrors.Errorf("input path must not be empty")
 	}
-	if err := u.storeBackupRestorer.RestoreBackup(ctx, strings.TrimSpace(input.InputPath), input.Overwrite); err != nil {
+	if err := u.storeManager.RestoreBackup(ctx, strings.TrimSpace(input.InputPath), input.Overwrite); err != nil {
 		return xerrors.Errorf("failed to restore store backup: %w", err)
 	}
 

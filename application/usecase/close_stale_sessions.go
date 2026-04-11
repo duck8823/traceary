@@ -6,7 +6,7 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/domain/port"
+	"github.com/duck8823/traceary/application"
 )
 
 // CloseStaleSessionsInput is the input for closing stale sessions.
@@ -26,12 +26,12 @@ type CloseStaleSessionsUsecase interface {
 }
 
 type closeStaleSessionsUsecase struct {
-	staleSessionCloser port.StaleSessionCloser
+	storeManager application.StoreManager
 }
 
 // NewCloseStaleSessionsUsecase creates a CloseStaleSessionsUsecase.
-func NewCloseStaleSessionsUsecase(staleSessionCloser port.StaleSessionCloser) CloseStaleSessionsUsecase {
-	return &closeStaleSessionsUsecase{staleSessionCloser: staleSessionCloser}
+func NewCloseStaleSessionsUsecase(storeManager application.StoreManager) CloseStaleSessionsUsecase {
+	return &closeStaleSessionsUsecase{storeManager: storeManager}
 }
 
 // Run executes stale session cleanup or a dry run.
@@ -39,21 +39,19 @@ func (u *closeStaleSessionsUsecase) Run(
 	ctx context.Context,
 	input CloseStaleSessionsInput,
 ) (*CloseStaleSessionsResult, error) {
-	if u.staleSessionCloser == nil {
-		return nil, xerrors.Errorf("stale session closer is not configured")
+	if u.storeManager == nil {
+		return nil, xerrors.Errorf("store manager is not configured")
 	}
-	result, err := u.staleSessionCloser.CloseStaleSessions(
+	closedCount, err := u.storeManager.CloseStaleSessions(
 		ctx,
-		port.StaleSessionCloserInput{
-			StaleAfter: input.StaleAfter,
-			DryRun:     input.DryRun,
-		},
+		input.StaleAfter,
+		input.DryRun,
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to close stale sessions: %w", err)
 	}
 
 	return &CloseStaleSessionsResult{
-		ClosedCount: result.ClosedCount,
+		ClosedCount: closedCount,
 	}, nil
 }

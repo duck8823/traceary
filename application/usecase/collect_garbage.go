@@ -6,11 +6,8 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/domain/port"
+	"github.com/duck8823/traceary/application"
 )
-
-// GarbageCollector is defined in domain/port.
-type GarbageCollector = port.GarbageCollector
 
 // CollectGarbageInput is the input for garbage collection.
 type CollectGarbageInput struct {
@@ -32,12 +29,12 @@ type CollectGarbageUsecase interface {
 }
 
 type collectGarbageUsecase struct {
-	garbageCollector GarbageCollector
+	storeManager application.StoreManager
 }
 
 // NewCollectGarbageUsecase creates a CollectGarbageUsecase.
-func NewCollectGarbageUsecase(garbageCollector GarbageCollector) CollectGarbageUsecase {
-	return &collectGarbageUsecase{garbageCollector: garbageCollector}
+func NewCollectGarbageUsecase(storeManager application.StoreManager) CollectGarbageUsecase {
+	return &collectGarbageUsecase{storeManager: storeManager}
 }
 
 // Run executes garbage collection or a dry run.
@@ -45,14 +42,14 @@ func (u *collectGarbageUsecase) Run(
 	ctx context.Context,
 	input CollectGarbageInput,
 ) (*CollectGarbageResult, error) {
-	if u.garbageCollector == nil {
-		return nil, xerrors.Errorf("garbage collector is not configured")
+	if u.storeManager == nil {
+		return nil, xerrors.Errorf("store manager is not configured")
 	}
 	if input.Before.IsZero() {
 		return nil, xerrors.Errorf("before timestamp is required")
 	}
 
-	deletedCount, err := u.garbageCollector.CollectGarbage(
+	deletedCount, err := u.storeManager.CollectGarbage(
 		ctx,
 		input.Before,
 		input.DryRun,

@@ -15,6 +15,17 @@ type garbageCollectorStub struct {
 	err            error
 }
 
+func (s *garbageCollectorStub) Initialize(_ context.Context) error { return nil }
+func (s *garbageCollectorStub) CreateBackup(_ context.Context, _ string, _ bool) error {
+	return nil
+}
+func (s *garbageCollectorStub) RestoreBackup(_ context.Context, _ string, _ bool) error {
+	return nil
+}
+func (s *garbageCollectorStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool) (int, error) {
+	return 0, nil
+}
+
 func (s *garbageCollectorStub) CollectGarbage(
 	_ context.Context,
 	before time.Time,

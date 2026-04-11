@@ -15,7 +15,12 @@ type commandAuditSaverStub struct {
 	err               error
 }
 
-func (s *commandAuditSaverStub) SaveCommandAudit(
+func (s *commandAuditSaverStub) Save(_ context.Context, event *model.Event) error {
+	s.savedEvent = event
+	return s.err
+}
+
+func (s *commandAuditSaverStub) SaveWithAudit(
 	_ context.Context,
 	event *model.Event,
 	commandAudit *model.CommandAudit,

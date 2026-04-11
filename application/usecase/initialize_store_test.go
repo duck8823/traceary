@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/duck8823/traceary/application/usecase"
 )
@@ -15,6 +16,18 @@ type storeInitializerStub struct {
 func (s *storeInitializerStub) Initialize(_ context.Context) error {
 	s.called = true
 	return s.err
+}
+func (s *storeInitializerStub) CreateBackup(_ context.Context, _ string, _ bool) error {
+	return nil
+}
+func (s *storeInitializerStub) RestoreBackup(_ context.Context, _ string, _ bool) error {
+	return nil
+}
+func (s *storeInitializerStub) CollectGarbage(_ context.Context, _ time.Time, _ bool) (int, error) {
+	return 0, nil
+}
+func (s *storeInitializerStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool) (int, error) {
+	return 0, nil
 }
 
 func TestInitializeStoreUsecase_Run(t *testing.T) {

@@ -8,8 +8,6 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/domain/port"
-
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -28,14 +26,8 @@ type RecordSessionBoundaryInput struct {
 	ParentSessionID   string
 }
 
-// ErrSessionStartedEventNotFound is defined in domain/port.
-var ErrSessionStartedEventNotFound = port.ErrSessionStartedEventNotFound
-
-// SessionSaver is defined in domain/port.
-type SessionSaver = port.SessionSaver
-
-// SessionStartedEventFinder is defined in domain/port.
-type SessionStartedEventFinder = port.SessionStartedEventFinder
+// ErrSessionStartedEventNotFound is defined in domain/model.
+var ErrSessionStartedEventNotFound = model.ErrSessionStartedEventNotFound
 
 // RecordSessionBoundaryUsecase records session boundary events.
 type RecordSessionBoundaryUsecase interface {
@@ -44,25 +36,18 @@ type RecordSessionBoundaryUsecase interface {
 }
 
 type recordSessionBoundaryUsecase struct {
-	eventSaver                EventSaver
-	sessionSaver              SessionSaver
-	sessionStartedEventFinder SessionStartedEventFinder
+	eventRepo   model.EventRepository
+	sessionRepo model.SessionRepository
 }
 
 // NewRecordSessionBoundaryUsecase creates RecordSessionBoundaryUsecase.
 func NewRecordSessionBoundaryUsecase(
-	eventSaver EventSaver,
-	sessionStartedEventFinder SessionStartedEventFinder,
-	sessionSavers ...SessionSaver,
+	eventRepo model.EventRepository,
+	sessionRepo model.SessionRepository,
 ) RecordSessionBoundaryUsecase {
-	var sessionSaver SessionSaver
-	if len(sessionSavers) > 0 {
-		sessionSaver = sessionSavers[0]
-	}
 	return &recordSessionBoundaryUsecase{
-		eventSaver:                eventSaver,
-		sessionSaver:              sessionSaver,
-		sessionStartedEventFinder: sessionStartedEventFinder,
+		eventRepo:   eventRepo,
+		sessionRepo: sessionRepo,
 	}
 }
 
@@ -71,8 +56,8 @@ func (u *recordSessionBoundaryUsecase) Run(
 	ctx context.Context,
 	input RecordSessionBoundaryInput,
 ) (*model.Event, error) {
-	if u.eventSaver == nil {
-		return nil, xerrors.Errorf("event saver is not configured")
+	if u.eventRepo == nil {
+		return nil, xerrors.Errorf("event repository is not configured")
 	}
 
 	sessionID, err := resolveSessionBoundaryID(input.Kind, input.SessionID)
@@ -108,13 +93,13 @@ func (u *recordSessionBoundaryUsecase) Run(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to build session boundary event: %w", err)
 	}
-	if err := u.eventSaver.Save(ctx, event); err != nil {
+	if err := u.eventRepo.Save(ctx, event); err != nil {
 		return nil, xerrors.Errorf("failed to save session boundary event: %w", err)
 	}
 
-	if u.sessionSaver != nil {
+	if u.sessionRepo != nil {
 		session := buildSessionFromBoundary(event, input.Kind, input.Summary, input.ParentSessionID)
-		if err := u.sessionSaver.SaveSession(ctx, session); err != nil {
+		if err := u.sessionRepo.SaveSession(ctx, session); err != nil {
 			return nil, xerrors.Errorf("failed to save session metadata: %w", err)
 		}
 	}
@@ -159,21 +144,21 @@ func (u *recordSessionBoundaryUsecase) resolveSessionBoundaryAttribution(
 	resolvedAgentValue := strings.TrimSpace(input.Agent)
 	resolvedWorkspace := strings.TrimSpace(input.Workspace)
 
-	if input.Kind == types.EventKindSessionEnded && u.sessionStartedEventFinder != nil {
+	if input.Kind == types.EventKindSessionEnded && u.sessionRepo != nil {
 		if resolvedClient == "" || resolvedAgentValue == "" || resolvedWorkspace == "" {
-			startedEvent, err := u.sessionStartedEventFinder.FindSessionStartedEvent(ctx, sessionID)
+			startedSession, err := u.sessionRepo.FindByID(ctx, sessionID)
 			if err != nil && !errors.Is(err, ErrSessionStartedEventNotFound) {
-				return "", "", "", xerrors.Errorf("failed to get session_started event: %w", err)
+				return "", "", "", xerrors.Errorf("failed to get session: %w", err)
 			}
-			if err == nil && startedEvent != nil {
+			if err == nil && startedSession != nil {
 				if resolvedClient == "" {
-					resolvedClient = startedEvent.Client()
+					resolvedClient = startedSession.Client()
 				}
 				if resolvedAgentValue == "" {
-					resolvedAgentValue = startedEvent.Agent().String()
+					resolvedAgentValue = startedSession.Agent().String()
 				}
 				if resolvedWorkspace == "" {
-					resolvedWorkspace = startedEvent.Workspace()
+					resolvedWorkspace = startedSession.Workspace()
 				}
 			}
 		}

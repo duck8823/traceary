@@ -18,6 +18,11 @@ func (s *eventRepositoryStub) Save(_ context.Context, event *model.Event) error 
 	return s.err
 }
 
+func (s *eventRepositoryStub) SaveWithAudit(_ context.Context, event *model.Event, _ *model.CommandAudit) error {
+	s.savedEvent = event
+	return s.err
+}
+
 func TestRecordLogUsecase_Run(t *testing.T) {
 	t.Parallel()
 

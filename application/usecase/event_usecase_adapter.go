@@ -7,38 +7,25 @@ import (
 
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
-	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 )
 
 type eventUsecaseAdapter struct {
-	recordLog       RecordLogUsecase
-	recordAudit     RecordCommandAuditUsecase
-	listRecent      queryservice.ListRecentEventsQueryService
-	searchEvents    queryservice.SearchEventsQueryService
-	getEventDetails queryservice.GetEventDetailsQueryService
-	getContext      queryservice.GetContextQueryService
-	listTimeline    queryservice.ListTimelineBlocksQueryService
+	recordLog   RecordLogUsecase
+	recordAudit RecordCommandAuditUsecase
+	eventQuery  queryservice.EventQueryService
 }
 
 // NewEventUsecaseAdapter creates an EventUsecase that delegates to existing usecases and queryservices.
 func NewEventUsecaseAdapter(
-		recordLog RecordLogUsecase,
+	recordLog RecordLogUsecase,
 	recordAudit RecordCommandAuditUsecase,
-	listRecent queryservice.ListRecentEventsQueryService,
-	searchEvents queryservice.SearchEventsQueryService,
-	getEventDetails queryservice.GetEventDetailsQueryService,
-	getContext queryservice.GetContextQueryService,
-	listTimeline queryservice.ListTimelineBlocksQueryService,
+	eventQuery queryservice.EventQueryService,
 ) EventUsecase {
 	return &eventUsecaseAdapter{
-		recordLog:       recordLog,
-		recordAudit:     recordAudit,
-		listRecent:      listRecent,
-		searchEvents:    searchEvents,
-		getEventDetails: getEventDetails,
-		getContext:      getContext,
-		listTimeline:    listTimeline,
+		recordLog:   recordLog,
+		recordAudit: recordAudit,
+		eventQuery:  eventQuery,
 	}
 }
 
@@ -49,7 +36,7 @@ func (a *eventUsecaseAdapter) Log(ctx context.Context, message string, kind type
 		Client:    client.String(),
 		Agent:     agent.String(),
 		SessionID: sessionID.String(),
-		Workspace:      workspace.String(),
+		Workspace: workspace.String(),
 	})
 	if err != nil {
 		return nil, xerrors.Errorf("failed to record log: %w", err)
@@ -65,7 +52,7 @@ func (a *eventUsecaseAdapter) Audit(ctx context.Context, command string, input s
 		Client:              client.String(),
 		Agent:               agent.String(),
 		SessionID:           sessionID.String(),
-		Workspace:                workspace.String(),
+		Workspace:           workspace.String(),
 		ExitCode:            exitCode,
 		AllowSecrets:        redaction.AllowSecrets,
 		MaxInputBytes:       redaction.MaxInputBytes,
@@ -79,19 +66,7 @@ func (a *eventUsecaseAdapter) Audit(ctx context.Context, command string, input s
 }
 
 func (a *eventUsecaseAdapter) Search(ctx context.Context, criteria EventSearchCriteria) ([]*model.Event, error) {
-	events, err := a.searchEvents.Run(ctx, port.SearchEventsInput{
-		Query:        criteria.Query,
-		Workspace:         criteria.Workspace.String(),
-		SessionID:    criteria.SessionID.String(),
-		Client:       criteria.Client.String(),
-		Agent:        criteria.Agent.String(),
-		Kind:         criteria.Kind.String(),
-		From:         criteria.From,
-		To:           criteria.To,
-		Limit:        criteria.Limit,
-		Offset:       criteria.Offset,
-		FailuresOnly: criteria.FailuresOnly,
-	})
+	events, err := a.eventQuery.Search(ctx, criteria.Query, criteria.Workspace.String(), criteria.SessionID.String(), criteria.Client.String(), criteria.Agent.String(), criteria.Kind.String(), criteria.From, criteria.To, criteria.Limit, criteria.Offset, criteria.FailuresOnly)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to search events: %w", err)
 	}
@@ -99,18 +74,7 @@ func (a *eventUsecaseAdapter) Search(ctx context.Context, criteria EventSearchCr
 }
 
 func (a *eventUsecaseAdapter) List(ctx context.Context, criteria EventListCriteria) ([]*model.Event, error) {
-	events, err := a.listRecent.Run(ctx, port.ListRecentEventsInput{
-		Limit:        criteria.Limit,
-		Offset:       criteria.Offset,
-		Kind:         criteria.Kind.String(),
-		Client:       criteria.Client.String(),
-		Agent:        criteria.Agent.String(),
-		SessionID:    criteria.SessionID.String(),
-		Workspace:         criteria.Workspace.String(),
-		FailuresOnly: criteria.FailuresOnly,
-		From:         criteria.From,
-		To:           criteria.To,
-	})
+	events, err := a.eventQuery.ListRecent(ctx, criteria.Limit, criteria.Offset, criteria.Kind.String(), criteria.Client.String(), criteria.Agent.String(), criteria.SessionID.String(), criteria.Workspace.String(), criteria.FailuresOnly, criteria.From, criteria.To)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list events: %w", err)
 	}
@@ -118,19 +82,15 @@ func (a *eventUsecaseAdapter) List(ctx context.Context, criteria EventListCriter
 }
 
 func (a *eventUsecaseAdapter) Show(ctx context.Context, eventID types.EventID) (*EventDetails, error) {
-	portDetails, err := a.getEventDetails.Run(ctx, eventID.String())
+	qsDetails, err := a.eventQuery.GetDetails(ctx, eventID.String())
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get event details: %w", err)
 	}
-	return NewEventDetails(portDetails.Event(), portDetails.CommandAudit())
+	return NewEventDetails(qsDetails.Event(), qsDetails.CommandAudit())
 }
 
 func (a *eventUsecaseAdapter) Context(ctx context.Context, criteria EventContextCriteria) ([]*model.Event, error) {
-	events, err := a.getContext.Run(ctx, port.GetContextInput{
-		Workspace:      criteria.Workspace.String(),
-		SessionID: criteria.SessionID.String(),
-		Limit:     criteria.Limit,
-	})
+	events, err := a.eventQuery.GetContext(ctx, criteria.Workspace.String(), criteria.SessionID.String(), criteria.Limit)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get context events: %w", err)
 	}
@@ -138,29 +98,23 @@ func (a *eventUsecaseAdapter) Context(ctx context.Context, criteria EventContext
 }
 
 func (a *eventUsecaseAdapter) Timeline(ctx context.Context, criteria TimelineCriteria) ([]*TimelineBlock, error) {
-	portBlocks, err := a.listTimeline.Run(ctx, port.ListTimelineBlocksInput{
-		Workspace:  criteria.Workspace.String(),
-		From:       criteria.From,
-		To:         criteria.To,
-		GapSeconds: criteria.GapSeconds,
-		Limit:      criteria.Limit,
-	})
+	qsBlocks, err := a.eventQuery.ListTimelineBlocks(ctx, criteria.Workspace.String(), criteria.From, criteria.To, criteria.GapSeconds, criteria.Limit)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list timeline blocks: %w", err)
 	}
 
-	blocks := make([]*TimelineBlock, 0, len(portBlocks))
-	for _, pb := range portBlocks {
+	blocks := make([]*TimelineBlock, 0, len(qsBlocks))
+	for _, qb := range qsBlocks {
 		kindCounts := make(map[string]int)
-		for _, k := range pb.Kinds {
+		for _, k := range qb.Kinds {
 			kindCounts[k]++
 		}
 		blocks = append(blocks, &TimelineBlock{
-			BlockStart: pb.BlockStart,
-			BlockEnd:   pb.BlockEnd,
-			EventCount: pb.EventCount,
-			Workspaces: pb.Workspaces,
-			Agents:     pb.Agents,
+			BlockStart: qb.BlockStart,
+			BlockEnd:   qb.BlockEnd,
+			EventCount: qb.EventCount,
+			Workspaces: qb.Workspaces,
+			Agents:     qb.Agents,
 			KindCounts: kindCounts,
 		})
 	}

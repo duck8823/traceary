@@ -6,13 +6,9 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/domain/port"
-
+	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
-
-// SessionLabelUpdater is defined in domain/port.
-type SessionLabelUpdater = port.SessionLabelUpdater
 
 // UpdateSessionLabelInput is the input for updating a session label.
 type UpdateSessionLabelInput struct {
@@ -26,17 +22,17 @@ type UpdateSessionLabelUsecase interface {
 }
 
 type updateSessionLabelUsecase struct {
-	updater SessionLabelUpdater
+	sessionRepo model.SessionRepository
 }
 
 // NewUpdateSessionLabelUsecase creates an UpdateSessionLabelUsecase.
-func NewUpdateSessionLabelUsecase(updater SessionLabelUpdater) UpdateSessionLabelUsecase {
-	return &updateSessionLabelUsecase{updater: updater}
+func NewUpdateSessionLabelUsecase(sessionRepo model.SessionRepository) UpdateSessionLabelUsecase {
+	return &updateSessionLabelUsecase{sessionRepo: sessionRepo}
 }
 
 func (u *updateSessionLabelUsecase) Run(ctx context.Context, input UpdateSessionLabelInput) error {
-	if u.updater == nil {
-		return xerrors.Errorf("session label updater is not configured")
+	if u.sessionRepo == nil {
+		return xerrors.Errorf("session repository is not configured")
 	}
 	trimmedSessionID := strings.TrimSpace(input.SessionID)
 	if trimmedSessionID == "" {
@@ -48,8 +44,15 @@ func (u *updateSessionLabelUsecase) Run(ctx context.Context, input UpdateSession
 		return xerrors.Errorf("failed to resolve session ID: %w", err)
 	}
 
-	if err := u.updater.UpdateSessionLabel(ctx, sessionID, input.Label); err != nil {
-		return xerrors.Errorf("failed to update session label: %w", err)
+	session, err := u.sessionRepo.FindByID(ctx, sessionID)
+	if err != nil {
+		return xerrors.Errorf("failed to find session: %w", err)
+	}
+
+	session.SetLabel(input.Label)
+
+	if err := u.sessionRepo.SaveSession(ctx, session); err != nil {
+		return xerrors.Errorf("failed to save session with label: %w", err)
 	}
 
 	return nil

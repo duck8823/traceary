@@ -7,8 +7,6 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/domain/port"
-
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -17,9 +15,6 @@ const (
 	maxAuditInputLength  = 64 * 1024
 	maxAuditOutputLength = 64 * 1024
 )
-
-// CommandAuditSaver is defined in domain/port.
-type CommandAuditSaver = port.CommandAuditSaver
 
 // RecordCommandAuditInput is the input for traceary audit recording.
 type RecordCommandAuditInput struct {
@@ -44,12 +39,12 @@ type RecordCommandAuditUsecase interface {
 }
 
 type recordCommandAuditUsecase struct {
-	commandAuditSaver CommandAuditSaver
+	eventRepo model.EventRepository
 }
 
 // NewRecordCommandAuditUsecase creates a RecordCommandAuditUsecase.
-func NewRecordCommandAuditUsecase(commandAuditSaver CommandAuditSaver) RecordCommandAuditUsecase {
-	return &recordCommandAuditUsecase{commandAuditSaver: commandAuditSaver}
+func NewRecordCommandAuditUsecase(eventRepo model.EventRepository) RecordCommandAuditUsecase {
+	return &recordCommandAuditUsecase{eventRepo: eventRepo}
 }
 
 // Run persists a command-audit event.
@@ -57,8 +52,8 @@ func (u *recordCommandAuditUsecase) Run(
 	ctx context.Context,
 	input RecordCommandAuditInput,
 ) (*model.Event, *model.CommandAudit, error) {
-	if u.commandAuditSaver == nil {
-		return nil, nil, xerrors.Errorf("command audit saver is not configured")
+	if u.eventRepo == nil {
+		return nil, nil, xerrors.Errorf("event repository is not configured")
 	}
 
 
@@ -127,7 +122,7 @@ func (u *recordCommandAuditUsecase) Run(
 		return nil, nil, xerrors.Errorf("failed to build audit event: %w", err)
 	}
 
-	if err := u.commandAuditSaver.SaveCommandAudit(ctx, event, commandAudit); err != nil {
+	if err := u.eventRepo.SaveWithAudit(ctx, event, commandAudit); err != nil {
 		return nil, nil, xerrors.Errorf("failed to save audit event: %w", err)
 	}
 

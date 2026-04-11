@@ -99,19 +99,18 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 		}
 
 		stub := &eventRepositoryStub{}
-		finder := &sessionStartedEventFinderStub{
-			event: model.EventOf(
-				mustEventID(t, "event-started"),
-				types.EventKindSessionStarted,
+		sessionStub := &sessionRepositoryStub{
+			session: model.SessionOf(
+				sessionID,
+				mustTime(t),
+				nil,
 				"hook",
 				startAgent,
-				sessionID,
 				"repo-from-start",
-				"session started",
-				mustTime(t),
+				"", "", "",
 			),
 		}
-		sut := usecase.NewRecordSessionBoundaryUsecase(stub, finder)
+		sut := usecase.NewRecordSessionBoundaryUsecase(stub, sessionStub)
 
 		got, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
 			DefaultClient: "cli",
@@ -146,19 +145,18 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 		}
 
 		stub := &eventRepositoryStub{}
-		finder := &sessionStartedEventFinderStub{
-			event: model.EventOf(
-				mustEventID(t, "event-started-2"),
-				types.EventKindSessionStarted,
+		sessionStub := &sessionRepositoryStub{
+			session: model.SessionOf(
+				sessionID,
+				mustTime(t),
+				nil,
 				"hook",
 				startAgent,
-				sessionID,
 				"repo-from-start",
-				"session started",
-				mustTime(t),
+				"", "", "",
 			),
 		}
-		sut := usecase.NewRecordSessionBoundaryUsecase(stub, finder)
+		sut := usecase.NewRecordSessionBoundaryUsecase(stub, sessionStub)
 
 		got, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
 			Client:        "cli",
@@ -187,8 +185,8 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventRepositoryStub{}
-		finder := &sessionStartedEventFinderStub{err: usecase.ErrSessionStartedEventNotFound}
-		sut := usecase.NewRecordSessionBoundaryUsecase(stub, finder)
+		sessionStub := &sessionRepositoryStub{findErr: usecase.ErrSessionStartedEventNotFound}
+		sut := usecase.NewRecordSessionBoundaryUsecase(stub, sessionStub)
 
 		got, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
 			DefaultClient: "cli",
@@ -211,8 +209,8 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventRepositoryStub{}
-		finder := &sessionStartedEventFinderStub{err: errors.New("boom")}
-		sut := usecase.NewRecordSessionBoundaryUsecase(stub, finder)
+		sessionStub := &sessionRepositoryStub{findErr: errors.New("boom")}
+		sut := usecase.NewRecordSessionBoundaryUsecase(stub, sessionStub)
 
 		_, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
 			DefaultClient: "cli",
@@ -226,45 +224,31 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 	})
 }
 
-type sessionStartedEventFinderStub struct {
-	event *model.Event
-	err   error
+type sessionRepositoryStub struct {
+	session    *model.Session
+	findErr    error
+	saveCalled bool
+	saved      *model.Session
+	saveErr    error
 }
 
-func (s *sessionStartedEventFinderStub) FindSessionStartedEvent(
+func (s *sessionRepositoryStub) FindByID(
 	_ context.Context,
 	_ types.SessionID,
-) (*model.Event, error) {
-	return s.event, s.err
+) (*model.Session, error) {
+	return s.session, s.findErr
 }
 
-func mustEventID(t *testing.T, value string) types.EventID {
-	t.Helper()
-
-	eventID, err := types.EventIDOf(value)
-	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
-	}
-
-	return eventID
+func (s *sessionRepositoryStub) SaveSession(_ context.Context, session *model.Session) error {
+	s.saveCalled = true
+	s.saved = session
+	return s.saveErr
 }
 
 func mustTime(t *testing.T) time.Time {
 	t.Helper()
 
 	return time.Date(2026, 4, 8, 13, 0, 0, 0, time.UTC)
-}
-
-type sessionSaverStub struct {
-	called  bool
-	session *model.Session
-	err     error
-}
-
-func (s *sessionSaverStub) SaveSession(_ context.Context, session *model.Session) error {
-	s.called = true
-	s.session = session
-	return s.err
 }
 
 func TestRecordSessionBoundaryUsecase_Run_SessionSaver(t *testing.T) {
@@ -274,8 +258,8 @@ func TestRecordSessionBoundaryUsecase_Run_SessionSaver(t *testing.T) {
 		t.Parallel()
 
 		eventStub := &eventRepositoryStub{}
-		sessionStub := &sessionSaverStub{}
-		sut := usecase.NewRecordSessionBoundaryUsecase(eventStub, nil, sessionStub)
+		sessionStub := &sessionRepositoryStub{}
+		sut := usecase.NewRecordSessionBoundaryUsecase(eventStub, sessionStub)
 
 		_, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
 			Client: "cli",
@@ -286,10 +270,10 @@ func TestRecordSessionBoundaryUsecase_Run_SessionSaver(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
 		}
-		if !sessionStub.called {
-			t.Fatalf("SessionSaver.SaveSession() was not called")
+		if !sessionStub.saveCalled {
+			t.Fatalf("SessionRepository.SaveSession() was not called")
 		}
-		if sessionStub.session.EndedAt() != nil {
+		if sessionStub.saved.EndedAt() != nil {
 			t.Fatalf("session.EndedAt() should be nil for start")
 		}
 	})
@@ -298,8 +282,8 @@ func TestRecordSessionBoundaryUsecase_Run_SessionSaver(t *testing.T) {
 		t.Parallel()
 
 		eventStub := &eventRepositoryStub{}
-		sessionStub := &sessionSaverStub{}
-		sut := usecase.NewRecordSessionBoundaryUsecase(eventStub, nil, sessionStub)
+		sessionStub := &sessionRepositoryStub{}
+		sut := usecase.NewRecordSessionBoundaryUsecase(eventStub, sessionStub)
 
 		_, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
 			Client:    "cli",
@@ -311,10 +295,10 @@ func TestRecordSessionBoundaryUsecase_Run_SessionSaver(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
 		}
-		if !sessionStub.called {
-			t.Fatalf("SessionSaver.SaveSession() was not called")
+		if !sessionStub.saveCalled {
+			t.Fatalf("SessionRepository.SaveSession() was not called")
 		}
-		if sessionStub.session.EndedAt() == nil {
+		if sessionStub.saved.EndedAt() == nil {
 			t.Fatalf("session.EndedAt() should not be nil for end")
 		}
 	})
@@ -323,8 +307,8 @@ func TestRecordSessionBoundaryUsecase_Run_SessionSaver(t *testing.T) {
 		t.Parallel()
 
 		eventStub := &eventRepositoryStub{}
-		sessionStub := &sessionSaverStub{err: errors.New("save failed")}
-		sut := usecase.NewRecordSessionBoundaryUsecase(eventStub, nil, sessionStub)
+		sessionStub := &sessionRepositoryStub{saveErr: errors.New("save failed")}
+		sut := usecase.NewRecordSessionBoundaryUsecase(eventStub, sessionStub)
 
 		_, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
 			Client: "cli",

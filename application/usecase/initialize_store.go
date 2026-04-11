@@ -5,11 +5,8 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/domain/port"
+	"github.com/duck8823/traceary/application"
 )
-
-// StoreInitializer is defined in domain/port.
-type StoreInitializer = port.StoreInitializer
 
 // InitializeStoreUsecase initializes the local store.
 type InitializeStoreUsecase interface {
@@ -18,17 +15,17 @@ type InitializeStoreUsecase interface {
 }
 
 type initializeStoreUsecase struct {
-	storeInitializer StoreInitializer
+	storeManager application.StoreManager
 }
 
 // NewInitializeStoreUsecase creates an InitializeStoreUsecase.
-func NewInitializeStoreUsecase(storeInitializer StoreInitializer) InitializeStoreUsecase {
-	return &initializeStoreUsecase{storeInitializer: storeInitializer}
+func NewInitializeStoreUsecase(storeManager application.StoreManager) InitializeStoreUsecase {
+	return &initializeStoreUsecase{storeManager: storeManager}
 }
 
 // Run initializes the local store.
 func (u *initializeStoreUsecase) Run(ctx context.Context) error {
-	if err := u.storeInitializer.Initialize(ctx); err != nil {
+	if err := u.storeManager.Initialize(ctx); err != nil {
 		return xerrors.Errorf("failed to initialize store: %w", err)
 	}
 	return nil

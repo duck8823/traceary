@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/duck8823/traceary/application/usecase"
 )
@@ -14,12 +15,22 @@ type storeBackupCreatorStub struct {
 	err                error
 }
 
+func (s *storeBackupCreatorStub) Initialize(_ context.Context) error { return nil }
 func (s *storeBackupCreatorStub) CreateBackup(_ context.Context, outputPath string, overwrite bool) error {
 	s.called = true
 	s.receivedOutputPath = outputPath
 	s.receivedOverwrite = overwrite
 
 	return s.err
+}
+func (s *storeBackupCreatorStub) RestoreBackup(_ context.Context, _ string, _ bool) error {
+	return nil
+}
+func (s *storeBackupCreatorStub) CollectGarbage(_ context.Context, _ time.Time, _ bool) (int, error) {
+	return 0, nil
+}
+func (s *storeBackupCreatorStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool) (int, error) {
+	return 0, nil
 }
 
 type storeBackupRestorerStub struct {
@@ -29,12 +40,22 @@ type storeBackupRestorerStub struct {
 	err               error
 }
 
+func (s *storeBackupRestorerStub) Initialize(_ context.Context) error { return nil }
+func (s *storeBackupRestorerStub) CreateBackup(_ context.Context, _ string, _ bool) error {
+	return nil
+}
 func (s *storeBackupRestorerStub) RestoreBackup(_ context.Context, inputPath string, overwrite bool) error {
 	s.called = true
 	s.receivedInputPath = inputPath
 	s.receivedOverwrite = overwrite
 
 	return s.err
+}
+func (s *storeBackupRestorerStub) CollectGarbage(_ context.Context, _ time.Time, _ bool) (int, error) {
+	return 0, nil
+}
+func (s *storeBackupRestorerStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool) (int, error) {
+	return 0, nil
 }
 
 func TestCreateStoreBackupUsecase_Run(t *testing.T) {
