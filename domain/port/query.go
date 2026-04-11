@@ -166,7 +166,6 @@ type SessionSummaryFinder interface {
 
 // TimelineBlock represents a contiguous work block separated by idle gaps.
 type TimelineBlock struct {
-	BlockNum   int
 	BlockStart time.Time
 	BlockEnd   time.Time
 	EventCount int
