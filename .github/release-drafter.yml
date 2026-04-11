@@ -1,0 +1,50 @@
+name-template: "v$RESOLVED_VERSION"
+tag-template: "v$RESOLVED_VERSION"
+
+template: |
+  ## What's Changed
+
+  $CHANGES
+
+  **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
+
+change-template: "- $TITLE (#$NUMBER)"
+
+categories:
+  - title: 'Features'
+    label: 'feature'
+  - title: 'Bug Fixes'
+    label: 'fix'
+  - title: 'Maintenance'
+    labels:
+      - 'maintenance'
+      - 'dependencies'
+
+version-resolver:
+  major:
+    labels:
+      - 'breaking'
+  minor:
+    labels:
+      - 'feature'
+  patch:
+    labels:
+      - 'fix'
+      - 'maintenance'
+      - 'dependencies'
+
+autolabeler:
+  - label: 'feature'
+    branch:
+      - '/feature\/.+/'
+  - label: 'fix'
+    branch:
+      - '/fix\/.+/'
+  - label: 'maintenance'
+    branch:
+      - '/maintenance\/.+/'
+  - label: 'dependencies'
+    files:
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/**'
