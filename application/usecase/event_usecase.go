@@ -7,16 +7,8 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-// AuditParams holds parameters for recording a command audit event.
-type AuditParams struct {
-	Command             string
-	Input               string
-	Output              string
-	Client              types.Client
-	Agent               types.Agent
-	SessionID           types.SessionID
-	Workspace           types.Workspace
-	ExitCode            *int
+// AuditRedaction holds redaction and truncation settings for command audit recording.
+type AuditRedaction struct {
 	AllowSecrets        bool
 	MaxInputBytes       int
 	MaxOutputBytes      int
@@ -29,7 +21,7 @@ type EventUsecase interface {
 	Log(ctx context.Context, message string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace) (*model.Event, error)
 
 	// Audit records a command execution audit event.
-	Audit(ctx context.Context, params AuditParams) (*model.Event, *model.CommandAudit, error)
+	Audit(ctx context.Context, command string, input string, output string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, exitCode *int, redaction AuditRedaction) (*model.Event, *model.CommandAudit, error)
 
 	// Search performs full-text search across events.
 	Search(ctx context.Context, criteria EventSearchCriteria) ([]*model.Event, error)

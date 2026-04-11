@@ -7,25 +7,15 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-// EndSessionParams holds parameters for ending a session.
-// Zero-value Client/Agent/Workspace falls back to the session start values.
-type EndSessionParams struct {
-	Client    types.Client
-	Agent     types.Agent
-	SessionID types.SessionID
-	Workspace types.Workspace
-	Summary   string
-}
-
 // SessionUsecase consolidates session lifecycle and query operations.
 type SessionUsecase interface {
 	// Start begins a new session. If sessionID is zero, a new ID is generated.
 	// Zero-value parentSessionID means no parent (top-level session).
 	Start(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, parentSessionID types.SessionID) (*model.Event, error)
 
-	// End closes an existing session. Zero-value fields in params fall back
-	// to values from the corresponding session_started event.
-	End(ctx context.Context, params EndSessionParams) (*model.Event, error)
+	// End closes an existing session. Zero-value client/agent/workspace
+	// falls back to values from the corresponding session_started event.
+	End(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, summary string) (*model.Event, error)
 
 	// Label updates the label on an existing session.
 	Label(ctx context.Context, sessionID types.SessionID, label string) error

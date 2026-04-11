@@ -57,21 +57,21 @@ func (a *eventUsecaseAdapter) Log(ctx context.Context, message string, client ty
 	return event, nil
 }
 
-func (a *eventUsecaseAdapter) Audit(ctx context.Context, params AuditParams) (*model.Event, *model.CommandAudit, error) {
+func (a *eventUsecaseAdapter) Audit(ctx context.Context, command string, input string, output string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, exitCode *int, redaction AuditRedaction) (*model.Event, *model.CommandAudit, error) {
 	event, audit, err := a.recordAudit.Run(ctx, RecordCommandAuditInput{
 		DBPath:              a.dbPath,
-		Command:             params.Command,
-		Input:               params.Input,
-		Output:              params.Output,
-		Client:              params.Client.String(),
-		Agent:               params.Agent.String(),
-		SessionID:           params.SessionID.String(),
-		Repo:                params.Workspace.String(),
-		ExitCode:            params.ExitCode,
-		AllowSecrets:        params.AllowSecrets,
-		MaxInputBytes:       params.MaxInputBytes,
-		MaxOutputBytes:      params.MaxOutputBytes,
-		ExtraRedactPatterns: params.ExtraRedactPatterns,
+		Command:             command,
+		Input:               input,
+		Output:              output,
+		Client:              client.String(),
+		Agent:               agent.String(),
+		SessionID:           sessionID.String(),
+		Repo:                workspace.String(),
+		ExitCode:            exitCode,
+		AllowSecrets:        redaction.AllowSecrets,
+		MaxInputBytes:       redaction.MaxInputBytes,
+		MaxOutputBytes:      redaction.MaxOutputBytes,
+		ExtraRedactPatterns: redaction.ExtraRedactPatterns,
 	})
 	if err != nil {
 		return nil, nil, xerrors.Errorf("failed to record audit: %w", err)

@@ -55,15 +55,15 @@ func (a *sessionUsecaseAdapter) Start(ctx context.Context, client types.Client, 
 	return event, nil
 }
 
-func (a *sessionUsecaseAdapter) End(ctx context.Context, params EndSessionParams) (*model.Event, error) {
+func (a *sessionUsecaseAdapter) End(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, summary string) (*model.Event, error) {
 	event, err := a.recordBoundary.Run(ctx, RecordSessionBoundaryInput{
 		DBPath:    a.dbPath,
-		Client:    params.Client.String(),
-		Agent:     params.Agent.String(),
-		SessionID: params.SessionID.String(),
-		Repo:      params.Workspace.String(),
+		Client:    client.String(),
+		Agent:     agent.String(),
+		SessionID: sessionID.String(),
+		Repo:      workspace.String(),
 		Kind:      types.EventKindSessionEnded,
-		Summary:   params.Summary,
+		Summary:   summary,
 	})
 	if err != nil {
 		return nil, xerrors.Errorf("failed to end session: %w", err)
