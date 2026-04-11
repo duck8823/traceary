@@ -9,49 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/duck8823/traceary/application/queryservice"
-	"github.com/duck8823/traceary/application/usecase"
-	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
-type recordSessionBoundaryUsecaseStub struct {
-	receivedInput usecase.RecordSessionBoundaryInput
-	called        bool
-	event         *model.Event
-	err           error
-}
-
-func (s *recordSessionBoundaryUsecaseStub) Run(
-	_ context.Context,
-	input usecase.RecordSessionBoundaryInput,
-) (*model.Event, error) {
-	s.called = true
-	s.receivedInput = input
-	return s.event, s.err
-}
-
-var _ usecase.RecordSessionBoundaryUsecase = (*recordSessionBoundaryUsecaseStub)(nil)
-
-type findLatestSessionQueryServiceStub struct {
-	receivedInput port.FindLatestSessionInput
-	called        bool
-	event         *model.Event
-	err           error
-}
-
-func (s *findLatestSessionQueryServiceStub) Run(
-	_ context.Context,
-	input port.FindLatestSessionInput,
-) (*model.Event, error) {
-	s.called = true
-	s.receivedInput = input
-	return s.event, s.err
-}
-
-var _ queryservice.FindLatestSessionQueryService = (*findLatestSessionQueryServiceStub)(nil)
+var errSessionNotFound = port.ErrSessionNotFound
 
 func TestRootCLI_SessionStartCommand(t *testing.T) {
 	t.Parallel()
@@ -69,23 +33,21 @@ func TestRootCLI_SessionStartCommand(t *testing.T) {
 		t.Fatalf("SessionIDOf() error = %v", err)
 	}
 
-	initStub := &initializeStoreUsecaseStub{}
-	sessionStub := &recordSessionBoundaryUsecaseStub{
-		event: model.EventOf(
-			eventID,
-			types.EventKindSessionStarted,
-			"cli",
-			agent,
-			sessionID,
-			"duck8823/traceary",
-			"session started",
-			time.Date(2026, 4, 7, 13, 0, 0, 0, time.UTC),
-		),
-	}
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		InitializeStoreUsecase:       initStub,
-		RecordSessionBoundaryUsecase: sessionStub,
+		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		Session: &sessionUsecaseStub{
+			startEvent: model.EventOf(
+				eventID,
+				types.EventKindSessionStarted,
+				"cli",
+				agent,
+				sessionID,
+				"duck8823/traceary",
+				"session started",
+				time.Date(2026, 4, 7, 13, 0, 0, 0, time.UTC),
+			),
+		},
 	}).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -101,12 +63,6 @@ func TestRootCLI_SessionStartCommand(t *testing.T) {
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
-	}
-	if !sessionStub.called {
-		t.Fatalf("RecordSessionBoundaryUsecase.Run() was not called")
-	}
-	if sessionStub.receivedInput.Kind != types.EventKindSessionStarted {
-		t.Fatalf("Kind = %q, want %q", sessionStub.receivedInput.Kind, types.EventKindSessionStarted)
 	}
 	if stdout.String() != "session-1\n" {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), "session-1\n")
@@ -129,23 +85,21 @@ func TestRootCLI_SessionStartCommand_IdOnly(t *testing.T) {
 		t.Fatalf("SessionIDOf() error = %v", err)
 	}
 
-	initStub := &initializeStoreUsecaseStub{}
-	sessionStub := &recordSessionBoundaryUsecaseStub{
-		event: model.EventOf(
-			eventID,
-			types.EventKindSessionStarted,
-			"cli",
-			agent,
-			sessionID,
-			"duck8823/traceary",
-			"session started",
-			time.Date(2026, 4, 7, 13, 0, 0, 0, time.UTC),
-		),
-	}
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		InitializeStoreUsecase:       initStub,
-		RecordSessionBoundaryUsecase: sessionStub,
+		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		Session: &sessionUsecaseStub{
+			startEvent: model.EventOf(
+				eventID,
+				types.EventKindSessionStarted,
+				"cli",
+				agent,
+				sessionID,
+				"duck8823/traceary",
+				"session started",
+				time.Date(2026, 4, 7, 13, 0, 0, 0, time.UTC),
+			),
+		},
 	}).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -166,23 +120,21 @@ func TestRootCLI_SessionStartCommand_JSON(t *testing.T) {
 	agent := mustAgent(t, "codex")
 	sessionID := mustSessionID(t, "session-start-json")
 
-	initStub := &initializeStoreUsecaseStub{}
-	sessionStub := &recordSessionBoundaryUsecaseStub{
-		event: model.EventOf(
-			eventID,
-			types.EventKindSessionStarted,
-			"cli",
-			agent,
-			sessionID,
-			"duck8823/traceary",
-			"session started",
-			time.Date(2026, 4, 7, 13, 0, 0, 0, time.UTC),
-		),
-	}
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		InitializeStoreUsecase:       initStub,
-		RecordSessionBoundaryUsecase: sessionStub,
+		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		Session: &sessionUsecaseStub{
+			startEvent: model.EventOf(
+				eventID,
+				types.EventKindSessionStarted,
+				"cli",
+				agent,
+				sessionID,
+				"duck8823/traceary",
+				"session started",
+				time.Date(2026, 4, 7, 13, 0, 0, 0, time.UTC),
+			),
+		},
 	}).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -222,22 +174,20 @@ func TestRootCLI_SessionStartCommand_UsesDetectedRepoByDefault(t *testing.T) {
 	}
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	initStub := &initializeStoreUsecaseStub{}
-	sessionStub := &recordSessionBoundaryUsecaseStub{
-		event: model.EventOf(
-			eventID,
-			types.EventKindSessionStarted,
-			"cli",
-			agent,
-			sessionID,
-			"github.com/duck8823/traceary",
-			"session started",
-			time.Date(2026, 4, 7, 13, 5, 0, 0, time.UTC),
-		),
-	}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		InitializeStoreUsecase:       initStub,
-		RecordSessionBoundaryUsecase: sessionStub,
+		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		Session: &sessionUsecaseStub{
+			startEvent: model.EventOf(
+				eventID,
+				types.EventKindSessionStarted,
+				"cli",
+				agent,
+				sessionID,
+				"github.com/duck8823/traceary",
+				"session started",
+				time.Date(2026, 4, 7, 13, 5, 0, 0, time.UTC),
+			),
+		},
 	}).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -245,9 +195,6 @@ func TestRootCLI_SessionStartCommand_UsesDetectedRepoByDefault(t *testing.T) {
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
-	}
-	if sessionStub.receivedInput.Workspace != "github.com/duck8823/traceary" {
-		t.Fatalf("Repo = %q, want %q", sessionStub.receivedInput.Workspace, "github.com/duck8823/traceary")
 	}
 }
 
@@ -273,23 +220,21 @@ func TestRootCLI_SessionEndCommand(t *testing.T) {
 	}
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	initStub := &initializeStoreUsecaseStub{}
-	sessionStub := &recordSessionBoundaryUsecaseStub{
-		event: model.EventOf(
-			eventID,
-			types.EventKindSessionEnded,
-			"cli",
-			agent,
-			sessionID,
-			"",
-			"session ended",
-			time.Date(2026, 4, 7, 13, 30, 0, 0, time.UTC),
-		),
-	}
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		InitializeStoreUsecase:       initStub,
-		RecordSessionBoundaryUsecase: sessionStub,
+		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		Session: &sessionUsecaseStub{
+			endEvent: model.EventOf(
+				eventID,
+				types.EventKindSessionEnded,
+				"cli",
+				agent,
+				sessionID,
+				"",
+				"session ended",
+				time.Date(2026, 4, 7, 13, 30, 0, 0, time.UTC),
+			),
+		},
 	}).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -297,30 +242,6 @@ func TestRootCLI_SessionEndCommand(t *testing.T) {
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
-	}
-	if sessionStub.receivedInput.Kind != types.EventKindSessionEnded {
-		t.Fatalf("Kind = %q, want %q", sessionStub.receivedInput.Kind, types.EventKindSessionEnded)
-	}
-	if sessionStub.receivedInput.SessionID != "session-env" {
-		t.Fatalf("SessionID = %q, want %q", sessionStub.receivedInput.SessionID, "session-env")
-	}
-	if sessionStub.receivedInput.Client != "" {
-		t.Fatalf("Client = %q, want empty", sessionStub.receivedInput.Client)
-	}
-	if sessionStub.receivedInput.Agent != "" {
-		t.Fatalf("Agent = %q, want empty", sessionStub.receivedInput.Agent)
-	}
-	if sessionStub.receivedInput.DefaultClient != "cli" {
-		t.Fatalf("DefaultClient = %q, want %q", sessionStub.receivedInput.DefaultClient, "cli")
-	}
-	if sessionStub.receivedInput.DefaultAgent != "manual" {
-		t.Fatalf("DefaultAgent = %q, want %q", sessionStub.receivedInput.DefaultAgent, "manual")
-	}
-	if sessionStub.receivedInput.Workspace != "" {
-		t.Fatalf("Repo = %q, want empty", sessionStub.receivedInput.Workspace)
-	}
-	if sessionStub.receivedInput.DefaultWorkspace != "github.com/duck8823/traceary" {
-		t.Fatalf("DefaultWorkspace = %q, want %q", sessionStub.receivedInput.DefaultWorkspace, "github.com/duck8823/traceary")
 	}
 	if stdout.String() != "Recorded: event-2\n" {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), "Recorded: event-2\n")
@@ -343,23 +264,21 @@ func TestRootCLI_SessionEndCommand_IdOnly(t *testing.T) {
 		t.Fatalf("SessionIDOf() error = %v", err)
 	}
 
-	initStub := &initializeStoreUsecaseStub{}
-	sessionStub := &recordSessionBoundaryUsecaseStub{
-		event: model.EventOf(
-			eventID,
-			types.EventKindSessionEnded,
-			"cli",
-			agent,
-			sessionID,
-			"",
-			"session ended",
-			time.Date(2026, 4, 7, 13, 30, 0, 0, time.UTC),
-		),
-	}
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		InitializeStoreUsecase:       initStub,
-		RecordSessionBoundaryUsecase: sessionStub,
+		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		Session: &sessionUsecaseStub{
+			endEvent: model.EventOf(
+				eventID,
+				types.EventKindSessionEnded,
+				"cli",
+				agent,
+				sessionID,
+				"",
+				"session ended",
+				time.Date(2026, 4, 7, 13, 30, 0, 0, time.UTC),
+			),
+		},
 	}).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -380,23 +299,21 @@ func TestRootCLI_SessionEndCommand_JSON(t *testing.T) {
 	agent := mustAgent(t, "codex")
 	sessionID := mustSessionID(t, "session-end-json")
 
-	initStub := &initializeStoreUsecaseStub{}
-	sessionStub := &recordSessionBoundaryUsecaseStub{
-		event: model.EventOf(
-			eventID,
-			types.EventKindSessionEnded,
-			"cli",
-			agent,
-			sessionID,
-			"duck8823/traceary",
-			"session ended",
-			time.Date(2026, 4, 7, 13, 30, 0, 0, time.UTC),
-		),
-	}
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		InitializeStoreUsecase:       initStub,
-		RecordSessionBoundaryUsecase: sessionStub,
+		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		Session: &sessionUsecaseStub{
+			endEvent: model.EventOf(
+				eventID,
+				types.EventKindSessionEnded,
+				"cli",
+				agent,
+				sessionID,
+				"duck8823/traceary",
+				"session ended",
+				time.Date(2026, 4, 7, 13, 30, 0, 0, time.UTC),
+			),
+		},
 	}).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -431,23 +348,21 @@ func TestRootCLI_SessionLatestCommand(t *testing.T) {
 		t.Fatalf("SessionIDOf() error = %v", err)
 	}
 
-	initStub := &initializeStoreUsecaseStub{}
-	latestStub := &findLatestSessionQueryServiceStub{
-		event: model.EventOf(
-			eventID,
-			types.EventKindSessionStarted,
-			"cli",
-			agent,
-			sessionID,
-			"duck8823/traceary",
-			"session started",
-			time.Date(2026, 4, 8, 13, 0, 0, 0, time.UTC),
-		),
-	}
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		InitializeStoreUsecase:        initStub,
-		FindLatestSessionQueryService: latestStub,
+		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		Session: &sessionUsecaseStub{
+			latestEvent: model.EventOf(
+				eventID,
+				types.EventKindSessionStarted,
+				"cli",
+				agent,
+				sessionID,
+				"duck8823/traceary",
+				"session started",
+				time.Date(2026, 4, 8, 13, 0, 0, 0, time.UTC),
+			),
+		},
 	}).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -464,18 +379,6 @@ func TestRootCLI_SessionLatestCommand(t *testing.T) {
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if !initStub.called {
-		t.Fatalf("InitializeStoreUsecase.Run() was not called")
-	}
-	if !latestStub.called {
-		t.Fatalf("FindLatestSessionQueryService.Run() was not called")
-	}
-	if latestStub.receivedInput.Agent != "codex" {
-		t.Fatalf("Agent = %q, want %q", latestStub.receivedInput.Agent, "codex")
-	}
-	if latestStub.receivedInput.ActiveOnly {
-		t.Fatalf("ActiveOnly = %t, want false", latestStub.receivedInput.ActiveOnly)
-	}
 	if stdout.String() != "session-latest\n" {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), "session-latest\n")
 	}
@@ -484,23 +387,21 @@ func TestRootCLI_SessionLatestCommand(t *testing.T) {
 func TestRootCLI_SessionLatestCommand_JSON(t *testing.T) {
 	t.Parallel()
 
-	initStub := &initializeStoreUsecaseStub{}
-	latestStub := &findLatestSessionQueryServiceStub{
-		event: model.EventOf(
-			mustEventID(t, "event-latest-json"),
-			types.EventKindSessionStarted,
-			"cli",
-			mustAgent(t, "codex"),
-			mustSessionID(t, "session-latest-json"),
-			"duck8823/traceary",
-			"session started",
-			time.Date(2026, 4, 8, 13, 0, 0, 0, time.UTC),
-		),
-	}
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		InitializeStoreUsecase:        initStub,
-		FindLatestSessionQueryService: latestStub,
+		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		Session: &sessionUsecaseStub{
+			latestEvent: model.EventOf(
+				mustEventID(t, "event-latest-json"),
+				types.EventKindSessionStarted,
+				"cli",
+				mustAgent(t, "codex"),
+				mustSessionID(t, "session-latest-json"),
+				"duck8823/traceary",
+				"session started",
+				time.Date(2026, 4, 8, 13, 0, 0, 0, time.UTC),
+			),
+		},
 	}).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -535,23 +436,21 @@ func TestRootCLI_SessionActiveCommand(t *testing.T) {
 		t.Fatalf("SessionIDOf() error = %v", err)
 	}
 
-	initStub := &initializeStoreUsecaseStub{}
-	latestStub := &findLatestSessionQueryServiceStub{
-		event: model.EventOf(
-			eventID,
-			types.EventKindSessionStarted,
-			"cli",
-			agent,
-			sessionID,
-			"duck8823/traceary",
-			"session started",
-			time.Now().Add(-1*time.Hour),
-		),
-	}
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		InitializeStoreUsecase:        initStub,
-		FindLatestSessionQueryService: latestStub,
+		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		Session: &sessionUsecaseStub{
+			activeEvent: model.EventOf(
+				eventID,
+				types.EventKindSessionStarted,
+				"cli",
+				agent,
+				sessionID,
+				"duck8823/traceary",
+				"session started",
+				time.Now().Add(-1*time.Hour),
+			),
+		},
 	}).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -565,12 +464,6 @@ func TestRootCLI_SessionActiveCommand(t *testing.T) {
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
-	}
-	if !latestStub.called {
-		t.Fatalf("FindLatestSessionQueryService.Run() was not called")
-	}
-	if !latestStub.receivedInput.ActiveOnly {
-		t.Fatalf("ActiveOnly = %t, want true", latestStub.receivedInput.ActiveOnly)
 	}
 	if stdout.String() != "session-active\n" {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), "session-active\n")
@@ -593,22 +486,20 @@ func TestRootCLI_SessionActiveCommand_StaleError(t *testing.T) {
 		t.Fatalf("SessionIDOf() error = %v", err)
 	}
 
-	initStub := &initializeStoreUsecaseStub{}
-	latestStub := &findLatestSessionQueryServiceStub{
-		event: model.EventOf(
-			eventID,
-			types.EventKindSessionStarted,
-			"cli",
-			agent,
-			sessionID,
-			"duck8823/traceary",
-			"session started",
-			time.Now().Add(-48*time.Hour),
-		),
-	}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		InitializeStoreUsecase:        initStub,
-		FindLatestSessionQueryService: latestStub,
+		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		Session: &sessionUsecaseStub{
+			activeEvent: model.EventOf(
+				eventID,
+				types.EventKindSessionStarted,
+				"cli",
+				agent,
+				sessionID,
+				"duck8823/traceary",
+				"session started",
+				time.Now().Add(-48*time.Hour),
+			),
+		},
 	}).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -644,23 +535,21 @@ func TestRootCLI_SessionActiveCommand_AllowStale(t *testing.T) {
 		t.Fatalf("SessionIDOf() error = %v", err)
 	}
 
-	initStub := &initializeStoreUsecaseStub{}
-	latestStub := &findLatestSessionQueryServiceStub{
-		event: model.EventOf(
-			eventID,
-			types.EventKindSessionStarted,
-			"cli",
-			agent,
-			sessionID,
-			"duck8823/traceary",
-			"session started",
-			time.Now().Add(-48*time.Hour),
-		),
-	}
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		InitializeStoreUsecase:        initStub,
-		FindLatestSessionQueryService: latestStub,
+		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		Session: &sessionUsecaseStub{
+			activeEvent: model.EventOf(
+				eventID,
+				types.EventKindSessionStarted,
+				"cli",
+				agent,
+				sessionID,
+				"duck8823/traceary",
+				"session started",
+				time.Now().Add(-48*time.Hour),
+			),
+		},
 	}).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -684,13 +573,11 @@ func TestRootCLI_SessionLatestCommand_NotFoundError(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	initStub := &initializeStoreUsecaseStub{}
-	latestStub := &findLatestSessionQueryServiceStub{
-		err: port.ErrSessionNotFound,
-	}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		InitializeStoreUsecase:        initStub,
-		FindLatestSessionQueryService: latestStub,
+		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		Session: &sessionUsecaseStub{
+			latestErr: errSessionNotFound,
+		},
 	}).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})

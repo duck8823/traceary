@@ -27,11 +27,11 @@ func TestRootCLI_InitCommand(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	stub := &initializeStoreUsecaseStub{}
+	stub := &storeMaintenanceUsecaseStub{}
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		InitializeStoreUsecase: stub,
+		StoreMaintenance: stub,
 	}).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(stderr)
@@ -40,7 +40,7 @@ func TestRootCLI_InitCommand(t *testing.T) {
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if !stub.called {
+	if !stub.initCalled {
 		t.Fatalf("Run() was not called")
 	}
 	wantOutput := "Initialized: " + dbPath + "\n"
@@ -108,11 +108,11 @@ func TestRootCLI_InitCommand_UsesTracearyDBPathEnv(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	t.Setenv("TRACEARY_DB_PATH", dbPath)
 
-	stub := &initializeStoreUsecaseStub{}
+	stub := &storeMaintenanceUsecaseStub{}
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		InitializeStoreUsecase: stub,
+		StoreMaintenance: stub,
 	}).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(stderr)

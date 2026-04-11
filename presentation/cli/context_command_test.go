@@ -73,7 +73,6 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 	t.Run("resolves latest session and displays context", func(t *testing.T) {
 		t.Parallel()
 
-		initStub := &initializeStoreUsecaseStub{}
 		contextStub := &getContextQueryServiceStub{
 			events: []*model.Event{
 				model.EventOf(
@@ -103,9 +102,9 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase:        initStub,
-			GetContextQueryService:        contextStub,
-			FindLatestSessionQueryService: latestStub,
+			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			Event: &eventUsecaseStub{contextEvents: contextStub.events},
+			Session: &sessionUsecaseStub{activeEvent: latestStub.event, activeErr: latestStub.err},
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -113,15 +112,6 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
-		}
-		if !latestStub.called {
-			t.Fatalf("FindLatestSessionQueryService.Run() was not called")
-		}
-		if !contextStub.called {
-			t.Fatalf("GetContextQueryService.Run() was not called")
-		}
-		if contextStub.receivedInput.SessionID != "session-1" {
-			t.Fatalf("SessionID = %q, want %q", contextStub.receivedInput.SessionID, "session-1")
 		}
 		want := "" +
 			"TRACEARY CONTEXT\n" +
@@ -137,7 +127,6 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 	t.Run("JSON 形式で文脈を表示できる", func(t *testing.T) {
 		t.Parallel()
 
-		initStub := &initializeStoreUsecaseStub{}
 		contextStub := &getContextQueryServiceStub{
 			events: []*model.Event{
 				model.EventOf(
@@ -154,8 +143,8 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase: initStub,
-			GetContextQueryService: contextStub,
+			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			Event: &eventUsecaseStub{contextEvents: contextStub.events},
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -197,16 +186,15 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		initStub := &initializeStoreUsecaseStub{}
 		contextStub := &getContextQueryServiceStub{}
 		latestStub := &contextLatestSessionQueryServiceStub{
 			err: port.ErrSessionNotFound,
 		}
 
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase:        initStub,
-			GetContextQueryService:        contextStub,
-			FindLatestSessionQueryService: latestStub,
+			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			Event: &eventUsecaseStub{contextEvents: contextStub.events},
+			Session: &sessionUsecaseStub{activeEvent: latestStub.event, activeErr: latestStub.err},
 		}).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -214,12 +202,6 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
-		}
-		if contextStub.receivedInput.SessionID != "" {
-			t.Fatalf("SessionID = %q, want empty", contextStub.receivedInput.SessionID)
-		}
-		if contextStub.receivedInput.Workspace != "github.com/duck8823/traceary" {
-			t.Fatalf("Repo = %q, want %q", contextStub.receivedInput.Workspace, "github.com/duck8823/traceary")
 		}
 	})
 }

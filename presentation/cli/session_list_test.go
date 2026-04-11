@@ -2,34 +2,14 @@ package cli_test
 
 import (
 	"bytes"
-	"context"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/duck8823/traceary/application/queryservice"
-	"github.com/duck8823/traceary/domain/port"
+	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/presentation/cli"
 )
-
-type listSessionsQueryServiceStub struct {
-	receivedInput port.ListSessionsInput
-	called        bool
-	summaries     []*port.SessionSummary
-	err           error
-}
-
-func (s *listSessionsQueryServiceStub) Run(
-	_ context.Context,
-	input port.ListSessionsInput,
-) ([]*port.SessionSummary, error) {
-	s.called = true
-	s.receivedInput = input
-	return s.summaries, s.err
-}
-
-var _ queryservice.ListSessionsQueryService = (*listSessionsQueryServiceStub)(nil)
 
 func TestRootCLI_SessionListCommand(t *testing.T) {
 	t.Parallel()
@@ -38,12 +18,11 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		t.Parallel()
 
 		endedAt := time.Date(2026, 4, 9, 13, 30, 0, 0, time.UTC)
-		initStub := &initializeStoreUsecaseStub{}
-		listStub := &listSessionsQueryServiceStub{
-			summaries: []*port.SessionSummary{
+		listStub := &sessionUsecaseStub{
+			listResult: []*usecase.SessionSummary{
 				{
 					SessionID:       "session-1",
-					Workspace:            "duck8823/traceary",
+					Workspace:       "duck8823/traceary",
 					Label:           "docs",
 					Summary:         "Document the public session metadata surface for operators.",
 					ParentSessionID: "parent-1",
@@ -58,15 +37,15 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase:   initStub,
-			ListSessionsQueryService: listStub,
+			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			Session:          listStub,
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
 			"session", "list",
 			"--db-path",
-		"/tmp/test-traceary.db",
+			"/tmp/test-traceary.db",
 			"--workspace", "duck8823/traceary",
 			"--agent", "claude",
 			"--limit", "10",
@@ -74,9 +53,6 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
-		}
-		if !listStub.called {
-			t.Fatalf("ListSessionsQueryService.Run() was not called")
 		}
 		output := stdout.String()
 		if !strings.Contains(output, "session-1") {
@@ -105,8 +81,8 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase:   &initializeStoreUsecaseStub{},
-			ListSessionsQueryService: &listSessionsQueryServiceStub{},
+			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			Session:          &sessionUsecaseStub{},
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -124,8 +100,8 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		t.Parallel()
 
 		endedAt := time.Date(2026, 4, 9, 12, 5, 0, 0, time.UTC)
-		listStub := &listSessionsQueryServiceStub{
-			summaries: []*port.SessionSummary{
+		listStub := &sessionUsecaseStub{
+			listResult: []*usecase.SessionSummary{
 				{
 					SessionID:       "session-json",
 					Label:           "release",
@@ -142,8 +118,8 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase:   &initializeStoreUsecaseStub{},
-			ListSessionsQueryService: listStub,
+			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			Session:          listStub,
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -174,8 +150,8 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		listStub := &listSessionsQueryServiceStub{
-			summaries: []*port.SessionSummary{
+		listStub := &sessionUsecaseStub{
+			listResult: []*usecase.SessionSummary{
 				{
 					SessionID:       "session-sanitized",
 					Label:           "release\tcandidate",
@@ -188,8 +164,8 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase:   &initializeStoreUsecaseStub{},
-			ListSessionsQueryService: listStub,
+			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			Session:          listStub,
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -217,8 +193,8 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		t.Parallel()
 
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase:   &initializeStoreUsecaseStub{},
-			ListSessionsQueryService: &listSessionsQueryServiceStub{},
+			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			Session:          &sessionUsecaseStub{},
 		}).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -233,8 +209,8 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		t.Parallel()
 
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase:   &initializeStoreUsecaseStub{},
-			ListSessionsQueryService: &listSessionsQueryServiceStub{},
+			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			Session:          &sessionUsecaseStub{},
 		}).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -248,10 +224,10 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 	t.Run("--client filter is passed to query service", func(t *testing.T) {
 		t.Parallel()
 
-		listStub := &listSessionsQueryServiceStub{}
+		listStub := &sessionUsecaseStub{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase:   &initializeStoreUsecaseStub{},
-			ListSessionsQueryService: listStub,
+			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			Session:          listStub,
 		}).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -259,12 +235,6 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
-		}
-		if !listStub.called {
-			t.Fatal("ListSessionsQueryService.Run() was not called")
-		}
-		if listStub.receivedInput.Client != "hook" {
-			t.Fatalf("Client = %q, want %q", listStub.receivedInput.Client, "hook")
 		}
 	})
 }

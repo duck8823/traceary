@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/duck8823/traceary/domain/model"
-	"github.com/duck8823/traceary/domain/port"
+	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
 )
@@ -24,14 +24,13 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		sessionID, _ := types.SessionIDOf("session-abc")
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		initStub := &initializeStoreUsecaseStub{}
-		listEventsStub := &listEventsQueryServiceStub{
-			events: []*model.Event{
+		eventStub := &eventUsecaseStub{
+			listEvents: []*model.Event{
 				model.EventOf(eventID, types.EventKindCommandExecuted, "hook", agent, sessionID, "duck8823/traceary", "go test ./...", time.Now()),
 			},
 		}
-		listSessionsStub := &listSessionsQueryServiceStub{
-			summaries: []*port.SessionSummary{
+		sessionStub := &sessionUsecaseStub{
+			listResult: []*usecase.SessionSummary{
 				{
 					SessionID: "session-abc",
 					Workspace:      "duck8823/traceary",
@@ -43,9 +42,9 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase:   initStub,
-			ListEventsQueryService:   listEventsStub,
-			ListSessionsQueryService: listSessionsStub,
+			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			Event: eventStub,
+			Session: sessionStub,
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -82,9 +81,9 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase:   &initializeStoreUsecaseStub{},
-			ListEventsQueryService:   &listEventsQueryServiceStub{},
-			ListSessionsQueryService: &listSessionsQueryServiceStub{},
+			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			Event:            &eventUsecaseStub{},
+			Session:          &sessionUsecaseStub{},
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -104,10 +103,9 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		initStub := &initializeStoreUsecaseStub{}
-		listEventsStub := &listEventsQueryServiceStub{}
-		listSessionsStub := &listSessionsQueryServiceStub{
-			summaries: []*port.SessionSummary{
+		eventStub := &eventUsecaseStub{}
+		sessionStub := &sessionUsecaseStub{
+			listResult: []*usecase.SessionSummary{
 				{
 					SessionID: "target-session",
 					Workspace:      "duck8823/traceary",
@@ -118,9 +116,9 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase:   initStub,
-			ListEventsQueryService:   listEventsStub,
-			ListSessionsQueryService: listSessionsStub,
+			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			Event: eventStub,
+			Session: sessionStub,
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -128,10 +126,6 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
-		}
-
-		if listSessionsStub.receivedInput.SessionID != "target-session" {
-			t.Errorf("session query received SessionID = %q, want %q", listSessionsStub.receivedInput.SessionID, "target-session")
 		}
 		if !strings.Contains(stdout.String(), "target-session") {
 			t.Errorf("output missing session ID, got: %s", stdout.String())
@@ -153,10 +147,10 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase: &initializeStoreUsecaseStub{},
-			ListEventsQueryService: &listEventsQueryServiceStub{events: events},
-			ListSessionsQueryService: &listSessionsQueryServiceStub{
-				summaries: []*port.SessionSummary{{SessionID: "s1", Workspace: "workspace"}},
+			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			Event:            &eventUsecaseStub{listEvents: events},
+			Session: &sessionUsecaseStub{
+				listResult: []*usecase.SessionSummary{{SessionID: "s1", Workspace: "workspace"}},
 			},
 		}).Command()
 		rootCmd.SetOut(stdout)

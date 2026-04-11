@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"time"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,15 +67,22 @@ func TestConfirmBackupRestore(t *testing.T) {
 }
 
 type restoreStoreBackupUsecaseForTest struct {
-	input  usecase.RestoreStoreBackupInput
 	called bool
 }
 
-func (s *restoreStoreBackupUsecaseForTest) Run(_ context.Context, input usecase.RestoreStoreBackupInput) error {
-	s.called = true
-	s.input = input
-
+func (s *restoreStoreBackupUsecaseForTest) Initialize(_ context.Context) error { return nil }
+func (s *restoreStoreBackupUsecaseForTest) CreateBackup(_ context.Context, _ string, _ bool) error {
 	return nil
+}
+func (s *restoreStoreBackupUsecaseForTest) RestoreBackup(_ context.Context, _ string, _ bool) error {
+	s.called = true
+	return nil
+}
+func (s *restoreStoreBackupUsecaseForTest) CollectGarbage(_ context.Context, _ time.Time, _ bool) (*usecase.CollectGarbageResult, error) {
+	return nil, nil
+}
+func (s *restoreStoreBackupUsecaseForTest) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool) (*usecase.CloseStaleSessionsResult, error) {
+	return nil, nil
 }
 
 func TestRunBackupRestore_InteractiveConfirmation(t *testing.T) {
@@ -91,7 +99,7 @@ func TestRunBackupRestore_InteractiveConfirmation(t *testing.T) {
 
 	restoreBackup := &restoreStoreBackupUsecaseForTest{}
 	rootCLI := NewRootCLI(RootCLIOptions{
-		RestoreStoreBackupUsecase: restoreBackup,
+		StoreMaintenance: restoreBackup,
 	})
 	stdout := &bytes.Buffer{}
 
@@ -129,7 +137,7 @@ func TestRunBackupRestore_AssumeYesSkipsInteractiveConfirmation(t *testing.T) {
 
 	restoreBackup := &restoreStoreBackupUsecaseForTest{}
 	rootCLI := NewRootCLI(RootCLIOptions{
-		RestoreStoreBackupUsecase: restoreBackup,
+		StoreMaintenance: restoreBackup,
 	})
 	stdout := &bytes.Buffer{}
 

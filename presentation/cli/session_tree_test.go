@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/duck8823/traceary/domain/port"
+	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
@@ -19,9 +19,8 @@ func TestRootCLI_SessionTreeCommand_JSON(t *testing.T) {
 		t.Parallel()
 
 		endedAt := time.Date(2026, 4, 9, 13, 30, 0, 0, time.UTC)
-		initStub := &initializeStoreUsecaseStub{}
-		listStub := &listSessionsQueryServiceStub{
-			summaries: []*port.SessionSummary{
+		listStub := &sessionUsecaseStub{
+			listResult: []*usecase.SessionSummary{
 				{
 					SessionID:   "root-session",
 					Workspace:        "duck8823/traceary",
@@ -47,8 +46,8 @@ func TestRootCLI_SessionTreeCommand_JSON(t *testing.T) {
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase:   initStub,
-			ListSessionsQueryService: listStub,
+			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			Session: listStub,
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -103,8 +102,8 @@ func TestRootCLI_SessionTreeCommand_JSON(t *testing.T) {
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase:   &initializeStoreUsecaseStub{},
-			ListSessionsQueryService: &listSessionsQueryServiceStub{},
+			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			Session: &sessionUsecaseStub{},
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -122,8 +121,8 @@ func TestRootCLI_SessionTreeCommand_JSON(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		listStub := &listSessionsQueryServiceStub{
-			summaries: []*port.SessionSummary{
+		listStub := &sessionUsecaseStub{
+			listResult: []*usecase.SessionSummary{
 				{
 					SessionID:   "text-session",
 					Workspace:        "duck8823/traceary",
@@ -137,8 +136,8 @@ func TestRootCLI_SessionTreeCommand_JSON(t *testing.T) {
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			InitializeStoreUsecase:   &initializeStoreUsecaseStub{},
-			ListSessionsQueryService: listStub,
+			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			Session: listStub,
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
