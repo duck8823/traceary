@@ -3,3 +3,5 @@
 *.sqlite
 .DS_Store
 dist/
+.cache/
+.ai-logs/
