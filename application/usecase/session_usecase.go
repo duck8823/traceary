@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -21,11 +22,11 @@ type SessionUsecase interface {
 	Label(ctx context.Context, sessionID types.SessionID, label string) error
 
 	// List returns session summaries matching the criteria.
-	List(ctx context.Context, criteria SessionListCriteria) ([]*SessionSummary, error)
+	List(ctx context.Context, criteria SessionListCriteria) ([]apptypes.SessionSummary, error)
 
 	// Tree returns session summaries as a hierarchy for the given workspace.
 	// Zero-value workspace returns sessions across all workspaces.
-	Tree(ctx context.Context, workspace types.Workspace, limit int) ([]*SessionSummary, error)
+	Tree(ctx context.Context, workspace types.Workspace, limit int) ([]apptypes.SessionSummary, error)
 
 	// Active returns the session_started event for the active session matching the criteria.
 	// Returns an empty Optional when no active session exists.
@@ -37,5 +38,6 @@ type SessionUsecase interface {
 
 	// Handoff returns a concise summary for session context transfer between agents.
 	// Zero-value workspace means no workspace filter.
-	Handoff(ctx context.Context, sessionID types.SessionID, workspace types.Workspace, recent int) (*HandoffSummary, error)
+	// Returns an empty Optional when no matching session exists.
+	Handoff(ctx context.Context, sessionID types.SessionID, workspace types.Workspace, recent int) (types.Optional[apptypes.HandoffSummary], error)
 }

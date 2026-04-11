@@ -57,8 +57,8 @@ type SessionListCriteria struct {
 	Client    types.Client
 	Agent     types.Agent
 	Label     string
-	From      *time.Time
-	To        *time.Time
+	From      types.Optional[time.Time]
+	To        types.Optional[time.Time]
 }
 
 // SessionLookupCriteria holds filter parameters for single-session lookup

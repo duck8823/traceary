@@ -7,7 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/duck8823/traceary/application/usecase"
+	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
@@ -19,20 +20,20 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 
 		endedAt := time.Date(2026, 4, 9, 13, 30, 0, 0, time.UTC)
 		listStub := &sessionUsecaseStub{
-			listResult: []*usecase.SessionSummary{
-				{
-					SessionID:       "session-1",
-					Workspace:       "duck8823/traceary",
-					Label:           "docs",
-					Summary:         "Document the public session metadata surface for operators.",
-					ParentSessionID: "parent-1",
-					StartedAt:       time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
-					EndedAt:         &endedAt,
-					Status:          "ended",
-					TotalEvents:     42,
-					CommandCount:    30,
-					Agents:          []string{"claude", "codex"},
-				},
+			listResult: []apptypes.SessionSummary{
+				apptypes.NewSessionSummary(
+					types.SessionID("session-1"),
+					types.Workspace("duck8823/traceary"),
+					time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
+					types.Of(endedAt),
+					"ended",
+					42,
+					30,
+					[]string{"claude", "codex"},
+					"docs",
+					"Document the public session metadata surface for operators.",
+					types.SessionID("parent-1"),
+				),
 			},
 		}
 		stdout := &bytes.Buffer{}
@@ -101,19 +102,20 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 
 		endedAt := time.Date(2026, 4, 9, 12, 5, 0, 0, time.UTC)
 		listStub := &sessionUsecaseStub{
-			listResult: []*usecase.SessionSummary{
-				{
-					SessionID:       "session-json",
-					Label:           "release",
-					Summary:         "Prepare release notes",
-					ParentSessionID: "root-session",
-					StartedAt:       time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
-					EndedAt:         &endedAt,
-					Status:          "ended",
-					TotalEvents:     5,
-					CommandCount:    3,
-					Agents:          []string{"claude"},
-				},
+			listResult: []apptypes.SessionSummary{
+				apptypes.NewSessionSummary(
+					types.SessionID("session-json"),
+					types.Workspace(""),
+					time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
+					types.Of(endedAt),
+					"ended",
+					5,
+					3,
+					[]string{"claude"},
+					"release",
+					"Prepare release notes",
+					types.SessionID("root-session"),
+				),
 			},
 		}
 		stdout := &bytes.Buffer{}
@@ -151,15 +153,20 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		listStub := &sessionUsecaseStub{
-			listResult: []*usecase.SessionSummary{
-				{
-					SessionID:       "session-sanitized",
-					Label:           "release\tcandidate",
-					Summary:         "Keep summary output readable",
-					ParentSessionID: "root\nsession",
-					StartedAt:       time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
-					Status:          "active",
-				},
+			listResult: []apptypes.SessionSummary{
+				apptypes.NewSessionSummary(
+					types.SessionID("session-sanitized"),
+					types.Workspace(""),
+					time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
+					types.Empty[time.Time](),
+					"active",
+					0,
+					0,
+					nil,
+					"release\tcandidate",
+					"Keep summary output readable",
+					types.SessionID("root\nsession"),
+				),
 			},
 		}
 		stdout := &bytes.Buffer{}

@@ -156,21 +156,21 @@ func run() error {
 		return xerrors.Errorf("%s: %w", cli.Localize("failed to resolve DB path", "DBパスの解決に失敗しました"), err)
 	}
 	store := sqlite.NewStore(dbPath, migrationsSubFS)
-	initStore := usecase.NewInitializeStoreUsecase(store)
-	recordLog := usecase.NewRecordLogUsecase(store)
-	recordAudit := usecase.NewRecordCommandAuditUsecase(store)
-	recordBoundary := usecase.NewRecordSessionBoundaryUsecase(store, store)
-	updateLabel := usecase.NewUpdateSessionLabelUsecase(store)
-	createBackup := usecase.NewCreateStoreBackupUsecase(store)
-	restoreBackup := usecase.NewRestoreStoreBackupUsecase(store)
-	collectGarbage := usecase.NewCollectGarbageUsecase(store)
-	closeStaleSessions := usecase.NewCloseStaleSessionsUsecase(store)
+	initStore := usecase.NewInitializeStoreUsecase(store.StoreManager)
+	recordLog := usecase.NewRecordLogUsecase(store.EventRepository)
+	recordAudit := usecase.NewRecordCommandAuditUsecase(store.EventRepository)
+	recordBoundary := usecase.NewRecordSessionBoundaryUsecase(store.EventRepository, store.SessionRepository)
+	updateLabel := usecase.NewUpdateSessionLabelUsecase(store.SessionRepository)
+	createBackup := usecase.NewCreateStoreBackupUsecase(store.StoreManager)
+	restoreBackup := usecase.NewRestoreStoreBackupUsecase(store.StoreManager)
+	collectGarbage := usecase.NewCollectGarbageUsecase(store.StoreManager)
+	closeStaleSessions := usecase.NewCloseStaleSessionsUsecase(store.StoreManager)
 
 	eventUsecase := usecase.NewEventUsecaseAdapter(
-		recordLog, recordAudit, store,
+		recordLog, recordAudit, store.EventQueryService,
 	)
 	sessionUsecase := usecase.NewSessionUsecaseAdapter(
-		recordBoundary, updateLabel, store, store,
+		recordBoundary, updateLabel, store.SessionQueryService, store.EventQueryService,
 	)
 	storeMaintenanceUsecase := usecase.NewStoreMaintenanceUsecaseAdapter(
 		initStore, createBackup, restoreBackup,

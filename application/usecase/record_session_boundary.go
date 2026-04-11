@@ -95,7 +95,7 @@ func (u *recordSessionBoundaryUsecase) Run(
 
 	if u.sessionRepo != nil {
 		session := buildSessionFromBoundary(event, input.Kind, input.Summary, input.ParentSessionID)
-		if err := u.sessionRepo.SaveSession(ctx, session); err != nil {
+		if err := u.sessionRepo.Save(ctx, session); err != nil {
 			return nil, xerrors.Errorf("failed to save session metadata: %w", err)
 		}
 	}

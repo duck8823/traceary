@@ -87,12 +87,12 @@ func (c *RootCLI) printCompactSummary(
 
 	if len(sessions) > 0 {
 		s := sessions[0]
-		fmt.Fprintf(&sb, "Session %s resumed after compact\n", s.SessionID)
-		if s.Workspace != "" {
-			fmt.Fprintf(&sb, "  repo: %s\n", s.Workspace)
+		fmt.Fprintf(&sb, "Session %s resumed after compact\n", s.SessionID())
+		if s.Workspace().String() != "" {
+			fmt.Fprintf(&sb, "  repo: %s\n", s.Workspace())
 		}
-		if s.Label != "" {
-			fmt.Fprintf(&sb, "  label: %s\n", s.Label)
+		if s.Label() != "" {
+			fmt.Fprintf(&sb, "  label: %s\n", s.Label())
 		}
 	} else {
 		sb.WriteString("No active session\n")

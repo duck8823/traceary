@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -20,11 +21,11 @@ type eventUsecaseStub struct {
 	searchErr      error
 	listEvents     []*model.Event
 	listErr        error
-	showDetails    *usecase.EventDetails
+	showDetails    apptypes.EventDetails
 	showErr        error
 	contextEvents  []*model.Event
 	contextErr     error
-	timelineBlocks []*usecase.TimelineBlock
+	timelineBlocks []apptypes.TimelineBlock
 	timelineErr    error
 }
 
@@ -40,13 +41,13 @@ func (s *eventUsecaseStub) Search(_ context.Context, _ usecase.EventSearchCriter
 func (s *eventUsecaseStub) List(_ context.Context, _ usecase.EventListCriteria) ([]*model.Event, error) {
 	return s.listEvents, s.listErr
 }
-func (s *eventUsecaseStub) Show(_ context.Context, _ types.EventID) (*usecase.EventDetails, error) {
+func (s *eventUsecaseStub) Show(_ context.Context, _ types.EventID) (apptypes.EventDetails, error) {
 	return s.showDetails, s.showErr
 }
 func (s *eventUsecaseStub) Context(_ context.Context, _ usecase.EventContextCriteria) ([]*model.Event, error) {
 	return s.contextEvents, s.contextErr
 }
-func (s *eventUsecaseStub) Timeline(_ context.Context, _ usecase.TimelineCriteria) ([]*usecase.TimelineBlock, error) {
+func (s *eventUsecaseStub) Timeline(_ context.Context, _ usecase.TimelineCriteria) ([]apptypes.TimelineBlock, error) {
 	return s.timelineBlocks, s.timelineErr
 }
 
@@ -57,15 +58,15 @@ type sessionUsecaseStub struct {
 	endEvent    *model.Event
 	endErr      error
 	labelErr    error
-	listResult  []*usecase.SessionSummary
+	listResult  []apptypes.SessionSummary
 	listErr     error
-	treeResult  []*usecase.SessionSummary
+	treeResult  []apptypes.SessionSummary
 	treeErr     error
 	activeEvent *model.Event
 	activeErr   error
 	latestEvent *model.Event
 	latestErr   error
-	handoff     *usecase.HandoffSummary
+	handoff     types.Optional[apptypes.HandoffSummary]
 	handoffErr  error
 }
 
@@ -78,10 +79,10 @@ func (s *sessionUsecaseStub) End(_ context.Context, _ types.Client, _ types.Agen
 func (s *sessionUsecaseStub) Label(_ context.Context, _ types.SessionID, _ string) error {
 	return s.labelErr
 }
-func (s *sessionUsecaseStub) List(_ context.Context, _ usecase.SessionListCriteria) ([]*usecase.SessionSummary, error) {
+func (s *sessionUsecaseStub) List(_ context.Context, _ usecase.SessionListCriteria) ([]apptypes.SessionSummary, error) {
 	return s.listResult, s.listErr
 }
-func (s *sessionUsecaseStub) Tree(_ context.Context, _ types.Workspace, _ int) ([]*usecase.SessionSummary, error) {
+func (s *sessionUsecaseStub) Tree(_ context.Context, _ types.Workspace, _ int) ([]apptypes.SessionSummary, error) {
 	return s.treeResult, s.treeErr
 }
 func (s *sessionUsecaseStub) Active(_ context.Context, _ usecase.SessionLookupCriteria) (types.Optional[*model.Event], error) {
@@ -102,7 +103,7 @@ func (s *sessionUsecaseStub) Latest(_ context.Context, _ usecase.SessionLookupCr
 	}
 	return types.Of(s.latestEvent), nil
 }
-func (s *sessionUsecaseStub) Handoff(_ context.Context, _ types.SessionID, _ types.Workspace, _ int) (*usecase.HandoffSummary, error) {
+func (s *sessionUsecaseStub) Handoff(_ context.Context, _ types.SessionID, _ types.Workspace, _ int) (types.Optional[apptypes.HandoffSummary], error) {
 	return s.handoff, s.handoffErr
 }
 

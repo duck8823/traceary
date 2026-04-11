@@ -528,7 +528,7 @@ type sessionHandoffOutput struct {
 
 func (s *Server) sessionHandoff(_ string) mcp.ToolHandlerFor[sessionHandoffInput, sessionHandoffOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input sessionHandoffInput) (*mcp.CallToolResult, sessionHandoffOutput, error) {
-		summary, err := s.session.Handoff(ctx,
+		result, err := s.session.Handoff(ctx,
 			types.SessionID(strings.TrimSpace(input.SessionID)),
 			types.Workspace(strings.TrimSpace(input.Workspace)),
 			5,
@@ -537,20 +537,21 @@ func (s *Server) sessionHandoff(_ string) mcp.ToolHandlerFor[sessionHandoffInput
 			return nil, sessionHandoffOutput{}, xerrors.Errorf("failed to get session handoff: %w", err)
 		}
 
-		if summary == nil {
+		if !result.IsPresent() {
 			return nil, sessionHandoffOutput{}, nil
 		}
 
+		summary := result.Get()
 		return nil, sessionHandoffOutput{
-			SessionID:      summary.SessionID.String(),
-			Workspace:      summary.Workspace.String(),
-			Label:          summary.Label,
-			Status:         summary.Status,
-			TotalEvents:    summary.TotalEvents,
-			CommandCount:   summary.CommandCount,
-			Agents:         summary.Agents,
-			Summary:        summary.Summary,
-			RecentCommands: summary.RecentCommands,
+			SessionID:      summary.SessionID().String(),
+			Workspace:      summary.Workspace().String(),
+			Label:          summary.Label(),
+			Status:         summary.Status(),
+			TotalEvents:    summary.TotalEvents(),
+			CommandCount:   summary.CommandCount(),
+			Agents:         summary.Agents(),
+			Summary:        summary.Summary(),
+			RecentCommands: summary.RecentCommands(),
 		}, nil
 	}
 }

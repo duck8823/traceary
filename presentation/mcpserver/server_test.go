@@ -311,15 +311,15 @@ CREATE TABLE IF NOT EXISTS sessions (
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	datasource := sqlite.NewDatasource(dbPath, migrations)
+	store := sqlite.NewStore(dbPath, migrations)
 
-	initStore := usecase.NewInitializeStoreUsecase(datasource)
-	recordLog := usecase.NewRecordLogUsecase(datasource)
-	recordAudit := usecase.NewRecordCommandAuditUsecase(datasource)
-	recordBoundary := usecase.NewRecordSessionBoundaryUsecase(datasource, datasource)
+	initStore := usecase.NewInitializeStoreUsecase(store.StoreManager)
+	recordLog := usecase.NewRecordLogUsecase(store.EventRepository)
+	recordAudit := usecase.NewRecordCommandAuditUsecase(store.EventRepository)
+	recordBoundary := usecase.NewRecordSessionBoundaryUsecase(store.EventRepository, store.SessionRepository)
 
-	eventUsecase := usecase.NewEventUsecaseAdapter(recordLog, recordAudit, datasource)
-	sessionUsecase := usecase.NewSessionUsecaseAdapter(recordBoundary, nil, datasource, datasource)
+	eventUsecase := usecase.NewEventUsecaseAdapter(recordLog, recordAudit, store.EventQueryService)
+	sessionUsecase := usecase.NewSessionUsecaseAdapter(recordBoundary, nil, store.SessionQueryService, store.EventQueryService)
 	storeMaintenanceUsecase := usecase.NewStoreMaintenanceUsecaseAdapter(
 		initStore, nil, nil, nil, nil,
 	)

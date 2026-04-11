@@ -5,6 +5,7 @@ import (
 
 	"golang.org/x/xerrors"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -81,12 +82,12 @@ func (a *eventUsecaseAdapter) List(ctx context.Context, criteria EventListCriter
 	return events, nil
 }
 
-func (a *eventUsecaseAdapter) Show(ctx context.Context, eventID types.EventID) (*EventDetails, error) {
-	qsDetails, err := a.eventQuery.GetDetails(ctx, eventID)
+func (a *eventUsecaseAdapter) Show(ctx context.Context, eventID types.EventID) (apptypes.EventDetails, error) {
+	details, err := a.eventQuery.GetDetails(ctx, eventID)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to get event details: %w", err)
+		return apptypes.EventDetails{}, xerrors.Errorf("failed to get event details: %w", err)
 	}
-	return NewEventDetails(qsDetails.Event(), qsDetails.CommandAudit())
+	return details, nil
 }
 
 func (a *eventUsecaseAdapter) Context(ctx context.Context, criteria EventContextCriteria) ([]*model.Event, error) {
@@ -97,26 +98,10 @@ func (a *eventUsecaseAdapter) Context(ctx context.Context, criteria EventContext
 	return events, nil
 }
 
-func (a *eventUsecaseAdapter) Timeline(ctx context.Context, criteria TimelineCriteria) ([]*TimelineBlock, error) {
-	qsBlocks, err := a.eventQuery.ListTimelineBlocks(ctx, criteria.Workspace, criteria.From, criteria.To, criteria.GapSeconds, criteria.Limit)
+func (a *eventUsecaseAdapter) Timeline(ctx context.Context, criteria TimelineCriteria) ([]apptypes.TimelineBlock, error) {
+	blocks, err := a.eventQuery.ListTimelineBlocks(ctx, criteria.Workspace, criteria.From, criteria.To, criteria.GapSeconds, criteria.Limit)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list timeline blocks: %w", err)
-	}
-
-	blocks := make([]*TimelineBlock, 0, len(qsBlocks))
-	for _, qb := range qsBlocks {
-		kindCounts := make(map[string]int)
-		for _, k := range qb.Kinds {
-			kindCounts[k]++
-		}
-		blocks = append(blocks, &TimelineBlock{
-			BlockStart: qb.BlockStart,
-			BlockEnd:   qb.BlockEnd,
-			EventCount: qb.EventCount,
-			Workspaces: qb.Workspaces,
-			Agents:     qb.Agents,
-			KindCounts: kindCounts,
-		})
 	}
 	return blocks, nil
 }

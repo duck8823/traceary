@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
-	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
 )
@@ -30,13 +30,20 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 			},
 		}
 		sessionStub := &sessionUsecaseStub{
-			listResult: []*usecase.SessionSummary{
-				{
-					SessionID: "session-abc",
-					Workspace:      "duck8823/traceary",
-					Label:     "v0.2.1 sprint",
-					StartedAt: time.Now().Add(-time.Hour),
-				},
+			listResult: []apptypes.SessionSummary{
+				apptypes.NewSessionSummary(
+					types.SessionID("session-abc"),
+					types.Workspace("duck8823/traceary"),
+					time.Now().Add(-time.Hour),
+					types.Empty[time.Time](),
+					"active",
+					0,
+					0,
+					nil,
+					"v0.2.1 sprint",
+					"",
+					types.SessionID(""),
+				),
 			},
 		}
 
@@ -105,12 +112,20 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		eventStub := &eventUsecaseStub{}
 		sessionStub := &sessionUsecaseStub{
-			listResult: []*usecase.SessionSummary{
-				{
-					SessionID: "target-session",
-					Workspace:      "duck8823/traceary",
-					StartedAt: time.Now().Add(-time.Hour),
-				},
+			listResult: []apptypes.SessionSummary{
+				apptypes.NewSessionSummary(
+					types.SessionID("target-session"),
+					types.Workspace("duck8823/traceary"),
+					time.Now().Add(-time.Hour),
+					types.Empty[time.Time](),
+					"active",
+					0,
+					0,
+					nil,
+					"",
+					"",
+					types.SessionID(""),
+				),
 			},
 		}
 
@@ -148,8 +163,20 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 			},
 		}
 		sessionStub := &sessionUsecaseStub{
-			listResult: []*usecase.SessionSummary{
-				{SessionID: "session-abc", Workspace: "duck8823/traceary", StartedAt: time.Now()},
+			listResult: []apptypes.SessionSummary{
+				apptypes.NewSessionSummary(
+					types.SessionID("session-abc"),
+					types.Workspace("duck8823/traceary"),
+					time.Now(),
+					types.Empty[time.Time](),
+					"active",
+					0,
+					0,
+					nil,
+					"",
+					"",
+					types.SessionID(""),
+				),
 			},
 		}
 
@@ -194,7 +221,21 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 			StoreMaintenance: &storeMaintenanceUsecaseStub{},
 			Event:            &eventUsecaseStub{listEvents: events},
 			Session: &sessionUsecaseStub{
-				listResult: []*usecase.SessionSummary{{SessionID: "s1", Workspace: "workspace"}},
+				listResult: []apptypes.SessionSummary{
+					apptypes.NewSessionSummary(
+						types.SessionID("s1"),
+						types.Workspace("workspace"),
+						time.Now(),
+						types.Empty[time.Time](),
+						"active",
+						0,
+						0,
+						nil,
+						"",
+						"",
+						types.SessionID(""),
+					),
+				},
 			},
 		}).Command()
 		rootCmd.SetOut(stdout)

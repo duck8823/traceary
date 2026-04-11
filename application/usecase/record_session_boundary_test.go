@@ -246,7 +246,7 @@ func (s *sessionRepositoryStub) FindByID(
 	return types.Of(s.session), nil
 }
 
-func (s *sessionRepositoryStub) SaveSession(_ context.Context, session *model.Session) error {
+func (s *sessionRepositoryStub) Save(_ context.Context, session *model.Session) error {
 	s.saveCalled = true
 	s.saved = session
 	return s.saveErr
@@ -278,7 +278,7 @@ func TestRecordSessionBoundaryUsecase_Run_SessionSaver(t *testing.T) {
 			t.Fatalf("Run() error = %v", err)
 		}
 		if !sessionStub.saveCalled {
-			t.Fatalf("SessionRepository.SaveSession() was not called")
+			t.Fatalf("SessionRepository.Save() was not called")
 		}
 		if sessionStub.saved.EndedAt() != nil {
 			t.Fatalf("session.EndedAt() should be nil for start")
@@ -303,7 +303,7 @@ func TestRecordSessionBoundaryUsecase_Run_SessionSaver(t *testing.T) {
 			t.Fatalf("Run() error = %v", err)
 		}
 		if !sessionStub.saveCalled {
-			t.Fatalf("SessionRepository.SaveSession() was not called")
+			t.Fatalf("SessionRepository.Save() was not called")
 		}
 		if sessionStub.saved.EndedAt() == nil {
 			t.Fatalf("session.EndedAt() should not be nil for end")

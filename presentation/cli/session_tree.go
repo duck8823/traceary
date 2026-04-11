@@ -8,10 +8,10 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
+
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
-
 	"github.com/duck8823/traceary/domain/types"
-
 )
 
 func (c *RootCLI) newSessionTreeCommand() *cobra.Command {
@@ -61,11 +61,11 @@ func (c *RootCLI) newSessionTreeCommand() *cobra.Command {
 }
 
 type sessionNode struct {
-	summary  *usecase.SessionSummary
+	summary  apptypes.SessionSummary
 	children []*sessionNode
 }
 
-func writeSessionTree(output io.Writer, summaries []*usecase.SessionSummary, asJSON bool) error {
+func writeSessionTree(output io.Writer, summaries []apptypes.SessionSummary, asJSON bool) error {
 	if len(summaries) == 0 {
 		if asJSON {
 			if _, err := fmt.Fprintln(output, "[]"); err != nil {
@@ -84,13 +84,14 @@ func writeSessionTree(output io.Writer, summaries []*usecase.SessionSummary, asJ
 	var roots []*sessionNode
 
 	for _, s := range summaries {
-		nodeMap[s.SessionID.String()] = &sessionNode{summary: s}
+		node := &sessionNode{summary: s}
+		nodeMap[s.SessionID().String()] = node
 	}
 
 	for _, s := range summaries {
-		node := nodeMap[s.SessionID.String()]
-		if s.ParentSessionID.String() != "" {
-			if parent, ok := nodeMap[s.ParentSessionID.String()]; ok {
+		node := nodeMap[s.SessionID().String()]
+		if s.ParentSessionID().String() != "" {
+			if parent, ok := nodeMap[s.ParentSessionID().String()]; ok {
 				parent.children = append(parent.children, node)
 				continue
 			}
@@ -129,21 +130,21 @@ type jsonTreeNode struct {
 func sessionNodeToJSON(node *sessionNode) *jsonTreeNode {
 	s := node.summary
 	jn := &jsonTreeNode{
-		SessionID: string(s.SessionID),
-		Workspace: string(s.Workspace),
-		Label:        s.Label,
-		Summary:      s.Summary,
-		StartedAt:    s.StartedAt.UTC().Format(time.RFC3339),
-		Status:       s.Status,
-		TotalEvents:  s.TotalEvents,
-		CommandCount: s.CommandCount,
-		Agents:       s.Agents,
+		SessionID: string(s.SessionID()),
+		Workspace: string(s.Workspace()),
+		Label:        s.Label(),
+		Summary:      s.Summary(),
+		StartedAt:    s.StartedAt().UTC().Format(time.RFC3339),
+		Status:       s.Status(),
+		TotalEvents:  s.TotalEvents(),
+		CommandCount: s.CommandCount(),
+		Agents:       s.Agents(),
 		Children:     make([]*jsonTreeNode, 0, len(node.children)),
 	}
-	if s.EndedAt != nil {
-		endStr := s.EndedAt.UTC().Format(time.RFC3339)
+	if s.EndedAt().IsPresent() {
+		endStr := s.EndedAt().Get().UTC().Format(time.RFC3339)
 		jn.EndedAt = &endStr
-		dur := s.EndedAt.Sub(s.StartedAt).Seconds()
+		dur := s.EndedAt().Get().Sub(s.StartedAt()).Seconds()
 		jn.DurationSec = &dur
 	}
 	for _, child := range node.children {
@@ -168,31 +169,31 @@ func writeSessionTreeJSON(output io.Writer, roots []*sessionNode) error {
 func printNode(output io.Writer, node *sessionNode, prefix string, isLast bool) error {
 	s := node.summary
 
-	connector := "├── "
+	connector := "\u251c\u2500\u2500 "
 	if isLast {
-		connector = "└── "
+		connector = "\u2514\u2500\u2500 "
 	}
 	if prefix == "" {
 		connector = ""
 	}
 
 	duration := "-"
-	if s.EndedAt != nil {
-		duration = formatDuration(s.EndedAt.Sub(s.StartedAt))
+	if s.EndedAt().IsPresent() {
+		duration = formatDuration(s.EndedAt().Get().Sub(s.StartedAt()))
 	}
 
 	label := ""
-	if s.Label != "" {
-		label = fmt.Sprintf(" [%s]", s.Label)
+	if s.Label() != "" {
+		label = fmt.Sprintf(" [%s]", s.Label())
 	}
 
 	line := fmt.Sprintf("%s%s%s [%s] %s (%s, %d cmds)%s\n",
 		prefix, connector,
-		s.SessionID,
-		s.Status,
-		formatOptionalColumn(s.Workspace.String()),
+		s.SessionID(),
+		s.Status(),
+		formatOptionalColumn(s.Workspace().String()),
 		duration,
-		s.CommandCount,
+		s.CommandCount(),
 		label,
 	)
 
@@ -205,7 +206,7 @@ func printNode(output io.Writer, node *sessionNode, prefix string, isLast bool) 
 		if isLast {
 			childPrefix += "    "
 		} else {
-			childPrefix += "│   "
+			childPrefix += "\u2502   "
 		}
 	}
 

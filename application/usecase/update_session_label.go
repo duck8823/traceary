@@ -55,7 +55,7 @@ func (u *updateSessionLabelUsecase) Run(ctx context.Context, input UpdateSession
 	session := result.Get()
 	session.SetLabel(input.Label)
 
-	if err := u.sessionRepo.SaveSession(ctx, session); err != nil {
+	if err := u.sessionRepo.Save(ctx, session); err != nil {
 		return xerrors.Errorf("failed to save session with label: %w", err)
 	}
 

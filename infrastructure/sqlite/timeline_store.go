@@ -9,7 +9,7 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/queryservice"
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/types"
 )
 
@@ -22,7 +22,7 @@ func (d *Datasource) ListTimelineBlocks(
 	workspace types.Workspace,
 	from, to time.Time,
 	gapSeconds, limit int,
-) ([]*queryservice.TimelineBlock, error) {
+) ([]apptypes.TimelineBlock, error) {
 	db, err := d.openDB(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for timeline listing: %w", err)
@@ -60,7 +60,7 @@ func (d *Datasource) ListTimelineBlocks(
 		}
 	}()
 
-	var blocks []*queryservice.TimelineBlock
+	var blocks []apptypes.TimelineBlock
 	for rows.Next() {
 		var (
 			blockNum   int // scanned but unused (SQL internal grouping key)
@@ -84,14 +84,14 @@ func (d *Datasource) ListTimelineBlocks(
 			return nil, xerrors.Errorf("failed to parse block end: %w", err)
 		}
 
-		blocks = append(blocks, &queryservice.TimelineBlock{
-			BlockStart: parsedStart,
-			BlockEnd:   parsedEnd,
-			EventCount: eventCount,
-			Workspaces: splitNonEmpty(workspaces, ","),
-			Agents:     splitNonEmpty(agents, ","),
-			Kinds:      splitNonEmpty(kinds, "|"),
-		})
+		blocks = append(blocks, apptypes.NewTimelineBlock(
+			parsedStart,
+			parsedEnd,
+			eventCount,
+			splitNonEmpty(workspaces, ","),
+			splitNonEmpty(agents, ","),
+			splitNonEmpty(kinds, "|"),
+		))
 	}
 	if err := rows.Err(); err != nil {
 		return nil, xerrors.Errorf("failed to iterate timeline blocks: %w", err)

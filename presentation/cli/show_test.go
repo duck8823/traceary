@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/duck8823/traceary/application/usecase"
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
@@ -30,7 +30,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 	t.Run("displays event details", func(t *testing.T) {
 		t.Parallel()
 
-		eventDetails, err := usecase.NewEventDetails(
+		eventDetails, err := apptypes.NewEventDetails(
 			model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,
@@ -41,7 +41,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 				"go test ./...",
 				time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC),
 			),
-			model.CommandAuditOf(
+			types.Of(model.CommandAuditOf(
 				eventID,
 				"go test ./...",
 				"stdin",
@@ -49,7 +49,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 				true,
 				false,
 				nil,
-			),
+			)),
 		)
 		if err != nil {
 			t.Fatalf("NewEventDetails() error = %v", err)
@@ -93,7 +93,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 	t.Run("command audit がないイベントも表示できる", func(t *testing.T) {
 		t.Parallel()
 
-		eventDetails, err := usecase.NewEventDetails(
+		eventDetails, err := apptypes.NewEventDetails(
 			model.EventOf(
 				eventID,
 				types.EventKindNote,
@@ -104,7 +104,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 				"hello",
 				time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC),
 			),
-			nil,
+			types.Empty[*model.CommandAudit](),
 		)
 		if err != nil {
 			t.Fatalf("NewEventDetails() error = %v", err)
@@ -129,7 +129,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 	t.Run("JSON 形式でイベント詳細を表示できる", func(t *testing.T) {
 		t.Parallel()
 
-		eventDetails, err := usecase.NewEventDetails(
+		eventDetails, err := apptypes.NewEventDetails(
 			model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,
@@ -140,7 +140,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 				"go test ./...",
 				time.Date(2026, 4, 8, 12, 30, 0, 0, time.UTC),
 			),
-			model.CommandAuditOf(
+			types.Of(model.CommandAuditOf(
 				eventID,
 				"go test ./...",
 				"stdin",
@@ -148,7 +148,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 				true,
 				false,
 				nil,
-			),
+			)),
 		)
 		if err != nil {
 			t.Fatalf("NewEventDetails() error = %v", err)
@@ -195,7 +195,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 		t.Parallel()
 
 		exitCode := 1
-		eventDetails, err := usecase.NewEventDetails(
+		eventDetails, err := apptypes.NewEventDetails(
 			model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,
@@ -206,7 +206,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 				"go test ./...",
 				time.Date(2026, 4, 8, 13, 0, 0, 0, time.UTC),
 			),
-			model.CommandAuditOf(
+			types.Of(model.CommandAuditOf(
 				eventID,
 				"go test ./...",
 				"stdin",
@@ -214,7 +214,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 				false,
 				false,
 				&exitCode,
-			),
+			)),
 		)
 		if err != nil {
 			t.Fatalf("NewEventDetails() error = %v", err)

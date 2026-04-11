@@ -10,8 +10,8 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/queryservice"
-	"github.com/duck8823/traceary/domain/types"
+	apptypes "github.com/duck8823/traceary/application/types"
+	domtypes "github.com/duck8823/traceary/domain/types"
 )
 
 //go:embed sql/list_sessions.sql
@@ -21,9 +21,9 @@ var listSessionsQuery string
 func (d *Datasource) ListSummaries(
 	ctx context.Context,
 	limit, offset int,
-	sessionID types.SessionID, workspace types.Workspace, client types.Client, agent types.Agent, label string,
-	from, to *time.Time,
-) ([]*queryservice.SessionSummary, error) {
+	sessionID domtypes.SessionID, workspace domtypes.Workspace, client domtypes.Client, agent domtypes.Agent, label string,
+	from, to domtypes.Optional[time.Time],
+) ([]apptypes.SessionSummary, error) {
 	db, err := d.openDB(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for session list: %w", err)
@@ -35,12 +35,12 @@ func (d *Datasource) ListSummaries(
 	}()
 
 	fromValue := ""
-	if from != nil {
-		fromValue = formatTimestamp(*from)
+	if from.IsPresent() {
+		fromValue = formatTimestamp(from.Get())
 	}
 	toValue := ""
-	if to != nil {
-		toValue = formatTimestamp(to.AddDate(0, 0, 1))
+	if to.IsPresent() {
+		toValue = formatTimestamp(to.Get().AddDate(0, 0, 1))
 	}
 
 	rows, err := db.QueryContext(
@@ -64,7 +64,7 @@ func (d *Datasource) ListSummaries(
 		}
 	}()
 
-	summaries := make([]*queryservice.SessionSummary, 0)
+	summaries := make([]apptypes.SessionSummary, 0)
 	for rows.Next() {
 		summary, err := scanSessionSummary(rows)
 		if err != nil {
@@ -81,7 +81,7 @@ func (d *Datasource) ListSummaries(
 
 func scanSessionSummary(row interface {
 	Scan(dest ...any) error
-}) (*queryservice.SessionSummary, error) {
+}) (apptypes.SessionSummary, error) {
 	var (
 		sessionID       string
 		repo            string
@@ -107,22 +107,22 @@ func scanSessionSummary(row interface {
 		&summary,
 		&parentSessionID,
 	); err != nil {
-		return nil, xerrors.Errorf("failed to scan session summary: %w", err)
+		return apptypes.SessionSummary{}, xerrors.Errorf("failed to scan session summary: %w", err)
 	}
 
 	startedAt, err := time.Parse(time.RFC3339Nano, startedAtStr)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to parse started_at: %w", err)
+		return apptypes.SessionSummary{}, xerrors.Errorf("failed to parse started_at: %w", err)
 	}
 
-	var endedAt *time.Time
+	endedAt := domtypes.Empty[time.Time]()
 	status := "active"
 	if endedAtStr.Valid {
 		t, err := time.Parse(time.RFC3339Nano, endedAtStr.String)
 		if err != nil {
-			return nil, xerrors.Errorf("failed to parse ended_at: %w", err)
+			return apptypes.SessionSummary{}, xerrors.Errorf("failed to parse ended_at: %w", err)
 		}
-		endedAt = &t
+		endedAt = domtypes.Of(t)
 		status = "ended"
 	} else if time.Since(startedAt) > 24*time.Hour {
 		status = "stale"
@@ -133,17 +133,17 @@ func scanSessionSummary(row interface {
 		agents = strings.Split(agentsStr.String, ",")
 	}
 
-	return &queryservice.SessionSummary{
-		SessionID:       sessionID,
-		Workspace:       repo,
-		StartedAt:       startedAt,
-		EndedAt:         endedAt,
-		Status:          status,
-		TotalEvents:     totalEvents,
-		CommandCount:    commandCount,
-		Agents:          agents,
-		Label:           label,
-		Summary:         summary,
-		ParentSessionID: parentSessionID,
-	}, nil
+	return apptypes.NewSessionSummary(
+		domtypes.SessionID(sessionID),
+		domtypes.Workspace(repo),
+		startedAt,
+		endedAt,
+		status,
+		totalEvents,
+		commandCount,
+		agents,
+		label,
+		summary,
+		domtypes.SessionID(parentSessionID),
+	), nil
 }

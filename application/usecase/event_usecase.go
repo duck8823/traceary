@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -30,12 +31,11 @@ type EventUsecase interface {
 	List(ctx context.Context, criteria EventListCriteria) ([]*model.Event, error)
 
 	// Show returns the details for a single event.
-	// Returns usecase.EventDetails; port.EventDetails will be removed in Phase C.
-	Show(ctx context.Context, eventID types.EventID) (*EventDetails, error)
+	Show(ctx context.Context, eventID types.EventID) (apptypes.EventDetails, error)
 
 	// Context returns recent events for the given context.
 	Context(ctx context.Context, criteria EventContextCriteria) ([]*model.Event, error)
 
 	// Timeline returns work blocks separated by idle gaps.
-	Timeline(ctx context.Context, criteria TimelineCriteria) ([]*TimelineBlock, error)
+	Timeline(ctx context.Context, criteria TimelineCriteria) ([]apptypes.TimelineBlock, error)
 }

@@ -2,12 +2,11 @@ package cli
 
 import (
 	"encoding/json"
-
-	"github.com/duck8823/traceary/application/usecase"
 	"io"
 
 	"golang.org/x/xerrors"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 )
 
@@ -45,16 +44,13 @@ func writeEventsJSON(output io.Writer, events []*model.Event) error {
 	return writeJSON(output, serializedEvents)
 }
 
-func writeEventDetailsJSON(output io.Writer, eventDetails *usecase.EventDetails) error {
-	if eventDetails == nil {
-		return xerrors.Errorf(Localize("event details must not be nil", "イベント詳細は nil にできません"))
-	}
-
+func writeEventDetailsJSON(output io.Writer, eventDetails apptypes.EventDetails) error {
 	serializedEventDetails := eventDetailsJSON{
 		Event: newEventJSON(eventDetails.Event()),
 	}
-	if eventDetails.CommandAudit() != nil {
-		serializedEventDetails.CommandAudit = newCommandAuditJSON(eventDetails.CommandAudit())
+	auditOpt := eventDetails.CommandAudit()
+	if auditOpt.IsPresent() {
+		serializedEventDetails.CommandAudit = newCommandAuditJSON(auditOpt.Get())
 	}
 
 	return writeJSON(output, serializedEventDetails)

@@ -7,10 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
-	"github.com/duck8823/traceary/application/usecase"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/types"
-
 )
 
 func (c *RootCLI) newShowCommand() *cobra.Command {
@@ -61,11 +60,7 @@ func (c *RootCLI) runShow(ctx context.Context, output io.Writer, dbPath string, 
 	return nil
 }
 
-func writeEventDetails(output io.Writer, eventDetails *usecase.EventDetails) error {
-	if eventDetails == nil {
-		return xerrors.Errorf(Localize("event details must not be nil", "イベント詳細は nil にできません"))
-	}
-
+func writeEventDetails(output io.Writer, eventDetails apptypes.EventDetails) error {
 	event := eventDetails.Event()
 	if _, err := fmt.Fprintf(
 		output,
@@ -82,10 +77,11 @@ func writeEventDetails(output io.Writer, eventDetails *usecase.EventDetails) err
 		return xerrors.Errorf("%s: %w", Localize("failed to print event fields", "イベント共通項目の出力に失敗しました"), err)
 	}
 
-	commandAudit := eventDetails.CommandAudit()
-	if commandAudit == nil {
+	auditOpt := eventDetails.CommandAudit()
+	if !auditOpt.IsPresent() {
 		return nil
 	}
+	commandAudit := auditOpt.Get()
 
 	exitCodeDisplay := "-"
 	if commandAudit.ExitCode() != nil {

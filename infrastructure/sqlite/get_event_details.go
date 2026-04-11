@@ -9,9 +9,9 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/queryservice"
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
-	"github.com/duck8823/traceary/domain/types"
+	domtypes "github.com/duck8823/traceary/domain/types"
 )
 
 //go:embed sql/get_event_details.sql
@@ -20,11 +20,11 @@ var getEventDetailsQuery string
 // GetDetails returns the details for the given event ID.
 func (d *Datasource) GetDetails(
 	ctx context.Context,
-	eventID types.EventID,
-) (*queryservice.EventDetails, error) {
+	eventID domtypes.EventID,
+) (apptypes.EventDetails, error) {
 	db, err := d.openDB(ctx)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to open DB for event details lookup: %w", err)
+		return apptypes.EventDetails{}, xerrors.Errorf("failed to open DB for event details lookup: %w", err)
 	}
 	defer func() {
 		if err := db.Close(); err != nil {
@@ -58,19 +58,19 @@ func (d *Datasource) GetDetails(
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, xerrors.Errorf("event not found: %s", eventID)
+			return apptypes.EventDetails{}, xerrors.Errorf("event not found: %s", eventID)
 		}
-		return nil, xerrors.Errorf("failed to restore event details row: %w", err)
+		return apptypes.EventDetails{}, xerrors.Errorf("failed to restore event details row: %w", err)
 	}
 
-	var commandAudit *model.CommandAudit
+	commandAuditOpt := domtypes.Empty[*model.CommandAudit]()
 	if commandTextValue.Valid {
 		var exitCode *int
 		if exitCodeValue.Valid {
 			v := int(exitCodeValue.Int64)
 			exitCode = &v
 		}
-		commandAudit = model.CommandAuditOf(
+		commandAudit := model.CommandAuditOf(
 			eventID,
 			commandTextValue.String,
 			inputTextValue.String,
@@ -79,11 +79,12 @@ func (d *Datasource) GetDetails(
 			outputTruncatedValue.Bool,
 			exitCode,
 		)
+		commandAuditOpt = domtypes.Of(commandAudit)
 	}
 
-	eventDetails, err := queryservice.NewEventDetails(event, commandAudit)
+	eventDetails, err := apptypes.NewEventDetails(event, commandAuditOpt)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to build event details: %w", err)
+		return apptypes.EventDetails{}, xerrors.Errorf("failed to build event details: %w", err)
 	}
 
 	return eventDetails, nil

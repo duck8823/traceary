@@ -6,6 +6,7 @@ import (
 
 	"golang.org/x/xerrors"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -73,20 +74,20 @@ func (a *sessionUsecaseAdapter) Label(ctx context.Context, sessionID types.Sessi
 	return nil
 }
 
-func (a *sessionUsecaseAdapter) List(ctx context.Context, criteria SessionListCriteria) ([]*SessionSummary, error) {
-	qsSummaries, err := a.sessionQuery.ListSummaries(ctx, criteria.Limit, criteria.Offset, criteria.SessionID, criteria.Workspace, criteria.Client, criteria.Agent, criteria.Label, criteria.From, criteria.To)
+func (a *sessionUsecaseAdapter) List(ctx context.Context, criteria SessionListCriteria) ([]apptypes.SessionSummary, error) {
+	summaries, err := a.sessionQuery.ListSummaries(ctx, criteria.Limit, criteria.Offset, criteria.SessionID, criteria.Workspace, criteria.Client, criteria.Agent, criteria.Label, criteria.From, criteria.To)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list sessions: %w", err)
 	}
-	return convertSessionSummaries(qsSummaries), nil
+	return summaries, nil
 }
 
-func (a *sessionUsecaseAdapter) Tree(ctx context.Context, workspace types.Workspace, limit int) ([]*SessionSummary, error) {
-	qsSummaries, err := a.sessionQuery.ListSummaries(ctx, limit, 0, types.SessionID(""), workspace, types.Client(""), types.Agent(""), "", nil, nil)
+func (a *sessionUsecaseAdapter) Tree(ctx context.Context, workspace types.Workspace, limit int) ([]apptypes.SessionSummary, error) {
+	summaries, err := a.sessionQuery.ListSummaries(ctx, limit, 0, types.SessionID(""), workspace, types.Client(""), types.Agent(""), "", types.Empty[time.Time](), types.Empty[time.Time]())
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list sessions for tree: %w", err)
 	}
-	return convertSessionSummaries(qsSummaries), nil
+	return summaries, nil
 }
 
 func (a *sessionUsecaseAdapter) Active(ctx context.Context, criteria SessionLookupCriteria) (types.Optional[*model.Event], error) {
@@ -105,62 +106,39 @@ func (a *sessionUsecaseAdapter) Latest(ctx context.Context, criteria SessionLook
 	return result, nil
 }
 
-func (a *sessionUsecaseAdapter) Handoff(ctx context.Context, sessionID types.SessionID, workspace types.Workspace, recent int) (*HandoffSummary, error) {
-	sessions, err := a.sessionQuery.ListSummaries(ctx, 1, 0, sessionID, workspace, types.Client(""), types.Agent(""), "", nil, nil)
+func (a *sessionUsecaseAdapter) Handoff(ctx context.Context, sessionID types.SessionID, workspace types.Workspace, recent int) (types.Optional[apptypes.HandoffSummary], error) {
+	sessions, err := a.sessionQuery.ListSummaries(ctx, 1, 0, sessionID, workspace, types.Client(""), types.Agent(""), "", types.Empty[time.Time](), types.Empty[time.Time]())
 	if err != nil {
-		return nil, xerrors.Errorf("failed to list sessions for handoff: %w", err)
+		return types.Empty[apptypes.HandoffSummary](), xerrors.Errorf("failed to list sessions for handoff: %w", err)
 	}
 	if len(sessions) == 0 {
-		return nil, nil
+		return types.Empty[apptypes.HandoffSummary](), nil
 	}
 
 	session := sessions[0]
-	events, err := a.eventQuery.ListRecent(ctx, recent, 0, types.EventKindCommandExecuted, types.Client(""), types.Agent(""), types.SessionID(session.SessionID), types.Workspace(""), false, time.Time{}, time.Time{})
+	events, err := a.eventQuery.ListRecent(ctx, recent, 0, types.EventKindCommandExecuted, types.Client(""), types.Agent(""), session.SessionID(), types.Workspace(""), false, time.Time{}, time.Time{})
 	if err != nil {
-		return nil, xerrors.Errorf("failed to list recent events for handoff: %w", err)
+		return types.Empty[apptypes.HandoffSummary](), xerrors.Errorf("failed to list recent events for handoff: %w", err)
 	}
 
 	recentCommands := make([]string, 0, len(events))
 	for _, event := range events {
 		cmd := event.Body()
 		if runes := []rune(cmd); len(runes) > 60 {
-			cmd = string(runes[:60]) + "…"
+			cmd = string(runes[:60]) + "\u2026"
 		}
 		recentCommands = append(recentCommands, cmd)
 	}
 
-	sid := types.SessionID(session.SessionID)
-	ws := types.Workspace(session.Workspace)
-
-	return &HandoffSummary{
-		SessionID:      sid,
-		Workspace:      ws,
-		Label:          session.Label,
-		Status:         session.Status,
-		TotalEvents:    session.TotalEvents,
-		CommandCount:   session.CommandCount,
-		Agents:         session.Agents,
-		Summary:        session.Summary,
-		RecentCommands: recentCommands,
-	}, nil
-}
-
-func convertSessionSummaries(qsSummaries []*queryservice.SessionSummary) []*SessionSummary {
-	summaries := make([]*SessionSummary, 0, len(qsSummaries))
-	for _, qs := range qsSummaries {
-		summaries = append(summaries, &SessionSummary{
-			SessionID:       types.SessionID(qs.SessionID),
-			Workspace:       types.Workspace(qs.Workspace),
-			StartedAt:       qs.StartedAt,
-			EndedAt:         qs.EndedAt,
-			Status:          qs.Status,
-			TotalEvents:     qs.TotalEvents,
-			CommandCount:    qs.CommandCount,
-			Agents:          qs.Agents,
-			Label:           qs.Label,
-			Summary:         qs.Summary,
-			ParentSessionID: types.SessionID(qs.ParentSessionID),
-		})
-	}
-	return summaries
+	return types.Of(apptypes.NewHandoffSummary(
+		session.SessionID(),
+		session.Workspace(),
+		session.Label(),
+		session.Status(),
+		session.TotalEvents(),
+		session.CommandCount(),
+		session.Agents(),
+		session.Summary(),
+		recentCommands,
+	)), nil
 }

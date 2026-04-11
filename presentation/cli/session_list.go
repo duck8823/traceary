@@ -9,10 +9,10 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
+
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
-
 	"github.com/duck8823/traceary/domain/types"
-
 )
 
 func (c *RootCLI) newSessionListCommand() *cobra.Command {
@@ -60,15 +60,15 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fromTime, err := parseFlexibleTimePtr(fromValue, false)
+			fromTime, err := parseFlexibleTimeOptional(fromValue, false)
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to resolve --from", "from の解決に失敗しました"), err)
 			}
-			toTime, err := parseFlexibleTimePtr(toValue, false)
+			toTime, err := parseFlexibleTimeOptional(toValue, false)
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to resolve --to", "to の解決に失敗しました"), err)
 			}
-			if fromTime != nil && toTime != nil && fromTime.After(*toTime) {
+			if fromTime.IsPresent() && toTime.IsPresent() && fromTime.Get().After(toTime.Get()) {
 				return xerrors.Errorf(Localize("--from must be earlier than --to", "from は to より前である必要があります"))
 			}
 
@@ -108,7 +108,7 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 	return listCmd
 }
 
-func writeSessionSummaries(output io.Writer, summaries []*usecase.SessionSummary, asJSON bool) error {
+func writeSessionSummaries(output io.Writer, summaries []apptypes.SessionSummary, asJSON bool) error {
 	if asJSON {
 		return writeSessionSummariesJSON(output, summaries)
 	}
@@ -128,25 +128,25 @@ func writeSessionSummaries(output io.Writer, summaries []*usecase.SessionSummary
 	}
 	for _, s := range summaries {
 		duration := "-"
-		if s.EndedAt != nil {
-			duration = formatDuration(s.EndedAt.Sub(s.StartedAt))
+		if s.EndedAt().IsPresent() {
+			duration = formatDuration(s.EndedAt().Get().Sub(s.StartedAt()))
 		}
 
-		agentSummary := strings.Join(s.Agents, ", ")
+		agentSummary := strings.Join(s.Agents(), ", ")
 
 		if _, err := fmt.Fprintf(
 			output,
 			"%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%d\t%s\n",
-			s.StartedAt.UTC().Format("2006-01-02T15:04:05Z"),
-			s.Status,
+			s.StartedAt().UTC().Format("2006-01-02T15:04:05Z"),
+			s.Status(),
 			duration,
-			s.SessionID,
-			formatOptionalColumn(s.Workspace.String()),
-			formatOptionalColumn(normalizeTabularColumn(s.Label)),
-			formatOptionalColumn(truncateMessage(s.Summary)),
-			formatOptionalColumn(normalizeTabularColumn(s.ParentSessionID.String())),
-			s.TotalEvents,
-			s.CommandCount,
+			s.SessionID(),
+			formatOptionalColumn(s.Workspace().String()),
+			formatOptionalColumn(normalizeTabularColumn(s.Label())),
+			formatOptionalColumn(truncateMessage(s.Summary())),
+			formatOptionalColumn(normalizeTabularColumn(s.ParentSessionID().String())),
+			s.TotalEvents(),
+			s.CommandCount(),
 			agentSummary,
 		); err != nil {
 			return xerrors.Errorf("failed to print session row: %w", err)
@@ -156,7 +156,7 @@ func writeSessionSummaries(output io.Writer, summaries []*usecase.SessionSummary
 	return nil
 }
 
-func writeSessionSummariesJSON(output io.Writer, summaries []*usecase.SessionSummary) error {
+func writeSessionSummariesJSON(output io.Writer, summaries []apptypes.SessionSummary) error {
 	type jsonSummary struct {
 		SessionID       string   `json:"session_id"`
 		Workspace string   `json:"workspace,omitempty"`
@@ -175,21 +175,21 @@ func writeSessionSummariesJSON(output io.Writer, summaries []*usecase.SessionSum
 	items := make([]jsonSummary, 0, len(summaries))
 	for _, s := range summaries {
 		item := jsonSummary{
-			SessionID: string(s.SessionID),
-			Workspace: string(s.Workspace),
-			Label:           s.Label,
-			Summary:         s.Summary,
-			ParentSessionID: string(s.ParentSessionID),
-			StartedAt:       s.StartedAt.UTC().Format(time.RFC3339),
-			Status:          s.Status,
-			TotalEvents:     s.TotalEvents,
-			CommandCount:    s.CommandCount,
-			Agents:          s.Agents,
+			SessionID: string(s.SessionID()),
+			Workspace: string(s.Workspace()),
+			Label:           s.Label(),
+			Summary:         s.Summary(),
+			ParentSessionID: string(s.ParentSessionID()),
+			StartedAt:       s.StartedAt().UTC().Format(time.RFC3339),
+			Status:          s.Status(),
+			TotalEvents:     s.TotalEvents(),
+			CommandCount:    s.CommandCount(),
+			Agents:          s.Agents(),
 		}
-		if s.EndedAt != nil {
-			endStr := s.EndedAt.UTC().Format(time.RFC3339)
+		if s.EndedAt().IsPresent() {
+			endStr := s.EndedAt().Get().UTC().Format(time.RFC3339)
 			item.EndedAt = &endStr
-			dur := s.EndedAt.Sub(s.StartedAt).Seconds()
+			dur := s.EndedAt().Get().Sub(s.StartedAt()).Seconds()
 			item.DurationSec = &dur
 		}
 		items = append(items, item)

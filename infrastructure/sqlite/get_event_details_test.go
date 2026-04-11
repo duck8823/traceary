@@ -70,11 +70,11 @@ CREATE TABLE command_audits (
 		if got.Event().EventID().String() != "event-audit" {
 			t.Fatalf("EventID() = %q, want %q", got.Event().EventID(), "event-audit")
 		}
-		if got.CommandAudit() == nil {
-			t.Fatalf("CommandAudit() = nil, want command audit")
+		if !got.CommandAudit().IsPresent() {
+			t.Fatalf("CommandAudit() is empty, want command audit")
 		}
-		if got.CommandAudit().Output() != "stdout with details" {
-			t.Fatalf("Output() = %q, want %q", got.CommandAudit().Output(), "stdout with details")
+		if got.CommandAudit().Get().Output() != "stdout with details" {
+			t.Fatalf("Output() = %q, want %q", got.CommandAudit().Get().Output(), "stdout with details")
 		}
 	})
 

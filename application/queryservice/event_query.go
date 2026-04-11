@@ -4,8 +4,7 @@ import (
 	"context"
 	"time"
 
-	"golang.org/x/xerrors"
-
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -19,40 +18,7 @@ type EventQueryService interface {
 	// GetContext returns recent events for context retrieval.
 	GetContext(ctx context.Context, workspace types.Workspace, sessionID types.SessionID, limit int) ([]*model.Event, error)
 	// GetDetails returns the details for a single event.
-	GetDetails(ctx context.Context, eventID types.EventID) (*EventDetails, error)
+	GetDetails(ctx context.Context, eventID types.EventID) (apptypes.EventDetails, error)
 	// ListTimelineBlocks returns work blocks separated by idle gaps.
-	ListTimelineBlocks(ctx context.Context, workspace types.Workspace, from, to time.Time, gapSeconds, limit int) ([]*TimelineBlock, error)
-}
-
-// EventDetails pairs an Event with its optional CommandAudit.
-type EventDetails struct {
-	event        *model.Event
-	commandAudit *model.CommandAudit
-}
-
-// NewEventDetails creates an EventDetails value.
-func NewEventDetails(event *model.Event, commandAudit *model.CommandAudit) (*EventDetails, error) {
-	if event == nil {
-		return nil, xerrors.Errorf("event must not be nil")
-	}
-	return &EventDetails{
-		event:        event,
-		commandAudit: commandAudit,
-	}, nil
-}
-
-// Event returns the event.
-func (d *EventDetails) Event() *model.Event { return d.event }
-
-// CommandAudit returns the linked command audit, or nil.
-func (d *EventDetails) CommandAudit() *model.CommandAudit { return d.commandAudit }
-
-// TimelineBlock represents a contiguous work block separated by idle gaps.
-type TimelineBlock struct {
-	BlockStart time.Time
-	BlockEnd   time.Time
-	EventCount int
-	Workspaces []string
-	Agents     []string
-	Kinds      []string
+	ListTimelineBlocks(ctx context.Context, workspace types.Workspace, from, to time.Time, gapSeconds, limit int) ([]apptypes.TimelineBlock, error)
 }

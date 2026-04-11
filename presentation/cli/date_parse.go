@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"golang.org/x/xerrors"
+
+	"github.com/duck8823/traceary/domain/types"
 )
 
 // parseFlexibleTime parses a date/time string in either RFC3339 or YYYY-MM-DD format.
@@ -36,16 +38,16 @@ func parseFlexibleTime(value string, endExclusive bool) (time.Time, error) {
 	return parsedDate, nil
 }
 
-// parseFlexibleTimePtr parses a date/time string into a *time.Time pointer.
-// Returns nil when the input is empty. Used by commands that pass optional
-// date pointers to query services (e.g. session list).
-func parseFlexibleTimePtr(value string, endExclusive bool) (*time.Time, error) {
+// parseFlexibleTimeOptional parses a date/time string into an Optional[time.Time].
+// Returns an empty Optional when the input is empty. Used by commands that pass
+// optional date values to query services (e.g. session list).
+func parseFlexibleTimeOptional(value string, endExclusive bool) (types.Optional[time.Time], error) {
 	t, err := parseFlexibleTime(value, endExclusive)
 	if err != nil {
-		return nil, err
+		return types.Empty[time.Time](), err
 	}
 	if t.IsZero() {
-		return nil, nil
+		return types.Empty[time.Time](), nil
 	}
-	return &t, nil
+	return types.Of(t), nil
 }
