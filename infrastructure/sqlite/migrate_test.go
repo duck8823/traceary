@@ -191,13 +191,13 @@ func TestMigrations_backfillPopulatesSessionsFromEvents(t *testing.T) {
 		t.Errorf("sessions count = %d, want 1", sessionCount)
 	}
 
-	var sessionID, repo, client, agent, startedAt string
+	var sessionID, workspace, client, agent, startedAt string
 	var endedAt *string
-	if err := db2.QueryRow("SELECT session_id, repo, client, agent, started_at, ended_at FROM sessions WHERE session_id = 's1'").Scan(&sessionID, &repo, &client, &agent, &startedAt, &endedAt); err != nil {
+	if err := db2.QueryRow("SELECT session_id, workspace, client, agent, started_at, ended_at FROM sessions WHERE session_id = 's1'").Scan(&sessionID, &workspace, &client, &agent, &startedAt, &endedAt); err != nil {
 		t.Fatalf("QueryRow sessions error = %v", err)
 	}
-	if repo != "duck8823/traceary" {
-		t.Errorf("repo = %q, want duck8823/traceary", repo)
+	if workspace != "duck8823/traceary" {
+		t.Errorf("workspace = %q, want duck8823/traceary", workspace)
 	}
 	if client != "hook" {
 		t.Errorf("client = %q, want hook", client)

@@ -73,7 +73,7 @@ func writeEventDetails(output io.Writer, eventDetails *port.EventDetails) error 
 		formatOptionalColumn(event.Client()),
 		event.Agent(),
 		event.SessionID(),
-		formatOptionalColumn(event.Repo()),
+		formatOptionalColumn(event.Workspace()),
 		event.CreatedAt().UTC().Format("2006-01-02T15:04:05Z07:00"),
 		event.Body(),
 	); err != nil {

@@ -209,7 +209,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 			"    \"client\": \"cli\",\n" +
 			"    \"agent\": \"codex\",\n" +
 			"    \"session_id\": \"session-1\",\n" +
-			"    \"repo\": \"duck8823/traceary\",\n" +
+			"    \"workspace\": \"duck8823/traceary\",\n" +
 			"    \"message\": \"go test ./...\",\n" +
 			"    \"created_at\": \"2026-04-08T12:30:00Z\"\n" +
 			"  },\n" +

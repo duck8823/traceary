@@ -57,7 +57,7 @@ func (d *Datasource) SaveCommandAudit(
 		event.Client(),
 		event.Agent().String(),
 		event.SessionID().String(),
-		event.Repo(),
+		event.Workspace(),
 		event.Body(),
 		formatTimestamp(event.CreatedAt()),
 	); err != nil {

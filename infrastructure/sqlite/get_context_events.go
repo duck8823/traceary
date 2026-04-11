@@ -32,7 +32,7 @@ func (d *Datasource) GetContextEvents(
 		}
 	}()
 
-	trimmedRepo := strings.TrimSpace(input.Repo)
+	trimmedRepo := strings.TrimSpace(input.Workspace)
 	trimmedSessionID := strings.TrimSpace(input.SessionID)
 	rows, err := db.QueryContext(
 		ctx,

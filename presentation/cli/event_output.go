@@ -41,7 +41,7 @@ func writeEvents(output io.Writer, events []*model.Event) error {
 			formatOptionalColumn(event.Client()),
 			event.Agent(),
 			event.SessionID(),
-			formatOptionalColumn(event.Repo()),
+			formatOptionalColumn(event.Workspace()),
 			truncateMessage(event.Body()),
 		); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print event row", "イベント一覧行の出力に失敗しました"), err)

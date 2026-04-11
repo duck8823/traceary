@@ -38,8 +38,8 @@ func TestNewSession(t *testing.T) {
 	if session.Agent() != agent {
 		t.Errorf("Agent() = %v, want %v", session.Agent(), agent)
 	}
-	if session.Repo() != "duck8823/traceary" {
-		t.Errorf("Repo() = %q, want %q", session.Repo(), "duck8823/traceary")
+	if session.Workspace() != "duck8823/traceary" {
+		t.Errorf("Repo() = %q, want %q", session.Workspace(), "duck8823/traceary")
 	}
 	if session.Label() != "" {
 		t.Errorf("Label() = %q, want empty", session.Label())
@@ -60,7 +60,7 @@ func TestSessionOf(t *testing.T) {
 	start := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 4, 10, 13, 0, 0, 0, time.UTC)
 
-	session := model.SessionOf(sid, start, &end, "cli", agent, "repo", "sprint-1", "did stuff", "parent-123")
+	session := model.SessionOf(sid, start, &end, "cli", agent, "workspace", "sprint-1", "did stuff", "parent-123")
 
 	if session.SessionID() != sid {
 		t.Errorf("SessionID() = %v, want %v", session.SessionID(), sid)

@@ -74,7 +74,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 			"--client", "cli",
 			"--agent", "codex",
 			"--session-id", "session-1",
-			"--repo", "duck8823/traceary",
+			"--workspace", "duck8823/traceary",
 			"hello",
 		})
 
@@ -102,7 +102,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		t.Setenv("TRACEARY_AGENT", "claude")
 		t.Setenv("TRACEARY_SESSION_ID", "session-env")
 		t.Setenv("TRACEARY_CLIENT", "hook")
-		t.Setenv("TRACEARY_REPO", "duck8823/traceary")
+		t.Setenv("TRACEARY_WORKSPACE", "duck8823/traceary")
 
 		initStub := &initializeStoreUsecaseStub{}
 		logStub := &recordLogUsecaseStub{
@@ -137,8 +137,8 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		if logStub.receivedInput.Client != "hook" {
 			t.Fatalf("Client = %q, want %q", logStub.receivedInput.Client, "hook")
 		}
-		if logStub.receivedInput.Repo != "duck8823/traceary" {
-			t.Fatalf("Repo = %q, want %q", logStub.receivedInput.Repo, "duck8823/traceary")
+		if logStub.receivedInput.Workspace != "duck8823/traceary" {
+			t.Fatalf("Repo = %q, want %q", logStub.receivedInput.Workspace, "duck8823/traceary")
 		}
 	})
 
@@ -271,7 +271,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 			t.Fatal("FindLatestSessionQueryService.Run() was not called")
 		}
 		if queryStub.receivedInput != (port.FindLatestSessionInput{
-			Repo:       "github.com/duck8823/traceary",
+			Workspace:       "github.com/duck8823/traceary",
 			ActiveOnly: true,
 		}) {
 			t.Fatalf("receivedInput = %+v", queryStub.receivedInput)

@@ -30,7 +30,7 @@ CREATE TABLE events (
 		"000002_add_event_metadata.sql": {
 			Data: []byte(`
 ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
-ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
+ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
@@ -76,7 +76,7 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
 	}
 
 	got, err := sut.GetContextEvents(context.Background(), port.GetContextInput{
-		Repo:      " github.com/duck8823/traceary ",
+		Workspace:      " github.com/duck8823/traceary ",
 		SessionID: "session-1",
 		Limit:     10,
 	})

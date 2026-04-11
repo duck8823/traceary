@@ -32,7 +32,7 @@ func TestRecordLogUsecase_Run(t *testing.T) {
 			Client:    " cli ",
 			Agent:     "codex",
 			SessionID: "session-1",
-			Repo:      "  duck8823/traceary  ",
+			Workspace:      "  duck8823/traceary  ",
 		})
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
@@ -61,8 +61,8 @@ func TestRecordLogUsecase_Run(t *testing.T) {
 		if got.SessionID().String() != "session-1" {
 			t.Fatalf("SessionID() = %q, want %q", got.SessionID(), "session-1")
 		}
-		if got.Repo() != "duck8823/traceary" {
-			t.Fatalf("Repo() = %q, want %q", got.Repo(), "duck8823/traceary")
+		if got.Workspace() != "duck8823/traceary" {
+			t.Fatalf("Repo() = %q, want %q", got.Workspace(), "duck8823/traceary")
 		}
 	})
 

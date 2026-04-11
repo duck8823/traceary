@@ -24,7 +24,7 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 		got, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
 			Client: "cli",
 			Agent:  "codex",
-			Repo:   "duck8823/traceary",
+			Workspace:   "duck8823/traceary",
 			Kind:   types.EventKindSessionStarted,
 		})
 		if err != nil {
@@ -69,7 +69,7 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 			Client:    "cli",
 			Agent:     "codex",
 			SessionID: "session-1",
-			Repo:      "duck8823/traceary",
+			Workspace:      "duck8823/traceary",
 			Kind:      types.EventKindSessionEnded,
 		})
 		if err != nil {
@@ -128,8 +128,8 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 		if got.Agent().String() != "claude" {
 			t.Fatalf("Agent() = %q, want %q", got.Agent(), "claude")
 		}
-		if got.Repo() != "repo-from-start" {
-			t.Fatalf("Repo() = %q, want %q", got.Repo(), "repo-from-start")
+		if got.Workspace() != "repo-from-start" {
+			t.Fatalf("Repo() = %q, want %q", got.Workspace(), "repo-from-start")
 		}
 	})
 
@@ -166,7 +166,7 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 			DefaultClient: "cli",
 			DefaultAgent:  "manual",
 			SessionID:     "session-1",
-			Repo:          "repo-explicit",
+			Workspace:          "repo-explicit",
 			Kind:          types.EventKindSessionEnded,
 		})
 		if err != nil {
@@ -178,8 +178,8 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 		if got.Agent().String() != "codex" {
 			t.Fatalf("Agent() = %q, want %q", got.Agent(), "codex")
 		}
-		if got.Repo() != "repo-explicit" {
-			t.Fatalf("Repo() = %q, want %q", got.Repo(), "repo-explicit")
+		if got.Workspace() != "repo-explicit" {
+			t.Fatalf("Repo() = %q, want %q", got.Workspace(), "repo-explicit")
 		}
 	})
 
@@ -280,7 +280,7 @@ func TestRecordSessionBoundaryUsecase_Run_SessionSaver(t *testing.T) {
 		_, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
 			Client: "cli",
 			Agent:  "claude",
-			Repo:   "duck8823/traceary",
+			Workspace:   "duck8823/traceary",
 			Kind:   types.EventKindSessionStarted,
 		})
 		if err != nil {
@@ -304,7 +304,7 @@ func TestRecordSessionBoundaryUsecase_Run_SessionSaver(t *testing.T) {
 		_, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
 			Client:    "cli",
 			Agent:     "claude",
-			Repo:      "duck8823/traceary",
+			Workspace:      "duck8823/traceary",
 			SessionID: "test-session",
 			Kind:      types.EventKindSessionEnded,
 		})
@@ -329,7 +329,7 @@ func TestRecordSessionBoundaryUsecase_Run_SessionSaver(t *testing.T) {
 		_, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
 			Client: "cli",
 			Agent:  "claude",
-			Repo:   "duck8823/traceary",
+			Workspace:   "duck8823/traceary",
 			Kind:   types.EventKindSessionStarted,
 		})
 		if err == nil {

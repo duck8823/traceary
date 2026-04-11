@@ -18,7 +18,7 @@ type Event struct {
 	client    string
 	agent     types.Agent
 	sessionID types.SessionID
-	repo      string
+	workspace string
 	body      string
 	createdAt time.Time
 }
@@ -30,7 +30,7 @@ func NewEvent(
 	client string,
 	agent types.Agent,
 	sessionID types.SessionID,
-	repo string,
+	workspace string,
 	body string,
 ) (*Event, error) {
 	trimmedBody := strings.TrimSpace(body)
@@ -43,7 +43,7 @@ func NewEvent(
 		client:    strings.TrimSpace(client),
 		agent:     agent,
 		sessionID: sessionID,
-		repo:      strings.TrimSpace(repo),
+		workspace: strings.TrimSpace(workspace),
 		body:      trimmedBody,
 		createdAt: nowFunc(),
 	}, nil
@@ -56,7 +56,7 @@ func EventOf(
 	client string,
 	agent types.Agent,
 	sessionID types.SessionID,
-	repo string,
+	workspace string,
 	body string,
 	createdAt time.Time,
 ) *Event {
@@ -66,7 +66,7 @@ func EventOf(
 		client:    client,
 		agent:     agent,
 		sessionID: sessionID,
-		repo:      repo,
+		workspace:      workspace,
 		body:      body,
 		createdAt: createdAt,
 	}
@@ -87,8 +87,8 @@ func (e *Event) Agent() types.Agent { return e.agent }
 // SessionID returns the session ID that owns the event.
 func (e *Event) SessionID() types.SessionID { return e.sessionID }
 
-// Repo returns the auxiliary work-context identifier linked to the event.
-func (e *Event) Repo() string { return e.repo }
+// Workspace returns the auxiliary work-context identifier linked to the event.
+func (e *Event) Workspace() string { return e.workspace }
 
 // Body returns the event body.
 func (e *Event) Body() string { return e.body }

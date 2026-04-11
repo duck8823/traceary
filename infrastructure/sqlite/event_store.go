@@ -46,7 +46,7 @@ func (d *Datasource) Save(ctx context.Context, event *model.Event) error {
 		event.Client(),
 		event.Agent().String(),
 		event.SessionID().String(),
-		event.Repo(),
+		event.Workspace(),
 		event.Body(),
 		formatTimestamp(event.CreatedAt()),
 	); err != nil {
@@ -94,7 +94,7 @@ func (d *Datasource) ListRecent(
 		input.Client, input.Client,
 		input.Agent, input.Agent,
 		input.SessionID, input.SessionID,
-		input.Repo, input.Repo,
+		input.Workspace, input.Workspace,
 		boolToInt(input.FailuresOnly),
 		fromValue, fromValue,
 		toValue, toValue,

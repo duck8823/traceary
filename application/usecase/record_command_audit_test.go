@@ -41,7 +41,7 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 			Client:    "cli",
 			Agent:     "codex",
 			SessionID: "session-1",
-			Repo:      "duck8823/traceary",
+			Workspace:      "duck8823/traceary",
 		})
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)

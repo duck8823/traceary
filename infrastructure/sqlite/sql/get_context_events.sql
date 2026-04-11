@@ -1,6 +1,6 @@
-SELECT id, kind, client, agent, session_id, repo, body, created_at
+SELECT id, kind, client, agent, session_id, workspace, body, created_at
   FROM events
- WHERE (? = '' OR repo = ?)
+ WHERE (? = '' OR workspace = ?)
    AND (? = '' OR session_id = ?)
  ORDER BY created_at DESC, id DESC
  LIMIT ?

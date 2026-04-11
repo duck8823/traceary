@@ -16,7 +16,7 @@ type eventJSON struct {
 	Client    string `json:"client"`
 	Agent     string `json:"agent"`
 	SessionID string `json:"session_id"`
-	Repo      string `json:"repo"`
+	Workspace string `json:"workspace"`
 	Message   string `json:"message"`
 	CreatedAt string `json:"created_at"`
 }
@@ -74,7 +74,7 @@ func newEventJSON(event *model.Event) eventJSON {
 		Client:    event.Client(),
 		Agent:     event.Agent().String(),
 		SessionID: event.SessionID().String(),
-		Repo:      event.Repo(),
+		Workspace:      event.Workspace(),
 		Message:   event.Body(),
 		CreatedAt: event.CreatedAt().UTC().Format("2006-01-02T15:04:05Z07:00"),
 	}

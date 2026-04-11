@@ -44,7 +44,7 @@ func (d *Datasource) FindLatestSessionStartedEvent(
 		types.EventKindSessionStarted.String(),
 		input.Client, input.Client,
 		input.Agent, input.Agent,
-		input.Repo, input.Repo,
+		input.Workspace, input.Workspace,
 		types.EventKindSessionStarted.String(),
 		input.ActiveOnly,
 		types.EventKindSessionEnded.String(),

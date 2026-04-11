@@ -36,7 +36,7 @@ func (c *RootCLI) newCompactSummaryCommand() *cobra.Command {
 				return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 			}
 
-			resolvedRepo := resolveRepoValue(ctx, repo)
+			resolvedRepo := resolveWorkspaceValue(ctx, repo)
 			resolvedSessionID := resolveOptionalValue(sessionID, "TRACEARY_SESSION_ID", "")
 
 			return c.printCompactSummary(ctx, output, resolvedDBPath, resolvedSessionID, resolvedRepo, limit)
@@ -45,7 +45,7 @@ func (c *RootCLI) newCompactSummaryCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	cmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID", "セッション ID"))
-	cmd.Flags().StringVar(&repo, "repo", "", Localize("filter by repo", "リポジトリでフィルタ"))
+	cmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by repo", "リポジトリでフィルタ"))
 	cmd.Flags().IntVar(&limit, "recent", 3, Localize("number of recent commands to show", "表示する直近コマンド数"))
 
 	return cmd
@@ -63,7 +63,7 @@ func (c *RootCLI) printCompactSummary(
 	events, err := c.listEventsQueryService.Run(ctx, port.ListRecentEventsInput{
 		Limit:     recentCount + 5, // fetch extra to find commands
 		SessionID: sessionID,
-		Repo:      repo,
+		Workspace:      repo,
 		Kind:      "command_executed",
 	})
 	if err != nil {
@@ -74,7 +74,7 @@ func (c *RootCLI) printCompactSummary(
 	sessions, err := c.listSessionsQueryService.Run(ctx, port.ListSessionsInput{
 		Limit:     1,
 		SessionID: sessionID,
-		Repo:      repo,
+		Workspace:      repo,
 	})
 	if err != nil {
 		return xerrors.Errorf("failed to list sessions: %w", err)
@@ -86,8 +86,8 @@ func (c *RootCLI) printCompactSummary(
 	if len(sessions) > 0 {
 		s := sessions[0]
 		fmt.Fprintf(&sb, "Session %s resumed after compact\n", s.SessionID)
-		if s.Repo != "" {
-			fmt.Fprintf(&sb, "  repo: %s\n", s.Repo)
+		if s.Workspace != "" {
+			fmt.Fprintf(&sb, "  repo: %s\n", s.Workspace)
 		}
 		if s.Label != "" {
 			fmt.Fprintf(&sb, "  label: %s\n", s.Label)

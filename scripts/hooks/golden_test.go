@@ -24,7 +24,7 @@ func TestGolden_SessionStartOutput(t *testing.T) {
 	env := append(os.Environ(),
 		"TRACEARY_BIN="+fakeTracearyPath,
 		"TRACEARY_FAKE_LOG="+fakeLogPath,
-		"TRACEARY_REPO=golden-repo",
+		"TRACEARY_WORKSPACE=golden-repo",
 		"HOME="+homeDir,
 	)
 

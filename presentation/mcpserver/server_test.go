@@ -46,7 +46,7 @@ func TestServer_BuildAndTools(t *testing.T) {
 				"message":    "hello from mcp",
 				"agent":      "claude",
 				"session_id": "session-1",
-				"repo":       "github.com/duck8823/traceary",
+				"workspace":       "github.com/duck8823/traceary",
 			},
 		})
 		if err != nil {
@@ -100,7 +100,7 @@ func TestServer_BuildAndTools(t *testing.T) {
 				"output":     "stdout",
 				"agent":      "codex",
 				"session_id": "session-2",
-				"repo":       "github.com/duck8823/traceary",
+				"workspace":       "github.com/duck8823/traceary",
 			},
 		})
 		if err != nil {
@@ -133,7 +133,7 @@ func TestServer_BuildAndTools(t *testing.T) {
 			Name: "start_session",
 			Arguments: map[string]any{
 				"agent": "codex",
-				"repo":  "github.com/duck8823/traceary",
+				"workspace":  "github.com/duck8823/traceary",
 			},
 		})
 		if err != nil {
@@ -146,7 +146,7 @@ func TestServer_BuildAndTools(t *testing.T) {
 		activeResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 			Name: "active_session",
 			Arguments: map[string]any{
-				"repo": "github.com/duck8823/traceary",
+				"workspace": "github.com/duck8823/traceary",
 			},
 		})
 		if err != nil {
@@ -159,7 +159,7 @@ func TestServer_BuildAndTools(t *testing.T) {
 		latestResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 			Name: "latest_session",
 			Arguments: map[string]any{
-				"repo": "github.com/duck8823/traceary",
+				"workspace": "github.com/duck8823/traceary",
 			},
 		})
 		if err != nil {
@@ -261,7 +261,7 @@ CREATE TABLE events (
 		"000002_add_event_metadata.sql": {
 			Data: []byte(`
 ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
-ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
+ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		},
 		"000003_create_command_audits.sql": {
 			Data: []byte(`

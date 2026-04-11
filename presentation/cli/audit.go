@@ -42,8 +42,8 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 		Use:   "audit <command> [<input>] [<output>]",
 		Short: Localize("Record a command execution audit event", "コマンド実行の監査ログを記録する"),
 		Long: Localize(
-			"Record a shell-command audit.\n\nDefaults:\n- DB path: --db-path -> TRACEARY_DB_PATH -> ~/.config/traceary/traceary.db\n- client / agent / repo: flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_REPO -> cli / manual / detected repo\n- session ID: --session-id -> TRACEARY_SESSION_ID -> latest non-stale active session for the resolved repo -> default\n- input / output: optional; omit them when you only need the command text\n- secret policy: --allow-secrets or TRACEARY_ALLOW_SECRETS disables best-effort redaction",
-			"shell command の監査ログを記録します。\n\n既定値の解決順:\n- DB path: --db-path -> TRACEARY_DB_PATH -> ~/.config/traceary/traceary.db\n- client / agent / repo: flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_REPO -> cli / manual / 検出した repo\n- session ID: --session-id -> TRACEARY_SESSION_ID -> 解決した repo の最新 non-stale active session -> default\n- input / output: 任意。command 文字列だけを記録したい場合は省略できます\n- secret policy: --allow-secrets または TRACEARY_ALLOW_SECRETS で best-effort redaction を無効化します",
+			"Record a shell-command audit.\n\nDefaults:\n- DB path: --db-path -> TRACEARY_DB_PATH -> ~/.config/traceary/traceary.db\n- client / agent / repo: flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE -> cli / manual / detected repo\n- session ID: --session-id -> TRACEARY_SESSION_ID -> latest non-stale active session for the resolved repo -> default\n- input / output: optional; omit them when you only need the command text\n- secret policy: --allow-secrets or TRACEARY_ALLOW_SECRETS disables best-effort redaction",
+			"shell command の監査ログを記録します。\n\n既定値の解決順:\n- DB path: --db-path -> TRACEARY_DB_PATH -> ~/.config/traceary/traceary.db\n- client / agent / repo: flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE -> cli / manual / 検出した repo\n- session ID: --session-id -> TRACEARY_SESSION_ID -> 解決した repo の最新 non-stale active session -> default\n- input / output: 任意。command 文字列だけを記録したい場合は省略できます\n- secret policy: --allow-secrets または TRACEARY_ALLOW_SECRETS で best-effort redaction を無効化します",
 		),
 		Example: strings.Join([]string{
 			"  traceary audit \"go test ./...\"",
@@ -100,7 +100,7 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 			"セッション ID (env: TRACEARY_SESSION_ID。未指定時は active session、なければ既定値)",
 		),
 	)
-	auditCmd.Flags().StringVar(&repo, "repo", "", Localize("auxiliary work context identifier (env: TRACEARY_REPO)", "補助的なコンテキスト識別子 (env: TRACEARY_REPO)"))
+	auditCmd.Flags().StringVar(&repo, "workspace", "", Localize("auxiliary work context identifier (env: TRACEARY_WORKSPACE)", "補助的なコンテキスト識別子 (env: TRACEARY_WORKSPACE)"))
 	auditCmd.Flags().StringVar(&command, "command", "", Localize("command text to record", "記録する command 文字列"))
 	auditCmd.Flags().StringVar(&auditInput, "input", "", Localize("optional command input payload", "任意の command input"))
 	auditCmd.Flags().StringVar(&auditOutput, "output", "", Localize("optional command output payload", "任意の command output"))
@@ -179,7 +179,7 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
-	resolvedRepo := resolveRepoValue(ctx, input.repo)
+	resolvedRepo := resolveWorkspaceValue(ctx, input.repo)
 	sessionResolution, err := c.resolveManualSessionID(
 		ctx,
 		resolveOptionalValue(input.sessionID, "TRACEARY_SESSION_ID", ""),
@@ -211,7 +211,7 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		Client:              resolveOptionalValue(input.client, "TRACEARY_CLIENT", defaultClientValue),
 		Agent:               resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue),
 		SessionID:           sessionResolution.sessionID,
-		Repo:                resolvedRepo,
+		Workspace:                resolvedRepo,
 		AllowSecrets:        allowSecrets,
 		MaxInputBytes:       maxInputBytes,
 		MaxOutputBytes:      maxOutputBytes,

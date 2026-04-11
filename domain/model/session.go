@@ -13,7 +13,7 @@ type Session struct {
 	endedAt         *time.Time
 	client          string
 	agent           types.Agent
-	repo            string
+	workspace string
 	label           string
 	summary         string
 	parentSessionID string
@@ -25,14 +25,14 @@ func NewSession(
 	startedAt time.Time,
 	client string,
 	agent types.Agent,
-	repo string,
+	workspace string,
 ) *Session {
 	return &Session{
 		sessionID: sessionID,
 		startedAt: startedAt,
 		client:    client,
 		agent:     agent,
-		repo:      repo,
+		workspace:      workspace,
 	}
 }
 
@@ -43,7 +43,7 @@ func SessionOf(
 	endedAt *time.Time,
 	client string,
 	agent types.Agent,
-	repo string,
+	workspace string,
 	label string,
 	summary string,
 	parentSessionID string,
@@ -54,7 +54,7 @@ func SessionOf(
 		endedAt:         endedAt,
 		client:          client,
 		agent:           agent,
-		repo:            repo,
+		workspace:            workspace,
 		label:           label,
 		summary:         summary,
 		parentSessionID: parentSessionID,
@@ -76,8 +76,8 @@ func (s *Session) Client() string { return s.client }
 // Agent returns the agent that ran the session.
 func (s *Session) Agent() types.Agent { return s.agent }
 
-// Repo returns the work context repository.
-func (s *Session) Repo() string { return s.repo }
+// Workspace returns the work context.
+func (s *Session) Workspace() string { return s.workspace }
 
 // Label returns the user-assigned label.
 func (s *Session) Label() string { return s.label }

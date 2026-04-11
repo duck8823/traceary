@@ -24,7 +24,7 @@ func TestRootCLI_SessionTreeCommand_JSON(t *testing.T) {
 			summaries: []*port.SessionSummary{
 				{
 					SessionID:   "root-session",
-					Repo:        "duck8823/traceary",
+					Workspace:        "duck8823/traceary",
 					Label:       "sprint",
 					StartedAt:   time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
 					EndedAt:     &endedAt,
@@ -35,7 +35,7 @@ func TestRootCLI_SessionTreeCommand_JSON(t *testing.T) {
 				},
 				{
 					SessionID:       "child-session",
-					Repo:            "duck8823/traceary",
+					Workspace:            "duck8823/traceary",
 					ParentSessionID: "root-session",
 					StartedAt:       time.Date(2026, 4, 9, 12, 30, 0, 0, time.UTC),
 					Status:          "active",
@@ -126,7 +126,7 @@ func TestRootCLI_SessionTreeCommand_JSON(t *testing.T) {
 			summaries: []*port.SessionSummary{
 				{
 					SessionID:   "text-session",
-					Repo:        "duck8823/traceary",
+					Workspace:        "duck8823/traceary",
 					StartedAt:   time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
 					Status:      "active",
 					TotalEvents: 1,

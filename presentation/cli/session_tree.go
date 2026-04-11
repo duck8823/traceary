@@ -36,11 +36,11 @@ func (c *RootCLI) newSessionTreeCommand() *cobra.Command {
 				return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 			}
 
-			resolvedRepo := resolveRepoValue(ctx, repo)
+			resolvedRepo := resolveWorkspaceValue(ctx, repo)
 
 			summaries, err := c.listSessionsQueryService.Run(ctx, port.ListSessionsInput{
 				Limit: limit,
-				Repo:  resolvedRepo,
+				Workspace:  resolvedRepo,
 			})
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to list sessions", "セッション一覧の取得に失敗しました"), err)
@@ -51,7 +51,7 @@ func (c *RootCLI) newSessionTreeCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().StringVar(&repo, "repo", "", Localize("filter by repo", "リポジトリでフィルタ"))
+	cmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by repo", "リポジトリでフィルタ"))
 	cmd.Flags().IntVar(&limit, "limit", 50, Localize("maximum number of sessions to load", "読み込む最大セッション数"))
 	cmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 
@@ -111,7 +111,7 @@ func writeSessionTree(output io.Writer, summaries []*port.SessionSummary, asJSON
 
 type jsonTreeNode struct {
 	SessionID    string          `json:"session_id"`
-	Repo         string          `json:"repo,omitempty"`
+	Workspace string          `json:"repo,omitempty"`
 	Label        string          `json:"label,omitempty"`
 	Summary      string          `json:"summary,omitempty"`
 	StartedAt    string          `json:"started_at"`
@@ -128,7 +128,7 @@ func sessionNodeToJSON(node *sessionNode) *jsonTreeNode {
 	s := node.summary
 	jn := &jsonTreeNode{
 		SessionID:    s.SessionID,
-		Repo:         s.Repo,
+		Workspace:         s.Workspace,
 		Label:        s.Label,
 		Summary:      s.Summary,
 		StartedAt:    s.StartedAt.UTC().Format(time.RFC3339),
@@ -188,7 +188,7 @@ func printNode(output io.Writer, node *sessionNode, prefix string, isLast bool) 
 		prefix, connector,
 		s.SessionID,
 		s.Status,
-		formatOptionalColumn(s.Repo),
+		formatOptionalColumn(s.Workspace),
 		duration,
 		s.CommandCount,
 		label,

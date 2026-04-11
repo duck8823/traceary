@@ -46,7 +46,7 @@ func (d *Datasource) ListSessionSummaries(
 		ctx,
 		listSessionsQuery,
 		input.SessionID, input.SessionID,
-		input.Repo, input.Repo,
+		input.Workspace, input.Workspace,
 		input.Client, input.Client,
 		input.Agent, input.Agent,
 		input.Label, input.Label,
@@ -134,7 +134,7 @@ func scanSessionSummary(row interface {
 
 	return &port.SessionSummary{
 		SessionID:       sessionID,
-		Repo:            repo,
+		Workspace:            repo,
 		StartedAt:       startedAt,
 		EndedAt:         endedAt,
 		Status:          status,

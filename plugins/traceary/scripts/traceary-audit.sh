@@ -61,7 +61,7 @@ if [[ -n "${TRACEARY_DB_PATH:-}" ]]; then
   COMMAND+=(--db-path "$TRACEARY_DB_PATH")
 fi
 if [[ -n "$REPO_VALUE" ]]; then
-  COMMAND+=(--repo "$REPO_VALUE")
+  COMMAND+=(--workspace "$REPO_VALUE")
 fi
 
 "${COMMAND[@]}" >/dev/null 2>&1 || exit 0

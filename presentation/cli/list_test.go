@@ -83,7 +83,7 @@ func TestRootCLI_ListCommand(t *testing.T) {
 			"--client", "cli",
 			"--agent", "codex",
 			"--session-id", "session-1",
-			"--repo", "duck8823/traceary",
+			"--workspace", "duck8823/traceary",
 		})
 
 		if err := rootCmd.Execute(); err != nil {
@@ -166,7 +166,7 @@ func TestRootCLI_ListCommand(t *testing.T) {
 			"    \"client\": \"cli\",\n" +
 			"    \"agent\": \"codex\",\n" +
 			"    \"session_id\": \"session-2\",\n" +
-			"    \"repo\": \"duck8823/traceary\",\n" +
+			"    \"workspace\": \"duck8823/traceary\",\n" +
 			"    \"message\": \"hello json\",\n" +
 			"    \"created_at\": \"2026-04-07T12:30:00Z\"\n" +
 			"  }\n" +

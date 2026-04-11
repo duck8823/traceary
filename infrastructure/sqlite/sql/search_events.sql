@@ -1,4 +1,4 @@
-SELECT DISTINCT e.id, e.kind, e.client, e.agent, e.session_id, e.repo, e.body, e.created_at
+SELECT DISTINCT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.body, e.created_at
   FROM events e
   LEFT JOIN command_audits a ON a.event_id = e.id
  WHERE (? = '' OR
@@ -6,7 +6,7 @@ SELECT DISTINCT e.id, e.kind, e.client, e.agent, e.session_id, e.repo, e.body, e
         COALESCE(a.command_text, '') LIKE ? ESCAPE '\' OR
         COALESCE(a.input_text, '') LIKE ? ESCAPE '\' OR
         COALESCE(a.output_text, '') LIKE ? ESCAPE '\')
-   AND (? = '' OR e.repo = ?)
+   AND (? = '' OR e.workspace = ?)
    AND (? = '' OR e.session_id = ?)
    AND (? = '' OR e.client = ?)
    AND (? = '' OR e.agent = ?)

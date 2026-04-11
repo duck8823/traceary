@@ -23,7 +23,7 @@ fi
 
 HOOK_CWD="$(traceary_json_get 'cwd')"
 SESSION_ID="$(traceary_json_get 'session_id')"
-REPO_VALUE="$(traceary_resolve_repo "$HOOK_CWD")"
+REPO_VALUE="$(traceary_resolve_workspace "$HOOK_CWD")"
 
 COMMON_ARGS=(session)
 if [[ -n "${TRACEARY_DB_PATH:-}" ]]; then
@@ -40,7 +40,7 @@ case "$ACTION" in
       COMMAND+=(--db-path "$TRACEARY_DB_PATH")
     fi
     if [[ -n "$REPO_VALUE" ]]; then
-      COMMAND+=(--repo "$REPO_VALUE")
+      COMMAND+=(--workspace "$REPO_VALUE")
     fi
     if [[ -n "$SESSION_ID" ]]; then
       COMMAND+=(--session-id "$SESSION_ID")
@@ -84,7 +84,7 @@ case "$ACTION" in
       COMMAND+=(--db-path "$TRACEARY_DB_PATH")
     fi
     if [[ -n "$REPO_VALUE" ]]; then
-      COMMAND+=(--repo "$REPO_VALUE")
+      COMMAND+=(--workspace "$REPO_VALUE")
     fi
     "${COMMAND[@]}" >/dev/null 2>&1 || exit 0
     traceary_clear_state "$CLIENT"

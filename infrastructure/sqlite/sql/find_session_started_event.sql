@@ -1,4 +1,4 @@
-SELECT id, kind, client, agent, session_id, repo, body, created_at
+SELECT id, kind, client, agent, session_id, workspace, body, created_at
   FROM events
  WHERE kind = ?
    AND session_id = ?

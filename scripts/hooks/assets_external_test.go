@@ -68,10 +68,10 @@ func TestAssets_contentContainsExpectedFunctions(t *testing.T) {
 	expectedFunctions := []string{
 		"traceary_read_hook_input",
 		"traceary_json_get",
-		"traceary_resolve_repo",
+		"traceary_resolve_workspace",
 		"traceary_resolve_agent",
-		"traceary_write_repo_state",
-		"traceary_read_repo_state",
+		"traceary_write_workspace_state",
+		"traceary_read_workspace_state",
 	}
 	for _, fn := range expectedFunctions {
 		if !strings.Contains(common, fn) {

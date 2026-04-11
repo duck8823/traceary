@@ -88,7 +88,7 @@ func (d *Datasource) SaveSession(ctx context.Context, session *model.Session) er
 		formatTimestamp(session.StartedAt()),
 		session.Client(),
 		session.Agent().String(),
-		session.Repo(),
+		session.Workspace(),
 		parentSessionID,
 	)
 	if err != nil {

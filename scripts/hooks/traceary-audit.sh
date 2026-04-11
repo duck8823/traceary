@@ -34,7 +34,7 @@ if [[ -z "$SESSION_ID" ]]; then
   exit 0
 fi
 
-REPO_VALUE="$(traceary_resolve_effective_repo "$CLIENT")"
+WORKSPACE_VALUE="$(traceary_resolve_effective_workspace "$CLIENT")"
 AUDIT_INPUT="$(traceary_json_get 'tool_input' '{}')"
 # For MCP tools, ensure tool_input includes at least the tool name when empty
 if [[ "$AUDIT_INPUT" == "{}" || -z "$AUDIT_INPUT" ]]; then
@@ -60,8 +60,8 @@ fi
 if [[ -n "${TRACEARY_DB_PATH:-}" ]]; then
   COMMAND+=(--db-path "$TRACEARY_DB_PATH")
 fi
-if [[ -n "$REPO_VALUE" ]]; then
-  COMMAND+=(--repo "$REPO_VALUE")
+if [[ -n "$WORKSPACE_VALUE" ]]; then
+  COMMAND+=(--workspace "$WORKSPACE_VALUE")
 fi
 
 "${COMMAND[@]}" >/dev/null 2>&1 || exit 0

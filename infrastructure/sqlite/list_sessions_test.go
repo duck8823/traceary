@@ -27,7 +27,7 @@ func listSessionsTestMigrations() fstest.MapFS {
 		},
 		"000002_add_event_metadata.sql": {
 			Data: []byte(`ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
-ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
+ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		},
 		"000003_create_command_audits.sql": {
 			Data: []byte(`CREATE TABLE command_audits (
@@ -47,35 +47,35 @@ ALTER TABLE events ADD COLUMN repo TEXT NOT NULL DEFAULT '';`),
     ended_at TEXT,
     client TEXT NOT NULL DEFAULT '',
     agent TEXT NOT NULL DEFAULT '',
-    repo TEXT NOT NULL DEFAULT '',
+    workspace TEXT NOT NULL DEFAULT '',
     label TEXT NOT NULL DEFAULT '',
     summary TEXT NOT NULL DEFAULT '',
     parent_session_id TEXT REFERENCES sessions(session_id)
 );
-INSERT OR IGNORE INTO sessions (session_id, started_at, ended_at, client, agent, repo)
+INSERT OR IGNORE INTO sessions (session_id, started_at, ended_at, client, agent, workspace)
 SELECT
     e.session_id,
     COALESCE(MIN(CASE WHEN e.kind = 'session_started' THEN e.created_at END), MIN(e.created_at)),
     MAX(CASE WHEN e.kind = 'session_ended' THEN e.created_at END),
     COALESCE(MAX(CASE WHEN e.kind = 'session_started' THEN e.client END), MAX(e.client)),
     COALESCE(MAX(CASE WHEN e.kind = 'session_started' THEN e.agent END), MAX(e.agent)),
-    COALESCE(MAX(CASE WHEN e.kind = 'session_started' THEN e.repo END), MAX(e.repo))
+    COALESCE(MAX(CASE WHEN e.kind = 'session_started' THEN e.workspace END), MAX(e.workspace))
 FROM events e
 GROUP BY e.session_id;`),
 		},
 	}
 }
 
-func saveTestSession(ctx context.Context, t *testing.T, ds *infra.Datasource, sessionID string, startedAt time.Time, endedAt *time.Time, agent string, repo string) {
+func saveTestSession(ctx context.Context, t *testing.T, ds *infra.Datasource, sessionID string, startedAt time.Time, endedAt *time.Time, agent string, workspace string) {
 	t.Helper()
 	ag, _ := types.AgentOf(agent)
 	sid, _ := types.SessionIDOf(sessionID)
-	session := model.NewSession(sid, startedAt, "hook", ag, repo)
+	session := model.NewSession(sid, startedAt, "hook", ag, workspace)
 	if err := ds.SaveSession(ctx, session); err != nil {
 		t.Fatalf("SaveSession(start) error = %v", err)
 	}
 	if endedAt != nil {
-		endSession := model.SessionOf(sid, startedAt, endedAt, "hook", ag, repo, "", "", "")
+		endSession := model.SessionOf(sid, startedAt, endedAt, "hook", ag, workspace, "", "", "")
 		if err := ds.SaveSession(ctx, endSession); err != nil {
 			t.Fatalf("SaveSession(end) error = %v", err)
 		}
@@ -191,15 +191,15 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 			eid, _ := types.EventIDOf(e.id)
 			agent, _ := types.AgentOf(e.agent)
 			sid, _ := types.SessionIDOf(e.sid)
-			event, _ := model.NewEvent(eid, types.EventKindSessionStarted, "hook", agent, sid, "repo", "start")
+			event, _ := model.NewEvent(eid, types.EventKindSessionStarted, "hook", agent, sid, "workspace", "start")
 			if err := ds.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
 		}
 
 		now := time.Now().UTC()
-		saveTestSession(ctx, t, ds, "s1", now, nil, "claude", "repo")
-		saveTestSession(ctx, t, ds, "s2", now.Add(time.Second), nil, "codex", "repo")
+		saveTestSession(ctx, t, ds, "s1", now, nil, "claude", "workspace")
+		saveTestSession(ctx, t, ds, "s2", now.Add(time.Second), nil, "codex", "workspace")
 
 		summaries, err := ds.ListSessionSummaries(ctx, port.ListSessionsInput{
 			Limit: 10,
@@ -238,11 +238,11 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 			agent, _ := types.AgentOf("claude")
 			sid, _ := types.SessionIDOf(e.sid)
 			ts := time.Date(2026, 4, e.dayOfMon, 12, 0, 0, 0, time.UTC)
-			event := model.EventOf(eid, types.EventKindSessionStarted, "hook", agent, sid, "repo", "start", ts)
+			event := model.EventOf(eid, types.EventKindSessionStarted, "hook", agent, sid, "workspace", "start", ts)
 			if err := ds.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
-			saveTestSession(ctx, t, ds, e.sid, ts, nil, "claude", "repo")
+			saveTestSession(ctx, t, ds, e.sid, ts, nil, "claude", "workspace")
 		}
 
 		fromDate := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
@@ -281,15 +281,15 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 			eid, _ := types.EventIDOf(e.id)
 			agent, _ := types.AgentOf(e.agent)
 			sid, _ := types.SessionIDOf(e.sid)
-			event, _ := model.NewEvent(eid, types.EventKindSessionStarted, "hook", agent, sid, "repo", "start")
+			event, _ := model.NewEvent(eid, types.EventKindSessionStarted, "hook", agent, sid, "workspace", "start")
 			if err := ds.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
 		}
 
 		now := time.Now().UTC()
-		saveTestSession(ctx, t, ds, "s1", now, nil, "claude", "repo")
-		saveTestSession(ctx, t, ds, "s2", now.Add(time.Second), nil, "claude", "repo")
+		saveTestSession(ctx, t, ds, "s1", now, nil, "claude", "workspace")
+		saveTestSession(ctx, t, ds, "s2", now.Add(time.Second), nil, "claude", "workspace")
 
 		summaries, err := ds.ListSessionSummaries(ctx, port.ListSessionsInput{
 			Limit:     10,
@@ -328,11 +328,11 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 			agent, _ := types.AgentOf("claude")
 			sid, _ := types.SessionIDOf(e.sid)
 			ts := time.Date(2026, 4, e.dayOfMon, 12, 0, 0, 0, time.UTC)
-			event := model.EventOf(eid, types.EventKindSessionStarted, "hook", agent, sid, "repo", "start", ts)
+			event := model.EventOf(eid, types.EventKindSessionStarted, "hook", agent, sid, "workspace", "start", ts)
 			if err := ds.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
-			saveTestSession(ctx, t, ds, e.sid, ts, nil, "claude", "repo")
+			saveTestSession(ctx, t, ds, e.sid, ts, nil, "claude", "workspace")
 		}
 
 		toDate := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
