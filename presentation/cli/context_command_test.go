@@ -9,46 +9,9 @@ import (
 
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
-	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
 )
-
-type getContextQueryServiceStub struct {
-	receivedInput port.GetContextInput
-	called        bool
-	events        []*model.Event
-	err           error
-}
-
-func (s *getContextQueryServiceStub) Run(
-	_ context.Context,
-	input port.GetContextInput,
-) ([]*model.Event, error) {
-	s.called = true
-	s.receivedInput = input
-	return s.events, s.err
-}
-
-var _ queryservice.GetContextQueryService = (*getContextQueryServiceStub)(nil)
-
-type contextLatestSessionQueryServiceStub struct {
-	receivedInput port.FindLatestSessionInput
-	called        bool
-	event         *model.Event
-	err           error
-}
-
-func (s *contextLatestSessionQueryServiceStub) Run(
-	_ context.Context,
-	input port.FindLatestSessionInput,
-) (*model.Event, error) {
-	s.called = true
-	s.receivedInput = input
-	return s.event, s.err
-}
-
-var _ queryservice.FindLatestSessionQueryService = (*contextLatestSessionQueryServiceStub)(nil)
 
 func TestRootCLI_ContextCommand(t *testing.T) {
 	t.Setenv("TRACEARY_WORKSPACE", "")
@@ -73,38 +36,34 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 	t.Run("resolves latest session and displays context", func(t *testing.T) {
 		t.Parallel()
 
-		contextStub := &getContextQueryServiceStub{
-			events: []*model.Event{
-				model.EventOf(
-					eventID,
-					types.EventKindNote,
-					"cli",
-					agent,
-					sessionID,
-					"github.com/duck8823/traceary",
-					"README を更新した\n次に release note を確認する",
-					time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC),
-				),
-			},
-		}
-		latestStub := &contextLatestSessionQueryServiceStub{
-			event: model.EventOf(
+		contextEvents := []*model.Event{
+			model.EventOf(
 				eventID,
-				types.EventKindSessionStarted,
+				types.EventKindNote,
 				"cli",
 				agent,
 				sessionID,
 				"github.com/duck8823/traceary",
-				"session started",
-				time.Date(2026, 4, 8, 11, 0, 0, 0, time.UTC),
+				"README を更新した\n次に release note を確認する",
+				time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC),
 			),
 		}
+		activeEvent := model.EventOf(
+			eventID,
+			types.EventKindSessionStarted,
+			"cli",
+			agent,
+			sessionID,
+			"github.com/duck8823/traceary",
+			"session started",
+			time.Date(2026, 4, 8, 11, 0, 0, 0, time.UTC),
+		)
 
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
 			StoreMaintenance: &storeMaintenanceUsecaseStub{},
-			Event: &eventUsecaseStub{contextEvents: contextStub.events},
-			Session: &sessionUsecaseStub{activeEvent: latestStub.event, activeErr: latestStub.err},
+			Event:            &eventUsecaseStub{contextEvents: contextEvents},
+			Session:          &sessionUsecaseStub{activeEvent: activeEvent},
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -127,31 +86,29 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 	t.Run("JSON 形式で文脈を表示できる", func(t *testing.T) {
 		t.Parallel()
 
-		contextStub := &getContextQueryServiceStub{
-			events: []*model.Event{
-				model.EventOf(
-					eventID,
-					types.EventKindNote,
-					"cli",
-					agent,
-					sessionID,
-					"github.com/duck8823/traceary",
-					"hello context",
-					time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC),
-				),
-			},
+		contextEvents := []*model.Event{
+			model.EventOf(
+				eventID,
+				types.EventKindNote,
+				"cli",
+				agent,
+				sessionID,
+				"github.com/duck8823/traceary",
+				"hello context",
+				time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC),
+			),
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
 			StoreMaintenance: &storeMaintenanceUsecaseStub{},
-			Event: &eventUsecaseStub{contextEvents: contextStub.events},
+			Event:            &eventUsecaseStub{contextEvents: contextEvents},
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
 			"context",
 			"--db-path",
-		"/tmp/test-traceary.db",
+			"/tmp/test-traceary.db",
 			"--session-id", "session-1",
 			"--json",
 		})
@@ -186,15 +143,11 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		contextStub := &getContextQueryServiceStub{}
-		latestStub := &contextLatestSessionQueryServiceStub{
-			err: port.ErrSessionNotFound,
-		}
 
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
 			StoreMaintenance: &storeMaintenanceUsecaseStub{},
-			Event: &eventUsecaseStub{contextEvents: contextStub.events},
-			Session: &sessionUsecaseStub{activeEvent: latestStub.event, activeErr: latestStub.err},
+			Event:            &eventUsecaseStub{},
+			Session:          &sessionUsecaseStub{activeErr: queryservice.ErrSessionNotFound},
 		}).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})

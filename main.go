@@ -16,7 +16,6 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 	"github.com/duck8823/traceary/presentation/cli"
@@ -156,32 +155,22 @@ func run() error {
 	if err != nil {
 		return xerrors.Errorf("%s: %w", cli.Localize("failed to resolve DB path", "DBパスの解決に失敗しました"), err)
 	}
-	ds := sqlite.NewDatasource(dbPath, migrationsSubFS)
-	initStore := usecase.NewInitializeStoreUsecase(ds)
-	recordLog := usecase.NewRecordLogUsecase(ds)
-	recordAudit := usecase.NewRecordCommandAuditUsecase(ds)
-	recordBoundary := usecase.NewRecordSessionBoundaryUsecase(ds, ds, ds)
-	updateLabel := usecase.NewUpdateSessionLabelUsecase(ds)
-	createBackup := usecase.NewCreateStoreBackupUsecase(ds)
-	restoreBackup := usecase.NewRestoreStoreBackupUsecase(ds)
-	collectGarbage := usecase.NewCollectGarbageUsecase(ds)
-	closeStaleSessions := usecase.NewCloseStaleSessionsUsecase(ds)
-	searchEvents := queryservice.NewSearchEventsQueryService(ds)
-	listRecent := queryservice.NewListRecentEventsQueryService(ds)
-	getContext := queryservice.NewGetContextQueryService(ds)
-	getDetails := queryservice.NewGetEventDetailsQueryService(ds)
-	findLatest := queryservice.NewFindLatestSessionQueryService(ds)
-	listSessions := queryservice.NewListSessionsQueryService(ds)
-	listTimeline := queryservice.NewListTimelineBlocksQueryService(ds)
+	store := sqlite.NewStore(dbPath, migrationsSubFS)
+	initStore := usecase.NewInitializeStoreUsecase(store)
+	recordLog := usecase.NewRecordLogUsecase(store)
+	recordAudit := usecase.NewRecordCommandAuditUsecase(store)
+	recordBoundary := usecase.NewRecordSessionBoundaryUsecase(store, store)
+	updateLabel := usecase.NewUpdateSessionLabelUsecase(store)
+	createBackup := usecase.NewCreateStoreBackupUsecase(store)
+	restoreBackup := usecase.NewRestoreStoreBackupUsecase(store)
+	collectGarbage := usecase.NewCollectGarbageUsecase(store)
+	closeStaleSessions := usecase.NewCloseStaleSessionsUsecase(store)
 
 	eventUsecase := usecase.NewEventUsecaseAdapter(
-		recordLog, recordAudit,
-		listRecent, searchEvents, getDetails, getContext,
-		listTimeline,
+		recordLog, recordAudit, store,
 	)
 	sessionUsecase := usecase.NewSessionUsecaseAdapter(
-		recordBoundary, updateLabel,
-		findLatest, listSessions, listRecent,
+		recordBoundary, updateLabel, store, store,
 	)
 	storeMaintenanceUsecase := usecase.NewStoreMaintenanceUsecaseAdapter(
 		initStore, createBackup, restoreBackup,

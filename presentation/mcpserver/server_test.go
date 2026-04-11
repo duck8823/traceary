@@ -9,7 +9,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 	"github.com/duck8823/traceary/presentation/mcpserver"
@@ -296,6 +295,20 @@ CREATE TABLE command_audits (
     exit_code INTEGER
 );`),
 		},
+		"000004_create_sessions.sql": {
+			Data: []byte(`
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id TEXT PRIMARY KEY,
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    client TEXT NOT NULL DEFAULT '',
+    agent TEXT NOT NULL DEFAULT '',
+    workspace TEXT NOT NULL DEFAULT '',
+    label TEXT NOT NULL DEFAULT '',
+    summary TEXT NOT NULL DEFAULT '',
+    parent_session_id TEXT REFERENCES sessions(session_id)
+);`),
+		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
 	datasource := sqlite.NewDatasource(dbPath, migrations)
@@ -304,23 +317,9 @@ CREATE TABLE command_audits (
 	recordLog := usecase.NewRecordLogUsecase(datasource)
 	recordAudit := usecase.NewRecordCommandAuditUsecase(datasource)
 	recordBoundary := usecase.NewRecordSessionBoundaryUsecase(datasource, datasource)
-	searchEvents := queryservice.NewSearchEventsQueryService(datasource)
-	listRecent := queryservice.NewListRecentEventsQueryService(datasource)
-	getContext := queryservice.NewGetContextQueryService(datasource)
-	getDetails := queryservice.NewGetEventDetailsQueryService(datasource)
-	findLatest := queryservice.NewFindLatestSessionQueryService(datasource)
-	listSessions := queryservice.NewListSessionsQueryService(datasource)
 
-	listTimeline := queryservice.NewListTimelineBlocksQueryService(datasource)
-	eventUsecase := usecase.NewEventUsecaseAdapter(
-		recordLog, recordAudit,
-		listRecent, searchEvents, getDetails, getContext,
-		listTimeline,
-	)
-	sessionUsecase := usecase.NewSessionUsecaseAdapter(
-		recordBoundary, nil,
-		findLatest, listSessions, listRecent,
-	)
+	eventUsecase := usecase.NewEventUsecaseAdapter(recordLog, recordAudit, datasource)
+	sessionUsecase := usecase.NewSessionUsecaseAdapter(recordBoundary, nil, datasource, datasource)
 	storeMaintenanceUsecase := usecase.NewStoreMaintenanceUsecaseAdapter(
 		initStore, nil, nil, nil, nil,
 	)
