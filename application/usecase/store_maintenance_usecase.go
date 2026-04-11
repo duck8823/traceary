@@ -19,6 +19,6 @@ type StoreMaintenanceUsecase interface {
 	// CollectGarbage removes events older than the given time.
 	CollectGarbage(ctx context.Context, before time.Time, dryRun bool) (*CollectGarbageResult, error)
 
-	// CloseStaleSession closes sessions active beyond the given duration.
-	CloseStaleSession(ctx context.Context, staleAfter time.Duration, dryRun bool) (*CloseStaleSessionsResult, error)
+	// CloseStaleSessions closes sessions active beyond the given duration.
+	CloseStaleSessions(ctx context.Context, staleAfter time.Duration, dryRun bool) (*CloseStaleSessionsResult, error)
 }

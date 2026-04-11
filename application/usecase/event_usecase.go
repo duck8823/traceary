@@ -38,6 +38,7 @@ type EventUsecase interface {
 	List(ctx context.Context, criteria EventListCriteria) ([]*model.Event, error)
 
 	// Show returns the details for a single event.
+	// Returns usecase.EventDetails; port.EventDetails will be removed in Phase C.
 	Show(ctx context.Context, eventID types.EventID) (*EventDetails, error)
 
 	// Context returns recent events for the given context.
