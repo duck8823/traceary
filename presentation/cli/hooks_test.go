@@ -53,6 +53,13 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 			`TRACEARY_BIN='/tmp/traceary bin/traceary' bash '`+filepath.Join(scriptsDir, "traceary-compact.sh")+`' 'claude' 'post-compact'`; got != want {
 			t.Fatalf("PostCompact command = %q, want %q", got, want)
 		}
+		if got, want := *settings.Hooks["UserPromptSubmit"][0].Matcher, "*"; got != want {
+			t.Fatalf("UserPromptSubmit matcher = %q, want %q", got, want)
+		}
+		if got, want := settings.Hooks["UserPromptSubmit"][0].Hooks[0].Command,
+			`TRACEARY_BIN='/tmp/traceary bin/traceary' bash '`+filepath.Join(scriptsDir, "traceary-prompt.sh")+`' 'claude'`; got != want {
+			t.Fatalf("UserPromptSubmit command = %q, want %q", got, want)
+		}
 		assertInstalledHookScripts(t, scriptsDir)
 	})
 
@@ -361,7 +368,7 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 func assertInstalledHookScripts(t *testing.T, scriptsDir string) {
 	t.Helper()
 
-	for _, scriptName := range []string{"common.sh", "traceary-session.sh", "traceary-audit.sh", "traceary-compact.sh"} {
+	for _, scriptName := range []string{"common.sh", "traceary-session.sh", "traceary-audit.sh", "traceary-compact.sh", "traceary-prompt.sh"} {
 		scriptPath := filepath.Join(scriptsDir, scriptName)
 		info, err := os.Stat(scriptPath)
 		if err != nil {

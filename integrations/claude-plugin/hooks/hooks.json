@@ -63,6 +63,17 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/traceary-prompt.sh\" claude"
+          }
+        ]
+      }
+    ],
     "PostToolUseFailure": [
       {
         "matcher": "Bash",

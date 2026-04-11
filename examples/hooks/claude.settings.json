@@ -54,6 +54,17 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/hooks/traceary-prompt.sh\" claude"
+          }
+        ]
+      }
     ]
   }
 }
