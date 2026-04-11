@@ -9,18 +9,16 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/domain/model"
-	"github.com/duck8823/traceary/domain/port"
 )
 
 //go:embed sql/get_context_events.sql
 var getContextEventsQuery string
 
-var _ port.ContextEventFinder = (*Datasource)(nil)
-
-// GetContextEvents returns events matching the requested context in descending time order.
-func (d *Datasource) GetContextEvents(
+// GetContext returns events matching the requested context in descending time order.
+func (d *Datasource) GetContext(
 	ctx context.Context,
-	input port.GetContextInput,
+	workspace, sessionID string,
+	limit int,
 ) ([]*model.Event, error) {
 	db, err := d.openDB(ctx)
 	if err != nil {
@@ -32,16 +30,16 @@ func (d *Datasource) GetContextEvents(
 		}
 	}()
 
-	trimmedRepo := strings.TrimSpace(input.Workspace)
-	trimmedSessionID := strings.TrimSpace(input.SessionID)
+	trimmedWorkspace := strings.TrimSpace(workspace)
+	trimmedSessionID := strings.TrimSpace(sessionID)
 	rows, err := db.QueryContext(
 		ctx,
 		getContextEventsQuery,
-		trimmedRepo,
-		trimmedRepo,
+		trimmedWorkspace,
+		trimmedWorkspace,
 		trimmedSessionID,
 		trimmedSessionID,
-		input.Limit,
+		limit,
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query context events: %w", err)
@@ -52,7 +50,7 @@ func (d *Datasource) GetContextEvents(
 		}
 	}()
 
-	events := make([]*model.Event, 0, input.Limit)
+	events := make([]*model.Event, 0, limit)
 	for rows.Next() {
 		event, err := d.scanEvent(rows)
 		if err != nil {

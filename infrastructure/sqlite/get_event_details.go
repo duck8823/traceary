@@ -9,21 +9,19 @@ import (
 
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
-	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 )
 
 //go:embed sql/get_event_details.sql
 var getEventDetailsQuery string
 
-var _ port.EventDetailsFinder = (*Datasource)(nil)
-
-// GetEventDetails returns the details for the given event ID.
-func (d *Datasource) GetEventDetails(
+// GetDetails returns the details for the given event ID.
+func (d *Datasource) GetDetails(
 	ctx context.Context,
 	eventID string,
-) (*port.EventDetails, error) {
+) (*queryservice.EventDetails, error) {
 	db, err := d.openDB(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for event details lookup: %w", err)
@@ -87,7 +85,7 @@ func (d *Datasource) GetEventDetails(
 		)
 	}
 
-	eventDetails, err := port.NewEventDetails(event, commandAudit)
+	eventDetails, err := queryservice.NewEventDetails(event, commandAudit)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to build event details: %w", err)
 	}

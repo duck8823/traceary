@@ -12,8 +12,6 @@ import (
 	_ "modernc.org/sqlite" // Required to register the SQLite driver.
 
 	"golang.org/x/xerrors"
-
-	"github.com/duck8823/traceary/domain/port"
 )
 
 // Datasource is a SQLite-backed data source.
@@ -21,8 +19,6 @@ type Datasource struct {
 	dbPath     string
 	migrations fs.FS
 }
-
-var _ port.StoreInitializer = (*Datasource)(nil)
 
 // NewDatasource creates a new Datasource bound to the given database path.
 func NewDatasource(dbPath string, migrations fs.FS) *Datasource {

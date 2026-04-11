@@ -10,19 +10,19 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/domain/port"
+	"github.com/duck8823/traceary/application/queryservice"
 )
 
 //go:embed sql/list_sessions.sql
 var listSessionsQuery string
 
-var _ port.SessionSummaryFinder = (*Datasource)(nil)
-
-// ListSessionSummaries returns aggregated session information.
-func (d *Datasource) ListSessionSummaries(
+// ListSummaries returns aggregated session information.
+func (d *Datasource) ListSummaries(
 	ctx context.Context,
-	input port.ListSessionsInput,
-) ([]*port.SessionSummary, error) {
+	limit, offset int,
+	sessionID, workspace, client, agent, label string,
+	from, to *time.Time,
+) ([]*queryservice.SessionSummary, error) {
 	db, err := d.openDB(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for session list: %w", err)
@@ -34,25 +34,25 @@ func (d *Datasource) ListSessionSummaries(
 	}()
 
 	fromValue := ""
-	if input.From != nil {
-		fromValue = formatTimestamp(*input.From)
+	if from != nil {
+		fromValue = formatTimestamp(*from)
 	}
 	toValue := ""
-	if input.To != nil {
-		toValue = formatTimestamp(input.To.AddDate(0, 0, 1))
+	if to != nil {
+		toValue = formatTimestamp(to.AddDate(0, 0, 1))
 	}
 
 	rows, err := db.QueryContext(
 		ctx,
 		listSessionsQuery,
-		input.SessionID, input.SessionID,
-		input.Workspace, input.Workspace,
-		input.Client, input.Client,
-		input.Agent, input.Agent,
-		input.Label, input.Label,
+		sessionID, sessionID,
+		workspace, workspace,
+		client, client,
+		agent, agent,
+		label, label,
 		fromValue, fromValue,
 		toValue, toValue,
-		input.Limit, input.Offset,
+		limit, offset,
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query session summaries: %w", err)
@@ -63,7 +63,7 @@ func (d *Datasource) ListSessionSummaries(
 		}
 	}()
 
-	summaries := make([]*port.SessionSummary, 0)
+	summaries := make([]*queryservice.SessionSummary, 0)
 	for rows.Next() {
 		summary, err := scanSessionSummary(rows)
 		if err != nil {
@@ -80,7 +80,7 @@ func (d *Datasource) ListSessionSummaries(
 
 func scanSessionSummary(row interface {
 	Scan(dest ...any) error
-}) (*port.SessionSummary, error) {
+}) (*queryservice.SessionSummary, error) {
 	var (
 		sessionID       string
 		repo            string
@@ -132,9 +132,9 @@ func scanSessionSummary(row interface {
 		agents = strings.Split(agentsStr.String, ",")
 	}
 
-	return &port.SessionSummary{
+	return &queryservice.SessionSummary{
 		SessionID:       sessionID,
-		Workspace:            repo,
+		Workspace:       repo,
 		StartedAt:       startedAt,
 		EndedAt:         endedAt,
 		Status:          status,

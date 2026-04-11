@@ -5,22 +5,23 @@ import (
 	_ "embed"
 	"log/slog"
 	"strings"
+	"time"
 
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/domain/model"
-	"github.com/duck8823/traceary/domain/port"
 )
 
 //go:embed sql/search_events.sql
 var searchEventsQuery string
 
-var _ port.EventSearcher = (*Datasource)(nil)
-
-// SearchEvents returns matching events in descending time order.
-func (d *Datasource) SearchEvents(
+// Search returns matching events in descending time order.
+func (d *Datasource) Search(
 	ctx context.Context,
-	input port.SearchEventsInput,
+	query, workspace, sessionID, client, agent, kind string,
+	from, to time.Time,
+	limit, offset int,
+	failuresOnly bool,
 ) ([]*model.Event, error) {
 	db, err := d.openDB(ctx)
 	if err != nil {
@@ -32,15 +33,15 @@ func (d *Datasource) SearchEvents(
 		}
 	}()
 
-	queryValue := strings.TrimSpace(input.Query)
+	queryValue := strings.TrimSpace(query)
 	likeQuery := "%" + escapeLikeQuery(queryValue) + "%"
 	fromValue := ""
-	if !input.From.IsZero() {
-		fromValue = formatTimestamp(input.From)
+	if !from.IsZero() {
+		fromValue = formatTimestamp(from)
 	}
 	toValue := ""
-	if !input.To.IsZero() {
-		toValue = formatTimestamp(input.To)
+	if !to.IsZero() {
+		toValue = formatTimestamp(to)
 	}
 
 	rows, err := db.QueryContext(
@@ -51,23 +52,23 @@ func (d *Datasource) SearchEvents(
 		likeQuery,
 		likeQuery,
 		likeQuery,
-		input.Workspace,
-		input.Workspace,
-		input.SessionID,
-		input.SessionID,
-		input.Client,
-		input.Client,
-		input.Agent,
-		input.Agent,
-		input.Kind,
-		input.Kind,
+		workspace,
+		workspace,
+		sessionID,
+		sessionID,
+		client,
+		client,
+		agent,
+		agent,
+		kind,
+		kind,
 		fromValue,
 		fromValue,
 		toValue,
 		toValue,
-		boolToInt(input.FailuresOnly),
-		input.Limit,
-		input.Offset,
+		boolToInt(failuresOnly),
+		limit,
+		offset,
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query events: %w", err)
@@ -78,7 +79,7 @@ func (d *Datasource) SearchEvents(
 		}
 	}()
 
-	events := make([]*model.Event, 0, input.Limit)
+	events := make([]*model.Event, 0, limit)
 	for rows.Next() {
 		event, err := d.scanEvent(rows)
 		if err != nil {

@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"golang.org/x/xerrors"
-
-	"github.com/duck8823/traceary/domain/port"
 )
 
 //go:embed sql/count_deletable_events.sql
@@ -16,8 +14,6 @@ var countDeletableEventsQuery string
 
 //go:embed sql/delete_old_events.sql
 var deleteOldEventsQuery string
-
-var _ port.GarbageCollector = (*Datasource)(nil)
 
 // CollectGarbage deletes events older than the given time.
 func (d *Datasource) CollectGarbage(

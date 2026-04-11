@@ -9,20 +9,19 @@ import (
 
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
-	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 )
 
 //go:embed sql/find_latest_session.sql
 var findLatestSessionQuery string
 
-var _ port.LatestSessionFinder = (*Datasource)(nil)
-
-// FindLatestSessionStartedEvent returns the latest session_started event.
-func (d *Datasource) FindLatestSessionStartedEvent(
+// FindLatest returns the session_started event for the latest matching session.
+func (d *Datasource) FindLatest(
 	ctx context.Context,
-	input port.FindLatestSessionInput,
+	client, agent, workspace string,
+	activeOnly bool,
 ) (*model.Event, error) {
 	db, err := d.openDB(ctx)
 	if err != nil {
@@ -42,23 +41,23 @@ func (d *Datasource) FindLatestSessionStartedEvent(
 		types.EventKindSessionStarted.String(),
 		types.EventKindSessionEnded.String(),
 		types.EventKindSessionStarted.String(),
-		input.Client, input.Client,
-		input.Agent, input.Agent,
-		input.Workspace, input.Workspace,
+		client, client,
+		agent, agent,
+		workspace, workspace,
 		types.EventKindSessionStarted.String(),
-		input.ActiveOnly,
+		activeOnly,
 		types.EventKindSessionEnded.String(),
-		input.ActiveOnly,
-		input.ActiveOnly,
+		activeOnly,
+		activeOnly,
 	)
 
 	event, err := d.scanEvent(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			if input.ActiveOnly {
-				return nil, port.ErrActiveSessionNotFound
+			if activeOnly {
+				return nil, queryservice.ErrActiveSessionNotFound
 			}
-			return nil, port.ErrSessionNotFound
+			return nil, queryservice.ErrSessionNotFound
 		}
 		return nil, xerrors.Errorf("failed to restore latest session event: %w", err)
 	}

@@ -9,7 +9,7 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/domain/port"
+	"github.com/duck8823/traceary/application/queryservice"
 )
 
 //go:embed sql/list_timeline_blocks.sql
@@ -18,8 +18,10 @@ var listTimelineBlocksQuery string
 // ListTimelineBlocks returns work blocks separated by idle gaps.
 func (d *Datasource) ListTimelineBlocks(
 	ctx context.Context,
-	input port.ListTimelineBlocksInput,
-) ([]*port.TimelineBlock, error) {
+	workspace string,
+	from, to time.Time,
+	gapSeconds, limit int,
+) ([]*queryservice.TimelineBlock, error) {
 	db, err := d.openDB(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for timeline listing: %w", err)
@@ -31,22 +33,22 @@ func (d *Datasource) ListTimelineBlocks(
 	}()
 
 	fromValue := ""
-	if !input.From.IsZero() {
-		fromValue = formatTimestamp(input.From)
+	if !from.IsZero() {
+		fromValue = formatTimestamp(from)
 	}
 	toValue := ""
-	if !input.To.IsZero() {
-		toValue = formatTimestamp(input.To)
+	if !to.IsZero() {
+		toValue = formatTimestamp(to)
 	}
 
 	rows, err := db.QueryContext(
 		ctx,
 		listTimelineBlocksQuery,
-		input.Workspace, input.Workspace,
+		workspace, workspace,
 		fromValue, fromValue,
 		toValue, toValue,
-		input.GapSeconds,
-		input.Limit,
+		gapSeconds,
+		limit,
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query timeline blocks: %w", err)
@@ -57,7 +59,7 @@ func (d *Datasource) ListTimelineBlocks(
 		}
 	}()
 
-	var blocks []*port.TimelineBlock
+	var blocks []*queryservice.TimelineBlock
 	for rows.Next() {
 		var (
 			blockNum   int // scanned but unused (SQL internal grouping key)
@@ -81,7 +83,7 @@ func (d *Datasource) ListTimelineBlocks(
 			return nil, xerrors.Errorf("failed to parse block end: %w", err)
 		}
 
-		blocks = append(blocks, &port.TimelineBlock{
+		blocks = append(blocks, &queryservice.TimelineBlock{
 			BlockStart: parsedStart,
 			BlockEnd:   parsedEnd,
 			EventCount: eventCount,

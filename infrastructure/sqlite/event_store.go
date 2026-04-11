@@ -10,17 +10,17 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/domain/model"
-	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 )
 
 //go:embed sql/insert_event.sql
 var insertEventQuery string
 
+//go:embed sql/insert_command_audit.sql
+var insertCommandAuditQuery string
+
 //go:embed sql/select_recent_events.sql
 var selectRecentEventsQuery string
-
-var _ port.RecentEventFinder = (*Datasource)(nil)
 
 // Save persists an event.
 func (d *Datasource) Save(ctx context.Context, event *model.Event) error {
@@ -56,15 +56,87 @@ func (d *Datasource) Save(ctx context.Context, event *model.Event) error {
 	return nil
 }
 
+// SaveWithAudit persists an event together with its command audit.
+func (d *Datasource) SaveWithAudit(
+	ctx context.Context,
+	event *model.Event,
+	audit *model.CommandAudit,
+) error {
+	if event == nil {
+		return xerrors.Errorf("event must not be nil")
+	}
+	if audit == nil {
+		return xerrors.Errorf("command audit must not be nil")
+	}
+
+	db, err := d.openDB(ctx)
+	if err != nil {
+		return xerrors.Errorf("failed to open DB for command audit save: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return xerrors.Errorf("failed to begin command audit transaction: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			slog.Debug("failed to rollback transaction", "error", err)
+		}
+	}()
+
+	if _, err := tx.ExecContext(
+		ctx,
+		insertEventQuery,
+		event.EventID().String(),
+		event.Kind().String(),
+		event.Client(),
+		event.Agent().String(),
+		event.SessionID().String(),
+		event.Workspace(),
+		event.Body(),
+		formatTimestamp(event.CreatedAt()),
+	); err != nil {
+		return xerrors.Errorf("failed to insert event: %w", err)
+	}
+
+	if _, err := tx.ExecContext(
+		ctx,
+		insertCommandAuditQuery,
+		audit.EventID().String(),
+		audit.Command(),
+		audit.Input(),
+		audit.Output(),
+		audit.InputTruncated(),
+		audit.OutputTruncated(),
+		audit.ExitCode(),
+	); err != nil {
+		return xerrors.Errorf("failed to insert command audit: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return xerrors.Errorf("failed to commit command audit transaction: %w", err)
+	}
+
+	return nil
+}
+
 // ListRecent returns events in descending time order.
 func (d *Datasource) ListRecent(
 	ctx context.Context,
-	input port.ListRecentEventsInput,
+	limit, offset int,
+	kind, client, agent, sessionID, workspace string,
+	failuresOnly bool,
+	from, to time.Time,
 ) ([]*model.Event, error) {
-	if input.Limit <= 0 {
+	if limit <= 0 {
 		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
 	}
-	if input.Offset < 0 {
+	if offset < 0 {
 		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
 	}
 
@@ -79,27 +151,27 @@ func (d *Datasource) ListRecent(
 	}()
 
 	fromValue := ""
-	if !input.From.IsZero() {
-		fromValue = formatTimestamp(input.From)
+	if !from.IsZero() {
+		fromValue = formatTimestamp(from)
 	}
 	toValue := ""
-	if !input.To.IsZero() {
-		toValue = formatTimestamp(input.To)
+	if !to.IsZero() {
+		toValue = formatTimestamp(to)
 	}
 
 	rows, err := db.QueryContext(
 		ctx,
 		selectRecentEventsQuery,
-		input.Kind, input.Kind,
-		input.Client, input.Client,
-		input.Agent, input.Agent,
-		input.SessionID, input.SessionID,
-		input.Workspace, input.Workspace,
-		boolToInt(input.FailuresOnly),
+		kind, kind,
+		client, client,
+		agent, agent,
+		sessionID, sessionID,
+		workspace, workspace,
+		boolToInt(failuresOnly),
 		fromValue, fromValue,
 		toValue, toValue,
-		input.Limit,
-		input.Offset,
+		limit,
+		offset,
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query recent events: %w", err)
@@ -110,7 +182,7 @@ func (d *Datasource) ListRecent(
 		}
 	}()
 
-	events := make([]*model.Event, 0, input.Limit)
+	events := make([]*model.Event, 0, limit)
 	for rows.Next() {
 		event, err := d.scanEvent(rows)
 		if err != nil {
