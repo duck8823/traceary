@@ -115,7 +115,7 @@ jobs:
 
       - name: Close matching parent release issue
         if: env.IS_TAG_RELEASE == 'true'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const tag = process.env.RELEASE_TAG;
