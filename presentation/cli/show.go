@@ -69,7 +69,7 @@ func writeEventDetails(output io.Writer, eventDetails *usecase.EventDetails) err
 	event := eventDetails.Event()
 	if _, err := fmt.Fprintf(
 		output,
-		"EVENT_ID: %s\nKIND: %s\nCLIENT: %s\nAGENT: %s\nSESSION_ID: %s\nREPO: %s\nCREATED_AT: %s\nMESSAGE: %s\n",
+		"EVENT_ID: %s\nKIND: %s\nCLIENT: %s\nAGENT: %s\nSESSION_ID: %s\nWORKSPACE: %s\nCREATED_AT: %s\nMESSAGE: %s\n",
 		event.EventID(),
 		event.Kind(),
 		formatOptionalColumn(event.Client()),

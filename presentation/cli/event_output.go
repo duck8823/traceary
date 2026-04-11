@@ -29,7 +29,7 @@ func writeEvents(output io.Writer, events []*model.Event) error {
 		return nil
 	}
 
-	if _, err := fmt.Fprintln(output, "CREATED_AT\tKIND\tCLIENT\tAGENT\tSESSION_ID\tREPO\tMESSAGE"); err != nil {
+	if _, err := fmt.Fprintln(output, "CREATED_AT\tKIND\tCLIENT\tAGENT\tSESSION_ID\tWORKSPACE\tMESSAGE"); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print list header", "一覧ヘッダーの出力に失敗しました"), err)
 	}
 	for _, event := range events {

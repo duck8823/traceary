@@ -116,7 +116,7 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 		want := "" +
 			"TRACEARY CONTEXT\n" +
 			"SESSION_ID: session-1\n" +
-			"REPO: github.com/duck8823/traceary\n" +
+			"WORKSPACE: github.com/duck8823/traceary\n" +
 			"EVENTS:\n" +
 			"- 2026-04-08T12:00:00Z [note] event-1 cli/codex README を更新した 次に release note を確認する\n"
 		if stdout.String() != want {
