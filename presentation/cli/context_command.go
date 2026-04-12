@@ -71,7 +71,7 @@ type contextOutput struct {
 }
 
 func (c *RootCLI) runContext(ctx context.Context, output io.Writer, input contextCommandInput) error {
-	if c.storeMaintenance == nil {
+	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.event == nil {
@@ -85,7 +85,7 @@ func (c *RootCLI) runContext(ctx context.Context, output io.Writer, input contex
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.storeMaintenance.Initialize(ctx); err != nil {
+	if err := c.storeManagement.Initialize(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 

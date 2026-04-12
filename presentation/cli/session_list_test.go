@@ -40,7 +40,7 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Session:          listStub,
 		}).Command()
 		rootCmd.SetOut(stdout)
@@ -84,7 +84,7 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Session:          &sessionUsecaseStub{},
 		}).Command()
 		rootCmd.SetOut(stdout)
@@ -122,7 +122,7 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Session:          listStub,
 		}).Command()
 		rootCmd.SetOut(stdout)
@@ -173,7 +173,7 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Session:          listStub,
 		}).Command()
 		rootCmd.SetOut(stdout)
@@ -202,7 +202,7 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		t.Parallel()
 
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Session:          &sessionUsecaseStub{},
 		}).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
@@ -218,7 +218,7 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		t.Parallel()
 
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Session:          &sessionUsecaseStub{},
 		}).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
@@ -235,7 +235,7 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 
 		listStub := &sessionUsecaseStub{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Session:          listStub,
 		}).Command()
 		rootCmd.SetOut(&bytes.Buffer{})

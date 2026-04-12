@@ -4,9 +4,9 @@ import "context"
 
 // Services holds the consolidated usecase instances.
 type Services struct {
-	Event            EventUsecase
-	Session          SessionUsecase
-	StoreMaintenance StoreMaintenanceUsecase
+	Event           EventUsecase
+	Session         SessionUsecase
+	StoreManagement StoreManagementUsecase
 }
 
 // ServiceFactory builds Services for a given database path.

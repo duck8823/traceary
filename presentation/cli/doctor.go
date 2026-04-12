@@ -75,7 +75,7 @@ type doctorCommandInput struct {
 }
 
 func (c *RootCLI) runDoctor(ctx context.Context, output io.Writer, input doctorCommandInput) error {
-	if c.storeMaintenance == nil {
+	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 
@@ -122,7 +122,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 
 	report.Checks = append(report.Checks, inspectDoctorConfig())
 
-	if err := c.storeMaintenance.Initialize(ctx); err != nil {
+	if err := c.storeManagement.Initialize(ctx); err != nil {
 		report.Checks = append(report.Checks, doctorCheck{
 			Name:    "db-write",
 			Status:  doctorStatusFail,

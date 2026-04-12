@@ -107,8 +107,8 @@ func (s *sessionUsecaseStub) Handoff(_ context.Context, _ types.SessionID, _ typ
 	return s.handoff, s.handoffErr
 }
 
-// storeMaintenanceUsecaseStub implements usecase.StoreMaintenanceUsecase for testing.
-type storeMaintenanceUsecaseStub struct {
+// storeManagementUsecaseStub implements usecase.StoreManagementUsecase for testing.
+type storeManagementUsecaseStub struct {
 	initCalled      bool
 	initErr         error
 	createBackupErr error
@@ -119,19 +119,19 @@ type storeMaintenanceUsecaseStub struct {
 	staleErr        error
 }
 
-func (s *storeMaintenanceUsecaseStub) Initialize(_ context.Context) error {
+func (s *storeManagementUsecaseStub) Initialize(_ context.Context) error {
 	s.initCalled = true
 	return s.initErr
 }
-func (s *storeMaintenanceUsecaseStub) CreateBackup(_ context.Context, _ string, _ bool) error {
+func (s *storeManagementUsecaseStub) CreateBackup(_ context.Context, _ string, _ bool) error {
 	return s.createBackupErr
 }
-func (s *storeMaintenanceUsecaseStub) RestoreBackup(_ context.Context, _ string, _ bool) error {
+func (s *storeManagementUsecaseStub) RestoreBackup(_ context.Context, _ string, _ bool) error {
 	return s.restoreErr
 }
-func (s *storeMaintenanceUsecaseStub) CollectGarbage(_ context.Context, _ time.Time, _ bool) (*usecase.CollectGarbageResult, error) {
+func (s *storeManagementUsecaseStub) CollectGarbage(_ context.Context, _ time.Time, _ bool) (*usecase.CollectGarbageResult, error) {
 	return s.gcResult, s.gcErr
 }
-func (s *storeMaintenanceUsecaseStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool) (*usecase.CloseStaleSessionsResult, error) {
+func (s *storeManagementUsecaseStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool) (*usecase.CloseStaleSessionsResult, error) {
 	return s.staleResult, s.staleErr
 }

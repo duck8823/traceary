@@ -35,9 +35,9 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 	t.Cleanup(cli.ResetUserHomeDirFunc)
 
 	t.Run("all clients without config only warns", func(t *testing.T) {
-		initStub := &storeMaintenanceUsecaseStub{}
+		initStub := &storeManagementUsecaseStub{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: initStub,
+			StoreManagement: initStub,
 		}).Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
@@ -69,9 +69,9 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 	})
 
 	t.Run("specific client without config warns", func(t *testing.T) {
-		initStub := &storeMaintenanceUsecaseStub{}
+		initStub := &storeManagementUsecaseStub{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: initStub,
+			StoreManagement: initStub,
 		}).Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
@@ -96,7 +96,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 	})
 
 	t.Run("hook script materialization issues warn instead of failing", func(t *testing.T) {
-		initStub := &storeMaintenanceUsecaseStub{}
+		initStub := &storeManagementUsecaseStub{}
 		blockedPath := filepath.Join(t.TempDir(), "blocked")
 		if err := os.WriteFile(blockedPath, []byte("not-a-directory"), 0o644); err != nil {
 			t.Fatalf("WriteFile() error = %v", err)
@@ -104,7 +104,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 		t.Setenv("TRACEARY_HOOK_SCRIPTS_DIR", blockedPath)
 
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: initStub,
+			StoreManagement: initStub,
 		}).Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
@@ -159,9 +159,9 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 			t.Fatalf("WriteFile() error = %v", err)
 		}
 
-		initStub := &storeMaintenanceUsecaseStub{}
+		initStub := &storeManagementUsecaseStub{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: initStub,
+			StoreManagement: initStub,
 		}).Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
@@ -197,9 +197,9 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 			t.Fatalf("WriteFile() error = %v", err)
 		}
 
-		initStub := &storeMaintenanceUsecaseStub{}
+		initStub := &storeManagementUsecaseStub{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: initStub,
+			StoreManagement: initStub,
 		}).Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)

@@ -15,12 +15,12 @@ func TestRootCLI_GCCommand(t *testing.T) {
 	defer cli.ResetGCNowFunc()
 
 	t.Run("displays dry-run candidate count", func(t *testing.T) {
-		storeMaint := &storeMaintenanceUsecaseStub{
+		storeMaint := &storeManagementUsecaseStub{
 			gcResult: &usecase.CollectGarbageResult{DeletedCount: 3, DryRun: true},
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: storeMaint,
+			StoreManagement: storeMaint,
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -35,12 +35,12 @@ func TestRootCLI_GCCommand(t *testing.T) {
 	})
 
 	t.Run("displays deletion count", func(t *testing.T) {
-		storeMaint := &storeMaintenanceUsecaseStub{
+		storeMaint := &storeManagementUsecaseStub{
 			gcResult: &usecase.CollectGarbageResult{DeletedCount: 2, DryRun: false},
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: storeMaint,
+			StoreManagement: storeMaint,
 		}).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})

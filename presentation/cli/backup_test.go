@@ -15,7 +15,7 @@ func TestRootCLI_BackupCreateCommand(t *testing.T) {
 	outputPath := filepath.Join(t.TempDir(), "traceary-backup.db")
 
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 	}).Command()
 	stdout := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)
@@ -40,7 +40,7 @@ func TestRootCLI_BackupCreateCommand_MissingOutputReturnsError(t *testing.T) {
 	t.Parallel()
 
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 	}).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -58,7 +58,7 @@ func TestRootCLI_BackupCreateCommand_PositionalArgument(t *testing.T) {
 	outputPath := filepath.Join(t.TempDir(), "traceary-backup.db")
 
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 	}).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -73,7 +73,7 @@ func TestRootCLI_BackupCreateCommand_DuplicateOutputReturnsError(t *testing.T) {
 	t.Parallel()
 
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 	}).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -91,7 +91,7 @@ func TestRootCLI_BackupRestoreCommand(t *testing.T) {
 	inputPath := filepath.Join(t.TempDir(), "traceary-backup.db")
 
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 	}).Command()
 	stdout := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)
@@ -116,7 +116,7 @@ func TestRootCLI_BackupRestoreCommand_MissingInputReturnsError(t *testing.T) {
 	t.Parallel()
 
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 	}).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})

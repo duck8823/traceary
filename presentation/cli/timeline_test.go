@@ -30,7 +30,7 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Event: &eventUsecaseStub{
 				timelineBlocks: []apptypes.TimelineBlock{
 					apptypes.TimelineBlockOf(
@@ -69,7 +69,7 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Event:            &eventUsecaseStub{},
 		}).Command()
 		rootCmd.SetOut(stdout)
@@ -95,7 +95,7 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Event: &eventUsecaseStub{
 				timelineBlocks: []apptypes.TimelineBlock{
 					apptypes.TimelineBlockOf(
@@ -130,7 +130,7 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 		t.Parallel()
 
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Event:            &eventUsecaseStub{},
 		}).Command()
 		rootCmd.SetOut(&bytes.Buffer{})

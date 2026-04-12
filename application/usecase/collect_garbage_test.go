@@ -38,7 +38,7 @@ func (s *garbageCollectorStub) CollectGarbage(
 	return s.deletedCount, s.err
 }
 
-func TestCollectGarbageUsecase_Run(t *testing.T) {
+func TestStoreManagementUsecase_CollectGarbage(t *testing.T) {
 	t.Parallel()
 
 	cutoff := time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC)
@@ -47,14 +47,11 @@ func TestCollectGarbageUsecase_Run(t *testing.T) {
 		t.Parallel()
 
 		stub := &garbageCollectorStub{deletedCount: 3}
-		sut := usecase.NewCollectGarbageUsecase(stub)
+		sut := usecase.NewStoreManagementUsecase(stub)
 
-		got, err := sut.Run(context.Background(), usecase.CollectGarbageInput{
-			Before: cutoff,
-			DryRun: true,
-		})
+		got, err := sut.CollectGarbage(context.Background(), cutoff, true)
 		if err != nil {
-			t.Fatalf("Run() error = %v", err)
+			t.Fatalf("CollectGarbage() error = %v", err)
 		}
 		if !stub.receivedBefore.Equal(cutoff) {
 			t.Fatalf("received before = %v, want %v", stub.receivedBefore, cutoff)
@@ -70,12 +67,11 @@ func TestCollectGarbageUsecase_Run(t *testing.T) {
 	t.Run("returns error when cutoff time is missing", func(t *testing.T) {
 		t.Parallel()
 
-		sut := usecase.NewCollectGarbageUsecase(&garbageCollectorStub{})
+		sut := usecase.NewStoreManagementUsecase(&garbageCollectorStub{})
 
-		_, err := sut.Run(context.Background(), usecase.CollectGarbageInput{
-		})
+		_, err := sut.CollectGarbage(context.Background(), time.Time{}, false)
 		if err == nil {
-			t.Fatalf("Run() error = nil, want error")
+			t.Fatalf("CollectGarbage() error = nil, want error")
 		}
 	})
 }

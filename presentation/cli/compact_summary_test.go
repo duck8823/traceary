@@ -49,7 +49,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Event: eventStub,
 			Session: sessionStub,
 		}).Command()
@@ -88,7 +88,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Event:            &eventUsecaseStub{},
 			Session:          &sessionUsecaseStub{},
 		}).Command()
@@ -131,7 +131,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Event: eventStub,
 			Session: sessionStub,
 		}).Command()
@@ -182,7 +182,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Event:            eventStub,
 			Session:          sessionStub,
 		}).Command()
@@ -218,7 +218,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Event:            &eventUsecaseStub{listEvents: events},
 			Session: &sessionUsecaseStub{
 				listResult: []apptypes.SessionSummary{

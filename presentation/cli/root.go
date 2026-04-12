@@ -10,7 +10,7 @@ import (
 type RootCLI struct {
 	event            usecase.EventUsecase
 	session          usecase.SessionUsecase
-	storeMaintenance usecase.StoreMaintenanceUsecase
+	storeManagement usecase.StoreManagementUsecase
 	mcpServerRunner  MCPServerRunner
 }
 
@@ -18,7 +18,7 @@ type RootCLI struct {
 type RootCLIOptions struct {
 	Event            usecase.EventUsecase
 	Session          usecase.SessionUsecase
-	StoreMaintenance usecase.StoreMaintenanceUsecase
+	StoreManagement usecase.StoreManagementUsecase
 	MCPServerRunner  MCPServerRunner
 }
 
@@ -27,7 +27,7 @@ func NewRootCLI(options RootCLIOptions) *RootCLI {
 	return &RootCLI{
 		event:            options.Event,
 		session:          options.Session,
-		storeMaintenance: options.StoreMaintenance,
+		storeManagement: options.StoreManagement,
 		mcpServerRunner:  options.MCPServerRunner,
 	}
 }

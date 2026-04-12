@@ -34,7 +34,7 @@ func TestRootCLI_SessionStartCommand(t *testing.T) {
 
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Session: &sessionUsecaseStub{
 			startEvent: model.EventOf(
 				eventID,
@@ -86,7 +86,7 @@ func TestRootCLI_SessionStartCommand_IdOnly(t *testing.T) {
 
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Session: &sessionUsecaseStub{
 			startEvent: model.EventOf(
 				eventID,
@@ -121,7 +121,7 @@ func TestRootCLI_SessionStartCommand_JSON(t *testing.T) {
 
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Session: &sessionUsecaseStub{
 			startEvent: model.EventOf(
 				eventID,
@@ -174,7 +174,7 @@ func TestRootCLI_SessionStartCommand_UsesDetectedRepoByDefault(t *testing.T) {
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Session: &sessionUsecaseStub{
 			startEvent: model.EventOf(
 				eventID,
@@ -221,7 +221,7 @@ func TestRootCLI_SessionEndCommand(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Session: &sessionUsecaseStub{
 			endEvent: model.EventOf(
 				eventID,
@@ -265,7 +265,7 @@ func TestRootCLI_SessionEndCommand_IdOnly(t *testing.T) {
 
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Session: &sessionUsecaseStub{
 			endEvent: model.EventOf(
 				eventID,
@@ -300,7 +300,7 @@ func TestRootCLI_SessionEndCommand_JSON(t *testing.T) {
 
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Session: &sessionUsecaseStub{
 			endEvent: model.EventOf(
 				eventID,
@@ -349,7 +349,7 @@ func TestRootCLI_SessionLatestCommand(t *testing.T) {
 
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Session: &sessionUsecaseStub{
 			latestEvent: model.EventOf(
 				eventID,
@@ -388,7 +388,7 @@ func TestRootCLI_SessionLatestCommand_JSON(t *testing.T) {
 
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Session: &sessionUsecaseStub{
 			latestEvent: model.EventOf(
 				mustEventID(t, "event-latest-json"),
@@ -437,7 +437,7 @@ func TestRootCLI_SessionActiveCommand(t *testing.T) {
 
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Session: &sessionUsecaseStub{
 			activeEvent: model.EventOf(
 				eventID,
@@ -486,7 +486,7 @@ func TestRootCLI_SessionActiveCommand_StaleError(t *testing.T) {
 	}
 
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Session: &sessionUsecaseStub{
 			activeEvent: model.EventOf(
 				eventID,
@@ -536,7 +536,7 @@ func TestRootCLI_SessionActiveCommand_AllowStale(t *testing.T) {
 
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Session: &sessionUsecaseStub{
 			activeEvent: model.EventOf(
 				eventID,
@@ -573,7 +573,7 @@ func TestRootCLI_SessionLatestCommand_NotFoundError(t *testing.T) {
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Session:          &sessionUsecaseStub{},
 	}).Command()
 	rootCmd.SetOut(&bytes.Buffer{})

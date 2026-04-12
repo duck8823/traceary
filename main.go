@@ -156,41 +156,25 @@ func run() error {
 		return xerrors.Errorf("%s: %w", cli.Localize("failed to resolve DB path", "DBパスの解決に失敗しました"), err)
 	}
 	store := sqlite.NewStore(dbPath, migrationsSubFS)
-	initStore := usecase.NewInitializeStoreUsecase(store.StoreManager)
-	recordLog := usecase.NewRecordLogUsecase(store.EventRepository)
-	recordAudit := usecase.NewRecordCommandAuditUsecase(store.EventRepository)
-	recordBoundary := usecase.NewRecordSessionBoundaryUsecase(store.EventRepository, store.SessionRepository)
-	updateLabel := usecase.NewUpdateSessionLabelUsecase(store.SessionRepository)
-	createBackup := usecase.NewCreateStoreBackupUsecase(store.StoreManager)
-	restoreBackup := usecase.NewRestoreStoreBackupUsecase(store.StoreManager)
-	collectGarbage := usecase.NewCollectGarbageUsecase(store.StoreManager)
-	closeStaleSessions := usecase.NewCloseStaleSessionsUsecase(store.StoreManager)
 
-	eventUsecase := usecase.NewEventUsecaseAdapter(
-		recordLog, recordAudit, store.EventQueryService,
-	)
-	sessionUsecase := usecase.NewSessionUsecaseAdapter(
-		recordBoundary, updateLabel, store.SessionQueryService, store.EventQueryService,
-	)
-	storeMaintenanceUsecase := usecase.NewStoreMaintenanceUsecaseAdapter(
-		initStore, createBackup, restoreBackup,
-		collectGarbage, closeStaleSessions,
-	)
+	eventUsecase := usecase.NewEventUsecase(store.EventRepository, store.EventQueryService)
+	sessionUsecase := usecase.NewSessionUsecase(store.EventRepository, store.SessionRepository, store.SessionQueryService, store.EventQueryService)
+	storeManagementUsecase := usecase.NewStoreManagementUsecase(store.StoreManager)
 
 	mcpServer, err := mcpserver.NewServer(
 		metadata.version,
 		eventUsecase,
 		sessionUsecase,
-		storeMaintenanceUsecase,
+		storeManagementUsecase,
 	)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", cli.Localize("failed to initialize MCP server", "MCP server の初期化に失敗しました"), err)
 	}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		Event:            eventUsecase,
-		Session:          sessionUsecase,
-		StoreMaintenance: storeMaintenanceUsecase,
-		MCPServerRunner:  mcpServer,
+		Event:           eventUsecase,
+		Session:         sessionUsecase,
+		StoreManagement: storeManagementUsecase,
+		MCPServerRunner: mcpServer,
 	}).Command()
 	rootCmd.Version = versionString()
 	rootCmd.SetVersionTemplate("{{.Name}} {{.Version}}\n")

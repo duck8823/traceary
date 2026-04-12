@@ -54,7 +54,7 @@ func TestRootCLI_SessionTreeCommand_JSON(t *testing.T) {
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Session: listStub,
 		}).Command()
 		rootCmd.SetOut(stdout)
@@ -110,7 +110,7 @@ func TestRootCLI_SessionTreeCommand_JSON(t *testing.T) {
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Session: &sessionUsecaseStub{},
 		}).Command()
 		rootCmd.SetOut(stdout)
@@ -148,7 +148,7 @@ func TestRootCLI_SessionTreeCommand_JSON(t *testing.T) {
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Session: listStub,
 		}).Command()
 		rootCmd.SetOut(stdout)

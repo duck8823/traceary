@@ -30,7 +30,7 @@ func (s *storeInitializerStub) CloseStaleSessions(_ context.Context, _ time.Dura
 	return 0, nil
 }
 
-func TestInitializeStoreUsecase_Run(t *testing.T) {
+func TestStoreManagementUsecase_Initialize(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -59,12 +59,12 @@ func TestInitializeStoreUsecase_Run(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			sut := usecase.NewInitializeStoreUsecase(tt.stub)
+			sut := usecase.NewStoreManagementUsecase(tt.stub)
 
-			err := sut.Run(context.Background())
+			err := sut.Initialize(context.Background())
 
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("Initialize() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.stub.called != tt.wantCalled {
 				t.Fatalf("Initialize() called = %v, want %v", tt.stub.called, tt.wantCalled)

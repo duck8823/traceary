@@ -60,12 +60,13 @@ func (s *storeBackupRestorerStub) CloseStaleSessions(_ context.Context, _ time.D
 	return 0, nil
 }
 
-func TestCreateStoreBackupUsecase_Run(t *testing.T) {
+func TestStoreManagementUsecase_CreateBackup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name           string
-		input          usecase.CreateStoreBackupInput
+		outputPath     string
+		overwrite      bool
 		stub           *storeBackupCreatorStub
 		wantCalled     bool
 		wantOutputPath string
@@ -73,30 +74,24 @@ func TestCreateStoreBackupUsecase_Run(t *testing.T) {
 		wantErr        bool
 	}{
 		{
-			name: "DB と出力先を渡してバックアップできる",
-			input: usecase.CreateStoreBackupInput{
-				OutputPath: "/tmp/traceary-backup.db",
-				Overwrite:  true,
-			},
+			name:           "DB と出力先を渡してバックアップできる",
+			outputPath:     "/tmp/traceary-backup.db",
+			overwrite:      true,
 			stub:           &storeBackupCreatorStub{},
 			wantCalled:     true,
 			wantOutputPath: "/tmp/traceary-backup.db",
 			wantOverwrite:  true,
 		},
 		{
-			name: "出力先が空ならエラー",
-			input: usecase.CreateStoreBackupInput{
-				OutputPath: " ",
-			},
+			name:       "出力先が空ならエラー",
+			outputPath: " ",
 			stub:       &storeBackupCreatorStub{},
 			wantErr:    true,
 			wantCalled: false,
 		},
 		{
-			name: "作成先が失敗したらエラー",
-			input: usecase.CreateStoreBackupInput{
-				OutputPath: "/tmp/traceary-backup.db",
-			},
+			name:       "作成先が失敗したらエラー",
+			outputPath: "/tmp/traceary-backup.db",
 			stub: &storeBackupCreatorStub{
 				err: context.DeadlineExceeded,
 			},
@@ -110,12 +105,12 @@ func TestCreateStoreBackupUsecase_Run(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			sut := usecase.NewCreateStoreBackupUsecase(tt.stub)
+			sut := usecase.NewStoreManagementUsecase(tt.stub)
 
-			err := sut.Run(context.Background(), tt.input)
+			err := sut.CreateBackup(context.Background(), tt.outputPath, tt.overwrite)
 
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("CreateBackup() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.stub.called != tt.wantCalled {
 				t.Fatalf("CreateBackup() called = %v, want %v", tt.stub.called, tt.wantCalled)
@@ -130,12 +125,13 @@ func TestCreateStoreBackupUsecase_Run(t *testing.T) {
 	}
 }
 
-func TestRestoreStoreBackupUsecase_Run(t *testing.T) {
+func TestStoreManagementUsecase_RestoreBackup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name          string
-		input         usecase.RestoreStoreBackupInput
+		inputPath     string
+		overwrite     bool
 		stub          *storeBackupRestorerStub
 		wantCalled    bool
 		wantInputPath string
@@ -143,30 +139,24 @@ func TestRestoreStoreBackupUsecase_Run(t *testing.T) {
 		wantErr       bool
 	}{
 		{
-			name: "入力ファイルから DB を復元できる",
-			input: usecase.RestoreStoreBackupInput{
-				InputPath: "/tmp/traceary-backup.db",
-				Overwrite: true,
-			},
+			name:          "入力ファイルから DB を復元できる",
+			inputPath:     "/tmp/traceary-backup.db",
+			overwrite:     true,
 			stub:          &storeBackupRestorerStub{},
 			wantCalled:    true,
 			wantInputPath: "/tmp/traceary-backup.db",
 			wantOverwrite: true,
 		},
 		{
-			name: "入力ファイルが空ならエラー",
-			input: usecase.RestoreStoreBackupInput{
-				InputPath: " ",
-			},
+			name:       "入力ファイルが空ならエラー",
+			inputPath:  " ",
 			stub:       &storeBackupRestorerStub{},
 			wantErr:    true,
 			wantCalled: false,
 		},
 		{
-			name: "復元先が失敗したらエラー",
-			input: usecase.RestoreStoreBackupInput{
-				InputPath: "/tmp/traceary-backup.db",
-			},
+			name:      "復元先が失敗したらエラー",
+			inputPath: "/tmp/traceary-backup.db",
 			stub: &storeBackupRestorerStub{
 				err: context.DeadlineExceeded,
 			},
@@ -180,12 +170,12 @@ func TestRestoreStoreBackupUsecase_Run(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			sut := usecase.NewRestoreStoreBackupUsecase(tt.stub)
+			sut := usecase.NewStoreManagementUsecase(tt.stub)
 
-			err := sut.Run(context.Background(), tt.input)
+			err := sut.RestoreBackup(context.Background(), tt.inputPath, tt.overwrite)
 
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("RestoreBackup() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.stub.called != tt.wantCalled {
 				t.Fatalf("RestoreBackup() called = %v, want %v", tt.stub.called, tt.wantCalled)

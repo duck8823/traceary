@@ -32,7 +32,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		stdout := &bytes.Buffer{}
 		stderr := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Event: &eventUsecaseStub{
 				logEvent: model.EventOf(
 					eventID,
@@ -72,7 +72,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Event: &eventUsecaseStub{
 				logEvent: model.EventOf(
 					eventID,
@@ -113,7 +113,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		t.Setenv("TRACEARY_WORKSPACE", "duck8823/traceary")
 
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Event: &eventUsecaseStub{
 				logEvent: model.EventOf(
 					eventID,
@@ -141,7 +141,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Event: &eventUsecaseStub{
 				logEvent: model.EventOf(
 					eventID,
@@ -172,7 +172,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Event: &eventUsecaseStub{
 				logEvent: model.EventOf(
 					eventID,
@@ -221,7 +221,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Event: &eventUsecaseStub{
 				logEvent: model.EventOf(
 					eventID,
@@ -271,7 +271,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Event: &eventUsecaseStub{
 				logEvent: model.EventOf(
 					eventID,

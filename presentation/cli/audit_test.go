@@ -40,7 +40,7 @@ func TestRootCLI_AuditCommand(t *testing.T) {
 
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Event: &eventUsecaseStub{
 			auditEvent: model.EventOf(
 				eventID,
@@ -117,7 +117,7 @@ func TestRootCLI_AuditCommand_FallsBackFromStaleActiveSession(t *testing.T) {
 	}
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Event: &eventUsecaseStub{
 			auditEvent: model.EventOf(
 				eventID,
@@ -197,7 +197,7 @@ func TestRootCLI_AuditCommand_IdOnly(t *testing.T) {
 
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Event: &eventUsecaseStub{
 			auditEvent: model.EventOf(
 				eventID,
@@ -259,7 +259,7 @@ func TestRootCLI_AuditCommand_NamedFlags(t *testing.T) {
 	}
 
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Event: &eventUsecaseStub{
 			auditEvent: model.EventOf(
 				eventID,
@@ -301,7 +301,7 @@ func TestRootCLI_AuditCommand_AllowsOmittedInputAndOutput(t *testing.T) {
 	}
 
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Event:            &eventUsecaseStub{auditEvent: model.EventOf(eventID, types.EventKindCommandExecuted, "cli", agent, sessionID, "duck8823/traceary", "go test ./...", time.Date(2026, 4, 7, 16, 30, 0, 0, time.UTC)), auditAudit: commandAudit},
 	}).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
@@ -326,7 +326,7 @@ func TestRootCLI_AuditCommand_JSON(t *testing.T) {
 
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Event:            &eventUsecaseStub{auditEvent: model.EventOf(eventID, types.EventKindCommandExecuted, "cli", agent, sessionID, "duck8823/traceary", "go test ./...", time.Date(2026, 4, 7, 17, 0, 0, 0, time.UTC)), auditAudit: commandAudit},
 	}).Command()
 	rootCmd.SetOut(stdout)
@@ -358,7 +358,7 @@ func TestRootCLI_AuditCommand_DoesNotAllowDuplicateFlagAndPositional(t *testing.
 	t.Setenv("TRACEARY_SESSION_ID", "session-env")
 
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Event:            &eventUsecaseStub{},
 	}).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
@@ -411,7 +411,7 @@ func TestRootCLI_AuditCommand_TruncationNotice(t *testing.T) {
 
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Event: &eventUsecaseStub{
 			auditEvent: model.EventOf(
 				eventID,
@@ -480,7 +480,7 @@ func TestRootCLI_AuditCommand_RedactionNotice(t *testing.T) {
 
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Event: &eventUsecaseStub{
 			auditEvent: model.EventOf(
 				eventID,
@@ -548,7 +548,7 @@ func TestRootCLI_AuditCommand_AllowSecretsEnv(t *testing.T) {
 	}
 
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Event: &eventUsecaseStub{
 			auditEvent: model.EventOf(
 				eventID,

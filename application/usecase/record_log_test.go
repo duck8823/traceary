@@ -8,6 +8,7 @@ import (
 
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 type eventRepositoryStub struct {
@@ -25,27 +26,28 @@ func (s *eventRepositoryStub) SaveWithAudit(_ context.Context, event *model.Even
 	return s.err
 }
 
-func TestRecordLogUsecase_Run(t *testing.T) {
+func TestEventUsecase_Log(t *testing.T) {
 	t.Parallel()
 
 	t.Run("saves event successfully", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventRepositoryStub{}
-		sut := usecase.NewRecordLogUsecase(stub)
+		sut := usecase.NewEventUsecase(stub, nil)
 
-		got, err := sut.Run(context.Background(), usecase.RecordLogInput{
-			Message:   "  hello traceary  ",
-			Client:    " cli ",
-			Agent:     "codex",
-			SessionID: "session-1",
-			Workspace:      "  duck8823/traceary  ",
-		})
+		got, err := sut.Log(context.Background(),
+			"  hello traceary  ",
+			types.EventKind(""),
+			types.Client(" cli "),
+			types.Agent("codex"),
+			types.SessionID("session-1"),
+			types.Workspace("  duck8823/traceary  "),
+		)
 		if err != nil {
-			t.Fatalf("Run() error = %v", err)
+			t.Fatalf("Log() error = %v", err)
 		}
 		if got == nil {
-			t.Fatalf("Run() event is nil")
+			t.Fatalf("Log() event is nil")
 		}
 		if stub.savedEvent == nil {
 			t.Fatalf("Save() event is nil")
@@ -77,18 +79,18 @@ func TestRecordLogUsecase_Run(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventRepositoryStub{}
-		sut := usecase.NewRecordLogUsecase(stub)
+		sut := usecase.NewEventUsecase(stub, nil)
 
-		got, err := sut.Run(context.Background(), usecase.RecordLogInput{
-			Message:   "compact summary text",
-			Kind:      "compact_summary",
-			Client:    "hook",
-			Agent:     "claude",
-			SessionID: "session-1",
-			Workspace: "duck8823/traceary",
-		})
+		got, err := sut.Log(context.Background(),
+			"compact summary text",
+			types.EventKind("compact_summary"),
+			types.Client("hook"),
+			types.Agent("claude"),
+			types.SessionID("session-1"),
+			types.Workspace("duck8823/traceary"),
+		)
 		if err != nil {
-			t.Fatalf("Run() error = %v", err)
+			t.Fatalf("Log() error = %v", err)
 		}
 		if diff := cmp.Diff("compact_summary", got.Kind().String()); diff != "" {
 			t.Fatalf("Kind() mismatch (-want +got):\n%s", diff)
@@ -99,16 +101,18 @@ func TestRecordLogUsecase_Run(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventRepositoryStub{}
-		sut := usecase.NewRecordLogUsecase(stub)
+		sut := usecase.NewEventUsecase(stub, nil)
 
-		got, err := sut.Run(context.Background(), usecase.RecordLogInput{
-			Message:   "hello",
-			Client:    "cli",
-			Agent:     "manual",
-			SessionID: "session-1",
-		})
+		got, err := sut.Log(context.Background(),
+			"hello",
+			types.EventKind(""),
+			types.Client("cli"),
+			types.Agent("manual"),
+			types.SessionID("session-1"),
+			types.Workspace(""),
+		)
 		if err != nil {
-			t.Fatalf("Run() error = %v", err)
+			t.Fatalf("Log() error = %v", err)
 		}
 		if diff := cmp.Diff("note", got.Kind().String()); diff != "" {
 			t.Fatalf("Kind() mismatch (-want +got):\n%s", diff)
@@ -119,17 +123,18 @@ func TestRecordLogUsecase_Run(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventRepositoryStub{}
-		sut := usecase.NewRecordLogUsecase(stub)
+		sut := usecase.NewEventUsecase(stub, nil)
 
-		_, err := sut.Run(context.Background(), usecase.RecordLogInput{
-			Message:   "hello",
-			Kind:      "invalid_kind",
-			Client:    "cli",
-			Agent:     "manual",
-			SessionID: "session-1",
-		})
+		_, err := sut.Log(context.Background(),
+			"hello",
+			types.EventKind("invalid_kind"),
+			types.Client("cli"),
+			types.Agent("manual"),
+			types.SessionID("session-1"),
+			types.Workspace(""),
+		)
 		if err == nil {
-			t.Fatalf("Run() error = nil, want error for invalid kind")
+			t.Fatalf("Log() error = nil, want error for invalid kind")
 		}
 	})
 
@@ -137,15 +142,18 @@ func TestRecordLogUsecase_Run(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventRepositoryStub{}
-		sut := usecase.NewRecordLogUsecase(stub)
+		sut := usecase.NewEventUsecase(stub, nil)
 
-		_, err := sut.Run(context.Background(), usecase.RecordLogInput{
-			Message:   "hello",
-			Agent:     "",
-			SessionID: "session-1",
-		})
+		_, err := sut.Log(context.Background(),
+			"hello",
+			types.EventKind(""),
+			types.Client(""),
+			types.Agent(""),
+			types.SessionID("session-1"),
+			types.Workspace(""),
+		)
 		if err == nil {
-			t.Fatalf("Run() error = nil, want error")
+			t.Fatalf("Log() error = nil, want error")
 		}
 		if stub.savedEvent != nil {
 			t.Fatalf("Save() should not be called")

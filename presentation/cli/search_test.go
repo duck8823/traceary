@@ -33,7 +33,7 @@ func TestRootCLI_SearchCommand(t *testing.T) {
 
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Event: &eventUsecaseStub{
 			searchEvents: []*model.Event{
 				model.EventOf(
@@ -97,7 +97,7 @@ func TestRootCLI_SearchCommand_JSON(t *testing.T) {
 
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Event: &eventUsecaseStub{
 			searchEvents: []*model.Event{
 				model.EventOf(
@@ -152,7 +152,7 @@ func TestRootCLI_SearchCommand_FilterOnly(t *testing.T) {
 	defer cli.ResetDetectRepoContextFunc()
 
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Event:            &eventUsecaseStub{},
 	}).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
@@ -176,7 +176,7 @@ func TestRootCLI_SearchCommand_NegativeOffset(t *testing.T) {
 	defer cli.ResetDetectRepoContextFunc()
 
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Event:            &eventUsecaseStub{},
 	}).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
@@ -201,7 +201,7 @@ func TestRootCLI_SearchCommand_FailuresOnlyAsConstraint(t *testing.T) {
 	defer cli.ResetDetectRepoContextFunc()
 
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
+		StoreManagement: &storeManagementUsecaseStub{},
 		Event:            &eventUsecaseStub{},
 	}).Command()
 	rootCmd.SetOut(&bytes.Buffer{})

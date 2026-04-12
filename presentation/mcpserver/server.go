@@ -32,7 +32,7 @@ type Server struct {
 	extraRedactPatterns []string
 	event               usecase.EventUsecase
 	session             usecase.SessionUsecase
-	storeMaintenance    usecase.StoreMaintenanceUsecase
+	storeManagement    usecase.StoreManagementUsecase
 }
 
 // NewServer creates a new MCP server.
@@ -40,7 +40,7 @@ func NewServer(
 	serverVersion string,
 	event usecase.EventUsecase,
 	session usecase.SessionUsecase,
-	storeMaintenance usecase.StoreMaintenanceUsecase,
+	storeManagement usecase.StoreManagementUsecase,
 ) (*Server, error) {
 	if event == nil {
 		return nil, xerrors.Errorf("event usecase is not configured")
@@ -48,8 +48,8 @@ func NewServer(
 	if session == nil {
 		return nil, xerrors.Errorf("session usecase is not configured")
 	}
-	if storeMaintenance == nil {
-		return nil, xerrors.Errorf("store maintenance usecase is not configured")
+	if storeManagement == nil {
+		return nil, xerrors.Errorf("store management usecase is not configured")
 	}
 
 	trimmedVersion := strings.TrimSpace(serverVersion)
@@ -65,7 +65,7 @@ func NewServer(
 		extraRedactPatterns: config.Redact.ExtraPatterns,
 		event:               event,
 		session:             session,
-		storeMaintenance:    storeMaintenance,
+		storeManagement:    storeManagement,
 	}, nil
 }
 
@@ -75,7 +75,7 @@ func (s *Server) Build(ctx context.Context, dbPath string) (*mcp.Server, error) 
 	if trimmedDBPath == "" {
 		return nil, xerrors.Errorf("DB path must not be empty")
 	}
-	if err := s.storeMaintenance.Initialize(ctx); err != nil {
+	if err := s.storeManagement.Initialize(ctx); err != nil {
 		return nil, xerrors.Errorf("failed to initialize store: %w", err)
 	}
 

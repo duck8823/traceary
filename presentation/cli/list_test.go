@@ -48,7 +48,7 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Event: listStub,
 		}).Command()
 		rootCmd.SetOut(stdout)
@@ -108,7 +108,7 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Event: listStub,
 		}).Command()
 		rootCmd.SetOut(stdout)
@@ -144,7 +144,7 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		listStub := &eventUsecaseStub{}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Event: listStub,
 		}).Command()
 		rootCmd.SetOut(stdout)
@@ -163,7 +163,7 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		t.Parallel()
 
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Event: &eventUsecaseStub{},
 		}).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
@@ -179,7 +179,7 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		t.Parallel()
 
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Event: &eventUsecaseStub{},
 		}).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
@@ -196,7 +196,7 @@ func TestRootCLI_ListCommand(t *testing.T) {
 
 		listStub := &eventUsecaseStub{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
+			StoreManagement: &storeManagementUsecaseStub{},
 			Event: listStub,
 		}).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
