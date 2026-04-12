@@ -105,15 +105,15 @@ func (u *sessionUsecase) Label(ctx context.Context, sessionID types.SessionID, l
 	return nil
 }
 
-func (u *sessionUsecase) List(ctx context.Context, criteria SessionListCriteria) ([]apptypes.SessionSummary, error) {
-	if criteria.Limit <= 0 {
+func (u *sessionUsecase) List(ctx context.Context, criteria apptypes.SessionListCriteria) ([]apptypes.SessionSummary, error) {
+	if criteria.Limit() <= 0 {
 		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
 	}
-	if criteria.Offset < 0 {
+	if criteria.Offset() < 0 {
 		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
 	}
 
-	summaries, err := u.sessionQuery.ListSummaries(ctx, criteria.Limit, criteria.Offset, criteria.SessionID, criteria.Workspace, criteria.Client, criteria.Agent, criteria.Label, criteria.From, criteria.To)
+	summaries, err := u.sessionQuery.ListSummaries(ctx, criteria.Limit(), criteria.Offset(), criteria.SessionID(), criteria.Workspace(), criteria.Client(), criteria.Agent(), criteria.Label(), criteria.From(), criteria.To())
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list sessions: %w", err)
 	}
@@ -132,16 +132,16 @@ func (u *sessionUsecase) Tree(ctx context.Context, workspace types.Workspace, li
 	return summaries, nil
 }
 
-func (u *sessionUsecase) Active(ctx context.Context, criteria SessionLookupCriteria) (types.Optional[*model.Event], error) {
-	result, err := u.sessionQuery.FindLatest(ctx, criteria.Client, criteria.Agent, criteria.Workspace, true)
+func (u *sessionUsecase) Active(ctx context.Context, criteria apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error) {
+	result, err := u.sessionQuery.FindLatest(ctx, criteria.Client(), criteria.Agent(), criteria.Workspace(), true)
 	if err != nil {
 		return types.Empty[*model.Event](), xerrors.Errorf("failed to find active session: %w", err)
 	}
 	return result, nil
 }
 
-func (u *sessionUsecase) Latest(ctx context.Context, criteria SessionLookupCriteria) (types.Optional[*model.Event], error) {
-	result, err := u.sessionQuery.FindLatest(ctx, criteria.Client, criteria.Agent, criteria.Workspace, false)
+func (u *sessionUsecase) Latest(ctx context.Context, criteria apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error) {
+	result, err := u.sessionQuery.FindLatest(ctx, criteria.Client(), criteria.Agent(), criteria.Workspace(), false)
 	if err != nil {
 		return types.Empty[*model.Event](), xerrors.Errorf("failed to find latest session: %w", err)
 	}

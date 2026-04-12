@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/usecase"
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -100,11 +100,11 @@ func (c *RootCLI) runContext(ctx context.Context, output io.Writer, input contex
 		return err
 	}
 
-	events, err := c.event.Context(ctx, usecase.EventContextCriteria{
-		Workspace: types.Workspace(resolvedWorkspace),
-		SessionID: types.SessionID(resolvedSessionID),
-		Limit:     input.limit,
-	})
+	contextCriteria := apptypes.NewEventContextCriteriaBuilder(input.limit).
+		Workspace(types.Workspace(resolvedWorkspace)).
+		SessionID(types.SessionID(resolvedSessionID)).
+		Build()
+	events, err := c.event.Context(ctx, contextCriteria)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to get context", "文脈の取得に失敗しました"), err)
 	}
@@ -129,11 +129,12 @@ func (c *RootCLI) resolveContextSessionID(
 		return "", nil
 	}
 
-	result, err := c.session.Active(ctx, usecase.SessionLookupCriteria{
-		Client:    types.Client(strings.TrimSpace(input.client)),
-		Agent:     types.Agent(strings.TrimSpace(input.agent)),
-		Workspace: types.Workspace(strings.TrimSpace(input.repo)),
-	})
+	lookupCriteria := apptypes.NewSessionLookupCriteriaBuilder().
+		Client(types.Client(strings.TrimSpace(input.client))).
+		Agent(types.Agent(strings.TrimSpace(input.agent))).
+		Workspace(types.Workspace(strings.TrimSpace(input.repo))).
+		Build()
+	result, err := c.session.Active(ctx, lookupCriteria)
 	if err != nil {
 		return "", xerrors.Errorf("%s: %w", Localize("failed to resolve latest session for context", "文脈用の直近 session 解決に失敗しました"), err)
 	}

@@ -8,10 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
-	"github.com/duck8823/traceary/application/usecase"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/types"
-
 )
 
 func (c *RootCLI) newSearchCommand() *cobra.Command {
@@ -154,19 +153,19 @@ func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchC
 		return err
 	}
 
-	events, err := c.event.Search(ctx, usecase.EventSearchCriteria{
-		Query:        input.query,
-		Workspace:    types.Workspace(resolveWorkspaceValue(ctx, input.repo)),
-		SessionID:    types.SessionID(input.sessionID),
-		Client:       types.Client(input.client),
-		Agent:        types.Agent(input.agent),
-		Kind: types.EventKind(resolvedKind),
-		From:         fromTime,
-		To:           toTime,
-		Limit:        input.limit,
-		Offset:       input.offset,
-		FailuresOnly: input.failuresOnly,
-	})
+	criteria := apptypes.NewEventSearchCriteriaBuilder(input.limit).
+		Query(input.query).
+		Workspace(types.Workspace(resolveWorkspaceValue(ctx, input.repo))).
+		SessionID(types.SessionID(input.sessionID)).
+		Client(types.Client(input.client)).
+		Agent(types.Agent(input.agent)).
+		Kind(types.EventKind(resolvedKind)).
+		From(fromTime).
+		To(toTime).
+		Offset(input.offset).
+		FailuresOnly(input.failuresOnly).
+		Build()
+	events, err := c.event.Search(ctx, criteria)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to search events", "検索に失敗しました"), err)
 	}

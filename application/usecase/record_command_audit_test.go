@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -51,7 +52,7 @@ func TestEventUsecase_Audit(t *testing.T) {
 			types.SessionID("session-1"),
 			types.Workspace("duck8823/traceary"),
 			types.Empty[int](),
-			usecase.AuditRedaction{},
+			apptypes.NewAuditRedactionBuilder().Build(),
 		)
 		if err != nil {
 			t.Fatalf("Audit() error = %v", err)
@@ -90,7 +91,7 @@ func TestEventUsecase_Audit(t *testing.T) {
 			types.SessionID("session-1"),
 			types.Workspace(""),
 			types.Empty[int](),
-			usecase.AuditRedaction{},
+			apptypes.NewAuditRedactionBuilder().Build(),
 		)
 		if err != nil {
 			t.Fatalf("Audit() error = %v", err)
@@ -124,10 +125,10 @@ func TestEventUsecase_Audit(t *testing.T) {
 			types.SessionID("session-1"),
 			types.Workspace(""),
 			types.Empty[int](),
-			usecase.AuditRedaction{
-				MaxInputBytes:  16,
-				MaxOutputBytes: 20,
-			},
+			apptypes.NewAuditRedactionBuilder().
+				MaxInputBytes(16).
+				MaxOutputBytes(20).
+				Build(),
 		)
 		if err != nil {
 			t.Fatalf("Audit() error = %v", err)
@@ -158,7 +159,7 @@ func TestEventUsecase_Audit(t *testing.T) {
 			types.SessionID("session-1"),
 			types.Workspace(""),
 			types.Empty[int](),
-			usecase.AuditRedaction{},
+			apptypes.NewAuditRedactionBuilder().Build(),
 		)
 		if err != nil {
 			t.Fatalf("Audit() error = %v", err)
@@ -198,10 +199,10 @@ func TestEventUsecase_Audit(t *testing.T) {
 			types.SessionID("session-1"),
 			types.Workspace(""),
 			types.Empty[int](),
-			usecase.AuditRedaction{
-				AllowSecrets:  true,
-				MaxInputBytes: 256,
-			},
+			apptypes.NewAuditRedactionBuilder().
+				AllowSecrets(true).
+				MaxInputBytes(256).
+				Build(),
 		)
 		if err != nil {
 			t.Fatalf("Audit() error = %v", err)
@@ -235,9 +236,9 @@ func TestEventUsecase_Audit(t *testing.T) {
 			types.SessionID("session-1"),
 			types.Workspace(""),
 			types.Empty[int](),
-			usecase.AuditRedaction{
-				ExtraRedactPatterns: []string{"my_custom_secret=\\S+", "internal_token:\\s*\\S+"},
-			},
+			apptypes.NewAuditRedactionBuilder().
+				ExtraRedactPatterns([]string{"my_custom_secret=\\S+", "internal_token:\\s*\\S+"}).
+				Build(),
 		)
 		if err != nil {
 			t.Fatalf("Audit() error = %v", err)
@@ -268,9 +269,9 @@ func TestEventUsecase_Audit(t *testing.T) {
 			types.SessionID("session-1"),
 			types.Workspace(""),
 			types.Empty[int](),
-			usecase.AuditRedaction{
-				ExtraRedactPatterns: []string{"[invalid"},
-			},
+			apptypes.NewAuditRedactionBuilder().
+				ExtraRedactPatterns([]string{"[invalid"}).
+				Build(),
 		)
 		if err == nil {
 			t.Fatalf("Audit() error = nil, want error for invalid regex")
@@ -292,9 +293,9 @@ func TestEventUsecase_Audit(t *testing.T) {
 			types.SessionID("session-1"),
 			types.Workspace(""),
 			types.Empty[int](),
-			usecase.AuditRedaction{
-				MaxInputBytes: -1,
-			},
+			apptypes.NewAuditRedactionBuilder().
+				MaxInputBytes(-1).
+				Build(),
 		)
 		if err == nil {
 			t.Fatalf("Audit() error = nil, want error")

@@ -10,7 +10,6 @@ import (
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
-	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/types"
 )
 
@@ -40,10 +39,10 @@ func (c *RootCLI) newSessionTreeCommand() *cobra.Command {
 
 			resolvedRepo := resolveWorkspaceValue(ctx, repo)
 
-			summaries, err := c.session.List(ctx, usecase.SessionListCriteria{
-				Limit: limit,
-				Workspace: types.Workspace(resolvedRepo),
-			})
+			criteria := apptypes.NewSessionListCriteriaBuilder(limit).
+				Workspace(types.Workspace(resolvedRepo)).
+				Build()
+			summaries, err := c.session.List(ctx, criteria)
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to list sessions", "セッション一覧の取得に失敗しました"), err)
 			}

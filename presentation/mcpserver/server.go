@@ -8,6 +8,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/xerrors"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -335,11 +336,12 @@ func (s *Server) endSession(_ string) mcp.ToolHandlerFor[endSessionInput, sessio
 
 func (s *Server) latestSession(_ string) mcp.ToolHandlerFor[sessionLookupInput, sessionEventOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input sessionLookupInput) (*mcp.CallToolResult, sessionEventOutput, error) {
-		result, err := s.session.Latest(ctx, usecase.SessionLookupCriteria{
-			Client:    types.Client(strings.TrimSpace(input.Client)),
-			Agent:     types.Agent(strings.TrimSpace(input.Agent)),
-			Workspace: types.Workspace(strings.TrimSpace(input.Workspace)),
-		})
+		criteria := apptypes.NewSessionLookupCriteriaBuilder().
+			Client(types.Client(strings.TrimSpace(input.Client))).
+			Agent(types.Agent(strings.TrimSpace(input.Agent))).
+			Workspace(types.Workspace(strings.TrimSpace(input.Workspace))).
+			Build()
+		result, err := s.session.Latest(ctx, criteria)
 		if err != nil {
 			return nil, sessionEventOutput{}, xerrors.Errorf("failed to get latest session: %w", err)
 		}
@@ -354,11 +356,12 @@ func (s *Server) latestSession(_ string) mcp.ToolHandlerFor[sessionLookupInput, 
 
 func (s *Server) activeSession(_ string) mcp.ToolHandlerFor[sessionLookupInput, sessionEventOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input sessionLookupInput) (*mcp.CallToolResult, sessionEventOutput, error) {
-		result, err := s.session.Active(ctx, usecase.SessionLookupCriteria{
-			Client:    types.Client(strings.TrimSpace(input.Client)),
-			Agent:     types.Agent(strings.TrimSpace(input.Agent)),
-			Workspace: types.Workspace(strings.TrimSpace(input.Workspace)),
-		})
+		criteria := apptypes.NewSessionLookupCriteriaBuilder().
+			Client(types.Client(strings.TrimSpace(input.Client))).
+			Agent(types.Agent(strings.TrimSpace(input.Agent))).
+			Workspace(types.Workspace(strings.TrimSpace(input.Workspace))).
+			Build()
+		result, err := s.session.Active(ctx, criteria)
 		if err != nil {
 			return nil, sessionEventOutput{}, xerrors.Errorf("failed to get active session: %w", err)
 		}
@@ -376,6 +379,9 @@ func (s *Server) activeSession(_ string) mcp.ToolHandlerFor[sessionLookupInput, 
 
 func (s *Server) addAudit(_ string) mcp.ToolHandlerFor[addAuditInput, addAuditOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input addAuditInput) (*mcp.CallToolResult, addAuditOutput, error) {
+		redaction := apptypes.NewAuditRedactionBuilder().
+			ExtraRedactPatterns(s.extraRedactPatterns).
+			Build()
 		event, audit, err := s.event.Audit(ctx,
 			input.Command,
 			input.Input,
@@ -385,9 +391,7 @@ func (s *Server) addAudit(_ string) mcp.ToolHandlerFor[addAuditInput, addAuditOu
 			types.SessionID(resolveValue(input.SessionID, defaultSessionValue)),
 			types.Workspace(strings.TrimSpace(input.Workspace)),
 			types.Empty[int](), // no exit code from MCP
-			usecase.AuditRedaction{
-				ExtraRedactPatterns: s.extraRedactPatterns,
-			},
+			redaction,
 		)
 		if err != nil {
 			return nil, addAuditOutput{}, xerrors.Errorf("failed to record command audit: %w", err)
@@ -419,17 +423,17 @@ func (s *Server) listEvents(_ string) mcp.ToolHandlerFor[listEventsInput, events
 			return nil, eventsOutput{}, xerrors.Errorf("failed to resolve to: %w", err)
 		}
 
-		events, err := s.event.List(ctx, usecase.EventListCriteria{
-			Limit:     resolveLimit(input.Limit, defaultSearchLimit),
-			Offset:    resolveOffset(input.Offset),
-			Kind:      types.EventKind(strings.TrimSpace(input.Kind)),
-			Client:    types.Client(strings.TrimSpace(input.Client)),
-			Agent:     types.Agent(strings.TrimSpace(input.Agent)),
-			SessionID: types.SessionID(strings.TrimSpace(input.SessionID)),
-			Workspace: types.Workspace(strings.TrimSpace(input.Workspace)),
-			From:      from,
-			To:        to,
-		})
+		criteria := apptypes.NewEventListCriteriaBuilder(resolveLimit(input.Limit, defaultSearchLimit)).
+			Offset(resolveOffset(input.Offset)).
+			Kind(types.EventKind(strings.TrimSpace(input.Kind))).
+			Client(types.Client(strings.TrimSpace(input.Client))).
+			Agent(types.Agent(strings.TrimSpace(input.Agent))).
+			SessionID(types.SessionID(strings.TrimSpace(input.SessionID))).
+			Workspace(types.Workspace(strings.TrimSpace(input.Workspace))).
+			From(from).
+			To(to).
+			Build()
+		events, err := s.event.List(ctx, criteria)
 		if err != nil {
 			return nil, eventsOutput{}, xerrors.Errorf("failed to list events: %w", err)
 		}
@@ -481,13 +485,13 @@ func (s *Server) search(_ string) mcp.ToolHandlerFor[searchInput, eventsOutput] 
 			return nil, eventsOutput{}, xerrors.Errorf("failed to resolve to: %w", err)
 		}
 		limit := resolveLimit(input.Limit, defaultSearchLimit)
-		events, err := s.event.Search(ctx, usecase.EventSearchCriteria{
-			Query:     strings.TrimSpace(input.Query),
-			Workspace: types.Workspace(strings.TrimSpace(input.Workspace)),
-			From:      from,
-			To:        to,
-			Limit:     limit,
-		})
+		criteria := apptypes.NewEventSearchCriteriaBuilder(limit).
+			Query(strings.TrimSpace(input.Query)).
+			Workspace(types.Workspace(strings.TrimSpace(input.Workspace))).
+			From(from).
+			To(to).
+			Build()
+		events, err := s.event.Search(ctx, criteria)
 		if err != nil {
 			return nil, eventsOutput{}, xerrors.Errorf("failed to search events: %w", err)
 		}
@@ -498,11 +502,11 @@ func (s *Server) search(_ string) mcp.ToolHandlerFor[searchInput, eventsOutput] 
 
 func (s *Server) getContext(_ string) mcp.ToolHandlerFor[getContextInput, eventsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input getContextInput) (*mcp.CallToolResult, eventsOutput, error) {
-		events, err := s.event.Context(ctx, usecase.EventContextCriteria{
-			Workspace: types.Workspace(strings.TrimSpace(input.Workspace)),
-			SessionID: types.SessionID(strings.TrimSpace(input.SessionID)),
-			Limit:     resolveLimit(input.Limit, defaultContextLimit),
-		})
+		criteria := apptypes.NewEventContextCriteriaBuilder(resolveLimit(input.Limit, defaultContextLimit)).
+			Workspace(types.Workspace(strings.TrimSpace(input.Workspace))).
+			SessionID(types.SessionID(strings.TrimSpace(input.SessionID))).
+			Build()
+		events, err := s.event.Context(ctx, criteria)
 		if err != nil {
 			return nil, eventsOutput{}, xerrors.Errorf("failed to get context: %w", err)
 		}

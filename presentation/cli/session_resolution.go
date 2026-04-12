@@ -10,7 +10,7 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/usecase"
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -41,9 +41,10 @@ func (c *RootCLI) resolveManualSessionID(
 		}, nil
 	}
 
-	result, err := c.session.Active(ctx, usecase.SessionLookupCriteria{
-		Workspace: types.Workspace(trimmedRepo),
-	})
+	criteria := apptypes.NewSessionLookupCriteriaBuilder().
+		Workspace(types.Workspace(trimmedRepo)).
+		Build()
+	result, err := c.session.Active(ctx, criteria)
 	if err != nil {
 		return nil, xerrors.Errorf(
 			"%s: %w",

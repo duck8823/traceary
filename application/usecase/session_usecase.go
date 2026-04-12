@@ -22,7 +22,7 @@ type SessionUsecase interface {
 	Label(ctx context.Context, sessionID types.SessionID, label string) error
 
 	// List returns session summaries matching the criteria.
-	List(ctx context.Context, criteria SessionListCriteria) ([]apptypes.SessionSummary, error)
+	List(ctx context.Context, criteria apptypes.SessionListCriteria) ([]apptypes.SessionSummary, error)
 
 	// Tree returns session summaries as a hierarchy for the given workspace.
 	// Zero-value workspace returns sessions across all workspaces.
@@ -30,11 +30,11 @@ type SessionUsecase interface {
 
 	// Active returns the session_started event for the active session matching the criteria.
 	// Returns an empty Optional when no active session exists.
-	Active(ctx context.Context, criteria SessionLookupCriteria) (types.Optional[*model.Event], error)
+	Active(ctx context.Context, criteria apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error)
 
 	// Latest returns the session_started event for the latest session matching the criteria.
 	// Returns an empty Optional when no matching session exists.
-	Latest(ctx context.Context, criteria SessionLookupCriteria) (types.Optional[*model.Event], error)
+	Latest(ctx context.Context, criteria apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error)
 
 	// Handoff returns a concise summary for session context transfer between agents.
 	// Zero-value workspace means no workspace filter.

@@ -32,22 +32,22 @@ type eventUsecaseStub struct {
 func (s *eventUsecaseStub) Log(_ context.Context, _ string, _ types.EventKind, _ types.Client, _ types.Agent, _ types.SessionID, _ types.Workspace) (*model.Event, error) {
 	return s.logEvent, s.logErr
 }
-func (s *eventUsecaseStub) Audit(_ context.Context, _ string, _ string, _ string, _ types.Client, _ types.Agent, _ types.SessionID, _ types.Workspace, _ types.Optional[int], _ usecase.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
+func (s *eventUsecaseStub) Audit(_ context.Context, _ string, _ string, _ string, _ types.Client, _ types.Agent, _ types.SessionID, _ types.Workspace, _ types.Optional[int], _ apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
 	return s.auditEvent, s.auditAudit, s.auditErr
 }
-func (s *eventUsecaseStub) Search(_ context.Context, _ usecase.EventSearchCriteria) ([]*model.Event, error) {
+func (s *eventUsecaseStub) Search(_ context.Context, _ apptypes.EventSearchCriteria) ([]*model.Event, error) {
 	return s.searchEvents, s.searchErr
 }
-func (s *eventUsecaseStub) List(_ context.Context, _ usecase.EventListCriteria) ([]*model.Event, error) {
+func (s *eventUsecaseStub) List(_ context.Context, _ apptypes.EventListCriteria) ([]*model.Event, error) {
 	return s.listEvents, s.listErr
 }
 func (s *eventUsecaseStub) Show(_ context.Context, _ types.EventID) (apptypes.EventDetails, error) {
 	return s.showDetails, s.showErr
 }
-func (s *eventUsecaseStub) Context(_ context.Context, _ usecase.EventContextCriteria) ([]*model.Event, error) {
+func (s *eventUsecaseStub) Context(_ context.Context, _ apptypes.EventContextCriteria) ([]*model.Event, error) {
 	return s.contextEvents, s.contextErr
 }
-func (s *eventUsecaseStub) Timeline(_ context.Context, _ usecase.TimelineCriteria) ([]apptypes.TimelineBlock, error) {
+func (s *eventUsecaseStub) Timeline(_ context.Context, _ apptypes.TimelineCriteria) ([]apptypes.TimelineBlock, error) {
 	return s.timelineBlocks, s.timelineErr
 }
 
@@ -79,13 +79,13 @@ func (s *sessionUsecaseStub) End(_ context.Context, _ types.Client, _ types.Agen
 func (s *sessionUsecaseStub) Label(_ context.Context, _ types.SessionID, _ string) error {
 	return s.labelErr
 }
-func (s *sessionUsecaseStub) List(_ context.Context, _ usecase.SessionListCriteria) ([]apptypes.SessionSummary, error) {
+func (s *sessionUsecaseStub) List(_ context.Context, _ apptypes.SessionListCriteria) ([]apptypes.SessionSummary, error) {
 	return s.listResult, s.listErr
 }
 func (s *sessionUsecaseStub) Tree(_ context.Context, _ types.Workspace, _ int) ([]apptypes.SessionSummary, error) {
 	return s.treeResult, s.treeErr
 }
-func (s *sessionUsecaseStub) Active(_ context.Context, _ usecase.SessionLookupCriteria) (types.Optional[*model.Event], error) {
+func (s *sessionUsecaseStub) Active(_ context.Context, _ apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error) {
 	if s.activeEvent == nil && s.activeErr == nil {
 		return types.Empty[*model.Event](), nil
 	}
@@ -94,7 +94,7 @@ func (s *sessionUsecaseStub) Active(_ context.Context, _ usecase.SessionLookupCr
 	}
 	return types.Of(s.activeEvent), nil
 }
-func (s *sessionUsecaseStub) Latest(_ context.Context, _ usecase.SessionLookupCriteria) (types.Optional[*model.Event], error) {
+func (s *sessionUsecaseStub) Latest(_ context.Context, _ apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error) {
 	if s.latestEvent == nil && s.latestErr == nil {
 		return types.Empty[*model.Event](), nil
 	}

@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/usecase"
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -355,11 +355,11 @@ func (c *RootCLI) runSessionLatest(
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
-	criteria := usecase.SessionLookupCriteria{
-		Client:    types.Client(resolveOptionalValue(input.client, "TRACEARY_CLIENT", "")),
-		Agent:     types.Agent(resolveOptionalValue(input.agent, "TRACEARY_AGENT", "")),
-		Workspace: types.Workspace(resolveWorkspaceValue(ctx, input.repo)),
-	}
+	criteria := apptypes.NewSessionLookupCriteriaBuilder().
+		Client(types.Client(resolveOptionalValue(input.client, "TRACEARY_CLIENT", ""))).
+		Agent(types.Agent(resolveOptionalValue(input.agent, "TRACEARY_AGENT", ""))).
+		Workspace(types.Workspace(resolveWorkspaceValue(ctx, input.repo))).
+		Build()
 	var result types.Optional[*model.Event]
 	if input.activeOnly {
 		result, err = c.session.Active(ctx, criteria)

@@ -12,7 +12,6 @@ import (
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
-	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation"
 )
@@ -208,16 +207,17 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 	client, _ := types.ClientOf(resolveOptionalValue(input.client, "TRACEARY_CLIENT", defaultClientValue))
 	agent, _ := types.AgentOf(resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue))
 	sid, _ := types.SessionIDOf(sessionResolution.sessionID)
+	redaction := apptypes.NewAuditRedactionBuilder().
+		AllowSecrets(allowSecrets).
+		MaxInputBytes(maxInputBytes).
+		MaxOutputBytes(maxOutputBytes).
+		ExtraRedactPatterns(config.Redact.ExtraPatterns).
+		Build()
 	event, commandAudit, err := c.event.Audit(ctx,
 		input.command, input.input, input.output,
 		client, agent, sid, types.Workspace(resolvedRepo),
 		input.exitCode,
-		usecase.AuditRedaction{
-			AllowSecrets:        allowSecrets,
-			MaxInputBytes:       maxInputBytes,
-			MaxOutputBytes:      maxOutputBytes,
-			ExtraRedactPatterns: config.Redact.ExtraPatterns,
-		},
+		redaction,
 	)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to record command audit", "監査ログ記録に失敗しました"), err)

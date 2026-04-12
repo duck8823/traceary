@@ -8,10 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
-	"github.com/duck8823/traceary/application/usecase"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/types"
-
 )
 
 func (c *RootCLI) newCompactSummaryCommand() *cobra.Command {
@@ -62,22 +61,22 @@ func (c *RootCLI) printCompactSummary(
 	recentCount int,
 ) error {
 	// Get recent events for context
-	events, err := c.event.List(ctx, usecase.EventListCriteria{
-		Limit:     recentCount + 5, // fetch extra to find commands
-		SessionID: types.SessionID(sessionID),
-		Workspace: types.Workspace(repo),
-		Kind:      types.EventKindCommandExecuted,
-	})
+	eventsCriteria := apptypes.NewEventListCriteriaBuilder(recentCount + 5). // fetch extra to find commands
+											SessionID(types.SessionID(sessionID)).
+											Workspace(types.Workspace(repo)).
+											Kind(types.EventKindCommandExecuted).
+											Build()
+	events, err := c.event.List(ctx, eventsCriteria)
 	if err != nil {
 		return xerrors.Errorf("failed to list events: %w", err)
 	}
 
 	// Get session info
-	sessions, err := c.session.List(ctx, usecase.SessionListCriteria{
-		Limit:     1,
-		SessionID: types.SessionID(sessionID),
-		Workspace: types.Workspace(repo),
-	})
+	sessionsCriteria := apptypes.NewSessionListCriteriaBuilder(1).
+		SessionID(types.SessionID(sessionID)).
+		Workspace(types.Workspace(repo)).
+		Build()
+	sessions, err := c.session.List(ctx, sessionsCriteria)
 	if err != nil {
 		return xerrors.Errorf("failed to list sessions: %w", err)
 	}
@@ -121,12 +120,12 @@ func (c *RootCLI) printCompactSummary(
 	// Retrieve the latest compact_summary event for richer context.
 	// Errors are intentionally ignored: this output is injected into hook stdout
 	// and must not fail even if the compact_summary query encounters a DB issue.
-	compactSummaryEvents, err := c.event.List(ctx, usecase.EventListCriteria{
-		Limit:     1,
-		SessionID: types.SessionID(sessionID),
-		Workspace: types.Workspace(repo),
-		Kind:      types.EventKindCompactSummary,
-	})
+	compactSummaryCriteria := apptypes.NewEventListCriteriaBuilder(1).
+		SessionID(types.SessionID(sessionID)).
+		Workspace(types.Workspace(repo)).
+		Kind(types.EventKindCompactSummary).
+		Build()
+	compactSummaryEvents, err := c.event.List(ctx, compactSummaryCriteria)
 	if err == nil && len(compactSummaryEvents) > 0 {
 		body := compactSummaryEvents[0].Body()
 		summary := extractCompactSummarySections(body)

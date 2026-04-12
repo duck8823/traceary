@@ -7,10 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
-	"github.com/duck8823/traceary/application/usecase"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/types"
-
 )
 
 func (c *RootCLI) newListCommand() *cobra.Command {
@@ -141,18 +140,18 @@ func (c *RootCLI) runList(ctx context.Context, output io.Writer, input listComma
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
-	events, err := c.event.List(ctx, usecase.EventListCriteria{
-		Limit:        input.limit,
-		Offset:       input.offset,
-		Kind: types.EventKind(resolvedKind),
-		Client: types.Client(strings.TrimSpace(input.client)),
-		Agent: types.Agent(strings.TrimSpace(input.agent)),
-		SessionID: types.SessionID(strings.TrimSpace(input.sessionID)),
-		Workspace:    types.Workspace(resolveWorkspaceValue(ctx, input.repo)),
-		FailuresOnly: input.failuresOnly,
-		From:         fromTime,
-		To:           toTime,
-	})
+	criteria := apptypes.NewEventListCriteriaBuilder(input.limit).
+		Offset(input.offset).
+		Kind(types.EventKind(resolvedKind)).
+		Client(types.Client(strings.TrimSpace(input.client))).
+		Agent(types.Agent(strings.TrimSpace(input.agent))).
+		SessionID(types.SessionID(strings.TrimSpace(input.sessionID))).
+		Workspace(types.Workspace(resolveWorkspaceValue(ctx, input.repo))).
+		FailuresOnly(input.failuresOnly).
+		From(fromTime).
+		To(toTime).
+		Build()
+	events, err := c.event.List(ctx, criteria)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to list events", "イベント一覧の取得に失敗しました"), err)
 	}

@@ -13,7 +13,6 @@ import (
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
-	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/types"
 )
 
@@ -89,13 +88,13 @@ func (c *RootCLI) runTimeline(ctx context.Context, output io.Writer, input timel
 		return xerrors.Errorf("%s: %w", Localize("invalid --to value", "--to の値が不正です"), err)
 	}
 
-	blocks, err := c.event.Timeline(ctx, usecase.TimelineCriteria{
-		Workspace:  types.Workspace(strings.TrimSpace(input.workspace)),
-		From:       fromTime,
-		To:         toTime,
-		GapSeconds: input.gap * 60,
-		Limit:      input.limit,
-	})
+	criteria := apptypes.NewTimelineCriteriaBuilder(input.limit).
+		Workspace(types.Workspace(strings.TrimSpace(input.workspace))).
+		From(fromTime).
+		To(toTime).
+		GapSeconds(input.gap * 60).
+		Build()
+	blocks, err := c.event.Timeline(ctx, criteria)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to list timeline blocks", "タイムラインブロックの取得に失敗しました"), err)
 	}
