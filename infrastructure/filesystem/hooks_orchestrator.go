@@ -2,7 +2,8 @@ package filesystem
 
 import (
 	"context"
-	"os"
+	"errors"
+	"io/fs"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -75,20 +76,16 @@ func (o *HooksOrchestrator) Install(
 		return "", err
 	}
 
-	if err := rejectSymlink(resolvedOutputPath); err != nil {
-		return "", err
-	}
-
 	hooks := handler.Build(scriptsDir, tracearyBin)
 	encoded, err := renderInstallContent(resolvedOutputPath, hooks, force)
 	if err != nil {
 		return "", err
 	}
 
-	if err := os.MkdirAll(filepath.Dir(resolvedOutputPath), 0o755); err != nil {
+	if err := safeMkdirAll(filepath.Dir(resolvedOutputPath), 0o755); err != nil {
 		return "", xerrors.Errorf("failed to create output directory: %w", err)
 	}
-	if err := os.WriteFile(resolvedOutputPath, append(encoded, '\n'), 0o644); err != nil {
+	if err := safeWriteFile(resolvedOutputPath, append(encoded, '\n'), 0o644); err != nil {
 		return "", xerrors.Errorf("failed to write settings file: %w", err)
 	}
 
@@ -184,25 +181,16 @@ func resolveInstallOutputPath(
 }
 
 func renderInstallContent(resolvedOutputPath string, hooks model.Hooks, force bool) ([]byte, error) {
-	info, err := os.Lstat(resolvedOutputPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return marshalHooks(hooks)
-		}
-
-		return nil, xerrors.Errorf("failed to inspect existing file: %w", err)
-	}
-
-	if info.Mode()&os.ModeSymlink != 0 {
-		return nil, xerrors.Errorf("refusing to operate on symbolic link: %s", resolvedOutputPath)
-	}
-
 	if force {
 		return marshalHooks(hooks)
 	}
 
-	existingContent, err := os.ReadFile(resolvedOutputPath)
+	existingContent, err := safeReadFile(resolvedOutputPath)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return marshalHooks(hooks)
+		}
+
 		return nil, xerrors.Errorf("failed to read existing settings file: %w", err)
 	}
 

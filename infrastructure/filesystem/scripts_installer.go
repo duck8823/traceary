@@ -1,6 +1,8 @@
 package filesystem
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,10 +41,7 @@ func (i *HookScriptsInstaller) Ensure() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := rejectSymlink(scriptsDir); err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(scriptsDir, 0o755); err != nil {
+	if err := safeMkdirAll(scriptsDir, 0o755); err != nil {
 		return "", xerrors.Errorf("failed to create hook scripts directory: %w", err)
 	}
 
@@ -53,20 +52,17 @@ func (i *HookScriptsInstaller) Ensure() (string, error) {
 
 	for _, asset := range assets {
 		outputPath := filepath.Join(scriptsDir, asset.Name())
-		if err := rejectSymlink(outputPath); err != nil {
-			return "", err
-		}
-		currentContent, err := os.ReadFile(outputPath)
+		currentContent, err := safeReadFile(outputPath)
 		if err == nil && string(currentContent) == asset.Content() {
-			if chmodErr := os.Chmod(outputPath, 0o755); chmodErr != nil {
+			if chmodErr := safeChmod(outputPath, 0o755); chmodErr != nil {
 				return "", xerrors.Errorf("failed to chmod hook script: %w", chmodErr)
 			}
 			continue
 		}
-		if err != nil && !os.IsNotExist(err) {
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return "", xerrors.Errorf("failed to inspect installed hook script: %w", err)
 		}
-		if err := os.WriteFile(outputPath, []byte(asset.Content()), 0o755); err != nil {
+		if err := safeWriteFile(outputPath, []byte(asset.Content()), 0o755); err != nil {
 			return "", xerrors.Errorf("failed to write hook script: %w", err)
 		}
 	}
