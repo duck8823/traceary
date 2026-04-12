@@ -13,8 +13,8 @@ type EventDetails struct {
 	commandAudit domtypes.Optional[*model.CommandAudit]
 }
 
-// NewEventDetails creates an EventDetails value.
-func NewEventDetails(event *model.Event, commandAudit domtypes.Optional[*model.CommandAudit]) (EventDetails, error) {
+// EventDetailsOf creates an EventDetails value.
+func EventDetailsOf(event *model.Event, commandAudit domtypes.Optional[*model.CommandAudit]) (EventDetails, error) {
 	if event == nil {
 		return EventDetails{}, xerrors.Errorf("event must not be nil")
 	}

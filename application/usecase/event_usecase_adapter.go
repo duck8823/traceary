@@ -45,7 +45,7 @@ func (a *eventUsecaseAdapter) Log(ctx context.Context, message string, kind type
 	return event, nil
 }
 
-func (a *eventUsecaseAdapter) Audit(ctx context.Context, command string, input string, output string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, exitCode *int, redaction AuditRedaction) (*model.Event, *model.CommandAudit, error) {
+func (a *eventUsecaseAdapter) Audit(ctx context.Context, command string, input string, output string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, exitCode types.Optional[int], redaction AuditRedaction) (*model.Event, *model.CommandAudit, error) {
 	event, audit, err := a.recordAudit.Run(ctx, RecordCommandAuditInput{
 		Command:             command,
 		Input:               input,

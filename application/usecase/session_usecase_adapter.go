@@ -130,7 +130,7 @@ func (a *sessionUsecaseAdapter) Handoff(ctx context.Context, sessionID types.Ses
 		recentCommands = append(recentCommands, cmd)
 	}
 
-	return types.Of(apptypes.NewHandoffSummary(
+	return types.Of(apptypes.HandoffSummaryOf(
 		session.SessionID(),
 		session.Workspace(),
 		session.Label(),

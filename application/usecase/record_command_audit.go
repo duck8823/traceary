@@ -29,7 +29,7 @@ type RecordCommandAuditInput struct {
 	MaxInputBytes       int
 	MaxOutputBytes      int
 	ExtraRedactPatterns []string
-	ExitCode            *int
+	ExitCode            types.Optional[int]
 }
 
 // RecordCommandAuditUsecase persists command-audit events.

@@ -21,7 +21,7 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		endedAt := time.Date(2026, 4, 9, 13, 30, 0, 0, time.UTC)
 		listStub := &sessionUsecaseStub{
 			listResult: []apptypes.SessionSummary{
-				apptypes.NewSessionSummary(
+				apptypes.SessionSummaryOf(
 					types.SessionID("session-1"),
 					types.Workspace("duck8823/traceary"),
 					time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
@@ -103,7 +103,7 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		endedAt := time.Date(2026, 4, 9, 12, 5, 0, 0, time.UTC)
 		listStub := &sessionUsecaseStub{
 			listResult: []apptypes.SessionSummary{
-				apptypes.NewSessionSummary(
+				apptypes.SessionSummaryOf(
 					types.SessionID("session-json"),
 					types.Workspace(""),
 					time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
@@ -154,7 +154,7 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		listStub := &sessionUsecaseStub{
 			listResult: []apptypes.SessionSummary{
-				apptypes.NewSessionSummary(
+				apptypes.SessionSummaryOf(
 					types.SessionID("session-sanitized"),
 					types.Workspace(""),
 					time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),

@@ -109,7 +109,7 @@ func buildSessionFromBoundary(event *model.Event, kind types.EventKind, summary 
 		return model.SessionOf(
 			event.SessionID(),
 			event.CreatedAt(),
-			nil,
+			types.Empty[time.Time](),
 			event.Client(),
 			event.Agent(),
 			event.Workspace(),
@@ -118,11 +118,10 @@ func buildSessionFromBoundary(event *model.Event, kind types.EventKind, summary 
 	default:
 		// For session end, started_at is not available from the event.
 		// Use zero value since SaveSession only updates ended_at.
-		endedAt := event.CreatedAt()
 		return model.SessionOf(
 			event.SessionID(),
 			time.Time{},
-			&endedAt,
+			types.Of(event.CreatedAt()),
 			event.Client(),
 			event.Agent(),
 			event.Workspace(),

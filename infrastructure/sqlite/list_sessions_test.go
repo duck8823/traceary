@@ -65,7 +65,7 @@ GROUP BY e.session_id;`),
 	}
 }
 
-func saveTestSession(ctx context.Context, t *testing.T, ds *infra.Datasource, sessionID string, startedAt time.Time, endedAt *time.Time, agent string, workspace string) {
+func saveTestSession(ctx context.Context, t *testing.T, ds *infra.Datasource, sessionID string, startedAt time.Time, endedAt types.Optional[time.Time], agent string, workspace string) {
 	t.Helper()
 	ag, _ := types.AgentOf(agent)
 	sid, _ := types.SessionIDOf(sessionID)
@@ -73,7 +73,7 @@ func saveTestSession(ctx context.Context, t *testing.T, ds *infra.Datasource, se
 	if err := ds.SaveSession(ctx, session); err != nil {
 		t.Fatalf("SaveSession(start) error = %v", err)
 	}
-	if endedAt != nil {
+	if endedAt.IsPresent() {
 		endSession := model.SessionOf(sid, startedAt, endedAt, "hook", ag, workspace, "", "", "")
 		if err := ds.SaveSession(ctx, endSession); err != nil {
 			t.Fatalf("SaveSession(end) error = %v", err)
@@ -122,8 +122,8 @@ func TestDatasource_ListSummaries(t *testing.T) {
 
 		// Save session metadata
 		s1End := time.Now().UTC()
-		saveTestSession(ctx, t, ds, "s1", time.Now().Add(-time.Hour).UTC(), &s1End, "claude", "duck8823/traceary")
-		saveTestSession(ctx, t, ds, "s2", time.Now().UTC(), nil, "codex", "duck8823/traceary")
+		saveTestSession(ctx, t, ds, "s1", time.Now().Add(-time.Hour).UTC(), types.Of(s1End), "claude", "duck8823/traceary")
+		saveTestSession(ctx, t, ds, "s2", time.Now().UTC(), types.Empty[time.Time](), "codex", "duck8823/traceary")
 
 		summaries, err := ds.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent(""), "", types.Empty[time.Time](), types.Empty[time.Time]())
 		if err != nil {
@@ -195,8 +195,8 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		}
 
 		now := time.Now().UTC()
-		saveTestSession(ctx, t, ds, "s1", now, nil, "claude", "workspace")
-		saveTestSession(ctx, t, ds, "s2", now.Add(time.Second), nil, "codex", "workspace")
+		saveTestSession(ctx, t, ds, "s1", now, types.Empty[time.Time](), "claude", "workspace")
+		saveTestSession(ctx, t, ds, "s2", now.Add(time.Second), types.Empty[time.Time](), "codex", "workspace")
 
 		summaries, err := ds.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent("claude"), "", types.Empty[time.Time](), types.Empty[time.Time]())
 		if err != nil {
@@ -236,7 +236,7 @@ func TestDatasource_ListSummaries(t *testing.T) {
 			if err := ds.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
-			saveTestSession(ctx, t, ds, e.sid, ts, nil, "claude", "workspace")
+			saveTestSession(ctx, t, ds, e.sid, ts, types.Empty[time.Time](), "claude", "workspace")
 		}
 
 		fromDate := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
@@ -279,8 +279,8 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		}
 
 		now := time.Now().UTC()
-		saveTestSession(ctx, t, ds, "s1", now, nil, "claude", "workspace")
-		saveTestSession(ctx, t, ds, "s2", now.Add(time.Second), nil, "claude", "workspace")
+		saveTestSession(ctx, t, ds, "s1", now, types.Empty[time.Time](), "claude", "workspace")
+		saveTestSession(ctx, t, ds, "s2", now.Add(time.Second), types.Empty[time.Time](), "claude", "workspace")
 
 		summaries, err := ds.ListSummaries(ctx, 10, 0, types.SessionID("s1"), types.Workspace(""), types.Client(""), types.Agent(""), "", types.Empty[time.Time](), types.Empty[time.Time]())
 		if err != nil {
@@ -320,7 +320,7 @@ func TestDatasource_ListSummaries(t *testing.T) {
 			if err := ds.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
-			saveTestSession(ctx, t, ds, e.sid, ts, nil, "claude", "workspace")
+			saveTestSession(ctx, t, ds, e.sid, ts, types.Empty[time.Time](), "claude", "workspace")
 		}
 
 		toDate := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)

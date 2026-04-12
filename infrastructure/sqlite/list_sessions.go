@@ -133,7 +133,7 @@ func scanSessionSummary(row interface {
 		agents = strings.Split(agentsStr.String, ",")
 	}
 
-	return apptypes.NewSessionSummary(
+	return apptypes.SessionSummaryOf(
 		domtypes.SessionID(sessionID),
 		domtypes.Workspace(repo),
 		startedAt,

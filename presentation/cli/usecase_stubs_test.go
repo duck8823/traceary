@@ -32,7 +32,7 @@ type eventUsecaseStub struct {
 func (s *eventUsecaseStub) Log(_ context.Context, _ string, _ types.EventKind, _ types.Client, _ types.Agent, _ types.SessionID, _ types.Workspace) (*model.Event, error) {
 	return s.logEvent, s.logErr
 }
-func (s *eventUsecaseStub) Audit(_ context.Context, _ string, _ string, _ string, _ types.Client, _ types.Agent, _ types.SessionID, _ types.Workspace, _ *int, _ usecase.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
+func (s *eventUsecaseStub) Audit(_ context.Context, _ string, _ string, _ string, _ types.Client, _ types.Agent, _ types.SessionID, _ types.Workspace, _ types.Optional[int], _ usecase.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
 	return s.auditEvent, s.auditAudit, s.auditErr
 }
 func (s *eventUsecaseStub) Search(_ context.Context, _ usecase.EventSearchCriteria) ([]*model.Event, error) {

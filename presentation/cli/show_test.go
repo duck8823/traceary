@@ -30,7 +30,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 	t.Run("displays event details", func(t *testing.T) {
 		t.Parallel()
 
-		eventDetails, err := apptypes.NewEventDetails(
+		eventDetails, err := apptypes.EventDetailsOf(
 			model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,
@@ -48,11 +48,11 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 				"stdout",
 				true,
 				false,
-				nil,
+				types.Empty[int](),
 			)),
 		)
 		if err != nil {
-			t.Fatalf("NewEventDetails() error = %v", err)
+			t.Fatalf("EventDetailsOf() error = %v", err)
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
@@ -93,7 +93,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 	t.Run("command audit がないイベントも表示できる", func(t *testing.T) {
 		t.Parallel()
 
-		eventDetails, err := apptypes.NewEventDetails(
+		eventDetails, err := apptypes.EventDetailsOf(
 			model.EventOf(
 				eventID,
 				types.EventKindNote,
@@ -107,7 +107,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 			types.Empty[*model.CommandAudit](),
 		)
 		if err != nil {
-			t.Fatalf("NewEventDetails() error = %v", err)
+			t.Fatalf("EventDetailsOf() error = %v", err)
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
@@ -129,7 +129,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 	t.Run("JSON 形式でイベント詳細を表示できる", func(t *testing.T) {
 		t.Parallel()
 
-		eventDetails, err := apptypes.NewEventDetails(
+		eventDetails, err := apptypes.EventDetailsOf(
 			model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,
@@ -147,11 +147,11 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 				"stdout",
 				true,
 				false,
-				nil,
+				types.Empty[int](),
 			)),
 		)
 		if err != nil {
-			t.Fatalf("NewEventDetails() error = %v", err)
+			t.Fatalf("EventDetailsOf() error = %v", err)
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
@@ -194,8 +194,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 	t.Run("exit_code is included in JSON and text output when present", func(t *testing.T) {
 		t.Parallel()
 
-		exitCode := 1
-		eventDetails, err := apptypes.NewEventDetails(
+		eventDetails, err := apptypes.EventDetailsOf(
 			model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,
@@ -213,11 +212,11 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 				"stderr",
 				false,
 				false,
-				&exitCode,
+				types.Of(1),
 			)),
 		)
 		if err != nil {
-			t.Fatalf("NewEventDetails() error = %v", err)
+			t.Fatalf("EventDetailsOf() error = %v", err)
 		}
 
 		t.Run("text format", func(t *testing.T) {

@@ -10,7 +10,7 @@ import (
 type Session struct {
 	sessionID       types.SessionID
 	startedAt       time.Time
-	endedAt         *time.Time
+	endedAt         types.Optional[time.Time]
 	client          string
 	agent           types.Agent
 	workspace string
@@ -40,7 +40,7 @@ func NewSession(
 func SessionOf(
 	sessionID types.SessionID,
 	startedAt time.Time,
-	endedAt *time.Time,
+	endedAt types.Optional[time.Time],
 	client string,
 	agent types.Agent,
 	workspace string,
@@ -67,8 +67,8 @@ func (s *Session) SessionID() types.SessionID { return s.sessionID }
 // StartedAt returns when the session started.
 func (s *Session) StartedAt() time.Time { return s.startedAt }
 
-// EndedAt returns when the session ended, or nil if still active.
-func (s *Session) EndedAt() *time.Time { return s.endedAt }
+// EndedAt returns when the session ended, or empty if still active.
+func (s *Session) EndedAt() types.Optional[time.Time] { return s.endedAt }
 
 // Client returns the client that created the session.
 func (s *Session) Client() string { return s.client }

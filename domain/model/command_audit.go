@@ -18,7 +18,7 @@ type CommandAudit struct {
 	outputTruncated bool
 	inputRedacted   bool
 	outputRedacted  bool
-	exitCode        *int
+	exitCode        types.Optional[int]
 }
 
 // NewCommandAudit creates a new CommandAudit.
@@ -53,7 +53,7 @@ func CommandAuditOf(
 	output string,
 	inputTruncated bool,
 	outputTruncated bool,
-	exitCode *int,
+	exitCode types.Optional[int],
 ) *CommandAudit {
 	return &CommandAudit{
 		eventID:         eventID,
@@ -100,11 +100,11 @@ func (a *CommandAudit) InputRedacted() bool { return a.inputRedacted }
 // OutputRedacted reports whether output redaction was applied.
 func (a *CommandAudit) OutputRedacted() bool { return a.outputRedacted }
 
-// ExitCode returns the exit code, or nil if not captured.
-func (a *CommandAudit) ExitCode() *int { return a.exitCode }
+// ExitCode returns the exit code, or empty if not captured.
+func (a *CommandAudit) ExitCode() types.Optional[int] { return a.exitCode }
 
 // SetExitCode sets the exit code for the command.
-func (a *CommandAudit) SetExitCode(code *int) {
+func (a *CommandAudit) SetExitCode(code types.Optional[int]) {
 	if a == nil {
 		return
 	}

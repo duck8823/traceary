@@ -12,8 +12,8 @@ type TimelineBlock struct {
 	kinds      []string
 }
 
-// NewTimelineBlock creates a TimelineBlock.
-func NewTimelineBlock(
+// TimelineBlockOf creates a TimelineBlock.
+func TimelineBlockOf(
 	blockStart time.Time,
 	blockEnd time.Time,
 	eventCount int,

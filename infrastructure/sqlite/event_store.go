@@ -104,6 +104,11 @@ func (d *Datasource) SaveWithAudit(
 		return xerrors.Errorf("failed to insert event: %w", err)
 	}
 
+	var exitCodeSQL *int
+	if audit.ExitCode().IsPresent() {
+		v := audit.ExitCode().Get()
+		exitCodeSQL = &v
+	}
 	if _, err := tx.ExecContext(
 		ctx,
 		insertCommandAuditQuery,
@@ -113,7 +118,7 @@ func (d *Datasource) SaveWithAudit(
 		audit.Output(),
 		audit.InputTruncated(),
 		audit.OutputTruncated(),
-		audit.ExitCode(),
+		exitCodeSQL,
 	); err != nil {
 		return xerrors.Errorf("failed to insert command audit: %w", err)
 	}

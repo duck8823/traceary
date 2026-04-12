@@ -33,7 +33,7 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 			StoreMaintenance: &storeMaintenanceUsecaseStub{},
 			Event: &eventUsecaseStub{
 				timelineBlocks: []apptypes.TimelineBlock{
-					apptypes.NewTimelineBlock(
+					apptypes.TimelineBlockOf(
 						time.Date(2026, 4, 10, 9, 0, 0, 0, time.UTC),
 						time.Date(2026, 4, 10, 12, 30, 0, 0, time.UTC),
 						42,
@@ -98,7 +98,7 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 			StoreMaintenance: &storeMaintenanceUsecaseStub{},
 			Event: &eventUsecaseStub{
 				timelineBlocks: []apptypes.TimelineBlock{
-					apptypes.NewTimelineBlock(
+					apptypes.TimelineBlockOf(
 						time.Date(2026, 4, 10, 9, 0, 0, 0, time.UTC),
 						time.Date(2026, 4, 10, 10, 0, 0, 0, time.UTC),
 						5,

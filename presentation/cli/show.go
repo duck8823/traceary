@@ -84,8 +84,8 @@ func writeEventDetails(output io.Writer, eventDetails apptypes.EventDetails) err
 	commandAudit := auditOpt.Get()
 
 	exitCodeDisplay := "-"
-	if commandAudit.ExitCode() != nil {
-		exitCodeDisplay = fmt.Sprintf("%d", *commandAudit.ExitCode())
+	if commandAudit.ExitCode().IsPresent() {
+		exitCodeDisplay = fmt.Sprintf("%d", commandAudit.ExitCode().Get())
 	}
 
 	if _, err := fmt.Fprintf(

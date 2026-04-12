@@ -82,13 +82,18 @@ func newCommandAuditJSON(commandAudit *model.CommandAudit) *commandAuditJSON {
 		return nil
 	}
 
+	var exitCode *int
+	if commandAudit.ExitCode().IsPresent() {
+		v := commandAudit.ExitCode().Get()
+		exitCode = &v
+	}
 	return &commandAuditJSON{
 		Command:         commandAudit.Command(),
 		Input:           commandAudit.Input(),
 		Output:          commandAudit.Output(),
 		InputTruncated:  commandAudit.InputTruncated(),
 		OutputTruncated: commandAudit.OutputTruncated(),
-		ExitCode:        commandAudit.ExitCode(),
+		ExitCode:        exitCode,
 	}
 }
 

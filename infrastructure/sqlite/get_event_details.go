@@ -65,10 +65,9 @@ func (d *Datasource) GetDetails(
 
 	commandAuditOpt := domtypes.Empty[*model.CommandAudit]()
 	if commandTextValue.Valid {
-		var exitCode *int
+		exitCode := domtypes.Empty[int]()
 		if exitCodeValue.Valid {
-			v := int(exitCodeValue.Int64)
-			exitCode = &v
+			exitCode = domtypes.Of(int(exitCodeValue.Int64))
 		}
 		commandAudit := model.CommandAuditOf(
 			eventID,
@@ -82,7 +81,7 @@ func (d *Datasource) GetDetails(
 		commandAuditOpt = domtypes.Of(commandAudit)
 	}
 
-	eventDetails, err := apptypes.NewEventDetails(event, commandAuditOpt)
+	eventDetails, err := apptypes.EventDetailsOf(event, commandAuditOpt)
 	if err != nil {
 		return apptypes.EventDetails{}, xerrors.Errorf("failed to build event details: %w", err)
 	}

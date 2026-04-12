@@ -103,7 +103,7 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 			session: model.SessionOf(
 				sessionID,
 				mustTime(t),
-				nil,
+				types.Empty[time.Time](),
 				"hook",
 				startAgent,
 				"repo-from-start",
@@ -149,7 +149,7 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 			session: model.SessionOf(
 				sessionID,
 				mustTime(t),
-				nil,
+				types.Empty[time.Time](),
 				"hook",
 				startAgent,
 				"repo-from-start",
@@ -280,8 +280,8 @@ func TestRecordSessionBoundaryUsecase_Run_SessionSaver(t *testing.T) {
 		if !sessionStub.saveCalled {
 			t.Fatalf("SessionRepository.Save() was not called")
 		}
-		if sessionStub.saved.EndedAt() != nil {
-			t.Fatalf("session.EndedAt() should be nil for start")
+		if sessionStub.saved.EndedAt().IsPresent() {
+			t.Fatalf("session.EndedAt() should be empty for start")
 		}
 	})
 
@@ -305,8 +305,8 @@ func TestRecordSessionBoundaryUsecase_Run_SessionSaver(t *testing.T) {
 		if !sessionStub.saveCalled {
 			t.Fatalf("SessionRepository.Save() was not called")
 		}
-		if sessionStub.saved.EndedAt() == nil {
-			t.Fatalf("session.EndedAt() should not be nil for end")
+		if !sessionStub.saved.EndedAt().IsPresent() {
+			t.Fatalf("session.EndedAt() should be present for end")
 		}
 	})
 

@@ -41,7 +41,7 @@ func (d *Datasource) SaveSession(ctx context.Context, session *model.Session) er
 		}
 	}()
 
-	if session.EndedAt() != nil {
+	if session.EndedAt().IsPresent() {
 		// Check if session is already ended
 		var existingEndedAt sql.NullString
 		_ = db.QueryRowContext(
@@ -85,15 +85,15 @@ func (d *Datasource) SaveSession(ctx context.Context, session *model.Session) er
 	}
 
 	// If insert succeeded (new session start) and no mutable updates needed, we're done
-	if rowsAffected > 0 && session.EndedAt() == nil && session.Label() == "" && session.Summary() == "" {
+	if rowsAffected > 0 && !session.EndedAt().IsPresent() && session.Label() == "" && session.Summary() == "" {
 		return nil
 	}
 
 	// Session already exists or has mutable fields to update — update all mutable fields
-	if rowsAffected == 0 || session.EndedAt() != nil || session.Label() != "" || session.Summary() != "" {
+	if rowsAffected == 0 || session.EndedAt().IsPresent() || session.Label() != "" || session.Summary() != "" {
 		var endedAtValue *string
-		if session.EndedAt() != nil {
-			v := formatTimestamp(*session.EndedAt())
+		if session.EndedAt().IsPresent() {
+			v := formatTimestamp(session.EndedAt().Get())
 			endedAtValue = &v
 		}
 		if _, err := db.ExecContext(
@@ -168,13 +168,13 @@ func (d *Datasource) FindByID(ctx context.Context, sessionID types.SessionID) (t
 		return types.Empty[*model.Session](), xerrors.Errorf("failed to restore agent: %w", err)
 	}
 
-	var endedAt *time.Time
+	endedAt := types.Empty[time.Time]()
 	if endedAtValue.Valid {
 		t, err := time.Parse(time.RFC3339Nano, endedAtValue.String)
 		if err != nil {
 			return types.Empty[*model.Session](), xerrors.Errorf("failed to parse ended_at: %w", err)
 		}
-		endedAt = &t
+		endedAt = types.Of(t)
 	}
 
 	return types.Of(model.SessionOf(

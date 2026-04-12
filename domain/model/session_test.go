@@ -29,8 +29,8 @@ func TestNewSession(t *testing.T) {
 	if session.StartedAt() != now {
 		t.Errorf("StartedAt() = %v, want %v", session.StartedAt(), now)
 	}
-	if session.EndedAt() != nil {
-		t.Errorf("EndedAt() = %v, want nil", session.EndedAt())
+	if session.EndedAt().IsPresent() {
+		t.Errorf("EndedAt() should be empty, got %v", session.EndedAt().Get())
 	}
 	if session.Client() != "hook" {
 		t.Errorf("Client() = %q, want %q", session.Client(), "hook")
@@ -60,12 +60,12 @@ func TestSessionOf(t *testing.T) {
 	start := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 4, 10, 13, 0, 0, 0, time.UTC)
 
-	session := model.SessionOf(sid, start, &end, "cli", agent, "workspace", "sprint-1", "did stuff", "parent-123")
+	session := model.SessionOf(sid, start, types.Of(end), "cli", agent, "workspace", "sprint-1", "did stuff", "parent-123")
 
 	if session.SessionID() != sid {
 		t.Errorf("SessionID() = %v, want %v", session.SessionID(), sid)
 	}
-	if session.EndedAt() == nil || *session.EndedAt() != end {
+	if !session.EndedAt().IsPresent() || session.EndedAt().Get() != end {
 		t.Errorf("EndedAt() = %v, want %v", session.EndedAt(), end)
 	}
 	if session.Label() != "sprint-1" {

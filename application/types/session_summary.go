@@ -21,8 +21,8 @@ type SessionSummary struct {
 	parentSessionID domtypes.SessionID
 }
 
-// NewSessionSummary creates a SessionSummary.
-func NewSessionSummary(
+// SessionSummaryOf creates a SessionSummary.
+func SessionSummaryOf(
 	sessionID domtypes.SessionID,
 	workspace domtypes.Workspace,
 	startedAt time.Time,

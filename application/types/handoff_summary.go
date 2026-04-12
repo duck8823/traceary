@@ -15,8 +15,8 @@ type HandoffSummary struct {
 	recentCommands []string
 }
 
-// NewHandoffSummary creates a HandoffSummary.
-func NewHandoffSummary(
+// HandoffSummaryOf creates a HandoffSummary.
+func HandoffSummaryOf(
 	sessionID domtypes.SessionID,
 	workspace domtypes.Workspace,
 	label string,

@@ -382,7 +382,7 @@ func (s *Server) addAudit(_ string) mcp.ToolHandlerFor[addAuditInput, addAuditOu
 			types.Agent(resolveValue(input.Agent, defaultAgentValue)),
 			types.SessionID(resolveValue(input.SessionID, defaultSessionValue)),
 			types.Workspace(strings.TrimSpace(input.Workspace)),
-			nil, // no exit code from MCP
+			types.Empty[int](), // no exit code from MCP
 			usecase.AuditRedaction{
 				ExtraRedactPatterns: s.extraRedactPatterns,
 			},

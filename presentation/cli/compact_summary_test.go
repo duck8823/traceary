@@ -31,7 +31,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		}
 		sessionStub := &sessionUsecaseStub{
 			listResult: []apptypes.SessionSummary{
-				apptypes.NewSessionSummary(
+				apptypes.SessionSummaryOf(
 					types.SessionID("session-abc"),
 					types.Workspace("duck8823/traceary"),
 					time.Now().Add(-time.Hour),
@@ -113,7 +113,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		eventStub := &eventUsecaseStub{}
 		sessionStub := &sessionUsecaseStub{
 			listResult: []apptypes.SessionSummary{
-				apptypes.NewSessionSummary(
+				apptypes.SessionSummaryOf(
 					types.SessionID("target-session"),
 					types.Workspace("duck8823/traceary"),
 					time.Now().Add(-time.Hour),
@@ -164,7 +164,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		}
 		sessionStub := &sessionUsecaseStub{
 			listResult: []apptypes.SessionSummary{
-				apptypes.NewSessionSummary(
+				apptypes.SessionSummaryOf(
 					types.SessionID("session-abc"),
 					types.Workspace("duck8823/traceary"),
 					time.Now(),
@@ -222,7 +222,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 			Event:            &eventUsecaseStub{listEvents: events},
 			Session: &sessionUsecaseStub{
 				listResult: []apptypes.SessionSummary{
-					apptypes.NewSessionSummary(
+					apptypes.SessionSummaryOf(
 						types.SessionID("s1"),
 						types.Workspace("workspace"),
 						time.Now(),

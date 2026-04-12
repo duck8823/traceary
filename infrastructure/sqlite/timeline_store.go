@@ -84,7 +84,7 @@ func (d *Datasource) ListTimelineBlocks(
 			return nil, xerrors.Errorf("failed to parse block end: %w", err)
 		}
 
-		blocks = append(blocks, apptypes.NewTimelineBlock(
+		blocks = append(blocks, apptypes.TimelineBlockOf(
 			parsedStart,
 			parsedEnd,
 			eventCount,
