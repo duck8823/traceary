@@ -1,0 +1,380 @@
+package usecase_test
+
+import (
+	"context"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/google/go-cmp/cmp"
+
+	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/model"
+	domtypes "github.com/duck8823/traceary/domain/types"
+)
+
+type memoryRepositoryStub struct {
+	byID      map[string]*model.Memory
+	saveCalls []*model.Memory
+	saveErr   error
+	findErr   error
+}
+
+func (s *memoryRepositoryStub) Save(_ context.Context, memory *model.Memory) error {
+	if s.byID == nil {
+		s.byID = make(map[string]*model.Memory)
+	}
+	s.saveCalls = append(s.saveCalls, memory)
+	s.byID[memory.MemoryID().String()] = memory
+	return s.saveErr
+}
+
+func (s *memoryRepositoryStub) FindByID(_ context.Context, memoryID domtypes.MemoryID) (domtypes.Optional[*model.Memory], error) {
+	if s.findErr != nil {
+		return domtypes.Empty[*model.Memory](), s.findErr
+	}
+	if s.byID == nil {
+		return domtypes.Empty[*model.Memory](), nil
+	}
+	memory, ok := s.byID[memoryID.String()]
+	if !ok {
+		return domtypes.Empty[*model.Memory](), nil
+	}
+	return domtypes.Of(memory), nil
+}
+
+type memoryQueryStub struct {
+	listResult   []apptypes.MemorySummary
+	listErr      error
+	searchResult []apptypes.MemorySummary
+	searchErr    error
+	details      apptypes.MemoryDetails
+	detailsErr   error
+}
+
+func (s *memoryQueryStub) List(_ context.Context, _ apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
+	return s.listResult, s.listErr
+}
+
+func (s *memoryQueryStub) Search(_ context.Context, _ apptypes.MemorySearchCriteria) ([]apptypes.MemorySummary, error) {
+	return s.searchResult, s.searchErr
+}
+
+func (s *memoryQueryStub) GetDetails(_ context.Context, _ domtypes.MemoryID) (apptypes.MemoryDetails, error) {
+	return s.details, s.detailsErr
+}
+
+func TestMemoryUsecase_Remember(t *testing.T) {
+	t.Parallel()
+
+	repo := &memoryRepositoryStub{}
+	sut := usecase.NewMemoryUsecase(repo, nil, nil)
+
+	scope := domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/traceary"))
+	evidenceRef := mustEvidenceRef(t, domtypes.EvidenceRefKindURL, "https://example.com?token=secret-token")
+	artifactRef := mustArtifactRef(t, domtypes.ArtifactRefKindIssue, "#454")
+
+	details, err := sut.Remember(
+		context.Background(),
+		domtypes.MemoryTypeDecision,
+		scope,
+		`keep {"api_key":"super-secret"} out of releases`,
+		domtypes.Empty[domtypes.Confidence](),
+		domtypes.MemorySource(""),
+		[]domtypes.EvidenceRef{evidenceRef},
+		[]domtypes.ArtifactRef{artifactRef},
+	)
+	if err != nil {
+		t.Fatalf("Remember() error = %v", err)
+	}
+	if len(repo.saveCalls) != 1 {
+		t.Fatalf("Save() call count = %d, want 1", len(repo.saveCalls))
+	}
+
+	saved := repo.saveCalls[0]
+	if saved.Status() != domtypes.MemoryStatusAccepted {
+		t.Fatalf("Status() = %s, want accepted", saved.Status())
+	}
+	if saved.Confidence() != domtypes.ConfidenceVerified {
+		t.Fatalf("Confidence() = %s, want verified", saved.Confidence())
+	}
+	if saved.Source() != domtypes.MemorySourceManual {
+		t.Fatalf("Source() = %s, want manual", saved.Source())
+	}
+	if !strings.Contains(saved.Fact(), "[REDACTED]") {
+		t.Fatalf("Fact() = %q, want redacted placeholder", saved.Fact())
+	}
+	if got := saved.EvidenceRefs()[0].Value(); !strings.Contains(got, "[REDACTED]") {
+		t.Fatalf("EvidenceRef.Value() = %q, want redacted placeholder", got)
+	}
+	if details.Summary().MemoryID().String() == "" {
+		t.Fatalf("Summary().MemoryID() is empty")
+	}
+}
+
+func TestMemoryUsecase_Propose(t *testing.T) {
+	t.Parallel()
+
+	repo := &memoryRepositoryStub{}
+	sut := usecase.NewMemoryUsecase(repo, nil, nil)
+
+	details, err := sut.Propose(
+		context.Background(),
+		domtypes.MemoryTypeLesson,
+		domtypes.AgentScopeOf(domtypes.Agent("codex")),
+		"wait for codex review before merge",
+		domtypes.MemorySourceExtracted,
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("Propose() error = %v", err)
+	}
+
+	saved := repo.saveCalls[0]
+	if diff := cmp.Diff(domtypes.MemoryStatusCandidate, saved.Status()); diff != "" {
+		t.Fatalf("Status() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(domtypes.ConfidenceLow, saved.Confidence()); diff != "" {
+		t.Fatalf("Confidence() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(domtypes.MemorySourceExtracted, saved.Source()); diff != "" {
+		t.Fatalf("Source() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(saved.MemoryID(), details.Summary().MemoryID()); diff != "" {
+		t.Fatalf("MemoryID() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestMemoryUsecase_AcceptRequiresEvidence(t *testing.T) {
+	t.Parallel()
+
+	memoryID := mustMemoryID(t, "memory-candidate-no-evidence")
+	candidate, err := model.NewMemoryCandidate(
+		memoryID,
+		domtypes.MemoryTypeDecision,
+		domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/traceary")),
+		"candidate without evidence",
+		domtypes.MemorySourceManual,
+		nil,
+		nil,
+		domtypes.Empty[domtypes.MemoryID](),
+	)
+	if err != nil {
+		t.Fatalf("NewMemoryCandidate() error = %v", err)
+	}
+
+	repo := &memoryRepositoryStub{byID: map[string]*model.Memory{memoryID.String(): candidate}}
+	sut := usecase.NewMemoryUsecase(repo, nil, nil)
+
+	if _, err := sut.Accept(context.Background(), memoryID, domtypes.Empty[domtypes.Confidence]()); err == nil {
+		t.Fatal("Accept() error = nil, want error")
+	}
+}
+
+func TestMemoryUsecase_Accept(t *testing.T) {
+	t.Parallel()
+
+	memoryID := mustMemoryID(t, "memory-candidate")
+	candidate, err := model.NewMemoryCandidate(
+		memoryID,
+		domtypes.MemoryTypeConstraint,
+		domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/traceary")),
+		"candidate with evidence",
+		domtypes.MemorySourceManual,
+		[]domtypes.EvidenceRef{mustEvidenceRef(t, domtypes.EvidenceRefKindIssue, "#462")},
+		nil,
+		domtypes.Empty[domtypes.MemoryID](),
+	)
+	if err != nil {
+		t.Fatalf("NewMemoryCandidate() error = %v", err)
+	}
+
+	repo := &memoryRepositoryStub{byID: map[string]*model.Memory{memoryID.String(): candidate}}
+	sut := usecase.NewMemoryUsecase(repo, nil, nil)
+
+	details, err := sut.Accept(context.Background(), memoryID, domtypes.Of(domtypes.ConfidenceHigh))
+	if err != nil {
+		t.Fatalf("Accept() error = %v", err)
+	}
+
+	saved := repo.byID[memoryID.String()]
+	if diff := cmp.Diff(domtypes.MemoryStatusAccepted, saved.Status()); diff != "" {
+		t.Fatalf("Status() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(domtypes.ConfidenceHigh, saved.Confidence()); diff != "" {
+		t.Fatalf("Confidence() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(domtypes.MemoryStatusAccepted, details.Summary().Status()); diff != "" {
+		t.Fatalf("Summary().Status() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestMemoryUsecase_Supersede(t *testing.T) {
+	t.Parallel()
+
+	originalID := mustMemoryID(t, "memory-original")
+	original, err := model.NewAcceptedMemory(
+		originalID,
+		domtypes.MemoryTypeDecision,
+		domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/traceary")),
+		"old fact",
+		domtypes.ConfidenceVerified,
+		domtypes.MemorySourceManual,
+		[]domtypes.EvidenceRef{mustEvidenceRef(t, domtypes.EvidenceRefKindIssue, "#453")},
+		nil,
+		domtypes.Empty[domtypes.MemoryID](),
+	)
+	if err != nil {
+		t.Fatalf("NewAcceptedMemory() error = %v", err)
+	}
+
+	repo := &memoryRepositoryStub{byID: map[string]*model.Memory{originalID.String(): original}}
+	sut := usecase.NewMemoryUsecase(repo, nil, nil)
+
+	details, err := sut.Supersede(
+		context.Background(),
+		originalID,
+		domtypes.MemoryType(""),
+		nil,
+		"new fact",
+		domtypes.Empty[domtypes.Confidence](),
+		domtypes.MemorySource(""),
+		[]domtypes.EvidenceRef{mustEvidenceRef(t, domtypes.EvidenceRefKindPR, "#467")},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("Supersede() error = %v", err)
+	}
+	if len(repo.saveCalls) != 2 {
+		t.Fatalf("Save() call count = %d, want 2", len(repo.saveCalls))
+	}
+	if diff := cmp.Diff(domtypes.MemoryStatusSuperseded, repo.byID[originalID.String()].Status()); diff != "" {
+		t.Fatalf("original status mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(originalID.String(), mustMemoryIDString(t, details.Summary().Supersedes())); diff != "" {
+		t.Fatalf("Supersedes() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(domtypes.MemoryStatusAccepted, details.Summary().Status()); diff != "" {
+		t.Fatalf("replacement status mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestMemoryUsecase_Expire(t *testing.T) {
+	t.Parallel()
+
+	memoryID := mustMemoryID(t, "memory-expire")
+	memory, err := model.NewAcceptedMemory(
+		memoryID,
+		domtypes.MemoryTypeConstraint,
+		domtypes.AgentScopeOf(domtypes.Agent("codex")),
+		"expires later",
+		domtypes.ConfidenceVerified,
+		domtypes.MemorySourceManual,
+		[]domtypes.EvidenceRef{mustEvidenceRef(t, domtypes.EvidenceRefKindIssue, "#462")},
+		nil,
+		domtypes.Empty[domtypes.MemoryID](),
+	)
+	if err != nil {
+		t.Fatalf("NewAcceptedMemory() error = %v", err)
+	}
+	when := time.Date(2026, 4, 13, 12, 0, 0, 0, time.UTC)
+
+	repo := &memoryRepositoryStub{byID: map[string]*model.Memory{memoryID.String(): memory}}
+	sut := usecase.NewMemoryUsecase(repo, nil, nil)
+
+	details, err := sut.Expire(context.Background(), memoryID, domtypes.Of(when))
+	if err != nil {
+		t.Fatalf("Expire() error = %v", err)
+	}
+	if diff := cmp.Diff(domtypes.MemoryStatusExpired, repo.byID[memoryID.String()].Status()); diff != "" {
+		t.Fatalf("Status() mismatch (-want +got):\n%s", diff)
+	}
+	expiresAt, ok := details.Summary().ExpiresAt().Get()
+	if !ok {
+		t.Fatal("ExpiresAt() missing, want value")
+	}
+	if diff := cmp.Diff(when, expiresAt); diff != "" {
+		t.Fatalf("ExpiresAt() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestMemoryUsecase_Show(t *testing.T) {
+	t.Parallel()
+
+	memory := mustAcceptedMemory(t, "memory-show", "shown fact")
+	details, err := apptypes.MemoryDetailsFrom(memory)
+	if err != nil {
+		t.Fatalf("MemoryDetailsFrom() error = %v", err)
+	}
+
+	sut := usecase.NewMemoryUsecase(nil, &memoryQueryStub{details: details}, nil)
+	got, err := sut.Show(context.Background(), memory.MemoryID())
+	if err != nil {
+		t.Fatalf("Show() error = %v", err)
+	}
+	if diff := cmp.Diff(details.Summary().MemoryID(), got.Summary().MemoryID()); diff != "" {
+		t.Fatalf("MemoryID() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func mustMemoryID(t *testing.T, value string) domtypes.MemoryID {
+	t.Helper()
+
+	memoryID, err := domtypes.MemoryIDOf(value)
+	if err != nil {
+		t.Fatalf("MemoryIDOf() error = %v", err)
+	}
+	return memoryID
+}
+
+func mustEvidenceRef(t *testing.T, kind domtypes.EvidenceRefKind, value string) domtypes.EvidenceRef {
+	t.Helper()
+
+	ref, err := domtypes.EvidenceRefOf(kind, value)
+	if err != nil {
+		t.Fatalf("EvidenceRefOf() error = %v", err)
+	}
+	return ref
+}
+
+func mustArtifactRef(t *testing.T, kind domtypes.ArtifactRefKind, value string) domtypes.ArtifactRef {
+	t.Helper()
+
+	ref, err := domtypes.ArtifactRefOf(kind, value)
+	if err != nil {
+		t.Fatalf("ArtifactRefOf() error = %v", err)
+	}
+	return ref
+}
+
+func mustAcceptedMemory(t *testing.T, memoryIDValue string, fact string) *model.Memory {
+	t.Helper()
+
+	memory, err := model.NewAcceptedMemory(
+		mustMemoryID(t, memoryIDValue),
+		domtypes.MemoryTypeDecision,
+		domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/traceary")),
+		fact,
+		domtypes.ConfidenceVerified,
+		domtypes.MemorySourceManual,
+		[]domtypes.EvidenceRef{mustEvidenceRef(t, domtypes.EvidenceRefKindIssue, "#454")},
+		[]domtypes.ArtifactRef{mustArtifactRef(t, domtypes.ArtifactRefKindPR, "#467")},
+		domtypes.Empty[domtypes.MemoryID](),
+	)
+	if err != nil {
+		t.Fatalf("NewAcceptedMemory() error = %v", err)
+	}
+	return memory
+}
+
+func mustMemoryIDString(t *testing.T, value domtypes.Optional[domtypes.MemoryID]) string {
+	t.Helper()
+
+	memoryID, ok := value.Get()
+	if !ok {
+		t.Fatal("Optional.Get() = empty, want value")
+	}
+	return memoryID.String()
+}

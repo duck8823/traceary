@@ -50,3 +50,26 @@ type sessionTreeNode struct {
 	Agents       []string           `json:"agents"`
 	Children     []*sessionTreeNode `json:"children"`
 }
+
+// memorySummaryOutput is the JSON shape of a durable memory summary in CLI output.
+type memorySummaryOutput struct {
+	MemoryID   string  `json:"memory_id"`
+	Type       string  `json:"type"`
+	ScopeKind  string  `json:"scope_kind"`
+	ScopeValue string  `json:"scope_value"`
+	Fact       string  `json:"fact"`
+	Status     string  `json:"status"`
+	Confidence string  `json:"confidence"`
+	Source     string  `json:"source"`
+	Supersedes *string `json:"supersedes,omitempty"`
+	ExpiresAt  *string `json:"expires_at,omitempty"`
+	CreatedAt  string  `json:"created_at"`
+	UpdatedAt  string  `json:"updated_at"`
+}
+
+// memoryDetailsOutput is the JSON shape of a durable memory with refs.
+type memoryDetailsOutput struct {
+	Summary      memorySummaryOutput `json:"summary"`
+	EvidenceRefs []string            `json:"evidence_refs"`
+	ArtifactRefs []string            `json:"artifact_refs"`
+}

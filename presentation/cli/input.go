@@ -189,3 +189,73 @@ type timelineCommandInput struct {
 	limit     int
 	asJSON    bool
 }
+
+// memoryListCommandInput is the resolved input to `traceary memory list`.
+type memoryListCommandInput struct {
+	dbPath        string
+	workspace     string
+	agent         string
+	sessionFamily string
+	statuses      []string
+	memoryTypes   []string
+	limit         int
+	offset        int
+	asJSON        bool
+}
+
+// memorySearchCommandInput is the resolved input to `traceary memory search`.
+type memorySearchCommandInput struct {
+	dbPath        string
+	workspace     string
+	agent         string
+	sessionFamily string
+	statuses      []string
+	memoryTypes   []string
+	limit         int
+	offset        int
+	query         string
+	asJSON        bool
+}
+
+// memoryWriteCommandInput is the resolved input to memory write commands.
+type memoryWriteCommandInput struct {
+	dbPath        string
+	workspace     string
+	agent         string
+	sessionFamily string
+	memoryType    string
+	fact          string
+	confidence    string
+	source        string
+	evidenceRefs  []string
+	artifactRefs  []string
+	idOnly        bool
+	asJSON        bool
+}
+
+// memoryMutationCommandInput is the resolved input to memory status commands.
+type memoryMutationCommandInput struct {
+	dbPath     string
+	memoryID   string
+	confidence string
+	expiresAt  string
+	idOnly     bool
+	asJSON     bool
+}
+
+// memorySupersedeCommandInput is the resolved input to `traceary memory supersede`.
+type memorySupersedeCommandInput struct {
+	dbPath        string
+	memoryID      string
+	workspace     string
+	agent         string
+	sessionFamily string
+	memoryType    string
+	fact          string
+	confidence    string
+	source        string
+	evidenceRefs  []string
+	artifactRefs  []string
+	idOnly        bool
+	asJSON        bool
+}
