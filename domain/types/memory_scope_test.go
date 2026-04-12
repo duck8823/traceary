@@ -1,0 +1,78 @@
+package types_test
+
+import (
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+
+	"github.com/duck8823/traceary/domain/types"
+)
+
+func TestMemoryScopeKindOf(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		input   string
+		want    types.MemoryScopeKind
+		wantErr bool
+	}{
+		{name: "workspace", input: "workspace", want: types.MemoryScopeKindWorkspace},
+		{name: "agent", input: "agent", want: types.MemoryScopeKindAgent},
+		{name: "rejects empty", input: "", wantErr: true},
+		{name: "rejects unknown", input: "user", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := types.MemoryScopeKindOf(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("MemoryScopeKindOf() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr && got != tt.want {
+				t.Fatalf("MemoryScopeKindOf() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMemoryScopeFrom(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		kind     string
+		value    string
+		wantKind types.MemoryScopeKind
+		wantKey  string
+		wantErr  bool
+	}{
+		{name: "workspace scope", kind: "workspace", value: "github.com/duck8823/traceary", wantKind: types.MemoryScopeKindWorkspace, wantKey: "github.com/duck8823/traceary"},
+		{name: "agent scope", kind: "agent", value: "codex", wantKind: types.MemoryScopeKindAgent, wantKey: "codex"},
+		{name: "session family scope", kind: "session_family", value: "session-123", wantKind: types.MemoryScopeKindSessionFamily, wantKey: "session-123"},
+		{name: "rejects unknown kind", kind: "user", value: "abc", wantErr: true},
+		{name: "rejects invalid value", kind: "workspace", value: " ", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := types.MemoryScopeFrom(tt.kind, tt.value)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("MemoryScopeFrom() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				return
+			}
+			if diff := cmp.Diff(tt.wantKind, got.Kind()); diff != "" {
+				t.Fatalf("Kind() mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantKey, got.Key()); diff != "" {
+				t.Fatalf("Key() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
