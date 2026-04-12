@@ -207,7 +207,24 @@ func (u *eventUsecase) Audit(ctx context.Context, command string, input string, 
 }
 
 func (u *eventUsecase) Search(ctx context.Context, criteria EventSearchCriteria) ([]*model.Event, error) {
-	events, err := u.eventQuery.Search(ctx, criteria.Query, criteria.Workspace, criteria.SessionID, criteria.Client, criteria.Agent, criteria.Kind, criteria.From, criteria.To, criteria.Limit, criteria.Offset, criteria.FailuresOnly)
+	if !hasSearchConstraint(criteria) {
+		return nil, xerrors.Errorf("at least one search filter is required")
+	}
+	if criteria.Limit <= 0 {
+		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
+	}
+	if criteria.Offset < 0 {
+		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
+	}
+	if !criteria.From.IsZero() && !criteria.To.IsZero() && criteria.From.After(criteria.To) {
+		return nil, xerrors.Errorf("from must be earlier than to")
+	}
+	resolvedKind, err := resolveOptionalSearchKind(criteria.Kind.String())
+	if err != nil {
+		return nil, err
+	}
+
+	events, err := u.eventQuery.Search(ctx, criteria.Query, criteria.Workspace, criteria.SessionID, criteria.Client, criteria.Agent, resolvedKind, criteria.From, criteria.To, criteria.Limit, criteria.Offset, criteria.FailuresOnly)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to search events: %w", err)
 	}
@@ -215,6 +232,13 @@ func (u *eventUsecase) Search(ctx context.Context, criteria EventSearchCriteria)
 }
 
 func (u *eventUsecase) List(ctx context.Context, criteria EventListCriteria) ([]*model.Event, error) {
+	if criteria.Limit <= 0 {
+		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
+	}
+	if criteria.Offset < 0 {
+		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
+	}
+
 	events, err := u.eventQuery.ListRecent(ctx, criteria.Limit, criteria.Offset, criteria.Kind, criteria.Client, criteria.Agent, criteria.SessionID, criteria.Workspace, criteria.FailuresOnly, criteria.From, criteria.To)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list events: %w", err)
@@ -231,6 +255,10 @@ func (u *eventUsecase) Show(ctx context.Context, eventID types.EventID) (apptype
 }
 
 func (u *eventUsecase) Context(ctx context.Context, criteria EventContextCriteria) ([]*model.Event, error) {
+	if criteria.Limit <= 0 {
+		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
+	}
+
 	events, err := u.eventQuery.GetContext(ctx, criteria.Workspace, criteria.SessionID, criteria.Limit)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get context events: %w", err)
@@ -239,11 +267,47 @@ func (u *eventUsecase) Context(ctx context.Context, criteria EventContextCriteri
 }
 
 func (u *eventUsecase) Timeline(ctx context.Context, criteria TimelineCriteria) ([]apptypes.TimelineBlock, error) {
+	if criteria.GapSeconds <= 0 {
+		return nil, xerrors.Errorf("gap must be greater than 0")
+	}
+	if criteria.Limit <= 0 {
+		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
+	}
+
 	blocks, err := u.eventQuery.ListTimelineBlocks(ctx, criteria.Workspace, criteria.From, criteria.To, criteria.GapSeconds, criteria.Limit)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list timeline blocks: %w", err)
 	}
 	return blocks, nil
+}
+
+func hasSearchConstraint(criteria EventSearchCriteria) bool {
+	return strings.TrimSpace(criteria.Query) != "" ||
+		strings.TrimSpace(criteria.Workspace.String()) != "" ||
+		strings.TrimSpace(criteria.SessionID.String()) != "" ||
+		strings.TrimSpace(criteria.Client.String()) != "" ||
+		strings.TrimSpace(criteria.Agent.String()) != "" ||
+		strings.TrimSpace(criteria.Kind.String()) != "" ||
+		!criteria.From.IsZero() ||
+		!criteria.To.IsZero() ||
+		criteria.FailuresOnly
+}
+
+func resolveOptionalSearchKind(value string) (types.EventKind, error) {
+	trimmedValue := strings.TrimSpace(value)
+	if trimmedValue == "" {
+		return types.EventKind(""), nil
+	}
+	if trimmedValue == "audit" {
+		return types.EventKindCommandExecuted, nil
+	}
+
+	kind, err := types.EventKindOf(trimmedValue)
+	if err != nil {
+		return types.EventKind(""), xerrors.Errorf("failed to resolve kind: %w", err)
+	}
+
+	return kind, nil
 }
 
 func compileExtraRedactPatterns(patterns []string) ([]auditPayloadRedactor, error) {
