@@ -13,17 +13,6 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-// recordSessionBoundaryInput is the input for session start/end recording.
-type recordSessionBoundaryInput struct {
-	Client          types.Client
-	Agent           types.Agent
-	SessionID       types.SessionID
-	Workspace       types.Workspace
-	Kind            types.EventKind
-	Summary         string
-	ParentSessionID types.SessionID
-}
-
 type sessionUsecase struct {
 	eventRepo    model.EventRepository
 	sessionRepo  model.SessionRepository
@@ -47,32 +36,84 @@ func NewSessionUsecase(
 }
 
 func (u *sessionUsecase) Start(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, parentSessionID types.SessionID) (*model.Event, error) {
-	event, err := u.recordSessionBoundary(ctx, recordSessionBoundaryInput{
-		Client:          client,
-		Agent:           agent,
-		SessionID:       sessionID,
-		Workspace:       workspace,
-		Kind:            types.EventKindSessionStarted,
-		ParentSessionID: parentSessionID,
-	})
+	if u.eventRepo == nil {
+		return nil, xerrors.Errorf("event repository is not configured")
+	}
+
+	resolvedSessionID, err := u.resolveSessionStartID(sessionID)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to start session: %w", err)
 	}
+	if _, err := types.AgentOf(agent.String()); err != nil {
+		return nil, xerrors.Errorf("failed to start session: %w", err)
+	}
+
+	event, err := u.buildBoundaryEvent(types.EventKindSessionStarted, client, agent, resolvedSessionID, workspace)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to start session: %w", err)
+	}
+	if err := u.eventRepo.Save(ctx, event); err != nil {
+		return nil, xerrors.Errorf("failed to save session start event: %w", err)
+	}
+
+	if u.sessionRepo != nil {
+		session := buildSessionFromBoundary(event, parentSessionID)
+		if err := u.sessionRepo.Save(ctx, session); err != nil {
+			return nil, xerrors.Errorf("failed to save session metadata: %w", err)
+		}
+	}
+
 	return event, nil
 }
 
 func (u *sessionUsecase) End(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, summary string) (*model.Event, error) {
-	event, err := u.recordSessionBoundary(ctx, recordSessionBoundaryInput{
-		Client:    client,
-		Agent:     agent,
-		SessionID: sessionID,
-		Workspace: workspace,
-		Kind:      types.EventKindSessionEnded,
-		Summary:   summary,
-	})
+	if u.eventRepo == nil {
+		return nil, xerrors.Errorf("event repository is not configured")
+	}
+
+	resolvedSessionID, err := types.SessionIDOf(sessionID.String())
 	if err != nil {
 		return nil, xerrors.Errorf("failed to end session: %w", err)
 	}
+
+	resolvedClient, resolvedAgent, resolvedWorkspace, err := u.inheritAttributionFromSession(ctx, resolvedSessionID, client, agent, workspace)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to end session: %w", err)
+	}
+	if _, err := types.AgentOf(resolvedAgent.String()); err != nil {
+		return nil, xerrors.Errorf("failed to end session: %w", err)
+	}
+
+	// For session end, verify the session exists before writing anything.
+	// This avoids creating an orphaned session_ended event for a missing session.
+	var existingSession *model.Session
+	if u.sessionRepo != nil {
+		existing, err := u.sessionRepo.FindByID(ctx, resolvedSessionID)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to find session for end: %w", err)
+		}
+		session, ok := existing.Get()
+		if !ok {
+			return nil, xerrors.Errorf("cannot end session %s: %w", resolvedSessionID, model.ErrInvalidSessionState)
+		}
+		existingSession = session
+	}
+
+	event, err := u.buildBoundaryEvent(types.EventKindSessionEnded, resolvedClient, resolvedAgent, resolvedSessionID, resolvedWorkspace)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to end session: %w", err)
+	}
+	if err := u.eventRepo.Save(ctx, event); err != nil {
+		return nil, xerrors.Errorf("failed to save session end event: %w", err)
+	}
+
+	if existingSession != nil {
+		existingSession.End(event.CreatedAt(), summary)
+		if err := u.sessionRepo.Save(ctx, existingSession); err != nil {
+			return nil, xerrors.Errorf("failed to save session end: %w", err)
+		}
+	}
+
 	return event, nil
 }
 
@@ -185,81 +226,82 @@ func (u *sessionUsecase) Handoff(ctx context.Context, sessionID types.SessionID,
 	)), nil
 }
 
-// recordSessionBoundary persists a session boundary event.
-func (u *sessionUsecase) recordSessionBoundary(
-	ctx context.Context,
-	input recordSessionBoundaryInput,
-) (*model.Event, error) {
-	if u.eventRepo == nil {
-		return nil, xerrors.Errorf("event repository is not configured")
-	}
-
-	sessionID, err := resolveSessionBoundaryID(input.Kind, input.SessionID)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to resolve session ID: %w", err)
-	}
-	resolvedClient, resolvedAgent, resolvedWorkspace, err := u.resolveSessionBoundaryAttribution(
-		ctx,
-		input,
-		sessionID,
-	)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to resolve session boundary attribution: %w", err)
-	}
-	if _, err := types.AgentOf(resolvedAgent.String()); err != nil {
-		return nil, xerrors.Errorf("failed to resolve agent: %w", err)
-	}
-	// For session end, verify the session exists before writing anything.
-	// This avoids creating an orphaned session_ended event for a missing session.
-	var existingSession *model.Session
-	if input.Kind == types.EventKindSessionEnded && u.sessionRepo != nil {
-		existing, err := u.sessionRepo.FindByID(ctx, sessionID)
+// resolveSessionStartID returns the session ID for a session start, generating
+// a new one when the caller passed an empty value.
+func (u *sessionUsecase) resolveSessionStartID(sessionID types.SessionID) (types.SessionID, error) {
+	trimmedValue := strings.TrimSpace(sessionID.String())
+	if trimmedValue == "" {
+		generated, err := newSessionID()
 		if err != nil {
-			return nil, xerrors.Errorf("failed to find session for end: %w", err)
+			return types.SessionID(""), xerrors.Errorf("failed to generate session ID: %w", err)
 		}
-		session, ok := existing.Get()
-		if !ok {
-			return nil, xerrors.Errorf("cannot end session %s: %w", sessionID, model.ErrInvalidSessionState)
-		}
-		existingSession = session
+		return generated, nil
 	}
 
+	resolved, err := types.SessionIDOf(trimmedValue)
+	if err != nil {
+		return types.SessionID(""), xerrors.Errorf("failed to convert session ID: %w", err)
+	}
+	return resolved, nil
+}
+
+// buildBoundaryEvent constructs the session start/end event.
+func (u *sessionUsecase) buildBoundaryEvent(
+	kind types.EventKind,
+	client types.Client,
+	agent types.Agent,
+	sessionID types.SessionID,
+	workspace types.Workspace,
+) (*model.Event, error) {
 	eventID, err := newEventID()
 	if err != nil {
 		return nil, xerrors.Errorf("failed to generate event ID: %w", err)
 	}
-
-	event, err := model.NewEvent(
-		eventID,
-		input.Kind,
-		resolvedClient,
-		resolvedAgent,
-		sessionID,
-		resolvedWorkspace,
-		sessionBoundaryBody(input.Kind),
-	)
+	event, err := model.NewEvent(eventID, kind, client, agent, sessionID, workspace, sessionBoundaryBody(kind))
 	if err != nil {
 		return nil, xerrors.Errorf("failed to build session boundary event: %w", err)
 	}
-	if err := u.eventRepo.Save(ctx, event); err != nil {
-		return nil, xerrors.Errorf("failed to save session boundary event: %w", err)
-	}
-
-	if u.sessionRepo != nil {
-		if input.Kind == types.EventKindSessionStarted {
-			session := buildSessionFromBoundary(event, input.ParentSessionID)
-			if err := u.sessionRepo.Save(ctx, session); err != nil {
-				return nil, xerrors.Errorf("failed to save session metadata: %w", err)
-			}
-		} else if existingSession != nil {
-			existingSession.End(event.CreatedAt(), input.Summary)
-			if err := u.sessionRepo.Save(ctx, existingSession); err != nil {
-				return nil, xerrors.Errorf("failed to save session end: %w", err)
-			}
-		}
-	}
-
 	return event, nil
+}
+
+// inheritAttributionFromSession returns session attribution for a session end,
+// filling any empty caller-provided fields from the stored session aggregate.
+func (u *sessionUsecase) inheritAttributionFromSession(
+	ctx context.Context,
+	sessionID types.SessionID,
+	client types.Client,
+	agent types.Agent,
+	workspace types.Workspace,
+) (types.Client, types.Agent, types.Workspace, error) {
+	resolvedClient := types.Client(strings.TrimSpace(client.String()))
+	resolvedAgent := types.Agent(strings.TrimSpace(agent.String()))
+	resolvedWorkspace := types.Workspace(strings.TrimSpace(workspace.String()))
+
+	if u.sessionRepo == nil {
+		return resolvedClient, resolvedAgent, resolvedWorkspace, nil
+	}
+	if resolvedClient.String() != "" && resolvedAgent.String() != "" && resolvedWorkspace.String() != "" {
+		return resolvedClient, resolvedAgent, resolvedWorkspace, nil
+	}
+
+	result, err := u.sessionRepo.FindByID(ctx, sessionID)
+	if err != nil {
+		return types.Client(""), types.Agent(""), types.Workspace(""), xerrors.Errorf("failed to get session: %w", err)
+	}
+	startedSession, ok := result.Get()
+	if !ok {
+		return resolvedClient, resolvedAgent, resolvedWorkspace, nil
+	}
+	if resolvedClient.String() == "" {
+		resolvedClient = startedSession.Client()
+	}
+	if resolvedAgent.String() == "" {
+		resolvedAgent = startedSession.Agent()
+	}
+	if resolvedWorkspace.String() == "" {
+		resolvedWorkspace = startedSession.Workspace()
+	}
+	return resolvedClient, resolvedAgent, resolvedWorkspace, nil
 }
 
 func buildSessionFromBoundary(event *model.Event, parentSessionID types.SessionID) *model.Session {
@@ -272,72 +314,6 @@ func buildSessionFromBoundary(event *model.Event, parentSessionID types.SessionI
 		event.Workspace(),
 		"", "", parentSessionID,
 	)
-}
-
-func (u *sessionUsecase) resolveSessionBoundaryAttribution(
-	ctx context.Context,
-	input recordSessionBoundaryInput,
-	sessionID types.SessionID,
-) (types.Client, types.Agent, types.Workspace, error) {
-	resolvedClient := types.Client(strings.TrimSpace(input.Client.String()))
-	resolvedAgent := types.Agent(strings.TrimSpace(input.Agent.String()))
-	resolvedWorkspace := types.Workspace(strings.TrimSpace(input.Workspace.String()))
-
-	if input.Kind == types.EventKindSessionEnded && u.sessionRepo != nil {
-		if resolvedClient.String() == "" || resolvedAgent.String() == "" || resolvedWorkspace.String() == "" {
-			result, err := u.sessionRepo.FindByID(ctx, sessionID)
-			if err != nil {
-				return types.Client(""), types.Agent(""), types.Workspace(""), xerrors.Errorf("failed to get session: %w", err)
-			}
-			if startedSession, ok := result.Get(); ok {
-				if resolvedClient.String() == "" {
-					resolvedClient = startedSession.Client()
-				}
-				if resolvedAgent.String() == "" {
-					resolvedAgent = startedSession.Agent()
-				}
-				if resolvedWorkspace.String() == "" {
-					resolvedWorkspace = startedSession.Workspace()
-				}
-			}
-		}
-	}
-
-	return resolvedClient, resolvedAgent, resolvedWorkspace, nil
-}
-
-func resolveSessionBoundaryID(
-	eventKind types.EventKind,
-	sessionID types.SessionID,
-) (types.SessionID, error) {
-	sessionIDValue := sessionID.String()
-	switch eventKind {
-	case types.EventKindSessionStarted:
-		trimmedValue := strings.TrimSpace(sessionIDValue)
-		if trimmedValue == "" {
-			generated, err := newSessionID()
-			if err != nil {
-				return types.SessionID(""), xerrors.Errorf("failed to generate session ID: %w", err)
-			}
-			return generated, nil
-		}
-
-		resolved, err := types.SessionIDOf(trimmedValue)
-		if err != nil {
-			return types.SessionID(""), xerrors.Errorf("failed to convert session ID: %w", err)
-		}
-
-		return resolved, nil
-	case types.EventKindSessionEnded:
-		resolved, err := types.SessionIDOf(sessionIDValue)
-		if err != nil {
-			return types.SessionID(""), xerrors.Errorf("failed to convert session ID: %w", err)
-		}
-
-		return resolved, nil
-	default:
-		return types.SessionID(""), xerrors.Errorf("unsupported event kind for session boundary: %s", eventKind)
-	}
 }
 
 func sessionBoundaryBody(eventKind types.EventKind) string {
