@@ -108,7 +108,9 @@ func (u *sessionUsecase) End(ctx context.Context, client types.Client, agent typ
 	}
 
 	if existingSession != nil {
-		existingSession.End(event.CreatedAt(), summary)
+		if err := existingSession.End(event.CreatedAt(), summary); err != nil {
+			return nil, xerrors.Errorf("failed to end session: %w", err)
+		}
 		if err := u.sessionRepo.Save(ctx, existingSession); err != nil {
 			return nil, xerrors.Errorf("failed to save session end: %w", err)
 		}

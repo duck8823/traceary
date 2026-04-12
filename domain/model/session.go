@@ -82,10 +82,15 @@ func (s *Session) Workspace() types.Workspace { return s.workspace }
 // Label returns the user-assigned label.
 func (s *Session) Label() string { return s.label }
 
-// End marks the session as ended.
-func (s *Session) End(endedAt time.Time, summary string) {
+// End marks the session as ended. Returns ErrInvalidSessionState when the
+// session is already ended.
+func (s *Session) End(endedAt time.Time, summary string) error {
+	if s.endedAt.IsPresent() {
+		return ErrInvalidSessionState
+	}
 	s.endedAt = types.Of(endedAt)
 	s.summary = summary
+	return nil
 }
 
 // SetLabel updates the session label. An empty string clears the label.

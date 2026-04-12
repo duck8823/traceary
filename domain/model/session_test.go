@@ -1,6 +1,7 @@
 package model_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -91,29 +92,61 @@ func TestSession_End(t *testing.T) {
 	start := time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 4, 11, 13, 30, 0, 0, time.UTC)
 
-	session := model.NewSession(sid, start, types.Client("cli"), agent, types.Workspace("duck8823/traceary"))
-	session.SetLabel("sprint-1")
+	t.Run("ends an active session", func(t *testing.T) {
+		t.Parallel()
 
-	if session.EndedAt().IsPresent() {
-		t.Fatalf("EndedAt() should be empty before End()")
-	}
+		session := model.NewSession(sid, start, types.Client("cli"), agent, types.Workspace("duck8823/traceary"))
+		session.SetLabel("sprint-1")
 
-	session.End(end, "wrapped up")
+		if session.EndedAt().IsPresent() {
+			t.Fatalf("EndedAt() should be empty before End()")
+		}
 
-	endedAt, ok := session.EndedAt().Get()
-	if !ok {
-		t.Fatalf("EndedAt() should be present after End()")
-	}
-	if diff := cmp.Diff(end, endedAt); diff != "" {
-		t.Errorf("EndedAt() mismatch (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff("wrapped up", session.Summary()); diff != "" {
-		t.Errorf("Summary() mismatch (-want +got):\n%s", diff)
-	}
-	// End() must not touch the label.
-	if diff := cmp.Diff("sprint-1", session.Label()); diff != "" {
-		t.Errorf("Label() should be unchanged by End(), mismatch (-want +got):\n%s", diff)
-	}
+		if err := session.End(end, "wrapped up"); err != nil {
+			t.Fatalf("End() error = %v", err)
+		}
+
+		endedAt, ok := session.EndedAt().Get()
+		if !ok {
+			t.Fatalf("EndedAt() should be present after End()")
+		}
+		if diff := cmp.Diff(end, endedAt); diff != "" {
+			t.Errorf("EndedAt() mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("wrapped up", session.Summary()); diff != "" {
+			t.Errorf("Summary() mismatch (-want +got):\n%s", diff)
+		}
+		// End() must not touch the label.
+		if diff := cmp.Diff("sprint-1", session.Label()); diff != "" {
+			t.Errorf("Label() should be unchanged by End(), mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("returns ErrInvalidSessionState when ending an already-ended session", func(t *testing.T) {
+		t.Parallel()
+
+		alreadyEnded := model.SessionOf(
+			sid, start, types.Of(end),
+			types.Client("cli"), agent, types.Workspace("duck8823/traceary"),
+			"", "first end", types.SessionID(""),
+		)
+
+		err := alreadyEnded.End(end.Add(time.Hour), "second end attempt")
+		if err == nil {
+			t.Fatalf("End() error = nil, want ErrInvalidSessionState")
+		}
+		if !errors.Is(err, model.ErrInvalidSessionState) {
+			t.Fatalf("End() error = %v, want ErrInvalidSessionState", err)
+		}
+		// Original ended_at should be preserved.
+		got, _ := alreadyEnded.EndedAt().Get()
+		if diff := cmp.Diff(end, got); diff != "" {
+			t.Errorf("EndedAt() should be unchanged (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("first end", alreadyEnded.Summary()); diff != "" {
+			t.Errorf("Summary() should be unchanged (-want +got):\n%s", diff)
+		}
+	})
 }
 
 func TestSession_SetLabel(t *testing.T) {
