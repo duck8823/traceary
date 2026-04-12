@@ -40,12 +40,25 @@ func (u *sessionUsecase) Start(ctx context.Context, client types.Client, agent t
 		return nil, xerrors.Errorf("session repository is not configured")
 	}
 
-	resolvedSessionID, err := u.resolveSessionStartID(sessionID)
+	resolvedSessionID, generated, err := u.resolveSessionStartID(sessionID)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to start session: %w", err)
 	}
 	if _, err := types.AgentOf(agent.String()); err != nil {
 		return nil, xerrors.Errorf("failed to start session: %w", err)
+	}
+
+	// When the caller provided an explicit session ID, the session must not
+	// already exist; otherwise the start would silently no-op the session row
+	// while still appending a session_started event.
+	if !generated {
+		existing, err := u.sessionRepo.FindByID(ctx, resolvedSessionID)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to check existing session: %w", err)
+		}
+		if existing.IsPresent() {
+			return nil, xerrors.Errorf("cannot start session %s: %w", resolvedSessionID, model.ErrInvalidSessionState)
+		}
 	}
 
 	event, err := u.buildBoundaryEvent(types.EventKindSessionStarted, client, agent, resolvedSessionID, workspace)
@@ -214,22 +227,23 @@ func (u *sessionUsecase) Handoff(ctx context.Context, sessionID types.SessionID,
 }
 
 // resolveSessionStartID returns the session ID for a session start, generating
-// a new one when the caller passed an empty value.
-func (u *sessionUsecase) resolveSessionStartID(sessionID types.SessionID) (types.SessionID, error) {
+// a new one when the caller passed an empty value. The boolean return reports
+// whether the ID was generated (true) or supplied by the caller (false).
+func (u *sessionUsecase) resolveSessionStartID(sessionID types.SessionID) (types.SessionID, bool, error) {
 	trimmedValue := strings.TrimSpace(sessionID.String())
 	if trimmedValue == "" {
 		generated, err := newSessionID()
 		if err != nil {
-			return types.SessionID(""), xerrors.Errorf("failed to generate session ID: %w", err)
+			return types.SessionID(""), false, xerrors.Errorf("failed to generate session ID: %w", err)
 		}
-		return generated, nil
+		return generated, true, nil
 	}
 
 	resolved, err := types.SessionIDOf(trimmedValue)
 	if err != nil {
-		return types.SessionID(""), xerrors.Errorf("failed to convert session ID: %w", err)
+		return types.SessionID(""), false, xerrors.Errorf("failed to convert session ID: %w", err)
 	}
-	return resolved, nil
+	return resolved, false, nil
 }
 
 // buildBoundaryEvent constructs the session start/end event.

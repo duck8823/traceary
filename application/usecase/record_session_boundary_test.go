@@ -370,6 +370,38 @@ func TestSessionUsecase_SessionSaver(t *testing.T) {
 		}
 	})
 
+	t.Run("session start returns ErrInvalidSessionState when explicit session ID already exists", func(t *testing.T) {
+		t.Parallel()
+
+		existingID, _ := types.SessionIDOf("existing-session")
+		agent, _ := types.AgentOf("claude")
+		existingSession := model.SessionOf(
+			existingID, mustTime(t), types.Empty[time.Time](),
+			types.Client("cli"), agent, types.Workspace("duck8823/traceary"),
+			"", "", types.SessionID(""),
+		)
+		eventStub := &eventRepositoryStub{}
+		sessionStub := &sessionRepositoryStub{session: existingSession}
+		sut := usecase.NewSessionUsecase(eventStub, sessionStub, nil, nil)
+
+		_, err := sut.Start(context.Background(),
+			types.Client("cli"),
+			types.Agent("claude"),
+			types.SessionID("existing-session"),
+			types.Workspace("duck8823/traceary"),
+			types.SessionID(""),
+		)
+		if err == nil {
+			t.Fatalf("Start() error = nil, want ErrInvalidSessionState")
+		}
+		if !errors.Is(err, model.ErrInvalidSessionState) {
+			t.Fatalf("Start() error = %v, want ErrInvalidSessionState", err)
+		}
+		if sessionStub.saveBoundaryCalled {
+			t.Fatalf("SessionRepository.SaveBoundary() should not be called when session already exists")
+		}
+	})
+
 	t.Run("returns error when SaveBoundary fails", func(t *testing.T) {
 		t.Parallel()
 
