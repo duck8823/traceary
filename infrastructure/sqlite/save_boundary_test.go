@@ -371,6 +371,88 @@ func TestSessionDatasource_SaveBoundary_DuplicateEndRejected(t *testing.T) {
 	}
 }
 
+// TestSessionDatasource_Save_LabelOnEndedSession asserts that an ended
+// session can still be labelled. Retroactively tagging a finished session
+// is the common user workflow for organizing past work, so Save must not
+// route the operation through the end-update guard.
+func TestSessionDatasource_Save_LabelOnEndedSession(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	db := infra.NewDatabase(dbPath, listSessionsTestMigrations())
+	ctx := context.Background()
+	if err := infra.NewStoreManagementDatasource(db).Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	sessionDS := infra.NewSessionDatasource(db)
+
+	sessionID, _ := types.SessionIDOf("session-label-after-end")
+	agent, _ := types.AgentOf("claude")
+	startedAt := time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC)
+
+	startSession := model.NewSession(sessionID, startedAt, types.Client("cli"), agent, types.Workspace("workspace"))
+	startEventID, _ := types.EventIDOf("event-start")
+	startEvent := model.EventOf(
+		startEventID, types.EventKindSessionStarted,
+		types.Client("cli"), agent, sessionID, types.Workspace("workspace"),
+		"session started", startedAt,
+	)
+	if err := sessionDS.SaveBoundary(ctx, startSession, startEvent); err != nil {
+		t.Fatalf("SaveBoundary(start) error = %v", err)
+	}
+
+	// End the session.
+	endingSession := model.SessionOf(
+		sessionID, startedAt, types.Empty[time.Time](),
+		types.Client("cli"), agent, types.Workspace("workspace"),
+		"", "", types.SessionID(""),
+	)
+	endedAt := startedAt.Add(time.Hour)
+	if err := endingSession.End(endedAt, "done"); err != nil {
+		t.Fatalf("End() error = %v", err)
+	}
+	endEventID, _ := types.EventIDOf("event-end")
+	endEvent := model.EventOf(
+		endEventID, types.EventKindSessionEnded,
+		types.Client("cli"), agent, sessionID, types.Workspace("workspace"),
+		"session ended", endedAt,
+	)
+	if err := sessionDS.SaveBoundary(ctx, endingSession, endEvent); err != nil {
+		t.Fatalf("SaveBoundary(end) error = %v", err)
+	}
+
+	// Retroactively label the ended session (SessionUsecase.Label flow).
+	loadedOpt, err := sessionDS.FindByID(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("FindByID() error = %v", err)
+	}
+	loaded, _ := loadedOpt.Get()
+	loaded.SetLabel("retro-label")
+	if err := sessionDS.Save(ctx, loaded); err != nil {
+		t.Fatalf("Save(label on ended) error = %v", err)
+	}
+
+	after, err := sessionDS.FindByID(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("FindByID(after label) error = %v", err)
+	}
+	got, _ := after.Get()
+	if diff := cmp.Diff("retro-label", got.Label()); diff != "" {
+		t.Errorf("Label mismatch (-want +got):\n%s", diff)
+	}
+	// ended_at must still point at the original end.
+	if !got.EndedAt().IsPresent() {
+		t.Fatalf("EndedAt() should remain present after labelling")
+	}
+	gotEndedAt, _ := got.EndedAt().Get()
+	if !gotEndedAt.Equal(endedAt) {
+		t.Errorf("EndedAt() = %v, want %v", gotEndedAt, endedAt)
+	}
+	if diff := cmp.Diff("done", got.Summary()); diff != "" {
+		t.Errorf("Summary should remain after labelling (-want +got):\n%s", diff)
+	}
+}
+
 // TestSessionDatasource_Save_ClearLabel asserts that SetLabel("") clears the
 // persisted label. Without this guarantee, callers cannot remove a label once
 // it has been assigned.

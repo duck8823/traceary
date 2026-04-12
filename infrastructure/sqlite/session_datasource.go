@@ -53,13 +53,12 @@ var (
 	_ queryservice.SessionQueryService  = (*SessionDatasource)(nil)
 )
 
-// Save creates or updates a session record.
-//
-// The update path is column-scoped to avoid lost updates between concurrent
-// writers. When the aggregate carries an ended_at value, only ended_at and
-// summary are written (guarded by ended_at IS NULL to reject duplicate ends).
-// When ended_at is empty, only label is written. This keeps session end and
-// session label operations in orthogonal columns even when they race.
+// Save persists a session label change. It is orthogonal to SaveBoundary:
+// it writes only the label column (via a defensive idempotent insert plus
+// UPDATE label = ?) and never touches ended_at or summary. This lets
+// callers label a session regardless of whether it is still active or
+// already ended, and keeps session end and session label operations from
+// clobbering each other's columns when they race.
 func (d *SessionDatasource) Save(ctx context.Context, session *model.Session) error {
 	db, err := d.db.open(ctx)
 	if err != nil {
@@ -71,7 +70,7 @@ func (d *SessionDatasource) Save(ctx context.Context, session *model.Session) er
 		}
 	}()
 
-	return saveSession(ctx, db, session)
+	return saveSessionLabel(ctx, db, session)
 }
 
 // SaveBoundary atomically persists a session aggregate together with its
@@ -119,7 +118,7 @@ func (d *SessionDatasource) SaveBoundary(ctx context.Context, session *model.Ses
 		return xerrors.Errorf("failed to insert boundary event: %w", err)
 	}
 
-	if err := saveSession(ctx, tx, session); err != nil {
+	if err := saveSessionBoundary(ctx, tx, session); err != nil {
 		return xerrors.Errorf("failed to save session: %w", err)
 	}
 
@@ -130,23 +129,23 @@ func (d *SessionDatasource) SaveBoundary(ctx context.Context, session *model.Ses
 	return nil
 }
 
-// sqlExecer abstracts *sql.DB and *sql.Tx so saveSession can run in either a
-// standalone operation or an existing transaction.
+// sqlExecer abstracts *sql.DB and *sql.Tx so the helpers below can run in
+// either a standalone operation or an existing transaction.
 type sqlExecer interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
-// saveSession persists a session aggregate. The insert is idempotent
-// (INSERT OR IGNORE) so start is a no-op on existing rows. The subsequent
-// update is column-scoped so session end and session label cannot clobber
-// each other's columns when they race.
-func saveSession(ctx context.Context, exec sqlExecer, session *model.Session) error {
+// insertSessionRowIfMissing inserts the immutable session row if it does
+// not already exist. It is shared by the label-only and boundary paths
+// because both need to make sure the row is present before updating any
+// mutable column.
+func insertSessionRowIfMissing(ctx context.Context, exec sqlExecer, session *model.Session) error {
 	var parentSessionID *string
 	if session.ParentSessionID().String() != "" {
 		v := session.ParentSessionID().String()
 		parentSessionID = &v
 	}
-	result, err := exec.ExecContext(
+	if _, err := exec.ExecContext(
 		ctx,
 		insertSessionQuery,
 		session.SessionID().String(),
@@ -155,45 +154,23 @@ func saveSession(ctx context.Context, exec sqlExecer, session *model.Session) er
 		session.Agent().String(),
 		session.Workspace().String(),
 		parentSessionID,
-	)
-	if err != nil {
+	); err != nil {
 		if strings.Contains(err.Error(), "FOREIGN KEY constraint failed") && session.ParentSessionID().String() != "" {
 			return xerrors.Errorf("parent session not found: %s", session.ParentSessionID())
 		}
 		return xerrors.Errorf("failed to insert session: %w", err)
 	}
-	inserted, err := result.RowsAffected()
-	if err != nil {
-		return xerrors.Errorf("failed to check rows affected: %w", err)
-	}
+	return nil
+}
 
-	// Fresh insert with no mutable state — start is complete.
-	if inserted > 0 && !session.EndedAt().IsPresent() && session.Label() == "" {
-		return nil
+// saveSessionLabel persists a label-only change. It is the Save path for
+// session label operations. It never touches ended_at or summary, so it
+// works on both active and already-ended sessions and cannot clobber a
+// concurrent session end.
+func saveSessionLabel(ctx context.Context, exec sqlExecer, session *model.Session) error {
+	if err := insertSessionRowIfMissing(ctx, exec, session); err != nil {
+		return err
 	}
-
-	if session.EndedAt().IsPresent() {
-		endedAt, _ := session.EndedAt().Get()
-		res, err := exec.ExecContext(
-			ctx,
-			updateSessionEndQuery,
-			formatTimestamp(endedAt),
-			session.Summary(),
-			session.SessionID().String(),
-		)
-		if err != nil {
-			return xerrors.Errorf("failed to end session: %w", err)
-		}
-		updated, err := res.RowsAffected()
-		if err != nil {
-			return xerrors.Errorf("failed to check rows affected: %w", err)
-		}
-		if updated == 0 {
-			return xerrors.Errorf("cannot end session %s: %w", session.SessionID(), model.ErrInvalidSessionState)
-		}
-		return nil
-	}
-
 	if _, err := exec.ExecContext(
 		ctx,
 		updateSessionLabelQuery,
@@ -201,6 +178,40 @@ func saveSession(ctx context.Context, exec sqlExecer, session *model.Session) er
 		session.SessionID().String(),
 	); err != nil {
 		return xerrors.Errorf("failed to update session label: %w", err)
+	}
+	return nil
+}
+
+// saveSessionBoundary persists session start or end state. On start, the
+// idempotent insert is sufficient. On end, a guarded UPDATE writes
+// ended_at + summary only when ended_at IS NULL; zero rows affected means
+// the session was already ended and we return ErrInvalidSessionState so
+// the caller's transaction rolls back (including the boundary event).
+func saveSessionBoundary(ctx context.Context, exec sqlExecer, session *model.Session) error {
+	if err := insertSessionRowIfMissing(ctx, exec, session); err != nil {
+		return err
+	}
+	if !session.EndedAt().IsPresent() {
+		return nil
+	}
+
+	endedAt, _ := session.EndedAt().Get()
+	result, err := exec.ExecContext(
+		ctx,
+		updateSessionEndQuery,
+		formatTimestamp(endedAt),
+		session.Summary(),
+		session.SessionID().String(),
+	)
+	if err != nil {
+		return xerrors.Errorf("failed to end session: %w", err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return xerrors.Errorf("failed to check rows affected: %w", err)
+	}
+	if updated == 0 {
+		return xerrors.Errorf("cannot end session %s: %w", session.SessionID(), model.ErrInvalidSessionState)
 	}
 	return nil
 }

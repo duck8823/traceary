@@ -85,15 +85,9 @@ func saveTestSession(ctx context.Context, t *testing.T, ds *infra.SessionDatasou
 	t.Helper()
 	ag, _ := types.AgentOf(agent)
 	sid, _ := types.SessionIDOf(sessionID)
-	session := model.NewSession(sid, startedAt, types.Client("hook"), ag, types.Workspace(workspace))
-	if err := ds.Save(ctx, session); err != nil {
-		t.Fatalf("Save(start) error = %v", err)
-	}
-	if endedAt.IsPresent() {
-		endSession := model.SessionOf(sid, startedAt, endedAt, types.Client("hook"), ag, types.Workspace(workspace), "", "", types.SessionID(""))
-		if err := ds.Save(ctx, endSession); err != nil {
-			t.Fatalf("Save(end) error = %v", err)
-		}
+	session := model.SessionOf(sid, startedAt, endedAt, types.Client("hook"), ag, types.Workspace(workspace), "", "", types.SessionID(""))
+	if err := ds.SaveSessionBoundaryForTest(ctx, session); err != nil {
+		t.Fatalf("SaveSessionBoundaryForTest() error = %v", err)
 	}
 }
 
