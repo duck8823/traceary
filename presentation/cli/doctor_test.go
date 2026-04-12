@@ -10,14 +10,14 @@ import (
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
-type doctorReportJSON struct {
+type doctorReport struct {
 	DBPath         string            `json:"db_path"`
 	HookScriptsDir string            `json:"hook_scripts_dir"`
 	Clients        []string          `json:"clients"`
-	Checks         []doctorCheckJSON `json:"checks"`
+	Checks         []doctorCheck `json:"checks"`
 }
 
-type doctorCheckJSON struct {
+type doctorCheck struct {
 	Name    string `json:"name"`
 	Status  string `json:"status"`
 	Message string `json:"message"`
@@ -50,7 +50,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 			t.Fatalf("Execute() error = %v", err)
 		}
 
-		var report doctorReportJSON
+		var report doctorReport
 		if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
 			t.Fatalf("json.Unmarshal() error = %v", err)
 		}
@@ -83,7 +83,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 			t.Fatalf("Execute() error = %v", err)
 		}
 
-		var report doctorReportJSON
+		var report doctorReport
 		if unmarshalErr := json.Unmarshal(stdout.Bytes(), &report); unmarshalErr != nil {
 			t.Fatalf("json.Unmarshal() error = %v", unmarshalErr)
 		}
@@ -114,7 +114,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 			t.Fatalf("Execute() error = %v", err)
 		}
 
-		var report doctorReportJSON
+		var report doctorReport
 		if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
 			t.Fatalf("json.Unmarshal() error = %v", err)
 		}
@@ -169,7 +169,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 			t.Fatalf("Execute() error = %v", err)
 		}
 
-		var report doctorReportJSON
+		var report doctorReport
 		if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
 			t.Fatalf("json.Unmarshal() error = %v", err)
 		}
@@ -206,7 +206,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 			t.Fatalf("Execute() error = nil, want non-nil")
 		}
 
-		var report doctorReportJSON
+		var report doctorReport
 		if unmarshalErr := json.Unmarshal(stdout.Bytes(), &report); unmarshalErr != nil {
 			t.Fatalf("json.Unmarshal() error = %v", unmarshalErr)
 		}
@@ -214,7 +214,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 	})
 }
 
-func assertDoctorCheckStatus(t *testing.T, checks []doctorCheckJSON, name string, want string) {
+func assertDoctorCheckStatus(t *testing.T, checks []doctorCheck, name string, want string) {
 	t.Helper()
 
 	for _, check := range checks {

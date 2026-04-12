@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-type hooksJSON struct {
+type hooksDocument struct {
 	Hooks map[string][]hookMatcher `json:"hooks"`
 }
 
@@ -55,7 +55,7 @@ func TestHooksContract_AllClientsHaveRequiredEvents(t *testing.T) {
 				t.Fatalf("ReadFile(%s) error = %v", client.hooksPath, err)
 			}
 
-			var hooks hooksJSON
+			var hooks hooksDocument
 			if err := json.Unmarshal(data, &hooks); err != nil {
 				t.Fatalf("Unmarshal error = %v", err)
 			}
@@ -109,7 +109,7 @@ func TestHooksContract_AllClientsInvokeTracearyScripts(t *testing.T) {
 				t.Fatalf("ReadFile error = %v", err)
 			}
 
-			var hooks hooksJSON
+			var hooks hooksDocument
 			if err := json.Unmarshal(data, &hooks); err != nil {
 				t.Fatalf("Unmarshal error = %v", err)
 			}
