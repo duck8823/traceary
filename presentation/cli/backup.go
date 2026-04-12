@@ -125,10 +125,11 @@ func (c *RootCLI) runBackupCreate(
 		return xerrors.Errorf(Localize("create store backup usecase is not configured", "バックアップ作成ユースケースが設定されていません"))
 	}
 
-	_, err := resolveDBPath(input.dbPath)
+	resolvedDBPath, err := resolveDBPath(input.dbPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
+	c.applyDatabasePath(resolvedDBPath)
 	resolvedOutputPath, err := resolveRequiredAbsolutePath(input.outputPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve backup output path", "バックアップ出力先パスの解決に失敗しました"), err)
@@ -157,6 +158,7 @@ func (c *RootCLI) runBackupRestore(
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
+	c.applyDatabasePath(resolvedDBPath)
 	resolvedInputPath, err := resolveRequiredAbsolutePath(input.inputPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve backup input path", "バックアップ入力パスの解決に失敗しました"), err)

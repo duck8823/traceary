@@ -25,10 +25,11 @@ func (c *RootCLI) newSessionLabelCommand() *cobra.Command {
 			ctx := cmd.Context()
 			output := cmd.OutOrStdout()
 
-			_, err := resolveDBPath(dbPath)
+			resolvedDBPath, err := resolveDBPath(dbPath)
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 			}
+			c.applyDatabasePath(resolvedDBPath)
 
 			if err := c.storeManagement.Initialize(ctx); err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)

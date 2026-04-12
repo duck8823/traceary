@@ -18,6 +18,10 @@ import (
 
 // Database wraps a SQLite path and provides connection and migration
 // utilities shared by all per-aggregate datasources in this package.
+//
+// The dbPath is mutable via SetPath so the CLI can late-bind the path
+// after resolving the --db-path flag / TRACEARY_DB_PATH environment
+// variable inside each subcommand's RunE.
 type Database struct {
 	dbPath     string
 	migrations fs.FS
@@ -26,6 +30,14 @@ type Database struct {
 // NewDatabase creates a new Database bound to the given database path.
 func NewDatabase(dbPath string, migrations fs.FS) *Database {
 	return &Database{dbPath: strings.TrimSpace(dbPath), migrations: migrations}
+}
+
+// SetPath updates the database file path. Call this after resolving the
+// CLI --db-path flag / TRACEARY_DB_PATH environment variable so the
+// datasources built from this Database open the user-specified path
+// instead of the composition-root default.
+func (d *Database) SetPath(dbPath string) {
+	d.dbPath = strings.TrimSpace(dbPath)
 }
 
 // Path returns the database file path.

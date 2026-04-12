@@ -17,6 +17,11 @@ type RootCLI struct {
 	hookScriptsInstaller application.HookScriptsInstaller
 	hooksInspector       application.HooksInspector
 	extraRedactPatterns  []string
+	// databasePathSetter is invoked by each subcommand's RunE after it
+	// resolves --db-path / TRACEARY_DB_PATH, so the shared Database
+	// instance opens the user-specified path instead of the composition-
+	// root default. May be nil in tests that inject stubs directly.
+	databasePathSetter func(string)
 }
 
 // RootCLIOption configures a RootCLI during construction. Options are
@@ -69,6 +74,26 @@ func WithHooksInspector(inspector application.HooksInspector) RootCLIOption {
 // by the audit command.
 func WithExtraRedactPatterns(patterns []string) RootCLIOption {
 	return func(c *RootCLI) { c.extraRedactPatterns = patterns }
+}
+
+// WithDatabasePathSetter injects a callback invoked by every subcommand
+// after it resolves the --db-path flag / TRACEARY_DB_PATH environment
+// variable. The callback is typically a closure around the shared
+// sqlite.Database's SetPath method, so datasources built from it open
+// the user-specified path on the next operation.
+func WithDatabasePathSetter(setter func(string)) RootCLIOption {
+	return func(c *RootCLI) { c.databasePathSetter = setter }
+}
+
+// applyDatabasePath forwards the resolved DB path to the injected
+// setter. It is a no-op when no setter is configured, which matches the
+// test setup where usecases are stubbed and the real Database is not
+// wired in.
+func (c *RootCLI) applyDatabasePath(resolved string) {
+	if c.databasePathSetter == nil {
+		return
+	}
+	c.databasePathSetter(resolved)
 }
 
 // NewRootCLI creates a new RootCLI with the given options applied.

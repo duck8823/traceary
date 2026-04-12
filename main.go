@@ -177,6 +177,7 @@ func run() error {
 		cli.WithHookScriptsInstaller(hookScriptsInstaller),
 		cli.WithHooksInspector(hooksInspector),
 		cli.WithExtraRedactPatterns(extraRedactPatterns),
+		cli.WithDatabasePathSetter(db.SetPath),
 	).Command()
 	rootCmd.Version = versionString()
 	rootCmd.SetVersionTemplate("{{.Name}} {{.Version}}\n")

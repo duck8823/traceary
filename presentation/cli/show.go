@@ -40,10 +40,11 @@ func (c *RootCLI) runShow(ctx context.Context, output io.Writer, dbPath string, 
 		return xerrors.Errorf(Localize("get event details query service is not configured", "イベント詳細クエリサービスが設定されていません"))
 	}
 
-	_, err := resolveDBPath(dbPath)
+	resolvedDBPath, err := resolveDBPath(dbPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
+	c.applyDatabasePath(resolvedDBPath)
 	if err := c.storeManagement.Initialize(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}

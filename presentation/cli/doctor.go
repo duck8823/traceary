@@ -107,6 +107,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		})
 		return report, nil
 	}
+	c.applyDatabasePath(resolvedDBPath)
 	report.DBPath = resolvedDBPath
 	report.Checks = append(report.Checks, doctorCheck{
 		Name:    "db-path",

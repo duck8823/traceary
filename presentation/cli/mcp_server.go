@@ -39,6 +39,7 @@ func (c *RootCLI) runMCPServer(ctx context.Context, _ io.Writer, dbPath string) 
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
+	c.applyDatabasePath(resolvedPath)
 	if err := c.mcpServerRunner.Run(ctx, resolvedPath); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to start MCP server", "MCP server の起動に失敗しました"), err)
 	}
