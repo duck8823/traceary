@@ -138,14 +138,17 @@ type sqlExecer interface {
 // insertSessionRowIfMissing inserts the immutable session row if it does
 // not already exist. It is shared by the label-only and boundary paths
 // because both need to make sure the row is present before updating any
-// mutable column.
-func insertSessionRowIfMissing(ctx context.Context, exec sqlExecer, session *model.Session) error {
+// mutable column. The boolean return reports whether the caller actually
+// created a new row (true) or hit the INSERT OR IGNORE no-op on an
+// existing row (false), so the caller can decide whether the pre-existing
+// state is acceptable.
+func insertSessionRowIfMissing(ctx context.Context, exec sqlExecer, session *model.Session) (bool, error) {
 	var parentSessionID *string
 	if session.ParentSessionID().String() != "" {
 		v := session.ParentSessionID().String()
 		parentSessionID = &v
 	}
-	if _, err := exec.ExecContext(
+	result, err := exec.ExecContext(
 		ctx,
 		insertSessionQuery,
 		session.SessionID().String(),
@@ -154,13 +157,18 @@ func insertSessionRowIfMissing(ctx context.Context, exec sqlExecer, session *mod
 		session.Agent().String(),
 		session.Workspace().String(),
 		parentSessionID,
-	); err != nil {
+	)
+	if err != nil {
 		if strings.Contains(err.Error(), "FOREIGN KEY constraint failed") && session.ParentSessionID().String() != "" {
-			return xerrors.Errorf("parent session not found: %s", session.ParentSessionID())
+			return false, xerrors.Errorf("parent session not found: %s", session.ParentSessionID())
 		}
-		return xerrors.Errorf("failed to insert session: %w", err)
+		return false, xerrors.Errorf("failed to insert session: %w", err)
 	}
-	return nil
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return false, xerrors.Errorf("failed to check rows affected: %w", err)
+	}
+	return rowsAffected > 0, nil
 }
 
 // saveSessionLabel persists a label-only change. It is the Save path for
@@ -168,7 +176,7 @@ func insertSessionRowIfMissing(ctx context.Context, exec sqlExecer, session *mod
 // works on both active and already-ended sessions and cannot clobber a
 // concurrent session end.
 func saveSessionLabel(ctx context.Context, exec sqlExecer, session *model.Session) error {
-	if err := insertSessionRowIfMissing(ctx, exec, session); err != nil {
+	if _, err := insertSessionRowIfMissing(ctx, exec, session); err != nil {
 		return err
 	}
 	if _, err := exec.ExecContext(
@@ -182,16 +190,24 @@ func saveSessionLabel(ctx context.Context, exec sqlExecer, session *model.Sessio
 	return nil
 }
 
-// saveSessionBoundary persists session start or end state. On start, the
-// idempotent insert is sufficient. On end, a guarded UPDATE writes
-// ended_at + summary only when ended_at IS NULL; zero rows affected means
-// the session was already ended and we return ErrInvalidSessionState so
-// the caller's transaction rolls back (including the boundary event).
+// saveSessionBoundary persists session start or end state. On start, a
+// fresh row must be inserted; an existing row means a prior session start
+// for the same session_id has already committed, so the caller's
+// transaction must roll back to avoid duplicate session_started events.
+// On end, a guarded UPDATE writes ended_at + summary only when ended_at
+// IS NULL; zero rows affected means the session was already ended and we
+// return ErrInvalidSessionState so the caller's transaction rolls back
+// (including the boundary event).
 func saveSessionBoundary(ctx context.Context, exec sqlExecer, session *model.Session) error {
-	if err := insertSessionRowIfMissing(ctx, exec, session); err != nil {
+	inserted, err := insertSessionRowIfMissing(ctx, exec, session)
+	if err != nil {
 		return err
 	}
+
 	if !session.EndedAt().IsPresent() {
+		if !inserted {
+			return xerrors.Errorf("cannot start session %s: %w", session.SessionID(), model.ErrInvalidSessionState)
+		}
 		return nil
 	}
 

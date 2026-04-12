@@ -371,6 +371,69 @@ func TestSessionDatasource_SaveBoundary_DuplicateEndRejected(t *testing.T) {
 	}
 }
 
+// TestSessionDatasource_SaveBoundary_DuplicateStartRejected asserts that a
+// second SaveBoundary(start) for the same session_id returns
+// ErrInvalidSessionState and rolls back the duplicate session_started
+// event. Without this guard a racing caller could commit two
+// session_started events on the same session_id because the
+// INSERT OR IGNORE session row update would silently no-op while the
+// boundary event insert would still succeed in the caller's transaction.
+func TestSessionDatasource_SaveBoundary_DuplicateStartRejected(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	db := infra.NewDatabase(dbPath, listSessionsTestMigrations())
+	ctx := context.Background()
+	if err := infra.NewStoreManagementDatasource(db).Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	sessionDS := infra.NewSessionDatasource(db)
+	eventDS := infra.NewEventDatasource(db)
+
+	sessionID, _ := types.SessionIDOf("session-double-start")
+	agent, _ := types.AgentOf("claude")
+	startedAt := time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC)
+
+	firstSession := model.NewSession(sessionID, startedAt, types.Client("cli"), agent, types.Workspace("workspace"))
+	firstEventID, _ := types.EventIDOf("event-start-1")
+	firstEvent := model.EventOf(
+		firstEventID, types.EventKindSessionStarted,
+		types.Client("cli"), agent, sessionID, types.Workspace("workspace"),
+		"session started", startedAt,
+	)
+	if err := sessionDS.SaveBoundary(ctx, firstSession, firstEvent); err != nil {
+		t.Fatalf("SaveBoundary(first start) error = %v", err)
+	}
+
+	secondSession := model.NewSession(sessionID, startedAt.Add(time.Minute), types.Client("cli"), agent, types.Workspace("workspace"))
+	secondEventID, _ := types.EventIDOf("event-start-2")
+	secondEvent := model.EventOf(
+		secondEventID, types.EventKindSessionStarted,
+		types.Client("cli"), agent, sessionID, types.Workspace("workspace"),
+		"session started", startedAt.Add(time.Minute),
+	)
+	err := sessionDS.SaveBoundary(ctx, secondSession, secondEvent)
+	if err == nil {
+		t.Fatalf("SaveBoundary(second start) error = nil, want ErrInvalidSessionState")
+	}
+	if !errors.Is(err, model.ErrInvalidSessionState) {
+		t.Fatalf("SaveBoundary(second start) error = %v, want ErrInvalidSessionState", err)
+	}
+
+	// Only the first session_started event must remain; the second must
+	// have been rolled back together with the duplicate row attempt.
+	events, err := eventDS.ListRecent(ctx, 10, 0, types.EventKindSessionStarted, types.Client(""), types.Agent(""), sessionID, types.Workspace(""), false, time.Time{}, time.Time{})
+	if err != nil {
+		t.Fatalf("ListRecent() error = %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("ListRecent() len = %d, want 1 (duplicate start event must be rolled back)", len(events))
+	}
+	if diff := cmp.Diff("event-start-1", events[0].EventID().String()); diff != "" {
+		t.Errorf("EventID mismatch (-want +got):\n%s", diff)
+	}
+}
+
 // TestSessionDatasource_Save_LabelOnEndedSession asserts that an ended
 // session can still be labelled. Retroactively tagging a finished session
 // is the common user workflow for organizing past work, so Save must not
