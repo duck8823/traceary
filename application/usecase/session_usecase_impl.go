@@ -84,15 +84,6 @@ func (u *sessionUsecase) End(ctx context.Context, client types.Client, agent typ
 		return nil, xerrors.Errorf("failed to end session: %w", err)
 	}
 
-	resolvedClient, resolvedAgent, resolvedWorkspace, err := u.inheritAttributionFromSession(ctx, resolvedSessionID, client, agent, workspace)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to end session: %w", err)
-	}
-	if _, err := types.AgentOf(resolvedAgent.String()); err != nil {
-		return nil, xerrors.Errorf("failed to end session: %w", err)
-	}
-
-	// Verify the session exists before writing anything.
 	existing, err := u.sessionRepo.FindByID(ctx, resolvedSessionID)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to find session for end: %w", err)
@@ -100,6 +91,11 @@ func (u *sessionUsecase) End(ctx context.Context, client types.Client, agent typ
 	existingSession, ok := existing.Get()
 	if !ok {
 		return nil, xerrors.Errorf("cannot end session %s: %w", resolvedSessionID, model.ErrInvalidSessionState)
+	}
+
+	resolvedClient, resolvedAgent, resolvedWorkspace := inheritAttribution(client, agent, workspace, existingSession)
+	if _, err := types.AgentOf(resolvedAgent.String()); err != nil {
+		return nil, xerrors.Errorf("failed to end session: %w", err)
 	}
 
 	event, err := u.buildBoundaryEvent(types.EventKindSessionEnded, resolvedClient, resolvedAgent, resolvedSessionID, resolvedWorkspace)
@@ -265,44 +261,29 @@ func (u *sessionUsecase) buildBoundaryEvent(
 	return event, nil
 }
 
-// inheritAttributionFromSession returns session attribution for a session end,
-// filling any empty caller-provided fields from the stored session aggregate.
-func (u *sessionUsecase) inheritAttributionFromSession(
-	ctx context.Context,
-	sessionID types.SessionID,
+// inheritAttribution fills empty caller-provided fields from the stored
+// session aggregate. Explicit caller values always win over the stored
+// aggregate.
+func inheritAttribution(
 	client types.Client,
 	agent types.Agent,
 	workspace types.Workspace,
-) (types.Client, types.Agent, types.Workspace, error) {
+	stored *model.Session,
+) (types.Client, types.Agent, types.Workspace) {
 	resolvedClient := types.Client(strings.TrimSpace(client.String()))
 	resolvedAgent := types.Agent(strings.TrimSpace(agent.String()))
 	resolvedWorkspace := types.Workspace(strings.TrimSpace(workspace.String()))
 
-	if u.sessionRepo == nil {
-		return resolvedClient, resolvedAgent, resolvedWorkspace, nil
-	}
-	if resolvedClient.String() != "" && resolvedAgent.String() != "" && resolvedWorkspace.String() != "" {
-		return resolvedClient, resolvedAgent, resolvedWorkspace, nil
-	}
-
-	result, err := u.sessionRepo.FindByID(ctx, sessionID)
-	if err != nil {
-		return types.Client(""), types.Agent(""), types.Workspace(""), xerrors.Errorf("failed to get session: %w", err)
-	}
-	startedSession, ok := result.Get()
-	if !ok {
-		return resolvedClient, resolvedAgent, resolvedWorkspace, nil
-	}
 	if resolvedClient.String() == "" {
-		resolvedClient = startedSession.Client()
+		resolvedClient = stored.Client()
 	}
 	if resolvedAgent.String() == "" {
-		resolvedAgent = startedSession.Agent()
+		resolvedAgent = stored.Agent()
 	}
 	if resolvedWorkspace.String() == "" {
-		resolvedWorkspace = startedSession.Workspace()
+		resolvedWorkspace = stored.Workspace()
 	}
-	return resolvedClient, resolvedAgent, resolvedWorkspace, nil
+	return resolvedClient, resolvedAgent, resolvedWorkspace
 }
 
 func buildSessionFromBoundary(event *model.Event, parentSessionID types.SessionID) *model.Session {
