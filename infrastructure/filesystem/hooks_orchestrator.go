@@ -75,6 +75,10 @@ func (o *HooksOrchestrator) Install(
 		return "", err
 	}
 
+	if err := rejectSymlink(resolvedOutputPath); err != nil {
+		return "", err
+	}
+
 	hooks := handler.Build(scriptsDir, tracearyBin)
 	encoded, err := renderInstallContent(resolvedOutputPath, hooks, force)
 	if err != nil {

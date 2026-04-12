@@ -69,6 +69,42 @@ func TestHookScriptsInstaller_ResolveDirHonorsEnvOverride(t *testing.T) {
 	}
 }
 
+// TestHookScriptsInstaller_RefusesAncestorSymlink asserts that Ensure()
+// refuses to write through an attacker-controlled symlink on an ancestor
+// directory of the scripts dir. Without the ancestor check, MkdirAll
+// would accept the existing link and WriteFile would follow it into the
+// victim directory.
+func TestHookScriptsInstaller_RefusesAncestorSymlink(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("TRACEARY_HOOK_SCRIPTS_DIR", "")
+
+	victimDir := t.TempDir()
+	configDir := filepath.Join(homeDir, ".config", "traceary")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	scriptsLink := filepath.Join(configDir, "hook-scripts")
+	if err := os.Symlink(victimDir, scriptsLink); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	installer := filesystem.NewHookScriptsInstallerWithHomeDirFunc(func() (string, error) {
+		return homeDir, nil
+	})
+
+	if _, err := installer.Ensure(); err == nil {
+		t.Fatalf("Ensure() error = nil, want ancestor symlink refusal")
+	}
+
+	entries, err := os.ReadDir(victimDir)
+	if err != nil {
+		t.Fatalf("ReadDir(victim) error = %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("victimDir entries = %d, want 0", len(entries))
+	}
+}
+
 // TestHookScriptsInstaller_RefusesSymlinkTarget asserts that installing a
 // hook script whose target path is an attacker-supplied symbolic link fails
 // instead of writing through the link to another location.

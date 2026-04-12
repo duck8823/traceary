@@ -333,6 +333,45 @@ func TestHooksOrchestrator_InstallRefusesSymlink(t *testing.T) {
 	}
 }
 
+// TestHooksOrchestrator_InstallRefusesAncestorSymlink asserts that Install
+// refuses to traverse an attacker-controlled symlink on an ancestor
+// directory (e.g. projectDir/.claude → victimDir). Without the ancestor
+// check, MkdirAll/WriteFile would follow the link and write a fresh
+// settings.json under the victim directory.
+func TestHooksOrchestrator_InstallRefusesAncestorSymlink(t *testing.T) {
+	t.Parallel()
+
+	projectDir := t.TempDir()
+	homeDir := t.TempDir()
+	orchestrator := newTestOrchestrator(homeDir)
+
+	victimDir := t.TempDir()
+	claudeDir := filepath.Join(projectDir, ".claude")
+	if err := os.Symlink(victimDir, claudeDir); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	if _, err := orchestrator.Install(
+		context.Background(),
+		"claude",
+		"/scripts",
+		"traceary",
+		projectDir,
+		types.Empty[string](),
+		false,
+	); err == nil {
+		t.Fatalf("Install() error = nil, want ancestor symlink refusal")
+	}
+
+	entries, err := os.ReadDir(victimDir)
+	if err != nil {
+		t.Fatalf("ReadDir(victim) error = %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("victimDir entries = %d, want 0", len(entries))
+	}
+}
+
 // TestHooksOrchestrator_InstallForceRefusesSymlink asserts the same guard
 // applies in force mode. Force must not be treated as "overwrite symlink
 // target" — it still refuses because the path itself is the symlink.

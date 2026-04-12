@@ -39,6 +39,9 @@ func (i *HookScriptsInstaller) Ensure() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if err := rejectSymlink(scriptsDir); err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(scriptsDir, 0o755); err != nil {
 		return "", xerrors.Errorf("failed to create hook scripts directory: %w", err)
 	}
