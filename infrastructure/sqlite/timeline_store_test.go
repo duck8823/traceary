@@ -7,8 +7,9 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/domain/model"
-	"github.com/duck8823/traceary/domain/port"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
@@ -35,22 +36,22 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		},
 	}
 
-	newDatasource := func(t *testing.T) *sqlite.Datasource {
+	newDatasource := func(t *testing.T) *sqlite.EventDatasource {
 		t.Helper()
 		dbPath := filepath.Join(t.TempDir(), "timeline_test.db")
-		ds := sqlite.NewDatasource(dbPath, migrations)
-		if err := ds.Initialize(context.Background()); err != nil {
+		ds, storeManager := newEventDatasource(t, dbPath, migrations)
+		if err := storeManager.Initialize(context.Background()); err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 		return ds
 	}
 
-	saveEvent := func(t *testing.T, ds *sqlite.Datasource, id string, workspace string, createdAt time.Time) {
+	saveEvent := func(t *testing.T, ds *sqlite.EventDatasource, id string, workspace string, createdAt time.Time) {
 		t.Helper()
 		eventID, _ := types.EventIDOf(id)
 		agent, _ := types.AgentOf("claude")
 		sessionID, _ := types.SessionIDOf("session-1")
-		event := model.EventOf(eventID, types.EventKindCommandExecuted, "hook", agent, sessionID, workspace, "cmd", createdAt)
+		event := model.EventOf(eventID, types.EventKindCommandExecuted, types.Client("hook"), agent, sessionID, types.Workspace(workspace), "cmd", createdAt)
 		if err := ds.Save(context.Background(), event); err != nil {
 			t.Fatalf("Save() error = %v", err)
 		}
@@ -69,10 +70,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		saveEvent(t, ds, "e4", "ws", time.Date(2026, 4, 10, 9, 40, 0, 0, time.UTC))
 		saveEvent(t, ds, "e5", "ws", time.Date(2026, 4, 10, 9, 45, 0, 0, time.UTC))
 
-		blocks, err := ds.ListTimelineBlocks(context.Background(), port.ListTimelineBlocksInput{
-			GapSeconds: 900, // 15 minutes
-			Limit:      10,
-		})
+		blocks, err := ds.ListTimelineBlocks(context.Background(), types.Workspace(""), time.Time{}, time.Time{}, 900, 10)
 		if err != nil {
 			t.Fatalf("ListTimelineBlocks() error = %v", err)
 		}
@@ -80,11 +78,11 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 			t.Fatalf("len(blocks) = %d, want 2", len(blocks))
 		}
 		// Blocks are ordered DESC, so block 2 first
-		if blocks[0].EventCount != 2 {
-			t.Fatalf("blocks[0].EventCount = %d, want 2", blocks[0].EventCount)
+		if diff := cmp.Diff(2, blocks[0].EventCount()); diff != "" {
+			t.Fatalf("blocks[0].EventCount() mismatch (-want +got):\n%s", diff)
 		}
-		if blocks[1].EventCount != 3 {
-			t.Fatalf("blocks[1].EventCount = %d, want 3", blocks[1].EventCount)
+		if diff := cmp.Diff(3, blocks[1].EventCount()); diff != "" {
+			t.Fatalf("blocks[1].EventCount() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -96,19 +94,15 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		saveEvent(t, ds, "e2", "ws-b", time.Date(2026, 4, 10, 9, 5, 0, 0, time.UTC))
 		saveEvent(t, ds, "e3", "ws-a", time.Date(2026, 4, 10, 9, 10, 0, 0, time.UTC))
 
-		blocks, err := ds.ListTimelineBlocks(context.Background(), port.ListTimelineBlocksInput{
-			Workspace:  "ws-a",
-			GapSeconds: 900,
-			Limit:      10,
-		})
+		blocks, err := ds.ListTimelineBlocks(context.Background(), types.Workspace("ws-a"), time.Time{}, time.Time{}, 900, 10)
 		if err != nil {
 			t.Fatalf("ListTimelineBlocks() error = %v", err)
 		}
 		if len(blocks) != 1 {
 			t.Fatalf("len(blocks) = %d, want 1", len(blocks))
 		}
-		if blocks[0].EventCount != 2 {
-			t.Fatalf("blocks[0].EventCount = %d, want 2 (ws-a only)", blocks[0].EventCount)
+		if diff := cmp.Diff(2, blocks[0].EventCount()); diff != "" {
+			t.Fatalf("blocks[0].EventCount() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -116,10 +110,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		t.Parallel()
 		ds := newDatasource(t)
 
-		blocks, err := ds.ListTimelineBlocks(context.Background(), port.ListTimelineBlocksInput{
-			GapSeconds: 900,
-			Limit:      10,
-		})
+		blocks, err := ds.ListTimelineBlocks(context.Background(), types.Workspace(""), time.Time{}, time.Time{}, 900, 10)
 		if err != nil {
 			t.Fatalf("ListTimelineBlocks() error = %v", err)
 		}
@@ -137,10 +128,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		saveEvent(t, ds, "e2", "ws", time.Date(2026, 4, 10, 10, 0, 0, 0, time.UTC))
 		saveEvent(t, ds, "e3", "ws", time.Date(2026, 4, 10, 11, 0, 0, 0, time.UTC))
 
-		blocks, err := ds.ListTimelineBlocks(context.Background(), port.ListTimelineBlocksInput{
-			GapSeconds: 900,
-			Limit:      2,
-		})
+		blocks, err := ds.ListTimelineBlocks(context.Background(), types.Workspace(""), time.Time{}, time.Time{}, 900, 2)
 		if err != nil {
 			t.Fatalf("ListTimelineBlocks() error = %v", err)
 		}

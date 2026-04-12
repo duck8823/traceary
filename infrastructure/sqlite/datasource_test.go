@@ -9,8 +9,6 @@ import (
 	"testing/fstest"
 
 	_ "modernc.org/sqlite"
-
-	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
 func TestDatasource_Initialize(t *testing.T) {
@@ -30,7 +28,7 @@ CREATE TABLE events (
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(dbPath, migrations)
+	sut := newStoreManagementDatasource(t, dbPath, migrations)
 
 	if err := sut.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
@@ -55,7 +53,7 @@ CREATE TABLE events (
 	}
 }
 
-func TestDatasource_Initialize_DBディレクトリとファイル権限を制限する(t *testing.T) {
+func TestDatasource_Initialize_restrictsDirAndFilePermissions(t *testing.T) {
 	t.Parallel()
 
 	migrations := fstest.MapFS{
@@ -68,7 +66,7 @@ CREATE TABLE events (
 	}
 	dbDir := filepath.Join(t.TempDir(), "traceary-private")
 	dbPath := filepath.Join(dbDir, "traceary.db")
-	sut := sqlite.NewDatasource(dbPath, migrations)
+	sut := newStoreManagementDatasource(t, dbPath, migrations)
 
 	if err := sut.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)

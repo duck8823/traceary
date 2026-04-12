@@ -9,11 +9,10 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
-	"github.com/duck8823/traceary/application/usecase"
 
-	"github.com/duck8823/traceary/domain/types"
-
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 func (c *RootCLI) newContextCommand() *cobra.Command {
@@ -55,24 +54,8 @@ func (c *RootCLI) newContextCommand() *cobra.Command {
 	return contextCmd
 }
 
-type contextCommandInput struct {
-	dbPath    string
-	sessionID string
-	client    string
-	agent     string
-	repo      string
-	limit     int
-	asJSON    bool
-}
-
-type contextOutput struct {
-	ResolvedSessionID string      `json:"resolved_session_id,omitempty"`
-	ResolvedWorkspace      string      `json:"resolved_workspace,omitempty"`
-	Events            []eventJSON `json:"events"`
-}
-
 func (c *RootCLI) runContext(ctx context.Context, output io.Writer, input contextCommandInput) error {
-	if c.storeMaintenance == nil {
+	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.event == nil {
@@ -82,11 +65,12 @@ func (c *RootCLI) runContext(ctx context.Context, output io.Writer, input contex
 		return xerrors.Errorf(Localize("limit must be greater than or equal to 1", "limit は 1 以上である必要があります"))
 	}
 
-	_, err := resolveDBPath(input.dbPath)
+	resolvedDBPath, err := resolveDBPath(input.dbPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.storeMaintenance.Initialize(ctx); err != nil {
+	c.applyDatabasePath(resolvedDBPath)
+	if err := c.storeManagement.Initialize(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
@@ -101,11 +85,11 @@ func (c *RootCLI) runContext(ctx context.Context, output io.Writer, input contex
 		return err
 	}
 
-	events, err := c.event.Context(ctx, usecase.EventContextCriteria{
-		Workspace: types.Workspace(resolvedWorkspace),
-		SessionID: types.SessionID(resolvedSessionID),
-		Limit:     input.limit,
-	})
+	contextCriteria := apptypes.NewEventContextCriteriaBuilder(input.limit).
+		Workspace(types.Workspace(resolvedWorkspace)).
+		SessionID(types.SessionID(resolvedSessionID)).
+		Build()
+	events, err := c.event.Context(ctx, contextCriteria)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to get context", "文脈の取得に失敗しました"), err)
 	}
@@ -130,26 +114,28 @@ func (c *RootCLI) resolveContextSessionID(
 		return "", nil
 	}
 
-	event, err := c.session.Active(ctx, usecase.SessionLookupCriteria{
-		Client:    types.Client(strings.TrimSpace(input.client)),
-		Agent:     types.Agent(strings.TrimSpace(input.agent)),
-		Workspace: types.Workspace(strings.TrimSpace(input.repo)),
-	})
+	lookupCriteria := apptypes.NewSessionLookupCriteriaBuilder().
+		Client(types.Client(strings.TrimSpace(input.client))).
+		Agent(types.Agent(strings.TrimSpace(input.agent))).
+		Workspace(types.Workspace(strings.TrimSpace(input.repo))).
+		Build()
+	result, err := c.session.Active(ctx, lookupCriteria)
 	if err != nil {
-		if usecase.IsSessionLookupNotFound(err) {
-			slog.Debug("no session found for context, using empty session", "client", input.client, "agent", input.agent, "workspace", input.repo)
-			return "", nil
-		}
 		return "", xerrors.Errorf("%s: %w", Localize("failed to resolve latest session for context", "文脈用の直近 session 解決に失敗しました"), err)
 	}
+	if !result.IsPresent() {
+		slog.Debug("no session found for context, using empty session", "client", input.client, "agent", input.agent, "workspace", input.repo)
+		return "", nil
+	}
 
+	event, _ := result.Get()
 	return event.SessionID().String(), nil
 }
 
 func writeContextJSON(output io.Writer, sessionID string, repo string, events []*model.Event) error {
-	serializedEvents := make([]eventJSON, 0, len(events))
-	for _, event := range events {
-		serializedEvents = append(serializedEvents, newEventJSON(event))
+	serializedEvents := make([]event, 0, len(events))
+	for _, e := range events {
+		serializedEvents = append(serializedEvents, newEventOutput(e))
 	}
 
 	return writeJSON(output, contextOutput{
@@ -186,7 +172,7 @@ func writeContextText(output io.Writer, sessionID string, repo string, events []
 			event.CreatedAt().UTC().Format("2006-01-02T15:04:05Z07:00"),
 			event.Kind(),
 			event.EventID(),
-			formatOptionalColumn(event.Client()),
+			formatOptionalColumn(event.Client().String()),
 			event.Agent(),
 			singleLineSummary(event.Body()),
 		); err != nil {

@@ -4,8 +4,11 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 type eventRepositoryStub struct {
@@ -18,27 +21,33 @@ func (s *eventRepositoryStub) Save(_ context.Context, event *model.Event) error 
 	return s.err
 }
 
-func TestRecordLogUsecase_Run(t *testing.T) {
+func (s *eventRepositoryStub) SaveWithAudit(_ context.Context, event *model.Event, _ *model.CommandAudit) error {
+	s.savedEvent = event
+	return s.err
+}
+
+func TestEventUsecase_Log(t *testing.T) {
 	t.Parallel()
 
 	t.Run("saves event successfully", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventRepositoryStub{}
-		sut := usecase.NewRecordLogUsecase(stub)
+		sut := usecase.NewEventUsecase(stub, nil)
 
-		got, err := sut.Run(context.Background(), usecase.RecordLogInput{
-			Message:   "  hello traceary  ",
-			Client:    " cli ",
-			Agent:     "codex",
-			SessionID: "session-1",
-			Workspace:      "  duck8823/traceary  ",
-		})
+		got, err := sut.Log(context.Background(),
+			"  hello traceary  ",
+			types.EventKind(""),
+			types.Client("cli"),
+			types.Agent("codex"),
+			types.SessionID("session-1"),
+			types.Workspace("duck8823/traceary"),
+		)
 		if err != nil {
-			t.Fatalf("Run() error = %v", err)
+			t.Fatalf("Log() error = %v", err)
 		}
 		if got == nil {
-			t.Fatalf("Run() event is nil")
+			t.Fatalf("Log() event is nil")
 		}
 		if stub.savedEvent == nil {
 			t.Fatalf("Save() event is nil")
@@ -49,20 +58,20 @@ func TestRecordLogUsecase_Run(t *testing.T) {
 		if got.EventID().String() == "" {
 			t.Fatalf("EventID() is empty")
 		}
-		if got.Body() != "hello traceary" {
-			t.Fatalf("Body() = %q, want %q", got.Body(), "hello traceary")
+		if diff := cmp.Diff("hello traceary", got.Body()); diff != "" {
+			t.Fatalf("Body() mismatch (-want +got):\n%s", diff)
 		}
-		if got.Client() != "cli" {
-			t.Fatalf("Client() = %q, want %q", got.Client(), "cli")
+		if diff := cmp.Diff(types.Client("cli"), got.Client()); diff != "" {
+			t.Fatalf("Client() mismatch (-want +got):\n%s", diff)
 		}
-		if got.Agent().String() != "codex" {
-			t.Fatalf("Agent() = %q, want %q", got.Agent(), "codex")
+		if diff := cmp.Diff("codex", got.Agent().String()); diff != "" {
+			t.Fatalf("Agent() mismatch (-want +got):\n%s", diff)
 		}
-		if got.SessionID().String() != "session-1" {
-			t.Fatalf("SessionID() = %q, want %q", got.SessionID(), "session-1")
+		if diff := cmp.Diff("session-1", got.SessionID().String()); diff != "" {
+			t.Fatalf("SessionID() mismatch (-want +got):\n%s", diff)
 		}
-		if got.Workspace() != "duck8823/traceary" {
-			t.Fatalf("Repo() = %q, want %q", got.Workspace(), "duck8823/traceary")
+		if diff := cmp.Diff(types.Workspace("duck8823/traceary"), got.Workspace()); diff != "" {
+			t.Fatalf("Workspace() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -70,21 +79,21 @@ func TestRecordLogUsecase_Run(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventRepositoryStub{}
-		sut := usecase.NewRecordLogUsecase(stub)
+		sut := usecase.NewEventUsecase(stub, nil)
 
-		got, err := sut.Run(context.Background(), usecase.RecordLogInput{
-			Message:   "compact summary text",
-			Kind:      "compact_summary",
-			Client:    "hook",
-			Agent:     "claude",
-			SessionID: "session-1",
-			Workspace: "duck8823/traceary",
-		})
+		got, err := sut.Log(context.Background(),
+			"compact summary text",
+			types.EventKind("compact_summary"),
+			types.Client("hook"),
+			types.Agent("claude"),
+			types.SessionID("session-1"),
+			types.Workspace("duck8823/traceary"),
+		)
 		if err != nil {
-			t.Fatalf("Run() error = %v", err)
+			t.Fatalf("Log() error = %v", err)
 		}
-		if got.Kind().String() != "compact_summary" {
-			t.Fatalf("Kind() = %q, want %q", got.Kind(), "compact_summary")
+		if diff := cmp.Diff("compact_summary", got.Kind().String()); diff != "" {
+			t.Fatalf("Kind() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -92,19 +101,21 @@ func TestRecordLogUsecase_Run(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventRepositoryStub{}
-		sut := usecase.NewRecordLogUsecase(stub)
+		sut := usecase.NewEventUsecase(stub, nil)
 
-		got, err := sut.Run(context.Background(), usecase.RecordLogInput{
-			Message:   "hello",
-			Client:    "cli",
-			Agent:     "manual",
-			SessionID: "session-1",
-		})
+		got, err := sut.Log(context.Background(),
+			"hello",
+			types.EventKind(""),
+			types.Client("cli"),
+			types.Agent("manual"),
+			types.SessionID("session-1"),
+			types.Workspace(""),
+		)
 		if err != nil {
-			t.Fatalf("Run() error = %v", err)
+			t.Fatalf("Log() error = %v", err)
 		}
-		if got.Kind().String() != "note" {
-			t.Fatalf("Kind() = %q, want %q", got.Kind(), "note")
+		if diff := cmp.Diff("note", got.Kind().String()); diff != "" {
+			t.Fatalf("Kind() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -112,17 +123,18 @@ func TestRecordLogUsecase_Run(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventRepositoryStub{}
-		sut := usecase.NewRecordLogUsecase(stub)
+		sut := usecase.NewEventUsecase(stub, nil)
 
-		_, err := sut.Run(context.Background(), usecase.RecordLogInput{
-			Message:   "hello",
-			Kind:      "invalid_kind",
-			Client:    "cli",
-			Agent:     "manual",
-			SessionID: "session-1",
-		})
+		_, err := sut.Log(context.Background(),
+			"hello",
+			types.EventKind("invalid_kind"),
+			types.Client("cli"),
+			types.Agent("manual"),
+			types.SessionID("session-1"),
+			types.Workspace(""),
+		)
 		if err == nil {
-			t.Fatalf("Run() error = nil, want error for invalid kind")
+			t.Fatalf("Log() error = nil, want error for invalid kind")
 		}
 	})
 
@@ -130,15 +142,18 @@ func TestRecordLogUsecase_Run(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventRepositoryStub{}
-		sut := usecase.NewRecordLogUsecase(stub)
+		sut := usecase.NewEventUsecase(stub, nil)
 
-		_, err := sut.Run(context.Background(), usecase.RecordLogInput{
-			Message:   "hello",
-			Agent:     "",
-			SessionID: "session-1",
-		})
+		_, err := sut.Log(context.Background(),
+			"hello",
+			types.EventKind(""),
+			types.Client(""),
+			types.Agent(""),
+			types.SessionID("session-1"),
+			types.Workspace(""),
+		)
 		if err == nil {
-			t.Fatalf("Run() error = nil, want error")
+			t.Fatalf("Log() error = nil, want error")
 		}
 		if stub.savedEvent != nil {
 			t.Fatalf("Save() should not be called")

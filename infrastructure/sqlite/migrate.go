@@ -14,7 +14,7 @@ import (
 	"golang.org/x/xerrors"
 )
 
-func (d *Datasource) migrate(ctx context.Context, db *sql.DB) error {
+func (d *Database) migrate(ctx context.Context, db *sql.DB) error {
 	if err := ensureSchemaMigrationsTable(ctx, db); err != nil {
 		return xerrors.Errorf("failed to create schema_migrations table: %w", err)
 	}

@@ -33,7 +33,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 	scriptsDir := filepath.Join(t.TempDir(), "hook scripts")
 	t.Setenv("TRACEARY_HOOK_SCRIPTS_DIR", scriptsDir)
 
-	t.Run("Claude 向け設定を出力できる", func(t *testing.T) {
+	t.Run("prints Claude hook settings", func(t *testing.T) {
 		settings := executeHooksPrint(t, "claude", tracearyBin)
 		if got, want := *settings.Hooks["SessionStart"][0].Matcher, "*"; got != want {
 			t.Fatalf("SessionStart matcher = %q, want %q", got, want)
@@ -76,7 +76,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 		assertInstalledHookScripts(t, scriptsDir)
 	})
 
-	t.Run("Claude Code alias でも設定を出力できる", func(t *testing.T) {
+	t.Run("prints settings with Claude Code alias", func(t *testing.T) {
 		settings := executeHooksPrint(t, "claude-code", tracearyBin)
 		if got, want := settings.Hooks["SessionStart"][0].Hooks[0].Command,
 			`TRACEARY_BIN='/tmp/traceary bin/traceary' bash '`+filepath.Join(scriptsDir, "traceary-session.sh")+`' 'claude' 'start'`; got != want {
@@ -84,7 +84,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("Codex 向け設定を出力できる", func(t *testing.T) {
+	t.Run("prints Codex hook settings", func(t *testing.T) {
 		settings := executeHooksPrint(t, "codex", tracearyBin)
 		if settings.Hooks["SessionStart"][0].Matcher != nil {
 			t.Fatalf("SessionStart matcher = %v, want nil", settings.Hooks["SessionStart"][0].Matcher)
@@ -98,7 +98,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("Gemini 向け設定を出力できる", func(t *testing.T) {
+	t.Run("prints Gemini hook settings", func(t *testing.T) {
 		settings := executeHooksPrint(t, "gemini", tracearyBin)
 		if got, want := *settings.Hooks["AfterTool"][0].Matcher, "run_shell_command"; got != want {
 			t.Fatalf("AfterTool matcher = %q, want %q", got, want)
@@ -112,7 +112,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("traceary-bin 未指定時は stable command 名を使う", func(t *testing.T) {
+	t.Run("uses stable command name when traceary-bin is not specified", func(t *testing.T) {
 		settings := executeHooksPrintWithoutTracearyBin(t, "claude")
 		if got, want := settings.Hooks["SessionStart"][0].Hooks[0].Command,
 			`TRACEARY_BIN='traceary' bash '`+filepath.Join(scriptsDir, "traceary-session.sh")+`' 'claude' 'start'`; got != want {
@@ -121,7 +121,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 	})
 
 	t.Run("unsupported client returns an English error by default", func(t *testing.T) {
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+		rootCmd := newTestRootCLI().Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
@@ -141,7 +141,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 	})
 
 	t.Run("missing client returns a discoverable error", func(t *testing.T) {
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+		rootCmd := newTestRootCLI().Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"hooks", "print"})
@@ -166,8 +166,8 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 	})
 	t.Cleanup(cli.ResetUserHomeDirFunc)
 
-	t.Run("Claude 向け設定を標準パスへ書き出せる", func(t *testing.T) {
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+	t.Run("installs Claude settings to standard path", func(t *testing.T) {
+		rootCmd := newTestRootCLI().Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -209,8 +209,8 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 		assertInstalledHookScripts(t, scriptsDir)
 	})
 
-	t.Run("Codex CLI alias でも標準パスへ書き出せる", func(t *testing.T) {
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+	t.Run("installs settings to standard path with Codex CLI alias", func(t *testing.T) {
+		rootCmd := newTestRootCLI().Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
@@ -232,8 +232,8 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("Codex 向け設定はホーム配下の標準パスへ書き出す", func(t *testing.T) {
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+	t.Run("installs Codex settings to home directory standard path", func(t *testing.T) {
+		rootCmd := newTestRootCLI().Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
@@ -286,7 +286,7 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 			t.Fatalf("WriteFile() error = %v", err)
 		}
 
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+		rootCmd := newTestRootCLI().Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
@@ -315,7 +315,7 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("force を付けると既存ファイルを上書きできる", func(t *testing.T) {
+	t.Run("overwrites existing file with force flag", func(t *testing.T) {
 		outputPath := filepath.Join(projectDir, ".gemini", "settings.json")
 		if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
 			t.Fatalf("MkdirAll() error = %v", err)
@@ -324,7 +324,7 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 			t.Fatalf("WriteFile() error = %v", err)
 		}
 
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+		rootCmd := newTestRootCLI().Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
@@ -357,7 +357,7 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 			t.Fatalf("WriteFile() error = %v", err)
 		}
 
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+		rootCmd := newTestRootCLI().Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
@@ -400,7 +400,7 @@ func executeHooksPrint(
 ) *printedHooksSettings {
 	t.Helper()
 
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+	rootCmd := newTestRootCLI().Command()
 	stdout := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -429,7 +429,7 @@ func executeHooksPrintWithoutTracearyBin(
 ) *printedHooksSettings {
 	t.Helper()
 
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+	rootCmd := newTestRootCLI().Command()
 	stdout := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})

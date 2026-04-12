@@ -7,11 +7,26 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/duck8823/traceary/domain/port"
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	infra "github.com/duck8823/traceary/infrastructure/sqlite"
 )
+
+// listSessionsFixture bundles the per-aggregate datasources required by
+// list_sessions tests.
+type listSessionsFixture struct {
+	eventDS      *infra.EventDatasource
+	sessionDS    *infra.SessionDatasource
+	storeManager *infra.StoreManagementDatasource
+}
+
+func newListSessionsFixture(t *testing.T, dbPath string, migrations fstest.MapFS) *listSessionsFixture {
+	t.Helper()
+	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, migrations)
+	return &listSessionsFixture{eventDS: eventDS, sessionDS: sessionDS, storeManager: storeManager}
+}
 
 func listSessionsTestMigrations() fstest.MapFS {
 	return fstest.MapFS{
@@ -66,33 +81,27 @@ GROUP BY e.session_id;`),
 	}
 }
 
-func saveTestSession(ctx context.Context, t *testing.T, ds *infra.Datasource, sessionID string, startedAt time.Time, endedAt *time.Time, agent string, workspace string) {
+func saveTestSession(ctx context.Context, t *testing.T, ds *infra.SessionDatasource, sessionID string, startedAt time.Time, endedAt types.Optional[time.Time], agent string, workspace string) {
 	t.Helper()
 	ag, _ := types.AgentOf(agent)
 	sid, _ := types.SessionIDOf(sessionID)
-	session := model.NewSession(sid, startedAt, "hook", ag, workspace)
-	if err := ds.SaveSession(ctx, session); err != nil {
-		t.Fatalf("SaveSession(start) error = %v", err)
-	}
-	if endedAt != nil {
-		endSession := model.SessionOf(sid, startedAt, endedAt, "hook", ag, workspace, "", "", "")
-		if err := ds.SaveSession(ctx, endSession); err != nil {
-			t.Fatalf("SaveSession(end) error = %v", err)
-		}
+	session := model.SessionOf(sid, startedAt, endedAt, types.Client("hook"), ag, types.Workspace(workspace), "", "", types.SessionID(""))
+	if err := ds.SaveSessionBoundaryForTest(ctx, session); err != nil {
+		t.Fatalf("SaveSessionBoundaryForTest() error = %v", err)
 	}
 }
 
-func TestDatasource_ListSessionSummaries(t *testing.T) {
+func TestDatasource_ListSummaries(t *testing.T) {
 	t.Parallel()
 
 	t.Run("retrieves session summaries", func(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		ds := infra.NewDatasource(dbPath, listSessionsTestMigrations())
+		fixture := newListSessionsFixture(t, dbPath, listSessionsTestMigrations())
 		ctx := context.Background()
 
-		if err := ds.Initialize(ctx); err != nil {
+		if err := fixture.storeManager.Initialize(ctx); err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
@@ -116,21 +125,19 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 			agent, _ := types.AgentOf(e.agent)
 			sid, _ := types.SessionIDOf(e.sessionID)
 			event, _ := model.NewEvent(eid, e.kind, "hook", agent, sid, "duck8823/traceary", e.body)
-			if err := ds.Save(ctx, event); err != nil {
+			if err := fixture.eventDS.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
 		}
 
 		// Save session metadata
 		s1End := time.Now().UTC()
-		saveTestSession(ctx, t, ds, "s1", time.Now().Add(-time.Hour).UTC(), &s1End, "claude", "duck8823/traceary")
-		saveTestSession(ctx, t, ds, "s2", time.Now().UTC(), nil, "codex", "duck8823/traceary")
+		saveTestSession(ctx, t, fixture.sessionDS, "s1", time.Now().Add(-time.Hour).UTC(), types.Of(s1End), "claude", "duck8823/traceary")
+		saveTestSession(ctx, t, fixture.sessionDS, "s2", time.Now().UTC(), types.Empty[time.Time](), "codex", "duck8823/traceary")
 
-		summaries, err := ds.ListSessionSummaries(ctx, port.ListSessionsInput{
-			Limit: 10,
-		})
+		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent(""), "", types.Empty[time.Time](), types.Empty[time.Time]())
 		if err != nil {
-			t.Fatalf("ListSessionSummaries() error = %v", err)
+			t.Fatalf("ListSummaries() error = %v", err)
 		}
 		if len(summaries) != 2 {
 			t.Fatalf("got %d summaries, want 2", len(summaries))
@@ -140,34 +147,34 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		// Both sessions have same created_at base (close in time), but order is by started_at DESC
 		// s2's events are inserted after s1's, so s2.started_at > s1.started_at
 		latest := summaries[0]
-		if latest.SessionID != "s2" {
-			t.Fatalf("first session = %q, want s2", latest.SessionID)
+		if diff := cmp.Diff("s2", latest.SessionID().String()); diff != "" {
+			t.Fatalf("first session mismatch (-want +got):\n%s", diff)
 		}
-		if latest.TotalEvents != 2 {
-			t.Fatalf("s2 total_events = %d, want 2", latest.TotalEvents)
+		if diff := cmp.Diff(2, latest.TotalEvents()); diff != "" {
+			t.Fatalf("s2 total_events mismatch (-want +got):\n%s", diff)
 		}
-		if latest.CommandCount != 1 {
-			t.Fatalf("s2 command_count = %d, want 1", latest.CommandCount)
+		if diff := cmp.Diff(1, latest.CommandCount()); diff != "" {
+			t.Fatalf("s2 command_count mismatch (-want +got):\n%s", diff)
 		}
-		if latest.Status != "active" {
-			t.Fatalf("s2 status = %q, want active", latest.Status)
+		if diff := cmp.Diff("active", latest.Status()); diff != "" {
+			t.Fatalf("s2 status mismatch (-want +got):\n%s", diff)
 		}
 
 		older := summaries[1]
-		if older.SessionID != "s1" {
-			t.Fatalf("second session = %q, want s1", older.SessionID)
+		if diff := cmp.Diff("s1", older.SessionID().String()); diff != "" {
+			t.Fatalf("second session mismatch (-want +got):\n%s", diff)
 		}
-		if older.TotalEvents != 4 {
-			t.Fatalf("s1 total_events = %d, want 4", older.TotalEvents)
+		if diff := cmp.Diff(4, older.TotalEvents()); diff != "" {
+			t.Fatalf("s1 total_events mismatch (-want +got):\n%s", diff)
 		}
-		if older.CommandCount != 2 {
-			t.Fatalf("s1 command_count = %d, want 2", older.CommandCount)
+		if diff := cmp.Diff(2, older.CommandCount()); diff != "" {
+			t.Fatalf("s1 command_count mismatch (-want +got):\n%s", diff)
 		}
-		if older.Status != "ended" {
-			t.Fatalf("s1 status = %q, want ended", older.Status)
+		if diff := cmp.Diff("ended", older.Status()); diff != "" {
+			t.Fatalf("s1 status mismatch (-want +got):\n%s", diff)
 		}
-		if older.EndedAt == nil {
-			t.Fatalf("s1 ended_at should not be nil")
+		if !older.EndedAt().IsPresent() {
+			t.Fatalf("s1 ended_at should not be empty")
 		}
 	})
 
@@ -175,10 +182,10 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		ds := infra.NewDatasource(dbPath, listSessionsTestMigrations())
+		fixture := newListSessionsFixture(t, dbPath, listSessionsTestMigrations())
 		ctx := context.Background()
 
-		if err := ds.Initialize(ctx); err != nil {
+		if err := fixture.storeManager.Initialize(ctx); err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
@@ -192,27 +199,24 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 			agent, _ := types.AgentOf(e.agent)
 			sid, _ := types.SessionIDOf(e.sid)
 			event, _ := model.NewEvent(eid, types.EventKindSessionStarted, "hook", agent, sid, "workspace", "start")
-			if err := ds.Save(ctx, event); err != nil {
+			if err := fixture.eventDS.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
 		}
 
 		now := time.Now().UTC()
-		saveTestSession(ctx, t, ds, "s1", now, nil, "claude", "workspace")
-		saveTestSession(ctx, t, ds, "s2", now.Add(time.Second), nil, "codex", "workspace")
+		saveTestSession(ctx, t, fixture.sessionDS, "s1", now, types.Empty[time.Time](), "claude", "workspace")
+		saveTestSession(ctx, t, fixture.sessionDS, "s2", now.Add(time.Second), types.Empty[time.Time](), "codex", "workspace")
 
-		summaries, err := ds.ListSessionSummaries(ctx, port.ListSessionsInput{
-			Limit: 10,
-			Agent: "claude",
-		})
+		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent("claude"), "", types.Empty[time.Time](), types.Empty[time.Time]())
 		if err != nil {
-			t.Fatalf("ListSessionSummaries() error = %v", err)
+			t.Fatalf("ListSummaries() error = %v", err)
 		}
 		if len(summaries) != 1 {
 			t.Fatalf("got %d summaries, want 1", len(summaries))
 		}
-		if summaries[0].SessionID != "s1" {
-			t.Fatalf("session = %q, want s1", summaries[0].SessionID)
+		if diff := cmp.Diff("s1", summaries[0].SessionID().String()); diff != "" {
+			t.Fatalf("session mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -220,10 +224,10 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		ds := infra.NewDatasource(dbPath, listSessionsTestMigrations())
+		fixture := newListSessionsFixture(t, dbPath, listSessionsTestMigrations())
 		ctx := context.Background()
 
-		if err := ds.Initialize(ctx); err != nil {
+		if err := fixture.storeManager.Initialize(ctx); err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
@@ -239,25 +243,22 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 			sid, _ := types.SessionIDOf(e.sid)
 			ts := time.Date(2026, 4, e.dayOfMon, 12, 0, 0, 0, time.UTC)
 			event := model.EventOf(eid, types.EventKindSessionStarted, "hook", agent, sid, "workspace", "start", ts)
-			if err := ds.Save(ctx, event); err != nil {
+			if err := fixture.eventDS.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
-			saveTestSession(ctx, t, ds, e.sid, ts, nil, "claude", "workspace")
+			saveTestSession(ctx, t, fixture.sessionDS, e.sid, ts, types.Empty[time.Time](), "claude", "workspace")
 		}
 
 		fromDate := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
-		summaries, err := ds.ListSessionSummaries(ctx, port.ListSessionsInput{
-			Limit: 10,
-			From:  &fromDate,
-		})
+		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent(""), "", types.Of(fromDate), types.Empty[time.Time]())
 		if err != nil {
-			t.Fatalf("ListSessionSummaries() error = %v", err)
+			t.Fatalf("ListSummaries() error = %v", err)
 		}
 		if len(summaries) != 1 {
 			t.Fatalf("got %d summaries, want 1", len(summaries))
 		}
-		if summaries[0].SessionID != "s-new" {
-			t.Fatalf("session = %q, want s-new", summaries[0].SessionID)
+		if diff := cmp.Diff("s-new", summaries[0].SessionID().String()); diff != "" {
+			t.Fatalf("session mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -265,10 +266,10 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		ds := infra.NewDatasource(dbPath, listSessionsTestMigrations())
+		fixture := newListSessionsFixture(t, dbPath, listSessionsTestMigrations())
 		ctx := context.Background()
 
-		if err := ds.Initialize(ctx); err != nil {
+		if err := fixture.storeManager.Initialize(ctx); err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
@@ -282,27 +283,24 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 			agent, _ := types.AgentOf(e.agent)
 			sid, _ := types.SessionIDOf(e.sid)
 			event, _ := model.NewEvent(eid, types.EventKindSessionStarted, "hook", agent, sid, "workspace", "start")
-			if err := ds.Save(ctx, event); err != nil {
+			if err := fixture.eventDS.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
 		}
 
 		now := time.Now().UTC()
-		saveTestSession(ctx, t, ds, "s1", now, nil, "claude", "workspace")
-		saveTestSession(ctx, t, ds, "s2", now.Add(time.Second), nil, "claude", "workspace")
+		saveTestSession(ctx, t, fixture.sessionDS, "s1", now, types.Empty[time.Time](), "claude", "workspace")
+		saveTestSession(ctx, t, fixture.sessionDS, "s2", now.Add(time.Second), types.Empty[time.Time](), "claude", "workspace")
 
-		summaries, err := ds.ListSessionSummaries(ctx, port.ListSessionsInput{
-			Limit:     10,
-			SessionID: "s1",
-		})
+		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID("s1"), types.Workspace(""), types.Client(""), types.Agent(""), "", types.Empty[time.Time](), types.Empty[time.Time]())
 		if err != nil {
-			t.Fatalf("ListSessionSummaries() error = %v", err)
+			t.Fatalf("ListSummaries() error = %v", err)
 		}
 		if len(summaries) != 1 {
 			t.Fatalf("got %d summaries, want 1", len(summaries))
 		}
-		if summaries[0].SessionID != "s1" {
-			t.Fatalf("session = %q, want s1", summaries[0].SessionID)
+		if diff := cmp.Diff("s1", summaries[0].SessionID().String()); diff != "" {
+			t.Fatalf("session mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -310,10 +308,10 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		ds := infra.NewDatasource(dbPath, listSessionsTestMigrations())
+		fixture := newListSessionsFixture(t, dbPath, listSessionsTestMigrations())
 		ctx := context.Background()
 
-		if err := ds.Initialize(ctx); err != nil {
+		if err := fixture.storeManager.Initialize(ctx); err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
@@ -329,25 +327,22 @@ func TestDatasource_ListSessionSummaries(t *testing.T) {
 			sid, _ := types.SessionIDOf(e.sid)
 			ts := time.Date(2026, 4, e.dayOfMon, 12, 0, 0, 0, time.UTC)
 			event := model.EventOf(eid, types.EventKindSessionStarted, "hook", agent, sid, "workspace", "start", ts)
-			if err := ds.Save(ctx, event); err != nil {
+			if err := fixture.eventDS.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
-			saveTestSession(ctx, t, ds, e.sid, ts, nil, "claude", "workspace")
+			saveTestSession(ctx, t, fixture.sessionDS, e.sid, ts, types.Empty[time.Time](), "claude", "workspace")
 		}
 
 		toDate := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
-		summaries, err := ds.ListSessionSummaries(ctx, port.ListSessionsInput{
-			Limit: 10,
-			To:    &toDate,
-		})
+		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent(""), "", types.Empty[time.Time](), types.Of(toDate))
 		if err != nil {
-			t.Fatalf("ListSessionSummaries() error = %v", err)
+			t.Fatalf("ListSummaries() error = %v", err)
 		}
 		if len(summaries) != 1 {
 			t.Fatalf("got %d summaries, want 1", len(summaries))
 		}
-		if summaries[0].SessionID != "s-old" {
-			t.Fatalf("session = %q, want s-old", summaries[0].SessionID)
+		if diff := cmp.Diff("s-old", summaries[0].SessionID().String()); diff != "" {
+			t.Fatalf("session mismatch (-want +got):\n%s", diff)
 		}
 	})
 

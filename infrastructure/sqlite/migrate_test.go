@@ -9,8 +9,6 @@ import (
 	"testing/fstest"
 
 	_ "modernc.org/sqlite"
-
-	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
 func TestDatasource_Initialize_appliesMigrationsInVersionOrder(t *testing.T) {
@@ -29,7 +27,7 @@ INSERT INTO events(id) VALUES ('seed');`),
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(dbPath, migrations)
+	sut := newStoreManagementDatasource(t, dbPath, migrations)
 
 	if err := sut.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
@@ -54,7 +52,7 @@ func TestMigrations_applyToEmptyDatabase(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	ds := sqlite.NewDatasource(dbPath, os.DirFS("../../schema/sqlite/migrations"))
+	ds := newStoreManagementDatasource(t, dbPath, os.DirFS("../../schema/sqlite/migrations"))
 
 	if err := ds.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
@@ -102,7 +100,7 @@ func TestMigrations_idempotentOnExistingDatabase(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	ds := sqlite.NewDatasource(dbPath, os.DirFS("../../schema/sqlite/migrations"))
+	ds := newStoreManagementDatasource(t, dbPath, os.DirFS("../../schema/sqlite/migrations"))
 
 	if err := ds.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() first error = %v", err)
@@ -172,7 +170,7 @@ func TestMigrations_backfillPopulatesSessionsFromEvents(t *testing.T) {
 	_ = db.Close()
 
 	// Apply remaining migrations via Initialize
-	ds := sqlite.NewDatasource(dbPath, os.DirFS("../../schema/sqlite/migrations"))
+	ds := newStoreManagementDatasource(t, dbPath, os.DirFS("../../schema/sqlite/migrations"))
 	if err := ds.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}

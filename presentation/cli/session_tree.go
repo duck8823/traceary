@@ -8,10 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
-	"github.com/duck8823/traceary/application/usecase"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/types"
-
 )
 
 func (c *RootCLI) newSessionTreeCommand() *cobra.Command {
@@ -30,20 +29,21 @@ func (c *RootCLI) newSessionTreeCommand() *cobra.Command {
 			ctx := cmd.Context()
 			output := cmd.OutOrStdout()
 
-			_, err := resolveDBPath(dbPath)
+			resolvedDBPath, err := resolveDBPath(dbPath)
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 			}
-			if err := c.storeMaintenance.Initialize(ctx); err != nil {
+			c.applyDatabasePath(resolvedDBPath)
+			if err := c.storeManagement.Initialize(ctx); err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 			}
 
 			resolvedRepo := resolveWorkspaceValue(ctx, repo)
 
-			summaries, err := c.session.List(ctx, usecase.SessionListCriteria{
-				Limit: limit,
-				Workspace: types.Workspace(resolvedRepo),
-			})
+			criteria := apptypes.NewSessionListCriteriaBuilder(limit).
+				Workspace(types.Workspace(resolvedRepo)).
+				Build()
+			summaries, err := c.session.List(ctx, criteria)
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to list sessions", "セッション一覧の取得に失敗しました"), err)
 			}
@@ -61,11 +61,11 @@ func (c *RootCLI) newSessionTreeCommand() *cobra.Command {
 }
 
 type sessionNode struct {
-	summary  *usecase.SessionSummary
+	summary  apptypes.SessionSummary
 	children []*sessionNode
 }
 
-func writeSessionTree(output io.Writer, summaries []*usecase.SessionSummary, asJSON bool) error {
+func writeSessionTree(output io.Writer, summaries []apptypes.SessionSummary, asJSON bool) error {
 	if len(summaries) == 0 {
 		if asJSON {
 			if _, err := fmt.Fprintln(output, "[]"); err != nil {
@@ -84,13 +84,14 @@ func writeSessionTree(output io.Writer, summaries []*usecase.SessionSummary, asJ
 	var roots []*sessionNode
 
 	for _, s := range summaries {
-		nodeMap[s.SessionID.String()] = &sessionNode{summary: s}
+		node := &sessionNode{summary: s}
+		nodeMap[s.SessionID().String()] = node
 	}
 
 	for _, s := range summaries {
-		node := nodeMap[s.SessionID.String()]
-		if s.ParentSessionID.String() != "" {
-			if parent, ok := nodeMap[s.ParentSessionID.String()]; ok {
+		node := nodeMap[s.SessionID().String()]
+		if s.ParentSessionID().String() != "" {
+			if parent, ok := nodeMap[s.ParentSessionID().String()]; ok {
 				parent.children = append(parent.children, node)
 				continue
 			}
@@ -111,51 +112,36 @@ func writeSessionTree(output io.Writer, summaries []*usecase.SessionSummary, asJ
 	return nil
 }
 
-type jsonTreeNode struct {
-	SessionID    string          `json:"session_id"`
-	Workspace string          `json:"workspace,omitempty"`
-	Label        string          `json:"label,omitempty"`
-	Summary      string          `json:"summary,omitempty"`
-	StartedAt    string          `json:"started_at"`
-	EndedAt      *string         `json:"ended_at,omitempty"`
-	Status       string          `json:"status"`
-	DurationSec  *float64        `json:"duration_sec,omitempty"`
-	TotalEvents  int             `json:"total_events"`
-	CommandCount int             `json:"command_count"`
-	Agents       []string        `json:"agents"`
-	Children     []*jsonTreeNode `json:"children"`
-}
-
-func sessionNodeToJSON(node *sessionNode) *jsonTreeNode {
+func sessionNodeToOutput(node *sessionNode) *sessionTreeNode {
 	s := node.summary
-	jn := &jsonTreeNode{
-		SessionID: string(s.SessionID),
-		Workspace: string(s.Workspace),
-		Label:        s.Label,
-		Summary:      s.Summary,
-		StartedAt:    s.StartedAt.UTC().Format(time.RFC3339),
-		Status:       s.Status,
-		TotalEvents:  s.TotalEvents,
-		CommandCount: s.CommandCount,
-		Agents:       s.Agents,
-		Children:     make([]*jsonTreeNode, 0, len(node.children)),
+	jn := &sessionTreeNode{
+		SessionID:    string(s.SessionID()),
+		Workspace:    string(s.Workspace()),
+		Label:        s.Label(),
+		Summary:      s.Summary(),
+		StartedAt:    s.StartedAt().UTC().Format(time.RFC3339),
+		Status:       s.Status(),
+		TotalEvents:  s.TotalEvents(),
+		CommandCount: s.CommandCount(),
+		Agents:       s.Agents(),
+		Children:     make([]*sessionTreeNode, 0, len(node.children)),
 	}
-	if s.EndedAt != nil {
-		endStr := s.EndedAt.UTC().Format(time.RFC3339)
+	if endedAt, ok := s.EndedAt().Get(); ok {
+		endStr := endedAt.UTC().Format(time.RFC3339)
 		jn.EndedAt = &endStr
-		dur := s.EndedAt.Sub(s.StartedAt).Seconds()
+		dur := endedAt.Sub(s.StartedAt()).Seconds()
 		jn.DurationSec = &dur
 	}
 	for _, child := range node.children {
-		jn.Children = append(jn.Children, sessionNodeToJSON(child))
+		jn.Children = append(jn.Children, sessionNodeToOutput(child))
 	}
 	return jn
 }
 
 func writeSessionTreeJSON(output io.Writer, roots []*sessionNode) error {
-	items := make([]*jsonTreeNode, 0, len(roots))
+	items := make([]*sessionTreeNode, 0, len(roots))
 	for _, root := range roots {
-		items = append(items, sessionNodeToJSON(root))
+		items = append(items, sessionNodeToOutput(root))
 	}
 	encoder := json.NewEncoder(output)
 	encoder.SetIndent("", "  ")
@@ -168,31 +154,31 @@ func writeSessionTreeJSON(output io.Writer, roots []*sessionNode) error {
 func printNode(output io.Writer, node *sessionNode, prefix string, isLast bool) error {
 	s := node.summary
 
-	connector := "├── "
+	connector := "\u251c\u2500\u2500 "
 	if isLast {
-		connector = "└── "
+		connector = "\u2514\u2500\u2500 "
 	}
 	if prefix == "" {
 		connector = ""
 	}
 
 	duration := "-"
-	if s.EndedAt != nil {
-		duration = formatDuration(s.EndedAt.Sub(s.StartedAt))
+	if endedAt, ok := s.EndedAt().Get(); ok {
+		duration = formatDuration(endedAt.Sub(s.StartedAt()))
 	}
 
 	label := ""
-	if s.Label != "" {
-		label = fmt.Sprintf(" [%s]", s.Label)
+	if s.Label() != "" {
+		label = fmt.Sprintf(" [%s]", s.Label())
 	}
 
 	line := fmt.Sprintf("%s%s%s [%s] %s (%s, %d cmds)%s\n",
 		prefix, connector,
-		s.SessionID,
-		s.Status,
-		formatOptionalColumn(s.Workspace.String()),
+		s.SessionID(),
+		s.Status(),
+		formatOptionalColumn(s.Workspace().String()),
 		duration,
-		s.CommandCount,
+		s.CommandCount(),
 		label,
 	)
 
@@ -205,7 +191,7 @@ func printNode(output io.Writer, node *sessionNode, prefix string, isLast bool) 
 		if isLast {
 			childPrefix += "    "
 		} else {
-			childPrefix += "│   "
+			childPrefix += "\u2502   "
 		}
 	}
 

@@ -7,13 +7,13 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/duck8823/traceary/domain/port"
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
-	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
-func TestDatasource_SearchEvents(t *testing.T) {
+func TestDatasource_Search(t *testing.T) {
 	t.Parallel()
 
 	migrations := fstest.MapFS{
@@ -47,8 +47,8 @@ CREATE TABLE command_audits (
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(dbPath, migrations)
-	if err := sut.Initialize(context.Background()); err != nil {
+	sut, storeManager := newEventDatasource(t, dbPath, migrations)
+	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -70,65 +70,48 @@ CREATE TABLE command_audits (
 		"github.com/duck8823/traceary",
 		time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC),
 	)
-	if err := sut.SaveCommandAudit(context.Background(), auditEvent, commandAudit); err != nil {
-		t.Fatalf("SaveCommandAudit() error = %v", err)
+	if err := sut.SaveWithAudit(context.Background(), auditEvent, commandAudit); err != nil {
+		t.Fatalf("SaveWithAudit() error = %v", err)
 	}
 
-	got, err := sut.SearchEvents(context.Background(), port.SearchEventsInput{
-		Query: "stdout",
-		Workspace:  "github.com/duck8823/traceary",
-		From:  time.Date(2026, 4, 8, 0, 0, 0, 0, time.UTC),
-		To:    time.Date(2026, 4, 9, 0, 0, 0, 0, time.UTC),
-		Limit: 10,
-	})
+	got, err := sut.Search(context.Background(), "stdout", types.Workspace("github.com/duck8823/traceary"), types.SessionID(""), types.Client(""), types.Agent(""), types.EventKind(""), time.Date(2026, 4, 8, 0, 0, 0, 0, time.UTC), time.Date(2026, 4, 9, 0, 0, 0, 0, time.UTC), 10, 0, false)
 	if err != nil {
-		t.Fatalf("SearchEvents() error = %v", err)
+		t.Fatalf("Search() error = %v", err)
 	}
 	if len(got) != 1 {
 		t.Fatalf("len(events) = %d, want 1", len(got))
 	}
-	if got[0].EventID().String() != "event-audit" {
-		t.Fatalf("EventID() = %q, want %q", got[0].EventID(), "event-audit")
+	if diff := cmp.Diff("event-audit", got[0].EventID().String()); diff != "" {
+		t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 	}
 
 	t.Run("searches with structural filters only", func(t *testing.T) {
 		t.Parallel()
 
-		filtered, err := sut.SearchEvents(context.Background(), port.SearchEventsInput{
-			Workspace:      "github.com/duck8823/traceary",
-			SessionID: "session-1",
-			Client:    "cli",
-			Agent:     "codex",
-			Kind:      "note",
-			Limit:     10,
-		})
+		filtered, err := sut.Search(context.Background(), "", types.Workspace("github.com/duck8823/traceary"), types.SessionID("session-1"), types.Client("cli"), types.Agent("codex"), types.EventKind("note"), time.Time{}, time.Time{}, 10, 0, false)
 		if err != nil {
-			t.Fatalf("SearchEvents() error = %v", err)
+			t.Fatalf("Search() error = %v", err)
 		}
 		if len(filtered) != 1 {
 			t.Fatalf("len(filtered) = %d, want 1", len(filtered))
 		}
-		if filtered[0].EventID().String() != "event-note" {
-			t.Fatalf("EventID() = %q, want %q", filtered[0].EventID(), "event-note")
+		if diff := cmp.Diff("event-note", filtered[0].EventID().String()); diff != "" {
+			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
-	t.Run("offset で 2 ページ目を取得できる", func(t *testing.T) {
+	t.Run("retrieves second page with offset", func(t *testing.T) {
 		t.Parallel()
 
-		filtered, err := sut.SearchEvents(context.Background(), port.SearchEventsInput{
-			Workspace:   "github.com/duck8823/traceary",
-			Limit:  1,
-			Offset: 1,
-		})
+		filtered, err := sut.Search(context.Background(), "", types.Workspace("github.com/duck8823/traceary"), types.SessionID(""), types.Client(""), types.Agent(""), types.EventKind(""), time.Time{}, time.Time{}, 1, 1, false)
 		if err != nil {
-			t.Fatalf("SearchEvents() error = %v", err)
+			t.Fatalf("Search() error = %v", err)
 		}
 		if len(filtered) != 1 {
 			t.Fatalf("len(filtered) = %d, want 1", len(filtered))
 		}
-		if filtered[0].EventID().String() != "event-note" {
-			t.Fatalf("EventID() = %q, want %q", filtered[0].EventID(), "event-note")
+		if diff := cmp.Diff("event-note", filtered[0].EventID().String()); diff != "" {
+			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 		}
 	})
 }
@@ -159,10 +142,10 @@ func newSearchEventFixture(
 	return model.EventOf(
 		eventID,
 		kind,
-		"cli",
+		types.Client("cli"),
 		agent,
 		sessionID,
-		workspace,
+		types.Workspace(workspace),
 		body,
 		createdAt,
 	)

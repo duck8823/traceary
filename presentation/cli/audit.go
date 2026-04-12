@@ -11,9 +11,8 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/usecase"
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/types"
-	"github.com/duck8823/traceary/presentation"
 )
 
 func (c *RootCLI) newAuditCommand() *cobra.Command {
@@ -65,9 +64,9 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 				return err
 			}
 
-			var exitCodePtr *int
+			exitCodeOpt := types.Empty[int]()
 			if exitCodeSet {
-				exitCodePtr = &exitCode
+				exitCodeOpt = types.Of(exitCode)
 			}
 
 			return c.runAudit(cmd.Context(), cmd.OutOrStdout(), auditCommandInput{
@@ -79,7 +78,7 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 				agent:          agent,
 				sessionID:      sessionID,
 				repo:           repo,
-				exitCode:       exitCodePtr,
+				exitCode:       exitCodeOpt,
 				idOnly:         idOnly,
 				asJSON:         asJSON,
 				allowSecrets:   allowSecrets,
@@ -136,46 +135,20 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 	return auditCmd
 }
 
-type auditPayloadInput struct {
-	positionalArgs []string
-	command        string
-	commandFlagSet bool
-	input          string
-	inputFlagSet   bool
-	output         string
-	outputFlagSet  bool
-}
-
-type auditCommandInput struct {
-	dbPath         string
-	command        string
-	input          string
-	output         string
-	client         string
-	agent          string
-	sessionID      string
-	repo           string
-	exitCode       *int
-	idOnly         bool
-	asJSON         bool
-	allowSecrets   bool
-	maxInputBytes  int
-	maxOutputBytes int
-}
-
 func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCommandInput) error {
-	if c.storeMaintenance == nil {
+	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.event == nil {
 		return xerrors.Errorf(Localize("record command audit usecase is not configured", "監査ログ記録ユースケースが設定されていません"))
 	}
 
-	_, err := resolveDBPath(input.dbPath)
+	resolvedDBPath, err := resolveDBPath(input.dbPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.storeMaintenance.Initialize(ctx); err != nil {
+	c.applyDatabasePath(resolvedDBPath)
+	if err := c.storeManagement.Initialize(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
@@ -202,27 +175,26 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve secret handling policy", "secret 取り扱いポリシーの解決に失敗しました"), err)
 	}
 
-	config := presentation.LoadConfig()
-
 	client, _ := types.ClientOf(resolveOptionalValue(input.client, "TRACEARY_CLIENT", defaultClientValue))
 	agent, _ := types.AgentOf(resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue))
 	sid, _ := types.SessionIDOf(sessionResolution.sessionID)
+	redaction := apptypes.NewAuditRedactionBuilder().
+		AllowSecrets(allowSecrets).
+		MaxInputBytes(maxInputBytes).
+		MaxOutputBytes(maxOutputBytes).
+		ExtraRedactPatterns(c.extraRedactPatterns).
+		Build()
 	event, commandAudit, err := c.event.Audit(ctx,
 		input.command, input.input, input.output,
 		client, agent, sid, types.Workspace(resolvedRepo),
 		input.exitCode,
-		usecase.AuditRedaction{
-			AllowSecrets:        allowSecrets,
-			MaxInputBytes:       maxInputBytes,
-			MaxOutputBytes:      maxOutputBytes,
-			ExtraRedactPatterns: config.Redact.ExtraPatterns,
-		},
+		redaction,
 	)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to record command audit", "監査ログ記録に失敗しました"), err)
 	}
 	if input.asJSON {
-		eventDetails, err := usecase.NewEventDetails(event, commandAudit)
+		eventDetails, err := apptypes.EventDetailsOf(event, types.Of(commandAudit))
 		if err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to build audit result", "監査ログ結果の構築に失敗しました"), err)
 		}

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 	"github.com/duck8823/traceary/presentation/mcpserver"
@@ -18,9 +18,9 @@ import (
 func TestServer_BuildAndTools(t *testing.T) {
 	t.Parallel()
 
-	server, dbPath := newTestServer(t)
+	server := newTestServer(t)
 	ctx := context.Background()
-	mcpServer, err := server.Build(ctx, dbPath)
+	mcpServer, err := server.Build(ctx)
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
@@ -39,7 +39,7 @@ func TestServer_BuildAndTools(t *testing.T) {
 	}
 	defer func() { _ = clientSession.Close() }()
 
-	t.Run("add_log がイベントを保存する", func(t *testing.T) {
+	t.Run("add_log saves an event", func(t *testing.T) {
 		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 			Name: "add_log",
 			Arguments: map[string]any{
@@ -107,12 +107,12 @@ func TestServer_BuildAndTools(t *testing.T) {
 		if result.IsError {
 			t.Fatalf("CallTool(add_log) returned tool error")
 		}
-		if got := extractJSONStringValue(t, result, "kind"); got != "compact_summary" {
-			t.Fatalf("kind = %q, want %q", got, "compact_summary")
+		if diff := cmp.Diff("compact_summary", extractJSONStringValue(t, result, "kind")); diff != "" {
+			t.Fatalf("kind mismatch (-want +got):\n%s", diff)
 		}
 	})
 
-	t.Run("add_audit と get_context が動作する", func(t *testing.T) {
+	t.Run("add_audit and get_context work together", func(t *testing.T) {
 		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 			Name: "add_audit",
 			Arguments: map[string]any{
@@ -149,7 +149,7 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 	})
 
-	t.Run("session tools が動作する", func(t *testing.T) {
+	t.Run("session tools work correctly", func(t *testing.T) {
 		startResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 			Name: "start_session",
 			Arguments: map[string]any{
@@ -194,11 +194,11 @@ func TestServer_BuildAndTools(t *testing.T) {
 		if sessionID == "" {
 			t.Fatalf("session_id = empty, want non-empty")
 		}
-		if got := extractJSONStringValue(t, activeResult, "session_id"); got != sessionID {
-			t.Fatalf("active session_id = %q, want %q", got, sessionID)
+		if diff := cmp.Diff(sessionID, extractJSONStringValue(t, activeResult, "session_id")); diff != "" {
+			t.Fatalf("active session_id mismatch (-want +got):\n%s", diff)
 		}
-		if got := extractJSONStringValue(t, latestResult, "session_id"); got != sessionID {
-			t.Fatalf("latest session_id = %q, want %q", got, sessionID)
+		if diff := cmp.Diff(sessionID, extractJSONStringValue(t, latestResult, "session_id")); diff != "" {
+			t.Fatalf("latest session_id mismatch (-want +got):\n%s", diff)
 		}
 
 		endResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
@@ -213,12 +213,12 @@ func TestServer_BuildAndTools(t *testing.T) {
 		if endResult.IsError {
 			t.Fatalf("CallTool(end_session) returned tool error")
 		}
-		if got := extractJSONStringValue(t, endResult, "kind"); got != "session_ended" {
-			t.Fatalf("end kind = %q, want %q", got, "session_ended")
+		if diff := cmp.Diff("session_ended", extractJSONStringValue(t, endResult, "kind")); diff != "" {
+			t.Fatalf("end kind mismatch (-want +got):\n%s", diff)
 		}
 	})
 
-	t.Run("tool error を返せる", func(t *testing.T) {
+	t.Run("returns tool error", func(t *testing.T) {
 		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 			Name: "add_log",
 			Arguments: map[string]any{
@@ -264,7 +264,7 @@ func extractJSONStringValue(t *testing.T, result *mcp.CallToolResult, key string
 	return stringValue
 }
 
-func newTestServer(t *testing.T) (*mcpserver.Server, string) {
+func newTestServer(t *testing.T) *mcpserver.Server {
 	t.Helper()
 
 	migrations := fstest.MapFS{
@@ -296,44 +296,41 @@ CREATE TABLE command_audits (
     exit_code INTEGER
 );`),
 		},
+		"000004_create_sessions.sql": {
+			Data: []byte(`
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id TEXT PRIMARY KEY,
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    client TEXT NOT NULL DEFAULT '',
+    agent TEXT NOT NULL DEFAULT '',
+    workspace TEXT NOT NULL DEFAULT '',
+    label TEXT NOT NULL DEFAULT '',
+    summary TEXT NOT NULL DEFAULT '',
+    parent_session_id TEXT REFERENCES sessions(session_id)
+);`),
+		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	datasource := sqlite.NewDatasource(dbPath, migrations)
+	db := sqlite.NewDatabase(dbPath, migrations)
+	eventDatasource := sqlite.NewEventDatasource(db)
+	sessionDatasource := sqlite.NewSessionDatasource(db)
+	storeManagementDatasource := sqlite.NewStoreManagementDatasource(db)
 
-	initStore := usecase.NewInitializeStoreUsecase(datasource)
-	recordLog := usecase.NewRecordLogUsecase(datasource)
-	recordAudit := usecase.NewRecordCommandAuditUsecase(datasource)
-	recordBoundary := usecase.NewRecordSessionBoundaryUsecase(datasource, datasource)
-	searchEvents := queryservice.NewSearchEventsQueryService(datasource)
-	listRecent := queryservice.NewListRecentEventsQueryService(datasource)
-	getContext := queryservice.NewGetContextQueryService(datasource)
-	getDetails := queryservice.NewGetEventDetailsQueryService(datasource)
-	findLatest := queryservice.NewFindLatestSessionQueryService(datasource)
-	listSessions := queryservice.NewListSessionsQueryService(datasource)
-
-	listTimeline := queryservice.NewListTimelineBlocksQueryService(datasource)
-	eventUsecase := usecase.NewEventUsecaseAdapter(
-		recordLog, recordAudit,
-		listRecent, searchEvents, getDetails, getContext,
-		listTimeline,
-	)
-	sessionUsecase := usecase.NewSessionUsecaseAdapter(
-		recordBoundary, nil,
-		findLatest, listSessions, listRecent,
-	)
-	storeMaintenanceUsecase := usecase.NewStoreMaintenanceUsecaseAdapter(
-		initStore, nil, nil, nil, nil,
-	)
+	eventUsecase := usecase.NewEventUsecase(eventDatasource, eventDatasource)
+	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource)
+	storeManagementUsecase := usecase.NewStoreManagementUsecase(storeManagementDatasource)
 
 	server, err := mcpserver.NewServer(
 		"test-version",
+		nil,
 		eventUsecase,
 		sessionUsecase,
-		storeMaintenanceUsecase,
+		storeManagementUsecase,
 	)
 	if err != nil {
 		t.Fatalf("NewServer() error = %v", err)
 	}
 
-	return server, dbPath
+	return server
 }

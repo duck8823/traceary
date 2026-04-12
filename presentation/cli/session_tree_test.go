@@ -8,7 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/duck8823/traceary/application/usecase"
+	"github.com/google/go-cmp/cmp"
+
+	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
@@ -20,35 +23,40 @@ func TestRootCLI_SessionTreeCommand_JSON(t *testing.T) {
 
 		endedAt := time.Date(2026, 4, 9, 13, 30, 0, 0, time.UTC)
 		listStub := &sessionUsecaseStub{
-			listResult: []*usecase.SessionSummary{
-				{
-					SessionID:   "root-session",
-					Workspace:        "duck8823/traceary",
-					Label:       "sprint",
-					StartedAt:   time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
-					EndedAt:     &endedAt,
-					Status:      "ended",
-					TotalEvents: 10,
-					CommandCount: 5,
-					Agents:      []string{"claude"},
-				},
-				{
-					SessionID:       "child-session",
-					Workspace:            "duck8823/traceary",
-					ParentSessionID: "root-session",
-					StartedAt:       time.Date(2026, 4, 9, 12, 30, 0, 0, time.UTC),
-					Status:          "active",
-					TotalEvents:     3,
-					CommandCount:    2,
-					Agents:          []string{"codex"},
-				},
+			listResult: []apptypes.SessionSummary{
+				apptypes.SessionSummaryOf(
+					types.SessionID("root-session"),
+					types.Workspace("duck8823/traceary"),
+					time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
+					types.Of(endedAt),
+					"ended",
+					10,
+					5,
+					[]string{"claude"},
+					"sprint",
+					"",
+					types.SessionID(""),
+				),
+				apptypes.SessionSummaryOf(
+					types.SessionID("child-session"),
+					types.Workspace("duck8823/traceary"),
+					time.Date(2026, 4, 9, 12, 30, 0, 0, time.UTC),
+					types.Empty[time.Time](),
+					"active",
+					3,
+					2,
+					[]string{"codex"},
+					"",
+					"",
+					types.SessionID("root-session"),
+				),
 			},
 		}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
-			Session: listStub,
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithSession(listStub),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
@@ -90,7 +98,7 @@ func TestRootCLI_SessionTreeCommand_JSON(t *testing.T) {
 		if !strings.Contains(output, `"session_id": "child-session"`) {
 			t.Fatalf("JSON output should contain child session_id, got: %s", output)
 		}
-		// Child has no ended_at so no duration_sec — just verify it's nested in children
+		// Child has no ended_at so no duration_sec -- just verify it's nested in children
 		if !strings.Contains(output, `"children"`) {
 			t.Fatalf("JSON output should contain children field, got: %s", output)
 		}
@@ -101,10 +109,10 @@ func TestRootCLI_SessionTreeCommand_JSON(t *testing.T) {
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
-			Session: &sessionUsecaseStub{},
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithSession(&sessionUsecaseStub{}),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"session", "tree", "--db-path", dbPath, "--json"})
@@ -112,8 +120,8 @@ func TestRootCLI_SessionTreeCommand_JSON(t *testing.T) {
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		if strings.TrimSpace(stdout.String()) != "[]" {
-			t.Fatalf("stdout = %q, want %q", stdout.String(), "[]\n")
+		if diff := cmp.Diff("[]", strings.TrimSpace(stdout.String())); diff != "" {
+			t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -122,23 +130,27 @@ func TestRootCLI_SessionTreeCommand_JSON(t *testing.T) {
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		listStub := &sessionUsecaseStub{
-			listResult: []*usecase.SessionSummary{
-				{
-					SessionID:   "text-session",
-					Workspace:        "duck8823/traceary",
-					StartedAt:   time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
-					Status:      "active",
-					TotalEvents: 1,
-					CommandCount: 0,
-					Agents:      []string{},
-				},
+			listResult: []apptypes.SessionSummary{
+				apptypes.SessionSummaryOf(
+					types.SessionID("text-session"),
+					types.Workspace("duck8823/traceary"),
+					time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
+					types.Empty[time.Time](),
+					"active",
+					1,
+					0,
+					[]string{},
+					"",
+					"",
+					types.SessionID(""),
+				),
 			},
 		}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
-			Session: listStub,
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithSession(listStub),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"session", "tree", "--db-path", dbPath})

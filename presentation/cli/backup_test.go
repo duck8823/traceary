@@ -14,9 +14,7 @@ func TestRootCLI_BackupCreateCommand(t *testing.T) {
 
 	outputPath := filepath.Join(t.TempDir(), "traceary-backup.db")
 
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
-	}).Command()
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()
 	stdout := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -39,9 +37,7 @@ func TestRootCLI_BackupCreateCommand(t *testing.T) {
 func TestRootCLI_BackupCreateCommand_MissingOutputReturnsError(t *testing.T) {
 	t.Parallel()
 
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
-	}).Command()
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"backup", "create"})
@@ -57,9 +53,7 @@ func TestRootCLI_BackupCreateCommand_PositionalArgument(t *testing.T) {
 
 	outputPath := filepath.Join(t.TempDir(), "traceary-backup.db")
 
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
-	}).Command()
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"backup", "create", "--db-path", "/tmp/test-traceary.db", outputPath})
@@ -72,9 +66,7 @@ func TestRootCLI_BackupCreateCommand_PositionalArgument(t *testing.T) {
 func TestRootCLI_BackupCreateCommand_DuplicateOutputReturnsError(t *testing.T) {
 	t.Parallel()
 
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
-	}).Command()
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"backup", "create", "--output", "/tmp/a.db", "/tmp/b.db"})
@@ -90,9 +82,7 @@ func TestRootCLI_BackupRestoreCommand(t *testing.T) {
 
 	inputPath := filepath.Join(t.TempDir(), "traceary-backup.db")
 
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
-	}).Command()
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()
 	stdout := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -115,9 +105,7 @@ func TestRootCLI_BackupRestoreCommand(t *testing.T) {
 func TestRootCLI_BackupRestoreCommand_MissingInputReturnsError(t *testing.T) {
 	t.Parallel()
 
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
-	}).Command()
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"backup", "restore"})
@@ -135,7 +123,7 @@ func TestRootCLI_BackupHelp(t *testing.T) {
 	t.Parallel()
 
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+	rootCmd := cli.NewRootCLI().Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"backup", "--help"})

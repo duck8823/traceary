@@ -8,13 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
-)
 
-type hooksGuideCommandInput struct {
-	client     string
-	projectDir string
-	outputPath string
-}
+	"github.com/duck8823/traceary/domain/types"
+)
 
 func (c *RootCLI) newHooksGuideCommand() *cobra.Command {
 	var (
@@ -59,7 +55,7 @@ func (c *RootCLI) runHooksGuide(
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve project directory", "project directory の解決に失敗しました"), err)
 	}
-	guide, err := buildHooksGuide(input.client, resolvedProjectDir, input.outputPath)
+	guide, err := buildHooksGuide(c, input.client, resolvedProjectDir, input.outputPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to build hooks guide", "hooks guide の生成に失敗しました"), err)
 	}
@@ -79,14 +75,20 @@ type hooksGuide struct {
 	notes          []string
 }
 
-func buildHooksGuide(client string, projectDir string, outputPath string) (*hooksGuide, error) {
-	resolvedClient, err := normalizeHooksClient(client)
+func buildHooksGuide(c *RootCLI, client string, projectDir string, outputPath string) (*hooksGuide, error) {
+	orchestrator := c.hooksOrchestrator
+	resolvedClient, err := orchestrator.NormalizeClient(client)
 	if err != nil {
-		return nil, err
+		return nil, xerrors.Errorf("failed to normalize client: %w", err)
 	}
-	resolvedOutputPath, err := resolveHooksInstallOutputPath(resolvedClient, projectDir, outputPath)
+
+	outputPathOption := types.Empty[string]()
+	if trimmedOutput := strings.TrimSpace(outputPath); trimmedOutput != "" {
+		outputPathOption = types.Of(trimmedOutput)
+	}
+	resolvedOutputPath, err := orchestrator.ResolveInstallPath(resolvedClient, projectDir, outputPathOption)
 	if err != nil {
-		return nil, err
+		return nil, xerrors.Errorf("failed to resolve install path: %w", err)
 	}
 
 	quotedProjectDir := shellQuote(projectDir)

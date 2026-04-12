@@ -85,41 +85,42 @@ func TestParseFlexibleTime(t *testing.T) {
 	}
 }
 
-func TestParseFlexibleTimePtr(t *testing.T) {
+func TestParseFlexibleTimeOptional(t *testing.T) {
 	t.Parallel()
 
-	t.Run("empty string returns nil", func(t *testing.T) {
+	t.Run("empty string returns empty Optional", func(t *testing.T) {
 		t.Parallel()
 
-		got, err := parseFlexibleTimePtr("", false)
+		got, err := parseFlexibleTimeOptional("", false)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if got != nil {
-			t.Errorf("expected nil, got %v", got)
+		if v, ok := got.Get(); ok {
+			t.Errorf("expected empty Optional, got %v", v)
 		}
 	})
 
-	t.Run("valid date returns non-nil pointer", func(t *testing.T) {
+	t.Run("valid date returns present Optional", func(t *testing.T) {
 		t.Parallel()
 
-		got, err := parseFlexibleTimePtr("2026-04-11", false)
+		got, err := parseFlexibleTimeOptional("2026-04-11", false)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if got == nil {
-			t.Fatal("expected non-nil pointer")
+		if !got.IsPresent() {
+			t.Fatal("expected present Optional")
 		}
 		want := time.Date(2026, 4, 11, 0, 0, 0, 0, time.UTC)
-		if !got.Equal(want) {
-			t.Errorf("got %v, want %v", *got, want)
+		v, _ := got.Get()
+		if !v.Equal(want) {
+			t.Errorf("got %v, want %v", v, want)
 		}
 	})
 
 	t.Run("invalid value returns error", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := parseFlexibleTimePtr("bad", false)
+		_, err := parseFlexibleTimeOptional("bad", false)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}

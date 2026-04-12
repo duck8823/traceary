@@ -8,6 +8,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	_ "modernc.org/sqlite"
 
 	"github.com/duck8823/traceary/domain/model"
@@ -18,9 +19,9 @@ import (
 func TestDatasource_CollectGarbage_DryRun(t *testing.T) {
 	t.Parallel()
 
-	dbPath, sut := prepareGCFixture(t)
+	dbPath, fixture := prepareGCFixture(t)
 
-	deletedCount, err := sut.CollectGarbage(
+	deletedCount, err := fixture.storeManager.CollectGarbage(
 		context.Background(),
 		time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC),
 		true,
@@ -28,21 +29,21 @@ func TestDatasource_CollectGarbage_DryRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
-	if deletedCount != 1 {
-		t.Fatalf("deletedCount = %d, want 1", deletedCount)
+	if diff := cmp.Diff(1, deletedCount); diff != "" {
+		t.Fatalf("deletedCount mismatch (-want +got):\n%s", diff)
 	}
 
-	if got := countEvents(t, dbPath); got != 2 {
-		t.Fatalf("event count = %d, want 2", got)
+	if diff := cmp.Diff(2, countEvents(t, dbPath)); diff != "" {
+		t.Fatalf("event count mismatch (-want +got):\n%s", diff)
 	}
 }
 
-func TestDatasource_CollectGarbage_古いイベントと監査情報を削除する(t *testing.T) {
+func TestDatasource_CollectGarbage_deletesOldEventsAndAudits(t *testing.T) {
 	t.Parallel()
 
-	dbPath, sut := prepareGCFixture(t)
+	dbPath, fixture := prepareGCFixture(t)
 
-	deletedCount, err := sut.CollectGarbage(
+	deletedCount, err := fixture.storeManager.CollectGarbage(
 		context.Background(),
 		time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC),
 		false,
@@ -50,19 +51,24 @@ func TestDatasource_CollectGarbage_古いイベントと監査情報を削除す
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
-	if deletedCount != 1 {
-		t.Fatalf("deletedCount = %d, want 1", deletedCount)
+	if diff := cmp.Diff(1, deletedCount); diff != "" {
+		t.Fatalf("deletedCount mismatch (-want +got):\n%s", diff)
 	}
 
-	if got := countEvents(t, dbPath); got != 1 {
-		t.Fatalf("event count = %d, want 1", got)
+	if diff := cmp.Diff(1, countEvents(t, dbPath)); diff != "" {
+		t.Fatalf("event count mismatch (-want +got):\n%s", diff)
 	}
-	if got := countCommandAudits(t, dbPath); got != 0 {
-		t.Fatalf("command audit count = %d, want 0", got)
+	if diff := cmp.Diff(0, countCommandAudits(t, dbPath)); diff != "" {
+		t.Fatalf("command audit count mismatch (-want +got):\n%s", diff)
 	}
 }
 
-func prepareGCFixture(t *testing.T) (string, *sqlite.Datasource) {
+type gcFixture struct {
+	eventDS      *sqlite.EventDatasource
+	storeManager *sqlite.StoreManagementDatasource
+}
+
+func prepareGCFixture(t *testing.T) (string, *gcFixture) {
 	t.Helper()
 
 	migrations := fstest.MapFS{
@@ -96,14 +102,14 @@ CREATE TABLE command_audits (
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(dbPath, migrations)
-	if err := sut.Initialize(context.Background()); err != nil {
+	eventDS, storeManager := newEventDatasource(t, dbPath, migrations)
+	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
 	oldAuditEvent, oldCommandAudit := newOldAuditFixture(t)
-	if err := sut.SaveCommandAudit(context.Background(), oldAuditEvent, oldCommandAudit); err != nil {
-		t.Fatalf("SaveCommandAudit(old) error = %v", err)
+	if err := eventDS.SaveWithAudit(context.Background(), oldAuditEvent, oldCommandAudit); err != nil {
+		t.Fatalf("SaveWithAudit(old) error = %v", err)
 	}
 	newNoteEvent := newGCEventFixture(
 		t,
@@ -112,11 +118,11 @@ CREATE TABLE command_audits (
 		"recent note",
 		time.Date(2026, 4, 8, 0, 0, 0, 0, time.UTC),
 	)
-	if err := sut.Save(context.Background(), newNoteEvent); err != nil {
+	if err := eventDS.Save(context.Background(), newNoteEvent); err != nil {
 		t.Fatalf("Save(new) error = %v", err)
 	}
 
-	return dbPath, sut
+	return dbPath, &gcFixture{eventDS: eventDS, storeManager: storeManager}
 }
 
 func newOldAuditFixture(t *testing.T) (*model.Event, *model.CommandAudit) {

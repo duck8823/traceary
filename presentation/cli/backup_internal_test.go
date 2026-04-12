@@ -3,13 +3,13 @@ package cli
 import (
 	"bytes"
 	"context"
-	"time"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/duck8823/traceary/application/usecase"
+	apptypes "github.com/duck8823/traceary/application/types"
 )
 
 func TestConfirmBackupRestore(t *testing.T) {
@@ -78,11 +78,11 @@ func (s *restoreStoreBackupUsecaseForTest) RestoreBackup(_ context.Context, _ st
 	s.called = true
 	return nil
 }
-func (s *restoreStoreBackupUsecaseForTest) CollectGarbage(_ context.Context, _ time.Time, _ bool) (*usecase.CollectGarbageResult, error) {
-	return nil, nil
+func (s *restoreStoreBackupUsecaseForTest) CollectGarbage(_ context.Context, _ time.Time, _ bool) (apptypes.CollectGarbageResult, error) {
+	return apptypes.CollectGarbageResult{}, nil
 }
-func (s *restoreStoreBackupUsecaseForTest) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool) (*usecase.CloseStaleSessionsResult, error) {
-	return nil, nil
+func (s *restoreStoreBackupUsecaseForTest) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool) (apptypes.CloseStaleSessionsResult, error) {
+	return apptypes.CloseStaleSessionsResult{}, nil
 }
 
 func TestRunBackupRestore_InteractiveConfirmation(t *testing.T) {
@@ -98,9 +98,7 @@ func TestRunBackupRestore_InteractiveConfirmation(t *testing.T) {
 	}
 
 	restoreBackup := &restoreStoreBackupUsecaseForTest{}
-	rootCLI := NewRootCLI(RootCLIOptions{
-		StoreMaintenance: restoreBackup,
-	})
+	rootCLI := NewRootCLI(WithStoreManagement(restoreBackup))
 	stdout := &bytes.Buffer{}
 
 	err := rootCLI.runBackupRestore(context.Background(), stdout, backupRestoreCommandInput{
@@ -136,9 +134,7 @@ func TestRunBackupRestore_AssumeYesSkipsInteractiveConfirmation(t *testing.T) {
 	}
 
 	restoreBackup := &restoreStoreBackupUsecaseForTest{}
-	rootCLI := NewRootCLI(RootCLIOptions{
-		StoreMaintenance: restoreBackup,
-	})
+	rootCLI := NewRootCLI(WithStoreManagement(restoreBackup))
 	stdout := &bytes.Buffer{}
 
 	err := rootCLI.runBackupRestore(context.Background(), stdout, backupRestoreCommandInput{

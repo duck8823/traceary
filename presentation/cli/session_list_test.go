@@ -7,7 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/duck8823/traceary/application/usecase"
+	"github.com/google/go-cmp/cmp"
+
+	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
@@ -19,27 +22,27 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 
 		endedAt := time.Date(2026, 4, 9, 13, 30, 0, 0, time.UTC)
 		listStub := &sessionUsecaseStub{
-			listResult: []*usecase.SessionSummary{
-				{
-					SessionID:       "session-1",
-					Workspace:       "duck8823/traceary",
-					Label:           "docs",
-					Summary:         "Document the public session metadata surface for operators.",
-					ParentSessionID: "parent-1",
-					StartedAt:       time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
-					EndedAt:         &endedAt,
-					Status:          "ended",
-					TotalEvents:     42,
-					CommandCount:    30,
-					Agents:          []string{"claude", "codex"},
-				},
+			listResult: []apptypes.SessionSummary{
+				apptypes.SessionSummaryOf(
+					types.SessionID("session-1"),
+					types.Workspace("duck8823/traceary"),
+					time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
+					types.Of(endedAt),
+					"ended",
+					42,
+					30,
+					[]string{"claude", "codex"},
+					"docs",
+					"Document the public session metadata surface for operators.",
+					types.SessionID("parent-1"),
+				),
 			},
 		}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
-			Session:          listStub,
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithSession(listStub),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
@@ -80,10 +83,10 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
-			Session:          &sessionUsecaseStub{},
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithSession(&sessionUsecaseStub{}),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"session", "list", "--db-path", dbPath})
@@ -91,36 +94,37 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		if stdout.String() != "No sessions found.\n" {
-			t.Fatalf("stdout = %q, want empty message", stdout.String())
+		if diff := cmp.Diff("No sessions found.\n", stdout.String()); diff != "" {
+			t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 		}
 	})
 
-	t.Run("JSON 形式で出力できる", func(t *testing.T) {
+	t.Run("outputs in JSON format", func(t *testing.T) {
 		t.Parallel()
 
 		endedAt := time.Date(2026, 4, 9, 12, 5, 0, 0, time.UTC)
 		listStub := &sessionUsecaseStub{
-			listResult: []*usecase.SessionSummary{
-				{
-					SessionID:       "session-json",
-					Label:           "release",
-					Summary:         "Prepare release notes",
-					ParentSessionID: "root-session",
-					StartedAt:       time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
-					EndedAt:         &endedAt,
-					Status:          "ended",
-					TotalEvents:     5,
-					CommandCount:    3,
-					Agents:          []string{"claude"},
-				},
+			listResult: []apptypes.SessionSummary{
+				apptypes.SessionSummaryOf(
+					types.SessionID("session-json"),
+					types.Workspace(""),
+					time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
+					types.Of(endedAt),
+					"ended",
+					5,
+					3,
+					[]string{"claude"},
+					"release",
+					"Prepare release notes",
+					types.SessionID("root-session"),
+				),
 			},
 		}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
-			Session:          listStub,
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithSession(listStub),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"session", "list", "--db-path", "/tmp/test-traceary.db", "--json"})
@@ -151,22 +155,27 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		listStub := &sessionUsecaseStub{
-			listResult: []*usecase.SessionSummary{
-				{
-					SessionID:       "session-sanitized",
-					Label:           "release\tcandidate",
-					Summary:         "Keep summary output readable",
-					ParentSessionID: "root\nsession",
-					StartedAt:       time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
-					Status:          "active",
-				},
+			listResult: []apptypes.SessionSummary{
+				apptypes.SessionSummaryOf(
+					types.SessionID("session-sanitized"),
+					types.Workspace(""),
+					time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
+					types.Empty[time.Time](),
+					"active",
+					0,
+					0,
+					nil,
+					"release\tcandidate",
+					"Keep summary output readable",
+					types.SessionID("root\nsession"),
+				),
 			},
 		}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
-			Session:          listStub,
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithSession(listStub),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"session", "list", "--db-path", dbPath})
@@ -189,13 +198,13 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("--from が不正な形式ならエラー", func(t *testing.T) {
+	t.Run("returns error when --from has invalid format", func(t *testing.T) {
 		t.Parallel()
 
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
-			Session:          &sessionUsecaseStub{},
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithSession(&sessionUsecaseStub{}),
+		).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"session", "list", "--db-path", "/tmp/test-traceary.db", "--from", "invalid"})
@@ -205,13 +214,13 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("--to が不正な形式ならエラー", func(t *testing.T) {
+	t.Run("returns error when --to has invalid format", func(t *testing.T) {
 		t.Parallel()
 
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
-			Session:          &sessionUsecaseStub{},
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithSession(&sessionUsecaseStub{}),
+		).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"session", "list", "--db-path", "/tmp/test-traceary.db", "--to", "not-a-date"})
@@ -225,10 +234,10 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		t.Parallel()
 
 		listStub := &sessionUsecaseStub{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
-			Session:          listStub,
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithSession(listStub),
+		).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"session", "list", "--db-path", "/tmp/test-traceary.db", "--client", "hook"})

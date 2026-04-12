@@ -26,20 +26,20 @@ func TestAssets_returnsAllCanonicalScripts(t *testing.T) {
 	}
 
 	for _, asset := range assets {
-		if _, ok := expectedScripts[asset.Name]; ok {
-			expectedScripts[asset.Name] = true
+		if _, ok := expectedScripts[asset.Name()]; ok {
+			expectedScripts[asset.Name()] = true
 		}
 
-		if asset.Content == "" {
-			t.Errorf("asset %q has empty content", asset.Name)
+		if asset.Content() == "" {
+			t.Errorf("asset %q has empty content", asset.Name())
 		}
 
-		if strings.Contains(asset.Content, "\r\n") {
-			t.Errorf("asset %q contains CRLF line endings", asset.Name)
+		if strings.Contains(asset.Content(), "\r\n") {
+			t.Errorf("asset %q contains CRLF line endings", asset.Name())
 		}
 
-		if !strings.HasPrefix(asset.Content, "#!/bin/bash") {
-			t.Errorf("asset %q does not start with shebang", asset.Name)
+		if !strings.HasPrefix(asset.Content(), "#!/bin/bash") {
+			t.Errorf("asset %q does not start with shebang", asset.Name())
 		}
 	}
 
@@ -60,7 +60,7 @@ func TestAssets_contentContainsExpectedFunctions(t *testing.T) {
 
 	assetMap := make(map[string]string)
 	for _, a := range assets {
-		assetMap[a.Name] = a.Content
+		assetMap[a.Name()] = a.Content()
 	}
 
 	// common.sh should have key helper functions

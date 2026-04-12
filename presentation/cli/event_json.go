@@ -2,97 +2,72 @@ package cli
 
 import (
 	"encoding/json"
-
-	"github.com/duck8823/traceary/application/usecase"
 	"io"
 
 	"golang.org/x/xerrors"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 )
 
-type eventJSON struct {
-	EventID   string `json:"event_id"`
-	Kind      string `json:"kind"`
-	Client    string `json:"client"`
-	Agent     string `json:"agent"`
-	SessionID string `json:"session_id"`
-	Workspace string `json:"workspace"`
-	Message   string `json:"message"`
-	CreatedAt string `json:"created_at"`
-}
-
-type commandAuditJSON struct {
-	Command         string `json:"command"`
-	Input           string `json:"input"`
-	Output          string `json:"output"`
-	InputTruncated  bool   `json:"input_truncated"`
-	OutputTruncated bool   `json:"output_truncated"`
-	ExitCode        *int   `json:"exit_code,omitempty"`
-}
-
-type eventDetailsJSON struct {
-	Event        eventJSON         `json:"event"`
-	CommandAudit *commandAuditJSON `json:"command_audit,omitempty"`
-}
-
 func writeEventsJSON(output io.Writer, events []*model.Event) error {
-	serializedEvents := make([]eventJSON, 0, len(events))
-	for _, event := range events {
-		serializedEvents = append(serializedEvents, newEventJSON(event))
+	serializedEvents := make([]event, 0, len(events))
+	for _, e := range events {
+		serializedEvents = append(serializedEvents, newEventOutput(e))
 	}
 
 	return writeJSON(output, serializedEvents)
 }
 
-func writeEventDetailsJSON(output io.Writer, eventDetails *usecase.EventDetails) error {
-	if eventDetails == nil {
-		return xerrors.Errorf(Localize("event details must not be nil", "イベント詳細は nil にできません"))
+func writeEventDetailsJSON(output io.Writer, details apptypes.EventDetails) error {
+	serializedDetails := eventDetails{
+		Event: newEventOutput(details.Event()),
+	}
+	auditOpt := details.CommandAudit()
+	if audit, ok := auditOpt.Get(); ok {
+		serializedDetails.CommandAudit = newCommandAuditOutput(audit)
 	}
 
-	serializedEventDetails := eventDetailsJSON{
-		Event: newEventJSON(eventDetails.Event()),
-	}
-	if eventDetails.CommandAudit() != nil {
-		serializedEventDetails.CommandAudit = newCommandAuditJSON(eventDetails.CommandAudit())
-	}
-
-	return writeJSON(output, serializedEventDetails)
+	return writeJSON(output, serializedDetails)
 }
 
-func writeEventJSON(output io.Writer, event *model.Event) error {
-	if event == nil {
+func writeEventJSON(output io.Writer, e *model.Event) error {
+	if e == nil {
 		return xerrors.Errorf(Localize("event must not be nil", "イベントは nil にできません"))
 	}
 
-	return writeJSON(output, newEventJSON(event))
+	return writeJSON(output, newEventOutput(e))
 }
 
-func newEventJSON(event *model.Event) eventJSON {
-	return eventJSON{
-		EventID:   event.EventID().String(),
-		Kind:      event.Kind().String(),
-		Client:    event.Client(),
-		Agent:     event.Agent().String(),
-		SessionID: event.SessionID().String(),
-		Workspace:      event.Workspace(),
-		Message:   event.Body(),
-		CreatedAt: event.CreatedAt().UTC().Format("2006-01-02T15:04:05Z07:00"),
+func newEventOutput(e *model.Event) event {
+	return event{
+		EventID:   e.EventID().String(),
+		Kind:      e.Kind().String(),
+		Client:    e.Client().String(),
+		Agent:     e.Agent().String(),
+		SessionID: e.SessionID().String(),
+		Workspace: e.Workspace().String(),
+		Message:   e.Body(),
+		CreatedAt: e.CreatedAt().UTC().Format("2006-01-02T15:04:05Z07:00"),
 	}
 }
 
-func newCommandAuditJSON(commandAudit *model.CommandAudit) *commandAuditJSON {
-	if commandAudit == nil {
+func newCommandAuditOutput(audit *model.CommandAudit) *commandAudit {
+	if audit == nil {
 		return nil
 	}
 
-	return &commandAuditJSON{
-		Command:         commandAudit.Command(),
-		Input:           commandAudit.Input(),
-		Output:          commandAudit.Output(),
-		InputTruncated:  commandAudit.InputTruncated(),
-		OutputTruncated: commandAudit.OutputTruncated(),
-		ExitCode:        commandAudit.ExitCode(),
+	var exitCode *int
+	if ec, ok := audit.ExitCode().Get(); ok {
+		exitCode = &ec
+	}
+	return &commandAudit{
+		Command:         audit.Command(),
+		Input:           audit.Input(),
+		Output:          audit.Output(),
+		InputTruncated:  audit.InputTruncated(),
+		OutputTruncated: audit.OutputTruncated(),
+		ExitCode:        exitCode,
 	}
 }
 

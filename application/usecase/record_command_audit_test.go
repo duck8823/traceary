@@ -5,8 +5,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 type commandAuditSaverStub struct {
@@ -15,7 +19,12 @@ type commandAuditSaverStub struct {
 	err               error
 }
 
-func (s *commandAuditSaverStub) SaveCommandAudit(
+func (s *commandAuditSaverStub) Save(_ context.Context, event *model.Event) error {
+	s.savedEvent = event
+	return s.err
+}
+
+func (s *commandAuditSaverStub) SaveWithAudit(
 	_ context.Context,
 	event *model.Event,
 	commandAudit *model.CommandAudit,
@@ -25,29 +34,31 @@ func (s *commandAuditSaverStub) SaveCommandAudit(
 	return s.err
 }
 
-func TestRecordCommandAuditUsecase_Run(t *testing.T) {
+func TestEventUsecase_Audit(t *testing.T) {
 	t.Parallel()
 
 	t.Run("saves audit event successfully", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &commandAuditSaverStub{}
-		sut := usecase.NewRecordCommandAuditUsecase(stub)
+		sut := usecase.NewEventUsecase(stub, nil)
 
-		event, commandAudit, err := sut.Run(context.Background(), usecase.RecordCommandAuditInput{
-			Command:   "go test ./...",
-			Input:     "stdin",
-			Output:    "stdout",
-			Client:    "cli",
-			Agent:     "codex",
-			SessionID: "session-1",
-			Workspace:      "duck8823/traceary",
-		})
+		event, commandAudit, err := sut.Audit(context.Background(),
+			"go test ./...",
+			"stdin",
+			"stdout",
+			types.Client("cli"),
+			types.Agent("codex"),
+			types.SessionID("session-1"),
+			types.Workspace("duck8823/traceary"),
+			types.Empty[int](),
+			apptypes.NewAuditRedactionBuilder().Build(),
+		)
 		if err != nil {
-			t.Fatalf("Run() error = %v", err)
+			t.Fatalf("Audit() error = %v", err)
 		}
 		if event == nil || commandAudit == nil {
-			t.Fatalf("Run() returned nil values")
+			t.Fatalf("Audit() returned nil values")
 		}
 		if stub.savedEvent != event {
 			t.Fatalf("saved event mismatch")
@@ -55,11 +66,11 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		if stub.savedCommandAudit != commandAudit {
 			t.Fatalf("saved command audit mismatch")
 		}
-		if event.Kind().String() != "command_executed" {
-			t.Fatalf("Kind() = %q, want %q", event.Kind(), "command_executed")
+		if diff := cmp.Diff("command_executed", event.Kind().String()); diff != "" {
+			t.Fatalf("Kind() mismatch (-want +got):\n%s", diff)
 		}
-		if event.Body() != "go test ./..." {
-			t.Fatalf("Body() = %q, want %q", event.Body(), "go test ./...")
+		if diff := cmp.Diff("go test ./...", event.Body()); diff != "" {
+			t.Fatalf("Body() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -67,20 +78,23 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		t.Parallel()
 
 		stub := &commandAuditSaverStub{}
-		sut := usecase.NewRecordCommandAuditUsecase(stub)
+		sut := usecase.NewEventUsecase(stub, nil)
 		longInput := strings.Repeat("i", 70*1024)
 		longOutput := strings.Repeat("o", 70*1024)
 
-		_, commandAudit, err := sut.Run(context.Background(), usecase.RecordCommandAuditInput{
-			Command:   "go test ./...",
-			Input:     longInput,
-			Output:    longOutput,
-			Client:    "cli",
-			Agent:     "codex",
-			SessionID: "session-1",
-		})
+		_, commandAudit, err := sut.Audit(context.Background(),
+			"go test ./...",
+			longInput,
+			longOutput,
+			types.Client("cli"),
+			types.Agent("codex"),
+			types.SessionID("session-1"),
+			types.Workspace(""),
+			types.Empty[int](),
+			apptypes.NewAuditRedactionBuilder().Build(),
+		)
 		if err != nil {
-			t.Fatalf("Run() error = %v", err)
+			t.Fatalf("Audit() error = %v", err)
 		}
 		if !commandAudit.InputTruncated() {
 			t.Fatalf("InputTruncated() = false, want true")
@@ -100,26 +114,30 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		t.Parallel()
 
 		stub := &commandAuditSaverStub{}
-		sut := usecase.NewRecordCommandAuditUsecase(stub)
+		sut := usecase.NewEventUsecase(stub, nil)
 
-		_, commandAudit, err := sut.Run(context.Background(), usecase.RecordCommandAuditInput{
-			Command:        "go test ./...",
-			Input:          strings.Repeat("i", 32),
-			Output:         strings.Repeat("o", 32),
-			Client:         "cli",
-			Agent:          "codex",
-			SessionID:      "session-1",
-			MaxInputBytes:  16,
-			MaxOutputBytes: 20,
-		})
+		_, commandAudit, err := sut.Audit(context.Background(),
+			"go test ./...",
+			strings.Repeat("i", 32),
+			strings.Repeat("o", 32),
+			types.Client("cli"),
+			types.Agent("codex"),
+			types.SessionID("session-1"),
+			types.Workspace(""),
+			types.Empty[int](),
+			apptypes.NewAuditRedactionBuilder().
+				MaxInputBytes(16).
+				MaxOutputBytes(20).
+				Build(),
+		)
 		if err != nil {
-			t.Fatalf("Run() error = %v", err)
+			t.Fatalf("Audit() error = %v", err)
 		}
-		if len(commandAudit.Input()) != 16 {
-			t.Fatalf("len(Input()) = %d, want 16", len(commandAudit.Input()))
+		if diff := cmp.Diff(16, len(commandAudit.Input())); diff != "" {
+			t.Fatalf("len(Input()) mismatch (-want +got):\n%s", diff)
 		}
-		if len(commandAudit.Output()) != 20 {
-			t.Fatalf("len(Output()) = %d, want 20", len(commandAudit.Output()))
+		if diff := cmp.Diff(20, len(commandAudit.Output())); diff != "" {
+			t.Fatalf("len(Output()) mismatch (-want +got):\n%s", diff)
 		}
 		if !commandAudit.InputTruncated() || !commandAudit.OutputTruncated() {
 			t.Fatalf("truncated flags = (%t, %t), want both true", commandAudit.InputTruncated(), commandAudit.OutputTruncated())
@@ -130,18 +148,21 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		t.Parallel()
 
 		stub := &commandAuditSaverStub{}
-		sut := usecase.NewRecordCommandAuditUsecase(stub)
+		sut := usecase.NewEventUsecase(stub, nil)
 
-		_, commandAudit, err := sut.Run(context.Background(), usecase.RecordCommandAuditInput{
-			Command:   "curl https://example.test",
-			Input:     `{"access_token":"top-secret","note":"keep"}`,
-			Output:    "Authorization: Bearer token-value\nexport API_KEY=\"abc123\"",
-			Client:    "cli",
-			Agent:     "codex",
-			SessionID: "session-1",
-		})
+		_, commandAudit, err := sut.Audit(context.Background(),
+			"curl https://example.test",
+			`{"access_token":"top-secret","note":"keep"}`,
+			"Authorization: Bearer token-value\nexport API_KEY=\"abc123\"",
+			types.Client("cli"),
+			types.Agent("codex"),
+			types.SessionID("session-1"),
+			types.Workspace(""),
+			types.Empty[int](),
+			apptypes.NewAuditRedactionBuilder().Build(),
+		)
 		if err != nil {
-			t.Fatalf("Run() error = %v", err)
+			t.Fatalf("Audit() error = %v", err)
 		}
 		if !commandAudit.InputRedacted() {
 			t.Fatalf("InputRedacted() = false, want true")
@@ -163,24 +184,28 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		}
 	})
 
-	t.Run("allow secrets が有効なら raw payload を保存する", func(t *testing.T) {
+	t.Run("saves raw payload when allow secrets is enabled", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &commandAuditSaverStub{}
-		sut := usecase.NewRecordCommandAuditUsecase(stub)
+		sut := usecase.NewEventUsecase(stub, nil)
 
-		_, commandAudit, err := sut.Run(context.Background(), usecase.RecordCommandAuditInput{
-			Command:       "curl https://example.test",
-			Input:         `{"access_token":"top-secret"}`,
-			Output:        "Authorization: Bearer token-value",
-			Client:        "cli",
-			Agent:         "codex",
-			SessionID:     "session-1",
-			AllowSecrets:  true,
-			MaxInputBytes: 256,
-		})
+		_, commandAudit, err := sut.Audit(context.Background(),
+			"curl https://example.test",
+			`{"access_token":"top-secret"}`,
+			"Authorization: Bearer token-value",
+			types.Client("cli"),
+			types.Agent("codex"),
+			types.SessionID("session-1"),
+			types.Workspace(""),
+			types.Empty[int](),
+			apptypes.NewAuditRedactionBuilder().
+				AllowSecrets(true).
+				MaxInputBytes(256).
+				Build(),
+		)
 		if err != nil {
-			t.Fatalf("Run() error = %v", err)
+			t.Fatalf("Audit() error = %v", err)
 		}
 		if commandAudit.InputRedacted() {
 			t.Fatalf("InputRedacted() = true, want false")
@@ -200,19 +225,23 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		t.Parallel()
 
 		stub := &commandAuditSaverStub{}
-		sut := usecase.NewRecordCommandAuditUsecase(stub)
+		sut := usecase.NewEventUsecase(stub, nil)
 
-		_, commandAudit, err := sut.Run(context.Background(), usecase.RecordCommandAuditInput{
-			Command:             "curl https://example.test",
-			Input:               "my_custom_secret=hunter2",
-			Output:              "internal_token: abc123",
-			Client:              "cli",
-			Agent:               "codex",
-			SessionID:           "session-1",
-			ExtraRedactPatterns: []string{"my_custom_secret=\\S+", "internal_token:\\s*\\S+"},
-		})
+		_, commandAudit, err := sut.Audit(context.Background(),
+			"curl https://example.test",
+			"my_custom_secret=hunter2",
+			"internal_token: abc123",
+			types.Client("cli"),
+			types.Agent("codex"),
+			types.SessionID("session-1"),
+			types.Workspace(""),
+			types.Empty[int](),
+			apptypes.NewAuditRedactionBuilder().
+				ExtraRedactPatterns([]string{"my_custom_secret=\\S+", "internal_token:\\s*\\S+"}).
+				Build(),
+		)
 		if err != nil {
-			t.Fatalf("Run() error = %v", err)
+			t.Fatalf("Audit() error = %v", err)
 		}
 		if strings.Contains(commandAudit.Input(), "hunter2") {
 			t.Fatalf("Input() leaked custom secret: %q", commandAudit.Input())
@@ -229,19 +258,23 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		t.Parallel()
 
 		stub := &commandAuditSaverStub{}
-		sut := usecase.NewRecordCommandAuditUsecase(stub)
+		sut := usecase.NewEventUsecase(stub, nil)
 
-		_, _, err := sut.Run(context.Background(), usecase.RecordCommandAuditInput{
-			Command:             "test",
-			Input:               "",
-			Output:              "",
-			Client:              "cli",
-			Agent:               "codex",
-			SessionID:           "session-1",
-			ExtraRedactPatterns: []string{"[invalid"},
-		})
+		_, _, err := sut.Audit(context.Background(),
+			"test",
+			"",
+			"",
+			types.Client("cli"),
+			types.Agent("codex"),
+			types.SessionID("session-1"),
+			types.Workspace(""),
+			types.Empty[int](),
+			apptypes.NewAuditRedactionBuilder().
+				ExtraRedactPatterns([]string{"[invalid"}).
+				Build(),
+		)
 		if err == nil {
-			t.Fatalf("Run() error = nil, want error for invalid regex")
+			t.Fatalf("Audit() error = nil, want error for invalid regex")
 		}
 	})
 
@@ -249,19 +282,23 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		t.Parallel()
 
 		stub := &commandAuditSaverStub{}
-		sut := usecase.NewRecordCommandAuditUsecase(stub)
+		sut := usecase.NewEventUsecase(stub, nil)
 
-		_, _, err := sut.Run(context.Background(), usecase.RecordCommandAuditInput{
-			Command:       "go test ./...",
-			Input:         "stdin",
-			Output:        "stdout",
-			Client:        "cli",
-			Agent:         "codex",
-			SessionID:     "session-1",
-			MaxInputBytes: -1,
-		})
+		_, _, err := sut.Audit(context.Background(),
+			"go test ./...",
+			"stdin",
+			"stdout",
+			types.Client("cli"),
+			types.Agent("codex"),
+			types.SessionID("session-1"),
+			types.Workspace(""),
+			types.Empty[int](),
+			apptypes.NewAuditRedactionBuilder().
+				MaxInputBytes(-1).
+				Build(),
+		)
 		if err == nil {
-			t.Fatalf("Run() error = nil, want error")
+			t.Fatalf("Audit() error = nil, want error")
 		}
 	})
 }

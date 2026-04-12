@@ -14,6 +14,13 @@ func SetUserHomeDirFunc(f func() (string, error)) {
 	userHomeDirFunc = f
 }
 
+// CallUserHomeDirFunc exposes the current user-home-directory lookup for
+// tests. It always reads the active value so overrides installed after
+// construction still apply.
+func CallUserHomeDirFunc() (string, error) {
+	return userHomeDirFunc()
+}
+
 // ResetUserHomeDirFunc restores the default home-directory lookup function for tests.
 func ResetUserHomeDirFunc() {
 	userHomeDirFunc = os.UserHomeDir

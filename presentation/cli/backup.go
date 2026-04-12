@@ -15,20 +15,6 @@ import (
 
 )
 
-type backupCreateCommandInput struct {
-	dbPath     string
-	outputPath string
-	force      bool
-}
-
-type backupRestoreCommandInput struct {
-	dbPath    string
-	inputPath string
-	force     bool
-	assumeYes bool
-	prompter  *backupRestorePrompter
-}
-
 var errBackupRestoreCanceled = xerrors.New(Localize("restore canceled", "復元を中止しました"))
 
 type backupRestorePrompter struct {
@@ -135,19 +121,20 @@ func (c *RootCLI) runBackupCreate(
 	output io.Writer,
 	input backupCreateCommandInput,
 ) error {
-	if c.storeMaintenance == nil {
+	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("create store backup usecase is not configured", "バックアップ作成ユースケースが設定されていません"))
 	}
 
-	_, err := resolveDBPath(input.dbPath)
+	resolvedDBPath, err := resolveDBPath(input.dbPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
+	c.applyDatabasePath(resolvedDBPath)
 	resolvedOutputPath, err := resolveRequiredAbsolutePath(input.outputPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve backup output path", "バックアップ出力先パスの解決に失敗しました"), err)
 	}
-	if err := c.storeMaintenance.CreateBackup(ctx, resolvedOutputPath, input.force); err != nil {
+	if err := c.storeManagement.CreateBackup(ctx, resolvedOutputPath, input.force); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to create backup", "バックアップ作成に失敗しました"), err)
 	}
 
@@ -163,7 +150,7 @@ func (c *RootCLI) runBackupRestore(
 	output io.Writer,
 	input backupRestoreCommandInput,
 ) error {
-	if c.storeMaintenance == nil {
+	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("restore store backup usecase is not configured", "バックアップ復元ユースケースが設定されていません"))
 	}
 
@@ -171,6 +158,7 @@ func (c *RootCLI) runBackupRestore(
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
+	c.applyDatabasePath(resolvedDBPath)
 	resolvedInputPath, err := resolveRequiredAbsolutePath(input.inputPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve backup input path", "バックアップ入力パスの解決に失敗しました"), err)
@@ -191,7 +179,7 @@ func (c *RootCLI) runBackupRestore(
 		}
 	}
 	// The use case rejects restores into an existing DB unless --force is set.
-	if err := c.storeMaintenance.RestoreBackup(ctx, resolvedInputPath, input.force); err != nil {
+	if err := c.storeManagement.RestoreBackup(ctx, resolvedInputPath, input.force); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to restore backup", "バックアップ復元に失敗しました"), err)
 	}
 

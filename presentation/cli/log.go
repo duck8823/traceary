@@ -78,31 +78,20 @@ func (c *RootCLI) newLogCommand() *cobra.Command {
 	return logCmd
 }
 
-type logCommandInput struct {
-	dbPath    string
-	message   string
-	kind      string
-	client    string
-	agent     string
-	sessionID string
-	repo      string
-	idOnly    bool
-	asJSON    bool
-}
-
 func (c *RootCLI) runLog(ctx context.Context, output io.Writer, input logCommandInput) error {
-	if c.storeMaintenance == nil {
+	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.event == nil {
 		return xerrors.Errorf(Localize("record log usecase is not configured", "ログ記録ユースケースが設定されていません"))
 	}
 
-	_, err := resolveDBPath(input.dbPath)
+	resolvedDBPath, err := resolveDBPath(input.dbPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.storeMaintenance.Initialize(ctx); err != nil {
+	c.applyDatabasePath(resolvedDBPath)
+	if err := c.storeManagement.Initialize(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 

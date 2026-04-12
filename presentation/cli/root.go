@@ -3,33 +3,106 @@ package cli
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/application/usecase"
 )
 
 // RootCLI provides the Traceary root command.
 type RootCLI struct {
-	event            usecase.EventUsecase
-	session          usecase.SessionUsecase
-	storeMaintenance usecase.StoreMaintenanceUsecase
-	mcpServerRunner  MCPServerRunner
+	event                usecase.EventUsecase
+	session              usecase.SessionUsecase
+	storeManagement      usecase.StoreManagementUsecase
+	mcpServerRunner      MCPServerRunner
+	hooksOrchestrator    application.HooksOrchestrator
+	hookScriptsInstaller application.HookScriptsInstaller
+	hooksInspector       application.HooksInspector
+	extraRedactPatterns  []string
+	// databasePathSetter is invoked by each subcommand's RunE after it
+	// resolves --db-path / TRACEARY_DB_PATH, so the shared Database
+	// instance opens the user-specified path instead of the composition-
+	// root default. May be nil in tests that inject stubs directly.
+	databasePathSetter func(string)
 }
 
-// RootCLIOptions holds the dependencies used by RootCLI.
-type RootCLIOptions struct {
-	Event            usecase.EventUsecase
-	Session          usecase.SessionUsecase
-	StoreMaintenance usecase.StoreMaintenanceUsecase
-	MCPServerRunner  MCPServerRunner
+// RootCLIOption configures a RootCLI during construction. Options are
+// applied in order, so later options override earlier ones.
+type RootCLIOption func(*RootCLI)
+
+// WithEvent injects the EventUsecase used by event-producing commands.
+func WithEvent(event usecase.EventUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.event = event }
 }
 
-// NewRootCLI creates a new RootCLI.
-func NewRootCLI(options RootCLIOptions) *RootCLI {
-	return &RootCLI{
-		event:            options.Event,
-		session:          options.Session,
-		storeMaintenance: options.StoreMaintenance,
-		mcpServerRunner:  options.MCPServerRunner,
+// WithSession injects the SessionUsecase used by session-related commands.
+func WithSession(session usecase.SessionUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.session = session }
+}
+
+// WithStoreManagement injects the StoreManagementUsecase used by init,
+// backup, gc, and doctor commands.
+func WithStoreManagement(storeManagement usecase.StoreManagementUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.storeManagement = storeManagement }
+}
+
+// WithMCPServerRunner injects the MCPServerRunner used by the mcp-server
+// command.
+func WithMCPServerRunner(runner MCPServerRunner) RootCLIOption {
+	return func(c *RootCLI) { c.mcpServerRunner = runner }
+}
+
+// WithHooksOrchestrator injects the HooksOrchestrator used by hooks and
+// doctor commands. The orchestrator is required before the corresponding
+// commands can run.
+func WithHooksOrchestrator(orchestrator application.HooksOrchestrator) RootCLIOption {
+	return func(c *RootCLI) { c.hooksOrchestrator = orchestrator }
+}
+
+// WithHookScriptsInstaller injects the HookScriptsInstaller used by hooks
+// and doctor commands. The installer is required before the corresponding
+// commands can run.
+func WithHookScriptsInstaller(installer application.HookScriptsInstaller) RootCLIOption {
+	return func(c *RootCLI) { c.hookScriptsInstaller = installer }
+}
+
+// WithHooksInspector injects the HooksInspector used by the doctor command
+// to inspect client hook configurations.
+func WithHooksInspector(inspector application.HooksInspector) RootCLIOption {
+	return func(c *RootCLI) { c.hooksInspector = inspector }
+}
+
+// WithExtraRedactPatterns injects additional redaction regex patterns used
+// by the audit command.
+func WithExtraRedactPatterns(patterns []string) RootCLIOption {
+	return func(c *RootCLI) { c.extraRedactPatterns = patterns }
+}
+
+// WithDatabasePathSetter injects a callback invoked by every subcommand
+// after it resolves the --db-path flag / TRACEARY_DB_PATH environment
+// variable. The callback is typically a closure around the shared
+// sqlite.Database's SetPath method, so datasources built from it open
+// the user-specified path on the next operation.
+func WithDatabasePathSetter(setter func(string)) RootCLIOption {
+	return func(c *RootCLI) { c.databasePathSetter = setter }
+}
+
+// applyDatabasePath forwards the resolved DB path to the injected
+// setter. It is a no-op when no setter is configured, which matches the
+// test setup where usecases are stubbed and the real Database is not
+// wired in.
+func (c *RootCLI) applyDatabasePath(resolved string) {
+	if c.databasePathSetter == nil {
+		return
 	}
+	c.databasePathSetter(resolved)
+}
+
+// NewRootCLI creates a new RootCLI with the given options applied.
+func NewRootCLI(opts ...RootCLIOption) *RootCLI {
+	c := &RootCLI{}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // Command returns the Traceary root command.

@@ -3,17 +3,10 @@ package usecase
 import (
 	"context"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
-
-// AuditRedaction holds redaction and truncation settings for command audit recording.
-type AuditRedaction struct {
-	AllowSecrets        bool
-	MaxInputBytes       int
-	MaxOutputBytes      int
-	ExtraRedactPatterns []string
-}
 
 // EventUsecase consolidates event recording and query operations.
 type EventUsecase interface {
@@ -21,21 +14,20 @@ type EventUsecase interface {
 	Log(ctx context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace) (*model.Event, error)
 
 	// Audit records a command execution audit event.
-	Audit(ctx context.Context, command string, input string, output string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, exitCode *int, redaction AuditRedaction) (*model.Event, *model.CommandAudit, error)
+	Audit(ctx context.Context, command string, input string, output string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, exitCode types.Optional[int], redaction apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error)
 
 	// Search performs full-text search across events.
-	Search(ctx context.Context, criteria EventSearchCriteria) ([]*model.Event, error)
+	Search(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error)
 
 	// List returns events in descending time order.
-	List(ctx context.Context, criteria EventListCriteria) ([]*model.Event, error)
+	List(ctx context.Context, criteria apptypes.EventListCriteria) ([]*model.Event, error)
 
 	// Show returns the details for a single event.
-	// Returns usecase.EventDetails; port.EventDetails will be removed in Phase C.
-	Show(ctx context.Context, eventID types.EventID) (*EventDetails, error)
+	Show(ctx context.Context, eventID types.EventID) (apptypes.EventDetails, error)
 
 	// Context returns recent events for the given context.
-	Context(ctx context.Context, criteria EventContextCriteria) ([]*model.Event, error)
+	Context(ctx context.Context, criteria apptypes.EventContextCriteria) ([]*model.Event, error)
 
 	// Timeline returns work blocks separated by idle gaps.
-	Timeline(ctx context.Context, criteria TimelineCriteria) ([]*TimelineBlock, error)
+	Timeline(ctx context.Context, criteria apptypes.TimelineCriteria) ([]apptypes.TimelineBlock, error)
 }

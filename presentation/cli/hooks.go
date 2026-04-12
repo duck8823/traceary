@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -11,51 +10,14 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
-)
 
-var hooksClientAliases = map[string]string{
-	"claude":      "claude",
-	"claude-code": "claude",
-	"codex":       "codex",
-	"codex-cli":   "codex",
-	"gemini":      "gemini",
-	"gemini-cli":  "gemini",
-}
+	"github.com/duck8823/traceary/domain/types"
+)
 
 var hooksClientFlagUsage = Localize(
 	"target client (claude|codex|gemini; aliases: claude-code, codex-cli, gemini-cli)",
 	"対象クライアント (claude|codex|gemini; alias: claude-code, codex-cli, gemini-cli)",
 )
-
-type hooksSettings struct {
-	Hooks map[string][]hookMatcher `json:"hooks"`
-}
-
-type hookMatcher struct {
-	Matcher *string       `json:"matcher,omitempty"`
-	Hooks   []hookCommand `json:"hooks"`
-}
-
-type hookCommand struct {
-	Name        string `json:"name,omitempty"`
-	Type        string `json:"type"`
-	Command     string `json:"command"`
-	Timeout     *int   `json:"timeout,omitempty"`
-	Description string `json:"description,omitempty"`
-}
-
-type hooksPrintCommandInput struct {
-	client      string
-	tracearyBin string
-}
-
-type hooksInstallCommandInput struct {
-	client      string
-	projectDir  string
-	tracearyBin string
-	outputPath  string
-	force       bool
-}
 
 func (c *RootCLI) newHooksCommand() *cobra.Command {
 	hooksCmd := &cobra.Command{
@@ -142,7 +104,7 @@ func (c *RootCLI) newHooksPrintCommand() *cobra.Command {
 }
 
 func (c *RootCLI) runHooksPrint(
-	_ context.Context,
+	ctx context.Context,
 	output io.Writer,
 	input hooksPrintCommandInput,
 ) error {
@@ -153,19 +115,14 @@ func (c *RootCLI) runHooksPrint(
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve traceary binary path", "traceary binary path の解決に失敗しました"), err)
 	}
-	resolvedScriptsDir, err := ensureHookScriptsInstalled()
+	resolvedScriptsDir, err := c.hookScriptsInstaller.Ensure()
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to prepare hook scripts", "hook script の準備に失敗しました"), err)
 	}
 
-	settings, err := buildHooksSettings(input.client, resolvedScriptsDir, resolvedTracearyBin)
+	encoded, err := c.hooksOrchestrator.Generate(ctx, input.client, resolvedScriptsDir, resolvedTracearyBin)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to build hook configuration example", "hook 設定例の生成に失敗しました"), err)
-	}
-
-	encoded, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to marshal hook configuration example", "hook 設定例の JSON 変換に失敗しました"), err)
 	}
 	if _, err := fmt.Fprintf(output, "%s\n", encoded); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print hook configuration example", "hook 設定例の出力に失敗しました"), err)
@@ -175,7 +132,7 @@ func (c *RootCLI) runHooksPrint(
 }
 
 func (c *RootCLI) runHooksInstall(
-	_ context.Context,
+	ctx context.Context,
 	output io.Writer,
 	input hooksInstallCommandInput,
 ) error {
@@ -190,19 +147,26 @@ func (c *RootCLI) runHooksInstall(
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve traceary binary path", "traceary binary path の解決に失敗しました"), err)
 	}
-	resolvedScriptsDir, err := ensureHookScriptsInstalled()
+	resolvedScriptsDir, err := c.hookScriptsInstaller.Ensure()
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to prepare hook scripts", "hook script の準備に失敗しました"), err)
 	}
-	settings, err := buildHooksSettings(input.client, resolvedScriptsDir, resolvedTracearyBin)
-	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to build hook configuration example", "hook 設定例の生成に失敗しました"), err)
+
+	outputPathOption := types.Empty[string]()
+	if trimmedOutput := strings.TrimSpace(input.outputPath); trimmedOutput != "" {
+		outputPathOption = types.Of(trimmedOutput)
 	}
-	resolvedOutputPath, err := resolveHooksInstallOutputPath(input.client, resolvedProjectDir, input.outputPath)
+
+	resolvedOutputPath, err := c.hooksOrchestrator.Install(
+		ctx,
+		input.client,
+		resolvedScriptsDir,
+		resolvedTracearyBin,
+		resolvedProjectDir,
+		outputPathOption,
+		input.force,
+	)
 	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to resolve output path", "出力先の解決に失敗しました"), err)
-	}
-	if err := writeHooksSettingsFile(resolvedOutputPath, settings, input.force); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to write hook configuration file", "hook 設定ファイルの書き出しに失敗しました"), err)
 	}
 
@@ -213,7 +177,7 @@ func (c *RootCLI) runHooksInstall(
 			"hook 設定を書き出しました: %s\n既存設定がある環境では差分を確認してから --force を使ってください\n次の確認: traceary doctor --client %s --project-dir %s\nその後、対象 client を起動して traceary list --limit 10 で確認してください\n",
 		),
 		resolvedOutputPath,
-		normalizeHooksClientForDisplay(input.client),
+		normalizeHooksClientForDisplay(c, input.client),
 		shellQuote(resolvedProjectDir),
 	); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print hook install result", "hook 設定書き出し結果の出力に失敗しました"), err)
@@ -222,13 +186,12 @@ func (c *RootCLI) runHooksInstall(
 	return nil
 }
 
-func normalizeHooksClientForDisplay(client string) string {
-	resolvedClient, err := normalizeHooksClient(client)
-	if err != nil {
-		return client
+func normalizeHooksClientForDisplay(c *RootCLI, client string) string {
+	if resolved, err := c.hooksOrchestrator.NormalizeClient(client); err == nil {
+		return resolved
 	}
 
-	return resolvedClient
+	return client
 }
 
 func requireHooksClient(client string) error {
@@ -279,275 +242,8 @@ func resolveHooksTracearyBin(flagValue string) (string, error) {
 	return resolvedPath, nil
 }
 
-func resolveHooksInstallOutputPath(client string, projectDir string, flagValue string) (string, error) {
-	resolvedClient, err := normalizeHooksClient(client)
-	if err != nil {
-		return "", err
-	}
-
-	trimmedFlagValue := strings.TrimSpace(flagValue)
-	if trimmedFlagValue != "" {
-		resolvedPath, err := filepath.Abs(trimmedFlagValue)
-		if err != nil {
-			return "", xerrors.Errorf("%s: %w", Localize("failed to resolve absolute path", "絶対パス化に失敗しました"), err)
-		}
-
-		return resolvedPath, nil
-	}
-
-	switch resolvedClient {
-	case "claude":
-		return filepath.Join(projectDir, ".claude", "settings.json"), nil
-	case "gemini":
-		return filepath.Join(projectDir, ".gemini", "settings.json"), nil
-	case "codex":
-		homeDir, err := userHomeDirFunc()
-		if err != nil {
-			return "", xerrors.Errorf("%s: %w", Localize("failed to get user home directory", "ユーザーホームディレクトリの取得に失敗しました"), err)
-		}
-
-		return filepath.Join(homeDir, ".codex", "hooks.json"), nil
-	default:
-		return "", xerrors.Errorf(localizef("unsupported client: %s", "未対応の client です: %s", client))
-	}
-}
-
-func writeHooksSettingsFile(outputPath string, settings *hooksSettings, force bool) error {
-	if settings == nil {
-		return xerrors.Errorf(Localize("hook settings must not be nil", "hook 設定は nil にできません"))
-	}
-
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to create output directory", "出力先ディレクトリの作成に失敗しました"), err)
-	}
-
-	encoded, err := marshalHooksSettingsFile(outputPath, settings, force)
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(outputPath, append(encoded, '\n'), 0o644); err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to write settings file", "設定ファイルの書き出しに失敗しました"), err)
-	}
-
-	return nil
-}
-
-func buildHooksSettings(
-	client string,
-	scriptsDir string,
-	tracearyBin string,
-) (*hooksSettings, error) {
-	resolvedClient, err := normalizeHooksClient(client)
-	if err != nil {
-		return nil, err
-	}
-
-	switch resolvedClient {
-	case "claude":
-		return buildClaudeHooksSettings(scriptsDir, tracearyBin), nil
-	case "codex":
-		return buildCodexHooksSettings(scriptsDir, tracearyBin), nil
-	case "gemini":
-		return buildGeminiHooksSettings(scriptsDir, tracearyBin), nil
-	default:
-		return nil, xerrors.Errorf(localizef("unsupported client: %s", "未対応の client です: %s", client))
-	}
-}
-
-func normalizeHooksClient(client string) (string, error) {
-	trimmedClient := strings.ToLower(strings.TrimSpace(client))
-	if resolvedClient, ok := hooksClientAliases[trimmedClient]; ok {
-		return resolvedClient, nil
-	}
-
-	return "", xerrors.Errorf(
-		Localize(
-			"unsupported client: %s (valid values: claude, codex, gemini; aliases: claude-code, codex-cli, gemini-cli)",
-			"未対応の client です: %s (有効値: claude, codex, gemini; alias: claude-code, codex-cli, gemini-cli)",
-		),
-		client,
-	)
-}
-
-func buildClaudeHooksSettings(scriptsDir string, tracearyBin string) *hooksSettings {
-	startCommand := buildHookScriptCommand(scriptsDir, tracearyBin, "traceary-session.sh", "claude", "start")
-	endCommand := buildHookScriptCommand(scriptsDir, tracearyBin, "traceary-session.sh", "claude", "end")
-	auditCommand := buildHookScriptCommand(scriptsDir, tracearyBin, "traceary-audit.sh", "claude")
-	compactCommand := buildHookScriptCommand(scriptsDir, tracearyBin, "traceary-compact.sh", "claude", "post-compact")
-	compactResumeCommand := buildHookScriptCommand(scriptsDir, tracearyBin, "traceary-compact.sh", "claude", "session-start-compact")
-	promptCommand := buildHookScriptCommand(scriptsDir, tracearyBin, "traceary-prompt.sh", "claude")
-
-	return &hooksSettings{
-		Hooks: map[string][]hookMatcher{
-			"SessionStart": {
-				newHookMatcher("*", hookCommand{
-					Type:    "command",
-					Command: startCommand,
-				}),
-				newHookMatcher("compact", hookCommand{
-					Type:    "command",
-					Command: compactResumeCommand,
-				}),
-			},
-			"SessionEnd": {
-				newHookMatcher("*", hookCommand{
-					Type:    "command",
-					Command: endCommand,
-				}),
-			},
-			"PostToolUse": {
-				newHookMatcher("Bash", hookCommand{
-					Type:    "command",
-					Command: auditCommand,
-				}),
-				newHookMatcher("mcp__.*", hookCommand{
-					Type:    "command",
-					Command: auditCommand,
-				}),
-			},
-			"PostToolUseFailure": {
-				newHookMatcher("Bash", hookCommand{
-					Type:    "command",
-					Command: auditCommand,
-				}),
-				newHookMatcher("mcp__.*", hookCommand{
-					Type:    "command",
-					Command: auditCommand,
-				}),
-			},
-			"PostCompact": {
-				newHookMatcher("*", hookCommand{
-					Type:    "command",
-					Command: compactCommand,
-				}),
-			},
-			"UserPromptSubmit": {
-				newHookMatcher("*", hookCommand{
-					Type:    "command",
-					Command: promptCommand,
-				}),
-			},
-		},
-	}
-}
-
-func buildCodexHooksSettings(scriptsDir string, tracearyBin string) *hooksSettings {
-	emptyMatcher := ""
-
-	return &hooksSettings{
-		Hooks: map[string][]hookMatcher{
-			"SessionStart": {
-				{
-					Hooks: []hookCommand{
-						{
-							Type: "command",
-							Command: buildHookScriptCommand(
-								scriptsDir,
-								tracearyBin,
-								"traceary-session.sh",
-								"codex",
-								"start",
-							),
-						},
-					},
-				},
-			},
-			"Stop": {
-				{
-					Hooks: []hookCommand{
-						{
-							Type: "command",
-							Command: buildHookScriptCommand(
-								scriptsDir,
-								tracearyBin,
-								"traceary-session.sh",
-								"codex",
-								"stop",
-							),
-						},
-					},
-				},
-			},
-			"PostToolUse": {
-				{
-					Matcher: &emptyMatcher,
-					Hooks: []hookCommand{
-						{
-							Type:    "command",
-							Command: buildHookScriptCommand(scriptsDir, tracearyBin, "traceary-audit.sh", "codex"),
-						},
-					},
-				},
-			},
-		},
-	}
-}
-
-func buildGeminiHooksSettings(scriptsDir string, tracearyBin string) *hooksSettings {
-	timeout := 5000
-
-	return &hooksSettings{
-		Hooks: map[string][]hookMatcher{
-			"SessionStart": {
-				newHookMatcher("*", hookCommand{
-					Name:        "traceary-session-start",
-					Type:        "command",
-					Command:     buildHookScriptCommand(scriptsDir, tracearyBin, "traceary-session.sh", "gemini", "start"),
-					Timeout:     &timeout,
-					Description: "Start a Traceary session",
-				}),
-			},
-			"SessionEnd": {
-				newHookMatcher("*", hookCommand{
-					Name:        "traceary-session-end",
-					Type:        "command",
-					Command:     buildHookScriptCommand(scriptsDir, tracearyBin, "traceary-session.sh", "gemini", "end"),
-					Timeout:     &timeout,
-					Description: "Finish a Traceary session",
-				}),
-			},
-			"AfterTool": {
-				newHookMatcher("run_shell_command", hookCommand{
-					Name:        "traceary-audit",
-					Type:        "command",
-					Command:     buildHookScriptCommand(scriptsDir, tracearyBin, "traceary-audit.sh", "gemini"),
-					Timeout:     &timeout,
-					Description: "Record shell command audits in Traceary",
-				}),
-			},
-		},
-	}
-}
-
-func newHookMatcher(matcher string, command hookCommand) hookMatcher {
-	return hookMatcher{
-		Matcher: stringPointer(matcher),
-		Hooks:   []hookCommand{command},
-	}
-}
-
-func stringPointer(value string) *string {
-	return &value
-}
-
-func buildHookScriptCommand(
-	scriptsDir string,
-	tracearyBin string,
-	scriptName string,
-	args ...string,
-) string {
-	parts := []string{
-		"TRACEARY_BIN=" + shellQuote(tracearyBin),
-		"bash",
-		shellQuote(filepath.Join(scriptsDir, scriptName)),
-	}
-	for _, arg := range args {
-		parts = append(parts, shellQuote(arg))
-	}
-
-	return strings.Join(parts, " ")
-}
-
+// shellQuote wraps a value in single quotes, escaping nested quotes so it can
+// be safely embedded in a bash command line.
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }

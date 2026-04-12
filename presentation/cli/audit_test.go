@@ -39,9 +39,9 @@ func TestRootCLI_AuditCommand(t *testing.T) {
 	}
 
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
-		Event: &eventUsecaseStub{
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(&eventUsecaseStub{
 			auditEvent: model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,
@@ -53,8 +53,8 @@ func TestRootCLI_AuditCommand(t *testing.T) {
 				time.Date(2026, 4, 7, 15, 0, 0, 0, time.UTC),
 			),
 			auditAudit: commandAudit,
-		},
-	}).Command()
+		}),
+	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
@@ -116,9 +116,9 @@ func TestRootCLI_AuditCommand_FallsBackFromStaleActiveSession(t *testing.T) {
 		),
 	}
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
-		Event: &eventUsecaseStub{
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(&eventUsecaseStub{
 			auditEvent: model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,
@@ -130,9 +130,9 @@ func TestRootCLI_AuditCommand_FallsBackFromStaleActiveSession(t *testing.T) {
 				time.Date(2026, 4, 7, 18, 0, 0, 0, time.UTC),
 			),
 			auditAudit: commandAudit,
-		},
-		Session: sessionStub,
-	}).Command()
+		}),
+		cli.WithSession(sessionStub),
+	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
@@ -196,9 +196,9 @@ func TestRootCLI_AuditCommand_IdOnly(t *testing.T) {
 	commandAudit.SetRedaction(true, true)
 
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
-		Event: &eventUsecaseStub{
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(&eventUsecaseStub{
 			auditEvent: model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,
@@ -210,8 +210,8 @@ func TestRootCLI_AuditCommand_IdOnly(t *testing.T) {
 				time.Date(2026, 4, 7, 15, 0, 0, 0, time.UTC),
 			),
 			auditAudit: commandAudit,
-		},
-	}).Command()
+		}),
+	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
@@ -258,9 +258,9 @@ func TestRootCLI_AuditCommand_NamedFlags(t *testing.T) {
 		t.Fatalf("NewCommandAudit() error = %v", err)
 	}
 
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
-		Event: &eventUsecaseStub{
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(&eventUsecaseStub{
 			auditEvent: model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,
@@ -272,8 +272,8 @@ func TestRootCLI_AuditCommand_NamedFlags(t *testing.T) {
 				time.Date(2026, 4, 7, 16, 0, 0, 0, time.UTC),
 			),
 			auditAudit: commandAudit,
-		},
-	}).Command()
+		}),
+	).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
@@ -300,10 +300,10 @@ func TestRootCLI_AuditCommand_AllowsOmittedInputAndOutput(t *testing.T) {
 		t.Fatalf("NewCommandAudit() error = %v", err)
 	}
 
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
-		Event:            &eventUsecaseStub{auditEvent: model.EventOf(eventID, types.EventKindCommandExecuted, "cli", agent, sessionID, "duck8823/traceary", "go test ./...", time.Date(2026, 4, 7, 16, 30, 0, 0, time.UTC)), auditAudit: commandAudit},
-	}).Command()
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(&eventUsecaseStub{auditEvent: model.EventOf(eventID, types.EventKindCommandExecuted, "cli", agent, sessionID, "duck8823/traceary", "go test ./...", time.Date(2026, 4, 7, 16, 30, 0, 0, time.UTC)), auditAudit: commandAudit}),
+	).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"audit", "--db-path", "/tmp/traceary.db", "go test ./..."})
@@ -325,10 +325,10 @@ func TestRootCLI_AuditCommand_JSON(t *testing.T) {
 	}
 
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
-		Event:            &eventUsecaseStub{auditEvent: model.EventOf(eventID, types.EventKindCommandExecuted, "cli", agent, sessionID, "duck8823/traceary", "go test ./...", time.Date(2026, 4, 7, 17, 0, 0, 0, time.UTC)), auditAudit: commandAudit},
-	}).Command()
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(&eventUsecaseStub{auditEvent: model.EventOf(eventID, types.EventKindCommandExecuted, "cli", agent, sessionID, "duck8823/traceary", "go test ./...", time.Date(2026, 4, 7, 17, 0, 0, 0, time.UTC)), auditAudit: commandAudit}),
+	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"audit", "--db-path", "/tmp/traceary.db", "--json", "go test ./...", "stdin", "stdout"})
@@ -357,10 +357,10 @@ func TestRootCLI_AuditCommand_JSON(t *testing.T) {
 func TestRootCLI_AuditCommand_DoesNotAllowDuplicateFlagAndPositional(t *testing.T) {
 	t.Setenv("TRACEARY_SESSION_ID", "session-env")
 
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
-		Event:            &eventUsecaseStub{},
-	}).Command()
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(&eventUsecaseStub{}),
+	).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
@@ -410,9 +410,9 @@ func TestRootCLI_AuditCommand_TruncationNotice(t *testing.T) {
 	}
 
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
-		Event: &eventUsecaseStub{
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(&eventUsecaseStub{
 			auditEvent: model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,
@@ -424,8 +424,8 @@ func TestRootCLI_AuditCommand_TruncationNotice(t *testing.T) {
 				time.Date(2026, 4, 7, 15, 0, 0, 0, time.UTC),
 			),
 			auditAudit: commandAudit,
-		},
-	}).Command()
+		}),
+	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
@@ -479,9 +479,9 @@ func TestRootCLI_AuditCommand_RedactionNotice(t *testing.T) {
 	commandAudit.SetRedaction(true, true)
 
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
-		Event: &eventUsecaseStub{
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(&eventUsecaseStub{
 			auditEvent: model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,
@@ -493,8 +493,8 @@ func TestRootCLI_AuditCommand_RedactionNotice(t *testing.T) {
 				time.Date(2026, 4, 7, 15, 0, 0, 0, time.UTC),
 			),
 			auditAudit: commandAudit,
-		},
-	}).Command()
+		}),
+	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
@@ -547,9 +547,9 @@ func TestRootCLI_AuditCommand_AllowSecretsEnv(t *testing.T) {
 		t.Fatalf("NewCommandAudit() error = %v", err)
 	}
 
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
-		Event: &eventUsecaseStub{
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(&eventUsecaseStub{
 			auditEvent: model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,
@@ -561,8 +561,8 @@ func TestRootCLI_AuditCommand_AllowSecretsEnv(t *testing.T) {
 				time.Date(2026, 4, 7, 15, 0, 0, 0, time.UTC),
 			),
 			auditAudit: commandAudit,
-		},
-	}).Command()
+		}),
+	).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{

@@ -8,14 +8,14 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	_ "modernc.org/sqlite"
 
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
-	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
-func TestDatasource_SaveCommandAudit(t *testing.T) {
+func TestDatasource_SaveWithAudit(t *testing.T) {
 	t.Parallel()
 
 	migrations := fstest.MapFS{
@@ -49,8 +49,8 @@ CREATE TABLE command_audits (
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(dbPath, migrations)
-	if err := sut.Initialize(context.Background()); err != nil {
+	sut, storeManager := newEventDatasource(t, dbPath, migrations)
+	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -88,8 +88,8 @@ CREATE TABLE command_audits (
 		t.Fatalf("NewCommandAudit() error = %v", err)
 	}
 
-	if err := sut.SaveCommandAudit(context.Background(), event, commandAudit); err != nil {
-		t.Fatalf("SaveCommandAudit() error = %v", err)
+	if err := sut.SaveWithAudit(context.Background(), event, commandAudit); err != nil {
+		t.Fatalf("SaveWithAudit() error = %v", err)
 	}
 
 	db, err := sql.Open("sqlite", dbPath)
@@ -113,11 +113,11 @@ SELECT e.kind, a.command_text, a.input_truncated, a.output_truncated
 	).Scan(&kind, &commandText, &inputTruncated, &outputTruncated); err != nil {
 		t.Fatalf("audit query error = %v", err)
 	}
-	if kind != "command_executed" {
-		t.Fatalf("kind = %q, want %q", kind, "command_executed")
+	if diff := cmp.Diff("command_executed", kind); diff != "" {
+		t.Fatalf("kind mismatch (-want +got):\n%s", diff)
 	}
-	if commandText != "go test ./..." {
-		t.Fatalf("command_text = %q, want %q", commandText, "go test ./...")
+	if diff := cmp.Diff("go test ./...", commandText); diff != "" {
+		t.Fatalf("command_text mismatch (-want +got):\n%s", diff)
 	}
 	if !inputTruncated {
 		t.Fatalf("input_truncated = false, want true")

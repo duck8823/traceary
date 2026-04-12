@@ -9,7 +9,7 @@ import (
 func TestRootCLI_Command_SilencesCobraErrorOutput(t *testing.T) {
 	t.Parallel()
 
-	rootCmd := NewRootCLI(RootCLIOptions{}).Command()
+	rootCmd := NewRootCLI().Command()
 	if !rootCmd.SilenceErrors {
 		t.Fatal("rootCmd.SilenceErrors = false, want true")
 	}
@@ -22,7 +22,7 @@ func TestRootCLI_HelpDefaultsToEnglish(t *testing.T) {
 	t.Parallel()
 
 	stdout := &bytes.Buffer{}
-	rootCmd := NewRootCLI(RootCLIOptions{}).Command()
+	rootCmd := NewRootCLI().Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"--help"})
@@ -39,7 +39,7 @@ func TestRootCLI_HelpCanUseJapanese(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "ja")
 
 	stdout := &bytes.Buffer{}
-	rootCmd := NewRootCLI(RootCLIOptions{}).Command()
+	rootCmd := NewRootCLI().Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"--help"})
@@ -56,7 +56,7 @@ func TestRootCLI_AuditHelpMentionsDefaults(t *testing.T) {
 	t.Parallel()
 
 	stdout := &bytes.Buffer{}
-	rootCmd := NewRootCLI(RootCLIOptions{}).Command()
+	rootCmd := NewRootCLI().Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"audit", "--help"})
@@ -76,7 +76,7 @@ func TestRootCLI_SessionLatestHelpExplainsSemantics(t *testing.T) {
 	t.Parallel()
 
 	stdout := &bytes.Buffer{}
-	rootCmd := NewRootCLI(RootCLIOptions{}).Command()
+	rootCmd := NewRootCLI().Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"session", "latest", "--help"})

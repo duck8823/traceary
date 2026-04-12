@@ -9,11 +9,10 @@ import (
 	"time"
 
 	"golang.org/x/xerrors"
-	"github.com/duck8823/traceary/application/usecase"
 
-	"github.com/duck8823/traceary/domain/types"
-
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 type manualSessionResolution struct {
@@ -42,28 +41,30 @@ func (c *RootCLI) resolveManualSessionID(
 		}, nil
 	}
 
-	event, err := c.session.Active(ctx, usecase.SessionLookupCriteria{
-		Workspace: types.Workspace(trimmedRepo),
-	})
+	criteria := apptypes.NewSessionLookupCriteriaBuilder().
+		Workspace(types.Workspace(trimmedRepo)).
+		Build()
+	result, err := c.session.Active(ctx, criteria)
 	if err != nil {
-		if usecase.IsSessionLookupNotFound(err) {
-			slog.Debug("no active session found for repo, using default", "workspace", trimmedRepo)
-			return &manualSessionResolution{
-				sessionID: defaultSessionIDValue,
-				notice: localizef(
-					"No active session found for %s; using default session ID",
-					"%s に対応する active session が見つからなかったため、既定の session ID を使います",
-					trimmedRepo,
-				),
-			}, nil
-		}
 		return nil, xerrors.Errorf(
 			"%s: %w",
 			Localize("failed to resolve active session", "active session の解決に失敗しました"),
 			err,
 		)
 	}
+	if !result.IsPresent() {
+		slog.Debug("no active session found for repo, using default", "workspace", trimmedRepo)
+		return &manualSessionResolution{
+			sessionID: defaultSessionIDValue,
+			notice: localizef(
+				"No active session found for %s; using default session ID",
+				"%s に対応する active session が見つからなかったため、既定の session ID を使います",
+				trimmedRepo,
+			),
+		}, nil
+	}
 
+	event, _ := result.Get()
 	if isStaleSession(event, defaultActiveSessionStaleAfter) {
 		slog.Debug("active session is stale, using default", "session_id", event.SessionID(), "created_at", event.CreatedAt())
 		return &manualSessionResolution{

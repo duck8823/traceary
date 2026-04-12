@@ -47,10 +47,10 @@ func TestRootCLI_ListCommand(t *testing.T) {
 			},
 		}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
-			Event: listStub,
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(listStub),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
@@ -76,7 +76,7 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("JSON 形式でイベント一覧を表示できる", func(t *testing.T) {
+	t.Run("displays event list in JSON format", func(t *testing.T) {
 		t.Parallel()
 
 		eventID, err := types.EventIDOf("event-2")
@@ -107,10 +107,10 @@ func TestRootCLI_ListCommand(t *testing.T) {
 			},
 		}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
-			Event: listStub,
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(listStub),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"list", "--db-path", "/tmp/test-traceary.db", "--json"})
@@ -143,10 +143,10 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		listStub := &eventUsecaseStub{}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
-			Event: listStub,
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(listStub),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"list", "--db-path", dbPath})
@@ -159,13 +159,13 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("offset が負ならエラー", func(t *testing.T) {
+	t.Run("returns error when offset is negative", func(t *testing.T) {
 		t.Parallel()
 
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
-			Event: &eventUsecaseStub{},
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{}),
+		).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"list", "--db-path", "/tmp/test-traceary.db", "--offset", "-1"})
@@ -175,13 +175,13 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("kind が不正ならエラー", func(t *testing.T) {
+	t.Run("returns error when kind is invalid", func(t *testing.T) {
 		t.Parallel()
 
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
-			Event: &eventUsecaseStub{},
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{}),
+		).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"list", "--db-path", "/tmp/test-traceary.db", "--kind", "unknown"})
@@ -195,10 +195,10 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		t.Parallel()
 
 		listStub := &eventUsecaseStub{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
-			Event: listStub,
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(listStub),
+		).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"list", "--db-path", "/tmp/test-traceary.db", "--kind", "audit"})

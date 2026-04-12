@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/usecase"
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/types"
 )
 
@@ -57,25 +57,17 @@ func (c *RootCLI) newTimelineCommand() *cobra.Command {
 	return cmd
 }
 
-type timelineCommandInput struct {
-	dbPath    string
-	workspace string
-	from      string
-	to        string
-	gap       int
-	limit     int
-	asJSON    bool
-}
-
 func (c *RootCLI) runTimeline(ctx context.Context, output io.Writer, input timelineCommandInput) error {
 	if c.event == nil {
 		return xerrors.Errorf(Localize("event usecase is not configured", "イベントユースケースが設定されていません"))
 	}
 
-	if _, err := resolveDBPath(input.dbPath); err != nil {
+	resolvedDBPath, err := resolveDBPath(input.dbPath)
+	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.storeMaintenance.Initialize(ctx); err != nil {
+	c.applyDatabasePath(resolvedDBPath)
+	if err := c.storeManagement.Initialize(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
@@ -88,13 +80,13 @@ func (c *RootCLI) runTimeline(ctx context.Context, output io.Writer, input timel
 		return xerrors.Errorf("%s: %w", Localize("invalid --to value", "--to の値が不正です"), err)
 	}
 
-	blocks, err := c.event.Timeline(ctx, usecase.TimelineCriteria{
-		Workspace:  types.Workspace(strings.TrimSpace(input.workspace)),
-		From:       fromTime,
-		To:         toTime,
-		GapSeconds: input.gap * 60,
-		Limit:      input.limit,
-	})
+	criteria := apptypes.NewTimelineCriteriaBuilder(input.limit).
+		Workspace(types.Workspace(strings.TrimSpace(input.workspace))).
+		From(fromTime).
+		To(toTime).
+		GapSeconds(input.gap * 60).
+		Build()
+	blocks, err := c.event.Timeline(ctx, criteria)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to list timeline blocks", "タイムラインブロックの取得に失敗しました"), err)
 	}
@@ -106,7 +98,15 @@ func (c *RootCLI) runTimeline(ctx context.Context, output io.Writer, input timel
 	return writeTimelineText(output, blocks)
 }
 
-func writeTimelineText(output io.Writer, blocks []*usecase.TimelineBlock) error {
+func computeKindCounts(kinds []string) map[string]int {
+	counts := make(map[string]int)
+	for _, k := range kinds {
+		counts[k]++
+	}
+	return counts
+}
+
+func writeTimelineText(output io.Writer, blocks []apptypes.TimelineBlock) error {
 	if len(blocks) == 0 {
 		if _, err := fmt.Fprintln(output, "No work blocks found."); err != nil {
 			return xerrors.Errorf("failed to print timeline: %w", err)
@@ -115,13 +115,13 @@ func writeTimelineText(output io.Writer, blocks []*usecase.TimelineBlock) error 
 	}
 
 	for _, b := range blocks {
-		duration := b.BlockEnd.Sub(b.BlockStart)
+		duration := b.BlockEnd().Sub(b.BlockStart())
 		durationStr := formatDuration(duration)
-		ws := strings.Join(b.Workspaces, ", ")
+		ws := strings.Join(b.Workspaces(), ", ")
 
 		if _, err := fmt.Fprintf(output, "%s - %s (%s) %s\n",
-			b.BlockStart.Local().Format("2006-01-02 15:04"),
-			b.BlockEnd.Local().Format("15:04"),
+			b.BlockStart().Local().Format("2006-01-02 15:04"),
+			b.BlockEnd().Local().Format("15:04"),
 			durationStr,
 			ws,
 		); err != nil {
@@ -129,7 +129,8 @@ func writeTimelineText(output io.Writer, blocks []*usecase.TimelineBlock) error 
 		}
 
 		// Print kind counts as command frequency
-		kindLine := formatKindCounts(b.KindCounts)
+		kindCounts := computeKindCounts(b.Kinds())
+		kindLine := formatKindCounts(kindCounts)
 		if kindLine != "" {
 			if _, err := fmt.Fprintf(output, "  %s\n", kindLine); err != nil {
 				return xerrors.Errorf("failed to print timeline block details: %w", err)
@@ -162,7 +163,7 @@ func formatKindCounts(counts map[string]int) string {
 	return strings.Join(parts, ", ")
 }
 
-func writeTimelineJSON(output io.Writer, blocks []*usecase.TimelineBlock) error {
+func writeTimelineJSON(output io.Writer, blocks []apptypes.TimelineBlock) error {
 	type jsonBlock struct {
 		Start      string         `json:"start"`
 		End        string         `json:"end"`
@@ -176,13 +177,13 @@ func writeTimelineJSON(output io.Writer, blocks []*usecase.TimelineBlock) error 
 	result := make([]jsonBlock, 0, len(blocks))
 	for _, b := range blocks {
 		result = append(result, jsonBlock{
-			Start:      b.BlockStart.Format(time.RFC3339),
-			End:        b.BlockEnd.Format(time.RFC3339),
-			Duration:   formatDuration(b.BlockEnd.Sub(b.BlockStart)),
-			EventCount: b.EventCount,
-			Workspaces: b.Workspaces,
-			Agents:     b.Agents,
-			KindCounts: b.KindCounts,
+			Start:      b.BlockStart().Format(time.RFC3339),
+			End:        b.BlockEnd().Format(time.RFC3339),
+			Duration:   formatDuration(b.BlockEnd().Sub(b.BlockStart())),
+			EventCount: b.EventCount(),
+			Workspaces: b.Workspaces(),
+			Agents:     b.Agents(),
+			KindCounts: computeKindCounts(b.Kinds()),
 		})
 	}
 

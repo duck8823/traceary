@@ -57,7 +57,8 @@ func (c *RootCLI) runInit(ctx context.Context, output io.Writer, dbPath string) 
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.storeMaintenance.Initialize(ctx); err != nil {
+	c.applyDatabasePath(resolvedPath)
+	if err := c.storeManagement.Initialize(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 	if _, err := fmt.Fprintf(output, "%s: %s\n", Localize("Initialized", "初期化しました"), resolvedPath); err != nil {

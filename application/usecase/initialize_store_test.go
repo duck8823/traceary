@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/duck8823/traceary/application/usecase"
 )
@@ -16,8 +17,20 @@ func (s *storeInitializerStub) Initialize(_ context.Context) error {
 	s.called = true
 	return s.err
 }
+func (s *storeInitializerStub) CreateBackup(_ context.Context, _ string, _ bool) error {
+	return nil
+}
+func (s *storeInitializerStub) RestoreBackup(_ context.Context, _ string, _ bool) error {
+	return nil
+}
+func (s *storeInitializerStub) CollectGarbage(_ context.Context, _ time.Time, _ bool) (int, error) {
+	return 0, nil
+}
+func (s *storeInitializerStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool) (int, error) {
+	return 0, nil
+}
 
-func TestInitializeStoreUsecase_Run(t *testing.T) {
+func TestStoreManagementUsecase_Initialize(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -46,12 +59,12 @@ func TestInitializeStoreUsecase_Run(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			sut := usecase.NewInitializeStoreUsecase(tt.stub)
+			sut := usecase.NewStoreManagementUsecase(tt.stub)
 
-			err := sut.Run(context.Background())
+			err := sut.Initialize(context.Background())
 
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("Initialize() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.stub.called != tt.wantCalled {
 				t.Fatalf("Initialize() called = %v, want %v", tt.stub.called, tt.wantCalled)

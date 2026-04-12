@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,7 +13,8 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/presentation"
+	"github.com/duck8823/traceary/application"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 const (
@@ -66,16 +68,8 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 	return doctorCmd
 }
 
-type doctorCommandInput struct {
-	dbPath         string
-	client         string
-	projectDir     string
-	currentVersion string
-	asJSON         bool
-}
-
 func (c *RootCLI) runDoctor(ctx context.Context, output io.Writer, input doctorCommandInput) error {
-	if c.storeMaintenance == nil {
+	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 
@@ -94,7 +88,7 @@ func (c *RootCLI) runDoctor(ctx context.Context, output io.Writer, input doctorC
 }
 
 func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInput) (*doctorReport, error) {
-	resolvedClients, err := resolveDoctorClients(input.client)
+	resolvedClients, err := resolveDoctorClients(c, input.client)
 	if err != nil {
 		return nil, err
 	}
@@ -113,6 +107,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		})
 		return report, nil
 	}
+	c.applyDatabasePath(resolvedDBPath)
 	report.DBPath = resolvedDBPath
 	report.Checks = append(report.Checks, doctorCheck{
 		Name:    "db-path",
@@ -122,7 +117,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 
 	report.Checks = append(report.Checks, inspectDoctorConfig())
 
-	if err := c.storeMaintenance.Initialize(ctx); err != nil {
+	if err := c.storeManagement.Initialize(ctx); err != nil {
 		report.Checks = append(report.Checks, doctorCheck{
 			Name:    "db-write",
 			Status:  doctorStatusFail,
@@ -136,7 +131,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		})
 	}
 
-	hookScriptsDir, err := resolveHooksScriptsDir()
+	hookScriptsDir, err := c.hookScriptsInstaller.ResolveDir()
 	if err != nil {
 		report.Checks = append(report.Checks, doctorCheck{
 			Name:    "hook-scripts",
@@ -145,7 +140,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		})
 	} else {
 		report.HookScriptsDir = hookScriptsDir
-		if _, ensureErr := ensureHookScriptsInstalled(); ensureErr != nil {
+		if _, ensureErr := c.hookScriptsInstaller.Ensure(); ensureErr != nil {
 			report.Checks = append(report.Checks, doctorCheck{
 				Name:   "hook-scripts",
 				Status: doctorStatusWarn,
@@ -181,7 +176,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 	})
 
 	for _, targetClient := range resolvedClients {
-		outputPath, pathErr := resolveHooksInstallOutputPath(targetClient, resolvedProjectDir, "")
+		outputPath, pathErr := c.hooksOrchestrator.ResolveInstallPath(targetClient, resolvedProjectDir, types.Empty[string]())
 		if pathErr != nil {
 			report.Checks = append(report.Checks, doctorCheck{
 				Name:    targetClient + "-config",
@@ -191,7 +186,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			continue
 		}
 
-		check := inspectDoctorConfigFile(targetClient, outputPath)
+		check := c.inspectDoctorConfigFile(targetClient, outputPath)
 		if check.Status == doctorStatusWarn && targetClient == "claude" {
 			pluginCheck := inspectDoctorPluginPackage(resolvedProjectDir)
 			if pluginCheck.Status == doctorStatusPass {
@@ -206,62 +201,67 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 	return report, nil
 }
 
-func resolveDoctorClients(client string) ([]string, error) {
+func resolveDoctorClients(c *RootCLI, client string) ([]string, error) {
 	if strings.TrimSpace(client) == "" {
 		return []string{"claude", "codex", "gemini"}, nil
 	}
 
-	resolvedClient, err := normalizeHooksClient(client)
+	resolvedClient, err := c.hooksOrchestrator.NormalizeClient(client)
 	if err != nil {
-		return nil, err
+		return nil, xerrors.Errorf("failed to normalize client: %w", err)
 	}
 
 	return []string{resolvedClient}, nil
 }
 
+// inspectDoctorConfig inspects the optional Traceary config file
+// (~/.config/traceary/config.json) and returns a doctorCheck describing
+// the outcome. The function keeps all filesystem logic inlined here so
+// the presentation layer does not need a dedicated "Config" data carrier.
 func inspectDoctorConfig() doctorCheck {
-	configResult := presentation.InspectConfig()
-	switch configResult.Status {
-	case presentation.ConfigLoadStatusLoaded:
-		return doctorCheck{
-			Name:    "config",
-			Status:  doctorStatusPass,
-			Message: localizef("loaded config file: %s", "設定ファイルを読み込みました: %s", configResult.Path),
-		}
-	case presentation.ConfigLoadStatusMissing:
-		return doctorCheck{
-			Name:    "config",
-			Status:  doctorStatusPass,
-			Message: localizef("optional config file is not present yet; built-in redaction defaults remain active: %s", "オプション設定ファイルはまだありません。組み込みの redaction 既定値を使います: %s", configResult.Path),
-		}
-	case presentation.ConfigLoadStatusInvalid:
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
 		return doctorCheck{
 			Name:    "config",
 			Status:  doctorStatusFail,
-			Message: localizef("config file is invalid JSON, so extra redaction patterns are disabled: %s (%v)", "設定ファイルの JSON が不正なため、追加 redaction pattern は無効です: %s (%v)", configResult.Path, configResult.Err),
+			Message: localizef("failed to resolve the config path, so extra redaction patterns are disabled: %v", "設定ファイルのパスを解決できないため、追加 redaction pattern は無効です: %v", err),
 		}
-	case presentation.ConfigLoadStatusUnreadable:
+	}
+
+	configPath := filepath.Join(homeDir, ".config", "traceary", "config.json")
+	data, readErr := os.ReadFile(configPath)
+	if readErr != nil {
+		if os.IsNotExist(readErr) {
+			return doctorCheck{
+				Name:    "config",
+				Status:  doctorStatusPass,
+				Message: localizef("optional config file is not present yet; built-in redaction defaults remain active: %s", "オプション設定ファイルはまだありません。組み込みの redaction 既定値を使います: %s", configPath),
+			}
+		}
 		return doctorCheck{
 			Name:    "config",
 			Status:  doctorStatusFail,
-			Message: localizef("config file could not be read, so extra redaction patterns are disabled: %s (%v)", "設定ファイルを読み込めないため、追加 redaction pattern は無効です: %s (%v)", configResult.Path, configResult.Err),
+			Message: localizef("config file could not be read, so extra redaction patterns are disabled: %s (%v)", "設定ファイルを読み込めないため、追加 redaction pattern は無効です: %s (%v)", configPath, readErr),
 		}
-	case presentation.ConfigLoadStatusHomeDirFailure:
+	}
+
+	var root map[string]json.RawMessage
+	if unmarshalErr := json.Unmarshal(data, &root); unmarshalErr != nil {
 		return doctorCheck{
 			Name:    "config",
 			Status:  doctorStatusFail,
-			Message: localizef("failed to resolve the config path, so extra redaction patterns are disabled: %v", "設定ファイルのパスを解決できないため、追加 redaction pattern は無効です: %v", configResult.Err),
+			Message: localizef("config file is invalid JSON, so extra redaction patterns are disabled: %s (%v)", "設定ファイルの JSON が不正なため、追加 redaction pattern は無効です: %s (%v)", configPath, unmarshalErr),
 		}
-	default:
-		return doctorCheck{
-			Name:    "config",
-			Status:  doctorStatusFail,
-			Message: localizef("config state is unknown", "設定ファイルの状態を判定できません"),
-		}
+	}
+
+	return doctorCheck{
+		Name:    "config",
+		Status:  doctorStatusPass,
+		Message: localizef("loaded config file: %s", "設定ファイルを読み込みました: %s", configPath),
 	}
 }
 
-func inspectDoctorConfigFile(client string, outputPath string) doctorCheck {
+func (c *RootCLI) inspectDoctorConfigFile(client string, outputPath string) doctorCheck {
 	content, err := os.ReadFile(outputPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -285,8 +285,15 @@ func inspectDoctorConfigFile(client string, outputPath string) doctorCheck {
 		}
 	}
 
-	root := map[string]json.RawMessage{}
-	if err := json.Unmarshal(content, &root); err != nil {
+	hasHooksField, hasTracearyManagedHook, inspectErr := c.hooksInspector.Inspect(content)
+	if inspectErr != nil {
+		if errors.Is(inspectErr, application.ErrHookConfigInvalidHooksField) {
+			return doctorCheck{
+				Name:    client + "-config",
+				Status:  doctorStatusFail,
+				Message: localizef("%s hooks field must be an object of hook arrays: %s", "%s の hooks フィールドは hook 配列を値に持つ object である必要があります: %s", client, outputPath),
+			}
+		}
 		return doctorCheck{
 			Name:    client + "-config",
 			Status:  doctorStatusFail,
@@ -294,8 +301,7 @@ func inspectDoctorConfigFile(client string, outputPath string) doctorCheck {
 		}
 	}
 
-	hooksValue, ok := root["hooks"]
-	if !ok {
+	if !hasHooksField {
 		return doctorCheck{
 			Name:   client + "-config",
 			Status: doctorStatusWarn,
@@ -309,26 +315,11 @@ func inspectDoctorConfigFile(client string, outputPath string) doctorCheck {
 		}
 	}
 
-	hooksMap := map[string][]hookMatcher{}
-	if err := json.Unmarshal(hooksValue, &hooksMap); err != nil {
+	if hasTracearyManagedHook {
 		return doctorCheck{
 			Name:    client + "-config",
-			Status:  doctorStatusFail,
-			Message: localizef("%s hooks field must be an object of hook arrays: %s", "%s の hooks フィールドは hook 配列を値に持つ object である必要があります: %s", client, outputPath),
-		}
-	}
-
-	for _, matchers := range hooksMap {
-		for _, matcher := range matchers {
-			for _, hook := range matcher.Hooks {
-				if isTracearyManagedHookCommand(hook) {
-					return doctorCheck{
-						Name:    client + "-config",
-						Status:  doctorStatusPass,
-						Message: localizef("%s config contains Traceary-managed hooks: %s", "%s の設定には Traceary 管理下の hook があります: %s", client, outputPath),
-					}
-				}
-			}
+			Status:  doctorStatusPass,
+			Message: localizef("%s config contains Traceary-managed hooks: %s", "%s の設定には Traceary 管理下の hook があります: %s", client, outputPath),
 		}
 	}
 

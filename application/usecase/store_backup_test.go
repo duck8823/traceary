@@ -3,6 +3,9 @@ package usecase_test
 import (
 	"context"
 	"testing"
+	"time"
+
+	"github.com/google/go-cmp/cmp"
 
 	"github.com/duck8823/traceary/application/usecase"
 )
@@ -14,12 +17,22 @@ type storeBackupCreatorStub struct {
 	err                error
 }
 
+func (s *storeBackupCreatorStub) Initialize(_ context.Context) error { return nil }
 func (s *storeBackupCreatorStub) CreateBackup(_ context.Context, outputPath string, overwrite bool) error {
 	s.called = true
 	s.receivedOutputPath = outputPath
 	s.receivedOverwrite = overwrite
 
 	return s.err
+}
+func (s *storeBackupCreatorStub) RestoreBackup(_ context.Context, _ string, _ bool) error {
+	return nil
+}
+func (s *storeBackupCreatorStub) CollectGarbage(_ context.Context, _ time.Time, _ bool) (int, error) {
+	return 0, nil
+}
+func (s *storeBackupCreatorStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool) (int, error) {
+	return 0, nil
 }
 
 type storeBackupRestorerStub struct {
@@ -29,6 +42,10 @@ type storeBackupRestorerStub struct {
 	err               error
 }
 
+func (s *storeBackupRestorerStub) Initialize(_ context.Context) error { return nil }
+func (s *storeBackupRestorerStub) CreateBackup(_ context.Context, _ string, _ bool) error {
+	return nil
+}
 func (s *storeBackupRestorerStub) RestoreBackup(_ context.Context, inputPath string, overwrite bool) error {
 	s.called = true
 	s.receivedInputPath = inputPath
@@ -36,13 +53,20 @@ func (s *storeBackupRestorerStub) RestoreBackup(_ context.Context, inputPath str
 
 	return s.err
 }
+func (s *storeBackupRestorerStub) CollectGarbage(_ context.Context, _ time.Time, _ bool) (int, error) {
+	return 0, nil
+}
+func (s *storeBackupRestorerStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool) (int, error) {
+	return 0, nil
+}
 
-func TestCreateStoreBackupUsecase_Run(t *testing.T) {
+func TestStoreManagementUsecase_CreateBackup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name           string
-		input          usecase.CreateStoreBackupInput
+		outputPath     string
+		overwrite      bool
 		stub           *storeBackupCreatorStub
 		wantCalled     bool
 		wantOutputPath string
@@ -50,30 +74,24 @@ func TestCreateStoreBackupUsecase_Run(t *testing.T) {
 		wantErr        bool
 	}{
 		{
-			name: "DB と出力先を渡してバックアップできる",
-			input: usecase.CreateStoreBackupInput{
-				OutputPath: "/tmp/traceary-backup.db",
-				Overwrite:  true,
-			},
+			name:           "DB と出力先を渡してバックアップできる",
+			outputPath:     "/tmp/traceary-backup.db",
+			overwrite:      true,
 			stub:           &storeBackupCreatorStub{},
 			wantCalled:     true,
 			wantOutputPath: "/tmp/traceary-backup.db",
 			wantOverwrite:  true,
 		},
 		{
-			name: "出力先が空ならエラー",
-			input: usecase.CreateStoreBackupInput{
-				OutputPath: " ",
-			},
+			name:       "出力先が空ならエラー",
+			outputPath: " ",
 			stub:       &storeBackupCreatorStub{},
 			wantErr:    true,
 			wantCalled: false,
 		},
 		{
-			name: "作成先が失敗したらエラー",
-			input: usecase.CreateStoreBackupInput{
-				OutputPath: "/tmp/traceary-backup.db",
-			},
+			name:       "作成先が失敗したらエラー",
+			outputPath: "/tmp/traceary-backup.db",
 			stub: &storeBackupCreatorStub{
 				err: context.DeadlineExceeded,
 			},
@@ -87,32 +105,33 @@ func TestCreateStoreBackupUsecase_Run(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			sut := usecase.NewCreateStoreBackupUsecase(tt.stub)
+			sut := usecase.NewStoreManagementUsecase(tt.stub)
 
-			err := sut.Run(context.Background(), tt.input)
+			err := sut.CreateBackup(context.Background(), tt.outputPath, tt.overwrite)
 
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("CreateBackup() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.stub.called != tt.wantCalled {
 				t.Fatalf("CreateBackup() called = %v, want %v", tt.stub.called, tt.wantCalled)
 			}
-			if tt.stub.receivedOutputPath != tt.wantOutputPath {
-				t.Fatalf("CreateBackup() outputPath = %q, want %q", tt.stub.receivedOutputPath, tt.wantOutputPath)
+			if diff := cmp.Diff(tt.wantOutputPath, tt.stub.receivedOutputPath); diff != "" {
+				t.Fatalf("CreateBackup() outputPath mismatch (-want +got):\n%s", diff)
 			}
-			if tt.stub.receivedOverwrite != tt.wantOverwrite {
-				t.Fatalf("CreateBackup() overwrite = %v, want %v", tt.stub.receivedOverwrite, tt.wantOverwrite)
+			if diff := cmp.Diff(tt.wantOverwrite, tt.stub.receivedOverwrite); diff != "" {
+				t.Fatalf("CreateBackup() overwrite mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
 }
 
-func TestRestoreStoreBackupUsecase_Run(t *testing.T) {
+func TestStoreManagementUsecase_RestoreBackup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name          string
-		input         usecase.RestoreStoreBackupInput
+		inputPath     string
+		overwrite     bool
 		stub          *storeBackupRestorerStub
 		wantCalled    bool
 		wantInputPath string
@@ -120,30 +139,24 @@ func TestRestoreStoreBackupUsecase_Run(t *testing.T) {
 		wantErr       bool
 	}{
 		{
-			name: "入力ファイルから DB を復元できる",
-			input: usecase.RestoreStoreBackupInput{
-				InputPath: "/tmp/traceary-backup.db",
-				Overwrite: true,
-			},
+			name:          "入力ファイルから DB を復元できる",
+			inputPath:     "/tmp/traceary-backup.db",
+			overwrite:     true,
 			stub:          &storeBackupRestorerStub{},
 			wantCalled:    true,
 			wantInputPath: "/tmp/traceary-backup.db",
 			wantOverwrite: true,
 		},
 		{
-			name: "入力ファイルが空ならエラー",
-			input: usecase.RestoreStoreBackupInput{
-				InputPath: " ",
-			},
+			name:       "入力ファイルが空ならエラー",
+			inputPath:  " ",
 			stub:       &storeBackupRestorerStub{},
 			wantErr:    true,
 			wantCalled: false,
 		},
 		{
-			name: "復元先が失敗したらエラー",
-			input: usecase.RestoreStoreBackupInput{
-				InputPath: "/tmp/traceary-backup.db",
-			},
+			name:      "復元先が失敗したらエラー",
+			inputPath: "/tmp/traceary-backup.db",
 			stub: &storeBackupRestorerStub{
 				err: context.DeadlineExceeded,
 			},
@@ -157,21 +170,21 @@ func TestRestoreStoreBackupUsecase_Run(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			sut := usecase.NewRestoreStoreBackupUsecase(tt.stub)
+			sut := usecase.NewStoreManagementUsecase(tt.stub)
 
-			err := sut.Run(context.Background(), tt.input)
+			err := sut.RestoreBackup(context.Background(), tt.inputPath, tt.overwrite)
 
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("RestoreBackup() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.stub.called != tt.wantCalled {
 				t.Fatalf("RestoreBackup() called = %v, want %v", tt.stub.called, tt.wantCalled)
 			}
-			if tt.stub.receivedInputPath != tt.wantInputPath {
-				t.Fatalf("RestoreBackup() inputPath = %q, want %q", tt.stub.receivedInputPath, tt.wantInputPath)
+			if diff := cmp.Diff(tt.wantInputPath, tt.stub.receivedInputPath); diff != "" {
+				t.Fatalf("RestoreBackup() inputPath mismatch (-want +got):\n%s", diff)
 			}
-			if tt.stub.receivedOverwrite != tt.wantOverwrite {
-				t.Fatalf("RestoreBackup() overwrite = %v, want %v", tt.stub.receivedOverwrite, tt.wantOverwrite)
+			if diff := cmp.Diff(tt.wantOverwrite, tt.stub.receivedOverwrite); diff != "" {
+				t.Fatalf("RestoreBackup() overwrite mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

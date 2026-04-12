@@ -4,13 +4,11 @@ import (
 	"bytes"
 	"strings"
 	"testing"
-
-	"github.com/duck8823/traceary/presentation/cli"
 )
 
 func TestRootCLI_HooksHelperCommand(t *testing.T) {
 	t.Run("json-get reads nested values", func(t *testing.T) {
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+		rootCmd := newTestRootCLI().Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -26,7 +24,7 @@ func TestRootCLI_HooksHelperCommand(t *testing.T) {
 	})
 
 	t.Run("build-failure-output renders compact JSON", func(t *testing.T) {
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+		rootCmd := newTestRootCLI().Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -42,7 +40,7 @@ func TestRootCLI_HooksHelperCommand(t *testing.T) {
 	})
 
 	t.Run("normalize-git-remote normalizes git URLs", func(t *testing.T) {
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+		rootCmd := newTestRootCLI().Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})

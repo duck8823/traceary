@@ -7,7 +7,8 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/duck8823/traceary/domain/port"
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
@@ -50,9 +51,9 @@ CREATE TABLE command_audits (
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(dbPath, migrations)
+	sut, storeManager := newEventDatasource(t, dbPath, migrations)
 
-	if err := sut.Initialize(context.Background()); err != nil {
+	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -84,23 +85,21 @@ CREATE TABLE command_audits (
 		t.Fatalf("Save(newer) error = %v", err)
 	}
 
-	got, err := sut.ListRecent(context.Background(), port.ListRecentEventsInput{
-		Limit: 10,
-	})
+	got, err := sut.ListRecent(context.Background(), 10, 0, types.EventKind(""), types.Client(""), types.Agent(""), types.SessionID(""), types.Workspace(""), false, time.Time{}, time.Time{})
 	if err != nil {
 		t.Fatalf("ListRecent() error = %v", err)
 	}
 	if len(got) != 2 {
 		t.Fatalf("len(events) = %d, want 2", len(got))
 	}
-	if got[0].EventID().String() != "event-2" {
-		t.Fatalf("got[0].EventID() = %q, want %q", got[0].EventID(), "event-2")
+	if diff := cmp.Diff("event-2", got[0].EventID().String()); diff != "" {
+		t.Fatalf("got[0].EventID() mismatch (-want +got):\n%s", diff)
 	}
-	if got[0].Client() != "hook" {
-		t.Fatalf("got[0].Client() = %q, want %q", got[0].Client(), "hook")
+	if diff := cmp.Diff(types.Client("hook"), got[0].Client()); diff != "" {
+		t.Fatalf("got[0].Client() mismatch (-want +got):\n%s", diff)
 	}
-	if got[1].Workspace() != "duck8823/traceary" {
-		t.Fatalf("got[1].Workspace() = %q, want %q", got[1].Workspace(), "duck8823/traceary")
+	if diff := cmp.Diff(types.Workspace("duck8823/traceary"), got[1].Workspace()); diff != "" {
+		t.Fatalf("got[1].Workspace() mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -122,7 +121,8 @@ CREATE TABLE events (
 );`),
 		},
 	}
-	if err := sqlite.NewDatasource(dbPath, initialMigrations).Initialize(context.Background()); err != nil {
+	initialDB := sqlite.NewDatabase(dbPath, initialMigrations)
+	if err := sqlite.NewStoreManagementDatasource(initialDB).Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize(initial) error = %v", err)
 	}
 
@@ -146,9 +146,9 @@ CREATE TABLE command_audits (
 );`),
 		},
 	}
-	sut := sqlite.NewDatasource(dbPath, updatedMigrations)
+	sut, storeManager := newEventDatasource(t, dbPath, updatedMigrations)
 
-	if err := sut.Initialize(context.Background()); err != nil {
+	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize(updated) error = %v", err)
 	}
 
@@ -166,17 +166,15 @@ CREATE TABLE command_audits (
 		t.Fatalf("Save() error = %v", err)
 	}
 
-	got, err := sut.ListRecent(context.Background(), port.ListRecentEventsInput{
-		Limit: 1,
-	})
+	got, err := sut.ListRecent(context.Background(), 1, 0, types.EventKind(""), types.Client(""), types.Agent(""), types.SessionID(""), types.Workspace(""), false, time.Time{}, time.Time{})
 	if err != nil {
 		t.Fatalf("ListRecent() error = %v", err)
 	}
 	if len(got) != 1 {
 		t.Fatalf("len(events) = %d, want 1", len(got))
 	}
-	if got[0].Client() != "cli" {
-		t.Fatalf("Client() = %q, want %q", got[0].Client(), "cli")
+	if diff := cmp.Diff(types.Client("cli"), got[0].Client()); diff != "" {
+		t.Fatalf("Client() mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -217,9 +215,9 @@ CREATE TABLE command_audits (
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(dbPath, migrations)
+	sut, storeManager := newEventDatasource(t, dbPath, migrations)
 
-	if err := sut.Initialize(context.Background()); err != nil {
+	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -239,18 +237,15 @@ CREATE TABLE command_audits (
 		}
 	}
 
-	got, err := sut.ListRecent(context.Background(), port.ListRecentEventsInput{
-		Limit:  1,
-		Offset: 1,
-	})
+	got, err := sut.ListRecent(context.Background(), 1, 1, types.EventKind(""), types.Client(""), types.Agent(""), types.SessionID(""), types.Workspace(""), false, time.Time{}, time.Time{})
 	if err != nil {
 		t.Fatalf("ListRecent() error = %v", err)
 	}
 	if len(got) != 1 {
 		t.Fatalf("len(events) = %d, want 1", len(got))
 	}
-	if got[0].EventID().String() != "event-2" {
-		t.Fatalf("got[0].EventID() = %q, want %q", got[0].EventID(), "event-2")
+	if diff := cmp.Diff("event-2", got[0].EventID().String()); diff != "" {
+		t.Fatalf("got[0].EventID() mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -291,9 +286,9 @@ CREATE TABLE command_audits (
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(dbPath, migrations)
+	sut, storeManager := newEventDatasource(t, dbPath, migrations)
 
-	if err := sut.Initialize(context.Background()); err != nil {
+	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -305,8 +300,8 @@ CREATE TABLE command_audits (
 	sessionTwo := mustSessionIDForSQLite(t, "session-2")
 
 	events := []*model.Event{
-		model.EventOf(firstEventID, types.EventKindNote, "cli", codexAgent, sessionOne, "duck8823/traceary", "first", time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC)),
-		model.EventOf(secondEventID, types.EventKindCommandExecuted, "hook", claudeAgent, sessionTwo, "other/workspace", "second", time.Date(2026, 4, 7, 12, 1, 0, 0, time.UTC)),
+		model.EventOf(firstEventID, types.EventKindNote, types.Client("cli"), codexAgent, sessionOne, types.Workspace("duck8823/traceary"), "first", time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC)),
+		model.EventOf(secondEventID, types.EventKindCommandExecuted, types.Client("hook"), claudeAgent, sessionTwo, types.Workspace("other/workspace"), "second", time.Date(2026, 4, 7, 12, 1, 0, 0, time.UTC)),
 	}
 	for _, event := range events {
 		if err := sut.Save(context.Background(), event); err != nil {
@@ -314,22 +309,15 @@ CREATE TABLE command_audits (
 		}
 	}
 
-	got, err := sut.ListRecent(context.Background(), port.ListRecentEventsInput{
-		Limit:     10,
-		Kind:      types.EventKindNote.String(),
-		Client:    "cli",
-		Agent:     "codex",
-		SessionID: "session-1",
-		Workspace:      "duck8823/traceary",
-	})
+	got, err := sut.ListRecent(context.Background(), 10, 0, types.EventKindNote, types.Client("cli"), types.Agent("codex"), types.SessionID("session-1"), types.Workspace("duck8823/traceary"), false, time.Time{}, time.Time{})
 	if err != nil {
 		t.Fatalf("ListRecent() error = %v", err)
 	}
 	if len(got) != 1 {
 		t.Fatalf("len(events) = %d, want 1", len(got))
 	}
-	if got[0].EventID().String() != "event-note" {
-		t.Fatalf("got[0].EventID() = %q, want %q", got[0].EventID(), "event-note")
+	if diff := cmp.Diff("event-note", got[0].EventID().String()); diff != "" {
+		t.Fatalf("got[0].EventID() mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -394,10 +382,10 @@ func newEventForSQLiteTest(
 	return model.EventOf(
 		eventID,
 		types.EventKindNote,
-		client,
+		types.Client(client),
 		agent,
 		sessionID,
-		workspace,
+		types.Workspace(workspace),
 		body,
 		createdAt,
 	)

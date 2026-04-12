@@ -1,8 +1,11 @@
 package model_test
 
 import (
+	"errors"
 	"testing"
 	"time"
+
+	"github.com/google/go-cmp/cmp"
 
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -21,34 +24,34 @@ func TestNewSession(t *testing.T) {
 	}
 	now := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 
-	session := model.NewSession(sid, now, "hook", agent, "duck8823/traceary")
+	session := model.NewSession(sid, now, types.Client("hook"), agent, types.Workspace("duck8823/traceary"))
 
-	if session.SessionID() != sid {
-		t.Errorf("SessionID() = %v, want %v", session.SessionID(), sid)
+	if diff := cmp.Diff(sid, session.SessionID()); diff != "" {
+		t.Errorf("SessionID() mismatch (-want +got):\n%s", diff)
 	}
-	if session.StartedAt() != now {
-		t.Errorf("StartedAt() = %v, want %v", session.StartedAt(), now)
+	if diff := cmp.Diff(now, session.StartedAt()); diff != "" {
+		t.Errorf("StartedAt() mismatch (-want +got):\n%s", diff)
 	}
-	if session.EndedAt() != nil {
-		t.Errorf("EndedAt() = %v, want nil", session.EndedAt())
+	if endedAt, ok := session.EndedAt().Get(); ok {
+		t.Errorf("EndedAt() should be empty, got %v", endedAt)
 	}
-	if session.Client() != "hook" {
-		t.Errorf("Client() = %q, want %q", session.Client(), "hook")
+	if diff := cmp.Diff(types.Client("hook"), session.Client()); diff != "" {
+		t.Errorf("Client() mismatch (-want +got):\n%s", diff)
 	}
-	if session.Agent() != agent {
-		t.Errorf("Agent() = %v, want %v", session.Agent(), agent)
+	if diff := cmp.Diff(agent, session.Agent()); diff != "" {
+		t.Errorf("Agent() mismatch (-want +got):\n%s", diff)
 	}
-	if session.Workspace() != "duck8823/traceary" {
-		t.Errorf("Repo() = %q, want %q", session.Workspace(), "duck8823/traceary")
+	if diff := cmp.Diff(types.Workspace("duck8823/traceary"), session.Workspace()); diff != "" {
+		t.Errorf("Workspace() mismatch (-want +got):\n%s", diff)
 	}
-	if session.Label() != "" {
-		t.Errorf("Label() = %q, want empty", session.Label())
+	if diff := cmp.Diff("", session.Label()); diff != "" {
+		t.Errorf("Label() mismatch (-want +got):\n%s", diff)
 	}
-	if session.Summary() != "" {
-		t.Errorf("Summary() = %q, want empty", session.Summary())
+	if diff := cmp.Diff("", session.Summary()); diff != "" {
+		t.Errorf("Summary() mismatch (-want +got):\n%s", diff)
 	}
-	if session.ParentSessionID() != "" {
-		t.Errorf("ParentSessionID() = %q, want empty", session.ParentSessionID())
+	if diff := cmp.Diff(types.SessionID(""), session.ParentSessionID()); diff != "" {
+		t.Errorf("ParentSessionID() mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -60,23 +63,90 @@ func TestSessionOf(t *testing.T) {
 	start := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 4, 10, 13, 0, 0, 0, time.UTC)
 
-	session := model.SessionOf(sid, start, &end, "cli", agent, "workspace", "sprint-1", "did stuff", "parent-123")
+	session := model.SessionOf(sid, start, types.Of(end), types.Client("cli"), agent, types.Workspace("workspace"), "sprint-1", "did stuff", types.SessionID("parent-123"))
 
-	if session.SessionID() != sid {
-		t.Errorf("SessionID() = %v, want %v", session.SessionID(), sid)
+	if diff := cmp.Diff(sid, session.SessionID()); diff != "" {
+		t.Errorf("SessionID() mismatch (-want +got):\n%s", diff)
 	}
-	if session.EndedAt() == nil || *session.EndedAt() != end {
-		t.Errorf("EndedAt() = %v, want %v", session.EndedAt(), end)
+	if endedAt, ok := session.EndedAt().Get(); !ok {
+		t.Errorf("EndedAt() should be present")
+	} else if diff := cmp.Diff(end, endedAt); diff != "" {
+		t.Errorf("EndedAt() mismatch (-want +got):\n%s", diff)
 	}
-	if session.Label() != "sprint-1" {
-		t.Errorf("Label() = %q, want %q", session.Label(), "sprint-1")
+	if diff := cmp.Diff("sprint-1", session.Label()); diff != "" {
+		t.Errorf("Label() mismatch (-want +got):\n%s", diff)
 	}
-	if session.Summary() != "did stuff" {
-		t.Errorf("Summary() = %q, want %q", session.Summary(), "did stuff")
+	if diff := cmp.Diff("did stuff", session.Summary()); diff != "" {
+		t.Errorf("Summary() mismatch (-want +got):\n%s", diff)
 	}
-	if session.ParentSessionID() != "parent-123" {
-		t.Errorf("ParentSessionID() = %q, want %q", session.ParentSessionID(), "parent-123")
+	if diff := cmp.Diff(types.SessionID("parent-123"), session.ParentSessionID()); diff != "" {
+		t.Errorf("ParentSessionID() mismatch (-want +got):\n%s", diff)
 	}
+}
+
+func TestSession_End(t *testing.T) {
+	t.Parallel()
+
+	agent, _ := types.AgentOf("claude")
+	sid, _ := types.SessionIDOf("session-end")
+	start := time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 4, 11, 13, 30, 0, 0, time.UTC)
+
+	t.Run("ends an active session", func(t *testing.T) {
+		t.Parallel()
+
+		session := model.NewSession(sid, start, types.Client("cli"), agent, types.Workspace("duck8823/traceary"))
+		session.SetLabel("sprint-1")
+
+		if session.EndedAt().IsPresent() {
+			t.Fatalf("EndedAt() should be empty before End()")
+		}
+
+		if err := session.End(end, "wrapped up"); err != nil {
+			t.Fatalf("End() error = %v", err)
+		}
+
+		endedAt, ok := session.EndedAt().Get()
+		if !ok {
+			t.Fatalf("EndedAt() should be present after End()")
+		}
+		if diff := cmp.Diff(end, endedAt); diff != "" {
+			t.Errorf("EndedAt() mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("wrapped up", session.Summary()); diff != "" {
+			t.Errorf("Summary() mismatch (-want +got):\n%s", diff)
+		}
+		// End() must not touch the label.
+		if diff := cmp.Diff("sprint-1", session.Label()); diff != "" {
+			t.Errorf("Label() should be unchanged by End(), mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("returns ErrInvalidSessionState when ending an already-ended session", func(t *testing.T) {
+		t.Parallel()
+
+		alreadyEnded := model.SessionOf(
+			sid, start, types.Of(end),
+			types.Client("cli"), agent, types.Workspace("duck8823/traceary"),
+			"", "first end", types.SessionID(""),
+		)
+
+		err := alreadyEnded.End(end.Add(time.Hour), "second end attempt")
+		if err == nil {
+			t.Fatalf("End() error = nil, want ErrInvalidSessionState")
+		}
+		if !errors.Is(err, model.ErrInvalidSessionState) {
+			t.Fatalf("End() error = %v, want ErrInvalidSessionState", err)
+		}
+		// Original ended_at should be preserved.
+		got, _ := alreadyEnded.EndedAt().Get()
+		if diff := cmp.Diff(end, got); diff != "" {
+			t.Errorf("EndedAt() should be unchanged (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("first end", alreadyEnded.Summary()); diff != "" {
+			t.Errorf("Summary() should be unchanged (-want +got):\n%s", diff)
+		}
+	})
 }
 
 func TestSession_SetLabel(t *testing.T) {
@@ -86,24 +156,24 @@ func TestSession_SetLabel(t *testing.T) {
 	sid, _ := types.SessionIDOf("session-3")
 	now := time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC)
 
-	session := model.NewSession(sid, now, "cli", agent, "duck8823/traceary")
+	session := model.NewSession(sid, now, types.Client("cli"), agent, types.Workspace("duck8823/traceary"))
 
 	if session.Label() != "" {
 		t.Fatalf("Label() = %q, want empty before SetLabel", session.Label())
 	}
 
 	session.SetLabel("sprint-1")
-	if session.Label() != "sprint-1" {
-		t.Errorf("Label() = %q, want %q after SetLabel", session.Label(), "sprint-1")
+	if diff := cmp.Diff("sprint-1", session.Label()); diff != "" {
+		t.Errorf("Label() after SetLabel mismatch (-want +got):\n%s", diff)
 	}
 
 	session.SetLabel("updated-label")
-	if session.Label() != "updated-label" {
-		t.Errorf("Label() = %q, want %q after second SetLabel", session.Label(), "updated-label")
+	if diff := cmp.Diff("updated-label", session.Label()); diff != "" {
+		t.Errorf("Label() after second SetLabel mismatch (-want +got):\n%s", diff)
 	}
 
 	session.SetLabel("")
-	if session.Label() != "" {
-		t.Errorf("Label() = %q, want empty after clearing with SetLabel", session.Label())
+	if diff := cmp.Diff("", session.Label()); diff != "" {
+		t.Errorf("Label() after clearing with SetLabel mismatch (-want +got):\n%s", diff)
 	}
 }

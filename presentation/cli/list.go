@@ -7,10 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
-	"github.com/duck8823/traceary/application/usecase"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/types"
-
 )
 
 func (c *RootCLI) newListCommand() *cobra.Command {
@@ -72,25 +71,8 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 	return listCmd
 }
 
-type listCommandInput struct {
-	dbPath       string
-	limit        int
-	offset       int
-	kind         string
-	client       string
-	agent        string
-	sessionID    string
-	repo         string
-	from         string
-	since        string
-	to           string
-	until        string
-	failuresOnly bool
-	asJSON       bool
-}
-
 func (c *RootCLI) runList(ctx context.Context, output io.Writer, input listCommandInput) error {
-	if c.storeMaintenance == nil {
+	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.event == nil {
@@ -133,26 +115,27 @@ func (c *RootCLI) runList(ctx context.Context, output io.Writer, input listComma
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve --to", "to の解決に失敗しました"), err)
 	}
 
-	_, err = resolveDBPath(input.dbPath)
+	resolvedDBPath, err := resolveDBPath(input.dbPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.storeMaintenance.Initialize(ctx); err != nil {
+	c.applyDatabasePath(resolvedDBPath)
+	if err := c.storeManagement.Initialize(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
-	events, err := c.event.List(ctx, usecase.EventListCriteria{
-		Limit:        input.limit,
-		Offset:       input.offset,
-		Kind: types.EventKind(resolvedKind),
-		Client: types.Client(strings.TrimSpace(input.client)),
-		Agent: types.Agent(strings.TrimSpace(input.agent)),
-		SessionID: types.SessionID(strings.TrimSpace(input.sessionID)),
-		Workspace:    types.Workspace(resolveWorkspaceValue(ctx, input.repo)),
-		FailuresOnly: input.failuresOnly,
-		From:         fromTime,
-		To:           toTime,
-	})
+	criteria := apptypes.NewEventListCriteriaBuilder(input.limit).
+		Offset(input.offset).
+		Kind(types.EventKind(resolvedKind)).
+		Client(types.Client(strings.TrimSpace(input.client))).
+		Agent(types.Agent(strings.TrimSpace(input.agent))).
+		SessionID(types.SessionID(strings.TrimSpace(input.sessionID))).
+		Workspace(types.Workspace(resolveWorkspaceValue(ctx, input.repo))).
+		FailuresOnly(input.failuresOnly).
+		From(fromTime).
+		To(toTime).
+		Build()
+	events, err := c.event.List(ctx, criteria)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to list events", "イベント一覧の取得に失敗しました"), err)
 	}

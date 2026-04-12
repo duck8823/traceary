@@ -16,9 +16,11 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/infrastructure/filesystem"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
+	"github.com/duck8823/traceary/presentation"
 	"github.com/duck8823/traceary/presentation/cli"
 	"github.com/duck8823/traceary/presentation/mcpserver"
 )
@@ -31,18 +33,6 @@ var (
 	commit  = "none"
 	date    = "unknown"
 )
-
-type cliCommandError struct {
-	err error
-}
-
-func (e cliCommandError) Error() string {
-	return e.err.Error()
-}
-
-func (e cliCommandError) Unwrap() error {
-	return e.err
-}
 
 func setupLogger() error {
 	level := slog.LevelInfo
@@ -78,17 +68,11 @@ func setupLogger() error {
 	return nil
 }
 
-type buildMetadata struct {
-	version string
-	commit  string
-	date    string
-}
-
 var readBuildInfo = debug.ReadBuildInfo
 
 func versionString() string {
-	metadata := resolveBuildMetadata(version, commit, date, readBuildInfo)
-	return fmt.Sprintf("%s (commit=%s, date=%s, go=%s)", metadata.version, metadata.commit, metadata.date, runtime.Version())
+	resolvedVersion, resolvedCommit, resolvedDate := resolveBuildMetadata(version, commit, date, readBuildInfo)
+	return fmt.Sprintf("%s (commit=%s, date=%s, go=%s)", resolvedVersion, resolvedCommit, resolvedDate, runtime.Version())
 }
 
 func resolveBuildMetadata(
@@ -96,36 +80,34 @@ func resolveBuildMetadata(
 	explicitCommit string,
 	explicitDate string,
 	readInfo func() (*debug.BuildInfo, bool),
-) buildMetadata {
-	metadata := buildMetadata{
-		version: explicitVersion,
-		commit:  explicitCommit,
-		date:    explicitDate,
-	}
+) (resolvedVersion string, resolvedCommit string, resolvedDate string) {
+	resolvedVersion = explicitVersion
+	resolvedCommit = explicitCommit
+	resolvedDate = explicitDate
 
 	if readInfo == nil {
-		return metadata
+		return resolvedVersion, resolvedCommit, resolvedDate
 	}
 	info, ok := readInfo()
 	if !ok || info == nil {
-		return metadata
+		return resolvedVersion, resolvedCommit, resolvedDate
 	}
 
-	if (metadata.version == "" || metadata.version == "dev") && info.Main.Version != "" && info.Main.Version != "(devel)" {
-		metadata.version = info.Main.Version
+	if (resolvedVersion == "" || resolvedVersion == "dev") && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		resolvedVersion = info.Main.Version
 	}
-	if metadata.commit == "" || metadata.commit == "none" || metadata.commit == "unknown" {
+	if resolvedCommit == "" || resolvedCommit == "none" || resolvedCommit == "unknown" {
 		if value := findBuildSetting(info, "vcs.revision"); value != "" {
-			metadata.commit = value
+			resolvedCommit = value
 		}
 	}
-	if metadata.date == "" || metadata.date == "unknown" {
+	if resolvedDate == "" || resolvedDate == "unknown" {
 		if value := findBuildSetting(info, "vcs.time"); value != "" {
-			metadata.date = value
+			resolvedDate = value
 		}
 	}
 
-	return metadata
+	return resolvedVersion, resolvedCommit, resolvedDate
 }
 
 func findBuildSetting(info *debug.BuildInfo, key string) string {
@@ -145,7 +127,7 @@ func run() error {
 		return err
 	}
 
-	metadata := resolveBuildMetadata(version, commit, date, readBuildInfo)
+	resolvedVersion, _, _ := resolveBuildMetadata(version, commit, date, readBuildInfo)
 
 	migrationsSubFS, err := fs.Sub(migrationsFS, "schema/sqlite/migrations")
 	if err != nil {
@@ -156,58 +138,52 @@ func run() error {
 	if err != nil {
 		return xerrors.Errorf("%s: %w", cli.Localize("failed to resolve DB path", "DBパスの解決に失敗しました"), err)
 	}
-	ds := sqlite.NewDatasource(dbPath, migrationsSubFS)
-	initStore := usecase.NewInitializeStoreUsecase(ds)
-	recordLog := usecase.NewRecordLogUsecase(ds)
-	recordAudit := usecase.NewRecordCommandAuditUsecase(ds)
-	recordBoundary := usecase.NewRecordSessionBoundaryUsecase(ds, ds, ds)
-	updateLabel := usecase.NewUpdateSessionLabelUsecase(ds)
-	createBackup := usecase.NewCreateStoreBackupUsecase(ds)
-	restoreBackup := usecase.NewRestoreStoreBackupUsecase(ds)
-	collectGarbage := usecase.NewCollectGarbageUsecase(ds)
-	closeStaleSessions := usecase.NewCloseStaleSessionsUsecase(ds)
-	searchEvents := queryservice.NewSearchEventsQueryService(ds)
-	listRecent := queryservice.NewListRecentEventsQueryService(ds)
-	getContext := queryservice.NewGetContextQueryService(ds)
-	getDetails := queryservice.NewGetEventDetailsQueryService(ds)
-	findLatest := queryservice.NewFindLatestSessionQueryService(ds)
-	listSessions := queryservice.NewListSessionsQueryService(ds)
-	listTimeline := queryservice.NewListTimelineBlocksQueryService(ds)
+	db := sqlite.NewDatabase(dbPath, migrationsSubFS)
+	eventDatasource := sqlite.NewEventDatasource(db)
+	sessionDatasource := sqlite.NewSessionDatasource(db)
+	storeManagementDatasource := sqlite.NewStoreManagementDatasource(db)
 
-	eventUsecase := usecase.NewEventUsecaseAdapter(
-		recordLog, recordAudit,
-		listRecent, searchEvents, getDetails, getContext,
-		listTimeline,
-	)
-	sessionUsecase := usecase.NewSessionUsecaseAdapter(
-		recordBoundary, updateLabel,
-		findLatest, listSessions, listRecent,
-	)
-	storeMaintenanceUsecase := usecase.NewStoreMaintenanceUsecaseAdapter(
-		initStore, createBackup, restoreBackup,
-		collectGarbage, closeStaleSessions,
-	)
+	eventUsecase := usecase.NewEventUsecase(eventDatasource, eventDatasource)
+	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource)
+	storeManagementUsecase := usecase.NewStoreManagementUsecase(storeManagementDatasource)
+
+	extraRedactPatterns := presentation.LoadExtraRedactPatterns()
 
 	mcpServer, err := mcpserver.NewServer(
-		metadata.version,
+		resolvedVersion,
+		extraRedactPatterns,
 		eventUsecase,
 		sessionUsecase,
-		storeMaintenanceUsecase,
+		storeManagementUsecase,
 	)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", cli.Localize("failed to initialize MCP server", "MCP server の初期化に失敗しました"), err)
 	}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		Event:            eventUsecase,
-		Session:          sessionUsecase,
-		StoreMaintenance: storeMaintenanceUsecase,
-		MCPServerRunner:  mcpServer,
-	}).Command()
+
+	hooksOrchestrator := filesystem.NewHooksOrchestrator(map[string]application.HooksClientHandler{
+		"claude": filesystem.NewClaudeHooksHandler(),
+		"codex":  filesystem.NewCodexHooksHandler(),
+		"gemini": filesystem.NewGeminiHooksHandler(),
+	})
+	hookScriptsInstaller := filesystem.NewHookScriptsInstaller()
+	hooksInspector := filesystem.NewHooksInspector()
+
+	rootCmd := cli.NewRootCLI(
+		cli.WithEvent(eventUsecase),
+		cli.WithSession(sessionUsecase),
+		cli.WithStoreManagement(storeManagementUsecase),
+		cli.WithMCPServerRunner(mcpServer),
+		cli.WithHooksOrchestrator(hooksOrchestrator),
+		cli.WithHookScriptsInstaller(hookScriptsInstaller),
+		cli.WithHooksInspector(hooksInspector),
+		cli.WithExtraRedactPatterns(extraRedactPatterns),
+		cli.WithDatabasePathSetter(db.SetPath),
+	).Command()
 	rootCmd.Version = versionString()
 	rootCmd.SetVersionTemplate("{{.Name}} {{.Version}}\n")
 
 	if err := rootCmd.Execute(); err != nil {
-		return cliCommandError{err: err}
+		return xerrors.Errorf("failed to execute CLI command: %w", err)
 	}
 
 	return nil

@@ -8,10 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
-	"github.com/duck8823/traceary/application/usecase"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/types"
-
 )
 
 func (c *RootCLI) newSearchCommand() *cobra.Command {
@@ -86,26 +85,8 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 	return searchCmd
 }
 
-type searchCommandInput struct {
-	dbPath       string
-	repo         string
-	sessionID    string
-	client       string
-	agent        string
-	kind         string
-	from         string
-	since        string
-	to           string
-	until        string
-	limit        int
-	offset       int
-	query        string
-	failuresOnly bool
-	asJSON       bool
-}
-
 func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchCommandInput) error {
-	if c.storeMaintenance == nil {
+	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.event == nil {
@@ -118,11 +99,12 @@ func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchC
 		return xerrors.Errorf(Localize("offset must be greater than or equal to 0", "offset は 0 以上である必要があります"))
 	}
 
-	_, err := resolveDBPath(input.dbPath)
+	resolvedDBPath, err := resolveDBPath(input.dbPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	if err := c.storeMaintenance.Initialize(ctx); err != nil {
+	c.applyDatabasePath(resolvedDBPath)
+	if err := c.storeManagement.Initialize(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
@@ -154,19 +136,19 @@ func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchC
 		return err
 	}
 
-	events, err := c.event.Search(ctx, usecase.EventSearchCriteria{
-		Query:        input.query,
-		Workspace:    types.Workspace(resolveWorkspaceValue(ctx, input.repo)),
-		SessionID:    types.SessionID(input.sessionID),
-		Client:       types.Client(input.client),
-		Agent:        types.Agent(input.agent),
-		Kind: types.EventKind(resolvedKind),
-		From:         fromTime,
-		To:           toTime,
-		Limit:        input.limit,
-		Offset:       input.offset,
-		FailuresOnly: input.failuresOnly,
-	})
+	criteria := apptypes.NewEventSearchCriteriaBuilder(input.limit).
+		Query(input.query).
+		Workspace(types.Workspace(resolveWorkspaceValue(ctx, input.repo))).
+		SessionID(types.SessionID(input.sessionID)).
+		Client(types.Client(input.client)).
+		Agent(types.Agent(input.agent)).
+		Kind(types.EventKind(resolvedKind)).
+		From(fromTime).
+		To(toTime).
+		Offset(input.offset).
+		FailuresOnly(input.failuresOnly).
+		Build()
+	events, err := c.event.Search(ctx, criteria)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to search events", "検索に失敗しました"), err)
 	}

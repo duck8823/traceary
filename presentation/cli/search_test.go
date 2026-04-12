@@ -32,9 +32,9 @@ func TestRootCLI_SearchCommand(t *testing.T) {
 	}
 
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
-		Event: &eventUsecaseStub{
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(&eventUsecaseStub{
 			searchEvents: []*model.Event{
 				model.EventOf(
 					eventID,
@@ -47,8 +47,8 @@ func TestRootCLI_SearchCommand(t *testing.T) {
 					time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC),
 				),
 			},
-		},
-	}).Command()
+		}),
+	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
@@ -96,9 +96,9 @@ func TestRootCLI_SearchCommand_JSON(t *testing.T) {
 	}
 
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
-		Event: &eventUsecaseStub{
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(&eventUsecaseStub{
 			searchEvents: []*model.Event{
 				model.EventOf(
 					eventID,
@@ -111,8 +111,8 @@ func TestRootCLI_SearchCommand_JSON(t *testing.T) {
 					time.Date(2026, 4, 7, 13, 0, 0, 0, time.UTC),
 				),
 			},
-		},
-	}).Command()
+		}),
+	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
@@ -151,10 +151,10 @@ func TestRootCLI_SearchCommand_FilterOnly(t *testing.T) {
 	})
 	defer cli.ResetDetectRepoContextFunc()
 
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
-		Event:            &eventUsecaseStub{},
-	}).Command()
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(&eventUsecaseStub{}),
+	).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
@@ -175,10 +175,10 @@ func TestRootCLI_SearchCommand_NegativeOffset(t *testing.T) {
 	})
 	defer cli.ResetDetectRepoContextFunc()
 
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
-		Event:            &eventUsecaseStub{},
-	}).Command()
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(&eventUsecaseStub{}),
+	).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
@@ -200,10 +200,10 @@ func TestRootCLI_SearchCommand_FailuresOnlyAsConstraint(t *testing.T) {
 	})
 	defer cli.ResetDetectRepoContextFunc()
 
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: &storeMaintenanceUsecaseStub{},
-		Event:            &eventUsecaseStub{},
-	}).Command()
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(&eventUsecaseStub{}),
+	).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{

@@ -10,14 +10,14 @@ import (
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
-type doctorReportJSON struct {
+type doctorReport struct {
 	DBPath         string            `json:"db_path"`
 	HookScriptsDir string            `json:"hook_scripts_dir"`
 	Clients        []string          `json:"clients"`
-	Checks         []doctorCheckJSON `json:"checks"`
+	Checks         []doctorCheck `json:"checks"`
 }
 
-type doctorCheckJSON struct {
+type doctorCheck struct {
 	Name    string `json:"name"`
 	Status  string `json:"status"`
 	Message string `json:"message"`
@@ -35,10 +35,8 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 	t.Cleanup(cli.ResetUserHomeDirFunc)
 
 	t.Run("all clients without config only warns", func(t *testing.T) {
-		initStub := &storeMaintenanceUsecaseStub{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: initStub,
-		}).Command()
+		initStub := &storeManagementUsecaseStub{}
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -52,7 +50,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 			t.Fatalf("Execute() error = %v", err)
 		}
 
-		var report doctorReportJSON
+		var report doctorReport
 		if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
 			t.Fatalf("json.Unmarshal() error = %v", err)
 		}
@@ -69,10 +67,8 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 	})
 
 	t.Run("specific client without config warns", func(t *testing.T) {
-		initStub := &storeMaintenanceUsecaseStub{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: initStub,
-		}).Command()
+		initStub := &storeManagementUsecaseStub{}
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -87,7 +83,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 			t.Fatalf("Execute() error = %v", err)
 		}
 
-		var report doctorReportJSON
+		var report doctorReport
 		if unmarshalErr := json.Unmarshal(stdout.Bytes(), &report); unmarshalErr != nil {
 			t.Fatalf("json.Unmarshal() error = %v", unmarshalErr)
 		}
@@ -96,16 +92,14 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 	})
 
 	t.Run("hook script materialization issues warn instead of failing", func(t *testing.T) {
-		initStub := &storeMaintenanceUsecaseStub{}
+		initStub := &storeManagementUsecaseStub{}
 		blockedPath := filepath.Join(t.TempDir(), "blocked")
 		if err := os.WriteFile(blockedPath, []byte("not-a-directory"), 0o644); err != nil {
 			t.Fatalf("WriteFile() error = %v", err)
 		}
 		t.Setenv("TRACEARY_HOOK_SCRIPTS_DIR", blockedPath)
 
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: initStub,
-		}).Command()
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -120,7 +114,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 			t.Fatalf("Execute() error = %v", err)
 		}
 
-		var report doctorReportJSON
+		var report doctorReport
 		if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
 			t.Fatalf("json.Unmarshal() error = %v", err)
 		}
@@ -159,10 +153,8 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 			t.Fatalf("WriteFile() error = %v", err)
 		}
 
-		initStub := &storeMaintenanceUsecaseStub{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: initStub,
-		}).Command()
+		initStub := &storeManagementUsecaseStub{}
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -177,7 +169,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 			t.Fatalf("Execute() error = %v", err)
 		}
 
-		var report doctorReportJSON
+		var report doctorReport
 		if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
 			t.Fatalf("json.Unmarshal() error = %v", err)
 		}
@@ -197,10 +189,8 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 			t.Fatalf("WriteFile() error = %v", err)
 		}
 
-		initStub := &storeMaintenanceUsecaseStub{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: initStub,
-		}).Command()
+		initStub := &storeManagementUsecaseStub{}
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -216,7 +206,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 			t.Fatalf("Execute() error = nil, want non-nil")
 		}
 
-		var report doctorReportJSON
+		var report doctorReport
 		if unmarshalErr := json.Unmarshal(stdout.Bytes(), &report); unmarshalErr != nil {
 			t.Fatalf("json.Unmarshal() error = %v", unmarshalErr)
 		}
@@ -224,7 +214,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 	})
 }
 
-func assertDoctorCheckStatus(t *testing.T, checks []doctorCheckJSON, name string, want string) {
+func assertDoctorCheckStatus(t *testing.T, checks []doctorCheck, name string, want string) {
 	t.Helper()
 
 	for _, check := range checks {

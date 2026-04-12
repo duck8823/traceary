@@ -11,7 +11,7 @@ import (
 func TestRootCLI_CompletionCommand(t *testing.T) {
 	t.Parallel()
 
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+	rootCmd := cli.NewRootCLI().Command()
 	stdout := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})

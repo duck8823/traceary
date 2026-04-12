@@ -1,0 +1,125 @@
+package types_test
+
+import (
+	"testing"
+	"time"
+
+	"github.com/google/go-cmp/cmp"
+
+	apptypes "github.com/duck8823/traceary/application/types"
+	domtypes "github.com/duck8823/traceary/domain/types"
+)
+
+func TestSessionSummaryOf_Getters(t *testing.T) {
+	t.Parallel()
+
+	startedAt := time.Date(2024, time.January, 2, 3, 4, 5, 0, time.UTC)
+	endedAt := domtypes.Of(startedAt.Add(1 * time.Hour))
+	agents := []string{"claude", "codex"}
+
+	summary := apptypes.SessionSummaryOf(
+		domtypes.SessionID("session-1"),
+		domtypes.Workspace("github.com/org/repo"),
+		startedAt,
+		endedAt,
+		"active",
+		42,
+		7,
+		agents,
+		"daily-standup",
+		"body text",
+		domtypes.SessionID("parent-session"),
+	)
+
+	if diff := cmp.Diff(domtypes.SessionID("session-1"), summary.SessionID()); diff != "" {
+		t.Errorf("SessionID() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(domtypes.Workspace("github.com/org/repo"), summary.Workspace()); diff != "" {
+		t.Errorf("Workspace() mismatch (-want +got):\n%s", diff)
+	}
+	if !summary.StartedAt().Equal(startedAt) {
+		t.Errorf("StartedAt() = %v, want %v", summary.StartedAt(), startedAt)
+	}
+	gotEndedAt, ok := summary.EndedAt().Get()
+	if !ok {
+		t.Fatalf("EndedAt().Get() ok = false, want true")
+	}
+	if !gotEndedAt.Equal(startedAt.Add(1 * time.Hour)) {
+		t.Errorf("EndedAt() = %v, want %v", gotEndedAt, startedAt.Add(1*time.Hour))
+	}
+	if diff := cmp.Diff("active", summary.Status()); diff != "" {
+		t.Errorf("Status() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(42, summary.TotalEvents()); diff != "" {
+		t.Errorf("TotalEvents() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(7, summary.CommandCount()); diff != "" {
+		t.Errorf("CommandCount() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]string{"claude", "codex"}, summary.Agents()); diff != "" {
+		t.Errorf("Agents() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff("daily-standup", summary.Label()); diff != "" {
+		t.Errorf("Label() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff("body text", summary.Summary()); diff != "" {
+		t.Errorf("Summary() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(domtypes.SessionID("parent-session"), summary.ParentSessionID()); diff != "" {
+		t.Errorf("ParentSessionID() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestSessionSummaryOf_EmptyEndedAt(t *testing.T) {
+	t.Parallel()
+
+	summary := apptypes.SessionSummaryOf(
+		domtypes.SessionID("session-1"),
+		domtypes.Workspace("ws"),
+		time.Date(2024, time.January, 2, 3, 4, 5, 0, time.UTC),
+		domtypes.Empty[time.Time](),
+		"active",
+		0,
+		0,
+		nil,
+		"",
+		"",
+		domtypes.SessionID(""),
+	)
+
+	if summary.EndedAt().IsPresent() {
+		t.Errorf("EndedAt().IsPresent() = true, want false")
+	}
+}
+
+func TestSessionSummary_AgentsDefensiveCopy(t *testing.T) {
+	t.Parallel()
+
+	original := []string{"claude", "codex"}
+	summary := apptypes.SessionSummaryOf(
+		domtypes.SessionID("session-1"),
+		domtypes.Workspace("ws"),
+		time.Date(2024, time.January, 2, 3, 4, 5, 0, time.UTC),
+		domtypes.Empty[time.Time](),
+		"active",
+		0,
+		0,
+		original,
+		"",
+		"",
+		domtypes.SessionID(""),
+	)
+
+	// Mutating the source slice after construction must not affect the stored state.
+	original[0] = "mutated-source"
+	if diff := cmp.Diff([]string{"claude", "codex"}, summary.Agents()); diff != "" {
+		t.Errorf("constructor did not defensively copy source slice (-want +got):\n%s", diff)
+	}
+
+	// Mutating the returned slice must not affect the stored state.
+	returned := summary.Agents()
+	returned[0] = "mutated-return"
+	if diff := cmp.Diff([]string{"claude", "codex"}, summary.Agents()); diff != "" {
+		t.Errorf("returned slice is not a defensive copy (-want +got):\n%s", diff)
+	}
+}

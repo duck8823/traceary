@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/duck8823/traceary/application/usecase"
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
@@ -14,14 +14,12 @@ func TestRootCLI_GCCommand(t *testing.T) {
 	cli.SetGCNowFunc(func() time.Time { return fixedNow })
 	defer cli.ResetGCNowFunc()
 
-	t.Run("dry-run の件数を表示できる", func(t *testing.T) {
-		storeMaint := &storeMaintenanceUsecaseStub{
-			gcResult: &usecase.CollectGarbageResult{DeletedCount: 3, DryRun: true},
+	t.Run("displays dry-run candidate count", func(t *testing.T) {
+		storeMaint := &storeManagementUsecaseStub{
+			gcResult: apptypes.CollectGarbageResultOf(3, time.Time{}, true),
 		}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: storeMaint,
-		}).Command()
+		rootCmd := cli.NewRootCLI(cli.WithStoreManagement(storeMaint)).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30", "--dry-run"})
@@ -35,13 +33,11 @@ func TestRootCLI_GCCommand(t *testing.T) {
 	})
 
 	t.Run("displays deletion count", func(t *testing.T) {
-		storeMaint := &storeMaintenanceUsecaseStub{
-			gcResult: &usecase.CollectGarbageResult{DeletedCount: 2, DryRun: false},
+		storeMaint := &storeManagementUsecaseStub{
+			gcResult: apptypes.CollectGarbageResultOf(2, time.Time{}, false),
 		}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: storeMaint,
-		}).Command()
+		rootCmd := cli.NewRootCLI(cli.WithStoreManagement(storeMaint)).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30"})

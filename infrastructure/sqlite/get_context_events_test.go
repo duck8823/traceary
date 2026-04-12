@@ -7,12 +7,12 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/duck8823/traceary/domain/port"
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/domain/types"
-	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
-func TestDatasource_GetContextEvents(t *testing.T) {
+func TestDatasource_GetContext(t *testing.T) {
 	t.Parallel()
 
 	migrations := fstest.MapFS{
@@ -34,8 +34,8 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(dbPath, migrations)
-	if err := sut.Initialize(context.Background()); err != nil {
+	sut, storeManager := newEventDatasource(t, dbPath, migrations)
+	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -75,18 +75,14 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		t.Fatalf("Save(third) error = %v", err)
 	}
 
-	got, err := sut.GetContextEvents(context.Background(), port.GetContextInput{
-		Workspace:      " github.com/duck8823/traceary ",
-		SessionID: "session-1",
-		Limit:     10,
-	})
+	got, err := sut.GetContext(context.Background(), types.Workspace(" github.com/duck8823/traceary "), types.SessionID("session-1"), 10)
 	if err != nil {
-		t.Fatalf("GetContextEvents() error = %v", err)
+		t.Fatalf("GetContext() error = %v", err)
 	}
 	if len(got) != 2 {
 		t.Fatalf("len(events) = %d, want 2", len(got))
 	}
-	if got[0].EventID().String() != "event-2" {
-		t.Fatalf("first EventID() = %q, want %q", got[0].EventID(), "event-2")
+	if diff := cmp.Diff("event-2", got[0].EventID().String()); diff != "" {
+		t.Fatalf("first EventID() mismatch (-want +got):\n%s", diff)
 	}
 }

@@ -18,7 +18,7 @@ func TestRootCLI_HooksGuideCommand(t *testing.T) {
 	})
 	t.Cleanup(cli.ResetUserHomeDirFunc)
 
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+	rootCmd := newTestRootCLI().Command()
 	stdout := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -46,7 +46,7 @@ func TestRootCLI_HooksGuideCommand(t *testing.T) {
 func TestRootCLI_HooksGuideCommand_MissingClientReturnsError(t *testing.T) {
 	t.Parallel()
 
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+	rootCmd := newTestRootCLI().Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"hooks", "guide"})

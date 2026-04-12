@@ -2,37 +2,21 @@ package cli_test
 
 import (
 	"bytes"
-	"context"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/presentation/cli"
 )
-
-type initializeStoreUsecaseStub struct {
-	called       bool
-	err          error
-}
-
-func (s *initializeStoreUsecaseStub) Run(_ context.Context) error {
-	s.called = true
-	return s.err
-}
-
-var _ usecase.InitializeStoreUsecase = (*initializeStoreUsecaseStub)(nil)
 
 func TestRootCLI_InitCommand(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	stub := &storeMaintenanceUsecaseStub{}
+	stub := &storeManagementUsecaseStub{}
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: stub,
-	}).Command()
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(stub)).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(stderr)
 	rootCmd.SetArgs([]string{"init", "--db-path", dbPath})
@@ -108,12 +92,10 @@ func TestRootCLI_InitCommand_UsesTracearyDBPathEnv(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	t.Setenv("TRACEARY_DB_PATH", dbPath)
 
-	stub := &storeMaintenanceUsecaseStub{}
+	stub := &storeManagementUsecaseStub{}
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreMaintenance: stub,
-	}).Command()
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(stub)).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(stderr)
 	rootCmd.SetArgs([]string{"init"})
@@ -132,7 +114,7 @@ func TestRootCLI_InitHelp_ExplainsOptionalBootstrap(t *testing.T) {
 
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+	rootCmd := cli.NewRootCLI().Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(stderr)
 	rootCmd.SetArgs([]string{"init", "--help"})
@@ -158,7 +140,7 @@ func TestRootCLI_InitHelp_CanUseJapaneseFlagHelp(t *testing.T) {
 
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+	rootCmd := cli.NewRootCLI().Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(stderr)
 	rootCmd.SetArgs([]string{"init", "--help"})

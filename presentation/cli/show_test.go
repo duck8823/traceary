@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/duck8823/traceary/application/usecase"
+	"github.com/google/go-cmp/cmp"
+
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
@@ -30,7 +32,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 	t.Run("displays event details", func(t *testing.T) {
 		t.Parallel()
 
-		eventDetails, err := usecase.NewEventDetails(
+		eventDetails, err := apptypes.EventDetailsOf(
 			model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,
@@ -41,24 +43,24 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 				"go test ./...",
 				time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC),
 			),
-			model.CommandAuditOf(
+			types.Of(model.CommandAuditOf(
 				eventID,
 				"go test ./...",
 				"stdin",
 				"stdout",
 				true,
 				false,
-				nil,
-			),
+				types.Empty[int](),
+			)),
 		)
 		if err != nil {
-			t.Fatalf("NewEventDetails() error = %v", err)
+			t.Fatalf("EventDetailsOf() error = %v", err)
 		}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
-			Event:            &eventUsecaseStub{showDetails: eventDetails},
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{showDetails: eventDetails}),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"show", "--db-path", "/tmp/test-traceary.db", "event-1"})
@@ -85,15 +87,15 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 			"OUTPUT_TRUNCATED: false\n" +
 			"OUTPUT:\n" +
 			"stdout\n"
-		if stdout.String() != want {
-			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+		if diff := cmp.Diff(want, stdout.String()); diff != "" {
+			t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 		}
 	})
 
-	t.Run("command audit がないイベントも表示できる", func(t *testing.T) {
+	t.Run("displays event without command audit", func(t *testing.T) {
 		t.Parallel()
 
-		eventDetails, err := usecase.NewEventDetails(
+		eventDetails, err := apptypes.EventDetailsOf(
 			model.EventOf(
 				eventID,
 				types.EventKindNote,
@@ -104,16 +106,16 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 				"hello",
 				time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC),
 			),
-			nil,
+			types.Empty[*model.CommandAudit](),
 		)
 		if err != nil {
-			t.Fatalf("NewEventDetails() error = %v", err)
+			t.Fatalf("EventDetailsOf() error = %v", err)
 		}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
-			Event:            &eventUsecaseStub{showDetails: eventDetails},
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{showDetails: eventDetails}),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"show", "--db-path", "/tmp/test-traceary.db", "event-1"})
@@ -126,10 +128,10 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("JSON 形式でイベント詳細を表示できる", func(t *testing.T) {
+	t.Run("displays event details in JSON format", func(t *testing.T) {
 		t.Parallel()
 
-		eventDetails, err := usecase.NewEventDetails(
+		eventDetails, err := apptypes.EventDetailsOf(
 			model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,
@@ -140,24 +142,24 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 				"go test ./...",
 				time.Date(2026, 4, 8, 12, 30, 0, 0, time.UTC),
 			),
-			model.CommandAuditOf(
+			types.Of(model.CommandAuditOf(
 				eventID,
 				"go test ./...",
 				"stdin",
 				"stdout",
 				true,
 				false,
-				nil,
-			),
+				types.Empty[int](),
+			)),
 		)
 		if err != nil {
-			t.Fatalf("NewEventDetails() error = %v", err)
+			t.Fatalf("EventDetailsOf() error = %v", err)
 		}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreMaintenance: &storeMaintenanceUsecaseStub{},
-			Event:            &eventUsecaseStub{showDetails: eventDetails},
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{showDetails: eventDetails}),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"show", "--db-path", "/tmp/test-traceary.db", "--json", "event-1"})
@@ -186,16 +188,15 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 			"    \"output_truncated\": false\n" +
 			"  }\n" +
 			"}\n"
-		if stdout.String() != want {
-			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+		if diff := cmp.Diff(want, stdout.String()); diff != "" {
+			t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 		}
 	})
 
 	t.Run("exit_code is included in JSON and text output when present", func(t *testing.T) {
 		t.Parallel()
 
-		exitCode := 1
-		eventDetails, err := usecase.NewEventDetails(
+		eventDetails, err := apptypes.EventDetailsOf(
 			model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,
@@ -206,28 +207,28 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 				"go test ./...",
 				time.Date(2026, 4, 8, 13, 0, 0, 0, time.UTC),
 			),
-			model.CommandAuditOf(
+			types.Of(model.CommandAuditOf(
 				eventID,
 				"go test ./...",
 				"stdin",
 				"stderr",
 				false,
 				false,
-				&exitCode,
-			),
+				types.Of(1),
+			)),
 		)
 		if err != nil {
-			t.Fatalf("NewEventDetails() error = %v", err)
+			t.Fatalf("EventDetailsOf() error = %v", err)
 		}
 
 		t.Run("text format", func(t *testing.T) {
 			t.Parallel()
 
 			stdout := &bytes.Buffer{}
-			rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-				StoreMaintenance: &storeMaintenanceUsecaseStub{},
-				Event:            &eventUsecaseStub{showDetails: eventDetails},
-			}).Command()
+			rootCmd := cli.NewRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+				cli.WithEvent(&eventUsecaseStub{showDetails: eventDetails}),
+			).Command()
 			rootCmd.SetOut(stdout)
 			rootCmd.SetErr(&bytes.Buffer{})
 			rootCmd.SetArgs([]string{"show", "--db-path", "/tmp/test-traceary.db", "event-1"})
@@ -244,10 +245,10 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 			t.Parallel()
 
 			stdout := &bytes.Buffer{}
-			rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-				StoreMaintenance: &storeMaintenanceUsecaseStub{},
-				Event:            &eventUsecaseStub{showDetails: eventDetails},
-			}).Command()
+			rootCmd := cli.NewRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+				cli.WithEvent(&eventUsecaseStub{showDetails: eventDetails}),
+			).Command()
 			rootCmd.SetOut(stdout)
 			rootCmd.SetErr(&bytes.Buffer{})
 			rootCmd.SetArgs([]string{"show", "--db-path", "/tmp/test-traceary.db", "--json", "event-1"})
