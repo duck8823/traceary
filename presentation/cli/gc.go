@@ -72,13 +72,13 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 		return xerrors.Errorf("%s: %w", Localize("failed to run garbage collection", "gc の実行に失敗しました"), err)
 	}
 
-	if result.DryRun {
-		if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Candidates", "削除対象"), result.DeletedCount); err != nil {
+	if result.DryRun() {
+		if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Candidates", "削除対象"), result.DeletedCount()); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print dry-run result", "dry-run 結果の出力に失敗しました"), err)
 		}
 		return nil
 	}
-	if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Deleted", "削除しました"), result.DeletedCount); err != nil {
+	if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Deleted", "削除しました"), result.DeletedCount()); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
 	}
 

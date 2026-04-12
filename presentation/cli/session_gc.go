@@ -44,14 +44,14 @@ func (c *RootCLI) newSessionGCCommand() *cobra.Command {
 			if dryRun {
 				if _, err := fmt.Fprintf(output, "%s: %d\n",
 					Localize("stale sessions found (dry-run)", "stale セッションが見つかりました (dry-run)"),
-					result.ClosedCount,
+					result.ClosedCount(),
 				); err != nil {
 					return xerrors.Errorf("failed to print result: %w", err)
 				}
 			} else {
 				if _, err := fmt.Fprintf(output, "%s: %d\n",
 					Localize("stale sessions closed", "stale セッションを終了しました"),
-					result.ClosedCount,
+					result.ClosedCount(),
 				); err != nil {
 					return xerrors.Errorf("failed to print result: %w", err)
 				}

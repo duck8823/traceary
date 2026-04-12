@@ -8,6 +8,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/application"
+	apptypes "github.com/duck8823/traceary/application/types"
 )
 
 // StoreManagementUsecase consolidates store lifecycle operations.
@@ -22,46 +23,10 @@ type StoreManagementUsecase interface {
 	RestoreBackup(ctx context.Context, inputPath string, overwrite bool) error
 
 	// CollectGarbage removes events older than the given time.
-	CollectGarbage(ctx context.Context, before time.Time, dryRun bool) (*CollectGarbageResult, error)
+	CollectGarbage(ctx context.Context, before time.Time, dryRun bool) (apptypes.CollectGarbageResult, error)
 
 	// CloseStaleSessions closes sessions active beyond the given duration.
-	CloseStaleSessions(ctx context.Context, staleAfter time.Duration, dryRun bool) (*CloseStaleSessionsResult, error)
-}
-
-// CreateStoreBackupInput is the input for backup creation.
-type CreateStoreBackupInput struct {
-	OutputPath string
-	Overwrite  bool
-}
-
-// RestoreStoreBackupInput is the input for backup restoration.
-type RestoreStoreBackupInput struct {
-	InputPath string
-	Overwrite bool
-}
-
-// CollectGarbageInput is the input for garbage collection.
-type CollectGarbageInput struct {
-	Before time.Time
-	DryRun bool
-}
-
-// CollectGarbageResult is the result of a garbage-collection run.
-type CollectGarbageResult struct {
-	DeletedCount int
-	Before       time.Time
-	DryRun       bool
-}
-
-// CloseStaleSessionsInput is the input for closing stale sessions.
-type CloseStaleSessionsInput struct {
-	StaleAfter time.Duration
-	DryRun     bool
-}
-
-// CloseStaleSessionsResult is the result of a stale-session cleanup.
-type CloseStaleSessionsResult struct {
-	ClosedCount int
+	CloseStaleSessions(ctx context.Context, staleAfter time.Duration, dryRun bool) (apptypes.CloseStaleSessionsResult, error)
 }
 
 type storeManagementUsecase struct {
@@ -104,34 +69,28 @@ func (u *storeManagementUsecase) CollectGarbage(
 	ctx context.Context,
 	before time.Time,
 	dryRun bool,
-) (*CollectGarbageResult, error) {
+) (apptypes.CollectGarbageResult, error) {
 	if before.IsZero() {
-		return nil, xerrors.Errorf("before timestamp is required")
+		return apptypes.CollectGarbageResult{}, xerrors.Errorf("before timestamp is required")
 	}
 
 	deletedCount, err := u.storeManager.CollectGarbage(ctx, before, dryRun)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to collect garbage: %w", err)
+		return apptypes.CollectGarbageResult{}, xerrors.Errorf("failed to collect garbage: %w", err)
 	}
 
-	return &CollectGarbageResult{
-		DeletedCount: deletedCount,
-		Before:       before,
-		DryRun:       dryRun,
-	}, nil
+	return apptypes.CollectGarbageResultOf(deletedCount, before, dryRun), nil
 }
 
 func (u *storeManagementUsecase) CloseStaleSessions(
 	ctx context.Context,
 	staleAfter time.Duration,
 	dryRun bool,
-) (*CloseStaleSessionsResult, error) {
+) (apptypes.CloseStaleSessionsResult, error) {
 	closedCount, err := u.storeManager.CloseStaleSessions(ctx, staleAfter, dryRun)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to close stale sessions: %w", err)
+		return apptypes.CloseStaleSessionsResult{}, xerrors.Errorf("failed to close stale sessions: %w", err)
 	}
 
-	return &CloseStaleSessionsResult{
-		ClosedCount: closedCount,
-	}, nil
+	return apptypes.CloseStaleSessionsResultOf(closedCount), nil
 }

@@ -59,7 +59,7 @@ func TestStoreManagementUsecase_CollectGarbage(t *testing.T) {
 		if !stub.receivedDryRun {
 			t.Fatalf("received dryRun = false, want true")
 		}
-		if diff := cmp.Diff(3, got.DeletedCount); diff != "" {
+		if diff := cmp.Diff(3, got.DeletedCount()); diff != "" {
 			t.Fatalf("DeletedCount mismatch (-want +got):\n%s", diff)
 		}
 	})

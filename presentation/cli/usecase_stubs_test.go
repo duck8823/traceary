@@ -5,7 +5,6 @@ import (
 	"time"
 
 	apptypes "github.com/duck8823/traceary/application/types"
-	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -113,9 +112,9 @@ type storeManagementUsecaseStub struct {
 	initErr         error
 	createBackupErr error
 	restoreErr      error
-	gcResult        *usecase.CollectGarbageResult
+	gcResult        apptypes.CollectGarbageResult
 	gcErr           error
-	staleResult     *usecase.CloseStaleSessionsResult
+	staleResult     apptypes.CloseStaleSessionsResult
 	staleErr        error
 }
 
@@ -129,9 +128,9 @@ func (s *storeManagementUsecaseStub) CreateBackup(_ context.Context, _ string, _
 func (s *storeManagementUsecaseStub) RestoreBackup(_ context.Context, _ string, _ bool) error {
 	return s.restoreErr
 }
-func (s *storeManagementUsecaseStub) CollectGarbage(_ context.Context, _ time.Time, _ bool) (*usecase.CollectGarbageResult, error) {
+func (s *storeManagementUsecaseStub) CollectGarbage(_ context.Context, _ time.Time, _ bool) (apptypes.CollectGarbageResult, error) {
 	return s.gcResult, s.gcErr
 }
-func (s *storeManagementUsecaseStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool) (*usecase.CloseStaleSessionsResult, error) {
+func (s *storeManagementUsecaseStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool) (apptypes.CloseStaleSessionsResult, error) {
 	return s.staleResult, s.staleErr
 }
