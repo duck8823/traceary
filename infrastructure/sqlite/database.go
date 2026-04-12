@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite" // Required to register the SQLite driver.
@@ -21,8 +22,12 @@ import (
 //
 // The dbPath is mutable via SetPath so the CLI can late-bind the path
 // after resolving the --db-path flag / TRACEARY_DB_PATH environment
-// variable inside each subcommand's RunE.
+// variable inside each subcommand's RunE. The mutex protects concurrent
+// path switches from a racing reader; every operation takes a path
+// snapshot at entry and then works with the snapshot, so a path switch
+// midway through cannot split the check and the use.
 type Database struct {
+	mu         sync.RWMutex
 	dbPath     string
 	migrations fs.FS
 }
@@ -37,17 +42,23 @@ func NewDatabase(dbPath string, migrations fs.FS) *Database {
 // datasources built from this Database open the user-specified path
 // instead of the composition-root default.
 func (d *Database) SetPath(dbPath string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.dbPath = strings.TrimSpace(dbPath)
 }
 
-// Path returns the database file path.
+// Path returns the current database file path.
 func (d *Database) Path() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 	return d.dbPath
 }
 
-// open opens a new SQLite connection and pings it.
-func (d *Database) open(ctx context.Context) (_ *sql.DB, err error) {
-	db, err := sql.Open("sqlite", sqliteDSN(d.dbPath))
+// openAt opens a new SQLite connection at the given path and pings it.
+// Callers snapshot Database.Path() at entry and pass the snapshot here
+// so a racing SetPath cannot split the snapshot and the connection.
+func (d *Database) openAt(ctx context.Context, dbPath string) (_ *sql.DB, err error) {
+	db, err := sql.Open("sqlite", sqliteDSN(dbPath))
 	if err != nil {
 		return nil, xerrors.Errorf("failed to initialize SQLite connection: %w", err)
 	}
@@ -66,19 +77,26 @@ func (d *Database) open(ctx context.Context) (_ *sql.DB, err error) {
 	return db, nil
 }
 
+// open opens a new SQLite connection at the current Path() and pings it.
+func (d *Database) open(ctx context.Context) (_ *sql.DB, err error) {
+	return d.openAt(ctx, d.Path())
+}
+
 // initialize creates the store directory, ensures permissions, and applies
-// pending migrations.
+// pending migrations. The path is snapshotted at entry so concurrent
+// SetPath cannot cause initialize to touch one path and the subsequent
+// open to touch another.
 func (d *Database) initialize(ctx context.Context) (err error) {
-	trimmedPath := d.dbPath
-	if trimmedPath == "" {
+	snapshot := d.Path()
+	if snapshot == "" {
 		return xerrors.Errorf("DB path must not be empty")
 	}
 
-	if err := os.MkdirAll(filepath.Dir(trimmedPath), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(snapshot), 0o700); err != nil {
 		return xerrors.Errorf("failed to create DB directory: %w", err)
 	}
 
-	db, err := d.open(ctx)
+	db, err := d.openAt(ctx, snapshot)
 	if err != nil {
 		return xerrors.Errorf("failed to initialize SQLite connection: %w", err)
 	}
@@ -89,7 +107,7 @@ func (d *Database) initialize(ctx context.Context) (err error) {
 	}()
 	// chmod is best-effort; ignore errors on read-only filesystems or
 	// when the DB file is owned by another user.
-	if chmodErr := os.Chmod(trimmedPath, 0o600); chmodErr != nil {
+	if chmodErr := os.Chmod(snapshot, 0o600); chmodErr != nil {
 		slog.Debug("failed to set DB file permissions (best-effort)", "error", chmodErr)
 	}
 

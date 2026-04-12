@@ -52,7 +52,10 @@ func (d *StoreManagementDatasource) Initialize(ctx context.Context) error {
 
 // CreateBackup creates a backup of the SQLite DB.
 func (d *StoreManagementDatasource) CreateBackup(ctx context.Context, outputPath string, overwrite bool) (err error) {
-	sourcePath, destinationPath, err := validateDistinctDBPaths(d.db.dbPath, outputPath)
+	// Snapshot the current DB path up front so a concurrent SetPath
+	// cannot split the path we validate and the path we actually open.
+	sourceSnapshot := d.db.Path()
+	sourcePath, destinationPath, err := validateDistinctDBPaths(sourceSnapshot, outputPath)
 	if err != nil {
 		return xerrors.Errorf("failed to validate backup paths: %w", err)
 	}
@@ -70,7 +73,7 @@ func (d *StoreManagementDatasource) CreateBackup(ctx context.Context, outputPath
 		return xerrors.Errorf("failed to prepare backup output path: %w", err)
 	}
 
-	db, err := d.db.open(ctx)
+	db, err := d.db.openAt(ctx, sourceSnapshot)
 	if err != nil {
 		return xerrors.Errorf("failed to open source DB for backup: %w", err)
 	}
@@ -93,7 +96,10 @@ func (d *StoreManagementDatasource) CreateBackup(ctx context.Context, outputPath
 
 // RestoreBackup restores the SQLite DB from a backup file.
 func (d *StoreManagementDatasource) RestoreBackup(ctx context.Context, inputPath string, overwrite bool) (err error) {
-	sourcePath, destinationPath, err := validateDistinctDBPaths(inputPath, d.db.dbPath)
+	// Snapshot the current DB path up front so a concurrent SetPath
+	// cannot redirect the restore mid-flight.
+	destinationSnapshot := d.db.Path()
+	sourcePath, destinationPath, err := validateDistinctDBPaths(inputPath, destinationSnapshot)
 	if err != nil {
 		return xerrors.Errorf("failed to validate restore paths: %w", err)
 	}
