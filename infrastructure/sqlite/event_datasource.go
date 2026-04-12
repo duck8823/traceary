@@ -52,8 +52,8 @@ func NewEventDatasource(db *Database) *EventDatasource {
 
 // Compile-time interface assertions.
 var (
-	_ model.EventRepository           = (*EventDatasource)(nil)
-	_ queryservice.EventQueryService  = (*EventDatasource)(nil)
+	_ model.EventRepository          = (*EventDatasource)(nil)
+	_ queryservice.EventQueryService = (*EventDatasource)(nil)
 )
 
 // Save persists an event.
@@ -662,7 +662,7 @@ func restoreEvent(
 
 func escapeLikeQuery(query string) string {
 	replacer := strings.NewReplacer(
-		`\\`, `\\\\`,
+		`\`, `\\`,
 		`%`, `\%`,
 		`_`, `\_`,
 	)
