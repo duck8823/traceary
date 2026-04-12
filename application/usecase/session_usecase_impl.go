@@ -13,18 +13,15 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-// RecordSessionBoundaryInput is the input for session start/end recording.
-type RecordSessionBoundaryInput struct {
-	Client           string
-	DefaultClient    string
-	Agent            string
-	DefaultAgent     string
-	SessionID        string
-	Workspace        string
-	DefaultWorkspace string
-	Kind             types.EventKind
-	Summary          string
-	ParentSessionID  string
+// recordSessionBoundaryInput is the input for session start/end recording.
+type recordSessionBoundaryInput struct {
+	Client          types.Client
+	Agent           types.Agent
+	SessionID       types.SessionID
+	Workspace       types.Workspace
+	Kind            types.EventKind
+	Summary         string
+	ParentSessionID types.SessionID
 }
 
 type sessionUsecase struct {
@@ -50,13 +47,13 @@ func NewSessionUsecase(
 }
 
 func (u *sessionUsecase) Start(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, parentSessionID types.SessionID) (*model.Event, error) {
-	event, err := u.recordSessionBoundary(ctx, RecordSessionBoundaryInput{
-		Client:          client.String(),
-		Agent:           agent.String(),
-		SessionID:       sessionID.String(),
-		Workspace:       workspace.String(),
+	event, err := u.recordSessionBoundary(ctx, recordSessionBoundaryInput{
+		Client:          client,
+		Agent:           agent,
+		SessionID:       sessionID,
+		Workspace:       workspace,
 		Kind:            types.EventKindSessionStarted,
-		ParentSessionID: parentSessionID.String(),
+		ParentSessionID: parentSessionID,
 	})
 	if err != nil {
 		return nil, xerrors.Errorf("failed to start session: %w", err)
@@ -65,11 +62,11 @@ func (u *sessionUsecase) Start(ctx context.Context, client types.Client, agent t
 }
 
 func (u *sessionUsecase) End(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, summary string) (*model.Event, error) {
-	event, err := u.recordSessionBoundary(ctx, RecordSessionBoundaryInput{
-		Client:    client.String(),
-		Agent:     agent.String(),
-		SessionID: sessionID.String(),
-		Workspace: workspace.String(),
+	event, err := u.recordSessionBoundary(ctx, recordSessionBoundaryInput{
+		Client:    client,
+		Agent:     agent,
+		SessionID: sessionID,
+		Workspace: workspace,
 		Kind:      types.EventKindSessionEnded,
 		Summary:   summary,
 	})
@@ -191,7 +188,7 @@ func (u *sessionUsecase) Handoff(ctx context.Context, sessionID types.SessionID,
 // recordSessionBoundary persists a session boundary event.
 func (u *sessionUsecase) recordSessionBoundary(
 	ctx context.Context,
-	input RecordSessionBoundaryInput,
+	input recordSessionBoundaryInput,
 ) (*model.Event, error) {
 	if u.eventRepo == nil {
 		return nil, xerrors.Errorf("event repository is not configured")
@@ -201,7 +198,7 @@ func (u *sessionUsecase) recordSessionBoundary(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to resolve session ID: %w", err)
 	}
-	resolvedClient, resolvedAgentValue, resolvedWorkspace, err := u.resolveSessionBoundaryAttribution(
+	resolvedClient, resolvedAgent, resolvedWorkspace, err := u.resolveSessionBoundaryAttribution(
 		ctx,
 		input,
 		sessionID,
@@ -209,8 +206,7 @@ func (u *sessionUsecase) recordSessionBoundary(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to resolve session boundary attribution: %w", err)
 	}
-	agent, err := types.AgentOf(resolvedAgentValue)
-	if err != nil {
+	if _, err := types.AgentOf(resolvedAgent.String()); err != nil {
 		return nil, xerrors.Errorf("failed to resolve agent: %w", err)
 	}
 	// For session end, verify the session exists before writing anything.
@@ -237,7 +233,7 @@ func (u *sessionUsecase) recordSessionBoundary(
 		eventID,
 		input.Kind,
 		resolvedClient,
-		agent,
+		resolvedAgent,
 		sessionID,
 		resolvedWorkspace,
 		sessionBoundaryBody(input.Kind),
@@ -266,7 +262,7 @@ func (u *sessionUsecase) recordSessionBoundary(
 	return event, nil
 }
 
-func buildSessionFromBoundary(event *model.Event, parentSessionID string) *model.Session {
+func buildSessionFromBoundary(event *model.Event, parentSessionID types.SessionID) *model.Session {
 	return model.SessionOf(
 		event.SessionID(),
 		event.CreatedAt(),
@@ -280,74 +276,65 @@ func buildSessionFromBoundary(event *model.Event, parentSessionID string) *model
 
 func (u *sessionUsecase) resolveSessionBoundaryAttribution(
 	ctx context.Context,
-	input RecordSessionBoundaryInput,
+	input recordSessionBoundaryInput,
 	sessionID types.SessionID,
-) (string, string, string, error) {
-	resolvedClient := strings.TrimSpace(input.Client)
-	resolvedAgentValue := strings.TrimSpace(input.Agent)
-	resolvedWorkspace := strings.TrimSpace(input.Workspace)
+) (types.Client, types.Agent, types.Workspace, error) {
+	resolvedClient := types.Client(strings.TrimSpace(input.Client.String()))
+	resolvedAgent := types.Agent(strings.TrimSpace(input.Agent.String()))
+	resolvedWorkspace := types.Workspace(strings.TrimSpace(input.Workspace.String()))
 
 	if input.Kind == types.EventKindSessionEnded && u.sessionRepo != nil {
-		if resolvedClient == "" || resolvedAgentValue == "" || resolvedWorkspace == "" {
+		if resolvedClient.String() == "" || resolvedAgent.String() == "" || resolvedWorkspace.String() == "" {
 			result, err := u.sessionRepo.FindByID(ctx, sessionID)
 			if err != nil {
-				return "", "", "", xerrors.Errorf("failed to get session: %w", err)
+				return types.Client(""), types.Agent(""), types.Workspace(""), xerrors.Errorf("failed to get session: %w", err)
 			}
 			if startedSession, ok := result.Get(); ok {
-				if resolvedClient == "" {
+				if resolvedClient.String() == "" {
 					resolvedClient = startedSession.Client()
 				}
-				if resolvedAgentValue == "" {
-					resolvedAgentValue = startedSession.Agent().String()
+				if resolvedAgent.String() == "" {
+					resolvedAgent = startedSession.Agent()
 				}
-				if resolvedWorkspace == "" {
+				if resolvedWorkspace.String() == "" {
 					resolvedWorkspace = startedSession.Workspace()
 				}
 			}
 		}
 	}
 
-	if resolvedClient == "" {
-		resolvedClient = strings.TrimSpace(input.DefaultClient)
-	}
-	if resolvedAgentValue == "" {
-		resolvedAgentValue = strings.TrimSpace(input.DefaultAgent)
-	}
-	if resolvedWorkspace == "" {
-		resolvedWorkspace = strings.TrimSpace(input.DefaultWorkspace)
-	}
-
-	return resolvedClient, resolvedAgentValue, resolvedWorkspace, nil
+	return resolvedClient, resolvedAgent, resolvedWorkspace, nil
 }
 
 func resolveSessionBoundaryID(
 	eventKind types.EventKind,
-	sessionIDValue string,
+	sessionID types.SessionID,
 ) (types.SessionID, error) {
+	sessionIDValue := sessionID.String()
 	switch eventKind {
 	case types.EventKindSessionStarted:
 		trimmedValue := strings.TrimSpace(sessionIDValue)
 		if trimmedValue == "" {
-			sessionID, err := newSessionID()
+			generated, err := newSessionID()
 			if err != nil {
 				return types.SessionID(""), xerrors.Errorf("failed to generate session ID: %w", err)
 			}
-			return sessionID, nil
+			return generated, nil
 		}
 
-		sessionID, err := types.SessionIDOf(trimmedValue)
+		resolved, err := types.SessionIDOf(trimmedValue)
 		if err != nil {
 			return types.SessionID(""), xerrors.Errorf("failed to convert session ID: %w", err)
 		}
 
-		return sessionID, nil
+		return resolved, nil
 	case types.EventKindSessionEnded:
-		sessionID, err := types.SessionIDOf(sessionIDValue)
+		resolved, err := types.SessionIDOf(sessionIDValue)
 		if err != nil {
 			return types.SessionID(""), xerrors.Errorf("failed to convert session ID: %w", err)
 		}
 
-		return sessionID, nil
+		return resolved, nil
 	default:
 		return types.SessionID(""), xerrors.Errorf("unsupported event kind for session boundary: %s", eventKind)
 	}

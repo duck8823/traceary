@@ -95,10 +95,10 @@ CREATE TABLE command_audits (
 	if diff := cmp.Diff("event-2", got[0].EventID().String()); diff != "" {
 		t.Fatalf("got[0].EventID() mismatch (-want +got):\n%s", diff)
 	}
-	if diff := cmp.Diff("hook", got[0].Client()); diff != "" {
+	if diff := cmp.Diff(types.Client("hook"), got[0].Client()); diff != "" {
 		t.Fatalf("got[0].Client() mismatch (-want +got):\n%s", diff)
 	}
-	if diff := cmp.Diff("duck8823/traceary", got[1].Workspace()); diff != "" {
+	if diff := cmp.Diff(types.Workspace("duck8823/traceary"), got[1].Workspace()); diff != "" {
 		t.Fatalf("got[1].Workspace() mismatch (-want +got):\n%s", diff)
 	}
 }
@@ -173,7 +173,7 @@ CREATE TABLE command_audits (
 	if len(got) != 1 {
 		t.Fatalf("len(events) = %d, want 1", len(got))
 	}
-	if diff := cmp.Diff("cli", got[0].Client()); diff != "" {
+	if diff := cmp.Diff(types.Client("cli"), got[0].Client()); diff != "" {
 		t.Fatalf("Client() mismatch (-want +got):\n%s", diff)
 	}
 }
@@ -300,8 +300,8 @@ CREATE TABLE command_audits (
 	sessionTwo := mustSessionIDForSQLite(t, "session-2")
 
 	events := []*model.Event{
-		model.EventOf(firstEventID, types.EventKindNote, "cli", codexAgent, sessionOne, "duck8823/traceary", "first", time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC)),
-		model.EventOf(secondEventID, types.EventKindCommandExecuted, "hook", claudeAgent, sessionTwo, "other/workspace", "second", time.Date(2026, 4, 7, 12, 1, 0, 0, time.UTC)),
+		model.EventOf(firstEventID, types.EventKindNote, types.Client("cli"), codexAgent, sessionOne, types.Workspace("duck8823/traceary"), "first", time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC)),
+		model.EventOf(secondEventID, types.EventKindCommandExecuted, types.Client("hook"), claudeAgent, sessionTwo, types.Workspace("other/workspace"), "second", time.Date(2026, 4, 7, 12, 1, 0, 0, time.UTC)),
 	}
 	for _, event := range events {
 		if err := sut.Save(context.Background(), event); err != nil {
@@ -382,10 +382,10 @@ func newEventForSQLiteTest(
 	return model.EventOf(
 		eventID,
 		types.EventKindNote,
-		client,
+		types.Client(client),
 		agent,
 		sessionID,
-		workspace,
+		types.Workspace(workspace),
 		body,
 		createdAt,
 	)

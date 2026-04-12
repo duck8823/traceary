@@ -51,7 +51,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		eventID, _ := types.EventIDOf(id)
 		agent, _ := types.AgentOf("claude")
 		sessionID, _ := types.SessionIDOf("session-1")
-		event := model.EventOf(eventID, types.EventKindCommandExecuted, "hook", agent, sessionID, workspace, "cmd", createdAt)
+		event := model.EventOf(eventID, types.EventKindCommandExecuted, types.Client("hook"), agent, sessionID, types.Workspace(workspace), "cmd", createdAt)
 		if err := ds.Save(context.Background(), event); err != nil {
 			t.Fatalf("Save() error = %v", err)
 		}

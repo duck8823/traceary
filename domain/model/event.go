@@ -15,10 +15,10 @@ var nowFunc = time.Now
 type Event struct {
 	eventID   types.EventID
 	kind      types.EventKind
-	client    string
+	client    types.Client
 	agent     types.Agent
 	sessionID types.SessionID
-	workspace string
+	workspace types.Workspace
 	body      string
 	createdAt time.Time
 }
@@ -27,10 +27,10 @@ type Event struct {
 func NewEvent(
 	eventID types.EventID,
 	kind types.EventKind,
-	client string,
+	client types.Client,
 	agent types.Agent,
 	sessionID types.SessionID,
-	workspace string,
+	workspace types.Workspace,
 	body string,
 ) (*Event, error) {
 	trimmedBody := strings.TrimSpace(body)
@@ -40,10 +40,10 @@ func NewEvent(
 	return &Event{
 		eventID:   eventID,
 		kind:      kind,
-		client:    strings.TrimSpace(client),
+		client:    client,
 		agent:     agent,
 		sessionID: sessionID,
-		workspace: strings.TrimSpace(workspace),
+		workspace: workspace,
 		body:      trimmedBody,
 		createdAt: nowFunc(),
 	}, nil
@@ -53,10 +53,10 @@ func NewEvent(
 func EventOf(
 	eventID types.EventID,
 	kind types.EventKind,
-	client string,
+	client types.Client,
 	agent types.Agent,
 	sessionID types.SessionID,
-	workspace string,
+	workspace types.Workspace,
 	body string,
 	createdAt time.Time,
 ) *Event {
@@ -66,7 +66,7 @@ func EventOf(
 		client:    client,
 		agent:     agent,
 		sessionID: sessionID,
-		workspace:      workspace,
+		workspace: workspace,
 		body:      body,
 		createdAt: createdAt,
 	}
@@ -79,7 +79,7 @@ func (e *Event) EventID() types.EventID { return e.eventID }
 func (e *Event) Kind() types.EventKind { return e.kind }
 
 // Client returns the recording channel.
-func (e *Event) Client() string { return e.client }
+func (e *Event) Client() types.Client { return e.client }
 
 // Agent returns the actor that produced the event.
 func (e *Event) Agent() types.Agent { return e.agent }
@@ -88,7 +88,7 @@ func (e *Event) Agent() types.Agent { return e.agent }
 func (e *Event) SessionID() types.SessionID { return e.sessionID }
 
 // Workspace returns the auxiliary work-context identifier linked to the event.
-func (e *Event) Workspace() string { return e.workspace }
+func (e *Event) Workspace() types.Workspace { return e.workspace }
 
 // Body returns the event body.
 func (e *Event) Body() string { return e.body }

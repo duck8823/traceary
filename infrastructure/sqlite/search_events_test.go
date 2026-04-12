@@ -142,10 +142,10 @@ func newSearchEventFixture(
 	return model.EventOf(
 		eventID,
 		kind,
-		"cli",
+		types.Client("cli"),
 		agent,
 		sessionID,
-		workspace,
+		types.Workspace(workspace),
 		body,
 		createdAt,
 	)

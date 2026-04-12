@@ -284,10 +284,10 @@ func (s *Server) addLog(_ string) mcp.ToolHandlerFor[addLogInput, addLogOutput] 
 		return nil, addLogOutput{
 			EventID:   event.EventID().String(),
 			Kind:      event.Kind().String(),
-			Client:    event.Client(),
+			Client:    event.Client().String(),
 			Agent:     event.Agent().String(),
 			SessionID: event.SessionID().String(),
-			Workspace: event.Workspace(),
+			Workspace: event.Workspace().String(),
 			Body:      event.Body(),
 			CreatedAt: event.CreatedAt().UTC().Format(time.RFC3339Nano),
 		}, nil
@@ -397,7 +397,7 @@ func (s *Server) addAudit(_ string) mcp.ToolHandlerFor[addAuditInput, addAuditOu
 			EventID:         event.EventID().String(),
 			Kind:            event.Kind().String(),
 			SessionID:       event.SessionID().String(),
-			Workspace:       event.Workspace(),
+			Workspace:       event.Workspace().String(),
 			Command:         audit.Command(),
 			InputRedacted:   audit.InputRedacted(),
 			OutputRedacted:  audit.OutputRedacted(),
@@ -442,10 +442,10 @@ func newSessionEventOutput(event *model.Event) sessionEventOutput {
 	return sessionEventOutput{
 		EventID:   event.EventID().String(),
 		Kind:      event.Kind().String(),
-		Client:    event.Client(),
+		Client:    event.Client().String(),
 		Agent:     event.Agent().String(),
 		SessionID: event.SessionID().String(),
-		Workspace:      event.Workspace(),
+		Workspace: event.Workspace().String(),
 		CreatedAt: event.CreatedAt().UTC().Format(time.RFC3339Nano),
 	}
 }
@@ -610,10 +610,10 @@ func convertEvents(events []*model.Event) []eventOutput {
 		outputs = append(outputs, eventOutput{
 			EventID:   event.EventID().String(),
 			Kind:      event.Kind().String(),
-			Client:    event.Client(),
+			Client:    event.Client().String(),
 			Agent:     event.Agent().String(),
 			SessionID: event.SessionID().String(),
-			Workspace:      event.Workspace(),
+			Workspace: event.Workspace().String(),
 			Body:      event.Body(),
 			CreatedAt: event.CreatedAt().UTC().Format(time.RFC3339Nano),
 		})

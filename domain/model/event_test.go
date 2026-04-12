@@ -52,10 +52,10 @@ func TestNewEvent(t *testing.T) {
 			got, err := model.NewEvent(
 				eventID,
 				types.EventKindNote,
-				"cli",
+				types.Client("cli"),
 				agent,
 				sessionID,
-				"duck8823/traceary",
+				types.Workspace("duck8823/traceary"),
 				tt.body,
 			)
 			if (err != nil) != tt.wantErr {
@@ -67,10 +67,10 @@ func TestNewEvent(t *testing.T) {
 			if got.Body() != tt.wantBody {
 				t.Fatalf("Body() = %q, want %q", got.Body(), tt.wantBody)
 			}
-			if got.Client() != "cli" {
+			if got.Client() != types.Client("cli") {
 				t.Fatalf("Client() = %q, want %q", got.Client(), "cli")
 			}
-			if got.Workspace() != "duck8823/traceary" {
+			if got.Workspace() != types.Workspace("duck8823/traceary") {
 				t.Fatalf("Repo() = %q, want %q", got.Workspace(), "duck8823/traceary")
 			}
 			if got.CreatedAt() != tt.wantCreated {
@@ -88,7 +88,7 @@ func TestEventOf(t *testing.T) {
 	sessionID, _ := types.SessionIDOf("session-1")
 	ts := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 
-	event := model.EventOf(eventID, types.EventKindNote, "cli", agent, sessionID, "duck8823/traceary", "hello", ts)
+	event := model.EventOf(eventID, types.EventKindNote, types.Client("cli"), agent, sessionID, types.Workspace("duck8823/traceary"), "hello", ts)
 
 	if event.EventID() != eventID {
 		t.Errorf("EventID() = %v, want %v", event.EventID(), eventID)

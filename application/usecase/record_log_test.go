@@ -38,10 +38,10 @@ func TestEventUsecase_Log(t *testing.T) {
 		got, err := sut.Log(context.Background(),
 			"  hello traceary  ",
 			types.EventKind(""),
-			types.Client(" cli "),
+			types.Client("cli"),
 			types.Agent("codex"),
 			types.SessionID("session-1"),
-			types.Workspace("  duck8823/traceary  "),
+			types.Workspace("duck8823/traceary"),
 		)
 		if err != nil {
 			t.Fatalf("Log() error = %v", err)
@@ -61,7 +61,7 @@ func TestEventUsecase_Log(t *testing.T) {
 		if diff := cmp.Diff("hello traceary", got.Body()); diff != "" {
 			t.Fatalf("Body() mismatch (-want +got):\n%s", diff)
 		}
-		if diff := cmp.Diff("cli", got.Client()); diff != "" {
+		if diff := cmp.Diff(types.Client("cli"), got.Client()); diff != "" {
 			t.Fatalf("Client() mismatch (-want +got):\n%s", diff)
 		}
 		if diff := cmp.Diff("codex", got.Agent().String()); diff != "" {
@@ -70,7 +70,7 @@ func TestEventUsecase_Log(t *testing.T) {
 		if diff := cmp.Diff("session-1", got.SessionID().String()); diff != "" {
 			t.Fatalf("SessionID() mismatch (-want +got):\n%s", diff)
 		}
-		if diff := cmp.Diff("duck8823/traceary", got.Workspace()); diff != "" {
+		if diff := cmp.Diff(types.Workspace("duck8823/traceary"), got.Workspace()); diff != "" {
 			t.Fatalf("Workspace() mismatch (-want +got):\n%s", diff)
 		}
 	})

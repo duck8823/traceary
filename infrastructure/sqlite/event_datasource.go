@@ -77,10 +77,10 @@ func (d *EventDatasource) Save(ctx context.Context, event *model.Event) error {
 		insertEventQuery,
 		event.EventID().String(),
 		event.Kind().String(),
-		event.Client(),
+		event.Client().String(),
 		event.Agent().String(),
 		event.SessionID().String(),
-		event.Workspace(),
+		event.Workspace().String(),
 		event.Body(),
 		formatTimestamp(event.CreatedAt()),
 	); err != nil {
@@ -128,10 +128,10 @@ func (d *EventDatasource) SaveWithAudit(
 		insertEventQuery,
 		event.EventID().String(),
 		event.Kind().String(),
-		event.Client(),
+		event.Client().String(),
 		event.Agent().String(),
 		event.SessionID().String(),
-		event.Workspace(),
+		event.Workspace().String(),
 		event.Body(),
 		formatTimestamp(event.CreatedAt()),
 	); err != nil {
@@ -651,10 +651,10 @@ func restoreEvent(
 	return model.EventOf(
 		eventID,
 		eventKind,
-		clientValue,
+		types.Client(clientValue),
 		agent,
 		sessionID,
-		repoValue,
+		types.Workspace(repoValue),
 		bodyValue,
 		createdAt,
 	), nil

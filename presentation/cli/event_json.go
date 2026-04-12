@@ -68,10 +68,10 @@ func newEventJSON(event *model.Event) eventJSON {
 	return eventJSON{
 		EventID:   event.EventID().String(),
 		Kind:      event.Kind().String(),
-		Client:    event.Client(),
+		Client:    event.Client().String(),
 		Agent:     event.Agent().String(),
 		SessionID: event.SessionID().String(),
-		Workspace:      event.Workspace(),
+		Workspace: event.Workspace().String(),
 		Message:   event.Body(),
 		CreatedAt: event.CreatedAt().UTC().Format("2006-01-02T15:04:05Z07:00"),
 	}

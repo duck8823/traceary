@@ -114,10 +114,10 @@ func TestSessionUsecase_End(t *testing.T) {
 				sessionID,
 				mustTime(t),
 				types.Empty[time.Time](),
-				"hook",
+				types.Client("hook"),
 				startAgent,
-				"repo-from-start",
-				"", "", "",
+				types.Workspace("repo-from-start"),
+				"", "", types.SessionID(""),
 			),
 		}
 		sut := usecase.NewSessionUsecase(stub, sessionStub, nil, nil)
@@ -132,13 +132,13 @@ func TestSessionUsecase_End(t *testing.T) {
 		if err != nil {
 			t.Fatalf("End() error = %v", err)
 		}
-		if diff := cmp.Diff("hook", got.Client()); diff != "" {
+		if diff := cmp.Diff(types.Client("hook"), got.Client()); diff != "" {
 			t.Fatalf("Client() mismatch (-want +got):\n%s", diff)
 		}
 		if diff := cmp.Diff("claude", got.Agent().String()); diff != "" {
 			t.Fatalf("Agent() mismatch (-want +got):\n%s", diff)
 		}
-		if diff := cmp.Diff("repo-from-start", got.Workspace()); diff != "" {
+		if diff := cmp.Diff(types.Workspace("repo-from-start"), got.Workspace()); diff != "" {
 			t.Fatalf("Workspace() mismatch (-want +got):\n%s", diff)
 		}
 	})
@@ -161,10 +161,10 @@ func TestSessionUsecase_End(t *testing.T) {
 				sessionID,
 				mustTime(t),
 				types.Empty[time.Time](),
-				"hook",
+				types.Client("hook"),
 				startAgent,
-				"repo-from-start",
-				"", "", "",
+				types.Workspace("repo-from-start"),
+				"", "", types.SessionID(""),
 			),
 		}
 		sut := usecase.NewSessionUsecase(stub, sessionStub, nil, nil)
@@ -179,13 +179,13 @@ func TestSessionUsecase_End(t *testing.T) {
 		if err != nil {
 			t.Fatalf("End() error = %v", err)
 		}
-		if diff := cmp.Diff("cli", got.Client()); diff != "" {
+		if diff := cmp.Diff(types.Client("cli"), got.Client()); diff != "" {
 			t.Fatalf("Client() mismatch (-want +got):\n%s", diff)
 		}
 		if diff := cmp.Diff("codex", got.Agent().String()); diff != "" {
 			t.Fatalf("Agent() mismatch (-want +got):\n%s", diff)
 		}
-		if diff := cmp.Diff("repo-explicit", got.Workspace()); diff != "" {
+		if diff := cmp.Diff(types.Workspace("repo-explicit"), got.Workspace()); diff != "" {
 			t.Fatalf("Workspace() mismatch (-want +got):\n%s", diff)
 		}
 	})
@@ -289,10 +289,10 @@ func TestSessionUsecase_SessionSaver(t *testing.T) {
 			sessionID,
 			mustTime(t),
 			types.Empty[time.Time](),
-			"cli",
+			types.Client("cli"),
 			agent,
-			"duck8823/traceary",
-			"", "", "",
+			types.Workspace("duck8823/traceary"),
+			"", "", types.SessionID(""),
 		)
 		sessionStub := &sessionRepositoryStub{session: existingSession}
 		sut := usecase.NewSessionUsecase(eventStub, sessionStub, nil, nil)

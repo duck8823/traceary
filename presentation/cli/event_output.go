@@ -38,10 +38,10 @@ func writeEvents(output io.Writer, events []*model.Event) error {
 			"%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			event.CreatedAt().UTC().Format("2006-01-02T15:04:05Z07:00"),
 			event.Kind(),
-			formatOptionalColumn(event.Client()),
+			formatOptionalColumn(event.Client().String()),
 			event.Agent(),
 			event.SessionID(),
-			formatOptionalColumn(event.Workspace()),
+			formatOptionalColumn(event.Workspace().String()),
 			truncateMessage(event.Body()),
 		); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print event row", "イベント一覧行の出力に失敗しました"), err)

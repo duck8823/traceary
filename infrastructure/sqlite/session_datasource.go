@@ -85,8 +85,8 @@ func (d *SessionDatasource) Save(ctx context.Context, session *model.Session) er
 
 	// Try insert first (INSERT OR IGNORE — no-op if session already exists)
 	var parentSessionID *string
-	if session.ParentSessionID() != "" {
-		v := session.ParentSessionID()
+	if session.ParentSessionID().String() != "" {
+		v := session.ParentSessionID().String()
 		parentSessionID = &v
 	}
 	result, err := db.ExecContext(
@@ -94,13 +94,13 @@ func (d *SessionDatasource) Save(ctx context.Context, session *model.Session) er
 		insertSessionQuery,
 		session.SessionID().String(),
 		formatTimestamp(session.StartedAt()),
-		session.Client(),
+		session.Client().String(),
 		session.Agent().String(),
-		session.Workspace(),
+		session.Workspace().String(),
 		parentSessionID,
 	)
 	if err != nil {
-		if strings.Contains(err.Error(), "FOREIGN KEY constraint failed") && session.ParentSessionID() != "" {
+		if strings.Contains(err.Error(), "FOREIGN KEY constraint failed") && session.ParentSessionID().String() != "" {
 			return xerrors.Errorf("parent session not found: %s", session.ParentSessionID())
 		}
 		return xerrors.Errorf("failed to insert session: %w", err)
@@ -208,12 +208,12 @@ func (d *SessionDatasource) FindByID(ctx context.Context, sessionID types.Sessio
 		sid,
 		startedAt,
 		endedAt,
-		clientValue,
+		types.Client(clientValue),
 		agent,
-		workspaceValue,
+		types.Workspace(workspaceValue),
 		labelValue,
 		summaryValue,
-		parentSessionIDValue,
+		types.SessionID(parentSessionIDValue),
 	)), nil
 }
 

@@ -18,32 +18,6 @@ const (
 	maxAuditOutputLength = 64 * 1024
 )
 
-// RecordLogInput is the input for traceary log recording.
-type RecordLogInput struct {
-	Message   string
-	Kind      string
-	Client    string
-	Agent     string
-	SessionID string
-	Workspace string
-}
-
-// RecordCommandAuditInput is the input for traceary audit recording.
-type RecordCommandAuditInput struct {
-	Command             string
-	Input               string
-	Output              string
-	Client              string
-	Agent               string
-	SessionID           string
-	Workspace           string
-	AllowSecrets        bool
-	MaxInputBytes       int
-	MaxOutputBytes      int
-	ExtraRedactPatterns []string
-	ExitCode            types.Optional[int]
-}
-
 type eventUsecase struct {
 	eventRepo  model.EventRepository
 	eventQuery queryservice.EventQueryService
@@ -65,29 +39,19 @@ func (u *eventUsecase) Log(ctx context.Context, message string, kind types.Event
 		return nil, xerrors.Errorf("event repository is not configured")
 	}
 
-	input := RecordLogInput{
-		Message:   message,
-		Kind:      kind.String(),
-		Client:    client.String(),
-		Agent:     agent.String(),
-		SessionID: sessionID.String(),
-		Workspace: workspace.String(),
-	}
-
-	resolvedAgent, err := types.AgentOf(input.Agent)
-	if err != nil {
+	if _, err := types.AgentOf(agent.String()); err != nil {
 		return nil, xerrors.Errorf("failed to resolve agent: %w", err)
 	}
-	resolvedSessionID, err := types.SessionIDOf(input.SessionID)
-	if err != nil {
+	if _, err := types.SessionIDOf(sessionID.String()); err != nil {
 		return nil, xerrors.Errorf("failed to resolve session ID: %w", err)
 	}
 	resolvedKind := types.EventKindNote
-	if strings.TrimSpace(input.Kind) != "" {
-		resolvedKind, err = types.EventKindOf(input.Kind)
+	if strings.TrimSpace(kind.String()) != "" {
+		resolved, err := types.EventKindOf(kind.String())
 		if err != nil {
 			return nil, xerrors.Errorf("failed to resolve event kind: %w", err)
 		}
+		resolvedKind = resolved
 	}
 
 	eventID, err := newEventID()
@@ -98,11 +62,11 @@ func (u *eventUsecase) Log(ctx context.Context, message string, kind types.Event
 	event, err := model.NewEvent(
 		eventID,
 		resolvedKind,
-		strings.TrimSpace(input.Client),
-		resolvedAgent,
-		resolvedSessionID,
-		strings.TrimSpace(input.Workspace),
-		input.Message,
+		client,
+		agent,
+		sessionID,
+		workspace,
+		message,
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to build log event: %w", err)
@@ -119,27 +83,10 @@ func (u *eventUsecase) Audit(ctx context.Context, command string, input string, 
 		return nil, nil, xerrors.Errorf("event repository is not configured")
 	}
 
-	auditInput := RecordCommandAuditInput{
-		Command:             command,
-		Input:               input,
-		Output:              output,
-		Client:              client.String(),
-		Agent:               agent.String(),
-		SessionID:           sessionID.String(),
-		Workspace:           workspace.String(),
-		ExitCode:            exitCode,
-		AllowSecrets:        redaction.AllowSecrets,
-		MaxInputBytes:       redaction.MaxInputBytes,
-		MaxOutputBytes:      redaction.MaxOutputBytes,
-		ExtraRedactPatterns: redaction.ExtraRedactPatterns,
-	}
-
-	resolvedAgent, err := types.AgentOf(auditInput.Agent)
-	if err != nil {
+	if _, err := types.AgentOf(agent.String()); err != nil {
 		return nil, nil, xerrors.Errorf("failed to resolve agent: %w", err)
 	}
-	resolvedSessionID, err := types.SessionIDOf(auditInput.SessionID)
-	if err != nil {
+	if _, err := types.SessionIDOf(sessionID.String()); err != nil {
 		return nil, nil, xerrors.Errorf("failed to resolve session ID: %w", err)
 	}
 	eventID, err := newEventID()
@@ -147,25 +94,25 @@ func (u *eventUsecase) Audit(ctx context.Context, command string, input string, 
 		return nil, nil, xerrors.Errorf("failed to generate event ID: %w", err)
 	}
 
-	maxInputBytes, err := resolveAuditPayloadLimit(auditInput.MaxInputBytes, maxAuditInputLength)
+	maxInputBytes, err := resolveAuditPayloadLimit(redaction.MaxInputBytes, maxAuditInputLength)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("failed to resolve input limit: %w", err)
 	}
-	maxOutputBytes, err := resolveAuditPayloadLimit(auditInput.MaxOutputBytes, maxAuditOutputLength)
+	maxOutputBytes, err := resolveAuditPayloadLimit(redaction.MaxOutputBytes, maxAuditOutputLength)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("failed to resolve output limit: %w", err)
 	}
 
-	extraRedactors, err := compileExtraRedactPatterns(auditInput.ExtraRedactPatterns)
+	extraRedactors, err := compileExtraRedactPatterns(redaction.ExtraRedactPatterns)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("failed to compile extra redaction patterns: %w", err)
 	}
 
-	normalizedInput := auditInput.Input
-	normalizedOutput := auditInput.Output
+	normalizedInput := input
+	normalizedOutput := output
 	var inputRedacted bool
 	var outputRedacted bool
-	if !auditInput.AllowSecrets {
+	if !redaction.AllowSecrets {
 		normalizedInput, inputRedacted = redactAuditPayload(normalizedInput, extraRedactors)
 		normalizedOutput, outputRedacted = redactAuditPayload(normalizedOutput, extraRedactors)
 	}
@@ -174,7 +121,7 @@ func (u *eventUsecase) Audit(ctx context.Context, command string, input string, 
 	normalizedOutput, outputTruncated := truncateAuditPayload(normalizedOutput, maxOutputBytes)
 	commandAudit, err := model.NewCommandAudit(
 		eventID,
-		auditInput.Command,
+		command,
 		normalizedInput,
 		normalizedOutput,
 		inputTruncated,
@@ -184,15 +131,15 @@ func (u *eventUsecase) Audit(ctx context.Context, command string, input string, 
 		return nil, nil, xerrors.Errorf("failed to build command audit: %w", err)
 	}
 	commandAudit.SetRedaction(inputRedacted, outputRedacted)
-	commandAudit.SetExitCode(auditInput.ExitCode)
+	commandAudit.SetExitCode(exitCode)
 
 	event, err := model.NewEvent(
 		eventID,
 		types.EventKindCommandExecuted,
-		strings.TrimSpace(auditInput.Client),
-		resolvedAgent,
-		resolvedSessionID,
-		strings.TrimSpace(auditInput.Workspace),
+		client,
+		agent,
+		sessionID,
+		workspace,
 		commandAudit.Command(),
 	)
 	if err != nil {

@@ -67,10 +67,10 @@ func writeEventDetails(output io.Writer, eventDetails apptypes.EventDetails) err
 		"EVENT_ID: %s\nKIND: %s\nCLIENT: %s\nAGENT: %s\nSESSION_ID: %s\nWORKSPACE: %s\nCREATED_AT: %s\nMESSAGE: %s\n",
 		event.EventID(),
 		event.Kind(),
-		formatOptionalColumn(event.Client()),
+		formatOptionalColumn(event.Client().String()),
 		event.Agent(),
 		event.SessionID(),
-		formatOptionalColumn(event.Workspace()),
+		formatOptionalColumn(event.Workspace().String()),
 		event.CreatedAt().UTC().Format("2006-01-02T15:04:05Z07:00"),
 		event.Body(),
 	); err != nil {

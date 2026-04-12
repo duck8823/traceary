@@ -186,7 +186,7 @@ func writeContextText(output io.Writer, sessionID string, repo string, events []
 			event.CreatedAt().UTC().Format("2006-01-02T15:04:05Z07:00"),
 			event.Kind(),
 			event.EventID(),
-			formatOptionalColumn(event.Client()),
+			formatOptionalColumn(event.Client().String()),
 			event.Agent(),
 			singleLineSummary(event.Body()),
 		); err != nil {
