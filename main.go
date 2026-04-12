@@ -16,7 +16,9 @@ import (
 
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/infrastructure/filesystem"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 	"github.com/duck8823/traceary/presentation"
 	"github.com/duck8823/traceary/presentation/cli"
@@ -157,12 +159,22 @@ func run() error {
 	if err != nil {
 		return xerrors.Errorf("%s: %w", cli.Localize("failed to initialize MCP server", "MCP server の初期化に失敗しました"), err)
 	}
+
+	hooksOrchestrator := filesystem.NewHooksOrchestrator(map[string]application.HooksClientHandler{
+		"claude": filesystem.NewClaudeHooksHandler(),
+		"codex":  filesystem.NewCodexHooksHandler(),
+		"gemini": filesystem.NewGeminiHooksHandler(),
+	})
+	hookScriptsInstaller := filesystem.NewHookScriptsInstaller()
+
 	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		Event:               eventUsecase,
-		Session:             sessionUsecase,
-		StoreManagement:     storeManagementUsecase,
-		MCPServerRunner:     mcpServer,
-		ExtraRedactPatterns: extraRedactPatterns,
+		Event:                eventUsecase,
+		Session:              sessionUsecase,
+		StoreManagement:      storeManagementUsecase,
+		MCPServerRunner:      mcpServer,
+		HooksOrchestrator:    hooksOrchestrator,
+		HookScriptsInstaller: hookScriptsInstaller,
+		ExtraRedactPatterns:  extraRedactPatterns,
 	}).Command()
 	rootCmd.Version = versionString()
 	rootCmd.SetVersionTemplate("{{.Name}} {{.Version}}\n")

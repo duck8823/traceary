@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,8 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/domain/types"
+	"github.com/duck8823/traceary/infrastructure/filesystem"
 	"github.com/duck8823/traceary/presentation"
 )
 
@@ -86,7 +89,7 @@ func (c *RootCLI) runDoctor(ctx context.Context, output io.Writer, input doctorC
 }
 
 func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInput) (*doctorReport, error) {
-	resolvedClients, err := resolveDoctorClients(input.client)
+	resolvedClients, err := resolveDoctorClients(c, input.client)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +131,8 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		})
 	}
 
-	hookScriptsDir, err := resolveHooksScriptsDir()
+	scriptsInstaller := c.HookScriptsInstaller()
+	hookScriptsDir, err := scriptsInstaller.ResolveDir()
 	if err != nil {
 		report.Checks = append(report.Checks, doctorCheck{
 			Name:    "hook-scripts",
@@ -137,7 +141,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		})
 	} else {
 		report.HookScriptsDir = hookScriptsDir
-		if _, ensureErr := ensureHookScriptsInstalled(); ensureErr != nil {
+		if _, ensureErr := scriptsInstaller.Ensure(); ensureErr != nil {
 			report.Checks = append(report.Checks, doctorCheck{
 				Name:   "hook-scripts",
 				Status: doctorStatusWarn,
@@ -172,8 +176,9 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		Message: localizef("resolved project directory: %s", "解決した project directory: %s", resolvedProjectDir),
 	})
 
+	orchestrator := c.HooksOrchestrator()
 	for _, targetClient := range resolvedClients {
-		outputPath, pathErr := resolveHooksInstallOutputPath(targetClient, resolvedProjectDir, "")
+		outputPath, pathErr := orchestrator.ResolveInstallPath(targetClient, resolvedProjectDir, types.Empty[string]())
 		if pathErr != nil {
 			report.Checks = append(report.Checks, doctorCheck{
 				Name:    targetClient + "-config",
@@ -198,14 +203,14 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 	return report, nil
 }
 
-func resolveDoctorClients(client string) ([]string, error) {
+func resolveDoctorClients(c *RootCLI, client string) ([]string, error) {
 	if strings.TrimSpace(client) == "" {
 		return []string{"claude", "codex", "gemini"}, nil
 	}
 
-	resolvedClient, err := normalizeHooksClient(client)
+	resolvedClient, err := c.HooksOrchestrator().NormalizeClient(client)
 	if err != nil {
-		return nil, err
+		return nil, xerrors.Errorf("failed to normalize client: %w", err)
 	}
 
 	return []string{resolvedClient}, nil
@@ -277,8 +282,15 @@ func inspectDoctorConfigFile(client string, outputPath string) doctorCheck {
 		}
 	}
 
-	root := map[string]json.RawMessage{}
-	if err := json.Unmarshal(content, &root); err != nil {
+	inspection, err := filesystem.InspectHookConfigContent(content)
+	if err != nil {
+		if errors.Is(err, filesystem.ErrHookConfigInvalidHooksField) {
+			return doctorCheck{
+				Name:    client + "-config",
+				Status:  doctorStatusFail,
+				Message: localizef("%s hooks field must be an object of hook arrays: %s", "%s の hooks フィールドは hook 配列を値に持つ object である必要があります: %s", client, outputPath),
+			}
+		}
 		return doctorCheck{
 			Name:    client + "-config",
 			Status:  doctorStatusFail,
@@ -286,8 +298,7 @@ func inspectDoctorConfigFile(client string, outputPath string) doctorCheck {
 		}
 	}
 
-	hooksValue, ok := root["hooks"]
-	if !ok {
+	if !inspection.HasHooksField {
 		return doctorCheck{
 			Name:   client + "-config",
 			Status: doctorStatusWarn,
@@ -301,26 +312,11 @@ func inspectDoctorConfigFile(client string, outputPath string) doctorCheck {
 		}
 	}
 
-	hooksMap := map[string][]hookMatcher{}
-	if err := json.Unmarshal(hooksValue, &hooksMap); err != nil {
+	if inspection.HasTracearyManagedHook {
 		return doctorCheck{
 			Name:    client + "-config",
-			Status:  doctorStatusFail,
-			Message: localizef("%s hooks field must be an object of hook arrays: %s", "%s の hooks フィールドは hook 配列を値に持つ object である必要があります: %s", client, outputPath),
-		}
-	}
-
-	for _, matchers := range hooksMap {
-		for _, matcher := range matchers {
-			for _, hook := range matcher.Hooks {
-				if isTracearyManagedHookCommand(hook) {
-					return doctorCheck{
-						Name:    client + "-config",
-						Status:  doctorStatusPass,
-						Message: localizef("%s config contains Traceary-managed hooks: %s", "%s の設定には Traceary 管理下の hook があります: %s", client, outputPath),
-					}
-				}
-			}
+			Status:  doctorStatusPass,
+			Message: localizef("%s config contains Traceary-managed hooks: %s", "%s の設定には Traceary 管理下の hook があります: %s", client, outputPath),
 		}
 	}
 
