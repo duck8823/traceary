@@ -15,10 +15,11 @@ import (
 )
 
 type memoryRepositoryStub struct {
-	byID      map[string]*model.Memory
-	saveCalls []*model.Memory
-	saveErr   error
-	findErr   error
+	byID              map[string]*model.Memory
+	saveCalls         []*model.Memory
+	supersessionCalls []memorySupersessionCall
+	saveErr           error
+	findErr           error
 }
 
 func (s *memoryRepositoryStub) Save(_ context.Context, memory *model.Memory) error {
@@ -27,6 +28,24 @@ func (s *memoryRepositoryStub) Save(_ context.Context, memory *model.Memory) err
 	}
 	s.saveCalls = append(s.saveCalls, memory)
 	s.byID[memory.MemoryID().String()] = memory
+	return s.saveErr
+}
+
+type memorySupersessionCall struct {
+	superseded  *model.Memory
+	replacement *model.Memory
+}
+
+func (s *memoryRepositoryStub) SaveSupersession(_ context.Context, superseded *model.Memory, replacement *model.Memory) error {
+	if s.byID == nil {
+		s.byID = make(map[string]*model.Memory)
+	}
+	s.supersessionCalls = append(s.supersessionCalls, memorySupersessionCall{
+		superseded:  superseded,
+		replacement: replacement,
+	})
+	s.byID[superseded.MemoryID().String()] = superseded
+	s.byID[replacement.MemoryID().String()] = replacement
 	return s.saveErr
 }
 
@@ -247,8 +266,8 @@ func TestMemoryUsecase_Supersede(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Supersede() error = %v", err)
 	}
-	if len(repo.saveCalls) != 2 {
-		t.Fatalf("Save() call count = %d, want 2", len(repo.saveCalls))
+	if len(repo.supersessionCalls) != 1 {
+		t.Fatalf("SaveSupersession() call count = %d, want 1", len(repo.supersessionCalls))
 	}
 	if diff := cmp.Diff(domtypes.MemoryStatusSuperseded, repo.byID[originalID.String()].Status()); diff != "" {
 		t.Fatalf("original status mismatch (-want +got):\n%s", diff)

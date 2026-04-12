@@ -273,15 +273,11 @@ func (u *memoryUsecase) Supersede(
 	if err != nil {
 		return apptypes.MemoryDetails{}, xerrors.Errorf("failed to build replacement memory: %w", err)
 	}
-	if err := u.memoryRepo.Save(ctx, memory); err != nil {
-		return apptypes.MemoryDetails{}, xerrors.Errorf("failed to save replacement memory: %w", err)
-	}
-
 	if err := existing.MarkSuperseded(); err != nil {
 		return apptypes.MemoryDetails{}, xerrors.Errorf("failed to supersede existing memory: %w", err)
 	}
-	if err := u.memoryRepo.Save(ctx, existing); err != nil {
-		return apptypes.MemoryDetails{}, xerrors.Errorf("failed to save superseded memory state: %w", err)
+	if err := u.memoryRepo.SaveSupersession(ctx, existing, memory); err != nil {
+		return apptypes.MemoryDetails{}, xerrors.Errorf("failed to save supersession: %w", err)
 	}
 
 	details, err := apptypes.MemoryDetailsFrom(memory)

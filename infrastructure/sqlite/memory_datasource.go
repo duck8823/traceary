@@ -80,6 +80,36 @@ func (d *MemoryDatasource) Save(ctx context.Context, memory *model.Memory) error
 		return xerrors.Errorf("memory must not be nil")
 	}
 
+	return d.runMemoryWriteTx(ctx, func(tx *sql.Tx) error {
+		if err := persistMemoryTx(ctx, tx, memory); err != nil {
+			return xerrors.Errorf("failed to persist memory: %w", err)
+		}
+		return nil
+	})
+}
+
+// SaveSupersession persists a superseded memory state and its replacement in a
+// single transaction.
+func (d *MemoryDatasource) SaveSupersession(ctx context.Context, superseded *model.Memory, replacement *model.Memory) error {
+	if superseded == nil {
+		return xerrors.Errorf("superseded memory must not be nil")
+	}
+	if replacement == nil {
+		return xerrors.Errorf("replacement memory must not be nil")
+	}
+
+	return d.runMemoryWriteTx(ctx, func(tx *sql.Tx) error {
+		if err := persistMemoryTx(ctx, tx, superseded); err != nil {
+			return xerrors.Errorf("failed to persist superseded memory: %w", err)
+		}
+		if err := persistMemoryTx(ctx, tx, replacement); err != nil {
+			return xerrors.Errorf("failed to persist replacement memory: %w", err)
+		}
+		return nil
+	})
+}
+
+func (d *MemoryDatasource) runMemoryWriteTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
 	db, err := d.db.open(ctx)
 	if err != nil {
 		return xerrors.Errorf("failed to open DB for memory save: %w", err)
@@ -100,6 +130,18 @@ func (d *MemoryDatasource) Save(ctx context.Context, memory *model.Memory) error
 		}
 	}()
 
+	if err := fn(tx); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return xerrors.Errorf("failed to commit memory save transaction: %w", err)
+	}
+
+	return nil
+}
+
+func persistMemoryTx(ctx context.Context, tx *sql.Tx, memory *model.Memory) error {
 	var supersedesValue *string
 	if supersedes, ok := memory.Supersedes().Get(); ok {
 		value := supersedes.String()
@@ -161,10 +203,6 @@ func (d *MemoryDatasource) Save(ctx context.Context, memory *model.Memory) error
 		); err != nil {
 			return xerrors.Errorf("failed to insert memory artifact ref: %w", err)
 		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		return xerrors.Errorf("failed to commit memory save transaction: %w", err)
 	}
 
 	return nil

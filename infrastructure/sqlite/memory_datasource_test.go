@@ -125,6 +125,15 @@ func mustArtifactRef(t *testing.T, kind types.ArtifactRefKind, value string) typ
 	return ref
 }
 
+func mustMemoryIDFromOptional(t *testing.T, value types.Optional[types.MemoryID]) types.MemoryID {
+	t.Helper()
+	memoryID, ok := value.Get()
+	if !ok {
+		t.Fatal("Optional.Get() ok = false, want true")
+	}
+	return memoryID
+}
+
 func memoryOf(
 	t *testing.T,
 	memoryID string,
@@ -268,6 +277,88 @@ func TestMemoryDatasource_SaveAndFindByID(t *testing.T) {
 	}
 	if gotExpiresAt, ok := got.ExpiresAt().Get(); !ok || !gotExpiresAt.Equal(expiresAt) {
 		t.Fatalf("ExpiresAt() = (%v, %v), want (%v, true)", gotExpiresAt, ok, expiresAt)
+	}
+}
+
+func TestMemoryDatasource_SaveSupersession(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	sut, storeManager := newMemoryDatasource(t, dbPath, memoryDatasourceTestMigrations())
+	ctx := context.Background()
+
+	if err := storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	original := memoryOf(
+		t,
+		"mem-original",
+		types.MemoryTypeDecision,
+		mustWorkspaceScope(t, "github.com/duck8823/traceary"),
+		"Original release memory",
+		types.MemoryStatusAccepted,
+		types.ConfidenceVerified,
+		types.MemorySourceManual,
+		[]types.EvidenceRef{mustEvidenceRef(t, types.EvidenceRefKindIssue, "#454")},
+		nil,
+		types.Empty[types.MemoryID](),
+		types.Empty[time.Time](),
+		time.Date(2026, 4, 12, 9, 0, 0, 0, time.UTC),
+		time.Date(2026, 4, 12, 9, 30, 0, 0, time.UTC),
+	)
+	if err := sut.Save(ctx, original); err != nil {
+		t.Fatalf("Save(original) error = %v", err)
+	}
+	if err := original.MarkSuperseded(); err != nil {
+		t.Fatalf("MarkSuperseded() error = %v", err)
+	}
+
+	replacement := memoryOf(
+		t,
+		"mem-replacement",
+		types.MemoryTypeDecision,
+		mustWorkspaceScope(t, "github.com/duck8823/traceary"),
+		"Replacement release memory",
+		types.MemoryStatusAccepted,
+		types.ConfidenceHigh,
+		types.MemorySourceManual,
+		[]types.EvidenceRef{mustEvidenceRef(t, types.EvidenceRefKindPR, "#468")},
+		[]types.ArtifactRef{mustArtifactRef(t, types.ArtifactRefKindFile, "presentation/cli/memory.go")},
+		types.Of(original.MemoryID()),
+		types.Empty[time.Time](),
+		time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC),
+		time.Date(2026, 4, 12, 10, 15, 0, 0, time.UTC),
+	)
+	if err := sut.SaveSupersession(ctx, original, replacement); err != nil {
+		t.Fatalf("SaveSupersession() error = %v", err)
+	}
+
+	gotOriginalOpt, err := sut.FindByID(ctx, original.MemoryID())
+	if err != nil {
+		t.Fatalf("FindByID(original) error = %v", err)
+	}
+	gotOriginal, ok := gotOriginalOpt.Get()
+	if !ok {
+		t.Fatal("FindByID(original) returned empty result")
+	}
+	if diff := cmp.Diff(types.MemoryStatusSuperseded, gotOriginal.Status()); diff != "" {
+		t.Fatalf("original status mismatch (-want +got):\n%s", diff)
+	}
+
+	gotReplacementOpt, err := sut.FindByID(ctx, replacement.MemoryID())
+	if err != nil {
+		t.Fatalf("FindByID(replacement) error = %v", err)
+	}
+	gotReplacement, ok := gotReplacementOpt.Get()
+	if !ok {
+		t.Fatal("FindByID(replacement) returned empty result")
+	}
+	if diff := cmp.Diff(types.MemoryStatusAccepted, gotReplacement.Status()); diff != "" {
+		t.Fatalf("replacement status mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(original.MemoryID(), mustMemoryIDFromOptional(t, gotReplacement.Supersedes())); diff != "" {
+		t.Fatalf("replacement supersedes mismatch (-want +got):\n%s", diff)
 	}
 }
 
