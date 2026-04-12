@@ -190,37 +190,7 @@ func TestSessionUsecase_End(t *testing.T) {
 		}
 	})
 
-	t.Run("uses fallback when session_started is not found", func(t *testing.T) {
-		t.Parallel()
-
-		stub := &eventRepositoryStub{}
-		sessionStub := &sessionRepositoryStub{empty: true}
-		sut := usecase.NewSessionUsecase(stub, sessionStub, nil, nil)
-
-		// With no explicit client/agent the session_ended attribution is empty,
-		// but the internal resolver should not error because there is no session
-		// to inherit from. Agent resolution will fail on empty agent though,
-		// so we pass the fallback through the explicit params (which is what
-		// the adapter used to do via DefaultClient/DefaultAgent).
-		got, err := sut.End(context.Background(),
-			types.Client("cli"),
-			types.Agent("manual"),
-			types.SessionID("session-1"),
-			types.Workspace(""),
-			"",
-		)
-		if err != nil {
-			t.Fatalf("End() error = %v", err)
-		}
-		if diff := cmp.Diff("cli", got.Client()); diff != "" {
-			t.Fatalf("Client() mismatch (-want +got):\n%s", diff)
-		}
-		if diff := cmp.Diff("manual", got.Agent().String()); diff != "" {
-			t.Fatalf("Agent() mismatch (-want +got):\n%s", diff)
-		}
-	})
-
-	t.Run("propagates error from session_started lookup", func(t *testing.T) {
+	t.Run("propagates error from session lookup", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventRepositoryStub{}
@@ -348,7 +318,7 @@ func TestSessionUsecase_SessionSaver(t *testing.T) {
 		}
 	})
 
-	t.Run("session end skips save when session not found", func(t *testing.T) {
+	t.Run("session end returns ErrInvalidSessionState when session not found", func(t *testing.T) {
 		t.Parallel()
 
 		eventStub := &eventRepositoryStub{}
@@ -362,8 +332,11 @@ func TestSessionUsecase_SessionSaver(t *testing.T) {
 			types.Workspace("duck8823/traceary"),
 			"",
 		)
-		if err != nil {
-			t.Fatalf("End() error = %v", err)
+		if err == nil {
+			t.Fatalf("End() error = nil, want ErrInvalidSessionState")
+		}
+		if !errors.Is(err, model.ErrInvalidSessionState) {
+			t.Fatalf("End() error = %v, want ErrInvalidSessionState", err)
 		}
 		if sessionStub.saveCalled {
 			t.Fatalf("SessionRepository.Save() should not be called when session is not found")

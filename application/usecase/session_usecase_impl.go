@@ -202,6 +202,21 @@ func (u *sessionUsecase) recordSessionBoundary(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to resolve agent: %w", err)
 	}
+	// For session end, verify the session exists before writing anything.
+	// This avoids creating an orphaned session_ended event for a missing session.
+	var existingSession *model.Session
+	if input.Kind == types.EventKindSessionEnded && u.sessionRepo != nil {
+		existing, err := u.sessionRepo.FindByID(ctx, sessionID)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to find session for end: %w", err)
+		}
+		session, ok := existing.Get()
+		if !ok {
+			return nil, xerrors.Errorf("cannot end session %s: %w", sessionID, model.ErrInvalidSessionState)
+		}
+		existingSession = session
+	}
+
 	eventID, err := newEventID()
 	if err != nil {
 		return nil, xerrors.Errorf("failed to generate event ID: %w", err)
@@ -229,16 +244,10 @@ func (u *sessionUsecase) recordSessionBoundary(
 			if err := u.sessionRepo.Save(ctx, session); err != nil {
 				return nil, xerrors.Errorf("failed to save session metadata: %w", err)
 			}
-		} else {
-			existing, err := u.sessionRepo.FindByID(ctx, event.SessionID())
-			if err != nil {
-				return nil, xerrors.Errorf("failed to find session for end: %w", err)
-			}
-			if session, ok := existing.Get(); ok {
-				session.End(event.CreatedAt(), input.Summary)
-				if err := u.sessionRepo.Save(ctx, session); err != nil {
-					return nil, xerrors.Errorf("failed to save session end: %w", err)
-				}
+		} else if existingSession != nil {
+			existingSession.End(event.CreatedAt(), input.Summary)
+			if err := u.sessionRepo.Save(ctx, existingSession); err != nil {
+				return nil, xerrors.Errorf("failed to save session end: %w", err)
 			}
 		}
 	}
