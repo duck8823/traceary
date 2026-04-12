@@ -44,7 +44,7 @@ func SessionSummaryOf(
 		status:          status,
 		totalEvents:     totalEvents,
 		commandCount:    commandCount,
-		agents:          agents,
+		agents:          slices.Clone(agents),
 		label:           label,
 		summary:         summary,
 		parentSessionID: parentSessionID,

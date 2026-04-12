@@ -38,9 +38,9 @@ func HandoffSummaryOf(
 		status:         status,
 		totalEvents:    totalEvents,
 		commandCount:   commandCount,
-		agents:         agents,
+		agents:         slices.Clone(agents),
 		summary:        summary,
-		recentCommands: recentCommands,
+		recentCommands: slices.Clone(recentCommands),
 	}
 }
 

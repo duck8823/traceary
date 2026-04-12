@@ -28,9 +28,9 @@ func TimelineBlockOf(
 		blockStart: blockStart,
 		blockEnd:   blockEnd,
 		eventCount: eventCount,
-		workspaces: workspaces,
-		agents:     agents,
-		kinds:      kinds,
+		workspaces: slices.Clone(workspaces),
+		agents:     slices.Clone(agents),
+		kinds:      slices.Clone(kinds),
 	}
 }
 
