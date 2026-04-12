@@ -31,8 +31,8 @@ func TestNewSession(t *testing.T) {
 	if diff := cmp.Diff(now, session.StartedAt()); diff != "" {
 		t.Errorf("StartedAt() mismatch (-want +got):\n%s", diff)
 	}
-	if session.EndedAt().IsPresent() {
-		t.Errorf("EndedAt() should be empty, got %v", session.EndedAt().Get())
+	if endedAt, ok := session.EndedAt().Get(); ok {
+		t.Errorf("EndedAt() should be empty, got %v", endedAt)
 	}
 	if diff := cmp.Diff("hook", session.Client()); diff != "" {
 		t.Errorf("Client() mismatch (-want +got):\n%s", diff)
@@ -67,9 +67,9 @@ func TestSessionOf(t *testing.T) {
 	if diff := cmp.Diff(sid, session.SessionID()); diff != "" {
 		t.Errorf("SessionID() mismatch (-want +got):\n%s", diff)
 	}
-	if !session.EndedAt().IsPresent() {
+	if endedAt, ok := session.EndedAt().Get(); !ok {
 		t.Errorf("EndedAt() should be present")
-	} else if diff := cmp.Diff(end, session.EndedAt().Get()); diff != "" {
+	} else if diff := cmp.Diff(end, endedAt); diff != "" {
 		t.Errorf("EndedAt() mismatch (-want +got):\n%s", diff)
 	}
 	if diff := cmp.Diff("sprint-1", session.Label()); diff != "" {

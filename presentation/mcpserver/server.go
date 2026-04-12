@@ -346,8 +346,9 @@ func (s *Server) latestSession(_ string) mcp.ToolHandlerFor[sessionLookupInput, 
 		if !result.IsPresent() {
 			return nil, sessionEventOutput{}, xerrors.Errorf("no matching session found")
 		}
+		latestEvent, _ := result.Get()
 
-		return nil, newSessionEventOutput(result.Get()), nil
+		return nil, newSessionEventOutput(latestEvent), nil
 	}
 }
 
@@ -364,11 +365,12 @@ func (s *Server) activeSession(_ string) mcp.ToolHandlerFor[sessionLookupInput, 
 		if !result.IsPresent() {
 			return nil, sessionEventOutput{}, xerrors.Errorf("no matching active session found")
 		}
-		if err := validateActiveSession(result.Get(), input); err != nil {
+		activeEvent, _ := result.Get()
+		if err := validateActiveSession(activeEvent, input); err != nil {
 			return nil, sessionEventOutput{}, err
 		}
 
-		return nil, newSessionEventOutput(result.Get()), nil
+		return nil, newSessionEventOutput(activeEvent), nil
 	}
 }
 
@@ -541,7 +543,7 @@ func (s *Server) sessionHandoff(_ string) mcp.ToolHandlerFor[sessionHandoffInput
 			return nil, sessionHandoffOutput{}, nil
 		}
 
-		summary := result.Get()
+		summary, _ := result.Get()
 		return nil, sessionHandoffOutput{
 			SessionID:      summary.SessionID().String(),
 			Workspace:      summary.Workspace().String(),

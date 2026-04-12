@@ -287,19 +287,38 @@ func TestRecordSessionBoundaryUsecase_Run_SessionSaver(t *testing.T) {
 		}
 	})
 
-	t.Run("calls SessionSaver on session end", func(t *testing.T) {
+	t.Run("calls SessionSaver on session end with existing session", func(t *testing.T) {
 		t.Parallel()
 
+		sessionID, err := types.SessionIDOf("test-session")
+		if err != nil {
+			t.Fatalf("SessionIDOf() error = %v", err)
+		}
+		agent, err := types.AgentOf("claude")
+		if err != nil {
+			t.Fatalf("AgentOf() error = %v", err)
+		}
+
 		eventStub := &eventRepositoryStub{}
-		sessionStub := &sessionRepositoryStub{}
+		existingSession := model.SessionOf(
+			sessionID,
+			mustTime(t),
+			types.Empty[time.Time](),
+			"cli",
+			agent,
+			"duck8823/traceary",
+			"", "", "",
+		)
+		sessionStub := &sessionRepositoryStub{session: existingSession}
 		sut := usecase.NewRecordSessionBoundaryUsecase(eventStub, sessionStub)
 
-		_, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
+		_, err = sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
 			Client:    "cli",
 			Agent:     "claude",
 			Workspace:      "duck8823/traceary",
 			SessionID: "test-session",
 			Kind:      types.EventKindSessionEnded,
+			Summary:   "test summary",
 		})
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
@@ -309,6 +328,31 @@ func TestRecordSessionBoundaryUsecase_Run_SessionSaver(t *testing.T) {
 		}
 		if !sessionStub.saved.EndedAt().IsPresent() {
 			t.Fatalf("session.EndedAt() should be present for end")
+		}
+		if diff := cmp.Diff("test summary", sessionStub.saved.Summary()); diff != "" {
+			t.Fatalf("Summary() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("session end skips save when session not found", func(t *testing.T) {
+		t.Parallel()
+
+		eventStub := &eventRepositoryStub{}
+		sessionStub := &sessionRepositoryStub{empty: true}
+		sut := usecase.NewRecordSessionBoundaryUsecase(eventStub, sessionStub)
+
+		_, err := sut.Run(context.Background(), usecase.RecordSessionBoundaryInput{
+			Client:    "cli",
+			Agent:     "claude",
+			Workspace:      "duck8823/traceary",
+			SessionID: "missing-session",
+			Kind:      types.EventKindSessionEnded,
+		})
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if sessionStub.saveCalled {
+			t.Fatalf("SessionRepository.Save() should not be called when session is not found")
 		}
 	})
 

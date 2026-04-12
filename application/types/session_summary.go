@@ -1,6 +1,7 @@
 package types
 
 import (
+	"slices"
 	"time"
 
 	domtypes "github.com/duck8823/traceary/domain/types"
@@ -72,7 +73,7 @@ func (s SessionSummary) TotalEvents() int { return s.totalEvents }
 func (s SessionSummary) CommandCount() int { return s.commandCount }
 
 // Agents returns the list of agents that participated.
-func (s SessionSummary) Agents() []string { return s.agents }
+func (s SessionSummary) Agents() []string { return slices.Clone(s.agents) }
 
 // Label returns the user-assigned label.
 func (s SessionSummary) Label() string { return s.label }

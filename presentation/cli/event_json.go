@@ -49,8 +49,8 @@ func writeEventDetailsJSON(output io.Writer, eventDetails apptypes.EventDetails)
 		Event: newEventJSON(eventDetails.Event()),
 	}
 	auditOpt := eventDetails.CommandAudit()
-	if auditOpt.IsPresent() {
-		serializedEventDetails.CommandAudit = newCommandAuditJSON(auditOpt.Get())
+	if audit, ok := auditOpt.Get(); ok {
+		serializedEventDetails.CommandAudit = newCommandAuditJSON(audit)
 	}
 
 	return writeJSON(output, serializedEventDetails)
@@ -83,9 +83,8 @@ func newCommandAuditJSON(commandAudit *model.CommandAudit) *commandAuditJSON {
 	}
 
 	var exitCode *int
-	if commandAudit.ExitCode().IsPresent() {
-		v := commandAudit.ExitCode().Get()
-		exitCode = &v
+	if ec, ok := commandAudit.ExitCode().Get(); ok {
+		exitCode = &ec
 	}
 	return &commandAuditJSON{
 		Command:         commandAudit.Command(),

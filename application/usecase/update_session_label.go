@@ -52,7 +52,7 @@ func (u *updateSessionLabelUsecase) Run(ctx context.Context, input UpdateSession
 		return xerrors.Errorf("session not found: %s", sessionID)
 	}
 
-	session := result.Get()
+	session, _ := result.Get()
 	session.SetLabel(input.Label)
 
 	if err := u.sessionRepo.Save(ctx, session); err != nil {

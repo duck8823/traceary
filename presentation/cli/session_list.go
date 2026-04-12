@@ -68,8 +68,10 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to resolve --to", "to の解決に失敗しました"), err)
 			}
-			if fromTime.IsPresent() && toTime.IsPresent() && fromTime.Get().After(toTime.Get()) {
-				return xerrors.Errorf(Localize("--from must be earlier than --to", "from は to より前である必要があります"))
+			if fromVal, fromOk := fromTime.Get(); fromOk {
+				if toVal, toOk := toTime.Get(); toOk && fromVal.After(toVal) {
+					return xerrors.Errorf(Localize("--from must be earlier than --to", "from は to より前である必要があります"))
+				}
 			}
 
 			resolvedRepo := resolveWorkspaceValue(ctx, repo)
@@ -128,8 +130,8 @@ func writeSessionSummaries(output io.Writer, summaries []apptypes.SessionSummary
 	}
 	for _, s := range summaries {
 		duration := "-"
-		if s.EndedAt().IsPresent() {
-			duration = formatDuration(s.EndedAt().Get().Sub(s.StartedAt()))
+		if endedAt, ok := s.EndedAt().Get(); ok {
+			duration = formatDuration(endedAt.Sub(s.StartedAt()))
 		}
 
 		agentSummary := strings.Join(s.Agents(), ", ")
@@ -186,10 +188,10 @@ func writeSessionSummariesJSON(output io.Writer, summaries []apptypes.SessionSum
 			CommandCount:    s.CommandCount(),
 			Agents:          s.Agents(),
 		}
-		if s.EndedAt().IsPresent() {
-			endStr := s.EndedAt().Get().UTC().Format(time.RFC3339)
+		if endedAt, ok := s.EndedAt().Get(); ok {
+			endStr := endedAt.UTC().Format(time.RFC3339)
 			item.EndedAt = &endStr
-			dur := s.EndedAt().Get().Sub(s.StartedAt()).Seconds()
+			dur := endedAt.Sub(s.StartedAt()).Seconds()
 			item.DurationSec = &dur
 		}
 		items = append(items, item)

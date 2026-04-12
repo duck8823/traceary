@@ -75,7 +75,8 @@ CREATE TABLE command_audits (
 		if !got.CommandAudit().IsPresent() {
 			t.Fatalf("CommandAudit() is empty, want command audit")
 		}
-		if diff := cmp.Diff("stdout with details", got.CommandAudit().Get().Output()); diff != "" {
+		audit, _ := got.CommandAudit().Get()
+		if diff := cmp.Diff("stdout with details", audit.Output()); diff != "" {
 			t.Fatalf("Output() mismatch (-want +got):\n%s", diff)
 		}
 	})

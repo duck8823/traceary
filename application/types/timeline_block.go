@@ -1,6 +1,9 @@
 package types
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // TimelineBlock represents a contiguous work block separated by idle gaps.
 type TimelineBlock struct {
@@ -41,10 +44,10 @@ func (b TimelineBlock) BlockEnd() time.Time { return b.blockEnd }
 func (b TimelineBlock) EventCount() int { return b.eventCount }
 
 // Workspaces returns the workspaces involved.
-func (b TimelineBlock) Workspaces() []string { return b.workspaces }
+func (b TimelineBlock) Workspaces() []string { return slices.Clone(b.workspaces) }
 
 // Agents returns the agents involved.
-func (b TimelineBlock) Agents() []string { return b.agents }
+func (b TimelineBlock) Agents() []string { return slices.Clone(b.agents) }
 
 // Kinds returns the event kinds in the block.
-func (b TimelineBlock) Kinds() []string { return b.kinds }
+func (b TimelineBlock) Kinds() []string { return slices.Clone(b.kinds) }

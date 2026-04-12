@@ -378,7 +378,7 @@ func (c *RootCLI) runSessionLatest(
 		}
 		return xerrors.Errorf(Localize("no matching session found", "条件に一致する session は存在しません"))
 	}
-	event := result.Get()
+	event, _ := result.Get()
 	if err := validateActiveSessionFreshness(event, input); err != nil {
 		return err
 	}

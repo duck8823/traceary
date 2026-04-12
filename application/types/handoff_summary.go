@@ -1,6 +1,10 @@
 package types
 
-import domtypes "github.com/duck8823/traceary/domain/types"
+import (
+	"slices"
+
+	domtypes "github.com/duck8823/traceary/domain/types"
+)
 
 // HandoffSummary holds information for session handoff between agents.
 type HandoffSummary struct {
@@ -59,10 +63,10 @@ func (h HandoffSummary) TotalEvents() int { return h.totalEvents }
 func (h HandoffSummary) CommandCount() int { return h.commandCount }
 
 // Agents returns the participating agents.
-func (h HandoffSummary) Agents() []string { return h.agents }
+func (h HandoffSummary) Agents() []string { return slices.Clone(h.agents) }
 
 // Summary returns the session summary text.
 func (h HandoffSummary) Summary() string { return h.summary }
 
 // RecentCommands returns recent command descriptions.
-func (h HandoffSummary) RecentCommands() []string { return h.recentCommands }
+func (h HandoffSummary) RecentCommands() []string { return slices.Clone(h.recentCommands) }

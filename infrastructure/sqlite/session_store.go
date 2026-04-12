@@ -93,7 +93,8 @@ func (d *Datasource) SaveSession(ctx context.Context, session *model.Session) er
 	if rowsAffected == 0 || session.EndedAt().IsPresent() || session.Label() != "" || session.Summary() != "" {
 		var endedAtValue *string
 		if session.EndedAt().IsPresent() {
-			v := formatTimestamp(session.EndedAt().Get())
+			endedAt, _ := session.EndedAt().Get()
+			v := formatTimestamp(endedAt)
 			endedAtValue = &v
 		}
 		if _, err := db.ExecContext(

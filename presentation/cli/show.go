@@ -81,11 +81,11 @@ func writeEventDetails(output io.Writer, eventDetails apptypes.EventDetails) err
 	if !auditOpt.IsPresent() {
 		return nil
 	}
-	commandAudit := auditOpt.Get()
+	commandAudit, _ := auditOpt.Get()
 
 	exitCodeDisplay := "-"
-	if commandAudit.ExitCode().IsPresent() {
-		exitCodeDisplay = fmt.Sprintf("%d", commandAudit.ExitCode().Get())
+	if exitCode, ok := commandAudit.ExitCode().Get(); ok {
+		exitCodeDisplay = fmt.Sprintf("%d", exitCode)
 	}
 
 	if _, err := fmt.Fprintf(

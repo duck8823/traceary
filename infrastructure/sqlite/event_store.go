@@ -105,9 +105,8 @@ func (d *Datasource) SaveWithAudit(
 	}
 
 	var exitCodeSQL *int
-	if audit.ExitCode().IsPresent() {
-		v := audit.ExitCode().Get()
-		exitCodeSQL = &v
+	if exitCode, ok := audit.ExitCode().Get(); ok {
+		exitCodeSQL = &exitCode
 	}
 	if _, err := tx.ExecContext(
 		ctx,

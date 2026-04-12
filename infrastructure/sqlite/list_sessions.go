@@ -35,12 +35,12 @@ func (d *Datasource) ListSummaries(
 	}()
 
 	fromValue := ""
-	if from.IsPresent() {
-		fromValue = formatTimestamp(from.Get())
+	if fromTime, ok := from.Get(); ok {
+		fromValue = formatTimestamp(fromTime)
 	}
 	toValue := ""
-	if to.IsPresent() {
-		toValue = formatTimestamp(to.Get().AddDate(0, 0, 1))
+	if toTime, ok := to.Get(); ok {
+		toValue = formatTimestamp(toTime.AddDate(0, 0, 1))
 	}
 
 	rows, err := db.QueryContext(

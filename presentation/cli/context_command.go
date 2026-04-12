@@ -142,7 +142,8 @@ func (c *RootCLI) resolveContextSessionID(
 		return "", nil
 	}
 
-	return result.Get().SessionID().String(), nil
+	event, _ := result.Get()
+	return event.SessionID().String(), nil
 }
 
 func writeContextJSON(output io.Writer, sessionID string, repo string, events []*model.Event) error {

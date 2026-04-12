@@ -63,7 +63,7 @@ func (c *RootCLI) resolveManualSessionID(
 		}, nil
 	}
 
-	event := result.Get()
+	event, _ := result.Get()
 	if isStaleSession(event, defaultActiveSessionStaleAfter) {
 		slog.Debug("active session is stale, using default", "session_id", event.SessionID(), "created_at", event.CreatedAt())
 		return &manualSessionResolution{

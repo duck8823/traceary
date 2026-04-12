@@ -82,6 +82,12 @@ func (s *Session) Workspace() string { return s.workspace }
 // Label returns the user-assigned label.
 func (s *Session) Label() string { return s.label }
 
+// End marks the session as ended.
+func (s *Session) End(endedAt time.Time, summary string) {
+	s.endedAt = types.Of(endedAt)
+	s.summary = summary
+}
+
 // SetLabel updates the session label. An empty string clears the label.
 func (s *Session) SetLabel(label string) { s.label = label }
 

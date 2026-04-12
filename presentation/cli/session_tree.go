@@ -141,10 +141,10 @@ func sessionNodeToJSON(node *sessionNode) *jsonTreeNode {
 		Agents:       s.Agents(),
 		Children:     make([]*jsonTreeNode, 0, len(node.children)),
 	}
-	if s.EndedAt().IsPresent() {
-		endStr := s.EndedAt().Get().UTC().Format(time.RFC3339)
+	if endedAt, ok := s.EndedAt().Get(); ok {
+		endStr := endedAt.UTC().Format(time.RFC3339)
 		jn.EndedAt = &endStr
-		dur := s.EndedAt().Get().Sub(s.StartedAt()).Seconds()
+		dur := endedAt.Sub(s.StartedAt()).Seconds()
 		jn.DurationSec = &dur
 	}
 	for _, child := range node.children {
@@ -178,8 +178,8 @@ func printNode(output io.Writer, node *sessionNode, prefix string, isLast bool) 
 	}
 
 	duration := "-"
-	if s.EndedAt().IsPresent() {
-		duration = formatDuration(s.EndedAt().Get().Sub(s.StartedAt()))
+	if endedAt, ok := s.EndedAt().Get(); ok {
+		duration = formatDuration(endedAt.Sub(s.StartedAt()))
 	}
 
 	label := ""

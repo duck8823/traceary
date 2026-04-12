@@ -117,7 +117,8 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		if !result.IsPresent() {
 			t.Fatalf("FindLatest() returned empty, want present")
 		}
-		if diff := cmp.Diff("event-4", result.Get().EventID().String()); diff != "" {
+		event, _ := result.Get()
+		if diff := cmp.Diff("event-4", event.EventID().String()); diff != "" {
 			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 		}
 	})
@@ -159,7 +160,8 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		if !result.IsPresent() {
 			t.Fatalf("FindLatest() returned empty, want present")
 		}
-		if diff := cmp.Diff("event-4", result.Get().EventID().String()); diff != "" {
+		event, _ := result.Get()
+		if diff := cmp.Diff("event-4", event.EventID().String()); diff != "" {
 			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 		}
 	})
@@ -175,7 +177,8 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		if !result.IsPresent() {
 			t.Fatalf("FindLatest() returned empty, want present")
 		}
-		if diff := cmp.Diff("event-6", result.Get().EventID().String()); diff != "" {
+		event, _ := result.Get()
+		if diff := cmp.Diff("event-6", event.EventID().String()); diff != "" {
 			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 		}
 	})
@@ -204,7 +207,8 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		if !result.IsPresent() {
 			t.Fatalf("FindLatest() returned empty, want present")
 		}
-		if diff := cmp.Diff("event-8", result.Get().EventID().String()); diff != "" {
+		event, _ := result.Get()
+		if diff := cmp.Diff("event-8", event.EventID().String()); diff != "" {
 			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 		}
 	})
@@ -312,7 +316,8 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 	if !result.IsPresent() {
 		t.Fatalf("FindLatest() returned empty, want present")
 	}
-	if diff := cmp.Diff("event-2", result.Get().EventID().String()); diff != "" {
+	event, _ := result.Get()
+	if diff := cmp.Diff("event-2", event.EventID().String()); diff != "" {
 		t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 	}
 }
@@ -380,7 +385,8 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 	if !result.IsPresent() {
 		t.Fatalf("FindLatest() returned empty, want present")
 	}
-	if diff := cmp.Diff("event-1", result.Get().EventID().String()); diff != "" {
+	event, _ := result.Get()
+	if diff := cmp.Diff("event-1", event.EventID().String()); diff != "" {
 		t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 	}
 }

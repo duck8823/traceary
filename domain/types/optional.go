@@ -19,8 +19,8 @@ func Empty[T any]() Optional[T] {
 // IsPresent returns true if a value is present.
 func (o Optional[T]) IsPresent() bool { return o.present }
 
-// Get returns the value if present, or the zero value of T if empty.
-func (o Optional[T]) Get() T { return o.value }
+// Get returns the value and whether it is present.
+func (o Optional[T]) Get() (T, bool) { return o.value, o.present }
 
 // OrElse returns the value if present, otherwise returns the given default.
 func (o Optional[T]) OrElse(defaultValue T) T {

@@ -94,40 +94,38 @@ func (u *recordSessionBoundaryUsecase) Run(
 	}
 
 	if u.sessionRepo != nil {
-		session := buildSessionFromBoundary(event, input.Kind, input.Summary, input.ParentSessionID)
-		if err := u.sessionRepo.Save(ctx, session); err != nil {
-			return nil, xerrors.Errorf("failed to save session metadata: %w", err)
+		if input.Kind == types.EventKindSessionStarted {
+			session := buildSessionFromBoundary(event, input.ParentSessionID)
+			if err := u.sessionRepo.Save(ctx, session); err != nil {
+				return nil, xerrors.Errorf("failed to save session metadata: %w", err)
+			}
+		} else {
+			existing, err := u.sessionRepo.FindByID(ctx, event.SessionID())
+			if err != nil {
+				return nil, xerrors.Errorf("failed to find session for end: %w", err)
+			}
+			if session, ok := existing.Get(); ok {
+				session.End(event.CreatedAt(), input.Summary)
+				if err := u.sessionRepo.Save(ctx, session); err != nil {
+					return nil, xerrors.Errorf("failed to save session end: %w", err)
+				}
+			}
 		}
 	}
 
 	return event, nil
 }
 
-func buildSessionFromBoundary(event *model.Event, kind types.EventKind, summary string, parentSessionID string) *model.Session {
-	switch kind {
-	case types.EventKindSessionStarted:
-		return model.SessionOf(
-			event.SessionID(),
-			event.CreatedAt(),
-			types.Empty[time.Time](),
-			event.Client(),
-			event.Agent(),
-			event.Workspace(),
-			"", "", parentSessionID,
-		)
-	default:
-		// For session end, started_at is not available from the event.
-		// Use zero value since SaveSession only updates ended_at.
-		return model.SessionOf(
-			event.SessionID(),
-			time.Time{},
-			types.Of(event.CreatedAt()),
-			event.Client(),
-			event.Agent(),
-			event.Workspace(),
-			"", summary, "",
-		)
-	}
+func buildSessionFromBoundary(event *model.Event, parentSessionID string) *model.Session {
+	return model.SessionOf(
+		event.SessionID(),
+		event.CreatedAt(),
+		types.Empty[time.Time](),
+		event.Client(),
+		event.Agent(),
+		event.Workspace(),
+		"", "", parentSessionID,
+	)
 }
 
 func (u *recordSessionBoundaryUsecase) resolveSessionBoundaryAttribution(
@@ -145,8 +143,7 @@ func (u *recordSessionBoundaryUsecase) resolveSessionBoundaryAttribution(
 			if err != nil {
 				return "", "", "", xerrors.Errorf("failed to get session: %w", err)
 			}
-			if result.IsPresent() {
-				startedSession := result.Get()
+			if startedSession, ok := result.Get(); ok {
 				if resolvedClient == "" {
 					resolvedClient = startedSession.Client()
 				}
