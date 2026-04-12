@@ -160,7 +160,10 @@ func (d *StoreManagementDatasource) RestoreBackup(ctx context.Context, inputPath
 	if err := os.Chmod(destinationPath, 0o600); err != nil {
 		return xerrors.Errorf("failed to set restored DB file permissions: %w", err)
 	}
-	if err := d.Initialize(ctx); err != nil {
+	// Re-initialize using the snapshot captured at the top of this
+	// function so a racing SetPath cannot redirect the post-restore
+	// migration to a different database than the one we just placed.
+	if err := d.db.initializeAt(ctx, destinationSnapshot); err != nil {
 		return xerrors.Errorf("failed to initialize store after restore: %w", err)
 	}
 

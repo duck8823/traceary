@@ -15,8 +15,9 @@ import (
 // but the composition root in main.go fixed the sqlite path at startup,
 // so the flag had no effect. The fix wires a DatabasePathSetter that
 // each subcommand invokes after resolveDBPath. This test pins the
-// behaviour across the three cases:
+// behaviour across the four cases:
 //   - --db-path flag passed at the subcommand position
+//   - --db-path flag passed at the root position
 //   - TRACEARY_DB_PATH environment variable without an explicit flag
 //   - an explicit --db-path flag overriding TRACEARY_DB_PATH
 func TestRootCLI_DBPathFlagPropagates(t *testing.T) {
@@ -80,6 +81,20 @@ func TestRootCLI_DBPathFlagPropagates(t *testing.T) {
 			},
 			"",
 			"/tmp/traceary-sub.db",
+		)
+	})
+
+	t.Run("root-position --db-path", func(t *testing.T) {
+		runCase(t,
+			[]string{"--db-path", "/tmp/traceary-root.db",
+				"session", "start",
+				"--client", "cli",
+				"--agent", "smoke",
+				"--workspace", "ws",
+				"--session-id", "flag-propagates",
+			},
+			"",
+			"/tmp/traceary-root.db",
 		)
 	})
 

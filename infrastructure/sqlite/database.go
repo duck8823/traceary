@@ -83,11 +83,20 @@ func (d *Database) open(ctx context.Context) (_ *sql.DB, err error) {
 }
 
 // initialize creates the store directory, ensures permissions, and applies
-// pending migrations. The path is snapshotted at entry so concurrent
-// SetPath cannot cause initialize to touch one path and the subsequent
-// open to touch another.
-func (d *Database) initialize(ctx context.Context) (err error) {
-	snapshot := d.Path()
+// pending migrations. It snapshots the current path at entry and
+// delegates to initializeAt so a concurrent SetPath cannot split the
+// snapshot and the subsequent open.
+func (d *Database) initialize(ctx context.Context) error {
+	return d.initializeAt(ctx, d.Path())
+}
+
+// initializeAt creates the store directory for the supplied path,
+// ensures permissions, and applies pending migrations. Callers that
+// already captured a path snapshot earlier in an operation (e.g.
+// backup/restore that validated the snapshot before this call) should
+// invoke this variant so every step of the operation targets the same
+// path, even when SetPath races midway.
+func (d *Database) initializeAt(ctx context.Context, snapshot string) (err error) {
 	if snapshot == "" {
 		return xerrors.Errorf("DB path must not be empty")
 	}
