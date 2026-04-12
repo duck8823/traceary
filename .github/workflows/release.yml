@@ -40,6 +40,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ env.RELEASE_REF }}
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
@@ -66,6 +67,24 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ env.RELEASE_TAG }}
 
+      - name: Create Homebrew GitHub App token
+        if: env.IS_TAG_RELEASE == 'true'
+        id: homebrew-app-token
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+        with:
+          client-id: ${{ vars.HOMEBREW_APP_CLIENT_ID != '' && vars.HOMEBREW_APP_CLIENT_ID || secrets.HOMEBREW_APP_CLIENT_ID }}
+          private-key: ${{ secrets.HOMEBREW_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: |
+            traceary
+
+      - name: Resolve Homebrew GitHub App bot user
+        if: env.IS_TAG_RELEASE == 'true'
+        id: homebrew-app-user
+        run: echo "user-id=$(gh api '/users/${{ steps.homebrew-app-token.outputs.app-slug }}[bot]' --jq .id)" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ steps.homebrew-app-token.outputs.token }}
+
       - name: Open or update Homebrew formula PR
         if: env.IS_TAG_RELEASE == 'true'
         run: |
@@ -81,8 +100,9 @@ jobs:
           EOF
           )
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "${HOMEBREW_APP_SLUG}[bot]"
+          git config user.email "${HOMEBREW_APP_USER_ID}+${HOMEBREW_APP_SLUG}[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git fetch origin main
           git checkout -B "${branch}" origin/main
           cp dist/homebrew/Formula/traceary.rb Formula/traceary.rb
@@ -110,7 +130,9 @@ jobs:
             gh pr merge "${pr_number}" --auto --merge || true
           fi
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.homebrew-app-token.outputs.token }}
+          HOMEBREW_APP_SLUG: ${{ steps.homebrew-app-token.outputs.app-slug }}
+          HOMEBREW_APP_USER_ID: ${{ steps.homebrew-app-user.outputs.user-id }}
           RELEASE_TAG: ${{ env.RELEASE_TAG }}
 
       - name: Close matching parent release issue
