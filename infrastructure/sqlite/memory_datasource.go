@@ -1,0 +1,654 @@
+package sqlite
+
+import (
+	"context"
+	"database/sql"
+	_ "embed"
+	"errors"
+	"log/slog"
+	"strings"
+	"time"
+
+	"golang.org/x/xerrors"
+
+	"github.com/duck8823/traceary/application/queryservice"
+	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/types"
+)
+
+//go:embed sql/upsert_memory.sql
+var upsertMemoryQuery string
+
+//go:embed sql/delete_memory_evidence_refs.sql
+var deleteMemoryEvidenceRefsQuery string
+
+//go:embed sql/delete_memory_artifact_refs.sql
+var deleteMemoryArtifactRefsQuery string
+
+//go:embed sql/insert_memory_evidence_ref.sql
+var insertMemoryEvidenceRefQuery string
+
+//go:embed sql/insert_memory_artifact_ref.sql
+var insertMemoryArtifactRefQuery string
+
+//go:embed sql/select_memory_row_by_id.sql
+var selectMemoryRowByIDQuery string
+
+//go:embed sql/select_memory_evidence_refs.sql
+var selectMemoryEvidenceRefsQuery string
+
+//go:embed sql/select_memory_artifact_refs.sql
+var selectMemoryArtifactRefsQuery string
+
+const selectMemorySummaryColumnsQuery = `
+SELECT
+    m.id,
+    m.type,
+    m.scope_kind,
+    m.scope_value,
+    m.fact,
+    m.status,
+    m.confidence,
+    m.source,
+    m.supersedes_memory_id,
+    m.expires_at,
+    m.created_at,
+    m.updated_at
+FROM memories m
+WHERE 1 = 1`
+
+// MemoryDatasource is the SQLite-backed implementation of the memory
+// repository and memory query service.
+type MemoryDatasource struct {
+	db *Database
+}
+
+// NewMemoryDatasource creates a new MemoryDatasource bound to the given database.
+func NewMemoryDatasource(db *Database) *MemoryDatasource {
+	return &MemoryDatasource{db: db}
+}
+
+var (
+	_ model.MemoryRepository          = (*MemoryDatasource)(nil)
+	_ queryservice.MemoryQueryService = (*MemoryDatasource)(nil)
+)
+
+// Save persists a memory aggregate together with its refs.
+func (d *MemoryDatasource) Save(ctx context.Context, memory *model.Memory) error {
+	if memory == nil {
+		return xerrors.Errorf("memory must not be nil")
+	}
+
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return xerrors.Errorf("failed to open DB for memory save: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return xerrors.Errorf("failed to begin memory save transaction: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Debug("failed to rollback transaction", "error", err)
+		}
+	}()
+
+	var supersedesValue *string
+	if supersedes, ok := memory.Supersedes().Get(); ok {
+		value := supersedes.String()
+		supersedesValue = &value
+	}
+	var expiresAtValue *string
+	if expiresAt, ok := memory.ExpiresAt().Get(); ok {
+		formatted := formatTimestamp(expiresAt)
+		expiresAtValue = &formatted
+	}
+
+	if _, err := tx.ExecContext(
+		ctx,
+		upsertMemoryQuery,
+		memory.MemoryID().String(),
+		memory.MemoryType().String(),
+		memory.Scope().Kind().String(),
+		memory.Scope().Key(),
+		memory.Fact(),
+		memory.Status().String(),
+		memory.Confidence().String(),
+		memory.Source().String(),
+		supersedesValue,
+		expiresAtValue,
+		formatTimestamp(memory.CreatedAt()),
+		formatTimestamp(memory.UpdatedAt()),
+	); err != nil {
+		return xerrors.Errorf("failed to upsert memory: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, deleteMemoryEvidenceRefsQuery, memory.MemoryID().String()); err != nil {
+		return xerrors.Errorf("failed to delete existing memory evidence refs: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, deleteMemoryArtifactRefsQuery, memory.MemoryID().String()); err != nil {
+		return xerrors.Errorf("failed to delete existing memory artifact refs: %w", err)
+	}
+
+	for index, evidenceRef := range memory.EvidenceRefs() {
+		if _, err := tx.ExecContext(
+			ctx,
+			insertMemoryEvidenceRefQuery,
+			memory.MemoryID().String(),
+			index,
+			evidenceRef.Kind().String(),
+			evidenceRef.Value(),
+		); err != nil {
+			return xerrors.Errorf("failed to insert memory evidence ref: %w", err)
+		}
+	}
+
+	for index, artifactRef := range memory.ArtifactRefs() {
+		if _, err := tx.ExecContext(
+			ctx,
+			insertMemoryArtifactRefQuery,
+			memory.MemoryID().String(),
+			index,
+			artifactRef.Kind().String(),
+			artifactRef.Value(),
+		); err != nil {
+			return xerrors.Errorf("failed to insert memory artifact ref: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return xerrors.Errorf("failed to commit memory save transaction: %w", err)
+	}
+
+	return nil
+}
+
+// FindByID returns the memory for the given ID.
+func (d *MemoryDatasource) FindByID(ctx context.Context, memoryID types.MemoryID) (types.Optional[*model.Memory], error) {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return types.Empty[*model.Memory](), xerrors.Errorf("failed to open DB for memory lookup: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	memory, err := findMemoryByID(ctx, db, memoryID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return types.Empty[*model.Memory](), nil
+		}
+		return types.Empty[*model.Memory](), xerrors.Errorf("failed to restore memory: %w", err)
+	}
+
+	return types.Of(memory), nil
+}
+
+// GetDetails returns the details for a single memory.
+func (d *MemoryDatasource) GetDetails(ctx context.Context, memoryID types.MemoryID) (apptypes.MemoryDetails, error) {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return apptypes.MemoryDetails{}, xerrors.Errorf("failed to open DB for memory details lookup: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	memory, err := findMemoryByID(ctx, db, memoryID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return apptypes.MemoryDetails{}, xerrors.Errorf("memory not found: %s", memoryID)
+		}
+		return apptypes.MemoryDetails{}, xerrors.Errorf("failed to restore memory details: %w", err)
+	}
+
+	details, err := apptypes.MemoryDetailsFrom(memory)
+	if err != nil {
+		return apptypes.MemoryDetails{}, xerrors.Errorf("failed to build memory details: %w", err)
+	}
+
+	return details, nil
+}
+
+// List returns memory summaries matching the provided criteria.
+func (d *MemoryDatasource) List(ctx context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
+	if criteria.Limit() <= 0 {
+		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
+	}
+	if criteria.Offset() < 0 {
+		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
+	}
+
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to open DB for memory list: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	query, args, err := buildMemoryListQuery(criteria)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to build memory list query: %w", err)
+	}
+
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query memories: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	summaries := make([]apptypes.MemorySummary, 0, criteria.Limit())
+	for rows.Next() {
+		summary, err := scanMemorySummary(rows)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to scan memory summary row: %w", err)
+		}
+		summaries = append(summaries, summary)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, xerrors.Errorf("failed to iterate memory summary rows: %w", err)
+	}
+
+	return summaries, nil
+}
+
+// Search performs text search across durable memories and their refs.
+func (d *MemoryDatasource) Search(ctx context.Context, criteria apptypes.MemorySearchCriteria) ([]apptypes.MemorySummary, error) {
+	if criteria.Limit() <= 0 {
+		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
+	}
+	if criteria.Offset() < 0 {
+		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
+	}
+
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to open DB for memory search: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	query, args, err := buildMemorySearchQuery(criteria)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to build memory search query: %w", err)
+	}
+
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query memory search results: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	summaries := make([]apptypes.MemorySummary, 0, criteria.Limit())
+	for rows.Next() {
+		summary, err := scanMemorySummary(rows)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to scan memory search row: %w", err)
+		}
+		summaries = append(summaries, summary)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, xerrors.Errorf("failed to iterate memory search rows: %w", err)
+	}
+
+	return summaries, nil
+}
+
+type memoryRow struct {
+	memoryID   string
+	memoryType string
+	scopeKind  string
+	scopeValue string
+	fact       string
+	status     string
+	confidence string
+	source     string
+	supersedes sql.NullString
+	expiresAt  sql.NullString
+	createdAt  string
+	updatedAt  string
+}
+
+func scanMemoryRow(rowScanner interface {
+	Scan(dest ...any) error
+}) (memoryRow, error) {
+	var row memoryRow
+	if err := rowScanner.Scan(
+		&row.memoryID,
+		&row.memoryType,
+		&row.scopeKind,
+		&row.scopeValue,
+		&row.fact,
+		&row.status,
+		&row.confidence,
+		&row.source,
+		&row.supersedes,
+		&row.expiresAt,
+		&row.createdAt,
+		&row.updatedAt,
+	); err != nil {
+		return memoryRow{}, xerrors.Errorf("failed to scan memory row: %w", err)
+	}
+	return row, nil
+}
+
+func scanMemorySummary(rowScanner interface {
+	Scan(dest ...any) error
+}) (apptypes.MemorySummary, error) {
+	row, err := scanMemoryRow(rowScanner)
+	if err != nil {
+		return apptypes.MemorySummary{}, err
+	}
+	return restoreMemorySummary(row)
+}
+
+func restoreMemorySummary(row memoryRow) (apptypes.MemorySummary, error) {
+	memoryID, err := types.MemoryIDOf(row.memoryID)
+	if err != nil {
+		return apptypes.MemorySummary{}, xerrors.Errorf("failed to restore memory ID: %w", err)
+	}
+	memoryType, err := types.MemoryTypeOf(row.memoryType)
+	if err != nil {
+		return apptypes.MemorySummary{}, xerrors.Errorf("failed to restore memory type: %w", err)
+	}
+	scope, err := types.MemoryScopeFrom(row.scopeKind, row.scopeValue)
+	if err != nil {
+		return apptypes.MemorySummary{}, xerrors.Errorf("failed to restore memory scope: %w", err)
+	}
+	status, err := types.MemoryStatusOf(row.status)
+	if err != nil {
+		return apptypes.MemorySummary{}, xerrors.Errorf("failed to restore memory status: %w", err)
+	}
+	confidence, err := types.ConfidenceOf(row.confidence)
+	if err != nil {
+		return apptypes.MemorySummary{}, xerrors.Errorf("failed to restore memory confidence: %w", err)
+	}
+	source, err := types.MemorySourceOf(row.source)
+	if err != nil {
+		return apptypes.MemorySummary{}, xerrors.Errorf("failed to restore memory source: %w", err)
+	}
+	supersedes := types.Empty[types.MemoryID]()
+	if row.supersedes.Valid {
+		memoryIDValue, err := types.MemoryIDOf(row.supersedes.String)
+		if err != nil {
+			return apptypes.MemorySummary{}, xerrors.Errorf("failed to restore superseded memory ID: %w", err)
+		}
+		supersedes = types.Of(memoryIDValue)
+	}
+	expiresAt := types.Empty[time.Time]()
+	if row.expiresAt.Valid {
+		expiresAtValue, err := time.Parse(time.RFC3339Nano, row.expiresAt.String)
+		if err != nil {
+			return apptypes.MemorySummary{}, xerrors.Errorf("failed to parse memory expires_at: %w", err)
+		}
+		expiresAt = types.Of(expiresAtValue)
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, row.createdAt)
+	if err != nil {
+		return apptypes.MemorySummary{}, xerrors.Errorf("failed to parse memory created_at: %w", err)
+	}
+	updatedAt, err := time.Parse(time.RFC3339Nano, row.updatedAt)
+	if err != nil {
+		return apptypes.MemorySummary{}, xerrors.Errorf("failed to parse memory updated_at: %w", err)
+	}
+
+	summary, err := apptypes.MemorySummaryOf(
+		memoryID,
+		memoryType,
+		scope,
+		row.fact,
+		status,
+		confidence,
+		source,
+		supersedes,
+		expiresAt,
+		createdAt,
+		updatedAt,
+	)
+	if err != nil {
+		return apptypes.MemorySummary{}, xerrors.Errorf("failed to build memory summary: %w", err)
+	}
+	return summary, nil
+}
+
+func restoreMemoryAggregate(row memoryRow, evidenceRefs []types.EvidenceRef, artifactRefs []types.ArtifactRef) (*model.Memory, error) {
+	summary, err := restoreMemorySummary(row)
+	if err != nil {
+		return nil, err
+	}
+	return model.MemoryOf(
+		summary.MemoryID(),
+		summary.MemoryType(),
+		summary.Scope(),
+		summary.Fact(),
+		summary.Status(),
+		summary.Confidence(),
+		summary.Source(),
+		evidenceRefs,
+		artifactRefs,
+		summary.Supersedes(),
+		summary.ExpiresAt(),
+		summary.CreatedAt(),
+		summary.UpdatedAt(),
+	), nil
+}
+
+func findMemoryByID(ctx context.Context, db *sql.DB, memoryID types.MemoryID) (*model.Memory, error) {
+	row := db.QueryRowContext(ctx, selectMemoryRowByIDQuery, memoryID.String())
+	memoryRowValue, err := scanMemoryRow(row)
+	if err != nil {
+		return nil, err
+	}
+
+	evidenceRefs, err := loadMemoryEvidenceRefs(ctx, db, memoryID)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to load memory evidence refs: %w", err)
+	}
+	artifactRefs, err := loadMemoryArtifactRefs(ctx, db, memoryID)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to load memory artifact refs: %w", err)
+	}
+
+	memory, err := restoreMemoryAggregate(memoryRowValue, evidenceRefs, artifactRefs)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to restore memory aggregate: %w", err)
+	}
+
+	return memory, nil
+}
+
+func loadMemoryEvidenceRefs(ctx context.Context, db *sql.DB, memoryID types.MemoryID) ([]types.EvidenceRef, error) {
+	rows, err := db.QueryContext(ctx, selectMemoryEvidenceRefsQuery, memoryID.String())
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query memory evidence refs: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	evidenceRefs := make([]types.EvidenceRef, 0)
+	for rows.Next() {
+		var kindValue, refValue string
+		if err := rows.Scan(&kindValue, &refValue); err != nil {
+			return nil, xerrors.Errorf("failed to scan memory evidence ref row: %w", err)
+		}
+		kind, err := types.EvidenceRefKindOf(kindValue)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to restore evidence ref kind: %w", err)
+		}
+		evidenceRef, err := types.EvidenceRefOf(kind, refValue)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to restore evidence ref: %w", err)
+		}
+		evidenceRefs = append(evidenceRefs, evidenceRef)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, xerrors.Errorf("failed to iterate memory evidence refs: %w", err)
+	}
+
+	return evidenceRefs, nil
+}
+
+func loadMemoryArtifactRefs(ctx context.Context, db *sql.DB, memoryID types.MemoryID) ([]types.ArtifactRef, error) {
+	rows, err := db.QueryContext(ctx, selectMemoryArtifactRefsQuery, memoryID.String())
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query memory artifact refs: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	artifactRefs := make([]types.ArtifactRef, 0)
+	for rows.Next() {
+		var kindValue, refValue string
+		if err := rows.Scan(&kindValue, &refValue); err != nil {
+			return nil, xerrors.Errorf("failed to scan memory artifact ref row: %w", err)
+		}
+		kind, err := types.ArtifactRefKindOf(kindValue)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to restore artifact ref kind: %w", err)
+		}
+		artifactRef, err := types.ArtifactRefOf(kind, refValue)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to restore artifact ref: %w", err)
+		}
+		artifactRefs = append(artifactRefs, artifactRef)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, xerrors.Errorf("failed to iterate memory artifact refs: %w", err)
+	}
+
+	return artifactRefs, nil
+}
+
+func buildMemoryListQuery(criteria apptypes.MemoryListCriteria) (string, []any, error) {
+	var builder strings.Builder
+	builder.WriteString(selectMemorySummaryColumnsQuery)
+	args, err := appendMemoryFilters(&builder, nil, criteria.Scopes(), criteria.Statuses(), criteria.MemoryTypes())
+	if err != nil {
+		return "", nil, err
+	}
+	builder.WriteString(" ORDER BY m.updated_at DESC, m.id DESC LIMIT ? OFFSET ?")
+	args = append(args, criteria.Limit(), criteria.Offset())
+	return builder.String(), args, nil
+}
+
+func buildMemorySearchQuery(criteria apptypes.MemorySearchCriteria) (string, []any, error) {
+	var builder strings.Builder
+	builder.WriteString(selectMemorySummaryColumnsQuery)
+	args := make([]any, 0)
+
+	trimmedQuery := strings.TrimSpace(criteria.Query())
+	if trimmedQuery != "" {
+		likeQuery := "%" + escapeLikeQuery(trimmedQuery) + "%"
+		builder.WriteString(`
+  AND (
+      m.fact LIKE ? ESCAPE '\'
+      OR EXISTS (
+          SELECT 1
+          FROM memory_evidence_refs mer
+          WHERE mer.memory_id = m.id
+            AND mer.ref_value LIKE ? ESCAPE '\'
+      )
+      OR EXISTS (
+          SELECT 1
+          FROM memory_artifact_refs mar
+          WHERE mar.memory_id = m.id
+            AND mar.ref_value LIKE ? ESCAPE '\'
+      )
+  )`)
+		args = append(args, likeQuery, likeQuery, likeQuery)
+	}
+
+	args, err := appendMemoryFilters(&builder, args, criteria.Scopes(), criteria.Statuses(), criteria.MemoryTypes())
+	if err != nil {
+		return "", nil, err
+	}
+	builder.WriteString(" ORDER BY m.updated_at DESC, m.id DESC LIMIT ? OFFSET ?")
+	args = append(args, criteria.Limit(), criteria.Offset())
+	return builder.String(), args, nil
+}
+
+func appendMemoryFilters(
+	builder *strings.Builder,
+	args []any,
+	scopes []types.MemoryScope,
+	statuses []types.MemoryStatus,
+	memoryTypes []types.MemoryType,
+) ([]any, error) {
+	normalizedStatuses := normalizeMemoryStatuses(statuses)
+	builder.WriteString(" AND m.status IN (")
+	for index, status := range normalizedStatuses {
+		if index > 0 {
+			builder.WriteString(", ")
+		}
+		builder.WriteString("?")
+		args = append(args, status.String())
+	}
+	builder.WriteString(")")
+
+	if len(scopes) > 0 {
+		builder.WriteString(" AND (")
+		for index, scope := range scopes {
+			if scope == nil {
+				return nil, xerrors.Errorf("memory scope must not be nil")
+			}
+			if index > 0 {
+				builder.WriteString(" OR ")
+			}
+			builder.WriteString("(m.scope_kind = ? AND m.scope_value = ?)")
+			args = append(args, scope.Kind().String(), scope.Key())
+		}
+		builder.WriteString(")")
+	}
+
+	if len(memoryTypes) > 0 {
+		builder.WriteString(" AND m.type IN (")
+		for index, memoryType := range memoryTypes {
+			if index > 0 {
+				builder.WriteString(", ")
+			}
+			builder.WriteString("?")
+			args = append(args, memoryType.String())
+		}
+		builder.WriteString(")")
+	}
+
+	return args, nil
+}
+
+func normalizeMemoryStatuses(statuses []types.MemoryStatus) []types.MemoryStatus {
+	if len(statuses) == 0 {
+		return apptypes.DefaultActiveMemoryStatuses()
+	}
+	return append([]types.MemoryStatus(nil), statuses...)
+}
