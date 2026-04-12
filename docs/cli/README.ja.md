@@ -127,6 +127,113 @@ alias:
 - `--limit`
 - `--json`
 
+## Durable memory コマンド
+
+### `traceary memory list`
+
+Durable memory を一覧表示します。scope flag を明示しない場合、`memory list` は解決した workspace scope を既定で使います。
+
+主な flag:
+
+- `--workspace`
+- `--agent`
+- `--session-family`
+- `--status`
+- `--type`
+- `--limit`
+- `--offset`
+- `--json`
+
+### `traceary memory search [<query>]`
+
+全文検索と構造フィルタで durable memory を検索します。query または filter のいずれか 1 つ以上が必要です。
+
+主な flag:
+
+- `--workspace`
+- `--agent`
+- `--session-family`
+- `--status`
+- `--type`
+- `--limit`
+- `--offset`
+- `--json`
+
+### `traceary memory show <memory-id>`
+
+1 件の durable memory を詳細表示します。evidence ref と artifact ref も含みます。
+
+主な flag:
+
+- `--json`
+
+### `traceary memory remember`
+
+accepted な durable memory を直接記録します。
+
+主な flag:
+
+- `--type`
+- `--fact`
+- `--workspace` / `--agent` / `--session-family`
+- `--confidence`
+- `--source`
+- `--evidence`
+- `--artifact`
+- `--id-only`
+- `--json`
+
+### `traceary memory propose`
+
+candidate な durable memory を記録します。後で review できます。
+
+主な flag は `memory remember` と同じですが、`--confidence` は使われません。
+
+### `traceary memory accept <memory-id>`
+
+candidate durable memory を accept します。
+
+主な flag:
+
+- `--confidence`
+- `--id-only`
+- `--json`
+
+### `traceary memory reject <memory-id>`
+
+candidate durable memory を reject します。
+
+主な flag:
+
+- `--id-only`
+- `--json`
+
+### `traceary memory supersede <memory-id>`
+
+accepted durable memory を新しい accepted memory で置き換えます。`--type` と scope flag を省略すると現在の memory を継承します。
+
+主な flag:
+
+- `--type`
+- `--fact`
+- `--workspace` / `--agent` / `--session-family`
+- `--confidence`
+- `--source`
+- `--evidence`
+- `--artifact`
+- `--id-only`
+- `--json`
+
+### `traceary memory expire <memory-id>`
+
+active な durable memory を expire します。
+
+主な flag:
+
+- `--at`
+- `--id-only`
+- `--json`
+
 ## Session コマンド
 
 ### `traceary session start`
