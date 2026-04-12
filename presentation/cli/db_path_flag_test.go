@@ -15,9 +15,10 @@ import (
 // but the composition root in main.go fixed the sqlite path at startup,
 // so the flag had no effect. The fix wires a DatabasePathSetter that
 // each subcommand invokes after resolveDBPath. This test pins the
-// behaviour across the three entry points Codex asked to cover:
-// subcommand-position flag, root-position flag, and TRACEARY_DB_PATH
-// environment variable.
+// behaviour across the three cases:
+//   - --db-path flag passed at the subcommand position
+//   - TRACEARY_DB_PATH environment variable without an explicit flag
+//   - an explicit --db-path flag overriding TRACEARY_DB_PATH
 func TestRootCLI_DBPathFlagPropagates(t *testing.T) {
 	// Not t.Parallel(): each sub-test manipulates process-wide environ.
 
