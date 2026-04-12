@@ -218,6 +218,46 @@ func TestSessionUsecase_End(t *testing.T) {
 			t.Fatalf("End() error = nil, want error")
 		}
 	})
+
+	t.Run("returns ErrInvalidSessionState when session is already ended", func(t *testing.T) {
+		t.Parallel()
+
+		sessionID, err := types.SessionIDOf("session-already-ended")
+		if err != nil {
+			t.Fatalf("SessionIDOf() error = %v", err)
+		}
+		agent, err := types.AgentOf("claude")
+		if err != nil {
+			t.Fatalf("AgentOf() error = %v", err)
+		}
+		endedAt := mustTime(t).Add(time.Hour)
+		alreadyEnded := model.SessionOf(
+			sessionID, mustTime(t), types.Of(endedAt),
+			types.Client("cli"), agent, types.Workspace("duck8823/traceary"),
+			"", "first end", types.SessionID(""),
+		)
+
+		stub := &eventRepositoryStub{}
+		sessionStub := &sessionRepositoryStub{session: alreadyEnded}
+		sut := usecase.NewSessionUsecase(stub, sessionStub, nil, nil)
+
+		_, err = sut.End(context.Background(),
+			types.Client("cli"),
+			types.Agent("claude"),
+			types.SessionID("session-already-ended"),
+			types.Workspace("duck8823/traceary"),
+			"second end attempt",
+		)
+		if err == nil {
+			t.Fatalf("End() error = nil, want ErrInvalidSessionState")
+		}
+		if !errors.Is(err, model.ErrInvalidSessionState) {
+			t.Fatalf("End() error = %v, want ErrInvalidSessionState", err)
+		}
+		if sessionStub.saveBoundaryCalled {
+			t.Fatalf("SessionRepository.SaveBoundary() should not be called when session is already ended")
+		}
+	})
 }
 
 type sessionRepositoryStub struct {
