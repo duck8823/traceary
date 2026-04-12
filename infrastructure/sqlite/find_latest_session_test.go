@@ -11,7 +11,6 @@ import (
 
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
-	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
 func TestDatasource_FindLatest(t *testing.T) {
@@ -36,8 +35,8 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(dbPath, migrations)
-	if err := sut.Initialize(context.Background()); err != nil {
+	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, migrations)
+	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -50,7 +49,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		"session started",
 		time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC),
 	)
-	if err := sut.Save(context.Background(), oldEvent); err != nil {
+	if err := eventDS.Save(context.Background(), oldEvent); err != nil {
 		t.Fatalf("Save(old) error = %v", err)
 	}
 
@@ -63,7 +62,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		"session ended",
 		time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC),
 	)
-	if err := sut.Save(context.Background(), endedEvent); err != nil {
+	if err := eventDS.Save(context.Background(), endedEvent); err != nil {
 		t.Fatalf("Save(ended) error = %v", err)
 	}
 
@@ -76,7 +75,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		"session started",
 		time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
 	)
-	if err := sut.Save(context.Background(), activeEvent); err != nil {
+	if err := eventDS.Save(context.Background(), activeEvent); err != nil {
 		t.Fatalf("Save(active) error = %v", err)
 	}
 
@@ -89,7 +88,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		"session started",
 		time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC),
 	)
-	if err := sut.Save(context.Background(), finishedStartEvent); err != nil {
+	if err := eventDS.Save(context.Background(), finishedStartEvent); err != nil {
 		t.Fatalf("Save(finished start) error = %v", err)
 	}
 
@@ -102,12 +101,12 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		"session ended",
 		time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC),
 	)
-	if err := sut.Save(context.Background(), finishedEndEvent); err != nil {
+	if err := eventDS.Save(context.Background(), finishedEndEvent); err != nil {
 		t.Fatalf("Save(finished end) error = %v", err)
 	}
 
 	t.Run("returns latest session_started", func(t *testing.T) {
-		result, err := sut.FindLatest(
+		result, err := sessionDS.FindLatest(
 			context.Background(),
 			types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), false,
 		)
@@ -133,7 +132,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 			"session started",
 			time.Date(2026, 4, 11, 13, 0, 0, 0, time.UTC),
 		)
-		if err := sut.Save(context.Background(), laterStartEvent); err != nil {
+		if err := eventDS.Save(context.Background(), laterStartEvent); err != nil {
 			t.Fatalf("Save(later start) error = %v", err)
 		}
 
@@ -146,11 +145,11 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 			"session ended",
 			time.Date(2026, 4, 11, 14, 0, 0, 0, time.UTC),
 		)
-		if err := sut.Save(context.Background(), overlapEndEvent); err != nil {
+		if err := eventDS.Save(context.Background(), overlapEndEvent); err != nil {
 			t.Fatalf("Save(overlap end) error = %v", err)
 		}
 
-		result, err := sut.FindLatest(
+		result, err := sessionDS.FindLatest(
 			context.Background(),
 			types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), false,
 		)
@@ -167,7 +166,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 	})
 
 	t.Run("returns active session when active only is set", func(t *testing.T) {
-		result, err := sut.FindLatest(
+		result, err := sessionDS.FindLatest(
 			context.Background(),
 			types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), true,
 		)
@@ -193,11 +192,11 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 			"session started",
 			time.Date(2026, 4, 11, 15, 0, 0, 0, time.UTC),
 		)
-		if err := sut.Save(context.Background(), repeatedStartEvent); err != nil {
+		if err := eventDS.Save(context.Background(), repeatedStartEvent); err != nil {
 			t.Fatalf("Save(repeated start) error = %v", err)
 		}
 
-		result, err := sut.FindLatest(
+		result, err := sessionDS.FindLatest(
 			context.Background(),
 			types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), false,
 		)
@@ -214,7 +213,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 	})
 
 	t.Run("returns empty Optional when no matching session exists", func(t *testing.T) {
-		result, err := sut.FindLatest(
+		result, err := sessionDS.FindLatest(
 			context.Background(),
 			types.Client(""), types.Agent("claude"), types.Workspace(""), false,
 		)
@@ -227,7 +226,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 	})
 
 	t.Run("returns empty Optional when no matching active session exists", func(t *testing.T) {
-		result, err := sut.FindLatest(
+		result, err := sessionDS.FindLatest(
 			context.Background(),
 			types.Client(""), types.Agent("claude"), types.Workspace(""), true,
 		)
@@ -262,8 +261,8 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(dbPath, migrations)
-	if err := sut.Initialize(context.Background()); err != nil {
+	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, migrations)
+	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -276,7 +275,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		"session started",
 		time.Date(2026, 4, 9, 10, 0, 0, 0, time.UTC),
 	)
-	if err := sut.Save(context.Background(), sharedStart); err != nil {
+	if err := eventDS.Save(context.Background(), sharedStart); err != nil {
 		t.Fatalf("Save(shared start) error = %v", err)
 	}
 
@@ -289,7 +288,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		"session started",
 		time.Date(2026, 4, 9, 11, 0, 0, 0, time.UTC),
 	)
-	if err := sut.Save(context.Background(), localLatest); err != nil {
+	if err := eventDS.Save(context.Background(), localLatest); err != nil {
 		t.Fatalf("Save(local latest) error = %v", err)
 	}
 
@@ -302,11 +301,11 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		"session ended",
 		time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
 	)
-	if err := sut.Save(context.Background(), otherRepoBoundary); err != nil {
+	if err := eventDS.Save(context.Background(), otherRepoBoundary); err != nil {
 		t.Fatalf("Save(other workspace boundary) error = %v", err)
 	}
 
-	result, err := sut.FindLatest(
+	result, err := sessionDS.FindLatest(
 		context.Background(),
 		types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), false,
 	)
@@ -344,8 +343,8 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(dbPath, migrations)
-	if err := sut.Initialize(context.Background()); err != nil {
+	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, migrations)
+	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -358,7 +357,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		"session started",
 		time.Date(2026, 4, 9, 10, 0, 0, 0, time.UTC),
 	)
-	if err := sut.Save(context.Background(), sharedStart); err != nil {
+	if err := eventDS.Save(context.Background(), sharedStart); err != nil {
 		t.Fatalf("Save(shared start) error = %v", err)
 	}
 
@@ -371,11 +370,11 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		"session ended",
 		time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
 	)
-	if err := sut.Save(context.Background(), otherRepoEnd); err != nil {
+	if err := eventDS.Save(context.Background(), otherRepoEnd); err != nil {
 		t.Fatalf("Save(other workspace end) error = %v", err)
 	}
 
-	result, err := sut.FindLatest(
+	result, err := sessionDS.FindLatest(
 		context.Background(),
 		types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), true,
 	)

@@ -2,20 +2,57 @@ package sqlite
 
 import (
 	"context"
-	"log/slog"
+	_ "embed"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"golang.org/x/xerrors"
+
+	"github.com/duck8823/traceary/application"
 )
 
+//go:embed sql/count_deletable_events.sql
+var countDeletableEventsQuery string
+
+//go:embed sql/delete_old_events.sql
+var deleteOldEventsQuery string
+
+//go:embed sql/count_stale_sessions.sql
+var countStaleSessionsQuery string
+
+//go:embed sql/update_stale_sessions.sql
+var updateStaleSessionsQuery string
+
+// StoreManagementDatasource provides store lifecycle and maintenance
+// operations backed by SQLite.
+type StoreManagementDatasource struct {
+	db *Database
+}
+
+// NewStoreManagementDatasource creates a new StoreManagementDatasource
+// bound to the given database.
+func NewStoreManagementDatasource(db *Database) *StoreManagementDatasource {
+	return &StoreManagementDatasource{db: db}
+}
+
+// Compile-time interface assertion.
+var _ application.StoreManager = (*StoreManagementDatasource)(nil)
+
+// Initialize creates the store directory, applies migrations, and sets
+// file permissions.
+func (d *StoreManagementDatasource) Initialize(ctx context.Context) error {
+	return d.db.initialize(ctx)
+}
+
 // CreateBackup creates a backup of the SQLite DB.
-func (d *Datasource) CreateBackup(ctx context.Context, outputPath string, overwrite bool) (err error) {
-	sourcePath, destinationPath, err := validateDistinctDBPaths(d.dbPath, outputPath)
+func (d *StoreManagementDatasource) CreateBackup(ctx context.Context, outputPath string, overwrite bool) (err error) {
+	sourcePath, destinationPath, err := validateDistinctDBPaths(d.db.dbPath, outputPath)
 	if err != nil {
 		return xerrors.Errorf("failed to validate backup paths: %w", err)
 	}
@@ -33,7 +70,7 @@ func (d *Datasource) CreateBackup(ctx context.Context, outputPath string, overwr
 		return xerrors.Errorf("failed to prepare backup output path: %w", err)
 	}
 
-	db, err := d.openDB(ctx)
+	db, err := d.db.open(ctx)
 	if err != nil {
 		return xerrors.Errorf("failed to open source DB for backup: %w", err)
 	}
@@ -55,8 +92,8 @@ func (d *Datasource) CreateBackup(ctx context.Context, outputPath string, overwr
 }
 
 // RestoreBackup restores the SQLite DB from a backup file.
-func (d *Datasource) RestoreBackup(ctx context.Context, inputPath string, overwrite bool) (err error) {
-	sourcePath, destinationPath, err := validateDistinctDBPaths(inputPath, d.dbPath)
+func (d *StoreManagementDatasource) RestoreBackup(ctx context.Context, inputPath string, overwrite bool) (err error) {
+	sourcePath, destinationPath, err := validateDistinctDBPaths(inputPath, d.db.dbPath)
 	if err != nil {
 		return xerrors.Errorf("failed to validate restore paths: %w", err)
 	}
@@ -122,6 +159,114 @@ func (d *Datasource) RestoreBackup(ctx context.Context, inputPath string, overwr
 	}
 
 	return nil
+}
+
+// CollectGarbage deletes events older than the given time.
+func (d *StoreManagementDatasource) CollectGarbage(
+	ctx context.Context,
+	before time.Time,
+	dryRun bool,
+) (int, error) {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return 0, xerrors.Errorf("failed to open DB for garbage collection: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	beforeValue := formatTimestamp(before)
+
+	var deleteCount int
+	if err := db.QueryRowContext(
+		ctx,
+		countDeletableEventsQuery,
+		beforeValue,
+	).Scan(&deleteCount); err != nil {
+		return 0, xerrors.Errorf("failed to count deletable events: %w", err)
+	}
+
+	if dryRun || deleteCount == 0 {
+		return deleteCount, nil
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, xerrors.Errorf("failed to begin garbage-collection transaction: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			slog.Debug("failed to rollback transaction", "error", err)
+		}
+	}()
+
+	if _, err := tx.ExecContext(
+		ctx,
+		deleteOldEventsQuery,
+		beforeValue,
+	); err != nil {
+		return 0, xerrors.Errorf("failed to delete old events: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, xerrors.Errorf("failed to commit garbage-collection transaction: %w", err)
+	}
+
+	if _, err := db.ExecContext(ctx, `VACUUM`); err != nil {
+		return 0, xerrors.Errorf("failed to run VACUUM: %w", err)
+	}
+
+	return deleteCount, nil
+}
+
+// CloseStaleSessions closes active sessions that have no recent events.
+func (d *StoreManagementDatasource) CloseStaleSessions(
+	ctx context.Context,
+	staleAfter time.Duration,
+	dryRun bool,
+) (int, error) {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return 0, xerrors.Errorf("failed to open DB: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	cutoff := formatTimestamp(time.Now().Add(-staleAfter))
+
+	if dryRun {
+		var count int
+		if err := db.QueryRowContext(
+			ctx,
+			countStaleSessionsQuery,
+			cutoff,
+		).Scan(&count); err != nil {
+			return 0, xerrors.Errorf("failed to count stale sessions: %w", err)
+		}
+		return count, nil
+	}
+
+	now := formatTimestamp(time.Now())
+	result, err := db.ExecContext(
+		ctx,
+		updateStaleSessionsQuery,
+		now, cutoff,
+	)
+	if err != nil {
+		return 0, xerrors.Errorf("failed to close stale sessions: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, xerrors.Errorf("failed to check rows affected: %w", err)
+	}
+
+	return int(rowsAffected), nil
 }
 
 func validateDistinctDBPaths(firstPath string, secondPath string) (string, string, error) {

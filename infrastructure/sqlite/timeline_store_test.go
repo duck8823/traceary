@@ -36,17 +36,17 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		},
 	}
 
-	newDatasource := func(t *testing.T) *sqlite.Datasource {
+	newDatasource := func(t *testing.T) *sqlite.EventDatasource {
 		t.Helper()
 		dbPath := filepath.Join(t.TempDir(), "timeline_test.db")
-		ds := sqlite.NewDatasource(dbPath, migrations)
-		if err := ds.Initialize(context.Background()); err != nil {
+		ds, storeManager := newEventDatasource(t, dbPath, migrations)
+		if err := storeManager.Initialize(context.Background()); err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 		return ds
 	}
 
-	saveEvent := func(t *testing.T, ds *sqlite.Datasource, id string, workspace string, createdAt time.Time) {
+	saveEvent := func(t *testing.T, ds *sqlite.EventDatasource, id string, workspace string, createdAt time.Time) {
 		t.Helper()
 		eventID, _ := types.EventIDOf(id)
 		agent, _ := types.AgentOf("claude")

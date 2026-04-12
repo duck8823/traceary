@@ -10,7 +10,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/duck8823/traceary/domain/types"
-	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
 func TestDatasource_GetContext(t *testing.T) {
@@ -35,8 +34,8 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(dbPath, migrations)
-	if err := sut.Initialize(context.Background()); err != nil {
+	sut, storeManager := newEventDatasource(t, dbPath, migrations)
+	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 

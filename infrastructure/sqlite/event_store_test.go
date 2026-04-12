@@ -51,9 +51,9 @@ CREATE TABLE command_audits (
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(dbPath, migrations)
+	sut, storeManager := newEventDatasource(t, dbPath, migrations)
 
-	if err := sut.Initialize(context.Background()); err != nil {
+	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -121,7 +121,8 @@ CREATE TABLE events (
 );`),
 		},
 	}
-	if err := sqlite.NewDatasource(dbPath, initialMigrations).Initialize(context.Background()); err != nil {
+	initialDB := sqlite.NewDatabase(dbPath, initialMigrations)
+	if err := sqlite.NewStoreManagementDatasource(initialDB).Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize(initial) error = %v", err)
 	}
 
@@ -145,9 +146,9 @@ CREATE TABLE command_audits (
 );`),
 		},
 	}
-	sut := sqlite.NewDatasource(dbPath, updatedMigrations)
+	sut, storeManager := newEventDatasource(t, dbPath, updatedMigrations)
 
-	if err := sut.Initialize(context.Background()); err != nil {
+	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize(updated) error = %v", err)
 	}
 
@@ -214,9 +215,9 @@ CREATE TABLE command_audits (
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(dbPath, migrations)
+	sut, storeManager := newEventDatasource(t, dbPath, migrations)
 
-	if err := sut.Initialize(context.Background()); err != nil {
+	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -285,9 +286,9 @@ CREATE TABLE command_audits (
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut := sqlite.NewDatasource(dbPath, migrations)
+	sut, storeManager := newEventDatasource(t, dbPath, migrations)
 
-	if err := sut.Initialize(context.Background()); err != nil {
+	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 

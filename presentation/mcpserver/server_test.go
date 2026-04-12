@@ -312,11 +312,14 @@ CREATE TABLE IF NOT EXISTS sessions (
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	store := sqlite.NewStore(dbPath, migrations)
+	db := sqlite.NewDatabase(dbPath, migrations)
+	eventDatasource := sqlite.NewEventDatasource(db)
+	sessionDatasource := sqlite.NewSessionDatasource(db)
+	storeManagementDatasource := sqlite.NewStoreManagementDatasource(db)
 
-	eventUsecase := usecase.NewEventUsecase(store.EventRepository, store.EventQueryService)
-	sessionUsecase := usecase.NewSessionUsecase(store.EventRepository, store.SessionRepository, store.SessionQueryService, store.EventQueryService)
-	storeManagementUsecase := usecase.NewStoreManagementUsecase(store.StoreManager)
+	eventUsecase := usecase.NewEventUsecase(eventDatasource, eventDatasource)
+	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource)
+	storeManagementUsecase := usecase.NewStoreManagementUsecase(storeManagementDatasource)
 
 	server, err := mcpserver.NewServer(
 		"test-version",

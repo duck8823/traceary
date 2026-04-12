@@ -14,6 +14,20 @@ import (
 	infra "github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
+// listSessionsFixture bundles the per-aggregate datasources required by
+// list_sessions tests.
+type listSessionsFixture struct {
+	eventDS      *infra.EventDatasource
+	sessionDS    *infra.SessionDatasource
+	storeManager *infra.StoreManagementDatasource
+}
+
+func newListSessionsFixture(t *testing.T, dbPath string, migrations fstest.MapFS) *listSessionsFixture {
+	t.Helper()
+	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, migrations)
+	return &listSessionsFixture{eventDS: eventDS, sessionDS: sessionDS, storeManager: storeManager}
+}
+
 func listSessionsTestMigrations() fstest.MapFS {
 	return fstest.MapFS{
 		"000001_init.sql": {
@@ -67,18 +81,18 @@ GROUP BY e.session_id;`),
 	}
 }
 
-func saveTestSession(ctx context.Context, t *testing.T, ds *infra.Datasource, sessionID string, startedAt time.Time, endedAt types.Optional[time.Time], agent string, workspace string) {
+func saveTestSession(ctx context.Context, t *testing.T, ds *infra.SessionDatasource, sessionID string, startedAt time.Time, endedAt types.Optional[time.Time], agent string, workspace string) {
 	t.Helper()
 	ag, _ := types.AgentOf(agent)
 	sid, _ := types.SessionIDOf(sessionID)
 	session := model.NewSession(sid, startedAt, "hook", ag, workspace)
-	if err := ds.SaveSession(ctx, session); err != nil {
-		t.Fatalf("SaveSession(start) error = %v", err)
+	if err := ds.Save(ctx, session); err != nil {
+		t.Fatalf("Save(start) error = %v", err)
 	}
 	if endedAt.IsPresent() {
 		endSession := model.SessionOf(sid, startedAt, endedAt, "hook", ag, workspace, "", "", "")
-		if err := ds.SaveSession(ctx, endSession); err != nil {
-			t.Fatalf("SaveSession(end) error = %v", err)
+		if err := ds.Save(ctx, endSession); err != nil {
+			t.Fatalf("Save(end) error = %v", err)
 		}
 	}
 }
@@ -90,10 +104,10 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		ds := infra.NewDatasource(dbPath, listSessionsTestMigrations())
+		fixture := newListSessionsFixture(t, dbPath, listSessionsTestMigrations())
 		ctx := context.Background()
 
-		if err := ds.Initialize(ctx); err != nil {
+		if err := fixture.storeManager.Initialize(ctx); err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
@@ -117,17 +131,17 @@ func TestDatasource_ListSummaries(t *testing.T) {
 			agent, _ := types.AgentOf(e.agent)
 			sid, _ := types.SessionIDOf(e.sessionID)
 			event, _ := model.NewEvent(eid, e.kind, "hook", agent, sid, "duck8823/traceary", e.body)
-			if err := ds.Save(ctx, event); err != nil {
+			if err := fixture.eventDS.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
 		}
 
 		// Save session metadata
 		s1End := time.Now().UTC()
-		saveTestSession(ctx, t, ds, "s1", time.Now().Add(-time.Hour).UTC(), types.Of(s1End), "claude", "duck8823/traceary")
-		saveTestSession(ctx, t, ds, "s2", time.Now().UTC(), types.Empty[time.Time](), "codex", "duck8823/traceary")
+		saveTestSession(ctx, t, fixture.sessionDS, "s1", time.Now().Add(-time.Hour).UTC(), types.Of(s1End), "claude", "duck8823/traceary")
+		saveTestSession(ctx, t, fixture.sessionDS, "s2", time.Now().UTC(), types.Empty[time.Time](), "codex", "duck8823/traceary")
 
-		summaries, err := ds.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent(""), "", types.Empty[time.Time](), types.Empty[time.Time]())
+		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent(""), "", types.Empty[time.Time](), types.Empty[time.Time]())
 		if err != nil {
 			t.Fatalf("ListSummaries() error = %v", err)
 		}
@@ -174,10 +188,10 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		ds := infra.NewDatasource(dbPath, listSessionsTestMigrations())
+		fixture := newListSessionsFixture(t, dbPath, listSessionsTestMigrations())
 		ctx := context.Background()
 
-		if err := ds.Initialize(ctx); err != nil {
+		if err := fixture.storeManager.Initialize(ctx); err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
@@ -191,16 +205,16 @@ func TestDatasource_ListSummaries(t *testing.T) {
 			agent, _ := types.AgentOf(e.agent)
 			sid, _ := types.SessionIDOf(e.sid)
 			event, _ := model.NewEvent(eid, types.EventKindSessionStarted, "hook", agent, sid, "workspace", "start")
-			if err := ds.Save(ctx, event); err != nil {
+			if err := fixture.eventDS.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
 		}
 
 		now := time.Now().UTC()
-		saveTestSession(ctx, t, ds, "s1", now, types.Empty[time.Time](), "claude", "workspace")
-		saveTestSession(ctx, t, ds, "s2", now.Add(time.Second), types.Empty[time.Time](), "codex", "workspace")
+		saveTestSession(ctx, t, fixture.sessionDS, "s1", now, types.Empty[time.Time](), "claude", "workspace")
+		saveTestSession(ctx, t, fixture.sessionDS, "s2", now.Add(time.Second), types.Empty[time.Time](), "codex", "workspace")
 
-		summaries, err := ds.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent("claude"), "", types.Empty[time.Time](), types.Empty[time.Time]())
+		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent("claude"), "", types.Empty[time.Time](), types.Empty[time.Time]())
 		if err != nil {
 			t.Fatalf("ListSummaries() error = %v", err)
 		}
@@ -216,10 +230,10 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		ds := infra.NewDatasource(dbPath, listSessionsTestMigrations())
+		fixture := newListSessionsFixture(t, dbPath, listSessionsTestMigrations())
 		ctx := context.Background()
 
-		if err := ds.Initialize(ctx); err != nil {
+		if err := fixture.storeManager.Initialize(ctx); err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
@@ -235,14 +249,14 @@ func TestDatasource_ListSummaries(t *testing.T) {
 			sid, _ := types.SessionIDOf(e.sid)
 			ts := time.Date(2026, 4, e.dayOfMon, 12, 0, 0, 0, time.UTC)
 			event := model.EventOf(eid, types.EventKindSessionStarted, "hook", agent, sid, "workspace", "start", ts)
-			if err := ds.Save(ctx, event); err != nil {
+			if err := fixture.eventDS.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
-			saveTestSession(ctx, t, ds, e.sid, ts, types.Empty[time.Time](), "claude", "workspace")
+			saveTestSession(ctx, t, fixture.sessionDS, e.sid, ts, types.Empty[time.Time](), "claude", "workspace")
 		}
 
 		fromDate := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
-		summaries, err := ds.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent(""), "", types.Of(fromDate), types.Empty[time.Time]())
+		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent(""), "", types.Of(fromDate), types.Empty[time.Time]())
 		if err != nil {
 			t.Fatalf("ListSummaries() error = %v", err)
 		}
@@ -258,10 +272,10 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		ds := infra.NewDatasource(dbPath, listSessionsTestMigrations())
+		fixture := newListSessionsFixture(t, dbPath, listSessionsTestMigrations())
 		ctx := context.Background()
 
-		if err := ds.Initialize(ctx); err != nil {
+		if err := fixture.storeManager.Initialize(ctx); err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
@@ -275,16 +289,16 @@ func TestDatasource_ListSummaries(t *testing.T) {
 			agent, _ := types.AgentOf(e.agent)
 			sid, _ := types.SessionIDOf(e.sid)
 			event, _ := model.NewEvent(eid, types.EventKindSessionStarted, "hook", agent, sid, "workspace", "start")
-			if err := ds.Save(ctx, event); err != nil {
+			if err := fixture.eventDS.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
 		}
 
 		now := time.Now().UTC()
-		saveTestSession(ctx, t, ds, "s1", now, types.Empty[time.Time](), "claude", "workspace")
-		saveTestSession(ctx, t, ds, "s2", now.Add(time.Second), types.Empty[time.Time](), "claude", "workspace")
+		saveTestSession(ctx, t, fixture.sessionDS, "s1", now, types.Empty[time.Time](), "claude", "workspace")
+		saveTestSession(ctx, t, fixture.sessionDS, "s2", now.Add(time.Second), types.Empty[time.Time](), "claude", "workspace")
 
-		summaries, err := ds.ListSummaries(ctx, 10, 0, types.SessionID("s1"), types.Workspace(""), types.Client(""), types.Agent(""), "", types.Empty[time.Time](), types.Empty[time.Time]())
+		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID("s1"), types.Workspace(""), types.Client(""), types.Agent(""), "", types.Empty[time.Time](), types.Empty[time.Time]())
 		if err != nil {
 			t.Fatalf("ListSummaries() error = %v", err)
 		}
@@ -300,10 +314,10 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		ds := infra.NewDatasource(dbPath, listSessionsTestMigrations())
+		fixture := newListSessionsFixture(t, dbPath, listSessionsTestMigrations())
 		ctx := context.Background()
 
-		if err := ds.Initialize(ctx); err != nil {
+		if err := fixture.storeManager.Initialize(ctx); err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
@@ -319,14 +333,14 @@ func TestDatasource_ListSummaries(t *testing.T) {
 			sid, _ := types.SessionIDOf(e.sid)
 			ts := time.Date(2026, 4, e.dayOfMon, 12, 0, 0, 0, time.UTC)
 			event := model.EventOf(eid, types.EventKindSessionStarted, "hook", agent, sid, "workspace", "start", ts)
-			if err := ds.Save(ctx, event); err != nil {
+			if err := fixture.eventDS.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
-			saveTestSession(ctx, t, ds, e.sid, ts, types.Empty[time.Time](), "claude", "workspace")
+			saveTestSession(ctx, t, fixture.sessionDS, e.sid, ts, types.Empty[time.Time](), "claude", "workspace")
 		}
 
 		toDate := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
-		summaries, err := ds.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent(""), "", types.Empty[time.Time](), types.Of(toDate))
+		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent(""), "", types.Empty[time.Time](), types.Of(toDate))
 		if err != nil {
 			t.Fatalf("ListSummaries() error = %v", err)
 		}
