@@ -136,7 +136,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("id-only で event ID だけを出力できる", func(t *testing.T) {
+	t.Run("outputs only event ID with id-only flag", func(t *testing.T) {
 		t.Parallel()
 
 		stdout := &bytes.Buffer{}
@@ -167,7 +167,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("json で構造化出力できる", func(t *testing.T) {
+	t.Run("outputs structured JSON", func(t *testing.T) {
 		t.Parallel()
 
 		stdout := &bytes.Buffer{}
@@ -203,7 +203,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("active session を既定利用できる", func(t *testing.T) {
+	t.Run("uses active session by default", func(t *testing.T) {
 		t.Setenv("TRACEARY_SESSION_ID", "")
 		cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
 			return "github.com/duck8823/traceary", nil
@@ -262,7 +262,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("work context が無い場合は default session に fallback する", func(t *testing.T) {
+	t.Run("falls back to default session when work context is missing", func(t *testing.T) {
 		t.Setenv("TRACEARY_SESSION_ID", "")
 		cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
 			return "", errors.New("no git remote")

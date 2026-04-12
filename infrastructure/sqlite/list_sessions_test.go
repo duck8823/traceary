@@ -7,6 +7,8 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	infra "github.com/duck8823/traceary/infrastructure/sqlite"
@@ -137,31 +139,31 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		// Both sessions have same created_at base (close in time), but order is by started_at DESC
 		// s2's events are inserted after s1's, so s2.started_at > s1.started_at
 		latest := summaries[0]
-		if latest.SessionID().String() != "s2" {
-			t.Fatalf("first session = %q, want s2", latest.SessionID())
+		if diff := cmp.Diff("s2", latest.SessionID().String()); diff != "" {
+			t.Fatalf("first session mismatch (-want +got):\n%s", diff)
 		}
-		if latest.TotalEvents() != 2 {
-			t.Fatalf("s2 total_events = %d, want 2", latest.TotalEvents())
+		if diff := cmp.Diff(2, latest.TotalEvents()); diff != "" {
+			t.Fatalf("s2 total_events mismatch (-want +got):\n%s", diff)
 		}
-		if latest.CommandCount() != 1 {
-			t.Fatalf("s2 command_count = %d, want 1", latest.CommandCount())
+		if diff := cmp.Diff(1, latest.CommandCount()); diff != "" {
+			t.Fatalf("s2 command_count mismatch (-want +got):\n%s", diff)
 		}
-		if latest.Status() != "active" {
-			t.Fatalf("s2 status = %q, want active", latest.Status())
+		if diff := cmp.Diff("active", latest.Status()); diff != "" {
+			t.Fatalf("s2 status mismatch (-want +got):\n%s", diff)
 		}
 
 		older := summaries[1]
-		if older.SessionID().String() != "s1" {
-			t.Fatalf("second session = %q, want s1", older.SessionID())
+		if diff := cmp.Diff("s1", older.SessionID().String()); diff != "" {
+			t.Fatalf("second session mismatch (-want +got):\n%s", diff)
 		}
-		if older.TotalEvents() != 4 {
-			t.Fatalf("s1 total_events = %d, want 4", older.TotalEvents())
+		if diff := cmp.Diff(4, older.TotalEvents()); diff != "" {
+			t.Fatalf("s1 total_events mismatch (-want +got):\n%s", diff)
 		}
-		if older.CommandCount() != 2 {
-			t.Fatalf("s1 command_count = %d, want 2", older.CommandCount())
+		if diff := cmp.Diff(2, older.CommandCount()); diff != "" {
+			t.Fatalf("s1 command_count mismatch (-want +got):\n%s", diff)
 		}
-		if older.Status() != "ended" {
-			t.Fatalf("s1 status = %q, want ended", older.Status())
+		if diff := cmp.Diff("ended", older.Status()); diff != "" {
+			t.Fatalf("s1 status mismatch (-want +got):\n%s", diff)
 		}
 		if !older.EndedAt().IsPresent() {
 			t.Fatalf("s1 ended_at should not be empty")
@@ -205,8 +207,8 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		if len(summaries) != 1 {
 			t.Fatalf("got %d summaries, want 1", len(summaries))
 		}
-		if summaries[0].SessionID().String() != "s1" {
-			t.Fatalf("session = %q, want s1", summaries[0].SessionID())
+		if diff := cmp.Diff("s1", summaries[0].SessionID().String()); diff != "" {
+			t.Fatalf("session mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -247,8 +249,8 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		if len(summaries) != 1 {
 			t.Fatalf("got %d summaries, want 1", len(summaries))
 		}
-		if summaries[0].SessionID().String() != "s-new" {
-			t.Fatalf("session = %q, want s-new", summaries[0].SessionID())
+		if diff := cmp.Diff("s-new", summaries[0].SessionID().String()); diff != "" {
+			t.Fatalf("session mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -289,8 +291,8 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		if len(summaries) != 1 {
 			t.Fatalf("got %d summaries, want 1", len(summaries))
 		}
-		if summaries[0].SessionID().String() != "s1" {
-			t.Fatalf("session = %q, want s1", summaries[0].SessionID())
+		if diff := cmp.Diff("s1", summaries[0].SessionID().String()); diff != "" {
+			t.Fatalf("session mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -331,8 +333,8 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		if len(summaries) != 1 {
 			t.Fatalf("got %d summaries, want 1", len(summaries))
 		}
-		if summaries[0].SessionID().String() != "s-old" {
-			t.Fatalf("session = %q, want s-old", summaries[0].SessionID())
+		if diff := cmp.Diff("s-old", summaries[0].SessionID().String()); diff != "" {
+			t.Fatalf("session mismatch (-want +got):\n%s", diff)
 		}
 	})
 

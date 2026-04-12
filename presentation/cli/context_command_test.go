@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
@@ -77,12 +79,12 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 			"WORKSPACE: github.com/duck8823/traceary\n" +
 			"EVENTS:\n" +
 			"- 2026-04-08T12:00:00Z [note] event-1 cli/codex README を更新した 次に release note を確認する\n"
-		if stdout.String() != want {
-			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+		if diff := cmp.Diff(want, stdout.String()); diff != "" {
+			t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 		}
 	})
 
-	t.Run("JSON 形式で文脈を表示できる", func(t *testing.T) {
+	t.Run("displays context in JSON format", func(t *testing.T) {
 		t.Parallel()
 
 		contextEvents := []*model.Event{
@@ -133,8 +135,8 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 			"    }\n" +
 			"  ]\n" +
 			"}\n"
-		if stdout.String() != want {
-			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+		if diff := cmp.Diff(want, stdout.String()); diff != "" {
+			t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 		}
 	})
 

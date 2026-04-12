@@ -133,7 +133,7 @@ func TestResolveBuildMetadata(t *testing.T) {
 		}
 	})
 
-	t.Run("build info がない場合は既定値を維持する", func(t *testing.T) {
+	t.Run("keeps default values when build info is unavailable", func(t *testing.T) {
 		t.Parallel()
 
 		got := resolveBuildMetadata("dev", "none", "unknown", func() (*debug.BuildInfo, bool) {

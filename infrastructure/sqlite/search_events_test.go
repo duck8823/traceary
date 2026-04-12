@@ -7,6 +7,8 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
@@ -80,8 +82,8 @@ CREATE TABLE command_audits (
 	if len(got) != 1 {
 		t.Fatalf("len(events) = %d, want 1", len(got))
 	}
-	if got[0].EventID().String() != "event-audit" {
-		t.Fatalf("EventID() = %q, want %q", got[0].EventID(), "event-audit")
+	if diff := cmp.Diff("event-audit", got[0].EventID().String()); diff != "" {
+		t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 	}
 
 	t.Run("searches with structural filters only", func(t *testing.T) {
@@ -94,12 +96,12 @@ CREATE TABLE command_audits (
 		if len(filtered) != 1 {
 			t.Fatalf("len(filtered) = %d, want 1", len(filtered))
 		}
-		if filtered[0].EventID().String() != "event-note" {
-			t.Fatalf("EventID() = %q, want %q", filtered[0].EventID(), "event-note")
+		if diff := cmp.Diff("event-note", filtered[0].EventID().String()); diff != "" {
+			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
-	t.Run("offset で 2 ページ目を取得できる", func(t *testing.T) {
+	t.Run("retrieves second page with offset", func(t *testing.T) {
 		t.Parallel()
 
 		filtered, err := sut.Search(context.Background(), "", types.Workspace("github.com/duck8823/traceary"), types.SessionID(""), types.Client(""), types.Agent(""), types.EventKind(""), time.Time{}, time.Time{}, 1, 1, false)
@@ -109,8 +111,8 @@ CREATE TABLE command_audits (
 		if len(filtered) != 1 {
 			t.Fatalf("len(filtered) = %d, want 1", len(filtered))
 		}
-		if filtered[0].EventID().String() != "event-note" {
-			t.Fatalf("EventID() = %q, want %q", filtered[0].EventID(), "event-note")
+		if diff := cmp.Diff("event-note", filtered[0].EventID().String()); diff != "" {
+			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 		}
 	})
 }

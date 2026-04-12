@@ -11,7 +11,7 @@ import (
 	"github.com/duck8823/traceary/presentation"
 )
 
-func TestLoadConfig_ファイルが存在しない場合はゼロ値を返す(t *testing.T) {
+func TestLoadConfig_returnsZeroValueWhenFileDoesNotExist(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	config := presentation.LoadConfig()
@@ -26,7 +26,7 @@ func TestLoadConfig_ファイルが存在しない場合はゼロ値を返す(t 
 	}
 }
 
-func TestLoadConfig_不正なJSONの場合はゼロ値を返す(t *testing.T) {
+func TestLoadConfig_returnsZeroValueForInvalidJSON(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
@@ -50,7 +50,7 @@ func TestLoadConfig_不正なJSONの場合はゼロ値を返す(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_正常なconfig_jsonからパターンを読み込める(t *testing.T) {
+func TestLoadConfig_loadsPatternsFromValidConfigJSON(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
@@ -81,7 +81,7 @@ func TestLoadConfig_正常なconfig_jsonからパターンを読み込める(t *
 	}
 }
 
-func TestLoadConfig_不正なJSONは警告ログを出す(t *testing.T) {
+func TestLoadConfig_logsWarningForInvalidJSON(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 

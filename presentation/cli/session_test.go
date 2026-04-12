@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
@@ -61,8 +63,8 @@ func TestRootCLI_SessionStartCommand(t *testing.T) {
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if stdout.String() != "session-1\n" {
-		t.Fatalf("stdout = %q, want %q", stdout.String(), "session-1\n")
+	if diff := cmp.Diff("session-1\n", stdout.String()); diff != "" {
+		t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -105,8 +107,8 @@ func TestRootCLI_SessionStartCommand_IdOnly(t *testing.T) {
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if stdout.String() != "session-start-id-only\n" {
-		t.Fatalf("stdout = %q, want %q", stdout.String(), "session-start-id-only\n")
+	if diff := cmp.Diff("session-start-id-only\n", stdout.String()); diff != "" {
+		t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -142,11 +144,11 @@ func TestRootCLI_SessionStartCommand_JSON(t *testing.T) {
 	}
 
 	payload := decodeJSONMap(t, stdout.String())
-	if got, want := payload["event_id"], "event-start-json"; got != want {
-		t.Fatalf("event_id = %v, want %q", got, want)
+	if diff := cmp.Diff("event-start-json", payload["event_id"]); diff != "" {
+		t.Fatalf("event_id mismatch (-want +got):\n%s", diff)
 	}
-	if got, want := payload["session_id"], "session-start-json"; got != want {
-		t.Fatalf("session_id = %v, want %q", got, want)
+	if diff := cmp.Diff("session-start-json", payload["session_id"]); diff != "" {
+		t.Fatalf("session_id mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -240,8 +242,8 @@ func TestRootCLI_SessionEndCommand(t *testing.T) {
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if stdout.String() != "Recorded: event-2\n" {
-		t.Fatalf("stdout = %q, want %q", stdout.String(), "Recorded: event-2\n")
+	if diff := cmp.Diff("Recorded: event-2\n", stdout.String()); diff != "" {
+		t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -284,8 +286,8 @@ func TestRootCLI_SessionEndCommand_IdOnly(t *testing.T) {
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if stdout.String() != "event-end-id-only\n" {
-		t.Fatalf("stdout = %q, want %q", stdout.String(), "event-end-id-only\n")
+	if diff := cmp.Diff("event-end-id-only\n", stdout.String()); diff != "" {
+		t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -321,11 +323,11 @@ func TestRootCLI_SessionEndCommand_JSON(t *testing.T) {
 	}
 
 	payload := decodeJSONMap(t, stdout.String())
-	if got, want := payload["event_id"], "event-end-json"; got != want {
-		t.Fatalf("event_id = %v, want %q", got, want)
+	if diff := cmp.Diff("event-end-json", payload["event_id"]); diff != "" {
+		t.Fatalf("event_id mismatch (-want +got):\n%s", diff)
 	}
-	if got, want := payload["kind"], "session_ended"; got != want {
-		t.Fatalf("kind = %v, want %q", got, want)
+	if diff := cmp.Diff("session_ended", payload["kind"]); diff != "" {
+		t.Fatalf("kind mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -376,8 +378,8 @@ func TestRootCLI_SessionLatestCommand(t *testing.T) {
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if stdout.String() != "session-latest\n" {
-		t.Fatalf("stdout = %q, want %q", stdout.String(), "session-latest\n")
+	if diff := cmp.Diff("session-latest\n", stdout.String()); diff != "" {
+		t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -409,11 +411,11 @@ func TestRootCLI_SessionLatestCommand_JSON(t *testing.T) {
 	}
 
 	payload := decodeJSONMap(t, stdout.String())
-	if got, want := payload["event_id"], "event-latest-json"; got != want {
-		t.Fatalf("event_id = %v, want %q", got, want)
+	if diff := cmp.Diff("event-latest-json", payload["event_id"]); diff != "" {
+		t.Fatalf("event_id mismatch (-want +got):\n%s", diff)
 	}
-	if got, want := payload["session_id"], "session-latest-json"; got != want {
-		t.Fatalf("session_id = %v, want %q", got, want)
+	if diff := cmp.Diff("session-latest-json", payload["session_id"]); diff != "" {
+		t.Fatalf("session_id mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -462,8 +464,8 @@ func TestRootCLI_SessionActiveCommand(t *testing.T) {
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if stdout.String() != "session-active\n" {
-		t.Fatalf("stdout = %q, want %q", stdout.String(), "session-active\n")
+	if diff := cmp.Diff("session-active\n", stdout.String()); diff != "" {
+		t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -561,8 +563,8 @@ func TestRootCLI_SessionActiveCommand_AllowStale(t *testing.T) {
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if stdout.String() != "session-stale\n" {
-		t.Fatalf("stdout = %q, want %q", stdout.String(), "session-stale\n")
+	if diff := cmp.Diff("session-stale\n", stdout.String()); diff != "" {
+		t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -582,8 +584,8 @@ func TestRootCLI_SessionLatestCommand_NotFoundError(t *testing.T) {
 	if err == nil {
 		t.Fatal("Execute() error = nil, want error")
 	}
-	if err.Error() != "no matching session found" {
-		t.Fatalf("error = %q, want %q", err.Error(), "no matching session found")
+	if diff := cmp.Diff("no matching session found", err.Error()); diff != "" {
+		t.Fatalf("error mismatch (-want +got):\n%s", diff)
 	}
 }
 

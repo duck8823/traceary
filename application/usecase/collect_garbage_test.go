@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/application/usecase"
 )
 
@@ -41,7 +43,7 @@ func TestCollectGarbageUsecase_Run(t *testing.T) {
 
 	cutoff := time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC)
 
-	t.Run("gc を実行できる", func(t *testing.T) {
+	t.Run("runs garbage collection successfully", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &garbageCollectorStub{deletedCount: 3}
@@ -60,8 +62,8 @@ func TestCollectGarbageUsecase_Run(t *testing.T) {
 		if !stub.receivedDryRun {
 			t.Fatalf("received dryRun = false, want true")
 		}
-		if got.DeletedCount != 3 {
-			t.Fatalf("DeletedCount = %d, want 3", got.DeletedCount)
+		if diff := cmp.Diff(3, got.DeletedCount); diff != "" {
+			t.Fatalf("DeletedCount mismatch (-want +got):\n%s", diff)
 		}
 	})
 

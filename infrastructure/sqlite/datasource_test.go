@@ -55,7 +55,7 @@ CREATE TABLE events (
 	}
 }
 
-func TestDatasource_Initialize_DBディレクトリとファイル権限を制限する(t *testing.T) {
+func TestDatasource_Initialize_restrictsDirAndFilePermissions(t *testing.T) {
 	t.Parallel()
 
 	migrations := fstest.MapFS{

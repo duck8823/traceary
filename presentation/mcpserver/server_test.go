@@ -7,6 +7,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/duck8823/traceary/application/usecase"
@@ -38,7 +39,7 @@ func TestServer_BuildAndTools(t *testing.T) {
 	}
 	defer func() { _ = clientSession.Close() }()
 
-	t.Run("add_log がイベントを保存する", func(t *testing.T) {
+	t.Run("add_log saves an event", func(t *testing.T) {
 		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 			Name: "add_log",
 			Arguments: map[string]any{
@@ -106,12 +107,12 @@ func TestServer_BuildAndTools(t *testing.T) {
 		if result.IsError {
 			t.Fatalf("CallTool(add_log) returned tool error")
 		}
-		if got := extractJSONStringValue(t, result, "kind"); got != "compact_summary" {
-			t.Fatalf("kind = %q, want %q", got, "compact_summary")
+		if diff := cmp.Diff("compact_summary", extractJSONStringValue(t, result, "kind")); diff != "" {
+			t.Fatalf("kind mismatch (-want +got):\n%s", diff)
 		}
 	})
 
-	t.Run("add_audit と get_context が動作する", func(t *testing.T) {
+	t.Run("add_audit and get_context work together", func(t *testing.T) {
 		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 			Name: "add_audit",
 			Arguments: map[string]any{
@@ -148,7 +149,7 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 	})
 
-	t.Run("session tools が動作する", func(t *testing.T) {
+	t.Run("session tools work correctly", func(t *testing.T) {
 		startResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 			Name: "start_session",
 			Arguments: map[string]any{
@@ -193,11 +194,11 @@ func TestServer_BuildAndTools(t *testing.T) {
 		if sessionID == "" {
 			t.Fatalf("session_id = empty, want non-empty")
 		}
-		if got := extractJSONStringValue(t, activeResult, "session_id"); got != sessionID {
-			t.Fatalf("active session_id = %q, want %q", got, sessionID)
+		if diff := cmp.Diff(sessionID, extractJSONStringValue(t, activeResult, "session_id")); diff != "" {
+			t.Fatalf("active session_id mismatch (-want +got):\n%s", diff)
 		}
-		if got := extractJSONStringValue(t, latestResult, "session_id"); got != sessionID {
-			t.Fatalf("latest session_id = %q, want %q", got, sessionID)
+		if diff := cmp.Diff(sessionID, extractJSONStringValue(t, latestResult, "session_id")); diff != "" {
+			t.Fatalf("latest session_id mismatch (-want +got):\n%s", diff)
 		}
 
 		endResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
@@ -212,12 +213,12 @@ func TestServer_BuildAndTools(t *testing.T) {
 		if endResult.IsError {
 			t.Fatalf("CallTool(end_session) returned tool error")
 		}
-		if got := extractJSONStringValue(t, endResult, "kind"); got != "session_ended" {
-			t.Fatalf("end kind = %q, want %q", got, "session_ended")
+		if diff := cmp.Diff("session_ended", extractJSONStringValue(t, endResult, "kind")); diff != "" {
+			t.Fatalf("end kind mismatch (-want +got):\n%s", diff)
 		}
 	})
 
-	t.Run("tool error を返せる", func(t *testing.T) {
+	t.Run("returns tool error", func(t *testing.T) {
 		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 			Name: "add_log",
 			Arguments: map[string]any{

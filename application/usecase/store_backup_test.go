@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/application/usecase"
 )
 
@@ -118,11 +120,11 @@ func TestCreateStoreBackupUsecase_Run(t *testing.T) {
 			if tt.stub.called != tt.wantCalled {
 				t.Fatalf("CreateBackup() called = %v, want %v", tt.stub.called, tt.wantCalled)
 			}
-			if tt.stub.receivedOutputPath != tt.wantOutputPath {
-				t.Fatalf("CreateBackup() outputPath = %q, want %q", tt.stub.receivedOutputPath, tt.wantOutputPath)
+			if diff := cmp.Diff(tt.wantOutputPath, tt.stub.receivedOutputPath); diff != "" {
+				t.Fatalf("CreateBackup() outputPath mismatch (-want +got):\n%s", diff)
 			}
-			if tt.stub.receivedOverwrite != tt.wantOverwrite {
-				t.Fatalf("CreateBackup() overwrite = %v, want %v", tt.stub.receivedOverwrite, tt.wantOverwrite)
+			if diff := cmp.Diff(tt.wantOverwrite, tt.stub.receivedOverwrite); diff != "" {
+				t.Fatalf("CreateBackup() overwrite mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -188,11 +190,11 @@ func TestRestoreStoreBackupUsecase_Run(t *testing.T) {
 			if tt.stub.called != tt.wantCalled {
 				t.Fatalf("RestoreBackup() called = %v, want %v", tt.stub.called, tt.wantCalled)
 			}
-			if tt.stub.receivedInputPath != tt.wantInputPath {
-				t.Fatalf("RestoreBackup() inputPath = %q, want %q", tt.stub.receivedInputPath, tt.wantInputPath)
+			if diff := cmp.Diff(tt.wantInputPath, tt.stub.receivedInputPath); diff != "" {
+				t.Fatalf("RestoreBackup() inputPath mismatch (-want +got):\n%s", diff)
 			}
-			if tt.stub.receivedOverwrite != tt.wantOverwrite {
-				t.Fatalf("RestoreBackup() overwrite = %v, want %v", tt.stub.receivedOverwrite, tt.wantOverwrite)
+			if diff := cmp.Diff(tt.wantOverwrite, tt.stub.receivedOverwrite); diff != "" {
+				t.Fatalf("RestoreBackup() overwrite mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

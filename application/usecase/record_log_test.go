@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 )
@@ -54,20 +56,20 @@ func TestRecordLogUsecase_Run(t *testing.T) {
 		if got.EventID().String() == "" {
 			t.Fatalf("EventID() is empty")
 		}
-		if got.Body() != "hello traceary" {
-			t.Fatalf("Body() = %q, want %q", got.Body(), "hello traceary")
+		if diff := cmp.Diff("hello traceary", got.Body()); diff != "" {
+			t.Fatalf("Body() mismatch (-want +got):\n%s", diff)
 		}
-		if got.Client() != "cli" {
-			t.Fatalf("Client() = %q, want %q", got.Client(), "cli")
+		if diff := cmp.Diff("cli", got.Client()); diff != "" {
+			t.Fatalf("Client() mismatch (-want +got):\n%s", diff)
 		}
-		if got.Agent().String() != "codex" {
-			t.Fatalf("Agent() = %q, want %q", got.Agent(), "codex")
+		if diff := cmp.Diff("codex", got.Agent().String()); diff != "" {
+			t.Fatalf("Agent() mismatch (-want +got):\n%s", diff)
 		}
-		if got.SessionID().String() != "session-1" {
-			t.Fatalf("SessionID() = %q, want %q", got.SessionID(), "session-1")
+		if diff := cmp.Diff("session-1", got.SessionID().String()); diff != "" {
+			t.Fatalf("SessionID() mismatch (-want +got):\n%s", diff)
 		}
-		if got.Workspace() != "duck8823/traceary" {
-			t.Fatalf("Repo() = %q, want %q", got.Workspace(), "duck8823/traceary")
+		if diff := cmp.Diff("duck8823/traceary", got.Workspace()); diff != "" {
+			t.Fatalf("Workspace() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -88,8 +90,8 @@ func TestRecordLogUsecase_Run(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
 		}
-		if got.Kind().String() != "compact_summary" {
-			t.Fatalf("Kind() = %q, want %q", got.Kind(), "compact_summary")
+		if diff := cmp.Diff("compact_summary", got.Kind().String()); diff != "" {
+			t.Fatalf("Kind() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -108,8 +110,8 @@ func TestRecordLogUsecase_Run(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
 		}
-		if got.Kind().String() != "note" {
-			t.Fatalf("Kind() = %q, want %q", got.Kind(), "note")
+		if diff := cmp.Diff("note", got.Kind().String()); diff != "" {
+			t.Fatalf("Kind() mismatch (-want +got):\n%s", diff)
 		}
 	})
 

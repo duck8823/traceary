@@ -7,6 +7,8 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
@@ -115,8 +117,8 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		if !result.IsPresent() {
 			t.Fatalf("FindLatest() returned empty, want present")
 		}
-		if result.Get().EventID().String() != "event-4" {
-			t.Fatalf("EventID() = %q, want %q", result.Get().EventID(), "event-4")
+		if diff := cmp.Diff("event-4", result.Get().EventID().String()); diff != "" {
+			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -157,12 +159,12 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		if !result.IsPresent() {
 			t.Fatalf("FindLatest() returned empty, want present")
 		}
-		if result.Get().EventID().String() != "event-4" {
-			t.Fatalf("EventID() = %q, want %q", result.Get().EventID(), "event-4")
+		if diff := cmp.Diff("event-4", result.Get().EventID().String()); diff != "" {
+			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
-	t.Run("active only のとき未終了 session を返す", func(t *testing.T) {
+	t.Run("returns active session when active only is set", func(t *testing.T) {
 		result, err := sut.FindLatest(
 			context.Background(),
 			types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), true,
@@ -173,8 +175,8 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		if !result.IsPresent() {
 			t.Fatalf("FindLatest() returned empty, want present")
 		}
-		if result.Get().EventID().String() != "event-6" {
-			t.Fatalf("EventID() = %q, want %q", result.Get().EventID(), "event-6")
+		if diff := cmp.Diff("event-6", result.Get().EventID().String()); diff != "" {
+			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -202,8 +204,8 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		if !result.IsPresent() {
 			t.Fatalf("FindLatest() returned empty, want present")
 		}
-		if result.Get().EventID().String() != "event-8" {
-			t.Fatalf("EventID() = %q, want %q", result.Get().EventID(), "event-8")
+		if diff := cmp.Diff("event-8", result.Get().EventID().String()); diff != "" {
+			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -310,8 +312,8 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 	if !result.IsPresent() {
 		t.Fatalf("FindLatest() returned empty, want present")
 	}
-	if result.Get().EventID().String() != "event-2" {
-		t.Fatalf("EventID() = %q, want %q", result.Get().EventID(), "event-2")
+	if diff := cmp.Diff("event-2", result.Get().EventID().String()); diff != "" {
+		t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -378,8 +380,8 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 	if !result.IsPresent() {
 		t.Fatalf("FindLatest() returned empty, want present")
 	}
-	if result.Get().EventID().String() != "event-1" {
-		t.Fatalf("EventID() = %q, want %q", result.Get().EventID(), "event-1")
+	if diff := cmp.Diff("event-1", result.Get().EventID().String()); diff != "" {
+		t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 	}
 }
 

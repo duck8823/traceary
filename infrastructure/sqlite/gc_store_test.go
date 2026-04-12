@@ -8,6 +8,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	_ "modernc.org/sqlite"
 
 	"github.com/duck8823/traceary/domain/model"
@@ -28,16 +29,16 @@ func TestDatasource_CollectGarbage_DryRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
-	if deletedCount != 1 {
-		t.Fatalf("deletedCount = %d, want 1", deletedCount)
+	if diff := cmp.Diff(1, deletedCount); diff != "" {
+		t.Fatalf("deletedCount mismatch (-want +got):\n%s", diff)
 	}
 
-	if got := countEvents(t, dbPath); got != 2 {
-		t.Fatalf("event count = %d, want 2", got)
+	if diff := cmp.Diff(2, countEvents(t, dbPath)); diff != "" {
+		t.Fatalf("event count mismatch (-want +got):\n%s", diff)
 	}
 }
 
-func TestDatasource_CollectGarbage_古いイベントと監査情報を削除する(t *testing.T) {
+func TestDatasource_CollectGarbage_deletesOldEventsAndAudits(t *testing.T) {
 	t.Parallel()
 
 	dbPath, sut := prepareGCFixture(t)
@@ -50,15 +51,15 @@ func TestDatasource_CollectGarbage_古いイベントと監査情報を削除す
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
-	if deletedCount != 1 {
-		t.Fatalf("deletedCount = %d, want 1", deletedCount)
+	if diff := cmp.Diff(1, deletedCount); diff != "" {
+		t.Fatalf("deletedCount mismatch (-want +got):\n%s", diff)
 	}
 
-	if got := countEvents(t, dbPath); got != 1 {
-		t.Fatalf("event count = %d, want 1", got)
+	if diff := cmp.Diff(1, countEvents(t, dbPath)); diff != "" {
+		t.Fatalf("event count mismatch (-want +got):\n%s", diff)
 	}
-	if got := countCommandAudits(t, dbPath); got != 0 {
-		t.Fatalf("command audit count = %d, want 0", got)
+	if diff := cmp.Diff(0, countCommandAudits(t, dbPath)); diff != "" {
+		t.Fatalf("command audit count mismatch (-want +got):\n%s", diff)
 	}
 }
 

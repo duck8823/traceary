@@ -8,6 +8,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	_ "modernc.org/sqlite"
 
 	"github.com/duck8823/traceary/domain/model"
@@ -113,11 +114,11 @@ SELECT e.kind, a.command_text, a.input_truncated, a.output_truncated
 	).Scan(&kind, &commandText, &inputTruncated, &outputTruncated); err != nil {
 		t.Fatalf("audit query error = %v", err)
 	}
-	if kind != "command_executed" {
-		t.Fatalf("kind = %q, want %q", kind, "command_executed")
+	if diff := cmp.Diff("command_executed", kind); diff != "" {
+		t.Fatalf("kind mismatch (-want +got):\n%s", diff)
 	}
-	if commandText != "go test ./..." {
-		t.Fatalf("command_text = %q, want %q", commandText, "go test ./...")
+	if diff := cmp.Diff("go test ./...", commandText); diff != "" {
+		t.Fatalf("command_text mismatch (-want +got):\n%s", diff)
 	}
 	if !inputTruncated {
 		t.Fatalf("input_truncated = false, want true")

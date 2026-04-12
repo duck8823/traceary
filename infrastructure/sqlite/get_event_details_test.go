@@ -7,6 +7,8 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
@@ -60,21 +62,21 @@ CREATE TABLE command_audits (
 		t.Fatalf("SaveWithAudit() error = %v", err)
 	}
 
-	t.Run("event と command audit を返す", func(t *testing.T) {
+	t.Run("returns event and command audit", func(t *testing.T) {
 		t.Parallel()
 
 		got, err := sut.GetDetails(context.Background(), types.EventID("event-audit"))
 		if err != nil {
 			t.Fatalf("GetDetails() error = %v", err)
 		}
-		if got.Event().EventID().String() != "event-audit" {
-			t.Fatalf("EventID() = %q, want %q", got.Event().EventID(), "event-audit")
+		if diff := cmp.Diff("event-audit", got.Event().EventID().String()); diff != "" {
+			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 		}
 		if !got.CommandAudit().IsPresent() {
 			t.Fatalf("CommandAudit() is empty, want command audit")
 		}
-		if got.CommandAudit().Get().Output() != "stdout with details" {
-			t.Fatalf("Output() = %q, want %q", got.CommandAudit().Get().Output(), "stdout with details")
+		if diff := cmp.Diff("stdout with details", got.CommandAudit().Get().Output()); diff != "" {
+			t.Fatalf("Output() mismatch (-want +got):\n%s", diff)
 		}
 	})
 

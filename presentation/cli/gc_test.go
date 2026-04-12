@@ -14,7 +14,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 	cli.SetGCNowFunc(func() time.Time { return fixedNow })
 	defer cli.ResetGCNowFunc()
 
-	t.Run("dry-run の件数を表示できる", func(t *testing.T) {
+	t.Run("displays dry-run candidate count", func(t *testing.T) {
 		storeMaint := &storeMaintenanceUsecaseStub{
 			gcResult: &usecase.CollectGarbageResult{DeletedCount: 3, DryRun: true},
 		}

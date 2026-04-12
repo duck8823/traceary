@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
@@ -92,12 +94,12 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		if stdout.String() != "No sessions found.\n" {
-			t.Fatalf("stdout = %q, want empty message", stdout.String())
+		if diff := cmp.Diff("No sessions found.\n", stdout.String()); diff != "" {
+			t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 		}
 	})
 
-	t.Run("JSON 形式で出力できる", func(t *testing.T) {
+	t.Run("outputs in JSON format", func(t *testing.T) {
 		t.Parallel()
 
 		endedAt := time.Date(2026, 4, 9, 12, 5, 0, 0, time.UTC)
@@ -196,7 +198,7 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("--from が不正な形式ならエラー", func(t *testing.T) {
+	t.Run("returns error when --from has invalid format", func(t *testing.T) {
 		t.Parallel()
 
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
@@ -212,7 +214,7 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("--to が不正な形式ならエラー", func(t *testing.T) {
+	t.Run("returns error when --to has invalid format", func(t *testing.T) {
 		t.Parallel()
 
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{

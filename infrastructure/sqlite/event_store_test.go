@@ -7,6 +7,8 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
@@ -90,14 +92,14 @@ CREATE TABLE command_audits (
 	if len(got) != 2 {
 		t.Fatalf("len(events) = %d, want 2", len(got))
 	}
-	if got[0].EventID().String() != "event-2" {
-		t.Fatalf("got[0].EventID() = %q, want %q", got[0].EventID(), "event-2")
+	if diff := cmp.Diff("event-2", got[0].EventID().String()); diff != "" {
+		t.Fatalf("got[0].EventID() mismatch (-want +got):\n%s", diff)
 	}
-	if got[0].Client() != "hook" {
-		t.Fatalf("got[0].Client() = %q, want %q", got[0].Client(), "hook")
+	if diff := cmp.Diff("hook", got[0].Client()); diff != "" {
+		t.Fatalf("got[0].Client() mismatch (-want +got):\n%s", diff)
 	}
-	if got[1].Workspace() != "duck8823/traceary" {
-		t.Fatalf("got[1].Workspace() = %q, want %q", got[1].Workspace(), "duck8823/traceary")
+	if diff := cmp.Diff("duck8823/traceary", got[1].Workspace()); diff != "" {
+		t.Fatalf("got[1].Workspace() mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -170,8 +172,8 @@ CREATE TABLE command_audits (
 	if len(got) != 1 {
 		t.Fatalf("len(events) = %d, want 1", len(got))
 	}
-	if got[0].Client() != "cli" {
-		t.Fatalf("Client() = %q, want %q", got[0].Client(), "cli")
+	if diff := cmp.Diff("cli", got[0].Client()); diff != "" {
+		t.Fatalf("Client() mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -241,8 +243,8 @@ CREATE TABLE command_audits (
 	if len(got) != 1 {
 		t.Fatalf("len(events) = %d, want 1", len(got))
 	}
-	if got[0].EventID().String() != "event-2" {
-		t.Fatalf("got[0].EventID() = %q, want %q", got[0].EventID(), "event-2")
+	if diff := cmp.Diff("event-2", got[0].EventID().String()); diff != "" {
+		t.Fatalf("got[0].EventID() mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -313,8 +315,8 @@ CREATE TABLE command_audits (
 	if len(got) != 1 {
 		t.Fatalf("len(events) = %d, want 1", len(got))
 	}
-	if got[0].EventID().String() != "event-note" {
-		t.Fatalf("got[0].EventID() = %q, want %q", got[0].EventID(), "event-note")
+	if diff := cmp.Diff("event-note", got[0].EventID().String()); diff != "" {
+		t.Fatalf("got[0].EventID() mismatch (-want +got):\n%s", diff)
 	}
 }
 

@@ -21,7 +21,7 @@ func (s *mcpServerRunnerStub) Run(_ context.Context, dbPath string) error {
 func TestRootCLI_MCPServer(t *testing.T) {
 	t.Parallel()
 
-	t.Run("MCP server を起動する", func(t *testing.T) {
+	t.Run("starts MCP server", func(t *testing.T) {
 		t.Parallel()
 
 		runner := &mcpServerRunnerStub{}

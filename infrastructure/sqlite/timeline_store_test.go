@@ -7,6 +7,8 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
@@ -76,11 +78,11 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 			t.Fatalf("len(blocks) = %d, want 2", len(blocks))
 		}
 		// Blocks are ordered DESC, so block 2 first
-		if blocks[0].EventCount() != 2 {
-			t.Fatalf("blocks[0].EventCount() = %d, want 2", blocks[0].EventCount())
+		if diff := cmp.Diff(2, blocks[0].EventCount()); diff != "" {
+			t.Fatalf("blocks[0].EventCount() mismatch (-want +got):\n%s", diff)
 		}
-		if blocks[1].EventCount() != 3 {
-			t.Fatalf("blocks[1].EventCount() = %d, want 3", blocks[1].EventCount())
+		if diff := cmp.Diff(3, blocks[1].EventCount()); diff != "" {
+			t.Fatalf("blocks[1].EventCount() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -99,8 +101,8 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		if len(blocks) != 1 {
 			t.Fatalf("len(blocks) = %d, want 1", len(blocks))
 		}
-		if blocks[0].EventCount() != 2 {
-			t.Fatalf("blocks[0].EventCount() = %d, want 2 (ws-a only)", blocks[0].EventCount())
+		if diff := cmp.Diff(2, blocks[0].EventCount()); diff != "" {
+			t.Fatalf("blocks[0].EventCount() mismatch (-want +got):\n%s", diff)
 		}
 	})
 

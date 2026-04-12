@@ -65,7 +65,7 @@ func TestDatasource_CreateBackup(t *testing.T) {
 	}
 }
 
-func TestDatasource_CreateBackup_既存ファイルはforceなしで上書きしない(t *testing.T) {
+func TestDatasource_CreateBackup_doesNotOverwriteExistingFileWithoutForce(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
@@ -88,7 +88,7 @@ func TestDatasource_CreateBackup_既存ファイルはforceなしで上書きし
 	}
 }
 
-func TestDatasource_CreateBackup_バックアップ元が存在しない場合はエラー(t *testing.T) {
+func TestDatasource_CreateBackup_returnsErrorWhenSourceDoesNotExist(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "missing", "traceary.db")
@@ -158,7 +158,7 @@ func TestDatasource_RestoreBackup(t *testing.T) {
 	}
 }
 
-func TestDatasource_RestoreBackup_既存ファイルはforceなしで上書きしない(t *testing.T) {
+func TestDatasource_RestoreBackup_doesNotOverwriteExistingFileWithoutForce(t *testing.T) {
 	t.Parallel()
 
 	restoreDBPath := filepath.Join(t.TempDir(), "traceary.db")

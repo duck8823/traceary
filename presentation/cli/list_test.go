@@ -76,7 +76,7 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("JSON 形式でイベント一覧を表示できる", func(t *testing.T) {
+	t.Run("displays event list in JSON format", func(t *testing.T) {
 		t.Parallel()
 
 		eventID, err := types.EventIDOf("event-2")
@@ -159,7 +159,7 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("offset が負ならエラー", func(t *testing.T) {
+	t.Run("returns error when offset is negative", func(t *testing.T) {
 		t.Parallel()
 
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
@@ -175,7 +175,7 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("kind が不正ならエラー", func(t *testing.T) {
+	t.Run("returns error when kind is invalid", func(t *testing.T) {
 		t.Parallel()
 
 		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{

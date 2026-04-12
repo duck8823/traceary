@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -85,12 +87,12 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 			"OUTPUT_TRUNCATED: false\n" +
 			"OUTPUT:\n" +
 			"stdout\n"
-		if stdout.String() != want {
-			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+		if diff := cmp.Diff(want, stdout.String()); diff != "" {
+			t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 		}
 	})
 
-	t.Run("command audit がないイベントも表示できる", func(t *testing.T) {
+	t.Run("displays event without command audit", func(t *testing.T) {
 		t.Parallel()
 
 		eventDetails, err := apptypes.EventDetailsOf(
@@ -126,7 +128,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("JSON 形式でイベント詳細を表示できる", func(t *testing.T) {
+	t.Run("displays event details in JSON format", func(t *testing.T) {
 		t.Parallel()
 
 		eventDetails, err := apptypes.EventDetailsOf(
@@ -186,8 +188,8 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 			"    \"output_truncated\": false\n" +
 			"  }\n" +
 			"}\n"
-		if stdout.String() != want {
-			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+		if diff := cmp.Diff(want, stdout.String()); diff != "" {
+			t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 		}
 	})
 

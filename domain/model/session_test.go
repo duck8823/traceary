@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -23,32 +25,32 @@ func TestNewSession(t *testing.T) {
 
 	session := model.NewSession(sid, now, "hook", agent, "duck8823/traceary")
 
-	if session.SessionID() != sid {
-		t.Errorf("SessionID() = %v, want %v", session.SessionID(), sid)
+	if diff := cmp.Diff(sid, session.SessionID()); diff != "" {
+		t.Errorf("SessionID() mismatch (-want +got):\n%s", diff)
 	}
-	if session.StartedAt() != now {
-		t.Errorf("StartedAt() = %v, want %v", session.StartedAt(), now)
+	if diff := cmp.Diff(now, session.StartedAt()); diff != "" {
+		t.Errorf("StartedAt() mismatch (-want +got):\n%s", diff)
 	}
 	if session.EndedAt().IsPresent() {
 		t.Errorf("EndedAt() should be empty, got %v", session.EndedAt().Get())
 	}
-	if session.Client() != "hook" {
-		t.Errorf("Client() = %q, want %q", session.Client(), "hook")
+	if diff := cmp.Diff("hook", session.Client()); diff != "" {
+		t.Errorf("Client() mismatch (-want +got):\n%s", diff)
 	}
-	if session.Agent() != agent {
-		t.Errorf("Agent() = %v, want %v", session.Agent(), agent)
+	if diff := cmp.Diff(agent, session.Agent()); diff != "" {
+		t.Errorf("Agent() mismatch (-want +got):\n%s", diff)
 	}
-	if session.Workspace() != "duck8823/traceary" {
-		t.Errorf("Repo() = %q, want %q", session.Workspace(), "duck8823/traceary")
+	if diff := cmp.Diff("duck8823/traceary", session.Workspace()); diff != "" {
+		t.Errorf("Workspace() mismatch (-want +got):\n%s", diff)
 	}
-	if session.Label() != "" {
-		t.Errorf("Label() = %q, want empty", session.Label())
+	if diff := cmp.Diff("", session.Label()); diff != "" {
+		t.Errorf("Label() mismatch (-want +got):\n%s", diff)
 	}
-	if session.Summary() != "" {
-		t.Errorf("Summary() = %q, want empty", session.Summary())
+	if diff := cmp.Diff("", session.Summary()); diff != "" {
+		t.Errorf("Summary() mismatch (-want +got):\n%s", diff)
 	}
-	if session.ParentSessionID() != "" {
-		t.Errorf("ParentSessionID() = %q, want empty", session.ParentSessionID())
+	if diff := cmp.Diff("", session.ParentSessionID()); diff != "" {
+		t.Errorf("ParentSessionID() mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -62,20 +64,22 @@ func TestSessionOf(t *testing.T) {
 
 	session := model.SessionOf(sid, start, types.Of(end), "cli", agent, "workspace", "sprint-1", "did stuff", "parent-123")
 
-	if session.SessionID() != sid {
-		t.Errorf("SessionID() = %v, want %v", session.SessionID(), sid)
+	if diff := cmp.Diff(sid, session.SessionID()); diff != "" {
+		t.Errorf("SessionID() mismatch (-want +got):\n%s", diff)
 	}
-	if !session.EndedAt().IsPresent() || session.EndedAt().Get() != end {
-		t.Errorf("EndedAt() = %v, want %v", session.EndedAt(), end)
+	if !session.EndedAt().IsPresent() {
+		t.Errorf("EndedAt() should be present")
+	} else if diff := cmp.Diff(end, session.EndedAt().Get()); diff != "" {
+		t.Errorf("EndedAt() mismatch (-want +got):\n%s", diff)
 	}
-	if session.Label() != "sprint-1" {
-		t.Errorf("Label() = %q, want %q", session.Label(), "sprint-1")
+	if diff := cmp.Diff("sprint-1", session.Label()); diff != "" {
+		t.Errorf("Label() mismatch (-want +got):\n%s", diff)
 	}
-	if session.Summary() != "did stuff" {
-		t.Errorf("Summary() = %q, want %q", session.Summary(), "did stuff")
+	if diff := cmp.Diff("did stuff", session.Summary()); diff != "" {
+		t.Errorf("Summary() mismatch (-want +got):\n%s", diff)
 	}
-	if session.ParentSessionID() != "parent-123" {
-		t.Errorf("ParentSessionID() = %q, want %q", session.ParentSessionID(), "parent-123")
+	if diff := cmp.Diff("parent-123", session.ParentSessionID()); diff != "" {
+		t.Errorf("ParentSessionID() mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -93,17 +97,17 @@ func TestSession_SetLabel(t *testing.T) {
 	}
 
 	session.SetLabel("sprint-1")
-	if session.Label() != "sprint-1" {
-		t.Errorf("Label() = %q, want %q after SetLabel", session.Label(), "sprint-1")
+	if diff := cmp.Diff("sprint-1", session.Label()); diff != "" {
+		t.Errorf("Label() after SetLabel mismatch (-want +got):\n%s", diff)
 	}
 
 	session.SetLabel("updated-label")
-	if session.Label() != "updated-label" {
-		t.Errorf("Label() = %q, want %q after second SetLabel", session.Label(), "updated-label")
+	if diff := cmp.Diff("updated-label", session.Label()); diff != "" {
+		t.Errorf("Label() after second SetLabel mismatch (-want +got):\n%s", diff)
 	}
 
 	session.SetLabel("")
-	if session.Label() != "" {
-		t.Errorf("Label() = %q, want empty after clearing with SetLabel", session.Label())
+	if diff := cmp.Diff("", session.Label()); diff != "" {
+		t.Errorf("Label() after clearing with SetLabel mismatch (-want +got):\n%s", diff)
 	}
 }

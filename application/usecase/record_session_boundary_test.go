@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -15,7 +17,7 @@ import (
 func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 	t.Parallel()
 
-	t.Run("session start で session ID を生成して保存できる", func(t *testing.T) {
+	t.Run("generates and saves session ID on session start", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventRepositoryStub{}
@@ -36,15 +38,15 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 		if !strings.HasPrefix(got.SessionID().String(), "session-") {
 			t.Fatalf("SessionID() = %q, want prefix %q", got.SessionID(), "session-")
 		}
-		if got.Kind() != types.EventKindSessionStarted {
-			t.Fatalf("Kind() = %q, want %q", got.Kind(), types.EventKindSessionStarted)
+		if diff := cmp.Diff(types.EventKindSessionStarted, got.Kind()); diff != "" {
+			t.Fatalf("Kind() mismatch (-want +got):\n%s", diff)
 		}
-		if got.Body() != "session started" {
-			t.Fatalf("Body() = %q, want %q", got.Body(), "session started")
+		if diff := cmp.Diff("session started", got.Body()); diff != "" {
+			t.Fatalf("Body() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
-	t.Run("session end は session ID 未指定だとエラー", func(t *testing.T) {
+	t.Run("session end returns error when session ID is missing", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventRepositoryStub{}
@@ -59,7 +61,7 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 		}
 	})
 
-	t.Run("session end を保存できる", func(t *testing.T) {
+	t.Run("saves session end event", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventRepositoryStub{}
@@ -75,18 +77,18 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
 		}
-		if got.Kind() != types.EventKindSessionEnded {
-			t.Fatalf("Kind() = %q, want %q", got.Kind(), types.EventKindSessionEnded)
+		if diff := cmp.Diff(types.EventKindSessionEnded, got.Kind()); diff != "" {
+			t.Fatalf("Kind() mismatch (-want +got):\n%s", diff)
 		}
-		if got.SessionID().String() != "session-1" {
-			t.Fatalf("SessionID() = %q, want %q", got.SessionID(), "session-1")
+		if diff := cmp.Diff("session-1", got.SessionID().String()); diff != "" {
+			t.Fatalf("SessionID() mismatch (-want +got):\n%s", diff)
 		}
-		if got.Body() != "session ended" {
-			t.Fatalf("Body() = %q, want %q", got.Body(), "session ended")
+		if diff := cmp.Diff("session ended", got.Body()); diff != "" {
+			t.Fatalf("Body() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
-	t.Run("session end は開始時の client/agent/repo を引き継げる", func(t *testing.T) {
+	t.Run("session end inherits client/agent/repo from start", func(t *testing.T) {
 		t.Parallel()
 
 		sessionID, err := types.SessionIDOf("session-1")
@@ -121,18 +123,18 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
 		}
-		if got.Client() != "hook" {
-			t.Fatalf("Client() = %q, want %q", got.Client(), "hook")
+		if diff := cmp.Diff("hook", got.Client()); diff != "" {
+			t.Fatalf("Client() mismatch (-want +got):\n%s", diff)
 		}
-		if got.Agent().String() != "claude" {
-			t.Fatalf("Agent() = %q, want %q", got.Agent(), "claude")
+		if diff := cmp.Diff("claude", got.Agent().String()); diff != "" {
+			t.Fatalf("Agent() mismatch (-want +got):\n%s", diff)
 		}
-		if got.Workspace() != "repo-from-start" {
-			t.Fatalf("Repo() = %q, want %q", got.Workspace(), "repo-from-start")
+		if diff := cmp.Diff("repo-from-start", got.Workspace()); diff != "" {
+			t.Fatalf("Workspace() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
-	t.Run("session end は明示的な client/agent を優先する", func(t *testing.T) {
+	t.Run("session end prefers explicit client/agent over inherited", func(t *testing.T) {
 		t.Parallel()
 
 		sessionID, err := types.SessionIDOf("session-1")
@@ -170,18 +172,18 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
 		}
-		if got.Client() != "cli" {
-			t.Fatalf("Client() = %q, want %q", got.Client(), "cli")
+		if diff := cmp.Diff("cli", got.Client()); diff != "" {
+			t.Fatalf("Client() mismatch (-want +got):\n%s", diff)
 		}
-		if got.Agent().String() != "codex" {
-			t.Fatalf("Agent() = %q, want %q", got.Agent(), "codex")
+		if diff := cmp.Diff("codex", got.Agent().String()); diff != "" {
+			t.Fatalf("Agent() mismatch (-want +got):\n%s", diff)
 		}
-		if got.Workspace() != "repo-explicit" {
-			t.Fatalf("Repo() = %q, want %q", got.Workspace(), "repo-explicit")
+		if diff := cmp.Diff("repo-explicit", got.Workspace()); diff != "" {
+			t.Fatalf("Workspace() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
-	t.Run("session_started が見つからない場合は fallback を使う", func(t *testing.T) {
+	t.Run("uses fallback when session_started is not found", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventRepositoryStub{}
@@ -197,15 +199,15 @@ func TestRecordSessionBoundaryUsecase_Run(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
 		}
-		if got.Client() != "cli" {
-			t.Fatalf("Client() = %q, want %q", got.Client(), "cli")
+		if diff := cmp.Diff("cli", got.Client()); diff != "" {
+			t.Fatalf("Client() mismatch (-want +got):\n%s", diff)
 		}
-		if got.Agent().String() != "manual" {
-			t.Fatalf("Agent() = %q, want %q", got.Agent(), "manual")
+		if diff := cmp.Diff("manual", got.Agent().String()); diff != "" {
+			t.Fatalf("Agent() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
-	t.Run("session_started 取得エラーはそのまま返す", func(t *testing.T) {
+	t.Run("propagates error from session_started lookup", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventRepositoryStub{}
@@ -261,7 +263,7 @@ func mustTime(t *testing.T) time.Time {
 func TestRecordSessionBoundaryUsecase_Run_SessionSaver(t *testing.T) {
 	t.Parallel()
 
-	t.Run("session start で SessionSaver が呼ばれる", func(t *testing.T) {
+	t.Run("calls SessionSaver on session start", func(t *testing.T) {
 		t.Parallel()
 
 		eventStub := &eventRepositoryStub{}
@@ -285,7 +287,7 @@ func TestRecordSessionBoundaryUsecase_Run_SessionSaver(t *testing.T) {
 		}
 	})
 
-	t.Run("session end で SessionSaver が呼ばれる", func(t *testing.T) {
+	t.Run("calls SessionSaver on session end", func(t *testing.T) {
 		t.Parallel()
 
 		eventStub := &eventRepositoryStub{}
@@ -310,7 +312,7 @@ func TestRecordSessionBoundaryUsecase_Run_SessionSaver(t *testing.T) {
 		}
 	})
 
-	t.Run("SessionSaver がエラーを返したら Run もエラーを返す", func(t *testing.T) {
+	t.Run("returns error when SessionSaver fails", func(t *testing.T) {
 		t.Parallel()
 
 		eventStub := &eventRepositoryStub{}

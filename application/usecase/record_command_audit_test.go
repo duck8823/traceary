@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 )
@@ -60,11 +62,11 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		if stub.savedCommandAudit != commandAudit {
 			t.Fatalf("saved command audit mismatch")
 		}
-		if event.Kind().String() != "command_executed" {
-			t.Fatalf("Kind() = %q, want %q", event.Kind(), "command_executed")
+		if diff := cmp.Diff("command_executed", event.Kind().String()); diff != "" {
+			t.Fatalf("Kind() mismatch (-want +got):\n%s", diff)
 		}
-		if event.Body() != "go test ./..." {
-			t.Fatalf("Body() = %q, want %q", event.Body(), "go test ./...")
+		if diff := cmp.Diff("go test ./...", event.Body()); diff != "" {
+			t.Fatalf("Body() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -120,11 +122,11 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
 		}
-		if len(commandAudit.Input()) != 16 {
-			t.Fatalf("len(Input()) = %d, want 16", len(commandAudit.Input()))
+		if diff := cmp.Diff(16, len(commandAudit.Input())); diff != "" {
+			t.Fatalf("len(Input()) mismatch (-want +got):\n%s", diff)
 		}
-		if len(commandAudit.Output()) != 20 {
-			t.Fatalf("len(Output()) = %d, want 20", len(commandAudit.Output()))
+		if diff := cmp.Diff(20, len(commandAudit.Output())); diff != "" {
+			t.Fatalf("len(Output()) mismatch (-want +got):\n%s", diff)
 		}
 		if !commandAudit.InputTruncated() || !commandAudit.OutputTruncated() {
 			t.Fatalf("truncated flags = (%t, %t), want both true", commandAudit.InputTruncated(), commandAudit.OutputTruncated())
@@ -168,7 +170,7 @@ func TestRecordCommandAuditUsecase_Run(t *testing.T) {
 		}
 	})
 
-	t.Run("allow secrets が有効なら raw payload を保存する", func(t *testing.T) {
+	t.Run("saves raw payload when allow secrets is enabled", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &commandAuditSaverStub{}

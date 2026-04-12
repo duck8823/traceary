@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
@@ -118,8 +120,8 @@ func TestRootCLI_SessionTreeCommand_JSON(t *testing.T) {
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		if strings.TrimSpace(stdout.String()) != "[]" {
-			t.Fatalf("stdout = %q, want %q", stdout.String(), "[]\n")
+		if diff := cmp.Diff("[]", strings.TrimSpace(stdout.String())); diff != "" {
+			t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 		}
 	})
 

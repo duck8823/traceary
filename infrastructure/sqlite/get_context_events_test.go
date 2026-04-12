@@ -7,6 +7,8 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
@@ -81,7 +83,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 	if len(got) != 2 {
 		t.Fatalf("len(events) = %d, want 2", len(got))
 	}
-	if got[0].EventID().String() != "event-2" {
-		t.Fatalf("first EventID() = %q, want %q", got[0].EventID(), "event-2")
+	if diff := cmp.Diff("event-2", got[0].EventID().String()); diff != "" {
+		t.Fatalf("first EventID() mismatch (-want +got):\n%s", diff)
 	}
 }

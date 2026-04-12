@@ -3,6 +3,8 @@ package model_test
 import (
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -29,8 +31,8 @@ func TestNewCommandAudit(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewCommandAudit() error = %v", err)
 		}
-		if got.Command() != "go test ./..." {
-			t.Fatalf("Command() = %q, want %q", got.Command(), "go test ./...")
+		if diff := cmp.Diff("go test ./...", got.Command()); diff != "" {
+			t.Fatalf("Command() mismatch (-want +got):\n%s", diff)
 		}
 		if !got.InputTruncated() {
 			t.Fatalf("InputTruncated() = false, want true")
@@ -64,17 +66,17 @@ func TestCommandAuditOf(t *testing.T) {
 
 	audit := model.CommandAuditOf(eventID, "go build", "input-data", "output-data", false, true, types.Empty[int]())
 
-	if audit.EventID() != eventID {
-		t.Errorf("EventID() = %v, want %v", audit.EventID(), eventID)
+	if diff := cmp.Diff(eventID, audit.EventID()); diff != "" {
+		t.Errorf("EventID() mismatch (-want +got):\n%s", diff)
 	}
-	if audit.Command() != "go build" {
-		t.Errorf("Command() = %q, want %q", audit.Command(), "go build")
+	if diff := cmp.Diff("go build", audit.Command()); diff != "" {
+		t.Errorf("Command() mismatch (-want +got):\n%s", diff)
 	}
-	if audit.Input() != "input-data" {
-		t.Errorf("Input() = %q, want %q", audit.Input(), "input-data")
+	if diff := cmp.Diff("input-data", audit.Input()); diff != "" {
+		t.Errorf("Input() mismatch (-want +got):\n%s", diff)
 	}
-	if audit.Output() != "output-data" {
-		t.Errorf("Output() = %q, want %q", audit.Output(), "output-data")
+	if diff := cmp.Diff("output-data", audit.Output()); diff != "" {
+		t.Errorf("Output() mismatch (-want +got):\n%s", diff)
 	}
 	if audit.InputTruncated() {
 		t.Errorf("InputTruncated() = true, want false")
