@@ -17,14 +17,14 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-//go:embed sql/select_session_ended_at.sql
-var selectSessionEndedAtQuery string
-
 //go:embed sql/insert_session.sql
 var insertSessionQuery string
 
-//go:embed sql/update_session.sql
-var updateSessionQuery string
+//go:embed sql/update_session_label.sql
+var updateSessionLabelQuery string
+
+//go:embed sql/update_session_end.sql
+var updateSessionEndQuery string
 
 //go:embed sql/select_session_by_id.sql
 var selectSessionByIDQuery string
@@ -54,8 +54,12 @@ var (
 )
 
 // Save creates or updates a session record.
-// On session start, a new row is inserted.
-// On session end or label/summary update, the existing row is updated.
+//
+// The update path is column-scoped to avoid lost updates between concurrent
+// writers. When the aggregate carries an ended_at value, only ended_at and
+// summary are written (guarded by ended_at IS NULL to reject duplicate ends).
+// When ended_at is empty, only label is written. This keeps session end and
+// session label operations in orthogonal columns even when they race.
 func (d *SessionDatasource) Save(ctx context.Context, session *model.Session) error {
 	db, err := d.db.open(ctx)
 	if err != nil {
@@ -67,75 +71,7 @@ func (d *SessionDatasource) Save(ctx context.Context, session *model.Session) er
 		}
 	}()
 
-	if session.EndedAt().IsPresent() {
-		// Check if session is already ended
-		var existingEndedAt sql.NullString
-		_ = db.QueryRowContext(
-			ctx,
-			selectSessionEndedAtQuery,
-			session.SessionID().String(),
-		).Scan(&existingEndedAt)
-		if existingEndedAt.Valid {
-			slog.Warn("session already ended, overwriting ended_at",
-				"session_id", session.SessionID().String(),
-				"existing_ended_at", existingEndedAt.String,
-			)
-		}
-	}
-
-	// Try insert first (INSERT OR IGNORE — no-op if session already exists)
-	var parentSessionID *string
-	if session.ParentSessionID().String() != "" {
-		v := session.ParentSessionID().String()
-		parentSessionID = &v
-	}
-	result, err := db.ExecContext(
-		ctx,
-		insertSessionQuery,
-		session.SessionID().String(),
-		formatTimestamp(session.StartedAt()),
-		session.Client().String(),
-		session.Agent().String(),
-		session.Workspace().String(),
-		parentSessionID,
-	)
-	if err != nil {
-		if strings.Contains(err.Error(), "FOREIGN KEY constraint failed") && session.ParentSessionID().String() != "" {
-			return xerrors.Errorf("parent session not found: %s", session.ParentSessionID())
-		}
-		return xerrors.Errorf("failed to insert session: %w", err)
-	}
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return xerrors.Errorf("failed to check rows affected: %w", err)
-	}
-
-	// If insert succeeded (new session start) and no mutable updates needed, we're done
-	if rowsAffected > 0 && !session.EndedAt().IsPresent() && session.Label() == "" && session.Summary() == "" {
-		return nil
-	}
-
-	// Session already exists or has mutable fields to update — update all mutable fields
-	if rowsAffected == 0 || session.EndedAt().IsPresent() || session.Label() != "" || session.Summary() != "" {
-		var endedAtValue *string
-		if session.EndedAt().IsPresent() {
-			endedAt, _ := session.EndedAt().Get()
-			v := formatTimestamp(endedAt)
-			endedAtValue = &v
-		}
-		if _, err := db.ExecContext(
-			ctx,
-			updateSessionQuery,
-			endedAtValue,
-			session.Label(),
-			session.Summary(),
-			session.SessionID().String(),
-		); err != nil {
-			return xerrors.Errorf("failed to update session: %w", err)
-		}
-	}
-
-	return nil
+	return saveSession(ctx, db, session)
 }
 
 // SaveBoundary atomically persists a session aggregate together with its
@@ -183,7 +119,7 @@ func (d *SessionDatasource) SaveBoundary(ctx context.Context, session *model.Ses
 		return xerrors.Errorf("failed to insert boundary event: %w", err)
 	}
 
-	if err := saveSessionTx(ctx, tx, session); err != nil {
+	if err := saveSession(ctx, tx, session); err != nil {
 		return xerrors.Errorf("failed to save session: %w", err)
 	}
 
@@ -194,16 +130,23 @@ func (d *SessionDatasource) SaveBoundary(ctx context.Context, session *model.Ses
 	return nil
 }
 
-// saveSessionTx persists a session within an existing transaction.
-// On insert, only the immutable fields are written. On update, the mutable
-// fields (ended_at, label, summary) are written.
-func saveSessionTx(ctx context.Context, tx *sql.Tx, session *model.Session) error {
+// sqlExecer abstracts *sql.DB and *sql.Tx so saveSession can run in either a
+// standalone operation or an existing transaction.
+type sqlExecer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// saveSession persists a session aggregate. The insert is idempotent
+// (INSERT OR IGNORE) so start is a no-op on existing rows. The subsequent
+// update is column-scoped so session end and session label cannot clobber
+// each other's columns when they race.
+func saveSession(ctx context.Context, exec sqlExecer, session *model.Session) error {
 	var parentSessionID *string
 	if session.ParentSessionID().String() != "" {
 		v := session.ParentSessionID().String()
 		parentSessionID = &v
 	}
-	result, err := tx.ExecContext(
+	result, err := exec.ExecContext(
 		ctx,
 		insertSessionQuery,
 		session.SessionID().String(),
@@ -219,32 +162,45 @@ func saveSessionTx(ctx context.Context, tx *sql.Tx, session *model.Session) erro
 		}
 		return xerrors.Errorf("failed to insert session: %w", err)
 	}
-	rowsAffected, err := result.RowsAffected()
+	inserted, err := result.RowsAffected()
 	if err != nil {
 		return xerrors.Errorf("failed to check rows affected: %w", err)
 	}
 
-	// If insert succeeded (new row) and no mutable fields are set, we are done.
-	if rowsAffected > 0 && !session.EndedAt().IsPresent() && session.Label() == "" && session.Summary() == "" {
+	// Fresh insert with no mutable state — start is complete.
+	if inserted > 0 && !session.EndedAt().IsPresent() && session.Label() == "" {
 		return nil
 	}
 
-	// Existing row OR mutable fields to update — write the mutable fields.
-	var endedAtValue *string
 	if session.EndedAt().IsPresent() {
 		endedAt, _ := session.EndedAt().Get()
-		v := formatTimestamp(endedAt)
-		endedAtValue = &v
+		res, err := exec.ExecContext(
+			ctx,
+			updateSessionEndQuery,
+			formatTimestamp(endedAt),
+			session.Summary(),
+			session.SessionID().String(),
+		)
+		if err != nil {
+			return xerrors.Errorf("failed to end session: %w", err)
+		}
+		updated, err := res.RowsAffected()
+		if err != nil {
+			return xerrors.Errorf("failed to check rows affected: %w", err)
+		}
+		if updated == 0 {
+			return xerrors.Errorf("cannot end session %s: %w", session.SessionID(), model.ErrInvalidSessionState)
+		}
+		return nil
 	}
-	if _, err := tx.ExecContext(
+
+	if _, err := exec.ExecContext(
 		ctx,
-		updateSessionQuery,
-		endedAtValue,
+		updateSessionLabelQuery,
 		session.Label(),
-		session.Summary(),
 		session.SessionID().String(),
 	); err != nil {
-		return xerrors.Errorf("failed to update session: %w", err)
+		return xerrors.Errorf("failed to update session label: %w", err)
 	}
 	return nil
 }
