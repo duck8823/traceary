@@ -21,7 +21,8 @@ func TestSessionUsecase_Start(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventRepositoryStub{}
-		sut := usecase.NewSessionUsecase(stub, nil, nil, nil)
+		sessionStub := &sessionRepositoryStub{}
+		sut := usecase.NewSessionUsecase(stub, sessionStub, nil, nil)
 
 		got, err := sut.Start(context.Background(),
 			types.Client("cli"),
@@ -55,7 +56,8 @@ func TestSessionUsecase_End(t *testing.T) {
 		t.Parallel()
 
 		stub := &eventRepositoryStub{}
-		sut := usecase.NewSessionUsecase(stub, nil, nil, nil)
+		sessionStub := &sessionRepositoryStub{}
+		sut := usecase.NewSessionUsecase(stub, sessionStub, nil, nil)
 
 		_, err := sut.End(context.Background(),
 			types.Client(""),
@@ -72,8 +74,16 @@ func TestSessionUsecase_End(t *testing.T) {
 	t.Run("saves session end event", func(t *testing.T) {
 		t.Parallel()
 
+		sessionID, _ := types.SessionIDOf("session-1")
+		agent, _ := types.AgentOf("codex")
+		existing := model.SessionOf(
+			sessionID, mustTime(t), types.Empty[time.Time](),
+			types.Client("cli"), agent, types.Workspace("duck8823/traceary"),
+			"", "", types.SessionID(""),
+		)
 		stub := &eventRepositoryStub{}
-		sut := usecase.NewSessionUsecase(stub, nil, nil, nil)
+		sessionStub := &sessionRepositoryStub{session: existing}
+		sut := usecase.NewSessionUsecase(stub, sessionStub, nil, nil)
 
 		got, err := sut.End(context.Background(),
 			types.Client("cli"),
@@ -211,12 +221,16 @@ func TestSessionUsecase_End(t *testing.T) {
 }
 
 type sessionRepositoryStub struct {
-	session    *model.Session
-	empty      bool
-	findErr    error
-	saveCalled bool
-	saved      *model.Session
-	saveErr    error
+	session            *model.Session
+	empty              bool
+	findErr            error
+	saveCalled         bool
+	saved              *model.Session
+	saveErr            error
+	saveBoundaryCalled bool
+	savedBoundary      *model.Session
+	savedEvent         *model.Event
+	saveBoundaryErr    error
 }
 
 func (s *sessionRepositoryStub) FindByID(
@@ -238,6 +252,13 @@ func (s *sessionRepositoryStub) Save(_ context.Context, session *model.Session) 
 	return s.saveErr
 }
 
+func (s *sessionRepositoryStub) SaveBoundary(_ context.Context, session *model.Session, event *model.Event) error {
+	s.saveBoundaryCalled = true
+	s.savedBoundary = session
+	s.savedEvent = event
+	return s.saveBoundaryErr
+}
+
 func mustTime(t *testing.T) time.Time {
 	t.Helper()
 
@@ -247,7 +268,7 @@ func mustTime(t *testing.T) time.Time {
 func TestSessionUsecase_SessionSaver(t *testing.T) {
 	t.Parallel()
 
-	t.Run("calls SessionSaver on session start", func(t *testing.T) {
+	t.Run("calls SaveBoundary on session start", func(t *testing.T) {
 		t.Parallel()
 
 		eventStub := &eventRepositoryStub{}
@@ -264,15 +285,18 @@ func TestSessionUsecase_SessionSaver(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Start() error = %v", err)
 		}
-		if !sessionStub.saveCalled {
-			t.Fatalf("SessionRepository.Save() was not called")
+		if !sessionStub.saveBoundaryCalled {
+			t.Fatalf("SessionRepository.SaveBoundary() was not called")
 		}
-		if sessionStub.saved.EndedAt().IsPresent() {
+		if sessionStub.savedBoundary.EndedAt().IsPresent() {
 			t.Fatalf("session.EndedAt() should be empty for start")
+		}
+		if sessionStub.savedEvent.Kind() != types.EventKindSessionStarted {
+			t.Fatalf("event Kind() = %v, want session_started", sessionStub.savedEvent.Kind())
 		}
 	})
 
-	t.Run("calls SessionSaver on session end with existing session", func(t *testing.T) {
+	t.Run("calls SaveBoundary on session end with existing session", func(t *testing.T) {
 		t.Parallel()
 
 		sessionID, err := types.SessionIDOf("test-session")
@@ -307,14 +331,17 @@ func TestSessionUsecase_SessionSaver(t *testing.T) {
 		if err != nil {
 			t.Fatalf("End() error = %v", err)
 		}
-		if !sessionStub.saveCalled {
-			t.Fatalf("SessionRepository.Save() was not called")
+		if !sessionStub.saveBoundaryCalled {
+			t.Fatalf("SessionRepository.SaveBoundary() was not called")
 		}
-		if !sessionStub.saved.EndedAt().IsPresent() {
+		if !sessionStub.savedBoundary.EndedAt().IsPresent() {
 			t.Fatalf("session.EndedAt() should be present for end")
 		}
-		if diff := cmp.Diff("test summary", sessionStub.saved.Summary()); diff != "" {
+		if diff := cmp.Diff("test summary", sessionStub.savedBoundary.Summary()); diff != "" {
 			t.Fatalf("Summary() mismatch (-want +got):\n%s", diff)
+		}
+		if sessionStub.savedEvent.Kind() != types.EventKindSessionEnded {
+			t.Fatalf("event Kind() = %v, want session_ended", sessionStub.savedEvent.Kind())
 		}
 	})
 
@@ -338,16 +365,16 @@ func TestSessionUsecase_SessionSaver(t *testing.T) {
 		if !errors.Is(err, model.ErrInvalidSessionState) {
 			t.Fatalf("End() error = %v, want ErrInvalidSessionState", err)
 		}
-		if sessionStub.saveCalled {
-			t.Fatalf("SessionRepository.Save() should not be called when session is not found")
+		if sessionStub.saveBoundaryCalled {
+			t.Fatalf("SessionRepository.SaveBoundary() should not be called when session is not found")
 		}
 	})
 
-	t.Run("returns error when SessionSaver fails", func(t *testing.T) {
+	t.Run("returns error when SaveBoundary fails", func(t *testing.T) {
 		t.Parallel()
 
 		eventStub := &eventRepositoryStub{}
-		sessionStub := &sessionRepositoryStub{saveErr: errors.New("save failed")}
+		sessionStub := &sessionRepositoryStub{saveBoundaryErr: errors.New("save failed")}
 		sut := usecase.NewSessionUsecase(eventStub, sessionStub, nil, nil)
 
 		_, err := sut.Start(context.Background(),

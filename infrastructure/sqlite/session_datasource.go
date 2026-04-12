@@ -138,6 +138,117 @@ func (d *SessionDatasource) Save(ctx context.Context, session *model.Session) er
 	return nil
 }
 
+// SaveBoundary atomically persists a session aggregate together with its
+// boundary event. Both writes are committed in a single transaction.
+func (d *SessionDatasource) SaveBoundary(ctx context.Context, session *model.Session, event *model.Event) error {
+	if session == nil {
+		return xerrors.Errorf("session must not be nil")
+	}
+	if event == nil {
+		return xerrors.Errorf("event must not be nil")
+	}
+
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return xerrors.Errorf("failed to open DB for session boundary save: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return xerrors.Errorf("failed to begin session boundary transaction: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Debug("failed to rollback transaction", "error", err)
+		}
+	}()
+
+	if _, err := tx.ExecContext(
+		ctx,
+		insertEventQuery,
+		event.EventID().String(),
+		event.Kind().String(),
+		event.Client().String(),
+		event.Agent().String(),
+		event.SessionID().String(),
+		event.Workspace().String(),
+		event.Body(),
+		formatTimestamp(event.CreatedAt()),
+	); err != nil {
+		return xerrors.Errorf("failed to insert boundary event: %w", err)
+	}
+
+	if err := saveSessionTx(ctx, tx, session); err != nil {
+		return xerrors.Errorf("failed to save session: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return xerrors.Errorf("failed to commit session boundary transaction: %w", err)
+	}
+
+	return nil
+}
+
+// saveSessionTx persists a session within an existing transaction.
+// On insert, only the immutable fields are written. On update, the mutable
+// fields (ended_at, label, summary) are written.
+func saveSessionTx(ctx context.Context, tx *sql.Tx, session *model.Session) error {
+	var parentSessionID *string
+	if session.ParentSessionID().String() != "" {
+		v := session.ParentSessionID().String()
+		parentSessionID = &v
+	}
+	result, err := tx.ExecContext(
+		ctx,
+		insertSessionQuery,
+		session.SessionID().String(),
+		formatTimestamp(session.StartedAt()),
+		session.Client().String(),
+		session.Agent().String(),
+		session.Workspace().String(),
+		parentSessionID,
+	)
+	if err != nil {
+		if strings.Contains(err.Error(), "FOREIGN KEY constraint failed") && session.ParentSessionID().String() != "" {
+			return xerrors.Errorf("parent session not found: %s", session.ParentSessionID())
+		}
+		return xerrors.Errorf("failed to insert session: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return xerrors.Errorf("failed to check rows affected: %w", err)
+	}
+
+	// If insert succeeded (new row) and no mutable fields are set, we are done.
+	if rowsAffected > 0 && !session.EndedAt().IsPresent() && session.Label() == "" && session.Summary() == "" {
+		return nil
+	}
+
+	// Existing row OR mutable fields to update — write the mutable fields.
+	var endedAtValue *string
+	if session.EndedAt().IsPresent() {
+		endedAt, _ := session.EndedAt().Get()
+		v := formatTimestamp(endedAt)
+		endedAtValue = &v
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		updateSessionQuery,
+		endedAtValue,
+		session.Label(),
+		session.Summary(),
+		session.SessionID().String(),
+	); err != nil {
+		return xerrors.Errorf("failed to update session: %w", err)
+	}
+	return nil
+}
+
 // FindByID returns the session for the given ID.
 // Returns an empty Optional when the session does not exist.
 func (d *SessionDatasource) FindByID(ctx context.Context, sessionID types.SessionID) (types.Optional[*model.Session], error) {

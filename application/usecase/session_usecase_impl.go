@@ -36,8 +36,8 @@ func NewSessionUsecase(
 }
 
 func (u *sessionUsecase) Start(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, parentSessionID types.SessionID) (*model.Event, error) {
-	if u.eventRepo == nil {
-		return nil, xerrors.Errorf("event repository is not configured")
+	if u.sessionRepo == nil {
+		return nil, xerrors.Errorf("session repository is not configured")
 	}
 
 	resolvedSessionID, err := u.resolveSessionStartID(sessionID)
@@ -52,23 +52,18 @@ func (u *sessionUsecase) Start(ctx context.Context, client types.Client, agent t
 	if err != nil {
 		return nil, xerrors.Errorf("failed to start session: %w", err)
 	}
-	if err := u.eventRepo.Save(ctx, event); err != nil {
-		return nil, xerrors.Errorf("failed to save session start event: %w", err)
-	}
 
-	if u.sessionRepo != nil {
-		session := buildSessionFromBoundary(event, parentSessionID)
-		if err := u.sessionRepo.Save(ctx, session); err != nil {
-			return nil, xerrors.Errorf("failed to save session metadata: %w", err)
-		}
+	session := buildSessionFromBoundary(event, parentSessionID)
+	if err := u.sessionRepo.SaveBoundary(ctx, session, event); err != nil {
+		return nil, xerrors.Errorf("failed to save session start: %w", err)
 	}
 
 	return event, nil
 }
 
 func (u *sessionUsecase) End(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, summary string) (*model.Event, error) {
-	if u.eventRepo == nil {
-		return nil, xerrors.Errorf("event repository is not configured")
+	if u.sessionRepo == nil {
+		return nil, xerrors.Errorf("session repository is not configured")
 	}
 
 	resolvedSessionID, err := types.SessionIDOf(sessionID.String())
@@ -84,36 +79,26 @@ func (u *sessionUsecase) End(ctx context.Context, client types.Client, agent typ
 		return nil, xerrors.Errorf("failed to end session: %w", err)
 	}
 
-	// For session end, verify the session exists before writing anything.
-	// This avoids creating an orphaned session_ended event for a missing session.
-	var existingSession *model.Session
-	if u.sessionRepo != nil {
-		existing, err := u.sessionRepo.FindByID(ctx, resolvedSessionID)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to find session for end: %w", err)
-		}
-		session, ok := existing.Get()
-		if !ok {
-			return nil, xerrors.Errorf("cannot end session %s: %w", resolvedSessionID, model.ErrInvalidSessionState)
-		}
-		existingSession = session
+	// Verify the session exists before writing anything.
+	existing, err := u.sessionRepo.FindByID(ctx, resolvedSessionID)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to find session for end: %w", err)
+	}
+	existingSession, ok := existing.Get()
+	if !ok {
+		return nil, xerrors.Errorf("cannot end session %s: %w", resolvedSessionID, model.ErrInvalidSessionState)
 	}
 
 	event, err := u.buildBoundaryEvent(types.EventKindSessionEnded, resolvedClient, resolvedAgent, resolvedSessionID, resolvedWorkspace)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to end session: %w", err)
 	}
-	if err := u.eventRepo.Save(ctx, event); err != nil {
-		return nil, xerrors.Errorf("failed to save session end event: %w", err)
-	}
 
-	if existingSession != nil {
-		if err := existingSession.End(event.CreatedAt(), summary); err != nil {
-			return nil, xerrors.Errorf("failed to end session: %w", err)
-		}
-		if err := u.sessionRepo.Save(ctx, existingSession); err != nil {
-			return nil, xerrors.Errorf("failed to save session end: %w", err)
-		}
+	if err := existingSession.End(event.CreatedAt(), summary); err != nil {
+		return nil, xerrors.Errorf("failed to end session: %w", err)
+	}
+	if err := u.sessionRepo.SaveBoundary(ctx, existingSession, event); err != nil {
+		return nil, xerrors.Errorf("failed to save session end: %w", err)
 	}
 
 	return event, nil
