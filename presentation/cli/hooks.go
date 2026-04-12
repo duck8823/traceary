@@ -44,19 +44,6 @@ type hookCommand struct {
 	Description string `json:"description,omitempty"`
 }
 
-type hooksPrintCommandInput struct {
-	client      string
-	tracearyBin string
-}
-
-type hooksInstallCommandInput struct {
-	client      string
-	projectDir  string
-	tracearyBin string
-	outputPath  string
-	force       bool
-}
-
 func (c *RootCLI) newHooksCommand() *cobra.Command {
 	hooksCmd := &cobra.Command{
 		Use:   "hooks",

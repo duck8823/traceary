@@ -54,22 +54,6 @@ func (c *RootCLI) newContextCommand() *cobra.Command {
 	return contextCmd
 }
 
-type contextCommandInput struct {
-	dbPath    string
-	sessionID string
-	client    string
-	agent     string
-	repo      string
-	limit     int
-	asJSON    bool
-}
-
-type contextOutput struct {
-	ResolvedSessionID string      `json:"resolved_session_id,omitempty"`
-	ResolvedWorkspace      string      `json:"resolved_workspace,omitempty"`
-	Events            []eventJSON `json:"events"`
-}
-
 func (c *RootCLI) runContext(ctx context.Context, output io.Writer, input contextCommandInput) error {
 	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))

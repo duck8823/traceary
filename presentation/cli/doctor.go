@@ -66,14 +66,6 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 	return doctorCmd
 }
 
-type doctorCommandInput struct {
-	dbPath         string
-	client         string
-	projectDir     string
-	currentVersion string
-	asJSON         bool
-}
-
 func (c *RootCLI) runDoctor(ctx context.Context, output io.Writer, input doctorCommandInput) error {
 	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))

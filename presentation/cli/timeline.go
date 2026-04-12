@@ -57,16 +57,6 @@ func (c *RootCLI) newTimelineCommand() *cobra.Command {
 	return cmd
 }
 
-type timelineCommandInput struct {
-	dbPath    string
-	workspace string
-	from      string
-	to        string
-	gap       int
-	limit     int
-	asJSON    bool
-}
-
 func (c *RootCLI) runTimeline(ctx context.Context, output io.Writer, input timelineCommandInput) error {
 	if c.event == nil {
 		return xerrors.Errorf(Localize("event usecase is not configured", "イベントユースケースが設定されていません"))

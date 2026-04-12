@@ -85,24 +85,6 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 	return searchCmd
 }
 
-type searchCommandInput struct {
-	dbPath       string
-	repo         string
-	sessionID    string
-	client       string
-	agent        string
-	kind         string
-	from         string
-	since        string
-	to           string
-	until        string
-	limit        int
-	offset       int
-	query        string
-	failuresOnly bool
-	asJSON       bool
-}
-
 func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchCommandInput) error {
 	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))

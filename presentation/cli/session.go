@@ -165,30 +165,6 @@ func (c *RootCLI) newSessionEndCommand() *cobra.Command {
 	return endCmd
 }
 
-type sessionBoundaryCommandInput struct {
-	dbPath          string
-	client          string
-	agent           string
-	sessionID       string
-	repo            string
-	summary         string
-	parentSessionID string
-	kind            types.EventKind
-	idOnly          bool
-	asJSON          bool
-}
-
-type sessionLatestCommandInput struct {
-	dbPath     string
-	client     string
-	agent      string
-	repo       string
-	activeOnly bool
-	staleAfter time.Duration
-	allowStale bool
-	asJSON     bool
-}
-
 func (c *RootCLI) newSessionActiveCommand() *cobra.Command {
 	var (
 		dbPath     string

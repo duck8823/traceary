@@ -41,18 +41,9 @@ func (c *RootCLI) newGCCommand() *cobra.Command {
 	return gcCmd
 }
 
-type gcCommandInput struct {
-	dbPath   string
-	keepDays int
-	dryRun   bool
-}
-
 func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandInput) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
-	}
-	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("garbage collection usecase is not configured", "gc ユースケースが設定されていません"))
+		return xerrors.Errorf(Localize("store management usecase is not configured", "ストア管理ユースケースが設定されていません"))
 	}
 	if input.keepDays <= 0 {
 		return xerrors.Errorf(Localize("--keep-days must be greater than or equal to 1", "keep-days は 1 以上である必要があります"))

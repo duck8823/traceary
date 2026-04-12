@@ -15,20 +15,6 @@ import (
 
 )
 
-type backupCreateCommandInput struct {
-	dbPath     string
-	outputPath string
-	force      bool
-}
-
-type backupRestoreCommandInput struct {
-	dbPath    string
-	inputPath string
-	force     bool
-	assumeYes bool
-	prompter  *backupRestorePrompter
-}
-
 var errBackupRestoreCanceled = xerrors.New(Localize("restore canceled", "復元を中止しました"))
 
 type backupRestorePrompter struct {

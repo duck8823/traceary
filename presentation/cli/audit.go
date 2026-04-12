@@ -135,33 +135,6 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 	return auditCmd
 }
 
-type auditPayloadInput struct {
-	positionalArgs []string
-	command        string
-	commandFlagSet bool
-	input          string
-	inputFlagSet   bool
-	output         string
-	outputFlagSet  bool
-}
-
-type auditCommandInput struct {
-	dbPath         string
-	command        string
-	input          string
-	output         string
-	client         string
-	agent          string
-	sessionID      string
-	repo           string
-	exitCode       types.Optional[int]
-	idOnly         bool
-	asJSON         bool
-	allowSecrets   bool
-	maxInputBytes  int
-	maxOutputBytes int
-}
-
 func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCommandInput) error {
 	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))

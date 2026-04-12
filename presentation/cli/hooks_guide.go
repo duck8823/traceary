@@ -10,12 +10,6 @@ import (
 	"golang.org/x/xerrors"
 )
 
-type hooksGuideCommandInput struct {
-	client     string
-	projectDir string
-	outputPath string
-}
-
 func (c *RootCLI) newHooksGuideCommand() *cobra.Command {
 	var (
 		client     string

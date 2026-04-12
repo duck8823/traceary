@@ -71,23 +71,6 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 	return listCmd
 }
 
-type listCommandInput struct {
-	dbPath       string
-	limit        int
-	offset       int
-	kind         string
-	client       string
-	agent        string
-	sessionID    string
-	repo         string
-	from         string
-	since        string
-	to           string
-	until        string
-	failuresOnly bool
-	asJSON       bool
-}
-
 func (c *RootCLI) runList(ctx context.Context, output io.Writer, input listCommandInput) error {
 	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
