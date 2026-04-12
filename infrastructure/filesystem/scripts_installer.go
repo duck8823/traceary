@@ -50,6 +50,9 @@ func (i *HookScriptsInstaller) Ensure() (string, error) {
 
 	for _, asset := range assets {
 		outputPath := filepath.Join(scriptsDir, asset.Name())
+		if err := rejectSymlink(outputPath); err != nil {
+			return "", err
+		}
 		currentContent, err := os.ReadFile(outputPath)
 		if err == nil && string(currentContent) == asset.Content() {
 			if chmodErr := os.Chmod(outputPath, 0o755); chmodErr != nil {

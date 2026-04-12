@@ -287,3 +287,92 @@ func TestHooksOrchestrator_ResolveInstallPathHonorsOverride(t *testing.T) {
 		t.Fatalf("ResolveInstallPath() = %q, want %q", resolved, override)
 	}
 }
+
+// TestHooksOrchestrator_InstallRefusesSymlink asserts that Install refuses to
+// read or write through an attacker-supplied symlink at the destination path.
+// Without this guard a merge would follow the link and inject the traceary
+// hook into an unrelated file.
+func TestHooksOrchestrator_InstallRefusesSymlink(t *testing.T) {
+	t.Parallel()
+
+	projectDir := t.TempDir()
+	homeDir := t.TempDir()
+	orchestrator := newTestOrchestrator(homeDir)
+
+	settingsPath := filepath.Join(projectDir, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	victim := filepath.Join(t.TempDir(), "victim.json")
+	if err := os.WriteFile(victim, []byte(`{"sensitive":true}`), 0o600); err != nil {
+		t.Fatalf("WriteFile(victim) error = %v", err)
+	}
+	if err := os.Symlink(victim, settingsPath); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	if _, err := orchestrator.Install(
+		context.Background(),
+		"claude",
+		"/scripts",
+		"traceary",
+		projectDir,
+		types.Empty[string](),
+		false,
+	); err == nil {
+		t.Fatalf("Install() error = nil, want symlink refusal")
+	}
+
+	got, err := os.ReadFile(victim)
+	if err != nil {
+		t.Fatalf("ReadFile(victim) error = %v", err)
+	}
+	if string(got) != `{"sensitive":true}` {
+		t.Fatalf("victim content = %q, want untouched", got)
+	}
+}
+
+// TestHooksOrchestrator_InstallForceRefusesSymlink asserts the same guard
+// applies in force mode. Force must not be treated as "overwrite symlink
+// target" — it still refuses because the path itself is the symlink.
+func TestHooksOrchestrator_InstallForceRefusesSymlink(t *testing.T) {
+	t.Parallel()
+
+	projectDir := t.TempDir()
+	homeDir := t.TempDir()
+	orchestrator := newTestOrchestrator(homeDir)
+
+	settingsPath := filepath.Join(projectDir, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	victim := filepath.Join(t.TempDir(), "victim.json")
+	if err := os.WriteFile(victim, []byte(`{"sensitive":true}`), 0o600); err != nil {
+		t.Fatalf("WriteFile(victim) error = %v", err)
+	}
+	if err := os.Symlink(victim, settingsPath); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	if _, err := orchestrator.Install(
+		context.Background(),
+		"claude",
+		"/scripts",
+		"traceary",
+		projectDir,
+		types.Empty[string](),
+		true,
+	); err == nil {
+		t.Fatalf("Install(force=true) error = nil, want symlink refusal")
+	}
+
+	got, err := os.ReadFile(victim)
+	if err != nil {
+		t.Fatalf("ReadFile(victim) error = %v", err)
+	}
+	if string(got) != `{"sensitive":true}` {
+		t.Fatalf("victim content = %q, want untouched", got)
+	}
+}

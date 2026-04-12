@@ -180,12 +180,17 @@ func resolveInstallOutputPath(
 }
 
 func renderInstallContent(resolvedOutputPath string, hooks model.Hooks, force bool) ([]byte, error) {
-	if _, err := os.Stat(resolvedOutputPath); err != nil {
+	info, err := os.Lstat(resolvedOutputPath)
+	if err != nil {
 		if os.IsNotExist(err) {
 			return marshalHooks(hooks)
 		}
 
 		return nil, xerrors.Errorf("failed to inspect existing file: %w", err)
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, xerrors.Errorf("refusing to operate on symbolic link: %s", resolvedOutputPath)
 	}
 
 	if force {
