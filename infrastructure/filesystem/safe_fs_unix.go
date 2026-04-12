@@ -14,16 +14,6 @@ import (
 	"golang.org/x/xerrors"
 )
 
-// systemSymlinkWhitelist lists system-level symbolic links that must be
-// traversed without O_NOFOLLOW because they are OS-managed aliases, not
-// attacker-controlled paths. macOS exposes /var → /private/var,
-// /tmp → /private/tmp, and /etc → /private/etc at the root.
-var systemSymlinkWhitelist = map[string]bool{
-	"/var": true,
-	"/tmp": true,
-	"/etc": true,
-}
-
 // descendToDir opens the directory at absPath using an fd-pinned walk.
 // Each intermediate component is opened with O_NOFOLLOW so an attacker
 // who races to substitute an ancestor for a symbolic link is rejected
@@ -162,8 +152,9 @@ func safeReadFile(absPath string) ([]byte, error) {
 
 // safeWriteFile writes data to absPath using an fd-pinned walk that
 // rejects symbolic links anywhere in the path. The parent directory
-// must already exist (call safeMkdirAll first).
-func safeWriteFile(absPath string, data []byte, perm os.FileMode) error {
+// must already exist (call safeMkdirAll first). Write errors and
+// delayed errors surfaced by Close are both propagated to the caller.
+func safeWriteFile(absPath string, data []byte, perm os.FileMode) (retErr error) {
 	cleaned := filepath.Clean(absPath)
 	dir := filepath.Dir(cleaned)
 	base := filepath.Base(cleaned)
@@ -188,7 +179,12 @@ func safeWriteFile(absPath string, data []byte, perm os.FileMode) error {
 	}
 
 	f := os.NewFile(uintptr(fd), absPath)
-	defer func() { _ = f.Close() }()
+	defer func() {
+		closeErr := f.Close()
+		if retErr == nil && closeErr != nil {
+			retErr = xerrors.Errorf("failed to close %s: %w", absPath, closeErr)
+		}
+	}()
 
 	if _, err := f.Write(data); err != nil {
 		return xerrors.Errorf("failed to write %s: %w", absPath, err)
