@@ -68,12 +68,12 @@ func NewServer(
 	}, nil
 }
 
-// Build creates an MCP server backed by an initialized store.
-func (s *Server) Build(ctx context.Context, dbPath string) (*mcp.Server, error) {
-	trimmedDBPath := strings.TrimSpace(dbPath)
-	if trimmedDBPath == "" {
-		return nil, xerrors.Errorf("DB path must not be empty")
-	}
+// Build creates an MCP server backed by an initialized store. The DB
+// path has already been resolved and applied to the shared
+// sqlite.Database by the CLI before Build is invoked (see
+// cli.RootCLI.applyDatabasePath), so this method does not need a
+// separate dbPath argument.
+func (s *Server) Build(ctx context.Context) (*mcp.Server, error) {
 	if err := s.storeManagement.Initialize(ctx); err != nil {
 		return nil, xerrors.Errorf("failed to initialize store: %w", err)
 	}
@@ -87,59 +87,59 @@ func (s *Server) Build(ctx context.Context, dbPath string) (*mcp.Server, error) 
 		Name:        "add_log",
 		Description: "Add a log event to Traceary",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
-	}, s.addLog(trimmedDBPath))
+	}, s.addLog())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "start_session",
 		Description: "Add a session_started event to Traceary",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
-	}, s.startSession(trimmedDBPath))
+	}, s.startSession())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "end_session",
 		Description: "Add a session_ended event to Traceary",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
-	}, s.endSession(trimmedDBPath))
+	}, s.endSession())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "latest_session",
 		Description: "Return the latest session matching the filters",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-	}, s.latestSession(trimmedDBPath))
+	}, s.latestSession())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "active_session",
 		Description: "Return the active session matching the filters",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-	}, s.activeSession(trimmedDBPath))
+	}, s.activeSession())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_events",
 		Description: "List recent events in Traceary",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-	}, s.listEvents(trimmedDBPath))
+	}, s.listEvents())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "add_audit",
 		Description: "Add a command audit event to Traceary",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
-	}, s.addAudit(trimmedDBPath))
+	}, s.addAudit())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search",
 		Description: "Search events in Traceary",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-	}, s.search(trimmedDBPath))
+	}, s.search())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_context",
 		Description: "Get recent context events matching the filters",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-	}, s.getContext(trimmedDBPath))
+	}, s.getContext())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "session_handoff",
 		Description: "Get a concise session summary for handoff or context resumption",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-	}, s.sessionHandoff(trimmedDBPath))
+	}, s.sessionHandoff())
 
 	return server, nil
 }
 
 // Run starts the MCP server over stdio transport.
-func (s *Server) Run(ctx context.Context, dbPath string) error {
-	server, err := s.Build(ctx, dbPath)
+func (s *Server) Run(ctx context.Context) error {
+	server, err := s.Build(ctx)
 	if err != nil {
 		return xerrors.Errorf("failed to build MCP server: %w", err)
 	}
@@ -150,7 +150,7 @@ func (s *Server) Run(ctx context.Context, dbPath string) error {
 	return nil
 }
 
-func (s *Server) addLog(_ string) mcp.ToolHandlerFor[addLogInput, addLogOutput] {
+func (s *Server) addLog() mcp.ToolHandlerFor[addLogInput, addLogOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input addLogInput) (*mcp.CallToolResult, addLogOutput, error) {
 		event, err := s.event.Log(ctx,
 			input.Message,
@@ -177,7 +177,7 @@ func (s *Server) addLog(_ string) mcp.ToolHandlerFor[addLogInput, addLogOutput] 
 	}
 }
 
-func (s *Server) startSession(_ string) mcp.ToolHandlerFor[startSessionInput, sessionEventOutput] {
+func (s *Server) startSession() mcp.ToolHandlerFor[startSessionInput, sessionEventOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input startSessionInput) (*mcp.CallToolResult, sessionEventOutput, error) {
 		event, err := s.session.Start(ctx,
 			types.Client(resolveValue(input.Client, defaultClientValue)),
@@ -194,7 +194,7 @@ func (s *Server) startSession(_ string) mcp.ToolHandlerFor[startSessionInput, se
 	}
 }
 
-func (s *Server) endSession(_ string) mcp.ToolHandlerFor[endSessionInput, sessionEventOutput] {
+func (s *Server) endSession() mcp.ToolHandlerFor[endSessionInput, sessionEventOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input endSessionInput) (*mcp.CallToolResult, sessionEventOutput, error) {
 		sessionID := strings.TrimSpace(input.SessionID)
 		if sessionID == "" {
@@ -216,7 +216,7 @@ func (s *Server) endSession(_ string) mcp.ToolHandlerFor[endSessionInput, sessio
 	}
 }
 
-func (s *Server) latestSession(_ string) mcp.ToolHandlerFor[sessionLookupInput, sessionEventOutput] {
+func (s *Server) latestSession() mcp.ToolHandlerFor[sessionLookupInput, sessionEventOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input sessionLookupInput) (*mcp.CallToolResult, sessionEventOutput, error) {
 		criteria := apptypes.NewSessionLookupCriteriaBuilder().
 			Client(types.Client(strings.TrimSpace(input.Client))).
@@ -236,7 +236,7 @@ func (s *Server) latestSession(_ string) mcp.ToolHandlerFor[sessionLookupInput, 
 	}
 }
 
-func (s *Server) activeSession(_ string) mcp.ToolHandlerFor[sessionLookupInput, sessionEventOutput] {
+func (s *Server) activeSession() mcp.ToolHandlerFor[sessionLookupInput, sessionEventOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input sessionLookupInput) (*mcp.CallToolResult, sessionEventOutput, error) {
 		criteria := apptypes.NewSessionLookupCriteriaBuilder().
 			Client(types.Client(strings.TrimSpace(input.Client))).
@@ -259,7 +259,7 @@ func (s *Server) activeSession(_ string) mcp.ToolHandlerFor[sessionLookupInput, 
 	}
 }
 
-func (s *Server) addAudit(_ string) mcp.ToolHandlerFor[addAuditInput, addAuditOutput] {
+func (s *Server) addAudit() mcp.ToolHandlerFor[addAuditInput, addAuditOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input addAuditInput) (*mcp.CallToolResult, addAuditOutput, error) {
 		redaction := apptypes.NewAuditRedactionBuilder().
 			ExtraRedactPatterns(s.extraRedactPatterns).
@@ -294,7 +294,7 @@ func (s *Server) addAudit(_ string) mcp.ToolHandlerFor[addAuditInput, addAuditOu
 	}
 }
 
-func (s *Server) listEvents(_ string) mcp.ToolHandlerFor[listEventsInput, eventsOutput] {
+func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input listEventsInput) (*mcp.CallToolResult, eventsOutput, error) {
 		from, err := parseFlexibleTime(input.From, false)
 		if err != nil {
@@ -356,7 +356,7 @@ func validateActiveSession(event *model.Event, input sessionLookupInput) error {
 	return xerrors.Errorf("active session %s is older than %s and considered stale", event.SessionID(), staleAfter)
 }
 
-func (s *Server) search(_ string) mcp.ToolHandlerFor[searchInput, eventsOutput] {
+func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input searchInput) (*mcp.CallToolResult, eventsOutput, error) {
 		from, err := parseFlexibleTime(input.From, false)
 		if err != nil {
@@ -382,7 +382,7 @@ func (s *Server) search(_ string) mcp.ToolHandlerFor[searchInput, eventsOutput] 
 	}
 }
 
-func (s *Server) getContext(_ string) mcp.ToolHandlerFor[getContextInput, eventsOutput] {
+func (s *Server) getContext() mcp.ToolHandlerFor[getContextInput, eventsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input getContextInput) (*mcp.CallToolResult, eventsOutput, error) {
 		criteria := apptypes.NewEventContextCriteriaBuilder(resolveLimit(input.Limit, defaultContextLimit)).
 			Workspace(types.Workspace(strings.TrimSpace(input.Workspace))).
@@ -397,7 +397,7 @@ func (s *Server) getContext(_ string) mcp.ToolHandlerFor[getContextInput, events
 	}
 }
 
-func (s *Server) sessionHandoff(_ string) mcp.ToolHandlerFor[sessionHandoffInput, sessionHandoffOutput] {
+func (s *Server) sessionHandoff() mcp.ToolHandlerFor[sessionHandoffInput, sessionHandoffOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input sessionHandoffInput) (*mcp.CallToolResult, sessionHandoffOutput, error) {
 		result, err := s.session.Handoff(ctx,
 			types.SessionID(strings.TrimSpace(input.SessionID)),

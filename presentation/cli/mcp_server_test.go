@@ -9,12 +9,12 @@ import (
 )
 
 type mcpServerRunnerStub struct {
-	receivedPath string
-	err          error
+	called bool
+	err    error
 }
 
-func (s *mcpServerRunnerStub) Run(_ context.Context, dbPath string) error {
-	s.receivedPath = dbPath
+func (s *mcpServerRunnerStub) Run(_ context.Context) error {
+	s.called = true
 	return s.err
 }
 
@@ -25,7 +25,11 @@ func TestRootCLI_MCPServer(t *testing.T) {
 		t.Parallel()
 
 		runner := &mcpServerRunnerStub{}
-		sut := cli.NewRootCLI(cli.WithMCPServerRunner(runner))
+		var observedDBPath string
+		sut := cli.NewRootCLI(
+			cli.WithMCPServerRunner(runner),
+			cli.WithDatabasePathSetter(func(resolved string) { observedDBPath = resolved }),
+		)
 		command := sut.Command()
 		stdout := &bytes.Buffer{}
 		stderr := &bytes.Buffer{}
@@ -36,8 +40,11 @@ func TestRootCLI_MCPServer(t *testing.T) {
 		if err := command.ExecuteContext(context.Background()); err != nil {
 			t.Fatalf("ExecuteContext() error = %v", err)
 		}
-		if runner.receivedPath == "" {
-			t.Fatalf("received path is empty")
+		if !runner.called {
+			t.Fatalf("runner.Run was not called")
+		}
+		if observedDBPath == "" {
+			t.Fatalf("DatabasePathSetter did not receive the resolved path")
 		}
 	})
 

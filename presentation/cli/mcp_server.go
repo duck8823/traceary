@@ -10,8 +10,10 @@ import (
 
 // MCPServerRunner provides MCP server startup.
 type MCPServerRunner interface {
-	// Run starts an MCP server backed by the given DB.
-	Run(ctx context.Context, dbPath string) error
+	// Run starts an MCP server. The shared sqlite.Database has been
+	// resolved to the user-specified path by the RunE caller before Run
+	// is invoked, so no dbPath argument is needed here.
+	Run(ctx context.Context) error
 }
 
 func (c *RootCLI) newMCPServerCommand() *cobra.Command {
@@ -40,7 +42,7 @@ func (c *RootCLI) runMCPServer(ctx context.Context, _ io.Writer, dbPath string) 
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
 	c.applyDatabasePath(resolvedPath)
-	if err := c.mcpServerRunner.Run(ctx, resolvedPath); err != nil {
+	if err := c.mcpServerRunner.Run(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to start MCP server", "MCP server の起動に失敗しました"), err)
 	}
 

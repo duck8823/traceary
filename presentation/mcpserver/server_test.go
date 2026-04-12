@@ -18,9 +18,9 @@ import (
 func TestServer_BuildAndTools(t *testing.T) {
 	t.Parallel()
 
-	server, dbPath := newTestServer(t)
+	server := newTestServer(t)
 	ctx := context.Background()
-	mcpServer, err := server.Build(ctx, dbPath)
+	mcpServer, err := server.Build(ctx)
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
@@ -264,7 +264,7 @@ func extractJSONStringValue(t *testing.T, result *mcp.CallToolResult, key string
 	return stringValue
 }
 
-func newTestServer(t *testing.T) (*mcpserver.Server, string) {
+func newTestServer(t *testing.T) *mcpserver.Server {
 	t.Helper()
 
 	migrations := fstest.MapFS{
@@ -332,5 +332,5 @@ CREATE TABLE IF NOT EXISTS sessions (
 		t.Fatalf("NewServer() error = %v", err)
 	}
 
-	return server, dbPath
+	return server
 }
