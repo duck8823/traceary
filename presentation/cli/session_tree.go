@@ -111,26 +111,11 @@ func writeSessionTree(output io.Writer, summaries []apptypes.SessionSummary, asJ
 	return nil
 }
 
-type jsonTreeNode struct {
-	SessionID    string          `json:"session_id"`
-	Workspace string          `json:"workspace,omitempty"`
-	Label        string          `json:"label,omitempty"`
-	Summary      string          `json:"summary,omitempty"`
-	StartedAt    string          `json:"started_at"`
-	EndedAt      *string         `json:"ended_at,omitempty"`
-	Status       string          `json:"status"`
-	DurationSec  *float64        `json:"duration_sec,omitempty"`
-	TotalEvents  int             `json:"total_events"`
-	CommandCount int             `json:"command_count"`
-	Agents       []string        `json:"agents"`
-	Children     []*jsonTreeNode `json:"children"`
-}
-
-func sessionNodeToJSON(node *sessionNode) *jsonTreeNode {
+func sessionNodeToOutput(node *sessionNode) *sessionTreeNode {
 	s := node.summary
-	jn := &jsonTreeNode{
-		SessionID: string(s.SessionID()),
-		Workspace: string(s.Workspace()),
+	jn := &sessionTreeNode{
+		SessionID:    string(s.SessionID()),
+		Workspace:    string(s.Workspace()),
 		Label:        s.Label(),
 		Summary:      s.Summary(),
 		StartedAt:    s.StartedAt().UTC().Format(time.RFC3339),
@@ -138,7 +123,7 @@ func sessionNodeToJSON(node *sessionNode) *jsonTreeNode {
 		TotalEvents:  s.TotalEvents(),
 		CommandCount: s.CommandCount(),
 		Agents:       s.Agents(),
-		Children:     make([]*jsonTreeNode, 0, len(node.children)),
+		Children:     make([]*sessionTreeNode, 0, len(node.children)),
 	}
 	if endedAt, ok := s.EndedAt().Get(); ok {
 		endStr := endedAt.UTC().Format(time.RFC3339)
@@ -147,15 +132,15 @@ func sessionNodeToJSON(node *sessionNode) *jsonTreeNode {
 		jn.DurationSec = &dur
 	}
 	for _, child := range node.children {
-		jn.Children = append(jn.Children, sessionNodeToJSON(child))
+		jn.Children = append(jn.Children, sessionNodeToOutput(child))
 	}
 	return jn
 }
 
 func writeSessionTreeJSON(output io.Writer, roots []*sessionNode) error {
-	items := make([]*jsonTreeNode, 0, len(roots))
+	items := make([]*sessionTreeNode, 0, len(roots))
 	for _, root := range roots {
-		items = append(items, sessionNodeToJSON(root))
+		items = append(items, sessionNodeToOutput(root))
 	}
 	encoder := json.NewEncoder(output)
 	encoder.SetIndent("", "  ")

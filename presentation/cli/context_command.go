@@ -132,9 +132,9 @@ func (c *RootCLI) resolveContextSessionID(
 }
 
 func writeContextJSON(output io.Writer, sessionID string, repo string, events []*model.Event) error {
-	serializedEvents := make([]eventJSON, 0, len(events))
-	for _, event := range events {
-		serializedEvents = append(serializedEvents, newEventJSON(event))
+	serializedEvents := make([]event, 0, len(events))
+	for _, e := range events {
+		serializedEvents = append(serializedEvents, newEventOutput(e))
 	}
 
 	return writeJSON(output, contextOutput{
