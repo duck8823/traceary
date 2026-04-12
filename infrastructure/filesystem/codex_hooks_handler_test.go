@@ -1,17 +1,18 @@
-package model_test
+package filesystem_test
 
 import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/infrastructure/filesystem"
 )
 
-func TestNewCodexHooks(t *testing.T) {
+func TestCodexHooksHandler_Build(t *testing.T) {
 	t.Parallel()
 
-	hooks := model.NewCodexHooks("/scripts", "traceary")
+	handler := filesystem.NewCodexHooksHandler()
+	hooks := handler.Build("/scripts", "traceary")
 
 	wantEventOrder := []string{"SessionStart", "Stop", "PostToolUse"}
 	if diff := cmp.Diff(wantEventOrder, hooks.EventOrder()); diff != "" {

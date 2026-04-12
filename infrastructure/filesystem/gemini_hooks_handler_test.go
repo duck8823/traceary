@@ -1,17 +1,18 @@
-package model_test
+package filesystem_test
 
 import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/infrastructure/filesystem"
 )
 
-func TestNewGeminiHooks(t *testing.T) {
+func TestGeminiHooksHandler_Build(t *testing.T) {
 	t.Parallel()
 
-	hooks := model.NewGeminiHooks("/scripts", "traceary")
+	handler := filesystem.NewGeminiHooksHandler()
+	hooks := handler.Build("/scripts", "traceary")
 
 	wantEventOrder := []string{"SessionStart", "SessionEnd", "AfterTool"}
 	if diff := cmp.Diff(wantEventOrder, hooks.EventOrder()); diff != "" {

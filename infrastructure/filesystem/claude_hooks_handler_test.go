@@ -1,4 +1,4 @@
-package model_test
+package filesystem_test
 
 import (
 	"strings"
@@ -6,16 +6,17 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/infrastructure/filesystem"
 )
 
-func TestNewClaudeHooks(t *testing.T) {
+func TestClaudeHooksHandler_Build(t *testing.T) {
 	t.Parallel()
 
 	scriptsDir := "/home/user/.config/traceary/hook-scripts"
 	tracearyBin := "traceary"
 
-	hooks := model.NewClaudeHooks(scriptsDir, tracearyBin)
+	handler := filesystem.NewClaudeHooksHandler()
+	hooks := handler.Build(scriptsDir, tracearyBin)
 
 	wantEventOrder := []string{
 		"SessionStart",
