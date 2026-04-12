@@ -323,6 +323,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 	server, err := mcpserver.NewServer(
 		"test-version",
+		nil,
 		eventUsecase,
 		sessionUsecase,
 		storeManagementUsecase,

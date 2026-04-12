@@ -13,7 +13,6 @@ import (
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/types"
-	"github.com/duck8823/traceary/presentation"
 )
 
 func (c *RootCLI) newAuditCommand() *cobra.Command {
@@ -202,8 +201,6 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve secret handling policy", "secret 取り扱いポリシーの解決に失敗しました"), err)
 	}
 
-	config := presentation.LoadConfig()
-
 	client, _ := types.ClientOf(resolveOptionalValue(input.client, "TRACEARY_CLIENT", defaultClientValue))
 	agent, _ := types.AgentOf(resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue))
 	sid, _ := types.SessionIDOf(sessionResolution.sessionID)
@@ -211,7 +208,7 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		AllowSecrets(allowSecrets).
 		MaxInputBytes(maxInputBytes).
 		MaxOutputBytes(maxOutputBytes).
-		ExtraRedactPatterns(config.Redact.ExtraPatterns).
+		ExtraRedactPatterns(c.extraRedactPatterns).
 		Build()
 	event, commandAudit, err := c.event.Audit(ctx,
 		input.command, input.input, input.output,

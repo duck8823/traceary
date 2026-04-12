@@ -8,27 +8,30 @@ import (
 
 // RootCLI provides the Traceary root command.
 type RootCLI struct {
-	event            usecase.EventUsecase
-	session          usecase.SessionUsecase
-	storeManagement usecase.StoreManagementUsecase
-	mcpServerRunner  MCPServerRunner
+	event               usecase.EventUsecase
+	session             usecase.SessionUsecase
+	storeManagement     usecase.StoreManagementUsecase
+	mcpServerRunner     MCPServerRunner
+	extraRedactPatterns []string
 }
 
 // RootCLIOptions holds the dependencies used by RootCLI.
 type RootCLIOptions struct {
-	Event            usecase.EventUsecase
-	Session          usecase.SessionUsecase
-	StoreManagement usecase.StoreManagementUsecase
-	MCPServerRunner  MCPServerRunner
+	Event               usecase.EventUsecase
+	Session             usecase.SessionUsecase
+	StoreManagement     usecase.StoreManagementUsecase
+	MCPServerRunner     MCPServerRunner
+	ExtraRedactPatterns []string
 }
 
 // NewRootCLI creates a new RootCLI.
 func NewRootCLI(options RootCLIOptions) *RootCLI {
 	return &RootCLI{
-		event:            options.Event,
-		session:          options.Session,
-		storeManagement: options.StoreManagement,
-		mcpServerRunner:  options.MCPServerRunner,
+		event:               options.Event,
+		session:             options.Session,
+		storeManagement:     options.StoreManagement,
+		mcpServerRunner:     options.MCPServerRunner,
+		extraRedactPatterns: options.ExtraRedactPatterns,
 	}
 }
 

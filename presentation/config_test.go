@@ -8,25 +8,30 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/presentation"
 )
 
-func TestLoadConfig_returnsZeroValueWhenFileDoesNotExist(t *testing.T) {
+func TestLoadExtraRedactPatterns_returnsNilWhenFileDoesNotExist(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
-	config := presentation.LoadConfig()
+	patterns := presentation.LoadExtraRedactPatterns()
 
-	if len(config.Redact.ExtraPatterns) != 0 {
-		t.Errorf("expected empty extra patterns, got %v", config.Redact.ExtraPatterns)
+	if len(patterns) != 0 {
+		t.Errorf("expected empty extra patterns, got %v", patterns)
 	}
 
-	result := presentation.InspectConfig()
-	if result.Status != presentation.ConfigLoadStatusMissing {
-		t.Fatalf("InspectConfig().Status = %q, want %q", result.Status, presentation.ConfigLoadStatusMissing)
+	inspection := presentation.InspectConfig()
+	if inspection.Status != presentation.ConfigLoadStatusMissing {
+		t.Fatalf("InspectConfig().Status = %q, want %q", inspection.Status, presentation.ConfigLoadStatusMissing)
+	}
+	if len(inspection.ExtraRedactPatterns) != 0 {
+		t.Errorf("expected empty extra patterns, got %v", inspection.ExtraRedactPatterns)
 	}
 }
 
-func TestLoadConfig_returnsZeroValueForInvalidJSON(t *testing.T) {
+func TestLoadExtraRedactPatterns_returnsNilForInvalidJSON(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
@@ -38,19 +43,22 @@ func TestLoadConfig_returnsZeroValueForInvalidJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	config := presentation.LoadConfig()
+	patterns := presentation.LoadExtraRedactPatterns()
 
-	if len(config.Redact.ExtraPatterns) != 0 {
-		t.Errorf("expected empty extra patterns, got %v", config.Redact.ExtraPatterns)
+	if len(patterns) != 0 {
+		t.Errorf("expected empty extra patterns, got %v", patterns)
 	}
 
-	result := presentation.InspectConfig()
-	if result.Status != presentation.ConfigLoadStatusInvalid {
-		t.Fatalf("InspectConfig().Status = %q, want %q", result.Status, presentation.ConfigLoadStatusInvalid)
+	inspection := presentation.InspectConfig()
+	if inspection.Status != presentation.ConfigLoadStatusInvalid {
+		t.Fatalf("InspectConfig().Status = %q, want %q", inspection.Status, presentation.ConfigLoadStatusInvalid)
+	}
+	if inspection.Err == nil {
+		t.Fatal("InspectConfig().Err = nil, want non-nil")
 	}
 }
 
-func TestLoadConfig_loadsPatternsFromValidConfigJSON(t *testing.T) {
+func TestLoadExtraRedactPatterns_loadsPatternsFromValidConfigJSON(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
@@ -63,25 +71,22 @@ func TestLoadConfig_loadsPatternsFromValidConfigJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	config := presentation.LoadConfig()
+	patterns := presentation.LoadExtraRedactPatterns()
 
-	if len(config.Redact.ExtraPatterns) != 2 {
-		t.Fatalf("expected 2 extra patterns, got %d", len(config.Redact.ExtraPatterns))
-	}
-	if config.Redact.ExtraPatterns[0] != "my_secret" {
-		t.Errorf("expected first pattern 'my_secret', got %q", config.Redact.ExtraPatterns[0])
-	}
-	if config.Redact.ExtraPatterns[1] != "internal_token" {
-		t.Errorf("expected second pattern 'internal_token', got %q", config.Redact.ExtraPatterns[1])
+	if diff := cmp.Diff([]string{"my_secret", "internal_token"}, patterns); diff != "" {
+		t.Fatalf("LoadExtraRedactPatterns() mismatch (-want +got):\n%s", diff)
 	}
 
-	result := presentation.InspectConfig()
-	if result.Status != presentation.ConfigLoadStatusLoaded {
-		t.Fatalf("InspectConfig().Status = %q, want %q", result.Status, presentation.ConfigLoadStatusLoaded)
+	inspection := presentation.InspectConfig()
+	if inspection.Status != presentation.ConfigLoadStatusLoaded {
+		t.Fatalf("InspectConfig().Status = %q, want %q", inspection.Status, presentation.ConfigLoadStatusLoaded)
+	}
+	if diff := cmp.Diff([]string{"my_secret", "internal_token"}, inspection.ExtraRedactPatterns); diff != "" {
+		t.Fatalf("InspectConfig().ExtraRedactPatterns mismatch (-want +got):\n%s", diff)
 	}
 }
 
-func TestLoadConfig_logsWarningForInvalidJSON(t *testing.T) {
+func TestLoadExtraRedactPatterns_logsWarningForInvalidJSON(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
@@ -100,7 +105,7 @@ func TestLoadConfig_logsWarningForInvalidJSON(t *testing.T) {
 		slog.SetDefault(previousLogger)
 	})
 
-	_ = presentation.LoadConfig()
+	_ = presentation.LoadExtraRedactPatterns()
 
 	if !strings.Contains(logBuffer.String(), "Traceary config is invalid") {
 		t.Fatalf("expected warning log about invalid config, got: %s", logBuffer.String())

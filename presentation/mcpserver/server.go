@@ -12,7 +12,6 @@ import (
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
-	"github.com/duck8823/traceary/presentation"
 )
 
 const (
@@ -33,12 +32,13 @@ type Server struct {
 	extraRedactPatterns []string
 	event               usecase.EventUsecase
 	session             usecase.SessionUsecase
-	storeManagement    usecase.StoreManagementUsecase
+	storeManagement     usecase.StoreManagementUsecase
 }
 
 // NewServer creates a new MCP server.
 func NewServer(
 	serverVersion string,
+	extraRedactPatterns []string,
 	event usecase.EventUsecase,
 	session usecase.SessionUsecase,
 	storeManagement usecase.StoreManagementUsecase,
@@ -58,15 +58,13 @@ func NewServer(
 		trimmedVersion = defaultServerVersion
 	}
 
-	config := presentation.LoadConfig()
-
 	return &Server{
 		serverName:          defaultServerName,
 		serverVersion:       trimmedVersion,
-		extraRedactPatterns: config.Redact.ExtraPatterns,
+		extraRedactPatterns: extraRedactPatterns,
 		event:               event,
 		session:             session,
-		storeManagement:    storeManagement,
+		storeManagement:     storeManagement,
 	}, nil
 }
 

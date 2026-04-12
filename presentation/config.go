@@ -8,47 +8,48 @@ import (
 	"path/filepath"
 )
 
-// Config holds user configuration loaded from config.json.
-type Config struct {
-	Redact RedactConfig `json:"redact"`
-}
-
-// RedactConfig holds redaction-related configuration.
-type RedactConfig struct {
-	ExtraPatterns []string `json:"extra_patterns"`
-}
-
 // ConfigLoadStatus describes the result of attempting to load the optional
 // operator config file.
 type ConfigLoadStatus string
 
 const (
 	// ConfigLoadStatusLoaded indicates that config.json was read successfully.
-	ConfigLoadStatusLoaded         ConfigLoadStatus = "loaded"
+	ConfigLoadStatusLoaded ConfigLoadStatus = "loaded"
 	// ConfigLoadStatusMissing indicates that config.json is not present.
-	ConfigLoadStatusMissing        ConfigLoadStatus = "missing"
+	ConfigLoadStatusMissing ConfigLoadStatus = "missing"
 	// ConfigLoadStatusInvalid indicates that config.json exists but is invalid.
-	ConfigLoadStatusInvalid        ConfigLoadStatus = "invalid"
+	ConfigLoadStatusInvalid ConfigLoadStatus = "invalid"
 	// ConfigLoadStatusUnreadable indicates that config.json exists but could not be read.
-	ConfigLoadStatusUnreadable     ConfigLoadStatus = "unreadable"
+	ConfigLoadStatusUnreadable ConfigLoadStatus = "unreadable"
 	// ConfigLoadStatusHomeDirFailure indicates that the config path could not be resolved.
 	ConfigLoadStatusHomeDirFailure ConfigLoadStatus = "home_dir_failure"
 )
 
-// ConfigLoadResult describes the outcome of reading the optional config file.
-type ConfigLoadResult struct {
-	Config Config
-	Path   string
-	Status ConfigLoadStatus
-	Err    error
+// ConfigInspection describes the outcome of reading the optional config file
+// for diagnostic reporting (e.g. by the doctor command).
+type ConfigInspection struct {
+	Path                string
+	Status              ConfigLoadStatus
+	Err                 error
+	ExtraRedactPatterns []string
+}
+
+// configFile mirrors the on-disk JSON layout. It is intentionally unexported
+// because callers receive the loaded values directly.
+type configFile struct {
+	Redact redactSection `json:"redact"`
+}
+
+type redactSection struct {
+	ExtraPatterns []string `json:"extra_patterns"`
 }
 
 // InspectConfig reads the Traceary config from ~/.config/traceary/config.json
 // without emitting operator-facing log output.
-func InspectConfig() ConfigLoadResult {
+func InspectConfig() ConfigInspection {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return ConfigLoadResult{
+		return ConfigInspection{
 			Status: ConfigLoadStatusHomeDirFailure,
 			Err:    err,
 		}
@@ -58,45 +59,45 @@ func InspectConfig() ConfigLoadResult {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return ConfigLoadResult{
+			return ConfigInspection{
 				Path:   configPath,
 				Status: ConfigLoadStatusMissing,
 			}
 		}
-		return ConfigLoadResult{
+		return ConfigInspection{
 			Path:   configPath,
 			Status: ConfigLoadStatusUnreadable,
 			Err:    err,
 		}
 	}
 
-	var config Config
-	if err := json.Unmarshal(data, &config); err != nil {
-		return ConfigLoadResult{
+	var file configFile
+	if err := json.Unmarshal(data, &file); err != nil {
+		return ConfigInspection{
 			Path:   configPath,
 			Status: ConfigLoadStatusInvalid,
 			Err:    err,
 		}
 	}
 
-	return ConfigLoadResult{
-		Config: config,
-		Path:   configPath,
-		Status: ConfigLoadStatusLoaded,
+	return ConfigInspection{
+		Path:                configPath,
+		Status:              ConfigLoadStatusLoaded,
+		ExtraRedactPatterns: file.Redact.ExtraPatterns,
 	}
 }
 
-func (r ConfigLoadResult) warningMessage() string {
-	switch r.Status {
+func (i ConfigInspection) warningMessage() string {
+	switch i.Status {
 	case ConfigLoadStatusInvalid:
 		return fmt.Sprintf(
 			"Traceary config is invalid; extra audit redaction patterns are disabled until the file is fixed: %s",
-			r.Path,
+			i.Path,
 		)
 	case ConfigLoadStatusUnreadable:
 		return fmt.Sprintf(
 			"Traceary config could not be read; extra audit redaction patterns are disabled until the file is readable: %s",
-			r.Path,
+			i.Path,
 		)
 	case ConfigLoadStatusHomeDirFailure:
 		return "Traceary config path could not be resolved; extra audit redaction patterns are disabled"
@@ -105,13 +106,14 @@ func (r ConfigLoadResult) warningMessage() string {
 	}
 }
 
-// LoadConfig reads the Traceary config from ~/.config/traceary/config.json.
-// Returns a zero-value Config when the optional config cannot be used.
-func LoadConfig() Config {
-	result := InspectConfig()
-	if warningMessage := result.warningMessage(); warningMessage != "" {
-		slog.Warn(warningMessage, "error", result.Err)
+// LoadExtraRedactPatterns reads the optional Traceary config and returns the
+// extra redaction patterns. When the config cannot be used the returned slice
+// is nil and a warning is logged via slog.
+func LoadExtraRedactPatterns() []string {
+	inspection := InspectConfig()
+	if warningMessage := inspection.warningMessage(); warningMessage != "" {
+		slog.Warn(warningMessage, "error", inspection.Err)
 	}
 
-	return result.Config
+	return inspection.ExtraRedactPatterns
 }

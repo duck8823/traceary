@@ -220,37 +220,37 @@ func resolveDoctorClients(client string) ([]string, error) {
 }
 
 func inspectDoctorConfig() doctorCheck {
-	configResult := presentation.InspectConfig()
-	switch configResult.Status {
+	inspection := presentation.InspectConfig()
+	switch inspection.Status {
 	case presentation.ConfigLoadStatusLoaded:
 		return doctorCheck{
 			Name:    "config",
 			Status:  doctorStatusPass,
-			Message: localizef("loaded config file: %s", "設定ファイルを読み込みました: %s", configResult.Path),
+			Message: localizef("loaded config file: %s", "設定ファイルを読み込みました: %s", inspection.Path),
 		}
 	case presentation.ConfigLoadStatusMissing:
 		return doctorCheck{
 			Name:    "config",
 			Status:  doctorStatusPass,
-			Message: localizef("optional config file is not present yet; built-in redaction defaults remain active: %s", "オプション設定ファイルはまだありません。組み込みの redaction 既定値を使います: %s", configResult.Path),
+			Message: localizef("optional config file is not present yet; built-in redaction defaults remain active: %s", "オプション設定ファイルはまだありません。組み込みの redaction 既定値を使います: %s", inspection.Path),
 		}
 	case presentation.ConfigLoadStatusInvalid:
 		return doctorCheck{
 			Name:    "config",
 			Status:  doctorStatusFail,
-			Message: localizef("config file is invalid JSON, so extra redaction patterns are disabled: %s (%v)", "設定ファイルの JSON が不正なため、追加 redaction pattern は無効です: %s (%v)", configResult.Path, configResult.Err),
+			Message: localizef("config file is invalid JSON, so extra redaction patterns are disabled: %s (%v)", "設定ファイルの JSON が不正なため、追加 redaction pattern は無効です: %s (%v)", inspection.Path, inspection.Err),
 		}
 	case presentation.ConfigLoadStatusUnreadable:
 		return doctorCheck{
 			Name:    "config",
 			Status:  doctorStatusFail,
-			Message: localizef("config file could not be read, so extra redaction patterns are disabled: %s (%v)", "設定ファイルを読み込めないため、追加 redaction pattern は無効です: %s (%v)", configResult.Path, configResult.Err),
+			Message: localizef("config file could not be read, so extra redaction patterns are disabled: %s (%v)", "設定ファイルを読み込めないため、追加 redaction pattern は無効です: %s (%v)", inspection.Path, inspection.Err),
 		}
 	case presentation.ConfigLoadStatusHomeDirFailure:
 		return doctorCheck{
 			Name:    "config",
 			Status:  doctorStatusFail,
-			Message: localizef("failed to resolve the config path, so extra redaction patterns are disabled: %v", "設定ファイルのパスを解決できないため、追加 redaction pattern は無効です: %v", configResult.Err),
+			Message: localizef("failed to resolve the config path, so extra redaction patterns are disabled: %v", "設定ファイルのパスを解決できないため、追加 redaction pattern は無効です: %v", inspection.Err),
 		}
 	default:
 		return doctorCheck{
