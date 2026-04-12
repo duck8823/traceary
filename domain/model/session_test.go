@@ -83,6 +83,39 @@ func TestSessionOf(t *testing.T) {
 	}
 }
 
+func TestSession_End(t *testing.T) {
+	t.Parallel()
+
+	agent, _ := types.AgentOf("claude")
+	sid, _ := types.SessionIDOf("session-end")
+	start := time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 4, 11, 13, 30, 0, 0, time.UTC)
+
+	session := model.NewSession(sid, start, types.Client("cli"), agent, types.Workspace("duck8823/traceary"))
+	session.SetLabel("sprint-1")
+
+	if session.EndedAt().IsPresent() {
+		t.Fatalf("EndedAt() should be empty before End()")
+	}
+
+	session.End(end, "wrapped up")
+
+	endedAt, ok := session.EndedAt().Get()
+	if !ok {
+		t.Fatalf("EndedAt() should be present after End()")
+	}
+	if diff := cmp.Diff(end, endedAt); diff != "" {
+		t.Errorf("EndedAt() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff("wrapped up", session.Summary()); diff != "" {
+		t.Errorf("Summary() mismatch (-want +got):\n%s", diff)
+	}
+	// End() must not touch the label.
+	if diff := cmp.Diff("sprint-1", session.Label()); diff != "" {
+		t.Errorf("Label() should be unchanged by End(), mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestSession_SetLabel(t *testing.T) {
 	t.Parallel()
 
