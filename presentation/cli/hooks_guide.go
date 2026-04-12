@@ -76,7 +76,7 @@ type hooksGuide struct {
 }
 
 func buildHooksGuide(c *RootCLI, client string, projectDir string, outputPath string) (*hooksGuide, error) {
-	orchestrator := c.HooksOrchestrator()
+	orchestrator := c.hooksOrchestrator
 	resolvedClient, err := orchestrator.NormalizeClient(client)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to normalize client: %w", err)

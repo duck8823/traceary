@@ -61,11 +61,11 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 		)
 
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreManagement: &storeManagementUsecaseStub{},
-			Event:            &eventUsecaseStub{contextEvents: contextEvents},
-			Session:          &sessionUsecaseStub{activeEvent: activeEvent},
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{contextEvents: contextEvents}),
+			cli.WithSession(&sessionUsecaseStub{activeEvent: activeEvent}),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"context", "--db-path", "/tmp/test-traceary.db", "--limit", "5"})
@@ -100,10 +100,10 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 			),
 		}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreManagement: &storeManagementUsecaseStub{},
-			Event:            &eventUsecaseStub{contextEvents: contextEvents},
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{contextEvents: contextEvents}),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
@@ -145,11 +145,11 @@ func TestRootCLI_ContextCommand(t *testing.T) {
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreManagement: &storeManagementUsecaseStub{},
-			Event:            &eventUsecaseStub{},
-			Session:          &sessionUsecaseStub{},
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{}),
+			cli.WithSession(&sessionUsecaseStub{}),
+		).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"context", "--db-path", dbPath})

@@ -10,9 +10,20 @@ import (
 
 // ScriptAsset describes one packaged hook script.
 type ScriptAsset struct {
-	Name    string
-	Content string
+	name    string
+	content string
 }
+
+// ScriptAssetOf creates a ScriptAsset with the given name and content.
+func ScriptAssetOf(name string, content string) ScriptAsset {
+	return ScriptAsset{name: name, content: content}
+}
+
+// Name returns the file name of the hook script.
+func (a ScriptAsset) Name() string { return a.name }
+
+// Content returns the raw content of the hook script.
+func (a ScriptAsset) Content() string { return a.content }
 
 //go:embed *.sh
 var scriptAssetsFS embed.FS
@@ -35,8 +46,8 @@ func Assets() ([]ScriptAsset, error) {
 			return nil, xerrors.Errorf("failed to read embedded hook script %s: %w", entry.Name(), err)
 		}
 		assets = append(assets, ScriptAsset{
-			Name:    entry.Name(),
-			Content: normalizeScriptContent(string(content)),
+			name:    entry.Name(),
+			content: normalizeScriptContent(string(content)),
 		})
 	}
 

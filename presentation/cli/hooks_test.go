@@ -121,7 +121,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 	})
 
 	t.Run("unsupported client returns an English error by default", func(t *testing.T) {
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+		rootCmd := newTestRootCLI().Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
@@ -141,7 +141,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 	})
 
 	t.Run("missing client returns a discoverable error", func(t *testing.T) {
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+		rootCmd := newTestRootCLI().Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"hooks", "print"})
@@ -167,7 +167,7 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 	t.Cleanup(cli.ResetUserHomeDirFunc)
 
 	t.Run("installs Claude settings to standard path", func(t *testing.T) {
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+		rootCmd := newTestRootCLI().Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -210,7 +210,7 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 	})
 
 	t.Run("installs settings to standard path with Codex CLI alias", func(t *testing.T) {
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+		rootCmd := newTestRootCLI().Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
@@ -233,7 +233,7 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 	})
 
 	t.Run("installs Codex settings to home directory standard path", func(t *testing.T) {
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+		rootCmd := newTestRootCLI().Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
@@ -286,7 +286,7 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 			t.Fatalf("WriteFile() error = %v", err)
 		}
 
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+		rootCmd := newTestRootCLI().Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
@@ -324,7 +324,7 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 			t.Fatalf("WriteFile() error = %v", err)
 		}
 
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+		rootCmd := newTestRootCLI().Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
@@ -357,7 +357,7 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 			t.Fatalf("WriteFile() error = %v", err)
 		}
 
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+		rootCmd := newTestRootCLI().Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
@@ -400,7 +400,7 @@ func executeHooksPrint(
 ) *printedHooksSettings {
 	t.Helper()
 
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+	rootCmd := newTestRootCLI().Command()
 	stdout := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -429,7 +429,7 @@ func executeHooksPrintWithoutTracearyBin(
 ) *printedHooksSettings {
 	t.Helper()
 
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+	rootCmd := newTestRootCLI().Command()
 	stdout := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})

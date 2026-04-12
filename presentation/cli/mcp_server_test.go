@@ -25,9 +25,7 @@ func TestRootCLI_MCPServer(t *testing.T) {
 		t.Parallel()
 
 		runner := &mcpServerRunnerStub{}
-		sut := cli.NewRootCLI(cli.RootCLIOptions{
-			MCPServerRunner: runner,
-		})
+		sut := cli.NewRootCLI(cli.WithMCPServerRunner(runner))
 		command := sut.Command()
 		stdout := &bytes.Buffer{}
 		stderr := &bytes.Buffer{}
@@ -46,7 +44,7 @@ func TestRootCLI_MCPServer(t *testing.T) {
 	t.Run("returns error when runner is not configured", func(t *testing.T) {
 		t.Parallel()
 
-		sut := cli.NewRootCLI(cli.RootCLIOptions{})
+		sut := cli.NewRootCLI()
 		command := sut.Command()
 		command.SetArgs([]string{"mcp-server"})
 

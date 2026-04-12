@@ -21,14 +21,6 @@ func TestLoadExtraRedactPatterns_returnsNilWhenFileDoesNotExist(t *testing.T) {
 	if len(patterns) != 0 {
 		t.Errorf("expected empty extra patterns, got %v", patterns)
 	}
-
-	inspection := presentation.InspectConfig()
-	if inspection.Status != presentation.ConfigLoadStatusMissing {
-		t.Fatalf("InspectConfig().Status = %q, want %q", inspection.Status, presentation.ConfigLoadStatusMissing)
-	}
-	if len(inspection.ExtraRedactPatterns) != 0 {
-		t.Errorf("expected empty extra patterns, got %v", inspection.ExtraRedactPatterns)
-	}
 }
 
 func TestLoadExtraRedactPatterns_returnsNilForInvalidJSON(t *testing.T) {
@@ -47,14 +39,6 @@ func TestLoadExtraRedactPatterns_returnsNilForInvalidJSON(t *testing.T) {
 
 	if len(patterns) != 0 {
 		t.Errorf("expected empty extra patterns, got %v", patterns)
-	}
-
-	inspection := presentation.InspectConfig()
-	if inspection.Status != presentation.ConfigLoadStatusInvalid {
-		t.Fatalf("InspectConfig().Status = %q, want %q", inspection.Status, presentation.ConfigLoadStatusInvalid)
-	}
-	if inspection.Err == nil {
-		t.Fatal("InspectConfig().Err = nil, want non-nil")
 	}
 }
 
@@ -75,14 +59,6 @@ func TestLoadExtraRedactPatterns_loadsPatternsFromValidConfigJSON(t *testing.T) 
 
 	if diff := cmp.Diff([]string{"my_secret", "internal_token"}, patterns); diff != "" {
 		t.Fatalf("LoadExtraRedactPatterns() mismatch (-want +got):\n%s", diff)
-	}
-
-	inspection := presentation.InspectConfig()
-	if inspection.Status != presentation.ConfigLoadStatusLoaded {
-		t.Fatalf("InspectConfig().Status = %q, want %q", inspection.Status, presentation.ConfigLoadStatusLoaded)
-	}
-	if diff := cmp.Diff([]string{"my_secret", "internal_token"}, inspection.ExtraRedactPatterns); diff != "" {
-		t.Fatalf("InspectConfig().ExtraRedactPatterns mismatch (-want +got):\n%s", diff)
 	}
 }
 

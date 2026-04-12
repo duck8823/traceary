@@ -29,9 +29,9 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 		}
 
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreManagement: &storeManagementUsecaseStub{},
-			Event: &eventUsecaseStub{
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{
 				timelineBlocks: []apptypes.TimelineBlock{
 					apptypes.TimelineBlockOf(
 						time.Date(2026, 4, 10, 9, 0, 0, 0, time.UTC),
@@ -42,8 +42,8 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 						kinds,
 					),
 				},
-			},
-		}).Command()
+			}),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"timeline", "--db-path", "/tmp/test.db", "--from", "2026-04-10"})
@@ -68,10 +68,10 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 		t.Parallel()
 
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreManagement: &storeManagementUsecaseStub{},
-			Event:            &eventUsecaseStub{},
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{}),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"timeline", "--db-path", "/tmp/test.db"})
@@ -94,9 +94,9 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 		}
 
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreManagement: &storeManagementUsecaseStub{},
-			Event: &eventUsecaseStub{
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{
 				timelineBlocks: []apptypes.TimelineBlock{
 					apptypes.TimelineBlockOf(
 						time.Date(2026, 4, 10, 9, 0, 0, 0, time.UTC),
@@ -107,8 +107,8 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 						kinds,
 					),
 				},
-			},
-		}).Command()
+			}),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"timeline", "--db-path", "/tmp/test.db", "--json"})
@@ -129,10 +129,10 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 	t.Run("rejects invalid --from value", func(t *testing.T) {
 		t.Parallel()
 
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreManagement: &storeManagementUsecaseStub{},
-			Event:            &eventUsecaseStub{},
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{}),
+		).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"timeline", "--db-path", "/tmp/test.db", "--from", "not-a-date"})

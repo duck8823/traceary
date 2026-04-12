@@ -9,58 +9,75 @@ import (
 
 // RootCLI provides the Traceary root command.
 type RootCLI struct {
-	event               usecase.EventUsecase
-	session             usecase.SessionUsecase
-	storeManagement     usecase.StoreManagementUsecase
-	mcpServerRunner     MCPServerRunner
-	hooksOrchestrator   application.HooksOrchestrator
-	hookScripts         application.HookScriptsInstaller
-	extraRedactPatterns []string
+	event                usecase.EventUsecase
+	session              usecase.SessionUsecase
+	storeManagement      usecase.StoreManagementUsecase
+	mcpServerRunner      MCPServerRunner
+	hooksOrchestrator    application.HooksOrchestrator
+	hookScriptsInstaller application.HookScriptsInstaller
+	hooksInspector       application.HooksInspector
+	extraRedactPatterns  []string
 }
 
-// RootCLIOptions holds the dependencies used by RootCLI.
-type RootCLIOptions struct {
-	Event                usecase.EventUsecase
-	Session              usecase.SessionUsecase
-	StoreManagement      usecase.StoreManagementUsecase
-	MCPServerRunner      MCPServerRunner
-	HooksOrchestrator    application.HooksOrchestrator
-	HookScriptsInstaller application.HookScriptsInstaller
-	ExtraRedactPatterns  []string
+// RootCLIOption configures a RootCLI during construction. Options are
+// applied in order, so later options override earlier ones.
+type RootCLIOption func(*RootCLI)
+
+// WithEvent injects the EventUsecase used by event-producing commands.
+func WithEvent(event usecase.EventUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.event = event }
 }
 
-// NewRootCLI creates a new RootCLI.
-func NewRootCLI(options RootCLIOptions) *RootCLI {
-	return &RootCLI{
-		event:               options.Event,
-		session:             options.Session,
-		storeManagement:     options.StoreManagement,
-		mcpServerRunner:     options.MCPServerRunner,
-		hooksOrchestrator:   options.HooksOrchestrator,
-		hookScripts:         options.HookScriptsInstaller,
-		extraRedactPatterns: options.ExtraRedactPatterns,
+// WithSession injects the SessionUsecase used by session-related commands.
+func WithSession(session usecase.SessionUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.session = session }
+}
+
+// WithStoreManagement injects the StoreManagementUsecase used by init,
+// backup, gc, and doctor commands.
+func WithStoreManagement(storeManagement usecase.StoreManagementUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.storeManagement = storeManagement }
+}
+
+// WithMCPServerRunner injects the MCPServerRunner used by the mcp-server
+// command.
+func WithMCPServerRunner(runner MCPServerRunner) RootCLIOption {
+	return func(c *RootCLI) { c.mcpServerRunner = runner }
+}
+
+// WithHooksOrchestrator injects the HooksOrchestrator used by hooks and
+// doctor commands. The orchestrator is required before the corresponding
+// commands can run.
+func WithHooksOrchestrator(orchestrator application.HooksOrchestrator) RootCLIOption {
+	return func(c *RootCLI) { c.hooksOrchestrator = orchestrator }
+}
+
+// WithHookScriptsInstaller injects the HookScriptsInstaller used by hooks
+// and doctor commands. The installer is required before the corresponding
+// commands can run.
+func WithHookScriptsInstaller(installer application.HookScriptsInstaller) RootCLIOption {
+	return func(c *RootCLI) { c.hookScriptsInstaller = installer }
+}
+
+// WithHooksInspector injects the HooksInspector used by the doctor command
+// to inspect client hook configurations.
+func WithHooksInspector(inspector application.HooksInspector) RootCLIOption {
+	return func(c *RootCLI) { c.hooksInspector = inspector }
+}
+
+// WithExtraRedactPatterns injects additional redaction regex patterns used
+// by the audit command.
+func WithExtraRedactPatterns(patterns []string) RootCLIOption {
+	return func(c *RootCLI) { c.extraRedactPatterns = patterns }
+}
+
+// NewRootCLI creates a new RootCLI with the given options applied.
+func NewRootCLI(opts ...RootCLIOption) *RootCLI {
+	c := &RootCLI{}
+	for _, opt := range opts {
+		opt(c)
 	}
-}
-
-// HooksOrchestrator returns the configured HooksOrchestrator, falling back
-// to a filesystem-backed default when none was injected via RootCLIOptions.
-func (c *RootCLI) HooksOrchestrator() application.HooksOrchestrator {
-	if c.hooksOrchestrator != nil {
-		return c.hooksOrchestrator
-	}
-
-	return defaultHooksOrchestrator()
-}
-
-// HookScriptsInstaller returns the configured HookScriptsInstaller, falling
-// back to a filesystem-backed default when none was injected via
-// RootCLIOptions.
-func (c *RootCLI) HookScriptsInstaller() application.HookScriptsInstaller {
-	if c.hookScripts != nil {
-		return c.hookScripts
-	}
-
-	return defaultHookScriptsInstaller()
+	return c
 }
 
 // Command returns the Traceary root command.

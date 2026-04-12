@@ -115,12 +115,12 @@ func (c *RootCLI) runHooksPrint(
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve traceary binary path", "traceary binary path の解決に失敗しました"), err)
 	}
-	resolvedScriptsDir, err := c.HookScriptsInstaller().Ensure()
+	resolvedScriptsDir, err := c.hookScriptsInstaller.Ensure()
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to prepare hook scripts", "hook script の準備に失敗しました"), err)
 	}
 
-	encoded, err := c.HooksOrchestrator().Generate(ctx, input.client, resolvedScriptsDir, resolvedTracearyBin)
+	encoded, err := c.hooksOrchestrator.Generate(ctx, input.client, resolvedScriptsDir, resolvedTracearyBin)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to build hook configuration example", "hook 設定例の生成に失敗しました"), err)
 	}
@@ -147,7 +147,7 @@ func (c *RootCLI) runHooksInstall(
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve traceary binary path", "traceary binary path の解決に失敗しました"), err)
 	}
-	resolvedScriptsDir, err := c.HookScriptsInstaller().Ensure()
+	resolvedScriptsDir, err := c.hookScriptsInstaller.Ensure()
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to prepare hook scripts", "hook script の準備に失敗しました"), err)
 	}
@@ -157,7 +157,7 @@ func (c *RootCLI) runHooksInstall(
 		outputPathOption = types.Of(trimmedOutput)
 	}
 
-	resolvedOutputPath, err := c.HooksOrchestrator().Install(
+	resolvedOutputPath, err := c.hooksOrchestrator.Install(
 		ctx,
 		input.client,
 		resolvedScriptsDir,
@@ -187,7 +187,7 @@ func (c *RootCLI) runHooksInstall(
 }
 
 func normalizeHooksClientForDisplay(c *RootCLI, client string) string {
-	if resolved, err := c.HooksOrchestrator().NormalizeClient(client); err == nil {
+	if resolved, err := c.hooksOrchestrator.NormalizeClient(client); err == nil {
 		return resolved
 	}
 

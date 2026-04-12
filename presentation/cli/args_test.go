@@ -42,7 +42,7 @@ func TestRootCLI_ArgumentErrorsDefaultToEnglish(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+			rootCmd := cli.NewRootCLI().Command()
 			rootCmd.SetOut(&bytes.Buffer{})
 			rootCmd.SetErr(&bytes.Buffer{})
 			rootCmd.SetArgs(tt.args)
@@ -61,7 +61,7 @@ func TestRootCLI_ArgumentErrorsDefaultToEnglish(t *testing.T) {
 func TestRootCLI_ArgumentErrorsCanUseJapanese(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "ja")
 
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+	rootCmd := cli.NewRootCLI().Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"log"})

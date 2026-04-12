@@ -31,9 +31,9 @@ func TestRootCLI_LogCommand(t *testing.T) {
 
 		stdout := &bytes.Buffer{}
 		stderr := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreManagement: &storeManagementUsecaseStub{},
-			Event: &eventUsecaseStub{
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{
 				logEvent: model.EventOf(
 					eventID,
 					types.EventKindNote,
@@ -44,8 +44,8 @@ func TestRootCLI_LogCommand(t *testing.T) {
 					"hello",
 					fixedLogTime(),
 				),
-			},
-		}).Command()
+			}),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(stderr)
 		rootCmd.SetArgs([]string{
@@ -71,9 +71,9 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		t.Parallel()
 
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreManagement: &storeManagementUsecaseStub{},
-			Event: &eventUsecaseStub{
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{
 				logEvent: model.EventOf(
 					eventID,
 					types.EventKindCompactSummary,
@@ -84,8 +84,8 @@ func TestRootCLI_LogCommand(t *testing.T) {
 					"summary text",
 					fixedLogTime(),
 				),
-			},
-		}).Command()
+			}),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
@@ -112,9 +112,9 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		t.Setenv("TRACEARY_CLIENT", "hook")
 		t.Setenv("TRACEARY_WORKSPACE", "duck8823/traceary")
 
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreManagement: &storeManagementUsecaseStub{},
-			Event: &eventUsecaseStub{
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{
 				logEvent: model.EventOf(
 					eventID,
 					types.EventKindNote,
@@ -125,8 +125,8 @@ func TestRootCLI_LogCommand(t *testing.T) {
 					"hello",
 					fixedLogTime(),
 				),
-			},
-		}).Command()
+			}),
+		).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"log", "--db-path", "/tmp/test-traceary.db", "hello"})
@@ -140,9 +140,9 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		t.Parallel()
 
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreManagement: &storeManagementUsecaseStub{},
-			Event: &eventUsecaseStub{
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{
 				logEvent: model.EventOf(
 					eventID,
 					types.EventKindNote,
@@ -153,8 +153,8 @@ func TestRootCLI_LogCommand(t *testing.T) {
 					"hello",
 					fixedLogTime(),
 				),
-			},
-		}).Command()
+			}),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"log", "--db-path", "/tmp/test-traceary.db", "--id-only", "hello"})
@@ -171,9 +171,9 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		t.Parallel()
 
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreManagement: &storeManagementUsecaseStub{},
-			Event: &eventUsecaseStub{
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{
 				logEvent: model.EventOf(
 					eventID,
 					types.EventKindNote,
@@ -184,8 +184,8 @@ func TestRootCLI_LogCommand(t *testing.T) {
 					"hello",
 					fixedLogTime(),
 				),
-			},
-		}).Command()
+			}),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"log", "--db-path", "/tmp/test-traceary.db", "--session-id", "session-1", "--json", "hello"})
@@ -220,9 +220,9 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		}
 
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreManagement: &storeManagementUsecaseStub{},
-			Event: &eventUsecaseStub{
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{
 				logEvent: model.EventOf(
 					eventID,
 					types.EventKindNote,
@@ -233,8 +233,8 @@ func TestRootCLI_LogCommand(t *testing.T) {
 					"hello",
 					fixedLogTime(),
 				),
-			},
-			Session: &sessionUsecaseStub{
+			}),
+			cli.WithSession(&sessionUsecaseStub{
 				activeEvent: model.EventOf(
 					activeEventID,
 					types.EventKindSessionStarted,
@@ -245,8 +245,8 @@ func TestRootCLI_LogCommand(t *testing.T) {
 					"session started",
 					time.Now().Add(-1*time.Hour),
 				),
-			},
-		}).Command()
+			}),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"log", "--db-path", "/tmp/test-traceary.db", "hello"})
@@ -270,9 +270,9 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		defer cli.ResetDetectRepoContextFunc()
 
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreManagement: &storeManagementUsecaseStub{},
-			Event: &eventUsecaseStub{
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{
 				logEvent: model.EventOf(
 					eventID,
 					types.EventKindNote,
@@ -283,9 +283,9 @@ func TestRootCLI_LogCommand(t *testing.T) {
 					"hello",
 					fixedLogTime(),
 				),
-			},
-			Session: &sessionUsecaseStub{},
-		}).Command()
+			}),
+			cli.WithSession(&sessionUsecaseStub{}),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"log", "--db-path", "/tmp/test-traceary.db", "hello"})

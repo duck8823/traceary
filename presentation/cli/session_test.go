@@ -33,9 +33,9 @@ func TestRootCLI_SessionStartCommand(t *testing.T) {
 	}
 
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreManagement: &storeManagementUsecaseStub{},
-		Session: &sessionUsecaseStub{
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{
 			startEvent: model.EventOf(
 				eventID,
 				types.EventKindSessionStarted,
@@ -46,8 +46,8 @@ func TestRootCLI_SessionStartCommand(t *testing.T) {
 				"session started",
 				time.Date(2026, 4, 7, 13, 0, 0, 0, time.UTC),
 			),
-		},
-	}).Command()
+		}),
+	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
@@ -85,9 +85,9 @@ func TestRootCLI_SessionStartCommand_IdOnly(t *testing.T) {
 	}
 
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreManagement: &storeManagementUsecaseStub{},
-		Session: &sessionUsecaseStub{
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{
 			startEvent: model.EventOf(
 				eventID,
 				types.EventKindSessionStarted,
@@ -98,8 +98,8 @@ func TestRootCLI_SessionStartCommand_IdOnly(t *testing.T) {
 				"session started",
 				time.Date(2026, 4, 7, 13, 0, 0, 0, time.UTC),
 			),
-		},
-	}).Command()
+		}),
+	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"session", "start", "--db-path", "/tmp/test-traceary.db", "--id-only"})
@@ -120,9 +120,9 @@ func TestRootCLI_SessionStartCommand_JSON(t *testing.T) {
 	sessionID := mustSessionID(t, "session-start-json")
 
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreManagement: &storeManagementUsecaseStub{},
-		Session: &sessionUsecaseStub{
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{
 			startEvent: model.EventOf(
 				eventID,
 				types.EventKindSessionStarted,
@@ -133,8 +133,8 @@ func TestRootCLI_SessionStartCommand_JSON(t *testing.T) {
 				"session started",
 				time.Date(2026, 4, 7, 13, 0, 0, 0, time.UTC),
 			),
-		},
-	}).Command()
+		}),
+	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"session", "start", "--db-path", "/tmp/test-traceary.db", "--json"})
@@ -173,9 +173,9 @@ func TestRootCLI_SessionStartCommand_UsesDetectedRepoByDefault(t *testing.T) {
 	}
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreManagement: &storeManagementUsecaseStub{},
-		Session: &sessionUsecaseStub{
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{
 			startEvent: model.EventOf(
 				eventID,
 				types.EventKindSessionStarted,
@@ -186,8 +186,8 @@ func TestRootCLI_SessionStartCommand_UsesDetectedRepoByDefault(t *testing.T) {
 				"session started",
 				time.Date(2026, 4, 7, 13, 5, 0, 0, time.UTC),
 			),
-		},
-	}).Command()
+		}),
+	).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"session", "start", "--db-path", dbPath})
@@ -220,9 +220,9 @@ func TestRootCLI_SessionEndCommand(t *testing.T) {
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreManagement: &storeManagementUsecaseStub{},
-		Session: &sessionUsecaseStub{
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{
 			endEvent: model.EventOf(
 				eventID,
 				types.EventKindSessionEnded,
@@ -233,8 +233,8 @@ func TestRootCLI_SessionEndCommand(t *testing.T) {
 				"session ended",
 				time.Date(2026, 4, 7, 13, 30, 0, 0, time.UTC),
 			),
-		},
-	}).Command()
+		}),
+	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"session", "end", "--db-path", dbPath})
@@ -264,9 +264,9 @@ func TestRootCLI_SessionEndCommand_IdOnly(t *testing.T) {
 	}
 
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreManagement: &storeManagementUsecaseStub{},
-		Session: &sessionUsecaseStub{
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{
 			endEvent: model.EventOf(
 				eventID,
 				types.EventKindSessionEnded,
@@ -277,8 +277,8 @@ func TestRootCLI_SessionEndCommand_IdOnly(t *testing.T) {
 				"session ended",
 				time.Date(2026, 4, 7, 13, 30, 0, 0, time.UTC),
 			),
-		},
-	}).Command()
+		}),
+	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"session", "end", "--db-path", "/tmp/test-traceary.db", "--id-only", "--session-id", "session-env"})
@@ -299,9 +299,9 @@ func TestRootCLI_SessionEndCommand_JSON(t *testing.T) {
 	sessionID := mustSessionID(t, "session-end-json")
 
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreManagement: &storeManagementUsecaseStub{},
-		Session: &sessionUsecaseStub{
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{
 			endEvent: model.EventOf(
 				eventID,
 				types.EventKindSessionEnded,
@@ -312,8 +312,8 @@ func TestRootCLI_SessionEndCommand_JSON(t *testing.T) {
 				"session ended",
 				time.Date(2026, 4, 7, 13, 30, 0, 0, time.UTC),
 			),
-		},
-	}).Command()
+		}),
+	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"session", "end", "--db-path", "/tmp/test-traceary.db", "--session-id", "session-end-json", "--json"})
@@ -348,9 +348,9 @@ func TestRootCLI_SessionLatestCommand(t *testing.T) {
 	}
 
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreManagement: &storeManagementUsecaseStub{},
-		Session: &sessionUsecaseStub{
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{
 			latestEvent: model.EventOf(
 				eventID,
 				types.EventKindSessionStarted,
@@ -361,8 +361,8 @@ func TestRootCLI_SessionLatestCommand(t *testing.T) {
 				"session started",
 				time.Date(2026, 4, 8, 13, 0, 0, 0, time.UTC),
 			),
-		},
-	}).Command()
+		}),
+	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
@@ -387,9 +387,9 @@ func TestRootCLI_SessionLatestCommand_JSON(t *testing.T) {
 	t.Parallel()
 
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreManagement: &storeManagementUsecaseStub{},
-		Session: &sessionUsecaseStub{
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{
 			latestEvent: model.EventOf(
 				mustEventID(t, "event-latest-json"),
 				types.EventKindSessionStarted,
@@ -400,8 +400,8 @@ func TestRootCLI_SessionLatestCommand_JSON(t *testing.T) {
 				"session started",
 				time.Date(2026, 4, 8, 13, 0, 0, 0, time.UTC),
 			),
-		},
-	}).Command()
+		}),
+	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"session", "latest", "--db-path", "/tmp/test-traceary.db", "--json"})
@@ -436,9 +436,9 @@ func TestRootCLI_SessionActiveCommand(t *testing.T) {
 	}
 
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreManagement: &storeManagementUsecaseStub{},
-		Session: &sessionUsecaseStub{
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{
 			activeEvent: model.EventOf(
 				eventID,
 				types.EventKindSessionStarted,
@@ -449,8 +449,8 @@ func TestRootCLI_SessionActiveCommand(t *testing.T) {
 				"session started",
 				time.Now().Add(-1*time.Hour),
 			),
-		},
-	}).Command()
+		}),
+	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
@@ -485,9 +485,9 @@ func TestRootCLI_SessionActiveCommand_StaleError(t *testing.T) {
 		t.Fatalf("SessionIDOf() error = %v", err)
 	}
 
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreManagement: &storeManagementUsecaseStub{},
-		Session: &sessionUsecaseStub{
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{
 			activeEvent: model.EventOf(
 				eventID,
 				types.EventKindSessionStarted,
@@ -498,8 +498,8 @@ func TestRootCLI_SessionActiveCommand_StaleError(t *testing.T) {
 				"session started",
 				time.Now().Add(-48*time.Hour),
 			),
-		},
-	}).Command()
+		}),
+	).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
@@ -535,9 +535,9 @@ func TestRootCLI_SessionActiveCommand_AllowStale(t *testing.T) {
 	}
 
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreManagement: &storeManagementUsecaseStub{},
-		Session: &sessionUsecaseStub{
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{
 			activeEvent: model.EventOf(
 				eventID,
 				types.EventKindSessionStarted,
@@ -548,8 +548,8 @@ func TestRootCLI_SessionActiveCommand_AllowStale(t *testing.T) {
 				"session started",
 				time.Now().Add(-48*time.Hour),
 			),
-		},
-	}).Command()
+		}),
+	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
@@ -572,10 +572,10 @@ func TestRootCLI_SessionLatestCommand_NotFoundError(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreManagement: &storeManagementUsecaseStub{},
-		Session:          &sessionUsecaseStub{},
-	}).Command()
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{}),
+	).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"session", "latest", "--db-path", dbPath})

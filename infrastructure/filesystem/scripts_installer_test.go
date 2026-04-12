@@ -35,22 +35,22 @@ func TestHookScriptsInstaller_MaterializesCanonicalScripts(t *testing.T) {
 		t.Fatalf("hookscripts.Assets() error = %v", err)
 	}
 	for _, asset := range assets {
-		outputPath := filepath.Join(scriptsDir, asset.Name)
+		outputPath := filepath.Join(scriptsDir, asset.Name())
 		gotContent, err := os.ReadFile(outputPath)
 		if err != nil {
 			t.Fatalf("ReadFile(%q) error = %v", outputPath, err)
 		}
-		if got, want := string(gotContent), asset.Content; got != want {
-			t.Fatalf("installed asset %q mismatch", asset.Name)
+		if got, want := string(gotContent), asset.Content(); got != want {
+			t.Fatalf("installed asset %q mismatch", asset.Name())
 		}
 
-		canonicalPath := filepath.Join(repoRoot, "scripts", "hooks", asset.Name)
+		canonicalPath := filepath.Join(repoRoot, "scripts", "hooks", asset.Name())
 		canonicalContent, err := os.ReadFile(canonicalPath)
 		if err != nil {
 			t.Fatalf("ReadFile(%q) error = %v", canonicalPath, err)
 		}
-		if got, want := asset.Content, string(canonicalContent); got != want {
-			t.Fatalf("asset %q drifted from canonical script", asset.Name)
+		if got, want := asset.Content(), string(canonicalContent); got != want {
+			t.Fatalf("asset %q drifted from canonical script", asset.Name())
 		}
 	}
 }

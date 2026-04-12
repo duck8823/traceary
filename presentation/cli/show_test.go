@@ -57,10 +57,10 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 			t.Fatalf("EventDetailsOf() error = %v", err)
 		}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreManagement: &storeManagementUsecaseStub{},
-			Event:            &eventUsecaseStub{showDetails: eventDetails},
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{showDetails: eventDetails}),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"show", "--db-path", "/tmp/test-traceary.db", "event-1"})
@@ -112,10 +112,10 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 			t.Fatalf("EventDetailsOf() error = %v", err)
 		}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreManagement: &storeManagementUsecaseStub{},
-			Event:            &eventUsecaseStub{showDetails: eventDetails},
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{showDetails: eventDetails}),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"show", "--db-path", "/tmp/test-traceary.db", "event-1"})
@@ -156,10 +156,10 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 			t.Fatalf("EventDetailsOf() error = %v", err)
 		}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreManagement: &storeManagementUsecaseStub{},
-			Event:            &eventUsecaseStub{showDetails: eventDetails},
-		}).Command()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{showDetails: eventDetails}),
+		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"show", "--db-path", "/tmp/test-traceary.db", "--json", "event-1"})
@@ -225,10 +225,10 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 			t.Parallel()
 
 			stdout := &bytes.Buffer{}
-			rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-				StoreManagement: &storeManagementUsecaseStub{},
-				Event:            &eventUsecaseStub{showDetails: eventDetails},
-			}).Command()
+			rootCmd := cli.NewRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+				cli.WithEvent(&eventUsecaseStub{showDetails: eventDetails}),
+			).Command()
 			rootCmd.SetOut(stdout)
 			rootCmd.SetErr(&bytes.Buffer{})
 			rootCmd.SetArgs([]string{"show", "--db-path", "/tmp/test-traceary.db", "event-1"})
@@ -245,10 +245,10 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 			t.Parallel()
 
 			stdout := &bytes.Buffer{}
-			rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-				StoreManagement: &storeManagementUsecaseStub{},
-				Event:            &eventUsecaseStub{showDetails: eventDetails},
-			}).Command()
+			rootCmd := cli.NewRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+				cli.WithEvent(&eventUsecaseStub{showDetails: eventDetails}),
+			).Command()
 			rootCmd.SetOut(stdout)
 			rootCmd.SetErr(&bytes.Buffer{})
 			rootCmd.SetArgs([]string{"show", "--db-path", "/tmp/test-traceary.db", "--json", "event-1"})

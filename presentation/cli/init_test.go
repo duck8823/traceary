@@ -16,9 +16,7 @@ func TestRootCLI_InitCommand(t *testing.T) {
 	stub := &storeManagementUsecaseStub{}
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreManagement: stub,
-	}).Command()
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(stub)).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(stderr)
 	rootCmd.SetArgs([]string{"init", "--db-path", dbPath})
@@ -97,9 +95,7 @@ func TestRootCLI_InitCommand_UsesTracearyDBPathEnv(t *testing.T) {
 	stub := &storeManagementUsecaseStub{}
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		StoreManagement: stub,
-	}).Command()
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(stub)).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(stderr)
 	rootCmd.SetArgs([]string{"init"})
@@ -118,7 +114,7 @@ func TestRootCLI_InitHelp_ExplainsOptionalBootstrap(t *testing.T) {
 
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+	rootCmd := cli.NewRootCLI().Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(stderr)
 	rootCmd.SetArgs([]string{"init", "--help"})
@@ -144,7 +140,7 @@ func TestRootCLI_InitHelp_CanUseJapaneseFlagHelp(t *testing.T) {
 
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{}).Command()
+	rootCmd := cli.NewRootCLI().Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(stderr)
 	rootCmd.SetArgs([]string{"init", "--help"})

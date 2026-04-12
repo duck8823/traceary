@@ -98,9 +98,7 @@ func TestRunBackupRestore_InteractiveConfirmation(t *testing.T) {
 	}
 
 	restoreBackup := &restoreStoreBackupUsecaseForTest{}
-	rootCLI := NewRootCLI(RootCLIOptions{
-		StoreManagement: restoreBackup,
-	})
+	rootCLI := NewRootCLI(WithStoreManagement(restoreBackup))
 	stdout := &bytes.Buffer{}
 
 	err := rootCLI.runBackupRestore(context.Background(), stdout, backupRestoreCommandInput{
@@ -136,9 +134,7 @@ func TestRunBackupRestore_AssumeYesSkipsInteractiveConfirmation(t *testing.T) {
 	}
 
 	restoreBackup := &restoreStoreBackupUsecaseForTest{}
-	rootCLI := NewRootCLI(RootCLIOptions{
-		StoreManagement: restoreBackup,
-	})
+	rootCLI := NewRootCLI(WithStoreManagement(restoreBackup))
 	stdout := &bytes.Buffer{}
 
 	err := rootCLI.runBackupRestore(context.Background(), stdout, backupRestoreCommandInput{

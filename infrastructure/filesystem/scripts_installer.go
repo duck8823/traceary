@@ -49,9 +49,9 @@ func (i *HookScriptsInstaller) Ensure() (string, error) {
 	}
 
 	for _, asset := range assets {
-		outputPath := filepath.Join(scriptsDir, asset.Name)
+		outputPath := filepath.Join(scriptsDir, asset.Name())
 		currentContent, err := os.ReadFile(outputPath)
-		if err == nil && string(currentContent) == asset.Content {
+		if err == nil && string(currentContent) == asset.Content() {
 			if chmodErr := os.Chmod(outputPath, 0o755); chmodErr != nil {
 				return "", xerrors.Errorf("failed to chmod hook script: %w", chmodErr)
 			}
@@ -60,7 +60,7 @@ func (i *HookScriptsInstaller) Ensure() (string, error) {
 		if err != nil && !os.IsNotExist(err) {
 			return "", xerrors.Errorf("failed to inspect installed hook script: %w", err)
 		}
-		if err := os.WriteFile(outputPath, []byte(asset.Content), 0o755); err != nil {
+		if err := os.WriteFile(outputPath, []byte(asset.Content()), 0o755); err != nil {
 			return "", xerrors.Errorf("failed to write hook script: %w", err)
 		}
 	}

@@ -166,16 +166,18 @@ func run() error {
 		"gemini": filesystem.NewGeminiHooksHandler(),
 	})
 	hookScriptsInstaller := filesystem.NewHookScriptsInstaller()
+	hooksInspector := filesystem.NewHooksInspector()
 
-	rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-		Event:                eventUsecase,
-		Session:              sessionUsecase,
-		StoreManagement:      storeManagementUsecase,
-		MCPServerRunner:      mcpServer,
-		HooksOrchestrator:    hooksOrchestrator,
-		HookScriptsInstaller: hookScriptsInstaller,
-		ExtraRedactPatterns:  extraRedactPatterns,
-	}).Command()
+	rootCmd := cli.NewRootCLI(
+		cli.WithEvent(eventUsecase),
+		cli.WithSession(sessionUsecase),
+		cli.WithStoreManagement(storeManagementUsecase),
+		cli.WithMCPServerRunner(mcpServer),
+		cli.WithHooksOrchestrator(hooksOrchestrator),
+		cli.WithHookScriptsInstaller(hookScriptsInstaller),
+		cli.WithHooksInspector(hooksInspector),
+		cli.WithExtraRedactPatterns(extraRedactPatterns),
+	).Command()
 	rootCmd.Version = versionString()
 	rootCmd.SetVersionTemplate("{{.Name}} {{.Version}}\n")
 

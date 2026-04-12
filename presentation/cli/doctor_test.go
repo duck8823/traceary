@@ -36,9 +36,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 
 	t.Run("all clients without config only warns", func(t *testing.T) {
 		initStub := &storeManagementUsecaseStub{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreManagement: initStub,
-		}).Command()
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -70,9 +68,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 
 	t.Run("specific client without config warns", func(t *testing.T) {
 		initStub := &storeManagementUsecaseStub{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreManagement: initStub,
-		}).Command()
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -103,9 +99,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 		}
 		t.Setenv("TRACEARY_HOOK_SCRIPTS_DIR", blockedPath)
 
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreManagement: initStub,
-		}).Command()
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -160,9 +154,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 		}
 
 		initStub := &storeManagementUsecaseStub{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreManagement: initStub,
-		}).Command()
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -198,9 +190,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 		}
 
 		initStub := &storeManagementUsecaseStub{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreManagement: initStub,
-		}).Command()
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})

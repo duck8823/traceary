@@ -19,9 +19,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 			gcResult: apptypes.CollectGarbageResultOf(3, time.Time{}, true),
 		}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreManagement: storeMaint,
-		}).Command()
+		rootCmd := cli.NewRootCLI(cli.WithStoreManagement(storeMaint)).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30", "--dry-run"})
@@ -39,9 +37,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 			gcResult: apptypes.CollectGarbageResultOf(2, time.Time{}, false),
 		}
 		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(cli.RootCLIOptions{
-			StoreManagement: storeMaint,
-		}).Command()
+		rootCmd := cli.NewRootCLI(cli.WithStoreManagement(storeMaint)).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30"})
