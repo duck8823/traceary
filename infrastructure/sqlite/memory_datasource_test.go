@@ -56,13 +56,17 @@ CREATE TABLE memory_evidence_refs (
     ref_value TEXT NOT NULL,
     PRIMARY KEY (memory_id, ordinal)
 );
+CREATE INDEX idx_memory_evidence_refs_lookup
+    ON memory_evidence_refs(ref_kind, ref_value);
 CREATE TABLE memory_artifact_refs (
     memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
     ordinal INTEGER NOT NULL,
     ref_kind TEXT NOT NULL,
     ref_value TEXT NOT NULL,
     PRIMARY KEY (memory_id, ordinal)
-);`),
+);
+CREATE INDEX idx_memory_artifact_refs_lookup
+    ON memory_artifact_refs(ref_kind, ref_value);`),
 		},
 	}
 }
@@ -440,6 +444,22 @@ func TestMemoryDatasource_Search(t *testing.T) {
 			time.Date(2026, 4, 12, 8, 0, 0, 0, time.UTC),
 			time.Date(2026, 4, 12, 8, 10, 0, 0, time.UTC),
 		),
+		memoryOf(
+			t,
+			"mem-path",
+			types.MemoryTypeLesson,
+			mustWorkspaceScope(t, "github.com/duck8823/traceary"),
+			`Windows path C:\traceary\memory.db`,
+			types.MemoryStatusAccepted,
+			types.ConfidenceMedium,
+			types.MemorySourceImported,
+			nil,
+			nil,
+			types.Empty[types.MemoryID](),
+			types.Empty[time.Time](),
+			time.Date(2026, 4, 12, 9, 0, 0, 0, time.UTC),
+			time.Date(2026, 4, 12, 9, 10, 0, 0, time.UTC),
+		),
 	}
 	for _, memory := range memories {
 		if err := sut.Save(ctx, memory); err != nil {
@@ -469,5 +489,17 @@ func TestMemoryDatasource_Search(t *testing.T) {
 	}
 	if diff := cmp.Diff("mem-artifact", artifactResults[0].MemoryID().String()); diff != "" {
 		t.Fatalf("artifact result mismatch (-want +got):\n%s", diff)
+	}
+
+	searchByPath := apptypes.NewMemorySearchCriteriaBuilder(10).Query(`C:\traceary\memory.db`).Build()
+	pathResults, err := sut.Search(ctx, searchByPath)
+	if err != nil {
+		t.Fatalf("Search(path) error = %v", err)
+	}
+	if got := len(pathResults); got != 1 {
+		t.Fatalf("len(Search(path)) = %d, want 1", got)
+	}
+	if diff := cmp.Diff("mem-path", pathResults[0].MemoryID().String()); diff != "" {
+		t.Fatalf("path result mismatch (-want +got):\n%s", diff)
 	}
 }

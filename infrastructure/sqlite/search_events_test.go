@@ -74,6 +74,23 @@ CREATE TABLE command_audits (
 		t.Fatalf("SaveWithAudit() error = %v", err)
 	}
 
+	pathEventID, _ := types.EventIDOf("event-path")
+	pathAgent, _ := types.AgentOf("codex")
+	pathSessionID, _ := types.SessionIDOf("session-path")
+	pathEvent := model.EventOf(
+		pathEventID,
+		types.EventKindNote,
+		types.Client("cli"),
+		pathAgent,
+		pathSessionID,
+		types.Workspace("github.com/duck8823/traceary"),
+		`Windows path C:\traceary\logs`,
+		time.Date(2026, 4, 6, 12, 0, 0, 0, time.UTC),
+	)
+	if err := sut.Save(context.Background(), pathEvent); err != nil {
+		t.Fatalf("Save(pathEvent) error = %v", err)
+	}
+
 	got, err := sut.Search(context.Background(), "stdout", types.Workspace("github.com/duck8823/traceary"), types.SessionID(""), types.Client(""), types.Agent(""), types.EventKind(""), time.Date(2026, 4, 8, 0, 0, 0, 0, time.UTC), time.Date(2026, 4, 9, 0, 0, 0, 0, time.UTC), 10, 0, false)
 	if err != nil {
 		t.Fatalf("Search() error = %v", err)
@@ -111,6 +128,21 @@ CREATE TABLE command_audits (
 			t.Fatalf("len(filtered) = %d, want 1", len(filtered))
 		}
 		if diff := cmp.Diff("event-note", filtered[0].EventID().String()); diff != "" {
+			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("matches literal backslashes in search queries", func(t *testing.T) {
+		t.Parallel()
+
+		filtered, err := sut.Search(context.Background(), `C:\traceary\logs`, types.Workspace("github.com/duck8823/traceary"), types.SessionID(""), types.Client(""), types.Agent(""), types.EventKind(""), time.Time{}, time.Time{}, 10, 0, false)
+		if err != nil {
+			t.Fatalf("Search() error = %v", err)
+		}
+		if len(filtered) != 1 {
+			t.Fatalf("len(filtered) = %d, want 1", len(filtered))
+		}
+		if diff := cmp.Diff("event-path", filtered[0].EventID().String()); diff != "" {
 			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 		}
 	})
