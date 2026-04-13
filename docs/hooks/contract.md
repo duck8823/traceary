@@ -42,7 +42,7 @@ This document defines the hook capability tiers across AI agent clients.
 ## Shared Behavior
 
 All tiers:
-- Session start persists repo to state file; audit reads repo from state
+- Session start persists the resolved workspace to the state file; audit reads the workspace from state
 - Agent type resolution: `agent_type` field → hierarchical agent name (Claude only)
 - Exit code extraction from `tool_response.exitCode` when available
 - MCP tool name fallback: `tool_input.command` → `tool_name`

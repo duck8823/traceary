@@ -102,7 +102,7 @@ func buildCompactSummaryText(result types.Optional[apptypes.ContextPack]) (strin
 	pack, _ := result.Get()
 	fmt.Fprintf(&sb, "Session %s resumed after compact\n", pack.SessionID())
 	if pack.Workspace().String() != "" {
-		fmt.Fprintf(&sb, "  repo: %s\n", pack.Workspace())
+		fmt.Fprintf(&sb, "  workspace: %s\n", pack.Workspace())
 	}
 	if pack.Label() != "" {
 		fmt.Fprintf(&sb, "  label: %s\n", pack.Label())

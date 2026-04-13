@@ -57,7 +57,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 			t.Errorf("output missing session ID")
 		}
 		if !strings.Contains(output, "duck8823/traceary") {
-			t.Errorf("output missing repo")
+			t.Errorf("output missing workspace")
 		}
 		if !strings.Contains(output, "v0.2.1 sprint") {
 			t.Errorf("output missing label")

@@ -21,7 +21,7 @@ Append a note event.
 Defaults:
 
 - `--client` / `--agent` / `--workspace`: flag → `TRACEARY_CLIENT` / `TRACEARY_AGENT` / `TRACEARY_WORKSPACE` → `cli` / `manual` / detected workspace
-- `--session-id`: flag → `TRACEARY_SESSION_ID` → latest non-stale active session for the resolved repo → `default`
+- `--session-id`: flag → `TRACEARY_SESSION_ID` → latest non-stale active session for the resolved workspace → `default`
 
 Useful flags:
 
@@ -35,9 +35,9 @@ Useful flags:
 Session resolution rules:
 
 - explicit `--session-id` or `TRACEARY_SESSION_ID` wins
-- otherwise Traceary reuses the latest non-stale active session for the resolved repo/work context
+- otherwise Traceary reuses the latest non-stale active session for the resolved workspace
 - when `remote.origin.url` is unavailable but the current directory is still inside a git worktree, Traceary falls back to the worktree root path as the work-context key
-- if no repo/work context or no matching active session is found, Traceary falls back to the historical `default` session ID
+- if no workspace could be resolved or no matching active session is found, Traceary falls back to the historical `default` session ID
 
 > **Note:** `log` and `audit` accept any `--session-id` value without validating whether the session actually exists. This is by design — hooks record events at high frequency and the extra DB lookup per write would add unacceptable overhead. If you pass a nonexistent session ID, the event is still recorded; it will simply not appear in session-scoped queries.
 
@@ -74,7 +74,7 @@ Session resolution follows the same rules as `traceary log`.
 
 List recent events.
 
-`list` is the fast recent-history view. Use it when you already know the event kind / client / agent / session / repo filters you want. Switch to `search` when you need keyword matching or date-range filtering.
+`list` is the fast recent-history view. Use it when you already know the event kind / client / agent / session / workspace filters you want. Switch to `search` when you need keyword matching or date-range filtering.
 
 Useful flags:
 

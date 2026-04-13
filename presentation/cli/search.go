@@ -15,16 +15,16 @@ import (
 
 func (c *RootCLI) newSearchCommand() *cobra.Command {
 	var (
-		dbPath    string
-		repo      string
-		sessionID string
-		client    string
-		agent     string
-		kind      string
-		from      string
-		since     string
-		to        string
-		until     string
+		dbPath       string
+		repo         string
+		sessionID    string
+		client       string
+		agent        string
+		kind         string
+		from         string
+		since        string
+		to           string
+		until        string
 		limit        int
 		offset       int
 		failuresOnly bool
@@ -60,7 +60,7 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 		},
 	}
 	searchCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
-	searchCmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by work context (env: TRACEARY_WORKSPACE / current git remote)", "絞り込む work context (env: TRACEARY_WORKSPACE / current git remote)"))
+	searchCmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by workspace (env: TRACEARY_WORKSPACE / current git remote)", "絞り込む workspace (env: TRACEARY_WORKSPACE / current git remote)"))
 	searchCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("filter by session ID", "絞り込む session ID"))
 	searchCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "絞り込む client"))
 	searchCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "絞り込む agent"))

@@ -46,7 +46,7 @@ func (c *RootCLI) newContextCommand() *cobra.Command {
 	contextCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("target session ID", "対象の session ID"))
 	contextCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "作業主体の入口で絞り込む"))
 	contextCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "作業主体で絞り込む"))
-	contextCmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by auxiliary work context identifier", "補助的なコンテキスト識別子で絞り込む"))
+	contextCmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by auxiliary workspace identifier", "補助的な workspace 識別子で絞り込む"))
 	contextCmd.Flags().IntVar(&limit, "limit", 10, Localize("maximum number of events to include", "表示件数"))
 	contextCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 
