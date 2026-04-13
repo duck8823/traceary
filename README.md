@@ -123,6 +123,18 @@ traceary audit --id-only --command "go test ./..." --input '{}' --output '{}'
 traceary session end --session-id "$sid" --id-only
 ```
 
+### 4. Promote reusable context when it matters
+
+```sh
+traceary memory remember \
+  --type decision \
+  --workspace github.com/duck8823/traceary \
+  --fact "Use traceary handoff for compact resume context" \
+  --evidence issue:#502
+
+traceary handoff --workspace github.com/duck8823/traceary
+```
+
 ## Host capture matrix
 
 The query surface is shared: once Traceary is installed, every host can use the same CLI and MCP memory/context commands. What differs is how much context each host can capture automatically via hooks.
@@ -150,7 +162,8 @@ Use the [documentation index](./docs/README.md) for the full map.
 The most common next pages are:
 
 - [Native integrations](./docs/integrations/README.md)
-- [CLI reference](./docs/cli/README.md) — including manual one-off CLI workflows
+- [Durable memory guide](./docs/memory/README.md)
+- [CLI reference](./docs/cli/README.md)
 - [Hooks guide](./docs/hooks/README.md)
 - [Hook contract and capability tiers](./docs/hooks/contract.md)
 - [Event lifecycle](./docs/lifecycle.md)
@@ -160,5 +173,5 @@ The most common next pages are:
 ## Contributing and support
 
 - bug reports and feature requests belong in GitHub Issues
-- security reports should follow the private contact path in [CONTRIBUTING.md](./CONTRIBUTING.md)
+- security reports should follow [SECURITY.md](./SECURITY.md)
 - this is an actively evolving `v0.x` OSS tool, so check the [changelog](./CHANGELOG.md) before upgrading automation around it

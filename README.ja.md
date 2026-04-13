@@ -122,6 +122,18 @@ traceary audit --id-only --command "go test ./..." --input '{}' --output '{}'
 traceary session end --session-id "$sid" --id-only
 ```
 
+### 4. 再利用したい事実は durable memory に残す
+
+```sh
+traceary memory remember \
+  --type decision \
+  --workspace github.com/duck8823/traceary \
+  --fact "再開時の要約には traceary handoff を使う" \
+  --evidence issue:#502
+
+traceary handoff --workspace github.com/duck8823/traceary
+```
+
 ## ホスト別の自動記録マトリクス
 
 問い合わせ面は共通です。Traceary を入れれば、どのホストからでも同じ CLI / MCP の memory・context 機能を使えます。差が出るのは、hook でどこまで自動記録できるかです。
@@ -136,7 +148,7 @@ traceary session end --session-id "$sid" --id-only
 
 ## 先に知っておくと楽なこと
 
-- `traceary log` / `traceary audit` で `--session-id` を省くと、解決できた repo / work context に対応する最新の non-stale アクティブセッションを優先して使います。`remote.origin.url` が無い Git worktree では、worktree ルートパスを代わりに使います
+- `traceary log` / `traceary audit` で `--session-id` を省くと、解決できた workspace に対応する最新の non-stale アクティブセッションを優先して使います。`remote.origin.url` が無い Git worktree では、worktree ルートパスを代わりに使います
 - `traceary session active` は既定で 24 時間を超えたセッションを stale とみなします。必要なら `--allow-stale` を付けてください
 - `traceary session start` はセッション ID を出力し、`traceary session end` は記録したイベント ID を出力します
 - `traceary session list --json` では、値がある場合に `label` / `summary` / `parent_session_id` も確認できます
@@ -148,7 +160,8 @@ traceary session end --session-id "$sid" --id-only
 詳しい一覧は [ドキュメント索引](./docs/README.ja.md) にまとめています。最初によく使うのは次のページです。
 
 - [ネイティブ連携ガイド](./docs/integrations/README.ja.md)
-- [CLI リファレンス](./docs/cli/README.ja.md) — 手動で CLI を使う場合の詳細はこちら
+- [Durable memory ガイド](./docs/memory/README.ja.md)
+- [CLI リファレンス](./docs/cli/README.ja.md)
 - [Hooks ガイド](./docs/hooks/README.ja.md)
 - [Hook contract と対応レベル](./docs/hooks/contract.ja.md)
 - [イベントライフサイクル](./docs/lifecycle.ja.md)
@@ -158,5 +171,5 @@ traceary session end --session-id "$sid" --id-only
 ## コントリビュートとサポート
 
 - バグ報告や改善提案は GitHub Issues へお願いします
-- 脆弱性の連絡先は [CONTRIBUTING.ja.md](./CONTRIBUTING.ja.md) を参照してください
+- 脆弱性の報告方法は [SECURITY.ja.md](./SECURITY.ja.md) を参照してください
 - まだ `v0.x` の OSS なので、自動化に組み込む前には [変更履歴](./CHANGELOG.ja.md) を確認してください
