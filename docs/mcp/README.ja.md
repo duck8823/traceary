@@ -64,7 +64,7 @@ Flags:
 
 ## 公開されるツール
 
-現在の Traceary MCP サーバーは 9 つのツールを公開します。
+現在の Traceary MCP サーバーは 18 個のツールを公開します。
 
 ### `start_session`
 
@@ -75,7 +75,7 @@ Inputs:
 - `client`（既定: `mcp`）
 - `agent`（既定: `manual`）
 - `session_id`（任意。省略時は Traceary が生成）
-- `repo`（任意の work-context 文字列）
+- `workspace`（任意の work-context 文字列）
 
 ### `end_session`
 
@@ -86,7 +86,7 @@ Inputs:
 - `session_id`（必須）
 - `client`（任意。省略時は対応する `session_started` から attribution を優先）
 - `agent`（任意。省略時は対応する `session_started` から attribution を優先）
-- `repo`（任意の work-context 文字列）
+- `workspace`（任意の work-context 文字列）
 
 ### `latest_session`
 
@@ -96,7 +96,7 @@ Inputs:
 
 - `client`
 - `agent`
-- `repo`
+- `workspace`
 
 ### `active_session`
 
@@ -106,7 +106,7 @@ Inputs:
 
 - `client`
 - `agent`
-- `repo`
+- `workspace`
 - `allow_stale`（既定: `false`）
 - `stale_after_seconds`（`0` または省略時は既定の `86400`）
 
@@ -120,7 +120,7 @@ Inputs:
 - `offset`（既定: `0`）
 
 client から `traceary list` 相当の「最近の feed」を見たいときは `list_events` を使います。
-`repo` や `session_id`、全文検索などの structured filter が必要なときは `search` を使ってください。
+`workspace` や `session_id`、全文検索などの structured filter が必要なときは `search` を使ってください。
 
 ### `add_log`
 
@@ -132,7 +132,7 @@ Inputs:
 - `client`（既定: `mcp`）
 - `agent`（既定: `manual`）
 - `session_id`（既定: `default`）
-- `repo`（任意の work-context 文字列）
+- `workspace`（任意の work-context 文字列）
 
 ### `add_audit`
 
@@ -148,7 +148,7 @@ Inputs:
 - `client`（既定: `mcp`）
 - `agent`（既定: `manual`）
 - `session_id`（既定: `default`）
-- `repo`（任意の work-context 文字列）
+- `workspace`（任意の work-context 文字列）
 
 ### `search`
 
@@ -157,20 +157,134 @@ Inputs:
 Inputs:
 
 - `query`（必須）
-- `repo`
+- `workspace`
 - `from`（`YYYY-MM-DD` または RFC3339）
 - `to`（`YYYY-MM-DD` または RFC3339）
 - `limit`（既定: `20`）
 
 ### `get_context`
 
-handoff 用の最近イベント群を返します。
+raw な最近イベント群を返します。
 
 Inputs:
 
-- `repo`
+- `workspace`
 - `session_id`
 - `limit`（既定: `20`）
+
+### `session_handoff`
+
+CLI の `traceary handoff` と揃えた、構造化 working-memory handoff pack を返します。
+
+Inputs:
+
+- `workspace`
+- `session_id`
+- `recent_commands_limit`（既定: `5`）
+- `memory_limit`（既定: `5`）
+
+### `retrieve_memories`
+
+ID 指定、全文検索、scope filter で durable memory を取得します。
+
+Inputs:
+
+- `memory_id`
+- `query`
+- `workspace`
+- `agent`
+- `session_family`
+- `status`
+- `type`
+- `limit`（既定: `20`）
+- `offset`（既定: `0`）
+
+`memory_id` を指定した場合は evidence / artifact refs 付きの単一 memory を返します。
+`query` を指定した場合は全文検索を行います。
+どちらも指定しない場合は、scope / status / type で絞り込んだ active memory 一覧を返します。
+
+### `remember_memory`
+
+accepted な durable memory を記録します。
+
+Inputs:
+
+- `type`（必須）
+- `workspace` / `agent` / `session_family` のいずれか 1 つ（必須、相互排他）
+- `fact`（必須）
+- `confidence`
+- `source`
+- `evidence_refs`
+- `artifact_refs`
+
+accepted memory には少なくとも 1 件の evidence ref が必要です。
+
+### `propose_memory`
+
+レビュー待ちの candidate durable memory を記録します。
+
+Inputs:
+
+- `type`（必須）
+- `workspace` / `agent` / `session_family` のいずれか 1 つ（必須、相互排他）
+- `fact`（必須）
+- `source`
+- `evidence_refs`
+- `artifact_refs`
+
+### `accept_memory`
+
+candidate durable memory を accept します。
+
+Inputs:
+
+- `memory_id`（必須）
+- `confidence`
+
+### `reject_memory`
+
+candidate durable memory を reject します。
+
+Inputs:
+
+- `memory_id`（必須）
+
+### `supersede_memory`
+
+accepted な durable memory を superseded にし、置き換え用の accepted memory を保存します。
+
+Inputs:
+
+- `memory_id`（必須）
+- `fact`（必須）
+- 置き換え先の `type`
+- 置き換え先の `workspace` / `agent` / `session_family`
+- `confidence`
+- `source`
+- `evidence_refs`
+- `artifact_refs`
+
+置き換え先の `type` / scope は、省略時は現在の memory から継承します。
+
+### `expire_memory`
+
+durable memory を expire します。
+
+Inputs:
+
+- `memory_id`（必須）
+- `expires_at`（`YYYY-MM-DD` または RFC3339。既定は now）
+
+### `memory_pack`
+
+prompt injection や agent automation 向けの memory-aware context pack を構築します。
+
+Inputs:
+
+- `workspace`
+- `session_id`
+- `recent_commands_limit`（既定: `5`）
+- `memory_limit`（既定: `5`）
 
 ## 実用的なクライアント設定例
 
