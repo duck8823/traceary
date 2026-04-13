@@ -64,15 +64,24 @@ Traceary は `traceary --version` で version metadata を表示します。
 
 1. git history を完全取得する
 2. Go をセットアップする
-3. tag ref では release mode、手動で branch から起動したときは snapshot mode で GoReleaser を実行する
-4. tag release のときに GitHub Releases へ成果物とチェックサムを公開する
-5. 保護された `main` へ direct push せず、GitHub App installation token を使って Homebrew formula 更新用の専用 PR（`maintenance/homebrew-vX.Y.Z`）を作成または更新する
-6. Gemini CLI extension archive (`traceary.tar.gz`) を package して release asset に追加する
-7. tag 付き GitHub Release が成功したあとで、対応する open 状態の親 release issue（`vX.Y.Z: ...`）を閉じる
+3. `scripts/verify_changelog_releases.py` で changelog coverage を検証する
+4. tag ref では release mode、手動で branch から起動したときは snapshot mode で GoReleaser を実行する
+5. tag release のときに GitHub Releases へ成果物とチェックサムを公開する
+6. 保護された `main` へ direct push せず、GitHub App installation token を使って Homebrew formula 更新用の専用 PR（`maintenance/homebrew-vX.Y.Z`）を作成または更新する
+7. Gemini CLI extension archive (`traceary.tar.gz`) を package して release asset に追加する
+8. tag 付き GitHub Release が成功したあとで、対応する open 状態の親 release issue（`vX.Y.Z: ...`）を閉じる
 
 `workflow_dispatch` は主にブランチ上でパイプラインを dry-run するためのものですが、`tag` input を渡すことで既存の `v*` tag に対する release 完了処理の再実行にも使えます。
 
 release 準備用 PR では metadata / docs / manifest を揃えてよいですが、親 release issue を閉じてはいけません。親 issue は、tag 付き release workflow が成功するまで open のままにします。
+
+`scripts/verify_changelog_releases.py` は CI の docs job からも強制実行されます。このガードでは次を検証します。
+
+- 現在の `VERSION` が `CHANGELOG.md` / `CHANGELOG.ja.md` の両方に存在すること
+- 英語版と日本語版で release 見出しが一致していること
+- 現在の `VERSION` 以下の `vX.Y.Z` git tag が両 changelog に反映されていること
+
+この検証で過去の release gap も拾えるように、docs job は full history を checkout します。
 
 Homebrew formula は repository 直下の `Formula/` に置き、GoReleaser が自動生成します。手動編集は前提にしません。
 
