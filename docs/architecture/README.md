@@ -126,6 +126,7 @@ If the answer to any of these is "no", document the exception explicitly before 
 ## Related docs
 
 - [Documentation index](../README.md)
+- [Optional API migration policy](./optional-api.md)
 - [Hook contract](../hooks/contract.md)
 - [Event lifecycle](../lifecycle.md)
 - [Native integrations guide](../integrations/README.md)

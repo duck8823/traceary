@@ -131,6 +131,7 @@ Traceary では、`internal/` を既定では要求しません。
 ## 関連文書
 
 - [ドキュメント索引](../README.ja.md)
+- [Optional API 移行方針](./optional-api.ja.md)
 - [Hook contract](../hooks/contract.ja.md)
 - [イベントライフサイクル](../lifecycle.ja.md)
 - [ネイティブ連携ガイド](../integrations/README.ja.md)
