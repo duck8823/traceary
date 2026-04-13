@@ -37,7 +37,7 @@ Traceary は、ローカル状態を 1 つの SQLite DB ファイルに保存し
 
 - `idx_events_session_created_at` on `(session_id, created_at)`
 - `idx_events_created_at` on `(created_at DESC, id DESC)`
-- `idx_events_workspace_created_at` on `(workspace, created_at DESC, id DESC)`
+- `idx_events_workspace_created_at` on `(workspace, created_at)`
 
 ### `command_audits`
 
@@ -74,7 +74,7 @@ start/end event から導かれ、session 系コマンドでも更新される s
 主な index:
 
 - `idx_sessions_started_at`
-- `idx_sessions_workspace_started_at`
+- `idx_sessions_repo_started_at`
 - `idx_sessions_parent`
 
 ### `memories`

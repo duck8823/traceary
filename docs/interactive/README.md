@@ -62,7 +62,7 @@ This is the operator-facing summary view for resuming work or handing context to
 
 ```sh
 traceary handoff --workspace github.com/duck8823/traceary
-traceary session handoff --session-id sess_123 --json
+traceary session handoff --session-id sess_123
 ```
 
 ## Shell completion

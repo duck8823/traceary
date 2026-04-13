@@ -60,7 +60,7 @@ traceary show evt_123 --json
 
 ```sh
 traceary handoff --workspace github.com/duck8823/traceary
-traceary session handoff --session-id sess_123 --json
+traceary session handoff --session-id sess_123
 ```
 
 ## Shell completion
