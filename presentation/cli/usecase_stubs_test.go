@@ -26,12 +26,47 @@ type eventUsecaseStub struct {
 	contextErr     error
 	timelineBlocks []apptypes.TimelineBlock
 	timelineErr    error
+
+	logCall struct {
+		message   string
+		kind      types.EventKind
+		client    types.Client
+		agent     types.Agent
+		sessionID types.SessionID
+		workspace types.Workspace
+	}
+	auditCall struct {
+		command   string
+		input     string
+		output    string
+		client    types.Client
+		agent     types.Agent
+		sessionID types.SessionID
+		workspace types.Workspace
+		exitCode  types.Optional[int]
+		redaction apptypes.AuditRedaction
+	}
 }
 
-func (s *eventUsecaseStub) Log(_ context.Context, _ string, _ types.EventKind, _ types.Client, _ types.Agent, _ types.SessionID, _ types.Workspace) (*model.Event, error) {
+func (s *eventUsecaseStub) Log(_ context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace) (*model.Event, error) {
+	s.logCall.message = message
+	s.logCall.kind = kind
+	s.logCall.client = client
+	s.logCall.agent = agent
+	s.logCall.sessionID = sessionID
+	s.logCall.workspace = workspace
 	return s.logEvent, s.logErr
 }
-func (s *eventUsecaseStub) Audit(_ context.Context, _ string, _ string, _ string, _ types.Client, _ types.Agent, _ types.SessionID, _ types.Workspace, _ types.Optional[int], _ apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
+func (s *eventUsecaseStub) Audit(_ context.Context, command string, input string, output string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, exitCode types.Optional[int], redaction apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
+	s.auditCall.command = command
+	s.auditCall.input = input
+	s.auditCall.output = output
+	s.auditCall.client = client
+	s.auditCall.agent = agent
+	s.auditCall.sessionID = sessionID
+	s.auditCall.workspace = workspace
+	s.auditCall.exitCode = exitCode
+	s.auditCall.redaction = redaction
 	return s.auditEvent, s.auditAudit, s.auditErr
 }
 func (s *eventUsecaseStub) Search(_ context.Context, _ apptypes.EventSearchCriteria) ([]*model.Event, error) {
@@ -72,12 +107,37 @@ type sessionUsecaseStub struct {
 	latestCriteria apptypes.SessionLookupCriteria
 	handoff        types.Optional[apptypes.HandoffSummary]
 	handoffErr     error
+
+	startCall struct {
+		client          types.Client
+		agent           types.Agent
+		sessionID       types.SessionID
+		workspace       types.Workspace
+		parentSessionID types.SessionID
+	}
+	endCall struct {
+		client    types.Client
+		agent     types.Agent
+		sessionID types.SessionID
+		workspace types.Workspace
+		summary   string
+	}
 }
 
-func (s *sessionUsecaseStub) Start(_ context.Context, _ types.Client, _ types.Agent, _ types.SessionID, _ types.Workspace, _ types.SessionID) (*model.Event, error) {
+func (s *sessionUsecaseStub) Start(_ context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, parentSessionID types.SessionID) (*model.Event, error) {
+	s.startCall.client = client
+	s.startCall.agent = agent
+	s.startCall.sessionID = sessionID
+	s.startCall.workspace = workspace
+	s.startCall.parentSessionID = parentSessionID
 	return s.startEvent, s.startErr
 }
-func (s *sessionUsecaseStub) End(_ context.Context, _ types.Client, _ types.Agent, _ types.SessionID, _ types.Workspace, _ string) (*model.Event, error) {
+func (s *sessionUsecaseStub) End(_ context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, summary string) (*model.Event, error) {
+	s.endCall.client = client
+	s.endCall.agent = agent
+	s.endCall.sessionID = sessionID
+	s.endCall.workspace = workspace
+	s.endCall.summary = summary
 	return s.endEvent, s.endErr
 }
 func (s *sessionUsecaseStub) Label(_ context.Context, _ types.SessionID, _ string) error {
