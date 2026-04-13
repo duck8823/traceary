@@ -36,6 +36,9 @@ func (c *RootCLI) newMemoryExtractCommand() *cobra.Command {
 }
 
 func (c *RootCLI) runMemoryExtract(ctx context.Context, output io.Writer, input memoryExtractCommandInput) error {
+	if c.storeManagement == nil {
+		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+	}
 	if c.memoryExtraction == nil {
 		return xerrors.Errorf(Localize("memory extraction usecase is not configured", "memory extraction ユースケースが設定されていません"))
 	}

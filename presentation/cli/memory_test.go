@@ -370,6 +370,29 @@ func TestRootCLI_MemoryExtractCommand_ExplicitSessionIDSkipsWorkspaceFilter(t *t
 	}
 }
 
+func TestRootCLI_MemoryExtractCommand_RequiresStoreManagement(t *testing.T) {
+	extractionStub := &memoryExtractionUsecaseStub{}
+
+	rootCmd := cli.NewRootCLI(
+		cli.WithMemoryExtraction(extractionStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "extract",
+		"--db-path", "/tmp/test-traceary.db",
+		"--session-id", "session-explicit",
+	})
+
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatalf("Execute() error = nil, want configuration error")
+	}
+	if !strings.Contains(err.Error(), "initialize store usecase is not configured") {
+		t.Fatalf("Execute() error = %v, want store-management configuration error", err)
+	}
+}
+
 func mustMemorySummary(t *testing.T, memoryIDValue string, fact string, status types.MemoryStatus) apptypes.MemorySummary {
 	t.Helper()
 
