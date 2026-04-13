@@ -460,6 +460,11 @@ CREATE TABLE command_audits (
 		}
 	}
 
+	var batchSizes []int
+	sut.SetListWindowBatchHookForTest(func(_ int, batchSize int) {
+		batchSizes = append(batchSizes, batchSize)
+	})
+
 	criteria := apptypes.NewEventListCriteriaBuilder(100).
 		From(windowStart).
 		To(windowStart.Add(time.Duration(totalEvents+1) * time.Second)).
@@ -471,6 +476,10 @@ CREATE TABLE command_audits (
 	}
 	if len(got) != totalEvents {
 		t.Fatalf("len(events) = %d, want %d", len(got), totalEvents)
+	}
+	// 250 rows at batch=100 must fan out into three tx-internal reads: 100, 100, 50.
+	if diff := cmp.Diff([]int{100, 100, 50}, batchSizes); diff != "" {
+		t.Fatalf("batch size sequence mismatch (-want +got):\n%s", diff)
 	}
 	// DESC order: events[0] is newest.
 	if got[0].EventID().String() != "event-"+strconv.Itoa(totalEvents-1) {
@@ -486,6 +495,54 @@ CREATE TABLE command_audits (
 			t.Fatalf("duplicate event in window result: %s", id)
 		}
 		seen[id] = struct{}{}
+	}
+}
+
+func TestDatasource_ListWindow_RejectsNonZeroOffset(t *testing.T) {
+	t.Parallel()
+
+	migrations := fstest.MapFS{
+		"000001_init.sql": {
+			Data: []byte(`
+CREATE TABLE events (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);`),
+		},
+		"000002_add_event_metadata.sql": {
+			Data: []byte(`
+ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
+ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';
+
+CREATE INDEX idx_events_created_at
+    ON events(created_at DESC, id DESC);`),
+		},
+		"000003_create_command_audits.sql": {
+			Data: []byte(`
+CREATE TABLE command_audits (
+    event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+    command_text TEXT NOT NULL,
+    input_text TEXT NOT NULL,
+    output_text TEXT NOT NULL,
+    input_truncated INTEGER NOT NULL DEFAULT 0,
+    output_truncated INTEGER NOT NULL DEFAULT 0,
+    exit_code INTEGER
+);`),
+		},
+	}
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	sut, storeManager := newEventDatasource(t, dbPath, migrations)
+	if err := storeManager.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	criteria := apptypes.NewEventListCriteriaBuilder(10).Offset(5).Build()
+	if _, err := sut.ListWindow(context.Background(), criteria); err == nil {
+		t.Fatal("ListWindow() with non-zero offset returned nil error, want error")
 	}
 }
 

@@ -197,6 +197,9 @@ func (u *eventUsecase) ListWindow(ctx context.Context, criteria apptypes.EventLi
 	if criteria.Limit() <= 0 {
 		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
 	}
+	if criteria.Offset() != 0 {
+		return nil, xerrors.Errorf("offset must be zero for ListWindow (paging is handled internally)")
+	}
 	if !criteria.From().IsZero() && !criteria.To().IsZero() && criteria.From().After(criteria.To()) {
 		return nil, xerrors.Errorf("from must be earlier than to")
 	}

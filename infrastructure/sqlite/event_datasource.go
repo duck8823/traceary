@@ -41,7 +41,8 @@ var listTimelineBlocksQuery string
 // EventDatasource is the SQLite-backed implementation of the event
 // repository and event query service.
 type EventDatasource struct {
-	db *Database
+	db                *Database
+	onListWindowBatch func(batchIndex, batchSize int)
 }
 
 // NewEventDatasource creates a new EventDatasource bound to the given
@@ -249,6 +250,9 @@ func (d *EventDatasource) ListWindow(
 	if batch <= 0 {
 		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
 	}
+	if criteria.Offset() != 0 {
+		return nil, xerrors.Errorf("offset must be zero for ListWindow (paging is handled internally)")
+	}
 	if !criteria.From().IsZero() && !criteria.To().IsZero() && criteria.From().After(criteria.To()) {
 		return nil, xerrors.Errorf("from must be earlier than to")
 	}
@@ -332,6 +336,9 @@ func (d *EventDatasource) ListWindow(
 			slog.Debug("failed to close resource", "error", err)
 		}
 
+		if d.onListWindowBatch != nil {
+			d.onListWindowBatch(offset/batch, pageCount)
+		}
 		if pageCount < batch {
 			break
 		}
