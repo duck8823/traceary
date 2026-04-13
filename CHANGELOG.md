@@ -5,6 +5,32 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.5.0] - 2026-04-13
+
+Durable memory and context-aware workflows release.
+
+### Added
+- first-class durable memory domain model with typed scopes, evidence refs, artifact refs, and lifecycle state
+- durable memory SQLite persistence and query support
+- CLI durable memory commands: `remember`, `propose`, `accept`, `reject`, `supersede`, `expire`, `list`, `search`, `show`, and `extract`
+- `ContextUsecase`-backed structured handoff/context assembly shared by `traceary handoff`, `traceary session handoff`, and `traceary compact-summary`
+- MCP durable memory tools and memory-aware context retrieval
+- candidate extraction from session summaries, compact summaries, and note/review/prompt signals
+
+### Changed
+- release workflow now uses a GitHub App token for the Homebrew maintenance PR path on protected `main`
+- integration manifests and package metadata advance to the `0.5.0` release line
+
+### Included issues
+- #457 Use GitHub App token for Homebrew release PRs
+- #453 Define a three-layer model for audit logs, working memory, and durable memory
+- #460 Introduce the Memory aggregate and typed memory value objects
+- #461 Add SQLite persistence and query support for durable memory
+- #462 Add manual memory lifecycle usecases and CLI commands
+- #463 Introduce ContextUsecase and unify handoff/context semantics
+- #464 Add MCP memory tools and memory-aware context retrieval
+- #465 Extract memory candidates from session and compact summaries
+
 ## [v0.2.1] - 2026-04-11
 
 Complete v0.2.0 scope gaps.
