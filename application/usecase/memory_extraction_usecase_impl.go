@@ -77,13 +77,13 @@ func (u *memoryExtractionUsecase) Extract(ctx context.Context, criteria apptypes
 	}
 
 	scope := extractedMemoryScope(session)
-	existingKeys, err := u.loadExistingCandidateKeys(ctx, scope)
-	if err != nil {
-		return nil, err
-	}
 	extraRedactors, err := compileExtraRedactPatterns(u.extraRedactPatterns)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to compile extraction redaction patterns: %w", err)
+	}
+	existingKeys, err := u.loadExistingCandidateKeys(ctx, scope, extraRedactors)
+	if err != nil {
+		return nil, err
 	}
 
 	specs, err := u.collectCandidateSpecs(ctx, session, criteria.EventLimit())
@@ -156,7 +156,11 @@ func extractedMemoryScope(session apptypes.SessionSummary) domtypes.MemoryScope 
 	return domtypes.SessionFamilyScopeOf(session.SessionID())
 }
 
-func (u *memoryExtractionUsecase) loadExistingCandidateKeys(ctx context.Context, scope domtypes.MemoryScope) (map[string]struct{}, error) {
+func (u *memoryExtractionUsecase) loadExistingCandidateKeys(
+	ctx context.Context,
+	scope domtypes.MemoryScope,
+	extraRedactors []auditPayloadRedactor,
+) (map[string]struct{}, error) {
 	keys := make(map[string]struct{})
 	offset := 0
 	for {
@@ -175,7 +179,7 @@ func (u *memoryExtractionUsecase) loadExistingCandidateKeys(ctx context.Context,
 			return nil, xerrors.Errorf("failed to list existing memories for extraction dedupe: %w", err)
 		}
 		for _, summary := range summaries {
-			keys[memoryCandidateKey(summary.Scope(), summary.MemoryType(), summary.Fact())] = struct{}{}
+			keys[memoryCandidateKey(summary.Scope(), summary.MemoryType(), sanitizeCandidateFact(summary.Fact(), extraRedactors))] = struct{}{}
 		}
 		if len(summaries) < memoryExtractionDedupePageSize {
 			break
