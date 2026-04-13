@@ -31,6 +31,105 @@ Durable memory と context-aware workflow を導入するリリースです。
 - #464 MCP durable memory tools と memory-aware retrieval の追加
 - #465 session / compact summary からの memory candidate extraction
 
+## [v0.4.0] - 2026-04-12
+
+timeline / prompt capture とアーキテクチャ堅牢化のリリースです。
+
+### 追加
+- `compact_summary` / `prompt` signal 向け EventKind 拡張と、`traceary log` / MCP `add_log` の `--kind` 対応
+- `PostCompact` と `UserPromptSubmit` の generated hook、persisted compact-summary / prompt event の記録
+- workspace 単位の活動観測に使える `traceary timeline` と timeline block query
+- 拡張された hook surface に対応する lifecycle / privacy ドキュメント
+
+### 修正
+- session boundary 永続化、duplicate session 処理、compact/prompt 時の agent 解決をより防御的に改善
+- hook の install/read path で危険な symlink traversal を拒否
+- `--db-path` / `TRACEARY_DB_PATH` を全 subcommand で一貫して尊重
+- interface 統合時に落ちていた query / input validation を復元
+
+### 変更
+- presentation / usecase / queryservice / sqlite wiring を multi-method interface と aggregate ごとの datasource 構成へ統合
+- repository / type の責務を `domain/` / `application/types` 側へ寄せ、`domain/port` を削除
+- CLI / MCP の JSON/output struct、DTO、Optional 伝搬を整理
+
+## [v0.3.0] - 2026-04-11
+
+workspace rename と consolidated-usecase アーキテクチャのリリースです。
+
+### 追加
+- 新しい application-layer query surface を支える `Client` / `Workspace` value object と filter criteria DTO
+- Event / Session / Store の consolidated usecase interface と service-factory ベースの composition path
+- 次のアーキテクチャ段階に必要な repository interface と session label サポート
+
+### 変更
+- hooks / CLI / docs / storage-facing API 全体で repo / work-context の概念を `workspace` へ改名
+- datasource 構築時の DB path 注入へ移行し、presentation / MCP wiring を consolidated usecase ベースへ移行
+- release checklist / dependabot / pinned actions / release-drafter split など、リリース運用まわりも更新
+
+### 修正
+- MCP session handoff が `session_id` を正しく引き継ぐよう修正
+- workspace rename 後に残っていた `repo` 参照と generated plugin hook drift を除去
+- release automation と review follow-up を tag 前に反映
+
+## [v0.2.5] - 2026-04-11
+
+session lifecycle と queryservice cleanup のリリースです。
+
+### 追加
+- `traceary session tree --json`
+- session list 日付 filter 用の `--since` / `--until` alias
+- `TRACEARY_PARENT_SESSION_ID` 経由の parent-session 伝搬
+
+### 修正
+- handoff / compact-summary が要求された session filter を session lookup に正しく渡すよう修正
+- session end、duplicate session start、stale-session GC、invalid parent-session 入力時の扱いをより厳密に改善
+- doctor のバージョン比較で build metadata を除去してから判定
+
+### 変更
+- stale session close を専用 usecase に抽出
+- queryservice consumer interface を `domain/port` へ移動
+- 残っていた inline SQL を embedded `.sql` に抽出
+
+## [v0.2.4] - 2026-04-11
+
+MCP audit enrich の patch リリースです。
+
+### 追加
+- `tool_input` が空のとき、MCP audit payload が `tool_name` に fallback
+
+### 修正
+- `traceary doctor` が Claude plugin install を正しい hook source として認識
+- すでに終了済み session を終わらせたとき、黙殺ではなく warning を出すよう改善
+
+### 変更
+- 新しい patch release 運用に合わせて release/version-bump automation を更新
+
+## [v0.2.3] - 2026-04-11
+
+`v0.2.2` 向け review-fix patch リリースです。
+
+### 修正
+- `v0.2.2` 系列に対する review follow-up を反映
+
+### 変更
+- Homebrew formula metadata を `v0.2.2` リリース状態へ更新
+
+## [v0.2.2] - 2026-04-11
+
+query surface の使い勝手を高める patch リリースです。
+
+### 追加
+- `traceary list --from/--to`
+- `traceary session list --client`
+- client / agent / workspace / session / kind に対応した `list_events` MCP filter
+- `traceary backup create` の positional argument 対応
+
+### 修正
+- `traceary show` が command-audit event の `exit_code` を表示
+- `traceary search --failures` を有効な structured search constraint として扱うよう修正
+- `traceary list --kind audit` が command-audit event を正しく解決
+- CLI date parsing と session-list date-range validation を一貫化し、逆転範囲も拒否
+
 ## [v0.2.1] - 2026-04-11
 
 v0.2.0 で残したスコープの補完リリースです。
