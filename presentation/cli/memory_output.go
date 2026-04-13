@@ -42,6 +42,29 @@ func writeMemoryMutationResult(output io.Writer, details apptypes.MemoryDetails,
 	return writeMemoryDetailsByFormat(output, details, asJSON)
 }
 
+func writeExtractedMemoryCandidatesByFormat(output io.Writer, details []apptypes.MemoryDetails, asJSON bool) error {
+	if asJSON {
+		serialized := make([]memoryDetailsOutput, 0, len(details))
+		for _, detail := range details {
+			serialized = append(serialized, newMemoryDetailsOutput(detail))
+		}
+		return writeJSON(output, serialized)
+	}
+
+	if len(details) == 0 {
+		if _, err := fmt.Fprintln(output, Localize("No extractable durable-memory candidates were found.", "抽出可能な durable memory candidate は見つかりませんでした")); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print empty extraction message", "空の抽出結果メッセージの出力に失敗しました"), err)
+		}
+		return nil
+	}
+
+	summaries := make([]apptypes.MemorySummary, 0, len(details))
+	for _, detail := range details {
+		summaries = append(summaries, detail.Summary())
+	}
+	return writeMemorySummaries(output, summaries)
+}
+
 func writeMemorySummaries(output io.Writer, summaries []apptypes.MemorySummary) error {
 	if len(summaries) == 0 {
 		if _, err := fmt.Fprintln(output, Localize("No matching durable memories.", "一致する durable memory はありません")); err != nil {

@@ -259,3 +259,13 @@ type memorySupersedeCommandInput struct {
 	idOnly        bool
 	asJSON        bool
 }
+
+// memoryExtractCommandInput is the resolved input to `traceary memory extract`.
+type memoryExtractCommandInput struct {
+	dbPath         string
+	sessionID      string
+	workspace      string
+	eventLimit     int
+	candidateLimit int
+	asJSON         bool
+}

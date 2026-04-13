@@ -222,6 +222,177 @@ func TestRootCLI_MemoryProposeCommand_IgnoresConfidenceFlagValidation(t *testing
 	}
 }
 
+func TestRootCLI_MemoryExtractCommand_UsesResolvedSession(t *testing.T) {
+	t.Setenv("TRACEARY_WORKSPACE", "")
+	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
+		return "github.com/duck8823/traceary", nil
+	})
+	defer cli.ResetDetectRepoContextFunc()
+
+	activeEvent, err := model.NewEvent(
+		types.EventID("event-active"),
+		types.EventKindSessionStarted,
+		types.Client("cli"),
+		types.Agent("claude"),
+		types.SessionID("session-42"),
+		types.Workspace("github.com/duck8823/traceary"),
+		"session started",
+	)
+	if err != nil {
+		t.Fatalf("NewEvent() error = %v", err)
+	}
+
+	extractionStub := &memoryExtractionUsecaseStub{
+		details: []apptypes.MemoryDetails{
+			mustMemoryDetails(t, "memory-extracted-1", "Always wait for Codex review before merge", types.MemoryStatusCandidate),
+			mustMemoryDetails(t, "memory-extracted-2", "Decision: keep get_context raw", types.MemoryStatusCandidate),
+		},
+	}
+
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{activeEvent: activeEvent}),
+		cli.WithMemoryExtraction(extractionStub),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "extract",
+		"--db-path", "/tmp/test-traceary.db",
+		"--event-limit", "3",
+		"--candidate-limit", "2",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got := extractionStub.criteria.SessionID().String(); got != "session-42" {
+		t.Fatalf("SessionID() = %q, want session-42", got)
+	}
+	if got := extractionStub.criteria.Workspace().String(); got != "github.com/duck8823/traceary" {
+		t.Fatalf("Workspace() = %q, want github.com/duck8823/traceary", got)
+	}
+	if got := extractionStub.criteria.EventLimit(); got != 3 {
+		t.Fatalf("EventLimit() = %d, want 3", got)
+	}
+	if got := extractionStub.criteria.CandidateLimit(); got != 2 {
+		t.Fatalf("CandidateLimit() = %d, want 2", got)
+	}
+	if !strings.Contains(stdout.String(), "memory-extracted-1") || !strings.Contains(stdout.String(), "memory-extracted-2") {
+		t.Fatalf("stdout = %q, want extracted candidate IDs", stdout.String())
+	}
+}
+
+func TestRootCLI_MemoryExtractCommand_FallsBackToLatestSession(t *testing.T) {
+	t.Setenv("TRACEARY_WORKSPACE", "")
+	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
+		return "github.com/duck8823/traceary", nil
+	})
+	defer cli.ResetDetectRepoContextFunc()
+
+	latestEvent, err := model.NewEvent(
+		types.EventID("event-latest"),
+		types.EventKindSessionStarted,
+		types.Client("cli"),
+		types.Agent("codex"),
+		types.SessionID("session-latest"),
+		types.Workspace("github.com/duck8823/traceary"),
+		"session started",
+	)
+	if err != nil {
+		t.Fatalf("NewEvent() error = %v", err)
+	}
+
+	sessionStub := &sessionUsecaseStub{latestEvent: latestEvent}
+	extractionStub := &memoryExtractionUsecaseStub{}
+
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(sessionStub),
+		cli.WithMemoryExtraction(extractionStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "extract",
+		"--db-path", "/tmp/test-traceary.db",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got := extractionStub.criteria.SessionID().String(); got != "session-latest" {
+		t.Fatalf("SessionID() = %q, want session-latest", got)
+	}
+	if got := extractionStub.criteria.Workspace().String(); got != "github.com/duck8823/traceary" {
+		t.Fatalf("Workspace() = %q, want github.com/duck8823/traceary", got)
+	}
+	if got := sessionStub.latestCriteria.Workspace().String(); got != "github.com/duck8823/traceary" {
+		t.Fatalf("Latest().Workspace() = %q, want github.com/duck8823/traceary", got)
+	}
+}
+
+func TestRootCLI_MemoryExtractCommand_ExplicitSessionIDSkipsWorkspaceFilter(t *testing.T) {
+	t.Setenv("TRACEARY_WORKSPACE", "")
+	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
+		return "github.com/duck8823/traceary", nil
+	})
+	defer cli.ResetDetectRepoContextFunc()
+
+	sessionStub := &sessionUsecaseStub{}
+	extractionStub := &memoryExtractionUsecaseStub{}
+
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(sessionStub),
+		cli.WithMemoryExtraction(extractionStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "extract",
+		"--db-path", "/tmp/test-traceary.db",
+		"--session-id", "session-explicit",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got := extractionStub.criteria.SessionID().String(); got != "session-explicit" {
+		t.Fatalf("SessionID() = %q, want session-explicit", got)
+	}
+	if got := extractionStub.criteria.Workspace().String(); got != "" {
+		t.Fatalf("Workspace() = %q, want empty when session-id is explicit", got)
+	}
+	if sessionStub.activeCriteria.Workspace().String() != "" || sessionStub.latestCriteria.Workspace().String() != "" {
+		t.Fatalf("session lookup should be skipped when --session-id is explicit")
+	}
+}
+
+func TestRootCLI_MemoryExtractCommand_RequiresStoreManagement(t *testing.T) {
+	extractionStub := &memoryExtractionUsecaseStub{}
+
+	rootCmd := cli.NewRootCLI(
+		cli.WithMemoryExtraction(extractionStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "extract",
+		"--db-path", "/tmp/test-traceary.db",
+		"--session-id", "session-explicit",
+	})
+
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatalf("Execute() error = nil, want configuration error")
+	}
+	if !strings.Contains(err.Error(), "initialize store usecase is not configured") {
+		t.Fatalf("Execute() error = %v, want store-management configuration error", err)
+	}
+}
+
 func mustMemorySummary(t *testing.T, memoryIDValue string, fact string, status types.MemoryStatus) apptypes.MemorySummary {
 	t.Helper()
 

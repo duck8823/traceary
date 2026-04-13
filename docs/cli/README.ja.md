@@ -217,6 +217,18 @@ candidate な durable memory を記録します。後で review できます。
 
 主な flag は `memory remember` と同じですが、`--confidence` は使われません。
 
+### `traceary memory extract`
+
+対象 session の session summary、compact summary、prompt event、note/review signal から candidate durable memory を抽出します。抽出結果は candidate のみで、Traceary が auto-accept することはありません。prompt event は任意で、prompt や compact-summary event がなくても利用可能な signal の範囲で劣化動作します。`--session-id` を省略した場合は、まず active session を解決し、見つからなければ workspace 内の latest session にフォールバックします。`Feedback:` / `Correction:` ラベルは、現在の最小 durable-memory taxonomy の中で `preference` candidate として保持されます。保存される candidate は、他の durable memory 書き込みと同じ sanitization/redaction 経路を通ってから永続化されます。
+
+主な flag:
+
+- `--session-id`
+- `--workspace`
+- `--event-limit`
+- `--candidate-limit`
+- `--json`
+
 ### `traceary memory accept <memory-id>`
 
 candidate durable memory を accept します。

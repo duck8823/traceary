@@ -23,6 +23,7 @@ func (c *RootCLI) newMemoryCommand() *cobra.Command {
 	memoryCmd.AddCommand(c.newMemoryShowCommand())
 	memoryCmd.AddCommand(c.newMemoryRememberCommand())
 	memoryCmd.AddCommand(c.newMemoryProposeCommand())
+	memoryCmd.AddCommand(c.newMemoryExtractCommand())
 	memoryCmd.AddCommand(c.newMemoryAcceptCommand())
 	memoryCmd.AddCommand(c.newMemoryRejectCommand())
 	memoryCmd.AddCommand(c.newMemorySupersedeCommand())
