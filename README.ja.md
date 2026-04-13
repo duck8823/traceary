@@ -126,7 +126,7 @@ traceary session end --session-id "$sid" --id-only
 
 問い合わせ面は共通です。Traceary を入れれば、どのホストからでも同じ CLI / MCP の memory・context 機能を使えます。差が出るのは、hook でどこまで自動記録できるかです。
 
-| ホスト | セッション境界 | ツール監査 | prompt 記録 | compact summary 記録 | 自動記録ティア |
+| ホスト | セッション境界 | ツール監査 | prompt 記録 | compact summary 記録 | 自動記録の対応レベル |
 |---|---|---|---|---|---|
 | Claude Code | 完全対応 | Bash + MCP + failure hook | あり | あり | Full |
 | Codex | 完全対応（`SessionStart` + `Stop`） | tool hook | なし | なし | Partial |
@@ -150,7 +150,7 @@ traceary session end --session-id "$sid" --id-only
 - [ネイティブ連携ガイド](./docs/integrations/README.ja.md)
 - [CLI リファレンス](./docs/cli/README.ja.md) — 手動で CLI を使う場合の詳細はこちら
 - [Hooks ガイド](./docs/hooks/README.ja.md)
-- [Hook contract と capability tiers](./docs/hooks/contract.ja.md)
+- [Hook contract と対応レベル](./docs/hooks/contract.ja.md)
 - [イベントライフサイクル](./docs/lifecycle.ja.md)
 - [MCP ガイド](./docs/mcp/README.ja.md)
 - [環境変数と保存モデル](./docs/environment/README.ja.md)
