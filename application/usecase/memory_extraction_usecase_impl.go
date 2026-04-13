@@ -27,9 +27,10 @@ var (
 const memoryExtractionDedupePageSize = 200
 
 type memoryExtractionUsecase struct {
-	sessionQuery queryservice.SessionQueryService
-	eventQuery   queryservice.EventQueryService
-	memory       MemoryUsecase
+	sessionQuery        queryservice.SessionQueryService
+	eventQuery          queryservice.EventQueryService
+	memory              MemoryUsecase
+	extraRedactPatterns []string
 }
 
 // NewMemoryExtractionUsecase creates a MemoryExtractionUsecase.
@@ -37,11 +38,13 @@ func NewMemoryExtractionUsecase(
 	sessionQuery queryservice.SessionQueryService,
 	eventQuery queryservice.EventQueryService,
 	memory MemoryUsecase,
+	extraRedactPatterns []string,
 ) MemoryExtractionUsecase {
 	return &memoryExtractionUsecase{
-		sessionQuery: sessionQuery,
-		eventQuery:   eventQuery,
-		memory:       memory,
+		sessionQuery:        sessionQuery,
+		eventQuery:          eventQuery,
+		memory:              memory,
+		extraRedactPatterns: slices.Clone(extraRedactPatterns),
 	}
 }
 
@@ -78,6 +81,10 @@ func (u *memoryExtractionUsecase) Extract(ctx context.Context, criteria apptypes
 	if err != nil {
 		return nil, err
 	}
+	extraRedactors, err := compileExtraRedactPatterns(u.extraRedactPatterns)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to compile extraction redaction patterns: %w", err)
+	}
 
 	specs, err := u.collectCandidateSpecs(ctx, session, criteria.EventLimit())
 	if err != nil {
@@ -87,7 +94,7 @@ func (u *memoryExtractionUsecase) Extract(ctx context.Context, criteria apptypes
 	results := make([]apptypes.MemoryDetails, 0, min(criteria.CandidateLimit(), len(specs)))
 	seenKeys := make(map[string]struct{}, len(specs))
 	for _, spec := range specs {
-		key := memoryCandidateKey(scope, spec.memoryType, spec.fact)
+		key := memoryCandidateKey(scope, spec.memoryType, sanitizeCandidateFact(spec.fact, extraRedactors))
 		if _, exists := seenKeys[key]; exists {
 			continue
 		}
@@ -361,6 +368,11 @@ func normalizeCandidateFact(value string) string {
 	trimmed = strings.Trim(trimmed, "`")
 	trimmed = strings.Trim(trimmed, "[]")
 	return strings.Join(strings.Fields(trimmed), " ")
+}
+
+func sanitizeCandidateFact(value string, extraRedactors []auditPayloadRedactor) string {
+	sanitized, _ := redactAuditPayload(strings.TrimSpace(value), extraRedactors)
+	return strings.Join(strings.Fields(sanitized), " ")
 }
 
 func memoryTypeFromLabel(label string) (domtypes.MemoryType, error) {

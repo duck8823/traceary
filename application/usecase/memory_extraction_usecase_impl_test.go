@@ -146,6 +146,7 @@ func TestMemoryExtractionUsecase_Extract(t *testing.T) {
 			},
 		},
 		memoryUsecase,
+		nil,
 	)
 
 	got, err := sut.Extract(
@@ -245,6 +246,7 @@ func TestMemoryExtractionUsecase_Extract_DeduplicatesExistingAndGracefullyHandle
 		&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}},
 		&eventQueryServiceStub{},
 		memoryUsecase,
+		nil,
 	)
 
 	got, err := sut.Extract(
@@ -327,6 +329,7 @@ func TestMemoryExtractionUsecase_Extract_PaginatesExistingMemoryDedupe(t *testin
 		&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}},
 		&eventQueryServiceStub{},
 		memoryUsecase,
+		nil,
 	)
 
 	got, err := sut.Extract(
@@ -355,6 +358,69 @@ func TestMemoryExtractionUsecase_Extract_PaginatesExistingMemoryDedupe(t *testin
 	}
 	if got := memoryUsecase.listCalls[1].Offset(); got != 200 {
 		t.Fatalf("second List().Offset() = %d, want 200", got)
+	}
+}
+
+func TestMemoryExtractionUsecase_Extract_DeduplicatesSanitizedFacts(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(
+		domtypes.SessionID("session-1"),
+		domtypes.Workspace("github.com/duck8823/traceary"),
+		time.Now().Add(-time.Hour),
+		domtypes.Empty[time.Time](),
+		"ended",
+		4,
+		0,
+		[]string{"codex"},
+		"",
+		"",
+		domtypes.SessionID(""),
+	)
+	promptEvent := mustExtractionEvent(
+		t,
+		"event-prompt",
+		domtypes.EventKindPrompt,
+		"Please keep password=secret-one out of generated examples.\nPlease keep password=secret-two out of generated examples.",
+	)
+
+	details := mustMemoryDetailsFromSummary(
+		t,
+		"memory-candidate-sanitized",
+		domtypes.MemoryTypePreference,
+		"Please keep password=[REDACTED] out of generated examples.",
+	)
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{
+		proposeResult: []apptypes.MemoryDetails{details},
+	}
+	sut := usecase.NewMemoryExtractionUsecase(
+		&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}},
+		&eventQueryServiceStub{
+			listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
+				domtypes.EventKindPrompt: {promptEvent},
+			},
+		},
+		memoryUsecase,
+		nil,
+	)
+
+	got, err := sut.Extract(
+		context.Background(),
+		apptypes.NewMemoryExtractionCriteriaBuilder().
+			SessionID(domtypes.SessionID("session-1")).
+			Workspace(domtypes.Workspace("github.com/duck8823/traceary")).
+			EventLimit(5).
+			CandidateLimit(10).
+			Build(),
+	)
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(Extract()) = %d, want 1", len(got))
+	}
+	if len(memoryUsecase.proposeCalls) != 1 {
+		t.Fatalf("Propose() call count = %d, want 1", len(memoryUsecase.proposeCalls))
 	}
 }
 

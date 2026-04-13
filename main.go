@@ -149,7 +149,7 @@ func run() error {
 	eventUsecase := usecase.NewEventUsecase(eventDatasource, eventDatasource)
 	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource)
 	memoryUsecase := usecase.NewMemoryUsecase(memoryDatasource, memoryDatasource, extraRedactPatterns)
-	memoryExtractionUsecase := usecase.NewMemoryExtractionUsecase(sessionDatasource, eventDatasource, memoryUsecase)
+	memoryExtractionUsecase := usecase.NewMemoryExtractionUsecase(sessionDatasource, eventDatasource, memoryUsecase, extraRedactPatterns)
 	contextUsecase := usecase.NewContextUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	storeManagementUsecase := usecase.NewStoreManagementUsecase(storeManagementDatasource)
 
