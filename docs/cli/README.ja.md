@@ -21,7 +21,7 @@ note event を追記します。
 既定値:
 
 - `--client` / `--agent` / `--workspace`: flag → `TRACEARY_CLIENT` / `TRACEARY_AGENT` / `TRACEARY_WORKSPACE` → `cli` / `manual` / 検出した workspace
-- `--session-id`: flag → `TRACEARY_SESSION_ID` → 解決した repo の最新 non-stale active session → `default`
+- `--session-id`: flag → `TRACEARY_SESSION_ID` → 解決した workspace の最新 non-stale active session → `default`
 
 主な flag:
 
@@ -35,9 +35,9 @@ note event を追記します。
 session 解決ルール:
 
 - 明示 `--session-id` または `TRACEARY_SESSION_ID` を最優先
-- それ以外では、解決できた repo / work context に対応する最新の non-stale active session を再利用
+- それ以外では、解決できた workspace に対応する最新の non-stale active session を再利用
 - `remote.origin.url` が無い Git worktree でも、work-context key として worktree ルートパスを使います
-- repo / work context が無い、または一致する active session が無い場合は、従来どおり `default` session ID を使います
+- workspace を解決できない、または一致する active session が無い場合は、従来どおり `default` session ID を使います
 
 > **注意:** `log` と `audit` は `--session-id` の値をそのまま受け入れ、存在確認は行いません。これは意図的な設計です。hook では高頻度にイベントを書き込むため、毎回 DB ルックアップを挟むとオーバーヘッドが大きくなります。存在しない session ID を渡した場合でもイベント自体は記録されますが、session 単位のクエリには現れません。
 
@@ -74,7 +74,7 @@ session 解決ルールは `traceary log` と同じです。
 
 最近の event を一覧表示します。
 
-`list` は直近履歴を素早く絞るためのコマンドです。kind / client / agent / session / repo が決まっているときはこちらを使い、キーワード検索や期間条件が必要なときは `search` を使います。
+`list` は直近履歴を素早く絞るためのコマンドです。kind / client / agent / session / workspace が決まっているときはこちらを使い、キーワード検索や期間条件が必要なときは `search` を使います。
 
 主な flag:
 

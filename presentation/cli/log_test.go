@@ -262,7 +262,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("falls back to default session when work context is missing", func(t *testing.T) {
+	t.Run("falls back to default session when workspace is missing", func(t *testing.T) {
 		t.Setenv("TRACEARY_SESSION_ID", "")
 		cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
 			return "", errors.New("no git remote")
@@ -294,7 +294,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 			t.Fatalf("Execute() error = %v", err)
 		}
 		want := "" +
-			"No work context was detected; using default session ID\n" +
+			"No workspace was detected; using default session ID\n" +
 			"Recorded: event-1\n"
 		if stdout.String() != want {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)

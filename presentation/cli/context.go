@@ -69,12 +69,12 @@ func detectRepoContextFromDir(ctx context.Context, cwd string) (string, error) {
 	if remoteErr != nil && repoRootErr != nil {
 		return "", xerrors.Errorf(
 			"%s: %w",
-			Localize("failed to detect git work context", "git work context の検出に失敗しました"),
+			Localize("failed to detect workspace from git context", "git コンテキストから workspace を検出できませんでした"),
 			repoRootErr,
 		)
 	}
 
-	return "", xerrors.Errorf(Localize("git work context could not be resolved", "git work context を解決できませんでした"))
+	return "", xerrors.Errorf(Localize("workspace could not be resolved from git context", "git コンテキストから workspace を解決できませんでした"))
 }
 
 func gitOutput(ctx context.Context, cwd string, args ...string) (string, error) {

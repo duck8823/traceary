@@ -31,12 +31,12 @@ func (c *RootCLI) resolveManualSessionID(
 
 	trimmedRepo := strings.TrimSpace(repo)
 	if trimmedRepo == "" || c.session == nil {
-		slog.Debug("no work context or query service, using default session", "workspace", trimmedRepo, "has_query_service", c.session != nil)
+		slog.Debug("no workspace or query service, using default session", "workspace", trimmedRepo, "has_query_service", c.session != nil)
 		return &manualSessionResolution{
 			sessionID: defaultSessionIDValue,
 			notice: Localize(
-				"No work context was detected; using default session ID",
-				"作業コンテキストを検出できなかったため、既定の session ID を使います",
+				"No workspace was detected; using default session ID",
+				"workspace を検出できなかったため、既定の session ID を使います",
 			),
 		}, nil
 	}

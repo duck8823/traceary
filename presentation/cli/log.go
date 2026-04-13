@@ -35,8 +35,8 @@ func (c *RootCLI) newLogCommand() *cobra.Command {
 		Use:   "log <message>",
 		Short: Localize("Append a session note", "セッションログを追記する"),
 		Long: Localize(
-			"Append a note to Traceary.\n\nDefaults:\n- DB path: --db-path -> TRACEARY_DB_PATH -> ~/.config/traceary/traceary.db\n- client / agent / repo: flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE -> cli / manual / detected repo\n- session ID: --session-id -> TRACEARY_SESSION_ID -> latest non-stale active session for the resolved repo -> default",
-			"Traceary にメモを追記します。\n\n既定値の解決順:\n- DB path: --db-path -> TRACEARY_DB_PATH -> ~/.config/traceary/traceary.db\n- client / agent / repo: flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE -> cli / manual / 検出した repo\n- session ID: --session-id -> TRACEARY_SESSION_ID -> 解決した repo の最新 non-stale active session -> default",
+			"Append a note to Traceary.\n\nDefaults:\n- DB path: --db-path -> TRACEARY_DB_PATH -> ~/.config/traceary/traceary.db\n- client / agent / workspace: flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE -> cli / manual / detected workspace\n- session ID: --session-id -> TRACEARY_SESSION_ID -> latest non-stale active session for the resolved workspace -> default",
+			"Traceary にメモを追記します。\n\n既定値の解決順:\n- DB path: --db-path -> TRACEARY_DB_PATH -> ~/.config/traceary/traceary.db\n- client / agent / workspace: flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE -> cli / manual / 検出した workspace\n- session ID: --session-id -> TRACEARY_SESSION_ID -> 解決した workspace の最新 non-stale active session -> default",
 		),
 		Example: strings.Join([]string{
 			"  traceary log \"investigate retry behavior\"",
@@ -70,7 +70,7 @@ func (c *RootCLI) newLogCommand() *cobra.Command {
 			"セッション ID (env: TRACEARY_SESSION_ID。未指定時は active session、なければ既定値)",
 		),
 	)
-	logCmd.Flags().StringVar(&repo, "workspace", "", Localize("auxiliary work context identifier (env: TRACEARY_WORKSPACE)", "補助的なコンテキスト識別子 (env: TRACEARY_WORKSPACE)"))
+	logCmd.Flags().StringVar(&repo, "workspace", "", Localize("auxiliary workspace identifier (env: TRACEARY_WORKSPACE)", "補助的な workspace 識別子 (env: TRACEARY_WORKSPACE)"))
 	logCmd.Flags().BoolVar(&idOnly, "id-only", false, Localize("print only the recorded event ID", "記録した event ID だけを出力する"))
 	logCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	logCmd.MarkFlagsMutuallyExclusive("id-only", "json")

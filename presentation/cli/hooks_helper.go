@@ -62,7 +62,7 @@ func (c *RootCLI) newHooksHelperBuildFailureOutputCommand() *cobra.Command {
 func (c *RootCLI) newHooksHelperNormalizeGitRemoteCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:    "normalize-git-remote [raw]",
-		Short:  "Normalize a git remote URL to Traceary repo format",
+		Short:  "Normalize a git remote URL to a Traceary workspace identifier",
 		Hidden: true,
 		Args:   cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

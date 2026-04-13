@@ -42,7 +42,7 @@
 ## 共通動作
 
 全レベル共通:
-- セッション開始時に repo を state ファイルに永続化し、audit は state から読み取る
+- セッション開始時に解決した workspace を state ファイルに保存し、audit はそこから workspace を読み取る
 - エージェントタイプ解決: `agent_type` フィールド → 階層的エージェント名（Claude のみ）
 - `tool_response.exitCode` から exit code を抽出（利用可能時）
 - MCP ツール名 fallback: `tool_input.command` → `tool_name`

@@ -60,7 +60,7 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 	listCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "記録経路で絞り込む"))
 	listCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "作業主体で絞り込む"))
 	listCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("filter by session ID", "session ID で絞り込む"))
-	listCmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by auxiliary work context identifier", "補助的なコンテキスト識別子で絞り込む"))
+	listCmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by auxiliary workspace identifier", "補助的な workspace 識別子で絞り込む"))
 	listCmd.Flags().StringVar(&from, "from", "", Localize("start date (`YYYY-MM-DD` or RFC3339)", "開始日 (`YYYY-MM-DD` または RFC3339)"))
 	listCmd.Flags().StringVar(&since, "since", "", Localize("start date (`YYYY-MM-DD` or RFC3339) (alias for `--from`)", "開始日 (`YYYY-MM-DD` または RFC3339) (`--from` の別名)"))
 	listCmd.Flags().StringVar(&to, "to", "", Localize("end date (`YYYY-MM-DD` or RFC3339)", "終了日 (`YYYY-MM-DD` または RFC3339)"))
