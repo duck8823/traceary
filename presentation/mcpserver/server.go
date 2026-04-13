@@ -182,7 +182,7 @@ func (s *Server) Build(ctx context.Context) (*mcp.Server, error) {
 	}, s.expireMemory())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "memory_pack",
-		Description: "Build a memory-aware context pack for prompt injection or automation",
+		Description: "Build a memory-aware context pack for prompt-context enrichment or automation",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.memoryPack())
 
@@ -546,11 +546,7 @@ func (s *Server) retrieveMemories() mcp.ToolHandlerFor[retrieveMemoriesInput, me
 
 		memories := make([]memoryOutput, 0, len(summaries))
 		for _, summary := range summaries {
-			details, err := s.memory.Show(ctx, summary.MemoryID())
-			if err != nil {
-				return nil, memoriesOutput{}, xerrors.Errorf("failed to load memory details for %s: %w", summary.MemoryID(), err)
-			}
-			memories = append(memories, newMemoryOutput(details))
+			memories = append(memories, newMemoryOutputFromSummary(summary))
 		}
 		return nil, memoriesOutput{Memories: memories}, nil
 	}
@@ -757,6 +753,28 @@ func newMemoryOutput(details apptypes.MemoryDetails) memoryOutput {
 		UpdatedAt:    summary.UpdatedAt().UTC().Format(time.RFC3339Nano),
 		EvidenceRefs: convertEvidenceRefs(details.EvidenceRefs()),
 		ArtifactRefs: convertArtifactRefs(details.ArtifactRefs()),
+	}
+}
+
+func newMemoryOutputFromSummary(summary apptypes.MemorySummary) memoryOutput {
+	supersedes := ""
+	if memoryID, ok := summary.Supersedes().Get(); ok {
+		supersedes = memoryID.String()
+	}
+
+	return memoryOutput{
+		MemoryID:   summary.MemoryID().String(),
+		Type:       summary.MemoryType().String(),
+		ScopeKind:  summary.Scope().Kind().String(),
+		ScopeValue: summary.Scope().Key(),
+		Fact:       summary.Fact(),
+		Status:     summary.Status().String(),
+		Confidence: summary.Confidence().String(),
+		Source:     summary.Source().String(),
+		Supersedes: supersedes,
+		ExpiresAt:  formatOptionalTime(summary.ExpiresAt()),
+		CreatedAt:  summary.CreatedAt().UTC().Format(time.RFC3339Nano),
+		UpdatedAt:  summary.UpdatedAt().UTC().Format(time.RFC3339Nano),
 	}
 }
 

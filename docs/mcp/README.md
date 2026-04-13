@@ -176,6 +176,8 @@ Inputs:
 
 Returns the structured working-memory handoff pack aligned with the CLI `traceary handoff` command.
 
+The top-level `summary` field is kept for compatibility and mirrors `working_state.combined_summary`.
+
 Inputs:
 
 - `workspace`
@@ -277,7 +279,7 @@ Inputs:
 
 ### `memory_pack`
 
-Builds a memory-aware context pack for prompt injection or automation.
+Builds a memory-aware context pack for prompt-context enrichment or automation.
 
 Inputs:
 

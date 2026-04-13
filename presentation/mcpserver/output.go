@@ -63,7 +63,7 @@ type sessionHandoffOutput struct {
 	TotalEvents    int                   `json:"total_events"`
 	CommandCount   int                   `json:"command_count"`
 	Agents         []string              `json:"agents,omitempty"`
-	Summary        string                `json:"summary,omitempty"`
+	Summary        string                `json:"summary,omitempty" jsonschema:"legacy compatibility mirror of working_state.combined_summary"`
 	WorkingState   workingStateOutput    `json:"working_state"`
 	RecentCommands []string              `json:"recent_commands,omitempty"`
 	Memories       []memorySummaryOutput `json:"memories,omitempty"`

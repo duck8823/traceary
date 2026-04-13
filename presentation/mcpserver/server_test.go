@@ -46,7 +46,7 @@ func TestServer_BuildAndTools(t *testing.T) {
 				"message":    "hello from mcp",
 				"agent":      "claude",
 				"session_id": "session-1",
-				"workspace":       "github.com/duck8823/traceary",
+				"workspace":  "github.com/duck8823/traceary",
 			},
 		})
 		if err != nil {
@@ -121,7 +121,7 @@ func TestServer_BuildAndTools(t *testing.T) {
 				"output":     "stdout",
 				"agent":      "codex",
 				"session_id": "session-2",
-				"workspace":       "github.com/duck8823/traceary",
+				"workspace":  "github.com/duck8823/traceary",
 			},
 		})
 		if err != nil {
@@ -153,8 +153,8 @@ func TestServer_BuildAndTools(t *testing.T) {
 		startResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 			Name: "start_session",
 			Arguments: map[string]any{
-				"agent": "codex",
-				"workspace":  "github.com/duck8823/traceary",
+				"agent":     "codex",
+				"workspace": "github.com/duck8823/traceary",
 			},
 		})
 		if err != nil {
@@ -391,6 +391,12 @@ func TestServer_BuildAndTools(t *testing.T) {
 		if diff := cmp.Diff("Wire MCP memory tools | Cover MCP server tests", workingState["compact_summary"]); diff != "" {
 			t.Fatalf("compact_summary mismatch (-want +got):\n%s", diff)
 		}
+		if diff := cmp.Diff("Wire MCP memory tools | Cover MCP server tests", handoffPayload["summary"]); diff != "" {
+			t.Fatalf("summary mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(workingState["combined_summary"], handoffPayload["summary"]); diff != "" {
+			t.Fatalf("summary compatibility mismatch (-want +got):\n%s", diff)
+		}
 		memories, ok := handoffPayload["memories"].([]any)
 		if !ok || len(memories) == 0 {
 			t.Fatalf("handoff memories = %T len=%d, want non-empty []any", handoffPayload["memories"], len(memories))
@@ -399,9 +405,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 		packResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 			Name: "memory_pack",
 			Arguments: map[string]any{
-				"session_id":             sessionID,
-				"recent_commands_limit":  1,
-				"memory_limit":           1,
+				"session_id":            sessionID,
+				"recent_commands_limit": 1,
+				"memory_limit":          1,
 			},
 		})
 		if err != nil {

@@ -176,6 +176,8 @@ Inputs:
 
 CLI の `traceary handoff` と揃えた、構造化 working-memory handoff pack を返します。
 
+トップレベルの `summary` は後方互換のために残してあり、`working_state.combined_summary` をそのまま返します。
+
 Inputs:
 
 - `workspace`
@@ -277,7 +279,7 @@ Inputs:
 
 ### `memory_pack`
 
-prompt injection や agent automation 向けの memory-aware context pack を構築します。
+prompt 向けの context enrichment や agent automation 向けの memory-aware context pack を構築します。
 
 Inputs:
 
