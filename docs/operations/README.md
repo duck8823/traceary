@@ -98,4 +98,4 @@ Possible but not actively tuned:
 - hooks integration: [`../hooks/README.md`](../hooks/README.md)
 - storage model: [`../storage/README.md`](../storage/README.md)
 - backup guide: [`../backup/README.md`](../backup/README.md)
-
+- Python dependency plan: [`./python-dependencies.md`](./python-dependencies.md)
