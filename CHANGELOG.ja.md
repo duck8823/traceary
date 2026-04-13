@@ -5,6 +5,27 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.5.2] - 2026-04-14
+
+documentation の正確性、導線、GoDoc の磨き込みをまとめたリリースです。
+
+### 追加
+- durable memory の考え方と運用フローをまとめた `docs/memory/` の英日ガイド
+
+### 変更
+- storage / interactive guide を更新し、実際に出荷している `tail` / `handoff` / durable memory の挙動と一致させた
+- public docs と operator 向け CLI help の `workspace` 用語をそろえた
+- README / docs index の導線を、3 層モデル、lifecycle、hook contract、durable memory を中心に再構成した
+- release/support guide を、現在の maintainer review flow と release automation に合わせて更新した
+- `go doc` から層境界と compatibility surface を追いやすいように package/interface comment を厚くした
+
+### 対象イシュー
+- #500 実装済み挙動に合わせた storage / interactive docs の更新
+- #501 docs と CLI help に残る workspace 用語の整理
+- #502 docs 導線の改善と durable memory concept guide の追加
+- #503 現在の maintainer workflow に合わせた release/support docs の更新
+- #504 architecture discovery のための GoDoc package/interface comments 強化
+
 ## [v0.5.1] - 2026-04-14
 
 read-side の使い勝手改善と documentation follow-up のリリースです。

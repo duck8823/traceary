@@ -5,6 +5,27 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.5.2] - 2026-04-14
+
+Documentation accuracy, navigation, and GoDoc polish release.
+
+### Added
+- durable memory concept guides under `docs/memory/` in English and Japanese
+
+### Changed
+- refreshed the storage and interactive guides so they match the shipped `tail`, `handoff`, and durable-memory behavior
+- aligned `workspace` terminology across public docs and operator-facing CLI help text
+- reorganized README/docs entry points around the three-layer model, lifecycle, hook contract, and durable memory flows
+- updated release/support guidance to reflect the current maintainer review flow and release automation
+- deepened GoDoc package/interface comments so layer boundaries and compatibility surfaces are easier to discover from `go doc`
+
+### Included issues
+- #500 refresh stale storage and interactive docs to match shipped behavior
+- #501 complete workspace terminology cleanup across docs and CLI help
+- #502 improve documentation entry points and add a durable memory concept guide
+- #503 refresh release/support docs and examples for the current maintainer workflow
+- #504 deepen GoDoc package/interface comments for architecture discovery
+
 ## [v0.5.1] - 2026-04-14
 
 Read-side ergonomics and documentation follow-up release.
