@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -265,7 +266,12 @@ func TestListTailEventsSince_DeduplicatesSeenIDsAtSameTimestamp(t *testing.T) {
 	cursor := newTailCursor(timestamp)
 	cursor.seenIDs[seen.EventID().String()] = struct{}{}
 
-	events, err := sut.listTailEventsSince(context.Background(), apptypes.NewEventListCriteriaBuilder(defaultTailBatchSize).Build(), cursor)
+	events, err := sut.listTailEventsSince(
+		context.Background(),
+		apptypes.NewEventListCriteriaBuilder(defaultTailBatchSize).Build(),
+		cursor,
+		timestamp.Add(time.Minute),
+	)
 	if err != nil {
 		t.Fatalf("listTailEventsSince() error = %v", err)
 	}
@@ -274,6 +280,74 @@ func TestListTailEventsSince_DeduplicatesSeenIDsAtSameTimestamp(t *testing.T) {
 	}
 	if got := events[0].EventID().String(); got != fresh.EventID().String() {
 		t.Fatalf("EventID() = %q, want %q", got, fresh.EventID().String())
+	}
+}
+
+func TestListTailEventsSince_UsesStableSnapshotAcrossPages(t *testing.T) {
+	t.Parallel()
+
+	cursorTime := time.Date(2026, 4, 13, 18, 0, 0, 0, time.UTC)
+	snapshotTo := time.Date(2026, 4, 13, 18, 10, 0, 0, time.UTC)
+
+	firstPage := make([]*model.Event, 0, defaultTailBatchSize)
+	secondPage := make([]*model.Event, 0, defaultTailBatchSize)
+	for i := range defaultTailBatchSize {
+		firstPage = append(firstPage, mustTailEvent(
+			t,
+			"event-first-"+strconv.Itoa(i),
+			"cli",
+			"codex",
+			"session-1",
+			"duck8823/traceary",
+			"first",
+			cursorTime.Add(time.Duration(defaultTailBatchSize-i)*time.Second),
+		))
+		secondPage = append(secondPage, mustTailEvent(
+			t,
+			"event-second-"+strconv.Itoa(i),
+			"cli",
+			"codex",
+			"session-1",
+			"duck8823/traceary",
+			"second",
+			cursorTime.Add(time.Duration(defaultTailBatchSize*2-i)*time.Second),
+		))
+	}
+	lastPage := []*model.Event{
+		mustTailEvent(t, "event-last", "cli", "codex", "session-1", "duck8823/traceary", "last", cursorTime.Add(5*time.Minute)),
+	}
+
+	eventStub := &tailEventUsecaseStub{
+		listResponses: [][]*model.Event{firstPage, secondPage, lastPage},
+		onList: func(callIndex int, criteria apptypes.EventListCriteria) {
+			if !criteria.To().Equal(snapshotTo) {
+				t.Fatalf("call %d criteria.To() = %v, want %v", callIndex, criteria.To(), snapshotTo)
+			}
+			wantOffset := callIndex * defaultTailBatchSize
+			if criteria.Offset() != wantOffset {
+				t.Fatalf("call %d criteria.Offset() = %d, want %d", callIndex, criteria.Offset(), wantOffset)
+			}
+		},
+	}
+	sut := NewRootCLI(
+		WithStoreManagement(tailStoreManagementStub{}),
+		WithEvent(eventStub),
+	)
+
+	events, err := sut.listTailEventsSince(
+		context.Background(),
+		apptypes.NewEventListCriteriaBuilder(defaultTailBatchSize).Build(),
+		newTailCursor(cursorTime),
+		snapshotTo,
+	)
+	if err != nil {
+		t.Fatalf("listTailEventsSince() error = %v", err)
+	}
+	if len(events) != defaultTailBatchSize*2+1 {
+		t.Fatalf("len(events) = %d, want %d", len(events), defaultTailBatchSize*2+1)
+	}
+	if len(eventStub.listCalls) != 3 {
+		t.Fatalf("len(listCalls) = %d, want 3", len(eventStub.listCalls))
 	}
 }
 

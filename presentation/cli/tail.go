@@ -283,7 +283,8 @@ func (c *RootCLI) runTail(ctx context.Context, output io.Writer, input tailComma
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C():
-			newEvents, err := c.listTailEventsSince(ctx, baseCriteria.Build(), cursor)
+			pollSnapshotTo := input.resolvedNowFunc()().UTC()
+			newEvents, err := c.listTailEventsSince(ctx, baseCriteria.Build(), cursor, pollSnapshotTo)
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to poll tail events", "tail イベントのポーリングに失敗しました"), err)
 			}
@@ -298,9 +299,17 @@ func (c *RootCLI) runTail(ctx context.Context, output io.Writer, input tailComma
 	}
 }
 
-func (c *RootCLI) listTailEventsSince(ctx context.Context, base apptypes.EventListCriteria, cursor tailCursor) ([]*model.Event, error) {
+func (c *RootCLI) listTailEventsSince(
+	ctx context.Context,
+	base apptypes.EventListCriteria,
+	cursor tailCursor,
+	snapshotTo time.Time,
+) ([]*model.Event, error) {
 	filtered := make([]*model.Event, 0, defaultTailBatchSize)
 	offset := 0
+	if snapshotTo.IsZero() {
+		snapshotTo = time.Now().UTC()
+	}
 
 	for {
 		criteria := apptypes.NewEventListCriteriaBuilder(defaultTailBatchSize).
@@ -312,6 +321,7 @@ func (c *RootCLI) listTailEventsSince(ctx context.Context, base apptypes.EventLi
 			Workspace(base.Workspace()).
 			FailuresOnly(base.FailuresOnly()).
 			From(cursor.timestamp).
+			To(snapshotTo).
 			Build()
 
 		page, err := c.event.List(ctx, criteria)
