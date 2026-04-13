@@ -141,13 +141,15 @@ func run() error {
 	db := sqlite.NewDatabase(dbPath, migrationsSubFS)
 	eventDatasource := sqlite.NewEventDatasource(db)
 	sessionDatasource := sqlite.NewSessionDatasource(db)
+	memoryDatasource := sqlite.NewMemoryDatasource(db)
 	storeManagementDatasource := sqlite.NewStoreManagementDatasource(db)
+
+	extraRedactPatterns := presentation.LoadExtraRedactPatterns()
 
 	eventUsecase := usecase.NewEventUsecase(eventDatasource, eventDatasource)
 	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource)
+	memoryUsecase := usecase.NewMemoryUsecase(memoryDatasource, memoryDatasource, extraRedactPatterns)
 	storeManagementUsecase := usecase.NewStoreManagementUsecase(storeManagementDatasource)
-
-	extraRedactPatterns := presentation.LoadExtraRedactPatterns()
 
 	mcpServer, err := mcpserver.NewServer(
 		resolvedVersion,
@@ -171,6 +173,7 @@ func run() error {
 	rootCmd := cli.NewRootCLI(
 		cli.WithEvent(eventUsecase),
 		cli.WithSession(sessionUsecase),
+		cli.WithMemory(memoryUsecase),
 		cli.WithStoreManagement(storeManagementUsecase),
 		cli.WithMCPServerRunner(mcpServer),
 		cli.WithHooksOrchestrator(hooksOrchestrator),

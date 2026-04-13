@@ -127,6 +127,113 @@ Useful flags:
 - `--limit`
 - `--json`
 
+## Durable memory commands
+
+### `traceary memory list`
+
+List durable memories. When no explicit scope flag is set, `memory list` defaults to the resolved workspace scope.
+
+Useful flags:
+
+- `--workspace`
+- `--agent`
+- `--session-family`
+- `--status`
+- `--type`
+- `--limit`
+- `--offset`
+- `--json`
+
+### `traceary memory search [<query>]`
+
+Search durable memories by text and structured filters. At least one query or filter is required.
+
+Useful flags:
+
+- `--workspace`
+- `--agent`
+- `--session-family`
+- `--status`
+- `--type`
+- `--limit`
+- `--offset`
+- `--json`
+
+### `traceary memory show <memory-id>`
+
+Show one durable memory in detail, including evidence and artifact references.
+
+Useful flags:
+
+- `--json`
+
+### `traceary memory remember`
+
+Record an accepted durable memory directly.
+
+Useful flags:
+
+- `--type`
+- `--fact`
+- `--workspace` / `--agent` / `--session-family`
+- `--confidence`
+- `--source`
+- `--evidence`
+- `--artifact`
+- `--id-only`
+- `--json`
+
+### `traceary memory propose`
+
+Record a candidate durable memory that still needs review.
+
+Useful flags are the same as `memory remember`, except `--confidence` is ignored.
+
+### `traceary memory accept <memory-id>`
+
+Accept a candidate durable memory.
+
+Useful flags:
+
+- `--confidence`
+- `--id-only`
+- `--json`
+
+### `traceary memory reject <memory-id>`
+
+Reject a candidate durable memory.
+
+Useful flags:
+
+- `--id-only`
+- `--json`
+
+### `traceary memory supersede <memory-id>`
+
+Replace an accepted durable memory with a new accepted memory. Omitted `--type` and scope flags inherit from the current memory.
+
+Useful flags:
+
+- `--type`
+- `--fact`
+- `--workspace` / `--agent` / `--session-family`
+- `--confidence`
+- `--source`
+- `--evidence`
+- `--artifact`
+- `--id-only`
+- `--json`
+
+### `traceary memory expire <memory-id>`
+
+Expire an active durable memory.
+
+Useful flags:
+
+- `--at`
+- `--id-only`
+- `--json`
+
 ## Session commands
 
 ### `traceary session start`

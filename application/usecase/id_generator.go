@@ -23,6 +23,19 @@ func newEventID() (types.EventID, error) {
 	return eventID, nil
 }
 
+func newMemoryID() (types.MemoryID, error) {
+	value, err := newRandomHexString(16)
+	if err != nil {
+		return types.MemoryID(""), xerrors.Errorf("failed to generate memory ID: %w", err)
+	}
+
+	memoryID, err := types.MemoryIDOf("memory-" + value)
+	if err != nil {
+		return types.MemoryID(""), xerrors.Errorf("failed to convert memory ID: %w", err)
+	}
+
+	return memoryID, nil
+}
 func newSessionID() (types.SessionID, error) {
 	value, err := newRandomHexString(16)
 	if err != nil {

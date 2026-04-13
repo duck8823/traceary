@@ -11,6 +11,7 @@ import (
 type RootCLI struct {
 	event                usecase.EventUsecase
 	session              usecase.SessionUsecase
+	memory               usecase.MemoryUsecase
 	storeManagement      usecase.StoreManagementUsecase
 	mcpServerRunner      MCPServerRunner
 	hooksOrchestrator    application.HooksOrchestrator
@@ -36,6 +37,11 @@ func WithEvent(event usecase.EventUsecase) RootCLIOption {
 // WithSession injects the SessionUsecase used by session-related commands.
 func WithSession(session usecase.SessionUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.session = session }
+}
+
+// WithMemory injects the MemoryUsecase used by durable-memory commands.
+func WithMemory(memory usecase.MemoryUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.memory = memory }
 }
 
 // WithStoreManagement injects the StoreManagementUsecase used by init,
@@ -123,6 +129,7 @@ func (c *RootCLI) Command() *cobra.Command {
 	rootCmd.AddCommand(c.newListCommand())
 	rootCmd.AddCommand(c.newShowCommand())
 	rootCmd.AddCommand(c.newSessionCommand())
+	rootCmd.AddCommand(c.newMemoryCommand())
 	rootCmd.AddCommand(c.newCompactSummaryCommand())
 	rootCmd.AddCommand(c.newTimelineCommand())
 	rootCmd.AddCommand(c.newCompletionCommand(rootCmd))
