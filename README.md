@@ -173,5 +173,5 @@ The most common next pages are:
 ## Contributing and support
 
 - bug reports and feature requests belong in GitHub Issues
-- security reports should follow [SECURITY.md](./SECURITY.md)
+- security reports should follow the private contact path in [CONTRIBUTING.md](./CONTRIBUTING.md)
 - this is an actively evolving `v0.x` OSS tool, so check the [changelog](./CHANGELOG.md) before upgrading automation around it
