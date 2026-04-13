@@ -162,6 +162,7 @@ Use the [documentation index](./docs/README.md) for the full map.
 The most common next pages are:
 
 - [Native integrations](./docs/integrations/README.md)
+- [Architecture principles](./docs/architecture/README.md)
 - [Durable memory guide](./docs/memory/README.md)
 - [CLI reference](./docs/cli/README.md)
 - [Hooks guide](./docs/hooks/README.md)
