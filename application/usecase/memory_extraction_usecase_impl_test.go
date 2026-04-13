@@ -460,12 +460,19 @@ func TestMemoryExtractionUsecase_Extract_DeduplicatesExistingFactsAfterSanitizat
 			// This sub-case exercises the core guarantee of the dedupe fix:
 			// two facts whose raw values differ must collapse to the same key
 			// *after* a caller-supplied redaction pattern normalizes them.
-			// `internalCode=...` is outside the built-in redactor set, so the
-			// custom pattern is the only thing that can make these equal.
+			// Both facts start with "Please" so inferMemoryTypeFromText
+			// actually produces a MemoryTypePreference candidate — an earlier
+			// iteration used "Remember ..." which matches no heuristic
+			// prefix, making the extractor emit nothing and the test pass
+			// for the wrong reason (caught by the Codex verifier). The
+			// `internalCode=` token is outside the built-in redactor
+			// alternation (password|secret|token|...), so only the
+			// caller-supplied pattern below can normalize the two values to
+			// the same key.
 			name:                "custom extra redact pattern",
 			extraRedactPatterns: []string{`internalCode=\S+`},
-			existingFact:        "Remember the deploy secret internalCode=alpha-one for next release.",
-			promptFact:          "Remember the deploy secret internalCode=beta-two for next release.",
+			existingFact:        "Please keep internalCode=alpha-one out of rendered templates.",
+			promptFact:          "Please keep internalCode=beta-two out of rendered templates.",
 		},
 	}
 
