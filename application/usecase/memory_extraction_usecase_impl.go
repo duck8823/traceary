@@ -541,7 +541,8 @@ func inferArtifactRefs(text string) ([]domtypes.ArtifactRef, error) {
 
 func normalizeArtifactPathMatch(value string) string {
 	trimmed := strings.TrimSpace(value)
-	trimmed = strings.Trim(trimmed, "`'\"()[]{}<>,:;")
+	trimmed = strings.TrimLeft(trimmed, "`'\"()[]{}<>,:;")
+	trimmed = strings.TrimRight(trimmed, "`'\"()[]{}<>,:;.!?")
 	return trimmed
 }
 

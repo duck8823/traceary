@@ -12,7 +12,7 @@ func TestInferArtifactRefs_BroadensSupportedFilePatterns(t *testing.T) {
 	t.Parallel()
 
 	refs, err := inferArtifactRefs(
-		"Artifact: src/app.tsx scripts/check.py Formula/traceary.rb configs/release.yaml.tpl docs/release/README bin/traceary https://github.com/duck8823/traceary/blob/main/scripts/install.sh 2026/04/13",
+		"Artifact: src/app.tsx. scripts/check.py Formula/traceary.rb configs/release.yaml.tpl docs/release/README. bin/traceary https://github.com/duck8823/traceary/blob/main/scripts/install.sh 2026/04/13",
 	)
 	if err != nil {
 		t.Fatalf("inferArtifactRefs() error = %v", err)
