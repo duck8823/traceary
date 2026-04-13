@@ -8,7 +8,8 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-// SessionUsecase consolidates session lifecycle and query operations.
+// SessionUsecase consolidates session lifecycle operations plus the legacy
+// session-level query surfaces that remain for compatibility.
 type SessionUsecase interface {
 	// Start begins a new session. If sessionID is zero, a new ID is generated.
 	// Zero-value parentSessionID means no parent (top-level session).
@@ -36,8 +37,11 @@ type SessionUsecase interface {
 	// Returns an empty Optional when no matching session exists.
 	Latest(ctx context.Context, criteria apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error)
 
-	// Handoff returns a concise summary for session context transfer between agents.
-	// Zero-value workspace means no workspace filter.
-	// Returns an empty Optional when no matching session exists.
+	// Handoff returns the legacy session handoff summary shape used by older CLI
+	// and MCP callers.
+	//
+	// New callers that want the structured working-memory pack should prefer
+	// ContextUsecase.Handoff instead. Zero-value workspace means no workspace
+	// filter. Returns an empty Optional when no matching session exists.
 	Handoff(ctx context.Context, sessionID types.SessionID, workspace types.Workspace, recent int) (types.Optional[apptypes.HandoffSummary], error)
 }
