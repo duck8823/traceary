@@ -64,7 +64,7 @@ Flags:
 
 ## Exposed tools
 
-Traceary currently exposes nine MCP tools.
+Traceary currently exposes eighteen MCP tools.
 
 ### `start_session`
 
@@ -75,7 +75,7 @@ Inputs:
 - `client` (default: `mcp`)
 - `agent` (default: `manual`)
 - `session_id` (optional; Traceary generates one when omitted)
-- `repo` (optional work-context string)
+- `workspace` (optional work-context string)
 
 ### `end_session`
 
@@ -86,7 +86,7 @@ Inputs:
 - `session_id` (required)
 - `client` (optional; when omitted, Traceary prefers attribution from the matching `session_started` event)
 - `agent` (optional; when omitted, Traceary prefers attribution from the matching `session_started` event)
-- `repo` (optional work-context string)
+- `workspace` (optional work-context string)
 
 ### `latest_session`
 
@@ -96,7 +96,7 @@ Inputs:
 
 - `client`
 - `agent`
-- `repo`
+- `workspace`
 
 ### `active_session`
 
@@ -106,7 +106,7 @@ Inputs:
 
 - `client`
 - `agent`
-- `repo`
+- `workspace`
 - `allow_stale` (default: `false`)
 - `stale_after_seconds` (`0` or omitted uses the default `86400`)
 
@@ -120,7 +120,7 @@ Inputs:
 - `offset` (default: `0`)
 
 Use `list_events` when the client wants the same "recent feed" view as `traceary list`.
-Use `search` when the client needs structured filters such as `repo`, `session_id`, or a text query.
+Use `search` when the client needs structured filters such as `workspace`, `session_id`, or a text query.
 
 ### `add_log`
 
@@ -132,7 +132,7 @@ Inputs:
 - `client` (default: `mcp`)
 - `agent` (default: `manual`)
 - `session_id` (default: `default`)
-- `repo` (optional work-context string)
+- `workspace` (optional work-context string)
 
 ### `add_audit`
 
@@ -148,7 +148,7 @@ Inputs:
 - `client` (default: `mcp`)
 - `agent` (default: `manual`)
 - `session_id` (default: `default`)
-- `repo` (optional work-context string)
+- `workspace` (optional work-context string)
 
 ### `search`
 
@@ -157,20 +157,138 @@ Searches existing events.
 Inputs:
 
 - `query` (required)
-- `repo`
+- `workspace`
 - `from` (`YYYY-MM-DD` or RFC3339)
 - `to` (`YYYY-MM-DD` or RFC3339)
 - `limit` (default: `20`)
 
 ### `get_context`
 
-Returns recent events for context handoff.
+Returns recent raw events for context lookup.
 
 Inputs:
 
-- `repo`
+- `workspace`
 - `session_id`
 - `limit` (default: `20`)
+
+### `session_handoff`
+
+Returns the structured working-memory handoff pack aligned with the CLI `traceary handoff` command.
+
+The top-level `summary` field is kept for compatibility and mirrors `working_state.combined_summary`.
+
+Inputs:
+
+- `workspace`
+- `session_id`
+- `recent_commands_limit` (default: `5`; explicit `0` disables recent commands)
+- `memory_limit` (default: `5`; explicit `0` disables durable memories)
+
+### `retrieve_memories`
+
+Returns durable memories by direct ID lookup, full-text query, or scope filters.
+
+Inputs:
+
+- `memory_id`
+- `query`
+- `workspace`
+- `agent`
+- `session_family`
+- `status`
+- `type`
+- `limit` (default: `20`)
+- `offset` (default: `0`)
+
+When `memory_id` is set, Traceary returns that single memory with evidence and artifact refs.
+When `query` is set, Traceary performs full-text search.
+Otherwise it lists active memories, optionally filtered by scope / status / type.
+
+Durable-memory payloads are returned as stored. Sensitive content is expected to be handled at write time through the existing memory sanitization/redaction path before persistence.
+
+### `remember_memory`
+
+Records an accepted durable memory.
+
+Inputs:
+
+- `type` (required)
+- one of `workspace` / `agent` / `session_family` (required, mutually exclusive)
+- `fact` (required)
+- `confidence`
+- `source`
+- `evidence_refs`
+- `artifact_refs`
+
+Accepted memories require at least one evidence ref.
+
+### `propose_memory`
+
+Records a candidate durable memory that still needs review.
+
+Inputs:
+
+- `type` (required)
+- one of `workspace` / `agent` / `session_family` (required, mutually exclusive)
+- `fact` (required)
+- `source`
+- `evidence_refs`
+- `artifact_refs`
+
+### `accept_memory`
+
+Accepts a candidate durable memory.
+
+Inputs:
+
+- `memory_id` (required)
+- `confidence`
+
+### `reject_memory`
+
+Rejects a candidate durable memory.
+
+Inputs:
+
+- `memory_id` (required)
+
+### `supersede_memory`
+
+Marks an accepted durable memory as superseded and stores a replacement accepted memory.
+
+Inputs:
+
+- `memory_id` (required)
+- `fact` (required)
+- replacement `type`
+- replacement `workspace` / `agent` / `session_family`
+- `confidence`
+- `source`
+- `evidence_refs`
+- `artifact_refs`
+
+Replacement `type` / scope inherit from the current memory when omitted.
+
+### `expire_memory`
+
+Expires a durable memory.
+
+Inputs:
+
+- `memory_id` (required)
+- `expires_at` (`YYYY-MM-DD` or RFC3339; defaults to now)
+
+### `memory_pack`
+
+Builds a memory-aware context pack for prompt-context enrichment or automation.
+
+Inputs:
+
+- `workspace`
+- `session_id`
+- `recent_commands_limit` (default: `5`; explicit `0` disables recent commands)
+- `memory_limit` (default: `5`; explicit `0` disables durable memories)
 
 ## Practical client example
 

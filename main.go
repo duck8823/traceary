@@ -157,6 +157,8 @@ func run() error {
 		extraRedactPatterns,
 		eventUsecase,
 		sessionUsecase,
+		memoryUsecase,
+		contextUsecase,
 		storeManagementUsecase,
 	)
 	if err != nil {

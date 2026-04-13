@@ -77,6 +77,91 @@ type getContextInput struct {
 
 // sessionHandoffInput is the MCP input for the session_handoff tool.
 type sessionHandoffInput struct {
-	SessionID string `json:"session_id,omitempty"`
-	Workspace string `json:"workspace,omitempty"`
+	SessionID           string `json:"session_id,omitempty" jsonschema:"session identifier filter"`
+	Workspace           string `json:"workspace,omitempty" jsonschema:"work context filter"`
+	RecentCommandsLimit *int   `json:"recent_commands_limit,omitempty" jsonschema:"maximum recent commands to include (default: 5; explicit 0 disables recent commands)"`
+	MemoryLimit         *int   `json:"memory_limit,omitempty" jsonschema:"maximum durable memories to include (default: 5; explicit 0 disables durable memories)"`
+}
+
+// memoryPackInput is the MCP input for the memory_pack tool.
+type memoryPackInput struct {
+	SessionID           string `json:"session_id,omitempty" jsonschema:"session identifier filter"`
+	Workspace           string `json:"workspace,omitempty" jsonschema:"work context filter"`
+	RecentCommandsLimit *int   `json:"recent_commands_limit,omitempty" jsonschema:"maximum recent commands to include (default: 5; explicit 0 disables recent commands)"`
+	MemoryLimit         *int   `json:"memory_limit,omitempty" jsonschema:"maximum durable memories to include (default: 5; explicit 0 disables durable memories)"`
+}
+
+// memoryRefInput is the MCP representation of evidence/artifact references.
+type memoryRefInput struct {
+	Kind  string `json:"kind" jsonschema:"reference kind"`
+	Value string `json:"value" jsonschema:"reference value"`
+}
+
+// retrieveMemoriesInput is the MCP input for the retrieve_memories tool.
+type retrieveMemoriesInput struct {
+	MemoryID      string   `json:"memory_id,omitempty" jsonschema:"durable memory identifier to fetch directly"`
+	Query         string   `json:"query,omitempty" jsonschema:"full-text search query"`
+	Workspace     string   `json:"workspace,omitempty" jsonschema:"workspace scope filter"`
+	Agent         string   `json:"agent,omitempty" jsonschema:"agent scope filter"`
+	SessionFamily string   `json:"session_family,omitempty" jsonschema:"session-family scope filter"`
+	Statuses      []string `json:"status,omitempty" jsonschema:"memory lifecycle status filters"`
+	MemoryTypes   []string `json:"type,omitempty" jsonschema:"memory type filters"`
+	Limit         int      `json:"limit,omitempty" jsonschema:"maximum number of memories to return (default: 20)"`
+	Offset        int      `json:"offset,omitempty" jsonschema:"number of memories to skip before returning results (default: 0)"`
+}
+
+// rememberMemoryInput is the MCP input for the remember_memory tool.
+type rememberMemoryInput struct {
+	MemoryType    string           `json:"type" jsonschema:"memory type"`
+	Workspace     string           `json:"workspace,omitempty" jsonschema:"workspace scope"`
+	Agent         string           `json:"agent,omitempty" jsonschema:"agent scope"`
+	SessionFamily string           `json:"session_family,omitempty" jsonschema:"session-family scope"`
+	Fact          string           `json:"fact" jsonschema:"distilled memory fact"`
+	Confidence    string           `json:"confidence,omitempty" jsonschema:"accepted confidence (default: verified)"`
+	Source        string           `json:"source,omitempty" jsonschema:"memory source (default: manual)"`
+	EvidenceRefs  []memoryRefInput `json:"evidence_refs,omitempty" jsonschema:"supporting evidence refs"`
+	ArtifactRefs  []memoryRefInput `json:"artifact_refs,omitempty" jsonschema:"related artifact refs"`
+}
+
+// proposeMemoryInput is the MCP input for the propose_memory tool.
+type proposeMemoryInput struct {
+	MemoryType    string           `json:"type" jsonschema:"memory type"`
+	Workspace     string           `json:"workspace,omitempty" jsonschema:"workspace scope"`
+	Agent         string           `json:"agent,omitempty" jsonschema:"agent scope"`
+	SessionFamily string           `json:"session_family,omitempty" jsonschema:"session-family scope"`
+	Fact          string           `json:"fact" jsonschema:"distilled memory fact"`
+	Source        string           `json:"source,omitempty" jsonschema:"memory source (default: manual)"`
+	EvidenceRefs  []memoryRefInput `json:"evidence_refs,omitempty" jsonschema:"supporting evidence refs"`
+	ArtifactRefs  []memoryRefInput `json:"artifact_refs,omitempty" jsonschema:"related artifact refs"`
+}
+
+// acceptMemoryInput is the MCP input for the accept_memory tool.
+type acceptMemoryInput struct {
+	MemoryID   string `json:"memory_id" jsonschema:"candidate durable memory identifier"`
+	Confidence string `json:"confidence,omitempty" jsonschema:"accepted confidence (default: verified)"`
+}
+
+// rejectMemoryInput is the MCP input for the reject_memory tool.
+type rejectMemoryInput struct {
+	MemoryID string `json:"memory_id" jsonschema:"candidate durable memory identifier"`
+}
+
+// supersedeMemoryInput is the MCP input for the supersede_memory tool.
+type supersedeMemoryInput struct {
+	MemoryID      string           `json:"memory_id" jsonschema:"accepted durable memory identifier to supersede"`
+	MemoryType    string           `json:"type,omitempty" jsonschema:"replacement memory type (inherits when omitted)"`
+	Workspace     string           `json:"workspace,omitempty" jsonschema:"replacement workspace scope"`
+	Agent         string           `json:"agent,omitempty" jsonschema:"replacement agent scope"`
+	SessionFamily string           `json:"session_family,omitempty" jsonschema:"replacement session-family scope"`
+	Fact          string           `json:"fact" jsonschema:"replacement distilled memory fact"`
+	Confidence    string           `json:"confidence,omitempty" jsonschema:"replacement confidence (default: verified)"`
+	Source        string           `json:"source,omitempty" jsonschema:"replacement memory source (default: manual)"`
+	EvidenceRefs  []memoryRefInput `json:"evidence_refs,omitempty" jsonschema:"replacement evidence refs"`
+	ArtifactRefs  []memoryRefInput `json:"artifact_refs,omitempty" jsonschema:"replacement artifact refs"`
+}
+
+// expireMemoryInput is the MCP input for the expire_memory tool.
+type expireMemoryInput struct {
+	MemoryID  string `json:"memory_id" jsonschema:"durable memory identifier"`
+	ExpiresAt string `json:"expires_at,omitempty" jsonschema:"expiry timestamp (YYYY-MM-DD or RFC3339, defaults to now)"`
 }
