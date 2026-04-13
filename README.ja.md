@@ -158,5 +158,5 @@ traceary session end --session-id "$sid" --id-only
 ## コントリビュートとサポート
 
 - バグ報告や改善提案は GitHub Issues へお願いします
-- 脆弱性の連絡先は [CONTRIBUTING.ja.md](./CONTRIBUTING.ja.md) を参照してください
+- 脆弱性の報告方法は [SECURITY.ja.md](./SECURITY.ja.md) を参照してください
 - まだ `v0.x` の OSS なので、自動化に組み込む前には [変更履歴](./CHANGELOG.ja.md) を確認してください
