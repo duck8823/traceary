@@ -53,6 +53,12 @@ def git_release_tags() -> list[str]:
     return [tag for tag in result.stdout.splitlines() if VERSION_RE.fullmatch(tag)]
 
 
+def version_key(tag: str) -> tuple[int, int, int]:
+    normalized = tag.removeprefix("v")
+    major, minor, patch = normalized.split(".")
+    return int(major), int(minor), int(patch)
+
+
 def main() -> int:
     current_release = read_release_version()
     en_versions = read_changelog_versions(EN_CHANGELOG)
@@ -84,12 +90,15 @@ def main() -> int:
         print("changelog release coverage check passed")
         return 0
 
-    missing_from_changelog = [tag for tag in tags if tag not in en_versions]
+    current_release_key = version_key(current_release)
+    relevant_tags = [tag for tag in tags if version_key(tag) <= current_release_key]
+
+    missing_from_changelog = [tag for tag in relevant_tags if tag not in en_versions]
     if missing_from_changelog:
         fail(
             "missing changelog coverage for released tags: "
             + ", ".join(missing_from_changelog)
-            + " (run in a full clone or update CHANGELOG.md / CHANGELOG.ja.md)"
+            + " (up to the current VERSION; run in a full clone or update CHANGELOG.md / CHANGELOG.ja.md)"
         )
 
     print("changelog release coverage check passed")

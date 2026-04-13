@@ -79,7 +79,7 @@ Release-preparation PRs may align metadata, docs, and manifests, but they must *
 
 - the current `VERSION` exists in both `CHANGELOG.md` and `CHANGELOG.ja.md`
 - English and Japanese changelog release headings stay in sync
-- released `vX.Y.Z` git tags available in the checkout are covered by both changelog files
+- released `vX.Y.Z` git tags up to the current `VERSION` are covered by both changelog files
 
 The docs job now checks out the full git history so the tag coverage check can catch historical gaps before the next tagged release.
 
