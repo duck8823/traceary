@@ -5,7 +5,7 @@
 ## Reporting a Vulnerability
 
 If you believe you found a vulnerability, please avoid opening a public issue first.
-Please use [GitHub private vulnerability reporting](https://github.com/duck8823/traceary/security/advisories/new) if it is enabled for this repository.
+Use [GitHub private vulnerability reporting](https://github.com/duck8823/traceary/security/advisories/new) when it is enabled for this repository. If it is unavailable, email the maintainer at `duck8823@gmail.com` as a fallback private reporting channel.
 
 Include the affected version or commit, reproduction steps or a minimal PoC, and the expected impact when possible.
 

@@ -4,7 +4,7 @@
 
 ## 脆弱性の報告
 
-脆弱性を発見した場合は、公開 issue を作成する前に、[GitHub のプライベート脆弱性報告](https://github.com/duck8823/traceary/security/advisories/new) を利用してください（このリポジトリで有効な場合）。
+脆弱性を発見した場合は、公開 issue を作成する前に、まず [GitHub のプライベート脆弱性報告](https://github.com/duck8823/traceary/security/advisories/new) を利用してください（このリポジトリで有効な場合）。この機能が使えないときは、代替の非公開連絡先として `duck8823@gmail.com` へメールしてください。
 
 影響を受けるバージョンまたはコミット、再現手順または最小限の PoC、想定される影響をできる限り含めてください。
 
