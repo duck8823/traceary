@@ -164,6 +164,13 @@ func (s *eventQueryServiceStub) GetDetails(
 	return apptypes.EventDetails{}, nil
 }
 
+func (s *eventQueryServiceStub) ListWindow(
+	_ context.Context,
+	_ apptypes.EventListCriteria,
+) ([]*model.Event, error) {
+	return nil, nil
+}
+
 func (s *eventQueryServiceStub) ListTimelineBlocks(
 	_ context.Context,
 	_ types.Workspace,

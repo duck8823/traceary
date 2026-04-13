@@ -235,6 +235,112 @@ func (d *EventDatasource) ListRecent(
 	return events, nil
 }
 
+// ListWindow returns every event matching the criteria whose created_at falls
+// in [From, To). The entire paged scan runs inside a single read transaction
+// so SQLite snapshot isolation protects it from concurrent writers shifting
+// later pages — which would otherwise cause OFFSET-based pagination to drop
+// rows. Callers provide the per-page size via criteria.Limit(); offset is
+// ignored.
+func (d *EventDatasource) ListWindow(
+	ctx context.Context,
+	criteria apptypes.EventListCriteria,
+) ([]*model.Event, error) {
+	batch := criteria.Limit()
+	if batch <= 0 {
+		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
+	}
+	if !criteria.From().IsZero() && !criteria.To().IsZero() && criteria.From().After(criteria.To()) {
+		return nil, xerrors.Errorf("from must be earlier than to")
+	}
+
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to open DB for event window listing: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, xerrors.Errorf("failed to begin event window read transaction: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Debug("failed to rollback transaction", "error", err)
+		}
+	}()
+
+	fromValue := ""
+	if !criteria.From().IsZero() {
+		fromValue = formatTimestamp(criteria.From())
+	}
+	toValue := ""
+	if !criteria.To().IsZero() {
+		toValue = formatTimestamp(criteria.To())
+	}
+
+	kind := criteria.Kind()
+	client := criteria.Client()
+	agent := criteria.Agent()
+	sessionID := criteria.SessionID()
+	workspace := criteria.Workspace()
+	failuresFlag := boolToInt(criteria.FailuresOnly())
+
+	events := make([]*model.Event, 0, batch)
+	offset := 0
+	for {
+		rows, err := tx.QueryContext(
+			ctx,
+			selectRecentEventsQuery,
+			kind.String(), kind.String(),
+			client.String(), client.String(),
+			agent.String(), agent.String(),
+			sessionID.String(), sessionID.String(),
+			workspace.String(), workspace.String(),
+			failuresFlag,
+			fromValue, fromValue,
+			toValue, toValue,
+			batch,
+			offset,
+		)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to query event window page: %w", err)
+		}
+
+		pageCount := 0
+		for rows.Next() {
+			event, err := scanEvent(rows)
+			if err != nil {
+				if closeErr := rows.Close(); closeErr != nil {
+					slog.Debug("failed to close resource", "error", closeErr)
+				}
+				return nil, xerrors.Errorf("failed to restore event window row: %w", err)
+			}
+			events = append(events, event)
+			pageCount++
+		}
+		if err := rows.Err(); err != nil {
+			if closeErr := rows.Close(); closeErr != nil {
+				slog.Debug("failed to close resource", "error", closeErr)
+			}
+			return nil, xerrors.Errorf("failed to iterate event window rows: %w", err)
+		}
+		if err := rows.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+
+		if pageCount < batch {
+			break
+		}
+		offset += pageCount
+	}
+
+	return events, nil
+}
+
 // Search returns matching events in descending time order.
 func (d *EventDatasource) Search(
 	ctx context.Context,

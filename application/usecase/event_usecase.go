@@ -22,6 +22,12 @@ type EventUsecase interface {
 	// List returns events in descending time order.
 	List(ctx context.Context, criteria apptypes.EventListCriteria) ([]*model.Event, error)
 
+	// ListWindow returns every event matching the criteria whose created_at
+	// falls in [From, To) under a single read snapshot, so concurrent writers
+	// cannot cause the paged scan to drop events. criteria.Limit() controls
+	// the per-page size for the internal scan; criteria.Offset() is ignored.
+	ListWindow(ctx context.Context, criteria apptypes.EventListCriteria) ([]*model.Event, error)
+
 	// Show returns the details for a single event.
 	Show(ctx context.Context, eventID types.EventID) (apptypes.EventDetails, error)
 

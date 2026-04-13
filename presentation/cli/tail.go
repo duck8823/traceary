@@ -284,7 +284,7 @@ func (c *RootCLI) runTail(ctx context.Context, output io.Writer, input tailComma
 			return nil
 		case <-ticker.C():
 			pollSnapshotTo := input.resolvedNowFunc()().UTC()
-			newEvents, err := c.listTailEventsSince(ctx, baseCriteria.Build(), cursor, pollSnapshotTo)
+			newEvents, err := c.pollTailEvents(ctx, baseCriteria.Build(), cursor, pollSnapshotTo)
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to poll tail events", "tail イベントのポーリングに失敗しました"), err)
 			}
@@ -299,46 +299,43 @@ func (c *RootCLI) runTail(ctx context.Context, output io.Writer, input tailComma
 	}
 }
 
-func (c *RootCLI) listTailEventsSince(
+// pollTailEvents fetches every event in [cursor.timestamp, snapshotTo) via a
+// single ListWindow call so the paged scan runs under the query service's
+// stable read snapshot. Events already emitted at the From boundary are
+// filtered out via the cursor's seenIDs set, and the result is reversed into
+// oldest-first order for tail output.
+func (c *RootCLI) pollTailEvents(
 	ctx context.Context,
 	base apptypes.EventListCriteria,
 	cursor tailCursor,
 	snapshotTo time.Time,
 ) ([]*model.Event, error) {
-	filtered := make([]*model.Event, 0, defaultTailBatchSize)
-	offset := 0
 	if snapshotTo.IsZero() {
 		snapshotTo = time.Now().UTC()
 	}
 
-	for {
-		criteria := apptypes.NewEventListCriteriaBuilder(defaultTailBatchSize).
-			Offset(offset).
-			Kind(base.Kind()).
-			Client(base.Client()).
-			Agent(base.Agent()).
-			SessionID(base.SessionID()).
-			Workspace(base.Workspace()).
-			FailuresOnly(base.FailuresOnly()).
-			From(cursor.timestamp).
-			To(snapshotTo).
-			Build()
+	criteria := apptypes.NewEventListCriteriaBuilder(defaultTailBatchSize).
+		Kind(base.Kind()).
+		Client(base.Client()).
+		Agent(base.Agent()).
+		SessionID(base.SessionID()).
+		Workspace(base.Workspace()).
+		FailuresOnly(base.FailuresOnly()).
+		From(cursor.timestamp).
+		To(snapshotTo).
+		Build()
 
-		page, err := c.event.List(ctx, criteria)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to list tail page: %w", err)
-		}
-		for _, event := range page {
-			if cursor.isNew(event) {
-				filtered = append(filtered, event)
-			}
-		}
-		if len(page) < defaultTailBatchSize {
-			break
-		}
-		offset += len(page)
+	events, err := c.event.ListWindow(ctx, criteria)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to list tail window: %w", err)
 	}
 
+	filtered := make([]*model.Event, 0, len(events))
+	for _, event := range events {
+		if cursor.isNew(event) {
+			filtered = append(filtered, event)
+		}
+	}
 	slices.Reverse(filtered)
 	return filtered, nil
 }

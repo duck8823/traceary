@@ -13,10 +13,14 @@ import (
 )
 
 type tailEventUsecaseStub struct {
-	listResponses [][]*model.Event
-	listErrs      []error
-	listCalls     []apptypes.EventListCriteria
-	onList        func(callIndex int, criteria apptypes.EventListCriteria)
+	listResponses       [][]*model.Event
+	listErrs            []error
+	listCalls           []apptypes.EventListCriteria
+	onList              func(callIndex int, criteria apptypes.EventListCriteria)
+	listWindowResponses [][]*model.Event
+	listWindowErrs      []error
+	listWindowCalls     []apptypes.EventListCriteria
+	onListWindow        func(callIndex int, criteria apptypes.EventListCriteria)
 }
 
 func (s *tailEventUsecaseStub) Log(context.Context, string, types.EventKind, types.Client, types.Agent, types.SessionID, types.Workspace) (*model.Event, error) {
@@ -42,6 +46,21 @@ func (s *tailEventUsecaseStub) List(_ context.Context, criteria apptypes.EventLi
 	}
 	if callIndex < len(s.listResponses) {
 		return s.listResponses[callIndex], nil
+	}
+	return nil, nil
+}
+
+func (s *tailEventUsecaseStub) ListWindow(_ context.Context, criteria apptypes.EventListCriteria) ([]*model.Event, error) {
+	callIndex := len(s.listWindowCalls)
+	s.listWindowCalls = append(s.listWindowCalls, criteria)
+	if s.onListWindow != nil {
+		s.onListWindow(callIndex, criteria)
+	}
+	if callIndex < len(s.listWindowErrs) && s.listWindowErrs[callIndex] != nil {
+		return nil, s.listWindowErrs[callIndex]
+	}
+	if callIndex < len(s.listWindowResponses) {
+		return s.listWindowResponses[callIndex], nil
 	}
 	return nil, nil
 }
@@ -102,17 +121,19 @@ func TestRunTail_PrintsInitialEventsAndFollowsNewEvents(t *testing.T) {
 	eventStub := &tailEventUsecaseStub{
 		listResponses: [][]*model.Event{
 			{initialNewer, initialOlder},
+		},
+		onList: func(callIndex int, _ apptypes.EventListCriteria) {
+			if callIndex == 0 {
+				close(firstListDone)
+			}
+		},
+		listWindowResponses: [][]*model.Event{
 			{followup, initialNewer},
 		},
-		onList: func(callIndex int, criteria apptypes.EventListCriteria) {
-			switch callIndex {
-			case 0:
-				close(firstListDone)
-			case 1:
-				cancel()
-				if got := criteria.From(); !got.Equal(initialNewer.CreatedAt()) {
-					t.Fatalf("criteria.From() = %v, want %v", got, initialNewer.CreatedAt())
-				}
+		onListWindow: func(_ int, criteria apptypes.EventListCriteria) {
+			cancel()
+			if got := criteria.From(); !got.Equal(initialNewer.CreatedAt()) {
+				t.Fatalf("criteria.From() = %v, want %v", got, initialNewer.CreatedAt())
 			}
 		},
 	}
@@ -167,10 +188,10 @@ func TestRunTail_ZeroLimitStartsFromNow(t *testing.T) {
 
 	firstPoll := make(chan struct{})
 	eventStub := &tailEventUsecaseStub{
-		listResponses: [][]*model.Event{
+		listWindowResponses: [][]*model.Event{
 			{newer, older},
 		},
-		onList: func(callIndex int, _ apptypes.EventListCriteria) {
+		onListWindow: func(callIndex int, _ apptypes.EventListCriteria) {
 			if callIndex == 0 {
 				close(firstPoll)
 				cancel()
@@ -246,7 +267,7 @@ func TestRunTail_JSONOutputsNDJSON(t *testing.T) {
 	}
 }
 
-func TestListTailEventsSince_DeduplicatesSeenIDsAtSameTimestamp(t *testing.T) {
+func TestPollTailEvents_DeduplicatesSeenIDsAtSameTimestamp(t *testing.T) {
 	t.Parallel()
 
 	timestamp := time.Date(2026, 4, 13, 18, 5, 0, 0, time.UTC)
@@ -254,7 +275,7 @@ func TestListTailEventsSince_DeduplicatesSeenIDsAtSameTimestamp(t *testing.T) {
 	fresh := mustTailEvent(t, "event-fresh", "cli", "codex", "session-1", "duck8823/traceary", "fresh", timestamp)
 
 	eventStub := &tailEventUsecaseStub{
-		listResponses: [][]*model.Event{
+		listWindowResponses: [][]*model.Event{
 			{fresh, seen},
 		},
 	}
@@ -266,14 +287,14 @@ func TestListTailEventsSince_DeduplicatesSeenIDsAtSameTimestamp(t *testing.T) {
 	cursor := newTailCursor(timestamp)
 	cursor.seenIDs[seen.EventID().String()] = struct{}{}
 
-	events, err := sut.listTailEventsSince(
+	events, err := sut.pollTailEvents(
 		context.Background(),
 		apptypes.NewEventListCriteriaBuilder(defaultTailBatchSize).Build(),
 		cursor,
 		timestamp.Add(time.Minute),
 	)
 	if err != nil {
-		t.Fatalf("listTailEventsSince() error = %v", err)
+		t.Fatalf("pollTailEvents() error = %v", err)
 	}
 	if len(events) != 1 {
 		t.Fatalf("len(events) = %d, want 1", len(events))
@@ -283,49 +304,40 @@ func TestListTailEventsSince_DeduplicatesSeenIDsAtSameTimestamp(t *testing.T) {
 	}
 }
 
-func TestListTailEventsSince_UsesStableSnapshotAcrossPages(t *testing.T) {
+func TestPollTailEvents_DelegatesPagingToWindowQuery(t *testing.T) {
 	t.Parallel()
 
 	cursorTime := time.Date(2026, 4, 13, 18, 0, 0, 0, time.UTC)
 	snapshotTo := time.Date(2026, 4, 13, 18, 10, 0, 0, time.UTC)
 
-	firstPage := make([]*model.Event, 0, defaultTailBatchSize)
-	secondPage := make([]*model.Event, 0, defaultTailBatchSize)
-	for i := range defaultTailBatchSize {
-		firstPage = append(firstPage, mustTailEvent(
+	// ListWindow now returns the whole window in a single call. Feeding it a
+	// multi-batch-sized payload verifies tail.go no longer performs its own
+	// offset pagination and simply trusts the query service's stable snapshot.
+	events := make([]*model.Event, 0, defaultTailBatchSize*2+1)
+	for i := range defaultTailBatchSize*2 + 1 {
+		events = append(events, mustTailEvent(
 			t,
-			"event-first-"+strconv.Itoa(i),
+			"event-"+strconv.Itoa(i),
 			"cli",
 			"codex",
 			"session-1",
 			"duck8823/traceary",
-			"first",
-			cursorTime.Add(time.Duration(defaultTailBatchSize-i)*time.Second),
+			"body",
+			cursorTime.Add(time.Duration(i+1)*time.Second),
 		))
-		secondPage = append(secondPage, mustTailEvent(
-			t,
-			"event-second-"+strconv.Itoa(i),
-			"cli",
-			"codex",
-			"session-1",
-			"duck8823/traceary",
-			"second",
-			cursorTime.Add(time.Duration(defaultTailBatchSize*2-i)*time.Second),
-		))
-	}
-	lastPage := []*model.Event{
-		mustTailEvent(t, "event-last", "cli", "codex", "session-1", "duck8823/traceary", "last", cursorTime.Add(5*time.Minute)),
 	}
 
 	eventStub := &tailEventUsecaseStub{
-		listResponses: [][]*model.Event{firstPage, secondPage, lastPage},
-		onList: func(callIndex int, criteria apptypes.EventListCriteria) {
+		listWindowResponses: [][]*model.Event{events},
+		onListWindow: func(_ int, criteria apptypes.EventListCriteria) {
 			if !criteria.To().Equal(snapshotTo) {
-				t.Fatalf("call %d criteria.To() = %v, want %v", callIndex, criteria.To(), snapshotTo)
+				t.Fatalf("criteria.To() = %v, want %v", criteria.To(), snapshotTo)
 			}
-			wantOffset := callIndex * defaultTailBatchSize
-			if criteria.Offset() != wantOffset {
-				t.Fatalf("call %d criteria.Offset() = %d, want %d", callIndex, criteria.Offset(), wantOffset)
+			if !criteria.From().Equal(cursorTime) {
+				t.Fatalf("criteria.From() = %v, want %v", criteria.From(), cursorTime)
+			}
+			if criteria.Offset() != 0 {
+				t.Fatalf("criteria.Offset() = %d, want 0", criteria.Offset())
 			}
 		},
 	}
@@ -334,20 +346,20 @@ func TestListTailEventsSince_UsesStableSnapshotAcrossPages(t *testing.T) {
 		WithEvent(eventStub),
 	)
 
-	events, err := sut.listTailEventsSince(
+	got, err := sut.pollTailEvents(
 		context.Background(),
 		apptypes.NewEventListCriteriaBuilder(defaultTailBatchSize).Build(),
 		newTailCursor(cursorTime),
 		snapshotTo,
 	)
 	if err != nil {
-		t.Fatalf("listTailEventsSince() error = %v", err)
+		t.Fatalf("pollTailEvents() error = %v", err)
 	}
-	if len(events) != defaultTailBatchSize*2+1 {
-		t.Fatalf("len(events) = %d, want %d", len(events), defaultTailBatchSize*2+1)
+	if len(got) != len(events) {
+		t.Fatalf("len(got) = %d, want %d", len(got), len(events))
 	}
-	if len(eventStub.listCalls) != 3 {
-		t.Fatalf("len(listCalls) = %d, want 3", len(eventStub.listCalls))
+	if len(eventStub.listWindowCalls) != 1 {
+		t.Fatalf("len(listWindowCalls) = %d, want 1", len(eventStub.listWindowCalls))
 	}
 }
 

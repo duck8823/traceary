@@ -3,12 +3,14 @@ package sqlite_test
 import (
 	"context"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"testing/fstest"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
@@ -389,4 +391,171 @@ func newEventForSQLiteTest(
 		body,
 		createdAt,
 	)
+}
+
+func TestDatasource_ListWindow_ReturnsAllEventsAcrossBatches(t *testing.T) {
+	t.Parallel()
+
+	migrations := fstest.MapFS{
+		"000001_init.sql": {
+			Data: []byte(`
+CREATE TABLE events (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);`),
+		},
+		"000002_add_event_metadata.sql": {
+			Data: []byte(`
+ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
+ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';
+
+CREATE INDEX idx_events_created_at
+    ON events(created_at DESC, id DESC);`),
+		},
+		"000003_create_command_audits.sql": {
+			Data: []byte(`
+CREATE TABLE command_audits (
+    event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+    command_text TEXT NOT NULL,
+    input_text TEXT NOT NULL,
+    output_text TEXT NOT NULL,
+    input_truncated INTEGER NOT NULL DEFAULT 0,
+    output_truncated INTEGER NOT NULL DEFAULT 0,
+    exit_code INTEGER
+);`),
+		},
+	}
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	sut, storeManager := newEventDatasource(t, dbPath, migrations)
+
+	if err := storeManager.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	windowStart := time.Date(2026, 4, 13, 18, 0, 0, 0, time.UTC)
+	// Insert 250 events so the paged scan has to issue at least three batches
+	// when criteria.Limit() is 100. Before the ListWindow fix, the tail poller
+	// used OFFSET-based pagination across separate connections and would drop
+	// rows when a concurrent writer interleaved inserts between pages; this
+	// test guards the fixed, transaction-scoped loop against regressions in
+	// page assembly for large windows.
+	totalEvents := 250
+	for i := range totalEvents {
+		event := newEventForSQLiteTest(
+			t,
+			"event-"+strconv.Itoa(i),
+			"cli",
+			"codex",
+			"session-1",
+			"duck8823/traceary",
+			"body",
+			windowStart.Add(time.Duration(i)*time.Second),
+		)
+		if err := sut.Save(context.Background(), event); err != nil {
+			t.Fatalf("Save(event-%d) error = %v", i, err)
+		}
+	}
+
+	criteria := apptypes.NewEventListCriteriaBuilder(100).
+		From(windowStart).
+		To(windowStart.Add(time.Duration(totalEvents+1) * time.Second)).
+		Build()
+
+	got, err := sut.ListWindow(context.Background(), criteria)
+	if err != nil {
+		t.Fatalf("ListWindow() error = %v", err)
+	}
+	if len(got) != totalEvents {
+		t.Fatalf("len(events) = %d, want %d", len(got), totalEvents)
+	}
+	// DESC order: events[0] is newest.
+	if got[0].EventID().String() != "event-"+strconv.Itoa(totalEvents-1) {
+		t.Fatalf("got[0].EventID() = %q, want %q", got[0].EventID().String(), "event-"+strconv.Itoa(totalEvents-1))
+	}
+	if got[totalEvents-1].EventID().String() != "event-0" {
+		t.Fatalf("got[last].EventID() = %q, want event-0", got[totalEvents-1].EventID().String())
+	}
+	seen := make(map[string]struct{}, totalEvents)
+	for _, event := range got {
+		id := event.EventID().String()
+		if _, dup := seen[id]; dup {
+			t.Fatalf("duplicate event in window result: %s", id)
+		}
+		seen[id] = struct{}{}
+	}
+}
+
+func TestDatasource_ListWindow_RespectsToUpperBoundExclusive(t *testing.T) {
+	t.Parallel()
+
+	migrations := fstest.MapFS{
+		"000001_init.sql": {
+			Data: []byte(`
+CREATE TABLE events (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);`),
+		},
+		"000002_add_event_metadata.sql": {
+			Data: []byte(`
+ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
+ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';
+
+CREATE INDEX idx_events_created_at
+    ON events(created_at DESC, id DESC);`),
+		},
+		"000003_create_command_audits.sql": {
+			Data: []byte(`
+CREATE TABLE command_audits (
+    event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+    command_text TEXT NOT NULL,
+    input_text TEXT NOT NULL,
+    output_text TEXT NOT NULL,
+    input_truncated INTEGER NOT NULL DEFAULT 0,
+    output_truncated INTEGER NOT NULL DEFAULT 0,
+    exit_code INTEGER
+);`),
+		},
+	}
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	sut, storeManager := newEventDatasource(t, dbPath, migrations)
+
+	if err := storeManager.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	base := time.Date(2026, 4, 13, 18, 0, 0, 0, time.UTC)
+	inside := newEventForSQLiteTest(t, "event-inside", "cli", "codex", "session-1", "ws", "in", base)
+	boundary := newEventForSQLiteTest(t, "event-boundary", "cli", "codex", "session-1", "ws", "edge", base.Add(5*time.Second))
+	if err := sut.Save(context.Background(), inside); err != nil {
+		t.Fatalf("Save(inside) error = %v", err)
+	}
+	if err := sut.Save(context.Background(), boundary); err != nil {
+		t.Fatalf("Save(boundary) error = %v", err)
+	}
+
+	// To is exclusive: an event whose created_at equals To must be excluded.
+	criteria := apptypes.NewEventListCriteriaBuilder(10).
+		From(base).
+		To(base.Add(5 * time.Second)).
+		Build()
+
+	got, err := sut.ListWindow(context.Background(), criteria)
+	if err != nil {
+		t.Fatalf("ListWindow() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(events) = %d, want 1 (boundary event must be excluded)", len(got))
+	}
+	if got[0].EventID().String() != "event-inside" {
+		t.Fatalf("got[0].EventID() = %q, want event-inside", got[0].EventID().String())
+	}
 }
