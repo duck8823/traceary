@@ -87,6 +87,25 @@ session 解決ルールは `traceary log` と同じです。
 - `--workspace`
 - `--session-id`
 
+### `traceary tail`
+
+新しい event を追跡表示します。
+
+`tail` は live observation 用のコマンドです。最初に最近の backlog を表示し、その後はローカルストアに追加される一致 event を継続的に追跡します。hook が正しく発火しているか、期待した session / workspace に書き込まれているか、失敗がリアルタイムで見えているかを確認したいときに使います。`list` と違って 1 回の snapshot で終了せず、`search` と違ってキーワード検索は行いません。`handoff` と違って working memory を組み立てず、raw event stream をそのまま表示します。
+
+テキスト出力は `list` と同じ表形式です。`--json` は改行区切り JSON (1 行 1 event) を出すので、パイプラインが逐次処理できます。
+
+主な flag:
+
+- `--kind`
+- `--limit`
+- `--json`
+- `--client`
+- `--agent`
+- `--workspace`
+- `--session-id`
+- `--failures`
+
 ### `traceary search [<query>]`
 
 全文検索と構造フィルタで event を検索します。

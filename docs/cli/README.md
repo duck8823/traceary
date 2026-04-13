@@ -87,6 +87,25 @@ Useful flags:
 - `--workspace`
 - `--session-id`
 
+### `traceary tail`
+
+Follow new events as they arrive.
+
+`tail` is the live observation view. It prints a recent backlog first and then keeps following new matching events from the local store. Use it when you want to confirm that hooks are firing, that the expected session/workspace is receiving writes, or that failures are surfacing in real time. Unlike `list`, it does not exit after one snapshot. Unlike `search`, it does not perform keyword matching. Unlike `handoff`, it stays at the raw event-stream layer rather than assembling working memory.
+
+Text output uses the same tabular row shape as `list`. `--json` emits newline-delimited JSON objects (one event per line) so pipelines can consume the stream incrementally.
+
+Useful flags:
+
+- `--kind`
+- `--limit`
+- `--json`
+- `--client`
+- `--agent`
+- `--workspace`
+- `--session-id`
+- `--failures`
+
 ### `traceary search [<query>]`
 
 Search events by text and structured filters.
