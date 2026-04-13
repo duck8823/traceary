@@ -8,6 +8,13 @@ import (
 
 // EventListCriteria holds filter parameters for event listing.
 // Zero-value fields are ignored (no filter applied).
+//
+// Time range semantics (documented here so callers can reason about cursor
+// advancement without reading the SQL): From is inclusive and To is
+// exclusive. i.e. events with created_at == From are returned, events with
+// created_at == To are not. Tail-style cursors that poll repeatedly with
+// From set to the last seen timestamp must therefore dedupe returned
+// events against an already-seen set at the boundary.
 type EventListCriteria struct {
 	limit        int
 	offset       int

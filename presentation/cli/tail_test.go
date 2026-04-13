@@ -267,6 +267,85 @@ func TestRunTail_JSONOutputsNDJSON(t *testing.T) {
 	}
 }
 
+func TestRunTail_DoesNotReEmitBoundaryEventWhenFromEqualsInitialTimestamp(t *testing.T) {
+	t.Parallel()
+
+	// Regression for #491: EventListCriteria.From() is inclusive, so the
+	// follow-mode poll that runs after the initial fetch re-queries the same
+	// timestamp as the last initial event. The tail cursor must rely on its
+	// seenIDs set to drop that boundary event; otherwise the event gets
+	// re-emitted every tick. This test forces that exact scenario end-to-end
+	// through runTail, not just pollTailEvents in isolation, so a future
+	// refactor that drops the seenIDs filter or flips From to exclusive on
+	// one side of the stack is still caught.
+
+	startTime := time.Date(2026, 4, 13, 19, 0, 0, 0, time.UTC)
+	boundaryTime := time.Date(2026, 4, 13, 18, 5, 0, 0, time.UTC)
+	ticker := newFakeTailTicker()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	initialEvent := mustTailEvent(t, "event-boundary", "cli", "codex", "session-1", "duck8823/traceary", "boundary", boundaryTime)
+
+	firstListDone := make(chan struct{})
+	eventStub := &tailEventUsecaseStub{
+		listResponses: [][]*model.Event{
+			{initialEvent},
+		},
+		onList: func(callIndex int, _ apptypes.EventListCriteria) {
+			if callIndex == 0 {
+				close(firstListDone)
+			}
+		},
+		// Simulate the query service honouring From() inclusively: it returns
+		// the very same initialEvent plus a nothing-else payload, mirroring
+		// what a real backend would yield when From==boundaryTime.
+		listWindowResponses: [][]*model.Event{
+			{initialEvent},
+		},
+		onListWindow: func(_ int, criteria apptypes.EventListCriteria) {
+			cancel()
+			if got := criteria.From(); !got.Equal(boundaryTime) {
+				t.Fatalf("criteria.From() = %v, want %v", got, boundaryTime)
+			}
+		},
+	}
+
+	stdout := &bytes.Buffer{}
+	sut := NewRootCLI(
+		WithStoreManagement(tailStoreManagementStub{}),
+		WithEvent(eventStub),
+	)
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- sut.runTail(ctx, stdout, tailCommandInput{
+			dbPath:        "/tmp/test-traceary.db",
+			limit:         1,
+			client:        "cli",
+			agent:         "codex",
+			sessionID:     "session-1",
+			repo:          "duck8823/traceary",
+			nowFunc:       func() time.Time { return startTime },
+			tickerFactory: func(time.Duration) tailTicker { return ticker },
+		})
+	}()
+
+	<-firstListDone
+	ticker.ch <- time.Now()
+
+	if err := <-errCh; err != nil {
+		t.Fatalf("runTail() error = %v", err)
+	}
+
+	want := "CREATED_AT\tKIND\tCLIENT\tAGENT\tSESSION_ID\tWORKSPACE\tMESSAGE\n" +
+		"2026-04-13T18:05:00Z\tnote\tcli\tcodex\tsession-1\tduck8823/traceary\tboundary\n"
+	if stdout.String() != want {
+		t.Fatalf("stdout = %q, want %q (event must appear exactly once despite From()==cursor.timestamp)", stdout.String(), want)
+	}
+}
+
 func TestPollTailEvents_DeduplicatesSeenIDsAtSameTimestamp(t *testing.T) {
 	t.Parallel()
 
