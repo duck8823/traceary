@@ -99,6 +99,20 @@ The GitHub App should be installed only on `duck8823/traceary` with repository p
 - `Contents`: read and write
 - `Pull requests`: read and write
 
+## Maintainer release checklist
+
+The GoReleaser workflow automates artifact publishing, but a handful of steps still have to run from a maintainer's machine. Run them in this order for every `vX.Y.Z` release.
+
+1. **Update both changelogs first.** Edit `CHANGELOG.md` and `CHANGELOG.ja.md` to add a new `## [vX.Y.Z] - YYYY-MM-DD` section. The section must exist in *both* files with matching release headings before the next step, or `scripts/verify_changelog_releases.py` will fail.
+2. **Bump manifests.** Run `make release/bump VERSION=X.Y.Z` — this updates `VERSION`, all integration plugin manifests, and runs `scripts/verify_integrations.py`.
+3. **Verify locally.** `python3 scripts/verify_changelog_releases.py`, `go test ./...`, and `go tool golangci-lint run` must all pass.
+4. **Open the release-preparation PR.** Create a `maintenance/release-vX.Y.Z` branch, commit the changelog and bump changes, push, and open a PR targeting `main`. Do **not** include `Closes #<parent>` — the parent release issue is auto-closed by the tagged release workflow, not by the release-prep PR.
+5. **Multi-AI review + merge.** The release-prep PR must pass the same Multi-AI review gate as any other PR (Claude + Codex or Gemini scout). Merge with a merge commit.
+6. **Tag and push.** After the release-prep PR merges, run `git checkout main && git pull --ff-only && git tag vX.Y.Z && git push origin vX.Y.Z`. The `v*` tag triggers `.github/workflows/release.yml`.
+7. **Watch the release workflow.** `gh run watch` against the tag run. On success, verify with `gh release view vX.Y.Z`.
+8. **Confirm the Homebrew formula PR.** The release workflow opens `maintenance/homebrew-vX.Y.Z` and enables auto-merge, but confirm it actually merged. `brew update && brew upgrade traceary && traceary -v` should report the new version.
+9. **Confirm the parent release issue auto-closed.** The workflow closes the matching `vX.Y.Z: ...` parent issue after the GitHub Release is published. If it remains open, the workflow failed at that step.
+
 ## Local snapshot builds
 
 Use the local snapshot target when you want to inspect release artifacts before tagging.
