@@ -82,16 +82,20 @@ func (s *sessionQueryServiceStub) ListSummaries(
 }
 
 type eventQueryServiceStub struct {
-	listRecentResult []*model.Event
-	listRecentErr    error
-	listRecentCalls  int
-	listRecentLimit  int
+	listRecentResult       []*model.Event
+	listRecentResultByKind map[types.EventKind][]*model.Event
+	listRecentErr          error
+	listRecentErrByKind    map[types.EventKind]error
+	listRecentCalls        int
+	listRecentCallsByKind  map[types.EventKind]int
+	listRecentLimit        int
+	listRecentLimitByKind  map[types.EventKind]int
 }
 
 func (s *eventQueryServiceStub) ListRecent(
 	_ context.Context,
 	limit, _ int,
-	_ types.EventKind,
+	kind types.EventKind,
 	_ types.Client,
 	_ types.Agent,
 	_ types.SessionID,
@@ -101,8 +105,23 @@ func (s *eventQueryServiceStub) ListRecent(
 ) ([]*model.Event, error) {
 	s.listRecentCalls++
 	s.listRecentLimit = limit
+	if s.listRecentCallsByKind == nil {
+		s.listRecentCallsByKind = make(map[types.EventKind]int)
+	}
+	if s.listRecentLimitByKind == nil {
+		s.listRecentLimitByKind = make(map[types.EventKind]int)
+	}
+	s.listRecentCallsByKind[kind]++
+	s.listRecentLimitByKind[kind] = limit
+
+	if err, ok := s.listRecentErrByKind[kind]; ok && err != nil {
+		return nil, err
+	}
 	if s.listRecentErr != nil {
 		return nil, s.listRecentErr
+	}
+	if result, ok := s.listRecentResultByKind[kind]; ok {
+		return result, nil
 	}
 	return s.listRecentResult, nil
 }
@@ -722,8 +741,11 @@ func TestSessionUsecase_Handoff(t *testing.T) {
 			t.Fatalf("RecentCommands() mismatch (-want +got):\n%s", diff)
 		}
 
-		if diff := cmp.Diff(5, eventQueryStub.listRecentLimit); diff != "" {
-			t.Fatalf("listRecentLimit mismatch (-want +got):\n%s", diff)
+		if diff := cmp.Diff(5, eventQueryStub.listRecentLimitByKind[types.EventKindCommandExecuted]); diff != "" {
+			t.Fatalf("command listRecentLimit mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(1, eventQueryStub.listRecentLimitByKind[types.EventKindCompactSummary]); diff != "" {
+			t.Fatalf("compact summary listRecentLimit mismatch (-want +got):\n%s", diff)
 		}
 	})
 

@@ -70,3 +70,19 @@ func (h HandoffSummary) Summary() string { return h.summary }
 
 // RecentCommands returns recent command descriptions.
 func (h HandoffSummary) RecentCommands() []string { return slices.Clone(h.recentCommands) }
+
+// HandoffSummaryFromContextPack converts a ContextPack into the legacy
+// compatibility handoff summary shape.
+func HandoffSummaryFromContextPack(pack ContextPack) HandoffSummary {
+	return HandoffSummaryOf(
+		pack.SessionID(),
+		pack.Workspace(),
+		pack.Label(),
+		pack.Status(),
+		pack.TotalEvents(),
+		pack.CommandCount(),
+		pack.Agents(),
+		pack.WorkingState().CombinedSummary(),
+		pack.RecentCommands(),
+	)
+}

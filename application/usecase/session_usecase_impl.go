@@ -7,8 +7,8 @@ import (
 
 	"golang.org/x/xerrors"
 
-	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/queryservice"
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -186,40 +186,26 @@ func (u *sessionUsecase) Latest(ctx context.Context, criteria apptypes.SessionLo
 }
 
 func (u *sessionUsecase) Handoff(ctx context.Context, sessionID types.SessionID, workspace types.Workspace, recent int) (types.Optional[apptypes.HandoffSummary], error) {
-	sessions, err := u.sessionQuery.ListSummaries(ctx, 1, 0, sessionID, workspace, types.Client(""), types.Agent(""), "", types.Empty[time.Time](), types.Empty[time.Time]())
+	builder, err := newContextPackBuilder(u.sessionQuery, u.eventQuery, nil)
 	if err != nil {
-		return types.Empty[apptypes.HandoffSummary](), xerrors.Errorf("failed to list sessions for handoff: %w", err)
+		return types.Empty[apptypes.HandoffSummary](), xerrors.Errorf("failed to initialize handoff context builder: %w", err)
 	}
-	if len(sessions) == 0 {
+
+	result, err := builder.Build(ctx, apptypes.NewContextPackCriteriaBuilder().
+		SessionID(sessionID).
+		Workspace(workspace).
+		RecentCommandsLimit(recent).
+		MemoryLimit(0).
+		Build())
+	if err != nil {
+		return types.Empty[apptypes.HandoffSummary](), xerrors.Errorf("failed to build handoff context pack: %w", err)
+	}
+	if !result.IsPresent() {
 		return types.Empty[apptypes.HandoffSummary](), nil
 	}
 
-	session := sessions[0]
-	events, err := u.eventQuery.ListRecent(ctx, recent, 0, types.EventKindCommandExecuted, types.Client(""), types.Agent(""), session.SessionID(), types.Workspace(""), false, time.Time{}, time.Time{})
-	if err != nil {
-		return types.Empty[apptypes.HandoffSummary](), xerrors.Errorf("failed to list recent events for handoff: %w", err)
-	}
-
-	recentCommands := make([]string, 0, len(events))
-	for _, event := range events {
-		cmd := event.Body()
-		if runes := []rune(cmd); len(runes) > 60 {
-			cmd = string(runes[:60]) + "\u2026"
-		}
-		recentCommands = append(recentCommands, cmd)
-	}
-
-	return types.Of(apptypes.HandoffSummaryOf(
-		session.SessionID(),
-		session.Workspace(),
-		session.Label(),
-		session.Status(),
-		session.TotalEvents(),
-		session.CommandCount(),
-		session.Agents(),
-		session.Summary(),
-		recentCommands,
-	)), nil
+	pack, _ := result.Get()
+	return types.Of(apptypes.HandoffSummaryFromContextPack(pack)), nil
 }
 
 // resolveSessionStartID returns the session ID for a session start, generating

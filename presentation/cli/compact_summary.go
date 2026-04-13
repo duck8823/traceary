@@ -13,6 +13,8 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
+const maxCompactSummaryOutputLen = 560
+
 func (c *RootCLI) newCompactSummaryCommand() *cobra.Command {
 	var (
 		dbPath    string
@@ -61,148 +63,84 @@ func (c *RootCLI) printCompactSummary(
 	repo string,
 	recentCount int,
 ) error {
-	// Get recent events for context
-	eventsCriteria := apptypes.NewEventListCriteriaBuilder(recentCount + 5). // fetch extra to find commands
-											SessionID(types.SessionID(sessionID)).
-											Workspace(types.Workspace(repo)).
-											Kind(types.EventKindCommandExecuted).
-											Build()
-	events, err := c.event.List(ctx, eventsCriteria)
+	if c.context == nil {
+		return xerrors.Errorf("context usecase is not configured")
+	}
+
+	result, err := c.context.Handoff(
+		ctx,
+		apptypes.NewContextPackCriteriaBuilder().
+			SessionID(types.SessionID(sessionID)).
+			Workspace(types.Workspace(repo)).
+			RecentCommandsLimit(recentCount).
+			MemoryLimit(recentCount).
+			Build(),
+	)
 	if err != nil {
-		return xerrors.Errorf("failed to list events: %w", err)
+		return xerrors.Errorf("failed to build compact summary: %w", err)
 	}
 
-	// Get session info
-	sessionsCriteria := apptypes.NewSessionListCriteriaBuilder(1).
-		SessionID(types.SessionID(sessionID)).
-		Workspace(types.Workspace(repo)).
-		Build()
-	sessions, err := c.session.List(ctx, sessionsCriteria)
+	text, err := buildCompactSummaryText(result)
 	if err != nil {
-		return xerrors.Errorf("failed to list sessions: %w", err)
+		return xerrors.Errorf("failed to render compact summary: %w", err)
 	}
-
-	var sb strings.Builder
-	sb.WriteString("[Traceary] ")
-
-	if len(sessions) > 0 {
-		s := sessions[0]
-		fmt.Fprintf(&sb, "Session %s resumed after compact\n", s.SessionID())
-		if s.Workspace().String() != "" {
-			fmt.Fprintf(&sb, "  repo: %s\n", s.Workspace())
-		}
-		if s.Label() != "" {
-			fmt.Fprintf(&sb, "  label: %s\n", s.Label())
-		}
-	} else {
-		sb.WriteString("No active session\n")
-	}
-
-	if len(events) > 0 {
-		sb.WriteString("  recent: ")
-		shown := 0
-		for _, e := range events {
-			if shown >= recentCount {
-				break
-			}
-			if shown > 0 {
-				sb.WriteString(" → ")
-			}
-			cmd := truncateMessage(e.Body())
-			if len([]rune(cmd)) > 40 {
-				cmd = string([]rune(cmd)[:40]) + "…"
-			}
-			sb.WriteString(cmd)
-			shown++
-		}
-		sb.WriteString("\n")
-	}
-
-	// Retrieve the latest compact_summary event for richer context.
-	// Errors are intentionally ignored: this output is injected into hook stdout
-	// and must not fail even if the compact_summary query encounters a DB issue.
-	compactSummaryCriteria := apptypes.NewEventListCriteriaBuilder(1).
-		SessionID(types.SessionID(sessionID)).
-		Workspace(types.Workspace(repo)).
-		Kind(types.EventKindCompactSummary).
-		Build()
-	compactSummaryEvents, err := c.event.List(ctx, compactSummaryCriteria)
-	if err == nil && len(compactSummaryEvents) > 0 {
-		body := compactSummaryEvents[0].Body()
-		summary := extractCompactSummarySections(body)
-		if summary != "" {
-			sb.WriteString("  summary: ")
-			sb.WriteString(summary)
-			sb.WriteString("\n")
-		}
-	}
-
-	sb.WriteString("  Run list_events for full history.\n")
-
-	if _, err := fmt.Fprint(output, sb.String()); err != nil {
+	if _, err := fmt.Fprint(output, text); err != nil {
 		return xerrors.Errorf("failed to print compact summary: %w", err)
 	}
 	return nil
 }
 
-const maxCompactSummaryLen = 500
-
-// extractCompactSummarySections extracts "Current Work" and "Pending Tasks"
-// sections from a compact_summary body. Returns a truncated single-line string.
-func extractCompactSummarySections(body string) string {
-	sections := []string{"Current Work", "Pending Tasks"}
-	var parts []string
-
-	for _, section := range sections {
-		header := fmt.Sprintf("%s:", section)
-		idx := strings.Index(body, header)
-		if idx < 0 {
-			// Try numbered section format (e.g., "8. Current Work:")
-			for i := 1; i <= 9; i++ {
-				alt := fmt.Sprintf("%d. %s:", i, section)
-				idx = strings.Index(body, alt)
-				if idx >= 0 {
-					idx += len(alt)
-					break
-				}
-			}
-			if idx < 0 {
-				continue
-			}
-		} else {
-			idx += len(header)
-		}
-
-		// Extract content until next section header or end
-		rest := body[idx:]
-		endIdx := len(rest)
-		for i := 1; i <= 9; i++ {
-			nextHeader := fmt.Sprintf("\n%d. ", i)
-			if pos := strings.Index(rest, nextHeader); pos >= 0 && pos < endIdx {
-				endIdx = pos
-			}
-		}
-		// Also check for plain (unnumbered) section headers
-		for _, otherSection := range sections {
-			if otherSection == section {
-				continue
-			}
-			plainHeader := "\n" + otherSection + ":"
-			if pos := strings.Index(rest, plainHeader); pos >= 0 && pos < endIdx {
-				endIdx = pos
-			}
-		}
-		content := strings.TrimSpace(rest[:endIdx])
-		// Collapse to single line
-		content = strings.Join(strings.Fields(content), " ")
-		if content != "" {
-			parts = append(parts, content)
-		}
+func buildCompactSummaryText(result types.Optional[apptypes.ContextPack]) (string, error) {
+	var sb strings.Builder
+	sb.WriteString("[Traceary] ")
+	if !result.IsPresent() {
+		sb.WriteString("No active session\n")
+		sb.WriteString("  Run list_events for full history.\n")
+		return sb.String(), nil
 	}
 
-	result := strings.Join(parts, " | ")
-	if len([]rune(result)) > maxCompactSummaryLen {
-		result = string([]rune(result)[:maxCompactSummaryLen]) + "…"
+	pack, _ := result.Get()
+	fmt.Fprintf(&sb, "Session %s resumed after compact\n", pack.SessionID())
+	if pack.Workspace().String() != "" {
+		fmt.Fprintf(&sb, "  repo: %s\n", pack.Workspace())
 	}
-	return result
+	if pack.Label() != "" {
+		fmt.Fprintf(&sb, "  label: %s\n", pack.Label())
+	}
+	if summary := pack.WorkingState().CombinedSummary(); summary != "" {
+		fmt.Fprintf(&sb, "  summary: %s\n", truncateCompactSummarySegment(summary, 160))
+	}
+	if commands := pack.RecentCommands(); len(commands) > 0 {
+		sb.WriteString("  recent: ")
+		for index, command := range commands {
+			if index > 0 {
+				sb.WriteString(" → ")
+			}
+			sb.WriteString(truncateCompactSummarySegment(command, 40))
+		}
+		sb.WriteString("\n")
+	}
+	if memories := pack.Memories(); len(memories) > 0 {
+		sb.WriteString("  memories: ")
+		for index, memory := range memories {
+			if index > 0 {
+				sb.WriteString(" | ")
+			}
+			sb.WriteString(truncateCompactSummarySegment(memory.Fact(), 60))
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString("  Run list_events for full history.\n")
+	text := sb.String()
+	if runes := []rune(text); len(runes) > maxCompactSummaryOutputLen {
+		text = string(runes[:maxCompactSummaryOutputLen]) + "…\n"
+	}
+	return text, nil
+}
+
+func truncateCompactSummarySegment(value string, limit int) string {
+	if runes := []rune(value); len(runes) > limit {
+		return string(runes[:limit]) + "…"
+	}
+	return value
 }

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	apptypes "github.com/duck8823/traceary/application/types"
-	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
 )
@@ -19,39 +18,28 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 	t.Run("prints summary with active session and recent commands", func(t *testing.T) {
 		t.Parallel()
 
-		eventID, _ := types.EventIDOf("e1")
-		agent, _ := types.AgentOf("claude")
 		sessionID, _ := types.SessionIDOf("session-abc")
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		eventStub := &eventUsecaseStub{
-			listEvents: []*model.Event{
-				model.EventOf(eventID, types.EventKindCommandExecuted, "hook", agent, sessionID, "duck8823/traceary", "go test ./...", time.Now()),
-			},
-		}
-		sessionStub := &sessionUsecaseStub{
-			listResult: []apptypes.SessionSummary{
-				apptypes.SessionSummaryOf(
-					types.SessionID("session-abc"),
-					types.Workspace("duck8823/traceary"),
-					time.Now().Add(-time.Hour),
-					types.Empty[time.Time](),
-					"active",
-					0,
-					0,
-					nil,
-					"v0.2.1 sprint",
-					"",
-					types.SessionID(""),
-				),
-			},
+		contextStub := &contextUsecaseStub{
+			handoff: types.Of(apptypes.ContextPackOf(
+				sessionID,
+				types.Workspace("duck8823/traceary"),
+				"v0.2.1 sprint",
+				"active",
+				12,
+				3,
+				[]string{"claude"},
+				apptypes.WorkingStateOf("Continue docs pass", "Implementing feature X"),
+				[]string{"go test ./..."},
+				nil,
+			)),
 		}
 
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
 			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-			cli.WithEvent(eventStub),
-			cli.WithSession(sessionStub),
+			cli.WithContext(contextStub),
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -74,6 +62,9 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		if !strings.Contains(output, "v0.2.1 sprint") {
 			t.Errorf("output missing label")
 		}
+		if !strings.Contains(output, "Continue docs pass | Implementing feature X") {
+			t.Errorf("output missing combined summary")
+		}
 		if !strings.Contains(output, "go test ./...") {
 			t.Errorf("output missing recent command")
 		}
@@ -89,8 +80,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
 			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-			cli.WithEvent(&eventUsecaseStub{}),
-			cli.WithSession(&sessionUsecaseStub{}),
+			cli.WithContext(&contextUsecaseStub{}),
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -110,30 +100,25 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		t.Parallel()
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		eventStub := &eventUsecaseStub{}
-		sessionStub := &sessionUsecaseStub{
-			listResult: []apptypes.SessionSummary{
-				apptypes.SessionSummaryOf(
-					types.SessionID("target-session"),
-					types.Workspace("duck8823/traceary"),
-					time.Now().Add(-time.Hour),
-					types.Empty[time.Time](),
-					"active",
-					0,
-					0,
-					nil,
-					"",
-					"",
-					types.SessionID(""),
-				),
-			},
+		contextStub := &contextUsecaseStub{
+			handoff: types.Of(apptypes.ContextPackOf(
+				types.SessionID("target-session"),
+				types.Workspace("duck8823/traceary"),
+				"",
+				"active",
+				0,
+				0,
+				nil,
+				apptypes.WorkingStateOf("", ""),
+				nil,
+				nil,
+			)),
 		}
 
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
 			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-			cli.WithEvent(eventStub),
-			cli.WithSession(sessionStub),
+			cli.WithContext(contextStub),
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -147,44 +132,48 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("includes summary from compact_summary event", func(t *testing.T) {
+	t.Run("includes memories when available", func(t *testing.T) {
 		t.Parallel()
 
-		eventID, _ := types.EventIDOf("e1")
-		agent, _ := types.AgentOf("claude")
 		sessionID, _ := types.SessionIDOf("session-abc")
+		scope := types.WorkspaceScopeOf(types.Workspace("duck8823/traceary"))
+		memorySummary, err := apptypes.MemorySummaryOf(
+			types.MemoryID("memory-1"),
+			types.MemoryTypeDecision,
+			scope,
+			"Use ContextUsecase for structured handoff output",
+			types.MemoryStatusAccepted,
+			types.ConfidenceVerified,
+			types.MemorySourceManual,
+			types.Empty[types.MemoryID](),
+			types.Empty[time.Time](),
+			time.Now(),
+			time.Now(),
+		)
+		if err != nil {
+			t.Fatalf("MemorySummaryOf() error = %v", err)
+		}
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
-		eventStub := &eventUsecaseStub{
-			listEvents: []*model.Event{
-				model.EventOf(eventID, types.EventKindCompactSummary, "hook", agent, sessionID, "duck8823/traceary",
-					"<summary>\n8. Current Work:\n   Implementing feature X\n9. Optional Next Step:\n   Deploy\n</summary>",
-					time.Now()),
-			},
-		}
-		sessionStub := &sessionUsecaseStub{
-			listResult: []apptypes.SessionSummary{
-				apptypes.SessionSummaryOf(
-					types.SessionID("session-abc"),
-					types.Workspace("duck8823/traceary"),
-					time.Now(),
-					types.Empty[time.Time](),
-					"active",
-					0,
-					0,
-					nil,
-					"",
-					"",
-					types.SessionID(""),
-				),
-			},
+		contextStub := &contextUsecaseStub{
+			handoff: types.Of(apptypes.ContextPackOf(
+				sessionID,
+				types.Workspace("duck8823/traceary"),
+				"",
+				"active",
+				0,
+				0,
+				nil,
+				apptypes.WorkingStateOf("", "Implementing feature X"),
+				nil,
+				[]apptypes.MemorySummary{memorySummary},
+			)),
 		}
 
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
 			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-			cli.WithEvent(eventStub),
-			cli.WithSession(sessionStub),
+			cli.WithContext(contextStub),
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
@@ -195,47 +184,39 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		}
 
 		output := stdout.String()
-		if !strings.Contains(output, "summary:") {
-			t.Errorf("output missing summary section, got: %s", output)
+		if !strings.Contains(output, "memories:") {
+			t.Errorf("output missing memories section, got: %s", output)
 		}
-		if !strings.Contains(output, "Implementing feature X") {
-			t.Errorf("output missing current work content, got: %s", output)
+		if !strings.Contains(output, "Use ContextUsecase for structured handoff output") {
+			t.Errorf("output missing memory fact, got: %s", output)
 		}
 	})
 
 	t.Run("output stays within token limit", func(t *testing.T) {
 		t.Parallel()
 
-		// Generate events with long command names
-		events := make([]*model.Event, 0, 10)
+		commands := make([]string, 0, 10)
 		for i := 0; i < 10; i++ {
-			eid, _ := types.EventIDOf("e" + string(rune('0'+i)))
-			agent, _ := types.AgentOf("claude")
-			sid, _ := types.SessionIDOf("s1")
-			events = append(events, model.EventOf(eid, types.EventKindCommandExecuted, "hook", agent, sid, "workspace", strings.Repeat("x", 200), time.Now()))
+			commands = append(commands, strings.Repeat("x", 200))
 		}
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
 			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-			cli.WithEvent(&eventUsecaseStub{listEvents: events}),
-			cli.WithSession(&sessionUsecaseStub{
-				listResult: []apptypes.SessionSummary{
-					apptypes.SessionSummaryOf(
-						types.SessionID("s1"),
-						types.Workspace("workspace"),
-						time.Now(),
-						types.Empty[time.Time](),
-						"active",
-						0,
-						0,
-						nil,
-						"",
-						"",
-						types.SessionID(""),
-					),
-				},
+			cli.WithContext(&contextUsecaseStub{
+				handoff: types.Of(apptypes.ContextPackOf(
+					types.SessionID("s1"),
+					types.Workspace("workspace"),
+					"",
+					"active",
+					0,
+					0,
+					nil,
+					apptypes.WorkingStateOf("", strings.Repeat("summary ", 40)),
+					commands,
+					nil,
+				)),
 			}),
 		).Command()
 		rootCmd.SetOut(stdout)

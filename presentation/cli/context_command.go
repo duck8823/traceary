@@ -27,10 +27,9 @@ func (c *RootCLI) newContextCommand() *cobra.Command {
 	)
 
 	contextCmd := &cobra.Command{
-		Use:     "context",
-		Aliases: []string{"handoff"},
-		Short:   Localize("Print context for the next AI session", "次の AI session に渡す文脈を表示する"),
-		Args:    noArgsLocalized(),
+		Use:   "context",
+		Short: Localize("Print raw recent context events for the next AI session", "次の AI session に渡す生の recent context event を表示する"),
+		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runContext(cmd.Context(), cmd.OutOrStdout(), contextCommandInput{
 				dbPath:    dbPath,
