@@ -21,8 +21,57 @@ var (
 	urlRefPattern              = regexp.MustCompile(`https?://[^\s)]+`)
 	issueRefPattern            = regexp.MustCompile(`(?i)\bissues?\s*#(\d+)\b`)
 	prRefPattern               = regexp.MustCompile(`(?i)\b(?:pr|pull request)\s*#(\d+)\b`)
-	fileRefPattern             = regexp.MustCompile(`(?i)\b(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.(?:go|md|json|sh|sql|yaml|yml|toml)\b`)
+	bareFileRefPattern         = regexp.MustCompile(`(?i)\b[A-Za-z0-9_.-]+\.(?:[A-Za-z0-9_-]+\.)*(?:go|md|json|sh|sql|yaml|yml|toml|ts|tsx|js|jsx|py|rb|ini|cfg|conf|proto|tpl)\b`)
+	pathLikeRefPattern         = regexp.MustCompile(`(?:\./|\.\./|/)?(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+(?:\.[A-Za-z0-9_-]+)*`)
 )
+
+var extensionlessArtifactRootSegments = map[string]struct{}{
+	".github":        {},
+	"application":    {},
+	"bin":            {},
+	"cmd":            {},
+	"config":         {},
+	"configs":        {},
+	"coverage":       {},
+	"dist":           {},
+	"docs":           {},
+	"domain":         {},
+	"fixtures":       {},
+	"formula":        {},
+	"infrastructure": {},
+	"integrations":   {},
+	"internal":       {},
+	"pkg":            {},
+	"plugins":        {},
+	"presentation":   {},
+	"schema":         {},
+	"scripts":        {},
+	"src":            {},
+	"test":           {},
+	"tests":          {},
+}
+
+var artifactFileExtensions = map[string]struct{}{
+	"go":    {},
+	"md":    {},
+	"json":  {},
+	"sh":    {},
+	"sql":   {},
+	"yaml":  {},
+	"yml":   {},
+	"toml":  {},
+	"ts":    {},
+	"tsx":   {},
+	"js":    {},
+	"jsx":   {},
+	"py":    {},
+	"rb":    {},
+	"ini":   {},
+	"cfg":   {},
+	"conf":  {},
+	"proto": {},
+	"tpl":   {},
+}
 
 const memoryExtractionDedupePageSize = 200
 
@@ -495,10 +544,12 @@ func inferArtifactRefs(text string) ([]domtypes.ArtifactRef, error) {
 		return nil
 	}
 
+	textWithoutURLs := text
 	for _, match := range urlRefPattern.FindAllString(text, -1) {
 		if err := appendRef(domtypes.ArtifactRefKindURL, match); err != nil {
 			return nil, xerrors.Errorf("failed to build URL artifact ref: %w", err)
 		}
+		textWithoutURLs = strings.ReplaceAll(textWithoutURLs, match, " ")
 	}
 	for _, matches := range issueRefPattern.FindAllStringSubmatch(text, -1) {
 		if len(matches) != 2 {
@@ -516,13 +567,90 @@ func inferArtifactRefs(text string) ([]domtypes.ArtifactRef, error) {
 			return nil, xerrors.Errorf("failed to build PR artifact ref: %w", err)
 		}
 	}
-	for _, match := range fileRefPattern.FindAllString(text, -1) {
+	textWithoutPaths := textWithoutURLs
+	for _, match := range pathLikeRefPattern.FindAllString(textWithoutURLs, -1) {
+		normalized := normalizeArtifactPathMatch(match)
+		if !looksPathLikeArtifact(normalized) {
+			continue
+		}
+		if err := appendRef(domtypes.ArtifactRefKindFile, normalized); err != nil {
+			return nil, xerrors.Errorf("failed to build file artifact ref: %w", err)
+		}
+		textWithoutPaths = strings.ReplaceAll(textWithoutPaths, match, " ")
+	}
+	for _, match := range bareFileRefPattern.FindAllString(textWithoutPaths, -1) {
 		if err := appendRef(domtypes.ArtifactRefKindFile, match); err != nil {
 			return nil, xerrors.Errorf("failed to build file artifact ref: %w", err)
 		}
 	}
 
 	return refs, nil
+}
+
+func normalizeArtifactPathMatch(value string) string {
+	trimmed := strings.TrimSpace(value)
+	trimmed = strings.TrimLeft(trimmed, "`'\"()[]{}<>,:;")
+	trimmed = strings.TrimRight(trimmed, "`'\"()[]{}<>,:;.!?")
+	return trimmed
+}
+
+func looksPathLikeArtifact(value string) bool {
+	if value == "" {
+		return false
+	}
+	if !strings.Contains(value, "/") {
+		return false
+	}
+	if strings.Contains(value, "://") {
+		return false
+	}
+	hasExplicitPrefix := strings.HasPrefix(value, "./") || strings.HasPrefix(value, "../") || strings.HasPrefix(value, "/")
+
+	hasLetter := false
+	for _, r := range value {
+		if ('a' <= r && r <= 'z') || ('A' <= r && r <= 'Z') {
+			hasLetter = true
+			break
+		}
+	}
+	if !hasLetter {
+		return false
+	}
+	segments := strings.Split(value, "/")
+	if len(segments) < 2 {
+		return false
+	}
+	firstMeaningful := ""
+	lastMeaningful := ""
+	for _, segment := range segments {
+		if segment == "" || segment == "." || segment == ".." {
+			continue
+		}
+		if firstMeaningful == "" {
+			firstMeaningful = segment
+		}
+		lastMeaningful = segment
+	}
+	if firstMeaningful == "" || lastMeaningful == "" {
+		return false
+	}
+	if strings.Contains(lastMeaningful, ".") {
+		return hasAllowedArtifactExtension(lastMeaningful)
+	}
+	if hasExplicitPrefix {
+		return true
+	}
+	_, ok := extensionlessArtifactRootSegments[strings.ToLower(firstMeaningful)]
+	return ok
+}
+
+func hasAllowedArtifactExtension(value string) bool {
+	lastDot := strings.LastIndex(value, ".")
+	if lastDot <= 0 || lastDot == len(value)-1 {
+		return false
+	}
+	_, ok := artifactFileExtensions[strings.ToLower(value[lastDot+1:])]
+	return ok
 }
 
 func memoryCandidateKey(scope domtypes.MemoryScope, memoryType domtypes.MemoryType, fact string) string {
