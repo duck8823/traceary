@@ -23,11 +23,6 @@ const (
 	defaultTailPollInterval = time.Second
 )
 
-var (
-	tailNowFunc     = time.Now
-	newTailTickerFn = newRealTailTicker
-)
-
 type tailTicker interface {
 	C() <-chan time.Time
 	Stop()
@@ -47,6 +42,20 @@ func (t realTailTicker) C() <-chan time.Time {
 
 func (t realTailTicker) Stop() {
 	t.ticker.Stop()
+}
+
+func (i tailCommandInput) resolvedNowFunc() func() time.Time {
+	if i.nowFunc != nil {
+		return i.nowFunc
+	}
+	return time.Now
+}
+
+func (i tailCommandInput) resolvedTickerFactory() func(time.Duration) tailTicker {
+	if i.tickerFactory != nil {
+		return i.tickerFactory
+	}
+	return newRealTailTicker
 }
 
 type tailCursor struct {
@@ -240,7 +249,7 @@ func (c *RootCLI) runTail(ctx context.Context, output io.Writer, input tailComma
 		FailuresOnly(input.failuresOnly)
 
 	writer := newTailEventWriter(output, input.asJSON)
-	cursor := newTailCursor(tailNowFunc().UTC())
+	cursor := newTailCursor(input.resolvedNowFunc()().UTC())
 	if input.limit > 0 {
 		initialCriteria := apptypes.NewEventListCriteriaBuilder(input.limit).
 			Kind(baseCriteria.Build().Kind()).
@@ -266,7 +275,7 @@ func (c *RootCLI) runTail(ctx context.Context, output io.Writer, input tailComma
 		return err
 	}
 
-	ticker := newTailTickerFn(defaultTailPollInterval)
+	ticker := input.resolvedTickerFactory()(defaultTailPollInterval)
 	defer ticker.Stop()
 
 	for {

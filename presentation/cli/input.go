@@ -192,15 +192,17 @@ type timelineCommandInput struct {
 
 // tailCommandInput is the resolved input to the `traceary tail` command.
 type tailCommandInput struct {
-	dbPath       string
-	limit        int
-	kind         string
-	client       string
-	agent        string
-	sessionID    string
-	repo         string
-	failuresOnly bool
-	asJSON       bool
+	dbPath        string
+	limit         int
+	kind          string
+	client        string
+	agent         string
+	sessionID     string
+	repo          string
+	failuresOnly  bool
+	asJSON        bool
+	nowFunc       func() time.Time
+	tickerFactory func(time.Duration) tailTicker
 }
 
 // memoryListCommandInput is the resolved input to `traceary memory list`.

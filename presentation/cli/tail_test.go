@@ -87,17 +87,8 @@ func (t *fakeTailTicker) Stop()               {}
 func TestRunTail_PrintsInitialEventsAndFollowsNewEvents(t *testing.T) {
 	t.Parallel()
 
-	originalNow := tailNowFunc
-	originalTicker := newTailTickerFn
-	defer func() {
-		tailNowFunc = originalNow
-		newTailTickerFn = originalTicker
-	}()
-
 	startTime := time.Date(2026, 4, 13, 19, 0, 0, 0, time.UTC)
-	tailNowFunc = func() time.Time { return startTime }
 	ticker := newFakeTailTicker()
-	newTailTickerFn = func(time.Duration) tailTicker { return ticker }
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -134,12 +125,14 @@ func TestRunTail_PrintsInitialEventsAndFollowsNewEvents(t *testing.T) {
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- sut.runTail(ctx, stdout, tailCommandInput{
-			dbPath:    "/tmp/test-traceary.db",
-			limit:     2,
-			client:    "cli",
-			agent:     "codex",
-			sessionID: "session-1",
-			repo:      "duck8823/traceary",
+			dbPath:        "/tmp/test-traceary.db",
+			limit:         2,
+			client:        "cli",
+			agent:         "codex",
+			sessionID:     "session-1",
+			repo:          "duck8823/traceary",
+			nowFunc:       func() time.Time { return startTime },
+			tickerFactory: func(time.Duration) tailTicker { return ticker },
 		})
 	}()
 
@@ -162,17 +155,8 @@ func TestRunTail_PrintsInitialEventsAndFollowsNewEvents(t *testing.T) {
 func TestRunTail_ZeroLimitStartsFromNow(t *testing.T) {
 	t.Parallel()
 
-	originalNow := tailNowFunc
-	originalTicker := newTailTickerFn
-	defer func() {
-		tailNowFunc = originalNow
-		newTailTickerFn = originalTicker
-	}()
-
 	startTime := time.Date(2026, 4, 13, 19, 30, 0, 0, time.UTC)
-	tailNowFunc = func() time.Time { return startTime }
 	ticker := newFakeTailTicker()
-	newTailTickerFn = func(time.Duration) tailTicker { return ticker }
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -201,9 +185,11 @@ func TestRunTail_ZeroLimitStartsFromNow(t *testing.T) {
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- sut.runTail(ctx, stdout, tailCommandInput{
-			dbPath: "/tmp/test-traceary.db",
-			limit:  0,
-			repo:   "duck8823/traceary",
+			dbPath:        "/tmp/test-traceary.db",
+			limit:         0,
+			repo:          "duck8823/traceary",
+			nowFunc:       func() time.Time { return startTime },
+			tickerFactory: func(time.Duration) tailTicker { return ticker },
 		})
 	}()
 
@@ -224,18 +210,6 @@ func TestRunTail_ZeroLimitStartsFromNow(t *testing.T) {
 func TestRunTail_JSONOutputsNDJSON(t *testing.T) {
 	t.Parallel()
 
-	originalNow := tailNowFunc
-	originalTicker := newTailTickerFn
-	defer func() {
-		tailNowFunc = originalNow
-		newTailTickerFn = originalTicker
-	}()
-
-	tailNowFunc = func() time.Time {
-		return time.Date(2026, 4, 13, 20, 0, 0, 0, time.UTC)
-	}
-	newTailTickerFn = func(time.Duration) tailTicker { return newFakeTailTicker() }
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -255,10 +229,12 @@ func TestRunTail_JSONOutputsNDJSON(t *testing.T) {
 	)
 
 	if err := sut.runTail(ctx, stdout, tailCommandInput{
-		dbPath: "/tmp/test-traceary.db",
-		limit:  1,
-		repo:   "duck8823/traceary",
-		asJSON: true,
+		dbPath:        "/tmp/test-traceary.db",
+		limit:         1,
+		repo:          "duck8823/traceary",
+		asJSON:        true,
+		nowFunc:       func() time.Time { return time.Date(2026, 4, 13, 20, 0, 0, 0, time.UTC) },
+		tickerFactory: func(time.Duration) tailTicker { return newFakeTailTicker() },
 	}); err != nil {
 		t.Fatalf("runTail() error = %v", err)
 	}
