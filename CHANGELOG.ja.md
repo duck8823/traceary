@@ -5,6 +5,32 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.5.0] - 2026-04-13
+
+Durable memory と context-aware workflow を導入するリリースです。
+
+### 追加
+- typed scope / evidence ref / artifact ref / lifecycle を備えた first-class durable memory ドメインモデル
+- durable memory の SQLite 永続化と query サポート
+- durable memory 用 CLI コマンド群（`remember` / `propose` / `accept` / `reject` / `supersede` / `expire` / `list` / `search` / `show` / `extract`）
+- `traceary handoff` / `traceary session handoff` / `traceary compact-summary` で共有する `ContextUsecase` ベースの structured handoff/context assembly
+- MCP durable memory tools と memory-aware context retrieval
+- session summary / compact summary / note・review・prompt signal からの candidate extraction
+
+### 変更
+- protected `main` 上の Homebrew maintenance PR 経路で、release workflow が GitHub App token を使うよう変更
+- integration manifest と package metadata を `0.5.0` 系列へ更新
+
+### 含まれるイシュー
+- #457 Homebrew release PR を GitHub App token 経由に変更
+- #453 audit log / working memory / durable memory の 3 層モデル定義
+- #460 Memory aggregate と typed memory value object の導入
+- #461 durable memory の SQLite 永続化と query サポート
+- #462 manual memory lifecycle usecase と CLI コマンドの追加
+- #463 ContextUsecase 導入と handoff/context 意味論の統一
+- #464 MCP durable memory tools と memory-aware retrieval の追加
+- #465 session / compact summary からの memory candidate extraction
+
 ## [v0.2.1] - 2026-04-11
 
 v0.2.0 で残したスコープの補完リリースです。
