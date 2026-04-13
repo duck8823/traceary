@@ -122,6 +122,18 @@ traceary audit --id-only --command "go test ./..." --input '{}' --output '{}'
 traceary session end --session-id "$sid" --id-only
 ```
 
+### 4. 再利用したい事実は durable memory に残す
+
+```sh
+traceary memory remember \
+  --type decision \
+  --workspace github.com/duck8823/traceary \
+  --fact "再開時の要約には traceary handoff を使う" \
+  --evidence issue:#502
+
+traceary handoff --workspace github.com/duck8823/traceary
+```
+
 ## ホスト別の自動記録マトリクス
 
 問い合わせ面は共通です。Traceary を入れれば、どのホストからでも同じ CLI / MCP の memory・context 機能を使えます。差が出るのは、hook でどこまで自動記録できるかです。
@@ -148,7 +160,8 @@ traceary session end --session-id "$sid" --id-only
 詳しい一覧は [ドキュメント索引](./docs/README.ja.md) にまとめています。最初によく使うのは次のページです。
 
 - [ネイティブ連携ガイド](./docs/integrations/README.ja.md)
-- [CLI リファレンス](./docs/cli/README.ja.md) — 手動で CLI を使う場合の詳細はこちら
+- [Durable memory ガイド](./docs/memory/README.ja.md)
+- [CLI リファレンス](./docs/cli/README.ja.md)
 - [Hooks ガイド](./docs/hooks/README.ja.md)
 - [Hook contract と対応レベル](./docs/hooks/contract.ja.md)
 - [イベントライフサイクル](./docs/lifecycle.ja.md)

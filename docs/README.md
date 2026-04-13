@@ -6,7 +6,10 @@ This page is the detailed docs index for Traceary. Start here when the top-level
 
 ## Start here
 
+- [Durable memory guide](./memory/README.md): the three-layer model, memory lifecycle, refs, and how memory commands relate
 - [CLI reference](./cli/README.md): command-by-command behavior, flags, and output contracts
+- [Hook contract](./hooks/contract.md): automatic-capture coverage and shared hook semantics across hosts
+- [Event lifecycle](./lifecycle.md): how session starts, audits, prompts, and summaries become Traceary events
 - [Environment reference](./environment/README.md): environment variables, runtime assumptions, and platform support
 - [Storage model](./storage/README.md): SQLite layout, migrations, GC behavior, and what Traceary does not store
 
@@ -15,7 +18,7 @@ This page is the detailed docs index for Traceary. Start here when the top-level
 - [Native integrations](./integrations/README.md): packaged Claude / Codex / Gemini integration bundles, install flows, and smoke tests
 - [Hooks guide](./hooks/README.md): Claude Code / Codex / Gemini hook setup, install flow, and troubleshooting
 - [MCP guide](./mcp/README.md): running `traceary mcp-server`, tool surface, and host-client integration notes
-- [Interactive ergonomics](./interactive/README.md): current CLI ergonomics decisions and follow-up notes from dogfooding
+- [Interactive workflows](./interactive/README.md): how to inspect live and recent activity with `list`, `tail`, `search`, `show`, and `handoff`
 
 ## Operations
 
