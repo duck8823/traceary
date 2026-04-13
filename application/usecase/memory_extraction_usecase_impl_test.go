@@ -424,6 +424,80 @@ func TestMemoryExtractionUsecase_Extract_DeduplicatesSanitizedFacts(t *testing.T
 	}
 }
 
+func TestMemoryExtractionUsecase_Extract_DeduplicatesExistingFactsAfterSanitization(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(
+		domtypes.SessionID("session-1"),
+		domtypes.Workspace("github.com/duck8823/traceary"),
+		time.Now().Add(-time.Hour),
+		domtypes.Empty[time.Time](),
+		"ended",
+		4,
+		0,
+		[]string{"codex"},
+		"",
+		"",
+		domtypes.SessionID(""),
+	)
+	promptEvent := mustExtractionEvent(
+		t,
+		"event-prompt",
+		domtypes.EventKindPrompt,
+		"Please keep password=secret-two out of generated examples.",
+	)
+
+	existingSummary, err := apptypes.MemorySummaryOf(
+		mustMemoryID(t, "memory-existing-sanitized"),
+		domtypes.MemoryTypePreference,
+		domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/traceary")),
+		"Please keep password=secret-one out of generated examples.",
+		domtypes.MemoryStatusCandidate,
+		domtypes.ConfidenceVerified,
+		domtypes.MemorySourceExtracted,
+		domtypes.Empty[domtypes.MemoryID](),
+		domtypes.Empty[time.Time](),
+		time.Now(),
+		time.Now(),
+	)
+	if err != nil {
+		t.Fatalf("MemorySummaryOf() error = %v", err)
+	}
+
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{
+		listResult: []apptypes.MemorySummary{existingSummary},
+	}
+	sut := usecase.NewMemoryExtractionUsecase(
+		&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}},
+		&eventQueryServiceStub{
+			listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
+				domtypes.EventKindPrompt: {promptEvent},
+			},
+		},
+		memoryUsecase,
+		nil,
+	)
+
+	got, err := sut.Extract(
+		context.Background(),
+		apptypes.NewMemoryExtractionCriteriaBuilder().
+			SessionID(domtypes.SessionID("session-1")).
+			Workspace(domtypes.Workspace("github.com/duck8823/traceary")).
+			EventLimit(5).
+			CandidateLimit(10).
+			Build(),
+	)
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("len(Extract()) = %d, want 0", len(got))
+	}
+	if len(memoryUsecase.proposeCalls) != 0 {
+		t.Fatalf("Propose() call count = %d, want 0", len(memoryUsecase.proposeCalls))
+	}
+}
+
 func mustExtractionEvent(t *testing.T, eventID string, kind domtypes.EventKind, body string) *model.Event {
 	t.Helper()
 
