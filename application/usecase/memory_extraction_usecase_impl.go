@@ -25,6 +25,32 @@ var (
 	pathLikeRefPattern         = regexp.MustCompile(`(?:\./|\.\./|/)?(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+(?:\.[A-Za-z0-9_-]+)*`)
 )
 
+var extensionlessArtifactRootSegments = map[string]struct{}{
+	".github":        {},
+	"application":    {},
+	"bin":            {},
+	"cmd":            {},
+	"config":         {},
+	"configs":        {},
+	"coverage":       {},
+	"dist":           {},
+	"docs":           {},
+	"domain":         {},
+	"fixtures":       {},
+	"formula":        {},
+	"infrastructure": {},
+	"integrations":   {},
+	"internal":       {},
+	"pkg":            {},
+	"plugins":        {},
+	"presentation":   {},
+	"schema":         {},
+	"scripts":        {},
+	"src":            {},
+	"test":           {},
+	"tests":          {},
+}
+
 const memoryExtractionDedupePageSize = 200
 
 type memoryExtractionUsecase struct {
@@ -556,6 +582,8 @@ func looksPathLikeArtifact(value string) bool {
 	if strings.Contains(value, "://") {
 		return false
 	}
+	hasExplicitPrefix := strings.HasPrefix(value, "./") || strings.HasPrefix(value, "../") || strings.HasPrefix(value, "/")
+
 	hasLetter := false
 	for _, r := range value {
 		if ('a' <= r && r <= 'z') || ('A' <= r && r <= 'Z') {
@@ -570,13 +598,28 @@ func looksPathLikeArtifact(value string) bool {
 	if len(segments) < 2 {
 		return false
 	}
+	firstMeaningful := ""
+	lastMeaningful := ""
 	for _, segment := range segments {
 		if segment == "" || segment == "." || segment == ".." {
 			continue
 		}
+		if firstMeaningful == "" {
+			firstMeaningful = segment
+		}
+		lastMeaningful = segment
+	}
+	if firstMeaningful == "" || lastMeaningful == "" {
+		return false
+	}
+	if strings.Contains(lastMeaningful, ".") {
 		return true
 	}
-	return false
+	if hasExplicitPrefix {
+		return true
+	}
+	_, ok := extensionlessArtifactRootSegments[strings.ToLower(firstMeaningful)]
+	return ok
 }
 
 func memoryCandidateKey(scope domtypes.MemoryScope, memoryType domtypes.MemoryType, fact string) string {
