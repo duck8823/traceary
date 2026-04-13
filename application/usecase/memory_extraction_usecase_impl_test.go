@@ -440,61 +440,103 @@ func TestMemoryExtractionUsecase_Extract_DeduplicatesExistingFactsAfterSanitizat
 		"",
 		domtypes.SessionID(""),
 	)
-	promptEvent := mustExtractionEvent(
-		t,
-		"event-prompt",
-		domtypes.EventKindPrompt,
-		"Please keep password=secret-two out of generated examples.",
-	)
 
-	existingSummary, err := apptypes.MemorySummaryOf(
-		mustMemoryID(t, "memory-existing-sanitized"),
-		domtypes.MemoryTypePreference,
-		domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/traceary")),
-		"Please keep password=secret-one out of generated examples.",
-		domtypes.MemoryStatusCandidate,
-		domtypes.ConfidenceVerified,
-		domtypes.MemorySourceExtracted,
-		domtypes.Empty[domtypes.MemoryID](),
-		domtypes.Empty[time.Time](),
-		time.Now(),
-		time.Now(),
-	)
-	if err != nil {
-		t.Fatalf("MemorySummaryOf() error = %v", err)
-	}
-
-	memoryUsecase := &memoryExtractionMemoryUsecaseStub{
-		listResult: []apptypes.MemorySummary{existingSummary},
-	}
-	sut := usecase.NewMemoryExtractionUsecase(
-		&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}},
-		&eventQueryServiceStub{
-			listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
-				domtypes.EventKindPrompt: {promptEvent},
-			},
+	testCases := []struct {
+		name                string
+		extraRedactPatterns []string
+		existingFact        string
+		promptFact          string
+	}{
+		{
+			// Built-in redactors already catch `password=<value>`, so this
+			// sub-case exercises the dedupe path driven by the default
+			// sanitizer — the original coverage.
+			name:                "built-in password redactor",
+			extraRedactPatterns: nil,
+			existingFact:        "Please keep password=secret-one out of generated examples.",
+			promptFact:          "Please keep password=secret-two out of generated examples.",
 		},
-		memoryUsecase,
-		nil,
-	)
+		{
+			// This sub-case exercises the core guarantee of the dedupe fix:
+			// two facts whose raw values differ must collapse to the same key
+			// *after* a caller-supplied redaction pattern normalizes them.
+			// Both facts start with "Please" so inferMemoryTypeFromText
+			// actually produces a MemoryTypePreference candidate — an earlier
+			// iteration used "Remember ..." which matches no heuristic
+			// prefix, making the extractor emit nothing and the test pass
+			// for the wrong reason (caught by the Codex verifier). The
+			// `internalCode=` token is outside the built-in redactor
+			// alternation (password|secret|token|...), so only the
+			// caller-supplied pattern below can normalize the two values to
+			// the same key.
+			name:                "custom extra redact pattern",
+			extraRedactPatterns: []string{`internalCode=\S+`},
+			existingFact:        "Please keep internalCode=alpha-one out of rendered templates.",
+			promptFact:          "Please keep internalCode=beta-two out of rendered templates.",
+		},
+	}
 
-	got, err := sut.Extract(
-		context.Background(),
-		apptypes.NewMemoryExtractionCriteriaBuilder().
-			SessionID(domtypes.SessionID("session-1")).
-			Workspace(domtypes.Workspace("github.com/duck8823/traceary")).
-			EventLimit(5).
-			CandidateLimit(10).
-			Build(),
-	)
-	if err != nil {
-		t.Fatalf("Extract() error = %v", err)
-	}
-	if len(got) != 0 {
-		t.Fatalf("len(Extract()) = %d, want 0", len(got))
-	}
-	if len(memoryUsecase.proposeCalls) != 0 {
-		t.Fatalf("Propose() call count = %d, want 0", len(memoryUsecase.proposeCalls))
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			promptEvent := mustExtractionEvent(
+				t,
+				"event-prompt",
+				domtypes.EventKindPrompt,
+				tc.promptFact,
+			)
+
+			existingSummary, err := apptypes.MemorySummaryOf(
+				mustMemoryID(t, "memory-existing-sanitized"),
+				domtypes.MemoryTypePreference,
+				domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/traceary")),
+				tc.existingFact,
+				domtypes.MemoryStatusCandidate,
+				domtypes.ConfidenceVerified,
+				domtypes.MemorySourceExtracted,
+				domtypes.Empty[domtypes.MemoryID](),
+				domtypes.Empty[time.Time](),
+				time.Now(),
+				time.Now(),
+			)
+			if err != nil {
+				t.Fatalf("MemorySummaryOf() error = %v", err)
+			}
+
+			memoryUsecase := &memoryExtractionMemoryUsecaseStub{
+				listResult: []apptypes.MemorySummary{existingSummary},
+			}
+			sut := usecase.NewMemoryExtractionUsecase(
+				&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}},
+				&eventQueryServiceStub{
+					listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
+						domtypes.EventKindPrompt: {promptEvent},
+					},
+				},
+				memoryUsecase,
+				tc.extraRedactPatterns,
+			)
+
+			got, err := sut.Extract(
+				context.Background(),
+				apptypes.NewMemoryExtractionCriteriaBuilder().
+					SessionID(domtypes.SessionID("session-1")).
+					Workspace(domtypes.Workspace("github.com/duck8823/traceary")).
+					EventLimit(5).
+					CandidateLimit(10).
+					Build(),
+			)
+			if err != nil {
+				t.Fatalf("Extract() error = %v", err)
+			}
+			if len(got) != 0 {
+				t.Fatalf("len(Extract()) = %d, want 0", len(got))
+			}
+			if len(memoryUsecase.proposeCalls) != 0 {
+				t.Fatalf("Propose() call count = %d, want 0", len(memoryUsecase.proposeCalls))
+			}
+		})
 	}
 }
 
