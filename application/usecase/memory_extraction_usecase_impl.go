@@ -24,6 +24,8 @@ var (
 	fileRefPattern             = regexp.MustCompile(`(?i)\b(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.(?:go|md|json|sh|sql|yaml|yml|toml)\b`)
 )
 
+const memoryExtractionDedupePageSize = 200
+
 type memoryExtractionUsecase struct {
 	sessionQuery queryservice.SessionQueryService
 	eventQuery   queryservice.EventQueryService
@@ -148,23 +150,30 @@ func extractedMemoryScope(session apptypes.SessionSummary) domtypes.MemoryScope 
 }
 
 func (u *memoryExtractionUsecase) loadExistingCandidateKeys(ctx context.Context, scope domtypes.MemoryScope) (map[string]struct{}, error) {
-	summaries, err := u.memory.List(
-		ctx,
-		apptypes.NewMemoryListCriteriaBuilder(200).
-			Scopes([]domtypes.MemoryScope{scope}).
-			Statuses([]domtypes.MemoryStatus{
-				domtypes.MemoryStatusCandidate,
-				domtypes.MemoryStatusAccepted,
-			}).
-			Build(),
-	)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to list existing memories for extraction dedupe: %w", err)
-	}
-
-	keys := make(map[string]struct{}, len(summaries))
-	for _, summary := range summaries {
-		keys[memoryCandidateKey(summary.Scope(), summary.MemoryType(), summary.Fact())] = struct{}{}
+	keys := make(map[string]struct{})
+	offset := 0
+	for {
+		summaries, err := u.memory.List(
+			ctx,
+			apptypes.NewMemoryListCriteriaBuilder(memoryExtractionDedupePageSize).
+				Offset(offset).
+				Scopes([]domtypes.MemoryScope{scope}).
+				Statuses([]domtypes.MemoryStatus{
+					domtypes.MemoryStatusCandidate,
+					domtypes.MemoryStatusAccepted,
+				}).
+				Build(),
+		)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to list existing memories for extraction dedupe: %w", err)
+		}
+		for _, summary := range summaries {
+			keys[memoryCandidateKey(summary.Scope(), summary.MemoryType(), summary.Fact())] = struct{}{}
+		}
+		if len(summaries) < memoryExtractionDedupePageSize {
+			break
+		}
+		offset += len(summaries)
 	}
 	return keys, nil
 }

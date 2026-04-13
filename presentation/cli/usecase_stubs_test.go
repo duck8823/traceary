@@ -52,21 +52,23 @@ func (s *eventUsecaseStub) Timeline(_ context.Context, _ apptypes.TimelineCriter
 
 // sessionUsecaseStub implements usecase.SessionUsecase for testing.
 type sessionUsecaseStub struct {
-	startEvent  *model.Event
-	startErr    error
-	endEvent    *model.Event
-	endErr      error
-	labelErr    error
-	listResult  []apptypes.SessionSummary
-	listErr     error
-	treeResult  []apptypes.SessionSummary
-	treeErr     error
-	activeEvent *model.Event
-	activeErr   error
-	latestEvent *model.Event
-	latestErr   error
-	handoff     types.Optional[apptypes.HandoffSummary]
-	handoffErr  error
+	startEvent     *model.Event
+	startErr       error
+	endEvent       *model.Event
+	endErr         error
+	labelErr       error
+	listResult     []apptypes.SessionSummary
+	listErr        error
+	treeResult     []apptypes.SessionSummary
+	treeErr        error
+	activeEvent    *model.Event
+	activeErr      error
+	activeCriteria apptypes.SessionLookupCriteria
+	latestEvent    *model.Event
+	latestErr      error
+	latestCriteria apptypes.SessionLookupCriteria
+	handoff        types.Optional[apptypes.HandoffSummary]
+	handoffErr     error
 }
 
 func (s *sessionUsecaseStub) Start(_ context.Context, _ types.Client, _ types.Agent, _ types.SessionID, _ types.Workspace, _ types.SessionID) (*model.Event, error) {
@@ -84,7 +86,8 @@ func (s *sessionUsecaseStub) List(_ context.Context, _ apptypes.SessionListCrite
 func (s *sessionUsecaseStub) Tree(_ context.Context, _ types.Workspace, _ int) ([]apptypes.SessionSummary, error) {
 	return s.treeResult, s.treeErr
 }
-func (s *sessionUsecaseStub) Active(_ context.Context, _ apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error) {
+func (s *sessionUsecaseStub) Active(_ context.Context, criteria apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error) {
+	s.activeCriteria = criteria
 	if s.activeEvent == nil && s.activeErr == nil {
 		return types.Empty[*model.Event](), nil
 	}
@@ -93,7 +96,8 @@ func (s *sessionUsecaseStub) Active(_ context.Context, _ apptypes.SessionLookupC
 	}
 	return types.Of(s.activeEvent), nil
 }
-func (s *sessionUsecaseStub) Latest(_ context.Context, _ apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error) {
+func (s *sessionUsecaseStub) Latest(_ context.Context, criteria apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error) {
+	s.latestCriteria = criteria
 	if s.latestEvent == nil && s.latestErr == nil {
 		return types.Empty[*model.Event](), nil
 	}

@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 type memoryExtractionMemoryUsecaseStub struct {
 	listResult    []apptypes.MemorySummary
 	listErr       error
+	listCalls     []apptypes.MemoryListCriteria
 	proposeResult []apptypes.MemoryDetails
 	proposeErr    error
 	proposeCalls  []memoryExtractionProposeCall
@@ -68,8 +70,20 @@ func (s *memoryExtractionMemoryUsecaseStub) Expire(context.Context, domtypes.Mem
 	return apptypes.MemoryDetails{}, nil
 }
 
-func (s *memoryExtractionMemoryUsecaseStub) List(_ context.Context, _ apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
-	return s.listResult, s.listErr
+func (s *memoryExtractionMemoryUsecaseStub) List(_ context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
+	s.listCalls = append(s.listCalls, criteria)
+	if s.listErr != nil {
+		return nil, s.listErr
+	}
+	start := criteria.Offset()
+	if start >= len(s.listResult) {
+		return nil, nil
+	}
+	end := start + criteria.Limit()
+	if end > len(s.listResult) {
+		end = len(s.listResult)
+	}
+	return append([]apptypes.MemorySummary(nil), s.listResult[start:end]...), nil
 }
 
 func (s *memoryExtractionMemoryUsecaseStub) Search(context.Context, apptypes.MemorySearchCriteria) ([]apptypes.MemorySummary, error) {
@@ -250,6 +264,97 @@ func TestMemoryExtractionUsecase_Extract_DeduplicatesExistingAndGracefullyHandle
 	}
 	if len(memoryUsecase.proposeCalls) != 0 {
 		t.Fatalf("Propose() call count = %d, want 0", len(memoryUsecase.proposeCalls))
+	}
+}
+
+func TestMemoryExtractionUsecase_Extract_PaginatesExistingMemoryDedupe(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(
+		domtypes.SessionID("session-1"),
+		domtypes.Workspace("github.com/duck8823/traceary"),
+		time.Now().Add(-time.Hour),
+		domtypes.Empty[time.Time](),
+		"ended",
+		4,
+		0,
+		[]string{"codex"},
+		"",
+		"Decision: Keep get_context raw",
+		domtypes.SessionID(""),
+	)
+
+	listResult := make([]apptypes.MemorySummary, 0, 201)
+	for idx := 0; idx < 200; idx++ {
+		summary, err := apptypes.MemorySummaryOf(
+			mustMemoryID(t, fmt.Sprintf("memory-existing-%03d", idx)),
+			domtypes.MemoryTypeLesson,
+			domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/traceary")),
+			fmt.Sprintf("Existing lesson %03d", idx),
+			domtypes.MemoryStatusCandidate,
+			domtypes.ConfidenceVerified,
+			domtypes.MemorySourceExtracted,
+			domtypes.Empty[domtypes.MemoryID](),
+			domtypes.Empty[time.Time](),
+			time.Now(),
+			time.Now(),
+		)
+		if err != nil {
+			t.Fatalf("MemorySummaryOf() error = %v", err)
+		}
+		listResult = append(listResult, summary)
+	}
+	duplicateSummary, err := apptypes.MemorySummaryOf(
+		mustMemoryID(t, "memory-existing-duplicate"),
+		domtypes.MemoryTypeDecision,
+		domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/traceary")),
+		"Keep get_context raw",
+		domtypes.MemoryStatusAccepted,
+		domtypes.ConfidenceVerified,
+		domtypes.MemorySourceManual,
+		domtypes.Empty[domtypes.MemoryID](),
+		domtypes.Empty[time.Time](),
+		time.Now(),
+		time.Now(),
+	)
+	if err != nil {
+		t.Fatalf("MemorySummaryOf() error = %v", err)
+	}
+	listResult = append(listResult, duplicateSummary)
+
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{listResult: listResult}
+	sut := usecase.NewMemoryExtractionUsecase(
+		&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}},
+		&eventQueryServiceStub{},
+		memoryUsecase,
+	)
+
+	got, err := sut.Extract(
+		context.Background(),
+		apptypes.NewMemoryExtractionCriteriaBuilder().
+			SessionID(domtypes.SessionID("session-1")).
+			Workspace(domtypes.Workspace("github.com/duck8823/traceary")).
+			EventLimit(0).
+			CandidateLimit(5).
+			Build(),
+	)
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("len(Extract()) = %d, want 0", len(got))
+	}
+	if len(memoryUsecase.proposeCalls) != 0 {
+		t.Fatalf("Propose() call count = %d, want 0", len(memoryUsecase.proposeCalls))
+	}
+	if len(memoryUsecase.listCalls) != 2 {
+		t.Fatalf("List() call count = %d, want 2", len(memoryUsecase.listCalls))
+	}
+	if got := memoryUsecase.listCalls[0].Offset(); got != 0 {
+		t.Fatalf("first List().Offset() = %d, want 0", got)
+	}
+	if got := memoryUsecase.listCalls[1].Offset(); got != 200 {
+		t.Fatalf("second List().Offset() = %d, want 200", got)
 	}
 }
 

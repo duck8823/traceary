@@ -50,10 +50,7 @@ func (c *RootCLI) runMemoryExtract(ctx context.Context, output io.Writer, input 
 	}
 
 	resolvedWorkspace := resolveWorkspaceValue(ctx, input.workspace)
-	resolvedSessionID, err := c.resolveContextSessionID(ctx, contextCommandInput{
-		sessionID: input.sessionID,
-		repo:      resolvedWorkspace,
-	})
+	resolvedSessionID, resolvedLookupWorkspace, err := c.resolveMemoryExtractTargetSession(ctx, input.sessionID, resolvedWorkspace)
 	if err != nil {
 		return err
 	}
@@ -65,7 +62,7 @@ func (c *RootCLI) runMemoryExtract(ctx context.Context, output io.Writer, input 
 		ctx,
 		apptypes.NewMemoryExtractionCriteriaBuilder().
 			SessionID(types.SessionID(resolvedSessionID)).
-			Workspace(types.Workspace(resolvedWorkspace)).
+			Workspace(types.Workspace(resolvedLookupWorkspace)).
 			EventLimit(input.eventLimit).
 			CandidateLimit(input.candidateLimit).
 			Build(),
@@ -77,4 +74,35 @@ func (c *RootCLI) runMemoryExtract(ctx context.Context, output io.Writer, input 
 		return xerrors.Errorf("%s: %w", Localize("failed to print extracted durable-memory candidates", "抽出した durable memory candidate の出力に失敗しました"), err)
 	}
 	return nil
+}
+
+func (c *RootCLI) resolveMemoryExtractTargetSession(ctx context.Context, sessionID string, workspace string) (string, string, error) {
+	trimmedSessionID := strings.TrimSpace(sessionID)
+	if trimmedSessionID != "" {
+		return trimmedSessionID, "", nil
+	}
+	if c.session == nil {
+		return "", workspace, nil
+	}
+
+	lookupCriteria := apptypes.NewSessionLookupCriteriaBuilder().
+		Workspace(types.Workspace(strings.TrimSpace(workspace))).
+		Build()
+	active, err := c.session.Active(ctx, lookupCriteria)
+	if err != nil {
+		return "", workspace, xerrors.Errorf("%s: %w", Localize("failed to resolve active session for memory extraction", "memory extraction 用の active session 解決に失敗しました"), err)
+	}
+	if event, ok := active.Get(); ok && event != nil {
+		return event.SessionID().String(), workspace, nil
+	}
+
+	latest, err := c.session.Latest(ctx, lookupCriteria)
+	if err != nil {
+		return "", workspace, xerrors.Errorf("%s: %w", Localize("failed to resolve latest session for memory extraction", "memory extraction 用の latest session 解決に失敗しました"), err)
+	}
+	if event, ok := latest.Get(); ok && event != nil {
+		return event.SessionID().String(), workspace, nil
+	}
+
+	return "", workspace, nil
 }

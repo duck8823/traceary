@@ -284,6 +284,92 @@ func TestRootCLI_MemoryExtractCommand_UsesResolvedSession(t *testing.T) {
 	}
 }
 
+func TestRootCLI_MemoryExtractCommand_FallsBackToLatestSession(t *testing.T) {
+	t.Setenv("TRACEARY_WORKSPACE", "")
+	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
+		return "github.com/duck8823/traceary", nil
+	})
+	defer cli.ResetDetectRepoContextFunc()
+
+	latestEvent, err := model.NewEvent(
+		types.EventID("event-latest"),
+		types.EventKindSessionStarted,
+		types.Client("cli"),
+		types.Agent("codex"),
+		types.SessionID("session-latest"),
+		types.Workspace("github.com/duck8823/traceary"),
+		"session started",
+	)
+	if err != nil {
+		t.Fatalf("NewEvent() error = %v", err)
+	}
+
+	sessionStub := &sessionUsecaseStub{latestEvent: latestEvent}
+	extractionStub := &memoryExtractionUsecaseStub{}
+
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(sessionStub),
+		cli.WithMemoryExtraction(extractionStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "extract",
+		"--db-path", "/tmp/test-traceary.db",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got := extractionStub.criteria.SessionID().String(); got != "session-latest" {
+		t.Fatalf("SessionID() = %q, want session-latest", got)
+	}
+	if got := extractionStub.criteria.Workspace().String(); got != "github.com/duck8823/traceary" {
+		t.Fatalf("Workspace() = %q, want github.com/duck8823/traceary", got)
+	}
+	if got := sessionStub.latestCriteria.Workspace().String(); got != "github.com/duck8823/traceary" {
+		t.Fatalf("Latest().Workspace() = %q, want github.com/duck8823/traceary", got)
+	}
+}
+
+func TestRootCLI_MemoryExtractCommand_ExplicitSessionIDSkipsWorkspaceFilter(t *testing.T) {
+	t.Setenv("TRACEARY_WORKSPACE", "")
+	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
+		return "github.com/duck8823/traceary", nil
+	})
+	defer cli.ResetDetectRepoContextFunc()
+
+	sessionStub := &sessionUsecaseStub{}
+	extractionStub := &memoryExtractionUsecaseStub{}
+
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(sessionStub),
+		cli.WithMemoryExtraction(extractionStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "extract",
+		"--db-path", "/tmp/test-traceary.db",
+		"--session-id", "session-explicit",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got := extractionStub.criteria.SessionID().String(); got != "session-explicit" {
+		t.Fatalf("SessionID() = %q, want session-explicit", got)
+	}
+	if got := extractionStub.criteria.Workspace().String(); got != "" {
+		t.Fatalf("Workspace() = %q, want empty when session-id is explicit", got)
+	}
+	if sessionStub.activeCriteria.Workspace().String() != "" || sessionStub.latestCriteria.Workspace().String() != "" {
+		t.Fatalf("session lookup should be skipped when --session-id is explicit")
+	}
+}
+
 func mustMemorySummary(t *testing.T, memoryIDValue string, fact string, status types.MemoryStatus) apptypes.MemorySummary {
 	t.Helper()
 
