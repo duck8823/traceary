@@ -6,6 +6,7 @@
 
 ## まず読むページ
 
+- [アーキテクチャ原則](./architecture/README.ja.md): 4 層、runtime 境界、`scripts/` の役割、`internal/` の方針
 - [Durable memory ガイド](./memory/README.ja.md): 3 層モデル、memory のライフサイクル、ref の意味、memory コマンドの関係
 - [CLI リファレンス](./cli/README.ja.md): コマンドごとの挙動、主要フラグ、出力仕様
 - [Hook contract](./hooks/contract.ja.md): ホストごとの自動記録範囲と共通動作

@@ -160,6 +160,7 @@ traceary handoff --workspace github.com/duck8823/traceary
 詳しい一覧は [ドキュメント索引](./docs/README.ja.md) にまとめています。最初によく使うのは次のページです。
 
 - [ネイティブ連携ガイド](./docs/integrations/README.ja.md)
+- [アーキテクチャ原則](./docs/architecture/README.ja.md)
 - [Durable memory ガイド](./docs/memory/README.ja.md)
 - [CLI リファレンス](./docs/cli/README.ja.md)
 - [Hooks ガイド](./docs/hooks/README.ja.md)
