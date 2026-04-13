@@ -25,6 +25,7 @@ This page is the detailed docs index for Traceary. Start here when the top-level
 
 - [Backup guide](./backup/README.md): backup, restore, and machine-migration workflow
 - [Operational assumptions](./operations/README.md): SQLite concurrency, hook-state assumptions, and known limits
+- [Python dependency plan](./operations/python-dependencies.md): current Python-backed helpers, audience impact, and reduction order
 - [Release guide](./release/README.md): release packaging, GitHub Actions, and local snapshot builds
 
 ## Project docs

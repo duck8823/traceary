@@ -1,0 +1,96 @@
+# Python dependency inventory and reduction plan
+
+[日本語](./python-dependencies.ja.md)
+
+Traceary's core runtime is Go, but a small set of repository workflows still rely on `python3`.
+This guide records where that dependency still exists, which audience it affects, and which migration targets should move first.
+
+## Current policy
+
+- the `traceary` CLI and MCP server should keep working without Python
+- no new user-facing install or runtime workflow should introduce a Python prerequisite without an explicit design decision
+- maintainer-only Python helpers are still allowed for now, but they should have a documented owner and migration target
+
+## Python-backed surfaces today
+
+### User-facing
+
+| Surface | Current entrypoint | Why it uses Python today | Planned direction |
+| --- | --- | --- | --- |
+| Codex local plugin install | `python3 scripts/codex/install_plugin.py` | merges plugin files, config, and hook wiring in one helper | replace with a first-class Go entrypoint |
+| Codex local plugin uninstall | `python3 scripts/codex/uninstall_plugin.py` | removes plugin cache, config, and Traceary-managed hooks | replace with the matching Go entrypoint |
+
+### Maintainer-only
+
+| Surface | Current entrypoint | Used by | Planned direction |
+| --- | --- | --- | --- |
+| docs pairing verification | `python3 scripts/verify_docs_i18n.py` | local checks, CI docs job | keep short-term; fold into a Go-based repo verifier later |
+| integration package verification | `python3 scripts/verify_integrations.py` | release prep, smoke tests, CI | migrate after the Codex install path |
+| changelog coverage verification | `python3 scripts/verify_changelog_releases.py` | release prep, CI docs/release jobs | migrate after integration verification if a shared Go verifier exists |
+| version bump helper | `python3 scripts/bump_version.py` | release prep | migrate last; low user impact |
+
+## What is intentionally out of scope
+
+These are *not* part of the Python dependency story this issue is addressing:
+
+- shell wrappers under `scripts/hooks/` — those are tracked separately as hook-runtime cleanup work
+- one-off local developer scripts outside the supported maintainer workflow
+- third-party client tooling that Traceary does not ship
+
+## Preferred migration order
+
+### 1. Codex install and uninstall helpers
+
+This is the highest-priority removal target because it is public, documented, and currently required for the full local Codex integration flow.
+
+Preferred replacement surface:
+
+- `traceary integration codex install`
+- `traceary integration codex uninstall`
+
+Why this is first:
+
+- it removes Python from the main user-facing prerequisite path
+- it keeps installation behavior inside the normal Go CLI surface
+- it lets future docs point to `traceary` itself instead of repository-local helpers
+
+### 2. Integration verification
+
+Once the public Codex flow is moved, the next best return comes from `scripts/verify_integrations.py` because it is used in release preparation, smoke tests, and CI.
+
+Preferred replacement direction:
+
+- a Go-based repo verification command that can validate integration manifests and local package structure
+- the implementation may live in a repository-only helper package or subcommand, but the repo should still expose a single documented entrypoint
+
+### 3. Changelog and docs verifiers
+
+After integration verification, migrate:
+
+- `scripts/verify_changelog_releases.py`
+- `scripts/verify_docs_i18n.py`
+
+These remain maintainer-only, so correctness matters more than urgency.
+If a shared Go verifier exists by then, they should join it rather than becoming separate tools again.
+
+### 4. Version bump helper
+
+`scripts/bump_version.py` is useful but low priority.
+It should move only after the higher-impact checks above have settled.
+
+## Repository rules going forward
+
+Until the migrations above land:
+
+1. do not add new user-facing Python helper commands
+2. if a new maintainer-only Python helper is truly necessary, document:
+   - why Go is not being used yet
+   - where the helper is called from
+   - what the eventual migration target is
+3. prefer expanding an existing verifier over adding another one-off script
+
+## Related docs
+
+- architecture principles: [`../architecture/README.md`](../architecture/README.md)
+- Codex integration: [`../integrations/codex-plugin.md`](../integrations/codex-plugin.md)
+- release workflow: [`../release/README.md`](../release/README.md)
