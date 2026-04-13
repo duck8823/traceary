@@ -1,0 +1,325 @@
+package cli
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/spf13/cobra"
+	"golang.org/x/xerrors"
+
+	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/types"
+)
+
+const (
+	defaultTailInitialLimit = 20
+	defaultTailBatchSize    = 100
+	defaultTailPollInterval = time.Second
+)
+
+var (
+	tailNowFunc     = time.Now
+	newTailTickerFn = newRealTailTicker
+)
+
+type tailTicker interface {
+	C() <-chan time.Time
+	Stop()
+}
+
+type realTailTicker struct {
+	ticker *time.Ticker
+}
+
+func newRealTailTicker(interval time.Duration) tailTicker {
+	return realTailTicker{ticker: time.NewTicker(interval)}
+}
+
+func (t realTailTicker) C() <-chan time.Time {
+	return t.ticker.C
+}
+
+func (t realTailTicker) Stop() {
+	t.ticker.Stop()
+}
+
+type tailCursor struct {
+	timestamp time.Time
+	seenIDs   map[string]struct{}
+}
+
+func newTailCursor(start time.Time) tailCursor {
+	return tailCursor{
+		timestamp: start,
+		seenIDs:   make(map[string]struct{}),
+	}
+}
+
+func (c *tailCursor) isNew(event *model.Event) bool {
+	if event == nil {
+		return false
+	}
+	if event.CreatedAt().After(c.timestamp) {
+		return true
+	}
+	if !event.CreatedAt().Equal(c.timestamp) {
+		return false
+	}
+	_, seen := c.seenIDs[event.EventID().String()]
+	return !seen
+}
+
+func (c *tailCursor) Advance(events []*model.Event) {
+	if len(events) == 0 {
+		return
+	}
+
+	maxTimestamp := c.timestamp
+	for _, event := range events {
+		if event != nil && event.CreatedAt().After(maxTimestamp) {
+			maxTimestamp = event.CreatedAt()
+		}
+	}
+
+	if maxTimestamp.After(c.timestamp) {
+		c.timestamp = maxTimestamp
+		c.seenIDs = make(map[string]struct{})
+	}
+
+	for _, event := range events {
+		if event != nil && event.CreatedAt().Equal(c.timestamp) {
+			c.seenIDs[event.EventID().String()] = struct{}{}
+		}
+	}
+}
+
+type tailEventWriter struct {
+	output      io.Writer
+	asJSON      bool
+	headerWrote bool
+}
+
+func newTailEventWriter(output io.Writer, asJSON bool) *tailEventWriter {
+	return &tailEventWriter{
+		output: output,
+		asJSON: asJSON,
+	}
+}
+
+func (w *tailEventWriter) EnsureReady() error {
+	if w.asJSON || w.headerWrote {
+		return nil
+	}
+	if _, err := fmt.Fprintln(w.output, "CREATED_AT\tKIND\tCLIENT\tAGENT\tSESSION_ID\tWORKSPACE\tMESSAGE"); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print list header", "一覧ヘッダーの出力に失敗しました"), err)
+	}
+	w.headerWrote = true
+	return nil
+}
+
+func (w *tailEventWriter) Write(events []*model.Event) error {
+	if err := w.EnsureReady(); err != nil {
+		return err
+	}
+	for _, event := range events {
+		if w.asJSON {
+			if err := writeEventNDJSON(w.output, event); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, err := fmt.Fprintf(
+			w.output,
+			"%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			event.CreatedAt().UTC().Format("2006-01-02T15:04:05Z07:00"),
+			event.Kind(),
+			formatOptionalColumn(event.Client().String()),
+			event.Agent(),
+			event.SessionID(),
+			formatOptionalColumn(event.Workspace().String()),
+			truncateMessage(event.Body()),
+		); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print event row", "イベント一覧行の出力に失敗しました"), err)
+		}
+	}
+
+	return nil
+}
+
+func writeEventNDJSON(output io.Writer, event *model.Event) error {
+	encoded, err := json.Marshal(newEventOutput(event))
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to encode JSON", "JSON 変換に失敗しました"), err)
+	}
+	if _, err := output.Write(append(encoded, '\n')); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to write JSON", "JSON 出力に失敗しました"), err)
+	}
+	return nil
+}
+
+func (c *RootCLI) newTailCommand() *cobra.Command {
+	var (
+		dbPath       string
+		limit        int
+		kind         string
+		client       string
+		agent        string
+		sessionID    string
+		repo         string
+		failuresOnly bool
+		asJSON       bool
+	)
+
+	tailCmd := &cobra.Command{
+		Use:   "tail",
+		Short: Localize("Follow new events as they arrive", "新しいイベントを追跡表示する"),
+		Args:  noArgsLocalized(),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return c.runTail(cmd.Context(), cmd.OutOrStdout(), tailCommandInput{
+				dbPath:       dbPath,
+				limit:        limit,
+				kind:         kind,
+				client:       client,
+				agent:        agent,
+				sessionID:    sessionID,
+				repo:         repo,
+				failuresOnly: failuresOnly,
+				asJSON:       asJSON,
+			})
+		},
+	}
+	tailCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
+	tailCmd.Flags().IntVar(&limit, "limit", defaultTailInitialLimit, Localize("number of recent events to print before following (0 prints only new events)", "追跡開始前に表示する直近イベント数 (0 の場合は新規イベントのみ表示)"))
+	tailCmd.Flags().StringVar(&kind, "kind", "", Localize("filter by event kind (note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt; alias: audit)", "イベント種別で絞り込む (note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt; alias: audit)"))
+	tailCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "記録経路で絞り込む"))
+	tailCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "作業主体で絞り込む"))
+	tailCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("filter by session ID", "session ID で絞り込む"))
+	tailCmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by auxiliary work context identifier", "補助的なコンテキスト識別子で絞り込む"))
+	tailCmd.Flags().BoolVar(&failuresOnly, "failures", false, Localize("show only failed commands", "失敗したコマンドのみ表示"))
+	tailCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print NDJSON output", "NDJSON 形式で出力する"))
+
+	return tailCmd
+}
+
+func (c *RootCLI) runTail(ctx context.Context, output io.Writer, input tailCommandInput) error {
+	if c.storeManagement == nil {
+		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+	}
+	if c.event == nil {
+		return xerrors.Errorf(Localize("list events query service is not configured", "イベント一覧クエリサービスが設定されていません"))
+	}
+	if input.limit < 0 {
+		return xerrors.Errorf(Localize("limit must be greater than or equal to 0", "limit は 0 以上である必要があります"))
+	}
+	resolvedKind, err := resolveListKind(input.kind)
+	if err != nil {
+		return err
+	}
+
+	resolvedDBPath, err := resolveDBPath(input.dbPath)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
+	}
+	c.applyDatabasePath(resolvedDBPath)
+	if err := c.storeManagement.Initialize(ctx); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
+	}
+
+	baseCriteria := apptypes.NewEventListCriteriaBuilder(defaultTailBatchSize).
+		Kind(types.EventKind(resolvedKind)).
+		Client(types.Client(strings.TrimSpace(input.client))).
+		Agent(types.Agent(strings.TrimSpace(input.agent))).
+		SessionID(types.SessionID(strings.TrimSpace(input.sessionID))).
+		Workspace(types.Workspace(resolveWorkspaceValue(ctx, input.repo))).
+		FailuresOnly(input.failuresOnly)
+
+	writer := newTailEventWriter(output, input.asJSON)
+	cursor := newTailCursor(tailNowFunc().UTC())
+	if input.limit > 0 {
+		initialCriteria := apptypes.NewEventListCriteriaBuilder(input.limit).
+			Kind(baseCriteria.Build().Kind()).
+			Client(baseCriteria.Build().Client()).
+			Agent(baseCriteria.Build().Agent()).
+			SessionID(baseCriteria.Build().SessionID()).
+			Workspace(baseCriteria.Build().Workspace()).
+			FailuresOnly(baseCriteria.Build().FailuresOnly()).
+			Build()
+		initialEvents, err := c.event.List(ctx, initialCriteria)
+		if err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to list initial tail events", "tail 初期イベントの取得に失敗しました"), err)
+		}
+		slices.Reverse(initialEvents)
+		if err := writer.Write(initialEvents); err != nil {
+			return err
+		}
+		if len(initialEvents) > 0 {
+			cursor = newTailCursor(initialEvents[len(initialEvents)-1].CreatedAt())
+			cursor.Advance(initialEvents)
+		}
+	} else if err := writer.EnsureReady(); err != nil {
+		return err
+	}
+
+	ticker := newTailTickerFn(defaultTailPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C():
+			newEvents, err := c.listTailEventsSince(ctx, baseCriteria.Build(), cursor)
+			if err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to poll tail events", "tail イベントのポーリングに失敗しました"), err)
+			}
+			if len(newEvents) == 0 {
+				continue
+			}
+			if err := writer.Write(newEvents); err != nil {
+				return err
+			}
+			cursor.Advance(newEvents)
+		}
+	}
+}
+
+func (c *RootCLI) listTailEventsSince(ctx context.Context, base apptypes.EventListCriteria, cursor tailCursor) ([]*model.Event, error) {
+	filtered := make([]*model.Event, 0, defaultTailBatchSize)
+	offset := 0
+
+	for {
+		criteria := apptypes.NewEventListCriteriaBuilder(defaultTailBatchSize).
+			Offset(offset).
+			Kind(base.Kind()).
+			Client(base.Client()).
+			Agent(base.Agent()).
+			SessionID(base.SessionID()).
+			Workspace(base.Workspace()).
+			FailuresOnly(base.FailuresOnly()).
+			From(cursor.timestamp).
+			Build()
+
+		page, err := c.event.List(ctx, criteria)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to list tail page: %w", err)
+		}
+		for _, event := range page {
+			if cursor.isNew(event) {
+				filtered = append(filtered, event)
+			}
+		}
+		if len(page) < defaultTailBatchSize {
+			break
+		}
+		offset += len(page)
+	}
+
+	slices.Reverse(filtered)
+	return filtered, nil
+}
