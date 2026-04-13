@@ -51,6 +51,28 @@ var extensionlessArtifactRootSegments = map[string]struct{}{
 	"tests":          {},
 }
 
+var artifactFileExtensions = map[string]struct{}{
+	"go":    {},
+	"md":    {},
+	"json":  {},
+	"sh":    {},
+	"sql":   {},
+	"yaml":  {},
+	"yml":   {},
+	"toml":  {},
+	"ts":    {},
+	"tsx":   {},
+	"js":    {},
+	"jsx":   {},
+	"py":    {},
+	"rb":    {},
+	"ini":   {},
+	"cfg":   {},
+	"conf":  {},
+	"proto": {},
+	"tpl":   {},
+}
+
 const memoryExtractionDedupePageSize = 200
 
 type memoryExtractionUsecase struct {
@@ -613,12 +635,21 @@ func looksPathLikeArtifact(value string) bool {
 		return false
 	}
 	if strings.Contains(lastMeaningful, ".") {
-		return true
+		return hasAllowedArtifactExtension(lastMeaningful)
 	}
 	if hasExplicitPrefix {
 		return true
 	}
 	_, ok := extensionlessArtifactRootSegments[strings.ToLower(firstMeaningful)]
+	return ok
+}
+
+func hasAllowedArtifactExtension(value string) bool {
+	lastDot := strings.LastIndex(value, ".")
+	if lastDot <= 0 || lastDot == len(value)-1 {
+		return false
+	}
+	_, ok := artifactFileExtensions[strings.ToLower(value[lastDot+1:])]
 	return ok
 }
 

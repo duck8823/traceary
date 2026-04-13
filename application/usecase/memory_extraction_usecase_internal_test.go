@@ -53,6 +53,8 @@ func TestLooksPathLikeArtifact_RejectsDateLikePaths(t *testing.T) {
 		{name: "extensionless path", value: "bin/traceary", want: true},
 		{name: "extensionless docs path", value: "docs/release/README", want: true},
 		{name: "relative path", value: "./tmp/output", want: true},
+		{name: "version prose", value: "v1.2/v1.3", want: false},
+		{name: "generic source path", value: "foo/bar.go", want: true},
 	}
 
 	for _, tc := range cases {
@@ -67,7 +69,7 @@ func TestLooksPathLikeArtifact_RejectsDateLikePaths(t *testing.T) {
 func TestInferArtifactRefs_DoesNotTreatSlashSeparatedProseAsFiles(t *testing.T) {
 	t.Parallel()
 
-	refs, err := inferArtifactRefs("Refer to the pros/cons discussion, but keep docs/release/README and bin/traceary in sync.")
+	refs, err := inferArtifactRefs("Refer to the pros/cons discussion and compare v1.2/v1.3, but keep docs/release/README, bin/traceary, and foo/bar.go in sync.")
 	if err != nil {
 		t.Fatalf("inferArtifactRefs() error = %v", err)
 	}
@@ -80,6 +82,7 @@ func TestInferArtifactRefs_DoesNotTreatSlashSeparatedProseAsFiles(t *testing.T) 
 	want := []string{
 		"file:docs/release/README",
 		"file:bin/traceary",
+		"file:foo/bar.go",
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Fatalf("artifact refs mismatch (-want +got):\n%s", diff)
