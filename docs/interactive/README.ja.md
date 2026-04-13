@@ -2,14 +2,70 @@
 
 [English](./README.md)
 
-この文書は、Traceary を対話的に使うときの使い勝手を整理するためのメモです。
-`v0.1.9` で直接改善したものと、あえて後続リリースに回したものを分けて記録します。
+この文書では、現在の Traceary CLI を使って対話的に履歴を確認する方法を整理します。
+書き込みの自動化よりも、人が参照系コマンドをどう使い分けるかに焦点を当てています。
 
-## `v0.1.9` で入れたもの
+## 最近変わったこと
 
-### Shell completion
+現在の Traceary には、インタラクティブ利用を支える基本機能として次の 2 つがあります。
 
-Traceary は built-in の completion generator を持つようになりました。
+- shell completion
+- `traceary tail` による live follow
+
+そのため、参照系は `list` や `search` のような単発の snapshot だけではありません。
+
+## いまの推奨フロー
+
+確認したい内容に応じて、次のように使い分けるのがおすすめです。
+
+### 1. 「今なにが起きたか」をざっと見たい → `traceary list`
+
+最近の履歴を素早く見たいときや、workspace / client などの構造 filter がすでに決まっているときは `list` を使います。
+
+```sh
+traceary list --limit 20
+traceary list --workspace github.com/duck8823/traceary --client codex
+```
+
+### 2. 「今まさに書き込まれているか」を追いたい → `traceary tail`
+
+新しい event が入る様子をリアルタイムで追いたいときは `tail` を使います。hook が発火しているか、想定した workspace に書き込まれているか、失敗 event が流れてきているかを確認するのに向いています。
+
+```sh
+traceary tail
+traceary tail --workspace github.com/duck8823/traceary --failures
+traceary tail --json
+```
+
+### 3. 「特定のエラーやコマンドを探したい」 → `traceary search`
+
+テキスト検索と期間・workspace 条件を組み合わせたいときは `search` を使います。
+
+```sh
+traceary search panic --workspace github.com/duck8823/traceary
+traceary search --since 2026-04-01 --kind command_executed lint
+```
+
+### 4. 「構造化された詳細を見たい」 → `traceary show`
+
+event ID が分かっていて、対応する event や audit payload を構造化して見たいときは `show` を使います。
+
+```sh
+traceary show evt_123 --json
+```
+
+### 5. 「次に持ち越す文脈だけをまとめたい」 → `traceary handoff`
+
+生の event stream ではなく、再開や引き継ぎに使う working-memory pack を見たいときは `handoff` を使います。別エージェントへ渡す前提の要約を見るなら、まずここです。
+
+```sh
+traceary handoff --workspace github.com/duck8823/traceary
+traceary session handoff --session-id sess_123
+```
+
+## Shell completion
+
+Traceary には built-in の completion generator があります。
 
 ```sh
 traceary completion bash
@@ -18,30 +74,18 @@ traceary completion fish
 traceary completion powershell
 ```
 
-これは、event model や read-path semantics を増やしすぎずに、日常の interactive 利用を改善できる最小の変更です。
+`tail` が入った後でも、CLI 全体の発見しやすさを上げる意味で completion を有効にする価値はあります。
 
-## まだ後続送りにしているもの
+## 今後の改善候補
 
-次の案は有効ですが、`v0.1.9` には含めていません。
+初期の `v0.1.x` より interactive 利用はだいぶ良くなりましたが、次の改善余地はまだあります。
 
-- `tail` / `watch` 的な live follow view
 - `show` / `context` の人間向け整形強化
 - pager-aware な output flow
 - `list` / `search` の上に乗る、より opinionated な interactive filter
-
-これらは小さな `v0.1.x` polish というより、`v0.2` の UX pass に近いと判断しています。
-
-## 現時点の推奨
-
-より豊かな interactive mode が入るまでは、次の使い分けを推奨します。
-
-1. 最近の feed は `traceary list --limit ... --offset ...`
-2. 条件付き lookup は `traceary search ... --json`
-3. 構造化された詳細確認は `traceary show <event-id> --json`
-4. command discovery は shell completion を有効化して補う
 
 ## 関連文書
 
 - CLI reference: [`../cli/README.ja.md`](../cli/README.ja.md)
 - MCP guide: [`../mcp/README.ja.md`](../mcp/README.ja.md)
-
+- イベントライフサイクル: [`../lifecycle.ja.md`](../lifecycle.ja.md)

@@ -3,9 +3,9 @@
 [English](./README.md)
 
 Traceary は、ローカル状態を 1 つの SQLite DB ファイルに保存します。
-このガイドでは、何がどこに保存されるのか、schema がどう構成されているのか、現在の `gc` / backup の既定動作が何かを説明します。
+このガイドでは、何がどこに保存されるのか、現在の schema がどう構成されているのか、`gc` / backup の既定動作が実際に何を意味するのかを整理します。
 
-## local-first な配置
+## ローカルファーストの配置
 
 - 既定の DB path: `~/.config/traceary/traceary.db`
 - 上書き方法: `--db-path` または `TRACEARY_DB_PATH`
@@ -20,29 +20,30 @@ Traceary は、ローカル状態を 1 つの SQLite DB ファイルに保存し
 
 ### `events`
 
-追記専用の event stream です。note、session 境界、review record、command audit はすべてここから始まります。
+追記専用の event stream です。note、session 境界、review、prompt、compact summary、command audit の元イベントはすべてここに入ります。
 
-column:
+主な column:
 
 - `id`: event identifier
-- `kind`: `note`、`command_executed`、`session_started`、`session_ended` などの event kind
+- `kind`: `note`、`command_executed`、`session_started`、`session_ended`、`prompt`、`compact_summary` などの event kind
 - `agent`: `codex`、`claude`、`gemini`、`manual` などの論理的な actor
 - `session_id`: session grouping identifier
-- `body`: event の人間向けメッセージ
+- `body`: 人が読むための event メッセージ
 - `created_at`: RFC3339 timestamp
-- `client`: `cli`、`claude`、`codex`、`gemini` などの ingestion path
-- `repo`: 利用可能な場合の current repository / workspace identifier
+- `client`: `cli`、`claude`、`codex`、`gemini`、`mcp` などの ingestion path
+- `workspace`: 利用可能な場合の補助的な work-context identifier
 
 主な index:
 
 - `idx_events_session_created_at` on `(session_id, created_at)`
 - `idx_events_created_at` on `(created_at DESC, id DESC)`
+- `idx_events_workspace_created_at` on `(workspace, created_at)`
 
 ### `command_audits`
 
 `command_executed` event に紐づく構造化 audit detail です。
 
-column:
+主な column:
 
 - `event_id`: primary key かつ `events.id` への foreign key
 - `command_text`: 記録した command line
@@ -50,8 +51,76 @@ column:
 - `output_text`: 保存した command output payload
 - `input_truncated`: input を切り詰めたかどうか
 - `output_truncated`: output を切り詰めたかどうか
+- `exit_code`: 取得できた場合の終了コード
 
-`command_audits.event_id` は `ON DELETE CASCADE` なので、`gc` によって event を削除すると対応する audit payload も同時に消えます。
+`command_audits.event_id` は `ON DELETE CASCADE` なので、`gc` で event を削除すると対応する audit payload も同時に消えます。
+
+### `sessions`
+
+start/end event から導かれ、session 系コマンドでも更新される session 集約です。
+
+主な column:
+
+- `session_id`: session identifier
+- `started_at`: session 開始時刻
+- `ended_at`: session が終了済みならその時刻
+- `client`: session の client attribution
+- `agent`: session の agent attribution
+- `workspace`: 補助的な work-context identifier
+- `label`: 任意の運用ラベル
+- `summary`: 任意の session summary
+- `parent_session_id`: 任意の親 session link
+
+主な index:
+
+- `idx_sessions_started_at`
+- `idx_sessions_repo_started_at`
+- `idx_sessions_parent`
+
+### `memories`
+
+`v0.5.0` で導入した durable memory の集約です。
+
+主な column:
+
+- `id`: durable memory identifier
+- `type`: `decision`、`constraint`、`preference`、`lesson`、`artifact` などの taxonomy
+- `scope_kind` / `scope_value`: persistence 用に平坦化した typed scope（`workspace`、`agent`、`session_family`）
+- `fact`: 抽出・保持する durable-memory の本文
+- `status`: `candidate`、`accepted`、`rejected`、`superseded`、`expired` などの lifecycle status
+- `confidence`: `low`、`medium`、`high`、`verified` などの confidence
+- `source`: `manual` や `extracted` などの source attribution
+- `supersedes_memory_id`: 置き換え元 memory がある場合の参照
+- `expires_at`: expiry timestamp
+- `created_at` / `updated_at`: lifecycle timestamp
+
+主な index:
+
+- `idx_memories_scope_status_updated`
+- `idx_memories_type_status_updated`
+- `idx_memories_supersedes_memory_id`
+
+### `memory_evidence_refs`
+
+Durable memory に紐づく evidence ref です。
+
+主な column:
+
+- `memory_id`: `memories.id` への foreign key
+- `ordinal`: memory 内での安定した順序
+- `ref_kind`: `event`、`session`、`url`、`file`、`issue`、`pr` などの参照種別
+- `ref_value`: 参照先の値
+
+### `memory_artifact_refs`
+
+Durable memory に紐づく artifact ref です。
+
+主な column:
+
+- `memory_id`: `memories.id` への foreign key
+- `ordinal`: memory 内での安定した順序
+- `ref_kind`: `file`、`url`、`command` などの artifact 種別
+- `ref_value`: artifact の値
 
 ## Traceary が保存しないもの
 
@@ -72,18 +141,19 @@ column:
 
 ## `gc` の既定動作
 
-`traceary gc` は、古い event を retention ベースで掃除するコマンドです。
+`traceary gc` は、古い event 履歴を retention ベースで掃除するコマンドです。
 
 - 既定 retention: `90` 日 (`--keep-days 90`)
-- 選択条件: `created_at < cutoff` の row を削除
+- 選択条件: `events.created_at < cutoff` の row を削除
 - `--dry-run`: 削除候補件数だけ表示
 - 削除後に `VACUUM` を実行
 
 実務上の意味:
 
 - `gc` は opt-in であり、Traceary が background で自動削除することはありません
-- `gc` を実行すると、該当 event と紐づく `command_audits` も削除されます
-- 長期履歴を残したい場合は、強めの cleanup の前に backup を取ってください
+- `gc` を実行すると、該当する `events` と紐づく `command_audits` は削除されます
+- 現在の `gc` は `sessions` や durable memory (`memories`, `memory_evidence_refs`, `memory_artifact_refs`) を削除しません
+- 長期の監査履歴を残したい場合は、強めの cleanup の前に backup を取ってください
 
 ## backup の既定動作
 

@@ -3,7 +3,7 @@
 [日本語](./README.ja.md)
 
 Traceary stores its local state in a single SQLite database file.
-This guide explains what gets written there, how the schema is organized, and what the current `gc` / backup defaults mean.
+This guide explains what gets written there, how the schema is organized today, and what the current `gc` / backup defaults mean in practice.
 
 ## Local-first layout
 
@@ -20,29 +20,30 @@ Traceary currently creates these tables:
 
 ### `events`
 
-The append-only event stream. Every note, session boundary, review record, and command audit starts here.
+The append-only event stream. Notes, session boundaries, reviews, prompts, compact summaries, and command-audit wrapper events all start here.
 
-Columns:
+Key columns:
 
 - `id`: event identifier
-- `kind`: event kind such as `note`, `command_executed`, `session_started`, `session_ended`
+- `kind`: event kind such as `note`, `command_executed`, `session_started`, `session_ended`, `prompt`, `compact_summary`
 - `agent`: logical actor such as `codex`, `claude`, `gemini`, or `manual`
 - `session_id`: session grouping identifier
-- `body`: human-facing message for the event
+- `body`: human-facing event message
 - `created_at`: RFC3339 timestamp
-- `client`: ingestion path such as `cli`, `claude`, `codex`, `gemini`
-- `repo`: current repository / workspace identifier when available
+- `client`: ingestion path such as `cli`, `claude`, `codex`, `gemini`, or `mcp`
+- `workspace`: auxiliary work-context identifier when available
 
 Important indexes:
 
 - `idx_events_session_created_at` on `(session_id, created_at)`
 - `idx_events_created_at` on `(created_at DESC, id DESC)`
+- `idx_events_workspace_created_at` on `(workspace, created_at)`
 
 ### `command_audits`
 
 Structured audit details for `command_executed` events.
 
-Columns:
+Key columns:
 
 - `event_id`: primary key and foreign key to `events.id`
 - `command_text`: captured command line
@@ -50,8 +51,76 @@ Columns:
 - `output_text`: stored command output payload
 - `input_truncated`: whether Traceary truncated the stored input
 - `output_truncated`: whether Traceary truncated the stored output
+- `exit_code`: captured exit code when available
 
 Because `command_audits.event_id` uses `ON DELETE CASCADE`, deleting an event through `gc` also deletes its audit payload.
+
+### `sessions`
+
+Session-level aggregates derived from start/end events and updated directly by session-oriented commands.
+
+Key columns:
+
+- `session_id`: session identifier
+- `started_at`: session start time
+- `ended_at`: session end time when the session has been closed
+- `client`: client attribution for the session
+- `agent`: agent attribution for the session
+- `workspace`: auxiliary work-context identifier
+- `label`: optional operator-facing label
+- `summary`: optional session summary text
+- `parent_session_id`: optional parent session link
+
+Important indexes:
+
+- `idx_sessions_started_at`
+- `idx_sessions_repo_started_at`
+- `idx_sessions_parent`
+
+### `memories`
+
+Durable-memory aggregates introduced in `v0.5.0`.
+
+Key columns:
+
+- `id`: durable memory identifier
+- `type`: memory taxonomy such as `decision`, `constraint`, `preference`, `lesson`, `artifact`
+- `scope_kind` / `scope_value`: typed scope flattened for persistence (`workspace`, `agent`, `session_family`)
+- `fact`: distilled durable-memory text
+- `status`: lifecycle status such as `candidate`, `accepted`, `rejected`, `superseded`, `expired`
+- `confidence`: confidence value such as `low`, `medium`, `high`, `verified`
+- `source`: source attribution such as `manual` or `extracted`
+- `supersedes_memory_id`: previous memory replaced by this record, when present
+- `expires_at`: expiry timestamp when present
+- `created_at` / `updated_at`: lifecycle timestamps
+
+Important indexes:
+
+- `idx_memories_scope_status_updated`
+- `idx_memories_type_status_updated`
+- `idx_memories_supersedes_memory_id`
+
+### `memory_evidence_refs`
+
+Evidence references attached to a durable memory.
+
+Key columns:
+
+- `memory_id`: foreign key to `memories.id`
+- `ordinal`: stable ordering within the memory
+- `ref_kind`: reference type such as `event`, `session`, `url`, `file`, `issue`, `pr`
+- `ref_value`: reference payload
+
+### `memory_artifact_refs`
+
+Artifact references attached to a durable memory.
+
+Key columns:
+
+- `memory_id`: foreign key to `memories.id`
+- `ordinal`: stable ordering within the memory
+- `ref_kind`: artifact type such as `file`, `url`, or `command`
+- `ref_value`: artifact payload
 
 ## What Traceary does not store
 
@@ -65,7 +134,7 @@ Current non-goals:
 ## Migrations and compatibility
 
 - migrations are embedded in the binary from `schema/sqlite/migrations`
-- the store is initialized before normal command execution, so upgrades apply migrations automatically
+- store initialization runs before normal command execution, so upgrades apply migrations automatically
 - backup restore copies the SQLite file first and then reruns store initialization so newer migrations can be applied
 
 Traceary does not promise backward compatibility for arbitrary manual schema edits.
@@ -73,18 +142,19 @@ If you need a portable copy, use `traceary backup create` instead of editing the
 
 ## `gc` defaults
 
-`traceary gc` is retention-based cleanup for old events.
+`traceary gc` is retention-based cleanup for old event history.
 
 - default retention: `90` days (`--keep-days 90`)
-- selection rule: delete rows where `created_at < cutoff`
+- selection rule: delete rows where `events.created_at < cutoff`
 - `--dry-run`: print only the candidate count
 - after deletion, Traceary runs `VACUUM`
 
 Practical implications:
 
 - `gc` is opt-in; Traceary does not delete history automatically in the background
-- a `gc` run removes matching events and their linked `command_audits`
-- if you care about long-term history, take a backup before an aggressive cleanup
+- a `gc` run removes matching `events` rows and linked `command_audits`
+- the current `gc` implementation does **not** delete `sessions` or durable-memory rows from `memories`, `memory_evidence_refs`, or `memory_artifact_refs`
+- if you care about long-term audit history, take a backup before an aggressive cleanup
 
 ## Backup defaults
 
@@ -104,4 +174,3 @@ When you need to understand what Traceary is doing locally:
 1. run `traceary doctor` to confirm the resolved DB path and writeability
 2. inspect `schema/sqlite/migrations/` if you need the exact SQL
 3. use `traceary backup create` before manual investigation or risky cleanup
-
