@@ -5,6 +5,34 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.5.1] - 2026-04-14
+
+read-side の使い勝手改善と documentation follow-up のリリースです。
+
+### 追加
+- 新規イベントを追跡表示する `traceary tail` コマンド (NDJSON 出力対応)
+- 各リリースタグの changelog カバレッジをリリース前に強制する CI ジョブ
+
+### 変更
+- README を 3 層 memory model と host capability マトリクスを軸に再構成
+- v0.2.2 〜 v0.4.0 の changelog エントリを補完
+
+### 修正
+- `traceary tail` follow mode の各 poll window を SQLite 単一 read snapshot の中でスキャンするよう変更。並行書き込み下で OFFSET ページングがイベントを silently に取りこぼすデータ欠落バグを修正
+- durable memory extraction が caller 指定 redaction パターンで正規化した後のキーで既存 fact を dedupe するようになり、extra redact pattern をローテーションしても重複候補が発生しなくなった
+- artifact-ref extraction を拡張し、dotted path や末尾句読点をカバーしつつ slash-prose の誤検出を除外
+
+### 対象イシュー
+- #473 memory candidate 用の artifact-ref extraction 拡張
+- #474 redaction パターン変更後の extracted memory dedupe
+- #477 v0.2.2 〜 v0.4.0 の changelog 補完
+- #478 memory model と host capability を軸にした README 再構成
+- #481 Traceary event stream の live tailing
+- #483 CI とリリース準備での changelog coverage 強制
+- #489 並行書き込み時の tail ページング取りこぼし修正
+- #490 redaction パターン正規化を検証する dedupe テスト強化
+- #491 tail 境界 dedupe と From 包含契約の固定
+
 ## [v0.5.0] - 2026-04-13
 
 Durable memory と context-aware workflow を導入するリリースです。

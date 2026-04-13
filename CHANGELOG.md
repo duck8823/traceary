@@ -5,6 +5,34 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.5.1] - 2026-04-14
+
+Read-side ergonomics and documentation follow-up release.
+
+### Added
+- `traceary tail` command for following new events as they arrive, with NDJSON output support
+- CI job that enforces CHANGELOG coverage for every released tag before release
+
+### Changed
+- README restructured around the three-layer memory model and host-capability matrix
+- backfilled missing changelog entries for v0.2.2 through v0.4.0
+
+### Fixed
+- `traceary tail` follow mode now scans each poll window under a single SQLite read snapshot, closing a data-loss bug where concurrent writers could silently drop events via OFFSET-based pagination
+- durable memory extraction now dedupes existing facts after caller-supplied redaction patterns normalize them, so rotating an extra redact pattern no longer produces duplicate candidates
+- broadened artifact-ref extraction to cover more path shapes (dotted paths, trailing punctuation) while rejecting slash-prose false positives
+
+### Included issues
+- #473 broader artifact-ref extraction for memory candidates
+- #474 dedupe extracted memories across redaction-rule changes
+- #477 backfill missing changelog entries for v0.2.2 through v0.4.0
+- #478 restructure README around the memory model and host capabilities
+- #481 live tailing for Traceary event streams
+- #483 enforce changelog coverage in CI and release preparation
+- #489 fix tail pagination data loss under concurrent writes
+- #490 strengthen dedupe test to cover redaction-pattern normalization
+- #491 pin tail boundary dedupe and From inclusivity contract
+
 ## [v0.5.0] - 2026-04-13
 
 Durable memory and context-aware workflows release.
