@@ -205,6 +205,8 @@ Inputs:
 `query` を指定した場合は全文検索を行います。
 どちらも指定しない場合は、scope / status / type で絞り込んだ active memory 一覧を返します。
 
+durable memory の payload は保存済みの内容をそのまま返します。機微情報は、永続化前に既存の memory sanitization / redaction 経路で処理されている前提です。
+
 ### `remember_memory`
 
 accepted な durable memory を記録します。

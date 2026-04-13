@@ -205,6 +205,8 @@ When `memory_id` is set, Traceary returns that single memory with evidence and a
 When `query` is set, Traceary performs full-text search.
 Otherwise it lists active memories, optionally filtered by scope / status / type.
 
+Durable-memory payloads are returned as stored. Sensitive content is expected to be handled at write time through the existing memory sanitization/redaction path before persistence.
+
 ### `remember_memory`
 
 Records an accepted durable memory.
