@@ -25,12 +25,17 @@ AI-assisted development gets messy quickly when:
 
 Traceary keeps those records in one local SQLite store so the same history can be reused from the CLI, hooks, and MCP clients.
 
-## What it stores
+## Three-layer model
 
-- notes and review records
-- session start/end events
-- shell command audits
-- attribution such as `client`, `agent`, `session_id`, and repository/work context
+Traceary is no longer just a local event log. `v0.5.0` organizes the product around three layers that map to how agent workflows actually need context.
+
+| Layer | What lives there | Why it matters |
+|---|---|---|
+| Audit / Archive | raw events, session boundaries, command audits | keeps the source-of-truth timeline for inspection, search, and forensic review |
+| Working memory | handoff/context packs assembled from recent sessions | helps the next agent or resumed session start with the right context instead of the whole log |
+| Durable memory | reusable facts such as decisions, constraints, preferences, and artifact refs | stores the small set of facts that should survive across sessions and be retrieved on demand |
+
+In practice, this means Traceary can act as a local-first memory substrate for AI agents rather than only a CLI that appends logs.
 
 Traceary is local-first. It writes to SQLite on your machine and does not include built-in telemetry, analytics, or hosted storage.
 
@@ -118,19 +123,17 @@ traceary audit --id-only --command "go test ./..." --input '{}' --output '{}'
 traceary session end --session-id "$sid" --id-only
 ```
 
-## Manual CLI workflows
+## Host capture matrix
 
-If you need one-off/manual usage outside the host integrations, the usual entry points are:
+The query surface is shared: once Traceary is installed, every host can use the same CLI and MCP memory/context commands. What differs is how much context each host can capture automatically via hooks.
 
-- `traceary session start`
-- `traceary session list`
-- `traceary session label`
-- `traceary log`
-- `traceary audit`
-- `traceary list` / `traceary search`
-- `traceary doctor`
+| Host | Session lifecycle | Tool audit | Prompt capture | Compact-summary capture | Automatic capture tier |
+|---|---|---|---|---|---|
+| Claude Code | Full | Bash + MCP + failure hooks | Yes | Yes | Full |
+| Codex | Full (`SessionStart` + `Stop`) | Tool hooks | No | No | Partial |
+| Gemini CLI | Full (`SessionStart` + `SessionEnd`) | Tool hooks | No | No | Basic |
 
-Use the [CLI reference](./docs/cli/README.md) for the full command surface.
+For the full contract and hook semantics, see the [hook contract](./docs/hooks/contract.md) and [event lifecycle](./docs/lifecycle.md).
 
 ## Defaults worth knowing
 
@@ -147,8 +150,10 @@ Use the [documentation index](./docs/README.md) for the full map.
 The most common next pages are:
 
 - [Native integrations](./docs/integrations/README.md)
-- [CLI reference](./docs/cli/README.md)
+- [CLI reference](./docs/cli/README.md) — including manual one-off CLI workflows
 - [Hooks guide](./docs/hooks/README.md)
+- [Hook contract and capability tiers](./docs/hooks/contract.md)
+- [Event lifecycle](./docs/lifecycle.md)
 - [MCP guide](./docs/mcp/README.md)
 - [Environment and storage notes](./docs/environment/README.md)
 
