@@ -678,13 +678,17 @@ func (s *Server) expireMemory() mcp.ToolHandlerFor[expireMemoryInput, memoryOutp
 	}
 }
 
-func buildContextPackCriteria(sessionID string, workspace string, recentCommandsLimit int, memoryLimit int) apptypes.ContextPackCriteria {
-	return apptypes.NewContextPackCriteriaBuilder().
+func buildContextPackCriteria(sessionID string, workspace string, recentCommandsLimit *int, memoryLimit *int) apptypes.ContextPackCriteria {
+	builder := apptypes.NewContextPackCriteriaBuilder().
 		SessionID(types.SessionID(strings.TrimSpace(sessionID))).
-		Workspace(types.Workspace(strings.TrimSpace(workspace))).
-		RecentCommandsLimit(resolveLimit(recentCommandsLimit, 5)).
-		MemoryLimit(resolveLimit(memoryLimit, 5)).
-		Build()
+		Workspace(types.Workspace(strings.TrimSpace(workspace)))
+	if recentCommandsLimit != nil {
+		builder.RecentCommandsLimit(*recentCommandsLimit)
+	}
+	if memoryLimit != nil {
+		builder.MemoryLimit(*memoryLimit)
+	}
+	return builder.Build()
 }
 
 func newContextPackOutput(pack apptypes.ContextPack) sessionHandoffOutput {

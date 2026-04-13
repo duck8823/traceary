@@ -423,6 +423,89 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 	})
 
+	t.Run("memory_pack preserves explicit zero limits", func(t *testing.T) {
+		startResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "start_session",
+			Arguments: map[string]any{
+				"agent":     "claude",
+				"workspace": "github.com/duck8823/traceary",
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(start_session) error = %v", err)
+		}
+		sessionID := extractJSONStringValue(t, startResult, "session_id")
+
+		_, err = clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "add_log",
+			Arguments: map[string]any{
+				"message":    "Decision summary",
+				"kind":       "compact_summary",
+				"agent":      "claude",
+				"session_id": sessionID,
+				"workspace":  "github.com/duck8823/traceary",
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(add_log compact_summary) error = %v", err)
+		}
+		_, err = clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "add_audit",
+			Arguments: map[string]any{
+				"command":    "go test ./...",
+				"agent":      "claude",
+				"session_id": sessionID,
+				"workspace":  "github.com/duck8823/traceary",
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(add_audit) error = %v", err)
+		}
+		_, err = clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "remember_memory",
+			Arguments: map[string]any{
+				"type":      "decision",
+				"workspace": "github.com/duck8823/traceary",
+				"fact":      "Context packs may disable optional sections",
+				"evidence_refs": []any{
+					map[string]any{"kind": "issue", "value": "#464"},
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(remember_memory) error = %v", err)
+		}
+
+		packResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "memory_pack",
+			Arguments: map[string]any{
+				"session_id":            sessionID,
+				"recent_commands_limit": 0,
+				"memory_limit":          0,
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(memory_pack) error = %v", err)
+		}
+		if packResult.IsError {
+			t.Fatalf("CallTool(memory_pack) returned tool error")
+		}
+
+		packPayload := decodeJSONPayload(t, packResult)
+		if recentCommandsValue, exists := packPayload["recent_commands"]; exists {
+			recentCommands, ok := recentCommandsValue.([]any)
+			if !ok || len(recentCommands) != 0 {
+				t.Fatalf("recent_commands = %T len=%d, want omitted or empty []any", recentCommandsValue, len(recentCommands))
+			}
+		}
+		if memoriesValue, exists := packPayload["memories"]; exists {
+			memories, ok := memoriesValue.([]any)
+			if !ok || len(memories) != 0 {
+				t.Fatalf("memories = %T len=%d, want omitted or empty []any", memoriesValue, len(memories))
+			}
+		}
+	})
+
 	t.Run("supersede and expire memory return updated memory details", func(t *testing.T) {
 		rememberResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 			Name: "remember_memory",

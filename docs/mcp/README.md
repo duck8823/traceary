@@ -182,8 +182,8 @@ Inputs:
 
 - `workspace`
 - `session_id`
-- `recent_commands_limit` (default: `5`)
-- `memory_limit` (default: `5`)
+- `recent_commands_limit` (default: `5`; explicit `0` disables recent commands)
+- `memory_limit` (default: `5`; explicit `0` disables durable memories)
 
 ### `retrieve_memories`
 
@@ -285,8 +285,8 @@ Inputs:
 
 - `workspace`
 - `session_id`
-- `recent_commands_limit` (default: `5`)
-- `memory_limit` (default: `5`)
+- `recent_commands_limit` (default: `5`; explicit `0` disables recent commands)
+- `memory_limit` (default: `5`; explicit `0` disables durable memories)
 
 ## Practical client example
 

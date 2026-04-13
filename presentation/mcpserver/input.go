@@ -79,16 +79,16 @@ type getContextInput struct {
 type sessionHandoffInput struct {
 	SessionID           string `json:"session_id,omitempty" jsonschema:"session identifier filter"`
 	Workspace           string `json:"workspace,omitempty" jsonschema:"work context filter"`
-	RecentCommandsLimit int    `json:"recent_commands_limit,omitempty" jsonschema:"maximum recent commands to include (default: 5)"`
-	MemoryLimit         int    `json:"memory_limit,omitempty" jsonschema:"maximum durable memories to include (default: 5)"`
+	RecentCommandsLimit *int   `json:"recent_commands_limit,omitempty" jsonschema:"maximum recent commands to include (default: 5; explicit 0 disables recent commands)"`
+	MemoryLimit         *int   `json:"memory_limit,omitempty" jsonschema:"maximum durable memories to include (default: 5; explicit 0 disables durable memories)"`
 }
 
 // memoryPackInput is the MCP input for the memory_pack tool.
 type memoryPackInput struct {
 	SessionID           string `json:"session_id,omitempty" jsonschema:"session identifier filter"`
 	Workspace           string `json:"workspace,omitempty" jsonschema:"work context filter"`
-	RecentCommandsLimit int    `json:"recent_commands_limit,omitempty" jsonschema:"maximum recent commands to include (default: 5)"`
-	MemoryLimit         int    `json:"memory_limit,omitempty" jsonschema:"maximum durable memories to include (default: 5)"`
+	RecentCommandsLimit *int   `json:"recent_commands_limit,omitempty" jsonschema:"maximum recent commands to include (default: 5; explicit 0 disables recent commands)"`
+	MemoryLimit         *int   `json:"memory_limit,omitempty" jsonschema:"maximum durable memories to include (default: 5; explicit 0 disables durable memories)"`
 }
 
 // memoryRefInput is the MCP representation of evidence/artifact references.
