@@ -112,6 +112,35 @@ func TestRootCLI_MemorySearchCommand_RequiresConstraint(t *testing.T) {
 	}
 }
 
+func TestRootCLI_MemorySearchCommand_DoesNotLeakPositionalQuery(t *testing.T) {
+	stub := &memoryUsecaseStub{
+		searchResult: []apptypes.MemorySummary{mustMemorySummary(t, "memory-search", "Search memory", types.MemoryStatusAccepted)},
+	}
+
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(stub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+
+	rootCmd.SetArgs([]string{"memory", "search", "--db-path", "/tmp/test-traceary.db", "release"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("first Execute() error = %v", err)
+	}
+	if got := stub.searchCriteria.Query(); got != "release" {
+		t.Fatalf("first query = %q, want release", got)
+	}
+
+	rootCmd.SetArgs([]string{"memory", "search", "--db-path", "/tmp/test-traceary.db", "--status", "accepted"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("second Execute() error = %v", err)
+	}
+	if got := stub.searchCriteria.Query(); got != "" {
+		t.Fatalf("second query = %q, want empty", got)
+	}
+}
+
 func TestRootCLI_MemoryShowCommand(t *testing.T) {
 	details := mustMemoryDetails(t, "memory-shown", "Shown memory", types.MemoryStatusAccepted)
 
@@ -161,6 +190,35 @@ func TestRootCLI_MemoryAcceptCommand_PassesConfidence(t *testing.T) {
 	}
 	if stdout.String() != "memory-accepted\n" {
 		t.Fatalf("stdout = %q, want memory ID only", stdout.String())
+	}
+}
+
+func TestRootCLI_MemoryProposeCommand_IgnoresConfidenceFlagValidation(t *testing.T) {
+	stub := &memoryUsecaseStub{
+		proposeDetails: mustMemoryDetails(t, "memory-proposed", "Candidate memory", types.MemoryStatusCandidate),
+	}
+
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(stub),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "propose",
+		"--db-path", "/tmp/test-traceary.db",
+		"--type", "lesson",
+		"--fact", "Wait for codex review before merge",
+		"--confidence", "definitely-not-valid",
+		"--workspace", "github.com/duck8823/traceary",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !strings.Contains(stdout.String(), "memory-proposed") {
+		t.Fatalf("stdout = %q, want proposed memory output", stdout.String())
 	}
 }
 

@@ -59,6 +59,7 @@ func (c *RootCLI) newMemorySearchCommand() *cobra.Command {
 		Short: Localize("Search durable memories", "durable memory を検索する"),
 		Args:  maximumNArgsLocalized(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			input.query = ""
 			if len(args) == 1 {
 				input.query = args[0]
 			}
@@ -369,6 +370,7 @@ func (c *RootCLI) runMemoryPropose(ctx context.Context, output io.Writer, input 
 	if err := c.initializeMemoryStore(ctx, input.dbPath); err != nil {
 		return err
 	}
+	input.confidence = ""
 	memoryType, scope, _, source, evidenceRefs, artifactRefs, err := c.resolveMemoryWriteParameters(ctx, input)
 	if err != nil {
 		return err
