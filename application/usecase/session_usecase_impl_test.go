@@ -82,14 +82,16 @@ func (s *sessionQueryServiceStub) ListSummaries(
 }
 
 type eventQueryServiceStub struct {
-	listRecentResult       []*model.Event
-	listRecentResultByKind map[types.EventKind][]*model.Event
-	listRecentErr          error
-	listRecentErrByKind    map[types.EventKind]error
-	listRecentCalls        int
-	listRecentCallsByKind  map[types.EventKind]int
-	listRecentLimit        int
-	listRecentLimitByKind  map[types.EventKind]int
+	listRecentResult          []*model.Event
+	listRecentResultByKind    map[types.EventKind][]*model.Event
+	listRecentErr             error
+	listRecentErrByKind       map[types.EventKind]error
+	listRecentCalls           int
+	listRecentCallsByKind     map[types.EventKind]int
+	listRecentLimit           int
+	listRecentLimitByKind     map[types.EventKind]int
+	listRecentWorkspace       types.Workspace
+	listRecentWorkspaceByKind map[types.EventKind]types.Workspace
 }
 
 func (s *eventQueryServiceStub) ListRecent(
@@ -99,20 +101,25 @@ func (s *eventQueryServiceStub) ListRecent(
 	_ types.Client,
 	_ types.Agent,
 	_ types.SessionID,
-	_ types.Workspace,
+	workspace types.Workspace,
 	_ bool,
 	_, _ time.Time,
 ) ([]*model.Event, error) {
 	s.listRecentCalls++
 	s.listRecentLimit = limit
+	s.listRecentWorkspace = workspace
 	if s.listRecentCallsByKind == nil {
 		s.listRecentCallsByKind = make(map[types.EventKind]int)
 	}
 	if s.listRecentLimitByKind == nil {
 		s.listRecentLimitByKind = make(map[types.EventKind]int)
 	}
+	if s.listRecentWorkspaceByKind == nil {
+		s.listRecentWorkspaceByKind = make(map[types.EventKind]types.Workspace)
+	}
 	s.listRecentCallsByKind[kind]++
 	s.listRecentLimitByKind[kind] = limit
+	s.listRecentWorkspaceByKind[kind] = workspace
 
 	if err, ok := s.listRecentErrByKind[kind]; ok && err != nil {
 		return nil, err

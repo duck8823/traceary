@@ -107,7 +107,7 @@ func (b *contextPackBuilder) loadRecentCommands(ctx context.Context, session app
 		domtypes.Client(""),
 		domtypes.Agent(""),
 		session.SessionID(),
-		session.Workspace(),
+		domtypes.Workspace(""),
 		false,
 		time.Time{},
 		time.Time{},

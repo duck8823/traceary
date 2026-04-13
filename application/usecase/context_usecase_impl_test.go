@@ -146,6 +146,12 @@ func TestContextUsecase_Handoff(t *testing.T) {
 		if diff := cmp.Diff(1, eventQuery.listRecentLimitByKind[domtypes.EventKindCompactSummary]); diff != "" {
 			t.Fatalf("compact limit mismatch (-want +got):\n%s", diff)
 		}
+		if diff := cmp.Diff(domtypes.Workspace(""), eventQuery.listRecentWorkspaceByKind[domtypes.EventKindCommandExecuted]); diff != "" {
+			t.Fatalf("command workspace filter mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(domtypes.Workspace("duck8823/traceary"), eventQuery.listRecentWorkspaceByKind[domtypes.EventKindCompactSummary]); diff != "" {
+			t.Fatalf("compact workspace filter mismatch (-want +got):\n%s", diff)
+		}
 	})
 
 	t.Run("skips memory lookup when no scopes are available", func(t *testing.T) {
