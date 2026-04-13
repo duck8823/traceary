@@ -196,48 +196,77 @@ Inputs:
 - `session_family`
 - `status`
 - `type`
+- `limit`（既定: `20`）
+- `offset`（既定: `0`）
 
-### `propose_memory`
+`memory_id` を指定した場合は、evidence ref と artifact ref を含むその 1 件を返します。
+`query` を指定した場合は全文検索を行います。
+どちらも指定しない場合は、scope / status / type で必要に応じて絞り込みながら、active memory を一覧で返します。
 
-candidate 状態の durable memory を追加します。
-
-Inputs:
-
-- `fact`（必須）
-- `type`（必須）
-- `workspace` / `agent` / `session_family`（いずれか 1 つ以上）
-- `evidence_refs`
-- `artifact_refs`
+Durable memory の payload は、保存済みの内容をそのまま返します。機微情報は、永続化前に既存の memory sanitization / redaction 経路で処理されている前提です。
 
 ### `remember_memory`
 
-accepted 状態の durable memory を直接追加します。
+accepted 状態の durable memory を追加します。
 
 Inputs:
 
-- `fact`（必須）
 - `type`（必須）
-- `workspace` / `agent` / `session_family`（いずれか 1 つ以上）
-- `evidence_refs`（必須）
+- `workspace` / `agent` / `session_family` のいずれか 1 つ（必須、相互排他）
+- `fact`（必須）
+- `confidence`
+- `source`
+- `evidence_refs`
 - `artifact_refs`
-- `confidence`（既定: `verified`）
+
+accepted memory には、少なくとも 1 つの evidence ref が必要です。
+
+### `propose_memory`
+
+レビュー前の candidate durable memory を追加します。
+
+Inputs:
+
+- `type`（必須）
+- `workspace` / `agent` / `session_family` のいずれか 1 つ（必須、相互排他）
+- `fact`（必須）
+- `source`
+- `evidence_refs`
+- `artifact_refs`
 
 ### `accept_memory`
 
-candidate memory を accepted に更新します。
+candidate durable memory を accepted に更新します。
 
 Inputs:
 
 - `memory_id`（必須）
-- `confidence`（既定: `verified`）
+- `confidence`
 
 ### `reject_memory`
 
-candidate memory を rejected に更新します。
+candidate durable memory を rejected に更新します。
 
 Inputs:
 
 - `memory_id`（必須）
+
+### `supersede_memory`
+
+accepted durable memory を superseded にし、新しい accepted memory を保存します。
+
+Inputs:
+
+- `memory_id`（必須）
+- `fact`（必須）
+- 置き換え後の `type`
+- 置き換え後の `workspace` / `agent` / `session_family`
+- `confidence`
+- `source`
+- `evidence_refs`
+- `artifact_refs`
+
+置き換え後の `type` や scope を省略した場合は、現在の memory の値を引き継ぎます。
 
 ### `expire_memory`
 
@@ -246,23 +275,11 @@ memory を expired に更新します。
 Inputs:
 
 - `memory_id`（必須）
-- `expires_at`（省略時は現在時刻）
-
-### `supersede_memory`
-
-accepted memory を新しい accepted memory で置き換えます。
-
-Inputs:
-
-- `memory_id`（必須）
-- `fact`（必須）
-- `evidence_refs`（必須）
-- `artifact_refs`
-- `confidence`（既定: `verified`）
+- `expires_at`（`YYYY-MM-DD` または RFC3339。省略時は現在時刻）
 
 ### `memory_pack`
 
-working memory と durable memory を合わせた、プロンプト注入向けの context pack を返します。
+working memory と durable memory を合わせた、プロンプトへの文脈補完や自動化向けの context pack を返します。
 
 Inputs:
 
@@ -271,23 +288,46 @@ Inputs:
 - `recent_commands_limit`（既定: `5`。明示的に `0` を渡すと recent commands を無効化）
 - `memory_limit`（既定: `5`。明示的に `0` を渡すと durable memories を無効化）
 
-## 使い分けの目安
+## 実用的なクライアント設定例
 
-- まず事実を残すだけなら `add_log` / `add_audit`
-- 直近の流れをざっと見たいなら `list_events` / `get_context`
-- セッション再開用の要約がほしいなら `session_handoff`
-- あとで再利用したい判断や制約を残したいなら `propose_memory` / `remember_memory`
-- durable memory を含む prompt 用パックがほしいなら `memory_pack`
+多くの stdio MCP クライアントでは、`mcpServers` を次のように設定できます。
 
-## よくある運用パターン
+```json
+{
+  "mcpServers": {
+    "traceary": {
+      "command": "traceary",
+      "args": ["mcp-server"],
+      "env": {
+        "TRACEARY_DB_PATH": "/Users/you/.config/traceary/traceary.db"
+      }
+    }
+  }
+}
+```
+
+クライアントごとの設定形式が違っても、次の 3 点は共通です。
+
+- command: `traceary`
+- args: `["mcp-server"]`
+- optional env: `TRACEARY_DB_PATH=/path/to/traceary.db`
+
+## 推奨ワークフロー
+
+実運用では、次の流れが扱いやすいです。
 
 1. hooks で session 境界と command audit を自動記録する
-2. 必要に応じて MCP から `search` や `get_context` を呼ぶ
-3. セッションをまたいで残したい知識だけ `propose_memory` / `remember_memory` で durable memory に昇格する
-4. 次のエージェントへ渡すときは `session_handoff` または `memory_pack` を使う
+2. 同じ Traceary DB を MCP からも参照できるようにする
+3. セッションを明示的に再開したいときは `active_session` または `latest_session` を呼ぶ
+4. 条件なしで最近の流れを見たいときは `list_events` を呼ぶ
+5. 新しい作業に入る前に `get_context` を呼ぶ
+6. 古いコマンド出力やメモを探したいときは `search` を呼ぶ
+7. クライアント自身が session lifecycle を管理したい場合だけ `start_session` / `end_session` / `add_log` / `add_audit` を使う
 
-## 参考
+こうしておくと、受動的な取り込みと能動的な文脈取得を同じローカルストアで扱えます。
+
+## 関連ドキュメント
 
 - Hooks ガイド: [`../hooks/README.ja.md`](../hooks/README.ja.md)
-- イベントライフサイクル: [`../lifecycle.ja.md`](../lifecycle.ja.md)
+- リリース / インストールガイド: [`../release/README.ja.md`](../release/README.ja.md)
 - CLI リファレンス: [`../cli/README.ja.md`](../cli/README.ja.md)
