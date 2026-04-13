@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -18,6 +19,8 @@ import (
 )
 
 const hookStateDirEnvKey = "TRACEARY_HOOK_STATE_DIR"
+
+var hookParentPIDLookup = defaultHookParentPIDLookup
 
 func (c *RootCLI) newHookCommand() *cobra.Command {
 	hookCmd := &cobra.Command{
@@ -42,7 +45,9 @@ func (c *RootCLI) newHookSessionCommand() *cobra.Command {
 		Hidden: true,
 		Args:   exactArgsLocalized(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return c.runHookSession(cmd.Context(), cmd.OutOrStdout(), cmd.InOrStdin(), args[0], args[1], dbPath)
+			return runHookBestEffort(func() error {
+				return c.runHookSession(cmd.Context(), cmd.OutOrStdout(), cmd.InOrStdin(), args[0], args[1], dbPath)
+			})
 		},
 	}
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
@@ -59,7 +64,9 @@ func (c *RootCLI) newHookAuditCommand() *cobra.Command {
 		Hidden: true,
 		Args:   exactArgsLocalized(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return c.runHookAudit(cmd.Context(), cmd.InOrStdin(), args[0], dbPath)
+			return runHookBestEffort(func() error {
+				return c.runHookAudit(cmd.Context(), cmd.InOrStdin(), args[0], dbPath)
+			})
 		},
 	}
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
@@ -76,7 +83,9 @@ func (c *RootCLI) newHookCompactCommand() *cobra.Command {
 		Hidden: true,
 		Args:   exactArgsLocalized(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return c.runHookCompact(cmd.Context(), cmd.OutOrStdout(), cmd.InOrStdin(), args[0], args[1], dbPath)
+			return runHookBestEffort(func() error {
+				return c.runHookCompact(cmd.Context(), cmd.OutOrStdout(), cmd.InOrStdin(), args[0], args[1], dbPath)
+			})
 		},
 	}
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
@@ -93,7 +102,9 @@ func (c *RootCLI) newHookPromptCommand() *cobra.Command {
 		Hidden: true,
 		Args:   exactArgsLocalized(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return c.runHookPrompt(cmd.Context(), cmd.InOrStdin(), args[0], dbPath)
+			return runHookBestEffort(func() error {
+				return c.runHookPrompt(cmd.Context(), cmd.InOrStdin(), args[0], dbPath)
+			})
 		},
 	}
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
@@ -160,6 +171,8 @@ func (c *RootCLI) runHookSession(
 			if err := writeHookWorkspaceState(client, workspace); err != nil {
 				return err
 			}
+		} else if err := clearHookWorkspaceState(client); err != nil {
+			return err
 		}
 		if output != nil {
 			if _, err := fmt.Fprintln(output, event.SessionID()); err != nil {
@@ -447,9 +460,6 @@ func resolveHookSessionID(payload []byte, client string) (types.SessionID, error
 }
 
 func resolveHookWorkspace(ctx context.Context, payload []byte, client string, preferState bool) (types.Workspace, error) {
-	if explicit := strings.TrimSpace(os.Getenv("TRACEARY_WORKSPACE")); explicit != "" {
-		return types.Workspace(explicit), nil
-	}
 	if preferState {
 		workspace, err := readHookWorkspaceState(client)
 		if err != nil {
@@ -458,6 +468,9 @@ func resolveHookWorkspace(ctx context.Context, payload []byte, client string, pr
 		if workspace != "" {
 			return workspace, nil
 		}
+	}
+	if explicit := strings.TrimSpace(os.Getenv("TRACEARY_WORKSPACE")); explicit != "" {
+		return types.Workspace(explicit), nil
 	}
 
 	cwd := hookPayloadString(payload, "cwd", "")
@@ -566,10 +579,36 @@ func resolveHookStateKey() string {
 		return sanitizeHookStateKey(explicit)
 	}
 	if parentPID := os.Getppid(); parentPID > 0 {
+		if grandParentPID, err := hookParentPIDLookup(parentPID); err == nil && grandParentPID > 0 {
+			return sanitizeHookStateKey(strconv.Itoa(grandParentPID))
+		}
 		return sanitizeHookStateKey(strconv.Itoa(parentPID))
 	}
 
 	return sanitizeHookStateKey(strconv.Itoa(os.Getpid()))
+}
+
+func defaultHookParentPIDLookup(pid int) (int, error) {
+	output, err := exec.Command("ps", "-o", "ppid=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return 0, xerrors.Errorf("failed to resolve hook parent process: %w", err)
+	}
+	trimmed := strings.TrimSpace(string(output))
+	if trimmed == "" {
+		return 0, nil
+	}
+	parentPID, err := strconv.Atoi(trimmed)
+	if err != nil {
+		return 0, xerrors.Errorf("failed to parse hook parent process ID: %w", err)
+	}
+	return parentPID, nil
+}
+
+func runHookBestEffort(run func() error) error {
+	if err := run(); err != nil {
+		return nil
+	}
+	return nil
 }
 
 func sanitizeHookStateKey(value string) string {

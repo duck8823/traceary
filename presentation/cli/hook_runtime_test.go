@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -150,6 +151,53 @@ func TestRootCLI_HookSessionCommand_StopUsesStateAndCreatesEndMarker(t *testing.
 	}
 	if _, err := os.Stat(filepath.Join(stateDir, "ended", "claude-claude-session")); err != nil {
 		t.Fatalf("Stat(end marker) error = %v", err)
+	}
+}
+
+func TestRootCLI_HookSessionCommand_StartClearsStaleWorkspaceStateWhenWorkspaceMissing(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	workspaceStatePath := filepath.Join(stateDir, "claude-test-key-repo")
+	if err := os.WriteFile(workspaceStatePath, []byte("stale/workspace"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	storeStub := &storeManagementUsecaseStub{}
+	sessionStub := &sessionUsecaseStub{
+		startEvent: model.EventOf(
+			types.EventID("evt-start"),
+			types.EventKindSessionStarted,
+			types.Client("hook"),
+			types.Agent("claude"),
+			types.SessionID("generated-session"),
+			types.Workspace(""),
+			"session started",
+			time.Now(),
+		),
+	}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(storeStub),
+		cli.WithSession(sessionStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{}`))
+	rootCmd.SetArgs([]string{"hook", "session", "claude", "start"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if _, err := os.Stat(workspaceStatePath); !os.IsNotExist(err) {
+		t.Fatalf("workspace state still exists: %v", err)
 	}
 }
 
@@ -364,5 +412,76 @@ func TestRootCLI_HookPromptCommand_UsesPromptPayload(t *testing.T) {
 	}
 	if got, want := eventStub.logCall.agent, types.Agent("claude/planner"); got != want {
 		t.Fatalf("prompt log agent = %q, want %q", got, want)
+	}
+}
+
+func TestRootCLI_HookPromptCommand_PrefersPersistedWorkspaceOverEnvOverride(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
+	t.Setenv("TRACEARY_WORKSPACE", "env/workspace")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key"), []byte("prompt-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key-repo"), []byte("state/workspace"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	storeStub := &storeManagementUsecaseStub{}
+	eventStub := &eventUsecaseStub{
+		logEvent: model.EventOf(
+			types.EventID("evt-prompt"),
+			types.EventKindPrompt,
+			types.Client("hook"),
+			types.Agent("claude"),
+			types.SessionID("prompt-session"),
+			types.Workspace("state/workspace"),
+			"Fix the flaky test",
+			time.Now(),
+		),
+	}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(storeStub),
+		cli.WithEvent(eventStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"prompt":"Fix the flaky test"}`))
+	rootCmd.SetArgs([]string{"hook", "prompt", "claude"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got, want := eventStub.logCall.workspace, types.Workspace("state/workspace"); got != want {
+		t.Fatalf("prompt log workspace = %q, want %q", got, want)
+	}
+}
+
+func TestRootCLI_HookCommand_SwallowsOperationalErrors(t *testing.T) {
+	storeStub := &storeManagementUsecaseStub{initErr: errors.New("boom")}
+	sessionStub := &sessionUsecaseStub{}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(storeStub),
+		cli.WithSession(sessionStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{}`))
+	rootCmd.SetArgs([]string{"hook", "session", "claude", "start"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, want nil for best-effort hook command", err)
+	}
+	if !storeStub.initCalled {
+		t.Fatal("store Initialize() was not called")
 	}
 }
