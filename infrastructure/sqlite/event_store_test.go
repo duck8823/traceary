@@ -616,3 +616,79 @@ CREATE TABLE command_audits (
 		t.Fatalf("got[0].EventID() = %q, want event-inside", got[0].EventID().String())
 	}
 }
+
+func TestDatasource_ListWindow_RespectsFromLowerBoundInclusive(t *testing.T) {
+	t.Parallel()
+
+	migrations := fstest.MapFS{
+		"000001_init.sql": {
+			Data: []byte(`
+CREATE TABLE events (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);`),
+		},
+		"000002_add_event_metadata.sql": {
+			Data: []byte(`
+ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
+ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';
+
+CREATE INDEX idx_events_created_at
+    ON events(created_at DESC, id DESC);`),
+		},
+		"000003_create_command_audits.sql": {
+			Data: []byte(`
+CREATE TABLE command_audits (
+    event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+    command_text TEXT NOT NULL,
+    input_text TEXT NOT NULL,
+    output_text TEXT NOT NULL,
+    input_truncated INTEGER NOT NULL DEFAULT 0,
+    output_truncated INTEGER NOT NULL DEFAULT 0,
+    exit_code INTEGER
+);`),
+		},
+	}
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	sut, storeManager := newEventDatasource(t, dbPath, migrations)
+
+	if err := storeManager.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	// This test pins the `From` inclusivity contract at the query layer so a
+	// future refactor that flips it to exclusive is caught here, not by
+	// deprecation in tail.go's cursor-based dedupe. Three events: one before
+	// From (must be excluded), one exactly at From (must be INcluded), one
+	// strictly after (must be included).
+	boundary := time.Date(2026, 4, 13, 18, 0, 0, 0, time.UTC)
+	before := newEventForSQLiteTest(t, "event-before", "cli", "codex", "session-1", "ws", "before", boundary.Add(-time.Second))
+	at := newEventForSQLiteTest(t, "event-at-boundary", "cli", "codex", "session-1", "ws", "at", boundary)
+	after := newEventForSQLiteTest(t, "event-after", "cli", "codex", "session-1", "ws", "after", boundary.Add(time.Second))
+	for _, event := range []*model.Event{before, at, after} {
+		if err := sut.Save(context.Background(), event); err != nil {
+			t.Fatalf("Save(%s) error = %v", event.EventID().String(), err)
+		}
+	}
+
+	criteria := apptypes.NewEventListCriteriaBuilder(10).
+		From(boundary).
+		To(boundary.Add(10 * time.Second)).
+		Build()
+
+	got, err := sut.ListWindow(context.Background(), criteria)
+	if err != nil {
+		t.Fatalf("ListWindow() error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len(events) = %d, want 2 (From must include boundary, exclude before)", len(got))
+	}
+	// DESC order: got[0] = after, got[1] = at
+	if got[0].EventID().String() != "event-after" || got[1].EventID().String() != "event-at-boundary" {
+		t.Fatalf("got = %q/%q, want event-after/event-at-boundary", got[0].EventID(), got[1].EventID())
+	}
+}
