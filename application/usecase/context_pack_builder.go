@@ -72,7 +72,7 @@ func (b *contextPackBuilder) Build(ctx context.Context, criteria apptypes.Contex
 	}
 	compactSummary, err := b.loadCompactSummary(ctx, session)
 	if err != nil {
-		return domtypes.Empty[apptypes.ContextPack](), err
+		compactSummary = ""
 	}
 	memories, err := b.loadMemories(ctx, session, criteria.MemoryLimit())
 	if err != nil {

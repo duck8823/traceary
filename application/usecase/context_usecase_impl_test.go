@@ -212,4 +212,62 @@ func TestContextUsecase_Handoff(t *testing.T) {
 			t.Fatal("Handoff() error = nil, want error")
 		}
 	})
+
+	t.Run("degrades when compact summary lookup fails", func(t *testing.T) {
+		t.Parallel()
+
+		session := apptypes.SessionSummaryOf(
+			domtypes.SessionID("session-1"),
+			domtypes.Workspace("duck8823/traceary"),
+			time.Now(),
+			domtypes.Empty[time.Time](),
+			"active",
+			3,
+			1,
+			[]string{"claude"},
+			"docs",
+			"Session summary",
+			domtypes.SessionID(""),
+		)
+		commandEvent, err := model.NewEvent(
+			domtypes.EventID("event-1"),
+			domtypes.EventKindCommandExecuted,
+			domtypes.Client("cli"),
+			domtypes.Agent("claude"),
+			domtypes.SessionID("session-1"),
+			domtypes.Workspace("duck8823/traceary"),
+			"go test ./...",
+		)
+		if err != nil {
+			t.Fatalf("NewEvent() command error = %v", err)
+		}
+		sut := usecase.NewContextUsecase(
+			&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}},
+			&eventQueryServiceStub{
+				listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
+					domtypes.EventKindCommandExecuted: {commandEvent},
+				},
+				listRecentErrByKind: map[domtypes.EventKind]error{
+					domtypes.EventKindCompactSummary: errors.New("compact lookup failed"),
+				},
+			},
+			nil,
+		)
+
+		got, err := sut.Handoff(context.Background(), apptypes.NewContextPackCriteriaBuilder().Build())
+		if err != nil {
+			t.Fatalf("Handoff() error = %v", err)
+		}
+		if !got.IsPresent() {
+			t.Fatalf("Handoff() result is empty, want present")
+		}
+
+		pack, _ := got.Get()
+		if diff := cmp.Diff("", pack.WorkingState().CompactSummary()); diff != "" {
+			t.Fatalf("CompactSummary() mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff([]string{"go test ./..."}, pack.RecentCommands()); diff != "" {
+			t.Fatalf("RecentCommands() mismatch (-want +got):\n%s", diff)
+		}
+	})
 }
