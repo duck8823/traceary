@@ -2,13 +2,13 @@
 
 [English](./README.md)
 
-このページは、Traceary の公開 CLI の挙動をまとめたリファレンスです。
-導入時は `README.ja.md` のクイックスタートと合わせて参照してください。
+このページでは、公開 CLI の挙動をコマンド別にまとめています。
+導入直後は `README.ja.md` のクイックスタートと合わせて参照してください。
 
 ## 共通ルール
 
 - DB path の解決順: `--db-path` → `TRACEARY_DB_PATH` → `~/.config/traceary/traceary.db`
-- 更新系コマンドは既定で人間向けテキストを出力します
+- 更新系コマンドは既定で読みやすいテキスト形式を出力します
 - イベント / セッションの識別子を返すコマンドは、スクリプト向けに `--id-only` をサポートします
 - 構造化出力を持つコマンドは `--json` をサポートします
 
@@ -35,11 +35,11 @@ note event を追記します。
 session 解決ルール:
 
 - 明示 `--session-id` または `TRACEARY_SESSION_ID` を最優先
-- それ以外では、解決できた repo / work context に対する最新の non-stale active session を再利用
-- `remote.origin.url` が無くても Git worktree 内であれば、work-context key として worktree ルートパスを使います
-- repo / work context が無い、または一致する active session が無い場合は、従来どおり `default` session ID に fallback
+- それ以外では、解決できた repo / work context に対応する最新の non-stale active session を再利用
+- `remote.origin.url` が無い Git worktree でも、work-context key として worktree ルートパスを使います
+- repo / work context が無い、または一致する active session が無い場合は、従来どおり `default` session ID を使います
 
-> **注意:** `log` と `audit` は `--session-id` の値を検証せずにそのまま受け入れます。これは設計上の意図です — hook は高頻度でイベントを記録するため、書き込みごとに DB ルックアップを追加するとオーバーヘッドが無視できません。存在しないセッション ID を渡してもイベントは記録されますが、セッション単位のクエリには表示されません。
+> **注意:** `log` と `audit` は `--session-id` の値をそのまま受け入れ、存在確認は行いません。これは意図的な設計です。hook では高頻度にイベントを書き込むため、毎回 DB ルックアップを挟むとオーバーヘッドが大きくなります。存在しない session ID を渡した場合でもイベント自体は記録されますが、session 単位のクエリには現れません。
 
 ### `traceary audit <command> [<input>] [<output>]`
 
@@ -91,9 +91,9 @@ session 解決ルールは `traceary log` と同じです。
 
 新しい event を追跡表示します。
 
-`tail` は live observation 用のコマンドです。最初に最近の backlog を表示し、その後はローカルストアに追加される一致 event を継続的に追跡します。hook が正しく発火しているか、期待した session / workspace に書き込まれているか、失敗がリアルタイムで見えているかを確認したいときに使います。`list` と違って 1 回の snapshot で終了せず、`search` と違ってキーワード検索は行いません。`handoff` と違って working memory を組み立てず、raw event stream をそのまま表示します。
+`tail` はイベントの流れをその場で追いかけるためのコマンドです。最初に最近の backlog を表示し、その後はローカルストアに追加される一致 event を継続して追跡します。hook が正しく動いているか、想定した session / workspace に書き込まれているか、失敗がリアルタイムで見えているかを確認したいときに向いています。`list` のように 1 回で終わらず、`search` のようなキーワード検索も行いません。`handoff` と違って working memory は組み立てず、生の event stream をそのまま表示します。
 
-テキスト出力は `list` と同じ表形式です。`--json` は改行区切り JSON (1 行 1 event) を出すので、パイプラインが逐次処理できます。
+テキスト出力は `list` と同じ表形式です。`--json` を付けると改行区切り JSON（1 行 1 event）を出力するので、パイプラインから逐次処理できます。
 
 主な flag:
 
@@ -133,7 +133,7 @@ session 解決ルールは `traceary log` と同じです。
 
 ### `traceary context`
 
-別 session / 別 tool へ渡すための raw recent context event 群を表示します。
+別 session や別 tool に渡すために、直近の生イベント列を表示します。
 
 主な flag:
 
@@ -144,7 +144,7 @@ session 解決ルールは `traceary log` と同じです。
 
 ### `traceary handoff`
 
-session metadata、recent commands、compact summary、accepted durable memories から構成した structured working-memory handoff summary を表示します。
+session metadata、recent commands、compact summary、accepted durable memories から組み立てた handoff summary を表示します。
 
 主な flag:
 
@@ -155,7 +155,7 @@ session metadata、recent commands、compact summary、accepted durable memories
 
 ### `traceary session handoff`
 
-`traceary handoff` と同じ structured handoff 出力を session namespace から実行します。
+`traceary handoff` と同じ handoff 出力を session namespace から実行します。
 
 主な flag:
 
@@ -166,7 +166,7 @@ session metadata、recent commands、compact summary、accepted durable memories
 
 ### `traceary compact-summary`
 
-`traceary handoff` と同じ working-memory pack を使って、prompt injection や compact/clear 後の再開向けに圧縮した context-resumption pointer を表示します。
+`traceary handoff` と同じ working-memory pack を使い、prompt injection や compact/clear 後の再開に向けた短い要約を表示します。
 
 主な flag:
 
@@ -178,7 +178,7 @@ session metadata、recent commands、compact summary、accepted durable memories
 
 ### `traceary memory list`
 
-Durable memory を一覧表示します。scope flag を明示しない場合、`memory list` は解決した workspace scope を既定で使います。
+durable memory を一覧表示します。scope flag を明示しない場合は、解決した workspace scope を既定で使います。
 
 主な flag:
 
@@ -193,7 +193,7 @@ Durable memory を一覧表示します。scope flag を明示しない場合、
 
 ### `traceary memory search [<query>]`
 
-全文検索と構造フィルタで durable memory を検索します。query または filter のいずれか 1 つ以上が必要です。
+全文検索と構造フィルタで durable memory を検索します。query か filter のどちらか 1 つ以上が必要です。
 
 主な flag:
 
@@ -232,13 +232,13 @@ accepted な durable memory を直接記録します。
 
 ### `traceary memory propose`
 
-candidate な durable memory を記録します。後で review できます。
+candidate 状態の durable memory を記録します。あとで review できます。
 
 主な flag は `memory remember` と同じですが、`--confidence` は使われません。
 
 ### `traceary memory extract`
 
-対象 session の session summary、compact summary、prompt event、note/review signal から candidate durable memory を抽出します。抽出結果は candidate のみで、Traceary が auto-accept することはありません。prompt event は任意で、prompt や compact-summary event がなくても利用可能な signal の範囲で劣化動作します。`--session-id` を省略した場合は、まず active session を解決し、見つからなければ workspace 内の latest session にフォールバックします。`Feedback:` / `Correction:` ラベルは、現在の最小 durable-memory taxonomy の中で `preference` candidate として保持されます。保存される candidate は、他の durable memory 書き込みと同じ sanitization/redaction 経路を通ってから永続化されます。
+対象 session の session summary、compact summary、prompt event、note / review signal から candidate durable memory を抽出します。抽出結果は candidate のみで、Traceary が自動で accept することはありません。prompt event は任意で、prompt や compact-summary event が無い場合も、利用できる signal の範囲で動作します。`--session-id` を省略した場合は、まず active session を解決し、見つからなければ workspace 内の latest session を使います。`Feedback:` / `Correction:` ラベルは、現在の最小 durable-memory taxonomy では `preference` candidate として保持されます。保存される candidate は、他の durable memory と同じ sanitization / redaction 経路を通ってから永続化されます。
 
 主な flag:
 
@@ -431,10 +431,10 @@ alias: `claude-code`, `codex-cli`, `gemini-cli`
 
 ### `traceary doctor`
 
-DB アクセス、hook スクリプト、クライアント設定の統合状態を診断します。
+DB アクセス、hook スクリプト、クライアント設定のつながりを診断します。
 
-`warn` は、hooks 未導入などの first-run / 未設定状態です。
-`fail` は、DB アクセス不良や unreadable / invalid config のような壊れた状態です。
+`warn` は、hooks 未導入などの初回状態や未設定状態を表します。
+`fail` は、DB アクセス不良や unreadable / invalid config のような壊れた状態を表します。
 `traceary doctor` が非 0 で終了するのは `fail` があるときだけです。
 
 alias:
@@ -452,7 +452,7 @@ alias:
 ### `traceary init`
 
 DB 作成と migration 適用を明示的に先行実行します。
-通常コマンドでも on-demand 初期化されるため、必須ではありません。
+通常コマンドでも必要に応じて初期化されるため、必須ではありません。
 
 ### `traceary backup create`
 
@@ -490,11 +490,11 @@ DB 作成と migration 適用を明示的に先行実行します。
 
 ### `traceary mcp-server`
 
-AI クライアント統合向けに MCP サーバーを stdio で起動します。
+AI クライアント連携向けに MCP サーバーを stdio で起動します。
 
 ## 関連ドキュメント
 
-- オンボーディング / クイックスタート: [`../../README.ja.md`](../../README.ja.md)
+- 導入ガイド / クイックスタート: [`../../README.ja.md`](../../README.ja.md)
 - 環境変数と runtime 前提: [`../environment/README.ja.md`](../environment/README.ja.md)
-- hooks integration: [`../hooks/README.ja.md`](../hooks/README.ja.md)
-- backup flow: [`../backup/README.ja.md`](../backup/README.ja.md)
+- Hooks ガイド: [`../hooks/README.ja.md`](../hooks/README.ja.md)
+- バックアップガイド: [`../backup/README.ja.md`](../backup/README.ja.md)

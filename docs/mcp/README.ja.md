@@ -2,41 +2,40 @@
 
 [English](./README.md)
 
-Traceary は、ローカル SQLite 履歴を stdio で動く MCP サーバーとして公開できます。
-別の AI クライアントから CLI を直接シェル実行する代わりに、MCP ツール経由で Traceary を読み書きさせたいときに使います。
+Traceary は、ローカル SQLite の履歴を stdio で動く MCP サーバーとして公開できます。
+別の AI クライアントから CLI を直接呼ぶ代わりに、MCP ツールとして Traceary を読み書きさせたいときに使います。
 
 ## どの経路を使うべきか
 
-用途に対して最も単純な経路を選んでください。
+用途ごとに、いちばん単純な経路を選んでください。
 
-| Need | Best path |
+| 用途 | 向いている経路 |
 | --- | --- |
-| shell script や手動操作から記録・参照したい | direct CLI (`traceary log`, `traceary audit`, `traceary search`, ...) |
-| Claude Code / Codex CLI / Gemini CLI から session 境界や shell command audit を自動取り込みしたい | hooks |
-| MCP 対応 client から過去文脈を検索したり、tool 経由でイベントを書き込みたい | `traceary mcp-server` |
+| shell script や手動操作から記録・参照したい | CLI を直接使う（`traceary log`, `traceary audit`, `traceary search`, ...） |
+| Claude Code / Codex CLI / Gemini CLI から session 境界や shell command audit を自動で取り込みたい | hooks |
+| MCP 対応 client から過去の文脈を検索したり、tool 経由でイベントを書き込みたい | `traceary mcp-server` |
 
-hooks と MCP は競合ではなく補完関係です。
+hooks と MCP は競合するものではなく、役割が違います。
 
-- hooks は session start / end や shell audit の受動的な取り込みに向いています
-- MCP は `search` / `get_context` や明示的な session tool を client が能動的に呼びたいときに向いています
+- hooks は session start / end や shell audit を自動で受け取るのに向いています
+- MCP は `search` / `get_context` や session 系 tool を client が明示的に呼びたいときに向いています
 
 ## 対応プラットフォーム
 
-- `traceary mcp-server` は CLI 本体と同じ対応方針で、macOS / Linux で継続的に検証しています
-- 事前ビルド済み binary は macOS / Linux 向けに公開し、他の Go 対応 Unix 系環境は `go install` で動く可能性があります
-- standalone の MCP server 自体には `bash` は不要ですが、hooks 連携には引き続き `bash` が必要です
+- `traceary mcp-server` は CLI 本体と同じ方針で、macOS / Linux で継続的に検証しています
+- 事前ビルド済みバイナリは macOS / Linux 向けに公開し、他の Go 対応 Unix 系環境は `go install` で動く可能性があります
+- MCP server 単体を動かすだけなら `bash` は不要ですが、hooks 連携には引き続き `bash` が必要です
 - Windows native の正式対応はまだ約束していないため、必要な場合は WSL などの POSIX 互換環境を使ってください
 
 ## サーバーの起動
 
-MCP サーバーは stdio を使います。
-ネットワークポートは開きません。
+MCP サーバーは stdio で動作します。ネットワークポートは開きません。
 
 ```sh
 traceary mcp-server
 ```
 
-既定以外の SQLite file を使いたい場合は、`TRACEARY_DB_PATH` または `--db-path` を使います。
+既定以外の SQLite ファイルを使いたい場合は、`TRACEARY_DB_PATH` または `--db-path` を使います。
 
 ```sh
 TRACEARY_DB_PATH=/path/to/traceary.db traceary mcp-server
@@ -119,8 +118,7 @@ Inputs:
 - `limit`（既定: `20`）
 - `offset`（既定: `0`）
 
-client から `traceary list` 相当の「最近の feed」を見たいときは `list_events` を使います。
-`workspace` や `session_id`、全文検索などの structured filter が必要なときは `search` を使ってください。
+client 側で `traceary list` 相当の「最近の feed」を見たいときは `list_events` を使います。`workspace` や `session_id`、全文検索などの絞り込みが必要なときは `search` を使ってください。
 
 ### `add_log`
 
@@ -138,7 +136,7 @@ Inputs:
 
 shell command audit イベントを記録します。
 
-CLI と同様に、`add_audit` も SQLite へ書き込む前に一般的な secret っぽい値を伏せ字化します。これは完全保証ではなく、best-effort の保護です。MCP surface では意図的に `allow-secrets` 相当の override は提供していません。raw payload を残したい場合だけ direct CLI を使ってください。
+CLI と同様に、`add_audit` も SQLite に書き込む前に一般的な secret らしい値を伏せ字化します。これは完全保証ではなく、ベストエフォートの保護です。MCP では意図的に `allow-secrets` 相当の override を提供していません。raw payload を残したい場合だけ direct CLI を使ってください。
 
 Inputs:
 
@@ -164,7 +162,7 @@ Inputs:
 
 ### `get_context`
 
-raw な最近イベント群を返します。
+直近の生イベント列を返します。
 
 Inputs:
 
@@ -174,7 +172,7 @@ Inputs:
 
 ### `session_handoff`
 
-CLI の `traceary handoff` と揃えた、構造化 working-memory handoff pack を返します。
+CLI の `traceary handoff` とそろえた、構造化された working-memory handoff pack を返します。
 
 トップレベルの `summary` は後方互換のために残してあり、`working_state.combined_summary` をそのまま返します。
 
@@ -198,90 +196,73 @@ Inputs:
 - `session_family`
 - `status`
 - `type`
-- `limit`（既定: `20`）
-- `offset`（既定: `0`）
-
-`memory_id` を指定した場合は evidence / artifact refs 付きの単一 memory を返します。
-`query` を指定した場合は全文検索を行います。
-どちらも指定しない場合は、scope / status / type で絞り込んだ active memory 一覧を返します。
-
-durable memory の payload は保存済みの内容をそのまま返します。機微情報は、永続化前に既存の memory sanitization / redaction 経路で処理されている前提です。
-
-### `remember_memory`
-
-accepted な durable memory を記録します。
-
-Inputs:
-
-- `type`（必須）
-- `workspace` / `agent` / `session_family` のいずれか 1 つ（必須、相互排他）
-- `fact`（必須）
-- `confidence`
-- `source`
-- `evidence_refs`
-- `artifact_refs`
-
-accepted memory には少なくとも 1 件の evidence ref が必要です。
 
 ### `propose_memory`
 
-レビュー待ちの candidate durable memory を記録します。
+candidate 状態の durable memory を追加します。
 
 Inputs:
 
-- `type`（必須）
-- `workspace` / `agent` / `session_family` のいずれか 1 つ（必須、相互排他）
 - `fact`（必須）
-- `source`
+- `type`（必須）
+- `workspace` / `agent` / `session_family`（いずれか 1 つ以上）
 - `evidence_refs`
 - `artifact_refs`
+
+### `remember_memory`
+
+accepted 状態の durable memory を直接追加します。
+
+Inputs:
+
+- `fact`（必須）
+- `type`（必須）
+- `workspace` / `agent` / `session_family`（いずれか 1 つ以上）
+- `evidence_refs`（必須）
+- `artifact_refs`
+- `confidence`（既定: `verified`）
 
 ### `accept_memory`
 
-candidate durable memory を accept します。
+candidate memory を accepted に更新します。
 
 Inputs:
 
 - `memory_id`（必須）
-- `confidence`
+- `confidence`（既定: `verified`）
 
 ### `reject_memory`
 
-candidate durable memory を reject します。
+candidate memory を rejected に更新します。
 
 Inputs:
 
 - `memory_id`（必須）
 
+### `expire_memory`
+
+memory を expired に更新します。
+
+Inputs:
+
+- `memory_id`（必須）
+- `expires_at`（省略時は現在時刻）
+
 ### `supersede_memory`
 
-accepted な durable memory を superseded にし、置き換え用の accepted memory を保存します。
+accepted memory を新しい accepted memory で置き換えます。
 
 Inputs:
 
 - `memory_id`（必須）
 - `fact`（必須）
-- 置き換え先の `type`
-- 置き換え先の `workspace` / `agent` / `session_family`
-- `confidence`
-- `source`
-- `evidence_refs`
+- `evidence_refs`（必須）
 - `artifact_refs`
-
-置き換え先の `type` / scope は、省略時は現在の memory から継承します。
-
-### `expire_memory`
-
-durable memory を expire します。
-
-Inputs:
-
-- `memory_id`（必須）
-- `expires_at`（`YYYY-MM-DD` または RFC3339。既定は now）
+- `confidence`（既定: `verified`）
 
 ### `memory_pack`
 
-prompt 向けの context enrichment や agent automation 向けの memory-aware context pack を構築します。
+working memory と durable memory を合わせた、プロンプト注入向けの context pack を返します。
 
 Inputs:
 
@@ -290,45 +271,23 @@ Inputs:
 - `recent_commands_limit`（既定: `5`。明示的に `0` を渡すと recent commands を無効化）
 - `memory_limit`（既定: `5`。明示的に `0` を渡すと durable memories を無効化）
 
-## 実用的なクライアント設定例
+## 使い分けの目安
 
-stdio MCP client の多くは、次のような `mcpServers` entry を受け取れます。
+- まず事実を残すだけなら `add_log` / `add_audit`
+- 直近の流れをざっと見たいなら `list_events` / `get_context`
+- セッション再開用の要約がほしいなら `session_handoff`
+- あとで再利用したい判断や制約を残したいなら `propose_memory` / `remember_memory`
+- durable memory を含む prompt 用パックがほしいなら `memory_pack`
 
-```json
-{
-  "mcpServers": {
-    "traceary": {
-      "command": "traceary",
-      "args": ["mcp-server"],
-      "env": {
-        "TRACEARY_DB_PATH": "/Users/you/.config/traceary/traceary.db"
-      }
-    }
-  }
-}
-```
-
-もし client 側の config 形状が異なる場合でも、次の 3 要素をその client の形式に読み替えれば足ります。
-
-- command: `traceary`
-- args: `["mcp-server"]`
-- optional env: `TRACEARY_DB_PATH=/path/to/traceary.db`
-
-## 推奨ワークフロー
-
-実用上は次の組み合わせが扱いやすいです。
+## よくある運用パターン
 
 1. hooks で session 境界と command audit を自動記録する
-2. 同じ Traceary DB を MCP でも接続する
-3. 明示的に session を再開したいときは `active_session` または `latest_session` を呼ぶ
-4. filter 無しの最近 feed が欲しいときは `list_events` を呼ぶ
-5. 新しい task の前に client から `get_context` を呼ぶ
-6. 過去の command output や note が必要になったら `search` を呼ぶ
-7. client 側で session lifecycle まで管理したい場合は `start_session` / `end_session` / `add_log` / `add_audit` を使う
+2. 必要に応じて MCP から `search` や `get_context` を呼ぶ
+3. セッションをまたいで残したい知識だけ `propose_memory` / `remember_memory` で durable memory に昇格する
+4. 次のエージェントへ渡すときは `session_handoff` または `memory_pack` を使う
 
-これで、受動的な取り込みと能動的な文脈検索をひとつの local store にまとめられます。
+## 参考
 
-## 関連文書
-
-- hooks 取り込みガイド: [`../hooks/README.ja.md`](../hooks/README.ja.md)
-- release / install ガイド: [`../release/README.ja.md`](../release/README.ja.md)
+- Hooks ガイド: [`../hooks/README.ja.md`](../hooks/README.ja.md)
+- イベントライフサイクル: [`../lifecycle.ja.md`](../lifecycle.ja.md)
+- CLI リファレンス: [`../cli/README.ja.md`](../cli/README.ja.md)
