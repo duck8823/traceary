@@ -13,6 +13,11 @@ import (
 type EventQueryService interface {
 	// ListRecent returns events in descending time order.
 	ListRecent(ctx context.Context, limit, offset int, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, failuresOnly bool, from, to time.Time) ([]*model.Event, error)
+	// ListWindow returns every event matching the criteria whose created_at
+	// falls in [From, To) under a single read snapshot so concurrent writers
+	// cannot cause the scan to drop events. Callers supply the batch size via
+	// criteria.Limit(); offset is ignored.
+	ListWindow(ctx context.Context, criteria apptypes.EventListCriteria) ([]*model.Event, error)
 	// Search performs full-text search across events.
 	Search(ctx context.Context, query string, workspace types.Workspace, sessionID types.SessionID, client types.Client, agent types.Agent, kind types.EventKind, from, to time.Time, limit, offset int, failuresOnly bool) ([]*model.Event, error)
 	// GetContext returns recent events for context retrieval.

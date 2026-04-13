@@ -40,6 +40,9 @@ func (s *eventUsecaseStub) Search(_ context.Context, _ apptypes.EventSearchCrite
 func (s *eventUsecaseStub) List(_ context.Context, _ apptypes.EventListCriteria) ([]*model.Event, error) {
 	return s.listEvents, s.listErr
 }
+func (s *eventUsecaseStub) ListWindow(_ context.Context, _ apptypes.EventListCriteria) ([]*model.Event, error) {
+	return s.listEvents, s.listErr
+}
 func (s *eventUsecaseStub) Show(_ context.Context, _ types.EventID) (apptypes.EventDetails, error) {
 	return s.showDetails, s.showErr
 }

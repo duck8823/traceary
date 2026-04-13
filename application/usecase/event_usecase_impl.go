@@ -193,6 +193,24 @@ func (u *eventUsecase) List(ctx context.Context, criteria apptypes.EventListCrit
 	return events, nil
 }
 
+func (u *eventUsecase) ListWindow(ctx context.Context, criteria apptypes.EventListCriteria) ([]*model.Event, error) {
+	if criteria.Limit() <= 0 {
+		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
+	}
+	if criteria.Offset() != 0 {
+		return nil, xerrors.Errorf("offset must be zero for ListWindow (paging is handled internally)")
+	}
+	if !criteria.From().IsZero() && !criteria.To().IsZero() && criteria.From().After(criteria.To()) {
+		return nil, xerrors.Errorf("from must be earlier than to")
+	}
+
+	events, err := u.eventQuery.ListWindow(ctx, criteria)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to list event window: %w", err)
+	}
+	return events, nil
+}
+
 func (u *eventUsecase) Show(ctx context.Context, eventID types.EventID) (apptypes.EventDetails, error) {
 	details, err := u.eventQuery.GetDetails(ctx, eventID)
 	if err != nil {
