@@ -115,6 +115,17 @@ func (s *contextUsecaseStub) Handoff(_ context.Context, _ apptypes.ContextPackCr
 	return s.handoff, s.handoffErr
 }
 
+type memoryExtractionUsecaseStub struct {
+	details  []apptypes.MemoryDetails
+	err      error
+	criteria apptypes.MemoryExtractionCriteria
+}
+
+func (s *memoryExtractionUsecaseStub) Extract(_ context.Context, criteria apptypes.MemoryExtractionCriteria) ([]apptypes.MemoryDetails, error) {
+	s.criteria = criteria
+	return s.details, s.err
+}
+
 type memoryUsecaseStub struct {
 	listResult       []apptypes.MemorySummary
 	listErr          error

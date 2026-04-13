@@ -12,6 +12,7 @@ type RootCLI struct {
 	event                usecase.EventUsecase
 	session              usecase.SessionUsecase
 	memory               usecase.MemoryUsecase
+	memoryExtraction     usecase.MemoryExtractionUsecase
 	context              usecase.ContextUsecase
 	storeManagement      usecase.StoreManagementUsecase
 	mcpServerRunner      MCPServerRunner
@@ -43,6 +44,12 @@ func WithSession(session usecase.SessionUsecase) RootCLIOption {
 // WithMemory injects the MemoryUsecase used by durable-memory commands.
 func WithMemory(memory usecase.MemoryUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.memory = memory }
+}
+
+// WithMemoryExtraction injects the MemoryExtractionUsecase used by candidate
+// extraction commands.
+func WithMemoryExtraction(memoryExtraction usecase.MemoryExtractionUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.memoryExtraction = memoryExtraction }
 }
 
 // WithContext injects the ContextUsecase used by structured handoff commands.

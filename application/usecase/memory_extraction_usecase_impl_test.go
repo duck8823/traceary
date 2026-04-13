@@ -1,0 +1,294 @@
+package usecase_test
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/google/go-cmp/cmp"
+
+	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/model"
+	domtypes "github.com/duck8823/traceary/domain/types"
+)
+
+type memoryExtractionMemoryUsecaseStub struct {
+	listResult    []apptypes.MemorySummary
+	listErr       error
+	proposeResult []apptypes.MemoryDetails
+	proposeErr    error
+	proposeCalls  []memoryExtractionProposeCall
+}
+
+type memoryExtractionProposeCall struct {
+	memoryType   domtypes.MemoryType
+	scope        domtypes.MemoryScope
+	fact         string
+	source       domtypes.MemorySource
+	evidenceRefs []domtypes.EvidenceRef
+	artifactRefs []domtypes.ArtifactRef
+}
+
+func (s *memoryExtractionMemoryUsecaseStub) Remember(context.Context, domtypes.MemoryType, domtypes.MemoryScope, string, domtypes.Optional[domtypes.Confidence], domtypes.MemorySource, []domtypes.EvidenceRef, []domtypes.ArtifactRef) (apptypes.MemoryDetails, error) {
+	return apptypes.MemoryDetails{}, nil
+}
+
+func (s *memoryExtractionMemoryUsecaseStub) Propose(_ context.Context, memoryType domtypes.MemoryType, scope domtypes.MemoryScope, fact string, source domtypes.MemorySource, evidenceRefs []domtypes.EvidenceRef, artifactRefs []domtypes.ArtifactRef) (apptypes.MemoryDetails, error) {
+	s.proposeCalls = append(s.proposeCalls, memoryExtractionProposeCall{
+		memoryType:   memoryType,
+		scope:        scope,
+		fact:         fact,
+		source:       source,
+		evidenceRefs: append([]domtypes.EvidenceRef(nil), evidenceRefs...),
+		artifactRefs: append([]domtypes.ArtifactRef(nil), artifactRefs...),
+	})
+	if s.proposeErr != nil {
+		return apptypes.MemoryDetails{}, s.proposeErr
+	}
+	if len(s.proposeResult) >= len(s.proposeCalls) {
+		return s.proposeResult[len(s.proposeCalls)-1], nil
+	}
+	return apptypes.MemoryDetails{}, nil
+}
+
+func (s *memoryExtractionMemoryUsecaseStub) Accept(context.Context, domtypes.MemoryID, domtypes.Optional[domtypes.Confidence]) (apptypes.MemoryDetails, error) {
+	return apptypes.MemoryDetails{}, nil
+}
+
+func (s *memoryExtractionMemoryUsecaseStub) Reject(context.Context, domtypes.MemoryID) (apptypes.MemoryDetails, error) {
+	return apptypes.MemoryDetails{}, nil
+}
+
+func (s *memoryExtractionMemoryUsecaseStub) Supersede(context.Context, domtypes.MemoryID, domtypes.MemoryType, domtypes.MemoryScope, string, domtypes.Optional[domtypes.Confidence], domtypes.MemorySource, []domtypes.EvidenceRef, []domtypes.ArtifactRef) (apptypes.MemoryDetails, error) {
+	return apptypes.MemoryDetails{}, nil
+}
+
+func (s *memoryExtractionMemoryUsecaseStub) Expire(context.Context, domtypes.MemoryID, domtypes.Optional[time.Time]) (apptypes.MemoryDetails, error) {
+	return apptypes.MemoryDetails{}, nil
+}
+
+func (s *memoryExtractionMemoryUsecaseStub) List(_ context.Context, _ apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
+	return s.listResult, s.listErr
+}
+
+func (s *memoryExtractionMemoryUsecaseStub) Search(context.Context, apptypes.MemorySearchCriteria) ([]apptypes.MemorySummary, error) {
+	return nil, nil
+}
+
+func (s *memoryExtractionMemoryUsecaseStub) Show(context.Context, domtypes.MemoryID) (apptypes.MemoryDetails, error) {
+	return apptypes.MemoryDetails{}, nil
+}
+
+func TestMemoryExtractionUsecase_Extract(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(
+		domtypes.SessionID("session-1"),
+		domtypes.Workspace("github.com/duck8823/traceary"),
+		time.Now().Add(-time.Hour),
+		domtypes.Empty[time.Time](),
+		"active",
+		12,
+		4,
+		[]string{"claude"},
+		"",
+		"Decision: Use ContextUsecase for handoff output",
+		domtypes.SessionID(""),
+	)
+	promptEvent := mustExtractionEvent(t,
+		"event-prompt",
+		domtypes.EventKindPrompt,
+		"Please answer in Japanese and never merge before Codex review.",
+	)
+	noteEvent := mustExtractionEvent(t,
+		"event-note",
+		domtypes.EventKindNote,
+		"Constraint: Keep get_context as raw event retrieval.",
+	)
+	compactEvent := mustExtractionEvent(t,
+		"event-compact",
+		domtypes.EventKindCompactSummary,
+		"<summary>\nLesson: Extracted candidates should remain review-only.\nArtifact: docs/cli/README.md\n</summary>",
+	)
+
+	details1 := mustMemoryDetailsFromSummary(t, "memory-candidate-1", domtypes.MemoryTypeDecision, "Use ContextUsecase for handoff output")
+	details2 := mustMemoryDetailsFromSummary(t, "memory-candidate-2", domtypes.MemoryTypePreference, "Please answer in Japanese and never merge before Codex review.")
+	details3 := mustMemoryDetailsFromSummary(t, "memory-candidate-3", domtypes.MemoryTypeConstraint, "Keep get_context as raw event retrieval.")
+	details4 := mustMemoryDetailsFromSummary(t, "memory-candidate-4", domtypes.MemoryTypeLesson, "Extracted candidates should remain review-only.")
+	details5 := mustMemoryDetailsFromSummary(t, "memory-candidate-5", domtypes.MemoryTypeArtifact, "docs/cli/README.md")
+
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{
+		proposeResult: []apptypes.MemoryDetails{details1, details2, details3, details4, details5},
+	}
+
+	sut := usecase.NewMemoryExtractionUsecase(
+		&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}},
+		&eventQueryServiceStub{
+			listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
+				domtypes.EventKindPrompt:         {promptEvent},
+				domtypes.EventKindNote:           {noteEvent},
+				domtypes.EventKindCompactSummary: {compactEvent},
+			},
+		},
+		memoryUsecase,
+	)
+
+	got, err := sut.Extract(
+		context.Background(),
+		apptypes.NewMemoryExtractionCriteriaBuilder().
+			SessionID(domtypes.SessionID("session-1")).
+			Workspace(domtypes.Workspace("github.com/duck8823/traceary")).
+			EventLimit(3).
+			CandidateLimit(10).
+			Build(),
+	)
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(got) != 5 {
+		t.Fatalf("len(Extract()) = %d, want 5", len(got))
+	}
+
+	gotTypes := make([]domtypes.MemoryType, 0, len(memoryUsecase.proposeCalls))
+	gotFacts := make([]string, 0, len(memoryUsecase.proposeCalls))
+	for _, call := range memoryUsecase.proposeCalls {
+		gotTypes = append(gotTypes, call.memoryType)
+		gotFacts = append(gotFacts, call.fact)
+		if diff := cmp.Diff(domtypes.MemorySourceExtracted, call.source); diff != "" {
+			t.Fatalf("source mismatch (-want +got):\n%s", diff)
+		}
+		if call.scope == nil || call.scope.Kind() != domtypes.MemoryScopeKindWorkspace || call.scope.Key() != "github.com/duck8823/traceary" {
+			t.Fatalf("scope = %v, want workspace scope", call.scope)
+		}
+		if len(call.evidenceRefs) == 0 {
+			t.Fatalf("evidenceRefs = empty, want session/event evidence")
+		}
+	}
+	if diff := cmp.Diff(
+		[]domtypes.MemoryType{
+			domtypes.MemoryTypeDecision,
+			domtypes.MemoryTypePreference,
+			domtypes.MemoryTypeConstraint,
+			domtypes.MemoryTypeLesson,
+			domtypes.MemoryTypeArtifact,
+		},
+		gotTypes,
+	); diff != "" {
+		t.Fatalf("memory types mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(
+		[]string{
+			"Use ContextUsecase for handoff output",
+			"Please answer in Japanese and never merge before Codex review.",
+			"Keep get_context as raw event retrieval.",
+			"Extracted candidates should remain review-only.",
+			"docs/cli/README.md",
+		},
+		gotFacts,
+	); diff != "" {
+		t.Fatalf("facts mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestMemoryExtractionUsecase_Extract_DeduplicatesExistingAndGracefullyHandlesMissingPrompts(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(
+		domtypes.SessionID("session-1"),
+		domtypes.Workspace("github.com/duck8823/traceary"),
+		time.Now().Add(-time.Hour),
+		domtypes.Empty[time.Time](),
+		"ended",
+		4,
+		0,
+		[]string{"codex"},
+		"",
+		"Lesson: Wait for explicit review completion before merge",
+		domtypes.SessionID(""),
+	)
+	existingSummary, err := apptypes.MemorySummaryOf(
+		mustMemoryID(t, "memory-existing"),
+		domtypes.MemoryTypeLesson,
+		domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/traceary")),
+		"Wait for explicit review completion before merge",
+		domtypes.MemoryStatusCandidate,
+		domtypes.ConfidenceVerified,
+		domtypes.MemorySourceExtracted,
+		domtypes.Empty[domtypes.MemoryID](),
+		domtypes.Empty[time.Time](),
+		time.Now(),
+		time.Now(),
+	)
+	if err != nil {
+		t.Fatalf("MemorySummaryOf() error = %v", err)
+	}
+
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{
+		listResult: []apptypes.MemorySummary{existingSummary},
+	}
+	sut := usecase.NewMemoryExtractionUsecase(
+		&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}},
+		&eventQueryServiceStub{},
+		memoryUsecase,
+	)
+
+	got, err := sut.Extract(
+		context.Background(),
+		apptypes.NewMemoryExtractionCriteriaBuilder().
+			SessionID(domtypes.SessionID("session-1")).
+			Workspace(domtypes.Workspace("github.com/duck8823/traceary")).
+			EventLimit(0).
+			CandidateLimit(5).
+			Build(),
+	)
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("len(Extract()) = %d, want 0", len(got))
+	}
+	if len(memoryUsecase.proposeCalls) != 0 {
+		t.Fatalf("Propose() call count = %d, want 0", len(memoryUsecase.proposeCalls))
+	}
+}
+
+func mustExtractionEvent(t *testing.T, eventID string, kind domtypes.EventKind, body string) *model.Event {
+	t.Helper()
+
+	event, err := model.NewEvent(
+		domtypes.EventID(eventID),
+		kind,
+		domtypes.Client("cli"),
+		domtypes.Agent("claude"),
+		domtypes.SessionID("session-1"),
+		domtypes.Workspace("github.com/duck8823/traceary"),
+		body,
+	)
+	if err != nil {
+		t.Fatalf("NewEvent() error = %v", err)
+	}
+	return event
+}
+
+func mustMemoryDetailsFromSummary(t *testing.T, memoryID string, memoryType domtypes.MemoryType, fact string) apptypes.MemoryDetails {
+	t.Helper()
+
+	summary, err := apptypes.MemorySummaryOf(
+		mustMemoryID(t, memoryID),
+		memoryType,
+		domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/traceary")),
+		fact,
+		domtypes.MemoryStatusCandidate,
+		domtypes.ConfidenceVerified,
+		domtypes.MemorySourceExtracted,
+		domtypes.Empty[domtypes.MemoryID](),
+		domtypes.Empty[time.Time](),
+		time.Now(),
+		time.Now(),
+	)
+	if err != nil {
+		t.Fatalf("MemorySummaryOf() error = %v", err)
+	}
+	return apptypes.MemoryDetailsOf(summary, []domtypes.EvidenceRef{mustEvidenceRef(t, domtypes.EvidenceRefKindSession, "session-1")}, nil)
+}

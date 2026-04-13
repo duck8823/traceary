@@ -222,6 +222,68 @@ func TestRootCLI_MemoryProposeCommand_IgnoresConfidenceFlagValidation(t *testing
 	}
 }
 
+func TestRootCLI_MemoryExtractCommand_UsesResolvedSession(t *testing.T) {
+	t.Setenv("TRACEARY_WORKSPACE", "")
+	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
+		return "github.com/duck8823/traceary", nil
+	})
+	defer cli.ResetDetectRepoContextFunc()
+
+	activeEvent, err := model.NewEvent(
+		types.EventID("event-active"),
+		types.EventKindSessionStarted,
+		types.Client("cli"),
+		types.Agent("claude"),
+		types.SessionID("session-42"),
+		types.Workspace("github.com/duck8823/traceary"),
+		"session started",
+	)
+	if err != nil {
+		t.Fatalf("NewEvent() error = %v", err)
+	}
+
+	extractionStub := &memoryExtractionUsecaseStub{
+		details: []apptypes.MemoryDetails{
+			mustMemoryDetails(t, "memory-extracted-1", "Always wait for Codex review before merge", types.MemoryStatusCandidate),
+			mustMemoryDetails(t, "memory-extracted-2", "Decision: keep get_context raw", types.MemoryStatusCandidate),
+		},
+	}
+
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{activeEvent: activeEvent}),
+		cli.WithMemoryExtraction(extractionStub),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "extract",
+		"--db-path", "/tmp/test-traceary.db",
+		"--event-limit", "3",
+		"--candidate-limit", "2",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got := extractionStub.criteria.SessionID().String(); got != "session-42" {
+		t.Fatalf("SessionID() = %q, want session-42", got)
+	}
+	if got := extractionStub.criteria.Workspace().String(); got != "github.com/duck8823/traceary" {
+		t.Fatalf("Workspace() = %q, want github.com/duck8823/traceary", got)
+	}
+	if got := extractionStub.criteria.EventLimit(); got != 3 {
+		t.Fatalf("EventLimit() = %d, want 3", got)
+	}
+	if got := extractionStub.criteria.CandidateLimit(); got != 2 {
+		t.Fatalf("CandidateLimit() = %d, want 2", got)
+	}
+	if !strings.Contains(stdout.String(), "memory-extracted-1") || !strings.Contains(stdout.String(), "memory-extracted-2") {
+		t.Fatalf("stdout = %q, want extracted candidate IDs", stdout.String())
+	}
+}
+
 func mustMemorySummary(t *testing.T, memoryIDValue string, fact string, status types.MemoryStatus) apptypes.MemorySummary {
 	t.Helper()
 
