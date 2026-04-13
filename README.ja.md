@@ -9,41 +9,41 @@
 [![CI](https://github.com/duck8823/traceary/actions/workflows/ci.yml/badge.svg)](https://github.com/duck8823/traceary/actions/workflows/ci.yml)
 [![Release](https://github.com/duck8823/traceary/actions/workflows/release.yml/badge.svg?event=push)](https://github.com/duck8823/traceary/actions/workflows/release.yml)
 
-Traceary は、AI エージェントの作業ログ、セッション境界、シェルコマンド監査をローカルの SQLite に残して検索できる CLI / MCP サーバーです。
+Traceary は、AI エージェントの作業記録をローカルの SQLite に残し、あとから検索・再利用できる CLI / MCP サーバーです。セッションの開始と終了、実行したコマンド、補助メモ、引き継ぎ用の要約をひとつのストアにまとめて扱えます。
 
-自動で記録させたいなら、最初から CLI を手で叩くより、Claude / Codex / Gemini への組み込みから入るのが分かりやすいです。
+普段から自動で記録を残したいなら、CLI を手で打ち始めるよりも、Claude / Codex / Gemini への組み込みから始めるのがおすすめです。
 
-## Traceary が必要になる場面
+## Traceary が役立つ場面
 
-AI を使った開発では、次のような困りごとが起きがちです。
+AI を使った開発では、次のような困りごとが起こりがちです。
 
-- `clear` や `compact` のあとにセッション文脈が消える
-- Git 履歴だけでは「何を変えたか」は分かっても、「なぜそうしたか」が残りにくい
-- どのエージェントがどのコマンドを実行したか追いにくい
-- Claude、Codex、Gemini、手元のターミナル操作が別々に散らばる
-- 並列セッションや worktree の移動で履歴の流れが見えにくくなる
+- `clear` や `compact` のあとに、直前までの文脈が見えなくなる
+- Git 履歴を見れば「何を変えたか」は分かっても、「なぜそうしたか」は追いにくい
+- どのエージェントが、どのコマンドを、どのセッションで実行したのか確認しづらい
+- Claude、Codex、Gemini、手元のターミナル操作の記録が別々に散らばる
+- 並列セッションや worktree の切り替えで、履歴の流れが追いにくくなる
 
-Traceary は、こうした記録をひとつのローカルストアにまとめ、CLI・hooks・MCP から同じ履歴を使えるようにします。
+Traceary は、こうした記録をローカルの 1 つのストアに集約し、CLI・hooks・MCP のどこからでも同じ履歴を扱えるようにします。
 
 ## 3 層モデル
 
-Traceary は、単なるローカルイベントログではなくなっています。`v0.5.0` では、AI エージェントの実運用に合わせて次の 3 層で整理しています。
+Traceary は、単なるイベントログではありません。`v0.5.0` 以降は、AI エージェントの実運用に合わせて次の 3 層で整理しています。
 
-| 層 | 何を置くか | 価値 |
+| 層 | 何を置くか | 役割 |
 |---|---|---|
-| Audit / Archive | raw event、session boundary、command audit | 監査・検索・後追い確認のための source of truth を残す |
-| Working memory | 最近の session から組み立てる handoff/context pack | 次のエージェントや再開セッションが、全文ログではなく必要な文脈から始められる |
-| Durable memory | decision / constraint / preference / artifact ref などの再利用可能な fact | セッションをまたいで使うべき少数の知識だけを明示的に保持できる |
+| Audit / Archive | 生の event、session 境界、command audit | 監査・検索・後追い確認のための元データを残す |
+| Working memory | 直近の session から組み立てる handoff / context pack | 再開時や別エージェントへの引き継ぎに必要な文脈だけを取り出す |
+| Durable memory | decision / constraint / preference / artifact ref など | セッションをまたいで再利用したい事実だけを明示的に保持する |
 
-つまり Traceary は、ログを蓄積する CLI というより、AI エージェント向けの local-first memory substrate として使えるようになっています。
+つまり Traceary は、ログをためるだけの CLI ではなく、AI エージェント向けの local-first な記憶基盤として使えます。
 
-Traceary はローカルファーストです。データは手元の SQLite に保存され、組み込みのテレメトリ、分析送信、ホスト型ストレージはありません。
+Traceary はローカルファーストです。データは手元の SQLite に保存され、組み込みのテレメトリ送信やホスト型ストレージはありません。
 
 ## はじめかた
 
-### Step 1: Traceary CLI をインストール
+### Step 1: Traceary CLI をインストールする
 
-CLI が先に必要です。エージェントのプラグインは hooks 経由で `traceary` バイナリを呼び出します。
+先に CLI が必要です。各エージェント向けのプラグインや hook も、最終的には `traceary` バイナリを呼び出します。
 
 ```sh
 # Homebrew（推奨）
@@ -54,10 +54,9 @@ brew install traceary
 go install github.com/duck8823/traceary@latest
 ```
 
-タグ付きリリースでは macOS / Linux 向けアーカイブを [GitHub Releases](https://github.com/duck8823/traceary/releases) に公開しています。
-配布形態の詳細は [リリースガイド](./docs/release/README.ja.md) を参照してください。
+タグ付きリリースでは macOS / Linux 向けアーカイブを [GitHub Releases](https://github.com/duck8823/traceary/releases) に公開しています。配布形態の詳細は [リリースガイド](./docs/release/README.ja.md) を参照してください。
 
-### Step 2: エージェントにプラグインをインストール
+### Step 2: エージェント向けパッケージを入れる
 
 **Claude Code** ([ガイド](./docs/integrations/claude-plugin.ja.md))
 
@@ -81,7 +80,7 @@ bash <(curl -sL https://raw.githubusercontent.com/duck8823/traceary/main/scripts
 
 全体像は [ネイティブ連携ガイド](./docs/integrations/README.ja.md) にまとめています。
 
-### Step 3: 動作確認
+### Step 3: 設定を確認する
 
 ```sh
 traceary doctor
@@ -89,8 +88,8 @@ traceary doctor
 
 ## クイックスタート
 
-`traceary init` は必須ではありません。通常のコマンドを実行すれば、必要に応じて DB 作成とマイグレーションが自動で行われます。
-`init` を使うのは、あらかじめ DB の保存先を用意したいときや、書き込み権限を先に確認したいときだけです。
+`traceary init` は必須ではありません。通常コマンドを実行すれば、必要に応じて DB の作成とマイグレーションが自動で行われます。
+`init` を使うのは、保存先を先に作っておきたいときや、書き込み権限を事前に確認したいときだけです。
 
 ### 1. セッションを開始してメモを残す
 
@@ -123,22 +122,22 @@ traceary audit --id-only --command "go test ./..." --input '{}' --output '{}'
 traceary session end --session-id "$sid" --id-only
 ```
 
-## ホストごとの自動記録マトリクス
+## ホスト別の自動記録マトリクス
 
 問い合わせ面は共通です。Traceary を入れれば、どのホストからでも同じ CLI / MCP の memory・context 機能を使えます。差が出るのは、hook でどこまで自動記録できるかです。
 
-| ホスト | セッション境界 | ツール監査 | prompt 記録 | compact-summary 記録 | 自動記録ティア |
+| ホスト | セッション境界 | ツール監査 | prompt 記録 | compact summary 記録 | 自動記録の対応レベル |
 |---|---|---|---|---|---|
 | Claude Code | 完全対応 | Bash + MCP + failure hook | あり | あり | Full |
 | Codex | 完全対応（`SessionStart` + `Stop`） | tool hook | なし | なし | Partial |
 | Gemini CLI | 完全対応（`SessionStart` + `SessionEnd`） | tool hook | なし | なし | Basic |
 
-詳細な contract と hook 意味論は、[Hook contract](./docs/hooks/contract.ja.md) と [イベントライフサイクル](./docs/lifecycle.ja.md) を参照してください。
+詳しい契約と hook の意味付けは、[Hook contract](./docs/hooks/contract.ja.md) と [イベントライフサイクル](./docs/lifecycle.ja.md) を参照してください。
 
 ## 先に知っておくと楽なこと
 
-- `traceary log` / `traceary audit` で `--session-id` を省くと、解決できた repo / work context に対する最新の non-stale アクティブなセッション を優先して使います。`remote.origin.url` が無い Git worktree 内では、worktree ルートパスへ fallback します
-- `traceary session active` は既定で `24h` を超えたセッションを stale とみなします。必要なら `--allow-stale` を付けてください
+- `traceary log` / `traceary audit` で `--session-id` を省くと、解決できた repo / work context に対応する最新の non-stale アクティブセッションを優先して使います。`remote.origin.url` が無い Git worktree では、worktree ルートパスを代わりに使います
+- `traceary session active` は既定で 24 時間を超えたセッションを stale とみなします。必要なら `--allow-stale` を付けてください
 - `traceary session start` はセッション ID を出力し、`traceary session end` は記録したイベント ID を出力します
 - `traceary session list --json` では、値がある場合に `label` / `summary` / `parent_session_id` も確認できます
 - CLI の通常メッセージは英語が既定です。日本語表示にしたい場合は `TRACEARY_LANG=ja` を指定してください
@@ -146,13 +145,12 @@ traceary session end --session-id "$sid" --id-only
 
 ## ドキュメント
 
-詳しい一覧は [ドキュメント索引](./docs/README.ja.md) にまとめています。
-最初によく参照するのは次のページです。
+詳しい一覧は [ドキュメント索引](./docs/README.ja.md) にまとめています。最初によく使うのは次のページです。
 
 - [ネイティブ連携ガイド](./docs/integrations/README.ja.md)
-- [CLI リファレンス](./docs/cli/README.ja.md) — 単発の manual CLI workflow はこちら
+- [CLI リファレンス](./docs/cli/README.ja.md) — 手動で CLI を使う場合の詳細はこちら
 - [Hooks ガイド](./docs/hooks/README.ja.md)
-- [Hook contract と capability tiers](./docs/hooks/contract.ja.md)
+- [Hook contract と対応レベル](./docs/hooks/contract.ja.md)
 - [イベントライフサイクル](./docs/lifecycle.ja.md)
 - [MCP ガイド](./docs/mcp/README.ja.md)
 - [環境変数と保存モデル](./docs/environment/README.ja.md)

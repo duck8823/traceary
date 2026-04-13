@@ -2,20 +2,20 @@
 
 [English](./README.md)
 
-このページは Traceary の詳細ドキュメント一覧です。トップの README だけでは足りなくなったら、ここから辿ってください。
+このページは Traceary の詳細ドキュメント一覧です。トップの README だけでは足りなくなったときに、ここから目的別の文書をたどれるようにしています。
 
 ## まず読むページ
 
 - [CLI リファレンス](./cli/README.ja.md): コマンドごとの挙動、主要フラグ、出力仕様
 - [環境変数リファレンス](./environment/README.ja.md): 環境変数、実行時の前提、対応プラットフォーム
-- [保存モデル](./storage/README.ja.md): SQLite の構造、マイグレーション、GC、保存しないもの
+- [ストレージモデル](./storage/README.ja.md): SQLite の構造、マイグレーション、GC、保存しないもの
 
 ## 連携まわり
 
-- [ネイティブ連携ガイド](./integrations/README.ja.md): Claude / Codex / Gemini 向け package、導入手順、smoke test
+- [ネイティブ連携ガイド](./integrations/README.ja.md): Claude / Codex / Gemini 向けパッケージ、導入手順、smoke test
 - [Hooks ガイド](./hooks/README.ja.md): Claude Code / Codex / Gemini の hook 設定、導入手順、トラブルシュート
 - [MCP ガイド](./mcp/README.ja.md): `traceary mcp-server` の起動方法、ツール一覧、MCP クライアント連携
-- [インタラクティブ運用メモ](./interactive/README.ja.md): 日常利用で効いた改善点と、その判断理由
+- [インタラクティブ運用メモ](./interactive/README.ja.md): 日常利用で有効だった改善点と、その判断理由
 
 ## 運用
 
@@ -31,11 +31,11 @@
 
 ## このリポジトリの文書ルール
 
-人が読む Markdown は、英語版と日本語版をセットで管理します。
+人向けの Markdown は、英語版と日本語版をセットで管理します。
 
-- 英語版を基準ファイル名にする
-- 日本語版は `.ja.md` を付ける
+- 英語版を基準のファイル名とする
+- 日本語版には `.ja.md` を付ける
 - 更新するときは同じ PR で両言語をそろえる
 - 言語切り替えリンクは各文書の冒頭付近に置く
 
-CI では `python3 scripts/verify_docs_i18n.py` を実行し、文書ペアと言語切り替えリンクを検証しています。
+CI では `python3 scripts/verify_docs_i18n.py` を実行し、文書ペアと言語切り替えリンクの整合を確認しています。

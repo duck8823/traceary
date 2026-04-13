@@ -2,7 +2,7 @@
 
 [English](./lifecycle.md)
 
-Traceary が各 AI エージェントクライアントでイベントを記録する仕組みを説明します。
+このページでは、Traceary が各 AI エージェントクライアントからどのイベントを受け取り、どう保存するかを説明します。
 
 ## クライアント別ライフサイクル
 
@@ -14,9 +14,9 @@ SessionStart → [UserPromptSubmit → PostToolUse]* → (PreCompact → PostCom
 
 | Hook イベント | Matcher | Traceary イベント種別 | 説明 |
 |---|---|---|---|
-| SessionStart | `*` | `session_started` | セッション開始（workspace 解決を含む） |
-| SessionStart | `compact` | — | compact-summary を新しいコンテキストに注入（stdout 経由） |
-| UserPromptSubmit | `*` | `prompt` | ユーザーの指示テキスト |
+| SessionStart | `*` | `session_started` | セッション開始。workspace 解決もここで行う |
+| SessionStart | `compact` | — | compact-summary を新しいコンテキストへ stdout 経由で注入 |
+| UserPromptSubmit | `*` | `prompt` | ユーザーが送った指示テキスト |
 | PostToolUse | `Bash` | `command_executed` | シェルコマンド（入出力・終了コード付き） |
 | PostToolUse | `mcp__.*` | `command_executed` | MCP ツール呼び出し |
 | PostToolUseFailure | `Bash`, `mcp__.*` | `command_executed` | 失敗したツール実行（`failures_only` でフィルタ可能） |
@@ -33,9 +33,9 @@ SessionStart → [PostToolUse]* → Stop
 |---|---|---|
 | SessionStart | `session_started` | セッション開始 |
 | PostToolUse | `command_executed` | ツール実行 |
-| Stop | `session_ended` | セッション終了（SessionEnd ではなく Stop を使用） |
+| Stop | `session_ended` | セッション終了（`SessionEnd` ではなく `Stop` を使う） |
 
-**制限**: `compact` hooks なし、`prompt` 記録なし、failure 専用イベントなし。
+**制限**: `compact` hook はなく、`prompt` も記録できません。failure 専用イベントもありません。
 
 ### Gemini CLI (Tier 3: 基本対応)
 
@@ -49,14 +49,14 @@ SessionStart → [AfterTool]* → SessionEnd
 | AfterTool | `command_executed` | ツール実行 |
 | SessionEnd | `session_ended` | セッション終了 |
 
-**制限**: `compact` hooks なし、`prompt` 記録なし、failure 専用イベントなし。
+**制限**: `compact` hook はなく、`prompt` も記録できません。failure 専用イベントもありません。
 
 ## イベント種別
 
 | 種別 | 説明 | ソース |
 |------|------|--------|
 | `note` | 自由テキストログ | CLI `traceary log` / MCP `add_log` |
-| `command_executed` | コマンド・ツール実行記録 | PostToolUse hooks |
+| `command_executed` | コマンド・ツール実行の記録 | PostToolUse hooks |
 | `reviewed` | レビュー結果 | CLI / MCP |
 | `session_started` | セッション開始境界 | SessionStart hooks |
 | `session_ended` | セッション終了境界 | SessionEnd / Stop hooks |
@@ -85,12 +85,12 @@ AI クライアント (Claude Code / Codex CLI / Gemini CLI)
      traceary mcp-server → SQLite
 ```
 
-## Hook スクリプトマッピング
+## Hook スクリプトと役割
 
 | スクリプト | 用途 | 対応クライアント |
 |------------|------|------------------|
-| `traceary-session.sh` | セッション開始・終了 | 全クライアント |
-| `traceary-audit.sh` | コマンド・ツール監査 | 全クライアント |
-| `traceary-compact.sh` | compact サマリー記録 | Claude Code |
-| `traceary-prompt.sh` | ユーザー prompt 記録 | Claude Code |
+| `traceary-session.sh` | セッション開始・終了の記録 | 全クライアント |
+| `traceary-audit.sh` | コマンド・ツール監査の記録 | 全クライアント |
+| `traceary-compact.sh` | compact サマリーの記録 | Claude Code |
+| `traceary-prompt.sh` | ユーザー prompt の記録 | Claude Code |
 | `common.sh` | 共通ヘルパー関数 | 全クライアント |
