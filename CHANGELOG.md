@@ -31,6 +31,105 @@ Durable memory and context-aware workflows release.
 - #464 Add MCP memory tools and memory-aware context retrieval
 - #465 Extract memory candidates from session and compact summaries
 
+## [v0.4.0] - 2026-04-12
+
+Timeline, prompt capture, and architecture-hardening release.
+
+### Added
+- event-kind expansion for `compact_summary` and `prompt` signals, plus `--kind` support for `traceary log` / MCP `add_log`
+- generated hooks for `PostCompact` and `UserPromptSubmit`, including persisted compact-summary and prompt events
+- `traceary timeline` plus timeline block query support for workspace activity inspection
+- lifecycle and privacy documentation for the expanded hook surface
+
+### Fixed
+- session boundary persistence, duplicate session handling, and compact/prompt agent resolution became more defensive
+- hook install/read paths now reject unsafe symlink traversal patterns
+- `--db-path` / `TRACEARY_DB_PATH` are honored consistently across subcommands
+- query/input validation gaps introduced during interface consolidation were restored
+
+### Changed
+- the presentation, usecase, queryservice, and sqlite wiring was consolidated around multi-method interfaces and datasource-per-aggregate structure
+- repository/type ownership moved deeper into `domain/` and `application/types`, including the `domain/port` removal
+- JSON/output structs, DTOs, and Optional propagation were normalized across CLI and MCP surfaces
+
+## [v0.3.0] - 2026-04-11
+
+Workspace rename and consolidated-usecase architecture release.
+
+### Added
+- `Client` and `Workspace` value objects plus filter-criteria DTOs for the new application-layer query surface
+- consolidated Event/Session/Store usecase interfaces and a service-factory-based composition path
+- repository interfaces and session-label support needed for the next architecture pass
+
+### Changed
+- renamed the repository/work-context concept to `workspace` across hooks, CLI, docs, and storage-facing APIs
+- moved DB path injection to datasource construction and migrated presentation/MCP wiring onto the consolidated usecases
+- refreshed release automation/supporting repo metadata (release checklist, dependabot, pinned actions, release-drafter split)
+
+### Fixed
+- MCP session handoff now preserves `session_id` correctly
+- remaining `repo` references and generated plugin hook drift were removed after the workspace rename
+- release automation and review follow-ups landed before the release tag
+
+## [v0.2.5] - 2026-04-11
+
+Session lifecycle and queryservice cleanup release.
+
+### Added
+- `traceary session tree --json`
+- `--since` / `--until` aliases for session-list date filters
+- parent-session propagation through `TRACEARY_PARENT_SESSION_ID`
+
+### Fixed
+- handoff / compact-summary now pass the requested session filter through session lookup correctly
+- session end, duplicate session start, stale-session GC, and invalid parent-session input handling became stricter and more explicit
+- doctor version comparison now strips build metadata before evaluating upgrade status
+
+### Changed
+- extracted stale-session closing into a dedicated usecase
+- moved queryservice consumer interfaces to `domain/port`
+- extracted remaining inline SQL into embedded `.sql` files
+
+## [v0.2.4] - 2026-04-11
+
+MCP audit enrichment patch release.
+
+### Added
+- MCP audit payloads now fall back to `tool_name` when `tool_input` is empty
+
+### Fixed
+- `traceary doctor` recognizes Claude plugin installs as a valid hook source
+- ending an already-ended session now emits an explicit warning instead of silently doing nothing
+
+### Changed
+- release/version-bump automation advanced to support the newer patch-release flow
+
+## [v0.2.3] - 2026-04-11
+
+Review-fix patch release for `v0.2.2`.
+
+### Fixed
+- follow-up review findings from the `v0.2.2` release line
+
+### Changed
+- Homebrew formula metadata advanced to the `v0.2.2` release state
+
+## [v0.2.2] - 2026-04-11
+
+Query-surface ergonomics patch release.
+
+### Added
+- `traceary list --from/--to`
+- `traceary session list --client`
+- `list_events` MCP filters for client / agent / workspace / session / kind
+- positional argument support for `traceary backup create`
+
+### Fixed
+- `traceary show` now includes `exit_code` for command-audit events
+- `traceary search --failures` counts as a valid structured search constraint
+- `traceary list --kind audit` resolves cleanly to command-audit events
+- CLI date parsing and session-list date-range validation behave consistently, including inverted-range rejection
+
 ## [v0.2.1] - 2026-04-11
 
 Complete v0.2.0 scope gaps.
