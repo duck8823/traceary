@@ -17,7 +17,7 @@ go install github.com/duck8823/traceary@latest
 特定の release を使いたい場合は tag を明示します。
 
 ```sh
-go install github.com/duck8823/traceary@v0.5.0
+go install github.com/duck8823/traceary@vX.Y.Z
 ```
 
 ### Homebrew
@@ -106,7 +106,7 @@ GoReleaser workflow が artifact の公開を自動化しますが、maintainer 
 2. **manifest を bump する。** `make release/bump VERSION=X.Y.Z` を実行すると、`VERSION` と integration plugin manifest がまとめて更新され、`scripts/verify_integrations.py` も走ります。
 3. **ローカル検証。** `python3 scripts/verify_changelog_releases.py` / `go test ./...` / `go tool golangci-lint run` をすべて通します。
 4. **release-preparation PR を開く。** `maintenance/release-vX.Y.Z` ブランチを作成し、changelog と bump を commit・push して `main` 向けに PR を開きます。**`Closes #<parent>` は書かない**でください。親 release issue は release workflow が閉じるため、release-prep PR からは閉じません。
-5. **Multi-AI レビュー + merge。** release-prep PR も通常の PR と同じく Multi-AI レビューゲート（Claude + Codex または Gemini scout）を通し、merge commit でマージします。
+5. **Multi-AI レビュー + merge。** release-prep PR も通常の PR と同じく、最新 head に対する Claude / Gemini のレビューを取り、そのうえで PR 上の Codex app review が返るのを待ってから merge commit でマージします。
 6. **tag を打って push する。** release-prep PR が merge されたら、`git checkout main && git pull --ff-only && git tag vX.Y.Z && git push origin vX.Y.Z` を実行します。`v*` tag が `.github/workflows/release.yml` を起動します。
 7. **release workflow を監視する。** tag run に対して `gh run watch` を実行し、成功後に `gh release view vX.Y.Z` で公開を確認します。
 8. **Homebrew formula PR を確認する。** release workflow が `maintenance/homebrew-vX.Y.Z` PR を開いて auto-merge を有効化します。実際に merge されたか確認し、`brew update && brew upgrade traceary && traceary -v` で新バージョンを確かめます。
