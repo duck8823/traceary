@@ -114,11 +114,7 @@ Useful flags:
 
 ### `traceary context`
 
-Print a recent handoff/context bundle for another session or tool.
-
-Alias:
-
-- `traceary handoff`
+Print raw recent context events for another session or tool.
 
 Useful flags:
 
@@ -126,6 +122,38 @@ Useful flags:
 - `--workspace`
 - `--limit`
 - `--json`
+
+### `traceary handoff`
+
+Print a structured working-memory handoff summary built from session metadata, recent commands, compact summaries, and accepted durable memories.
+
+Useful flags:
+
+- `--session-id`
+- `--workspace`
+- `--recent`
+- `--memories`
+
+### `traceary session handoff`
+
+Session-scoped entry point for the same structured handoff output as `traceary handoff`.
+
+Useful flags:
+
+- `--session-id`
+- `--workspace`
+- `--recent`
+- `--memories`
+
+### `traceary compact-summary`
+
+Print a compact context-resumption pointer assembled from the same working-memory pack used by `traceary handoff`, but compressed for prompt injection and compact/clear recovery.
+
+Useful flags:
+
+- `--session-id`
+- `--workspace`
+- `--recent`
 
 ## Durable memory commands
 

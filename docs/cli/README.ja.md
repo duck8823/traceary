@@ -114,11 +114,7 @@ session 解決ルールは `traceary log` と同じです。
 
 ### `traceary context`
 
-別 session / 別 tool へ渡すための handoff/context bundle を表示します。
-
-alias:
-
-- `traceary handoff`
+別 session / 別 tool へ渡すための raw recent context event 群を表示します。
 
 主な flag:
 
@@ -126,6 +122,38 @@ alias:
 - `--workspace`
 - `--limit`
 - `--json`
+
+### `traceary handoff`
+
+session metadata、recent commands、compact summary、accepted durable memories から構成した structured working-memory handoff summary を表示します。
+
+主な flag:
+
+- `--session-id`
+- `--workspace`
+- `--recent`
+- `--memories`
+
+### `traceary session handoff`
+
+`traceary handoff` と同じ structured handoff 出力を session namespace から実行します。
+
+主な flag:
+
+- `--session-id`
+- `--workspace`
+- `--recent`
+- `--memories`
+
+### `traceary compact-summary`
+
+`traceary handoff` と同じ working-memory pack を使って、prompt injection や compact/clear 後の再開向けに圧縮した context-resumption pointer を表示します。
+
+主な flag:
+
+- `--session-id`
+- `--workspace`
+- `--recent`
 
 ## Durable memory コマンド
 

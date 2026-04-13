@@ -106,6 +106,15 @@ func (s *sessionUsecaseStub) Handoff(_ context.Context, _ types.SessionID, _ typ
 	return s.handoff, s.handoffErr
 }
 
+type contextUsecaseStub struct {
+	handoff    types.Optional[apptypes.ContextPack]
+	handoffErr error
+}
+
+func (s *contextUsecaseStub) Handoff(_ context.Context, _ apptypes.ContextPackCriteria) (types.Optional[apptypes.ContextPack], error) {
+	return s.handoff, s.handoffErr
+}
+
 type memoryUsecaseStub struct {
 	listResult       []apptypes.MemorySummary
 	listErr          error
