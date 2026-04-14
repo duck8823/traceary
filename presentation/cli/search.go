@@ -29,6 +29,8 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 		offset       int
 		failuresOnly bool
 		asJSON       bool
+		wide         bool
+		utc          bool
 	)
 
 	searchCmd := &cobra.Command{
@@ -56,6 +58,8 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 				query:        query,
 				failuresOnly: failuresOnly,
 				asJSON:       asJSON,
+				wide:         wide,
+				utc:          utc,
 			})
 		},
 	}
@@ -81,6 +85,8 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 	searchCmd.Flags().IntVar(&offset, "offset", 0, Localize("number of matching events to skip before returning results", "結果を返す前にスキップする件数"))
 	searchCmd.Flags().BoolVar(&failuresOnly, "failures", false, Localize("show only failed commands", "失敗したコマンドのみ表示"))
 	searchCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
+	searchCmd.Flags().BoolVar(&wide, "wide", false, Localize("use the legacy tab-separated seven-column format", "従来のタブ区切り 7 カラム形式で出力する"))
+	searchCmd.Flags().BoolVar(&utc, "utc", false, Localize("print text timestamps in UTC instead of local time", "テキスト出力のタイムスタンプを現地時刻ではなく UTC で出力する"))
 
 	return searchCmd
 }
@@ -153,7 +159,12 @@ func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchC
 		return xerrors.Errorf("%s: %w", Localize("failed to search events", "検索に失敗しました"), err)
 	}
 
-	if err := writeEventsByFormat(output, events, input.asJSON); err != nil {
+	textOpts := eventTextFormatOptions{
+		wide:     input.wide,
+		utc:      input.utc,
+		location: input.location,
+	}
+	if err := writeEventsByFormat(output, events, input.asJSON, textOpts); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print search results", "検索結果の出力に失敗しました"), err)
 	}
 

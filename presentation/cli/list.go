@@ -28,6 +28,8 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 		until        string
 		failuresOnly bool
 		asJSON       bool
+		wide         bool
+		utc          bool
 	)
 
 	listCmd := &cobra.Command{
@@ -50,6 +52,8 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 				until:        until,
 				failuresOnly: failuresOnly,
 				asJSON:       asJSON,
+				wide:         wide,
+				utc:          utc,
 			})
 		},
 	}
@@ -67,6 +71,8 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 	listCmd.Flags().StringVar(&until, "until", "", Localize("end date (`YYYY-MM-DD` or RFC3339) (alias for `--to`)", "終了日 (`YYYY-MM-DD` または RFC3339) (`--to` の別名)"))
 	listCmd.Flags().BoolVar(&failuresOnly, "failures", false, Localize("show only failed commands", "失敗したコマンドのみ表示"))
 	listCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
+	listCmd.Flags().BoolVar(&wide, "wide", false, Localize("use the legacy tab-separated seven-column format", "従来のタブ区切り 7 カラム形式で出力する"))
+	listCmd.Flags().BoolVar(&utc, "utc", false, Localize("print text timestamps in UTC instead of local time", "テキスト出力のタイムスタンプを現地時刻ではなく UTC で出力する"))
 
 	return listCmd
 }
@@ -139,7 +145,12 @@ func (c *RootCLI) runList(ctx context.Context, output io.Writer, input listComma
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to list events", "イベント一覧の取得に失敗しました"), err)
 	}
-	if err := writeEventsByFormat(output, events, input.asJSON); err != nil {
+	textOpts := eventTextFormatOptions{
+		wide:     input.wide,
+		utc:      input.utc,
+		location: input.location,
+	}
+	if err := writeEventsByFormat(output, events, input.asJSON, textOpts); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print event list", "一覧出力に失敗しました"), err)
 	}
 

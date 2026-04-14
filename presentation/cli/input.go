@@ -117,6 +117,9 @@ type listCommandInput struct {
 	until        string
 	failuresOnly bool
 	asJSON       bool
+	wide         bool
+	utc          bool
+	location     *time.Location
 }
 
 // logCommandInput is the resolved input to the `traceary log` command.
@@ -149,6 +152,9 @@ type searchCommandInput struct {
 	query        string
 	failuresOnly bool
 	asJSON       bool
+	wide         bool
+	utc          bool
+	location     *time.Location
 }
 
 // sessionBoundaryCommandInput is the resolved input to
