@@ -1,7 +1,7 @@
 package cli
 
 import (
-	"path/filepath"
+	"path"
 	"strings"
 	"time"
 
@@ -115,7 +115,7 @@ func compactWorkspace(value string) string {
 	if normalized == "" {
 		return "-"
 	}
-	base := filepath.Base(normalized)
+	base := path.Base(normalized)
 	if base == "." || base == "/" {
 		return trimmed
 	}
