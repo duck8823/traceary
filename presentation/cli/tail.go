@@ -111,13 +111,15 @@ func (c *tailCursor) Advance(events []*model.Event) {
 type tailEventWriter struct {
 	output      io.Writer
 	asJSON      bool
+	textOpts    eventTextFormatOptions
 	headerWrote bool
 }
 
-func newTailEventWriter(output io.Writer, asJSON bool) *tailEventWriter {
+func newTailEventWriter(output io.Writer, asJSON bool, textOpts eventTextFormatOptions) *tailEventWriter {
 	return &tailEventWriter{
-		output: output,
-		asJSON: asJSON,
+		output:   output,
+		asJSON:   asJSON,
+		textOpts: textOpts,
 	}
 }
 
@@ -125,7 +127,12 @@ func (w *tailEventWriter) EnsureReady() error {
 	if w.asJSON || w.headerWrote {
 		return nil
 	}
-	if _, err := fmt.Fprintln(w.output, "CREATED_AT\tKIND\tCLIENT\tAGENT\tSESSION_ID\tWORKSPACE\tMESSAGE"); err != nil {
+	// compact mode is header-less; wide mode keeps the classic banner.
+	if !w.textOpts.wide {
+		w.headerWrote = true
+		return nil
+	}
+	if _, err := fmt.Fprintln(w.output, formatEventWideHeader()); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print list header", "一覧ヘッダーの出力に失敗しました"), err)
 	}
 	w.headerWrote = true
@@ -143,17 +150,13 @@ func (w *tailEventWriter) Write(events []*model.Event) error {
 			}
 			continue
 		}
-		if _, err := fmt.Fprintf(
-			w.output,
-			"%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			event.CreatedAt().UTC().Format("2006-01-02T15:04:05Z07:00"),
-			event.Kind(),
-			formatOptionalColumn(event.Client().String()),
-			event.Agent(),
-			event.SessionID(),
-			formatOptionalColumn(event.Workspace().String()),
-			truncateMessage(event.Body()),
-		); err != nil {
+		var row string
+		if w.textOpts.wide {
+			row = formatEventWideRow(event, w.textOpts)
+		} else {
+			row = formatEventCompactRow(event, w.textOpts)
+		}
+		if _, err := fmt.Fprintln(w.output, row); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print event row", "イベント一覧行の出力に失敗しました"), err)
 		}
 	}
@@ -183,6 +186,8 @@ func (c *RootCLI) newTailCommand() *cobra.Command {
 		repo         string
 		failuresOnly bool
 		asJSON       bool
+		wide         bool
+		utc          bool
 	)
 
 	tailCmd := &cobra.Command{
@@ -200,6 +205,8 @@ func (c *RootCLI) newTailCommand() *cobra.Command {
 				repo:         repo,
 				failuresOnly: failuresOnly,
 				asJSON:       asJSON,
+				wide:         wide,
+				utc:          utc,
 			})
 		},
 	}
@@ -212,6 +219,8 @@ func (c *RootCLI) newTailCommand() *cobra.Command {
 	tailCmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by auxiliary workspace identifier", "補助的な workspace 識別子で絞り込む"))
 	tailCmd.Flags().BoolVar(&failuresOnly, "failures", false, Localize("show only failed commands", "失敗したコマンドのみ表示"))
 	tailCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print NDJSON output", "NDJSON 形式で出力する"))
+	tailCmd.Flags().BoolVar(&wide, "wide", false, Localize("use the legacy tab-separated seven-column format", "従来のタブ区切り 7 カラム形式で出力する"))
+	tailCmd.Flags().BoolVar(&utc, "utc", false, Localize("print text timestamps in UTC instead of local time", "テキスト出力のタイムスタンプを現地時刻ではなく UTC で出力する"))
 
 	return tailCmd
 }
@@ -248,7 +257,11 @@ func (c *RootCLI) runTail(ctx context.Context, output io.Writer, input tailComma
 		Workspace(types.Workspace(resolveWorkspaceValue(ctx, input.repo))).
 		FailuresOnly(input.failuresOnly)
 
-	writer := newTailEventWriter(output, input.asJSON)
+	writer := newTailEventWriter(output, input.asJSON, eventTextFormatOptions{
+		wide:     input.wide,
+		utc:      input.utc,
+		location: input.location,
+	})
 	cursor := newTailCursor(input.resolvedNowFunc()().UTC())
 	if input.limit > 0 {
 		initialCriteria := apptypes.NewEventListCriteriaBuilder(input.limit).

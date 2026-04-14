@@ -153,6 +153,8 @@ func TestRunTail_PrintsInitialEventsAndFollowsNewEvents(t *testing.T) {
 			agent:         "codex",
 			sessionID:     "session-1",
 			repo:          "duck8823/traceary",
+			wide:          true,
+			utc:           true,
 			nowFunc:       func() time.Time { return startTime },
 			tickerFactory: func(time.Duration) tailTicker { return ticker },
 		})
@@ -210,6 +212,8 @@ func TestRunTail_ZeroLimitStartsFromNow(t *testing.T) {
 			dbPath:        "/tmp/test-traceary.db",
 			limit:         0,
 			repo:          "duck8823/traceary",
+			wide:          true,
+			utc:           true,
 			nowFunc:       func() time.Time { return startTime },
 			tickerFactory: func(time.Duration) tailTicker { return ticker },
 		})
@@ -327,6 +331,8 @@ func TestRunTail_DoesNotReEmitBoundaryEventWhenFromEqualsInitialTimestamp(t *tes
 			agent:         "codex",
 			sessionID:     "session-1",
 			repo:          "duck8823/traceary",
+			wide:          true,
+			utc:           true,
 			nowFunc:       func() time.Time { return startTime },
 			tickerFactory: func(time.Duration) tailTicker { return ticker },
 		})
