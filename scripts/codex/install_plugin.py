@@ -11,6 +11,11 @@ ROOT = Path(__file__).resolve().parents[2]
 PLUGIN_NAME = 'traceary'
 MARKETPLACE_NAME = 'local-traceary-plugins'
 PLUGIN_ID = f'{PLUGIN_NAME}@{MARKETPLACE_NAME}'
+TRACEARY_CODEX_HOOK_NAMES = {
+    'traceary-session-start',
+    'traceary-session-stop',
+    'traceary-audit',
+}
 PLUGIN_VERSION = 'local'
 
 
@@ -137,6 +142,7 @@ def build_codex_hooks(traceary_bin: str) -> dict:
             {
                 'hooks': [
                     {
+                        'name': 'traceary-session-start',
                         'type': 'command',
                         'command': build_hook_command(traceary_bin, 'hook', 'session', 'codex', 'start'),
                     }
@@ -147,6 +153,7 @@ def build_codex_hooks(traceary_bin: str) -> dict:
             {
                 'hooks': [
                     {
+                        'name': 'traceary-session-stop',
                         'type': 'command',
                         'command': build_hook_command(traceary_bin, 'hook', 'session', 'codex', 'stop'),
                     }
@@ -158,6 +165,7 @@ def build_codex_hooks(traceary_bin: str) -> dict:
                 'matcher': empty_matcher,
                 'hooks': [
                     {
+                        'name': 'traceary-audit',
                         'type': 'command',
                         'command': build_hook_command(traceary_bin, 'hook', 'audit', 'codex'),
                     }
@@ -167,7 +175,12 @@ def build_codex_hooks(traceary_bin: str) -> dict:
     }
 
 
-def is_traceary_binary(token: str) -> bool:
+def is_traceary_binary(token: str, traceary_bin: str) -> bool:
+    return token.strip() == traceary_bin.strip()
+
+
+def is_legacy_traceary_binary(token: str) -> bool:
+    """Return true for pre-name direct hooks that used the default `traceary` basename."""
     return Path(token.strip()).name == 'traceary'
 
 
@@ -179,10 +192,19 @@ def is_traceary_codex_session_hook(tokens: list[str], index: int) -> bool:
     return len(tokens) == index + 3 and tokens[index + 1] == 'codex' and tokens[index + 2] in {'start', 'stop'}
 
 
-def is_traceary_codex_direct_hook(tokens: list[str]) -> bool:
-    if len(tokens) == 5 and is_traceary_binary(tokens[0]):
+def is_traceary_codex_direct_hook(tokens: list[str], traceary_bin: str) -> bool:
+    if len(tokens) == 5 and is_traceary_binary(tokens[0], traceary_bin):
         return tokens[1] == 'hook' and tokens[2] == 'session' and tokens[3] == 'codex' and tokens[4] in {'start', 'stop'}
-    if len(tokens) == 4 and is_traceary_binary(tokens[0]):
+    if len(tokens) == 4 and is_traceary_binary(tokens[0], traceary_bin):
+        return tokens[1] == 'hook' and tokens[2] == 'audit' and tokens[3] == 'codex'
+    return False
+
+
+def is_legacy_traceary_codex_direct_hook(tokens: list[str]) -> bool:
+    """Match legacy direct hooks that predate explicit Traceary hook names."""
+    if len(tokens) == 5 and is_legacy_traceary_binary(tokens[0]):
+        return tokens[1] == 'hook' and tokens[2] == 'session' and tokens[3] == 'codex' and tokens[4] in {'start', 'stop'}
+    if len(tokens) == 4 and is_legacy_traceary_binary(tokens[0]):
         return tokens[1] == 'hook' and tokens[2] == 'audit' and tokens[3] == 'codex'
     return False
 
@@ -196,12 +218,21 @@ def is_traceary_codex_script_hook(tokens: list[str]) -> bool:
     return False
 
 
-def is_traceary_codex_hook(command: str) -> bool:
+def is_traceary_codex_hook(hook: dict, traceary_bin: str) -> bool:
+    # Explicit Traceary hook names are the stable primary marker for direct hooks.
+    if hook.get('name') in TRACEARY_CODEX_HOOK_NAMES:
+        return True
+
+    command = str(hook.get('command', ''))
     try:
         tokens = shlex.split(command)
     except ValueError:
         return False
-    return is_traceary_codex_script_hook(tokens) or is_traceary_codex_direct_hook(tokens)
+    return (
+        is_traceary_codex_script_hook(tokens)
+        or is_traceary_codex_direct_hook(tokens, traceary_bin)
+        or is_legacy_traceary_codex_direct_hook(tokens)
+    )
 
 
 def merge_codex_hooks(hooks_path: Path, traceary_bin: str) -> Path:
@@ -215,7 +246,7 @@ def merge_codex_hooks(hooks_path: Path, traceary_bin: str) -> Path:
         cleaned_matchers = []
         for matcher in hooks.get(event_name, []):
             matcher_hooks = matcher.get('hooks', [])
-            remaining = [hook for hook in matcher_hooks if not is_traceary_codex_hook(str(hook.get('command', '')))]
+            remaining = [hook for hook in matcher_hooks if not is_traceary_codex_hook(hook, traceary_bin)]
             if remaining:
                 updated = dict(matcher)
                 updated['hooks'] = remaining

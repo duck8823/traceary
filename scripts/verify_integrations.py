@@ -169,7 +169,7 @@ def check_codex() -> None:
                 '--marketplace-root',
                 str(marketplace_root),
                 '--traceary-bin',
-                '/tmp/traceary',
+                '/tmp/custom-traceary-wrapper',
             ],
             check=True,
             cwd=ROOT,
@@ -216,7 +216,7 @@ def check_codex() -> None:
                 '--marketplace-root',
                 str(marketplace_root),
                 '--traceary-bin',
-                '/tmp/traceary',
+                '/tmp/custom-traceary-wrapper',
             ],
             check=True,
             cwd=ROOT,
@@ -241,11 +241,14 @@ def check_codex() -> None:
         require('Stop' in installed_hooks['hooks'], 'Codex install helper must write Stop hooks')
         require('PostToolUse' in installed_hooks['hooks'], 'Codex install helper must write PostToolUse hooks')
         hook_commands = json.dumps(installed_hooks['hooks'])
-        require('/tmp/traceary' in hook_commands, 'Codex install helper must carry the configured traceary binary into hooks.json')
+        require('/tmp/custom-traceary-wrapper' in hook_commands, 'Codex install helper must carry the configured traceary binary into hooks.json')
         require(("'hook' 'session' 'codex'" in hook_commands or ' hook session codex' in hook_commands), 'Codex install helper must install direct hook session commands')
         require(("'hook' 'audit' 'codex'" in hook_commands or ' hook audit codex' in hook_commands), 'Codex install helper must install direct hook audit commands')
         require('custom-cli hook session codex start' in hook_commands, 'Codex install helper must preserve unrelated session hooks')
         require('custom-cli hook audit codex' in hook_commands, 'Codex install helper must preserve unrelated audit hooks')
+        require('traceary-session-start' in hook_commands, 'Codex install helper must name managed session-start hooks')
+        require('traceary-session-stop' in hook_commands, 'Codex install helper must name managed session-stop hooks')
+        require('traceary-audit' in hook_commands, 'Codex install helper must name managed audit hooks')
 
         config_path = codex_home / 'config.toml'
         config_path.write_text(
@@ -288,7 +291,7 @@ def check_codex() -> None:
             remaining_hooks = json.dumps(read_json(hooks_path))
             require('traceary-session.sh' not in remaining_hooks, 'Codex uninstall helper must remove Traceary session hooks')
             require('traceary-audit.sh' not in remaining_hooks, 'Codex uninstall helper must remove Traceary audit hooks')
-            require('/tmp/traceary' not in remaining_hooks, 'Codex uninstall helper must remove direct Traceary hooks that use the configured traceary binary')
+            require('/tmp/custom-traceary-wrapper' not in remaining_hooks, 'Codex uninstall helper must remove direct Traceary hooks that use the configured traceary binary')
             require('custom-cli hook session codex start' in remaining_hooks, 'Codex uninstall helper must preserve unrelated session hooks')
             require('custom-cli hook audit codex' in remaining_hooks, 'Codex uninstall helper must preserve unrelated audit hooks')
 
