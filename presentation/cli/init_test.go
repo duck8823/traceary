@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
@@ -28,8 +30,8 @@ func TestRootCLI_InitCommand(t *testing.T) {
 		t.Fatalf("Run() was not called")
 	}
 	wantOutput := "Initialized: " + dbPath + "\n"
-	if stdout.String() != wantOutput {
-		t.Fatalf("stdout = %q, want %q", stdout.String(), wantOutput)
+	if diff := cmp.Diff(wantOutput, stdout.String()); diff != "" {
+		t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -104,8 +106,8 @@ func TestRootCLI_InitCommand_UsesTracearyDBPathEnv(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 	wantOutput := "Initialized: " + dbPath + "\n"
-	if stdout.String() != wantOutput {
-		t.Fatalf("stdout = %q, want %q", stdout.String(), wantOutput)
+	if diff := cmp.Diff(wantOutput, stdout.String()); diff != "" {
+		t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 	}
 }
 

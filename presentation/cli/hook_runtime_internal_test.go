@@ -4,6 +4,8 @@ import (
 	"os"
 	"strconv"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestResolveHookStateKey_UsesGrandparentProcessIdentity(t *testing.T) {
@@ -20,8 +22,8 @@ func TestResolveHookStateKey_UsesGrandparentProcessIdentity(t *testing.T) {
 		hookParentProcessLookup = originalLookup
 	})
 
-	if got, want := resolveHookStateKey(), "4242"; got != want {
-		t.Fatalf("resolveHookStateKey() = %q, want %q", got, want)
+	if diff := cmp.Diff("4242", resolveHookStateKey()); diff != "" {
+		t.Fatalf("resolveHookStateKey() mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -39,7 +41,7 @@ func TestResolveHookStateKey_UsesParentIdentityForNonShellParents(t *testing.T) 
 		hookParentProcessLookup = originalLookup
 	})
 
-	if got, want := resolveHookStateKey(), sanitizeHookStateKey(strconv.Itoa(os.Getppid())); got != want {
-		t.Fatalf("resolveHookStateKey() = %q, want %q", got, want)
+	if diff := cmp.Diff(sanitizeHookStateKey(strconv.Itoa(os.Getppid())), resolveHookStateKey()); diff != "" {
+		t.Fatalf("resolveHookStateKey() mismatch (-want +got):\n%s", diff)
 	}
 }

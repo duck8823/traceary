@@ -5,6 +5,8 @@ import (
 	"os"
 	"runtime/debug"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestWriteCLIError(t *testing.T) {
@@ -17,8 +19,8 @@ func TestWriteCLIError(t *testing.T) {
 		if err := writeCLIError(buffer, testError("boom")); err != nil {
 			t.Fatalf("writeCLIError() error = %v", err)
 		}
-		if buffer.String() != "Error: boom\n" {
-			t.Fatalf("buffer = %q, want %q", buffer.String(), "Error: boom\n")
+		if diff := cmp.Diff("Error: boom\n", buffer.String()); diff != "" {
+			t.Fatalf("buffer mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -29,8 +31,8 @@ func TestWriteCLIError(t *testing.T) {
 		if err := writeCLIError(buffer, nil); err != nil {
 			t.Fatalf("writeCLIError() error = %v", err)
 		}
-		if buffer.Len() != 0 {
-			t.Fatalf("buffer = %q, want empty", buffer.String())
+		if diff := cmp.Diff("", buffer.String()); diff != "" {
+			t.Fatalf("buffer mismatch (-want +got):\n%s", diff)
 		}
 	})
 }
@@ -107,14 +109,14 @@ func TestResolveBuildMetadata(t *testing.T) {
 			}, true
 		})
 
-		if gotVersion != "v0.1.7" {
-			t.Fatalf("version = %q, want %q", gotVersion, "v0.1.7")
+		if diff := cmp.Diff("v0.1.7", gotVersion); diff != "" {
+			t.Fatalf("version mismatch (-want +got):\n%s", diff)
 		}
-		if gotCommit != "abcdef123456" {
-			t.Fatalf("commit = %q, want %q", gotCommit, "abcdef123456")
+		if diff := cmp.Diff("abcdef123456", gotCommit); diff != "" {
+			t.Fatalf("commit mismatch (-want +got):\n%s", diff)
 		}
-		if gotDate != "2026-04-08T03:00:00Z" {
-			t.Fatalf("date = %q, want %q", gotDate, "2026-04-08T03:00:00Z")
+		if diff := cmp.Diff("2026-04-08T03:00:00Z", gotDate); diff != "" {
+			t.Fatalf("date mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -124,8 +126,8 @@ func TestResolveBuildMetadata(t *testing.T) {
 		gotVersion, gotCommit, gotDate := resolveBuildMetadata("dev", "none", "unknown", func() (*debug.BuildInfo, bool) {
 			return nil, false
 		})
-		if gotVersion != "dev" || gotCommit != "none" || gotDate != "unknown" {
-			t.Fatalf("resolveBuildMetadata() = (%q, %q, %q)", gotVersion, gotCommit, gotDate)
+		if diff := cmp.Diff([]string{"dev", "none", "unknown"}, []string{gotVersion, gotCommit, gotDate}); diff != "" {
+			t.Fatalf("resolveBuildMetadata() mismatch (-want +got):\n%s", diff)
 		}
 	})
 }
