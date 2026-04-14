@@ -159,6 +159,64 @@ func TestFormatEventWideRow_UTCMatchesLegacyFormat(t *testing.T) {
 	}
 }
 
+func TestWriteEvents_CompactDefaultOmitsHeader(t *testing.T) {
+	t.Parallel()
+
+	event := mustTailEvent(
+		t,
+		"abcdef1234567890",
+		"cli",
+		"codex",
+		"session-compact-9999",
+		"duck8823/traceary",
+		"hello list compact",
+		time.Date(2026, 4, 15, 9, 30, 0, 0, time.UTC),
+	)
+
+	var buf bytes.Buffer
+	if err := writeEvents(&buf, []*model.Event{event}, eventTextFormatOptions{utc: true}); err != nil {
+		t.Fatalf("writeEvents() error = %v", err)
+	}
+	got := buf.String()
+	if strings.Contains(got, "CREATED_AT\t") {
+		t.Fatalf("compact mode emitted wide header: %q", got)
+	}
+	if !strings.HasPrefix(got, "09:30:00 ") {
+		t.Fatalf("expected HH:MM:SS UTC prefix, got %q", got)
+	}
+	if !strings.Contains(got, "sess=session-") {
+		t.Fatalf("expected compact session prefix, got %q", got)
+	}
+	if !strings.HasSuffix(got, "\n") {
+		t.Fatalf("expected trailing newline, got %q", got)
+	}
+}
+
+func TestWriteEvents_WideUTCMatchesLegacyTable(t *testing.T) {
+	t.Parallel()
+
+	event := mustTailEvent(
+		t,
+		"event-wide-list",
+		"cli",
+		"codex",
+		"session-1",
+		"duck8823/traceary",
+		"hello",
+		time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC),
+	)
+
+	var buf bytes.Buffer
+	if err := writeEvents(&buf, []*model.Event{event}, eventTextFormatOptions{wide: true, utc: true}); err != nil {
+		t.Fatalf("writeEvents() error = %v", err)
+	}
+	want := "CREATED_AT\tKIND\tCLIENT\tAGENT\tSESSION_ID\tWORKSPACE\tMESSAGE\n" +
+		"2026-04-07T12:00:00Z\tnote\tcli\tcodex\tsession-1\tduck8823/traceary\thello\n"
+	if diff := cmp.Diff(want, buf.String()); diff != "" {
+		t.Fatalf("writeEvents() wide+utc mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestRunTail_DefaultCompactUsesInjectedLocation(t *testing.T) {
 	t.Parallel()
 
