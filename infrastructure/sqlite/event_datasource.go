@@ -688,14 +688,15 @@ func (d *EventDatasource) ListTimelineBlocks(
 }
 
 // resolveWorkspaceSummary applies the fallback chain
-// compact_summary → prompt → kind_counts. The caller still has to render
-// the kind-count fallback from the kinds slice when summary is empty; the
-// returned source reflects that decision.
+// compact_summary → prompt → kind_counts. Whitespace-only candidates are
+// treated as absent so blank rows cannot override a later non-blank
+// candidate (SQLite TRIM only strips spaces, not tabs/newlines, so this
+// defense is enforced in Go rather than in SQL).
 func resolveWorkspaceSummary(compactSummaryBody, firstPromptBody string) (string, apptypes.TimelineWorkspaceBreakdownSummarySource) {
-	if compactSummaryBody != "" {
+	if strings.TrimSpace(compactSummaryBody) != "" {
 		return compactSummaryBody, apptypes.TimelineSummarySourceCompactSummary
 	}
-	if firstPromptBody != "" {
+	if strings.TrimSpace(firstPromptBody) != "" {
 		return firstPromptBody, apptypes.TimelineSummarySourcePrompt
 	}
 	return "", apptypes.TimelineSummarySourceKindCounts

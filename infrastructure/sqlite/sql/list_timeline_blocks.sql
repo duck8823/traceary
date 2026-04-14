@@ -64,6 +64,7 @@ prompt_ranked AS (
     ROW_NUMBER() OVER (PARTITION BY block_num, workspace ORDER BY created_at, id) AS rn
   FROM blocks
   WHERE kind = 'prompt'
+    AND TRIM(body) != ''
 ),
 first_prompt AS (
   SELECT block_num, workspace, body AS first_prompt_body
@@ -78,6 +79,7 @@ compact_ranked AS (
     ROW_NUMBER() OVER (PARTITION BY block_num, workspace ORDER BY created_at DESC, id DESC) AS rn
   FROM blocks
   WHERE kind = 'compact_summary'
+    AND TRIM(body) != ''
 ),
 last_compact AS (
   SELECT block_num, workspace, body AS compact_summary_body
@@ -98,6 +100,7 @@ ws_rows AS (
   LEFT JOIN last_compact lc
     ON lc.block_num = b.block_num AND lc.workspace = b.workspace
   WHERE b.block_num IN (SELECT block_num FROM top_blocks)
+    AND b.workspace != ''
   GROUP BY b.block_num, b.workspace
 )
 SELECT

@@ -201,6 +201,76 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		}
 	})
 
+	t.Run("filters empty workspace rows out of breakdown", func(t *testing.T) {
+		t.Parallel()
+		ds := newDatasource(t)
+
+		// Mix a legacy empty-workspace row with a normal one in the same block.
+		saveEvent(t, ds, "e1", "", time.Date(2026, 4, 10, 9, 0, 0, 0, time.UTC))
+		saveEvent(t, ds, "e2", "ws-real", time.Date(2026, 4, 10, 9, 1, 0, 0, time.UTC))
+		saveEvent(t, ds, "e3", "ws-real", time.Date(2026, 4, 10, 9, 2, 0, 0, time.UTC))
+
+		blocks, err := ds.ListTimelineBlocks(context.Background(), types.Workspace(""), time.Time{}, time.Time{}, 900, 10)
+		if err != nil {
+			t.Fatalf("ListTimelineBlocks() error = %v", err)
+		}
+		if len(blocks) != 1 {
+			t.Fatalf("len(blocks) = %d, want 1", len(blocks))
+		}
+		breakdown := blocks[0].WorkspaceBreakdown()
+		if len(breakdown) != 1 {
+			t.Fatalf("breakdown len = %d, want 1 (empty workspace must not leak)", len(breakdown))
+		}
+		if got := breakdown[0].Workspace(); got != "ws-real" {
+			t.Errorf("breakdown[0].Workspace() = %q, want %q", got, "ws-real")
+		}
+		if got := blocks[0].EventCount(); got != 3 {
+			t.Errorf("block event count = %d, want 3 (still counts empty-workspace event)", got)
+		}
+	})
+
+	t.Run("blank summary body is skipped in favor of a later non-blank candidate", func(t *testing.T) {
+		t.Parallel()
+		ds := newDatasource(t)
+
+		// First prompt is whitespace-only, second is real content.
+		saveEventKind(t, ds, "e1", "ws-prompt", types.EventKindPrompt, "   ", time.Date(2026, 4, 10, 10, 0, 0, 0, time.UTC))
+		saveEventKind(t, ds, "e2", "ws-prompt", types.EventKindPrompt, "fix the real thing", time.Date(2026, 4, 10, 10, 1, 0, 0, time.UTC))
+		// Blank compact_summary must not override a real prompt fallback.
+		saveEventKind(t, ds, "e3", "ws-compact", types.EventKindCompactSummary, "\t\n", time.Date(2026, 4, 10, 10, 2, 0, 0, time.UTC))
+		saveEventKind(t, ds, "e4", "ws-compact", types.EventKindPrompt, "user intent", time.Date(2026, 4, 10, 10, 3, 0, 0, time.UTC))
+
+		blocks, err := ds.ListTimelineBlocks(context.Background(), types.Workspace(""), time.Time{}, time.Time{}, 900, 10)
+		if err != nil {
+			t.Fatalf("ListTimelineBlocks() error = %v", err)
+		}
+		if len(blocks) != 1 {
+			t.Fatalf("len(blocks) = %d, want 1", len(blocks))
+		}
+		byWs := make(map[string]int, len(blocks[0].WorkspaceBreakdown()))
+		breakdown := blocks[0].WorkspaceBreakdown()
+		for i, ws := range breakdown {
+			byWs[ws.Workspace()] = i
+		}
+		promptIdx, ok := byWs["ws-prompt"]
+		if !ok {
+			t.Fatalf("breakdown missing ws-prompt: %+v", breakdown)
+		}
+		if got := breakdown[promptIdx].Summary(); got != "fix the real thing" {
+			t.Errorf("ws-prompt summary = %q, want 'fix the real thing' (blank prompt must be skipped)", got)
+		}
+		compactIdx, ok := byWs["ws-compact"]
+		if !ok {
+			t.Fatalf("breakdown missing ws-compact: %+v", breakdown)
+		}
+		if got := breakdown[compactIdx].Summary(); got != "user intent" {
+			t.Errorf("ws-compact summary = %q, want 'user intent' (blank compact_summary must fall through to prompt)", got)
+		}
+		if got := breakdown[compactIdx].SummarySource(); got != "prompt" {
+			t.Errorf("ws-compact source = %q, want 'prompt'", got)
+		}
+	})
+
 	t.Run("respects limit", func(t *testing.T) {
 		t.Parallel()
 		ds := newDatasource(t)
