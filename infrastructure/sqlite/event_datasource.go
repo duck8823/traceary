@@ -595,44 +595,110 @@ func (d *EventDatasource) ListTimelineBlocks(
 		}
 	}()
 
-	var blocks []apptypes.TimelineBlock
+	// The query returns one row per (block, workspace). We preserve the
+	// insertion order of both block_num values (ordered DESC by block_start
+	// in SQL) and their per-workspace rows (ordered DESC by ws_event_count,
+	// then by workspace name) so the Go slice mirrors the SQL ORDER BY.
+	type blockAccumulator struct {
+		blockStart time.Time
+		blockEnd   time.Time
+		eventCount int
+		agents     []string
+		breakdown  []apptypes.TimelineWorkspaceBreakdown
+	}
+
+	var blockOrder []int
+	blockMap := make(map[int]*blockAccumulator)
+
 	for rows.Next() {
 		var (
-			blockNum   int // scanned but unused (SQL internal grouping key)
-			blockStart string
-			blockEnd   string
-			eventCount int
-			workspaces string
-			agents     string
-			kinds      string
+			blockNum             int
+			blockStart           string
+			blockEnd             string
+			blockEventCount      int
+			agents               string
+			workspace            string
+			wsEventCount         int
+			kinds                string
+			firstPromptBody      string
+			compactSummaryBody   string
 		)
-		if err := rows.Scan(&blockNum, &blockStart, &blockEnd, &eventCount, &workspaces, &agents, &kinds); err != nil {
+		if err := rows.Scan(
+			&blockNum,
+			&blockStart,
+			&blockEnd,
+			&blockEventCount,
+			&agents,
+			&workspace,
+			&wsEventCount,
+			&kinds,
+			&firstPromptBody,
+			&compactSummaryBody,
+		); err != nil {
 			return nil, xerrors.Errorf("failed to scan timeline block: %w", err)
 		}
 
-		parsedStart, err := time.Parse(time.RFC3339Nano, blockStart)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to parse block start: %w", err)
-		}
-		parsedEnd, err := time.Parse(time.RFC3339Nano, blockEnd)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to parse block end: %w", err)
+		accum, ok := blockMap[blockNum]
+		if !ok {
+			parsedStart, err := time.Parse(time.RFC3339Nano, blockStart)
+			if err != nil {
+				return nil, xerrors.Errorf("failed to parse block start: %w", err)
+			}
+			parsedEnd, err := time.Parse(time.RFC3339Nano, blockEnd)
+			if err != nil {
+				return nil, xerrors.Errorf("failed to parse block end: %w", err)
+			}
+			accum = &blockAccumulator{
+				blockStart: parsedStart,
+				blockEnd:   parsedEnd,
+				eventCount: blockEventCount,
+				agents:     splitNonEmpty(agents, ","),
+			}
+			blockMap[blockNum] = accum
+			blockOrder = append(blockOrder, blockNum)
 		}
 
-		blocks = append(blocks, apptypes.TimelineBlockOf(
-			parsedStart,
-			parsedEnd,
-			eventCount,
-			splitNonEmpty(workspaces, ","),
-			splitNonEmpty(agents, ","),
-			splitNonEmpty(kinds, "|"),
+		kindList := splitNonEmpty(kinds, "|")
+		summary, source := resolveWorkspaceSummary(compactSummaryBody, firstPromptBody)
+		accum.breakdown = append(accum.breakdown, apptypes.TimelineWorkspaceBreakdownOf(
+			workspace,
+			wsEventCount,
+			kindList,
+			summary,
+			source,
 		))
 	}
 	if err := rows.Err(); err != nil {
 		return nil, xerrors.Errorf("failed to iterate timeline blocks: %w", err)
 	}
 
+	blocks := make([]apptypes.TimelineBlock, 0, len(blockOrder))
+	for _, num := range blockOrder {
+		accum := blockMap[num]
+		blocks = append(blocks, apptypes.TimelineBlockOf(
+			accum.blockStart,
+			accum.blockEnd,
+			accum.eventCount,
+			accum.agents,
+			accum.breakdown,
+		))
+	}
+
 	return blocks, nil
+}
+
+// resolveWorkspaceSummary applies the fallback chain
+// compact_summary → prompt → kind_counts. The caller still has to render
+// the kind-count fallback from the kinds slice when summary is empty; the
+// returned source reflects that decision.
+func resolveWorkspaceSummary(compactSummaryBody, firstPromptBody string) (string, apptypes.TimelineWorkspaceBreakdownSummarySource) {
+	if compactSummaryBody != "" {
+		return compactSummaryBody, apptypes.TimelineSummarySourceCompactSummary
+	}
+	if firstPromptBody != "" {
+		return firstPromptBody, apptypes.TimelineSummarySourcePrompt
+	}
+	return "", apptypes.TimelineSummarySourceKindCounts
 }
 
 // scanEvent reads a single event row into a model.Event.

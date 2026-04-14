@@ -14,11 +14,25 @@ func TestTimelineBlockOf_Getters(t *testing.T) {
 
 	blockStart := time.Date(2024, time.January, 2, 3, 4, 5, 0, time.UTC)
 	blockEnd := blockStart.Add(30 * time.Minute)
-	workspaces := []string{"github.com/org/repo-a", "github.com/org/repo-b"}
 	agents := []string{"claude", "codex"}
-	kinds := []string{"note", "command_executed"}
+	breakdown := []apptypes.TimelineWorkspaceBreakdown{
+		apptypes.TimelineWorkspaceBreakdownOf(
+			"github.com/org/repo-a",
+			3,
+			[]string{"note", "command_executed"},
+			"fix the thing",
+			apptypes.TimelineSummarySourcePrompt,
+		),
+		apptypes.TimelineWorkspaceBreakdownOf(
+			"github.com/org/repo-b",
+			2,
+			[]string{"command_executed"},
+			"",
+			apptypes.TimelineSummarySourceKindCounts,
+		),
+	}
 
-	block := apptypes.TimelineBlockOf(blockStart, blockEnd, 5, workspaces, agents, kinds)
+	block := apptypes.TimelineBlockOf(blockStart, blockEnd, 5, agents, breakdown)
 
 	if !block.BlockStart().Equal(blockStart) {
 		t.Errorf("BlockStart() = %v, want %v", block.BlockStart(), blockStart)
@@ -29,63 +43,74 @@ func TestTimelineBlockOf_Getters(t *testing.T) {
 	if diff := cmp.Diff(5, block.EventCount()); diff != "" {
 		t.Errorf("EventCount() mismatch (-want +got):\n%s", diff)
 	}
-	if diff := cmp.Diff(workspaces, block.Workspaces()); diff != "" {
+	if diff := cmp.Diff([]string{"github.com/org/repo-a", "github.com/org/repo-b"}, block.Workspaces()); diff != "" {
 		t.Errorf("Workspaces() mismatch (-want +got):\n%s", diff)
 	}
 	if diff := cmp.Diff(agents, block.Agents()); diff != "" {
 		t.Errorf("Agents() mismatch (-want +got):\n%s", diff)
 	}
-	if diff := cmp.Diff(kinds, block.Kinds()); diff != "" {
+	if diff := cmp.Diff([]string{"note", "command_executed", "command_executed"}, block.Kinds()); diff != "" {
 		t.Errorf("Kinds() mismatch (-want +got):\n%s", diff)
+	}
+
+	returnedBreakdown := block.WorkspaceBreakdown()
+	if len(returnedBreakdown) != 2 {
+		t.Fatalf("WorkspaceBreakdown() len = %d, want 2", len(returnedBreakdown))
+	}
+	if got := returnedBreakdown[0].Summary(); got != "fix the thing" {
+		t.Errorf("breakdown[0].Summary() = %q, want %q", got, "fix the thing")
+	}
+	if got := returnedBreakdown[0].SummarySource(); got != apptypes.TimelineSummarySourcePrompt {
+		t.Errorf("breakdown[0].SummarySource() = %q, want %q", got, apptypes.TimelineSummarySourcePrompt)
+	}
+	if got := returnedBreakdown[1].SummarySource(); got != apptypes.TimelineSummarySourceKindCounts {
+		t.Errorf("breakdown[1].SummarySource() = %q, want %q", got, apptypes.TimelineSummarySourceKindCounts)
 	}
 }
 
 func TestTimelineBlock_DefensiveCopy(t *testing.T) {
 	t.Parallel()
 
-	workspaces := []string{"ws-a", "ws-b"}
 	agents := []string{"claude", "codex"}
-	kinds := []string{"note", "command_executed"}
+	breakdown := []apptypes.TimelineWorkspaceBreakdown{
+		apptypes.TimelineWorkspaceBreakdownOf(
+			"ws-a",
+			2,
+			[]string{"note"},
+			"",
+			apptypes.TimelineSummarySourceKindCounts,
+		),
+	}
 
 	block := apptypes.TimelineBlockOf(
 		time.Date(2024, time.January, 2, 3, 4, 5, 0, time.UTC),
 		time.Date(2024, time.January, 2, 4, 4, 5, 0, time.UTC),
-		3,
-		workspaces,
+		2,
 		agents,
-		kinds,
+		breakdown,
 	)
 
 	// Mutate source slices after construction.
-	workspaces[0] = "mutated-source-ws"
 	agents[0] = "mutated-source-agent"
-	kinds[0] = "mutated-source-kind"
+	breakdown[0] = apptypes.TimelineWorkspaceBreakdownOf("mutated", 99, nil, "", apptypes.TimelineSummarySourceKindCounts)
 
-	if diff := cmp.Diff([]string{"ws-a", "ws-b"}, block.Workspaces()); diff != "" {
-		t.Errorf("Workspaces source slice leaked (-want +got):\n%s", diff)
-	}
 	if diff := cmp.Diff([]string{"claude", "codex"}, block.Agents()); diff != "" {
 		t.Errorf("Agents source slice leaked (-want +got):\n%s", diff)
 	}
-	if diff := cmp.Diff([]string{"note", "command_executed"}, block.Kinds()); diff != "" {
-		t.Errorf("Kinds source slice leaked (-want +got):\n%s", diff)
+	if diff := cmp.Diff([]string{"ws-a"}, block.Workspaces()); diff != "" {
+		t.Errorf("Workspaces derived slice leaked (-want +got):\n%s", diff)
 	}
 
 	// Mutate returned slices from getters.
-	retWorkspaces := block.Workspaces()
-	retWorkspaces[0] = "mutated-return-ws"
 	retAgents := block.Agents()
 	retAgents[0] = "mutated-return-agent"
-	retKinds := block.Kinds()
-	retKinds[0] = "mutated-return-kind"
+	retBreakdown := block.WorkspaceBreakdown()
+	retBreakdown[0] = apptypes.TimelineWorkspaceBreakdownOf("mutated", 99, nil, "", apptypes.TimelineSummarySourceKindCounts)
 
-	if diff := cmp.Diff([]string{"ws-a", "ws-b"}, block.Workspaces()); diff != "" {
-		t.Errorf("Workspaces() is not a defensive copy (-want +got):\n%s", diff)
-	}
 	if diff := cmp.Diff([]string{"claude", "codex"}, block.Agents()); diff != "" {
 		t.Errorf("Agents() is not a defensive copy (-want +got):\n%s", diff)
 	}
-	if diff := cmp.Diff([]string{"note", "command_executed"}, block.Kinds()); diff != "" {
-		t.Errorf("Kinds() is not a defensive copy (-want +got):\n%s", diff)
+	if diff := cmp.Diff([]string{"ws-a"}, block.Workspaces()); diff != "" {
+		t.Errorf("WorkspaceBreakdown() is not a defensive copy (-want +got):\n%s", diff)
 	}
 }

@@ -119,6 +119,88 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		}
 	})
 
+	saveEventKind := func(t *testing.T, ds *sqlite.EventDatasource, id string, workspace string, kind types.EventKind, body string, createdAt time.Time) {
+		t.Helper()
+		eventID, _ := types.EventIDOf(id)
+		agent, _ := types.AgentOf("claude")
+		sessionID, _ := types.SessionIDOf("session-1")
+		event := model.EventOf(eventID, kind, types.Client("hook"), agent, sessionID, types.Workspace(workspace), body, createdAt)
+		if err := ds.Save(context.Background(), event); err != nil {
+			t.Fatalf("Save() error = %v", err)
+		}
+	}
+
+	t.Run("provides per-workspace breakdown with compact_summary fallback", func(t *testing.T) {
+		t.Parallel()
+		ds := newDatasource(t)
+
+		// Single block spanning two workspaces.
+		saveEvent(t, ds, "e1", "ws-a", time.Date(2026, 4, 10, 9, 0, 0, 0, time.UTC))
+		saveEventKind(t, ds, "e2", "ws-a", types.EventKindPrompt, "user wanted feature X", time.Date(2026, 4, 10, 9, 1, 0, 0, time.UTC))
+		saveEventKind(t, ds, "e3", "ws-a", types.EventKindCompactSummary, "shipped feature X via PR #1", time.Date(2026, 4, 10, 9, 8, 0, 0, time.UTC))
+		saveEvent(t, ds, "e4", "ws-b", time.Date(2026, 4, 10, 9, 5, 0, 0, time.UTC))
+		saveEventKind(t, ds, "e5", "ws-b", types.EventKindPrompt, "triage bug Y", time.Date(2026, 4, 10, 9, 6, 0, 0, time.UTC))
+
+		blocks, err := ds.ListTimelineBlocks(context.Background(), types.Workspace(""), time.Time{}, time.Time{}, 900, 10)
+		if err != nil {
+			t.Fatalf("ListTimelineBlocks() error = %v", err)
+		}
+		if len(blocks) != 1 {
+			t.Fatalf("len(blocks) = %d, want 1", len(blocks))
+		}
+		breakdown := blocks[0].WorkspaceBreakdown()
+		byWs := make(map[string]int, len(breakdown))
+		for i, ws := range breakdown {
+			byWs[ws.Workspace()] = i
+		}
+		wsA, ok := byWs["ws-a"]
+		if !ok {
+			t.Fatalf("breakdown missing ws-a: %+v", breakdown)
+		}
+		if got := breakdown[wsA].Summary(); got != "shipped feature X via PR #1" {
+			t.Errorf("ws-a summary = %q, want compact_summary body", got)
+		}
+		if got := breakdown[wsA].SummarySource(); got != "compact_summary" {
+			t.Errorf("ws-a source = %q, want compact_summary", got)
+		}
+		wsB, ok := byWs["ws-b"]
+		if !ok {
+			t.Fatalf("breakdown missing ws-b: %+v", breakdown)
+		}
+		if got := breakdown[wsB].Summary(); got != "triage bug Y" {
+			t.Errorf("ws-b summary = %q, want first prompt body", got)
+		}
+		if got := breakdown[wsB].SummarySource(); got != "prompt" {
+			t.Errorf("ws-b source = %q, want prompt", got)
+		}
+	})
+
+	t.Run("falls back to kind_counts when no summary candidate", func(t *testing.T) {
+		t.Parallel()
+		ds := newDatasource(t)
+
+		saveEvent(t, ds, "e1", "ws-only-commands", time.Date(2026, 4, 10, 9, 0, 0, 0, time.UTC))
+		saveEvent(t, ds, "e2", "ws-only-commands", time.Date(2026, 4, 10, 9, 1, 0, 0, time.UTC))
+
+		blocks, err := ds.ListTimelineBlocks(context.Background(), types.Workspace(""), time.Time{}, time.Time{}, 900, 10)
+		if err != nil {
+			t.Fatalf("ListTimelineBlocks() error = %v", err)
+		}
+		if len(blocks) != 1 {
+			t.Fatalf("len(blocks) = %d, want 1", len(blocks))
+		}
+		breakdown := blocks[0].WorkspaceBreakdown()
+		if len(breakdown) != 1 {
+			t.Fatalf("breakdown len = %d, want 1", len(breakdown))
+		}
+		if got := breakdown[0].Summary(); got != "" {
+			t.Errorf("summary = %q, want empty string", got)
+		}
+		if got := breakdown[0].SummarySource(); got != "kind_counts" {
+			t.Errorf("source = %q, want kind_counts", got)
+		}
+	})
+
 	t.Run("respects limit", func(t *testing.T) {
 		t.Parallel()
 		ds := newDatasource(t)
