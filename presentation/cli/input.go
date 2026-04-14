@@ -194,6 +194,8 @@ type timelineCommandInput struct {
 	gap       int
 	limit     int
 	asJSON    bool
+	utc       bool
+	location  *time.Location
 }
 
 // tailCommandInput is the resolved input to the `traceary tail` command.
