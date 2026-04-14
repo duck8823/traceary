@@ -49,7 +49,8 @@ run_codex() {
   tmp_root="$(mktemp -d)"
   tmp_codex_home="${tmp_root}/codex-home"
   tmp_marketplace_root="${tmp_root}/agents/plugins"
-  python3 "${ROOT_DIR}/scripts/codex/install_plugin.py" \
+  go run . integration codex install \
+    --repo-root "${ROOT_DIR}" \
     --codex-home "${tmp_codex_home}" \
     --marketplace-root "${tmp_marketplace_root}" \
     --traceary-bin /tmp/traceary
@@ -59,7 +60,7 @@ run_codex() {
   test -f "${tmp_codex_home}/hooks.json"
   grep -q 'codex_hooks = true' "${tmp_codex_home}/config.toml"
   grep -q 'traceary@local-traceary-plugins' "${tmp_codex_home}/config.toml"
-  python3 "${ROOT_DIR}/scripts/codex/uninstall_plugin.py" \
+  go run . integration codex uninstall \
     --codex-home "${tmp_codex_home}" \
     --marketplace-root "${tmp_marketplace_root}"
   rm -rf "${tmp_root}"

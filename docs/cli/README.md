@@ -488,6 +488,32 @@ Useful flags:
 
 ## Integration commands
 
+### `traceary integration codex install`
+
+Install the packaged Codex plugin from a local repository checkout into:
+
+- `~/.agents/plugins`
+- `~/.codex/plugins/cache/...`
+- `~/.codex/config.toml`
+- `~/.codex/hooks.json`
+
+Useful flags:
+
+- `--repo-root`
+- `--codex-home`
+- `--marketplace-root`
+- `--traceary-bin`
+
+### `traceary integration codex uninstall`
+
+Remove the Traceary-managed Codex plugin cache, plugin config entry, and hook
+entries while preserving unrelated local Codex settings.
+
+Useful flags:
+
+- `--codex-home`
+- `--marketplace-root`
+
 ### `traceary mcp-server`
 
 Run the MCP server over stdio for AI client integration.

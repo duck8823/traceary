@@ -26,7 +26,7 @@ These packages all share the same runtime contract:
 | Host | Package root | Installed surface |
 | --- | --- | --- |
 | Claude Code | `integrations/claude-plugin/` | Claude marketplace rooted at `.claude-plugin/marketplace.json` |
-| Codex | `plugins/traceary/` | helper installs the plugin cache under `~/.codex/plugins/cache/...` and Traceary hooks into `~/.codex/hooks.json` |
+| Codex | `plugins/traceary/` | `traceary integration codex install` installs the plugin cache under `~/.codex/plugins/cache/...` and merges Traceary hooks into `~/.codex/hooks.json` |
 | Gemini CLI | `integrations/gemini-extension/` | Gemini extension archive rooted at `gemini-extension.json` |
 
 ## Per-host guides
@@ -46,4 +46,4 @@ The smoke-test script focuses on the installation surfaces that each host curren
 
 - Claude Code: marketplace validation + install into a temporary home
 - Gemini CLI: extension validation + link flow in a temporary home
-- Codex: helper install/uninstall verification for the plugin cache, config, and hooks, plus an optional authenticated runtime probe
+- Codex: `traceary integration codex install/uninstall` verification for the plugin cache, config, and hooks, plus an optional authenticated runtime probe

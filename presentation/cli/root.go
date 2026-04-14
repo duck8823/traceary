@@ -14,6 +14,7 @@ type RootCLI struct {
 	memory              usecase.MemoryUsecase
 	memoryExtraction    usecase.MemoryExtractionUsecase
 	context             usecase.ContextUsecase
+	codexIntegration    usecase.CodexIntegrationUsecase
 	storeManagement     usecase.StoreManagementUsecase
 	mcpServerRunner     MCPServerRunner
 	hooksOrchestrator   application.HooksOrchestrator
@@ -54,6 +55,12 @@ func WithMemoryExtraction(memoryExtraction usecase.MemoryExtractionUsecase) Root
 // WithContext injects the ContextUsecase used by structured handoff commands.
 func WithContext(contextUsecase usecase.ContextUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.context = contextUsecase }
+}
+
+// WithCodexIntegration injects the CodexIntegrationUsecase used by the
+// integration codex install/uninstall commands.
+func WithCodexIntegration(codexIntegration usecase.CodexIntegrationUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.codexIntegration = codexIntegration }
 }
 
 // WithStoreManagement injects the StoreManagementUsecase used by init,
@@ -142,6 +149,7 @@ func (c *RootCLI) Command() *cobra.Command {
 	rootCmd.AddCommand(c.newTimelineCommand())
 	rootCmd.AddCommand(c.newCompletionCommand(rootCmd))
 	rootCmd.AddCommand(c.newHooksCommand())
+	rootCmd.AddCommand(c.newIntegrationCommand())
 	rootCmd.AddCommand(c.newDoctorCommand())
 	rootCmd.AddCommand(c.newMCPServerCommand())
 	return rootCmd

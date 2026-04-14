@@ -488,6 +488,31 @@ DB 作成と migration 適用を明示的に先行実行します。
 
 ## Integration コマンド
 
+### `traceary integration codex install`
+
+ローカル checkout した repository から、次の場所へ Codex 向け Traceary integration を入れます。
+
+- `~/.agents/plugins`
+- `~/.codex/plugins/cache/...`
+- `~/.codex/config.toml`
+- `~/.codex/hooks.json`
+
+主な flag:
+
+- `--repo-root`
+- `--codex-home`
+- `--marketplace-root`
+- `--traceary-bin`
+
+### `traceary integration codex uninstall`
+
+Traceary が管理する Codex plugin cache、plugin config entry、hook entry を外します。Codex の他の設定は保持します。
+
+主な flag:
+
+- `--codex-home`
+- `--marketplace-root`
+
 ### `traceary mcp-server`
 
 AI クライアント連携向けに MCP サーバーを stdio で起動します。
