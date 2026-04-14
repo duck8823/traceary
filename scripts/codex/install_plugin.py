@@ -167,12 +167,41 @@ def build_codex_hooks(traceary_bin: str) -> dict:
     }
 
 
+def is_traceary_binary(token: str) -> bool:
+    return Path(token.strip()).name == 'traceary'
+
+
+def is_traceary_script(token: str, script_name: str) -> bool:
+    return Path(token.strip()).name == script_name
+
+
+def is_traceary_codex_session_hook(tokens: list[str], index: int) -> bool:
+    return len(tokens) == index + 3 and tokens[index + 1] == 'codex' and tokens[index + 2] in {'start', 'stop'}
+
+
+def is_traceary_codex_direct_hook(tokens: list[str]) -> bool:
+    if len(tokens) == 5 and is_traceary_binary(tokens[0]):
+        return tokens[1] == 'hook' and tokens[2] == 'session' and tokens[3] == 'codex' and tokens[4] in {'start', 'stop'}
+    if len(tokens) == 4 and is_traceary_binary(tokens[0]):
+        return tokens[1] == 'hook' and tokens[2] == 'audit' and tokens[3] == 'codex'
+    return False
+
+
+def is_traceary_codex_script_hook(tokens: list[str]) -> bool:
+    for index, token in enumerate(tokens):
+        if is_traceary_script(token, 'traceary-session.sh') and is_traceary_codex_session_hook(tokens, index):
+            return True
+        if is_traceary_script(token, 'traceary-audit.sh') and len(tokens) == index + 2 and tokens[index + 1] == 'codex':
+            return True
+    return False
+
+
 def is_traceary_codex_hook(command: str) -> bool:
-    return ((('traceary-session.sh' in command or 'traceary-audit.sh' in command) and 'codex' in command)
-            or "'hook' 'session' 'codex'" in command
-            or "'hook' 'audit' 'codex'" in command
-            or ' hook session codex' in command
-            or ' hook audit codex' in command)
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return False
+    return is_traceary_codex_script_hook(tokens) or is_traceary_codex_direct_hook(tokens)
 
 
 def merge_codex_hooks(hooks_path: Path, traceary_bin: str) -> Path:

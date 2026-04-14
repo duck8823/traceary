@@ -40,6 +40,11 @@ def read_json(path: Path) -> dict:
         fail(f'invalid json in {path.relative_to(ROOT)}: {exc}')
 
 
+def write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + '\n', encoding='utf-8')
+
+
 def read_toml(path: Path) -> dict:
     try:
         contents = path.read_text(encoding='utf-8')
@@ -172,6 +177,53 @@ def check_codex() -> None:
             text=True,
         )
 
+        hooks_path = codex_home / 'hooks.json'
+        existing_custom_hook = {
+            'hooks': {
+                'SessionStart': [
+                    {
+                        'hooks': [
+                            {
+                                'type': 'command',
+                                'command': "custom-cli hook session codex start",
+                            }
+                        ]
+                    }
+                ],
+                'PostToolUse': [
+                    {
+                        'matcher': '',
+                        'hooks': [
+                            {
+                                'type': 'command',
+                                'command': "custom-cli hook audit codex",
+                            }
+                        ],
+                    }
+                ],
+            }
+        }
+        write_json(hooks_path, existing_custom_hook)
+
+        subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / 'scripts' / 'codex' / 'install_plugin.py'),
+                '--repo-root',
+                str(ROOT),
+                '--codex-home',
+                str(codex_home),
+                '--marketplace-root',
+                str(marketplace_root),
+                '--traceary-bin',
+                '/tmp/traceary',
+            ],
+            check=True,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+
         cached_plugin_manifest = codex_home / 'plugins' / 'cache' / 'local-traceary-plugins' / 'traceary' / 'local' / '.codex-plugin' / 'plugin.json'
         require(cached_plugin_manifest.exists(), 'Codex install helper must install the plugin into the active cache')
 
@@ -184,7 +236,7 @@ def check_codex() -> None:
             'Codex install helper must enable the Traceary plugin in config.toml',
         )
 
-        installed_hooks = read_json(codex_home / 'hooks.json')
+        installed_hooks = read_json(hooks_path)
         require('SessionStart' in installed_hooks['hooks'], 'Codex install helper must write SessionStart hooks')
         require('Stop' in installed_hooks['hooks'], 'Codex install helper must write Stop hooks')
         require('PostToolUse' in installed_hooks['hooks'], 'Codex install helper must write PostToolUse hooks')
@@ -192,6 +244,8 @@ def check_codex() -> None:
         require('/tmp/traceary' in hook_commands, 'Codex install helper must carry the configured traceary binary into hooks.json')
         require(("'hook' 'session' 'codex'" in hook_commands or ' hook session codex' in hook_commands), 'Codex install helper must install direct hook session commands')
         require(("'hook' 'audit' 'codex'" in hook_commands or ' hook audit codex' in hook_commands), 'Codex install helper must install direct hook audit commands')
+        require('custom-cli hook session codex start' in hook_commands, 'Codex install helper must preserve unrelated session hooks')
+        require('custom-cli hook audit codex' in hook_commands, 'Codex install helper must preserve unrelated audit hooks')
 
         config_path = codex_home / 'config.toml'
         config_path.write_text(
@@ -230,12 +284,13 @@ def check_codex() -> None:
             local_config.get('plugins', {}).get('other-plugin', {}).get('enabled') is True,
             'Codex uninstall helper must preserve unrelated plugin config entries',
         )
-        if (codex_home / 'hooks.json').exists():
-            remaining_hooks = json.dumps(read_json(codex_home / 'hooks.json'))
+        if hooks_path.exists():
+            remaining_hooks = json.dumps(read_json(hooks_path))
             require('traceary-session.sh' not in remaining_hooks, 'Codex uninstall helper must remove Traceary session hooks')
             require('traceary-audit.sh' not in remaining_hooks, 'Codex uninstall helper must remove Traceary audit hooks')
-            require("'hook' 'session' 'codex'" not in remaining_hooks and ' hook session codex' not in remaining_hooks, 'Codex uninstall helper must remove direct Traceary session hooks')
-            require("'hook' 'audit' 'codex'" not in remaining_hooks and ' hook audit codex' not in remaining_hooks, 'Codex uninstall helper must remove direct Traceary audit hooks')
+            require('/tmp/traceary' not in remaining_hooks, 'Codex uninstall helper must remove direct Traceary hooks that use the configured traceary binary')
+            require('custom-cli hook session codex start' in remaining_hooks, 'Codex uninstall helper must preserve unrelated session hooks')
+            require('custom-cli hook audit codex' in remaining_hooks, 'Codex uninstall helper must preserve unrelated audit hooks')
 
 
 def check_gemini() -> None:
