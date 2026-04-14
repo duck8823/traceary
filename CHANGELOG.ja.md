@@ -5,6 +5,36 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.6.0] - 2026-04-14
+
+アーキテクチャ整合性と runtime entrypoint の整理を中心に進めたリリースです。
+
+### 追加
+- 4 層境界、runtime entrypoint の原則、`scripts/` の役割を明文化した software architecture guide
+- session boundary / command audit / prompt capture / compact-summary capture を Go 側で受ける `traceary hook ...` サブコマンド
+- Codex 向けの user-facing entrypoint である `traceary integration codex install` / `uninstall`
+- maintainer 向け Python helper を `go run ./cmd/repo-tooling ...` へ移すための移行ガイド
+
+### 変更
+- packaged hook の生成先を、embedded な runtime shell script ではなく Go runtime entrypoint へ切り替えた
+- repository 全体の Optional API を規約どおり `Some` / `None` / `Value` ベースへ移行し、旧 API は互換 alias として残した
+- 代表的なテスト群で inline assertion と `cmp.Diff` を優先する形へ寄せた
+
+### 修正
+- hook runtime state の後始末を best-effort のまま安全側に寄せ、duplicate end marker や wrapper 経由の parent state をより堅牢に処理するよう改善した
+- managed hook の判定、merge、Codex plugin の install/uninstall が、custom wrapper path や unrelated custom hook を壊さないよう修正した
+
+### 対象イシュー
+- #459 Optional[T] API の規約差分整理
+- #506 software architecture 原則と runtime boundary の文書化
+- #507 hook runtime logic の Go サブコマンド化
+- #508 embedded runtime shell asset からの packaged hooks 移行
+- #509 user-facing / maintainer workflow に残る Python 依存の整理
+- #522 Codex 向け Python install helper の Go entrypoint 化
+- #523 maintainer 向け Python helper の Go repo tooling への移行
+- #525 Optional[T] の convention API への移行
+- #527 shared Go testing convention に沿ったテスト整理
+
 ## [v0.5.2] - 2026-04-14
 
 documentation の正確性、導線、GoDoc の磨き込みをまとめたリリースです。

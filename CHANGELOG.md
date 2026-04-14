@@ -5,6 +5,36 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.6.0] - 2026-04-14
+
+Architecture consistency and runtime entrypoint cleanup release.
+
+### Added
+- software architecture principle guides that document the four-layer boundaries, runtime-entrypoint rules, and the role of `scripts/`
+- Go `traceary hook ...` runtime subcommands for session boundaries, command audits, prompt capture, and compact-summary capture
+- `traceary integration codex install` / `uninstall` as the user-facing Codex integration entrypoints
+- maintainer-facing documentation for the planned `go run ./cmd/repo-tooling ...` migration path
+
+### Changed
+- packaged hook generation now targets Go runtime entrypoints directly instead of relying on embedded runtime shell-script assets
+- repository code now uses the convention Optional API (`Some`, `None`, `Value`) while keeping legacy aliases as compatibility shims
+- representative test suites now prefer inline assertions and `cmp.Diff` for repeated comparisons
+
+### Fixed
+- hook runtime state handling remains best-effort while clearing stale duplicate end markers and handling wrapper/grandparent process state more safely
+- managed hook detection, merge behavior, and Codex plugin install/uninstall flows now preserve unrelated custom hooks and support custom `traceary` wrapper paths
+
+### Included issues
+- #459 align Optional[T] API with Go conventions
+- #506 document software architecture principles and runtime boundaries
+- #507 move hook runtime logic into Go subcommands
+- #508 migrate packaged hooks away from embedded runtime shell assets
+- #509 reduce Python dependency in user-facing and maintainer workflows
+- #522 replace Codex Python install helpers with Go entrypoints
+- #523 migrate maintainer Python helpers into Go repo tooling
+- #525 migrate Optional[T] toward the convention API
+- #527 align repository tests with the Go testing conventions
+
 ## [v0.5.2] - 2026-04-14
 
 Documentation accuracy, navigation, and GoDoc polish release.
