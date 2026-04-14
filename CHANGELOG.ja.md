@@ -5,6 +5,30 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.6.1] - 2026-04-15
+
+`tail` / `list` / `search` / `timeline` のターミナル視認性を改善したリリースです。
+
+### 追加
+- `traceary timeline` の workspace ごとのサブロウ表示と、`compact_summary` → 最初の `prompt` → kind count フォールバック順で選ばれるアクティビティ要約、さらに JSON 出力の `workspace_breakdown` 配列
+- `tail` / `list` / `search` / `timeline` のテキスト出力に `--utc` フラグを追加（デフォルトは現地時刻のまま）
+- `presentation/cli/event_text_formatter.go` を共通ヘルパーとして新設し、compact / wide 行フォーマッタや timestamp / session / workspace の短縮ロジックを `tail`, `list`, `search` で共有
+- `docs/cli/README.md` / `docs/cli/README.ja.md` に `traceary timeline` セクションを追加。トップレベル README には「直近の動きを確認する」セクションと tail / timeline の使用例を追加
+
+### 変更
+- `traceary tail`, `traceary list`, テキストモードの `traceary search` のデフォルト出力を、約 100 カラムに収まる 1 行コンパクト形式 (`HH:MM:SS  kind  sess=<先頭8文字>  ws=<basename>  message`、現地時刻) に変更。`--wide` で従来の 7 カラム tab 区切りを復元でき、`--wide --utc` を組み合わせると v0.6.1 以前の出力をバイト単位で再現
+- `traceary timeline` のブロックヘッダに `total events:` ラベルを追加
+
+### 修正
+- `traceary timeline` が workspace 空の legacy 行を breakdown や JSON `workspaces` 配列に漏らさないように修正
+- `traceary timeline` で whitespace-only な `compact_summary` / `prompt` body が同一ブロック内の後続有効サマリ候補を上書きしていた問題を修正
+
+### 対象イシュー
+- #538 compact tail output with local TZ
+- #539 timeline activity summary with per-workspace breakdown
+- #540 add README examples for tail and timeline workflows
+- #541 compact list and search output with local TZ parity
+
 ## [v0.6.0] - 2026-04-14
 
 アーキテクチャ整合性と runtime entrypoint の整理を中心に進めたリリースです。

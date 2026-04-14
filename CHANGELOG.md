@@ -5,6 +5,30 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.6.1] - 2026-04-15
+
+Terminal readability release for `tail`, `list`, `search`, and `timeline`.
+
+### Added
+- `traceary timeline` per-workspace sub-rows with an activity summary chosen via the `compact_summary` → first `prompt` → kind-count fallback chain, plus a `workspace_breakdown` array in the JSON output
+- `--utc` flag on `tail`, `list`, `search`, and `timeline` text output for parity (local time remains the default)
+- shared `presentation/cli/event_text_formatter.go` helper (compact row / wide row / timestamp / session / workspace shorteners) so `tail`, `list`, and `search` render through the same code path
+- "Inspect recent and live activity" section and `traceary timeline` entry in `docs/cli/README.md` / `README.ja.md` plus new tail / timeline examples in the top-level README
+
+### Changed
+- `traceary tail`, `traceary list`, and text-mode `traceary search` now default to a compact single-line row (`HH:MM:SS  kind  sess=<first-8>  ws=<basename>  message`) in local time that fits inside ~100 columns; `--wide` restores the legacy seven-column tab-separated format and `--wide --utc` reproduces the pre-v0.6.1 output byte-for-byte
+- `traceary timeline` header now includes a `total events:` label alongside the duration
+
+### Fixed
+- `traceary timeline` no longer leaks empty-workspace legacy rows into the breakdown or the JSON `workspaces` array
+- `traceary timeline` no longer lets a whitespace-only `compact_summary` / `prompt` body override a later non-blank summary candidate in the same block
+
+### Included issues
+- #538 compact tail output with local TZ
+- #539 timeline activity summary with per-workspace breakdown
+- #540 add README examples for tail and timeline workflows
+- #541 compact list and search output with local TZ parity
+
 ## [v0.6.0] - 2026-04-14
 
 Architecture consistency and runtime entrypoint cleanup release.
