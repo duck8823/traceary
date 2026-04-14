@@ -201,6 +201,9 @@ type tailCommandInput struct {
 	repo          string
 	failuresOnly  bool
 	asJSON        bool
+	wide          bool
+	utc           bool
+	location      *time.Location
 	nowFunc       func() time.Time
 	tickerFactory func(time.Duration) tailTicker
 }
