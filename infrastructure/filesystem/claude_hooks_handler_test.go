@@ -47,6 +47,9 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 		if diff := cmp.Diff("traceary-session.sh:claude:start", entries[0].Commands()[0].ManagedKey()); diff != "" {
 			t.Fatalf("SessionStart[0] managed key mismatch (-want +got):\n%s", diff)
 		}
+		if diff := cmp.Diff("traceary-session-start", entries[0].Commands()[0].Name()); diff != "" {
+			t.Fatalf("SessionStart[0] name mismatch (-want +got):\n%s", diff)
+		}
 		if diff := cmp.Diff(`'traceary' 'hook' 'session' 'claude' 'start'`, entries[0].Commands()[0].Command()); diff != "" {
 			t.Fatalf("SessionStart[0] command mismatch (-want +got):\n%s", diff)
 		}
@@ -61,6 +64,9 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 		if diff := cmp.Diff("traceary-compact.sh:claude:session-start-compact", entries[1].Commands()[0].ManagedKey()); diff != "" {
 			t.Fatalf("SessionStart[1] managed key mismatch (-want +got):\n%s", diff)
 		}
+		if diff := cmp.Diff("traceary-compact-session-start", entries[1].Commands()[0].Name()); diff != "" {
+			t.Fatalf("SessionStart[1] name mismatch (-want +got):\n%s", diff)
+		}
 	})
 
 	t.Run("PostCompact uses post-compact action", func(t *testing.T) {
@@ -72,6 +78,9 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 		}
 		if diff := cmp.Diff("traceary-compact.sh:claude:post-compact", entries[0].Commands()[0].ManagedKey()); diff != "" {
 			t.Fatalf("PostCompact managed key mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("traceary-compact-post-compact", entries[0].Commands()[0].Name()); diff != "" {
+			t.Fatalf("PostCompact name mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -93,6 +102,9 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 		if diff := cmp.Diff("traceary-audit.sh:claude", entries[0].Commands()[0].ManagedKey()); diff != "" {
 			t.Fatalf("PostToolUse[0] managed key mismatch (-want +got):\n%s", diff)
 		}
+		if diff := cmp.Diff("traceary-audit", entries[0].Commands()[0].Name()); diff != "" {
+			t.Fatalf("PostToolUse[0] name mismatch (-want +got):\n%s", diff)
+		}
 	})
 
 	t.Run("UserPromptSubmit references prompt script", func(t *testing.T) {
@@ -104,6 +116,9 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 		}
 		if diff := cmp.Diff("traceary-prompt.sh:claude", entries[0].Commands()[0].ManagedKey()); diff != "" {
 			t.Fatalf("UserPromptSubmit managed key mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("traceary-prompt", entries[0].Commands()[0].Name()); diff != "" {
+			t.Fatalf("UserPromptSubmit name mismatch (-want +got):\n%s", diff)
 		}
 		if diff := cmp.Diff(true, strings.Contains(entries[0].Commands()[0].Command(), "'hook' 'prompt' 'claude'")); diff != "" {
 			t.Fatalf("UserPromptSubmit command mismatch (-want +got):\n%s", diff)

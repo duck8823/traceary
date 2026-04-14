@@ -33,6 +33,9 @@ func TestCodexHooksHandler_Build(t *testing.T) {
 		if diff := cmp.Diff("traceary-session.sh:codex:start", entries[0].Commands()[0].ManagedKey()); diff != "" {
 			t.Fatalf("SessionStart managed key mismatch (-want +got):\n%s", diff)
 		}
+		if diff := cmp.Diff("traceary-session-start", entries[0].Commands()[0].Name()); diff != "" {
+			t.Fatalf("SessionStart name mismatch (-want +got):\n%s", diff)
+		}
 		if diff := cmp.Diff(`'traceary' 'hook' 'session' 'codex' 'start'`, entries[0].Commands()[0].Command()); diff != "" {
 			t.Fatalf("SessionStart command mismatch (-want +got):\n%s", diff)
 		}
@@ -51,6 +54,9 @@ func TestCodexHooksHandler_Build(t *testing.T) {
 		}
 		if diff := cmp.Diff("traceary-session.sh:codex:stop", entries[0].Commands()[0].ManagedKey()); diff != "" {
 			t.Fatalf("Stop managed key mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("traceary-session-stop", entries[0].Commands()[0].Name()); diff != "" {
+			t.Fatalf("Stop name mismatch (-want +got):\n%s", diff)
 		}
 		if diff := cmp.Diff(`'traceary' 'hook' 'session' 'codex' 'stop'`, entries[0].Commands()[0].Command()); diff != "" {
 			t.Fatalf("Stop command mismatch (-want +got):\n%s", diff)
@@ -73,6 +79,9 @@ func TestCodexHooksHandler_Build(t *testing.T) {
 		}
 		if diff := cmp.Diff("traceary-audit.sh:codex", entries[0].Commands()[0].ManagedKey()); diff != "" {
 			t.Fatalf("PostToolUse managed key mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("traceary-audit", entries[0].Commands()[0].Name()); diff != "" {
+			t.Fatalf("PostToolUse name mismatch (-want +got):\n%s", diff)
 		}
 		if diff := cmp.Diff(`'traceary' 'hook' 'audit' 'codex'`, entries[0].Commands()[0].Command()); diff != "" {
 			t.Fatalf("PostToolUse command mismatch (-want +got):\n%s", diff)

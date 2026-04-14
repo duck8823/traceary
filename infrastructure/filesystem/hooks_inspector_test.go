@@ -64,6 +64,26 @@ func TestHooksInspector_Inspect(t *testing.T) {
 			want: want{hasHooksField: true, hasTracearyManagedHook: true},
 		},
 		{
+			name: "detects traceary managed hook by named custom-wrapper direct runtime command",
+			payload: `{
+              "hooks": {
+                "SessionStart": [
+                  {
+                    "matcher": "*",
+                    "hooks": [
+                      {
+                        "name": "traceary-session-start",
+                        "type": "command",
+                        "command": "'/tmp/custom-traceary-wrapper' 'hook' 'session' 'claude' 'start'"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }`,
+			want: want{hasHooksField: true, hasTracearyManagedHook: true},
+		},
+		{
 			name: "hooks field present but no traceary hook",
 			payload: `{
               "hooks": {
