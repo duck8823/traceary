@@ -23,7 +23,6 @@ This page centralizes Traceary's environment variables, runtime assumptions, and
 | Variable | Purpose |
 | --- | --- |
 | `TRACEARY_BIN` | Override the `traceary` binary path used by generated hooks |
-| `TRACEARY_HOOK_SCRIPTS_DIR` | Override where portable hook scripts are materialized |
 | `TRACEARY_HOOK_STATE_DIR` | Override the temporary directory for hook session state |
 | `TRACEARY_HOOK_STATE_KEY` | Override the per-process hook state key when the default is not suitable |
 

@@ -16,7 +16,7 @@ func TestMarshalHooks_RendersCanonicalDocument(t *testing.T) {
 	command := model.HookCommandOf(
 		"hook-name",
 		"command",
-		"bash '/scripts/traceary-session.sh' 'claude' 'start'",
+		"'traceary' 'hook' 'session' 'claude' 'start'",
 		types.Of(5000),
 		"Start a Traceary session",
 		"traceary-session.sh:claude:start",
@@ -54,7 +54,7 @@ func TestMarshalHooks_RendersCanonicalDocument(t *testing.T) {
 	wantCommand := hookCommandDocument{
 		Name:        "hook-name",
 		Type:        "command",
-		Command:     "bash '/scripts/traceary-session.sh' 'claude' 'start'",
+		Command:     "'traceary' 'hook' 'session' 'claude' 'start'",
 		Timeout:     intPointer(5000),
 		Description: "Start a Traceary session",
 	}

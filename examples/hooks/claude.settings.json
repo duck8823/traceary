@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/hooks/traceary-session.sh\" claude start"
+            "command": "'traceary' 'hook' 'session' 'claude' 'start'"
           }
         ]
       }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/hooks/traceary-session.sh\" claude end"
+            "command": "'traceary' 'hook' 'session' 'claude' 'end'"
           }
         ]
       }
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/hooks/traceary-audit.sh\" claude"
+            "command": "'traceary' 'hook' 'audit' 'claude'"
           }
         ]
       }
@@ -39,7 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/hooks/traceary-audit.sh\" claude"
+            "command": "'traceary' 'hook' 'audit' 'claude'"
           }
         ]
       }
@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/hooks/traceary-compact.sh\" claude post-compact"
+            "command": "'traceary' 'hook' 'compact' 'claude' 'post-compact'"
           }
         ]
       }
@@ -61,7 +61,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/hooks/traceary-prompt.sh\" claude"
+            "command": "'traceary' 'hook' 'prompt' 'claude'"
           }
         ]
       }

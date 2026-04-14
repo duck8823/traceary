@@ -1,24 +1,12 @@
 package filesystem
 
-import (
-	"path/filepath"
-	"strings"
-)
+import "strings"
 
-// newHookScriptCommand builds the shell command string that executes a bundled
-// hook script with the Traceary binary pre-configured via TRACEARY_BIN.
-func newHookScriptCommand(
-	scriptsDir string,
-	tracearyBin string,
-	scriptName string,
-	args ...string,
-) string {
-	parts := make([]string, 0, 3+len(args))
-	parts = append(parts,
-		"TRACEARY_BIN="+shellQuoteHookValue(tracearyBin),
-		"bash",
-		shellQuoteHookValue(filepath.Join(scriptsDir, scriptName)),
-	)
+// newHookRuntimeCommand builds the shell command string that invokes the
+// hidden Go hook runtime entrypoints directly.
+func newHookRuntimeCommand(tracearyBin string, args ...string) string {
+	parts := make([]string, 0, 1+len(args))
+	parts = append(parts, shellQuoteHookValue(tracearyBin))
 	for _, arg := range args {
 		parts = append(parts, shellQuoteHookValue(arg))
 	}

@@ -2,7 +2,9 @@
 
 [日本語](./README.ja.md)
 
-Traceary v0.1 can ingest session boundaries and shell-command audits from Claude Code, Codex CLI, and Gemini CLI by calling the existing `traceary session ...` and `traceary audit ...` commands from hook scripts.
+Traceary ingests session boundaries, command audits, compact summaries, and prompt captures from Claude Code, Codex CLI, and Gemini CLI through hidden `traceary hook ...` runtime entrypoints.
+
+Generated hook configs and packaged host hooks call those Go entrypoints directly. The shell scripts under `scripts/hooks/` remain compatibility wrappers for packaged assets and legacy hook installs; they are no longer the primary runtime implementation.
 
 Current generated hook configs merge into existing supported client config files when possible, so adding Traceary hooks does not require destructive replacement by default.
 
@@ -10,55 +12,55 @@ If you want host-native packages instead of manual hook wiring, start with the [
 
 ## Files
 
-- `scripts/hooks/traceary-session.sh`: records session start/end boundaries
-- `scripts/hooks/traceary-audit.sh`: records shell-command audits after tool execution
+- `scripts/hooks/*.sh`: compatibility wrappers that delegate to `traceary hook ...`
 - `examples/hooks/claude.settings.json`: Claude Code example
 - `examples/hooks/codex.hooks.json`: Codex CLI example
 - `examples/hooks/gemini.settings.json`: Gemini CLI example
+- packaged host integrations under `integrations/` and `plugins/` ship matching wrapper copies when the bundle format still expects script assets
 
-`traceary hooks print/install` also writes portable copies of those scripts under `~/.config/traceary/hook-scripts` by default, so installed binaries do not depend on a checked-out repository layout.
+Traceary no longer installs portable hook-script copies under `~/.config/traceary/hook-scripts` for generated configs. Regenerate the hook config, or use a packaged integration, when you want the runtime entrypoint to stay `traceary hook ...`.
 
 ## Requirements
 
-- `traceary` is installed and available in `PATH`, or `TRACEARY_BIN` points to the binary
-- `git` is optional; if available, the scripts prefer a normalized `remote.origin.url`, then fall back to the local git worktree root. If git is unavailable entirely, they fall back to the hook `cwd`.
-- `bash` is required because the generated portable scripts use `#!/usr/bin/env bash`
-- current hook examples assume Unix-like environments because the generated commands and compatibility scripts target shell-based clients
+- `traceary` is installed and available in `PATH`, or `--traceary-bin` / `TRACEARY_BIN` points to the binary you want hooks to call
+- `git` is optional; when available, Traceary prefers a normalized `remote.origin.url`, then falls back to the local git worktree root before using the raw hook `cwd`
+- `bash` is still required only for packaged compatibility wrappers
+- current hook examples assume Unix-like environments because the generated commands and compatibility wrappers target shell-based clients
 - native Windows PowerShell / `cmd.exe` workflows are not supported today; use WSL or another POSIX-compatible environment if you need hooks on Windows
 - generated hooks assume the target client can invoke external commands and pass JSON payloads/stdin in the formats described below
 
 ## Common environment variables
 
-- `TRACEARY_BIN`: absolute path to the `traceary` binary
+- `TRACEARY_BIN`: absolute path to the `traceary` binary when you are not relying on `PATH`
 - `TRACEARY_DB_PATH`: explicit SQLite path when you do not want the default `~/.config/traceary/traceary.db`
 - `TRACEARY_WORKSPACE`: explicit work-context string. Use this to override auto-detection.
-- `TRACEARY_HOOK_SCRIPTS_DIR`: override where `traceary hooks print/install` materializes portable hook scripts
 - `TRACEARY_HOOK_STATE_DIR`: override where temporary session state is stored
-- `TRACEARY_HOOK_STATE_KEY`: override the per-process state key when the default `PPID`-based key is not suitable
+- `TRACEARY_HOOK_STATE_KEY`: override the per-process state key when the default is not suitable
+- `TRACEARY_HOOK_DEBUG`: when set, hook runtime errors are still suppressed, but the suppressed error is echoed to stderr
 
 ## Client differences
 
 | Client | Settings file | Session start | Session end | Audit hook | Notes |
 | --- | --- | --- | --- | --- | --- |
-| Claude Code | `.claude/settings.json` or `~/.claude/settings.json` | `SessionStart` | `SessionEnd` | `PostToolUse` + `PostToolUseFailure` with `matcher: "Bash"` | Anthropic's current docs define `Stop` as a per-response hook, not a session-end hook. |
+| Claude Code | `.claude/settings.json` or `~/.claude/settings.json` | `SessionStart` | `SessionEnd` | `PostToolUse` + `PostToolUseFailure` with `matcher: "Bash"` and `matcher: "mcp__.*"` | Anthropic's current docs define `Stop` as a per-response hook, not a session-end hook. |
 | Codex CLI (`codex-cli 0.118.0`) | `~/.codex/hooks.json` | `SessionStart` | `Stop` (best effort) | `PostToolUse` | The installed Codex build exposes `SessionStart`, `Stop`, `PreToolUse`, `PostToolUse`, `Notification`, `PermissionDenied`, `UserPromptSubmit`, and `Elicitation` in local binary strings. A dedicated `SessionEnd` hook was not found locally. |
-| Gemini CLI (`gemini-cli 0.36.0`) | `.gemini/settings.json` or `~/.gemini/settings.json` | `SessionStart` | `SessionEnd` | `AfterTool` with `matcher: "run_shell_command"` | Hooks are JSON-over-stdin / JSON-over-stdout and `SessionEnd` is best-effort. |
+| Gemini CLI (`gemini-cli 0.36.0`) | `.gemini/settings.json` or `~/.gemini/settings.json` | `SessionStart` | `SessionEnd` | `AfterTool` with `matcher: "run_shell_command"` | Hooks are JSON-over-stdin / JSON-over-stdout and `SessionEnd` is best effort. |
 
 ## What gets recorded
 
 ### Session hooks
 
-`traceary-session.sh` resolves a session ID in this order:
+`traceary hook session <client> <start|end|stop>` resolves a session ID in this order:
 
 1. `session_id` from hook input
 2. a previously stored ID in `TRACEARY_HOOK_STATE_DIR`
 3. a new ID generated by `traceary session start`
 
-The resolved session ID is persisted in a per-process state file so later audit hooks can reuse it when the client does not send `session_id` on every event.
+The resolved session ID is persisted in a per-process state file so later audit, prompt, and compact hooks can reuse it when the client does not send `session_id` on every event.
 
 ### Audit hooks
 
-`traceary-audit.sh` records:
+`traceary hook audit <client>` records:
 
 - `command`: `tool_input.command`
 - `input`: compact JSON of `tool_input`
@@ -66,7 +68,7 @@ The resolved session ID is persisted in a per-process state file so later audit 
 
 Secret-like values inside `input` / `output` are redacted by default before they are written to SQLite. Traceary treats this as best-effort protection, not a complete guarantee.
 
-The script exits successfully without recording anything when:
+The hook exits successfully without recording anything when:
 
 - `traceary` is not installed
 - the hook payload has no `tool_input.command`
@@ -86,9 +88,7 @@ Examples:
 - `traceary hooks print --client codex > ~/.codex/hooks.json`
 - `traceary hooks print --client gemini > .gemini/settings.json`
 
-By default the generated commands use `TRACEARY_BIN='traceary'`, so the hook keeps following whichever stable `traceary` command is available in `PATH`.
-
-The first `hooks print/install` run also materializes portable script copies under `~/.config/traceary/hook-scripts` (or `TRACEARY_HOOK_SCRIPTS_DIR`). Generated configs point at that stable directory instead of `<project>/scripts/hooks/...`, so they keep working from an installed Traceary binary outside the source checkout.
+By default the generated commands call `'traceary' 'hook' ...`, so the hook keeps following whichever stable `traceary` command is available in `PATH`.
 
 Use `--traceary-bin` when you intentionally want to pin a specific binary path.
 
@@ -135,8 +135,8 @@ Run `traceary doctor --client <claude|codex|gemini>` when hooks or the local SQL
 The diagnostic command checks:
 
 - DB path resolution and whether Traceary can initialize the store
-- hook script materialization and executability
 - the expected client config location and whether it already contains Traceary-managed hooks
+- optional Traceary config health (for example extra redaction patterns)
 
 Warnings are expected on first run before you install a host package or generated hooks. For example, a missing host config file is reported as `warn`, not `fail`.
 `fail` is reserved for broken states such as DB access problems, unreadable config, or invalid config shape.
@@ -150,12 +150,12 @@ For SQLite concurrency expectations, PPID-based hook state caveats, and other kn
 1. Copy `examples/hooks/claude.settings.json` into `.claude/settings.json` and merge with existing settings.
 2. Ensure the generated config points at your installed Traceary binary when you are not relying on `PATH`.
 3. Start Claude Code in the project.
-4. Run `traceary list --limit 10` after a short session to verify `session_started`, `session_ended`, and `command_executed` events.
+4. Run `traceary list --limit 10` after a short session to verify `session_started`, `session_ended`, `command_executed`, `compact_summary`, and `prompt` events.
 
 ### Codex CLI
 
-1. Copy `examples/hooks/codex.hooks.json` into `~/.codex/hooks.json` and replace `/absolute/path/to/traceary`.
-2. Export `TRACEARY_BIN` if `traceary` is not already in `PATH`.
+1. Copy `examples/hooks/codex.hooks.json` into `~/.codex/hooks.json`.
+2. Ensure `traceary` is available in `PATH`, or regenerate the config with `--traceary-bin` so it uses a pinned binary path.
 3. Start a Codex session and inspect `traceary list --limit 10`.
 4. If `Stop` proves to be per-turn in your installed Codex build, keep the session-start hook and treat the stop hook as best-effort only.
 
@@ -168,7 +168,7 @@ Codex session end capture is intentionally documented as best effort. Traceary c
 3. Start Gemini CLI and run at least one shell command.
 4. Verify the resulting events with `traceary list --limit 10` or `traceary search "<command>"`.
 
-When a Traceary CLI command fails, stderr is a plain `Error: ...` line. Hook scripts can rely on the exit code and stderr text without stripping structured JSON logs.
+When a Traceary CLI command fails, stderr is a plain `Error: ...` line. Hook wrappers can rely on the exit code and stderr text without stripping structured JSON logs.
 
 ## References
 

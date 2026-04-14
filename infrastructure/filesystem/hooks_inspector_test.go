@@ -45,7 +45,7 @@ func TestHooksInspector_Inspect(t *testing.T) {
 			want: want{hasHooksField: true, hasTracearyManagedHook: true},
 		},
 		{
-			name: "detects traceary managed hook by script path",
+			name: "detects traceary managed hook by direct runtime command",
 			payload: `{
               "hooks": {
                 "SessionEnd": [
@@ -54,7 +54,7 @@ func TestHooksInspector_Inspect(t *testing.T) {
                     "hooks": [
                       {
                         "type": "command",
-                        "command": "bash '/home/user/.config/traceary/hook-scripts/traceary-session.sh' 'codex' 'end'"
+                        "command": "'traceary' 'hook' 'session' 'codex' 'end'"
                       }
                     ]
                   }

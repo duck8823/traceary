@@ -23,6 +23,8 @@ func TestAssets_returnsAllCanonicalScripts(t *testing.T) {
 		"common.sh":           false,
 		"traceary-session.sh": false,
 		"traceary-audit.sh":   false,
+		"traceary-compact.sh": false,
+		"traceary-prompt.sh":  false,
 	}
 
 	for _, asset := range assets {
@@ -63,15 +65,13 @@ func TestAssets_contentContainsExpectedFunctions(t *testing.T) {
 		assetMap[a.Name()] = a.Content()
 	}
 
-	// common.sh should have key helper functions
+	// common.sh should expose the thin-wrapper helpers used by the
+	// packaged compatibility scripts.
 	common := assetMap["common.sh"]
 	expectedFunctions := []string{
 		"traceary_read_hook_input",
-		"traceary_json_get",
-		"traceary_resolve_workspace",
-		"traceary_resolve_agent",
-		"traceary_write_workspace_state",
-		"traceary_read_workspace_state",
+		"traceary_resolve_bin",
+		"traceary_run_hook",
 	}
 	for _, fn := range expectedFunctions {
 		if !strings.Contains(common, fn) {

@@ -94,6 +94,10 @@ func extractTracearyManagedKey(commandValue string) string {
 		return ""
 	}
 
+	if directKey := extractTracearyDirectManagedKey(trimmedValue); directKey != "" {
+		return directKey
+	}
+
 	match := tracearyHookScriptPattern.FindStringIndex(trimmedValue)
 	if match == nil {
 		return ""
@@ -118,19 +122,52 @@ func extractTracearyManagedKey(commandValue string) string {
 	return strings.Join(parts, ":")
 }
 
+func extractTracearyDirectManagedKey(commandValue string) string {
+	tokens := parseShellSingleQuoted(commandValue)
+	if len(tokens) < 4 {
+		return ""
+	}
+	if tokens[1] != "hook" {
+		return ""
+	}
+
+	switch tokens[2] {
+	case "session":
+		if len(tokens) != 5 {
+			return ""
+		}
+		return managedKeyOf("traceary-session.sh", tokens[3], tokens[4])
+	case "audit":
+		if len(tokens) != 4 {
+			return ""
+		}
+		return managedKeyOf("traceary-audit.sh", tokens[3])
+	case "compact":
+		if len(tokens) != 5 {
+			return ""
+		}
+		return managedKeyOf("traceary-compact.sh", tokens[3], tokens[4])
+	case "prompt":
+		if len(tokens) != 4 {
+			return ""
+		}
+		return managedKeyOf("traceary-prompt.sh", tokens[3])
+	default:
+		return ""
+	}
+}
+
 // extractManagedKeyArgs extracts the trailing single-quoted arguments that
-// follow a Traceary hook script invocation. It ignores the client positional
-// argument (e.g. 'claude') and returns the remaining action arguments.
+// follow a Traceary hook script invocation. The stable managed key keeps the
+// client positional argument (for example "claude") so legacy script-based
+// commands and direct `traceary hook ...` commands normalize to the same key.
 func extractManagedKeyArgs(tail string) []string {
 	tokens := parseShellSingleQuoted(tail)
-	if len(tokens) <= 1 {
+	if len(tokens) == 0 {
 		return nil
 	}
 
-	// The first token is always the client name (e.g. "claude", "codex",
-	// "gemini"). Following tokens are action arguments such as "start",
-	// "end", "post-compact", or "session-start-compact".
-	return tokens[1:]
+	return tokens
 }
 
 // parseShellSingleQuoted walks the remainder of a shell command line and

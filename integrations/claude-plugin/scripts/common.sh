@@ -12,67 +12,6 @@ traceary_read_hook_input() {
   export TRACEARY_HOOK_INPUT
 }
 
-traceary_helper_command() {
-  local helper_name="${1:-}"
-  shift || true
-
-  local traceary_cmd="${TRACEARY_CMD:-}"
-  if [[ -z "$traceary_cmd" ]]; then
-    traceary_cmd="$(traceary_resolve_bin 2>/dev/null || true)"
-  fi
-  if [[ -z "$traceary_cmd" ]]; then
-    return 1
-  fi
-
-  TRACEARY_HOOK_INPUT="${TRACEARY_HOOK_INPUT:-}" "$traceary_cmd" hooks helper "$helper_name" "$@" 2>/dev/null
-}
-
-traceary_json_get() {
-  local path="${1:-}"
-  local default_value="${2:-}"
-
-  traceary_helper_command json-get "$path" "$default_value" || printf '%s' "$default_value"
-}
-
-traceary_build_failure_output() {
-  traceary_helper_command build-failure-output || true
-}
-
-traceary_normalize_git_remote() {
-  local raw="${1:-}"
-
-  traceary_helper_command normalize-git-remote "$raw" || true
-}
-
-traceary_resolve_workspace() {
-  local cwd="${1:-}"
-
-  if [[ -n "${TRACEARY_WORKSPACE:-}" ]]; then
-    printf '%s' "$TRACEARY_WORKSPACE"
-    return 0
-  fi
-  if [[ -z "$cwd" ]]; then
-    return 0
-  fi
-  if command -v git >/dev/null 2>&1; then
-    local remote
-    remote="$(git -C "$cwd" config --get remote.origin.url 2>/dev/null || true)"
-    if [[ -n "$remote" ]]; then
-      traceary_normalize_git_remote "$remote"
-      return 0
-    fi
-
-    local workspace_root
-    workspace_root="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || true)"
-    if [[ -n "$workspace_root" ]]; then
-      printf '%s' "$workspace_root"
-      return 0
-    fi
-  fi
-
-  printf '%s' "$cwd"
-}
-
 traceary_resolve_bin() {
   if [[ -n "${TRACEARY_BIN:-}" ]]; then
     printf '%s' "$TRACEARY_BIN"
@@ -86,133 +25,32 @@ traceary_resolve_bin() {
   return 1
 }
 
-traceary_resolve_session_id() {
-  local client="$1"
-  local session_id
-  session_id="$(traceary_json_get 'session_id')"
-  if [[ -z "$session_id" ]]; then
-    session_id="$(traceary_read_state "$client")"
-  fi
-  printf '%s' "$session_id"
-}
+traceary_run_hook() {
+  local preserve_stdout="${1:-0}"
+  shift || true
 
-traceary_resolve_effective_workspace() {
-  local client="$1"
-  local ws
-  ws="$(traceary_read_workspace_state "$client")"
-  if [[ -z "$ws" ]]; then
-    local cwd
-    cwd="$(traceary_json_get 'cwd')"
-    ws="$(traceary_resolve_workspace "$cwd")"
-  fi
-  printf '%s' "$ws"
-}
+  traceary_read_hook_input
 
-traceary_resolve_agent() {
-  local client="$1"
-  local agent_type
-  agent_type="$(traceary_json_get 'agent_type')"
-  if [[ -n "$agent_type" ]]; then
-    printf '%s/%s' "$client" "$agent_type"
-  else
-    printf '%s' "$client"
-  fi
-}
-
-traceary_session_state_path() {
-  local client="$1"
-  local state_dir="${TRACEARY_HOOK_STATE_DIR:-${HOME}/.config/traceary/hooks}"
-  mkdir -p "$state_dir"
-  printf '%s/%s-%s' "$state_dir" "$client" "${TRACEARY_HOOK_STATE_KEY:-${PPID:-$$}}"
-}
-
-traceary_sanitize_state_key() {
-  local value="${1:-}"
-
-  printf '%s' "$value" | tr -cs 'A-Za-z0-9._-' '_'
-}
-
-traceary_session_end_marker_path() {
-  local client="$1"
-  local session_id="$2"
-  local state_dir="${TRACEARY_HOOK_STATE_DIR:-${HOME}/.config/traceary/hooks}"
-  local sanitized_session_id
-  sanitized_session_id="$(traceary_sanitize_state_key "$session_id")"
-  mkdir -p "$state_dir/ended"
-  printf '%s/ended/%s-%s' "$state_dir" "$client" "$sanitized_session_id"
-}
-
-traceary_write_state() {
-  local client="$1"
-  local session_id="$2"
-  local state_file
-  state_file="$(traceary_session_state_path "$client")"
-  printf '%s' "$session_id" > "$state_file"
-}
-
-traceary_write_workspace_state() {
-  local client="$1"
-  local ws="$2"
-  local state_file
-  state_file="$(traceary_session_state_path "$client")-repo"
-  printf '%s' "$ws" > "$state_file"
-}
-
-traceary_read_workspace_state() {
-  local client="$1"
-  local state_file
-  state_file="$(traceary_session_state_path "$client")-repo"
-  if [[ ! -f "$state_file" ]]; then
-    return 0
-  fi
-  cat "$state_file"
-}
-
-traceary_clear_repo_state() {
-  local client="$1"
-  local state_file
-  state_file="$(traceary_session_state_path "$client")-repo"
-  rm -f "$state_file"
-}
-
-traceary_read_state() {
-  local client="$1"
-  local state_file
-  state_file="$(traceary_session_state_path "$client")"
-  if [[ ! -f "$state_file" ]]; then
+  local traceary_cmd
+  traceary_cmd="$(traceary_resolve_bin 2>/dev/null || true)"
+  if [[ -z "$traceary_cmd" ]]; then
     return 0
   fi
 
-  cat "$state_file"
-}
+  local command=("$traceary_cmd" "$@")
+  if [[ -n "${TRACEARY_DB_PATH:-}" ]]; then
+    command+=(--db-path "$TRACEARY_DB_PATH")
+  fi
 
-traceary_clear_state() {
-  local client="$1"
-  local state_file
-  state_file="$(traceary_session_state_path "$client")"
-  rm -f "$state_file"
-}
+  if [[ "$preserve_stdout" == "1" ]]; then
+    printf '%s' "${TRACEARY_HOOK_INPUT:-}" | "${command[@]}" || return 0
+    return 0
+  fi
 
-traceary_mark_session_ended() {
-  local client="$1"
-  local session_id="$2"
-  local marker_file
-  marker_file="$(traceary_session_end_marker_path "$client" "$session_id")"
-  : > "$marker_file"
-}
+  if [[ -n "${TRACEARY_HOOK_DEBUG:-}" ]]; then
+    printf '%s' "${TRACEARY_HOOK_INPUT:-}" | "${command[@]}" >/dev/null || return 0
+    return 0
+  fi
 
-traceary_session_end_already_recorded() {
-  local client="$1"
-  local session_id="$2"
-  local marker_file
-  marker_file="$(traceary_session_end_marker_path "$client" "$session_id")"
-  [[ -f "$marker_file" ]]
-}
-
-traceary_clear_session_end_marker() {
-  local client="$1"
-  local session_id="$2"
-  local marker_file
-  marker_file="$(traceary_session_end_marker_path "$client" "$session_id")"
-  rm -f "$marker_file"
+  printf '%s' "${TRACEARY_HOOK_INPUT:-}" | "${command[@]}" >/dev/null 2>&1 || return 0
 }

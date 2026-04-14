@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/traceary-session.sh\" claude start"
+            "command": "'traceary' 'hook' 'session' 'claude' 'start'"
           }
         ]
       },
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/traceary-compact.sh\" claude session-start-compact"
+            "command": "'traceary' 'hook' 'compact' 'claude' 'session-start-compact'"
           }
         ]
       }
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/traceary-session.sh\" claude end"
+            "command": "'traceary' 'hook' 'session' 'claude' 'end'"
           }
         ]
       }
@@ -38,7 +38,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/traceary-audit.sh\" claude"
+            "command": "'traceary' 'hook' 'audit' 'claude'"
           }
         ]
       },
@@ -47,7 +47,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/traceary-audit.sh\" claude"
+            "command": "'traceary' 'hook' 'audit' 'claude'"
           }
         ]
       }
@@ -58,7 +58,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/traceary-compact.sh\" claude post-compact"
+            "command": "'traceary' 'hook' 'compact' 'claude' 'post-compact'"
           }
         ]
       }
@@ -69,7 +69,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/traceary-prompt.sh\" claude"
+            "command": "'traceary' 'hook' 'prompt' 'claude'"
           }
         ]
       }
@@ -80,7 +80,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/traceary-audit.sh\" claude"
+            "command": "'traceary' 'hook' 'audit' 'claude'"
           }
         ]
       },
@@ -89,7 +89,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/traceary-audit.sh\" claude"
+            "command": "'traceary' 'hook' 'audit' 'claude'"
           }
         ]
       }

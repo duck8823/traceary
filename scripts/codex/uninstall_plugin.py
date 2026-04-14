@@ -89,7 +89,11 @@ def remove_toml_table(text: str, header: str) -> str:
 
 
 def is_traceary_codex_hook(command: str) -> bool:
-    return ('traceary-session.sh' in command or 'traceary-audit.sh' in command) and 'codex' in command
+    return ((('traceary-session.sh' in command or 'traceary-audit.sh' in command) and 'codex' in command)
+            or "'hook' 'session' 'codex'" in command
+            or "'hook' 'audit' 'codex'" in command
+            or ' hook session codex' in command
+            or ' hook audit codex' in command)
 
 
 def remove_traceary_hooks(hooks_path: Path) -> bool:

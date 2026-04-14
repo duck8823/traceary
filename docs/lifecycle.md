@@ -71,11 +71,9 @@ AI Client (Claude Code / Codex CLI / Gemini CLI)
   ├─ Hook / Extension event
   │    │
   │    ▼
-  │  traceary-*.sh (bash scripts in ~/.config/traceary/hook-scripts/)
+  │  traceary hook ... (hidden Go runtime entrypoints)
   │    │
-  │    ▼
-  │  traceary CLI (log / audit / session start|end)
-  │    │
+  │    ├─ packaged shell wrappers (compatibility only, when present)
   │    ▼
   │  SQLite (~/.config/traceary/traceary.db)
   │
@@ -89,8 +87,8 @@ AI Client (Claude Code / Codex CLI / Gemini CLI)
 
 | Script | Purpose | Clients |
 |--------|---------|---------|
-| `traceary-session.sh` | Session start/end | All |
-| `traceary-audit.sh` | Command/tool audit | All |
-| `traceary-compact.sh` | Compact summary recording | Claude Code |
-| `traceary-prompt.sh` | User prompt recording | Claude Code |
-| `common.sh` | Shared helper functions | All |
+| `traceary hook session <client> <start|end|stop>` | Session start/end | All |
+| `traceary hook audit <client>` | Command/tool audit | All |
+| `traceary hook compact <client> <post-compact|session-start-compact>` | Compact summary recording / compact resume output | Claude Code |
+| `traceary hook prompt <client>` | User prompt recording | Claude Code |
+| packaged shell wrappers under `scripts/hooks/` | Compatibility layer that forwards into `traceary hook ...` | Packaged integrations / legacy installs |

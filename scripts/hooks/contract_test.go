@@ -88,7 +88,7 @@ func TestHooksContract_AllClientsHaveRequiredEvents(t *testing.T) {
 	}
 }
 
-func TestHooksContract_AllClientsInvokeTracearyScripts(t *testing.T) {
+func TestHooksContract_AllClientsInvokeTracearyHookRuntime(t *testing.T) {
 	t.Parallel()
 
 	clients := []struct {
@@ -101,7 +101,7 @@ func TestHooksContract_AllClientsInvokeTracearyScripts(t *testing.T) {
 	}
 
 	for _, client := range clients {
-		t.Run(client.name+" hooks invoke traceary scripts", func(t *testing.T) {
+		t.Run(client.name+" hooks invoke traceary hook runtime", func(t *testing.T) {
 			t.Parallel()
 
 			data, err := os.ReadFile(client.hooksPath)
@@ -114,27 +114,27 @@ func TestHooksContract_AllClientsInvokeTracearyScripts(t *testing.T) {
 				t.Fatalf("Unmarshal error = %v", err)
 			}
 
-			hasSessionScript := false
-			hasAuditScript := false
+			hasSessionHook := false
+			hasAuditHook := false
 
 			for _, matchers := range hooks.Hooks {
 				for _, matcher := range matchers {
 					for _, hook := range matcher.Hooks {
-						if containsSubstring(hook.Command, "traceary-session.sh") {
-							hasSessionScript = true
+						if containsSubstring(hook.Command, "'hook' 'session'") {
+							hasSessionHook = true
 						}
-						if containsSubstring(hook.Command, "traceary-audit.sh") {
-							hasAuditScript = true
+						if containsSubstring(hook.Command, "'hook' 'audit'") {
+							hasAuditHook = true
 						}
 					}
 				}
 			}
 
-			if !hasSessionScript {
-				t.Errorf("%s hooks.json does not invoke traceary-session.sh", client.name)
+			if !hasSessionHook {
+				t.Errorf("%s hooks.json does not invoke traceary hook session", client.name)
 			}
-			if !hasAuditScript {
-				t.Errorf("%s hooks.json does not invoke traceary-audit.sh", client.name)
+			if !hasAuditHook {
+				t.Errorf("%s hooks.json does not invoke traceary hook audit", client.name)
 			}
 		})
 	}

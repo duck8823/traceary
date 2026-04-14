@@ -12,7 +12,7 @@ func TestGeminiHooksHandler_Build(t *testing.T) {
 	t.Parallel()
 
 	handler := filesystem.NewGeminiHooksHandler()
-	hooks := handler.Build("/scripts", "traceary")
+	hooks := handler.Build("", "traceary")
 
 	wantEventOrder := []string{"SessionStart", "SessionEnd", "AfterTool"}
 	if diff := cmp.Diff(wantEventOrder, hooks.EventOrder()); diff != "" {
@@ -23,22 +23,28 @@ func TestGeminiHooksHandler_Build(t *testing.T) {
 		t.Parallel()
 
 		entries := hooks.Entries("SessionStart")
-		if got, want := len(entries), 1; got != want {
-			t.Fatalf("len(SessionStart entries) = %d, want %d", got, want)
+		if diff := cmp.Diff(1, len(entries)); diff != "" {
+			t.Fatalf("len(SessionStart entries) mismatch (-want +got):\n%s", diff)
 		}
 		command := entries[0].Commands()[0]
-		if got, want := command.Name(), "traceary-session-start"; got != want {
-			t.Fatalf("SessionStart name = %q, want %q", got, want)
+		if diff := cmp.Diff("traceary-session-start", command.Name()); diff != "" {
+			t.Fatalf("SessionStart name mismatch (-want +got):\n%s", diff)
 		}
 		timeout, ok := command.Timeout().Get()
-		if !ok || timeout != 5000 {
-			t.Fatalf("SessionStart timeout = %d, present=%v, want %d", timeout, ok, 5000)
+		if diff := cmp.Diff(true, ok); diff != "" {
+			t.Fatalf("SessionStart timeout presence mismatch (-want +got):\n%s", diff)
 		}
-		if got, want := command.Description(), "Start a Traceary session"; got != want {
-			t.Fatalf("SessionStart description = %q, want %q", got, want)
+		if diff := cmp.Diff(5000, timeout); diff != "" {
+			t.Fatalf("SessionStart timeout mismatch (-want +got):\n%s", diff)
 		}
-		if got, want := command.ManagedKey(), "traceary-session.sh:gemini:start"; got != want {
-			t.Fatalf("SessionStart managed key = %q, want %q", got, want)
+		if diff := cmp.Diff("Start a Traceary session", command.Description()); diff != "" {
+			t.Fatalf("SessionStart description mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("traceary-session.sh:gemini:start", command.ManagedKey()); diff != "" {
+			t.Fatalf("SessionStart managed key mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(`'traceary' 'hook' 'session' 'gemini' 'start'`, command.Command()); diff != "" {
+			t.Fatalf("SessionStart command mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -46,18 +52,24 @@ func TestGeminiHooksHandler_Build(t *testing.T) {
 		t.Parallel()
 
 		entries := hooks.Entries("AfterTool")
-		if got, want := len(entries), 1; got != want {
-			t.Fatalf("len(AfterTool entries) = %d, want %d", got, want)
+		if diff := cmp.Diff(1, len(entries)); diff != "" {
+			t.Fatalf("len(AfterTool entries) mismatch (-want +got):\n%s", diff)
 		}
 		matcher, ok := entries[0].Matcher().Get()
-		if !ok || matcher != "run_shell_command" {
-			t.Fatalf("AfterTool matcher = %q, present=%v, want %q", matcher, ok, "run_shell_command")
+		if diff := cmp.Diff(true, ok); diff != "" {
+			t.Fatalf("AfterTool matcher presence mismatch (-want +got):\n%s", diff)
 		}
-		if got, want := entries[0].Commands()[0].Name(), "traceary-audit"; got != want {
-			t.Fatalf("AfterTool command name = %q, want %q", got, want)
+		if diff := cmp.Diff("run_shell_command", matcher); diff != "" {
+			t.Fatalf("AfterTool matcher mismatch (-want +got):\n%s", diff)
 		}
-		if got, want := entries[0].Commands()[0].ManagedKey(), "traceary-audit.sh:gemini"; got != want {
-			t.Fatalf("AfterTool managed key = %q, want %q", got, want)
+		if diff := cmp.Diff("traceary-audit", entries[0].Commands()[0].Name()); diff != "" {
+			t.Fatalf("AfterTool command name mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("traceary-audit.sh:gemini", entries[0].Commands()[0].ManagedKey()); diff != "" {
+			t.Fatalf("AfterTool managed key mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(`'traceary' 'hook' 'audit' 'gemini'`, entries[0].Commands()[0].Command()); diff != "" {
+			t.Fatalf("AfterTool command mismatch (-want +got):\n%s", diff)
 		}
 	})
 }

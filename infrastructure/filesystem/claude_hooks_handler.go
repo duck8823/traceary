@@ -19,15 +19,17 @@ func NewClaudeHooksHandler() *ClaudeHooksHandler {
 func (h *ClaudeHooksHandler) Name() string { return "claude" }
 
 // Build returns the Hooks aggregate Traceary installs for Claude Code.
-// scriptsDir is the directory that contains the hook scripts and
-// tracearyBin is the command or path used to launch the traceary binary.
+// scriptsDir is retained for compatibility with the shared handler
+// interface; Claude now calls the Go hook runtime entrypoints directly.
 func (h *ClaudeHooksHandler) Build(scriptsDir string, tracearyBin string) model.Hooks {
-	sessionStartCommand := newHookScriptCommand(scriptsDir, tracearyBin, "traceary-session.sh", "claude", "start")
-	sessionEndCommand := newHookScriptCommand(scriptsDir, tracearyBin, "traceary-session.sh", "claude", "end")
-	auditCommand := newHookScriptCommand(scriptsDir, tracearyBin, "traceary-audit.sh", "claude")
-	compactCommand := newHookScriptCommand(scriptsDir, tracearyBin, "traceary-compact.sh", "claude", "post-compact")
-	compactResumeCommand := newHookScriptCommand(scriptsDir, tracearyBin, "traceary-compact.sh", "claude", "session-start-compact")
-	promptCommand := newHookScriptCommand(scriptsDir, tracearyBin, "traceary-prompt.sh", "claude")
+	_ = scriptsDir
+
+	sessionStartCommand := newHookRuntimeCommand(tracearyBin, "hook", "session", "claude", "start")
+	sessionEndCommand := newHookRuntimeCommand(tracearyBin, "hook", "session", "claude", "end")
+	auditCommand := newHookRuntimeCommand(tracearyBin, "hook", "audit", "claude")
+	compactCommand := newHookRuntimeCommand(tracearyBin, "hook", "compact", "claude", "post-compact")
+	compactResumeCommand := newHookRuntimeCommand(tracearyBin, "hook", "compact", "claude", "session-start-compact")
+	promptCommand := newHookRuntimeCommand(tracearyBin, "hook", "prompt", "claude")
 
 	eventOrder := []string{
 		"SessionStart",

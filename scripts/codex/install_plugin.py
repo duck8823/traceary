@@ -121,20 +121,16 @@ def write_codex_config(codex_home: Path) -> Path:
 
 
 def shell_quote(value: str) -> str:
-    return shlex.quote(value)
+    return "'" + value.replace("'", "'\"'\"'") + "'"
 
 
-def build_hook_command(installed_plugin_root: Path, traceary_bin: str, script_name: str, *args: str) -> str:
-    parts = [
-        f'TRACEARY_BIN={shell_quote(traceary_bin)}',
-        'bash',
-        shell_quote(str(installed_plugin_root / 'scripts' / script_name)),
-    ]
+def build_hook_command(traceary_bin: str, *args: str) -> str:
+    parts = [shell_quote(traceary_bin)]
     parts.extend(shell_quote(arg) for arg in args)
     return ' '.join(parts)
 
 
-def build_codex_hooks(installed_plugin_root: Path, traceary_bin: str) -> dict:
+def build_codex_hooks(traceary_bin: str) -> dict:
     empty_matcher = ''
     return {
         'SessionStart': [
@@ -142,7 +138,7 @@ def build_codex_hooks(installed_plugin_root: Path, traceary_bin: str) -> dict:
                 'hooks': [
                     {
                         'type': 'command',
-                        'command': build_hook_command(installed_plugin_root, traceary_bin, 'traceary-session.sh', 'codex', 'start'),
+                        'command': build_hook_command(traceary_bin, 'hook', 'session', 'codex', 'start'),
                     }
                 ]
             }
@@ -152,7 +148,7 @@ def build_codex_hooks(installed_plugin_root: Path, traceary_bin: str) -> dict:
                 'hooks': [
                     {
                         'type': 'command',
-                        'command': build_hook_command(installed_plugin_root, traceary_bin, 'traceary-session.sh', 'codex', 'stop'),
+                        'command': build_hook_command(traceary_bin, 'hook', 'session', 'codex', 'stop'),
                     }
                 ]
             }
@@ -163,7 +159,7 @@ def build_codex_hooks(installed_plugin_root: Path, traceary_bin: str) -> dict:
                 'hooks': [
                     {
                         'type': 'command',
-                        'command': build_hook_command(installed_plugin_root, traceary_bin, 'traceary-audit.sh', 'codex'),
+                        'command': build_hook_command(traceary_bin, 'hook', 'audit', 'codex'),
                     }
                 ],
             }
@@ -172,15 +168,19 @@ def build_codex_hooks(installed_plugin_root: Path, traceary_bin: str) -> dict:
 
 
 def is_traceary_codex_hook(command: str) -> bool:
-    return ('traceary-session.sh' in command or 'traceary-audit.sh' in command) and 'codex' in command
+    return ((('traceary-session.sh' in command or 'traceary-audit.sh' in command) and 'codex' in command)
+            or "'hook' 'session' 'codex'" in command
+            or "'hook' 'audit' 'codex'" in command
+            or ' hook session codex' in command
+            or ' hook audit codex' in command)
 
 
-def merge_codex_hooks(hooks_path: Path, installed_plugin_root: Path, traceary_bin: str) -> Path:
+def merge_codex_hooks(hooks_path: Path, traceary_bin: str) -> Path:
     existing = {'hooks': {}}
     if hooks_path.exists():
         existing = json.loads(hooks_path.read_text(encoding='utf-8'))
     hooks = existing.setdefault('hooks', {})
-    generated = build_codex_hooks(installed_plugin_root, traceary_bin)
+    generated = build_codex_hooks(traceary_bin)
 
     for event_name, matchers in generated.items():
         cleaned_matchers = []
@@ -214,7 +214,7 @@ def main() -> None:
     marketplace_copy = install_marketplace_copy(source_plugin, marketplace_root)
     installed_plugin_root = install_plugin_cache_copy(source_plugin, codex_home)
     config_path = write_codex_config(codex_home)
-    hooks_path = merge_codex_hooks(codex_home / 'hooks.json', installed_plugin_root, traceary_bin)
+    hooks_path = merge_codex_hooks(codex_home / 'hooks.json', traceary_bin)
 
     print(f'installed marketplace copy at {marketplace_copy}')
     print(f'installed active Codex plugin at {installed_plugin_root}')

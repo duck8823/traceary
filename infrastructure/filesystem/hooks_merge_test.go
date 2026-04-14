@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -34,7 +36,7 @@ func TestMergeHooksDocument_ReplacesTracearyManagedHooks(t *testing.T) {
   }
 }`)
 
-	desired := (&GeminiHooksHandler{}).Build("/new/scripts", "traceary")
+	desired := (&GeminiHooksHandler{}).Build("", "traceary")
 
 	merged, err := mergeHooksDocument(existing, desired)
 	if err != nil {
@@ -53,8 +55,8 @@ func TestMergeHooksDocument_ReplacesTracearyManagedHooks(t *testing.T) {
 	if strings.Contains(string(merged), "/old/scripts") {
 		t.Fatalf("merged output kept old script path: %s", merged)
 	}
-	if !strings.Contains(string(merged), "/new/scripts") {
-		t.Fatalf("merged output missing new script path: %s", merged)
+	if !strings.Contains(string(merged), `'traceary' 'hook' 'session' 'gemini' 'start'`) {
+		t.Fatalf("merged output missing direct hook runtime command: %s", merged)
 	}
 }
 
@@ -77,7 +79,7 @@ func TestMergeHooksDocument_RemovesSessionStartCompactVariant(t *testing.T) {
   }
 }`)
 
-	desired := (&ClaudeHooksHandler{}).Build("/new/scripts", "traceary")
+	desired := (&ClaudeHooksHandler{}).Build("", "traceary")
 
 	merged, err := mergeHooksDocument(existing, desired)
 	if err != nil {
@@ -123,7 +125,7 @@ func TestMergeHooksDocument_EmptyExistingReturnsMarshaled(t *testing.T) {
 func TestMergeHooksDocument_InvalidExistingFails(t *testing.T) {
 	t.Parallel()
 
-	_, err := mergeHooksDocument([]byte("{invalid"), (&ClaudeHooksHandler{}).Build("/scripts", "traceary"))
+	_, err := mergeHooksDocument([]byte("{invalid"), (&ClaudeHooksHandler{}).Build("", "traceary"))
 	if err == nil {
 		t.Fatalf("mergeHooksDocument() error = nil, want error")
 	}
@@ -140,22 +142,37 @@ func TestExtractTracearyManagedKey(t *testing.T) {
 		{
 			name:  "session start",
 			input: "TRACEARY_BIN='traceary' bash '/scripts/traceary-session.sh' 'claude' 'start'",
-			want:  "traceary-session.sh:start",
+			want:  "traceary-session.sh:claude:start",
 		},
 		{
 			name:  "compact post variant",
 			input: "TRACEARY_BIN='traceary' bash '/scripts/traceary-compact.sh' 'claude' 'post-compact'",
-			want:  "traceary-compact.sh:post-compact",
+			want:  "traceary-compact.sh:claude:post-compact",
 		},
 		{
 			name:  "compact session-start variant",
 			input: "TRACEARY_BIN='traceary' bash '/scripts/traceary-compact.sh' 'claude' 'session-start-compact'",
-			want:  "traceary-compact.sh:session-start-compact",
+			want:  "traceary-compact.sh:claude:session-start-compact",
 		},
 		{
 			name:  "audit without action args",
 			input: "TRACEARY_BIN='traceary' bash '/scripts/traceary-audit.sh' 'claude'",
-			want:  "traceary-audit.sh",
+			want:  "traceary-audit.sh:claude",
+		},
+		{
+			name:  "direct hook session start",
+			input: "'traceary' 'hook' 'session' 'claude' 'start'",
+			want:  "traceary-session.sh:claude:start",
+		},
+		{
+			name:  "direct hook compact variant",
+			input: "'traceary' 'hook' 'compact' 'claude' 'post-compact'",
+			want:  "traceary-compact.sh:claude:post-compact",
+		},
+		{
+			name:  "direct hook prompt",
+			input: "'traceary' 'hook' 'prompt' 'claude'",
+			want:  "traceary-prompt.sh:claude",
 		},
 		{
 			name:  "unrelated command",
@@ -167,8 +184,8 @@ func TestExtractTracearyManagedKey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := extractTracearyManagedKey(tt.input); got != tt.want {
-				t.Fatalf("extractTracearyManagedKey(%q) = %q, want %q", tt.input, got, tt.want)
+			if diff := cmp.Diff(tt.want, extractTracearyManagedKey(tt.input)); diff != "" {
+				t.Fatalf("extractTracearyManagedKey() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

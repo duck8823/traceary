@@ -171,7 +171,6 @@ func run() error {
 		"codex":  filesystem.NewCodexHooksHandler(),
 		"gemini": filesystem.NewGeminiHooksHandler(),
 	})
-	hookScriptsInstaller := filesystem.NewHookScriptsInstaller()
 	hooksInspector := filesystem.NewHooksInspector()
 
 	rootCmd := cli.NewRootCLI(
@@ -183,7 +182,6 @@ func run() error {
 		cli.WithStoreManagement(storeManagementUsecase),
 		cli.WithMCPServerRunner(mcpServer),
 		cli.WithHooksOrchestrator(hooksOrchestrator),
-		cli.WithHookScriptsInstaller(hookScriptsInstaller),
 		cli.WithHooksInspector(hooksInspector),
 		cli.WithExtraRedactPatterns(extraRedactPatterns),
 		cli.WithDatabasePathSetter(db.SetPath),

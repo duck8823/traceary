@@ -116,6 +116,8 @@ def check_claude() -> None:
     require('SessionEnd' in hooks['hooks'], 'Claude hooks must include SessionEnd')
     require('PostToolUse' in hooks['hooks'], 'Claude hooks must include PostToolUse')
     require('PostCompact' in hooks['hooks'], 'Claude hooks must include PostCompact')
+    require("'hook' 'session' 'claude'" in json.dumps(hooks['hooks']), 'Claude packaged hooks must invoke traceary hook session directly')
+    require("'hook' 'audit' 'claude'" in json.dumps(hooks['hooks']), 'Claude packaged hooks must invoke traceary hook audit directly')
     require((ROOT / 'integrations' / 'claude-plugin' / 'scripts' / 'traceary-compact.sh').exists(), 'missing Claude compact hook script')
     require((ROOT / 'integrations' / 'claude-plugin' / 'skills' / 'traceary-help' / 'SKILL.md').exists(), 'missing Claude traceary-help skill')
     require((ROOT / 'integrations' / 'claude-plugin' / 'skills' / 'traceary-session-history' / 'SKILL.md').exists(), 'missing Claude traceary-session-history skill')
@@ -141,6 +143,8 @@ def check_codex() -> None:
     require('SessionStart' in hooks['hooks'], 'Codex hooks must include SessionStart')
     require('Stop' in hooks['hooks'], 'Codex hooks must include Stop')
     require('PostToolUse' in hooks['hooks'], 'Codex hooks must include PostToolUse')
+    require("'hook' 'session' 'codex'" in json.dumps(hooks['hooks']), 'Codex packaged hooks must invoke traceary hook session directly')
+    require("'hook' 'audit' 'codex'" in json.dumps(hooks['hooks']), 'Codex packaged hooks must invoke traceary hook audit directly')
     require((ROOT / 'plugins' / 'traceary' / 'commands' / 'help.md').exists(), 'missing Codex help command')
     require((ROOT / 'plugins' / 'traceary' / 'commands' / 'doctor.md').exists(), 'missing Codex doctor command')
     require((ROOT / 'plugins' / 'traceary' / 'skills' / 'traceary-session-history' / 'SKILL.md').exists(), 'missing Codex traceary-session-history skill')
@@ -186,10 +190,8 @@ def check_codex() -> None:
         require('PostToolUse' in installed_hooks['hooks'], 'Codex install helper must write PostToolUse hooks')
         hook_commands = json.dumps(installed_hooks['hooks'])
         require('/tmp/traceary' in hook_commands, 'Codex install helper must carry the configured traceary binary into hooks.json')
-        require(
-            str(cached_plugin_manifest.parent.parent) in hook_commands,
-            'Codex install helper must point hooks.json at the installed plugin scripts',
-        )
+        require(("'hook' 'session' 'codex'" in hook_commands or ' hook session codex' in hook_commands), 'Codex install helper must install direct hook session commands')
+        require(("'hook' 'audit' 'codex'" in hook_commands or ' hook audit codex' in hook_commands), 'Codex install helper must install direct hook audit commands')
 
         config_path = codex_home / 'config.toml'
         config_path.write_text(
@@ -232,6 +234,8 @@ def check_codex() -> None:
             remaining_hooks = json.dumps(read_json(codex_home / 'hooks.json'))
             require('traceary-session.sh' not in remaining_hooks, 'Codex uninstall helper must remove Traceary session hooks')
             require('traceary-audit.sh' not in remaining_hooks, 'Codex uninstall helper must remove Traceary audit hooks')
+            require("'hook' 'session' 'codex'" not in remaining_hooks and ' hook session codex' not in remaining_hooks, 'Codex uninstall helper must remove direct Traceary session hooks')
+            require("'hook' 'audit' 'codex'" not in remaining_hooks and ' hook audit codex' not in remaining_hooks, 'Codex uninstall helper must remove direct Traceary audit hooks')
 
 
 def check_gemini() -> None:
@@ -247,6 +251,8 @@ def check_gemini() -> None:
     require('SessionStart' in hooks['hooks'], 'Gemini hooks must include SessionStart')
     require('SessionEnd' in hooks['hooks'], 'Gemini hooks must include SessionEnd')
     require('AfterTool' in hooks['hooks'], 'Gemini hooks must include AfterTool')
+    require("'hook' 'session' 'gemini'" in json.dumps(hooks['hooks']), 'Gemini packaged hooks must invoke traceary hook session directly')
+    require("'hook' 'audit' 'gemini'" in json.dumps(hooks['hooks']), 'Gemini packaged hooks must invoke traceary hook audit directly')
     require((ROOT / 'integrations' / 'gemini-extension' / 'commands' / 'traceary-help.toml').exists(), 'missing Gemini help command')
     require((ROOT / 'integrations' / 'gemini-extension' / 'commands' / 'traceary-doctor.toml').exists(), 'missing Gemini doctor command')
     require((ROOT / 'integrations' / 'gemini-extension' / 'skills' / 'traceary-session-history' / 'SKILL.md').exists(), 'missing Gemini traceary-session-history skill')
