@@ -76,12 +76,16 @@ session 解決ルールは `traceary log` と同じです。
 
 `list` は直近履歴を素早く絞るためのコマンドです。kind / client / agent / session / workspace が決まっているときはこちらを使い、キーワード検索や期間条件が必要なときは `search` を使います。
 
+デフォルトのテキスト出力は `tail` と同じコンパクトな 1 行形式 (`HH:MM:SS  kind  sess=<先頭8文字>  ws=<basename>  message`、ヘッダ無し、現地時刻) です。`--wide` で従来の 7 カラム tab 区切り表、`--utc` でテキスト出力を UTC に切り替えられます。`--wide --utc` を組み合わせると v0.6.1 以前の出力を完全再現します。`--json` は従来通りです。
+
 主な flag:
 
 - `--kind`
 - `--limit`
 - `--offset`
 - `--json`
+- `--wide`
+- `--utc`
 - `--client`
 - `--agent`
 - `--workspace`
@@ -114,6 +118,8 @@ session 解決ルールは `traceary log` と同じです。
 
 全文検索と構造フィルタで event を検索します。
 
+テキスト出力は `list` / `tail` と同じコンパクト 1 行形式 (デフォルトで現地時刻) です。`--wide` で従来の 7 カラム表、`--utc` で UTC に切り替えられます。`--wide --utc` を組み合わせると v0.6.1 以前の出力を完全再現します。`--json` は従来通りです。
+
 主な flag:
 
 - `--kind`
@@ -126,6 +132,8 @@ session 解決ルールは `traceary log` と同じです。
 - `--limit`
 - `--offset`
 - `--json`
+- `--wide`
+- `--utc`
 
 ### `traceary show <event-id>`
 

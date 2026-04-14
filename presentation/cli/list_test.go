@@ -62,6 +62,8 @@ func TestRootCLI_ListCommand(t *testing.T) {
 			"--agent", "codex",
 			"--session-id", "session-1",
 			"--workspace", "duck8823/traceary",
+			"--wide",
+			"--utc",
 		})
 
 		if err := rootCmd.Execute(); err != nil {

@@ -13,15 +13,15 @@ import (
 
 const messageColumnMaxWidth = 80
 
-func writeEventsByFormat(output io.Writer, events []*model.Event, asJSON bool) error {
+func writeEventsByFormat(output io.Writer, events []*model.Event, asJSON bool, textOpts eventTextFormatOptions) error {
 	if asJSON {
 		return writeEventsJSON(output, events)
 	}
 
-	return writeEvents(output, events)
+	return writeEvents(output, events, textOpts)
 }
 
-func writeEvents(output io.Writer, events []*model.Event) error {
+func writeEvents(output io.Writer, events []*model.Event, textOpts eventTextFormatOptions) error {
 	if len(events) == 0 {
 		if _, err := fmt.Fprintln(output, Localize("No matching records.", "一致する記録はありません")); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print empty list message", "空一覧メッセージの出力に失敗しました"), err)
@@ -29,19 +29,23 @@ func writeEvents(output io.Writer, events []*model.Event) error {
 		return nil
 	}
 
-	// list/search continue to emit the UTC wide format; #541 will switch
-	// the default to local-compact. Keeping behaviour unchanged here lets
-	// #538 land without touching list/search output.
-	wideOpts := eventTextFormatOptions{wide: true, utc: true}
-	if _, err := fmt.Fprintln(output, formatEventWideHeader()); err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to print list header", "一覧ヘッダーの出力に失敗しました"), err)
+	if textOpts.wide {
+		if _, err := fmt.Fprintln(output, formatEventWideHeader()); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print list header", "一覧ヘッダーの出力に失敗しました"), err)
+		}
+		for _, event := range events {
+			if _, err := fmt.Fprintln(output, formatEventWideRow(event, textOpts)); err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to print event row", "イベント一覧行の出力に失敗しました"), err)
+			}
+		}
+		return nil
 	}
+
 	for _, event := range events {
-		if _, err := fmt.Fprintln(output, formatEventWideRow(event, wideOpts)); err != nil {
+		if _, err := fmt.Fprintln(output, formatEventCompactRow(event, textOpts)); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print event row", "イベント一覧行の出力に失敗しました"), err)
 		}
 	}
-
 	return nil
 }
 
