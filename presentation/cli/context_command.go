@@ -122,12 +122,12 @@ func (c *RootCLI) resolveContextSessionID(
 	if err != nil {
 		return "", xerrors.Errorf("%s: %w", Localize("failed to resolve latest session for context", "文脈用の直近 session 解決に失敗しました"), err)
 	}
-	if !result.IsPresent() {
+	if _, ok := result.Value(); !ok {
 		slog.Debug("no session found for context, using empty session", "client", input.client, "agent", input.agent, "workspace", input.repo)
 		return "", nil
 	}
 
-	event, _ := result.Get()
+	event, _ := result.Value()
 	return event.SessionID().String(), nil
 }
 

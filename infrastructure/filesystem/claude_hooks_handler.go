@@ -37,42 +37,42 @@ func (h *ClaudeHooksHandler) Build(tracearyBin string) model.Hooks {
 	}
 	events := map[string][]model.HookEntry{
 		"SessionStart": {
-			model.HookEntryOf(types.Of("*"), []model.HookCommand{
-				model.HookCommandOf("traceary-session-start", "command", sessionStartCommand, types.Empty[int](), "", managedKeyOf("traceary-session.sh", "claude", "start")),
+			model.HookEntryOf(types.Some("*"), []model.HookCommand{
+				model.HookCommandOf("traceary-session-start", "command", sessionStartCommand, types.None[int](), "", managedKeyOf("traceary-session.sh", "claude", "start")),
 			}),
-			model.HookEntryOf(types.Of("compact"), []model.HookCommand{
-				model.HookCommandOf("traceary-compact-session-start", "command", compactResumeCommand, types.Empty[int](), "", managedKeyOf("traceary-compact.sh", "claude", "session-start-compact")),
+			model.HookEntryOf(types.Some("compact"), []model.HookCommand{
+				model.HookCommandOf("traceary-compact-session-start", "command", compactResumeCommand, types.None[int](), "", managedKeyOf("traceary-compact.sh", "claude", "session-start-compact")),
 			}),
 		},
 		"SessionEnd": {
-			model.HookEntryOf(types.Of("*"), []model.HookCommand{
-				model.HookCommandOf("traceary-session-end", "command", sessionEndCommand, types.Empty[int](), "", managedKeyOf("traceary-session.sh", "claude", "end")),
+			model.HookEntryOf(types.Some("*"), []model.HookCommand{
+				model.HookCommandOf("traceary-session-end", "command", sessionEndCommand, types.None[int](), "", managedKeyOf("traceary-session.sh", "claude", "end")),
 			}),
 		},
 		"PostToolUse": {
-			model.HookEntryOf(types.Of("Bash"), []model.HookCommand{
-				model.HookCommandOf("traceary-audit", "command", auditCommand, types.Empty[int](), "", managedKeyOf("traceary-audit.sh", "claude")),
+			model.HookEntryOf(types.Some("Bash"), []model.HookCommand{
+				model.HookCommandOf("traceary-audit", "command", auditCommand, types.None[int](), "", managedKeyOf("traceary-audit.sh", "claude")),
 			}),
-			model.HookEntryOf(types.Of("mcp__.*"), []model.HookCommand{
-				model.HookCommandOf("traceary-audit", "command", auditCommand, types.Empty[int](), "", managedKeyOf("traceary-audit.sh", "claude")),
+			model.HookEntryOf(types.Some("mcp__.*"), []model.HookCommand{
+				model.HookCommandOf("traceary-audit", "command", auditCommand, types.None[int](), "", managedKeyOf("traceary-audit.sh", "claude")),
 			}),
 		},
 		"PostToolUseFailure": {
-			model.HookEntryOf(types.Of("Bash"), []model.HookCommand{
-				model.HookCommandOf("traceary-audit", "command", auditCommand, types.Empty[int](), "", managedKeyOf("traceary-audit.sh", "claude")),
+			model.HookEntryOf(types.Some("Bash"), []model.HookCommand{
+				model.HookCommandOf("traceary-audit", "command", auditCommand, types.None[int](), "", managedKeyOf("traceary-audit.sh", "claude")),
 			}),
-			model.HookEntryOf(types.Of("mcp__.*"), []model.HookCommand{
-				model.HookCommandOf("traceary-audit", "command", auditCommand, types.Empty[int](), "", managedKeyOf("traceary-audit.sh", "claude")),
+			model.HookEntryOf(types.Some("mcp__.*"), []model.HookCommand{
+				model.HookCommandOf("traceary-audit", "command", auditCommand, types.None[int](), "", managedKeyOf("traceary-audit.sh", "claude")),
 			}),
 		},
 		"PostCompact": {
-			model.HookEntryOf(types.Of("*"), []model.HookCommand{
-				model.HookCommandOf("traceary-compact-post-compact", "command", compactCommand, types.Empty[int](), "", managedKeyOf("traceary-compact.sh", "claude", "post-compact")),
+			model.HookEntryOf(types.Some("*"), []model.HookCommand{
+				model.HookCommandOf("traceary-compact-post-compact", "command", compactCommand, types.None[int](), "", managedKeyOf("traceary-compact.sh", "claude", "post-compact")),
 			}),
 		},
 		"UserPromptSubmit": {
-			model.HookEntryOf(types.Of("*"), []model.HookCommand{
-				model.HookCommandOf("traceary-prompt", "command", promptCommand, types.Empty[int](), "", managedKeyOf("traceary-prompt.sh", "claude")),
+			model.HookEntryOf(types.Some("*"), []model.HookCommand{
+				model.HookCommandOf("traceary-prompt", "command", promptCommand, types.None[int](), "", managedKeyOf("traceary-prompt.sh", "claude")),
 			}),
 		},
 	}

@@ -27,10 +27,10 @@ func NewContextUsecase(
 
 func (u *contextUsecase) Handoff(ctx context.Context, criteria apptypes.ContextPackCriteria) (types.Optional[apptypes.ContextPack], error) {
 	if u.err != nil {
-		return types.Empty[apptypes.ContextPack](), xerrors.Errorf("context usecase is not configured: %w", u.err)
+		return types.None[apptypes.ContextPack](), xerrors.Errorf("context usecase is not configured: %w", u.err)
 	}
 	if u.builder == nil {
-		return types.Empty[apptypes.ContextPack](), xerrors.Errorf("context pack builder is not configured")
+		return types.None[apptypes.ContextPack](), xerrors.Errorf("context pack builder is not configured")
 	}
 	return u.builder.Build(ctx, criteria)
 }

@@ -43,14 +43,14 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 				"go test ./...",
 				time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC),
 			),
-			types.Of(model.CommandAuditOf(
+			types.Some(model.CommandAuditOf(
 				eventID,
 				"go test ./...",
 				"stdin",
 				"stdout",
 				true,
 				false,
-				types.Empty[int](),
+				types.None[int](),
 			)),
 		)
 		if err != nil {
@@ -106,7 +106,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 				"hello",
 				time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC),
 			),
-			types.Empty[*model.CommandAudit](),
+			types.None[*model.CommandAudit](),
 		)
 		if err != nil {
 			t.Fatalf("EventDetailsOf() error = %v", err)
@@ -142,14 +142,14 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 				"go test ./...",
 				time.Date(2026, 4, 8, 12, 30, 0, 0, time.UTC),
 			),
-			types.Of(model.CommandAuditOf(
+			types.Some(model.CommandAuditOf(
 				eventID,
 				"go test ./...",
 				"stdin",
 				"stdout",
 				true,
 				false,
-				types.Empty[int](),
+				types.None[int](),
 			)),
 		)
 		if err != nil {
@@ -207,14 +207,14 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 				"go test ./...",
 				time.Date(2026, 4, 8, 13, 0, 0, 0, time.UTC),
 			),
-			types.Of(model.CommandAuditOf(
+			types.Some(model.CommandAuditOf(
 				eventID,
 				"go test ./...",
 				"stdin",
 				"stderr",
 				false,
 				false,
-				types.Of(1),
+				types.Some(1),
 			)),
 		)
 		if err != nil {

@@ -126,7 +126,7 @@ func sessionNodeToOutput(node *sessionNode) *sessionTreeNode {
 		Agents:       s.Agents(),
 		Children:     make([]*sessionTreeNode, 0, len(node.children)),
 	}
-	if endedAt, ok := s.EndedAt().Get(); ok {
+	if endedAt, ok := s.EndedAt().Value(); ok {
 		endStr := endedAt.UTC().Format(time.RFC3339)
 		jn.EndedAt = &endStr
 		dur := endedAt.Sub(s.StartedAt()).Seconds()
@@ -163,7 +163,7 @@ func printNode(output io.Writer, node *sessionNode, prefix string, isLast bool) 
 	}
 
 	duration := "-"
-	if endedAt, ok := s.EndedAt().Get(); ok {
+	if endedAt, ok := s.EndedAt().Value(); ok {
 		duration = formatDuration(endedAt.Sub(s.StartedAt()))
 	}
 

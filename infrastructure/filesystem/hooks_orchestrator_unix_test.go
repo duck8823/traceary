@@ -40,7 +40,7 @@ func TestHooksOrchestrator_InstallRefusesSymlink(t *testing.T) {
 		context.Background(),
 		"claude", "traceary",
 		projectDir,
-		types.Empty[string](),
+		types.None[string](),
 		false,
 	); err == nil {
 		t.Fatalf("Install() error = nil, want symlink refusal")
@@ -78,7 +78,7 @@ func TestHooksOrchestrator_InstallRefusesAncestorSymlink(t *testing.T) {
 		context.Background(),
 		"claude", "traceary",
 		projectDir,
-		types.Empty[string](),
+		types.None[string](),
 		false,
 	); err == nil {
 		t.Fatalf("Install() error = nil, want ancestor symlink refusal")
@@ -121,7 +121,7 @@ func TestHooksOrchestrator_InstallForceRefusesSymlink(t *testing.T) {
 		context.Background(),
 		"claude", "traceary",
 		projectDir,
-		types.Empty[string](),
+		types.None[string](),
 		true,
 	); err == nil {
 		t.Fatalf("Install(force=true) error = nil, want symlink refusal")

@@ -141,8 +141,8 @@ func TestMergeHooksDocument_EmptyExistingReturnsMarshaled(t *testing.T) {
 		[]string{"SessionStart"},
 		map[string][]model.HookEntry{
 			"SessionStart": {
-				model.HookEntryOf(types.Of("*"), []model.HookCommand{
-					model.HookCommandOf("", "command", "echo hi", types.Empty[int](), "", ""),
+				model.HookEntryOf(types.Some("*"), []model.HookCommand{
+					model.HookCommandOf("", "command", "echo hi", types.None[int](), "", ""),
 				}),
 			},
 		},

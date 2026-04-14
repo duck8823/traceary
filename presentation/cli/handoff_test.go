@@ -26,8 +26,8 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 			types.MemoryStatusAccepted,
 			types.ConfidenceVerified,
 			types.MemorySourceManual,
-			types.Empty[types.MemoryID](),
-			types.Empty[time.Time](),
+			types.None[types.MemoryID](),
+			types.None[time.Time](),
 			time.Now(),
 			time.Now(),
 		)
@@ -39,7 +39,7 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 		rootCmd := cli.NewRootCLI(
 			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 			cli.WithContext(&contextUsecaseStub{
-				handoff: types.Of(apptypes.ContextPackOf(
+				handoff: types.Some(apptypes.ContextPackOf(
 					types.SessionID("session-1"),
 					types.Workspace("duck8823/traceary"),
 					"v0.5.0",
@@ -87,7 +87,7 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 		rootCmd := cli.NewRootCLI(
 			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 			cli.WithContext(&contextUsecaseStub{
-				handoff: types.Of(apptypes.ContextPackOf(
+				handoff: types.Some(apptypes.ContextPackOf(
 					types.SessionID("session-2"),
 					types.Workspace("duck8823/traceary"),
 					"",

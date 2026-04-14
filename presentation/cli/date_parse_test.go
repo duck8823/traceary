@@ -95,7 +95,7 @@ func TestParseFlexibleTimeOptional(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if v, ok := got.Get(); ok {
+		if v, ok := got.Value(); ok {
 			t.Errorf("expected empty Optional, got %v", v)
 		}
 	})
@@ -107,11 +107,11 @@ func TestParseFlexibleTimeOptional(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !got.IsPresent() {
+		if _, ok := got.Value(); !ok {
 			t.Fatal("expected present Optional")
 		}
 		want := time.Date(2026, 4, 11, 0, 0, 0, 0, time.UTC)
-		v, _ := got.Get()
+		v, _ := got.Value()
 		if !v.Equal(want) {
 			t.Errorf("got %v, want %v", v, want)
 		}

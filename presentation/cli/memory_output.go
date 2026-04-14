@@ -166,13 +166,13 @@ func writeArtifactRefSection(output io.Writer, refs []domtypes.ArtifactRef) erro
 
 func newMemorySummaryOutput(summary apptypes.MemorySummary) memorySummaryOutput {
 	var supersedes *string
-	if value, ok := summary.Supersedes().Get(); ok {
+	if value, ok := summary.Supersedes().Value(); ok {
 		resolved := value.String()
 		supersedes = &resolved
 	}
 
 	var expiresAt *string
-	if value, ok := summary.ExpiresAt().Get(); ok {
+	if value, ok := summary.ExpiresAt().Value(); ok {
 		resolved := value.UTC().Format(time.RFC3339)
 		expiresAt = &resolved
 	}
@@ -220,7 +220,7 @@ func formatMemoryScope(scope domtypes.MemoryScope) string {
 }
 
 func formatOptionalMemoryID(value domtypes.Optional[domtypes.MemoryID]) string {
-	if memoryID, ok := value.Get(); ok {
+	if memoryID, ok := value.Value(); ok {
 		return memoryID.String()
 	}
 
@@ -228,7 +228,7 @@ func formatOptionalMemoryID(value domtypes.Optional[domtypes.MemoryID]) string {
 }
 
 func formatOptionalTime(value domtypes.Optional[time.Time]) string {
-	if resolved, ok := value.Get(); ok {
+	if resolved, ok := value.Value(); ok {
 		return resolved.UTC().Format(time.RFC3339)
 	}
 

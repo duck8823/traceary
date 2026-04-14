@@ -77,7 +77,7 @@ func TestSessionUsecase_End(t *testing.T) {
 		sessionID, _ := types.SessionIDOf("session-1")
 		agent, _ := types.AgentOf("codex")
 		existing := model.SessionOf(
-			sessionID, mustTime(t), types.Empty[time.Time](),
+			sessionID, mustTime(t), types.None[time.Time](),
 			types.Client("cli"), agent, types.Workspace("duck8823/traceary"),
 			"", "", types.SessionID(""),
 		)
@@ -123,7 +123,7 @@ func TestSessionUsecase_End(t *testing.T) {
 			session: model.SessionOf(
 				sessionID,
 				mustTime(t),
-				types.Empty[time.Time](),
+				types.None[time.Time](),
 				types.Client("hook"),
 				startAgent,
 				types.Workspace("repo-from-start"),
@@ -170,7 +170,7 @@ func TestSessionUsecase_End(t *testing.T) {
 			session: model.SessionOf(
 				sessionID,
 				mustTime(t),
-				types.Empty[time.Time](),
+				types.None[time.Time](),
 				types.Client("hook"),
 				startAgent,
 				types.Workspace("repo-from-start"),
@@ -232,7 +232,7 @@ func TestSessionUsecase_End(t *testing.T) {
 		}
 		endedAt := mustTime(t).Add(time.Hour)
 		alreadyEnded := model.SessionOf(
-			sessionID, mustTime(t), types.Of(endedAt),
+			sessionID, mustTime(t), types.Some(endedAt),
 			types.Client("cli"), agent, types.Workspace("duck8823/traceary"),
 			"", "first end", types.SessionID(""),
 		)
@@ -278,12 +278,12 @@ func (s *sessionRepositoryStub) FindByID(
 	_ types.SessionID,
 ) (types.Optional[*model.Session], error) {
 	if s.findErr != nil {
-		return types.Empty[*model.Session](), s.findErr
+		return types.None[*model.Session](), s.findErr
 	}
 	if s.empty || s.session == nil {
-		return types.Empty[*model.Session](), nil
+		return types.None[*model.Session](), nil
 	}
-	return types.Of(s.session), nil
+	return types.Some(s.session), nil
 }
 
 func (s *sessionRepositoryStub) Save(_ context.Context, session *model.Session) error {
@@ -328,7 +328,7 @@ func TestSessionUsecase_SessionSaver(t *testing.T) {
 		if !sessionStub.saveBoundaryCalled {
 			t.Fatalf("SessionRepository.SaveBoundary() was not called")
 		}
-		if sessionStub.savedBoundary.EndedAt().IsPresent() {
+		if _, ok := sessionStub.savedBoundary.EndedAt().Value(); ok {
 			t.Fatalf("session.EndedAt() should be empty for start")
 		}
 		if sessionStub.savedEvent.Kind() != types.EventKindSessionStarted {
@@ -352,7 +352,7 @@ func TestSessionUsecase_SessionSaver(t *testing.T) {
 		existingSession := model.SessionOf(
 			sessionID,
 			mustTime(t),
-			types.Empty[time.Time](),
+			types.None[time.Time](),
 			types.Client("cli"),
 			agent,
 			types.Workspace("duck8823/traceary"),
@@ -374,7 +374,7 @@ func TestSessionUsecase_SessionSaver(t *testing.T) {
 		if !sessionStub.saveBoundaryCalled {
 			t.Fatalf("SessionRepository.SaveBoundary() was not called")
 		}
-		if !sessionStub.savedBoundary.EndedAt().IsPresent() {
+		if _, ok := sessionStub.savedBoundary.EndedAt().Value(); !ok {
 			t.Fatalf("session.EndedAt() should be present for end")
 		}
 		if diff := cmp.Diff("test summary", sessionStub.savedBoundary.Summary()); diff != "" {
@@ -416,7 +416,7 @@ func TestSessionUsecase_SessionSaver(t *testing.T) {
 		existingID, _ := types.SessionIDOf("existing-session")
 		agent, _ := types.AgentOf("claude")
 		existingSession := model.SessionOf(
-			existingID, mustTime(t), types.Empty[time.Time](),
+			existingID, mustTime(t), types.None[time.Time](),
 			types.Client("cli"), agent, types.Workspace("duck8823/traceary"),
 			"", "", types.SessionID(""),
 		)

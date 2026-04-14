@@ -12,8 +12,8 @@ import (
 )
 
 type eventRepositoryStub struct {
-	savedEvent   *model.Event
-	err          error
+	savedEvent *model.Event
+	err        error
 }
 
 func (s *eventRepositoryStub) Save(_ context.Context, event *model.Event) error {

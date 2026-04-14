@@ -85,10 +85,10 @@ func (s *Session) Label() string { return s.label }
 // End marks the session as ended. Returns ErrInvalidSessionState when the
 // session is already ended.
 func (s *Session) End(endedAt time.Time, summary string) error {
-	if s.endedAt.IsPresent() {
+	if _, ok := s.endedAt.Value(); ok {
 		return ErrInvalidSessionState
 	}
-	s.endedAt = types.Of(endedAt)
+	s.endedAt = types.Some(endedAt)
 	s.summary = summary
 	return nil
 }

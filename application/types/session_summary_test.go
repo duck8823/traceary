@@ -14,7 +14,7 @@ func TestSessionSummaryOf_Getters(t *testing.T) {
 	t.Parallel()
 
 	startedAt := time.Date(2024, time.January, 2, 3, 4, 5, 0, time.UTC)
-	endedAt := domtypes.Of(startedAt.Add(1 * time.Hour))
+	endedAt := domtypes.Some(startedAt.Add(1 * time.Hour))
 	agents := []string{"claude", "codex"}
 
 	summary := apptypes.SessionSummaryOf(
@@ -40,9 +40,9 @@ func TestSessionSummaryOf_Getters(t *testing.T) {
 	if !summary.StartedAt().Equal(startedAt) {
 		t.Errorf("StartedAt() = %v, want %v", summary.StartedAt(), startedAt)
 	}
-	gotEndedAt, ok := summary.EndedAt().Get()
+	gotEndedAt, ok := summary.EndedAt().Value()
 	if !ok {
-		t.Fatalf("EndedAt().Get() ok = false, want true")
+		t.Fatalf("EndedAt().Value() ok = false, want true")
 	}
 	if !gotEndedAt.Equal(startedAt.Add(1 * time.Hour)) {
 		t.Errorf("EndedAt() = %v, want %v", gotEndedAt, startedAt.Add(1*time.Hour))
@@ -77,7 +77,7 @@ func TestSessionSummaryOf_EmptyEndedAt(t *testing.T) {
 		domtypes.SessionID("session-1"),
 		domtypes.Workspace("ws"),
 		time.Date(2024, time.January, 2, 3, 4, 5, 0, time.UTC),
-		domtypes.Empty[time.Time](),
+		domtypes.None[time.Time](),
 		"active",
 		0,
 		0,
@@ -87,8 +87,8 @@ func TestSessionSummaryOf_EmptyEndedAt(t *testing.T) {
 		domtypes.SessionID(""),
 	)
 
-	if summary.EndedAt().IsPresent() {
-		t.Errorf("EndedAt().IsPresent() = true, want false")
+	if _, ok := summary.EndedAt().Value(); ok {
+		t.Errorf("EndedAt().Value() = true, want false")
 	}
 }
 
@@ -100,7 +100,7 @@ func TestSessionSummary_AgentsDefensiveCopy(t *testing.T) {
 		domtypes.SessionID("session-1"),
 		domtypes.Workspace("ws"),
 		time.Date(2024, time.January, 2, 3, 4, 5, 0, time.UTC),
-		domtypes.Empty[time.Time](),
+		domtypes.None[time.Time](),
 		"active",
 		0,
 		0,

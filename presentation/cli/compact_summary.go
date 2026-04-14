@@ -93,13 +93,13 @@ func (c *RootCLI) printCompactSummary(
 func buildCompactSummaryText(result types.Optional[apptypes.ContextPack]) (string, error) {
 	var sb strings.Builder
 	sb.WriteString("[Traceary] ")
-	if !result.IsPresent() {
+	if _, ok := result.Value(); !ok {
 		sb.WriteString("No active session\n")
 		sb.WriteString("  Run list_events for full history.\n")
 		return sb.String(), nil
 	}
 
-	pack, _ := result.Get()
+	pack, _ := result.Value()
 	fmt.Fprintf(&sb, "Session %s resumed after compact\n", pack.SessionID())
 	if pack.Workspace().String() != "" {
 		fmt.Fprintf(&sb, "  workspace: %s\n", pack.Workspace())

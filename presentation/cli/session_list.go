@@ -68,8 +68,8 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to resolve --to", "to の解決に失敗しました"), err)
 			}
-			if fromVal, fromOk := fromTime.Get(); fromOk {
-				if toVal, toOk := toTime.Get(); toOk && fromVal.After(toVal) {
+			if fromVal, fromOk := fromTime.Value(); fromOk {
+				if toVal, toOk := toTime.Value(); toOk && fromVal.After(toVal) {
 					return xerrors.Errorf(Localize("--from must be earlier than --to", "from は to より前である必要があります"))
 				}
 			}
@@ -130,7 +130,7 @@ func writeSessionSummaries(output io.Writer, summaries []apptypes.SessionSummary
 	}
 	for _, s := range summaries {
 		duration := "-"
-		if endedAt, ok := s.EndedAt().Get(); ok {
+		if endedAt, ok := s.EndedAt().Value(); ok {
 			duration = formatDuration(endedAt.Sub(s.StartedAt()))
 		}
 
@@ -161,7 +161,7 @@ func writeSessionSummaries(output io.Writer, summaries []apptypes.SessionSummary
 func writeSessionSummariesJSON(output io.Writer, summaries []apptypes.SessionSummary) error {
 	type jsonSummary struct {
 		SessionID       string   `json:"session_id"`
-		Workspace string   `json:"workspace,omitempty"`
+		Workspace       string   `json:"workspace,omitempty"`
 		Label           string   `json:"label,omitempty"`
 		Summary         string   `json:"summary,omitempty"`
 		ParentSessionID string   `json:"parent_session_id,omitempty"`
@@ -177,8 +177,8 @@ func writeSessionSummariesJSON(output io.Writer, summaries []apptypes.SessionSum
 	items := make([]jsonSummary, 0, len(summaries))
 	for _, s := range summaries {
 		item := jsonSummary{
-			SessionID: string(s.SessionID()),
-			Workspace: string(s.Workspace()),
+			SessionID:       string(s.SessionID()),
+			Workspace:       string(s.Workspace()),
 			Label:           s.Label(),
 			Summary:         s.Summary(),
 			ParentSessionID: string(s.ParentSessionID()),
@@ -188,7 +188,7 @@ func writeSessionSummariesJSON(output io.Writer, summaries []apptypes.SessionSum
 			CommandCount:    s.CommandCount(),
 			Agents:          s.Agents(),
 		}
-		if endedAt, ok := s.EndedAt().Get(); ok {
+		if endedAt, ok := s.EndedAt().Value(); ok {
 			endStr := endedAt.UTC().Format(time.RFC3339)
 			item.EndedAt = &endStr
 			dur := endedAt.Sub(s.StartedAt()).Seconds()

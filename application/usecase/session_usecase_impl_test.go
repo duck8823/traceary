@@ -50,7 +50,7 @@ func (s *sessionQueryServiceStub) FindLatest(
 	s.findLatestWS = workspace
 	s.findLatestActive = activeOnly
 	if s.findLatestErr != nil {
-		return types.Empty[*model.Event](), s.findLatestErr
+		return types.None[*model.Event](), s.findLatestErr
 	}
 	return s.findLatestResult, nil
 }
@@ -198,7 +198,7 @@ func TestSessionUsecase_Label(t *testing.T) {
 		existing := model.SessionOf(
 			sessionID,
 			mustTime(t),
-			types.Empty[time.Time](),
+			types.None[time.Time](),
 			types.Client("cli"),
 			agent,
 			types.Workspace("duck8823/traceary"),
@@ -266,7 +266,7 @@ func TestSessionUsecase_Label(t *testing.T) {
 		existing := model.SessionOf(
 			sessionID,
 			mustTime(t),
-			types.Empty[time.Time](),
+			types.None[time.Time](),
 			types.Client("cli"),
 			agent,
 			types.Workspace("duck8823/traceary"),
@@ -300,7 +300,7 @@ func TestSessionUsecase_Active(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewEvent() error = %v", err)
 		}
-		queryStub := &sessionQueryServiceStub{findLatestResult: types.Of(event)}
+		queryStub := &sessionQueryServiceStub{findLatestResult: types.Some(event)}
 		sut := usecase.NewSessionUsecase(nil, nil, queryStub, nil)
 
 		criteria := apptypes.NewSessionLookupCriteriaBuilder().
@@ -313,7 +313,7 @@ func TestSessionUsecase_Active(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Active() error = %v", err)
 		}
-		if !got.IsPresent() {
+		if _, ok := got.Value(); !ok {
 			t.Fatalf("Active() result is empty, want present")
 		}
 		if diff := cmp.Diff(1, queryStub.findLatestCalls); diff != "" {
@@ -336,14 +336,14 @@ func TestSessionUsecase_Active(t *testing.T) {
 	t.Run("returns empty Optional when query returns empty", func(t *testing.T) {
 		t.Parallel()
 
-		queryStub := &sessionQueryServiceStub{findLatestResult: types.Empty[*model.Event]()}
+		queryStub := &sessionQueryServiceStub{findLatestResult: types.None[*model.Event]()}
 		sut := usecase.NewSessionUsecase(nil, nil, queryStub, nil)
 
 		got, err := sut.Active(context.Background(), apptypes.NewSessionLookupCriteriaBuilder().Build())
 		if err != nil {
 			t.Fatalf("Active() error = %v", err)
 		}
-		if got.IsPresent() {
+		if _, ok := got.Value(); ok {
 			t.Fatalf("Active() result is present, want empty")
 		}
 	})
@@ -379,7 +379,7 @@ func TestSessionUsecase_Latest(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewEvent() error = %v", err)
 		}
-		queryStub := &sessionQueryServiceStub{findLatestResult: types.Of(event)}
+		queryStub := &sessionQueryServiceStub{findLatestResult: types.Some(event)}
 		sut := usecase.NewSessionUsecase(nil, nil, queryStub, nil)
 
 		criteria := apptypes.NewSessionLookupCriteriaBuilder().
@@ -390,7 +390,7 @@ func TestSessionUsecase_Latest(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Latest() error = %v", err)
 		}
-		if !got.IsPresent() {
+		if _, ok := got.Value(); !ok {
 			t.Fatalf("Latest() result is empty, want present")
 		}
 		if diff := cmp.Diff(1, queryStub.findLatestCalls); diff != "" {
@@ -404,14 +404,14 @@ func TestSessionUsecase_Latest(t *testing.T) {
 	t.Run("returns empty Optional when query returns empty", func(t *testing.T) {
 		t.Parallel()
 
-		queryStub := &sessionQueryServiceStub{findLatestResult: types.Empty[*model.Event]()}
+		queryStub := &sessionQueryServiceStub{findLatestResult: types.None[*model.Event]()}
 		sut := usecase.NewSessionUsecase(nil, nil, queryStub, nil)
 
 		got, err := sut.Latest(context.Background(), apptypes.NewSessionLookupCriteriaBuilder().Build())
 		if err != nil {
 			t.Fatalf("Latest() error = %v", err)
 		}
-		if got.IsPresent() {
+		if _, ok := got.Value(); ok {
 			t.Fatalf("Latest() result is present, want empty")
 		}
 	})
@@ -485,7 +485,7 @@ func TestSessionUsecase_List(t *testing.T) {
 				types.SessionID("session-1"),
 				types.Workspace("duck8823/traceary"),
 				mustTime(t),
-				types.Empty[time.Time](),
+				types.None[time.Time](),
 				"active",
 				10,
 				5,
@@ -587,7 +587,7 @@ func TestSessionUsecase_Tree(t *testing.T) {
 				types.SessionID("session-1"),
 				types.Workspace("duck8823/traceary"),
 				mustTime(t),
-				types.Empty[time.Time](),
+				types.None[time.Time](),
 				"active",
 				10,
 				5,
@@ -651,7 +651,7 @@ func TestSessionUsecase_Handoff(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Handoff() error = %v", err)
 		}
-		if got.IsPresent() {
+		if _, ok := got.Value(); ok {
 			t.Fatalf("Handoff() result is present, want empty")
 		}
 		if eventQueryStub.listRecentCalls != 0 {
@@ -666,7 +666,7 @@ func TestSessionUsecase_Handoff(t *testing.T) {
 			types.SessionID("session-1"),
 			types.Workspace("duck8823/traceary"),
 			mustTime(t),
-			types.Of(mustTime(t).Add(time.Hour)),
+			types.Some(mustTime(t).Add(time.Hour)),
 			"ended",
 			42,
 			30,
@@ -717,11 +717,11 @@ func TestSessionUsecase_Handoff(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Handoff() error = %v", err)
 		}
-		if !got.IsPresent() {
+		if _, ok := got.Value(); !ok {
 			t.Fatalf("Handoff() result is empty, want present")
 		}
 
-		result, _ := got.Get()
+		result, _ := got.Value()
 		if diff := cmp.Diff(types.SessionID("session-1"), result.SessionID()); diff != "" {
 			t.Fatalf("SessionID() mismatch (-want +got):\n%s", diff)
 		}
@@ -783,7 +783,7 @@ func TestSessionUsecase_Handoff(t *testing.T) {
 			types.SessionID("session-1"),
 			types.Workspace("duck8823/traceary"),
 			mustTime(t),
-			types.Empty[time.Time](),
+			types.None[time.Time](),
 			"active",
 			0,
 			0,

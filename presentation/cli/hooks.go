@@ -144,9 +144,9 @@ func (c *RootCLI) runHooksInstall(
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve traceary binary path", "traceary binary path の解決に失敗しました"), err)
 	}
 
-	outputPathOption := types.Empty[string]()
+	outputPathOption := types.None[string]()
 	if trimmedOutput := strings.TrimSpace(input.outputPath); trimmedOutput != "" {
-		outputPathOption = types.Of(trimmedOutput)
+		outputPathOption = types.Some(trimmedOutput)
 	}
 
 	resolvedOutputPath, err := c.hooksOrchestrator.Install(

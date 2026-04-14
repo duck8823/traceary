@@ -12,7 +12,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
-
 )
 
 var errBackupRestoreCanceled = xerrors.New(Localize("restore canceled", "復元を中止しました"))

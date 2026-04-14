@@ -11,8 +11,6 @@ import (
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
-
-
 func TestRootCLI_ListCommand(t *testing.T) {
 	t.Parallel()
 
@@ -56,7 +54,7 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		rootCmd.SetArgs([]string{
 			"list",
 			"--db-path",
-		"/tmp/test-traceary.db",
+			"/tmp/test-traceary.db",
 			"--limit", "5",
 			"--offset", "2",
 			"--kind", "note",

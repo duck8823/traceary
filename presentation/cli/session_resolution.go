@@ -52,7 +52,7 @@ func (c *RootCLI) resolveManualSessionID(
 			err,
 		)
 	}
-	if !result.IsPresent() {
+	if _, ok := result.Value(); !ok {
 		slog.Debug("no active session found for repo, using default", "workspace", trimmedRepo)
 		return &manualSessionResolution{
 			sessionID: defaultSessionIDValue,
@@ -64,7 +64,7 @@ func (c *RootCLI) resolveManualSessionID(
 		}, nil
 	}
 
-	event, _ := result.Get()
+	event, _ := result.Value()
 	if isStaleSession(event, defaultActiveSessionStaleAfter) {
 		slog.Debug("active session is stale, using default", "session_id", event.SessionID(), "created_at", event.CreatedAt())
 		return &manualSessionResolution{

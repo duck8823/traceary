@@ -64,9 +64,9 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 				return err
 			}
 
-			exitCodeOpt := types.Empty[int]()
+			exitCodeOpt := types.None[int]()
 			if exitCodeSet {
-				exitCodeOpt = types.Of(exitCode)
+				exitCodeOpt = types.Some(exitCode)
 			}
 
 			return c.runAudit(cmd.Context(), cmd.OutOrStdout(), auditCommandInput{
@@ -194,7 +194,7 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		return xerrors.Errorf("%s: %w", Localize("failed to record command audit", "監査ログ記録に失敗しました"), err)
 	}
 	if input.asJSON {
-		eventDetails, err := apptypes.EventDetailsOf(event, types.Of(commandAudit))
+		eventDetails, err := apptypes.EventDetailsOf(event, types.Some(commandAudit))
 		if err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to build audit result", "監査ログ結果の構築に失敗しました"), err)
 		}

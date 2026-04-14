@@ -24,7 +24,7 @@ func writeEventDetailsJSON(output io.Writer, details apptypes.EventDetails) erro
 		Event: newEventOutput(details.Event()),
 	}
 	auditOpt := details.CommandAudit()
-	if audit, ok := auditOpt.Get(); ok {
+	if audit, ok := auditOpt.Value(); ok {
 		serializedDetails.CommandAudit = newCommandAuditOutput(audit)
 	}
 
@@ -58,7 +58,7 @@ func newCommandAuditOutput(audit *model.CommandAudit) *commandAudit {
 	}
 
 	var exitCode *int
-	if ec, ok := audit.ExitCode().Get(); ok {
+	if ec, ok := audit.ExitCode().Value(); ok {
 		exitCode = &ec
 	}
 	return &commandAudit{

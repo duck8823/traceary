@@ -52,7 +52,7 @@ func TestSessionDatasource_SaveBoundary_Start(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindByID() error = %v", err)
 	}
-	if !stored.IsPresent() {
+	if _, ok := stored.Value(); !ok {
 		t.Fatalf("FindByID() should be present after SaveBoundary")
 	}
 
@@ -102,7 +102,7 @@ func TestSessionDatasource_SaveBoundary_End(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindByID() error = %v", err)
 	}
-	storedSession, _ := storedOpt.Get()
+	storedSession, _ := storedOpt.Value()
 	if err := storedSession.End(endedAt, "wrapped up"); err != nil {
 		t.Fatalf("End() error = %v", err)
 	}
@@ -122,11 +122,11 @@ func TestSessionDatasource_SaveBoundary_End(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindByID(after end) error = %v", err)
 	}
-	updated, _ := updatedOpt.Get()
-	if !updated.EndedAt().IsPresent() {
+	updated, _ := updatedOpt.Value()
+	if _, ok := updated.EndedAt().Value(); !ok {
 		t.Fatalf("EndedAt() should be present after end")
 	}
-	gotEndedAt, _ := updated.EndedAt().Get()
+	gotEndedAt, _ := updated.EndedAt().Value()
 	if !gotEndedAt.Equal(endedAt) {
 		t.Errorf("EndedAt() = %v, want %v", gotEndedAt, endedAt)
 	}
@@ -169,7 +169,7 @@ func TestSessionDatasource_Save_LabelDoesNotTouchEndedAt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindByID() error = %v", err)
 	}
-	stored, _ := storedOpt.Get()
+	stored, _ := storedOpt.Value()
 	stored.SetLabel("sprint-1")
 	if err := sessionDS.Save(ctx, stored); err != nil {
 		t.Fatalf("Save() error = %v", err)
@@ -179,8 +179,8 @@ func TestSessionDatasource_Save_LabelDoesNotTouchEndedAt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindByID(after label) error = %v", err)
 	}
-	got, _ := after.Get()
-	if got.EndedAt().IsPresent() {
+	got, _ := after.Value()
+	if _, ok := got.EndedAt().Value(); ok {
 		t.Errorf("EndedAt() should stay empty after label-only Save, got %v", got.EndedAt())
 	}
 	if diff := cmp.Diff("sprint-1", got.Label()); diff != "" {
@@ -223,7 +223,7 @@ func TestSessionDatasource_SaveBoundary_EndPreservesLabel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindByID(label) error = %v", err)
 	}
-	labelled, _ := labelOpt.Get()
+	labelled, _ := labelOpt.Value()
 	labelled.SetLabel("sprint-1")
 	if err := sessionDS.Save(ctx, labelled); err != nil {
 		t.Fatalf("Save(label) error = %v", err)
@@ -233,7 +233,7 @@ func TestSessionDatasource_SaveBoundary_EndPreservesLabel(t *testing.T) {
 	// was applied. Under the old blind UPDATE this step would clobber the
 	// label.
 	endingSession := model.SessionOf(
-		sessionID, startedAt, types.Empty[time.Time](),
+		sessionID, startedAt, types.None[time.Time](),
 		types.Client("cli"), agent, types.Workspace("workspace"),
 		"", "", types.SessionID(""),
 	)
@@ -255,11 +255,11 @@ func TestSessionDatasource_SaveBoundary_EndPreservesLabel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindByID(after end) error = %v", err)
 	}
-	got, _ := after.Get()
+	got, _ := after.Value()
 	if diff := cmp.Diff("sprint-1", got.Label()); diff != "" {
 		t.Errorf("Label should be preserved across end (-want +got):\n%s", diff)
 	}
-	if !got.EndedAt().IsPresent() {
+	if _, ok := got.EndedAt().Value(); !ok {
 		t.Fatalf("EndedAt() should be present after end")
 	}
 	if diff := cmp.Diff("wrapped up", got.Summary()); diff != "" {
@@ -299,7 +299,7 @@ func TestSessionDatasource_SaveBoundary_DuplicateEndRejected(t *testing.T) {
 
 	// First end succeeds.
 	firstEnding := model.SessionOf(
-		sessionID, startedAt, types.Empty[time.Time](),
+		sessionID, startedAt, types.None[time.Time](),
 		types.Client("cli"), agent, types.Workspace("workspace"),
 		"", "", types.SessionID(""),
 	)
@@ -321,7 +321,7 @@ func TestSessionDatasource_SaveBoundary_DuplicateEndRejected(t *testing.T) {
 	// thinks the session is still open (ended_at empty), because it read
 	// before the first end committed.
 	secondEnding := model.SessionOf(
-		sessionID, startedAt, types.Empty[time.Time](),
+		sessionID, startedAt, types.None[time.Time](),
 		types.Client("cli"), agent, types.Workspace("workspace"),
 		"", "", types.SessionID(""),
 	)
@@ -348,8 +348,8 @@ func TestSessionDatasource_SaveBoundary_DuplicateEndRejected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindByID() error = %v", err)
 	}
-	got, _ := after.Get()
-	gotEndedAt, _ := got.EndedAt().Get()
+	got, _ := after.Value()
+	gotEndedAt, _ := got.EndedAt().Value()
 	if !gotEndedAt.Equal(firstEndedAt) {
 		t.Errorf("EndedAt() = %v, want %v (the first end must win)", gotEndedAt, firstEndedAt)
 	}
@@ -466,7 +466,7 @@ func TestSessionDatasource_Save_LabelOnEndedSession(t *testing.T) {
 
 	// End the session.
 	endingSession := model.SessionOf(
-		sessionID, startedAt, types.Empty[time.Time](),
+		sessionID, startedAt, types.None[time.Time](),
 		types.Client("cli"), agent, types.Workspace("workspace"),
 		"", "", types.SessionID(""),
 	)
@@ -489,7 +489,7 @@ func TestSessionDatasource_Save_LabelOnEndedSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindByID() error = %v", err)
 	}
-	loaded, _ := loadedOpt.Get()
+	loaded, _ := loadedOpt.Value()
 	loaded.SetLabel("retro-label")
 	if err := sessionDS.Save(ctx, loaded); err != nil {
 		t.Fatalf("Save(label on ended) error = %v", err)
@@ -499,15 +499,15 @@ func TestSessionDatasource_Save_LabelOnEndedSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindByID(after label) error = %v", err)
 	}
-	got, _ := after.Get()
+	got, _ := after.Value()
 	if diff := cmp.Diff("retro-label", got.Label()); diff != "" {
 		t.Errorf("Label mismatch (-want +got):\n%s", diff)
 	}
 	// ended_at must still point at the original end.
-	if !got.EndedAt().IsPresent() {
+	if _, ok := got.EndedAt().Value(); !ok {
 		t.Fatalf("EndedAt() should remain present after labelling")
 	}
-	gotEndedAt, _ := got.EndedAt().Get()
+	gotEndedAt, _ := got.EndedAt().Value()
 	if !gotEndedAt.Equal(endedAt) {
 		t.Errorf("EndedAt() = %v, want %v", gotEndedAt, endedAt)
 	}
@@ -550,7 +550,7 @@ func TestSessionDatasource_Save_ClearLabel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindByID() error = %v", err)
 	}
-	labelled, _ := labelOpt.Get()
+	labelled, _ := labelOpt.Value()
 	labelled.SetLabel("sprint-1")
 	if err := sessionDS.Save(ctx, labelled); err != nil {
 		t.Fatalf("Save(label) error = %v", err)
@@ -561,7 +561,7 @@ func TestSessionDatasource_Save_ClearLabel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindByID() error = %v", err)
 	}
-	stored, _ := storedOpt.Get()
+	stored, _ := storedOpt.Value()
 	if got := stored.Label(); got != "sprint-1" {
 		t.Fatalf("precondition: Label() = %q, want %q", got, "sprint-1")
 	}
@@ -574,7 +574,7 @@ func TestSessionDatasource_Save_ClearLabel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindByID(after clear) error = %v", err)
 	}
-	got, _ := after.Get()
+	got, _ := after.Value()
 	if diff := cmp.Diff("", got.Label()); diff != "" {
 		t.Errorf("Label should be cleared (-want +got):\n%s", diff)
 	}

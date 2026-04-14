@@ -279,10 +279,10 @@ func (s *Server) latestSession() mcp.ToolHandlerFor[sessionLookupInput, sessionE
 		if err != nil {
 			return nil, sessionEventOutput{}, xerrors.Errorf("failed to get latest session: %w", err)
 		}
-		if !result.IsPresent() {
+		if _, ok := result.Value(); !ok {
 			return nil, sessionEventOutput{}, xerrors.Errorf("no matching session found")
 		}
-		latestEvent, _ := result.Get()
+		latestEvent, _ := result.Value()
 
 		return nil, newSessionEventOutput(latestEvent), nil
 	}
@@ -299,10 +299,10 @@ func (s *Server) activeSession() mcp.ToolHandlerFor[sessionLookupInput, sessionE
 		if err != nil {
 			return nil, sessionEventOutput{}, xerrors.Errorf("failed to get active session: %w", err)
 		}
-		if !result.IsPresent() {
+		if _, ok := result.Value(); !ok {
 			return nil, sessionEventOutput{}, xerrors.Errorf("no matching active session found")
 		}
-		activeEvent, _ := result.Get()
+		activeEvent, _ := result.Value()
 		if err := validateActiveSession(activeEvent, input); err != nil {
 			return nil, sessionEventOutput{}, err
 		}
@@ -324,7 +324,7 @@ func (s *Server) addAudit() mcp.ToolHandlerFor[addAuditInput, addAuditOutput] {
 			types.Agent(resolveValue(input.Agent, defaultAgentValue)),
 			types.SessionID(resolveValue(input.SessionID, defaultSessionValue)),
 			types.Workspace(strings.TrimSpace(input.Workspace)),
-			types.Empty[int](), // no exit code from MCP
+			types.None[int](), // no exit code from MCP
 			redaction,
 		)
 		if err != nil {
@@ -461,11 +461,11 @@ func (s *Server) sessionHandoff() mcp.ToolHandlerFor[sessionHandoffInput, sessio
 			return nil, sessionHandoffOutput{}, xerrors.Errorf("failed to get session handoff: %w", err)
 		}
 
-		if !result.IsPresent() {
+		if _, ok := result.Value(); !ok {
 			return nil, sessionHandoffOutput{}, nil
 		}
 
-		pack, _ := result.Get()
+		pack, _ := result.Value()
 		return nil, newContextPackOutput(pack), nil
 	}
 }
@@ -481,11 +481,11 @@ func (s *Server) memoryPack() mcp.ToolHandlerFor[memoryPackInput, memoryPackOutp
 		if err != nil {
 			return nil, memoryPackOutput{}, xerrors.Errorf("failed to build memory pack: %w", err)
 		}
-		if !result.IsPresent() {
+		if _, ok := result.Value(); !ok {
 			return nil, memoryPackOutput{}, nil
 		}
 
-		pack, _ := result.Get()
+		pack, _ := result.Value()
 		return nil, newContextPackOutput(pack), nil
 	}
 }
@@ -666,9 +666,9 @@ func (s *Server) expireMemory() mcp.ToolHandlerFor[expireMemoryInput, memoryOutp
 		if err != nil {
 			return nil, memoryOutput{}, xerrors.Errorf("failed to resolve expires_at: %w", err)
 		}
-		expiresAtOptional := types.Empty[time.Time]()
+		expiresAtOptional := types.None[time.Time]()
 		if !expiresAt.IsZero() {
-			expiresAtOptional = types.Of(expiresAt)
+			expiresAtOptional = types.Some(expiresAt)
 		}
 		details, err := s.memory.Expire(ctx, memoryID, expiresAtOptional)
 		if err != nil {
@@ -738,7 +738,7 @@ func convertMemorySummaries(memories []apptypes.MemorySummary) []memorySummaryOu
 func newMemoryOutput(details apptypes.MemoryDetails) memoryOutput {
 	summary := details.Summary()
 	supersedes := ""
-	if value, ok := summary.Supersedes().Get(); ok {
+	if value, ok := summary.Supersedes().Value(); ok {
 		supersedes = value.String()
 	}
 
@@ -762,7 +762,7 @@ func newMemoryOutput(details apptypes.MemoryDetails) memoryOutput {
 
 func newMemoryOutputFromSummary(summary apptypes.MemorySummary) memoryOutput {
 	supersedes := ""
-	if memoryID, ok := summary.Supersedes().Get(); ok {
+	if memoryID, ok := summary.Supersedes().Value(); ok {
 		supersedes = memoryID.String()
 	}
 
@@ -799,7 +799,7 @@ func convertArtifactRefs(refs []types.ArtifactRef) []memoryRefOutput {
 }
 
 func formatOptionalTime(value types.Optional[time.Time]) string {
-	if timeValue, ok := value.Get(); ok {
+	if timeValue, ok := value.Value(); ok {
 		return timeValue.UTC().Format(time.RFC3339Nano)
 	}
 	return ""
@@ -885,13 +885,13 @@ func parseMemoryTypes(values []string) ([]types.MemoryType, error) {
 
 func parseOptionalConfidence(value string) (types.Optional[types.Confidence], error) {
 	if strings.TrimSpace(value) == "" {
-		return types.Empty[types.Confidence](), nil
+		return types.None[types.Confidence](), nil
 	}
 	resolved, err := types.ConfidenceOf(strings.TrimSpace(value))
 	if err != nil {
-		return types.Empty[types.Confidence](), xerrors.Errorf("failed to resolve confidence: %w", err)
+		return types.None[types.Confidence](), xerrors.Errorf("failed to resolve confidence: %w", err)
 	}
-	return types.Of(resolved), nil
+	return types.Some(resolved), nil
 }
 
 func parseMemorySource(value string) (types.MemorySource, error) {
@@ -949,27 +949,27 @@ func parseMemoryWriteInput(
 ) (types.MemoryType, types.MemoryScope, types.Optional[types.Confidence], types.MemorySource, []types.EvidenceRef, []types.ArtifactRef, error) {
 	resolvedType, err := types.MemoryTypeOf(strings.TrimSpace(memoryType))
 	if err != nil {
-		return types.MemoryType(""), nil, types.Empty[types.Confidence](), types.MemorySource(""), nil, nil, xerrors.Errorf("failed to resolve memory type: %w", err)
+		return types.MemoryType(""), nil, types.None[types.Confidence](), types.MemorySource(""), nil, nil, xerrors.Errorf("failed to resolve memory type: %w", err)
 	}
 	scope, err := parseSingleMemoryScope(workspace, agent, sessionFamily)
 	if err != nil {
-		return types.MemoryType(""), nil, types.Empty[types.Confidence](), types.MemorySource(""), nil, nil, err
+		return types.MemoryType(""), nil, types.None[types.Confidence](), types.MemorySource(""), nil, nil, err
 	}
 	resolvedConfidence, err := parseOptionalConfidence(confidence)
 	if err != nil {
-		return types.MemoryType(""), nil, types.Empty[types.Confidence](), types.MemorySource(""), nil, nil, err
+		return types.MemoryType(""), nil, types.None[types.Confidence](), types.MemorySource(""), nil, nil, err
 	}
 	resolvedSource, err := parseMemorySource(source)
 	if err != nil {
-		return types.MemoryType(""), nil, types.Empty[types.Confidence](), types.MemorySource(""), nil, nil, err
+		return types.MemoryType(""), nil, types.None[types.Confidence](), types.MemorySource(""), nil, nil, err
 	}
 	resolvedEvidenceRefs, err := parseEvidenceRefs(evidenceRefs)
 	if err != nil {
-		return types.MemoryType(""), nil, types.Empty[types.Confidence](), types.MemorySource(""), nil, nil, err
+		return types.MemoryType(""), nil, types.None[types.Confidence](), types.MemorySource(""), nil, nil, err
 	}
 	resolvedArtifactRefs, err := parseArtifactRefs(artifactRefs)
 	if err != nil {
-		return types.MemoryType(""), nil, types.Empty[types.Confidence](), types.MemorySource(""), nil, nil, err
+		return types.MemoryType(""), nil, types.None[types.Confidence](), types.MemorySource(""), nil, nil, err
 	}
 	return resolvedType, scope, resolvedConfidence, resolvedSource, resolvedEvidenceRefs, resolvedArtifactRefs, nil
 }
@@ -1010,29 +1010,29 @@ func parseOptionalMemoryWriteInput(
 	if strings.TrimSpace(memoryType) != "" {
 		value, err := types.MemoryTypeOf(strings.TrimSpace(memoryType))
 		if err != nil {
-			return types.MemoryType(""), nil, types.Empty[types.Confidence](), types.MemorySource(""), nil, nil, xerrors.Errorf("failed to resolve memory type: %w", err)
+			return types.MemoryType(""), nil, types.None[types.Confidence](), types.MemorySource(""), nil, nil, xerrors.Errorf("failed to resolve memory type: %w", err)
 		}
 		resolvedType = value
 	}
 	scope, err := parseOptionalMemoryScope(workspace, agent, sessionFamily)
 	if err != nil {
-		return types.MemoryType(""), nil, types.Empty[types.Confidence](), types.MemorySource(""), nil, nil, err
+		return types.MemoryType(""), nil, types.None[types.Confidence](), types.MemorySource(""), nil, nil, err
 	}
 	resolvedConfidence, err := parseOptionalConfidence(confidence)
 	if err != nil {
-		return types.MemoryType(""), nil, types.Empty[types.Confidence](), types.MemorySource(""), nil, nil, err
+		return types.MemoryType(""), nil, types.None[types.Confidence](), types.MemorySource(""), nil, nil, err
 	}
 	resolvedSource, err := parseMemorySource(source)
 	if err != nil {
-		return types.MemoryType(""), nil, types.Empty[types.Confidence](), types.MemorySource(""), nil, nil, err
+		return types.MemoryType(""), nil, types.None[types.Confidence](), types.MemorySource(""), nil, nil, err
 	}
 	resolvedEvidenceRefs, err := parseEvidenceRefs(evidenceRefs)
 	if err != nil {
-		return types.MemoryType(""), nil, types.Empty[types.Confidence](), types.MemorySource(""), nil, nil, err
+		return types.MemoryType(""), nil, types.None[types.Confidence](), types.MemorySource(""), nil, nil, err
 	}
 	resolvedArtifactRefs, err := parseArtifactRefs(artifactRefs)
 	if err != nil {
-		return types.MemoryType(""), nil, types.Empty[types.Confidence](), types.MemorySource(""), nil, nil, err
+		return types.MemoryType(""), nil, types.None[types.Confidence](), types.MemorySource(""), nil, nil, err
 	}
 	return resolvedType, scope, resolvedConfidence, resolvedSource, resolvedEvidenceRefs, resolvedArtifactRefs, nil
 }

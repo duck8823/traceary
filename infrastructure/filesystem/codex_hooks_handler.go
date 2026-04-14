@@ -38,18 +38,18 @@ func (h *CodexHooksHandler) Build(tracearyBin string) model.Hooks {
 	eventOrder := []string{"SessionStart", "Stop", "PostToolUse"}
 	events := map[string][]model.HookEntry{
 		"SessionStart": {
-			model.HookEntryOf(types.Empty[string](), []model.HookCommand{
-				model.HookCommandOf("traceary-session-start", "command", sessionStartCommand, types.Empty[int](), "", managedKeyOf("traceary-session.sh", "codex", "start")),
+			model.HookEntryOf(types.None[string](), []model.HookCommand{
+				model.HookCommandOf("traceary-session-start", "command", sessionStartCommand, types.None[int](), "", managedKeyOf("traceary-session.sh", "codex", "start")),
 			}),
 		},
 		"Stop": {
-			model.HookEntryOf(types.Empty[string](), []model.HookCommand{
-				model.HookCommandOf("traceary-session-stop", "command", sessionStopCommand, types.Empty[int](), "", managedKeyOf("traceary-session.sh", "codex", "stop")),
+			model.HookEntryOf(types.None[string](), []model.HookCommand{
+				model.HookCommandOf("traceary-session-stop", "command", sessionStopCommand, types.None[int](), "", managedKeyOf("traceary-session.sh", "codex", "stop")),
 			}),
 		},
 		"PostToolUse": {
-			model.HookEntryOf(types.Of(""), []model.HookCommand{
-				model.HookCommandOf("traceary-audit", "command", auditCommand, types.Empty[int](), "", managedKeyOf("traceary-audit.sh", "codex")),
+			model.HookEntryOf(types.Some(""), []model.HookCommand{
+				model.HookCommandOf("traceary-audit", "command", auditCommand, types.None[int](), "", managedKeyOf("traceary-audit.sh", "codex")),
 			}),
 		},
 	}

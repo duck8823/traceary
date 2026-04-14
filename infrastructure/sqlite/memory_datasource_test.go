@@ -127,9 +127,9 @@ func mustArtifactRef(t *testing.T, kind types.ArtifactRefKind, value string) typ
 
 func mustMemoryIDFromOptional(t *testing.T, value types.Optional[types.MemoryID]) types.MemoryID {
 	t.Helper()
-	memoryID, ok := value.Get()
+	memoryID, ok := value.Value()
 	if !ok {
-		t.Fatal("Optional.Get() ok = false, want true")
+		t.Fatal("Optional.Value() ok = false, want true")
 	}
 	return memoryID
 }
@@ -213,8 +213,8 @@ func TestMemoryDatasource_SaveAndFindByID(t *testing.T) {
 		types.MemorySourceManual,
 		[]types.EvidenceRef{mustEvidenceRef(t, types.EvidenceRefKindIssue, "454")},
 		nil,
-		types.Empty[types.MemoryID](),
-		types.Empty[time.Time](),
+		types.None[types.MemoryID](),
+		types.None[time.Time](),
 		time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC),
 		time.Date(2026, 4, 12, 10, 15, 0, 0, time.UTC),
 	)
@@ -239,8 +239,8 @@ func TestMemoryDatasource_SaveAndFindByID(t *testing.T) {
 		[]types.ArtifactRef{
 			mustArtifactRef(t, types.ArtifactRefKindFile, "domain/model/memory.go"),
 		},
-		types.Of(baseMemory.MemoryID()),
-		types.Of(expiresAt),
+		types.Some(baseMemory.MemoryID()),
+		types.Some(expiresAt),
 		time.Date(2026, 4, 12, 11, 0, 0, 0, time.UTC),
 		time.Date(2026, 4, 12, 11, 30, 0, 0, time.UTC),
 	)
@@ -252,9 +252,9 @@ func TestMemoryDatasource_SaveAndFindByID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindByID() error = %v", err)
 	}
-	got, ok := gotOpt.Get()
+	got, ok := gotOpt.Value()
 	if !ok {
-		t.Fatalf("FindByID().Get() ok = false, want true")
+		t.Fatalf("FindByID().Value() ok = false, want true")
 	}
 
 	if diff := cmp.Diff(memory.MemoryID(), got.MemoryID()); diff != "" {
@@ -272,10 +272,10 @@ func TestMemoryDatasource_SaveAndFindByID(t *testing.T) {
 	if diff := cmp.Diff(artifactRefTokens(memory.ArtifactRefs()), artifactRefTokens(got.ArtifactRefs())); diff != "" {
 		t.Fatalf("ArtifactRefs mismatch (-want +got):\n%s", diff)
 	}
-	if gotSupersedes, ok := got.Supersedes().Get(); !ok || gotSupersedes != baseMemory.MemoryID() {
+	if gotSupersedes, ok := got.Supersedes().Value(); !ok || gotSupersedes != baseMemory.MemoryID() {
 		t.Fatalf("Supersedes() = (%v, %v), want (%v, true)", gotSupersedes, ok, baseMemory.MemoryID())
 	}
-	if gotExpiresAt, ok := got.ExpiresAt().Get(); !ok || !gotExpiresAt.Equal(expiresAt) {
+	if gotExpiresAt, ok := got.ExpiresAt().Value(); !ok || !gotExpiresAt.Equal(expiresAt) {
 		t.Fatalf("ExpiresAt() = (%v, %v), want (%v, true)", gotExpiresAt, ok, expiresAt)
 	}
 }
@@ -302,8 +302,8 @@ func TestMemoryDatasource_SaveSupersession(t *testing.T) {
 		types.MemorySourceManual,
 		[]types.EvidenceRef{mustEvidenceRef(t, types.EvidenceRefKindIssue, "#454")},
 		nil,
-		types.Empty[types.MemoryID](),
-		types.Empty[time.Time](),
+		types.None[types.MemoryID](),
+		types.None[time.Time](),
 		time.Date(2026, 4, 12, 9, 0, 0, 0, time.UTC),
 		time.Date(2026, 4, 12, 9, 30, 0, 0, time.UTC),
 	)
@@ -325,8 +325,8 @@ func TestMemoryDatasource_SaveSupersession(t *testing.T) {
 		types.MemorySourceManual,
 		[]types.EvidenceRef{mustEvidenceRef(t, types.EvidenceRefKindPR, "#468")},
 		[]types.ArtifactRef{mustArtifactRef(t, types.ArtifactRefKindFile, "presentation/cli/memory.go")},
-		types.Of(original.MemoryID()),
-		types.Empty[time.Time](),
+		types.Some(original.MemoryID()),
+		types.None[time.Time](),
 		time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC),
 		time.Date(2026, 4, 12, 10, 15, 0, 0, time.UTC),
 	)
@@ -338,7 +338,7 @@ func TestMemoryDatasource_SaveSupersession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindByID(original) error = %v", err)
 	}
-	gotOriginal, ok := gotOriginalOpt.Get()
+	gotOriginal, ok := gotOriginalOpt.Value()
 	if !ok {
 		t.Fatal("FindByID(original) returned empty result")
 	}
@@ -350,7 +350,7 @@ func TestMemoryDatasource_SaveSupersession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindByID(replacement) error = %v", err)
 	}
-	gotReplacement, ok := gotReplacementOpt.Get()
+	gotReplacement, ok := gotReplacementOpt.Value()
 	if !ok {
 		t.Fatal("FindByID(replacement) returned empty result")
 	}
@@ -384,8 +384,8 @@ func TestMemoryDatasource_GetDetails(t *testing.T) {
 		types.MemorySourceManual,
 		[]types.EvidenceRef{mustEvidenceRef(t, types.EvidenceRefKindIssue, "218")},
 		[]types.ArtifactRef{mustArtifactRef(t, types.ArtifactRefKindPR, "227")},
-		types.Empty[types.MemoryID](),
-		types.Empty[time.Time](),
+		types.None[types.MemoryID](),
+		types.None[time.Time](),
 		time.Date(2026, 4, 12, 9, 0, 0, 0, time.UTC),
 		time.Date(2026, 4, 12, 9, 10, 0, 0, time.UTC),
 	)
@@ -425,11 +425,11 @@ func TestMemoryDatasource_List(t *testing.T) {
 	}
 
 	fixtureMemories := []*model.Memory{
-		memoryOf(t, "mem-accepted", types.MemoryTypeDecision, mustWorkspaceScope(t, "github.com/duck8823/traceary"), "Accepted memory", types.MemoryStatusAccepted, types.ConfidenceHigh, types.MemorySourceManual, nil, nil, types.Empty[types.MemoryID](), types.Empty[time.Time](), time.Date(2026, 4, 12, 8, 0, 0, 0, time.UTC), time.Date(2026, 4, 12, 8, 30, 0, 0, time.UTC)),
-		memoryOf(t, "mem-candidate", types.MemoryTypeLesson, mustAgentScope(t, "codex"), "Candidate memory", types.MemoryStatusCandidate, types.ConfidenceLow, types.MemorySourceExtracted, nil, nil, types.Empty[types.MemoryID](), types.Empty[time.Time](), time.Date(2026, 4, 12, 9, 0, 0, 0, time.UTC), time.Date(2026, 4, 12, 9, 30, 0, 0, time.UTC)),
-		memoryOf(t, "mem-rejected", types.MemoryTypeConstraint, mustWorkspaceScope(t, "github.com/duck8823/traceary"), "Rejected memory", types.MemoryStatusRejected, types.ConfidenceMedium, types.MemorySourceManual, nil, nil, types.Empty[types.MemoryID](), types.Empty[time.Time](), time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC), time.Date(2026, 4, 12, 10, 30, 0, 0, time.UTC)),
-		memoryOf(t, "mem-superseded", types.MemoryTypeDecision, mustWorkspaceScope(t, "github.com/duck8823/traceary"), "Superseded memory", types.MemoryStatusSuperseded, types.ConfidenceHigh, types.MemorySourceManual, nil, nil, types.Empty[types.MemoryID](), types.Empty[time.Time](), time.Date(2026, 4, 12, 11, 0, 0, 0, time.UTC), time.Date(2026, 4, 12, 11, 30, 0, 0, time.UTC)),
-		memoryOf(t, "mem-expired", types.MemoryTypeArtifact, mustSessionFamilyScope(t, "session-root"), "Expired memory", types.MemoryStatusExpired, types.ConfidenceHigh, types.MemorySourceImported, nil, nil, types.Empty[types.MemoryID](), types.Of(time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC)), time.Date(2026, 4, 12, 12, 0, 0, 0, time.UTC), time.Date(2026, 4, 12, 12, 30, 0, 0, time.UTC)),
+		memoryOf(t, "mem-accepted", types.MemoryTypeDecision, mustWorkspaceScope(t, "github.com/duck8823/traceary"), "Accepted memory", types.MemoryStatusAccepted, types.ConfidenceHigh, types.MemorySourceManual, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), time.Date(2026, 4, 12, 8, 0, 0, 0, time.UTC), time.Date(2026, 4, 12, 8, 30, 0, 0, time.UTC)),
+		memoryOf(t, "mem-candidate", types.MemoryTypeLesson, mustAgentScope(t, "codex"), "Candidate memory", types.MemoryStatusCandidate, types.ConfidenceLow, types.MemorySourceExtracted, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), time.Date(2026, 4, 12, 9, 0, 0, 0, time.UTC), time.Date(2026, 4, 12, 9, 30, 0, 0, time.UTC)),
+		memoryOf(t, "mem-rejected", types.MemoryTypeConstraint, mustWorkspaceScope(t, "github.com/duck8823/traceary"), "Rejected memory", types.MemoryStatusRejected, types.ConfidenceMedium, types.MemorySourceManual, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC), time.Date(2026, 4, 12, 10, 30, 0, 0, time.UTC)),
+		memoryOf(t, "mem-superseded", types.MemoryTypeDecision, mustWorkspaceScope(t, "github.com/duck8823/traceary"), "Superseded memory", types.MemoryStatusSuperseded, types.ConfidenceHigh, types.MemorySourceManual, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), time.Date(2026, 4, 12, 11, 0, 0, 0, time.UTC), time.Date(2026, 4, 12, 11, 30, 0, 0, time.UTC)),
+		memoryOf(t, "mem-expired", types.MemoryTypeArtifact, mustSessionFamilyScope(t, "session-root"), "Expired memory", types.MemoryStatusExpired, types.ConfidenceHigh, types.MemorySourceImported, nil, nil, types.None[types.MemoryID](), types.Some(time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC)), time.Date(2026, 4, 12, 12, 0, 0, 0, time.UTC), time.Date(2026, 4, 12, 12, 30, 0, 0, time.UTC)),
 	}
 	for _, memory := range fixtureMemories {
 		if err := sut.Save(ctx, memory); err != nil {
@@ -514,8 +514,8 @@ func TestMemoryDatasource_Search(t *testing.T) {
 			types.MemorySourceManual,
 			[]types.EvidenceRef{mustEvidenceRef(t, types.EvidenceRefKindIssue, "454")},
 			nil,
-			types.Empty[types.MemoryID](),
-			types.Empty[time.Time](),
+			types.None[types.MemoryID](),
+			types.None[time.Time](),
 			time.Date(2026, 4, 12, 7, 0, 0, 0, time.UTC),
 			time.Date(2026, 4, 12, 7, 10, 0, 0, time.UTC),
 		),
@@ -530,8 +530,8 @@ func TestMemoryDatasource_Search(t *testing.T) {
 			types.MemorySourceManual,
 			nil,
 			[]types.ArtifactRef{mustArtifactRef(t, types.ArtifactRefKindPR, "458")},
-			types.Empty[types.MemoryID](),
-			types.Empty[time.Time](),
+			types.None[types.MemoryID](),
+			types.None[time.Time](),
 			time.Date(2026, 4, 12, 8, 0, 0, 0, time.UTC),
 			time.Date(2026, 4, 12, 8, 10, 0, 0, time.UTC),
 		),
@@ -546,8 +546,8 @@ func TestMemoryDatasource_Search(t *testing.T) {
 			types.MemorySourceImported,
 			nil,
 			nil,
-			types.Empty[types.MemoryID](),
-			types.Empty[time.Time](),
+			types.None[types.MemoryID](),
+			types.None[time.Time](),
 			time.Date(2026, 4, 12, 9, 0, 0, 0, time.UTC),
 			time.Date(2026, 4, 12, 9, 10, 0, 0, time.UTC),
 		),

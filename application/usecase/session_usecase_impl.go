@@ -56,7 +56,7 @@ func (u *sessionUsecase) Start(ctx context.Context, client types.Client, agent t
 		if err != nil {
 			return nil, xerrors.Errorf("failed to check existing session: %w", err)
 		}
-		if existing.IsPresent() {
+		if _, ok := existing.Value(); ok {
 			return nil, xerrors.Errorf("cannot start session %s: %w", resolvedSessionID, model.ErrInvalidSessionState)
 		}
 	}
@@ -88,7 +88,7 @@ func (u *sessionUsecase) End(ctx context.Context, client types.Client, agent typ
 	if err != nil {
 		return nil, xerrors.Errorf("failed to find session for end: %w", err)
 	}
-	existingSession, ok := existing.Get()
+	existingSession, ok := existing.Value()
 	if !ok {
 		return nil, xerrors.Errorf("cannot end session %s: %w", resolvedSessionID, model.ErrInvalidSessionState)
 	}
@@ -128,11 +128,11 @@ func (u *sessionUsecase) Label(ctx context.Context, sessionID types.SessionID, l
 	if err != nil {
 		return xerrors.Errorf("failed to find session: %w", err)
 	}
-	if !result.IsPresent() {
+	if _, ok := result.Value(); !ok {
 		return xerrors.Errorf("session not found: %s", resolvedSessionID)
 	}
 
-	session, _ := result.Get()
+	session, _ := result.Value()
 	session.SetLabel(label)
 
 	if err := u.sessionRepo.Save(ctx, session); err != nil {
@@ -162,7 +162,7 @@ func (u *sessionUsecase) Tree(ctx context.Context, workspace types.Workspace, li
 		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
 	}
 
-	summaries, err := u.sessionQuery.ListSummaries(ctx, limit, 0, types.SessionID(""), workspace, types.Client(""), types.Agent(""), "", types.Empty[time.Time](), types.Empty[time.Time]())
+	summaries, err := u.sessionQuery.ListSummaries(ctx, limit, 0, types.SessionID(""), workspace, types.Client(""), types.Agent(""), "", types.None[time.Time](), types.None[time.Time]())
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list sessions for tree: %w", err)
 	}
@@ -172,7 +172,7 @@ func (u *sessionUsecase) Tree(ctx context.Context, workspace types.Workspace, li
 func (u *sessionUsecase) Active(ctx context.Context, criteria apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error) {
 	result, err := u.sessionQuery.FindLatest(ctx, criteria.Client(), criteria.Agent(), criteria.Workspace(), true)
 	if err != nil {
-		return types.Empty[*model.Event](), xerrors.Errorf("failed to find active session: %w", err)
+		return types.None[*model.Event](), xerrors.Errorf("failed to find active session: %w", err)
 	}
 	return result, nil
 }
@@ -180,7 +180,7 @@ func (u *sessionUsecase) Active(ctx context.Context, criteria apptypes.SessionLo
 func (u *sessionUsecase) Latest(ctx context.Context, criteria apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error) {
 	result, err := u.sessionQuery.FindLatest(ctx, criteria.Client(), criteria.Agent(), criteria.Workspace(), false)
 	if err != nil {
-		return types.Empty[*model.Event](), xerrors.Errorf("failed to find latest session: %w", err)
+		return types.None[*model.Event](), xerrors.Errorf("failed to find latest session: %w", err)
 	}
 	return result, nil
 }
@@ -188,7 +188,7 @@ func (u *sessionUsecase) Latest(ctx context.Context, criteria apptypes.SessionLo
 func (u *sessionUsecase) Handoff(ctx context.Context, sessionID types.SessionID, workspace types.Workspace, recent int) (types.Optional[apptypes.HandoffSummary], error) {
 	builder, err := newContextPackBuilder(u.sessionQuery, u.eventQuery, nil)
 	if err != nil {
-		return types.Empty[apptypes.HandoffSummary](), xerrors.Errorf("failed to initialize handoff context builder: %w", err)
+		return types.None[apptypes.HandoffSummary](), xerrors.Errorf("failed to initialize handoff context builder: %w", err)
 	}
 
 	result, err := builder.Build(ctx, apptypes.NewContextPackCriteriaBuilder().
@@ -198,14 +198,14 @@ func (u *sessionUsecase) Handoff(ctx context.Context, sessionID types.SessionID,
 		MemoryLimit(0).
 		Build())
 	if err != nil {
-		return types.Empty[apptypes.HandoffSummary](), xerrors.Errorf("failed to build handoff context pack: %w", err)
+		return types.None[apptypes.HandoffSummary](), xerrors.Errorf("failed to build handoff context pack: %w", err)
 	}
-	if !result.IsPresent() {
-		return types.Empty[apptypes.HandoffSummary](), nil
+	if _, ok := result.Value(); !ok {
+		return types.None[apptypes.HandoffSummary](), nil
 	}
 
-	pack, _ := result.Get()
-	return types.Of(apptypes.HandoffSummaryFromContextPack(pack)), nil
+	pack, _ := result.Value()
+	return types.Some(apptypes.HandoffSummaryFromContextPack(pack)), nil
 }
 
 // resolveSessionStartID returns the session ID for a session start, generating
@@ -276,7 +276,7 @@ func buildSessionFromBoundary(event *model.Event, parentSessionID types.SessionI
 	return model.SessionOf(
 		event.SessionID(),
 		event.CreatedAt(),
-		types.Empty[time.Time](),
+		types.None[time.Time](),
 		event.Client(),
 		event.Agent(),
 		event.Workspace(),

@@ -158,7 +158,7 @@ func resolveInstallOutputPath(
 	projectDir string,
 	outputPath types.Optional[string],
 ) (string, error) {
-	if value, ok := outputPath.Get(); ok {
+	if value, ok := outputPath.Value(); ok {
 		trimmedValue := strings.TrimSpace(value)
 		if trimmedValue != "" {
 			resolvedPath, err := filepath.Abs(trimmedValue)
