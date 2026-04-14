@@ -30,7 +30,7 @@ func TestHooksOrchestrator_GenerateReturnsClientSpecificJSON(t *testing.T) {
 
 	orchestrator := newTestOrchestrator(t.TempDir())
 
-	encoded, err := orchestrator.Generate(context.Background(), "claude", "/scripts", "traceary")
+	encoded, err := orchestrator.Generate(context.Background(), "claude", "traceary")
 	if err != nil {
 		t.Fatalf("Generate() error = %v", err)
 	}
@@ -54,7 +54,7 @@ func TestHooksOrchestrator_GenerateHandlesAliases(t *testing.T) {
 		t.Run(alias, func(t *testing.T) {
 			t.Parallel()
 
-			if _, err := orchestrator.Generate(context.Background(), alias, "/scripts", "traceary"); err != nil {
+			if _, err := orchestrator.Generate(context.Background(), alias, "traceary"); err != nil {
 				t.Fatalf("Generate(%q) error = %v", alias, err)
 			}
 		})
@@ -66,7 +66,7 @@ func TestHooksOrchestrator_GenerateRejectsUnknownClient(t *testing.T) {
 
 	orchestrator := newTestOrchestrator(t.TempDir())
 
-	_, err := orchestrator.Generate(context.Background(), "unknown", "/scripts", "traceary")
+	_, err := orchestrator.Generate(context.Background(), "unknown", "traceary")
 	if err == nil {
 		t.Fatalf("Generate() error = nil, want error")
 	}
@@ -84,9 +84,7 @@ func TestHooksOrchestrator_InstallWritesToStandardPath(t *testing.T) {
 
 	resolved, err := orchestrator.Install(
 		context.Background(),
-		"claude",
-		"/scripts",
-		"traceary",
+		"claude", "traceary",
 		projectDir,
 		types.Empty[string](),
 		false,
@@ -146,9 +144,7 @@ func TestHooksOrchestrator_InstallMergesExistingFile(t *testing.T) {
 
 	if _, err := orchestrator.Install(
 		context.Background(),
-		"gemini",
-		"/new/scripts",
-		"traceary",
+		"gemini", "traceary",
 		projectDir,
 		types.Empty[string](),
 		false,
@@ -191,9 +187,7 @@ func TestHooksOrchestrator_InstallForceOverwrites(t *testing.T) {
 
 	if _, err := orchestrator.Install(
 		context.Background(),
-		"gemini",
-		"/scripts",
-		"traceary",
+		"gemini", "traceary",
 		projectDir,
 		types.Empty[string](),
 		true,
@@ -219,9 +213,7 @@ func TestHooksOrchestrator_InstallUsesCodexHomeDir(t *testing.T) {
 
 	resolved, err := orchestrator.Install(
 		context.Background(),
-		"codex",
-		"/scripts",
-		"traceary",
+		"codex", "traceary",
 		projectDir,
 		types.Empty[string](),
 		false,
@@ -287,4 +279,3 @@ func TestHooksOrchestrator_ResolveInstallPathHonorsOverride(t *testing.T) {
 		t.Fatalf("ResolveInstallPath() = %q, want %q", resolved, override)
 	}
 }
-

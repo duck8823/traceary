@@ -45,7 +45,6 @@ func NewHooksOrchestrator(handlers map[string]application.HooksClientHandler) *H
 func (o *HooksOrchestrator) Generate(
 	_ context.Context,
 	client string,
-	scriptsDir string,
 	tracearyBin string,
 ) ([]byte, error) {
 	handler, err := o.resolveHandler(client)
@@ -53,14 +52,13 @@ func (o *HooksOrchestrator) Generate(
 		return nil, err
 	}
 
-	return marshalHooks(handler.Build(scriptsDir, tracearyBin))
+	return marshalHooks(handler.Build(tracearyBin))
 }
 
 // Install writes the hook configuration file for the given client.
 func (o *HooksOrchestrator) Install(
 	_ context.Context,
 	client string,
-	scriptsDir string,
 	tracearyBin string,
 	projectDir string,
 	outputPath types.Optional[string],
@@ -76,7 +74,7 @@ func (o *HooksOrchestrator) Install(
 		return "", err
 	}
 
-	hooks := handler.Build(scriptsDir, tracearyBin)
+	hooks := handler.Build(tracearyBin)
 	encoded, err := renderInstallContent(resolvedOutputPath, hooks, force)
 	if err != nil {
 		return "", err

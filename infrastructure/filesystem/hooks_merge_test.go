@@ -36,7 +36,7 @@ func TestMergeHooksDocument_ReplacesTracearyManagedHooks(t *testing.T) {
   }
 }`)
 
-	desired := (&GeminiHooksHandler{}).Build("", "traceary")
+	desired := (&GeminiHooksHandler{}).Build("traceary")
 
 	merged, err := mergeHooksDocument(existing, desired)
 	if err != nil {
@@ -79,7 +79,7 @@ func TestMergeHooksDocument_RemovesSessionStartCompactVariant(t *testing.T) {
   }
 }`)
 
-	desired := (&ClaudeHooksHandler{}).Build("", "traceary")
+	desired := (&ClaudeHooksHandler{}).Build("traceary")
 
 	merged, err := mergeHooksDocument(existing, desired)
 	if err != nil {
@@ -125,7 +125,7 @@ func TestMergeHooksDocument_EmptyExistingReturnsMarshaled(t *testing.T) {
 func TestMergeHooksDocument_InvalidExistingFails(t *testing.T) {
 	t.Parallel()
 
-	_, err := mergeHooksDocument([]byte("{invalid"), (&ClaudeHooksHandler{}).Build("", "traceary"))
+	_, err := mergeHooksDocument([]byte("{invalid"), (&ClaudeHooksHandler{}).Build("traceary"))
 	if err == nil {
 		t.Fatalf("mergeHooksDocument() error = nil, want error")
 	}

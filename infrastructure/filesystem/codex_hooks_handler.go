@@ -30,11 +30,7 @@ func NewCodexHooksHandlerWithHomeDirFunc(userHomeDir func() (string, error)) *Co
 func (h *CodexHooksHandler) Name() string { return "codex" }
 
 // Build returns the Hooks aggregate Traceary installs for Codex CLI.
-// scriptsDir is retained for compatibility with the shared handler
-// interface; Codex now calls the Go hook runtime entrypoints directly.
-func (h *CodexHooksHandler) Build(scriptsDir string, tracearyBin string) model.Hooks {
-	_ = scriptsDir
-
+func (h *CodexHooksHandler) Build(tracearyBin string) model.Hooks {
 	sessionStartCommand := newHookRuntimeCommand(tracearyBin, "hook", "session", "codex", "start")
 	sessionStopCommand := newHookRuntimeCommand(tracearyBin, "hook", "session", "codex", "stop")
 	auditCommand := newHookRuntimeCommand(tracearyBin, "hook", "audit", "codex")

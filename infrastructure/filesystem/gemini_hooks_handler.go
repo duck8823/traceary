@@ -21,11 +21,7 @@ func NewGeminiHooksHandler() *GeminiHooksHandler {
 func (h *GeminiHooksHandler) Name() string { return "gemini" }
 
 // Build returns the Hooks aggregate Traceary installs for Gemini CLI.
-// scriptsDir is retained for compatibility with the shared handler
-// interface; Gemini now calls the Go hook runtime entrypoints directly.
-func (h *GeminiHooksHandler) Build(scriptsDir string, tracearyBin string) model.Hooks {
-	_ = scriptsDir
-
+func (h *GeminiHooksHandler) Build(tracearyBin string) model.Hooks {
 	timeout := types.Of(geminiHooksDefaultTimeoutMillis)
 	sessionStartCommand := newHookRuntimeCommand(tracearyBin, "hook", "session", "gemini", "start")
 	sessionEndCommand := newHookRuntimeCommand(tracearyBin, "hook", "session", "gemini", "end")

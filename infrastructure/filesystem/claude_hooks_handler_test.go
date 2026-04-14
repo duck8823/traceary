@@ -15,7 +15,7 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 	tracearyBin := "traceary"
 
 	handler := filesystem.NewClaudeHooksHandler()
-	hooks := handler.Build("", tracearyBin)
+	hooks := handler.Build(tracearyBin)
 
 	wantEventOrder := []string{
 		"SessionStart",

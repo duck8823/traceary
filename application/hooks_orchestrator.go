@@ -11,9 +11,9 @@ import (
 // alias, builds the Hooks aggregate, and renders or writes it to disk.
 type HooksOrchestrator interface {
 	// Generate returns the rendered hook configuration bytes for the given
-	// client. scriptsDir is the resolved hook scripts directory and
-	// tracearyBin is the command or path used to launch the traceary binary.
-	Generate(ctx context.Context, client string, scriptsDir string, tracearyBin string) ([]byte, error)
+	// client. tracearyBin is the command or path used to launch the traceary
+	// binary.
+	Generate(ctx context.Context, client string, tracearyBin string) ([]byte, error)
 
 	// Install writes the hook configuration file for the given client.
 	// outputPath overrides the default install path when present. force
@@ -22,7 +22,6 @@ type HooksOrchestrator interface {
 	Install(
 		ctx context.Context,
 		client string,
-		scriptsDir string,
 		tracearyBin string,
 		projectDir string,
 		outputPath types.Optional[string],

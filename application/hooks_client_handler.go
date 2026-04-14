@@ -12,9 +12,8 @@ type HooksClientHandler interface {
 	Name() string
 
 	// Build returns the Hooks aggregate Traceary installs for this client.
-	// scriptsDir is the resolved scripts directory and tracearyBin is the
-	// command or path used to launch the traceary binary.
-	Build(scriptsDir string, tracearyBin string) model.Hooks
+	// tracearyBin is the command or path used to launch the traceary binary.
+	Build(tracearyBin string) model.Hooks
 
 	// DefaultInstallPath returns the standard configuration file path
 	// for this client relative to the given project directory.

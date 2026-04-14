@@ -19,11 +19,7 @@ func NewClaudeHooksHandler() *ClaudeHooksHandler {
 func (h *ClaudeHooksHandler) Name() string { return "claude" }
 
 // Build returns the Hooks aggregate Traceary installs for Claude Code.
-// scriptsDir is retained for compatibility with the shared handler
-// interface; Claude now calls the Go hook runtime entrypoints directly.
-func (h *ClaudeHooksHandler) Build(scriptsDir string, tracearyBin string) model.Hooks {
-	_ = scriptsDir
-
+func (h *ClaudeHooksHandler) Build(tracearyBin string) model.Hooks {
 	sessionStartCommand := newHookRuntimeCommand(tracearyBin, "hook", "session", "claude", "start")
 	sessionEndCommand := newHookRuntimeCommand(tracearyBin, "hook", "session", "claude", "end")
 	auditCommand := newHookRuntimeCommand(tracearyBin, "hook", "audit", "claude")

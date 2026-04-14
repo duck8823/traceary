@@ -12,7 +12,7 @@ func TestGeminiHooksHandler_Build(t *testing.T) {
 	t.Parallel()
 
 	handler := filesystem.NewGeminiHooksHandler()
-	hooks := handler.Build("", "traceary")
+	hooks := handler.Build("traceary")
 
 	wantEventOrder := []string{"SessionStart", "SessionEnd", "AfterTool"}
 	if diff := cmp.Diff(wantEventOrder, hooks.EventOrder()); diff != "" {

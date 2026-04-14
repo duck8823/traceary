@@ -12,7 +12,7 @@ func TestCodexHooksHandler_Build(t *testing.T) {
 	t.Parallel()
 
 	handler := filesystem.NewCodexHooksHandler()
-	hooks := handler.Build("", "traceary")
+	hooks := handler.Build("traceary")
 
 	wantEventOrder := []string{"SessionStart", "Stop", "PostToolUse"}
 	if diff := cmp.Diff(wantEventOrder, hooks.EventOrder()); diff != "" {
