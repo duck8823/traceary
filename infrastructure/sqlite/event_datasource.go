@@ -140,7 +140,7 @@ func (d *EventDatasource) SaveWithAudit(
 	}
 
 	var exitCodeSQL *int
-	if exitCode, ok := audit.ExitCode().Get(); ok {
+	if exitCode, ok := audit.ExitCode().Value(); ok {
 		exitCodeSQL = &exitCode
 	}
 	if _, err := tx.ExecContext(
@@ -525,11 +525,11 @@ func (d *EventDatasource) GetDetails(
 		return apptypes.EventDetails{}, xerrors.Errorf("failed to restore event details row: %w", err)
 	}
 
-	commandAuditOpt := types.Empty[*model.CommandAudit]()
+	commandAuditOpt := types.None[*model.CommandAudit]()
 	if commandTextValue.Valid {
-		exitCode := types.Empty[int]()
+		exitCode := types.None[int]()
 		if exitCodeValue.Valid {
-			exitCode = types.Of(int(exitCodeValue.Int64))
+			exitCode = types.Some(int(exitCodeValue.Int64))
 		}
 		commandAudit := model.CommandAuditOf(
 			eventID,
@@ -540,7 +540,7 @@ func (d *EventDatasource) GetDetails(
 			outputTruncatedValue.Bool,
 			exitCode,
 		)
-		commandAuditOpt = types.Of(commandAudit)
+		commandAuditOpt = types.Some(commandAudit)
 	}
 
 	eventDetails, err := apptypes.EventDetailsOf(event, commandAuditOpt)

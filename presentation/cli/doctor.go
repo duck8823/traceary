@@ -146,7 +146,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 	})
 
 	for _, targetClient := range resolvedClients {
-		outputPath, pathErr := c.hooksOrchestrator.ResolveInstallPath(targetClient, resolvedProjectDir, types.Empty[string]())
+		outputPath, pathErr := c.hooksOrchestrator.ResolveInstallPath(targetClient, resolvedProjectDir, types.None[string]())
 		if pathErr != nil {
 			report.Checks = append(report.Checks, doctorCheck{
 				Name:    targetClient + "-config",

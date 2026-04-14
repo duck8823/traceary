@@ -86,7 +86,7 @@ func TestHooksOrchestrator_InstallWritesToStandardPath(t *testing.T) {
 		context.Background(),
 		"claude", "traceary",
 		projectDir,
-		types.Empty[string](),
+		types.None[string](),
 		false,
 	)
 	if err != nil {
@@ -146,7 +146,7 @@ func TestHooksOrchestrator_InstallMergesExistingFile(t *testing.T) {
 		context.Background(),
 		"gemini", "traceary",
 		projectDir,
-		types.Empty[string](),
+		types.None[string](),
 		false,
 	); err != nil {
 		t.Fatalf("Install() error = %v", err)
@@ -189,7 +189,7 @@ func TestHooksOrchestrator_InstallForceOverwrites(t *testing.T) {
 		context.Background(),
 		"gemini", "traceary",
 		projectDir,
-		types.Empty[string](),
+		types.None[string](),
 		true,
 	); err != nil {
 		t.Fatalf("Install() error = %v", err)
@@ -215,7 +215,7 @@ func TestHooksOrchestrator_InstallUsesCodexHomeDir(t *testing.T) {
 		context.Background(),
 		"codex", "traceary",
 		projectDir,
-		types.Empty[string](),
+		types.None[string](),
 		false,
 	)
 	if err != nil {
@@ -271,7 +271,7 @@ func TestHooksOrchestrator_ResolveInstallPathHonorsOverride(t *testing.T) {
 	orchestrator := newTestOrchestrator(t.TempDir())
 
 	override := filepath.Join(t.TempDir(), "custom", "settings.json")
-	resolved, err := orchestrator.ResolveInstallPath("claude", "/project", types.Of(override))
+	resolved, err := orchestrator.ResolveInstallPath("claude", "/project", types.Some(override))
 	if err != nil {
 		t.Fatalf("ResolveInstallPath() error = %v", err)
 	}

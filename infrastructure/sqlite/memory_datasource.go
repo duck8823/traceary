@@ -143,12 +143,12 @@ func (d *MemoryDatasource) runMemoryWriteTx(ctx context.Context, fn func(tx *sql
 
 func persistMemoryTx(ctx context.Context, tx *sql.Tx, memory *model.Memory) error {
 	var supersedesValue *string
-	if supersedes, ok := memory.Supersedes().Get(); ok {
+	if supersedes, ok := memory.Supersedes().Value(); ok {
 		value := supersedes.String()
 		supersedesValue = &value
 	}
 	var expiresAtValue *string
-	if expiresAt, ok := memory.ExpiresAt().Get(); ok {
+	if expiresAt, ok := memory.ExpiresAt().Value(); ok {
 		formatted := formatTimestamp(expiresAt)
 		expiresAtValue = &formatted
 	}
@@ -212,7 +212,7 @@ func persistMemoryTx(ctx context.Context, tx *sql.Tx, memory *model.Memory) erro
 func (d *MemoryDatasource) FindByID(ctx context.Context, memoryID types.MemoryID) (types.Optional[*model.Memory], error) {
 	db, err := d.db.open(ctx)
 	if err != nil {
-		return types.Empty[*model.Memory](), xerrors.Errorf("failed to open DB for memory lookup: %w", err)
+		return types.None[*model.Memory](), xerrors.Errorf("failed to open DB for memory lookup: %w", err)
 	}
 	defer func() {
 		if err := db.Close(); err != nil {
@@ -223,12 +223,12 @@ func (d *MemoryDatasource) FindByID(ctx context.Context, memoryID types.MemoryID
 	memory, err := findMemoryByID(ctx, db, memoryID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return types.Empty[*model.Memory](), nil
+			return types.None[*model.Memory](), nil
 		}
-		return types.Empty[*model.Memory](), xerrors.Errorf("failed to restore memory: %w", err)
+		return types.None[*model.Memory](), xerrors.Errorf("failed to restore memory: %w", err)
 	}
 
-	return types.Of(memory), nil
+	return types.Some(memory), nil
 }
 
 // GetDetails returns the details for a single memory.
@@ -430,21 +430,21 @@ func restoreMemorySummary(row memoryRow) (apptypes.MemorySummary, error) {
 	if err != nil {
 		return apptypes.MemorySummary{}, xerrors.Errorf("failed to restore memory source: %w", err)
 	}
-	supersedes := types.Empty[types.MemoryID]()
+	supersedes := types.None[types.MemoryID]()
 	if row.supersedes.Valid {
 		memoryIDValue, err := types.MemoryIDOf(row.supersedes.String)
 		if err != nil {
 			return apptypes.MemorySummary{}, xerrors.Errorf("failed to restore superseded memory ID: %w", err)
 		}
-		supersedes = types.Of(memoryIDValue)
+		supersedes = types.Some(memoryIDValue)
 	}
-	expiresAt := types.Empty[time.Time]()
+	expiresAt := types.None[time.Time]()
 	if row.expiresAt.Valid {
 		expiresAtValue, err := time.Parse(time.RFC3339Nano, row.expiresAt.String)
 		if err != nil {
 			return apptypes.MemorySummary{}, xerrors.Errorf("failed to parse memory expires_at: %w", err)
 		}
-		expiresAt = types.Of(expiresAtValue)
+		expiresAt = types.Some(expiresAtValue)
 	}
 	createdAt, err := time.Parse(time.RFC3339Nano, row.createdAt)
 	if err != nil {

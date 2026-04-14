@@ -51,16 +51,16 @@ func (s *memoryRepositoryStub) SaveSupersession(_ context.Context, superseded *m
 
 func (s *memoryRepositoryStub) FindByID(_ context.Context, memoryID domtypes.MemoryID) (domtypes.Optional[*model.Memory], error) {
 	if s.findErr != nil {
-		return domtypes.Empty[*model.Memory](), s.findErr
+		return domtypes.None[*model.Memory](), s.findErr
 	}
 	if s.byID == nil {
-		return domtypes.Empty[*model.Memory](), nil
+		return domtypes.None[*model.Memory](), nil
 	}
 	memory, ok := s.byID[memoryID.String()]
 	if !ok {
-		return domtypes.Empty[*model.Memory](), nil
+		return domtypes.None[*model.Memory](), nil
 	}
-	return domtypes.Of(memory), nil
+	return domtypes.Some(memory), nil
 }
 
 type memoryQueryStub struct {
@@ -99,7 +99,7 @@ func TestMemoryUsecase_Remember(t *testing.T) {
 		domtypes.MemoryTypeDecision,
 		scope,
 		`keep {"api_key":"super-secret"} out of releases`,
-		domtypes.Empty[domtypes.Confidence](),
+		domtypes.None[domtypes.Confidence](),
 		domtypes.MemorySource(""),
 		[]domtypes.EvidenceRef{evidenceRef},
 		[]domtypes.ArtifactRef{artifactRef},
@@ -178,7 +178,7 @@ func TestMemoryUsecase_AcceptRequiresEvidence(t *testing.T) {
 		domtypes.MemorySourceManual,
 		nil,
 		nil,
-		domtypes.Empty[domtypes.MemoryID](),
+		domtypes.None[domtypes.MemoryID](),
 	)
 	if err != nil {
 		t.Fatalf("NewMemoryCandidate() error = %v", err)
@@ -187,7 +187,7 @@ func TestMemoryUsecase_AcceptRequiresEvidence(t *testing.T) {
 	repo := &memoryRepositoryStub{byID: map[string]*model.Memory{memoryID.String(): candidate}}
 	sut := usecase.NewMemoryUsecase(repo, nil, nil)
 
-	if _, err := sut.Accept(context.Background(), memoryID, domtypes.Empty[domtypes.Confidence]()); err == nil {
+	if _, err := sut.Accept(context.Background(), memoryID, domtypes.None[domtypes.Confidence]()); err == nil {
 		t.Fatal("Accept() error = nil, want error")
 	}
 }
@@ -204,7 +204,7 @@ func TestMemoryUsecase_Accept(t *testing.T) {
 		domtypes.MemorySourceManual,
 		[]domtypes.EvidenceRef{mustEvidenceRef(t, domtypes.EvidenceRefKindIssue, "#462")},
 		nil,
-		domtypes.Empty[domtypes.MemoryID](),
+		domtypes.None[domtypes.MemoryID](),
 	)
 	if err != nil {
 		t.Fatalf("NewMemoryCandidate() error = %v", err)
@@ -213,7 +213,7 @@ func TestMemoryUsecase_Accept(t *testing.T) {
 	repo := &memoryRepositoryStub{byID: map[string]*model.Memory{memoryID.String(): candidate}}
 	sut := usecase.NewMemoryUsecase(repo, nil, nil)
 
-	details, err := sut.Accept(context.Background(), memoryID, domtypes.Of(domtypes.ConfidenceHigh))
+	details, err := sut.Accept(context.Background(), memoryID, domtypes.Some(domtypes.ConfidenceHigh))
 	if err != nil {
 		t.Fatalf("Accept() error = %v", err)
 	}
@@ -243,7 +243,7 @@ func TestMemoryUsecase_Supersede(t *testing.T) {
 		domtypes.MemorySourceManual,
 		[]domtypes.EvidenceRef{mustEvidenceRef(t, domtypes.EvidenceRefKindIssue, "#453")},
 		nil,
-		domtypes.Empty[domtypes.MemoryID](),
+		domtypes.None[domtypes.MemoryID](),
 	)
 	if err != nil {
 		t.Fatalf("NewAcceptedMemory() error = %v", err)
@@ -258,7 +258,7 @@ func TestMemoryUsecase_Supersede(t *testing.T) {
 		domtypes.MemoryType(""),
 		nil,
 		"new fact",
-		domtypes.Empty[domtypes.Confidence](),
+		domtypes.None[domtypes.Confidence](),
 		domtypes.MemorySource(""),
 		[]domtypes.EvidenceRef{mustEvidenceRef(t, domtypes.EvidenceRefKindPR, "#467")},
 		nil,
@@ -293,7 +293,7 @@ func TestMemoryUsecase_Expire(t *testing.T) {
 		domtypes.MemorySourceManual,
 		[]domtypes.EvidenceRef{mustEvidenceRef(t, domtypes.EvidenceRefKindIssue, "#462")},
 		nil,
-		domtypes.Empty[domtypes.MemoryID](),
+		domtypes.None[domtypes.MemoryID](),
 	)
 	if err != nil {
 		t.Fatalf("NewAcceptedMemory() error = %v", err)
@@ -303,14 +303,14 @@ func TestMemoryUsecase_Expire(t *testing.T) {
 	repo := &memoryRepositoryStub{byID: map[string]*model.Memory{memoryID.String(): memory}}
 	sut := usecase.NewMemoryUsecase(repo, nil, nil)
 
-	details, err := sut.Expire(context.Background(), memoryID, domtypes.Of(when))
+	details, err := sut.Expire(context.Background(), memoryID, domtypes.Some(when))
 	if err != nil {
 		t.Fatalf("Expire() error = %v", err)
 	}
 	if diff := cmp.Diff(domtypes.MemoryStatusExpired, repo.byID[memoryID.String()].Status()); diff != "" {
 		t.Fatalf("Status() mismatch (-want +got):\n%s", diff)
 	}
-	expiresAt, ok := details.Summary().ExpiresAt().Get()
+	expiresAt, ok := details.Summary().ExpiresAt().Value()
 	if !ok {
 		t.Fatal("ExpiresAt() missing, want value")
 	}
@@ -380,7 +380,7 @@ func mustAcceptedMemory(t *testing.T, memoryIDValue string, fact string) *model.
 		domtypes.MemorySourceManual,
 		[]domtypes.EvidenceRef{mustEvidenceRef(t, domtypes.EvidenceRefKindIssue, "#454")},
 		[]domtypes.ArtifactRef{mustArtifactRef(t, domtypes.ArtifactRefKindPR, "#467")},
-		domtypes.Empty[domtypes.MemoryID](),
+		domtypes.None[domtypes.MemoryID](),
 	)
 	if err != nil {
 		t.Fatalf("NewAcceptedMemory() error = %v", err)
@@ -391,9 +391,9 @@ func mustAcceptedMemory(t *testing.T, memoryIDValue string, fact string) *model.
 func mustMemoryIDString(t *testing.T, value domtypes.Optional[domtypes.MemoryID]) string {
 	t.Helper()
 
-	memoryID, ok := value.Get()
+	memoryID, ok := value.Value()
 	if !ok {
-		t.Fatal("Optional.Get() = empty, want value")
+		t.Fatal("Optional.Value() = empty, want value")
 	}
 	return memoryID.String()
 }

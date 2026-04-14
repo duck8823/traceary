@@ -71,10 +71,10 @@ CREATE TABLE command_audits (
 		if diff := cmp.Diff("event-audit", got.Event().EventID().String()); diff != "" {
 			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 		}
-		if !got.CommandAudit().IsPresent() {
+		if _, ok := got.CommandAudit().Value(); !ok {
 			t.Fatalf("CommandAudit() is empty, want command audit")
 		}
-		audit, _ := got.CommandAudit().Get()
+		audit, _ := got.CommandAudit().Value()
 		if diff := cmp.Diff("stdout with details", audit.Output()); diff != "" {
 			t.Fatalf("Output() mismatch (-want +got):\n%s", diff)
 		}

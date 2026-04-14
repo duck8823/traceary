@@ -27,8 +27,8 @@ func TestMemorySummaryOf(t *testing.T) {
 		domtypes.MemoryStatusAccepted,
 		domtypes.ConfidenceVerified,
 		domtypes.MemorySourceManual,
-		domtypes.Of(supersedes),
-		domtypes.Of(expiresAt),
+		domtypes.Some(supersedes),
+		domtypes.Some(expiresAt),
 		createdAt,
 		updatedAt,
 	)
@@ -38,7 +38,7 @@ func TestMemorySummaryOf(t *testing.T) {
 	if got := summary.Fact(); got != "Release issues close only after tagged release" {
 		t.Fatalf("Fact() = %q", got)
 	}
-	if got, ok := summary.ExpiresAt().Get(); !ok || !got.Equal(expiresAt) {
+	if got, ok := summary.ExpiresAt().Value(); !ok || !got.Equal(expiresAt) {
 		t.Fatalf("ExpiresAt() = (%v, %v), want (%v, true)", got, ok, expiresAt)
 	}
 }
@@ -58,8 +58,8 @@ func TestMemorySummaryFrom(t *testing.T) {
 		domtypes.MemorySourceExtracted,
 		nil,
 		nil,
-		domtypes.Empty[domtypes.MemoryID](),
-		domtypes.Empty[time.Time](),
+		domtypes.None[domtypes.MemoryID](),
+		domtypes.None[time.Time](),
 		time.Date(2026, 4, 12, 9, 0, 0, 0, time.UTC),
 		time.Date(2026, 4, 12, 9, 30, 0, 0, time.UTC),
 	)

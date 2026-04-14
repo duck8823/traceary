@@ -187,7 +187,7 @@ func newGCEventFixture(
 func countEvents(t *testing.T, dbPath string) int {
 	t.Helper()
 
-	db, err := sql.Open("sqlite", "file:" + dbPath)
+	db, err := sql.Open("sqlite", "file:"+dbPath)
 	if err != nil {
 		t.Fatalf("sql.Open() error = %v", err)
 	}
@@ -204,7 +204,7 @@ func countEvents(t *testing.T, dbPath string) int {
 func countCommandAudits(t *testing.T, dbPath string) int {
 	t.Helper()
 
-	db, err := sql.Open("sqlite", "file:" + dbPath)
+	db, err := sql.Open("sqlite", "file:"+dbPath)
 	if err != nil {
 		t.Fatalf("sql.Open() error = %v", err)
 	}

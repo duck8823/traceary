@@ -17,7 +17,7 @@ func TestMarshalHooks_RendersCanonicalDocument(t *testing.T) {
 		"hook-name",
 		"command",
 		"'traceary' 'hook' 'session' 'claude' 'start'",
-		types.Of(5000),
+		types.Some(5000),
 		"Start a Traceary session",
 		"traceary-session.sh:claude:start",
 	)
@@ -25,7 +25,7 @@ func TestMarshalHooks_RendersCanonicalDocument(t *testing.T) {
 		[]string{"SessionStart"},
 		map[string][]model.HookEntry{
 			"SessionStart": {
-				model.HookEntryOf(types.Of("*"), []model.HookCommand{command}),
+				model.HookEntryOf(types.Some("*"), []model.HookCommand{command}),
 			},
 		},
 	)
@@ -66,12 +66,12 @@ func TestMarshalHooks_RendersCanonicalDocument(t *testing.T) {
 func TestMarshalHooks_OmitsOptionalFields(t *testing.T) {
 	t.Parallel()
 
-	command := model.HookCommandOf("", "command", "echo hi", types.Empty[int](), "", "")
+	command := model.HookCommandOf("", "command", "echo hi", types.None[int](), "", "")
 	hooks := model.HooksOf(
 		[]string{"SessionStart"},
 		map[string][]model.HookEntry{
 			"SessionStart": {
-				model.HookEntryOf(types.Empty[string](), []model.HookCommand{command}),
+				model.HookEntryOf(types.None[string](), []model.HookCommand{command}),
 			},
 		},
 	)

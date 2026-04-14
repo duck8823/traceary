@@ -16,11 +16,11 @@ func TestHooksOf(t *testing.T) {
 		"hook-name",
 		"command",
 		"echo hello",
-		types.Of(1000),
+		types.Some(1000),
 		"example description",
 		"example.sh:action",
 	)
-	entry := model.HookEntryOf(types.Of("matcher"), []model.HookCommand{command})
+	entry := model.HookEntryOf(types.Some("matcher"), []model.HookCommand{command})
 	hooks := model.HooksOf([]string{"Event"}, map[string][]model.HookEntry{
 		"Event": {entry},
 	})
@@ -43,7 +43,7 @@ func TestHooksOf(t *testing.T) {
 		if diff := cmp.Diff("hook-name", got.Name()); diff != "" {
 			t.Fatalf("Name() mismatch (-want +got):\n%s", diff)
 		}
-		timeout, ok := got.Timeout().Get()
+		timeout, ok := got.Timeout().Value()
 		if !ok || timeout != 1000 {
 			t.Fatalf("Timeout() = %d, present=%v, want 1000", timeout, ok)
 		}

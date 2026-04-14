@@ -37,7 +37,7 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 			t.Fatalf("len(SessionStart entries) mismatch (-want +got):\n%s", diff)
 		}
 
-		wildcardMatcher, ok := entries[0].Matcher().Get()
+		wildcardMatcher, ok := entries[0].Matcher().Value()
 		if diff := cmp.Diff(true, ok); diff != "" {
 			t.Fatalf("SessionStart[0] matcher presence mismatch (-want +got):\n%s", diff)
 		}
@@ -54,7 +54,7 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 			t.Fatalf("SessionStart[0] command mismatch (-want +got):\n%s", diff)
 		}
 
-		compactMatcher, ok := entries[1].Matcher().Get()
+		compactMatcher, ok := entries[1].Matcher().Value()
 		if diff := cmp.Diff(true, ok); diff != "" {
 			t.Fatalf("SessionStart[1] matcher presence mismatch (-want +got):\n%s", diff)
 		}
@@ -91,11 +91,11 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 		if diff := cmp.Diff(2, len(entries)); diff != "" {
 			t.Fatalf("len(PostToolUse entries) mismatch (-want +got):\n%s", diff)
 		}
-		firstMatcher, _ := entries[0].Matcher().Get()
+		firstMatcher, _ := entries[0].Matcher().Value()
 		if diff := cmp.Diff("Bash", firstMatcher); diff != "" {
 			t.Fatalf("PostToolUse[0] matcher mismatch (-want +got):\n%s", diff)
 		}
-		secondMatcher, _ := entries[1].Matcher().Get()
+		secondMatcher, _ := entries[1].Matcher().Value()
 		if diff := cmp.Diff("mcp__.*", secondMatcher); diff != "" {
 			t.Fatalf("PostToolUse[1] matcher mismatch (-want +got):\n%s", diff)
 		}

@@ -62,7 +62,7 @@ func matchersDocumentOf(entries []model.HookEntry) []hookMatcherDocument {
 		matcher := hookMatcherDocument{
 			Hooks: commandsDocumentOf(entry.Commands()),
 		}
-		if value, ok := entry.Matcher().Get(); ok {
+		if value, ok := entry.Matcher().Value(); ok {
 			matcherValue := value
 			matcher.Matcher = &matcherValue
 		}
@@ -81,7 +81,7 @@ func commandsDocumentOf(commands []model.HookCommand) []hookCommandDocument {
 			Command:     command.Command(),
 			Description: command.Description(),
 		}
-		if value, ok := command.Timeout().Get(); ok {
+		if value, ok := command.Timeout().Value(); ok {
 			timeoutValue := value
 			document.Timeout = &timeoutValue
 		}

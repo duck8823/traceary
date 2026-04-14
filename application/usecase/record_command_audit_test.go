@@ -51,7 +51,7 @@ func TestEventUsecase_Audit(t *testing.T) {
 			types.Agent("codex"),
 			types.SessionID("session-1"),
 			types.Workspace("duck8823/traceary"),
-			types.Empty[int](),
+			types.None[int](),
 			apptypes.NewAuditRedactionBuilder().Build(),
 		)
 		if err != nil {
@@ -90,7 +90,7 @@ func TestEventUsecase_Audit(t *testing.T) {
 			types.Agent("codex"),
 			types.SessionID("session-1"),
 			types.Workspace(""),
-			types.Empty[int](),
+			types.None[int](),
 			apptypes.NewAuditRedactionBuilder().Build(),
 		)
 		if err != nil {
@@ -124,7 +124,7 @@ func TestEventUsecase_Audit(t *testing.T) {
 			types.Agent("codex"),
 			types.SessionID("session-1"),
 			types.Workspace(""),
-			types.Empty[int](),
+			types.None[int](),
 			apptypes.NewAuditRedactionBuilder().
 				MaxInputBytes(16).
 				MaxOutputBytes(20).
@@ -158,7 +158,7 @@ func TestEventUsecase_Audit(t *testing.T) {
 			types.Agent("codex"),
 			types.SessionID("session-1"),
 			types.Workspace(""),
-			types.Empty[int](),
+			types.None[int](),
 			apptypes.NewAuditRedactionBuilder().Build(),
 		)
 		if err != nil {
@@ -198,7 +198,7 @@ func TestEventUsecase_Audit(t *testing.T) {
 			types.Agent("codex"),
 			types.SessionID("session-1"),
 			types.Workspace(""),
-			types.Empty[int](),
+			types.None[int](),
 			apptypes.NewAuditRedactionBuilder().
 				AllowSecrets(true).
 				MaxInputBytes(256).
@@ -235,7 +235,7 @@ func TestEventUsecase_Audit(t *testing.T) {
 			types.Agent("codex"),
 			types.SessionID("session-1"),
 			types.Workspace(""),
-			types.Empty[int](),
+			types.None[int](),
 			apptypes.NewAuditRedactionBuilder().
 				ExtraRedactPatterns([]string{"my_custom_secret=\\S+", "internal_token:\\s*\\S+"}).
 				Build(),
@@ -268,7 +268,7 @@ func TestEventUsecase_Audit(t *testing.T) {
 			types.Agent("codex"),
 			types.SessionID("session-1"),
 			types.Workspace(""),
-			types.Empty[int](),
+			types.None[int](),
 			apptypes.NewAuditRedactionBuilder().
 				ExtraRedactPatterns([]string{"[invalid"}).
 				Build(),
@@ -292,7 +292,7 @@ func TestEventUsecase_Audit(t *testing.T) {
 			types.Agent("codex"),
 			types.SessionID("session-1"),
 			types.Workspace(""),
-			types.Empty[int](),
+			types.None[int](),
 			apptypes.NewAuditRedactionBuilder().
 				MaxInputBytes(-1).
 				Build(),

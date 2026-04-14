@@ -40,10 +40,10 @@ func newContextPackBuilder(
 
 func (b *contextPackBuilder) Build(ctx context.Context, criteria apptypes.ContextPackCriteria) (domtypes.Optional[apptypes.ContextPack], error) {
 	if criteria.RecentCommandsLimit() < 0 {
-		return domtypes.Empty[apptypes.ContextPack](), xerrors.Errorf("recent commands limit must be greater than or equal to 0")
+		return domtypes.None[apptypes.ContextPack](), xerrors.Errorf("recent commands limit must be greater than or equal to 0")
 	}
 	if criteria.MemoryLimit() < 0 {
-		return domtypes.Empty[apptypes.ContextPack](), xerrors.Errorf("memory limit must be greater than or equal to 0")
+		return domtypes.None[apptypes.ContextPack](), xerrors.Errorf("memory limit must be greater than or equal to 0")
 	}
 
 	sessions, err := b.sessionQuery.ListSummaries(
@@ -55,20 +55,20 @@ func (b *contextPackBuilder) Build(ctx context.Context, criteria apptypes.Contex
 		domtypes.Client(""),
 		domtypes.Agent(""),
 		"",
-		domtypes.Empty[time.Time](),
-		domtypes.Empty[time.Time](),
+		domtypes.None[time.Time](),
+		domtypes.None[time.Time](),
 	)
 	if err != nil {
-		return domtypes.Empty[apptypes.ContextPack](), xerrors.Errorf("failed to list sessions for context pack: %w", err)
+		return domtypes.None[apptypes.ContextPack](), xerrors.Errorf("failed to list sessions for context pack: %w", err)
 	}
 	if len(sessions) == 0 {
-		return domtypes.Empty[apptypes.ContextPack](), nil
+		return domtypes.None[apptypes.ContextPack](), nil
 	}
 
 	session := sessions[0]
 	recentCommands, err := b.loadRecentCommands(ctx, session, criteria.RecentCommandsLimit())
 	if err != nil {
-		return domtypes.Empty[apptypes.ContextPack](), err
+		return domtypes.None[apptypes.ContextPack](), err
 	}
 	compactSummary, err := b.loadCompactSummary(ctx, session)
 	if err != nil {
@@ -76,7 +76,7 @@ func (b *contextPackBuilder) Build(ctx context.Context, criteria apptypes.Contex
 	}
 	memories, err := b.loadMemories(ctx, session, criteria.MemoryLimit())
 	if err != nil {
-		return domtypes.Empty[apptypes.ContextPack](), err
+		return domtypes.None[apptypes.ContextPack](), err
 	}
 
 	pack := apptypes.ContextPackOf(
@@ -91,7 +91,7 @@ func (b *contextPackBuilder) Build(ctx context.Context, criteria apptypes.Contex
 		recentCommands,
 		memories,
 	)
-	return domtypes.Of(pack), nil
+	return domtypes.Some(pack), nil
 }
 
 func (b *contextPackBuilder) loadRecentCommands(ctx context.Context, session apptypes.SessionSummary, limit int) ([]string, error) {

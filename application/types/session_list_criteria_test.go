@@ -36,11 +36,11 @@ func TestSessionListCriteriaBuilder_DefaultsLimitOnly(t *testing.T) {
 	if diff := cmp.Diff("", criteria.Label()); diff != "" {
 		t.Errorf("Label() mismatch (-want +got):\n%s", diff)
 	}
-	if criteria.From().IsPresent() {
-		t.Errorf("From().IsPresent() = true, want false")
+	if _, ok := criteria.From().Value(); ok {
+		t.Errorf("From().Value() = true, want false")
 	}
-	if criteria.To().IsPresent() {
-		t.Errorf("To().IsPresent() = true, want false")
+	if _, ok := criteria.To().Value(); ok {
+		t.Errorf("To().Value() = true, want false")
 	}
 }
 
@@ -57,8 +57,8 @@ func TestSessionListCriteriaBuilder_AllSettersChained(t *testing.T) {
 		Client(domtypes.Client("cli")).
 		Agent(domtypes.Agent("claude")).
 		Label("feature/foo").
-		From(domtypes.Of(from)).
-		To(domtypes.Of(to)).
+		From(domtypes.Some(from)).
+		To(domtypes.Some(to)).
 		Build()
 
 	if diff := cmp.Diff(100, criteria.Limit()); diff != "" {
@@ -83,16 +83,16 @@ func TestSessionListCriteriaBuilder_AllSettersChained(t *testing.T) {
 		t.Errorf("Label() mismatch (-want +got):\n%s", diff)
 	}
 
-	gotFrom, ok := criteria.From().Get()
+	gotFrom, ok := criteria.From().Value()
 	if !ok {
-		t.Fatalf("From().Get() ok = false, want true")
+		t.Fatalf("From().Value() ok = false, want true")
 	}
 	if !gotFrom.Equal(from) {
 		t.Errorf("From() = %v, want %v", gotFrom, from)
 	}
-	gotTo, ok := criteria.To().Get()
+	gotTo, ok := criteria.To().Value()
 	if !ok {
-		t.Fatalf("To().Get() ok = false, want true")
+		t.Fatalf("To().Value() ok = false, want true")
 	}
 	if !gotTo.Equal(to) {
 		t.Errorf("To() = %v, want %v", gotTo, to)

@@ -29,9 +29,9 @@ func TestEventDetailsOf_HappyPath(t *testing.T) {
 		"output",
 		false,
 		false,
-		domtypes.Of(0),
+		domtypes.Some(0),
 	)
-	auditOpt := domtypes.Of(audit)
+	auditOpt := domtypes.Some(audit)
 
 	details, err := apptypes.EventDetailsOf(event, auditOpt)
 	if err != nil {
@@ -42,9 +42,9 @@ func TestEventDetailsOf_HappyPath(t *testing.T) {
 		t.Errorf("Event() pointer mismatch: got %p, want %p", got, event)
 	}
 
-	gotAudit, ok := details.CommandAudit().Get()
+	gotAudit, ok := details.CommandAudit().Value()
 	if !ok {
-		t.Fatalf("CommandAudit().Get() ok = false, want true")
+		t.Fatalf("CommandAudit().Value() ok = false, want true")
 	}
 	if gotAudit != audit {
 		t.Errorf("CommandAudit() pointer mismatch: got %p, want %p", gotAudit, audit)
@@ -65,20 +65,20 @@ func TestEventDetailsOf_EmptyAudit(t *testing.T) {
 		time.Date(2024, time.January, 2, 3, 4, 5, 0, time.UTC),
 	)
 
-	details, err := apptypes.EventDetailsOf(event, domtypes.Empty[*model.CommandAudit]())
+	details, err := apptypes.EventDetailsOf(event, domtypes.None[*model.CommandAudit]())
 	if err != nil {
 		t.Fatalf("EventDetailsOf() returned unexpected error: %v", err)
 	}
 
-	if details.CommandAudit().IsPresent() {
-		t.Errorf("CommandAudit().IsPresent() = true, want false")
+	if _, ok := details.CommandAudit().Value(); ok {
+		t.Errorf("CommandAudit().Value() = true, want false")
 	}
 }
 
 func TestEventDetailsOf_NilEventReturnsError(t *testing.T) {
 	t.Parallel()
 
-	details, err := apptypes.EventDetailsOf(nil, domtypes.Empty[*model.CommandAudit]())
+	details, err := apptypes.EventDetailsOf(nil, domtypes.None[*model.CommandAudit]())
 	if err == nil {
 		t.Fatalf("EventDetailsOf() with nil event returned nil error")
 	}
@@ -86,7 +86,7 @@ func TestEventDetailsOf_NilEventReturnsError(t *testing.T) {
 	if details.Event() != nil {
 		t.Errorf("Event() = %v, want nil on error", details.Event())
 	}
-	if details.CommandAudit().IsPresent() {
-		t.Errorf("CommandAudit().IsPresent() = true, want false on error")
+	if _, ok := details.CommandAudit().Value(); ok {
+		t.Errorf("CommandAudit().Value() = true, want false on error")
 	}
 }

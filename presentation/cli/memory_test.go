@@ -184,7 +184,7 @@ func TestRootCLI_MemoryAcceptCommand_PassesConfidence(t *testing.T) {
 	if stub.acceptCall.memoryID.String() != "memory-candidate" {
 		t.Fatalf("memoryID = %q, want memory-candidate", stub.acceptCall.memoryID.String())
 	}
-	confidence, ok := stub.acceptCall.confidence.Get()
+	confidence, ok := stub.acceptCall.confidence.Value()
 	if !ok || confidence != types.ConfidenceHigh {
 		t.Fatalf("confidence = %v, %t, want high/true", confidence, ok)
 	}
@@ -404,8 +404,8 @@ func mustMemorySummary(t *testing.T, memoryIDValue string, fact string, status t
 		status,
 		types.ConfidenceVerified,
 		types.MemorySourceManual,
-		types.Empty[types.MemoryID](),
-		types.Empty[time.Time](),
+		types.None[types.MemoryID](),
+		types.None[time.Time](),
 		time.Date(2026, 4, 13, 9, 0, 0, 0, time.UTC),
 		time.Date(2026, 4, 13, 10, 0, 0, 0, time.UTC),
 	)
@@ -428,8 +428,8 @@ func mustMemoryDetails(t *testing.T, memoryIDValue string, fact string, status t
 		types.MemorySourceManual,
 		[]types.EvidenceRef{mustEvidenceRefForCLI(t, types.EvidenceRefKindIssue, "#462")},
 		[]types.ArtifactRef{mustArtifactRefForCLI(t, types.ArtifactRefKindPR, "#468")},
-		types.Empty[types.MemoryID](),
-		types.Empty[time.Time](),
+		types.None[types.MemoryID](),
+		types.None[time.Time](),
 		time.Date(2026, 4, 13, 9, 0, 0, 0, time.UTC),
 		time.Date(2026, 4, 13, 10, 0, 0, 0, time.UTC),
 	)

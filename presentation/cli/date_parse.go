@@ -44,10 +44,10 @@ func parseFlexibleTime(value string, endExclusive bool) (time.Time, error) {
 func parseFlexibleTimeOptional(value string, endExclusive bool) (types.Optional[time.Time], error) {
 	t, err := parseFlexibleTime(value, endExclusive)
 	if err != nil {
-		return types.Empty[time.Time](), err
+		return types.None[time.Time](), err
 	}
 	if t.IsZero() {
-		return types.Empty[time.Time](), nil
+		return types.None[time.Time](), nil
 	}
-	return types.Of(t), nil
+	return types.Some(t), nil
 }

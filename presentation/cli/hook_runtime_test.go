@@ -288,7 +288,7 @@ func TestRootCLI_HookAuditCommand_UsesSessionStateAndToolPayload(t *testing.T) {
 			`{"exitCode":0}`,
 			false,
 			false,
-			types.Of(0),
+			types.Some(0),
 		),
 	}
 
@@ -320,7 +320,7 @@ func TestRootCLI_HookAuditCommand_UsesSessionStateAndToolPayload(t *testing.T) {
 	if got, want := eventStub.auditCall.workspace, types.Workspace("github.com/duck8823/traceary"); got != want {
 		t.Fatalf("audit workspace = %q, want %q", got, want)
 	}
-	if got, ok := eventStub.auditCall.exitCode.Get(); !ok || got != 0 {
+	if got, ok := eventStub.auditCall.exitCode.Value(); !ok || got != 0 {
 		t.Fatalf("audit exitCode = (%d, %t), want (0, true)", got, ok)
 	}
 }
@@ -357,7 +357,7 @@ func TestRootCLI_HookCompactCommand_SupportsPostCompactAndResume(t *testing.T) {
 		),
 	}
 	contextStub := &contextUsecaseStub{
-		handoff: types.Of(apptypes.ContextPackOf(
+		handoff: types.Some(apptypes.ContextPackOf(
 			types.SessionID("compact-session"),
 			types.Workspace("github.com/duck8823/traceary"),
 			"",

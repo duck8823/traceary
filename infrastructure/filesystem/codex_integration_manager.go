@@ -65,7 +65,7 @@ func (m *CodexIntegrationManager) Install(
 		"codex",
 		tracearyBin,
 		repoRoot,
-		types.Of(hooksPath),
+		types.Some(hooksPath),
 		false,
 	)
 	if err != nil {

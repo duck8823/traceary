@@ -7,8 +7,8 @@ import (
 
 	"golang.org/x/xerrors"
 
-	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/queryservice"
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )

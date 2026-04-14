@@ -186,8 +186,8 @@ func (u *memoryExtractionUsecase) findTargetSession(
 		domtypes.Client(""),
 		domtypes.Agent(""),
 		"",
-		domtypes.Empty[time.Time](),
-		domtypes.Empty[time.Time](),
+		domtypes.None[time.Time](),
+		domtypes.None[time.Time](),
 	)
 	if err != nil {
 		return apptypes.SessionSummary{}, false, xerrors.Errorf("failed to list sessions for memory extraction: %w", err)

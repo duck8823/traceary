@@ -107,14 +107,14 @@ func (c *RootCLI) runHandoff(ctx context.Context, output io.Writer, input handof
 }
 
 func writeHandoffText(output io.Writer, result types.Optional[apptypes.ContextPack]) error {
-	if !result.IsPresent() {
+	if _, ok := result.Value(); !ok {
 		if _, err := fmt.Fprintln(output, Localize("No matching session handoff.", "一致する session handoff はありません。")); err != nil {
 			return xerrors.Errorf("failed to print empty handoff output: %w", err)
 		}
 		return nil
 	}
 
-	pack, _ := result.Get()
+	pack, _ := result.Value()
 	if _, err := fmt.Fprintln(output, "TRACEARY HANDOFF"); err != nil {
 		return xerrors.Errorf("failed to print handoff header: %w", err)
 	}

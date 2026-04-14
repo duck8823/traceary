@@ -49,8 +49,8 @@ func NewSessionDatasource(db *Database) *SessionDatasource {
 
 // Compile-time interface assertions.
 var (
-	_ model.SessionRepository           = (*SessionDatasource)(nil)
-	_ queryservice.SessionQueryService  = (*SessionDatasource)(nil)
+	_ model.SessionRepository          = (*SessionDatasource)(nil)
+	_ queryservice.SessionQueryService = (*SessionDatasource)(nil)
 )
 
 // Save persists a session label change. It is orthogonal to SaveBoundary:
@@ -204,14 +204,14 @@ func saveSessionBoundary(ctx context.Context, exec sqlExecer, session *model.Ses
 		return err
 	}
 
-	if !session.EndedAt().IsPresent() {
+	if _, ok := session.EndedAt().Value(); !ok {
 		if !inserted {
 			return xerrors.Errorf("cannot start session %s: %w", session.SessionID(), model.ErrInvalidSessionState)
 		}
 		return nil
 	}
 
-	endedAt, _ := session.EndedAt().Get()
+	endedAt, _ := session.EndedAt().Value()
 	result, err := exec.ExecContext(
 		ctx,
 		updateSessionEndQuery,
@@ -237,7 +237,7 @@ func saveSessionBoundary(ctx context.Context, exec sqlExecer, session *model.Ses
 func (d *SessionDatasource) FindByID(ctx context.Context, sessionID types.SessionID) (types.Optional[*model.Session], error) {
 	db, err := d.db.open(ctx)
 	if err != nil {
-		return types.Empty[*model.Session](), xerrors.Errorf("failed to open DB for session lookup: %w", err)
+		return types.None[*model.Session](), xerrors.Errorf("failed to open DB for session lookup: %w", err)
 	}
 	defer func() {
 		if err := db.Close(); err != nil {
@@ -271,34 +271,34 @@ func (d *SessionDatasource) FindByID(ctx context.Context, sessionID types.Sessio
 		&parentSessionIDValue,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return types.Empty[*model.Session](), nil
+			return types.None[*model.Session](), nil
 		}
-		return types.Empty[*model.Session](), xerrors.Errorf("failed to scan session row: %w", err)
+		return types.None[*model.Session](), xerrors.Errorf("failed to scan session row: %w", err)
 	}
 
 	sid, err := types.SessionIDOf(sessionIDValue)
 	if err != nil {
-		return types.Empty[*model.Session](), xerrors.Errorf("failed to restore session ID: %w", err)
+		return types.None[*model.Session](), xerrors.Errorf("failed to restore session ID: %w", err)
 	}
 	startedAt, err := time.Parse(time.RFC3339Nano, startedAtValue)
 	if err != nil {
-		return types.Empty[*model.Session](), xerrors.Errorf("failed to parse started_at: %w", err)
+		return types.None[*model.Session](), xerrors.Errorf("failed to parse started_at: %w", err)
 	}
 	agent, err := types.AgentOf(agentValue)
 	if err != nil {
-		return types.Empty[*model.Session](), xerrors.Errorf("failed to restore agent: %w", err)
+		return types.None[*model.Session](), xerrors.Errorf("failed to restore agent: %w", err)
 	}
 
-	endedAt := types.Empty[time.Time]()
+	endedAt := types.None[time.Time]()
 	if endedAtValue.Valid {
 		t, err := time.Parse(time.RFC3339Nano, endedAtValue.String)
 		if err != nil {
-			return types.Empty[*model.Session](), xerrors.Errorf("failed to parse ended_at: %w", err)
+			return types.None[*model.Session](), xerrors.Errorf("failed to parse ended_at: %w", err)
 		}
-		endedAt = types.Of(t)
+		endedAt = types.Some(t)
 	}
 
-	return types.Of(model.SessionOf(
+	return types.Some(model.SessionOf(
 		sid,
 		startedAt,
 		endedAt,
@@ -320,7 +320,7 @@ func (d *SessionDatasource) FindLatest(
 ) (types.Optional[*model.Event], error) {
 	db, err := d.db.open(ctx)
 	if err != nil {
-		return types.Empty[*model.Event](), xerrors.Errorf("failed to open DB for latest session lookup: %w", err)
+		return types.None[*model.Event](), xerrors.Errorf("failed to open DB for latest session lookup: %w", err)
 	}
 	defer func() {
 		if err := db.Close(); err != nil {
@@ -349,12 +349,12 @@ func (d *SessionDatasource) FindLatest(
 	event, err := scanEvent(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return types.Empty[*model.Event](), nil
+			return types.None[*model.Event](), nil
 		}
-		return types.Empty[*model.Event](), xerrors.Errorf("failed to restore latest session event: %w", err)
+		return types.None[*model.Event](), xerrors.Errorf("failed to restore latest session event: %w", err)
 	}
 
-	return types.Of(event), nil
+	return types.Some(event), nil
 }
 
 // ListSummaries returns aggregated session information.
@@ -375,11 +375,11 @@ func (d *SessionDatasource) ListSummaries(
 	}()
 
 	fromValue := ""
-	if fromTime, ok := from.Get(); ok {
+	if fromTime, ok := from.Value(); ok {
 		fromValue = formatTimestamp(fromTime)
 	}
 	toValue := ""
-	if toTime, ok := to.Get(); ok {
+	if toTime, ok := to.Value(); ok {
 		toValue = formatTimestamp(toTime.AddDate(0, 0, 1))
 	}
 
@@ -455,14 +455,14 @@ func scanSessionSummary(row interface {
 		return apptypes.SessionSummary{}, xerrors.Errorf("failed to parse started_at: %w", err)
 	}
 
-	endedAt := types.Empty[time.Time]()
+	endedAt := types.None[time.Time]()
 	status := "active"
 	if endedAtStr.Valid {
 		t, err := time.Parse(time.RFC3339Nano, endedAtStr.String)
 		if err != nil {
 			return apptypes.SessionSummary{}, xerrors.Errorf("failed to parse ended_at: %w", err)
 		}
-		endedAt = types.Of(t)
+		endedAt = types.Some(t)
 		status = "ended"
 	} else if time.Since(startedAt) > 24*time.Hour {
 		status = "stale"

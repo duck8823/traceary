@@ -511,27 +511,27 @@ func (c *RootCLI) resolveMemoryWriteParameters(ctx context.Context, input memory
 ) {
 	memoryType, err := parseRequiredMemoryType(input.memoryType)
 	if err != nil {
-		return domtypes.MemoryType(""), nil, domtypes.Empty[domtypes.Confidence](), domtypes.MemorySource(""), nil, nil, err
+		return domtypes.MemoryType(""), nil, domtypes.None[domtypes.Confidence](), domtypes.MemorySource(""), nil, nil, err
 	}
 	scope, err := resolveMemoryWriteScope(ctx, input.workspace, input.agent, input.sessionFamily)
 	if err != nil {
-		return domtypes.MemoryType(""), nil, domtypes.Empty[domtypes.Confidence](), domtypes.MemorySource(""), nil, nil, err
+		return domtypes.MemoryType(""), nil, domtypes.None[domtypes.Confidence](), domtypes.MemorySource(""), nil, nil, err
 	}
 	confidence, err := parseOptionalConfidence(input.confidence)
 	if err != nil {
-		return domtypes.MemoryType(""), nil, domtypes.Empty[domtypes.Confidence](), domtypes.MemorySource(""), nil, nil, err
+		return domtypes.MemoryType(""), nil, domtypes.None[domtypes.Confidence](), domtypes.MemorySource(""), nil, nil, err
 	}
 	source, err := parseMemorySource(input.source)
 	if err != nil {
-		return domtypes.MemoryType(""), nil, domtypes.Empty[domtypes.Confidence](), domtypes.MemorySource(""), nil, nil, err
+		return domtypes.MemoryType(""), nil, domtypes.None[domtypes.Confidence](), domtypes.MemorySource(""), nil, nil, err
 	}
 	evidenceRefs, err := parseEvidenceRefs(input.evidenceRefs)
 	if err != nil {
-		return domtypes.MemoryType(""), nil, domtypes.Empty[domtypes.Confidence](), domtypes.MemorySource(""), nil, nil, err
+		return domtypes.MemoryType(""), nil, domtypes.None[domtypes.Confidence](), domtypes.MemorySource(""), nil, nil, err
 	}
 	artifactRefs, err := parseArtifactRefs(input.artifactRefs)
 	if err != nil {
-		return domtypes.MemoryType(""), nil, domtypes.Empty[domtypes.Confidence](), domtypes.MemorySource(""), nil, nil, err
+		return domtypes.MemoryType(""), nil, domtypes.None[domtypes.Confidence](), domtypes.MemorySource(""), nil, nil, err
 	}
 	return memoryType, scope, confidence, source, evidenceRefs, artifactRefs, nil
 }
@@ -563,13 +563,13 @@ func parseOptionalMemoryType(value string) (domtypes.MemoryType, error) {
 
 func parseOptionalConfidence(value string) (domtypes.Optional[domtypes.Confidence], error) {
 	if strings.TrimSpace(value) == "" {
-		return domtypes.Empty[domtypes.Confidence](), nil
+		return domtypes.None[domtypes.Confidence](), nil
 	}
 	confidence, err := domtypes.ConfidenceOf(value)
 	if err != nil {
-		return domtypes.Empty[domtypes.Confidence](), xerrors.Errorf("%s: %w", Localize("failed to resolve confidence", "confidence の解決に失敗しました"), err)
+		return domtypes.None[domtypes.Confidence](), xerrors.Errorf("%s: %w", Localize("failed to resolve confidence", "confidence の解決に失敗しました"), err)
 	}
-	return domtypes.Of(confidence), nil
+	return domtypes.Some(confidence), nil
 }
 
 func parseMemorySource(value string) (domtypes.MemorySource, error) {
@@ -752,13 +752,13 @@ func resolveMemoryFilterScopes(ctx context.Context, workspace string, agent stri
 
 func parseOptionalExpiryTime(value string) (domtypes.Optional[time.Time], error) {
 	if strings.TrimSpace(value) == "" {
-		return domtypes.Empty[time.Time](), nil
+		return domtypes.None[time.Time](), nil
 	}
 	resolved, err := parseFlexibleTime(value, false)
 	if err != nil {
-		return domtypes.Empty[time.Time](), xerrors.Errorf("%s: %w", Localize("failed to resolve expiry time", "expiry time の解決に失敗しました"), err)
+		return domtypes.None[time.Time](), xerrors.Errorf("%s: %w", Localize("failed to resolve expiry time", "expiry time の解決に失敗しました"), err)
 	}
-	return domtypes.Of(resolved), nil
+	return domtypes.Some(resolved), nil
 }
 
 func hasMemorySearchInputConstraint(input memorySearchCommandInput) bool {

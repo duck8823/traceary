@@ -25,7 +25,7 @@ func TestContextUsecase_Handoff(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Handoff() error = %v", err)
 		}
-		if got.IsPresent() {
+		if _, ok := got.Value(); ok {
 			t.Fatalf("Handoff() result is present, want empty")
 		}
 	})
@@ -37,7 +37,7 @@ func TestContextUsecase_Handoff(t *testing.T) {
 			domtypes.SessionID("session-1"),
 			domtypes.Workspace("duck8823/traceary"),
 			time.Now().Add(-time.Hour),
-			domtypes.Empty[time.Time](),
+			domtypes.None[time.Time](),
 			"active",
 			42,
 			30,
@@ -78,8 +78,8 @@ func TestContextUsecase_Handoff(t *testing.T) {
 			domtypes.MemoryStatusAccepted,
 			domtypes.ConfidenceVerified,
 			domtypes.MemorySourceManual,
-			domtypes.Empty[domtypes.MemoryID](),
-			domtypes.Empty[time.Time](),
+			domtypes.None[domtypes.MemoryID](),
+			domtypes.None[time.Time](),
 			time.Now(),
 			time.Now(),
 		)
@@ -111,11 +111,11 @@ func TestContextUsecase_Handoff(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Handoff() error = %v", err)
 		}
-		if !got.IsPresent() {
+		if _, ok := got.Value(); !ok {
 			t.Fatalf("Handoff() result is empty, want present")
 		}
 
-		pack, _ := got.Get()
+		pack, _ := got.Value()
 		if diff := cmp.Diff(domtypes.SessionID("session-1"), pack.SessionID()); diff != "" {
 			t.Fatalf("SessionID() mismatch (-want +got):\n%s", diff)
 		}
@@ -161,7 +161,7 @@ func TestContextUsecase_Handoff(t *testing.T) {
 			domtypes.SessionID("session-1"),
 			domtypes.Workspace(""),
 			time.Now(),
-			domtypes.Empty[time.Time](),
+			domtypes.None[time.Time](),
 			"active",
 			0,
 			0,
@@ -179,10 +179,10 @@ func TestContextUsecase_Handoff(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Handoff() error = %v", err)
 		}
-		if !got.IsPresent() {
+		if _, ok := got.Value(); !ok {
 			t.Fatalf("Handoff() result is empty, want present")
 		}
-		pack, _ := got.Get()
+		pack, _ := got.Value()
 		if len(pack.Memories()) != 0 {
 			t.Fatalf("Memories() length = %d, want 0", len(pack.Memories()))
 		}
@@ -195,7 +195,7 @@ func TestContextUsecase_Handoff(t *testing.T) {
 			domtypes.SessionID("session-1"),
 			domtypes.Workspace("duck8823/traceary"),
 			time.Now(),
-			domtypes.Empty[time.Time](),
+			domtypes.None[time.Time](),
 			"active",
 			0,
 			0,
@@ -226,7 +226,7 @@ func TestContextUsecase_Handoff(t *testing.T) {
 			domtypes.SessionID("session-1"),
 			domtypes.Workspace("duck8823/traceary"),
 			time.Now(),
-			domtypes.Empty[time.Time](),
+			domtypes.None[time.Time](),
 			"active",
 			3,
 			1,
@@ -264,11 +264,11 @@ func TestContextUsecase_Handoff(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Handoff() error = %v", err)
 		}
-		if !got.IsPresent() {
+		if _, ok := got.Value(); !ok {
 			t.Fatalf("Handoff() result is empty, want present")
 		}
 
-		pack, _ := got.Get()
+		pack, _ := got.Value()
 		if diff := cmp.Diff("", pack.WorkingState().CompactSummary()); diff != "" {
 			t.Fatalf("CompactSummary() mismatch (-want +got):\n%s", diff)
 		}

@@ -30,7 +30,7 @@ func TestGeminiHooksHandler_Build(t *testing.T) {
 		if diff := cmp.Diff("traceary-session-start", command.Name()); diff != "" {
 			t.Fatalf("SessionStart name mismatch (-want +got):\n%s", diff)
 		}
-		timeout, ok := command.Timeout().Get()
+		timeout, ok := command.Timeout().Value()
 		if diff := cmp.Diff(true, ok); diff != "" {
 			t.Fatalf("SessionStart timeout presence mismatch (-want +got):\n%s", diff)
 		}
@@ -55,7 +55,7 @@ func TestGeminiHooksHandler_Build(t *testing.T) {
 		if diff := cmp.Diff(1, len(entries)); diff != "" {
 			t.Fatalf("len(AfterTool entries) mismatch (-want +got):\n%s", diff)
 		}
-		matcher, ok := entries[0].Matcher().Get()
+		matcher, ok := entries[0].Matcher().Value()
 		if diff := cmp.Diff(true, ok); diff != "" {
 			t.Fatalf("AfterTool matcher presence mismatch (-want +got):\n%s", diff)
 		}

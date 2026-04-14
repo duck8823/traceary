@@ -84,7 +84,7 @@ func (u *memoryUsecase) Remember(
 		resolvedSource,
 		evidenceRefs,
 		artifactRefs,
-		domtypes.Empty[domtypes.MemoryID](),
+		domtypes.None[domtypes.MemoryID](),
 	)
 	if err != nil {
 		return apptypes.MemoryDetails{}, xerrors.Errorf("failed to build accepted memory: %w", err)
@@ -142,7 +142,7 @@ func (u *memoryUsecase) Propose(
 		resolvedSource,
 		evidenceRefs,
 		artifactRefs,
-		domtypes.Empty[domtypes.MemoryID](),
+		domtypes.None[domtypes.MemoryID](),
 	)
 	if err != nil {
 		return apptypes.MemoryDetails{}, xerrors.Errorf("failed to build candidate memory: %w", err)
@@ -268,7 +268,7 @@ func (u *memoryUsecase) Supersede(
 		resolvedSource,
 		evidenceRefs,
 		artifactRefs,
-		domtypes.Of(existing.MemoryID()),
+		domtypes.Some(existing.MemoryID()),
 	)
 	if err != nil {
 		return apptypes.MemoryDetails{}, xerrors.Errorf("failed to build replacement memory: %w", err)
@@ -379,7 +379,7 @@ func (u *memoryUsecase) findMemoryByID(ctx context.Context, memoryID domtypes.Me
 	if err != nil {
 		return nil, xerrors.Errorf("failed to find memory: %w", err)
 	}
-	memory, ok := result.Get()
+	memory, ok := result.Value()
 	if !ok {
 		return nil, xerrors.Errorf("memory not found: %s", resolvedMemoryID)
 	}
@@ -479,7 +479,7 @@ func resolveMemorySource(source domtypes.MemorySource) (domtypes.MemorySource, e
 }
 
 func resolveAcceptedConfidence(confidence domtypes.Optional[domtypes.Confidence]) (domtypes.Confidence, error) {
-	if value, ok := confidence.Get(); ok {
+	if value, ok := confidence.Value(); ok {
 		resolved, err := domtypes.ConfidenceOf(value.String())
 		if err != nil {
 			return domtypes.Confidence(""), xerrors.Errorf("failed to resolve confidence: %w", err)
@@ -497,7 +497,7 @@ func requireAcceptedEvidenceRefs(evidenceRefs []domtypes.EvidenceRef) error {
 }
 
 func resolveExpiresAt(expiresAt domtypes.Optional[time.Time]) (time.Time, error) {
-	if value, ok := expiresAt.Get(); ok {
+	if value, ok := expiresAt.Value(); ok {
 		if value.IsZero() {
 			return time.Time{}, xerrors.Errorf("expiry timestamp must not be zero")
 		}

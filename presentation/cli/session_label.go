@@ -8,7 +8,6 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/domain/types"
-
 )
 
 func (c *RootCLI) newSessionLabelCommand() *cobra.Command {

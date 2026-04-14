@@ -523,33 +523,33 @@ func hookPayloadString(payload []byte, path string, defaultValue string) string 
 
 func hookPayloadExitCode(payload []byte) types.Optional[int] {
 	if len(payload) == 0 {
-		return types.Empty[int]()
+		return types.None[int]()
 	}
 	value, ok := lookupHookPayloadValue(payload, "tool_response.exitCode")
 	if !ok || value == nil {
-		return types.Empty[int]()
+		return types.None[int]()
 	}
 	switch typedValue := value.(type) {
 	case float64:
-		return types.Of(int(typedValue))
+		return types.Some(int(typedValue))
 	case int:
-		return types.Of(typedValue)
+		return types.Some(typedValue)
 	case int64:
-		return types.Of(int(typedValue))
+		return types.Some(int(typedValue))
 	case json.Number:
 		parsed, err := typedValue.Int64()
 		if err != nil {
-			return types.Empty[int]()
+			return types.None[int]()
 		}
-		return types.Of(int(parsed))
+		return types.Some(int(parsed))
 	case string:
 		parsed, err := strconv.Atoi(strings.TrimSpace(typedValue))
 		if err != nil {
-			return types.Empty[int]()
+			return types.None[int]()
 		}
-		return types.Of(parsed)
+		return types.Some(parsed)
 	default:
-		return types.Empty[int]()
+		return types.None[int]()
 	}
 }
 

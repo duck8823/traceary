@@ -58,8 +58,8 @@ func NewSessionListCriteriaBuilder(limit int) *SessionListCriteriaBuilder {
 	return &SessionListCriteriaBuilder{
 		criteria: SessionListCriteria{
 			limit: limit,
-			from:  domtypes.Empty[time.Time](),
-			to:    domtypes.Empty[time.Time](),
+			from:  domtypes.None[time.Time](),
+			to:    domtypes.None[time.Time](),
 		},
 	}
 }

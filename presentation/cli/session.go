@@ -350,13 +350,13 @@ func (c *RootCLI) runSessionLatest(
 		}
 		return xerrors.Errorf("%s: %w", Localize("failed to get latest session", "直近セッションの取得に失敗しました"), err)
 	}
-	if !result.IsPresent() {
+	if _, ok := result.Value(); !ok {
 		if input.activeOnly {
 			return xerrors.Errorf(Localize("no matching active session found", "条件に一致する active session は存在しません"))
 		}
 		return xerrors.Errorf(Localize("no matching session found", "条件に一致する session は存在しません"))
 	}
-	event, _ := result.Get()
+	event, _ := result.Value()
 	if err := validateActiveSessionFreshness(event, input); err != nil {
 		return err
 	}

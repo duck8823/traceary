@@ -113,10 +113,10 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		if err != nil {
 			t.Fatalf("FindLatest() error = %v", err)
 		}
-		if !result.IsPresent() {
+		if _, ok := result.Value(); !ok {
 			t.Fatalf("FindLatest() returned empty, want present")
 		}
-		event, _ := result.Get()
+		event, _ := result.Value()
 		if diff := cmp.Diff("event-4", event.EventID().String()); diff != "" {
 			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 		}
@@ -156,10 +156,10 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		if err != nil {
 			t.Fatalf("FindLatest() error = %v", err)
 		}
-		if !result.IsPresent() {
+		if _, ok := result.Value(); !ok {
 			t.Fatalf("FindLatest() returned empty, want present")
 		}
-		event, _ := result.Get()
+		event, _ := result.Value()
 		if diff := cmp.Diff("event-4", event.EventID().String()); diff != "" {
 			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 		}
@@ -173,10 +173,10 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		if err != nil {
 			t.Fatalf("FindLatest() error = %v", err)
 		}
-		if !result.IsPresent() {
+		if _, ok := result.Value(); !ok {
 			t.Fatalf("FindLatest() returned empty, want present")
 		}
-		event, _ := result.Get()
+		event, _ := result.Value()
 		if diff := cmp.Diff("event-6", event.EventID().String()); diff != "" {
 			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 		}
@@ -203,10 +203,10 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		if err != nil {
 			t.Fatalf("FindLatest() error = %v", err)
 		}
-		if !result.IsPresent() {
+		if _, ok := result.Value(); !ok {
 			t.Fatalf("FindLatest() returned empty, want present")
 		}
-		event, _ := result.Get()
+		event, _ := result.Value()
 		if diff := cmp.Diff("event-8", event.EventID().String()); diff != "" {
 			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 		}
@@ -220,7 +220,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		if err != nil {
 			t.Fatalf("FindLatest() error = %v, want nil", err)
 		}
-		if result.IsPresent() {
+		if _, ok := result.Value(); ok {
 			t.Fatalf("FindLatest() returned present, want empty")
 		}
 	})
@@ -233,7 +233,7 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		if err != nil {
 			t.Fatalf("FindLatest() error = %v, want nil", err)
 		}
-		if result.IsPresent() {
+		if _, ok := result.Value(); ok {
 			t.Fatalf("FindLatest() returned present, want empty")
 		}
 	})
@@ -312,10 +312,10 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 	if err != nil {
 		t.Fatalf("FindLatest() error = %v", err)
 	}
-	if !result.IsPresent() {
+	if _, ok := result.Value(); !ok {
 		t.Fatalf("FindLatest() returned empty, want present")
 	}
-	event, _ := result.Get()
+	event, _ := result.Value()
 	if diff := cmp.Diff("event-2", event.EventID().String()); diff != "" {
 		t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 	}
@@ -381,10 +381,10 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 	if err != nil {
 		t.Fatalf("FindLatest() error = %v", err)
 	}
-	if !result.IsPresent() {
+	if _, ok := result.Value(); !ok {
 		t.Fatalf("FindLatest() returned empty, want present")
 	}
-	event, _ := result.Get()
+	event, _ := result.Value()
 	if diff := cmp.Diff("event-1", event.EventID().String()); diff != "" {
 		t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 	}

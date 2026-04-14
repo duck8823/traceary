@@ -22,7 +22,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		contextStub := &contextUsecaseStub{
-			handoff: types.Of(apptypes.ContextPackOf(
+			handoff: types.Some(apptypes.ContextPackOf(
 				sessionID,
 				types.Workspace("duck8823/traceary"),
 				"v0.2.1 sprint",
@@ -101,7 +101,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		contextStub := &contextUsecaseStub{
-			handoff: types.Of(apptypes.ContextPackOf(
+			handoff: types.Some(apptypes.ContextPackOf(
 				types.SessionID("target-session"),
 				types.Workspace("duck8823/traceary"),
 				"",
@@ -145,8 +145,8 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 			types.MemoryStatusAccepted,
 			types.ConfidenceVerified,
 			types.MemorySourceManual,
-			types.Empty[types.MemoryID](),
-			types.Empty[time.Time](),
+			types.None[types.MemoryID](),
+			types.None[time.Time](),
 			time.Now(),
 			time.Now(),
 		)
@@ -156,7 +156,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		contextStub := &contextUsecaseStub{
-			handoff: types.Of(apptypes.ContextPackOf(
+			handoff: types.Some(apptypes.ContextPackOf(
 				sessionID,
 				types.Workspace("duck8823/traceary"),
 				"",
@@ -205,7 +205,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		rootCmd := cli.NewRootCLI(
 			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 			cli.WithContext(&contextUsecaseStub{
-				handoff: types.Of(apptypes.ContextPackOf(
+				handoff: types.Some(apptypes.ContextPackOf(
 					types.SessionID("s1"),
 					types.Workspace("workspace"),
 					"",

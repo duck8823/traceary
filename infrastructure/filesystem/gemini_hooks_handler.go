@@ -22,7 +22,7 @@ func (h *GeminiHooksHandler) Name() string { return "gemini" }
 
 // Build returns the Hooks aggregate Traceary installs for Gemini CLI.
 func (h *GeminiHooksHandler) Build(tracearyBin string) model.Hooks {
-	timeout := types.Of(geminiHooksDefaultTimeoutMillis)
+	timeout := types.Some(geminiHooksDefaultTimeoutMillis)
 	sessionStartCommand := newHookRuntimeCommand(tracearyBin, "hook", "session", "gemini", "start")
 	sessionEndCommand := newHookRuntimeCommand(tracearyBin, "hook", "session", "gemini", "end")
 	auditCommand := newHookRuntimeCommand(tracearyBin, "hook", "audit", "gemini")
@@ -30,7 +30,7 @@ func (h *GeminiHooksHandler) Build(tracearyBin string) model.Hooks {
 	eventOrder := []string{"SessionStart", "SessionEnd", "AfterTool"}
 	events := map[string][]model.HookEntry{
 		"SessionStart": {
-			model.HookEntryOf(types.Of("*"), []model.HookCommand{
+			model.HookEntryOf(types.Some("*"), []model.HookCommand{
 				model.HookCommandOf(
 					"traceary-session-start",
 					"command",
@@ -42,7 +42,7 @@ func (h *GeminiHooksHandler) Build(tracearyBin string) model.Hooks {
 			}),
 		},
 		"SessionEnd": {
-			model.HookEntryOf(types.Of("*"), []model.HookCommand{
+			model.HookEntryOf(types.Some("*"), []model.HookCommand{
 				model.HookCommandOf(
 					"traceary-session-end",
 					"command",
@@ -54,7 +54,7 @@ func (h *GeminiHooksHandler) Build(tracearyBin string) model.Hooks {
 			}),
 		},
 		"AfterTool": {
-			model.HookEntryOf(types.Of("run_shell_command"), []model.HookCommand{
+			model.HookEntryOf(types.Some("run_shell_command"), []model.HookCommand{
 				model.HookCommandOf(
 					"traceary-audit",
 					"command",

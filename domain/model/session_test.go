@@ -32,7 +32,7 @@ func TestNewSession(t *testing.T) {
 	if diff := cmp.Diff(now, session.StartedAt()); diff != "" {
 		t.Errorf("StartedAt() mismatch (-want +got):\n%s", diff)
 	}
-	if endedAt, ok := session.EndedAt().Get(); ok {
+	if endedAt, ok := session.EndedAt().Value(); ok {
 		t.Errorf("EndedAt() should be empty, got %v", endedAt)
 	}
 	if diff := cmp.Diff(types.Client("hook"), session.Client()); diff != "" {
@@ -63,12 +63,12 @@ func TestSessionOf(t *testing.T) {
 	start := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 4, 10, 13, 0, 0, 0, time.UTC)
 
-	session := model.SessionOf(sid, start, types.Of(end), types.Client("cli"), agent, types.Workspace("workspace"), "sprint-1", "did stuff", types.SessionID("parent-123"))
+	session := model.SessionOf(sid, start, types.Some(end), types.Client("cli"), agent, types.Workspace("workspace"), "sprint-1", "did stuff", types.SessionID("parent-123"))
 
 	if diff := cmp.Diff(sid, session.SessionID()); diff != "" {
 		t.Errorf("SessionID() mismatch (-want +got):\n%s", diff)
 	}
-	if endedAt, ok := session.EndedAt().Get(); !ok {
+	if endedAt, ok := session.EndedAt().Value(); !ok {
 		t.Errorf("EndedAt() should be present")
 	} else if diff := cmp.Diff(end, endedAt); diff != "" {
 		t.Errorf("EndedAt() mismatch (-want +got):\n%s", diff)
@@ -98,7 +98,7 @@ func TestSession_End(t *testing.T) {
 		session := model.NewSession(sid, start, types.Client("cli"), agent, types.Workspace("duck8823/traceary"))
 		session.SetLabel("sprint-1")
 
-		if session.EndedAt().IsPresent() {
+		if _, ok := session.EndedAt().Value(); ok {
 			t.Fatalf("EndedAt() should be empty before End()")
 		}
 
@@ -106,7 +106,7 @@ func TestSession_End(t *testing.T) {
 			t.Fatalf("End() error = %v", err)
 		}
 
-		endedAt, ok := session.EndedAt().Get()
+		endedAt, ok := session.EndedAt().Value()
 		if !ok {
 			t.Fatalf("EndedAt() should be present after End()")
 		}
@@ -126,7 +126,7 @@ func TestSession_End(t *testing.T) {
 		t.Parallel()
 
 		alreadyEnded := model.SessionOf(
-			sid, start, types.Of(end),
+			sid, start, types.Some(end),
 			types.Client("cli"), agent, types.Workspace("duck8823/traceary"),
 			"", "first end", types.SessionID(""),
 		)
@@ -139,7 +139,7 @@ func TestSession_End(t *testing.T) {
 			t.Fatalf("End() error = %v, want ErrInvalidSessionState", err)
 		}
 		// Original ended_at should be preserved.
-		got, _ := alreadyEnded.EndedAt().Get()
+		got, _ := alreadyEnded.EndedAt().Value()
 		if diff := cmp.Diff(end, got); diff != "" {
 			t.Errorf("EndedAt() should be unchanged (-want +got):\n%s", diff)
 		}

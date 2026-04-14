@@ -27,7 +27,7 @@ func TestNewMemoryCandidate(t *testing.T) {
 		types.MemorySourceExtracted,
 		[]types.EvidenceRef{evidence},
 		[]types.ArtifactRef{artifact},
-		types.Empty[types.MemoryID](),
+		types.None[types.MemoryID](),
 	)
 	if err != nil {
 		t.Fatalf("NewMemoryCandidate() error = %v", err)
@@ -87,7 +87,7 @@ func TestNewAcceptedMemory(t *testing.T) {
 		types.MemorySourceManual,
 		nil,
 		nil,
-		types.Of(previousID),
+		types.Some(previousID),
 	)
 	if err != nil {
 		t.Fatalf("NewAcceptedMemory() error = %v", err)
@@ -99,7 +99,7 @@ func TestNewAcceptedMemory(t *testing.T) {
 	if diff := cmp.Diff(types.ConfidenceVerified, memory.Confidence()); diff != "" {
 		t.Errorf("Confidence() mismatch (-want +got):\n%s", diff)
 	}
-	if supersedes, ok := memory.Supersedes().Get(); !ok {
+	if supersedes, ok := memory.Supersedes().Value(); !ok {
 		t.Fatalf("Supersedes() should be present")
 	} else if diff := cmp.Diff(previousID, supersedes); diff != "" {
 		t.Errorf("Supersedes() mismatch (-want +got):\n%s", diff)
@@ -120,7 +120,7 @@ func TestMemory_StateTransitions(t *testing.T) {
 			types.MemorySourceExtracted,
 			nil,
 			nil,
-			types.Empty[types.MemoryID](),
+			types.None[types.MemoryID](),
 		)
 		if err != nil {
 			t.Fatalf("NewMemoryCandidate() error = %v", err)
@@ -180,7 +180,7 @@ func TestMemory_StateTransitions(t *testing.T) {
 		if diff := cmp.Diff(types.MemoryStatusExpired, memory.Status()); diff != "" {
 			t.Errorf("Status() mismatch (-want +got):\n%s", diff)
 		}
-		if got, ok := memory.ExpiresAt().Get(); !ok {
+		if got, ok := memory.ExpiresAt().Value(); !ok {
 			t.Fatalf("ExpiresAt() should be present")
 		} else if diff := cmp.Diff(expiresAt, got); diff != "" {
 			t.Errorf("ExpiresAt() mismatch (-want +got):\n%s", diff)
@@ -249,7 +249,7 @@ func TestNewMemoryCandidate_ClonesSlices(t *testing.T) {
 		types.MemorySourceManual,
 		evidenceRefs,
 		artifactRefs,
-		types.Empty[types.MemoryID](),
+		types.None[types.MemoryID](),
 	)
 	if err != nil {
 		t.Fatalf("NewMemoryCandidate() error = %v", err)

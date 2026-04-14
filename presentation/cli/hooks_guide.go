@@ -82,9 +82,9 @@ func buildHooksGuide(c *RootCLI, client string, projectDir string, outputPath st
 		return nil, xerrors.Errorf("failed to normalize client: %w", err)
 	}
 
-	outputPathOption := types.Empty[string]()
+	outputPathOption := types.None[string]()
 	if trimmedOutput := strings.TrimSpace(outputPath); trimmedOutput != "" {
-		outputPathOption = types.Of(trimmedOutput)
+		outputPathOption = types.Some(trimmedOutput)
 	}
 	resolvedOutputPath, err := orchestrator.ResolveInstallPath(resolvedClient, projectDir, outputPathOption)
 	if err != nil {

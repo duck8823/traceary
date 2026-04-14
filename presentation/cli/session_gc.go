@@ -6,7 +6,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
-
 )
 
 func (c *RootCLI) newSessionGCCommand() *cobra.Command {

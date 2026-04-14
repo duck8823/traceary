@@ -152,22 +152,22 @@ func (s *sessionUsecaseStub) Tree(_ context.Context, _ types.Workspace, _ int) (
 func (s *sessionUsecaseStub) Active(_ context.Context, criteria apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error) {
 	s.activeCriteria = criteria
 	if s.activeEvent == nil && s.activeErr == nil {
-		return types.Empty[*model.Event](), nil
+		return types.None[*model.Event](), nil
 	}
 	if s.activeErr != nil {
-		return types.Empty[*model.Event](), s.activeErr
+		return types.None[*model.Event](), s.activeErr
 	}
-	return types.Of(s.activeEvent), nil
+	return types.Some(s.activeEvent), nil
 }
 func (s *sessionUsecaseStub) Latest(_ context.Context, criteria apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error) {
 	s.latestCriteria = criteria
 	if s.latestEvent == nil && s.latestErr == nil {
-		return types.Empty[*model.Event](), nil
+		return types.None[*model.Event](), nil
 	}
 	if s.latestErr != nil {
-		return types.Empty[*model.Event](), s.latestErr
+		return types.None[*model.Event](), s.latestErr
 	}
-	return types.Of(s.latestEvent), nil
+	return types.Some(s.latestEvent), nil
 }
 func (s *sessionUsecaseStub) Handoff(_ context.Context, _ types.SessionID, _ types.Workspace, _ int) (types.Optional[apptypes.HandoffSummary], error) {
 	return s.handoff, s.handoffErr

@@ -38,7 +38,7 @@ func NewMemoryCandidate(
 	artifactRefs []types.ArtifactRef,
 	supersedes types.Optional[types.MemoryID],
 ) (*Memory, error) {
-	return newMemory(memoryID, memoryType, scope, fact, types.MemoryStatusCandidate, types.ConfidenceLow, source, evidenceRefs, artifactRefs, supersedes, types.Empty[time.Time]())
+	return newMemory(memoryID, memoryType, scope, fact, types.MemoryStatusCandidate, types.ConfidenceLow, source, evidenceRefs, artifactRefs, supersedes, types.None[time.Time]())
 }
 
 // NewAcceptedMemory creates an accepted memory.
@@ -53,7 +53,7 @@ func NewAcceptedMemory(
 	artifactRefs []types.ArtifactRef,
 	supersedes types.Optional[types.MemoryID],
 ) (*Memory, error) {
-	return newMemory(memoryID, memoryType, scope, fact, types.MemoryStatusAccepted, confidence, source, evidenceRefs, artifactRefs, supersedes, types.Empty[time.Time]())
+	return newMemory(memoryID, memoryType, scope, fact, types.MemoryStatusAccepted, confidence, source, evidenceRefs, artifactRefs, supersedes, types.None[time.Time]())
 }
 
 func newMemory(
@@ -204,7 +204,7 @@ func (m *Memory) Expire(expiresAt time.Time) error {
 		return ErrInvalidMemoryState
 	}
 	m.status = types.MemoryStatusExpired
-	m.expiresAt = types.Of(expiresAt)
+	m.expiresAt = types.Some(expiresAt)
 	m.updatedAt = nowFunc()
 	return nil
 }

@@ -132,10 +132,10 @@ func TestDatasource_ListSummaries(t *testing.T) {
 
 		// Save session metadata
 		s1End := time.Now().UTC()
-		saveTestSession(ctx, t, fixture.sessionDS, "s1", time.Now().Add(-time.Hour).UTC(), types.Of(s1End), "claude", "duck8823/traceary")
-		saveTestSession(ctx, t, fixture.sessionDS, "s2", time.Now().UTC(), types.Empty[time.Time](), "codex", "duck8823/traceary")
+		saveTestSession(ctx, t, fixture.sessionDS, "s1", time.Now().Add(-time.Hour).UTC(), types.Some(s1End), "claude", "duck8823/traceary")
+		saveTestSession(ctx, t, fixture.sessionDS, "s2", time.Now().UTC(), types.None[time.Time](), "codex", "duck8823/traceary")
 
-		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent(""), "", types.Empty[time.Time](), types.Empty[time.Time]())
+		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent(""), "", types.None[time.Time](), types.None[time.Time]())
 		if err != nil {
 			t.Fatalf("ListSummaries() error = %v", err)
 		}
@@ -173,7 +173,7 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		if diff := cmp.Diff("ended", older.Status()); diff != "" {
 			t.Fatalf("s1 status mismatch (-want +got):\n%s", diff)
 		}
-		if !older.EndedAt().IsPresent() {
+		if _, ok := older.EndedAt().Value(); !ok {
 			t.Fatalf("s1 ended_at should not be empty")
 		}
 	})
@@ -205,10 +205,10 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		}
 
 		now := time.Now().UTC()
-		saveTestSession(ctx, t, fixture.sessionDS, "s1", now, types.Empty[time.Time](), "claude", "workspace")
-		saveTestSession(ctx, t, fixture.sessionDS, "s2", now.Add(time.Second), types.Empty[time.Time](), "codex", "workspace")
+		saveTestSession(ctx, t, fixture.sessionDS, "s1", now, types.None[time.Time](), "claude", "workspace")
+		saveTestSession(ctx, t, fixture.sessionDS, "s2", now.Add(time.Second), types.None[time.Time](), "codex", "workspace")
 
-		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent("claude"), "", types.Empty[time.Time](), types.Empty[time.Time]())
+		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent("claude"), "", types.None[time.Time](), types.None[time.Time]())
 		if err != nil {
 			t.Fatalf("ListSummaries() error = %v", err)
 		}
@@ -246,11 +246,11 @@ func TestDatasource_ListSummaries(t *testing.T) {
 			if err := fixture.eventDS.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
-			saveTestSession(ctx, t, fixture.sessionDS, e.sid, ts, types.Empty[time.Time](), "claude", "workspace")
+			saveTestSession(ctx, t, fixture.sessionDS, e.sid, ts, types.None[time.Time](), "claude", "workspace")
 		}
 
 		fromDate := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
-		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent(""), "", types.Of(fromDate), types.Empty[time.Time]())
+		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent(""), "", types.Some(fromDate), types.None[time.Time]())
 		if err != nil {
 			t.Fatalf("ListSummaries() error = %v", err)
 		}
@@ -289,10 +289,10 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		}
 
 		now := time.Now().UTC()
-		saveTestSession(ctx, t, fixture.sessionDS, "s1", now, types.Empty[time.Time](), "claude", "workspace")
-		saveTestSession(ctx, t, fixture.sessionDS, "s2", now.Add(time.Second), types.Empty[time.Time](), "claude", "workspace")
+		saveTestSession(ctx, t, fixture.sessionDS, "s1", now, types.None[time.Time](), "claude", "workspace")
+		saveTestSession(ctx, t, fixture.sessionDS, "s2", now.Add(time.Second), types.None[time.Time](), "claude", "workspace")
 
-		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID("s1"), types.Workspace(""), types.Client(""), types.Agent(""), "", types.Empty[time.Time](), types.Empty[time.Time]())
+		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID("s1"), types.Workspace(""), types.Client(""), types.Agent(""), "", types.None[time.Time](), types.None[time.Time]())
 		if err != nil {
 			t.Fatalf("ListSummaries() error = %v", err)
 		}
@@ -330,11 +330,11 @@ func TestDatasource_ListSummaries(t *testing.T) {
 			if err := fixture.eventDS.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
 			}
-			saveTestSession(ctx, t, fixture.sessionDS, e.sid, ts, types.Empty[time.Time](), "claude", "workspace")
+			saveTestSession(ctx, t, fixture.sessionDS, e.sid, ts, types.None[time.Time](), "claude", "workspace")
 		}
 
 		toDate := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
-		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent(""), "", types.Empty[time.Time](), types.Of(toDate))
+		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent(""), "", types.None[time.Time](), types.Some(toDate))
 		if err != nil {
 			t.Fatalf("ListSummaries() error = %v", err)
 		}

@@ -2,9 +2,9 @@ package sqlite
 
 import (
 	"context"
-	"log/slog"
 	"database/sql"
 	"io/fs"
+	"log/slog"
 	"path/filepath"
 	"sort"
 	"strconv"

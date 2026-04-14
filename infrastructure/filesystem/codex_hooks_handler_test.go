@@ -26,8 +26,8 @@ func TestCodexHooksHandler_Build(t *testing.T) {
 		if diff := cmp.Diff(1, len(entries)); diff != "" {
 			t.Fatalf("len(SessionStart entries) mismatch (-want +got):\n%s", diff)
 		}
-		if entries[0].Matcher().IsPresent() {
-			value, _ := entries[0].Matcher().Get()
+		if _, ok := entries[0].Matcher().Value(); ok {
+			value, _ := entries[0].Matcher().Value()
 			t.Fatalf("SessionStart matcher should be empty, got %q", value)
 		}
 		if diff := cmp.Diff("traceary-session.sh:codex:start", entries[0].Commands()[0].ManagedKey()); diff != "" {
@@ -48,8 +48,8 @@ func TestCodexHooksHandler_Build(t *testing.T) {
 		if diff := cmp.Diff(1, len(entries)); diff != "" {
 			t.Fatalf("len(Stop entries) mismatch (-want +got):\n%s", diff)
 		}
-		if entries[0].Matcher().IsPresent() {
-			value, _ := entries[0].Matcher().Get()
+		if _, ok := entries[0].Matcher().Value(); ok {
+			value, _ := entries[0].Matcher().Value()
 			t.Fatalf("Stop matcher should be empty, got %q", value)
 		}
 		if diff := cmp.Diff("traceary-session.sh:codex:stop", entries[0].Commands()[0].ManagedKey()); diff != "" {
@@ -70,7 +70,7 @@ func TestCodexHooksHandler_Build(t *testing.T) {
 		if diff := cmp.Diff(1, len(entries)); diff != "" {
 			t.Fatalf("len(PostToolUse entries) mismatch (-want +got):\n%s", diff)
 		}
-		matcher, ok := entries[0].Matcher().Get()
+		matcher, ok := entries[0].Matcher().Value()
 		if diff := cmp.Diff(true, ok); diff != "" {
 			t.Fatalf("PostToolUse matcher presence mismatch (-want +got):\n%s", diff)
 		}
