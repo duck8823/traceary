@@ -7,11 +7,10 @@ import (
 )
 
 // newTestHooksOptions returns the hook-related options used by the majority
-// of CLI tests. They wire filesystem-backed orchestrator, installer, and
-// inspector implementations while honoring the test's SetUserHomeDirFunc
-// override (the orchestrator and installer call the function at the moment
-// Ensure/Install is invoked, so overrides installed after option
-// construction still apply).
+// of CLI tests. They wire filesystem-backed orchestrator and inspector
+// implementations while honoring the test's SetUserHomeDirFunc override
+// (the orchestrator calls the function at the moment Install is invoked, so
+// overrides installed after option construction still apply).
 func newTestHooksOptions() []cli.RootCLIOption {
 	// Use a closure that always delegates to the package-level
 	// CallUserHomeDirFunc so test overrides installed after this helper is
@@ -26,7 +25,6 @@ func newTestHooksOptions() []cli.RootCLIOption {
 			"codex":  filesystem.NewCodexHooksHandlerWithHomeDirFunc(homeDirFunc),
 			"gemini": filesystem.NewGeminiHooksHandler(),
 		})),
-		cli.WithHookScriptsInstaller(filesystem.NewHookScriptsInstallerWithHomeDirFunc(homeDirFunc)),
 		cli.WithHooksInspector(filesystem.NewHooksInspector()),
 	}
 }

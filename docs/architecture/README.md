@@ -6,7 +6,7 @@ This document records the software architecture rules that Traceary should keep 
 
 ## Why this document exists
 
-Traceary already follows a four-layer structure, but the repository still has a few places where runtime behavior and helper assets blur together. The most visible example is the current hook packaging model: shell scripts under `scripts/hooks/` are embedded into the binary and materialized for users even though Traceary's primary runtime is Go.
+Traceary already follows a four-layer structure, but the repository still has a few places where runtime behavior and helper assets blur together. The most visible example is the hook packaging model: the repository still keeps compatibility shell wrappers under `scripts/hooks/` even though Traceary's primary runtime is Go.
 
 That packaging model works today, but it should be treated as a transitional compatibility path, not as the architectural target. This document defines the target.
 
@@ -87,12 +87,12 @@ If a script is required at runtime, treat it as a temporary compatibility asset 
 
 ## Current exception: packaged hook shell assets
 
-Today the repository still embeds shell assets from `scripts/hooks/` and materializes them for packaged integrations. That is an explicit temporary exception.
+Today the repository still ships compatibility shell wrappers from `scripts/hooks/` as packaged integration assets. That is an explicit temporary exception.
 
 The intended direction is:
 1. move hook runtime behavior into Go subcommands (`traceary hook ...`)
-2. reduce shell assets to thin compatibility wrappers only when still needed
-3. eventually stop treating `scripts/hooks/` as the canonical runtime implementation
+2. keep shell assets only as thin compatibility wrappers when still needed
+3. eventually stop treating `scripts/hooks/` as the canonical source of packaged hook assets
 
 Until that migration lands, reviews should treat `scripts/hooks/` as compatibility infrastructure, not as the place to introduce new business/runtime behavior by default.
 

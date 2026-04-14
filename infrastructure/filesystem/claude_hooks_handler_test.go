@@ -12,11 +12,10 @@ import (
 func TestClaudeHooksHandler_Build(t *testing.T) {
 	t.Parallel()
 
-	scriptsDir := "/home/user/.config/traceary/hook-scripts"
 	tracearyBin := "traceary"
 
 	handler := filesystem.NewClaudeHooksHandler()
-	hooks := handler.Build(scriptsDir, tracearyBin)
+	hooks := handler.Build(tracearyBin)
 
 	wantEventOrder := []string{
 		"SessionStart",
@@ -34,27 +33,39 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 		t.Parallel()
 
 		entries := hooks.Entries("SessionStart")
-		if got, want := len(entries), 2; got != want {
-			t.Fatalf("len(SessionStart entries) = %d, want %d", got, want)
+		if diff := cmp.Diff(2, len(entries)); diff != "" {
+			t.Fatalf("len(SessionStart entries) mismatch (-want +got):\n%s", diff)
 		}
 
 		wildcardMatcher, ok := entries[0].Matcher().Get()
-		if !ok || wildcardMatcher != "*" {
-			t.Fatalf("SessionStart[0] matcher = %q, present=%v, want %q", wildcardMatcher, ok, "*")
+		if diff := cmp.Diff(true, ok); diff != "" {
+			t.Fatalf("SessionStart[0] matcher presence mismatch (-want +got):\n%s", diff)
 		}
-		if got, want := entries[0].Commands()[0].ManagedKey(), "traceary-session.sh:claude:start"; got != want {
-			t.Fatalf("SessionStart[0] managed key = %q, want %q", got, want)
+		if diff := cmp.Diff("*", wildcardMatcher); diff != "" {
+			t.Fatalf("SessionStart[0] matcher mismatch (-want +got):\n%s", diff)
 		}
-		if !strings.Contains(entries[0].Commands()[0].Command(), "traceary-session.sh") {
-			t.Fatalf("SessionStart[0] command does not reference traceary-session.sh: %q", entries[0].Commands()[0].Command())
+		if diff := cmp.Diff("traceary-session.sh:claude:start", entries[0].Commands()[0].ManagedKey()); diff != "" {
+			t.Fatalf("SessionStart[0] managed key mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("traceary-session-start", entries[0].Commands()[0].Name()); diff != "" {
+			t.Fatalf("SessionStart[0] name mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(`'traceary' 'hook' 'session' 'claude' 'start'`, entries[0].Commands()[0].Command()); diff != "" {
+			t.Fatalf("SessionStart[0] command mismatch (-want +got):\n%s", diff)
 		}
 
 		compactMatcher, ok := entries[1].Matcher().Get()
-		if !ok || compactMatcher != "compact" {
-			t.Fatalf("SessionStart[1] matcher = %q, present=%v, want %q", compactMatcher, ok, "compact")
+		if diff := cmp.Diff(true, ok); diff != "" {
+			t.Fatalf("SessionStart[1] matcher presence mismatch (-want +got):\n%s", diff)
 		}
-		if got, want := entries[1].Commands()[0].ManagedKey(), "traceary-compact.sh:claude:session-start-compact"; got != want {
-			t.Fatalf("SessionStart[1] managed key = %q, want %q", got, want)
+		if diff := cmp.Diff("compact", compactMatcher); diff != "" {
+			t.Fatalf("SessionStart[1] matcher mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("traceary-compact.sh:claude:session-start-compact", entries[1].Commands()[0].ManagedKey()); diff != "" {
+			t.Fatalf("SessionStart[1] managed key mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("traceary-compact-session-start", entries[1].Commands()[0].Name()); diff != "" {
+			t.Fatalf("SessionStart[1] name mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -62,11 +73,14 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 		t.Parallel()
 
 		entries := hooks.Entries("PostCompact")
-		if got, want := len(entries), 1; got != want {
-			t.Fatalf("len(PostCompact entries) = %d, want %d", got, want)
+		if diff := cmp.Diff(1, len(entries)); diff != "" {
+			t.Fatalf("len(PostCompact entries) mismatch (-want +got):\n%s", diff)
 		}
-		if got, want := entries[0].Commands()[0].ManagedKey(), "traceary-compact.sh:claude:post-compact"; got != want {
-			t.Fatalf("PostCompact managed key = %q, want %q", got, want)
+		if diff := cmp.Diff("traceary-compact.sh:claude:post-compact", entries[0].Commands()[0].ManagedKey()); diff != "" {
+			t.Fatalf("PostCompact managed key mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("traceary-compact-post-compact", entries[0].Commands()[0].Name()); diff != "" {
+			t.Fatalf("PostCompact name mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -74,19 +88,22 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 		t.Parallel()
 
 		entries := hooks.Entries("PostToolUse")
-		if got, want := len(entries), 2; got != want {
-			t.Fatalf("len(PostToolUse entries) = %d, want %d", got, want)
+		if diff := cmp.Diff(2, len(entries)); diff != "" {
+			t.Fatalf("len(PostToolUse entries) mismatch (-want +got):\n%s", diff)
 		}
 		firstMatcher, _ := entries[0].Matcher().Get()
-		if firstMatcher != "Bash" {
-			t.Fatalf("PostToolUse[0] matcher = %q, want %q", firstMatcher, "Bash")
+		if diff := cmp.Diff("Bash", firstMatcher); diff != "" {
+			t.Fatalf("PostToolUse[0] matcher mismatch (-want +got):\n%s", diff)
 		}
 		secondMatcher, _ := entries[1].Matcher().Get()
-		if secondMatcher != "mcp__.*" {
-			t.Fatalf("PostToolUse[1] matcher = %q, want %q", secondMatcher, "mcp__.*")
+		if diff := cmp.Diff("mcp__.*", secondMatcher); diff != "" {
+			t.Fatalf("PostToolUse[1] matcher mismatch (-want +got):\n%s", diff)
 		}
-		if got, want := entries[0].Commands()[0].ManagedKey(), "traceary-audit.sh:claude"; got != want {
-			t.Fatalf("PostToolUse[0] managed key = %q, want %q", got, want)
+		if diff := cmp.Diff("traceary-audit.sh:claude", entries[0].Commands()[0].ManagedKey()); diff != "" {
+			t.Fatalf("PostToolUse[0] managed key mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("traceary-audit", entries[0].Commands()[0].Name()); diff != "" {
+			t.Fatalf("PostToolUse[0] name mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -94,11 +111,17 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 		t.Parallel()
 
 		entries := hooks.Entries("UserPromptSubmit")
-		if got, want := len(entries), 1; got != want {
-			t.Fatalf("len(UserPromptSubmit entries) = %d, want %d", got, want)
+		if diff := cmp.Diff(1, len(entries)); diff != "" {
+			t.Fatalf("len(UserPromptSubmit entries) mismatch (-want +got):\n%s", diff)
 		}
-		if got, want := entries[0].Commands()[0].ManagedKey(), "traceary-prompt.sh:claude"; got != want {
-			t.Fatalf("UserPromptSubmit managed key = %q, want %q", got, want)
+		if diff := cmp.Diff("traceary-prompt.sh:claude", entries[0].Commands()[0].ManagedKey()); diff != "" {
+			t.Fatalf("UserPromptSubmit managed key mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("traceary-prompt", entries[0].Commands()[0].Name()); diff != "" {
+			t.Fatalf("UserPromptSubmit name mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(true, strings.Contains(entries[0].Commands()[0].Command(), "'hook' 'prompt' 'claude'")); diff != "" {
+			t.Fatalf("UserPromptSubmit command mismatch (-want +got):\n%s", diff)
 		}
 	})
 }

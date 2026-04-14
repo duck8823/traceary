@@ -7,7 +7,7 @@
           {
             "name": "traceary-session-start",
             "type": "command",
-            "command": "bash \"${extensionPath}/scripts/traceary-session.sh\" gemini start",
+            "command": "'traceary' 'hook' 'session' 'gemini' 'start'",
             "timeout": 5000,
             "description": "Start a Traceary session"
           }
@@ -21,7 +21,7 @@
           {
             "name": "traceary-session-end",
             "type": "command",
-            "command": "bash \"${extensionPath}/scripts/traceary-session.sh\" gemini end",
+            "command": "'traceary' 'hook' 'session' 'gemini' 'end'",
             "timeout": 5000,
             "description": "Finish a Traceary session"
           }
@@ -35,7 +35,7 @@
           {
             "name": "traceary-audit",
             "type": "command",
-            "command": "bash \"${extensionPath}/scripts/traceary-audit.sh\" gemini",
+            "command": "'traceary' 'hook' 'audit' 'gemini'",
             "timeout": 5000,
             "description": "Record tool execution audits in Traceary"
           }

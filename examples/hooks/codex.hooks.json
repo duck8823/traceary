@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash /absolute/path/to/traceary/scripts/hooks/traceary-session.sh codex start"
+            "command": "'traceary' 'hook' 'session' 'codex' 'start'"
           }
         ]
       }
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash /absolute/path/to/traceary/scripts/hooks/traceary-session.sh codex stop"
+            "command": "'traceary' 'hook' 'session' 'codex' 'stop'"
           }
         ]
       }
@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash /absolute/path/to/traceary/scripts/hooks/traceary-audit.sh codex"
+            "command": "'traceary' 'hook' 'audit' 'codex'"
           }
         ]
       }

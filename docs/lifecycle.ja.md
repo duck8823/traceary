@@ -71,11 +71,9 @@ AI クライアント (Claude Code / Codex CLI / Gemini CLI)
   ├─ Hook / Extension イベント
   │    │
   │    ▼
-  │  traceary-*.sh (bash スクリプト: ~/.config/traceary/hook-scripts/)
+  │  traceary hook ... （隠し Go runtime entrypoint）
   │    │
-  │    ▼
-  │  traceary CLI (log / audit / session start|end)
-  │    │
+  │    ├─ packaged shell wrapper（必要な配布物だけの互換レイヤー）
   │    ▼
   │  SQLite (~/.config/traceary/traceary.db)
   │
@@ -89,8 +87,8 @@ AI クライアント (Claude Code / Codex CLI / Gemini CLI)
 
 | スクリプト | 用途 | 対応クライアント |
 |------------|------|------------------|
-| `traceary-session.sh` | セッション開始・終了の記録 | 全クライアント |
-| `traceary-audit.sh` | コマンド・ツール監査の記録 | 全クライアント |
-| `traceary-compact.sh` | compact サマリーの記録 | Claude Code |
-| `traceary-prompt.sh` | ユーザー prompt の記録 | Claude Code |
-| `common.sh` | 共通ヘルパー関数 | 全クライアント |
+| `traceary hook session <client> <start|end|stop>` | セッション開始・終了の記録 | 全クライアント |
+| `traceary hook audit <client>` | コマンド・ツール監査の記録 | 全クライアント |
+| `traceary hook compact <client> <post-compact|session-start-compact>` | compact サマリーの記録 / compact resume 出力 | Claude Code |
+| `traceary hook prompt <client>` | ユーザー prompt の記録 | Claude Code |
+| `scripts/hooks/` 配下の shell wrapper | `traceary hook ...` へ転送する互換レイヤー | packaged integration / 既存導入環境 |

@@ -23,7 +23,6 @@
 | Variable | Purpose |
 | --- | --- |
 | `TRACEARY_BIN` | generated hooks が使う `traceary` binary path を上書きする |
-| `TRACEARY_HOOK_SCRIPTS_DIR` | portable hook script の書き出し先を上書きする |
 | `TRACEARY_HOOK_STATE_DIR` | hook session state の一時保存先 directory を上書きする |
 | `TRACEARY_HOOK_STATE_KEY` | 既定 key が合わないときに process ごとの state key を上書きする |
 

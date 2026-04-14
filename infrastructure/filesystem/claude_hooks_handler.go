@@ -19,15 +19,13 @@ func NewClaudeHooksHandler() *ClaudeHooksHandler {
 func (h *ClaudeHooksHandler) Name() string { return "claude" }
 
 // Build returns the Hooks aggregate Traceary installs for Claude Code.
-// scriptsDir is the directory that contains the hook scripts and
-// tracearyBin is the command or path used to launch the traceary binary.
-func (h *ClaudeHooksHandler) Build(scriptsDir string, tracearyBin string) model.Hooks {
-	sessionStartCommand := newHookScriptCommand(scriptsDir, tracearyBin, "traceary-session.sh", "claude", "start")
-	sessionEndCommand := newHookScriptCommand(scriptsDir, tracearyBin, "traceary-session.sh", "claude", "end")
-	auditCommand := newHookScriptCommand(scriptsDir, tracearyBin, "traceary-audit.sh", "claude")
-	compactCommand := newHookScriptCommand(scriptsDir, tracearyBin, "traceary-compact.sh", "claude", "post-compact")
-	compactResumeCommand := newHookScriptCommand(scriptsDir, tracearyBin, "traceary-compact.sh", "claude", "session-start-compact")
-	promptCommand := newHookScriptCommand(scriptsDir, tracearyBin, "traceary-prompt.sh", "claude")
+func (h *ClaudeHooksHandler) Build(tracearyBin string) model.Hooks {
+	sessionStartCommand := newHookRuntimeCommand(tracearyBin, "hook", "session", "claude", "start")
+	sessionEndCommand := newHookRuntimeCommand(tracearyBin, "hook", "session", "claude", "end")
+	auditCommand := newHookRuntimeCommand(tracearyBin, "hook", "audit", "claude")
+	compactCommand := newHookRuntimeCommand(tracearyBin, "hook", "compact", "claude", "post-compact")
+	compactResumeCommand := newHookRuntimeCommand(tracearyBin, "hook", "compact", "claude", "session-start-compact")
+	promptCommand := newHookRuntimeCommand(tracearyBin, "hook", "prompt", "claude")
 
 	eventOrder := []string{
 		"SessionStart",
@@ -40,41 +38,41 @@ func (h *ClaudeHooksHandler) Build(scriptsDir string, tracearyBin string) model.
 	events := map[string][]model.HookEntry{
 		"SessionStart": {
 			model.HookEntryOf(types.Of("*"), []model.HookCommand{
-				model.HookCommandOf("", "command", sessionStartCommand, types.Empty[int](), "", managedKeyOf("traceary-session.sh", "claude", "start")),
+				model.HookCommandOf("traceary-session-start", "command", sessionStartCommand, types.Empty[int](), "", managedKeyOf("traceary-session.sh", "claude", "start")),
 			}),
 			model.HookEntryOf(types.Of("compact"), []model.HookCommand{
-				model.HookCommandOf("", "command", compactResumeCommand, types.Empty[int](), "", managedKeyOf("traceary-compact.sh", "claude", "session-start-compact")),
+				model.HookCommandOf("traceary-compact-session-start", "command", compactResumeCommand, types.Empty[int](), "", managedKeyOf("traceary-compact.sh", "claude", "session-start-compact")),
 			}),
 		},
 		"SessionEnd": {
 			model.HookEntryOf(types.Of("*"), []model.HookCommand{
-				model.HookCommandOf("", "command", sessionEndCommand, types.Empty[int](), "", managedKeyOf("traceary-session.sh", "claude", "end")),
+				model.HookCommandOf("traceary-session-end", "command", sessionEndCommand, types.Empty[int](), "", managedKeyOf("traceary-session.sh", "claude", "end")),
 			}),
 		},
 		"PostToolUse": {
 			model.HookEntryOf(types.Of("Bash"), []model.HookCommand{
-				model.HookCommandOf("", "command", auditCommand, types.Empty[int](), "", managedKeyOf("traceary-audit.sh", "claude")),
+				model.HookCommandOf("traceary-audit", "command", auditCommand, types.Empty[int](), "", managedKeyOf("traceary-audit.sh", "claude")),
 			}),
 			model.HookEntryOf(types.Of("mcp__.*"), []model.HookCommand{
-				model.HookCommandOf("", "command", auditCommand, types.Empty[int](), "", managedKeyOf("traceary-audit.sh", "claude")),
+				model.HookCommandOf("traceary-audit", "command", auditCommand, types.Empty[int](), "", managedKeyOf("traceary-audit.sh", "claude")),
 			}),
 		},
 		"PostToolUseFailure": {
 			model.HookEntryOf(types.Of("Bash"), []model.HookCommand{
-				model.HookCommandOf("", "command", auditCommand, types.Empty[int](), "", managedKeyOf("traceary-audit.sh", "claude")),
+				model.HookCommandOf("traceary-audit", "command", auditCommand, types.Empty[int](), "", managedKeyOf("traceary-audit.sh", "claude")),
 			}),
 			model.HookEntryOf(types.Of("mcp__.*"), []model.HookCommand{
-				model.HookCommandOf("", "command", auditCommand, types.Empty[int](), "", managedKeyOf("traceary-audit.sh", "claude")),
+				model.HookCommandOf("traceary-audit", "command", auditCommand, types.Empty[int](), "", managedKeyOf("traceary-audit.sh", "claude")),
 			}),
 		},
 		"PostCompact": {
 			model.HookEntryOf(types.Of("*"), []model.HookCommand{
-				model.HookCommandOf("", "command", compactCommand, types.Empty[int](), "", managedKeyOf("traceary-compact.sh", "claude", "post-compact")),
+				model.HookCommandOf("traceary-compact-post-compact", "command", compactCommand, types.Empty[int](), "", managedKeyOf("traceary-compact.sh", "claude", "post-compact")),
 			}),
 		},
 		"UserPromptSubmit": {
 			model.HookEntryOf(types.Of("*"), []model.HookCommand{
-				model.HookCommandOf("", "command", promptCommand, types.Empty[int](), "", managedKeyOf("traceary-prompt.sh", "claude")),
+				model.HookCommandOf("traceary-prompt", "command", promptCommand, types.Empty[int](), "", managedKeyOf("traceary-prompt.sh", "claude")),
 			}),
 		},
 	}

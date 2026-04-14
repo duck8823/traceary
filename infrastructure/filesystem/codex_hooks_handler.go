@@ -30,28 +30,26 @@ func NewCodexHooksHandlerWithHomeDirFunc(userHomeDir func() (string, error)) *Co
 func (h *CodexHooksHandler) Name() string { return "codex" }
 
 // Build returns the Hooks aggregate Traceary installs for Codex CLI.
-// scriptsDir is the directory that contains the hook scripts and
-// tracearyBin is the command or path used to launch the traceary binary.
-func (h *CodexHooksHandler) Build(scriptsDir string, tracearyBin string) model.Hooks {
-	sessionStartCommand := newHookScriptCommand(scriptsDir, tracearyBin, "traceary-session.sh", "codex", "start")
-	sessionStopCommand := newHookScriptCommand(scriptsDir, tracearyBin, "traceary-session.sh", "codex", "stop")
-	auditCommand := newHookScriptCommand(scriptsDir, tracearyBin, "traceary-audit.sh", "codex")
+func (h *CodexHooksHandler) Build(tracearyBin string) model.Hooks {
+	sessionStartCommand := newHookRuntimeCommand(tracearyBin, "hook", "session", "codex", "start")
+	sessionStopCommand := newHookRuntimeCommand(tracearyBin, "hook", "session", "codex", "stop")
+	auditCommand := newHookRuntimeCommand(tracearyBin, "hook", "audit", "codex")
 
 	eventOrder := []string{"SessionStart", "Stop", "PostToolUse"}
 	events := map[string][]model.HookEntry{
 		"SessionStart": {
 			model.HookEntryOf(types.Empty[string](), []model.HookCommand{
-				model.HookCommandOf("", "command", sessionStartCommand, types.Empty[int](), "", managedKeyOf("traceary-session.sh", "codex", "start")),
+				model.HookCommandOf("traceary-session-start", "command", sessionStartCommand, types.Empty[int](), "", managedKeyOf("traceary-session.sh", "codex", "start")),
 			}),
 		},
 		"Stop": {
 			model.HookEntryOf(types.Empty[string](), []model.HookCommand{
-				model.HookCommandOf("", "command", sessionStopCommand, types.Empty[int](), "", managedKeyOf("traceary-session.sh", "codex", "stop")),
+				model.HookCommandOf("traceary-session-stop", "command", sessionStopCommand, types.Empty[int](), "", managedKeyOf("traceary-session.sh", "codex", "stop")),
 			}),
 		},
 		"PostToolUse": {
 			model.HookEntryOf(types.Of(""), []model.HookCommand{
-				model.HookCommandOf("", "command", auditCommand, types.Empty[int](), "", managedKeyOf("traceary-audit.sh", "codex")),
+				model.HookCommandOf("traceary-audit", "command", auditCommand, types.Empty[int](), "", managedKeyOf("traceary-audit.sh", "codex")),
 			}),
 		},
 	}

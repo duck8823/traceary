@@ -4,11 +4,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
-func TestGolden_SessionStartOutput(t *testing.T) {
+func TestGolden_SessionStartDelegation(t *testing.T) {
 	t.Parallel()
 
 	tempDir := t.TempDir()
@@ -16,16 +17,10 @@ func TestGolden_SessionStartOutput(t *testing.T) {
 	fakeTracearyPath := filepath.Join(tempDir, "traceary")
 	writeFakeTraceary(t, fakeTracearyPath)
 
-	homeDir := filepath.Join(tempDir, "home")
-	if err := os.MkdirAll(homeDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
-	}
-
 	env := append(os.Environ(),
 		"TRACEARY_BIN="+fakeTracearyPath,
 		"TRACEARY_FAKE_LOG="+fakeLogPath,
-		"TRACEARY_WORKSPACE=golden-repo",
-		"HOME="+homeDir,
+		"TRACEARY_FAKE_SESSION_OUTPUT=golden-session\n",
 	)
 
 	inputData, err := os.ReadFile("testdata/session_start_input.json")
@@ -33,8 +28,12 @@ func TestGolden_SessionStartOutput(t *testing.T) {
 		t.Fatalf("ReadFile(input) error = %v", err)
 	}
 
-	if err := runHookScript(t, filepath.Join(".", "traceary-session.sh"), env, string(inputData), "claude", "start"); err != nil {
-		t.Fatalf("runHookScript(start) error = %v", err)
+	stdout, err := runHookScriptCapture(t, filepath.Join(".", "traceary-session.sh"), env, string(inputData), "claude", "start")
+	if err != nil {
+		t.Fatalf("runHookScriptCapture(start) error = %v", err)
+	}
+	if diff := cmp.Diff("golden-session\n", stdout); diff != "" {
+		t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 	}
 
 	calls := readLoggedCalls(t, fakeLogPath)
@@ -52,7 +51,7 @@ func TestGolden_SessionStartOutput(t *testing.T) {
 		t.Fatalf("Unmarshal(expected) error = %v", err)
 	}
 
-	if !reflect.DeepEqual(calls[0], expected) {
-		t.Fatalf("golden mismatch:\n  got:  %#v\n  want: %#v", calls[0], expected)
+	if diff := cmp.Diff(expected, calls[0]); diff != "" {
+		t.Fatalf("golden mismatch (-want +got):\n%s", diff)
 	}
 }

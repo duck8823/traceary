@@ -7,14 +7,15 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
 type doctorReport struct {
-	DBPath         string            `json:"db_path"`
-	HookScriptsDir string            `json:"hook_scripts_dir"`
-	Clients        []string          `json:"clients"`
-	Checks         []doctorCheck `json:"checks"`
+	DBPath  string        `json:"db_path"`
+	Clients []string      `json:"clients"`
+	Checks  []doctorCheck `json:"checks"`
 }
 
 type doctorCheck struct {
@@ -26,8 +27,6 @@ type doctorCheck struct {
 func TestRootCLI_DoctorCommand(t *testing.T) {
 	projectDir := t.TempDir()
 	homeDir := t.TempDir()
-	scriptsDir := filepath.Join(t.TempDir(), "hook-scripts")
-	t.Setenv("TRACEARY_HOOK_SCRIPTS_DIR", scriptsDir)
 	t.Setenv("HOME", homeDir)
 	cli.SetUserHomeDirFunc(func() (string, error) {
 		return homeDir, nil
@@ -40,30 +39,38 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{
-			"doctor",
-			"--project-dir", projectDir,
-			"--json",
-		})
+		rootCmd.SetArgs([]string{"doctor", "--project-dir", projectDir, "--json"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
 
-		var report doctorReport
-		if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
-			t.Fatalf("json.Unmarshal() error = %v", err)
-		}
-		if len(report.Clients) != 3 {
-			t.Fatalf("len(report.Clients) = %d, want 3", len(report.Clients))
+		report := decodeDoctorReport(t, stdout.Bytes())
+		if diff := cmp.Diff([]string{"claude", "codex", "gemini"}, report.Clients); diff != "" {
+			t.Fatalf("report.Clients mismatch (-want +got):\n%s", diff)
 		}
 		if !initStub.initCalled {
 			t.Fatalf("initCalled = false, want true")
 		}
-		assertDoctorCheckStatus(t, report.Checks, "config", "pass")
-		assertDoctorCheckStatus(t, report.Checks, "claude-config", "warn")
-		assertDoctorCheckStatus(t, report.Checks, "codex-config", "warn")
-		assertDoctorCheckStatus(t, report.Checks, "gemini-config", "warn")
+		gotStatuses := map[string]string{}
+		for _, check := range report.Checks {
+			gotStatuses[check.Name] = check.Status
+		}
+		gotSubset := map[string]string{
+			"config":        gotStatuses["config"],
+			"claude-config": gotStatuses["claude-config"],
+			"codex-config":  gotStatuses["codex-config"],
+			"gemini-config": gotStatuses["gemini-config"],
+		}
+		wantStatuses := map[string]string{
+			"config":        "pass",
+			"claude-config": "warn",
+			"codex-config":  "warn",
+			"gemini-config": "warn",
+		}
+		if diff := cmp.Diff(wantStatuses, gotSubset); diff != "" {
+			t.Fatalf("doctor statuses mismatch (-want +got):\n%s", diff)
+		}
 	})
 
 	t.Run("specific client without config warns", func(t *testing.T) {
@@ -72,54 +79,28 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{
-			"doctor",
-			"--client", "claude",
-			"--project-dir", projectDir,
-			"--json",
-		})
+		rootCmd.SetArgs([]string{"doctor", "--client", "claude", "--project-dir", projectDir, "--json"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
 
-		var report doctorReport
-		if unmarshalErr := json.Unmarshal(stdout.Bytes(), &report); unmarshalErr != nil {
-			t.Fatalf("json.Unmarshal() error = %v", unmarshalErr)
+		report := decodeDoctorReport(t, stdout.Bytes())
+		gotStatuses := map[string]string{}
+		for _, check := range report.Checks {
+			gotStatuses[check.Name] = check.Status
 		}
-		assertDoctorCheckStatus(t, report.Checks, "config", "pass")
-		assertDoctorCheckStatus(t, report.Checks, "claude-config", "warn")
-	})
-
-	t.Run("hook script materialization issues warn instead of failing", func(t *testing.T) {
-		initStub := &storeManagementUsecaseStub{}
-		blockedPath := filepath.Join(t.TempDir(), "blocked")
-		if err := os.WriteFile(blockedPath, []byte("not-a-directory"), 0o644); err != nil {
-			t.Fatalf("WriteFile() error = %v", err)
+		gotSubset := map[string]string{
+			"config":        gotStatuses["config"],
+			"claude-config": gotStatuses["claude-config"],
 		}
-		t.Setenv("TRACEARY_HOOK_SCRIPTS_DIR", blockedPath)
-
-		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
-		stdout := &bytes.Buffer{}
-		rootCmd.SetOut(stdout)
-		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{
-			"doctor",
-			"--client", "claude",
-			"--project-dir", projectDir,
-			"--json",
-		})
-
-		if err := rootCmd.Execute(); err != nil {
-			t.Fatalf("Execute() error = %v", err)
+		wantStatuses := map[string]string{
+			"config":        "pass",
+			"claude-config": "warn",
 		}
-
-		var report doctorReport
-		if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
-			t.Fatalf("json.Unmarshal() error = %v", err)
+		if diff := cmp.Diff(wantStatuses, gotSubset); diff != "" {
+			t.Fatalf("doctor statuses mismatch (-want +got):\n%s", diff)
 		}
-		assertDoctorCheckStatus(t, report.Checks, "config", "pass")
-		assertDoctorCheckStatus(t, report.Checks, "hook-scripts", "warn")
 	})
 
 	t.Run("existing Traceary config passes", func(t *testing.T) {
@@ -142,7 +123,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
         "hooks": [
           {
             "type": "command",
-            "command": "bash '/tmp/scripts/traceary-session.sh' 'claude' 'start'"
+            "command": "'traceary' 'hook' 'session' 'claude' 'start'"
           }
         ]
       }
@@ -158,25 +139,27 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{
-			"doctor",
-			"--client", "claude",
-			"--project-dir", projectDir,
-			"--json",
-		})
+		rootCmd.SetArgs([]string{"doctor", "--client", "claude", "--project-dir", projectDir, "--json"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
 
-		var report doctorReport
-		if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
-			t.Fatalf("json.Unmarshal() error = %v", err)
+		report := decodeDoctorReport(t, stdout.Bytes())
+		gotStatuses := map[string]string{}
+		for _, check := range report.Checks {
+			gotStatuses[check.Name] = check.Status
 		}
-		assertDoctorCheckStatus(t, report.Checks, "config", "pass")
-		assertDoctorCheckStatus(t, report.Checks, "claude-config", "pass")
-		if report.HookScriptsDir == "" {
-			t.Fatalf("HookScriptsDir = empty, want non-empty")
+		gotSubset := map[string]string{
+			"config":        gotStatuses["config"],
+			"claude-config": gotStatuses["claude-config"],
+		}
+		wantStatuses := map[string]string{
+			"config":        "pass",
+			"claude-config": "pass",
+		}
+		if diff := cmp.Diff(wantStatuses, gotSubset); diff != "" {
+			t.Fatalf("doctor statuses mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -194,37 +177,30 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{
-			"doctor",
-			"--client", "claude",
-			"--project-dir", projectDir,
-			"--json",
-		})
+		rootCmd.SetArgs([]string{"doctor", "--client", "claude", "--project-dir", projectDir, "--json"})
 
 		err := rootCmd.Execute()
 		if err == nil {
 			t.Fatalf("Execute() error = nil, want non-nil")
 		}
 
-		var report doctorReport
-		if unmarshalErr := json.Unmarshal(stdout.Bytes(), &report); unmarshalErr != nil {
-			t.Fatalf("json.Unmarshal() error = %v", unmarshalErr)
+		report := decodeDoctorReport(t, stdout.Bytes())
+		gotStatuses := map[string]string{}
+		for _, check := range report.Checks {
+			gotStatuses[check.Name] = check.Status
 		}
-		assertDoctorCheckStatus(t, report.Checks, "config", "fail")
+		if diff := cmp.Diff(map[string]string{"config": "fail"}, map[string]string{"config": gotStatuses["config"]}); diff != "" {
+			t.Fatalf("doctor statuses mismatch (-want +got):\n%s", diff)
+		}
 	})
 }
 
-func assertDoctorCheckStatus(t *testing.T, checks []doctorCheck, name string, want string) {
+func decodeDoctorReport(t *testing.T, data []byte) doctorReport {
 	t.Helper()
 
-	for _, check := range checks {
-		if check.Name == name {
-			if check.Status != want {
-				t.Fatalf("check %s status = %q, want %q", name, check.Status, want)
-			}
-			return
-		}
+	var report doctorReport
+	if err := json.Unmarshal(data, &report); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
-
-	t.Fatalf("check %s not found", name)
+	return report
 }

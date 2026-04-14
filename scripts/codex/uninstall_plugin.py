@@ -3,12 +3,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import shutil
 from pathlib import Path
 
 PLUGIN_NAME = 'traceary'
 MARKETPLACE_NAME = 'local-traceary-plugins'
 PLUGIN_ID = f'{PLUGIN_NAME}@{MARKETPLACE_NAME}'
+TRACEARY_CODEX_HOOK_NAMES = {
+    'traceary-session-start',
+    'traceary-session-stop',
+    'traceary-audit',
+}
 
 
 def load_marketplace(path: Path) -> dict:
@@ -88,8 +94,47 @@ def remove_toml_table(text: str, header: str) -> str:
     return normalize_toml_text(lines)
 
 
-def is_traceary_codex_hook(command: str) -> bool:
-    return ('traceary-session.sh' in command or 'traceary-audit.sh' in command) and 'codex' in command
+def is_legacy_traceary_binary(token: str) -> bool:
+    """Return true for pre-name direct hooks that used the default `traceary` basename."""
+    return Path(token.strip()).name == 'traceary'
+
+
+def is_traceary_script(token: str, script_name: str) -> bool:
+    return Path(token.strip()).name == script_name
+
+
+def is_traceary_codex_session_hook(tokens: list[str], index: int) -> bool:
+    return len(tokens) == index + 3 and tokens[index + 1] == 'codex' and tokens[index + 2] in {'start', 'stop'}
+
+
+def is_legacy_traceary_codex_direct_hook(tokens: list[str]) -> bool:
+    """Match legacy direct hooks that predate explicit Traceary hook names."""
+    if len(tokens) == 5 and is_legacy_traceary_binary(tokens[0]):
+        return tokens[1] == 'hook' and tokens[2] == 'session' and tokens[3] == 'codex' and tokens[4] in {'start', 'stop'}
+    if len(tokens) == 4 and is_legacy_traceary_binary(tokens[0]):
+        return tokens[1] == 'hook' and tokens[2] == 'audit' and tokens[3] == 'codex'
+    return False
+
+
+def is_traceary_codex_script_hook(tokens: list[str]) -> bool:
+    for index, token in enumerate(tokens):
+        if is_traceary_script(token, 'traceary-session.sh') and is_traceary_codex_session_hook(tokens, index):
+            return True
+        if is_traceary_script(token, 'traceary-audit.sh') and len(tokens) == index + 2 and tokens[index + 1] == 'codex':
+            return True
+    return False
+
+
+def is_traceary_codex_hook(hook: dict) -> bool:
+    if hook.get('name') in TRACEARY_CODEX_HOOK_NAMES:
+        return True
+
+    command = str(hook.get('command', ''))
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return False
+    return is_traceary_codex_script_hook(tokens) or is_legacy_traceary_codex_direct_hook(tokens)
 
 
 def remove_traceary_hooks(hooks_path: Path) -> bool:
@@ -101,7 +146,7 @@ def remove_traceary_hooks(hooks_path: Path) -> bool:
         cleaned_matchers = []
         for matcher in matchers:
             matcher_hooks = matcher.get('hooks', [])
-            remaining = [hook for hook in matcher_hooks if not is_traceary_codex_hook(str(hook.get('command', '')))]
+            remaining = [hook for hook in matcher_hooks if not is_traceary_codex_hook(hook)]
             if remaining:
                 updated = dict(matcher)
                 updated['hooks'] = remaining

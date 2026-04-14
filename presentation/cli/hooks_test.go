@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
@@ -30,93 +32,82 @@ type printedHookCommand struct {
 
 func TestRootCLI_HooksPrintCommand(t *testing.T) {
 	tracearyBin := filepath.Join("/tmp", "traceary bin", "traceary")
-	scriptsDir := filepath.Join(t.TempDir(), "hook scripts")
-	t.Setenv("TRACEARY_HOOK_SCRIPTS_DIR", scriptsDir)
 
 	t.Run("prints Claude hook settings", func(t *testing.T) {
 		settings := executeHooksPrint(t, "claude", tracearyBin)
-		if got, want := *settings.Hooks["SessionStart"][0].Matcher, "*"; got != want {
-			t.Fatalf("SessionStart matcher = %q, want %q", got, want)
+		if diff := cmp.Diff("*", *settings.Hooks["SessionStart"][0].Matcher); diff != "" {
+			t.Fatalf("SessionStart matcher mismatch (-want +got):\n%s", diff)
 		}
-		if got, want := settings.Hooks["SessionStart"][0].Hooks[0].Command,
-			`TRACEARY_BIN='/tmp/traceary bin/traceary' bash '`+filepath.Join(scriptsDir, "traceary-session.sh")+`' 'claude' 'start'`; got != want {
-			t.Fatalf("SessionStart command = %q, want %q", got, want)
+		if diff := cmp.Diff(`'/tmp/traceary bin/traceary' 'hook' 'session' 'claude' 'start'`, settings.Hooks["SessionStart"][0].Hooks[0].Command); diff != "" {
+			t.Fatalf("SessionStart command mismatch (-want +got):\n%s", diff)
 		}
-		if got, want := *settings.Hooks["SessionStart"][1].Matcher, "compact"; got != want {
-			t.Fatalf("SessionStart[1] matcher = %q, want %q", got, want)
+		if diff := cmp.Diff("compact", *settings.Hooks["SessionStart"][1].Matcher); diff != "" {
+			t.Fatalf("SessionStart[1] matcher mismatch (-want +got):\n%s", diff)
 		}
-		if got, want := settings.Hooks["SessionStart"][1].Hooks[0].Command,
-			`TRACEARY_BIN='/tmp/traceary bin/traceary' bash '`+filepath.Join(scriptsDir, "traceary-compact.sh")+`' 'claude' 'session-start-compact'`; got != want {
-			t.Fatalf("SessionStart[1] command = %q, want %q", got, want)
+		if diff := cmp.Diff(`'/tmp/traceary bin/traceary' 'hook' 'compact' 'claude' 'session-start-compact'`, settings.Hooks["SessionStart"][1].Hooks[0].Command); diff != "" {
+			t.Fatalf("SessionStart[1] command mismatch (-want +got):\n%s", diff)
 		}
-		if got, want := *settings.Hooks["PostToolUse"][1].Matcher, "mcp__.*"; got != want {
-			t.Fatalf("PostToolUse[1] matcher = %q, want %q", got, want)
+		if diff := cmp.Diff("mcp__.*", *settings.Hooks["PostToolUse"][1].Matcher); diff != "" {
+			t.Fatalf("PostToolUse[1] matcher mismatch (-want +got):\n%s", diff)
 		}
-		if got, want := settings.Hooks["PostToolUseFailure"][0].Hooks[0].Command,
-			`TRACEARY_BIN='/tmp/traceary bin/traceary' bash '`+filepath.Join(scriptsDir, "traceary-audit.sh")+`' 'claude'`; got != want {
-			t.Fatalf("PostToolUseFailure command = %q, want %q", got, want)
+		if diff := cmp.Diff(`'/tmp/traceary bin/traceary' 'hook' 'audit' 'claude'`, settings.Hooks["PostToolUseFailure"][0].Hooks[0].Command); diff != "" {
+			t.Fatalf("PostToolUseFailure command mismatch (-want +got):\n%s", diff)
 		}
-		if got, want := *settings.Hooks["PostToolUseFailure"][1].Matcher, "mcp__.*"; got != want {
-			t.Fatalf("PostToolUseFailure[1] matcher = %q, want %q", got, want)
+		if diff := cmp.Diff("mcp__.*", *settings.Hooks["PostToolUseFailure"][1].Matcher); diff != "" {
+			t.Fatalf("PostToolUseFailure[1] matcher mismatch (-want +got):\n%s", diff)
 		}
-		if got, want := *settings.Hooks["PostCompact"][0].Matcher, "*"; got != want {
-			t.Fatalf("PostCompact matcher = %q, want %q", got, want)
+		if diff := cmp.Diff("*", *settings.Hooks["PostCompact"][0].Matcher); diff != "" {
+			t.Fatalf("PostCompact matcher mismatch (-want +got):\n%s", diff)
 		}
-		if got, want := settings.Hooks["PostCompact"][0].Hooks[0].Command,
-			`TRACEARY_BIN='/tmp/traceary bin/traceary' bash '`+filepath.Join(scriptsDir, "traceary-compact.sh")+`' 'claude' 'post-compact'`; got != want {
-			t.Fatalf("PostCompact command = %q, want %q", got, want)
+		if diff := cmp.Diff(`'/tmp/traceary bin/traceary' 'hook' 'compact' 'claude' 'post-compact'`, settings.Hooks["PostCompact"][0].Hooks[0].Command); diff != "" {
+			t.Fatalf("PostCompact command mismatch (-want +got):\n%s", diff)
 		}
-		if got, want := *settings.Hooks["UserPromptSubmit"][0].Matcher, "*"; got != want {
-			t.Fatalf("UserPromptSubmit matcher = %q, want %q", got, want)
+		if diff := cmp.Diff("*", *settings.Hooks["UserPromptSubmit"][0].Matcher); diff != "" {
+			t.Fatalf("UserPromptSubmit matcher mismatch (-want +got):\n%s", diff)
 		}
-		if got, want := settings.Hooks["UserPromptSubmit"][0].Hooks[0].Command,
-			`TRACEARY_BIN='/tmp/traceary bin/traceary' bash '`+filepath.Join(scriptsDir, "traceary-prompt.sh")+`' 'claude'`; got != want {
-			t.Fatalf("UserPromptSubmit command = %q, want %q", got, want)
+		if diff := cmp.Diff(`'/tmp/traceary bin/traceary' 'hook' 'prompt' 'claude'`, settings.Hooks["UserPromptSubmit"][0].Hooks[0].Command); diff != "" {
+			t.Fatalf("UserPromptSubmit command mismatch (-want +got):\n%s", diff)
 		}
-		assertInstalledHookScripts(t, scriptsDir)
 	})
 
 	t.Run("prints settings with Claude Code alias", func(t *testing.T) {
 		settings := executeHooksPrint(t, "claude-code", tracearyBin)
-		if got, want := settings.Hooks["SessionStart"][0].Hooks[0].Command,
-			`TRACEARY_BIN='/tmp/traceary bin/traceary' bash '`+filepath.Join(scriptsDir, "traceary-session.sh")+`' 'claude' 'start'`; got != want {
-			t.Fatalf("SessionStart command = %q, want %q", got, want)
+		if diff := cmp.Diff(`'/tmp/traceary bin/traceary' 'hook' 'session' 'claude' 'start'`, settings.Hooks["SessionStart"][0].Hooks[0].Command); diff != "" {
+			t.Fatalf("SessionStart command mismatch (-want +got):\n%s", diff)
 		}
 	})
 
 	t.Run("prints Codex hook settings", func(t *testing.T) {
 		settings := executeHooksPrint(t, "codex", tracearyBin)
-		if settings.Hooks["SessionStart"][0].Matcher != nil {
-			t.Fatalf("SessionStart matcher = %v, want nil", settings.Hooks["SessionStart"][0].Matcher)
+		if diff := cmp.Diff((*string)(nil), settings.Hooks["SessionStart"][0].Matcher); diff != "" {
+			t.Fatalf("SessionStart matcher mismatch (-want +got):\n%s", diff)
 		}
-		if got, want := *settings.Hooks["PostToolUse"][0].Matcher, ""; got != want {
-			t.Fatalf("PostToolUse matcher = %q, want %q", got, want)
+		if diff := cmp.Diff("", *settings.Hooks["PostToolUse"][0].Matcher); diff != "" {
+			t.Fatalf("PostToolUse matcher mismatch (-want +got):\n%s", diff)
 		}
-		if got, want := settings.Hooks["Stop"][0].Hooks[0].Command,
-			`TRACEARY_BIN='/tmp/traceary bin/traceary' bash '`+filepath.Join(scriptsDir, "traceary-session.sh")+`' 'codex' 'stop'`; got != want {
-			t.Fatalf("Stop command = %q, want %q", got, want)
+		if diff := cmp.Diff(`'/tmp/traceary bin/traceary' 'hook' 'session' 'codex' 'stop'`, settings.Hooks["Stop"][0].Hooks[0].Command); diff != "" {
+			t.Fatalf("Stop command mismatch (-want +got):\n%s", diff)
 		}
 	})
 
 	t.Run("prints Gemini hook settings", func(t *testing.T) {
 		settings := executeHooksPrint(t, "gemini", tracearyBin)
-		if got, want := *settings.Hooks["AfterTool"][0].Matcher, "run_shell_command"; got != want {
-			t.Fatalf("AfterTool matcher = %q, want %q", got, want)
+		if diff := cmp.Diff("run_shell_command", *settings.Hooks["AfterTool"][0].Matcher); diff != "" {
+			t.Fatalf("AfterTool matcher mismatch (-want +got):\n%s", diff)
 		}
 		gotHook := settings.Hooks["SessionStart"][0].Hooks[0]
-		if got, want := gotHook.Name, "traceary-session-start"; got != want {
-			t.Fatalf("SessionStart hook name = %q, want %q", got, want)
+		if diff := cmp.Diff("traceary-session-start", gotHook.Name); diff != "" {
+			t.Fatalf("SessionStart hook name mismatch (-want +got):\n%s", diff)
 		}
-		if got, want := gotHook.Timeout, 5000; got != want {
-			t.Fatalf("SessionStart hook timeout = %d, want %d", got, want)
+		if diff := cmp.Diff(5000, gotHook.Timeout); diff != "" {
+			t.Fatalf("SessionStart hook timeout mismatch (-want +got):\n%s", diff)
 		}
 	})
 
 	t.Run("uses stable command name when traceary-bin is not specified", func(t *testing.T) {
 		settings := executeHooksPrintWithoutTracearyBin(t, "claude")
-		if got, want := settings.Hooks["SessionStart"][0].Hooks[0].Command,
-			`TRACEARY_BIN='traceary' bash '`+filepath.Join(scriptsDir, "traceary-session.sh")+`' 'claude' 'start'`; got != want {
-			t.Fatalf("SessionStart command = %q, want %q", got, want)
+		if diff := cmp.Diff(`'traceary' 'hook' 'session' 'claude' 'start'`, settings.Hooks["SessionStart"][0].Hooks[0].Command); diff != "" {
+			t.Fatalf("SessionStart command mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -159,8 +150,6 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 func TestRootCLI_HooksInstallCommand(t *testing.T) {
 	projectDir := t.TempDir()
 	homeDir := t.TempDir()
-	scriptsDir := filepath.Join(t.TempDir(), "hook scripts")
-	t.Setenv("TRACEARY_HOOK_SCRIPTS_DIR", scriptsDir)
 	cli.SetUserHomeDirFunc(func() (string, error) {
 		return homeDir, nil
 	})
@@ -196,9 +185,8 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 		if _, ok := settings.Hooks["SessionStart"]; !ok {
 			t.Fatalf("SessionStart hook not found")
 		}
-		if got, want := settings.Hooks["SessionStart"][0].Hooks[0].Command,
-			`TRACEARY_BIN='traceary' bash '`+filepath.Join(scriptsDir, "traceary-session.sh")+`' 'claude' 'start'`; got != want {
-			t.Fatalf("SessionStart command = %q, want %q", got, want)
+		if diff := cmp.Diff(`'traceary' 'hook' 'session' 'claude' 'start'`, settings.Hooks["SessionStart"][0].Hooks[0].Command); diff != "" {
+			t.Fatalf("SessionStart command mismatch (-want +got):\n%s", diff)
 		}
 		if !strings.Contains(stdout.String(), outputPath) {
 			t.Fatalf("stdout = %q, want path %q", stdout.String(), outputPath)
@@ -206,7 +194,6 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 		if !strings.Contains(stdout.String(), "traceary doctor --client claude") {
 			t.Fatalf("stdout = %q, want doctor hint", stdout.String())
 		}
-		assertInstalledHookScripts(t, scriptsDir)
 	})
 
 	t.Run("installs settings to standard path with Codex CLI alias", func(t *testing.T) {
@@ -376,21 +363,6 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 			t.Fatalf("error = %q, want merge error", err.Error())
 		}
 	})
-}
-
-func assertInstalledHookScripts(t *testing.T, scriptsDir string) {
-	t.Helper()
-
-	for _, scriptName := range []string{"common.sh", "traceary-session.sh", "traceary-audit.sh", "traceary-compact.sh", "traceary-prompt.sh"} {
-		scriptPath := filepath.Join(scriptsDir, scriptName)
-		info, err := os.Stat(scriptPath)
-		if err != nil {
-			t.Fatalf("Stat(%q) error = %v", scriptPath, err)
-		}
-		if info.Mode().Perm()&0o111 == 0 {
-			t.Fatalf("%q is not executable: mode=%#o", scriptPath, info.Mode().Perm())
-		}
-	}
 }
 
 func executeHooksPrint(

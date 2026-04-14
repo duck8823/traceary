@@ -31,10 +31,9 @@ type doctorCheck struct {
 }
 
 type doctorReport struct {
-	DBPath         string        `json:"db_path"`
-	HookScriptsDir string        `json:"hook_scripts_dir,omitempty"`
-	Clients        []string      `json:"clients"`
-	Checks         []doctorCheck `json:"checks"`
+	DBPath  string        `json:"db_path"`
+	Clients []string      `json:"clients"`
+	Checks  []doctorCheck `json:"checks"`
 }
 
 func (c *RootCLI) newDoctorCommand() *cobra.Command {
@@ -129,35 +128,6 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			Status:  doctorStatusPass,
 			Message: localizef("initialized SQLite store: %s", "SQLite ストアを初期化しました: %s", resolvedDBPath),
 		})
-	}
-
-	hookScriptsDir, err := c.hookScriptsInstaller.ResolveDir()
-	if err != nil {
-		report.Checks = append(report.Checks, doctorCheck{
-			Name:    "hook-scripts",
-			Status:  doctorStatusFail,
-			Message: localizef("failed to resolve hook scripts directory: %v", "hook script directory の解決に失敗しました: %v", err),
-		})
-	} else {
-		report.HookScriptsDir = hookScriptsDir
-		if _, ensureErr := c.hookScriptsInstaller.Ensure(); ensureErr != nil {
-			report.Checks = append(report.Checks, doctorCheck{
-				Name:   "hook-scripts",
-				Status: doctorStatusWarn,
-				Message: localizef(
-					"portable hook scripts are not ready yet at %s: %v",
-					"portable hook script はまだ %s で利用可能ではありません: %v",
-					hookScriptsDir,
-					ensureErr,
-				),
-			})
-		} else {
-			report.Checks = append(report.Checks, doctorCheck{
-				Name:    "hook-scripts",
-				Status:  doctorStatusPass,
-				Message: localizef("hook scripts are available: %s", "hook script を利用できます: %s", hookScriptsDir),
-			})
-		}
 	}
 
 	resolvedProjectDir, err := resolveHooksProjectDir(input.projectDir)
@@ -402,11 +372,6 @@ func writeDoctorReport(output io.Writer, report *doctorReport, asJSON bool) erro
 	if report.DBPath != "" {
 		if _, err := fmt.Fprintf(output, "DB_PATH: %s\n", report.DBPath); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print DB path", "DB パスの出力に失敗しました"), err)
-		}
-	}
-	if report.HookScriptsDir != "" {
-		if _, err := fmt.Fprintf(output, "HOOK_SCRIPTS_DIR: %s\n", report.HookScriptsDir); err != nil {
-			return xerrors.Errorf("%s: %w", Localize("failed to print hook scripts directory", "hook script directory の出力に失敗しました"), err)
 		}
 	}
 	for _, check := range report.Checks {

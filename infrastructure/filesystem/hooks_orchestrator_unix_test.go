@@ -38,9 +38,7 @@ func TestHooksOrchestrator_InstallRefusesSymlink(t *testing.T) {
 
 	if _, err := orchestrator.Install(
 		context.Background(),
-		"claude",
-		"/scripts",
-		"traceary",
+		"claude", "traceary",
 		projectDir,
 		types.Empty[string](),
 		false,
@@ -78,9 +76,7 @@ func TestHooksOrchestrator_InstallRefusesAncestorSymlink(t *testing.T) {
 
 	if _, err := orchestrator.Install(
 		context.Background(),
-		"claude",
-		"/scripts",
-		"traceary",
+		"claude", "traceary",
 		projectDir,
 		types.Empty[string](),
 		false,
@@ -123,9 +119,7 @@ func TestHooksOrchestrator_InstallForceRefusesSymlink(t *testing.T) {
 
 	if _, err := orchestrator.Install(
 		context.Background(),
-		"claude",
-		"/scripts",
-		"traceary",
+		"claude", "traceary",
 		projectDir,
 		types.Empty[string](),
 		true,

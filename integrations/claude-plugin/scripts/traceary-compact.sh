@@ -14,55 +14,15 @@ if [[ -z "$CLIENT" || -z "$ACTION" ]]; then
   exit 64
 fi
 
-traceary_read_hook_input
-
-TRACEARY_CMD="$(traceary_resolve_bin 2>/dev/null || true)"
-if [[ -z "$TRACEARY_CMD" ]]; then
-  exit 0
-fi
-
-SESSION_ID="$(traceary_json_get 'session_id')"
-if [[ -z "$SESSION_ID" ]]; then
-  SESSION_ID="$(traceary_read_state "$CLIENT")"
-fi
-
 case "$ACTION" in
   post-compact)
-    # Record compact summary or fallback note
-    if [[ -n "$SESSION_ID" ]]; then
-      COMPACT_SUMMARY="$(traceary_json_get 'compact_summary')"
-      WORKSPACE="$(traceary_resolve_effective_workspace "$CLIENT")"
-      AGENT="$(traceary_resolve_agent "$CLIENT")"
-
-      if [[ -n "$COMPACT_SUMMARY" ]]; then
-        COMMAND=("$TRACEARY_CMD" log "$COMPACT_SUMMARY" --kind compact_summary --client hook --agent "$AGENT" --session-id "$SESSION_ID")
-      else
-        COMMAND=("$TRACEARY_CMD" log "compact triggered" --client hook --agent "$AGENT" --session-id "$SESSION_ID")
-      fi
-      if [[ -n "$WORKSPACE" ]]; then
-        COMMAND+=(--workspace "$WORKSPACE")
-      fi
-      if [[ -n "${TRACEARY_DB_PATH:-}" ]]; then
-        COMMAND+=(--db-path "$TRACEARY_DB_PATH")
-      fi
-      "${COMMAND[@]}" >/dev/null 2>&1 || true
-    fi
+    traceary_run_hook 0 hook compact "$CLIENT" post-compact
     ;;
   session-start-compact)
-    # Output context pointer to stdout for injection into new context
-    COMMAND=("$TRACEARY_CMD" compact-summary)
-    if [[ -n "$SESSION_ID" ]]; then
-      COMMAND+=(--session-id "$SESSION_ID")
-    fi
-    if [[ -n "${TRACEARY_DB_PATH:-}" ]]; then
-      COMMAND+=(--db-path "$TRACEARY_DB_PATH")
-    fi
-    "${COMMAND[@]}" 2>/dev/null || true
+    traceary_run_hook 1 hook compact "$CLIENT" session-start-compact
     ;;
   *)
     echo "unsupported action: $ACTION" >&2
     exit 64
     ;;
 esac
-
-exit 0

@@ -431,7 +431,7 @@ alias: `claude-code`, `codex-cli`, `gemini-cli`
 
 ### `traceary doctor`
 
-DB アクセス、hook スクリプト、クライアント設定のつながりを診断します。
+DB アクセス、生成済み hook 設定の有無、クライアント設定のつながりを診断します。
 
 `warn` は、hooks 未導入などの初回状態や未設定状態を表します。
 `fail` は、DB アクセス不良や unreadable / invalid config のような壊れた状態を表します。

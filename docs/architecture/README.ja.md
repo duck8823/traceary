@@ -6,7 +6,7 @@
 
 ## この文書が必要な理由
 
-Traceary はすでに 4 層構造を採っていますが、runtime の振る舞いと補助スクリプトの境界が一部で曖昧です。もっとも分かりやすい例が、現在の hook 配布方式です。`scripts/hooks/` の shell script をバイナリへ埋め込み、利用者環境に展開していますが、Traceary の主 runtime はあくまで Go です。
+Traceary はすでに 4 層構造を採っていますが、runtime の振る舞いと補助スクリプトの境界が一部で曖昧です。もっとも分かりやすい例が、現在の hook 配布方式です。`scripts/hooks/` 配下には互換用の shell wrapper が残っていますが、Traceary の主 runtime はあくまで Go です。
 
 この方式は今のところ機能しています。ただし、将来にわたって維持したい理想形ではありません。この文書では、その理想形を定義します。
 
@@ -90,13 +90,13 @@ hook 設定ファイルや互換用 shell wrapper のように、利用者環境
 
 ## 現在の例外: hook 用 shell asset
 
-現状では、`scripts/hooks/` 配下の shell asset を埋め込み、各 integration 向けに展開しています。これは明示的な一時例外です。
+現状では、`scripts/hooks/` 配下の shell wrapper を、互換用の packaged integration asset として同梱しています。これは明示的な一時例外です。
 
 進めたい方向は次の通りです。
 
 1. hook runtime の本体を Go サブコマンド（`traceary hook ...`）へ移す
-2. shell asset が必要なら、薄い互換 wrapper だけに縮小する
-3. 最終的に `scripts/hooks/` を runtime 実装の正本とみなさない状態へ移る
+2. shell asset が必要なら、薄い互換 wrapper だけを残す
+3. 最終的に `scripts/hooks/` を packaged hook asset の正本とみなさない状態へ移る
 
 この移行が終わるまでは、`scripts/hooks/` は互換用 infrastructure とみなし、新しい業務ロジックや runtime の主実装をそこへ足さないのが原則です。
 

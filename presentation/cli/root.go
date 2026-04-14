@@ -9,17 +9,16 @@ import (
 
 // RootCLI provides the Traceary root command.
 type RootCLI struct {
-	event                usecase.EventUsecase
-	session              usecase.SessionUsecase
-	memory               usecase.MemoryUsecase
-	memoryExtraction     usecase.MemoryExtractionUsecase
-	context              usecase.ContextUsecase
-	storeManagement      usecase.StoreManagementUsecase
-	mcpServerRunner      MCPServerRunner
-	hooksOrchestrator    application.HooksOrchestrator
-	hookScriptsInstaller application.HookScriptsInstaller
-	hooksInspector       application.HooksInspector
-	extraRedactPatterns  []string
+	event               usecase.EventUsecase
+	session             usecase.SessionUsecase
+	memory              usecase.MemoryUsecase
+	memoryExtraction    usecase.MemoryExtractionUsecase
+	context             usecase.ContextUsecase
+	storeManagement     usecase.StoreManagementUsecase
+	mcpServerRunner     MCPServerRunner
+	hooksOrchestrator   application.HooksOrchestrator
+	hooksInspector      application.HooksInspector
+	extraRedactPatterns []string
 	// databasePathSetter is invoked by each subcommand's RunE after it
 	// resolves --db-path / TRACEARY_DB_PATH, so the shared Database
 	// instance opens the user-specified path instead of the composition-
@@ -74,13 +73,6 @@ func WithMCPServerRunner(runner MCPServerRunner) RootCLIOption {
 // commands can run.
 func WithHooksOrchestrator(orchestrator application.HooksOrchestrator) RootCLIOption {
 	return func(c *RootCLI) { c.hooksOrchestrator = orchestrator }
-}
-
-// WithHookScriptsInstaller injects the HookScriptsInstaller used by hooks
-// and doctor commands. The installer is required before the corresponding
-// commands can run.
-func WithHookScriptsInstaller(installer application.HookScriptsInstaller) RootCLIOption {
-	return func(c *RootCLI) { c.hookScriptsInstaller = installer }
 }
 
 // WithHooksInspector injects the HooksInspector used by the doctor command
