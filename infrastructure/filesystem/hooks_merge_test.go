@@ -180,6 +180,11 @@ func TestExtractTracearyManagedKey(t *testing.T) {
 			want:  "traceary-session.sh:claude:start",
 		},
 		{
+			name:  "direct hook with unrelated binary name",
+			input: "'custom-cli' 'hook' 'session' 'claude' 'start'",
+			want:  "",
+		},
+		{
 			name:  "unrelated command",
 			input: "echo hello",
 			want:  "",

@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -127,6 +128,9 @@ func extractTracearyDirectManagedKey(commandValue string) string {
 	if len(tokens) < 4 {
 		return ""
 	}
+	if !isTracearyBinaryToken(tokens[0]) {
+		return ""
+	}
 	if tokens[1] != "hook" {
 		return ""
 	}
@@ -168,6 +172,16 @@ func extractManagedKeyArgs(tail string) []string {
 	}
 
 	return tokens
+}
+
+func isTracearyBinaryToken(token string) bool {
+	trimmedToken := strings.TrimSpace(token)
+	if trimmedToken == "" {
+		return false
+	}
+
+	base := filepath.Base(trimmedToken)
+	return base == "traceary"
 }
 
 // parseShellWords tokenizes the limited shell command format used by Traceary
