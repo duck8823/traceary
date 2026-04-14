@@ -136,6 +136,43 @@ traceary memory remember \
 traceary handoff --workspace github.com/duck8823/traceary
 ```
 
+## Inspect recent and live activity
+
+Traceary ships four complementary inspection views so you can switch between "what's happening now" and "what happened across a span" without leaving the terminal:
+
+| When | Command | Use it to |
+|---|---|---|
+| Following what is happening now | `traceary tail` | confirm hooks are firing, watch failures in real time |
+| Understanding what happened across a span | `traceary timeline` | see gap-separated work blocks with a per-workspace activity summary |
+| Inspecting raw events directly | `traceary list` / `traceary search` | jump to an exact kind / session / query |
+| Resuming with assembled working memory | `traceary handoff` | start a follow-up session with curated context |
+
+### `traceary tail`
+
+```text
+$ traceary tail --limit 3
+07:06:44  command_executed  sess=4a70c526  ws=traceary  ls ~/.traceary 2>&1; find ~ -name "traceary…
+07:06:47  command_executed  sess=4a70c526  ws=traceary  ./traceary timeline --db-path /Users/duck88…
+07:06:52  command_executed  sess=4a70c526  ws=traceary  timeout 1 ./traceary tail --db-path /Users/…
+```
+
+Compact single-line rows (local time by default) fit inside ~100 columns. Add `--wide --utc` to restore the pre-v0.6.1 tab-separated seven-column layout byte-for-byte, or `--json` for NDJSON when piping into tooling.
+
+### `traceary timeline`
+
+```text
+$ traceary timeline --limit 2
+2026-04-15 06:37 - 07:06 (29m21s) total events: 165
+  github.com/duck8823/traceary (153) — 自律的に進めてください。
+  github.com/duck8823/dotfiles  ( 12) — rust インストールしました
+2026-04-15 05:39 - 06:10 (31m1s) total events: 136
+  github.com/duck8823/traceary (136) — <analysis> This conversation is a resumption after compaction. …
+```
+
+Each block shows one sub-row per workspace with an activity summary picked from the fallback chain **`compact_summary` → first `prompt` → kind counts**, so you can see *what was being done* in each workspace instead of just a comma-joined list. Pass `--utc` to switch text timestamps to UTC; `--json` adds a `workspace_breakdown` array alongside the existing block fields.
+
+See [`docs/cli/README.md`](./docs/cli/README.md) for the full flag reference and more examples.
+
 ## Host capture matrix
 
 The query surface is shared: once Traceary is installed, every host can use the same CLI and MCP memory/context commands. What differs is how much context each host can capture automatically via hooks.

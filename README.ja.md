@@ -135,6 +135,43 @@ traceary memory remember \
 traceary handoff --workspace github.com/duck8823/traceary
 ```
 
+## 直近の動きを確認する
+
+Traceary は 4 つの補完的なビューを用意していて、「いま何が起きているか」と「ある期間に何が起きたか」をターミナルから切り替えて確認できます。
+
+| 目的 | コマンド | 使いどころ |
+|---|---|---|
+| いま動いているものを追う | `traceary tail` | hook が発火しているか / 失敗がリアルタイムで見えているかを確認 |
+| ある期間の流れを俯瞰する | `traceary timeline` | アイドルギャップ区切りの作業ブロックを workspace 別のアクティビティ要約付きで表示 |
+| 生 event を直接掘る | `traceary list` / `traceary search` | kind / session / query をピンポイントで指定 |
+| 引き継ぎコンテキストで再開する | `traceary handoff` | 整形済みの working memory を次のセッションへ |
+
+### `traceary tail`
+
+```text
+$ traceary tail --limit 3
+07:06:44  command_executed  sess=4a70c526  ws=traceary  ls ~/.traceary 2>&1; find ~ -name "traceary…
+07:06:47  command_executed  sess=4a70c526  ws=traceary  ./traceary timeline --db-path /Users/duck88…
+07:06:52  command_executed  sess=4a70c526  ws=traceary  timeout 1 ./traceary tail --db-path /Users/…
+```
+
+デフォルトは 1 行コンパクト形式（現地時刻）で約 100 カラムに収まります。`--wide --utc` で v0.6.1 以前の tab 区切り 7 カラムをバイト単位で再現でき、`--json` を使えば NDJSON でパイプに流せます。
+
+### `traceary timeline`
+
+```text
+$ traceary timeline --limit 2
+2026-04-15 06:37 - 07:06 (29m21s) total events: 165
+  github.com/duck8823/traceary (153) — 自律的に進めてください。
+  github.com/duck8823/dotfiles  ( 12) — rust インストールしました
+2026-04-15 05:39 - 06:10 (31m1s) total events: 136
+  github.com/duck8823/traceary (136) — <analysis> This conversation is a resumption after compaction. …
+```
+
+各ブロックは workspace ごとの 1 行サブロウで表示され、アクティビティ要約は **`compact_summary` → 最初の `prompt` → kind counts** のフォールバック順で選ばれるため、どの workspace で何が行われていたかを一目で把握できます。`--utc` でタイムスタンプを UTC に切り替え、`--json` を使うと既存フィールドに加えて `workspace_breakdown` 配列が返ります。
+
+詳細なフラグリファレンスと追加例は [`docs/cli/README.ja.md`](./docs/cli/README.ja.md) を参照してください。
+
 ## ホスト別の自動記録マトリクス
 
 問い合わせ面は共通です。Traceary を入れれば、どのホストからでも同じ CLI / MCP の memory・context 機能を使えます。差が出るのは、hook でどこまで自動記録できるかです。
