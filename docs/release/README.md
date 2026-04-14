@@ -105,7 +105,7 @@ The GoReleaser workflow automates artifact publishing, but a handful of steps st
 
 1. **Update both changelogs first.** Edit `CHANGELOG.md` and `CHANGELOG.ja.md` to add a new `## [vX.Y.Z] - YYYY-MM-DD` section. The section must exist in *both* files with matching release headings before the next step, or `scripts/verify_changelog_releases.py` will fail.
 2. **Bump manifests.** Run `make release/bump VERSION=X.Y.Z` — this updates `VERSION`, all integration plugin manifests, and runs `scripts/verify_integrations.py`.
-3. **Verify locally.** `python3 scripts/verify_changelog_releases.py`, `go test ./...`, and `go tool golangci-lint run` must all pass.
+3. **Verify locally.** `python3 scripts/verify_changelog_releases.py`, `go test ./...`, and `go tool golangci-lint run` must all pass. These Python entrypoints are still the current release-prep surface; the planned Go replacement is tracked in [`../operations/repo-tooling.md`](../operations/repo-tooling.md).
 4. **Open the release-preparation PR.** Create a `maintenance/release-vX.Y.Z` branch, commit the changelog and bump changes, push, and open a PR targeting `main`. Do **not** include `Closes #<parent>` — the parent release issue is auto-closed by the tagged release workflow, not by the release-prep PR.
 5. **Multi-AI review + merge.** The release-prep PR must pass the same review gate as any other PR: obtain fresh Claude and Gemini reviews on the latest head, then wait for the PR-side Codex app review to finish before merging with a merge commit.
 6. **Tag and push.** After the release-prep PR merges, run `git checkout main && git pull --ff-only && git tag vX.Y.Z && git push origin vX.Y.Z`. The `v*` tag triggers `.github/workflows/release.yml`.

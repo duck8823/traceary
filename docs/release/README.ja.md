@@ -104,7 +104,7 @@ GoReleaser workflow が artifact の公開を自動化しますが、maintainer 
 
 1. **まず両方の changelog を更新する。** `CHANGELOG.md` と `CHANGELOG.ja.md` の双方に `## [vX.Y.Z] - YYYY-MM-DD` セクションを追加します。次のステップの前に両ファイルの release 見出しが一致していないと `scripts/verify_changelog_releases.py` が失敗します。
 2. **manifest を bump する。** `make release/bump VERSION=X.Y.Z` を実行すると、`VERSION` と integration plugin manifest がまとめて更新され、`scripts/verify_integrations.py` も走ります。
-3. **ローカル検証。** `python3 scripts/verify_changelog_releases.py` / `go test ./...` / `go tool golangci-lint run` をすべて通します。
+3. **ローカル検証。** `python3 scripts/verify_changelog_releases.py` / `go test ./...` / `go tool golangci-lint run` をすべて通します。これらの Python entrypoint は現時点の release-prep surface であり、Go への移行先は [`../operations/repo-tooling.ja.md`](../operations/repo-tooling.ja.md) に整理しています。
 4. **release-preparation PR を開く。** `maintenance/release-vX.Y.Z` ブランチを作成し、changelog と bump を commit・push して `main` 向けに PR を開きます。**`Closes #<parent>` は書かない**でください。親 release issue は release workflow が閉じるため、release-prep PR からは閉じません。
 5. **Multi-AI レビュー + merge。** release-prep PR も通常の PR と同じく、最新 head に対する Claude / Gemini のレビューを取り、そのうえで PR 上の Codex app review が返るのを待ってから merge commit でマージします。
 6. **tag を打って push する。** release-prep PR が merge されたら、`git checkout main && git pull --ff-only && git tag vX.Y.Z && git push origin vX.Y.Z` を実行します。`v*` tag が `.github/workflows/release.yml` を起動します。
