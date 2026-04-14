@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
@@ -62,8 +64,8 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		if stdout.String() != "Recorded: event-1\n" {
-			t.Fatalf("stdout = %q, want %q", stdout.String(), "Recorded: event-1\n")
+		if diff := cmp.Diff("Recorded: event-1\n", stdout.String()); diff != "" {
+			t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -101,8 +103,8 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		if stdout.String() != "Recorded: event-1\n" {
-			t.Fatalf("stdout = %q, want %q", stdout.String(), "Recorded: event-1\n")
+		if diff := cmp.Diff("Recorded: event-1\n", stdout.String()); diff != "" {
+			t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -162,8 +164,8 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		if stdout.String() != "event-1\n" {
-			t.Fatalf("stdout = %q, want %q", stdout.String(), "event-1\n")
+		if diff := cmp.Diff("event-1\n", stdout.String()); diff != "" {
+			t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -195,11 +197,11 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		}
 
 		payload := decodeJSONMap(t, stdout.String())
-		if got, want := payload["event_id"], "event-1"; got != want {
-			t.Fatalf("event_id = %v, want %q", got, want)
+		if diff := cmp.Diff("event-1", payload["event_id"]); diff != "" {
+			t.Fatalf("event_id mismatch (-want +got):\n%s", diff)
 		}
-		if got, want := payload["message"], "hello"; got != want {
-			t.Fatalf("message = %v, want %q", got, want)
+		if diff := cmp.Diff("hello", payload["message"]); diff != "" {
+			t.Fatalf("message mismatch (-want +got):\n%s", diff)
 		}
 	})
 

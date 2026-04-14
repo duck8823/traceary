@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
@@ -71,8 +73,8 @@ func TestRootCLI_AuditCommand(t *testing.T) {
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if stdout.String() != "Recorded: event-1\n" {
-		t.Fatalf("stdout = %q, want %q", stdout.String(), "Recorded: event-1\n")
+	if diff := cmp.Diff("Recorded: event-1\n", stdout.String()); diff != "" {
+		t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -151,8 +153,8 @@ func TestRootCLI_AuditCommand_FallsBackFromStaleActiveSession(t *testing.T) {
 	want := "" +
 		"Active session session-stale is stale; using default session ID\n" +
 		"Recorded: event-stale-audit\n"
-	if stdout.String() != want {
-		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+	if diff := cmp.Diff(want, stdout.String()); diff != "" {
+		t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -226,8 +228,8 @@ func TestRootCLI_AuditCommand_IdOnly(t *testing.T) {
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if stdout.String() != "event-id-only\n" {
-		t.Fatalf("stdout = %q, want %q", stdout.String(), "event-id-only\n")
+	if diff := cmp.Diff("event-id-only\n", stdout.String()); diff != "" {
+		t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 	}
 }
 

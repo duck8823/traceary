@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/presentation/mcpserver"
 )
 
@@ -58,8 +60,11 @@ func TestParseFlexibleTime(t *testing.T) {
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("parseFlexibleTime(%q) error = %v, wantErr %v", tt.value, err, tt.wantErr)
 			}
-			if !tt.wantErr && !got.Equal(tt.want) {
-				t.Errorf("parseFlexibleTime(%q) = %v, want %v", tt.value, got, tt.want)
+			if tt.wantErr {
+				return
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("ParseFlexibleTime(%q) mismatch (-want +got):\n%s", tt.value, diff)
 			}
 		})
 	}
@@ -68,27 +73,27 @@ func TestParseFlexibleTime(t *testing.T) {
 func TestResolveLimit(t *testing.T) {
 	t.Parallel()
 
-	if got := mcpserver.ResolveLimit(5, 10); got != 5 {
-		t.Errorf("ResolveLimit(5, 10) = %d, want 5", got)
+	if diff := cmp.Diff(5, mcpserver.ResolveLimit(5, 10)); diff != "" {
+		t.Errorf("ResolveLimit(5, 10) mismatch (-want +got):\n%s", diff)
 	}
-	if got := mcpserver.ResolveLimit(0, 10); got != 10 {
-		t.Errorf("ResolveLimit(0, 10) = %d, want 10", got)
+	if diff := cmp.Diff(10, mcpserver.ResolveLimit(0, 10)); diff != "" {
+		t.Errorf("ResolveLimit(0, 10) mismatch (-want +got):\n%s", diff)
 	}
-	if got := mcpserver.ResolveLimit(-1, 10); got != 10 {
-		t.Errorf("ResolveLimit(-1, 10) = %d, want 10", got)
+	if diff := cmp.Diff(10, mcpserver.ResolveLimit(-1, 10)); diff != "" {
+		t.Errorf("ResolveLimit(-1, 10) mismatch (-want +got):\n%s", diff)
 	}
 }
 
 func TestResolveOffset(t *testing.T) {
 	t.Parallel()
 
-	if got := mcpserver.ResolveOffset(5); got != 5 {
-		t.Errorf("ResolveOffset(5) = %d, want 5", got)
+	if diff := cmp.Diff(5, mcpserver.ResolveOffset(5)); diff != "" {
+		t.Errorf("ResolveOffset(5) mismatch (-want +got):\n%s", diff)
 	}
-	if got := mcpserver.ResolveOffset(0); got != 0 {
-		t.Errorf("ResolveOffset(0) = %d, want 0", got)
+	if diff := cmp.Diff(0, mcpserver.ResolveOffset(0)); diff != "" {
+		t.Errorf("ResolveOffset(0) mismatch (-want +got):\n%s", diff)
 	}
-	if got := mcpserver.ResolveOffset(-1); got != 0 {
-		t.Errorf("ResolveOffset(-1) = %d, want 0", got)
+	if diff := cmp.Diff(0, mcpserver.ResolveOffset(-1)); diff != "" {
+		t.Errorf("ResolveOffset(-1) mismatch (-want +got):\n%s", diff)
 	}
 }

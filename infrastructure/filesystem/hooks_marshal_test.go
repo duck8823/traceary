@@ -44,11 +44,14 @@ func TestMarshalHooks_RendersCanonicalDocument(t *testing.T) {
 	if !ok {
 		t.Fatalf("SessionStart not found in decoded output")
 	}
-	if got, want := len(sessionStart), 1; got != want {
-		t.Fatalf("len(SessionStart) = %d, want %d", got, want)
+	if diff := cmp.Diff(1, len(sessionStart)); diff != "" {
+		t.Fatalf("len(SessionStart) mismatch (-want +got):\n%s", diff)
 	}
-	if sessionStart[0].Matcher == nil || *sessionStart[0].Matcher != "*" {
-		t.Fatalf("SessionStart matcher = %v, want %q", sessionStart[0].Matcher, "*")
+	if sessionStart[0].Matcher == nil {
+		t.Fatalf("SessionStart matcher = nil, want non-nil")
+	}
+	if diff := cmp.Diff("*", *sessionStart[0].Matcher); diff != "" {
+		t.Fatalf("SessionStart matcher mismatch (-want +got):\n%s", diff)
 	}
 	gotCommand := sessionStart[0].Hooks[0]
 	wantCommand := hookCommandDocument{

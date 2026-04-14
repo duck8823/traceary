@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	domtypes "github.com/duck8823/traceary/domain/types"
@@ -36,13 +38,13 @@ func TestMemoryDetailsFrom(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MemoryDetailsFrom() error = %v", err)
 	}
-	if got := details.Summary().MemoryID(); got != memoryID {
-		t.Fatalf("Summary().MemoryID() = %s, want %s", got, memoryID)
+	if diff := cmp.Diff(memoryID, details.Summary().MemoryID()); diff != "" {
+		t.Fatalf("Summary().MemoryID() mismatch (-want +got):\n%s", diff)
 	}
-	if got := len(details.EvidenceRefs()); got != 1 {
-		t.Fatalf("len(EvidenceRefs()) = %d, want 1", got)
+	if diff := cmp.Diff(1, len(details.EvidenceRefs())); diff != "" {
+		t.Fatalf("len(EvidenceRefs()) mismatch (-want +got):\n%s", diff)
 	}
-	if got := len(details.ArtifactRefs()); got != 1 {
-		t.Fatalf("len(ArtifactRefs()) = %d, want 1", got)
+	if diff := cmp.Diff(1, len(details.ArtifactRefs())); diff != "" {
+		t.Fatalf("len(ArtifactRefs()) mismatch (-want +got):\n%s", diff)
 	}
 }

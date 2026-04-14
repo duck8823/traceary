@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	domtypes "github.com/duck8823/traceary/domain/types"
@@ -35,11 +37,15 @@ func TestMemorySummaryOf(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MemorySummaryOf() error = %v", err)
 	}
-	if got := summary.Fact(); got != "Release issues close only after tagged release" {
-		t.Fatalf("Fact() = %q", got)
+	if diff := cmp.Diff("Release issues close only after tagged release", summary.Fact()); diff != "" {
+		t.Fatalf("Fact() mismatch (-want +got):\n%s", diff)
 	}
-	if got, ok := summary.ExpiresAt().Value(); !ok || !got.Equal(expiresAt) {
-		t.Fatalf("ExpiresAt() = (%v, %v), want (%v, true)", got, ok, expiresAt)
+	gotExpiresAt, ok := summary.ExpiresAt().Value()
+	if diff := cmp.Diff(true, ok); diff != "" {
+		t.Fatalf("ExpiresAt() presence mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(expiresAt, gotExpiresAt); diff != "" {
+		t.Fatalf("ExpiresAt() mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -68,7 +74,7 @@ func TestMemorySummaryFrom(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MemorySummaryFrom() error = %v", err)
 	}
-	if got := summary.MemoryID(); got != memoryID {
-		t.Fatalf("MemoryID() = %s, want %s", got, memoryID)
+	if diff := cmp.Diff(memoryID, summary.MemoryID()); diff != "" {
+		t.Fatalf("MemoryID() mismatch (-want +got):\n%s", diff)
 	}
 }

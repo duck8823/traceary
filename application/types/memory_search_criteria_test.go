@@ -3,6 +3,8 @@ package types_test
 import (
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	apptypes "github.com/duck8823/traceary/application/types"
 	domtypes "github.com/duck8823/traceary/domain/types"
 )
@@ -19,19 +21,19 @@ func TestMemorySearchCriteriaBuilder(t *testing.T) {
 		MemoryType(domtypes.MemoryTypeLesson).
 		Build()
 
-	if got := criteria.Query(); got != "release" {
-		t.Fatalf("Query() = %q, want %q", got, "release")
+	if diff := cmp.Diff("release", criteria.Query()); diff != "" {
+		t.Fatalf("Query() mismatch (-want +got):\n%s", diff)
 	}
-	if got := criteria.Offset(); got != 2 {
-		t.Fatalf("Offset() = %d, want 2", got)
+	if diff := cmp.Diff(2, criteria.Offset()); diff != "" {
+		t.Fatalf("Offset() mismatch (-want +got):\n%s", diff)
 	}
-	if got := len(criteria.Scopes()); got != 1 {
-		t.Fatalf("len(Scopes()) = %d, want 1", got)
+	if diff := cmp.Diff(1, len(criteria.Scopes())); diff != "" {
+		t.Fatalf("len(Scopes()) mismatch (-want +got):\n%s", diff)
 	}
-	if got := len(criteria.Statuses()); got != 1 {
-		t.Fatalf("len(Statuses()) = %d, want 1", got)
+	if diff := cmp.Diff(1, len(criteria.Statuses())); diff != "" {
+		t.Fatalf("len(Statuses()) mismatch (-want +got):\n%s", diff)
 	}
-	if got := len(criteria.MemoryTypes()); got != 1 {
-		t.Fatalf("len(MemoryTypes()) = %d, want 1", got)
+	if diff := cmp.Diff(1, len(criteria.MemoryTypes())); diff != "" {
+		t.Fatalf("len(MemoryTypes()) mismatch (-want +got):\n%s", diff)
 	}
 }

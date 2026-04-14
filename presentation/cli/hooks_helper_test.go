@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestRootCLI_HooksHelperCommand(t *testing.T) {
@@ -18,8 +20,8 @@ func TestRootCLI_HooksHelperCommand(t *testing.T) {
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		if got, want := stdout.String(), "go test ./..."; got != want {
-			t.Fatalf("stdout = %q, want %q", got, want)
+		if diff := cmp.Diff("go test ./...", stdout.String()); diff != "" {
+			t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -34,8 +36,8 @@ func TestRootCLI_HooksHelperCommand(t *testing.T) {
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		if got, want := stdout.String(), `{"error":"boom","is_interrupt":false}`; got != want {
-			t.Fatalf("stdout = %q, want %q", got, want)
+		if diff := cmp.Diff(`{"error":"boom","is_interrupt":false}`, stdout.String()); diff != "" {
+			t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -49,8 +51,8 @@ func TestRootCLI_HooksHelperCommand(t *testing.T) {
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		if got, want := stdout.String(), "github.com/duck8823/traceary"; got != want {
-			t.Fatalf("stdout = %q, want %q", got, want)
+		if diff := cmp.Diff("github.com/duck8823/traceary", stdout.String()); diff != "" {
+			t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
 		}
 	})
 }

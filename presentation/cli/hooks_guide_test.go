@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
@@ -32,14 +34,15 @@ func TestRootCLI_HooksGuideCommand(t *testing.T) {
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if !strings.Contains(stdout.String(), "traceary hooks install --client gemini") {
-		t.Fatalf("stdout = %q, want install step", stdout.String())
+	output := stdout.String()
+	if !strings.Contains(output, "traceary hooks install --client gemini") {
+		t.Fatalf("stdout = %q, want install step", output)
 	}
-	if !strings.Contains(stdout.String(), "traceary doctor --client gemini") {
-		t.Fatalf("stdout = %q, want doctor step", stdout.String())
+	if !strings.Contains(output, "traceary doctor --client gemini") {
+		t.Fatalf("stdout = %q, want doctor step", output)
 	}
-	if !strings.Contains(stdout.String(), "hooksConfig.enabled=true") {
-		t.Fatalf("stdout = %q, want Gemini note", stdout.String())
+	if !strings.Contains(output, "hooksConfig.enabled=true") {
+		t.Fatalf("stdout = %q, want Gemini note", output)
 	}
 }
 
@@ -55,7 +58,7 @@ func TestRootCLI_HooksGuideCommand_MissingClientReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("Execute() error = nil, want error")
 	}
-	if err.Error() != `required flag(s) "client" not set` {
-		t.Fatalf("Execute() error = %q, want required client flag error", err.Error())
+	if diff := cmp.Diff(`required flag(s) "client" not set`, err.Error()); diff != "" {
+		t.Fatalf("Execute() error mismatch (-want +got):\n%s", diff)
 	}
 }

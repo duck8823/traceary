@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestDetectRepoContextFromDir(t *testing.T) {
@@ -17,8 +19,8 @@ func TestDetectRepoContextFromDir(t *testing.T) {
 		if err != nil {
 			t.Fatalf("detectRepoContextFromDir() error = %v", err)
 		}
-		if want := "github.com/duck8823/traceary"; got != want {
-			t.Fatalf("detectRepoContextFromDir() = %q, want %q", got, want)
+		if diff := cmp.Diff("github.com/duck8823/traceary", got); diff != "" {
+			t.Fatalf("detectRepoContextFromDir() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -34,8 +36,8 @@ func TestDetectRepoContextFromDir(t *testing.T) {
 			t.Fatalf("detectRepoContextFromDir() error = %v", err)
 		}
 		want := normalizeLocalWorkContextPath(gitCommandOutputForContextTest(t, repoDir, "rev-parse", "--show-toplevel"))
-		if got != want {
-			t.Fatalf("detectRepoContextFromDir() = %q, want %q", got, want)
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Fatalf("detectRepoContextFromDir() mismatch (-want +got):\n%s", diff)
 		}
 	})
 }
