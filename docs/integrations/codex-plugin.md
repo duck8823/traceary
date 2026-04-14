@@ -3,7 +3,7 @@
 [日本語](./codex-plugin.ja.md)
 
 The Codex package lives under `plugins/traceary/`.
-Traceary installs it through a local helper because Codex needs two different pieces for the full experience:
+Traceary installs it through a first-class CLI entrypoint because Codex needs two different pieces for the full experience:
 
 - the plugin itself for MCP, skills, and slash-style commands
 - `~/.codex/hooks.json` plus `codex_hooks` for automatic session/audit recording
@@ -17,7 +17,7 @@ Traceary installs it through a local helper because Codex needs two different pi
 
 ## Install from a local checkout
 
-Codex does not currently expose a public plugin-install CLI equivalent to Claude or Gemini, so Traceary ships a local helper that installs both the plugin runtime and the Traceary hook wiring.
+Codex does not currently expose a public plugin-install CLI equivalent to Claude or Gemini, so Traceary ships a dedicated `traceary integration codex ...` flow that installs both the plugin runtime and the Traceary hook wiring.
 
 1. Install the Traceary CLI first.
 
@@ -38,10 +38,10 @@ git clone https://github.com/duck8823/traceary ~/src/traceary
 
 ```sh
 cd ~/src/traceary
-python3 scripts/codex/install_plugin.py
+traceary integration codex install
 ```
 
-By default, that helper:
+By default, that command:
 
 - copies `plugins/traceary/` into a local marketplace root under `~/.agents/plugins`
 - installs the active plugin cache under `~/.codex/plugins/cache/local-traceary-plugins/traceary/local`
@@ -50,23 +50,24 @@ By default, that helper:
 - merges Traceary hook entries into `~/.codex/hooks.json`
 
 If `traceary` is not available on `PATH`, pass `--traceary-bin /absolute/path/to/traceary`.
+Use `--repo-root /path/to/traceary` when you run the command outside the repository checkout.
 
 ## Update
 
 ```sh
 cd ~/src/traceary
 git pull --ff-only
-python3 scripts/codex/install_plugin.py
+traceary integration codex install
 ```
 
 ## Uninstall
 
 ```sh
 cd ~/src/traceary
-python3 scripts/codex/uninstall_plugin.py
+traceary integration codex uninstall
 ```
 
-The uninstall helper removes the Traceary plugin cache, the Traceary plugin config entry, and the Traceary-managed Codex hook entries. It intentionally leaves `[features].codex_hooks` enabled so other local hook workflows do not break.
+The uninstall command removes the Traceary plugin cache, the Traceary plugin config entry, and the Traceary-managed Codex hook entries. It intentionally leaves `[features].codex_hooks` enabled so other local hook workflows do not break.
 
 ## Doctor and smoke test
 
@@ -88,4 +89,4 @@ Local smoke test from this repository:
 ./scripts/smoke_test_integrations.sh codex
 ```
 
-That smoke test verifies the helper-managed plugin cache, config, and hook files. Set `TRACEARY_ENABLE_CODEX_RUNTIME_SMOKE=1` when you also want an authenticated runtime probe on a machine that already has Codex CLI access configured.
+That smoke test verifies the CLI-managed plugin cache, config, and hook files. Set `TRACEARY_ENABLE_CODEX_RUNTIME_SMOKE=1` when you also want an authenticated runtime probe on a machine that already has Codex CLI access configured.

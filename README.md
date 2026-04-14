@@ -70,7 +70,8 @@ claude plugins install traceary@traceary-plugins --scope user
 
 ```sh
 git clone https://github.com/duck8823/traceary ~/src/traceary
-python3 ~/src/traceary/scripts/codex/install_plugin.py
+cd ~/src/traceary
+traceary integration codex install
 ```
 
 **Gemini CLI** ([guide](./docs/integrations/gemini-extension.md))

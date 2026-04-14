@@ -15,10 +15,11 @@ Traceary の core runtime は Go ですが、いくつかの repository workflow
 
 ### user-facing
 
-| 対象 | 現在の entrypoint | いま Python を使っている理由 | 今後の方向 |
-| --- | --- | --- | --- |
-| Codex local plugin install | `python3 scripts/codex/install_plugin.py` | plugin file / config / hook wiring を 1 つの helper でまとめている | first-class な Go entrypoint に置き換える |
-| Codex local plugin uninstall | `python3 scripts/codex/uninstall_plugin.py` | plugin cache / config / Traceary 管理下 hook をまとめて外している | 対になる Go entrypoint に置き換える |
+現在、support 対象の user-facing install / runtime flow で `python3` を必須にするものはありません。
+Codex の local install path も、次の Go entrypoint に移行しました。
+
+- `traceary integration codex install`
+- `traceary integration codex uninstall`
 
 ### maintainer-only
 
@@ -40,22 +41,7 @@ Traceary の core runtime は Go ですが、いくつかの repository workflow
 
 ## 推奨する移行順
 
-### 1. Codex install / uninstall helper
-
-最優先はここです。理由は、公開 docs に載っている user-facing な導線であり、現在も local Codex integration の完全な利用手順で Python を要求しているためです。
-
-置き換え先の第一候補:
-
-- `traceary integration codex install`
-- `traceary integration codex uninstall`
-
-これを先にやる理由:
-
-- user-facing な前提条件から Python を外せる
-- install behavior を通常の Go CLI surface に戻せる
-- 将来の docs が repository-local helper ではなく `traceary` 自体を案内できる
-
-### 2. integration verification
+### 1. integration verification
 
 public Codex flow を移したあとは、`scripts/verify_integrations.py` の移行が一番効果的です。
 release prep、smoke test、CI のすべてで使っているためです。
@@ -65,7 +51,7 @@ release prep、smoke test、CI のすべてで使っているためです。
 - `go run ./cmd/repo-tooling integrations verify` を最初の移行先にする
 - 以降の verifier も、単発 helper ではなく同じ `cmd/repo-tooling` entrypoint に集約する
 
-### 3. changelog / docs verifier
+### 2. changelog / docs verifier
 
 その次に移す対象:
 
@@ -75,7 +61,7 @@ release prep、smoke test、CI のすべてで使っているためです。
 これらは maintainer-only なので、優先度より correctness を重視します。
 共通の Go verifier ができたなら、別々の tool を増やさずそこへ統合します。
 
-### 4. version bump helper
+### 3. version bump helper
 
 `scripts/bump_version.py` は便利ですが優先度は低めです。
 上の高優先度項目が固まってから移せば十分です。

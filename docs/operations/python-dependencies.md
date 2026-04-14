@@ -15,10 +15,11 @@ This guide records where that dependency still exists, which audience it affects
 
 ### User-facing
 
-| Surface | Current entrypoint | Why it uses Python today | Planned direction |
-| --- | --- | --- | --- |
-| Codex local plugin install | `python3 scripts/codex/install_plugin.py` | merges plugin files, config, and hook wiring in one helper | replace with a first-class Go entrypoint |
-| Codex local plugin uninstall | `python3 scripts/codex/uninstall_plugin.py` | removes plugin cache, config, and Traceary-managed hooks | replace with the matching Go entrypoint |
+There are currently no supported user-facing install or runtime flows that require `python3`.
+The Codex local install path now uses:
+
+- `traceary integration codex install`
+- `traceary integration codex uninstall`
 
 ### Maintainer-only
 
@@ -39,22 +40,7 @@ These are *not* part of the Python dependency story this issue is addressing:
 
 ## Preferred migration order
 
-### 1. Codex install and uninstall helpers
-
-This is the highest-priority removal target because it is public, documented, and currently required for the full local Codex integration flow.
-
-Preferred replacement surface:
-
-- `traceary integration codex install`
-- `traceary integration codex uninstall`
-
-Why this is first:
-
-- it removes Python from the main user-facing prerequisite path
-- it keeps installation behavior inside the normal Go CLI surface
-- it lets future docs point to `traceary` itself instead of repository-local helpers
-
-### 2. Integration verification
+### 1. Integration verification
 
 Once the public Codex flow is moved, the next best return comes from `scripts/verify_integrations.py` because it is used in release preparation, smoke tests, and CI.
 
@@ -63,7 +49,7 @@ Preferred replacement direction:
 - `go run ./cmd/repo-tooling integrations verify`
 - additional repository verifiers should share the same `cmd/repo-tooling` entrypoint instead of growing one-off helpers
 
-### 3. Changelog and docs verifiers
+### 2. Changelog and docs verifiers
 
 After integration verification, migrate:
 
@@ -73,7 +59,7 @@ After integration verification, migrate:
 These remain maintainer-only, so correctness matters more than urgency.
 If a shared Go verifier exists by then, they should join it rather than becoming separate tools again.
 
-### 4. Version bump helper
+### 3. Version bump helper
 
 `scripts/bump_version.py` is useful but low priority.
 It should move only after the higher-impact checks above have settled.

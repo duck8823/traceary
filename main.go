@@ -171,6 +171,7 @@ func run() error {
 		"codex":  filesystem.NewCodexHooksHandler(),
 		"gemini": filesystem.NewGeminiHooksHandler(),
 	})
+	codexIntegrationUsecase := usecase.NewCodexIntegrationUsecase(filesystem.NewCodexIntegrationManager(hooksOrchestrator))
 	hooksInspector := filesystem.NewHooksInspector()
 
 	rootCmd := cli.NewRootCLI(
@@ -179,6 +180,7 @@ func run() error {
 		cli.WithMemory(memoryUsecase),
 		cli.WithMemoryExtraction(memoryExtractionUsecase),
 		cli.WithContext(contextUsecase),
+		cli.WithCodexIntegration(codexIntegrationUsecase),
 		cli.WithStoreManagement(storeManagementUsecase),
 		cli.WithMCPServerRunner(mcpServer),
 		cli.WithHooksOrchestrator(hooksOrchestrator),

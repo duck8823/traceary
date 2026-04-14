@@ -182,6 +182,48 @@ func (s *contextUsecaseStub) Handoff(_ context.Context, _ apptypes.ContextPackCr
 	return s.handoff, s.handoffErr
 }
 
+type codexIntegrationUsecaseStub struct {
+	installResult   apptypes.CodexIntegrationInstallResult
+	installErr      error
+	uninstallResult apptypes.CodexIntegrationUninstallResult
+	uninstallErr    error
+
+	installCall struct {
+		repoRoot        string
+		codexHome       string
+		marketplaceRoot string
+		tracearyBin     string
+	}
+	uninstallCall struct {
+		codexHome       string
+		marketplaceRoot string
+	}
+}
+
+func (s *codexIntegrationUsecaseStub) Install(
+	_ context.Context,
+	repoRoot string,
+	codexHome string,
+	marketplaceRoot string,
+	tracearyBin string,
+) (apptypes.CodexIntegrationInstallResult, error) {
+	s.installCall.repoRoot = repoRoot
+	s.installCall.codexHome = codexHome
+	s.installCall.marketplaceRoot = marketplaceRoot
+	s.installCall.tracearyBin = tracearyBin
+	return s.installResult, s.installErr
+}
+
+func (s *codexIntegrationUsecaseStub) Uninstall(
+	_ context.Context,
+	codexHome string,
+	marketplaceRoot string,
+) (apptypes.CodexIntegrationUninstallResult, error) {
+	s.uninstallCall.codexHome = codexHome
+	s.uninstallCall.marketplaceRoot = marketplaceRoot
+	return s.uninstallResult, s.uninstallErr
+}
+
 type memoryExtractionUsecaseStub struct {
 	details  []apptypes.MemoryDetails
 	err      error
