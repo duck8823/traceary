@@ -27,6 +27,7 @@
 - [バックアップガイド](./backup/README.ja.md): バックアップ、復元、マシン移行の手順
 - [運用上の前提](./operations/README.ja.md): SQLite の同時実行、hook 状態管理、既知の制約
 - [Python 依存の縮小計画](./operations/python-dependencies.ja.md): 現在の Python helper、影響範囲、移行順
+- [repository tooling の方針](./operations/repo-tooling.ja.md): maintainer-only helper をまとめる Go entrypoint の方針
 - [リリースガイド](./release/README.ja.md): リリース手順、GitHub Actions、ローカルでの確認方法
 
 ## リポジトリの基本文書

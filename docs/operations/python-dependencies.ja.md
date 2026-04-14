@@ -62,8 +62,8 @@ release prep、smoke test、CI のすべてで使っているためです。
 
 推奨方向:
 
-- integration manifest と local package structure を検証できる Go 製 repo verification command を用意する
-- 実装の置き場所は repository-only helper package / subcommand でもよいが、利用者向けの documented entrypoint は 1 つに保つ
+- `go run ./cmd/repo-tooling integrations verify` を最初の移行先にする
+- 以降の verifier も、単発 helper ではなく同じ `cmd/repo-tooling` entrypoint に集約する
 
 ### 3. changelog / docs verifier
 

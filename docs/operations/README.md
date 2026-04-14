@@ -99,3 +99,4 @@ Possible but not actively tuned:
 - storage model: [`../storage/README.md`](../storage/README.md)
 - backup guide: [`../backup/README.md`](../backup/README.md)
 - Python dependency plan: [`./python-dependencies.md`](./python-dependencies.md)
+- Repository tooling plan: [`./repo-tooling.md`](./repo-tooling.md)

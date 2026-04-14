@@ -60,8 +60,8 @@ Once the public Codex flow is moved, the next best return comes from `scripts/ve
 
 Preferred replacement direction:
 
-- a Go-based repo verification command that can validate integration manifests and local package structure
-- the implementation may live in a repository-only helper package or subcommand, but the repo should still expose a single documented entrypoint
+- `go run ./cmd/repo-tooling integrations verify`
+- additional repository verifiers should share the same `cmd/repo-tooling` entrypoint instead of growing one-off helpers
 
 ### 3. Changelog and docs verifiers
 
