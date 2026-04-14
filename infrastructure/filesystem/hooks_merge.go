@@ -123,7 +123,7 @@ func extractTracearyManagedKey(commandValue string) string {
 }
 
 func extractTracearyDirectManagedKey(commandValue string) string {
-	tokens := parseShellSingleQuoted(commandValue)
+	tokens := parseShellWords(commandValue)
 	if len(tokens) < 4 {
 		return ""
 	}
@@ -162,7 +162,7 @@ func extractTracearyDirectManagedKey(commandValue string) string {
 // client positional argument (for example "claude") so legacy script-based
 // commands and direct `traceary hook ...` commands normalize to the same key.
 func extractManagedKeyArgs(tail string) []string {
-	tokens := parseShellSingleQuoted(tail)
+	tokens := parseShellWords(tail)
 	if len(tokens) == 0 {
 		return nil
 	}
@@ -170,24 +170,87 @@ func extractManagedKeyArgs(tail string) []string {
 	return tokens
 }
 
-// parseShellSingleQuoted walks the remainder of a shell command line and
-// extracts every single-quoted token in order. It is intentionally narrow in
-// scope: the Traceary hook command strings only use single quotes.
-func parseShellSingleQuoted(remainder string) []string {
+// parseShellWords tokenizes the limited shell command format used by Traceary
+// hook configs. It supports whitespace-separated words plus single-quoted and
+// double-quoted segments so values produced by shellQuoteHookValue (including
+// apostrophe escapes like '"'"'"'"'"'"'"'"') can be reconstructed correctly.
+func parseShellWords(remainder string) []string {
 	var tokens []string
-	cursor := 0
-	for cursor < len(remainder) {
-		if remainder[cursor] != '\'' {
-			cursor++
+	var current strings.Builder
+	inSingleQuotes := false
+	inDoubleQuotes := false
+	escaped := false
+	tokenStarted := false
+
+	flush := func() {
+		if !tokenStarted {
+			return
+		}
+		tokens = append(tokens, current.String())
+		current.Reset()
+		tokenStarted = false
+	}
+
+	for index := 0; index < len(remainder); index++ {
+		character := remainder[index]
+
+		if escaped {
+			current.WriteByte(character)
+			tokenStarted = true
+			escaped = false
 			continue
 		}
-		endIndex := strings.IndexByte(remainder[cursor+1:], '\'')
-		if endIndex < 0 {
-			return tokens
+
+		switch {
+		case inSingleQuotes:
+			if character == '\'' {
+				inSingleQuotes = false
+				continue
+			}
+			current.WriteByte(character)
+			tokenStarted = true
+		case inDoubleQuotes:
+			switch character {
+			case '"':
+				inDoubleQuotes = false
+			case '\\':
+				if index+1 >= len(remainder) {
+					current.WriteByte(character)
+					tokenStarted = true
+					continue
+				}
+				index++
+				current.WriteByte(remainder[index])
+				tokenStarted = true
+			default:
+				current.WriteByte(character)
+				tokenStarted = true
+			}
+		default:
+			switch character {
+			case '\'':
+				inSingleQuotes = true
+				tokenStarted = true
+			case '"':
+				inDoubleQuotes = true
+				tokenStarted = true
+			case '\\':
+				escaped = true
+				tokenStarted = true
+			case ' ', '\t', '\n', '\r':
+				flush()
+			default:
+				current.WriteByte(character)
+				tokenStarted = true
+			}
 		}
-		tokens = append(tokens, remainder[cursor+1:cursor+1+endIndex])
-		cursor += endIndex + 2
 	}
+
+	if escaped {
+		current.WriteByte('\\')
+		tokenStarted = true
+	}
+	flush()
 
 	return tokens
 }
