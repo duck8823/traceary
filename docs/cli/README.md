@@ -93,13 +93,17 @@ Follow new events as they arrive.
 
 `tail` is the live observation view. It prints a recent backlog first and then keeps following new matching events from the local store. Use it when you want to confirm that hooks are firing, that the expected session/workspace is receiving writes, or that failures are surfacing in real time. Unlike `list`, it does not exit after one snapshot. Unlike `search`, it does not perform keyword matching. Unlike `handoff`, it stays at the raw event-stream layer rather than assembling working memory.
 
-Text output uses the same tabular row shape as `list`. `--json` emits newline-delimited JSON objects (one event per line) so pipelines can consume the stream incrementally.
+Default text output is a compact single-line row (`HH:MM:SS  kind  sess=<first-8>  ws=<basename>  message`) that fits within ~100 columns and uses local time. Pass `--wide` for the legacy tab-separated seven-column shape, or `--utc` to force UTC timestamps in either text mode. `--wide --utc` reproduces the pre-v0.6.1 format byte-for-byte for scripts that parse it. `--json` emits newline-delimited JSON objects (one event per line) so pipelines can consume the stream incrementally; timestamps in JSON remain RFC3339 and are unaffected by `--utc`.
+
+> The compact session ID (`sess=<first-8>`) is intended for human scanning only. For machine processing, use `--wide --utc` or `--json`.
 
 Useful flags:
 
 - `--kind`
 - `--limit`
 - `--json`
+- `--wide`
+- `--utc`
 - `--client`
 - `--agent`
 - `--workspace`
