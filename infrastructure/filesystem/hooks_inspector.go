@@ -42,7 +42,7 @@ func (i *HooksInspector) Inspect(content []byte) (bool, bool, error) {
 	for _, matchers := range hooksMap {
 		for _, matcher := range matchers {
 			for _, command := range matcher.Hooks {
-				if isTracearyManagedHookCommandDocument(command) {
+				if isTracearyManagedHookCommandDocument(command, nil) {
 					return true, true, nil
 				}
 			}

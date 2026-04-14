@@ -95,6 +95,45 @@ func TestMergeHooksDocument_RemovesSessionStartCompactVariant(t *testing.T) {
 	}
 }
 
+func TestMergeHooksDocument_RemovesCustomWrapperDirectHooksWithoutTouchingOtherCommands(t *testing.T) {
+	t.Parallel()
+
+	existing := []byte(`{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'custom-cli' 'hook' 'session' 'claude' 'start'"
+          },
+          {
+            "type": "command",
+            "command": "'/tmp/custom-traceary-wrapper' 'hook' 'session' 'claude' 'start'"
+          }
+        ]
+      }
+    ]
+  }
+}`)
+
+	desired := (&ClaudeHooksHandler{}).Build("/tmp/custom-traceary-wrapper")
+
+	merged, err := mergeHooksDocument(existing, desired)
+	if err != nil {
+		t.Fatalf("mergeHooksDocument() error = %v", err)
+	}
+
+	if !strings.Contains(string(merged), `"command": "'custom-cli' 'hook' 'session' 'claude' 'start'"`) {
+		t.Fatalf("merged output removed unrelated custom wrapper command: %s", merged)
+	}
+
+	if strings.Count(string(merged), `'/tmp/custom-traceary-wrapper' 'hook' 'session' 'claude' 'start'`) != 1 {
+		t.Fatalf("merged output should contain exactly one managed custom-wrapper session hook: %s", merged)
+	}
+}
+
 func TestMergeHooksDocument_EmptyExistingReturnsMarshaled(t *testing.T) {
 	t.Parallel()
 

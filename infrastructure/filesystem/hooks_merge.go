@@ -51,11 +51,12 @@ func mergeHooksDocument(existingContent []byte, hooks model.Hooks) ([]byte, erro
 }
 
 func mergeHookMatchers(existing []hookMatcherDocument, desired []hookMatcherDocument) []hookMatcherDocument {
+	desiredDirectCommands := directManagedCommandSetOf(desired)
 	merged := make([]hookMatcherDocument, 0, len(existing)+len(desired))
 	for _, matcher := range existing {
 		filteredCommands := make([]hookCommandDocument, 0, len(matcher.Hooks))
 		for _, command := range matcher.Hooks {
-			if isTracearyManagedHookCommandDocument(command) {
+			if isTracearyManagedHookCommandDocument(command, desiredDirectCommands) {
 				continue
 			}
 			filteredCommands = append(filteredCommands, command)
@@ -75,12 +76,22 @@ func mergeHookMatchers(existing []hookMatcherDocument, desired []hookMatcherDocu
 // formed from the hook script filename (and its action arguments for compact
 // variants) so it catches every known Traceary hook entry even when the user
 // changed the parent directory or TRACEARY_BIN value.
-func isTracearyManagedHookCommandDocument(command hookCommandDocument) bool {
+func isTracearyManagedHookCommandDocument(command hookCommandDocument, desiredDirectCommands map[directManagedCommand]struct{}) bool {
 	if strings.HasPrefix(strings.TrimSpace(command.Name), "traceary-") {
 		return true
 	}
 
-	return extractTracearyManagedKey(command.Command) != ""
+	if extractTracearyManagedKey(command.Command) != "" {
+		return true
+	}
+
+	directCommand, ok := parseTracearyDirectManagedCommand(command.Command)
+	if !ok {
+		return false
+	}
+
+	_, managed := desiredDirectCommands[directCommand]
+	return managed
 }
 
 var tracearyHookScriptPattern = regexp.MustCompile(`traceary-(session|audit|compact|prompt)\.sh`)
@@ -124,41 +135,76 @@ func extractTracearyManagedKey(commandValue string) string {
 }
 
 func extractTracearyDirectManagedKey(commandValue string) string {
+	directCommand, ok := parseTracearyDirectManagedCommand(commandValue)
+	if !ok {
+		return ""
+	}
+	if !isTracearyBinaryToken(directCommand.binaryToken) {
+		return ""
+	}
+
+	return directCommand.managedKey
+}
+
+type directManagedCommand struct {
+	binaryToken string
+	managedKey  string
+}
+
+func parseTracearyDirectManagedCommand(commandValue string) (directManagedCommand, bool) {
 	tokens := parseShellWords(commandValue)
 	if len(tokens) < 4 {
-		return ""
-	}
-	if !isTracearyBinaryToken(tokens[0]) {
-		return ""
+		return directManagedCommand{}, false
 	}
 	if tokens[1] != "hook" {
-		return ""
+		return directManagedCommand{}, false
 	}
+
+	directCommand := directManagedCommand{binaryToken: tokens[0]}
 
 	switch tokens[2] {
 	case "session":
 		if len(tokens) != 5 {
-			return ""
+			return directManagedCommand{}, false
 		}
-		return managedKeyOf("traceary-session.sh", tokens[3], tokens[4])
+		directCommand.managedKey = managedKeyOf("traceary-session.sh", tokens[3], tokens[4])
+		return directCommand, true
 	case "audit":
 		if len(tokens) != 4 {
-			return ""
+			return directManagedCommand{}, false
 		}
-		return managedKeyOf("traceary-audit.sh", tokens[3])
+		directCommand.managedKey = managedKeyOf("traceary-audit.sh", tokens[3])
+		return directCommand, true
 	case "compact":
 		if len(tokens) != 5 {
-			return ""
+			return directManagedCommand{}, false
 		}
-		return managedKeyOf("traceary-compact.sh", tokens[3], tokens[4])
+		directCommand.managedKey = managedKeyOf("traceary-compact.sh", tokens[3], tokens[4])
+		return directCommand, true
 	case "prompt":
 		if len(tokens) != 4 {
-			return ""
+			return directManagedCommand{}, false
 		}
-		return managedKeyOf("traceary-prompt.sh", tokens[3])
+		directCommand.managedKey = managedKeyOf("traceary-prompt.sh", tokens[3])
+		return directCommand, true
 	default:
-		return ""
+		return directManagedCommand{}, false
 	}
+}
+
+func directManagedCommandSetOf(matchers []hookMatcherDocument) map[directManagedCommand]struct{} {
+	commands := map[directManagedCommand]struct{}{}
+	for _, matcher := range matchers {
+		for _, command := range matcher.Hooks {
+			directCommand, ok := parseTracearyDirectManagedCommand(command.Command)
+			if !ok {
+				continue
+			}
+			commands[directCommand] = struct{}{}
+		}
+	}
+
+	return commands
 }
 
 // extractManagedKeyArgs extracts the trailing single-quoted arguments that
