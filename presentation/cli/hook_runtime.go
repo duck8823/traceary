@@ -140,22 +140,21 @@ func (c *RootCLI) runHookSession(
 	if err != nil {
 		return err
 	}
-	resolvedDBPath, err := resolveDBPath(dbPath)
-	if err != nil {
-		return err
-	}
-	c.applyDatabasePath(resolvedDBPath)
-	if err := c.storeManagement.Initialize(ctx); err != nil {
-		return xerrors.Errorf("failed to initialize store: %w", err)
-	}
-
-	agent, err := resolveHookAgent(client, payload)
-	if err != nil {
-		return err
-	}
 
 	switch action {
 	case "start":
+		resolvedDBPath, err := resolveDBPath(dbPath)
+		if err != nil {
+			return err
+		}
+		c.applyDatabasePath(resolvedDBPath)
+		if err := c.storeManagement.Initialize(ctx); err != nil {
+			return xerrors.Errorf("failed to initialize store: %w", err)
+		}
+		agent, err := resolveHookAgent(client, payload)
+		if err != nil {
+			return err
+		}
 		workspace, err := resolveHookWorkspace(ctx, payload, client, false)
 		if err != nil {
 			return err
@@ -186,6 +185,10 @@ func (c *RootCLI) runHookSession(
 		}
 		return nil
 	case "end", "stop":
+		agent, err := resolveHookAgent(client, payload)
+		if err != nil {
+			return err
+		}
 		sessionID := types.SessionID(hookPayloadString(payload, "session_id", ""))
 		if sessionID == "" {
 			sessionID, err = readHookSessionState(client)
@@ -208,6 +211,14 @@ func (c *RootCLI) runHookSession(
 			return err
 		}
 
+		resolvedDBPath, err := resolveDBPath(dbPath)
+		if err != nil {
+			return err
+		}
+		c.applyDatabasePath(resolvedDBPath)
+		if err := c.storeManagement.Initialize(ctx); err != nil {
+			return xerrors.Errorf("failed to initialize store: %w", err)
+		}
 		workspace, err := resolveHookWorkspace(ctx, payload, client, true)
 		if err != nil {
 			return err

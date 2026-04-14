@@ -154,6 +154,56 @@ func TestRootCLI_HookSessionCommand_StopUsesStateAndCreatesEndMarker(t *testing.
 	}
 }
 
+func TestRootCLI_HookSessionCommand_StopClearsDuplicateEndStateBeforeStoreInitialization(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(filepath.Join(stateDir, "ended"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key"), []byte("claude-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "ended", "claude-claude-session"), []byte("done"), 0o600); err != nil {
+		t.Fatalf("WriteFile(end marker) error = %v", err)
+	}
+
+	storeStub := &storeManagementUsecaseStub{initErr: errors.New("boom")}
+	sessionStub := &sessionUsecaseStub{}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(storeStub),
+		cli.WithSession(sessionStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"agent_type":"planner"}`))
+	rootCmd.SetArgs([]string{"hook", "session", "claude", "stop"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if storeStub.initCalled {
+		t.Fatal("store Initialize() was called for duplicate end cleanup")
+	}
+	if got := sessionStub.endCall.sessionID; got != "" {
+		t.Fatalf("session end call sessionID = %q, want empty for duplicate cleanup", got)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "claude-test-key")); !os.IsNotExist(err) {
+		t.Fatalf("session state still exists: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "claude-test-key-repo")); !os.IsNotExist(err) {
+		t.Fatalf("workspace state still exists: %v", err)
+	}
+}
+
 func TestRootCLI_HookSessionCommand_StartClearsStaleWorkspaceStateWhenWorkspaceMissing(t *testing.T) {
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
 
