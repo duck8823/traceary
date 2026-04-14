@@ -115,7 +115,7 @@ func computeKindCounts(kinds []string) map[string]int {
 
 func writeTimelineText(output io.Writer, blocks []apptypes.TimelineBlock, opts eventTextFormatOptions) error {
 	if len(blocks) == 0 {
-		if _, err := fmt.Fprintln(output, "No work blocks found."); err != nil {
+		if _, err := fmt.Fprintln(output, Localize("No work blocks found.", "作業ブロックが見つかりませんでした。")); err != nil {
 			return xerrors.Errorf("failed to print timeline: %w", err)
 		}
 		return nil
@@ -126,10 +126,11 @@ func writeTimelineText(output io.Writer, blocks []apptypes.TimelineBlock, opts e
 		durationStr := formatDuration(duration)
 
 		header := fmt.Sprintf(
-			"%s - %s (%s) total events: %d",
+			"%s - %s (%s) %s: %d",
 			formatTextTimestamp(b.BlockStart(), opts, "2006-01-02 15:04"),
 			formatTextTimestamp(b.BlockEnd(), opts, "15:04"),
 			durationStr,
+			Localize("total events", "総イベント数"),
 			b.EventCount(),
 		)
 		if _, err := fmt.Fprintln(output, header); err != nil {

@@ -135,6 +135,22 @@ Useful flags:
 - `--wide`
 - `--utc`
 
+### `traceary timeline`
+
+Show work timeline with gap-based block detection and per-workspace activity summaries.
+
+`timeline` groups recent events into contiguous work blocks separated by idle gaps (default: 15 minutes) and prints one aligned sub-row per workspace inside each block. The per-workspace activity summary is picked using the fallback chain **`compact_summary` → first `prompt` → kind counts**, so whichever signal exists for that workspace in the block lights up the line. Default text output uses local time; pass `--utc` for UTC. `--json` extends the block schema with a `workspace_breakdown` array (`{workspace, event_count, kind_counts, summary, summary_source}`) — existing consumers keep working unchanged.
+
+Useful flags:
+
+- `--workspace`
+- `--from`
+- `--to`
+- `--gap` (idle gap threshold in minutes)
+- `--limit`
+- `--json`
+- `--utc`
+
 ### `traceary show <event-id>`
 
 Show one event in detail.

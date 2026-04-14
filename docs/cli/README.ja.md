@@ -135,6 +135,22 @@ session 解決ルールは `traceary log` と同じです。
 - `--wide`
 - `--utc`
 
+### `traceary timeline`
+
+ギャップ検出による作業タイムラインを、ワークスペース単位のアクティビティ要約付きで表示します。
+
+`timeline` は直近のイベントをアイドルギャップ（デフォルト 15 分）で区切って連続する作業ブロックに分け、各ブロック内で workspace ごとに整列された 1 行を表示します。ワークスペース単位のアクティビティ要約は **`compact_summary` → 最初の `prompt` → kind counts** のフォールバック順で選ばれ、そのブロック内でそのワークスペースに存在するシグナルが 1 行に展開されます。デフォルトのテキスト出力は現地時刻 (local time) で、`--utc` で UTC に切り替えられます。`--json` はブロックスキーマに `workspace_breakdown` 配列 (`{workspace, event_count, kind_counts, summary, summary_source}`) を追加します（既存フィールドは維持され後方互換）。
+
+主な flag:
+
+- `--workspace`
+- `--from`
+- `--to`
+- `--gap` (アイドルギャップ閾値/分)
+- `--limit`
+- `--json`
+- `--utc`
+
 ### `traceary show <event-id>`
 
 1 件の event を詳細表示します。
