@@ -16,7 +16,10 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-const defaultGapMinutes = 15
+const (
+	defaultGapMinutes      = 15
+	timelineSummaryMaxRune = 72
+)
 
 func (c *RootCLI) newTimelineCommand() *cobra.Command {
 	var (
@@ -27,6 +30,7 @@ func (c *RootCLI) newTimelineCommand() *cobra.Command {
 		gap       int
 		limit     int
 		asJSON    bool
+		utc       bool
 	)
 
 	cmd := &cobra.Command{
@@ -42,6 +46,7 @@ func (c *RootCLI) newTimelineCommand() *cobra.Command {
 				gap:       gap,
 				limit:     limit,
 				asJSON:    asJSON,
+				utc:       utc,
 			})
 		},
 	}
@@ -53,6 +58,7 @@ func (c *RootCLI) newTimelineCommand() *cobra.Command {
 	cmd.Flags().IntVar(&gap, "gap", defaultGapMinutes, Localize("idle gap threshold in minutes", "アイドル判定の閾値（分）"))
 	cmd.Flags().IntVar(&limit, "limit", 20, Localize("maximum number of blocks to display", "表示するブロック数の上限"))
 	cmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
+	cmd.Flags().BoolVar(&utc, "utc", false, Localize("print text timestamps in UTC instead of local time", "テキスト出力のタイムスタンプを現地時刻ではなく UTC で出力する"))
 
 	return cmd
 }
@@ -95,7 +101,8 @@ func (c *RootCLI) runTimeline(ctx context.Context, output io.Writer, input timel
 		return writeTimelineJSON(output, blocks)
 	}
 
-	return writeTimelineText(output, blocks)
+	textOpts := eventTextFormatOptions{utc: input.utc, location: input.location}
+	return writeTimelineText(output, blocks, textOpts)
 }
 
 func computeKindCounts(kinds []string) map[string]int {
@@ -106,9 +113,9 @@ func computeKindCounts(kinds []string) map[string]int {
 	return counts
 }
 
-func writeTimelineText(output io.Writer, blocks []apptypes.TimelineBlock) error {
+func writeTimelineText(output io.Writer, blocks []apptypes.TimelineBlock, opts eventTextFormatOptions) error {
 	if len(blocks) == 0 {
-		if _, err := fmt.Fprintln(output, "No work blocks found."); err != nil {
+		if _, err := fmt.Fprintln(output, Localize("No work blocks found.", "作業ブロックが見つかりませんでした。")); err != nil {
 			return xerrors.Errorf("failed to print timeline: %w", err)
 		}
 		return nil
@@ -117,27 +124,90 @@ func writeTimelineText(output io.Writer, blocks []apptypes.TimelineBlock) error 
 	for _, b := range blocks {
 		duration := b.BlockEnd().Sub(b.BlockStart())
 		durationStr := formatDuration(duration)
-		ws := strings.Join(b.Workspaces(), ", ")
 
-		if _, err := fmt.Fprintf(output, "%s - %s (%s) %s\n",
-			b.BlockStart().Local().Format("2006-01-02 15:04"),
-			b.BlockEnd().Local().Format("15:04"),
+		header := fmt.Sprintf(
+			"%s - %s (%s) %s: %d",
+			formatTextTimestamp(b.BlockStart(), opts, "2006-01-02 15:04"),
+			formatTextTimestamp(b.BlockEnd(), opts, "15:04"),
 			durationStr,
-			ws,
-		); err != nil {
+			Localize("total events", "総イベント数"),
+			b.EventCount(),
+		)
+		if _, err := fmt.Fprintln(output, header); err != nil {
 			return xerrors.Errorf("failed to print timeline block: %w", err)
 		}
 
-		// Print kind counts as command frequency
-		kindCounts := computeKindCounts(b.Kinds())
-		kindLine := formatKindCounts(kindCounts)
-		if kindLine != "" {
-			if _, err := fmt.Fprintf(output, "  %s\n", kindLine); err != nil {
-				return xerrors.Errorf("failed to print timeline block details: %w", err)
+		breakdown := b.WorkspaceBreakdown()
+		if len(breakdown) == 0 {
+			continue
+		}
+
+		maxCountWidth := 0
+		for _, ws := range breakdown {
+			if w := countWidth(ws.EventCount()); w > maxCountWidth {
+				maxCountWidth = w
+			}
+		}
+		maxWorkspaceWidth := 0
+		for _, ws := range breakdown {
+			if w := runeLen(ws.Workspace()); w > maxWorkspaceWidth {
+				maxWorkspaceWidth = w
+			}
+		}
+
+		for _, ws := range breakdown {
+			summary := workspaceActivityText(ws)
+			line := fmt.Sprintf(
+				"  %s (%s) — %s",
+				padRight(ws.Workspace(), maxWorkspaceWidth),
+				padLeft(fmt.Sprintf("%d", ws.EventCount()), maxCountWidth),
+				summary,
+			)
+			if _, err := fmt.Fprintln(output, line); err != nil {
+				return xerrors.Errorf("failed to print timeline block workspace row: %w", err)
 			}
 		}
 	}
 	return nil
+}
+
+// workspaceActivityText renders the per-workspace activity summary using
+// the compact_summary → prompt → kind-counts fallback chain.
+func workspaceActivityText(ws apptypes.TimelineWorkspaceBreakdown) string {
+	switch ws.SummarySource() {
+	case apptypes.TimelineSummarySourceCompactSummary, apptypes.TimelineSummarySourcePrompt:
+		return truncateNormalized(ws.Summary(), timelineSummaryMaxRune)
+	default:
+		return formatKindCounts(computeKindCounts(ws.Kinds()))
+	}
+}
+
+func countWidth(n int) int {
+	if n <= 0 {
+		return 1
+	}
+	w := 0
+	for n > 0 {
+		w++
+		n /= 10
+	}
+	return w
+}
+
+func padRight(s string, width int) string {
+	diff := width - runeLen(s)
+	if diff <= 0 {
+		return s
+	}
+	return s + strings.Repeat(" ", diff)
+}
+
+func padLeft(s string, width int) string {
+	diff := width - runeLen(s)
+	if diff <= 0 {
+		return s
+	}
+	return strings.Repeat(" ", diff) + s
 }
 
 func formatKindCounts(counts map[string]int) string {
@@ -153,7 +223,10 @@ func formatKindCounts(counts map[string]int) string {
 		sorted = append(sorted, kv{k, v})
 	}
 	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].count > sorted[j].count
+		if sorted[i].count != sorted[j].count {
+			return sorted[i].count > sorted[j].count
+		}
+		return sorted[i].key < sorted[j].key
 	})
 
 	var parts []string
@@ -164,26 +237,46 @@ func formatKindCounts(counts map[string]int) string {
 }
 
 func writeTimelineJSON(output io.Writer, blocks []apptypes.TimelineBlock) error {
+	type jsonWorkspaceBreakdown struct {
+		Workspace     string         `json:"workspace"`
+		EventCount    int            `json:"event_count"`
+		KindCounts    map[string]int `json:"kind_counts"`
+		Summary       string         `json:"summary"`
+		SummarySource string         `json:"summary_source"`
+	}
 	type jsonBlock struct {
-		Start      string         `json:"start"`
-		End        string         `json:"end"`
-		Duration   string         `json:"duration"`
-		EventCount int            `json:"event_count"`
-		Workspaces []string       `json:"workspaces"`
-		Agents     []string       `json:"agents"`
-		KindCounts map[string]int `json:"kind_counts"`
+		Start              string                   `json:"start"`
+		End                string                   `json:"end"`
+		Duration           string                   `json:"duration"`
+		EventCount         int                      `json:"event_count"`
+		Workspaces         []string                 `json:"workspaces"`
+		Agents             []string                 `json:"agents"`
+		KindCounts         map[string]int           `json:"kind_counts"`
+		WorkspaceBreakdown []jsonWorkspaceBreakdown `json:"workspace_breakdown"`
 	}
 
 	result := make([]jsonBlock, 0, len(blocks))
 	for _, b := range blocks {
+		breakdown := b.WorkspaceBreakdown()
+		wsOut := make([]jsonWorkspaceBreakdown, 0, len(breakdown))
+		for _, ws := range breakdown {
+			wsOut = append(wsOut, jsonWorkspaceBreakdown{
+				Workspace:     ws.Workspace(),
+				EventCount:    ws.EventCount(),
+				KindCounts:    computeKindCounts(ws.Kinds()),
+				Summary:       ws.Summary(),
+				SummarySource: string(ws.SummarySource()),
+			})
+		}
 		result = append(result, jsonBlock{
-			Start:      b.BlockStart().Format(time.RFC3339),
-			End:        b.BlockEnd().Format(time.RFC3339),
-			Duration:   formatDuration(b.BlockEnd().Sub(b.BlockStart())),
-			EventCount: b.EventCount(),
-			Workspaces: b.Workspaces(),
-			Agents:     b.Agents(),
-			KindCounts: computeKindCounts(b.Kinds()),
+			Start:              b.BlockStart().Format(time.RFC3339),
+			End:                b.BlockEnd().Format(time.RFC3339),
+			Duration:           formatDuration(b.BlockEnd().Sub(b.BlockStart())),
+			EventCount:         b.EventCount(),
+			Workspaces:         b.Workspaces(),
+			Agents:             b.Agents(),
+			KindCounts:         computeKindCounts(b.Kinds()),
+			WorkspaceBreakdown: wsOut,
 		})
 	}
 
