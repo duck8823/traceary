@@ -29,21 +29,15 @@ func writeEvents(output io.Writer, events []*model.Event) error {
 		return nil
 	}
 
-	if _, err := fmt.Fprintln(output, "CREATED_AT\tKIND\tCLIENT\tAGENT\tSESSION_ID\tWORKSPACE\tMESSAGE"); err != nil {
+	// list/search continue to emit the UTC wide format; #541 will switch
+	// the default to local-compact. Keeping behaviour unchanged here lets
+	// #538 land without touching list/search output.
+	wideOpts := eventTextFormatOptions{wide: true, utc: true}
+	if _, err := fmt.Fprintln(output, formatEventWideHeader()); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print list header", "一覧ヘッダーの出力に失敗しました"), err)
 	}
 	for _, event := range events {
-		if _, err := fmt.Fprintf(
-			output,
-			"%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			event.CreatedAt().UTC().Format("2006-01-02T15:04:05Z07:00"),
-			event.Kind(),
-			formatOptionalColumn(event.Client().String()),
-			event.Agent(),
-			event.SessionID(),
-			formatOptionalColumn(event.Workspace().String()),
-			truncateMessage(event.Body()),
-		); err != nil {
+		if _, err := fmt.Fprintln(output, formatEventWideRow(event, wideOpts)); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print event row", "イベント一覧行の出力に失敗しました"), err)
 		}
 	}
