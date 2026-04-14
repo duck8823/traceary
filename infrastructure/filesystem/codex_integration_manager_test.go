@@ -25,6 +25,23 @@ func TestCodexIntegrationManager_Install(t *testing.T) {
 	repoRoot := newCodexIntegrationRepoRoot(t)
 	codexHome := t.TempDir()
 	marketplaceRoot := filepath.Join(t.TempDir(), "agents", "plugins")
+	marketplaceManifestPath := filepath.Join(marketplaceRoot, "marketplace.json")
+	if err := os.MkdirAll(filepath.Dir(marketplaceManifestPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(marketplaceManifestPath, []byte(`{
+  "name": "custom-marketplace",
+  "interface": {"displayName": "Custom Marketplace"},
+  "description": "keep me",
+  "plugins": [
+    {
+      "name": "existing-plugin",
+      "source": {"source": "local", "path": "./plugins/existing-plugin"}
+    }
+  ]
+}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(marketplace) error = %v", err)
+	}
 	hooksPath := filepath.Join(codexHome, "hooks.json")
 	if err := os.MkdirAll(filepath.Dir(hooksPath), 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
@@ -86,6 +103,20 @@ func TestCodexIntegrationManager_Install(t *testing.T) {
 	}
 	if diff := cmp.Diff(true, strings.Contains(string(hooksContent), "/tmp/custom-traceary-wrapper")); diff != "" {
 		t.Fatalf("hooks traceary_bin mismatch (-want +got):\n%s", diff)
+	}
+
+	marketplaceContent, err := os.ReadFile(marketplaceManifestPath)
+	if err != nil {
+		t.Fatalf("ReadFile(marketplace) error = %v", err)
+	}
+	if diff := cmp.Diff(true, strings.Contains(string(marketplaceContent), `"description": "keep me"`)); diff != "" {
+		t.Fatalf("marketplace metadata mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(true, strings.Contains(string(marketplaceContent), `"name": "custom-marketplace"`)); diff != "" {
+		t.Fatalf("marketplace name mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(true, strings.Contains(string(marketplaceContent), `"name": "existing-plugin"`)); diff != "" {
+		t.Fatalf("marketplace existing plugin mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -180,6 +211,32 @@ func TestCodexIntegrationManager_Uninstall(t *testing.T) {
 	}
 	if diff := cmp.Diff(true, strings.Contains(string(updatedHooks), "custom-cli hook session codex start")); diff != "" {
 		t.Fatalf("updated hooks unrelated entry mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestCodexIntegrationManager_UninstallDoesNotCreateMarketplaceManifestWhenAbsent(t *testing.T) {
+	t.Parallel()
+
+	manager := filesystem.NewCodexIntegrationManager(filesystem.NewHooksOrchestrator(map[string]application.HooksClientHandler{
+		"claude": filesystem.NewClaudeHooksHandler(),
+		"codex":  filesystem.NewCodexHooksHandler(),
+		"gemini": filesystem.NewGeminiHooksHandler(),
+	}))
+	codexHome := t.TempDir()
+	marketplaceRoot := filepath.Join(t.TempDir(), "agents", "plugins")
+
+	result, err := manager.Uninstall(context.Background(), codexHome, marketplaceRoot)
+	if err != nil {
+		t.Fatalf("Uninstall() error = %v", err)
+	}
+
+	if diff := cmp.Diff(false, result.MarketplaceCopyRemoved()); diff != "" {
+		t.Fatalf("MarketplaceCopyRemoved mismatch (-want +got):\n%s", diff)
+	}
+
+	marketplaceManifestPath := filepath.Join(marketplaceRoot, "marketplace.json")
+	if _, err := os.Stat(marketplaceManifestPath); !os.IsNotExist(err) {
+		t.Fatalf("marketplace manifest should remain absent, stat error = %v", err)
 	}
 }
 

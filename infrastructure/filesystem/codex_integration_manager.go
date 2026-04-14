@@ -155,9 +155,17 @@ func installCodexMarketplaceCopy(sourcePlugin string, marketplaceRoot string) (s
 	}
 
 	marketplacePath := filepath.Join(marketplaceRoot, "marketplace.json")
-	marketplace, err := loadCodexMarketplace(marketplacePath)
+	marketplaceDocument, marketplaceExists, marketplace, err := loadCodexMarketplaceDocument(marketplacePath)
 	if err != nil {
 		return "", err
+	}
+	if !marketplaceExists {
+		marketplaceDocument = map[string]interface{}{
+			"name": codexLocalMarketplaceName,
+			"interface": map[string]string{
+				"displayName": "Local Traceary Plugins",
+			},
+		}
 	}
 	filtered := make([]map[string]interface{}, 0, len(marketplace))
 	for _, entry := range marketplace {
@@ -178,7 +186,7 @@ func installCodexMarketplaceCopy(sourcePlugin string, marketplaceRoot string) (s
 		},
 		"category": "Coding",
 	})
-	if err := writeMarketplaceDocument(marketplacePath, filtered); err != nil {
+	if err := writeMarketplaceDocument(marketplacePath, marketplaceDocument, filtered); err != nil {
 		return "", err
 	}
 
@@ -341,9 +349,12 @@ func removeTracearyManagedCodexHooks(hooksPath string) (bool, error) {
 }
 
 func removeCodexMarketplaceEntry(marketplacePath string) error {
-	entries, err := loadCodexMarketplace(marketplacePath)
+	marketplaceDocument, marketplaceExists, entries, err := loadCodexMarketplaceDocument(marketplacePath)
 	if err != nil {
 		return err
+	}
+	if !marketplaceExists {
+		return nil
 	}
 	filtered := make([]map[string]interface{}, 0, len(entries))
 	for _, entry := range entries {
@@ -352,20 +363,20 @@ func removeCodexMarketplaceEntry(marketplacePath string) error {
 		}
 		filtered = append(filtered, entry)
 	}
-	return writeMarketplaceDocument(marketplacePath, filtered)
+	return writeMarketplaceDocument(marketplacePath, marketplaceDocument, filtered)
 }
 
-func loadCodexMarketplace(path string) ([]map[string]interface{}, error) {
+func loadCodexMarketplaceDocument(path string) (map[string]interface{}, bool, []map[string]interface{}, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return []map[string]interface{}{}, nil
+			return nil, false, []map[string]interface{}{}, nil
 		}
-		return nil, xerrors.Errorf("failed to read Codex marketplace manifest: %w", err)
+		return nil, false, nil, xerrors.Errorf("failed to read Codex marketplace manifest: %w", err)
 	}
 	payload := map[string]interface{}{}
 	if err := json.Unmarshal(data, &payload); err != nil {
-		return nil, xerrors.Errorf("failed to parse Codex marketplace manifest: %w", err)
+		return nil, false, nil, xerrors.Errorf("failed to parse Codex marketplace manifest: %w", err)
 	}
 	rawPlugins, _ := payload["plugins"].([]interface{})
 	plugins := make([]map[string]interface{}, 0, len(rawPlugins))
@@ -376,17 +387,11 @@ func loadCodexMarketplace(path string) ([]map[string]interface{}, error) {
 		}
 		plugins = append(plugins, plugin)
 	}
-	return plugins, nil
+	return payload, true, plugins, nil
 }
 
-func writeMarketplaceDocument(path string, plugins []map[string]interface{}) error {
-	payload := map[string]interface{}{
-		"name": codexLocalMarketplaceName,
-		"interface": map[string]string{
-			"displayName": "Local Traceary Plugins",
-		},
-		"plugins": plugins,
-	}
+func writeMarketplaceDocument(path string, payload map[string]interface{}, plugins []map[string]interface{}) error {
+	payload["plugins"] = plugins
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return xerrors.Errorf("failed to create Codex marketplace parent: %w", err)
 	}
