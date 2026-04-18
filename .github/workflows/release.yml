@@ -57,7 +57,7 @@ jobs:
         run: python3 scripts/verify_changelog_releases.py
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@9a127d869fb706213d29cdf8eef3a4ea2b869415 # v7
+        uses: goreleaser/goreleaser-action@ec59f474b9834571250b370d4735c50f8e2d1e29 # v7
         with:
           distribution: goreleaser
           version: '~> v2'
@@ -145,7 +145,7 @@ jobs:
 
       - name: Close matching parent release issue
         if: env.IS_TAG_RELEASE == 'true'
-        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             const tag = process.env.RELEASE_TAG;
