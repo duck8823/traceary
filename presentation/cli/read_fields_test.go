@@ -100,7 +100,7 @@ func TestResolveReadFieldsForCommand_WideConflict(t *testing.T) {
 	t.Parallel()
 
 	cli := NewRootCLI()
-	_, err := cli.resolveReadFieldsForCommand([]string{"ts", "kind"}, true, true, false)
+	_, err := cli.resolveReadFieldsForCommand([]string{"ts", "kind"}, true, true, false, nil)
 	if err == nil {
 		t.Fatalf("resolveReadFieldsForCommand() expected conflict error, got nil")
 	}
@@ -113,7 +113,7 @@ func TestResolveReadFieldsForCommand_WideWithoutExplicitFieldsIsAllowed(t *testi
 	t.Parallel()
 
 	cli := NewRootCLI()
-	got, err := cli.resolveReadFieldsForCommand(nil, false, true, false)
+	got, err := cli.resolveReadFieldsForCommand(nil, false, true, false, nil)
 	if err != nil {
 		t.Fatalf("resolveReadFieldsForCommand() unexpected error = %v", err)
 	}
@@ -129,7 +129,7 @@ func TestResolveReadFieldsForCommand_WideSkipsBrokenConfigDefault(t *testing.T) 
 	t.Parallel()
 
 	cli := NewRootCLI(WithDefaultReadFields([]string{"bogus"}))
-	got, err := cli.resolveReadFieldsForCommand(nil, false, true, false)
+	got, err := cli.resolveReadFieldsForCommand(nil, false, true, false, nil)
 	if err != nil {
 		t.Fatalf("wide mode should bypass config validation, got err = %v", err)
 	}
@@ -142,7 +142,7 @@ func TestResolveReadFieldsForCommand_JSONSkipsBrokenConfigDefault(t *testing.T) 
 	t.Parallel()
 
 	cli := NewRootCLI(WithDefaultReadFields([]string{"bogus"}))
-	got, err := cli.resolveReadFieldsForCommand(nil, false, false, true)
+	got, err := cli.resolveReadFieldsForCommand(nil, false, false, true, nil)
 	if err != nil {
 		t.Fatalf("--json should bypass config validation, got err = %v", err)
 	}

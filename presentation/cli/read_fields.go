@@ -152,10 +152,13 @@ func readFieldsFlagUsage() string {
 
 // resolveReadFieldsForCommand applies the precedence rules and enforces the
 // --wide vs --fields mutual exclusion for read commands. When the command is
-// rendering --wide or --json output, the config-backed default is skipped so
-// a broken read.fields entry does not block paths that would not consume it
-// anyway.
-func (c *RootCLI) resolveReadFieldsForCommand(explicit []string, explicitSet bool, wide bool, asJSON bool) ([]readFieldID, error) {
+// rendering --wide or --json output, the config-backed default and the
+// preset fields are skipped so a broken setting does not block paths that
+// would not consume it anyway.
+//
+// Precedence (compact text rendering only): explicit --fields > preset
+// fields > config.read.fields > built-in default.
+func (c *RootCLI) resolveReadFieldsForCommand(explicit []string, explicitSet bool, wide bool, asJSON bool, presetFields []readFieldID) ([]readFieldID, error) {
 	if wide && explicitSet {
 		return nil, xerrors.Errorf(Localize(
 			"--fields cannot be combined with --wide (wide mode keeps the legacy seven-column format)",
@@ -164,6 +167,12 @@ func (c *RootCLI) resolveReadFieldsForCommand(explicit []string, explicitSet boo
 	}
 	if wide || asJSON {
 		return append([]readFieldID(nil), defaultReadFields...), nil
+	}
+	if explicitSet {
+		return parseReadFields(explicit)
+	}
+	if len(presetFields) > 0 {
+		return append([]readFieldID(nil), presetFields...), nil
 	}
 	return resolveReadFields(explicit, explicitSet, c.defaultReadFields)
 }

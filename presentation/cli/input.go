@@ -122,6 +122,14 @@ type listCommandInput struct {
 	location     *time.Location
 	fields       []string
 	fieldsSet    bool
+	preset          string
+	presetSet       bool
+	kindSet         bool
+	clientSet       bool
+	agentSet        bool
+	sessionIDSet    bool
+	repoSet         bool
+	failuresOnlySet bool
 }
 
 // logCommandInput is the resolved input to the `traceary log` command.
@@ -159,6 +167,14 @@ type searchCommandInput struct {
 	location     *time.Location
 	fields       []string
 	fieldsSet    bool
+	preset          string
+	presetSet       bool
+	kindSet         bool
+	clientSet       bool
+	agentSet        bool
+	sessionIDSet    bool
+	repoSet         bool
+	failuresOnlySet bool
 }
 
 // sessionBoundaryCommandInput is the resolved input to
@@ -218,6 +234,14 @@ type tailCommandInput struct {
 	location      *time.Location
 	fields        []string
 	fieldsSet     bool
+	preset          string
+	presetSet       bool
+	kindSet         bool
+	clientSet       bool
+	agentSet        bool
+	sessionIDSet    bool
+	repoSet         bool
+	failuresOnlySet bool
 	nowFunc       func() time.Time
 	tickerFactory func(time.Duration) tailTicker
 }

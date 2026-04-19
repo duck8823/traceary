@@ -147,6 +147,7 @@ func run() error {
 	cfg := presentation.LoadConfig()
 	extraRedactPatterns := cfg.ExtraRedactPatterns
 	defaultReadFields := cfg.ReadFields
+	readPresets := cfg.ReadPresets
 
 	eventUsecase := usecase.NewEventUsecase(eventDatasource, eventDatasource)
 	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource)
@@ -189,6 +190,7 @@ func run() error {
 		cli.WithHooksInspector(hooksInspector),
 		cli.WithExtraRedactPatterns(extraRedactPatterns),
 		cli.WithDefaultReadFields(defaultReadFields),
+		cli.WithReadPresets(readPresets),
 		cli.WithDatabasePathSetter(db.SetPath),
 	).Command()
 	rootCmd.Version = versionString()

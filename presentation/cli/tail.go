@@ -195,6 +195,7 @@ func (c *RootCLI) newTailCommand() *cobra.Command {
 		wide         bool
 		utc          bool
 		fields       []string
+		preset       string
 	)
 
 	tailCmd := &cobra.Command{
@@ -202,20 +203,28 @@ func (c *RootCLI) newTailCommand() *cobra.Command {
 		Short: Localize("Follow new events as they arrive", "新しいイベントを追跡表示する"),
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return c.runTail(cmd.Context(), cmd.OutOrStdout(), tailCommandInput{
-				dbPath:       dbPath,
-				limit:        limit,
-				kind:         kind,
-				client:       client,
-				agent:        agent,
-				sessionID:    sessionID,
-				repo:         repo,
-				failuresOnly: failuresOnly,
-				asJSON:       asJSON,
-				wide:         wide,
-				utc:          utc,
-				fields:       fields,
-				fieldsSet:    cmd.Flags().Changed("fields"),
+			return c.runTail(cmd.Context(), cmd.ErrOrStderr(), cmd.OutOrStdout(), tailCommandInput{
+				dbPath:          dbPath,
+				limit:           limit,
+				kind:            kind,
+				client:          client,
+				agent:           agent,
+				sessionID:       sessionID,
+				repo:            repo,
+				failuresOnly:    failuresOnly,
+				asJSON:          asJSON,
+				wide:            wide,
+				utc:             utc,
+				fields:          fields,
+				fieldsSet:       cmd.Flags().Changed("fields"),
+				preset:          preset,
+				presetSet:       cmd.Flags().Changed("preset"),
+				kindSet:         cmd.Flags().Changed("kind"),
+				clientSet:       cmd.Flags().Changed("client"),
+				agentSet:        cmd.Flags().Changed("agent"),
+				sessionIDSet:    cmd.Flags().Changed("session-id"),
+				repoSet:         cmd.Flags().Changed("workspace"),
+				failuresOnlySet: cmd.Flags().Changed("failures"),
 			})
 		},
 	}
@@ -231,11 +240,12 @@ func (c *RootCLI) newTailCommand() *cobra.Command {
 	tailCmd.Flags().BoolVar(&wide, "wide", false, Localize("use the legacy tab-separated seven-column format", "従来のタブ区切り 7 カラム形式で出力する"))
 	tailCmd.Flags().BoolVar(&utc, "utc", false, Localize("print text timestamps in UTC instead of local time", "テキスト出力のタイムスタンプを現地時刻ではなく UTC で出力する"))
 	tailCmd.Flags().StringSliceVar(&fields, "fields", nil, readFieldsFlagUsage())
+	tailCmd.Flags().StringVar(&preset, "preset", "", readPresetsFlagUsage())
 
 	return tailCmd
 }
 
-func (c *RootCLI) runTail(ctx context.Context, output io.Writer, input tailCommandInput) error {
+func (c *RootCLI) runTail(ctx context.Context, warnWriter io.Writer, output io.Writer, input tailCommandInput) error {
 	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
@@ -245,6 +255,11 @@ func (c *RootCLI) runTail(ctx context.Context, output io.Writer, input tailComma
 	if input.limit < 0 {
 		return xerrors.Errorf(Localize("limit must be greater than or equal to 0", "limit は 0 以上である必要があります"))
 	}
+	preset, _, err := resolveReadPreset(input.preset, c.readPresets, warnWriter)
+	if err != nil {
+		return err
+	}
+	applyReadPresetToTailInput(&input, preset)
 	resolvedKind, err := resolveListKind(input.kind)
 	if err != nil {
 		return err
@@ -267,7 +282,7 @@ func (c *RootCLI) runTail(ctx context.Context, output io.Writer, input tailComma
 		Workspace(types.Workspace(resolveWorkspaceValue(ctx, input.repo))).
 		FailuresOnly(input.failuresOnly)
 
-	resolvedFields, err := c.resolveReadFieldsForCommand(input.fields, input.fieldsSet, input.wide, input.asJSON)
+	resolvedFields, err := c.resolveReadFieldsForCommand(input.fields, input.fieldsSet, input.wide, input.asJSON, preset.fields)
 	if err != nil {
 		return err
 	}

@@ -19,7 +19,28 @@ type redactSection struct {
 }
 
 type readSection struct {
-	Fields []string `json:"fields"`
+	Fields  []string                 `json:"fields"`
+	Presets map[string]readPresetDoc `json:"presets"`
+}
+
+// readPresetDoc mirrors a user-defined read preset entry in config.json. The
+// fields are intentionally loose so LoadConfig stays lenient — preset
+// validation (unknown field names, unsupported kinds, etc.) happens when a
+// preset is applied at command runtime.
+type readPresetDoc struct {
+	Fields  []string          `json:"fields"`
+	Filters readPresetFilters `json:"filters"`
+}
+
+// readPresetFilters lists the filter keys a preset can carry. Only filters
+// that every read command (tail / list / search) can consume are included.
+type readPresetFilters struct {
+	Kind      string `json:"kind"`
+	Failures  *bool  `json:"failures"`
+	Workspace string `json:"workspace"`
+	SessionID string `json:"session_id"`
+	Client    string `json:"client"`
+	Agent     string `json:"agent"`
 }
 
 // Config carries the resolved configuration values consumed by the CLI and
@@ -33,6 +54,30 @@ type Config struct {
 	// text output when the user does not pass --fields. Nil / empty means
 	// "fall back to the built-in default column order".
 	ReadFields []string
+	// ReadPresets captures user-defined read presets. The runtime validates
+	// field names, kind values, and other constraints when a preset is
+	// applied; LoadConfig only parses the shape.
+	ReadPresets map[string]ReadPreset
+}
+
+// ReadPreset is the runtime-facing view of a user-defined preset loaded from
+// config.json. It intentionally uses plain fields so callers can apply a
+// preset without importing JSON tag types from this package.
+type ReadPreset struct {
+	Fields  []string
+	Filters ReadPresetFilters
+}
+
+// ReadPresetFilters lists the filter keys a preset can carry. Presence
+// (non-zero value) is what matters to the runtime; the preset applies the
+// filter only when the corresponding key is set.
+type ReadPresetFilters struct {
+	Kind      string
+	Failures  *bool
+	Workspace string
+	SessionID string
+	Client    string
+	Agent     string
 }
 
 // LoadConfig reads the optional Traceary config file and returns a Config.
@@ -47,7 +92,29 @@ func LoadConfig() Config {
 	return Config{
 		ExtraRedactPatterns: file.Redact.ExtraPatterns,
 		ReadFields:          file.Read.Fields,
+		ReadPresets:         toReadPresetMap(file.Read.Presets),
 	}
+}
+
+func toReadPresetMap(raw map[string]readPresetDoc) map[string]ReadPreset {
+	if len(raw) == 0 {
+		return nil
+	}
+	out := make(map[string]ReadPreset, len(raw))
+	for name, doc := range raw {
+		out[name] = ReadPreset{
+			Fields: append([]string(nil), doc.Fields...),
+			Filters: ReadPresetFilters{
+				Kind:      doc.Filters.Kind,
+				Failures:  doc.Filters.Failures,
+				Workspace: doc.Filters.Workspace,
+				SessionID: doc.Filters.SessionID,
+				Client:    doc.Filters.Client,
+				Agent:     doc.Filters.Agent,
+			},
+		}
+	}
+	return out
 }
 
 // LoadExtraRedactPatterns preserves the earlier API so callers that only need
