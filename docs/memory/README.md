@@ -62,6 +62,21 @@ Use these when Traceary should infer candidate memories from existing session si
 
 Extraction is candidate-only. It does not auto-accept memories.
 
+### Import path
+
+Use this when you want to surface memories written by another local agent as
+Traceary durable-memory candidates without merging the underlying stores:
+
+- `traceary memory import codex`
+
+Import reads the local Codex handbook (`~/.codex/memories/MEMORY.md` by
+default) and records each bullet under `## User preferences`, `## Reusable
+knowledge`, and `## Failures and how to do differently` as a `candidate`
+with `source=imported` plus file-level evidence/artifact refs. The sanitizer
+runs on every imported fact, nothing is auto-accepted, and dedupe walks
+every lifecycle status (including rejected) so memories the operator has
+already declined are never resurrected by a later import run.
+
 ### Query path
 
 Use these to inspect existing durable memories:
