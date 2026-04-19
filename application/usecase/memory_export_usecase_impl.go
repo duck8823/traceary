@@ -3,7 +3,9 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -23,13 +25,37 @@ func NewMemoryExportUsecase(memoryQuery queryservice.MemoryQueryService) MemoryE
 }
 
 // MemoryBridgeMarkerBegin / End wrap every block Traceary manages inside a
-// host instruction file. Matching on these exact strings is the contract
-// the import usecase relies on, so changing them is a breaking change.
+// host instruction file. The exporter always writes the current version
+// (MemoryBridgeCurrentVersion) so consumers see a stable stamp; the
+// importer accepts any `:v<N>` suffix through MatchMemoryBridgeBeginLine
+// so a future `:v2` build never reimports an older exporter's block as
+// free-form candidates.
 const (
-	MemoryBridgeMarkerBegin = "<!-- traceary-memories:begin:v1 -->"
-	MemoryBridgeMarkerEnd   = "<!-- traceary-memories:end -->"
-	memoryBridgeWarning     = "<!-- DO NOT EDIT: this block is managed by `traceary memory export`. Hand edits will be overwritten on the next export. -->"
+	MemoryBridgeMarkerBegin    = "<!-- traceary-memories:begin:v1 -->"
+	MemoryBridgeMarkerEnd      = "<!-- traceary-memories:end -->"
+	MemoryBridgeCurrentVersion = 1
+	memoryBridgeWarning        = "<!-- DO NOT EDIT: this block is managed by `traceary memory export`. Hand edits will be overwritten on the next export. -->"
 )
+
+// memoryBridgeBeginPattern matches every begin marker Traceary has ever
+// written or will plausibly write — the suffix is an unsigned integer so
+// the importer can recognise future versions without a code change.
+var memoryBridgeBeginPattern = regexp.MustCompile(`^<!-- traceary-memories:begin:v(\d+) -->$`)
+
+// MatchMemoryBridgeBeginLine reports whether the trimmed line is a
+// Traceary begin marker. The returned version is the encoded `v<N>` so
+// the caller can warn when it exceeds MemoryBridgeCurrentVersion.
+func MatchMemoryBridgeBeginLine(line string) (version int, ok bool) {
+	match := memoryBridgeBeginPattern.FindStringSubmatch(line)
+	if match == nil {
+		return 0, false
+	}
+	parsed, err := strconv.Atoi(match[1])
+	if err != nil {
+		return 0, false
+	}
+	return parsed, true
+}
 
 // Export loads every accepted memory in scope, groups it by memory type,
 // and renders the markdown block Traceary writes into CLAUDE.md /
