@@ -168,3 +168,201 @@ func TestRootCLI_SessionTreeCommand_JSON(t *testing.T) {
 		}
 	})
 }
+
+func TestRootCLI_SessionTreeCommand_LineageFields(t *testing.T) {
+	t.Parallel()
+
+	started := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	ended := started.Add(90 * time.Second)
+	listStub := &sessionUsecaseStub{
+		listResult: []apptypes.SessionSummary{
+			apptypes.SessionSummaryOf(
+				types.SessionID("parent-session"),
+				types.Workspace("duck8823/traceary"),
+				started,
+				types.Some(ended),
+				"ended",
+				12,
+				8,
+				[]string{"claude"},
+				"",
+				"",
+				types.SessionID(""),
+			),
+			apptypes.SessionSummaryOf(
+				types.SessionID("child-session"),
+				types.Workspace("duck8823/traceary"),
+				started.Add(5*time.Second),
+				types.Some(ended),
+				"ended",
+				4,
+				3,
+				[]string{"claude/explore"},
+				"",
+				"",
+				types.SessionID("parent-session"),
+			),
+		},
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(listStub),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"session", "tree", "--db-path", "/tmp/test-traceary.db", "--json"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	var trees []struct {
+		SessionID       string  `json:"session_id"`
+		ParentSessionID string  `json:"parent_session_id"`
+		Depth           int     `json:"depth"`
+		DurationMs      *int64  `json:"duration_ms"`
+		DurationSec     *float64 `json:"duration_sec"`
+		SubagentType    string  `json:"subagent_type"`
+		Children        []struct {
+			SessionID       string `json:"session_id"`
+			ParentSessionID string `json:"parent_session_id"`
+			Depth           int    `json:"depth"`
+			SubagentType    string `json:"subagent_type"`
+		} `json:"children"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &trees); err != nil {
+		t.Fatalf("json.Unmarshal: %v (body=%s)", err, stdout.String())
+	}
+	if len(trees) != 1 || trees[0].SessionID != "parent-session" {
+		t.Fatalf("unexpected tree shape: %+v", trees)
+	}
+	root := trees[0]
+	if root.Depth != 0 {
+		t.Fatalf("root depth = %d, want 0", root.Depth)
+	}
+	if root.ParentSessionID != "" {
+		t.Fatalf("root parent_session_id = %q, want empty", root.ParentSessionID)
+	}
+	if root.DurationMs == nil || *root.DurationMs != 90_000 {
+		t.Fatalf("root duration_ms = %v, want 90000", root.DurationMs)
+	}
+	if root.SubagentType != "claude" {
+		t.Fatalf("root subagent_type = %q, want claude", root.SubagentType)
+	}
+	if len(root.Children) != 1 || root.Children[0].SessionID != "child-session" {
+		t.Fatalf("unexpected children: %+v", root.Children)
+	}
+	child := root.Children[0]
+	if child.Depth != 1 || child.ParentSessionID != "parent-session" || child.SubagentType != "claude/explore" {
+		t.Fatalf("unexpected child: %+v", child)
+	}
+}
+
+func TestRootCLI_SessionTreeCommand_RootFilter(t *testing.T) {
+	t.Parallel()
+
+	started := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	ended := started.Add(time.Minute)
+	listStub := &sessionUsecaseStub{
+		listResult: []apptypes.SessionSummary{
+			apptypes.SessionSummaryOf(
+				types.SessionID("root-a"),
+				types.Workspace("ws"),
+				started, types.Some(ended),
+				"ended", 3, 2, []string{"claude"}, "", "", types.SessionID(""),
+			),
+			apptypes.SessionSummaryOf(
+				types.SessionID("root-b"),
+				types.Workspace("ws"),
+				started, types.Some(ended),
+				"ended", 3, 2, []string{"codex"}, "", "", types.SessionID(""),
+			),
+			apptypes.SessionSummaryOf(
+				types.SessionID("child-of-b"),
+				types.Workspace("ws"),
+				started, types.Some(ended),
+				"ended", 1, 1, []string{"codex/explore"}, "", "", types.SessionID("root-b"),
+			),
+		},
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(listStub),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"session", "tree", "--db-path", "/tmp/test-traceary.db", "--root", "root-b"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "root-b") {
+		t.Fatalf("--root root-b should keep root-b, got %q", out)
+	}
+	if strings.Contains(out, "root-a") {
+		t.Fatalf("--root root-b should hide root-a, got %q", out)
+	}
+	if !strings.Contains(out, "child-of-b") {
+		t.Fatalf("--root root-b should keep its descendant, got %q", out)
+	}
+}
+
+func TestRootCLI_SessionTreeCommand_OngoingOnly(t *testing.T) {
+	t.Parallel()
+
+	started := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	ended := started.Add(time.Minute)
+	listStub := &sessionUsecaseStub{
+		listResult: []apptypes.SessionSummary{
+			apptypes.SessionSummaryOf(
+				types.SessionID("live-root"),
+				types.Workspace("ws"),
+				started, types.None[time.Time](),
+				"active", 1, 0, []string{"claude"}, "", "", types.SessionID(""),
+			),
+			apptypes.SessionSummaryOf(
+				types.SessionID("dead-root"),
+				types.Workspace("ws"),
+				started, types.Some(ended),
+				"ended", 3, 2, []string{"codex"}, "", "", types.SessionID(""),
+			),
+			apptypes.SessionSummaryOf(
+				types.SessionID("dead-child"),
+				types.Workspace("ws"),
+				started, types.Some(ended),
+				"ended", 1, 1, []string{"codex"}, "", "", types.SessionID("dead-root"),
+			),
+			// Stale (status=stale, no end event) sessions must not leak into
+			// --ongoing-only output — once the datasource has promoted them
+			// to stale, they are no longer the live work the flag promises.
+			apptypes.SessionSummaryOf(
+				types.SessionID("stale-root"),
+				types.Workspace("ws"),
+				started, types.None[time.Time](),
+				"stale", 1, 0, []string{"claude"}, "", "", types.SessionID(""),
+			),
+		},
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(listStub),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"session", "tree", "--db-path", "/tmp/test-traceary.db", "--ongoing-only"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "live-root") {
+		t.Fatalf("--ongoing-only should keep live-root, got %q", out)
+	}
+	if strings.Contains(out, "dead-root") || strings.Contains(out, "dead-child") {
+		t.Fatalf("--ongoing-only should prune dead lineage, got %q", out)
+	}
+	if strings.Contains(out, "stale-root") {
+		t.Fatalf("--ongoing-only should prune stale sessions, got %q", out)
+	}
+}
