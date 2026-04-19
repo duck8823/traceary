@@ -179,7 +179,7 @@ $ traceary timeline --limit 2
 | ホスト | セッション境界 | ツール監査 | prompt 記録 | compact summary 記録 | 自動記録の対応レベル |
 |---|---|---|---|---|---|
 | Claude Code | 完全対応 | Bash + MCP + failure hook | あり | あり | Full |
-| Codex | 完全対応（`SessionStart` + `Stop`） | tool hook | なし | なし | Partial |
+| Codex | 完全対応（`SessionStart` + `Stop`） | tool hook | あり | なし | Partial |
 | Gemini CLI | 完全対応（`SessionStart` + `SessionEnd`） | tool hook | なし | なし | Basic |
 
 詳しい契約と hook の意味付けは、[Hook contract](./docs/hooks/contract.ja.md) と [イベントライフサイクル](./docs/lifecycle.ja.md) を参照してください。

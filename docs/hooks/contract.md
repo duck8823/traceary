@@ -24,6 +24,7 @@ This document defines the hook capability tiers across AI agent clients.
 | Hook Event | Matcher | Behavior |
 |---|---|---|
 | SessionStart | (all) | Record session start |
+| UserPromptSubmit | (all) | Record user prompt text |
 | Stop | (all) | Record session end |
 | PostToolUse | (all) | Record tool audit |
 

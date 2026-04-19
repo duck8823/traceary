@@ -180,7 +180,7 @@ The query surface is shared: once Traceary is installed, every host can use the 
 | Host | Session lifecycle | Tool audit | Prompt capture | Compact-summary capture | Automatic capture tier |
 |---|---|---|---|---|---|
 | Claude Code | Full | Bash + MCP + failure hooks | Yes | Yes | Full |
-| Codex | Full (`SessionStart` + `Stop`) | Tool hooks | No | No | Partial |
+| Codex | Full (`SessionStart` + `Stop`) | Tool hooks | Yes | No | Partial |
 | Gemini CLI | Full (`SessionStart` + `SessionEnd`) | Tool hooks | No | No | Basic |
 
 For the full contract and hook semantics, see the [hook contract](./docs/hooks/contract.md) and [event lifecycle](./docs/lifecycle.md).

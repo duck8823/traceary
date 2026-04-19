@@ -6,12 +6,12 @@ The Codex package lives under `plugins/traceary/`.
 Traceary installs it through a first-class CLI entrypoint because Codex needs two different pieces for the full experience:
 
 - the plugin itself for MCP, skills, and slash-style commands
-- `~/.codex/hooks.json` plus `codex_hooks` for automatic session/audit recording
+- `~/.codex/hooks.json` plus `codex_hooks` for automatic session / prompt / audit recording
 
 ## What it wires automatically
 
 - `traceary` MCP server via `traceary mcp-server`
-- `SessionStart`, `Stop`, and `PostToolUse` hooks
+- `SessionStart`, `UserPromptSubmit`, `Stop`, and `PostToolUse` hooks
 - slash commands: `/traceary:help` and `/traceary:doctor`
 - contextual skill: `traceary-session-history`
 
