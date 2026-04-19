@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -189,12 +188,11 @@ func mergeMemoryExportIntoExistingFile(path, generated string) (string, error) {
 		}
 		return "", xerrors.Errorf("%s: %w", Localize("failed to read existing memory export file", "既存の memory export ファイルの読み込みに失敗しました"), err)
 	}
-	beginIdx, beginLen := findAnyBridgeBeginMarker(string(existing))
+	beginIdx := strings.Index(string(existing), usecaseMemoryBridgeMarkerBegin)
 	endIdx := strings.Index(string(existing), usecaseMemoryBridgeMarkerEnd)
 	if beginIdx < 0 || endIdx < 0 || endIdx < beginIdx {
 		return appendMemoryExportBlock(string(existing), generated), nil
 	}
-	_ = beginLen
 	endCut := endIdx + len(usecaseMemoryBridgeMarkerEnd)
 	if endCut < len(existing) && existing[endCut] == '\n' {
 		endCut++
@@ -203,24 +201,6 @@ func mergeMemoryExportIntoExistingFile(path, generated string) (string, error) {
 	suffix := string(existing[endCut:])
 	return prefix + generated + suffix, nil
 }
-
-// findAnyBridgeBeginMarker locates the first Traceary begin marker of
-// any version (`:v1`, `:v2`, ...) in content, returning its byte offset
-// and the length of the matched marker. A future Traceary build that
-// wrote a `:v2` block will still be replaced by the current build's
-// exporter, because the CLI intentionally re-owns the managed block on
-// every export. The parser side of memory_bridge_import emits a warning
-// when it sees a higher version so the operator hears about the
-// mismatch.
-func findAnyBridgeBeginMarker(content string) (int, int) {
-	loc := bridgeBeginMarkerRegexp.FindStringIndex(content)
-	if loc == nil {
-		return -1, 0
-	}
-	return loc[0], loc[1] - loc[0]
-}
-
-var bridgeBeginMarkerRegexp = regexp.MustCompile(`<!-- traceary-memories:begin:v\d+ -->`)
 
 // appendMemoryExportBlock places the managed block at the end of the
 // existing content, separated by a blank line when needed so the markdown

@@ -81,42 +81,6 @@ func TestMergeMemoryExportIntoExistingFile_AppendsWhenNoMarkers(t *testing.T) {
 	}
 }
 
-func TestMergeMemoryExportIntoExistingFile_ReplacesFutureVersionMarker(t *testing.T) {
-	t.Parallel()
-
-	// A future Traceary build wrote the block as :v2; the current build's
-	// merge helper must still recognise it and replace the block with the
-	// freshly generated :v1 content so re-exports do not leave two stacked
-	// managed blocks behind. Hand-written sections must survive.
-	existing := "# Project\n\n" +
-		"## Tech stack\n- Go\n\n" +
-		"<!-- traceary-memories:begin:v2 -->\n" +
-		"future block managed by a newer Traceary\n" +
-		usecaseMemoryBridgeMarkerEnd + "\n\n" +
-		"## Conventions\n- Conventional commits\n"
-
-	dir := t.TempDir()
-	path := filepath.Join(dir, "CLAUDE.md")
-	if err := os.WriteFile(path, []byte(existing), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-	generated := usecaseMemoryBridgeMarkerBegin + "\nfresh block\n" + usecaseMemoryBridgeMarkerEnd + "\n"
-
-	merged, err := mergeMemoryExportIntoExistingFile(path, generated)
-	if err != nil {
-		t.Fatalf("mergeMemoryExportIntoExistingFile: %v", err)
-	}
-	if strings.Contains(merged, "future block managed by a newer") {
-		t.Fatalf("v2 content should have been replaced, got %q", merged)
-	}
-	if !strings.Contains(merged, "fresh block") {
-		t.Fatalf("merge dropped the fresh block: %q", merged)
-	}
-	if !strings.Contains(merged, "## Tech stack") || !strings.Contains(merged, "## Conventions") {
-		t.Fatalf("hand-written sections must survive, got %q", merged)
-	}
-}
-
 func TestMergeMemoryExportIntoExistingFile_MissingFileUsesGeneratedAsIs(t *testing.T) {
 	t.Parallel()
 

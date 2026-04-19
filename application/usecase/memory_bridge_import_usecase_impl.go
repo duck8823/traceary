@@ -193,17 +193,11 @@ func parseBridgeMarkdown(content, sourcePath string) ([]bridgeBullet, []string) 
 		lineNumber++
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
-		if version, isBegin := MatchMemoryBridgeBeginLine(trimmed); isBegin {
+		switch trimmed {
+		case MemoryBridgeMarkerBegin:
 			inside = true
-			if version > MemoryBridgeCurrentVersion {
-				warnings = append(warnings, fmt.Sprintf(
-					"bridge block at %s:%d uses marker version v%d which this Traceary build (v%d) does not recognise; do not overwrite the block with this binary",
-					sourcePath, lineNumber, version, MemoryBridgeCurrentVersion,
-				))
-			}
 			continue
-		}
-		if trimmed == MemoryBridgeMarkerEnd {
+		case MemoryBridgeMarkerEnd:
 			inside = false
 			continue
 		}

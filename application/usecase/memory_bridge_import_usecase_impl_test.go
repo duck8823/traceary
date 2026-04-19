@@ -62,60 +62,6 @@ func TestMemoryBridgeImport_ProposesBulletsOutsideMarkers(t *testing.T) {
 	}
 }
 
-func TestMemoryBridgeImport_FutureMarkerVersionStillSkipsManagedBlock(t *testing.T) {
-	t.Parallel()
-
-	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
-	if err != nil {
-		t.Fatalf("WorkspaceOf: %v", err)
-	}
-
-	// A future Traceary build wrote the block as :v42; the current build
-	// must still treat it as managed and skip the bullets inside (no
-	// duplicate candidate), and it must emit a warning telling the
-	// operator not to overwrite the newer block with this older binary.
-	content := strings.Join([]string{
-		"# Project instructions",
-		"",
-		"- free-form bullet that should be imported",
-		"",
-		"<!-- traceary-memories:begin:v42 -->",
-		"- managed-only bullet; do not re-import",
-		"<!-- traceary-memories:end -->",
-	}, "\n")
-
-	memoryStub := &stubImportMemoryUsecase{}
-	querySvc := &stubMemoryQueryService{}
-	sut := usecase.NewMemoryBridgeImportUsecase(memoryStub, querySvc, nil)
-
-	result, err := sut.ImportInstructions(context.Background(), apptypes.MemoryBridgeImportCriteria{
-		Target:            apptypes.MemoryBridgeTargetClaude,
-		Markdown:          content,
-		Path:              "/tmp/CLAUDE.md",
-		WorkspaceFallback: workspace,
-	})
-	if err != nil {
-		t.Fatalf("ImportInstructions: %v", err)
-	}
-
-	if len(memoryStub.proposeCalls) != 1 {
-		t.Fatalf("expected 1 propose call for the free-form bullet, got %d", len(memoryStub.proposeCalls))
-	}
-	if strings.Contains(memoryStub.proposeCalls[0].fact, "managed-only") {
-		t.Fatalf("managed block (v42) leaked into proposed candidates: %q", memoryStub.proposeCalls[0].fact)
-	}
-	foundWarning := false
-	for _, warning := range result.Warnings {
-		if strings.Contains(warning, "v42") {
-			foundWarning = true
-			break
-		}
-	}
-	if !foundWarning {
-		t.Fatalf("expected a warning about marker version v42, got %+v", result.Warnings)
-	}
-}
-
 func TestMemoryBridgeImport_MissingWorkspaceEmitsWarning(t *testing.T) {
 	t.Parallel()
 
