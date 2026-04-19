@@ -5,6 +5,51 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.7.0] - 2026-04-20
+
+Codex 標準化 + durable-memory governance リリースです。read UX (configurable columns / preset / color highlight / session follow) を進めつつ、Codex と subagent lineage の一級 capture を追加し、durable memory を inbox review / host ファイル双方向 bridge / hygiene ツールを備えた governed substrate に昇格させました。
+
+### 追加
+- `traceary memory import codex` で `~/.codex/memories/MEMORY.md` の User preferences / Reusable knowledge / Failures セクションを file evidence ref 付きの candidate として取り込み
+- `traceary memory inbox list / accept --ids / reject --ids` と MCP `accept_memories_batch` / `reject_memories_batch` で candidate レビューを完結
+- `traceary memory export --target <claude|codex|gemini> --out <path>` で accepted memory を `<!-- traceary-memories:begin:v1 -->` マーカー付き markdown として deterministic に書き出し、既存の手書きセクションは保持したまま管理ブロックのみを置換
+- `traceary memory import instructions --source <...> --in <path>` で CLAUDE.md / AGENTS.md / GEMINI.md からの候補取り込みをサポート (marker 内は重複回避のため skip)
+- `traceary memory hygiene scan` が `redaction_hit` / `expiry_candidate` / `duplicate` を提案、`memory hygiene apply --ids` で該当 transition を commit、MCP `scan_memory_hygiene` が読み取り専用で mirror
+- `traceary tail --follow-session <prefix>` で特定 session の tailing (最低 8 rune、UUID 対応)
+- `traceary session tree` JSON に `parent_session_id` / `depth` / `duration_ms` / `subagent_type` を追加、text 行に subagent role と `N cmds / M events`、`--root <session-id>` で subtree フォーカス、`--ongoing-only` で active lineage のみ
+- `traceary tail / list / search` に `--fields` (列順指定)、`--preset` (built-in: `failures` / `prompts-only` / `compact-summaries` + user-defined)、`--color=auto|always|never` highlight を追加 (`NO_COLOR` + terminal-injection 対策込み)
+- Codex hooks が `UserPromptSubmit` をサポート、公式 Plugin Directory レイアウトに準拠
+- `traceary doctor` に `<client>-host-capabilities` informational check を追加し、2026 Q2 時点の host 機能ギャップ (Claude `SubagentStop` / `PreCompact`、Codex memory feature flag、Gemini 0.38.x memory-manager preview) を surface
+- MCP tool metadata / annotations 監査で Tool Search 時代に適合
+
+### 変更
+- Codex 標準化 (v0.7-1) により Codex 統合が `/plugins` フローと Plugin Directory 規約に一致
+- Read コマンドのデフォルト出力は fields / preset / color サーフェスで駆動 (`--wide --utc` は v0.6.1 バイト一致を維持)
+- durable-memory の list criteria が `Sources()` を SQLite 層まで push-down し、inbox の `--source` が pagination 正しく動作
+
+### 修正
+- `traceary memory import codex` が symlink した MEMORY.md を EvalSymlinks 解決前の Lstat で拒否 (memory root 内の他ファイルへのリダイレクトを防ぐ)
+- Bridge import の dedupe 事前ロードで実 SQLite が要求する limit>=1 を遵守 (Codex memories import 側の latent bug も同時修正)
+- `memory export --out` が既存の CLAUDE.md / AGENTS.md / GEMINI.md の手書きセクションを破壊しなくなり、管理マーカー部分のみを置換
+- `tail --follow-session` が filter 前の unfiltered batch で cursor を前進させるため、非一致 session の trafic が scan 窓を塞がない
+- `session tree --ongoing-only` が `status=stale` セッションを除外 (end event が無いことを理由に ongoing 扱いしていた問題)
+- sanitizer / size-guard / parser の堅牢性を memories import / bridge import 経路でまとめて改善
+
+### 対応 issue
+- #551 v0.7-1 Codex plugin directory
+- #575 v0.7-2 Codex UserPromptSubmit capture
+- #576 v0.7-3 Codex memories import
+- #552 v0.7-4 host matrix / doctor / smoke refresh
+- #553 v0.7-5 tail / list / search の configurable columns
+- #554 v0.7-6 saved view presets
+- #555 v0.7-7 highlight / color with NO_COLOR support
+- #556 v0.7-8 `tail --follow-session`
+- #557 v0.7-9 durable-memory review inbox
+- #560 v0.7-10 CLAUDE.md / AGENTS.md / GEMINI.md bridges
+- #561 v0.7-11 subagent lineage in session tree
+- #568 v0.7-12 durable-memory hygiene (redaction / expiry / duplicate)
+- #569 v0.7-13 MCP tool metadata / annotations audit
+
 ## [v0.6.1] - 2026-04-15
 
 `tail` / `list` / `search` / `timeline` のターミナル視認性を改善したリリースです。

@@ -5,6 +5,55 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.7.0] - 2026-04-20
+
+Codex standardization + durable-memory governance release. v0.7 moves the
+read UX forward (configurable columns, presets, color highlighting,
+session follow), gives Codex and subagent lineage first-class capture,
+and turns durable memory into a governed substrate with inbox review,
+bidirectional host-file bridges, and hygiene tooling.
+
+### Added
+- `traceary memory import codex` reads `~/.codex/memories/MEMORY.md` and records bullets under User preferences / Reusable knowledge / Failures as durable-memory candidates with file evidence refs
+- `traceary memory inbox list / accept --ids / reject --ids` plus MCP `accept_memories_batch` / `reject_memories_batch` for the candidate review workflow
+- `traceary memory export --target <claude|codex|gemini> --out <path>` serializes accepted memories into a deterministic markdown block wrapped in `<!-- traceary-memories:begin:v1 -->` markers so re-runs are idempotent and hand-written sections of the instruction file are preserved
+- `traceary memory import instructions --source <...> --in <path>` round-trips CLAUDE.md / AGENTS.md / GEMINI.md back into durable-memory candidates
+- `traceary memory hygiene scan` surfaces `redaction_hit` / `expiry_candidate` / `duplicate` suggestions for accepted memories; `memory hygiene apply --ids` commits the implied lifecycle transition; MCP `scan_memory_hygiene` mirrors the scanner read-only
+- `traceary tail --follow-session <prefix>` tails a specific session id (minimum 8-rune prefix, UUID-safe)
+- `traceary session tree` JSON gains `parent_session_id`, `depth`, `duration_ms`, and `subagent_type`; text rows surface the most specific subagent role and `N cmds / M events`; `--root <session-id>` focuses on a subtree and `--ongoing-only` keeps only lineages with an active session
+- `traceary tail / list / search` accept `--fields` (configurable column order), `--preset` (built-in catalog `failures` / `prompts-only` / `compact-summaries` plus user-defined presets in `~/.config/traceary/config.json`), and `--color=auto|always|never` highlighting with `NO_COLOR` + terminal-injection defenses
+- Codex hooks now capture `UserPromptSubmit` and Codex is reachable through the official Codex plugin directory layout
+- `traceary doctor` ships a `<client>-host-capabilities` informational check per client, documenting 2026 Q2 capabilities Traceary does not yet wire (Claude `SubagentStop` / `PreCompact`, Codex memory feature flag, Gemini 0.38.x memory-manager preview)
+- MCP tool metadata / annotations audit brings every tool in line with the Tool Search era
+
+### Changed
+- Codex standardization: v0.7-1 aligns Codex with the official `/plugins` flow and Plugin Directory conventions
+- Read command text output defaults are driven by the new field / preset / color surfaces; legacy `--wide --utc` still reproduces the pre-v0.6.1 byte-for-byte output
+- Durable-memory list criteria push `Sources()` down to the SQLite layer so `--source` on the inbox paginates correctly
+
+### Fixed
+- `traceary memory import codex` symlinked MEMORY.md rejection now blocks at the raw path, not after EvalSymlinks, so a symlink inside the memory root cannot redirect the reader at another file
+- Bridge import dedupe pre-load now uses a valid limit (the real SQLite datasource rejects limit<1); this also fixes the same latent bug in the Codex memories import
+- `memory export --out` no longer destroys hand-written sections of CLAUDE.md / AGENTS.md / GEMINI.md — the CLI reads the existing file and replaces only the marker-bracketed block
+- `tail --follow-session` advances the cursor over the unfiltered poll batch, so non-matching session traffic no longer pins the scan window
+- `session tree --ongoing-only` excludes `status=stale` sessions (previously treated as ongoing because they have no end event)
+- Various sanitizer / size-guard / parser robustness fixes across the memories import and bridge import paths
+
+### Included issues
+- #551 v0.7-1 Codex plugin directory
+- #575 v0.7-2 Codex UserPromptSubmit capture
+- #576 v0.7-3 Codex memories import
+- #552 v0.7-4 host matrix / doctor / smoke refresh
+- #553 v0.7-5 configurable columns for tail / list / search
+- #554 v0.7-6 saved view presets
+- #555 v0.7-7 highlight / color with NO_COLOR support
+- #556 v0.7-8 `tail --follow-session`
+- #557 v0.7-9 durable-memory review inbox
+- #560 v0.7-10 CLAUDE.md / AGENTS.md / GEMINI.md bridges
+- #561 v0.7-11 subagent lineage in session tree
+- #568 v0.7-12 durable-memory hygiene (redaction / expiry / duplicate)
+- #569 v0.7-13 MCP tool metadata / annotations audit
+
 ## [v0.6.1] - 2026-04-15
 
 Terminal readability release for `tail`, `list`, `search`, and `timeline`.
