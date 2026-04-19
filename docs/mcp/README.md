@@ -73,29 +73,29 @@ Claude Code's MCP Tool Search lazy-loads tool definitions by keyword. The table 
 | Tool | Purpose | Keywords | Mode |
 |---|---|---|---|
 | `add_log` | Add a log event, note, prompt, or compact summary. | log, note, prompt, compact summary | write (additive) |
-| `start_session` | Start a session and record a `session_started` event. | session, start, begin, workspace | write (additive) |
-| `end_session` | End a session and record a `session_ended` event. | session, end, close, finish | write (additive) |
-| `latest_session` | Get the latest session for resume or handoff. | session, latest, resume, handoff | read |
-| `active_session` | Get the active or open session for resume. | session, active, open, current | read |
+| `start_session` | Start a session and record a session_started event. | session, start, begin, workspace | write (additive) |
+| `end_session` | End a session and record a session_ended event. | session, end, close, finish | write (destructive) |
+| `latest_session` | Get the latest session for resume or handoff by agent, client, or workspace. | session, latest, resume, handoff | read |
+| `active_session` | Get the active or open session for resume by agent, client, or workspace. | session, active, open, current | read |
 | `list_events` | List recent events, logs, audits, prompts, and summaries. | events, list, feed, timeline | read |
 | `add_audit` | Add a shell command audit log with redacted input and output. | audit, command, shell, exit code | write (additive) |
-| `search` | Search events by text, time, or workspace. | search, find, query, history | read |
-| `get_context` | Get recent context events for a session or workspace. | context, recent, session, workspace | read |
-| `session_handoff` | Get a session handoff summary for resume. | handoff, resume, summary, working memory | read |
-| `retrieve_memories` | Retrieve durable memories by ID, query, status, type, or scope. | memory, durable, retrieve, scope | read |
-| `remember_memory` | Remember and record an accepted durable memory. | memory, remember, accept, save | write (additive) |
-| `propose_memory` | Propose a candidate durable memory for review. | memory, propose, candidate, review | write (additive) |
-| `accept_memory` | Accept a candidate durable memory. | memory, accept, approve, confidence | write (destructive) |
-| `reject_memory` | Reject a candidate durable memory. | memory, reject, discard, review | write (destructive) |
-| `supersede_memory` | Supersede an accepted durable memory with a replacement. | memory, supersede, replace, update | write (destructive) |
-| `expire_memory` | Expire or retire a durable memory. | memory, expire, retire, forget | write (destructive) |
-| `memory_pack` | Build a memory pack for prompt context, handoff, or automation. | memory pack, prompt context, handoff | read |
+| `search` | Search events, logs, audits, prompts, and summaries by text, time, or workspace. | search, find, query, history | read |
+| `get_context` | Get recent context events, logs, audits, prompts, and summaries for a session or workspace. | context, recent, session, workspace | read |
+| `session_handoff` | Get a session handoff summary for resume, context, memory, and recent commands. | handoff, resume, summary, working memory | read |
+| `retrieve_memories` | Retrieve durable memories by ID, query, status, type, agent, or workspace. | memory, durable, retrieve, scope | read |
+| `remember_memory` | Remember and record an accepted durable memory with evidence and artifacts. | memory, remember, accept, save | write (additive) |
+| `propose_memory` | Propose and record a candidate durable memory for review. | memory, propose, candidate, review | write (additive) |
+| `accept_memory` | Accept a candidate durable memory and set confidence. | memory, accept, approve, confidence | write (destructive) |
+| `reject_memory` | Reject a candidate durable memory from review. | memory, reject, discard, review | write (destructive) |
+| `supersede_memory` | Supersede an accepted durable memory with a replacement memory. | memory, supersede, replace, update | write (destructive) |
+| `expire_memory` | Expire or retire a durable memory at a timestamp. | memory, expire, retire, forget | write (destructive) |
+| `memory_pack` | Build a memory pack for prompt context, handoff, automation, and recent commands. | memory pack, prompt context, handoff | read |
 
-"write (destructive)" is set on tools that change the state of an existing durable memory (candidate or accepted). Read-only tools never modify the SQLite store; additive writes create new events or memories.
+The Purpose column mirrors each tool's MCP `description` in `presentation/mcpserver/server.go` so that the docs table and the live Tool Search index stay in sync. "write (destructive)" is set on tools that mutate an existing record (for example, ending an in-progress session or transitioning a durable memory). Read-only tools never modify the SQLite store; additive writes only append new events or memories.
 
 ### `start_session`
 
-Records a `session_started` event.
+Start a session and record a session_started event.
 
 Inputs:
 
@@ -106,7 +106,7 @@ Inputs:
 
 ### `end_session`
 
-Records a `session_ended` event.
+End a session and record a session_ended event.
 
 Inputs:
 
@@ -117,7 +117,7 @@ Inputs:
 
 ### `latest_session`
 
-Returns the newest matching session.
+Get the latest session for resume or handoff by agent, client, or workspace.
 
 Inputs:
 
@@ -127,7 +127,7 @@ Inputs:
 
 ### `active_session`
 
-Returns the newest matching active session.
+Get the active or open session for resume by agent, client, or workspace.
 
 Inputs:
 
@@ -139,7 +139,7 @@ Inputs:
 
 ### `list_events`
 
-Returns recent events in reverse chronological order.
+List recent events, logs, audits, prompts, and summaries.
 
 Inputs:
 
@@ -151,7 +151,7 @@ Use `search` when the client needs structured filters such as `workspace`, `sess
 
 ### `add_log`
 
-Records a note-style event.
+Add a log event, note, prompt, or compact summary.
 
 Inputs:
 
@@ -163,7 +163,7 @@ Inputs:
 
 ### `add_audit`
 
-Records a shell-command audit event.
+Add a shell command audit log with redacted input and output.
 
 Like the CLI, `add_audit` redacts common secret-like values before they are written to SQLite. Treat that redaction as best-effort, not a complete guarantee. The MCP surface intentionally does not expose an `allow-secrets` override; use the direct CLI only when you intentionally want raw payload persistence.
 
@@ -179,7 +179,7 @@ Inputs:
 
 ### `search`
 
-Searches existing events.
+Search events, logs, audits, prompts, and summaries by text, time, or workspace.
 
 Inputs:
 
@@ -191,7 +191,7 @@ Inputs:
 
 ### `get_context`
 
-Returns recent raw events for context lookup.
+Get recent context events, logs, audits, prompts, and summaries for a session or workspace.
 
 Inputs:
 
@@ -201,7 +201,7 @@ Inputs:
 
 ### `session_handoff`
 
-Returns the structured working-memory handoff pack aligned with the CLI `traceary handoff` command.
+Get a session handoff summary for resume, context, memory, and recent commands. This pack is aligned with the CLI `traceary handoff` command.
 
 The top-level `summary` field is kept for compatibility and mirrors `working_state.combined_summary`.
 
@@ -214,7 +214,7 @@ Inputs:
 
 ### `retrieve_memories`
 
-Returns durable memories by direct ID lookup, full-text query, or scope filters.
+Retrieve durable memories by ID, query, status, type, agent, or workspace.
 
 Inputs:
 
@@ -236,7 +236,7 @@ Durable-memory payloads are returned as stored. Sensitive content is expected to
 
 ### `remember_memory`
 
-Records an accepted durable memory.
+Remember and record an accepted durable memory with evidence and artifacts.
 
 Inputs:
 
@@ -252,7 +252,7 @@ Accepted memories require at least one evidence ref.
 
 ### `propose_memory`
 
-Records a candidate durable memory that still needs review.
+Propose and record a candidate durable memory for review.
 
 Inputs:
 
@@ -265,7 +265,7 @@ Inputs:
 
 ### `accept_memory`
 
-Accepts a candidate durable memory.
+Accept a candidate durable memory and set confidence.
 
 Inputs:
 
@@ -274,7 +274,7 @@ Inputs:
 
 ### `reject_memory`
 
-Rejects a candidate durable memory.
+Reject a candidate durable memory from review.
 
 Inputs:
 
@@ -282,7 +282,7 @@ Inputs:
 
 ### `supersede_memory`
 
-Marks an accepted durable memory as superseded and stores a replacement accepted memory.
+Supersede an accepted durable memory with a replacement memory.
 
 Inputs:
 
@@ -299,7 +299,7 @@ Replacement `type` / scope inherit from the current memory when omitted.
 
 ### `expire_memory`
 
-Expires a durable memory.
+Expire or retire a durable memory at a timestamp.
 
 Inputs:
 
@@ -308,7 +308,7 @@ Inputs:
 
 ### `memory_pack`
 
-Builds a memory-aware context pack for prompt-context enrichment or automation.
+Build a memory pack for prompt context, handoff, automation, and recent commands.
 
 Inputs:
 
