@@ -5,6 +5,56 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.7.1] - 2026-04-20
+
+Patch release that closes gaps surfaced during v0.7 Multi-AI reviews
+and the v0.7.0 release workflow.
+
+### Added
+- `traceary memory hygiene scan --similarity <N>` surfaces a new
+  `supersede_candidate` kind: two accepted memories in the same scope
+  whose fact text differs but whose word-Jaccard similarity meets or
+  exceeds the threshold (default 0.6). The older memory is the
+  supersede target; the newer memory's fact is the suggested
+  replacement (`replacement_memory_id`, `replacement_fact`,
+  `similarity`). `memory hygiene apply --ids` commits the transition
+  via `MemoryUsecase.Supersede` inheriting scope / type / refs.
+- MCP `export_memories` (read-only) renders accepted memories into
+  CLAUDE.md / AGENTS.md / GEMINI.md markdown; MCP
+  `import_memory_instructions` parses a path or inline markdown into
+  durable-memory candidates. Both tools mirror the v0.7 CLI bridge
+  surfaces so agent hosts can round-trip instruction files without
+  shelling out.
+
+### Changed
+- Bridge marker parser now matches any `:v<N>` begin suffix via regex
+  and emits a warning when the encoded version exceeds the binary's
+  known max. The exporter keeps writing `:v1`, and the CLI merge
+  helper refuses to downgrade a newer block so `:v2` content written
+  by a future Traceary build is never silently overwritten.
+- Release workflow's umbrella auto-close step now also accepts the
+  minor-version title prefix (`v0.7: ...`) when the pushed tag has
+  the form `vX.Y.0`, so future minor releases close their tracker
+  without operator follow-up.
+
+### Fixed
+- `git tag` validation in the release workflow routes `${{ inputs.tag }}`
+  through an env var instead of direct shell expansion, closing the
+  known GitHub Actions injection shape.
+- `mergeMemoryExportIntoExistingFile` anchors the marker regex at the
+  start of a line so a marker string that appears inside prose (for
+  example in hand-written documentation) cannot be mistaken for the
+  managed block start.
+- `import_memory_instructions` MCP tool is marked `DestructiveHint:
+  false` to match `propose_memory` (both are additive candidate
+  writes).
+
+### Included issues
+- #592 v0.7.1-1 release workflow matcher
+- #593 v0.7.1-2 similarity-based supersede suggestion
+- #594 v0.7.1-3 MCP export / import instructions tools
+- #595 v0.7.1-4 bridge marker `:v<N>` forward-compat parsing
+
 ## [v0.7.0] - 2026-04-20
 
 Codex standardization + durable-memory governance release. v0.7 moves the
