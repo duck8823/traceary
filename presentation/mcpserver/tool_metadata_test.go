@@ -200,6 +200,20 @@ func TestServer_ToolMetadata(t *testing.T) {
 				readOnly:    true,
 			},
 		},
+		{
+			name: "export_memories",
+			want: toolMetadataExpectation{
+				description: "Render accepted memories into CLAUDE.md / AGENTS.md / GEMINI.md markdown.",
+				readOnly:    true,
+			},
+		},
+		{
+			name: "import_memory_instructions",
+			want: toolMetadataExpectation{
+				description:      "Import bullets from a host instruction file as durable-memory candidates.",
+				destructiveFalse: true,
+			},
+		},
 	}
 
 	actual := indexTools(listResult.Tools)

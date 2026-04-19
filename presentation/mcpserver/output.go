@@ -139,6 +139,25 @@ type inboxBatchMemoryFailureOutput struct {
 	Error    string `json:"error" jsonschema:"reason the memory did not transition"`
 }
 
+// exportMemoriesOutput mirrors the CLI summary of a memory export run so
+// MCP consumers receive the generated markdown plus the same counters
+// operators see on stdout.
+type exportMemoriesOutput struct {
+	Target        string `json:"target" jsonschema:"target host that was exported"`
+	ExportedCount int    `json:"exported_count" jsonschema:"number of accepted memories included in the markdown block"`
+	Markdown      string `json:"markdown" jsonschema:"generated markdown block wrapped in Traceary marker comments"`
+}
+
+// importMemoryInstructionsOutput mirrors the CLI `memory import
+// instructions` shape so every import surface reports the same
+// imported / skipped / warnings breakdown.
+type importMemoryInstructionsOutput struct {
+	Imported              []memoryOutput `json:"imported" jsonschema:"memories that were proposed as new candidates"`
+	SkippedDuplicateCount int            `json:"skipped_duplicate_count" jsonschema:"bullets that matched an existing candidate / accepted memory"`
+	SkippedRejectedCount  int            `json:"skipped_rejected_count" jsonschema:"bullets that matched a memory the operator already rejected"`
+	Warnings              []string       `json:"warnings,omitempty" jsonschema:"non-fatal parser or sanitizer notes"`
+}
+
 // memoryHygieneOutput mirrors the CLI `memory hygiene scan` shape so
 // agent hosts receive the same three-suggestion view an operator sees
 // on stdout.

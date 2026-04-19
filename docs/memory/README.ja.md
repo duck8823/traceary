@@ -95,6 +95,8 @@ scan は accepted memory に対して 3 種類の条件をチェックします:
 Traceary をローカルの source of truth として保ちつつ、accepted な memory 集合をホスト側の instruction file にも反映したいときは次を使います。
 
 - `traceary memory export --target <claude|codex|gemini> --out <path>`
+- `traceary memory import instructions --source <...> --in <path>`
+- MCP `export_memories` / `import_memory_instructions` (agent からの呼び出し)
 
 export 出力は常に `<!-- traceary-memories:begin:v1 -->` / `<!-- traceary-memories:end -->` マーカーで囲まれており、続けて `memory import instructions` を走らせても重複 candidate は作られません。operator やホストの auto-memory 機能が管理ブロック外に書き足した bullet は inbox に candidate として入り、レビュー対象になります。
 

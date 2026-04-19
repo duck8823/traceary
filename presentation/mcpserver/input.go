@@ -190,3 +190,25 @@ type scanMemoryHygieneInput struct {
 	Workspace  string `json:"workspace,omitempty" jsonschema:"workspace scope to scan (omitted scans every scope)"`
 	ExpiryDays int    `json:"expiry_days,omitempty" jsonschema:"staleness threshold in days (default 90)"`
 }
+
+// exportMemoriesInput is the MCP input for the export_memories tool that
+// serialises accepted durable memories into the markdown block Traceary
+// writes into CLAUDE.md / AGENTS.md / GEMINI.md. The MCP surface is
+// filesystem-free — the generated markdown comes back in the response so
+// the caller decides what to do with it.
+type exportMemoriesInput struct {
+	Target    string `json:"target" jsonschema:"export target host (claude / codex / gemini)"`
+	Workspace string `json:"workspace,omitempty" jsonschema:"workspace scope to export (omitted exports every accepted memory)"`
+}
+
+// importMemoryInstructionsInput is the MCP input for the
+// import_memory_instructions tool. Exactly one of path / markdown must
+// be supplied so the caller can hand Traceary either a file on disk or
+// an inline buffer (for example when the agent already has the content
+// in memory).
+type importMemoryInstructionsInput struct {
+	Source    string `json:"source" jsonschema:"source host that produced the instruction file (claude / codex / gemini)"`
+	Path      string `json:"path,omitempty" jsonschema:"absolute path to the instruction file"`
+	Markdown  string `json:"markdown,omitempty" jsonschema:"raw markdown content to parse when path is not provided"`
+	Workspace string `json:"workspace,omitempty" jsonschema:"workspace scope assigned to imported candidates"`
+}

@@ -34,6 +34,8 @@ type Server struct {
 	session             usecase.SessionUsecase
 	memory              usecase.MemoryUsecase
 	memoryHygiene       usecase.MemoryHygieneUsecase
+	memoryExport        usecase.MemoryExportUsecase
+	memoryBridgeImport  usecase.MemoryBridgeImportUsecase
 	context             usecase.ContextUsecase
 	storeManagement     usecase.StoreManagementUsecase
 }
@@ -46,6 +48,8 @@ func NewServer(
 	session usecase.SessionUsecase,
 	memory usecase.MemoryUsecase,
 	memoryHygiene usecase.MemoryHygieneUsecase,
+	memoryExport usecase.MemoryExportUsecase,
+	memoryBridgeImport usecase.MemoryBridgeImportUsecase,
 	contextUsecase usecase.ContextUsecase,
 	storeManagement usecase.StoreManagementUsecase,
 ) (*Server, error) {
@@ -78,6 +82,8 @@ func NewServer(
 		session:             session,
 		memory:              memory,
 		memoryHygiene:       memoryHygiene,
+		memoryExport:        memoryExport,
+		memoryBridgeImport:  memoryBridgeImport,
 		context:             contextUsecase,
 		storeManagement:     storeManagement,
 	}, nil
@@ -203,6 +209,16 @@ func (s *Server) Build(ctx context.Context) (*mcp.Server, error) {
 		Description: "Scan accepted memories for redaction / expiry / duplicate hygiene suggestions.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.scanMemoryHygiene())
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "export_memories",
+		Description: "Render accepted memories into CLAUDE.md / AGENTS.md / GEMINI.md markdown.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+	}, s.exportMemories())
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "import_memory_instructions",
+		Description: "Import bullets from a host instruction file as durable-memory candidates.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
+	}, s.importMemoryInstructions())
 
 	return server, nil
 }
@@ -728,6 +744,80 @@ func (s *Server) scanMemoryHygiene() mcp.ToolHandlerFor[scanMemoryHygieneInput, 
 				entry.ScopeValue = suggestion.Scope.Key()
 			}
 			out.Suggestions = append(out.Suggestions, entry)
+		}
+		return nil, out, nil
+	}
+}
+
+// exportMemories mirrors the CLI `memory export` command over MCP. The
+// handler intentionally stays filesystem-free — the generated markdown
+// is returned inline so agent hosts can decide whether to write it,
+// diff it, or post-process it before committing.
+func (s *Server) exportMemories() mcp.ToolHandlerFor[exportMemoriesInput, exportMemoriesOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, input exportMemoriesInput) (*mcp.CallToolResult, exportMemoriesOutput, error) {
+		if s.memoryExport == nil {
+			return nil, exportMemoriesOutput{}, xerrors.Errorf("memory export usecase is not configured")
+		}
+		target, ok := apptypes.MemoryBridgeTargetOf(strings.ToLower(strings.TrimSpace(input.Target)))
+		if !ok {
+			return nil, exportMemoriesOutput{}, xerrors.Errorf("target must be one of claude / codex / gemini, got %q", input.Target)
+		}
+		criteria := apptypes.MemoryExportCriteria{Target: target}
+		if workspace := strings.TrimSpace(input.Workspace); workspace != "" {
+			resolvedWorkspace, err := types.WorkspaceOf(workspace)
+			if err != nil {
+				return nil, exportMemoriesOutput{}, xerrors.Errorf("failed to resolve workspace: %w", err)
+			}
+			criteria.Scopes = []types.MemoryScope{types.WorkspaceScopeOf(resolvedWorkspace)}
+		}
+		result, err := s.memoryExport.Export(ctx, criteria)
+		if err != nil {
+			return nil, exportMemoriesOutput{}, xerrors.Errorf("failed to export memories: %w", err)
+		}
+		return nil, exportMemoriesOutput{
+			Target:        result.Target.String(),
+			ExportedCount: result.ExportedCount,
+			Markdown:      result.Markdown,
+		}, nil
+	}
+}
+
+// importMemoryInstructions mirrors the CLI `memory import instructions`
+// command. Path and Markdown are mutually exclusive — the caller picks
+// one and the usecase rejects an empty combination.
+func (s *Server) importMemoryInstructions() mcp.ToolHandlerFor[importMemoryInstructionsInput, importMemoryInstructionsOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, input importMemoryInstructionsInput) (*mcp.CallToolResult, importMemoryInstructionsOutput, error) {
+		if s.memoryBridgeImport == nil {
+			return nil, importMemoryInstructionsOutput{}, xerrors.Errorf("memory bridge import usecase is not configured")
+		}
+		target, ok := apptypes.MemoryBridgeTargetOf(strings.ToLower(strings.TrimSpace(input.Source)))
+		if !ok {
+			return nil, importMemoryInstructionsOutput{}, xerrors.Errorf("source must be one of claude / codex / gemini, got %q", input.Source)
+		}
+		criteria := apptypes.MemoryBridgeImportCriteria{
+			Target:   target,
+			Path:     strings.TrimSpace(input.Path),
+			Markdown: input.Markdown,
+		}
+		if workspace := strings.TrimSpace(input.Workspace); workspace != "" {
+			resolvedWorkspace, err := types.WorkspaceOf(workspace)
+			if err != nil {
+				return nil, importMemoryInstructionsOutput{}, xerrors.Errorf("failed to resolve workspace: %w", err)
+			}
+			criteria.WorkspaceFallback = resolvedWorkspace
+		}
+		result, err := s.memoryBridgeImport.ImportInstructions(ctx, criteria)
+		if err != nil {
+			return nil, importMemoryInstructionsOutput{}, xerrors.Errorf("failed to import instructions: %w", err)
+		}
+		out := importMemoryInstructionsOutput{
+			SkippedDuplicateCount: result.SkippedDuplicateCount,
+			SkippedRejectedCount:  result.SkippedRejectedCount,
+			Warnings:              result.Warnings,
+			Imported:              make([]memoryOutput, 0, len(result.Imported)),
+		}
+		for _, details := range result.Imported {
+			out.Imported = append(out.Imported, newMemoryOutput(details))
 		}
 		return nil, out, nil
 	}
