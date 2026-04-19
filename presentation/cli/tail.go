@@ -194,9 +194,10 @@ func (c *RootCLI) newTailCommand() *cobra.Command {
 		asJSON       bool
 		wide         bool
 		utc          bool
-		fields       []string
-		preset       string
-		color        string
+		fields        []string
+		preset        string
+		color         string
+		followSession string
 	)
 
 	tailCmd := &cobra.Command{
@@ -226,8 +227,10 @@ func (c *RootCLI) newTailCommand() *cobra.Command {
 				sessionIDSet:    cmd.Flags().Changed("session-id"),
 				repoSet:         cmd.Flags().Changed("workspace"),
 				failuresOnlySet: cmd.Flags().Changed("failures"),
-				color:           color,
-				colorSet:        cmd.Flags().Changed("color"),
+				color:            color,
+				colorSet:         cmd.Flags().Changed("color"),
+				followSession:    followSession,
+				followSessionSet: cmd.Flags().Changed("follow-session"),
 			})
 		},
 	}
@@ -245,6 +248,10 @@ func (c *RootCLI) newTailCommand() *cobra.Command {
 	tailCmd.Flags().StringSliceVar(&fields, "fields", nil, readFieldsFlagUsage())
 	tailCmd.Flags().StringVar(&preset, "preset", "", readPresetsFlagUsage())
 	tailCmd.Flags().StringVar(&color, "color", "", readColorFlagUsage())
+	tailCmd.Flags().StringVar(&followSession, "follow-session", "", Localize(
+		"tail events only from the given session id (prefix match, minimum 8 runes)",
+		"指定した session id のイベントだけを追跡する (先頭一致、最低 8 文字)",
+	))
 
 	return tailCmd
 }
@@ -258,6 +265,10 @@ func (c *RootCLI) runTail(ctx context.Context, warnWriter io.Writer, output io.W
 	}
 	if input.limit < 0 {
 		return xerrors.Errorf(Localize("limit must be greater than or equal to 0", "limit は 0 以上である必要があります"))
+	}
+	followSessionPrefix, err := validateFollowSessionPrefix(input.followSession)
+	if err != nil {
+		return err
 	}
 	preset, _, err := resolveReadPreset(input.preset, c.readPresets, warnWriter)
 	if err != nil {
@@ -325,12 +336,16 @@ func (c *RootCLI) runTail(ctx context.Context, warnWriter io.Writer, output io.W
 			return xerrors.Errorf("%s: %w", Localize("failed to list initial tail events", "tail 初期イベントの取得に失敗しました"), err)
 		}
 		slices.Reverse(initialEvents)
-		if err := writer.Write(initialEvents); err != nil {
-			return err
-		}
+		// Advance the cursor over the full (unfiltered) initial window so the
+		// polling loop below resumes after the last observed event even when
+		// --follow-session hides every row.
 		if len(initialEvents) > 0 {
 			cursor = newTailCursor(initialEvents[len(initialEvents)-1].CreatedAt())
 			cursor.Advance(initialEvents)
+		}
+		filteredInitial := filterEventsBySessionPrefix(initialEvents, followSessionPrefix)
+		if err := writer.Write(filteredInitial); err != nil {
+			return err
 		}
 	} else if err := writer.EnsureReady(); err != nil {
 		return err
@@ -349,15 +364,62 @@ func (c *RootCLI) runTail(ctx context.Context, warnWriter io.Writer, output io.W
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to poll tail events", "tail イベントのポーリングに失敗しました"), err)
 			}
-			if len(newEvents) == 0 {
+			// Advance over the full poll batch before --follow-session drops
+			// rows so the next poll window starts after the last observed
+			// event even when none of them match the prefix filter.
+			cursor.Advance(newEvents)
+			filteredEvents := filterEventsBySessionPrefix(newEvents, followSessionPrefix)
+			if len(filteredEvents) == 0 {
 				continue
 			}
-			if err := writer.Write(newEvents); err != nil {
+			if err := writer.Write(filteredEvents); err != nil {
 				return err
 			}
-			cursor.Advance(newEvents)
 		}
 	}
+}
+
+// followSessionMinRunes is the minimum length accepted by --follow-session.
+// Anything shorter would risk matching far too many sessions to be useful
+// as a filter and the error steers the operator to paste the full id
+// prefix from session list output.
+const followSessionMinRunes = 8
+
+// validateFollowSessionPrefix checks the --follow-session value. Empty
+// input is valid (filter is off). Otherwise the prefix must be at least 8
+// runes long so a stray short input does not silently match the entire
+// store.
+func validateFollowSessionPrefix(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", nil
+	}
+	if runeLen(trimmed) < followSessionMinRunes {
+		return "", xerrors.Errorf(Localize(
+			"--follow-session requires at least %d runes",
+			"--follow-session には最低 %d 文字必要です",
+		), followSessionMinRunes)
+	}
+	return trimmed, nil
+}
+
+// filterEventsBySessionPrefix returns the subset of events whose session id
+// starts with prefix. An empty prefix is a no-op so callers do not have to
+// branch.
+func filterEventsBySessionPrefix(events []*model.Event, prefix string) []*model.Event {
+	if prefix == "" {
+		return events
+	}
+	filtered := make([]*model.Event, 0, len(events))
+	for _, event := range events {
+		if event == nil {
+			continue
+		}
+		if strings.HasPrefix(event.SessionID().String(), prefix) {
+			filtered = append(filtered, event)
+		}
+	}
+	return filtered
 }
 
 // pollTailEvents fetches every event in [cursor.timestamp, snapshotTo) via a

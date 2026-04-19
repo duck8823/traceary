@@ -246,10 +246,12 @@ type tailCommandInput struct {
 	sessionIDSet    bool
 	repoSet         bool
 	failuresOnlySet bool
-	color           string
-	colorSet        bool
-	nowFunc         func() time.Time
-	tickerFactory   func(time.Duration) tailTicker
+	color            string
+	colorSet         bool
+	followSession    string
+	followSessionSet bool
+	nowFunc          func() time.Time
+	tickerFactory    func(time.Duration) tailTicker
 }
 
 // memoryListCommandInput is the resolved input to `traceary memory list`.
