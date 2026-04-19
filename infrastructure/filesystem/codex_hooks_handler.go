@@ -34,12 +34,18 @@ func (h *CodexHooksHandler) Build(tracearyBin string) model.Hooks {
 	sessionStartCommand := newHookRuntimeCommand(tracearyBin, "hook", "session", "codex", "start")
 	sessionStopCommand := newHookRuntimeCommand(tracearyBin, "hook", "session", "codex", "stop")
 	auditCommand := newHookRuntimeCommand(tracearyBin, "hook", "audit", "codex")
+	promptCommand := newHookRuntimeCommand(tracearyBin, "hook", "prompt", "codex")
 
-	eventOrder := []string{"SessionStart", "Stop", "PostToolUse"}
+	eventOrder := []string{"SessionStart", "UserPromptSubmit", "Stop", "PostToolUse"}
 	events := map[string][]model.HookEntry{
 		"SessionStart": {
 			model.HookEntryOf(types.None[string](), []model.HookCommand{
 				model.HookCommandOf("traceary-session-start", "command", sessionStartCommand, types.None[int](), "", managedKeyOf("traceary-session.sh", "codex", "start")),
+			}),
+		},
+		"UserPromptSubmit": {
+			model.HookEntryOf(types.None[string](), []model.HookCommand{
+				model.HookCommandOf("traceary-prompt", "command", promptCommand, types.None[int](), "", managedKeyOf("traceary-prompt.sh", "codex")),
 			}),
 		},
 		"Stop": {
