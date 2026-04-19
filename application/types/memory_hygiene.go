@@ -26,31 +26,47 @@ const (
 	// share the same scope and fact text, so one should supersede or
 	// expire the other to keep the store tidy.
 	MemoryHygieneSuggestionDuplicate MemoryHygieneSuggestionKind = "duplicate"
+	// MemoryHygieneSuggestionSupersedeCandidate flags two accepted
+	// memories that share a scope and a meaningful word overlap (word
+	// Jaccard >= defaultSupersedeSimilarityThreshold) but carry
+	// different text. The newer memory is suggested as the replacement;
+	// the CLI apply path supersedes the older memory with the newer
+	// memory's content so the store converges on a single entry.
+	MemoryHygieneSuggestionSupersedeCandidate MemoryHygieneSuggestionKind = "supersede_candidate"
 )
 
 // MemoryHygieneScanCriteria carries the inputs the hygiene scanner
 // consumes. Scopes default to every scope when empty; the staleness
 // threshold controls the expiry suggestion window and falls back to a
-// usecase default when zero.
+// usecase default when zero. SimilarityThreshold tunes the
+// supersede_candidate detector — 0 uses the usecase default (0.6).
 type MemoryHygieneScanCriteria struct {
-	Scopes             []domtypes.MemoryScope
-	StalenessThreshold time.Duration
-	Now                time.Time
+	Scopes              []domtypes.MemoryScope
+	StalenessThreshold  time.Duration
+	SimilarityThreshold float64
+	Now                 time.Time
 }
 
 // MemoryHygieneSuggestion is the serializable view of a single scan hit.
 // SanitizedFact is populated for redaction hits so the apply path can
 // propose a supersede with the masked content; DuplicateMemoryID is set
-// on duplicate hits so the reader sees both sides of the pair.
+// on duplicate hits so the reader sees both sides of the pair;
+// ReplacementMemoryID and ReplacementFact are set on supersede_candidate
+// hits so the apply path knows which memory becomes the replacement.
+// Similarity is the computed word-Jaccard score (0.0-1.0) — zero on
+// everything except supersede_candidate.
 type MemoryHygieneSuggestion struct {
-	MemoryID          domtypes.MemoryID
-	Kind              MemoryHygieneSuggestionKind
-	Reason            string
-	Fact              string
-	SanitizedFact     string
-	DuplicateMemoryID domtypes.MemoryID
-	Scope             domtypes.MemoryScope
-	UpdatedAt         time.Time
+	MemoryID            domtypes.MemoryID
+	Kind                MemoryHygieneSuggestionKind
+	Reason              string
+	Fact                string
+	SanitizedFact       string
+	DuplicateMemoryID   domtypes.MemoryID
+	ReplacementMemoryID domtypes.MemoryID
+	ReplacementFact     string
+	Similarity          float64
+	Scope               domtypes.MemoryScope
+	UpdatedAt           time.Time
 }
 
 // MemoryHygieneScanResult summarises a single scan run. Suggestions keeps
@@ -58,10 +74,11 @@ type MemoryHygieneSuggestion struct {
 // category was populated; the counts mirror what the CLI renders as a
 // human-readable summary.
 type MemoryHygieneScanResult struct {
-	Suggestions          []MemoryHygieneSuggestion
-	RedactionHitCount    int
-	ExpiryCandidateCount int
-	DuplicateCount       int
+	Suggestions             []MemoryHygieneSuggestion
+	RedactionHitCount       int
+	ExpiryCandidateCount    int
+	DuplicateCount          int
+	SupersedeCandidateCount int
 }
 
 // MemoryHygieneApplyCriteria carries the inputs to the apply path. Ids

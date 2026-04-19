@@ -405,6 +405,7 @@ type memoryHygieneScanCommandInput struct {
 	dbPath     string
 	workspace  string
 	expiryDays int
+	similarity float64
 	asJSON     bool
 }
 

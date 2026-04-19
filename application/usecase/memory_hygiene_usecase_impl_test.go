@@ -75,6 +75,58 @@ func TestMemoryHygieneScan_DetectsRedactionExpiryAndDuplicates(t *testing.T) {
 	}
 }
 
+func TestMemoryHygieneScan_SimilarFactsEmitSupersedeCandidate(t *testing.T) {
+	t.Parallel()
+
+	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	if err != nil {
+		t.Fatalf("WorkspaceOf: %v", err)
+	}
+	scope := domtypes.WorkspaceScopeOf(workspace)
+	older := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	newer := time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC)
+
+	query := &stubMemoryQueryService{
+		summaries: []apptypes.MemorySummary{
+			// Word overlap: {prefer, bulleted, commit, messages} vs
+			// {prefer, bulleted, commit, messages, style} → Jaccard 4/5
+			acceptedSummaryAt(t, "mem-older", scope, "prefer bulleted commit messages", older),
+			acceptedSummaryAt(t, "mem-newer", scope, "prefer bulleted commit messages style", newer),
+			// A third unrelated fact must not pair up with either of the
+			// above — they share few enough words to stay below threshold.
+			acceptedSummaryAt(t, "mem-unrelated", scope, "use semicolons in SQL migrations", newer),
+		},
+	}
+	sut := usecase.NewMemoryHygieneUsecase(&stubImportMemoryUsecase{}, query, nil)
+
+	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{Now: newer.Add(24 * time.Hour)})
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if result.SupersedeCandidateCount != 1 {
+		t.Fatalf("SupersedeCandidateCount = %d, want 1", result.SupersedeCandidateCount)
+	}
+	var supersede *apptypes.MemoryHygieneSuggestion
+	for i, suggestion := range result.Suggestions {
+		if suggestion.Kind == apptypes.MemoryHygieneSuggestionSupersedeCandidate {
+			supersede = &result.Suggestions[i]
+			break
+		}
+	}
+	if supersede == nil {
+		t.Fatalf("expected a supersede_candidate suggestion, got %+v", result.Suggestions)
+	}
+	if supersede.MemoryID.String() != "mem-older" {
+		t.Fatalf("older memory should be the supersede target, got %s", supersede.MemoryID)
+	}
+	if supersede.ReplacementMemoryID.String() != "mem-newer" {
+		t.Fatalf("newer memory should be the replacement, got %s", supersede.ReplacementMemoryID)
+	}
+	if supersede.Similarity < 0.5 || supersede.Similarity > 1.0 {
+		t.Fatalf("similarity %.2f outside plausible range", supersede.Similarity)
+	}
+}
+
 func TestMemoryHygieneScan_EmptyStoreReturnsEmptyResult(t *testing.T) {
 	t.Parallel()
 

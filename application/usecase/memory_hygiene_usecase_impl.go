@@ -39,6 +39,14 @@ func NewMemoryHygieneUsecase(memory MemoryUsecase, memoryQuery queryservice.Memo
 // fresh but short enough to flag truly forgotten entries.
 const defaultStalenessThreshold = 90 * 24 * time.Hour
 
+// defaultSupersedeSimilarityThreshold controls the supersede_candidate
+// detector: two accepted memories in the same scope are paired when
+// their word-Jaccard similarity meets or exceeds this value but the
+// fact text itself differs. 0.6 catches real re-phrasings (for example
+// "prefer bulleted commits" vs "prefer bulleted commit messages") while
+// steering clear of shared-keyword coincidences.
+const defaultSupersedeSimilarityThreshold = 0.6
+
 // hygieneScanPageSize caps the number of accepted memories the scanner
 // walks in one run. Real memory stores stay well under this bound; the
 // ceiling is here to keep the single-shot scan deterministic.
@@ -150,7 +158,150 @@ func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.Memor
 		}
 	}
 
+	// Supersede candidate: pair accepted memories whose fact text differs
+	// but shares enough word-level overlap to likely be re-phrasings of
+	// the same idea. The older memory becomes the one to supersede; the
+	// newer memory's content is the suggested replacement. Memories that
+	// already collided as exact duplicates are excluded so both detectors
+	// stay additive and the reviewer sees a clean split between "same
+	// content" and "overlapping content".
+	similarityThreshold := criteria.SimilarityThreshold
+	if similarityThreshold <= 0 {
+		similarityThreshold = defaultSupersedeSimilarityThreshold
+	}
+	supersedeSuggestions := detectSupersedeCandidates(summaries, duplicateIndex, similarityThreshold)
+	result.Suggestions = append(result.Suggestions, supersedeSuggestions...)
+	result.SupersedeCandidateCount = len(supersedeSuggestions)
+
 	return result, nil
+}
+
+// detectSupersedeCandidates groups accepted memories by scope, computes
+// pairwise word-Jaccard similarity, and emits a supersede_candidate for
+// every pair above the threshold. The older memory is the one that gets
+// superseded; the newer memory's fact is the replacement. Pairs are
+// de-duplicated so only one direction is emitted per memory pair.
+func detectSupersedeCandidates(summaries []apptypes.MemorySummary, duplicateBuckets map[duplicateKey][]apptypes.MemorySummary, threshold float64) []apptypes.MemoryHygieneSuggestion {
+	if threshold <= 0 || threshold > 1 {
+		return nil
+	}
+	exactDuplicatePairs := make(map[string]struct{}, len(duplicateBuckets))
+	for _, bucket := range duplicateBuckets {
+		if len(bucket) < 2 {
+			continue
+		}
+		for i := range bucket {
+			for j := i + 1; j < len(bucket); j++ {
+				exactDuplicatePairs[pairKey(bucket[i].MemoryID().String(), bucket[j].MemoryID().String())] = struct{}{}
+			}
+		}
+	}
+
+	scopeGroups := make(map[string][]apptypes.MemorySummary, len(summaries))
+	for _, summary := range summaries {
+		if summary.Scope() == nil {
+			continue
+		}
+		key := string(summary.Scope().Kind()) + "|" + summary.Scope().Key()
+		scopeGroups[key] = append(scopeGroups[key], summary)
+	}
+
+	var suggestions []apptypes.MemoryHygieneSuggestion
+	for _, group := range scopeGroups {
+		if len(group) < 2 {
+			continue
+		}
+		wordSets := make([]map[string]struct{}, len(group))
+		for i, summary := range group {
+			wordSets[i] = toWordSet(summary.Fact())
+		}
+		for i := 0; i < len(group); i++ {
+			for j := i + 1; j < len(group); j++ {
+				if group[i].Fact() == group[j].Fact() {
+					continue
+				}
+				if _, ok := exactDuplicatePairs[pairKey(group[i].MemoryID().String(), group[j].MemoryID().String())]; ok {
+					continue
+				}
+				sim := jaccardSimilarity(wordSets[i], wordSets[j])
+				if sim < threshold {
+					continue
+				}
+				older, newer := group[i], group[j]
+				if older.UpdatedAt().After(newer.UpdatedAt()) {
+					older, newer = newer, older
+				}
+				suggestions = append(suggestions, apptypes.MemoryHygieneSuggestion{
+					MemoryID:            older.MemoryID(),
+					Kind:                apptypes.MemoryHygieneSuggestionSupersedeCandidate,
+					Reason:              fmt.Sprintf("scope overlap with %s at similarity %.2f", newer.MemoryID().String(), sim),
+					Fact:                older.Fact(),
+					ReplacementMemoryID: newer.MemoryID(),
+					ReplacementFact:     newer.Fact(),
+					Similarity:          sim,
+					Scope:               older.Scope(),
+					UpdatedAt:           older.UpdatedAt(),
+				})
+			}
+		}
+	}
+	return suggestions
+}
+
+// pairKey returns a stable key for an unordered pair of memory ids so
+// the duplicate-exclusion set and future pair de-duplication do not
+// depend on traversal order.
+func pairKey(a, b string) string {
+	if a < b {
+		return a + "\x00" + b
+	}
+	return b + "\x00" + a
+}
+
+// toWordSet splits fact text into lowercase word tokens and drops empty
+// tokens. A Go regexp is intentionally avoided here so the scanner stays
+// allocation-light for large stores; strings.Fields+unicode mapping
+// covers the typical ASCII and CJK word shapes Traceary sees.
+func toWordSet(fact string) map[string]struct{} {
+	out := make(map[string]struct{})
+	for _, token := range strings.Fields(strings.ToLower(fact)) {
+		token = strings.TrimFunc(token, func(r rune) bool {
+			switch r {
+			case '.', ',', ';', ':', '!', '?', '(', ')', '[', ']', '"', '\'':
+				return true
+			}
+			return false
+		})
+		if token == "" {
+			continue
+		}
+		out[token] = struct{}{}
+	}
+	return out
+}
+
+// jaccardSimilarity returns |A ∩ B| / |A ∪ B| for two word sets. Empty
+// sets score zero so an accidental empty-fact entry cannot collide with
+// every other memory.
+func jaccardSimilarity(a, b map[string]struct{}) float64 {
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+	intersect := 0
+	smaller, larger := a, b
+	if len(smaller) > len(larger) {
+		smaller, larger = larger, smaller
+	}
+	for token := range smaller {
+		if _, ok := larger[token]; ok {
+			intersect++
+		}
+	}
+	union := len(a) + len(b) - intersect
+	if union == 0 {
+		return 0
+	}
+	return float64(intersect) / float64(union)
 }
 
 type duplicateKey struct {
@@ -256,6 +407,30 @@ func (u *memoryHygieneUsecase) applyOne(ctx context.Context, memoryID domtypes.M
 			return apptypes.MemoryHygieneApplied{}, xerrors.Errorf("failed to reject memory: %w", err)
 		}
 		return apptypes.MemoryHygieneApplied{MemoryID: memoryID.String(), Kind: suggestion.Kind, Transition: "reject", Details: rejected}, nil
+	case apptypes.MemoryHygieneSuggestionSupersedeCandidate:
+		details, err := u.memory.Show(ctx, memoryID)
+		if err != nil {
+			return apptypes.MemoryHygieneApplied{}, xerrors.Errorf("failed to show memory: %w", err)
+		}
+		replacementFact := suggestion.ReplacementFact
+		if strings.TrimSpace(replacementFact) == "" {
+			return apptypes.MemoryHygieneApplied{}, xerrors.Errorf("supersede candidate missing replacement fact")
+		}
+		superseded, err := u.memory.Supersede(
+			ctx,
+			memoryID,
+			details.Summary().MemoryType(),
+			details.Summary().Scope(),
+			replacementFact,
+			domtypes.Some(details.Summary().Confidence()),
+			details.Summary().Source(),
+			details.EvidenceRefs(),
+			details.ArtifactRefs(),
+		)
+		if err != nil {
+			return apptypes.MemoryHygieneApplied{}, xerrors.Errorf("failed to supersede memory: %w", err)
+		}
+		return apptypes.MemoryHygieneApplied{MemoryID: memoryID.String(), Kind: suggestion.Kind, Transition: "supersede", Details: superseded}, nil
 	default:
 		return apptypes.MemoryHygieneApplied{}, xerrors.Errorf("unknown suggestion kind: %s", suggestion.Kind)
 	}

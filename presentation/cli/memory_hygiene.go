@@ -154,6 +154,10 @@ func (c *RootCLI) newMemoryHygieneScanCommand() *cobra.Command {
 		"number of days without update before a memory is flagged for expiry",
 		"expiry 候補として検出するまでの未更新日数",
 	))
+	cmd.Flags().Float64Var(&input.similarity, "similarity", 0, Localize(
+		"word-Jaccard threshold for supersede_candidate detection (0.0-1.0; 0 uses the default 0.6)",
+		"supersede_candidate 検出の word-Jaccard 閾値 (0.0-1.0、0 は既定値 0.6)",
+	))
 	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	return cmd
 }
@@ -177,7 +181,8 @@ func (c *RootCLI) runMemoryHygieneScan(ctx context.Context, output io.Writer, in
 		return err
 	}
 	criteria := apptypes.MemoryHygieneScanCriteria{
-		StalenessThreshold: time.Duration(input.expiryDays) * 24 * time.Hour,
+		StalenessThreshold:  time.Duration(input.expiryDays) * 24 * time.Hour,
+		SimilarityThreshold: input.similarity,
 	}
 	if scope != nil {
 		criteria.Scopes = []domtypes.MemoryScope{scope}
@@ -193,15 +198,17 @@ func (c *RootCLI) runMemoryHygieneScan(ctx context.Context, output io.Writer, in
 func writeMemoryHygieneScanResult(output io.Writer, result apptypes.MemoryHygieneScanResult, asJSON bool) error {
 	if asJSON {
 		payload := struct {
-			RedactionHitCount    int                          `json:"redaction_hit_count"`
-			ExpiryCandidateCount int                          `json:"expiry_candidate_count"`
-			DuplicateCount       int                          `json:"duplicate_count"`
-			Suggestions          []memoryHygieneOutputEntry   `json:"suggestions"`
+			RedactionHitCount       int                        `json:"redaction_hit_count"`
+			ExpiryCandidateCount    int                        `json:"expiry_candidate_count"`
+			DuplicateCount          int                        `json:"duplicate_count"`
+			SupersedeCandidateCount int                        `json:"supersede_candidate_count"`
+			Suggestions             []memoryHygieneOutputEntry `json:"suggestions"`
 		}{
-			RedactionHitCount:    result.RedactionHitCount,
-			ExpiryCandidateCount: result.ExpiryCandidateCount,
-			DuplicateCount:       result.DuplicateCount,
-			Suggestions:          make([]memoryHygieneOutputEntry, 0, len(result.Suggestions)),
+			RedactionHitCount:       result.RedactionHitCount,
+			ExpiryCandidateCount:    result.ExpiryCandidateCount,
+			DuplicateCount:          result.DuplicateCount,
+			SupersedeCandidateCount: result.SupersedeCandidateCount,
+			Suggestions:             make([]memoryHygieneOutputEntry, 0, len(result.Suggestions)),
 		}
 		for _, suggestion := range result.Suggestions {
 			payload.Suggestions = append(payload.Suggestions, newMemoryHygieneOutputEntry(suggestion))
@@ -215,15 +222,18 @@ func writeMemoryHygieneScanResult(output io.Writer, result apptypes.MemoryHygien
 		return nil
 	}
 	if _, err := fmt.Fprintf(output, Localize(
-		"redaction_hits=%d expiry_candidates=%d duplicates=%d\n",
-		"redaction ヒット=%d expiry 候補=%d 重複=%d\n",
-	), result.RedactionHitCount, result.ExpiryCandidateCount, result.DuplicateCount); err != nil {
+		"redaction_hits=%d expiry_candidates=%d duplicates=%d supersede_candidates=%d\n",
+		"redaction ヒット=%d expiry 候補=%d 重複=%d supersede 候補=%d\n",
+	), result.RedactionHitCount, result.ExpiryCandidateCount, result.DuplicateCount, result.SupersedeCandidateCount); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print hygiene summary", "hygiene サマリの出力に失敗しました"), err)
 	}
 	for _, suggestion := range result.Suggestions {
 		extra := ""
 		if suggestion.DuplicateMemoryID != "" {
 			extra = fmt.Sprintf(" duplicate_of=%s", suggestion.DuplicateMemoryID.String())
+		}
+		if suggestion.ReplacementMemoryID != "" {
+			extra += fmt.Sprintf(" replacement=%s similarity=%.2f", suggestion.ReplacementMemoryID.String(), suggestion.Similarity)
 		}
 		if suggestion.SanitizedFact != "" {
 			extra += fmt.Sprintf(" sanitized=%q", truncateMessage(suggestion.SanitizedFact))
@@ -243,15 +253,18 @@ func writeMemoryHygieneScanResult(output io.Writer, result apptypes.MemoryHygien
 }
 
 type memoryHygieneOutputEntry struct {
-	MemoryID          string `json:"memory_id"`
-	Kind              string `json:"kind"`
-	Reason            string `json:"reason"`
-	Fact              string `json:"fact"`
-	SanitizedFact     string `json:"sanitized_fact,omitempty"`
-	DuplicateMemoryID string `json:"duplicate_memory_id,omitempty"`
-	ScopeKind         string `json:"scope_kind,omitempty"`
-	ScopeValue        string `json:"scope_value,omitempty"`
-	UpdatedAt         string `json:"updated_at"`
+	MemoryID            string  `json:"memory_id"`
+	Kind                string  `json:"kind"`
+	Reason              string  `json:"reason"`
+	Fact                string  `json:"fact"`
+	SanitizedFact       string  `json:"sanitized_fact,omitempty"`
+	DuplicateMemoryID   string  `json:"duplicate_memory_id,omitempty"`
+	ReplacementMemoryID string  `json:"replacement_memory_id,omitempty"`
+	ReplacementFact     string  `json:"replacement_fact,omitempty"`
+	Similarity          float64 `json:"similarity,omitempty"`
+	ScopeKind           string  `json:"scope_kind,omitempty"`
+	ScopeValue          string  `json:"scope_value,omitempty"`
+	UpdatedAt           string  `json:"updated_at"`
 }
 
 func newMemoryHygieneOutputEntry(suggestion apptypes.MemoryHygieneSuggestion) memoryHygieneOutputEntry {
@@ -261,10 +274,15 @@ func newMemoryHygieneOutputEntry(suggestion apptypes.MemoryHygieneSuggestion) me
 		Reason:        suggestion.Reason,
 		Fact:          suggestion.Fact,
 		SanitizedFact: suggestion.SanitizedFact,
+		Similarity:    suggestion.Similarity,
 		UpdatedAt:     suggestion.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 	if suggestion.DuplicateMemoryID != "" {
 		entry.DuplicateMemoryID = suggestion.DuplicateMemoryID.String()
+	}
+	if suggestion.ReplacementMemoryID != "" {
+		entry.ReplacementMemoryID = suggestion.ReplacementMemoryID.String()
+		entry.ReplacementFact = suggestion.ReplacementFact
 	}
 	if suggestion.Scope != nil {
 		entry.ScopeKind = suggestion.Scope.Kind().String()
