@@ -14,7 +14,7 @@ func TestResolveReadFields(t *testing.T) {
 		name          string
 		explicit      []string
 		explicitSet   bool
-		configColumns []string
+		configFields []string
 		want          []readFieldID
 		wantErr       bool
 	}{
@@ -24,14 +24,14 @@ func TestResolveReadFields(t *testing.T) {
 		},
 		{
 			name:          "config columns used when flag absent",
-			configColumns: []string{"ts", "kind", "message"},
+			configFields: []string{"ts", "kind", "message"},
 			want:          []readFieldID{readFieldTS, readFieldKind, readFieldMessage},
 		},
 		{
 			name:          "explicit flag overrides config columns",
 			explicit:      []string{"id", "kind"},
 			explicitSet:   true,
-			configColumns: []string{"ts", "kind", "message"},
+			configFields: []string{"ts", "kind", "message"},
 			want:          []readFieldID{readFieldEventID, readFieldKind},
 		},
 		{
@@ -64,7 +64,7 @@ func TestResolveReadFields(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := resolveReadFields(tc.explicit, tc.explicitSet, tc.configColumns)
+			got, err := resolveReadFields(tc.explicit, tc.explicitSet, tc.configFields)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("resolveReadFields() expected error, got nil (fields=%v)", got)
@@ -100,7 +100,7 @@ func TestResolveReadFieldsForCommand_WideConflict(t *testing.T) {
 	t.Parallel()
 
 	cli := NewRootCLI()
-	_, err := cli.resolveReadFieldsForCommand([]string{"ts", "kind"}, true, true)
+	_, err := cli.resolveReadFieldsForCommand([]string{"ts", "kind"}, true, true, false)
 	if err == nil {
 		t.Fatalf("resolveReadFieldsForCommand() expected conflict error, got nil")
 	}
@@ -113,7 +113,7 @@ func TestResolveReadFieldsForCommand_WideWithoutExplicitFieldsIsAllowed(t *testi
 	t.Parallel()
 
 	cli := NewRootCLI()
-	got, err := cli.resolveReadFieldsForCommand(nil, false, true)
+	got, err := cli.resolveReadFieldsForCommand(nil, false, true, false)
 	if err != nil {
 		t.Fatalf("resolveReadFieldsForCommand() unexpected error = %v", err)
 	}
@@ -122,6 +122,32 @@ func TestResolveReadFieldsForCommand_WideWithoutExplicitFieldsIsAllowed(t *testi
 	// list at the renderer boundary.
 	if len(got) == 0 {
 		t.Fatalf("resolveReadFieldsForCommand() returned empty fields for wide mode")
+	}
+}
+
+func TestResolveReadFieldsForCommand_WideSkipsBrokenConfigDefault(t *testing.T) {
+	t.Parallel()
+
+	cli := NewRootCLI(WithDefaultReadFields([]string{"bogus"}))
+	got, err := cli.resolveReadFieldsForCommand(nil, false, true, false)
+	if err != nil {
+		t.Fatalf("wide mode should bypass config validation, got err = %v", err)
+	}
+	if len(got) == 0 {
+		t.Fatalf("wide mode should still return default fields, got empty")
+	}
+}
+
+func TestResolveReadFieldsForCommand_JSONSkipsBrokenConfigDefault(t *testing.T) {
+	t.Parallel()
+
+	cli := NewRootCLI(WithDefaultReadFields([]string{"bogus"}))
+	got, err := cli.resolveReadFieldsForCommand(nil, false, false, true)
+	if err != nil {
+		t.Fatalf("--json should bypass config validation, got err = %v", err)
+	}
+	if len(got) == 0 {
+		t.Fatalf("--json mode should still return default fields, got empty")
 	}
 }
 

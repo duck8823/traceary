@@ -27,7 +27,7 @@ const (
 )
 
 // supportedReadFields is the canonical list of field IDs accepted by the
-// --fields flag and by the read.columns config entry. The order is also the
+// --fields flag and by the read.fields config entry. The order is also the
 // order shown in error messages.
 var supportedReadFields = []readFieldID{
 	readFieldTS,
@@ -62,14 +62,14 @@ func supportedReadFieldsLabel() string {
 
 // resolveReadFields applies the precedence explicit flag > config columns >
 // built-in default. When explicitSet is false the CLI caller has not passed
-// --fields, so configColumns is consulted; an empty configColumns falls back
+// --fields, so configFields is consulted; an empty configFields falls back
 // to defaultReadFields.
-func resolveReadFields(explicit []string, explicitSet bool, configColumns []string) ([]readFieldID, error) {
+func resolveReadFields(explicit []string, explicitSet bool, configFields []string) ([]readFieldID, error) {
 	switch {
 	case explicitSet:
 		return parseReadFields(explicit)
-	case len(configColumns) > 0:
-		return parseReadFields(configColumns)
+	case len(configFields) > 0:
+		return parseReadFields(configFields)
 	default:
 		return append([]readFieldID(nil), defaultReadFields...), nil
 	}
@@ -106,10 +106,11 @@ func parseReadFields(values []string) ([]readFieldID, error) {
 		if _, dup := seen[id]; dup {
 			return nil, xerrors.Errorf(
 				Localize(
-					"read field %q specified more than once",
-					"read フィールド %q が重複しています",
+					"read field %q specified more than once (supported fields: %s)",
+					"read フィールド %q が重複しています (利用可能なフィールド: %s)",
 				),
 				trimmed,
+				supportedReadFieldsLabel(),
 			)
 		}
 		seen[id] = struct{}{}
@@ -144,21 +145,27 @@ func readFieldsContain(fields []readFieldID, target readFieldID) bool {
 // commands advertise the same precedence semantics.
 func readFieldsFlagUsage() string {
 	return Localize(
-		"comma-separated list of columns to show (supported: "+supportedReadFieldsLabel()+"; overrides read.columns in config.json; incompatible with --wide)",
-		"表示するカラムをカンマ区切りで指定 (利用可能: "+supportedReadFieldsLabel()+"; config.json の read.columns を上書き; --wide との併用は不可)",
+		"comma-separated list of columns to show (supported: "+supportedReadFieldsLabel()+"; overrides read.fields in config.json; incompatible with --wide)",
+		"表示するカラムをカンマ区切りで指定 (利用可能: "+supportedReadFieldsLabel()+"; config.json の read.fields を上書き; --wide との併用は不可)",
 	)
 }
 
 // resolveReadFieldsForCommand applies the precedence rules and enforces the
-// --wide vs --fields mutual exclusion for read commands.
-func (c *RootCLI) resolveReadFieldsForCommand(explicit []string, explicitSet bool, wide bool) ([]readFieldID, error) {
+// --wide vs --fields mutual exclusion for read commands. When the command is
+// rendering --wide or --json output, the config-backed default is skipped so
+// a broken read.fields entry does not block paths that would not consume it
+// anyway.
+func (c *RootCLI) resolveReadFieldsForCommand(explicit []string, explicitSet bool, wide bool, asJSON bool) ([]readFieldID, error) {
 	if wide && explicitSet {
 		return nil, xerrors.Errorf(Localize(
 			"--fields cannot be combined with --wide (wide mode keeps the legacy seven-column format)",
 			"--fields は --wide と併用できません (wide モードは従来の 7 カラム形式を維持します)",
 		))
 	}
-	return resolveReadFields(explicit, explicitSet, c.defaultReadColumns)
+	if wide || asJSON {
+		return append([]readFieldID(nil), defaultReadFields...), nil
+	}
+	return resolveReadFields(explicit, explicitSet, c.defaultReadFields)
 }
 
 // makeCompactExtrasResolver returns a per-event extras resolver for compact

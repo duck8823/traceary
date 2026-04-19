@@ -267,7 +267,7 @@ func (c *RootCLI) runTail(ctx context.Context, output io.Writer, input tailComma
 		Workspace(types.Workspace(resolveWorkspaceValue(ctx, input.repo))).
 		FailuresOnly(input.failuresOnly)
 
-	resolvedFields, err := c.resolveReadFieldsForCommand(input.fields, input.fieldsSet, input.wide)
+	resolvedFields, err := c.resolveReadFieldsForCommand(input.fields, input.fieldsSet, input.wide, input.asJSON)
 	if err != nil {
 		return err
 	}

@@ -149,7 +149,7 @@ func (c *RootCLI) runList(ctx context.Context, output io.Writer, input listComma
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to list events", "イベント一覧の取得に失敗しました"), err)
 	}
-	resolvedFields, err := c.resolveReadFieldsForCommand(input.fields, input.fieldsSet, input.wide)
+	resolvedFields, err := c.resolveReadFieldsForCommand(input.fields, input.fieldsSet, input.wide, input.asJSON)
 	if err != nil {
 		return err
 	}

@@ -76,7 +76,7 @@ session 解決ルールは `traceary log` と同じです。
 
 `list` は直近履歴を素早く絞るためのコマンドです。kind / client / agent / session / workspace が決まっているときはこちらを使い、キーワード検索や期間条件が必要なときは `search` を使います。
 
-デフォルトのテキスト出力は `tail` と同じコンパクトな 1 行形式 (`HH:MM:SS  kind  sess=<先頭8文字>  ws=<basename>  message`、ヘッダ無し、現地時刻) です。`--wide` で従来の 7 カラム tab 区切り表、`--utc` でテキスト出力を UTC に切り替えられます。`--wide --utc` を組み合わせると v0.6.1 以前の出力を完全再現します。`--json` は従来通りです。`--fields ts,kind,message` でコンパクトカラムの順序を上書きできます (優先順位: `--fields` > `~/.config/traceary/config.json` の `read.columns` > 組み込み既定値)。`--fields` は `--wide` と併用できません。利用可能フィールド: `ts`, `kind`, `session`, `ws`, `client`, `agent`, `message`, `exit_code`, `id`。
+デフォルトのテキスト出力は `tail` と同じコンパクトな 1 行形式 (`HH:MM:SS  kind  sess=<先頭8文字>  ws=<basename>  message`、ヘッダ無し、現地時刻) です。`--wide` で従来の 7 カラム tab 区切り表、`--utc` でテキスト出力を UTC に切り替えられます。`--wide --utc` を組み合わせると v0.6.1 以前の出力を完全再現します。`--json` は従来通りです。`--fields ts,kind,message` でコンパクトカラムの順序を上書きできます (優先順位: `--fields` > `~/.config/traceary/config.json` の `read.fields` > 組み込み既定値)。`--fields` は `--wide` と併用できません。利用可能フィールド: `ts`, `kind`, `session`, `ws`, `client`, `agent`, `message`, `exit_code`, `id`。
 
 主な flag:
 
@@ -102,7 +102,7 @@ session 解決ルールは `traceary log` と同じです。
 
 > コンパクト表示の session ID (`sess=<先頭8文字>`) は人間が目視する前提の短縮形です。機械処理には `--wide --utc` または `--json` を利用してください。
 
-`--fields ts,kind,message` でコンパクトカラムの順序を上書きできます (優先順位: `--fields` > config.json の `read.columns` > 組み込み既定値)。`--fields` は `--wide` と併用できません。利用可能フィールドは `traceary list` の説明を参照してください。
+`--fields ts,kind,message` でコンパクトカラムの順序を上書きできます (優先順位: `--fields` > config.json の `read.fields` > 組み込み既定値)。`--fields` は `--wide` と併用できません。利用可能フィールドは `traceary list` の説明を参照してください。
 
 主な flag:
 
@@ -122,7 +122,7 @@ session 解決ルールは `traceary log` と同じです。
 
 全文検索と構造フィルタで event を検索します。
 
-テキスト出力は `list` / `tail` と同じコンパクト 1 行形式 (デフォルトで現地時刻) です。`--wide` で従来の 7 カラム表、`--utc` で UTC に切り替えられます。`--wide --utc` を組み合わせると v0.6.1 以前の出力を完全再現します。`--json` は従来通りです。`--fields ts,kind,message` でコンパクトカラムの順序を上書きできます (優先順位: `--fields` > config.json の `read.columns` > 組み込み既定値)。`--fields` は `--wide` と併用できません。利用可能フィールドは `traceary list` の説明を参照してください。
+テキスト出力は `list` / `tail` と同じコンパクト 1 行形式 (デフォルトで現地時刻) です。`--wide` で従来の 7 カラム表、`--utc` で UTC に切り替えられます。`--wide --utc` を組み合わせると v0.6.1 以前の出力を完全再現します。`--json` は従来通りです。`--fields ts,kind,message` でコンパクトカラムの順序を上書きできます (優先順位: `--fields` > config.json の `read.fields` > 組み込み既定値)。`--fields` は `--wide` と併用できません。利用可能フィールドは `traceary list` の説明を参照してください。
 
 主な flag:
 

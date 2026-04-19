@@ -163,7 +163,7 @@ func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchC
 		return xerrors.Errorf("%s: %w", Localize("failed to search events", "検索に失敗しました"), err)
 	}
 
-	resolvedFields, err := c.resolveReadFieldsForCommand(input.fields, input.fieldsSet, input.wide)
+	resolvedFields, err := c.resolveReadFieldsForCommand(input.fields, input.fieldsSet, input.wide, input.asJSON)
 	if err != nil {
 		return err
 	}

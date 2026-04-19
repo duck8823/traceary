@@ -62,7 +62,7 @@ func TestLoadExtraRedactPatterns_loadsPatternsFromValidConfigJSON(t *testing.T) 
 	}
 }
 
-func TestLoadConfig_returnsReadColumnsAlongsideRedact(t *testing.T) {
+func TestLoadConfig_returnsReadFieldsAlongsideRedact(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
@@ -72,7 +72,7 @@ func TestLoadConfig_returnsReadColumnsAlongsideRedact(t *testing.T) {
 	}
 	configJSON := `{
 		"redact": {"extra_patterns": ["secret"]},
-		"read": {"columns": ["ts", "kind", "message"]}
+		"read": {"fields": ["ts", "kind", "message"]}
 	}`
 	if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(configJSON), 0o644); err != nil {
 		t.Fatal(err)
@@ -83,8 +83,8 @@ func TestLoadConfig_returnsReadColumnsAlongsideRedact(t *testing.T) {
 	if diff := cmp.Diff([]string{"secret"}, cfg.ExtraRedactPatterns); diff != "" {
 		t.Fatalf("ExtraRedactPatterns mismatch (-want +got):\n%s", diff)
 	}
-	if diff := cmp.Diff([]string{"ts", "kind", "message"}, cfg.ReadColumns); diff != "" {
-		t.Fatalf("ReadColumns mismatch (-want +got):\n%s", diff)
+	if diff := cmp.Diff([]string{"ts", "kind", "message"}, cfg.ReadFields); diff != "" {
+		t.Fatalf("ReadFields mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -96,8 +96,8 @@ func TestLoadConfig_returnsZeroValueWhenFileMissing(t *testing.T) {
 	if len(cfg.ExtraRedactPatterns) != 0 {
 		t.Errorf("expected empty ExtraRedactPatterns, got %v", cfg.ExtraRedactPatterns)
 	}
-	if len(cfg.ReadColumns) != 0 {
-		t.Errorf("expected empty ReadColumns, got %v", cfg.ReadColumns)
+	if len(cfg.ReadFields) != 0 {
+		t.Errorf("expected empty ReadFields, got %v", cfg.ReadFields)
 	}
 }
 
@@ -109,15 +109,15 @@ func TestLoadConfig_ignoresUnknownTopLevelKeys(t *testing.T) {
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	configJSON := `{"read": {"columns": ["ts"]}, "unknown": "ignored"}`
+	configJSON := `{"read": {"fields": ["ts"]}, "unknown": "ignored"}`
 	if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(configJSON), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	cfg := presentation.LoadConfig()
 
-	if diff := cmp.Diff([]string{"ts"}, cfg.ReadColumns); diff != "" {
-		t.Fatalf("ReadColumns mismatch (-want +got):\n%s", diff)
+	if diff := cmp.Diff([]string{"ts"}, cfg.ReadFields); diff != "" {
+		t.Fatalf("ReadFields mismatch (-want +got):\n%s", diff)
 	}
 	if len(cfg.ExtraRedactPatterns) != 0 {
 		t.Errorf("expected ExtraRedactPatterns empty, got %v", cfg.ExtraRedactPatterns)

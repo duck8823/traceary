@@ -19,7 +19,7 @@ type redactSection struct {
 }
 
 type readSection struct {
-	Columns []string `json:"columns"`
+	Fields []string `json:"fields"`
 }
 
 // Config carries the resolved configuration values consumed by the CLI and
@@ -29,10 +29,10 @@ type Config struct {
 	// ExtraRedactPatterns are additional regex patterns applied on top of the
 	// built-in audit redaction rules. Nil / empty means "no extras".
 	ExtraRedactPatterns []string
-	// ReadColumns is the default column order applied to tail / list / search
+	// ReadFields is the default column order applied to tail / list / search
 	// text output when the user does not pass --fields. Nil / empty means
 	// "fall back to the built-in default column order".
-	ReadColumns []string
+	ReadFields []string
 }
 
 // LoadConfig reads the optional Traceary config file and returns a Config.
@@ -46,7 +46,7 @@ func LoadConfig() Config {
 	}
 	return Config{
 		ExtraRedactPatterns: file.Redact.ExtraPatterns,
-		ReadColumns:         file.Read.Columns,
+		ReadFields:          file.Read.Fields,
 	}
 }
 

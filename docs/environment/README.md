@@ -40,7 +40,7 @@ Traceary reads an optional JSON configuration file from `~/.config/traceary/conf
 | Key | Type | Purpose |
 | --- | --- | --- |
 | `redact.extra_patterns` | string array | Extra regex patterns for audit redaction. Each entry is compiled as a Go `regexp` pattern and matched content is replaced with `[REDACTED]`. Applied after the built-in redaction rules in both the CLI (`traceary audit`) and MCP server (`add_audit`). |
-| `read.columns` | string array | Default compact column order for `traceary tail` / `list` / `search` text output when `--fields` is omitted. Accepted field names: `ts`, `kind`, `session`, `ws`, `client`, `agent`, `message`, `exit_code`, `id`. Unknown / empty / duplicate entries are rejected at command runtime; the `--fields` flag always overrides this setting. Does not affect `--wide` or `--json` output. |
+| `read.fields` | string array | Default compact column order for `traceary tail` / `list` / `search` text output when `--fields` is omitted. Accepted field names: `ts`, `kind`, `session`, `ws`, `client`, `agent`, `message`, `exit_code`, `id`. Unknown / empty / duplicate entries are rejected at command runtime; the `--fields` flag always overrides this setting. Does not affect `--wide` or `--json` output. |
 
 Example:
 
@@ -50,7 +50,7 @@ Example:
     "extra_patterns": ["my_custom_secret", "internal_auth_header:\\s*\\S+"]
   },
   "read": {
-    "columns": ["ts", "kind", "session", "ws", "message"]
+    "fields": ["ts", "kind", "session", "ws", "message"]
   }
 }
 ```
