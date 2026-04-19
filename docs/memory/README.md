@@ -62,6 +62,19 @@ Use these when Traceary should infer candidate memories from existing session si
 
 Extraction is candidate-only. It does not auto-accept memories.
 
+### Review path
+
+Use these once candidates have accumulated in the store and you need to
+walk the inbox before anything is promoted to `accepted`:
+
+- `traceary memory inbox list`
+- `traceary memory inbox accept --ids id1,id2,...`
+- `traceary memory inbox reject --ids id1,id2,...`
+- MCP `memory_inbox_batch` for agent-driven review
+
+The review path is deliberately `candidate`-scoped so extraction and
+import feed the same inbox and a single reviewer pass can clear them.
+
 ### Import path
 
 Use this when you want to surface memories written by another local agent as

@@ -591,7 +591,7 @@ func loadMemoryArtifactRefs(ctx context.Context, db *sql.DB, memoryID types.Memo
 func buildMemoryListQuery(criteria apptypes.MemoryListCriteria) (string, []any, error) {
 	var builder strings.Builder
 	builder.WriteString(selectMemorySummaryColumnsQuery)
-	args, err := appendMemoryFilters(&builder, nil, criteria.Scopes(), criteria.Statuses(), criteria.MemoryTypes())
+	args, err := appendMemoryFilters(&builder, nil, criteria.Scopes(), criteria.Statuses(), criteria.MemoryTypes(), criteria.Sources())
 	if err != nil {
 		return "", nil, err
 	}
@@ -627,7 +627,7 @@ func buildMemorySearchQuery(criteria apptypes.MemorySearchCriteria) (string, []a
 		args = append(args, likeQuery, likeQuery, likeQuery)
 	}
 
-	args, err := appendMemoryFilters(&builder, args, criteria.Scopes(), criteria.Statuses(), criteria.MemoryTypes())
+	args, err := appendMemoryFilters(&builder, args, criteria.Scopes(), criteria.Statuses(), criteria.MemoryTypes(), nil)
 	if err != nil {
 		return "", nil, err
 	}
@@ -642,6 +642,7 @@ func appendMemoryFilters(
 	scopes []types.MemoryScope,
 	statuses []types.MemoryStatus,
 	memoryTypes []types.MemoryType,
+	sources []types.MemorySource,
 ) ([]any, error) {
 	normalizedStatuses := normalizeMemoryStatuses(statuses)
 	builder.WriteString(" AND m.status IN (")
@@ -677,6 +678,18 @@ func appendMemoryFilters(
 			}
 			builder.WriteString("?")
 			args = append(args, memoryType.String())
+		}
+		builder.WriteString(")")
+	}
+
+	if len(sources) > 0 {
+		builder.WriteString(" AND m.source IN (")
+		for index, source := range sources {
+			if index > 0 {
+				builder.WriteString(", ")
+			}
+			builder.WriteString("?")
+			args = append(args, source.String())
 		}
 		builder.WriteString(")")
 	}

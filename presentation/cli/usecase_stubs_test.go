@@ -282,6 +282,8 @@ type memoryUsecaseStub struct {
 		memoryID   types.MemoryID
 		confidence types.Optional[types.Confidence]
 	}
+	acceptCallCount int
+	rejectCallCount int
 }
 
 func (s *memoryUsecaseStub) Remember(_ context.Context, memoryType types.MemoryType, scope types.MemoryScope, fact string, confidence types.Optional[types.Confidence], source types.MemorySource, evidenceRefs []types.EvidenceRef, artifactRefs []types.ArtifactRef) (apptypes.MemoryDetails, error) {
@@ -302,10 +304,12 @@ func (s *memoryUsecaseStub) Propose(_ context.Context, _ types.MemoryType, _ typ
 func (s *memoryUsecaseStub) Accept(_ context.Context, memoryID types.MemoryID, confidence types.Optional[types.Confidence]) (apptypes.MemoryDetails, error) {
 	s.acceptCall.memoryID = memoryID
 	s.acceptCall.confidence = confidence
+	s.acceptCallCount++
 	return s.acceptDetails, s.acceptErr
 }
 
 func (s *memoryUsecaseStub) Reject(_ context.Context, _ types.MemoryID) (apptypes.MemoryDetails, error) {
+	s.rejectCallCount++
 	return s.rejectDetails, s.rejectErr
 }
 

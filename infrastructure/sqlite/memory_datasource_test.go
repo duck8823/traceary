@@ -489,6 +489,28 @@ func TestMemoryDatasource_List(t *testing.T) {
 			t.Fatalf("MemoryID mismatch (-want +got):\n%s", diff)
 		}
 	})
+
+	t.Run("source filter narrows the row set at the datasource layer", func(t *testing.T) {
+		t.Parallel()
+
+		// Pin the dedicated source column narrowing added for the inbox view:
+		// the datasource must honour Sources() without relying on client-side
+		// post-filtering so pagination stays consistent.
+		criteria := apptypes.NewMemoryListCriteriaBuilder(10).
+			Statuses([]types.MemoryStatus{types.MemoryStatusCandidate, types.MemoryStatusAccepted}).
+			Source(types.MemorySourceExtracted).
+			Build()
+		summaries, err := sut.List(ctx, criteria)
+		if err != nil {
+			t.Fatalf("List() error = %v", err)
+		}
+		if got := len(summaries); got != 1 {
+			t.Fatalf("len(List()) = %d, want 1 (mem-candidate)", got)
+		}
+		if diff := cmp.Diff("mem-candidate", summaries[0].MemoryID().String()); diff != "" {
+			t.Fatalf("MemoryID mismatch (-want +got):\n%s", diff)
+		}
+	})
 }
 
 func TestMemoryDatasource_Search(t *testing.T) {

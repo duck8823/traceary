@@ -165,3 +165,19 @@ type expireMemoryInput struct {
 	MemoryID  string `json:"memory_id" jsonschema:"durable memory identifier"`
 	ExpiresAt string `json:"expires_at,omitempty" jsonschema:"expiry timestamp (YYYY-MM-DD or RFC3339, defaults to now)"`
 }
+
+// acceptMemoriesBatchInput is the MCP input for the accept_memories_batch
+// tool. Agent hosts call this to drive the same accept-every-candidate
+// flow the CLI exposes under `traceary memory inbox accept --ids`, so the
+// schema keeps the id list shape minimal and leaves confidence optional.
+type acceptMemoriesBatchInput struct {
+	MemoryIDs  []string `json:"memory_ids" jsonschema:"candidate durable memory identifiers to accept"`
+	Confidence string   `json:"confidence,omitempty" jsonschema:"accepted confidence (default: verified)"`
+}
+
+// rejectMemoriesBatchInput is the MCP input for the reject_memories_batch
+// tool. The schema intentionally omits confidence because rejection has no
+// notion of confidence in the lifecycle model.
+type rejectMemoriesBatchInput struct {
+	MemoryIDs []string `json:"memory_ids" jsonschema:"candidate durable memory identifiers to reject"`
+}

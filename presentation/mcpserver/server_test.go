@@ -3,6 +3,7 @@ package mcpserver_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"testing/fstest"
@@ -315,6 +316,49 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 		if diff := cmp.Diff("rejected", extractJSONStringValue(t, rejectMutationResult, "status")); diff != "" {
 			t.Fatalf("rejected status mismatch (-want +got):\n%s", diff)
+		}
+
+		batchProposeIDs := make([]string, 0, 2)
+		for i := 0; i < 2; i++ {
+			res, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+				Name: "propose_memory",
+				Arguments: map[string]any{
+					"type":      "preference",
+					"workspace": "github.com/duck8823/traceary",
+					"fact":      fmt.Sprintf("Candidate memory %d for inbox batch", i),
+					"evidence_refs": []any{
+						map[string]any{"kind": "issue", "value": "#557"},
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("CallTool(propose_memory) #%d error = %v", i, err)
+			}
+			batchProposeIDs = append(batchProposeIDs, extractJSONStringValue(t, res, "memory_id"))
+		}
+		batchResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "accept_memories_batch",
+			Arguments: map[string]any{
+				"memory_ids": append(append([]any(nil), batchProposeIDs[0]), append([]any(nil), batchProposeIDs[1], "not-a-real-id")...),
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(accept_memories_batch) error = %v", err)
+		}
+		if batchResult.IsError {
+			t.Fatalf("CallTool(accept_memories_batch) returned tool error")
+		}
+		batchPayload := decodeJSONPayload(t, batchResult)
+		if got, want := batchPayload["action"], "accept"; got != want {
+			t.Fatalf("batch action = %v, want %v", got, want)
+		}
+		processed, _ := batchPayload["processed"].([]any)
+		if len(processed) != 2 {
+			t.Fatalf("expected 2 processed memories, got %d", len(processed))
+		}
+		failures, _ := batchPayload["failures"].([]any)
+		if len(failures) != 1 {
+			t.Fatalf("expected 1 failure (not-a-real-id), got %d", len(failures))
 		}
 	})
 

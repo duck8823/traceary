@@ -288,6 +288,21 @@ Useful flags:
 - `--candidate-limit`
 - `--json`
 
+### `traceary memory inbox`
+
+Review the durable-memory inbox. `list` surfaces `candidate` memories together with their evidence / artifact ref counts so a reviewer can judge provenance before accepting. `accept` and `reject` take a comma-separated id list via `--ids` and walk the list in order, returning a per-id success / failure breakdown so a partial batch never hides which entries transitioned.
+
+Useful flags:
+
+- `list` — `--workspace`, `--agent`, `--session-family`, `--type`, `--source` (manual / extracted / imported), `--limit`, `--offset`, `--json`
+- `accept` — `--ids id1,id2,...` (repeatable), `--confidence`, `--json`
+- `reject` — `--ids id1,id2,...` (repeatable), `--json`
+
+The `--source` filter pairs naturally with the extraction and import paths:
+
+- `--source imported` focuses on memories read from host-native sources such as Codex (see `memory import codex`).
+- `--source extracted` focuses on memories `traceary memory extract` produced from session signals.
+
 ### `traceary memory import codex`
 
 Import durable-memory candidates from a local Codex memory layout — by default `~/.codex/memories/MEMORY.md`. Only the handbook file is read; raw memories and rollout summaries are intentionally skipped in this release. Each bullet under `## User preferences`, `## Reusable knowledge`, or `## Failures and how to do differently` becomes a `candidate` with `source=imported`, file evidence/artifact refs, and a scope resolved from the Codex `applies_to: cwd=...` hint (falling back to `--workspace` when the source file does not declare one). Sanitization runs on every imported fact, and nothing is auto-accepted. Re-running the command is idempotent: existing candidates (at any lifecycle status, including rejected) suppress a duplicate import so previously reviewed memories are never resurrected.

@@ -185,6 +185,16 @@ func (s *Server) Build(ctx context.Context) (*mcp.Server, error) {
 		Description: "Build a memory pack for prompt context, handoff, automation, and recent commands.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.memoryPack())
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "accept_memories_batch",
+		Description: "Batch accept candidate durable memories by id, mirroring `traceary memory inbox accept --ids`.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true)},
+	}, s.acceptMemoriesBatch())
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "reject_memories_batch",
+		Description: "Batch reject candidate durable memories by id, mirroring `traceary memory inbox reject --ids`.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true)},
+	}, s.rejectMemoriesBatch())
 
 	return server, nil
 }
@@ -626,6 +636,72 @@ func (s *Server) rejectMemory() mcp.ToolHandlerFor[rejectMemoryInput, memoryOutp
 			return nil, memoryOutput{}, xerrors.Errorf("failed to reject memory: %w", err)
 		}
 		return nil, newMemoryOutput(details), nil
+	}
+}
+
+// acceptMemoriesBatch applies Accept to every supplied id and returns the
+// per-id success / failure breakdown. Unknown or malformed ids are
+// reported as failures rather than a top-level error so a partial batch
+// never leaves the caller guessing which specific ids moved.
+func (s *Server) acceptMemoriesBatch() mcp.ToolHandlerFor[acceptMemoriesBatchInput, inboxBatchMemoryOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, input acceptMemoriesBatchInput) (*mcp.CallToolResult, inboxBatchMemoryOutput, error) {
+		if len(input.MemoryIDs) == 0 {
+			return nil, inboxBatchMemoryOutput{}, xerrors.Errorf("memory_ids must list at least one id")
+		}
+		confidence, err := parseOptionalConfidence(input.Confidence)
+		if err != nil {
+			return nil, inboxBatchMemoryOutput{}, err
+		}
+		out := inboxBatchMemoryOutput{Action: "accept"}
+		for _, rawID := range input.MemoryIDs {
+			trimmed := strings.TrimSpace(rawID)
+			if trimmed == "" {
+				continue
+			}
+			memoryID, err := types.MemoryIDOf(trimmed)
+			if err != nil {
+				out.Failures = append(out.Failures, inboxBatchMemoryFailureOutput{MemoryID: trimmed, Error: err.Error()})
+				continue
+			}
+			details, err := s.memory.Accept(ctx, memoryID, confidence)
+			if err != nil {
+				out.Failures = append(out.Failures, inboxBatchMemoryFailureOutput{MemoryID: trimmed, Error: err.Error()})
+				continue
+			}
+			out.Processed = append(out.Processed, newMemoryOutput(details))
+		}
+		return nil, out, nil
+	}
+}
+
+// rejectMemoriesBatch applies Reject to every supplied id and returns the
+// per-id success / failure breakdown. The handler mirrors the single-id
+// reject_memory tool and keeps the same partial-batch semantics as
+// acceptMemoriesBatch.
+func (s *Server) rejectMemoriesBatch() mcp.ToolHandlerFor[rejectMemoriesBatchInput, inboxBatchMemoryOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, input rejectMemoriesBatchInput) (*mcp.CallToolResult, inboxBatchMemoryOutput, error) {
+		if len(input.MemoryIDs) == 0 {
+			return nil, inboxBatchMemoryOutput{}, xerrors.Errorf("memory_ids must list at least one id")
+		}
+		out := inboxBatchMemoryOutput{Action: "reject"}
+		for _, rawID := range input.MemoryIDs {
+			trimmed := strings.TrimSpace(rawID)
+			if trimmed == "" {
+				continue
+			}
+			memoryID, err := types.MemoryIDOf(trimmed)
+			if err != nil {
+				out.Failures = append(out.Failures, inboxBatchMemoryFailureOutput{MemoryID: trimmed, Error: err.Error()})
+				continue
+			}
+			details, err := s.memory.Reject(ctx, memoryID)
+			if err != nil {
+				out.Failures = append(out.Failures, inboxBatchMemoryFailureOutput{MemoryID: trimmed, Error: err.Error()})
+				continue
+			}
+			out.Processed = append(out.Processed, newMemoryOutput(details))
+		}
+		return nil, out, nil
 	}
 }
 
