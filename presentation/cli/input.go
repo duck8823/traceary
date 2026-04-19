@@ -398,3 +398,12 @@ type memoryImportInstructionsCommandInput struct {
 	workspace string
 	asJSON    bool
 }
+
+// memoryHygieneScanCommandInput is the resolved input to the
+// `traceary memory hygiene scan` command.
+type memoryHygieneScanCommandInput struct {
+	dbPath     string
+	workspace  string
+	expiryDays int
+	asJSON     bool
+}

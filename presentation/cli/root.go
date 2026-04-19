@@ -17,6 +17,7 @@ type RootCLI struct {
 	memoryImport        usecase.MemoryImportUsecase
 	memoryExport        usecase.MemoryExportUsecase
 	memoryBridgeImport  usecase.MemoryBridgeImportUsecase
+	memoryHygiene       usecase.MemoryHygieneUsecase
 	context             usecase.ContextUsecase
 	codexIntegration    usecase.CodexIntegrationUsecase
 	storeManagement     usecase.StoreManagementUsecase
@@ -77,6 +78,13 @@ func WithMemoryExport(memoryExport usecase.MemoryExportUsecase) RootCLIOption {
 // into durable-memory candidates.
 func WithMemoryBridgeImport(importUsecase usecase.MemoryBridgeImportUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.memoryBridgeImport = importUsecase }
+}
+
+// WithMemoryHygiene injects the MemoryHygieneUsecase used by
+// `memory hygiene scan` to surface redaction / expiry / duplicate
+// suggestions over the durable-memory store.
+func WithMemoryHygiene(hygiene usecase.MemoryHygieneUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.memoryHygiene = hygiene }
 }
 
 // WithContext injects the ContextUsecase used by structured handoff commands.

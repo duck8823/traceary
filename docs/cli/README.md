@@ -288,6 +288,20 @@ Useful flags:
 - `--candidate-limit`
 - `--json`
 
+### `traceary memory hygiene scan`
+
+Scan `accepted` durable memories and surface three kinds of hygiene suggestions without mutating the store:
+
+- `redaction_hit` — the current audit redaction rules mask content the stored fact still exposes (for example after the operator added a new extra pattern to `~/.config/traceary/config.json`). The suggestion carries `sanitized_fact` so a follow-up `memory supersede` call has a ready replacement.
+- `expiry_candidate` — the memory has not been updated for longer than `--expiry-days`; the operator may want to expire it.
+- `duplicate` — two or more `accepted` memories share the same scope + fact pair; one should supersede or expire the other.
+
+Useful flags:
+
+- `--workspace` — scope filter (defaults to env/detected workspace; leave empty to scan every scope)
+- `--expiry-days` — staleness threshold in days (default 90)
+- `--json` — print JSON output with per-suggestion metadata
+
 ### `traceary memory export`
 
 Write the accepted durable memories for the current scope into a host-native instruction file (CLAUDE.md, AGENTS.md, or GEMINI.md). Output is deterministic and idempotent: re-running with unchanged memories produces a byte-identical file, and every Traceary-managed block is bracketed by `<!-- traceary-memories:begin:v1 -->` / `<!-- traceary-memories:end -->` markers so a later `memory import instructions` run can round-trip without creating duplicates.
