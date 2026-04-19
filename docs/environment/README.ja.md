@@ -41,6 +41,7 @@ Traceary はオプションの JSON 設定ファイルを `~/.config/traceary/co
 | --- | --- | --- |
 | `redact.extra_patterns` | 文字列配列 | 監査リダクション用の追加正規表現パターン。各エントリは Go の `regexp` パターンとしてコンパイルされ、マッチした内容が `[REDACTED]` に置換されます。CLI（`traceary audit`）と MCP サーバー（`add_audit`）の両方で、組み込みルールの後に適用されます。 |
 | `read.fields` | 文字列配列 | `traceary tail` / `list` / `search` のテキスト出力で `--fields` が指定されなかった場合に使用されるコンパクトカラムのデフォルト順。利用可能なフィールド名: `ts`, `kind`, `session`, `ws`, `client`, `agent`, `message`, `exit_code`, `id`。未知・空・重複エントリはコマンド実行時に拒否されます。`--fields` フラグが指定された場合は常にこの設定を上書きします。`--wide` や `--json` 出力には影響しません。 |
+| `read.presets` | object | `traceary tail` / `list` / `search` 向けの保存済みビュー。`--preset <name>` で適用します。各 entry は `fields`（`read.fields` と同じ registry）と `filters`（`kind`, `failures`, `workspace`, `session_id`, `client`, `agent`）を持てます。明示した CLI フラグは常に preset を上書きします。built-in preset（`failures`, `prompts-only`, `compact-summaries`）と同名のエントリは built-in を上書きしますが、実行時に stderr へ `[WARN]` を出します。 |
 
 例:
 
@@ -50,7 +51,16 @@ Traceary はオプションの JSON 設定ファイルを `~/.config/traceary/co
     "extra_patterns": ["my_custom_secret", "internal_auth_header:\\s*\\S+"]
   },
   "read": {
-    "fields": ["ts", "kind", "session", "ws", "message"]
+    "fields": ["ts", "kind", "session", "ws", "message"],
+    "presets": {
+      "my-view": {
+        "fields": ["ts", "kind", "message"],
+        "filters": {
+          "kind": "prompt",
+          "failures": true
+        }
+      }
+    }
   }
 }
 ```
