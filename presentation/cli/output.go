@@ -37,18 +37,22 @@ type contextOutput struct {
 
 // sessionTreeNode is the JSON shape of a single session in the tree output.
 type sessionTreeNode struct {
-	SessionID    string             `json:"session_id"`
-	Workspace    string             `json:"workspace,omitempty"`
-	Label        string             `json:"label,omitempty"`
-	Summary      string             `json:"summary,omitempty"`
-	StartedAt    string             `json:"started_at"`
-	EndedAt      *string            `json:"ended_at,omitempty"`
-	Status       string             `json:"status"`
-	DurationSec  *float64           `json:"duration_sec,omitempty"`
-	TotalEvents  int                `json:"total_events"`
-	CommandCount int                `json:"command_count"`
-	Agents       []string           `json:"agents"`
-	Children     []*sessionTreeNode `json:"children"`
+	SessionID       string             `json:"session_id"`
+	ParentSessionID string             `json:"parent_session_id,omitempty"`
+	Depth           int                `json:"depth"`
+	Workspace       string             `json:"workspace,omitempty"`
+	Label           string             `json:"label,omitempty"`
+	Summary         string             `json:"summary,omitempty"`
+	StartedAt       string             `json:"started_at"`
+	EndedAt         *string            `json:"ended_at,omitempty"`
+	Status          string             `json:"status"`
+	DurationSec     *float64           `json:"duration_sec,omitempty"`
+	DurationMs      *int64             `json:"duration_ms,omitempty"`
+	TotalEvents     int                `json:"total_events"`
+	CommandCount    int                `json:"command_count"`
+	Agents          []string           `json:"agents"`
+	SubagentType    string             `json:"subagent_type,omitempty"`
+	Children        []*sessionTreeNode `json:"children"`
 }
 
 // memorySummaryOutput is the JSON shape of a durable memory summary in CLI output.

@@ -402,6 +402,18 @@ session の一覧サマリーを表示します。
 - `--offset`
 - `--json`
 
+### `traceary session tree`
+
+読み込んだ session の parent → child → grandchild 階層を描画します。各行は session id / status / 最も具体的な subagent role (例: `claude:explore`) / workspace / duration / `N cmds/M events` breakdown を表示します。JSON 出力では各ノードに `parent_session_id` / `depth` / `duration_ms` / `subagent_type` を追加し、外部ツールが lineage を扱えるようにしています。
+
+主な flag:
+
+- `--workspace`
+- `--limit`
+- `--root <session-id>` — 指定 session を root とするサブツリーのみ表示
+- `--ongoing-only` — active session を含む lineage だけを残す
+- `--json`
+
 ### `traceary session label <label-text>`
 
 session の label を設定または更新します。
