@@ -347,3 +347,30 @@ type memoryImportCodexCommandInput struct {
 	interval  time.Duration
 	asJSON    bool
 }
+
+// memoryInboxListCommandInput is the resolved input to `traceary memory
+// inbox`. The command is a provenance-first view over candidate durable
+// memories, so the filter set is identical to `memory list` but the
+// default status is pinned to candidate.
+type memoryInboxListCommandInput struct {
+	dbPath        string
+	workspace     string
+	agent         string
+	sessionFamily string
+	memoryTypes   []string
+	sources       []string
+	limit         int
+	offset        int
+	asJSON        bool
+}
+
+// memoryInboxBatchCommandInput is the resolved input to `traceary memory
+// inbox accept` and `traceary memory inbox reject`. Batch operations walk
+// the id list in order and report per-id success/failure so the caller can
+// retry the failing tail without undoing the successes.
+type memoryInboxBatchCommandInput struct {
+	dbPath     string
+	ids        []string
+	confidence string
+	asJSON     bool
+}
