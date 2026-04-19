@@ -58,7 +58,8 @@ func (u *memoryBridgeImportUsecase) ImportInstructions(ctx context.Context, crit
 		return apptypes.MemoryBridgeImportResult{}, err
 	}
 
-	bullets, warnings := parseBridgeMarkdown(content, criteria.Path)
+	sourceLabel := bridgeSourceLabel(criteria)
+	bullets, warnings := parseBridgeMarkdown(content, sourceLabel)
 
 	result := apptypes.MemoryBridgeImportResult{
 		Warnings: slices.Clone(warnings),
@@ -77,15 +78,6 @@ func (u *memoryBridgeImportUsecase) ImportInstructions(ctx context.Context, crit
 	}
 
 	for _, bullet := range bullets {
-		sanitizedFact, _, _, err := sanitizeMemoryPayload(bullet.Fact, nil, nil, u.extraRedactPatterns)
-		if err != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("skipped bullet at %s:%d (sanitize failed: %v)", bullet.SourcePath, bullet.Line, err))
-			continue
-		}
-		if sanitizedFact == "" {
-			continue
-		}
-
 		evidence, err := domtypes.EvidenceRefOf(domtypes.EvidenceRefKindFile, fmt.Sprintf("%s#L%d", bullet.SourcePath, bullet.Line))
 		if err != nil {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("skipped bullet at %s:%d (evidence ref rejected: %v)", bullet.SourcePath, bullet.Line, err))
@@ -97,14 +89,18 @@ func (u *memoryBridgeImportUsecase) ImportInstructions(ctx context.Context, crit
 			continue
 		}
 
-		sanitizedEvidence, sanitizedArtifacts := []domtypes.EvidenceRef{evidence}, []domtypes.ArtifactRef{artifact}
-		sanitizedFact, sanitizedEvidence, sanitizedArtifacts, err = sanitizeMemoryPayload(sanitizedFact, sanitizedEvidence, sanitizedArtifacts, u.extraRedactPatterns)
+		// Single sanitizer pass — fact and refs go through together so
+		// redaction runs exactly once per bullet.
+		sanitizedFact, sanitizedEvidence, sanitizedArtifacts, err := sanitizeMemoryPayload(bullet.Fact, []domtypes.EvidenceRef{evidence}, []domtypes.ArtifactRef{artifact}, u.extraRedactPatterns)
 		if err != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("skipped bullet at %s:%d (ref sanitize failed: %v)", bullet.SourcePath, bullet.Line, err))
+			result.Warnings = append(result.Warnings, fmt.Sprintf("skipped bullet at %s:%d (sanitize failed: %v)", bullet.SourcePath, bullet.Line, err))
+			continue
+		}
+		if sanitizedFact == "" {
 			continue
 		}
 
-		key := bridgeDedupeKey{ScopeKey: scope.Key(), SourcePath: bullet.SourcePath, Fact: sanitizedFact}
+		key := bridgeDedupeKey{ScopeKind: scope.Kind(), ScopeKey: scope.Key(), SourcePath: bullet.SourcePath, Fact: sanitizedFact}
 		if existing, ok := existingIndex[key]; ok {
 			if existing == domtypes.MemoryStatusCandidate || existing == domtypes.MemoryStatusAccepted {
 				result.SkippedDuplicateCount++
@@ -140,6 +136,7 @@ func (u *memoryBridgeImportUsecase) ImportInstructions(ctx context.Context, crit
 const bridgeMemoryTypeDefault = domtypes.MemoryTypePreference
 
 type bridgeDedupeKey struct {
+	ScopeKind  domtypes.MemoryScopeKind
 	ScopeKey   string
 	SourcePath string
 	Fact       string
@@ -163,6 +160,18 @@ func loadBridgeSource(criteria apptypes.MemoryBridgeImportCriteria) (string, err
 		return "", xerrors.Errorf("failed to read %s: %w", criteria.Path, err)
 	}
 	return string(data), nil
+}
+
+// bridgeSourceLabel is the source path label used for provenance refs.
+// When the caller supplied an on-disk Path we use it directly; when the
+// caller supplied inline Markdown we fall back to a synthetic "<inline
+// <target>>" label so the evidence / artifact refs never fail the
+// "value must not be empty" guard in the domain layer.
+func bridgeSourceLabel(criteria apptypes.MemoryBridgeImportCriteria) string {
+	if strings.TrimSpace(criteria.Path) != "" {
+		return criteria.Path
+	}
+	return fmt.Sprintf("<inline %s>", criteria.Target.String())
 }
 
 // parseBridgeMarkdown returns every bullet (`- ...`) outside the
@@ -219,12 +228,20 @@ func parseBridgeMarkdown(content, sourcePath string) ([]bridgeBullet, []string) 
 // downstream read commands. The limit matches the Codex memory parser.
 const bridgeBulletMaxBytes = 32 * 1024
 
+// bridgeDedupePageSize caps the dedupe preload. Real operators carry a
+// few hundred imported memories at most; 2000 is far beyond practical
+// volumes while still honouring the store's limit >= 1 contract.
+const bridgeDedupePageSize = 2000
+
 func (u *memoryBridgeImportUsecase) loadExistingBridgeIndex(ctx context.Context, scope domtypes.MemoryScope) (map[bridgeDedupeKey]domtypes.MemoryStatus, error) {
 	index := make(map[bridgeDedupeKey]domtypes.MemoryStatus)
 	if scope == nil {
 		return index, nil
 	}
-	criteria := apptypes.NewMemoryListCriteriaBuilder(0).
+	// maxMemoryBridgeRows mirrors the export page size so the dedupe
+	// preload sees the same ceiling the export path enforces. The real
+	// SQLite datasource requires limit >= 1, so zero must never be used.
+	criteria := apptypes.NewMemoryListCriteriaBuilder(bridgeDedupePageSize).
 		Scope(scope).
 		Statuses([]domtypes.MemoryStatus{
 			domtypes.MemoryStatusCandidate,
@@ -248,7 +265,7 @@ func (u *memoryBridgeImportUsecase) loadExistingBridgeIndex(ctx context.Context,
 			if ref.Kind() != domtypes.ArtifactRefKindFile {
 				continue
 			}
-			key := bridgeDedupeKey{ScopeKey: scope.Key(), SourcePath: ref.Value(), Fact: summary.Fact()}
+			key := bridgeDedupeKey{ScopeKind: scope.Kind(), ScopeKey: scope.Key(), SourcePath: ref.Value(), Fact: summary.Fact()}
 			if _, ok := index[key]; !ok {
 				index[key] = summary.Status()
 			}

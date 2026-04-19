@@ -161,7 +161,11 @@ func writeMemoryExportArtifact(output io.Writer, warnWriter io.Writer, outPath s
 		}
 		return nil
 	}
-	if err := os.WriteFile(trimmed, []byte(result.Markdown), 0o644); err != nil {
+	merged, err := mergeMemoryExportIntoExistingFile(trimmed, result.Markdown)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(trimmed, []byte(merged), 0o644); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to write memory export file", "memory export ファイルの書き込みに失敗しました"), err)
 	}
 	if _, err := fmt.Fprintf(warnWriter, "wrote %d memories to %s\n", result.ExportedCount, trimmed); err != nil {
@@ -169,6 +173,53 @@ func writeMemoryExportArtifact(output io.Writer, warnWriter io.Writer, outPath s
 	}
 	return nil
 }
+
+// mergeMemoryExportIntoExistingFile preserves any hand-written sections of
+// the target instruction file (CLAUDE.md / AGENTS.md / GEMINI.md) by
+// replacing only the Traceary-managed block. When the file is absent the
+// generated markdown becomes the full file; when the file exists but
+// carries no managed markers, the block is appended at the end so the
+// operator's content is never destructively overwritten.
+func mergeMemoryExportIntoExistingFile(path, generated string) (string, error) {
+	existing, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return generated, nil
+		}
+		return "", xerrors.Errorf("%s: %w", Localize("failed to read existing memory export file", "既存の memory export ファイルの読み込みに失敗しました"), err)
+	}
+	beginIdx := strings.Index(string(existing), usecaseMemoryBridgeMarkerBegin)
+	endIdx := strings.Index(string(existing), usecaseMemoryBridgeMarkerEnd)
+	if beginIdx < 0 || endIdx < 0 || endIdx < beginIdx {
+		return appendMemoryExportBlock(string(existing), generated), nil
+	}
+	endCut := endIdx + len(usecaseMemoryBridgeMarkerEnd)
+	if endCut < len(existing) && existing[endCut] == '\n' {
+		endCut++
+	}
+	prefix := string(existing[:beginIdx])
+	suffix := string(existing[endCut:])
+	return prefix + generated + suffix, nil
+}
+
+// appendMemoryExportBlock places the managed block at the end of the
+// existing content, separated by a blank line when needed so the markdown
+// stays readable.
+func appendMemoryExportBlock(existing, generated string) string {
+	if existing == "" {
+		return generated
+	}
+	trimmed := strings.TrimRight(existing, "\n")
+	return trimmed + "\n\n" + generated
+}
+
+// usecaseMemoryBridgeMarkerBegin / End mirror the exported constants in
+// application/usecase so the CLI layer does not import the usecase
+// package purely for marker literals.
+const (
+	usecaseMemoryBridgeMarkerBegin = "<!-- traceary-memories:begin:v1 -->"
+	usecaseMemoryBridgeMarkerEnd   = "<!-- traceary-memories:end -->"
+)
 
 func writeMemoryExportJSONSummary(output io.Writer, result apptypes.MemoryExportResult) error {
 	payload := struct {
