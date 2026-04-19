@@ -12,7 +12,7 @@ MCP server / slash command / session-history skill / session・prompt・audit �
 ```sh
 brew tap duck8823/traceary https://github.com/duck8823/traceary
 brew install traceary
-# or
+# または
 GO111MODULE=on go install github.com/duck8823/traceary@latest
 ```
 

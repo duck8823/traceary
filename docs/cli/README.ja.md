@@ -521,7 +521,7 @@ DB 作成と migration 適用を明示的に先行実行します。
 
 ## Integration コマンド
 
-### `traceary integration codex install`
+### `traceary integration codex install` (非推奨)
 
 ローカル checkout した repository から、次の場所へ Codex 向け Traceary integration を入れます。
 
@@ -529,6 +529,8 @@ DB 作成と migration 適用を明示的に先行実行します。
 - `~/.codex/plugins/cache/...`
 - `~/.codex/config.toml`
 - `~/.codex/hooks.json`
+
+**非推奨**: Codex 公式の `/plugins` flow を優先してください（リポジトリ内で `codex` を起動 → `/plugins` → `Traceary Plugins` → `Traceary`）。このコマンドは v0.8.0 より早くは削除しませんが、それ以降で削除予定です。詳しい移行手順は [Codex plugin ガイド](../integrations/codex-plugin.ja.md) を参照してください。
 
 主な flag:
 
@@ -539,7 +541,7 @@ DB 作成と migration 適用を明示的に先行実行します。
 
 ### `traceary integration codex uninstall`
 
-Traceary が管理する Codex plugin cache、plugin config entry、hook entry を外します。Codex の他の設定は保持します。
+Traceary が管理する Codex plugin cache、plugin config entry、hook entry を外します。Codex の他の設定は保持します。非推奨の `install` から移行するユーザーの cleanup 用として推奨される手順です。
 
 主な flag:
 
