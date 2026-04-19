@@ -181,3 +181,12 @@ type acceptMemoriesBatchInput struct {
 type rejectMemoriesBatchInput struct {
 	MemoryIDs []string `json:"memory_ids" jsonschema:"candidate durable memory identifiers to reject"`
 }
+
+// scanMemoryHygieneInput is the MCP input for the scan_memory_hygiene
+// tool. The tool is read-only; agents use it to inspect redaction /
+// expiry / duplicate suggestions before deciding whether to drive
+// supersede / expire / reject via the single-memory tools.
+type scanMemoryHygieneInput struct {
+	Workspace  string `json:"workspace,omitempty" jsonschema:"workspace scope to scan (omitted scans every scope)"`
+	ExpiryDays int    `json:"expiry_days,omitempty" jsonschema:"staleness threshold in days (default 90)"`
+}

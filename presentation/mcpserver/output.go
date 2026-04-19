@@ -138,3 +138,25 @@ type inboxBatchMemoryFailureOutput struct {
 	MemoryID string `json:"memory_id" jsonschema:"requested memory identifier"`
 	Error    string `json:"error" jsonschema:"reason the memory did not transition"`
 }
+
+// memoryHygieneOutput mirrors the CLI `memory hygiene scan` shape so
+// agent hosts receive the same three-suggestion view an operator sees
+// on stdout.
+type memoryHygieneOutput struct {
+	RedactionHitCount    int                             `json:"redaction_hit_count" jsonschema:"number of accepted memories flagged by the current redaction rules"`
+	ExpiryCandidateCount int                             `json:"expiry_candidate_count" jsonschema:"number of accepted memories older than the staleness threshold"`
+	DuplicateCount       int                             `json:"duplicate_count" jsonschema:"number of accepted memories that share scope + fact with another row"`
+	Suggestions          []memoryHygieneSuggestionOutput `json:"suggestions" jsonschema:"per-memory hygiene suggestions"`
+}
+
+type memoryHygieneSuggestionOutput struct {
+	MemoryID          string `json:"memory_id" jsonschema:"memory identifier"`
+	Kind              string `json:"kind" jsonschema:"suggestion kind (redaction_hit / expiry_candidate / duplicate)"`
+	Reason            string `json:"reason" jsonschema:"human-readable reason the scanner flagged this memory"`
+	Fact              string `json:"fact" jsonschema:"stored fact at scan time"`
+	SanitizedFact     string `json:"sanitized_fact,omitempty" jsonschema:"masked fact the apply path would write via supersede"`
+	DuplicateMemoryID string `json:"duplicate_memory_id,omitempty" jsonschema:"paired duplicate when kind=duplicate"`
+	ScopeKind         string `json:"scope_kind,omitempty" jsonschema:"scope kind"`
+	ScopeValue        string `json:"scope_value,omitempty" jsonschema:"scope value"`
+	UpdatedAt         string `json:"updated_at" jsonschema:"last update timestamp (RFC3339)"`
+}

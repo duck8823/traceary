@@ -83,6 +83,24 @@ Traceary durable-memory candidates without merging the underlying stores:
 - `traceary memory import codex`
 - `traceary memory import instructions --source <claude|codex|gemini> --in <path>`
 
+### Hygiene path
+
+Use this periodically to keep the accepted layer tidy:
+
+- `traceary memory hygiene scan`
+- `traceary memory hygiene apply --ids id1,id2,...`
+- MCP `scan_memory_hygiene`
+
+Scan flags three conditions on `accepted` memories: content the current
+redaction rules would mask (`redaction_hit`), stale rows that have not
+been updated in longer than `--expiry-days` (`expiry_candidate`), and
+scope + fact collisions (`duplicate`). Apply commits the lifecycle
+transition implied by each suggestion for the listed memory ids —
+`redaction_hit` becomes a supersede with the sanitized fact,
+`expiry_candidate` becomes an expire, `duplicate` becomes a reject.
+MCP exposes the scanner (read-only) via `scan_memory_hygiene` so agents
+can surface hygiene suggestions alongside the inbox review workflow.
+
 ### Bridge / export path
 
 Use this when you want Traceary to remain the local source of truth but

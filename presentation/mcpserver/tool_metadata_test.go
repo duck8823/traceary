@@ -193,6 +193,13 @@ func TestServer_ToolMetadata(t *testing.T) {
 				destructiveTrue: true,
 			},
 		},
+		{
+			name: "scan_memory_hygiene",
+			want: toolMetadataExpectation{
+				description: "Scan accepted memories for redaction / expiry / duplicate hygiene suggestions.",
+				readOnly:    true,
+			},
+		},
 	}
 
 	actual := indexTools(listResult.Tools)
