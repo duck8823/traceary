@@ -37,7 +37,7 @@ func TestHooksContract_AllClientsHaveRequiredEvents(t *testing.T) {
 		{
 			name:           "codex",
 			hooksPath:      "../../plugins/traceary/hooks.json",
-			requiredEvents: []string{"SessionStart", "Stop", "PostToolUse"},
+			requiredEvents: []string{"SessionStart", "UserPromptSubmit", "Stop", "PostToolUse"},
 		},
 		{
 			name:           "gemini",
