@@ -40,6 +40,7 @@ Traceary reads an optional JSON configuration file from `~/.config/traceary/conf
 | Key | Type | Purpose |
 | --- | --- | --- |
 | `redact.extra_patterns` | string array | Extra regex patterns for audit redaction. Each entry is compiled as a Go `regexp` pattern and matched content is replaced with `[REDACTED]`. Applied after the built-in redaction rules in both the CLI (`traceary audit`) and MCP server (`add_audit`). |
+| `read.columns` | string array | Default compact column order for `traceary tail` / `list` / `search` text output when `--fields` is omitted. Accepted field names: `ts`, `kind`, `session`, `ws`, `client`, `agent`, `message`, `exit_code`, `id`. Unknown / empty / duplicate entries are rejected at command runtime; the `--fields` flag always overrides this setting. Does not affect `--wide` or `--json` output. |
 
 Example:
 
@@ -47,12 +48,15 @@ Example:
 {
   "redact": {
     "extra_patterns": ["my_custom_secret", "internal_auth_header:\\s*\\S+"]
+  },
+  "read": {
+    "columns": ["ts", "kind", "session", "ws", "message"]
   }
 }
 ```
 
-If the file does not exist, Traceary uses the built-in redaction patterns only.
-If the file exists but is unreadable or invalid JSON, Traceary falls back to the built-in redaction patterns, emits an operator-visible warning when config-backed redaction would have been used, and reports the broken state in `traceary doctor`.
+If the file does not exist, Traceary uses the built-in defaults for every config-backed feature.
+If the file exists but is unreadable or invalid JSON, Traceary falls back to the built-in defaults, emits an operator-visible warning when a config-backed feature would have been used, and reports the broken state in `traceary doctor`.
 
 ## Runtime assumptions
 

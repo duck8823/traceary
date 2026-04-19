@@ -40,6 +40,7 @@ Traceary はオプションの JSON 設定ファイルを `~/.config/traceary/co
 | キー | 型 | 用途 |
 | --- | --- | --- |
 | `redact.extra_patterns` | 文字列配列 | 監査リダクション用の追加正規表現パターン。各エントリは Go の `regexp` パターンとしてコンパイルされ、マッチした内容が `[REDACTED]` に置換されます。CLI（`traceary audit`）と MCP サーバー（`add_audit`）の両方で、組み込みルールの後に適用されます。 |
+| `read.columns` | 文字列配列 | `traceary tail` / `list` / `search` のテキスト出力で `--fields` が指定されなかった場合に使用されるコンパクトカラムのデフォルト順。利用可能なフィールド名: `ts`, `kind`, `session`, `ws`, `client`, `agent`, `message`, `exit_code`, `id`。未知・空・重複エントリはコマンド実行時に拒否されます。`--fields` フラグが指定された場合は常にこの設定を上書きします。`--wide` や `--json` 出力には影響しません。 |
 
 例:
 
@@ -47,12 +48,15 @@ Traceary はオプションの JSON 設定ファイルを `~/.config/traceary/co
 {
   "redact": {
     "extra_patterns": ["my_custom_secret", "internal_auth_header:\\s*\\S+"]
+  },
+  "read": {
+    "columns": ["ts", "kind", "session", "ws", "message"]
   }
 }
 ```
 
-ファイルが存在しない場合、Traceary は組み込みのリダクションパターンのみを使用します。
-ファイルが存在しても unreadable または不正な JSON の場合、Traceary は組み込みのリダクションパターンへ fallback し、config ベースの redaction が必要な場面では operator 向け warning を出し、`traceary doctor` でもその壊れた状態を報告します。
+ファイルが存在しない場合、Traceary は組み込みのデフォルトを config 由来の全機能で使用します。
+ファイルが存在しても unreadable または不正な JSON の場合、Traceary は組み込みのデフォルトへ fallback し、config 由来の機能が使われる場面では operator 向け warning を出し、`traceary doctor` でもその壊れた状態を報告します。
 
 ## Runtime 前提
 
