@@ -186,10 +186,15 @@ func (s *Server) Build(ctx context.Context) (*mcp.Server, error) {
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.memoryPack())
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "memory_inbox_batch",
-		Description: "Batch accept or reject candidate durable memories by id, mirroring the `traceary memory inbox` CLI review workflow.",
+		Name:        "accept_memories_batch",
+		Description: "Batch accept candidate durable memories by id, mirroring `traceary memory inbox accept --ids`.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true)},
-	}, s.memoryInboxBatch())
+	}, s.acceptMemoriesBatch())
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "reject_memories_batch",
+		Description: "Batch reject candidate durable memories by id, mirroring `traceary memory inbox reject --ids`.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true)},
+	}, s.rejectMemoriesBatch())
 
 	return server, nil
 }
@@ -634,18 +639,12 @@ func (s *Server) rejectMemory() mcp.ToolHandlerFor[rejectMemoryInput, memoryOutp
 	}
 }
 
-// memoryInboxBatch walks the requested memory ids and applies a single
-// lifecycle transition per id, returning both the successes and the
-// per-id failure reasons so agent hosts can retry only the failing tail.
-// The handler intentionally accepts unknown ids as failures rather than a
-// top-level error so a partial batch never leaves the caller guessing
-// which specific ids moved.
-func (s *Server) memoryInboxBatch() mcp.ToolHandlerFor[inboxBatchMemoryInput, inboxBatchMemoryOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, input inboxBatchMemoryInput) (*mcp.CallToolResult, inboxBatchMemoryOutput, error) {
-		action := strings.ToLower(strings.TrimSpace(input.Action))
-		if action != "accept" && action != "reject" {
-			return nil, inboxBatchMemoryOutput{}, xerrors.Errorf("unknown inbox action %q: want accept or reject", input.Action)
-		}
+// acceptMemoriesBatch applies Accept to every supplied id and returns the
+// per-id success / failure breakdown. Unknown or malformed ids are
+// reported as failures rather than a top-level error so a partial batch
+// never leaves the caller guessing which specific ids moved.
+func (s *Server) acceptMemoriesBatch() mcp.ToolHandlerFor[acceptMemoriesBatchInput, inboxBatchMemoryOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, input acceptMemoriesBatchInput) (*mcp.CallToolResult, inboxBatchMemoryOutput, error) {
 		if len(input.MemoryIDs) == 0 {
 			return nil, inboxBatchMemoryOutput{}, xerrors.Errorf("memory_ids must list at least one id")
 		}
@@ -653,7 +652,7 @@ func (s *Server) memoryInboxBatch() mcp.ToolHandlerFor[inboxBatchMemoryInput, in
 		if err != nil {
 			return nil, inboxBatchMemoryOutput{}, err
 		}
-		out := inboxBatchMemoryOutput{Action: action}
+		out := inboxBatchMemoryOutput{Action: "accept"}
 		for _, rawID := range input.MemoryIDs {
 			trimmed := strings.TrimSpace(rawID)
 			if trimmed == "" {
@@ -664,13 +663,38 @@ func (s *Server) memoryInboxBatch() mcp.ToolHandlerFor[inboxBatchMemoryInput, in
 				out.Failures = append(out.Failures, inboxBatchMemoryFailureOutput{MemoryID: trimmed, Error: err.Error()})
 				continue
 			}
-			var details apptypes.MemoryDetails
-			switch action {
-			case "accept":
-				details, err = s.memory.Accept(ctx, memoryID, confidence)
-			case "reject":
-				details, err = s.memory.Reject(ctx, memoryID)
+			details, err := s.memory.Accept(ctx, memoryID, confidence)
+			if err != nil {
+				out.Failures = append(out.Failures, inboxBatchMemoryFailureOutput{MemoryID: trimmed, Error: err.Error()})
+				continue
 			}
+			out.Processed = append(out.Processed, newMemoryOutput(details))
+		}
+		return nil, out, nil
+	}
+}
+
+// rejectMemoriesBatch applies Reject to every supplied id and returns the
+// per-id success / failure breakdown. The handler mirrors the single-id
+// reject_memory tool and keeps the same partial-batch semantics as
+// acceptMemoriesBatch.
+func (s *Server) rejectMemoriesBatch() mcp.ToolHandlerFor[rejectMemoriesBatchInput, inboxBatchMemoryOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, input rejectMemoriesBatchInput) (*mcp.CallToolResult, inboxBatchMemoryOutput, error) {
+		if len(input.MemoryIDs) == 0 {
+			return nil, inboxBatchMemoryOutput{}, xerrors.Errorf("memory_ids must list at least one id")
+		}
+		out := inboxBatchMemoryOutput{Action: "reject"}
+		for _, rawID := range input.MemoryIDs {
+			trimmed := strings.TrimSpace(rawID)
+			if trimmed == "" {
+				continue
+			}
+			memoryID, err := types.MemoryIDOf(trimmed)
+			if err != nil {
+				out.Failures = append(out.Failures, inboxBatchMemoryFailureOutput{MemoryID: trimmed, Error: err.Error()})
+				continue
+			}
+			details, err := s.memory.Reject(ctx, memoryID)
 			if err != nil {
 				out.Failures = append(out.Failures, inboxBatchMemoryFailureOutput{MemoryID: trimmed, Error: err.Error()})
 				continue

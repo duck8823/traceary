@@ -25,6 +25,7 @@ type MemoryListCriteria struct {
 	scopes      []domtypes.MemoryScope
 	statuses    []domtypes.MemoryStatus
 	memoryTypes []domtypes.MemoryType
+	sources     []domtypes.MemorySource
 }
 
 // Limit returns the maximum number of results.
@@ -41,6 +42,9 @@ func (c MemoryListCriteria) Statuses() []domtypes.MemoryStatus { return slices.C
 
 // MemoryTypes returns the memory type filters.
 func (c MemoryListCriteria) MemoryTypes() []domtypes.MemoryType { return slices.Clone(c.memoryTypes) }
+
+// Sources returns the memory source filters.
+func (c MemoryListCriteria) Sources() []domtypes.MemorySource { return slices.Clone(c.sources) }
 
 // MemoryListCriteriaBuilder builds a MemoryListCriteria value.
 type MemoryListCriteriaBuilder struct {
@@ -97,6 +101,20 @@ func (b *MemoryListCriteriaBuilder) MemoryType(memoryType domtypes.MemoryType) *
 // MemoryTypes replaces the memory type filters.
 func (b *MemoryListCriteriaBuilder) MemoryTypes(memoryTypes []domtypes.MemoryType) *MemoryListCriteriaBuilder {
 	b.criteria.memoryTypes = slices.Clone(memoryTypes)
+	return b
+}
+
+// Source appends a memory source filter.
+func (b *MemoryListCriteriaBuilder) Source(source domtypes.MemorySource) *MemoryListCriteriaBuilder {
+	if source != "" {
+		b.criteria.sources = append(b.criteria.sources, source)
+	}
+	return b
+}
+
+// Sources replaces the memory source filters.
+func (b *MemoryListCriteriaBuilder) Sources(sources []domtypes.MemorySource) *MemoryListCriteriaBuilder {
+	b.criteria.sources = slices.Clone(sources)
 	return b
 }
 

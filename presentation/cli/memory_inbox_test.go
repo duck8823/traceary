@@ -73,13 +73,15 @@ func TestMemoryInboxList_TextOutput(t *testing.T) {
 	}
 }
 
-func TestMemoryInboxList_SourceFilter(t *testing.T) {
+func TestMemoryInboxList_SourceFilterPropagatesToCriteria(t *testing.T) {
 	t.Parallel()
 
 	imported := buildInboxCandidateDetails(t, "memory-i", "from codex", domtypes.MemorySourceImported)
-	extracted := buildInboxCandidateDetails(t, "memory-e", "from extraction", domtypes.MemorySourceExtracted)
 	memoryStub := &memoryUsecaseStub{
-		listResult:  []apptypes.MemorySummary{imported.Summary(), extracted.Summary()},
+		// The SQL datasource is responsible for honouring criteria.Sources();
+		// the stub pre-filters so the test only verifies that the CLI hands
+		// the right sources into the criteria.
+		listResult:  []apptypes.MemorySummary{imported.Summary()},
 		showDetails: imported,
 	}
 	root := cli.NewRootCLI(
@@ -104,7 +106,10 @@ func TestMemoryInboxList_SourceFilter(t *testing.T) {
 		t.Fatalf("json.Unmarshal: %v (body=%s)", err, stdout.String())
 	}
 	if len(items) != 1 || items[0].Summary.Source != "imported" {
-		t.Fatalf("--source filter should keep only imported memories, got %+v", items)
+		t.Fatalf("expected one imported memory, got %+v", items)
+	}
+	if got := memoryStub.listCriteria.Sources(); len(got) != 1 || got[0] != domtypes.MemorySourceImported {
+		t.Fatalf("inbox list should pass --source into criteria, got %v", got)
 	}
 }
 

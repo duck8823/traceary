@@ -129,20 +129,21 @@ func (c *RootCLI) runMemoryInboxList(ctx context.Context, output io.Writer, inpu
 	}
 
 	// Inbox is always scoped to candidate — that is the point of the view.
-	// If a source filter is supplied we apply it client-side because
-	// MemoryListCriteria does not carry a source selector today.
+	// Source filters go into the criteria so pagination is consistent: if
+	// the operator asks for `--source imported --limit 20` and only the
+	// 21st imported candidate matches, the datasource returns the match
+	// instead of handing back an empty page because the first 20 rows
+	// were some other source.
 	criteria := apptypes.NewMemoryListCriteriaBuilder(input.limit).
 		Offset(input.offset).
 		Scopes(scopes).
 		Statuses([]domtypes.MemoryStatus{domtypes.MemoryStatusCandidate}).
 		MemoryTypes(memoryTypes).
+		Sources(sources).
 		Build()
 	summaries, err := c.memory.List(ctx, criteria)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to list candidate memories", "candidate memory の一覧取得に失敗しました"), err)
-	}
-	if len(sources) > 0 {
-		summaries = filterSummariesBySource(summaries, sources)
 	}
 
 	items := make([]apptypes.MemoryDetails, 0, len(summaries))
@@ -234,23 +235,6 @@ func normaliseInboxIDs(raw []string) []string {
 		out = append(out, trimmed)
 	}
 	return out
-}
-
-// filterSummariesBySource keeps only memories whose Source() matches one of
-// the requested values. Client-side filtering is fine here because the
-// inbox view caps the result set at --limit (default 20).
-func filterSummariesBySource(summaries []apptypes.MemorySummary, sources []domtypes.MemorySource) []apptypes.MemorySummary {
-	wanted := make(map[domtypes.MemorySource]struct{}, len(sources))
-	for _, s := range sources {
-		wanted[s] = struct{}{}
-	}
-	kept := make([]apptypes.MemorySummary, 0, len(summaries))
-	for _, summary := range summaries {
-		if _, ok := wanted[summary.Source()]; ok {
-			kept = append(kept, summary)
-		}
-	}
-	return kept
 }
 
 func parseMemorySources(values []string) ([]domtypes.MemorySource, error) {

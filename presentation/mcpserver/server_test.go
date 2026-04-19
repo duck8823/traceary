@@ -337,17 +337,16 @@ func TestServer_BuildAndTools(t *testing.T) {
 			batchProposeIDs = append(batchProposeIDs, extractJSONStringValue(t, res, "memory_id"))
 		}
 		batchResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "memory_inbox_batch",
+			Name: "accept_memories_batch",
 			Arguments: map[string]any{
-				"action":     "accept",
 				"memory_ids": append(append([]any(nil), batchProposeIDs[0]), append([]any(nil), batchProposeIDs[1], "not-a-real-id")...),
 			},
 		})
 		if err != nil {
-			t.Fatalf("CallTool(memory_inbox_batch) error = %v", err)
+			t.Fatalf("CallTool(accept_memories_batch) error = %v", err)
 		}
 		if batchResult.IsError {
-			t.Fatalf("CallTool(memory_inbox_batch) returned tool error")
+			t.Fatalf("CallTool(accept_memories_batch) returned tool error")
 		}
 		batchPayload := decodeJSONPayload(t, batchResult)
 		if got, want := batchPayload["action"], "accept"; got != want {
