@@ -57,16 +57,22 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 			gotStatuses[check.Name] = check.Status
 		}
 		gotSubset := map[string]string{
-			"config":        gotStatuses["config"],
-			"claude-config": gotStatuses["claude-config"],
-			"codex-config":  gotStatuses["codex-config"],
-			"gemini-config": gotStatuses["gemini-config"],
+			"config":                     gotStatuses["config"],
+			"claude-config":              gotStatuses["claude-config"],
+			"codex-config":               gotStatuses["codex-config"],
+			"gemini-config":              gotStatuses["gemini-config"],
+			"claude-host-capabilities":   gotStatuses["claude-host-capabilities"],
+			"codex-host-capabilities":    gotStatuses["codex-host-capabilities"],
+			"gemini-host-capabilities":   gotStatuses["gemini-host-capabilities"],
 		}
 		wantStatuses := map[string]string{
-			"config":        "pass",
-			"claude-config": "warn",
-			"codex-config":  "warn",
-			"gemini-config": "warn",
+			"config":                     "pass",
+			"claude-config":              "warn",
+			"codex-config":               "warn",
+			"gemini-config":              "warn",
+			"claude-host-capabilities":   "pass",
+			"codex-host-capabilities":    "pass",
+			"gemini-host-capabilities":   "pass",
 		}
 		if diff := cmp.Diff(wantStatuses, gotSubset); diff != "" {
 			t.Fatalf("doctor statuses mismatch (-want +got):\n%s", diff)

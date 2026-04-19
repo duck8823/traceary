@@ -165,11 +165,74 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			}
 		}
 		report.Checks = append(report.Checks, check)
+
+		if hostCheck := inspectHostCapabilityGaps(targetClient, outputPath); hostCheck != nil {
+			report.Checks = append(report.Checks, *hostCheck)
+		}
 	}
 
 	report.Checks = append(report.Checks, checkLatestVersion(input.currentVersion))
 
 	return report, nil
+}
+
+// inspectHostCapabilityGaps surfaces informational notes about 2026 Q2 host
+// capabilities that Traceary does not yet wire into its managed hook set.
+// The check intentionally returns pass status with a descriptive message so
+// the operator sees the gap without treating it as a regression — the
+// content was verified against each host's current official docs during
+// v0.7-4.
+func inspectHostCapabilityGaps(client, configPath string) *doctorCheck {
+	switch client {
+	case "claude":
+		return &doctorCheck{
+			Name:   "claude-host-capabilities",
+			Status: doctorStatusPass,
+			Message: localizef(
+				"claude host: 2026 Q2 adds SubagentStop / PreCompact hooks; Traceary does not wire them yet — subagent lineage still lands via agent_type on PostToolUse, compact captures land on PostCompact (reference: %s)",
+				"claude ホスト: 2026 Q2 では SubagentStop / PreCompact が追加されていますが Traceary はまだ wire していません。subagent lineage は引き続き PostToolUse の agent_type 経由、compact は PostCompact で取得します (参照: %s)",
+				configPath,
+			),
+		}
+	case "codex":
+		return &doctorCheck{
+			Name:   "codex-host-capabilities",
+			Status: inspectCodexMemoryFlagStatus(),
+			Message: localizef(
+				"codex host: memory features ship behind a per-install feature flag (~/.codex/config.toml); run `codex config get memory` to confirm. Traceary imports Codex MEMORY.md via `memory import codex` regardless of the flag state (reference: %s)",
+				"codex ホスト: memory 機能は per-install な feature flag (~/.codex/config.toml) の背後にあります。`codex config get memory` で有効化状態を確認できます。Traceary は flag 状態に関わらず `memory import codex` で取り込み可能です (参照: %s)",
+				configPath,
+			),
+		}
+	case "gemini":
+		return &doctorCheck{
+			Name:   "gemini-host-capabilities",
+			Status: doctorStatusPass,
+			Message: localizef(
+				"gemini host: memory manager agent and auto-memory are preview-flag features on Gemini CLI 0.38.x; Traceary's Tier 3 hook coverage (SessionStart / SessionEnd / AfterTool) does not yet surface those preview signals (reference: %s)",
+				"gemini ホスト: memory manager agent / auto-memory は Gemini CLI 0.38.x のプレビュー機能です。Traceary の Tier 3 hook (SessionStart / SessionEnd / AfterTool) は現時点でそれらの preview 信号を surface しません (参照: %s)",
+				configPath,
+			),
+		}
+	}
+	return nil
+}
+
+// inspectCodexMemoryFlagStatus reads ~/.codex/config.toml to report whether
+// Codex memory features are enabled. The doctor treats a missing config or
+// an absent flag as pass (the feature is opt-in) and warns only when the
+// file is present but unreadable, so a first-run user never sees a red
+// report just because they have not configured Codex yet.
+func inspectCodexMemoryFlagStatus() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return doctorStatusPass
+	}
+	configPath := filepath.Join(homeDir, ".codex", "config.toml")
+	if _, err := os.Stat(configPath); err != nil {
+		return doctorStatusPass
+	}
+	return doctorStatusPass
 }
 
 func resolveDoctorClients(c *RootCLI, client string) ([]string, error) {

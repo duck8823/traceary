@@ -184,6 +184,8 @@ $ traceary timeline --limit 2
 | Codex | 完全対応（`SessionStart` + `Stop`） | tool hook | あり | なし | Partial |
 | Gemini CLI | 完全対応（`SessionStart` + `SessionEnd`） | tool hook | なし | なし | Basic |
 
+> 2026 Q2 メモ: Claude Code の `SubagentStop` / `PreCompact` hook と Gemini CLI 0.38.x の memory-manager プレビューは利用可能ですが、Traceary の managed hook 集合には wire していません。Codex の memory feature flag (`~/.codex/config.toml`) は Codex 側の capture 挙動にのみ影響し、Traceary の `memory import codex` は flag 状態に関わらず動作します。`traceary doctor` は同じ内容を `<client>-host-capabilities` として surface します。詳細は [hook contract](./docs/hooks/contract.ja.md#2026-q2-ホスト別機能メモ) を参照。
+
 詳しい契約と hook の意味付けは、[Hook contract](./docs/hooks/contract.ja.md) と [イベントライフサイクル](./docs/lifecycle.ja.md) を参照してください。
 
 ## 先に知っておくと楽なこと

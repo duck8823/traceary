@@ -185,6 +185,8 @@ The query surface is shared: once Traceary is installed, every host can use the 
 | Codex | Full (`SessionStart` + `Stop`) | Tool hooks | Yes | No | Partial |
 | Gemini CLI | Full (`SessionStart` + `SessionEnd`) | Tool hooks | No | No | Basic |
 
+> 2026 Q2 note: Claude Code's `SubagentStop` / `PreCompact` hooks and Gemini CLI 0.38.x's memory-manager preview are available but not wired into Traceary's managed hook set. The Codex memory feature flag in `~/.codex/config.toml` changes Codex's own capture behaviour, not Traceary's — `traceary memory import codex` works regardless. `traceary doctor` surfaces the same notes under `<client>-host-capabilities`, and the full list lives in the [hook contract](./docs/hooks/contract.md#2026-q2-host-capability-notes).
+
 For the full contract and hook semantics, see the [hook contract](./docs/hooks/contract.md) and [event lifecycle](./docs/lifecycle.md).
 
 ## Defaults worth knowing
