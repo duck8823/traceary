@@ -118,13 +118,24 @@ func TestCodexMemorySource_LoadMissingRootReturnsNil(t *testing.T) {
 	}
 }
 
-func TestCodexMemorySource_LoadRejectsSymlinkRoot(t *testing.T) {
+func TestCodexMemorySource_LoadAcceptsSymlinkedRoot(t *testing.T) {
 	t.Parallel()
 
+	// Dotfile setups commonly symlink ~/.codex at a real directory, so the
+	// source adapter must follow the root symlink and still enforce path
+	// containment against the resolved target rather than rejecting the
+	// symlink outright.
 	dir := t.TempDir()
 	actualRoot := filepath.Join(dir, "actual-root")
 	if err := os.MkdirAll(actualRoot, 0o755); err != nil {
 		t.Fatalf("mkdir actual: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(actualRoot, "MEMORY.md"),
+		[]byte("# Task Group: x\napplies_to: cwd=/abs/path\n\n## User preferences\n- accepted bullet via symlinked root.\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write MEMORY.md: %v", err)
 	}
 	linkRoot := filepath.Join(dir, "link-root")
 	if err := os.Symlink(actualRoot, linkRoot); err != nil {
@@ -132,12 +143,12 @@ func TestCodexMemorySource_LoadRejectsSymlinkRoot(t *testing.T) {
 	}
 
 	source := NewCodexMemorySource()
-	_, _, err := source.Load(context.Background(), apptypes.CodexImportCriteria{Root: linkRoot})
-	if err == nil {
-		t.Fatalf("expected error for symlink root, got nil")
+	candidates, _, err := source.Load(context.Background(), apptypes.CodexImportCriteria{Root: linkRoot})
+	if err != nil {
+		t.Fatalf("Load for symlinked root should succeed, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "symlink") {
-		t.Fatalf("error should mention symlink, got %q", err.Error())
+	if len(candidates) != 1 {
+		t.Fatalf("expected 1 candidate via symlinked root, got %d", len(candidates))
 	}
 }
 
@@ -171,6 +182,74 @@ func TestCodexMemorySource_LoadUsesWorkspaceFallbackWhenCWDMissing(t *testing.T)
 	}
 	if got := candidates[0].Scope.Key(); got != "github.com/example/repo" {
 		t.Fatalf("scope key = %q, want %q", got, "github.com/example/repo")
+	}
+}
+
+func TestCodexMemorySource_LoadRejectsSymlinkedMemoryFile(t *testing.T) {
+	t.Parallel()
+
+	// MEMORY.md must stay the single handbook the import reader touches.
+	// If a symlink could redirect it (for example at raw_memories.md), the
+	// "handbook only" scope guarantee breaks, so Load rejects a symlinked
+	// entry even when the resolved target is still inside the root.
+	dir := t.TempDir()
+	root := filepath.Join(dir, "memories")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("mkdir memories: %v", err)
+	}
+	target := filepath.Join(root, "raw_memories.md")
+	if err := os.WriteFile(target, []byte("- not a handbook bullet\n"), 0o600); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	link := filepath.Join(root, "MEMORY.md")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink unsupported on this platform: %v", err)
+	}
+
+	source := NewCodexMemorySource()
+	_, _, err := source.Load(context.Background(), apptypes.CodexImportCriteria{Root: root})
+	if err == nil {
+		t.Fatalf("expected error when MEMORY.md is a symlink")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("error should mention symlink, got %q", err.Error())
+	}
+}
+
+func TestCodexMemorySource_LoadEmitsWarningForOversizedLine(t *testing.T) {
+	t.Parallel()
+
+	// A single pathological line must not kill the whole import. The parser
+	// now emits a warning and keeps the otherwise valid bullets usable so
+	// --watch does not terminate when a malformed handbook shows up.
+	dir := t.TempDir()
+	root := filepath.Join(dir, "memories")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("mkdir memories: %v", err)
+	}
+	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	if err != nil {
+		t.Fatalf("WorkspaceOf: %v", err)
+	}
+	giant := strings.Repeat("a", 64*1024)
+	content := "# Task Group: x\n\n## User preferences\n- short bullet before giant.\n- " + giant + "\n- short bullet after giant.\n"
+	if err := os.WriteFile(filepath.Join(root, "MEMORY.md"), []byte(content), 0o600); err != nil {
+		t.Fatalf("write MEMORY.md: %v", err)
+	}
+
+	source := NewCodexMemorySource()
+	candidates, warnings, err := source.Load(context.Background(), apptypes.CodexImportCriteria{
+		Root:              root,
+		WorkspaceFallback: workspace,
+	})
+	if err != nil {
+		t.Fatalf("Load should not fail on oversized bullet, got %v", err)
+	}
+	if len(candidates) != 2 {
+		t.Fatalf("expected 2 surviving candidates, got %d (warnings=%v)", len(candidates), warnings)
+	}
+	if len(warnings) == 0 {
+		t.Fatalf("expected a size-guard warning, got none")
 	}
 }
 

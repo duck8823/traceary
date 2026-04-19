@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -79,7 +80,7 @@ func (c *RootCLI) runMemoryImportCodex(ctx context.Context, output io.Writer, wa
 		return err
 	}
 
-	fallback, err := resolveOptionalWorkspace(input.workspace)
+	fallback, err := resolveImportFallbackWorkspace(ctx, input.workspace)
 	if err != nil {
 		return err
 	}
@@ -146,12 +147,20 @@ func resolveCodexMemoryRoot(raw string) (string, error) {
 	return filepath.Join(home, ".codex", "memories"), nil
 }
 
-func resolveOptionalWorkspace(raw string) (domtypes.Workspace, error) {
-	trimmed := filepath.Clean(raw)
-	if raw == "" || trimmed == "." {
+// resolveImportFallbackWorkspace turns the --workspace flag into a fallback
+// Workspace the Codex import usecase can hand to candidates that do not
+// carry an `applies_to: cwd=...` hint of their own. The helper delegates to
+// resolveWorkspaceValue so TRACEARY_WORKSPACE and workspace auto-detection
+// behave the same way here as they do elsewhere in the memory command
+// family. An unresolved workspace is not an error — it is valid to import
+// with no fallback and let the source adapter drop rows that cannot be
+// scoped.
+func resolveImportFallbackWorkspace(ctx context.Context, raw string) (domtypes.Workspace, error) {
+	resolved := resolveWorkspaceValue(ctx, raw)
+	if strings.TrimSpace(resolved) == "" {
 		return domtypes.Workspace(""), nil
 	}
-	workspace, err := domtypes.WorkspaceOf(raw)
+	workspace, err := domtypes.WorkspaceOf(resolved)
 	if err != nil {
 		return domtypes.Workspace(""), xerrors.Errorf("%s: %w", Localize("failed to resolve workspace", "workspace の解決に失敗しました"), err)
 	}
@@ -194,7 +203,7 @@ func writeMemoryImportResult(output io.Writer, warnWriter io.Writer, result appt
 	}
 	if _, err := fmt.Fprintf(output, Localize(
 		"imported=%d duplicates=%d rejected_blocked=%d\n",
-		"imported=%d duplicates=%d rejected_blocked=%d\n",
+		"取り込み=%d 重複=%d 拒否済みスキップ=%d\n",
 	), len(result.Imported), result.SkippedDuplicateCount, result.SkippedRejectedCount); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print memory import summary", "memory import サマリの出力に失敗しました"), err)
 	}

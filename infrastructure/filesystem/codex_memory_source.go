@@ -63,21 +63,37 @@ func (s *codexMemorySource) Load(
 	if err != nil {
 		return nil, nil, xerrors.Errorf("failed to resolve codex memory root: %w", err)
 	}
-	rootInfo, err := os.Lstat(root)
+	// A symlinked root (for example dotfile setups that point ~/.codex at
+	// the real directory) is expected; resolveCodexMemoryFile re-checks
+	// path containment against the fully evaluated root so we still refuse
+	// anything that escapes it.
+	rootInfo, err := os.Stat(root)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil, nil
 		}
 		return nil, nil, xerrors.Errorf("failed to stat codex memory root %q: %w", root, err)
 	}
-	if rootInfo.Mode()&os.ModeSymlink != 0 {
-		return nil, nil, xerrors.Errorf("codex memory root must not be a symlink: %s", root)
-	}
 	if !rootInfo.IsDir() {
 		return nil, nil, xerrors.Errorf("codex memory root is not a directory: %s", root)
 	}
 
 	memoryPath := filepath.Join(root, codexMemoryFileName)
+	// Lstat the raw path first so a symlinked MEMORY.md cannot redirect the
+	// reader at another file inside the root (for example raw_memories.md).
+	// This preserves the "handbook only" scope guarantee even when the
+	// caller deliberately points MEMORY.md at another path.
+	entryInfo, err := os.Lstat(memoryPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil, nil
+		}
+		return nil, nil, xerrors.Errorf("failed to stat %s: %w", memoryPath, err)
+	}
+	if entryInfo.Mode()&os.ModeSymlink != 0 {
+		return nil, nil, xerrors.Errorf("codex MEMORY.md must not be a symlink: %s", memoryPath)
+	}
+
 	containedPath, err := resolveCodexMemoryFile(root, memoryPath)
 	if err != nil {
 		return nil, nil, err
@@ -86,15 +102,12 @@ func (s *codexMemorySource) Load(
 		return nil, nil, nil
 	}
 
-	fileInfo, err := os.Lstat(containedPath)
+	fileInfo, err := os.Stat(containedPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil, nil
 		}
 		return nil, nil, xerrors.Errorf("failed to stat %s: %w", containedPath, err)
-	}
-	if fileInfo.Mode()&os.ModeSymlink != 0 {
-		return nil, nil, xerrors.Errorf("codex MEMORY.md must not be a symlink: %s", containedPath)
 	}
 	if !fileInfo.Mode().IsRegular() {
 		return nil, nil, xerrors.Errorf("codex MEMORY.md is not a regular file: %s", containedPath)
@@ -223,15 +236,16 @@ func sectionMemoryType(section string) (domtypes.MemoryType, bool) {
 // hint, the current known section heading, and the bullet currently being
 // collected. Bullets close when we encounter another bullet, a new heading,
 // or end-of-file.
+//
+// The reader uses bufio.Reader.ReadString rather than bufio.Scanner so a
+// single pathological line (for example a malformed handbook with a
+// multi-megabyte one-line bullet) degrades to a size-guard warning instead
+// of bubbling up as a fatal scanner error that aborts the whole import.
 func parseCodexMemoryFile(reader io.Reader, maxBulletBytes int64) (codexMemoryParseResult, []string, error) {
 	var result codexMemoryParseResult
 	var warnings []string
 
-	scanner := bufio.NewScanner(reader)
-	// Codex handbook bullets can span many lines so bump the scanner buffer
-	// from the default 64 KB token limit to maxBulletBytes + slack.
-	scannerBuf := make([]byte, 0, 64*1024)
-	scanner.Buffer(scannerBuf, int(maxBulletBytes)+64*1024)
+	bufReader := bufio.NewReader(reader)
 
 	var (
 		currentSection string
@@ -259,9 +273,27 @@ func parseCodexMemoryFile(reader io.Reader, maxBulletBytes int64) (codexMemoryPa
 		bulletBuilder.Reset()
 	}
 
-	for scanner.Scan() {
+	for {
+		rawLine, err := bufReader.ReadString('\n')
+		if rawLine == "" && err != nil {
+			if err == io.EOF {
+				break
+			}
+			return codexMemoryParseResult{}, warnings, xerrors.Errorf("failed to read codex MEMORY.md: %w", err)
+		}
 		lineNo++
-		line := scanner.Text()
+		if int64(len(rawLine)) > maxBulletBytes {
+			warnings = append(warnings, fmt.Sprintf("line %d exceeds size guard (%d bytes); skipping", lineNo, len(rawLine)))
+			if currentBullet != nil {
+				flushBullet()
+			}
+			if err == io.EOF {
+				break
+			}
+			continue
+		}
+		line := strings.TrimRight(rawLine, "\n")
+		line = strings.TrimRight(line, "\r")
 
 		if heading, ok := parseCodexHeading(line); ok {
 			flushBullet()
@@ -324,12 +356,11 @@ func parseCodexMemoryFile(reader io.Reader, maxBulletBytes int64) (codexMemoryPa
 		if currentBullet != nil {
 			flushBullet()
 		}
+		if err == io.EOF {
+			break
+		}
 	}
 	flushBullet()
-
-	if err := scanner.Err(); err != nil {
-		return codexMemoryParseResult{}, warnings, xerrors.Errorf("failed to scan codex MEMORY.md: %w", err)
-	}
 
 	return result, warnings, nil
 }

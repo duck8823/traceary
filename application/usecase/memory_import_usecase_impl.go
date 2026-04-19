@@ -84,9 +84,10 @@ func (u *memoryImportUsecase) ImportCodex(ctx context.Context, criteria apptypes
 		}
 
 		dedupKey := importDedupeKey{
-			ScopeKind: candidate.Scope.Kind(),
-			ScopeKey:  candidate.Scope.Key(),
-			Fact:      sanitizedFact,
+			ScopeKind:  candidate.Scope.Kind(),
+			ScopeKey:   candidate.Scope.Key(),
+			SourcePath: candidate.SourcePath,
+			Fact:       sanitizedFact,
 		}
 		if existing, ok := existingIndex[dedupKey]; ok {
 			if existing.Status() == domtypes.MemoryStatusCandidate || existing.Status() == domtypes.MemoryStatusAccepted {
@@ -118,13 +119,17 @@ func (u *memoryImportUsecase) ImportCodex(ctx context.Context, criteria apptypes
 }
 
 // importDedupeKey is the composite fingerprint used to detect a candidate
-// that is already represented in the durable-memory store. Imports trust
-// this fingerprint across all lifecycle statuses so rejected candidates are
-// never quietly resurrected.
+// that is already represented in the durable-memory store. Including
+// SourcePath keeps two distinct host-native files (or the same file under
+// a different memory root) from silently collapsing into a single memory —
+// a rejected fact from one root must not block the same fact appearing in
+// another root. Imports trust this fingerprint across all lifecycle
+// statuses so rejected candidates are never quietly resurrected.
 type importDedupeKey struct {
-	ScopeKind domtypes.MemoryScopeKind
-	ScopeKey  string
-	Fact      string
+	ScopeKind  domtypes.MemoryScopeKind
+	ScopeKey   string
+	SourcePath string
+	Fact       string
 }
 
 type importDedupeHit struct {
@@ -169,15 +174,43 @@ func (u *memoryImportUsecase) loadExistingImportedIndex(
 			if summary.Source() != domtypes.MemorySourceImported {
 				continue
 			}
-			key := importDedupeKey{
-				ScopeKind: summary.Scope().Kind(),
-				ScopeKey:  summary.Scope().Key(),
-				Fact:      summary.Fact(),
+			// Artifact refs carry the MEMORY.md path we use for dedupe;
+			// GetDetails is the cheapest way to read them without a new
+			// query-service surface. Import runs are infrequent, so the
+			// extra lookup per imported memory is not a hot path.
+			details, err := u.memoryQuery.GetDetails(ctx, summary.MemoryID())
+			if err != nil {
+				return nil, xerrors.Errorf("failed to load existing imported memory %s: %w", summary.MemoryID().String(), err)
 			}
-			index[key] = importDedupeHit{status: summary.Status()}
+			for _, sourcePath := range extractFileArtifactPaths(details) {
+				key := importDedupeKey{
+					ScopeKind:  summary.Scope().Kind(),
+					ScopeKey:   summary.Scope().Key(),
+					SourcePath: sourcePath,
+					Fact:       summary.Fact(),
+				}
+				if _, exists := index[key]; !exists {
+					index[key] = importDedupeHit{status: summary.Status()}
+				}
+			}
 		}
 	}
 	return index, nil
+}
+
+// extractFileArtifactPaths pulls every file-kind artifact ref off an
+// existing memory so the import path can key dedupe on the exact source
+// file (for example `/Users/x/.codex/memories/MEMORY.md`). Non-file refs
+// are ignored because they do not map to a candidate's SourcePath.
+func extractFileArtifactPaths(details apptypes.MemoryDetails) []string {
+	paths := make([]string, 0, len(details.ArtifactRefs()))
+	for _, ref := range details.ArtifactRefs() {
+		if ref.Kind() != domtypes.ArtifactRefKindFile {
+			continue
+		}
+		paths = append(paths, ref.Value())
+	}
+	return paths
 }
 
 func deduplicateScopes(candidates []apptypes.ImportedMemoryCandidate) []domtypes.MemoryScope {

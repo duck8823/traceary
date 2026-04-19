@@ -23,6 +23,7 @@ func (s *stubCodexSource) Load(_ context.Context, _ apptypes.CodexImportCriteria
 
 type stubMemoryQueryService struct {
 	summaries []apptypes.MemorySummary
+	details   map[domtypes.MemoryID]apptypes.MemoryDetails
 	calls     []apptypes.MemoryListCriteria
 }
 
@@ -35,7 +36,10 @@ func (s *stubMemoryQueryService) Search(_ context.Context, _ apptypes.MemorySear
 	return nil, nil
 }
 
-func (s *stubMemoryQueryService) GetDetails(_ context.Context, _ domtypes.MemoryID) (apptypes.MemoryDetails, error) {
+func (s *stubMemoryQueryService) GetDetails(_ context.Context, memoryID domtypes.MemoryID) (apptypes.MemoryDetails, error) {
+	if details, ok := s.details[memoryID]; ok {
+		return details, nil
+	}
 	return apptypes.MemoryDetails{}, nil
 }
 
@@ -91,8 +95,12 @@ func (s *stubImportMemoryUsecase) Show(context.Context, domtypes.MemoryID) (appt
 }
 
 func buildImportSummary(scope domtypes.MemoryScope, fact string, status domtypes.MemoryStatus) apptypes.MemoryDetails {
+	return buildImportDetails(scope, fact, status, "/tmp/MEMORY.md")
+}
+
+func buildImportDetails(scope domtypes.MemoryScope, fact string, status domtypes.MemoryStatus, sourcePath string) apptypes.MemoryDetails {
 	summary, err := apptypes.MemorySummaryOf(
-		domtypes.MemoryID("memory-import-test"),
+		domtypes.MemoryID("memory-import-test-"+fact),
 		domtypes.MemoryTypePreference,
 		scope,
 		fact,
@@ -107,7 +115,15 @@ func buildImportSummary(scope domtypes.MemoryScope, fact string, status domtypes
 	if err != nil {
 		panic(err)
 	}
-	return apptypes.MemoryDetailsOf(summary, nil, nil)
+	var artifacts []domtypes.ArtifactRef
+	if sourcePath != "" {
+		artifact, err := domtypes.ArtifactRefOf(domtypes.ArtifactRefKindFile, sourcePath)
+		if err != nil {
+			panic(err)
+		}
+		artifacts = append(artifacts, artifact)
+	}
+	return apptypes.MemoryDetailsOf(summary, nil, artifacts)
 }
 
 func workspaceScope(t *testing.T, value string) domtypes.MemoryScope {
@@ -178,8 +194,11 @@ func TestMemoryImportUsecase_ImportCodex_SkipsExistingCandidate(t *testing.T) {
 	t.Parallel()
 
 	scope := workspaceScope(t, "github.com/example/repo")
-	existing := buildImportSummary(scope, "prefer bulleted messages", domtypes.MemoryStatusCandidate).Summary()
-	querySvc := &stubMemoryQueryService{summaries: []apptypes.MemorySummary{existing}}
+	existing := buildImportDetails(scope, "prefer bulleted messages", domtypes.MemoryStatusCandidate, "/tmp/MEMORY.md")
+	querySvc := &stubMemoryQueryService{
+		summaries: []apptypes.MemorySummary{existing.Summary()},
+		details:   map[domtypes.MemoryID]apptypes.MemoryDetails{existing.Summary().MemoryID(): existing},
+	}
 	memoryStub := &stubImportMemoryUsecase{}
 	source := &stubCodexSource{
 		candidates: []apptypes.ImportedMemoryCandidate{
@@ -204,8 +223,11 @@ func TestMemoryImportUsecase_ImportCodex_DoesNotResurrectRejected(t *testing.T) 
 	t.Parallel()
 
 	scope := workspaceScope(t, "github.com/example/repo")
-	existing := buildImportSummary(scope, "prefer bulleted messages", domtypes.MemoryStatusRejected).Summary()
-	querySvc := &stubMemoryQueryService{summaries: []apptypes.MemorySummary{existing}}
+	existing := buildImportDetails(scope, "prefer bulleted messages", domtypes.MemoryStatusRejected, "/tmp/MEMORY.md")
+	querySvc := &stubMemoryQueryService{
+		summaries: []apptypes.MemorySummary{existing.Summary()},
+		details:   map[domtypes.MemoryID]apptypes.MemoryDetails{existing.Summary().MemoryID(): existing},
+	}
 	memoryStub := &stubImportMemoryUsecase{}
 	source := &stubCodexSource{
 		candidates: []apptypes.ImportedMemoryCandidate{
@@ -223,6 +245,39 @@ func TestMemoryImportUsecase_ImportCodex_DoesNotResurrectRejected(t *testing.T) 
 	}
 	if result.SkippedRejectedCount != 1 {
 		t.Fatalf("SkippedRejectedCount = %d, want 1", result.SkippedRejectedCount)
+	}
+}
+
+// TestMemoryImportUsecase_ImportCodex_DifferentSourcePathIsNotDuplicate pins
+// the regression that earlier collapsed memories with identical facts but
+// distinct source files. With SourcePath in the dedupe key, a rejected
+// memory imported from /tmp/MEMORY.md must not suppress a new candidate
+// read out of /home/shared/MEMORY.md, because they represent independent
+// statements from independent hosts.
+func TestMemoryImportUsecase_ImportCodex_DifferentSourcePathIsNotDuplicate(t *testing.T) {
+	t.Parallel()
+
+	scope := workspaceScope(t, "github.com/example/repo")
+	existing := buildImportDetails(scope, "prefer bulleted messages", domtypes.MemoryStatusRejected, "/tmp/MEMORY.md")
+	querySvc := &stubMemoryQueryService{
+		summaries: []apptypes.MemorySummary{existing.Summary()},
+		details:   map[domtypes.MemoryID]apptypes.MemoryDetails{existing.Summary().MemoryID(): existing},
+	}
+	memoryStub := &stubImportMemoryUsecase{}
+	otherRootCandidate := importCandidate(t, "prefer bulleted messages", scope)
+	otherRootCandidate.SourcePath = "/home/shared/MEMORY.md"
+	source := &stubCodexSource{candidates: []apptypes.ImportedMemoryCandidate{otherRootCandidate}}
+
+	sut := usecase.NewMemoryImportUsecase(memoryStub, querySvc, source, nil)
+	result, err := sut.ImportCodex(context.Background(), apptypes.CodexImportCriteria{Root: "/home/shared"})
+	if err != nil {
+		t.Fatalf("ImportCodex: %v", err)
+	}
+	if len(memoryStub.proposeCalls) != 1 {
+		t.Fatalf("expected 1 propose call for the different source path, got %d", len(memoryStub.proposeCalls))
+	}
+	if result.SkippedRejectedCount != 0 || result.SkippedDuplicateCount != 0 {
+		t.Fatalf("unexpected skips: duplicate=%d rejected=%d", result.SkippedDuplicateCount, result.SkippedRejectedCount)
 	}
 }
 
