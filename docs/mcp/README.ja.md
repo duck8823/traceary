@@ -65,6 +65,33 @@ Flags:
 
 現在の Traceary MCP サーバーは 18 個のツールを公開します。
 
+### Tool Search キーワードサマリ
+
+Claude Code の MCP Tool Search はキーワードをもとにツール定義を遅延ロードします。以下の表は、各 Traceary ツールの用途・発見に使える主要キーワード・読み書きモード（破壊的書き込みかどうか）を一覧にしたものです。詳細な入力スキーマは表の後に続きます。
+
+| Tool | 用途 | キーワード | モード |
+|---|---|---|---|
+| `add_log` | ログイベント、ノート、プロンプト、コンパクトサマリを追加する | log, note, prompt, compact summary | write (additive) |
+| `start_session` | セッションを開始して `session_started` イベントを記録する | session, start, begin, workspace | write (additive) |
+| `end_session` | セッションを終了して `session_ended` イベントを記録する | session, end, close, finish | write (additive) |
+| `latest_session` | 再開・ハンドオフ向けに最新セッションを取得する | session, latest, resume, handoff | read |
+| `active_session` | 再開向けにアクティブ/進行中のセッションを取得する | session, active, open, current | read |
+| `list_events` | 最近のイベント、ログ、監査、プロンプト、サマリを一覧する | events, list, feed, timeline | read |
+| `add_audit` | シェルコマンドの監査ログ（入出力はリダクト済）を追加する | audit, command, shell, exit code | write (additive) |
+| `search` | テキスト・時刻・ワークスペースで過去履歴を検索する | search, find, query, history | read |
+| `get_context` | セッションやワークスペース向けの最近のコンテキストを取得する | context, recent, session, workspace | read |
+| `session_handoff` | 再開向けのセッションハンドオフサマリを取得する | handoff, resume, summary, working memory | read |
+| `retrieve_memories` | ID、クエリ、ステータス、タイプ、スコープでメモリを取得する | memory, durable, retrieve, scope | read |
+| `remember_memory` | 承認済みの永続メモリを記録する | memory, remember, accept, save | write (additive) |
+| `propose_memory` | レビュー待ちの候補メモリを提案する | memory, propose, candidate, review | write (additive) |
+| `accept_memory` | 候補メモリを承認する | memory, accept, approve, confidence | write (destructive) |
+| `reject_memory` | 候補メモリを却下する | memory, reject, discard, review | write (destructive) |
+| `supersede_memory` | 承認済みメモリを置き換えメモリで上書きする | memory, supersede, replace, update | write (destructive) |
+| `expire_memory` | 永続メモリを期限切れ／退役にする | memory, expire, retire, forget | write (destructive) |
+| `memory_pack` | プロンプトコンテキスト、ハンドオフ、自動化向けのメモリパックを構築する | memory pack, prompt context, handoff | read |
+
+"write (destructive)" は既存の永続メモリ（候補または承認済み）の状態を変更するツールに付いています。Read-only ツールは SQLite を変更せず、additive write は新規イベントや新規メモリを作成するだけです。
+
 ### `start_session`
 
 `session_started` イベントを記録します。

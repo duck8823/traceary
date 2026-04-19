@@ -66,6 +66,33 @@ Flags:
 
 Traceary currently exposes eighteen MCP tools.
 
+### Tool Search keyword summary
+
+Claude Code's MCP Tool Search lazy-loads tool definitions by keyword. The table below summarizes each Traceary tool, the primary keywords you can use to discover it, and whether the tool reads or writes (and if a write is destructive). The detailed input schemas follow after the table.
+
+| Tool | Purpose | Keywords | Mode |
+|---|---|---|---|
+| `add_log` | Add a log event, note, prompt, or compact summary. | log, note, prompt, compact summary | write (additive) |
+| `start_session` | Start a session and record a `session_started` event. | session, start, begin, workspace | write (additive) |
+| `end_session` | End a session and record a `session_ended` event. | session, end, close, finish | write (additive) |
+| `latest_session` | Get the latest session for resume or handoff. | session, latest, resume, handoff | read |
+| `active_session` | Get the active or open session for resume. | session, active, open, current | read |
+| `list_events` | List recent events, logs, audits, prompts, and summaries. | events, list, feed, timeline | read |
+| `add_audit` | Add a shell command audit log with redacted input and output. | audit, command, shell, exit code | write (additive) |
+| `search` | Search events by text, time, or workspace. | search, find, query, history | read |
+| `get_context` | Get recent context events for a session or workspace. | context, recent, session, workspace | read |
+| `session_handoff` | Get a session handoff summary for resume. | handoff, resume, summary, working memory | read |
+| `retrieve_memories` | Retrieve durable memories by ID, query, status, type, or scope. | memory, durable, retrieve, scope | read |
+| `remember_memory` | Remember and record an accepted durable memory. | memory, remember, accept, save | write (additive) |
+| `propose_memory` | Propose a candidate durable memory for review. | memory, propose, candidate, review | write (additive) |
+| `accept_memory` | Accept a candidate durable memory. | memory, accept, approve, confidence | write (destructive) |
+| `reject_memory` | Reject a candidate durable memory. | memory, reject, discard, review | write (destructive) |
+| `supersede_memory` | Supersede an accepted durable memory with a replacement. | memory, supersede, replace, update | write (destructive) |
+| `expire_memory` | Expire or retire a durable memory. | memory, expire, retire, forget | write (destructive) |
+| `memory_pack` | Build a memory pack for prompt context, handoff, or automation. | memory pack, prompt context, handoff | read |
+
+"write (destructive)" is set on tools that change the state of an existing durable memory (candidate or accepted). Read-only tools never modify the SQLite store; additive writes create new events or memories.
+
 ### `start_session`
 
 Records a `session_started` event.
