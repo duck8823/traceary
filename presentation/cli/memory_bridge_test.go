@@ -81,6 +81,68 @@ func TestMergeMemoryExportIntoExistingFile_AppendsWhenNoMarkers(t *testing.T) {
 	}
 }
 
+func TestMergeMemoryExportIntoExistingFile_RefusesToOverwriteFutureVersion(t *testing.T) {
+	t.Parallel()
+
+	// A future Traceary build wrote the block as :v2. A v1 binary must
+	// refuse to downgrade that block — otherwise the newer content is
+	// silently overwritten and the operator only finds out when they
+	// can no longer reproduce the newer snapshot.
+	existing := "# Project\n\n" +
+		"## Tech stack\n- Go\n\n" +
+		"<!-- traceary-memories:begin:v2 -->\n" +
+		"future block managed by a newer Traceary\n" +
+		usecaseMemoryBridgeMarkerEnd + "\n\n" +
+		"## Conventions\n- Conventional commits\n"
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "CLAUDE.md")
+	if err := os.WriteFile(path, []byte(existing), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	generated := usecaseMemoryBridgeMarkerBegin + "\nfresh block\n" + usecaseMemoryBridgeMarkerEnd + "\n"
+
+	_, err := mergeMemoryExportIntoExistingFile(path, generated)
+	if err == nil {
+		t.Fatalf("expected an error when the existing block is newer than this binary's version")
+	}
+	if !strings.Contains(err.Error(), ":v2") {
+		t.Fatalf("error should mention the newer version, got %q", err.Error())
+	}
+}
+
+func TestMergeMemoryExportIntoExistingFile_IgnoresProseMarkerMention(t *testing.T) {
+	t.Parallel()
+
+	// A line inside a prose paragraph that mentions the marker string
+	// inline must not be mistaken for the managed block. The anchored
+	// regex requires the marker to start at the beginning of a line.
+	existing := "# Project instructions\n\n" +
+		"The bridge marker looks like <!-- traceary-memories:begin:v1 --> when Traceary writes it.\n" +
+		"## Conventions\n- Keep hand-written content.\n"
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "CLAUDE.md")
+	if err := os.WriteFile(path, []byte(existing), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	generated := usecaseMemoryBridgeMarkerBegin + "\nblock\n" + usecaseMemoryBridgeMarkerEnd + "\n"
+
+	merged, err := mergeMemoryExportIntoExistingFile(path, generated)
+	if err != nil {
+		t.Fatalf("mergeMemoryExportIntoExistingFile: %v", err)
+	}
+	if !strings.Contains(merged, "The bridge marker looks like <!-- traceary-memories:begin:v1 -->") {
+		t.Fatalf("prose mention should have been preserved, got %q", merged)
+	}
+	if !strings.Contains(merged, "## Conventions") {
+		t.Fatalf("hand-written section should have been preserved, got %q", merged)
+	}
+	if !strings.HasSuffix(merged, generated) {
+		t.Fatalf("generated block should be appended at the end, got %q", merged)
+	}
+}
+
 func TestMergeMemoryExportIntoExistingFile_MissingFileUsesGeneratedAsIs(t *testing.T) {
 	t.Parallel()
 
