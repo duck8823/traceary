@@ -27,12 +27,11 @@ const (
 // ANSI escape sequences used by the compact formatter. Kept together here
 // so both the renderer and the tests can reach them by name.
 const (
-	ansiReset      = "\x1b[0m"
-	ansiRedBold    = "\x1b[1;31m"
-	ansiCyan       = "\x1b[36m"
-	ansiMagenta    = "\x1b[35m"
-	ansiDim        = "\x1b[2m"
-	ansiColorCount = 4
+	ansiReset   = "\x1b[0m"
+	ansiRedBold = "\x1b[1;31m"
+	ansiCyan    = "\x1b[36m"
+	ansiMagenta = "\x1b[35m"
+	ansiDim     = "\x1b[2m"
 )
 
 // readColorFlagUsage returns the shared --color usage string.
