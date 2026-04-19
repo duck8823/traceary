@@ -369,7 +369,7 @@ func TestRunTail_DefaultCompactUsesInjectedLocation(t *testing.T) {
 	)
 
 	jst := time.FixedZone("JST", 9*3600)
-	if err := sut.runTail(ctx, stdout, tailCommandInput{
+	if err := sut.runTail(ctx, &bytes.Buffer{}, stdout, tailCommandInput{
 		dbPath:        "/tmp/test-traceary.db",
 		limit:         1,
 		repo:          "duck8823/traceary",

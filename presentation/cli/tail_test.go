@@ -146,7 +146,7 @@ func TestRunTail_PrintsInitialEventsAndFollowsNewEvents(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- sut.runTail(ctx, stdout, tailCommandInput{
+		errCh <- sut.runTail(ctx, &bytes.Buffer{}, stdout, tailCommandInput{
 			dbPath:        "/tmp/test-traceary.db",
 			limit:         2,
 			client:        "cli",
@@ -208,7 +208,7 @@ func TestRunTail_ZeroLimitStartsFromNow(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- sut.runTail(ctx, stdout, tailCommandInput{
+		errCh <- sut.runTail(ctx, &bytes.Buffer{}, stdout, tailCommandInput{
 			dbPath:        "/tmp/test-traceary.db",
 			limit:         0,
 			repo:          "duck8823/traceary",
@@ -254,7 +254,7 @@ func TestRunTail_JSONOutputsNDJSON(t *testing.T) {
 		WithEvent(eventStub),
 	)
 
-	if err := sut.runTail(ctx, stdout, tailCommandInput{
+	if err := sut.runTail(ctx, &bytes.Buffer{}, stdout, tailCommandInput{
 		dbPath:        "/tmp/test-traceary.db",
 		limit:         1,
 		repo:          "duck8823/traceary",
@@ -324,7 +324,7 @@ func TestRunTail_DoesNotReEmitBoundaryEventWhenFromEqualsInitialTimestamp(t *tes
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- sut.runTail(ctx, stdout, tailCommandInput{
+		errCh <- sut.runTail(ctx, &bytes.Buffer{}, stdout, tailCommandInput{
 			dbPath:        "/tmp/test-traceary.db",
 			limit:         1,
 			client:        "cli",

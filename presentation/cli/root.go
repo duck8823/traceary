@@ -5,6 +5,7 @@ import (
 
 	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/presentation"
 )
 
 // RootCLI provides the Traceary root command.
@@ -20,7 +21,8 @@ type RootCLI struct {
 	hooksOrchestrator   application.HooksOrchestrator
 	hooksInspector      application.HooksInspector
 	extraRedactPatterns []string
-	defaultReadFields  []string
+	defaultReadFields   []string
+	readPresets         map[string]presentation.ReadPreset
 	// databasePathSetter is invoked by each subcommand's RunE after it
 	// resolves --db-path / TRACEARY_DB_PATH, so the shared Database
 	// instance opens the user-specified path instead of the composition-
@@ -101,6 +103,14 @@ func WithExtraRedactPatterns(patterns []string) RootCLIOption {
 // or empty lists fall back to the built-in default column order.
 func WithDefaultReadFields(columns []string) RootCLIOption {
 	return func(c *RootCLI) { c.defaultReadFields = columns }
+}
+
+// WithReadPresets injects the user-defined read presets loaded from
+// ~/.config/traceary/config.json. The builtin preset catalog is always
+// available; these entries merge on top and override built-in names on
+// collision (with a stderr warning from the resolver).
+func WithReadPresets(presets map[string]presentation.ReadPreset) RootCLIOption {
+	return func(c *RootCLI) { c.readPresets = presets }
 }
 
 // WithDatabasePathSetter injects a callback invoked by every subcommand

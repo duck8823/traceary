@@ -32,6 +32,7 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 		wide         bool
 		utc          bool
 		fields       []string
+		preset       string
 	)
 
 	searchCmd := &cobra.Command{
@@ -43,26 +44,34 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 			if len(args) == 1 {
 				query = args[0]
 			}
-			return c.runSearch(cmd.Context(), cmd.OutOrStdout(), searchCommandInput{
-				dbPath:       dbPath,
-				repo:         repo,
-				sessionID:    sessionID,
-				client:       client,
-				agent:        agent,
-				kind:         kind,
-				from:         from,
-				since:        since,
-				to:           to,
-				until:        until,
-				limit:        limit,
-				offset:       offset,
-				query:        query,
-				failuresOnly: failuresOnly,
-				asJSON:       asJSON,
-				wide:         wide,
-				utc:          utc,
-				fields:       fields,
-				fieldsSet:    cmd.Flags().Changed("fields"),
+			return c.runSearch(cmd.Context(), cmd.ErrOrStderr(), cmd.OutOrStdout(), searchCommandInput{
+				dbPath:          dbPath,
+				repo:            repo,
+				sessionID:       sessionID,
+				client:          client,
+				agent:           agent,
+				kind:            kind,
+				from:            from,
+				since:           since,
+				to:              to,
+				until:           until,
+				limit:           limit,
+				offset:          offset,
+				query:           query,
+				failuresOnly:    failuresOnly,
+				asJSON:          asJSON,
+				wide:            wide,
+				utc:             utc,
+				fields:          fields,
+				fieldsSet:       cmd.Flags().Changed("fields"),
+				preset:          preset,
+				presetSet:       cmd.Flags().Changed("preset"),
+				kindSet:         cmd.Flags().Changed("kind"),
+				clientSet:       cmd.Flags().Changed("client"),
+				agentSet:        cmd.Flags().Changed("agent"),
+				sessionIDSet:    cmd.Flags().Changed("session-id"),
+				repoSet:         cmd.Flags().Changed("workspace"),
+				failuresOnlySet: cmd.Flags().Changed("failures"),
 			})
 		},
 	}
@@ -91,11 +100,12 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 	searchCmd.Flags().BoolVar(&wide, "wide", false, Localize("use the legacy tab-separated seven-column format", "従来のタブ区切り 7 カラム形式で出力する"))
 	searchCmd.Flags().BoolVar(&utc, "utc", false, Localize("print text timestamps in UTC instead of local time", "テキスト出力のタイムスタンプを現地時刻ではなく UTC で出力する"))
 	searchCmd.Flags().StringSliceVar(&fields, "fields", nil, readFieldsFlagUsage())
+	searchCmd.Flags().StringVar(&preset, "preset", "", readPresetsFlagUsage())
 
 	return searchCmd
 }
 
-func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchCommandInput) error {
+func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io.Writer, input searchCommandInput) error {
 	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
@@ -108,6 +118,11 @@ func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchC
 	if input.offset < 0 {
 		return xerrors.Errorf(Localize("offset must be greater than or equal to 0", "offset は 0 以上である必要があります"))
 	}
+	preset, _, err := resolveReadPreset(input.preset, c.readPresets, warnWriter)
+	if err != nil {
+		return err
+	}
+	applyReadPresetToSearchInput(&input, preset)
 
 	resolvedDBPath, err := resolveDBPath(input.dbPath)
 	if err != nil {
@@ -163,7 +178,7 @@ func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchC
 		return xerrors.Errorf("%s: %w", Localize("failed to search events", "検索に失敗しました"), err)
 	}
 
-	resolvedFields, err := c.resolveReadFieldsForCommand(input.fields, input.fieldsSet, input.wide, input.asJSON)
+	resolvedFields, err := c.resolveReadFieldsForCommand(input.fields, input.fieldsSet, input.wide, input.asJSON, preset.fields)
 	if err != nil {
 		return err
 	}

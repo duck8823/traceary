@@ -31,6 +31,7 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 		wide         bool
 		utc          bool
 		fields       []string
+		preset       string
 	)
 
 	listCmd := &cobra.Command{
@@ -38,25 +39,33 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 		Short: Localize("List recent events", "直近のログを一覧表示する"),
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return c.runList(cmd.Context(), cmd.OutOrStdout(), listCommandInput{
-				dbPath:       dbPath,
-				limit:        limit,
-				offset:       offset,
-				kind:         kind,
-				client:       client,
-				agent:        agent,
-				sessionID:    sessionID,
-				repo:         repo,
-				from:         from,
-				since:        since,
-				to:           to,
-				until:        until,
-				failuresOnly: failuresOnly,
-				asJSON:       asJSON,
-				wide:         wide,
-				utc:          utc,
-				fields:       fields,
-				fieldsSet:    cmd.Flags().Changed("fields"),
+			return c.runList(cmd.Context(), cmd.ErrOrStderr(), cmd.OutOrStdout(), listCommandInput{
+				dbPath:          dbPath,
+				limit:           limit,
+				offset:          offset,
+				kind:            kind,
+				client:          client,
+				agent:           agent,
+				sessionID:       sessionID,
+				repo:            repo,
+				from:            from,
+				since:           since,
+				to:              to,
+				until:           until,
+				failuresOnly:    failuresOnly,
+				asJSON:          asJSON,
+				wide:            wide,
+				utc:             utc,
+				fields:          fields,
+				fieldsSet:       cmd.Flags().Changed("fields"),
+				preset:          preset,
+				presetSet:       cmd.Flags().Changed("preset"),
+				kindSet:         cmd.Flags().Changed("kind"),
+				clientSet:       cmd.Flags().Changed("client"),
+				agentSet:        cmd.Flags().Changed("agent"),
+				sessionIDSet:    cmd.Flags().Changed("session-id"),
+				repoSet:         cmd.Flags().Changed("workspace"),
+				failuresOnlySet: cmd.Flags().Changed("failures"),
 			})
 		},
 	}
@@ -77,11 +86,12 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 	listCmd.Flags().BoolVar(&wide, "wide", false, Localize("use the legacy tab-separated seven-column format", "従来のタブ区切り 7 カラム形式で出力する"))
 	listCmd.Flags().BoolVar(&utc, "utc", false, Localize("print text timestamps in UTC instead of local time", "テキスト出力のタイムスタンプを現地時刻ではなく UTC で出力する"))
 	listCmd.Flags().StringSliceVar(&fields, "fields", nil, readFieldsFlagUsage())
+	listCmd.Flags().StringVar(&preset, "preset", "", readPresetsFlagUsage())
 
 	return listCmd
 }
 
-func (c *RootCLI) runList(ctx context.Context, output io.Writer, input listCommandInput) error {
+func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.Writer, input listCommandInput) error {
 	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
@@ -94,6 +104,11 @@ func (c *RootCLI) runList(ctx context.Context, output io.Writer, input listComma
 	if input.offset < 0 {
 		return xerrors.Errorf(Localize("offset must be greater than or equal to 0", "offset は 0 以上である必要があります"))
 	}
+	preset, _, err := resolveReadPreset(input.preset, c.readPresets, warnWriter)
+	if err != nil {
+		return err
+	}
+	applyReadPresetToListInput(&input, preset)
 	resolvedKind, err := resolveListKind(input.kind)
 	if err != nil {
 		return err
@@ -149,7 +164,7 @@ func (c *RootCLI) runList(ctx context.Context, output io.Writer, input listComma
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to list events", "イベント一覧の取得に失敗しました"), err)
 	}
-	resolvedFields, err := c.resolveReadFieldsForCommand(input.fields, input.fieldsSet, input.wide, input.asJSON)
+	resolvedFields, err := c.resolveReadFieldsForCommand(input.fields, input.fieldsSet, input.wide, input.asJSON, preset.fields)
 	if err != nil {
 		return err
 	}
