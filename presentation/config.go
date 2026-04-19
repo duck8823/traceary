@@ -8,23 +8,59 @@ import (
 )
 
 // configFile mirrors the on-disk JSON layout. It is intentionally unexported
-// because callers receive the loaded values directly.
+// because callers receive the loaded values through Config.
 type configFile struct {
 	Redact redactSection `json:"redact"`
+	Read   readSection   `json:"read"`
 }
 
 type redactSection struct {
 	ExtraPatterns []string `json:"extra_patterns"`
 }
 
-// LoadExtraRedactPatterns reads the optional Traceary config and returns the
-// extra redaction patterns. When the config cannot be used the returned slice
-// is nil and a warning is logged via slog.
+type readSection struct {
+	Columns []string `json:"columns"`
+}
+
+// Config carries the resolved configuration values consumed by the CLI and
+// MCP server. Zero values mean "fall back to the built-in default" so callers
+// do not need to distinguish between "file missing" and "key missing".
+type Config struct {
+	// ExtraRedactPatterns are additional regex patterns applied on top of the
+	// built-in audit redaction rules. Nil / empty means "no extras".
+	ExtraRedactPatterns []string
+	// ReadColumns is the default column order applied to tail / list / search
+	// text output when the user does not pass --fields. Nil / empty means
+	// "fall back to the built-in default column order".
+	ReadColumns []string
+}
+
+// LoadConfig reads the optional Traceary config file and returns a Config.
+// When the file is missing, unreadable, or invalid, the returned Config is
+// zero-valued and a warning is logged via slog so operators can see that
+// config-backed features fell back to built-in defaults.
+func LoadConfig() Config {
+	file := loadConfigFile()
+	if file == nil {
+		return Config{}
+	}
+	return Config{
+		ExtraRedactPatterns: file.Redact.ExtraPatterns,
+		ReadColumns:         file.Read.Columns,
+	}
+}
+
+// LoadExtraRedactPatterns preserves the earlier API so callers that only need
+// redaction patterns can keep using this single-purpose helper.
 func LoadExtraRedactPatterns() []string {
+	return LoadConfig().ExtraRedactPatterns
+}
+
+func loadConfigFile() *configFile {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		slog.Warn(
-			"Traceary config path could not be resolved; extra audit redaction patterns are disabled",
+			"Traceary config path could not be resolved; config-backed features fall back to built-in defaults",
 			"error", err,
 		)
 		return nil
@@ -37,7 +73,7 @@ func LoadExtraRedactPatterns() []string {
 			return nil
 		}
 		slog.Warn(
-			"Traceary config could not be read; extra audit redaction patterns are disabled until the file is readable: "+configPath,
+			"Traceary config could not be read; config-backed features fall back to built-in defaults until the file is readable: "+configPath,
 			"error", err,
 		)
 		return nil
@@ -46,11 +82,11 @@ func LoadExtraRedactPatterns() []string {
 	var file configFile
 	if err := json.Unmarshal(data, &file); err != nil {
 		slog.Warn(
-			"Traceary config is invalid; extra audit redaction patterns are disabled until the file is fixed: "+configPath,
+			"Traceary config is invalid; config-backed features fall back to built-in defaults until the file is fixed: "+configPath,
 			"error", err,
 		)
 		return nil
 	}
 
-	return file.Redact.ExtraPatterns
+	return &file
 }
