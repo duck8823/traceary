@@ -158,13 +158,31 @@ jobs:
               tag,
             });
 
-            const query = `repo:${owner}/${repo} is:issue is:open in:title "${tag}:"`;
-            const { data: search } = await github.rest.search.issuesAndPullRequests({
-              q: query,
-              per_page: 10,
-            });
+            // Accepted prefixes: the full tag (v0.7.0:) and the
+            // minor-version form (v0.7:) the repository has historically
+            // used for umbrella issues. Both variants are searched
+            // separately so a tag like v0.7.0 closes either a "v0.7.0: ..."
+            // or a "v0.7: ..." umbrella, whichever the operator opened.
+            const acceptedPrefixes = [`${tag}:`];
+            const minorPrefixMatch = tag.match(/^(v\d+\.\d+)\.0$/);
+            if (minorPrefixMatch) {
+              acceptedPrefixes.push(`${minorPrefixMatch[1]}:`);
+            }
 
-            const issues = search.items.filter((item) => !item.pull_request && item.title.startsWith(`${tag}:`));
+            const seen = new Map();
+            for (const prefix of acceptedPrefixes) {
+              const query = `repo:${owner}/${repo} is:issue is:open in:title "${prefix}"`;
+              const { data: search } = await github.rest.search.issuesAndPullRequests({
+                q: query,
+                per_page: 10,
+              });
+              for (const item of search.items) {
+                if (item.pull_request) continue;
+                if (!item.title.startsWith(prefix)) continue;
+                seen.set(item.number, item);
+              }
+            }
+            const issues = Array.from(seen.values());
 
             if (issues.length === 0) {
               core.info(`No open parent release issue matched ${tag}.`);
