@@ -154,6 +154,8 @@ func run() error {
 	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource)
 	memoryUsecase := usecase.NewMemoryUsecase(memoryDatasource, memoryDatasource, extraRedactPatterns)
 	memoryExtractionUsecase := usecase.NewMemoryExtractionUsecase(sessionDatasource, eventDatasource, memoryUsecase, extraRedactPatterns)
+	codexMemorySource := filesystem.NewCodexMemorySource()
+	memoryImportUsecase := usecase.NewMemoryImportUsecase(memoryUsecase, memoryDatasource, codexMemorySource, extraRedactPatterns)
 	contextUsecase := usecase.NewContextUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	storeManagementUsecase := usecase.NewStoreManagementUsecase(storeManagementDatasource)
 
@@ -183,6 +185,7 @@ func run() error {
 		cli.WithSession(sessionUsecase),
 		cli.WithMemory(memoryUsecase),
 		cli.WithMemoryExtraction(memoryExtractionUsecase),
+		cli.WithMemoryImport(memoryImportUsecase),
 		cli.WithContext(contextUsecase),
 		cli.WithCodexIntegration(codexIntegrationUsecase),
 		cli.WithStoreManagement(storeManagementUsecase),

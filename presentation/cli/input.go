@@ -333,3 +333,17 @@ type memoryExtractCommandInput struct {
 	candidateLimit int
 	asJSON         bool
 }
+
+// memoryImportCodexCommandInput is the resolved input to `traceary memory
+// import codex`. The flags mirror other Traceary read/write commands where
+// useful and also expose two import-only controls: --root selects the Codex
+// memory layout and --watch keeps the process polling for additional runs
+// without re-invoking the CLI.
+type memoryImportCodexCommandInput struct {
+	dbPath    string
+	root      string
+	workspace string
+	watch     bool
+	interval  time.Duration
+	asJSON    bool
+}

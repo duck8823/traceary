@@ -14,6 +14,7 @@ type RootCLI struct {
 	session             usecase.SessionUsecase
 	memory              usecase.MemoryUsecase
 	memoryExtraction    usecase.MemoryExtractionUsecase
+	memoryImport        usecase.MemoryImportUsecase
 	context             usecase.ContextUsecase
 	codexIntegration    usecase.CodexIntegrationUsecase
 	storeManagement     usecase.StoreManagementUsecase
@@ -54,6 +55,12 @@ func WithMemory(memory usecase.MemoryUsecase) RootCLIOption {
 // extraction commands.
 func WithMemoryExtraction(memoryExtraction usecase.MemoryExtractionUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.memoryExtraction = memoryExtraction }
+}
+
+// WithMemoryImport injects the MemoryImportUsecase used by `memory import`
+// subcommands (for example Codex MEMORY.md import).
+func WithMemoryImport(memoryImport usecase.MemoryImportUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.memoryImport = memoryImport }
 }
 
 // WithContext injects the ContextUsecase used by structured handoff commands.
