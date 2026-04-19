@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -189,10 +190,16 @@ func mergeMemoryExportIntoExistingFile(path, generated string) (string, error) {
 		}
 		return "", xerrors.Errorf("%s: %w", Localize("failed to read existing memory export file", "既存の memory export ファイルの読み込みに失敗しました"), err)
 	}
-	beginIdx, beginLen := findAnyBridgeBeginMarker(string(existing))
+	beginIdx, beginLen, version := findAnyBridgeBeginMarker(string(existing))
 	endIdx := strings.Index(string(existing), usecaseMemoryBridgeMarkerEnd)
 	if beginIdx < 0 || endIdx < 0 || endIdx < beginIdx {
 		return appendMemoryExportBlock(string(existing), generated), nil
+	}
+	if version > usecaseMemoryBridgeCurrentVersion {
+		return "", xerrors.Errorf(Localize(
+			"refusing to overwrite a bridge block written by a newer Traceary (found :v%d, this binary writes :v%d); upgrade before re-running memory export",
+			"新しい Traceary が書き出した bridge ブロック (:v%d) を古いバイナリ (:v%d) で上書きしないよう中断しました。Traceary を更新してから memory export を再実行してください",
+		), version, usecaseMemoryBridgeCurrentVersion)
 	}
 	_ = beginLen
 	endCut := endIdx + len(usecaseMemoryBridgeMarkerEnd)
@@ -205,22 +212,29 @@ func mergeMemoryExportIntoExistingFile(path, generated string) (string, error) {
 }
 
 // findAnyBridgeBeginMarker locates the first Traceary begin marker of
-// any version (`:v1`, `:v2`, ...) in content, returning its byte offset
-// and the length of the matched marker. A future Traceary build that
-// wrote a `:v2` block will still be replaced by the current build's
-// exporter, because the CLI intentionally re-owns the managed block on
-// every export. The parser side of memory_bridge_import emits a warning
-// when it sees a higher version so the operator hears about the
-// mismatch.
-func findAnyBridgeBeginMarker(content string) (int, int) {
-	loc := bridgeBeginMarkerRegexp.FindStringIndex(content)
+// any version (`:v1`, `:v2`, ...) at the start of a line in content. The
+// multiline-anchored regex prevents a marker string that appears inside
+// prose, a code block, or a quoted example from being mistaken for the
+// real managed block — otherwise the exporter would happily overwrite
+// the operator's own content at that offset.
+func findAnyBridgeBeginMarker(content string) (int, int, int) {
+	loc := bridgeBeginMarkerRegexp.FindStringSubmatchIndex(content)
 	if loc == nil {
-		return -1, 0
+		return -1, 0, 0
 	}
-	return loc[0], loc[1] - loc[0]
+	version, err := strconv.Atoi(content[loc[2]:loc[3]])
+	if err != nil {
+		return -1, 0, 0
+	}
+	return loc[0], loc[1] - loc[0], version
 }
 
-var bridgeBeginMarkerRegexp = regexp.MustCompile(`<!-- traceary-memories:begin:v\d+ -->`)
+var bridgeBeginMarkerRegexp = regexp.MustCompile(`(?m)^<!-- traceary-memories:begin:v(\d+) -->$`)
+
+// usecaseMemoryBridgeCurrentVersion mirrors usecase.MemoryBridgeCurrentVersion
+// so the CLI layer can guard against a newer block without importing the
+// usecase package purely for the constant.
+const usecaseMemoryBridgeCurrentVersion = 1
 
 // appendMemoryExportBlock places the managed block at the end of the
 // existing content, separated by a blank line when needed so the markdown
