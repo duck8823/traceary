@@ -194,7 +194,7 @@ func inspectDoctorConfig() doctorCheck {
 		return doctorCheck{
 			Name:    "config",
 			Status:  doctorStatusFail,
-			Message: localizef("failed to resolve the config path, so extra redaction patterns are disabled: %v", "設定ファイルのパスを解決できないため、追加 redaction pattern は無効です: %v", err),
+			Message: localizef("failed to resolve the config path, so config-backed features fall back to built-in defaults: %v", "設定ファイルのパスを解決できないため、config 由来の機能は組み込み既定値にフォールバックします: %v", err),
 		}
 	}
 
@@ -205,13 +205,13 @@ func inspectDoctorConfig() doctorCheck {
 			return doctorCheck{
 				Name:    "config",
 				Status:  doctorStatusPass,
-				Message: localizef("optional config file is not present yet; built-in redaction defaults remain active: %s", "オプション設定ファイルはまだありません。組み込みの redaction 既定値を使います: %s", configPath),
+				Message: localizef("optional config file is not present yet; built-in defaults remain active: %s", "オプション設定ファイルはまだありません。組み込みの既定値を使います: %s", configPath),
 			}
 		}
 		return doctorCheck{
 			Name:    "config",
 			Status:  doctorStatusFail,
-			Message: localizef("config file could not be read, so extra redaction patterns are disabled: %s (%v)", "設定ファイルを読み込めないため、追加 redaction pattern は無効です: %s (%v)", configPath, readErr),
+			Message: localizef("config file could not be read, so config-backed features fall back to built-in defaults: %s (%v)", "設定ファイルを読み込めないため、config 由来の機能は組み込み既定値にフォールバックします: %s (%v)", configPath, readErr),
 		}
 	}
 
@@ -220,7 +220,7 @@ func inspectDoctorConfig() doctorCheck {
 		return doctorCheck{
 			Name:    "config",
 			Status:  doctorStatusFail,
-			Message: localizef("config file is invalid JSON, so extra redaction patterns are disabled: %s (%v)", "設定ファイルの JSON が不正なため、追加 redaction pattern は無効です: %s (%v)", configPath, unmarshalErr),
+			Message: localizef("config file is invalid JSON, so config-backed features fall back to built-in defaults: %s (%v)", "設定ファイルの JSON が不正なため、config 由来の機能は組み込み既定値にフォールバックします: %s (%v)", configPath, unmarshalErr),
 		}
 	}
 

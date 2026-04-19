@@ -31,6 +31,7 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 		asJSON       bool
 		wide         bool
 		utc          bool
+		fields       []string
 	)
 
 	searchCmd := &cobra.Command{
@@ -60,6 +61,8 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 				asJSON:       asJSON,
 				wide:         wide,
 				utc:          utc,
+				fields:       fields,
+				fieldsSet:    cmd.Flags().Changed("fields"),
 			})
 		},
 	}
@@ -87,6 +90,7 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 	searchCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	searchCmd.Flags().BoolVar(&wide, "wide", false, Localize("use the legacy tab-separated seven-column format", "従来のタブ区切り 7 カラム形式で出力する"))
 	searchCmd.Flags().BoolVar(&utc, "utc", false, Localize("print text timestamps in UTC instead of local time", "テキスト出力のタイムスタンプを現地時刻ではなく UTC で出力する"))
+	searchCmd.Flags().StringSliceVar(&fields, "fields", nil, readFieldsFlagUsage())
 
 	return searchCmd
 }
@@ -159,12 +163,18 @@ func (c *RootCLI) runSearch(ctx context.Context, output io.Writer, input searchC
 		return xerrors.Errorf("%s: %w", Localize("failed to search events", "検索に失敗しました"), err)
 	}
 
+	resolvedFields, err := c.resolveReadFieldsForCommand(input.fields, input.fieldsSet, input.wide)
+	if err != nil {
+		return err
+	}
 	textOpts := eventTextFormatOptions{
 		wide:     input.wide,
 		utc:      input.utc,
 		location: input.location,
+		fields:   resolvedFields,
 	}
-	if err := writeEventsByFormat(output, events, input.asJSON, textOpts); err != nil {
+	extrasFor := c.makeCompactExtrasResolver(ctx, resolvedFields)
+	if err := writeEventsByFormat(output, events, input.asJSON, textOpts, extrasFor); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print search results", "検索結果の出力に失敗しました"), err)
 	}
 

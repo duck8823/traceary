@@ -20,6 +20,7 @@ type RootCLI struct {
 	hooksOrchestrator   application.HooksOrchestrator
 	hooksInspector      application.HooksInspector
 	extraRedactPatterns []string
+	defaultReadColumns  []string
 	// databasePathSetter is invoked by each subcommand's RunE after it
 	// resolves --db-path / TRACEARY_DB_PATH, so the shared Database
 	// instance opens the user-specified path instead of the composition-
@@ -92,6 +93,14 @@ func WithHooksInspector(inspector application.HooksInspector) RootCLIOption {
 // by the audit command.
 func WithExtraRedactPatterns(patterns []string) RootCLIOption {
 	return func(c *RootCLI) { c.extraRedactPatterns = patterns }
+}
+
+// WithDefaultReadColumns injects the default column order used by tail / list
+// / search text output when the user does not pass --fields. Callers
+// typically source this from the read.columns entry in the user config. Nil
+// or empty lists fall back to the built-in default column order.
+func WithDefaultReadColumns(columns []string) RootCLIOption {
+	return func(c *RootCLI) { c.defaultReadColumns = columns }
 }
 
 // WithDatabasePathSetter injects a callback invoked by every subcommand

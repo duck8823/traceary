@@ -30,6 +30,7 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 		asJSON       bool
 		wide         bool
 		utc          bool
+		fields       []string
 	)
 
 	listCmd := &cobra.Command{
@@ -54,6 +55,8 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 				asJSON:       asJSON,
 				wide:         wide,
 				utc:          utc,
+				fields:       fields,
+				fieldsSet:    cmd.Flags().Changed("fields"),
 			})
 		},
 	}
@@ -73,6 +76,7 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 	listCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	listCmd.Flags().BoolVar(&wide, "wide", false, Localize("use the legacy tab-separated seven-column format", "従来のタブ区切り 7 カラム形式で出力する"))
 	listCmd.Flags().BoolVar(&utc, "utc", false, Localize("print text timestamps in UTC instead of local time", "テキスト出力のタイムスタンプを現地時刻ではなく UTC で出力する"))
+	listCmd.Flags().StringSliceVar(&fields, "fields", nil, readFieldsFlagUsage())
 
 	return listCmd
 }
@@ -145,12 +149,18 @@ func (c *RootCLI) runList(ctx context.Context, output io.Writer, input listComma
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to list events", "イベント一覧の取得に失敗しました"), err)
 	}
+	resolvedFields, err := c.resolveReadFieldsForCommand(input.fields, input.fieldsSet, input.wide)
+	if err != nil {
+		return err
+	}
 	textOpts := eventTextFormatOptions{
 		wide:     input.wide,
 		utc:      input.utc,
 		location: input.location,
+		fields:   resolvedFields,
 	}
-	if err := writeEventsByFormat(output, events, input.asJSON, textOpts); err != nil {
+	extrasFor := c.makeCompactExtrasResolver(ctx, resolvedFields)
+	if err := writeEventsByFormat(output, events, input.asJSON, textOpts, extrasFor); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print event list", "一覧出力に失敗しました"), err)
 	}
 

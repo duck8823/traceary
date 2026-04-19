@@ -144,7 +144,9 @@ func run() error {
 	memoryDatasource := sqlite.NewMemoryDatasource(db)
 	storeManagementDatasource := sqlite.NewStoreManagementDatasource(db)
 
-	extraRedactPatterns := presentation.LoadExtraRedactPatterns()
+	cfg := presentation.LoadConfig()
+	extraRedactPatterns := cfg.ExtraRedactPatterns
+	defaultReadColumns := cfg.ReadColumns
 
 	eventUsecase := usecase.NewEventUsecase(eventDatasource, eventDatasource)
 	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource)
@@ -186,6 +188,7 @@ func run() error {
 		cli.WithHooksOrchestrator(hooksOrchestrator),
 		cli.WithHooksInspector(hooksInspector),
 		cli.WithExtraRedactPatterns(extraRedactPatterns),
+		cli.WithDefaultReadColumns(defaultReadColumns),
 		cli.WithDatabasePathSetter(db.SetPath),
 	).Command()
 	rootCmd.Version = versionString()

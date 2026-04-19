@@ -112,14 +112,16 @@ type tailEventWriter struct {
 	output      io.Writer
 	asJSON      bool
 	textOpts    eventTextFormatOptions
+	extrasFor   compactExtrasResolver
 	headerWrote bool
 }
 
-func newTailEventWriter(output io.Writer, asJSON bool, textOpts eventTextFormatOptions) *tailEventWriter {
+func newTailEventWriter(output io.Writer, asJSON bool, textOpts eventTextFormatOptions, extrasFor compactExtrasResolver) *tailEventWriter {
 	return &tailEventWriter{
-		output:   output,
-		asJSON:   asJSON,
-		textOpts: textOpts,
+		output:    output,
+		asJSON:    asJSON,
+		textOpts:  textOpts,
+		extrasFor: extrasFor,
 	}
 }
 
@@ -154,7 +156,11 @@ func (w *tailEventWriter) Write(events []*model.Event) error {
 		if w.textOpts.wide {
 			row = formatEventWideRow(event, w.textOpts)
 		} else {
-			row = formatEventCompactRow(event, w.textOpts)
+			extras := compactRowExtras{}
+			if w.extrasFor != nil {
+				extras = w.extrasFor(event)
+			}
+			row = formatEventCompactRow(event, w.textOpts, extras)
 		}
 		if _, err := fmt.Fprintln(w.output, row); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print event row", "イベント一覧行の出力に失敗しました"), err)
@@ -188,6 +194,7 @@ func (c *RootCLI) newTailCommand() *cobra.Command {
 		asJSON       bool
 		wide         bool
 		utc          bool
+		fields       []string
 	)
 
 	tailCmd := &cobra.Command{
@@ -207,6 +214,8 @@ func (c *RootCLI) newTailCommand() *cobra.Command {
 				asJSON:       asJSON,
 				wide:         wide,
 				utc:          utc,
+				fields:       fields,
+				fieldsSet:    cmd.Flags().Changed("fields"),
 			})
 		},
 	}
@@ -221,6 +230,7 @@ func (c *RootCLI) newTailCommand() *cobra.Command {
 	tailCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print NDJSON output", "NDJSON 形式で出力する"))
 	tailCmd.Flags().BoolVar(&wide, "wide", false, Localize("use the legacy tab-separated seven-column format", "従来のタブ区切り 7 カラム形式で出力する"))
 	tailCmd.Flags().BoolVar(&utc, "utc", false, Localize("print text timestamps in UTC instead of local time", "テキスト出力のタイムスタンプを現地時刻ではなく UTC で出力する"))
+	tailCmd.Flags().StringSliceVar(&fields, "fields", nil, readFieldsFlagUsage())
 
 	return tailCmd
 }
@@ -257,11 +267,18 @@ func (c *RootCLI) runTail(ctx context.Context, output io.Writer, input tailComma
 		Workspace(types.Workspace(resolveWorkspaceValue(ctx, input.repo))).
 		FailuresOnly(input.failuresOnly)
 
-	writer := newTailEventWriter(output, input.asJSON, eventTextFormatOptions{
+	resolvedFields, err := c.resolveReadFieldsForCommand(input.fields, input.fieldsSet, input.wide)
+	if err != nil {
+		return err
+	}
+	textOpts := eventTextFormatOptions{
 		wide:     input.wide,
 		utc:      input.utc,
 		location: input.location,
-	})
+		fields:   resolvedFields,
+	}
+	extrasFor := c.makeCompactExtrasResolver(ctx, resolvedFields)
+	writer := newTailEventWriter(output, input.asJSON, textOpts, extrasFor)
 	cursor := newTailCursor(input.resolvedNowFunc()().UTC())
 	if input.limit > 0 {
 		initialCriteria := apptypes.NewEventListCriteriaBuilder(input.limit).
