@@ -404,7 +404,7 @@ session の一覧サマリーを表示します。
 
 ### `traceary session tree`
 
-読み込んだ session の parent → child → grandchild 階層を描画します。各行は session id / status / 最も具体的な subagent role (例: `claude:explore`) / workspace / duration / `N cmds/M events` breakdown を表示します。JSON 出力では各ノードに `parent_session_id` / `depth` / `duration_ms` / `subagent_type` を追加し、外部ツールが lineage を扱えるようにしています。
+読み込んだ session の parent → child → grandchild 階層を描画します。各行は session id / status / 最も具体的な subagent role (例: Claude Code の subagent なら `claude/Explore`) / workspace / duration / `N cmds/M events` breakdown を表示します。JSON 出力では各ノードに `parent_session_id` / `depth` / `duration_ms` / `subagent_type` を追加し、外部ツールが lineage を扱えるようにしています。
 
 主な flag:
 

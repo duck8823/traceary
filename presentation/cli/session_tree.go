@@ -169,12 +169,13 @@ func pruneEndedLineages(node *sessionNode) bool {
 	return len(node.children) > 0
 }
 
+// isSessionActive treats only sessions with status=active as live. A
+// session that has not received an end event but has aged past the store
+// timeout is already marked status=stale by the SQLite datasource, and
+// --ongoing-only explicitly promises "at least one active session" — so
+// stale lineages must not resurface as ongoing work.
 func isSessionActive(summary apptypes.SessionSummary) bool {
-	if summary.Status() == "active" {
-		return true
-	}
-	_, ended := summary.EndedAt().Value()
-	return !ended
+	return summary.Status() == "active"
 }
 
 func writeSessionTreeEmpty(output io.Writer, asJSON bool) error {
@@ -223,18 +224,18 @@ func sessionNodeToOutput(node *sessionNode, depth int) *sessionTreeNode {
 }
 
 // extractSubagentType returns the most specific subagent role the session
-// participated in. The captured agents slice stores values like "claude" or
-// "claude:explore"; tree consumers want a single string to colour or filter
-// on, so the helper picks the first entry that carries a `:role` suffix
-// and falls back to the first agent when none do. The helper always
-// returns an empty string for no-agent sessions so the JSON field is
-// omitted via `omitempty`.
+// participated in. Hook capture writes hierarchical agent names as
+// `<client>/<role>` (for example `claude/Explore` or `claude/planner`), so
+// tree consumers want a single string to colour or filter on; the helper
+// picks the first entry that carries a `/role` suffix and falls back to
+// the first agent when none do. The helper always returns an empty string
+// for no-agent sessions so the JSON field is omitted via `omitempty`.
 func extractSubagentType(agents []string) string {
 	if len(agents) == 0 {
 		return ""
 	}
 	for _, agent := range agents {
-		if strings.Contains(agent, ":") {
+		if strings.Contains(agent, "/") {
 			return agent
 		}
 	}

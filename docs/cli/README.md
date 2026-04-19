@@ -404,7 +404,7 @@ Useful flags:
 
 ### `traceary session tree`
 
-Render the parent → child → grandchild lineage for every loaded session. Each row shows the session id, status, most specific subagent role (for example `claude:explore`), workspace, duration, and an `N cmds/M events` breakdown. The JSON surface adds `parent_session_id`, `depth`, `duration_ms`, and `subagent_type` to every node so external tooling can reason about lineage without replaying the text format.
+Render the parent → child → grandchild lineage for every loaded session. Each row shows the session id, status, most specific subagent role (for example `claude/Explore` for Claude Code subagents), workspace, duration, and an `N cmds/M events` breakdown. The JSON surface adds `parent_session_id`, `depth`, `duration_ms`, and `subagent_type` to every node so external tooling can reason about lineage without replaying the text format.
 
 Useful flags:
 

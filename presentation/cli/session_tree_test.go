@@ -197,7 +197,7 @@ func TestRootCLI_SessionTreeCommand_LineageFields(t *testing.T) {
 				"ended",
 				4,
 				3,
-				[]string{"claude:explore"},
+				[]string{"claude/explore"},
 				"",
 				"",
 				types.SessionID("parent-session"),
@@ -253,7 +253,7 @@ func TestRootCLI_SessionTreeCommand_LineageFields(t *testing.T) {
 		t.Fatalf("unexpected children: %+v", root.Children)
 	}
 	child := root.Children[0]
-	if child.Depth != 1 || child.ParentSessionID != "parent-session" || child.SubagentType != "claude:explore" {
+	if child.Depth != 1 || child.ParentSessionID != "parent-session" || child.SubagentType != "claude/explore" {
 		t.Fatalf("unexpected child: %+v", child)
 	}
 }
@@ -281,7 +281,7 @@ func TestRootCLI_SessionTreeCommand_RootFilter(t *testing.T) {
 				types.SessionID("child-of-b"),
 				types.Workspace("ws"),
 				started, types.Some(ended),
-				"ended", 1, 1, []string{"codex:explore"}, "", "", types.SessionID("root-b"),
+				"ended", 1, 1, []string{"codex/explore"}, "", "", types.SessionID("root-b"),
 			),
 		},
 	}
@@ -333,6 +333,15 @@ func TestRootCLI_SessionTreeCommand_OngoingOnly(t *testing.T) {
 				started, types.Some(ended),
 				"ended", 1, 1, []string{"codex"}, "", "", types.SessionID("dead-root"),
 			),
+			// Stale (status=stale, no end event) sessions must not leak into
+			// --ongoing-only output — once the datasource has promoted them
+			// to stale, they are no longer the live work the flag promises.
+			apptypes.SessionSummaryOf(
+				types.SessionID("stale-root"),
+				types.Workspace("ws"),
+				started, types.None[time.Time](),
+				"stale", 1, 0, []string{"claude"}, "", "", types.SessionID(""),
+			),
 		},
 	}
 	stdout := &bytes.Buffer{}
@@ -352,5 +361,8 @@ func TestRootCLI_SessionTreeCommand_OngoingOnly(t *testing.T) {
 	}
 	if strings.Contains(out, "dead-root") || strings.Contains(out, "dead-child") {
 		t.Fatalf("--ongoing-only should prune dead lineage, got %q", out)
+	}
+	if strings.Contains(out, "stale-root") {
+		t.Fatalf("--ongoing-only should prune stale sessions, got %q", out)
 	}
 }
