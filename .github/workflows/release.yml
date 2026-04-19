@@ -26,8 +26,10 @@ jobs:
     steps:
       - name: Validate requested tag
         if: github.event_name == 'workflow_dispatch' && inputs.tag != ''
+        env:
+          WORKFLOW_INPUT_TAG: ${{ inputs.tag }}
         run: |
-          case "${{ inputs.tag }}" in
+          case "${WORKFLOW_INPUT_TAG}" in
             v*) ;;
             *)
               echo "workflow_dispatch tag input must start with v" >&2
@@ -158,13 +160,47 @@ jobs:
               tag,
             });
 
-            const query = `repo:${owner}/${repo} is:issue is:open in:title "${tag}:"`;
-            const { data: search } = await github.rest.search.issuesAndPullRequests({
-              q: query,
-              per_page: 10,
-            });
+            // Accepted prefixes: the full tag (v0.7.0:) and the
+            // minor-version form (v0.7:) the repository has historically
+            // used for umbrella issues. Both variants are searched
+            // separately so a tag like v0.7.0 closes either a "v0.7.0: ..."
+            // or a "v0.7: ..." umbrella, whichever the operator opened.
+            const acceptedPrefixes = [`${tag}:`];
+            const minorPrefixMatch = tag.match(/^(v\d+\.\d+)\.0$/);
+            if (minorPrefixMatch) {
+              acceptedPrefixes.push(`${minorPrefixMatch[1]}:`);
+            }
 
-            const issues = search.items.filter((item) => !item.pull_request && item.title.startsWith(`${tag}:`));
+            // Defensive guard: when matching the minor-version prefix
+            // (`v0.7:`), GitHub's title search does not collide with
+            // patch-version umbrellas like `v0.7.1:` because the literal
+            // `:` is not a substring of `v0.7.1:` at the right position,
+            // but re-asserting the invariant via a patch-version regex
+            // makes the intent explicit for future readers.
+            const patchVersionPrefix = /^v\d+\.\d+\.\d+:/;
+            const seen = new Map();
+            for (const prefix of acceptedPrefixes) {
+              const query = `repo:${owner}/${repo} is:issue is:open in:title "${prefix}"`;
+              const { data: search } = await github.rest.search.issuesAndPullRequests({
+                q: query,
+                per_page: 10,
+              });
+              for (const item of search.items) {
+                if (item.pull_request) continue;
+                if (!item.title.startsWith(prefix)) continue;
+                // When the fallback prefix is the minor form (`v0.7:`)
+                // but the title actually starts with a patch form
+                // (`v0.7.1:`), skip — the minor umbrella is being
+                // closed, not a future patch umbrella.
+                if (prefix === acceptedPrefixes[acceptedPrefixes.length - 1]
+                  && acceptedPrefixes.length > 1
+                  && patchVersionPrefix.test(item.title)) {
+                  continue;
+                }
+                seen.set(item.number, item);
+              }
+            }
+            const issues = Array.from(seen.values());
 
             if (issues.length === 0) {
               core.info(`No open parent release issue matched ${tag}.`);
