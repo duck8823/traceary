@@ -108,7 +108,7 @@ func (s *Server) Build(ctx context.Context) (*mcp.Server, error) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "end_session",
 		Description: "End a session and record a session_ended event.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true)},
 	}, s.endSession())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "latest_session",

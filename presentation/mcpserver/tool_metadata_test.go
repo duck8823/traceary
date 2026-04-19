@@ -70,8 +70,8 @@ func TestServer_ToolMetadata(t *testing.T) {
 		{
 			name: "end_session",
 			want: toolMetadataExpectation{
-				description:      "End a session and record a session_ended event.",
-				destructiveFalse: true,
+				description:     "End a session and record a session_ended event.",
+				destructiveTrue: true,
 			},
 		},
 		{
