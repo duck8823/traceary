@@ -159,23 +159,27 @@ type importMemoryInstructionsOutput struct {
 }
 
 // memoryHygieneOutput mirrors the CLI `memory hygiene scan` shape so
-// agent hosts receive the same three-suggestion view an operator sees
+// agent hosts receive the same four-suggestion view an operator sees
 // on stdout.
 type memoryHygieneOutput struct {
-	RedactionHitCount    int                             `json:"redaction_hit_count" jsonschema:"number of accepted memories flagged by the current redaction rules"`
-	ExpiryCandidateCount int                             `json:"expiry_candidate_count" jsonschema:"number of accepted memories older than the staleness threshold"`
-	DuplicateCount       int                             `json:"duplicate_count" jsonschema:"number of accepted memories that share scope + fact with another row"`
-	Suggestions          []memoryHygieneSuggestionOutput `json:"suggestions" jsonschema:"per-memory hygiene suggestions"`
+	RedactionHitCount       int                             `json:"redaction_hit_count" jsonschema:"number of accepted memories flagged by the current redaction rules"`
+	ExpiryCandidateCount    int                             `json:"expiry_candidate_count" jsonschema:"number of accepted memories older than the staleness threshold"`
+	DuplicateCount          int                             `json:"duplicate_count" jsonschema:"number of accepted memories that share scope + fact with another row"`
+	SupersedeCandidateCount int                             `json:"supersede_candidate_count" jsonschema:"number of accepted memories paired by word-Jaccard similarity"`
+	Suggestions             []memoryHygieneSuggestionOutput `json:"suggestions" jsonschema:"per-memory hygiene suggestions"`
 }
 
 type memoryHygieneSuggestionOutput struct {
-	MemoryID          string `json:"memory_id" jsonschema:"memory identifier"`
-	Kind              string `json:"kind" jsonschema:"suggestion kind (redaction_hit / expiry_candidate / duplicate)"`
-	Reason            string `json:"reason" jsonschema:"human-readable reason the scanner flagged this memory"`
-	Fact              string `json:"fact" jsonschema:"stored fact at scan time"`
-	SanitizedFact     string `json:"sanitized_fact,omitempty" jsonschema:"masked fact the apply path would write via supersede"`
-	DuplicateMemoryID string `json:"duplicate_memory_id,omitempty" jsonschema:"paired duplicate when kind=duplicate"`
-	ScopeKind         string `json:"scope_kind,omitempty" jsonschema:"scope kind"`
-	ScopeValue        string `json:"scope_value,omitempty" jsonschema:"scope value"`
-	UpdatedAt         string `json:"updated_at" jsonschema:"last update timestamp (RFC3339)"`
+	MemoryID            string  `json:"memory_id" jsonschema:"memory identifier"`
+	Kind                string  `json:"kind" jsonschema:"suggestion kind (redaction_hit / expiry_candidate / duplicate / supersede_candidate)"`
+	Reason              string  `json:"reason" jsonschema:"human-readable reason the scanner flagged this memory"`
+	Fact                string  `json:"fact" jsonschema:"stored fact at scan time"`
+	SanitizedFact       string  `json:"sanitized_fact,omitempty" jsonschema:"masked fact the apply path would write via supersede"`
+	DuplicateMemoryID   string  `json:"duplicate_memory_id,omitempty" jsonschema:"paired duplicate when kind=duplicate"`
+	ReplacementMemoryID string  `json:"replacement_memory_id,omitempty" jsonschema:"newer memory whose fact is suggested as the supersede replacement"`
+	ReplacementFact     string  `json:"replacement_fact,omitempty" jsonschema:"fact the apply path would write via supersede"`
+	Similarity          float64 `json:"similarity,omitempty" jsonschema:"word-Jaccard similarity score (supersede_candidate only)"`
+	ScopeKind           string  `json:"scope_kind,omitempty" jsonschema:"scope kind"`
+	ScopeValue          string  `json:"scope_value,omitempty" jsonschema:"scope value"`
+	UpdatedAt           string  `json:"updated_at" jsonschema:"last update timestamp (RFC3339)"`
 }

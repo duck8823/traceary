@@ -295,11 +295,13 @@ Scan `accepted` durable memories and surface three kinds of hygiene suggestions 
 - `redaction_hit` — the current audit redaction rules mask content the stored fact still exposes (for example after the operator added a new extra pattern to `~/.config/traceary/config.json`). The suggestion carries `sanitized_fact` so a follow-up `memory supersede` call has a ready replacement.
 - `expiry_candidate` — the memory has not been updated for longer than `--expiry-days`; the operator may want to expire it.
 - `duplicate` — two or more `accepted` memories share the same scope + fact pair; one should supersede or expire the other.
+- `supersede_candidate` — two accepted memories in the same scope differ in text but share a word-Jaccard similarity at or above `--similarity` (default 0.6). The older memory is the supersede target; the newer memory's fact is the suggested replacement (`replacement_memory_id`, `replacement_fact`, `similarity`).
 
 Useful flags:
 
 - `--workspace` — scope filter (defaults to env/detected workspace; leave empty to scan every scope)
 - `--expiry-days` — staleness threshold in days (default 90)
+- `--similarity` — word-Jaccard threshold for supersede_candidate detection, between 0.0 and 1.0 (0 uses the built-in default 0.6)
 - `--json` — print JSON output with per-suggestion metadata
 
 ### `traceary memory hygiene apply`
@@ -309,6 +311,7 @@ Commit the lifecycle transition implied by each suggestion for the memories in `
 - `redaction_hit` → `supersede` with the sanitized fact, inheriting the existing scope / type / refs.
 - `expiry_candidate` → `expire` at the current time.
 - `duplicate` → `reject` the duplicate copy (pick the id whose partner you want to keep).
+- `supersede_candidate` → `supersede` with the newer memory's fact (scope / type / refs inherited from the older memory).
 
 Useful flags:
 

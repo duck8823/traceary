@@ -722,10 +722,11 @@ func (s *Server) scanMemoryHygiene() mcp.ToolHandlerFor[scanMemoryHygieneInput, 
 			return nil, memoryHygieneOutput{}, xerrors.Errorf("failed to scan memory hygiene: %w", err)
 		}
 		out := memoryHygieneOutput{
-			RedactionHitCount:    result.RedactionHitCount,
-			ExpiryCandidateCount: result.ExpiryCandidateCount,
-			DuplicateCount:       result.DuplicateCount,
-			Suggestions:          make([]memoryHygieneSuggestionOutput, 0, len(result.Suggestions)),
+			RedactionHitCount:       result.RedactionHitCount,
+			ExpiryCandidateCount:    result.ExpiryCandidateCount,
+			DuplicateCount:          result.DuplicateCount,
+			SupersedeCandidateCount: result.SupersedeCandidateCount,
+			Suggestions:             make([]memoryHygieneSuggestionOutput, 0, len(result.Suggestions)),
 		}
 		for _, suggestion := range result.Suggestions {
 			entry := memoryHygieneSuggestionOutput{
@@ -734,10 +735,15 @@ func (s *Server) scanMemoryHygiene() mcp.ToolHandlerFor[scanMemoryHygieneInput, 
 				Reason:        suggestion.Reason,
 				Fact:          suggestion.Fact,
 				SanitizedFact: suggestion.SanitizedFact,
+				Similarity:    suggestion.Similarity,
 				UpdatedAt:     suggestion.UpdatedAt.UTC().Format(time.RFC3339),
 			}
 			if suggestion.DuplicateMemoryID != "" {
 				entry.DuplicateMemoryID = suggestion.DuplicateMemoryID.String()
+			}
+			if suggestion.ReplacementMemoryID != "" {
+				entry.ReplacementMemoryID = suggestion.ReplacementMemoryID.String()
+				entry.ReplacementFact = suggestion.ReplacementFact
 			}
 			if suggestion.Scope != nil {
 				entry.ScopeKind = suggestion.Scope.Kind().String()
