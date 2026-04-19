@@ -148,6 +148,7 @@ func run() error {
 	extraRedactPatterns := cfg.ExtraRedactPatterns
 	defaultReadFields := cfg.ReadFields
 	readPresets := cfg.ReadPresets
+	defaultReadColor := cfg.ReadColor
 
 	eventUsecase := usecase.NewEventUsecase(eventDatasource, eventDatasource)
 	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource)
@@ -191,6 +192,7 @@ func run() error {
 		cli.WithExtraRedactPatterns(extraRedactPatterns),
 		cli.WithDefaultReadFields(defaultReadFields),
 		cli.WithReadPresets(readPresets),
+		cli.WithDefaultReadColor(defaultReadColor),
 		cli.WithDatabasePathSetter(db.SetPath),
 	).Command()
 	rootCmd.Version = versionString()

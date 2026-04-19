@@ -33,6 +33,7 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 		utc          bool
 		fields       []string
 		preset       string
+		color        string
 	)
 
 	searchCmd := &cobra.Command{
@@ -72,6 +73,8 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 				sessionIDSet:    cmd.Flags().Changed("session-id"),
 				repoSet:         cmd.Flags().Changed("workspace"),
 				failuresOnlySet: cmd.Flags().Changed("failures"),
+				color:           color,
+				colorSet:        cmd.Flags().Changed("color"),
 			})
 		},
 	}
@@ -101,6 +104,7 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 	searchCmd.Flags().BoolVar(&utc, "utc", false, Localize("print text timestamps in UTC instead of local time", "テキスト出力のタイムスタンプを現地時刻ではなく UTC で出力する"))
 	searchCmd.Flags().StringSliceVar(&fields, "fields", nil, readFieldsFlagUsage())
 	searchCmd.Flags().StringVar(&preset, "preset", "", readPresetsFlagUsage())
+	searchCmd.Flags().StringVar(&color, "color", "", readColorFlagUsage())
 
 	return searchCmd
 }
@@ -182,13 +186,25 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 	if err != nil {
 		return err
 	}
-	textOpts := eventTextFormatOptions{
-		wide:     input.wide,
-		utc:      input.utc,
-		location: input.location,
-		fields:   resolvedFields,
+	color, err := resolveColorMode(
+		input.color,
+		input.colorSet,
+		c.defaultReadColor,
+		input.wide || input.asJSON,
+		func() bool { return isTerminalWriter(output) },
+	)
+	if err != nil {
+		return err
 	}
-	extrasFor := c.makeCompactExtrasResolver(ctx, resolvedFields)
+	colorEnabled := color == colorModeOn
+	textOpts := eventTextFormatOptions{
+		wide:         input.wide,
+		utc:          input.utc,
+		location:     input.location,
+		fields:       resolvedFields,
+		colorEnabled: colorEnabled,
+	}
+	extrasFor := c.makeCompactExtrasResolver(ctx, resolvedFields, colorEnabled)
 	if err := writeEventsByFormat(output, events, input.asJSON, textOpts, extrasFor); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print search results", "検索結果の出力に失敗しました"), err)
 	}
