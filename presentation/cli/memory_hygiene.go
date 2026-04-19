@@ -19,10 +19,120 @@ const defaultHygieneExpiryDays = 90
 func (c *RootCLI) newMemoryHygieneCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "hygiene",
-		Short: Localize("Report durable-memory hygiene suggestions", "durable memory の hygiene 候補を報告する"),
+		Short: Localize("Report and apply durable-memory hygiene suggestions", "durable memory の hygiene 候補を報告・適用する"),
 	}
 	cmd.AddCommand(c.newMemoryHygieneScanCommand())
+	cmd.AddCommand(c.newMemoryHygieneApplyCommand())
 	return cmd
+}
+
+func (c *RootCLI) newMemoryHygieneApplyCommand() *cobra.Command {
+	input := memoryHygieneApplyCommandInput{expiryDays: defaultHygieneExpiryDays}
+	cmd := &cobra.Command{
+		Use:   "apply",
+		Short: Localize("Apply hygiene suggestions by memory id", "memory id を指定して hygiene 候補を適用する"),
+		Args:  noArgsLocalized(),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return c.runMemoryHygieneApply(cmd.Context(), cmd.OutOrStdout(), input)
+		},
+	}
+	cmd.Flags().StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
+	cmd.Flags().StringSliceVar(&input.ids, "ids", nil, Localize(
+		"comma-separated list of memory ids whose hygiene suggestion should be applied (repeatable)",
+		"適用対象の memory id をカンマ区切りで指定 (複数指定可)",
+	))
+	cmd.Flags().IntVar(&input.expiryDays, "expiry-days", defaultHygieneExpiryDays, Localize(
+		"number of days without update before a memory is considered an expiry candidate",
+		"expiry 候補として検出するまでの未更新日数",
+	))
+	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
+	return cmd
+}
+
+func (c *RootCLI) runMemoryHygieneApply(ctx context.Context, output io.Writer, input memoryHygieneApplyCommandInput) error {
+	if c.storeManagement == nil {
+		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+	}
+	if c.memoryHygiene == nil {
+		return xerrors.Errorf(Localize("memory hygiene usecase is not configured", "memory hygiene ユースケースが設定されていません"))
+	}
+	ids := normaliseInboxIDs(input.ids)
+	if len(ids) == 0 {
+		return xerrors.Errorf(Localize("--ids must list at least one memory id", "--ids に少なくとも1つの memory id を指定してください"))
+	}
+	if input.expiryDays <= 0 {
+		return xerrors.Errorf(Localize("--expiry-days must be greater than 0", "--expiry-days は 0 より大きい必要があります"))
+	}
+	if err := c.initializeStore(ctx, input.dbPath); err != nil {
+		return err
+	}
+	result, err := c.memoryHygiene.Apply(ctx, apptypes.MemoryHygieneApplyCriteria{
+		MemoryIDs:          ids,
+		StalenessThreshold: time.Duration(input.expiryDays) * 24 * time.Hour,
+	})
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to apply hygiene suggestions", "hygiene 候補の適用に失敗しました"), err)
+	}
+	return writeMemoryHygieneApplyResult(output, result, input.asJSON)
+}
+
+func writeMemoryHygieneApplyResult(output io.Writer, result apptypes.MemoryHygieneApplyResult, asJSON bool) error {
+	if asJSON {
+		encoder := json.NewEncoder(output)
+		encoder.SetEscapeHTML(false)
+		encoder.SetIndent("", "  ")
+		payload := struct {
+			Applied  []applyAppliedOutput  `json:"applied"`
+			Failures []applyFailureOutput  `json:"failures,omitempty"`
+		}{
+			Applied:  make([]applyAppliedOutput, 0, len(result.Applied)),
+			Failures: make([]applyFailureOutput, 0, len(result.Failures)),
+		}
+		for _, applied := range result.Applied {
+			payload.Applied = append(payload.Applied, applyAppliedOutput{
+				MemoryID:   applied.MemoryID,
+				Kind:       string(applied.Kind),
+				Transition: applied.Transition,
+				Status:     applied.Details.Summary().Status().String(),
+			})
+		}
+		for _, failure := range result.Failures {
+			payload.Failures = append(payload.Failures, applyFailureOutput{MemoryID: failure.MemoryID, Error: failure.Error})
+		}
+		if err := encoder.Encode(payload); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to encode hygiene apply result", "hygiene apply 結果の JSON 出力に失敗しました"), err)
+		}
+		return nil
+	}
+	if _, err := fmt.Fprintf(output, Localize(
+		"applied=%d failures=%d\n",
+		"適用=%d 失敗=%d\n",
+	), len(result.Applied), len(result.Failures)); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print hygiene apply summary", "hygiene apply サマリの出力に失敗しました"), err)
+	}
+	for _, applied := range result.Applied {
+		if _, err := fmt.Fprintf(output, "%s\t%s\t%s\t%s\n", applied.MemoryID, applied.Kind, applied.Transition, applied.Details.Summary().Status()); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print hygiene apply row", "hygiene apply 行の出力に失敗しました"), err)
+		}
+	}
+	for _, failure := range result.Failures {
+		if _, err := fmt.Fprintf(output, "FAILED\t%s\t%s\n", failure.MemoryID, failure.Error); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print hygiene apply failure", "hygiene apply 失敗行の出力に失敗しました"), err)
+		}
+	}
+	return nil
+}
+
+type applyAppliedOutput struct {
+	MemoryID   string `json:"memory_id"`
+	Kind       string `json:"kind"`
+	Transition string `json:"transition"`
+	Status     string `json:"status"`
+}
+
+type applyFailureOutput struct {
+	MemoryID string `json:"memory_id"`
+	Error    string `json:"error"`
 }
 
 func (c *RootCLI) newMemoryHygieneScanCommand() *cobra.Command {
@@ -104,8 +214,10 @@ func writeMemoryHygieneScanResult(output io.Writer, result apptypes.MemoryHygien
 		}
 		return nil
 	}
-	if _, err := fmt.Fprintf(output, "redaction_hits=%d expiry_candidates=%d duplicates=%d\n",
-		result.RedactionHitCount, result.ExpiryCandidateCount, result.DuplicateCount); err != nil {
+	if _, err := fmt.Fprintf(output, Localize(
+		"redaction_hits=%d expiry_candidates=%d duplicates=%d\n",
+		"redaction ヒット=%d expiry 候補=%d 重複=%d\n",
+	), result.RedactionHitCount, result.ExpiryCandidateCount, result.DuplicateCount); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print hygiene summary", "hygiene サマリの出力に失敗しました"), err)
 	}
 	for _, suggestion := range result.Suggestions {

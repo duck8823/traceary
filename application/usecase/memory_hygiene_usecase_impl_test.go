@@ -55,7 +55,7 @@ func TestMemoryHygieneScan_DetectsRedactionExpiryAndDuplicates(t *testing.T) {
 			acceptedSummaryAt(t, "mem-dup-2", scope, "prefer bulleted commits", now),
 		},
 	}
-	sut := usecase.NewMemoryHygieneUsecase(query, []string{`internal-token-\d+`})
+	sut := usecase.NewMemoryHygieneUsecase(&stubImportMemoryUsecase{}, query, []string{`internal-token-\d+`})
 
 	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{
 		StalenessThreshold: 90 * 24 * time.Hour,
@@ -79,7 +79,7 @@ func TestMemoryHygieneScan_EmptyStoreReturnsEmptyResult(t *testing.T) {
 	t.Parallel()
 
 	query := &stubMemoryQueryService{}
-	sut := usecase.NewMemoryHygieneUsecase(query, nil)
+	sut := usecase.NewMemoryHygieneUsecase(&stubImportMemoryUsecase{}, query, nil)
 
 	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{})
 	if err != nil {

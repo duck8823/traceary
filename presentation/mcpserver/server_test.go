@@ -779,6 +779,7 @@ CREATE INDEX idx_memory_artifact_refs_lookup
 	eventUsecase := usecase.NewEventUsecase(eventDatasource, eventDatasource)
 	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource)
 	memoryUsecase := usecase.NewMemoryUsecase(memoryDatasource, memoryDatasource, nil)
+	memoryHygieneUsecase := usecase.NewMemoryHygieneUsecase(memoryUsecase, memoryDatasource, nil)
 	contextUsecase := usecase.NewContextUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	storeManagementUsecase := usecase.NewStoreManagementUsecase(storeManagementDatasource)
 
@@ -788,6 +789,7 @@ CREATE INDEX idx_memory_artifact_refs_lookup
 		eventUsecase,
 		sessionUsecase,
 		memoryUsecase,
+		memoryHygieneUsecase,
 		contextUsecase,
 		storeManagementUsecase,
 	)

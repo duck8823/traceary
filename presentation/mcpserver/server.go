@@ -33,6 +33,7 @@ type Server struct {
 	event               usecase.EventUsecase
 	session             usecase.SessionUsecase
 	memory              usecase.MemoryUsecase
+	memoryHygiene       usecase.MemoryHygieneUsecase
 	context             usecase.ContextUsecase
 	storeManagement     usecase.StoreManagementUsecase
 }
@@ -44,6 +45,7 @@ func NewServer(
 	event usecase.EventUsecase,
 	session usecase.SessionUsecase,
 	memory usecase.MemoryUsecase,
+	memoryHygiene usecase.MemoryHygieneUsecase,
 	contextUsecase usecase.ContextUsecase,
 	storeManagement usecase.StoreManagementUsecase,
 ) (*Server, error) {
@@ -75,6 +77,7 @@ func NewServer(
 		event:               event,
 		session:             session,
 		memory:              memory,
+		memoryHygiene:       memoryHygiene,
 		context:             contextUsecase,
 		storeManagement:     storeManagement,
 	}, nil
@@ -195,6 +198,11 @@ func (s *Server) Build(ctx context.Context) (*mcp.Server, error) {
 		Description: "Batch reject candidate durable memories by id, mirroring `traceary memory inbox reject --ids`.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true)},
 	}, s.rejectMemoriesBatch())
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "scan_memory_hygiene",
+		Description: "Scan accepted memories for redaction / expiry / duplicate hygiene suggestions.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+	}, s.scanMemoryHygiene())
 
 	return server, nil
 }
@@ -669,6 +677,57 @@ func (s *Server) acceptMemoriesBatch() mcp.ToolHandlerFor[acceptMemoriesBatchInp
 				continue
 			}
 			out.Processed = append(out.Processed, newMemoryOutput(details))
+		}
+		return nil, out, nil
+	}
+}
+
+// scanMemoryHygiene exposes the hygiene scanner over MCP. The default
+// staleness threshold matches the CLI (90 days) so agent hosts and
+// operators see the same expiry cadence out of the box.
+func (s *Server) scanMemoryHygiene() mcp.ToolHandlerFor[scanMemoryHygieneInput, memoryHygieneOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, input scanMemoryHygieneInput) (*mcp.CallToolResult, memoryHygieneOutput, error) {
+		if s.memoryHygiene == nil {
+			return nil, memoryHygieneOutput{}, xerrors.Errorf("memory hygiene usecase is not configured")
+		}
+		criteria := apptypes.MemoryHygieneScanCriteria{}
+		if workspace := strings.TrimSpace(input.Workspace); workspace != "" {
+			resolvedWorkspace, err := types.WorkspaceOf(workspace)
+			if err != nil {
+				return nil, memoryHygieneOutput{}, xerrors.Errorf("failed to resolve workspace: %w", err)
+			}
+			criteria.Scopes = []types.MemoryScope{types.WorkspaceScopeOf(resolvedWorkspace)}
+		}
+		if input.ExpiryDays > 0 {
+			criteria.StalenessThreshold = time.Duration(input.ExpiryDays) * 24 * time.Hour
+		}
+		result, err := s.memoryHygiene.Scan(ctx, criteria)
+		if err != nil {
+			return nil, memoryHygieneOutput{}, xerrors.Errorf("failed to scan memory hygiene: %w", err)
+		}
+		out := memoryHygieneOutput{
+			RedactionHitCount:    result.RedactionHitCount,
+			ExpiryCandidateCount: result.ExpiryCandidateCount,
+			DuplicateCount:       result.DuplicateCount,
+			Suggestions:          make([]memoryHygieneSuggestionOutput, 0, len(result.Suggestions)),
+		}
+		for _, suggestion := range result.Suggestions {
+			entry := memoryHygieneSuggestionOutput{
+				MemoryID:      suggestion.MemoryID.String(),
+				Kind:          string(suggestion.Kind),
+				Reason:        suggestion.Reason,
+				Fact:          suggestion.Fact,
+				SanitizedFact: suggestion.SanitizedFact,
+				UpdatedAt:     suggestion.UpdatedAt.UTC().Format(time.RFC3339),
+			}
+			if suggestion.DuplicateMemoryID != "" {
+				entry.DuplicateMemoryID = suggestion.DuplicateMemoryID.String()
+			}
+			if suggestion.Scope != nil {
+				entry.ScopeKind = suggestion.Scope.Kind().String()
+				entry.ScopeValue = suggestion.Scope.Key()
+			}
+			out.Suggestions = append(out.Suggestions, entry)
 		}
 		return nil, out, nil
 	}

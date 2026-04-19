@@ -407,3 +407,14 @@ type memoryHygieneScanCommandInput struct {
 	expiryDays int
 	asJSON     bool
 }
+
+// memoryHygieneApplyCommandInput is the resolved input to
+// `traceary memory hygiene apply`. Ids reference memories seen in a
+// prior scan; the usecase re-scans internally to confirm the transition
+// is still appropriate before mutating state.
+type memoryHygieneApplyCommandInput struct {
+	dbPath     string
+	ids        []string
+	expiryDays int
+	asJSON     bool
+}

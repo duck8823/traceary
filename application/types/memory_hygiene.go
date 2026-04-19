@@ -63,3 +63,36 @@ type MemoryHygieneScanResult struct {
 	ExpiryCandidateCount int
 	DuplicateCount       int
 }
+
+// MemoryHygieneApplyCriteria carries the inputs to the apply path. Ids
+// reference memories the caller already saw in a Scan result; the
+// usecase re-runs the scan to make sure the transition still applies.
+type MemoryHygieneApplyCriteria struct {
+	MemoryIDs          []string
+	StalenessThreshold time.Duration
+	Now                time.Time
+}
+
+// MemoryHygieneApplyResult mirrors the inbox batch output shape so both
+// surfaces expose the same processed / failure breakdown.
+type MemoryHygieneApplyResult struct {
+	Applied  []MemoryHygieneApplied
+	Failures []MemoryHygieneApplyFailure
+}
+
+// MemoryHygieneApplied describes one memory that transitioned because of
+// an apply run. Kind / Transition tell the reviewer exactly what the
+// usecase did so they can re-inspect the store later.
+type MemoryHygieneApplied struct {
+	MemoryID   string
+	Kind       MemoryHygieneSuggestionKind
+	Transition string
+	Details    MemoryDetails
+}
+
+// MemoryHygieneApplyFailure reports per-id errors so the caller can
+// retry only the tail that failed.
+type MemoryHygieneApplyFailure struct {
+	MemoryID string
+	Error    string
+}

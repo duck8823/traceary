@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -14,6 +15,7 @@ import (
 )
 
 type memoryHygieneUsecase struct {
+	memory              MemoryUsecase
 	memoryQuery         queryservice.MemoryQueryService
 	extraRedactPatterns []string
 }
@@ -23,8 +25,9 @@ type memoryHygieneUsecase struct {
 // redaction pattern added to the config is detected uniformly: the scan
 // reports any memory whose sanitized fact differs from the stored fact,
 // which is exactly the set of memories a later supersede would rewrite.
-func NewMemoryHygieneUsecase(memoryQuery queryservice.MemoryQueryService, extraRedactPatterns []string) MemoryHygieneUsecase {
+func NewMemoryHygieneUsecase(memory MemoryUsecase, memoryQuery queryservice.MemoryQueryService, extraRedactPatterns []string) MemoryHygieneUsecase {
 	return &memoryHygieneUsecase{
+		memory:              memory,
 		memoryQuery:         memoryQuery,
 		extraRedactPatterns: slices.Clone(extraRedactPatterns),
 	}
@@ -59,14 +62,9 @@ func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.Memor
 		staleness = defaultStalenessThreshold
 	}
 
-	builder := apptypes.NewMemoryListCriteriaBuilder(hygieneScanPageSize).
-		Statuses([]domtypes.MemoryStatus{domtypes.MemoryStatusAccepted})
-	if len(criteria.Scopes) > 0 {
-		builder = builder.Scopes(criteria.Scopes)
-	}
-	summaries, err := u.memoryQuery.List(ctx, builder.Build())
+	summaries, err := u.loadAcceptedSummaries(ctx, criteria.Scopes)
 	if err != nil {
-		return apptypes.MemoryHygieneScanResult{}, xerrors.Errorf("failed to list accepted memories: %w", err)
+		return apptypes.MemoryHygieneScanResult{}, err
 	}
 
 	result := apptypes.MemoryHygieneScanResult{
@@ -121,8 +119,15 @@ func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.Memor
 
 		// Duplicate suggestion: group by scope + fact. Any bucket with
 		// more than one entry becomes a pair of suggestions so the
-		// reviewer sees both sides.
-		key := duplicateKey{ScopeKind: summary.Scope().Kind(), ScopeKey: summary.Scope().Key(), Fact: summary.Fact()}
+		// reviewer sees both sides. Summaries are expected to carry a
+		// non-nil scope (MemorySummaryOf rejects nil), but the scanner
+		// falls back to a sentinel key so a malformed row still surfaces
+		// in the duplicate bucket instead of panicking here.
+		key := duplicateKey{Fact: summary.Fact()}
+		if summary.Scope() != nil {
+			key.ScopeKind = summary.Scope().Kind()
+			key.ScopeKey = summary.Scope().Key()
+		}
 		duplicateIndex[key] = append(duplicateIndex[key], summary)
 	}
 
@@ -152,4 +157,136 @@ type duplicateKey struct {
 	ScopeKind domtypes.MemoryScopeKind
 	ScopeKey  string
 	Fact      string
+}
+
+// Apply walks the requested memory ids, re-scans to confirm the
+// transition is still appropriate, and applies the lifecycle verb that
+// matches the suggestion kind. Unknown or stale ids land in Failures so
+// the caller sees exactly which memories moved.
+func (u *memoryHygieneUsecase) Apply(ctx context.Context, criteria apptypes.MemoryHygieneApplyCriteria) (apptypes.MemoryHygieneApplyResult, error) {
+	if u.memory == nil {
+		return apptypes.MemoryHygieneApplyResult{}, xerrors.Errorf("memory usecase is not configured")
+	}
+	scanResult, err := u.Scan(ctx, apptypes.MemoryHygieneScanCriteria{
+		StalenessThreshold: criteria.StalenessThreshold,
+		Now:                criteria.Now,
+	})
+	if err != nil {
+		return apptypes.MemoryHygieneApplyResult{}, err
+	}
+	suggestionByID := make(map[string]apptypes.MemoryHygieneSuggestion, len(scanResult.Suggestions))
+	for _, suggestion := range scanResult.Suggestions {
+		// Prefer redaction_hit when the same id has multiple
+		// suggestions — rewriting the fact is the safer default
+		// because it also satisfies the duplicate / expiry reasons.
+		if existing, ok := suggestionByID[suggestion.MemoryID.String()]; ok {
+			if existing.Kind == apptypes.MemoryHygieneSuggestionRedactionHit {
+				continue
+			}
+		}
+		suggestionByID[suggestion.MemoryID.String()] = suggestion
+	}
+
+	result := apptypes.MemoryHygieneApplyResult{}
+	for _, rawID := range criteria.MemoryIDs {
+		trimmed := strings.TrimSpace(rawID)
+		if trimmed == "" {
+			continue
+		}
+		suggestion, ok := suggestionByID[trimmed]
+		if !ok {
+			result.Failures = append(result.Failures, apptypes.MemoryHygieneApplyFailure{
+				MemoryID: trimmed,
+				Error:    "no current hygiene suggestion for this memory",
+			})
+			continue
+		}
+		memoryID, err := domtypes.MemoryIDOf(trimmed)
+		if err != nil {
+			result.Failures = append(result.Failures, apptypes.MemoryHygieneApplyFailure{
+				MemoryID: trimmed,
+				Error:    err.Error(),
+			})
+			continue
+		}
+		applied, err := u.applyOne(ctx, memoryID, suggestion)
+		if err != nil {
+			result.Failures = append(result.Failures, apptypes.MemoryHygieneApplyFailure{
+				MemoryID: trimmed,
+				Error:    err.Error(),
+			})
+			continue
+		}
+		result.Applied = append(result.Applied, applied)
+	}
+	return result, nil
+}
+
+func (u *memoryHygieneUsecase) applyOne(ctx context.Context, memoryID domtypes.MemoryID, suggestion apptypes.MemoryHygieneSuggestion) (apptypes.MemoryHygieneApplied, error) {
+	switch suggestion.Kind {
+	case apptypes.MemoryHygieneSuggestionRedactionHit:
+		details, err := u.memory.Show(ctx, memoryID)
+		if err != nil {
+			return apptypes.MemoryHygieneApplied{}, xerrors.Errorf("failed to show memory: %w", err)
+		}
+		superseded, err := u.memory.Supersede(
+			ctx,
+			memoryID,
+			details.Summary().MemoryType(),
+			details.Summary().Scope(),
+			suggestion.SanitizedFact,
+			domtypes.Some(details.Summary().Confidence()),
+			details.Summary().Source(),
+			details.EvidenceRefs(),
+			details.ArtifactRefs(),
+		)
+		if err != nil {
+			return apptypes.MemoryHygieneApplied{}, xerrors.Errorf("failed to supersede memory: %w", err)
+		}
+		return apptypes.MemoryHygieneApplied{MemoryID: memoryID.String(), Kind: suggestion.Kind, Transition: "supersede", Details: superseded}, nil
+	case apptypes.MemoryHygieneSuggestionExpiryCandidate:
+		expired, err := u.memory.Expire(ctx, memoryID, domtypes.None[time.Time]())
+		if err != nil {
+			return apptypes.MemoryHygieneApplied{}, xerrors.Errorf("failed to expire memory: %w", err)
+		}
+		return apptypes.MemoryHygieneApplied{MemoryID: memoryID.String(), Kind: suggestion.Kind, Transition: "expire", Details: expired}, nil
+	case apptypes.MemoryHygieneSuggestionDuplicate:
+		rejected, err := u.memory.Reject(ctx, memoryID)
+		if err != nil {
+			return apptypes.MemoryHygieneApplied{}, xerrors.Errorf("failed to reject memory: %w", err)
+		}
+		return apptypes.MemoryHygieneApplied{MemoryID: memoryID.String(), Kind: suggestion.Kind, Transition: "reject", Details: rejected}, nil
+	default:
+		return apptypes.MemoryHygieneApplied{}, xerrors.Errorf("unknown suggestion kind: %s", suggestion.Kind)
+	}
+}
+
+// loadAcceptedSummaries walks every accepted memory in scope in
+// hygieneScanPageSize-sized pages so a store with more than one page
+// worth of memories is still scanned in full. The scan stops when the
+// datasource returns fewer rows than the requested page size.
+func (u *memoryHygieneUsecase) loadAcceptedSummaries(ctx context.Context, scopes []domtypes.MemoryScope) ([]apptypes.MemorySummary, error) {
+	var all []apptypes.MemorySummary
+	offset := 0
+	for {
+		builder := apptypes.NewMemoryListCriteriaBuilder(hygieneScanPageSize).
+			Offset(offset).
+			Statuses([]domtypes.MemoryStatus{domtypes.MemoryStatusAccepted})
+		if len(scopes) > 0 {
+			builder = builder.Scopes(scopes)
+		}
+		page, err := u.memoryQuery.List(ctx, builder.Build())
+		if err != nil {
+			return nil, xerrors.Errorf("failed to list accepted memories: %w", err)
+		}
+		if len(page) == 0 {
+			break
+		}
+		all = append(all, page...)
+		if len(page) < hygieneScanPageSize {
+			break
+		}
+		offset += hygieneScanPageSize
+	}
+	return all, nil
 }

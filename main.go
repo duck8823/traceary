@@ -158,7 +158,7 @@ func run() error {
 	memoryImportUsecase := usecase.NewMemoryImportUsecase(memoryUsecase, memoryDatasource, codexMemorySource, extraRedactPatterns)
 	memoryExportUsecase := usecase.NewMemoryExportUsecase(memoryDatasource)
 	memoryBridgeImportUsecase := usecase.NewMemoryBridgeImportUsecase(memoryUsecase, memoryDatasource, extraRedactPatterns)
-	memoryHygieneUsecase := usecase.NewMemoryHygieneUsecase(memoryDatasource, extraRedactPatterns)
+	memoryHygieneUsecase := usecase.NewMemoryHygieneUsecase(memoryUsecase, memoryDatasource, extraRedactPatterns)
 	contextUsecase := usecase.NewContextUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	storeManagementUsecase := usecase.NewStoreManagementUsecase(storeManagementDatasource)
 
@@ -168,6 +168,7 @@ func run() error {
 		eventUsecase,
 		sessionUsecase,
 		memoryUsecase,
+		memoryHygieneUsecase,
 		contextUsecase,
 		storeManagementUsecase,
 	)

@@ -302,6 +302,20 @@ Useful flags:
 - `--expiry-days` — staleness threshold in days (default 90)
 - `--json` — print JSON output with per-suggestion metadata
 
+### `traceary memory hygiene apply`
+
+Commit the lifecycle transition implied by each suggestion for the memories in `--ids`. The usecase re-runs the scan first so stale ids (memories the operator already resolved) land in the failure list instead of silently mutating state. Transitions applied:
+
+- `redaction_hit` → `supersede` with the sanitized fact, inheriting the existing scope / type / refs.
+- `expiry_candidate` → `expire` at the current time.
+- `duplicate` → `reject` the duplicate copy (pick the id whose partner you want to keep).
+
+Useful flags:
+
+- `--ids` — comma-separated memory ids (repeatable)
+- `--expiry-days` — staleness threshold used by the internal scan (default 90)
+- `--json` — print JSON output with per-id transition metadata
+
 ### `traceary memory export`
 
 Write the accepted durable memories for the current scope into a host-native instruction file (CLAUDE.md, AGENTS.md, or GEMINI.md). Output is deterministic and idempotent: re-running with unchanged memories produces a byte-identical file, and every Traceary-managed block is bracketed by `<!-- traceary-memories:begin:v1 -->` / `<!-- traceary-memories:end -->` markers so a later `memory import instructions` run can round-trip without creating duplicates.
