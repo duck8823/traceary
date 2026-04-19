@@ -28,6 +28,7 @@ func (c *RootCLI) newMemoryImportCommand() *cobra.Command {
 		Short: Localize("Import memories from host-native sources as durable-memory candidates", "ホスト固有ソースから durable memory の candidate を取り込む"),
 	}
 	cmd.AddCommand(c.newMemoryImportCodexCommand())
+	cmd.AddCommand(c.newMemoryImportInstructionsCommand())
 	return cmd
 }
 

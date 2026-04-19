@@ -374,3 +374,27 @@ type memoryInboxBatchCommandInput struct {
 	confidence string
 	asJSON     bool
 }
+
+// memoryExportCommandInput is the resolved input to `traceary memory
+// export`. The command always writes the markdown block to --out; the
+// usecase itself stays filesystem-free so tests can exercise the
+// rendering without touching the disk.
+type memoryExportCommandInput struct {
+	dbPath    string
+	target    string
+	workspace string
+	outPath   string
+	asJSON    bool
+}
+
+// memoryImportInstructionsCommandInput is the resolved input to
+// `traceary memory import instructions`. Path / Source are independent
+// of the Codex-memory import subcommand so operators can mix both in the
+// same workflow without flag collisions.
+type memoryImportInstructionsCommandInput struct {
+	dbPath    string
+	source    string
+	inPath    string
+	workspace string
+	asJSON    bool
+}
