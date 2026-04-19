@@ -71,8 +71,10 @@ claude plugins install traceary@traceary-plugins --scope user
 ```sh
 git clone https://github.com/duck8823/traceary ~/src/traceary
 cd ~/src/traceary
-traceary integration codex install
+codex   # then, inside Codex: /plugins -> Traceary Plugins -> Traceary
 ```
+
+The legacy `traceary integration codex install` helper still works as a transitional path for earlier Traceary releases, but is deprecated and will be removed no earlier than v0.8.0. See the [Codex plugin guide](./docs/integrations/codex-plugin.md) for migration details.
 
 **Gemini CLI** ([guide](./docs/integrations/gemini-extension.md))
 

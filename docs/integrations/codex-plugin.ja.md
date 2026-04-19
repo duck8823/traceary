@@ -2,87 +2,89 @@
 
 [English](./codex-plugin.md)
 
-Codex 向け package は `plugins/traceary/` にあります。
-Codex では、MCP / skill / slash command を載せる plugin 本体と、自動記録に使う `~/.codex/hooks.json` / `codex_hooks` の両方が必要になるため、Traceary ではそれをまとめて入れる `traceary integration codex ...` コマンドを用意しています。
+Traceary の Codex 向け plugin は `plugins/traceary/` にあり、Codex CLI 公式の `/plugins` flow に乗せて使えます。
+MCP server / slash command / session-history skill / session・prompt・audit の hook は、公式 flow で plugin を install した時点で自動配線されます。
 
-## 自動で組み込むもの
+## Codex 公式 /plugins flow で入れる (primary)
 
-- `traceary mcp-server` を使う `traceary` MCP server
-- `SessionStart`, `UserPromptSubmit`, `Stop`, `PostToolUse` hook
-- slash command の `/traceary:help` と `/traceary:doctor`
-- 文脈で効く `traceary-session-history` skill
-
-## ローカル checkout から install する
-
-Codex は現時点で Claude や Gemini のような公開 install CLI を持たないため、Traceary では plugin 本体と hooks をまとめて入れる専用の `traceary integration codex ...` 導線を用意しています。
-
-1. 先に Traceary CLI を入れます。
+1. 先に Traceary CLI を入れます（agent hook が `traceary` バイナリを呼ぶため）。
 
 ```sh
 brew tap duck8823/traceary https://github.com/duck8823/traceary
 brew install traceary
-# または
+# or
 GO111MODULE=on go install github.com/duck8823/traceary@latest
 ```
 
-2. この repository を安定した場所に clone します。
+2. このリポジトリを取得します。リポジトリは `.agents/plugins/marketplace.json` にローカル marketplace を持ち、`plugins/traceary/` に plugin 本体を持っています。
 
 ```sh
 git clone https://github.com/duck8823/traceary ~/src/traceary
 ```
 
-3. package 済み plugin を install し、Codex config と hooks もまとめて設定します。
+3. リポジトリ内で Codex を起動し、同梱 marketplace を発見させます。
 
 ```sh
 cd ~/src/traceary
-traceary integration codex install
+codex
 ```
 
-既定では、このコマンドが次を行います。
+4. Codex 内で `/plugins` を開き、marketplace として `Traceary Plugins` を選び、`Traceary` plugin を install します。Codex が plugin を管理下の cache に展開し、manifest に記述された hook を登録します。
 
-- `plugins/traceary/` を `~/.agents/plugins` 配下の local marketplace にコピー
-- `~/.codex/plugins/cache/local-traceary-plugins/traceary/local` に active plugin cache を配置
-- `~/.codex/config.toml` の `[plugins."traceary@local-traceary-plugins"]` を有効化
-- `[features].codex_hooks = true` を有効化
-- `~/.codex/hooks.json` に Traceary 用の hook 設定をマージ
+5. 新しい thread を開いて確認します。
 
-`traceary` が `PATH` にいない場合は `--traceary-bin /absolute/path/to/traceary` を付けてください。repository 外から実行する場合は `--repo-root /path/to/traceary` も指定できます。
+```sh
+traceary doctor --client codex --json
+```
 
-## Update
+## 公式 flow が自動で組み込むもの
+
+- `traceary mcp-server` を呼ぶ `traceary` MCP server
+- `SessionStart`, `UserPromptSubmit`, `Stop`, `PostToolUse` hook（`plugins/traceary/hooks.json` で宣言、manifest から参照）
+- slash command: `/traceary:help`, `/traceary:doctor`
+- 文脈に効く skill: `traceary-session-history`
+
+## 更新
+
+リポジトリを更新して、次回 Codex が `/plugins` をリフレッシュした時に新しいバージョンを取り込みます。
 
 ```sh
 cd ~/src/traceary
 git pull --ff-only
-traceary integration codex install
 ```
 
-## アンインストール
+plugin を一度外して入れ直したい場合は `/plugins` 画面から再インストールできます。
+
+## Doctor と smoke test
+
+プライマリなランタイム確認:
+
+```sh
+traceary doctor --client codex --json
+```
+
+maintainer 向けの構造確認（plugin manifest や hook、marketplace を変更したとき）:
+
+```sh
+python3 scripts/verify_integrations.py
+```
+
+## 旧 install（非推奨。互換目的のみ）
+
+`traceary integration codex install` は旧リリースから移行するユーザー向けの過渡的な経路として残してあります。stderr に deprecation banner を出し、**v0.8.0 以降のタイミングで削除予定**です。
+
+旧コマンドは従来どおり全工程を手動で行います — `~/.agents/plugins` に plugin をコピーし、`~/.codex/plugins/cache/local-traceary-plugins/traceary/local` にアクティブ cache を展開し、`~/.codex/config.toml` で plugin を有効化し、`~/.codex/hooks.json` に Traceary hook をマージします。stdout を parse している既存スクリプトはそのまま動作します（stderr の banner だけが新規）。
+
+### 旧 install からの移行手順
+
+1. 上記の公式 `/plugins` install を実行します。
+2. Codex 側で plugin が有効になったら、旧状態を 1 回だけ片付けます。
 
 ```sh
 cd ~/src/traceary
 traceary integration codex uninstall
 ```
 
-アンインストールでは Traceary の plugin cache、plugin config entry、Traceary が管理する Codex hook entry を外します。`[features].codex_hooks` は、他の hook 利用を壊さないため残します。
+uninstall 側はこの cleanup 用途のために意図的に残してあります。Traceary が入れた plugin cache、`~/.codex/config.toml` の `[plugins."traceary@local-traceary-plugins"]` エントリ、`~/.codex/hooks.json` の Traceary 管理下の hook だけを取り除き、ユーザー自身の hook や `[features].codex_hooks` フラグはそのまま残します。これで両経路が同時に有効な期間でも prompt / audit の二重記録を避けられます。
 
-## Doctor と smoke test
-
-実運用の確認は次を基本にします。
-
-```sh
-traceary doctor --client codex --json
-```
-
-package 自体の構造検証は次です。
-
-```sh
-python3 scripts/verify_integrations.py
-```
-
-この repository からの smoke test は次です。
-
-```sh
-./scripts/smoke_test_integrations.sh codex
-```
-
-Codex 向け smoke test は、CLI が作る plugin cache・config・hooks の状態を確認します。認証済みの環境で runtime probe まで見たい場合は `TRACEARY_ENABLE_CODEX_RUNTIME_SMOKE=1` を付けてください。
+`traceary integration codex install` と `traceary integration codex uninstall` は、どちらも v0.7.x の window 終了後に削除予定です。そのリリースライン内で移行を終わらせてください。

@@ -26,7 +26,7 @@ These packages all share the same runtime contract:
 | Host | Package root | Installed surface |
 | --- | --- | --- |
 | Claude Code | `integrations/claude-plugin/` | Claude marketplace rooted at `.claude-plugin/marketplace.json` |
-| Codex | `plugins/traceary/` | `traceary integration codex install` installs the plugin cache under `~/.codex/plugins/cache/...` and merges Traceary hooks into `~/.codex/hooks.json` |
+| Codex | `plugins/traceary/` | Installed via Codex CLI's official `/plugins` flow against the repo-local marketplace at `.agents/plugins/marketplace.json`; the plugin manifest declares the bundled `hooks.json` so Codex wires session / prompt / audit hooks automatically. `traceary integration codex install` remains as a deprecated compatibility path. |
 | Gemini CLI | `integrations/gemini-extension/` | Gemini extension archive rooted at `gemini-extension.json` |
 
 ## Per-host guides
@@ -46,4 +46,4 @@ The smoke-test script focuses on the installation surfaces that each host curren
 
 - Claude Code: marketplace validation + install into a temporary home
 - Gemini CLI: extension validation + link flow in a temporary home
-- Codex: `traceary integration codex install/uninstall` verification for the plugin cache, config, and hooks, plus an optional authenticated runtime probe
+- Codex: structural verification of the plugin manifest (`hooks: "./hooks.json"`, commands, skills) plus the deprecated `traceary integration codex install/uninstall` compatibility path (kept under smoke so the legacy migration route stays healthy during v0.7.x)
