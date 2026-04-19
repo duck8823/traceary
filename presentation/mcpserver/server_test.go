@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -359,6 +360,82 @@ func TestServer_BuildAndTools(t *testing.T) {
 		failures, _ := batchPayload["failures"].([]any)
 		if len(failures) != 1 {
 			t.Fatalf("expected 1 failure (not-a-real-id), got %d", len(failures))
+		}
+
+		// Accept one more candidate so the export has something concrete
+		// to serialise, then exercise the MCP bridge tools end-to-end.
+		bridgeProposeResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "propose_memory",
+			Arguments: map[string]any{
+				"type":      "preference",
+				"workspace": "github.com/duck8823/traceary",
+				"fact":      "Prefer concise PR descriptions",
+				"evidence_refs": []any{
+					map[string]any{"kind": "issue", "value": "#594"},
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(propose_memory) for bridge export error = %v", err)
+		}
+		bridgeMemoryID := extractJSONStringValue(t, bridgeProposeResult, "memory_id")
+		bridgeAcceptResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name:      "accept_memory",
+			Arguments: map[string]any{"memory_id": bridgeMemoryID},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(accept_memory) for bridge export error = %v", err)
+		}
+		if bridgeAcceptResult.IsError {
+			t.Fatalf("CallTool(accept_memory) for bridge export returned tool error")
+		}
+
+		exportResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "export_memories",
+			Arguments: map[string]any{
+				"target":    "claude",
+				"workspace": "github.com/duck8823/traceary",
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(export_memories) error = %v", err)
+		}
+		if exportResult.IsError {
+			t.Fatalf("CallTool(export_memories) returned tool error")
+		}
+		exportPayload := decodeJSONPayload(t, exportResult)
+		if got, _ := exportPayload["target"].(string); got != "claude" {
+			t.Fatalf("export target = %v, want claude", exportPayload["target"])
+		}
+		markdown, _ := exportPayload["markdown"].(string)
+		if markdown == "" {
+			t.Fatalf("export markdown must not be empty")
+		}
+		if !strings.Contains(markdown, "<!-- traceary-memories:begin:v1 -->") {
+			t.Fatalf("export markdown missing managed begin marker: %q", markdown)
+		}
+
+		importResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "import_memory_instructions",
+			Arguments: map[string]any{
+				"source":    "claude",
+				"markdown":  "# Project\n\n- prefer monospace fonts in the CLI output\n" + markdown,
+				"workspace": "github.com/duck8823/traceary",
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(import_memory_instructions) error = %v", err)
+		}
+		if importResult.IsError {
+			t.Fatalf("CallTool(import_memory_instructions) returned tool error")
+		}
+		importPayload := decodeJSONPayload(t, importResult)
+		imported, _ := importPayload["imported"].([]any)
+		// Only the free-form bullet outside the managed block becomes a
+		// candidate; the markdown we exported in-line is inside markers
+		// and must not produce a duplicate.
+		if len(imported) != 1 {
+			t.Fatalf("expected 1 imported candidate from the free-form bullet, got %d", len(imported))
 		}
 	})
 
@@ -780,6 +857,8 @@ CREATE INDEX idx_memory_artifact_refs_lookup
 	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource)
 	memoryUsecase := usecase.NewMemoryUsecase(memoryDatasource, memoryDatasource, nil)
 	memoryHygieneUsecase := usecase.NewMemoryHygieneUsecase(memoryUsecase, memoryDatasource, nil)
+	memoryExportUsecase := usecase.NewMemoryExportUsecase(memoryDatasource)
+	memoryBridgeImportUsecase := usecase.NewMemoryBridgeImportUsecase(memoryUsecase, memoryDatasource, nil)
 	contextUsecase := usecase.NewContextUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	storeManagementUsecase := usecase.NewStoreManagementUsecase(storeManagementDatasource)
 
@@ -790,6 +869,8 @@ CREATE INDEX idx_memory_artifact_refs_lookup
 		sessionUsecase,
 		memoryUsecase,
 		memoryHygieneUsecase,
+		memoryExportUsecase,
+		memoryBridgeImportUsecase,
 		contextUsecase,
 		storeManagementUsecase,
 	)

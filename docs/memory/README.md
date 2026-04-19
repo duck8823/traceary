@@ -108,6 +108,8 @@ still publish the current set of accepted memories into the host's own
 instruction file:
 
 - `traceary memory export --target <claude|codex|gemini> --out <path>`
+- `traceary memory import instructions --source <...> --in <path>`
+- MCP `export_memories` / `import_memory_instructions` (agent-driven)
 
 Export always wraps its output in `<!-- traceary-memories:begin:v1 -->` /
 `<!-- traceary-memories:end -->` markers so a subsequent `memory import

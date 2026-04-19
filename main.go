@@ -169,6 +169,8 @@ func run() error {
 		sessionUsecase,
 		memoryUsecase,
 		memoryHygieneUsecase,
+		memoryExportUsecase,
+		memoryBridgeImportUsecase,
 		contextUsecase,
 		storeManagementUsecase,
 	)
