@@ -15,6 +15,8 @@ type RootCLI struct {
 	memory              usecase.MemoryUsecase
 	memoryExtraction    usecase.MemoryExtractionUsecase
 	memoryImport        usecase.MemoryImportUsecase
+	memoryExport        usecase.MemoryExportUsecase
+	memoryBridgeImport  usecase.MemoryBridgeImportUsecase
 	context             usecase.ContextUsecase
 	codexIntegration    usecase.CodexIntegrationUsecase
 	storeManagement     usecase.StoreManagementUsecase
@@ -61,6 +63,20 @@ func WithMemoryExtraction(memoryExtraction usecase.MemoryExtractionUsecase) Root
 // subcommands (for example Codex MEMORY.md import).
 func WithMemoryImport(memoryImport usecase.MemoryImportUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.memoryImport = memoryImport }
+}
+
+// WithMemoryExport injects the MemoryExportUsecase used by `memory
+// export`, which serializes accepted memories into a host-specific
+// instruction file.
+func WithMemoryExport(memoryExport usecase.MemoryExportUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.memoryExport = memoryExport }
+}
+
+// WithMemoryBridgeImport injects the MemoryBridgeImportUsecase used by
+// `memory import instructions`, which parses host instruction files
+// into durable-memory candidates.
+func WithMemoryBridgeImport(importUsecase usecase.MemoryBridgeImportUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.memoryBridgeImport = importUsecase }
 }
 
 // WithContext injects the ContextUsecase used by structured handoff commands.

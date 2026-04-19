@@ -81,6 +81,21 @@ Use this when you want to surface memories written by another local agent as
 Traceary durable-memory candidates without merging the underlying stores:
 
 - `traceary memory import codex`
+- `traceary memory import instructions --source <claude|codex|gemini> --in <path>`
+
+### Bridge / export path
+
+Use this when you want Traceary to remain the local source of truth but
+still publish the current set of accepted memories into the host's own
+instruction file:
+
+- `traceary memory export --target <claude|codex|gemini> --out <path>`
+
+Export always wraps its output in `<!-- traceary-memories:begin:v1 -->` /
+`<!-- traceary-memories:end -->` markers so a subsequent `memory import
+instructions` run round-trips cleanly. Bullets added outside the managed
+block by the operator (or the host's own auto-memory feature) land in the
+inbox as candidates for review.
 
 Import reads the local Codex handbook (`~/.codex/memories/MEMORY.md` by
 default) and records each bullet under `## User preferences`, `## Reusable

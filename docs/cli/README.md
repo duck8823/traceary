@@ -288,6 +288,28 @@ Useful flags:
 - `--candidate-limit`
 - `--json`
 
+### `traceary memory export`
+
+Write the accepted durable memories for the current scope into a host-native instruction file (CLAUDE.md, AGENTS.md, or GEMINI.md). Output is deterministic and idempotent: re-running with unchanged memories produces a byte-identical file, and every Traceary-managed block is bracketed by `<!-- traceary-memories:begin:v1 -->` / `<!-- traceary-memories:end -->` markers so a later `memory import instructions` run can round-trip without creating duplicates.
+
+Useful flags:
+
+- `--target` — one of `claude`, `codex`, `gemini`
+- `--workspace` — scope filter (defaults to env/detected workspace)
+- `--out` — output path; pass `-` (or omit) to write to stdout
+- `--json` — print a summary of the export result in addition to writing the file
+
+### `traceary memory import instructions`
+
+Read a host instruction file (CLAUDE.md / AGENTS.md / GEMINI.md) and create `candidate` durable memories for every bullet outside the Traceary-managed block. Bullets inside the managed block are already represented in the store via export, so they are intentionally skipped.
+
+Useful flags:
+
+- `--source` — host that wrote the file (`claude` / `codex` / `gemini`)
+- `--in` — path to the instruction file
+- `--workspace` — scope assigned to imported candidates (defaults to env/detected workspace)
+- `--json` — print JSON output
+
 ### `traceary memory inbox`
 
 Review the durable-memory inbox. `list` surfaces `candidate` memories together with their evidence / artifact ref counts so a reviewer can judge provenance before accepting. `accept` and `reject` take a comma-separated id list via `--ids` and walk the list in order, returning a per-id success / failure breakdown so a partial batch never hides which entries transitioned.

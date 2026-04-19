@@ -162,7 +162,10 @@ func (u *memoryImportUsecase) loadExistingImportedIndex(
 
 	uniqueScopes := deduplicateScopes(candidates)
 	for _, scope := range uniqueScopes {
-		criteria := apptypes.NewMemoryListCriteriaBuilder(0).
+		// The real SQLite datasource requires limit >= 1; use the same
+		// page size the bridge dedupe path uses so both import surfaces
+		// share a ceiling (and never trip the datasource guard).
+		criteria := apptypes.NewMemoryListCriteriaBuilder(bridgeDedupePageSize).
 			Scope(scope).
 			Statuses(statuses).
 			Build()
