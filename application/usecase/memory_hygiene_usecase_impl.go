@@ -230,6 +230,14 @@ func detectSupersedeCandidates(summaries []apptypes.MemorySummary, duplicateBuck
 				older, newer := group[i], group[j]
 				if older.UpdatedAt().After(newer.UpdatedAt()) {
 					older, newer = newer, older
+				} else if older.UpdatedAt().Equal(newer.UpdatedAt()) {
+					// Tiebreak on memory id so two memories with the
+					// exact same updated_at (common when the store is
+					// bulk-imported in a single transaction) produce
+					// deterministic suggestions on every scan run.
+					if older.MemoryID().String() > newer.MemoryID().String() {
+						older, newer = newer, older
+					}
 				}
 				suggestions = append(suggestions, apptypes.MemoryHygieneSuggestion{
 					MemoryID:            older.MemoryID(),
