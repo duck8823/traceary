@@ -97,92 +97,92 @@ func (s *Server) Build(ctx context.Context) (*mcp.Server, error) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "add_log",
-		Description: "Add a log event to Traceary",
+		Description: "Add a log event, note, prompt, or compact summary.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
 	}, s.addLog())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "start_session",
-		Description: "Add a session_started event to Traceary",
+		Description: "Start a session and record a session_started event.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
 	}, s.startSession())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "end_session",
-		Description: "Add a session_ended event to Traceary",
+		Description: "End a session and record a session_ended event.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
 	}, s.endSession())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "latest_session",
-		Description: "Return the latest session matching the filters",
+		Description: "Get the latest session for resume or handoff by agent, client, or workspace.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.latestSession())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "active_session",
-		Description: "Return the active session matching the filters",
+		Description: "Get the active or open session for resume by agent, client, or workspace.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.activeSession())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_events",
-		Description: "List recent events in Traceary",
+		Description: "List recent events, logs, audits, prompts, and summaries.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.listEvents())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "add_audit",
-		Description: "Add a command audit event to Traceary",
+		Description: "Add a shell command audit log with redacted input and output.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
 	}, s.addAudit())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search",
-		Description: "Search events in Traceary",
+		Description: "Search events, logs, audits, prompts, and summaries by text, time, or workspace.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.search())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_context",
-		Description: "Get recent context events matching the filters",
+		Description: "Get recent context events, logs, audits, prompts, and summaries for a session or workspace.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.getContext())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "session_handoff",
-		Description: "Get a concise session summary for handoff or context resumption",
+		Description: "Get a session handoff summary for resume, context, memory, and recent commands.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.sessionHandoff())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "retrieve_memories",
-		Description: "Retrieve durable memories by ID, query, or scope filters",
+		Description: "Retrieve durable memories by ID, query, status, type, agent, or workspace.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.retrieveMemories())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "remember_memory",
-		Description: "Record an accepted durable memory",
+		Description: "Remember and record an accepted durable memory with evidence and artifacts.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
 	}, s.rememberMemory())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "propose_memory",
-		Description: "Record a candidate durable memory",
+		Description: "Propose and record a candidate durable memory for review.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
 	}, s.proposeMemory())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "accept_memory",
-		Description: "Accept a candidate durable memory",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
+		Description: "Accept a candidate durable memory and set confidence.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true)},
 	}, s.acceptMemory())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "reject_memory",
-		Description: "Reject a candidate durable memory",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
+		Description: "Reject a candidate durable memory from review.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true)},
 	}, s.rejectMemory())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "supersede_memory",
-		Description: "Replace an accepted durable memory with a new accepted memory",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
+		Description: "Supersede an accepted durable memory with a replacement memory.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true)},
 	}, s.supersedeMemory())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "expire_memory",
-		Description: "Expire a durable memory",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
+		Description: "Expire or retire a durable memory at a timestamp.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true)},
 	}, s.expireMemory())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "memory_pack",
-		Description: "Build a memory-aware context pack for prompt-context enrichment or automation",
+		Description: "Build a memory pack for prompt context, handoff, automation, and recent commands.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.memoryPack())
 
