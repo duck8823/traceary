@@ -208,6 +208,53 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("codex config with user-managed UserPromptSubmit warns", func(t *testing.T) {
+		codexDir := filepath.Join(homeDir, ".codex")
+		if err := os.MkdirAll(codexDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll() error = %v", err)
+		}
+		// User has a custom UserPromptSubmit hook that coincidentally
+		// carries "hook" and "codex" tokens. Doctor must still warn: a
+		// substring heuristic would misclassify this as a Traceary install.
+		userManaged := `{
+			"hooks": {
+				"SessionStart": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'session' 'codex' 'start'"}]}],
+				"UserPromptSubmit": [{"hooks": [{"type": "command", "command": "'/usr/local/bin/custom-cli' 'hook' 'prompt' 'codex'"}]}],
+				"Stop": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'session' 'codex' 'stop'"}]}],
+				"PostToolUse": [{"matcher": "", "hooks": [{"type": "command", "command": "'traceary' 'hook' 'audit' 'codex'"}]}]
+			}
+		}`
+		if err := os.WriteFile(filepath.Join(codexDir, "hooks.json"), []byte(userManaged), 0o644); err != nil {
+			t.Fatalf("WriteFile(user-managed codex hooks) error = %v", err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(codexDir) })
+
+		initStub := &storeManagementUsecaseStub{}
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--client", "codex", "--project-dir", projectDir, "--json"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		report := decodeDoctorReport(t, stdout.Bytes())
+		var codex doctorCheck
+		for _, check := range report.Checks {
+			if check.Name == "codex-config" {
+				codex = check
+			}
+		}
+		if codex.Status != "warn" {
+			t.Fatalf("codex-config status = %q, want warn (message: %q)", codex.Status, codex.Message)
+		}
+		if !bytes.Contains([]byte(codex.Message), []byte("UserPromptSubmit")) {
+			t.Fatalf("expected warn message to flag UserPromptSubmit, got %q", codex.Message)
+		}
+	})
+
 	t.Run("codex config with UserPromptSubmit passes", func(t *testing.T) {
 		codexDir := filepath.Join(homeDir, ".codex")
 		if err := os.MkdirAll(codexDir, 0o755); err != nil {

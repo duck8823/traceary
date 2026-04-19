@@ -74,6 +74,20 @@ The hook exits successfully without recording anything when:
 - the hook payload has no `tool_input.command`
 - a session ID cannot be resolved yet
 
+### Prompt hooks
+
+`traceary hook prompt <client>` records the user's instruction text as a `prompt` event so the full decision history — not just the tool audits downstream — is visible after the fact. Currently wired for:
+
+- Claude Code via the `UserPromptSubmit` hook
+- Codex CLI via the `UserPromptSubmit` hook (`codex-cli 0.121.0`+)
+
+The hook reads `prompt` out of the payload and stores it as-is; secret redaction is intentionally not applied because recording the user's intent verbatim is the core value of this capture. Callers who want to sanitize prompts must do so upstream of Traceary.
+
+The hook exits successfully without recording anything when:
+
+- the payload does not contain a `prompt` field
+- a session ID cannot be resolved yet
+
 ## Installation flow
 
 ### Generate config from CLI

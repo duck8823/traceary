@@ -15,6 +15,7 @@ import (
 
 	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/domain/types"
+	"github.com/duck8823/traceary/infrastructure/filesystem"
 )
 
 const (
@@ -325,6 +326,19 @@ func (c *RootCLI) inspectDoctorConfigFile(client string, outputPath string) doct
 // the v0.7 UserPromptSubmit rollout.
 var codexManagedEvents = []string{"SessionStart", "UserPromptSubmit", "Stop", "PostToolUse"}
 
+// codexManagedEventKeys maps each expected Codex event to the stable managed
+// key the Traceary hook runtime installs for it. The key is reused as the
+// single source of truth when comparing hooks.json entries against a real
+// Traceary install — a substring check on the command string would
+// misclassify user-managed commands that happen to contain "hook" and
+// "codex".
+var codexManagedEventKeys = map[string]string{
+	"SessionStart":     "traceary-session.sh:codex:start",
+	"UserPromptSubmit": "traceary-prompt.sh:codex",
+	"Stop":             "traceary-session.sh:codex:stop",
+	"PostToolUse":      "traceary-audit.sh:codex",
+}
+
 // missingTracearyManagedCodexEvents returns the subset of Traceary-managed
 // Codex events that do not have a Traceary-managed hook entry in the given
 // hooks.json content. Unknown / non-object JSON shapes are reported as an
@@ -339,19 +353,30 @@ func missingTracearyManagedCodexEvents(content []byte) []string {
 	}
 	missing := make([]string, 0, len(codexManagedEvents))
 	for _, event := range codexManagedEvents {
-		raw, ok := root.Hooks[event]
+		expectedKey, ok := codexManagedEventKeys[event]
 		if !ok {
+			continue
+		}
+		raw, present := root.Hooks[event]
+		if !present {
 			missing = append(missing, event)
 			continue
 		}
-		if !hasTracearyManagedCommand(raw) {
+		if !hasEntryWithManagedKey(raw, expectedKey) {
 			missing = append(missing, event)
 		}
 	}
 	return missing
 }
 
-func hasTracearyManagedCommand(raw json.RawMessage) bool {
+// hasEntryWithManagedKey reports whether the given hook-event entries
+// contain at least one command whose parsed Traceary managed key equals
+// expectedKey. Empty expectedKey always returns false so the caller cannot
+// accidentally match user-managed commands.
+func hasEntryWithManagedKey(raw json.RawMessage, expectedKey string) bool {
+	if expectedKey == "" {
+		return false
+	}
 	var entries []struct {
 		Hooks []struct {
 			Type    string `json:"type"`
@@ -366,10 +391,7 @@ func hasTracearyManagedCommand(raw json.RawMessage) bool {
 			if h.Type != "command" {
 				continue
 			}
-			if strings.Contains(h.Command, "'hook'") && strings.Contains(h.Command, "'codex'") {
-				return true
-			}
-			if strings.Contains(h.Command, `"hook"`) && strings.Contains(h.Command, `"codex"`) {
+			if filesystem.ExtractTracearyManagedKey(h.Command) == expectedKey {
 				return true
 			}
 		}
