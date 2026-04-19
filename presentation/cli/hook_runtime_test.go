@@ -515,6 +515,77 @@ func TestRootCLI_HookPromptCommand_PrefersPersistedWorkspaceOverEnvOverride(t *t
 	}
 }
 
+func TestRootCLI_HookPromptCommand_RecordsCodexPromptPayload(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-test-key"), []byte("codex-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-test-key-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	storeStub := &storeManagementUsecaseStub{}
+	eventStub := &eventUsecaseStub{
+		logEvent: model.EventOf(
+			types.EventID("evt-prompt"),
+			types.EventKindPrompt,
+			types.Client("hook"),
+			types.Agent("codex"),
+			types.SessionID("codex-session"),
+			types.Workspace("github.com/duck8823/traceary"),
+			"Implement feature",
+			time.Now(),
+		),
+	}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(storeStub),
+		cli.WithEvent(eventStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	// Payload mirrors the Codex 0.121.0 UserPromptSubmit schema: all
+	// required fields are present, transcript_path is explicitly null, and
+	// the runtime should ignore every non-prompt field.
+	rootCmd.SetIn(strings.NewReader(`{
+		"cwd": "/Users/user/repo",
+		"hook_event_name": "UserPromptSubmit",
+		"model": "gpt-5.4",
+		"permission_mode": "default",
+		"prompt": "Implement feature",
+		"session_id": "codex-session",
+		"transcript_path": null,
+		"turn_id": "turn-1"
+	}`))
+	rootCmd.SetArgs([]string{"hook", "prompt", "codex"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got, want := eventStub.logCall.kind, types.EventKindPrompt; got != want {
+		t.Fatalf("prompt log kind = %q, want %q", got, want)
+	}
+	if got, want := eventStub.logCall.message, "Implement feature"; got != want {
+		t.Fatalf("prompt log message = %q, want %q", got, want)
+	}
+	if got, want := eventStub.logCall.agent, types.Agent("codex"); got != want {
+		t.Fatalf("prompt log agent = %q, want %q", got, want)
+	}
+	if got, want := eventStub.logCall.sessionID, types.SessionID("codex-session"); got != want {
+		t.Fatalf("prompt log session = %q, want %q", got, want)
+	}
+}
+
 func TestRootCLI_HookCommand_SwallowsOperationalErrors(t *testing.T) {
 	storeStub := &storeManagementUsecaseStub{initErr: errors.New("boom")}
 	sessionStub := &sessionUsecaseStub{}

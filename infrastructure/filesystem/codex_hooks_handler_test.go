@@ -14,10 +14,32 @@ func TestCodexHooksHandler_Build(t *testing.T) {
 	handler := filesystem.NewCodexHooksHandler()
 	hooks := handler.Build("traceary")
 
-	wantEventOrder := []string{"SessionStart", "Stop", "PostToolUse"}
+	wantEventOrder := []string{"SessionStart", "UserPromptSubmit", "Stop", "PostToolUse"}
 	if diff := cmp.Diff(wantEventOrder, hooks.EventOrder()); diff != "" {
 		t.Fatalf("EventOrder() mismatch (-want +got):\n%s", diff)
 	}
+
+	t.Run("UserPromptSubmit references prompt runtime", func(t *testing.T) {
+		t.Parallel()
+
+		entries := hooks.Entries("UserPromptSubmit")
+		if diff := cmp.Diff(1, len(entries)); diff != "" {
+			t.Fatalf("len(UserPromptSubmit entries) mismatch (-want +got):\n%s", diff)
+		}
+		if _, ok := entries[0].Matcher().Value(); ok {
+			value, _ := entries[0].Matcher().Value()
+			t.Fatalf("UserPromptSubmit matcher should be empty, got %q", value)
+		}
+		if diff := cmp.Diff("traceary-prompt.sh:codex", entries[0].Commands()[0].ManagedKey()); diff != "" {
+			t.Fatalf("UserPromptSubmit managed key mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("traceary-prompt", entries[0].Commands()[0].Name()); diff != "" {
+			t.Fatalf("UserPromptSubmit name mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(`'traceary' 'hook' 'prompt' 'codex'`, entries[0].Commands()[0].Command()); diff != "" {
+			t.Fatalf("UserPromptSubmit command mismatch (-want +got):\n%s", diff)
+		}
+	})
 
 	t.Run("SessionStart has empty matcher", func(t *testing.T) {
 		t.Parallel()
