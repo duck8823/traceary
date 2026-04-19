@@ -117,6 +117,43 @@ func TestResolveReadPreset_UserDefinedWithInvalidKindRejected(t *testing.T) {
 	}
 }
 
+// TestResolveReadPreset_InvalidUnrelatedUserPresetDoesNotBlockOthers ensures
+// validation is scoped to the preset the caller asked for. Codex verifier
+// flagged on PR #580 that a single typo in one user-defined preset could
+// otherwise break every other preset.
+func TestResolveReadPreset_InvalidUnrelatedUserPresetDoesNotBlockOthers(t *testing.T) {
+	t.Parallel()
+
+	userDefined := map[string]presentation.ReadPreset{
+		"bad-fields": {Fields: []string{"bogus"}},
+		"good":       {Filters: presentation.ReadPresetFilters{Kind: "prompt"}},
+	}
+
+	preset, ok, err := resolveReadPreset("failures", userDefined, nil)
+	if err != nil {
+		t.Fatalf("built-in resolution should not be affected by an unrelated broken preset, got err = %v", err)
+	}
+	if !ok || preset.name != "failures" {
+		t.Fatalf("expected built-in failures preset, got %+v", preset)
+	}
+
+	preset, ok, err = resolveReadPreset("good", userDefined, nil)
+	if err != nil {
+		t.Fatalf("valid user preset should not be affected by an unrelated broken preset, got err = %v", err)
+	}
+	if !ok || !preset.filters.kindSet || preset.filters.kind != "prompt" {
+		t.Fatalf("expected good preset with kind=prompt, got %+v", preset)
+	}
+
+	_, _, err = resolveReadPreset("bad-fields", userDefined, nil)
+	if err == nil {
+		t.Fatalf("expected validation error for bad-fields, got nil")
+	}
+	if !strings.Contains(err.Error(), "bad-fields") {
+		t.Fatalf("error should name the requested preset, got %q", err.Error())
+	}
+}
+
 func TestApplyReadPresetToListInput_RespectsExplicitOverride(t *testing.T) {
 	t.Parallel()
 

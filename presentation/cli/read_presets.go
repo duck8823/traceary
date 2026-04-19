@@ -104,49 +104,56 @@ func resolveReadPreset(name string, userDefined map[string]presentation.ReadPres
 		return readPreset{}, false, nil
 	}
 
-	merged := builtinReadPresets()
+	builtin := builtinReadPresets()
 
-	// Warn for every user-defined preset that shadows a built-in name so
-	// operators can discover the collision from either a collision-aware
-	// command run or a doctor pass over the config. We collect first and
-	// emit in a stable sorted order to keep the message deterministic.
-	collisions := make([]string, 0)
-	for presetName, user := range userDefined {
-		if _, clash := merged[presetName]; clash {
-			collisions = append(collisions, presetName)
+	// Collision detection walks every user-defined entry but does NOT
+	// validate their payloads. A typo in one preset must not block an
+	// unrelated preset from resolving. The output order is sorted so the
+	// warning sequence stays stable regardless of Go's map iteration.
+	if warnWriter != nil {
+		collisions := make([]string, 0, len(userDefined))
+		for presetName := range userDefined {
+			if _, clash := builtin[presetName]; clash {
+				collisions = append(collisions, presetName)
+			}
 		}
-		converted, err := convertUserPreset(presetName, user)
+		if len(collisions) > 0 {
+			sort.Strings(collisions)
+			for _, collided := range collisions {
+				_, _ = fmt.Fprintf(
+					warnWriter,
+					Localize(
+						"[WARN] user-defined preset %q shadows a built-in preset of the same name\n",
+						"[WARN] ユーザー定義 preset %q が同名の built-in preset を上書きしています\n",
+					),
+					collided,
+				)
+			}
+		}
+	}
+
+	// User-defined entries win over built-ins on collision, so look them up
+	// first and only validate the one the caller asked for. This keeps an
+	// invalid unrelated entry from breaking every other preset.
+	if user, ok := userDefined[trimmed]; ok {
+		converted, err := convertUserPreset(trimmed, user)
 		if err != nil {
 			return readPreset{}, false, err
 		}
-		merged[presetName] = converted
+		return converted, true, nil
 	}
-	if warnWriter != nil && len(collisions) > 0 {
-		sort.Strings(collisions)
-		for _, collided := range collisions {
-			_, _ = fmt.Fprintf(
-				warnWriter,
-				Localize(
-					"[WARN] user-defined preset %q shadows a built-in preset of the same name\n",
-					"[WARN] ユーザー定義 preset %q が同名の built-in preset を上書きしています\n",
-				),
-				collided,
-			)
-		}
+	if preset, ok := builtin[trimmed]; ok {
+		return preset, true, nil
 	}
 
-	preset, ok := merged[trimmed]
-	if !ok {
-		return readPreset{}, false, xerrors.Errorf(
-			Localize(
-				"unknown preset %q (built-in presets: %s)",
-				"preset %q が見つかりません (built-in: %s)",
-			),
-			trimmed,
-			supportedBuiltinPresetsLabel(),
-		)
-	}
-	return preset, true, nil
+	return readPreset{}, false, xerrors.Errorf(
+		Localize(
+			"unknown preset %q (built-in presets: %s)",
+			"preset %q が見つかりません (built-in: %s)",
+		),
+		trimmed,
+		supportedBuiltinPresetsLabel(),
+	)
 }
 
 // convertUserPreset validates a user-defined preset against the closed
