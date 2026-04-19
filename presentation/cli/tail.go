@@ -336,13 +336,16 @@ func (c *RootCLI) runTail(ctx context.Context, warnWriter io.Writer, output io.W
 			return xerrors.Errorf("%s: %w", Localize("failed to list initial tail events", "tail 初期イベントの取得に失敗しました"), err)
 		}
 		slices.Reverse(initialEvents)
-		initialEvents = filterEventsBySessionPrefix(initialEvents, followSessionPrefix)
-		if err := writer.Write(initialEvents); err != nil {
-			return err
-		}
+		// Advance the cursor over the full (unfiltered) initial window so the
+		// polling loop below resumes after the last observed event even when
+		// --follow-session hides every row.
 		if len(initialEvents) > 0 {
 			cursor = newTailCursor(initialEvents[len(initialEvents)-1].CreatedAt())
 			cursor.Advance(initialEvents)
+		}
+		filteredInitial := filterEventsBySessionPrefix(initialEvents, followSessionPrefix)
+		if err := writer.Write(filteredInitial); err != nil {
+			return err
 		}
 	} else if err := writer.EnsureReady(); err != nil {
 		return err
@@ -361,14 +364,17 @@ func (c *RootCLI) runTail(ctx context.Context, warnWriter io.Writer, output io.W
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to poll tail events", "tail イベントのポーリングに失敗しました"), err)
 			}
-			newEvents = filterEventsBySessionPrefix(newEvents, followSessionPrefix)
-			if len(newEvents) == 0 {
+			// Advance over the full poll batch before --follow-session drops
+			// rows so the next poll window starts after the last observed
+			// event even when none of them match the prefix filter.
+			cursor.Advance(newEvents)
+			filteredEvents := filterEventsBySessionPrefix(newEvents, followSessionPrefix)
+			if len(filteredEvents) == 0 {
 				continue
 			}
-			if err := writer.Write(newEvents); err != nil {
+			if err := writer.Write(filteredEvents); err != nil {
 				return err
 			}
-			cursor.Advance(newEvents)
 		}
 	}
 }
