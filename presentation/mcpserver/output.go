@@ -122,3 +122,19 @@ type memoryRefOutput struct {
 	Kind  string `json:"kind" jsonschema:"reference kind"`
 	Value string `json:"value" jsonschema:"reference value"`
 }
+
+// inboxBatchMemoryOutput mirrors the CLI `memory inbox` batch summary so
+// agent hosts get the same action / success / failure breakdown from MCP
+// as an operator sees on stdout. Failures are keyed by the raw id the
+// caller supplied so retries can target only the memories that did not
+// transition.
+type inboxBatchMemoryOutput struct {
+	Action    string                          `json:"action" jsonschema:"batch action that was applied (accept or reject)"`
+	Processed []memoryOutput                  `json:"processed" jsonschema:"memories that transitioned successfully"`
+	Failures  []inboxBatchMemoryFailureOutput `json:"failures,omitempty" jsonschema:"memories that failed to transition"`
+}
+
+type inboxBatchMemoryFailureOutput struct {
+	MemoryID string `json:"memory_id" jsonschema:"requested memory identifier"`
+	Error    string `json:"error" jsonschema:"reason the memory did not transition"`
+}

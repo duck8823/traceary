@@ -179,6 +179,13 @@ func TestServer_ToolMetadata(t *testing.T) {
 				readOnly:    true,
 			},
 		},
+		{
+			name: "memory_inbox_batch",
+			want: toolMetadataExpectation{
+				description:     "Batch accept or reject candidate durable memories by id, mirroring the `traceary memory inbox` CLI review workflow.",
+				destructiveTrue: true,
+			},
+		},
 	}
 
 	actual := indexTools(listResult.Tools)

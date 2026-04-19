@@ -165,3 +165,13 @@ type expireMemoryInput struct {
 	MemoryID  string `json:"memory_id" jsonschema:"durable memory identifier"`
 	ExpiresAt string `json:"expires_at,omitempty" jsonschema:"expiry timestamp (YYYY-MM-DD or RFC3339, defaults to now)"`
 }
+
+// inboxBatchMemoryInput is the MCP input for the memory_inbox_batch tool.
+// Agent hosts call this to drive the same review workflow the CLI exposes
+// under `traceary memory inbox accept` and `reject`, so the schema keeps
+// the action / id list shape minimal and leaves confidence optional.
+type inboxBatchMemoryInput struct {
+	Action     string   `json:"action" jsonschema:"batch action to apply (accept or reject)"`
+	MemoryIDs  []string `json:"memory_ids" jsonschema:"candidate durable memory identifiers to process"`
+	Confidence string   `json:"confidence,omitempty" jsonschema:"accepted confidence (default: verified; ignored for reject)"`
+}
