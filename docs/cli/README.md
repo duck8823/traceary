@@ -288,6 +288,18 @@ Useful flags:
 - `--candidate-limit`
 - `--json`
 
+### `traceary memory import codex`
+
+Import durable-memory candidates from a local Codex memory layout — by default `~/.codex/memories/MEMORY.md`. Only the handbook file is read; raw memories and rollout summaries are intentionally skipped in this release. Each bullet under `## User preferences`, `## Reusable knowledge`, or `## Failures and how to do differently` becomes a `candidate` with `source=imported`, file evidence/artifact refs, and a scope resolved from the Codex `applies_to: cwd=...` hint (falling back to `--workspace` when the source file does not declare one). Sanitization runs on every imported fact, and nothing is auto-accepted. Re-running the command is idempotent: existing candidates (at any lifecycle status, including rejected) suppress a duplicate import so previously reviewed memories are never resurrected.
+
+Useful flags:
+
+- `--root` — Codex memory root (defaults to `~/.codex/memories`)
+- `--workspace` — fallback scope when the source file has no `applies_to` hint
+- `--watch` — keep polling instead of exiting after one run
+- `--interval` — polling interval when `--watch` is set (minimum 1s)
+- `--json`
+
 ### `traceary memory accept <memory-id>`
 
 Accept a candidate durable memory.

@@ -391,22 +391,7 @@ func (u *memoryUsecase) sanitizeMemoryPayload(
 	evidenceRefs []domtypes.EvidenceRef,
 	artifactRefs []domtypes.ArtifactRef,
 ) (string, []domtypes.EvidenceRef, []domtypes.ArtifactRef, error) {
-	extraRedactors, err := compileExtraRedactPatterns(u.extraRedactPatterns)
-	if err != nil {
-		return "", nil, nil, xerrors.Errorf("failed to compile extra redaction patterns: %w", err)
-	}
-
-	sanitizedFact, _ := redactAuditPayload(strings.TrimSpace(fact), extraRedactors)
-	sanitizedEvidenceRefs, err := sanitizeEvidenceRefs(evidenceRefs, extraRedactors)
-	if err != nil {
-		return "", nil, nil, err
-	}
-	sanitizedArtifactRefs, err := sanitizeArtifactRefs(artifactRefs, extraRedactors)
-	if err != nil {
-		return "", nil, nil, err
-	}
-
-	return sanitizedFact, sanitizedEvidenceRefs, sanitizedArtifactRefs, nil
+	return sanitizeMemoryPayload(fact, evidenceRefs, artifactRefs, u.extraRedactPatterns)
 }
 
 func sanitizeEvidenceRefs(refs []domtypes.EvidenceRef, extraRedactors []auditPayloadRedactor) ([]domtypes.EvidenceRef, error) {

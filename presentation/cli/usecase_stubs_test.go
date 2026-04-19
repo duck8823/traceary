@@ -235,6 +235,17 @@ func (s *memoryExtractionUsecaseStub) Extract(_ context.Context, criteria apptyp
 	return s.details, s.err
 }
 
+type memoryImportUsecaseStub struct {
+	result apptypes.MemoryImportResult
+	err    error
+	calls  []apptypes.CodexImportCriteria
+}
+
+func (s *memoryImportUsecaseStub) ImportCodex(_ context.Context, criteria apptypes.CodexImportCriteria) (apptypes.MemoryImportResult, error) {
+	s.calls = append(s.calls, criteria)
+	return s.result, s.err
+}
+
 type memoryUsecaseStub struct {
 	listResult       []apptypes.MemorySummary
 	listErr          error
