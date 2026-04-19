@@ -286,6 +286,20 @@ func (c *RootCLI) inspectDoctorConfigFile(client string, outputPath string) doct
 	}
 
 	if hasTracearyManagedHook {
+		if client == "codex" {
+			if missing := missingTracearyManagedCodexEvents(content); len(missing) > 0 {
+				return doctorCheck{
+					Name:   client + "-config",
+					Status: doctorStatusWarn,
+					Message: localizef(
+						"codex config is missing Traceary-managed events (%s); run `traceary hooks install --client codex` to fix: %s",
+						"codex の設定に Traceary 管理下の event が不足しています (%s)。`traceary hooks install --client codex` で修復できます: %s",
+						strings.Join(missing, ", "),
+						outputPath,
+					),
+				}
+			}
+		}
 		return doctorCheck{
 			Name:    client + "-config",
 			Status:  doctorStatusPass,
@@ -304,6 +318,63 @@ func (c *RootCLI) inspectDoctorConfigFile(client string, outputPath string) doct
 			outputPath,
 		),
 	}
+}
+
+// codexManagedEvents is the canonical list of hook events Traceary installs
+// into Codex CLI. Doctor uses this to flag a partial install that predates
+// the v0.7 UserPromptSubmit rollout.
+var codexManagedEvents = []string{"SessionStart", "UserPromptSubmit", "Stop", "PostToolUse"}
+
+// missingTracearyManagedCodexEvents returns the subset of Traceary-managed
+// Codex events that do not have a Traceary-managed hook entry in the given
+// hooks.json content. Unknown / non-object JSON shapes are reported as an
+// empty slice so the outer inspector branch (which already checked hook
+// shape) remains authoritative.
+func missingTracearyManagedCodexEvents(content []byte) []string {
+	var root struct {
+		Hooks map[string]json.RawMessage `json:"hooks"`
+	}
+	if err := json.Unmarshal(content, &root); err != nil {
+		return nil
+	}
+	missing := make([]string, 0, len(codexManagedEvents))
+	for _, event := range codexManagedEvents {
+		raw, ok := root.Hooks[event]
+		if !ok {
+			missing = append(missing, event)
+			continue
+		}
+		if !hasTracearyManagedCommand(raw) {
+			missing = append(missing, event)
+		}
+	}
+	return missing
+}
+
+func hasTracearyManagedCommand(raw json.RawMessage) bool {
+	var entries []struct {
+		Hooks []struct {
+			Type    string `json:"type"`
+			Command string `json:"command"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		for _, h := range entry.Hooks {
+			if h.Type != "command" {
+				continue
+			}
+			if strings.Contains(h.Command, "'hook'") && strings.Contains(h.Command, "'codex'") {
+				return true
+			}
+			if strings.Contains(h.Command, `"hook"`) && strings.Contains(h.Command, `"codex"`) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func inspectDoctorPluginPackage(projectDir string) doctorCheck {
