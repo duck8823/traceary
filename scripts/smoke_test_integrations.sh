@@ -58,6 +58,8 @@ run_codex() {
   test -f "${tmp_marketplace_root}/marketplace.json"
   test -f "${tmp_codex_home}/plugins/cache/local-traceary-plugins/traceary/local/.codex-plugin/plugin.json"
   test -f "${tmp_codex_home}/hooks.json"
+  grep -q 'UserPromptSubmit' "${tmp_codex_home}/hooks.json"
+  grep -q "'hook' 'prompt' 'codex'" "${tmp_codex_home}/hooks.json"
   grep -q 'codex_hooks = true' "${tmp_codex_home}/config.toml"
   grep -q 'traceary@local-traceary-plugins' "${tmp_codex_home}/config.toml"
   go run . integration codex uninstall \

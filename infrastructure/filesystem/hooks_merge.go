@@ -96,6 +96,15 @@ func isTracearyManagedHookCommandDocument(command hookCommandDocument, desiredDi
 
 var tracearyHookScriptPattern = regexp.MustCompile(`traceary-(session|audit|compact|prompt)\.sh`)
 
+// ExtractTracearyManagedKey is the exported counterpart of
+// extractTracearyManagedKey. Higher-level diagnostics (for example
+// `traceary doctor`) need to tell Traceary-managed hook commands apart from
+// user-managed ones without re-implementing the parser, and this wrapper
+// keeps that parser as the single source of truth.
+func ExtractTracearyManagedKey(commandValue string) string {
+	return extractTracearyManagedKey(commandValue)
+}
+
 // extractTracearyManagedKey returns the stable managed key (scriptName + args
 // joined with ":") for a raw command string if and only if the command is a
 // Traceary-managed hook invocation. Returns an empty string for unrelated

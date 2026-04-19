@@ -10,6 +10,16 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'traceary' 'hook' 'prompt' 'codex'"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

@@ -82,6 +82,12 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 		if diff := cmp.Diff((*string)(nil), settings.Hooks["SessionStart"][0].Matcher); diff != "" {
 			t.Fatalf("SessionStart matcher mismatch (-want +got):\n%s", diff)
 		}
+		if diff := cmp.Diff((*string)(nil), settings.Hooks["UserPromptSubmit"][0].Matcher); diff != "" {
+			t.Fatalf("UserPromptSubmit matcher mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(`'/tmp/traceary bin/traceary' 'hook' 'prompt' 'codex'`, settings.Hooks["UserPromptSubmit"][0].Hooks[0].Command); diff != "" {
+			t.Fatalf("UserPromptSubmit command mismatch (-want +got):\n%s", diff)
+		}
 		if diff := cmp.Diff("", *settings.Hooks["PostToolUse"][0].Matcher); diff != "" {
 			t.Fatalf("PostToolUse matcher mismatch (-want +got):\n%s", diff)
 		}

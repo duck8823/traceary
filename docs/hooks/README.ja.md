@@ -74,6 +74,20 @@ host ごとのネイティブ連携パッケージを使いたい場合は、ま
 - hook payload に `tool_input.command` が無い
 - まだ session ID を解決できない
 
+### Prompt hooks
+
+`traceary hook prompt <client>` は、ユーザーが送ったプロンプト本文を `prompt` イベントとして記録します。tool audit だけでは見えない「なぜその操作に至ったか」の判断履歴を残せます。現時点で配線されているのは:
+
+- Claude Code の `UserPromptSubmit`
+- Codex CLI (`codex-cli 0.121.0` 以降) の `UserPromptSubmit`
+
+payload の `prompt` フィールドをそのまま記録し、redaction は適用しません。ユーザーの意図を正確に残すのが目的なので、サニタイズが必要な場合は Traceary の手前で行ってください。
+
+次の場合、hook は何も記録せず成功終了します。
+
+- payload に `prompt` フィールドが無い
+- まだ session ID を解決できない
+
 ## 導入フロー
 
 ### CLI で設定を出力する

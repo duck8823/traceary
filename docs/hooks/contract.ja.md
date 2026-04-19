@@ -24,6 +24,7 @@
 | Hook イベント | Matcher | 動作 |
 |---|---|---|
 | SessionStart | (全て) | セッション開始を記録 |
+| UserPromptSubmit | (全て) | ユーザーの指示テキストを記録 |
 | Stop | (全て) | セッション終了を記録 |
 | PostToolUse | (全て) | ツール監査を記録 |
 

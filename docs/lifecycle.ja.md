@@ -26,16 +26,17 @@ SessionStart → [UserPromptSubmit → PostToolUse]* → (PreCompact → PostCom
 ### Codex CLI (Tier 2: 部分対応)
 
 ```
-SessionStart → [PostToolUse]* → Stop
+SessionStart → [UserPromptSubmit → PostToolUse]* → Stop
 ```
 
 | Hook イベント | Traceary イベント種別 | 説明 |
 |---|---|---|
 | SessionStart | `session_started` | セッション開始 |
+| UserPromptSubmit | `prompt` | ユーザーの指示テキスト |
 | PostToolUse | `command_executed` | ツール実行 |
 | Stop | `session_ended` | セッション終了（`SessionEnd` ではなく `Stop` を使う） |
 
-**制限**: `compact` hook はなく、`prompt` も記録できません。failure 専用イベントもありません。
+**制限**: `compact` hook はなく、failure 専用イベントもありません。
 
 ### Gemini CLI (Tier 3: 基本対応)
 
