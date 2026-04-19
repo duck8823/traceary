@@ -25,8 +25,9 @@ func TestRootCLI_IntegrationCodexInstallCommand(t *testing.T) {
 
 	rootCmd := newTestRootCLI(cli.WithCodexIntegration(stub)).Command()
 	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetErr(stderr)
 	rootCmd.SetArgs([]string{
 		"integration",
 		"codex",
@@ -55,6 +56,52 @@ func TestRootCLI_IntegrationCodexInstallCommand(t *testing.T) {
 	}
 	if diff := cmp.Diff(true, strings.Contains(stdout.String(), "enabled plugin id traceary@local-traceary-plugins")); diff != "" {
 		t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
+	}
+	// Deprecation banner goes to stderr so scripts that parse stdout for
+	// install result paths keep working.
+	if !strings.Contains(stderr.String(), "DEPRECATED") {
+		t.Fatalf("stderr missing deprecation banner, got %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "/plugins") {
+		t.Fatalf("stderr deprecation banner should point at /plugins flow, got %q", stderr.String())
+	}
+}
+
+func TestRootCLI_IntegrationCodexUninstallCommand_NoDeprecationBanner(t *testing.T) {
+	stub := &codexIntegrationUsecaseStub{
+		uninstallResult: apptypes.CodexIntegrationUninstallResultOf(
+			"/tmp/agents/plugins/plugins/traceary",
+			true,
+			"/tmp/agents/plugins/marketplace.json",
+			"/tmp/.codex/plugins/cache/local-traceary-plugins/traceary",
+			false,
+			"/tmp/.codex/config.toml",
+			"/tmp/.codex/hooks.json",
+			true,
+		),
+	}
+
+	rootCmd := newTestRootCLI(cli.WithCodexIntegration(stub)).Command()
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(stderr)
+	rootCmd.SetArgs([]string{
+		"integration",
+		"codex",
+		"uninstall",
+		"--codex-home", "/tmp/.codex",
+		"--marketplace-root", "/tmp/agents/plugins",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	// Uninstall stays migration-friendly: it is the cleanup path legacy
+	// users actually need, so it must not print a deprecation banner.
+	if strings.Contains(stderr.String(), "DEPRECATED") {
+		t.Fatalf("uninstall unexpectedly printed a deprecation banner on stderr: %q", stderr.String())
 	}
 }
 

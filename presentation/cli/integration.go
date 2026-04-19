@@ -41,9 +41,10 @@ func (c *RootCLI) newIntegrationCodexInstallCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "install",
-		Short: Localize("Install the packaged Codex integration into the local Codex runtime", "Codex 向けの連携パッケージをローカルの Codex runtime に組み込む"),
+		Short: Localize("Install the packaged Codex integration (deprecated; use Codex's /plugins flow)", "Codex 連携パッケージを組み込む (非推奨。Codex 公式の /plugins flow を使ってください)"),
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), codexIntegrationInstallDeprecationNotice())
 			return c.runIntegrationCodexInstall(cmd.Context(), cmd.OutOrStdout(), integrationCodexInstallCommandInput{
 				repoRoot:        repoRoot,
 				codexHome:       codexHome,
@@ -79,6 +80,17 @@ func (c *RootCLI) newIntegrationCodexUninstallCommand() *cobra.Command {
 	cmd.Flags().StringVar(&codexHome, "codex-home", "", Localize("Codex home directory (defaults to ~/.codex)", "Codex home ディレクトリ (既定値: ~/.codex)"))
 	cmd.Flags().StringVar(&marketplaceRoot, "marketplace-root", "", Localize("local marketplace root (defaults to ~/.agents/plugins)", "local marketplace root (既定値: ~/.agents/plugins)"))
 	return cmd
+}
+
+// codexIntegrationInstallDeprecationNotice returns the deprecation banner
+// printed to stderr before the legacy `traceary integration codex install`
+// command runs. The banner stays on stderr so scripts that already parse
+// stdout for install results keep working unchanged.
+func codexIntegrationInstallDeprecationNotice() string {
+	return Localize(
+		"DEPRECATED: 'traceary integration codex install' is a legacy compatibility path. Use Codex's official /plugins flow instead: run 'codex' inside this repository, open '/plugins', and install 'Traceary' from 'Traceary Plugins'. This command will be removed no earlier than v0.8.0. If you migrate from an older install, run 'traceary integration codex uninstall' once after the official install to remove legacy cache/config/hooks and avoid duplicate recordings.",
+		"非推奨: 'traceary integration codex install' は旧互換の導入経路です。今後は Codex 公式の /plugins flow を使ってください: この repository 上で 'codex' を起動し、'/plugins' を開き、'Traceary Plugins' から 'Traceary' を install してください。このコマンドは v0.8.0 より前には削除しませんが、それ以降で削除予定です。旧 install からの移行時は、official install 完了後に 'traceary integration codex uninstall' を 1 回実行して legacy cache/config/hooks を掃除し、二重記録を防いでください。",
+	)
 }
 
 type integrationCodexInstallCommandInput struct {
