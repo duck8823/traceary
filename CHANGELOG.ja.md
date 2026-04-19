@@ -5,6 +5,29 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.7.1] - 2026-04-20
+
+v0.7 の Multi-AI レビューと v0.7.0 リリース workflow で洗い出された穴を塞ぐ patch リリースです。
+
+### 追加
+- `traceary memory hygiene scan --similarity <N>` に新 suggestion kind `supersede_candidate` を追加。同 scope で fact text は異なるが単語 Jaccard 類似度が閾値 (既定 0.6) 以上のペアを検出し、古い方を supersede 対象、新しい方の fact を置換テキストとして提案 (`replacement_memory_id` / `replacement_fact` / `similarity`)。`memory hygiene apply --ids` は `MemoryUsecase.Supersede` 経由で scope / type / refs を継承しつつ置換を適用。
+- MCP `export_memories` (read-only) を追加。accepted memory を CLAUDE.md / AGENTS.md / GEMINI.md 形式の markdown として返し、agent host からファイルシステム経由でなくとも bridge を扱えるように。MCP `import_memory_instructions` は path / inline markdown のいずれかを受け取り candidate を propose する。
+
+### 変更
+- Bridge marker parser が `:v<N>` 形式の任意バージョンを regex でマッチするようになり、binary の既知最大版を超える `:v<N>` は警告を出す。exporter は引き続き `:v1` を書き出し、CLI の merge helper は新しいブロックを古いバイナリで上書きできないよう refuse するので、将来の `:v2` コンテンツが静かに失われることはない。
+- Release workflow の umbrella auto-close matcher が、push された tag が `vX.Y.0` 形式のときに minor-version の title prefix (`v0.7: ...`) も受理するように拡張。将来の minor リリースで umbrella が自動 close される。
+
+### 修正
+- release workflow の `git tag` validation が `${{ inputs.tag }}` を shell へ直接展開していた GitHub Actions injection 形状を env 経由に変更。
+- `mergeMemoryExportIntoExistingFile` の marker regex に行頭アンカーを追加し、prose (例: 手書きドキュメント内で marker 文字列に言及しているケース) が managed block として誤認されないように。
+- `import_memory_instructions` MCP tool の annotation を `DestructiveHint: false` に修正 (`propose_memory` と同様、candidate を追加する additive write)。
+
+### 対応 issue
+- #592 v0.7.1-1 release workflow matcher
+- #593 v0.7.1-2 similarity-based supersede suggestion
+- #594 v0.7.1-3 MCP export / import instructions tools
+- #595 v0.7.1-4 bridge marker `:v<N>` forward-compat parsing
+
 ## [v0.7.0] - 2026-04-20
 
 Codex 標準化 + durable-memory governance リリースです。read UX (configurable columns / preset / color highlight / session follow) を進めつつ、Codex と subagent lineage の一級 capture を追加し、durable memory を inbox review / host ファイル双方向 bridge / hygiene ツールを備えた governed substrate に昇格させました。
