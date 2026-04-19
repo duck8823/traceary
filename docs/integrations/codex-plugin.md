@@ -2,24 +2,12 @@
 
 [日本語](./codex-plugin.ja.md)
 
-The Codex package lives under `plugins/traceary/`.
-Traceary installs it through a first-class CLI entrypoint because Codex needs two different pieces for the full experience:
+Traceary ships a Codex plugin under `plugins/traceary/` that plugs into Codex CLI's official `/plugins` flow.
+Codex picks up the MCP server, the slash commands, the session-history skill, and the session / prompt / audit hooks automatically as soon as the plugin is installed through the official flow.
 
-- the plugin itself for MCP, skills, and slash-style commands
-- `~/.codex/hooks.json` plus `codex_hooks` for automatic session / prompt / audit recording
+## Install via Codex's official /plugins flow (primary)
 
-## What it wires automatically
-
-- `traceary` MCP server via `traceary mcp-server`
-- `SessionStart`, `UserPromptSubmit`, `Stop`, and `PostToolUse` hooks
-- slash commands: `/traceary:help` and `/traceary:doctor`
-- contextual skill: `traceary-session-history`
-
-## Install from a local checkout
-
-Codex does not currently expose a public plugin-install CLI equivalent to Claude or Gemini, so Traceary ships a dedicated `traceary integration codex ...` flow that installs both the plugin runtime and the Traceary hook wiring.
-
-1. Install the Traceary CLI first.
+1. Install the Traceary CLI first — agent hooks invoke the `traceary` binary.
 
 ```sh
 brew tap duck8823/traceary https://github.com/duck8823/traceary
@@ -28,46 +16,44 @@ brew install traceary
 GO111MODULE=on go install github.com/duck8823/traceary@latest
 ```
 
-2. Clone this repository somewhere stable.
+2. Clone this repository somewhere stable. The repository ships a local Codex marketplace at `.agents/plugins/marketplace.json` plus the plugin itself under `plugins/traceary/`.
 
 ```sh
 git clone https://github.com/duck8823/traceary ~/src/traceary
 ```
 
-3. Install the packaged plugin, enable it in Codex config, and merge the Traceary hooks.
+3. Start Codex inside the repository so it discovers the bundled marketplace.
 
 ```sh
 cd ~/src/traceary
-traceary integration codex install
+codex
 ```
 
-By default, that command:
+4. Inside Codex, open `/plugins`, choose `Traceary Plugins` as the marketplace, and install the `Traceary` plugin. Codex materializes the plugin into its managed cache and registers the hooks declared in the plugin manifest.
 
-- copies `plugins/traceary/` into a local marketplace root under `~/.agents/plugins`
-- installs the active plugin cache under `~/.codex/plugins/cache/local-traceary-plugins/traceary/local`
-- enables `[plugins."traceary@local-traceary-plugins"]` in `~/.codex/config.toml`
-- enables `[features].codex_hooks = true`
-- merges Traceary hook entries into `~/.codex/hooks.json`
+5. Open a new thread and verify:
 
-If `traceary` is not available on `PATH`, pass `--traceary-bin /absolute/path/to/traceary`.
-Use `--repo-root /path/to/traceary` when you run the command outside the repository checkout.
+```sh
+traceary doctor --client codex --json
+```
+
+## What the official flow wires automatically
+
+- `traceary` MCP server via `traceary mcp-server`
+- `SessionStart`, `UserPromptSubmit`, `Stop`, and `PostToolUse` hooks (declared in `plugins/traceary/hooks.json` and referenced from the plugin manifest)
+- slash commands: `/traceary:help` and `/traceary:doctor`
+- contextual skill: `traceary-session-history`
 
 ## Update
+
+Refresh the repository and let Codex pick up the new plugin version on the next `/plugins` refresh:
 
 ```sh
 cd ~/src/traceary
 git pull --ff-only
-traceary integration codex install
 ```
 
-## Uninstall
-
-```sh
-cd ~/src/traceary
-traceary integration codex uninstall
-```
-
-The uninstall command removes the Traceary plugin cache, the Traceary plugin config entry, and the Traceary-managed Codex hook entries. It intentionally leaves `[features].codex_hooks` enabled so other local hook workflows do not break.
+If you need to bounce the plugin, `/plugins` also exposes a reinstall entry for the currently installed version.
 
 ## Doctor and smoke test
 
@@ -77,16 +63,28 @@ Primary runtime check:
 traceary doctor --client codex --json
 ```
 
-Structural package validation:
+Structural package validation (for maintainers who change the plugin manifest, hooks, or marketplace entry):
 
 ```sh
 python3 scripts/verify_integrations.py
 ```
 
-Local smoke test from this repository:
+## Legacy install (deprecated, compatibility only)
+
+`traceary integration codex install` is kept as a transitional path for users on earlier Traceary releases. It prints a deprecation banner to stderr and will be removed **no earlier than v0.8.0**.
+
+The legacy command still performs every step manually — it copies the plugin into `~/.agents/plugins`, materializes the active cache under `~/.codex/plugins/cache/local-traceary-plugins/traceary/local`, enables the plugin in `~/.codex/config.toml`, and merges Traceary hooks into `~/.codex/hooks.json`. Scripts that parse its stdout keep working; only the stderr banner is new.
+
+### Migrating from the legacy install
+
+1. Run the official `/plugins` install above.
+2. Once Codex confirms the plugin is enabled, clean up the legacy state once:
 
 ```sh
-./scripts/smoke_test_integrations.sh codex
+cd ~/src/traceary
+traceary integration codex uninstall
 ```
 
-That smoke test verifies the CLI-managed plugin cache, config, and hook files. Set `TRACEARY_ENABLE_CODEX_RUNTIME_SMOKE=1` when you also want an authenticated runtime probe on a machine that already has Codex CLI access configured.
+The uninstall path is intentionally kept for this cleanup. It removes the Traceary-managed plugin cache, the `[plugins."traceary@local-traceary-plugins"]` entry from `~/.codex/config.toml`, and the Traceary hook entries from `~/.codex/hooks.json`, leaving unrelated hooks and the `[features].codex_hooks` flag untouched. This avoids double-recording prompts and audits while both install paths are active.
+
+Both `traceary integration codex install` and `traceary integration codex uninstall` are scheduled for removal after the v0.7.x window closes; plan your migration before that release line ends.

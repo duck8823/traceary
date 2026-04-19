@@ -19,6 +19,7 @@
   ],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
+  "hooks": "./hooks.json",
   "interface": {
     "displayName": "Traceary",
     "shortDescription": "Session history and audit trail for Codex",

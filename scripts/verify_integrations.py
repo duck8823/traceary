@@ -138,6 +138,7 @@ def check_codex() -> None:
 
     plugin_manifest = read_json(ROOT / 'plugins' / 'traceary' / '.codex-plugin' / 'plugin.json')
     require(plugin_manifest['version'] == INTEGRATION_VERSION, f'Codex plugin version must track v{INTEGRATION_VERSION}')
+    require(plugin_manifest.get('hooks') == './hooks.json', 'Codex plugin manifest must declare hooks: ./hooks.json so the official /plugins flow picks up Traceary hooks')
 
     mcp = read_json(ROOT / 'plugins' / 'traceary' / '.mcp.json')
     traceary = mcp['mcpServers']['traceary']

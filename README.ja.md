@@ -70,8 +70,10 @@ claude plugins install traceary@traceary-plugins --scope user
 ```sh
 git clone https://github.com/duck8823/traceary ~/src/traceary
 cd ~/src/traceary
-traceary integration codex install
+codex   # Codex 内で /plugins を開き、Traceary Plugins から Traceary を install
 ```
+
+旧コマンド `traceary integration codex install` も過渡的に使えますが、v0.8.0 以降のタイミングで削除予定の非推奨経路です。移行方法は [Codex plugin ガイド](./docs/integrations/codex-plugin.ja.md) を参照してください。
 
 **Gemini CLI** ([ガイド](./docs/integrations/gemini-extension.ja.md))
 

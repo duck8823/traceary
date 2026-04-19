@@ -521,7 +521,7 @@ Useful flags:
 
 ## Integration commands
 
-### `traceary integration codex install`
+### `traceary integration codex install` (deprecated)
 
 Install the packaged Codex plugin from a local repository checkout into:
 
@@ -529,6 +529,8 @@ Install the packaged Codex plugin from a local repository checkout into:
 - `~/.codex/plugins/cache/...`
 - `~/.codex/config.toml`
 - `~/.codex/hooks.json`
+
+**Deprecated**: prefer Codex's official `/plugins` flow (run `codex` inside the repository → `/plugins` → `Traceary Plugins` → `Traceary`). This command will be removed no earlier than v0.8.0; see the [Codex plugin guide](../integrations/codex-plugin.md) for the full migration recipe.
 
 Useful flags:
 
@@ -539,8 +541,7 @@ Useful flags:
 
 ### `traceary integration codex uninstall`
 
-Remove the Traceary-managed Codex plugin cache, plugin config entry, and hook
-entries while preserving unrelated local Codex settings.
+Remove the Traceary-managed Codex plugin cache, plugin config entry, and hook entries while preserving unrelated local Codex settings. Kept as the recommended cleanup step for users migrating away from the deprecated `install` command above.
 
 Useful flags:
 
