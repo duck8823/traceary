@@ -76,7 +76,7 @@ List recent events.
 
 `list` is the fast recent-history view. Use it when you already know the event kind / client / agent / session / workspace filters you want. Switch to `search` when you need keyword matching or date-range filtering.
 
-Default text output is the same compact single-line shape as `tail` (`HH:MM:SS  kind  sess=<first-8>  ws=<basename>  message`, local time, no header). Pass `--wide` for the legacy tab-separated seven-column format, or `--utc` to force UTC timestamps. `--wide --utc` reproduces the pre-v0.6.1 output byte-for-byte. `--json` is unchanged.
+Default text output is the same compact single-line shape as `tail` (`HH:MM:SS  kind  sess=<first-8>  ws=<basename>  message`, local time, no header). Pass `--wide` for the legacy tab-separated seven-column format, or `--utc` to force UTC timestamps. `--wide --utc` reproduces the pre-v0.6.1 output byte-for-byte. `--json` is unchanged. Use `--fields ts,kind,message` to pick which compact columns are shown; precedence is `--fields` > `read.fields` in `~/.config/traceary/config.json` > built-in default. `--fields` cannot be combined with `--wide`. Supported fields: `ts`, `kind`, `session`, `ws`, `client`, `agent`, `message`, `exit_code`, `id`.
 
 Useful flags:
 
@@ -86,6 +86,7 @@ Useful flags:
 - `--json`
 - `--wide`
 - `--utc`
+- `--fields`
 - `--client`
 - `--agent`
 - `--workspace`
@@ -101,6 +102,8 @@ Default text output is a compact single-line row (`HH:MM:SS  kind  sess=<first-8
 
 > The compact session ID (`sess=<first-8>`) is intended for human scanning only. For machine processing, use `--wide --utc` or `--json`.
 
+Use `--fields ts,kind,message` to override the compact column order (precedence: flag > `read.fields` in config.json > built-in default). `--fields` cannot be combined with `--wide`; see `traceary list` above for the full list of supported fields.
+
 Useful flags:
 
 - `--kind`
@@ -108,6 +111,7 @@ Useful flags:
 - `--json`
 - `--wide`
 - `--utc`
+- `--fields`
 - `--client`
 - `--agent`
 - `--workspace`
@@ -118,7 +122,7 @@ Useful flags:
 
 Search events by text and structured filters.
 
-Text results use the same compact single-line format as `list` / `tail` (local time by default). Pass `--wide` for the legacy seven-column table, or `--utc` to force UTC timestamps. `--wide --utc` reproduces the pre-v0.6.1 output byte-for-byte. `--json` is unchanged.
+Text results use the same compact single-line format as `list` / `tail` (local time by default). Pass `--wide` for the legacy seven-column table, or `--utc` to force UTC timestamps. `--wide --utc` reproduces the pre-v0.6.1 output byte-for-byte. `--json` is unchanged. Use `--fields ts,kind,message` to override the compact column order (precedence: flag > `read.fields` in config.json > built-in default); `--fields` cannot be combined with `--wide`, and the supported field list is shown under `traceary list` above.
 
 Useful flags:
 
@@ -134,6 +138,7 @@ Useful flags:
 - `--json`
 - `--wide`
 - `--utc`
+- `--fields`
 
 ### `traceary timeline`
 

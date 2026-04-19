@@ -120,6 +120,8 @@ type listCommandInput struct {
 	wide         bool
 	utc          bool
 	location     *time.Location
+	fields       []string
+	fieldsSet    bool
 }
 
 // logCommandInput is the resolved input to the `traceary log` command.
@@ -155,6 +157,8 @@ type searchCommandInput struct {
 	wide         bool
 	utc          bool
 	location     *time.Location
+	fields       []string
+	fieldsSet    bool
 }
 
 // sessionBoundaryCommandInput is the resolved input to
@@ -212,6 +216,8 @@ type tailCommandInput struct {
 	wide          bool
 	utc           bool
 	location      *time.Location
+	fields        []string
+	fieldsSet     bool
 	nowFunc       func() time.Time
 	tickerFactory func(time.Duration) tailTicker
 }

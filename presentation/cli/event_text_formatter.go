@@ -2,10 +2,12 @@ package cli
 
 import (
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 const (
@@ -30,6 +32,17 @@ type eventTextFormatOptions struct {
 	// location is the time.Location used when utc is false. nil means
 	// time.Local. Tests should inject time.FixedZone to stay deterministic.
 	location *time.Location
+	// fields is the resolved compact column order. nil means "use the
+	// built-in default" so callers that do not care about field selection
+	// can stay simple.
+	fields []readFieldID
+}
+
+// compactRowExtras carries hydrated data that a specific field needs but is
+// not on the Event aggregate. Callers populate this lazily before rendering.
+// Fields left at their zero value render as "-".
+type compactRowExtras struct {
+	exitCode types.Optional[int]
 }
 
 func (o eventTextFormatOptions) resolvedLocation() *time.Location {
@@ -62,26 +75,97 @@ func formatEventWideRow(event *model.Event, opts eventTextFormatOptions) string 
 	}, "\t")
 }
 
-func formatEventCompactRow(event *model.Event, opts eventTextFormatOptions) string {
-	ts := formatTextTimestamp(event.CreatedAt(), opts, eventCompactTimeLayout)
-	kind := string(event.Kind())
-	sess := "sess=" + compactSessionID(event.SessionID().String())
-	ws := "ws=" + compactWorkspace(event.Workspace().String())
+// formatEventCompactRow renders a compact single-line event row using the
+// resolved field list on opts. The built-in default column order preserves
+// v0.6.1 byte-for-byte output, including the 100-column width budget that
+// shrinks the workspace token when the message has no room. Custom column
+// orders fall back to a fixed messageColumnMaxWidth truncation for the
+// message field and do not shrink other tokens.
+func formatEventCompactRow(event *model.Event, opts eventTextFormatOptions, extras compactRowExtras) string {
+	fields := opts.fields
+	if len(fields) == 0 {
+		fields = defaultReadFields
+	}
 
 	const sep = "  "
-	prefix := ts + sep + kind + sep + sess + sep + ws + sep
+
+	messageIndex := -1
+	for i, f := range fields {
+		if f == readFieldMessage {
+			messageIndex = i
+			break
+		}
+	}
+
+	tokens := make([]string, len(fields))
+	for i, f := range fields {
+		if f == readFieldMessage {
+			continue
+		}
+		tokens[i] = renderCompactToken(event, f, opts, extras)
+	}
+
+	if messageIndex == -1 {
+		return strings.Join(tokens, sep)
+	}
+
+	messageIsLast := messageIndex == len(fields)-1
+	if !messageIsLast {
+		tokens[messageIndex] = truncateNormalized(event.Body(), messageColumnMaxWidth)
+		return strings.Join(tokens, sep)
+	}
+
+	prefix := strings.Join(tokens[:messageIndex], sep)
+	if messageIndex > 0 {
+		prefix += sep
+	}
 	remaining := eventCompactTargetWidth - runeLen(prefix)
 	if remaining < eventCompactMessageMinRunes {
-		// Workspace may be unusually long; shrink it and recompute.
-		trimmedWS := "ws=" + truncateNormalized(compactWorkspace(event.Workspace().String()), eventCompactWorkspaceMaxRunes)
-		prefix = ts + sep + kind + sep + sess + sep + trimmedWS + sep
+		for i := 0; i < messageIndex; i++ {
+			if fields[i] == readFieldWorkspace {
+				tokens[i] = "ws=" + truncateNormalized(compactWorkspace(event.Workspace().String()), eventCompactWorkspaceMaxRunes)
+				break
+			}
+		}
+		prefix = strings.Join(tokens[:messageIndex], sep)
+		if messageIndex > 0 {
+			prefix += sep
+		}
 		remaining = eventCompactTargetWidth - runeLen(prefix)
 		if remaining < eventCompactMessageMinRunes {
 			remaining = eventCompactMessageMinRunes
 		}
 	}
-	msg := truncateNormalized(event.Body(), remaining)
-	return prefix + msg
+	return prefix + truncateNormalized(event.Body(), remaining)
+}
+
+func renderCompactToken(event *model.Event, id readFieldID, opts eventTextFormatOptions, extras compactRowExtras) string {
+	switch id {
+	case readFieldTS:
+		return formatTextTimestamp(event.CreatedAt(), opts, eventCompactTimeLayout)
+	case readFieldKind:
+		return string(event.Kind())
+	case readFieldSession:
+		return "sess=" + compactSessionID(event.SessionID().String())
+	case readFieldWorkspace:
+		return "ws=" + compactWorkspace(event.Workspace().String())
+	case readFieldClient:
+		return "client=" + formatOptionalColumn(event.Client().String())
+	case readFieldAgent:
+		return "agent=" + formatOptionalColumn(event.Agent().String())
+	case readFieldExitCode:
+		return "exit=" + formatOptionalExitCode(extras.exitCode)
+	case readFieldEventID:
+		return "id=" + event.EventID().String()
+	}
+	return ""
+}
+
+func formatOptionalExitCode(value types.Optional[int]) string {
+	if code, ok := value.Value(); ok {
+		return strconv.Itoa(code)
+	}
+	return "-"
 }
 
 // compactSessionID returns the first 8 runes of the session ID. It is meant
