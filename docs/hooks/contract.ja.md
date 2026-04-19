@@ -58,12 +58,12 @@
 
 ## 2026 Q2 ホスト別機能メモ
 
-Traceary の managed hook 集合は、リリースをまたいで安定させるため新機能への追従を意図的に抑えています。2026 Q2 で利用可能になった機能のうち、既定 install で **wire していないもの** を以下にまとめます。`traceary doctor` の `<client>-host-capabilities` チェックでも同じ内容を informational として出力します。
+Traceary の managed hook 集合は、リリースをまたいで安定させるため新機能への追従を意図的に抑えています。2026 Q2 時点で利用可能な機能のうち、既定 install で **wire していないもの** を以下にまとめます。`traceary doctor` の `<client>-host-capabilities` チェックでも同じ内容を informational として出力します。
 
 | ホスト | 新機能 | 状態 | Traceary の挙動 |
 |---|---|---|---|
-| Claude Code | `SubagentStop` (2026-01 ベータ) | 利用可能 | subagent lineage は `PostToolUse` の `agent_type` から復元。専用 hook は wire していない |
-| Claude Code | `PreCompact` (2026-01 ベータ) | 利用可能 | compact は `PostCompact` 経由で記録。pre-compact 時点の snapshot は wire していない |
+| Claude Code | `SubagentStop` (2026-01 から利用可能) | 利用可能 | subagent lineage は `PostToolUse` の `agent_type` から復元。専用 hook は wire していない |
+| Claude Code | `PreCompact` (2026-01 から利用可能) | 利用可能 | compact は `PostCompact` 経由で記録。pre-compact 時点の snapshot は wire していない |
 | Codex CLI | Memory feature flag (`~/.codex/config.toml`) | install 単位で opt-in | `traceary memory import codex` は flag 状態に関わらず動作。flag は Codex 側の capture 挙動にしか影響しない |
 | Gemini CLI 0.38.x | Memory manager agent / auto-memory | プレビュー | Traceary Tier 3 surface はまだこれらの preview 信号を subscribe していない |
 

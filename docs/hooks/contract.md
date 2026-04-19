@@ -60,14 +60,14 @@ All tiers:
 
 Traceary's managed hook set intentionally lags the newest host-specific
 surfaces so the contract stays stable across multiple releases. The table
-below records capabilities that became available during 2026 Q2 and are
-**not** wired into the default install. `traceary doctor` surfaces the
-same notes at runtime under the `<client>-host-capabilities` check.
+below records capabilities available as of 2026 Q2 that are **not** wired
+into the default install. `traceary doctor` surfaces the same notes at
+runtime under the `<client>-host-capabilities` check.
 
 | Host | New capability | Status | Traceary behaviour |
 |---|---|---|---|
-| Claude Code | `SubagentStop` (beta 2026-01) | available | subagent lineage still resolved from `agent_type` on `PostToolUse`; no dedicated hook |
-| Claude Code | `PreCompact` (beta 2026-01) | available | compact capture still routes through `PostCompact`; pre-compact snapshotting is not wired |
+| Claude Code | `SubagentStop` (available since 2026-01) | available | subagent lineage still resolved from `agent_type` on `PostToolUse`; no dedicated hook |
+| Claude Code | `PreCompact` (available since 2026-01) | available | compact capture still routes through `PostCompact`; pre-compact snapshotting is not wired |
 | Codex CLI | Memory feature flag (`~/.codex/config.toml`) | opt-in per install | import path `traceary memory import codex` works regardless of the flag — the flag only changes Codex's own capture behaviour |
 | Gemini CLI 0.38.x | Memory manager agent / auto-memory | preview | Traceary's Tier 3 surface does not yet subscribe to the preview signals |
 

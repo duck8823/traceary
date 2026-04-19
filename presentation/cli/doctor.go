@@ -189,19 +189,20 @@ func inspectHostCapabilityGaps(client, configPath string) *doctorCheck {
 			Name:   "claude-host-capabilities",
 			Status: doctorStatusPass,
 			Message: localizef(
-				"claude host: 2026 Q2 adds SubagentStop / PreCompact hooks; Traceary does not wire them yet — subagent lineage still lands via agent_type on PostToolUse, compact captures land on PostCompact (reference: %s)",
-				"claude ホスト: 2026 Q2 では SubagentStop / PreCompact が追加されていますが Traceary はまだ wire していません。subagent lineage は引き続き PostToolUse の agent_type 経由、compact は PostCompact で取得します (参照: %s)",
+				"claude host: SubagentStop / PreCompact hooks have been available since 2026-01 but Traceary does not wire them yet — subagent lineage still lands via agent_type on PostToolUse, compact captures land on PostCompact (hooks config: %s)",
+				"claude ホスト: SubagentStop / PreCompact は 2026-01 から利用可能ですが Traceary はまだ wire していません。subagent lineage は引き続き PostToolUse の agent_type 経由、compact は PostCompact で取得します (hooks config: %s)",
 				configPath,
 			),
 		}
 	case "codex":
+		codexConfigPath := describeCodexConfigPath()
 		return &doctorCheck{
 			Name:   "codex-host-capabilities",
-			Status: inspectCodexMemoryFlagStatus(),
+			Status: doctorStatusPass,
 			Message: localizef(
-				"codex host: memory features ship behind a per-install feature flag (~/.codex/config.toml); run `codex config get memory` to confirm. Traceary imports Codex MEMORY.md via `memory import codex` regardless of the flag state (reference: %s)",
-				"codex ホスト: memory 機能は per-install な feature flag (~/.codex/config.toml) の背後にあります。`codex config get memory` で有効化状態を確認できます。Traceary は flag 状態に関わらず `memory import codex` で取り込み可能です (参照: %s)",
-				configPath,
+				"codex host: memory features ship behind a per-install feature flag in %s; consult the Codex release notes for the exact flag name and your enablement state. Traceary's `memory import codex` works regardless of the flag state",
+				"codex ホスト: memory 機能は per-install な feature flag (%s) の背後にあります。flag 名と有効化状態の確認方法は Codex のリリースノートを参照してください。Traceary は flag 状態に関わらず `memory import codex` で取り込み可能です",
+				codexConfigPath,
 			),
 		}
 	case "gemini":
@@ -209,8 +210,8 @@ func inspectHostCapabilityGaps(client, configPath string) *doctorCheck {
 			Name:   "gemini-host-capabilities",
 			Status: doctorStatusPass,
 			Message: localizef(
-				"gemini host: memory manager agent and auto-memory are preview-flag features on Gemini CLI 0.38.x; Traceary's Tier 3 hook coverage (SessionStart / SessionEnd / AfterTool) does not yet surface those preview signals (reference: %s)",
-				"gemini ホスト: memory manager agent / auto-memory は Gemini CLI 0.38.x のプレビュー機能です。Traceary の Tier 3 hook (SessionStart / SessionEnd / AfterTool) は現時点でそれらの preview 信号を surface しません (参照: %s)",
+				"gemini host: memory manager agent and auto-memory are preview-flag features on Gemini CLI 0.38.x; Traceary's Tier 3 hook coverage (SessionStart / SessionEnd / AfterTool) does not yet surface those preview signals (hooks config: %s)",
+				"gemini ホスト: memory manager agent / auto-memory は Gemini CLI 0.38.x のプレビュー機能です。Traceary の Tier 3 hook (SessionStart / SessionEnd / AfterTool) は現時点でそれらの preview 信号を surface しません (hooks config: %s)",
 				configPath,
 			),
 		}
@@ -218,21 +219,17 @@ func inspectHostCapabilityGaps(client, configPath string) *doctorCheck {
 	return nil
 }
 
-// inspectCodexMemoryFlagStatus reads ~/.codex/config.toml to report whether
-// Codex memory features are enabled. The doctor treats a missing config or
-// an absent flag as pass (the feature is opt-in) and warns only when the
-// file is present but unreadable, so a first-run user never sees a red
-// report just because they have not configured Codex yet.
-func inspectCodexMemoryFlagStatus() string {
+// describeCodexConfigPath returns the canonical ~/.codex/config.toml path
+// the message should reference. The helper falls back to the literal
+// tilde-prefixed form when the user's home directory cannot be resolved,
+// so the message never leaks an empty path and still points the operator
+// at the right file.
+func describeCodexConfigPath() string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return doctorStatusPass
+		return "~/.codex/config.toml"
 	}
-	configPath := filepath.Join(homeDir, ".codex", "config.toml")
-	if _, err := os.Stat(configPath); err != nil {
-		return doctorStatusPass
-	}
-	return doctorStatusPass
+	return filepath.Join(homeDir, ".codex", "config.toml")
 }
 
 func resolveDoctorClients(c *RootCLI, client string) ([]string, error) {
