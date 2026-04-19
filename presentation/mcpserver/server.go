@@ -217,7 +217,7 @@ func (s *Server) Build(ctx context.Context) (*mcp.Server, error) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "import_memory_instructions",
 		Description: "Import bullets from a host instruction file as durable-memory candidates.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true)},
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
 	}, s.importMemoryInstructions())
 
 	return server, nil

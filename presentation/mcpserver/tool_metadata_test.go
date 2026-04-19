@@ -210,8 +210,8 @@ func TestServer_ToolMetadata(t *testing.T) {
 		{
 			name: "import_memory_instructions",
 			want: toolMetadataExpectation{
-				description:     "Import bullets from a host instruction file as durable-memory candidates.",
-				destructiveTrue: true,
+				description:      "Import bullets from a host instruction file as durable-memory candidates.",
+				destructiveFalse: true,
 			},
 		},
 	}
