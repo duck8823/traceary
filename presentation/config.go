@@ -21,6 +21,7 @@ type redactSection struct {
 type readSection struct {
 	Fields  []string                 `json:"fields"`
 	Presets map[string]readPresetDoc `json:"presets"`
+	Color   string                   `json:"color"`
 }
 
 // readPresetDoc mirrors a user-defined read preset entry in config.json. The
@@ -58,6 +59,10 @@ type Config struct {
 	// field names, kind values, and other constraints when a preset is
 	// applied; LoadConfig only parses the shape.
 	ReadPresets map[string]ReadPreset
+	// ReadColor is the default --color mode (auto / always / never) for
+	// read commands. Empty string means "fall back to auto". The runtime
+	// validates the value when a command is about to render text.
+	ReadColor string
 }
 
 // ReadPreset is the runtime-facing view of a user-defined preset loaded from
@@ -93,6 +98,7 @@ func LoadConfig() Config {
 		ExtraRedactPatterns: file.Redact.ExtraPatterns,
 		ReadFields:          file.Read.Fields,
 		ReadPresets:         toReadPresetMap(file.Read.Presets),
+		ReadColor:           file.Read.Color,
 	}
 }
 

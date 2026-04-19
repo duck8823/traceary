@@ -23,6 +23,7 @@ type RootCLI struct {
 	extraRedactPatterns []string
 	defaultReadFields   []string
 	readPresets         map[string]presentation.ReadPreset
+	defaultReadColor    string
 	// databasePathSetter is invoked by each subcommand's RunE after it
 	// resolves --db-path / TRACEARY_DB_PATH, so the shared Database
 	// instance opens the user-specified path instead of the composition-
@@ -111,6 +112,14 @@ func WithDefaultReadFields(columns []string) RootCLIOption {
 // collision (with a stderr warning from the resolver).
 func WithReadPresets(presets map[string]presentation.ReadPreset) RootCLIOption {
 	return func(c *RootCLI) { c.readPresets = presets }
+}
+
+// WithDefaultReadColor injects the default --color mode (auto / always /
+// never) applied to read commands when the operator does not pass --color.
+// Callers source this from read.color in the user config; empty string
+// falls back to the built-in auto behavior.
+func WithDefaultReadColor(value string) RootCLIOption {
+	return func(c *RootCLI) { c.defaultReadColor = value }
 }
 
 // WithDatabasePathSetter injects a callback invoked by every subcommand

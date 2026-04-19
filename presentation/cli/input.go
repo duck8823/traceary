@@ -130,6 +130,8 @@ type listCommandInput struct {
 	sessionIDSet    bool
 	repoSet         bool
 	failuresOnlySet bool
+	color           string
+	colorSet        bool
 }
 
 // logCommandInput is the resolved input to the `traceary log` command.
@@ -175,6 +177,8 @@ type searchCommandInput struct {
 	sessionIDSet    bool
 	repoSet         bool
 	failuresOnlySet bool
+	color           string
+	colorSet        bool
 }
 
 // sessionBoundaryCommandInput is the resolved input to
@@ -242,8 +246,10 @@ type tailCommandInput struct {
 	sessionIDSet    bool
 	repoSet         bool
 	failuresOnlySet bool
-	nowFunc       func() time.Time
-	tickerFactory func(time.Duration) tailTicker
+	color           string
+	colorSet        bool
+	nowFunc         func() time.Time
+	tickerFactory   func(time.Duration) tailTicker
 }
 
 // memoryListCommandInput is the resolved input to `traceary memory list`.

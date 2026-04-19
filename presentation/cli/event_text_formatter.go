@@ -36,6 +36,10 @@ type eventTextFormatOptions struct {
 	// built-in default" so callers that do not care about field selection
 	// can stay simple.
 	fields []readFieldID
+	// colorEnabled wraps compact rows with ANSI escape sequences when true.
+	// Wide and JSON writers ignore this flag so their legacy / machine
+	// readable contract is preserved.
+	colorEnabled bool
 }
 
 // compactRowExtras carries hydrated data that a specific field needs but is
@@ -136,7 +140,12 @@ func formatEventCompactRow(event *model.Event, opts eventTextFormatOptions, extr
 			remaining = eventCompactMessageMinRunes
 		}
 	}
-	return prefix + truncateNormalized(event.Body(), remaining)
+	plain := prefix + truncateNormalized(event.Body(), remaining)
+	if opts.colorEnabled {
+		exitCode, exitCodeSet := extras.exitCode.Value()
+		return applyCompactRowHighlight(plain, string(event.Kind()), exitCode, exitCodeSet)
+	}
+	return plain
 }
 
 func renderCompactToken(event *model.Event, id readFieldID, opts eventTextFormatOptions, extras compactRowExtras) string {

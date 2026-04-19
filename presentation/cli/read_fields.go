@@ -178,11 +178,11 @@ func (c *RootCLI) resolveReadFieldsForCommand(explicit []string, explicitSet boo
 }
 
 // makeCompactExtrasResolver returns a per-event extras resolver for compact
-// rendering. When the resolved field list does not include fields that need
-// lazy hydration (currently only exit_code), the returned resolver is nil so
-// the caller can skip the hydrate loop entirely.
-func (c *RootCLI) makeCompactExtrasResolver(ctx context.Context, fields []readFieldID) compactExtrasResolver {
-	if !readFieldsContain(fields, readFieldExitCode) {
+// rendering. A resolver is needed whenever the caller wants per-event data
+// that is not on the Event aggregate: the exit_code column, or the failure
+// highlight that colors command_executed rows based on exit_code.
+func (c *RootCLI) makeCompactExtrasResolver(ctx context.Context, fields []readFieldID, hydrateForColor bool) compactExtrasResolver {
+	if !readFieldsContain(fields, readFieldExitCode) && !hydrateForColor {
 		return nil
 	}
 	if c.event == nil {

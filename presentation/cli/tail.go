@@ -196,6 +196,7 @@ func (c *RootCLI) newTailCommand() *cobra.Command {
 		utc          bool
 		fields       []string
 		preset       string
+		color        string
 	)
 
 	tailCmd := &cobra.Command{
@@ -225,6 +226,8 @@ func (c *RootCLI) newTailCommand() *cobra.Command {
 				sessionIDSet:    cmd.Flags().Changed("session-id"),
 				repoSet:         cmd.Flags().Changed("workspace"),
 				failuresOnlySet: cmd.Flags().Changed("failures"),
+				color:           color,
+				colorSet:        cmd.Flags().Changed("color"),
 			})
 		},
 	}
@@ -241,6 +244,7 @@ func (c *RootCLI) newTailCommand() *cobra.Command {
 	tailCmd.Flags().BoolVar(&utc, "utc", false, Localize("print text timestamps in UTC instead of local time", "テキスト出力のタイムスタンプを現地時刻ではなく UTC で出力する"))
 	tailCmd.Flags().StringSliceVar(&fields, "fields", nil, readFieldsFlagUsage())
 	tailCmd.Flags().StringVar(&preset, "preset", "", readPresetsFlagUsage())
+	tailCmd.Flags().StringVar(&color, "color", "", readColorFlagUsage())
 
 	return tailCmd
 }
@@ -286,13 +290,25 @@ func (c *RootCLI) runTail(ctx context.Context, warnWriter io.Writer, output io.W
 	if err != nil {
 		return err
 	}
-	textOpts := eventTextFormatOptions{
-		wide:     input.wide,
-		utc:      input.utc,
-		location: input.location,
-		fields:   resolvedFields,
+	colorMode, err := resolveColorMode(
+		input.color,
+		input.colorSet,
+		c.defaultReadColor,
+		input.wide || input.asJSON,
+		func() bool { return isTerminalWriter(output) },
+	)
+	if err != nil {
+		return err
 	}
-	extrasFor := c.makeCompactExtrasResolver(ctx, resolvedFields)
+	colorEnabled := colorMode == colorModeOn
+	textOpts := eventTextFormatOptions{
+		wide:         input.wide,
+		utc:          input.utc,
+		location:     input.location,
+		fields:       resolvedFields,
+		colorEnabled: colorEnabled,
+	}
+	extrasFor := c.makeCompactExtrasResolver(ctx, resolvedFields, colorEnabled)
 	writer := newTailEventWriter(output, input.asJSON, textOpts, extrasFor)
 	cursor := newTailCursor(input.resolvedNowFunc()().UTC())
 	if input.limit > 0 {

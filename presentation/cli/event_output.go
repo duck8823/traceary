@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode"
 
 	"golang.org/x/xerrors"
 
@@ -87,7 +88,32 @@ func truncateMessage(s string) string {
 }
 
 func normalizeTabularColumn(value string) string {
-	return strings.Join(strings.Fields(value), " ")
+	// Drop ASCII / Unicode control characters before collapsing whitespace.
+	// Without this, an event body that embeds ESC / CSI / OSC sequences
+	// could hijack the user's terminal once we render it into tabular
+	// (wide) or compact rows — including the ANSI highlight path added in
+	// v0.7-7, but also applicable to wide mode.
+	return strings.Join(strings.Fields(stripTerminalControlChars(value)), " ")
+}
+
+// stripTerminalControlChars removes control runes (including the ESC that
+// starts ANSI escape sequences) while keeping tab, newline, and carriage
+// return as whitespace so normalizeTabularColumn can collapse them.
+func stripTerminalControlChars(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch r {
+		case '\t', '\n', '\r':
+			b.WriteRune(' ')
+			continue
+		}
+		if unicode.IsControl(r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 func formatOptionalColumn(value string) string {

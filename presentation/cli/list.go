@@ -32,6 +32,7 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 		utc          bool
 		fields       []string
 		preset       string
+		color        string
 	)
 
 	listCmd := &cobra.Command{
@@ -66,6 +67,8 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 				sessionIDSet:    cmd.Flags().Changed("session-id"),
 				repoSet:         cmd.Flags().Changed("workspace"),
 				failuresOnlySet: cmd.Flags().Changed("failures"),
+				color:           color,
+				colorSet:        cmd.Flags().Changed("color"),
 			})
 		},
 	}
@@ -87,6 +90,7 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 	listCmd.Flags().BoolVar(&utc, "utc", false, Localize("print text timestamps in UTC instead of local time", "テキスト出力のタイムスタンプを現地時刻ではなく UTC で出力する"))
 	listCmd.Flags().StringSliceVar(&fields, "fields", nil, readFieldsFlagUsage())
 	listCmd.Flags().StringVar(&preset, "preset", "", readPresetsFlagUsage())
+	listCmd.Flags().StringVar(&color, "color", "", readColorFlagUsage())
 
 	return listCmd
 }
@@ -168,13 +172,25 @@ func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.W
 	if err != nil {
 		return err
 	}
-	textOpts := eventTextFormatOptions{
-		wide:     input.wide,
-		utc:      input.utc,
-		location: input.location,
-		fields:   resolvedFields,
+	colorMode, err := resolveColorMode(
+		input.color,
+		input.colorSet,
+		c.defaultReadColor,
+		input.wide || input.asJSON,
+		func() bool { return isTerminalWriter(output) },
+	)
+	if err != nil {
+		return err
 	}
-	extrasFor := c.makeCompactExtrasResolver(ctx, resolvedFields)
+	colorEnabled := colorMode == colorModeOn
+	textOpts := eventTextFormatOptions{
+		wide:         input.wide,
+		utc:          input.utc,
+		location:     input.location,
+		fields:       resolvedFields,
+		colorEnabled: colorEnabled,
+	}
+	extrasFor := c.makeCompactExtrasResolver(ctx, resolvedFields, colorEnabled)
 	if err := writeEventsByFormat(output, events, input.asJSON, textOpts, extrasFor); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print event list", "一覧出力に失敗しました"), err)
 	}
