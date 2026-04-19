@@ -104,7 +104,7 @@ Default text output is a compact single-line row (`HH:MM:SS  kind  sess=<first-8
 
 > The compact session ID (`sess=<first-8>`) is intended for human scanning only. For machine processing, use `--wide --utc` or `--json`.
 
-Use `--fields ts,kind,message` to override the compact column order (precedence: flag > preset fields > `read.fields` in config.json > built-in default). `--fields` cannot be combined with `--wide`; see `traceary list` above for the full list of supported fields. Use `--preset <name>` for saved views (built-in: `failures` / `prompts-only` / `compact-summaries`; user-defined in `read.presets`).
+Use `--fields ts,kind,message` to override the compact column order (precedence: flag > preset fields > `read.fields` in config.json > built-in default). `--fields` cannot be combined with `--wide`; see `traceary list` above for the full list of supported fields. Use `--preset <name>` for saved views (built-in: `failures` / `prompts-only` / `compact-summaries`; user-defined in `read.presets`). Use `--follow-session <prefix>` (minimum 8 runes) to scope the tail to one session — the value matches session ids by prefix so it is safe to paste from `traceary session list` output.
 
 Useful flags:
 
@@ -116,6 +116,7 @@ Useful flags:
 - `--fields`
 - `--preset`
 - `--color`
+- `--follow-session`
 - `--client`
 - `--agent`
 - `--workspace`
