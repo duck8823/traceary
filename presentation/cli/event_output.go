@@ -13,15 +13,32 @@ import (
 
 const messageColumnMaxWidth = 80
 
-func writeEventsByFormat(output io.Writer, events []*model.Event, asJSON bool, textOpts eventTextFormatOptions) error {
+// compactExtrasResolver returns hydrated extras for the given event. It is
+// provided by CLI commands that need to lazily fetch per-event data (such as
+// command_audit.exit_code) only when the resolved field list requires it.
+// A nil resolver renders zero-value extras for every event.
+type compactExtrasResolver func(*model.Event) compactRowExtras
+
+func writeEventsByFormat(
+	output io.Writer,
+	events []*model.Event,
+	asJSON bool,
+	textOpts eventTextFormatOptions,
+	extrasFor compactExtrasResolver,
+) error {
 	if asJSON {
 		return writeEventsJSON(output, events)
 	}
 
-	return writeEvents(output, events, textOpts)
+	return writeEvents(output, events, textOpts, extrasFor)
 }
 
-func writeEvents(output io.Writer, events []*model.Event, textOpts eventTextFormatOptions) error {
+func writeEvents(
+	output io.Writer,
+	events []*model.Event,
+	textOpts eventTextFormatOptions,
+	extrasFor compactExtrasResolver,
+) error {
 	if len(events) == 0 {
 		if _, err := fmt.Fprintln(output, Localize("No matching records.", "一致する記録はありません")); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print empty list message", "空一覧メッセージの出力に失敗しました"), err)
@@ -42,7 +59,11 @@ func writeEvents(output io.Writer, events []*model.Event, textOpts eventTextForm
 	}
 
 	for _, event := range events {
-		if _, err := fmt.Fprintln(output, formatEventCompactRow(event, textOpts)); err != nil {
+		extras := compactRowExtras{}
+		if extrasFor != nil {
+			extras = extrasFor(event)
+		}
+		if _, err := fmt.Fprintln(output, formatEventCompactRow(event, textOpts, extras)); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print event row", "イベント一覧行の出力に失敗しました"), err)
 		}
 	}

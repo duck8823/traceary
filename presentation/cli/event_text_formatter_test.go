@@ -11,6 +11,7 @@ import (
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 func TestCompactSessionID(t *testing.T) {
@@ -97,7 +98,7 @@ func TestFormatEventCompactRow_FitsWithin100Columns(t *testing.T) {
 		time.Date(2026, 4, 15, 9, 30, 15, 0, time.UTC),
 	)
 
-	got := formatEventCompactRow(event, eventTextFormatOptions{utc: true})
+	got := formatEventCompactRow(event, eventTextFormatOptions{utc: true}, compactRowExtras{})
 	if runeLen(got) > eventCompactTargetWidth {
 		t.Fatalf("compact row exceeds target width: %d > %d: %q", runeLen(got), eventCompactTargetWidth, got)
 	}
@@ -127,12 +128,12 @@ func TestFormatEventCompactRow_UsesInjectedLocation(t *testing.T) {
 	)
 
 	jst := time.FixedZone("JST", 9*3600)
-	got := formatEventCompactRow(event, eventTextFormatOptions{location: jst})
+	got := formatEventCompactRow(event, eventTextFormatOptions{location: jst}, compactRowExtras{})
 	if !strings.HasPrefix(got, "09:00:00 ") {
 		t.Fatalf("expected JST-adjusted HH:MM:SS prefix, got %q", got)
 	}
 
-	utcGot := formatEventCompactRow(event, eventTextFormatOptions{utc: true})
+	utcGot := formatEventCompactRow(event, eventTextFormatOptions{utc: true}, compactRowExtras{})
 	if !strings.HasPrefix(utcGot, "00:00:00 ") {
 		t.Fatalf("expected UTC HH:MM:SS prefix, got %q", utcGot)
 	}
@@ -174,7 +175,7 @@ func TestWriteEvents_CompactDefaultOmitsHeader(t *testing.T) {
 	)
 
 	var buf bytes.Buffer
-	if err := writeEvents(&buf, []*model.Event{event}, eventTextFormatOptions{utc: true}); err != nil {
+	if err := writeEvents(&buf, []*model.Event{event}, eventTextFormatOptions{utc: true}, nil); err != nil {
 		t.Fatalf("writeEvents() error = %v", err)
 	}
 	got := buf.String()
@@ -189,6 +190,121 @@ func TestWriteEvents_CompactDefaultOmitsHeader(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, "\n") {
 		t.Fatalf("expected trailing newline, got %q", got)
+	}
+}
+
+func TestFormatEventCompactRow_CustomFieldOrder(t *testing.T) {
+	t.Parallel()
+
+	event := mustTailEvent(
+		t,
+		"abcdef1234567890",
+		"claude-code",
+		"claude",
+		"123e4567-e89b-12d3-a456-426614174000",
+		"duck8823/traceary",
+		"hello custom",
+		time.Date(2026, 4, 15, 9, 30, 15, 0, time.UTC),
+	)
+
+	opts := eventTextFormatOptions{
+		utc:    true,
+		fields: []readFieldID{readFieldTS, readFieldKind, readFieldMessage},
+	}
+	got := formatEventCompactRow(event, opts, compactRowExtras{})
+	want := "09:30:15  note  hello custom"
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Fatalf("compact row mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestFormatEventCompactRow_MessageInTheMiddleUsesFixedTruncation(t *testing.T) {
+	t.Parallel()
+
+	event := mustTailEvent(
+		t,
+		"abcdef1234567890",
+		"claude-code",
+		"claude",
+		"123e4567-e89b-12d3-a456-426614174000",
+		"duck8823/traceary",
+		strings.Repeat("long message ", 20),
+		time.Date(2026, 4, 15, 9, 30, 15, 0, time.UTC),
+	)
+
+	opts := eventTextFormatOptions{
+		utc:    true,
+		fields: []readFieldID{readFieldTS, readFieldMessage, readFieldKind},
+	}
+	got := formatEventCompactRow(event, opts, compactRowExtras{})
+	// Message is not the last field, so it must be truncated with the
+	// fixed messageColumnMaxWidth budget (80 runes, ellipsis inclusive).
+	if !strings.Contains(got, "note") {
+		t.Fatalf("expected kind to be rendered, got %q", got)
+	}
+	if !strings.HasPrefix(got, "09:30:15  ") {
+		t.Fatalf("expected leading timestamp, got %q", got)
+	}
+}
+
+func TestFormatEventCompactRow_ExitCodeAndEventID(t *testing.T) {
+	t.Parallel()
+
+	event := mustTailEvent(
+		t,
+		"abcdef1234567890",
+		"claude-code",
+		"claude",
+		"123e4567-e89b-12d3-a456-426614174000",
+		"duck8823/traceary",
+		"go test failed",
+		time.Date(2026, 4, 15, 9, 30, 15, 0, time.UTC),
+	)
+
+	opts := eventTextFormatOptions{
+		utc:    true,
+		fields: []readFieldID{readFieldTS, readFieldEventID, readFieldExitCode, readFieldMessage},
+	}
+	extras := compactRowExtras{exitCode: types.Some(1)}
+	got := formatEventCompactRow(event, opts, extras)
+	if !strings.Contains(got, "id=abcdef1234567890") {
+		t.Fatalf("expected full event id token, got %q", got)
+	}
+	if !strings.Contains(got, "exit=1") {
+		t.Fatalf("expected exit code token, got %q", got)
+	}
+
+	extrasNone := compactRowExtras{}
+	gotNone := formatEventCompactRow(event, opts, extrasNone)
+	if !strings.Contains(gotNone, "exit=-") {
+		t.Fatalf("expected exit=- when extras lack exit code, got %q", gotNone)
+	}
+}
+
+func TestFormatEventCompactRow_ClientAndAgentTokens(t *testing.T) {
+	t.Parallel()
+
+	event := mustTailEvent(
+		t,
+		"abcdef1234567890",
+		"claude-code",
+		"claude",
+		"session-1",
+		"duck8823/traceary",
+		"hello",
+		time.Date(2026, 4, 15, 9, 30, 15, 0, time.UTC),
+	)
+
+	opts := eventTextFormatOptions{
+		utc:    true,
+		fields: []readFieldID{readFieldTS, readFieldClient, readFieldAgent, readFieldMessage},
+	}
+	got := formatEventCompactRow(event, opts, compactRowExtras{})
+	if !strings.Contains(got, "client=claude-code") {
+		t.Fatalf("expected client token, got %q", got)
+	}
+	if !strings.Contains(got, "agent=claude") {
+		t.Fatalf("expected agent token, got %q", got)
 	}
 }
 
@@ -207,7 +323,7 @@ func TestWriteEvents_WideUTCMatchesLegacyTable(t *testing.T) {
 	)
 
 	var buf bytes.Buffer
-	if err := writeEvents(&buf, []*model.Event{event}, eventTextFormatOptions{wide: true, utc: true}); err != nil {
+	if err := writeEvents(&buf, []*model.Event{event}, eventTextFormatOptions{wide: true, utc: true}, nil); err != nil {
 		t.Fatalf("writeEvents() error = %v", err)
 	}
 	want := "CREATED_AT\tKIND\tCLIENT\tAGENT\tSESSION_ID\tWORKSPACE\tMESSAGE\n" +
