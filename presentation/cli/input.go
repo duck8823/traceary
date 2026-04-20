@@ -91,6 +91,7 @@ type hooksInstallCommandInput struct {
 	projectDir  string
 	tracearyBin string
 	outputPath  string
+	global      bool
 	force       bool
 }
 

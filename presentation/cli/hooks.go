@@ -38,6 +38,7 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 		projectDir  string
 		tracearyBin string
 		outputPath  string
+		global      bool
 		force       bool
 	)
 
@@ -45,11 +46,12 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 		Use:   "install --client <claude|codex|gemini>",
 		Short: Localize("Write hook configuration examples to the standard config path", "標準の設定パスへ hook 設定例を書き出す"),
 		Long: Localize(
-			"Generate hook configuration for a supported client and write it to the standard config path.\nSupported clients: claude, codex, gemini.\nAliases: claude-code, codex-cli, gemini-cli.",
-			"対応 client 向けの hook 設定を生成し、標準の設定パスへ書き出します。\n対応 client: claude, codex, gemini。\nalias: claude-code, codex-cli, gemini-cli。",
+			"Generate hook configuration for a supported client and write it to the standard config path.\nSupported clients: claude, codex, gemini.\nAliases: claude-code, codex-cli, gemini-cli.\nUse --global to write to the user-level config (~/.claude/settings.json for Claude, ~/.gemini/settings.json for Gemini). Codex hooks are already user-level, so --global is a no-op there.",
+			"対応 client 向けの hook 設定を生成し、標準の設定パスへ書き出します。\n対応 client: claude, codex, gemini。\nalias: claude-code, codex-cli, gemini-cli。\n--global を指定すると user-level 設定に書き込みます (Claude は ~/.claude/settings.json、Gemini は ~/.gemini/settings.json)。Codex の hook は元から user-level なため --global は効果ありません。",
 		),
 		Example: strings.Join([]string{
 			"  traceary hooks install --client claude --project-dir .",
+			"  traceary hooks install --client claude --global",
 			"  traceary hooks install --client codex-cli --force",
 		}, "\n"),
 		Args: noArgsLocalized(),
@@ -59,6 +61,7 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 				projectDir:  projectDir,
 				tracearyBin: tracearyBin,
 				outputPath:  outputPath,
+				global:      global,
 				force:       force,
 			})
 		},
@@ -67,6 +70,7 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 	installCmd.Flags().StringVar(&projectDir, "project-dir", "", Localize("project directory whose config file should be written", "設定ファイルを書き出す対象のプロジェクトディレクトリ"))
 	installCmd.Flags().StringVar(&tracearyBin, "traceary-bin", "", Localize("traceary binary path or command name", "traceary バイナリパス"))
 	installCmd.Flags().StringVar(&outputPath, "output", "", Localize("override the output file path", "書き出し先を明示する"))
+	installCmd.Flags().BoolVar(&global, "global", false, Localize("write to the user-level config instead of the project config (mutually exclusive with --output)", "project ではなく user-level 設定へ書き込む (--output とは排他)"))
 	installCmd.Flags().BoolVar(&force, "force", false, Localize("overwrite the file if it already exists", "既存ファイルがある場合でも上書きする"))
 
 	return installCmd
@@ -135,6 +139,14 @@ func (c *RootCLI) runHooksInstall(
 	if err := requireHooksClient(input.client); err != nil {
 		return err
 	}
+	if input.global && strings.TrimSpace(input.outputPath) != "" {
+		return xerrors.Errorf(
+			Localize(
+				"--global and --output are mutually exclusive",
+				"--global と --output は同時指定できません",
+			),
+		)
+	}
 	resolvedProjectDir, err := resolveHooksProjectDir(input.projectDir)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve project directory", "project directory の解決に失敗しました"), err)
@@ -183,6 +195,27 @@ func (c *RootCLI) runHooksInstall(
 	outputPathOption := types.None[string]()
 	if trimmedOutput := strings.TrimSpace(input.outputPath); trimmedOutput != "" {
 		outputPathOption = types.Some(trimmedOutput)
+	}
+
+	if input.global {
+		globalPath, resolved, err := resolveHooksGlobalPath(canonicalClient)
+		if err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to resolve global config path", "global 設定パスの解決に失敗しました"), err)
+		}
+		if !resolved {
+			if _, err := fmt.Fprintf(
+				output,
+				Localize(
+					"--global has no effect for %s: its hooks config is already user-level. Proceeding with the standard install path.\n",
+					"%s では --global は意味を持ちません (hooks config は元から user-level です)。通常の install パスで続行します。\n",
+				),
+				canonicalClient,
+			); err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to print global-noop notice", "global no-op 通知の出力に失敗しました"), err)
+			}
+		} else {
+			outputPathOption = types.Some(globalPath)
+		}
 	}
 
 	resolvedOutputPath, err := c.hooksOrchestrator.Install(
@@ -249,6 +282,32 @@ func resolveHooksProjectDir(flagValue string) (string, error) {
 	}
 
 	return resolvedPath, nil
+}
+
+// resolveHooksGlobalPath returns the user-level config path for --global,
+// along with a bool indicating whether --global was actually resolved.
+// Codex hooks already live under ~/.codex, so we return resolved=false
+// and let the caller emit a no-op notice.
+func resolveHooksGlobalPath(canonicalClient string) (string, bool, error) {
+	home, err := userHomeDirFunc()
+	if err != nil {
+		return "", false, xerrors.Errorf("%s: %w", Localize("failed to resolve user home directory", "ユーザーホームディレクトリの解決に失敗しました"), err)
+	}
+	switch canonicalClient {
+	case "claude":
+		return filepath.Join(home, ".claude", "settings.json"), true, nil
+	case "gemini":
+		return filepath.Join(home, ".gemini", "settings.json"), true, nil
+	case "codex":
+		return "", false, nil
+	}
+	return "", false, xerrors.Errorf(
+		Localize(
+			"--global is not supported for client %q",
+			"--global は client %q では未対応です",
+		),
+		canonicalClient,
+	)
 }
 
 func resolveHooksTracearyBin(flagValue string) (string, error) {
