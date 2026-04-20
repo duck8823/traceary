@@ -122,6 +122,101 @@ func TestRootCLI_Doctor_ClaudePluginInteractions(t *testing.T) {
 	})
 }
 
+// TestRootCLI_Doctor_ClaudeGlobalConfig asserts that doctor reports the
+// state of the user-level ~/.claude/settings.json as a separate check
+// alongside the project-level claude-config check.
+func TestRootCLI_Doctor_ClaudeGlobalConfig(t *testing.T) {
+	t.Run("reports global config with traceary hooks as pass", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+
+		writeClaudeGlobalHooksSettings(t, homeDir)
+
+		report := runDoctor(t, projectDir)
+		globalCfg := statusByName(report, "claude-global-config")
+		if globalCfg.Status != "pass" {
+			t.Fatalf("claude-global-config status = %q, want pass; msg = %q", globalCfg.Status, globalCfg.Message)
+		}
+		if !strings.Contains(globalCfg.Message, "every project") && !strings.Contains(globalCfg.Message, "全プロジェクト") {
+			t.Errorf("claude-global-config message = %q; want mention of global scope", globalCfg.Message)
+		}
+	})
+
+	t.Run("reports missing global config as skip", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+
+		report := runDoctor(t, projectDir)
+		globalCfg := statusByName(report, "claude-global-config")
+		if globalCfg.Status != "skip" {
+			t.Fatalf("claude-global-config status = %q, want skip; msg = %q", globalCfg.Status, globalCfg.Message)
+		}
+	})
+
+	t.Run("reports malformed global config as fail", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+
+		dir := filepath.Join(homeDir, ".claude")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll() error = %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte("{ not json"), 0o644); err != nil {
+			t.Fatalf("WriteFile() error = %v", err)
+		}
+
+		initStub := &storeManagementUsecaseStub{}
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--client", "claude", "--project-dir", projectDir, "--json"})
+		_ = rootCmd.Execute()
+
+		report := decodeDoctorReport(t, stdout.Bytes())
+		globalCfg := statusByName(report, "claude-global-config")
+		if globalCfg.Status != "fail" {
+			t.Fatalf("claude-global-config status = %q, want fail; msg = %q", globalCfg.Status, globalCfg.Message)
+		}
+	})
+}
+
+func writeClaudeGlobalHooksSettings(t *testing.T, home string) {
+	t.Helper()
+	dir := filepath.Join(home, ".claude")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	content := `{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'traceary' 'hook' 'session' 'claude' 'start'"
+          }
+        ]
+      }
+    ]
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+}
+
 func writeRawProjectSettings(t *testing.T, projectDir, content string) {
 	t.Helper()
 	settingsPath := filepath.Join(projectDir, ".claude", "settings.json")

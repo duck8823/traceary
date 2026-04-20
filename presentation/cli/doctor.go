@@ -160,6 +160,12 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		check := c.inspectClaudeOrConfigFile(targetClient, outputPath, resolvedProjectDir)
 		report.Checks = append(report.Checks, check)
 
+		if targetClient == "claude" {
+			if globalCheck := c.inspectClaudeGlobalConfig(); globalCheck != nil {
+				report.Checks = append(report.Checks, *globalCheck)
+			}
+		}
+
 		if hostCheck := inspectHostCapabilityGaps(targetClient, outputPath); hostCheck != nil {
 			report.Checks = append(report.Checks, *hostCheck)
 		}
@@ -343,6 +349,63 @@ func (c *RootCLI) inspectClaudeOrConfigFile(client, outputPath, projectDir strin
 		}
 	}
 	return configCheck
+}
+
+// inspectClaudeGlobalConfig reports whether ~/.claude/settings.json (the
+// user-level Claude config, resolved via userHomeDirFunc so tests can
+// redirect it) contains Traceary-managed hooks. A missing file is
+// reported as skip — the typical state for users who either use the
+// plugin or install per-project.
+func (c *RootCLI) inspectClaudeGlobalConfig() *doctorCheck {
+	home, err := userHomeDirFunc()
+	if err != nil {
+		return &doctorCheck{
+			Name:    "claude-global-config",
+			Status:  doctorStatusFail,
+			Message: localizef("failed to resolve home directory for global claude config: %v", "global claude config のホーム解決に失敗しました: %v", err),
+		}
+	}
+	globalPath := filepath.Join(home, ".claude", "settings.json")
+	content, err := os.ReadFile(globalPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &doctorCheck{
+				Name:    "claude-global-config",
+				Status:  doctorStatusSkip,
+				Message: localizef("global claude config not present (skipped): %s", "global claude config はありません (skip): %s", globalPath),
+			}
+		}
+		return &doctorCheck{
+			Name:    "claude-global-config",
+			Status:  doctorStatusFail,
+			Message: localizef("failed to read global claude config: %v", "global claude config の読み込みに失敗しました: %v", err),
+		}
+	}
+
+	_, hasTracearyHook, inspectErr := c.hooksInspector.Inspect(content)
+	if inspectErr != nil {
+		return &doctorCheck{
+			Name:    "claude-global-config",
+			Status:  doctorStatusFail,
+			Message: localizef("global claude config is not a valid hooks-shaped JSON object: %s", "global claude config は hooks 形式の JSON として解釈できません: %s", globalPath),
+		}
+	}
+	if hasTracearyHook {
+		return &doctorCheck{
+			Name:   "claude-global-config",
+			Status: doctorStatusPass,
+			Message: localizef(
+				"global claude config contains Traceary-managed hooks (applies to every project): %s",
+				"global claude config に Traceary 管理下の hook があります (全プロジェクトで有効): %s",
+				globalPath,
+			),
+		}
+	}
+	return &doctorCheck{
+		Name:    "claude-global-config",
+		Status:  doctorStatusSkip,
+		Message: localizef("global claude config exists but has no Traceary-managed hooks: %s", "global claude config はありますが Traceary 管理下の hook はありません: %s", globalPath),
+	}
 }
 
 // claudeConfigHasTracearyHooks returns true iff the Claude settings file
