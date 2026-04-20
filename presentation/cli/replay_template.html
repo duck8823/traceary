@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Traceary replay — {{fmtInstant .GeneratedAt}}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root {
+    color-scheme: light dark;
+    --border: #d0d7de;
+    --muted: #6e7681;
+    --accent: #0969da;
+    --failure: #cf222e;
+    --prompt: #8250df;
+    --transcript: #0550ae;
+    --memory-bg: #ddf4ff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --border: #30363d;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --failure: #ff7b72;
+      --prompt: #d2a8ff;
+      --transcript: #79c0ff;
+      --memory-bg: #1f2a33;
+    }
+  }
+  body { font: 14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; margin: 0; padding: 0 24px 48px; }
+  header { padding: 24px 0 12px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+  h1 { margin: 0 0 8px; font-size: 20px; }
+  h2 { margin: 24px 0 12px; font-size: 16px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+  h3 { margin: 16px 0 8px; font-size: 14px; }
+  .meta { color: var(--muted); font-size: 12px; }
+  .empty { color: var(--muted); font-style: italic; }
+  details.session { border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; margin: 8px 0; }
+  details.session > summary { cursor: pointer; font-weight: 600; display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  details.session > summary .sid { color: var(--muted); font-family: ui-monospace,'SF Mono',Menlo,monospace; font-size: 12px; font-weight: normal; }
+  details.session > summary .ws { font-size: 12px; color: var(--accent); }
+  ul.events { list-style: none; padding: 0; margin: 8px 0 0; border-top: 1px dashed var(--border); }
+  ul.events li { padding: 6px 0; border-bottom: 1px dashed var(--border); display: grid; grid-template-columns: 180px 150px 1fr; gap: 12px; }
+  ul.events li .t { color: var(--muted); font-family: ui-monospace,'SF Mono',Menlo,monospace; font-size: 12px; }
+  ul.events li .k { font-family: ui-monospace,'SF Mono',Menlo,monospace; font-size: 12px; }
+  ul.events li .k.prompt { color: var(--prompt); }
+  ul.events li .k.transcript { color: var(--transcript); }
+  ul.events li .k.command_executed { color: var(--accent); }
+  ul.events li .k.session_started, ul.events li .k.session_ended { color: var(--muted); }
+  ul.events li .body { white-space: pre-wrap; word-break: break-word; }
+  table.memories { border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 8px; }
+  table.memories th, table.memories td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; vertical-align: top; }
+  table.memories th { background: var(--memory-bg); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+  table.memories td.fact { max-width: 600px; }
+  code { font-family: ui-monospace,'SF Mono',Menlo,monospace; font-size: 12px; background: var(--memory-bg); padding: 1px 4px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Traceary replay</h1>
+  <div class="meta">
+    Generated {{fmtInstant .GeneratedAt}} ·
+    Source DB: <code>{{.DBPath}}</code> ·
+    Sessions: {{len .Sessions}} ·
+    Memories: {{len .Memories}}
+  </div>
+</header>
+
+<h2>Sessions</h2>
+{{if not .Sessions}}
+  <p class="empty">No sessions recorded in the requested window.</p>
+{{else}}
+  {{range .Sessions}}
+    <details class="session"{{if gt (len .Events) 0}} open{{end}}>
+      <summary>
+        <span>{{if .Label}}{{.Label}}{{else}}(unlabeled session){{end}}</span>
+        <span class="sid">{{short .SessionID 12}}</span>
+        <span class="ws">{{.Workspace}}</span>
+        <span class="meta">{{.Agent}} · {{.Client}}</span>
+        <span class="meta">{{fmtInstant .StartedAt}} → {{.EndedAt}}</span>
+        <span class="meta">{{len .Events}} events</span>
+      </summary>
+      {{if not .Events}}
+        <p class="empty">No events recorded for this session.</p>
+      {{else}}
+        <ul class="events">
+          {{range .Events}}
+            <li>
+              <span class="t">{{fmtInstant .CreatedAt}}</span>
+              <span class="k {{.Kind}}">{{.Kind}}</span>
+              <span class="body">{{short .Body 480}}</span>
+            </li>
+          {{end}}
+        </ul>
+      {{end}}
+    </details>
+  {{end}}
+{{end}}
+
+<h2>Durable memories (accepted)</h2>
+{{if not .Memories}}
+  <p class="empty">No accepted memories in the requested window.</p>
+{{else}}
+<table class="memories">
+  <thead>
+    <tr>
+      <th>Type</th>
+      <th>Scope</th>
+      <th>Confidence</th>
+      <th>Valid from</th>
+      <th>Valid to</th>
+      <th>Updated</th>
+      <th>Fact</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Memories}}
+      <tr>
+        <td>{{.Type}}</td>
+        <td><code>{{.Scope}}</code></td>
+        <td>{{.Confidence}}</td>
+        <td>{{fmtInstant .ValidFrom}}</td>
+        <td>{{.ValidTo}}</td>
+        <td>{{fmtInstant .UpdatedAt}}</td>
+        <td class="fact">{{.Fact}}</td>
+      </tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
+
+<footer class="meta" style="margin-top:32px; padding-top:12px; border-top:1px solid var(--border);">
+  Traceary v0.8-1 replay export · local-first · no network access required to view this file.
+</footer>
+</body>
+</html>
