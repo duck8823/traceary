@@ -32,6 +32,8 @@ func TestMemorySummaryOf(t *testing.T) {
 		domtypes.Some(supersedes),
 		domtypes.Some(expiresAt),
 		createdAt,
+		domtypes.None[time.Time](),
+		createdAt,
 		updatedAt,
 	)
 	if err != nil {
@@ -65,6 +67,8 @@ func TestMemorySummaryFrom(t *testing.T) {
 		nil,
 		nil,
 		domtypes.None[domtypes.MemoryID](),
+		domtypes.None[time.Time](),
+		time.Date(2026, 4, 12, 9, 0, 0, 0, time.UTC),
 		domtypes.None[time.Time](),
 		time.Date(2026, 4, 12, 9, 0, 0, 0, time.UTC),
 		time.Date(2026, 4, 12, 9, 30, 0, 0, time.UTC),

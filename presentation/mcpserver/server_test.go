@@ -845,6 +845,13 @@ CREATE TABLE memory_artifact_refs (
 CREATE INDEX idx_memory_artifact_refs_lookup
     ON memory_artifact_refs(ref_kind, ref_value);`),
 		},
+		"000009_add_memory_validity_window.sql": {
+			Data: []byte(`
+ALTER TABLE memories ADD COLUMN valid_from TEXT;
+ALTER TABLE memories ADD COLUMN valid_to TEXT;
+UPDATE memories SET valid_from = created_at WHERE valid_from IS NULL;
+CREATE INDEX idx_memories_valid_window ON memories(valid_to, valid_from);`),
+		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
 	db := sqlite.NewDatabase(dbPath, migrations)

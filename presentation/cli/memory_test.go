@@ -407,6 +407,8 @@ func mustMemorySummary(t *testing.T, memoryIDValue string, fact string, status t
 		types.None[types.MemoryID](),
 		types.None[time.Time](),
 		time.Date(2026, 4, 13, 9, 0, 0, 0, time.UTC),
+		types.None[time.Time](),
+		time.Date(2026, 4, 13, 9, 0, 0, 0, time.UTC),
 		time.Date(2026, 4, 13, 10, 0, 0, 0, time.UTC),
 	)
 	if err != nil {
@@ -429,6 +431,8 @@ func mustMemoryDetails(t *testing.T, memoryIDValue string, fact string, status t
 		[]types.EvidenceRef{mustEvidenceRefForCLI(t, types.EvidenceRefKindIssue, "#462")},
 		[]types.ArtifactRef{mustArtifactRefForCLI(t, types.ArtifactRefKindPR, "#468")},
 		types.None[types.MemoryID](),
+		types.None[time.Time](),
+		time.Date(2026, 4, 13, 9, 0, 0, 0, time.UTC),
 		types.None[time.Time](),
 		time.Date(2026, 4, 13, 9, 0, 0, 0, time.UTC),
 		time.Date(2026, 4, 13, 10, 0, 0, 0, time.UTC),

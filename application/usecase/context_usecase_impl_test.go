@@ -81,6 +81,8 @@ func TestContextUsecase_Handoff(t *testing.T) {
 			domtypes.None[domtypes.MemoryID](),
 			domtypes.None[time.Time](),
 			time.Now(),
+			domtypes.None[time.Time](),
+			time.Now(),
 			time.Now(),
 		)
 		if err != nil {

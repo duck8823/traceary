@@ -32,6 +32,7 @@ func (c *RootCLI) newMemoryCommand() *cobra.Command {
 	memoryCmd.AddCommand(c.newMemoryRejectCommand())
 	memoryCmd.AddCommand(c.newMemorySupersedeCommand())
 	memoryCmd.AddCommand(c.newMemoryExpireCommand())
+	memoryCmd.AddCommand(c.newMemorySetValidityCommand())
 	return memoryCmd
 }
 
@@ -53,6 +54,8 @@ func (c *RootCLI) newMemoryListCommand() *cobra.Command {
 	cmd.Flags().StringSliceVar(&input.memoryTypes, "type", nil, Localize("filter by memory type", "memory type で絞り込む"))
 	cmd.Flags().IntVar(&input.limit, "limit", 20, Localize("maximum number of memories to return", "表示件数"))
 	cmd.Flags().IntVar(&input.offset, "offset", 0, Localize("number of memories to skip before listing", "一覧表示前にスキップする件数"))
+	cmd.Flags().StringVar(&input.asOf, "as-of", "", Localize("evaluate memory validity as of this timestamp (`YYYY-MM-DD` or RFC3339, defaults to now)", "この時点の validity で評価する (`YYYY-MM-DD` または RFC3339、既定は now)"))
+	cmd.Flags().BoolVar(&input.includeExpired, "include-expired", false, Localize("include memories whose validTo is in the past (bypass the default validity-window filter)", "validTo が過去の memory も含める (既定の validity-window filter をバイパス)"))
 	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	return cmd
 }
@@ -79,6 +82,8 @@ func (c *RootCLI) newMemorySearchCommand() *cobra.Command {
 	cmd.Flags().StringSliceVar(&input.memoryTypes, "type", nil, Localize("filter by memory type", "memory type で絞り込む"))
 	cmd.Flags().IntVar(&input.limit, "limit", 20, Localize("maximum number of memories to return", "表示件数"))
 	cmd.Flags().IntVar(&input.offset, "offset", 0, Localize("number of memories to skip before returning results", "結果を返す前にスキップする件数"))
+	cmd.Flags().StringVar(&input.asOf, "as-of", "", Localize("evaluate memory validity as of this timestamp (`YYYY-MM-DD` or RFC3339, defaults to now)", "この時点の validity で評価する (`YYYY-MM-DD` または RFC3339、既定は now)"))
+	cmd.Flags().BoolVar(&input.includeExpired, "include-expired", false, Localize("include memories whose validTo is in the past (bypass the default validity-window filter)", "validTo が過去の memory も含める (既定の validity-window filter をバイパス)"))
 	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	return cmd
 }
@@ -213,6 +218,37 @@ func (c *RootCLI) newMemoryExpireCommand() *cobra.Command {
 	return cmd
 }
 
+func (c *RootCLI) newMemorySetValidityCommand() *cobra.Command {
+	input := memoryValidityCommandInput{}
+	cmd := &cobra.Command{
+		Use:   "set-validity <memory-id>",
+		Short: Localize("Set the content validity window (valid_from / valid_to) on a durable memory", "durable memory のコンテンツ有効期間 (valid_from / valid_to) を設定する"),
+		Long: Localize(
+			"Set or update the content validity window on a durable memory. validFrom and validTo describe when the fact is asserted to be true, separately from the lifecycle `expires_at` metadata written by `memory expire`. Omit a flag to leave that bound unchanged. Use --clear-to to remove an existing validTo (return to open-ended).",
+			"durable memory のコンテンツ有効期間 (valid_from / valid_to) を設定します。これは fact が真として主張される期間であり、`memory expire` で記録される lifecycle `expires_at` とは別の軸です。フラグを省略すればその境界は変更しません。既存の validTo を外して再び open-ended に戻すには --clear-to を指定してください。",
+		),
+		Example: strings.Join([]string{
+			"  traceary memory set-validity <id> --from 2026-04-20 --to 2026-07-01",
+			"  traceary memory set-validity <id> --to 2026-12-31",
+			"  traceary memory set-validity <id> --clear-to",
+		}, "\n"),
+		Args: exactArgsLocalized(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			input.memoryID = args[0]
+			return c.runMemorySetValidity(cmd.Context(), cmd.OutOrStdout(), input)
+		},
+	}
+	cmd.Flags().StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
+	cmd.Flags().StringVar(&input.validFrom, "from", "", Localize("start of validity window (`YYYY-MM-DD` or RFC3339)", "validity window 開始 (`YYYY-MM-DD` または RFC3339)"))
+	cmd.Flags().StringVar(&input.validTo, "to", "", Localize("end of validity window (`YYYY-MM-DD` or RFC3339)", "validity window 終了 (`YYYY-MM-DD` または RFC3339)"))
+	cmd.Flags().BoolVar(&input.clearTo, "clear-to", false, Localize("clear the existing validTo (return to open-ended validity)", "既存の validTo を外して open-ended に戻す"))
+	cmd.Flags().BoolVar(&input.idOnly, "id-only", false, Localize("print only the resulting memory ID", "結果の memory ID だけを出力する"))
+	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
+	cmd.MarkFlagsMutuallyExclusive("id-only", "json")
+	cmd.MarkFlagsMutuallyExclusive("to", "clear-to")
+	return cmd
+}
+
 func configureMemoryWriteFlags(cmd *cobra.Command, input *memoryWriteCommandInput) {
 	cmd.Flags().StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
 	cmd.Flags().StringVar(&input.workspace, "workspace", "", Localize("workspace scope (defaults to env/detected workspace when no other scope is set)", "workspace scope (他の scope がない場合は env/検出 workspace を使用)"))
@@ -260,12 +296,20 @@ func (c *RootCLI) runMemoryList(ctx context.Context, output io.Writer, input mem
 		return err
 	}
 
-	criteria := apptypes.NewMemoryListCriteriaBuilder(input.limit).
+	asOf, err := parseOptionalValidityTime(input.asOf)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to parse --as-of", "--as-of の解析に失敗しました"), err)
+	}
+	criteriaBuilder := apptypes.NewMemoryListCriteriaBuilder(input.limit).
 		Offset(input.offset).
 		Scopes(scopes).
 		Statuses(statuses).
 		MemoryTypes(memoryTypes).
-		Build()
+		IncludeExpiredByValidity(input.includeExpired)
+	if t, ok := asOf.Value(); ok {
+		criteriaBuilder = criteriaBuilder.AsOf(t)
+	}
+	criteria := criteriaBuilder.Build()
 	summaries, err := c.memory.List(ctx, criteria)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to list durable memories", "durable memory の一覧取得に失敗しました"), err)
@@ -309,13 +353,21 @@ func (c *RootCLI) runMemorySearch(ctx context.Context, output io.Writer, input m
 		return err
 	}
 
-	criteria := apptypes.NewMemorySearchCriteriaBuilder(input.limit).
+	asOf, err := parseOptionalValidityTime(input.asOf)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to parse --as-of", "--as-of の解析に失敗しました"), err)
+	}
+	criteriaBuilder := apptypes.NewMemorySearchCriteriaBuilder(input.limit).
 		Query(strings.TrimSpace(input.query)).
 		Offset(input.offset).
 		Scopes(scopes).
 		Statuses(statuses).
 		MemoryTypes(memoryTypes).
-		Build()
+		IncludeExpiredByValidity(input.includeExpired)
+	if t, ok := asOf.Value(); ok {
+		criteriaBuilder = criteriaBuilder.AsOf(t)
+	}
+	criteria := criteriaBuilder.Build()
 	summaries, err := c.memory.Search(ctx, criteria)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to search durable memories", "durable memory の検索に失敗しました"), err)
@@ -480,6 +532,45 @@ func (c *RootCLI) runMemoryExpire(ctx context.Context, output io.Writer, input m
 		return xerrors.Errorf("%s: %w", Localize("failed to expire durable memory", "durable memory の expire に失敗しました"), err)
 	}
 	return writeMemoryMutationResult(output, details, input.idOnly, input.asJSON)
+}
+
+func (c *RootCLI) runMemorySetValidity(ctx context.Context, output io.Writer, input memoryValidityCommandInput) error {
+	if err := c.initializeMemoryStore(ctx, input.dbPath); err != nil {
+		return err
+	}
+	memoryID, err := domtypes.MemoryIDOf(input.memoryID)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve memory ID", "memory ID の解決に失敗しました"), err)
+	}
+	validFrom, err := parseOptionalValidityTime(input.validFrom)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to parse --from", "--from の解析に失敗しました"), err)
+	}
+	validTo, err := parseOptionalValidityTime(input.validTo)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to parse --to", "--to の解析に失敗しました"), err)
+	}
+	details, err := c.memory.SetValidity(ctx, memoryID, validFrom, validTo, input.clearTo)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to set durable memory validity", "durable memory の validity 設定に失敗しました"), err)
+	}
+	return writeMemoryMutationResult(output, details, input.idOnly, input.asJSON)
+}
+
+// parseOptionalValidityTime parses a --from / --to flag into an
+// Optional time. Unlike parseOptionalExpiryTime it does not default
+// to now — the convention for validity flags is "unset means leave
+// the current bound unchanged."
+func parseOptionalValidityTime(value string) (domtypes.Optional[time.Time], error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return domtypes.None[time.Time](), nil
+	}
+	parsed, err := parseFlexibleTime(trimmed, false)
+	if err != nil {
+		return domtypes.None[time.Time](), err
+	}
+	return domtypes.Some(parsed), nil
 }
 
 func (c *RootCLI) initializeMemoryStore(ctx context.Context, dbPath string) error {

@@ -21,11 +21,16 @@ type MemorySummary struct {
 	source     domtypes.MemorySource
 	supersedes domtypes.Optional[domtypes.MemoryID]
 	expiresAt  domtypes.Optional[time.Time]
+	validFrom  time.Time
+	validTo    domtypes.Optional[time.Time]
 	createdAt  time.Time
 	updatedAt  time.Time
 }
 
-// MemorySummaryOf creates a MemorySummary.
+// MemorySummaryOf creates a MemorySummary. validFrom must be non-zero;
+// post-migration callers can default to createdAt when they have no
+// more specific value. validTo stays optional so open-ended validity
+// remains the default.
 func MemorySummaryOf(
 	memoryID domtypes.MemoryID,
 	memoryType domtypes.MemoryType,
@@ -36,6 +41,8 @@ func MemorySummaryOf(
 	source domtypes.MemorySource,
 	supersedes domtypes.Optional[domtypes.MemoryID],
 	expiresAt domtypes.Optional[time.Time],
+	validFrom time.Time,
+	validTo domtypes.Optional[time.Time],
 	createdAt time.Time,
 	updatedAt time.Time,
 ) (MemorySummary, error) {
@@ -57,6 +64,8 @@ func MemorySummaryOf(
 		source:     source,
 		supersedes: supersedes,
 		expiresAt:  expiresAt,
+		validFrom:  validFrom,
+		validTo:    validTo,
 		createdAt:  createdAt,
 		updatedAt:  updatedAt,
 	}, nil
@@ -77,6 +86,8 @@ func MemorySummaryFrom(memory *model.Memory) (MemorySummary, error) {
 		memory.Source(),
 		memory.Supersedes(),
 		memory.ExpiresAt(),
+		memory.ValidFrom(),
+		memory.ValidTo(),
 		memory.CreatedAt(),
 		memory.UpdatedAt(),
 	)
@@ -108,6 +119,12 @@ func (s MemorySummary) Supersedes() domtypes.Optional[domtypes.MemoryID] { retur
 
 // ExpiresAt returns the expiry timestamp, when present.
 func (s MemorySummary) ExpiresAt() domtypes.Optional[time.Time] { return s.expiresAt }
+
+// ValidFrom returns the start of the content validity window.
+func (s MemorySummary) ValidFrom() time.Time { return s.validFrom }
+
+// ValidTo returns the end of the content validity window, when present.
+func (s MemorySummary) ValidTo() domtypes.Optional[time.Time] { return s.validTo }
 
 // CreatedAt returns when the memory was created.
 func (s MemorySummary) CreatedAt() time.Time { return s.createdAt }

@@ -190,6 +190,11 @@ func (s *Server) Build(ctx context.Context) (*mcp.Server, error) {
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true)},
 	}, s.expireMemory())
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "set_memory_validity",
+		Description: "Set the content validity window (valid_from / valid_to) on a durable memory.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true)},
+	}, s.setMemoryValidity())
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "memory_pack",
 		Description: "Build a memory pack for prompt context, handoff, automation, and recent commands.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
@@ -904,6 +909,36 @@ func (s *Server) expireMemory() mcp.ToolHandlerFor[expireMemoryInput, memoryOutp
 		details, err := s.memory.Expire(ctx, memoryID, expiresAtOptional)
 		if err != nil {
 			return nil, memoryOutput{}, xerrors.Errorf("failed to expire memory: %w", err)
+		}
+		return nil, newMemoryOutput(details), nil
+	}
+}
+
+func (s *Server) setMemoryValidity() mcp.ToolHandlerFor[setMemoryValidityInput, memoryOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, input setMemoryValidityInput) (*mcp.CallToolResult, memoryOutput, error) {
+		memoryID, err := types.MemoryIDOf(strings.TrimSpace(input.MemoryID))
+		if err != nil {
+			return nil, memoryOutput{}, xerrors.Errorf("failed to resolve memory_id: %w", err)
+		}
+		validFromOptional := types.None[time.Time]()
+		if strings.TrimSpace(input.ValidFrom) != "" {
+			validFrom, err := parseFlexibleTime(input.ValidFrom, false)
+			if err != nil {
+				return nil, memoryOutput{}, xerrors.Errorf("failed to resolve valid_from: %w", err)
+			}
+			validFromOptional = types.Some(validFrom)
+		}
+		validToOptional := types.None[time.Time]()
+		if strings.TrimSpace(input.ValidTo) != "" {
+			validTo, err := parseFlexibleTime(input.ValidTo, false)
+			if err != nil {
+				return nil, memoryOutput{}, xerrors.Errorf("failed to resolve valid_to: %w", err)
+			}
+			validToOptional = types.Some(validTo)
+		}
+		details, err := s.memory.SetValidity(ctx, memoryID, validFromOptional, validToOptional, input.ClearValidTo)
+		if err != nil {
+			return nil, memoryOutput{}, xerrors.Errorf("failed to set memory validity: %w", err)
 		}
 		return nil, newMemoryOutput(details), nil
 	}

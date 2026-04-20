@@ -53,6 +53,8 @@ SELECT
     m.source,
     m.supersedes_memory_id,
     m.expires_at,
+    m.valid_from,
+    m.valid_to,
     m.created_at,
     m.updated_at
 FROM memories m
@@ -152,6 +154,12 @@ func persistMemoryTx(ctx context.Context, tx *sql.Tx, memory *model.Memory) erro
 		formatted := formatTimestamp(expiresAt)
 		expiresAtValue = &formatted
 	}
+	validFromValue := formatTimestamp(memory.ValidFrom())
+	var validToValue *string
+	if validTo, ok := memory.ValidTo().Value(); ok {
+		formatted := formatTimestamp(validTo)
+		validToValue = &formatted
+	}
 
 	if _, err := tx.ExecContext(
 		ctx,
@@ -166,6 +174,8 @@ func persistMemoryTx(ctx context.Context, tx *sql.Tx, memory *model.Memory) erro
 		memory.Source().String(),
 		supersedesValue,
 		expiresAtValue,
+		validFromValue,
+		validToValue,
 		formatTimestamp(memory.CreatedAt()),
 		formatTimestamp(memory.UpdatedAt()),
 	); err != nil {
@@ -368,6 +378,8 @@ type memoryRow struct {
 	source     string
 	supersedes sql.NullString
 	expiresAt  sql.NullString
+	validFrom  sql.NullString
+	validTo    sql.NullString
 	createdAt  string
 	updatedAt  string
 }
@@ -387,6 +399,8 @@ func scanMemoryRow(rowScanner interface {
 		&row.source,
 		&row.supersedes,
 		&row.expiresAt,
+		&row.validFrom,
+		&row.validTo,
 		&row.createdAt,
 		&row.updatedAt,
 	); err != nil {
@@ -446,6 +460,10 @@ func restoreMemorySummary(row memoryRow) (apptypes.MemorySummary, error) {
 		}
 		expiresAt = types.Some(expiresAtValue)
 	}
+	validFrom, validTo, err := parseMemoryValidityWindow(row)
+	if err != nil {
+		return apptypes.MemorySummary{}, err
+	}
 	createdAt, err := time.Parse(time.RFC3339Nano, row.createdAt)
 	if err != nil {
 		return apptypes.MemorySummary{}, xerrors.Errorf("failed to parse memory created_at: %w", err)
@@ -465,6 +483,8 @@ func restoreMemorySummary(row memoryRow) (apptypes.MemorySummary, error) {
 		source,
 		supersedes,
 		expiresAt,
+		validFrom,
+		validTo,
 		createdAt,
 		updatedAt,
 	)
@@ -472,6 +492,36 @@ func restoreMemorySummary(row memoryRow) (apptypes.MemorySummary, error) {
 		return apptypes.MemorySummary{}, xerrors.Errorf("failed to build memory summary: %w", err)
 	}
 	return summary, nil
+}
+
+// parseMemoryValidityWindow resolves the validity columns out of a
+// scanned row. Post-migration 000009 every row has a non-null
+// valid_from back-filled from created_at, but we still accept a
+// legacy NULL valid_from by falling back to created_at so the
+// invariant "validFrom is never zero" holds even if a user upgrades
+// with manually-edited rows.
+func parseMemoryValidityWindow(row memoryRow) (time.Time, types.Optional[time.Time], error) {
+	createdAt, err := time.Parse(time.RFC3339Nano, row.createdAt)
+	if err != nil {
+		return time.Time{}, types.None[time.Time](), xerrors.Errorf("failed to parse memory created_at: %w", err)
+	}
+	validFrom := createdAt
+	if row.validFrom.Valid {
+		parsed, err := time.Parse(time.RFC3339Nano, row.validFrom.String)
+		if err != nil {
+			return time.Time{}, types.None[time.Time](), xerrors.Errorf("failed to parse memory valid_from: %w", err)
+		}
+		validFrom = parsed
+	}
+	validTo := types.None[time.Time]()
+	if row.validTo.Valid {
+		parsed, err := time.Parse(time.RFC3339Nano, row.validTo.String)
+		if err != nil {
+			return time.Time{}, types.None[time.Time](), xerrors.Errorf("failed to parse memory valid_to: %w", err)
+		}
+		validTo = types.Some(parsed)
+	}
+	return validFrom, validTo, nil
 }
 
 func restoreMemoryAggregate(row memoryRow, evidenceRefs []types.EvidenceRef, artifactRefs []types.ArtifactRef) (*model.Memory, error) {
@@ -491,6 +541,8 @@ func restoreMemoryAggregate(row memoryRow, evidenceRefs []types.EvidenceRef, art
 		artifactRefs,
 		summary.Supersedes(),
 		summary.ExpiresAt(),
+		summary.ValidFrom(),
+		summary.ValidTo(),
 		summary.CreatedAt(),
 		summary.UpdatedAt(),
 	), nil
@@ -595,6 +647,7 @@ func buildMemoryListQuery(criteria apptypes.MemoryListCriteria) (string, []any, 
 	if err != nil {
 		return "", nil, err
 	}
+	args = appendMemoryValidityWindowFilter(&builder, args, criteria.AsOf(), criteria.IncludeExpiredByValidity())
 	builder.WriteString(" ORDER BY m.updated_at DESC, m.id DESC LIMIT ? OFFSET ?")
 	args = append(args, criteria.Limit(), criteria.Offset())
 	return builder.String(), args, nil
@@ -631,10 +684,41 @@ func buildMemorySearchQuery(criteria apptypes.MemorySearchCriteria) (string, []a
 	if err != nil {
 		return "", nil, err
 	}
+	args = appendMemoryValidityWindowFilter(&builder, args, criteria.AsOf(), criteria.IncludeExpiredByValidity())
 	builder.WriteString(" ORDER BY m.updated_at DESC, m.id DESC LIMIT ? OFFSET ?")
 	args = append(args, criteria.Limit(), criteria.Offset())
 	return builder.String(), args, nil
 }
+
+// appendMemoryValidityWindowFilter narrows results to memories whose
+// content validity window contains the evaluation timestamp, unless
+// includeExpired is true. When criteria.AsOf() is None we use the
+// current wall clock so callers that do not care about time travel
+// still get "still-valid-right-now" semantics by default.
+func appendMemoryValidityWindowFilter(
+	builder *strings.Builder,
+	args []any,
+	asOf types.Optional[time.Time],
+	includeExpired bool,
+) []any {
+	if includeExpired {
+		return args
+	}
+	evaluationTime := nowFunc()
+	if explicit, ok := asOf.Value(); ok {
+		evaluationTime = explicit
+	}
+	formatted := formatTimestamp(evaluationTime)
+	// valid_from is NOT NULL post-migration, but legacy rows with NULL
+	// valid_from are treated as "valid since created_at" to keep
+	// existing data queryable without a one-shot backfill job.
+	builder.WriteString(" AND (m.valid_from IS NULL OR m.valid_from <= ?)")
+	builder.WriteString(" AND (m.valid_to IS NULL OR m.valid_to > ?)")
+	return append(args, formatted, formatted)
+}
+
+// nowFunc is overridden in tests to pin wall-clock calls.
+var nowFunc = time.Now
 
 func appendMemoryFilters(
 	builder *strings.Builder,

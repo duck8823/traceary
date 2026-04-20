@@ -166,6 +166,19 @@ type expireMemoryInput struct {
 	ExpiresAt string `json:"expires_at,omitempty" jsonschema:"expiry timestamp (YYYY-MM-DD or RFC3339, defaults to now)"`
 }
 
+// setMemoryValidityInput is the MCP input for the set_memory_validity tool.
+// Mirrors `traceary memory set-validity`: valid_from / valid_to set the
+// content-validity window (separate from expires_at, which is the
+// lifecycle operation timestamp). clear_valid_to removes the current
+// validTo when no valid_to value is supplied, returning the memory to
+// open-ended validity.
+type setMemoryValidityInput struct {
+	MemoryID     string `json:"memory_id" jsonschema:"durable memory identifier"`
+	ValidFrom    string `json:"valid_from,omitempty" jsonschema:"start of validity window (YYYY-MM-DD or RFC3339); omit to leave unchanged"`
+	ValidTo      string `json:"valid_to,omitempty" jsonschema:"end of validity window (YYYY-MM-DD or RFC3339); omit to leave unchanged"`
+	ClearValidTo bool   `json:"clear_valid_to,omitempty" jsonschema:"remove the existing valid_to (return to open-ended validity); incompatible with valid_to"`
+}
+
 // acceptMemoriesBatchInput is the MCP input for the accept_memories_batch
 // tool. Agent hosts call this to drive the same accept-every-candidate
 // flow the CLI exposes under `traceary memory inbox accept --ids`, so the

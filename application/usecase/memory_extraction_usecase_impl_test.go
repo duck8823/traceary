@@ -70,6 +70,10 @@ func (s *memoryExtractionMemoryUsecaseStub) Expire(context.Context, domtypes.Mem
 	return apptypes.MemoryDetails{}, nil
 }
 
+func (s *memoryExtractionMemoryUsecaseStub) SetValidity(context.Context, domtypes.MemoryID, domtypes.Optional[time.Time], domtypes.Optional[time.Time], bool) (apptypes.MemoryDetails, error) {
+	return apptypes.MemoryDetails{}, nil
+}
+
 func (s *memoryExtractionMemoryUsecaseStub) List(_ context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
 	s.listCalls = append(s.listCalls, criteria)
 	if s.listErr != nil {
@@ -233,6 +237,8 @@ func TestMemoryExtractionUsecase_Extract_DeduplicatesExistingAndGracefullyHandle
 		domtypes.None[domtypes.MemoryID](),
 		domtypes.None[time.Time](),
 		time.Now(),
+		domtypes.None[time.Time](),
+		time.Now(),
 		time.Now(),
 	)
 	if err != nil {
@@ -299,6 +305,8 @@ func TestMemoryExtractionUsecase_Extract_PaginatesExistingMemoryDedupe(t *testin
 			domtypes.None[domtypes.MemoryID](),
 			domtypes.None[time.Time](),
 			time.Now(),
+			domtypes.None[time.Time](),
+			time.Now(),
 			time.Now(),
 		)
 		if err != nil {
@@ -315,6 +323,8 @@ func TestMemoryExtractionUsecase_Extract_PaginatesExistingMemoryDedupe(t *testin
 		domtypes.ConfidenceVerified,
 		domtypes.MemorySourceManual,
 		domtypes.None[domtypes.MemoryID](),
+		domtypes.None[time.Time](),
+		time.Now(),
 		domtypes.None[time.Time](),
 		time.Now(),
 		time.Now(),
@@ -498,6 +508,8 @@ func TestMemoryExtractionUsecase_Extract_DeduplicatesExistingFactsAfterSanitizat
 				domtypes.None[domtypes.MemoryID](),
 				domtypes.None[time.Time](),
 				time.Now(),
+				domtypes.None[time.Time](),
+				time.Now(),
 				time.Now(),
 			)
 			if err != nil {
@@ -570,6 +582,8 @@ func mustMemoryDetailsFromSummary(t *testing.T, memoryID string, memoryType domt
 		domtypes.ConfidenceVerified,
 		domtypes.MemorySourceExtracted,
 		domtypes.None[domtypes.MemoryID](),
+		domtypes.None[time.Time](),
+		time.Now(),
 		domtypes.None[time.Time](),
 		time.Now(),
 		time.Now(),

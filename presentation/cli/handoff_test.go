@@ -29,6 +29,8 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 			types.None[types.MemoryID](),
 			types.None[time.Time](),
 			time.Now(),
+			types.None[time.Time](),
+			time.Now(),
 			time.Now(),
 		)
 		if err != nil {

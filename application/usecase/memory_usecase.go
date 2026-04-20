@@ -55,6 +55,20 @@ type MemoryUsecase interface {
 	// Expire expires an active memory at the given time. Empty expiry means now.
 	Expire(ctx context.Context, memoryID domtypes.MemoryID, expiresAt domtypes.Optional[time.Time]) (apptypes.MemoryDetails, error)
 
+	// SetValidity sets the content-validity window (valid_from / valid_to)
+	// on an existing memory. Either bound may be omitted to leave the
+	// current value unchanged. Set clearValidTo=true to explicitly
+	// remove an existing validTo (return the memory to open-ended
+	// validity). clearValidTo=true with a non-empty validTo argument
+	// is invalid.
+	SetValidity(
+		ctx context.Context,
+		memoryID domtypes.MemoryID,
+		validFrom domtypes.Optional[time.Time],
+		validTo domtypes.Optional[time.Time],
+		clearValidTo bool,
+	) (apptypes.MemoryDetails, error)
+
 	// List returns memory summaries matching the criteria.
 	List(ctx context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error)
 

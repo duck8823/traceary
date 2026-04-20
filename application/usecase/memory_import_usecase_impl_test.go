@@ -82,6 +82,10 @@ func (s *stubImportMemoryUsecase) Expire(context.Context, domtypes.MemoryID, dom
 	return apptypes.MemoryDetails{}, nil
 }
 
+func (s *stubImportMemoryUsecase) SetValidity(context.Context, domtypes.MemoryID, domtypes.Optional[time.Time], domtypes.Optional[time.Time], bool) (apptypes.MemoryDetails, error) {
+	return apptypes.MemoryDetails{}, nil
+}
+
 func (s *stubImportMemoryUsecase) List(context.Context, apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
 	return nil, nil
 }
@@ -108,6 +112,8 @@ func buildImportDetails(scope domtypes.MemoryScope, fact string, status domtypes
 		domtypes.ConfidenceMedium,
 		domtypes.MemorySourceImported,
 		domtypes.None[domtypes.MemoryID](),
+		domtypes.None[time.Time](),
+		time.Now().UTC(),
 		domtypes.None[time.Time](),
 		time.Now().UTC(),
 		time.Now().UTC(),
