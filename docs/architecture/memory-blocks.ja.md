@@ -29,7 +29,7 @@ Durable memory は現状 4 つの軸で記述されています（スキーマ: 
 | `status` | `candidate`, `accepted`, `rejected`, `superseded`, `expired` | **ライフサイクル状態** |
 | `confidence` | `low`, `medium`, `high`, `verified` | **どれくらい信頼できるか** |
 
-retrieval pipeline (`application/usecase/context_pack_builder.go`, `MemoryListCriteria`) は既に `scope` / `status` / `type` / `source` でフィルタしています。
+read 契約 (`application/types/memory_list_criteria.go` の `MemoryListCriteria`) は `scope` / `status` / `type` / `source` でフィルタ可能な API を持っています。現状の `context_pack_builder.go` はこの契約を利用しつつ `Scopes` + `Statuses`（accepted のみ）だけを設定しており、より細かいフィルタは今後の retrieval preset (v0.8-5, #570) が使う想定です。
 
 ## ブロック提案を既存軸に写像する
 
@@ -48,7 +48,7 @@ retrieval pipeline (`application/usecase/context_pack_builder.go`, `MemoryListCr
 1. **`type` との責務重複**: `type` は既に分類軸です。さらに `block` を重ねると、生成側（prompt / hook / MCP）は似たような分類判断を二度する必要があり、一貫性が崩れます。
 2. **`scope` との責務重複**: `project-context` ブロックは実質 `scope=workspace` の言い換えで、retrieval の意図が scope と block でぶつかります。
 3. **インデックス圧**: 現状のインデックスは `(scope_kind, scope_value, status, updated_at, id)` と `(type, status, updated_at, id)` です。高 cardinality なフィルタを 1 軸足すと、インデックスを増やすか特異度を犠牲にするかの二択になります。
-4. **利得のない migration**: `block` カラムを足すなら `ALTER TABLE` + 既存行への back-fill が要ります。back-fill の根拠は前述の「type → block」写像そのもので、双方向に可逆 — つまり新軸は既存軸以上の情報を持っていないことの証拠です。
+4. **利得のない migration**: `block` カラムを足すなら `ALTER TABLE` + 既存行への back-fill が要ります。back-fill のほぼ唯一の手段は `type`（必要なら `scope` も併用）を読むことで、既に accepted になっている memory はすべて既存カラムから `block` を導出できます。もっとも前述の写像は多対一（例: `guidance` は `type=decision` / `type=lesson` 両方から来うる）で部分的（`unfinished-work` は綺麗な元を持たない）なので、現実には `type` ごとに 1 つの規則を固定し恣意性を許容するしかありません。既存カラムだけで back-fill が成立すること自体が、新軸が古い軸にない情報を持っていないことを示しています。
 5. **Host bridge の負担**: MCP / CLI / CLAUDE.md / AGENTS.md / GEMINI.md への bridge すべてが新軸を学び直す必要があります。`type` と重複した分類を足すために回すコストではありません。
 
 ## Traceary として代わりに進めること
@@ -70,6 +70,11 @@ memory blocks が約束する「*open work を resume*」「*過去の決定を 
 - Durable memory に `block` 軸を **導入しない**。
 - 代わりに v0.8-5 (#570) **retrieval presets** を進め、resume / review / incident の提案された用途を preset 側で吸収する。
 - `type` / `scope` / `status` / `confidence` の組み合わせで表現できない具体的な retrieval ニーズが新たに出てきた場合にのみ再評価する。
+
+## 関連 docs
+
+- [Architecture principles](./README.ja.md)
+- [Durable memory guide](../memory/README.ja.md)
 
 ## 参考
 

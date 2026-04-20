@@ -29,7 +29,7 @@ Durable memory today is described by four orthogonal axes (schema: `schema/sqlit
 | `status` | `candidate`, `accepted`, `rejected`, `superseded`, `expired` | The **lifecycle state** of the memory |
 | `confidence` | `low`, `medium`, `high`, `verified` | How much to **trust** the memory |
 
-Retrieval pipelines (`application/usecase/context_pack_builder.go`, `MemoryListCriteria`) already filter on `scope`, `status`, `type`, and `source`.
+The read contract (`MemoryListCriteria` in `application/types/memory_list_criteria.go`) accepts filters on `scope`, `status`, `type`, and `source`. The current `context_pack_builder.go` consumes that contract but only sets `Scopes` + `Statuses` (accepted-only); richer filters are already expressible and are expected to be used by future retrieval presets (v0.8-5, #570).
 
 ## Mapping block proposals onto existing axes
 
@@ -48,7 +48,7 @@ Four of the five proposed blocks reduce to existing `type` + `scope` combination
 1. **Responsibility duplication with `type`**. `type` is already a classification axis. Overlaying `block` means every candidate memory has two nearly-identical classification decisions to make, and producers (prompt / hook / MCP) would inevitably pick inconsistent values.
 2. **Responsibility duplication with `scope`**. `project-context` as a block is just `scope=workspace` renamed. If blocks claim that, `scope` and `block` collide on retrieval intent.
 3. **Index pressure**. Indexes today are `(scope_kind, scope_value, status, updated_at, id)` and `(type, status, updated_at, id)`. Introducing a fourth high-cardinality filter would either grow the index set or force a composite that loses specificity.
-4. **Migration without clear upside**. A `block` column requires an `ALTER TABLE` migration and back-filling existing rows. The back-fill heuristic is exactly the `type → block` table above, which means the migration is reversible in the other direction too — evidence that the new axis carries no information the old axes did not.
+4. **Migration without clear upside**. A `block` column requires an `ALTER TABLE` migration and back-filling existing rows. The only plausible back-fill reads off `type` (sometimes combined with `scope`) — so for every accepted memory already in the store, `block` is derivable from existing columns. The mapping is many-to-one (e.g. `guidance` could draw from either `type=decision` or `type=lesson`) and partial (`unfinished-work` has no clean source), so the best we can do is fix one rule per `type` and accept some arbitrariness. That the back-fill runs from existing columns alone is the signal: the new axis does not introduce information the old axes lacked.
 5. **Host-bridge burden**. Every integration surface (MCP, CLI, bridges to CLAUDE.md / AGENTS.md / GEMINI.md) would need to learn the new axis. For a classification that is redundant with `type`, the churn is not justified.
 
 ## What Traceary will do instead
@@ -70,6 +70,11 @@ Because `unfinished-work` is *not* being modelled as a memory block, its natural
 - **Not adopting** a `block` axis on durable memory.
 - Instead, proceed with v0.8-5 (#570) **retrieval presets** to cover the resume / review / incident use cases that motivated the proposal.
 - Revisit only if a concrete retrieval need emerges that cannot be expressed as a composition of `type`, `scope`, `status`, and `confidence`.
+
+## Related docs
+
+- [Architecture principles](./README.md)
+- [Durable memory guide](../memory/README.md)
 
 ## References
 

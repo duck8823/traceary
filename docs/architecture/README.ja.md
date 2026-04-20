@@ -132,6 +132,7 @@ Traceary では、`internal/` を既定では要求しません。
 
 - [ドキュメント索引](../README.ja.md)
 - [Optional API 移行方針](./optional-api.ja.md)
+- [Memory blocks: 評価と決定](./memory-blocks.ja.md)
 - [Hook contract](../hooks/contract.ja.md)
 - [イベントライフサイクル](../lifecycle.ja.md)
 - [ネイティブ連携ガイド](../integrations/README.ja.md)
