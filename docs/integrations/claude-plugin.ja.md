@@ -55,6 +55,13 @@ marketplace 自体も不要なら、次で外せます。
 claude plugins marketplace remove traceary-plugins
 ```
 
+## plugin 導入時は `hooks install` は不要
+
+`traceary hooks install --client claude` は settings.json に Traceary hooks を書き込みますが、plugin をインストールしている場合は Claude Code にすでに同じ hook が提供されています。このため **plugin が有効な状態で `hooks install` を実行すると audit が 1 回のツール呼び出しにつき 2 回記録されます**。
+
+- `traceary hooks install --client claude` は有効な plugin を検出し（`~/.claude/settings.json` の `enabledPlugins` を参照）、メッセージを出してスキップします。開発目的などで両方に登録したい場合は `--force` を使用してください
+- `traceary doctor --client claude` は、plugin が有効でかつ settings.json にも Traceary 管理下の hook がある場合は `warn` を返します
+
 ## Doctor と smoke test
 
 実運用の確認は次を基本にします。
