@@ -9,9 +9,11 @@ INSERT INTO memories (
     source,
     supersedes_memory_id,
     expires_at,
+    valid_from,
+    valid_to,
     created_at,
     updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     type = excluded.type,
     scope_kind = excluded.scope_kind,
@@ -22,5 +24,7 @@ ON CONFLICT(id) DO UPDATE SET
     source = excluded.source,
     supersedes_memory_id = excluded.supersedes_memory_id,
     expires_at = excluded.expires_at,
+    valid_from = excluded.valid_from,
+    valid_to = excluded.valid_to,
     created_at = excluded.created_at,
     updated_at = excluded.updated_at;

@@ -29,6 +29,8 @@ func buildInboxCandidateDetails(t *testing.T, id string, fact string, source dom
 		domtypes.None[domtypes.MemoryID](),
 		domtypes.None[time.Time](),
 		time.Date(2026, 4, 19, 0, 0, 0, 0, time.UTC),
+		domtypes.None[time.Time](),
+		time.Date(2026, 4, 19, 0, 0, 0, 0, time.UTC),
 		time.Date(2026, 4, 19, 0, 0, 0, 0, time.UTC),
 	)
 	if err != nil {
@@ -179,6 +181,8 @@ func mustSummaryWithStatus(t *testing.T, id string, status domtypes.MemoryStatus
 		domtypes.ConfidenceMedium,
 		domtypes.MemorySourceManual,
 		domtypes.None[domtypes.MemoryID](),
+		domtypes.None[time.Time](),
+		time.Date(2026, 4, 19, 0, 0, 0, 0, time.UTC),
 		domtypes.None[time.Time](),
 		time.Date(2026, 4, 19, 0, 0, 0, 0, time.UTC),
 		time.Date(2026, 4, 19, 0, 0, 0, 0, time.UTC),

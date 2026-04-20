@@ -9,6 +9,8 @@ SELECT
     source,
     supersedes_memory_id,
     expires_at,
+    valid_from,
+    valid_to,
     created_at,
     updated_at
 FROM memories

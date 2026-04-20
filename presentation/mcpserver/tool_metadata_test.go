@@ -173,6 +173,13 @@ func TestServer_ToolMetadata(t *testing.T) {
 			},
 		},
 		{
+			name: "set_memory_validity",
+			want: toolMetadataExpectation{
+				description:     "Set the content validity window (valid_from / valid_to) on a durable memory.",
+				destructiveTrue: true,
+			},
+		},
+		{
 			name: "memory_pack",
 			want: toolMetadataExpectation{
 				description: "Build a memory pack for prompt context, handoff, automation, and recent commands.",

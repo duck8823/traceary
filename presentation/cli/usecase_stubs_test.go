@@ -321,6 +321,10 @@ func (s *memoryUsecaseStub) Expire(_ context.Context, _ types.MemoryID, _ types.
 	return s.expireDetails, s.expireErr
 }
 
+func (s *memoryUsecaseStub) SetValidity(_ context.Context, _ types.MemoryID, _ types.Optional[time.Time], _ types.Optional[time.Time], _ bool) (apptypes.MemoryDetails, error) {
+	return s.expireDetails, s.expireErr
+}
+
 func (s *memoryUsecaseStub) List(_ context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
 	s.listCriteria = criteria
 	return s.listResult, s.listErr

@@ -319,6 +319,129 @@ func TestMemoryUsecase_Expire(t *testing.T) {
 	}
 }
 
+func TestMemoryUsecase_SetValidity(t *testing.T) {
+	t.Parallel()
+
+	makeMemory := func(t *testing.T) *model.Memory {
+		t.Helper()
+		m, err := model.NewAcceptedMemory(
+			mustMemoryID(t, "memory-validity"),
+			domtypes.MemoryTypeDecision,
+			domtypes.AgentScopeOf(domtypes.Agent("codex")),
+			"decision with a lifetime",
+			domtypes.ConfidenceVerified,
+			domtypes.MemorySourceManual,
+			[]domtypes.EvidenceRef{mustEvidenceRef(t, domtypes.EvidenceRefKindIssue, "#500")},
+			nil,
+			domtypes.None[domtypes.MemoryID](),
+		)
+		if err != nil {
+			t.Fatalf("NewAcceptedMemory() error = %v", err)
+		}
+		return m
+	}
+
+	t.Run("sets both bounds", func(t *testing.T) {
+		t.Parallel()
+		memory := makeMemory(t)
+		repo := &memoryRepositoryStub{byID: map[string]*model.Memory{memory.MemoryID().String(): memory}}
+		sut := usecase.NewMemoryUsecase(repo, nil, nil)
+		from := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+		to := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+		details, err := sut.SetValidity(
+			context.Background(),
+			memory.MemoryID(),
+			domtypes.Some(from),
+			domtypes.Some(to),
+			false,
+		)
+		if err != nil {
+			t.Fatalf("SetValidity() error = %v", err)
+		}
+		if diff := cmp.Diff(from, details.Summary().ValidFrom()); diff != "" {
+			t.Fatalf("ValidFrom() mismatch (-want +got):\n%s", diff)
+		}
+		gotTo, ok := details.Summary().ValidTo().Value()
+		if !ok || !gotTo.Equal(to) {
+			t.Fatalf("ValidTo() = %v/%v, want %v", gotTo, ok, to)
+		}
+	})
+
+	t.Run("rejects reversed window when only validFrom is supplied and existing validTo precedes it", func(t *testing.T) {
+		t.Parallel()
+		memory := makeMemory(t)
+		memory.SetValidity(domtypes.None[time.Time](), domtypes.Some(time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)))
+		repo := &memoryRepositoryStub{byID: map[string]*model.Memory{memory.MemoryID().String(): memory}}
+		sut := usecase.NewMemoryUsecase(repo, nil, nil)
+		later := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+		if _, err := sut.SetValidity(
+			context.Background(),
+			memory.MemoryID(),
+			domtypes.Some(later),
+			domtypes.None[time.Time](),
+			false,
+		); err == nil {
+			t.Fatalf("SetValidity() error = nil; want reversed-window error")
+		}
+	})
+
+	t.Run("rejects reversed window when only validTo is supplied and new validTo precedes existing validFrom", func(t *testing.T) {
+		t.Parallel()
+		memory := makeMemory(t)
+		memory.SetValidity(domtypes.Some(time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)), domtypes.None[time.Time]())
+		repo := &memoryRepositoryStub{byID: map[string]*model.Memory{memory.MemoryID().String(): memory}}
+		sut := usecase.NewMemoryUsecase(repo, nil, nil)
+		earlier := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+		if _, err := sut.SetValidity(
+			context.Background(),
+			memory.MemoryID(),
+			domtypes.None[time.Time](),
+			domtypes.Some(earlier),
+			false,
+		); err == nil {
+			t.Fatalf("SetValidity() error = nil; want reversed-window error")
+		}
+	})
+
+	t.Run("clearValidTo returns memory to open-ended", func(t *testing.T) {
+		t.Parallel()
+		memory := makeMemory(t)
+		memory.SetValidity(domtypes.None[time.Time](), domtypes.Some(time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)))
+		repo := &memoryRepositoryStub{byID: map[string]*model.Memory{memory.MemoryID().String(): memory}}
+		sut := usecase.NewMemoryUsecase(repo, nil, nil)
+		details, err := sut.SetValidity(
+			context.Background(),
+			memory.MemoryID(),
+			domtypes.None[time.Time](),
+			domtypes.None[time.Time](),
+			true,
+		)
+		if err != nil {
+			t.Fatalf("SetValidity() error = %v", err)
+		}
+		if _, ok := details.Summary().ValidTo().Value(); ok {
+			t.Fatalf("ValidTo() = present; want cleared")
+		}
+	})
+
+	t.Run("rejects clearValidTo combined with an explicit validTo", func(t *testing.T) {
+		t.Parallel()
+		memory := makeMemory(t)
+		repo := &memoryRepositoryStub{byID: map[string]*model.Memory{memory.MemoryID().String(): memory}}
+		sut := usecase.NewMemoryUsecase(repo, nil, nil)
+		to := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+		if _, err := sut.SetValidity(
+			context.Background(),
+			memory.MemoryID(),
+			domtypes.None[time.Time](),
+			domtypes.Some(to),
+			true,
+		); err == nil {
+			t.Fatalf("SetValidity() error = nil; want mutual-exclusion error")
+		}
+	})
+}
+
 func TestMemoryUsecase_Show(t *testing.T) {
 	t.Parallel()
 

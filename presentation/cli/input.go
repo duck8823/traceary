@@ -257,29 +257,33 @@ type tailCommandInput struct {
 
 // memoryListCommandInput is the resolved input to `traceary memory list`.
 type memoryListCommandInput struct {
-	dbPath        string
-	workspace     string
-	agent         string
-	sessionFamily string
-	statuses      []string
-	memoryTypes   []string
-	limit         int
-	offset        int
-	asJSON        bool
+	dbPath          string
+	workspace       string
+	agent           string
+	sessionFamily   string
+	statuses        []string
+	memoryTypes     []string
+	limit           int
+	offset          int
+	asOf            string
+	includeExpired  bool
+	asJSON          bool
 }
 
 // memorySearchCommandInput is the resolved input to `traceary memory search`.
 type memorySearchCommandInput struct {
-	dbPath        string
-	workspace     string
-	agent         string
-	sessionFamily string
-	statuses      []string
-	memoryTypes   []string
-	limit         int
-	offset        int
-	query         string
-	asJSON        bool
+	dbPath          string
+	workspace       string
+	agent           string
+	sessionFamily   string
+	statuses        []string
+	memoryTypes     []string
+	limit           int
+	offset          int
+	query           string
+	asOf            string
+	includeExpired  bool
+	asJSON          bool
 }
 
 // memoryWriteCommandInput is the resolved input to memory write commands.
@@ -306,6 +310,21 @@ type memoryMutationCommandInput struct {
 	expiresAt  string
 	idOnly     bool
 	asJSON     bool
+}
+
+// memoryValidityCommandInput is the resolved input to
+// `traceary memory set-validity`. The zero string for a bound means
+// "leave unchanged" (validFrom) or "clear back to open-ended"
+// (validTo only when --clear-to is set — otherwise zero means leave
+// unchanged).
+type memoryValidityCommandInput struct {
+	dbPath    string
+	memoryID  string
+	validFrom string
+	validTo   string
+	clearTo   bool
+	idOnly    bool
+	asJSON    bool
 }
 
 // memorySupersedeCommandInput is the resolved input to `traceary memory supersede`.

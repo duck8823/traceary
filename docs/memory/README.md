@@ -32,6 +32,24 @@ Only active accepted memories are returned by the default "active memory" paths.
 
 See also [Memory blocks: evaluation and decision](../architecture/memory-blocks.md) for the reasoning behind keeping durable memory classified by `type` + `scope` instead of adding a separate `block` axis.
 
+### Content validity window
+
+Every durable memory carries a content validity window `(valid_from, valid_to)` distinct from the lifecycle `status` and the `expires_at` operation timestamp written by `memory expire`:
+
+- `valid_from` — when the fact starts being asserted (defaults to `created_at`)
+- `valid_to` — when the fact stops being asserted (`NULL` means open-ended)
+
+Default retrieval (CLI `memory list` / `memory search`, MCP `retrieve_memories`, `memory_pack`, and `session_handoff`) hides memories whose `valid_to` is in the past — you only see what is still asserted as true right now.
+
+To time-travel, pass `--as-of <timestamp>` to CLI list / search, which evaluates `valid_from <= asOf < valid_to` against the supplied point in time. Pass `--include-expired` to bypass the validity filter entirely (e.g. when auditing historical decisions). Neither flag replaces lifecycle `status` filtering — a superseded or rejected memory still needs `--status` to surface.
+
+Set or update the window with:
+
+- CLI: `traceary memory set-validity <memory-id> [--from <time>] [--to <time>] [--clear-to]`
+- MCP: `set_memory_validity(memory_id, valid_from?, valid_to?, clear_valid_to?)`
+
+`--clear-to` / `clear_valid_to` explicitly returns a memory to open-ended validity and is mutually exclusive with supplying a new `valid_to`.
+
 ## Evidence refs vs artifact refs
 
 Traceary stores two different kinds of references with a memory:

@@ -31,6 +31,8 @@ func TestMemoryDetailsFrom(t *testing.T) {
 		domtypes.None[domtypes.MemoryID](),
 		domtypes.None[time.Time](),
 		time.Date(2026, 4, 12, 8, 0, 0, 0, time.UTC),
+		domtypes.None[time.Time](),
+		time.Date(2026, 4, 12, 8, 0, 0, 0, time.UTC),
 		time.Date(2026, 4, 12, 8, 15, 0, 0, time.UTC),
 	)
 

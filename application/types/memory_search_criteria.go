@@ -2,18 +2,21 @@ package types
 
 import (
 	"slices"
+	"time"
 
 	domtypes "github.com/duck8823/traceary/domain/types"
 )
 
 // MemorySearchCriteria holds filter parameters for full-text memory search.
 type MemorySearchCriteria struct {
-	query       string
-	limit       int
-	offset      int
-	scopes      []domtypes.MemoryScope
-	statuses    []domtypes.MemoryStatus
-	memoryTypes []domtypes.MemoryType
+	query          string
+	limit          int
+	offset         int
+	scopes         []domtypes.MemoryScope
+	statuses       []domtypes.MemoryStatus
+	memoryTypes    []domtypes.MemoryType
+	asOf           domtypes.Optional[time.Time]
+	includeExpired bool
 }
 
 // Query returns the search query.
@@ -33,6 +36,14 @@ func (c MemorySearchCriteria) Statuses() []domtypes.MemoryStatus { return slices
 
 // MemoryTypes returns the memory type filters.
 func (c MemorySearchCriteria) MemoryTypes() []domtypes.MemoryType { return slices.Clone(c.memoryTypes) }
+
+// AsOf returns the point-in-time at which validity windows are
+// evaluated. See MemoryListCriteria.AsOf for semantics.
+func (c MemorySearchCriteria) AsOf() domtypes.Optional[time.Time] { return c.asOf }
+
+// IncludeExpiredByValidity returns true when the caller asked to bypass
+// the validity-window filter. See MemoryListCriteria.IncludeExpiredByValidity.
+func (c MemorySearchCriteria) IncludeExpiredByValidity() bool { return c.includeExpired }
 
 // MemorySearchCriteriaBuilder builds a MemorySearchCriteria value.
 type MemorySearchCriteriaBuilder struct {
@@ -95,6 +106,22 @@ func (b *MemorySearchCriteriaBuilder) MemoryType(memoryType domtypes.MemoryType)
 // MemoryTypes replaces the memory type filters.
 func (b *MemorySearchCriteriaBuilder) MemoryTypes(memoryTypes []domtypes.MemoryType) *MemorySearchCriteriaBuilder {
 	b.criteria.memoryTypes = slices.Clone(memoryTypes)
+	return b
+}
+
+// AsOf sets the point-in-time at which validity windows are evaluated.
+// Zero values are ignored.
+func (b *MemorySearchCriteriaBuilder) AsOf(asOf time.Time) *MemorySearchCriteriaBuilder {
+	if !asOf.IsZero() {
+		b.criteria.asOf = domtypes.Some(asOf)
+	}
+	return b
+}
+
+// IncludeExpiredByValidity toggles whether memories whose validTo is in
+// the past are included in results. Default is false.
+func (b *MemorySearchCriteriaBuilder) IncludeExpiredByValidity(include bool) *MemorySearchCriteriaBuilder {
+	b.criteria.includeExpired = include
 	return b
 }
 

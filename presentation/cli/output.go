@@ -67,6 +67,8 @@ type memorySummaryOutput struct {
 	Source     string  `json:"source"`
 	Supersedes *string `json:"supersedes,omitempty"`
 	ExpiresAt  *string `json:"expires_at,omitempty"`
+	ValidFrom  string  `json:"valid_from"`
+	ValidTo    *string `json:"valid_to,omitempty"`
 	CreatedAt  string  `json:"created_at"`
 	UpdatedAt  string  `json:"updated_at"`
 }

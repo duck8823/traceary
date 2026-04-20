@@ -11,6 +11,13 @@ import (
 )
 
 // Memory is the aggregate root for durable memory in Traceary.
+//
+// validFrom / validTo describe the **content validity window** —
+// the period during which the fact is asserted to be true. They are
+// distinct from expiresAt (the lifecycle timestamp written when an
+// operator runs `memory expire`) and from createdAt / updatedAt
+// (which describe when the row itself was recorded). See
+// docs/memory/README.md and docs/architecture/memory-blocks.md.
 type Memory struct {
 	memoryID     types.MemoryID
 	memoryType   types.MemoryType
@@ -23,6 +30,8 @@ type Memory struct {
 	artifactRefs []types.ArtifactRef
 	supersedes   types.Optional[types.MemoryID]
 	expiresAt    types.Optional[time.Time]
+	validFrom    time.Time
+	validTo      types.Optional[time.Time]
 	createdAt    time.Time
 	updatedAt    time.Time
 }
@@ -90,12 +99,17 @@ func newMemory(
 		artifactRefs: slices.Clone(artifactRefs),
 		supersedes:   supersedes,
 		expiresAt:    expiresAt,
+		validFrom:    now,
+		validTo:      types.None[time.Time](),
 		createdAt:    now,
 		updatedAt:    now,
 	}, nil
 }
 
-// MemoryOf restores a Memory from persisted values.
+// MemoryOf restores a Memory from persisted values. `validFrom` is
+// required because post-migration every memory row has a non-null
+// valid_from (back-filled from created_at); `validTo` stays optional
+// because open-ended validity is the default.
 func MemoryOf(
 	memoryID types.MemoryID,
 	memoryType types.MemoryType,
@@ -108,6 +122,8 @@ func MemoryOf(
 	artifactRefs []types.ArtifactRef,
 	supersedes types.Optional[types.MemoryID],
 	expiresAt types.Optional[time.Time],
+	validFrom time.Time,
+	validTo types.Optional[time.Time],
 	createdAt time.Time,
 	updatedAt time.Time,
 ) *Memory {
@@ -123,6 +139,8 @@ func MemoryOf(
 		artifactRefs: slices.Clone(artifactRefs),
 		supersedes:   supersedes,
 		expiresAt:    expiresAt,
+		validFrom:    validFrom,
+		validTo:      validTo,
 		createdAt:    createdAt,
 		updatedAt:    updatedAt,
 	}
@@ -158,8 +176,35 @@ func (m *Memory) ArtifactRefs() []types.ArtifactRef { return slices.Clone(m.arti
 // Supersedes returns the previous memory ID superseded by this memory, when present.
 func (m *Memory) Supersedes() types.Optional[types.MemoryID] { return m.supersedes }
 
-// ExpiresAt returns the expiry time, if present.
+// ExpiresAt returns the lifecycle expire-operation timestamp, if
+// present. This is distinct from ValidTo: ExpiresAt records when an
+// operator ran `memory expire`; ValidTo records until when the fact
+// itself is asserted to be true.
 func (m *Memory) ExpiresAt() types.Optional[time.Time] { return m.expiresAt }
+
+// ValidFrom returns the start of the content validity window. Every
+// memory has a non-zero ValidFrom; post-migration this defaults to
+// createdAt when the caller does not supply a more specific value.
+func (m *Memory) ValidFrom() time.Time { return m.validFrom }
+
+// ValidTo returns the end of the content validity window, if
+// present. A nil ValidTo means the fact is open-ended — valid until
+// explicitly superseded or manually expired.
+func (m *Memory) ValidTo() types.Optional[time.Time] { return m.validTo }
+
+// SetValidity sets the memory's content validity window in place.
+// callers are expected to pass values that already satisfy
+// validFrom <= validTo; enforcement lives in the application layer
+// (which owns the end-user-facing errors). Passing an unset
+// validFrom falls back to the memory's createdAt to preserve the
+// post-migration invariant that validFrom is never zero.
+func (m *Memory) SetValidity(validFrom types.Optional[time.Time], validTo types.Optional[time.Time]) {
+	if from, ok := validFrom.Value(); ok {
+		m.validFrom = from
+	}
+	m.validTo = validTo
+	m.updatedAt = nowFunc()
+}
 
 // CreatedAt returns when the memory was created.
 func (m *Memory) CreatedAt() time.Time { return m.createdAt }

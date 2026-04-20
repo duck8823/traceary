@@ -23,6 +23,8 @@ func acceptedSummaryAt(t *testing.T, id string, scope domtypes.MemoryScope, fact
 		domtypes.None[domtypes.MemoryID](),
 		domtypes.None[time.Time](),
 		updatedAt,
+		domtypes.None[time.Time](),
+		updatedAt,
 		updatedAt,
 	)
 	if err != nil {

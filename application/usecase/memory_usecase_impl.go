@@ -287,6 +287,62 @@ func (u *memoryUsecase) Supersede(
 	return details, nil
 }
 
+func (u *memoryUsecase) SetValidity(
+	ctx context.Context,
+	memoryID domtypes.MemoryID,
+	validFrom domtypes.Optional[time.Time],
+	validTo domtypes.Optional[time.Time],
+	clearValidTo bool,
+) (apptypes.MemoryDetails, error) {
+	if u.memoryRepo == nil {
+		return apptypes.MemoryDetails{}, xerrors.Errorf("memory repository is not configured")
+	}
+	if clearValidTo {
+		if _, supplied := validTo.Value(); supplied {
+			return apptypes.MemoryDetails{}, xerrors.Errorf("clearValidTo cannot be combined with a validTo value")
+		}
+	}
+
+	memory, err := u.findMemoryByID(ctx, memoryID)
+	if err != nil {
+		return apptypes.MemoryDetails{}, err
+	}
+
+	// Resolve the effective validity window (after applying the
+	// requested change) before mutating so we can reject reversed
+	// windows without partially writing to the repository. The check
+	// compares the final (post-change) bounds — not just the flags the
+	// caller supplied — so shifting only validFrom after the current
+	// validTo still fails, as does shifting only validTo before the
+	// current validFrom.
+	effectiveFrom := memory.ValidFrom()
+	if from, ok := validFrom.Value(); ok {
+		effectiveFrom = from
+	}
+	effectiveTo := memory.ValidTo()
+	if to, ok := validTo.Value(); ok {
+		effectiveTo = domtypes.Some(to)
+	} else if clearValidTo {
+		effectiveTo = domtypes.None[time.Time]()
+	}
+	if to, ok := effectiveTo.Value(); ok {
+		if to.Before(effectiveFrom) {
+			return apptypes.MemoryDetails{}, xerrors.Errorf("valid_to must not be earlier than valid_from")
+		}
+	}
+
+	memory.SetValidity(validFrom, effectiveTo)
+	if err := u.memoryRepo.Save(ctx, memory); err != nil {
+		return apptypes.MemoryDetails{}, xerrors.Errorf("failed to save memory validity window: %w", err)
+	}
+
+	details, err := apptypes.MemoryDetailsFrom(memory)
+	if err != nil {
+		return apptypes.MemoryDetails{}, xerrors.Errorf("failed to build memory details: %w", err)
+	}
+	return details, nil
+}
+
 func (u *memoryUsecase) Expire(ctx context.Context, memoryID domtypes.MemoryID, expiresAt domtypes.Optional[time.Time]) (apptypes.MemoryDetails, error) {
 	if u.memoryRepo == nil {
 		return apptypes.MemoryDetails{}, xerrors.Errorf("memory repository is not configured")

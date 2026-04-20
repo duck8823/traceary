@@ -100,7 +100,7 @@ func writeMemoryDetails(output io.Writer, details apptypes.MemoryDetails) error 
 	summary := details.Summary()
 	if _, err := fmt.Fprintf(
 		output,
-		"MEMORY_ID: %s\nTYPE: %s\nSCOPE: %s\nSTATUS: %s\nCONFIDENCE: %s\nSOURCE: %s\nSUPERSEDES: %s\nEXPIRES_AT: %s\nCREATED_AT: %s\nUPDATED_AT: %s\nFACT: %s\n",
+		"MEMORY_ID: %s\nTYPE: %s\nSCOPE: %s\nSTATUS: %s\nCONFIDENCE: %s\nSOURCE: %s\nSUPERSEDES: %s\nEXPIRES_AT: %s\nVALID_FROM: %s\nVALID_TO: %s\nCREATED_AT: %s\nUPDATED_AT: %s\nFACT: %s\n",
 		summary.MemoryID(),
 		summary.MemoryType(),
 		formatMemoryScope(summary.Scope()),
@@ -109,6 +109,8 @@ func writeMemoryDetails(output io.Writer, details apptypes.MemoryDetails) error 
 		summary.Source(),
 		formatOptionalMemoryID(summary.Supersedes()),
 		formatOptionalTime(summary.ExpiresAt()),
+		summary.ValidFrom().UTC().Format(time.RFC3339),
+		formatOptionalTime(summary.ValidTo()),
 		summary.CreatedAt().UTC().Format(time.RFC3339),
 		summary.UpdatedAt().UTC().Format(time.RFC3339),
 		summary.Fact(),
@@ -177,6 +179,12 @@ func newMemorySummaryOutput(summary apptypes.MemorySummary) memorySummaryOutput 
 		expiresAt = &resolved
 	}
 
+	var validTo *string
+	if value, ok := summary.ValidTo().Value(); ok {
+		resolved := value.UTC().Format(time.RFC3339)
+		validTo = &resolved
+	}
+
 	return memorySummaryOutput{
 		MemoryID:   summary.MemoryID().String(),
 		Type:       summary.MemoryType().String(),
@@ -188,6 +196,8 @@ func newMemorySummaryOutput(summary apptypes.MemorySummary) memorySummaryOutput 
 		Source:     summary.Source().String(),
 		Supersedes: supersedes,
 		ExpiresAt:  expiresAt,
+		ValidFrom:  summary.ValidFrom().UTC().Format(time.RFC3339),
+		ValidTo:    validTo,
 		CreatedAt:  summary.CreatedAt().UTC().Format(time.RFC3339),
 		UpdatedAt:  summary.UpdatedAt().UTC().Format(time.RFC3339),
 	}
