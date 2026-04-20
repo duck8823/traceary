@@ -15,17 +15,26 @@ Traceary は、process 間調停を SQLite 自身に委ねています。
 - write は小さな append 系操作（`events`、`command_audits`、session 境界）が中心
 - file level の write 直列化は SQLite が安全に扱う
 
+Traceary が接続時に適用している設定:
+
+- `journal_mode=WAL` — reader（例: `traceary tail` の poll）と writer が互いをブロックせず並行に処理できる
+- `synchronous=NORMAL` — WAL モードで推奨される durability 設定。fsync は checkpoint 境界でのみ実行される
+- `busy_timeout=5000` — 一時的なロック競合時は最大 5 秒 SQLite が自動で retry し、`SQLITE_BUSY` を即座に返さない
+- `foreign_keys=1` — 外部キー制約を有効化
+
+WAL モードは DB 本体の横に `<db>-wal` と `<db>-shm` の sidecar file を生成します。バックアップ/リストアはこれらを既に扱っていますが、手動で DB をコピーする場合は sidecar も一緒にコピーする必要があります。
+
 現在 Traceary が**追加していない**もの:
 
 - custom background writer や queue
-- 継続的な `database is locked` 圧に対する application-level retry loop
+- SQLite の `busy_timeout` を超える application-level retry loop
 - distributed / multi-host coordination
 
 実務上の見方:
 
 - 1 台のマシンで数本の並列 AI session を回す用途はスコープ内
 - 同じ DB path に対する極端に高い write volume は、現時点で tuning 対象ではない
-- SQLite lock error が繰り返し出る場合は、並列 writer を減らす、作業フローごとに DB path を分ける、競合 process が終わってから再実行する、の順で対処してください
+- 5 秒の busy window を超えて `SQLITE_BUSY` が出る場合は、並列 writer を減らす、作業フローごとに DB path を分ける、で対処してください
 
 ## Hook session state の前提
 

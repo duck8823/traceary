@@ -15,17 +15,26 @@ Current assumptions:
 - writes are small append-style operations (`events`, `command_audits`, session boundaries)
 - SQLite serializes those writes safely at the file level
 
+Connection settings applied by Traceary:
+
+- `journal_mode=WAL` — readers (e.g. `traceary tail` polling) and writers can proceed concurrently without blocking each other
+- `synchronous=NORMAL` — the recommended durability setting for WAL mode; fsyncs occur at checkpoint boundaries
+- `busy_timeout=5000` — SQLite auto-retries on transient lock contention for up to 5 seconds before surfacing `SQLITE_BUSY`
+- `foreign_keys=1` — foreign-key constraints are enforced
+
+WAL mode produces two sidecar files next to the main database: `<db>-wal` and `<db>-shm`. Backup and restore already handle these files; manual copies of the DB should include them for a consistent snapshot.
+
 What Traceary does **not** add today:
 
 - no custom background writer or queue
-- no application-level retry loop for sustained `database is locked` pressure
+- no application-level retry loop beyond SQLite's `busy_timeout`
 - no distributed or multi-host coordination
 
 Practical guidance:
 
 - a few parallel AI sessions on one machine are in scope
 - extremely high write volume to the same DB path is not a tuned use case today
-- if you repeatedly hit SQLite lock errors, reduce concurrent writers, split DB paths by workflow, or retry the operation after the short-lived competing process exits
+- if you still hit `SQLITE_BUSY` past the 5-second busy window, reduce concurrent writers or split DB paths by workflow
 
 ## Hook session-state assumptions
 

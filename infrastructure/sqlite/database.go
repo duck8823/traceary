@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/url"
@@ -127,8 +128,22 @@ func (d *Database) initializeAt(ctx context.Context, snapshot string) (err error
 	return nil
 }
 
+// sqliteBusyTimeout is the SQLite busy-wait window in milliseconds
+// applied via the busy_timeout pragma. Five seconds is long enough to
+// absorb routine hook/MCP write contention while still surfacing real
+// deadlocks to the caller.
+const sqliteBusyTimeout = 5000
+
 func sqliteDSN(dbPath string) string {
 	values := url.Values{}
+	// WAL lets readers and writers proceed concurrently so tail polls
+	// are not blocked by short-lived hook writes. synchronous=NORMAL is
+	// the recommended pairing with WAL (fsyncs only on checkpoint).
+	// busy_timeout lets SQLite auto-retry on transient lock contention
+	// instead of failing immediately with SQLITE_BUSY.
+	values.Add("_pragma", "journal_mode(WAL)")
+	values.Add("_pragma", "synchronous(NORMAL)")
+	values.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", sqliteBusyTimeout))
 	values.Add("_pragma", "foreign_keys(1)")
 
 	return (&url.URL{
