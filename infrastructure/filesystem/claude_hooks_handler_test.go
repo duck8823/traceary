@@ -116,6 +116,28 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 		}
 	})
 
+	t.Run("PostToolUseFailure mirrors PostToolUse matcher set", func(t *testing.T) {
+		t.Parallel()
+
+		entries := hooks.Entries("PostToolUseFailure")
+		if diff := cmp.Diff(3, len(entries)); diff != "" {
+			t.Fatalf("len(PostToolUseFailure entries) mismatch (-want +got):\n%s", diff)
+		}
+		firstMatcher, _ := entries[0].Matcher().Value()
+		if diff := cmp.Diff("Bash", firstMatcher); diff != "" {
+			t.Fatalf("PostToolUseFailure[0] matcher mismatch (-want +got):\n%s", diff)
+		}
+		secondMatcher, _ := entries[1].Matcher().Value()
+		if diff := cmp.Diff("mcp__.*", secondMatcher); diff != "" {
+			t.Fatalf("PostToolUseFailure[1] matcher mismatch (-want +got):\n%s", diff)
+		}
+		thirdMatcher, _ := entries[2].Matcher().Value()
+		wantBuiltin := "Read|Edit|Write|MultiEdit|Grep|Glob|Agent|Task|TodoWrite|WebFetch|WebSearch|NotebookEdit"
+		if diff := cmp.Diff(wantBuiltin, thirdMatcher); diff != "" {
+			t.Fatalf("PostToolUseFailure[2] matcher mismatch (-want +got):\n%s", diff)
+		}
+	})
+
 	t.Run("UserPromptSubmit references prompt script", func(t *testing.T) {
 		t.Parallel()
 
