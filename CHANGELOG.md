@@ -25,6 +25,11 @@ Operational-safety hotfix for v0.7.1 runtime issues that affected tail polling, 
 - `docs/integrations/claude-plugin{,.ja}.md` note that `hooks install` is not required when the plugin is installed.
 - `docs/cli/README{,.ja}.md` list `--global` under `hooks install`'s useful flags.
 
+### Included issues
+- #607 v0.7.2-1 SQLite DSN WAL + busy_timeout
+- #603 v0.7.2-2 hooks install / doctor plugin-aware dedup
+- #604 v0.7.2-3 hooks install --global + doctor global-config check
+
 ## [v0.7.1] - 2026-04-20
 
 Patch release that closes gaps surfaced during v0.7 Multi-AI reviews
