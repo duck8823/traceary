@@ -290,28 +290,40 @@ func inspectDoctorConfig() doctorCheck {
 // detection (so we can report double-registration or plugin-managed
 // pass states) and falls back to the generic config-file inspection
 // for every other client.
+//
+// Even when the plugin is active, a malformed project settings.json is
+// still a real problem — Claude Code itself will reject it. We always
+// run the file-level inspection first and only short-circuit to the
+// plugin-managed pass branch when the file is either missing or
+// structurally valid.
 func (c *RootCLI) inspectClaudeOrConfigFile(client, outputPath, projectDir string) doctorCheck {
 	if client != "claude" {
 		return c.inspectDoctorConfigFile(client, outputPath)
 	}
 
 	detection := detectClaudeTracearyPluginForCLI()
-	hasTracearyHook := c.claudeConfigHasTracearyHooks(outputPath)
+	configCheck := c.inspectDoctorConfigFile(client, outputPath)
 
-	switch {
-	case detection.Active && hasTracearyHook:
-		return doctorCheck{
-			Name:   "claude-config",
-			Status: doctorStatusWarn,
-			Message: localizef(
-				"claude plugin %q is active in %s and %s also registers Traceary hooks. Every audit event will be recorded twice — remove the settings.json hooks or disable the plugin",
-				"claude plugin %q が %s で有効ですが %s にも Traceary hook が登録されています。audit が二重記録されます — settings.json 側の hook を削除するか plugin を無効化してください",
-				detection.PluginKey,
-				detection.SettingsPath,
-				outputPath,
-			),
+	if detection.Active {
+		// Structural failures (invalid JSON, malformed hooks field) are
+		// reported as-is so `doctor` still surfaces a broken file even
+		// when the plugin would otherwise claim the hooks.
+		if configCheck.Status == doctorStatusFail {
+			return configCheck
 		}
-	case detection.Active:
+		if c.claudeConfigHasTracearyHooks(outputPath) {
+			return doctorCheck{
+				Name:   "claude-config",
+				Status: doctorStatusWarn,
+				Message: localizef(
+					"claude plugin %q is active in %s and %s also registers Traceary hooks. Every audit event will be recorded twice — remove the settings.json hooks or disable the plugin",
+					"claude plugin %q が %s で有効ですが %s にも Traceary hook が登録されています。audit が二重記録されます — settings.json 側の hook を削除するか plugin を無効化してください",
+					detection.PluginKey,
+					detection.SettingsPath,
+					outputPath,
+				),
+			}
+		}
 		return doctorCheck{
 			Name:   "claude-config",
 			Status: doctorStatusPass,
@@ -324,14 +336,13 @@ func (c *RootCLI) inspectClaudeOrConfigFile(client, outputPath, projectDir strin
 		}
 	}
 
-	check := c.inspectDoctorConfigFile(client, outputPath)
-	if check.Status == doctorStatusWarn {
+	if configCheck.Status == doctorStatusWarn {
 		pluginCheck := inspectDoctorPluginPackage(projectDir)
 		if pluginCheck.Status == doctorStatusPass {
 			return pluginCheck
 		}
 	}
-	return check
+	return configCheck
 }
 
 // claudeConfigHasTracearyHooks returns true iff the Claude settings file

@@ -89,6 +89,48 @@ func TestRootCLI_Doctor_ClaudePluginInteractions(t *testing.T) {
 			t.Fatalf("claude-config status = %q, want warn; msg = %q", claudeCfg.Status, claudeCfg.Message)
 		}
 	})
+
+	// Plugin activity must not mask a malformed project settings file —
+	// Claude Code itself would reject it, so `doctor` keeps reporting it
+	// as fail even when the plugin would otherwise cover the hooks.
+	t.Run("plugin active with malformed settings still fails", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+
+		writePluginEnabledSettings(t, homeDir)
+		writeRawProjectSettings(t, projectDir, "{ not json")
+
+		initStub := &storeManagementUsecaseStub{}
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--client", "claude", "--project-dir", projectDir, "--json"})
+
+		// The command may succeed or fail at the Run level; what matters is
+		// that the report surfaces the broken config, not that the process
+		// panics.
+		_ = rootCmd.Execute()
+		report := decodeDoctorReport(t, stdout.Bytes())
+		claudeCfg := statusByName(report, "claude-config")
+		if claudeCfg.Status != "fail" {
+			t.Fatalf("claude-config status = %q, want fail; msg = %q", claudeCfg.Status, claudeCfg.Message)
+		}
+	})
+}
+
+func writeRawProjectSettings(t *testing.T, projectDir, content string) {
+	t.Helper()
+	settingsPath := filepath.Join(projectDir, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(settingsPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
 }
 
 func writePluginEnabledSettings(t *testing.T, home string) {
