@@ -30,6 +30,8 @@ Every durable memory has a type, scope, status, confidence, evidence refs, and o
 
 Only active accepted memories are returned by the default "active memory" paths.
 
+See also [Memory blocks: evaluation and decision](../architecture/memory-blocks.md) for the reasoning behind keeping durable memory classified by `type` + `scope` instead of adding a separate `block` axis.
+
 ## Evidence refs vs artifact refs
 
 Traceary stores two different kinds of references with a memory:
