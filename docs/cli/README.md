@@ -549,6 +549,7 @@ Useful flags:
 - `--project-dir`
 - `--traceary-bin`
 - `--output`
+- `--global` (write to the user-level config; mutually exclusive with `--output`)
 - `--force`
 
 ### `traceary hooks guide`

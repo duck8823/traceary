@@ -81,6 +81,31 @@ func TestHooksInstall_GlobalAndOutputMutuallyExclusive(t *testing.T) {
 	}
 }
 
+// TestHooksInstall_GlobalRefusesRelativeHome guards against a
+// mis-configured HOME (e.g. `HOME=relativehome` in a sandbox) that
+// would otherwise cause `filepath.Join` to land the config under the
+// current working directory instead of an absolute user-level path.
+func TestHooksInstall_GlobalRefusesRelativeHome(t *testing.T) {
+	cli.SetUserHomeDirFunc(func() (string, error) { return "relativehome", nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	rootCmd := newTestRootCLI().Command()
+	stdout := &bytes.Buffer{}
+	errBuf := &bytes.Buffer{}
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(errBuf)
+	rootCmd.SetArgs([]string{
+		"hooks", "install",
+		"--client", "claude",
+		"--traceary-bin", "traceary",
+		"--global",
+	})
+
+	if err := rootCmd.Execute(); err == nil {
+		t.Fatalf("Execute() error = nil; want non-nil error when HOME is relative")
+	}
+}
+
 // TestHooksInstall_GlobalCodexIsNoOp confirms that --global is a no-op
 // for Codex because its hooks config (~/.codex/hooks.json) is already
 // user-level; install should proceed with a friendly notice.

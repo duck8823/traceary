@@ -293,6 +293,15 @@ func resolveHooksGlobalPath(canonicalClient string) (string, bool, error) {
 	if err != nil {
 		return "", false, xerrors.Errorf("%s: %w", Localize("failed to resolve user home directory", "ユーザーホームディレクトリの解決に失敗しました"), err)
 	}
+	if !filepath.IsAbs(home) {
+		return "", false, xerrors.Errorf(
+			Localize(
+				"refusing --global because resolved home directory is not absolute: %q. Ensure $HOME is set to an absolute path before running --global",
+				"解決されたホームディレクトリが絶対パスではないため --global を拒否しました: %q。--global を使う前に $HOME を絶対パスに設定してください",
+			),
+			home,
+		)
+	}
 	switch canonicalClient {
 	case "claude":
 		return filepath.Join(home, ".claude", "settings.json"), true, nil
