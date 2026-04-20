@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -541,13 +542,27 @@ func (c *RootCLI) runHookTranscript(
 
 // readLastAssistantTranscriptEntry reads the JSONL transcript file at
 // path and returns the concatenated text content of the LAST
-// `assistant`-role message. Each line is expected to be a JSON object
-// with `role` and a `content` array of blocks; only blocks with
-// `type == "text"` contribute to the output. Returns ok=false for any
-// IO or parse error so callers can silently skip.
+// assistant turn.
+//
+// Real Claude Code transcripts use an envelope shape:
+//
+//	{"type":"assistant", "message":{"role":"assistant","content":[...]}}
+//	{"type":"user",      "message":{"role":"user",     "content":"..."}}
+//	{"type":"file-history-snapshot", ...}
+//
+// Each assistant turn's `message.content` is an array of blocks — we
+// keep `type=text` and `type=thinking` blocks (reasoning and extended
+// thinking) and drop `type=tool_use` / `type=tool_result` because
+// those are already captured by `command_executed` audits.
+//
+// Returns ok=false for IO / parse failure so callers can silently
+// skip; slog.Debug lines preserve the underlying cause for
+// TRACEARY_HOOK_DEBUG-style troubleshooting without aborting the
+// host's Stop hook.
 func readLastAssistantTranscriptEntry(path string) (string, bool) {
 	file, err := os.Open(path) // #nosec G304 -- path supplied by the host Stop hook
 	if err != nil {
+		slog.Debug("failed to open transcript file", "path", path, "error", err)
 		return "", false
 	}
 	defer func() { _ = file.Close() }()
@@ -558,28 +573,47 @@ func readLastAssistantTranscriptEntry(path string) (string, bool) {
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 
 	var lastAssistantText string
+	var parseErrors int
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())
 		if len(line) == 0 {
 			continue
 		}
-		var message transcriptMessage
-		if err := json.Unmarshal(line, &message); err != nil {
+		var entry transcriptLine
+		if err := json.Unmarshal(line, &entry); err != nil {
+			parseErrors++
 			continue
 		}
-		if message.Role != "assistant" {
+		// Only assistant turns contribute. The envelope carries its
+		// own type field; we also verify the inner message.role to
+		// avoid mismatched snapshots.
+		if entry.Type != "assistant" && entry.Message.Role != "assistant" {
 			continue
 		}
-		text := extractAssistantText(message.Content)
+		text := extractAssistantText(entry.Message.Content)
 		if text == "" {
 			continue
 		}
 		lastAssistantText = text
 	}
 	if err := scanner.Err(); err != nil {
+		slog.Debug("failed while scanning transcript file", "path", path, "error", err)
+		return "", false
+	}
+	if parseErrors > 0 && lastAssistantText == "" {
+		slog.Debug("transcript file had no parseable assistant entries", "path", path, "parse_errors", parseErrors)
 		return "", false
 	}
 	return lastAssistantText, lastAssistantText != ""
+}
+
+// transcriptLine is one row in Claude Code's JSONL transcript. Only
+// the envelope `type` and the nested `message` matter for this
+// feature; everything else (timestamps, message-id, snapshots) is
+// deliberately ignored.
+type transcriptLine struct {
+	Type    string            `json:"type"`
+	Message transcriptMessage `json:"message"`
 }
 
 type transcriptMessage struct {
@@ -587,9 +621,13 @@ type transcriptMessage struct {
 	Content []transcriptContent `json:"content"`
 }
 
+// transcriptContent covers both `text` blocks (normal assistant
+// reasoning) and `thinking` blocks (extended thinking). Tool-use /
+// tool-result blocks are ignored by the extractor.
 type transcriptContent struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type     string `json:"type"`
+	Text     string `json:"text"`
+	Thinking string `json:"thinking"`
 }
 
 func extractAssistantText(blocks []transcriptContent) string {
@@ -598,10 +636,15 @@ func extractAssistantText(blocks []transcriptContent) string {
 	}
 	var builder strings.Builder
 	for _, block := range blocks {
-		if block.Type != "text" {
+		var trimmed string
+		switch block.Type {
+		case "text":
+			trimmed = strings.TrimSpace(block.Text)
+		case "thinking":
+			trimmed = strings.TrimSpace(block.Thinking)
+		default:
 			continue
 		}
-		trimmed := strings.TrimSpace(block.Text)
 		if trimmed == "" {
 			continue
 		}
