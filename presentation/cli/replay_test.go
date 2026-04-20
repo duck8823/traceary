@@ -119,16 +119,25 @@ func TestWriteReplayHTML_RefusesSymlinkTarget(t *testing.T) {
 }
 
 func TestWriteReplayHTML_PreservesExistingOnTemplateError(t *testing.T) {
-	t.Parallel()
+	// Intentionally not t.Parallel(): this test mutates the
+	// package-level replayTemplateSource indirection to inject a
+	// malformed template; running in parallel with the other replay
+	// tests would race on that mutation.
 
 	dir := t.TempDir()
 	out := filepath.Join(dir, "replay.html")
 	if err := os.WriteFile(out, []byte("original"), 0o644); err != nil {
 		t.Fatalf("WriteFile(out) error = %v", err)
 	}
-	original := replayTemplateHTML
-	replayTemplateHTML = `{{.DoesNotExist}}`
-	defer func() { replayTemplateHTML = original }()
+	// Swap the template source via the `replayTemplateSource`
+	// indirection. `replayTemplateSource` is still a package-level
+	// variable — the race avoidance here comes from this test
+	// *not* calling t.Parallel() (see comment above), so go test's
+	// "serial phase before parallel phase" ordering guarantees that
+	// no other replay test runs while this one holds the swap.
+	original := replayTemplateSource
+	replayTemplateSource = func() string { return `{{.DoesNotExist}}` }
+	defer func() { replayTemplateSource = original }()
 
 	err := writeReplayHTML(out, replayData{GeneratedAt: time.Now().UTC()})
 	if err == nil {

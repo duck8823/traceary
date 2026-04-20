@@ -56,8 +56,8 @@ Four of the five proposed blocks reduce to existing `type` + `scope` combination
 The user-visible behavior memory blocks advertise — *resume my open work*, *review what I decided*, *show everything relevant to this incident* — is delivered more cleanly by **retrieval presets** (v0.8-5, #570):
 
 - **`resume` preset**: recent `type=decision` / `type=lesson` in the session-family scope, plus any open-ended signals from audit events (not from a new memory block).
-- **`review` preset**: `type=decision` / `type=constraint` over a wider window.
-- **`incident` preset**: time-boxed retrieval pulling `type=lesson`, recent failures, and related decisions — a composite query, not a block.
+- **`review` preset**: `type=decision` / `type=constraint` / `type=artifact` over a wider window — decisions, the constraints they imply, and the runbooks / dashboards they produced.
+- **`incident` preset**: time-boxed retrieval pulling `type=lesson`, `type=constraint`, `type=decision`, and `type=artifact` — the "what not to do" axis plus pointers to the ops tooling an on-call needs, still a composite query rather than a block.
 
 These presets live in the application layer and do not require schema changes. They can be iterated and tuned per operator feedback without a migration every time.
 

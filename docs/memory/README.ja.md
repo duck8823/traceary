@@ -137,8 +137,8 @@ import は Codex の handbook（既定値は `~/.codex/memories/MEMORY.md`）を
 | Preset | 用途 | 既定フィルタ |
 | --- | --- | --- |
 | `resume` | 「どこまでやっていたか」を拾う。type 軸は絞らない | `status=accepted` |
-| `review` | 「何を決めて、どんな制約があるか」を確認する。再読に値する long-lived 知識だけに絞る | `status=accepted`, `type=decision,constraint` |
-| `incident` | 「失敗直後、何を知るべきか」。決定・制約に加えて lesson も含める | `status=accepted`, `type=decision,constraint,lesson` |
+| `review` | 「何を決めて、どんな制約があるか」を確認する。再読に値する long-lived 知識だけに絞る | `status=accepted`, `type=decision,constraint,artifact` |
+| `incident` | 「失敗直後、何を知るべきか」。決定・制約・lesson に加えて artifact（ログ場所・ダッシュボード・runbook 等）も含める | `status=accepted`, `type=decision,constraint,lesson,artifact` |
 
 例:
 

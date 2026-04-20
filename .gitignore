@@ -9,4 +9,5 @@ dist/
 .ai/
 .gocache/
 .golangci-cache/
+.golangci-lint-cache/
 .tmp-review-main/

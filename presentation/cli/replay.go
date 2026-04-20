@@ -15,12 +15,20 @@ import (
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
-	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
 
 //go:embed replay_template.html
 var replayTemplateHTML string
+
+// replayTemplateSource is the indirection tests use to inject a
+// malformed template without mutating the package-level
+// `replayTemplateHTML`. Rewriting the package global under
+// `t.Parallel()` made `TestWriteReplayHTML_PreservesExistingOnTemplateError`
+// race with the other replay tests; this var lets the render-error
+// test swap behavior inside a single test goroutine while the other
+// tests keep using the embedded template.
+var replayTemplateSource = func() string { return replayTemplateHTML }
 
 // newReplayCommand builds `traceary replay --out <file>`. The command
 // assembles a single-file HTML replay of recent sessions, events, and
@@ -162,7 +170,7 @@ func (c *RootCLI) gatherReplayData(ctx context.Context, input replayCommandInput
 	sessionCriteria := apptypes.NewSessionListCriteriaBuilder(input.sessions).Build()
 	sessions, err := c.session.List(ctx, sessionCriteria)
 	if err != nil {
-		return replayData{}, xerrors.Errorf("failed to list sessions for replay: %w", err)
+		return replayData{}, xerrors.Errorf("%s: %w", Localize("failed to list sessions for replay", "replay 用のセッション一覧取得に失敗しました"), err)
 	}
 	for _, s := range sessions {
 		events, err := c.eventsForSession(ctx, s.SessionID(), input.eventsPerSession)
@@ -187,7 +195,7 @@ func (c *RootCLI) gatherReplayData(ctx context.Context, input replayCommandInput
 			Build()
 		memories, err := c.memory.List(ctx, memCriteria)
 		if err != nil {
-			return replayData{}, xerrors.Errorf("failed to list memories for replay: %w", err)
+			return replayData{}, xerrors.Errorf("%s: %w", Localize("failed to list memories for replay", "replay 用の durable memory 一覧取得に失敗しました"), err)
 		}
 		for _, m := range memories {
 			data.Memories = append(data.Memories, replayMemory{
@@ -214,7 +222,10 @@ func (c *RootCLI) eventsForSession(ctx context.Context, sessionID types.SessionI
 		Build()
 	events, err := c.event.List(ctx, criteria)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to list events for session %s: %w", sessionID.String(), err)
+		return nil, xerrors.Errorf("%s: %w", Localize(
+			fmt.Sprintf("failed to list events for session %s", sessionID.String()),
+			fmt.Sprintf("session %s の event 一覧取得に失敗しました", sessionID.String()),
+		), err)
 	}
 	result := make([]replayEvent, 0, len(events))
 	for _, e := range events {
@@ -241,10 +252,10 @@ func totalEventCount(sessions []replaySession) int {
 func writeReplayHTML(outputPath string, data replayData) error {
 	absPath, err := filepath.Abs(outputPath)
 	if err != nil {
-		return xerrors.Errorf("failed to resolve output path: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve output path", "出力パスの解決に失敗しました"), err)
 	}
 	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
-		return xerrors.Errorf("failed to create output directory: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to create output directory", "出力ディレクトリの作成に失敗しました"), err)
 	}
 
 	// Refuse symlink targets — the Stop-hook / CLI input does not have
@@ -253,10 +264,13 @@ func writeReplayHTML(outputPath string, data replayData) error {
 	// intend to touch.
 	if info, err := os.Lstat(absPath); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
-			return xerrors.Errorf("refusing to write replay HTML through a symlink: %s", absPath)
+			return xerrors.Errorf(Localize(
+				"refusing to write replay HTML through a symlink: %s",
+				"symlink 経由の書き込みを拒否しました: %s",
+			), absPath)
 		}
 	} else if !os.IsNotExist(err) {
-		return xerrors.Errorf("failed to inspect replay output path: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to inspect replay output path", "replay 出力パスの確認に失敗しました"), err)
 	}
 
 	tmpl, err := template.New("replay").Funcs(template.FuncMap{
@@ -277,9 +291,9 @@ func writeReplayHTML(outputPath string, data replayData) error {
 			}
 			return string(runes[:n]) + "…"
 		},
-	}).Parse(replayTemplateHTML)
+	}).Parse(replayTemplateSource())
 	if err != nil {
-		return xerrors.Errorf("failed to parse replay template: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to parse replay template", "replay テンプレートの parse に失敗しました"), err)
 	}
 
 	// Write to a sibling temp file and only rename into place on
@@ -287,7 +301,7 @@ func writeReplayHTML(outputPath string, data replayData) error {
 	// partially overwrite an existing replay file.
 	tmpFile, err := os.CreateTemp(filepath.Dir(absPath), ".traceary-replay-*.html.tmp")
 	if err != nil {
-		return xerrors.Errorf("failed to create replay temp file: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to create replay temp file", "replay 一時ファイルの作成に失敗しました"), err)
 	}
 	tmpPath := tmpFile.Name()
 	cleanup := true
@@ -298,19 +312,19 @@ func writeReplayHTML(outputPath string, data replayData) error {
 		}
 	}()
 	if err := tmpl.Execute(tmpFile, data); err != nil {
-		return xerrors.Errorf("failed to render replay template: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to render replay template", "replay テンプレートのレンダリングに失敗しました"), err)
 	}
 	if err := tmpFile.Sync(); err != nil {
-		return xerrors.Errorf("failed to sync replay temp file: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to sync replay temp file", "replay 一時ファイルの fsync に失敗しました"), err)
 	}
 	if err := tmpFile.Close(); err != nil {
-		return xerrors.Errorf("failed to close replay temp file: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to close replay temp file", "replay 一時ファイルの close に失敗しました"), err)
 	}
 	if err := os.Chmod(tmpPath, 0o644); err != nil {
-		return xerrors.Errorf("failed to set replay file permissions: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to set replay file permissions", "replay ファイルの permission 設定に失敗しました"), err)
 	}
 	if err := os.Rename(tmpPath, absPath); err != nil {
-		return xerrors.Errorf("failed to place replay HTML: %w", err)
+		return xerrors.Errorf("%s: %w", Localize("failed to place replay HTML", "replay HTML の配置に失敗しました"), err)
 	}
 	cleanup = false
 	return nil
@@ -324,8 +338,3 @@ func formatOptionalInstant(value types.Optional[time.Time]) string {
 	}
 	return "—"
 }
-
-// _ exists so future additions can reference the interface without
-// a reflow. Keep for readability — the linter's unused-var check
-// does not apply to an `_` identifier.
-var _ = (*model.Event)(nil)
