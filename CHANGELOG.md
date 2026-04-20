@@ -5,6 +5,31 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.7.2] - 2026-04-20
+
+Operational-safety hotfix for v0.7.1 runtime issues that affected tail polling, audit duplication, and hook install ergonomics.
+
+### Added
+- `traceary hooks install --global` writes hooks into the user-level config (`~/.claude/settings.json`, `~/.gemini/settings.json`) instead of the per-project path. Codex is already user-level so `--global` prints a no-op notice. `--global` is mutually exclusive with `--output` and refuses a relative HOME.
+- `traceary doctor` now emits a `<client>-global-config` check alongside the project-level `<client>-config` check (Claude / Gemini; Codex stays opted out because its default install is already user-level).
+
+### Fixed
+- SQLite DSN now enables `journal_mode=WAL`, `synchronous=NORMAL`, and `busy_timeout=5000` so `traceary tail` polling no longer blocks behind short-lived hook writes and transient contention is auto-retried instead of surfacing `SQLITE_BUSY` to the caller.
+- `traceary hooks install --client claude` detects an active Traceary Claude Code plugin via `~/.claude/settings.json`'s `enabledPlugins` and skips by default so a plugin-managed install plus a settings.json install no longer records every audit event twice. `--force` bypasses the check for plugin-development workflows.
+- `traceary doctor --client claude` now reports the double-registration state as `warn` (previously silent pass) and still surfaces malformed project settings as `fail` even when the plugin would otherwise claim the hooks.
+
+### Docs
+- `docs/hooks/README{,.ja}.md` describe the `--global` flag, the plugin-skip semantics, and the new doctor checks.
+- `docs/operations/README{,.ja}.md` document the new SQLite pragmas and WAL sidecar expectations.
+- `docs/backup/README{,.ja}.md` warn about copying a live DB without its `<db>-wal` / `<db>-shm` sidecars.
+- `docs/integrations/claude-plugin{,.ja}.md` note that `hooks install` is not required when the plugin is installed.
+- `docs/cli/README{,.ja}.md` list `--global` under `hooks install`'s useful flags.
+
+### Included issues
+- #607 v0.7.2-1 SQLite DSN WAL + busy_timeout
+- #603 v0.7.2-2 hooks install / doctor plugin-aware dedup
+- #604 v0.7.2-3 hooks install --global + doctor global-config check
+
 ## [v0.7.1] - 2026-04-20
 
 Patch release that closes gaps surfaced during v0.7 Multi-AI reviews

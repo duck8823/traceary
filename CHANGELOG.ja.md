@@ -5,6 +5,31 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.7.2] - 2026-04-20
+
+v0.7.1 の実運用で判明した tail polling の SQLITE_BUSY、audit 二重記録、hook install UX の問題を一括で潰す operational-safety hotfix です。
+
+### 追加
+- `traceary hooks install --global` で user-level config (`~/.claude/settings.json` / `~/.gemini/settings.json`) へ書き込めるようにしました。Codex は元から user-level なため `--global` は no-op 通知を出して続行します。`--global` は `--output` と排他で、HOME が相対パスの場合は拒否します。
+- `traceary doctor` に `<client>-global-config` check を追加 (Claude / Gemini)。従来の project-level `<client>-config` と併せて両 scope の状態が一度に確認できます (Codex は既に user-level なため対象外)。
+
+### 修正
+- SQLite DSN に `journal_mode=WAL` / `synchronous=NORMAL` / `busy_timeout=5000` を有効化し、`traceary tail` の poll が短命な hook write にブロックされない / 一時的なロック競合は自動で retry される構成にしました。
+- `traceary hooks install --client claude` は `~/.claude/settings.json` の `enabledPlugins` を参照して Traceary Claude Code plugin が有効な状態では install を skip し通知します。plugin + settings.json の二重登録で audit が 2 回記録される問題を解消。`--force` で plugin 開発時の両方登録を明示許可できます。
+- `traceary doctor --client claude` は plugin + settings の二重登録を `warn` として報告し、plugin 有効時でも project 側の settings が破損していれば `fail` を維持します (従来は silent pass でした)。
+
+### ドキュメント
+- `docs/hooks/README{,.ja}.md` に `--global` / plugin-skip 挙動 / 追加された doctor check を記載。
+- `docs/operations/README{,.ja}.md` に新 SQLite pragma と WAL sidecar の扱いを追記。
+- `docs/backup/README{,.ja}.md` に live DB を sidecar (`<db>-wal` / `<db>-shm`) なしでコピーした場合の注意を追加。
+- `docs/integrations/claude-plugin{,.ja}.md` に plugin 導入時は `hooks install` 不要である旨を記載。
+- `docs/cli/README{,.ja}.md` の hooks install セクションに `--global` を追加。
+
+### 対応 issue
+- #607 v0.7.2-1 SQLite DSN WAL + busy_timeout
+- #603 v0.7.2-2 hooks install / doctor plugin-aware dedup
+- #604 v0.7.2-3 hooks install --global + doctor global-config check
+
 ## [v0.7.1] - 2026-04-20
 
 v0.7 の Multi-AI レビューと v0.7.0 リリース workflow で洗い出された穴を塞ぐ patch リリースです。
