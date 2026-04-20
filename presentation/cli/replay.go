@@ -247,6 +247,18 @@ func writeReplayHTML(outputPath string, data replayData) error {
 		return xerrors.Errorf("failed to create output directory: %w", err)
 	}
 
+	// Refuse symlink targets — the Stop-hook / CLI input does not have
+	// enough context to validate where a symlink points, and writing
+	// through one could clobber a privileged file the operator did not
+	// intend to touch.
+	if info, err := os.Lstat(absPath); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return xerrors.Errorf("refusing to write replay HTML through a symlink: %s", absPath)
+		}
+	} else if !os.IsNotExist(err) {
+		return xerrors.Errorf("failed to inspect replay output path: %w", err)
+	}
+
 	tmpl, err := template.New("replay").Funcs(template.FuncMap{
 		"fmtInstant": func(t time.Time) string {
 			if t.IsZero() {
@@ -270,17 +282,37 @@ func writeReplayHTML(outputPath string, data replayData) error {
 		return xerrors.Errorf("failed to parse replay template: %w", err)
 	}
 
-	file, err := os.Create(absPath) // #nosec G304 -- path supplied by --out flag
+	// Write to a sibling temp file and only rename into place on
+	// success, so a template render failure cannot truncate or
+	// partially overwrite an existing replay file.
+	tmpFile, err := os.CreateTemp(filepath.Dir(absPath), ".traceary-replay-*.html.tmp")
 	if err != nil {
-		return xerrors.Errorf("failed to create replay output file: %w", err)
+		return xerrors.Errorf("failed to create replay temp file: %w", err)
 	}
-	defer func() { _ = file.Close() }()
-	if err := tmpl.Execute(file, data); err != nil {
+	tmpPath := tmpFile.Name()
+	cleanup := true
+	defer func() {
+		_ = tmpFile.Close()
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if err := tmpl.Execute(tmpFile, data); err != nil {
 		return xerrors.Errorf("failed to render replay template: %w", err)
 	}
-	if err := os.Chmod(absPath, 0o644); err != nil {
+	if err := tmpFile.Sync(); err != nil {
+		return xerrors.Errorf("failed to sync replay temp file: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return xerrors.Errorf("failed to close replay temp file: %w", err)
+	}
+	if err := os.Chmod(tmpPath, 0o644); err != nil {
 		return xerrors.Errorf("failed to set replay file permissions: %w", err)
 	}
+	if err := os.Rename(tmpPath, absPath); err != nil {
+		return xerrors.Errorf("failed to place replay HTML: %w", err)
+	}
+	cleanup = false
 	return nil
 }
 
