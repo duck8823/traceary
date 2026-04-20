@@ -56,8 +56,8 @@ read 契約 (`application/types/memory_list_criteria.go` の `MemoryListCriteria
 memory blocks が約束する「*open work を resume*」「*過去の決定を review*」「*インシデント関連を一括抽出*」は、**retrieval presets (v0.8-5, #570)** の方がきれいに実現できます:
 
 - **`resume` preset**: session-family scope の `type=decision` / `type=lesson` に加え、audit events から未完了 signal を拾う（新 memory block ではなく event 側で処理）。
-- **`review` preset**: `type=decision` / `type=constraint` を広い時間窓で取る。
-- **`incident` preset**: 時刻範囲を絞って `type=lesson` + 直近失敗 + 関連決定を束ねる複合クエリ。
+- **`review` preset**: `type=decision` / `type=constraint` / `type=artifact` を広い時間窓で取る（決定・制約・そこから派生した runbook/dashboard）。
+- **`incident` preset**: 時刻範囲を絞って `type=lesson` / `type=constraint` / `type=decision` / `type=artifact` を束ねる複合クエリ。「何を避けるべきか」の軸に加えて on-call が参照する ops ツールへのポインタも出す。
 
 これら preset は application 層の拡張で済み、schema 変更不要です。運用フィードバックを受けて柔軟に調整できます。
 

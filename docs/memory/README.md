@@ -160,8 +160,8 @@ Use these to inspect existing durable memories:
 | Preset | Intent | Defaults applied |
 | --- | --- | --- |
 | `resume` | "Pick up where I left off." No type restriction — preferences and lessons are as useful as decisions. | `status=accepted` |
-| `review` | "What did we decide and what are the constraints?" Filters to long-lived knowledge you expect to reread. | `status=accepted`, `type=decision,constraint` |
-| `incident` | "A failure just happened — what do I need to know?" Includes lessons and constraints on top of decisions. | `status=accepted`, `type=decision,constraint,lesson` |
+| `review` | "What did we decide and what are the constraints?" Filters to long-lived knowledge you expect to reread. | `status=accepted`, `type=decision,constraint,artifact` |
+| `incident` | "A failure just happened — what do I need to know?" Includes lessons and constraints on top of decisions. Artifact memories (log paths, dashboards, runbooks) surface here too because incident reviewers want to jump straight to the tooling. | `status=accepted`, `type=decision,constraint,lesson,artifact` |
 
 Examples:
 

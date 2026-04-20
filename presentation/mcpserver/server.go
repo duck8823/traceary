@@ -492,7 +492,7 @@ func (s *Server) sessionHandoff() mcp.ToolHandlerFor[sessionHandoffInput, sessio
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input sessionHandoffInput) (*mcp.CallToolResult, sessionHandoffOutput, error) {
 		preset, err := apptypes.MemoryRetrievalPresetOf(input.Preset)
 		if err != nil {
-			return nil, sessionHandoffOutput{}, xerrors.Errorf("failed to resolve preset: %w", err)
+			return nil, sessionHandoffOutput{}, xerrors.Errorf("failed to parse preset: %w", err)
 		}
 		result, err := s.context.Handoff(ctx, buildContextPackCriteria(
 			input.SessionID,
@@ -518,7 +518,7 @@ func (s *Server) memoryPack() mcp.ToolHandlerFor[memoryPackInput, memoryPackOutp
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input memoryPackInput) (*mcp.CallToolResult, memoryPackOutput, error) {
 		preset, err := apptypes.MemoryRetrievalPresetOf(input.Preset)
 		if err != nil {
-			return nil, memoryPackOutput{}, xerrors.Errorf("failed to resolve preset: %w", err)
+			return nil, memoryPackOutput{}, xerrors.Errorf("failed to parse preset: %w", err)
 		}
 		result, err := s.context.Handoff(ctx, buildContextPackCriteria(
 			input.SessionID,
@@ -571,13 +571,13 @@ func (s *Server) retrieveMemories() mcp.ToolHandlerFor[retrieveMemoriesInput, me
 		if trimmedAsOf := strings.TrimSpace(input.AsOf); trimmedAsOf != "" {
 			parsed, err := parseFlexibleTime(trimmedAsOf, false)
 			if err != nil {
-				return nil, memoriesOutput{}, xerrors.Errorf("failed to resolve as_of: %w", err)
+				return nil, memoriesOutput{}, xerrors.Errorf("failed to parse as_of: %w", err)
 			}
 			asOfTime = parsed
 		}
 		preset, err := apptypes.MemoryRetrievalPresetOf(input.Preset)
 		if err != nil {
-			return nil, memoriesOutput{}, xerrors.Errorf("failed to resolve preset: %w", err)
+			return nil, memoriesOutput{}, xerrors.Errorf("failed to parse preset: %w", err)
 		}
 
 		var summaries []apptypes.MemorySummary
