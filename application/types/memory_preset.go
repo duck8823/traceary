@@ -96,6 +96,7 @@ func (p MemoryRetrievalPreset) filters() presetFilters {
 			memoryTypes: []domtypes.MemoryType{
 				domtypes.MemoryTypeDecision,
 				domtypes.MemoryTypeConstraint,
+				domtypes.MemoryTypeArtifact,
 			},
 		}
 	case MemoryRetrievalPresetIncident:
@@ -105,6 +106,7 @@ func (p MemoryRetrievalPreset) filters() presetFilters {
 				domtypes.MemoryTypeDecision,
 				domtypes.MemoryTypeConstraint,
 				domtypes.MemoryTypeLesson,
+				domtypes.MemoryTypeArtifact,
 			},
 		}
 	}

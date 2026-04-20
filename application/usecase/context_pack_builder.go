@@ -74,7 +74,7 @@ func (b *contextPackBuilder) Build(ctx context.Context, criteria apptypes.Contex
 	if err != nil {
 		compactSummary = ""
 	}
-	memories, err := b.loadMemories(ctx, session, criteria.MemoryLimit())
+	memories, err := b.loadMemories(ctx, session, criteria.MemoryLimit(), criteria.MemoryPreset())
 	if err != nil {
 		return domtypes.None[apptypes.ContextPack](), err
 	}
@@ -147,7 +147,12 @@ func (b *contextPackBuilder) loadCompactSummary(ctx context.Context, session app
 	return extractCompactSummarySignal(events[0].Body()), nil
 }
 
-func (b *contextPackBuilder) loadMemories(ctx context.Context, session apptypes.SessionSummary, limit int) ([]apptypes.MemorySummary, error) {
+func (b *contextPackBuilder) loadMemories(
+	ctx context.Context,
+	session apptypes.SessionSummary,
+	limit int,
+	preset apptypes.MemoryRetrievalPreset,
+) ([]apptypes.MemorySummary, error) {
 	if b.memoryQuery == nil || limit == 0 {
 		return nil, nil
 	}
@@ -157,11 +162,18 @@ func (b *contextPackBuilder) loadMemories(ctx context.Context, session apptypes.
 		return nil, nil
 	}
 
-	criteria := apptypes.NewMemoryListCriteriaBuilder(limit).
-		Scopes(scopes).
-		Statuses([]domtypes.MemoryStatus{domtypes.MemoryStatusAccepted}).
-		Build()
-	memories, err := b.memoryQuery.List(ctx, criteria)
+	builder := apptypes.NewMemoryListCriteriaBuilder(limit).Scopes(scopes)
+	if preset != "" {
+		// Preset wins for context packs: callers asked for a specific
+		// retrieval shape (resume / review / incident), so we honor
+		// its Statuses + MemoryTypes defaults. No preset falls back to
+		// the legacy accepted-only behavior so existing clients see
+		// the same pack shape as before.
+		builder = preset.ApplyToMemoryListCriteriaBuilder(builder)
+	} else {
+		builder = builder.Statuses([]domtypes.MemoryStatus{domtypes.MemoryStatusAccepted})
+	}
+	memories, err := b.memoryQuery.List(ctx, builder.Build())
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list durable memories for context pack: %w", err)
 	}

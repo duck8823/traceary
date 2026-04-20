@@ -56,10 +56,14 @@ func TestMemoryRetrievalPreset_ApplyToMemoryListCriteriaBuilder(t *testing.T) {
 			wantStatuses: []domtypes.MemoryStatus{domtypes.MemoryStatusAccepted},
 		},
 		{
-			name:            "review narrows to decisions and constraints",
-			preset:          apptypes.MemoryRetrievalPresetReview,
-			wantStatuses:    []domtypes.MemoryStatus{domtypes.MemoryStatusAccepted},
-			wantMemoryTypes: []domtypes.MemoryType{domtypes.MemoryTypeDecision, domtypes.MemoryTypeConstraint},
+			name:         "review narrows to decisions, constraints, and artifacts",
+			preset:       apptypes.MemoryRetrievalPresetReview,
+			wantStatuses: []domtypes.MemoryStatus{domtypes.MemoryStatusAccepted},
+			wantMemoryTypes: []domtypes.MemoryType{
+				domtypes.MemoryTypeDecision,
+				domtypes.MemoryTypeConstraint,
+				domtypes.MemoryTypeArtifact,
+			},
 		},
 		{
 			name:         "incident adds lessons to the review set",
@@ -69,6 +73,7 @@ func TestMemoryRetrievalPreset_ApplyToMemoryListCriteriaBuilder(t *testing.T) {
 				domtypes.MemoryTypeDecision,
 				domtypes.MemoryTypeConstraint,
 				domtypes.MemoryTypeLesson,
+				domtypes.MemoryTypeArtifact,
 			},
 		},
 	}

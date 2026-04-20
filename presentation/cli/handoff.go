@@ -34,6 +34,7 @@ func (c *RootCLI) newHandoffCommandWithUse(use string, short string) *cobra.Comm
 		repo      string
 		recent    int
 		memories  int
+		preset    string
 	)
 
 	cmd := &cobra.Command{
@@ -51,6 +52,7 @@ func (c *RootCLI) newHandoffCommandWithUse(use string, short string) *cobra.Comm
 				workspace: repo,
 				recent:    recent,
 				memories:  memories,
+				preset:    preset,
 			})
 		},
 	}
@@ -60,6 +62,7 @@ func (c *RootCLI) newHandoffCommandWithUse(use string, short string) *cobra.Comm
 	cmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by workspace", "ワークスペースでフィルタ"))
 	cmd.Flags().IntVar(&recent, "recent", 5, Localize("number of recent commands to show", "表示する直近コマンド数"))
 	cmd.Flags().IntVar(&memories, "memories", 5, Localize("number of durable memories to include", "含める durable memory 数"))
+	cmd.Flags().StringVar(&preset, "preset", "", Localize("apply a built-in retrieval preset to durable memories (resume | review | incident)", "durable memory 取得に built-in preset を適用する (resume | review | incident)"))
 
 	return cmd
 }
@@ -70,6 +73,7 @@ type handoffCommandInput struct {
 	workspace string
 	recent    int
 	memories  int
+	preset    string
 }
 
 func (c *RootCLI) runHandoff(ctx context.Context, output io.Writer, input handoffCommandInput) error {
@@ -90,6 +94,10 @@ func (c *RootCLI) runHandoff(ctx context.Context, output io.Writer, input handof
 	}
 
 	resolvedWorkspace := resolveWorkspaceValue(ctx, input.workspace)
+	preset, err := apptypes.MemoryRetrievalPresetOf(input.preset)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to parse --preset", "--preset の解析に失敗しました"), err)
+	}
 	result, err := c.context.Handoff(
 		ctx,
 		apptypes.NewContextPackCriteriaBuilder().
@@ -97,6 +105,7 @@ func (c *RootCLI) runHandoff(ctx context.Context, output io.Writer, input handof
 			Workspace(types.Workspace(resolvedWorkspace)).
 			RecentCommandsLimit(input.recent).
 			MemoryLimit(input.memories).
+			MemoryPreset(preset).
 			Build(),
 	)
 	if err != nil {

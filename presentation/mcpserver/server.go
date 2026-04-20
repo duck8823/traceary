@@ -490,11 +490,16 @@ func (s *Server) getContext() mcp.ToolHandlerFor[getContextInput, eventsOutput] 
 
 func (s *Server) sessionHandoff() mcp.ToolHandlerFor[sessionHandoffInput, sessionHandoffOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input sessionHandoffInput) (*mcp.CallToolResult, sessionHandoffOutput, error) {
+		preset, err := apptypes.MemoryRetrievalPresetOf(input.Preset)
+		if err != nil {
+			return nil, sessionHandoffOutput{}, xerrors.Errorf("failed to resolve preset: %w", err)
+		}
 		result, err := s.context.Handoff(ctx, buildContextPackCriteria(
 			input.SessionID,
 			input.Workspace,
 			input.RecentCommandsLimit,
 			input.MemoryLimit,
+			preset,
 		))
 		if err != nil {
 			return nil, sessionHandoffOutput{}, xerrors.Errorf("failed to get session handoff: %w", err)
@@ -511,11 +516,16 @@ func (s *Server) sessionHandoff() mcp.ToolHandlerFor[sessionHandoffInput, sessio
 
 func (s *Server) memoryPack() mcp.ToolHandlerFor[memoryPackInput, memoryPackOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input memoryPackInput) (*mcp.CallToolResult, memoryPackOutput, error) {
+		preset, err := apptypes.MemoryRetrievalPresetOf(input.Preset)
+		if err != nil {
+			return nil, memoryPackOutput{}, xerrors.Errorf("failed to resolve preset: %w", err)
+		}
 		result, err := s.context.Handoff(ctx, buildContextPackCriteria(
 			input.SessionID,
 			input.Workspace,
 			input.RecentCommandsLimit,
 			input.MemoryLimit,
+			preset,
 		))
 		if err != nil {
 			return nil, memoryPackOutput{}, xerrors.Errorf("failed to build memory pack: %w", err)
@@ -977,7 +987,7 @@ func (s *Server) setMemoryValidity() mcp.ToolHandlerFor[setMemoryValidityInput, 
 	}
 }
 
-func buildContextPackCriteria(sessionID string, workspace string, recentCommandsLimit *int, memoryLimit *int) apptypes.ContextPackCriteria {
+func buildContextPackCriteria(sessionID string, workspace string, recentCommandsLimit *int, memoryLimit *int, preset apptypes.MemoryRetrievalPreset) apptypes.ContextPackCriteria {
 	builder := apptypes.NewContextPackCriteriaBuilder().
 		SessionID(types.SessionID(strings.TrimSpace(sessionID))).
 		Workspace(types.Workspace(strings.TrimSpace(workspace)))
@@ -986,6 +996,9 @@ func buildContextPackCriteria(sessionID string, workspace string, recentCommands
 	}
 	if memoryLimit != nil {
 		builder.MemoryLimit(*memoryLimit)
+	}
+	if preset != "" {
+		builder.MemoryPreset(preset)
 	}
 	return builder.Build()
 }

@@ -886,6 +886,7 @@ func hasMemorySearchInputConstraint(input memorySearchCommandInput) bool {
 		strings.TrimSpace(input.workspace) != "" ||
 		strings.TrimSpace(input.agent) != "" ||
 		strings.TrimSpace(input.sessionFamily) != "" ||
+		strings.TrimSpace(input.preset) != "" ||
 		len(input.statuses) > 0 ||
 		len(input.memoryTypes) > 0
 }

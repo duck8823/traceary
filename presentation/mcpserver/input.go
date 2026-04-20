@@ -81,6 +81,7 @@ type sessionHandoffInput struct {
 	Workspace           string `json:"workspace,omitempty" jsonschema:"work context filter"`
 	RecentCommandsLimit *int   `json:"recent_commands_limit,omitempty" jsonschema:"maximum recent commands to include (default: 5; explicit 0 disables recent commands)"`
 	MemoryLimit         *int   `json:"memory_limit,omitempty" jsonschema:"maximum durable memories to include (default: 5; explicit 0 disables durable memories)"`
+	Preset              string `json:"preset,omitempty" jsonschema:"built-in retrieval preset applied to durable memories: resume | review | incident"`
 }
 
 // memoryPackInput is the MCP input for the memory_pack tool.
@@ -89,6 +90,7 @@ type memoryPackInput struct {
 	Workspace           string `json:"workspace,omitempty" jsonschema:"work context filter"`
 	RecentCommandsLimit *int   `json:"recent_commands_limit,omitempty" jsonschema:"maximum recent commands to include (default: 5; explicit 0 disables recent commands)"`
 	MemoryLimit         *int   `json:"memory_limit,omitempty" jsonschema:"maximum durable memories to include (default: 5; explicit 0 disables durable memories)"`
+	Preset              string `json:"preset,omitempty" jsonschema:"built-in retrieval preset applied to durable memories: resume | review | incident"`
 }
 
 // memoryRefInput is the MCP representation of evidence/artifact references.
