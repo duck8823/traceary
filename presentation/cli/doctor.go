@@ -157,13 +157,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			continue
 		}
 
-		check := c.inspectDoctorConfigFile(targetClient, outputPath)
-		if check.Status == doctorStatusWarn && targetClient == "claude" {
-			pluginCheck := inspectDoctorPluginPackage(resolvedProjectDir)
-			if pluginCheck.Status == doctorStatusPass {
-				check = pluginCheck
-			}
-		}
+		check := c.inspectClaudeOrConfigFile(targetClient, outputPath, resolvedProjectDir)
 		report.Checks = append(report.Checks, check)
 
 		if hostCheck := inspectHostCapabilityGaps(targetClient, outputPath); hostCheck != nil {
@@ -290,6 +284,71 @@ func inspectDoctorConfig() doctorCheck {
 		Status:  doctorStatusPass,
 		Message: localizef("loaded config file: %s", "設定ファイルを読み込みました: %s", configPath),
 	}
+}
+
+// inspectClaudeOrConfigFile routes the Claude client through plugin
+// detection (so we can report double-registration or plugin-managed
+// pass states) and falls back to the generic config-file inspection
+// for every other client.
+func (c *RootCLI) inspectClaudeOrConfigFile(client, outputPath, projectDir string) doctorCheck {
+	if client != "claude" {
+		return c.inspectDoctorConfigFile(client, outputPath)
+	}
+
+	detection := detectClaudeTracearyPluginForCLI()
+	hasTracearyHook := c.claudeConfigHasTracearyHooks(outputPath)
+
+	switch {
+	case detection.Active && hasTracearyHook:
+		return doctorCheck{
+			Name:   "claude-config",
+			Status: doctorStatusWarn,
+			Message: localizef(
+				"claude plugin %q is active in %s and %s also registers Traceary hooks. Every audit event will be recorded twice — remove the settings.json hooks or disable the plugin",
+				"claude plugin %q が %s で有効ですが %s にも Traceary hook が登録されています。audit が二重記録されます — settings.json 側の hook を削除するか plugin を無効化してください",
+				detection.PluginKey,
+				detection.SettingsPath,
+				outputPath,
+			),
+		}
+	case detection.Active:
+		return doctorCheck{
+			Name:   "claude-config",
+			Status: doctorStatusPass,
+			Message: localizef(
+				"claude hooks are delivered by plugin %q (%s); no settings.json install is required",
+				"claude の hooks は plugin %q によって提供されています (%s)。settings.json への install は不要です",
+				detection.PluginKey,
+				detection.SettingsPath,
+			),
+		}
+	}
+
+	check := c.inspectDoctorConfigFile(client, outputPath)
+	if check.Status == doctorStatusWarn {
+		pluginCheck := inspectDoctorPluginPackage(projectDir)
+		if pluginCheck.Status == doctorStatusPass {
+			return pluginCheck
+		}
+	}
+	return check
+}
+
+// claudeConfigHasTracearyHooks returns true iff the Claude settings file
+// at outputPath is a valid JSON object with a hooks field that contains
+// at least one Traceary-managed hook entry. Missing files, unreadable
+// files, and malformed JSON all return false so the plugin-detection
+// branch interprets them as "no Traceary hook registered here".
+func (c *RootCLI) claudeConfigHasTracearyHooks(outputPath string) bool {
+	content, err := os.ReadFile(outputPath)
+	if err != nil {
+		return false
+	}
+	_, hasTracearyHook, err := c.hooksInspector.Inspect(content)
+	if err != nil {
+		return false
+	}
+	return hasTracearyHook
 }
 
 func (c *RootCLI) inspectDoctorConfigFile(client string, outputPath string) doctorCheck {
