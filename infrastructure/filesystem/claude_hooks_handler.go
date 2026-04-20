@@ -7,6 +7,15 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
+// claudeBuiltinToolsMatcher is the regular expression Claude Code
+// evaluates as the PostToolUse matcher for Traceary's coverage of
+// built-in tools (the ones that do not match `Bash` or `mcp__.*`).
+// Read / Edit / Write / Grep / Glob / Agent / TodoWrite / WebFetch /
+// WebSearch / NotebookEdit are the core surfaces operators use for
+// real work — capturing them is what actually makes tail / timeline
+// reflect day-to-day activity instead of just shell + MCP traffic.
+const claudeBuiltinToolsMatcher = "Read|Edit|Write|MultiEdit|Grep|Glob|Agent|Task|TodoWrite|WebFetch|WebSearch|NotebookEdit"
+
 // ClaudeHooksHandler installs Traceary hooks for the Claude Code client.
 type ClaudeHooksHandler struct{}
 
@@ -63,12 +72,18 @@ func (h *ClaudeHooksHandler) Build(tracearyBin string) model.Hooks {
 			model.HookEntryOf(types.Some("mcp__.*"), []model.HookCommand{
 				model.HookCommandOf("traceary-audit", "command", auditCommand, types.None[int](), "", managedKeyOf("traceary-audit.sh", "claude")),
 			}),
+			model.HookEntryOf(types.Some(claudeBuiltinToolsMatcher), []model.HookCommand{
+				model.HookCommandOf("traceary-audit", "command", auditCommand, types.None[int](), "", managedKeyOf("traceary-audit.sh", "claude")),
+			}),
 		},
 		"PostToolUseFailure": {
 			model.HookEntryOf(types.Some("Bash"), []model.HookCommand{
 				model.HookCommandOf("traceary-audit", "command", auditCommand, types.None[int](), "", managedKeyOf("traceary-audit.sh", "claude")),
 			}),
 			model.HookEntryOf(types.Some("mcp__.*"), []model.HookCommand{
+				model.HookCommandOf("traceary-audit", "command", auditCommand, types.None[int](), "", managedKeyOf("traceary-audit.sh", "claude")),
+			}),
+			model.HookEntryOf(types.Some(claudeBuiltinToolsMatcher), []model.HookCommand{
 				model.HookCommandOf("traceary-audit", "command", auditCommand, types.None[int](), "", managedKeyOf("traceary-audit.sh", "claude")),
 			}),
 		},

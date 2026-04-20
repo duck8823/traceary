@@ -14,7 +14,8 @@
 | SessionEnd | `*` | セッション終了を記録 |
 | PostToolUse | `Bash` | シェルコマンド監査を exit code 付きで記録 |
 | PostToolUse | `mcp__.*` | MCP ツール監査を記録 |
-| PostToolUseFailure | `Bash`, `mcp__.*` | 失敗したツール実行を記録 |
+| PostToolUse | `Read\|Edit\|Write\|MultiEdit\|Grep\|Glob\|Agent\|Task\|TodoWrite\|WebFetch\|WebSearch\|NotebookEdit` | Claude Code 組み込みツール（ファイル I/O・検索・agent・web）の呼び出しを記録（v0.8-6 で追加） |
+| PostToolUseFailure | `Bash`, `mcp__.*`, 組み込みツール | 失敗したツール実行を記録 |
 | PostCompact | `*` | compact サマリーを記録 |
 | UserPromptSubmit | `*` | ユーザーの指示テキストを記録 |
 | Stop | `*` | `transcript_path` から最後の assistant メッセージを読み取り `transcript` event として記録（既知 secret の redaction を適用） |

@@ -123,6 +123,21 @@ def check_claude() -> None:
     require('PostCompact' in hooks['hooks'], 'Claude hooks must include PostCompact')
     require("'hook' 'session' 'claude'" in json.dumps(hooks['hooks']), 'Claude packaged hooks must invoke traceary hook session directly')
     require("'hook' 'audit' 'claude'" in json.dumps(hooks['hooks']), 'Claude packaged hooks must invoke traceary hook audit directly')
+
+    # v0.8-6: both PostToolUse and PostToolUseFailure must register
+    # three matchers (Bash / mcp__.* / built-in tool list) so Traceary
+    # captures the real working surface, not just shell + MCP traffic.
+    for event_name in ('PostToolUse', 'PostToolUseFailure'):
+        entries = hooks['hooks'].get(event_name, [])
+        matchers = [entry.get('matcher') for entry in entries]
+        require(
+            matchers[:2] == ['Bash', 'mcp__.*'],
+            f'Claude {event_name} must register Bash and mcp__.* as the first two matchers, got {matchers!r}',
+        )
+        require(
+            len(matchers) >= 3 and matchers[2] and 'Read' in matchers[2] and 'Edit' in matchers[2] and 'Write' in matchers[2],
+            f'Claude {event_name} must include the built-in tool matcher (Read|Edit|Write|...), got {matchers!r}',
+        )
     require((ROOT / 'integrations' / 'claude-plugin' / 'scripts' / 'traceary-compact.sh').exists(), 'missing Claude compact hook script')
     require((ROOT / 'integrations' / 'claude-plugin' / 'skills' / 'traceary-help' / 'SKILL.md').exists(), 'missing Claude traceary-help skill')
     require((ROOT / 'integrations' / 'claude-plugin' / 'skills' / 'traceary-session-history' / 'SKILL.md').exists(), 'missing Claude traceary-session-history skill')

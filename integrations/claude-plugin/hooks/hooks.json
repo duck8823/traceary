@@ -61,6 +61,15 @@
             "command": "'traceary' 'hook' 'audit' 'claude'"
           }
         ]
+      },
+      {
+        "matcher": "Read|Edit|Write|MultiEdit|Grep|Glob|Agent|Task|TodoWrite|WebFetch|WebSearch|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'traceary' 'hook' 'audit' 'claude'"
+          }
+        ]
       }
     ],
     "PostCompact": [
@@ -97,6 +106,15 @@
       },
       {
         "matcher": "mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'traceary' 'hook' 'audit' 'claude'"
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Edit|Write|MultiEdit|Grep|Glob|Agent|Task|TodoWrite|WebFetch|WebSearch|NotebookEdit",
         "hooks": [
           {
             "type": "command",
