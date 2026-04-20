@@ -267,6 +267,7 @@ type memoryListCommandInput struct {
 	offset          int
 	asOf            string
 	includeExpired  bool
+	preset          string
 	asJSON          bool
 }
 
@@ -283,6 +284,7 @@ type memorySearchCommandInput struct {
 	query           string
 	asOf            string
 	includeExpired  bool
+	preset          string
 	asJSON          bool
 }
 

@@ -153,6 +153,22 @@ Use these to inspect existing durable memories:
 - `traceary memory search`
 - `traceary memory show`
 
+#### Retrieval presets
+
+`memory list` and `memory search` (and MCP `retrieve_memories`) accept `--preset <name>` to apply a built-in retrieval shape for a common operator scenario. Explicit `--status` / `--type` flags still win — the preset only pre-populates the defaults.
+
+| Preset | Intent | Defaults applied |
+| --- | --- | --- |
+| `resume` | "Pick up where I left off." No type restriction — preferences and lessons are as useful as decisions. | `status=accepted` |
+| `review` | "What did we decide and what are the constraints?" Filters to long-lived knowledge you expect to reread. | `status=accepted`, `type=decision,constraint` |
+| `incident` | "A failure just happened — what do I need to know?" Includes lessons and constraints on top of decisions. | `status=accepted`, `type=decision,constraint,lesson` |
+
+Examples:
+
+- `traceary memory list --preset review --workspace github.com/org/repo`
+- `traceary memory list --preset review --type lesson` — explicit `--type` overrides the preset's default
+- MCP: `retrieve_memories({"preset":"incident","workspace":"..."})`
+
 ### Context / handoff path
 
 Use these when you want the memory layer folded into a resume-friendly context pack:

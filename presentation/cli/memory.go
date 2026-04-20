@@ -56,6 +56,7 @@ func (c *RootCLI) newMemoryListCommand() *cobra.Command {
 	cmd.Flags().IntVar(&input.offset, "offset", 0, Localize("number of memories to skip before listing", "一覧表示前にスキップする件数"))
 	cmd.Flags().StringVar(&input.asOf, "as-of", "", Localize("evaluate memory validity as of this timestamp (`YYYY-MM-DD` or RFC3339, defaults to now)", "この時点の validity で評価する (`YYYY-MM-DD` または RFC3339、既定は now)"))
 	cmd.Flags().BoolVar(&input.includeExpired, "include-expired", false, Localize("include memories whose validTo is in the past (bypass the default validity-window filter)", "validTo が過去の memory も含める (既定の validity-window filter をバイパス)"))
+	cmd.Flags().StringVar(&input.preset, "preset", "", Localize("apply a built-in retrieval preset (resume | review | incident); explicit filters still override preset defaults", "built-in の retrieval preset を適用する (resume | review | incident)。明示的な filter は preset を上書きする"))
 	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	return cmd
 }
@@ -84,6 +85,7 @@ func (c *RootCLI) newMemorySearchCommand() *cobra.Command {
 	cmd.Flags().IntVar(&input.offset, "offset", 0, Localize("number of memories to skip before returning results", "結果を返す前にスキップする件数"))
 	cmd.Flags().StringVar(&input.asOf, "as-of", "", Localize("evaluate memory validity as of this timestamp (`YYYY-MM-DD` or RFC3339, defaults to now)", "この時点の validity で評価する (`YYYY-MM-DD` または RFC3339、既定は now)"))
 	cmd.Flags().BoolVar(&input.includeExpired, "include-expired", false, Localize("include memories whose validTo is in the past (bypass the default validity-window filter)", "validTo が過去の memory も含める (既定の validity-window filter をバイパス)"))
+	cmd.Flags().StringVar(&input.preset, "preset", "", Localize("apply a built-in retrieval preset (resume | review | incident); explicit filters still override preset defaults", "built-in の retrieval preset を適用する (resume | review | incident)。明示的な filter は preset を上書きする"))
 	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	return cmd
 }
@@ -300,12 +302,24 @@ func (c *RootCLI) runMemoryList(ctx context.Context, output io.Writer, input mem
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to parse --as-of", "--as-of の解析に失敗しました"), err)
 	}
-	criteriaBuilder := apptypes.NewMemoryListCriteriaBuilder(input.limit).
-		Offset(input.offset).
-		Scopes(scopes).
-		Statuses(statuses).
-		MemoryTypes(memoryTypes).
-		IncludeExpiredByValidity(input.includeExpired)
+	preset, err := apptypes.MemoryRetrievalPresetOf(input.preset)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to parse --preset", "--preset の解析に失敗しました"), err)
+	}
+	criteriaBuilder := apptypes.NewMemoryListCriteriaBuilder(input.limit).Offset(input.offset).Scopes(scopes)
+	if preset != "" {
+		criteriaBuilder = preset.ApplyToMemoryListCriteriaBuilder(criteriaBuilder)
+	}
+	// Explicit --status / --type still win: setting them after the
+	// preset overwrites the preset's defaults. Skip the call when the
+	// user didn't pass anything so the preset's choice stays in effect.
+	if len(statuses) > 0 {
+		criteriaBuilder = criteriaBuilder.Statuses(statuses)
+	}
+	if len(memoryTypes) > 0 {
+		criteriaBuilder = criteriaBuilder.MemoryTypes(memoryTypes)
+	}
+	criteriaBuilder = criteriaBuilder.IncludeExpiredByValidity(input.includeExpired)
 	if t, ok := asOf.Value(); ok {
 		criteriaBuilder = criteriaBuilder.AsOf(t)
 	}
@@ -357,13 +371,24 @@ func (c *RootCLI) runMemorySearch(ctx context.Context, output io.Writer, input m
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to parse --as-of", "--as-of の解析に失敗しました"), err)
 	}
+	preset, err := apptypes.MemoryRetrievalPresetOf(input.preset)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to parse --preset", "--preset の解析に失敗しました"), err)
+	}
 	criteriaBuilder := apptypes.NewMemorySearchCriteriaBuilder(input.limit).
 		Query(strings.TrimSpace(input.query)).
 		Offset(input.offset).
-		Scopes(scopes).
-		Statuses(statuses).
-		MemoryTypes(memoryTypes).
-		IncludeExpiredByValidity(input.includeExpired)
+		Scopes(scopes)
+	if preset != "" {
+		criteriaBuilder = preset.ApplyToMemorySearchCriteriaBuilder(criteriaBuilder)
+	}
+	if len(statuses) > 0 {
+		criteriaBuilder = criteriaBuilder.Statuses(statuses)
+	}
+	if len(memoryTypes) > 0 {
+		criteriaBuilder = criteriaBuilder.MemoryTypes(memoryTypes)
+	}
+	criteriaBuilder = criteriaBuilder.IncludeExpiredByValidity(input.includeExpired)
 	if t, ok := asOf.Value(); ok {
 		criteriaBuilder = criteriaBuilder.AsOf(t)
 	}

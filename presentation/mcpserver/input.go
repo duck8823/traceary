@@ -110,6 +110,7 @@ type retrieveMemoriesInput struct {
 	Offset         int      `json:"offset,omitempty" jsonschema:"number of memories to skip before returning results (default: 0)"`
 	AsOf           string   `json:"as_of,omitempty" jsonschema:"evaluate content validity at this timestamp (YYYY-MM-DD or RFC3339); defaults to now"`
 	IncludeExpired bool     `json:"include_expired,omitempty" jsonschema:"include memories whose valid_to is in the past (bypasses the default validity-window filter)"`
+	Preset         string   `json:"preset,omitempty" jsonschema:"built-in retrieval preset: resume | review | incident. Explicit status / type filters still override the preset defaults"`
 }
 
 // rememberMemoryInput is the MCP input for the remember_memory tool.

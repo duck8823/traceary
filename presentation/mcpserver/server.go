@@ -565,16 +565,27 @@ func (s *Server) retrieveMemories() mcp.ToolHandlerFor[retrieveMemoriesInput, me
 			}
 			asOfTime = parsed
 		}
+		preset, err := apptypes.MemoryRetrievalPresetOf(input.Preset)
+		if err != nil {
+			return nil, memoriesOutput{}, xerrors.Errorf("failed to resolve preset: %w", err)
+		}
 
 		var summaries []apptypes.MemorySummary
 		if strings.TrimSpace(input.Query) != "" {
 			searchBuilder := apptypes.NewMemorySearchCriteriaBuilder(resolveLimit(input.Limit, defaultSearchLimit)).
 				Query(strings.TrimSpace(input.Query)).
 				Offset(resolveOffset(input.Offset)).
-				Scopes(scopes).
-				Statuses(statuses).
-				MemoryTypes(memoryTypes).
-				IncludeExpiredByValidity(input.IncludeExpired)
+				Scopes(scopes)
+			if preset != "" {
+				searchBuilder = preset.ApplyToMemorySearchCriteriaBuilder(searchBuilder)
+			}
+			if len(statuses) > 0 {
+				searchBuilder = searchBuilder.Statuses(statuses)
+			}
+			if len(memoryTypes) > 0 {
+				searchBuilder = searchBuilder.MemoryTypes(memoryTypes)
+			}
+			searchBuilder = searchBuilder.IncludeExpiredByValidity(input.IncludeExpired)
 			if !asOfTime.IsZero() {
 				searchBuilder = searchBuilder.AsOf(asOfTime)
 			}
@@ -585,10 +596,17 @@ func (s *Server) retrieveMemories() mcp.ToolHandlerFor[retrieveMemoriesInput, me
 		} else {
 			listBuilder := apptypes.NewMemoryListCriteriaBuilder(resolveLimit(input.Limit, defaultSearchLimit)).
 				Offset(resolveOffset(input.Offset)).
-				Scopes(scopes).
-				Statuses(statuses).
-				MemoryTypes(memoryTypes).
-				IncludeExpiredByValidity(input.IncludeExpired)
+				Scopes(scopes)
+			if preset != "" {
+				listBuilder = preset.ApplyToMemoryListCriteriaBuilder(listBuilder)
+			}
+			if len(statuses) > 0 {
+				listBuilder = listBuilder.Statuses(statuses)
+			}
+			if len(memoryTypes) > 0 {
+				listBuilder = listBuilder.MemoryTypes(memoryTypes)
+			}
+			listBuilder = listBuilder.IncludeExpiredByValidity(input.IncludeExpired)
 			if !asOfTime.IsZero() {
 				listBuilder = listBuilder.AsOf(asOfTime)
 			}
