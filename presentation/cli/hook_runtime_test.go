@@ -465,6 +465,100 @@ func TestRootCLI_HookPromptCommand_UsesPromptPayload(t *testing.T) {
 	}
 }
 
+func TestRootCLI_HookTranscriptCommand_RecordsLastAssistantMessage(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key-transcript")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key-transcript"), []byte("transcript-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key-transcript-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	transcriptPath := filepath.Join(t.TempDir(), "transcript.jsonl")
+	// Two turns: older assistant message then newer assistant message
+	// (plus an unrelated user line). Tool-use blocks must not leak into
+	// the captured text.
+	transcriptLines := []string{
+		`{"role":"user","content":[{"type":"text","text":"initial question"}]}`,
+		`{"role":"assistant","content":[{"type":"text","text":"older reasoning"},{"type":"tool_use","name":"Read"}]}`,
+		`{"role":"user","content":[{"type":"text","text":"follow-up"}]}`,
+		`{"role":"assistant","content":[{"type":"text","text":"newer reasoning"},{"type":"text","text":"with two blocks"}]}`,
+	}
+	if err := os.WriteFile(transcriptPath, []byte(strings.Join(transcriptLines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(transcript) error = %v", err)
+	}
+
+	storeStub := &storeManagementUsecaseStub{}
+	eventStub := &eventUsecaseStub{
+		logEvent: model.EventOf(
+			types.EventID("evt-transcript"),
+			types.EventKindTranscript,
+			types.Client("hook"),
+			types.Agent("claude"),
+			types.SessionID("transcript-session"),
+			types.Workspace("github.com/duck8823/traceary"),
+			"newer reasoning\n\nwith two blocks",
+			time.Now(),
+		),
+	}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(storeStub),
+		cli.WithEvent(eventStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	payload := `{"transcript_path":"` + transcriptPath + `"}`
+	rootCmd.SetIn(strings.NewReader(payload))
+	rootCmd.SetArgs([]string{"hook", "transcript", "claude"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got, want := eventStub.logCall.kind, types.EventKindTranscript; got != want {
+		t.Fatalf("transcript log kind = %q, want %q", got, want)
+	}
+	if got, want := eventStub.logCall.message, "newer reasoning\n\nwith two blocks"; got != want {
+		t.Fatalf("transcript log message = %q, want %q", got, want)
+	}
+}
+
+func TestRootCLI_HookTranscriptCommand_SkipsWhenTranscriptPathMissing(t *testing.T) {
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	storeStub := &storeManagementUsecaseStub{}
+	eventStub := &eventUsecaseStub{}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(storeStub),
+		cli.WithEvent(eventStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{}`))
+	rootCmd.SetArgs([]string{"hook", "transcript", "claude"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	// No transcript_path → no event recorded, no failure.
+	if eventStub.logCall.message != "" {
+		t.Fatalf("logCall.message = %q, want empty when transcript_path missing", eventStub.logCall.message)
+	}
+}
+
 func TestRootCLI_HookPromptCommand_PrefersPersistedWorkspaceOverEnvOverride(t *testing.T) {
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
 	t.Setenv("TRACEARY_WORKSPACE", "env/workspace")

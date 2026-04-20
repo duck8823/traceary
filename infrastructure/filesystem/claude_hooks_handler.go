@@ -26,10 +26,12 @@ func (h *ClaudeHooksHandler) Build(tracearyBin string) model.Hooks {
 	compactCommand := newHookRuntimeCommand(tracearyBin, "hook", "compact", "claude", "post-compact")
 	compactResumeCommand := newHookRuntimeCommand(tracearyBin, "hook", "compact", "claude", "session-start-compact")
 	promptCommand := newHookRuntimeCommand(tracearyBin, "hook", "prompt", "claude")
+	transcriptCommand := newHookRuntimeCommand(tracearyBin, "hook", "transcript", "claude")
 
 	eventOrder := []string{
 		"SessionStart",
 		"SessionEnd",
+		"Stop",
 		"PostToolUse",
 		"PostToolUseFailure",
 		"PostCompact",
@@ -47,6 +49,11 @@ func (h *ClaudeHooksHandler) Build(tracearyBin string) model.Hooks {
 		"SessionEnd": {
 			model.HookEntryOf(types.Some("*"), []model.HookCommand{
 				model.HookCommandOf("traceary-session-end", "command", sessionEndCommand, types.None[int](), "", managedKeyOf("traceary-session.sh", "claude", "end")),
+			}),
+		},
+		"Stop": {
+			model.HookEntryOf(types.Some("*"), []model.HookCommand{
+				model.HookCommandOf("traceary-transcript", "command", transcriptCommand, types.None[int](), "", managedKeyOf("traceary-transcript.sh", "claude")),
 			}),
 		},
 		"PostToolUse": {

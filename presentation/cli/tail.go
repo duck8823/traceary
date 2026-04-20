@@ -236,7 +236,7 @@ func (c *RootCLI) newTailCommand() *cobra.Command {
 	}
 	tailCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	tailCmd.Flags().IntVar(&limit, "limit", defaultTailInitialLimit, Localize("number of recent events to print before following (0 prints only new events)", "追跡開始前に表示する直近イベント数 (0 の場合は新規イベントのみ表示)"))
-	tailCmd.Flags().StringVar(&kind, "kind", "", Localize("filter by event kind (note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt; alias: audit)", "イベント種別で絞り込む (note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt; alias: audit)"))
+	tailCmd.Flags().StringVar(&kind, "kind", "", Localize("filter by event kind (note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt, transcript; alias: audit)", "イベント種別で絞り込む (note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt, transcript; alias: audit)"))
 	tailCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "記録経路で絞り込む"))
 	tailCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "作業主体で絞り込む"))
 	tailCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("filter by session ID", "session ID で絞り込む"))

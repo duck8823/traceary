@@ -21,6 +21,7 @@ SessionStart → [UserPromptSubmit → PostToolUse]* → (PreCompact → PostCom
 | PostToolUse | `mcp__.*` | `command_executed` | MCP ツール呼び出し |
 | PostToolUseFailure | `Bash`, `mcp__.*` | `command_executed` | 失敗したツール実行（`failures_only` でフィルタ可能） |
 | PostCompact | `*` | `compact_summary` | コンテキスト圧縮時の構造化サマリー |
+| Stop | `*` | `transcript` | stop-hook の `transcript_path` から読み取った最後の assistant 発話（reasoning 等） |
 | SessionEnd | `*` | `session_ended` | セッション終了 |
 
 ### Codex CLI (Tier 2: 部分対応)
@@ -63,6 +64,7 @@ SessionStart → [AfterTool]* → SessionEnd
 | `session_ended` | セッション終了境界 | SessionEnd / Stop hooks |
 | `compact_summary` | コンテキスト圧縮時の構造化サマリー | PostCompact hook |
 | `prompt` | ユーザーの指示テキスト | UserPromptSubmit hook |
+| `transcript` | 最後の assistant メッセージの text ブロック（reasoning / 説明）。tool_use ブロックは `command_executed` に寄せるため除外する | Stop hook (Claude Code) |
 
 ## データフロー
 
@@ -92,4 +94,5 @@ AI クライアント (Claude Code / Codex CLI / Gemini CLI)
 | `traceary hook audit <client>` | コマンド・ツール監査の記録 | 全クライアント |
 | `traceary hook compact <client> <post-compact|session-start-compact>` | compact サマリーの記録 / compact resume 出力 | Claude Code |
 | `traceary hook prompt <client>` | ユーザー prompt の記録 | Claude Code |
+| `traceary hook transcript <client>` | assistant 発話の transcript 記録（Stop hook 経由） | Claude Code |
 | `scripts/hooks/` 配下の shell wrapper | `traceary hook ...` へ転送する互換レイヤー | packaged integration / 既存導入環境 |

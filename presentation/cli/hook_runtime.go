@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -37,6 +39,7 @@ func (c *RootCLI) newHookCommand() *cobra.Command {
 	hookCmd.AddCommand(c.newHookAuditCommand())
 	hookCmd.AddCommand(c.newHookCompactCommand())
 	hookCmd.AddCommand(c.newHookPromptCommand())
+	hookCmd.AddCommand(c.newHookTranscriptCommand())
 
 	return hookCmd
 }
@@ -109,6 +112,25 @@ func (c *RootCLI) newHookPromptCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runHookBestEffort("prompt", func() error {
 				return c.runHookPrompt(cmd.Context(), cmd.InOrStdin(), args[0], dbPath)
+			})
+		},
+	}
+	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
+
+	return cmd
+}
+
+func (c *RootCLI) newHookTranscriptCommand() *cobra.Command {
+	var dbPath string
+
+	cmd := &cobra.Command{
+		Use:    "transcript <client>",
+		Short:  "Record the last assistant message from a Stop-hook transcript_path",
+		Hidden: true,
+		Args:   exactArgsLocalized(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runHookBestEffort("transcript", func() error {
+				return c.runHookTranscript(cmd.Context(), cmd.InOrStdin(), args[0], dbPath)
 			})
 		},
 	}
@@ -449,6 +471,146 @@ func (c *RootCLI) runHookPrompt(
 	}
 
 	return nil
+}
+
+// runHookTranscript records the last assistant-message turn as a
+// `transcript` event. It reads Stop-hook stdin to find
+// `transcript_path` (a JSONL file maintained by Claude Code that
+// contains one message per line) and extracts the last assistant
+// message's text blocks. Tool-use blocks are excluded because they
+// are already captured by `command_executed` audits, which keeps
+// transcript events focused on "what the AI was thinking" rather
+// than duplicating the tool call log. If `transcript_path` is
+// missing or unreadable we fail soft — transcript capture is a
+// nice-to-have, not a requirement for sessions to close cleanly.
+func (c *RootCLI) runHookTranscript(
+	ctx context.Context,
+	input io.Reader,
+	client string,
+	dbPath string,
+) error {
+	if c.storeManagement == nil {
+		return xerrors.Errorf("initialize store usecase is not configured")
+	}
+	if c.event == nil {
+		return xerrors.Errorf("record log usecase is not configured")
+	}
+
+	payload, err := readHookPayload(input)
+	if err != nil {
+		return err
+	}
+	transcriptPath := hookPayloadString(payload, "transcript_path", "")
+	if transcriptPath == "" {
+		return nil
+	}
+	transcriptText, ok := readLastAssistantTranscriptEntry(transcriptPath)
+	if !ok || strings.TrimSpace(transcriptText) == "" {
+		return nil
+	}
+
+	sessionID, err := resolveHookSessionID(payload, client)
+	if err != nil {
+		return err
+	}
+	if sessionID == "" {
+		return nil
+	}
+	workspace, err := resolveHookWorkspace(ctx, payload, client, true)
+	if err != nil {
+		return err
+	}
+	agent, err := resolveHookAgent(client, payload)
+	if err != nil {
+		return err
+	}
+	resolvedDBPath, err := resolveDBPath(dbPath)
+	if err != nil {
+		return err
+	}
+	c.applyDatabasePath(resolvedDBPath)
+	if err := c.storeManagement.Initialize(ctx); err != nil {
+		return xerrors.Errorf("failed to initialize store: %w", err)
+	}
+	if _, err := c.event.Log(ctx, transcriptText, types.EventKindTranscript, types.Client("hook"), agent, sessionID, workspace); err != nil {
+		return xerrors.Errorf("failed to record hook transcript: %w", err)
+	}
+
+	return nil
+}
+
+// readLastAssistantTranscriptEntry reads the JSONL transcript file at
+// path and returns the concatenated text content of the LAST
+// `assistant`-role message. Each line is expected to be a JSON object
+// with `role` and a `content` array of blocks; only blocks with
+// `type == "text"` contribute to the output. Returns ok=false for any
+// IO or parse error so callers can silently skip.
+func readLastAssistantTranscriptEntry(path string) (string, bool) {
+	file, err := os.Open(path) // #nosec G304 -- path supplied by the host Stop hook
+	if err != nil {
+		return "", false
+	}
+	defer func() { _ = file.Close() }()
+
+	scanner := bufio.NewScanner(file)
+	// Transcript entries can carry multi-KB reasoning payloads; lift
+	// the default 64KB line limit so long turns don't truncate.
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+
+	var lastAssistantText string
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var message transcriptMessage
+		if err := json.Unmarshal(line, &message); err != nil {
+			continue
+		}
+		if message.Role != "assistant" {
+			continue
+		}
+		text := extractAssistantText(message.Content)
+		if text == "" {
+			continue
+		}
+		lastAssistantText = text
+	}
+	if err := scanner.Err(); err != nil {
+		return "", false
+	}
+	return lastAssistantText, lastAssistantText != ""
+}
+
+type transcriptMessage struct {
+	Role    string              `json:"role"`
+	Content []transcriptContent `json:"content"`
+}
+
+type transcriptContent struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+func extractAssistantText(blocks []transcriptContent) string {
+	if len(blocks) == 0 {
+		return ""
+	}
+	var builder strings.Builder
+	for _, block := range blocks {
+		if block.Type != "text" {
+			continue
+		}
+		trimmed := strings.TrimSpace(block.Text)
+		if trimmed == "" {
+			continue
+		}
+		if builder.Len() > 0 {
+			builder.WriteString("\n\n")
+		}
+		builder.WriteString(trimmed)
+	}
+	return builder.String()
 }
 
 func resolveHookAgent(client string, payload []byte) (types.Agent, error) {

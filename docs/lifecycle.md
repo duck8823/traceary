@@ -21,6 +21,7 @@ SessionStart → [UserPromptSubmit → PostToolUse]* → (PreCompact → PostCom
 | PostToolUse | `mcp__.*` | `command_executed` | MCP tool invocation |
 | PostToolUseFailure | `Bash`, `mcp__.*` | `command_executed` | Failed tool execution (filterable via `failures_only`) |
 | PostCompact | `*` | `compact_summary` | Structured summary on context compression |
+| Stop | `*` | `transcript` | Last assistant text blocks (reasoning) from the stop-hook `transcript_path` |
 | SessionEnd | `*` | `session_ended` | Session end |
 
 ### Codex CLI (Tier 2: Partial)
@@ -63,6 +64,7 @@ SessionStart → [AfterTool]* → SessionEnd
 | `session_ended` | Session end boundary | SessionEnd / Stop hooks |
 | `compact_summary` | Structured summary from context compression | PostCompact hook |
 | `prompt` | User instruction text | UserPromptSubmit hook |
+| `transcript` | Last assistant-message text blocks (reasoning / explanation). Tool-use blocks are excluded — those are captured by `command_executed`. | Stop hook (Claude Code) |
 
 ## Data Flow
 
@@ -92,4 +94,5 @@ AI Client (Claude Code / Codex CLI / Gemini CLI)
 | `traceary hook audit <client>` | Command/tool audit | All |
 | `traceary hook compact <client> <post-compact|session-start-compact>` | Compact summary recording / compact resume output | Claude Code |
 | `traceary hook prompt <client>` | User prompt recording | Claude Code |
+| `traceary hook transcript <client>` | Assistant-message transcript recording (Stop hook) | Claude Code |
 | packaged shell wrappers under `scripts/hooks/` | Compatibility layer that forwards into `traceary hook ...` | Packaged integrations / legacy installs |

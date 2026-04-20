@@ -32,6 +32,17 @@
         ]
       }
     ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'traceary' 'hook' 'transcript' 'claude'"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Bash",
