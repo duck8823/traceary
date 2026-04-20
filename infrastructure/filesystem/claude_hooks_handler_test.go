@@ -85,11 +85,11 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 		}
 	})
 
-	t.Run("PostToolUse covers Bash and mcp", func(t *testing.T) {
+	t.Run("PostToolUse covers Bash, mcp, and built-in tools", func(t *testing.T) {
 		t.Parallel()
 
 		entries := hooks.Entries("PostToolUse")
-		if diff := cmp.Diff(2, len(entries)); diff != "" {
+		if diff := cmp.Diff(3, len(entries)); diff != "" {
 			t.Fatalf("len(PostToolUse entries) mismatch (-want +got):\n%s", diff)
 		}
 		firstMatcher, _ := entries[0].Matcher().Value()
@@ -100,11 +100,19 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 		if diff := cmp.Diff("mcp__.*", secondMatcher); diff != "" {
 			t.Fatalf("PostToolUse[1] matcher mismatch (-want +got):\n%s", diff)
 		}
+		thirdMatcher, _ := entries[2].Matcher().Value()
+		wantBuiltin := "Read|Edit|Write|MultiEdit|Grep|Glob|Agent|Task|TodoWrite|WebFetch|WebSearch|NotebookEdit"
+		if diff := cmp.Diff(wantBuiltin, thirdMatcher); diff != "" {
+			t.Fatalf("PostToolUse[2] matcher mismatch (-want +got):\n%s", diff)
+		}
 		if diff := cmp.Diff("traceary-audit.sh:claude", entries[0].Commands()[0].ManagedKey()); diff != "" {
 			t.Fatalf("PostToolUse[0] managed key mismatch (-want +got):\n%s", diff)
 		}
 		if diff := cmp.Diff("traceary-audit", entries[0].Commands()[0].Name()); diff != "" {
 			t.Fatalf("PostToolUse[0] name mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("traceary-audit.sh:claude", entries[2].Commands()[0].ManagedKey()); diff != "" {
+			t.Fatalf("PostToolUse[2] managed key mismatch (-want +got):\n%s", diff)
 		}
 	})
 
