@@ -160,6 +160,10 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		check := c.inspectClaudeOrConfigFile(targetClient, outputPath, resolvedProjectDir)
 		report.Checks = append(report.Checks, check)
 
+		if globalCheck := c.inspectGlobalConfigForClient(targetClient); globalCheck != nil {
+			report.Checks = append(report.Checks, *globalCheck)
+		}
+
 		if hostCheck := inspectHostCapabilityGaps(targetClient, outputPath); hostCheck != nil {
 			report.Checks = append(report.Checks, *hostCheck)
 		}
@@ -343,6 +347,92 @@ func (c *RootCLI) inspectClaudeOrConfigFile(client, outputPath, projectDir strin
 		}
 	}
 	return configCheck
+}
+
+// globalConfigLocationForClient returns the directory under $HOME where a
+// given client stores its user-level settings file. Codex already lives
+// under ~/.codex via the default install path so we report no separate
+// global check for it.
+func globalConfigLocationForClient(client string) (relDir, fileName string, ok bool) {
+	switch client {
+	case "claude":
+		return ".claude", "settings.json", true
+	case "gemini":
+		return ".gemini", "settings.json", true
+	}
+	return "", "", false
+}
+
+// inspectGlobalConfigForClient reports whether the client's user-level
+// hook settings file contains Traceary-managed hooks. A missing file is
+// reported as skip — the typical state for users who either use the
+// plugin or install per-project. Clients without a distinct global
+// config (e.g. Codex, whose default install is already user-level)
+// return nil and are omitted from the doctor report.
+func (c *RootCLI) inspectGlobalConfigForClient(client string) *doctorCheck {
+	relDir, fileName, ok := globalConfigLocationForClient(client)
+	if !ok {
+		return nil
+	}
+	checkName := client + "-global-config"
+
+	home, err := userHomeDirFunc()
+	if err != nil {
+		return &doctorCheck{
+			Name:    checkName,
+			Status:  doctorStatusFail,
+			Message: localizef("failed to resolve home directory for global %s config: %v", "global %s config のホーム解決に失敗しました: %v", client, err),
+		}
+	}
+	if !filepath.IsAbs(home) {
+		return &doctorCheck{
+			Name:    checkName,
+			Status:  doctorStatusFail,
+			Message: localizef("refusing to inspect global %s config because resolved home is not absolute: %q", "解決されたホームが絶対パスではないため global %s config を検査できません: %q", client, home),
+		}
+	}
+	globalPath := filepath.Join(home, relDir, fileName)
+	content, err := os.ReadFile(globalPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &doctorCheck{
+				Name:    checkName,
+				Status:  doctorStatusSkip,
+				Message: localizef("global %s config not present (skipped): %s", "global %s config はありません (skip): %s", client, globalPath),
+			}
+		}
+		return &doctorCheck{
+			Name:    checkName,
+			Status:  doctorStatusFail,
+			Message: localizef("failed to read global %s config: %v", "global %s config の読み込みに失敗しました: %v", client, err),
+		}
+	}
+
+	_, hasTracearyHook, inspectErr := c.hooksInspector.Inspect(content)
+	if inspectErr != nil {
+		return &doctorCheck{
+			Name:    checkName,
+			Status:  doctorStatusFail,
+			Message: localizef("global %s config is not a valid hooks-shaped JSON object: %s", "global %s config は hooks 形式の JSON として解釈できません: %s", client, globalPath),
+		}
+	}
+	if hasTracearyHook {
+		return &doctorCheck{
+			Name:   checkName,
+			Status: doctorStatusPass,
+			Message: localizef(
+				"global %s config contains Traceary-managed hooks (applies to every project): %s",
+				"global %s config に Traceary 管理下の hook があります (全プロジェクトで有効): %s",
+				client,
+				globalPath,
+			),
+		}
+	}
+	return &doctorCheck{
+		Name:    checkName,
+		Status:  doctorStatusSkip,
+		Message: localizef("global %s config exists but has no Traceary-managed hooks: %s", "global %s config はありますが Traceary 管理下の hook はありません: %s", client, globalPath),
+	}
 }
 
 // claudeConfigHasTracearyHooks returns true iff the Claude settings file

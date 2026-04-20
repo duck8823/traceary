@@ -549,6 +549,7 @@ alias: `claude-code`, `codex-cli`, `gemini-cli`
 - `--project-dir`
 - `--traceary-bin`
 - `--output`
+- `--global` (user-level 設定へ書き込む。`--output` とは排他)
 - `--force`
 
 ### `traceary hooks guide`
