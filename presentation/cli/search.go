@@ -270,6 +270,7 @@ func validateSearchKind(value string) (string, error) {
 		"session_ended":    "session_ended",
 		"compact_summary":  "compact_summary",
 		"prompt":           "prompt",
+		"transcript":       "transcript",
 		"audit":            "command_executed",
 	}
 	if resolvedKind, ok := validKinds[trimmedValue]; ok {
@@ -277,7 +278,7 @@ func validateSearchKind(value string) (string, error) {
 	}
 
 	return "", xerrors.Errorf(Localize(
-		"unsupported kind: %s (valid values: note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt; alias: audit)",
-		"未対応の kind です: %s (有効値: note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt; alias: audit)",
+		"unsupported kind: %s (valid values: note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt, transcript; alias: audit)",
+		"未対応の kind です: %s (有効値: note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt, transcript; alias: audit)",
 	), trimmedValue)
 }

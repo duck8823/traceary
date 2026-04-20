@@ -18,6 +18,7 @@ import (
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/types"
 )
 
@@ -509,6 +510,12 @@ func (c *RootCLI) runHookTranscript(
 	if !ok || strings.TrimSpace(transcriptText) == "" {
 		return nil
 	}
+	// Transcript text routinely carries things the assistant re-stated
+	// from files or shell output — API keys from .env files, Bearer
+	// tokens from header dumps, private keys pasted into chat. Apply
+	// the built-in audit redactors before persisting so
+	// `traceary tail` cannot leak them back later.
+	transcriptText = usecase.RedactWellKnownSecrets(transcriptText)
 
 	sessionID, err := resolveHookSessionID(payload, client)
 	if err != nil {
