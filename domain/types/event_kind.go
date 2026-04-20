@@ -22,6 +22,10 @@ const (
 	EventKindCompactSummary EventKind = "compact_summary"
 	// EventKindPrompt represents user prompt events.
 	EventKindPrompt EventKind = "prompt"
+	// EventKindTranscript represents a captured assistant-message turn
+	// (reasoning / explanation / proposals), distinct from prompt (user
+	// input) and command_executed (tool invocation).
+	EventKindTranscript EventKind = "transcript"
 )
 
 // EventKind is a value object that represents an event kind.
@@ -35,6 +39,7 @@ var knownEventKinds = []EventKind{
 	EventKindSessionEnded,
 	EventKindCompactSummary,
 	EventKindPrompt,
+	EventKindTranscript,
 }
 
 // EventKindOf builds EventKind from a string value.

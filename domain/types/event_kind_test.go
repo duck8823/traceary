@@ -57,7 +57,7 @@ func TestEventKindOf(t *testing.T) {
 			}
 			if tt.wantErr {
 				if tt.name == "returns error for unknown event kind" &&
-					!strings.Contains(err.Error(), "allowed values: note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt") {
+					!strings.Contains(err.Error(), "allowed values: note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt, transcript") {
 					t.Fatalf("error = %q, want valid kind list", err.Error())
 				}
 				return

@@ -17,6 +17,7 @@
 | PostToolUseFailure | `Bash`, `mcp__.*` | 失敗したツール実行を記録 |
 | PostCompact | `*` | compact サマリーを記録 |
 | UserPromptSubmit | `*` | ユーザーの指示テキストを記録 |
+| Stop | `*` | `transcript_path` から最後の assistant メッセージを読み取り `transcript` event として記録（既知 secret の redaction を適用） |
 | SessionStart (compact) (予定) | `compact` | stdout 経由でコンテキストポインタを注入 |
 
 ### Tier 2: 部分対応 (Codex)

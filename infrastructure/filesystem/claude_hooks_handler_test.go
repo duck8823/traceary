@@ -20,6 +20,7 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 	wantEventOrder := []string{
 		"SessionStart",
 		"SessionEnd",
+		"Stop",
 		"PostToolUse",
 		"PostToolUseFailure",
 		"PostCompact",

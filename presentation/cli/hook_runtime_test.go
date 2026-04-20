@@ -465,6 +465,167 @@ func TestRootCLI_HookPromptCommand_UsesPromptPayload(t *testing.T) {
 	}
 }
 
+func TestRootCLI_HookTranscriptCommand_RecordsLastAssistantMessage(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key-transcript")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key-transcript"), []byte("transcript-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key-transcript-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	transcriptPath := filepath.Join(t.TempDir(), "transcript.jsonl")
+	// Real Claude Code JSONL envelope: top-level `type=assistant` with
+	// nested `message.role` / `message.content`. We also drop an
+	// envelope-only snapshot line, a tool_use block (captured by
+	// command_executed audits), and interleave a `thinking` block on
+	// the last turn to verify extended-thinking is included.
+	transcriptLines := []string{
+		`{"type":"file-history-snapshot","messageId":"x","snapshot":{},"isSnapshotUpdate":false}`,
+		`{"type":"user","message":{"role":"user","content":"initial question"}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"older reasoning"},{"type":"tool_use","name":"Read"}]}}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"x","content":"ok"}]}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"first-block thinking","signature":"sig"},{"type":"text","text":"newer reasoning"},{"type":"text","text":"with two blocks"}]}}`,
+	}
+	if err := os.WriteFile(transcriptPath, []byte(strings.Join(transcriptLines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(transcript) error = %v", err)
+	}
+
+	storeStub := &storeManagementUsecaseStub{}
+	eventStub := &eventUsecaseStub{
+		logEvent: model.EventOf(
+			types.EventID("evt-transcript"),
+			types.EventKindTranscript,
+			types.Client("hook"),
+			types.Agent("claude"),
+			types.SessionID("transcript-session"),
+			types.Workspace("github.com/duck8823/traceary"),
+			"first-block thinking\n\nnewer reasoning\n\nwith two blocks",
+			time.Now(),
+		),
+	}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(storeStub),
+		cli.WithEvent(eventStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	payload := `{"transcript_path":"` + transcriptPath + `"}`
+	rootCmd.SetIn(strings.NewReader(payload))
+	rootCmd.SetArgs([]string{"hook", "transcript", "claude"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got, want := eventStub.logCall.kind, types.EventKindTranscript; got != want {
+		t.Fatalf("transcript log kind = %q, want %q", got, want)
+	}
+	if got, want := eventStub.logCall.message, "first-block thinking\n\nnewer reasoning\n\nwith two blocks"; got != want {
+		t.Fatalf("transcript log message = %q, want %q", got, want)
+	}
+}
+
+// TestRootCLI_HookTranscriptCommand_HandlesMalformedTranscript asserts
+// that lines which fail to parse are skipped rather than aborting the
+// whole Stop hook. Structural drift in the JSONL format (e.g. future
+// Claude Code revisions adding a new envelope type) must not mask the
+// last good assistant message when one is present.
+func TestRootCLI_HookTranscriptCommand_HandlesMalformedTranscript(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key-transcript-mal")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key-transcript-mal"), []byte("mal-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key-transcript-mal-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	transcriptPath := filepath.Join(t.TempDir(), "mixed.jsonl")
+	transcriptLines := []string{
+		`{not-json`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"valid assistant reply"}]}}`,
+		`{"type":"user","message":{"role":"user","content":"noise"}}`,
+	}
+	if err := os.WriteFile(transcriptPath, []byte(strings.Join(transcriptLines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(transcript) error = %v", err)
+	}
+
+	storeStub := &storeManagementUsecaseStub{}
+	eventStub := &eventUsecaseStub{
+		logEvent: model.EventOf(
+			types.EventID("evt-mal"),
+			types.EventKindTranscript,
+			types.Client("hook"),
+			types.Agent("claude"),
+			types.SessionID("mal-session"),
+			types.Workspace("github.com/duck8823/traceary"),
+			"valid assistant reply",
+			time.Now(),
+		),
+	}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(storeStub),
+		cli.WithEvent(eventStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"transcript_path":"` + transcriptPath + `"}`))
+	rootCmd.SetArgs([]string{"hook", "transcript", "claude"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got, want := eventStub.logCall.message, "valid assistant reply"; got != want {
+		t.Fatalf("transcript log message = %q, want %q", got, want)
+	}
+}
+
+func TestRootCLI_HookTranscriptCommand_SkipsWhenTranscriptPathMissing(t *testing.T) {
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	storeStub := &storeManagementUsecaseStub{}
+	eventStub := &eventUsecaseStub{}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(storeStub),
+		cli.WithEvent(eventStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{}`))
+	rootCmd.SetArgs([]string{"hook", "transcript", "claude"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	// No transcript_path → no event recorded, no failure.
+	if eventStub.logCall.message != "" {
+		t.Fatalf("logCall.message = %q, want empty when transcript_path missing", eventStub.logCall.message)
+	}
+}
+
 func TestRootCLI_HookPromptCommand_PrefersPersistedWorkspaceOverEnvOverride(t *testing.T) {
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
 	t.Setenv("TRACEARY_WORKSPACE", "env/workspace")

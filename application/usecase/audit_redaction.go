@@ -51,6 +51,19 @@ type auditPayloadRedactor struct {
 	replacement string
 }
 
+// RedactWellKnownSecrets applies only the built-in audit redactors
+// (private keys, auth headers, token / secret / password shaped
+// assignments) to a free-form text payload. It does not consult any
+// user-configured `extra_redact_patterns`, which is intentional for
+// callers — like transcript capture — that run outside the usecase's
+// TracearyConfig plumbing. Returns the sanitized string; whether any
+// redaction fired is not surfaced because callers currently treat
+// redaction as silent best-effort.
+func RedactWellKnownSecrets(value string) string {
+	sanitized, _ := redactAuditPayload(value, nil)
+	return sanitized
+}
+
 func redactAuditPayload(value string, extraRedactors []auditPayloadRedactor) (string, bool) {
 	redacted := false
 	normalizedValue := value
