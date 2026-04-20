@@ -99,15 +99,17 @@ type memoryRefInput struct {
 
 // retrieveMemoriesInput is the MCP input for the retrieve_memories tool.
 type retrieveMemoriesInput struct {
-	MemoryID      string   `json:"memory_id,omitempty" jsonschema:"durable memory identifier to fetch directly"`
-	Query         string   `json:"query,omitempty" jsonschema:"full-text search query"`
-	Workspace     string   `json:"workspace,omitempty" jsonschema:"workspace scope filter"`
-	Agent         string   `json:"agent,omitempty" jsonschema:"agent scope filter"`
-	SessionFamily string   `json:"session_family,omitempty" jsonschema:"session-family scope filter"`
-	Statuses      []string `json:"status,omitempty" jsonschema:"memory lifecycle status filters"`
-	MemoryTypes   []string `json:"type,omitempty" jsonschema:"memory type filters"`
-	Limit         int      `json:"limit,omitempty" jsonschema:"maximum number of memories to return (default: 20)"`
-	Offset        int      `json:"offset,omitempty" jsonschema:"number of memories to skip before returning results (default: 0)"`
+	MemoryID       string   `json:"memory_id,omitempty" jsonschema:"durable memory identifier to fetch directly"`
+	Query          string   `json:"query,omitempty" jsonschema:"full-text search query"`
+	Workspace      string   `json:"workspace,omitempty" jsonschema:"workspace scope filter"`
+	Agent          string   `json:"agent,omitempty" jsonschema:"agent scope filter"`
+	SessionFamily  string   `json:"session_family,omitempty" jsonschema:"session-family scope filter"`
+	Statuses       []string `json:"status,omitempty" jsonschema:"memory lifecycle status filters"`
+	MemoryTypes    []string `json:"type,omitempty" jsonschema:"memory type filters"`
+	Limit          int      `json:"limit,omitempty" jsonschema:"maximum number of memories to return (default: 20)"`
+	Offset         int      `json:"offset,omitempty" jsonschema:"number of memories to skip before returning results (default: 0)"`
+	AsOf           string   `json:"as_of,omitempty" jsonschema:"evaluate content validity at this timestamp (YYYY-MM-DD or RFC3339); defaults to now"`
+	IncludeExpired bool     `json:"include_expired,omitempty" jsonschema:"include memories whose valid_to is in the past (bypasses the default validity-window filter)"`
 }
 
 // rememberMemoryInput is the MCP input for the remember_memory tool.

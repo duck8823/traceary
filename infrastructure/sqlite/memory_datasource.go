@@ -695,6 +695,16 @@ func buildMemorySearchQuery(criteria apptypes.MemorySearchCriteria) (string, []a
 // includeExpired is true. When criteria.AsOf() is None we use the
 // current wall clock so callers that do not care about time travel
 // still get "still-valid-right-now" semantics by default.
+//
+// Timestamps are stored via formatTimestamp, which uses
+// time.RFC3339Nano. That format emits variable-width fractional seconds
+// (`2026-04-10T00:00:00Z` vs `2026-04-10T00:00:00.1Z`), so a plain
+// lexicographic TEXT comparison reorders same-second values
+// incorrectly (because `.` < `Z`). Wrap every comparand in
+// `datetime(...)` so SQLite compares the values as real timestamps
+// instead. For legacy rows where valid_from is NULL the scan side
+// already falls back to created_at; mirror that here with COALESCE so
+// filter and restore stay consistent.
 func appendMemoryValidityWindowFilter(
 	builder *strings.Builder,
 	args []any,
@@ -709,11 +719,8 @@ func appendMemoryValidityWindowFilter(
 		evaluationTime = explicit
 	}
 	formatted := formatTimestamp(evaluationTime)
-	// valid_from is NOT NULL post-migration, but legacy rows with NULL
-	// valid_from are treated as "valid since created_at" to keep
-	// existing data queryable without a one-shot backfill job.
-	builder.WriteString(" AND (m.valid_from IS NULL OR m.valid_from <= ?)")
-	builder.WriteString(" AND (m.valid_to IS NULL OR m.valid_to > ?)")
+	builder.WriteString(" AND datetime(COALESCE(m.valid_from, m.created_at)) <= datetime(?)")
+	builder.WriteString(" AND (m.valid_to IS NULL OR datetime(m.valid_to) > datetime(?))")
 	return append(args, formatted, formatted)
 }
 

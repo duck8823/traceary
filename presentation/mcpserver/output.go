@@ -95,6 +95,8 @@ type memorySummaryOutput struct {
 	Confidence string `json:"confidence" jsonschema:"confidence level"`
 	Source     string `json:"source" jsonschema:"memory source"`
 	ExpiresAt  string `json:"expires_at,omitempty" jsonschema:"expiry timestamp (RFC3339Nano)"`
+	ValidFrom  string `json:"valid_from,omitempty" jsonschema:"start of content validity window (RFC3339Nano)"`
+	ValidTo    string `json:"valid_to,omitempty" jsonschema:"end of content validity window (RFC3339Nano); empty means open-ended"`
 	CreatedAt  string `json:"created_at" jsonschema:"creation timestamp (RFC3339Nano)"`
 	UpdatedAt  string `json:"updated_at" jsonschema:"update timestamp (RFC3339Nano)"`
 }
@@ -111,6 +113,8 @@ type memoryOutput struct {
 	Source       string            `json:"source" jsonschema:"memory source"`
 	Supersedes   string            `json:"supersedes,omitempty" jsonschema:"superseded memory identifier"`
 	ExpiresAt    string            `json:"expires_at,omitempty" jsonschema:"expiry timestamp (RFC3339Nano)"`
+	ValidFrom    string            `json:"valid_from,omitempty" jsonschema:"start of content validity window (RFC3339Nano)"`
+	ValidTo      string            `json:"valid_to,omitempty" jsonschema:"end of content validity window (RFC3339Nano); empty means open-ended"`
 	CreatedAt    string            `json:"created_at" jsonschema:"creation timestamp (RFC3339Nano)"`
 	UpdatedAt    string            `json:"updated_at" jsonschema:"update timestamp (RFC3339Nano)"`
 	EvidenceRefs []memoryRefOutput `json:"evidence_refs,omitempty" jsonschema:"supporting evidence refs"`

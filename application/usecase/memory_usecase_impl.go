@@ -308,26 +308,27 @@ func (u *memoryUsecase) SetValidity(
 		return apptypes.MemoryDetails{}, err
 	}
 
-	// Resolve the effective validity window before mutating so we can
-	// reject reversed windows (validTo before validFrom) without
-	// partially writing to the repository.
+	// Resolve the effective validity window (after applying the
+	// requested change) before mutating so we can reject reversed
+	// windows without partially writing to the repository. The check
+	// compares the final (post-change) bounds — not just the flags the
+	// caller supplied — so shifting only validFrom after the current
+	// validTo still fails, as does shifting only validTo before the
+	// current validFrom.
 	effectiveFrom := memory.ValidFrom()
 	if from, ok := validFrom.Value(); ok {
 		effectiveFrom = from
 	}
-	if to, ok := validTo.Value(); ok {
-		if to.Before(effectiveFrom) {
-			return apptypes.MemoryDetails{}, xerrors.Errorf("valid_to must not be earlier than valid_from")
-		}
-	}
-
-	// Determine the effective validTo to write: explicit Some, explicit
-	// clear (None), or leave unchanged (current value).
 	effectiveTo := memory.ValidTo()
 	if to, ok := validTo.Value(); ok {
 		effectiveTo = domtypes.Some(to)
 	} else if clearValidTo {
 		effectiveTo = domtypes.None[time.Time]()
+	}
+	if to, ok := effectiveTo.Value(); ok {
+		if to.Before(effectiveFrom) {
+			return apptypes.MemoryDetails{}, xerrors.Errorf("valid_to must not be earlier than valid_from")
+		}
 	}
 
 	memory.SetValidity(validFrom, effectiveTo)

@@ -557,27 +557,42 @@ func (s *Server) retrieveMemories() mcp.ToolHandlerFor[retrieveMemoriesInput, me
 			return nil, memoriesOutput{}, err
 		}
 
+		asOfTime := time.Time{}
+		if trimmedAsOf := strings.TrimSpace(input.AsOf); trimmedAsOf != "" {
+			parsed, err := parseFlexibleTime(trimmedAsOf, false)
+			if err != nil {
+				return nil, memoriesOutput{}, xerrors.Errorf("failed to resolve as_of: %w", err)
+			}
+			asOfTime = parsed
+		}
+
 		var summaries []apptypes.MemorySummary
 		if strings.TrimSpace(input.Query) != "" {
-			criteria := apptypes.NewMemorySearchCriteriaBuilder(resolveLimit(input.Limit, defaultSearchLimit)).
+			searchBuilder := apptypes.NewMemorySearchCriteriaBuilder(resolveLimit(input.Limit, defaultSearchLimit)).
 				Query(strings.TrimSpace(input.Query)).
 				Offset(resolveOffset(input.Offset)).
 				Scopes(scopes).
 				Statuses(statuses).
 				MemoryTypes(memoryTypes).
-				Build()
-			summaries, err = s.memory.Search(ctx, criteria)
+				IncludeExpiredByValidity(input.IncludeExpired)
+			if !asOfTime.IsZero() {
+				searchBuilder = searchBuilder.AsOf(asOfTime)
+			}
+			summaries, err = s.memory.Search(ctx, searchBuilder.Build())
 			if err != nil {
 				return nil, memoriesOutput{}, xerrors.Errorf("failed to search memories: %w", err)
 			}
 		} else {
-			criteria := apptypes.NewMemoryListCriteriaBuilder(resolveLimit(input.Limit, defaultSearchLimit)).
+			listBuilder := apptypes.NewMemoryListCriteriaBuilder(resolveLimit(input.Limit, defaultSearchLimit)).
 				Offset(resolveOffset(input.Offset)).
 				Scopes(scopes).
 				Statuses(statuses).
 				MemoryTypes(memoryTypes).
-				Build()
-			summaries, err = s.memory.List(ctx, criteria)
+				IncludeExpiredByValidity(input.IncludeExpired)
+			if !asOfTime.IsZero() {
+				listBuilder = listBuilder.AsOf(asOfTime)
+			}
+			summaries, err = s.memory.List(ctx, listBuilder.Build())
 			if err != nil {
 				return nil, memoriesOutput{}, xerrors.Errorf("failed to list memories: %w", err)
 			}
@@ -994,6 +1009,8 @@ func convertMemorySummaries(memories []apptypes.MemorySummary) []memorySummaryOu
 			Confidence: summary.Confidence().String(),
 			Source:     summary.Source().String(),
 			ExpiresAt:  formatOptionalTime(summary.ExpiresAt()),
+			ValidFrom:  summary.ValidFrom().UTC().Format(time.RFC3339Nano),
+			ValidTo:    formatOptionalTime(summary.ValidTo()),
 			CreatedAt:  summary.CreatedAt().UTC().Format(time.RFC3339Nano),
 			UpdatedAt:  summary.UpdatedAt().UTC().Format(time.RFC3339Nano),
 		})
@@ -1019,6 +1036,8 @@ func newMemoryOutput(details apptypes.MemoryDetails) memoryOutput {
 		Source:       summary.Source().String(),
 		Supersedes:   supersedes,
 		ExpiresAt:    formatOptionalTime(summary.ExpiresAt()),
+		ValidFrom:    summary.ValidFrom().UTC().Format(time.RFC3339Nano),
+		ValidTo:      formatOptionalTime(summary.ValidTo()),
 		CreatedAt:    summary.CreatedAt().UTC().Format(time.RFC3339Nano),
 		UpdatedAt:    summary.UpdatedAt().UTC().Format(time.RFC3339Nano),
 		EvidenceRefs: convertEvidenceRefs(details.EvidenceRefs()),
@@ -1043,6 +1062,8 @@ func newMemoryOutputFromSummary(summary apptypes.MemorySummary) memoryOutput {
 		Source:     summary.Source().String(),
 		Supersedes: supersedes,
 		ExpiresAt:  formatOptionalTime(summary.ExpiresAt()),
+		ValidFrom:  summary.ValidFrom().UTC().Format(time.RFC3339Nano),
+		ValidTo:    formatOptionalTime(summary.ValidTo()),
 		CreatedAt:  summary.CreatedAt().UTC().Format(time.RFC3339Nano),
 		UpdatedAt:  summary.UpdatedAt().UTC().Format(time.RFC3339Nano),
 	}
