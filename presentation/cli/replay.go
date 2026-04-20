@@ -125,8 +125,8 @@ type replayData struct {
 type replaySession struct {
 	SessionID string
 	Workspace string
-	Agent     string
-	Client    string
+	Agents    string
+	Status    string
 	Label     string
 	StartedAt time.Time
 	EndedAt   string
@@ -172,8 +172,8 @@ func (c *RootCLI) gatherReplayData(ctx context.Context, input replayCommandInput
 		data.Sessions = append(data.Sessions, replaySession{
 			SessionID: s.SessionID().String(),
 			Workspace: s.Workspace().String(),
-			Agent:     strings.Join(s.Agents(), ", "),
-			Client:    s.Status(),
+			Agents:    strings.Join(s.Agents(), ", "),
+			Status:    s.Status(),
 			Label:     s.Label(),
 			StartedAt: s.StartedAt().UTC(),
 			EndedAt:   formatOptionalInstant(s.EndedAt()),
@@ -255,10 +255,15 @@ func writeReplayHTML(outputPath string, data replayData) error {
 			return t.Format(time.RFC3339)
 		},
 		"short": func(s string, n int) string {
-			if len(s) <= n {
+			// Operate on runes, not bytes, so the truncated output never
+			// ends in a half-encoded UTF-8 sequence (assistant reasoning,
+			// memory facts, and prompts frequently carry Japanese /
+			// emoji content that byte-slicing would corrupt).
+			runes := []rune(s)
+			if len(runes) <= n {
 				return s
 			}
-			return s[:n] + "…"
+			return string(runes[:n]) + "…"
 		},
 	}).Parse(replayTemplateHTML)
 	if err != nil {

@@ -19,8 +19,8 @@ func TestWriteReplayHTML_EmitsSelfContainedFile(t *testing.T) {
 			{
 				SessionID: "abcdef1234567890",
 				Workspace: "github.com/example/repo",
-				Agent:     "claude/planner",
-				Client:    "active",
+				Agents:    "claude/planner",
+				Status:    "active",
 				Label:     "incident triage",
 				StartedAt: time.Date(2026, 4, 21, 10, 0, 0, 0, time.UTC),
 				EndedAt:   "2026-04-21T11:30:00Z",

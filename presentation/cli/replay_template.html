@@ -38,9 +38,10 @@
   details.session > summary .sid { color: var(--muted); font-family: ui-monospace,'SF Mono',Menlo,monospace; font-size: 12px; font-weight: normal; }
   details.session > summary .ws { font-size: 12px; color: var(--accent); }
   ul.events { list-style: none; padding: 0; margin: 8px 0 0; border-top: 1px dashed var(--border); }
-  ul.events li { padding: 6px 0; border-bottom: 1px dashed var(--border); display: grid; grid-template-columns: 180px 150px 1fr; gap: 12px; }
+  ul.events li { padding: 6px 0; border-bottom: 1px dashed var(--border); display: grid; grid-template-columns: 180px 150px 200px 1fr; gap: 12px; }
   ul.events li .t { color: var(--muted); font-family: ui-monospace,'SF Mono',Menlo,monospace; font-size: 12px; }
   ul.events li .k { font-family: ui-monospace,'SF Mono',Menlo,monospace; font-size: 12px; }
+  ul.events li .agent { color: var(--muted); font-family: ui-monospace,'SF Mono',Menlo,monospace; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   ul.events li .k.prompt { color: var(--prompt); }
   ul.events li .k.transcript { color: var(--transcript); }
   ul.events li .k.command_executed { color: var(--accent); }
@@ -74,7 +75,7 @@
         <span>{{if .Label}}{{.Label}}{{else}}(unlabeled session){{end}}</span>
         <span class="sid">{{short .SessionID 12}}</span>
         <span class="ws">{{.Workspace}}</span>
-        <span class="meta">{{.Agent}} · {{.Client}}</span>
+        <span class="meta">{{.Agents}} · {{.Status}}</span>
         <span class="meta">{{fmtInstant .StartedAt}} → {{.EndedAt}}</span>
         <span class="meta">{{len .Events}} events</span>
       </summary>
@@ -86,6 +87,7 @@
             <li>
               <span class="t">{{fmtInstant .CreatedAt}}</span>
               <span class="k {{.Kind}}">{{.Kind}}</span>
+              <span class="agent" title="{{.Agent}} · {{.Client}}">{{.Agent}}{{if .Client}} / {{.Client}}{{end}}</span>
               <span class="body">{{short .Body 480}}</span>
             </li>
           {{end}}
