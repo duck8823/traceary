@@ -122,6 +122,16 @@ Default destinations:
 - Codex: `~/.codex/hooks.json`
 - Gemini: `<project>/.gemini/settings.json`
 
+### User-level install (`--global`)
+
+Use `--global` to write the hooks to the user-level config instead of the per-project location:
+
+- Claude: `~/.claude/settings.json`
+- Gemini: `~/.gemini/settings.json`
+- Codex: already user-level, so `--global` is a no-op and the standard `~/.codex/hooks.json` is used
+
+`--global` is mutually exclusive with `--output`. User-level hooks apply to every project on the machine, which is the natural choice when you use Traceary across many repositories but do not want to commit `.claude/settings.json` per project.
+
 If the destination already exists, Traceary stops with an error instead of overwriting it. Review the diff first, then rerun with `--force` only when replacing the existing file is intentional.
 For supported JSON config files, `hooks install` first tries to merge Traceary-managed entries into the existing file while preserving unrelated settings. `--force` skips merge and replaces the file completely.
 After `hooks install`, Traceary prints the matching `doctor` command so you can immediately verify the generated config in the same environment.

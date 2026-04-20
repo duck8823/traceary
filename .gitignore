@@ -7,3 +7,6 @@ dist/
 .claude/
 .ai-logs/
 .ai/
+.gocache/
+.golangci-cache/
+.tmp-review-main/
