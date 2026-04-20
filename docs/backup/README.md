@@ -54,6 +54,8 @@ One practical flow is:
 - restores overwrite the destination only when you pass `--force`
 - the destination DB path still follows the normal resolution order: `--db-path` → `TRACEARY_DB_PATH` → `~/.config/traceary/traceary.db`
 - if you need off-machine storage, use your existing encrypted disk / backup tooling around the SQLite file
+- **`traceary backup create` output is safe to copy as a single file** — it is produced via `VACUUM INTO`, so it has no WAL sidecar to worry about
+- **copying a live DB directly requires the WAL sidecars too** — the runtime DB uses `journal_mode=WAL`, which generates `<db>-wal` and `<db>-shm` files next to the main DB. External file-level tooling that snapshots only the `.db` file can produce an inconsistent copy; prefer `traceary backup create` or include both sidecars in the copy
 
 ## Non-goals for this release
 

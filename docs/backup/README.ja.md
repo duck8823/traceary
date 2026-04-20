@@ -54,6 +54,8 @@ traceary backup restore --input /tmp/traceary-backup.db --force
 - destination を上書きするのは `--force` を渡したときだけです
 - destination DB path の解決順は通常どおり `--db-path` → `TRACEARY_DB_PATH` → `~/.config/traceary/traceary.db` です
 - マシン外に保存したい場合は、その SQLite file を既存の暗号化ディスク / backup tooling で保護してください
+- **`traceary backup create` の出力は単一ファイルとしてそのままコピーして安全** — `VACUUM INTO` で固めているため WAL sidecar は生成されません
+- **稼働中の DB を直接コピーする場合は WAL sidecar も必要** — runtime の DB は `journal_mode=WAL` を使用しており、本体の隣に `<db>-wal` と `<db>-shm` が生成されます。外部のファイルレベル backup ツールで `.db` だけをスナップショットすると不整合なコピーになる恐れがあるため、`traceary backup create` を使うか、sidecar も一緒にコピーしてください
 
 ## この release でやらないこと
 
