@@ -126,6 +126,8 @@ If the destination already exists, Traceary stops with an error instead of overw
 For supported JSON config files, `hooks install` first tries to merge Traceary-managed entries into the existing file while preserving unrelated settings. `--force` skips merge and replaces the file completely.
 After `hooks install`, Traceary prints the matching `doctor` command so you can immediately verify the generated config in the same environment.
 
+**Claude Code plugin interaction.** When the Traceary Claude Code plugin is enabled (detected via `enabledPlugins` in `~/.claude/settings.json`), `hooks install --client claude` skips writing the settings file and prints a notice — the plugin already delivers the same hooks, so installing both would record every audit event twice. Use `--force` only if you deliberately want both registrations (plugin development).
+
 ### Merge behavior and failure modes
 
 `hooks install` can merge into an existing file when all of the following are true:
@@ -151,6 +153,7 @@ The diagnostic command checks:
 - DB path resolution and whether Traceary can initialize the store
 - the expected client config location and whether it already contains Traceary-managed hooks
 - optional Traceary config health (for example extra redaction patterns)
+- for Claude, whether the Traceary plugin is enabled in the global `~/.claude/settings.json` and whether that overlaps with project-level Traceary hooks (double-registration is reported as `warn`)
 
 Warnings are expected on first run before you install a host package or generated hooks. For example, a missing host config file is reported as `warn`, not `fail`.
 `fail` is reserved for broken states such as DB access problems, unreadable config, or invalid config shape.

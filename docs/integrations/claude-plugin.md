@@ -55,6 +55,13 @@ If you no longer need the marketplace at all:
 claude plugins marketplace remove traceary-plugins
 ```
 
+## When the plugin is installed, `hooks install` is not needed
+
+`traceary hooks install --client claude` writes Traceary hooks into a Claude settings file. The plugin installation already delivers the same hooks to Claude Code, so **running `hooks install` on top of the plugin would cause every audit event to be recorded twice**.
+
+- `traceary hooks install --client claude` detects the active plugin (reads `~/.claude/settings.json`'s `enabledPlugins`) and skips with a message; use `--force` if you really want both registrations (for plugin development)
+- `traceary doctor --client claude` reports this situation as a `warn` when the plugin is active and settings.json also contains Traceary-managed hooks
+
 ## Doctor and smoke test
 
 Primary runtime check:

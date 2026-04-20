@@ -144,6 +144,42 @@ func (c *RootCLI) runHooksInstall(
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve traceary binary path", "traceary binary path の解決に失敗しました"), err)
 	}
 
+	// When the Claude Code plugin is active it already delivers Traceary
+	// hooks. Writing the same hooks into settings.json would cause every
+	// audit event to fire twice. Skip by default and tell the user how
+	// to override; require --force for an intentional duplicate.
+	canonicalClient := normalizeHooksClientForDisplay(c, input.client)
+	if canonicalClient == "claude" {
+		detection := detectClaudeTracearyPluginForCLI()
+		if detection.Active && !input.force {
+			if _, err := fmt.Fprintf(
+				output,
+				Localize(
+					"Skipped install: Traceary plugin %q is already enabled in %s.\nThat plugin already delivers Traceary hooks to Claude Code, so installing them into settings.json would record every audit event twice.\nIf you still want both registrations (e.g. for local development), re-run with --force.\n",
+					"インストールをスキップしました: Traceary plugin %q が %s で既に有効です。\nこの plugin が Claude Code に Traceary hooks を既に提供しているため、settings.json に同じ hook を書き込むと audit が二重記録されます。\n意図的に両方登録したい場合 (開発用途など) は --force を付けて再実行してください。\n",
+				),
+				detection.PluginKey,
+				detection.SettingsPath,
+			); err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to print plugin skip notice", "plugin skip 通知の出力に失敗しました"), err)
+			}
+			return nil
+		}
+		if detection.Active && input.force {
+			if _, err := fmt.Fprintf(
+				output,
+				Localize(
+					"Warning: Traceary plugin %q is active in %s. Continuing anyway because --force was set. Every audit event will be recorded twice while both registrations coexist.\n",
+					"警告: Traceary plugin %q が %s で有効です。--force が指定されているため処理を続行しますが、両方の登録が共存する間は audit が二重記録されます。\n",
+				),
+				detection.PluginKey,
+				detection.SettingsPath,
+			); err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to print plugin override warning", "plugin override 警告の出力に失敗しました"), err)
+			}
+		}
+	}
+
 	outputPathOption := types.None[string]()
 	if trimmedOutput := strings.TrimSpace(input.outputPath); trimmedOutput != "" {
 		outputPathOption = types.Some(trimmedOutput)
