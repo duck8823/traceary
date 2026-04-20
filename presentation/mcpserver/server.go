@@ -490,11 +490,16 @@ func (s *Server) getContext() mcp.ToolHandlerFor[getContextInput, eventsOutput] 
 
 func (s *Server) sessionHandoff() mcp.ToolHandlerFor[sessionHandoffInput, sessionHandoffOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input sessionHandoffInput) (*mcp.CallToolResult, sessionHandoffOutput, error) {
+		preset, err := apptypes.MemoryRetrievalPresetOf(input.Preset)
+		if err != nil {
+			return nil, sessionHandoffOutput{}, xerrors.Errorf("failed to resolve preset: %w", err)
+		}
 		result, err := s.context.Handoff(ctx, buildContextPackCriteria(
 			input.SessionID,
 			input.Workspace,
 			input.RecentCommandsLimit,
 			input.MemoryLimit,
+			preset,
 		))
 		if err != nil {
 			return nil, sessionHandoffOutput{}, xerrors.Errorf("failed to get session handoff: %w", err)
@@ -511,11 +516,16 @@ func (s *Server) sessionHandoff() mcp.ToolHandlerFor[sessionHandoffInput, sessio
 
 func (s *Server) memoryPack() mcp.ToolHandlerFor[memoryPackInput, memoryPackOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input memoryPackInput) (*mcp.CallToolResult, memoryPackOutput, error) {
+		preset, err := apptypes.MemoryRetrievalPresetOf(input.Preset)
+		if err != nil {
+			return nil, memoryPackOutput{}, xerrors.Errorf("failed to resolve preset: %w", err)
+		}
 		result, err := s.context.Handoff(ctx, buildContextPackCriteria(
 			input.SessionID,
 			input.Workspace,
 			input.RecentCommandsLimit,
 			input.MemoryLimit,
+			preset,
 		))
 		if err != nil {
 			return nil, memoryPackOutput{}, xerrors.Errorf("failed to build memory pack: %w", err)
@@ -565,16 +575,27 @@ func (s *Server) retrieveMemories() mcp.ToolHandlerFor[retrieveMemoriesInput, me
 			}
 			asOfTime = parsed
 		}
+		preset, err := apptypes.MemoryRetrievalPresetOf(input.Preset)
+		if err != nil {
+			return nil, memoriesOutput{}, xerrors.Errorf("failed to resolve preset: %w", err)
+		}
 
 		var summaries []apptypes.MemorySummary
 		if strings.TrimSpace(input.Query) != "" {
 			searchBuilder := apptypes.NewMemorySearchCriteriaBuilder(resolveLimit(input.Limit, defaultSearchLimit)).
 				Query(strings.TrimSpace(input.Query)).
 				Offset(resolveOffset(input.Offset)).
-				Scopes(scopes).
-				Statuses(statuses).
-				MemoryTypes(memoryTypes).
-				IncludeExpiredByValidity(input.IncludeExpired)
+				Scopes(scopes)
+			if preset != "" {
+				searchBuilder = preset.ApplyToMemorySearchCriteriaBuilder(searchBuilder)
+			}
+			if len(statuses) > 0 {
+				searchBuilder = searchBuilder.Statuses(statuses)
+			}
+			if len(memoryTypes) > 0 {
+				searchBuilder = searchBuilder.MemoryTypes(memoryTypes)
+			}
+			searchBuilder = searchBuilder.IncludeExpiredByValidity(input.IncludeExpired)
 			if !asOfTime.IsZero() {
 				searchBuilder = searchBuilder.AsOf(asOfTime)
 			}
@@ -585,10 +606,17 @@ func (s *Server) retrieveMemories() mcp.ToolHandlerFor[retrieveMemoriesInput, me
 		} else {
 			listBuilder := apptypes.NewMemoryListCriteriaBuilder(resolveLimit(input.Limit, defaultSearchLimit)).
 				Offset(resolveOffset(input.Offset)).
-				Scopes(scopes).
-				Statuses(statuses).
-				MemoryTypes(memoryTypes).
-				IncludeExpiredByValidity(input.IncludeExpired)
+				Scopes(scopes)
+			if preset != "" {
+				listBuilder = preset.ApplyToMemoryListCriteriaBuilder(listBuilder)
+			}
+			if len(statuses) > 0 {
+				listBuilder = listBuilder.Statuses(statuses)
+			}
+			if len(memoryTypes) > 0 {
+				listBuilder = listBuilder.MemoryTypes(memoryTypes)
+			}
+			listBuilder = listBuilder.IncludeExpiredByValidity(input.IncludeExpired)
 			if !asOfTime.IsZero() {
 				listBuilder = listBuilder.AsOf(asOfTime)
 			}
@@ -959,7 +987,7 @@ func (s *Server) setMemoryValidity() mcp.ToolHandlerFor[setMemoryValidityInput, 
 	}
 }
 
-func buildContextPackCriteria(sessionID string, workspace string, recentCommandsLimit *int, memoryLimit *int) apptypes.ContextPackCriteria {
+func buildContextPackCriteria(sessionID string, workspace string, recentCommandsLimit *int, memoryLimit *int, preset apptypes.MemoryRetrievalPreset) apptypes.ContextPackCriteria {
 	builder := apptypes.NewContextPackCriteriaBuilder().
 		SessionID(types.SessionID(strings.TrimSpace(sessionID))).
 		Workspace(types.Workspace(strings.TrimSpace(workspace)))
@@ -968,6 +996,9 @@ func buildContextPackCriteria(sessionID string, workspace string, recentCommands
 	}
 	if memoryLimit != nil {
 		builder.MemoryLimit(*memoryLimit)
+	}
+	if preset != "" {
+		builder.MemoryPreset(preset)
 	}
 	return builder.Build()
 }

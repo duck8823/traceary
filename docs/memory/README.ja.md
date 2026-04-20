@@ -130,6 +130,22 @@ import は Codex の handbook（既定値は `~/.codex/memories/MEMORY.md`）を
 - `traceary memory search`
 - `traceary memory show`
 
+#### 取り出し preset
+
+`memory list` / `memory search` / MCP `retrieve_memories` は `--preset <name>` で用途別の取り出し shape をプリセットできます。`--status` / `--type` を明示した場合は preset のデフォルトを上書きします。
+
+| Preset | 用途 | 既定フィルタ |
+| --- | --- | --- |
+| `resume` | 「どこまでやっていたか」を拾う。type 軸は絞らない | `status=accepted` |
+| `review` | 「何を決めて、どんな制約があるか」を確認する。再読に値する long-lived 知識だけに絞る | `status=accepted`, `type=decision,constraint` |
+| `incident` | 「失敗直後、何を知るべきか」。決定・制約に加えて lesson も含める | `status=accepted`, `type=decision,constraint,lesson` |
+
+例:
+
+- `traceary memory list --preset review --workspace github.com/org/repo`
+- `traceary memory list --preset review --type lesson` — 明示 `--type` は preset の既定を上書き
+- MCP: `retrieve_memories({"preset":"incident","workspace":"..."})`
+
 ### 文脈に載せる経路
 
 Durable memory を再開向けの pack に組み込んで使いたいときは次を使います。

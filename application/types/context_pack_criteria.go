@@ -13,6 +13,7 @@ type ContextPackCriteria struct {
 	workspace           domtypes.Workspace
 	recentCommandsLimit int
 	memoryLimit         int
+	memoryPreset        MemoryRetrievalPreset
 }
 
 // SessionID returns the target session filter.
@@ -26,6 +27,11 @@ func (c ContextPackCriteria) RecentCommandsLimit() int { return c.recentCommands
 
 // MemoryLimit returns the maximum number of durable memories to include.
 func (c ContextPackCriteria) MemoryLimit() int { return c.memoryLimit }
+
+// MemoryPreset returns the retrieval preset to apply when loading
+// durable memories for the pack. Empty means "no preset — use the
+// default accepted-only behavior of the memory query path."
+func (c ContextPackCriteria) MemoryPreset() MemoryRetrievalPreset { return c.memoryPreset }
 
 // ContextPackCriteriaBuilder builds a ContextPackCriteria value.
 type ContextPackCriteriaBuilder struct {
@@ -62,6 +68,13 @@ func (b *ContextPackCriteriaBuilder) RecentCommandsLimit(limit int) *ContextPack
 // MemoryLimit sets the durable memory limit.
 func (b *ContextPackCriteriaBuilder) MemoryLimit(limit int) *ContextPackCriteriaBuilder {
 	b.criteria.memoryLimit = limit
+	return b
+}
+
+// MemoryPreset sets the retrieval preset used to pre-populate the
+// durable-memory filters for the pack.
+func (b *ContextPackCriteriaBuilder) MemoryPreset(preset MemoryRetrievalPreset) *ContextPackCriteriaBuilder {
+	b.criteria.memoryPreset = preset
 	return b
 }
 
