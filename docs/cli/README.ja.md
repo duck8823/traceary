@@ -163,6 +163,19 @@ session 解決ルールは `traceary log` と同じです。
 - `--json`
 - `--utc`
 
+### `traceary replay`
+
+最近のセッション・イベント・durable memory を single-file HTML で書き出します。外部スクリプト・フォント・CDN に依存しない自己完結ファイルなので、オフラインでも閲覧可能です。インシデントレビュー・週次 retrospective・CLI を持たないチームメンバーへの共有に使います。
+
+主な flag:
+
+- `--out` (必須) — 書き出す HTML のパス
+- `--sessions` (既定 10) — 含める直近セッション数
+- `--events-per-session` (既定 20) — 1 セッションに含めるイベント数
+- `--memories` (既定 20) — 含める accepted memory 数
+
+例: `traceary replay --out /tmp/replay.html`
+
 ### `traceary show <event-id>`
 
 1 件の event を詳細表示します。
