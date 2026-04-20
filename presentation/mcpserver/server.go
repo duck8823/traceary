@@ -389,11 +389,11 @@ func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] 
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input listEventsInput) (*mcp.CallToolResult, eventsOutput, error) {
 		from, err := parseFlexibleTime(input.From, false)
 		if err != nil {
-			return nil, eventsOutput{}, xerrors.Errorf("failed to resolve from: %w", err)
+			return nil, eventsOutput{}, xerrors.Errorf("failed to parse from: %w", err)
 		}
 		to, err := parseFlexibleTime(input.To, true)
 		if err != nil {
-			return nil, eventsOutput{}, xerrors.Errorf("failed to resolve to: %w", err)
+			return nil, eventsOutput{}, xerrors.Errorf("failed to parse to: %w", err)
 		}
 
 		criteria := apptypes.NewEventListCriteriaBuilder(resolveLimit(input.Limit, defaultSearchLimit)).
@@ -451,11 +451,11 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input searchInput) (*mcp.CallToolResult, eventsOutput, error) {
 		from, err := parseFlexibleTime(input.From, false)
 		if err != nil {
-			return nil, eventsOutput{}, xerrors.Errorf("failed to resolve from: %w", err)
+			return nil, eventsOutput{}, xerrors.Errorf("failed to parse from: %w", err)
 		}
 		to, err := parseFlexibleTime(input.To, true)
 		if err != nil {
-			return nil, eventsOutput{}, xerrors.Errorf("failed to resolve to: %w", err)
+			return nil, eventsOutput{}, xerrors.Errorf("failed to parse to: %w", err)
 		}
 		limit := resolveLimit(input.Limit, defaultSearchLimit)
 		criteria := apptypes.NewEventSearchCriteriaBuilder(limit).
@@ -943,7 +943,7 @@ func (s *Server) expireMemory() mcp.ToolHandlerFor[expireMemoryInput, memoryOutp
 		}
 		expiresAt, err := parseFlexibleTime(input.ExpiresAt, false)
 		if err != nil {
-			return nil, memoryOutput{}, xerrors.Errorf("failed to resolve expires_at: %w", err)
+			return nil, memoryOutput{}, xerrors.Errorf("failed to parse expires_at: %w", err)
 		}
 		expiresAtOptional := types.None[time.Time]()
 		if !expiresAt.IsZero() {
@@ -967,7 +967,7 @@ func (s *Server) setMemoryValidity() mcp.ToolHandlerFor[setMemoryValidityInput, 
 		if strings.TrimSpace(input.ValidFrom) != "" {
 			validFrom, err := parseFlexibleTime(input.ValidFrom, false)
 			if err != nil {
-				return nil, memoryOutput{}, xerrors.Errorf("failed to resolve valid_from: %w", err)
+				return nil, memoryOutput{}, xerrors.Errorf("failed to parse valid_from: %w", err)
 			}
 			validFromOptional = types.Some(validFrom)
 		}
@@ -975,7 +975,7 @@ func (s *Server) setMemoryValidity() mcp.ToolHandlerFor[setMemoryValidityInput, 
 		if strings.TrimSpace(input.ValidTo) != "" {
 			validTo, err := parseFlexibleTime(input.ValidTo, false)
 			if err != nil {
-				return nil, memoryOutput{}, xerrors.Errorf("failed to resolve valid_to: %w", err)
+				return nil, memoryOutput{}, xerrors.Errorf("failed to parse valid_to: %w", err)
 			}
 			validToOptional = types.Some(validTo)
 		}

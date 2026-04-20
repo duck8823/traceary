@@ -129,10 +129,12 @@ func TestWriteReplayHTML_PreservesExistingOnTemplateError(t *testing.T) {
 	if err := os.WriteFile(out, []byte("original"), 0o644); err != nil {
 		t.Fatalf("WriteFile(out) error = %v", err)
 	}
-	// Swap the template source via the indirection function rather
-	// than the package-level string so concurrent replay tests running
-	// under t.Parallel() do not race on a shared mutation. The
-	// indirection is scoped to this goroutine via a closure capture.
+	// Swap the template source via the `replayTemplateSource`
+	// indirection. `replayTemplateSource` is still a package-level
+	// variable — the race avoidance here comes from this test
+	// *not* calling t.Parallel() (see comment above), so go test's
+	// "serial phase before parallel phase" ordering guarantees that
+	// no other replay test runs while this one holds the swap.
 	original := replayTemplateSource
 	replayTemplateSource = func() string { return `{{.DoesNotExist}}` }
 	defer func() { replayTemplateSource = original }()
