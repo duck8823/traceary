@@ -85,23 +85,33 @@ type memoriesOutput struct {
 }
 
 // memorySummaryOutput is the compact durable-memory shape used inside context packs.
+//
+// Optional timestamps are rendered as `*string` + `omitempty`: an absent
+// bound produces JSON `null` / an omitted key rather than an empty
+// string. This matches the CLI shape (presentation/cli/output.go
+// memorySummaryOutput) so consumers of memory_pack and `memory list
+// --json` can share the same TypeScript / JSON Schema shape.
 type memorySummaryOutput struct {
-	MemoryID   string `json:"memory_id" jsonschema:"durable memory identifier"`
-	Type       string `json:"type" jsonschema:"memory type"`
-	ScopeKind  string `json:"scope_kind" jsonschema:"scope kind"`
-	ScopeValue string `json:"scope_value" jsonschema:"scope value"`
-	Fact       string `json:"fact" jsonschema:"distilled memory fact"`
-	Status     string `json:"status" jsonschema:"lifecycle status"`
-	Confidence string `json:"confidence" jsonschema:"confidence level"`
-	Source     string `json:"source" jsonschema:"memory source"`
-	ExpiresAt  string `json:"expires_at,omitempty" jsonschema:"expiry timestamp (RFC3339Nano)"`
-	ValidFrom  string `json:"valid_from,omitempty" jsonschema:"start of content validity window (RFC3339Nano)"`
-	ValidTo    string `json:"valid_to,omitempty" jsonschema:"end of content validity window (RFC3339Nano); empty means open-ended"`
-	CreatedAt  string `json:"created_at" jsonschema:"creation timestamp (RFC3339Nano)"`
-	UpdatedAt  string `json:"updated_at" jsonschema:"update timestamp (RFC3339Nano)"`
+	MemoryID   string  `json:"memory_id" jsonschema:"durable memory identifier"`
+	Type       string  `json:"type" jsonschema:"memory type"`
+	ScopeKind  string  `json:"scope_kind" jsonschema:"scope kind"`
+	ScopeValue string  `json:"scope_value" jsonschema:"scope value"`
+	Fact       string  `json:"fact" jsonschema:"distilled memory fact"`
+	Status     string  `json:"status" jsonschema:"lifecycle status"`
+	Confidence string  `json:"confidence" jsonschema:"confidence level"`
+	Source     string  `json:"source" jsonschema:"memory source"`
+	ExpiresAt  *string `json:"expires_at,omitempty" jsonschema:"expiry timestamp (RFC3339Nano); null or omitted when unset"`
+	ValidFrom  string  `json:"valid_from" jsonschema:"start of content validity window (RFC3339Nano)"`
+	ValidTo    *string `json:"valid_to,omitempty" jsonschema:"end of content validity window (RFC3339Nano); null or omitted means open-ended"`
+	CreatedAt  string  `json:"created_at" jsonschema:"creation timestamp (RFC3339Nano)"`
+	UpdatedAt  string  `json:"updated_at" jsonschema:"update timestamp (RFC3339Nano)"`
 }
 
-// memoryOutput is the full durable-memory shape returned by MCP memory tools.
+// memoryOutput is the full durable-memory shape returned by MCP memory
+// tools. Shape matches presentation/cli/output.go memorySummaryOutput
+// so a consumer can share a single JSON / TypeScript definition for
+// both `memory list --json` and the MCP retrieve_memories tool — see
+// #628.
 type memoryOutput struct {
 	MemoryID     string            `json:"memory_id" jsonschema:"durable memory identifier"`
 	Type         string            `json:"type" jsonschema:"memory type"`
@@ -111,10 +121,10 @@ type memoryOutput struct {
 	Status       string            `json:"status" jsonschema:"lifecycle status"`
 	Confidence   string            `json:"confidence" jsonschema:"confidence level"`
 	Source       string            `json:"source" jsonschema:"memory source"`
-	Supersedes   string            `json:"supersedes,omitempty" jsonschema:"superseded memory identifier"`
-	ExpiresAt    string            `json:"expires_at,omitempty" jsonschema:"expiry timestamp (RFC3339Nano)"`
-	ValidFrom    string            `json:"valid_from,omitempty" jsonschema:"start of content validity window (RFC3339Nano)"`
-	ValidTo      string            `json:"valid_to,omitempty" jsonschema:"end of content validity window (RFC3339Nano); empty means open-ended"`
+	Supersedes   *string           `json:"supersedes,omitempty" jsonschema:"superseded memory identifier; null or omitted when this memory does not supersede another"`
+	ExpiresAt    *string           `json:"expires_at,omitempty" jsonschema:"expiry timestamp (RFC3339Nano); null or omitted when unset"`
+	ValidFrom    string            `json:"valid_from" jsonschema:"start of content validity window (RFC3339Nano)"`
+	ValidTo      *string           `json:"valid_to,omitempty" jsonschema:"end of content validity window (RFC3339Nano); null or omitted means open-ended"`
 	CreatedAt    string            `json:"created_at" jsonschema:"creation timestamp (RFC3339Nano)"`
 	UpdatedAt    string            `json:"updated_at" jsonschema:"update timestamp (RFC3339Nano)"`
 	EvidenceRefs []memoryRefOutput `json:"evidence_refs,omitempty" jsonschema:"supporting evidence refs"`
