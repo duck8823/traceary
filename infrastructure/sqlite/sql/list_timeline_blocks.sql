@@ -86,6 +86,21 @@ last_compact AS (
   FROM compact_ranked
   WHERE rn = 1
 ),
+transcript_ranked AS (
+  SELECT
+    block_num,
+    workspace,
+    body,
+    ROW_NUMBER() OVER (PARTITION BY block_num, workspace ORDER BY created_at, id) AS rn
+  FROM blocks
+  WHERE kind = 'transcript'
+    AND TRIM(body) != ''
+),
+first_transcript AS (
+  SELECT block_num, workspace, body AS first_transcript_body
+  FROM transcript_ranked
+  WHERE rn = 1
+),
 ws_rows AS (
   SELECT
     b.block_num,
@@ -93,12 +108,15 @@ ws_rows AS (
     COUNT(*) AS ws_event_count,
     GROUP_CONCAT(b.kind, '|') AS kinds,
     MAX(fp.first_prompt_body) AS first_prompt_body,
-    MAX(lc.compact_summary_body) AS compact_summary_body
+    MAX(lc.compact_summary_body) AS compact_summary_body,
+    MAX(ft.first_transcript_body) AS first_transcript_body
   FROM blocks b
   LEFT JOIN first_prompt fp
     ON fp.block_num = b.block_num AND fp.workspace = b.workspace
   LEFT JOIN last_compact lc
     ON lc.block_num = b.block_num AND lc.workspace = b.workspace
+  LEFT JOIN first_transcript ft
+    ON ft.block_num = b.block_num AND ft.workspace = b.workspace
   WHERE b.block_num IN (SELECT block_num FROM top_blocks)
     AND b.workspace != ''
   GROUP BY b.block_num, b.workspace
@@ -113,7 +131,8 @@ SELECT
   wr.ws_event_count,
   wr.kinds,
   COALESCE(wr.first_prompt_body, '') AS first_prompt_body,
-  COALESCE(wr.compact_summary_body, '') AS compact_summary_body
+  COALESCE(wr.compact_summary_body, '') AS compact_summary_body,
+  COALESCE(wr.first_transcript_body, '') AS first_transcript_body
 FROM top_blocks tb
 JOIN ws_rows wr ON wr.block_num = tb.block_num
 ORDER BY tb.block_start DESC, wr.ws_event_count DESC, wr.workspace

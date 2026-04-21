@@ -149,6 +149,8 @@ func highlightEscapeFor(kind string, exitCode int, exitCodeSet bool) string {
 		return ""
 	case "prompt":
 		return ansiCyan
+	case "transcript":
+		return ansiCyan
 	case "compact_summary":
 		return ansiMagenta
 	case "session_started", "session_ended":

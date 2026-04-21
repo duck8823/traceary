@@ -31,7 +31,7 @@ Traceary is no longer just a local event log. `v0.5.0` organizes the product aro
 
 | Layer | What lives there | Why it matters |
 |---|---|---|
-| Audit / Archive | raw events, session boundaries, command audits | keeps the source-of-truth timeline for inspection, search, and forensic review |
+| Audit / Archive | raw events (prompts, transcripts, command audits), session boundaries | keeps the source-of-truth timeline for inspection, search, and forensic review |
 | Working memory | handoff/context packs assembled from recent sessions | helps the next agent or resumed session start with the right context instead of the whole log |
 | Durable memory | reusable facts such as decisions, constraints, preferences, and artifact refs | stores the small set of facts that should survive across sessions and be retrieved on demand |
 
