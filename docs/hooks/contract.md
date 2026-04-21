@@ -18,7 +18,7 @@ This document defines the hook capability tiers across AI agent clients.
 | PostToolUseFailure | `Bash`, `mcp__.*`, built-in tools | Record failed tool execution |
 | PostCompact | `*` | Record compact summary |
 | UserPromptSubmit | `*` | Record user prompt text |
-| Stop | `*` | Record last assistant message from `transcript_path` as a `transcript` event (built-in secret redaction applied) |
+| Stop | `*` | Record last assistant message from `transcript_path` as a `transcript` event (built-in secret redaction + operator-configured `redact.extra_patterns` applied) |
 | SessionStart (compact) (planned) | `compact` | Inject context pointer via stdout |
 
 ### Tier 2: Partial (Codex)
