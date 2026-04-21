@@ -686,6 +686,71 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 	})
 
+	t.Run("set_memory_validity accepts bounds and clear_valid_to separately", func(t *testing.T) {
+		rememberResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "remember_memory",
+			Arguments: map[string]any{
+				"type":      "decision",
+				"workspace": "github.com/duck8823/traceary",
+				"fact":      "Memory used for validity plumbing test",
+				"evidence_refs": []any{
+					map[string]any{"kind": "issue", "value": "#629"},
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(remember_memory) error = %v", err)
+		}
+		memoryID := extractJSONStringValue(t, rememberResult, "memory_id")
+		if memoryID == "" {
+			t.Fatalf("memory_id = empty")
+		}
+
+		setResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "set_memory_validity",
+			Arguments: map[string]any{
+				"memory_id":  memoryID,
+				"valid_from": "2026-04-20T00:00:00Z",
+				"valid_to":   "2026-07-01T00:00:00Z",
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(set_memory_validity) error = %v", err)
+		}
+		if setResult.IsError {
+			t.Fatalf("CallTool(set_memory_validity) IsError = true, want false")
+		}
+
+		clearResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "set_memory_validity",
+			Arguments: map[string]any{
+				"memory_id":      memoryID,
+				"clear_valid_to": true,
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(set_memory_validity clear) error = %v", err)
+		}
+		if clearResult.IsError {
+			t.Fatalf("CallTool(set_memory_validity clear) IsError = true, want false")
+		}
+
+		conflictResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "set_memory_validity",
+			Arguments: map[string]any{
+				"memory_id":      memoryID,
+				"valid_to":       "2026-12-31T00:00:00Z",
+				"clear_valid_to": true,
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(set_memory_validity conflict) error = %v", err)
+		}
+		if !conflictResult.IsError {
+			t.Fatalf("CallTool(set_memory_validity conflict) IsError = false, want true")
+		}
+	})
+
 	t.Run("returns tool error", func(t *testing.T) {
 		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 			Name: "add_log",

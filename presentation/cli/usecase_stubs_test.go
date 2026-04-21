@@ -265,6 +265,8 @@ type memoryUsecaseStub struct {
 	supersedeErr     error
 	expireDetails    apptypes.MemoryDetails
 	expireErr        error
+	setValidityDetails apptypes.MemoryDetails
+	setValidityErr     error
 
 	rememberCall struct {
 		memoryType   types.MemoryType
@@ -284,6 +286,14 @@ type memoryUsecaseStub struct {
 	}
 	acceptCallCount int
 	rejectCallCount int
+
+	setValidityCall struct {
+		memoryID  types.MemoryID
+		validFrom types.Optional[time.Time]
+		validTo   types.Optional[time.Time]
+		clearTo   bool
+	}
+	setValidityCallCount int
 }
 
 func (s *memoryUsecaseStub) Remember(_ context.Context, memoryType types.MemoryType, scope types.MemoryScope, fact string, confidence types.Optional[types.Confidence], source types.MemorySource, evidenceRefs []types.EvidenceRef, artifactRefs []types.ArtifactRef) (apptypes.MemoryDetails, error) {
@@ -321,8 +331,13 @@ func (s *memoryUsecaseStub) Expire(_ context.Context, _ types.MemoryID, _ types.
 	return s.expireDetails, s.expireErr
 }
 
-func (s *memoryUsecaseStub) SetValidity(_ context.Context, _ types.MemoryID, _ types.Optional[time.Time], _ types.Optional[time.Time], _ bool) (apptypes.MemoryDetails, error) {
-	return s.expireDetails, s.expireErr
+func (s *memoryUsecaseStub) SetValidity(_ context.Context, memoryID types.MemoryID, validFrom types.Optional[time.Time], validTo types.Optional[time.Time], clearTo bool) (apptypes.MemoryDetails, error) {
+	s.setValidityCall.memoryID = memoryID
+	s.setValidityCall.validFrom = validFrom
+	s.setValidityCall.validTo = validTo
+	s.setValidityCall.clearTo = clearTo
+	s.setValidityCallCount++
+	return s.setValidityDetails, s.setValidityErr
 }
 
 func (s *memoryUsecaseStub) List(_ context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {

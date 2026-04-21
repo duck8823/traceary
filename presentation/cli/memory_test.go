@@ -393,6 +393,114 @@ func TestRootCLI_MemoryExtractCommand_RequiresStoreManagement(t *testing.T) {
 	}
 }
 
+func TestRootCLI_MemorySetValidityCommand_ParsesFromAndTo(t *testing.T) {
+	stub := &memoryUsecaseStub{
+		setValidityDetails: mustMemoryDetails(t, "memory-validity", "Memory with validity", types.MemoryStatusAccepted),
+	}
+
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(stub),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "set-validity",
+		"--db-path", "/tmp/test-traceary.db",
+		"--from", "2026-04-20",
+		"--to", "2026-07-01",
+		"--id-only",
+		"memory-validity",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stub.setValidityCallCount != 1 {
+		t.Fatalf("setValidityCallCount = %d, want 1", stub.setValidityCallCount)
+	}
+	if stub.setValidityCall.memoryID.String() != "memory-validity" {
+		t.Errorf("memoryID = %q, want memory-validity", stub.setValidityCall.memoryID.String())
+	}
+	validFrom, ok := stub.setValidityCall.validFrom.Value()
+	if !ok {
+		t.Fatalf("validFrom = None, want Some(2026-04-20)")
+	}
+	if !validFrom.Equal(time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("validFrom = %v, want 2026-04-20 UTC", validFrom)
+	}
+	validTo, ok := stub.setValidityCall.validTo.Value()
+	if !ok {
+		t.Fatalf("validTo = None, want Some(2026-07-01)")
+	}
+	if !validTo.Equal(time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("validTo = %v, want 2026-07-01 UTC", validTo)
+	}
+	if stub.setValidityCall.clearTo {
+		t.Errorf("clearTo = true, want false")
+	}
+}
+
+func TestRootCLI_MemorySetValidityCommand_ClearToPropagates(t *testing.T) {
+	stub := &memoryUsecaseStub{
+		setValidityDetails: mustMemoryDetails(t, "memory-validity", "Memory with validity cleared", types.MemoryStatusAccepted),
+	}
+
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(stub),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "set-validity",
+		"--db-path", "/tmp/test-traceary.db",
+		"--clear-to",
+		"memory-validity",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !stub.setValidityCall.clearTo {
+		t.Errorf("clearTo = false, want true")
+	}
+	if _, ok := stub.setValidityCall.validTo.Value(); ok {
+		t.Errorf("validTo set even though only --clear-to supplied")
+	}
+}
+
+func TestRootCLI_MemorySetValidityCommand_RejectsInvalidFrom(t *testing.T) {
+	stub := &memoryUsecaseStub{}
+
+	stderr := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(stub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(stderr)
+	rootCmd.SetArgs([]string{
+		"memory", "set-validity",
+		"--db-path", "/tmp/test-traceary.db",
+		"--from", "not-a-timestamp",
+		"memory-validity",
+	})
+
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatalf("Execute() error = nil, want parse error")
+	}
+	if stub.setValidityCallCount != 0 {
+		t.Errorf("setValidity invoked despite parse error; count = %d", stub.setValidityCallCount)
+	}
+	if !strings.Contains(err.Error(), "--from") {
+		t.Errorf("error = %v, want phrasing that identifies --from", err)
+	}
+}
+
 func mustMemorySummary(t *testing.T, memoryIDValue string, fact string, status types.MemoryStatus) apptypes.MemorySummary {
 	t.Helper()
 
