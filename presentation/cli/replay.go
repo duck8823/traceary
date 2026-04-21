@@ -15,7 +15,6 @@ import (
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
-	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/types"
 )
 
@@ -86,9 +85,8 @@ func (c *RootCLI) runReplay(ctx context.Context, output io.Writer, input replayC
 	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
-	replayUC := c.replayUsecaseOrFallback()
-	if replayUC == nil {
-		return xerrors.Errorf(Localize("session/event usecases must be configured", "session/event ユースケースが必要です"))
+	if c.replay == nil {
+		return xerrors.Errorf(Localize("replay usecase is not configured", "replay ユースケースが設定されていません"))
 	}
 	if strings.TrimSpace(input.outputPath) == "" {
 		return xerrors.Errorf(Localize("--out is required", "--out は必須です"))
@@ -106,7 +104,7 @@ func (c *RootCLI) runReplay(ctx context.Context, output io.Writer, input replayC
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
-	bundle, err := replayUC.Bundle(ctx, apptypes.NewReplayCriteriaBuilder(input.sessions, input.eventsPerSession, input.memories).Build())
+	bundle, err := c.replay.Bundle(ctx, apptypes.NewReplayCriteriaBuilder(input.sessions, input.eventsPerSession, input.memories).Build())
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to assemble replay bundle", "replay バンドルの組立てに失敗しました"), err)
 	}
@@ -123,22 +121,6 @@ func (c *RootCLI) runReplay(ctx context.Context, output io.Writer, input replayC
 		return xerrors.Errorf("%s: %w", Localize("failed to print replay summary", "replay 概要の出力に失敗しました"), err)
 	}
 	return nil
-}
-
-// replayUsecaseOrFallback returns the injected ReplayUsecase when set,
-// or constructs a default one from the session / event / memory
-// usecases otherwise. Callers that have the dedicated usecase wired
-// via composition should prefer the injection path; the fallback
-// keeps the CLI working in tests that only inject the three
-// write-side usecases directly.
-func (c *RootCLI) replayUsecaseOrFallback() usecase.ReplayUsecase {
-	if c.replay != nil {
-		return c.replay
-	}
-	if c.session == nil || c.event == nil {
-		return nil
-	}
-	return usecase.NewReplayUsecase(c.session, c.event, c.memory)
 }
 
 // replayData is the root view-model the HTML template renders.

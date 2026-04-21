@@ -23,8 +23,9 @@ func (c ReplayCriteria) SessionLimit() int { return c.sessionLimit }
 // EventsPerSession returns the cap applied to each session's event list.
 func (c ReplayCriteria) EventsPerSession() int { return c.eventsPerSession }
 
-// MemoryLimit returns the cap applied to the durable-memory panel. A
-// non-positive value asks the usecase to skip the memory panel.
+// MemoryLimit returns the cap applied to the durable-memory panel.
+// Any value <= 0 asks the usecase to skip the memory panel entirely;
+// a positive value caps the row count returned.
 func (c ReplayCriteria) MemoryLimit() int { return c.memoryLimit }
 
 // MemoryAsOf returns the point-in-time used to evaluate memory validity

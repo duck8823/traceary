@@ -12,100 +12,55 @@ import (
 	domtypes "github.com/duck8823/traceary/domain/types"
 )
 
-type stubReplaySessionUsecase struct {
+type stubReplaySessionQuery struct {
 	sessions []apptypes.SessionSummary
 }
 
-func (s *stubReplaySessionUsecase) Start(context.Context, domtypes.Client, domtypes.Agent, domtypes.SessionID, domtypes.Workspace, domtypes.SessionID) (*model.Event, error) {
-	return nil, nil
+func (s *stubReplaySessionQuery) FindLatest(context.Context, domtypes.Client, domtypes.Agent, domtypes.Workspace, bool) (domtypes.Optional[*model.Event], error) {
+	return domtypes.None[*model.Event](), nil
 }
-func (s *stubReplaySessionUsecase) End(context.Context, domtypes.Client, domtypes.Agent, domtypes.SessionID, domtypes.Workspace, string) (*model.Event, error) {
-	return nil, nil
-}
-func (s *stubReplaySessionUsecase) Label(context.Context, domtypes.SessionID, string) error {
-	return nil
-}
-func (s *stubReplaySessionUsecase) List(context.Context, apptypes.SessionListCriteria) ([]apptypes.SessionSummary, error) {
+func (s *stubReplaySessionQuery) ListSummaries(context.Context, int, int, domtypes.SessionID, domtypes.Workspace, domtypes.Client, domtypes.Agent, string, domtypes.Optional[time.Time], domtypes.Optional[time.Time]) ([]apptypes.SessionSummary, error) {
 	return s.sessions, nil
 }
-func (s *stubReplaySessionUsecase) Tree(context.Context, domtypes.Workspace, int) ([]apptypes.SessionSummary, error) {
-	return nil, nil
-}
-func (s *stubReplaySessionUsecase) Active(context.Context, apptypes.SessionLookupCriteria) (domtypes.Optional[*model.Event], error) {
-	return domtypes.None[*model.Event](), nil
-}
-func (s *stubReplaySessionUsecase) Latest(context.Context, apptypes.SessionLookupCriteria) (domtypes.Optional[*model.Event], error) {
-	return domtypes.None[*model.Event](), nil
-}
-func (s *stubReplaySessionUsecase) Handoff(context.Context, domtypes.SessionID, domtypes.Workspace, int) (domtypes.Optional[apptypes.HandoffSummary], error) {
-	return domtypes.None[apptypes.HandoffSummary](), nil
-}
 
-type stubReplayEventUsecase struct {
+type stubReplayEventQuery struct {
 	eventsBySession map[domtypes.SessionID][]*model.Event
 }
 
-func (s *stubReplayEventUsecase) Log(context.Context, string, domtypes.EventKind, domtypes.Client, domtypes.Agent, domtypes.SessionID, domtypes.Workspace) (*model.Event, error) {
+func (s *stubReplayEventQuery) ListRecent(_ context.Context, _, _ int, _ domtypes.EventKind, _ domtypes.Client, _ domtypes.Agent, sessionID domtypes.SessionID, _ domtypes.Workspace, _ bool, _, _ time.Time) ([]*model.Event, error) {
+	return s.eventsBySession[sessionID], nil
+}
+func (s *stubReplayEventQuery) ListWindow(context.Context, apptypes.EventListCriteria) ([]*model.Event, error) {
 	return nil, nil
 }
-func (s *stubReplayEventUsecase) Audit(context.Context, string, string, string, domtypes.Client, domtypes.Agent, domtypes.SessionID, domtypes.Workspace, domtypes.Optional[int], apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
-	return nil, nil, nil
-}
-func (s *stubReplayEventUsecase) Search(context.Context, apptypes.EventSearchCriteria) ([]*model.Event, error) {
+func (s *stubReplayEventQuery) Search(context.Context, string, domtypes.Workspace, domtypes.SessionID, domtypes.Client, domtypes.Agent, domtypes.EventKind, time.Time, time.Time, int, int, bool) ([]*model.Event, error) {
 	return nil, nil
 }
-func (s *stubReplayEventUsecase) List(_ context.Context, criteria apptypes.EventListCriteria) ([]*model.Event, error) {
-	return s.eventsBySession[criteria.SessionID()], nil
-}
-func (s *stubReplayEventUsecase) ListWindow(context.Context, apptypes.EventListCriteria) ([]*model.Event, error) {
+func (s *stubReplayEventQuery) GetContext(context.Context, domtypes.Workspace, domtypes.SessionID, int) ([]*model.Event, error) {
 	return nil, nil
 }
-func (s *stubReplayEventUsecase) Show(context.Context, domtypes.EventID) (apptypes.EventDetails, error) {
+func (s *stubReplayEventQuery) GetDetails(context.Context, domtypes.EventID) (apptypes.EventDetails, error) {
 	return apptypes.EventDetails{}, nil
 }
-func (s *stubReplayEventUsecase) Context(context.Context, apptypes.EventContextCriteria) ([]*model.Event, error) {
-	return nil, nil
-}
-func (s *stubReplayEventUsecase) Timeline(context.Context, apptypes.TimelineCriteria) ([]apptypes.TimelineBlock, error) {
+func (s *stubReplayEventQuery) ListTimelineBlocks(context.Context, domtypes.Workspace, time.Time, time.Time, int, int) ([]apptypes.TimelineBlock, error) {
 	return nil, nil
 }
 
-type stubReplayMemoryUsecase struct {
+type stubReplayMemoryQuery struct {
 	memories     []apptypes.MemorySummary
 	lastCriteria apptypes.MemoryListCriteria
 	called       bool
 }
 
-func (s *stubReplayMemoryUsecase) Remember(context.Context, domtypes.MemoryType, domtypes.MemoryScope, string, domtypes.Optional[domtypes.Confidence], domtypes.MemorySource, []domtypes.EvidenceRef, []domtypes.ArtifactRef) (apptypes.MemoryDetails, error) {
-	return apptypes.MemoryDetails{}, nil
-}
-func (s *stubReplayMemoryUsecase) Propose(context.Context, domtypes.MemoryType, domtypes.MemoryScope, string, domtypes.MemorySource, []domtypes.EvidenceRef, []domtypes.ArtifactRef) (apptypes.MemoryDetails, error) {
-	return apptypes.MemoryDetails{}, nil
-}
-func (s *stubReplayMemoryUsecase) Accept(context.Context, domtypes.MemoryID, domtypes.Optional[domtypes.Confidence]) (apptypes.MemoryDetails, error) {
-	return apptypes.MemoryDetails{}, nil
-}
-func (s *stubReplayMemoryUsecase) Reject(context.Context, domtypes.MemoryID) (apptypes.MemoryDetails, error) {
-	return apptypes.MemoryDetails{}, nil
-}
-func (s *stubReplayMemoryUsecase) Supersede(context.Context, domtypes.MemoryID, domtypes.MemoryType, domtypes.MemoryScope, string, domtypes.Optional[domtypes.Confidence], domtypes.MemorySource, []domtypes.EvidenceRef, []domtypes.ArtifactRef) (apptypes.MemoryDetails, error) {
-	return apptypes.MemoryDetails{}, nil
-}
-func (s *stubReplayMemoryUsecase) Expire(context.Context, domtypes.MemoryID, domtypes.Optional[time.Time]) (apptypes.MemoryDetails, error) {
-	return apptypes.MemoryDetails{}, nil
-}
-func (s *stubReplayMemoryUsecase) SetValidity(context.Context, domtypes.MemoryID, domtypes.Optional[time.Time], domtypes.Optional[time.Time], bool) (apptypes.MemoryDetails, error) {
-	return apptypes.MemoryDetails{}, nil
-}
-func (s *stubReplayMemoryUsecase) List(_ context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
+func (s *stubReplayMemoryQuery) List(_ context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
 	s.called = true
 	s.lastCriteria = criteria
 	return s.memories, nil
 }
-func (s *stubReplayMemoryUsecase) Search(context.Context, apptypes.MemorySearchCriteria) ([]apptypes.MemorySummary, error) {
+func (s *stubReplayMemoryQuery) Search(context.Context, apptypes.MemorySearchCriteria) ([]apptypes.MemorySummary, error) {
 	return nil, nil
 }
-func (s *stubReplayMemoryUsecase) Show(context.Context, domtypes.MemoryID) (apptypes.MemoryDetails, error) {
+func (s *stubReplayMemoryQuery) GetDetails(context.Context, domtypes.MemoryID) (apptypes.MemoryDetails, error) {
 	return apptypes.MemoryDetails{}, nil
 }
 
@@ -155,12 +110,12 @@ func memorySummary(t *testing.T, id string, workspace string, fact string) appty
 func TestReplayUsecase_Bundle_ScopesMemoryBySessionWorkspaces(t *testing.T) {
 	t.Parallel()
 
-	session := &stubReplaySessionUsecase{sessions: []apptypes.SessionSummary{
+	session := &stubReplaySessionQuery{sessions: []apptypes.SessionSummary{
 		sessionSummary(t, "sess-1", "github.com/example/a"),
 		sessionSummary(t, "sess-2", "github.com/example/b"),
 	}}
-	event := &stubReplayEventUsecase{eventsBySession: map[domtypes.SessionID][]*model.Event{}}
-	memory := &stubReplayMemoryUsecase{memories: []apptypes.MemorySummary{
+	event := &stubReplayEventQuery{eventsBySession: map[domtypes.SessionID][]*model.Event{}}
+	memory := &stubReplayMemoryQuery{memories: []apptypes.MemorySummary{
 		memorySummary(t, "mem-a", "github.com/example/a", "a fact"),
 	}}
 	uc := usecase.NewReplayUsecase(session, event, memory)
@@ -184,10 +139,9 @@ func TestReplayUsecase_Bundle_ScopesMemoryBySessionWorkspaces(t *testing.T) {
 func TestReplayUsecase_Bundle_SkipsMemoryPanelWhenNoWorkspaces(t *testing.T) {
 	t.Parallel()
 
-	// No sessions loaded → no workspaces → memory panel skipped.
-	session := &stubReplaySessionUsecase{}
-	event := &stubReplayEventUsecase{}
-	memory := &stubReplayMemoryUsecase{}
+	session := &stubReplaySessionQuery{}
+	event := &stubReplayEventQuery{}
+	memory := &stubReplayMemoryQuery{}
 	uc := usecase.NewReplayUsecase(session, event, memory)
 
 	bundle, err := uc.Bundle(context.Background(), apptypes.NewReplayCriteriaBuilder(10, 20, 20).Build())
@@ -202,23 +156,34 @@ func TestReplayUsecase_Bundle_SkipsMemoryPanelWhenNoWorkspaces(t *testing.T) {
 	}
 }
 
-func TestReplayUsecase_Bundle_SkipsMemoryWhenMemoryLimitZero(t *testing.T) {
+func TestReplayUsecase_Bundle_SkipsMemoryWhenMemoryLimitNonPositive(t *testing.T) {
 	t.Parallel()
 
-	session := &stubReplaySessionUsecase{sessions: []apptypes.SessionSummary{
-		sessionSummary(t, "sess-1", "github.com/example/a"),
-	}}
-	event := &stubReplayEventUsecase{eventsBySession: map[domtypes.SessionID][]*model.Event{}}
-	memory := &stubReplayMemoryUsecase{}
-	uc := usecase.NewReplayUsecase(session, event, memory)
-
-	// memoryLimit == 0 → memory panel explicitly disabled.
-	_, err := uc.Bundle(context.Background(), apptypes.NewReplayCriteriaBuilder(10, 20, 0).Build())
-	if err != nil {
-		t.Fatalf("Bundle: %v", err)
+	tests := []struct {
+		name        string
+		memoryLimit int
+	}{
+		{"zero limit skips panel", 0},
+		{"negative limit skips panel", -1},
 	}
-	if memory.called {
-		t.Fatalf("memory.List must not be called when memoryLimit is 0")
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			session := &stubReplaySessionQuery{sessions: []apptypes.SessionSummary{
+				sessionSummary(t, "sess-1", "github.com/example/a"),
+			}}
+			event := &stubReplayEventQuery{eventsBySession: map[domtypes.SessionID][]*model.Event{}}
+			memory := &stubReplayMemoryQuery{}
+			uc := usecase.NewReplayUsecase(session, event, memory)
+
+			if _, err := uc.Bundle(context.Background(), apptypes.NewReplayCriteriaBuilder(10, 20, tc.memoryLimit).Build()); err != nil {
+				t.Fatalf("Bundle: %v", err)
+			}
+			if memory.called {
+				t.Fatalf("memory.List must not be called when memoryLimit is %d", tc.memoryLimit)
+			}
+		})
 	}
 }
 
@@ -226,11 +191,11 @@ func TestReplayUsecase_Bundle_PassesAsOfToMemoryQuery(t *testing.T) {
 	t.Parallel()
 
 	asOf := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
-	session := &stubReplaySessionUsecase{sessions: []apptypes.SessionSummary{
+	session := &stubReplaySessionQuery{sessions: []apptypes.SessionSummary{
 		sessionSummary(t, "sess-1", "github.com/example/a"),
 	}}
-	event := &stubReplayEventUsecase{eventsBySession: map[domtypes.SessionID][]*model.Event{}}
-	memory := &stubReplayMemoryUsecase{}
+	event := &stubReplayEventQuery{eventsBySession: map[domtypes.SessionID][]*model.Event{}}
+	memory := &stubReplayMemoryQuery{}
 	uc := usecase.NewReplayUsecase(session, event, memory)
 
 	_, err := uc.Bundle(context.Background(),
