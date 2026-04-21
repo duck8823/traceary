@@ -39,7 +39,7 @@ Traceary はオプションの JSON 設定ファイルを `~/.config/traceary/co
 
 | キー | 型 | 用途 |
 | --- | --- | --- |
-| `redact.extra_patterns` | 文字列配列 | 監査および transcript リダクション用の追加正規表現パターン。各エントリは Go の `regexp` パターンとしてコンパイルされ、マッチした内容が `[REDACTED]` に置換されます。CLI（`traceary audit`、Claude Stop-hook の transcript capture）と MCP サーバー（`add_audit`）の両方で、組み込みルールの後に適用されます。 |
+| `redact.extra_patterns` | 文字列配列 | 監査および transcript リダクション用の追加正規表現パターン。各エントリは Go の `regexp` パターンとしてコンパイルされ、マッチした内容が `[REDACTED]` に置換されます。CLI（`traceary audit`、`traceary log --kind transcript`、Claude Stop-hook の transcript capture）と MCP サーバー（`add_audit`、`kind=transcript` を指定した `add_log`）の両方で、組み込みルールの後に適用されます。 |
 | `read.fields` | 文字列配列 | `traceary tail` / `list` / `search` のテキスト出力で `--fields` が指定されなかった場合に使用されるコンパクトカラムのデフォルト順。利用可能なフィールド名: `ts`, `kind`, `session`, `ws`, `client`, `agent`, `message`, `exit_code`, `id`。未知・空・重複エントリはコマンド実行時に拒否されます。`--fields` フラグが指定された場合は常にこの設定を上書きします。`--wide` や `--json` 出力には影響しません。 |
 | `read.presets` | object | `traceary tail` / `list` / `search` 向けの保存済みビュー。`--preset <name>` で適用します。各 entry は `fields`（`read.fields` と同じ registry）と `filters`（`kind`, `failures`, `workspace`, `session_id`, `client`, `agent`）を持てます。明示した CLI フラグは常に preset を上書きします。built-in preset（`failures`, `prompts-only`, `compact-summaries`）と同名のエントリは built-in を上書きしますが、実行時に stderr へ `[WARN]` を出します。 |
 | `read.color` | string | `traceary tail` / `list` / `search` のコンパクトテキスト出力に対する `--color` の既定値。許容値: `auto`, `always`, `never`。`auto` は stdout が TTY のときだけ色を付けます。`NO_COLOR` 環境変数や明示の `--color=never` は常にこの設定より優先されます。`--wide` / `--json` 出力には色は付きません。 |
@@ -84,6 +84,7 @@ Traceary はオプションの JSON 設定ファイルを `~/.config/traceary/co
 - Traceary 自身の backend へ telemetry を送信しません
 - `traceary audit` の payload は、redaction / truncation がかからない限り、ローカル SQLite store に保存されます
 - `prompt` イベント（`UserPromptSubmit` hook 経由）と `compact_summary` イベント（`PostCompact` hook 経由）は、redaction / truncation なしでそのまま保存されます — ユーザーの意図を記録することが Traceary の目的であるため、これは設計上の選択です
+- `transcript` イベント（Claude `Stop` hook、`traceary log --kind transcript`、MCP `add_log` の `kind=transcript` 経由）は、`audit` と同じ方式で redaction されます（組み込み redactor + `redact.extra_patterns`）。assistant の transcript は shell 出力やファイル内容を再掲することが多く、secret を含む可能性が高いためです
 - secret redaction はベストエフォートであり、完全な DLP ではありません
 
 ## 関連ドキュメント

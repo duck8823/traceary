@@ -39,7 +39,7 @@ Traceary reads an optional JSON configuration file from `~/.config/traceary/conf
 
 | Key | Type | Purpose |
 | --- | --- | --- |
-| `redact.extra_patterns` | string array | Extra regex patterns for audit and transcript redaction. Each entry is compiled as a Go `regexp` pattern and matched content is replaced with `[REDACTED]`. Applied after the built-in redaction rules in both the CLI (`traceary audit`, Claude Stop-hook transcript capture) and MCP server (`add_audit`). |
+| `redact.extra_patterns` | string array | Extra regex patterns for audit and transcript redaction. Each entry is compiled as a Go `regexp` pattern and matched content is replaced with `[REDACTED]`. Applied after the built-in redaction rules in both the CLI (`traceary audit`, `traceary log --kind transcript`, Claude Stop-hook transcript capture) and MCP server (`add_audit`, `add_log` with `kind=transcript`). |
 | `read.fields` | string array | Default compact column order for `traceary tail` / `list` / `search` text output when `--fields` is omitted. Accepted field names: `ts`, `kind`, `session`, `ws`, `client`, `agent`, `message`, `exit_code`, `id`. Unknown / empty / duplicate entries are rejected at command runtime; the `--fields` flag always overrides this setting. Does not affect `--wide` or `--json` output. |
 | `read.presets` | object | Named saved views for `traceary tail` / `list` / `search`, applied via `--preset <name>`. Each entry can set `fields` (same registry as `read.fields`) and `filters` (any of `kind`, `failures`, `workspace`, `session_id`, `client`, `agent`). Explicit CLI flags always override preset values. Entries whose name collides with a built-in preset (`failures`, `prompts-only`, `compact-summaries`) win over the built-in but emit a `[WARN]` line on stderr. |
 | `read.color` | string | Default `--color` mode for `traceary tail` / `list` / `search` compact text output. Accepted values: `auto`, `always`, `never`. `auto` colorizes only when stdout is a TTY. `NO_COLOR` env and explicit `--color=never` always win over the config. `--wide` and `--json` output are always uncolored regardless of this setting. |
@@ -84,6 +84,7 @@ If the file exists but is unreadable or invalid JSON, Traceary falls back to the
 - Traceary does not send telemetry to a Traceary-owned backend
 - when you run `traceary audit`, payloads are written to your local SQLite store unless redaction or truncation changes them first
 - `prompt` events (from `UserPromptSubmit` hooks) and `compact_summary` events (from `PostCompact` hooks) are stored as-is without redaction or truncation — this is by design, as recording the user's intent is a core purpose of Traceary
+- `transcript` events (from Claude `Stop` hook, `traceary log --kind transcript`, or MCP `add_log` with `kind=transcript`) are redacted in the same way as `audit` events (built-in redactors plus `redact.extra_patterns`) because assistant transcripts routinely re-state shell output and file contents that include secrets
 - secret redaction is best effort, not a complete data-loss-prevention system
 
 ## Related docs

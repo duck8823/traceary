@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application/redaction"
 	"github.com/duck8823/traceary/domain/types"
 )
 
@@ -110,7 +111,20 @@ func (c *RootCLI) runLog(ctx context.Context, output io.Writer, input logCommand
 	sessionID, _ := types.SessionIDOf(sessionResolution.sessionID)
 	workspace := types.Workspace(resolvedRepo)
 	kind := types.EventKind(strings.TrimSpace(input.kind))
-	event, err := c.event.Log(ctx, input.message, kind, client, agent, sessionID, workspace)
+	message := input.message
+	// Match the Stop-hook transcript capture policy (#626) and the MCP
+	// add_log path (#648): when the caller records a transcript event
+	// through the CLI, run the same redactor chain before persistence.
+	// Prompt / compact_summary bodies are left verbatim on purpose —
+	// operator intent is documented in docs/environment/README.md.
+	if kind == types.EventKindTranscript {
+		extraRedactors, compileErr := redaction.CompileExtraPatterns(c.extraRedactPatterns)
+		if compileErr != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to compile extra redaction patterns for transcript", "transcript 用の extra redaction pattern の compile に失敗しました"), compileErr)
+		}
+		message, _ = redaction.Apply(message, extraRedactors)
+	}
+	event, err := c.event.Log(ctx, message, kind, client, agent, sessionID, workspace)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to record log", "ログ記録に失敗しました"), err)
 	}
