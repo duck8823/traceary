@@ -108,7 +108,7 @@ accepted memory layer を定期的に手入れしたいときに使います。
 - `traceary memory hygiene apply --ids id1,id2,...`
 - MCP `scan_memory_hygiene`
 
-scan は accepted memory に対して 3 種類の条件をチェックします: 現在の redaction ルールで mask されるべき内容 (`redaction_hit`)、`--expiry-days` 以上更新が無い stale row (`expiry_candidate`)、同一 scope + 同一 fact の衝突 (`duplicate`)。apply は `--ids` に渡した memory について該当 suggestion の lifecycle transition を commit します (`redaction_hit` は sanitized fact に supersede、`expiry_candidate` は expire、`duplicate` は reject)。MCP 側の `scan_memory_hygiene` は read-only で、agent からも同じ hygiene 候補を確認できます。
+scan は accepted memory に対して 5 種類の条件をチェックします: 現在の redaction ルールで mask されるべき内容 (`redaction_hit`)、`--expiry-days` 以上更新が無い stale row (`expiry_candidate`)、同一 scope + 同一 fact の衝突 (`duplicate`)、scope を共有し単語 Jaccard 類似度が閾値を超える書き換えペア (`supersede_candidate`)、`(scope, type)` を共有し明示的な temporal validity window が重なるペア (`validity_overlap_supersede`)。validity_overlap_supersede はより具体的なシグナルで、両方の検出に該当するペアは重複表示せず `validity_overlap_supersede` 側だけ報告します。apply は `--ids` に渡した memory について該当 suggestion の lifecycle transition を commit します (`redaction_hit` は sanitized fact に supersede、`expiry_candidate` は expire、`duplicate` は reject、`supersede_candidate` / `validity_overlap_supersede` は新しい memory の fact で supersede)。MCP 側の `scan_memory_hygiene` は read-only で、agent からも同じ hygiene 候補を確認できます。
 
 ### ブリッジ / 書き出し経路
 

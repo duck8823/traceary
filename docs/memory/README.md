@@ -111,14 +111,22 @@ Use this periodically to keep the accepted layer tidy:
 - `traceary memory hygiene apply --ids id1,id2,...`
 - MCP `scan_memory_hygiene`
 
-Scan flags three conditions on `accepted` memories: content the current
+Scan flags five conditions on `accepted` memories: content the current
 redaction rules would mask (`redaction_hit`), stale rows that have not
-been updated in longer than `--expiry-days` (`expiry_candidate`), and
-scope + fact collisions (`duplicate`). Apply commits the lifecycle
-transition implied by each suggestion for the listed memory ids —
-`redaction_hit` becomes a supersede with the sanitized fact,
-`expiry_candidate` becomes an expire, `duplicate` becomes a reject.
-MCP exposes the scanner (read-only) via `scan_memory_hygiene` so agents
+been updated in longer than `--expiry-days` (`expiry_candidate`),
+scope + fact collisions (`duplicate`), scope-sharing pairs whose facts
+are similar enough to be rephrasings of the same idea
+(`supersede_candidate`), and `(scope, type)`-sharing pairs whose
+explicit temporal validity windows overlap (`validity_overlap_supersede`).
+The validity-overlap detector is the more specific signal: a pair that
+qualifies for both is reported only under `validity_overlap_supersede`
+to keep the reviewer's list free of duplicates. Apply commits the
+lifecycle transition implied by each suggestion for the listed memory
+ids — `redaction_hit` becomes a supersede with the sanitized fact,
+`expiry_candidate` becomes an expire, `duplicate` becomes a reject,
+and both `supersede_candidate` and `validity_overlap_supersede` become
+a supersede using the newer memory's fact as the replacement. MCP
+exposes the scanner (read-only) via `scan_memory_hygiene` so agents
 can surface hygiene suggestions alongside the inbox review workflow.
 
 ### Bridge / export path
