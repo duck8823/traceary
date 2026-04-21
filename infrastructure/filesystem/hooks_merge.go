@@ -13,7 +13,7 @@ import (
 )
 
 // hookMergeDiff describes how a non-destructive merge would change the
-// Traceary-managed subset of a hook configuration. The three event slices
+// Traceary-managed subset of a hook configuration. The four event slices
 // are disjoint and sorted alphabetically for stable output.
 //
 // AddedEvents     : the event had no Traceary-managed commands in the
@@ -25,10 +25,16 @@ import (
 //                   or binary-path rename).
 // PreservedEvents : the normalized Traceary command set is identical, so
 //                   re-running would produce the same bytes.
+// RemovedEvents   : the event is only in the existing config (no longer
+//                   emitted by the current release) but held Traceary-
+//                   managed commands; the merge strips those so the
+//                   Traceary footprint on disk stays consistent with the
+//                   running binary.
 type hookMergeDiff struct {
 	AddedEvents     []string
 	RefreshedEvents []string
 	PreservedEvents []string
+	RemovedEvents   []string
 }
 
 // mergeHooksDocument is the original merge entry point that discards the
@@ -69,7 +75,9 @@ func mergeHooksDocumentWithDiff(existingContent []byte, hooks model.Hooks) ([]by
 		}
 	}
 
+	desiredEventSet := make(map[string]struct{}, len(hooks.EventOrder()))
 	for _, event := range hooks.EventOrder() {
+		desiredEventSet[event] = struct{}{}
 		desiredKeys := tracearyManagedKeySet(desired.Hooks[event])
 		if len(desiredKeys) == 0 {
 			continue
@@ -84,12 +92,38 @@ func mergeHooksDocumentWithDiff(existingContent []byte, hooks model.Hooks) ([]by
 			diff.RefreshedEvents = append(diff.RefreshedEvents, event)
 		}
 	}
+	// Obsolete events: existing Traceary-managed entries for events the
+	// current release no longer emits. We strip those commands during
+	// the merge (empty desired matcher list) so upgrades remove hooks
+	// that were retired between releases, and surface them under
+	// RemovedEvents so the CLI summary can explain the change.
+	for event, matchers := range existingHooks {
+		if _, inDesired := desiredEventSet[event]; inDesired {
+			continue
+		}
+		if len(tracearyManagedKeySet(matchers)) == 0 {
+			continue
+		}
+		diff.RemovedEvents = append(diff.RemovedEvents, event)
+	}
 	sort.Strings(diff.AddedEvents)
 	sort.Strings(diff.RefreshedEvents)
 	sort.Strings(diff.PreservedEvents)
+	sort.Strings(diff.RemovedEvents)
 
 	for event, desiredMatchers := range desired.Hooks {
 		existingHooks[event] = mergeHookMatchers(existingHooks[event], desiredMatchers)
+	}
+	for _, event := range diff.RemovedEvents {
+		// Strip Traceary-managed commands for retired events; leave the
+		// event entry behind (empty) if non-Traceary hooks remain, or
+		// drop the key entirely otherwise so the file stays clean.
+		filtered := mergeHookMatchers(existingHooks[event], nil)
+		if len(filtered) == 0 {
+			delete(existingHooks, event)
+		} else {
+			existingHooks[event] = filtered
+		}
 	}
 
 	encodedHooks, err := json.MarshalIndent(existingHooks, "", "  ")

@@ -117,6 +117,7 @@ func (o *HooksOrchestrator) UpgradeWithMatcher(
 		AddedEvents:     append([]string(nil), diff.AddedEvents...),
 		RefreshedEvents: append([]string(nil), diff.RefreshedEvents...),
 		PreservedEvents: append([]string(nil), diff.PreservedEvents...),
+		RemovedEvents:   append([]string(nil), diff.RemovedEvents...),
 	}, nil
 }
 

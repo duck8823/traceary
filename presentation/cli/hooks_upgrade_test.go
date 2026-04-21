@@ -160,6 +160,60 @@ func TestHooksInstall_UpgradeRejectsForceCombination(t *testing.T) {
 	}
 }
 
+// TestHooksInstall_UpgradeSkipsWhenClaudePluginActive asserts that
+// `--upgrade` on the Claude client short-circuits when the Traceary
+// Claude Code plugin is enabled, and that the skip notice does NOT
+// suggest `--force` as the remediation (that flag would overwrite user
+// hooks, which is the opposite of what --upgrade wants).
+func TestHooksInstall_UpgradeSkipsWhenClaudePluginActive(t *testing.T) {
+	projectDir := t.TempDir()
+	homeDir := t.TempDir()
+	// Write a plugin-active settings.json in the fake home directory.
+	if err := os.MkdirAll(filepath.Join(homeDir, ".claude"), 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(homeDir, ".claude", "settings.json"), []byte(`{
+  "enabledPlugins": {
+    "traceary@traceary-plugins": true
+  }
+}`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	rootCmd := newTestRootCLI().Command()
+	stdout := &bytes.Buffer{}
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"hooks", "install",
+		"--client", "claude",
+		"--project-dir", projectDir,
+		"--traceary-bin", "traceary",
+		"--upgrade",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	settingsPath := filepath.Join(projectDir, ".claude", "settings.json")
+	if _, err := os.Stat(settingsPath); !os.IsNotExist(err) {
+		t.Fatalf("settings.json should not be written under --upgrade when plugin is active; stat err = %v", err)
+	}
+
+	output := stdout.String()
+	// The upgrade-specific skip notice must name the plugin and NOT
+	// point users at --force (which would clobber user hooks).
+	if !strings.Contains(output, "traceary@traceary-plugins") {
+		t.Errorf("stdout = %q; want upgrade-skip notice naming the plugin", output)
+	}
+	if strings.Contains(output, "--force") {
+		t.Errorf("stdout = %q; --upgrade skip notice must NOT suggest --force (would clobber user hooks)", output)
+	}
+}
+
 // TestHooksInstall_UpgradePreservesUserAddedHooks asserts that user
 // hooks in the target file are left alone while only Traceary-managed
 // entries are refreshed.

@@ -160,7 +160,8 @@ traceary hooks install --client codex --upgrade
 - 既存ファイルを決して上書きしない (`--force` とは排他)
 - ユーザー追加の非 Traceary hook はそのまま残す
 - Traceary 管理分のみ最新の定義で置き換える (バイナリパス変更や script 形式 → 直接呼び出し形式へのリライトも対象)
-- イベント単位のサマリを表示 (`追加: UserPromptSubmit`、`更新: ...`、`変更なし: ...`)
+- 現行リリースで廃止された event に残っている Traceary 管理 entry は削除し、稼働中のバイナリと Traceary フットプリントを一致させる (`削除` として表示)
+- イベント単位のサマリを表示 (`追加: UserPromptSubmit`、`更新: ...`、`削除: ...`、`変更なし: ...`)
 - idempotent — アップグレード後に再実行すると「既に最新」と表示し、ファイルはバイト同一で維持される
 
 `hooks install` の実行後には、そのまま確認に使える `doctor` コマンドも出力します。

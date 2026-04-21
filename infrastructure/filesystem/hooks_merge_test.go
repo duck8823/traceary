@@ -300,6 +300,119 @@ func TestMergeHooksDocumentWithDiff_MissingEventAdded(t *testing.T) {
 	}
 }
 
+func TestMergeHooksDocumentWithDiff_StripsObsoleteTracearyEvents(t *testing.T) {
+	t.Parallel()
+
+	// existing holds a Traceary-managed command for a retired event name
+	// (PreToolUseLegacy) that the current release no longer emits. The
+	// merge should strip the stale entry and surface it as Removed.
+	existing := []byte(`{
+  "hooks": {
+    "PreToolUseLegacy": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {"type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {"type": "command", "command": "'traceary' 'hook' 'session' 'claude' 'start'"}
+        ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {"type": "command", "command": "'traceary' 'hook' 'compact' 'claude' 'session-start-compact'"}
+        ]
+      }
+    ]
+  }
+}`)
+	desired := (&ClaudeHooksHandler{}).Build("traceary")
+
+	merged, diff, err := mergeHooksDocumentWithDiff(existing, desired)
+	if err != nil {
+		t.Fatalf("mergeHooksDocumentWithDiff() error = %v", err)
+	}
+
+	foundRemoved := false
+	for _, event := range diff.RemovedEvents {
+		if event == "PreToolUseLegacy" {
+			foundRemoved = true
+			break
+		}
+	}
+	if !foundRemoved {
+		t.Fatalf("expected PreToolUseLegacy in RemovedEvents, got removed=%v", diff.RemovedEvents)
+	}
+
+	if strings.Contains(string(merged), "PreToolUseLegacy") {
+		t.Fatalf("merged output still references retired event: %s", merged)
+	}
+}
+
+func TestMergeHooksDocumentWithDiff_ObsoleteEventKeepsUserHooks(t *testing.T) {
+	t.Parallel()
+
+	// Retired event with both a Traceary command and a user command.
+	// The Traceary command must be stripped, but the user command
+	// must stay and the event key must survive with only the user hook.
+	existing := []byte(`{
+  "hooks": {
+    "PreToolUseLegacy": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {"type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"},
+          {"type": "command", "command": "echo user-pretool"}
+        ]
+      }
+    ]
+  }
+}`)
+	desired := (&ClaudeHooksHandler{}).Build("traceary")
+
+	merged, diff, err := mergeHooksDocumentWithDiff(existing, desired)
+	if err != nil {
+		t.Fatalf("mergeHooksDocumentWithDiff() error = %v", err)
+	}
+
+	foundRemoved := false
+	for _, event := range diff.RemovedEvents {
+		if event == "PreToolUseLegacy" {
+			foundRemoved = true
+			break
+		}
+	}
+	if !foundRemoved {
+		t.Fatalf("expected PreToolUseLegacy in RemovedEvents, got removed=%v", diff.RemovedEvents)
+	}
+
+	if !strings.Contains(string(merged), "echo user-pretool") {
+		t.Fatalf("merged output dropped user hook under retired event: %s", merged)
+	}
+	if strings.Contains(string(merged), "'traceary' 'hook' 'audit' 'claude'") && strings.Count(string(merged), "PreToolUseLegacy") > 0 {
+		// Command appears elsewhere (e.g. PostToolUseFailure) but it
+		// must not appear under the retired PreToolUseLegacy event.
+		// A string-split check is good enough here.
+		if strings.Contains(string(merged), `"PreToolUseLegacy": [`) {
+			// Walk the event's array bounds.
+			start := strings.Index(string(merged), `"PreToolUseLegacy": [`)
+			end := strings.Index(string(merged)[start:], "]")
+			if end > 0 {
+				segment := string(merged)[start : start+end]
+				if strings.Contains(segment, "'traceary' 'hook' 'audit' 'claude'") {
+					t.Fatalf("retired event still lists traceary command: %s", segment)
+				}
+			}
+		}
+	}
+}
+
 func TestExtractTracearyManagedKey(t *testing.T) {
 	t.Parallel()
 

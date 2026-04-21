@@ -197,6 +197,25 @@ func (c *RootCLI) runHooksInstall(
 	canonicalClient := normalizeHooksClientForDisplay(c, input.client)
 	if canonicalClient == "claude" {
 		detection := detectClaudeTracearyPluginForCLI()
+		if detection.Active && input.upgrade {
+			// --upgrade is the non-destructive path, so pointing users
+			// at --force here would be actively wrong: --force clobbers
+			// user hooks, which is the opposite of what --upgrade is
+			// for. Explain that the plugin already owns the migration
+			// instead, and return cleanly.
+			if _, err := fmt.Fprintf(
+				output,
+				Localize(
+					"Skipped upgrade: Traceary plugin %q is already enabled in %s.\nThe plugin's packaged hooks.json is updated with the plugin itself, so no settings.json migration is needed. Upgrade the plugin version to pick up new hook events, or disable the plugin first if you want Traceary to manage settings.json directly.\n",
+					"アップグレードをスキップしました: Traceary plugin %q が %s で既に有効です。\nplugin 配布の hooks.json は plugin 自体のアップデートで最新化されるため、settings.json のマイグレーションは不要です。新しい hook event を取り込むには plugin のバージョンを上げるか、settings.json を Traceary で直接管理したい場合は plugin を一旦無効化してください。\n",
+				),
+				detection.PluginKey,
+				detection.SettingsPath,
+			); err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to print plugin upgrade skip notice", "plugin upgrade skip 通知の出力に失敗しました"), err)
+			}
+			return nil
+		}
 		if detection.Active && !input.force {
 			if _, err := fmt.Fprintf(
 				output,
@@ -324,7 +343,7 @@ func writeHookUpgradeSummary(
 	diff application.HookUpgradeDiff,
 ) error {
 	canonicalClient := normalizeHooksClientForDisplay(c, input.client)
-	if len(diff.AddedEvents) == 0 && len(diff.RefreshedEvents) == 0 {
+	if len(diff.AddedEvents) == 0 && len(diff.RefreshedEvents) == 0 && len(diff.RemovedEvents) == 0 {
 		if _, err := fmt.Fprintf(
 			output,
 			Localize(
@@ -343,12 +362,13 @@ func writeHookUpgradeSummary(
 	if _, err := fmt.Fprintf(
 		output,
 		Localize(
-			"Upgrade: wrote %s\n  Added %d event(s): %s\n  Refreshed %d event(s): %s\n  Unchanged %d event(s): %s\nNext step: traceary doctor --client %s --project-dir %s\n",
-			"アップグレード: %s に書き出しました\n  追加 %d 件: %s\n  更新 %d 件: %s\n  変更なし %d 件: %s\n次の確認: traceary doctor --client %s --project-dir %s\n",
+			"Upgrade: wrote %s\n  Added %d event(s): %s\n  Refreshed %d event(s): %s\n  Removed %d event(s): %s\n  Unchanged %d event(s): %s\nNext step: traceary doctor --client %s --project-dir %s\n",
+			"アップグレード: %s に書き出しました\n  追加 %d 件: %s\n  更新 %d 件: %s\n  削除 %d 件: %s\n  変更なし %d 件: %s\n次の確認: traceary doctor --client %s --project-dir %s\n",
 		),
 		resolvedOutputPath,
 		len(diff.AddedEvents), formatEventList(diff.AddedEvents),
 		len(diff.RefreshedEvents), formatEventList(diff.RefreshedEvents),
+		len(diff.RemovedEvents), formatEventList(diff.RemovedEvents),
 		len(diff.PreservedEvents), formatEventList(diff.PreservedEvents),
 		canonicalClient,
 		shellQuote(resolvedProjectDir),

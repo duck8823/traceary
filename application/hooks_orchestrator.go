@@ -7,7 +7,7 @@ import (
 )
 
 // HookUpgradeDiff reports which events changed during a non-destructive
-// hook install (merge-only mode). The three slices are disjoint.
+// hook install (merge-only mode). The four slices are disjoint.
 //
 // AddedEvents     : events that had no Traceary-managed commands before
 //                   but now do (new hook coverage).
@@ -17,10 +17,17 @@ import (
 // PreservedEvents : events whose normalized command set matched; the
 //                   merged output is byte-identical for these events,
 //                   which is what makes --upgrade idempotent.
+// RemovedEvents   : events present only in the existing config that held
+//                   Traceary-managed commands for an event the current
+//                   release no longer emits (e.g. a hook retired between
+//                   releases). Those stale commands are stripped during
+//                   the merge so the upgrade leaves the Traceary footprint
+//                   consistent with the running binary.
 type HookUpgradeDiff struct {
 	AddedEvents     []string
 	RefreshedEvents []string
 	PreservedEvents []string
+	RemovedEvents   []string
 }
 
 // HooksOrchestrator is the application-level entrypoint for hook generation

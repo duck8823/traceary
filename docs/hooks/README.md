@@ -160,7 +160,8 @@ The flag runs the same merge path as the default install but explicitly:
 - never overwrites the destination file (mutually exclusive with `--force`),
 - preserves every non-Traceary hook the user added,
 - refreshes only the Traceary-managed entries (binary path changes, script-form → direct-form rewrites),
-- prints a per-event summary (`Added: UserPromptSubmit`, `Refreshed: …`, `Unchanged: …`),
+- strips Traceary-managed entries for events the current release no longer emits, so the Traceary footprint stays consistent with the running binary (reported as `Removed`),
+- prints a per-event summary (`Added: UserPromptSubmit`, `Refreshed: …`, `Removed: …`, `Unchanged: …`),
 - is idempotent — re-running after an upgrade reports `already up to date` and leaves the file byte-identical.
 
 After `hooks install`, Traceary prints the matching `doctor` command so you can immediately verify the generated config in the same environment.
