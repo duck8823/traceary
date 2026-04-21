@@ -352,7 +352,7 @@ func (s *Server) activeSession() mcp.ToolHandlerFor[sessionLookupInput, sessionE
 
 func (s *Server) addAudit() mcp.ToolHandlerFor[addAuditInput, addAuditOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input addAuditInput) (*mcp.CallToolResult, addAuditOutput, error) {
-		redaction := apptypes.NewAuditRedactionBuilder().
+		auditCfg := apptypes.NewAuditRedactionBuilder().
 			ExtraRedactPatterns(s.extraRedactPatterns).
 			Build()
 		event, audit, err := s.event.Audit(ctx,
@@ -364,7 +364,7 @@ func (s *Server) addAudit() mcp.ToolHandlerFor[addAuditInput, addAuditOutput] {
 			types.SessionID(resolveValue(input.SessionID, defaultSessionValue)),
 			types.Workspace(strings.TrimSpace(input.Workspace)),
 			types.None[int](), // no exit code from MCP
-			redaction,
+			auditCfg,
 		)
 		if err != nil {
 			return nil, addAuditOutput{}, xerrors.Errorf("failed to record command audit: %w", err)

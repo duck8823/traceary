@@ -333,7 +333,7 @@ func (c *RootCLI) runHookAudit(
 		}
 	}
 
-	redaction := apptypes.NewAuditRedactionBuilder().
+	auditCfg := apptypes.NewAuditRedactionBuilder().
 		ExtraRedactPatterns(c.extraRedactPatterns).
 		Build()
 	_, _, err = c.event.Audit(
@@ -346,7 +346,7 @@ func (c *RootCLI) runHookAudit(
 		sessionID,
 		workspace,
 		hookPayloadExitCode(payload),
-		redaction,
+		auditCfg,
 	)
 
 	if err != nil {

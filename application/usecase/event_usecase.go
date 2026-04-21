@@ -14,7 +14,7 @@ type EventUsecase interface {
 	Log(ctx context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace) (*model.Event, error)
 
 	// Audit records a command execution audit event.
-	Audit(ctx context.Context, command string, input string, output string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, exitCode types.Optional[int], redaction apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error)
+	Audit(ctx context.Context, command string, input string, output string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, exitCode types.Optional[int], auditCfg apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error)
 
 	// Search performs full-text search across events.
 	Search(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error)
