@@ -214,6 +214,75 @@ func TestHooksInstall_UpgradeSkipsWhenClaudePluginActive(t *testing.T) {
 	}
 }
 
+// TestHooksInstall_UpgradeDetectsMatcherPresetChange asserts that a
+// Claude --matcher preset change (minimal → all) is surfaced as a
+// Refreshed event instead of being misreported as "already up to date"
+// while the file bytes still change. Regression guard for the Codex
+// verifier finding on PR #656.
+func TestHooksInstall_UpgradeDetectsMatcherPresetChange(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	// First upgrade with --matcher minimal so the file carries the
+	// minimal matcher row set.
+	rootCmd := newTestRootCLI().Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"hooks", "install",
+		"--client", "claude",
+		"--project-dir", projectDir,
+		"--traceary-bin", "traceary",
+		"--upgrade",
+		"--matcher", "minimal",
+	})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("first Execute() error = %v", err)
+	}
+	settingsPath := filepath.Join(projectDir, ".claude", "settings.json")
+	minimalContent, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	// Second upgrade with --matcher all changes Claude matcher rows
+	// even though the managed command keys remain identical. The diff
+	// must classify affected events as Refreshed, not Preserved.
+	rootCmd = newTestRootCLI().Command()
+	stdout := &bytes.Buffer{}
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"hooks", "install",
+		"--client", "claude",
+		"--project-dir", projectDir,
+		"--traceary-bin", "traceary",
+		"--upgrade",
+		"--matcher", "all",
+	})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("second Execute() error = %v", err)
+	}
+
+	allContent, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(minimalContent) == string(allContent) {
+		t.Fatalf("matcher change minimal→all should rewrite file; contents identical")
+	}
+
+	output := stdout.String()
+	if strings.Contains(output, "already up to date") || strings.Contains(output, "既に最新") {
+		t.Errorf("stdout = %q; matcher-only change must NOT report 'already up to date'", output)
+	}
+	if !strings.Contains(output, "Refreshed") && !strings.Contains(output, "更新") {
+		t.Errorf("stdout = %q; matcher-only change must surface a Refreshed summary", output)
+	}
+}
+
 // TestHooksInstall_UpgradePreservesUserAddedHooks asserts that user
 // hooks in the target file are left alone while only Traceary-managed
 // entries are refreshed.

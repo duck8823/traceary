@@ -154,15 +154,24 @@ func hasTracearyManagedCommands(matchers []hookMatcherDocument) bool {
 	return false
 }
 
-// tracearyManagedKeySet returns the set of normalized managed keys found in
-// the matcher list. Keys are stable across binary path / script path
-// rewrites, so identical sets imply identical Traceary coverage.
+// tracearyManagedKeySet returns the set of normalized (matcher, managed key)
+// pairs found in the matcher list. Keys are stable across binary path /
+// script path rewrites, so identical sets imply identical Traceary
+// coverage. The matcher pattern is part of the key because Claude Code
+// uses the same command with different PostToolUse matchers for different
+// `--matcher` presets — without the matcher column the diff would
+// misreport a matcher-preset change as "unchanged" while the merged
+// bytes actually differ.
 func tracearyManagedKeySet(matchers []hookMatcherDocument) map[string]struct{} {
 	keys := make(map[string]struct{})
 	for _, matcher := range matchers {
+		matcherValue := ""
+		if matcher.Matcher != nil {
+			matcherValue = *matcher.Matcher
+		}
 		for _, command := range matcher.Hooks {
 			if key := extractTracearyManagedKey(command.Command); key != "" {
-				keys[key] = struct{}{}
+				keys[matcherValue+"\x00"+key] = struct{}{}
 			}
 		}
 	}
