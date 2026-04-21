@@ -83,6 +83,7 @@ type gcCommandInput struct {
 type hooksPrintCommandInput struct {
 	client      string
 	tracearyBin string
+	matcher     string
 }
 
 // hooksInstallCommandInput is the resolved input to `traceary hooks install`.

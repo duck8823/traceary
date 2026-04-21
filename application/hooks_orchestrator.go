@@ -15,6 +15,13 @@ type HooksOrchestrator interface {
 	// binary.
 	Generate(ctx context.Context, client string, tracearyBin string) ([]byte, error)
 
+	// GenerateWithMatcher is the matcher-aware variant of Generate. The
+	// matcher preset only affects clients that honor a preset (Claude
+	// Code today); other clients ignore the value. Empty string means
+	// "use the client's default matcher set" and is equivalent to
+	// calling Generate directly.
+	GenerateWithMatcher(ctx context.Context, client string, tracearyBin string, matcherPreset string) ([]byte, error)
+
 	// Install writes the hook configuration file for the given client.
 	// outputPath overrides the default install path when present. force
 	// overwrites the existing file instead of merging with it.

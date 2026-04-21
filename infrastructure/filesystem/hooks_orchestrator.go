@@ -41,18 +41,29 @@ func NewHooksOrchestrator(handlers map[string]application.HooksClientHandler) *H
 	return &HooksOrchestrator{handlers: registry}
 }
 
-// Generate renders the hook configuration for the given client.
+// Generate renders the hook configuration for the given client with
+// the default matcher preset.
 func (o *HooksOrchestrator) Generate(
+	ctx context.Context,
+	client string,
+	tracearyBin string,
+) ([]byte, error) {
+	return o.GenerateWithMatcher(ctx, client, tracearyBin, "")
+}
+
+// GenerateWithMatcher is the matcher-aware variant of Generate.
+func (o *HooksOrchestrator) GenerateWithMatcher(
 	_ context.Context,
 	client string,
 	tracearyBin string,
+	matcherPreset string,
 ) ([]byte, error) {
 	handler, err := o.resolveHandler(client)
 	if err != nil {
 		return nil, err
 	}
 
-	return marshalHooks(handler.Build(tracearyBin))
+	return marshalHooks(buildHooksForInstall(handler, tracearyBin, matcherPreset))
 }
 
 // Install writes the hook configuration file for the given client

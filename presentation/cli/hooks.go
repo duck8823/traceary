@@ -83,6 +83,7 @@ func (c *RootCLI) newHooksPrintCommand() *cobra.Command {
 	var (
 		client      string
 		tracearyBin string
+		matcher     string
 	)
 
 	printCmd := &cobra.Command{
@@ -94,6 +95,7 @@ func (c *RootCLI) newHooksPrintCommand() *cobra.Command {
 		),
 		Example: strings.Join([]string{
 			"  traceary hooks print --client claude",
+			"  traceary hooks print --client claude --matcher minimal",
 			"  traceary hooks print --client gemini-cli --traceary-bin ~/bin/traceary",
 		}, "\n"),
 		Args: noArgsLocalized(),
@@ -101,11 +103,13 @@ func (c *RootCLI) newHooksPrintCommand() *cobra.Command {
 			return c.runHooksPrint(cmd.Context(), cmd.OutOrStdout(), hooksPrintCommandInput{
 				client:      client,
 				tracearyBin: tracearyBin,
+				matcher:     matcher,
 			})
 		},
 	}
 	printCmd.Flags().StringVar(&client, "client", "", hooksClientFlagUsage)
 	printCmd.Flags().StringVar(&tracearyBin, "traceary-bin", "", Localize("traceary binary path or command name", "traceary バイナリパス"))
+	printCmd.Flags().StringVar(&matcher, "matcher", "", Localize("Claude PostToolUse matcher preset: minimal (Bash + mcp__.*), default (+ built-in tool list), all (+ .*). Ignored for other clients.", "Claude PostToolUse matcher preset: minimal (Bash + mcp__.*), default (+ 組み込み tool 列), all (+ .*)。他 client では無視されます。"))
 
 	return printCmd
 }
@@ -123,7 +127,21 @@ func (c *RootCLI) runHooksPrint(
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve traceary binary path", "traceary binary path の解決に失敗しました"), err)
 	}
 
-	encoded, err := c.hooksOrchestrator.Generate(ctx, input.client, resolvedTracearyBin)
+	matcherPreset := strings.TrimSpace(input.matcher)
+	if matcherPreset != "" {
+		switch matcherPreset {
+		case "minimal", "default", "all":
+			// accepted
+		default:
+			return xerrors.Errorf(
+				"%s: %q %s",
+				Localize("invalid --matcher value", "--matcher の値が不正です"),
+				matcherPreset,
+				Localize("(allowed: minimal, default, all)", "(許容値: minimal, default, all)"),
+			)
+		}
+	}
+	encoded, err := c.hooksOrchestrator.GenerateWithMatcher(ctx, input.client, resolvedTracearyBin, matcherPreset)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to build hook configuration example", "hook 設定例の生成に失敗しました"), err)
 	}
