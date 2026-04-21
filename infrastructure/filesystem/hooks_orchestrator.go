@@ -83,7 +83,7 @@ func (o *HooksOrchestrator) Install(
 // Clients that do not honor a matcher preset ignore the value — only
 // Claude Code respects it today, via ClaudeHooksHandler.BuildWithMatcher.
 func (o *HooksOrchestrator) InstallWithMatcher(
-	_ context.Context,
+	ctx context.Context,
 	client string,
 	tracearyBin string,
 	projectDir string,
@@ -91,30 +91,72 @@ func (o *HooksOrchestrator) InstallWithMatcher(
 	force bool,
 	matcherPreset string,
 ) (string, error) {
+	path, _, err := o.installWithDiff(ctx, client, tracearyBin, projectDir, outputPath, force, matcherPreset)
+	return path, err
+}
+
+// UpgradeWithMatcher applies the current hook configuration to an existing
+// (or new) config file in merge-only mode and returns a diff describing
+// what changed. Callers should prefer this over InstallWithMatcher when
+// surfacing migration results to the user — the diff identifies which
+// events were added, refreshed, or already up to date. Re-running on an
+// already up-to-date config is a no-op at the byte level.
+func (o *HooksOrchestrator) UpgradeWithMatcher(
+	ctx context.Context,
+	client string,
+	tracearyBin string,
+	projectDir string,
+	outputPath types.Optional[string],
+	matcherPreset string,
+) (string, application.HookUpgradeDiff, error) {
+	path, diff, err := o.installWithDiff(ctx, client, tracearyBin, projectDir, outputPath, false, matcherPreset)
+	if err != nil {
+		return "", application.HookUpgradeDiff{}, err
+	}
+	return path, application.HookUpgradeDiff{
+		AddedEvents:     append([]string(nil), diff.AddedEvents...),
+		RefreshedEvents: append([]string(nil), diff.RefreshedEvents...),
+		PreservedEvents: append([]string(nil), diff.PreservedEvents...),
+		RemovedEvents:   append([]string(nil), diff.RemovedEvents...),
+	}, nil
+}
+
+// installWithDiff is the shared implementation for InstallWithMatcher and
+// UpgradeWithMatcher. The diff is empty when force overwrites the file
+// (no merge performed) or when no existing file was present.
+func (o *HooksOrchestrator) installWithDiff(
+	_ context.Context,
+	client string,
+	tracearyBin string,
+	projectDir string,
+	outputPath types.Optional[string],
+	force bool,
+	matcherPreset string,
+) (string, hookMergeDiff, error) {
 	handler, err := o.resolveHandler(client)
 	if err != nil {
-		return "", err
+		return "", hookMergeDiff{}, err
 	}
 
 	resolvedOutputPath, err := resolveInstallOutputPath(handler, projectDir, outputPath)
 	if err != nil {
-		return "", err
+		return "", hookMergeDiff{}, err
 	}
 
 	hooks := buildHooksForInstall(handler, tracearyBin, matcherPreset)
-	encoded, err := renderInstallContent(resolvedOutputPath, hooks, force)
+	encoded, diff, err := renderInstallContent(resolvedOutputPath, hooks, force)
 	if err != nil {
-		return "", err
+		return "", hookMergeDiff{}, err
 	}
 
 	if err := safeMkdirAll(filepath.Dir(resolvedOutputPath), 0o755); err != nil {
-		return "", xerrors.Errorf("failed to create output directory: %w", err)
+		return "", hookMergeDiff{}, xerrors.Errorf("failed to create output directory: %w", err)
 	}
 	if err := safeWriteFile(resolvedOutputPath, append(encoded, '\n'), 0o644); err != nil {
-		return "", xerrors.Errorf("failed to write settings file: %w", err)
+		return "", hookMergeDiff{}, xerrors.Errorf("failed to write settings file: %w", err)
 	}
 
-	return resolvedOutputPath, nil
+	return resolvedOutputPath, diff, nil
 }
 
 // matcherPresetHandler is the optional interface client handlers
@@ -224,24 +266,30 @@ func resolveInstallOutputPath(
 	return defaultPath, nil
 }
 
-func renderInstallContent(resolvedOutputPath string, hooks model.Hooks, force bool) ([]byte, error) {
+func renderInstallContent(resolvedOutputPath string, hooks model.Hooks, force bool) ([]byte, hookMergeDiff, error) {
+	var diff hookMergeDiff
 	if force {
-		return marshalHooks(hooks)
+		encoded, err := marshalHooks(hooks)
+		return encoded, diff, err
 	}
 
 	existingContent, err := safeReadFile(resolvedOutputPath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return marshalHooks(hooks)
+			encoded, createDiff, merr := mergeHooksDocumentWithDiff(nil, hooks)
+			if merr != nil {
+				return nil, hookMergeDiff{}, xerrors.Errorf("failed to render new hook configuration: %w", merr)
+			}
+			return encoded, createDiff, nil
 		}
 
-		return nil, xerrors.Errorf("failed to read existing settings file: %w", err)
+		return nil, diff, xerrors.Errorf("failed to read existing settings file: %w", err)
 	}
 
-	mergedContent, err := mergeHooksDocument(existingContent, hooks)
+	mergedContent, mergeDiff, err := mergeHooksDocumentWithDiff(existingContent, hooks)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to merge existing hook configuration: %w", err)
+		return nil, hookMergeDiff{}, xerrors.Errorf("failed to merge existing hook configuration: %w", err)
 	}
 
-	return mergedContent, nil
+	return mergedContent, mergeDiff, nil
 }

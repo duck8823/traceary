@@ -146,6 +146,24 @@ Use `--global` to write the hooks to the user-level config instead of the per-pr
 
 If the destination already exists, Traceary stops with an error instead of overwriting it. Review the diff first, then rerun with `--force` only when replacing the existing file is intentional.
 For supported JSON config files, `hooks install` first tries to merge Traceary-managed entries into the existing file while preserving unrelated settings. `--force` skips merge and replaces the file completely.
+
+### Non-destructive migration (`--upgrade`)
+
+Use `--upgrade` when a Traceary release adds a new hook event (for example `UserPromptSubmit`) and you want to catch it up without touching user-added hooks:
+
+```
+traceary hooks install --client codex --upgrade
+```
+
+The flag runs the same merge path as the default install but explicitly:
+
+- never overwrites the destination file (mutually exclusive with `--force`),
+- preserves every non-Traceary hook the user added,
+- refreshes only the Traceary-managed entries (binary path changes, script-form → direct-form rewrites),
+- strips Traceary-managed entries for events the current release no longer emits, so the Traceary footprint stays consistent with the running binary (reported as `Removed`),
+- prints a per-event summary (`Added: UserPromptSubmit`, `Refreshed: …`, `Removed: …`, `Unchanged: …`),
+- is idempotent — re-running after an upgrade reports `already up to date` and leaves the file byte-identical.
+
 After `hooks install`, Traceary prints the matching `doctor` command so you can immediately verify the generated config in the same environment.
 
 **Claude Code plugin interaction.** When the Traceary Claude Code plugin is enabled (detected via `enabledPlugins` in `~/.claude/settings.json`), `hooks install --client claude` skips writing the settings file and prints a notice — the plugin already delivers the same hooks, so installing both would record every audit event twice. Use `--force` only if you deliberately want both registrations (plugin development).

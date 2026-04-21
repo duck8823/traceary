@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -11,43 +12,182 @@ import (
 	"github.com/duck8823/traceary/domain/model"
 )
 
-// mergeHooksDocument merges the desired Hooks aggregate with the existing JSON
-// settings bytes, replacing all previously Traceary-managed hooks while
-// preserving user-defined ones and any unrelated top-level fields.
+// hookMergeDiff describes how a non-destructive merge would change the
+// Traceary-managed subset of a hook configuration. The four event slices
+// are disjoint and sorted alphabetically for stable output.
+//
+// AddedEvents     : the event had no Traceary-managed commands in the
+//                   existing config but the desired config includes at
+//                   least one Traceary command for it.
+// RefreshedEvents : the event already had Traceary-managed commands in
+//                   the existing config, but the normalized command set
+//                   is different from the desired set (upgrade, demotion,
+//                   or binary-path rename).
+// PreservedEvents : the normalized Traceary command set is identical, so
+//                   re-running would produce the same bytes.
+// RemovedEvents   : the event is only in the existing config (no longer
+//                   emitted by the current release) but held Traceary-
+//                   managed commands; the merge strips those so the
+//                   Traceary footprint on disk stays consistent with the
+//                   running binary.
+type hookMergeDiff struct {
+	AddedEvents     []string
+	RefreshedEvents []string
+	PreservedEvents []string
+	RemovedEvents   []string
+}
+
+// mergeHooksDocument is the original merge entry point that discards the
+// diff. Kept for callers that only need the merged bytes.
 func mergeHooksDocument(existingContent []byte, hooks model.Hooks) ([]byte, error) {
+	merged, _, err := mergeHooksDocumentWithDiff(existingContent, hooks)
+	return merged, err
+}
+
+// mergeHooksDocumentWithDiff merges the desired Hooks aggregate with the
+// existing JSON settings bytes (same semantics as mergeHooksDocument) and
+// additionally returns a per-event diff so callers can report what changed.
+func mergeHooksDocumentWithDiff(existingContent []byte, hooks model.Hooks) ([]byte, hookMergeDiff, error) {
+	var diff hookMergeDiff
+
+	desired := hooksDocumentOf(hooks)
+
 	if len(strings.TrimSpace(string(existingContent))) == 0 {
-		return marshalHooks(hooks)
+		for _, event := range hooks.EventOrder() {
+			if hasTracearyManagedCommands(desired.Hooks[event]) {
+				diff.AddedEvents = append(diff.AddedEvents, event)
+			}
+		}
+		sort.Strings(diff.AddedEvents)
+		encoded, err := marshalHooks(hooks)
+		return encoded, diff, err
 	}
 
 	root := map[string]json.RawMessage{}
 	if err := json.Unmarshal(existingContent, &root); err != nil {
-		return nil, xerrors.Errorf("existing settings file must contain a JSON object: %w", err)
+		return nil, diff, xerrors.Errorf("existing settings file must contain a JSON object: %w", err)
 	}
 
 	existingHooks := map[string][]hookMatcherDocument{}
 	if hooksValue, ok := root["hooks"]; ok && len(strings.TrimSpace(string(hooksValue))) > 0 {
 		if err := json.Unmarshal(hooksValue, &existingHooks); err != nil {
-			return nil, xerrors.Errorf("existing hooks field must be a JSON object whose values are hook arrays: %w", err)
+			return nil, diff, xerrors.Errorf("existing hooks field must be a JSON object whose values are hook arrays: %w", err)
 		}
 	}
 
-	desired := hooksDocumentOf(hooks)
+	desiredEventSet := make(map[string]struct{}, len(hooks.EventOrder()))
+	for _, event := range hooks.EventOrder() {
+		desiredEventSet[event] = struct{}{}
+		desiredKeys := tracearyManagedKeySet(desired.Hooks[event])
+		if len(desiredKeys) == 0 {
+			continue
+		}
+		existingKeys := tracearyManagedKeySet(existingHooks[event])
+		switch {
+		case len(existingKeys) == 0:
+			diff.AddedEvents = append(diff.AddedEvents, event)
+		case managedKeySetsEqual(existingKeys, desiredKeys):
+			diff.PreservedEvents = append(diff.PreservedEvents, event)
+		default:
+			diff.RefreshedEvents = append(diff.RefreshedEvents, event)
+		}
+	}
+	// Obsolete events: existing Traceary-managed entries for events the
+	// current release no longer emits. We strip those commands during
+	// the merge (empty desired matcher list) so upgrades remove hooks
+	// that were retired between releases, and surface them under
+	// RemovedEvents so the CLI summary can explain the change.
+	for event, matchers := range existingHooks {
+		if _, inDesired := desiredEventSet[event]; inDesired {
+			continue
+		}
+		if len(tracearyManagedKeySet(matchers)) == 0 {
+			continue
+		}
+		diff.RemovedEvents = append(diff.RemovedEvents, event)
+	}
+	sort.Strings(diff.AddedEvents)
+	sort.Strings(diff.RefreshedEvents)
+	sort.Strings(diff.PreservedEvents)
+	sort.Strings(diff.RemovedEvents)
+
 	for event, desiredMatchers := range desired.Hooks {
 		existingHooks[event] = mergeHookMatchers(existingHooks[event], desiredMatchers)
+	}
+	for _, event := range diff.RemovedEvents {
+		// Strip Traceary-managed commands for retired events; leave the
+		// event entry behind (empty) if non-Traceary hooks remain, or
+		// drop the key entirely otherwise so the file stays clean.
+		filtered := mergeHookMatchers(existingHooks[event], nil)
+		if len(filtered) == 0 {
+			delete(existingHooks, event)
+		} else {
+			existingHooks[event] = filtered
+		}
 	}
 
 	encodedHooks, err := json.MarshalIndent(existingHooks, "", "  ")
 	if err != nil {
-		return nil, xerrors.Errorf("failed to marshal merged hooks JSON: %w", err)
+		return nil, diff, xerrors.Errorf("failed to marshal merged hooks JSON: %w", err)
 	}
 	root["hooks"] = encodedHooks
 
 	encodedRoot, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
-		return nil, xerrors.Errorf("failed to marshal merged settings JSON: %w", err)
+		return nil, diff, xerrors.Errorf("failed to marshal merged settings JSON: %w", err)
 	}
 
-	return encodedRoot, nil
+	return encodedRoot, diff, nil
+}
+
+// hasTracearyManagedCommands reports whether the matcher list contains at
+// least one command recognized as Traceary-managed (direct hook binary
+// invocation or legacy script form).
+func hasTracearyManagedCommands(matchers []hookMatcherDocument) bool {
+	for _, matcher := range matchers {
+		for _, command := range matcher.Hooks {
+			if extractTracearyManagedKey(command.Command) != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// tracearyManagedKeySet returns the set of normalized (matcher, managed key)
+// pairs found in the matcher list. Keys are stable across binary path /
+// script path rewrites, so identical sets imply identical Traceary
+// coverage. The matcher pattern is part of the key because Claude Code
+// uses the same command with different PostToolUse matchers for different
+// `--matcher` presets — without the matcher column the diff would
+// misreport a matcher-preset change as "unchanged" while the merged
+// bytes actually differ.
+func tracearyManagedKeySet(matchers []hookMatcherDocument) map[string]struct{} {
+	keys := make(map[string]struct{})
+	for _, matcher := range matchers {
+		matcherValue := ""
+		if matcher.Matcher != nil {
+			matcherValue = *matcher.Matcher
+		}
+		for _, command := range matcher.Hooks {
+			if key := extractTracearyManagedKey(command.Command); key != "" {
+				keys[matcherValue+"\x00"+key] = struct{}{}
+			}
+		}
+	}
+	return keys
+}
+
+func managedKeySetsEqual(a, b map[string]struct{}) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key := range a {
+		if _, ok := b[key]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func mergeHookMatchers(existing []hookMatcherDocument, desired []hookMatcherDocument) []hookMatcherDocument {
