@@ -1039,9 +1039,10 @@ func convertMemorySummaries(memories []apptypes.MemorySummary) []memorySummaryOu
 			Status:     summary.Status().String(),
 			Confidence: summary.Confidence().String(),
 			Source:     summary.Source().String(),
-			ExpiresAt:  formatOptionalTime(summary.ExpiresAt()),
+			Supersedes: formatOptionalMemoryIDPtr(summary.Supersedes()),
+			ExpiresAt:  formatOptionalTimePtr(summary.ExpiresAt()),
 			ValidFrom:  summary.ValidFrom().UTC().Format(time.RFC3339Nano),
-			ValidTo:    formatOptionalTime(summary.ValidTo()),
+			ValidTo:    formatOptionalTimePtr(summary.ValidTo()),
 			CreatedAt:  summary.CreatedAt().UTC().Format(time.RFC3339Nano),
 			UpdatedAt:  summary.UpdatedAt().UTC().Format(time.RFC3339Nano),
 		})
@@ -1051,10 +1052,6 @@ func convertMemorySummaries(memories []apptypes.MemorySummary) []memorySummaryOu
 
 func newMemoryOutput(details apptypes.MemoryDetails) memoryOutput {
 	summary := details.Summary()
-	supersedes := ""
-	if value, ok := summary.Supersedes().Value(); ok {
-		supersedes = value.String()
-	}
 
 	return memoryOutput{
 		MemoryID:     summary.MemoryID().String(),
@@ -1065,10 +1062,10 @@ func newMemoryOutput(details apptypes.MemoryDetails) memoryOutput {
 		Status:       summary.Status().String(),
 		Confidence:   summary.Confidence().String(),
 		Source:       summary.Source().String(),
-		Supersedes:   supersedes,
-		ExpiresAt:    formatOptionalTime(summary.ExpiresAt()),
+		Supersedes:   formatOptionalMemoryIDPtr(summary.Supersedes()),
+		ExpiresAt:    formatOptionalTimePtr(summary.ExpiresAt()),
 		ValidFrom:    summary.ValidFrom().UTC().Format(time.RFC3339Nano),
-		ValidTo:      formatOptionalTime(summary.ValidTo()),
+		ValidTo:      formatOptionalTimePtr(summary.ValidTo()),
 		CreatedAt:    summary.CreatedAt().UTC().Format(time.RFC3339Nano),
 		UpdatedAt:    summary.UpdatedAt().UTC().Format(time.RFC3339Nano),
 		EvidenceRefs: convertEvidenceRefs(details.EvidenceRefs()),
@@ -1077,11 +1074,6 @@ func newMemoryOutput(details apptypes.MemoryDetails) memoryOutput {
 }
 
 func newMemoryOutputFromSummary(summary apptypes.MemorySummary) memoryOutput {
-	supersedes := ""
-	if memoryID, ok := summary.Supersedes().Value(); ok {
-		supersedes = memoryID.String()
-	}
-
 	return memoryOutput{
 		MemoryID:   summary.MemoryID().String(),
 		Type:       summary.MemoryType().String(),
@@ -1091,10 +1083,10 @@ func newMemoryOutputFromSummary(summary apptypes.MemorySummary) memoryOutput {
 		Status:     summary.Status().String(),
 		Confidence: summary.Confidence().String(),
 		Source:     summary.Source().String(),
-		Supersedes: supersedes,
-		ExpiresAt:  formatOptionalTime(summary.ExpiresAt()),
+		Supersedes: formatOptionalMemoryIDPtr(summary.Supersedes()),
+		ExpiresAt:  formatOptionalTimePtr(summary.ExpiresAt()),
 		ValidFrom:  summary.ValidFrom().UTC().Format(time.RFC3339Nano),
-		ValidTo:    formatOptionalTime(summary.ValidTo()),
+		ValidTo:    formatOptionalTimePtr(summary.ValidTo()),
 		CreatedAt:  summary.CreatedAt().UTC().Format(time.RFC3339Nano),
 		UpdatedAt:  summary.UpdatedAt().UTC().Format(time.RFC3339Nano),
 	}
@@ -1116,11 +1108,29 @@ func convertArtifactRefs(refs []types.ArtifactRef) []memoryRefOutput {
 	return outputs
 }
 
-func formatOptionalTime(value types.Optional[time.Time]) string {
-	if timeValue, ok := value.Value(); ok {
-		return timeValue.UTC().Format(time.RFC3339Nano)
+// formatOptionalTimePtr renders an Optional[time.Time] as `*string`:
+// nil when absent, otherwise RFC3339Nano UTC. This lets MCP memory
+// outputs carry JSON `null` for unset bounds — matching the CLI
+// memorySummaryOutput shape (#628).
+func formatOptionalTimePtr(value types.Optional[time.Time]) *string {
+	timeValue, ok := value.Value()
+	if !ok {
+		return nil
 	}
-	return ""
+	formatted := timeValue.UTC().Format(time.RFC3339Nano)
+	return &formatted
+}
+
+// formatOptionalMemoryIDPtr renders an Optional[MemoryID] as
+// `*string` so absent values emit `null` / are omitted rather than
+// surfacing as an empty string distinguishable from "no predecessor".
+func formatOptionalMemoryIDPtr(value types.Optional[types.MemoryID]) *string {
+	memoryID, ok := value.Value()
+	if !ok {
+		return nil
+	}
+	id := memoryID.String()
+	return &id
 }
 
 func parseMemoryScopes(workspace string, agent string, sessionFamily string) ([]types.MemoryScope, error) {
