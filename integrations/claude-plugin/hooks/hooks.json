@@ -63,7 +63,7 @@
         ]
       },
       {
-        "matcher": "Read|Edit|Write|MultiEdit|Grep|Glob|Agent|Task|TodoWrite|WebFetch|WebSearch|NotebookEdit",
+        "matcher": "Read|NotebookRead|Edit|MultiEdit|Write|NotebookEdit|Grep|Glob|Agent|Task|TodoWrite|WebFetch|WebSearch|ExitPlanMode",
         "hooks": [
           {
             "type": "command",
@@ -114,7 +114,7 @@
         ]
       },
       {
-        "matcher": "Read|Edit|Write|MultiEdit|Grep|Glob|Agent|Task|TodoWrite|WebFetch|WebSearch|NotebookEdit",
+        "matcher": "Read|NotebookRead|Edit|MultiEdit|Write|NotebookEdit|Grep|Glob|Agent|Task|TodoWrite|WebFetch|WebSearch|ExitPlanMode",
         "hooks": [
           {
             "type": "command",

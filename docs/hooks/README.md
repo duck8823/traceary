@@ -42,7 +42,7 @@ Traceary no longer installs portable hook-script copies under `~/.config/tracear
 
 | Client | Settings file | Session start | Session end | Audit hook | Notes |
 | --- | --- | --- | --- | --- | --- |
-| Claude Code | `.claude/settings.json` or `~/.claude/settings.json` | `SessionStart` | `SessionEnd` | `PostToolUse` + `PostToolUseFailure` with `matcher: "Bash"` and `matcher: "mcp__.*"` | Anthropic's current docs define `Stop` as a per-response hook, not a session-end hook. |
+| Claude Code | `.claude/settings.json` or `~/.claude/settings.json` | `SessionStart` | `SessionEnd` | `PostToolUse` + `PostToolUseFailure` with `matcher: "Bash"`, `matcher: "mcp__.*"`, and the built-in tool matcher (`Read\|NotebookRead\|Edit\|MultiEdit\|Write\|NotebookEdit\|Grep\|Glob\|Agent\|Task\|TodoWrite\|WebFetch\|WebSearch\|ExitPlanMode`) | Anthropic's current docs define `Stop` as a per-response hook, not a session-end hook. |
 | Codex CLI (`codex-cli 0.118.0`) | `~/.codex/hooks.json` | `SessionStart` | `Stop` (best effort) | `PostToolUse` | The installed Codex build exposes `SessionStart`, `Stop`, `PreToolUse`, `PostToolUse`, `Notification`, `PermissionDenied`, `UserPromptSubmit`, and `Elicitation` in local binary strings. A dedicated `SessionEnd` hook was not found locally. |
 | Gemini CLI (`gemini-cli 0.36.0`) | `.gemini/settings.json` or `~/.gemini/settings.json` | `SessionStart` | `SessionEnd` | `AfterTool` with `matcher: "run_shell_command"` | Hooks are JSON-over-stdin / JSON-over-stdout and `SessionEnd` is best effort. |
 

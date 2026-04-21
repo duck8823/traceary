@@ -10,11 +10,20 @@ import (
 // claudeBuiltinToolsMatcher is the regular expression Claude Code
 // evaluates as the PostToolUse matcher for Traceary's coverage of
 // built-in tools (the ones that do not match `Bash` or `mcp__.*`).
-// Read / Edit / Write / Grep / Glob / Agent / TodoWrite / WebFetch /
-// WebSearch / NotebookEdit are the core surfaces operators use for
-// real work — capturing them is what actually makes tail / timeline
-// reflect day-to-day activity instead of just shell + MCP traffic.
-const claudeBuiltinToolsMatcher = "Read|Edit|Write|MultiEdit|Grep|Glob|Agent|Task|TodoWrite|WebFetch|WebSearch|NotebookEdit"
+//
+// Coverage set (v0.8-6b, refreshed 2026-Q2):
+//   - file I/O: Read, NotebookRead, Edit, MultiEdit, Write, NotebookEdit
+//   - search: Grep, Glob
+//   - agent / task: Agent, Task, TodoWrite
+//   - web: WebFetch, WebSearch
+//   - control flow: ExitPlanMode
+//
+// The default is an exhaustive list rather than `.*` so Traceary does
+// not accidentally tail operator-irrelevant tool categories (for
+// example, future per-plugin tools). The preset expansion that opts
+// into `.*` lives in `traceary hooks install --matcher` (#632), which
+// preserves this default.
+const claudeBuiltinToolsMatcher = "Read|NotebookRead|Edit|MultiEdit|Write|NotebookEdit|Grep|Glob|Agent|Task|TodoWrite|WebFetch|WebSearch|ExitPlanMode"
 
 // ClaudeHooksHandler installs Traceary hooks for the Claude Code client.
 type ClaudeHooksHandler struct{}
