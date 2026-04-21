@@ -172,10 +172,15 @@ func writeTimelineText(output io.Writer, blocks []apptypes.TimelineBlock, opts e
 }
 
 // workspaceActivityText renders the per-workspace activity summary using
-// the compact_summary → prompt → kind-counts fallback chain.
+// the compact_summary → prompt → transcript → kind-counts fallback
+// chain. The transcript case renders identically to prompt today (both
+// are truncated free-form text); it is accepted here so the switch
+// stays exhaustive with the timeline summary-source enum.
 func workspaceActivityText(ws apptypes.TimelineWorkspaceBreakdown) string {
 	switch ws.SummarySource() {
-	case apptypes.TimelineSummarySourceCompactSummary, apptypes.TimelineSummarySourcePrompt:
+	case apptypes.TimelineSummarySourceCompactSummary,
+		apptypes.TimelineSummarySourcePrompt,
+		apptypes.TimelineSummarySourceTranscript:
 		return truncateNormalized(ws.Summary(), timelineSummaryMaxRune)
 	default:
 		return formatKindCounts(computeKindCounts(ws.Kinds()))

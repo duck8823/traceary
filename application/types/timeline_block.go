@@ -18,6 +18,10 @@ const (
 	// TimelineSummarySourcePrompt means the summary came from the first
 	// prompt event body recorded for this workspace in the block.
 	TimelineSummarySourcePrompt TimelineWorkspaceBreakdownSummarySource = "prompt"
+	// TimelineSummarySourceTranscript means the summary came from the
+	// first transcript event body recorded for this workspace in the
+	// block (assistant-reasoning signal, introduced with #606).
+	TimelineSummarySourceTranscript TimelineWorkspaceBreakdownSummarySource = "transcript"
 	// TimelineSummarySourceKindCounts means no summary event was available
 	// and the renderer should fall back to the kind-count line.
 	TimelineSummarySourceKindCounts TimelineWorkspaceBreakdownSummarySource = "kind_counts"
