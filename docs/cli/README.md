@@ -205,6 +205,8 @@ Useful flags:
 - `--workspace`
 - `--recent`
 - `--memories`
+- `--preset` (optional): apply a built-in retrieval preset (`resume` / `review` / `incident`) to durable memory filters
+- `--as-of` (optional): evaluate durable memory validity at the given timestamp (YYYY-MM-DD or RFC3339); defaults to "now"
 
 ### `traceary session handoff`
 
@@ -216,6 +218,8 @@ Useful flags:
 - `--workspace`
 - `--recent`
 - `--memories`
+- `--preset`
+- `--as-of`
 
 ### `traceary compact-summary`
 

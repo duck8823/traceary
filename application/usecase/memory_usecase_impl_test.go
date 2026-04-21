@@ -66,13 +66,15 @@ func (s *memoryRepositoryStub) FindByID(_ context.Context, memoryID domtypes.Mem
 type memoryQueryStub struct {
 	listResult   []apptypes.MemorySummary
 	listErr      error
+	listCriteria apptypes.MemoryListCriteria
 	searchResult []apptypes.MemorySummary
 	searchErr    error
 	details      apptypes.MemoryDetails
 	detailsErr   error
 }
 
-func (s *memoryQueryStub) List(_ context.Context, _ apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
+func (s *memoryQueryStub) List(_ context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
+	s.listCriteria = criteria
 	return s.listResult, s.listErr
 }
 

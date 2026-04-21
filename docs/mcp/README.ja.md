@@ -209,6 +209,8 @@ Inputs:
 - `session_id`
 - `recent_commands_limit`（既定: `5`。明示的に `0` を渡すと recent commands を無効化）
 - `memory_limit`（既定: `5`。明示的に `0` を渡すと durable memories を無効化）
+- `preset`（任意）: durable memory に built-in preset (`resume` / `review` / `incident`) を適用
+- `as_of`（任意）: durable memory の validity を指定時刻 (YYYY-MM-DD または RFC3339) で評価する。既定は「現在」
 
 ### `retrieve_memories`
 
@@ -314,6 +316,8 @@ Inputs:
 - `session_id`
 - `recent_commands_limit`（既定: `5`。明示的に `0` を渡すと recent commands を無効化）
 - `memory_limit`（既定: `5`。明示的に `0` を渡すと durable memories を無効化）
+- `preset`（任意）: durable memory に built-in preset (`resume` / `review` / `incident`) を適用
+- `as_of`（任意）: durable memory の validity を指定時刻 (YYYY-MM-DD または RFC3339) で評価する。既定は「現在」
 
 ## 実用的なクライアント設定例
 

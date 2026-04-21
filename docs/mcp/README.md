@@ -211,6 +211,8 @@ Inputs:
 - `session_id`
 - `recent_commands_limit` (default: `5`; explicit `0` disables recent commands)
 - `memory_limit` (default: `5`; explicit `0` disables durable memories)
+- `preset` (optional): apply a built-in retrieval preset to durable memories (`resume` | `review` | `incident`)
+- `as_of` (optional): evaluate durable memory validity at this timestamp (YYYY-MM-DD or RFC3339); defaults to "now"
 
 ### `retrieve_memories`
 
@@ -316,6 +318,8 @@ Inputs:
 - `session_id`
 - `recent_commands_limit` (default: `5`; explicit `0` disables recent commands)
 - `memory_limit` (default: `5`; explicit `0` disables durable memories)
+- `preset` (optional): apply a built-in retrieval preset to durable memories (`resume` | `review` | `incident`)
+- `as_of` (optional): evaluate durable memory validity at this timestamp (YYYY-MM-DD or RFC3339); defaults to "now"
 
 ## Practical client example
 
