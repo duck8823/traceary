@@ -85,8 +85,8 @@ func (c *RootCLI) runReplay(ctx context.Context, output io.Writer, input replayC
 	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
-	if c.session == nil || c.event == nil {
-		return xerrors.Errorf(Localize("session/event usecases must be configured", "session/event ユースケースが必要です"))
+	if c.replay == nil {
+		return xerrors.Errorf(Localize("replay usecase is not configured", "replay ユースケースが設定されていません"))
 	}
 	if strings.TrimSpace(input.outputPath) == "" {
 		return xerrors.Errorf(Localize("--out is required", "--out は必須です"))
@@ -104,10 +104,11 @@ func (c *RootCLI) runReplay(ctx context.Context, output io.Writer, input replayC
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
-	data, err := c.gatherReplayData(ctx, input)
+	bundle, err := c.replay.Bundle(ctx, apptypes.NewReplayCriteriaBuilder(input.sessions, input.eventsPerSession, input.memories).Build())
 	if err != nil {
-		return err
+		return xerrors.Errorf("%s: %w", Localize("failed to assemble replay bundle", "replay バンドルの組立てに失敗しました"), err)
 	}
+	data := replayDataFromBundle(bundle, input.dbPath)
 
 	if err := writeReplayHTML(input.outputPath, data); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to write replay HTML", "replay HTML の書き出しに失敗しました"), err)
@@ -163,82 +164,57 @@ type replayMemory struct {
 	ValidTo    string
 }
 
-func (c *RootCLI) gatherReplayData(ctx context.Context, input replayCommandInput) (replayData, error) {
-	data := replayData{GeneratedAt: time.Now().UTC()}
-	data.DBPath, _ = resolveDBPath(input.dbPath)
+// replayDataFromBundle converts the cross-aggregate bundle the
+// ReplayUsecase returned into the HTML template view-model. The
+// bundle stays strictly application-layer (domain/model.Event +
+// application/types.{SessionSummary,MemorySummary}); the replaySession
+// / replayEvent / replayMemory structs remain CLI-only so the
+// template can keep its pre-formatted strings.
+func replayDataFromBundle(bundle apptypes.ReplayBundle, dbPathFlag string) replayData {
+	data := replayData{GeneratedAt: bundle.GeneratedAt()}
+	data.DBPath, _ = resolveDBPath(dbPathFlag)
 
-	sessionCriteria := apptypes.NewSessionListCriteriaBuilder(input.sessions).Build()
-	sessions, err := c.session.List(ctx, sessionCriteria)
-	if err != nil {
-		return replayData{}, xerrors.Errorf("%s: %w", Localize("failed to list sessions for replay", "replay 用のセッション一覧取得に失敗しました"), err)
-	}
-	for _, s := range sessions {
-		events, err := c.eventsForSession(ctx, s.SessionID(), input.eventsPerSession)
-		if err != nil {
-			return replayData{}, err
-		}
-		data.Sessions = append(data.Sessions, replaySession{
-			SessionID: s.SessionID().String(),
-			Workspace: s.Workspace().String(),
-			Agents:    strings.Join(s.Agents(), ", "),
-			Status:    s.Status(),
-			Label:     s.Label(),
-			StartedAt: s.StartedAt().UTC(),
-			EndedAt:   formatOptionalInstant(s.EndedAt()),
-			Events:    events,
-		})
-	}
-
-	if c.memory != nil && input.memories > 0 {
-		memCriteria := apptypes.NewMemoryListCriteriaBuilder(input.memories).
-			Statuses([]types.MemoryStatus{types.MemoryStatusAccepted}).
-			Build()
-		memories, err := c.memory.List(ctx, memCriteria)
-		if err != nil {
-			return replayData{}, xerrors.Errorf("%s: %w", Localize("failed to list memories for replay", "replay 用の durable memory 一覧取得に失敗しました"), err)
-		}
-		for _, m := range memories {
-			data.Memories = append(data.Memories, replayMemory{
-				MemoryID:   m.MemoryID().String(),
-				Type:       m.MemoryType().String(),
-				Scope:      m.Scope().Kind().String() + "=" + m.Scope().Key(),
-				Status:     m.Status().String(),
-				Confidence: m.Confidence().String(),
-				Fact:       m.Fact(),
-				CreatedAt:  m.CreatedAt().UTC(),
-				UpdatedAt:  m.UpdatedAt().UTC(),
-				ValidFrom:  m.ValidFrom().UTC(),
-				ValidTo:    formatOptionalInstant(m.ValidTo()),
+	for _, session := range bundle.Sessions() {
+		summary := session.Summary()
+		events := session.Events()
+		converted := make([]replayEvent, 0, len(events))
+		for _, event := range events {
+			converted = append(converted, replayEvent{
+				EventID:   event.EventID().String(),
+				Kind:      event.Kind().String(),
+				CreatedAt: event.CreatedAt().UTC(),
+				Client:    event.Client().String(),
+				Agent:     event.Agent().String(),
+				Body:      event.Body(),
 			})
 		}
-	}
-
-	return data, nil
-}
-
-func (c *RootCLI) eventsForSession(ctx context.Context, sessionID types.SessionID, limit int) ([]replayEvent, error) {
-	criteria := apptypes.NewEventListCriteriaBuilder(limit).
-		SessionID(sessionID).
-		Build()
-	events, err := c.event.List(ctx, criteria)
-	if err != nil {
-		return nil, xerrors.Errorf("%s: %w", Localize(
-			fmt.Sprintf("failed to list events for session %s", sessionID.String()),
-			fmt.Sprintf("session %s の event 一覧取得に失敗しました", sessionID.String()),
-		), err)
-	}
-	result := make([]replayEvent, 0, len(events))
-	for _, e := range events {
-		result = append(result, replayEvent{
-			EventID:   e.EventID().String(),
-			Kind:      e.Kind().String(),
-			CreatedAt: e.CreatedAt().UTC(),
-			Client:    e.Client().String(),
-			Agent:     e.Agent().String(),
-			Body:      e.Body(),
+		data.Sessions = append(data.Sessions, replaySession{
+			SessionID: summary.SessionID().String(),
+			Workspace: summary.Workspace().String(),
+			Agents:    strings.Join(summary.Agents(), ", "),
+			Status:    summary.Status(),
+			Label:     summary.Label(),
+			StartedAt: summary.StartedAt().UTC(),
+			EndedAt:   formatOptionalInstant(summary.EndedAt()),
+			Events:    converted,
 		})
 	}
-	return result, nil
+
+	for _, memory := range bundle.Memories() {
+		data.Memories = append(data.Memories, replayMemory{
+			MemoryID:   memory.MemoryID().String(),
+			Type:       memory.MemoryType().String(),
+			Scope:      memory.Scope().Kind().String() + "=" + memory.Scope().Key(),
+			Status:     memory.Status().String(),
+			Confidence: memory.Confidence().String(),
+			Fact:       memory.Fact(),
+			CreatedAt:  memory.CreatedAt().UTC(),
+			UpdatedAt:  memory.UpdatedAt().UTC(),
+			ValidFrom:  memory.ValidFrom().UTC(),
+			ValidTo:    formatOptionalInstant(memory.ValidTo()),
+		})
+	}
+	return data
 }
 
 func totalEventCount(sessions []replaySession) int {

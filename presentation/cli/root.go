@@ -19,6 +19,7 @@ type RootCLI struct {
 	memoryBridgeImport  usecase.MemoryBridgeImportUsecase
 	memoryHygiene       usecase.MemoryHygieneUsecase
 	context             usecase.ContextUsecase
+	replay              usecase.ReplayUsecase
 	codexIntegration    usecase.CodexIntegrationUsecase
 	storeManagement     usecase.StoreManagementUsecase
 	mcpServerRunner     MCPServerRunner
@@ -90,6 +91,13 @@ func WithMemoryHygiene(hygiene usecase.MemoryHygieneUsecase) RootCLIOption {
 // WithContext injects the ContextUsecase used by structured handoff commands.
 func WithContext(contextUsecase usecase.ContextUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.context = contextUsecase }
+}
+
+// WithReplay injects the ReplayUsecase used by the replay HTML export
+// command. WithReplay is required: the CLI returns a configuration
+// error at runtime if `traceary replay` is invoked without it.
+func WithReplay(replay usecase.ReplayUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.replay = replay }
 }
 
 // WithCodexIntegration injects the CodexIntegrationUsecase used by the

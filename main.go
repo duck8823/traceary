@@ -160,6 +160,7 @@ func run() error {
 	memoryBridgeImportUsecase := usecase.NewMemoryBridgeImportUsecase(memoryUsecase, memoryDatasource, extraRedactPatterns)
 	memoryHygieneUsecase := usecase.NewMemoryHygieneUsecase(memoryUsecase, memoryDatasource, extraRedactPatterns)
 	contextUsecase := usecase.NewContextUsecase(sessionDatasource, eventDatasource, memoryDatasource)
+	replayUsecase := usecase.NewReplayUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	storeManagementUsecase := usecase.NewStoreManagementUsecase(storeManagementDatasource)
 
 	mcpServer, err := mcpserver.NewServer(
@@ -196,6 +197,7 @@ func run() error {
 		cli.WithMemoryBridgeImport(memoryBridgeImportUsecase),
 		cli.WithMemoryHygiene(memoryHygieneUsecase),
 		cli.WithContext(contextUsecase),
+		cli.WithReplay(replayUsecase),
 		cli.WithCodexIntegration(codexIntegrationUsecase),
 		cli.WithStoreManagement(storeManagementUsecase),
 		cli.WithMCPServerRunner(mcpServer),
