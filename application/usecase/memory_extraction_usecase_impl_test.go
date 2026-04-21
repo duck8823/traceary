@@ -210,6 +210,68 @@ func TestMemoryExtractionUsecase_Extract(t *testing.T) {
 	}
 }
 
+func TestMemoryExtractionUsecase_Extract_IncludesTranscriptEvents(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(
+		domtypes.SessionID("session-transcript"),
+		domtypes.Workspace("github.com/duck8823/traceary"),
+		time.Now().Add(-time.Hour),
+		domtypes.None[time.Time](),
+		"active",
+		1,
+		0,
+		[]string{"claude"},
+		"",
+		"",
+		domtypes.SessionID(""),
+	)
+	transcriptEvent := mustExtractionEvent(t,
+		"event-transcript",
+		domtypes.EventKindTranscript,
+		"Decision: adopt the application/redaction leaf package.",
+	)
+
+	details := mustMemoryDetailsFromSummary(t, "memory-transcript-1", domtypes.MemoryTypeDecision, "adopt the application/redaction leaf package.")
+
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{
+		proposeResult: []apptypes.MemoryDetails{details},
+	}
+
+	sut := usecase.NewMemoryExtractionUsecase(
+		&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}},
+		&eventQueryServiceStub{
+			listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
+				domtypes.EventKindTranscript: {transcriptEvent},
+			},
+		},
+		memoryUsecase,
+		nil,
+	)
+
+	got, err := sut.Extract(
+		context.Background(),
+		apptypes.NewMemoryExtractionCriteriaBuilder().
+			SessionID(domtypes.SessionID("session-transcript")).
+			Workspace(domtypes.Workspace("github.com/duck8823/traceary")).
+			EventLimit(1).
+			CandidateLimit(5).
+			Build(),
+	)
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(Extract()) = %d, want 1 transcript-derived candidate", len(got))
+	}
+	if len(memoryUsecase.proposeCalls) != 1 {
+		t.Fatalf("proposeCalls = %d, want 1", len(memoryUsecase.proposeCalls))
+	}
+	if memoryUsecase.proposeCalls[0].memoryType != domtypes.MemoryTypeDecision {
+		t.Errorf("memoryType = %v, want Decision", memoryUsecase.proposeCalls[0].memoryType)
+	}
+}
+
 func TestMemoryExtractionUsecase_Extract_DeduplicatesExistingAndGracefullyHandlesMissingPrompts(t *testing.T) {
 	t.Parallel()
 

@@ -106,7 +106,7 @@ func (s *Server) Build(ctx context.Context) (*mcp.Server, error) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "add_log",
-		Description: "Add a log event, note, prompt, or compact summary.",
+		Description: "Add a log event, note, prompt, transcript, or compact summary.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
 	}, s.addLog())
 	mcp.AddTool(server, &mcp.Tool{
@@ -131,7 +131,7 @@ func (s *Server) Build(ctx context.Context) (*mcp.Server, error) {
 	}, s.activeSession())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_events",
-		Description: "List recent events, logs, audits, prompts, and summaries.",
+		Description: "List recent events, logs, audits, prompts, transcripts, and summaries.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.listEvents())
 	mcp.AddTool(server, &mcp.Tool{
@@ -141,12 +141,12 @@ func (s *Server) Build(ctx context.Context) (*mcp.Server, error) {
 	}, s.addAudit())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search",
-		Description: "Search events, logs, audits, prompts, and summaries by text, time, or workspace.",
+		Description: "Search events, logs, audits, prompts, transcripts, and summaries by text, time, or workspace.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.search())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_context",
-		Description: "Get recent context events, logs, audits, prompts, and summaries for a session or workspace.",
+		Description: "Get recent context events, logs, audits, prompts, transcripts, and summaries for a session or workspace.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.getContext())
 	mcp.AddTool(server, &mcp.Tool{
