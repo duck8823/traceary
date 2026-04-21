@@ -33,6 +33,7 @@ type TimelineWorkspaceBreakdown struct {
 	workspace     string
 	eventCount    int
 	kinds         []string
+	agents        []string
 	summary       string
 	summarySource TimelineWorkspaceBreakdownSummarySource
 }
@@ -42,6 +43,7 @@ func TimelineWorkspaceBreakdownOf(
 	workspace string,
 	eventCount int,
 	kinds []string,
+	agents []string,
 	summary string,
 	summarySource TimelineWorkspaceBreakdownSummarySource,
 ) TimelineWorkspaceBreakdown {
@@ -49,6 +51,7 @@ func TimelineWorkspaceBreakdownOf(
 		workspace:     workspace,
 		eventCount:    eventCount,
 		kinds:         slices.Clone(kinds),
+		agents:        slices.Clone(agents),
 		summary:       summary,
 		summarySource: summarySource,
 	}
@@ -62,6 +65,10 @@ func (b TimelineWorkspaceBreakdown) EventCount() int { return b.eventCount }
 
 // Kinds returns the kinds observed for this workspace inside the block.
 func (b TimelineWorkspaceBreakdown) Kinds() []string { return slices.Clone(b.kinds) }
+
+// Agents returns the distinct agents that produced events for this
+// workspace inside the block (#654).
+func (b TimelineWorkspaceBreakdown) Agents() []string { return slices.Clone(b.agents) }
 
 // Summary returns the short activity summary for this workspace.
 func (b TimelineWorkspaceBreakdown) Summary() string { return b.summary }

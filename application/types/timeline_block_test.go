@@ -20,6 +20,7 @@ func TestTimelineBlockOf_Getters(t *testing.T) {
 			"github.com/org/repo-a",
 			3,
 			[]string{"note", "command_executed"},
+			[]string{"claude"},
 			"fix the thing",
 			apptypes.TimelineSummarySourcePrompt,
 		),
@@ -27,6 +28,7 @@ func TestTimelineBlockOf_Getters(t *testing.T) {
 			"github.com/org/repo-b",
 			2,
 			[]string{"command_executed"},
+			[]string{"codex"},
 			"",
 			apptypes.TimelineSummarySourceKindCounts,
 		),
@@ -77,6 +79,7 @@ func TestTimelineBlock_DefensiveCopy(t *testing.T) {
 			"ws-a",
 			2,
 			[]string{"note"},
+			nil,
 			"",
 			apptypes.TimelineSummarySourceKindCounts,
 		),
@@ -92,7 +95,7 @@ func TestTimelineBlock_DefensiveCopy(t *testing.T) {
 
 	// Mutate source slices after construction.
 	agents[0] = "mutated-source-agent"
-	breakdown[0] = apptypes.TimelineWorkspaceBreakdownOf("mutated", 99, nil, "", apptypes.TimelineSummarySourceKindCounts)
+	breakdown[0] = apptypes.TimelineWorkspaceBreakdownOf("mutated", 99, nil, nil, "", apptypes.TimelineSummarySourceKindCounts)
 
 	if diff := cmp.Diff([]string{"claude", "codex"}, block.Agents()); diff != "" {
 		t.Errorf("Agents source slice leaked (-want +got):\n%s", diff)
@@ -105,7 +108,7 @@ func TestTimelineBlock_DefensiveCopy(t *testing.T) {
 	retAgents := block.Agents()
 	retAgents[0] = "mutated-return-agent"
 	retBreakdown := block.WorkspaceBreakdown()
-	retBreakdown[0] = apptypes.TimelineWorkspaceBreakdownOf("mutated", 99, nil, "", apptypes.TimelineSummarySourceKindCounts)
+	retBreakdown[0] = apptypes.TimelineWorkspaceBreakdownOf("mutated", 99, nil, nil, "", apptypes.TimelineSummarySourceKindCounts)
 
 	if diff := cmp.Diff([]string{"claude", "codex"}, block.Agents()); diff != "" {
 		t.Errorf("Agents() is not a defensive copy (-want +got):\n%s", diff)

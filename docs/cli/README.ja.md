@@ -76,7 +76,7 @@ session 解決ルールは `traceary log` と同じです。
 
 `list` は直近履歴を素早く絞るためのコマンドです。kind / client / agent / session / workspace が決まっているときはこちらを使い、キーワード検索や期間条件が必要なときは `search` を使います。
 
-デフォルトのテキスト出力は `tail` と同じコンパクトな 1 行形式 (`HH:MM:SS  kind  sess=<先頭8文字>  ws=<basename>  message`、ヘッダ無し、現地時刻) です。`--wide` で従来の 7 カラム tab 区切り表、`--utc` でテキスト出力を UTC に切り替えられます。`--wide --utc` を組み合わせると v0.6.1 以前の出力を完全再現します。`--json` は従来通りです。`--fields ts,kind,message` でコンパクトカラムの順序を上書きできます (優先順位: `--fields` > preset fields > `~/.config/traceary/config.json` の `read.fields` > 組み込み既定値)。`--fields` は `--wide` と併用できません。利用可能フィールド: `ts`, `kind`, `session`, `ws`, `client`, `agent`, `message`, `exit_code`, `id`。`--preset <name>` で保存済みビューを適用できます。built-in は `failures` / `prompts-only` / `compact-summaries`、`read.presets` に定義したユーザー preset が同名 built-in を上書きします。明示した `--kind` / `--failures` / `--workspace` などのフラグは常に preset より優先されます。`--wide` / `--json` のときは preset の fields 指定は無視されますが、filter は有効です。`--color=auto|always|never` でコンパクト行の ANSI ハイライトを切り替えられます（既定は `auto`、`NO_COLOR` 環境変数でも無効化可、`--wide` / `--json` では適用されません）。ハイライトが有効な場合、失敗した `command_executed` は赤+太字、`prompt` は cyan、`compact_summary` は magenta、`session_started` / `session_ended` は dim で表示されます。
+デフォルトのテキスト出力は `tail` と同じコンパクトな 1 行形式 (`HH:MM:SS  kind  agent=<agent>  sess=<先頭8文字>  ws=<basename>  message`、ヘッダ無し、現地時刻) です。`--wide` で従来の 7 カラム tab 区切り表、`--utc` でテキスト出力を UTC に切り替えられます。`--wide --utc` を組み合わせると v0.6.1 以前の出力を完全再現します。`--json` は従来通りです。`--fields ts,kind,message` でコンパクトカラムの順序を上書きできます (優先順位: `--fields` > preset fields > `~/.config/traceary/config.json` の `read.fields` > 組み込み既定値)。`--fields` は `--wide` と併用できません。利用可能フィールド: `ts`, `kind`, `session`, `ws`, `client`, `agent`, `message`, `exit_code`, `id`。`--preset <name>` で保存済みビューを適用できます。built-in は `failures` / `prompts-only` / `compact-summaries`、`read.presets` に定義したユーザー preset が同名 built-in を上書きします。明示した `--kind` / `--failures` / `--workspace` などのフラグは常に preset より優先されます。`--wide` / `--json` のときは preset の fields 指定は無視されますが、filter は有効です。`--color=auto|always|never` でコンパクト行の ANSI ハイライトを切り替えられます（既定は `auto`、`NO_COLOR` 環境変数でも無効化可、`--wide` / `--json` では適用されません）。ハイライトが有効な場合、失敗した `command_executed` は赤+太字、`prompt` は cyan、`compact_summary` は magenta、`session_started` / `session_ended` は dim で表示されます。
 
 主な flag:
 
@@ -100,7 +100,7 @@ session 解決ルールは `traceary log` と同じです。
 
 `tail` はイベントの流れをその場で追いかけるためのコマンドです。最初に最近の backlog を表示し、その後はローカルストアに追加される一致 event を継続して追跡します。hook が正しく動いているか、想定した session / workspace に書き込まれているか、失敗がリアルタイムで見えているかを確認したいときに向いています。`list` のように 1 回で終わらず、`search` のようなキーワード検索も行いません。`handoff` と違って working memory は組み立てず、生の event stream をそのまま表示します。
 
-デフォルトのテキスト出力は `HH:MM:SS  kind  sess=<先頭8文字>  ws=<basename>  message` というコンパクトな 1 行形式で、約 100 カラムに収まり、タイムスタンプは現地時刻 (local time) を使用します。`--wide` で従来の 7 カラム tab 区切り形式、`--utc` でテキスト出力のタイムスタンプを UTC に切り替えられます。`--wide --utc` を組み合わせると v0.6.1 以前と完全に同一のバイト列を再現するので、既存スクリプトとの互換を保てます。`--json` を付けると改行区切り JSON（1 行 1 event）を出力し、パイプラインから逐次処理できます（JSON の時刻は RFC3339 のままで `--utc` の影響を受けません）。
+デフォルトのテキスト出力は `HH:MM:SS  kind  agent=<agent>  sess=<先頭8文字>  ws=<basename>  message` というコンパクトな 1 行形式で、約 100 カラムに収まり、タイムスタンプは現地時刻 (local time) を使用します。`--wide` で従来の 7 カラム tab 区切り形式、`--utc` でテキスト出力のタイムスタンプを UTC に切り替えられます。`--wide --utc` を組み合わせると v0.6.1 以前と完全に同一のバイト列を再現するので、既存スクリプトとの互換を保てます。`--json` を付けると改行区切り JSON（1 行 1 event）を出力し、パイプラインから逐次処理できます（JSON の時刻は RFC3339 のままで `--utc` の影響を受けません）。
 
 > コンパクト表示の session ID (`sess=<先頭8文字>`) は人間が目視する前提の短縮形です。機械処理には `--wide --utc` または `--json` を利用してください。
 
@@ -151,7 +151,7 @@ session 解決ルールは `traceary log` と同じです。
 
 ギャップ検出による作業タイムラインを、ワークスペース単位のアクティビティ要約付きで表示します。
 
-`timeline` は直近のイベントをアイドルギャップ（デフォルト 15 分）で区切って連続する作業ブロックに分け、各ブロック内で workspace ごとに整列された 1 行を表示します。ワークスペース単位のアクティビティ要約は **`compact_summary` → 最初の `prompt` → kind counts** のフォールバック順で選ばれ、そのブロック内でそのワークスペースに存在するシグナルが 1 行に展開されます。デフォルトのテキスト出力は現地時刻 (local time) で、`--utc` で UTC に切り替えられます。`--json` はブロックスキーマに `workspace_breakdown` 配列 (`{workspace, event_count, kind_counts, summary, summary_source}`) を追加します（既存フィールドは維持され後方互換）。
+`timeline` は直近のイベントをアイドルギャップ（デフォルト 15 分）で区切って連続する作業ブロックに分け、各ブロック内で workspace ごとに整列された 1 行を表示します。ワークスペース単位のアクティビティ要約は **`compact_summary` → 最初の `prompt` → kind counts** のフォールバック順で選ばれ、そのブロック内でそのワークスペースに存在するシグナルが 1 行に展開されます。デフォルトのテキスト出力は現地時刻 (local time) で、`--utc` で UTC に切り替えられます。`--json` はブロックスキーマに `workspace_breakdown` 配列 (`{workspace, event_count, kind_counts, agents, summary, summary_source}`) を追加します（既存フィールドは維持され後方互換）。
 
 主な flag:
 
