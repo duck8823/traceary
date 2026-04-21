@@ -198,17 +198,19 @@ func (c *RootCLI) runMemoryHygieneScan(ctx context.Context, output io.Writer, in
 func writeMemoryHygieneScanResult(output io.Writer, result apptypes.MemoryHygieneScanResult, asJSON bool) error {
 	if asJSON {
 		payload := struct {
-			RedactionHitCount       int                        `json:"redaction_hit_count"`
-			ExpiryCandidateCount    int                        `json:"expiry_candidate_count"`
-			DuplicateCount          int                        `json:"duplicate_count"`
-			SupersedeCandidateCount int                        `json:"supersede_candidate_count"`
-			Suggestions             []memoryHygieneOutputEntry `json:"suggestions"`
+			RedactionHitCount             int                        `json:"redaction_hit_count"`
+			ExpiryCandidateCount          int                        `json:"expiry_candidate_count"`
+			DuplicateCount                int                        `json:"duplicate_count"`
+			SupersedeCandidateCount       int                        `json:"supersede_candidate_count"`
+			ValidityOverlapSupersedeCount int                        `json:"validity_overlap_supersede_count"`
+			Suggestions                   []memoryHygieneOutputEntry `json:"suggestions"`
 		}{
-			RedactionHitCount:       result.RedactionHitCount,
-			ExpiryCandidateCount:    result.ExpiryCandidateCount,
-			DuplicateCount:          result.DuplicateCount,
-			SupersedeCandidateCount: result.SupersedeCandidateCount,
-			Suggestions:             make([]memoryHygieneOutputEntry, 0, len(result.Suggestions)),
+			RedactionHitCount:             result.RedactionHitCount,
+			ExpiryCandidateCount:          result.ExpiryCandidateCount,
+			DuplicateCount:                result.DuplicateCount,
+			SupersedeCandidateCount:       result.SupersedeCandidateCount,
+			ValidityOverlapSupersedeCount: result.ValidityOverlapSupersedeCount,
+			Suggestions:                   make([]memoryHygieneOutputEntry, 0, len(result.Suggestions)),
 		}
 		for _, suggestion := range result.Suggestions {
 			payload.Suggestions = append(payload.Suggestions, newMemoryHygieneOutputEntry(suggestion))
@@ -222,9 +224,9 @@ func writeMemoryHygieneScanResult(output io.Writer, result apptypes.MemoryHygien
 		return nil
 	}
 	if _, err := fmt.Fprintf(output, Localize(
-		"redaction_hits=%d expiry_candidates=%d duplicates=%d supersede_candidates=%d\n",
-		"redaction ヒット=%d expiry 候補=%d 重複=%d supersede 候補=%d\n",
-	), result.RedactionHitCount, result.ExpiryCandidateCount, result.DuplicateCount, result.SupersedeCandidateCount); err != nil {
+		"redaction_hits=%d expiry_candidates=%d duplicates=%d supersede_candidates=%d validity_overlap_supersedes=%d\n",
+		"redaction ヒット=%d expiry 候補=%d 重複=%d supersede 候補=%d validity 重複 supersede=%d\n",
+	), result.RedactionHitCount, result.ExpiryCandidateCount, result.DuplicateCount, result.SupersedeCandidateCount, result.ValidityOverlapSupersedeCount); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print hygiene summary", "hygiene サマリの出力に失敗しました"), err)
 	}
 	for _, suggestion := range result.Suggestions {
