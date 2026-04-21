@@ -178,7 +178,7 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 	client, _ := types.ClientOf(resolveOptionalValue(input.client, "TRACEARY_CLIENT", defaultClientValue))
 	agent, _ := types.AgentOf(resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue))
 	sid, _ := types.SessionIDOf(sessionResolution.sessionID)
-	redaction := apptypes.NewAuditRedactionBuilder().
+	auditCfg := apptypes.NewAuditRedactionBuilder().
 		AllowSecrets(allowSecrets).
 		MaxInputBytes(maxInputBytes).
 		MaxOutputBytes(maxOutputBytes).
@@ -188,7 +188,7 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		input.command, input.input, input.output,
 		client, agent, sid, types.Workspace(resolvedRepo),
 		input.exitCode,
-		redaction,
+		auditCfg,
 	)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to record command audit", "監査ログ記録に失敗しました"), err)

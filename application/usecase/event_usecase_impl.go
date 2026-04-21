@@ -2,12 +2,12 @@ package usecase
 
 import (
 	"context"
-	"regexp"
 	"strings"
 
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/application/redaction"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -78,7 +78,7 @@ func (u *eventUsecase) Log(ctx context.Context, message string, kind types.Event
 	return event, nil
 }
 
-func (u *eventUsecase) Audit(ctx context.Context, command string, input string, output string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, exitCode types.Optional[int], redaction apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
+func (u *eventUsecase) Audit(ctx context.Context, command string, input string, output string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, exitCode types.Optional[int], auditCfg apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
 	if u.eventRepo == nil {
 		return nil, nil, xerrors.Errorf("event repository is not configured")
 	}
@@ -94,16 +94,16 @@ func (u *eventUsecase) Audit(ctx context.Context, command string, input string, 
 		return nil, nil, xerrors.Errorf("failed to generate event ID: %w", err)
 	}
 
-	maxInputBytes, err := resolveAuditPayloadLimit(redaction.MaxInputBytes(), maxAuditInputLength)
+	maxInputBytes, err := resolveAuditPayloadLimit(auditCfg.MaxInputBytes(), maxAuditInputLength)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("failed to resolve input limit: %w", err)
 	}
-	maxOutputBytes, err := resolveAuditPayloadLimit(redaction.MaxOutputBytes(), maxAuditOutputLength)
+	maxOutputBytes, err := resolveAuditPayloadLimit(auditCfg.MaxOutputBytes(), maxAuditOutputLength)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("failed to resolve output limit: %w", err)
 	}
 
-	extraRedactors, err := compileExtraRedactPatterns(redaction.ExtraRedactPatterns())
+	extraRedactors, err := redaction.CompileExtraPatterns(auditCfg.ExtraRedactPatterns())
 	if err != nil {
 		return nil, nil, xerrors.Errorf("failed to compile extra redaction patterns: %w", err)
 	}
@@ -112,9 +112,9 @@ func (u *eventUsecase) Audit(ctx context.Context, command string, input string, 
 	normalizedOutput := output
 	var inputRedacted bool
 	var outputRedacted bool
-	if !redaction.AllowSecrets() {
-		normalizedInput, inputRedacted = redactAuditPayload(normalizedInput, extraRedactors)
-		normalizedOutput, outputRedacted = redactAuditPayload(normalizedOutput, extraRedactors)
+	if !auditCfg.AllowSecrets() {
+		normalizedInput, inputRedacted = redaction.Apply(normalizedInput, extraRedactors)
+		normalizedOutput, outputRedacted = redaction.Apply(normalizedOutput, extraRedactors)
 	}
 
 	normalizedInput, inputTruncated := truncateAuditPayload(normalizedInput, maxInputBytes)
@@ -273,30 +273,6 @@ func resolveOptionalSearchKind(value string) (types.EventKind, error) {
 	}
 
 	return kind, nil
-}
-
-func compileExtraRedactPatterns(patterns []string) ([]auditPayloadRedactor, error) {
-	if len(patterns) == 0 {
-		return nil, nil
-	}
-
-	redactors := make([]auditPayloadRedactor, 0, len(patterns))
-	for _, raw := range patterns {
-		trimmed := strings.TrimSpace(raw)
-		if trimmed == "" {
-			continue
-		}
-		compiled, err := regexp.Compile(trimmed)
-		if err != nil {
-			return nil, xerrors.Errorf("invalid redaction pattern %q: %w", trimmed, err)
-		}
-		redactors = append(redactors, auditPayloadRedactor{
-			pattern:     compiled,
-			replacement: redactedAuditValue,
-		})
-	}
-
-	return redactors, nil
 }
 
 func truncateAuditPayload(value string, limit int) (string, bool) {

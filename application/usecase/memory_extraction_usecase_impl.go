@@ -11,6 +11,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/application/redaction"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	domtypes "github.com/duck8823/traceary/domain/types"
@@ -126,7 +127,7 @@ func (u *memoryExtractionUsecase) Extract(ctx context.Context, criteria apptypes
 	}
 
 	scope := extractedMemoryScope(session)
-	extraRedactors, err := compileExtraRedactPatterns(u.extraRedactPatterns)
+	extraRedactors, err := redaction.CompileExtraPatterns(u.extraRedactPatterns)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to compile extraction redaction patterns: %w", err)
 	}
@@ -208,7 +209,7 @@ func extractedMemoryScope(session apptypes.SessionSummary) domtypes.MemoryScope 
 func (u *memoryExtractionUsecase) loadExistingCandidateKeys(
 	ctx context.Context,
 	scope domtypes.MemoryScope,
-	extraRedactors []auditPayloadRedactor,
+	extraRedactors []redaction.Redactor,
 ) (map[string]struct{}, error) {
 	keys := make(map[string]struct{})
 	offset := 0
@@ -423,8 +424,8 @@ func normalizeCandidateFact(value string) string {
 	return strings.Join(strings.Fields(trimmed), " ")
 }
 
-func sanitizeCandidateFact(value string, extraRedactors []auditPayloadRedactor) string {
-	sanitized, _ := redactAuditPayload(strings.TrimSpace(value), extraRedactors)
+func sanitizeCandidateFact(value string, extraRedactors []redaction.Redactor) string {
+	sanitized, _ := redaction.Apply(strings.TrimSpace(value), extraRedactors)
 	return strings.Join(strings.Fields(sanitized), " ")
 }
 

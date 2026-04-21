@@ -5,6 +5,7 @@ import (
 
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application/redaction"
 	domtypes "github.com/duck8823/traceary/domain/types"
 )
 
@@ -19,12 +20,12 @@ func sanitizeMemoryPayload(
 	artifactRefs []domtypes.ArtifactRef,
 	extraRedactPatterns []string,
 ) (string, []domtypes.EvidenceRef, []domtypes.ArtifactRef, error) {
-	extraRedactors, err := compileExtraRedactPatterns(extraRedactPatterns)
+	extraRedactors, err := redaction.CompileExtraPatterns(extraRedactPatterns)
 	if err != nil {
 		return "", nil, nil, xerrors.Errorf("failed to compile extra redaction patterns: %w", err)
 	}
 
-	sanitizedFact, _ := redactAuditPayload(strings.TrimSpace(fact), extraRedactors)
+	sanitizedFact, _ := redaction.Apply(strings.TrimSpace(fact), extraRedactors)
 	sanitizedEvidenceRefs, err := sanitizeEvidenceRefs(evidenceRefs, extraRedactors)
 	if err != nil {
 		return "", nil, nil, err
