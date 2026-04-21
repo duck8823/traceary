@@ -56,7 +56,7 @@ func TestServer_ToolMetadata(t *testing.T) {
 		{
 			name: "add_log",
 			want: toolMetadataExpectation{
-				description:      "Add a log event, note, prompt, or compact summary.",
+				description:      "Add a log event, note, prompt, transcript, or compact summary.",
 				destructiveFalse: true,
 			},
 		},
@@ -91,7 +91,7 @@ func TestServer_ToolMetadata(t *testing.T) {
 		{
 			name: "list_events",
 			want: toolMetadataExpectation{
-				description: "List recent events, logs, audits, prompts, and summaries.",
+				description: "List recent events, logs, audits, prompts, transcripts, and summaries.",
 				readOnly:    true,
 			},
 		},
@@ -105,14 +105,14 @@ func TestServer_ToolMetadata(t *testing.T) {
 		{
 			name: "search",
 			want: toolMetadataExpectation{
-				description: "Search events, logs, audits, prompts, and summaries by text, time, or workspace.",
+				description: "Search events, logs, audits, prompts, transcripts, and summaries by text, time, or workspace.",
 				readOnly:    true,
 			},
 		},
 		{
 			name: "get_context",
 			want: toolMetadataExpectation{
-				description: "Get recent context events, logs, audits, prompts, and summaries for a session or workspace.",
+				description: "Get recent context events, logs, audits, prompts, transcripts, and summaries for a session or workspace.",
 				readOnly:    true,
 			},
 		},

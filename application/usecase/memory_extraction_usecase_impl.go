@@ -290,6 +290,9 @@ func (u *memoryExtractionUsecase) collectCandidateSpecs(ctx context.Context, ses
 	if err := appendKindSignals(domtypes.EventKindPrompt, true, true); err != nil {
 		return nil, err
 	}
+	if err := appendKindSignals(domtypes.EventKindTranscript, true, true); err != nil {
+		return nil, err
+	}
 	if err := appendKindSignals(domtypes.EventKindReviewed, true, true); err != nil {
 		return nil, err
 	}
