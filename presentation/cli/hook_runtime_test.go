@@ -536,6 +536,74 @@ func TestRootCLI_HookTranscriptCommand_RecordsLastAssistantMessage(t *testing.T)
 	}
 }
 
+// TestRootCLI_HookTranscriptCommand_AppliesExtraRedactPatterns asserts
+// that operator-configured extra_redact_patterns also run against the
+// transcript body, matching the audit path's policy. Before #626 the
+// transcript hook used ApplyBuiltin only and silently leaked any
+// org-specific secret shape that the audit path successfully masked.
+func TestRootCLI_HookTranscriptCommand_AppliesExtraRedactPatterns(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key-transcript-extra")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key-transcript-extra"), []byte("transcript-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key-transcript-extra-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	transcriptPath := filepath.Join(t.TempDir(), "transcript.jsonl")
+	// Reasoning body contains a secret shape that the built-in redactors
+	// do NOT match, but an operator-supplied extra pattern does.
+	line := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Org token: my_custom_secret=s3cr3tValue42 is now stale."}]}}`
+	if err := os.WriteFile(transcriptPath, []byte(line+"\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(transcript) error = %v", err)
+	}
+
+	storeStub := &storeManagementUsecaseStub{}
+	eventStub := &eventUsecaseStub{
+		logEvent: model.EventOf(
+			types.EventID("evt-transcript-extra"),
+			types.EventKindTranscript,
+			types.Client("hook"),
+			types.Agent("claude"),
+			types.SessionID("transcript-session"),
+			types.Workspace("github.com/duck8823/traceary"),
+			"ignored-in-test-eventstub",
+			time.Now(),
+		),
+	}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(storeStub),
+		cli.WithEvent(eventStub),
+		cli.WithExtraRedactPatterns([]string{`my_custom_secret=\S+`}),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	payload := `{"transcript_path":"` + transcriptPath + `"}`
+	rootCmd.SetIn(strings.NewReader(payload))
+	rootCmd.SetArgs([]string{"hook", "transcript", "claude"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if strings.Contains(eventStub.logCall.message, "s3cr3tValue42") {
+		t.Errorf("transcript log message leaked secret via extra pattern: %q", eventStub.logCall.message)
+	}
+	if !strings.Contains(eventStub.logCall.message, "[REDACTED]") {
+		t.Errorf("transcript log message missing [REDACTED] placeholder: %q", eventStub.logCall.message)
+	}
+}
+
 // TestRootCLI_HookTranscriptCommand_HandlesMalformedTranscript asserts
 // that lines which fail to parse are skipped rather than aborting the
 // whole Stop hook. Structural drift in the JSONL format (e.g. future
