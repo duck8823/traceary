@@ -1,6 +1,10 @@
 package types
 
-import domtypes "github.com/duck8823/traceary/domain/types"
+import (
+	"time"
+
+	domtypes "github.com/duck8823/traceary/domain/types"
+)
 
 const (
 	defaultContextPackRecentCommandsLimit = 5
@@ -14,6 +18,7 @@ type ContextPackCriteria struct {
 	recentCommandsLimit int
 	memoryLimit         int
 	memoryPreset        MemoryRetrievalPreset
+	memoryAsOf          domtypes.Optional[time.Time]
 }
 
 // SessionID returns the target session filter.
@@ -32,6 +37,13 @@ func (c ContextPackCriteria) MemoryLimit() int { return c.memoryLimit }
 // durable memories for the pack. Empty means "no preset — use the
 // default accepted-only behavior of the memory query path."
 func (c ContextPackCriteria) MemoryPreset() MemoryRetrievalPreset { return c.memoryPreset }
+
+// MemoryAsOf returns the point-in-time at which content validity should
+// be evaluated when loading durable memories for the pack. A present
+// value lets an operator time-travel handoff / memory_pack to "what
+// was valid at time T" instead of "what is valid now". None (the
+// default) evaluates validity against the current time.
+func (c ContextPackCriteria) MemoryAsOf() domtypes.Optional[time.Time] { return c.memoryAsOf }
 
 // ContextPackCriteriaBuilder builds a ContextPackCriteria value.
 type ContextPackCriteriaBuilder struct {
@@ -75,6 +87,14 @@ func (b *ContextPackCriteriaBuilder) MemoryLimit(limit int) *ContextPackCriteria
 // durable-memory filters for the pack.
 func (b *ContextPackCriteriaBuilder) MemoryPreset(preset MemoryRetrievalPreset) *ContextPackCriteriaBuilder {
 	b.criteria.memoryPreset = preset
+	return b
+}
+
+// MemoryAsOf sets the as-of timestamp used when filtering memory
+// validity windows. Callers pass domtypes.None[time.Time]() to clear
+// any previously-set value and evaluate validity against "now".
+func (b *ContextPackCriteriaBuilder) MemoryAsOf(asOf domtypes.Optional[time.Time]) *ContextPackCriteriaBuilder {
+	b.criteria.memoryAsOf = asOf
 	return b
 }
 
