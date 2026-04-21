@@ -254,11 +254,11 @@ func (s *Server) addLog() mcp.ToolHandlerFor[addLogInput, addLogOutput] {
 		// intentionally preserve operator intent (documented in
 		// docs/environment/README.md).
 		if kind == types.EventKindTranscript {
-			extras, err := redaction.CompileExtraPatterns(s.extraRedactPatterns)
+			extraRedactors, err := redaction.CompileExtraPatterns(s.extraRedactPatterns)
 			if err != nil {
 				return nil, addLogOutput{}, xerrors.Errorf("failed to compile extra redaction patterns for transcript: %w", err)
 			}
-			message, _ = redaction.Apply(message, extras)
+			message, _ = redaction.Apply(message, extraRedactors)
 		}
 
 		event, err := s.event.Log(ctx,
