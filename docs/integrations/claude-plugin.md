@@ -43,6 +43,8 @@ claude plugins marketplace update traceary-plugins
 claude plugins update traceary@traceary-plugins
 ```
 
+> **Important**: `brew upgrade traceary` refreshes the CLI binary but **does not touch the Claude plugin cache**. When new Traceary releases add hooks (for example the v0.8 transcript and built-in-tool matcher hooks), you must also run `claude plugins update traceary@traceary-plugins` before the newer hooks become active in a running Claude Code session. `traceary doctor --client claude` now surfaces a `claude-plugin-cache` check that warns when the cached version is behind the marketplace manifest.
+
 ## Uninstall
 
 ```sh
