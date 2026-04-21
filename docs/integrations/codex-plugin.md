@@ -42,7 +42,7 @@ traceary doctor --client codex --json
 - `traceary` MCP server via `traceary mcp-server`
 - `SessionStart`, `UserPromptSubmit`, `Stop`, and `PostToolUse` hooks (declared in `plugins/traceary/hooks.json` and referenced from the plugin manifest)
 - slash commands: `/traceary:help` and `/traceary:doctor`
-- contextual skill: `traceary-session-history`
+- contextual skills: `traceary-session-history` and `traceary-memory-capture` (the latter prompts the agent to proactively call `propose_memory` when the conversation surfaces a durable decision / constraint / lesson / preference / artifact)
 
 ## Update
 

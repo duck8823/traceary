@@ -20,7 +20,7 @@ Call `propose_memory` (or `remember_memory` when the user explicitly asks you to
 
 ## How to call it
 
-Use the MCP tool with at minimum `type`, `scope` (workspace by default), `fact`, and `evidence_refs` (the conversation turn / event / issue that justifies the claim). Example:
+Use the MCP tool with at minimum `type`, a scope field (exactly one of `workspace`, `agent`, or `session_family`), `fact`, and `evidence_refs` (the conversation turn / event / issue that justifies the claim). Example:
 
 ```
 propose_memory({

@@ -10,7 +10,7 @@ Gemini 向け package は `integrations/gemini-extension/` にあります。Gem
 - `SessionStart` / `SessionEnd` hook
 - `run_shell_command` 向け `AfterTool` audit hook
 - slash command の `/traceary-help` と `/traceary-doctor`
-- 文脈で効く `traceary-session-history` skill
+- 文脈で効く `traceary-session-history` / `traceary-memory-capture` skill（後者は decision / constraint / lesson / preference / artifact を発見したときにエージェントが `propose_memory` を能動的に呼ぶよう誘導します）
 
 ## Install
 

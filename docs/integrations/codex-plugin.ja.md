@@ -42,7 +42,7 @@ traceary doctor --client codex --json
 - `traceary mcp-server` を呼ぶ `traceary` MCP server
 - `SessionStart`, `UserPromptSubmit`, `Stop`, `PostToolUse` hook（`plugins/traceary/hooks.json` で宣言、manifest から参照）
 - slash command: `/traceary:help`, `/traceary:doctor`
-- 文脈に効く skill: `traceary-session-history`
+- 文脈に効く skill: `traceary-session-history` / `traceary-memory-capture`（後者は decision / constraint / lesson / preference / artifact を発見したときにエージェントが `propose_memory` を能動的に呼ぶよう誘導します）
 
 ## 更新
 
