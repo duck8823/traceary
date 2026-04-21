@@ -189,12 +189,12 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 // returns nil when the plugin is not active or when either side cannot
 // be resolved (reported indirectly by the existing claude-config check).
 func inspectClaudePluginCacheStatus() *doctorCheck {
-	home, err := os.UserHomeDir()
-	if err != nil {
+	detection := detectClaudeTracearyPluginForCLI()
+	if !detection.Active {
 		return nil
 	}
-	detection := filesystem.DetectClaudeTracearyPluginIn(home)
-	if !detection.Active {
+	home, err := userHomeDirFunc()
+	if err != nil {
 		return nil
 	}
 	status := filesystem.DetectClaudePluginCacheStatus(home, detection.PluginKey)
