@@ -94,6 +94,7 @@ type hooksInstallCommandInput struct {
 	outputPath  string
 	global      bool
 	force       bool
+	upgrade     bool
 	matcher     string
 }
 

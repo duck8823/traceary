@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/domain/types"
 )
 
@@ -40,6 +41,7 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 		outputPath  string
 		global      bool
 		force       bool
+		upgrade     bool
 		matcher     string
 	)
 
@@ -47,12 +49,13 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 		Use:   "install --client <claude|codex|gemini>",
 		Short: Localize("Write hook configuration examples to the standard config path", "標準の設定パスへ hook 設定例を書き出す"),
 		Long: Localize(
-			"Generate hook configuration for a supported client and write it to the standard config path.\nSupported clients: claude, codex, gemini.\nAliases: claude-code, codex-cli, gemini-cli.\nUse --global to write to the user-level config (~/.claude/settings.json for Claude, ~/.gemini/settings.json for Gemini). Codex hooks are already user-level, so --global is a no-op there.",
-			"対応 client 向けの hook 設定を生成し、標準の設定パスへ書き出します。\n対応 client: claude, codex, gemini。\nalias: claude-code, codex-cli, gemini-cli。\n--global を指定すると user-level 設定に書き込みます (Claude は ~/.claude/settings.json、Gemini は ~/.gemini/settings.json)。Codex の hook は元から user-level なため --global は効果ありません。",
+			"Generate hook configuration for a supported client and write it to the standard config path.\nSupported clients: claude, codex, gemini.\nAliases: claude-code, codex-cli, gemini-cli.\nUse --global to write to the user-level config (~/.claude/settings.json for Claude, ~/.gemini/settings.json for Gemini). Codex hooks are already user-level, so --global is a no-op there.\nUse --upgrade for a non-destructive migration: only Traceary-managed entries are replaced, user-added entries are preserved, and a summary of added / refreshed / unchanged events is printed. Re-running --upgrade on an already up-to-date config is a no-op.",
+			"対応 client 向けの hook 設定を生成し、標準の設定パスへ書き出します。\n対応 client: claude, codex, gemini。\nalias: claude-code, codex-cli, gemini-cli。\n--global を指定すると user-level 設定に書き込みます (Claude は ~/.claude/settings.json、Gemini は ~/.gemini/settings.json)。Codex の hook は元から user-level なため --global は効果ありません。\n--upgrade を指定すると非破壊マイグレーションになります (Traceary 管理分のみ置換、ユーザー追加の hook は保持、追加 / 更新 / 変更なしの内訳を表示)。既に最新の設定に対して再実行しても no-op です。",
 		),
 		Example: strings.Join([]string{
 			"  traceary hooks install --client claude --project-dir .",
 			"  traceary hooks install --client claude --global",
+			"  traceary hooks install --client codex-cli --upgrade",
 			"  traceary hooks install --client codex-cli --force",
 		}, "\n"),
 		Args: noArgsLocalized(),
@@ -64,6 +67,7 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 				outputPath:  outputPath,
 				global:      global,
 				force:       force,
+				upgrade:     upgrade,
 				matcher:     matcher,
 			})
 		},
@@ -73,7 +77,8 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 	installCmd.Flags().StringVar(&tracearyBin, "traceary-bin", "", Localize("traceary binary path or command name", "traceary バイナリパス"))
 	installCmd.Flags().StringVar(&outputPath, "output", "", Localize("override the output file path", "書き出し先を明示する"))
 	installCmd.Flags().BoolVar(&global, "global", false, Localize("write to the user-level config instead of the project config (mutually exclusive with --output)", "project ではなく user-level 設定へ書き込む (--output とは排他)"))
-	installCmd.Flags().BoolVar(&force, "force", false, Localize("overwrite the file if it already exists", "既存ファイルがある場合でも上書きする"))
+	installCmd.Flags().BoolVar(&force, "force", false, Localize("overwrite the file if it already exists (mutually exclusive with --upgrade)", "既存ファイルがある場合でも上書きする (--upgrade とは排他)"))
+	installCmd.Flags().BoolVar(&upgrade, "upgrade", false, Localize("non-destructive migration: merge only Traceary-managed entries and print a summary of added / refreshed / unchanged events (mutually exclusive with --force)", "非破壊マイグレーション: Traceary 管理分のみマージし、追加 / 更新 / 変更なしの内訳を表示 (--force とは排他)"))
 	installCmd.Flags().StringVar(&matcher, "matcher", "", Localize("Claude PostToolUse matcher preset: minimal (Bash + mcp__.*), default (+ built-in tool list), all (+ .*). Ignored for other clients. When the Claude Code plugin is active, install skips writing to settings.json unless --force is also set; otherwise the plugin's own hooks.json stays in control and this flag has no effect.", "Claude PostToolUse matcher preset: minimal (Bash + mcp__.*), default (+ 組み込み tool 列), all (+ .*)。他 client では無視されます。Claude Code plugin が有効な場合、--force を付けない限り install は settings.json 書き込みをスキップするため、plugin 配布の hooks.json が優先されて本フラグは効きません。"))
 
 	return installCmd
@@ -168,6 +173,14 @@ func (c *RootCLI) runHooksInstall(
 			),
 		)
 	}
+	if input.upgrade && input.force {
+		return xerrors.Errorf(
+			Localize(
+				"--upgrade and --force are mutually exclusive (use one or the other)",
+				"--upgrade と --force は同時指定できません (どちらか一方のみ指定してください)",
+			),
+		)
+	}
 	resolvedProjectDir, err := resolveHooksProjectDir(input.projectDir)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve project directory", "project directory の解決に失敗しました"), err)
@@ -254,6 +267,21 @@ func (c *RootCLI) runHooksInstall(
 		}
 	}
 
+	if input.upgrade {
+		resolvedOutputPath, diff, err := c.hooksOrchestrator.UpgradeWithMatcher(
+			ctx,
+			input.client,
+			resolvedTracearyBin,
+			resolvedProjectDir,
+			outputPathOption,
+			matcherPreset,
+		)
+		if err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to upgrade hook configuration file", "hook 設定ファイルのアップグレードに失敗しました"), err)
+		}
+		return writeHookUpgradeSummary(c, output, resolvedOutputPath, input, resolvedProjectDir, diff)
+	}
+
 	resolvedOutputPath, err := c.hooksOrchestrator.InstallWithMatcher(
 		ctx,
 		input.client,
@@ -281,6 +309,60 @@ func (c *RootCLI) runHooksInstall(
 	}
 
 	return nil
+}
+
+// writeHookUpgradeSummary renders the `--upgrade` summary to output. When
+// the diff is empty the migration was a no-op (re-run on an up-to-date
+// file), and we say so explicitly instead of inventing a change count so
+// the user can tell idempotent runs from real migrations.
+func writeHookUpgradeSummary(
+	c *RootCLI,
+	output io.Writer,
+	resolvedOutputPath string,
+	input hooksInstallCommandInput,
+	resolvedProjectDir string,
+	diff application.HookUpgradeDiff,
+) error {
+	canonicalClient := normalizeHooksClientForDisplay(c, input.client)
+	if len(diff.AddedEvents) == 0 && len(diff.RefreshedEvents) == 0 {
+		if _, err := fmt.Fprintf(
+			output,
+			Localize(
+				"Upgrade: %s is already up to date. %d event(s) unchanged.\nNext step: traceary doctor --client %s --project-dir %s\n",
+				"アップグレード: %s は既に最新です。%d 件のイベントに変更なし。\n次の確認: traceary doctor --client %s --project-dir %s\n",
+			),
+			resolvedOutputPath,
+			len(diff.PreservedEvents),
+			canonicalClient,
+			shellQuote(resolvedProjectDir),
+		); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print hook upgrade summary", "hook アップグレードサマリーの出力に失敗しました"), err)
+		}
+		return nil
+	}
+	if _, err := fmt.Fprintf(
+		output,
+		Localize(
+			"Upgrade: wrote %s\n  Added %d event(s): %s\n  Refreshed %d event(s): %s\n  Unchanged %d event(s): %s\nNext step: traceary doctor --client %s --project-dir %s\n",
+			"アップグレード: %s に書き出しました\n  追加 %d 件: %s\n  更新 %d 件: %s\n  変更なし %d 件: %s\n次の確認: traceary doctor --client %s --project-dir %s\n",
+		),
+		resolvedOutputPath,
+		len(diff.AddedEvents), formatEventList(diff.AddedEvents),
+		len(diff.RefreshedEvents), formatEventList(diff.RefreshedEvents),
+		len(diff.PreservedEvents), formatEventList(diff.PreservedEvents),
+		canonicalClient,
+		shellQuote(resolvedProjectDir),
+	); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print hook upgrade summary", "hook アップグレードサマリーの出力に失敗しました"), err)
+	}
+	return nil
+}
+
+func formatEventList(events []string) string {
+	if len(events) == 0 {
+		return Localize("(none)", "(なし)")
+	}
+	return strings.Join(events, ", ")
 }
 
 func normalizeHooksClientForDisplay(c *RootCLI, client string) string {

@@ -1,0 +1,213 @@
+package cli_test
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/duck8823/traceary/presentation/cli"
+)
+
+// TestHooksInstall_UpgradeAddsMissingEventsAndReports asserts that
+// `traceary hooks install --client codex --upgrade` on a config that
+// already carries the SessionStart hook but not the newer
+// UserPromptSubmit event adds the missing coverage and prints an
+// "Added" line for the migrated event. This mirrors the dogfooding
+// scenario that drove #637.
+func TestHooksInstall_UpgradeAddsMissingEventsAndReports(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	codexPath := filepath.Join(homeDir, ".codex", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(codexPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	existing := []byte(`{
+  "hooks": {
+    "SessionStart": [
+      {"hooks": [{"type": "command", "command": "'traceary' 'hook' 'session' 'codex' 'start'"}]}
+    ]
+  }
+}
+`)
+	if err := os.WriteFile(codexPath, existing, 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	rootCmd := newTestRootCLI().Command()
+	stdout := &bytes.Buffer{}
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"hooks", "install",
+		"--client", "codex",
+		"--project-dir", projectDir,
+		"--traceary-bin", "traceary",
+		"--upgrade",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "UserPromptSubmit") {
+		t.Errorf("stdout = %q; want mention of UserPromptSubmit in Added summary", output)
+	}
+	if !strings.Contains(output, "Added") && !strings.Contains(output, "追加") {
+		t.Errorf("stdout = %q; want Added/追加 summary line", output)
+	}
+
+	content, err := os.ReadFile(codexPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if !strings.Contains(string(content), "UserPromptSubmit") {
+		t.Errorf("codex hooks.json = %q; want UserPromptSubmit after --upgrade", content)
+	}
+}
+
+// TestHooksInstall_UpgradeIsIdempotent asserts that re-running
+// `--upgrade` on an already up-to-date config is a no-op that reports
+// zero added / refreshed events and leaves the file byte-identical.
+func TestHooksInstall_UpgradeIsIdempotent(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	// First run: write full hook config.
+	rootCmd := newTestRootCLI().Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"hooks", "install",
+		"--client", "codex",
+		"--project-dir", projectDir,
+		"--traceary-bin", "traceary",
+		"--upgrade",
+	})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("first Execute() error = %v", err)
+	}
+
+	codexPath := filepath.Join(homeDir, ".codex", "hooks.json")
+	firstContent, err := os.ReadFile(codexPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	// Second run: expect no-op summary.
+	rootCmd = newTestRootCLI().Command()
+	stdout := &bytes.Buffer{}
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"hooks", "install",
+		"--client", "codex",
+		"--project-dir", projectDir,
+		"--traceary-bin", "traceary",
+		"--upgrade",
+	})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("second Execute() error = %v", err)
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "up to date") && !strings.Contains(output, "最新") {
+		t.Errorf("stdout = %q; want up-to-date notice on idempotent re-run", output)
+	}
+
+	secondContent, err := os.ReadFile(codexPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(firstContent) != string(secondContent) {
+		t.Fatalf("idempotent re-run changed file bytes\nfirst:\n%s\nsecond:\n%s", firstContent, secondContent)
+	}
+}
+
+// TestHooksInstall_UpgradeRejectsForceCombination ensures --upgrade and
+// --force produce a clear validation error instead of silently mixing
+// semantics.
+func TestHooksInstall_UpgradeRejectsForceCombination(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	rootCmd := newTestRootCLI().Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"hooks", "install",
+		"--client", "codex",
+		"--project-dir", projectDir,
+		"--traceary-bin", "traceary",
+		"--upgrade",
+		"--force",
+	})
+
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatalf("Execute() error = nil; want mutual-exclusion error")
+	}
+	if !strings.Contains(err.Error(), "--upgrade") || !strings.Contains(err.Error(), "--force") {
+		t.Errorf("err = %v; want mention of --upgrade and --force", err)
+	}
+}
+
+// TestHooksInstall_UpgradePreservesUserAddedHooks asserts that user
+// hooks in the target file are left alone while only Traceary-managed
+// entries are refreshed.
+func TestHooksInstall_UpgradePreservesUserAddedHooks(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	settingsPath := filepath.Join(projectDir, ".gemini", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	existing := []byte(`{
+  "theme": "dark",
+  "hooks": {
+    "SessionStart": [
+      {"matcher": "*", "hooks": [{"type": "command", "command": "echo user-hook"}]}
+    ]
+  }
+}
+`)
+	if err := os.WriteFile(settingsPath, existing, 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	rootCmd := newTestRootCLI().Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"hooks", "install",
+		"--client", "gemini",
+		"--project-dir", projectDir,
+		"--traceary-bin", "traceary",
+		"--upgrade",
+	})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	content, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if !strings.Contains(string(content), `"theme": "dark"`) {
+		t.Errorf("merged settings lost unrelated top-level field: %s", content)
+	}
+	if !strings.Contains(string(content), `"command": "echo user-hook"`) {
+		t.Errorf("merged settings lost user-added hook: %s", content)
+	}
+}
