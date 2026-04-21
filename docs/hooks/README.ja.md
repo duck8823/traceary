@@ -42,7 +42,7 @@ host ごとのネイティブ連携パッケージを使いたい場合は、ま
 
 | Client | Settings file | Session start | Session end | Audit hook | Notes |
 | --- | --- | --- | --- | --- | --- |
-| Claude Code | `.claude/settings.json` or `~/.claude/settings.json` | `SessionStart` | `SessionEnd` | `PostToolUse` + `PostToolUseFailure` with `matcher: "Bash"` と `matcher: "mcp__.*"` | 現行 Anthropic docs では `Stop` は session-end hook ではなく per-response hook と定義されています |
+| Claude Code | `.claude/settings.json` or `~/.claude/settings.json` | `SessionStart` | `SessionEnd` | `PostToolUse` + `PostToolUseFailure` with `matcher: "Bash"` / `matcher: "mcp__.*"` / 組み込み tool matcher (`Read\|NotebookRead\|Edit\|MultiEdit\|Write\|NotebookEdit\|Grep\|Glob\|Agent\|Task\|TodoWrite\|WebFetch\|WebSearch\|ExitPlanMode`) | 現行 Anthropic docs では `Stop` は session-end hook ではなく per-response hook と定義されています |
 | Codex CLI (`codex-cli 0.118.0`) | `~/.codex/hooks.json` | `SessionStart` | `Stop` (best effort) | `PostToolUse` | ローカルの Codex build では `SessionEnd` が見つからず、`Stop` を best-effort で使います |
 | Gemini CLI (`gemini-cli 0.36.0`) | `.gemini/settings.json` or `~/.gemini/settings.json` | `SessionStart` | `SessionEnd` | `AfterTool` with `matcher: "run_shell_command"` | hook payload は JSON-over-stdin / JSON-over-stdout。`SessionEnd` は best-effort です |
 
