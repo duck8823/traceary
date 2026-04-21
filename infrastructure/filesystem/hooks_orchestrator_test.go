@@ -265,6 +265,182 @@ func TestHooksOrchestrator_NormalizeClient(t *testing.T) {
 	}
 }
 
+func TestHooksOrchestrator_UpgradeAddsMissingEventsAndReportsDiff(t *testing.T) {
+	t.Parallel()
+
+	projectDir := t.TempDir()
+	homeDir := t.TempDir()
+	orchestrator := newTestOrchestrator(homeDir)
+
+	settingsPath := filepath.Join(homeDir, ".codex", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	// Pre-existing hooks.json missing the UserPromptSubmit event but already
+	// carrying the session start + end entries a previous Traceary release
+	// installed. This simulates the dogfooded finding from the #637 issue.
+	existing := []byte(`{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {"type": "command", "command": "'traceary' 'hook' 'session' 'codex' 'start'"}
+        ]
+      }
+    ]
+  }
+}
+`)
+	if err := os.WriteFile(settingsPath, existing, 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	resolvedPath, diff, err := orchestrator.UpgradeWithMatcher(
+		context.Background(),
+		"codex", "traceary",
+		projectDir,
+		types.None[string](),
+		"",
+	)
+	if err != nil {
+		t.Fatalf("UpgradeWithMatcher() error = %v", err)
+	}
+	if resolvedPath != settingsPath {
+		t.Fatalf("UpgradeWithMatcher() path = %q, want %q", resolvedPath, settingsPath)
+	}
+
+	foundUserPrompt := false
+	for _, event := range diff.AddedEvents {
+		if event == "UserPromptSubmit" {
+			foundUserPrompt = true
+			break
+		}
+	}
+	if !foundUserPrompt {
+		t.Fatalf("expected UserPromptSubmit in AddedEvents, got added=%v", diff.AddedEvents)
+	}
+
+	foundPreservedSession := false
+	for _, event := range diff.PreservedEvents {
+		if event == "SessionStart" {
+			foundPreservedSession = true
+			break
+		}
+	}
+	if !foundPreservedSession {
+		t.Fatalf("expected SessionStart preserved, got preserved=%v refreshed=%v", diff.PreservedEvents, diff.RefreshedEvents)
+	}
+
+	content, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if !strings.Contains(string(content), "UserPromptSubmit") {
+		t.Fatalf("upgraded settings missing UserPromptSubmit: %s", content)
+	}
+}
+
+func TestHooksOrchestrator_UpgradeIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	projectDir := t.TempDir()
+	homeDir := t.TempDir()
+	orchestrator := newTestOrchestrator(homeDir)
+
+	// First upgrade from empty: should add every event.
+	if _, _, err := orchestrator.UpgradeWithMatcher(
+		context.Background(),
+		"codex", "traceary",
+		projectDir,
+		types.None[string](),
+		"",
+	); err != nil {
+		t.Fatalf("first UpgradeWithMatcher() error = %v", err)
+	}
+	settingsPath := filepath.Join(homeDir, ".codex", "hooks.json")
+	firstContent, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	// Second upgrade: should be a no-op (all events preserved).
+	_, diff, err := orchestrator.UpgradeWithMatcher(
+		context.Background(),
+		"codex", "traceary",
+		projectDir,
+		types.None[string](),
+		"",
+	)
+	if err != nil {
+		t.Fatalf("second UpgradeWithMatcher() error = %v", err)
+	}
+	if len(diff.AddedEvents) != 0 || len(diff.RefreshedEvents) != 0 {
+		t.Fatalf("expected idempotent re-run, got added=%v refreshed=%v", diff.AddedEvents, diff.RefreshedEvents)
+	}
+	if len(diff.PreservedEvents) == 0 {
+		t.Fatalf("expected PreservedEvents populated on idempotent re-run, got empty")
+	}
+
+	secondContent, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(firstContent) != string(secondContent) {
+		t.Fatalf("idempotent re-run changed file bytes\nfirst:\n%s\nsecond:\n%s", firstContent, secondContent)
+	}
+}
+
+func TestHooksOrchestrator_UpgradePreservesUserHooks(t *testing.T) {
+	t.Parallel()
+
+	projectDir := t.TempDir()
+	homeDir := t.TempDir()
+	orchestrator := newTestOrchestrator(homeDir)
+
+	settingsPath := filepath.Join(projectDir, ".gemini", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	existing := []byte(`{
+  "theme": "dark",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {"type": "command", "command": "echo custom-start"}
+        ]
+      }
+    ]
+  }
+}
+`)
+	if err := os.WriteFile(settingsPath, existing, 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	if _, _, err := orchestrator.UpgradeWithMatcher(
+		context.Background(),
+		"gemini", "traceary",
+		projectDir,
+		types.None[string](),
+		"",
+	); err != nil {
+		t.Fatalf("UpgradeWithMatcher() error = %v", err)
+	}
+
+	content, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if !strings.Contains(string(content), `"theme": "dark"`) {
+		t.Fatalf("--upgrade dropped unrelated top-level field: %s", content)
+	}
+	if !strings.Contains(string(content), `"command": "echo custom-start"`) {
+		t.Fatalf("--upgrade dropped user-added hook command: %s", content)
+	}
+}
+
 func TestHooksOrchestrator_ResolveInstallPathHonorsOverride(t *testing.T) {
 	t.Parallel()
 

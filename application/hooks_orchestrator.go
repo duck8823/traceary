@@ -6,6 +6,23 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
+// HookUpgradeDiff reports which events changed during a non-destructive
+// hook install (merge-only mode). The three slices are disjoint.
+//
+// AddedEvents     : events that had no Traceary-managed commands before
+//                   but now do (new hook coverage).
+// RefreshedEvents : events whose Traceary-managed commands were replaced
+//                   with the current release's set (upgrade, binary
+//                   rename, or command drift).
+// PreservedEvents : events whose normalized command set matched; the
+//                   merged output is byte-identical for these events,
+//                   which is what makes --upgrade idempotent.
+type HookUpgradeDiff struct {
+	AddedEvents     []string
+	RefreshedEvents []string
+	PreservedEvents []string
+}
+
 // HooksOrchestrator is the application-level entrypoint for hook generation
 // and installation. It resolves the correct HooksClientHandler for a client
 // alias, builds the Hooks aggregate, and renders or writes it to disk.
@@ -49,6 +66,21 @@ type HooksOrchestrator interface {
 		force bool,
 		matcherPreset string,
 	) (string, error)
+
+	// UpgradeWithMatcher applies the current hook configuration for the
+	// given client in merge-only mode (never overwrites) and returns a
+	// HookUpgradeDiff describing which events were added, refreshed, or
+	// preserved. It is the primary entrypoint for non-destructive
+	// migrations from older Traceary releases: the file is left byte
+	// identical when already up to date (idempotent).
+	UpgradeWithMatcher(
+		ctx context.Context,
+		client string,
+		tracearyBin string,
+		projectDir string,
+		outputPath types.Optional[string],
+		matcherPreset string,
+	) (string, HookUpgradeDiff, error)
 
 	// SupportedClients returns the canonical list of supported client
 	// identifiers (e.g. "claude", "codex", "gemini").
