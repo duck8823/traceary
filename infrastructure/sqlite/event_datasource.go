@@ -620,6 +620,7 @@ func (d *EventDatasource) ListTimelineBlocks(
 			workspace            string
 			wsEventCount         int
 			kinds                string
+			wsAgents             string
 			firstPromptBody      string
 			compactSummaryBody   string
 			firstTranscriptBody  string
@@ -633,6 +634,7 @@ func (d *EventDatasource) ListTimelineBlocks(
 			&workspace,
 			&wsEventCount,
 			&kinds,
+			&wsAgents,
 			&firstPromptBody,
 			&compactSummaryBody,
 			&firstTranscriptBody,
@@ -661,11 +663,13 @@ func (d *EventDatasource) ListTimelineBlocks(
 		}
 
 		kindList := splitNonEmpty(kinds, "|")
+		wsAgentList := splitNonEmpty(wsAgents, ",")
 		summary, source := resolveWorkspaceSummary(compactSummaryBody, firstPromptBody, firstTranscriptBody)
 		accum.breakdown = append(accum.breakdown, apptypes.TimelineWorkspaceBreakdownOf(
 			workspace,
 			wsEventCount,
 			kindList,
+			wsAgentList,
 			summary,
 			source,
 		))

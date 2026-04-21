@@ -19,8 +19,8 @@ func TestResolveReadFields(t *testing.T) {
 		wantErr       bool
 	}{
 		{
-			name: "default fallback when nothing is specified",
-			want: []readFieldID{readFieldTS, readFieldKind, readFieldSession, readFieldWorkspace, readFieldMessage},
+			name: "default fallback when nothing is specified includes agent for v0.8+",
+			want: []readFieldID{readFieldTS, readFieldKind, readFieldAgent, readFieldSession, readFieldWorkspace, readFieldMessage},
 		},
 		{
 			name:          "config columns used when flag absent",

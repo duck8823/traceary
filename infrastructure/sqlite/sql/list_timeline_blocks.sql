@@ -107,6 +107,7 @@ ws_rows AS (
     b.workspace,
     COUNT(*) AS ws_event_count,
     GROUP_CONCAT(b.kind, '|') AS kinds,
+    GROUP_CONCAT(DISTINCT b.agent) AS ws_agents,
     MAX(fp.first_prompt_body) AS first_prompt_body,
     MAX(lc.compact_summary_body) AS compact_summary_body,
     MAX(ft.first_transcript_body) AS first_transcript_body
@@ -130,6 +131,7 @@ SELECT
   wr.workspace,
   wr.ws_event_count,
   wr.kinds,
+  COALESCE(wr.ws_agents, '') AS ws_agents,
   COALESCE(wr.first_prompt_body, '') AS first_prompt_body,
   COALESCE(wr.compact_summary_body, '') AS compact_summary_body,
   COALESCE(wr.first_transcript_body, '') AS first_transcript_body

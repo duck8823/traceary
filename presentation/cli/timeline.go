@@ -246,6 +246,7 @@ func writeTimelineJSON(output io.Writer, blocks []apptypes.TimelineBlock) error 
 		Workspace     string         `json:"workspace"`
 		EventCount    int            `json:"event_count"`
 		KindCounts    map[string]int `json:"kind_counts"`
+		Agents        []string       `json:"agents"`
 		Summary       string         `json:"summary"`
 		SummarySource string         `json:"summary_source"`
 	}
@@ -269,6 +270,7 @@ func writeTimelineJSON(output io.Writer, blocks []apptypes.TimelineBlock) error 
 				Workspace:     ws.Workspace(),
 				EventCount:    ws.EventCount(),
 				KindCounts:    computeKindCounts(ws.Kinds()),
+				Agents:        ws.Agents(),
 				Summary:       ws.Summary(),
 				SummarySource: string(ws.SummarySource()),
 			})

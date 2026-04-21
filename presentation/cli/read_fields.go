@@ -41,12 +41,16 @@ var supportedReadFields = []readFieldID{
 	readFieldEventID,
 }
 
-// defaultReadFields is the built-in default column order, preserved from
-// v0.6.1 compact output so that the default rendering stays byte-for-byte
-// compatible when --fields is omitted.
+// defaultReadFields is the built-in default column order. Starting in
+// v0.8 the default surfaces `agent` between `kind` and `session` so
+// operators can see which AI produced an event without running
+// `--wide` or `--fields`. Operators who want the pre-v0.8 compact
+// layout can still pin `read.fields: ["ts", "kind", "session", "ws",
+// "message"]` in ~/.config/traceary/config.json.
 var defaultReadFields = []readFieldID{
 	readFieldTS,
 	readFieldKind,
+	readFieldAgent,
 	readFieldSession,
 	readFieldWorkspace,
 	readFieldMessage,
