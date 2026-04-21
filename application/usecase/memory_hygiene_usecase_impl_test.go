@@ -129,6 +129,331 @@ func TestMemoryHygieneScan_SimilarFactsEmitSupersedeCandidate(t *testing.T) {
 	}
 }
 
+// validitySummary is a helper for the validity_overlap_supersede tests
+// that sets an explicit valid_from / valid_to window on the memory
+// alongside updated_at, so the detector sees a realistic temporal
+// footprint.
+func validitySummary(
+	t *testing.T,
+	id string,
+	scope domtypes.MemoryScope,
+	memoryType domtypes.MemoryType,
+	fact string,
+	updatedAt time.Time,
+	validFrom time.Time,
+	validTo domtypes.Optional[time.Time],
+) apptypes.MemorySummary {
+	t.Helper()
+	summary, err := apptypes.MemorySummaryOf(
+		domtypes.MemoryID(id),
+		memoryType,
+		scope,
+		fact,
+		domtypes.MemoryStatusAccepted,
+		domtypes.ConfidenceMedium,
+		domtypes.MemorySourceManual,
+		domtypes.None[domtypes.MemoryID](),
+		domtypes.None[time.Time](),
+		validFrom,
+		validTo,
+		updatedAt,
+		updatedAt,
+	)
+	if err != nil {
+		t.Fatalf("MemorySummaryOf: %v", err)
+	}
+	return summary
+}
+
+func TestMemoryHygieneScan_ValidityOverlapEmitsSupersede(t *testing.T) {
+	t.Parallel()
+
+	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	if err != nil {
+		t.Fatalf("WorkspaceOf: %v", err)
+	}
+	scope := domtypes.WorkspaceScopeOf(workspace)
+	t1 := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	t3 := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+
+	// Overlap case: both memories in same (scope, type), windows overlap,
+	// facts differ and word Jaccard is high.
+	query := &stubMemoryQueryService{
+		summaries: []apptypes.MemorySummary{
+			validitySummary(t, "mem-older", scope, domtypes.MemoryTypePreference,
+				"deploy to staging every afternoon",
+				t1, t1, domtypes.Some(t3)),
+			validitySummary(t, "mem-newer", scope, domtypes.MemoryTypePreference,
+				"deploy to staging every afternoon at 15:00",
+				t2, t2, domtypes.None[time.Time]()),
+		},
+	}
+	sut := usecase.NewMemoryHygieneUsecase(&stubImportMemoryUsecase{}, query, nil)
+
+	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{Now: t3})
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if result.ValidityOverlapSupersedeCount == 0 {
+		t.Fatalf("expected at least one validity_overlap_supersede, suggestions=%+v", result.Suggestions)
+	}
+	var overlap *apptypes.MemoryHygieneSuggestion
+	for i, suggestion := range result.Suggestions {
+		if suggestion.Kind == apptypes.MemoryHygieneSuggestionValidityOverlapSupersede {
+			overlap = &result.Suggestions[i]
+			break
+		}
+	}
+	if overlap == nil {
+		t.Fatalf("no validity_overlap_supersede entry in suggestions=%+v", result.Suggestions)
+	}
+	if overlap.MemoryID.String() != "mem-older" {
+		t.Fatalf("older memory should be the supersede target, got %s", overlap.MemoryID)
+	}
+	if overlap.ReplacementMemoryID.String() != "mem-newer" {
+		t.Fatalf("newer memory should be the replacement, got %s", overlap.ReplacementMemoryID)
+	}
+}
+
+func TestMemoryHygieneScan_DisjointValidityWindowsAreNotSuperseded(t *testing.T) {
+	t.Parallel()
+
+	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	if err != nil {
+		t.Fatalf("WorkspaceOf: %v", err)
+	}
+	scope := domtypes.WorkspaceScopeOf(workspace)
+	t1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	t3 := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	t4 := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+
+	// Disjoint windows: [t1, t2] then [t3, t4] — first memory retired
+	// before the second took effect. The detector must treat them as
+	// separate historical facts, not supersede candidates.
+	query := &stubMemoryQueryService{
+		summaries: []apptypes.MemorySummary{
+			validitySummary(t, "mem-q1", scope, domtypes.MemoryTypePreference,
+				"deploy to staging every afternoon",
+				t1, t1, domtypes.Some(t2)),
+			validitySummary(t, "mem-q2", scope, domtypes.MemoryTypePreference,
+				"deploy to staging every afternoon at 15:00",
+				t3, t3, domtypes.Some(t4)),
+		},
+	}
+	sut := usecase.NewMemoryHygieneUsecase(&stubImportMemoryUsecase{}, query, nil)
+
+	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{Now: t4})
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if result.ValidityOverlapSupersedeCount != 0 {
+		t.Fatalf("disjoint validity windows must not trigger validity_overlap_supersede, got count=%d", result.ValidityOverlapSupersedeCount)
+	}
+	if result.SupersedeCandidateCount != 0 {
+		t.Fatalf("temporally-bounded disjoint pairs must not fall through to supersede_candidate, got count=%d", result.SupersedeCandidateCount)
+	}
+}
+
+func TestMemoryHygieneScan_TouchingValidityWindowsAreDisjoint(t *testing.T) {
+	t.Parallel()
+
+	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	if err != nil {
+		t.Fatalf("WorkspaceOf: %v", err)
+	}
+	scope := domtypes.WorkspaceScopeOf(workspace)
+	t1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	t3 := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+
+	// Adjacent windows [t1, t2) and [t2, t3) must be treated as
+	// disjoint under half-open semantics — runtime validity evaluates
+	// valid_to as exclusive, so the two memories are never
+	// simultaneously valid.
+	query := &stubMemoryQueryService{
+		summaries: []apptypes.MemorySummary{
+			validitySummary(t, "mem-first", scope, domtypes.MemoryTypePreference,
+				"deploy to staging every afternoon",
+				t1, t1, domtypes.Some(t2)),
+			validitySummary(t, "mem-second", scope, domtypes.MemoryTypePreference,
+				"deploy to staging every afternoon at 15:00",
+				t2, t2, domtypes.Some(t3)),
+		},
+	}
+	sut := usecase.NewMemoryHygieneUsecase(&stubImportMemoryUsecase{}, query, nil)
+
+	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{Now: t3})
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if result.ValidityOverlapSupersedeCount != 0 {
+		t.Fatalf("touching [t1,t2) / [t2,t3) windows must not overlap under half-open semantics, got count=%d", result.ValidityOverlapSupersedeCount)
+	}
+	if result.SupersedeCandidateCount != 0 {
+		t.Fatalf("touching windows are separate historical facts and must not become supersede_candidate either, got count=%d", result.SupersedeCandidateCount)
+	}
+}
+
+func TestMemoryHygieneScan_OneOpenOneExplicitOverlapEmitsValidity(t *testing.T) {
+	t.Parallel()
+
+	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	if err != nil {
+		t.Fatalf("WorkspaceOf: %v", err)
+	}
+	scope := domtypes.WorkspaceScopeOf(workspace)
+	t1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	t3 := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+
+	// One side carries an explicit valid_to that sits after the other
+	// side's valid_from, so the windows overlap under half-open
+	// semantics. Only one bound needs to be explicit for the detector
+	// to activate.
+	query := &stubMemoryQueryService{
+		summaries: []apptypes.MemorySummary{
+			validitySummary(t, "mem-explicit", scope, domtypes.MemoryTypePreference,
+				"deploy to staging every afternoon",
+				t1, t1, domtypes.Some(t3)),
+			validitySummary(t, "mem-open", scope, domtypes.MemoryTypePreference,
+				"deploy to staging every afternoon at 15:00",
+				t2, t2, domtypes.None[time.Time]()),
+		},
+	}
+	sut := usecase.NewMemoryHygieneUsecase(&stubImportMemoryUsecase{}, query, nil)
+
+	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{Now: t3.Add(24 * time.Hour)})
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if result.ValidityOverlapSupersedeCount != 1 {
+		t.Fatalf("one explicit + one open overlap must emit validity_overlap_supersede, got count=%d", result.ValidityOverlapSupersedeCount)
+	}
+	if result.SupersedeCandidateCount != 0 {
+		t.Fatalf("pair captured by validity_overlap should not also appear as supersede_candidate, got count=%d", result.SupersedeCandidateCount)
+	}
+}
+
+func TestMemoryHygieneScan_BothOpenEndedWindowsAreNotValidityOverlap(t *testing.T) {
+	t.Parallel()
+
+	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	if err != nil {
+		t.Fatalf("WorkspaceOf: %v", err)
+	}
+	scope := domtypes.WorkspaceScopeOf(workspace)
+	t1 := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+
+	// Same scope, same type, similar facts, but BOTH memories have
+	// open-ended validity windows (valid_to=None). The validity-overlap
+	// detector must fall through — supersede_candidate handles this
+	// without temporal evidence — even though scopeTypeKey would
+	// otherwise group them. Regression guard for validityWindowsOverlap
+	// returning true when neither side has an explicit upper bound.
+	query := &stubMemoryQueryService{
+		summaries: []apptypes.MemorySummary{
+			validitySummary(t, "mem-a", scope, domtypes.MemoryTypePreference,
+				"prefer bulleted commit messages",
+				t1, t1, domtypes.None[time.Time]()),
+			validitySummary(t, "mem-b", scope, domtypes.MemoryTypePreference,
+				"prefer bulleted commit messages style",
+				t2, t2, domtypes.None[time.Time]()),
+		},
+	}
+	sut := usecase.NewMemoryHygieneUsecase(&stubImportMemoryUsecase{}, query, nil)
+
+	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{Now: t2.Add(24 * time.Hour)})
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if result.ValidityOverlapSupersedeCount != 0 {
+		t.Fatalf("both open-ended validity windows must not trigger validity_overlap_supersede, got count=%d", result.ValidityOverlapSupersedeCount)
+	}
+	if result.SupersedeCandidateCount != 1 {
+		t.Fatalf("generic supersede_candidate should still catch the pair, got count=%d", result.SupersedeCandidateCount)
+	}
+}
+
+func TestMemoryHygieneScan_ValidityOverlapDifferentTypesDoNotPair(t *testing.T) {
+	t.Parallel()
+
+	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	if err != nil {
+		t.Fatalf("WorkspaceOf: %v", err)
+	}
+	scope := domtypes.WorkspaceScopeOf(workspace)
+	t1 := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+
+	// Same scope, overlapping windows, similar facts, but different
+	// types — the pair must not be reported because type divergence
+	// means they are conceptually different knowledge objects.
+	query := &stubMemoryQueryService{
+		summaries: []apptypes.MemorySummary{
+			validitySummary(t, "mem-preference", scope, domtypes.MemoryTypePreference,
+				"deploy to staging every afternoon",
+				t1, t1, domtypes.None[time.Time]()),
+			validitySummary(t, "mem-lesson", scope, domtypes.MemoryTypeLesson,
+				"deploy to staging every afternoon at 15:00",
+				t2, t2, domtypes.None[time.Time]()),
+		},
+	}
+	sut := usecase.NewMemoryHygieneUsecase(&stubImportMemoryUsecase{}, query, nil)
+
+	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{Now: t2.Add(24 * time.Hour)})
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if result.ValidityOverlapSupersedeCount != 0 {
+		t.Fatalf("different memory types must not pair, got count=%d", result.ValidityOverlapSupersedeCount)
+	}
+}
+
+func TestMemoryHygieneScan_ValidityOverlapOverridesSupersedeCandidate(t *testing.T) {
+	t.Parallel()
+
+	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	if err != nil {
+		t.Fatalf("WorkspaceOf: %v", err)
+	}
+	scope := domtypes.WorkspaceScopeOf(workspace)
+	t1 := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	t3 := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+
+	// Pair qualifies for both detectors (same scope + similar facts for
+	// SupersedeCandidate, same type + overlapping windows for
+	// ValidityOverlap — the older memory has an explicit valid_to so
+	// the validity detector triggers). The more specific detector
+	// wins: the pair is reported only under validity_overlap_supersede
+	// so the reviewer does not see it twice.
+	query := &stubMemoryQueryService{
+		summaries: []apptypes.MemorySummary{
+			validitySummary(t, "mem-older", scope, domtypes.MemoryTypePreference,
+				"prefer bulleted commit messages",
+				t1, t1, domtypes.Some(t3)),
+			validitySummary(t, "mem-newer", scope, domtypes.MemoryTypePreference,
+				"prefer bulleted commit messages style",
+				t2, t2, domtypes.None[time.Time]()),
+		},
+	}
+	sut := usecase.NewMemoryHygieneUsecase(&stubImportMemoryUsecase{}, query, nil)
+
+	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{Now: t2.Add(24 * time.Hour)})
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if result.SupersedeCandidateCount != 0 {
+		t.Fatalf("SupersedeCandidateCount = %d, want 0 (validity_overlap should absorb the pair)", result.SupersedeCandidateCount)
+	}
+	if result.ValidityOverlapSupersedeCount != 1 {
+		t.Fatalf("ValidityOverlapSupersedeCount = %d, want 1", result.ValidityOverlapSupersedeCount)
+	}
+}
+
 func TestMemoryHygieneScan_EmptyStoreReturnsEmptyResult(t *testing.T) {
 	t.Parallel()
 

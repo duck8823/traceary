@@ -33,6 +33,16 @@ const (
 	// the CLI apply path supersedes the older memory with the newer
 	// memory's content so the store converges on a single entry.
 	MemoryHygieneSuggestionSupersedeCandidate MemoryHygieneSuggestionKind = "supersede_candidate"
+	// MemoryHygieneSuggestionValidityOverlapSupersede flags two accepted
+	// memories that share (scope, type) and have overlapping temporal
+	// validity windows (valid_from/valid_to) while carrying facts that
+	// differ above the similarity threshold. The older memory is
+	// superseded by the newer one on apply, and the apply path keeps
+	// scope / type / refs so the retrieval surface stays consistent.
+	// Unlike SupersedeCandidate this detector is gated by window
+	// overlap: memories with disjoint validity windows are treated as
+	// separate historical facts.
+	MemoryHygieneSuggestionValidityOverlapSupersede MemoryHygieneSuggestionKind = "validity_overlap_supersede"
 )
 
 // MemoryHygieneScanCriteria carries the inputs the hygiene scanner
@@ -74,11 +84,12 @@ type MemoryHygieneSuggestion struct {
 // category was populated; the counts mirror what the CLI renders as a
 // human-readable summary.
 type MemoryHygieneScanResult struct {
-	Suggestions             []MemoryHygieneSuggestion
-	RedactionHitCount       int
-	ExpiryCandidateCount    int
-	DuplicateCount          int
-	SupersedeCandidateCount int
+	Suggestions                   []MemoryHygieneSuggestion
+	RedactionHitCount             int
+	ExpiryCandidateCount          int
+	DuplicateCount                int
+	SupersedeCandidateCount       int
+	ValidityOverlapSupersedeCount int
 }
 
 // MemoryHygieneApplyCriteria carries the inputs to the apply path. Ids

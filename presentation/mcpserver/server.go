@@ -798,11 +798,12 @@ func (s *Server) scanMemoryHygiene() mcp.ToolHandlerFor[scanMemoryHygieneInput, 
 			return nil, memoryHygieneOutput{}, xerrors.Errorf("failed to scan memory hygiene: %w", err)
 		}
 		out := memoryHygieneOutput{
-			RedactionHitCount:       result.RedactionHitCount,
-			ExpiryCandidateCount:    result.ExpiryCandidateCount,
-			DuplicateCount:          result.DuplicateCount,
-			SupersedeCandidateCount: result.SupersedeCandidateCount,
-			Suggestions:             make([]memoryHygieneSuggestionOutput, 0, len(result.Suggestions)),
+			RedactionHitCount:             result.RedactionHitCount,
+			ExpiryCandidateCount:          result.ExpiryCandidateCount,
+			DuplicateCount:                result.DuplicateCount,
+			SupersedeCandidateCount:       result.SupersedeCandidateCount,
+			ValidityOverlapSupersedeCount: result.ValidityOverlapSupersedeCount,
+			Suggestions:                   make([]memoryHygieneSuggestionOutput, 0, len(result.Suggestions)),
 		}
 		for _, suggestion := range result.Suggestions {
 			entry := memoryHygieneSuggestionOutput{

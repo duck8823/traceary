@@ -169,9 +169,36 @@ func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.Memor
 	if similarityThreshold <= 0 {
 		similarityThreshold = defaultSupersedeSimilarityThreshold
 	}
+	// Validity-annotated classifier runs first because it produces the
+	// more specific signal: (scope, type) match plus explicit temporal
+	// evidence splits pairs cleanly into "same policy, overlapping"
+	// (emit validity_overlap_supersede) and "separate historical
+	// facts, disjoint" (silent). Both outcomes are then excluded from
+	// the generic supersede_candidate pass so the reviewer never sees
+	// a temporally-bounded pair reported under the weaker kind.
+	validityOverlapSuggestions, temporalDisjointPairs := classifyValidityAnnotatedPairs(summaries, similarityThreshold)
+	validityPairs := make(map[string]struct{}, len(validityOverlapSuggestions))
+	for _, suggestion := range validityOverlapSuggestions {
+		validityPairs[pairKey(suggestion.MemoryID.String(), suggestion.ReplacementMemoryID.String())] = struct{}{}
+	}
+
 	supersedeSuggestions := detectSupersedeCandidates(summaries, duplicateIndex, similarityThreshold)
-	result.Suggestions = append(result.Suggestions, supersedeSuggestions...)
-	result.SupersedeCandidateCount = len(supersedeSuggestions)
+	filteredSupersede := make([]apptypes.MemoryHygieneSuggestion, 0, len(supersedeSuggestions))
+	for _, suggestion := range supersedeSuggestions {
+		key := pairKey(suggestion.MemoryID.String(), suggestion.ReplacementMemoryID.String())
+		if _, captured := validityPairs[key]; captured {
+			continue
+		}
+		if _, disjoint := temporalDisjointPairs[key]; disjoint {
+			continue
+		}
+		filteredSupersede = append(filteredSupersede, suggestion)
+	}
+	result.Suggestions = append(result.Suggestions, filteredSupersede...)
+	result.SupersedeCandidateCount = len(filteredSupersede)
+
+	result.Suggestions = append(result.Suggestions, validityOverlapSuggestions...)
+	result.ValidityOverlapSupersedeCount = len(validityOverlapSuggestions)
 
 	return result, nil
 }
@@ -254,6 +281,133 @@ func detectSupersedeCandidates(summaries []apptypes.MemorySummary, duplicateBuck
 		}
 	}
 	return suggestions
+}
+
+// classifyValidityAnnotatedPairs groups accepted memories by
+// (scope, type), inspects each pair whose similarity meets the
+// threshold and where at least one side carries an explicit valid_to,
+// and returns:
+//
+//   - validity_overlap_supersede suggestions for pairs whose windows
+//     overlap under half-open semantics (aligned with runtime validity
+//     evaluation), and
+//   - a set of pair keys whose windows are disjoint under the same
+//     semantics. The caller excludes those pairs from the generic
+//     supersede_candidate pass: they are separate historical facts
+//     the operator intentionally time-bounded, not merge candidates.
+//
+// Pairs where neither side carries an explicit valid_to fall through
+// (not reported in either output) so the caller's supersede_candidate
+// pipeline still handles them.
+func classifyValidityAnnotatedPairs(
+	summaries []apptypes.MemorySummary,
+	threshold float64,
+) ([]apptypes.MemoryHygieneSuggestion, map[string]struct{}) {
+	if threshold <= 0 || threshold > 1 {
+		return nil, nil
+	}
+	disjointPairs := map[string]struct{}{}
+
+	type scopeTypeKey struct {
+		ScopeKind  domtypes.MemoryScopeKind
+		ScopeKey   string
+		MemoryType domtypes.MemoryType
+	}
+	groups := make(map[scopeTypeKey][]apptypes.MemorySummary, len(summaries))
+	for _, summary := range summaries {
+		if summary.Scope() == nil {
+			continue
+		}
+		key := scopeTypeKey{
+			ScopeKind:  summary.Scope().Kind(),
+			ScopeKey:   summary.Scope().Key(),
+			MemoryType: summary.MemoryType(),
+		}
+		groups[key] = append(groups[key], summary)
+	}
+
+	var suggestions []apptypes.MemoryHygieneSuggestion
+	for _, group := range groups {
+		if len(group) < 2 {
+			continue
+		}
+		wordSets := make([]map[string]struct{}, len(group))
+		for i, summary := range group {
+			wordSets[i] = toWordSet(summary.Fact())
+		}
+		for i := 0; i < len(group); i++ {
+			for j := i + 1; j < len(group); j++ {
+				if group[i].Fact() == group[j].Fact() {
+					continue
+				}
+				_, aHasTo := group[i].ValidTo().Value()
+				_, bHasTo := group[j].ValidTo().Value()
+				// Pairs without any explicit upper bound are handled
+				// by the generic supersede_candidate pipeline — the
+				// operator has not expressed temporal intent yet.
+				if !aHasTo && !bHasTo {
+					continue
+				}
+				sim := jaccardSimilarity(wordSets[i], wordSets[j])
+				if sim < threshold {
+					continue
+				}
+				older, newer := group[i], group[j]
+				if older.UpdatedAt().After(newer.UpdatedAt()) {
+					older, newer = newer, older
+				} else if older.UpdatedAt().Equal(newer.UpdatedAt()) {
+					if older.MemoryID().String() > newer.MemoryID().String() {
+						older, newer = newer, older
+					}
+				}
+				if !validityWindowsOverlap(group[i], group[j]) {
+					// Temporally-bounded but disjoint — historical
+					// fact, exclude from supersede_candidate so the
+					// generic pass cannot report it either.
+					disjointPairs[pairKey(older.MemoryID().String(), newer.MemoryID().String())] = struct{}{}
+					continue
+				}
+				suggestions = append(suggestions, apptypes.MemoryHygieneSuggestion{
+					MemoryID:            older.MemoryID(),
+					Kind:                apptypes.MemoryHygieneSuggestionValidityOverlapSupersede,
+					Reason:              fmt.Sprintf("validity window overlaps %s at similarity %.2f", newer.MemoryID().String(), sim),
+					Fact:                older.Fact(),
+					ReplacementMemoryID: newer.MemoryID(),
+					ReplacementFact:     newer.Fact(),
+					Similarity:          sim,
+					Scope:               older.Scope(),
+					UpdatedAt:           older.UpdatedAt(),
+				})
+			}
+		}
+	}
+	return suggestions, disjointPairs
+}
+
+// validityWindowsOverlap reports whether the half-open temporal
+// validity windows [validFrom, validTo) of two memories intersect.
+// valid_to is treated as exclusive to stay consistent with the
+// runtime retrieval semantics (infrastructure/sqlite/memory_datasource
+// evaluates valid_from <= as_of AND valid_to > as_of), so two
+// adjacent windows — [t1, t2) and [t2, t3) — are reported as
+// disjoint rather than overlapping.
+func validityWindowsOverlap(a, b apptypes.MemorySummary) bool {
+	aFrom := a.ValidFrom()
+	bFrom := b.ValidFrom()
+	aTo, aHasTo := a.ValidTo().Value()
+	bTo, bHasTo := b.ValidTo().Value()
+
+	// Half-open overlap: [aFrom, aTo) ∩ [bFrom, bTo) is non-empty iff
+	//   aFrom < bTo  &&  bFrom < aTo
+	// An open upper bound collapses the strict less-than check to
+	// "always true" on that side.
+	if aHasTo && !bFrom.Before(aTo) {
+		return false
+	}
+	if bHasTo && !aFrom.Before(bTo) {
+		return false
+	}
+	return true
 }
 
 // pairKey returns a stable key for an unordered pair of memory ids so
@@ -415,14 +569,15 @@ func (u *memoryHygieneUsecase) applyOne(ctx context.Context, memoryID domtypes.M
 			return apptypes.MemoryHygieneApplied{}, xerrors.Errorf("failed to reject memory: %w", err)
 		}
 		return apptypes.MemoryHygieneApplied{MemoryID: memoryID.String(), Kind: suggestion.Kind, Transition: "reject", Details: rejected}, nil
-	case apptypes.MemoryHygieneSuggestionSupersedeCandidate:
+	case apptypes.MemoryHygieneSuggestionSupersedeCandidate,
+		apptypes.MemoryHygieneSuggestionValidityOverlapSupersede:
 		details, err := u.memory.Show(ctx, memoryID)
 		if err != nil {
 			return apptypes.MemoryHygieneApplied{}, xerrors.Errorf("failed to show memory: %w", err)
 		}
 		replacementFact := suggestion.ReplacementFact
 		if strings.TrimSpace(replacementFact) == "" {
-			return apptypes.MemoryHygieneApplied{}, xerrors.Errorf("supersede candidate missing replacement fact")
+			return apptypes.MemoryHygieneApplied{}, xerrors.Errorf("%s missing replacement fact", suggestion.Kind)
 		}
 		superseded, err := u.memory.Supersede(
 			ctx,
