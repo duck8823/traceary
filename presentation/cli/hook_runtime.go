@@ -513,9 +513,16 @@ func (c *RootCLI) runHookTranscript(
 	// Transcript text routinely carries things the assistant re-stated
 	// from files or shell output — API keys from .env files, Bearer
 	// tokens from header dumps, private keys pasted into chat. Apply
-	// the built-in audit redactors before persisting so
-	// `traceary tail` cannot leak them back later.
-	transcriptText = redaction.ApplyBuiltin(transcriptText)
+	// the built-in audit redactors plus any operator-configured
+	// extra_redact_patterns before persisting so `traceary tail` cannot
+	// leak them back later. Extra patterns that fail to compile should
+	// not silently bypass redaction: bail out instead, matching the
+	// audit path's policy (event_usecase_impl.go Audit).
+	extraRedactors, err := redaction.CompileExtraPatterns(c.extraRedactPatterns)
+	if err != nil {
+		return xerrors.Errorf("failed to compile extra redaction patterns for transcript: %w", err)
+	}
+	transcriptText, _ = redaction.Apply(transcriptText, extraRedactors)
 
 	sessionID, err := resolveHookSessionID(payload, client)
 	if err != nil {
