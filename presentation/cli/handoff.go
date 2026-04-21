@@ -35,6 +35,7 @@ func (c *RootCLI) newHandoffCommandWithUse(use string, short string) *cobra.Comm
 		recent    int
 		memories  int
 		preset    string
+		asOf      string
 	)
 
 	cmd := &cobra.Command{
@@ -53,6 +54,7 @@ func (c *RootCLI) newHandoffCommandWithUse(use string, short string) *cobra.Comm
 				recent:    recent,
 				memories:  memories,
 				preset:    preset,
+				asOf:      asOf,
 			})
 		},
 	}
@@ -63,6 +65,7 @@ func (c *RootCLI) newHandoffCommandWithUse(use string, short string) *cobra.Comm
 	cmd.Flags().IntVar(&recent, "recent", 5, Localize("number of recent commands to show", "表示する直近コマンド数"))
 	cmd.Flags().IntVar(&memories, "memories", 5, Localize("number of durable memories to include", "含める durable memory 数"))
 	cmd.Flags().StringVar(&preset, "preset", "", Localize("apply a built-in retrieval preset to durable memories (resume | review | incident)", "durable memory 取得に built-in preset を適用する (resume | review | incident)"))
+	cmd.Flags().StringVar(&asOf, "as-of", "", Localize("evaluate durable memory validity at the given timestamp (RFC3339 or YYYY-MM-DD)", "指定時刻 (RFC3339 または YYYY-MM-DD) の時点で durable memory の validity を評価する"))
 
 	return cmd
 }
@@ -74,6 +77,7 @@ type handoffCommandInput struct {
 	recent    int
 	memories  int
 	preset    string
+	asOf      string
 }
 
 func (c *RootCLI) runHandoff(ctx context.Context, output io.Writer, input handoffCommandInput) error {
@@ -98,6 +102,10 @@ func (c *RootCLI) runHandoff(ctx context.Context, output io.Writer, input handof
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to parse --preset", "--preset の解析に失敗しました"), err)
 	}
+	asOf, err := parseOptionalValidityTime(input.asOf)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to parse --as-of", "--as-of の解析に失敗しました"), err)
+	}
 	result, err := c.context.Handoff(
 		ctx,
 		apptypes.NewContextPackCriteriaBuilder().
@@ -106,6 +114,7 @@ func (c *RootCLI) runHandoff(ctx context.Context, output io.Writer, input handof
 			RecentCommandsLimit(input.recent).
 			MemoryLimit(input.memories).
 			MemoryPreset(preset).
+			MemoryAsOf(asOf).
 			Build(),
 	)
 	if err != nil {

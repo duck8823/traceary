@@ -205,6 +205,8 @@ session metadata、recent commands、compact summary、accepted durable memories
 - `--workspace`
 - `--recent`
 - `--memories`
+- `--preset` (任意): durable memory に built-in preset (`resume` / `review` / `incident`) を適用
+- `--as-of` (任意): durable memory の validity を指定時刻 (YYYY-MM-DD または RFC3339) で評価する。既定は「現在」
 
 ### `traceary session handoff`
 
@@ -216,6 +218,8 @@ session metadata、recent commands、compact summary、accepted durable memories
 - `--workspace`
 - `--recent`
 - `--memories`
+- `--preset`
+- `--as-of`
 
 ### `traceary compact-summary`
 

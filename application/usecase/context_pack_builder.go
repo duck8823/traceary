@@ -74,7 +74,7 @@ func (b *contextPackBuilder) Build(ctx context.Context, criteria apptypes.Contex
 	if err != nil {
 		compactSummary = ""
 	}
-	memories, err := b.loadMemories(ctx, session, criteria.MemoryLimit(), criteria.MemoryPreset())
+	memories, err := b.loadMemories(ctx, session, criteria.MemoryLimit(), criteria.MemoryPreset(), criteria.MemoryAsOf())
 	if err != nil {
 		return domtypes.None[apptypes.ContextPack](), err
 	}
@@ -152,6 +152,7 @@ func (b *contextPackBuilder) loadMemories(
 	session apptypes.SessionSummary,
 	limit int,
 	preset apptypes.MemoryRetrievalPreset,
+	asOf domtypes.Optional[time.Time],
 ) ([]apptypes.MemorySummary, error) {
 	if b.memoryQuery == nil || limit == 0 {
 		return nil, nil
@@ -172,6 +173,9 @@ func (b *contextPackBuilder) loadMemories(
 		builder = preset.ApplyToMemoryListCriteriaBuilder(builder)
 	} else {
 		builder = builder.Statuses([]domtypes.MemoryStatus{domtypes.MemoryStatusAccepted})
+	}
+	if asOfValue, ok := asOf.Value(); ok {
+		builder = builder.AsOf(asOfValue)
 	}
 	memories, err := b.memoryQuery.List(ctx, builder.Build())
 	if err != nil {

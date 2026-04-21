@@ -494,12 +494,17 @@ func (s *Server) sessionHandoff() mcp.ToolHandlerFor[sessionHandoffInput, sessio
 		if err != nil {
 			return nil, sessionHandoffOutput{}, xerrors.Errorf("failed to parse preset: %w", err)
 		}
+		asOf, err := parseFlexibleTimeOptional(input.AsOf)
+		if err != nil {
+			return nil, sessionHandoffOutput{}, xerrors.Errorf("failed to parse as_of: %w", err)
+		}
 		result, err := s.context.Handoff(ctx, buildContextPackCriteria(
 			input.SessionID,
 			input.Workspace,
 			input.RecentCommandsLimit,
 			input.MemoryLimit,
 			preset,
+			asOf,
 		))
 		if err != nil {
 			return nil, sessionHandoffOutput{}, xerrors.Errorf("failed to get session handoff: %w", err)
@@ -520,12 +525,17 @@ func (s *Server) memoryPack() mcp.ToolHandlerFor[memoryPackInput, memoryPackOutp
 		if err != nil {
 			return nil, memoryPackOutput{}, xerrors.Errorf("failed to parse preset: %w", err)
 		}
+		asOf, err := parseFlexibleTimeOptional(input.AsOf)
+		if err != nil {
+			return nil, memoryPackOutput{}, xerrors.Errorf("failed to parse as_of: %w", err)
+		}
 		result, err := s.context.Handoff(ctx, buildContextPackCriteria(
 			input.SessionID,
 			input.Workspace,
 			input.RecentCommandsLimit,
 			input.MemoryLimit,
 			preset,
+			asOf,
 		))
 		if err != nil {
 			return nil, memoryPackOutput{}, xerrors.Errorf("failed to build memory pack: %w", err)
@@ -987,7 +997,7 @@ func (s *Server) setMemoryValidity() mcp.ToolHandlerFor[setMemoryValidityInput, 
 	}
 }
 
-func buildContextPackCriteria(sessionID string, workspace string, recentCommandsLimit *int, memoryLimit *int, preset apptypes.MemoryRetrievalPreset) apptypes.ContextPackCriteria {
+func buildContextPackCriteria(sessionID string, workspace string, recentCommandsLimit *int, memoryLimit *int, preset apptypes.MemoryRetrievalPreset, asOf types.Optional[time.Time]) apptypes.ContextPackCriteria {
 	builder := apptypes.NewContextPackCriteriaBuilder().
 		SessionID(types.SessionID(strings.TrimSpace(sessionID))).
 		Workspace(types.Workspace(strings.TrimSpace(workspace)))
@@ -999,6 +1009,9 @@ func buildContextPackCriteria(sessionID string, workspace string, recentCommands
 	}
 	if preset != "" {
 		builder.MemoryPreset(preset)
+	}
+	if _, ok := asOf.Value(); ok {
+		builder.MemoryAsOf(asOf)
 	}
 	return builder.Build()
 }
@@ -1409,6 +1422,21 @@ func parseFlexibleTime(value string, endExclusive bool) (time.Time, error) {
 	}
 
 	return parsedDate, nil
+}
+
+// parseFlexibleTimeOptional returns None when the input is empty and
+// Some(time) otherwise, surfacing parse failures as errors. Callers
+// that want to distinguish "not supplied" from "unset" use this over
+// parseFlexibleTime, which returns a zero time.Time in either case.
+func parseFlexibleTimeOptional(value string) (types.Optional[time.Time], error) {
+	if strings.TrimSpace(value) == "" {
+		return types.None[time.Time](), nil
+	}
+	parsed, err := parseFlexibleTime(value, false)
+	if err != nil {
+		return types.None[time.Time](), err
+	}
+	return types.Some(parsed), nil
 }
 
 func convertEvents(events []*model.Event) []eventOutput {

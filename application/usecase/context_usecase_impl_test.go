@@ -278,4 +278,89 @@ func TestContextUsecase_Handoff(t *testing.T) {
 			t.Fatalf("RecentCommands() mismatch (-want +got):\n%s", diff)
 		}
 	})
+
+	t.Run("propagates MemoryAsOf from ContextPackCriteria to the memory query builder", func(t *testing.T) {
+		t.Parallel()
+
+		asOf := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+
+		session := apptypes.SessionSummaryOf(
+			domtypes.SessionID("session-asof"),
+			domtypes.Workspace("duck8823/traceary"),
+			time.Now().Add(-time.Hour),
+			domtypes.None[time.Time](),
+			"active",
+			1,
+			0,
+			[]string{"claude"},
+			"",
+			"",
+			domtypes.SessionID(""),
+		)
+
+		memoryQuery := &memoryQueryStub{}
+		sut := usecase.NewContextUsecase(
+			&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}},
+			&eventQueryServiceStub{},
+			memoryQuery,
+		)
+
+		criteria := apptypes.NewContextPackCriteriaBuilder().
+			SessionID(domtypes.SessionID("session-asof")).
+			Workspace(domtypes.Workspace("duck8823/traceary")).
+			MemoryLimit(5).
+			MemoryAsOf(domtypes.Some(asOf)).
+			Build()
+
+		if _, err := sut.Handoff(context.Background(), criteria); err != nil {
+			t.Fatalf("Handoff() error = %v", err)
+		}
+
+		gotAsOf, ok := memoryQuery.listCriteria.AsOf().Value()
+		if !ok {
+			t.Fatalf("memory list AsOf = None, want Some(%v)", asOf)
+		}
+		if !gotAsOf.Equal(asOf) {
+			t.Errorf("memory list AsOf = %v, want %v", gotAsOf, asOf)
+		}
+	})
+
+	t.Run("omits MemoryAsOf when ContextPackCriteria does not set it", func(t *testing.T) {
+		t.Parallel()
+
+		session := apptypes.SessionSummaryOf(
+			domtypes.SessionID("session-noasof"),
+			domtypes.Workspace("duck8823/traceary"),
+			time.Now().Add(-time.Hour),
+			domtypes.None[time.Time](),
+			"active",
+			1,
+			0,
+			[]string{"claude"},
+			"",
+			"",
+			domtypes.SessionID(""),
+		)
+
+		memoryQuery := &memoryQueryStub{}
+		sut := usecase.NewContextUsecase(
+			&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}},
+			&eventQueryServiceStub{},
+			memoryQuery,
+		)
+
+		criteria := apptypes.NewContextPackCriteriaBuilder().
+			SessionID(domtypes.SessionID("session-noasof")).
+			Workspace(domtypes.Workspace("duck8823/traceary")).
+			MemoryLimit(5).
+			Build()
+
+		if _, err := sut.Handoff(context.Background(), criteria); err != nil {
+			t.Fatalf("Handoff() error = %v", err)
+		}
+
+		if _, ok := memoryQuery.listCriteria.AsOf().Value(); ok {
+			t.Errorf("memory list AsOf = Some(...), want None when criteria omits as-of")
+		}
+	})
 }
