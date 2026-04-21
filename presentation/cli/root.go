@@ -94,9 +94,8 @@ func WithContext(contextUsecase usecase.ContextUsecase) RootCLIOption {
 }
 
 // WithReplay injects the ReplayUsecase used by the replay HTML export
-// command. When omitted, the replay command falls back to a default
-// usecase constructed from the injected session / event / memory
-// usecases.
+// command. WithReplay is required: the CLI returns a configuration
+// error at runtime if `traceary replay` is invoked without it.
 func WithReplay(replay usecase.ReplayUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.replay = replay }
 }

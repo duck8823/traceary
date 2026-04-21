@@ -14,7 +14,6 @@ import (
 const (
 	defaultReplaySessionLimit     = 10
 	defaultReplayEventsPerSession = 20
-	defaultReplayMemoryLimit      = 20
 )
 
 type replayUsecase struct {
