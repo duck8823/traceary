@@ -101,7 +101,7 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 			t.Fatalf("PostToolUse[1] matcher mismatch (-want +got):\n%s", diff)
 		}
 		thirdMatcher, _ := entries[2].Matcher().Value()
-		wantBuiltin := "Read|Edit|Write|MultiEdit|Grep|Glob|Agent|Task|TodoWrite|WebFetch|WebSearch|NotebookEdit"
+		wantBuiltin := "Read|NotebookRead|Edit|MultiEdit|Write|NotebookEdit|Grep|Glob|Agent|Task|TodoWrite|WebFetch|WebSearch|ExitPlanMode"
 		if diff := cmp.Diff(wantBuiltin, thirdMatcher); diff != "" {
 			t.Fatalf("PostToolUse[2] matcher mismatch (-want +got):\n%s", diff)
 		}
@@ -132,7 +132,7 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 			t.Fatalf("PostToolUseFailure[1] matcher mismatch (-want +got):\n%s", diff)
 		}
 		thirdMatcher, _ := entries[2].Matcher().Value()
-		wantBuiltin := "Read|Edit|Write|MultiEdit|Grep|Glob|Agent|Task|TodoWrite|WebFetch|WebSearch|NotebookEdit"
+		wantBuiltin := "Read|NotebookRead|Edit|MultiEdit|Write|NotebookEdit|Grep|Glob|Agent|Task|TodoWrite|WebFetch|WebSearch|ExitPlanMode"
 		if diff := cmp.Diff(wantBuiltin, thirdMatcher); diff != "" {
 			t.Fatalf("PostToolUseFailure[2] matcher mismatch (-want +got):\n%s", diff)
 		}

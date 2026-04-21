@@ -14,7 +14,7 @@ This document defines the hook capability tiers across AI agent clients.
 | SessionEnd | `*` | Record session end |
 | PostToolUse | `Bash` | Record shell command audit with exit code |
 | PostToolUse | `mcp__.*` | Record MCP tool audit |
-| PostToolUse | `Read\|Edit\|Write\|MultiEdit\|Grep\|Glob\|Agent\|Task\|TodoWrite\|WebFetch\|WebSearch\|NotebookEdit` | Record built-in Claude Code tool invocations (file I/O, search, agent, web). Added in v0.8-6 |
+| PostToolUse | `Read\|NotebookRead\|Edit\|MultiEdit\|Write\|NotebookEdit\|Grep\|Glob\|Agent\|Task\|TodoWrite\|WebFetch\|WebSearch\|ExitPlanMode` | Record built-in Claude Code tool invocations (file I/O, search, agent, web, plan-mode exit). Added in v0.8-6; expanded to include `NotebookRead` and `ExitPlanMode` in v0.8-6b |
 | PostToolUseFailure | `Bash`, `mcp__.*`, built-in tools | Record failed tool execution |
 | PostCompact | `*` | Record compact summary |
 | UserPromptSubmit | `*` | Record user prompt text |
