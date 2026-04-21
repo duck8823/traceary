@@ -371,6 +371,81 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 	})
 }
 
+func TestRootCLI_HooksPrintCommand_MatcherPreset(t *testing.T) {
+	tracearyBin := "traceary"
+
+	t.Run("claude + matcher=minimal drops built-in row", func(t *testing.T) {
+		rootCmd := newTestRootCLI().Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"hooks", "print", "--client", "claude", "--traceary-bin", tracearyBin, "--matcher", "minimal"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		var settings printedHooksSettings
+		if err := json.Unmarshal(stdout.Bytes(), &settings); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v", err)
+		}
+		postToolUse := settings.Hooks["PostToolUse"]
+		if got, want := len(postToolUse), 2; got != want {
+			t.Fatalf("PostToolUse len = %d, want %d", got, want)
+		}
+	})
+
+	t.Run("claude + matcher=all appends .*", func(t *testing.T) {
+		rootCmd := newTestRootCLI().Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"hooks", "print", "--client", "claude", "--traceary-bin", tracearyBin, "--matcher", "all"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		var settings printedHooksSettings
+		if err := json.Unmarshal(stdout.Bytes(), &settings); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v", err)
+		}
+		postToolUse := settings.Hooks["PostToolUse"]
+		if got, want := len(postToolUse), 3; got != want {
+			t.Fatalf("PostToolUse len = %d, want %d", got, want)
+		}
+		third := postToolUse[2].Matcher
+		if third == nil || *third != ".*" {
+			t.Fatalf("PostToolUse[2].Matcher = %v, want .*", third)
+		}
+	})
+
+	t.Run("invalid matcher value returns an error", func(t *testing.T) {
+		rootCmd := newTestRootCLI().Command()
+		rootCmd.SetOut(&bytes.Buffer{})
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"hooks", "print", "--client", "claude", "--traceary-bin", tracearyBin, "--matcher", "lol"})
+		err := rootCmd.Execute()
+		if err == nil {
+			t.Fatalf("Execute() error = nil, want validation error")
+		}
+		if !strings.Contains(err.Error(), "--matcher") {
+			t.Errorf("Execute() error = %v, want message containing --matcher", err)
+		}
+	})
+
+	t.Run("non-claude client ignores matcher (no validation bypass)", func(t *testing.T) {
+		rootCmd := newTestRootCLI().Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"hooks", "print", "--client", "codex", "--traceary-bin", tracearyBin, "--matcher", "minimal"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		// Codex settings should still render without panic; the matcher is ignored.
+		if stdout.Len() == 0 {
+			t.Fatalf("expected non-empty output for codex")
+		}
+	})
+}
+
 func executeHooksPrint(
 	t *testing.T,
 	client string,

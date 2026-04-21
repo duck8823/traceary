@@ -40,6 +40,7 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 		outputPath  string
 		global      bool
 		force       bool
+		matcher     string
 	)
 
 	installCmd := &cobra.Command{
@@ -63,6 +64,7 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 				outputPath:  outputPath,
 				global:      global,
 				force:       force,
+				matcher:     matcher,
 			})
 		},
 	}
@@ -72,6 +74,7 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 	installCmd.Flags().StringVar(&outputPath, "output", "", Localize("override the output file path", "書き出し先を明示する"))
 	installCmd.Flags().BoolVar(&global, "global", false, Localize("write to the user-level config instead of the project config (mutually exclusive with --output)", "project ではなく user-level 設定へ書き込む (--output とは排他)"))
 	installCmd.Flags().BoolVar(&force, "force", false, Localize("overwrite the file if it already exists", "既存ファイルがある場合でも上書きする"))
+	installCmd.Flags().StringVar(&matcher, "matcher", "", Localize("Claude PostToolUse matcher preset: minimal (Bash + mcp__.*), default (+ built-in tool list), all (+ .*). Ignored for other clients. When the Claude Code plugin is active, install skips writing to settings.json unless --force is also set; otherwise the plugin's own hooks.json stays in control and this flag has no effect.", "Claude PostToolUse matcher preset: minimal (Bash + mcp__.*), default (+ 組み込み tool 列), all (+ .*)。他 client では無視されます。Claude Code plugin が有効な場合、--force を付けない限り install は settings.json 書き込みをスキップするため、plugin 配布の hooks.json が優先されて本フラグは効きません。"))
 
 	return installCmd
 }
@@ -80,6 +83,7 @@ func (c *RootCLI) newHooksPrintCommand() *cobra.Command {
 	var (
 		client      string
 		tracearyBin string
+		matcher     string
 	)
 
 	printCmd := &cobra.Command{
@@ -91,6 +95,7 @@ func (c *RootCLI) newHooksPrintCommand() *cobra.Command {
 		),
 		Example: strings.Join([]string{
 			"  traceary hooks print --client claude",
+			"  traceary hooks print --client claude --matcher minimal",
 			"  traceary hooks print --client gemini-cli --traceary-bin ~/bin/traceary",
 		}, "\n"),
 		Args: noArgsLocalized(),
@@ -98,11 +103,13 @@ func (c *RootCLI) newHooksPrintCommand() *cobra.Command {
 			return c.runHooksPrint(cmd.Context(), cmd.OutOrStdout(), hooksPrintCommandInput{
 				client:      client,
 				tracearyBin: tracearyBin,
+				matcher:     matcher,
 			})
 		},
 	}
 	printCmd.Flags().StringVar(&client, "client", "", hooksClientFlagUsage)
 	printCmd.Flags().StringVar(&tracearyBin, "traceary-bin", "", Localize("traceary binary path or command name", "traceary バイナリパス"))
+	printCmd.Flags().StringVar(&matcher, "matcher", "", Localize("Claude PostToolUse matcher preset: minimal (Bash + mcp__.*), default (+ built-in tool list), all (+ .*). Ignored for other clients.", "Claude PostToolUse matcher preset: minimal (Bash + mcp__.*), default (+ 組み込み tool 列), all (+ .*)。他 client では無視されます。"))
 
 	return printCmd
 }
@@ -120,7 +127,21 @@ func (c *RootCLI) runHooksPrint(
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve traceary binary path", "traceary binary path の解決に失敗しました"), err)
 	}
 
-	encoded, err := c.hooksOrchestrator.Generate(ctx, input.client, resolvedTracearyBin)
+	matcherPreset := strings.TrimSpace(input.matcher)
+	if matcherPreset != "" {
+		switch matcherPreset {
+		case "minimal", "default", "all":
+			// accepted
+		default:
+			return xerrors.Errorf(
+				"%s: %q %s",
+				Localize("invalid --matcher value", "--matcher の値が不正です"),
+				matcherPreset,
+				Localize("(allowed: minimal, default, all)", "(許容値: minimal, default, all)"),
+			)
+		}
+	}
+	encoded, err := c.hooksOrchestrator.GenerateWithMatcher(ctx, input.client, resolvedTracearyBin, matcherPreset)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to build hook configuration example", "hook 設定例の生成に失敗しました"), err)
 	}
@@ -218,13 +239,29 @@ func (c *RootCLI) runHooksInstall(
 		}
 	}
 
-	resolvedOutputPath, err := c.hooksOrchestrator.Install(
+	matcherPreset := strings.TrimSpace(input.matcher)
+	if matcherPreset != "" {
+		switch matcherPreset {
+		case "minimal", "default", "all":
+			// accepted
+		default:
+			return xerrors.Errorf(
+				"%s: %q %s",
+				Localize("invalid --matcher value", "--matcher の値が不正です"),
+				matcherPreset,
+				Localize("(allowed: minimal, default, all)", "(許容値: minimal, default, all)"),
+			)
+		}
+	}
+
+	resolvedOutputPath, err := c.hooksOrchestrator.InstallWithMatcher(
 		ctx,
 		input.client,
 		resolvedTracearyBin,
 		resolvedProjectDir,
 		outputPathOption,
 		input.force,
+		matcherPreset,
 	)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to write hook configuration file", "hook 設定ファイルの書き出しに失敗しました"), err)

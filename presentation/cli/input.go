@@ -83,6 +83,7 @@ type gcCommandInput struct {
 type hooksPrintCommandInput struct {
 	client      string
 	tracearyBin string
+	matcher     string
 }
 
 // hooksInstallCommandInput is the resolved input to `traceary hooks install`.
@@ -93,6 +94,7 @@ type hooksInstallCommandInput struct {
 	outputPath  string
 	global      bool
 	force       bool
+	matcher     string
 }
 
 // hooksGuideCommandInput is the resolved input to `traceary hooks guide`.
