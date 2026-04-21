@@ -9,6 +9,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/application/queryservice"
+	"github.com/duck8823/traceary/application/redaction"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	domtypes "github.com/duck8823/traceary/domain/types"
@@ -450,10 +451,10 @@ func (u *memoryUsecase) sanitizeMemoryPayload(
 	return sanitizeMemoryPayload(fact, evidenceRefs, artifactRefs, u.extraRedactPatterns)
 }
 
-func sanitizeEvidenceRefs(refs []domtypes.EvidenceRef, extraRedactors []auditPayloadRedactor) ([]domtypes.EvidenceRef, error) {
+func sanitizeEvidenceRefs(refs []domtypes.EvidenceRef, extraRedactors []redaction.Redactor) ([]domtypes.EvidenceRef, error) {
 	sanitized := make([]domtypes.EvidenceRef, 0, len(refs))
 	for _, ref := range refs {
-		value, _ := redactAuditPayload(ref.Value(), extraRedactors)
+		value, _ := redaction.Apply(ref.Value(), extraRedactors)
 		resolvedRef, err := domtypes.EvidenceRefOf(ref.Kind(), value)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to sanitize evidence ref: %w", err)
@@ -463,10 +464,10 @@ func sanitizeEvidenceRefs(refs []domtypes.EvidenceRef, extraRedactors []auditPay
 	return sanitized, nil
 }
 
-func sanitizeArtifactRefs(refs []domtypes.ArtifactRef, extraRedactors []auditPayloadRedactor) ([]domtypes.ArtifactRef, error) {
+func sanitizeArtifactRefs(refs []domtypes.ArtifactRef, extraRedactors []redaction.Redactor) ([]domtypes.ArtifactRef, error) {
 	sanitized := make([]domtypes.ArtifactRef, 0, len(refs))
 	for _, ref := range refs {
-		value, _ := redactAuditPayload(ref.Value(), extraRedactors)
+		value, _ := redaction.Apply(ref.Value(), extraRedactors)
 		resolvedRef, err := domtypes.ArtifactRefOf(ref.Kind(), value)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to sanitize artifact ref: %w", err)

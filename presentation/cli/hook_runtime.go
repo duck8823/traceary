@@ -17,8 +17,8 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application/redaction"
 	apptypes "github.com/duck8823/traceary/application/types"
-	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/types"
 )
 
@@ -515,7 +515,7 @@ func (c *RootCLI) runHookTranscript(
 	// tokens from header dumps, private keys pasted into chat. Apply
 	// the built-in audit redactors before persisting so
 	// `traceary tail` cannot leak them back later.
-	transcriptText = usecase.RedactWellKnownSecrets(transcriptText)
+	transcriptText = redaction.ApplyBuiltin(transcriptText)
 
 	sessionID, err := resolveHookSessionID(payload, client)
 	if err != nil {
