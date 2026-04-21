@@ -9,7 +9,7 @@ Claude 向け package は `integrations/claude-plugin/` にあり、repository r
 - `traceary mcp-server` を使う `traceary` MCP server
 - `SessionStart` / `SessionEnd` hook
 - Bash 向けの `PostToolUse` / `PostToolUseFailure` audit hook
-- slash command として使える `/traceary-help` と、文脈で自動適用される `traceary-session-history` skill
+- slash command として使える `/traceary-help` と、文脈で自動適用される `traceary-session-history` / `traceary-memory-capture` skill（後者は decision / constraint / lesson / preference / artifact を発見したときにエージェントが `propose_memory` を能動的に呼ぶよう誘導します）
 
 ## Install
 

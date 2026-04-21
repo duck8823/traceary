@@ -9,7 +9,7 @@ The Claude package lives under `integrations/claude-plugin/` and is published th
 - `traceary` MCP server via `traceary mcp-server`
 - `SessionStart` / `SessionEnd` hooks
 - `PostToolUse` / `PostToolUseFailure` shell-audit hooks for Bash
-- slash-style skills: `/traceary-help` plus the contextual `traceary-session-history` skill
+- slash-style skills: `/traceary-help` plus the contextual `traceary-session-history` and `traceary-memory-capture` skills (the latter prompts the agent to proactively call `propose_memory` when the conversation surfaces a durable decision / constraint / lesson / preference / artifact)
 
 ## Install
 
