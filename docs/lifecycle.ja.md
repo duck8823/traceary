@@ -19,7 +19,8 @@ SessionStart → [UserPromptSubmit → PostToolUse]* → (PreCompact → PostCom
 | UserPromptSubmit | `*` | `prompt` | ユーザーが送った指示テキスト |
 | PostToolUse | `Bash` | `command_executed` | シェルコマンド（入出力・終了コード付き） |
 | PostToolUse | `mcp__.*` | `command_executed` | MCP ツール呼び出し |
-| PostToolUseFailure | `Bash`, `mcp__.*` | `command_executed` | 失敗したツール実行（`failures_only` でフィルタ可能） |
+| PostToolUse | 組み込み tools | `command_executed` | ファイル I/O・検索・agent・web・plan モード終了 (`Read`, `NotebookRead`, `Edit`, `MultiEdit`, `Write`, `NotebookEdit`, `Grep`, `Glob`, `Agent`, `Task`, `TodoWrite`, `WebFetch`, `WebSearch`, `ExitPlanMode`)。v0.8-6 で追加、v0.8-6b で拡張。 |
+| PostToolUseFailure | `Bash`, `mcp__.*`, 組み込み tools | `command_executed` | 失敗したツール実行（`failures_only` でフィルタ可能） |
 | PostCompact | `*` | `compact_summary` | コンテキスト圧縮時の構造化サマリー |
 | Stop | `*` | `transcript` | stop-hook の `transcript_path` から読み取った最後の assistant 発話（reasoning 等） |
 | SessionEnd | `*` | `session_ended` | セッション終了 |
