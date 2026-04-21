@@ -43,6 +43,8 @@ claude plugins marketplace update traceary-plugins
 claude plugins update traceary@traceary-plugins
 ```
 
+> **重要**: `brew upgrade traceary` は CLI binary を更新しますが、**Claude plugin cache には触れません**。新しい Traceary リリースが hook を追加したとき（例: v0.8 の transcript hook や built-in tool matcher hook）は、Claude Code セッション内で新 hook を有効化するために `claude plugins update traceary@traceary-plugins` も実行する必要があります。`traceary doctor --client claude` は cache が marketplace manifest より古い状態を `claude-plugin-cache` check で警告します。
+
 ## Uninstall
 
 ```sh

@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/mod/semver"
 )
 
 // ClaudePluginDetection reports whether the Traceary Claude Code plugin
@@ -75,4 +77,90 @@ func DetectClaudeTracearyPluginIn(home string) ClaudePluginDetection {
 	}
 
 	return ClaudePluginDetection{SettingsPath: settingsPath}
+}
+
+// ClaudePluginCacheStatus describes the cached Traceary plugin version
+// alongside the version the marketplace currently advertises. When the
+// two drift (typically because the operator ran `brew upgrade traceary`
+// without `claude plugins update`), the host continues to run an older
+// hook set than the CLI supports — exactly the gotcha v0.8.0 dogfooding
+// surfaced for #606 (transcript hook) and #605 (matcher expansion).
+type ClaudePluginCacheStatus struct {
+	// CachePath is the directory scanned for cached plugin versions.
+	// Empty when detection could not resolve it.
+	CachePath string
+	// CachedVersion is the highest version found under CachePath. Empty
+	// when no versioned directory exists (plugin never cached yet).
+	CachedVersion string
+	// MarketplaceVersion is the plugin.json "version" Claude Code sees
+	// via `~/.claude/plugins/marketplaces/<marketplace>/...`. Empty when
+	// the marketplace clone is missing.
+	MarketplaceVersion string
+	// MarketplacePath is the plugin.json path that was read (empty if
+	// the read failed).
+	MarketplacePath string
+}
+
+// Stale reports whether the cached plugin is at an older semver than
+// the marketplace currently offers. Returns false when either version
+// is unresolved — a missing cache or missing marketplace is surfaced to
+// the caller through the struct fields rather than as "stale".
+func (s ClaudePluginCacheStatus) Stale() bool {
+	if s.CachedVersion == "" || s.MarketplaceVersion == "" {
+		return false
+	}
+	return semver.Compare("v"+s.CachedVersion, "v"+s.MarketplaceVersion) < 0
+}
+
+// DetectClaudePluginCacheStatus resolves the cached plugin version and
+// the marketplace plugin.json version for the given PluginKey (of the
+// form "<plugin>@<marketplace>"). Missing caches and missing marketplace
+// clones are reported via empty fields rather than as errors; only
+// structural IO errors surface. Returns an empty status when pluginKey
+// lacks the expected "plugin@marketplace" shape.
+func DetectClaudePluginCacheStatus(home, pluginKey string) ClaudePluginCacheStatus {
+	parts := strings.SplitN(pluginKey, "@", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return ClaudePluginCacheStatus{}
+	}
+	plugin, marketplace := parts[0], parts[1]
+
+	status := ClaudePluginCacheStatus{
+		CachePath: filepath.Join(home, ".claude", "plugins", "cache", marketplace, plugin),
+		MarketplacePath: filepath.Join(
+			home, ".claude", "plugins", "marketplaces", marketplace,
+			"integrations", "claude-plugin", ".claude-plugin", "plugin.json",
+		),
+	}
+
+	if entries, err := os.ReadDir(status.CachePath); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			if name == "" || strings.HasPrefix(name, ".") {
+				continue
+			}
+			// Orphaned caches leave a sibling marker file that should
+			// not participate in the "highest cached version" choice.
+			if _, err := os.Stat(filepath.Join(status.CachePath, name, ".orphaned_at")); err == nil {
+				continue
+			}
+			if status.CachedVersion == "" || semver.Compare("v"+name, "v"+status.CachedVersion) > 0 {
+				status.CachedVersion = name
+			}
+		}
+	}
+
+	if content, err := os.ReadFile(status.MarketplacePath); err == nil {
+		var manifest struct {
+			Version string `json:"version"`
+		}
+		if err := json.Unmarshal(content, &manifest); err == nil {
+			status.MarketplaceVersion = strings.TrimSpace(manifest.Version)
+		}
+	}
+
+	return status
 }

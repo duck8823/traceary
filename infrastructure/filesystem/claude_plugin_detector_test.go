@@ -124,3 +124,125 @@ func writeClaudeSettings(t *testing.T, home, content string) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 }
+
+func writePluginCache(t *testing.T, home, marketplace, plugin, version string) {
+	t.Helper()
+	dir := filepath.Join(home, ".claude", "plugins", "cache", marketplace, plugin, version)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("MkdirAll(cache) error = %v", err)
+	}
+}
+
+func writePluginMarketplaceManifest(t *testing.T, home, marketplace, version string) {
+	t.Helper()
+	dir := filepath.Join(home, ".claude", "plugins", "marketplaces", marketplace, "integrations", "claude-plugin", ".claude-plugin")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("MkdirAll(manifest) error = %v", err)
+	}
+	manifest := `{"name":"traceary","version":"` + version + `"}`
+	if err := os.WriteFile(filepath.Join(dir, "plugin.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatalf("WriteFile(manifest) error = %v", err)
+	}
+}
+
+func TestDetectClaudePluginCacheStatus_StaleCache(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	writePluginCache(t, home, "traceary-plugins", "traceary", "0.6.0")
+	writePluginMarketplaceManifest(t, home, "traceary-plugins", "0.7.2")
+
+	got := DetectClaudePluginCacheStatus(home, "traceary@traceary-plugins")
+
+	if got.CachedVersion != "0.6.0" {
+		t.Errorf("CachedVersion = %q, want 0.6.0", got.CachedVersion)
+	}
+	if got.MarketplaceVersion != "0.7.2" {
+		t.Errorf("MarketplaceVersion = %q, want 0.7.2", got.MarketplaceVersion)
+	}
+	if !got.Stale() {
+		t.Errorf("Stale() = false, want true for 0.6.0 vs 0.7.2")
+	}
+}
+
+func TestDetectClaudePluginCacheStatus_UpToDateCache(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	writePluginCache(t, home, "traceary-plugins", "traceary", "0.7.2")
+	writePluginMarketplaceManifest(t, home, "traceary-plugins", "0.7.2")
+
+	got := DetectClaudePluginCacheStatus(home, "traceary@traceary-plugins")
+
+	if got.Stale() {
+		t.Errorf("Stale() = true, want false for equal versions")
+	}
+}
+
+func TestDetectClaudePluginCacheStatus_PicksHighestCachedVersion(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	writePluginCache(t, home, "traceary-plugins", "traceary", "0.5.1")
+	writePluginCache(t, home, "traceary-plugins", "traceary", "0.7.0")
+	writePluginCache(t, home, "traceary-plugins", "traceary", "0.6.1")
+	writePluginMarketplaceManifest(t, home, "traceary-plugins", "0.7.2")
+
+	got := DetectClaudePluginCacheStatus(home, "traceary@traceary-plugins")
+
+	if got.CachedVersion != "0.7.0" {
+		t.Errorf("CachedVersion = %q, want highest 0.7.0", got.CachedVersion)
+	}
+	if !got.Stale() {
+		t.Errorf("Stale() = false, want true (0.7.0 < 0.7.2)")
+	}
+}
+
+func TestDetectClaudePluginCacheStatus_IgnoresOrphanedCache(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	writePluginCache(t, home, "traceary-plugins", "traceary", "0.7.2")
+	// Place a newer but orphaned version alongside.
+	writePluginCache(t, home, "traceary-plugins", "traceary", "0.8.0")
+	orphanMarker := filepath.Join(home, ".claude", "plugins", "cache", "traceary-plugins", "traceary", "0.8.0", ".orphaned_at")
+	if err := os.WriteFile(orphanMarker, []byte("2026-04-21"), 0o600); err != nil {
+		t.Fatalf("WriteFile(orphan marker) error = %v", err)
+	}
+	writePluginMarketplaceManifest(t, home, "traceary-plugins", "0.7.2")
+
+	got := DetectClaudePluginCacheStatus(home, "traceary@traceary-plugins")
+
+	if got.CachedVersion != "0.7.2" {
+		t.Errorf("CachedVersion = %q, want 0.7.2 (orphaned 0.8.0 must be ignored)", got.CachedVersion)
+	}
+	if got.Stale() {
+		t.Errorf("Stale() = true, want false (0.7.2 matches marketplace)")
+	}
+}
+
+func TestDetectClaudePluginCacheStatus_MissingCache(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	writePluginMarketplaceManifest(t, home, "traceary-plugins", "0.7.2")
+
+	got := DetectClaudePluginCacheStatus(home, "traceary@traceary-plugins")
+
+	if got.CachedVersion != "" {
+		t.Errorf("CachedVersion = %q, want empty", got.CachedVersion)
+	}
+	if got.Stale() {
+		t.Errorf("Stale() = true, want false when cache is absent")
+	}
+}
+
+func TestDetectClaudePluginCacheStatus_MalformedKey(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	got := DetectClaudePluginCacheStatus(home, "no-at-separator")
+	if got.CachePath != "" {
+		t.Errorf("CachePath = %q, want empty for malformed key", got.CachePath)
+	}
+}

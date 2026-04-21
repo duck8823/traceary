@@ -164,6 +164,12 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			report.Checks = append(report.Checks, *globalCheck)
 		}
 
+		if targetClient == "claude" {
+			if cacheCheck := inspectClaudePluginCacheStatus(); cacheCheck != nil {
+				report.Checks = append(report.Checks, *cacheCheck)
+			}
+		}
+
 		if hostCheck := inspectHostCapabilityGaps(targetClient, outputPath); hostCheck != nil {
 			report.Checks = append(report.Checks, *hostCheck)
 		}
@@ -172,6 +178,49 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 	report.Checks = append(report.Checks, checkLatestVersion(input.currentVersion))
 
 	return report, nil
+}
+
+// inspectClaudePluginCacheStatus compares the cached Traceary Claude
+// Code plugin version against the marketplace manifest the plugin was
+// registered from. A stale cache is the exact failure mode v0.8.0
+// dogfooding revealed: `brew upgrade traceary` does not refresh the
+// plugin cache, so new hooks (#606 transcript / #605 matcher expansion)
+// stay dark until the operator runs `claude plugins update`. The check
+// returns nil when the plugin is not active or when either side cannot
+// be resolved (reported indirectly by the existing claude-config check).
+func inspectClaudePluginCacheStatus() *doctorCheck {
+	detection := detectClaudeTracearyPluginForCLI()
+	if !detection.Active {
+		return nil
+	}
+	home, err := userHomeDirFunc()
+	if err != nil {
+		return nil
+	}
+	status := filesystem.DetectClaudePluginCacheStatus(home, detection.PluginKey)
+	if status.CachedVersion == "" || status.MarketplaceVersion == "" {
+		return nil
+	}
+	if status.Stale() {
+		return &doctorCheck{
+			Name:   "claude-plugin-cache",
+			Status: doctorStatusWarn,
+			Message: localizef(
+				"claude plugin cache %s is older than the marketplace manifest (cached %s, marketplace %s at %s). `brew upgrade traceary` does not refresh the plugin cache; run `claude plugins update %s` to activate the newer hooks",
+				"claude plugin cache %s は marketplace manifest より古いバージョンです (cached %s, marketplace %s at %s)。`brew upgrade traceary` では plugin cache は更新されません。新しい hook を有効にするには `claude plugins update %s` を実行してください",
+				status.CachePath, status.CachedVersion, status.MarketplaceVersion, status.MarketplacePath, detection.PluginKey,
+			),
+		}
+	}
+	return &doctorCheck{
+		Name:   "claude-plugin-cache",
+		Status: doctorStatusPass,
+		Message: localizef(
+			"claude plugin cache matches the marketplace manifest (cached %s, marketplace %s)",
+			"claude plugin cache は marketplace manifest と一致しています (cached %s, marketplace %s)",
+			status.CachedVersion, status.MarketplaceVersion,
+		),
+	}
 }
 
 // inspectHostCapabilityGaps surfaces informational notes about 2026 Q2 host
