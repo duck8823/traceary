@@ -271,6 +271,51 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 		}
 	})
 
+	t.Run("falls back to transcript body when no prompt or compact_summary", func(t *testing.T) {
+		t.Parallel()
+		ds := newDatasource(t)
+
+		saveEventKind(t, ds, "e1", "ws-transcript-only", types.EventKindTranscript, "assistant reasoning about the design", time.Date(2026, 4, 10, 11, 0, 0, 0, time.UTC))
+
+		blocks, err := ds.ListTimelineBlocks(context.Background(), types.Workspace(""), time.Time{}, time.Time{}, 900, 10)
+		if err != nil {
+			t.Fatalf("ListTimelineBlocks() error = %v", err)
+		}
+		if len(blocks) != 1 {
+			t.Fatalf("len(blocks) = %d, want 1", len(blocks))
+		}
+		breakdown := blocks[0].WorkspaceBreakdown()
+		if len(breakdown) != 1 {
+			t.Fatalf("breakdown len = %d, want 1", len(breakdown))
+		}
+		if got := breakdown[0].Summary(); got != "assistant reasoning about the design" {
+			t.Errorf("summary = %q, want transcript body", got)
+		}
+		if got := breakdown[0].SummarySource(); got != "transcript" {
+			t.Errorf("source = %q, want transcript", got)
+		}
+	})
+
+	t.Run("prompt wins over transcript when both exist", func(t *testing.T) {
+		t.Parallel()
+		ds := newDatasource(t)
+
+		saveEventKind(t, ds, "e1", "ws-mixed", types.EventKindPrompt, "user asked for X", time.Date(2026, 4, 10, 11, 10, 0, 0, time.UTC))
+		saveEventKind(t, ds, "e2", "ws-mixed", types.EventKindTranscript, "assistant explained X", time.Date(2026, 4, 10, 11, 11, 0, 0, time.UTC))
+
+		blocks, err := ds.ListTimelineBlocks(context.Background(), types.Workspace(""), time.Time{}, time.Time{}, 900, 10)
+		if err != nil {
+			t.Fatalf("ListTimelineBlocks() error = %v", err)
+		}
+		breakdown := blocks[0].WorkspaceBreakdown()
+		if got := breakdown[0].SummarySource(); got != "prompt" {
+			t.Errorf("source = %q, want prompt (prompt should still win over transcript)", got)
+		}
+		if got := breakdown[0].Summary(); got != "user asked for X" {
+			t.Errorf("summary = %q, want prompt body", got)
+		}
+	})
+
 	t.Run("respects limit", func(t *testing.T) {
 		t.Parallel()
 		ds := newDatasource(t)

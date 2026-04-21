@@ -622,6 +622,7 @@ func (d *EventDatasource) ListTimelineBlocks(
 			kinds                string
 			firstPromptBody      string
 			compactSummaryBody   string
+			firstTranscriptBody  string
 		)
 		if err := rows.Scan(
 			&blockNum,
@@ -634,6 +635,7 @@ func (d *EventDatasource) ListTimelineBlocks(
 			&kinds,
 			&firstPromptBody,
 			&compactSummaryBody,
+			&firstTranscriptBody,
 		); err != nil {
 			return nil, xerrors.Errorf("failed to scan timeline block: %w", err)
 		}
@@ -659,7 +661,7 @@ func (d *EventDatasource) ListTimelineBlocks(
 		}
 
 		kindList := splitNonEmpty(kinds, "|")
-		summary, source := resolveWorkspaceSummary(compactSummaryBody, firstPromptBody)
+		summary, source := resolveWorkspaceSummary(compactSummaryBody, firstPromptBody, firstTranscriptBody)
 		accum.breakdown = append(accum.breakdown, apptypes.TimelineWorkspaceBreakdownOf(
 			workspace,
 			wsEventCount,
@@ -688,16 +690,19 @@ func (d *EventDatasource) ListTimelineBlocks(
 }
 
 // resolveWorkspaceSummary applies the fallback chain
-// compact_summary → prompt → kind_counts. Whitespace-only candidates are
-// treated as absent so blank rows cannot override a later non-blank
-// candidate (SQLite TRIM only strips spaces, not tabs/newlines, so this
-// defense is enforced in Go rather than in SQL).
-func resolveWorkspaceSummary(compactSummaryBody, firstPromptBody string) (string, apptypes.TimelineWorkspaceBreakdownSummarySource) {
+// compact_summary → prompt → transcript → kind_counts. Whitespace-only
+// candidates are treated as absent so blank rows cannot override a later
+// non-blank candidate (SQLite TRIM only strips spaces, not tabs/newlines,
+// so this defense is enforced in Go rather than in SQL).
+func resolveWorkspaceSummary(compactSummaryBody, firstPromptBody, firstTranscriptBody string) (string, apptypes.TimelineWorkspaceBreakdownSummarySource) {
 	if strings.TrimSpace(compactSummaryBody) != "" {
 		return compactSummaryBody, apptypes.TimelineSummarySourceCompactSummary
 	}
 	if strings.TrimSpace(firstPromptBody) != "" {
 		return firstPromptBody, apptypes.TimelineSummarySourcePrompt
+	}
+	if strings.TrimSpace(firstTranscriptBody) != "" {
+		return firstTranscriptBody, apptypes.TimelineSummarySourceTranscript
 	}
 	return "", apptypes.TimelineSummarySourceKindCounts
 }
