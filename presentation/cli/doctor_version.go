@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"golang.org/x/mod/semver"
 )
 
 func checkLatestVersion(currentVersion string) doctorCheck {
@@ -53,21 +55,70 @@ func checkLatestVersion(currentVersion string) doctorCheck {
 		normalizedCurrent = normalizedCurrent[:idx]
 	}
 
-	if normalizedCurrent == latestVersion {
+	return compareTracearyVersion(normalizedCurrent, latestVersion)
+}
+
+// compareTracearyVersion compares the running binary's semver-ish
+// version string (which may be a Go pseudo-version such as
+// `0.7.3-0.20260420223154-9a43e0847edd`) against the latest release
+// tag and renders a doctor check. Pseudo-versions for X.Y.Z-0.* sort
+// newer than release X.Y.(Z-1) but older than release X.Y.Z, so a
+// main build whose prefix already exceeds the latest release must be
+// reported as "ahead of the latest release" instead of telling the
+// operator to `brew upgrade` (which would downgrade the binary).
+func compareTracearyVersion(currentVersion, latestVersion string) doctorCheck {
+	currentSemver := "v" + currentVersion
+	latestSemver := "v" + latestVersion
+
+	if !semver.IsValid(currentSemver) || !semver.IsValid(latestSemver) {
+		// Fall back to string equality when either side is not parseable
+		// as semver. This keeps the legacy behaviour for exotic build
+		// strings instead of silently claiming "up to date".
+		if currentVersion == latestVersion {
+			return doctorCheck{
+				Name:    "version",
+				Status:  doctorStatusPass,
+				Message: localizef("traceary is up to date: %s", "traceary は最新です: %s", currentVersion),
+			}
+		}
 		return doctorCheck{
-			Name:    "version",
-			Status:  doctorStatusPass,
-			Message: localizef("traceary is up to date: %s", "traceary は最新です: %s", normalizedCurrent),
+			Name:   "version",
+			Status: doctorStatusWarn,
+			Message: localizef(
+				"update available: %s → %s (run: brew upgrade traceary)",
+				"更新があります: %s → %s (実行: brew upgrade traceary)",
+				currentVersion, latestVersion,
+			),
 		}
 	}
 
-	return doctorCheck{
-		Name:   "version",
-		Status: doctorStatusWarn,
-		Message: localizef(
-			"update available: %s → %s (run: brew upgrade traceary)",
-			"更新があります: %s → %s (実行: brew upgrade traceary)",
-			normalizedCurrent, latestVersion,
-		),
+	comparison := semver.Compare(currentSemver, latestSemver)
+	switch {
+	case comparison > 0:
+		return doctorCheck{
+			Name:   "version",
+			Status: doctorStatusPass,
+			Message: localizef(
+				"traceary is a development build newer than the latest release: %s > %s",
+				"traceary は最新リリースより新しい development build です: %s > %s",
+				currentVersion, latestVersion,
+			),
+		}
+	case comparison == 0:
+		return doctorCheck{
+			Name:    "version",
+			Status:  doctorStatusPass,
+			Message: localizef("traceary is up to date: %s", "traceary は最新です: %s", currentVersion),
+		}
+	default:
+		return doctorCheck{
+			Name:   "version",
+			Status: doctorStatusWarn,
+			Message: localizef(
+				"update available: %s → %s (run: brew upgrade traceary)",
+				"更新があります: %s → %s (実行: brew upgrade traceary)",
+				currentVersion, latestVersion,
+			),
+		}
 	}
 }
