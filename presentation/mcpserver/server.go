@@ -8,6 +8,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application/redaction"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
@@ -243,9 +244,26 @@ func (s *Server) Run(ctx context.Context) error {
 
 func (s *Server) addLog() mcp.ToolHandlerFor[addLogInput, addLogOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input addLogInput) (*mcp.CallToolResult, addLogOutput, error) {
+		kind := types.EventKind(strings.TrimSpace(input.Kind))
+		message := input.Message
+		// v0.8 dogfooding finding (#648): `kind=transcript` bodies
+		// come from the same sensitive surface as the Stop-hook
+		// transcript capture path, so apply the built-in + operator-
+		// supplied extra redactors before persistence. Prompt and
+		// compact_summary remain uncut by design because those kinds
+		// intentionally preserve operator intent (documented in
+		// docs/environment/README.md).
+		if kind == types.EventKindTranscript {
+			extras, err := redaction.CompileExtraPatterns(s.extraRedactPatterns)
+			if err != nil {
+				return nil, addLogOutput{}, xerrors.Errorf("failed to compile extra redaction patterns for transcript: %w", err)
+			}
+			message, _ = redaction.Apply(message, extras)
+		}
+
 		event, err := s.event.Log(ctx,
-			input.Message,
-			types.EventKind(strings.TrimSpace(input.Kind)),
+			message,
+			kind,
 			types.Client(resolveValue(input.Client, defaultClientValue)),
 			types.Agent(resolveValue(input.Agent, defaultAgentValue)),
 			types.SessionID(resolveValue(input.SessionID, defaultSessionValue)),

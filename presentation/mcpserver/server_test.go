@@ -686,6 +686,55 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 	})
 
+	t.Run("add_log redacts transcript kind body using built-in redactors", func(t *testing.T) {
+		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "add_log",
+			Arguments: map[string]any{
+				"message":    "assistant echoed back: Authorization: Bearer abc.def.ghi-should-not-leak",
+				"kind":       "transcript",
+				"agent":      "claude",
+				"session_id": "session-transcript-mcp",
+				"workspace":  "github.com/duck8823/traceary",
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(add_log transcript) error = %v", err)
+		}
+		if result.IsError {
+			t.Fatalf("CallTool(add_log transcript) returned tool error")
+		}
+		body := extractJSONStringValue(t, result, "body")
+		if strings.Contains(body, "abc.def.ghi-should-not-leak") {
+			t.Errorf("transcript body leaked bearer token: %q", body)
+		}
+		if !strings.Contains(body, "[REDACTED]") {
+			t.Errorf("transcript body missing [REDACTED] placeholder: %q", body)
+		}
+	})
+
+	t.Run("add_log preserves prompt body verbatim (no redaction by design)", func(t *testing.T) {
+		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "add_log",
+			Arguments: map[string]any{
+				"message":    "user prompt with password=intent: preserved-by-design",
+				"kind":       "prompt",
+				"agent":      "claude",
+				"session_id": "session-prompt-mcp",
+				"workspace":  "github.com/duck8823/traceary",
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(add_log prompt) error = %v", err)
+		}
+		if result.IsError {
+			t.Fatalf("CallTool(add_log prompt) returned tool error")
+		}
+		body := extractJSONStringValue(t, result, "body")
+		if !strings.Contains(body, "preserved-by-design") {
+			t.Errorf("prompt body should preserve operator intent verbatim, got: %q", body)
+		}
+	})
+
 	t.Run("set_memory_validity accepts bounds and clear_valid_to separately", func(t *testing.T) {
 		rememberResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 			Name: "remember_memory",
