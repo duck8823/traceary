@@ -138,6 +138,63 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 		}
 	})
 
+	t.Run("BuildWithMatcher(minimal) drops the built-in tool row", func(t *testing.T) {
+		t.Parallel()
+
+		minimalHooks := handler.BuildWithMatcher(tracearyBin, filesystem.ClaudeMatcherPresetMinimal)
+		entries := minimalHooks.Entries("PostToolUse")
+		if diff := cmp.Diff(2, len(entries)); diff != "" {
+			t.Fatalf("len(PostToolUse entries) mismatch (-want +got):\n%s", diff)
+		}
+		firstMatcher, _ := entries[0].Matcher().Value()
+		if diff := cmp.Diff("Bash", firstMatcher); diff != "" {
+			t.Errorf("entries[0] matcher = %q, want Bash", firstMatcher)
+		}
+		secondMatcher, _ := entries[1].Matcher().Value()
+		if diff := cmp.Diff("mcp__.*", secondMatcher); diff != "" {
+			t.Errorf("entries[1] matcher = %q, want mcp__.*", secondMatcher)
+		}
+
+		failureEntries := minimalHooks.Entries("PostToolUseFailure")
+		if diff := cmp.Diff(2, len(failureEntries)); diff != "" {
+			t.Fatalf("len(PostToolUseFailure entries) mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("BuildWithMatcher(all) swaps the built-in list for .*", func(t *testing.T) {
+		t.Parallel()
+
+		allHooks := handler.BuildWithMatcher(tracearyBin, filesystem.ClaudeMatcherPresetAll)
+		entries := allHooks.Entries("PostToolUse")
+		if diff := cmp.Diff(3, len(entries)); diff != "" {
+			t.Fatalf("len(PostToolUse entries) mismatch (-want +got):\n%s", diff)
+		}
+		thirdMatcher, _ := entries[2].Matcher().Value()
+		if diff := cmp.Diff(".*", thirdMatcher); diff != "" {
+			t.Errorf("entries[2] matcher = %q, want .*", thirdMatcher)
+		}
+	})
+
+	t.Run("BuildWithMatcher(default) matches plain Build output", func(t *testing.T) {
+		t.Parallel()
+
+		defaultHooks := handler.BuildWithMatcher(tracearyBin, filesystem.ClaudeMatcherPresetDefault)
+		baselineHooks := handler.Build(tracearyBin)
+
+		got := defaultHooks.Entries("PostToolUse")
+		want := baselineHooks.Entries("PostToolUse")
+		if diff := cmp.Diff(len(want), len(got)); diff != "" {
+			t.Fatalf("default preset vs Build() PostToolUse length mismatch (-want +got):\n%s", diff)
+		}
+		for i := range want {
+			wantMatcher, _ := want[i].Matcher().Value()
+			gotMatcher, _ := got[i].Matcher().Value()
+			if diff := cmp.Diff(wantMatcher, gotMatcher); diff != "" {
+				t.Errorf("default preset entries[%d] matcher mismatch (-want +got):\n%s", i, diff)
+			}
+		}
+	})
+
 	t.Run("UserPromptSubmit references prompt script", func(t *testing.T) {
 		t.Parallel()
 

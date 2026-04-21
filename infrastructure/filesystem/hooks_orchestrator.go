@@ -55,14 +55,30 @@ func (o *HooksOrchestrator) Generate(
 	return marshalHooks(handler.Build(tracearyBin))
 }
 
-// Install writes the hook configuration file for the given client.
+// Install writes the hook configuration file for the given client
+// using the client's default matcher preset.
 func (o *HooksOrchestrator) Install(
+	ctx context.Context,
+	client string,
+	tracearyBin string,
+	projectDir string,
+	outputPath types.Optional[string],
+	force bool,
+) (string, error) {
+	return o.InstallWithMatcher(ctx, client, tracearyBin, projectDir, outputPath, force, "")
+}
+
+// InstallWithMatcher is the matcher-aware variant of Install (#632).
+// Clients that do not honor a matcher preset ignore the value — only
+// Claude Code respects it today, via ClaudeHooksHandler.BuildWithMatcher.
+func (o *HooksOrchestrator) InstallWithMatcher(
 	_ context.Context,
 	client string,
 	tracearyBin string,
 	projectDir string,
 	outputPath types.Optional[string],
 	force bool,
+	matcherPreset string,
 ) (string, error) {
 	handler, err := o.resolveHandler(client)
 	if err != nil {
@@ -74,7 +90,7 @@ func (o *HooksOrchestrator) Install(
 		return "", err
 	}
 
-	hooks := handler.Build(tracearyBin)
+	hooks := buildHooksForInstall(handler, tracearyBin, matcherPreset)
 	encoded, err := renderInstallContent(resolvedOutputPath, hooks, force)
 	if err != nil {
 		return "", err
@@ -88,6 +104,25 @@ func (o *HooksOrchestrator) Install(
 	}
 
 	return resolvedOutputPath, nil
+}
+
+// matcherPresetHandler is the optional interface client handlers
+// implement when they accept a matcher preset. Only Claude Code does
+// today (ClaudeMatcherPreset); Codex and Gemini do not matcher-gate
+// their audit hook so they fall back to the default Build(bin).
+type matcherPresetHandler interface {
+	BuildWithMatcher(tracearyBin string, preset ClaudeMatcherPreset) model.Hooks
+}
+
+func buildHooksForInstall(handler application.HooksClientHandler, tracearyBin string, matcherPreset string) model.Hooks {
+	if matcherPreset == "" {
+		return handler.Build(tracearyBin)
+	}
+	preset := ClaudeMatcherPreset(matcherPreset)
+	if mph, ok := handler.(matcherPresetHandler); ok && preset.IsValid() {
+		return mph.BuildWithMatcher(tracearyBin, preset)
+	}
+	return handler.Build(tracearyBin)
 }
 
 // SupportedClients returns the canonical client identifiers registered with

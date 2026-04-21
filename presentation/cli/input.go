@@ -93,6 +93,7 @@ type hooksInstallCommandInput struct {
 	outputPath  string
 	global      bool
 	force       bool
+	matcher     string
 }
 
 // hooksGuideCommandInput is the resolved input to `traceary hooks guide`.

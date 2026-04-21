@@ -40,6 +40,7 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 		outputPath  string
 		global      bool
 		force       bool
+		matcher     string
 	)
 
 	installCmd := &cobra.Command{
@@ -63,6 +64,7 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 				outputPath:  outputPath,
 				global:      global,
 				force:       force,
+				matcher:     matcher,
 			})
 		},
 	}
@@ -72,6 +74,7 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 	installCmd.Flags().StringVar(&outputPath, "output", "", Localize("override the output file path", "書き出し先を明示する"))
 	installCmd.Flags().BoolVar(&global, "global", false, Localize("write to the user-level config instead of the project config (mutually exclusive with --output)", "project ではなく user-level 設定へ書き込む (--output とは排他)"))
 	installCmd.Flags().BoolVar(&force, "force", false, Localize("overwrite the file if it already exists", "既存ファイルがある場合でも上書きする"))
+	installCmd.Flags().StringVar(&matcher, "matcher", "", Localize("Claude PostToolUse matcher preset: minimal (Bash + mcp__.*), default (+ built-in tool list), all (+ .*). Ignored for other clients.", "Claude PostToolUse matcher preset: minimal (Bash + mcp__.*), default (+ 組み込み tool 列), all (+ .*)。他 client では無視されます。"))
 
 	return installCmd
 }
@@ -218,13 +221,29 @@ func (c *RootCLI) runHooksInstall(
 		}
 	}
 
-	resolvedOutputPath, err := c.hooksOrchestrator.Install(
+	matcherPreset := strings.TrimSpace(input.matcher)
+	if matcherPreset != "" {
+		switch matcherPreset {
+		case "minimal", "default", "all":
+			// accepted
+		default:
+			return xerrors.Errorf(
+				"%s: %q %s",
+				Localize("invalid --matcher value", "--matcher の値が不正です"),
+				matcherPreset,
+				Localize("(allowed: minimal, default, all)", "(許容値: minimal, default, all)"),
+			)
+		}
+	}
+
+	resolvedOutputPath, err := c.hooksOrchestrator.InstallWithMatcher(
 		ctx,
 		input.client,
 		resolvedTracearyBin,
 		resolvedProjectDir,
 		outputPathOption,
 		input.force,
+		matcherPreset,
 	)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to write hook configuration file", "hook 設定ファイルの書き出しに失敗しました"), err)

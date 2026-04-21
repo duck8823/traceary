@@ -28,6 +28,21 @@ type HooksOrchestrator interface {
 		force bool,
 	) (string, error)
 
+	// InstallWithMatcher is the matcher-aware variant of Install. The
+	// matcher preset only affects clients that honor a preset (Claude
+	// Code today); other clients ignore the value. Callers should pass
+	// the empty string to request the client's default matcher set,
+	// which is equivalent to calling Install directly.
+	InstallWithMatcher(
+		ctx context.Context,
+		client string,
+		tracearyBin string,
+		projectDir string,
+		outputPath types.Optional[string],
+		force bool,
+		matcherPreset string,
+	) (string, error)
+
 	// SupportedClients returns the canonical list of supported client
 	// identifiers (e.g. "claude", "codex", "gemini").
 	SupportedClients() []string
