@@ -1039,6 +1039,7 @@ func convertMemorySummaries(memories []apptypes.MemorySummary) []memorySummaryOu
 			Status:     summary.Status().String(),
 			Confidence: summary.Confidence().String(),
 			Source:     summary.Source().String(),
+			Supersedes: formatOptionalMemoryIDPtr(summary.Supersedes()),
 			ExpiresAt:  formatOptionalTimePtr(summary.ExpiresAt()),
 			ValidFrom:  summary.ValidFrom().UTC().Format(time.RFC3339Nano),
 			ValidTo:    formatOptionalTimePtr(summary.ValidTo()),
