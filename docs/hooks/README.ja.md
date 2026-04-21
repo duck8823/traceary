@@ -146,6 +146,23 @@ Claude Code plugin が有効な場合、`hooks install --client claude` は `--m
 
 既存ファイルがある場合、Traceary は上書きせずエラーにします。まず差分を確認し、本当に置き換えてよいときだけ `--force` を使ってください。
 対応している JSON config であれば、`hooks install` は既存設定へ Traceary 管理下の hook entry をマージし、無関係な設定は保持します。`--force` を付けた場合だけ完全上書きします。
+
+### 非破壊マイグレーション (`--upgrade`)
+
+Traceary のリリースで新しい hook event (例: `UserPromptSubmit`) が追加されたとき、ユーザー追加の hook を触らずに新規分だけ反映したい場合は `--upgrade` を使います。
+
+```
+traceary hooks install --client codex --upgrade
+```
+
+`--upgrade` はデフォルト install と同じ merge パスを明示的に実行し、さらに以下を保証します。
+
+- 既存ファイルを決して上書きしない (`--force` とは排他)
+- ユーザー追加の非 Traceary hook はそのまま残す
+- Traceary 管理分のみ最新の定義で置き換える (バイナリパス変更や script 形式 → 直接呼び出し形式へのリライトも対象)
+- イベント単位のサマリを表示 (`追加: UserPromptSubmit`、`更新: ...`、`変更なし: ...`)
+- idempotent — アップグレード後に再実行すると「既に最新」と表示し、ファイルはバイト同一で維持される
+
 `hooks install` の実行後には、そのまま確認に使える `doctor` コマンドも出力します。
 
 **Claude Code plugin との関係**: Traceary の Claude Code plugin が有効な場合（`~/.claude/settings.json` の `enabledPlugins` で検知）、`hooks install --client claude` は settings file への書き込みをスキップして通知を出します。plugin がすでに同じ hook を Claude Code に提供しているため、重ねて install すると audit が 1 ツール呼び出しにつき 2 回記録されてしまいます。両方に登録したい場合（plugin 開発など）のみ `--force` を使ってください。
