@@ -5,6 +5,70 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.8.0] - 2026-04-22
+
+Minor release focused on **replay UX, temporal memory, and transcript capture**: a self-contained replay HTML that operators can share, per-memory validity windows for time-traveled reads, and assistant-reply transcripts across Claude Code / Codex CLI / Gemini CLI. Also expands hook coverage to Claude Code's 2026-Q2 surfaces (SubagentStop / PreCompact) and tightens the `traceary hooks install` and `doctor` ergonomics.
+
+### Added
+- **Replay export** — `traceary replay --out <path>` emits a self-contained HTML (inlined CSS, no external assets) with four panels plus a generated-at footer: Sessions, Timeline blocks, Failure hotspots, Durable memories. `--sessions`, `--events-per-session`, `--memories`, `--timeline-blocks`, `--hotspots` govern the per-panel limits. The timeline and hotspot panels share the semantics of `traceary timeline` and `traceary list --failures-only`, so operators can cross-reference either rendering.
+- **Transcript events** — `transcript` is a new event kind that records the final assistant turn. Wired into the Claude Code `Stop` hook (JSONL `transcript_path`), the Codex CLI `Stop` hook (`last_assistant_message`), and the Gemini CLI `AfterAgent` hook (`prompt_response`). Built-in redactors and operator-configured `redact.extra_patterns` apply to the captured body.
+- **Temporal memory validity** — every accepted memory now carries a `[valid_from, valid_to)` half-open window. `traceary memory set-validity --from / --to / --clear-to` writes the window; `traceary memory list --as-of YYYY-MM-DD` and MCP `session_handoff` / `memory_pack` filter against the window so retrieval can time-travel to any point.
+- **Memory retrieval presets** — `--preset resume | review | incident` on `traceary memory list` (and MCP `session_handoff` / `memory_pack`) apply built-in type / confidence / limit defaults. User-defined entries in `read.presets` override built-in names. Explicit filter flags still win over a preset.
+- **Memory hygiene detectors** — `memory hygiene scan` gains `validity_overlap_supersede` for overlapping temporally-annotated pairs. Temporally-bounded but disjoint pairs are excluded from the generic `supersede_candidate` pipeline so historical facts are never mis-reported as merge candidates.
+- **Claude Code SubagentStop + PreCompact hooks** — wired via `traceary hook subagent-stop claude` and `traceary hook compact claude pre-compact`. SubagentStop persists as `session_ended` with a `[phase:subagent]` body prefix; PreCompact persists as `compact_summary` with a `[phase:pre-compact]` body prefix. `loadCompactSummary` filters the marker so handoff / memory_pack keep returning the latest post-compact digest.
+- **PostToolUse matcher expansion** — Claude hook install now matches `Read | NotebookRead | Edit | MultiEdit | Write | NotebookEdit | Grep | Glob | Agent | Task | TodoWrite | WebFetch | WebSearch | ExitPlanMode` alongside `Bash` and `mcp__.*`, so every built-in Claude Code tool invocation is auditable.
+- **`hooks install --upgrade`** — non-destructive migration that replaces only Traceary-managed entries, preserves user-added entries, strips obsolete event entries, and prints a summary of added / refreshed / preserved / removed events. Mutually exclusive with `--force`.
+- **`hooks install --matcher <preset>`** — built-in `PostToolUse` matcher presets `minimal` (`Bash` + `mcp__.*`), `default` (+ the v0.8-6 built-in tool list; this is what packaged installs use), and `all` (+ `.*`). Omitting `--matcher` picks `default`.
+- **Doctor new checks** — `claude-plugin-cache` (semver-aware: cached plugin version vs. marketplace manifest, suggests `claude plugins update`) and `<client>-host-capabilities` informational notes for 2026-Q2 host features.
+- **MCP additions** — `add_log` now applies built-in + `extra_redact_patterns` redaction; `session_handoff` / `memory_pack` gain `as_of` for time-traveled memory filtering; `retrieve_memories` accepts the retrieval presets.
+
+### Changed
+- **Read-side usecases landed in `application/`** — `ContextUsecase` and `ReplayUsecase` consume `queryservice.*` (not write-side `Usecase` types) and CLI / MCP share the same builders. Removed the presentation-layer fallback that silently constructed a zero-value usecase.
+- **Event body phase markers** — shared constants in `domain/types/event_body_markers.go` (`EventBodyMarkerCompactPreSnapshot`, `EventBodyMarkerSubagentStop`). Phase distinctions are encoded as body prefixes, not new event kinds, so downstream consumers stay backwards compatible.
+- **Redaction leaf package** — `application/redaction` is now a standalone leaf package shared by write-side usecases and presentation callers. `transcript` / `add_log` ingest surfaces share the same compiled redactor set as `traceary log` / `hook audit`.
+- **Codex Stop ordering** — the packaged Codex hook fires `hook transcript codex` before `hook session codex stop` so transcript records against the still-active session (session-stop clears the workspace state file as part of teardown).
+
+### Fixed
+- **Transcript redaction parity** — `hook_runtime.go` and MCP `add_log` apply operator-configured `extra_redact_patterns`, matching the audit path's policy. Prior builds silently leaked org-specific secret shapes in `transcript` bodies.
+- **CLI vs. MCP null shape** — JSON outputs where a field was `null` in CLI and `""` in MCP (and vice versa) are unified. Empty strings are omitted; explicit nulls represent "unset".
+- **`doctor` pseudo-version semver** — Go pseudo-versions (`v0.7.3-0.YYYYMMDDhhmmss-abc...`) are now compared against the latest release tag via semver, so a dev build reports `newer than the latest release` instead of being flagged as downgradable.
+- **`doctor` plugin cache staleness** — reads the cached plugin manifest and the marketplace manifest, warns when cached < marketplace, and points operators at `claude plugins update`.
+- **Hooks merge `--matcher`-only changes** — the managed-key comparator now includes the matcher so a preset change (same event, different matcher) is classified as `Refreshed` instead of `Preserved`.
+
+### Docs
+- `docs/hooks/contract{,.ja}.md` documents the three-tier capability matrix with the new transcript behaviours and the 2026-Q2 host-capability appendix (SubagentStop / PreCompact / Codex `last_assistant_message` / Gemini `AfterAgent` all annotated as `wired`).
+- `docs/integrations/codex-plugin{,.ja}.md` and `docs/integrations/gemini-extension{,.ja}.md` list the transcript hook in their "what it wires automatically" sections.
+- `docs/cli/README{,.ja}.md` list `--upgrade`, `--matcher`, `--timeline-blocks`, `--hotspots`, `--as-of`, and `--preset` under the corresponding commands.
+
+### Included work items for v0.8.0
+- #566 v0.8-4 memory block evaluation
+- #565 v0.8-3 temporal validity
+- #606 v0.8-7 transcript capture on Claude Stop
+- #605 v0.8-6 PostToolUse matcher expansion
+- #570 v0.8-5 memory retrieval presets
+- #563 v0.8-1 replay export
+- #624 v0.8 quality-phase polish
+- #625 v0.8-followup redaction leaf package
+- #619 v0.8-followup transcript → memory extraction + MCP descriptions
+- #629 v0.8-followup SetValidity CLI/MCP tests
+- #635 v0.8-followup propose_memory SKILL.md guidance
+- #640 v0.8-followup transcript kind consistency
+- #633 v0.8-followup doctor plugin cache version check + upgrade docs
+- #634 v0.8-followup doctor pseudo-version semver compare
+- #626 v0.8-followup transcript extra_redact_patterns
+- #628 v0.8-followup CLI vs MCP JSON null shape
+- #617 v0.8-followup as_of ContextPackCriteria
+- #648 v0.8-followup MCP add_log redaction
+- #621 v0.8-followup PostToolUse matcher 2026-Q2
+- #632 v0.8-followup hooks install --matcher preset
+- #654 v0.8-followup monitoring UX agent in default
+- #637 v0.8-followup hooks install --upgrade flag
+- #616 v0.8-followup auto-supersede heuristic (validity_overlap_supersede)
+- #627 v0.8-followup replay bundle → application layer
+- #636 v0.8-followup SubagentStop + PreCompact hooks
+- #630 v0.8-followup replay timeline + failure-hotspot panels
+- #631 v0.8-followup transcript Codex / Gemini parity
+
 ## [v0.7.2] - 2026-04-20
 
 Operational-safety hotfix for v0.7.1 runtime issues that affected tail polling, audit duplication, and hook install ergonomics.

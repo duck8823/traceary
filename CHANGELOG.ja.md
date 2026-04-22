@@ -5,6 +5,70 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.8.0] - 2026-04-22
+
+**replay UX / 時間的 memory / transcript 取得** を中心にしたマイナー: オペレーターが共有できる self-contained な replay HTML、memory ごとの有効期間窓、Claude Code / Codex CLI / Gemini CLI 全部の assistant 応答 transcript 取得。加えて Claude Code の 2026-Q2 hook (SubagentStop / PreCompact) を wire し、`traceary hooks install` / `doctor` の UX を締め直しています。
+
+### Added
+- **Replay export** — `traceary replay --out <path>` で inline CSS・外部アセットなしの self-contained HTML を 1 ファイルで書き出します。4 パネル (Sessions / Timeline blocks / Failure hotspots / Durable memories) と generated-at footer 構成。`--sessions` / `--events-per-session` / `--memories` / `--timeline-blocks` / `--hotspots` で各パネルの件数制御。timeline と hotspot は `traceary timeline` / `traceary list --failures-only` と同一意味なので相互参照できます。
+- **transcript event** — 最終 assistant 応答を記録する新 event kind。Claude Code `Stop` (JSONL `transcript_path`) / Codex CLI `Stop` (`last_assistant_message`) / Gemini CLI `AfterAgent` (`prompt_response`) の 3 hook で発火。本文には built-in redactor とオペレーター設定の `redact.extra_patterns` が適用されます。
+- **Memory の時間的有効期間** — accepted memory は `[valid_from, valid_to)` の half-open window を保持。`traceary memory set-validity --from / --to / --clear-to` で窓を設定、`traceary memory list --as-of YYYY-MM-DD` や MCP `session_handoff` / `memory_pack` が窓でフィルタするため任意時点へ time-travel した retrieval ができます。
+- **Memory retrieval preset** — `traceary memory list --preset resume | review | incident` と MCP `session_handoff` / `memory_pack` に built-in の type / confidence / limit preset。`read.presets` のユーザー定義で同名を上書き可能。明示的な filter フラグは preset より優先。
+- **Memory hygiene detector** — `memory hygiene scan` に `validity_overlap_supersede` を追加 (validity 窓を annotation した pair が重なるケース)。半開区間で disjoint な pair は historical fact として汎用 `supersede_candidate` からも除外されます。
+- **Claude Code SubagentStop + PreCompact hook** — `traceary hook subagent-stop claude` と `traceary hook compact claude pre-compact` で wire。SubagentStop は `session_ended` + `[phase:subagent]` prefix、PreCompact は `compact_summary` + `[phase:pre-compact]` prefix として記録。`loadCompactSummary` が prefix を skip するので handoff / memory_pack は引き続き post-compact summary を返します。
+- **PostToolUse matcher 拡張** — Claude hook install が `Bash` / `mcp__.*` に加えて `Read | NotebookRead | Edit | MultiEdit | Write | NotebookEdit | Grep | Glob | Agent | Task | TodoWrite | WebFetch | WebSearch | ExitPlanMode` を監査対象に。Claude Code 組み込みツールの利用をすべて audit できます。
+- **`hooks install --upgrade`** — 非破壊マイグレーション。Traceary 管理分だけ置換、ユーザー追加分は保持、旧 event entry は strip、追加 / 更新 / 保持 / 削除の内訳を印字。`--force` とは排他。
+- **`hooks install --matcher <preset>`** — `PostToolUse` の matcher preset `minimal` (`Bash` + `mcp__.*`)、`default` (+ v0.8-6 で追加された組み込みツール一覧。packaged install と同じ)、`all` (+ `.*`) の 3 つ。`--matcher` を省略すると `default`。
+- **doctor の新 check** — `claude-plugin-cache` (cached plugin version vs marketplace manifest を semver 比較、古い場合は `claude plugins update` を案内) と `<client>-host-capabilities` (2026-Q2 のホスト機能を informational に表示)。
+- **MCP 追加分** — `add_log` に redaction (built-in + `extra_redact_patterns`) が適用、`session_handoff` / `memory_pack` に `as_of` (時間 travel)、`retrieve_memories` が retrieval preset 対応。
+
+### Changed
+- **Read-only usecase を application 層に** — `ContextUsecase` / `ReplayUsecase` が `queryservice.*` を直接消費する設計になり、CLI / MCP は共通 builder を使用。Presentation 層で zero-value usecase を構築する fallback は削除。
+- **Event body phase marker 共通化** — `domain/types/event_body_markers.go` に `EventBodyMarkerCompactPreSnapshot` / `EventBodyMarkerSubagentStop` を一元定義。kind を増やさず body prefix で phase を表現する方針なので下流消費は backwards-compatible。
+- **Redaction leaf package** — `application/redaction` を write-side usecase に依存しない leaf package に整理。`transcript` / `add_log` 取り込みと `traceary log` / `hook audit` で同じ redactor 集合を共有。
+- **Codex Stop の実行順序** — packaged Codex hook は `hook transcript codex` を先に、`hook session codex stop` を後に実行 (session-stop が workspace state file を clear するため、transcript は先に発火させて persisted workspace を使う)。
+
+### Fixed
+- **transcript redaction parity** — `hook_runtime.go` と MCP `add_log` が `extra_redact_patterns` を適用するようになり、audit path と同等のポリシーに。以前は transcript 本文だけ組織固有 secret shape が漏れていました。
+- **CLI と MCP の null shape** — JSON 出力で CLI が `null` / MCP が `""` (あるいは逆) で食い違っていたフィールドを統一。空文字は省略、明示的 null は "未設定" 意味に固定。
+- **`doctor` の pseudo-version semver 比較** — Go の pseudo-version (`v0.7.3-0.YYYYMMDDhhmmss-abc...`) を最新 release tag と semver 比較。dev build は "newer than the latest release" と報告されるようになりました。
+- **`doctor` の plugin cache 古さ検出** — cached plugin manifest と marketplace manifest を読んで、cached が古ければ warn + `claude plugins update` を案内。
+- **Hooks merge で `--matcher` だけ変更された pair** — managed key 比較に matcher も含めるようになり、preset 変更 (同 event・別 matcher) は `Refreshed` として扱われます。
+
+### Docs
+- `docs/hooks/contract{,.ja}.md` の三層 capability 表が transcript の新挙動と 2026-Q2 host-capability 付録を反映 (SubagentStop / PreCompact / Codex `last_assistant_message` / Gemini `AfterAgent` がすべて `wire 済み`)。
+- `docs/integrations/codex-plugin{,.ja}.md` と `docs/integrations/gemini-extension{,.ja}.md` の「自動で組み込むもの」セクションに transcript hook を列挙。
+- `docs/cli/README{,.ja}.md` に `--upgrade`, `--matcher`, `--timeline-blocks`, `--hotspots`, `--as-of`, `--preset` を該当コマンド配下で記載。
+
+### Included work items for v0.8.0
+- #566 v0.8-4 memory block 構造の評価
+- #565 v0.8-3 temporal validity
+- #606 v0.8-7 Claude Stop で transcript 取得
+- #605 v0.8-6 PostToolUse matcher 拡張
+- #570 v0.8-5 memory retrieval preset
+- #563 v0.8-1 replay export
+- #624 v0.8 quality-phase polish
+- #625 v0.8-followup redaction leaf package 化
+- #619 v0.8-followup transcript → memory extraction + MCP 説明
+- #629 v0.8-followup SetValidity の CLI/MCP テスト
+- #635 v0.8-followup propose_memory SKILL.md の誘導
+- #640 v0.8-followup transcript kind の整合
+- #633 v0.8-followup doctor plugin cache version check + upgrade docs
+- #634 v0.8-followup doctor pseudo-version の semver 比較
+- #626 v0.8-followup transcript extra_redact_patterns
+- #628 v0.8-followup CLI / MCP の JSON null shape
+- #617 v0.8-followup as_of ContextPackCriteria
+- #648 v0.8-followup MCP add_log redaction
+- #621 v0.8-followup PostToolUse matcher 2026-Q2
+- #632 v0.8-followup hooks install `--matcher` preset
+- #654 v0.8-followup monitoring UX agent を default に
+- #637 v0.8-followup hooks install `--upgrade` flag
+- #616 v0.8-followup auto-supersede heuristic (validity_overlap_supersede)
+- #627 v0.8-followup replay bundle を application 層へ
+- #636 v0.8-followup SubagentStop + PreCompact hook
+- #630 v0.8-followup replay timeline + failure-hotspot panel
+- #631 v0.8-followup transcript Codex / Gemini parity
+
 ## [v0.7.2] - 2026-04-20
 
 v0.7.1 の実運用で判明した tail polling の SQLITE_BUSY、audit 二重記録、hook install UX の問題を一括で潰す operational-safety hotfix です。
