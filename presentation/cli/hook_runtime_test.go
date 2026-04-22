@@ -889,6 +889,17 @@ func TestRootCLI_HookTranscriptCommand_Codex(t *testing.T) {
 	if got, want := eventStub.logCall.agent, types.Agent("codex"); got != want {
 		t.Fatalf("transcript log agent = %q, want %q", got, want)
 	}
+	// Regression guard: the transcript hook must keep using the
+	// workspace persisted at session start, not a drifted cwd /
+	// TRACEARY_WORKSPACE override. Without this assertion the
+	// session_started / session_ended rows could stay on the original
+	// workspace while transcript silently moves to a different one.
+	if got, want := eventStub.logCall.workspace, types.Workspace("github.com/duck8823/traceary"); got != want {
+		t.Errorf("transcript log workspace = %q, want %q", got, want)
+	}
+	if got, want := eventStub.logCall.sessionID, types.SessionID("codex-transcript-session"); got != want {
+		t.Errorf("transcript log sessionID = %q, want %q", got, want)
+	}
 	if !strings.HasPrefix(eventStub.logCall.message, "Codex reply body.") {
 		t.Errorf("transcript log message prefix = %q, want it to start with \"Codex reply body.\"", eventStub.logCall.message)
 	}
@@ -991,6 +1002,16 @@ func TestRootCLI_HookTranscriptCommand_Gemini(t *testing.T) {
 	}
 	if got, want := eventStub.logCall.agent, types.Agent("gemini"); got != want {
 		t.Fatalf("transcript log agent = %q, want %q", got, want)
+	}
+	// Regression guard: the transcript hook must keep using the
+	// workspace persisted at session start, not a drifted cwd /
+	// TRACEARY_WORKSPACE override. See the Codex test comment — same
+	// concern applies to Gemini.
+	if got, want := eventStub.logCall.workspace, types.Workspace("github.com/duck8823/traceary"); got != want {
+		t.Errorf("transcript log workspace = %q, want %q", got, want)
+	}
+	if got, want := eventStub.logCall.sessionID, types.SessionID("gemini-transcript-session"); got != want {
+		t.Errorf("transcript log sessionID = %q, want %q", got, want)
 	}
 	if !strings.HasPrefix(eventStub.logCall.message, "Gemini summary.") {
 		t.Errorf("transcript log message prefix = %q, want it to start with \"Gemini summary.\"", eventStub.logCall.message)
