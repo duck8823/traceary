@@ -542,6 +542,9 @@ func (u *memoryHygieneUsecase) applyOne(ctx context.Context, memoryID domtypes.M
 		if err != nil {
 			return apptypes.MemoryHygieneApplied{}, xerrors.Errorf("failed to show memory: %w", err)
 		}
+		// Redaction hit replaces the fact content but keeps the
+		// existing memory's temporal window — the operator-set
+		// validity is independent of the content sanitization.
 		superseded, err := u.memory.Supersede(
 			ctx,
 			memoryID,
@@ -552,6 +555,8 @@ func (u *memoryHygieneUsecase) applyOne(ctx context.Context, memoryID domtypes.M
 			details.Summary().Source(),
 			details.EvidenceRefs(),
 			details.ArtifactRefs(),
+			domtypes.Some(details.Summary().ValidFrom()),
+			details.Summary().ValidTo(),
 		)
 		if err != nil {
 			return apptypes.MemoryHygieneApplied{}, xerrors.Errorf("failed to supersede memory: %w", err)
@@ -579,6 +584,12 @@ func (u *memoryHygieneUsecase) applyOne(ctx context.Context, memoryID domtypes.M
 		if strings.TrimSpace(replacementFact) == "" {
 			return apptypes.MemoryHygieneApplied{}, xerrors.Errorf("%s missing replacement fact", suggestion.Kind)
 		}
+		// Inherit the existing memory's validity window so the
+		// replacement keeps operator-set temporal boundaries.
+		// validity_overlap_supersede fires *because* the pair has
+		// overlapping windows — dropping the window at apply time
+		// would silently erase the temporal evidence that justified
+		// the suggestion in the first place (#665).
 		superseded, err := u.memory.Supersede(
 			ctx,
 			memoryID,
@@ -589,6 +600,8 @@ func (u *memoryHygieneUsecase) applyOne(ctx context.Context, memoryID domtypes.M
 			details.Summary().Source(),
 			details.EvidenceRefs(),
 			details.ArtifactRefs(),
+			domtypes.Some(details.Summary().ValidFrom()),
+			details.Summary().ValidTo(),
 		)
 		if err != nil {
 			return apptypes.MemoryHygieneApplied{}, xerrors.Errorf("failed to supersede memory: %w", err)
