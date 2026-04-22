@@ -68,6 +68,8 @@ Minor release focused on **replay UX, temporal memory, and transcript capture**:
 - #636 v0.8-followup SubagentStop + PreCompact hooks
 - #630 v0.8-followup replay timeline + failure-hotspot panels
 - #631 v0.8-followup transcript Codex / Gemini parity
+- #666 v0.8.0 move redaction into EventUsecase.Log (mirror AuditRedaction)
+- #667 v0.8.0 recognise non-canonical --traceary-bin basenames via traceary- name prefix
 
 ## [v0.7.2] - 2026-04-20
 
