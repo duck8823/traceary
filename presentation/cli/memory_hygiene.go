@@ -139,7 +139,7 @@ func (c *RootCLI) newMemoryHygieneScanCommand() *cobra.Command {
 	input := memoryHygieneScanCommandInput{expiryDays: defaultHygieneExpiryDays}
 	cmd := &cobra.Command{
 		Use:   "scan",
-		Short: Localize("Scan accepted memories for redaction / expiry / duplicate suggestions", "accepted memory に対して redaction / expiry / duplicate の hygiene 候補を検出する"),
+		Short: Localize("Scan accepted memories for redaction / expiry / duplicate / supersede / validity-overlap suggestions", "accepted memory に対して redaction / expiry / duplicate / supersede / validity-overlap の hygiene 候補を検出する"),
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runMemoryHygieneScan(cmd.Context(), cmd.OutOrStdout(), input)

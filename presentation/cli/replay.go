@@ -143,12 +143,12 @@ type replayData struct {
 // replay HTML timeline panel. The shape mirrors `traceary timeline`
 // text output so operators can cross-reference either rendering.
 type replayTimelineBlock struct {
-	Start       string
-	End         string
-	Duration    string
-	EventCount  int
-	Agents      string
-	Workspaces  []replayTimelineWorkspace
+	Start      string
+	End        string
+	Duration   string
+	EventCount int
+	Agents     string
+	Workspaces []replayTimelineWorkspace
 }
 
 // replayTimelineWorkspace carries the per-workspace activity row for a
@@ -287,7 +287,6 @@ func replayDataFromBundle(bundle apptypes.ReplayBundle, dbPathFlag string) repla
 	}
 	return data
 }
-
 
 func totalEventCount(sessions []replaySession) int {
 	n := 0

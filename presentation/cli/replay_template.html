@@ -47,10 +47,20 @@
   ul.events li .k.command_executed { color: var(--accent); }
   ul.events li .k.session_started, ul.events li .k.session_ended { color: var(--muted); }
   ul.events li .body { white-space: pre-wrap; word-break: break-word; }
-  table.memories { border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 8px; }
-  table.memories th, table.memories td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; vertical-align: top; }
-  table.memories th { background: var(--memory-bg); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+  table.memories, table.timeline, table.failure-hotspots {
+    border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 8px;
+  }
+  table.memories th, table.memories td,
+  table.timeline th, table.timeline td,
+  table.failure-hotspots th, table.failure-hotspots td {
+    border: 1px solid var(--border); padding: 6px 8px; text-align: left; vertical-align: top;
+  }
+  table.memories th, table.timeline th, table.failure-hotspots th {
+    background: var(--memory-bg); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;
+  }
   table.memories td.fact { max-width: 600px; }
+  table.timeline td, table.failure-hotspots td { white-space: normal; }
+  table.timeline .ws-row + .ws-row { margin-top: 4px; }
   code { font-family: ui-monospace,'SF Mono',Menlo,monospace; font-size: 12px; background: var(--memory-bg); padding: 1px 4px; border-radius: 3px; }
 </style>
 </head>
