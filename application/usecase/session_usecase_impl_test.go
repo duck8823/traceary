@@ -758,7 +758,7 @@ func TestSessionUsecase_Handoff(t *testing.T) {
 		if diff := cmp.Diff(5, eventQueryStub.listRecentLimitByKind[types.EventKindCommandExecuted]); diff != "" {
 			t.Fatalf("command listRecentLimit mismatch (-want +got):\n%s", diff)
 		}
-		if diff := cmp.Diff(1, eventQueryStub.listRecentLimitByKind[types.EventKindCompactSummary]); diff != "" {
+		if diff := cmp.Diff(10, eventQueryStub.listRecentLimitByKind[types.EventKindCompactSummary]); diff != "" {
 			t.Fatalf("compact summary listRecentLimit mismatch (-want +got):\n%s", diff)
 		}
 	})

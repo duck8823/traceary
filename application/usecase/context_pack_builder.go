@@ -124,9 +124,14 @@ func (b *contextPackBuilder) loadRecentCommands(ctx context.Context, session app
 }
 
 func (b *contextPackBuilder) loadCompactSummary(ctx context.Context, session apptypes.SessionSummary) (string, error) {
+	// Pull a small window of compact_summary events and skip
+	// pre-compact snapshots so the handoff path always returns the
+	// most recent POST-compact digest even when a cancelled compact
+	// cycle left a pre-compact entry as the newest row.
+	const compactSummaryScanLimit = 10
 	events, err := b.eventQuery.ListRecent(
 		ctx,
-		1,
+		compactSummaryScanLimit,
 		0,
 		domtypes.EventKindCompactSummary,
 		domtypes.Client(""),
@@ -140,12 +145,20 @@ func (b *contextPackBuilder) loadCompactSummary(ctx context.Context, session app
 	if err != nil {
 		return "", xerrors.Errorf("failed to list compact summary events for context pack: %w", err)
 	}
-	if len(events) == 0 {
-		return "", nil
+	for _, event := range events {
+		body := event.Body()
+		if strings.HasPrefix(strings.TrimSpace(body), compactPreSnapshotMarker) {
+			continue
+		}
+		return extractCompactSummarySignal(body), nil
 	}
-
-	return extractCompactSummarySignal(events[0].Body()), nil
+	return "", nil
 }
+
+// compactPreSnapshotMarker mirrors the CLI-side marker used by the
+// PreCompact hook. Keep the two copies in sync — the marker itself
+// is body content and a later rename means rewriting history.
+const compactPreSnapshotMarker = "[phase:pre-compact]"
 
 func (b *contextPackBuilder) loadMemories(
 	ctx context.Context,

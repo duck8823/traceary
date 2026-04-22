@@ -236,8 +236,8 @@ func inspectHostCapabilityGaps(client, configPath string) *doctorCheck {
 			Name:   "claude-host-capabilities",
 			Status: doctorStatusPass,
 			Message: localizef(
-				"claude host: SubagentStop / PreCompact hooks have been available since 2026-01 but Traceary does not wire them yet — subagent lineage still lands via agent_type on PostToolUse, compact captures land on PostCompact (hooks config: %s)",
-				"claude ホスト: SubagentStop / PreCompact は 2026-01 から利用可能ですが Traceary はまだ wire していません。subagent lineage は引き続き PostToolUse の agent_type 経由、compact は PostCompact で取得します (hooks config: %s)",
+				"claude host: SubagentStop and PreCompact hooks are wired into the Traceary-managed config alongside the existing SessionStart / SessionEnd / Stop / PostCompact coverage (hooks config: %s)",
+				"claude ホスト: SubagentStop と PreCompact は既存の SessionStart / SessionEnd / Stop / PostCompact と並んで Traceary 管理の hook config に組み込み済みです (hooks config: %s)",
 				configPath,
 			),
 		}

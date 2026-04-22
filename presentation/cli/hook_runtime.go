@@ -40,6 +40,7 @@ func (c *RootCLI) newHookCommand() *cobra.Command {
 	hookCmd.AddCommand(c.newHookSessionCommand())
 	hookCmd.AddCommand(c.newHookAuditCommand())
 	hookCmd.AddCommand(c.newHookCompactCommand())
+	hookCmd.AddCommand(c.newHookSubagentStopCommand())
 	hookCmd.AddCommand(c.newHookPromptCommand())
 	hookCmd.AddCommand(c.newHookTranscriptCommand())
 
@@ -88,13 +89,32 @@ func (c *RootCLI) newHookCompactCommand() *cobra.Command {
 	var dbPath string
 
 	cmd := &cobra.Command{
-		Use:    "compact <client> <post-compact|session-start-compact>",
+		Use:    "compact <client> <pre-compact|post-compact|session-start-compact>",
 		Short:  "Record or emit compact hook state",
 		Hidden: true,
 		Args:   exactArgsLocalized(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runHookBestEffort("compact", func() error {
 				return c.runHookCompact(cmd.Context(), cmd.OutOrStdout(), cmd.InOrStdin(), args[0], args[1], dbPath)
+			})
+		},
+	}
+	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
+
+	return cmd
+}
+
+func (c *RootCLI) newHookSubagentStopCommand() *cobra.Command {
+	var dbPath string
+
+	cmd := &cobra.Command{
+		Use:    "subagent-stop <client>",
+		Short:  "Record a subagent-stop boundary event",
+		Hidden: true,
+		Args:   exactArgsLocalized(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runHookBestEffort("subagent-stop", func() error {
+				return c.runHookSubagentStop(cmd.Context(), cmd.InOrStdin(), args[0], dbPath)
 			})
 		},
 	}
@@ -412,6 +432,38 @@ func (c *RootCLI) runHookCompact(
 		}
 
 		return nil
+	case "pre-compact":
+		// Claude Code 2026-01+ fires PreCompact before context is compacted.
+		// Record the snapshot as a compact_summary with a `phase:pre` body
+		// marker so replay / retrospective surfaces can tell the
+		// before-compact snapshot apart from the post-compact digest.
+		// The context_pack_builder's post-compact loader filters on body
+		// prefix so the retrospective/handoff path only picks up the
+		// post-compact summary, not this pre-compact snapshot.
+		if c.event == nil || sessionID == "" {
+			return nil
+		}
+		workspace, err := resolveHookWorkspace(ctx, payload, client, true)
+		if err != nil {
+			return err
+		}
+		agent, err := resolveHookAgent(client, payload)
+		if err != nil {
+			return err
+		}
+		preContext := hookPayloadString(payload, "pre_compact_context", "")
+		if preContext == "" {
+			preContext = hookPayloadString(payload, "trigger", "")
+		}
+		body := hookCompactPreSnapshotMarker
+		if preContext != "" {
+			body = hookCompactPreSnapshotMarker + " " + preContext
+		}
+		_, err = c.event.Log(ctx, body, types.EventKindCompactSummary, types.Client("hook"), agent, sessionID, workspace)
+		if err != nil {
+			return xerrors.Errorf("failed to record pre-compact hook event: %w", err)
+		}
+		return nil
 	case "session-start-compact":
 		if output == nil {
 			return nil
@@ -421,6 +473,74 @@ func (c *RootCLI) runHookCompact(
 		return xerrors.Errorf("unsupported hook compact action: %s", action)
 	}
 }
+
+// hookCompactPreSnapshotMarker prefixes pre-compact event bodies so
+// downstream readers (replay, timeline, handoff) can tell a
+// pre-compact snapshot from a post-compact summary despite both
+// landing in the compact_summary event kind. Keep the marker short
+// and stable — changing it later means rewriting history.
+const hookCompactPreSnapshotMarker = "[phase:pre-compact]"
+
+func (c *RootCLI) runHookSubagentStop(
+	ctx context.Context,
+	input io.Reader,
+	client string,
+	dbPath string,
+) error {
+	if c.storeManagement == nil {
+		return xerrors.Errorf("initialize store usecase is not configured")
+	}
+	if c.event == nil {
+		return xerrors.Errorf("event usecase is not configured")
+	}
+	payload, err := readHookPayload(input)
+	if err != nil {
+		return err
+	}
+	resolvedDBPath, err := resolveDBPath(dbPath)
+	if err != nil {
+		return xerrors.Errorf("failed to resolve DB path: %w", err)
+	}
+	c.applyDatabasePath(resolvedDBPath)
+	if err := c.storeManagement.Initialize(ctx); err != nil {
+		return xerrors.Errorf("failed to initialize store: %w", err)
+	}
+	sessionID, err := resolveHookSessionID(payload, client)
+	if err != nil {
+		return err
+	}
+	if sessionID == "" {
+		return nil
+	}
+	workspace, err := resolveHookWorkspace(ctx, payload, client, true)
+	if err != nil {
+		return err
+	}
+	agent, err := resolveHookAgent(client, payload)
+	if err != nil {
+		return err
+	}
+	// Claude Code's SubagentStop hook fires whenever a Task-tool subagent
+	// completes. The payload typically carries `subagent_type` or
+	// `subagent_id`; we persist an explicit session_ended event marked
+	// with a `[phase:subagent]` prefix so subagent lifecycle is
+	// recoverable without relying on agent_type inference on PostToolUse.
+	subagentType := hookPayloadString(payload, "subagent_type", "")
+	body := hookSubagentStopMarker
+	if subagentType != "" {
+		body = hookSubagentStopMarker + " " + subagentType
+	}
+	_, err = c.event.Log(ctx, body, types.EventKindSessionEnded, types.Client("hook"), agent, sessionID, workspace)
+	if err != nil {
+		return xerrors.Errorf("failed to record subagent-stop event: %w", err)
+	}
+	return nil
+}
+
+// hookSubagentStopMarker prefixes subagent-stop event bodies so the
+// regular session-ended event stream can be filtered down to just the
+// subagent boundary events when needed.
+const hookSubagentStopMarker = "[phase:subagent]"
 
 func (c *RootCLI) runHookPrompt(
 	ctx context.Context,
