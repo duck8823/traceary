@@ -28,6 +28,20 @@
         ]
       }
     ],
+    "AfterAgent": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "traceary-transcript",
+            "type": "command",
+            "command": "'traceary' 'hook' 'transcript' 'gemini'",
+            "timeout": 5000,
+            "description": "Record agent response as a transcript event"
+          }
+        ]
+      }
+    ],
     "AfterTool": [
       {
         "matcher": "*",

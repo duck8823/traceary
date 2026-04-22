@@ -35,6 +35,7 @@ func (h *CodexHooksHandler) Build(tracearyBin string) model.Hooks {
 	sessionStopCommand := newHookRuntimeCommand(tracearyBin, "hook", "session", "codex", "stop")
 	auditCommand := newHookRuntimeCommand(tracearyBin, "hook", "audit", "codex")
 	promptCommand := newHookRuntimeCommand(tracearyBin, "hook", "prompt", "codex")
+	transcriptCommand := newHookRuntimeCommand(tracearyBin, "hook", "transcript", "codex")
 
 	eventOrder := []string{"SessionStart", "UserPromptSubmit", "Stop", "PostToolUse"}
 	events := map[string][]model.HookEntry{
@@ -48,9 +49,16 @@ func (h *CodexHooksHandler) Build(tracearyBin string) model.Hooks {
 				model.HookCommandOf("traceary-prompt", "command", promptCommand, types.None[int](), "", managedKeyOf("traceary-prompt.sh", "codex")),
 			}),
 		},
+		// Codex delivers `last_assistant_message` on Stop, so the
+		// transcript hook runs alongside the session-stop hook in the
+		// same event entry. Running both in one invocation keeps the
+		// ordering deterministic (session-stop first, then transcript)
+		// so the transcript event records against the session that was
+		// just marked ended.
 		"Stop": {
 			model.HookEntryOf(types.None[string](), []model.HookCommand{
 				model.HookCommandOf("traceary-session-stop", "command", sessionStopCommand, types.None[int](), "", managedKeyOf("traceary-session.sh", "codex", "stop")),
+				model.HookCommandOf("traceary-transcript", "command", transcriptCommand, types.None[int](), "", managedKeyOf("traceary-transcript.sh", "codex")),
 			}),
 		},
 		"PostToolUse": {

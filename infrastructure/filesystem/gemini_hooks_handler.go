@@ -26,8 +26,14 @@ func (h *GeminiHooksHandler) Build(tracearyBin string) model.Hooks {
 	sessionStartCommand := newHookRuntimeCommand(tracearyBin, "hook", "session", "gemini", "start")
 	sessionEndCommand := newHookRuntimeCommand(tracearyBin, "hook", "session", "gemini", "end")
 	auditCommand := newHookRuntimeCommand(tracearyBin, "hook", "audit", "gemini")
+	transcriptCommand := newHookRuntimeCommand(tracearyBin, "hook", "transcript", "gemini")
 
-	eventOrder := []string{"SessionStart", "SessionEnd", "AfterTool"}
+	// Gemini has no Stop event — the closest analogue is AfterAgent,
+	// which fires once the agent has produced a complete response and
+	// includes the response text inline as `prompt_response`. We wire
+	// transcript capture there so parity with Claude Code / Codex is
+	// preserved without needing a Stop-equivalent from the host.
+	eventOrder := []string{"SessionStart", "SessionEnd", "AfterAgent", "AfterTool"}
 	events := map[string][]model.HookEntry{
 		"SessionStart": {
 			model.HookEntryOf(types.Some("*"), []model.HookCommand{
@@ -50,6 +56,18 @@ func (h *GeminiHooksHandler) Build(tracearyBin string) model.Hooks {
 					timeout,
 					"Finish a Traceary session",
 					managedKeyOf("traceary-session.sh", "gemini", "end"),
+				),
+			}),
+		},
+		"AfterAgent": {
+			model.HookEntryOf(types.Some("*"), []model.HookCommand{
+				model.HookCommandOf(
+					"traceary-transcript",
+					"command",
+					transcriptCommand,
+					timeout,
+					"Record agent response as a transcript event",
+					managedKeyOf("traceary-transcript.sh", "gemini"),
 				),
 			}),
 		},
