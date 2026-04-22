@@ -222,6 +222,8 @@ func (u *memoryUsecase) Supersede(
 	source domtypes.MemorySource,
 	evidenceRefs []domtypes.EvidenceRef,
 	artifactRefs []domtypes.ArtifactRef,
+	validFrom domtypes.Optional[time.Time],
+	validTo domtypes.Optional[time.Time],
 ) (apptypes.MemoryDetails, error) {
 	if u.memoryRepo == nil {
 		return apptypes.MemoryDetails{}, xerrors.Errorf("memory repository is not configured")
@@ -260,7 +262,7 @@ func (u *memoryUsecase) Supersede(
 	if err != nil {
 		return apptypes.MemoryDetails{}, xerrors.Errorf("failed to generate replacement memory ID: %w", err)
 	}
-	memory, err := model.NewAcceptedMemory(
+	memory, err := model.NewAcceptedMemoryWithValidity(
 		newMemoryID,
 		resolvedType,
 		resolvedScope,
@@ -270,6 +272,8 @@ func (u *memoryUsecase) Supersede(
 		evidenceRefs,
 		artifactRefs,
 		domtypes.Some(existing.MemoryID()),
+		validFrom,
+		validTo,
 	)
 	if err != nil {
 		return apptypes.MemoryDetails{}, xerrors.Errorf("failed to build replacement memory: %w", err)

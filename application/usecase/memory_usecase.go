@@ -40,6 +40,14 @@ type MemoryUsecase interface {
 	Reject(ctx context.Context, memoryID domtypes.MemoryID) (apptypes.MemoryDetails, error)
 
 	// Supersede replaces an accepted memory with a new accepted memory.
+	// validFrom / validTo control the replacement's temporal validity
+	// window. Both default to the legacy behaviour (validFrom=now,
+	// validTo=open-ended) when None, which keeps manual supersede
+	// compatible with pre-v0.8.1 callers. Callers that need to carry
+	// a bounded window over to the replacement (e.g. the hygiene
+	// `validity_overlap_supersede` apply) must pass the explicit
+	// window through — without this, applying the suggestion would
+	// discard the very window that caused the pair to be flagged.
 	Supersede(
 		ctx context.Context,
 		memoryID domtypes.MemoryID,
@@ -50,6 +58,8 @@ type MemoryUsecase interface {
 		source domtypes.MemorySource,
 		evidenceRefs []domtypes.EvidenceRef,
 		artifactRefs []domtypes.ArtifactRef,
+		validFrom domtypes.Optional[time.Time],
+		validTo domtypes.Optional[time.Time],
 	) (apptypes.MemoryDetails, error)
 
 	// Expire expires an active memory at the given time. Empty expiry means now.

@@ -264,6 +264,8 @@ func TestMemoryUsecase_Supersede(t *testing.T) {
 		domtypes.MemorySource(""),
 		[]domtypes.EvidenceRef{mustEvidenceRef(t, domtypes.EvidenceRefKindPR, "#467")},
 		nil,
+		domtypes.None[time.Time](),
+		domtypes.None[time.Time](),
 	)
 	if err != nil {
 		t.Fatalf("Supersede() error = %v", err)
@@ -279,6 +281,64 @@ func TestMemoryUsecase_Supersede(t *testing.T) {
 	}
 	if diff := cmp.Diff(domtypes.MemoryStatusAccepted, details.Summary().Status()); diff != "" {
 		t.Fatalf("replacement status mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestMemoryUsecase_SupersedeCarriesValidityWindow regression guard
+// for #665: passing an explicit validFrom / validTo through Supersede
+// must reach the replacement memory instead of being silently reset
+// to "validFrom=now, validTo=nil". This is the path `memory hygiene
+// apply` for validity_overlap_supersede relies on to preserve the
+// temporal evidence that triggered the suggestion.
+func TestMemoryUsecase_SupersedeCarriesValidityWindow(t *testing.T) {
+	t.Parallel()
+
+	originalID := mustMemoryID(t, "memory-original-validity")
+	original, err := model.NewAcceptedMemory(
+		originalID,
+		domtypes.MemoryTypeDecision,
+		domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/traceary")),
+		"old fact with validity",
+		domtypes.ConfidenceVerified,
+		domtypes.MemorySourceManual,
+		[]domtypes.EvidenceRef{mustEvidenceRef(t, domtypes.EvidenceRefKindIssue, "#665")},
+		nil,
+		domtypes.None[domtypes.MemoryID](),
+	)
+	if err != nil {
+		t.Fatalf("NewAcceptedMemory() error = %v", err)
+	}
+
+	repo := &memoryRepositoryStub{byID: map[string]*model.Memory{originalID.String(): original}}
+	sut := usecase.NewMemoryUsecase(repo, nil, nil)
+
+	validFrom := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	validTo := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	details, err := sut.Supersede(
+		context.Background(),
+		originalID,
+		domtypes.MemoryType(""),
+		nil,
+		"new fact inheriting validity",
+		domtypes.None[domtypes.Confidence](),
+		domtypes.MemorySource(""),
+		[]domtypes.EvidenceRef{mustEvidenceRef(t, domtypes.EvidenceRefKindPR, "#669")},
+		nil,
+		domtypes.Some(validFrom),
+		domtypes.Some(validTo),
+	)
+	if err != nil {
+		t.Fatalf("Supersede() error = %v", err)
+	}
+	if got, want := details.Summary().ValidFrom(), validFrom; !got.Equal(want) {
+		t.Errorf("replacement validFrom = %v, want %v", got, want)
+	}
+	gotValidTo, ok := details.Summary().ValidTo().Value()
+	if !ok {
+		t.Fatalf("replacement validTo is None, want Some(%v)", validTo)
+	}
+	if !gotValidTo.Equal(validTo) {
+		t.Errorf("replacement validTo = %v, want %v", gotValidTo, validTo)
 	}
 }
 
