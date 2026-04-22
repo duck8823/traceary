@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -670,12 +672,14 @@ func TestRootCLI_HookTranscriptCommand_RecordsLastAssistantMessage(t *testing.T)
 	}
 }
 
-// TestRootCLI_HookTranscriptCommand_AppliesExtraRedactPatterns asserts
-// that operator-configured extra_redact_patterns also run against the
-// transcript body, matching the audit path's policy. Before #626 the
-// transcript hook used ApplyBuiltin only and silently leaked any
-// org-specific secret shape that the audit path successfully masked.
-func TestRootCLI_HookTranscriptCommand_AppliesExtraRedactPatterns(t *testing.T) {
+// TestRootCLI_HookTranscriptCommand_PassesExtraRedactPatternsThroughLogCfg
+// asserts that operator-configured extra_redact_patterns are handed to
+// EventUsecase.Log via LogRedaction (the usecase performs the actual
+// redaction; CLI / hooks only select the policy). Before #626 the
+// transcript hook did the redaction in the presentation layer itself;
+// #666 consolidated it inside EventUsecase.Log so this test now only
+// verifies the config hand-off.
+func TestRootCLI_HookTranscriptCommand_PassesExtraRedactPatternsThroughLogCfg(t *testing.T) {
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key-transcript-extra")
 
 	homeDir := t.TempDir()
@@ -730,11 +734,13 @@ func TestRootCLI_HookTranscriptCommand_AppliesExtraRedactPatterns(t *testing.T) 
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	if strings.Contains(eventStub.logCall.message, "s3cr3tValue42") {
-		t.Errorf("transcript log message leaked secret via extra pattern: %q", eventStub.logCall.message)
+	got := eventStub.logCall.logCfg.ExtraRedactPatterns()
+	want := []string{`my_custom_secret=\S+`}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("logCfg.ExtraRedactPatterns() mismatch (-want +got):\n%s", diff)
 	}
-	if !strings.Contains(eventStub.logCall.message, "[REDACTED]") {
-		t.Errorf("transcript log message missing [REDACTED] placeholder: %q", eventStub.logCall.message)
+	if got, want := eventStub.logCall.kind, types.EventKindTranscript; got != want {
+		t.Errorf("log kind = %q, want %q", got, want)
 	}
 }
 
@@ -903,14 +909,12 @@ func TestRootCLI_HookTranscriptCommand_Codex(t *testing.T) {
 	if !strings.HasPrefix(eventStub.logCall.message, "Codex reply body.") {
 		t.Errorf("transcript log message prefix = %q, want it to start with \"Codex reply body.\"", eventStub.logCall.message)
 	}
-	if strings.Contains(eventStub.logCall.message, "s3cr3tValue42") {
-		t.Errorf("transcript log message leaked secret via extra pattern: %q", eventStub.logCall.message)
-	}
-	if strings.Contains(eventStub.logCall.message, "abc.DEF-123") {
-		t.Errorf("transcript log message leaked Bearer token (builtin redactor regression): %q", eventStub.logCall.message)
-	}
-	if !strings.Contains(eventStub.logCall.message, "[REDACTED]") {
-		t.Errorf("transcript log message missing [REDACTED] placeholder: %q", eventStub.logCall.message)
+	// Redaction now runs inside EventUsecase.Log (#666). The CLI
+	// layer's job is to hand the operator-configured extra patterns
+	// over via LogRedaction; the actual redaction behaviour is
+	// covered by application/usecase/record_log_test.go.
+	if diff := cmp.Diff([]string{`my_custom_secret=\S+`}, eventStub.logCall.logCfg.ExtraRedactPatterns()); diff != "" {
+		t.Errorf("logCfg.ExtraRedactPatterns() mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -1016,14 +1020,11 @@ func TestRootCLI_HookTranscriptCommand_Gemini(t *testing.T) {
 	if !strings.HasPrefix(eventStub.logCall.message, "Gemini summary.") {
 		t.Errorf("transcript log message prefix = %q, want it to start with \"Gemini summary.\"", eventStub.logCall.message)
 	}
-	if strings.Contains(eventStub.logCall.message, "s3cr3tValue42") {
-		t.Errorf("transcript log message leaked secret via extra pattern: %q", eventStub.logCall.message)
-	}
-	if strings.Contains(eventStub.logCall.message, "abc.DEF-123") {
-		t.Errorf("transcript log message leaked Bearer token (builtin redactor regression): %q", eventStub.logCall.message)
-	}
-	if !strings.Contains(eventStub.logCall.message, "[REDACTED]") {
-		t.Errorf("transcript log message missing [REDACTED] placeholder: %q", eventStub.logCall.message)
+	// Same split as the Codex test: CLI hands LogRedaction over,
+	// EventUsecase.Log does the actual redaction (covered in
+	// application/usecase/record_log_test.go).
+	if diff := cmp.Diff([]string{`my_custom_secret=\S+`}, eventStub.logCall.logCfg.ExtraRedactPatterns()); diff != "" {
+		t.Errorf("logCfg.ExtraRedactPatterns() mismatch (-want +got):\n%s", diff)
 	}
 }
 
