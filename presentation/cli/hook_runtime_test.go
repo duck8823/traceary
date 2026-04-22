@@ -828,6 +828,230 @@ func TestRootCLI_HookTranscriptCommand_SkipsWhenTranscriptPathMissing(t *testing
 	}
 }
 
+// TestRootCLI_HookTranscriptCommand_Codex asserts that the Codex Stop
+// hook records the `last_assistant_message` payload verbatim with
+// extra_redact_patterns applied. Codex delivers the final turn inline
+// — there is no JSONL file to read — so the extractor must pull the
+// field straight out of the Stop-hook stdin payload.
+func TestRootCLI_HookTranscriptCommand_Codex(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key-transcript-codex")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-test-key-transcript-codex"), []byte("codex-transcript-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-test-key-transcript-codex-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	storeStub := &storeManagementUsecaseStub{}
+	eventStub := &eventUsecaseStub{
+		logEvent: model.EventOf(
+			types.EventID("evt-transcript-codex"),
+			types.EventKindTranscript,
+			types.Client("hook"),
+			types.Agent("codex"),
+			types.SessionID("codex-transcript-session"),
+			types.Workspace("github.com/duck8823/traceary"),
+			"ignored-in-test-eventstub",
+			time.Now(),
+		),
+	}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(storeStub),
+		cli.WithEvent(eventStub),
+		cli.WithExtraRedactPatterns([]string{`my_custom_secret=\S+`}),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	payload := `{"last_assistant_message":"Codex reply body. Org leak: my_custom_secret=s3cr3tValue42 follows.","session_id":"codex-transcript-session"}`
+	rootCmd.SetIn(strings.NewReader(payload))
+	rootCmd.SetArgs([]string{"hook", "transcript", "codex"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got, want := eventStub.logCall.kind, types.EventKindTranscript; got != want {
+		t.Fatalf("transcript log kind = %q, want %q", got, want)
+	}
+	if got, want := eventStub.logCall.agent, types.Agent("codex"); got != want {
+		t.Fatalf("transcript log agent = %q, want %q", got, want)
+	}
+	if !strings.HasPrefix(eventStub.logCall.message, "Codex reply body.") {
+		t.Errorf("transcript log message prefix = %q, want it to start with \"Codex reply body.\"", eventStub.logCall.message)
+	}
+	if strings.Contains(eventStub.logCall.message, "s3cr3tValue42") {
+		t.Errorf("transcript log message leaked secret via extra pattern: %q", eventStub.logCall.message)
+	}
+	if !strings.Contains(eventStub.logCall.message, "[REDACTED]") {
+		t.Errorf("transcript log message missing [REDACTED] placeholder: %q", eventStub.logCall.message)
+	}
+}
+
+// TestRootCLI_HookTranscriptCommand_CodexSkipsWhenMessageEmpty asserts
+// that a missing or blank `last_assistant_message` field produces no
+// event and no error. This preserves the fail-soft contract shared
+// with the Claude path.
+func TestRootCLI_HookTranscriptCommand_CodexSkipsWhenMessageEmpty(t *testing.T) {
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	storeStub := &storeManagementUsecaseStub{}
+	eventStub := &eventUsecaseStub{}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(storeStub),
+		cli.WithEvent(eventStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"last_assistant_message":"   "}`))
+	rootCmd.SetArgs([]string{"hook", "transcript", "codex"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if eventStub.logCall.message != "" {
+		t.Fatalf("logCall.message = %q, want empty when last_assistant_message is blank", eventStub.logCall.message)
+	}
+}
+
+// TestRootCLI_HookTranscriptCommand_Gemini asserts that the Gemini
+// AfterAgent hook records the `prompt_response` payload with
+// redaction applied. Gemini has no Stop event, so transcript capture
+// is attached to AfterAgent instead.
+func TestRootCLI_HookTranscriptCommand_Gemini(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key-transcript-gemini")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "gemini-test-key-transcript-gemini"), []byte("gemini-transcript-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "gemini-test-key-transcript-gemini-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	storeStub := &storeManagementUsecaseStub{}
+	eventStub := &eventUsecaseStub{
+		logEvent: model.EventOf(
+			types.EventID("evt-transcript-gemini"),
+			types.EventKindTranscript,
+			types.Client("hook"),
+			types.Agent("gemini"),
+			types.SessionID("gemini-transcript-session"),
+			types.Workspace("github.com/duck8823/traceary"),
+			"ignored-in-test-eventstub",
+			time.Now(),
+		),
+	}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(storeStub),
+		cli.WithEvent(eventStub),
+		cli.WithExtraRedactPatterns([]string{`my_custom_secret=\S+`}),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	payload := `{"prompt_response":"Gemini summary. Org leak: my_custom_secret=s3cr3tValue42 trailing.","session_id":"gemini-transcript-session"}`
+	rootCmd.SetIn(strings.NewReader(payload))
+	rootCmd.SetArgs([]string{"hook", "transcript", "gemini"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got, want := eventStub.logCall.kind, types.EventKindTranscript; got != want {
+		t.Fatalf("transcript log kind = %q, want %q", got, want)
+	}
+	if got, want := eventStub.logCall.agent, types.Agent("gemini"); got != want {
+		t.Fatalf("transcript log agent = %q, want %q", got, want)
+	}
+	if !strings.HasPrefix(eventStub.logCall.message, "Gemini summary.") {
+		t.Errorf("transcript log message prefix = %q, want it to start with \"Gemini summary.\"", eventStub.logCall.message)
+	}
+	if strings.Contains(eventStub.logCall.message, "s3cr3tValue42") {
+		t.Errorf("transcript log message leaked secret via extra pattern: %q", eventStub.logCall.message)
+	}
+	if !strings.Contains(eventStub.logCall.message, "[REDACTED]") {
+		t.Errorf("transcript log message missing [REDACTED] placeholder: %q", eventStub.logCall.message)
+	}
+}
+
+// TestRootCLI_HookTranscriptCommand_GeminiSkipsWhenPromptResponseEmpty
+// mirrors the Claude / Codex empty-body contract for Gemini's
+// AfterAgent payload shape.
+func TestRootCLI_HookTranscriptCommand_GeminiSkipsWhenPromptResponseEmpty(t *testing.T) {
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	storeStub := &storeManagementUsecaseStub{}
+	eventStub := &eventUsecaseStub{}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(storeStub),
+		cli.WithEvent(eventStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"prompt_response":""}`))
+	rootCmd.SetArgs([]string{"hook", "transcript", "gemini"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if eventStub.logCall.message != "" {
+		t.Fatalf("logCall.message = %q, want empty when prompt_response is blank", eventStub.logCall.message)
+	}
+}
+
+// TestRootCLI_HookTranscriptCommand_UnknownClient asserts that a
+// transcript hook fired with an unknown client argument silently skips
+// instead of aborting the host's Stop / SessionEnd hook. Forward
+// compatibility: a packaged hook may arrive before its extractor is
+// registered during staged rollouts.
+func TestRootCLI_HookTranscriptCommand_UnknownClient(t *testing.T) {
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	storeStub := &storeManagementUsecaseStub{}
+	eventStub := &eventUsecaseStub{}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(storeStub),
+		cli.WithEvent(eventStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"last_assistant_message":"would-be-text"}`))
+	rootCmd.SetArgs([]string{"hook", "transcript", "future-host"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if eventStub.logCall.message != "" {
+		t.Fatalf("logCall.message = %q, want empty for unknown client", eventStub.logCall.message)
+	}
+}
+
 func TestRootCLI_HookPromptCommand_PrefersPersistedWorkspaceOverEnvOverride(t *testing.T) {
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
 	t.Setenv("TRACEARY_WORKSPACE", "env/workspace")

@@ -587,14 +587,24 @@ func (c *RootCLI) runHookPrompt(
 
 // runHookTranscript records the last assistant-message turn as a
 // `transcript` event. It reads Stop-hook stdin to find
-// `transcript_path` (a JSONL file maintained by Claude Code that
-// contains one message per line) and extracts the last assistant
-// message's text blocks. Tool-use blocks are excluded because they
-// are already captured by `command_executed` audits, which keeps
-// transcript events focused on "what the AI was thinking" rather
-// than duplicating the tool call log. If `transcript_path` is
-// missing or unreadable we fail soft — transcript capture is a
-// nice-to-have, not a requirement for sessions to close cleanly.
+// the last assistant turn and stores it as a `transcript` event. The
+// exact extraction strategy is client-specific:
+//
+//   - Claude Code delivers a `transcript_path` pointing at a JSONL
+//     file maintained by the host. We read the final assistant turn's
+//     `text` and `thinking` blocks; tool-use blocks are excluded
+//     because they are already captured by `command_executed` audits.
+//   - Codex CLI's Stop event carries the final turn verbatim via
+//     `last_assistant_message`, so there is no file to parse.
+//   - Gemini CLI's AfterAgent event carries the final turn via
+//     `prompt_response`, again as a plain string.
+//
+// All paths share the same redaction policy and event kind, so the
+// downstream consumers (`traceary tail`, `replay`, `get_context`)
+// cannot distinguish between clients except by the recorded agent.
+// If the host payload is missing or empty we fail soft — transcript
+// capture is a nice-to-have, not a requirement for sessions to close
+// cleanly.
 func (c *RootCLI) runHookTranscript(
 	ctx context.Context,
 	input io.Reader,
@@ -612,11 +622,15 @@ func (c *RootCLI) runHookTranscript(
 	if err != nil {
 		return err
 	}
-	transcriptPath := hookPayloadString(payload, "transcript_path", "")
-	if transcriptPath == "" {
+	extractor, ok := transcriptExtractorFor(client)
+	if !ok {
+		// Unknown client — silently skip so a packaged hook invoking an
+		// unsupported client never aborts the host's Stop / SessionEnd
+		// hook. New clients must register an extractor in
+		// `transcriptExtractorFor` before their hook is wired.
 		return nil
 	}
-	transcriptText, ok := readLastAssistantTranscriptEntry(transcriptPath)
+	transcriptText, ok := extractor(payload)
 	if !ok || strings.TrimSpace(transcriptText) == "" {
 		return nil
 	}
@@ -662,6 +676,66 @@ func (c *RootCLI) runHookTranscript(
 	}
 
 	return nil
+}
+
+// transcriptExtractor derives the assistant-reply text for a single
+// transcript hook invocation from the host-supplied stdin payload.
+// Implementations must return ok=false (and an empty string) when the
+// payload carries no usable reply text, so the caller can silently
+// skip without logging an empty `transcript` event.
+type transcriptExtractor func(payload []byte) (string, bool)
+
+// transcriptExtractorFor returns the extractor registered for the
+// named client. Clients without a registered extractor silently
+// skip — this keeps us forward-compatible with packaged hooks that
+// pass unknown client arguments during staged rollouts.
+func transcriptExtractorFor(client string) (transcriptExtractor, bool) {
+	switch client {
+	case "claude":
+		return extractClaudeTranscript, true
+	case "codex":
+		return extractCodexTranscript, true
+	case "gemini":
+		return extractGeminiTranscript, true
+	default:
+		return nil, false
+	}
+}
+
+// extractClaudeTranscript resolves the Claude Code transcript_path
+// pointer and reads the final assistant turn from the JSONL file.
+func extractClaudeTranscript(payload []byte) (string, bool) {
+	transcriptPath := hookPayloadString(payload, "transcript_path", "")
+	if transcriptPath == "" {
+		return "", false
+	}
+	return readLastAssistantTranscriptEntry(transcriptPath)
+}
+
+// extractCodexTranscript reads Codex CLI's `last_assistant_message`
+// field from the Stop-hook payload. Codex delivers the final turn
+// inline, so no file parsing is required and the transcript body is
+// identical to what Codex renders to its own TUI.
+func extractCodexTranscript(payload []byte) (string, bool) {
+	text := hookPayloadString(payload, "last_assistant_message", "")
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "", false
+	}
+	return text, true
+}
+
+// extractGeminiTranscript reads Gemini CLI's `prompt_response` field
+// from the AfterAgent-hook payload. Gemini has no Stop event; the
+// closest analogue is AfterAgent, which fires once the agent has
+// produced a full response and includes the response text inline.
+func extractGeminiTranscript(payload []byte) (string, bool) {
+	text := hookPayloadString(payload, "prompt_response", "")
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "", false
+	}
+	return text, true
 }
 
 // readLastAssistantTranscriptEntry reads the JSONL transcript file at
