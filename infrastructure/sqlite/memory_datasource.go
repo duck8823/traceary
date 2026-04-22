@@ -154,10 +154,10 @@ func persistMemoryTx(ctx context.Context, tx *sql.Tx, memory *model.Memory) erro
 		formatted := formatTimestamp(expiresAt)
 		expiresAtValue = &formatted
 	}
-	validFromValue := formatTimestamp(memory.ValidFrom())
+	validFromValue := formatMemoryValidityTimestamp(memory.ValidFrom())
 	var validToValue *string
 	if validTo, ok := memory.ValidTo().Value(); ok {
-		formatted := formatTimestamp(validTo)
+		formatted := formatMemoryValidityTimestamp(validTo)
 		validToValue = &formatted
 	}
 
@@ -696,15 +696,15 @@ func buildMemorySearchQuery(criteria apptypes.MemorySearchCriteria) (string, []a
 // current wall clock so callers that do not care about time travel
 // still get "still-valid-right-now" semantics by default.
 //
-// Timestamps are stored via formatTimestamp, which uses
-// time.RFC3339Nano. That format emits variable-width fractional seconds
-// (`2026-04-10T00:00:00Z` vs `2026-04-10T00:00:00.1Z`), so a plain
-// lexicographic TEXT comparison reorders same-second values
-// incorrectly (because `.` < `Z`). Wrap every comparand in
-// `datetime(...)` so SQLite compares the values as real timestamps
-// instead. For legacy rows where valid_from is NULL the scan side
-// already falls back to created_at; mirror that here with COALESCE so
-// filter and restore stay consistent.
+// Timestamps are persisted via formatMemoryValidityTimestamp, which
+// always emits 9-digit fractional seconds so plain lex TEXT compare
+// matches real temporal order. Migration 000010 backfilled pre-v0.8.1
+// rows to the same shape, so the filter does not need to wrap
+// columns in SQLite's datetime() (which would both truncate sub-
+// second precision and force a SCAN instead of using
+// idx_memories_valid_window). Backfill of NULL valid_from from
+// created_at is handled by migration 000009, so COALESCE is no
+// longer required and dropping it keeps the predicate sargable.
 func appendMemoryValidityWindowFilter(
 	builder *strings.Builder,
 	args []any,
@@ -718,9 +718,9 @@ func appendMemoryValidityWindowFilter(
 	if explicit, ok := asOf.Value(); ok {
 		evaluationTime = explicit
 	}
-	formatted := formatTimestamp(evaluationTime)
-	builder.WriteString(" AND datetime(COALESCE(m.valid_from, m.created_at)) <= datetime(?)")
-	builder.WriteString(" AND (m.valid_to IS NULL OR datetime(m.valid_to) > datetime(?))")
+	formatted := formatMemoryValidityTimestamp(evaluationTime)
+	builder.WriteString(" AND m.valid_from <= ?")
+	builder.WriteString(" AND (m.valid_to IS NULL OR m.valid_to > ?)")
 	return append(args, formatted, formatted)
 }
 
