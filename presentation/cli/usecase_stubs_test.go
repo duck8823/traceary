@@ -325,7 +325,7 @@ func (s *memoryUsecaseStub) Reject(_ context.Context, _ types.MemoryID) (apptype
 	return s.rejectDetails, s.rejectErr
 }
 
-func (s *memoryUsecaseStub) Supersede(_ context.Context, _ types.MemoryID, _ types.MemoryType, _ types.MemoryScope, _ string, _ types.Optional[types.Confidence], _ types.MemorySource, _ []types.EvidenceRef, _ []types.ArtifactRef) (apptypes.MemoryDetails, error) {
+func (s *memoryUsecaseStub) Supersede(_ context.Context, _ types.MemoryID, _ types.MemoryType, _ types.MemoryScope, _ string, _ types.Optional[types.Confidence], _ types.MemorySource, _ []types.EvidenceRef, _ []types.ArtifactRef, _ types.Optional[time.Time], _ types.Optional[time.Time]) (apptypes.MemoryDetails, error) {
 	return s.supersedeDetails, s.supersedeErr
 }
 

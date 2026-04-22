@@ -264,6 +264,8 @@ func TestMemoryUsecase_Supersede(t *testing.T) {
 		domtypes.MemorySource(""),
 		[]domtypes.EvidenceRef{mustEvidenceRef(t, domtypes.EvidenceRefKindPR, "#467")},
 		nil,
+		domtypes.None[time.Time](),
+		domtypes.None[time.Time](),
 	)
 	if err != nil {
 		t.Fatalf("Supersede() error = %v", err)
@@ -279,6 +281,119 @@ func TestMemoryUsecase_Supersede(t *testing.T) {
 	}
 	if diff := cmp.Diff(domtypes.MemoryStatusAccepted, details.Summary().Status()); diff != "" {
 		t.Fatalf("replacement status mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestMemoryUsecase_SupersedeCarriesValidityWindow regression guard
+// for #665: passing an explicit validFrom / validTo through Supersede
+// must reach the replacement memory instead of being silently reset
+// to "validFrom=now, validTo=nil". This is the path `memory hygiene
+// apply` for validity_overlap_supersede relies on to preserve the
+// temporal evidence that triggered the suggestion.
+func TestMemoryUsecase_SupersedeCarriesValidityWindow(t *testing.T) {
+	t.Parallel()
+
+	originalID := mustMemoryID(t, "memory-original-validity")
+	original, err := model.NewAcceptedMemory(
+		originalID,
+		domtypes.MemoryTypeDecision,
+		domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/traceary")),
+		"old fact with validity",
+		domtypes.ConfidenceVerified,
+		domtypes.MemorySourceManual,
+		[]domtypes.EvidenceRef{mustEvidenceRef(t, domtypes.EvidenceRefKindIssue, "#665")},
+		nil,
+		domtypes.None[domtypes.MemoryID](),
+	)
+	if err != nil {
+		t.Fatalf("NewAcceptedMemory() error = %v", err)
+	}
+
+	repo := &memoryRepositoryStub{byID: map[string]*model.Memory{originalID.String(): original}}
+	sut := usecase.NewMemoryUsecase(repo, nil, nil)
+
+	validFrom := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	validTo := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	details, err := sut.Supersede(
+		context.Background(),
+		originalID,
+		domtypes.MemoryType(""),
+		nil,
+		"new fact inheriting validity",
+		domtypes.None[domtypes.Confidence](),
+		domtypes.MemorySource(""),
+		[]domtypes.EvidenceRef{mustEvidenceRef(t, domtypes.EvidenceRefKindPR, "#669")},
+		nil,
+		domtypes.Some(validFrom),
+		domtypes.Some(validTo),
+	)
+	if err != nil {
+		t.Fatalf("Supersede() error = %v", err)
+	}
+	if got, want := details.Summary().ValidFrom(), validFrom; !got.Equal(want) {
+		t.Errorf("replacement validFrom = %v, want %v", got, want)
+	}
+	gotValidTo, ok := details.Summary().ValidTo().Value()
+	if !ok {
+		t.Fatalf("replacement validTo is None, want Some(%v)", validTo)
+	}
+	if !gotValidTo.Equal(validTo) {
+		t.Errorf("replacement validTo = %v, want %v", gotValidTo, validTo)
+	}
+}
+
+// TestMemoryUsecase_SupersedeRejectsReversedValidity regression guard
+// for the Codex verifier finding on #665: when both validFrom and
+// validTo are provided, the resulting replacement must not have a
+// reversed window (validTo < validFrom). Without this check a
+// `traceary memory supersede --from FUTURE --to PAST` invocation
+// would persist a broken row, which would then silently break
+// hygiene and runtime retrieval that assume monotonic window bounds.
+func TestMemoryUsecase_SupersedeRejectsReversedValidity(t *testing.T) {
+	t.Parallel()
+
+	originalID := mustMemoryID(t, "memory-supersede-reversed")
+	original, err := model.NewAcceptedMemory(
+		originalID,
+		domtypes.MemoryTypeDecision,
+		domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/traceary")),
+		"will be superseded",
+		domtypes.ConfidenceVerified,
+		domtypes.MemorySourceManual,
+		[]domtypes.EvidenceRef{mustEvidenceRef(t, domtypes.EvidenceRefKindIssue, "#665")},
+		nil,
+		domtypes.None[domtypes.MemoryID](),
+	)
+	if err != nil {
+		t.Fatalf("NewAcceptedMemory() error = %v", err)
+	}
+
+	repo := &memoryRepositoryStub{byID: map[string]*model.Memory{originalID.String(): original}}
+	sut := usecase.NewMemoryUsecase(repo, nil, nil)
+
+	future := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	past := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	_, err = sut.Supersede(
+		context.Background(),
+		originalID,
+		domtypes.MemoryType(""),
+		nil,
+		"replacement with reversed validity",
+		domtypes.None[domtypes.Confidence](),
+		domtypes.MemorySource(""),
+		[]domtypes.EvidenceRef{mustEvidenceRef(t, domtypes.EvidenceRefKindPR, "#676")},
+		nil,
+		domtypes.Some(future),
+		domtypes.Some(past),
+	)
+	if err == nil {
+		t.Fatalf("Supersede() with validFrom > validTo accepted; want error matching SetValidity policy")
+	}
+	if !strings.Contains(err.Error(), "valid_to must not be earlier than valid_from") {
+		t.Fatalf("Supersede() error = %q, want mention of the valid_to ordering rule", err)
+	}
+	if len(repo.supersessionCalls) != 0 {
+		t.Errorf("repo.SaveSupersession called %d times on reversed-window error; want 0", len(repo.supersessionCalls))
 	}
 }
 

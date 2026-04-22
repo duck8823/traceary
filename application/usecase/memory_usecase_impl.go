@@ -222,6 +222,8 @@ func (u *memoryUsecase) Supersede(
 	source domtypes.MemorySource,
 	evidenceRefs []domtypes.EvidenceRef,
 	artifactRefs []domtypes.ArtifactRef,
+	validFrom domtypes.Optional[time.Time],
+	validTo domtypes.Optional[time.Time],
 ) (apptypes.MemoryDetails, error) {
 	if u.memoryRepo == nil {
 		return apptypes.MemoryDetails{}, xerrors.Errorf("memory repository is not configured")
@@ -256,11 +258,30 @@ func (u *memoryUsecase) Supersede(
 		return apptypes.MemoryDetails{}, err
 	}
 
+	// Reject reversed validity windows up front, matching SetValidity
+	// (valid_to must not be earlier than valid_from). Without this a
+	// supersede caller coming in via CLI --from/--to or MCP
+	// supersede_memory valid_from/valid_to could persist a replacement
+	// whose window is inverted, which would then break hygiene and
+	// runtime retrieval that assume monotonic window bounds. When
+	// validFrom is None the replacement will be created with
+	// validFrom=now (per NewAcceptedMemoryWithValidity), so fall back
+	// to the wall clock for the comparison.
+	if to, ok := validTo.Value(); ok {
+		effectiveFrom := time.Now()
+		if from, hasFrom := validFrom.Value(); hasFrom {
+			effectiveFrom = from
+		}
+		if to.Before(effectiveFrom) {
+			return apptypes.MemoryDetails{}, xerrors.Errorf("valid_to must not be earlier than valid_from")
+		}
+	}
+
 	newMemoryID, err := newMemoryID()
 	if err != nil {
 		return apptypes.MemoryDetails{}, xerrors.Errorf("failed to generate replacement memory ID: %w", err)
 	}
-	memory, err := model.NewAcceptedMemory(
+	memory, err := model.NewAcceptedMemoryWithValidity(
 		newMemoryID,
 		resolvedType,
 		resolvedScope,
@@ -270,6 +291,8 @@ func (u *memoryUsecase) Supersede(
 		evidenceRefs,
 		artifactRefs,
 		domtypes.Some(existing.MemoryID()),
+		validFrom,
+		validTo,
 	)
 	if err != nil {
 		return apptypes.MemoryDetails{}, xerrors.Errorf("failed to build replacement memory: %w", err)

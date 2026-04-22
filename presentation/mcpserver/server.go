@@ -949,7 +949,23 @@ func (s *Server) supersedeMemory() mcp.ToolHandlerFor[supersedeMemoryInput, memo
 		if err != nil {
 			return nil, memoryOutput{}, err
 		}
-		details, err := s.memory.Supersede(ctx, memoryID, memoryType, scope, input.Fact, confidence, source, evidenceRefs, artifactRefs)
+		validFromOptional := types.None[time.Time]()
+		if strings.TrimSpace(input.ValidFrom) != "" {
+			validFrom, err := parseFlexibleTime(input.ValidFrom, false)
+			if err != nil {
+				return nil, memoryOutput{}, xerrors.Errorf("failed to parse valid_from: %w", err)
+			}
+			validFromOptional = types.Some(validFrom)
+		}
+		validToOptional := types.None[time.Time]()
+		if strings.TrimSpace(input.ValidTo) != "" {
+			validTo, err := parseFlexibleTime(input.ValidTo, false)
+			if err != nil {
+				return nil, memoryOutput{}, xerrors.Errorf("failed to parse valid_to: %w", err)
+			}
+			validToOptional = types.Some(validTo)
+		}
+		details, err := s.memory.Supersede(ctx, memoryID, memoryType, scope, input.Fact, confidence, source, evidenceRefs, artifactRefs, validFromOptional, validToOptional)
 		if err != nil {
 			return nil, memoryOutput{}, xerrors.Errorf("failed to supersede memory: %w", err)
 		}

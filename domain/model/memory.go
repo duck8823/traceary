@@ -50,7 +50,8 @@ func NewMemoryCandidate(
 	return newMemory(memoryID, memoryType, scope, fact, types.MemoryStatusCandidate, types.ConfidenceLow, source, evidenceRefs, artifactRefs, supersedes, types.None[time.Time]())
 }
 
-// NewAcceptedMemory creates an accepted memory.
+// NewAcceptedMemory creates an accepted memory with the default
+// validity window (validFrom=now, validTo=open-ended).
 func NewAcceptedMemory(
 	memoryID types.MemoryID,
 	memoryType types.MemoryType,
@@ -62,7 +63,38 @@ func NewAcceptedMemory(
 	artifactRefs []types.ArtifactRef,
 	supersedes types.Optional[types.MemoryID],
 ) (*Memory, error) {
-	return newMemory(memoryID, memoryType, scope, fact, types.MemoryStatusAccepted, confidence, source, evidenceRefs, artifactRefs, supersedes, types.None[time.Time]())
+	return NewAcceptedMemoryWithValidity(memoryID, memoryType, scope, fact, confidence, source, evidenceRefs, artifactRefs, supersedes, types.None[time.Time](), types.None[time.Time]())
+}
+
+// NewAcceptedMemoryWithValidity creates an accepted memory with an
+// explicit temporal validity window. When validFrom is None the
+// memory starts valid from the current wall clock. validTo is
+// optional regardless: None means open-ended validity. Use this
+// variant when superseding a time-bounded memory so the replacement
+// inherits the intended window instead of silently resetting to
+// "valid from now".
+func NewAcceptedMemoryWithValidity(
+	memoryID types.MemoryID,
+	memoryType types.MemoryType,
+	scope types.MemoryScope,
+	fact string,
+	confidence types.Confidence,
+	source types.MemorySource,
+	evidenceRefs []types.EvidenceRef,
+	artifactRefs []types.ArtifactRef,
+	supersedes types.Optional[types.MemoryID],
+	validFrom types.Optional[time.Time],
+	validTo types.Optional[time.Time],
+) (*Memory, error) {
+	memory, err := newMemory(memoryID, memoryType, scope, fact, types.MemoryStatusAccepted, confidence, source, evidenceRefs, artifactRefs, supersedes, types.None[time.Time]())
+	if err != nil {
+		return nil, err
+	}
+	if explicit, ok := validFrom.Value(); ok {
+		memory.validFrom = explicit
+	}
+	memory.validTo = validTo
+	return memory, nil
 }
 
 func newMemory(

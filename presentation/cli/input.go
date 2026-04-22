@@ -345,6 +345,8 @@ type memorySupersedeCommandInput struct {
 	source        string
 	evidenceRefs  []string
 	artifactRefs  []string
+	validFrom     string
+	validTo       string
 	idOnly        bool
 	asJSON        bool
 }
