@@ -89,7 +89,7 @@ func TestRootCLI_Replay_WritesHTMLOnSuccess(t *testing.T) {
 	t.Parallel()
 
 	outPath := filepath.Join(t.TempDir(), "replay.html")
-	bundle := apptypes.ReplayBundleOf(time.Date(2026, 4, 21, 12, 0, 0, 0, time.UTC), nil, nil)
+	bundle := apptypes.ReplayBundleOf(time.Date(2026, 4, 21, 12, 0, 0, 0, time.UTC), nil, nil, nil, nil)
 
 	rootCmd := newTestRootCLI(
 		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
