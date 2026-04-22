@@ -82,8 +82,8 @@ func writeMemoryHygieneApplyResult(output io.Writer, result apptypes.MemoryHygie
 		encoder.SetEscapeHTML(false)
 		encoder.SetIndent("", "  ")
 		payload := struct {
-			Applied  []applyAppliedOutput  `json:"applied"`
-			Failures []applyFailureOutput  `json:"failures,omitempty"`
+			Applied  []applyAppliedOutput `json:"applied"`
+			Failures []applyFailureOutput `json:"failures,omitempty"`
 		}{
 			Applied:  make([]applyAppliedOutput, 0, len(result.Applied)),
 			Failures: make([]applyFailureOutput, 0, len(result.Failures)),
