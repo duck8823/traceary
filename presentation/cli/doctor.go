@@ -201,15 +201,41 @@ func inspectClaudePluginCacheStatus() *doctorCheck {
 	if status.CachedVersion == "" || status.MarketplaceVersion == "" {
 		return nil
 	}
+	// Evaluate the two WARN conditions together so a single cache
+	// that is BOTH stale AND has multiple cached versions gets one
+	// unified message — otherwise the stale branch would return
+	// first and the #670 fresh-session remedy would be silently
+	// dropped.
+	staleSegment, multiSegment := "", ""
 	if status.Stale() {
+		staleSegment = localizef(
+			"claude plugin cache %s is older than the marketplace manifest (cached %s, marketplace %s at %s). `brew upgrade traceary` does not refresh the plugin cache; run `claude plugins update %s` to activate the newer hooks",
+			"claude plugin cache %s は marketplace manifest より古いバージョンです (cached %s, marketplace %s at %s)。`brew upgrade traceary` では plugin cache は更新されません。新しい hook を有効にするには `claude plugins update %s` を実行してください",
+			status.CachePath, status.CachedVersion, status.MarketplaceVersion, status.MarketplacePath, detection.PluginKey,
+		)
+	}
+	if status.HasMultipleCachedVersions() {
+		others := strings.Join(status.CachedVersions[1:], ", ")
+		multiSegment = localizef(
+			"claude plugin cache %s has multiple cached versions (current %s, older also present: %s). A resumed Claude Code session (via `--continue` / cmux) can still be running the older snapshot. Fully restart Claude Code (no resume) so the new hooks fire; optionally remove `%s/<old>` to remove the ambiguity",
+			"claude plugin cache %s に複数のバージョンが残っています (current %s、古いもの: %s)。`--continue` で resume されたセッションでは古いスナップショットの hook が動き続ける可能性があります。完全に再起動 (resume しない) すれば新しい hook が有効になります。古い subdir (`%s/<old>`) を削除すれば恒久的に解消します",
+			status.CachePath, status.CachedVersion, others, status.CachePath,
+		)
+	}
+	if staleSegment != "" || multiSegment != "" {
+		var message string
+		switch {
+		case staleSegment != "" && multiSegment != "":
+			message = staleSegment + " " + multiSegment
+		case staleSegment != "":
+			message = staleSegment
+		default:
+			message = multiSegment
+		}
 		return &doctorCheck{
-			Name:   "claude-plugin-cache",
-			Status: doctorStatusWarn,
-			Message: localizef(
-				"claude plugin cache %s is older than the marketplace manifest (cached %s, marketplace %s at %s). `brew upgrade traceary` does not refresh the plugin cache; run `claude plugins update %s` to activate the newer hooks",
-				"claude plugin cache %s は marketplace manifest より古いバージョンです (cached %s, marketplace %s at %s)。`brew upgrade traceary` では plugin cache は更新されません。新しい hook を有効にするには `claude plugins update %s` を実行してください",
-				status.CachePath, status.CachedVersion, status.MarketplaceVersion, status.MarketplacePath, detection.PluginKey,
-			),
+			Name:    "claude-plugin-cache",
+			Status:  doctorStatusWarn,
+			Message: message,
 		}
 	}
 	return &doctorCheck{

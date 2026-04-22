@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"golang.org/x/mod/semver"
@@ -92,6 +93,14 @@ type ClaudePluginCacheStatus struct {
 	// CachedVersion is the highest version found under CachePath. Empty
 	// when no versioned directory exists (plugin never cached yet).
 	CachedVersion string
+	// CachedVersions lists every non-orphaned versioned cache directory
+	// found under CachePath, sorted from highest to lowest by semver.
+	// Diagnostics use the full list to detect the session-snapshot
+	// ambiguity reported in #670: when more than one version coexists,
+	// a long-lived Claude Code session may still be running hooks
+	// registered against an older subdir even though CachedVersion
+	// (the highest) matches the marketplace.
+	CachedVersions []string
 	// MarketplaceVersion is the plugin.json "version" Claude Code sees
 	// via `~/.claude/plugins/marketplaces/<marketplace>/...`. Empty when
 	// the marketplace clone is missing.
@@ -99,6 +108,16 @@ type ClaudePluginCacheStatus struct {
 	// MarketplacePath is the plugin.json path that was read (empty if
 	// the read failed).
 	MarketplacePath string
+}
+
+// HasMultipleCachedVersions reports whether the plugin's cache directory
+// holds more than one non-orphaned version subdirectory. When true, a
+// resumed Claude Code session could have snapshotted its hook registry
+// against any of them — not necessarily the highest — so the operator
+// should be told to restart without `--continue` to guarantee the
+// newest hooks are live.
+func (s ClaudePluginCacheStatus) HasMultipleCachedVersions() bool {
+	return len(s.CachedVersions) > 1
 }
 
 // Stale reports whether the cached plugin is at an older semver than
@@ -147,10 +166,19 @@ func DetectClaudePluginCacheStatus(home, pluginKey string) ClaudePluginCacheStat
 			if _, err := os.Stat(filepath.Join(status.CachePath, name, ".orphaned_at")); err == nil {
 				continue
 			}
+			status.CachedVersions = append(status.CachedVersions, name)
 			if status.CachedVersion == "" || semver.Compare("v"+name, "v"+status.CachedVersion) > 0 {
 				status.CachedVersion = name
 			}
 		}
+		// Sort CachedVersions descending so diagnostics can print
+		// "cached N, N-1, ..." without additional sorting. semver
+		// comparator ordering; fall back to string order when one
+		// side isn't parseable (defensive — directory names are
+		// expected to be plain semver).
+		sort.SliceStable(status.CachedVersions, func(i, j int) bool {
+			return semver.Compare("v"+status.CachedVersions[i], "v"+status.CachedVersions[j]) > 0
+		})
 	}
 
 	if content, err := os.ReadFile(status.MarketplacePath); err == nil {
