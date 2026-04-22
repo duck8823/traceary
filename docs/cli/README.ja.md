@@ -173,6 +173,10 @@ session 解決ルールは `traceary log` と同じです。
 - `--sessions` (既定 10) — 含める直近セッション数
 - `--events-per-session` (既定 20) — 1 セッションに含めるイベント数
 - `--memories` (既定 20) — 含める accepted memory 数
+- `--timeline-blocks` (既定 20) — timeline パネルに描画するブロック数。0 以下でパネル自体を省く
+- `--hotspots` (既定 10) — failure hotspot パネルに描画するクラスタ数。0 以下でパネル自体を省く
+
+replay HTML は sessions / timeline blocks / failure hotspots / durable memories / generated-at の 5 パネル構成です。timeline と hotspot パネルは `traceary timeline` / `traceary list --failures-only` と同一意味を持つので、両方の描画を相互参照できます。
 
 例: `traceary replay --out /tmp/replay.html`
 
