@@ -2,10 +2,12 @@ package usecase_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -42,6 +44,7 @@ func TestEventUsecase_Log(t *testing.T) {
 			types.Agent("codex"),
 			types.SessionID("session-1"),
 			types.Workspace("duck8823/traceary"),
+			apptypes.LogRedaction{},
 		)
 		if err != nil {
 			t.Fatalf("Log() error = %v", err)
@@ -88,6 +91,7 @@ func TestEventUsecase_Log(t *testing.T) {
 			types.Agent("claude"),
 			types.SessionID("session-1"),
 			types.Workspace("duck8823/traceary"),
+			apptypes.LogRedaction{},
 		)
 		if err != nil {
 			t.Fatalf("Log() error = %v", err)
@@ -110,6 +114,7 @@ func TestEventUsecase_Log(t *testing.T) {
 			types.Agent("manual"),
 			types.SessionID("session-1"),
 			types.Workspace(""),
+			apptypes.LogRedaction{},
 		)
 		if err != nil {
 			t.Fatalf("Log() error = %v", err)
@@ -132,9 +137,72 @@ func TestEventUsecase_Log(t *testing.T) {
 			types.Agent("manual"),
 			types.SessionID("session-1"),
 			types.Workspace(""),
+			apptypes.LogRedaction{},
 		)
 		if err == nil {
 			t.Fatalf("Log() error = nil, want error for invalid kind")
+		}
+	})
+
+	t.Run("transcript kind applies builtin + extra redactors inside the usecase", func(t *testing.T) {
+		t.Parallel()
+
+		stub := &eventRepositoryStub{}
+		sut := usecase.NewEventUsecase(stub, nil)
+
+		cfg := apptypes.NewLogRedactionBuilder().
+			ExtraRedactPatterns([]string{`my_custom_secret=\S+`}).
+			Build()
+		got, err := sut.Log(context.Background(),
+			"Authorization: Bearer abc.DEF-123 and my_custom_secret=s3cr3tValue42 follows",
+			types.EventKindTranscript,
+			types.Client("hook"),
+			types.Agent("claude"),
+			types.SessionID("session-1"),
+			types.Workspace("duck8823/traceary"),
+			cfg,
+		)
+		if err != nil {
+			t.Fatalf("Log() error = %v", err)
+		}
+		body := got.Body()
+		if strings.Contains(body, "s3cr3tValue42") {
+			t.Errorf("transcript body leaked operator extra pattern: %q", body)
+		}
+		if strings.Contains(body, "abc.DEF-123") {
+			t.Errorf("transcript body leaked Bearer token (builtin redactor regression): %q", body)
+		}
+		if !strings.Contains(body, "[REDACTED]") {
+			t.Errorf("transcript body missing [REDACTED] placeholder: %q", body)
+		}
+	})
+
+	t.Run("non-transcript kind passes body through untouched even with patterns", func(t *testing.T) {
+		t.Parallel()
+
+		stub := &eventRepositoryStub{}
+		sut := usecase.NewEventUsecase(stub, nil)
+
+		cfg := apptypes.NewLogRedactionBuilder().
+			ExtraRedactPatterns([]string{`my_custom_secret=\S+`}).
+			Build()
+		// Prompt and compact_summary bodies intentionally keep operator
+		// intent verbatim; the kind-aware gate inside EventUsecase.Log
+		// must not apply redaction to those kinds.
+		got, err := sut.Log(context.Background(),
+			"my_custom_secret=keepme",
+			types.EventKindPrompt,
+			types.Client("hook"),
+			types.Agent("claude"),
+			types.SessionID("session-1"),
+			types.Workspace("duck8823/traceary"),
+			cfg,
+		)
+		if err != nil {
+			t.Fatalf("Log() error = %v", err)
+		}
+		if diff := cmp.Diff("my_custom_secret=keepme", got.Body()); diff != "" {
+			t.Fatalf("Body() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -151,6 +219,7 @@ func TestEventUsecase_Log(t *testing.T) {
 			types.Agent(""),
 			types.SessionID("session-1"),
 			types.Workspace(""),
+			apptypes.LogRedaction{},
 		)
 		if err == nil {
 			t.Fatalf("Log() error = nil, want error")
