@@ -212,6 +212,23 @@ func inspectClaudePluginCacheStatus() *doctorCheck {
 			),
 		}
 	}
+	// Even when the highest cached version matches the marketplace,
+	// multiple version subdirs coexisting means a resumed Claude Code
+	// session might still run the older snapshot (#670). Doctor cannot
+	// inspect the live session's hook registry, but it can point the
+	// operator at the restart + old-cache-cleanup remedy.
+	if status.HasMultipleCachedVersions() {
+		others := strings.Join(status.CachedVersions[1:], ", ")
+		return &doctorCheck{
+			Name:   "claude-plugin-cache",
+			Status: doctorStatusWarn,
+			Message: localizef(
+				"claude plugin cache %s has multiple cached versions (current %s, older also present: %s). A resumed Claude Code session (via `--continue` / cmux) can still be running the older snapshot. Fully restart Claude Code (no resume) so the new hooks fire; optionally remove `%s/<old>` to remove the ambiguity",
+				"claude plugin cache %s に複数のバージョンが残っています (current %s、古いもの: %s)。`--continue` で resume されたセッションでは古いスナップショットの hook が動き続ける可能性があります。完全に再起動 (resume しない) すれば新しい hook が有効になります。古い subdir (`%s/<old>`) を削除すれば恒久的に解消します",
+				status.CachePath, status.CachedVersion, others, status.CachePath,
+			),
+		}
+	}
 	return &doctorCheck{
 		Name:   "claude-plugin-cache",
 		Status: doctorStatusPass,

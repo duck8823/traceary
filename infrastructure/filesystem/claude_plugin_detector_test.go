@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestDetectClaudeTracearyPluginIn_NoSettingsFile(t *testing.T) {
@@ -195,6 +197,34 @@ func TestDetectClaudePluginCacheStatus_PicksHighestCachedVersion(t *testing.T) {
 	}
 	if !got.Stale() {
 		t.Errorf("Stale() = false, want true (0.7.0 < 0.7.2)")
+	}
+	wantVersions := []string{"0.7.0", "0.6.1", "0.5.1"}
+	if diff := cmp.Diff(wantVersions, got.CachedVersions); diff != "" {
+		t.Errorf("CachedVersions mismatch (-want +got):\n%s", diff)
+	}
+	if !got.HasMultipleCachedVersions() {
+		t.Errorf("HasMultipleCachedVersions() = false, want true (3 versions coexisting)")
+	}
+}
+
+// TestDetectClaudePluginCacheStatus_SingleCachedVersionIsNotMultiple
+// regression test for #670: a single cached version must NOT trigger
+// the multi-version warning path. Without this guard the doctor would
+// warn every operator even on a clean install.
+func TestDetectClaudePluginCacheStatus_SingleCachedVersionIsNotMultiple(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	writePluginCache(t, home, "traceary-plugins", "traceary", "0.8.0")
+	writePluginMarketplaceManifest(t, home, "traceary-plugins", "0.8.0")
+
+	got := DetectClaudePluginCacheStatus(home, "traceary@traceary-plugins")
+
+	if got.HasMultipleCachedVersions() {
+		t.Errorf("HasMultipleCachedVersions() = true, want false for single cached version")
+	}
+	if diff := cmp.Diff([]string{"0.8.0"}, got.CachedVersions); diff != "" {
+		t.Errorf("CachedVersions mismatch (-want +got):\n%s", diff)
 	}
 }
 
