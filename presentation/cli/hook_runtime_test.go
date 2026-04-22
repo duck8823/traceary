@@ -872,7 +872,10 @@ func TestRootCLI_HookTranscriptCommand_Codex(t *testing.T) {
 	).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
-	payload := `{"last_assistant_message":"Codex reply body. Org leak: my_custom_secret=s3cr3tValue42 follows.","session_id":"codex-transcript-session"}`
+	// Exercise both the extra pattern (operator secret shape) and a
+	// builtin redactor (Authorization: Bearer header) on the same
+	// payload so the Codex path cannot regress either branch silently.
+	payload := `{"last_assistant_message":"Codex reply body. Authorization: Bearer abc.DEF-123 and my_custom_secret=s3cr3tValue42 follows.","session_id":"codex-transcript-session"}`
 	rootCmd.SetIn(strings.NewReader(payload))
 	rootCmd.SetArgs([]string{"hook", "transcript", "codex"})
 
@@ -891,6 +894,9 @@ func TestRootCLI_HookTranscriptCommand_Codex(t *testing.T) {
 	}
 	if strings.Contains(eventStub.logCall.message, "s3cr3tValue42") {
 		t.Errorf("transcript log message leaked secret via extra pattern: %q", eventStub.logCall.message)
+	}
+	if strings.Contains(eventStub.logCall.message, "abc.DEF-123") {
+		t.Errorf("transcript log message leaked Bearer token (builtin redactor regression): %q", eventStub.logCall.message)
 	}
 	if !strings.Contains(eventStub.logCall.message, "[REDACTED]") {
 		t.Errorf("transcript log message missing [REDACTED] placeholder: %q", eventStub.logCall.message)
@@ -969,7 +975,10 @@ func TestRootCLI_HookTranscriptCommand_Gemini(t *testing.T) {
 	).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
-	payload := `{"prompt_response":"Gemini summary. Org leak: my_custom_secret=s3cr3tValue42 trailing.","session_id":"gemini-transcript-session"}`
+	// Exercise both the extra pattern (operator secret shape) and a
+	// builtin redactor (Authorization: Bearer header) on the same
+	// payload so the Gemini path cannot regress either branch silently.
+	payload := `{"prompt_response":"Gemini summary. Authorization: Bearer abc.DEF-123 and my_custom_secret=s3cr3tValue42 trailing.","session_id":"gemini-transcript-session"}`
 	rootCmd.SetIn(strings.NewReader(payload))
 	rootCmd.SetArgs([]string{"hook", "transcript", "gemini"})
 
@@ -988,6 +997,9 @@ func TestRootCLI_HookTranscriptCommand_Gemini(t *testing.T) {
 	}
 	if strings.Contains(eventStub.logCall.message, "s3cr3tValue42") {
 		t.Errorf("transcript log message leaked secret via extra pattern: %q", eventStub.logCall.message)
+	}
+	if strings.Contains(eventStub.logCall.message, "abc.DEF-123") {
+		t.Errorf("transcript log message leaked Bearer token (builtin redactor regression): %q", eventStub.logCall.message)
 	}
 	if !strings.Contains(eventStub.logCall.message, "[REDACTED]") {
 		t.Errorf("transcript log message missing [REDACTED] placeholder: %q", eventStub.logCall.message)

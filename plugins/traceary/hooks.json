@@ -25,11 +25,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "'traceary' 'hook' 'session' 'codex' 'stop'"
+            "command": "'traceary' 'hook' 'transcript' 'codex'"
           },
           {
             "type": "command",
-            "command": "'traceary' 'hook' 'transcript' 'codex'"
+            "command": "'traceary' 'hook' 'session' 'codex' 'stop'"
           }
         ]
       }

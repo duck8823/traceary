@@ -51,14 +51,20 @@ func (h *CodexHooksHandler) Build(tracearyBin string) model.Hooks {
 		},
 		// Codex delivers `last_assistant_message` on Stop, so the
 		// transcript hook runs alongside the session-stop hook in the
-		// same event entry. Running both in one invocation keeps the
-		// ordering deterministic (session-stop first, then transcript)
-		// so the transcript event records against the session that was
-		// just marked ended.
+		// same event entry. Ordering is deliberate: transcript runs
+		// FIRST, then session-stop. The session-stop hook clears the
+		// cached session / workspace state files as part of its
+		// teardown, so running it before transcript would cause
+		// `resolveHookSessionID` to find an empty state when the Codex
+		// payload happens to omit `session_id` (a future payload drift
+		// or a locally-patched Codex build). Running transcript first
+		// also records the transcript event before the session is
+		// marked ended, which is chronologically accurate — the agent
+		// was still active when it typed the final assistant message.
 		"Stop": {
 			model.HookEntryOf(types.None[string](), []model.HookCommand{
-				model.HookCommandOf("traceary-session-stop", "command", sessionStopCommand, types.None[int](), "", managedKeyOf("traceary-session.sh", "codex", "stop")),
 				model.HookCommandOf("traceary-transcript", "command", transcriptCommand, types.None[int](), "", managedKeyOf("traceary-transcript.sh", "codex")),
+				model.HookCommandOf("traceary-session-stop", "command", sessionStopCommand, types.None[int](), "", managedKeyOf("traceary-session.sh", "codex", "stop")),
 			}),
 		},
 		"PostToolUse": {

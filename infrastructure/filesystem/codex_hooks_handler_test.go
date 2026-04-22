@@ -63,7 +63,7 @@ func TestCodexHooksHandler_Build(t *testing.T) {
 		}
 	})
 
-	t.Run("Stop fires session-stop and transcript in one entry", func(t *testing.T) {
+	t.Run("Stop fires transcript then session-stop in one entry", func(t *testing.T) {
 		t.Parallel()
 
 		entries := hooks.Entries("Stop")
@@ -78,27 +78,30 @@ func TestCodexHooksHandler_Build(t *testing.T) {
 		if diff := cmp.Diff(2, len(commands)); diff != "" {
 			t.Fatalf("len(Stop commands) mismatch (-want +got):\n%s", diff)
 		}
-		// session-stop must run before transcript: the session
-		// end event has to be recorded against the active session
-		// before the transcript hook logs the final assistant
-		// message, otherwise the transcript event would attach to
-		// a session that is still marked active.
-		if diff := cmp.Diff("traceary-session.sh:codex:stop", commands[0].ManagedKey()); diff != "" {
+		// Transcript MUST run before session-stop: session-stop
+		// clears the cached session / workspace state files as part
+		// of its teardown. If the Codex payload ever omits
+		// `session_id` (payload drift, locally patched build),
+		// running session-stop first would leave transcript with an
+		// empty state-file fallback. The reverse order also records
+		// the transcript event before the session is marked ended,
+		// which is chronologically accurate.
+		if diff := cmp.Diff("traceary-transcript.sh:codex", commands[0].ManagedKey()); diff != "" {
 			t.Fatalf("Stop[0] managed key mismatch (-want +got):\n%s", diff)
 		}
-		if diff := cmp.Diff("traceary-session-stop", commands[0].Name()); diff != "" {
+		if diff := cmp.Diff("traceary-transcript", commands[0].Name()); diff != "" {
 			t.Fatalf("Stop[0] name mismatch (-want +got):\n%s", diff)
 		}
-		if diff := cmp.Diff(`'traceary' 'hook' 'session' 'codex' 'stop'`, commands[0].Command()); diff != "" {
+		if diff := cmp.Diff(`'traceary' 'hook' 'transcript' 'codex'`, commands[0].Command()); diff != "" {
 			t.Fatalf("Stop[0] command mismatch (-want +got):\n%s", diff)
 		}
-		if diff := cmp.Diff("traceary-transcript.sh:codex", commands[1].ManagedKey()); diff != "" {
+		if diff := cmp.Diff("traceary-session.sh:codex:stop", commands[1].ManagedKey()); diff != "" {
 			t.Fatalf("Stop[1] managed key mismatch (-want +got):\n%s", diff)
 		}
-		if diff := cmp.Diff("traceary-transcript", commands[1].Name()); diff != "" {
+		if diff := cmp.Diff("traceary-session-stop", commands[1].Name()); diff != "" {
 			t.Fatalf("Stop[1] name mismatch (-want +got):\n%s", diff)
 		}
-		if diff := cmp.Diff(`'traceary' 'hook' 'transcript' 'codex'`, commands[1].Command()); diff != "" {
+		if diff := cmp.Diff(`'traceary' 'hook' 'session' 'codex' 'stop'`, commands[1].Command()); diff != "" {
 			t.Fatalf("Stop[1] command mismatch (-want +got):\n%s", diff)
 		}
 	})
