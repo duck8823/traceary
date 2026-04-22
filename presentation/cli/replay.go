@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -45,7 +44,6 @@ var replayTemplateSource = func() string { return replayTemplateHTML }
 // Out of scope (tracked as replay follow-ups):
 //
 //   - Full subagent-lineage tree (the minimal output flattens sessions)
-//   - Failure hotspot analytics
 //   - Interactive filters beyond the browser's Find-in-page
 func (c *RootCLI) newReplayCommand() *cobra.Command {
 	input := replayCommandInput{}
@@ -261,7 +259,7 @@ func replayDataFromBundle(bundle apptypes.ReplayBundle, dbPathFlag string) repla
 		for _, ws := range block.WorkspaceBreakdown() {
 			activity := strings.TrimSpace(ws.Summary())
 			if activity == "" {
-				activity = formatTimelineKindCounts(ws.Kinds())
+				activity = formatKindCounts(computeKindCounts(ws.Kinds()))
 			}
 			workspaces = append(workspaces, replayTimelineWorkspace{
 				Workspace:  ws.Workspace(),
@@ -290,28 +288,6 @@ func replayDataFromBundle(bundle apptypes.ReplayBundle, dbPathFlag string) repla
 	return data
 }
 
-// formatTimelineKindCounts renders the kind tally the timeline block
-// falls back to when no summary source (compact_summary / prompt /
-// transcript) is available. Sorted alphabetically for stable output.
-func formatTimelineKindCounts(kinds []string) string {
-	if len(kinds) == 0 {
-		return ""
-	}
-	counts := make(map[string]int, len(kinds))
-	for _, kind := range kinds {
-		counts[kind]++
-	}
-	names := make([]string, 0, len(counts))
-	for name := range counts {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	parts := make([]string, 0, len(names))
-	for _, name := range names {
-		parts = append(parts, fmt.Sprintf("%s: %d", name, counts[name]))
-	}
-	return strings.Join(parts, ", ")
-}
 
 func totalEventCount(sessions []replaySession) int {
 	n := 0
