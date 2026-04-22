@@ -88,6 +88,14 @@ The hook exits successfully without recording anything when:
 - the payload does not contain a `prompt` field
 - a session ID cannot be resolved yet
 
+### SubagentStop (Claude Code 2026-01+)
+
+`traceary hook subagent-stop claude` fires on Claude Code's `SubagentStop` hook — once per Task-tool subagent completion. The event is persisted as a `session_ended` entry prefixed with `[phase:subagent]` so the reviewer can recover the explicit subagent lifecycle boundary instead of inferring it from `agent_type` on `PostToolUse`. The marker keeps the main session's `session_ended` stream readable on its own.
+
+### PreCompact (Claude Code 2026-01+)
+
+`traceary hook compact claude pre-compact` fires on Claude Code's `PreCompact` hook — before Claude actually compacts the conversation. It persists a `compact_summary` event prefixed with `[phase:pre-compact]` so handoff / replay surfaces can tell the before-compact snapshot apart from the post-compact digest. The `loadCompactSummary` path skips pre-compact rows, so `session_handoff` / `memory_pack` still return the latest post-compact summary even when a cancelled compact cycle leaves a pre-compact snapshot behind as the newest `compact_summary` row.
+
 ## Installation flow
 
 ### Generate config from CLI
