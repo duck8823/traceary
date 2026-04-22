@@ -165,6 +165,8 @@ type supersedeMemoryInput struct {
 	Source        string           `json:"source,omitempty" jsonschema:"replacement memory source (default: manual)"`
 	EvidenceRefs  []memoryRefInput `json:"evidence_refs,omitempty" jsonschema:"replacement evidence refs"`
 	ArtifactRefs  []memoryRefInput `json:"artifact_refs,omitempty" jsonschema:"replacement artifact refs"`
+	ValidFrom     string           `json:"valid_from,omitempty" jsonschema:"replacement validFrom (YYYY-MM-DD or RFC3339); defaults to now when omitted"`
+	ValidTo       string           `json:"valid_to,omitempty" jsonschema:"replacement validTo (YYYY-MM-DD or RFC3339); defaults to open-ended when omitted"`
 }
 
 // expireMemoryInput is the MCP input for the expire_memory tool.

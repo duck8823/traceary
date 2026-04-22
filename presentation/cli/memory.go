@@ -194,6 +194,8 @@ func (c *RootCLI) newMemorySupersedeCommand() *cobra.Command {
 	cmd.Flags().StringVar(&input.source, "source", "", Localize("memory source (defaults to manual)", "memory source (既定値は manual)"))
 	cmd.Flags().StringArrayVar(&input.evidenceRefs, "evidence", nil, Localize("evidence ref as kind:value (repeatable)", "kind:value 形式の evidence ref (複数指定可)"))
 	cmd.Flags().StringArrayVar(&input.artifactRefs, "artifact", nil, Localize("artifact ref as kind:value (repeatable)", "kind:value 形式の artifact ref (複数指定可)"))
+	cmd.Flags().StringVar(&input.validFrom, "from", "", Localize("replacement validFrom (YYYY-MM-DD or RFC3339). Defaults to now when omitted.", "置換後の validFrom (YYYY-MM-DD または RFC3339)。省略時は現在時刻。"))
+	cmd.Flags().StringVar(&input.validTo, "to", "", Localize("replacement validTo (YYYY-MM-DD or RFC3339). Defaults to open-ended when omitted.", "置換後の validTo (YYYY-MM-DD または RFC3339)。省略時は open-ended。"))
 	cmd.Flags().BoolVar(&input.idOnly, "id-only", false, Localize("print only the resulting memory ID", "結果の memory ID だけを出力する"))
 	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	cmd.MarkFlagsMutuallyExclusive("id-only", "json")
@@ -533,7 +535,15 @@ func (c *RootCLI) runMemorySupersede(ctx context.Context, output io.Writer, inpu
 	if err != nil {
 		return err
 	}
-	details, err := c.memory.Supersede(ctx, memoryID, memoryType, scope, input.fact, confidence, source, evidenceRefs, artifactRefs)
+	validFrom, err := parseOptionalValidityTime(input.validFrom)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to parse --from", "--from の解釈に失敗しました"), err)
+	}
+	validTo, err := parseOptionalValidityTime(input.validTo)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to parse --to", "--to の解釈に失敗しました"), err)
+	}
+	details, err := c.memory.Supersede(ctx, memoryID, memoryType, scope, input.fact, confidence, source, evidenceRefs, artifactRefs, validFrom, validTo)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to supersede durable memory", "durable memory の置換に失敗しました"), err)
 	}
