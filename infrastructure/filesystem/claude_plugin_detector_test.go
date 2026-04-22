@@ -207,6 +207,31 @@ func TestDetectClaudePluginCacheStatus_PicksHighestCachedVersion(t *testing.T) {
 	}
 }
 
+// TestDetectClaudePluginCacheStatus_StaleAndMultipleCoexist asserts
+// that when the cache is BOTH stale AND carries multiple version
+// subdirs, the detector reports both conditions true. The doctor
+// layer relies on this so it can compose a single WARN that carries
+// both remedies (#670 follow-up). Before the combined-message fix,
+// the doctor returned on Stale() and silently dropped the
+// fresh-session restart guidance.
+func TestDetectClaudePluginCacheStatus_StaleAndMultipleCoexist(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	writePluginCache(t, home, "traceary-plugins", "traceary", "0.6.0")
+	writePluginCache(t, home, "traceary-plugins", "traceary", "0.7.0")
+	writePluginMarketplaceManifest(t, home, "traceary-plugins", "0.8.0")
+
+	got := DetectClaudePluginCacheStatus(home, "traceary@traceary-plugins")
+
+	if !got.Stale() {
+		t.Errorf("Stale() = false, want true (0.7.0 < 0.8.0)")
+	}
+	if !got.HasMultipleCachedVersions() {
+		t.Errorf("HasMultipleCachedVersions() = false, want true (0.6.0 + 0.7.0 coexist)")
+	}
+}
+
 // TestDetectClaudePluginCacheStatus_SingleCachedVersionIsNotMultiple
 // regression test for #670: a single cached version must NOT trigger
 // the multi-version warning path. Without this guard the doctor would
