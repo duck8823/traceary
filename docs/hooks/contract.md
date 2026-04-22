@@ -27,7 +27,7 @@ This document defines the hook capability tiers across AI agent clients.
 |---|---|---|
 | SessionStart | (all) | Record session start |
 | UserPromptSubmit | (all) | Record user prompt text |
-| Stop | (all) | Record session end |
+| Stop | (all) | Record session end and the final assistant message (from `last_assistant_message`) as a `transcript` event (built-in secret redaction + operator-configured `redact.extra_patterns` applied) |
 | PostToolUse | (all) | Record tool audit |
 
 **Limitations**: No SessionEnd (uses Stop instead), no compact hooks, no failure-specific event.
@@ -38,9 +38,10 @@ This document defines the hook capability tiers across AI agent clients.
 |---|---|---|
 | SessionStart | `*` | Record session start |
 | SessionEnd | `*` | Record session end |
+| AfterAgent | `*` | Record the agent response (from `prompt_response`) as a `transcript` event (built-in secret redaction + operator-configured `redact.extra_patterns` applied) |
 | AfterTool | `*` | Record tool audit |
 
-**Limitations**: No compact hooks, no failure-specific event, no PostCompact/SessionStart(compact).
+**Limitations**: No compact hooks, no failure-specific event, no PostCompact/SessionStart(compact). Gemini has no Stop event, so transcript capture is attached to `AfterAgent` instead.
 
 ## Shared Behavior
 
@@ -70,7 +71,9 @@ runtime under the `<client>-host-capabilities` check.
 |---|---|---|---|
 | Claude Code | `SubagentStop` (available since 2026-01) | wired | persisted as `session_ended` with `[phase:subagent]` body prefix via `traceary hook subagent-stop claude` |
 | Claude Code | `PreCompact` (available since 2026-01) | wired | persisted as `compact_summary` with `[phase:pre-compact]` body prefix via `traceary hook compact claude pre-compact`; `loadCompactSummary` filters the marker so handoff / memory_pack keep returning the latest post-compact digest |
+| Codex CLI | `Stop.last_assistant_message` | wired | persisted as `transcript` event via `traceary hook transcript codex` alongside the existing session-stop hook on the Codex `Stop` event |
 | Codex CLI | Memory feature flag (`~/.codex/config.toml`) | opt-in per install | import path `traceary memory import codex` works regardless of the flag — the flag only changes Codex's own capture behaviour |
+| Gemini CLI | `AfterAgent.prompt_response` | wired | persisted as `transcript` event via `traceary hook transcript gemini` on the Gemini `AfterAgent` event (Gemini has no Stop event) |
 | Gemini CLI 0.38.x | Memory manager agent / auto-memory | preview | Traceary's Tier 3 surface does not yet subscribe to the preview signals |
 
 Operators who want to enable any of the preview features above should

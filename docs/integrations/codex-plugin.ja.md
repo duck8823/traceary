@@ -3,7 +3,7 @@
 [English](./codex-plugin.md)
 
 Traceary の Codex 向け plugin は `plugins/traceary/` にあり、Codex CLI 公式の `/plugins` flow に乗せて使えます。
-MCP server / slash command / session-history skill / session・prompt・audit の hook は、公式 flow で plugin を install した時点で自動配線されます。
+MCP server / slash command / session-history skill / session・prompt・transcript・audit の hook は、公式 flow で plugin を install した時点で自動配線されます。
 
 ## Codex 公式 /plugins flow で入れる (primary)
 
@@ -40,7 +40,7 @@ traceary doctor --client codex --json
 ## 公式 flow が自動で組み込むもの
 
 - `traceary mcp-server` を呼ぶ `traceary` MCP server
-- `SessionStart`, `UserPromptSubmit`, `Stop`, `PostToolUse` hook（`plugins/traceary/hooks.json` で宣言、manifest から参照）
+- `SessionStart`, `UserPromptSubmit`, `Stop`（session 終了 + transcript）, `PostToolUse` hook（`plugins/traceary/hooks.json` で宣言、manifest から参照）
 - slash command: `/traceary:help`, `/traceary:doctor`
 - 文脈に効く skill: `traceary-session-history` / `traceary-memory-capture`（後者は decision / constraint / lesson / preference / artifact を発見したときにエージェントが `propose_memory` を能動的に呼ぶよう誘導します）
 

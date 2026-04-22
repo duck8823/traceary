@@ -257,8 +257,8 @@ func inspectHostCapabilityGaps(client, configPath string) *doctorCheck {
 			Name:   "gemini-host-capabilities",
 			Status: doctorStatusPass,
 			Message: localizef(
-				"gemini host: memory manager agent and auto-memory are preview-flag features on Gemini CLI 0.38.x; Traceary's Tier 3 hook coverage (SessionStart / SessionEnd / AfterTool) does not yet surface those preview signals (hooks config: %s)",
-				"gemini ホスト: memory manager agent / auto-memory は Gemini CLI 0.38.x のプレビュー機能です。Traceary の Tier 3 hook (SessionStart / SessionEnd / AfterTool) は現時点でそれらの preview 信号を surface しません (hooks config: %s)",
+				"gemini host: memory manager agent and auto-memory are preview-flag features on Gemini CLI 0.38.x; Traceary's Tier 3 hook coverage (SessionStart / SessionEnd / AfterAgent / AfterTool) does not yet surface those preview signals (hooks config: %s)",
+				"gemini ホスト: memory manager agent / auto-memory は Gemini CLI 0.38.x のプレビュー機能です。Traceary の Tier 3 hook (SessionStart / SessionEnd / AfterAgent / AfterTool) は現時点でそれらの preview 信号を surface しません (hooks config: %s)",
 				configPath,
 			),
 		}

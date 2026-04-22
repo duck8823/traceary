@@ -14,7 +14,7 @@ func TestGeminiHooksHandler_Build(t *testing.T) {
 	handler := filesystem.NewGeminiHooksHandler()
 	hooks := handler.Build("traceary")
 
-	wantEventOrder := []string{"SessionStart", "SessionEnd", "AfterTool"}
+	wantEventOrder := []string{"SessionStart", "SessionEnd", "AfterAgent", "AfterTool"}
 	if diff := cmp.Diff(wantEventOrder, hooks.EventOrder()); diff != "" {
 		t.Fatalf("EventOrder() mismatch (-want +got):\n%s", diff)
 	}
@@ -45,6 +45,39 @@ func TestGeminiHooksHandler_Build(t *testing.T) {
 		}
 		if diff := cmp.Diff(`'traceary' 'hook' 'session' 'gemini' 'start'`, command.Command()); diff != "" {
 			t.Fatalf("SessionStart command mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("AfterAgent records agent response as transcript event", func(t *testing.T) {
+		t.Parallel()
+
+		entries := hooks.Entries("AfterAgent")
+		if diff := cmp.Diff(1, len(entries)); diff != "" {
+			t.Fatalf("len(AfterAgent entries) mismatch (-want +got):\n%s", diff)
+		}
+		matcher, ok := entries[0].Matcher().Value()
+		if diff := cmp.Diff(true, ok); diff != "" {
+			t.Fatalf("AfterAgent matcher presence mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("*", matcher); diff != "" {
+			t.Fatalf("AfterAgent matcher mismatch (-want +got):\n%s", diff)
+		}
+		command := entries[0].Commands()[0]
+		if diff := cmp.Diff("traceary-transcript", command.Name()); diff != "" {
+			t.Fatalf("AfterAgent command name mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("traceary-transcript.sh:gemini", command.ManagedKey()); diff != "" {
+			t.Fatalf("AfterAgent managed key mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(`'traceary' 'hook' 'transcript' 'gemini'`, command.Command()); diff != "" {
+			t.Fatalf("AfterAgent command mismatch (-want +got):\n%s", diff)
+		}
+		timeout, hasTimeout := command.Timeout().Value()
+		if diff := cmp.Diff(true, hasTimeout); diff != "" {
+			t.Fatalf("AfterAgent timeout presence mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(5000, timeout); diff != "" {
+			t.Fatalf("AfterAgent timeout mismatch (-want +got):\n%s", diff)
 		}
 	})
 

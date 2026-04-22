@@ -8,6 +8,7 @@ Gemini 向け package は `integrations/gemini-extension/` にあります。Gem
 
 - `traceary mcp-server` を使う `traceary` MCP server
 - `SessionStart` / `SessionEnd` hook
+- `AfterAgent` transcript hook（agent の応答を `transcript` event として記録）
 - `run_shell_command` 向け `AfterTool` audit hook
 - slash command の `/traceary-help` と `/traceary-doctor`
 - 文脈で効く `traceary-session-history` / `traceary-memory-capture` skill（後者は decision / constraint / lesson / preference / artifact を発見したときにエージェントが `propose_memory` を能動的に呼ぶよう誘導します）
