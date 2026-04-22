@@ -74,6 +74,30 @@ ALTER TABLE memories ADD COLUMN valid_to TEXT;
 UPDATE memories SET valid_from = created_at WHERE valid_from IS NULL;
 CREATE INDEX idx_memories_valid_window ON memories(valid_to, valid_from);`),
 		},
+		"000010_normalize_memory_validity_precision.sql": {
+			Data: []byte(`UPDATE memories
+SET valid_from =
+  CASE
+    WHEN instr(valid_from, '.') = 0
+      THEN substr(valid_from, 1, length(valid_from) - 1) || '.000000000Z'
+    ELSE
+      substr(valid_from, 1, instr(valid_from, '.')) ||
+      substr(substr(valid_from, instr(valid_from, '.') + 1, length(valid_from) - instr(valid_from, '.') - 1) || '000000000', 1, 9) ||
+      'Z'
+  END
+WHERE valid_from IS NOT NULL;
+UPDATE memories
+SET valid_to =
+  CASE
+    WHEN instr(valid_to, '.') = 0
+      THEN substr(valid_to, 1, length(valid_to) - 1) || '.000000000Z'
+    ELSE
+      substr(valid_to, 1, instr(valid_to, '.')) ||
+      substr(substr(valid_to, instr(valid_to, '.') + 1, length(valid_to) - instr(valid_to, '.') - 1) || '000000000', 1, 9) ||
+      'Z'
+  END
+WHERE valid_to IS NOT NULL;`),
+		},
 	}
 }
 
@@ -622,5 +646,88 @@ func TestMemoryDatasource_Search(t *testing.T) {
 	}
 	if diff := cmp.Diff("mem-path", pathResults[0].MemoryID().String()); diff != "" {
 		t.Fatalf("path result mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestMemoryDatasource_ValiditySubSecondBoundaryRespectsPrecision
+// regression test for #664: the validity filter must honour
+// sub-second resolution rather than truncating to whole seconds via
+// SQLite's datetime(). Two memories with valid_to at
+// 00:00:00.100Z and 00:00:00.900Z are distinguishable when `as_of`
+// falls at 00:00:00.500Z — before the fix, `datetime()` collapsed
+// everything inside the same wall second to a single value so both
+// rows either returned or didn't depending on the wall-clock
+// truncation target.
+func TestMemoryDatasource_ValiditySubSecondBoundaryRespectsPrecision(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "validity.db")
+	sut, store := newMemoryDatasource(t, dbPath, memoryDatasourceTestMigrations())
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	sameSecond := time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)
+	memoryEarlyExpiry := model.MemoryOf(
+		mustMemoryID(t, "mem-validity-early"),
+		types.MemoryTypeDecision,
+		mustWorkspaceScope(t, "github.com/example/validity"),
+		"expires at .100 of the second",
+		types.MemoryStatusAccepted,
+		types.ConfidenceVerified,
+		types.MemorySourceManual,
+		[]types.EvidenceRef{mustEvidenceRef(t, types.EvidenceRefKindURL, "https://example/early")},
+		nil,
+		types.None[types.MemoryID](),
+		types.None[time.Time](),
+		sameSecond,
+		types.Some(sameSecond.Add(100*time.Millisecond)),
+		sameSecond,
+		sameSecond,
+	)
+	memoryLateExpiry := model.MemoryOf(
+		mustMemoryID(t, "mem-validity-late"),
+		types.MemoryTypeDecision,
+		mustWorkspaceScope(t, "github.com/example/validity"),
+		"expires at .900 of the second",
+		types.MemoryStatusAccepted,
+		types.ConfidenceVerified,
+		types.MemorySourceManual,
+		[]types.EvidenceRef{mustEvidenceRef(t, types.EvidenceRefKindURL, "https://example/late")},
+		nil,
+		types.None[types.MemoryID](),
+		types.None[time.Time](),
+		sameSecond,
+		types.Some(sameSecond.Add(900*time.Millisecond)),
+		sameSecond,
+		sameSecond,
+	)
+	for _, memory := range []*model.Memory{memoryEarlyExpiry, memoryLateExpiry} {
+		if err := sut.Save(ctx, memory); err != nil {
+			t.Fatalf("Save(%s) error = %v", memory.MemoryID(), err)
+		}
+	}
+
+	// as_of at .500 should include only the late-expiry memory
+	// (its window still covers that instant) and exclude the
+	// early one whose window already closed at .100.
+	asOfMidSecond := sameSecond.Add(500 * time.Millisecond)
+	criteria := apptypes.NewMemoryListCriteriaBuilder(10).
+		AsOf(asOfMidSecond).
+		Build()
+	summaries, err := sut.List(ctx, criteria)
+	if err != nil {
+		t.Fatalf("List(as_of=%s) error = %v", asOfMidSecond, err)
+	}
+	if got := len(summaries); got != 1 {
+		var ids []string
+		for _, s := range summaries {
+			ids = append(ids, s.MemoryID().String())
+		}
+		t.Fatalf("List(as_of=.500) returned %d memories (%v), want 1 (mem-validity-late only)", got, ids)
+	}
+	if got, want := summaries[0].MemoryID().String(), "mem-validity-late"; got != want {
+		t.Fatalf("List(as_of=.500)[0] = %q, want %q", got, want)
 	}
 }

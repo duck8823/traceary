@@ -157,6 +157,26 @@ func formatTimestamp(timestamp time.Time) string {
 	return timestamp.UTC().Format(time.RFC3339Nano)
 }
 
+// formatMemoryValidityTimestamp renders a time.Time as a fixed-width
+// RFC3339 string with nine fractional-second digits, e.g.
+// "2026-04-10T00:00:00.123000000Z". Unlike RFC3339Nano (which trims
+// trailing zeros and therefore emits variable-width output), this
+// representation is lexicographically ordered in the same direction
+// as real time, so SQLite can compare memories.valid_from /
+// memories.valid_to with a plain `<` / `>` against a bind parameter
+// without wrapping the column in datetime() — which would both drop
+// sub-second precision AND make the idx_memories_valid_window index
+// unusable (see #664).
+//
+// The format is only used for the memory validity columns so other
+// timestamps (created_at, updated_at, expires_at, event timestamps)
+// keep the existing RFC3339Nano shape; migration 000010 backfills
+// pre-v0.8.1 rows so the validity columns are consistent across
+// historical and new data.
+func formatMemoryValidityTimestamp(timestamp time.Time) string {
+	return timestamp.UTC().Format("2006-01-02T15:04:05.000000000Z07:00")
+}
+
 func boolToInt(b bool) int {
 	if b {
 		return 1
