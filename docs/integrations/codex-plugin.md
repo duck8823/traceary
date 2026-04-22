@@ -3,7 +3,7 @@
 [日本語](./codex-plugin.ja.md)
 
 Traceary ships a Codex plugin under `plugins/traceary/` that plugs into Codex CLI's official `/plugins` flow.
-Codex picks up the MCP server, the slash commands, the session-history skill, and the session / prompt / audit hooks automatically as soon as the plugin is installed through the official flow.
+Codex picks up the MCP server, the slash commands, the session-history skill, and the session / prompt / transcript / audit hooks automatically as soon as the plugin is installed through the official flow.
 
 ## Install via Codex's official /plugins flow (primary)
 
@@ -40,7 +40,7 @@ traceary doctor --client codex --json
 ## What the official flow wires automatically
 
 - `traceary` MCP server via `traceary mcp-server`
-- `SessionStart`, `UserPromptSubmit`, `Stop`, and `PostToolUse` hooks (declared in `plugins/traceary/hooks.json` and referenced from the plugin manifest)
+- `SessionStart`, `UserPromptSubmit`, `Stop` (session end + transcript), and `PostToolUse` hooks (declared in `plugins/traceary/hooks.json` and referenced from the plugin manifest)
 - slash commands: `/traceary:help` and `/traceary:doctor`
 - contextual skills: `traceary-session-history` and `traceary-memory-capture` (the latter prompts the agent to proactively call `propose_memory` when the conversation surfaces a durable decision / constraint / lesson / preference / artifact)
 
