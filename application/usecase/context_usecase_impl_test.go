@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -145,7 +146,7 @@ func TestContextUsecase_Handoff(t *testing.T) {
 		if diff := cmp.Diff(5, eventQuery.listRecentLimitByKind[domtypes.EventKindCommandExecuted]); diff != "" {
 			t.Fatalf("command limit mismatch (-want +got):\n%s", diff)
 		}
-		if diff := cmp.Diff(1, eventQuery.listRecentLimitByKind[domtypes.EventKindCompactSummary]); diff != "" {
+		if diff := cmp.Diff(10, eventQuery.listRecentLimitByKind[domtypes.EventKindCompactSummary]); diff != "" {
 			t.Fatalf("compact limit mismatch (-want +got):\n%s", diff)
 		}
 		if diff := cmp.Diff(domtypes.Workspace(""), eventQuery.listRecentWorkspaceByKind[domtypes.EventKindCommandExecuted]); diff != "" {
@@ -361,6 +362,71 @@ func TestContextUsecase_Handoff(t *testing.T) {
 
 		if _, ok := memoryQuery.listCriteria.AsOf().Value(); ok {
 			t.Errorf("memory list AsOf = Some(...), want None when criteria omits as-of")
+		}
+	})
+
+	t.Run("skips pre-compact snapshots in favor of post-compact summary", func(t *testing.T) {
+		t.Parallel()
+
+		session := apptypes.SessionSummaryOf(
+			domtypes.SessionID("session-1"),
+			domtypes.Workspace("duck8823/traceary"),
+			time.Now(),
+			domtypes.None[time.Time](),
+			"active",
+			5, 2, nil, "", "", domtypes.SessionID(""),
+		)
+		// ListRecent returns events in descending time order. A
+		// cancelled compact cycle can leave a pre-compact snapshot as
+		// the newest compact_summary row; the builder must walk past
+		// it to return the post-compact digest.
+		preCompact, err := model.NewEvent(
+			domtypes.EventID("event-pre"),
+			domtypes.EventKindCompactSummary,
+			domtypes.Client("hook"),
+			domtypes.Agent("claude"),
+			domtypes.SessionID("session-1"),
+			domtypes.Workspace("duck8823/traceary"),
+			domtypes.EventBodyMarkerCompactPreSnapshot+" cancelled snapshot",
+		)
+		if err != nil {
+			t.Fatalf("NewEvent() pre-compact error = %v", err)
+		}
+		postCompact, err := model.NewEvent(
+			domtypes.EventID("event-post"),
+			domtypes.EventKindCompactSummary,
+			domtypes.Client("hook"),
+			domtypes.Agent("claude"),
+			domtypes.SessionID("session-1"),
+			domtypes.Workspace("duck8823/traceary"),
+			"<summary>\n8. Current Work:\n   Wired SubagentStop + PreCompact\n</summary>",
+		)
+		if err != nil {
+			t.Fatalf("NewEvent() post-compact error = %v", err)
+		}
+		sut := usecase.NewContextUsecase(
+			&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}},
+			&eventQueryServiceStub{
+				listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
+					domtypes.EventKindCompactSummary: {preCompact, postCompact},
+				},
+			},
+			nil,
+		)
+		got, err := sut.Handoff(context.Background(), apptypes.NewContextPackCriteriaBuilder().Build())
+		if err != nil {
+			t.Fatalf("Handoff() error = %v", err)
+		}
+		pack, ok := got.Value()
+		if !ok {
+			t.Fatalf("Handoff() returned empty context pack")
+		}
+		compact := pack.WorkingState().CompactSummary()
+		if strings.Contains(compact, "cancelled snapshot") {
+			t.Errorf("context pack picked up pre-compact snapshot; compact summary = %q", compact)
+		}
+		if !strings.Contains(compact, "Wired SubagentStop") {
+			t.Errorf("context pack missing post-compact summary; compact = %q", compact)
 		}
 	})
 }

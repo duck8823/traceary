@@ -89,9 +89,11 @@ func (h *ClaudeHooksHandler) BuildWithMatcher(tracearyBin string, preset ClaudeM
 	sessionEndCommand := newHookRuntimeCommand(tracearyBin, "hook", "session", "claude", "end")
 	auditCommand := newHookRuntimeCommand(tracearyBin, "hook", "audit", "claude")
 	compactCommand := newHookRuntimeCommand(tracearyBin, "hook", "compact", "claude", "post-compact")
+	compactPreSnapshotCommand := newHookRuntimeCommand(tracearyBin, "hook", "compact", "claude", "pre-compact")
 	compactResumeCommand := newHookRuntimeCommand(tracearyBin, "hook", "compact", "claude", "session-start-compact")
 	promptCommand := newHookRuntimeCommand(tracearyBin, "hook", "prompt", "claude")
 	transcriptCommand := newHookRuntimeCommand(tracearyBin, "hook", "transcript", "claude")
+	subagentStopCommand := newHookRuntimeCommand(tracearyBin, "hook", "subagent-stop", "claude")
 
 	// Build the PostToolUse / PostToolUseFailure entries according to
 	// the selected preset. Bash and mcp__.* always stay — they are
@@ -126,8 +128,10 @@ func (h *ClaudeHooksHandler) BuildWithMatcher(tracearyBin string, preset ClaudeM
 		"SessionStart",
 		"SessionEnd",
 		"Stop",
+		"SubagentStop",
 		"PostToolUse",
 		"PostToolUseFailure",
+		"PreCompact",
 		"PostCompact",
 		"UserPromptSubmit",
 	}
@@ -150,8 +154,18 @@ func (h *ClaudeHooksHandler) BuildWithMatcher(tracearyBin string, preset ClaudeM
 				model.HookCommandOf("traceary-transcript", "command", transcriptCommand, types.None[int](), "", managedKeyOf("traceary-transcript.sh", "claude")),
 			}),
 		},
+		"SubagentStop": {
+			model.HookEntryOf(types.Some("*"), []model.HookCommand{
+				model.HookCommandOf("traceary-subagent-stop", "command", subagentStopCommand, types.None[int](), "", managedKeyOf("traceary-subagent-stop.sh", "claude")),
+			}),
+		},
 		"PostToolUse":        postToolUseEntries,
 		"PostToolUseFailure": postToolUseFailureEntries,
+		"PreCompact": {
+			model.HookEntryOf(types.Some("*"), []model.HookCommand{
+				model.HookCommandOf("traceary-compact-pre-compact", "command", compactPreSnapshotCommand, types.None[int](), "", managedKeyOf("traceary-compact.sh", "claude", "pre-compact")),
+			}),
+		},
 		"PostCompact": {
 			model.HookEntryOf(types.Some("*"), []model.HookCommand{
 				model.HookCommandOf("traceary-compact-post-compact", "command", compactCommand, types.None[int](), "", managedKeyOf("traceary-compact.sh", "claude", "post-compact")),

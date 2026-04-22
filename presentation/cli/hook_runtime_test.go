@@ -409,6 +409,140 @@ func TestRootCLI_HookCompactCommand_SupportsPostCompactAndResume(t *testing.T) {
 	}
 }
 
+func TestRootCLI_HookCompactCommand_RecordsPreCompactSnapshot(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key"), []byte("pre-compact-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	eventStub := &eventUsecaseStub{
+		logEvent: model.EventOf(
+			types.EventID("evt-pre-compact"),
+			types.EventKindCompactSummary,
+			types.Client("hook"),
+			types.Agent("claude"),
+			types.SessionID("pre-compact-session"),
+			types.Workspace("github.com/duck8823/traceary"),
+			"",
+			time.Now(),
+		),
+	}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(eventStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"trigger":"size-threshold"}`))
+	rootCmd.SetArgs([]string{"hook", "compact", "claude", "pre-compact"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(pre-compact) error = %v", err)
+	}
+	if got, want := eventStub.logCall.kind, types.EventKindCompactSummary; got != want {
+		t.Fatalf("pre-compact log kind = %q, want %q", got, want)
+	}
+	if !strings.HasPrefix(eventStub.logCall.message, types.EventBodyMarkerCompactPreSnapshot) {
+		t.Fatalf("pre-compact log message = %q, want prefix %q", eventStub.logCall.message, types.EventBodyMarkerCompactPreSnapshot)
+	}
+	if !strings.Contains(eventStub.logCall.message, "size-threshold") {
+		t.Fatalf("pre-compact log message = %q, want trigger context appended", eventStub.logCall.message)
+	}
+}
+
+func TestRootCLI_HookSubagentStopCommand_RecordsSessionEnded(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key"), []byte("subagent-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	eventStub := &eventUsecaseStub{
+		logEvent: model.EventOf(
+			types.EventID("evt-subagent"),
+			types.EventKindSessionEnded,
+			types.Client("hook"),
+			types.Agent("claude"),
+			types.SessionID("subagent-session"),
+			types.Workspace("github.com/duck8823/traceary"),
+			"",
+			time.Now(),
+		),
+	}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(eventStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"subagent_type":"code-reviewer"}`))
+	rootCmd.SetArgs([]string{"hook", "subagent-stop", "claude"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(subagent-stop) error = %v", err)
+	}
+	if got, want := eventStub.logCall.kind, types.EventKindSessionEnded; got != want {
+		t.Fatalf("subagent-stop log kind = %q, want %q", got, want)
+	}
+	if !strings.HasPrefix(eventStub.logCall.message, types.EventBodyMarkerSubagentStop) {
+		t.Fatalf("subagent-stop log message = %q, want prefix %q", eventStub.logCall.message, types.EventBodyMarkerSubagentStop)
+	}
+	if !strings.Contains(eventStub.logCall.message, "code-reviewer") {
+		t.Fatalf("subagent-stop log message = %q, want subagent_type appended", eventStub.logCall.message)
+	}
+}
+
+func TestRootCLI_HookSubagentStopCommand_NoOpWhenSessionIDMissing(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key-missing")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	eventStub := &eventUsecaseStub{}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(eventStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{}`))
+	rootCmd.SetArgs([]string{"hook", "subagent-stop", "claude"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(subagent-stop) error = %v", err)
+	}
+	if eventStub.logCall.kind != types.EventKind("") {
+		t.Fatalf("subagent-stop should not call Log when session ID is unresolvable; got kind=%q", eventStub.logCall.kind)
+	}
+}
+
 func TestRootCLI_HookPromptCommand_UsesPromptPayload(t *testing.T) {
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
 

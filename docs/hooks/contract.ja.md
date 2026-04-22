@@ -64,8 +64,8 @@ Traceary の managed hook 集合は、リリースをまたいで安定させる
 
 | ホスト | 新機能 | 状態 | Traceary の挙動 |
 |---|---|---|---|
-| Claude Code | `SubagentStop` (2026-01 から利用可能) | 利用可能 | subagent lineage は `PostToolUse` の `agent_type` から復元。専用 hook は wire していない |
-| Claude Code | `PreCompact` (2026-01 から利用可能) | 利用可能 | compact は `PostCompact` 経由で記録。pre-compact 時点の snapshot は wire していない |
+| Claude Code | `SubagentStop` (2026-01 から利用可能) | wire 済み | `traceary hook subagent-stop claude` 経由で `session_ended` + `[phase:subagent]` プレフィックスで記録 |
+| Claude Code | `PreCompact` (2026-01 から利用可能) | wire 済み | `traceary hook compact claude pre-compact` 経由で `compact_summary` + `[phase:pre-compact]` プレフィックスで記録。`loadCompactSummary` が prefix を skip するため handoff / memory_pack は引き続き post-compact summary を返す |
 | Codex CLI | Memory feature flag (`~/.codex/config.toml`) | install 単位で opt-in | `traceary memory import codex` は flag 状態に関わらず動作。flag は Codex 側の capture 挙動にしか影響しない |
 | Gemini CLI 0.38.x | Memory manager agent / auto-memory | プレビュー | Traceary Tier 3 surface はまだこれらの preview 信号を subscribe していない |
 

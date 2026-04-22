@@ -68,8 +68,8 @@ runtime under the `<client>-host-capabilities` check.
 
 | Host | New capability | Status | Traceary behaviour |
 |---|---|---|---|
-| Claude Code | `SubagentStop` (available since 2026-01) | available | subagent lineage still resolved from `agent_type` on `PostToolUse`; no dedicated hook |
-| Claude Code | `PreCompact` (available since 2026-01) | available | compact capture still routes through `PostCompact`; pre-compact snapshotting is not wired |
+| Claude Code | `SubagentStop` (available since 2026-01) | wired | persisted as `session_ended` with `[phase:subagent]` body prefix via `traceary hook subagent-stop claude` |
+| Claude Code | `PreCompact` (available since 2026-01) | wired | persisted as `compact_summary` with `[phase:pre-compact]` body prefix via `traceary hook compact claude pre-compact`; `loadCompactSummary` filters the marker so handoff / memory_pack keep returning the latest post-compact digest |
 | Codex CLI | Memory feature flag (`~/.codex/config.toml`) | opt-in per install | import path `traceary memory import codex` works regardless of the flag — the flag only changes Codex's own capture behaviour |
 | Gemini CLI 0.38.x | Memory manager agent / auto-memory | preview | Traceary's Tier 3 surface does not yet subscribe to the preview signals |
 

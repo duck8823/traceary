@@ -21,8 +21,10 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 		"SessionStart",
 		"SessionEnd",
 		"Stop",
+		"SubagentStop",
 		"PostToolUse",
 		"PostToolUseFailure",
+		"PreCompact",
 		"PostCompact",
 		"UserPromptSubmit",
 	}
