@@ -334,3 +334,73 @@ func TestHooksInstall_UpgradePreservesUserAddedHooks(t *testing.T) {
 		t.Errorf("merged settings lost user-added hook: %s", content)
 	}
 }
+
+// TestHooksInstall_UpgradeWithNonCanonicalTracearyBin asserts that
+// --upgrade correctly reports Added events when the Traceary binary is
+// installed under a non-canonical basename (e.g. a dev build at
+// /tmp/traceary-qa). Regression guard for #667: before the fix,
+// `tracearyManagedKeySet` rejected the existing entries because
+// `filepath.Base("/tmp/traceary-qa") != "traceary"`, which made the
+// upgrade silently modify the file while reporting "0 event(s)
+// unchanged" to stdout.
+func TestHooksInstall_UpgradeWithNonCanonicalTracearyBin(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	// Seed a Gemini settings.json with pre-v0.8 Traceary-managed
+	// entries but no AfterAgent, all referencing a non-canonical
+	// binary basename. The entry names still carry the canonical
+	// `traceary-*` prefix, which is the signal `--upgrade` uses to
+	// recognize them as managed.
+	geminiPath := filepath.Join(homeDir, ".gemini", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(geminiPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	existing := []byte(`{
+  "hooks": {
+    "SessionStart": [{"matcher":"*","hooks":[{"name":"traceary-session-start","type":"command","command":"'/tmp/traceary-qa' 'hook' 'session' 'gemini' 'start'","timeout":5000,"description":"Start a Traceary session"}]}],
+    "SessionEnd":   [{"matcher":"*","hooks":[{"name":"traceary-session-end","type":"command","command":"'/tmp/traceary-qa' 'hook' 'session' 'gemini' 'end'","timeout":5000,"description":"Finish a Traceary session"}]}],
+    "AfterTool":    [{"matcher":"run_shell_command","hooks":[{"name":"traceary-audit","type":"command","command":"'/tmp/traceary-qa' 'hook' 'audit' 'gemini'","timeout":5000,"description":"Record shell command audits in Traceary"}]}]
+  }
+}
+`)
+	if err := os.WriteFile(geminiPath, existing, 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	rootCmd := newTestRootCLI().Command()
+	stdout := &bytes.Buffer{}
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"hooks", "install",
+		"--client", "gemini",
+		"--project-dir", projectDir,
+		"--global",
+		"--traceary-bin", "/tmp/traceary-qa",
+		"--upgrade",
+	})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	output := stdout.String()
+	// Summary must acknowledge AfterAgent was added, not misreport 0 events.
+	if !strings.Contains(output, "AfterAgent") {
+		t.Errorf("stdout = %q; want AfterAgent to appear in the summary", output)
+	}
+	if strings.Contains(output, "0 event(s) unchanged") || strings.Contains(output, "already up to date") {
+		t.Errorf("stdout = %q; must not misreport no-op when AfterAgent was actually added", output)
+	}
+
+	// File must have AfterAgent wired.
+	content, err := os.ReadFile(geminiPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if !strings.Contains(string(content), "AfterAgent") {
+		t.Errorf("gemini settings.json = %q; want AfterAgent added after --upgrade", content)
+	}
+}

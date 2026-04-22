@@ -482,3 +482,67 @@ func TestExtractTracearyManagedKey(t *testing.T) {
 		})
 	}
 }
+
+// TestExtractTracearyManagedKeyFromEntry covers the Name-aware variant
+// used by diff reporting (hooks install --upgrade) and by the doctor
+// codex-config check. The Name prefix `traceary-*` admits entries whose
+// command binary basename is not `traceary` (dev builds, custom
+// wrappers) so operators using `--traceary-bin /tmp/traceary-qa` do not
+// see a misleading `0 event(s) unchanged` upgrade summary or a
+// `codex-config is missing managed events` doctor warning.
+func TestExtractTracearyManagedKeyFromEntry(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		hookNm  string
+		command string
+		want    string
+	}{
+		{
+			name:    "non-canonical binary recognized via traceary- name prefix",
+			hookNm:  "traceary-session-start",
+			command: "'/tmp/traceary-qa' 'hook' 'session' 'codex' 'start'",
+			want:    "traceary-session.sh:codex:start",
+		},
+		{
+			name:    "canonical binary still works without name hint",
+			hookNm:  "",
+			command: "'traceary' 'hook' 'session' 'codex' 'start'",
+			want:    "traceary-session.sh:codex:start",
+		},
+		{
+			name:    "canonical binary with traceary- name prefix (happy path, matches via name)",
+			hookNm:  "traceary-transcript",
+			command: "'traceary' 'hook' 'transcript' 'gemini'",
+			want:    "traceary-transcript.sh:gemini",
+		},
+		{
+			name:    "unrelated name + unrelated command stays empty",
+			hookNm:  "user-custom",
+			command: "echo hello",
+			want:    "",
+		},
+		{
+			name:    "user-named command pointing at non-traceary binary stays empty",
+			hookNm:  "",
+			command: "'/tmp/traceary-qa' 'hook' 'session' 'codex' 'start'",
+			want:    "",
+		},
+		{
+			name:    "name prefix without parseable direct command falls through to legacy extractor",
+			hookNm:  "traceary-session-start",
+			command: "bash '/scripts/traceary-session.sh' 'claude' 'start'",
+			want:    "traceary-session.sh:claude:start",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if diff := cmp.Diff(tt.want, extractTracearyManagedKeyFromEntry(tt.hookNm, tt.command)); diff != "" {
+				t.Fatalf("extractTracearyManagedKeyFromEntry() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

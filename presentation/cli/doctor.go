@@ -648,6 +648,7 @@ func hasEntryWithManagedKey(raw json.RawMessage, expectedKey string) bool {
 	}
 	var entries []struct {
 		Hooks []struct {
+			Name    string `json:"name"`
 			Type    string `json:"type"`
 			Command string `json:"command"`
 		} `json:"hooks"`
@@ -660,7 +661,10 @@ func hasEntryWithManagedKey(raw json.RawMessage, expectedKey string) bool {
 			if h.Type != "command" {
 				continue
 			}
-			if filesystem.ExtractTracearyManagedKey(h.Command) == expectedKey {
+			// Use the Name-aware extractor so entries installed via
+			// `--traceary-bin <non-traceary-basename>` (dev builds)
+			// are still recognized through the `traceary-*` Name.
+			if filesystem.ExtractTracearyManagedKeyFromEntry(h.Name, h.Command) == expectedKey {
 				return true
 			}
 		}

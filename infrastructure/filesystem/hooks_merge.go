@@ -170,7 +170,13 @@ func tracearyManagedKeySet(matchers []hookMatcherDocument) map[string]struct{} {
 			matcherValue = *matcher.Matcher
 		}
 		for _, command := range matcher.Hooks {
-			if key := extractTracearyManagedKey(command.Command); key != "" {
+			// Use the Name-aware extractor so entries installed with a
+			// non-canonical `--traceary-bin` path (dev builds, custom
+			// wrappers where filepath.Base(bin) != "traceary") are still
+			// recognized through the `traceary-*` Name prefix. Without
+			// this, `--upgrade` would misreport added / refreshed events
+			// as `0 event(s) unchanged` even though the file changed.
+			if key := extractTracearyManagedKeyFromEntry(command.Name, command.Command); key != "" {
 				keys[matcherValue+"\x00"+key] = struct{}{}
 			}
 		}
@@ -242,6 +248,34 @@ var tracearyHookScriptPattern = regexp.MustCompile(`traceary-(session|audit|comp
 // user-managed ones without re-implementing the parser, and this wrapper
 // keeps that parser as the single source of truth.
 func ExtractTracearyManagedKey(commandValue string) string {
+	return extractTracearyManagedKey(commandValue)
+}
+
+// ExtractTracearyManagedKeyFromEntry is the exported counterpart of
+// extractTracearyManagedKeyFromEntry. See that function for the detection
+// policy; diagnostics that can inspect both the entry name and the command
+// (for example `traceary doctor`) should call this variant so a dev build
+// installed via `--traceary-bin /tmp/traceary-qa` is still recognized as
+// Traceary-managed through the `traceary-*` Name prefix.
+func ExtractTracearyManagedKeyFromEntry(name, commandValue string) string {
+	return extractTracearyManagedKeyFromEntry(name, commandValue)
+}
+
+// extractTracearyManagedKeyFromEntry returns the stable managed key derived
+// from the direct-command form when either (a) the entry name starts with
+// the `traceary-` prefix, or (b) the command's binary token basename is
+// `traceary`. The Name-prefix shortcut keeps non-canonical `--traceary-bin`
+// basenames (dev builds like `/tmp/traceary-qa`, custom wrappers) from
+// being misclassified as user commands just because the binary filename
+// differs from `traceary`. Falls back to extractTracearyManagedKey for
+// legacy script-form entries that do not carry a `traceary-*` Name.
+func extractTracearyManagedKeyFromEntry(name, commandValue string) string {
+	if strings.HasPrefix(strings.TrimSpace(name), "traceary-") {
+		directCommand, ok := parseTracearyDirectManagedCommand(strings.TrimSpace(commandValue))
+		if ok {
+			return directCommand.managedKey
+		}
+	}
 	return extractTracearyManagedKey(commandValue)
 }
 
