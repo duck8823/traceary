@@ -298,6 +298,51 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("codex config installed with non-canonical traceary-bin still passes", func(t *testing.T) {
+		// Regression guard for #667: an operator running a dev build
+		// via `--traceary-bin /tmp/traceary-qa` ends up with hook
+		// commands whose binary basename is not `traceary`. Before the
+		// fix, doctor's codex-config check rejected every such entry
+		// because it only parsed the binary token, producing a
+		// misleading "missing Traceary-managed events" warning. The
+		// Name-aware extractor added in #667 treats the `traceary-*`
+		// name prefix as a sufficient signal.
+		codexDir := filepath.Join(homeDir, ".codex")
+		if err := os.MkdirAll(codexDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll() error = %v", err)
+		}
+		complete := `{
+			"hooks": {
+				"SessionStart": [{"hooks": [{"name": "traceary-session-start", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'session' 'codex' 'start'"}]}],
+				"UserPromptSubmit": [{"hooks": [{"name": "traceary-prompt", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'prompt' 'codex'"}]}],
+				"Stop": [{"hooks": [{"name": "traceary-session-stop", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'session' 'codex' 'stop'"}]}],
+				"PostToolUse": [{"matcher": "", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'audit' 'codex'"}]}]
+			}
+		}`
+		if err := os.WriteFile(filepath.Join(codexDir, "hooks.json"), []byte(complete), 0o644); err != nil {
+			t.Fatalf("WriteFile(non-canonical codex hooks) error = %v", err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(codexDir) })
+
+		initStub := &storeManagementUsecaseStub{}
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--client", "codex", "--project-dir", projectDir, "--json"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		report := decodeDoctorReport(t, stdout.Bytes())
+		for _, check := range report.Checks {
+			if check.Name == "codex-config" && check.Status != "pass" {
+				t.Fatalf("codex-config status = %q, want pass for non-canonical --traceary-bin install (message: %q)", check.Status, check.Message)
+			}
+		}
+	})
+
 	t.Run("invalid Traceary config fails doctor", func(t *testing.T) {
 		configDir := filepath.Join(homeDir, ".config", "traceary")
 		if err := os.MkdirAll(configDir, 0o755); err != nil {
