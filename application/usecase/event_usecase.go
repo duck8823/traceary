@@ -11,7 +11,12 @@ import (
 // EventUsecase consolidates event recording and query operations.
 type EventUsecase interface {
 	// Log records a log event. Zero-value kind defaults to note.
-	Log(ctx context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace) (*model.Event, error)
+	// logCfg carries redaction settings; its zero value is a
+	// pass-through for non-transcript kinds. For EventKindTranscript
+	// the implementation applies built-in redactors + the caller's
+	// extra patterns before persisting so no log-ingest surface has
+	// to re-implement that policy in the presentation layer.
+	Log(ctx context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, logCfg apptypes.LogRedaction) (*model.Event, error)
 
 	// Audit records a command execution audit event.
 	Audit(ctx context.Context, command string, input string, output string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, exitCode types.Optional[int], auditCfg apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error)

@@ -34,7 +34,7 @@ func NewEventUsecase(
 	}
 }
 
-func (u *eventUsecase) Log(ctx context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace) (*model.Event, error) {
+func (u *eventUsecase) Log(ctx context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, logCfg apptypes.LogRedaction) (*model.Event, error) {
 	if u.eventRepo == nil {
 		return nil, xerrors.Errorf("event repository is not configured")
 	}
@@ -52,6 +52,21 @@ func (u *eventUsecase) Log(ctx context.Context, message string, kind types.Event
 			return nil, xerrors.Errorf("failed to resolve event kind: %w", err)
 		}
 		resolvedKind = resolved
+	}
+
+	// Transcript events routinely re-state secrets the agent saw
+	// earlier in the turn (API keys read from .env, Bearer tokens
+	// echoed from header dumps, private keys pasted into chat). Apply
+	// the shared redaction policy once inside the usecase so every
+	// log-ingest surface (CLI log, transcript hook, MCP add_log)
+	// gets the same coverage without re-implementing the 5-line
+	// CompileExtraPatterns+Apply block in the presentation layer.
+	if resolvedKind == types.EventKindTranscript {
+		extraRedactors, err := redaction.CompileExtraPatterns(logCfg.ExtraRedactPatterns())
+		if err != nil {
+			return nil, xerrors.Errorf("failed to compile extra redaction patterns for transcript: %w", err)
+		}
+		message, _ = redaction.Apply(message, extraRedactors)
 	}
 
 	eventID, err := newEventID()

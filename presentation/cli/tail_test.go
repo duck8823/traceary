@@ -23,7 +23,7 @@ type tailEventUsecaseStub struct {
 	onListWindow        func(callIndex int, criteria apptypes.EventListCriteria)
 }
 
-func (s *tailEventUsecaseStub) Log(context.Context, string, types.EventKind, types.Client, types.Agent, types.SessionID, types.Workspace) (*model.Event, error) {
+func (s *tailEventUsecaseStub) Log(context.Context, string, types.EventKind, types.Client, types.Agent, types.SessionID, types.Workspace, apptypes.LogRedaction) (*model.Event, error) {
 	return nil, nil
 }
 

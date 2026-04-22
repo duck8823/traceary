@@ -8,7 +8,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/redaction"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
@@ -246,20 +245,13 @@ func (s *Server) addLog() mcp.ToolHandlerFor[addLogInput, addLogOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input addLogInput) (*mcp.CallToolResult, addLogOutput, error) {
 		kind := types.EventKind(strings.TrimSpace(input.Kind))
 		message := input.Message
-		// v0.8 dogfooding finding (#648): `kind=transcript` bodies
-		// come from the same sensitive surface as the Stop-hook
-		// transcript capture path, so apply the built-in + operator-
-		// supplied extra redactors before persistence. Prompt and
-		// compact_summary remain uncut by design because those kinds
-		// intentionally preserve operator intent (documented in
-		// docs/environment/README.md).
-		if kind == types.EventKindTranscript {
-			extraRedactors, err := redaction.CompileExtraPatterns(s.extraRedactPatterns)
-			if err != nil {
-				return nil, addLogOutput{}, xerrors.Errorf("failed to compile extra redaction patterns for transcript: %w", err)
-			}
-			message, _ = redaction.Apply(message, extraRedactors)
-		}
+		// EventUsecase.Log applies the redaction policy itself when
+		// kind == transcript (see #648, consolidated in #666). We
+		// only hand over the config here so MCP, CLI log, and the
+		// transcript hook share a single implementation path.
+		logCfg := apptypes.NewLogRedactionBuilder().
+			ExtraRedactPatterns(s.extraRedactPatterns).
+			Build()
 
 		event, err := s.event.Log(ctx,
 			message,
@@ -268,6 +260,7 @@ func (s *Server) addLog() mcp.ToolHandlerFor[addLogInput, addLogOutput] {
 			types.Agent(resolveValue(input.Agent, defaultAgentValue)),
 			types.SessionID(resolveValue(input.SessionID, defaultSessionValue)),
 			types.Workspace(strings.TrimSpace(input.Workspace)),
+			logCfg,
 		)
 		if err != nil {
 			return nil, addLogOutput{}, xerrors.Errorf("failed to record log: %w", err)

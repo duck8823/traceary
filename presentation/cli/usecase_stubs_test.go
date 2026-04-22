@@ -34,6 +34,7 @@ type eventUsecaseStub struct {
 		agent     types.Agent
 		sessionID types.SessionID
 		workspace types.Workspace
+		logCfg    apptypes.LogRedaction
 	}
 	auditCall struct {
 		command   string
@@ -48,13 +49,14 @@ type eventUsecaseStub struct {
 	}
 }
 
-func (s *eventUsecaseStub) Log(_ context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace) (*model.Event, error) {
+func (s *eventUsecaseStub) Log(_ context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, logCfg apptypes.LogRedaction) (*model.Event, error) {
 	s.logCall.message = message
 	s.logCall.kind = kind
 	s.logCall.client = client
 	s.logCall.agent = agent
 	s.logCall.sessionID = sessionID
 	s.logCall.workspace = workspace
+	s.logCall.logCfg = logCfg
 	return s.logEvent, s.logErr
 }
 func (s *eventUsecaseStub) Audit(_ context.Context, command string, input string, output string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, exitCode types.Optional[int], auditCfg apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {

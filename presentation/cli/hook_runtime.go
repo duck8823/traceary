@@ -17,7 +17,6 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/redaction"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -426,7 +425,7 @@ func (c *RootCLI) runHookCompact(
 			body = "compact triggered"
 			kind = types.EventKind("")
 		}
-		_, err = c.event.Log(ctx, body, kind, types.Client("hook"), agent, sessionID, workspace)
+		_, err = c.event.Log(ctx, body, kind, types.Client("hook"), agent, sessionID, workspace, apptypes.LogRedaction{})
 		if err != nil {
 			return xerrors.Errorf("failed to record compact hook event: %w", err)
 		}
@@ -459,7 +458,7 @@ func (c *RootCLI) runHookCompact(
 		if preContext != "" {
 			body = types.EventBodyMarkerCompactPreSnapshot + " " + preContext
 		}
-		_, err = c.event.Log(ctx, body, types.EventKindCompactSummary, types.Client("hook"), agent, sessionID, workspace)
+		_, err = c.event.Log(ctx, body, types.EventKindCompactSummary, types.Client("hook"), agent, sessionID, workspace, apptypes.LogRedaction{})
 		if err != nil {
 			return xerrors.Errorf("failed to record pre-compact hook event: %w", err)
 		}
@@ -524,7 +523,7 @@ func (c *RootCLI) runHookSubagentStop(
 	if subagentType != "" {
 		body = types.EventBodyMarkerSubagentStop + " " + subagentType
 	}
-	_, err = c.event.Log(ctx, body, types.EventKindSessionEnded, types.Client("hook"), agent, sessionID, workspace)
+	_, err = c.event.Log(ctx, body, types.EventKindSessionEnded, types.Client("hook"), agent, sessionID, workspace, apptypes.LogRedaction{})
 	if err != nil {
 		return xerrors.Errorf("failed to record subagent-stop event: %w", err)
 	}
@@ -576,7 +575,7 @@ func (c *RootCLI) runHookPrompt(
 	if err := c.storeManagement.Initialize(ctx); err != nil {
 		return xerrors.Errorf("failed to initialize store: %w", err)
 	}
-	_, err = c.event.Log(ctx, promptText, types.EventKindPrompt, types.Client("hook"), agent, sessionID, workspace)
+	_, err = c.event.Log(ctx, promptText, types.EventKindPrompt, types.Client("hook"), agent, sessionID, workspace, apptypes.LogRedaction{})
 
 	if err != nil {
 		return xerrors.Errorf("failed to record hook prompt: %w", err)
@@ -634,19 +633,16 @@ func (c *RootCLI) runHookTranscript(
 	if !ok || strings.TrimSpace(transcriptText) == "" {
 		return nil
 	}
-	// Transcript text routinely carries things the assistant re-stated
-	// from files or shell output — API keys from .env files, Bearer
-	// tokens from header dumps, private keys pasted into chat. Apply
-	// the built-in audit redactors plus any operator-configured
-	// extra_redact_patterns before persisting so `traceary tail` cannot
-	// leak them back later. Extra patterns that fail to compile should
-	// not silently bypass redaction: bail out instead, matching the
-	// audit path's policy (event_usecase_impl.go Audit).
-	extraRedactors, err := redaction.CompileExtraPatterns(c.extraRedactPatterns)
-	if err != nil {
-		return xerrors.Errorf("failed to compile extra redaction patterns for transcript: %w", err)
-	}
-	transcriptText, _ = redaction.Apply(transcriptText, extraRedactors)
+	// Transcript bodies can echo secrets the assistant saw earlier in
+	// the turn (API keys from .env, Bearer tokens from header dumps,
+	// private keys pasted into chat). Hand the operator-configured
+	// extra_redact_patterns to EventUsecase.Log; the usecase applies
+	// the shared built-in redactors + the extras once on behalf of
+	// every log-ingest surface so this hook, the CLI log command,
+	// and MCP add_log all converge on the same policy.
+	logCfg := apptypes.NewLogRedactionBuilder().
+		ExtraRedactPatterns(c.extraRedactPatterns).
+		Build()
 
 	sessionID, err := resolveHookSessionID(payload, client)
 	if err != nil {
@@ -671,7 +667,7 @@ func (c *RootCLI) runHookTranscript(
 	if err := c.storeManagement.Initialize(ctx); err != nil {
 		return xerrors.Errorf("failed to initialize store: %w", err)
 	}
-	if _, err := c.event.Log(ctx, transcriptText, types.EventKindTranscript, types.Client("hook"), agent, sessionID, workspace); err != nil {
+	if _, err := c.event.Log(ctx, transcriptText, types.EventKindTranscript, types.Client("hook"), agent, sessionID, workspace, logCfg); err != nil {
 		return xerrors.Errorf("failed to record hook transcript: %w", err)
 	}
 
