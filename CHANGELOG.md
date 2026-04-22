@@ -18,7 +18,7 @@ Minor release focused on **replay UX, temporal memory, and transcript capture**:
 - **Claude Code SubagentStop + PreCompact hooks** — wired via `traceary hook subagent-stop claude` and `traceary hook compact claude pre-compact`. SubagentStop persists as `session_ended` with a `[phase:subagent]` body prefix; PreCompact persists as `compact_summary` with a `[phase:pre-compact]` body prefix. `loadCompactSummary` filters the marker so handoff / memory_pack keep returning the latest post-compact digest.
 - **PostToolUse matcher expansion** — Claude hook install now matches `Read | NotebookRead | Edit | MultiEdit | Write | NotebookEdit | Grep | Glob | Agent | Task | TodoWrite | WebFetch | WebSearch | ExitPlanMode` alongside `Bash` and `mcp__.*`, so every built-in Claude Code tool invocation is auditable.
 - **`hooks install --upgrade`** — non-destructive migration that replaces only Traceary-managed entries, preserves user-added entries, strips obsolete event entries, and prints a summary of added / refreshed / preserved / removed events. Mutually exclusive with `--force`.
-- **`hooks install --matcher <preset>`** — built-in matcher presets for `PostToolUse` (defaults to the v0.8 expanded set; `legacy` restores the pre-v0.8 `Bash`+`mcp__.*` shape).
+- **`hooks install --matcher <preset>`** — built-in `PostToolUse` matcher presets `minimal` (`Bash` + `mcp__.*`), `default` (+ the v0.8-6 built-in tool list; this is what packaged installs use), and `all` (+ `.*`). Omitting `--matcher` picks `default`.
 - **Doctor new checks** — `claude-plugin-cache` (semver-aware: cached plugin version vs. marketplace manifest, suggests `claude plugins update`) and `<client>-host-capabilities` informational notes for 2026-Q2 host features.
 - **MCP additions** — `add_log` now applies built-in + `extra_redact_patterns` redaction; `session_handoff` / `memory_pack` gain `as_of` for time-traveled memory filtering; `retrieve_memories` accepts the retrieval presets.
 
@@ -40,7 +40,7 @@ Minor release focused on **replay UX, temporal memory, and transcript capture**:
 - `docs/integrations/codex-plugin{,.ja}.md` and `docs/integrations/gemini-extension{,.ja}.md` list the transcript hook in their "what it wires automatically" sections.
 - `docs/cli/README{,.ja}.md` list `--upgrade`, `--matcher`, `--timeline-blocks`, `--hotspots`, `--as-of`, and `--preset` under the corresponding commands.
 
-### Included issues (umbrella #562)
+### Included work items for v0.8.0
 - #566 v0.8-4 memory block evaluation
 - #565 v0.8-3 temporal validity
 - #606 v0.8-7 transcript capture on Claude Stop
