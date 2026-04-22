@@ -97,6 +97,66 @@
   {{end}}
 {{end}}
 
+<h2>Timeline blocks</h2>
+{{if not .TimelineBlocks}}
+  <p class="empty">No timeline blocks in the requested window.</p>
+{{else}}
+<table class="timeline">
+  <thead>
+    <tr>
+      <th>Start</th>
+      <th>End</th>
+      <th>Duration</th>
+      <th>Events</th>
+      <th>Agents</th>
+      <th>Workspaces / activity</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .TimelineBlocks}}
+      <tr>
+        <td><code>{{.Start}}</code></td>
+        <td><code>{{.End}}</code></td>
+        <td>{{.Duration}}</td>
+        <td>{{.EventCount}}</td>
+        <td>{{.Agents}}</td>
+        <td>
+          {{range .Workspaces}}
+            <div class="ws-row"><code>{{.Workspace}}</code> &middot; {{.EventCount}} events &middot; {{.Activity}}</div>
+          {{end}}
+        </td>
+      </tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
+
+<h2>Failure hotspots</h2>
+{{if not .FailureHotspots}}
+  <p class="empty">No command failures in the requested window.</p>
+{{else}}
+<table class="failure-hotspots">
+  <thead>
+    <tr>
+      <th>Command</th>
+      <th>Workspace</th>
+      <th>Count</th>
+      <th>Last failure</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .FailureHotspots}}
+      <tr>
+        <td><code>{{.Command}}</code></td>
+        <td><code>{{.Workspace}}</code></td>
+        <td>{{.Count}}</td>
+        <td><code>{{.LastOccurredAt}}</code></td>
+      </tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
+
 <h2>Durable memories (accepted)</h2>
 {{if not .Memories}}
   <p class="empty">No accepted memories in the requested window.</p>

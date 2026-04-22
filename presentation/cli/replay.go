@@ -44,7 +44,6 @@ var replayTemplateSource = func() string { return replayTemplateHTML }
 // Out of scope (tracked as replay follow-ups):
 //
 //   - Full subagent-lineage tree (the minimal output flattens sessions)
-//   - Failure hotspot analytics
 //   - Interactive filters beyond the browser's Find-in-page
 func (c *RootCLI) newReplayCommand() *cobra.Command {
 	input := replayCommandInput{}
@@ -69,6 +68,8 @@ func (c *RootCLI) newReplayCommand() *cobra.Command {
 	cmd.Flags().IntVar(&input.sessions, "sessions", 10, Localize("maximum number of recent sessions to include", "含める直近セッション数"))
 	cmd.Flags().IntVar(&input.eventsPerSession, "events-per-session", 20, Localize("maximum number of events to include per session", "1 セッションに含める最大イベント数"))
 	cmd.Flags().IntVar(&input.memories, "memories", 20, Localize("maximum number of accepted memories to include", "含める accepted memory の最大数"))
+	cmd.Flags().IntVar(&input.timelineBlocks, "timeline-blocks", 20, Localize("maximum number of timeline blocks to include; <= 0 skips the timeline panel", "含める timeline block 数。0 以下は timeline パネル自体を省く"))
+	cmd.Flags().IntVar(&input.hotspots, "hotspots", 10, Localize("maximum number of failure-hotspot clusters to include; <= 0 skips the hotspot panel", "含める failure hotspot クラスタ数。0 以下は hotspot パネル自体を省く"))
 	_ = cmd.MarkFlagRequired("out")
 	return cmd
 }
@@ -79,6 +80,8 @@ type replayCommandInput struct {
 	sessions         int
 	eventsPerSession int
 	memories         int
+	timelineBlocks   int
+	hotspots         int
 }
 
 func (c *RootCLI) runReplay(ctx context.Context, output io.Writer, input replayCommandInput) error {
@@ -104,7 +107,10 @@ func (c *RootCLI) runReplay(ctx context.Context, output io.Writer, input replayC
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
-	bundle, err := c.replay.Bundle(ctx, apptypes.NewReplayCriteriaBuilder(input.sessions, input.eventsPerSession, input.memories).Build())
+	bundle, err := c.replay.Bundle(ctx, apptypes.NewReplayCriteriaBuilder(input.sessions, input.eventsPerSession, input.memories).
+		TimelineLimit(input.timelineBlocks).
+		HotspotLimit(input.hotspots).
+		Build())
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to assemble replay bundle", "replay バンドルの組立てに失敗しました"), err)
 	}
@@ -115,9 +121,9 @@ func (c *RootCLI) runReplay(ctx context.Context, output io.Writer, input replayC
 	}
 
 	if _, err := fmt.Fprintf(output, Localize(
-		"Wrote replay HTML: %s (%d sessions, %d events total, %d memories)\n",
-		"replay HTML を書き出しました: %s (sessions=%d, events=%d, memories=%d)\n",
-	), input.outputPath, len(data.Sessions), totalEventCount(data.Sessions), len(data.Memories)); err != nil {
+		"Wrote replay HTML: %s (%d sessions, %d events total, %d memories, %d timeline blocks, %d failure hotspots)\n",
+		"replay HTML を書き出しました: %s (sessions=%d, events=%d, memories=%d, timeline=%d, hotspots=%d)\n",
+	), input.outputPath, len(data.Sessions), totalEventCount(data.Sessions), len(data.Memories), len(data.TimelineBlocks), len(data.FailureHotspots)); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print replay summary", "replay 概要の出力に失敗しました"), err)
 	}
 	return nil
@@ -125,10 +131,41 @@ func (c *RootCLI) runReplay(ctx context.Context, output io.Writer, input replayC
 
 // replayData is the root view-model the HTML template renders.
 type replayData struct {
-	GeneratedAt time.Time
-	DBPath      string
-	Sessions    []replaySession
-	Memories    []replayMemory
+	GeneratedAt     time.Time
+	DBPath          string
+	Sessions        []replaySession
+	Memories        []replayMemory
+	TimelineBlocks  []replayTimelineBlock
+	FailureHotspots []replayFailureHotspot
+}
+
+// replayTimelineBlock is the per-block view-model rendered in the
+// replay HTML timeline panel. The shape mirrors `traceary timeline`
+// text output so operators can cross-reference either rendering.
+type replayTimelineBlock struct {
+	Start       string
+	End         string
+	Duration    string
+	EventCount  int
+	Agents      string
+	Workspaces  []replayTimelineWorkspace
+}
+
+// replayTimelineWorkspace carries the per-workspace activity row for a
+// single timeline block.
+type replayTimelineWorkspace struct {
+	Workspace  string
+	EventCount int
+	Activity   string
+}
+
+// replayFailureHotspot is the per-cluster view-model rendered in the
+// replay HTML failure-hotspot panel.
+type replayFailureHotspot struct {
+	Command        string
+	Workspace      string
+	Count          int
+	LastOccurredAt string
 }
 
 type replaySession struct {
@@ -214,8 +251,43 @@ func replayDataFromBundle(bundle apptypes.ReplayBundle, dbPathFlag string) repla
 			ValidTo:    formatOptionalInstant(memory.ValidTo()),
 		})
 	}
+
+	for _, block := range bundle.TimelineBlocks() {
+		start := block.BlockStart().UTC()
+		end := block.BlockEnd().UTC()
+		workspaces := make([]replayTimelineWorkspace, 0, len(block.WorkspaceBreakdown()))
+		for _, ws := range block.WorkspaceBreakdown() {
+			activity := strings.TrimSpace(ws.Summary())
+			if activity == "" {
+				activity = formatKindCounts(computeKindCounts(ws.Kinds()))
+			}
+			workspaces = append(workspaces, replayTimelineWorkspace{
+				Workspace:  ws.Workspace(),
+				EventCount: ws.EventCount(),
+				Activity:   activity,
+			})
+		}
+		data.TimelineBlocks = append(data.TimelineBlocks, replayTimelineBlock{
+			Start:      start.Format(time.RFC3339),
+			End:        end.Format(time.RFC3339),
+			Duration:   formatDuration(end.Sub(start)),
+			EventCount: block.EventCount(),
+			Agents:     strings.Join(block.Agents(), ", "),
+			Workspaces: workspaces,
+		})
+	}
+
+	for _, hotspot := range bundle.FailureHotspots() {
+		data.FailureHotspots = append(data.FailureHotspots, replayFailureHotspot{
+			Command:        hotspot.Command(),
+			Workspace:      hotspot.Workspace(),
+			Count:          hotspot.Count(),
+			LastOccurredAt: hotspot.LastOccurredAt().UTC().Format(time.RFC3339),
+		})
+	}
 	return data
 }
+
 
 func totalEventCount(sessions []replaySession) int {
 	n := 0

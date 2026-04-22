@@ -173,6 +173,10 @@ Useful flags:
 - `--sessions` (default 10) — number of recent sessions to include
 - `--events-per-session` (default 20) — events per session
 - `--memories` (default 20) — accepted memories to include
+- `--timeline-blocks` (default 20) — timeline blocks rendered in the timeline panel; `<= 0` skips the panel
+- `--hotspots` (default 10) — failure-hotspot clusters rendered in the hotspot panel; `<= 0` skips the panel
+
+The replay HTML contains five panels: sessions, timeline blocks, failure hotspots, durable memories, and a generated-at footer. The timeline and hotspot panels share the semantics of `traceary timeline` and `traceary list --failures-only` so operators can cross-reference either rendering.
 
 Example: `traceary replay --out /tmp/replay.html`
 

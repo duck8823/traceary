@@ -52,6 +52,21 @@ func TestWriteReplayHTML_EmitsSelfContainedFile(t *testing.T) {
 				UpdatedAt: time.Date(2026, 4, 21, 10, 30, 0, 0, time.UTC),
 			},
 		},
+		TimelineBlocks: []replayTimelineBlock{
+			{
+				Start:      "2026-04-21T09:00:00Z",
+				End:        "2026-04-21T12:30:00Z",
+				Duration:   "3h30m",
+				EventCount: 42,
+				Agents:     "claude",
+				Workspaces: []replayTimelineWorkspace{
+					{Workspace: "github.com/example/repo", EventCount: 42, Activity: "command_executed: 30, note: 10"},
+				},
+			},
+		},
+		FailureHotspots: []replayFailureHotspot{
+			{Command: "go", Workspace: "github.com/example/repo", Count: 5, LastOccurredAt: "2026-04-21T11:20:00Z"},
+		},
 	}
 
 	if err := writeReplayHTML(outPath, data); err != nil {
@@ -71,13 +86,18 @@ func TestWriteReplayHTML_EmitsSelfContainedFile(t *testing.T) {
 	if strings.Contains(html, "<link ") {
 		t.Errorf("replay HTML should not link external CSS / fonts")
 	}
-	// Session and memory content is rendered.
+	// Session and memory content is rendered, plus the new timeline
+	// and failure-hotspot panels added in v0.8-followup #630.
 	for _, want := range []string{
 		"incident triage",
 		"github.com/example/repo",
 		"investigate flaky test in replay module",
 		"go test ./...",
 		"replay UI ships as static HTML, not TUI",
+		"Timeline blocks",
+		"3h30m",
+		"command_executed: 30",
+		"Failure hotspots",
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("replay HTML missing expected text %q", want)
@@ -168,5 +188,11 @@ func TestWriteReplayHTML_EmptyCollections(t *testing.T) {
 	}
 	if !strings.Contains(string(content), "No accepted memories") {
 		t.Errorf("empty replay should surface the empty-state notice for memories")
+	}
+	if !strings.Contains(string(content), "No timeline blocks") {
+		t.Errorf("empty replay should surface the empty-state notice for timeline blocks")
+	}
+	if !strings.Contains(string(content), "No command failures") {
+		t.Errorf("empty replay should surface the empty-state notice for failure hotspots")
 	}
 }
