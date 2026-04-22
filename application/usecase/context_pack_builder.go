@@ -147,18 +147,13 @@ func (b *contextPackBuilder) loadCompactSummary(ctx context.Context, session app
 	}
 	for _, event := range events {
 		body := event.Body()
-		if strings.HasPrefix(strings.TrimSpace(body), compactPreSnapshotMarker) {
+		if strings.HasPrefix(strings.TrimSpace(body), domtypes.EventBodyMarkerCompactPreSnapshot) {
 			continue
 		}
 		return extractCompactSummarySignal(body), nil
 	}
 	return "", nil
 }
-
-// compactPreSnapshotMarker mirrors the CLI-side marker used by the
-// PreCompact hook. Keep the two copies in sync — the marker itself
-// is body content and a later rename means rewriting history.
-const compactPreSnapshotMarker = "[phase:pre-compact]"
 
 func (b *contextPackBuilder) loadMemories(
 	ctx context.Context,

@@ -455,9 +455,9 @@ func (c *RootCLI) runHookCompact(
 		if preContext == "" {
 			preContext = hookPayloadString(payload, "trigger", "")
 		}
-		body := hookCompactPreSnapshotMarker
+		body := types.EventBodyMarkerCompactPreSnapshot
 		if preContext != "" {
-			body = hookCompactPreSnapshotMarker + " " + preContext
+			body = types.EventBodyMarkerCompactPreSnapshot + " " + preContext
 		}
 		_, err = c.event.Log(ctx, body, types.EventKindCompactSummary, types.Client("hook"), agent, sessionID, workspace)
 		if err != nil {
@@ -474,12 +474,6 @@ func (c *RootCLI) runHookCompact(
 	}
 }
 
-// hookCompactPreSnapshotMarker prefixes pre-compact event bodies so
-// downstream readers (replay, timeline, handoff) can tell a
-// pre-compact snapshot from a post-compact summary despite both
-// landing in the compact_summary event kind. Keep the marker short
-// and stable — changing it later means rewriting history.
-const hookCompactPreSnapshotMarker = "[phase:pre-compact]"
 
 func (c *RootCLI) runHookSubagentStop(
 	ctx context.Context,
@@ -526,9 +520,9 @@ func (c *RootCLI) runHookSubagentStop(
 	// with a `[phase:subagent]` prefix so subagent lifecycle is
 	// recoverable without relying on agent_type inference on PostToolUse.
 	subagentType := hookPayloadString(payload, "subagent_type", "")
-	body := hookSubagentStopMarker
+	body := types.EventBodyMarkerSubagentStop
 	if subagentType != "" {
-		body = hookSubagentStopMarker + " " + subagentType
+		body = types.EventBodyMarkerSubagentStop + " " + subagentType
 	}
 	_, err = c.event.Log(ctx, body, types.EventKindSessionEnded, types.Client("hook"), agent, sessionID, workspace)
 	if err != nil {
@@ -537,10 +531,6 @@ func (c *RootCLI) runHookSubagentStop(
 	return nil
 }
 
-// hookSubagentStopMarker prefixes subagent-stop event bodies so the
-// regular session-ended event stream can be filtered down to just the
-// subagent boundary events when needed.
-const hookSubagentStopMarker = "[phase:subagent]"
 
 func (c *RootCLI) runHookPrompt(
 	ctx context.Context,

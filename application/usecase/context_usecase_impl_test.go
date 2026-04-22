@@ -387,7 +387,7 @@ func TestContextUsecase_Handoff(t *testing.T) {
 			domtypes.Agent("claude"),
 			domtypes.SessionID("session-1"),
 			domtypes.Workspace("duck8823/traceary"),
-			"[phase:pre-compact] cancelled snapshot",
+			domtypes.EventBodyMarkerCompactPreSnapshot+" cancelled snapshot",
 		)
 		if err != nil {
 			t.Fatalf("NewEvent() pre-compact error = %v", err)

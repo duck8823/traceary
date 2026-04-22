@@ -336,6 +336,18 @@ func parseTracearyDirectManagedCommand(commandValue string) (directManagedComman
 		}
 		directCommand.managedKey = managedKeyOf("traceary-prompt.sh", tokens[3])
 		return directCommand, true
+	case "transcript":
+		if len(tokens) != 4 {
+			return directManagedCommand{}, false
+		}
+		directCommand.managedKey = managedKeyOf("traceary-transcript.sh", tokens[3])
+		return directCommand, true
+	case "subagent-stop":
+		if len(tokens) != 4 {
+			return directManagedCommand{}, false
+		}
+		directCommand.managedKey = managedKeyOf("traceary-subagent-stop.sh", tokens[3])
+		return directCommand, true
 	default:
 		return directManagedCommand{}, false
 	}
