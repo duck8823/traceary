@@ -19,6 +19,7 @@ type RootCLI struct {
 	memoryBridgeImport  usecase.MemoryBridgeImportUsecase
 	memoryHygiene       usecase.MemoryHygieneUsecase
 	memoryEdge          usecase.MemoryEdgeUsecase
+	bundle              usecase.BundleUsecase
 	context             usecase.ContextUsecase
 	replay              usecase.ReplayUsecase
 	codexIntegration    usecase.CodexIntegrationUsecase
@@ -82,6 +83,12 @@ func WithMemoryExport(memoryExport usecase.MemoryExportUsecase) RootCLIOption {
 // into durable-memory candidates.
 func WithMemoryBridgeImport(importUsecase usecase.MemoryBridgeImportUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.memoryBridgeImport = importUsecase }
+}
+
+// WithBundle injects the BundleUsecase used by `traceary bundle`
+// export / import subcommands.
+func WithBundle(b usecase.BundleUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.bundle = b }
 }
 
 // WithMemoryEdge injects the MemoryEdgeUsecase used by
@@ -239,6 +246,7 @@ func (c *RootCLI) Command() *cobra.Command {
 	rootCmd.AddCommand(c.newDoctorCommand())
 	rootCmd.AddCommand(c.newMCPServerCommand())
 	rootCmd.AddCommand(c.newReplayCommand())
+	rootCmd.AddCommand(c.newBundleCommand())
 
 	// v0.9.0 grouped namespaces — store administration and
 	// session-bootstrap helpers moved behind parent commands.

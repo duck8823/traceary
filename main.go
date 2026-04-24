@@ -161,6 +161,8 @@ func run() error {
 	memoryHygieneUsecase := usecase.NewMemoryHygieneUsecase(memoryUsecase, memoryDatasource, extraRedactPatterns)
 	memoryEdgeDatasource := sqlite.NewMemoryEdgeDatasource(db)
 	memoryEdgeUsecase := usecase.NewMemoryEdgeUsecase(memoryEdgeDatasource, memoryEdgeDatasource, nil)
+	bundleDatasource := sqlite.NewBundleDatasource(db, eventDatasource)
+	bundleUsecase := usecase.NewBundleUsecase(eventDatasource, bundleDatasource, nil)
 	contextUsecase := usecase.NewContextUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	replayUsecase := usecase.NewReplayUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	storeManagementUsecase := usecase.NewStoreManagementUsecase(storeManagementDatasource)
@@ -201,6 +203,7 @@ func run() error {
 		cli.WithMemoryBridgeImport(memoryBridgeImportUsecase),
 		cli.WithMemoryHygiene(memoryHygieneUsecase),
 		cli.WithMemoryEdge(memoryEdgeUsecase),
+		cli.WithBundle(bundleUsecase),
 		cli.WithContext(contextUsecase),
 		cli.WithReplay(replayUsecase),
 		cli.WithCodexIntegration(codexIntegrationUsecase),

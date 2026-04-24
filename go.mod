@@ -7,6 +7,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.5.0
 	github.com/pelletier/go-toml/v2 v2.3.0
 	github.com/spf13/cobra v1.10.2
+	golang.org/x/crypto v0.48.0
 	golang.org/x/mod v0.35.0
 	golang.org/x/sys v0.43.0
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da
@@ -216,7 +217,7 @@ require (
 	golang.org/x/exp/typeparams v0.0.0-20260209203927-2842357ff358 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/text v0.34.0 // indirect
+	golang.org/x/text v0.36.0 // indirect
 	golang.org/x/tools v0.43.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
