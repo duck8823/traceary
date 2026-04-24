@@ -59,6 +59,11 @@ func TestExtractPlainBody(t *testing.T) {
 			body: `{"blocks":[{"foo":"bar"}]}`,
 			want: `{"blocks":[{"foo":"bar"}]}`,
 		},
+		{
+			name: "blocks:null is not treated as envelope",
+			body: `{"blocks":null}`,
+			want: `{"blocks":null}`,
+		},
 	}
 
 	for _, tc := range cases {

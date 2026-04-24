@@ -61,6 +61,11 @@ func decodeCanonicalEnvelope(body string) ([]EventBodyBlock, bool) {
 	if !ok {
 		return nil, false
 	}
+	// A JSON null blocks value is not something our marshaller ever
+	// produces; treat it as foreign so the raw body is preserved.
+	if string(rawBlocks) == "null" {
+		return nil, false
+	}
 	var rawElements []map[string]json.RawMessage
 	if err := json.Unmarshal(rawBlocks, &rawElements); err != nil {
 		return nil, false
