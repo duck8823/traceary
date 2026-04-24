@@ -5,6 +5,37 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.8.1] - 2026-04-24
+
+**hook の出処記録、transcript の構造化、validity 精度** を中心にした patch リリース。新しい `events.source_hook` 列が各イベントを生成した host 側 hook を正確に記録し、transcript / prompt の body は thinking と text を分離した構造化 JSON ブロックとして保存され、SQLite の memory validity フィルタは小数秒を落とさなくなったので半開区間 `[valid_from, valid_to)` の境界が正しく動きます。
+
+### Added
+- **`events.source_hook`** — 各イベントに、それを生成した hook 識別子 (`stop`、`subagent_stop`、`pre_compact`、`post_compact`、`session_start`、`session_end`、`user_prompt_submit`、`post_tool_use`、`after_agent`、`after_tool`) が付きます。hook 以外の書き込み (`traceary log`、MCP `add_log`) は NULL のままです。`traceary list --source-hook <name>` と MCP `list_events` の `source_hook` パラメータで絞り込め、`traceary show`、`list --wide`、`list --json`、`list --fields source_hook`、`context`、replay HTML すべてで表示されます。v0.8.0 以前の `[phase:subagent]` / `[phase:pre-compact]` body prefix row も、移行期間の fallback で同じ名前のフィルタに引っかかります。
+- **transcript / prompt body の block 化** — 補助アシスタント transcript とユーザー prompt は `{"blocks":[{"type":"thinking","text":"..."},{"type":"text","text":"..."}]}` という JSON envelope で保存されるようになりました。block-aware なコンシューマは内部推論とユーザー向け回答を分離できます。legacy のプレーン文字列 row はそのまま round-trip します。envelope 形ではない任意の JSON body (例: `{"foo":"bar"}` の note) も手を加えずに保持されます。
+- **`memory supersede --from / --to`** — CLI と MCP `supersede_memory` が置換先 memory の validity 境界を明示できます。`valid_to < valid_from` は `set-validity` と同じロジックで拒否します。
+- **plugin cache multi-version warning** — `doctor` の stale チェックに、Claude plugin cache に複数バージョンの Traceary が共存しているとき (resumed session で `claude plugins update` を走らせた直後に起きがち) の警告を併合しました。fresh session で起動し直すガイダンスを返します。
+
+### Changed
+- **memory validity timestamp の保存形式** — `valid_from` / `valid_to` は固定長 9 桁 nano に正規化され、SQLite の辞書順比較が `time.Time` の比較と完全に一致するようになりました。v0.8.1 より前の row は migration 000010 で一度だけ書き換えます。validity フィルタは `datetime()` ラップを外したので partial index `idx_memories_valid_window` が実際に使われます。
+- **`MemoryUsecase.Supersede` が validity を継承** — `memory hygiene apply` の supersede 遷移では、caller が明示的に上書きしない限り、置換先 memory が元の `[valid_from, valid_to)` 窓を引き継ぐようになりました。以前は捨てていて、`validity_overlap_supersede` が自己矛盾を作っていました。
+- **hook body-prefix marker を write 側で廃止** — `hook_runtime` は `session_ended` に `[phase:subagent]` を、`compact_summary` に `[phase:pre-compact]` を付けなくなりました。代わりに `source_hook` が lifecycle を識別します。reader は v0.8.1 より前の row のために prefix fallback を維持します。
+
+### Fixed
+- **非 canonical な `--traceary-bin` basename** — `hooks install --upgrade` と `doctor` が、パッケージ済みバイナリが非 canonical なパス / basename (symlink、`/usr/local/bin/traceary-dev`、Homebrew cellar パス) にあるときでも Traceary-managed なコマンドを正しく認識します。以前の build は「追加」「削除」summary の誤報を出していました。
+
+### Docs
+- CHANGELOG 本ファイル (en / ja).
+
+### v0.8.1 に含まれる作業項目
+- #662 transcript / prompt body の JSON block 構造化
+- #664 SQLite memory validity フィルタの小数秒脱落
+- #665 `MemoryUsecase.Supersede` が valid_from / valid_to を伝播しない
+- #666 Log redaction の統合
+- #667 非 canonical な `--traceary-bin` basename の検出
+- #670 doctor plugin-cache の active-snapshot / cache 不一致検出
+- #672 events.source_hook 列 (書き込み側)
+- #679 source_hook 読み取り側 — CLI / MCP filter + JSON field + replay HTML + body prefix marker retire
+
 ## [v0.8.0] - 2026-04-22
 
 **replay UX / 時間的 memory / transcript 取得** を中心にしたマイナー: オペレーターが共有できる self-contained な replay HTML、memory ごとの有効期間窓、Claude Code / Codex CLI / Gemini CLI 全部の assistant 応答 transcript 取得。加えて Claude Code の 2026-Q2 hook (SubagentStop / PreCompact) を wire し、`traceary hooks install` / `doctor` の UX を締め直しています。
