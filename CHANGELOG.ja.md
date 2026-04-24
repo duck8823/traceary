@@ -5,6 +5,28 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.8.2] - 2026-04-24
+
+v0.8.1 quality phase で見つかった tech-debt をまとめた patch リリース。transcript の search が thinking block 本文を漏らさなくなり、MCP \`list_events\` は plain-text projection に加えて canonical block 形も返すようになり、\`--source-hook\` フィルタは複合 index を使い、\`presentation/cli/doctor.go\` は \`infrastructure/filesystem\` を直接 import しなくなりました。
+
+### Added
+- **MCP \`list_events\` / \`add_log\` が \`body_blocks\` を返す** — canonical transcript envelope は構造化された \`[{type, text}, ...]\` として公開されるので、プログラム的コンシューマは transcript を round-trip したり独自の block-aware renderer を書けます。既存の \`body\` フィールドは plain-text projection (thinking は含まない) を返し続けます。\`search\` と \`get_context\` は意図的に \`body_blocks\` を省略します (これらのサーフェスで thinking block の内容が漏れないようにするため)。
+- **source_hook 用 SQLite 複合 index** — migration 000012 が既存の \`idx_events_source_hook\` を落として \`idx_events_source_hook_time (source_hook, created_at DESC, id DESC) WHERE source_hook IS NOT NULL\` に置換。primary-only query と legacy-fallback UNION ALL query の分離と合わせて、\`traceary list --source-hook <name>\` が covering index scan を使うようになり、created_at 順スキャンを in-memory でフィルタしていた旧挙動が解消されました。
+
+### Changed
+- **\`application\` に plugin / hooks inspector の契約を追加** — \`application.PluginCacheInspector\` + \`PluginCacheStatus\`、\`application.ClaudePluginDetector\` + \`ClaudePluginDetection\`、および \`application.HooksInspector\` の \`ExtractManagedKeyFromEntry\` メソッド。\`presentation/cli/doctor.go\` と \`claude_plugin_detection.go\` は \`infrastructure/filesystem\` を直接 import する代わりにこれらの interface 経由で利用するようになり、v0.8.1 quality phase で指摘された hexagonal の依存方向違反を解消しました。
+
+### Fixed
+- **\`traceary search\` が thinking-only match をスキップ** — v0.8.1 で \`ExtractPlainBody\` は表示面から thinking block を除外していましたが、SQL search は生の envelope に対して \`body LIKE ?\` を走らせていました。結果、thinking block 内にだけマッチする検索は、表示が空の行を返し、内部推論を search 面に漏らす形になっていました。SQL は canonical envelope に対して \`json_each\` で text block だけを取り出した射影に対して \`LIKE\` を走らせるようにしました (\`typeof()\` guard が \`DecodeCanonicalEnvelope\` と同等の契約を保証します)。legacy plain-text row と非 envelope JSON は従来通り生で searchable のままです。
+- **Gemini CLI smoke 警告** — \`scripts/smoke_test_integrations.sh gemini\` は \`~/.gemini/projects.json\` に \`{}\` を書いていました。Gemini CLI 0.38 は \`{"projects":{}}\` を期待しており、\`ProjectRegistry.getShortId\` が cleanup 中に throw するため、smoke 出力に \`Early cleanup failed\` / \`Tool output cleanup failed\` が 2 件ずつ出ていました。正しい shape を書けば smoke coverage を弱めずに警告を黙らせられます。
+
+### v0.8.2 に含まれる作業項目
+- #682 transcript JSON envelope 内の thinking block を search から除外
+- #683 \`--source-hook\` フィルタで source_hook index が使われるように修正
+- #684 MCP list_events / add_log に body_blocks 追加
+- #685 doctor が infrastructure/filesystem を直接 import しないように refactor
+- #536 gemini smoke cleanup warning を silence
+
 ## [v0.8.1] - 2026-04-24
 
 **hook の出処記録、transcript の構造化、validity 精度** を中心にした patch リリース。新しい `events.source_hook` 列が各イベントを生成した host 側 hook を正確に記録し、transcript / prompt の body は thinking と text を分離した構造化 JSON ブロックとして保存され、SQLite の memory validity フィルタは小数秒を落とさなくなったので半開区間 `[valid_from, valid_to)` の境界が正しく動きます。

@@ -5,6 +5,28 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.8.2] - 2026-04-24
+
+Patch release collecting v0.8.1 quality-phase tech-debt: transcript search no longer leaks thinking-block text, MCP \`list_events\` exposes the canonical block form alongside the plain-text projection, \`--source-hook\` now uses a compound index, and \`presentation/cli/doctor.go\` stops importing \`infrastructure/filesystem\` directly.
+
+### Added
+- **MCP \`list_events\` / \`add_log\` return \`body_blocks\`** — canonical transcript envelopes are exposed in their structured \`[{type, text}, ...]\` form so programmatic consumers can round-trip a transcript or build their own block-aware renderer. The existing \`body\` field keeps returning the plain-text projection (no thinking). \`search\` and \`get_context\` intentionally omit \`body_blocks\` so thinking-block text does not leak through those surfaces.
+- **SQLite compound index for source_hook queries** — migration 000012 drops the simple \`idx_events_source_hook\` and creates \`idx_events_source_hook_time (source_hook, created_at DESC, id DESC) WHERE source_hook IS NOT NULL\`. Combined with a split into a primary-only query and a legacy-fallback UNION ALL query, \`traceary list --source-hook <name>\` now uses a covering index scan instead of filtering a created_at-ordered scan in memory.
+
+### Changed
+- **\`application\` gains plugin / hooks inspector contracts** — \`application.PluginCacheInspector\` + \`PluginCacheStatus\`, \`application.ClaudePluginDetector\` + \`ClaudePluginDetection\`, and an \`ExtractManagedKeyFromEntry\` method on \`application.HooksInspector\`. \`presentation/cli/doctor.go\` and \`claude_plugin_detection.go\` consume these interfaces instead of importing \`infrastructure/filesystem\` directly, restoring the hexagonal dependency direction flagged during v0.8.1 quality phase.
+
+### Fixed
+- **\`traceary search\` skips thinking-only matches** — v0.8.1's \`ExtractPlainBody\` stripped thinking blocks from the display surface, but the SQL search still ran \`body LIKE ?\` against the raw envelope. A match that only landed inside a \`thinking\` block would return a row that then rendered blank, effectively leaking internal reasoning into the search surface. The SQL now runs \`LIKE\` against a \`json_each\`-extracted projection of text blocks for canonical envelopes (with a \`typeof()\` guard that matches \`DecodeCanonicalEnvelope\`'s contract); legacy plain-text rows and non-envelope JSON stay raw-searchable.
+- **Gemini CLI smoke warnings** — \`scripts/smoke_test_integrations.sh gemini\` wrote \`{}\` to \`~/.gemini/projects.json\`. Gemini CLI 0.38 expected \`{"projects":{}}\`, so \`ProjectRegistry.getShortId\` threw during cleanup and the smoke output carried two noisy \`Early cleanup failed\` / \`Tool output cleanup failed\` warnings per invocation. Writing the correct shape silences the warnings without weakening smoke coverage.
+
+### Included work items for v0.8.2
+- #682 search skips thinking-block text in transcript JSON envelopes
+- #683 \`--source-hook\` filter now uses the source_hook index
+- #684 MCP list_events exposes body_blocks
+- #685 doctor drops infrastructure/filesystem import
+- #536 gemini smoke cleanup warnings silenced
+
 ## [v0.8.1] - 2026-04-24
 
 Patch release focused on **hook provenance, transcript structure, and validity-window precision**: a new `events.source_hook` column records exactly which host-side hook produced each event, transcript / prompt bodies are persisted as structured JSON blocks (thinking vs text separated), and the SQLite memory validity filter now preserves sub-second precision so the half-open `[valid_from, valid_to)` contract holds at fractional boundaries.
