@@ -1,16 +1,19 @@
 package mcpserver
 
+import apptypes "github.com/duck8823/traceary/application/types"
+
 // addLogOutput is the MCP output for the add_log tool.
 type addLogOutput struct {
-	EventID    string `json:"event_id" jsonschema:"saved event ID"`
-	Kind       string `json:"kind" jsonschema:"event kind"`
-	Client     string `json:"client" jsonschema:"recording channel"`
-	Agent      string `json:"agent" jsonschema:"actor"`
-	SessionID  string `json:"session_id" jsonschema:"session identifier"`
-	Workspace  string `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
-	Body       string `json:"body" jsonschema:"event body"`
-	SourceHook string `json:"source_hook,omitempty" jsonschema:"hook identifier that produced this event (omitted for non-hook writes)"`
-	CreatedAt  string `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
+	EventID    string                     `json:"event_id" jsonschema:"saved event ID"`
+	Kind       string                     `json:"kind" jsonschema:"event kind"`
+	Client     string                     `json:"client" jsonschema:"recording channel"`
+	Agent      string                     `json:"agent" jsonschema:"actor"`
+	SessionID  string                     `json:"session_id" jsonschema:"session identifier"`
+	Workspace  string                     `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
+	Body       string                     `json:"body" jsonschema:"event body as a plain-text projection; for transcript JSON envelopes this joins the text blocks and excludes thinking blocks — use body_blocks for the canonical structured form"`
+	BodyBlocks []apptypes.EventBodyBlock  `json:"body_blocks,omitempty" jsonschema:"structured block form of the body when it is a canonical transcript envelope; absent for legacy plain-text bodies and non-envelope JSON bodies"`
+	SourceHook string                     `json:"source_hook,omitempty" jsonschema:"hook identifier that produced this event (omitted for non-hook writes)"`
+	CreatedAt  string                     `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
 }
 
 // sessionEventOutput is the MCP output for session tools (start/end/active/latest).
@@ -46,15 +49,16 @@ type eventsOutput struct {
 
 // eventOutput is an individual event in an eventsOutput list.
 type eventOutput struct {
-	EventID    string `json:"event_id" jsonschema:"event ID"`
-	Kind       string `json:"kind" jsonschema:"event kind"`
-	Client     string `json:"client" jsonschema:"recording channel"`
-	Agent      string `json:"agent" jsonschema:"actor"`
-	SessionID  string `json:"session_id" jsonschema:"session identifier"`
-	Workspace  string `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
-	Body       string `json:"body" jsonschema:"event body"`
-	SourceHook string `json:"source_hook,omitempty" jsonschema:"hook identifier that produced this event (omitted for non-hook writes)"`
-	CreatedAt  string `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
+	EventID    string                    `json:"event_id" jsonschema:"event ID"`
+	Kind       string                    `json:"kind" jsonschema:"event kind"`
+	Client     string                    `json:"client" jsonschema:"recording channel"`
+	Agent      string                    `json:"agent" jsonschema:"actor"`
+	SessionID  string                    `json:"session_id" jsonschema:"session identifier"`
+	Workspace  string                    `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
+	Body       string                    `json:"body" jsonschema:"event body as a plain-text projection; for transcript JSON envelopes this joins the text blocks and excludes thinking blocks — use body_blocks for the canonical structured form"`
+	BodyBlocks []apptypes.EventBodyBlock `json:"body_blocks,omitempty" jsonschema:"structured block form of the body when it is a canonical transcript envelope; absent for legacy plain-text bodies and non-envelope JSON bodies"`
+	SourceHook string                    `json:"source_hook,omitempty" jsonschema:"hook identifier that produced this event (omitted for non-hook writes)"`
+	CreatedAt  string                    `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
 }
 
 // sessionHandoffOutput is the MCP output for the session_handoff tool.

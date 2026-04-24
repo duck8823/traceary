@@ -77,6 +77,40 @@ func TestExtractPlainBody(t *testing.T) {
 	}
 }
 
+func TestDecodeCanonicalEnvelope(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		body      string
+		wantOK    bool
+		wantCount int
+	}{
+		{"empty body not envelope", "", false, 0},
+		{"legacy plain text not envelope", "hello", false, 0},
+		{"non-envelope JSON not envelope", `{"foo":"bar"}`, false, 0},
+		{"capital-B Blocks is not envelope", `{"Blocks":[{"type":"text","text":"hi"}]}`, false, 0},
+		{"blocks:null not envelope", `{"blocks":null}`, false, 0},
+		{"element missing type/text not envelope", `{"blocks":[{"foo":"bar"}]}`, false, 0},
+		{"non-string type not envelope", `{"blocks":[{"type":42,"text":"x"}]}`, false, 0},
+		{"empty blocks array is envelope", `{"blocks":[]}`, true, 0},
+		{"canonical envelope returns blocks", `{"blocks":[{"type":"thinking","text":"a"},{"type":"text","text":"b"}]}`, true, 2},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, ok := DecodeCanonicalEnvelope(tc.body)
+			if ok != tc.wantOK {
+				t.Errorf("DecodeCanonicalEnvelope(%q) ok = %v, want %v", tc.body, ok, tc.wantOK)
+			}
+			if len(got) != tc.wantCount {
+				t.Errorf("DecodeCanonicalEnvelope(%q) len = %d, want %d", tc.body, len(got), tc.wantCount)
+			}
+		})
+	}
+}
+
 func TestParseEventBodyBlocks(t *testing.T) {
 	t.Parallel()
 

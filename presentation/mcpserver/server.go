@@ -266,6 +266,7 @@ func (s *Server) addLog() mcp.ToolHandlerFor[addLogInput, addLogOutput] {
 			return nil, addLogOutput{}, xerrors.Errorf("failed to record log: %w", err)
 		}
 
+		blocks, _ := apptypes.DecodeCanonicalEnvelope(event.Body())
 		return nil, addLogOutput{
 			EventID:    event.EventID().String(),
 			Kind:       event.Kind().String(),
@@ -274,6 +275,7 @@ func (s *Server) addLog() mcp.ToolHandlerFor[addLogInput, addLogOutput] {
 			SessionID:  event.SessionID().String(),
 			Workspace:  event.Workspace().String(),
 			Body:       apptypes.ExtractPlainBody(event.Body()),
+			BodyBlocks: blocks,
 			SourceHook: event.SourceHook(),
 			CreatedAt:  event.CreatedAt().UTC().Format(time.RFC3339Nano),
 		}, nil
@@ -1473,14 +1475,16 @@ func parseFlexibleTimeOptional(value string) (types.Optional[time.Time], error) 
 func convertEvents(events []*model.Event) []eventOutput {
 	outputs := make([]eventOutput, 0, len(events))
 	for _, event := range events {
+		blocks, _ := apptypes.DecodeCanonicalEnvelope(event.Body())
 		outputs = append(outputs, eventOutput{
 			EventID:    event.EventID().String(),
 			Kind:       event.Kind().String(),
 			Client:     event.Client().String(),
-			Agent:     event.Agent().String(),
+			Agent:      event.Agent().String(),
 			SessionID:  event.SessionID().String(),
 			Workspace:  event.Workspace().String(),
 			Body:       apptypes.ExtractPlainBody(event.Body()),
+			BodyBlocks: blocks,
 			SourceHook: event.SourceHook(),
 			CreatedAt:  event.CreatedAt().UTC().Format(time.RFC3339Nano),
 		})
