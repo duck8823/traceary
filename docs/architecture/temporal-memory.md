@@ -47,8 +47,8 @@ But the underlying idea — typed edges between memories with their own validity
 ```sql
 CREATE TABLE memory_edges (
     id              TEXT PRIMARY KEY,
-    from_memory_id  TEXT NOT NULL REFERENCES memories(memory_id) ON DELETE CASCADE,
-    to_memory_id    TEXT NOT NULL REFERENCES memories(memory_id) ON DELETE CASCADE,
+    from_memory_id  TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+    to_memory_id    TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
     relation_type   TEXT NOT NULL,
     valid_from      TEXT NOT NULL,
     valid_to        TEXT,
@@ -91,14 +91,14 @@ Migration `000013_create_memory_edges.sql` creates the table plus two indexes:
 
 ### CLI
 
-- `traceary memory graph add <from-memory-id> --to <to-memory-id> --relation <type> [--from <ts>] [--to <ts>]`
-- `traceary memory graph list [--memory-id <id>] [--relation <type>] [--as-of <ts>] [--depth 1]`
+- `traceary memory graph add <from-memory-id> --to <to-memory-id> --relation <type> [--from <ts>] [--to-date <ts>]`
+- `traceary memory graph list [--memory-id <id>] [--relation <type>] [--as-of <ts>] [--limit N]`
 
-Depth > 1 is **out of scope for v0.9** — v1 only walks one hop. Multi-hop traversal lands after operator feedback confirms the shape.
+`--to-date` (not `--to`) is the validity-window upper bound — the flag name avoids colliding with the `--to <memory-id>` target flag on `graph add`. Multi-hop traversal is explicitly deferred; `graph list` only returns direct edges.
 
 ### MCP
 
-- `memory_graph_add` and `memory_graph_query` tools mirror the CLI. Both honor `as_of` for validity filtering (same half-open semantics as `memory list --as-of`).
+MCP tools for graph operations are **not shipped in this release**. The overlay is currently CLI-only so the MCP contract can be designed after operator feedback reveals which traversal patterns are actually used. Tracked as a follow-up.
 
 ## What's explicitly out of scope
 
@@ -111,6 +111,7 @@ Depth > 1 is **out of scope for v0.9** — v1 only walks one hop. Multi-hop trav
 
 ## Follow-up tickets (created when this ships)
 
+- MCP `memory_graph_add` / `memory_graph_query` tools (CLI-first; add the MCP contract after operator usage stabilizes)
 - `memory graph walk` for multi-hop traversal
 - `hygiene scan edge_overlap` detector
 - Replay HTML edge visualization
