@@ -430,13 +430,14 @@ func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] 
 
 func newSessionEventOutput(event *model.Event) sessionEventOutput {
 	return sessionEventOutput{
-		EventID:   event.EventID().String(),
-		Kind:      event.Kind().String(),
-		Client:    event.Client().String(),
-		Agent:     event.Agent().String(),
-		SessionID: event.SessionID().String(),
-		Workspace: event.Workspace().String(),
-		CreatedAt: event.CreatedAt().UTC().Format(time.RFC3339Nano),
+		EventID:    event.EventID().String(),
+		Kind:       event.Kind().String(),
+		Client:     event.Client().String(),
+		Agent:      event.Agent().String(),
+		SessionID:  event.SessionID().String(),
+		Workspace:  event.Workspace().String(),
+		SourceHook: event.SourceHook(),
+		CreatedAt:  event.CreatedAt().UTC().Format(time.RFC3339Nano),
 	}
 }
 

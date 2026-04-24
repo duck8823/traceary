@@ -65,13 +65,14 @@ func writeEventDetails(output io.Writer, eventDetails apptypes.EventDetails) err
 	event := eventDetails.Event()
 	if _, err := fmt.Fprintf(
 		output,
-		"EVENT_ID: %s\nKIND: %s\nCLIENT: %s\nAGENT: %s\nSESSION_ID: %s\nWORKSPACE: %s\nCREATED_AT: %s\nMESSAGE: %s\n",
+		"EVENT_ID: %s\nKIND: %s\nCLIENT: %s\nAGENT: %s\nSESSION_ID: %s\nWORKSPACE: %s\nSOURCE_HOOK: %s\nCREATED_AT: %s\nMESSAGE: %s\n",
 		event.EventID(),
 		event.Kind(),
 		formatOptionalColumn(event.Client().String()),
 		event.Agent(),
 		event.SessionID(),
 		formatOptionalColumn(event.Workspace().String()),
+		formatOptionalColumn(event.SourceHook()),
 		event.CreatedAt().UTC().Format("2006-01-02T15:04:05Z07:00"),
 		apptypes.ExtractPlainBody(event.Body()),
 	); err != nil {
