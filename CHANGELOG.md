@@ -5,6 +5,37 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.8.1] - 2026-04-24
+
+Patch release focused on **hook provenance, transcript structure, and validity-window precision**: a new `events.source_hook` column records exactly which host-side hook produced each event, transcript / prompt bodies are persisted as structured JSON blocks (thinking vs text separated), and the SQLite memory validity filter now preserves sub-second precision so the half-open `[valid_from, valid_to)` contract holds at fractional boundaries.
+
+### Added
+- **`events.source_hook`** — every event carries the hook identifier that produced it (`stop`, `subagent_stop`, `pre_compact`, `post_compact`, `session_start`, `session_end`, `user_prompt_submit`, `post_tool_use`, `after_agent`, `after_tool`). Non-hook writes (`traceary log`, MCP `add_log`) leave the column NULL. `traceary list --source-hook <name>` and MCP `list_events` `source_hook` param filter by it; `traceary show`, `list --wide`, `list --json`, `list --fields source_hook`, `context`, and replay HTML all surface the value. Legacy `[phase:subagent]` / `[phase:pre-compact]` body-prefix rows still match the same filter names through a migration-window fallback.
+- **Transcript / prompt body blocks** — assistant transcripts and user prompts are now stored as a JSON envelope `{"blocks":[{"type":"thinking","text":"..."},{"type":"text","text":"..."}]}` so block-aware consumers can separate internal reasoning from the user-visible reply. Legacy plain-text rows continue to round-trip unchanged; non-envelope JSON bodies (e.g. `{"foo":"bar"}` notes) are preserved verbatim.
+- **`memory supersede --from / --to`** — CLI and MCP `supersede_memory` accept explicit validity bounds on the replacement; reversed windows (`valid_to < valid_from`) are rejected with the same guard as `set-validity`.
+- **Doctor multi-version cache warning** — `doctor` combines the existing staleness signal with a new check that fires when the Claude plugin cache contains more than one Traceary version (typical after `claude plugins update` on a resumed session), pointing operators at the fresh-session guidance.
+
+### Changed
+- **Memory validity timestamp storage** — `valid_from` / `valid_to` are normalised to fixed-width 9-digit nanoseconds so SQLite's lexicographic comparison matches `time.Time` comparison exactly. A one-off migration (000010) rewrites pre-v0.8.1 rows. The validity filter no longer wraps values in `datetime()`, so the partial index `idx_memories_valid_window` is now used.
+- **`MemoryUsecase.Supersede` inherits validity** — when `memory hygiene apply` creates a supersede transition, the replacement now inherits the original's `[valid_from, valid_to)` window unless the caller passes explicit overrides. Prior builds silently dropped the window, which turned `validity_overlap_supersede` into a self-contradiction.
+- **Hook body-prefix markers retired on write** — `hook_runtime` no longer emits `[phase:subagent]` on `session_ended` or `[phase:pre-compact]` on `compact_summary`; `source_hook` discriminates the lifecycle instead. Readers keep the prefix fallback for pre-v0.8.1 rows.
+
+### Fixed
+- **Non-canonical `--traceary-bin` basename** — `hooks install --upgrade` and `doctor` recognise Traceary-managed commands when the packaged binary is installed at a non-canonical path / basename (symlinks, `/usr/local/bin/traceary-dev`, Homebrew cellar paths). Prior builds misclassified them and emitted misleading "added" / "removed" summaries.
+
+### Docs
+- `CHANGELOG{,.ja}.md` entries (this file).
+
+### Included work items for v0.8.1
+- #662 structure event body as JSON blocks (transcript + prompt)
+- #664 SQLite memory validity filter loses fractional seconds
+- #665 MemoryUsecase.Supersede does not propagate valid_from / valid_to
+- #666 Log redaction consolidation
+- #667 non-canonical `--traceary-bin` basename detection
+- #670 doctor plugin-cache active-snapshot vs cache mismatch
+- #672 events.source_hook column (write side)
+- #679 source_hook read side — CLI / MCP filter + JSON field + replay HTML + retire body-prefix markers
+
 ## [v0.8.0] - 2026-04-22
 
 Minor release focused on **replay UX, temporal memory, and transcript capture**: a self-contained replay HTML that operators can share, per-memory validity windows for time-traveled reads, and assistant-reply transcripts across Claude Code / Codex CLI / Gemini CLI. Also expands hook coverage to Claude Code's 2026-Q2 surfaces (SubagentStop / PreCompact) and tightens the `traceary hooks install` and `doctor` ergonomics.
