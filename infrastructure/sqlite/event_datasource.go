@@ -84,6 +84,7 @@ func (d *EventDatasource) Save(ctx context.Context, event *model.Event) error {
 		event.Workspace().String(),
 		event.Body(),
 		formatTimestamp(event.CreatedAt()),
+		nullableString(event.SourceHook()),
 	); err != nil {
 		return xerrors.Errorf("failed to insert event: %w", err)
 	}
@@ -135,6 +136,7 @@ func (d *EventDatasource) SaveWithAudit(
 		event.Workspace().String(),
 		event.Body(),
 		formatTimestamp(event.CreatedAt()),
+		nullableString(event.SourceHook()),
 	); err != nil {
 		return xerrors.Errorf("failed to insert event: %w", err)
 	}

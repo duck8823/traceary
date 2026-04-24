@@ -157,6 +157,19 @@ func formatTimestamp(timestamp time.Time) string {
 	return timestamp.UTC().Format(time.RFC3339Nano)
 }
 
+// nullableString converts a Go string to a value suitable for SQLite
+// TEXT columns that distinguish "" from NULL. Empty strings become
+// NULL; non-empty strings are bound as-is. Used for columns like
+// events.source_hook where empty and NULL mean "no tag" and we want
+// the persisted representation to be a single NULL rather than a
+// mix of empty strings and NULLs.
+func nullableString(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
 // formatMemoryValidityTimestamp renders a time.Time as a fixed-width
 // RFC3339 string with nine fractional-second digits, e.g.
 // "2026-04-10T00:00:00.123000000Z". Unlike RFC3339Nano (which trims

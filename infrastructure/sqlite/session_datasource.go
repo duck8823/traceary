@@ -114,6 +114,7 @@ func (d *SessionDatasource) SaveBoundary(ctx context.Context, session *model.Ses
 		event.Workspace().String(),
 		event.Body(),
 		formatTimestamp(event.CreatedAt()),
+		nullableString(event.SourceHook()),
 	); err != nil {
 		return xerrors.Errorf("failed to insert boundary event: %w", err)
 	}
