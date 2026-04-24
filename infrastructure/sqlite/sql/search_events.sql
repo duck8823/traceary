@@ -10,7 +10,14 @@ SELECT DISTINCT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.bo
   FROM events e
   LEFT JOIN command_audits a ON a.event_id = e.id
  WHERE (? = '' OR
-        (CASE WHEN json_valid(e.body) AND json_type(e.body, '$.blocks') = 'array'
+        (CASE WHEN json_valid(e.body)
+                   AND json_type(e.body, '$.blocks') = 'array'
+                   AND NOT EXISTS (
+                     SELECT 1
+                       FROM json_each(json_extract(e.body, '$.blocks'))
+                      WHERE typeof(json_extract(value, '$.type')) != 'text'
+                         OR typeof(json_extract(value, '$.text')) != 'text'
+                   )
               THEN COALESCE(
                      (SELECT group_concat(json_extract(value, '$.text'), X'0A0A')
                         FROM json_each(json_extract(e.body, '$.blocks'))

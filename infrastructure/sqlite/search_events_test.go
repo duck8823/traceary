@@ -211,6 +211,58 @@ func TestDatasource_Search_SkipsThinkingOnlyMatches(t *testing.T) {
 	}
 }
 
+func TestDatasource_Search_PreservesNonCanonicalBlocksBody(t *testing.T) {
+	t.Parallel()
+
+	// Non-canonical envelope: has a "blocks" key but elements do not
+	// match the {type:string, text:string} shape. ExtractPlainBody
+	// returns the raw body for these, so search must keep the raw body
+	// searchable too — otherwise the search surface and the display
+	// surface disagree.
+	migrations := searchEventsMigrations()
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	sut, storeManager := newEventDatasource(t, dbPath, migrations)
+	if err := storeManager.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	ws := "github.com/duck8823/traceary"
+	cases := []struct {
+		name string
+		id   string
+		body string
+	}{
+		{"element missing type/text", "event-foreign-shape", `{"blocks":[{"foo":"non-canonical-needle"}]}`},
+		{"text field is non-string", "event-nonstring-text", `{"blocks":[{"type":"text","text":42}]}`},
+		{"type field is non-string", "event-nonstring-type", `{"blocks":[{"type":42,"text":"non-canonical-needle"}]}`},
+		{"blocks:null falls through", "event-blocks-null", `{"blocks":null,"note":"non-canonical-needle"}`},
+	}
+	for i, c := range cases {
+		fixture := newSearchEventFixture(
+			t,
+			c.id,
+			types.EventKindNote,
+			ws,
+			c.body,
+			time.Date(2026, 4, 15, 12, i, 0, 0, time.UTC),
+		)
+		if err := sut.Save(context.Background(), fixture); err != nil {
+			t.Fatalf("Save(%s) error = %v", c.name, err)
+		}
+	}
+
+	filtered, err := sut.Search(context.Background(), "non-canonical-needle", types.Workspace(ws), types.SessionID(""), types.Client(""), types.Agent(""), types.EventKind(""), time.Time{}, time.Time{}, 10, 0, false)
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+	// All 3 bodies that contain the needle literal in their raw JSON
+	// must match (the nonstring-text case does not contain the string
+	// "non-canonical-needle", so we expect 3 hits, not 4).
+	if len(filtered) != 3 {
+		t.Fatalf("len(filtered) = %d, want 3 (non-canonical envelopes must remain raw-searchable)", len(filtered))
+	}
+}
+
 func TestDatasource_Search_PreservesNonEnvelopeJSONBody(t *testing.T) {
 	t.Parallel()
 
