@@ -24,6 +24,7 @@ const (
 	readFieldMessage   readFieldID = "message"
 	readFieldExitCode  readFieldID = "exit_code"
 	readFieldEventID   readFieldID = "id"
+	readFieldSourceHook readFieldID = "source_hook"
 )
 
 // supportedReadFields is the canonical list of field IDs accepted by the
@@ -39,6 +40,7 @@ var supportedReadFields = []readFieldID{
 	readFieldMessage,
 	readFieldExitCode,
 	readFieldEventID,
+	readFieldSourceHook,
 }
 
 // defaultReadFields is the built-in default column order. Starting in

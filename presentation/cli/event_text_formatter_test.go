@@ -154,7 +154,7 @@ func TestFormatEventWideRow_UTCMatchesLegacyFormat(t *testing.T) {
 	)
 
 	got := formatEventWideRow(event, eventTextFormatOptions{wide: true, utc: true})
-	want := "2026-04-15T09:30:00Z\tnote\tcli\tcodex\tsession-1\tduck8823/traceary\tpayload"
+	want := "2026-04-15T09:30:00Z\tnote\tcli\tcodex\tsession-1\tduck8823/traceary\t-\tpayload"
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Fatalf("wide row mismatch (-want +got):\n%s", diff)
 	}
@@ -326,8 +326,8 @@ func TestWriteEvents_WideUTCMatchesLegacyTable(t *testing.T) {
 	if err := writeEvents(&buf, []*model.Event{event}, eventTextFormatOptions{wide: true, utc: true}, nil); err != nil {
 		t.Fatalf("writeEvents() error = %v", err)
 	}
-	want := "CREATED_AT\tKIND\tCLIENT\tAGENT\tSESSION_ID\tWORKSPACE\tMESSAGE\n" +
-		"2026-04-07T12:00:00Z\tnote\tcli\tcodex\tsession-1\tduck8823/traceary\thello\n"
+	want := "CREATED_AT\tKIND\tCLIENT\tAGENT\tSESSION_ID\tWORKSPACE\tSOURCE_HOOK\tMESSAGE\n" +
+		"2026-04-07T12:00:00Z\tnote\tcli\tcodex\tsession-1\tduck8823/traceary\t-\thello\n"
 	if diff := cmp.Diff(want, buf.String()); diff != "" {
 		t.Fatalf("writeEvents() wide+utc mismatch (-want +got):\n%s", diff)
 	}
