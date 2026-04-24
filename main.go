@@ -186,6 +186,8 @@ func run() error {
 	})
 	codexIntegrationUsecase := usecase.NewCodexIntegrationUsecase(filesystem.NewCodexIntegrationManager(hooksOrchestrator))
 	hooksInspector := filesystem.NewHooksInspector()
+	pluginCacheInspector := filesystem.NewPluginCacheInspector()
+	pluginDetector := filesystem.NewClaudePluginDetectorAdapter()
 
 	rootCmd := cli.NewRootCLI(
 		cli.WithEvent(eventUsecase),
@@ -203,6 +205,8 @@ func run() error {
 		cli.WithMCPServerRunner(mcpServer),
 		cli.WithHooksOrchestrator(hooksOrchestrator),
 		cli.WithHooksInspector(hooksInspector),
+		cli.WithPluginCacheInspector(pluginCacheInspector),
+		cli.WithClaudePluginDetector(pluginDetector),
 		cli.WithExtraRedactPatterns(extraRedactPatterns),
 		cli.WithDefaultReadFields(defaultReadFields),
 		cli.WithReadPresets(readPresets),

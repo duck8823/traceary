@@ -51,3 +51,11 @@ func (i *HooksInspector) Inspect(content []byte) (bool, bool, error) {
 
 	return true, false, nil
 }
+
+// ExtractManagedKeyFromEntry delegates to the free ExtractTracearyManagedKeyFromEntry
+// function so presentation code can consume the canonical-key extraction
+// through the application.HooksInspector interface without importing the
+// infrastructure package directly.
+func (i *HooksInspector) ExtractManagedKeyFromEntry(name, command string) string {
+	return ExtractTracearyManagedKeyFromEntry(name, command)
+}
