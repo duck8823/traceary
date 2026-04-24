@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
@@ -14,6 +15,12 @@ import (
 )
 
 const maxCompactSummaryOutputLen = 560
+
+// compactSummaryDefaultRecent is the legacy default for --recent on
+// `traceary compact-summary`. `traceary session handoff --compact-only`
+// falls back to this value when the caller does not set --recent, to
+// keep the compact output byte-for-byte compatible with v0.8.x.
+const compactSummaryDefaultRecent = 3
 
 func (c *RootCLI) newCompactSummaryCommand() *cobra.Command {
 	var (
@@ -50,9 +57,29 @@ func (c *RootCLI) newCompactSummaryCommand() *cobra.Command {
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	cmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID", "セッション ID"))
 	cmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by workspace", "ワークスペースでフィルタ"))
-	cmd.Flags().IntVar(&limit, "recent", 3, Localize("number of recent commands to show", "表示する直近コマンド数"))
+	cmd.Flags().IntVar(&limit, "recent", compactSummaryDefaultRecent, Localize("number of recent commands to show", "表示する直近コマンド数"))
+
+	applyDeprecation(cmd, Localize(
+		"use `traceary session handoff --compact-only` — this alias will be removed in v1.0",
+		"`traceary session handoff --compact-only` を使ってください — この alias は v1.0 で削除されます",
+	))
 
 	return cmd
+}
+
+// compactSummaryOptions captures every knob the compact-summary path
+// supports. Callers from `session handoff --compact-only` can thread
+// --memories / --preset / --as-of through here so those flags are not
+// silent no-ops (Codex verifier MUST on #697). The legacy
+// `compact-summary` command passes zero / None for the new fields so
+// its byte-for-byte output stays unchanged.
+type compactSummaryOptions struct {
+	sessionID   string
+	workspace   string
+	recentCount int
+	memoryLimit int
+	preset      apptypes.MemoryRetrievalPreset
+	asOf        types.Optional[time.Time]
 }
 
 func (c *RootCLI) printCompactSummary(
@@ -63,6 +90,19 @@ func (c *RootCLI) printCompactSummary(
 	repo string,
 	recentCount int,
 ) error {
+	return c.printCompactSummaryWithOptions(ctx, output, compactSummaryOptions{
+		sessionID:   sessionID,
+		workspace:   repo,
+		recentCount: recentCount,
+		memoryLimit: recentCount,
+	})
+}
+
+func (c *RootCLI) printCompactSummaryWithOptions(
+	ctx context.Context,
+	output io.Writer,
+	opts compactSummaryOptions,
+) error {
 	if c.context == nil {
 		return xerrors.Errorf("context usecase is not configured")
 	}
@@ -70,10 +110,12 @@ func (c *RootCLI) printCompactSummary(
 	result, err := c.context.Handoff(
 		ctx,
 		apptypes.NewContextPackCriteriaBuilder().
-			SessionID(types.SessionID(sessionID)).
-			Workspace(types.Workspace(repo)).
-			RecentCommandsLimit(recentCount).
-			MemoryLimit(recentCount).
+			SessionID(types.SessionID(opts.sessionID)).
+			Workspace(types.Workspace(opts.workspace)).
+			RecentCommandsLimit(opts.recentCount).
+			MemoryLimit(opts.memoryLimit).
+			MemoryPreset(opts.preset).
+			MemoryAsOf(opts.asOf).
 			Build(),
 	)
 	if err != nil {

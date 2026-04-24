@@ -43,7 +43,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"compact-summary", "--db-path", dbPath})
+		rootCmd.SetArgs([]string{"session", "handoff", "--compact-only", "--db-path", dbPath})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -84,7 +84,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"compact-summary", "--db-path", dbPath})
+		rootCmd.SetArgs([]string{"session", "handoff", "--compact-only", "--db-path", dbPath})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -122,7 +122,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"compact-summary", "--db-path", dbPath, "--session-id", "target-session"})
+		rootCmd.SetArgs([]string{"session", "handoff", "--compact-only", "--db-path", dbPath, "--session-id", "target-session"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -179,7 +179,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"compact-summary", "--db-path", dbPath})
+		rootCmd.SetArgs([]string{"session", "handoff", "--compact-only", "--db-path", dbPath})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -223,7 +223,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"compact-summary", "--db-path", dbPath, "--recent", "3"})
+		rootCmd.SetArgs([]string{"session", "handoff", "--compact-only", "--db-path", dbPath, "--recent", "3"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -235,4 +235,50 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 			t.Errorf("output too long for context injection: %d chars (target < 600)", len(output))
 		}
 	})
+
+	t.Run("session handoff --compact-only passes the same recent default as compact-summary", func(t *testing.T) {
+		t.Parallel()
+
+		// Verifies the fix for Codex verifier MUST on #697: a fresh
+		// `session handoff --compact-only` invocation (no --recent
+		// flag) must build a ContextPackCriteria with the same
+		// RecentCommandsLimit as the legacy `compact-summary`
+		// command did — otherwise the compact output drifts from
+		// the v0.8.x byte-for-byte output when --recent defaults
+		// differ (handoff uses 5, compact-summary used 3).
+		runArgs := func(args []string) apptypes.ContextPackCriteria {
+			dbPath := filepath.Join(t.TempDir(), "traceary.db")
+			contextStub := &contextUsecaseStub{
+				handoff: types.None[apptypes.ContextPack](),
+			}
+			rootCmd := cli.NewRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+				cli.WithContext(contextStub),
+			).Command()
+			rootCmd.SetOut(&bytes.Buffer{})
+			rootCmd.SetErr(&bytes.Buffer{})
+			rootCmd.SetArgs(append([]string{}, append(args, "--db-path", dbPath)...))
+			if err := rootCmd.Execute(); err != nil {
+				t.Fatalf("Execute(%v) error = %v", args, err)
+			}
+			if len(contextStub.handoffCalls) != 1 {
+				t.Fatalf("expected exactly one Handoff call, got %d", len(contextStub.handoffCalls))
+			}
+			return contextStub.handoffCalls[0]
+		}
+
+		legacy := runArgs([]string{"compact-summary"})
+		newPath := runArgs([]string{"session", "handoff", "--compact-only"})
+
+		if legacy.RecentCommandsLimit() != newPath.RecentCommandsLimit() {
+			t.Fatalf(
+				"recent-commands default drift: legacy=%d new=%d (both should be %d)",
+				legacy.RecentCommandsLimit(), newPath.RecentCommandsLimit(), 3,
+			)
+		}
+		if legacy.RecentCommandsLimit() != 3 {
+			t.Fatalf("compact-summary legacy default = %d, want 3", legacy.RecentCommandsLimit())
+		}
+	})
 }
+

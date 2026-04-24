@@ -214,21 +214,17 @@ func (c *RootCLI) Command() *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
-	rootCmd.AddCommand(c.newInitCommand())
-	rootCmd.AddCommand(c.newBackupCommand())
+	// Top-level daily-use commands (kept flat for ergonomics).
 	rootCmd.AddCommand(c.newLogCommand())
 	rootCmd.AddCommand(c.newAuditCommand())
-	rootCmd.AddCommand(c.newGCCommand())
 	rootCmd.AddCommand(c.newSearchCommand())
 	rootCmd.AddCommand(c.newTailCommand())
 	rootCmd.AddCommand(c.newContextCommand())
-	rootCmd.AddCommand(c.newHandoffCommand())
 	rootCmd.AddCommand(c.newListCommand())
 	rootCmd.AddCommand(c.newShowCommand())
 	rootCmd.AddCommand(c.newHookCommand())
 	rootCmd.AddCommand(c.newSessionCommand())
 	rootCmd.AddCommand(c.newMemoryCommand())
-	rootCmd.AddCommand(c.newCompactSummaryCommand())
 	rootCmd.AddCommand(c.newTimelineCommand())
 	rootCmd.AddCommand(c.newCompletionCommand(rootCmd))
 	rootCmd.AddCommand(c.newHooksCommand())
@@ -236,5 +232,18 @@ func (c *RootCLI) Command() *cobra.Command {
 	rootCmd.AddCommand(c.newDoctorCommand())
 	rootCmd.AddCommand(c.newMCPServerCommand())
 	rootCmd.AddCommand(c.newReplayCommand())
+
+	// v0.9.0 grouped namespaces — store administration and
+	// session-bootstrap helpers moved behind parent commands.
+	rootCmd.AddCommand(c.newStoreCommand())
+
+	// Deprecated top-level aliases kept during the v0.9 series. They
+	// already carry `Deprecated` messages so `--help` surfaces the
+	// replacement path. Scheduled for removal in v1.0 (see #696).
+	rootCmd.AddCommand(c.newInitCommand())
+	rootCmd.AddCommand(c.newBackupCommand())
+	rootCmd.AddCommand(c.newGCCommand())
+	rootCmd.AddCommand(c.newHandoffCommand())
+	rootCmd.AddCommand(c.newCompactSummaryCommand())
 	return rootCmd
 }
