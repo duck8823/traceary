@@ -196,7 +196,7 @@ func (c *RootCLI) runHooksInstall(
 	// to override; require --force for an intentional duplicate.
 	canonicalClient := normalizeHooksClientForDisplay(c, input.client)
 	if canonicalClient == "claude" {
-		detection := detectClaudeTracearyPluginForCLI()
+		detection := c.detectClaudeTracearyPluginForCLI()
 		if detection.Active && input.upgrade {
 			// --upgrade is the non-destructive path, so pointing users
 			// at --force here would be actively wrong: --force clobbers

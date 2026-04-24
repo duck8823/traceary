@@ -26,6 +26,8 @@ func newTestHooksOptions() []cli.RootCLIOption {
 			"gemini": filesystem.NewGeminiHooksHandler(),
 		})),
 		cli.WithHooksInspector(filesystem.NewHooksInspector()),
+		cli.WithPluginCacheInspector(filesystem.NewPluginCacheInspector()),
+		cli.WithClaudePluginDetector(filesystem.NewClaudePluginDetectorAdapter()),
 	}
 }
 

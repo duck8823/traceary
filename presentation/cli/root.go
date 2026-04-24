@@ -23,8 +23,10 @@ type RootCLI struct {
 	codexIntegration    usecase.CodexIntegrationUsecase
 	storeManagement     usecase.StoreManagementUsecase
 	mcpServerRunner     MCPServerRunner
-	hooksOrchestrator   application.HooksOrchestrator
-	hooksInspector      application.HooksInspector
+	hooksOrchestrator    application.HooksOrchestrator
+	hooksInspector       application.HooksInspector
+	pluginCacheInspector application.PluginCacheInspector
+	pluginDetector       application.ClaudePluginDetector
 	extraRedactPatterns []string
 	defaultReadFields   []string
 	readPresets         map[string]presentation.ReadPreset
@@ -129,6 +131,20 @@ func WithHooksOrchestrator(orchestrator application.HooksOrchestrator) RootCLIOp
 // to inspect client hook configurations.
 func WithHooksInspector(inspector application.HooksInspector) RootCLIOption {
 	return func(c *RootCLI) { c.hooksInspector = inspector }
+}
+
+// WithPluginCacheInspector injects the PluginCacheInspector used by the
+// doctor command to detect cached-vs-marketplace drift on hosts that
+// have a per-plugin version cache (Claude Code).
+func WithPluginCacheInspector(inspector application.PluginCacheInspector) RootCLIOption {
+	return func(c *RootCLI) { c.pluginCacheInspector = inspector }
+}
+
+// WithClaudePluginDetector injects the ClaudePluginDetector used by
+// doctor / hooks install to detect whether the Traceary Claude Code
+// plugin is active in the user's global settings.
+func WithClaudePluginDetector(detector application.ClaudePluginDetector) RootCLIOption {
+	return func(c *RootCLI) { c.pluginDetector = detector }
 }
 
 // WithExtraRedactPatterns injects additional redaction regex patterns used

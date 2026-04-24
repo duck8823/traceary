@@ -15,7 +15,6 @@ import (
 
 	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/domain/types"
-	"github.com/duck8823/traceary/infrastructure/filesystem"
 )
 
 const (
@@ -165,7 +164,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		}
 
 		if targetClient == "claude" {
-			if cacheCheck := inspectClaudePluginCacheStatus(); cacheCheck != nil {
+			if cacheCheck := c.inspectClaudePluginCacheStatus(); cacheCheck != nil {
 				report.Checks = append(report.Checks, *cacheCheck)
 			}
 		}
@@ -188,16 +187,19 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 // stay dark until the operator runs `claude plugins update`. The check
 // returns nil when the plugin is not active or when either side cannot
 // be resolved (reported indirectly by the existing claude-config check).
-func inspectClaudePluginCacheStatus() *doctorCheck {
-	detection := detectClaudeTracearyPluginForCLI()
+func (c *RootCLI) inspectClaudePluginCacheStatus() *doctorCheck {
+	detection := c.detectClaudeTracearyPluginForCLI()
 	if !detection.Active {
+		return nil
+	}
+	if c.pluginCacheInspector == nil {
 		return nil
 	}
 	home, err := userHomeDirFunc()
 	if err != nil {
 		return nil
 	}
-	status := filesystem.DetectClaudePluginCacheStatus(home, detection.PluginKey)
+	status := c.pluginCacheInspector.DetectClaudePluginCacheStatus(home, detection.PluginKey)
 	if status.CachedVersion == "" || status.MarketplaceVersion == "" {
 		return nil
 	}
@@ -380,7 +382,7 @@ func (c *RootCLI) inspectClaudeOrConfigFile(client, outputPath, projectDir strin
 		return c.inspectDoctorConfigFile(client, outputPath)
 	}
 
-	detection := detectClaudeTracearyPluginForCLI()
+	detection := c.detectClaudeTracearyPluginForCLI()
 	configCheck := c.inspectDoctorConfigFile(client, outputPath)
 
 	if detection.Active {
@@ -583,7 +585,7 @@ func (c *RootCLI) inspectDoctorConfigFile(client string, outputPath string) doct
 
 	if hasTracearyManagedHook {
 		if client == "codex" {
-			if missing := missingTracearyManagedCodexEvents(content); len(missing) > 0 {
+			if missing := c.missingTracearyManagedCodexEvents(content); len(missing) > 0 {
 				return doctorCheck{
 					Name:   client + "-config",
 					Status: doctorStatusWarn,
@@ -639,7 +641,7 @@ var codexManagedEventKeys = map[string]string{
 // hooks.json content. Unknown / non-object JSON shapes are reported as an
 // empty slice so the outer inspector branch (which already checked hook
 // shape) remains authoritative.
-func missingTracearyManagedCodexEvents(content []byte) []string {
+func (c *RootCLI) missingTracearyManagedCodexEvents(content []byte) []string {
 	var root struct {
 		Hooks map[string]json.RawMessage `json:"hooks"`
 	}
@@ -657,7 +659,7 @@ func missingTracearyManagedCodexEvents(content []byte) []string {
 			missing = append(missing, event)
 			continue
 		}
-		if !hasEntryWithManagedKey(raw, expectedKey) {
+		if !c.hasEntryWithManagedKey(raw, expectedKey) {
 			missing = append(missing, event)
 		}
 	}
@@ -668,8 +670,11 @@ func missingTracearyManagedCodexEvents(content []byte) []string {
 // contain at least one command whose parsed Traceary managed key equals
 // expectedKey. Empty expectedKey always returns false so the caller cannot
 // accidentally match user-managed commands.
-func hasEntryWithManagedKey(raw json.RawMessage, expectedKey string) bool {
+func (c *RootCLI) hasEntryWithManagedKey(raw json.RawMessage, expectedKey string) bool {
 	if expectedKey == "" {
+		return false
+	}
+	if c.hooksInspector == nil {
 		return false
 	}
 	var entries []struct {
@@ -690,7 +695,7 @@ func hasEntryWithManagedKey(raw json.RawMessage, expectedKey string) bool {
 			// Use the Name-aware extractor so entries installed via
 			// `--traceary-bin <non-traceary-basename>` (dev builds)
 			// are still recognized through the `traceary-*` Name.
-			if filesystem.ExtractTracearyManagedKeyFromEntry(h.Name, h.Command) == expectedKey {
+			if c.hooksInspector.ExtractManagedKeyFromEntry(h.Name, h.Command) == expectedKey {
 				return true
 			}
 		}

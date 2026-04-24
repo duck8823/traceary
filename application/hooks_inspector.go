@@ -14,4 +14,10 @@ type HooksInspector interface {
 	// ErrHookConfigInvalidHooksField when the "hooks" field has the wrong
 	// shape.
 	Inspect(content []byte) (hasHooksField bool, hasTracearyManagedHook bool, err error)
+	// ExtractManagedKeyFromEntry returns the canonical Traceary-managed
+	// key extracted from a hook entry's name / command pair, or an
+	// empty string if the entry is not Traceary-managed. Presentation
+	// code uses this to recognise installed hook entries without
+	// re-implementing the command parsing.
+	ExtractManagedKeyFromEntry(name, command string) string
 }
