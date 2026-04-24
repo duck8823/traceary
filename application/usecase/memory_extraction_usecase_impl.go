@@ -272,6 +272,7 @@ func (u *memoryExtractionUsecase) collectCandidateSpecs(ctx context.Context, ses
 			false,
 			time.Time{},
 			time.Time{},
+			"",
 		)
 		if err != nil {
 			return xerrors.Errorf("failed to list %s events for extraction: %w", kind, err)

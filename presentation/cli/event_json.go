@@ -41,14 +41,15 @@ func writeEventJSON(output io.Writer, e *model.Event) error {
 
 func newEventOutput(e *model.Event) event {
 	return event{
-		EventID:   e.EventID().String(),
-		Kind:      e.Kind().String(),
-		Client:    e.Client().String(),
-		Agent:     e.Agent().String(),
-		SessionID: e.SessionID().String(),
-		Workspace: e.Workspace().String(),
-		Message:   apptypes.ExtractPlainBody(e.Body()),
-		CreatedAt: e.CreatedAt().UTC().Format("2006-01-02T15:04:05Z07:00"),
+		EventID:    e.EventID().String(),
+		Kind:       e.Kind().String(),
+		Client:     e.Client().String(),
+		Agent:      e.Agent().String(),
+		SessionID:  e.SessionID().String(),
+		Workspace:  e.Workspace().String(),
+		Message:    apptypes.ExtractPlainBody(e.Body()),
+		SourceHook: e.SourceHook(),
+		CreatedAt:  e.CreatedAt().UTC().Format("2006-01-02T15:04:05Z07:00"),
 	}
 }
 

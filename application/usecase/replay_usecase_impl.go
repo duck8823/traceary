@@ -108,6 +108,7 @@ func (u *replayUsecase) Bundle(ctx context.Context, criteria apptypes.ReplayCrit
 			false,
 			time.Time{},
 			time.Time{},
+			"",
 		)
 		if err != nil {
 			return apptypes.ReplayBundle{}, xerrors.Errorf("failed to list events for session %s: %w", session.SessionID().String(), err)
@@ -212,6 +213,7 @@ func (u *replayUsecase) loadFailureHotspots(ctx context.Context, criteria apptyp
 		true,
 		from,
 		now,
+		"",
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list failure events for replay hotspot: %w", err)

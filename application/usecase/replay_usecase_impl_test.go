@@ -29,7 +29,7 @@ type stubReplayEventQuery struct {
 	timelineBlocks  []apptypes.TimelineBlock
 }
 
-func (s *stubReplayEventQuery) ListRecent(_ context.Context, _, _ int, _ domtypes.EventKind, _ domtypes.Client, _ domtypes.Agent, sessionID domtypes.SessionID, _ domtypes.Workspace, failuresOnly bool, _, _ time.Time) ([]*model.Event, error) {
+func (s *stubReplayEventQuery) ListRecent(_ context.Context, _, _ int, _ domtypes.EventKind, _ domtypes.Client, _ domtypes.Agent, sessionID domtypes.SessionID, _ domtypes.Workspace, failuresOnly bool, _, _ time.Time, _ string) ([]*model.Event, error) {
 	if failuresOnly {
 		return s.failureEvents, nil
 	}

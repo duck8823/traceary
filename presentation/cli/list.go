@@ -27,6 +27,7 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 		to           string
 		until        string
 		failuresOnly bool
+		sourceHook   string
 		asJSON       bool
 		wide         bool
 		utc          bool
@@ -54,6 +55,8 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 				to:              to,
 				until:           until,
 				failuresOnly:    failuresOnly,
+				sourceHook:      sourceHook,
+				sourceHookSet:   cmd.Flags().Changed("source-hook"),
 				asJSON:          asJSON,
 				wide:            wide,
 				utc:             utc,
@@ -85,6 +88,7 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 	listCmd.Flags().StringVar(&to, "to", "", Localize("end date (`YYYY-MM-DD` or RFC3339)", "終了日 (`YYYY-MM-DD` または RFC3339)"))
 	listCmd.Flags().StringVar(&until, "until", "", Localize("end date (`YYYY-MM-DD` or RFC3339) (alias for `--to`)", "終了日 (`YYYY-MM-DD` または RFC3339) (`--to` の別名)"))
 	listCmd.Flags().BoolVar(&failuresOnly, "failures", false, Localize("show only failed commands", "失敗したコマンドのみ表示"))
+	listCmd.Flags().StringVar(&sourceHook, "source-hook", "", Localize("filter by hook identifier that produced the event (e.g. stop, subagent_stop, pre_compact, post_compact, session_start, session_end, user_prompt_submit, post_tool_use, after_agent, after_tool)", "イベントを生成した hook 識別子で絞り込む (例: stop, subagent_stop, pre_compact, post_compact, session_start, session_end, user_prompt_submit, post_tool_use, after_agent, after_tool)"))
 	listCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	listCmd.Flags().BoolVar(&wide, "wide", false, Localize("use the legacy tab-separated seven-column format", "従来のタブ区切り 7 カラム形式で出力する"))
 	listCmd.Flags().BoolVar(&utc, "utc", false, Localize("print text timestamps in UTC instead of local time", "テキスト出力のタイムスタンプを現地時刻ではなく UTC で出力する"))
@@ -161,6 +165,7 @@ func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.W
 		SessionID(types.SessionID(strings.TrimSpace(input.sessionID))).
 		Workspace(types.Workspace(resolveWorkspaceValue(ctx, input.repo))).
 		FailuresOnly(input.failuresOnly).
+		SourceHook(strings.TrimSpace(input.sourceHook)).
 		From(fromTime).
 		To(toTime).
 		Build()

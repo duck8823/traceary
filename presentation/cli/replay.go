@@ -180,12 +180,13 @@ type replaySession struct {
 }
 
 type replayEvent struct {
-	EventID   string
-	Kind      string
-	CreatedAt time.Time
-	Client    string
-	Agent     string
-	Body      string
+	EventID    string
+	Kind       string
+	CreatedAt  time.Time
+	Client     string
+	Agent      string
+	Body       string
+	SourceHook string
 }
 
 type replayMemory struct {
@@ -217,12 +218,13 @@ func replayDataFromBundle(bundle apptypes.ReplayBundle, dbPathFlag string) repla
 		converted := make([]replayEvent, 0, len(events))
 		for _, event := range events {
 			converted = append(converted, replayEvent{
-				EventID:   event.EventID().String(),
-				Kind:      event.Kind().String(),
-				CreatedAt: event.CreatedAt().UTC(),
-				Client:    event.Client().String(),
-				Agent:     event.Agent().String(),
-				Body:      apptypes.ExtractPlainBody(event.Body()),
+				EventID:    event.EventID().String(),
+				Kind:       event.Kind().String(),
+				CreatedAt:  event.CreatedAt().UTC(),
+				Client:     event.Client().String(),
+				Agent:      event.Agent().String(),
+				Body:       apptypes.ExtractPlainBody(event.Body()),
+				SourceHook: event.SourceHook(),
 			})
 		}
 		data.Sessions = append(data.Sessions, replaySession{

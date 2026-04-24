@@ -267,14 +267,15 @@ func (s *Server) addLog() mcp.ToolHandlerFor[addLogInput, addLogOutput] {
 		}
 
 		return nil, addLogOutput{
-			EventID:   event.EventID().String(),
-			Kind:      event.Kind().String(),
-			Client:    event.Client().String(),
-			Agent:     event.Agent().String(),
-			SessionID: event.SessionID().String(),
-			Workspace: event.Workspace().String(),
-			Body:      apptypes.ExtractPlainBody(event.Body()),
-			CreatedAt: event.CreatedAt().UTC().Format(time.RFC3339Nano),
+			EventID:    event.EventID().String(),
+			Kind:       event.Kind().String(),
+			Client:     event.Client().String(),
+			Agent:      event.Agent().String(),
+			SessionID:  event.SessionID().String(),
+			Workspace:  event.Workspace().String(),
+			Body:       apptypes.ExtractPlainBody(event.Body()),
+			SourceHook: event.SourceHook(),
+			CreatedAt:  event.CreatedAt().UTC().Format(time.RFC3339Nano),
 		}, nil
 	}
 }
@@ -414,6 +415,7 @@ func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] 
 			Agent(types.Agent(strings.TrimSpace(input.Agent))).
 			SessionID(types.SessionID(strings.TrimSpace(input.SessionID))).
 			Workspace(types.Workspace(strings.TrimSpace(input.Workspace))).
+			SourceHook(strings.TrimSpace(input.SourceHook)).
 			From(from).
 			To(to).
 			Build()
@@ -1471,14 +1473,15 @@ func convertEvents(events []*model.Event) []eventOutput {
 	outputs := make([]eventOutput, 0, len(events))
 	for _, event := range events {
 		outputs = append(outputs, eventOutput{
-			EventID:   event.EventID().String(),
-			Kind:      event.Kind().String(),
-			Client:    event.Client().String(),
+			EventID:    event.EventID().String(),
+			Kind:       event.Kind().String(),
+			Client:     event.Client().String(),
 			Agent:     event.Agent().String(),
-			SessionID: event.SessionID().String(),
-			Workspace: event.Workspace().String(),
-			Body:      apptypes.ExtractPlainBody(event.Body()),
-			CreatedAt: event.CreatedAt().UTC().Format(time.RFC3339Nano),
+			SessionID:  event.SessionID().String(),
+			Workspace:  event.Workspace().String(),
+			Body:       apptypes.ExtractPlainBody(event.Body()),
+			SourceHook: event.SourceHook(),
+			CreatedAt:  event.CreatedAt().UTC().Format(time.RFC3339Nano),
 		})
 	}
 

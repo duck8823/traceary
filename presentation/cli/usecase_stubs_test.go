@@ -28,13 +28,14 @@ type eventUsecaseStub struct {
 	timelineErr    error
 
 	logCall struct {
-		message   string
-		kind      types.EventKind
-		client    types.Client
-		agent     types.Agent
-		sessionID types.SessionID
-		workspace types.Workspace
-		logCfg    apptypes.LogRedaction
+		message    string
+		kind       types.EventKind
+		client     types.Client
+		agent      types.Agent
+		sessionID  types.SessionID
+		workspace  types.Workspace
+		logCfg     apptypes.LogRedaction
+		sourceHook string
 	}
 	auditCall struct {
 		command   string
@@ -49,7 +50,7 @@ type eventUsecaseStub struct {
 	}
 }
 
-func (s *eventUsecaseStub) Log(_ context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, logCfg apptypes.LogRedaction) (*model.Event, error) {
+func (s *eventUsecaseStub) Log(ctx context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, logCfg apptypes.LogRedaction) (*model.Event, error) {
 	s.logCall.message = message
 	s.logCall.kind = kind
 	s.logCall.client = client
@@ -57,6 +58,7 @@ func (s *eventUsecaseStub) Log(_ context.Context, message string, kind types.Eve
 	s.logCall.sessionID = sessionID
 	s.logCall.workspace = workspace
 	s.logCall.logCfg = logCfg
+	s.logCall.sourceHook = apptypes.SourceHookFromContext(ctx)
 	return s.logEvent, s.logErr
 }
 func (s *eventUsecaseStub) Audit(_ context.Context, command string, input string, output string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, exitCode types.Optional[int], auditCfg apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {

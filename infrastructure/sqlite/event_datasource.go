@@ -173,6 +173,7 @@ func (d *EventDatasource) ListRecent(
 	kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace,
 	failuresOnly bool,
 	from, to time.Time,
+	sourceHook string,
 ) ([]*model.Event, error) {
 	if limit <= 0 {
 		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
@@ -211,6 +212,7 @@ func (d *EventDatasource) ListRecent(
 		boolToInt(failuresOnly),
 		fromValue, fromValue,
 		toValue, toValue,
+		sourceHook, sourceHook, sourceHook, sourceHook,
 		limit,
 		offset,
 	)
@@ -294,6 +296,7 @@ func (d *EventDatasource) ListWindow(
 	sessionID := criteria.SessionID()
 	workspace := criteria.Workspace()
 	failuresFlag := boolToInt(criteria.FailuresOnly())
+	sourceHook := criteria.SourceHook()
 
 	events := make([]*model.Event, 0, batch)
 	offset := 0
@@ -309,6 +312,7 @@ func (d *EventDatasource) ListWindow(
 			failuresFlag,
 			fromValue, fromValue,
 			toValue, toValue,
+			sourceHook, sourceHook, sourceHook, sourceHook,
 			batch,
 			offset,
 		)
@@ -718,14 +722,15 @@ func scanEvent(rowScanner interface {
 	Scan(dest ...any) error
 }) (*model.Event, error) {
 	var (
-		eventIDValue   string
-		eventKindValue string
-		clientValue    string
-		agentValue     string
-		sessionIDValue string
-		repoValue      string
-		bodyValue      string
-		createdAtValue string
+		eventIDValue    string
+		eventKindValue  string
+		clientValue     string
+		agentValue      string
+		sessionIDValue  string
+		repoValue       string
+		bodyValue       string
+		sourceHookValue sql.NullString
+		createdAtValue  string
 	)
 
 	if err := rowScanner.Scan(
@@ -736,6 +741,7 @@ func scanEvent(rowScanner interface {
 		&sessionIDValue,
 		&repoValue,
 		&bodyValue,
+		&sourceHookValue,
 		&createdAtValue,
 	); err != nil {
 		return nil, xerrors.Errorf("failed to scan event row: %w", err)
@@ -749,6 +755,7 @@ func scanEvent(rowScanner interface {
 		sessionIDValue,
 		repoValue,
 		bodyValue,
+		sourceHookValue.String,
 		createdAtValue,
 	)
 }
@@ -767,14 +774,15 @@ func scanEventWithAudit(
 	exitCodeValue *sql.NullInt64,
 ) (*model.Event, error) {
 	var (
-		eventIDValue   string
-		eventKindValue string
-		clientValue    string
-		agentValue     string
-		sessionIDValue string
-		repoValue      string
-		bodyValue      string
-		createdAtValue string
+		eventIDValue    string
+		eventKindValue  string
+		clientValue     string
+		agentValue      string
+		sessionIDValue  string
+		repoValue       string
+		bodyValue       string
+		sourceHookValue sql.NullString
+		createdAtValue  string
 	)
 
 	if err := rowScanner.Scan(
@@ -785,6 +793,7 @@ func scanEventWithAudit(
 		&sessionIDValue,
 		&repoValue,
 		&bodyValue,
+		&sourceHookValue,
 		&createdAtValue,
 		commandTextValue,
 		inputTextValue,
@@ -804,6 +813,7 @@ func scanEventWithAudit(
 		sessionIDValue,
 		repoValue,
 		bodyValue,
+		sourceHookValue.String,
 		createdAtValue,
 	)
 }
@@ -816,6 +826,7 @@ func restoreEvent(
 	sessionIDValue string,
 	repoValue string,
 	bodyValue string,
+	sourceHookValue string,
 	createdAtValue string,
 ) (*model.Event, error) {
 	eventID, err := types.EventIDOf(eventIDValue)
@@ -839,7 +850,7 @@ func restoreEvent(
 		return nil, xerrors.Errorf("failed to restore created_at: %w", err)
 	}
 
-	return model.EventOf(
+	return model.EventOfWithSourceHook(
 		eventID,
 		eventKind,
 		types.Client(clientValue),
@@ -848,6 +859,7 @@ func restoreEvent(
 		types.Workspace(repoValue),
 		bodyValue,
 		createdAt,
+		sourceHookValue,
 	), nil
 }
 

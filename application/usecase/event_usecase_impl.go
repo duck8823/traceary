@@ -213,7 +213,7 @@ func (u *eventUsecase) List(ctx context.Context, criteria apptypes.EventListCrit
 		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
 	}
 
-	events, err := u.eventQuery.ListRecent(ctx, criteria.Limit(), criteria.Offset(), criteria.Kind(), criteria.Client(), criteria.Agent(), criteria.SessionID(), criteria.Workspace(), criteria.FailuresOnly(), criteria.From(), criteria.To())
+	events, err := u.eventQuery.ListRecent(ctx, criteria.Limit(), criteria.Offset(), criteria.Kind(), criteria.Client(), criteria.Agent(), criteria.SessionID(), criteria.Workspace(), criteria.FailuresOnly(), criteria.From(), criteria.To(), criteria.SourceHook())
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list events: %w", err)
 	}
