@@ -178,11 +178,13 @@ func (s *sessionUsecaseStub) Handoff(_ context.Context, _ types.SessionID, _ typ
 }
 
 type contextUsecaseStub struct {
-	handoff    types.Optional[apptypes.ContextPack]
-	handoffErr error
+	handoff        types.Optional[apptypes.ContextPack]
+	handoffErr     error
+	handoffCalls   []apptypes.ContextPackCriteria
 }
 
-func (s *contextUsecaseStub) Handoff(_ context.Context, _ apptypes.ContextPackCriteria) (types.Optional[apptypes.ContextPack], error) {
+func (s *contextUsecaseStub) Handoff(_ context.Context, criteria apptypes.ContextPackCriteria) (types.Optional[apptypes.ContextPack], error) {
+	s.handoffCalls = append(s.handoffCalls, criteria)
 	return s.handoff, s.handoffErr
 }
 

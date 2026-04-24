@@ -201,7 +201,7 @@ replay HTML は sessions / timeline blocks / failure hotspots / durable memories
 
 ### `traceary session handoff`
 
-session metadata、recent commands、compact summary、accepted durable memories から組み立てた handoff summary を表示します。`--compact-only` を付けると、セッション再開で使う 1 行形式の compact summary を出力します (v0.9.0 で `traceary compact-summary` の代替として導入)。
+session metadata、recent commands、compact summary、accepted durable memories から組み立てた handoff summary を表示します。`--compact-only` を付けると、prompt injection 向けの短い summary を出力します (v0.9.0 で `traceary compact-summary` の代替として導入)。`--compact-only` 指定時は `--recent` 未指定なら 3 に自動設定されます (v0.8.x の compact-summary と同一のデフォルト)。
 
 主な flag:
 
@@ -211,7 +211,7 @@ session metadata、recent commands、compact summary、accepted durable memories
 - `--memories`
 - `--preset` (任意): durable memory に built-in preset (`resume` / `review` / `incident`) を適用
 - `--as-of` (任意): durable memory の validity を指定時刻 (YYYY-MM-DD または RFC3339) で評価する。既定は「現在」
-- `--compact-only` (任意): 1 行の compact summary を出力 (`compact-summary` の代替)
+- `--compact-only` (任意): prompt injection 向けの短い summary を出力 (`compact-summary` の代替)。`--recent` 未指定時は 3 に自動設定
 
 > **v0.8 → v0.9 移行**: 旧 `traceary handoff` / `traceary compact-summary` も deprecated alias として動き続けますが、deprecation 通知が出ます。v1.0 で削除予定です。新規コードは `traceary session handoff` (必要に応じて `--compact-only`) を使ってください。
 

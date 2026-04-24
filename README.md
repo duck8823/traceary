@@ -92,8 +92,8 @@ traceary doctor
 
 ## Quick start
 
-`traceary init` is optional. Commands create the database and run migrations on demand.
-Use `init` only when you want to create the DB path up front or confirm write permissions before a session starts.
+`traceary store init` is optional. Commands create the database and run migrations on demand.
+Use `store init` only when you want to create the DB path up front or confirm write permissions before a session starts. (The v0.8.x top-level `traceary init` still works as a deprecated alias and will be removed in v1.0.)
 
 ### 1. Start a session and write a note
 
@@ -132,10 +132,10 @@ traceary session end --session-id "$sid" --id-only
 traceary memory remember \
   --type decision \
   --workspace github.com/duck8823/traceary \
-  --fact "Use traceary handoff for compact resume context" \
+  --fact "Use traceary session handoff --compact-only for compact resume context" \
   --evidence issue:#502
 
-traceary handoff --workspace github.com/duck8823/traceary
+traceary session handoff --workspace github.com/duck8823/traceary
 ```
 
 ## Inspect recent and live activity
@@ -147,7 +147,7 @@ Traceary ships four complementary inspection views so you can switch between "wh
 | Following what is happening now | `traceary tail` | confirm hooks are firing, watch failures in real time |
 | Understanding what happened across a span | `traceary timeline` | see gap-separated work blocks with a per-workspace activity summary |
 | Inspecting raw events directly | `traceary list` / `traceary search` | jump to an exact kind / session / query |
-| Resuming with assembled working memory | `traceary handoff` | start a follow-up session with curated context |
+| Resuming with assembled working memory | `traceary session handoff` | start a follow-up session with curated context |
 
 ### `traceary tail`
 

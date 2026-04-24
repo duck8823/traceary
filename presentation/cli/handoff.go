@@ -55,6 +55,15 @@ func (c *RootCLI) newHandoffCommandWithUse(use string, short string, deprecated 
 		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if compactOnly {
+				// Preserve byte-for-byte parity with the legacy
+				// `traceary compact-summary` output: that command
+				// defaulted --recent to 3, while the full handoff
+				// defaults to 5. If the caller did not explicitly
+				// set --recent, fall back to 3 for the compact path.
+				compactRecent := recent
+				if !cmd.Flags().Changed("recent") {
+					compactRecent = compactSummaryDefaultRecent
+				}
 				resolvedDBPath, err := resolveDBPath(dbPath)
 				if err != nil {
 					return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
@@ -67,7 +76,7 @@ func (c *RootCLI) newHandoffCommandWithUse(use string, short string, deprecated 
 					cmd.Context(), cmd.OutOrStdout(), resolvedDBPath,
 					resolveOptionalValue(sessionID, "TRACEARY_SESSION_ID", ""),
 					resolveWorkspaceValue(cmd.Context(), repo),
-					recent,
+					compactRecent,
 				)
 			}
 			return c.runHandoff(cmd.Context(), cmd.OutOrStdout(), handoffCommandInput{

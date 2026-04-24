@@ -201,7 +201,7 @@ Useful flags:
 
 ### `traceary session handoff`
 
-Print a structured working-memory handoff summary built from session metadata, recent commands, compact summaries, and accepted durable memories. Pass `--compact-only` to emit the single-line summary used on session resume (v0.9.0 replacement for `traceary compact-summary`).
+Print a structured working-memory handoff summary built from session metadata, recent commands, compact summaries, and accepted durable memories. Pass `--compact-only` to emit the short prompt-injection summary (replaces `traceary compact-summary`). `--compact-only` defaults `--recent` to 3 (matching the legacy behavior) when the flag is not set.
 
 Useful flags:
 
@@ -211,7 +211,7 @@ Useful flags:
 - `--memories`
 - `--preset` (optional): apply a built-in retrieval preset (`resume` / `review` / `incident`) to durable memory filters
 - `--as-of` (optional): evaluate durable memory validity at the given timestamp (YYYY-MM-DD or RFC3339); defaults to "now"
-- `--compact-only` (optional): emit the compact single-line form (replaces `traceary compact-summary`)
+- `--compact-only` (optional): emit the short prompt-injection summary form (replaces `traceary compact-summary`); implicitly sets `--recent=3` unless `--recent` is given explicitly
 
 > **v0.8 → v0.9 migration**: The former top-level `traceary handoff` and `traceary compact-summary` commands are deprecated aliases that print a notice and will be removed in v1.0. Use `traceary session handoff` (plus `--compact-only` for the compact form).
 

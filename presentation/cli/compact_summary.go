@@ -15,6 +15,12 @@ import (
 
 const maxCompactSummaryOutputLen = 560
 
+// compactSummaryDefaultRecent is the legacy default for --recent on
+// `traceary compact-summary`. `traceary session handoff --compact-only`
+// falls back to this value when the caller does not set --recent, to
+// keep the compact output byte-for-byte compatible with v0.8.x.
+const compactSummaryDefaultRecent = 3
+
 func (c *RootCLI) newCompactSummaryCommand() *cobra.Command {
 	var (
 		dbPath    string
@@ -54,7 +60,7 @@ func (c *RootCLI) newCompactSummaryCommand() *cobra.Command {
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	cmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID", "セッション ID"))
 	cmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by workspace", "ワークスペースでフィルタ"))
-	cmd.Flags().IntVar(&limit, "recent", 3, Localize("number of recent commands to show", "表示する直近コマンド数"))
+	cmd.Flags().IntVar(&limit, "recent", compactSummaryDefaultRecent, Localize("number of recent commands to show", "表示する直近コマンド数"))
 
 	return cmd
 }
