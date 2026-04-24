@@ -232,7 +232,22 @@ func (u *bundleUsecase) Import(ctx context.Context, opts BundleImportOptions) (B
 			manifest.ManifestVersion, bundleManifestVersion,
 		)
 	}
+	// manifest_version=1 requires at least a checksum entry for
+	// events.ndjson. A bundle that skipped the checksum field, or
+	// lists files without a matching manifest entry, is rejected
+	// so the AEAD + checksum double-verify contract stays
+	// enforced rather than optional.
+	const requiredChecksumFile = "events.ndjson"
+	if _, ok := manifest.FileChecksums[requiredChecksumFile]; !ok {
+		return BundleImportResult{}, xerrors.Errorf(
+			"bundle manifest is missing a checksum for %s (required for manifest_version=%d)",
+			requiredChecksumFile, bundleManifestVersion,
+		)
+	}
 	for name, want := range manifest.FileChecksums {
+		if want == "" {
+			return BundleImportResult{}, xerrors.Errorf("bundle manifest has an empty checksum for %s", name)
+		}
 		data, present := files[name]
 		if !present {
 			return BundleImportResult{}, xerrors.Errorf("bundle missing %s referenced by manifest", name)
@@ -241,6 +256,19 @@ func (u *bundleUsecase) Import(ctx context.Context, opts BundleImportOptions) (B
 		if got != want {
 			return BundleImportResult{}, xerrors.Errorf(
 				"checksum mismatch on %s (want %s, got %s)", name, want, got,
+			)
+		}
+	}
+	// Every entry file in the archive must be covered by a
+	// manifest checksum — a listed file without a checksum entry
+	// would silently bypass verification.
+	for name := range files {
+		if name == "manifest.json" {
+			continue
+		}
+		if _, ok := manifest.FileChecksums[name]; !ok {
+			return BundleImportResult{}, xerrors.Errorf(
+				"bundle entry %s is not covered by a manifest checksum", name,
 			)
 		}
 	}

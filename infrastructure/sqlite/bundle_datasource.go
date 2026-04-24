@@ -5,13 +5,23 @@ import (
 	"database/sql"
 	"errors"
 	"log/slog"
-	"strings"
-	"time"
 
 	"golang.org/x/xerrors"
 
+	sqlitelib "modernc.org/sqlite"
+
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
+)
+
+// SQLite constraint codes emitted by modernc.org/sqlite. See
+// sqlite3.h — SQLITE_CONSTRAINT_PRIMARYKEY (1555) and
+// SQLITE_CONSTRAINT_UNIQUE (2067). We match both so the idempotency
+// check survives a future schema that promotes a UNIQUE index to
+// PRIMARY KEY (or vice versa).
+const (
+	sqliteCodePrimaryKeyConflict = 1555
+	sqliteCodeUniqueConflict     = 2067
 )
 
 // BundleDatasource implements usecase.BundleEventRepository with the
@@ -19,8 +29,8 @@ import (
 // EventDatasource + the schema_migrations table so the bundle
 // usecase stays infrastructure-agnostic.
 type BundleDatasource struct {
-	db          *Database
-	eventStore  *EventDatasource
+	db         *Database
+	eventStore *EventDatasource
 }
 
 // NewBundleDatasource constructs a BundleDatasource.
@@ -61,49 +71,30 @@ func (d *BundleDatasource) ImportEvent(ctx context.Context, event *model.Event) 
 	if err == nil {
 		return true, nil
 	}
-	if isSQLitePrimaryKeyConflict(err) {
+	if isSQLiteUniqueOrPKConflict(err) {
 		return false, nil
 	}
 	return false, xerrors.Errorf("failed to import event %s: %w", event.EventID(), err)
 }
 
-// isSQLitePrimaryKeyConflict reports whether err is the
-// modernc.org/sqlite constraint error that fires when an event_id
-// UNIQUE clash trips on re-import. The driver does not expose typed
-// error sentinels, so we string-match the canonical message; the
-// test suite in bundle_datasource_test.go pins the behaviour so a
-// future driver upgrade that changes the text surfaces as a
-// regression.
-func isSQLitePrimaryKeyConflict(err error) bool {
+// isSQLiteUniqueOrPKConflict reports whether err is a
+// modernc.org/sqlite typed error whose Code() identifies a
+// constraint violation the bundle usecase should treat as
+// "duplicate, skip". We match on the typed error's Code() rather
+// than the Error() message so a future driver upgrade that changes
+// the text cannot silently flip the behaviour from "skip" to
+// "fail".
+func isSQLiteUniqueOrPKConflict(err error) bool {
 	if err == nil {
 		return false
 	}
-	// Unwrap via errors.As where possible; fall back to substring
-	// match on the fully-wrapped message.
-	msg := err.Error()
-	if strings.Contains(msg, "UNIQUE constraint failed: events.id") {
-		return true
+	var sqliteErr *sqlitelib.Error
+	if !errors.As(err, &sqliteErr) {
+		return false
 	}
-	if strings.Contains(msg, "PRIMARY KEY") && strings.Contains(msg, "events") {
-		return true
-	}
-	// Common wrapper shapes.
-	var sqlErr *sqliteErrorShape
-	if errors.As(err, &sqlErr) && sqlErr.IsPrimaryKeyConflict() {
-		return true
-	}
-	return false
+	code := sqliteErr.Code()
+	return code == sqliteCodePrimaryKeyConflict || code == sqliteCodeUniqueConflict
 }
-
-// sqliteErrorShape is a stand-in — modernc.org/sqlite emits errors
-// as *sqlite.Error but we do not want to pull that import path
-// through the bundle datasource. Keeping this as an opaque shape
-// lets the substring check above do the real work while leaving
-// future typed-error detection easy to slot in.
-type sqliteErrorShape struct{ _ time.Time }
-
-func (s *sqliteErrorShape) Error() string              { return "" }
-func (s *sqliteErrorShape) IsPrimaryKeyConflict() bool { return false }
 
 // ensure sql import stays referenced; datasource uses it indirectly
 // through Database.open().
