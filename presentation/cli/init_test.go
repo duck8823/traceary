@@ -21,7 +21,7 @@ func TestRootCLI_InitCommand(t *testing.T) {
 	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(stub)).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(stderr)
-	rootCmd.SetArgs([]string{"init", "--db-path", dbPath})
+	rootCmd.SetArgs([]string{"store", "init", "--db-path", dbPath})
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -100,7 +100,7 @@ func TestRootCLI_InitCommand_UsesTracearyDBPathEnv(t *testing.T) {
 	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(stub)).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(stderr)
-	rootCmd.SetArgs([]string{"init"})
+	rootCmd.SetArgs([]string{"store", "init"})
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -119,7 +119,7 @@ func TestRootCLI_InitHelp_ExplainsOptionalBootstrap(t *testing.T) {
 	rootCmd := cli.NewRootCLI().Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(stderr)
-	rootCmd.SetArgs([]string{"init", "--help"})
+	rootCmd.SetArgs([]string{"store", "init", "--help"})
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -145,7 +145,7 @@ func TestRootCLI_InitHelp_CanUseJapaneseFlagHelp(t *testing.T) {
 	rootCmd := cli.NewRootCLI().Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(stderr)
-	rootCmd.SetArgs([]string{"init", "--help"})
+	rootCmd.SetArgs([]string{"store", "init", "--help"})
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)

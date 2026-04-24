@@ -26,7 +26,11 @@ func (c *RootCLI) newCompactSummaryCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "compact-summary",
 		Short: Localize("Generate a compact context pointer for session resumption", "compact 後のセッション再開用コンテキストポインタを生成する"),
-		Args:  noArgsLocalized(),
+		Deprecated: Localize(
+			"use `traceary session handoff --compact-only` — this alias will be removed in v1.0",
+			"`traceary session handoff --compact-only` を使ってください — この alias は v1.0 で削除されます",
+		),
+		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			output := cmd.OutOrStdout()

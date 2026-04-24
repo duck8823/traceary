@@ -57,7 +57,7 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"handoff", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
+		rootCmd.SetArgs([]string{"session", "handoff", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)

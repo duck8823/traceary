@@ -199,9 +199,9 @@ Useful flags:
 - `--limit`
 - `--json`
 
-### `traceary handoff`
+### `traceary session handoff`
 
-Print a structured working-memory handoff summary built from session metadata, recent commands, compact summaries, and accepted durable memories.
+Print a structured working-memory handoff summary built from session metadata, recent commands, compact summaries, and accepted durable memories. Pass `--compact-only` to emit the single-line summary used on session resume (v0.9.0 replacement for `traceary compact-summary`).
 
 Useful flags:
 
@@ -211,29 +211,9 @@ Useful flags:
 - `--memories`
 - `--preset` (optional): apply a built-in retrieval preset (`resume` / `review` / `incident`) to durable memory filters
 - `--as-of` (optional): evaluate durable memory validity at the given timestamp (YYYY-MM-DD or RFC3339); defaults to "now"
+- `--compact-only` (optional): emit the compact single-line form (replaces `traceary compact-summary`)
 
-### `traceary session handoff`
-
-Session-scoped entry point for the same structured handoff output as `traceary handoff`.
-
-Useful flags:
-
-- `--session-id`
-- `--workspace`
-- `--recent`
-- `--memories`
-- `--preset`
-- `--as-of`
-
-### `traceary compact-summary`
-
-Print a compact context-resumption pointer assembled from the same working-memory pack used by `traceary handoff`, but compressed for prompt injection and compact/clear recovery.
-
-Useful flags:
-
-- `--session-id`
-- `--workspace`
-- `--recent`
+> **v0.8 → v0.9 migration**: The former top-level `traceary handoff` and `traceary compact-summary` commands are deprecated aliases that print a notice and will be removed in v1.0. Use `traceary session handoff` (plus `--compact-only` for the compact form).
 
 ## Durable memory commands
 
@@ -601,14 +581,15 @@ Useful flags:
 - `--project-dir`
 - `--json`
 
-## Backup and maintenance
+## Store administration (`traceary store ...`)
 
-### `traceary init`
+Starting with v0.9.0, store administration commands live under the `store` namespace. The old top-level `traceary init`, `traceary backup`, and `traceary gc` still work as deprecated aliases (with a notice) and will be removed in v1.0.
 
-Explicitly create the DB and apply migrations up front.
-This command is optional because normal commands initialize the store on demand.
+### `traceary store init`
 
-### `traceary backup create`
+Explicitly create the DB and apply migrations up front. Optional because normal commands initialize the store on demand.
+
+### `traceary store backup create`
 
 Create a compact SQLite backup file.
 
@@ -618,7 +599,7 @@ Useful flags:
 - `--db-path`
 - `--force`
 
-### `traceary backup restore`
+### `traceary store backup restore`
 
 Restore the DB from a backup file.
 
@@ -629,7 +610,7 @@ Useful flags:
 - `--force`
 - `--yes`
 
-### `traceary gc`
+### `traceary store gc`
 
 Delete old events and compact the SQLite store.
 

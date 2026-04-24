@@ -21,6 +21,18 @@ func dbPathFlagUsage() string {
 }
 
 func (c *RootCLI) newInitCommand() *cobra.Command {
+	cmd := c.newInitCommandWithDeprecation(Localize(
+		"use `traceary store init` — the top-level alias will be removed in v1.0",
+		"`traceary store init` を使ってください — この top-level alias は v1.0 で削除されます",
+	))
+	return cmd
+}
+
+func (c *RootCLI) newStoreInitCommand() *cobra.Command {
+	return c.newInitCommandWithDeprecation("")
+}
+
+func (c *RootCLI) newInitCommandWithDeprecation(deprecated string) *cobra.Command {
 	var dbPath string
 
 	initCmd := &cobra.Command{
@@ -48,6 +60,9 @@ func (c *RootCLI) newInitCommand() *cobra.Command {
 		},
 	}
 	initCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
+	if deprecated != "" {
+		initCmd.Deprecated = deprecated
+	}
 
 	return initCmd
 }

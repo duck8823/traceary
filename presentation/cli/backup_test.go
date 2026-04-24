@@ -40,7 +40,7 @@ func TestRootCLI_BackupCreateCommand_MissingOutputReturnsError(t *testing.T) {
 	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"backup", "create"})
+	rootCmd.SetArgs([]string{"store", "backup", "create"})
 
 	err := rootCmd.Execute()
 	if err == nil {
@@ -56,7 +56,7 @@ func TestRootCLI_BackupCreateCommand_PositionalArgument(t *testing.T) {
 	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"backup", "create", "--db-path", "/tmp/test-traceary.db", outputPath})
+	rootCmd.SetArgs([]string{"store", "backup", "create", "--db-path", "/tmp/test-traceary.db", outputPath})
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -69,7 +69,7 @@ func TestRootCLI_BackupCreateCommand_DuplicateOutputReturnsError(t *testing.T) {
 	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"backup", "create", "--output", "/tmp/a.db", "/tmp/b.db"})
+	rootCmd.SetArgs([]string{"store", "backup", "create", "--output", "/tmp/a.db", "/tmp/b.db"})
 
 	err := rootCmd.Execute()
 	if err == nil {
@@ -108,7 +108,7 @@ func TestRootCLI_BackupRestoreCommand_MissingInputReturnsError(t *testing.T) {
 	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"backup", "restore"})
+	rootCmd.SetArgs([]string{"store", "backup", "restore"})
 
 	err := rootCmd.Execute()
 	if err == nil {
@@ -126,7 +126,7 @@ func TestRootCLI_BackupHelp(t *testing.T) {
 	rootCmd := cli.NewRootCLI().Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"backup", "--help"})
+	rootCmd.SetArgs([]string{"store", "backup", "--help"})
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)

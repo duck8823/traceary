@@ -199,9 +199,9 @@ replay HTML は sessions / timeline blocks / failure hotspots / durable memories
 - `--limit`
 - `--json`
 
-### `traceary handoff`
+### `traceary session handoff`
 
-session metadata、recent commands、compact summary、accepted durable memories から組み立てた handoff summary を表示します。
+session metadata、recent commands、compact summary、accepted durable memories から組み立てた handoff summary を表示します。`--compact-only` を付けると、セッション再開で使う 1 行形式の compact summary を出力します (v0.9.0 で `traceary compact-summary` の代替として導入)。
 
 主な flag:
 
@@ -211,29 +211,9 @@ session metadata、recent commands、compact summary、accepted durable memories
 - `--memories`
 - `--preset` (任意): durable memory に built-in preset (`resume` / `review` / `incident`) を適用
 - `--as-of` (任意): durable memory の validity を指定時刻 (YYYY-MM-DD または RFC3339) で評価する。既定は「現在」
+- `--compact-only` (任意): 1 行の compact summary を出力 (`compact-summary` の代替)
 
-### `traceary session handoff`
-
-`traceary handoff` と同じ handoff 出力を session namespace から実行します。
-
-主な flag:
-
-- `--session-id`
-- `--workspace`
-- `--recent`
-- `--memories`
-- `--preset`
-- `--as-of`
-
-### `traceary compact-summary`
-
-`traceary handoff` と同じ working-memory pack を使い、prompt injection や compact/clear 後の再開に向けた短い要約を表示します。
-
-主な flag:
-
-- `--session-id`
-- `--workspace`
-- `--recent`
+> **v0.8 → v0.9 移行**: 旧 `traceary handoff` / `traceary compact-summary` も deprecated alias として動き続けますが、deprecation 通知が出ます。v1.0 で削除予定です。新規コードは `traceary session handoff` (必要に応じて `--compact-only`) を使ってください。
 
 ## Durable memory コマンド
 
@@ -601,14 +581,15 @@ alias:
 - `--project-dir`
 - `--json`
 
-## Backup と maintenance
+## Store 管理 (`traceary store ...`)
 
-### `traceary init`
+v0.9.0 から、store 管理コマンドは `store` namespace に集約されました。旧 top-level の `traceary init` / `traceary backup` / `traceary gc` も deprecated alias として動作し続けます (deprecation 通知あり)。v1.0 で削除予定です。
 
-DB 作成と migration 適用を明示的に先行実行します。
-通常コマンドでも必要に応じて初期化されるため、必須ではありません。
+### `traceary store init`
 
-### `traceary backup create`
+DB 作成と migration 適用を明示的に先行実行します。通常コマンドでも必要に応じて初期化されるため、必須ではありません。
+
+### `traceary store backup create`
 
 コンパクトな SQLite バックアップファイルを作成します。
 
@@ -618,7 +599,7 @@ DB 作成と migration 適用を明示的に先行実行します。
 - `--db-path`
 - `--force`
 
-### `traceary backup restore`
+### `traceary store backup restore`
 
 バックアップファイルから DB を復元します。
 
@@ -629,7 +610,7 @@ DB 作成と migration 適用を明示的に先行実行します。
 - `--force`
 - `--yes`
 
-### `traceary gc`
+### `traceary store gc`
 
 古いイベントを削除し、必要に応じて SQLite ストアを圧縮します。
 

@@ -43,7 +43,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"compact-summary", "--db-path", dbPath})
+		rootCmd.SetArgs([]string{"session", "handoff", "--compact-only", "--db-path", dbPath})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -84,7 +84,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"compact-summary", "--db-path", dbPath})
+		rootCmd.SetArgs([]string{"session", "handoff", "--compact-only", "--db-path", dbPath})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -122,7 +122,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"compact-summary", "--db-path", dbPath, "--session-id", "target-session"})
+		rootCmd.SetArgs([]string{"session", "handoff", "--compact-only", "--db-path", dbPath, "--session-id", "target-session"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -179,7 +179,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"compact-summary", "--db-path", dbPath})
+		rootCmd.SetArgs([]string{"session", "handoff", "--compact-only", "--db-path", dbPath})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -223,7 +223,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"compact-summary", "--db-path", dbPath, "--recent", "3"})
+		rootCmd.SetArgs([]string{"session", "handoff", "--compact-only", "--db-path", dbPath, "--recent", "3"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)

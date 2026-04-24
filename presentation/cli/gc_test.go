@@ -22,7 +22,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		rootCmd := cli.NewRootCLI(cli.WithStoreManagement(storeMaint)).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30", "--dry-run"})
+		rootCmd.SetArgs([]string{"store", "gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30", "--dry-run"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -40,7 +40,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		rootCmd := cli.NewRootCLI(cli.WithStoreManagement(storeMaint)).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30"})
+		rootCmd.SetArgs([]string{"store", "gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
