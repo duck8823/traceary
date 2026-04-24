@@ -61,12 +61,22 @@ func (u *eventUsecase) Log(ctx context.Context, message string, kind types.Event
 	// log-ingest surface (CLI log, transcript hook, MCP add_log)
 	// gets the same coverage without re-implementing the 5-line
 	// CompileExtraPatterns+Apply block in the presentation layer.
+	//
+	// If the body is a structured JSON block envelope (introduced in
+	// #662), parse it, redact each block's text field independently,
+	// and re-serialize — running redaction on the raw JSON string
+	// would risk inserting "[REDACTED]" inside JSON delimiters and
+	// breaking the envelope for downstream block-aware readers.
 	if resolvedKind == types.EventKindTranscript {
 		extraRedactors, err := redaction.CompileExtraPatterns(logCfg.ExtraRedactPatterns())
 		if err != nil {
 			return nil, xerrors.Errorf("failed to compile extra redaction patterns for transcript: %w", err)
 		}
-		message, _ = redaction.Apply(message, extraRedactors)
+		if redactedBody, ok := redactStructuredBodyBlocks(message, extraRedactors); ok {
+			message = redactedBody
+		} else {
+			message, _ = redaction.Apply(message, extraRedactors)
+		}
 	}
 
 	eventID, err := newEventID()
@@ -317,4 +327,31 @@ func resolveAuditPayloadLimit(value int, defaultValue int) (int, error) {
 	}
 
 	return value, nil
+}
+
+// redactStructuredBodyBlocks parses body as the canonical JSON block
+// envelope (see application/types.EventBodyBlocks), runs the built-in
+// + extra redactors on each block's text field, and returns the
+// re-serialized JSON. Returns ok=false when the body isn't JSON-
+// shaped so the caller can fall back to the legacy whole-string
+// redaction path.
+func redactStructuredBodyBlocks(body string, extraRedactors []redaction.Redactor) (string, bool) {
+	blocks := apptypes.ParseEventBodyBlocks(body)
+	if len(blocks) == 0 {
+		return "", false
+	}
+	// ParseEventBodyBlocks returns a single-text fallback for
+	// non-JSON bodies. Detect that case by checking whether the
+	// block round-trips as the exact same raw string.
+	if len(blocks) == 1 && blocks[0].Type == apptypes.EventBodyBlockTypeText && blocks[0].Text == body {
+		return "", false
+	}
+	for i := range blocks {
+		blocks[i].Text, _ = redaction.Apply(blocks[i].Text, extraRedactors)
+	}
+	encoded, err := apptypes.MarshalEventBodyBlocks(blocks)
+	if err != nil {
+		return "", false
+	}
+	return encoded, true
 }

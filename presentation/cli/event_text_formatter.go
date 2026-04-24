@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -75,7 +76,7 @@ func formatEventWideRow(event *model.Event, opts eventTextFormatOptions) string 
 		string(event.Agent()),
 		event.SessionID().String(),
 		formatOptionalColumn(event.Workspace().String()),
-		truncateMessage(event.Body()),
+		truncateMessage(apptypes.ExtractPlainBody(event.Body())),
 	}, "\t")
 }
 
@@ -115,7 +116,7 @@ func formatEventCompactRow(event *model.Event, opts eventTextFormatOptions, extr
 
 	messageIsLast := messageIndex == len(fields)-1
 	if !messageIsLast {
-		tokens[messageIndex] = truncateNormalized(event.Body(), messageColumnMaxWidth)
+		tokens[messageIndex] = truncateNormalized(apptypes.ExtractPlainBody(event.Body()), messageColumnMaxWidth)
 		return strings.Join(tokens, sep)
 	}
 
@@ -140,7 +141,7 @@ func formatEventCompactRow(event *model.Event, opts eventTextFormatOptions, extr
 			remaining = eventCompactMessageMinRunes
 		}
 	}
-	plain := prefix + truncateNormalized(event.Body(), remaining)
+	plain := prefix + truncateNormalized(apptypes.ExtractPlainBody(event.Body()), remaining)
 	if opts.colorEnabled {
 		exitCode, exitCodeSet := extras.exitCode.Value()
 		return applyCompactRowHighlight(plain, string(event.Kind()), exitCode, exitCodeSet)

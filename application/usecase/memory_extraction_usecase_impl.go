@@ -278,7 +278,7 @@ func (u *memoryExtractionUsecase) collectCandidateSpecs(ctx context.Context, ses
 		}
 		for _, event := range events {
 			signals = append(signals, extractionSignal{
-				text:            event.Body(),
+				text:            apptypes.ExtractPlainBody(event.Body()),
 				event:           event,
 				heuristics:      heuristics,
 				allowStructured: allowStructured,

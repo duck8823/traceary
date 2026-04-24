@@ -47,7 +47,7 @@ func newEventOutput(e *model.Event) event {
 		Agent:     e.Agent().String(),
 		SessionID: e.SessionID().String(),
 		Workspace: e.Workspace().String(),
-		Message:   e.Body(),
+		Message:   apptypes.ExtractPlainBody(e.Body()),
 		CreatedAt: e.CreatedAt().UTC().Format("2006-01-02T15:04:05Z07:00"),
 	}
 }

@@ -73,7 +73,7 @@ func writeEventDetails(output io.Writer, eventDetails apptypes.EventDetails) err
 		event.SessionID(),
 		formatOptionalColumn(event.Workspace().String()),
 		event.CreatedAt().UTC().Format("2006-01-02T15:04:05Z07:00"),
-		event.Body(),
+		apptypes.ExtractPlainBody(event.Body()),
 	); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print event fields", "イベント共通項目の出力に失敗しました"), err)
 	}

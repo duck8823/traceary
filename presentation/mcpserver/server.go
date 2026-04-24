@@ -273,7 +273,7 @@ func (s *Server) addLog() mcp.ToolHandlerFor[addLogInput, addLogOutput] {
 			Agent:     event.Agent().String(),
 			SessionID: event.SessionID().String(),
 			Workspace: event.Workspace().String(),
-			Body:      event.Body(),
+			Body:      apptypes.ExtractPlainBody(event.Body()),
 			CreatedAt: event.CreatedAt().UTC().Format(time.RFC3339Nano),
 		}, nil
 	}
@@ -1477,7 +1477,7 @@ func convertEvents(events []*model.Event) []eventOutput {
 			Agent:     event.Agent().String(),
 			SessionID: event.SessionID().String(),
 			Workspace: event.Workspace().String(),
-			Body:      event.Body(),
+			Body:      apptypes.ExtractPlainBody(event.Body()),
 			CreatedAt: event.CreatedAt().UTC().Format(time.RFC3339Nano),
 		})
 	}
