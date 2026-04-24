@@ -61,7 +61,7 @@ func (u *sessionUsecase) Start(ctx context.Context, client types.Client, agent t
 		}
 	}
 
-	event, err := u.buildBoundaryEvent(types.EventKindSessionStarted, client, agent, resolvedSessionID, workspace)
+	event, err := u.buildBoundaryEvent(ctx, types.EventKindSessionStarted, client, agent, resolvedSessionID, workspace)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to start session: %w", err)
 	}
@@ -98,7 +98,7 @@ func (u *sessionUsecase) End(ctx context.Context, client types.Client, agent typ
 		return nil, xerrors.Errorf("failed to end session: %w", err)
 	}
 
-	event, err := u.buildBoundaryEvent(types.EventKindSessionEnded, resolvedClient, resolvedAgent, resolvedSessionID, resolvedWorkspace)
+	event, err := u.buildBoundaryEvent(ctx, types.EventKindSessionEnded, resolvedClient, resolvedAgent, resolvedSessionID, resolvedWorkspace)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to end session: %w", err)
 	}
@@ -230,6 +230,7 @@ func (u *sessionUsecase) resolveSessionStartID(sessionID types.SessionID) (types
 
 // buildBoundaryEvent constructs the session start/end event.
 func (u *sessionUsecase) buildBoundaryEvent(
+	ctx context.Context,
 	kind types.EventKind,
 	client types.Client,
 	agent types.Agent,
@@ -244,6 +245,7 @@ func (u *sessionUsecase) buildBoundaryEvent(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to build session boundary event: %w", err)
 	}
+	event.SetSourceHook(apptypes.SourceHookFromContext(ctx))
 	return event, nil
 }
 

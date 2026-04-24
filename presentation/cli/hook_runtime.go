@@ -179,6 +179,20 @@ func (c *RootCLI) runHookSession(
 		return xerrors.Errorf("unsupported hook session action: %s", action)
 	}
 
+	// Tag downstream events with which host hook fired so
+	// retrospective queries can tell a Claude SessionEnd apart from
+	// a Codex Stop even though both produce a session_ended row
+	// (#672). start / end map to session_start / session_end; stop
+	// is Codex's session-end-equivalent.
+	switch action {
+	case "start":
+		ctx = apptypes.WithSourceHook(ctx, "session_start")
+	case "end":
+		ctx = apptypes.WithSourceHook(ctx, "session_end")
+	case "stop":
+		ctx = apptypes.WithSourceHook(ctx, "stop")
+	}
+
 	payload, err := readHookPayload(input)
 	if err != nil {
 		return err
@@ -296,6 +310,17 @@ func (c *RootCLI) runHookAudit(
 	if c.event == nil {
 		return xerrors.Errorf("record command audit usecase is not configured")
 	}
+	// Tag for #672: per-client audit is PostToolUse on Claude/Codex
+	// and AfterTool on Gemini. The hook runtime does not yet know
+	// whether Claude Code dispatched this via PostToolUse or the
+	// PostToolUseFailure variant — both go through the same handler,
+	// so we stamp the coarser "post_tool_use" for now; the exit-code
+	// distinction remains recoverable via the command_audits table.
+	if client == "gemini" {
+		ctx = apptypes.WithSourceHook(ctx, "after_tool")
+	} else {
+		ctx = apptypes.WithSourceHook(ctx, "post_tool_use")
+	}
 
 	payload, err := readHookPayload(input)
 	if err != nil {
@@ -385,6 +410,17 @@ func (c *RootCLI) runHookCompact(
 ) error {
 	if c.storeManagement == nil {
 		return xerrors.Errorf("initialize store usecase is not configured")
+	}
+	// Tag for #672: PreCompact and PostCompact both produce the
+	// compact_summary kind, so source_hook carries the phase
+	// without relying on body-prefix marker parsing. The
+	// session-start-compact branch writes no event so tagging
+	// there is a no-op.
+	switch action {
+	case "pre-compact":
+		ctx = apptypes.WithSourceHook(ctx, "pre_compact")
+	case "post-compact":
+		ctx = apptypes.WithSourceHook(ctx, "post_compact")
 	}
 
 	payload, err := readHookPayload(input)
@@ -486,6 +522,11 @@ func (c *RootCLI) runHookSubagentStop(
 	if c.event == nil {
 		return xerrors.Errorf("event usecase is not configured")
 	}
+	// Tag for #672: SubagentStop produces a session_ended event
+	// (distinguished today only via the `[phase:subagent]` body
+	// prefix). source_hook lets downstream queries filter without
+	// parsing the body string.
+	ctx = apptypes.WithSourceHook(ctx, "subagent_stop")
 	payload, err := readHookPayload(input)
 	if err != nil {
 		return err
@@ -543,6 +584,7 @@ func (c *RootCLI) runHookPrompt(
 	if c.event == nil {
 		return xerrors.Errorf("record log usecase is not configured")
 	}
+	ctx = apptypes.WithSourceHook(ctx, "user_prompt_submit")
 
 	payload, err := readHookPayload(input)
 	if err != nil {
@@ -615,6 +657,14 @@ func (c *RootCLI) runHookTranscript(
 	}
 	if c.event == nil {
 		return xerrors.Errorf("record log usecase is not configured")
+	}
+	// Tag for #672: transcript comes from Claude / Codex Stop or
+	// Gemini AfterAgent. Downstream readers can distinguish via
+	// source_hook without parsing the client's hook envelope.
+	if client == "gemini" {
+		ctx = apptypes.WithSourceHook(ctx, "after_agent")
+	} else {
+		ctx = apptypes.WithSourceHook(ctx, "stop")
 	}
 
 	payload, err := readHookPayload(input)

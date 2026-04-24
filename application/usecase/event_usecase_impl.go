@@ -86,6 +86,7 @@ func (u *eventUsecase) Log(ctx context.Context, message string, kind types.Event
 	if err != nil {
 		return nil, xerrors.Errorf("failed to build log event: %w", err)
 	}
+	event.SetSourceHook(apptypes.SourceHookFromContext(ctx))
 	if err := u.eventRepo.Save(ctx, event); err != nil {
 		return nil, xerrors.Errorf("failed to save log event: %w", err)
 	}
@@ -160,6 +161,7 @@ func (u *eventUsecase) Audit(ctx context.Context, command string, input string, 
 	if err != nil {
 		return nil, nil, xerrors.Errorf("failed to build audit event: %w", err)
 	}
+	event.SetSourceHook(apptypes.SourceHookFromContext(ctx))
 
 	if err := u.eventRepo.SaveWithAudit(ctx, event, commandAudit); err != nil {
 		return nil, nil, xerrors.Errorf("failed to save audit event: %w", err)

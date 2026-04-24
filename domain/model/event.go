@@ -13,14 +13,15 @@ var nowFunc = time.Now
 
 // Event is the smallest recorded unit in Traceary history.
 type Event struct {
-	eventID   types.EventID
-	kind      types.EventKind
-	client    types.Client
-	agent     types.Agent
-	sessionID types.SessionID
-	workspace types.Workspace
-	body      string
-	createdAt time.Time
+	eventID    types.EventID
+	kind       types.EventKind
+	client     types.Client
+	agent      types.Agent
+	sessionID  types.SessionID
+	workspace  types.Workspace
+	body       string
+	createdAt  time.Time
+	sourceHook string
 }
 
 // NewEvent creates a new Event.
@@ -71,6 +72,45 @@ func EventOf(
 		createdAt: createdAt,
 	}
 }
+
+// EventOfWithSourceHook restores an Event including the source_hook
+// column (added in migration 000011). Legacy rows from before that
+// migration keep "" here — readers that don't care about provenance
+// can keep using EventOf.
+func EventOfWithSourceHook(
+	eventID types.EventID,
+	kind types.EventKind,
+	client types.Client,
+	agent types.Agent,
+	sessionID types.SessionID,
+	workspace types.Workspace,
+	body string,
+	createdAt time.Time,
+	sourceHook string,
+) *Event {
+	event := EventOf(eventID, kind, client, agent, sessionID, workspace, body, createdAt)
+	event.sourceHook = sourceHook
+	return event
+}
+
+// SetSourceHook stamps the host-side hook-event identifier that
+// produced the event (for example "stop", "subagent_stop",
+// "pre_compact", "after_agent"). Empty values are ignored so a
+// caller that doesn't know / doesn't care leaves the tag unchanged.
+// Called by the hook runtime layer immediately before Save.
+func (e *Event) SetSourceHook(name string) {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return
+	}
+	e.sourceHook = trimmed
+}
+
+// SourceHook returns the host-side hook-event identifier set by
+// SetSourceHook. Empty when the event was not produced by a hook
+// (for example a `traceary log` write) or pre-dates the
+// source_hook column migration.
+func (e *Event) SourceHook() string { return e.sourceHook }
 
 // EventID returns the event ID.
 func (e *Event) EventID() types.EventID { return e.eventID }

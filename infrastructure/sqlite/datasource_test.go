@@ -23,7 +23,8 @@ CREATE TABLE events (
     agent TEXT NOT NULL,
     session_id TEXT NOT NULL,
     body TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    source_hook TEXT
 );`),
 		},
 	}
