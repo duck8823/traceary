@@ -72,12 +72,33 @@ func (c *RootCLI) newHandoffCommandWithUse(use string, short string, deprecated 
 				if err := c.storeManagement.Initialize(cmd.Context()); err != nil {
 					return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 				}
-				return c.printCompactSummary(
-					cmd.Context(), cmd.OutOrStdout(), resolvedDBPath,
-					resolveOptionalValue(sessionID, "TRACEARY_SESSION_ID", ""),
-					resolveWorkspaceValue(cmd.Context(), repo),
-					compactRecent,
-				)
+				// Plumb --memories / --preset / --as-of through to
+				// the compact path too. The legacy compact-summary
+				// command used MemoryLimit == RecentCommandsLimit,
+				// so if --memories was NOT explicitly set we keep
+				// that legacy behavior; a user-provided --memories
+				// wins. --preset and --as-of were not available on
+				// the legacy command, so they are None by default.
+				memoryLimit := compactRecent
+				if cmd.Flags().Changed("memories") {
+					memoryLimit = memories
+				}
+				parsedPreset, err := apptypes.MemoryRetrievalPresetOf(preset)
+				if err != nil {
+					return xerrors.Errorf("%s: %w", Localize("failed to parse --preset", "--preset の解析に失敗しました"), err)
+				}
+				parsedAsOf, err := parseOptionalValidityTime(asOf)
+				if err != nil {
+					return xerrors.Errorf("%s: %w", Localize("failed to parse --as-of", "--as-of の解析に失敗しました"), err)
+				}
+				return c.printCompactSummaryWithOptions(cmd.Context(), cmd.OutOrStdout(), compactSummaryOptions{
+					sessionID:   resolveOptionalValue(sessionID, "TRACEARY_SESSION_ID", ""),
+					workspace:   resolveWorkspaceValue(cmd.Context(), repo),
+					recentCount: compactRecent,
+					memoryLimit: memoryLimit,
+					preset:      parsedPreset,
+					asOf:        parsedAsOf,
+				})
 			}
 			return c.runHandoff(cmd.Context(), cmd.OutOrStdout(), handoffCommandInput{
 				dbPath:    dbPath,

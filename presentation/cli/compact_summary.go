@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
@@ -65,6 +66,21 @@ func (c *RootCLI) newCompactSummaryCommand() *cobra.Command {
 	return cmd
 }
 
+// compactSummaryOptions captures every knob the compact-summary path
+// supports. Callers from `session handoff --compact-only` can thread
+// --memories / --preset / --as-of through here so those flags are not
+// silent no-ops (Codex verifier MUST on #697). The legacy
+// `compact-summary` command passes zero / None for the new fields so
+// its byte-for-byte output stays unchanged.
+type compactSummaryOptions struct {
+	sessionID   string
+	workspace   string
+	recentCount int
+	memoryLimit int
+	preset      apptypes.MemoryRetrievalPreset
+	asOf        types.Optional[time.Time]
+}
+
 func (c *RootCLI) printCompactSummary(
 	ctx context.Context,
 	output io.Writer,
@@ -73,6 +89,19 @@ func (c *RootCLI) printCompactSummary(
 	repo string,
 	recentCount int,
 ) error {
+	return c.printCompactSummaryWithOptions(ctx, output, compactSummaryOptions{
+		sessionID:   sessionID,
+		workspace:   repo,
+		recentCount: recentCount,
+		memoryLimit: recentCount,
+	})
+}
+
+func (c *RootCLI) printCompactSummaryWithOptions(
+	ctx context.Context,
+	output io.Writer,
+	opts compactSummaryOptions,
+) error {
 	if c.context == nil {
 		return xerrors.Errorf("context usecase is not configured")
 	}
@@ -80,10 +109,12 @@ func (c *RootCLI) printCompactSummary(
 	result, err := c.context.Handoff(
 		ctx,
 		apptypes.NewContextPackCriteriaBuilder().
-			SessionID(types.SessionID(sessionID)).
-			Workspace(types.Workspace(repo)).
-			RecentCommandsLimit(recentCount).
-			MemoryLimit(recentCount).
+			SessionID(types.SessionID(opts.sessionID)).
+			Workspace(types.Workspace(opts.workspace)).
+			RecentCommandsLimit(opts.recentCount).
+			MemoryLimit(opts.memoryLimit).
+			MemoryPreset(opts.preset).
+			MemoryAsOf(opts.asOf).
 			Build(),
 	)
 	if err != nil {
