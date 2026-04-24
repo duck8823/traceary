@@ -222,7 +222,7 @@ func replayDataFromBundle(bundle apptypes.ReplayBundle, dbPathFlag string) repla
 				CreatedAt: event.CreatedAt().UTC(),
 				Client:    event.Client().String(),
 				Agent:     event.Agent().String(),
-				Body:      event.Body(),
+				Body:      apptypes.ExtractPlainBody(event.Body()),
 			})
 		}
 		data.Sessions = append(data.Sessions, replaySession{

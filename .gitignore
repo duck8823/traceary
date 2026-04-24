@@ -12,3 +12,4 @@ dist/
 .golangci-lint-cache/
 .tmp-review-main/
 .gopath
+.tmp/

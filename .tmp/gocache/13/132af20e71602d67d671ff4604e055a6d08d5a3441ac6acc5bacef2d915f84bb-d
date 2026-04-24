@@ -1,7 +1,0 @@
-./builder.go
-./config.go
-./default.go
-./doc.go
-./once.go
-./parser.go
-./plain.go

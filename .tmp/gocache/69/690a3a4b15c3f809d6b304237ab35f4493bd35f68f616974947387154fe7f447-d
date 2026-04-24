@@ -1,9 +1,0 @@
-./bematchers.go
-./benumericmatcher.go
-./equalmatcher.go
-./errormatchers.go
-./lenmatchers.go
-./matcher.go
-./matcherinfo.go
-./matcherwithnest.go
-./multiplematchers.go

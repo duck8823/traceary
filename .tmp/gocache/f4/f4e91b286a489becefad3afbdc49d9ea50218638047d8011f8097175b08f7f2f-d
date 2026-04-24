@@ -1,8 +1,0 @@
-./clone.go
-./comment.go
-./equal.go
-./fields.go
-./purge.go
-./stringlit.go
-./unpack.go
-./util.go

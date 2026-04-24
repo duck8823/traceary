@@ -173,7 +173,7 @@ func writeContextText(output io.Writer, sessionID string, repo string, events []
 			event.EventID(),
 			formatOptionalColumn(event.Client().String()),
 			event.Agent(),
-			singleLineSummary(event.Body()),
+			singleLineSummary(apptypes.ExtractPlainBody(event.Body())),
 		); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print context event", "文脈イベントの出力に失敗しました"), err)
 		}

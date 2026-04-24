@@ -1,5 +1,0 @@
-./api.go
-./json.go
-./tokens.go
-./tty_indexed.go
-./tty_truecolour.go

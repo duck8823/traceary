@@ -1,7 +1,0 @@
-./claude_hooks_handler_test.go
-./codex_hooks_handler_test.go
-./codex_integration_manager_test.go
-./gemini_hooks_handler_test.go
-./hooks_inspector_test.go
-./hooks_orchestrator_test.go
-./hooks_orchestrator_unix_test.go

@@ -85,22 +85,29 @@ func ParseEventBodyBlocks(body string) []EventBodyBlock {
 //   - JSON-shaped bodies: concatenate `text`-type block contents with
 //     "\n\n"; `thinking` blocks are excluded so memory extraction /
 //     search don't ingest internal reasoning as user-visible fact.
+//     If the envelope carries no text blocks (e.g. thinking-only)
+//     the result is an empty string — never the raw JSON envelope,
+//     which would leak reasoning to plain-text consumers.
 //   - Legacy plain-text bodies: returned unchanged.
-//   - Empty or malformed JSON: returned unchanged so the caller sees
-//     exactly what's stored.
+//   - Malformed JSON: returned unchanged so the caller sees what's
+//     actually stored rather than silently losing data.
 //
 // Use this at the boundary between storage and legacy consumers;
 // prefer ParseEventBodyBlocks for new code that can render blocks.
 func ExtractPlainBody(body string) string {
-	blocks := ParseEventBodyBlocks(body)
-	if len(blocks) == 0 {
+	trimmed := strings.TrimSpace(body)
+	if trimmed == "" || trimmed[0] != '{' {
 		return body
 	}
-	if len(blocks) == 1 && blocks[0].Type == EventBodyBlockTypeText {
-		return blocks[0].Text
+	var envelope EventBodyBlocks
+	if err := json.Unmarshal([]byte(trimmed), &envelope); err != nil {
+		return body
 	}
-	parts := make([]string, 0, len(blocks))
-	for _, b := range blocks {
+	if len(envelope.Blocks) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(envelope.Blocks))
+	for _, b := range envelope.Blocks {
 		if b.Type != EventBodyBlockTypeText {
 			continue
 		}
@@ -110,7 +117,9 @@ func ExtractPlainBody(body string) string {
 		parts = append(parts, b.Text)
 	}
 	if len(parts) == 0 {
-		return body
+		// Structured body that only carries thinking / unknown
+		// block types — nothing user-visible to surface.
+		return ""
 	}
 	return strings.Join(parts, "\n\n")
 }
