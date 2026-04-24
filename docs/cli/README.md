@@ -414,6 +414,30 @@ Useful flags:
 - `--id-only`
 - `--json`
 
+### `traceary memory graph add <from-memory-id> --to <to-memory-id> --relation <type>`
+
+Record a typed relationship between two memories (v0.9.0 graph overlay). See [temporal memory architecture](../architecture/temporal-memory.md) for the relation vocabulary and overlay design.
+
+Useful flags:
+
+- `--to`: target memory ID (required)
+- `--relation`: `supersedes` / `contradicts` / `supports` / `related-to` / `causes` (required; unknown values are accepted for forward compatibility)
+- `--from`: validity window lower bound (YYYY-MM-DD or RFC3339); defaults to "now"
+- `--to-date`: validity window upper bound (exclusive); open-ended when omitted
+- `--json`
+
+### `traceary memory graph list`
+
+List edges matching the given filters. Uses the same half-open `[valid_from, valid_to)` semantics as `memory list --as-of`.
+
+Useful flags:
+
+- `--memory-id`: restrict to edges touching this memory (source or target)
+- `--relation`: filter by relation type
+- `--as-of`: evaluate validity at a given timestamp
+- `--limit`
+- `--json`
+
 ## Session commands
 
 ### `traceary session start`
