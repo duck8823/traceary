@@ -26,6 +26,7 @@ type EventListCriteria struct {
 	failuresOnly bool
 	from         time.Time
 	to           time.Time
+	sourceHook   string
 }
 
 // Limit returns the maximum number of results to return.
@@ -57,6 +58,12 @@ func (c EventListCriteria) From() time.Time { return c.from }
 
 // To returns the upper bound of the time range (exclusive).
 func (c EventListCriteria) To() time.Time { return c.to }
+
+// SourceHook returns the source-hook filter (empty string means no filter).
+// Callers match events that were stamped with this hook identifier by the
+// hook runtime (e.g. "stop", "subagent_stop", "pre_compact"). Matching
+// includes a legacy body-prefix fallback while pre-#672 rows still exist.
+func (c EventListCriteria) SourceHook() string { return c.sourceHook }
 
 // EventListCriteriaBuilder builds an EventListCriteria value.
 type EventListCriteriaBuilder struct {
@@ -120,6 +127,12 @@ func (b *EventListCriteriaBuilder) From(from time.Time) *EventListCriteriaBuilde
 // To sets the upper bound of the time range (exclusive).
 func (b *EventListCriteriaBuilder) To(to time.Time) *EventListCriteriaBuilder {
 	b.criteria.to = to
+	return b
+}
+
+// SourceHook sets the source-hook filter; empty string clears the filter.
+func (b *EventListCriteriaBuilder) SourceHook(sourceHook string) *EventListCriteriaBuilder {
+	b.criteria.sourceHook = sourceHook
 	return b
 }
 

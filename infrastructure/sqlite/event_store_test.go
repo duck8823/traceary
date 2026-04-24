@@ -88,7 +88,7 @@ CREATE TABLE command_audits (
 		t.Fatalf("Save(newer) error = %v", err)
 	}
 
-	got, err := sut.ListRecent(context.Background(), 10, 0, types.EventKind(""), types.Client(""), types.Agent(""), types.SessionID(""), types.Workspace(""), false, time.Time{}, time.Time{})
+	got, err := sut.ListRecent(context.Background(), 10, 0, types.EventKind(""), types.Client(""), types.Agent(""), types.SessionID(""), types.Workspace(""), false, time.Time{}, time.Time{}, "")
 	if err != nil {
 		t.Fatalf("ListRecent() error = %v", err)
 	}
@@ -170,7 +170,7 @@ CREATE TABLE command_audits (
 		t.Fatalf("Save() error = %v", err)
 	}
 
-	got, err := sut.ListRecent(context.Background(), 1, 0, types.EventKind(""), types.Client(""), types.Agent(""), types.SessionID(""), types.Workspace(""), false, time.Time{}, time.Time{})
+	got, err := sut.ListRecent(context.Background(), 1, 0, types.EventKind(""), types.Client(""), types.Agent(""), types.SessionID(""), types.Workspace(""), false, time.Time{}, time.Time{}, "")
 	if err != nil {
 		t.Fatalf("ListRecent() error = %v", err)
 	}
@@ -242,7 +242,7 @@ CREATE TABLE command_audits (
 		}
 	}
 
-	got, err := sut.ListRecent(context.Background(), 1, 1, types.EventKind(""), types.Client(""), types.Agent(""), types.SessionID(""), types.Workspace(""), false, time.Time{}, time.Time{})
+	got, err := sut.ListRecent(context.Background(), 1, 1, types.EventKind(""), types.Client(""), types.Agent(""), types.SessionID(""), types.Workspace(""), false, time.Time{}, time.Time{}, "")
 	if err != nil {
 		t.Fatalf("ListRecent() error = %v", err)
 	}
@@ -315,7 +315,7 @@ CREATE TABLE command_audits (
 		}
 	}
 
-	got, err := sut.ListRecent(context.Background(), 10, 0, types.EventKindNote, types.Client("cli"), types.Agent("codex"), types.SessionID("session-1"), types.Workspace("duck8823/traceary"), false, time.Time{}, time.Time{})
+	got, err := sut.ListRecent(context.Background(), 10, 0, types.EventKindNote, types.Client("cli"), types.Agent("codex"), types.SessionID("session-1"), types.Workspace("duck8823/traceary"), false, time.Time{}, time.Time{}, "")
 	if err != nil {
 		t.Fatalf("ListRecent() error = %v", err)
 	}

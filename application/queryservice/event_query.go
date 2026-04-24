@@ -12,7 +12,7 @@ import (
 // EventQueryService provides read-side operations for events.
 type EventQueryService interface {
 	// ListRecent returns events in descending time order.
-	ListRecent(ctx context.Context, limit, offset int, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, failuresOnly bool, from, to time.Time) ([]*model.Event, error)
+	ListRecent(ctx context.Context, limit, offset int, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, failuresOnly bool, from, to time.Time, sourceHook string) ([]*model.Event, error)
 	// ListWindow returns every event matching the criteria whose created_at
 	// falls in [From, To) under a single read snapshot so concurrent writers
 	// cannot cause the scan to drop events. Callers supply the batch size via

@@ -104,6 +104,7 @@ func (s *eventQueryServiceStub) ListRecent(
 	workspace types.Workspace,
 	_ bool,
 	_, _ time.Time,
+	_ string,
 ) ([]*model.Event, error) {
 	s.listRecentCalls++
 	s.listRecentLimit = limit

@@ -457,11 +457,11 @@ func TestRootCLI_HookCompactCommand_RecordsPreCompactSnapshot(t *testing.T) {
 	if got, want := eventStub.logCall.kind, types.EventKindCompactSummary; got != want {
 		t.Fatalf("pre-compact log kind = %q, want %q", got, want)
 	}
-	if !strings.HasPrefix(eventStub.logCall.message, types.EventBodyMarkerCompactPreSnapshot) {
-		t.Fatalf("pre-compact log message = %q, want prefix %q", eventStub.logCall.message, types.EventBodyMarkerCompactPreSnapshot)
+	if got, want := eventStub.logCall.message, "size-threshold"; got != want {
+		t.Fatalf("pre-compact log message = %q, want %q (phase marker is retired; source_hook discriminates)", got, want)
 	}
-	if !strings.Contains(eventStub.logCall.message, "size-threshold") {
-		t.Fatalf("pre-compact log message = %q, want trigger context appended", eventStub.logCall.message)
+	if got, want := eventStub.logCall.sourceHook, "pre_compact"; got != want {
+		t.Fatalf("pre-compact log source_hook = %q, want %q", got, want)
 	}
 }
 
@@ -511,11 +511,11 @@ func TestRootCLI_HookSubagentStopCommand_RecordsSessionEnded(t *testing.T) {
 	if got, want := eventStub.logCall.kind, types.EventKindSessionEnded; got != want {
 		t.Fatalf("subagent-stop log kind = %q, want %q", got, want)
 	}
-	if !strings.HasPrefix(eventStub.logCall.message, types.EventBodyMarkerSubagentStop) {
-		t.Fatalf("subagent-stop log message = %q, want prefix %q", eventStub.logCall.message, types.EventBodyMarkerSubagentStop)
+	if got, want := eventStub.logCall.message, "code-reviewer"; got != want {
+		t.Fatalf("subagent-stop log message = %q, want %q (phase marker is retired; source_hook discriminates)", got, want)
 	}
-	if !strings.Contains(eventStub.logCall.message, "code-reviewer") {
-		t.Fatalf("subagent-stop log message = %q, want subagent_type appended", eventStub.logCall.message)
+	if got, want := eventStub.logCall.sourceHook, "subagent_stop"; got != want {
+		t.Fatalf("subagent-stop log source_hook = %q, want %q", got, want)
 	}
 }
 

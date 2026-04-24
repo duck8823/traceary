@@ -490,11 +490,11 @@ func (c *RootCLI) runHookCompact(
 		if preContext == "" {
 			preContext = hookPayloadString(payload, "trigger", "")
 		}
-		body := types.EventBodyMarkerCompactPreSnapshot
-		if preContext != "" {
-			body = types.EventBodyMarkerCompactPreSnapshot + " " + preContext
-		}
-		_, err = c.event.Log(ctx, body, types.EventKindCompactSummary, types.Client("hook"), agent, sessionID, workspace, apptypes.LogRedaction{})
+		// source_hook = "pre_compact" (stamped via ctx) now discriminates
+		// the snapshot from post-compact digests. We intentionally drop
+		// the legacy `[phase:pre-compact]` body prefix: readers fall back
+		// to the marker only for pre-#672 rows that lack source_hook.
+		_, err = c.event.Log(ctx, preContext, types.EventKindCompactSummary, types.Client("hook"), agent, sessionID, workspace, apptypes.LogRedaction{})
 		if err != nil {
 			return xerrors.Errorf("failed to record pre-compact hook event: %w", err)
 		}
@@ -555,16 +555,12 @@ func (c *RootCLI) runHookSubagentStop(
 		return err
 	}
 	// Claude Code's SubagentStop hook fires whenever a Task-tool subagent
-	// completes. The payload typically carries `subagent_type` or
-	// `subagent_id`; we persist an explicit session_ended event marked
-	// with a `[phase:subagent]` prefix so subagent lifecycle is
-	// recoverable without relying on agent_type inference on PostToolUse.
+	// completes. source_hook = "subagent_stop" (stamped via ctx) now
+	// discriminates the subagent boundary from main-session session_ended
+	// events; the legacy `[phase:subagent]` body prefix is retired on
+	// write but readers still match it for pre-#672 rows.
 	subagentType := hookPayloadString(payload, "subagent_type", "")
-	body := types.EventBodyMarkerSubagentStop
-	if subagentType != "" {
-		body = types.EventBodyMarkerSubagentStop + " " + subagentType
-	}
-	_, err = c.event.Log(ctx, body, types.EventKindSessionEnded, types.Client("hook"), agent, sessionID, workspace, apptypes.LogRedaction{})
+	_, err = c.event.Log(ctx, subagentType, types.EventKindSessionEnded, types.Client("hook"), agent, sessionID, workspace, apptypes.LogRedaction{})
 	if err != nil {
 		return xerrors.Errorf("failed to record subagent-stop event: %w", err)
 	}

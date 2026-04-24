@@ -57,7 +57,7 @@ func TestSessionDatasource_SaveBoundary_Start(t *testing.T) {
 	}
 
 	// Event row was inserted
-	events, err := eventDS.ListRecent(ctx, 10, 0, types.EventKindSessionStarted, types.Client(""), types.Agent(""), sessionID, types.Workspace(""), false, time.Time{}, time.Time{})
+	events, err := eventDS.ListRecent(ctx, 10, 0, types.EventKindSessionStarted, types.Client(""), types.Agent(""), sessionID, types.Workspace(""), false, time.Time{}, time.Time{}, "")
 	if err != nil {
 		t.Fatalf("ListRecent() error = %v", err)
 	}
@@ -359,7 +359,7 @@ func TestSessionDatasource_SaveBoundary_DuplicateEndRejected(t *testing.T) {
 
 	// The duplicate session_ended event must also have been rolled back —
 	// only the first end event should be persisted.
-	events, err := eventDS.ListRecent(ctx, 10, 0, types.EventKindSessionEnded, types.Client(""), types.Agent(""), sessionID, types.Workspace(""), false, time.Time{}, time.Time{})
+	events, err := eventDS.ListRecent(ctx, 10, 0, types.EventKindSessionEnded, types.Client(""), types.Agent(""), sessionID, types.Workspace(""), false, time.Time{}, time.Time{}, "")
 	if err != nil {
 		t.Fatalf("ListRecent() error = %v", err)
 	}
@@ -422,7 +422,7 @@ func TestSessionDatasource_SaveBoundary_DuplicateStartRejected(t *testing.T) {
 
 	// Only the first session_started event must remain; the second must
 	// have been rolled back together with the duplicate row attempt.
-	events, err := eventDS.ListRecent(ctx, 10, 0, types.EventKindSessionStarted, types.Client(""), types.Agent(""), sessionID, types.Workspace(""), false, time.Time{}, time.Time{})
+	events, err := eventDS.ListRecent(ctx, 10, 0, types.EventKindSessionStarted, types.Client(""), types.Agent(""), sessionID, types.Workspace(""), false, time.Time{}, time.Time{}, "")
 	if err != nil {
 		t.Fatalf("ListRecent() error = %v", err)
 	}

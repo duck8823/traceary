@@ -55,8 +55,9 @@ type listEventsInput struct {
 	Agent     string `json:"agent,omitempty" jsonschema:"filter by agent"`
 	SessionID string `json:"session_id,omitempty" jsonschema:"filter by session ID"`
 	Workspace string `json:"workspace,omitempty" jsonschema:"filter by work context"`
-	From      string `json:"from,omitempty" jsonschema:"start time (YYYY-MM-DD or RFC3339)"`
-	To        string `json:"to,omitempty" jsonschema:"end time (YYYY-MM-DD or RFC3339)"`
+	From       string `json:"from,omitempty" jsonschema:"start time (YYYY-MM-DD or RFC3339)"`
+	To         string `json:"to,omitempty" jsonschema:"end time (YYYY-MM-DD or RFC3339)"`
+	SourceHook string `json:"source_hook,omitempty" jsonschema:"filter by hook identifier that produced the event (stop, subagent_stop, pre_compact, post_compact, session_start, session_end, user_prompt_submit, post_tool_use, after_agent, after_tool)"`
 }
 
 // searchInput is the MCP input for the search tool.

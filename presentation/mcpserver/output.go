@@ -2,25 +2,27 @@ package mcpserver
 
 // addLogOutput is the MCP output for the add_log tool.
 type addLogOutput struct {
-	EventID   string `json:"event_id" jsonschema:"saved event ID"`
-	Kind      string `json:"kind" jsonschema:"event kind"`
-	Client    string `json:"client" jsonschema:"recording channel"`
-	Agent     string `json:"agent" jsonschema:"actor"`
-	SessionID string `json:"session_id" jsonschema:"session identifier"`
-	Workspace string `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
-	Body      string `json:"body" jsonschema:"event body"`
-	CreatedAt string `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
+	EventID    string `json:"event_id" jsonschema:"saved event ID"`
+	Kind       string `json:"kind" jsonschema:"event kind"`
+	Client     string `json:"client" jsonschema:"recording channel"`
+	Agent      string `json:"agent" jsonschema:"actor"`
+	SessionID  string `json:"session_id" jsonschema:"session identifier"`
+	Workspace  string `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
+	Body       string `json:"body" jsonschema:"event body"`
+	SourceHook string `json:"source_hook,omitempty" jsonschema:"hook identifier that produced this event (omitted for non-hook writes)"`
+	CreatedAt  string `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
 }
 
 // sessionEventOutput is the MCP output for session tools (start/end/active/latest).
 type sessionEventOutput struct {
-	EventID   string `json:"event_id" jsonschema:"saved or referenced event ID"`
-	Kind      string `json:"kind" jsonschema:"event kind"`
-	Client    string `json:"client" jsonschema:"recording channel"`
-	Agent     string `json:"agent" jsonschema:"actor"`
-	SessionID string `json:"session_id" jsonschema:"session identifier"`
-	Workspace string `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
-	CreatedAt string `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
+	EventID    string `json:"event_id" jsonschema:"saved or referenced event ID"`
+	Kind       string `json:"kind" jsonschema:"event kind"`
+	Client     string `json:"client" jsonschema:"recording channel"`
+	Agent      string `json:"agent" jsonschema:"actor"`
+	SessionID  string `json:"session_id" jsonschema:"session identifier"`
+	Workspace  string `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
+	SourceHook string `json:"source_hook,omitempty" jsonschema:"hook identifier that produced this event (omitted for non-hook writes)"`
+	CreatedAt  string `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
 }
 
 // addAuditOutput is the MCP output for the add_audit tool.
@@ -44,14 +46,15 @@ type eventsOutput struct {
 
 // eventOutput is an individual event in an eventsOutput list.
 type eventOutput struct {
-	EventID   string `json:"event_id" jsonschema:"event ID"`
-	Kind      string `json:"kind" jsonschema:"event kind"`
-	Client    string `json:"client" jsonschema:"recording channel"`
-	Agent     string `json:"agent" jsonschema:"actor"`
-	SessionID string `json:"session_id" jsonschema:"session identifier"`
-	Workspace string `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
-	Body      string `json:"body" jsonschema:"event body"`
-	CreatedAt string `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
+	EventID    string `json:"event_id" jsonschema:"event ID"`
+	Kind       string `json:"kind" jsonschema:"event kind"`
+	Client     string `json:"client" jsonschema:"recording channel"`
+	Agent      string `json:"agent" jsonschema:"actor"`
+	SessionID  string `json:"session_id" jsonschema:"session identifier"`
+	Workspace  string `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
+	Body       string `json:"body" jsonschema:"event body"`
+	SourceHook string `json:"source_hook,omitempty" jsonschema:"hook identifier that produced this event (omitted for non-hook writes)"`
+	CreatedAt  string `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
 }
 
 // sessionHandoffOutput is the MCP output for the session_handoff tool.

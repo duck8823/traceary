@@ -165,11 +165,16 @@ func writeContextText(output io.Writer, sessionID string, repo string, events []
 	}
 
 	for _, event := range events {
+		hookSuffix := ""
+		if hook := event.SourceHook(); hook != "" {
+			hookSuffix = " (hook=" + hook + ")"
+		}
 		if _, err := fmt.Fprintf(
 			output,
-			"- %s [%s] %s %s/%s %s\n",
+			"- %s [%s]%s %s %s/%s %s\n",
 			event.CreatedAt().UTC().Format("2006-01-02T15:04:05Z07:00"),
 			event.Kind(),
+			hookSuffix,
 			event.EventID(),
 			formatOptionalColumn(event.Client().String()),
 			event.Agent(),

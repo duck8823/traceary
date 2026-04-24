@@ -167,10 +167,10 @@ func TestRunTail_PrintsInitialEventsAndFollowsNewEvents(t *testing.T) {
 		t.Fatalf("runTail() error = %v", err)
 	}
 
-	want := "CREATED_AT\tKIND\tCLIENT\tAGENT\tSESSION_ID\tWORKSPACE\tMESSAGE\n" +
-		"2026-04-13T18:00:00Z\tnote\tcli\tcodex\tsession-1\tduck8823/traceary\tolder\n" +
-		"2026-04-13T18:05:00Z\tnote\tcli\tcodex\tsession-1\tduck8823/traceary\tnewer\n" +
-		"2026-04-13T18:10:00Z\tnote\tcli\tcodex\tsession-1\tduck8823/traceary\tlatest\n"
+	want := "CREATED_AT\tKIND\tCLIENT\tAGENT\tSESSION_ID\tWORKSPACE\tSOURCE_HOOK\tMESSAGE\n" +
+		"2026-04-13T18:00:00Z\tnote\tcli\tcodex\tsession-1\tduck8823/traceary\t-\tolder\n" +
+		"2026-04-13T18:05:00Z\tnote\tcli\tcodex\tsession-1\tduck8823/traceary\t-\tnewer\n" +
+		"2026-04-13T18:10:00Z\tnote\tcli\tcodex\tsession-1\tduck8823/traceary\t-\tlatest\n"
 	if stdout.String() != want {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 	}
@@ -226,8 +226,8 @@ func TestRunTail_ZeroLimitStartsFromNow(t *testing.T) {
 		t.Fatalf("runTail() error = %v", err)
 	}
 
-	want := "CREATED_AT\tKIND\tCLIENT\tAGENT\tSESSION_ID\tWORKSPACE\tMESSAGE\n" +
-		"2026-04-13T19:45:00Z\tnote\tcli\tcodex\tsession-1\tduck8823/traceary\tnew\n"
+	want := "CREATED_AT\tKIND\tCLIENT\tAGENT\tSESSION_ID\tWORKSPACE\tSOURCE_HOOK\tMESSAGE\n" +
+		"2026-04-13T19:45:00Z\tnote\tcli\tcodex\tsession-1\tduck8823/traceary\t-\tnew\n"
 	if stdout.String() != want {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 	}
@@ -345,8 +345,8 @@ func TestRunTail_DoesNotReEmitBoundaryEventWhenFromEqualsInitialTimestamp(t *tes
 		t.Fatalf("runTail() error = %v", err)
 	}
 
-	want := "CREATED_AT\tKIND\tCLIENT\tAGENT\tSESSION_ID\tWORKSPACE\tMESSAGE\n" +
-		"2026-04-13T18:05:00Z\tnote\tcli\tcodex\tsession-1\tduck8823/traceary\tboundary\n"
+	want := "CREATED_AT\tKIND\tCLIENT\tAGENT\tSESSION_ID\tWORKSPACE\tSOURCE_HOOK\tMESSAGE\n" +
+		"2026-04-13T18:05:00Z\tnote\tcli\tcodex\tsession-1\tduck8823/traceary\t-\tboundary\n"
 	if stdout.String() != want {
 		t.Fatalf("stdout = %q, want %q (event must appear exactly once despite From()==cursor.timestamp)", stdout.String(), want)
 	}

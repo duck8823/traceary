@@ -6,6 +6,7 @@ WITH candidate_sessions AS (
             started.session_id,
             started.workspace,
             started.body,
+            started.source_hook,
             started.created_at,
             (
               SELECT boundary.created_at
@@ -70,6 +71,7 @@ SELECT id,
        session_id,
        workspace,
        body,
+       source_hook,
        created_at
   FROM candidate_sessions
  ORDER BY CASE WHEN ? THEN created_at ELSE latest_boundary_created_at END DESC,

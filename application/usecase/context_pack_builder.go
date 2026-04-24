@@ -111,6 +111,7 @@ func (b *contextPackBuilder) loadRecentCommands(ctx context.Context, session app
 		false,
 		time.Time{},
 		time.Time{},
+		"",
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list recent command events for context pack: %w", err)
@@ -141,13 +142,19 @@ func (b *contextPackBuilder) loadCompactSummary(ctx context.Context, session app
 		false,
 		time.Time{},
 		time.Time{},
+		"",
 	)
 	if err != nil {
 		return "", xerrors.Errorf("failed to list compact summary events for context pack: %w", err)
 	}
 	for _, event := range events {
 		body := event.Body()
-		if strings.HasPrefix(strings.TrimSpace(body), domtypes.EventBodyMarkerCompactPreSnapshot) {
+		// Skip PreCompact snapshots: new rows carry source_hook =
+		// "pre_compact"; legacy (pre-#672) rows still carry the
+		// "[phase:pre-compact]" body prefix and must keep working
+		// through the migration window.
+		if event.SourceHook() == "pre_compact" ||
+			strings.HasPrefix(strings.TrimSpace(body), domtypes.EventBodyMarkerCompactPreSnapshot) {
 			continue
 		}
 		return extractCompactSummarySignal(body), nil

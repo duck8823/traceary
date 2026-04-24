@@ -65,7 +65,7 @@ func formatTextTimestamp(ts time.Time, opts eventTextFormatOptions, layout strin
 }
 
 func formatEventWideHeader() string {
-	return "CREATED_AT\tKIND\tCLIENT\tAGENT\tSESSION_ID\tWORKSPACE\tMESSAGE"
+	return "CREATED_AT\tKIND\tCLIENT\tAGENT\tSESSION_ID\tWORKSPACE\tSOURCE_HOOK\tMESSAGE"
 }
 
 func formatEventWideRow(event *model.Event, opts eventTextFormatOptions) string {
@@ -76,6 +76,7 @@ func formatEventWideRow(event *model.Event, opts eventTextFormatOptions) string 
 		string(event.Agent()),
 		event.SessionID().String(),
 		formatOptionalColumn(event.Workspace().String()),
+		formatOptionalColumn(event.SourceHook()),
 		truncateMessage(apptypes.ExtractPlainBody(event.Body())),
 	}, "\t")
 }
@@ -167,6 +168,8 @@ func renderCompactToken(event *model.Event, id readFieldID, opts eventTextFormat
 		return "exit=" + formatOptionalExitCode(extras.exitCode)
 	case readFieldEventID:
 		return "id=" + event.EventID().String()
+	case readFieldSourceHook:
+		return "hook=" + formatOptionalColumn(event.SourceHook())
 	}
 	return ""
 }

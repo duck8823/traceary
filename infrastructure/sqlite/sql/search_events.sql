@@ -1,4 +1,4 @@
-SELECT DISTINCT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.body, e.created_at
+SELECT DISTINCT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.body, e.source_hook, e.created_at
   FROM events e
   LEFT JOIN command_audits a ON a.event_id = e.id
  WHERE (? = '' OR

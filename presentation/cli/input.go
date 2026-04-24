@@ -120,6 +120,7 @@ type listCommandInput struct {
 	to           string
 	until        string
 	failuresOnly bool
+	sourceHook   string
 	asJSON       bool
 	wide         bool
 	utc          bool
@@ -134,6 +135,7 @@ type listCommandInput struct {
 	sessionIDSet    bool
 	repoSet         bool
 	failuresOnlySet bool
+	sourceHookSet   bool
 	color           string
 	colorSet        bool
 }

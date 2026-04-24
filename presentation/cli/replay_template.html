@@ -41,6 +41,7 @@
   ul.events li { padding: 6px 0; border-bottom: 1px dashed var(--border); display: grid; grid-template-columns: 180px 150px 200px 1fr; gap: 12px; }
   ul.events li .t { color: var(--muted); font-family: ui-monospace,'SF Mono',Menlo,monospace; font-size: 12px; }
   ul.events li .k { font-family: ui-monospace,'SF Mono',Menlo,monospace; font-size: 12px; }
+  ul.events li .k .hook { color: var(--muted); font-size: 11px; }
   ul.events li .agent { color: var(--muted); font-family: ui-monospace,'SF Mono',Menlo,monospace; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   ul.events li .k.prompt { color: var(--prompt); }
   ul.events li .k.transcript { color: var(--transcript); }
@@ -96,7 +97,7 @@
           {{range .Events}}
             <li>
               <span class="t">{{fmtInstant .CreatedAt}}</span>
-              <span class="k {{.Kind}}">{{.Kind}}</span>
+              <span class="k {{.Kind}}">{{.Kind}}{{if .SourceHook}} <span class="hook" title="producing hook">{{.SourceHook}}</span>{{end}}</span>
               <span class="agent" title="{{.Agent}} · {{.Client}}">{{.Agent}}{{if .Client}} / {{.Client}}{{end}}</span>
               <span class="body">{{short .Body 480}}</span>
             </li>
