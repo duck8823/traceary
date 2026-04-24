@@ -485,7 +485,11 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 			return nil, eventsOutput{}, xerrors.Errorf("failed to search events: %w", err)
 		}
 
-		return nil, eventsOutput{Events: convertEvents(events)}, nil
+		// Search intentionally omits body_blocks so thinking content is
+		// not re-exposed through this surface — #682 strips thinking
+		// from the LIKE match, but the envelope is still attached to
+		// the returned event and body_blocks would bypass the gate.
+		return nil, eventsOutput{Events: convertEventsWithoutBlocks(events)}, nil
 	}
 }
 
@@ -500,7 +504,10 @@ func (s *Server) getContext() mcp.ToolHandlerFor[getContextInput, eventsOutput] 
 			return nil, eventsOutput{}, xerrors.Errorf("failed to get context: %w", err)
 		}
 
-		return nil, eventsOutput{Events: convertEvents(events)}, nil
+		// get_context also omits body_blocks for the same reason as
+		// search: the canonical envelope would re-expose thinking
+		// block text that other surfaces already strip.
+		return nil, eventsOutput{Events: convertEventsWithoutBlocks(events)}, nil
 	}
 }
 
@@ -1472,10 +1479,34 @@ func parseFlexibleTimeOptional(value string) (types.Optional[time.Time], error) 
 	return types.Some(parsed), nil
 }
 
+// convertEvents serializes events for MCP list_events. It includes
+// body_blocks (the canonical envelope form, thinking blocks and all)
+// because list_events is the primary surface where programmatic
+// consumers round-trip transcript structure.
+//
+// search / get_context deliberately use convertEventsWithoutBlocks so
+// their responses do not re-expose thinking-block text through the
+// MCP layer — #682 filters thinking out of the LIKE match, but the
+// full envelope is still attached to the returned event, and dumping
+// it via body_blocks would undo that protection on those surfaces.
 func convertEvents(events []*model.Event) []eventOutput {
+	return convertEventsInternal(events, true)
+}
+
+// convertEventsWithoutBlocks serializes events for MCP search /
+// get_context without the body_blocks field so thinking content
+// cannot leak through those surfaces.
+func convertEventsWithoutBlocks(events []*model.Event) []eventOutput {
+	return convertEventsInternal(events, false)
+}
+
+func convertEventsInternal(events []*model.Event, includeBlocks bool) []eventOutput {
 	outputs := make([]eventOutput, 0, len(events))
 	for _, event := range events {
-		blocks, _ := apptypes.DecodeCanonicalEnvelope(event.Body())
+		var blocks []apptypes.EventBodyBlock
+		if includeBlocks {
+			blocks, _ = apptypes.DecodeCanonicalEnvelope(event.Body())
+		}
 		outputs = append(outputs, eventOutput{
 			EventID:    event.EventID().String(),
 			Kind:       event.Kind().String(),
