@@ -38,6 +38,15 @@ type EventBodyBlocks struct {
 	Blocks []EventBodyBlock `json:"blocks"`
 }
 
+// envelopeProbe distinguishes "this is our blocks envelope" from
+// "this is some other JSON object" by looking for the blocks key
+// presence (pointer stays nil when the key is absent). Without this
+// probe a legitimate non-envelope body like `{"foo":"bar"}` would be
+// silently rewritten.
+type envelopeProbe struct {
+	Blocks *[]EventBodyBlock `json:"blocks"`
+}
+
 // MarshalEventBodyBlocks serializes a block slice to the canonical
 // JSON shape used for structured event bodies:
 //
@@ -68,26 +77,30 @@ func ParseEventBodyBlocks(body string) []EventBodyBlock {
 	if trimmed[0] != '{' {
 		return []EventBodyBlock{{Type: EventBodyBlockTypeText, Text: body}}
 	}
-	var envelope EventBodyBlocks
-	if err := json.Unmarshal([]byte(trimmed), &envelope); err != nil {
+	var probe envelopeProbe
+	if err := json.Unmarshal([]byte(trimmed), &probe); err != nil || probe.Blocks == nil {
 		return []EventBodyBlock{{Type: EventBodyBlockTypeText, Text: body}}
 	}
-	if len(envelope.Blocks) == 0 {
+	if len(*probe.Blocks) == 0 {
 		return []EventBodyBlock{{Type: EventBodyBlockTypeText, Text: body}}
 	}
-	return envelope.Blocks
+	return *probe.Blocks
 }
 
 // ExtractPlainBody returns the flat-text projection of a body for
 // readers that have not yet been updated to consume blocks directly.
 // Behaviour:
 //
-//   - JSON-shaped bodies: concatenate `text`-type block contents with
-//     "\n\n"; `thinking` blocks are excluded so memory extraction /
-//     search don't ingest internal reasoning as user-visible fact.
-//     If the envelope carries no text blocks (e.g. thinking-only)
-//     the result is an empty string — never the raw JSON envelope,
-//     which would leak reasoning to plain-text consumers.
+//   - Canonical transcript envelopes (JSON object with a "blocks"
+//     key): concatenate `text`-type block contents with "\n\n";
+//     `thinking` blocks are excluded so memory extraction / search
+//     don't ingest internal reasoning as user-visible fact. If the
+//     envelope carries no text blocks (e.g. thinking-only) the result
+//     is an empty string — never the raw JSON envelope, which would
+//     leak reasoning to plain-text consumers.
+//   - Non-envelope JSON (e.g. a note body that legitimately stores
+//     `{"foo":"bar"}`): returned unchanged so domain data isn't
+//     silently discarded.
 //   - Legacy plain-text bodies: returned unchanged.
 //   - Malformed JSON: returned unchanged so the caller sees what's
 //     actually stored rather than silently losing data.
@@ -99,15 +112,15 @@ func ExtractPlainBody(body string) string {
 	if trimmed == "" || trimmed[0] != '{' {
 		return body
 	}
-	var envelope EventBodyBlocks
-	if err := json.Unmarshal([]byte(trimmed), &envelope); err != nil {
+	var probe envelopeProbe
+	if err := json.Unmarshal([]byte(trimmed), &probe); err != nil || probe.Blocks == nil {
 		return body
 	}
-	if len(envelope.Blocks) == 0 {
+	if len(*probe.Blocks) == 0 {
 		return ""
 	}
-	parts := make([]string, 0, len(envelope.Blocks))
-	for _, b := range envelope.Blocks {
+	parts := make([]string, 0, len(*probe.Blocks))
+	for _, b := range *probe.Blocks {
 		if b.Type != EventBodyBlockTypeText {
 			continue
 		}
