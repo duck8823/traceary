@@ -38,6 +38,20 @@ type EventBodyBlocks struct {
 	Blocks []EventBodyBlock `json:"blocks"`
 }
 
+// DecodeCanonicalEnvelope is the exported form of
+// decodeCanonicalEnvelope. Callers that need to render block-structured
+// output (for example MCP tools that want to expose thinking vs text
+// separately) can use it to decide whether a body is a canonical
+// envelope worth serialising as blocks — returning ok=false means
+// "fall back to the raw body / plain-text projection".
+func DecodeCanonicalEnvelope(body string) ([]EventBodyBlock, bool) {
+	trimmed := strings.TrimSpace(body)
+	if trimmed == "" || trimmed[0] != '{' {
+		return nil, false
+	}
+	return decodeCanonicalEnvelope(trimmed)
+}
+
 // decodeCanonicalEnvelope returns the block slice encoded in body if
 // and only if body is a canonical transcript envelope:
 //
