@@ -160,6 +160,12 @@ func (c *RootCLI) runMemoryGraphAdd(ctx context.Context, output io.Writer, input
 }
 
 func (c *RootCLI) runMemoryGraphList(ctx context.Context, output io.Writer, input memoryGraphListInput) error {
+	// The CLI contract says only --limit=0 disables the cap; reject
+	// negative values up front so SQLite cannot be tricked into
+	// returning an unbounded result via `--limit -1`.
+	if input.limit < 0 {
+		return xerrors.Errorf(Localize("--limit must be greater than or equal to 0 (0 disables the cap)", "--limit は 0 以上である必要があります (0 で上限なし)"))
+	}
 	if c.memoryEdge == nil {
 		return xerrors.Errorf(Localize("memory edge usecase is not configured", "memory edge usecase が設定されていません"))
 	}
