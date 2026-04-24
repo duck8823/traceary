@@ -101,7 +101,7 @@ func (c *RootCLI) newHandoffCommandWithUse(use string, short string, deprecated 
 	cmd.Flags().IntVar(&memories, "memories", 5, Localize("number of durable memories to include", "含める durable memory 数"))
 	cmd.Flags().StringVar(&preset, "preset", "", Localize("apply a built-in retrieval preset to durable memories (resume | review | incident)", "durable memory 取得に built-in preset を適用する (resume | review | incident)"))
 	cmd.Flags().StringVar(&asOf, "as-of", "", Localize("evaluate durable memory validity at the given timestamp (RFC3339 or YYYY-MM-DD)", "指定時刻 (RFC3339 または YYYY-MM-DD) の時点で durable memory の validity を評価する"))
-	cmd.Flags().BoolVar(&compactOnly, "compact-only", false, Localize("emit the compact single-line summary used on session resume (see `traceary session compact-summary` history)", "セッション再開時に使われる 1 行の compact summary を出力する"))
+	cmd.Flags().BoolVar(&compactOnly, "compact-only", false, Localize("emit the short prompt-injection summary used on session resume (replaces the v0.8.x compact-summary command); implicitly sets --recent=3 unless --recent is given", "セッション再開時に使う短い prompt-injection summary を出力する (v0.8.x の compact-summary を置き換え); --recent 未指定時は 3 に自動設定"))
 
 	return cmd
 }
