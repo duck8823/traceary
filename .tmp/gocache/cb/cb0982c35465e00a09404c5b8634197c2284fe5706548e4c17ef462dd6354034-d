@@ -1,0 +1,17 @@
+./agent.go
+./artifact_ref.go
+./client.go
+./confidence.go
+./event_body_markers.go
+./event_id.go
+./event_kind.go
+./evidence_ref.go
+./memory_id.go
+./memory_scope.go
+./memory_source.go
+./memory_status.go
+./memory_type.go
+./optional.go
+./package.go
+./session_id.go
+./workspace.go

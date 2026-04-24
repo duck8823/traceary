@@ -1,0 +1,9 @@
+./base_rule.go
+./config.go
+./doc.go
+./issues.go
+./linters.go
+./linters_settings.go
+./output.go
+./run.go
+./severity.go

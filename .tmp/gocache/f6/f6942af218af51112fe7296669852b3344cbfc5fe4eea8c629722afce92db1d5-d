@@ -1,0 +1,12 @@
+./command_audit.go
+./event.go
+./event_repository.go
+./hooks.go
+./memory.go
+./memory_errors.go
+./memory_repository.go
+./package.go
+./session.go
+./session_errors.go
+./session_repository.go
+./export_test.go

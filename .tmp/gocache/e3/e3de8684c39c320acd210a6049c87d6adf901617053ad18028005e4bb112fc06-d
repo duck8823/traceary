@@ -1,0 +1,15 @@
+./cache.go
+./config.go
+./config_verify.go
+./custom.go
+./flagsets.go
+./fmt.go
+./formatters.go
+./help.go
+./help_formatters.go
+./help_linters.go
+./linters.go
+./migrate.go
+./root.go
+./run.go
+./version.go

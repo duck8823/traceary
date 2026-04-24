@@ -1,0 +1,4 @@
+./event_query.go
+./memory_query.go
+./package.go
+./session_query.go

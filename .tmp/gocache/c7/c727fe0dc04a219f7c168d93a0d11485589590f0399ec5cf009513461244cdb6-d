@@ -1,0 +1,15 @@
+./base_loader.go
+./base_rule.go
+./config.go
+./formatters.go
+./formatters_settings.go
+./issues.go
+./linters.go
+./linters_exclusions.go
+./linters_settings.go
+./loader.go
+./output.go
+./output_formats.go
+./placeholders.go
+./run.go
+./severity.go

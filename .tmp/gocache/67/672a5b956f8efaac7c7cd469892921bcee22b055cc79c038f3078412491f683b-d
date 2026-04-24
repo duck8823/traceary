@@ -1,0 +1,5 @@
+./command_audit_test.go
+./event_test.go
+./hooks_test.go
+./memory_test.go
+./session_test.go

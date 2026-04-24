@@ -1,0 +1,6 @@
+./astutils.go
+./diag.go
+./features.go
+./file_processor.go
+./struct_constructor.go
+./structholder.go

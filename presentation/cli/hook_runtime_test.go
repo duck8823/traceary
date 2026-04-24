@@ -667,8 +667,18 @@ func TestRootCLI_HookTranscriptCommand_RecordsLastAssistantMessage(t *testing.T)
 	if got, want := eventStub.logCall.kind, types.EventKindTranscript; got != want {
 		t.Fatalf("transcript log kind = %q, want %q", got, want)
 	}
-	if got, want := eventStub.logCall.message, "first-block thinking\n\nnewer reasoning\n\nwith two blocks"; got != want {
-		t.Fatalf("transcript log message = %q, want %q", got, want)
+	// #662 changed the transcript body shape from a flat string to a
+	// JSON block envelope so downstream readers can distinguish
+	// thinking from rendered reply. Assert the parsed block structure
+	// instead of a concat string.
+	gotBlocks := apptypes.ParseEventBodyBlocks(eventStub.logCall.message)
+	wantBlocks := []apptypes.EventBodyBlock{
+		{Type: apptypes.EventBodyBlockTypeThinking, Text: "first-block thinking"},
+		{Type: apptypes.EventBodyBlockTypeText, Text: "newer reasoning"},
+		{Type: apptypes.EventBodyBlockTypeText, Text: "with two blocks"},
+	}
+	if diff := cmp.Diff(wantBlocks, gotBlocks); diff != "" {
+		t.Fatalf("transcript blocks mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -803,8 +813,12 @@ func TestRootCLI_HookTranscriptCommand_HandlesMalformedTranscript(t *testing.T) 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if got, want := eventStub.logCall.message, "valid assistant reply"; got != want {
-		t.Fatalf("transcript log message = %q, want %q", got, want)
+	// #662: the surviving assistant entry is serialized as a single
+	// text block — the malformed line is skipped without aborting.
+	gotBlocks := apptypes.ParseEventBodyBlocks(eventStub.logCall.message)
+	wantBlocks := []apptypes.EventBodyBlock{{Type: apptypes.EventBodyBlockTypeText, Text: "valid assistant reply"}}
+	if diff := cmp.Diff(wantBlocks, gotBlocks); diff != "" {
+		t.Fatalf("transcript blocks mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -906,8 +920,15 @@ func TestRootCLI_HookTranscriptCommand_Codex(t *testing.T) {
 	if got, want := eventStub.logCall.sessionID, types.SessionID("codex-transcript-session"); got != want {
 		t.Errorf("transcript log sessionID = %q, want %q", got, want)
 	}
-	if !strings.HasPrefix(eventStub.logCall.message, "Codex reply body.") {
-		t.Errorf("transcript log message prefix = %q, want it to start with \"Codex reply body.\"", eventStub.logCall.message)
+	// #662: Codex emits a single text block (no thinking/text
+	// distinction on the host side), verbatim from
+	// last_assistant_message.
+	gotBlocks := apptypes.ParseEventBodyBlocks(eventStub.logCall.message)
+	if len(gotBlocks) != 1 || gotBlocks[0].Type != apptypes.EventBodyBlockTypeText {
+		t.Fatalf("transcript blocks = %+v, want single text block", gotBlocks)
+	}
+	if !strings.HasPrefix(gotBlocks[0].Text, "Codex reply body.") {
+		t.Errorf("transcript block text prefix = %q, want it to start with \"Codex reply body.\"", gotBlocks[0].Text)
 	}
 	// Redaction now runs inside EventUsecase.Log (#666). The CLI
 	// layer's job is to hand the operator-configured extra patterns
@@ -1017,8 +1038,13 @@ func TestRootCLI_HookTranscriptCommand_Gemini(t *testing.T) {
 	if got, want := eventStub.logCall.sessionID, types.SessionID("gemini-transcript-session"); got != want {
 		t.Errorf("transcript log sessionID = %q, want %q", got, want)
 	}
-	if !strings.HasPrefix(eventStub.logCall.message, "Gemini summary.") {
-		t.Errorf("transcript log message prefix = %q, want it to start with \"Gemini summary.\"", eventStub.logCall.message)
+	// #662: Gemini emits a single text block from prompt_response.
+	gotBlocks := apptypes.ParseEventBodyBlocks(eventStub.logCall.message)
+	if len(gotBlocks) != 1 || gotBlocks[0].Type != apptypes.EventBodyBlockTypeText {
+		t.Fatalf("transcript blocks = %+v, want single text block", gotBlocks)
+	}
+	if !strings.HasPrefix(gotBlocks[0].Text, "Gemini summary.") {
+		t.Errorf("transcript block text prefix = %q, want it to start with \"Gemini summary.\"", gotBlocks[0].Text)
 	}
 	// Same split as the Codex test: CLI hands LogRedaction over,
 	// EventUsecase.Log does the actual redaction (covered in

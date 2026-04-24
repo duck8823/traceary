@@ -1,0 +1,8 @@
+./analyzer.go
+./checker.go
+./config.go
+./doc.go
+./inspector.go
+./registry.go
+./rule.go
+./ruleset.go

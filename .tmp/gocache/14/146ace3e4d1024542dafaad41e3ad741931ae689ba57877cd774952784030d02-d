@@ -1,0 +1,4 @@
+./doc.go
+./extractdoc.go
+./readfile.go
+./version.go

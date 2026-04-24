@@ -679,17 +679,26 @@ func (c *RootCLI) runHookTranscript(
 		// `transcriptExtractorFor` before their hook is wired.
 		return nil
 	}
-	transcriptText, ok := extractor(payload)
-	if !ok || strings.TrimSpace(transcriptText) == "" {
+	blocks, ok := extractor(payload)
+	if !ok || len(blocks) == 0 {
 		return nil
+	}
+	// Serialize the structured blocks into the canonical JSON
+	// envelope Traceary persists for kind=transcript bodies. Readers
+	// that consume blocks (replay, future memory extraction) get the
+	// preserved thinking/text boundaries; legacy readers fall back
+	// through apptypes.ExtractPlainBody.
+	body, err := apptypes.MarshalEventBodyBlocks(blocks)
+	if err != nil {
+		return xerrors.Errorf("failed to serialize transcript blocks: %w", err)
 	}
 	// Transcript bodies can echo secrets the assistant saw earlier in
 	// the turn (API keys from .env, Bearer tokens from header dumps,
 	// private keys pasted into chat). Hand the operator-configured
-	// extra_redact_patterns to EventUsecase.Log; the usecase applies
-	// the shared built-in redactors + the extras once on behalf of
-	// every log-ingest surface so this hook, the CLI log command,
-	// and MCP add_log all converge on the same policy.
+	// extra_redact_patterns to EventUsecase.Log; the usecase parses
+	// the JSON envelope, applies built-in + extra redactors to each
+	// block's text field, and re-serializes — so the structure stays
+	// intact for block-aware downstream readers.
 	logCfg := apptypes.NewLogRedactionBuilder().
 		ExtraRedactPatterns(c.extraRedactPatterns).
 		Build()
@@ -717,19 +726,20 @@ func (c *RootCLI) runHookTranscript(
 	if err := c.storeManagement.Initialize(ctx); err != nil {
 		return xerrors.Errorf("failed to initialize store: %w", err)
 	}
-	if _, err := c.event.Log(ctx, transcriptText, types.EventKindTranscript, types.Client("hook"), agent, sessionID, workspace, logCfg); err != nil {
+	if _, err := c.event.Log(ctx, body, types.EventKindTranscript, types.Client("hook"), agent, sessionID, workspace, logCfg); err != nil {
 		return xerrors.Errorf("failed to record hook transcript: %w", err)
 	}
 
 	return nil
 }
 
-// transcriptExtractor derives the assistant-reply text for a single
-// transcript hook invocation from the host-supplied stdin payload.
-// Implementations must return ok=false (and an empty string) when the
+// transcriptExtractor derives the assistant-reply content for a
+// single transcript hook invocation from the host-supplied stdin
+// payload, as a slice of structured blocks (thinking / text).
+// Implementations must return ok=false (and a nil slice) when the
 // payload carries no usable reply text, so the caller can silently
 // skip without logging an empty `transcript` event.
-type transcriptExtractor func(payload []byte) (string, bool)
+type transcriptExtractor func(payload []byte) ([]apptypes.EventBodyBlock, bool)
 
 // transcriptExtractorFor returns the extractor registered for the
 // named client. Clients without a registered extractor silently
@@ -749,43 +759,49 @@ func transcriptExtractorFor(client string) (transcriptExtractor, bool) {
 }
 
 // extractClaudeTranscript resolves the Claude Code transcript_path
-// pointer and reads the final assistant turn from the JSONL file.
-func extractClaudeTranscript(payload []byte) (string, bool) {
+// pointer and reads the final assistant turn from the JSONL file,
+// preserving thinking / text block structure so downstream readers
+// can split reasoning from rendered reply.
+func extractClaudeTranscript(payload []byte) ([]apptypes.EventBodyBlock, bool) {
 	transcriptPath := hookPayloadString(payload, "transcript_path", "")
 	if transcriptPath == "" {
-		return "", false
+		return nil, false
 	}
-	return readLastAssistantTranscriptEntry(transcriptPath)
+	return readLastAssistantTranscriptBlocks(transcriptPath)
 }
 
 // extractCodexTranscript reads Codex CLI's `last_assistant_message`
 // field from the Stop-hook payload. Codex delivers the final turn
-// inline, so no file parsing is required and the transcript body is
-// identical to what Codex renders to its own TUI.
-func extractCodexTranscript(payload []byte) (string, bool) {
+// as a single pre-rendered string (no thinking/text distinction on
+// the host side), so we emit one `text` block for parity with the
+// Claude / Gemini shapes.
+func extractCodexTranscript(payload []byte) ([]apptypes.EventBodyBlock, bool) {
 	text := hookPayloadString(payload, "last_assistant_message", "")
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return "", false
+		return nil, false
 	}
-	return text, true
+	return []apptypes.EventBodyBlock{{Type: apptypes.EventBodyBlockTypeText, Text: text}}, true
 }
 
 // extractGeminiTranscript reads Gemini CLI's `prompt_response` field
 // from the AfterAgent-hook payload. Gemini has no Stop event; the
 // closest analogue is AfterAgent, which fires once the agent has
 // produced a full response and includes the response text inline.
-func extractGeminiTranscript(payload []byte) (string, bool) {
+// Gemini renders the response as a single pre-formatted string, so
+// the transcript carries a single `text` block — matching the shape
+// Claude / Codex expose.
+func extractGeminiTranscript(payload []byte) ([]apptypes.EventBodyBlock, bool) {
 	text := hookPayloadString(payload, "prompt_response", "")
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return "", false
+		return nil, false
 	}
-	return text, true
+	return []apptypes.EventBodyBlock{{Type: apptypes.EventBodyBlockTypeText, Text: text}}, true
 }
 
-// readLastAssistantTranscriptEntry reads the JSONL transcript file at
-// path and returns the concatenated text content of the LAST
+// readLastAssistantTranscriptBlocks reads the JSONL transcript file
+// at path and returns the ordered content blocks of the LAST
 // assistant turn.
 //
 // Real Claude Code transcripts use an envelope shape:
@@ -797,17 +813,20 @@ func extractGeminiTranscript(payload []byte) (string, bool) {
 // Each assistant turn's `message.content` is an array of blocks — we
 // keep `type=text` and `type=thinking` blocks (reasoning and extended
 // thinking) and drop `type=tool_use` / `type=tool_result` because
-// those are already captured by `command_executed` audits.
+// those are already captured by `command_executed` audits. The block
+// order and type distinction are preserved so downstream consumers
+// can render thinking collapsed / filter reasoning out of memory
+// extraction.
 //
 // Returns ok=false for IO / parse failure so callers can silently
 // skip; slog.Debug lines preserve the underlying cause for
 // TRACEARY_HOOK_DEBUG-style troubleshooting without aborting the
 // host's Stop hook.
-func readLastAssistantTranscriptEntry(path string) (string, bool) {
+func readLastAssistantTranscriptBlocks(path string) ([]apptypes.EventBodyBlock, bool) {
 	file, err := os.Open(path) // #nosec G304 -- path supplied by the host Stop hook
 	if err != nil {
 		slog.Debug("failed to open transcript file", "path", path, "error", err)
-		return "", false
+		return nil, false
 	}
 	defer func() { _ = file.Close() }()
 
@@ -816,7 +835,7 @@ func readLastAssistantTranscriptEntry(path string) (string, bool) {
 	// the default 64KB line limit so long turns don't truncate.
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 
-	var lastAssistantText string
+	var lastAssistantBlocks []apptypes.EventBodyBlock
 	var parseErrors int
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())
@@ -834,21 +853,21 @@ func readLastAssistantTranscriptEntry(path string) (string, bool) {
 		if entry.Type != "assistant" && entry.Message.Role != "assistant" {
 			continue
 		}
-		text := extractAssistantText(entry.Message.Content)
-		if text == "" {
+		blocks := extractAssistantBlocks(entry.Message.Content)
+		if len(blocks) == 0 {
 			continue
 		}
-		lastAssistantText = text
+		lastAssistantBlocks = blocks
 	}
 	if err := scanner.Err(); err != nil {
 		slog.Debug("failed while scanning transcript file", "path", path, "error", err)
-		return "", false
+		return nil, false
 	}
-	if parseErrors > 0 && lastAssistantText == "" {
+	if parseErrors > 0 && len(lastAssistantBlocks) == 0 {
 		slog.Debug("transcript file had no parseable assistant entries", "path", path, "parse_errors", parseErrors)
-		return "", false
+		return nil, false
 	}
-	return lastAssistantText, lastAssistantText != ""
+	return lastAssistantBlocks, len(lastAssistantBlocks) > 0
 }
 
 // transcriptLine is one row in Claude Code's JSONL transcript. Only
@@ -874,30 +893,36 @@ type transcriptContent struct {
 	Thinking string `json:"thinking"`
 }
 
-func extractAssistantText(blocks []transcriptContent) string {
+// extractAssistantBlocks maps a Claude Code transcript envelope's
+// content array to the structured block shape Traceary persists.
+// `text` blocks become `text`; `thinking` blocks become `thinking`
+// so consumers can distinguish rendered reply from internal
+// reasoning. tool_use / tool_result blocks are skipped because they
+// are already recorded via PostToolUse / PostToolUseFailure hooks.
+func extractAssistantBlocks(blocks []transcriptContent) []apptypes.EventBodyBlock {
 	if len(blocks) == 0 {
-		return ""
+		return nil
 	}
-	var builder strings.Builder
+	result := make([]apptypes.EventBodyBlock, 0, len(blocks))
 	for _, block := range blocks {
-		var trimmed string
+		var blockType apptypes.EventBodyBlockType
+		var text string
 		switch block.Type {
 		case "text":
-			trimmed = strings.TrimSpace(block.Text)
+			blockType = apptypes.EventBodyBlockTypeText
+			text = strings.TrimSpace(block.Text)
 		case "thinking":
-			trimmed = strings.TrimSpace(block.Thinking)
+			blockType = apptypes.EventBodyBlockTypeThinking
+			text = strings.TrimSpace(block.Thinking)
 		default:
 			continue
 		}
-		if trimmed == "" {
+		if text == "" {
 			continue
 		}
-		if builder.Len() > 0 {
-			builder.WriteString("\n\n")
-		}
-		builder.WriteString(trimmed)
+		result = append(result, apptypes.EventBodyBlock{Type: blockType, Text: text})
 	}
-	return builder.String()
+	return result
 }
 
 func resolveHookAgent(client string, payload []byte) (types.Agent, error) {

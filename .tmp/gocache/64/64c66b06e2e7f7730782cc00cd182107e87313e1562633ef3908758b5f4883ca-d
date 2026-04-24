@@ -1,0 +1,4 @@
+./assets_external_test.go
+./contract_test.go
+./golden_test.go
+./scripts_test.go

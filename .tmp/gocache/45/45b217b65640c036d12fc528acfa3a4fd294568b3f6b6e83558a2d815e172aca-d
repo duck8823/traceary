@@ -1,0 +1,15 @@
+./agent_test.go
+./artifact_ref_test.go
+./client_test.go
+./confidence_test.go
+./event_id_test.go
+./event_kind_test.go
+./evidence_ref_test.go
+./memory_id_test.go
+./memory_scope_test.go
+./memory_source_test.go
+./memory_status_test.go
+./memory_type_test.go
+./optional_test.go
+./session_id_test.go
+./workspace_test.go

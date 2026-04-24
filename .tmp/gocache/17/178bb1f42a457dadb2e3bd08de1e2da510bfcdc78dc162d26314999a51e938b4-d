@@ -1,0 +1,4 @@
+./parse.go
+./readfile.go
+./sysreadfile_compat.go
+./valueparser.go

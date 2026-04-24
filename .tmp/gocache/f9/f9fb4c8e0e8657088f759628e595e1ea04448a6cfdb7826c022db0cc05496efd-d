@@ -1,0 +1,6 @@
+./check.go
+./config.go
+./decl.go
+./def.go
+./doc.go
+./run.go

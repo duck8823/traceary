@@ -1,0 +1,10 @@
+./config.go
+./doc.go
+./failure.go
+./file.go
+./filefilter.go
+./formatter.go
+./linter.go
+./name.go
+./package.go
+./rule.go

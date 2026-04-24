@@ -1,0 +1,8 @@
+./analyzer.go
+./concat.go
+./filter.go
+./fixes.go
+./format.go
+./n1detector.go
+./sqli_scanner.go
+./tx_leak_detector.go
