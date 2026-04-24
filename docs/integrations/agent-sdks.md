@@ -12,18 +12,18 @@ This document answers "how do I use Traceary's memory store from my agent SDK?" 
 |---|---|---|---|---|
 | Claude Agent SDK | ✅ stable (`mcp_servers`) | `BetaAbstractMemoryTool` (Python / TypeScript) | **Split** — MCP integration now (this release); native memory-tool backend deferred (#699) | docs now, native backend defer |
 | OpenAI Agents SDK | ✅ stable (`MCPServerStdio` / `MCPServerSse`) | `Session` persistence is backend-swappable; no memory-tool abstraction | No | defer (MCP is enough) |
-| Google ADK | ✅ stable (`mcp_tool`) | `MemoryService` pluggable backend | No (yet) — revisit when ADK memory API stabilises | defer (MCP is enough) |
+| Google ADK | ✅ stable (`McpToolset` + `StdioConnectionParams`) | `MemoryService` pluggable backend | No (yet) — revisit when ADK memory API stabilises | defer (MCP is enough) |
 
 ## Claude Agent SDK
 
 **Status**: connect via MCP today; native memory-tool backend deferred.
 
-`traceary mcp-server` exposes `retrieve_memories`, `remember_memory`, `accept_memory`, and the graph overlay via the standard MCP protocol. The Claude Agent SDK consumes MCP servers through the `mcp_servers` config — wiring Traceary is one block:
+`traceary mcp-server` exposes `retrieve_memories`, `remember_memory`, `accept_memory`, and related memory tools via the standard MCP protocol. (The v0.9 graph overlay is CLI-only via `traceary memory graph`; MCP graph tools are a follow-up.) The Claude Agent SDK consumes MCP servers through `ClaudeAgentOptions.mcp_servers`:
 
 ```python
-from claude_agent_sdk import ClaudeAgentClient
+from claude_agent_sdk import query, ClaudeAgentOptions
 
-client = ClaudeAgentClient(
+options = ClaudeAgentOptions(
     mcp_servers={
         "traceary": {
             "command": "traceary",
@@ -31,7 +31,12 @@ client = ClaudeAgentClient(
         },
     },
 )
+
+async for message in query(prompt="...", options=options):
+    ...
 ```
+
+`ClaudeSDKClient` (streaming variant) accepts the same `options` — pick whichever matches your invocation style.
 
 That covers the **external-tool** path: the agent calls `traceary.retrieve_memories(...)` explicitly, and Traceary owns the store.
 
@@ -57,14 +62,19 @@ OpenAI's SDK has no explicit memory abstraction equivalent to `BetaAbstractMemor
 
 **Status**: MCP integration works today; Traceary-native `MemoryService` adapter deferred.
 
-ADK supports MCP tools via `mcp_tool`. Usage pattern matches the others:
+ADK supports MCP tools via `McpToolset` + `StdioConnectionParams`. Usage pattern matches the others:
 
 ```python
-from google.adk.tools import mcp_tool
 from google.adk.agents import Agent
+from google.adk.tools.mcp_tool import McpToolset, StdioConnectionParams
+from mcp import StdioServerParameters
 
-memory_tools = mcp_tool.tools_from_mcp_stdio(command="traceary", args=["mcp-server"])
-agent = Agent(tools=memory_tools)
+traceary = McpToolset(
+    connection_params=StdioConnectionParams(
+        server_params=StdioServerParameters(command="traceary", args=["mcp-server"]),
+    ),
+)
+agent = Agent(tools=[traceary])
 ```
 
 ADK also has a `MemoryService` pluggable backend that could theoretically hold Traceary data. That surface is younger than Anthropic's memory-tool abstraction and — per current docs — still shifting. Shipping a Traceary-custom `MemoryService` today risks chasing a moving API. Defer to post-v0.9 and reassess once the ADK memory API stabilises.
