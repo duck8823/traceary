@@ -46,13 +46,13 @@ func (c *RootCLI) newInitCommandWithDeprecation(deprecated string) *cobra.Comman
 				"traceary の他コマンドも必要に応じて DB を自動作成し、マイグレーションを適用します。",
 			),
 			Localize(
-				"Use init when you want to verify the DB path or write permissions before a session starts.",
-				"init は DB パスや書き込み権限を事前に確認したいときに使います。",
+				"Use `traceary store init` when you want to verify the DB path or write permissions before a session starts. The top-level `traceary init` stays alive as a deprecated alias through the v0.9 series and will be removed in v1.0.",
+				"`traceary store init` は DB パスや書き込み権限を事前に確認したいときに使います。旧 top-level `traceary init` も v0.9 系列では deprecated alias として動作しますが、v1.0 で削除予定です。",
 			),
 		}, "\n"),
 		Example: strings.Join([]string{
-			"  traceary init",
-			"  TRACEARY_DB_PATH=/tmp/traceary.db traceary init",
+			"  traceary store init",
+			"  TRACEARY_DB_PATH=/tmp/traceary.db traceary store init",
 		}, "\n"),
 		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {

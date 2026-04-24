@@ -129,8 +129,8 @@ func TestRootCLI_InitHelp_ExplainsOptionalBootstrap(t *testing.T) {
 	if !strings.Contains(output, "Other traceary commands create the DB and apply migrations on demand.") {
 		t.Fatalf("stdout = %q, want init help to mention automatic DB creation", output)
 	}
-	if !strings.Contains(output, "Use init when you want to verify the DB path or write permissions before a session starts.") {
-		t.Fatalf("stdout = %q, want init help to mention explicit bootstrap purpose", output)
+	if !strings.Contains(output, "Use `traceary store init` when you want to verify the DB path or write permissions before a session starts.") {
+		t.Fatalf("stdout = %q, want init help to mention explicit bootstrap purpose under the new canonical path", output)
 	}
 	if !strings.Contains(output, "SQLite DB path (env: TRACEARY_DB_PATH)") {
 		t.Fatalf("stdout = %q, want English db-path help", output)
