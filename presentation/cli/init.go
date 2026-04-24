@@ -61,7 +61,7 @@ func (c *RootCLI) newInitCommandWithDeprecation(deprecated string) *cobra.Comman
 	}
 	initCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	if deprecated != "" {
-		initCmd.Deprecated = deprecated
+		applyDeprecation(initCmd, deprecated)
 	}
 
 	return initCmd

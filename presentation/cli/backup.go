@@ -47,7 +47,7 @@ func (c *RootCLI) newBackupCommandWithDeprecation(deprecated string) *cobra.Comm
 	backupCmd.AddCommand(c.newBackupCreateCommand())
 	backupCmd.AddCommand(c.newBackupRestoreCommand())
 	if deprecated != "" {
-		backupCmd.Deprecated = deprecated
+		applyDeprecation(backupCmd, deprecated)
 	}
 
 	return backupCmd

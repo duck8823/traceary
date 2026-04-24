@@ -112,7 +112,7 @@ func (c *RootCLI) newHandoffCommandWithUse(use string, short string, deprecated 
 		},
 	}
 	if deprecated != "" {
-		cmd.Deprecated = deprecated
+		applyDeprecation(cmd, deprecated)
 	}
 
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())

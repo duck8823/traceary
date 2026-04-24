@@ -33,11 +33,7 @@ func (c *RootCLI) newCompactSummaryCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "compact-summary",
 		Short: Localize("Generate a compact context pointer for session resumption", "compact 後のセッション再開用コンテキストポインタを生成する"),
-		Deprecated: Localize(
-			"use `traceary session handoff --compact-only` — this alias will be removed in v1.0",
-			"`traceary session handoff --compact-only` を使ってください — この alias は v1.0 で削除されます",
-		),
-		Args: noArgsLocalized(),
+		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			output := cmd.OutOrStdout()
@@ -62,6 +58,11 @@ func (c *RootCLI) newCompactSummaryCommand() *cobra.Command {
 	cmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID", "セッション ID"))
 	cmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by workspace", "ワークスペースでフィルタ"))
 	cmd.Flags().IntVar(&limit, "recent", compactSummaryDefaultRecent, Localize("number of recent commands to show", "表示する直近コマンド数"))
+
+	applyDeprecation(cmd, Localize(
+		"use `traceary session handoff --compact-only` — this alias will be removed in v1.0",
+		"`traceary session handoff --compact-only` を使ってください — この alias は v1.0 で削除されます",
+	))
 
 	return cmd
 }

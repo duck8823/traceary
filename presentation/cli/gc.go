@@ -48,7 +48,7 @@ func (c *RootCLI) newGCCommandWithDeprecation(deprecated string) *cobra.Command 
 	gcCmd.Flags().IntVar(&keepDays, "keep-days", defaultRetentionDays, Localize("number of days to retain", "保持する日数"))
 	gcCmd.Flags().BoolVar(&dryRun, "dry-run", false, Localize("print the number of candidate records only", "削除対象件数のみ表示する"))
 	if deprecated != "" {
-		gcCmd.Deprecated = deprecated
+		applyDeprecation(gcCmd, deprecated)
 	}
 
 	return gcCmd
