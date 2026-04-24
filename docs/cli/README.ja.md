@@ -414,6 +414,30 @@ active な durable memory を expire します。
 - `--id-only`
 - `--json`
 
+### `traceary memory graph add <from-memory-id> --to <to-memory-id> --relation <type>`
+
+2 つの memory 間に型付き関係を記録します (v0.9.0 の graph overlay)。語彙と overlay の設計は [temporal memory architecture](../architecture/temporal-memory.ja.md) を参照してください。
+
+主な flag:
+
+- `--to`: 関係の対象 memory ID (必須)
+- `--relation`: `supersedes` / `contradicts` / `supports` / `related-to` / `causes` (必須。未知値も forward compat のため受理)
+- `--from`: validity 窓の下限 (YYYY-MM-DD または RFC3339); 既定は現在時刻
+- `--to-date`: validity 窓の上限 (排他); 省略時は open-ended
+- `--json`
+
+### `traceary memory graph list`
+
+指定 filter に一致する edge を表示します。`memory list --as-of` と同じ半開区間 `[valid_from, valid_to)` の semantics。
+
+主な flag:
+
+- `--memory-id`: この memory に接続する edge (source / target どちらでも) に絞る
+- `--relation`: 関係種別でフィルタ
+- `--as-of`: 指定時刻で validity を評価する
+- `--limit`
+- `--json`
+
 ## Session コマンド
 
 ### `traceary session start`

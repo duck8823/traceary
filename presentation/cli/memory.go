@@ -33,6 +33,7 @@ func (c *RootCLI) newMemoryCommand() *cobra.Command {
 	memoryCmd.AddCommand(c.newMemorySupersedeCommand())
 	memoryCmd.AddCommand(c.newMemoryExpireCommand())
 	memoryCmd.AddCommand(c.newMemorySetValidityCommand())
+	memoryCmd.AddCommand(c.newMemoryGraphCommand())
 	return memoryCmd
 }
 

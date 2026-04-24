@@ -18,6 +18,7 @@ type RootCLI struct {
 	memoryExport        usecase.MemoryExportUsecase
 	memoryBridgeImport  usecase.MemoryBridgeImportUsecase
 	memoryHygiene       usecase.MemoryHygieneUsecase
+	memoryEdge          usecase.MemoryEdgeUsecase
 	context             usecase.ContextUsecase
 	replay              usecase.ReplayUsecase
 	codexIntegration    usecase.CodexIntegrationUsecase
@@ -81,6 +82,12 @@ func WithMemoryExport(memoryExport usecase.MemoryExportUsecase) RootCLIOption {
 // into durable-memory candidates.
 func WithMemoryBridgeImport(importUsecase usecase.MemoryBridgeImportUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.memoryBridgeImport = importUsecase }
+}
+
+// WithMemoryEdge injects the MemoryEdgeUsecase used by
+// `traceary memory graph` subcommands.
+func WithMemoryEdge(edge usecase.MemoryEdgeUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.memoryEdge = edge }
 }
 
 // WithMemoryHygiene injects the MemoryHygieneUsecase used by

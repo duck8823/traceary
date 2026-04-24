@@ -50,6 +50,20 @@ func newSessionID() (types.SessionID, error) {
 	return sessionID, nil
 }
 
+func newMemoryEdgeID() (types.MemoryEdgeID, error) {
+	value, err := newRandomHexString(16)
+	if err != nil {
+		return types.MemoryEdgeID(""), xerrors.Errorf("failed to generate memory edge ID: %w", err)
+	}
+
+	edgeID, err := types.MemoryEdgeIDOf("edge-" + value)
+	if err != nil {
+		return types.MemoryEdgeID(""), xerrors.Errorf("failed to convert memory edge ID: %w", err)
+	}
+
+	return edgeID, nil
+}
+
 func newRandomHexString(size int) (string, error) {
 	raw := make([]byte, size)
 	if _, err := rand.Read(raw); err != nil {
