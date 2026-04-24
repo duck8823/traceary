@@ -33,12 +33,17 @@ func applyDeprecation(cmd *cobra.Command, message string) {
 	} else {
 		cmd.Long = notice
 	}
-	existing := cmd.PreRun
-	cmd.PreRun = func(c *cobra.Command, args []string) {
+	// PersistentPreRun (not PreRun) so subcommands of deprecated
+	// parent commands — e.g. `traceary backup create` and
+	// `traceary backup restore` — still trigger the notice. Cobra
+	// walks up the ancestor chain to find the closest
+	// PersistentPreRun; plain PreRun is NOT inherited.
+	existing := cmd.PersistentPreRun
+	cmd.PersistentPreRun = func(c *cobra.Command, args []string) {
 		// A write failure to stderr is not worth failing the command
 		// over (stderr can be closed or redirected to /dev/null in
 		// non-interactive pipelines); best-effort notice is enough.
-		_, _ = fmt.Fprintf(c.ErrOrStderr(), "Command %q is deprecated, %s\n", c.Name(), message)
+		_, _ = fmt.Fprintf(c.ErrOrStderr(), "Command %q is deprecated, %s\n", cmd.Name(), message)
 		if existing != nil {
 			existing(c, args)
 		}
