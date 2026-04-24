@@ -5,6 +5,42 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.9.0] - 2026-04-25
+
+Minor release: **multi-host local memory substrate completion (pre-v1.0 stabilization)**. v0.9 closes the remaining portability + structural gaps before a v1.0 scoping discussion. New top-level CLI grouping, an additive temporal graph overlay on durable memory, encrypted cross-machine event bundles, and consolidated agent-SDK integration docs.
+
+### Added
+- **Memory graph overlay (#573)** — additive `memory_edges` table layers typed relationships (`supersedes` / `contradicts` / `supports` / `related-to` / `causes`) on top of the existing memory store. Each edge carries its own half-open `[valid_from, valid_to)` window so `--as-of` queries compose with memory validity. `traceary memory graph add <from> --to <id> --relation <type>` and `traceary memory graph list [--memory-id <id>] [--relation <type>] [--as-of <ts>]`. Migration 000013 + compound partial indexes. SQLite stays the primary store; no graph-DB dependency. See `docs/architecture/temporal-memory.md` for the full evaluation.
+- **Encrypted portability bundles (#572)** — `traceary bundle export --out <path>` produces an XChaCha20-Poly1305 archive (key derived via Argon2id) that operators can carry between machines via any transport (AirDrop / scp / Syncthing / iCloud — the bundle is already AEAD-encrypted). `traceary bundle import` is idempotent (UNIQUE collisions counted as `events_skipped`). v0.9 covers events; sessions / audits / memories / edges land in #702.
+- **Agent SDK integration docs (#571 + #564-A)** — `docs/integrations/agent-sdks.{md,ja.md}` covers Claude Agent SDK, OpenAI Agents SDK, and Google ADK with verified MCP integration examples. Zero Python added — `traceary mcp-server` is the canonical path. Anthropic native memory-tool backend deferred to v0.10 as #699.
+
+### Changed
+- **CLI top-level reorganization (#696)** — administration commands moved under `store` (`store init`, `store backup create/restore`, `store gc`); session-bootstrap commands consolidated under `session` (`session handoff`, `session handoff --compact-only` replacing `compact-summary`). Top-level count: 22 → 16. Old top-level `init` / `backup` / `gc` / `handoff` / `compact-summary` remain as **deprecated aliases** with deprecation notices routed to **stderr** (so stdout stays byte-for-byte compatible with v0.8.x scripts) and hidden from `--help`. Aliases will be removed in v1.0.
+
+### Dependencies
+- `github.com/pelletier/go-toml/v2` 2.2.4 → 2.3.0
+- `golang.org/x/mod` 0.34.0 → 0.35.0
+- `golang.org/x/sys` 0.42.0 → 0.43.0
+- `modernc.org/sqlite` 1.48.2 → 1.49.1
+- New: `golang.org/x/crypto` (Argon2id + XChaCha20-Poly1305 for bundle encryption)
+
+### Docs
+- `docs/architecture/temporal-memory.{md,ja.md}` — temporal graph evaluation + minimum viable overlay design.
+- `docs/integrations/agent-sdks.{md,ja.md}` — SDK MCP integration matrix + examples.
+- `docs/operations/cross-machine-handoff.{md,ja.md}` — bundle export/import flow, transport recommendations, schema-safety rules.
+- CLI reference promotes `session handoff` / `store *` as canonical forms; old paths documented as deprecated.
+
+### Included work items for v0.9.0
+- #696 v0.9-5 CLI subcommand reorganization
+- #573 v0.9-3 temporal knowledge graph evaluation + minimum overlay
+- #571 v0.9-1 OpenAI Agents SDK / Google ADK integration evaluation
+- #564 v0.9-4 Claude Agent SDK integration (MCP path; native memory-tool backend split to #699)
+- #572 v0.9-2 encrypted bundle export / import (events)
+
+### Follow-up tickets
+- #699 — v0.10 reassess Anthropic native memory-tool backend
+- #702 — v0.10 extend bundle to sessions / audits / memories / edges
+
 ## [v0.8.2] - 2026-04-24
 
 Patch release collecting v0.8.1 quality-phase tech-debt: transcript search no longer leaks thinking-block text, MCP \`list_events\` exposes the canonical block form alongside the plain-text projection, \`--source-hook\` now uses a compound index, and \`presentation/cli/doctor.go\` stops importing \`infrastructure/filesystem\` directly.
