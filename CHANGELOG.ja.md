@@ -5,6 +5,42 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.9.0] - 2026-04-25
+
+マイナーリリース: **multi-host local memory substrate completion (v1.0 前の安定化)**。v0.9 では v1.0 スコーピング前の portability + 構造ギャップを埋めます。CLI のトップレベル整理、durable memory への additive な temporal graph overlay、暗号化済みクロスマシン event バンドル、agent SDK 統合 docs の整備が中心です。
+
+### Added
+- **Memory graph overlay (#573)** — additive な `memory_edges` テーブルで、既存 memory ストア上に型付き関係 (`supersedes` / `contradicts` / `supports` / `related-to` / `causes`) を重ねます。各 edge は自身の半開区間 `[valid_from, valid_to)` を持ち、`--as-of` クエリが memory validity と合成できます。`traceary memory graph add <from> --to <id> --relation <type>` と `traceary memory graph list [--memory-id <id>] [--relation <type>] [--as-of <ts>]`。migration 000013 + 複合 partial index 追加。SQLite が主ストアのまま、graph DB 依存はなし。完全な評価は `docs/architecture/temporal-memory.ja.md` を参照。
+- **暗号化可搬バンドル (#572)** — `traceary bundle export --out <path>` が XChaCha20-Poly1305 アーカイブ (Argon2id で鍵導出) を出力。任意の transport (AirDrop / scp / Syncthing / iCloud — すでに AEAD 暗号化済みのため) で運べます。`traceary bundle import` は冪等 (UNIQUE 衝突は `events_skipped` カウント)。v0.9 では events のみ。sessions / audits / memories / edges は #702 に follow-up。
+- **Agent SDK 統合 docs (#571 + #564-A)** — `docs/integrations/agent-sdks.{md,ja.md}` で Claude Agent SDK / OpenAI Agents SDK / Google ADK を検証済みの MCP 統合例とともに整理。Python コードは追加なし — `traceary mcp-server` が canonical path。Anthropic native memory-tool backend は #699 で v0.10 defer。
+
+### Changed
+- **CLI トップレベル再整理 (#696)** — 管理系を `store` 配下へ移動 (`store init`、`store backup create/restore`、`store gc`)、session ブートストラップ系を `session` 配下に集約 (`session handoff`、`compact-summary` を置き換える `session handoff --compact-only`)。トップレベル数 22 → 16。旧 top-level `init` / `backup` / `gc` / `handoff` / `compact-summary` は **deprecated alias** として動作し続けますが、deprecation 通知は **stderr** にだけ送られます (v0.8.x のスクリプトで stdout が byte-for-byte 互換)。`--help` のリストからは隠されます。alias は v1.0 で削除予定。
+
+### Dependencies
+- `github.com/pelletier/go-toml/v2` 2.2.4 → 2.3.0
+- `golang.org/x/mod` 0.34.0 → 0.35.0
+- `golang.org/x/sys` 0.42.0 → 0.43.0
+- `modernc.org/sqlite` 1.48.2 → 1.49.1
+- 新規: `golang.org/x/crypto` (Argon2id + XChaCha20-Poly1305 を bundle 暗号化に使用)
+
+### Docs
+- `docs/architecture/temporal-memory.{md,ja.md}` — temporal graph 評価 + 最小 overlay 設計。
+- `docs/integrations/agent-sdks.{md,ja.md}` — SDK MCP 統合マトリクスと example。
+- `docs/operations/cross-machine-handoff.{md,ja.md}` — bundle export/import フロー、transport 推奨、schema 安全ルール。
+- CLI リファレンスで `session handoff` / `store *` を canonical 表記として案内、旧パスは deprecated として記録。
+
+### v0.9.0 に含まれる作業項目
+- #696 v0.9-5 CLI subcommand 再整理
+- #573 v0.9-3 temporal knowledge graph 評価 + 最小 overlay
+- #571 v0.9-1 OpenAI Agents SDK / Google ADK 統合評価
+- #564 v0.9-4 Claude Agent SDK 統合 (MCP 経路。native memory-tool backend は #699 へ split)
+- #572 v0.9-2 暗号化 bundle export / import (events)
+
+### Follow-up
+- #699 — v0.10 で Anthropic native memory-tool backend を再評価
+- #702 — v0.10 で bundle を sessions / audits / memories / edges に拡張
+
 ## [v0.8.2] - 2026-04-24
 
 v0.8.1 quality phase で見つかった tech-debt をまとめた patch リリース。transcript の search が thinking block 本文を漏らさなくなり、MCP \`list_events\` は plain-text projection に加えて canonical block 形も返すようになり、\`--source-hook\` フィルタは複合 index を使い、\`presentation/cli/doctor.go\` は \`infrastructure/filesystem\` を直接 import しなくなりました。
