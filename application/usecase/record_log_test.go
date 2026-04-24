@@ -229,3 +229,62 @@ func TestEventUsecase_Log(t *testing.T) {
 		}
 	})
 }
+
+// TestEventUsecase_Log_StampsSourceHookFromContext regression guard
+// for #672: when the caller threads WithSourceHook through ctx, the
+// persisted Event carries the tag so downstream queries can tell a
+// Claude `Stop` apart from a Gemini `AfterAgent` (both produce
+// transcript kind) without parsing the body string.
+func TestEventUsecase_Log_StampsSourceHookFromContext(t *testing.T) {
+	t.Parallel()
+
+	stub := &eventRepositoryStub{}
+	sut := usecase.NewEventUsecase(stub, nil)
+
+	ctx := apptypes.WithSourceHook(context.Background(), "stop")
+	got, err := sut.Log(ctx,
+		"transcript body",
+		types.EventKindTranscript,
+		types.Client("hook"),
+		types.Agent("claude"),
+		types.SessionID("session-1"),
+		types.Workspace("github.com/example/repo"),
+		apptypes.LogRedaction{},
+	)
+	if err != nil {
+		t.Fatalf("Log() error = %v", err)
+	}
+	if got.SourceHook() != "stop" {
+		t.Errorf("returned event SourceHook() = %q, want %q", got.SourceHook(), "stop")
+	}
+	if stub.savedEvent.SourceHook() != "stop" {
+		t.Errorf("saved event SourceHook() = %q, want %q", stub.savedEvent.SourceHook(), "stop")
+	}
+}
+
+// TestEventUsecase_Log_LeavesSourceHookEmptyWithoutContext asserts
+// that non-hook writers (CLI `traceary log`, MCP `add_log`) leave
+// source_hook empty — the DB column stays NULL and queries can
+// cleanly filter hook-driven vs user-driven writes.
+func TestEventUsecase_Log_LeavesSourceHookEmptyWithoutContext(t *testing.T) {
+	t.Parallel()
+
+	stub := &eventRepositoryStub{}
+	sut := usecase.NewEventUsecase(stub, nil)
+
+	got, err := sut.Log(context.Background(),
+		"manual note",
+		types.EventKindNote,
+		types.Client("cli"),
+		types.Agent("manual"),
+		types.SessionID("session-1"),
+		types.Workspace("github.com/example/repo"),
+		apptypes.LogRedaction{},
+	)
+	if err != nil {
+		t.Fatalf("Log() error = %v", err)
+	}
+	if got.SourceHook() != "" {
+		t.Errorf("SourceHook() = %q, want empty for non-hook ctx", got.SourceHook())
+	}
+}
