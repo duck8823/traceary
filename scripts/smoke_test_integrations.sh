@@ -32,7 +32,13 @@ run_gemini() {
   local tmp_home
   tmp_home="$(mktemp -d)"
   mkdir -p "${tmp_home}/.gemini"
-  printf '{}\n' > "${tmp_home}/.gemini/projects.json"
+  # Gemini CLI 0.38 expects projects.json to carry a top-level "projects"
+  # map. Plain `{}` makes ProjectRegistry.getShortId read
+  # `undefined[<path>]` during cleanupCheckpoints, which prints "Early
+  # cleanup failed" / "Tool output cleanup failed" warnings per
+  # invocation (#536). Writing the correct empty-but-keyed shape keeps
+  # cleanup silent without weakening smoke coverage.
+  printf '{"projects":{}}\n' > "${tmp_home}/.gemini/projects.json"
   HOME="${tmp_home}" gemini extensions validate "${ROOT_DIR}/integrations/gemini-extension"
   printf 'y\n' | HOME="${tmp_home}" gemini extensions link "${ROOT_DIR}/integrations/gemini-extension"
   local list_output
