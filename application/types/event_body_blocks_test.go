@@ -49,6 +49,16 @@ func TestExtractPlainBody(t *testing.T) {
 			body: `{"blocks":[]}`,
 			want: "",
 		},
+		{
+			name: "capital-B Blocks is not treated as envelope",
+			body: `{"Blocks":[{"type":"text","text":"hi"}]}`,
+			want: `{"Blocks":[{"type":"text","text":"hi"}]}`,
+		},
+		{
+			name: "blocks key with foreign shape elements is not treated as envelope",
+			body: `{"blocks":[{"foo":"bar"}]}`,
+			want: `{"blocks":[{"foo":"bar"}]}`,
+		},
 	}
 
 	for _, tc := range cases {
@@ -89,6 +99,16 @@ func TestParseEventBodyBlocks(t *testing.T) {
 			name: "envelope blocks are returned as-is",
 			body: `{"blocks":[{"type":"text","text":"hi"}]}`,
 			want: []EventBodyBlock{{Type: EventBodyBlockTypeText, Text: "hi"}},
+		},
+		{
+			name: "capital-B key falls back to legacy single text block",
+			body: `{"Blocks":[{"type":"text","text":"hi"}]}`,
+			want: []EventBodyBlock{{Type: EventBodyBlockTypeText, Text: `{"Blocks":[{"type":"text","text":"hi"}]}`}},
+		},
+		{
+			name: "non-block-shaped element falls back to legacy single text block",
+			body: `{"blocks":[{"foo":"bar"}]}`,
+			want: []EventBodyBlock{{Type: EventBodyBlockTypeText, Text: `{"blocks":[{"foo":"bar"}]}`}},
 		},
 	}
 

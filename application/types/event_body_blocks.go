@@ -38,13 +38,53 @@ type EventBodyBlocks struct {
 	Blocks []EventBodyBlock `json:"blocks"`
 }
 
-// envelopeProbe distinguishes "this is our blocks envelope" from
-// "this is some other JSON object" by looking for the blocks key
-// presence (pointer stays nil when the key is absent). Without this
-// probe a legitimate non-envelope body like `{"foo":"bar"}` would be
-// silently rewritten.
-type envelopeProbe struct {
-	Blocks *[]EventBodyBlock `json:"blocks"`
+// decodeCanonicalEnvelope returns the block slice encoded in body if
+// and only if body is a canonical transcript envelope:
+//
+//   - top-level JSON object with an exact lowercase "blocks" key
+//     (encoding/json matches tags case-insensitively, so we probe the
+//     raw key set ourselves — "Blocks" or "BLOCKS" must NOT be
+//     recognized as envelopes)
+//   - each element must be a JSON object with string "type" and
+//     string "text" fields — anything else is treated as foreign JSON
+//     that happens to share the key name
+//
+// Returned ok=false means the payload is not our envelope and callers
+// should preserve the raw body. Unknown block types are preserved to
+// keep forward compatibility — downstream filters decide what to skip.
+func decodeCanonicalEnvelope(body string) ([]EventBodyBlock, bool) {
+	var topLevel map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(body), &topLevel); err != nil {
+		return nil, false
+	}
+	rawBlocks, ok := topLevel["blocks"]
+	if !ok {
+		return nil, false
+	}
+	var rawElements []map[string]json.RawMessage
+	if err := json.Unmarshal(rawBlocks, &rawElements); err != nil {
+		return nil, false
+	}
+	blocks := make([]EventBodyBlock, 0, len(rawElements))
+	for _, raw := range rawElements {
+		typeRaw, hasType := raw["type"]
+		textRaw, hasText := raw["text"]
+		if !hasType || !hasText {
+			return nil, false
+		}
+		var blockType, blockText string
+		if err := json.Unmarshal(typeRaw, &blockType); err != nil {
+			return nil, false
+		}
+		if err := json.Unmarshal(textRaw, &blockText); err != nil {
+			return nil, false
+		}
+		blocks = append(blocks, EventBodyBlock{
+			Type: EventBodyBlockType(blockType),
+			Text: blockText,
+		})
+	}
+	return blocks, true
 }
 
 // MarshalEventBodyBlocks serializes a block slice to the canonical
@@ -77,14 +117,11 @@ func ParseEventBodyBlocks(body string) []EventBodyBlock {
 	if trimmed[0] != '{' {
 		return []EventBodyBlock{{Type: EventBodyBlockTypeText, Text: body}}
 	}
-	var probe envelopeProbe
-	if err := json.Unmarshal([]byte(trimmed), &probe); err != nil || probe.Blocks == nil {
+	blocks, ok := decodeCanonicalEnvelope(trimmed)
+	if !ok || len(blocks) == 0 {
 		return []EventBodyBlock{{Type: EventBodyBlockTypeText, Text: body}}
 	}
-	if len(*probe.Blocks) == 0 {
-		return []EventBodyBlock{{Type: EventBodyBlockTypeText, Text: body}}
-	}
-	return *probe.Blocks
+	return blocks
 }
 
 // ExtractPlainBody returns the flat-text projection of a body for
@@ -112,15 +149,15 @@ func ExtractPlainBody(body string) string {
 	if trimmed == "" || trimmed[0] != '{' {
 		return body
 	}
-	var probe envelopeProbe
-	if err := json.Unmarshal([]byte(trimmed), &probe); err != nil || probe.Blocks == nil {
+	blocks, ok := decodeCanonicalEnvelope(trimmed)
+	if !ok {
 		return body
 	}
-	if len(*probe.Blocks) == 0 {
+	if len(blocks) == 0 {
 		return ""
 	}
-	parts := make([]string, 0, len(*probe.Blocks))
-	for _, b := range *probe.Blocks {
+	parts := make([]string, 0, len(blocks))
+	for _, b := range blocks {
 		if b.Type != EventBodyBlockTypeText {
 			continue
 		}
