@@ -26,6 +26,12 @@ var insertCommandAuditQuery string
 //go:embed sql/select_recent_events.sql
 var selectRecentEventsQuery string
 
+//go:embed sql/select_recent_events_by_source_hook.sql
+var selectRecentEventsBySourceHookQuery string
+
+//go:embed sql/select_recent_events_by_source_hook_with_legacy.sql
+var selectRecentEventsBySourceHookWithLegacyQuery string
+
 //go:embed sql/search_events.sql
 var searchEventsQuery string
 
@@ -201,20 +207,12 @@ func (d *EventDatasource) ListRecent(
 		toValue = formatTimestamp(to)
 	}
 
-	rows, err := db.QueryContext(
-		ctx,
-		selectRecentEventsQuery,
-		kind.String(), kind.String(),
-		client.String(), client.String(),
-		agent.String(), agent.String(),
-		sessionID.String(), sessionID.String(),
-		workspace.String(), workspace.String(),
-		boolToInt(failuresOnly),
-		fromValue, fromValue,
-		toValue, toValue,
-		sourceHook, sourceHook, sourceHook, sourceHook,
-		limit,
-		offset,
+	rows, err := queryRecentEvents(
+		ctx, db, sourceHook,
+		kind, client, agent, sessionID, workspace,
+		failuresOnly,
+		fromValue, toValue,
+		limit, offset,
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query recent events: %w", err)
@@ -301,20 +299,12 @@ func (d *EventDatasource) ListWindow(
 	events := make([]*model.Event, 0, batch)
 	offset := 0
 	for {
-		rows, err := tx.QueryContext(
-			ctx,
-			selectRecentEventsQuery,
-			kind.String(), kind.String(),
-			client.String(), client.String(),
-			agent.String(), agent.String(),
-			sessionID.String(), sessionID.String(),
-			workspace.String(), workspace.String(),
+		rows, err := queryRecentEventsTx(
+			ctx, tx, sourceHook,
+			kind, client, agent, sessionID, workspace,
 			failuresFlag,
-			fromValue, fromValue,
-			toValue, toValue,
-			sourceHook, sourceHook, sourceHook, sourceHook,
-			batch,
-			offset,
+			fromValue, toValue,
+			batch, offset,
 		)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to query event window page: %w", err)
@@ -861,6 +851,185 @@ func restoreEvent(
 		createdAt,
 		sourceHookValue,
 	), nil
+}
+
+// sourceHookHasLegacyPrefix reports whether a source_hook value maps
+// to a pre-#672 body-prefix marker that the reader must still match
+// (only subagent_stop and pre_compact have legacy rows to worry
+// about; every other hook name was stamped from day one).
+func sourceHookHasLegacyPrefix(sourceHook string) bool {
+	return sourceHook == "subagent_stop" || sourceHook == "pre_compact"
+}
+
+// queryRecentEvents dispatches between three SQL queries:
+//   - sourceHook == "": no filter — use the plain query that planners
+//     already serve via idx_events_created_at.
+//   - sourceHook in {subagent_stop, pre_compact}: UNION ALL form that
+//     includes a legacy-body-prefix branch so pre-#672 rows stay
+//     reachable during the migration window.
+//   - other sourceHook: primary-only query covered by the compound
+//     partial index idx_events_source_hook_time.
+//
+// The legacy UNION ALL branch is NOT used for other hook names because
+// SQLite would still scan the right branch via idx_events_created_at
+// even when its WHERE filters returned zero rows, negating the index
+// gain from #683.
+func queryRecentEvents(
+	ctx context.Context,
+	db *sql.DB,
+	sourceHook string,
+	kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace,
+	failuresOnly bool,
+	fromValue, toValue string,
+	limit, offset int,
+) (*sql.Rows, error) {
+	failuresFlag := boolToInt(failuresOnly)
+	if sourceHook == "" {
+		rows, err := db.QueryContext(
+			ctx,
+			selectRecentEventsQuery,
+			kind.String(), kind.String(),
+			client.String(), client.String(),
+			agent.String(), agent.String(),
+			sessionID.String(), sessionID.String(),
+			workspace.String(), workspace.String(),
+			failuresFlag,
+			fromValue, fromValue,
+			toValue, toValue,
+			limit,
+			offset,
+		)
+		if err != nil {
+			return nil, xerrors.Errorf("query recent events: %w", err)
+		}
+		return rows, nil
+	}
+	if sourceHookHasLegacyPrefix(sourceHook) {
+		rows, err := db.QueryContext(
+			ctx,
+			selectRecentEventsBySourceHookWithLegacyQuery,
+			sourceHookLegacyQueryArgs(sourceHook, kind, client, agent, sessionID, workspace, failuresFlag, fromValue, toValue, limit, offset)...,
+		)
+		if err != nil {
+			return nil, xerrors.Errorf("query recent events by source_hook with legacy: %w", err)
+		}
+		return rows, nil
+	}
+	rows, err := db.QueryContext(
+		ctx,
+		selectRecentEventsBySourceHookQuery,
+		sourceHookPrimaryQueryArgs(sourceHook, kind, client, agent, sessionID, workspace, failuresFlag, fromValue, toValue, limit, offset)...,
+	)
+	if err != nil {
+		return nil, xerrors.Errorf("query recent events by source_hook: %w", err)
+	}
+	return rows, nil
+}
+
+func queryRecentEventsTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	sourceHook string,
+	kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace,
+	failuresFlag int,
+	fromValue, toValue string,
+	batch, offset int,
+) (*sql.Rows, error) {
+	if sourceHook == "" {
+		rows, err := tx.QueryContext(
+			ctx,
+			selectRecentEventsQuery,
+			kind.String(), kind.String(),
+			client.String(), client.String(),
+			agent.String(), agent.String(),
+			sessionID.String(), sessionID.String(),
+			workspace.String(), workspace.String(),
+			failuresFlag,
+			fromValue, fromValue,
+			toValue, toValue,
+			batch,
+			offset,
+		)
+		if err != nil {
+			return nil, xerrors.Errorf("query recent events tx: %w", err)
+		}
+		return rows, nil
+	}
+	if sourceHookHasLegacyPrefix(sourceHook) {
+		rows, err := tx.QueryContext(
+			ctx,
+			selectRecentEventsBySourceHookWithLegacyQuery,
+			sourceHookLegacyQueryArgs(sourceHook, kind, client, agent, sessionID, workspace, failuresFlag, fromValue, toValue, batch, offset)...,
+		)
+		if err != nil {
+			return nil, xerrors.Errorf("query recent events by source_hook with legacy tx: %w", err)
+		}
+		return rows, nil
+	}
+	rows, err := tx.QueryContext(
+		ctx,
+		selectRecentEventsBySourceHookQuery,
+		sourceHookPrimaryQueryArgs(sourceHook, kind, client, agent, sessionID, workspace, failuresFlag, fromValue, toValue, batch, offset)...,
+	)
+	if err != nil {
+		return nil, xerrors.Errorf("query recent events by source_hook tx: %w", err)
+	}
+	return rows, nil
+}
+
+// sourceHookPrimaryQueryArgs returns the parameter slice for the
+// primary-only source_hook query. It mirrors the placeholders in
+// select_recent_events_by_source_hook.sql.
+func sourceHookPrimaryQueryArgs(
+	sourceHook string,
+	kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace,
+	failuresFlag int,
+	fromValue, toValue string,
+	limit, offset int,
+) []any {
+	return []any{
+		sourceHook,
+		kind.String(), kind.String(),
+		client.String(), client.String(),
+		agent.String(), agent.String(),
+		sessionID.String(), sessionID.String(),
+		workspace.String(), workspace.String(),
+		failuresFlag,
+		fromValue, fromValue,
+		toValue, toValue,
+		limit, offset,
+	}
+}
+
+// sourceHookLegacyQueryArgs returns the parameter slice for the
+// UNION ALL variant that includes the legacy body-prefix branch.
+// The order mirrors the two subselects in
+// select_recent_events_by_source_hook_with_legacy.sql before the
+// outer LIMIT/OFFSET.
+func sourceHookLegacyQueryArgs(
+	sourceHook string,
+	kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace,
+	failuresFlag int,
+	fromValue, toValue string,
+	limit, offset int,
+) []any {
+	common := []any{
+		kind.String(), kind.String(),
+		client.String(), client.String(),
+		agent.String(), agent.String(),
+		sessionID.String(), sessionID.String(),
+		workspace.String(), workspace.String(),
+		failuresFlag,
+		fromValue, fromValue,
+		toValue, toValue,
+	}
+	args := make([]any, 0, 2+len(common)*2+2)
+	args = append(args, sourceHook)
+	args = append(args, common...)
+	args = append(args, sourceHook, sourceHook)
+	args = append(args, common...)
+	args = append(args, limit, offset)
+	return args
 }
 
 func escapeLikeQuery(query string) string {

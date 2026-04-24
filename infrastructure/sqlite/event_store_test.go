@@ -327,6 +327,112 @@ CREATE TABLE command_audits (
 	}
 }
 
+func TestDatasource_ListRecent_SourceHookFilterIncludesLegacyPrefixRows(t *testing.T) {
+	t.Parallel()
+
+	migrations := fstest.MapFS{
+		"000001_init.sql": {
+			Data: []byte(`
+CREATE TABLE events (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    client TEXT NOT NULL DEFAULT '',
+    workspace TEXT NOT NULL DEFAULT '',
+    body TEXT NOT NULL,
+    source_hook TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX idx_events_created_at ON events(created_at DESC, id DESC);
+CREATE INDEX idx_events_source_hook_time
+    ON events(source_hook, created_at DESC, id DESC)
+    WHERE source_hook IS NOT NULL;
+CREATE TABLE command_audits (
+    event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+    command_text TEXT NOT NULL,
+    input_text TEXT NOT NULL,
+    output_text TEXT NOT NULL,
+    input_truncated INTEGER NOT NULL DEFAULT 0,
+    output_truncated INTEGER NOT NULL DEFAULT 0,
+    exit_code INTEGER
+);`),
+		},
+	}
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	sut, storeManager := newEventDatasource(t, dbPath, migrations)
+	if err := storeManager.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	agent := mustAgentForSQLite(t, "claude")
+	session := mustSessionIDForSQLite(t, "s")
+	ws := types.Workspace("github.com/duck8823/traceary")
+
+	// New row: stamped via source_hook = pre_compact (v0.8.1+).
+	newRow := model.EventOfWithSourceHook(
+		mustEventIDForSQLite(t, "event-new"),
+		types.EventKindCompactSummary,
+		types.Client("hook"),
+		agent,
+		session,
+		ws,
+		"trigger-context",
+		time.Date(2026, 4, 20, 12, 0, 0, 0, time.UTC),
+		"pre_compact",
+	)
+	// Legacy row: NULL source_hook, body prefix.
+	legacyRow := model.EventOf(
+		mustEventIDForSQLite(t, "event-legacy"),
+		types.EventKindCompactSummary,
+		types.Client("hook"),
+		agent,
+		session,
+		ws,
+		"[phase:pre-compact] legacy-context",
+		time.Date(2026, 4, 19, 12, 0, 0, 0, time.UTC),
+	)
+	// Unrelated row: different source_hook — must not leak in.
+	unrelated := model.EventOfWithSourceHook(
+		mustEventIDForSQLite(t, "event-unrelated"),
+		types.EventKindSessionEnded,
+		types.Client("hook"),
+		agent,
+		session,
+		ws,
+		"",
+		time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC),
+		"stop",
+	)
+	for _, e := range []*model.Event{newRow, legacyRow, unrelated} {
+		if err := sut.Save(context.Background(), e); err != nil {
+			t.Fatalf("Save(%s) error = %v", e.EventID(), err)
+		}
+	}
+
+	got, err := sut.ListRecent(context.Background(), 10, 0, types.EventKind(""), types.Client(""), types.Agent(""), types.SessionID(""), ws, false, time.Time{}, time.Time{}, "pre_compact")
+	if err != nil {
+		t.Fatalf("ListRecent(pre_compact) error = %v", err)
+	}
+	ids := make([]string, 0, len(got))
+	for _, e := range got {
+		ids = append(ids, e.EventID().String())
+	}
+	want := []string{"event-new", "event-legacy"}
+	if diff := cmp.Diff(want, ids); diff != "" {
+		t.Fatalf("ids mismatch (-want +got):\n%s", diff)
+	}
+
+	// source_hook=stop must NOT return legacy compact rows.
+	got2, err := sut.ListRecent(context.Background(), 10, 0, types.EventKind(""), types.Client(""), types.Agent(""), types.SessionID(""), ws, false, time.Time{}, time.Time{}, "stop")
+	if err != nil {
+		t.Fatalf("ListRecent(stop) error = %v", err)
+	}
+	if len(got2) != 1 || got2[0].EventID().String() != "event-unrelated" {
+		t.Fatalf("stop filter got %d events, want 1 (event-unrelated)", len(got2))
+	}
+}
+
 func mustEventIDForSQLite(t *testing.T, value string) types.EventID {
 	t.Helper()
 
