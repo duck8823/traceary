@@ -598,10 +598,16 @@ Useful flags:
 
 ### `traceary doctor`
 
-Diagnose DB access, generated hook configuration presence, and client config integration.
+Diagnose DB access, generated hook configuration presence, MCP registration, plugin version alignment, and client config integration.
 
 Text output is grouped into stable sections: `Environment`, `Database`, `Plugins`, `MCP`, and `Hooks`.
-Each check has a severity: `PASS`, `WARN`, or `FAIL`. `WARN` means Traceary found a first-run / not-configured-yet state, such as a missing host config file before hooks are installed. `FAIL` means Traceary found a broken runtime state, such as DB access problems or unreadable / invalid config.
+Each check has a severity: `PASS`, `WARN`, or `FAIL`. `WARN` means Traceary found a first-run / not-configured-yet state, such as a missing host config file before hooks are installed, more than one `traceary` executable on `PATH`, an MCP registration that points at a stale binary, or an installed plugin version that does not match the running `traceary` binary. `FAIL` means Traceary found a broken runtime state, such as DB access problems, unreadable / invalid config, or `traceary` not being available on `PATH`.
+
+Additional doctor checks:
+
+- `path` confirms `traceary` resolves on `PATH` and reports the directory. Missing is `FAIL`; multiple matches are `WARN`.
+- `<client>-mcp` checks Claude Code, Codex, and Gemini config/plugin registration for the `traceary mcp-server` MCP server.
+- `<client>-plugin-version` compares detected installed plugin manifests/caches with the running binary version and suggests reinstalling/updating the plugin when they drift.
 
 Exit codes:
 
@@ -617,7 +623,7 @@ Exit codes:
     {
       "name": "Environment",
       "checks": [
-        {"name": "config", "severity": "PASS", "message": "...", "hint": ""}
+        {"name": "config", "severity": "PASS", "section": "Environment", "message": "...", "hint": "", "fix_command": ""}
       ]
     }
   ],

@@ -8,50 +8,82 @@
       "name": "db-path",
       "status": "pass",
       "severity": "PASS",
+      "section": "Database",
       "message": "resolved DB path: /tmp/test-traceary.db",
-      "hint": ""
+      "hint": "",
+      "fix_command": ""
+    },
+    {
+      "name": "path",
+      "status": "pass",
+      "severity": "PASS",
+      "section": "Environment",
+      "message": "PATH resolves traceary to /tmp/traceary-json-golden-bin/traceary (directory: /tmp/traceary-json-golden-bin)",
+      "hint": "",
+      "fix_command": ""
     },
     {
       "name": "config",
       "status": "pass",
       "severity": "PASS",
+      "section": "Environment",
       "message": "optional config file is not present yet; built-in defaults remain active: /tmp/traceary-json-golden-home/.config/traceary/config.json",
-      "hint": ""
+      "hint": "",
+      "fix_command": ""
     },
     {
       "name": "db-write",
       "status": "pass",
       "severity": "PASS",
+      "section": "Database",
       "message": "initialized SQLite store: /tmp/test-traceary.db",
-      "hint": ""
+      "hint": "",
+      "fix_command": ""
     },
     {
       "name": "project-dir",
       "status": "pass",
       "severity": "PASS",
+      "section": "Environment",
       "message": "resolved project directory: /tmp/traceary-json-golden-project",
-      "hint": ""
+      "hint": "",
+      "fix_command": ""
     },
     {
       "name": "codex-config",
       "status": "warn",
       "severity": "WARN",
+      "section": "Hooks",
       "message": "codex config file does not exist yet (run `traceary hooks install --client codex` to fix) (first-run / pre-install state): /tmp/traceary-json-golden-home/.codex/hooks.json",
-      "hint": ""
+      "hint": "",
+      "fix_command": ""
+    },
+    {
+      "name": "codex-mcp",
+      "status": "skip",
+      "severity": "PASS",
+      "section": "MCP",
+      "message": "codex MCP config file is absent; skipped registration check: /tmp/traceary-json-golden-home/.codex/config.toml",
+      "hint": "",
+      "fix_command": ""
     },
     {
       "name": "codex-host-capabilities",
       "status": "pass",
       "severity": "PASS",
+      "section": "MCP",
       "message": "codex host: memory features ship behind a per-install feature flag in /tmp/traceary-json-golden-home/.codex/config.toml; consult the Codex release notes for the exact flag name and your enablement state. Traceary's `memory import codex` works regardless of the flag state",
-      "hint": ""
+      "hint": "",
+      "fix_command": ""
     },
     {
       "name": "version",
       "status": "skip",
       "severity": "PASS",
+      "section": "Environment",
       "message": "version check skipped: current version unknown",
-      "hint": ""
+      "hint": "",
+      "fix_command": ""
     }
   ],
   "sections": [
@@ -59,25 +91,40 @@
       "name": "Environment",
       "checks": [
         {
+          "name": "path",
+          "status": "pass",
+          "severity": "PASS",
+          "section": "Environment",
+          "message": "PATH resolves traceary to /tmp/traceary-json-golden-bin/traceary (directory: /tmp/traceary-json-golden-bin)",
+          "hint": "",
+          "fix_command": ""
+        },
+        {
           "name": "config",
           "status": "pass",
           "severity": "PASS",
+          "section": "Environment",
           "message": "optional config file is not present yet; built-in defaults remain active: /tmp/traceary-json-golden-home/.config/traceary/config.json",
-          "hint": ""
+          "hint": "",
+          "fix_command": ""
         },
         {
           "name": "project-dir",
           "status": "pass",
           "severity": "PASS",
+          "section": "Environment",
           "message": "resolved project directory: /tmp/traceary-json-golden-project",
-          "hint": ""
+          "hint": "",
+          "fix_command": ""
         },
         {
           "name": "version",
           "status": "skip",
           "severity": "PASS",
+          "section": "Environment",
           "message": "version check skipped: current version unknown",
-          "hint": ""
+          "hint": "",
+          "fix_command": ""
         }
       ]
     },
@@ -88,15 +135,19 @@
           "name": "db-path",
           "status": "pass",
           "severity": "PASS",
+          "section": "Database",
           "message": "resolved DB path: /tmp/test-traceary.db",
-          "hint": ""
+          "hint": "",
+          "fix_command": ""
         },
         {
           "name": "db-write",
           "status": "pass",
           "severity": "PASS",
+          "section": "Database",
           "message": "initialized SQLite store: /tmp/test-traceary.db",
-          "hint": ""
+          "hint": "",
+          "fix_command": ""
         }
       ]
     },
@@ -108,11 +159,22 @@
       "name": "MCP",
       "checks": [
         {
+          "name": "codex-mcp",
+          "status": "skip",
+          "severity": "PASS",
+          "section": "MCP",
+          "message": "codex MCP config file is absent; skipped registration check: /tmp/traceary-json-golden-home/.codex/config.toml",
+          "hint": "",
+          "fix_command": ""
+        },
+        {
           "name": "codex-host-capabilities",
           "status": "pass",
           "severity": "PASS",
+          "section": "MCP",
           "message": "codex host: memory features ship behind a per-install feature flag in /tmp/traceary-json-golden-home/.codex/config.toml; consult the Codex release notes for the exact flag name and your enablement state. Traceary's `memory import codex` works regardless of the flag state",
-          "hint": ""
+          "hint": "",
+          "fix_command": ""
         }
       ]
     },
@@ -123,14 +185,16 @@
           "name": "codex-config",
           "status": "warn",
           "severity": "WARN",
+          "section": "Hooks",
           "message": "codex config file does not exist yet (run `traceary hooks install --client codex` to fix) (first-run / pre-install state): /tmp/traceary-json-golden-home/.codex/hooks.json",
-          "hint": ""
+          "hint": "",
+          "fix_command": ""
         }
       ]
     }
   ],
   "summary": {
-    "pass": 6,
+    "pass": 8,
     "warn": 1,
     "fail": 0
   },

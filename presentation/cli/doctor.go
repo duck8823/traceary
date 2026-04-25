@@ -29,11 +29,13 @@ const (
 )
 
 type doctorCheck struct {
-	Name     string `json:"name"`
-	Status   string `json:"status"`
-	Severity string `json:"severity"`
-	Message  string `json:"message"`
-	Hint     string `json:"hint"`
+	Name       string `json:"name"`
+	Status     string `json:"status"`
+	Severity   string `json:"severity"`
+	Section    string `json:"section"`
+	Message    string `json:"message"`
+	Hint       string `json:"hint"`
+	FixCommand string `json:"fix_command"`
 }
 
 type doctorSection struct {
@@ -146,6 +148,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		Status:  doctorStatusPass,
 		Message: localizef("resolved DB path: %s", "解決した DB パス: %s", resolvedDBPath),
 	})
+	report.Checks = append(report.Checks, inspectTracearyOnPath())
 
 	report.Checks = append(report.Checks, inspectDoctorConfig())
 
@@ -191,6 +194,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 
 		check := c.inspectClaudeOrConfigFile(targetClient, outputPath, resolvedProjectDir)
 		report.Checks = append(report.Checks, check)
+		report.Checks = append(report.Checks, c.inspectMCPRegistrationForClient(targetClient, outputPath))
 
 		if globalCheck := c.inspectGlobalConfigForClient(targetClient); globalCheck != nil {
 			report.Checks = append(report.Checks, *globalCheck)
@@ -207,6 +211,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		}
 	}
 
+	report.Checks = append(report.Checks, c.inspectPluginVersionChecks(input.currentVersion)...)
 	report.Checks = append(report.Checks, checkLatestVersion(input.currentVersion))
 
 	return report, nil
@@ -836,6 +841,7 @@ func finalizeDoctorReport(report *doctorReport) {
 	}
 	for i := range report.Checks {
 		applyDoctorSeverity(&report.Checks[i])
+		report.Checks[i].Section = doctorSectionNameForCheck(report.Checks[i].Name)
 	}
 	report.Summary = doctorSummary{}
 	for _, check := range report.Checks {
@@ -899,11 +905,11 @@ func doctorSectionNameForCheck(name string) string {
 	switch {
 	case name == "db-path" || name == "db-write":
 		return "Database"
-	case name == "config" || name == "project-dir" || name == "version":
+	case name == "config" || name == "project-dir" || name == "version" || name == "path":
 		return "Environment"
 	case strings.Contains(name, "plugin"):
 		return "Plugins"
-	case strings.HasSuffix(name, "-host-capabilities") || strings.HasPrefix(name, "mcp"):
+	case strings.HasSuffix(name, "-host-capabilities") || strings.HasSuffix(name, "-mcp") || strings.HasPrefix(name, "mcp"):
 		return "MCP"
 	default:
 		return "Hooks"
