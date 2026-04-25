@@ -21,30 +21,6 @@ type memoryBridgeImportUsecase struct {
 	extraRedactPatterns []string
 }
 
-// NewMemoryBridgeImportUsecase creates the CLAUDE.md / AGENTS.md /
-// GEMINI.md import usecase. Sanitizer and dedupe are shared with the
-// Codex memories import path so everything imported through Traceary
-// goes through the same redaction and "never resurrect rejected
-// memories" guarantees.
-//
-// Deprecated: use NewMemoryUsecase and call ImportInstructions.
-func NewMemoryBridgeImportUsecase(
-	memory memoryProposer,
-	memoryQuery queryservice.MemoryQueryService,
-	extraRedactPatterns []string,
-) MemoryBridgeImportUsecase {
-	if facade, ok := memory.(*memoryUsecase); ok {
-		facade.memoryQuery = memoryQuery
-		facade.extraRedactPatterns = slices.Clone(extraRedactPatterns)
-		return facade
-	}
-	return &memoryBridgeImportUsecase{
-		memoryUsecase:       memory,
-		memoryQuery:         memoryQuery,
-		extraRedactPatterns: slices.Clone(extraRedactPatterns),
-	}
-}
-
 // ImportInstructions parses the instruction file referenced by criteria,
 // drops the Traceary-managed block (that block is already represented in
 // the durable-memory store via export), and creates a candidate for

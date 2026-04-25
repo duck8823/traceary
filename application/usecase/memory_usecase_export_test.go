@@ -52,7 +52,7 @@ func mustAcceptedSummary(t *testing.T, id string, memoryType domtypes.MemoryType
 	return summary
 }
 
-func TestMemoryExportUsecase_RendersStableMarkdown(t *testing.T) {
+func TestMemoryUsecase_Export_RendersStableMarkdown(t *testing.T) {
 	t.Parallel()
 
 	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
@@ -66,7 +66,7 @@ func TestMemoryExportUsecase_RendersStableMarkdown(t *testing.T) {
 			mustAcceptedSummary(t, "m2", domtypes.MemoryTypePreference, scope, "prefer bulleted commits"),
 		},
 	}
-	sut := usecase.NewMemoryExportUsecase(query)
+	sut := usecase.NewMemoryUsecase(nil, query, nil)
 	result, err := sut.Export(context.Background(), apptypes.MemoryExportCriteria{
 		Target: apptypes.MemoryBridgeTargetClaude,
 		Scopes: []domtypes.MemoryScope{scope},
@@ -103,11 +103,11 @@ func TestMemoryExportUsecase_RendersStableMarkdown(t *testing.T) {
 	}
 }
 
-func TestMemoryExportUsecase_EmptyExportStillEmitsMarkers(t *testing.T) {
+func TestMemoryUsecase_Export_EmptyExportStillEmitsMarkers(t *testing.T) {
 	t.Parallel()
 
 	query := &stubExportMemoryQuery{}
-	sut := usecase.NewMemoryExportUsecase(query)
+	sut := usecase.NewMemoryUsecase(nil, query, nil)
 	result, err := sut.Export(context.Background(), apptypes.MemoryExportCriteria{Target: apptypes.MemoryBridgeTargetCodex})
 	if err != nil {
 		t.Fatalf("Export: %v", err)
@@ -123,11 +123,11 @@ func TestMemoryExportUsecase_EmptyExportStillEmitsMarkers(t *testing.T) {
 	}
 }
 
-func TestMemoryExportUsecase_RejectsUnknownTarget(t *testing.T) {
+func TestMemoryUsecase_Export_RejectsUnknownTarget(t *testing.T) {
 	t.Parallel()
 
 	query := &stubExportMemoryQuery{}
-	sut := usecase.NewMemoryExportUsecase(query)
+	sut := usecase.NewMemoryUsecase(nil, query, nil)
 	_, err := sut.Export(context.Background(), apptypes.MemoryExportCriteria{Target: apptypes.MemoryBridgeTarget("unknown")})
 	if err == nil {
 		t.Fatalf("expected error for unknown target")

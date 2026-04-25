@@ -57,7 +57,7 @@ func TestMemoryHygieneScan_DetectsRedactionExpiryAndDuplicates(t *testing.T) {
 			acceptedSummaryAt(t, "mem-dup-2", scope, "prefer bulleted commits", now),
 		},
 	}
-	sut := usecase.NewMemoryHygieneUsecase(&stubImportMemoryUsecase{}, query, []string{`internal-token-\d+`})
+	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, []string{`internal-token-\d+`})
 
 	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{
 		StalenessThreshold: 90 * 24 * time.Hour,
@@ -99,7 +99,7 @@ func TestMemoryHygieneScan_SimilarFactsEmitSupersedeCandidate(t *testing.T) {
 			acceptedSummaryAt(t, "mem-unrelated", scope, "use semicolons in SQL migrations", newer),
 		},
 	}
-	sut := usecase.NewMemoryHygieneUsecase(&stubImportMemoryUsecase{}, query, nil)
+	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, nil)
 
 	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{Now: newer.Add(24 * time.Hour)})
 	if err != nil {
@@ -189,7 +189,7 @@ func TestMemoryHygieneScan_ValidityOverlapEmitsSupersede(t *testing.T) {
 				t2, t2, domtypes.None[time.Time]()),
 		},
 	}
-	sut := usecase.NewMemoryHygieneUsecase(&stubImportMemoryUsecase{}, query, nil)
+	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, nil)
 
 	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{Now: t3})
 	if err != nil {
@@ -242,7 +242,7 @@ func TestMemoryHygieneScan_DisjointValidityWindowsAreNotSuperseded(t *testing.T)
 				t3, t3, domtypes.Some(t4)),
 		},
 	}
-	sut := usecase.NewMemoryHygieneUsecase(&stubImportMemoryUsecase{}, query, nil)
+	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, nil)
 
 	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{Now: t4})
 	if err != nil {
@@ -282,7 +282,7 @@ func TestMemoryHygieneScan_TouchingValidityWindowsAreDisjoint(t *testing.T) {
 				t2, t2, domtypes.Some(t3)),
 		},
 	}
-	sut := usecase.NewMemoryHygieneUsecase(&stubImportMemoryUsecase{}, query, nil)
+	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, nil)
 
 	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{Now: t3})
 	if err != nil {
@@ -322,7 +322,7 @@ func TestMemoryHygieneScan_OneOpenOneExplicitOverlapEmitsValidity(t *testing.T) 
 				t2, t2, domtypes.None[time.Time]()),
 		},
 	}
-	sut := usecase.NewMemoryHygieneUsecase(&stubImportMemoryUsecase{}, query, nil)
+	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, nil)
 
 	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{Now: t3.Add(24 * time.Hour)})
 	if err != nil {
@@ -363,7 +363,7 @@ func TestMemoryHygieneScan_BothOpenEndedWindowsAreNotValidityOverlap(t *testing.
 				t2, t2, domtypes.None[time.Time]()),
 		},
 	}
-	sut := usecase.NewMemoryHygieneUsecase(&stubImportMemoryUsecase{}, query, nil)
+	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, nil)
 
 	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{Now: t2.Add(24 * time.Hour)})
 	if err != nil {
@@ -401,7 +401,7 @@ func TestMemoryHygieneScan_ValidityOverlapDifferentTypesDoNotPair(t *testing.T) 
 				t2, t2, domtypes.None[time.Time]()),
 		},
 	}
-	sut := usecase.NewMemoryHygieneUsecase(&stubImportMemoryUsecase{}, query, nil)
+	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, nil)
 
 	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{Now: t2.Add(24 * time.Hour)})
 	if err != nil {
@@ -440,7 +440,7 @@ func TestMemoryHygieneScan_ValidityOverlapOverridesSupersedeCandidate(t *testing
 				t2, t2, domtypes.None[time.Time]()),
 		},
 	}
-	sut := usecase.NewMemoryHygieneUsecase(&stubImportMemoryUsecase{}, query, nil)
+	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, nil)
 
 	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{Now: t2.Add(24 * time.Hour)})
 	if err != nil {
@@ -458,7 +458,7 @@ func TestMemoryHygieneScan_EmptyStoreReturnsEmptyResult(t *testing.T) {
 	t.Parallel()
 
 	query := &stubMemoryQueryService{}
-	sut := usecase.NewMemoryHygieneUsecase(&stubImportMemoryUsecase{}, query, nil)
+	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, nil)
 
 	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{})
 	if err != nil {

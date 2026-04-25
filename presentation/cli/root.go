@@ -1,43 +1,67 @@
 package cli
 
 import (
+	"context"
+
 	"github.com/spf13/cobra"
 
 	"github.com/duck8823/traceary/application"
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/presentation"
 )
 
 // RootCLI provides the Traceary root command.
 type RootCLI struct {
-	event               usecase.EventUsecase
-	session             usecase.SessionUsecase
-	memory              usecase.MemoryUsecase
-	memoryExtraction    usecase.MemoryExtractionUsecase
-	memoryImport        usecase.MemoryImportUsecase
-	memoryExport        usecase.MemoryExportUsecase
-	memoryBridgeImport  usecase.MemoryBridgeImportUsecase
-	memoryHygiene       usecase.MemoryHygieneUsecase
-	memoryEdge          usecase.MemoryEdgeUsecase
-	bundle              usecase.BundleUsecase
-	context             usecase.ContextUsecase
-	replay              usecase.ReplayUsecase
-	codexIntegration    usecase.CodexIntegrationUsecase
-	storeManagement     usecase.StoreManagementUsecase
-	mcpServerRunner     MCPServerRunner
+	event                usecase.EventUsecase
+	session              usecase.SessionUsecase
+	memory               usecase.MemoryUsecase
+	memoryExtraction     memoryExtractionUsecase
+	memoryImport         memoryImportUsecase
+	memoryExport         memoryExportUsecase
+	memoryBridgeImport   memoryBridgeImportUsecase
+	memoryHygiene        memoryHygieneUsecase
+	memoryEdge           usecase.MemoryEdgeUsecase
+	bundle               usecase.BundleUsecase
+	context              usecase.ContextUsecase
+	replay               usecase.ReplayUsecase
+	codexIntegration     usecase.CodexIntegrationUsecase
+	storeManagement      usecase.StoreManagementUsecase
+	mcpServerRunner      MCPServerRunner
 	hooksOrchestrator    application.HooksOrchestrator
 	hooksInspector       application.HooksInspector
 	pluginCacheInspector application.PluginCacheInspector
 	pluginDetector       application.ClaudePluginDetector
-	extraRedactPatterns []string
-	defaultReadFields   []string
-	readPresets         map[string]presentation.ReadPreset
-	defaultReadColor    string
+	extraRedactPatterns  []string
+	defaultReadFields    []string
+	readPresets          map[string]presentation.ReadPreset
+	defaultReadColor     string
 	// databasePathSetter is invoked by each subcommand's RunE after it
 	// resolves --db-path / TRACEARY_DB_PATH, so the shared Database
 	// instance opens the user-specified path instead of the composition-
 	// root default. May be nil in tests that inject stubs directly.
 	databasePathSetter func(string)
+}
+
+type memoryExtractionUsecase interface {
+	Extract(context.Context, apptypes.MemoryExtractionCriteria) ([]apptypes.MemoryDetails, error)
+}
+
+type memoryImportUsecase interface {
+	ImportCodex(context.Context, apptypes.CodexImportCriteria) (apptypes.MemoryImportResult, error)
+}
+
+type memoryExportUsecase interface {
+	Export(context.Context, apptypes.MemoryExportCriteria) (apptypes.MemoryExportResult, error)
+}
+
+type memoryBridgeImportUsecase interface {
+	ImportInstructions(context.Context, apptypes.MemoryBridgeImportCriteria) (apptypes.MemoryBridgeImportResult, error)
+}
+
+type memoryHygieneUsecase interface {
+	Scan(context.Context, apptypes.MemoryHygieneScanCriteria) (apptypes.MemoryHygieneScanResult, error)
+	Apply(context.Context, apptypes.MemoryHygieneApplyCriteria) (apptypes.MemoryHygieneApplyResult, error)
 }
 
 // RootCLIOption configures a RootCLI during construction. Options are
@@ -59,29 +83,29 @@ func WithMemory(memory usecase.MemoryUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.memory = memory }
 }
 
-// WithMemoryExtraction injects the MemoryExtractionUsecase used by candidate
+// WithMemoryExtraction injects the MemoryUsecase extraction surface used by candidate
 // extraction commands.
-func WithMemoryExtraction(memoryExtraction usecase.MemoryExtractionUsecase) RootCLIOption {
+func WithMemoryExtraction(memoryExtraction memoryExtractionUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.memoryExtraction = memoryExtraction }
 }
 
-// WithMemoryImport injects the MemoryImportUsecase used by `memory import`
+// WithMemoryImport injects the MemoryUsecase import surface used by `memory import`
 // subcommands (for example Codex MEMORY.md import).
-func WithMemoryImport(memoryImport usecase.MemoryImportUsecase) RootCLIOption {
+func WithMemoryImport(memoryImport memoryImportUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.memoryImport = memoryImport }
 }
 
-// WithMemoryExport injects the MemoryExportUsecase used by `memory
+// WithMemoryExport injects the MemoryUsecase export surface used by `memory
 // export`, which serializes accepted memories into a host-specific
 // instruction file.
-func WithMemoryExport(memoryExport usecase.MemoryExportUsecase) RootCLIOption {
+func WithMemoryExport(memoryExport memoryExportUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.memoryExport = memoryExport }
 }
 
-// WithMemoryBridgeImport injects the MemoryBridgeImportUsecase used by
+// WithMemoryBridgeImport injects the MemoryUsecase bridge import surface used by
 // `memory import instructions`, which parses host instruction files
 // into durable-memory candidates.
-func WithMemoryBridgeImport(importUsecase usecase.MemoryBridgeImportUsecase) RootCLIOption {
+func WithMemoryBridgeImport(importUsecase memoryBridgeImportUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.memoryBridgeImport = importUsecase }
 }
 
@@ -97,10 +121,10 @@ func WithMemoryEdge(edge usecase.MemoryEdgeUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.memoryEdge = edge }
 }
 
-// WithMemoryHygiene injects the MemoryHygieneUsecase used by
+// WithMemoryHygiene injects the MemoryUsecase hygiene surface used by
 // `memory hygiene scan` to surface redaction / expiry / duplicate
 // suggestions over the durable-memory store.
-func WithMemoryHygiene(hygiene usecase.MemoryHygieneUsecase) RootCLIOption {
+func WithMemoryHygiene(hygiene memoryHygieneUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.memoryHygiene = hygiene }
 }
 

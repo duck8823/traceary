@@ -158,11 +158,6 @@ func run() error {
 		EventQuery:   eventDatasource,
 		CodexSource:  codexMemorySource,
 	})
-	memoryExtractionUsecase := usecase.NewMemoryExtractionUsecase(sessionDatasource, eventDatasource, memoryUsecase, extraRedactPatterns)
-	memoryImportUsecase := usecase.NewMemoryImportUsecase(memoryUsecase, memoryDatasource, codexMemorySource, extraRedactPatterns)
-	memoryExportUsecase := usecase.NewMemoryExportUsecase(memoryDatasource)
-	memoryBridgeImportUsecase := usecase.NewMemoryBridgeImportUsecase(memoryUsecase, memoryDatasource, extraRedactPatterns)
-	memoryHygieneUsecase := usecase.NewMemoryHygieneUsecase(memoryUsecase, memoryDatasource, extraRedactPatterns)
 	memoryEdgeDatasource := sqlite.NewMemoryEdgeDatasource(db)
 	memoryEdgeUsecase := usecase.NewMemoryEdgeUsecase(memoryEdgeDatasource, memoryEdgeDatasource, nil)
 	bundleDatasource := sqlite.NewBundleDatasource(db, eventDatasource)
@@ -177,9 +172,9 @@ func run() error {
 		eventUsecase,
 		sessionUsecase,
 		memoryUsecase,
-		memoryHygieneUsecase,
-		memoryExportUsecase,
-		memoryBridgeImportUsecase,
+		memoryUsecase,
+		memoryUsecase,
+		memoryUsecase,
 		contextUsecase,
 		storeManagementUsecase,
 	)
@@ -201,11 +196,11 @@ func run() error {
 		cli.WithEvent(eventUsecase),
 		cli.WithSession(sessionUsecase),
 		cli.WithMemory(memoryUsecase),
-		cli.WithMemoryExtraction(memoryExtractionUsecase),
-		cli.WithMemoryImport(memoryImportUsecase),
-		cli.WithMemoryExport(memoryExportUsecase),
-		cli.WithMemoryBridgeImport(memoryBridgeImportUsecase),
-		cli.WithMemoryHygiene(memoryHygieneUsecase),
+		cli.WithMemoryExtraction(memoryUsecase),
+		cli.WithMemoryImport(memoryUsecase),
+		cli.WithMemoryExport(memoryUsecase),
+		cli.WithMemoryBridgeImport(memoryUsecase),
+		cli.WithMemoryHygiene(memoryUsecase),
 		cli.WithMemoryEdge(memoryEdgeUsecase),
 		cli.WithBundle(bundleUsecase),
 		cli.WithContext(contextUsecase),

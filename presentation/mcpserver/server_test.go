@@ -978,9 +978,6 @@ CREATE INDEX idx_memories_valid_window ON memories(valid_to, valid_from);`),
 	eventUsecase := usecase.NewEventUsecase(eventDatasource, eventDatasource)
 	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource)
 	memoryUsecase := usecase.NewMemoryUsecase(memoryDatasource, memoryDatasource, nil)
-	memoryHygieneUsecase := usecase.NewMemoryHygieneUsecase(memoryUsecase, memoryDatasource, nil)
-	memoryExportUsecase := usecase.NewMemoryExportUsecase(memoryDatasource)
-	memoryBridgeImportUsecase := usecase.NewMemoryBridgeImportUsecase(memoryUsecase, memoryDatasource, nil)
 	contextUsecase := usecase.NewContextUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	storeManagementUsecase := usecase.NewStoreManagementUsecase(storeManagementDatasource)
 
@@ -990,9 +987,9 @@ CREATE INDEX idx_memories_valid_window ON memories(valid_to, valid_from);`),
 		eventUsecase,
 		sessionUsecase,
 		memoryUsecase,
-		memoryHygieneUsecase,
-		memoryExportUsecase,
-		memoryBridgeImportUsecase,
+		memoryUsecase,
+		memoryUsecase,
+		memoryUsecase,
 		contextUsecase,
 		storeManagementUsecase,
 	)

@@ -23,6 +23,26 @@ type memoryExtractionMemoryUsecaseStub struct {
 	proposeCalls  []memoryExtractionProposeCall
 }
 
+func (s *memoryExtractionMemoryUsecaseStub) Save(_ context.Context, memory *model.Memory) error {
+	s.proposeCalls = append(s.proposeCalls, memoryExtractionProposeCall{
+		memoryType:   memory.MemoryType(),
+		scope:        memory.Scope(),
+		fact:         memory.Fact(),
+		source:       memory.Source(),
+		evidenceRefs: append([]domtypes.EvidenceRef(nil), memory.EvidenceRefs()...),
+		artifactRefs: append([]domtypes.ArtifactRef(nil), memory.ArtifactRefs()...),
+	})
+	return s.proposeErr
+}
+
+func (s *memoryExtractionMemoryUsecaseStub) SaveSupersession(context.Context, *model.Memory, *model.Memory) error {
+	return nil
+}
+
+func (s *memoryExtractionMemoryUsecaseStub) FindByID(context.Context, domtypes.MemoryID) (domtypes.Optional[*model.Memory], error) {
+	return domtypes.None[*model.Memory](), nil
+}
+
 type memoryExtractionProposeCall struct {
 	memoryType   domtypes.MemoryType
 	scope        domtypes.MemoryScope
@@ -98,7 +118,11 @@ func (s *memoryExtractionMemoryUsecaseStub) Show(context.Context, domtypes.Memor
 	return apptypes.MemoryDetails{}, nil
 }
 
-func TestMemoryExtractionUsecase_Extract(t *testing.T) {
+func (s *memoryExtractionMemoryUsecaseStub) GetDetails(context.Context, domtypes.MemoryID) (apptypes.MemoryDetails, error) {
+	return apptypes.MemoryDetails{}, nil
+}
+
+func TestMemoryUsecase_Extract(t *testing.T) {
 	t.Parallel()
 
 	session := apptypes.SessionSummaryOf(
@@ -140,18 +164,15 @@ func TestMemoryExtractionUsecase_Extract(t *testing.T) {
 		proposeResult: []apptypes.MemoryDetails{details1, details2, details3, details4, details5},
 	}
 
-	sut := usecase.NewMemoryExtractionUsecase(
-		&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}},
-		&eventQueryServiceStub{
-			listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
-				domtypes.EventKindPrompt:         {promptEvent},
-				domtypes.EventKindNote:           {noteEvent},
-				domtypes.EventKindCompactSummary: {compactEvent},
-			},
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{
+		listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
+			domtypes.EventKindPrompt:         {promptEvent},
+			domtypes.EventKindNote:           {noteEvent},
+			domtypes.EventKindCompactSummary: {compactEvent},
 		},
-		memoryUsecase,
-		nil,
-	)
+	}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
 
 	got, err := sut.Extract(
 		context.Background(),
@@ -210,7 +231,7 @@ func TestMemoryExtractionUsecase_Extract(t *testing.T) {
 	}
 }
 
-func TestMemoryExtractionUsecase_Extract_IncludesTranscriptEvents(t *testing.T) {
+func TestMemoryUsecase_Extract_IncludesTranscriptEvents(t *testing.T) {
 	t.Parallel()
 
 	session := apptypes.SessionSummaryOf(
@@ -238,16 +259,13 @@ func TestMemoryExtractionUsecase_Extract_IncludesTranscriptEvents(t *testing.T) 
 		proposeResult: []apptypes.MemoryDetails{details},
 	}
 
-	sut := usecase.NewMemoryExtractionUsecase(
-		&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}},
-		&eventQueryServiceStub{
-			listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
-				domtypes.EventKindTranscript: {transcriptEvent},
-			},
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{
+		listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
+			domtypes.EventKindTranscript: {transcriptEvent},
 		},
-		memoryUsecase,
-		nil,
-	)
+	}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
 
 	got, err := sut.Extract(
 		context.Background(),
@@ -272,7 +290,7 @@ func TestMemoryExtractionUsecase_Extract_IncludesTranscriptEvents(t *testing.T) 
 	}
 }
 
-func TestMemoryExtractionUsecase_Extract_DeduplicatesExistingAndGracefullyHandlesMissingPrompts(t *testing.T) {
+func TestMemoryUsecase_Extract_DeduplicatesExistingAndGracefullyHandlesMissingPrompts(t *testing.T) {
 	t.Parallel()
 
 	session := apptypes.SessionSummaryOf(
@@ -310,12 +328,9 @@ func TestMemoryExtractionUsecase_Extract_DeduplicatesExistingAndGracefullyHandle
 	memoryUsecase := &memoryExtractionMemoryUsecaseStub{
 		listResult: []apptypes.MemorySummary{existingSummary},
 	}
-	sut := usecase.NewMemoryExtractionUsecase(
-		&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}},
-		&eventQueryServiceStub{},
-		memoryUsecase,
-		nil,
-	)
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
 
 	got, err := sut.Extract(
 		context.Background(),
@@ -337,7 +352,7 @@ func TestMemoryExtractionUsecase_Extract_DeduplicatesExistingAndGracefullyHandle
 	}
 }
 
-func TestMemoryExtractionUsecase_Extract_PaginatesExistingMemoryDedupe(t *testing.T) {
+func TestMemoryUsecase_Extract_PaginatesExistingMemoryDedupe(t *testing.T) {
 	t.Parallel()
 
 	session := apptypes.SessionSummaryOf(
@@ -397,12 +412,9 @@ func TestMemoryExtractionUsecase_Extract_PaginatesExistingMemoryDedupe(t *testin
 	listResult = append(listResult, duplicateSummary)
 
 	memoryUsecase := &memoryExtractionMemoryUsecaseStub{listResult: listResult}
-	sut := usecase.NewMemoryExtractionUsecase(
-		&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}},
-		&eventQueryServiceStub{},
-		memoryUsecase,
-		nil,
-	)
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
 
 	got, err := sut.Extract(
 		context.Background(),
@@ -433,7 +445,7 @@ func TestMemoryExtractionUsecase_Extract_PaginatesExistingMemoryDedupe(t *testin
 	}
 }
 
-func TestMemoryExtractionUsecase_Extract_DeduplicatesSanitizedFacts(t *testing.T) {
+func TestMemoryUsecase_Extract_DeduplicatesSanitizedFacts(t *testing.T) {
 	t.Parallel()
 
 	session := apptypes.SessionSummaryOf(
@@ -465,16 +477,13 @@ func TestMemoryExtractionUsecase_Extract_DeduplicatesSanitizedFacts(t *testing.T
 	memoryUsecase := &memoryExtractionMemoryUsecaseStub{
 		proposeResult: []apptypes.MemoryDetails{details},
 	}
-	sut := usecase.NewMemoryExtractionUsecase(
-		&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}},
-		&eventQueryServiceStub{
-			listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
-				domtypes.EventKindPrompt: {promptEvent},
-			},
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{
+		listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
+			domtypes.EventKindPrompt: {promptEvent},
 		},
-		memoryUsecase,
-		nil,
-	)
+	}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
 
 	got, err := sut.Extract(
 		context.Background(),
@@ -496,7 +505,7 @@ func TestMemoryExtractionUsecase_Extract_DeduplicatesSanitizedFacts(t *testing.T
 	}
 }
 
-func TestMemoryExtractionUsecase_Extract_DeduplicatesExistingFactsAfterSanitization(t *testing.T) {
+func TestMemoryUsecase_Extract_DeduplicatesExistingFactsAfterSanitization(t *testing.T) {
 	t.Parallel()
 
 	session := apptypes.SessionSummaryOf(
@@ -581,16 +590,13 @@ func TestMemoryExtractionUsecase_Extract_DeduplicatesExistingFactsAfterSanitizat
 			memoryUsecase := &memoryExtractionMemoryUsecaseStub{
 				listResult: []apptypes.MemorySummary{existingSummary},
 			}
-			sut := usecase.NewMemoryExtractionUsecase(
-				&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}},
-				&eventQueryServiceStub{
-					listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
-						domtypes.EventKindPrompt: {promptEvent},
-					},
+			sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+			eventQuery := &eventQueryServiceStub{
+				listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
+					domtypes.EventKindPrompt: {promptEvent},
 				},
-				memoryUsecase,
-				tc.extraRedactPatterns,
-			)
+			}
+			sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, tc.extraRedactPatterns, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
 
 			got, err := sut.Extract(
 				context.Background(),
