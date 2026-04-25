@@ -196,6 +196,11 @@ func (tx *fakeBundleTx) Rollback(context.Context) error { return nil }
 
 func mustEvent(t *testing.T, id string, ts time.Time) *model.Event {
 	t.Helper()
+	return mustEventInSessionWorkspace(t, id, ts, "session-x", types.Workspace("ws"))
+}
+
+func mustEventInSessionWorkspace(t *testing.T, id string, ts time.Time, session string, workspace types.Workspace) *model.Event {
+	t.Helper()
 	eventID, err := types.EventIDFrom(id)
 	if err != nil {
 		t.Fatalf("EventIDFrom: %v", err)
@@ -204,18 +209,23 @@ func mustEvent(t *testing.T, id string, ts time.Time) *model.Event {
 	if err != nil {
 		t.Fatalf("AgentFrom: %v", err)
 	}
-	sessionID, err := types.SessionIDFrom("session-x")
+	sessionID, err := types.SessionIDFrom(session)
 	if err != nil {
 		t.Fatalf("SessionIDFrom: %v", err)
 	}
 	return model.EventOf(
 		eventID, types.EventKindNote, types.Client("cli"), agent,
-		sessionID, types.Workspace("ws"),
+		sessionID, workspace,
 		"body-"+id, ts,
 	)
 }
 
 func mustSession(t *testing.T, id, parent string, ts time.Time) *model.Session {
+	t.Helper()
+	return mustSessionInWorkspace(t, id, parent, ts, types.Workspace("ws"))
+}
+
+func mustSessionInWorkspace(t *testing.T, id, parent string, ts time.Time, workspace types.Workspace) *model.Session {
 	t.Helper()
 	sessionID, err := types.SessionIDFrom(id)
 	if err != nil {
@@ -231,7 +241,7 @@ func mustSession(t *testing.T, id, parent string, ts time.Time) *model.Session {
 		types.None[time.Time](),
 		types.Client("cli"),
 		agent,
-		types.Workspace("ws"),
+		workspace,
 		"label-"+id,
 		"summary-"+id,
 		types.SessionID(parent),
@@ -408,6 +418,52 @@ func TestBundleUsecase_RoundTripSessionsAndCommandAudits(t *testing.T) {
 	}
 	if importRepo.commandAudits["e-1"] == nil {
 		t.Fatalf("command audit not imported")
+	}
+}
+
+func TestBundleUsecase_ExportFiltersSessionsAndKeepsEventReferencedSessions(t *testing.T) {
+	t.Parallel()
+
+	ts := time.Date(2026, 4, 25, 10, 0, 0, 0, time.UTC)
+	fooWorkspace := types.Workspace("foo")
+	barWorkspace := types.Workspace("bar")
+	fooSession := mustSessionInWorkspace(t, "session-foo", "", ts, fooWorkspace)
+	fooUnreferencedSession := mustSessionInWorkspace(t, "session-foo-unreferenced", "", ts.Add(time.Minute), fooWorkspace)
+	barReferencedSession := mustSessionInWorkspace(t, "session-bar-referenced", "", ts.Add(2*time.Minute), barWorkspace)
+	barUnrelatedSession := mustSessionInWorkspace(t, "session-bar-unrelated", "", ts.Add(3*time.Minute), barWorkspace)
+	oldFooSession := mustSessionInWorkspace(t, "session-foo-old", "", ts.Add(-2*time.Hour), fooWorkspace)
+
+	events := []*model.Event{
+		mustEventInSessionWorkspace(t, "e-foo", ts.Add(10*time.Minute), "session-foo", fooWorkspace),
+		mustEventInSessionWorkspace(t, "e-bar-reference", ts.Add(11*time.Minute), "session-bar-referenced", fooWorkspace),
+	}
+	exportRepo := &fakeBundleRepo{
+		schema: 13,
+		exportSessions: []*model.Session{
+			fooSession,
+			fooUnreferencedSession,
+			barReferencedSession,
+			barUnrelatedSession,
+			oldFooSession,
+		},
+	}
+	exportUC := usecase.NewBundleUsecase(fakeEventQuery{events: events}, exportRepo, func() time.Time { return ts })
+	out := filepath.Join(t.TempDir(), "bundle.tbun")
+	if err := exportUC.Export(context.Background(), usecase.BundleExportOptions{
+		OutPath:    out,
+		Passphrase: []byte("pass1"),
+		Workspace:  fooWorkspace,
+		Since:      ts.Add(-time.Hour),
+		Until:      ts.Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	files := openTestBundle(t, out, []byte("pass1"))
+	got := decodeBundleSessionIDs(t, files["sessions.ndjson"])
+	want := []string{"session-bar-referenced", "session-foo", "session-foo-unreferenced"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("exported session IDs = %v, want %v", got, want)
 	}
 }
 
@@ -1032,6 +1088,25 @@ func openTestBundle(t *testing.T, path string, passphrase []byte) map[string][]b
 		files[hdr.Name] = content
 	}
 	return files
+}
+
+func decodeBundleSessionIDs(t *testing.T, data []byte) []string {
+	t.Helper()
+	ids := []string{}
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if line == "" {
+			continue
+		}
+		var row struct {
+			SessionID string `json:"session_id"`
+		}
+		if err := json.Unmarshal([]byte(line), &row); err != nil {
+			t.Fatalf("unmarshal session row: %v", err)
+		}
+		ids = append(ids, row.SessionID)
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 func hashForTest(data []byte) string {

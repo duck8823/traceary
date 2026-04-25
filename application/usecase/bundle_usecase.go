@@ -267,6 +267,7 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 	if err != nil {
 		return xerrors.Errorf("failed to list sessions for bundle: %w", err)
 	}
+	sessions = filterSessionsForBundleExport(sessions, events, opts)
 	commandAudits, err := u.repository.ListBundleCommandAudits(ctx)
 	if err != nil {
 		return xerrors.Errorf("failed to list command audits for bundle: %w", err)
@@ -1151,6 +1152,48 @@ func encodeCommandAuditsNDJSON(audits []*model.CommandAudit) (*bytes.Buffer, err
 		}
 	}
 	return buf, nil
+}
+
+func filterSessionsForBundleExport(sessions []*model.Session, events []*model.Event, opts BundleExportOptions) []*model.Session {
+	referencedSessionIDs := make(map[string]struct{}, len(events))
+	for _, event := range events {
+		referencedSessionIDs[event.SessionID().String()] = struct{}{}
+	}
+
+	filtered := make([]*model.Session, 0, len(sessions))
+	includedSessionIDs := make(map[string]struct{}, len(sessions))
+	for _, session := range sessions {
+		if sessionMatchesBundleExportFilters(session, opts) {
+			filtered = append(filtered, session)
+			includedSessionIDs[session.SessionID().String()] = struct{}{}
+		}
+	}
+
+	for _, session := range sessions {
+		sessionID := session.SessionID().String()
+		if _, referenced := referencedSessionIDs[sessionID]; !referenced {
+			continue
+		}
+		if _, alreadyIncluded := includedSessionIDs[sessionID]; alreadyIncluded {
+			continue
+		}
+		filtered = append(filtered, session)
+		includedSessionIDs[sessionID] = struct{}{}
+	}
+	return filtered
+}
+
+func sessionMatchesBundleExportFilters(session *model.Session, opts BundleExportOptions) bool {
+	if opts.Workspace.String() != "" && session.Workspace() != opts.Workspace {
+		return false
+	}
+	if !opts.Since.IsZero() && session.StartedAt().Before(opts.Since) {
+		return false
+	}
+	if !opts.Until.IsZero() && !session.StartedAt().Before(opts.Until) {
+		return false
+	}
+	return true
 }
 
 func filterCommandAuditsForEvents(audits []*model.CommandAudit, events []*model.Event) []*model.CommandAudit {
