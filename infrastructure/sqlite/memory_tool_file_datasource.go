@@ -125,15 +125,29 @@ func (d *MemoryToolFileDatasource) DeletePathPrefix(ctx context.Context, path ty
 	}
 	defer closeSQLDB(db)
 
-	result, err := db.ExecContext(ctx, `DELETE FROM memory_tool_files WHERE path = ? OR path LIKE ?;`, path.String(), path.String()+"/%")
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, xerrors.Errorf("failed to delete memory tool files: %w", err)
+		return 0, xerrors.Errorf("failed to begin memory tool file delete transaction: %w", err)
 	}
-	count, err := result.RowsAffected()
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Debug("failed to rollback transaction", "error", err)
+		}
+	}()
+
+	paths, err := queryMemoryToolPathPrefix(ctx, tx, path)
 	if err != nil {
-		return 0, xerrors.Errorf("failed to read deleted memory tool file count: %w", err)
+		return 0, xerrors.Errorf("failed to query deleted memory tool file paths: %w", err)
 	}
-	return count, nil
+	for _, filePath := range paths {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM memory_tool_files WHERE path = ?;`, filePath.String()); err != nil {
+			return 0, xerrors.Errorf("failed to delete memory tool file: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, xerrors.Errorf("failed to commit memory tool file delete: %w", err)
+	}
+	return int64(len(paths)), nil
 }
 
 // RenamePathPrefix renames an exact file or all files below a directory path.
@@ -159,29 +173,14 @@ func (d *MemoryToolFileDatasource) RenamePathPrefix(
 		}
 	}()
 
-	rows, err := tx.QueryContext(ctx, `SELECT path FROM memory_tool_files WHERE path = ? OR path LIKE ? ORDER BY path ASC;`, oldPath.String(), oldPath.String()+"/%")
+	oldPaths, err := queryMemoryToolPathPrefix(ctx, tx, oldPath)
 	if err != nil {
-		return 0, xerrors.Errorf("failed to query renamed memory tool files: %w", err)
-	}
-	oldPaths := make([]string, 0)
-	for rows.Next() {
-		var path string
-		if err := rows.Scan(&path); err != nil {
-			_ = rows.Close()
-			return 0, xerrors.Errorf("failed to scan renamed memory tool file path: %w", err)
-		}
-		oldPaths = append(oldPaths, path)
-	}
-	if err := rows.Close(); err != nil {
-		return 0, xerrors.Errorf("failed to close renamed memory tool file rows: %w", err)
-	}
-	if err := rows.Err(); err != nil {
-		return 0, xerrors.Errorf("failed to iterate renamed memory tool file paths: %w", err)
+		return 0, xerrors.Errorf("failed to query renamed memory tool file paths: %w", err)
 	}
 
 	for _, oldFilePath := range oldPaths {
-		newFilePath := newPath.String() + strings.TrimPrefix(oldFilePath, oldPath.String())
-		if _, err := tx.ExecContext(ctx, `UPDATE memory_tool_files SET path = ?, updated_at = ? WHERE path = ?;`, newFilePath, formatTimestamp(updatedAt), oldFilePath); err != nil {
+		newFilePath := newPath.String() + strings.TrimPrefix(oldFilePath.String(), oldPath.String())
+		if _, err := tx.ExecContext(ctx, `UPDATE memory_tool_files SET path = ?, updated_at = ? WHERE path = ?;`, newFilePath, formatTimestamp(updatedAt), oldFilePath.String()); err != nil {
 			return 0, xerrors.Errorf("failed to rename memory tool file: %w", err)
 		}
 	}
@@ -189,6 +188,37 @@ func (d *MemoryToolFileDatasource) RenamePathPrefix(
 		return 0, xerrors.Errorf("failed to commit memory tool file rename: %w", err)
 	}
 	return int64(len(oldPaths)), nil
+}
+
+func queryMemoryToolPathPrefix(ctx context.Context, tx *sql.Tx, path types.MemoryToolPath) ([]types.MemoryToolPath, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT path FROM memory_tool_files ORDER BY path ASC;`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query memory tool file paths: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	paths := make([]types.MemoryToolPath, 0)
+	for rows.Next() {
+		var rawPath string
+		if err := rows.Scan(&rawPath); err != nil {
+			return nil, xerrors.Errorf("failed to scan memory tool file path: %w", err)
+		}
+		filePath, err := types.NewMemoryToolPath(rawPath)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to restore memory tool path: %w", err)
+		}
+		if filePath == path || filePath.IsDescendantOf(path) {
+			paths = append(paths, filePath)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, xerrors.Errorf("failed to iterate memory tool file paths: %w", err)
+	}
+	return paths, nil
 }
 
 type memoryToolFileScanner interface {

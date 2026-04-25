@@ -131,7 +131,7 @@ func (u *memoryToolUsecase) Insert(ctx context.Context, rawPath string, insertLi
 	updatedLines = append(updatedLines, lines[:insertLine]...)
 	updatedLines = append(updatedLines, insertLines...)
 	updatedLines = append(updatedLines, lines[insertLine:]...)
-	updatedContent := joinMemoryToolLines(updatedLines, trailingNewline || insertTrailingNewline)
+	updatedContent := joinMemoryToolLines(updatedLines, trailingNewline || (insertLine == len(lines) && insertTrailingNewline))
 	if err := u.repository.Save(ctx, file.WithContent([]byte(updatedContent), u.clock.Now())); err != nil {
 		return "", xerrors.Errorf("failed to save inserted memory tool file: %w", err)
 	}

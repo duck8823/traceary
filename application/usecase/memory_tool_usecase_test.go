@@ -178,6 +178,48 @@ func TestMemoryToolUsecase_allCommandsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestMemoryToolUsecase_insertInMiddlePreservesOriginalEOFState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{
+			name:    "original without EOF newline stays without EOF newline",
+			content: "alpha\ngamma",
+			want:    "alpha\nbeta\ngamma",
+		},
+		{
+			name:    "original with EOF newline stays with EOF newline",
+			content: "alpha\ngamma\n",
+			want:    "alpha\nbeta\ngamma\n",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			repo := newMemoryToolRepositoryStub(t, map[string]string{
+				"/memories/notes.txt": tt.content,
+			})
+			sut := usecase.NewMemoryToolUsecase(repo, fixedClock{})
+
+			if _, err := sut.Insert(context.Background(), "/memories/notes.txt", 1, "beta\n"); err != nil {
+				t.Fatalf("Insert() error = %v", err)
+			}
+
+			got := string(repo.files["/memories/notes.txt"].Content())
+			if got != tt.want {
+				t.Fatalf("saved content = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func assertResult(t *testing.T, _ string, err error) {
 	t.Helper()
 	if err != nil {
