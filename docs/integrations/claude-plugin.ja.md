@@ -25,13 +25,13 @@ GO111MODULE=on go install github.com/duck8823/traceary@latest
 2. この repository を Claude marketplace として追加します。
 
 ```sh
-claude plugins marketplace add https://github.com/duck8823/traceary
+/plugin marketplace add duck8823/traceary
 ```
 
 3. その marketplace から Traceary plugin を install します。
 
 ```sh
-claude plugins install traceary@traceary-plugins --scope user
+/plugin install traceary
 ```
 
 user 全体に入れたくない場合は `--scope project` または `--scope local` を使います。
@@ -39,22 +39,22 @@ user 全体に入れたくない場合は `--scope project` または `--scope l
 ## Update
 
 ```sh
-claude plugins marketplace update traceary-plugins
-claude plugins update traceary@traceary-plugins
+/plugin marketplace update traceary-plugins
+/plugin update traceary
 ```
 
-> **重要**: `brew upgrade traceary` は CLI binary を更新しますが、**Claude plugin cache には触れません**。新しい Traceary リリースが hook を追加したとき（例: v0.8 の transcript hook や built-in tool matcher hook）は、Claude Code セッション内で新 hook を有効化するために `claude plugins update traceary@traceary-plugins` も実行する必要があります。`traceary doctor --client claude` は cache が marketplace manifest より古い状態を `claude-plugin-cache` check で警告します。
+> **重要**: `brew upgrade traceary` は CLI binary を更新しますが、**Claude plugin cache には触れません**。新しい Traceary リリースが hook を追加したとき（例: v0.8 の transcript hook や built-in tool matcher hook）は、Claude Code セッション内で新 hook を有効化するために `/plugin update traceary` も実行する必要があります。`traceary doctor --client claude` は cache が marketplace manifest より古い状態を `claude-plugin-cache` check で警告します。
 
 ## Uninstall
 
 ```sh
-claude plugins uninstall traceary@traceary-plugins
+/plugin uninstall traceary
 ```
 
 marketplace 自体も不要なら、次で外せます。
 
 ```sh
-claude plugins marketplace remove traceary-plugins
+/plugin marketplace remove traceary-plugins
 ```
 
 ## plugin 導入時は `hooks install` は不要

@@ -61,8 +61,8 @@ go install github.com/duck8823/traceary@latest
 **Claude Code** ([ガイド](./docs/integrations/claude-plugin.ja.md))
 
 ```sh
-claude plugins marketplace add https://github.com/duck8823/traceary
-claude plugins install traceary@traceary-plugins --scope user
+/plugin marketplace add duck8823/traceary
+/plugin install traceary
 ```
 
 **Codex** ([ガイド](./docs/integrations/codex-plugin.ja.md))

@@ -51,7 +51,7 @@ def main() -> None:
     version = validate_version(args.version)
     print(f'Bumping version to {version}:')
     bump(version)
-    print('Done. Run `python3 scripts/verify_integrations.py` to verify.')
+    print('Done. Run `python3 scripts/verify_release_manifests.py` and `python3 scripts/verify_integrations.py` to verify.')
 
 
 if __name__ == '__main__':
