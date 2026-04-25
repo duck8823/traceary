@@ -1,0 +1,23 @@
+[
+  {
+    "event_id": "event-golden-list-1",
+    "kind": "note",
+    "client": "cli",
+    "agent": "codex",
+    "session_id": "session-golden-list",
+    "workspace": "duck8823/traceary",
+    "message": "first golden event",
+    "created_at": "2026-04-08T13:00:00Z"
+  },
+  {
+    "event_id": "event-golden-list-2",
+    "kind": "prompt",
+    "client": "hook",
+    "agent": "codex",
+    "session_id": "session-golden-list",
+    "workspace": "duck8823/traceary",
+    "message": "prompt with hook provenance",
+    "source_hook": "user_prompt_submit",
+    "created_at": "2026-04-08T13:05:00Z"
+  }
+]

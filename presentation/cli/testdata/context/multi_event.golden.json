@@ -1,0 +1,27 @@
+{
+  "resolved_session_id": "session-golden-context",
+  "resolved_workspace": "duck8823/traceary",
+  "events": [
+    {
+      "event_id": "event-golden-context-1",
+      "kind": "session_started",
+      "client": "cli",
+      "agent": "codex",
+      "session_id": "session-golden-context",
+      "workspace": "duck8823/traceary",
+      "message": "session started",
+      "created_at": "2026-04-08T15:00:00Z"
+    },
+    {
+      "event_id": "event-golden-context-2",
+      "kind": "note",
+      "client": "cli",
+      "agent": "codex",
+      "session_id": "session-golden-context",
+      "workspace": "duck8823/traceary",
+      "message": "next: verify goldens",
+      "source_hook": "stop",
+      "created_at": "2026-04-08T15:05:00Z"
+    }
+  ]
+}
