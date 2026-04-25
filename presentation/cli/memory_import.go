@@ -69,8 +69,8 @@ func (c *RootCLI) runMemoryImportCodex(ctx context.Context, output io.Writer, wa
 	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
-	if c.memoryImport == nil {
-		return xerrors.Errorf(Localize("memory import usecase is not configured", "memory import ユースケースが設定されていません"))
+	if c.memory == nil {
+		return xerrors.Errorf(Localize("memory usecase is not configured", "memory import ユースケースが設定されていません"))
 	}
 	if err := c.initializeStore(ctx, input.dbPath); err != nil {
 		return err
@@ -94,7 +94,7 @@ func (c *RootCLI) runMemoryImportCodex(ctx context.Context, output io.Writer, wa
 		return c.watchCodexImport(ctx, output, warnWriter, apptypes.CodexImportCriteria{Root: root, WorkspaceFallback: fallback}, interval, input.asJSON)
 	}
 
-	result, err := c.memoryImport.ImportCodex(ctx, apptypes.CodexImportCriteria{
+	result, err := c.memory.ImportCodex(ctx, apptypes.CodexImportCriteria{
 		Root:              root,
 		WorkspaceFallback: fallback,
 	})
@@ -113,7 +113,7 @@ func (c *RootCLI) watchCodexImport(
 	asJSON bool,
 ) error {
 	runOnce := func() error {
-		result, err := c.memoryImport.ImportCodex(ctx, criteria)
+		result, err := c.memory.ImportCodex(ctx, criteria)
 		if err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to import codex memories", "codex memory の取り込みに失敗しました"), err)
 		}

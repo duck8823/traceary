@@ -53,8 +53,8 @@ func (c *RootCLI) runMemoryHygieneApply(ctx context.Context, output io.Writer, i
 	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
-	if c.memoryHygiene == nil {
-		return xerrors.Errorf(Localize("memory hygiene usecase is not configured", "memory hygiene ユースケースが設定されていません"))
+	if c.memory == nil {
+		return xerrors.Errorf(Localize("memory usecase is not configured", "memory hygiene ユースケースが設定されていません"))
 	}
 	ids := normaliseInboxIDs(input.ids)
 	if len(ids) == 0 {
@@ -66,7 +66,7 @@ func (c *RootCLI) runMemoryHygieneApply(ctx context.Context, output io.Writer, i
 	if err := c.initializeStore(ctx, input.dbPath); err != nil {
 		return err
 	}
-	result, err := c.memoryHygiene.Apply(ctx, apptypes.MemoryHygieneApplyCriteria{
+	result, err := c.memory.Apply(ctx, apptypes.MemoryHygieneApplyCriteria{
 		MemoryIDs:          ids,
 		StalenessThreshold: time.Duration(input.expiryDays) * 24 * time.Hour,
 	})
@@ -151,8 +151,8 @@ func (c *RootCLI) runMemoryHygieneScan(ctx context.Context, output io.Writer, in
 	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
-	if c.memoryHygiene == nil {
-		return xerrors.Errorf(Localize("memory hygiene usecase is not configured", "memory hygiene ユースケースが設定されていません"))
+	if c.memory == nil {
+		return xerrors.Errorf(Localize("memory usecase is not configured", "memory hygiene ユースケースが設定されていません"))
 	}
 	if input.expiryDays <= 0 {
 		return xerrors.Errorf(Localize("--expiry-days must be greater than 0", "--expiry-days は 0 より大きい必要があります"))
@@ -173,7 +173,7 @@ func (c *RootCLI) runMemoryHygieneScan(ctx context.Context, output io.Writer, in
 		criteria.Scopes = []domtypes.MemoryScope{scope}
 	}
 
-	result, err := c.memoryHygiene.Scan(ctx, criteria)
+	result, err := c.memory.Scan(ctx, criteria)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to scan memories for hygiene", "hygiene スキャンに失敗しました"), err)
 	}

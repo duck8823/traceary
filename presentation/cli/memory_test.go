@@ -242,8 +242,8 @@ func TestRootCLI_MemoryExtractCommand_UsesResolvedSession(t *testing.T) {
 		t.Fatalf("NewEvent() error = %v", err)
 	}
 
-	extractionStub := &memoryExtractionUsecaseStub{
-		details: []apptypes.MemoryDetails{
+	extractionStub := &memoryUsecaseStub{
+		extractDetails: []apptypes.MemoryDetails{
 			mustMemoryDetails(t, "memory-extracted-1", "Always wait for Codex review before merge", types.MemoryStatusCandidate),
 			mustMemoryDetails(t, "memory-extracted-2", "Decision: keep get_context raw", types.MemoryStatusCandidate),
 		},
@@ -253,7 +253,7 @@ func TestRootCLI_MemoryExtractCommand_UsesResolvedSession(t *testing.T) {
 	rootCmd := cli.NewRootCLI(
 		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 		cli.WithSession(&sessionUsecaseStub{activeEvent: activeEvent}),
-		cli.WithMemoryExtraction(extractionStub),
+		cli.WithMemory(extractionStub),
 	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -267,16 +267,16 @@ func TestRootCLI_MemoryExtractCommand_UsesResolvedSession(t *testing.T) {
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if got := extractionStub.criteria.SessionID().String(); got != "session-42" {
+	if got := extractionStub.extractCriteria.SessionID().String(); got != "session-42" {
 		t.Fatalf("SessionID() = %q, want session-42", got)
 	}
-	if got := extractionStub.criteria.Workspace().String(); got != "github.com/duck8823/traceary" {
+	if got := extractionStub.extractCriteria.Workspace().String(); got != "github.com/duck8823/traceary" {
 		t.Fatalf("Workspace() = %q, want github.com/duck8823/traceary", got)
 	}
-	if got := extractionStub.criteria.EventLimit(); got != 3 {
+	if got := extractionStub.extractCriteria.EventLimit(); got != 3 {
 		t.Fatalf("EventLimit() = %d, want 3", got)
 	}
-	if got := extractionStub.criteria.CandidateLimit(); got != 2 {
+	if got := extractionStub.extractCriteria.CandidateLimit(); got != 2 {
 		t.Fatalf("CandidateLimit() = %d, want 2", got)
 	}
 	if !strings.Contains(stdout.String(), "memory-extracted-1") || !strings.Contains(stdout.String(), "memory-extracted-2") {
@@ -305,12 +305,12 @@ func TestRootCLI_MemoryExtractCommand_FallsBackToLatestSession(t *testing.T) {
 	}
 
 	sessionStub := &sessionUsecaseStub{latestEvent: latestEvent}
-	extractionStub := &memoryExtractionUsecaseStub{}
+	extractionStub := &memoryUsecaseStub{}
 
 	rootCmd := cli.NewRootCLI(
 		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 		cli.WithSession(sessionStub),
-		cli.WithMemoryExtraction(extractionStub),
+		cli.WithMemory(extractionStub),
 	).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -322,10 +322,10 @@ func TestRootCLI_MemoryExtractCommand_FallsBackToLatestSession(t *testing.T) {
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if got := extractionStub.criteria.SessionID().String(); got != "session-latest" {
+	if got := extractionStub.extractCriteria.SessionID().String(); got != "session-latest" {
 		t.Fatalf("SessionID() = %q, want session-latest", got)
 	}
-	if got := extractionStub.criteria.Workspace().String(); got != "github.com/duck8823/traceary" {
+	if got := extractionStub.extractCriteria.Workspace().String(); got != "github.com/duck8823/traceary" {
 		t.Fatalf("Workspace() = %q, want github.com/duck8823/traceary", got)
 	}
 	if got := sessionStub.latestCriteria.Workspace().String(); got != "github.com/duck8823/traceary" {
@@ -341,12 +341,12 @@ func TestRootCLI_MemoryExtractCommand_ExplicitSessionIDSkipsWorkspaceFilter(t *t
 	defer cli.ResetDetectRepoContextFunc()
 
 	sessionStub := &sessionUsecaseStub{}
-	extractionStub := &memoryExtractionUsecaseStub{}
+	extractionStub := &memoryUsecaseStub{}
 
 	rootCmd := cli.NewRootCLI(
 		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 		cli.WithSession(sessionStub),
-		cli.WithMemoryExtraction(extractionStub),
+		cli.WithMemory(extractionStub),
 	).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -359,10 +359,10 @@ func TestRootCLI_MemoryExtractCommand_ExplicitSessionIDSkipsWorkspaceFilter(t *t
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if got := extractionStub.criteria.SessionID().String(); got != "session-explicit" {
+	if got := extractionStub.extractCriteria.SessionID().String(); got != "session-explicit" {
 		t.Fatalf("SessionID() = %q, want session-explicit", got)
 	}
-	if got := extractionStub.criteria.Workspace().String(); got != "" {
+	if got := extractionStub.extractCriteria.Workspace().String(); got != "" {
 		t.Fatalf("Workspace() = %q, want empty when session-id is explicit", got)
 	}
 	if sessionStub.activeCriteria.Workspace().String() != "" || sessionStub.latestCriteria.Workspace().String() != "" {
@@ -371,10 +371,10 @@ func TestRootCLI_MemoryExtractCommand_ExplicitSessionIDSkipsWorkspaceFilter(t *t
 }
 
 func TestRootCLI_MemoryExtractCommand_RequiresStoreManagement(t *testing.T) {
-	extractionStub := &memoryExtractionUsecaseStub{}
+	extractionStub := &memoryUsecaseStub{}
 
 	rootCmd := cli.NewRootCLI(
-		cli.WithMemoryExtraction(extractionStub),
+		cli.WithMemory(extractionStub),
 	).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
