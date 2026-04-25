@@ -5,6 +5,12 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+
+## [v0.10.0] - Unreleased
+
+### Breaking changes
+- **CLI JSON timestamp and duration freeze (#729)** — all CLI `--json` timestamp fields (`created_at`, `started_at`, `ended_at`, `valid_from`, `valid_to`, etc.) now serialize as UTC RFC3339Nano (`YYYY-MM-DDTHH:MM:SS[.nnnnnnnnn]Z`) before golden fixtures are recorded. `traceary session tree --json` drops `duration_ms` and keeps `duration_sec`; `traceary timeline --json` replaces the string `duration` field with numeric `duration_sec`.
+
 ## [v0.9.0] - 2026-04-25
 
 Minor release: **multi-host local memory substrate completion (pre-v1.0 stabilization)**. v0.9 closes the remaining portability + structural gaps before a v1.0 scoping discussion. New top-level CLI grouping, an additive temporal graph overlay on durable memory, encrypted cross-machine event bundles, and consolidated agent-SDK integration docs.

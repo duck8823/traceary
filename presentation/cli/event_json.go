@@ -49,7 +49,7 @@ func newEventOutput(e *model.Event) event {
 		Workspace:  e.Workspace().String(),
 		Message:    apptypes.ExtractPlainBody(e.Body()),
 		SourceHook: e.SourceHook(),
-		CreatedAt:  e.CreatedAt().UTC().Format("2006-01-02T15:04:05Z07:00"),
+		CreatedAt:  formatJSONTime(e.CreatedAt()),
 	}
 }
 

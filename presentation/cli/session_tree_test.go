@@ -217,12 +217,11 @@ func TestRootCLI_SessionTreeCommand_LineageFields(t *testing.T) {
 	}
 
 	var trees []struct {
-		SessionID       string  `json:"session_id"`
-		ParentSessionID string  `json:"parent_session_id"`
-		Depth           int     `json:"depth"`
-		DurationMs      *int64  `json:"duration_ms"`
+		SessionID       string   `json:"session_id"`
+		ParentSessionID string   `json:"parent_session_id"`
+		Depth           int      `json:"depth"`
 		DurationSec     *float64 `json:"duration_sec"`
-		SubagentType    string  `json:"subagent_type"`
+		SubagentType    string   `json:"subagent_type"`
 		Children        []struct {
 			SessionID       string `json:"session_id"`
 			ParentSessionID string `json:"parent_session_id"`
@@ -243,8 +242,11 @@ func TestRootCLI_SessionTreeCommand_LineageFields(t *testing.T) {
 	if root.ParentSessionID != "" {
 		t.Fatalf("root parent_session_id = %q, want empty", root.ParentSessionID)
 	}
-	if root.DurationMs == nil || *root.DurationMs != 90_000 {
-		t.Fatalf("root duration_ms = %v, want 90000", root.DurationMs)
+	if root.DurationSec == nil || *root.DurationSec != 90 {
+		t.Fatalf("root duration_sec = %v, want 90", root.DurationSec)
+	}
+	if strings.Contains(stdout.String(), `"duration_ms"`) {
+		t.Fatalf("JSON output should not contain duration_ms, got: %s", stdout.String())
 	}
 	if root.SubagentType != "claude" {
 		t.Fatalf("root subagent_type = %q, want claude", root.SubagentType)

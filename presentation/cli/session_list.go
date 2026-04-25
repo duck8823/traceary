@@ -159,37 +159,22 @@ func writeSessionSummaries(output io.Writer, summaries []apptypes.SessionSummary
 }
 
 func writeSessionSummariesJSON(output io.Writer, summaries []apptypes.SessionSummary) error {
-	type jsonSummary struct {
-		SessionID       string   `json:"session_id"`
-		Workspace       string   `json:"workspace,omitempty"`
-		Label           string   `json:"label,omitempty"`
-		Summary         string   `json:"summary,omitempty"`
-		ParentSessionID string   `json:"parent_session_id,omitempty"`
-		StartedAt       string   `json:"started_at"`
-		EndedAt         *string  `json:"ended_at,omitempty"`
-		Status          string   `json:"status"`
-		DurationSec     *float64 `json:"duration_sec,omitempty"`
-		TotalEvents     int      `json:"total_events"`
-		CommandCount    int      `json:"command_count"`
-		Agents          []string `json:"agents"`
-	}
-
-	items := make([]jsonSummary, 0, len(summaries))
+	items := make([]sessionSummaryOutput, 0, len(summaries))
 	for _, s := range summaries {
-		item := jsonSummary{
+		item := sessionSummaryOutput{
 			SessionID:       string(s.SessionID()),
 			Workspace:       string(s.Workspace()),
 			Label:           s.Label(),
 			Summary:         s.Summary(),
 			ParentSessionID: string(s.ParentSessionID()),
-			StartedAt:       s.StartedAt().UTC().Format(time.RFC3339),
+			StartedAt:       formatJSONTime(s.StartedAt()),
 			Status:          s.Status(),
 			TotalEvents:     s.TotalEvents(),
 			CommandCount:    s.CommandCount(),
 			Agents:          s.Agents(),
 		}
 		if endedAt, ok := s.EndedAt().Value(); ok {
-			endStr := endedAt.UTC().Format(time.RFC3339)
+			endStr := formatJSONTime(endedAt)
 			item.EndedAt = &endStr
 			dur := endedAt.Sub(s.StartedAt()).Seconds()
 			item.DurationSec = &dur

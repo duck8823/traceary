@@ -80,7 +80,7 @@ func writeMemorySummaries(output io.Writer, summaries []apptypes.MemorySummary) 
 		if _, err := fmt.Fprintf(
 			output,
 			"%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			summary.UpdatedAt().UTC().Format(time.RFC3339),
+			formatJSONTime(summary.UpdatedAt()),
 			summary.MemoryID(),
 			summary.MemoryType(),
 			formatMemoryScope(summary.Scope()),
@@ -109,10 +109,10 @@ func writeMemoryDetails(output io.Writer, details apptypes.MemoryDetails) error 
 		summary.Source(),
 		formatOptionalMemoryID(summary.Supersedes()),
 		formatOptionalTime(summary.ExpiresAt()),
-		summary.ValidFrom().UTC().Format(time.RFC3339),
+		formatJSONTime(summary.ValidFrom()),
 		formatOptionalTime(summary.ValidTo()),
-		summary.CreatedAt().UTC().Format(time.RFC3339),
-		summary.UpdatedAt().UTC().Format(time.RFC3339),
+		formatJSONTime(summary.CreatedAt()),
+		formatJSONTime(summary.UpdatedAt()),
 		summary.Fact(),
 	); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print memory fields", "durable memory 共通項目の出力に失敗しました"), err)
@@ -175,13 +175,13 @@ func newMemorySummaryOutput(summary apptypes.MemorySummary) memorySummaryOutput 
 
 	var expiresAt *string
 	if value, ok := summary.ExpiresAt().Value(); ok {
-		resolved := value.UTC().Format(time.RFC3339)
+		resolved := formatJSONTime(value)
 		expiresAt = &resolved
 	}
 
 	var validTo *string
 	if value, ok := summary.ValidTo().Value(); ok {
-		resolved := value.UTC().Format(time.RFC3339)
+		resolved := formatJSONTime(value)
 		validTo = &resolved
 	}
 
@@ -196,10 +196,10 @@ func newMemorySummaryOutput(summary apptypes.MemorySummary) memorySummaryOutput 
 		Source:     summary.Source().String(),
 		Supersedes: supersedes,
 		ExpiresAt:  expiresAt,
-		ValidFrom:  summary.ValidFrom().UTC().Format(time.RFC3339),
+		ValidFrom:  formatJSONTime(summary.ValidFrom()),
 		ValidTo:    validTo,
-		CreatedAt:  summary.CreatedAt().UTC().Format(time.RFC3339),
-		UpdatedAt:  summary.UpdatedAt().UTC().Format(time.RFC3339),
+		CreatedAt:  formatJSONTime(summary.CreatedAt()),
+		UpdatedAt:  formatJSONTime(summary.UpdatedAt()),
 	}
 }
 

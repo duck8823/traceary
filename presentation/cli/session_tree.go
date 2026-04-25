@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
@@ -16,12 +15,12 @@ import (
 
 func (c *RootCLI) newSessionTreeCommand() *cobra.Command {
 	var (
-		dbPath       string
-		repo         string
-		limit        int
-		asJSON       bool
-		rootID       string
-		ongoingOnly  bool
+		dbPath      string
+		repo        string
+		limit       int
+		asJSON      bool
+		rootID      string
+		ongoingOnly bool
 	)
 
 	cmd := &cobra.Command{
@@ -200,7 +199,7 @@ func sessionNodeToOutput(node *sessionNode, depth int) *sessionTreeNode {
 		Workspace:       string(s.Workspace()),
 		Label:           s.Label(),
 		Summary:         s.Summary(),
-		StartedAt:       s.StartedAt().UTC().Format(time.RFC3339),
+		StartedAt:       formatJSONTime(s.StartedAt()),
 		Status:          s.Status(),
 		TotalEvents:     s.TotalEvents(),
 		CommandCount:    s.CommandCount(),
@@ -209,13 +208,11 @@ func sessionNodeToOutput(node *sessionNode, depth int) *sessionTreeNode {
 		Children:        make([]*sessionTreeNode, 0, len(node.children)),
 	}
 	if endedAt, ok := s.EndedAt().Value(); ok {
-		endStr := endedAt.UTC().Format(time.RFC3339)
+		endStr := formatJSONTime(endedAt)
 		jn.EndedAt = &endStr
 		dur := endedAt.Sub(s.StartedAt())
 		secs := dur.Seconds()
-		ms := dur.Milliseconds()
 		jn.DurationSec = &secs
-		jn.DurationMs = &ms
 	}
 	for _, child := range node.children {
 		jn.Children = append(jn.Children, sessionNodeToOutput(child, depth+1))

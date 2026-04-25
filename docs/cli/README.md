@@ -100,7 +100,7 @@ Follow new events as they arrive.
 
 `tail` is the live observation view. It prints a recent backlog first and then keeps following new matching events from the local store. Use it when you want to confirm that hooks are firing, that the expected session/workspace is receiving writes, or that failures are surfacing in real time. Unlike `list`, it does not exit after one snapshot. Unlike `search`, it does not perform keyword matching. Unlike `handoff`, it stays at the raw event-stream layer rather than assembling working memory.
 
-Default text output is a compact single-line row (`HH:MM:SS  kind  agent=<agent>  sess=<first-8>  ws=<basename>  message`) that fits within ~100 columns and uses local time. Pass `--wide` for the legacy tab-separated seven-column shape, or `--utc` to force UTC timestamps in either text mode. `--wide --utc` reproduces the pre-v0.6.1 format byte-for-byte for scripts that parse it. `--json` emits newline-delimited JSON objects (one event per line) so pipelines can consume the stream incrementally; timestamps in JSON remain RFC3339 and are unaffected by `--utc`.
+Default text output is a compact single-line row (`HH:MM:SS  kind  agent=<agent>  sess=<first-8>  ws=<basename>  message`) that fits within ~100 columns and uses local time. Pass `--wide` for the legacy tab-separated seven-column shape, or `--utc` to force UTC timestamps in either text mode. `--wide --utc` reproduces the pre-v0.6.1 format byte-for-byte for scripts that parse it. `--json` emits newline-delimited JSON objects (one event per line) so pipelines can consume the stream incrementally; timestamps in JSON are UTC RFC3339Nano and are unaffected by `--utc`.
 
 > The compact session ID (`sess=<first-8>`) is intended for human scanning only. For machine processing, use `--wide --utc` or `--json`.
 
@@ -151,7 +151,7 @@ Useful flags:
 
 Show work timeline with gap-based block detection and per-workspace activity summaries.
 
-`timeline` groups recent events into contiguous work blocks separated by idle gaps (default: 15 minutes) and prints one aligned sub-row per workspace inside each block. The per-workspace activity summary is picked using the fallback chain **`compact_summary` → first `prompt` → kind counts**, so whichever signal exists for that workspace in the block lights up the line. Default text output uses local time; pass `--utc` for UTC. `--json` extends the block schema with a `workspace_breakdown` array (`{workspace, event_count, kind_counts, agents, summary, summary_source}`) — existing consumers keep working unchanged.
+`timeline` groups recent events into contiguous work blocks separated by idle gaps (default: 15 minutes) and prints one aligned sub-row per workspace inside each block. The per-workspace activity summary is picked using the fallback chain **`compact_summary` → first `prompt` → kind counts**, so whichever signal exists for that workspace in the block lights up the line. Default text output uses local time; pass `--utc` for UTC. `--json` emits UTC RFC3339Nano `start` / `end` timestamps, numeric `duration_sec`, and a `workspace_breakdown` array (`{workspace, event_count, kind_counts, agents, summary, summary_source}`).
 
 Useful flags:
 
@@ -497,7 +497,7 @@ Useful flags:
 
 ### `traceary session tree`
 
-Render the parent → child → grandchild lineage for every loaded session. Each row shows the session id, status, most specific subagent role (for example `claude/Explore` for Claude Code subagents), workspace, duration, and an `N cmds/M events` breakdown. The JSON surface adds `parent_session_id`, `depth`, `duration_ms`, and `subagent_type` to every node so external tooling can reason about lineage without replaying the text format.
+Render the parent → child → grandchild lineage for every loaded session. Each row shows the session id, status, most specific subagent role (for example `claude/Explore` for Claude Code subagents), workspace, duration, and an `N cmds/M events` breakdown. The JSON surface adds `parent_session_id`, `depth`, numeric `duration_sec`, and `subagent_type` to every node so external tooling can reason about lineage without replaying the text format.
 
 Useful flags:
 
