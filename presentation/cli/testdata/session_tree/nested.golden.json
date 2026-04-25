@@ -1,0 +1,58 @@
+[
+  {
+    "session_id": "session-tree-root",
+    "depth": 0,
+    "workspace": "duck8823/traceary",
+    "label": "sprint",
+    "summary": "Coordinate the implementation session.",
+    "started_at": "2026-04-10T12:00:00Z",
+    "ended_at": "2026-04-10T13:30:00Z",
+    "status": "ended",
+    "duration_sec": 5400,
+    "total_events": 21,
+    "command_count": 10,
+    "agents": [
+      "claude"
+    ],
+    "subagent_type": "claude",
+    "children": [
+      {
+        "session_id": "session-tree-child",
+        "parent_session_id": "session-tree-root",
+        "depth": 1,
+        "workspace": "duck8823/traceary",
+        "label": "research",
+        "summary": "Explore existing session command tests.",
+        "started_at": "2026-04-10T12:10:00Z",
+        "status": "active",
+        "total_events": 7,
+        "command_count": 5,
+        "agents": [
+          "claude/explore"
+        ],
+        "subagent_type": "claude/explore",
+        "children": [
+          {
+            "session_id": "session-tree-grandchild",
+            "parent_session_id": "session-tree-child",
+            "depth": 2,
+            "workspace": "duck8823/traceary",
+            "label": "verification",
+            "summary": "Verify generated fixtures.",
+            "started_at": "2026-04-10T12:20:00Z",
+            "ended_at": "2026-04-10T12:35:00Z",
+            "status": "ended",
+            "duration_sec": 900,
+            "total_events": 3,
+            "command_count": 1,
+            "agents": [
+              "codex/qa"
+            ],
+            "subagent_type": "codex/qa",
+            "children": []
+          }
+        ]
+      }
+    ]
+  }
+]

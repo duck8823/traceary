@@ -1,0 +1,31 @@
+[
+  {
+    "session_id": "session-list-active",
+    "workspace": "duck8823/traceary",
+    "label": "implementation",
+    "summary": "Record active session list output.",
+    "parent_session_id": "parent-session-list",
+    "started_at": "2026-04-09T12:00:00Z",
+    "status": "active",
+    "total_events": 9,
+    "command_count": 4,
+    "agents": [
+      "codex"
+    ]
+  },
+  {
+    "session_id": "session-list-ended",
+    "workspace": "duck8823/traceary",
+    "label": "review",
+    "summary": "Review existing session list behavior.",
+    "started_at": "2026-04-09T10:00:00Z",
+    "ended_at": "2026-04-09T11:30:00Z",
+    "status": "ended",
+    "duration_sec": 5400,
+    "total_events": 18,
+    "command_count": 12,
+    "agents": [
+      "claude"
+    ]
+  }
+]
