@@ -80,7 +80,7 @@ func writeMemorySummaries(output io.Writer, summaries []apptypes.MemorySummary) 
 		if _, err := fmt.Fprintf(
 			output,
 			"%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			formatJSONTime(summary.UpdatedAt()),
+			formatTextTime(summary.UpdatedAt()),
 			summary.MemoryID(),
 			summary.MemoryType(),
 			formatMemoryScope(summary.Scope()),
@@ -109,10 +109,10 @@ func writeMemoryDetails(output io.Writer, details apptypes.MemoryDetails) error 
 		summary.Source(),
 		formatOptionalMemoryID(summary.Supersedes()),
 		formatOptionalTime(summary.ExpiresAt()),
-		formatJSONTime(summary.ValidFrom()),
+		formatTextTime(summary.ValidFrom()),
 		formatOptionalTime(summary.ValidTo()),
-		formatJSONTime(summary.CreatedAt()),
-		formatJSONTime(summary.UpdatedAt()),
+		formatTextTime(summary.CreatedAt()),
+		formatTextTime(summary.UpdatedAt()),
 		summary.Fact(),
 	); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print memory fields", "durable memory 共通項目の出力に失敗しました"), err)
@@ -235,6 +235,10 @@ func formatOptionalMemoryID(value domtypes.Optional[domtypes.MemoryID]) string {
 	}
 
 	return "-"
+}
+
+func formatTextTime(value time.Time) string {
+	return value.UTC().Format(time.RFC3339)
 }
 
 func formatOptionalTime(value domtypes.Optional[time.Time]) string {
