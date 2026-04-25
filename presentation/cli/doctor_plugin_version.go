@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/duck8823/traceary/application/marketplace"
@@ -16,6 +17,8 @@ type doctorPluginInstall struct {
 	InstalledVersion string
 	UpdateHint       string
 }
+
+var doctorVersionPrefixPattern = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+){0,2}(?:[-+][0-9A-Za-z.-]+)?`)
 
 func (c *RootCLI) inspectPluginVersionChecks(currentVersion string) []doctorCheck {
 	checks := []doctorCheck{}
@@ -98,5 +101,15 @@ func inspectPluginVersion(install doctorPluginInstall, currentVersion string) do
 }
 
 func normalizeDoctorVersion(version string) string {
-	return strings.TrimPrefix(strings.TrimSpace(version), "v")
+	version = strings.TrimPrefix(strings.TrimSpace(version), "v")
+	if version == "" {
+		return ""
+	}
+	if match := doctorVersionPrefixPattern.FindString(version); match != "" {
+		return match
+	}
+	if index := strings.IndexAny(version, " \t\r\n("); index >= 0 {
+		return version[:index]
+	}
+	return version
 }

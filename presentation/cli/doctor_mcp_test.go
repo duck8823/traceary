@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -42,4 +43,28 @@ func TestInspectMCPRegistration(t *testing.T) {
 			t.Fatalf("FixCommand is empty")
 		}
 	})
+	t.Run("json config read errors fail instead of falling through", func(t *testing.T) {
+		dir := t.TempDir()
+		unreadable := filepath.Join(dir, "settings.json")
+		readable := filepath.Join(dir, "fallback.json")
+		if err := os.WriteFile(unreadable, []byte(`{"mcpServers":{"traceary":{"command":"traceary","args":["mcp-server"]}}}`), 0o644); err != nil {
+			t.Fatalf("WriteFile(unreadable) error = %v", err)
+		}
+		if err := os.Chmod(unreadable, 0o000); err != nil {
+			t.Fatalf("Chmod() error = %v", err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(unreadable, 0o644) })
+		if err := os.WriteFile(readable, []byte(`{"mcpServers":{"traceary":{"command":"traceary","args":["mcp-server"]}}}`), 0o644); err != nil {
+			t.Fatalf("WriteFile(readable) error = %v", err)
+		}
+
+		got := inspectJSONMCPRegistration("claude-mcp", "claude", []string{unreadable, readable}, "traceary mcp-server")
+		if got.Status != doctorStatusFail {
+			t.Fatalf("status = %q, want fail; msg=%q", got.Status, got.Message)
+		}
+		if !strings.Contains(got.Message, "failed to read claude MCP config") || !strings.Contains(got.Message, unreadable) {
+			t.Fatalf("message should include read failure and path, got %q", got.Message)
+		}
+	})
+
 }

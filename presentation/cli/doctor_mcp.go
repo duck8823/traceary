@@ -50,7 +50,10 @@ func inspectJSONMCPRegistration(name, client string, paths []string, fix string)
 	for _, path := range uniqueNonEmpty(paths) {
 		content, err := os.ReadFile(path)
 		if err != nil {
-			continue
+			if os.IsNotExist(err) {
+				continue
+			}
+			return doctorCheck{Name: name, Status: doctorStatusFail, Message: localizef("failed to read %s MCP config: %v", "%s MCP config の読み込みに失敗しました: %v", client, err)}
 		}
 		seenConfig = true
 		var root struct {

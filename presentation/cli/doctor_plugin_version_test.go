@@ -25,3 +25,49 @@ func TestInspectPluginVersion(t *testing.T) {
 		t.Fatalf("message should include both versions, got %q", got.Message)
 	}
 }
+
+func TestInspectPluginVersionNormalizesBuildMetadata(t *testing.T) {
+	tests := map[string]struct {
+		manifestVersion string
+		runningVersion  string
+	}{
+		"running version has build details": {
+			manifestVersion: "0.9.0",
+			runningVersion:  "0.9.0 (commit=abc, date=2026, go=1.24)",
+		},
+		"manifest version has build details": {
+			manifestVersion: "v0.9.0 (commit=abc)",
+			runningVersion:  "0.9.0",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			manifest := filepath.Join(t.TempDir(), "plugin.json")
+			content := []byte(`{"name":"traceary","version":"` + tt.manifestVersion + `"}`)
+			if err := os.WriteFile(manifest, content, 0o644); err != nil {
+				t.Fatalf("WriteFile() error = %v", err)
+			}
+			install := doctorPluginInstall{Client: "codex", ManifestPath: manifest, UpdateHint: "reinstall plugin to align"}
+
+			got := inspectPluginVersion(install, tt.runningVersion)
+			if got.Status != doctorStatusPass {
+				t.Fatalf("status = %q, want pass; msg=%q", got.Status, got.Message)
+			}
+		})
+	}
+}
+
+func TestNormalizeDoctorVersion(t *testing.T) {
+	tests := map[string]string{
+		"0.9.0 (commit=abc, date=2026, go=1.24)": "0.9.0",
+		"v0.9.0 (commit=abc)":                    "0.9.0",
+		" 0.9.0\n":                               "0.9.0",
+		"dev (local)":                            "dev",
+	}
+	for input, want := range tests {
+		if got := normalizeDoctorVersion(input); got != want {
+			t.Fatalf("normalizeDoctorVersion(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
