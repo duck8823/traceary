@@ -149,6 +149,15 @@ func insertSessionRowIfMissing(ctx context.Context, exec sqlExecer, session *mod
 		v := session.ParentSessionID().String()
 		parentSessionID = &v
 	}
+	var spawnEventID *string
+	if session.SpawnEventID().String() != "" {
+		v := session.SpawnEventID().String()
+		spawnEventID = &v
+	}
+	var spawnOrder *int
+	if value, ok := session.SpawnOrder().Value(); ok {
+		spawnOrder = &value
+	}
 	result, err := exec.ExecContext(
 		ctx,
 		insertSessionQuery,
@@ -158,6 +167,9 @@ func insertSessionRowIfMissing(ctx context.Context, exec sqlExecer, session *mod
 		session.Agent().String(),
 		session.Workspace().String(),
 		parentSessionID,
+		spawnEventID,
+		session.SubagentKind(),
+		spawnOrder,
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "FOREIGN KEY constraint failed") && session.ParentSessionID().String() != "" {
@@ -258,6 +270,9 @@ func (d *SessionDatasource) FindByID(ctx context.Context, sessionID types.Sessio
 		labelValue           string
 		summaryValue         string
 		parentSessionIDValue string
+		spawnEventIDValue    string
+		subagentKindValue    string
+		spawnOrderValue      sql.NullInt64
 	)
 
 	if err := row.Scan(
@@ -270,6 +285,9 @@ func (d *SessionDatasource) FindByID(ctx context.Context, sessionID types.Sessio
 		&labelValue,
 		&summaryValue,
 		&parentSessionIDValue,
+		&spawnEventIDValue,
+		&subagentKindValue,
+		&spawnOrderValue,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return types.None[*model.Session](), nil
@@ -309,6 +327,9 @@ func (d *SessionDatasource) FindByID(ctx context.Context, sessionID types.Sessio
 		labelValue,
 		summaryValue,
 		types.SessionID(parentSessionIDValue),
+		types.EventID(spawnEventIDValue),
+		subagentKindValue,
+		optionalIntFromNullInt64(spawnOrderValue),
 	)), nil
 }
 
@@ -434,6 +455,9 @@ func scanSessionSummary(row interface {
 		label           string
 		summary         string
 		parentSessionID string
+		spawnEventID    string
+		subagentKind    string
+		spawnOrder      sql.NullInt64
 	)
 
 	if err := row.Scan(
@@ -447,6 +471,9 @@ func scanSessionSummary(row interface {
 		&label,
 		&summary,
 		&parentSessionID,
+		&spawnEventID,
+		&subagentKind,
+		&spawnOrder,
 	); err != nil {
 		return apptypes.SessionSummary{}, xerrors.Errorf("failed to scan session summary: %w", err)
 	}
@@ -486,5 +513,15 @@ func scanSessionSummary(row interface {
 		label,
 		summary,
 		types.SessionID(parentSessionID),
+		types.EventID(spawnEventID),
+		subagentKind,
+		optionalIntFromNullInt64(spawnOrder),
 	), nil
+}
+
+func optionalIntFromNullInt64(value sql.NullInt64) types.Optional[int] {
+	if !value.Valid {
+		return types.None[int]()
+	}
+	return types.Some(int(value.Int64))
 }

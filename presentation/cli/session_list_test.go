@@ -117,6 +117,9 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 					"release",
 					"Prepare release notes",
 					types.SessionID("root-session"),
+					types.EventID("spawn-event"),
+					"worker",
+					types.Some(2),
 				),
 			},
 		}
@@ -147,6 +150,15 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		}
 		if !strings.Contains(output, `"parent_session_id": "root-session"`) {
 			t.Fatalf("JSON output should contain parent_session_id, got: %s", output)
+		}
+		if !strings.Contains(output, `"spawn_event_id": "spawn-event"`) {
+			t.Fatalf("JSON output should contain spawn_event_id, got: %s", output)
+		}
+		if !strings.Contains(output, `"subagent_kind": "worker"`) {
+			t.Fatalf("JSON output should contain subagent_kind, got: %s", output)
+		}
+		if !strings.Contains(output, `"spawn_order": 2`) {
+			t.Fatalf("JSON output should contain spawn_order, got: %s", output)
 		}
 	})
 

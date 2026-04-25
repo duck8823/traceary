@@ -195,6 +195,8 @@ func sessionNodeToOutput(node *sessionNode, depth int) *sessionTreeNode {
 	jn := &sessionTreeNode{
 		SessionID:       string(s.SessionID()),
 		ParentSessionID: s.ParentSessionID().String(),
+		SpawnEventID:    s.SpawnEventID().String(),
+		SubagentKind:    s.SubagentKind(),
 		Depth:           depth,
 		Workspace:       string(s.Workspace()),
 		Label:           s.Label(),
@@ -206,6 +208,9 @@ func sessionNodeToOutput(node *sessionNode, depth int) *sessionTreeNode {
 		Agents:          s.Agents(),
 		SubagentType:    extractSubagentType(s.Agents()),
 		Children:        make([]*sessionTreeNode, 0, len(node.children)),
+	}
+	if spawnOrder, ok := s.SpawnOrder().Value(); ok {
+		jn.SpawnOrder = &spawnOrder
 	}
 	if endedAt, ok := s.EndedAt().Value(); ok {
 		endStr := formatJSONTime(endedAt)

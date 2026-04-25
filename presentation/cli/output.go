@@ -42,6 +42,9 @@ type contextOutput struct {
 type sessionTreeNode struct {
 	SessionID       string             `json:"session_id"`
 	ParentSessionID string             `json:"parent_session_id,omitempty"`
+	SpawnEventID    string             `json:"spawn_event_id,omitempty"`
+	SubagentKind    string             `json:"subagent_kind,omitempty"`
+	SpawnOrder      *int               `json:"spawn_order,omitempty"`
 	Depth           int                `json:"depth"`
 	Workspace       string             `json:"workspace,omitempty"`
 	Label           string             `json:"label,omitempty"`
@@ -89,6 +92,9 @@ type sessionSummaryOutput struct {
 	Label           string   `json:"label,omitempty"`
 	Summary         string   `json:"summary,omitempty"`
 	ParentSessionID string   `json:"parent_session_id,omitempty"`
+	SpawnEventID    string   `json:"spawn_event_id,omitempty"`
+	SubagentKind    string   `json:"subagent_kind,omitempty"`
+	SpawnOrder      *int     `json:"spawn_order,omitempty"`
 	StartedAt       string   `json:"started_at"`
 	EndedAt         *string  `json:"ended_at,omitempty"`
 	Status          string   `json:"status"`

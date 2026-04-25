@@ -8,7 +8,10 @@ SELECT
   COALESCE(agg.agents, '') AS agents,
   s.label,
   s.summary,
-  COALESCE(s.parent_session_id, '') AS parent_session_id
+  COALESCE(s.parent_session_id, '') AS parent_session_id,
+  COALESCE(s.spawn_event_id, '') AS spawn_event_id,
+  s.subagent_kind,
+  s.spawn_order
 FROM sessions s
 LEFT JOIN (
   SELECT
