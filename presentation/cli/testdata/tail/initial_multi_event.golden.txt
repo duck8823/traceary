@@ -1,0 +1,2 @@
+{"event_id":"event-golden-tail-1","kind":"note","client":"cli","agent":"codex","session_id":"session-golden-tail","workspace":"duck8823/traceary","message":"tail initial older","created_at":"2026-04-08T16:00:00Z"}
+{"event_id":"event-golden-tail-2","kind":"prompt","client":"hook","agent":"codex","session_id":"session-golden-tail","workspace":"duck8823/traceary","message":"tail initial newer","source_hook":"user_prompt_submit","created_at":"2026-04-08T16:05:00Z"}
