@@ -34,6 +34,7 @@ type Memory struct {
 	validTo      types.Optional[time.Time]
 	createdAt    time.Time
 	updatedAt    time.Time
+	clock        types.Clock
 }
 
 // NewMemoryCandidate creates a candidate memory.
@@ -47,7 +48,22 @@ func NewMemoryCandidate(
 	artifactRefs []types.ArtifactRef,
 	supersedes types.Optional[types.MemoryID],
 ) (*Memory, error) {
-	return newMemory(memoryID, memoryType, scope, fact, types.MemoryStatusCandidate, types.ConfidenceLow, source, evidenceRefs, artifactRefs, supersedes, types.None[time.Time]())
+	return NewMemoryCandidateWithClock(memoryID, memoryType, scope, fact, source, evidenceRefs, artifactRefs, supersedes, types.SystemClock{})
+}
+
+// NewMemoryCandidateWithClock creates a candidate memory using the provided clock.
+func NewMemoryCandidateWithClock(
+	memoryID types.MemoryID,
+	memoryType types.MemoryType,
+	scope types.MemoryScope,
+	fact string,
+	source types.MemorySource,
+	evidenceRefs []types.EvidenceRef,
+	artifactRefs []types.ArtifactRef,
+	supersedes types.Optional[types.MemoryID],
+	clock types.Clock,
+) (*Memory, error) {
+	return newMemory(memoryID, memoryType, scope, fact, types.MemoryStatusCandidate, types.ConfidenceLow, source, evidenceRefs, artifactRefs, supersedes, types.None[time.Time](), clock)
 }
 
 // NewAcceptedMemory creates an accepted memory with the default
@@ -64,6 +80,22 @@ func NewAcceptedMemory(
 	supersedes types.Optional[types.MemoryID],
 ) (*Memory, error) {
 	return NewAcceptedMemoryWithValidity(memoryID, memoryType, scope, fact, confidence, source, evidenceRefs, artifactRefs, supersedes, types.None[time.Time](), types.None[time.Time]())
+}
+
+// NewAcceptedMemoryWithClock creates an accepted memory using the provided clock.
+func NewAcceptedMemoryWithClock(
+	memoryID types.MemoryID,
+	memoryType types.MemoryType,
+	scope types.MemoryScope,
+	fact string,
+	confidence types.Confidence,
+	source types.MemorySource,
+	evidenceRefs []types.EvidenceRef,
+	artifactRefs []types.ArtifactRef,
+	supersedes types.Optional[types.MemoryID],
+	clock types.Clock,
+) (*Memory, error) {
+	return NewAcceptedMemoryWithValidityAndClock(memoryID, memoryType, scope, fact, confidence, source, evidenceRefs, artifactRefs, supersedes, types.None[time.Time](), types.None[time.Time](), clock)
 }
 
 // NewAcceptedMemoryWithValidity creates an accepted memory with an
@@ -86,7 +118,25 @@ func NewAcceptedMemoryWithValidity(
 	validFrom types.Optional[time.Time],
 	validTo types.Optional[time.Time],
 ) (*Memory, error) {
-	memory, err := newMemory(memoryID, memoryType, scope, fact, types.MemoryStatusAccepted, confidence, source, evidenceRefs, artifactRefs, supersedes, types.None[time.Time]())
+	return NewAcceptedMemoryWithValidityAndClock(memoryID, memoryType, scope, fact, confidence, source, evidenceRefs, artifactRefs, supersedes, validFrom, validTo, types.SystemClock{})
+}
+
+// NewAcceptedMemoryWithValidityAndClock creates an accepted memory with an explicit validity window using the provided clock.
+func NewAcceptedMemoryWithValidityAndClock(
+	memoryID types.MemoryID,
+	memoryType types.MemoryType,
+	scope types.MemoryScope,
+	fact string,
+	confidence types.Confidence,
+	source types.MemorySource,
+	evidenceRefs []types.EvidenceRef,
+	artifactRefs []types.ArtifactRef,
+	supersedes types.Optional[types.MemoryID],
+	validFrom types.Optional[time.Time],
+	validTo types.Optional[time.Time],
+	clock types.Clock,
+) (*Memory, error) {
+	memory, err := newMemory(memoryID, memoryType, scope, fact, types.MemoryStatusAccepted, confidence, source, evidenceRefs, artifactRefs, supersedes, types.None[time.Time](), clock)
 	if err != nil {
 		return nil, err
 	}
@@ -109,6 +159,7 @@ func newMemory(
 	artifactRefs []types.ArtifactRef,
 	supersedes types.Optional[types.MemoryID],
 	expiresAt types.Optional[time.Time],
+	clock types.Clock,
 ) (*Memory, error) {
 	trimmedFact := strings.TrimSpace(fact)
 	if trimmedFact == "" {
@@ -118,7 +169,8 @@ func newMemory(
 		return nil, xerrors.Errorf("memory scope must not be nil")
 	}
 
-	now := nowFunc()
+	clock = clockOrSystem(clock)
+	now := clock.Now()
 	return &Memory{
 		memoryID:     memoryID,
 		memoryType:   memoryType,
@@ -135,6 +187,7 @@ func newMemory(
 		validTo:      types.None[time.Time](),
 		createdAt:    now,
 		updatedAt:    now,
+		clock:        clock,
 	}, nil
 }
 
@@ -175,6 +228,7 @@ func MemoryOf(
 		validTo:      validTo,
 		createdAt:    createdAt,
 		updatedAt:    updatedAt,
+		clock:        types.SystemClock{},
 	}
 }
 
@@ -235,7 +289,7 @@ func (m *Memory) SetValidity(validFrom types.Optional[time.Time], validTo types.
 		m.validFrom = from
 	}
 	m.validTo = validTo
-	m.updatedAt = nowFunc()
+	m.updatedAt = m.now()
 }
 
 // CreatedAt returns when the memory was created.
@@ -251,7 +305,7 @@ func (m *Memory) Accept(confidence types.Confidence) error {
 	}
 	m.status = types.MemoryStatusAccepted
 	m.confidence = confidence
-	m.updatedAt = nowFunc()
+	m.updatedAt = m.now()
 	return nil
 }
 
@@ -261,7 +315,7 @@ func (m *Memory) Reject() error {
 		return ErrInvalidMemoryState
 	}
 	m.status = types.MemoryStatusRejected
-	m.updatedAt = nowFunc()
+	m.updatedAt = m.now()
 	return nil
 }
 
@@ -271,7 +325,7 @@ func (m *Memory) MarkSuperseded() error {
 		return ErrInvalidMemoryState
 	}
 	m.status = types.MemoryStatusSuperseded
-	m.updatedAt = nowFunc()
+	m.updatedAt = m.now()
 	return nil
 }
 
@@ -282,6 +336,17 @@ func (m *Memory) Expire(expiresAt time.Time) error {
 	}
 	m.status = types.MemoryStatusExpired
 	m.expiresAt = types.Some(expiresAt)
-	m.updatedAt = nowFunc()
+	m.updatedAt = m.now()
 	return nil
+}
+
+func (m *Memory) now() time.Time {
+	return clockOrSystem(m.clock).Now()
+}
+
+func clockOrSystem(clock types.Clock) types.Clock {
+	if clock == nil {
+		return types.SystemClock{}
+	}
+	return clock
 }

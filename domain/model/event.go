@@ -9,8 +9,6 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-var nowFunc = time.Now
-
 // Event is the smallest recorded unit in Traceary history.
 type Event struct {
 	eventID    types.EventID
@@ -34,6 +32,20 @@ func NewEvent(
 	workspace types.Workspace,
 	body string,
 ) (*Event, error) {
+	return NewEventWithClock(eventID, kind, client, agent, sessionID, workspace, body, types.SystemClock{})
+}
+
+// NewEventWithClock creates a new Event using the provided clock.
+func NewEventWithClock(
+	eventID types.EventID,
+	kind types.EventKind,
+	client types.Client,
+	agent types.Agent,
+	sessionID types.SessionID,
+	workspace types.Workspace,
+	body string,
+	clock types.Clock,
+) (*Event, error) {
 	trimmedBody := strings.TrimSpace(body)
 	if trimmedBody == "" {
 		return nil, xerrors.Errorf("event body must not be empty")
@@ -46,7 +58,7 @@ func NewEvent(
 		sessionID: sessionID,
 		workspace: workspace,
 		body:      trimmedBody,
-		createdAt: nowFunc(),
+		createdAt: clockOrSystem(clock).Now(),
 	}, nil
 }
 

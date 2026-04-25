@@ -12,14 +12,13 @@ import (
 )
 
 func TestNewMemoryCandidate(t *testing.T) {
-	now := time.Date(2026, 4, 13, 9, 0, 0, 0, time.UTC)
-	model.SetNowFunc(func() time.Time { return now })
-	defer model.ResetNowFunc()
+	t.Parallel()
 
+	now := time.Date(2026, 4, 13, 9, 0, 0, 0, time.UTC)
 	memoryID, _ := types.MemoryIDFrom("mem-1")
 	evidence, _ := types.EvidenceRefFrom(types.EvidenceRefKindEvent, "event-1")
 	artifact, _ := types.ArtifactRefFrom(types.ArtifactRefKindURL, "https://example.com/docs")
-	memory, err := model.NewMemoryCandidate(
+	memory, err := model.NewMemoryCandidateWithClock(
 		memoryID,
 		types.MemoryTypeDecision,
 		types.WorkspaceScopeOf(types.Workspace("github.com/duck8823/traceary")),
@@ -28,6 +27,7 @@ func TestNewMemoryCandidate(t *testing.T) {
 		[]types.EvidenceRef{evidence},
 		[]types.ArtifactRef{artifact},
 		types.None[types.MemoryID](),
+		fakeClock{now: now},
 	)
 	if err != nil {
 		t.Fatalf("NewMemoryCandidate() error = %v", err)

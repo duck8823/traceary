@@ -9,10 +9,9 @@ import (
 )
 
 func TestNewEvent(t *testing.T) {
-	fixedTime := time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC)
-	model.SetNowFunc(func() time.Time { return fixedTime })
-	defer model.ResetNowFunc()
+	t.Parallel()
 
+	fixedTime := time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC)
 	eventID, err := types.EventIDFrom("event-1")
 	if err != nil {
 		t.Fatalf("EventIDFrom() error = %v", err)
@@ -49,7 +48,7 @@ func TestNewEvent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := model.NewEvent(
+			got, err := model.NewEventWithClock(
 				eventID,
 				types.EventKindNote,
 				types.Client("cli"),
@@ -57,6 +56,7 @@ func TestNewEvent(t *testing.T) {
 				sessionID,
 				types.Workspace("duck8823/traceary"),
 				tt.body,
+				fakeClock{now: fixedTime},
 			)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("NewEvent() error = %v, wantErr %v", err, tt.wantErr)
