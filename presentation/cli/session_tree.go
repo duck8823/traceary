@@ -216,6 +216,9 @@ func keepOngoingLineages(roots []*sessionNode) []*sessionNode {
 }
 
 func pruneEndedLineages(node *sessionNode) bool {
+	if isSessionActive(node.summary) {
+		return true
+	}
 	keptChildren := node.children[:0]
 	for _, child := range node.children {
 		if pruneEndedLineages(child) {
@@ -223,9 +226,6 @@ func pruneEndedLineages(node *sessionNode) bool {
 		}
 	}
 	node.children = keptChildren
-	if isSessionActive(node.summary) {
-		return true
-	}
 	return len(node.children) > 0
 }
 
