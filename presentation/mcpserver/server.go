@@ -107,8 +107,8 @@ func (s *Server) Build(ctx context.Context) (*mcp.Server, error) {
 	}, s.queryMemory())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "manage_session",
-		Description: "Dispatch session lifecycle writes by action: start or end.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
+		Description: "Dispatch session lifecycle writes by action: start or end. action=end is destructive (closes the session).",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true)},
 	}, s.manageSession())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "session_status",
