@@ -2,6 +2,7 @@ package mcpserver_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -20,7 +21,7 @@ import (
 func TestServer_BuildAndTools(t *testing.T) {
 	t.Parallel()
 
-	server := newTestServer(t)
+	server, dbPath := newTestServerWithDBPath(t)
 	ctx := context.Background()
 	mcpServer, err := server.Build(ctx)
 	if err != nil {
@@ -224,6 +225,210 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 		if diff := cmp.Diff("session_ended", extractJSONStringValue(t, endResult, "kind")); diff != "" {
 			t.Fatalf("end kind mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("session_status tree returns subtree rooted at session_id", func(t *testing.T) {
+		startSession := func(sessionID, parentSessionID, agent string) {
+			t.Helper()
+			args := map[string]any{
+				"action":     "start",
+				"session_id": sessionID,
+				"agent":      agent,
+				"workspace":  "github.com/duck8823/traceary",
+			}
+			if parentSessionID != "" {
+				args["parent_session_id"] = parentSessionID
+			}
+			result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+				Name:      "manage_session",
+				Arguments: args,
+			})
+			if err != nil {
+				t.Fatalf("CallTool(manage_session start %s) error = %v", sessionID, err)
+			}
+			if result.IsError {
+				t.Fatalf("CallTool(manage_session start %s) returned tool error", sessionID)
+			}
+		}
+
+		startSession("tree-root", "", "codex")
+		startSession("tree-child-a", "tree-root", "codex/explorer")
+		startSession("tree-child-b", "tree-root", "codex/worker")
+		startSession("tree-grandchild", "tree-child-a", "codex/reviewer")
+
+		treeResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "session_status",
+			Arguments: map[string]any{
+				"action":     "tree",
+				"session_id": "tree-root",
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(session_status tree) error = %v", err)
+		}
+		if treeResult.IsError {
+			t.Fatalf("CallTool(session_status tree) returned tool error")
+		}
+
+		roots := decodeJSONArrayPayload(t, treeResult)
+		if len(roots) != 1 {
+			t.Fatalf("tree roots len = %d, want 1", len(roots))
+		}
+		root, ok := roots[0].(map[string]any)
+		if !ok {
+			t.Fatalf("root type = %T, want map[string]any", roots[0])
+		}
+		if diff := cmp.Diff("tree-root", root["session_id"]); diff != "" {
+			t.Fatalf("root session_id mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(float64(0), root["depth"]); diff != "" {
+			t.Fatalf("root depth mismatch (-want +got):\n%s", diff)
+		}
+
+		children, ok := root["children"].([]any)
+		if !ok || len(children) != 2 {
+			t.Fatalf("root children = %T len=%d, want 2", root["children"], len(children))
+		}
+		childrenByID := map[string]map[string]any{}
+		for _, childValue := range children {
+			child, ok := childValue.(map[string]any)
+			if !ok {
+				t.Fatalf("child type = %T, want map[string]any", childValue)
+			}
+			childrenByID[child["session_id"].(string)] = child
+			if diff := cmp.Diff("tree-root", child["parent_session_id"]); diff != "" {
+				t.Fatalf("child parent_session_id mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(float64(1), child["depth"]); diff != "" {
+				t.Fatalf("child depth mismatch (-want +got):\n%s", diff)
+			}
+		}
+		childA := childrenByID["tree-child-a"]
+		if childA == nil {
+			t.Fatalf("tree-child-a missing from children: %#v", childrenByID)
+		}
+		grandchildren, ok := childA["children"].([]any)
+		if !ok || len(grandchildren) != 1 {
+			t.Fatalf("tree-child-a children = %T len=%d, want 1", childA["children"], len(grandchildren))
+		}
+		grandchild := grandchildren[0].(map[string]any)
+		if diff := cmp.Diff("tree-grandchild", grandchild["session_id"]); diff != "" {
+			t.Fatalf("grandchild session_id mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(float64(2), grandchild["depth"]); diff != "" {
+			t.Fatalf("grandchild depth mismatch (-want +got):\n%s", diff)
+		}
+
+		depthResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "session_status",
+			Arguments: map[string]any{
+				"action":     "tree",
+				"session_id": "tree-root",
+				"depth":      1,
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(session_status tree depth) error = %v", err)
+		}
+		if depthResult.IsError {
+			t.Fatalf("CallTool(session_status tree depth) returned tool error")
+		}
+		depthRoots := decodeJSONArrayPayload(t, depthResult)
+		depthRoot := depthRoots[0].(map[string]any)
+		for _, childValue := range depthRoot["children"].([]any) {
+			child := childValue.(map[string]any)
+			if grandchildren := child["children"].([]any); len(grandchildren) != 0 {
+				t.Fatalf("depth-limited child %s has %d grandchildren, want 0", child["session_id"], len(grandchildren))
+			}
+		}
+
+		missingIDResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "session_status",
+			Arguments: map[string]any{
+				"action": "tree",
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(session_status tree missing id) protocol error = %v", err)
+		}
+		if !missingIDResult.IsError {
+			t.Fatalf("CallTool(session_status tree missing id) IsError = false, want true")
+		}
+	})
+
+	t.Run("session_status tree handles stored cyclic parent links", func(t *testing.T) {
+		startSession := func(sessionID, parentSessionID string) {
+			t.Helper()
+			args := map[string]any{
+				"action":     "start",
+				"session_id": sessionID,
+				"agent":      "codex",
+				"workspace":  "github.com/duck8823/traceary",
+			}
+			if parentSessionID != "" {
+				args["parent_session_id"] = parentSessionID
+			}
+			result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+				Name:      "manage_session",
+				Arguments: args,
+			})
+			if err != nil {
+				t.Fatalf("CallTool(manage_session start %s) error = %v", sessionID, err)
+			}
+			if result.IsError {
+				t.Fatalf("CallTool(manage_session start %s) returned tool error", sessionID)
+			}
+		}
+
+		startSession("cycle-a", "")
+		startSession("cycle-b", "cycle-a")
+		updateSessionParentForMCPTest(ctx, t, dbPath, "cycle-a", "cycle-b")
+
+		treeResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "session_status",
+			Arguments: map[string]any{
+				"action":     "tree",
+				"session_id": "cycle-a",
+				"depth":      500,
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(session_status tree cycle) error = %v", err)
+		}
+		if treeResult.IsError {
+			t.Fatalf("CallTool(session_status tree cycle) returned tool error")
+		}
+
+		roots := decodeJSONArrayPayload(t, treeResult)
+		if len(roots) != 1 {
+			t.Fatalf("cycle tree roots len = %d, want 1", len(roots))
+		}
+		root := roots[0].(map[string]any)
+		if diff := cmp.Diff("cycle-a", root["session_id"]); diff != "" {
+			t.Fatalf("cycle root session_id mismatch (-want +got):\n%s", diff)
+		}
+		children := root["children"].([]any)
+		if len(children) != 1 {
+			t.Fatalf("cycle root children len = %d, want 1", len(children))
+		}
+		child := children[0].(map[string]any)
+		if diff := cmp.Diff("cycle-b", child["session_id"]); diff != "" {
+			t.Fatalf("cycle child session_id mismatch (-want +got):\n%s", diff)
+		}
+		grandchildren := child["children"].([]any)
+		if len(grandchildren) != 1 {
+			t.Fatalf("cycle child children len = %d, want 1", len(grandchildren))
+		}
+		cycleNode := grandchildren[0].(map[string]any)
+		if diff := cmp.Diff("cycle-a", cycleNode["session_id"]); diff != "" {
+			t.Fatalf("cycle marker session_id mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("cycle-detected", cycleNode["status"]); diff != "" {
+			t.Fatalf("cycle marker status mismatch (-want +got):\n%s", diff)
+		}
+		if descendants := cycleNode["children"].([]any); len(descendants) != 0 {
+			t.Fatalf("cycle marker children len = %d, want 0", len(descendants))
 		}
 	})
 
@@ -906,7 +1111,44 @@ func decodeJSONPayload(t *testing.T, result *mcp.CallToolResult) map[string]any 
 	return payload
 }
 
+func decodeJSONArrayPayload(t *testing.T, result *mcp.CallToolResult) []any {
+	t.Helper()
+
+	if len(result.Content) == 0 {
+		t.Fatalf("tool result content is empty")
+	}
+
+	textContent, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("unexpected content type: %T", result.Content[0])
+	}
+
+	payload := []any{}
+	if err := json.Unmarshal([]byte(textContent.Text), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	return payload
+}
+
 func newTestServer(t *testing.T) *mcpserver.Server {
+	t.Helper()
+	server, _ := newTestServerWithDBPath(t)
+	return server
+}
+
+func updateSessionParentForMCPTest(ctx context.Context, t *testing.T, dbPath string, sessionID string, parentID string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.ExecContext(ctx, "UPDATE sessions SET parent_session_id = ? WHERE session_id = ?", parentID, sessionID); err != nil {
+		t.Fatalf("UPDATE sessions parent_session_id error = %v", err)
+	}
+}
+
+func newTestServerWithDBPath(t *testing.T) (*mcpserver.Server, string) {
 	t.Helper()
 
 	migrations := fstest.MapFS{
@@ -1044,5 +1286,5 @@ CREATE INDEX idx_memories_valid_window ON memories(valid_to, valid_from);`),
 		t.Fatalf("NewServer() error = %v", err)
 	}
 
-	return server
+	return server, dbPath
 }

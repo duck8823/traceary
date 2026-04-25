@@ -11,6 +11,7 @@ import (
 type SessionSummary struct {
 	sessionID       domtypes.SessionID
 	workspace       domtypes.Workspace
+	client          domtypes.Client
 	startedAt       time.Time
 	endedAt         domtypes.Optional[time.Time]
 	status          string
@@ -23,6 +24,7 @@ type SessionSummary struct {
 	spawnEventID    domtypes.EventID
 	subagentKind    string
 	spawnOrder      domtypes.Optional[int]
+	latestEventAt   time.Time
 }
 
 // SessionSummaryOf creates a SessionSummary.
@@ -41,28 +43,30 @@ func SessionSummaryOf(
 	spawnMetadata ...any,
 ) SessionSummary {
 	var (
-		spawnEventID domtypes.EventID
-		subagentKind string
-		spawnOrder   domtypes.Optional[int]
+		spawnEventID  domtypes.EventID
+		subagentKind  string
+		spawnOrder    domtypes.Optional[int]
+		latestEventAt = startedAt
+		client        domtypes.Client
 	)
-	if len(spawnMetadata) >= 1 {
-		if value, ok := spawnMetadata[0].(domtypes.EventID); ok {
+	for _, metadata := range spawnMetadata {
+		switch value := metadata.(type) {
+		case domtypes.Client:
+			client = value
+		case domtypes.EventID:
 			spawnEventID = value
-		}
-	}
-	if len(spawnMetadata) >= 2 {
-		if value, ok := spawnMetadata[1].(string); ok {
+		case string:
 			subagentKind = value
-		}
-	}
-	if len(spawnMetadata) >= 3 {
-		if value, ok := spawnMetadata[2].(domtypes.Optional[int]); ok {
+		case domtypes.Optional[int]:
 			spawnOrder = value
+		case time.Time:
+			latestEventAt = value
 		}
 	}
 	return SessionSummary{
 		sessionID:       sessionID,
 		workspace:       workspace,
+		client:          client,
 		startedAt:       startedAt,
 		endedAt:         endedAt,
 		status:          status,
@@ -75,6 +79,7 @@ func SessionSummaryOf(
 		spawnEventID:    spawnEventID,
 		subagentKind:    subagentKind,
 		spawnOrder:      spawnOrder,
+		latestEventAt:   latestEventAt,
 	}
 }
 
@@ -83,6 +88,9 @@ func (s SessionSummary) SessionID() domtypes.SessionID { return s.sessionID }
 
 // Workspace returns the workspace.
 func (s SessionSummary) Workspace() domtypes.Workspace { return s.workspace }
+
+// Client returns the recording client.
+func (s SessionSummary) Client() domtypes.Client { return s.client }
 
 // StartedAt returns when the session started.
 func (s SessionSummary) StartedAt() time.Time { return s.startedAt }
@@ -119,3 +127,6 @@ func (s SessionSummary) SubagentKind() string { return s.subagentKind }
 
 // SpawnOrder returns this child session's sibling order when available.
 func (s SessionSummary) SpawnOrder() domtypes.Optional[int] { return s.spawnOrder }
+
+// LatestEventAt returns the latest recorded event timestamp in the session.
+func (s SessionSummary) LatestEventAt() time.Time { return s.latestEventAt }

@@ -414,7 +414,7 @@ func (d *SessionDatasource) FindLatest(
 func (d *SessionDatasource) ListSummaries(
 	ctx context.Context,
 	limit, offset int,
-	sessionID types.SessionID, workspace types.Workspace, client types.Client, agent types.Agent, label string,
+	sessionID types.SessionID, workspace types.Workspace, client types.Client, agent types.Agent, label string, activeOnly bool,
 	from, to types.Optional[time.Time],
 ) ([]apptypes.SessionSummary, error) {
 	db, err := d.db.open(ctx)
@@ -442,8 +442,9 @@ func (d *SessionDatasource) ListSummaries(
 		sessionID.String(), sessionID.String(),
 		workspace.String(), workspace.String(),
 		client.String(), client.String(),
-		agent.String(), agent.String(),
+		agent.String(), agent.String(), agent.String(), agent.String(),
 		label, label,
+		activeOnly,
 		fromValue, fromValue,
 		toValue, toValue,
 		limit, offset,
@@ -514,28 +515,32 @@ func scanSessionSummary(row interface {
 	Scan(dest ...any) error
 }) (apptypes.SessionSummary, error) {
 	var (
-		sessionID       string
-		repo            string
-		startedAtStr    string
-		endedAtStr      sql.NullString
-		totalEvents     int
-		commandCount    int
-		agentsStr       sql.NullString
-		label           string
-		summary         string
-		parentSessionID string
-		spawnEventID    string
-		subagentKind    string
-		spawnOrder      sql.NullInt64
+		sessionID        string
+		repo             string
+		client           string
+		startedAtStr     string
+		endedAtStr       sql.NullString
+		totalEvents      int
+		commandCount     int
+		latestEventAtStr string
+		agentsStr        sql.NullString
+		label            string
+		summary          string
+		parentSessionID  string
+		spawnEventID     string
+		subagentKind     string
+		spawnOrder       sql.NullInt64
 	)
 
 	if err := row.Scan(
 		&sessionID,
 		&repo,
+		&client,
 		&startedAtStr,
 		&endedAtStr,
 		&totalEvents,
 		&commandCount,
+		&latestEventAtStr,
 		&agentsStr,
 		&label,
 		&summary,
@@ -550,6 +555,11 @@ func scanSessionSummary(row interface {
 	startedAt, err := time.Parse(time.RFC3339Nano, startedAtStr)
 	if err != nil {
 		return apptypes.SessionSummary{}, xerrors.Errorf("failed to parse started_at: %w", err)
+	}
+
+	latestEventAt, err := time.Parse(time.RFC3339Nano, latestEventAtStr)
+	if err != nil {
+		return apptypes.SessionSummary{}, xerrors.Errorf("failed to parse latest_event_at: %w", err)
 	}
 
 	endedAt := types.None[time.Time]()
@@ -582,9 +592,11 @@ func scanSessionSummary(row interface {
 		label,
 		summary,
 		types.SessionID(parentSessionID),
+		types.Client(client),
 		types.EventID(spawnEventID),
 		subagentKind,
 		optionalIntFromNullInt64(spawnOrder),
+		latestEventAt,
 	), nil
 }
 

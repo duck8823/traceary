@@ -149,7 +149,7 @@ func TestSessionDatasource_SaveBoundary_RoundTripsSpawnMetadata(t *testing.T) {
 		t.Errorf("SpawnOrder() mismatch (-want +got):\n%s", diff)
 	}
 
-	summaries, err := sessionDS.ListSummaries(ctx, 10, 0, childID, types.Workspace(""), types.Client(""), types.Agent(""), "", types.None[time.Time](), types.None[time.Time]())
+	summaries, err := sessionDS.ListSummaries(ctx, 10, 0, childID, types.Workspace(""), types.Client(""), types.Agent(""), "", false, types.None[time.Time](), types.None[time.Time]())
 	if err != nil {
 		t.Fatalf("ListSummaries() error = %v", err)
 	}

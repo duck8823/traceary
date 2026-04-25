@@ -1,10 +1,12 @@
 SELECT
   s.session_id,
   s.workspace,
+  s.client,
   s.started_at,
   s.ended_at,
   COALESCE(agg.total_events, 0) AS total_events,
   COALESCE(agg.command_count, 0) AS command_count,
+  COALESCE(agg.latest_event_at, s.started_at) AS latest_event_at,
   COALESCE(agg.agents, '') AS agents,
   s.label,
   s.summary,
@@ -18,15 +20,17 @@ LEFT JOIN (
     e.session_id,
     COUNT(*) AS total_events,
     SUM(CASE WHEN e.kind = 'command_executed' THEN 1 ELSE 0 END) AS command_count,
-    GROUP_CONCAT(DISTINCT e.agent) AS agents
+    GROUP_CONCAT(DISTINCT e.agent) AS agents,
+    MAX(e.created_at) AS latest_event_at
   FROM events e
   GROUP BY e.session_id
 ) agg ON agg.session_id = s.session_id
 WHERE (? = '' OR s.session_id = ?)
   AND (? = '' OR s.workspace = ?)
   AND (? = '' OR s.client = ?)
-  AND (? = '' OR s.agent = ?)
+  AND (? = '' OR s.agent = ? OR s.subagent_kind = ? OR EXISTS (SELECT 1 FROM events agent_events WHERE agent_events.session_id = s.session_id AND agent_events.agent = ?))
   AND (? = '' OR s.label = ?)
+  AND (? = 0 OR s.ended_at IS NULL)
   AND (? = '' OR s.started_at >= ?)
   AND (? = '' OR s.started_at < ?)
 ORDER BY s.started_at DESC

@@ -192,13 +192,17 @@ func (c *RootCLI) runBundleImport(ctx context.Context, output io.Writer, input b
 		enc := json.NewEncoder(output)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(bundleImportOutput{
-			EventsImported:      result.EventsImported,
-			EventsSkipped:       result.EventsSkipped,
-			MemoriesImported:    result.MemoriesImported,
-			MemoriesSkipped:     result.MemoriesSkipped,
-			MemoryEdgesImported: result.MemoryEdgesImported,
-			MemoryEdgesSkipped:  result.MemoryEdgesSkipped,
-			BundleSchemaVersion: result.BundleSchemaVersion,
+			SessionsImported:      result.SessionsImported,
+			SessionsSkipped:       result.SessionsSkipped,
+			EventsImported:        result.EventsImported,
+			EventsSkipped:         result.EventsSkipped,
+			CommandAuditsImported: result.CommandAuditsImported,
+			CommandAuditsSkipped:  result.CommandAuditsSkipped,
+			MemoriesImported:      result.MemoriesImported,
+			MemoriesSkipped:       result.MemoriesSkipped,
+			MemoryEdgesImported:   result.MemoryEdgesImported,
+			MemoryEdgesSkipped:    result.MemoryEdgesSkipped,
+			BundleSchemaVersion:   result.BundleSchemaVersion,
 		}); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print bundle import result", "bundle import 結果の出力に失敗しました"), err)
 		}
@@ -206,9 +210,14 @@ func (c *RootCLI) runBundleImport(ctx context.Context, output io.Writer, input b
 	}
 	if _, err := fmt.Fprintf(
 		output,
-		"%s: events_imported=%d, events_skipped=%d, memories_imported=%d, memories_skipped=%d, memory_edges_imported=%d, memory_edges_skipped=%d, schema=%d\n",
+		"%s: sessions_imported=%d, sessions_skipped=%d, events_imported=%d, events_skipped=%d, command_audits_imported=%d, command_audits_skipped=%d, memories_imported=%d, memories_skipped=%d, memory_edges_imported=%d, memory_edges_skipped=%d, schema=%d\n",
 		Localize("Imported bundle", "bundle を取り込みました"),
-		result.EventsImported, result.EventsSkipped, result.MemoriesImported, result.MemoriesSkipped, result.MemoryEdgesImported, result.MemoryEdgesSkipped, result.BundleSchemaVersion,
+		result.SessionsImported, result.SessionsSkipped,
+		result.EventsImported, result.EventsSkipped,
+		result.CommandAuditsImported, result.CommandAuditsSkipped,
+		result.MemoriesImported, result.MemoriesSkipped,
+		result.MemoryEdgesImported, result.MemoryEdgesSkipped,
+		result.BundleSchemaVersion,
 	); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print bundle import result", "bundle import 結果の出力に失敗しました"), err)
 	}

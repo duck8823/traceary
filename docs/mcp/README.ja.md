@@ -14,13 +14,15 @@ Traceary v0.10.0 が公開する MCP tool はちょうど 8 個です:
 | `manage_memory` | `propose`, `remember`, `accept`, `reject`, `expire`, `supersede`, `set_validity`, `import_instructions` | write; destructive subset: `reject`, `expire` |
 | `query_memory` | `retrieve`, `export`, `pack`, `scan_hygiene` | read |
 | `manage_session` | `start`, `end` | write |
-| `session_status` | `active`, `latest`, `handoff` | read |
+| `session_status` | `active`, `latest`, `handoff`, `tree` | read |
 | `record_event` | `type="log"` or `type="audit"` | write |
 | `list_events` | 変更なしの event listing | read |
 | `search` | 変更なしの event search | read |
 | `get_context` | 変更なしの recent-context read | read |
 
 `manage_memory.ids` は accept/reject flow 向けに単一 string と string array の両方を受け付けます。`record_event` は `type="log"` と `type="audit"` のどちらでも同じ shape を返します。
+
+`session_status(action="tree", session_id="...", depth=N)` は `session_id` を root とする session subtree を `traceary session tree --json` と同じ node array shape で返します。`depth` は任意で、`0` は root のみを返します。
 
 ## v0.10.0 移行表 (24 → 8 tools)
 
@@ -45,6 +47,7 @@ Traceary v0.10.0 が公開する MCP tool はちょうど 8 個です:
 | `active_session` | `session_status(action="active", ...)` |
 | `latest_session` | `session_status(action="latest", ...)` |
 | `session_handoff` | `session_status(action="handoff", ...)` |
+| `session tree --json --root <session-id>` | `session_status(action="tree", session_id="<session-id>", ...)` |
 | `add_log` | `record_event(type="log", ...)` |
 | `add_audit` | `record_event(type="audit", ...)` |
 | `list_events` | `list_events(...)` |

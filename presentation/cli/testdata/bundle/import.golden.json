@@ -1,6 +1,10 @@
 {
+  "sessions_imported": 0,
+  "sessions_skipped": 0,
   "events_imported": 3,
   "events_skipped": 1,
+  "command_audits_imported": 0,
+  "command_audits_skipped": 0,
   "memories_imported": 0,
   "memories_skipped": 0,
   "memory_edges_imported": 0,

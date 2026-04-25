@@ -1,0 +1,41 @@
+[
+  {
+    "session_id": "top-root",
+    "depth": 0,
+    "workspace": "duck8823/traceary",
+    "label": "root",
+    "summary": "Root session retained because a child is active.",
+    "started_at": "2026-04-10T12:00:00Z",
+    "ended_at": "2026-04-10T12:30:00Z",
+    "status": "ended",
+    "duration_sec": 1800,
+    "total_events": 12,
+    "command_count": 5,
+    "agents": [
+      "claude"
+    ],
+    "subagent_type": "claude",
+    "children": [
+      {
+        "session_id": "top-child",
+        "parent_session_id": "top-root",
+        "spawn_event_id": "spawn-top-child",
+        "subagent_kind": "task",
+        "spawn_order": 1,
+        "depth": 1,
+        "workspace": "duck8823/traceary",
+        "label": "child",
+        "summary": "Active child session.",
+        "started_at": "2026-04-10T12:10:00Z",
+        "status": "active",
+        "total_events": 7,
+        "command_count": 3,
+        "agents": [
+          "claude/explore"
+        ],
+        "subagent_type": "claude/explore",
+        "children": []
+      }
+    ]
+  }
+]

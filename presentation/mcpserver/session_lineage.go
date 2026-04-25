@@ -8,12 +8,32 @@ import (
 	apptypes "github.com/duck8823/traceary/application/types"
 )
 
+const maxSessionTreeDepth = 100
+
 type sessionLineageNode struct {
 	summary  apptypes.SessionSummary
 	children []*sessionLineageNode
 }
 
 func newSessionLineageOutput(summaries []apptypes.SessionSummary) sessionLineageOutput {
+	_, roots := buildSessionLineageNodes(summaries)
+	output := sessionLineageOutput{Roots: make([]sessionLineageNodeOutput, 0, len(roots))}
+	for _, root := range roots {
+		output.Roots = append(output.Roots, sessionLineageNodeToOutput(root, 0))
+	}
+	return output
+}
+
+func newSessionTreeOutput(summaries []apptypes.SessionSummary, rootSessionID string, depthLimit *int) []sessionLineageNodeOutput {
+	nodeMap, _ := buildSessionLineageNodes(summaries)
+	root, ok := nodeMap[rootSessionID]
+	if !ok {
+		return []sessionLineageNodeOutput{}
+	}
+	return []sessionLineageNodeOutput{sessionLineageNodeToOutputWithDepthLimit(root, 0, effectiveSessionTreeDepthLimit(depthLimit), map[string]bool{})}
+}
+
+func buildSessionLineageNodes(summaries []apptypes.SessionSummary) (map[string]*sessionLineageNode, []*sessionLineageNode) {
 	nodeMap := make(map[string]*sessionLineageNode, len(summaries))
 	roots := make([]*sessionLineageNode, 0)
 	for _, summary := range summaries {
@@ -30,20 +50,25 @@ func newSessionLineageOutput(summaries []apptypes.SessionSummary) sessionLineage
 		roots = append(roots, node)
 	}
 	sortSessionLineageNodes(roots)
-
-	output := sessionLineageOutput{Roots: make([]sessionLineageNodeOutput, 0, len(roots))}
-	for _, root := range roots {
-		output.Roots = append(output.Roots, sessionLineageNodeToOutput(root, 0))
-	}
-	return output
+	return nodeMap, roots
 }
 
 func sortSessionLineageNodes(nodes []*sessionLineageNode) {
+	sortSessionLineageNodesWithVisited(nodes, map[string]bool{})
+}
+
+func sortSessionLineageNodesWithVisited(nodes []*sessionLineageNode, visited map[string]bool) {
 	sort.SliceStable(nodes, func(i, j int) bool {
 		return sessionLineageNodeLess(nodes[i], nodes[j])
 	})
 	for _, node := range nodes {
-		sortSessionLineageNodes(node.children)
+		sessionID := node.summary.SessionID().String()
+		if visited[sessionID] {
+			continue
+		}
+		visited[sessionID] = true
+		sortSessionLineageNodesWithVisited(node.children, visited)
+		delete(visited, sessionID)
 	}
 }
 
@@ -63,9 +88,22 @@ func sessionLineageNodeLess(left, right *sessionLineageNode) bool {
 }
 
 func sessionLineageNodeToOutput(node *sessionLineageNode, depth int) sessionLineageNodeOutput {
+	return sessionLineageNodeToOutputWithDepthLimit(node, depth, maxSessionTreeDepth, map[string]bool{})
+}
+
+func effectiveSessionTreeDepthLimit(depthLimit *int) int {
+	if depthLimit == nil || *depthLimit > maxSessionTreeDepth {
+		return maxSessionTreeDepth
+	}
+	return *depthLimit
+}
+
+func sessionLineageNodeToOutputWithDepthLimit(node *sessionLineageNode, depth int, depthLimit int, visited map[string]bool) sessionLineageNodeOutput {
 	summary := node.summary
+	sessionID := summary.SessionID().String()
+	cycleDetected := visited[sessionID]
 	output := sessionLineageNodeOutput{
-		SessionID:       summary.SessionID().String(),
+		SessionID:       sessionID,
 		ParentSessionID: summary.ParentSessionID().String(),
 		SpawnEventID:    summary.SpawnEventID().String(),
 		SubagentKind:    summary.SubagentKind(),
@@ -90,8 +128,16 @@ func sessionLineageNodeToOutput(node *sessionLineageNode, depth int) sessionLine
 		durationSec := endedAt.Sub(summary.StartedAt()).Seconds()
 		output.DurationSec = &durationSec
 	}
-	for _, child := range node.children {
-		output.Children = append(output.Children, sessionLineageNodeToOutput(child, depth+1))
+	if cycleDetected {
+		output.Status = "cycle-detected"
+		return output
+	}
+	if depth < depthLimit {
+		visited[sessionID] = true
+		for _, child := range node.children {
+			output.Children = append(output.Children, sessionLineageNodeToOutputWithDepthLimit(child, depth+1, depthLimit, visited))
+		}
+		delete(visited, sessionID)
 	}
 	return output
 }

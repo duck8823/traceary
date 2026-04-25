@@ -86,6 +86,7 @@ func (u *replayUsecase) Bundle(ctx context.Context, criteria apptypes.ReplayCrit
 		domtypes.Client(""),
 		domtypes.Agent(""),
 		"",
+		false,
 		domtypes.None[time.Time](),
 		domtypes.None[time.Time](),
 	)

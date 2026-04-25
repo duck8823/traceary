@@ -55,6 +55,7 @@ func (b *contextPackBuilder) Build(ctx context.Context, criteria apptypes.Contex
 		domtypes.Client(""),
 		domtypes.Agent(""),
 		"",
+		false,
 		domtypes.None[time.Time](),
 		domtypes.None[time.Time](),
 	)
