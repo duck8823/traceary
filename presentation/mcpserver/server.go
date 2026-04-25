@@ -116,7 +116,7 @@ func (s *Server) Build(ctx context.Context) (*mcp.Server, error) {
 	}, s.manageSession())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "session_status",
-		Description: "Dispatch session status reads by action: active, latest, or handoff.",
+		Description: "Dispatch session status reads by action: active, latest, handoff, or lineage.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.sessionStatus())
 	mcp.AddTool(server, &mcp.Tool{
@@ -316,10 +316,25 @@ func (s *Server) sessionStatus() mcp.ToolHandlerFor[sessionActionInput, any] {
 		case "handoff":
 			_, out, err := s.sessionHandoff()(ctx, req, sessionHandoffInput{SessionID: input.SessionID, Workspace: input.Workspace, RecentCommandsLimit: input.RecentCommandsLimit, MemoryLimit: input.MemoryLimit, Preset: input.Preset, AsOf: input.AsOf})
 			return nil, out, err
+		case "lineage":
+			out, err := s.sessionLineage(ctx, input.SessionID)
+			return nil, out, err
 		default:
-			return nil, nil, xerrors.Errorf("session_status action must be one of active, latest, handoff")
+			return nil, nil, xerrors.Errorf("session_status action must be one of active, latest, handoff, lineage")
 		}
 	}
+}
+
+func (s *Server) sessionLineage(ctx context.Context, sessionID string) (sessionLineageOutput, error) {
+	trimmedSessionID := strings.TrimSpace(sessionID)
+	if trimmedSessionID == "" {
+		return sessionLineageOutput{}, xerrors.Errorf("session_status action lineage requires session_id")
+	}
+	summaries, err := s.session.Lineage(ctx, types.SessionID(trimmedSessionID))
+	if err != nil {
+		return sessionLineageOutput{}, xerrors.Errorf("failed to get session lineage: %w", err)
+	}
+	return newSessionLineageOutput(summaries), nil
 }
 
 func (s *Server) recordEvent() mcp.ToolHandlerFor[recordEventInput, recordEventOutput] {

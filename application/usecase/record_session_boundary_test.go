@@ -49,6 +49,30 @@ func TestSessionUsecase_Start(t *testing.T) {
 	})
 }
 
+func TestSessionUsecase_StartRejectsSelfParent(t *testing.T) {
+	t.Parallel()
+
+	sessionStub := &sessionRepositoryStub{}
+	sut := usecase.NewSessionUsecase(nil, sessionStub, nil, nil)
+
+	_, err := sut.Start(context.Background(),
+		types.Client("cli"),
+		types.Agent("codex"),
+		types.SessionID("self-parent"),
+		types.Workspace("duck8823/traceary"),
+		types.SessionID(" self-parent "),
+	)
+	if err == nil {
+		t.Fatalf("Start() error = nil, want self-parent rejection")
+	}
+	if !errors.Is(err, model.ErrInvalidSessionState) {
+		t.Fatalf("Start() error = %v, want ErrInvalidSessionState", err)
+	}
+	if sessionStub.saveBoundaryCalled {
+		t.Fatalf("SessionRepository.SaveBoundary() should not be called when session parent points to itself")
+	}
+}
+
 func TestSessionUsecase_StartChild(t *testing.T) {
 	t.Parallel()
 
@@ -108,6 +132,29 @@ func TestSessionUsecase_StartChild(t *testing.T) {
 		t.Fatalf("SpawnOrder() should be present")
 	} else if diff := cmp.Diff(2, got); diff != "" {
 		t.Fatalf("SpawnOrder() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestSessionUsecase_StartChildRejectsSelfParent(t *testing.T) {
+	t.Parallel()
+
+	sut := usecase.NewSessionUsecase(nil, &sessionRepositoryStub{}, nil, nil)
+
+	_, err := sut.StartChild(
+		context.Background(),
+		types.SessionID("same-session"),
+		types.SessionID("same-session"),
+		types.Agent("claude/code-reviewer"),
+		types.Workspace("github.com/duck8823/traceary"),
+		types.EventID("toolu_1"),
+		"task",
+		mustTime(t),
+	)
+	if err == nil {
+		t.Fatalf("StartChild() error = nil, want self-parent rejection")
+	}
+	if !errors.Is(err, model.ErrInvalidSessionState) {
+		t.Fatalf("StartChild() error = %v, want ErrInvalidSessionState", err)
 	}
 }
 

@@ -35,6 +35,11 @@ type sessionQueryServiceStub struct {
 	listLabel           string
 	listFrom            types.Optional[time.Time]
 	listTo              types.Optional[time.Time]
+
+	lineageResult    []apptypes.SessionSummary
+	lineageErr       error
+	lineageCalls     int
+	lineageSessionID types.SessionID
 }
 
 func (s *sessionQueryServiceStub) FindLatest(
@@ -79,6 +84,15 @@ func (s *sessionQueryServiceStub) ListSummaries(
 		return nil, s.listSummariesErr
 	}
 	return s.listSummariesResult, nil
+}
+
+func (s *sessionQueryServiceStub) LineageOf(_ context.Context, sessionID types.SessionID) ([]apptypes.SessionSummary, error) {
+	s.lineageCalls++
+	s.lineageSessionID = sessionID
+	if s.lineageErr != nil {
+		return nil, s.lineageErr
+	}
+	return s.lineageResult, nil
 }
 
 type eventQueryServiceStub struct {
@@ -800,6 +814,44 @@ func TestSessionUsecase_Handoff(t *testing.T) {
 		_, err := sut.Handoff(context.Background(), types.SessionID("session-1"), types.Workspace(""), 5)
 		if err == nil {
 			t.Fatalf("Handoff() error = nil, want error")
+		}
+	})
+}
+
+func TestSessionUsecase_Lineage(t *testing.T) {
+	t.Parallel()
+
+	t.Run("delegates to query service", func(t *testing.T) {
+		t.Parallel()
+
+		want := []apptypes.SessionSummary{
+			apptypes.SessionSummaryOf(types.SessionID("root"), types.Workspace("ws"), mustTime(t), types.None[time.Time](), "active", 1, 0, nil, "", "", types.SessionID("")),
+		}
+		queryStub := &sessionQueryServiceStub{lineageResult: want}
+		sut := usecase.NewSessionUsecase(nil, nil, queryStub, &eventQueryServiceStub{})
+
+		got, err := sut.Lineage(context.Background(), types.SessionID(" child "))
+		if err != nil {
+			t.Fatalf("Lineage() error = %v", err)
+		}
+		if len(got) != 1 || got[0].SessionID() != want[0].SessionID() {
+			t.Fatalf("Lineage() = %+v, want root summary", got)
+		}
+		if queryStub.lineageCalls != 1 || queryStub.lineageSessionID != types.SessionID("child") {
+			t.Fatalf("LineageOf call = (%d, %q), want (1, child)", queryStub.lineageCalls, queryStub.lineageSessionID)
+		}
+	})
+
+	t.Run("rejects empty session id", func(t *testing.T) {
+		t.Parallel()
+
+		queryStub := &sessionQueryServiceStub{}
+		sut := usecase.NewSessionUsecase(nil, nil, queryStub, &eventQueryServiceStub{})
+		if _, err := sut.Lineage(context.Background(), types.SessionID(" ")); err == nil {
+			t.Fatalf("Lineage() error = nil, want error")
+		}
+		if queryStub.lineageCalls != 0 {
+			t.Fatalf("LineageOf calls = %d, want 0", queryStub.lineageCalls)
 		}
 	})
 }

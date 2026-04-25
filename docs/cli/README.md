@@ -498,7 +498,7 @@ Useful flags:
 
 ### `traceary session tree`
 
-Render the parent → child → grandchild lineage for every loaded session. Each row shows the session id, status, most specific subagent role (for example `claude/Explore` for Claude Code subagents), workspace, duration, and an `N cmds/M events` breakdown. The JSON surface adds `parent_session_id`, `depth`, numeric `duration_sec`, and `subagent_type` to every node so external tooling can reason about lineage without replaying the text format.
+Render the parent → child → grandchild lineage for every loaded session. Each row shows the session id, status, most specific subagent role (for example `claude/Explore` for Claude Code subagents), workspace, duration, and an `N cmds/M events` breakdown. Children of the same parent are ordered by `spawn_order` ascending; top-level sessions with no `spawn_order` are ordered by `started_at`. The JSON surface adds `parent_session_id`, `spawn_event_id`, `subagent_kind`, `spawn_order`, `depth`, numeric `duration_sec`, and `subagent_type` to every node so external tooling can reason about lineage without replaying the text format.
 
 Useful flags:
 
@@ -506,6 +506,14 @@ Useful flags:
 - `--limit`
 - `--root <session-id>` — focus on the subtree rooted at the given session
 - `--ongoing-only` — keep only lineages that still contain an active session
+- `--json`
+
+### `traceary session lineage <session-id>`
+
+Render the full lineage that contains a session: Traceary walks up from `<session-id>` to the topmost ancestor, then returns that root and all descendants using the same text and JSON node shape as `session tree`.
+
+Useful flags:
+
 - `--json`
 
 ### `traceary session label <label-text>`

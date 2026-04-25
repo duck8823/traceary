@@ -35,6 +35,9 @@ var findLatestSessionQuery string
 //go:embed sql/list_sessions.sql
 var listSessionsQuery string
 
+//go:embed sql/session_lineage.sql
+var sessionLineageQuery string
+
 // SessionDatasource is the SQLite-backed implementation of the session
 // repository and session query service.
 type SessionDatasource struct {
@@ -144,6 +147,10 @@ type sqlExecer interface {
 // existing row (false), so the caller can decide whether the pre-existing
 // state is acceptable.
 func insertSessionRowIfMissing(ctx context.Context, exec sqlExecer, session *model.Session) (bool, error) {
+	if session.ParentSessionID().String() != "" && session.ParentSessionID() == session.SessionID() {
+		return false, xerrors.Errorf("cannot save session %s with itself as parent: %w", session.SessionID(), model.ErrInvalidSessionState)
+	}
+
 	var parentSessionID *string
 	if session.ParentSessionID().String() != "" {
 		v := session.ParentSessionID().String()
@@ -460,6 +467,44 @@ func (d *SessionDatasource) ListSummaries(
 	}
 	if err := rows.Err(); err != nil {
 		return nil, xerrors.Errorf("failed to iterate session summary rows: %w", err)
+	}
+
+	return summaries, nil
+}
+
+// LineageOf returns the full session family rooted at the topmost ancestor of
+// sessionID. An unknown session ID returns an empty slice.
+func (d *SessionDatasource) LineageOf(ctx context.Context, sessionID types.SessionID) ([]apptypes.SessionSummary, error) {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to open DB for session lineage: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	rows, err := db.QueryContext(ctx, sessionLineageQuery, sessionID.String())
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query session lineage: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	summaries := make([]apptypes.SessionSummary, 0)
+	for rows.Next() {
+		summary, err := scanSessionSummary(rows)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to scan session lineage row: %w", err)
+		}
+		summaries = append(summaries, summary)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, xerrors.Errorf("failed to iterate session lineage rows: %w", err)
 	}
 
 	return summaries, nil

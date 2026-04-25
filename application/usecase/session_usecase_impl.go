@@ -47,6 +47,13 @@ func (u *sessionUsecase) Start(ctx context.Context, client types.Client, agent t
 	if _, err := types.AgentFrom(agent.String()); err != nil {
 		return nil, xerrors.Errorf("failed to start session: %w", err)
 	}
+	resolvedParentSessionID, err := resolveOptionalParentSessionID(parentSessionID)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to start session: %w", err)
+	}
+	if resolvedParentSessionID != "" && resolvedParentSessionID == resolvedSessionID {
+		return nil, xerrors.Errorf("cannot start session %s with itself as parent: %w", resolvedSessionID, model.ErrInvalidSessionState)
+	}
 
 	// When the caller provided an explicit session ID, the session must not
 	// already exist; otherwise the start would silently no-op the session row
@@ -66,7 +73,7 @@ func (u *sessionUsecase) Start(ctx context.Context, client types.Client, agent t
 		return nil, xerrors.Errorf("failed to start session: %w", err)
 	}
 
-	session := buildSessionFromBoundary(event, parentSessionID)
+	session := buildSessionFromBoundary(event, resolvedParentSessionID)
 	if err := u.sessionRepo.SaveBoundary(ctx, session, event); err != nil {
 		return nil, xerrors.Errorf("failed to save session start: %w", err)
 	}
@@ -95,6 +102,9 @@ func (u *sessionUsecase) StartChild(
 	resolvedChildID, err := types.SessionIDFrom(childID.String())
 	if err != nil {
 		return nil, xerrors.Errorf("failed to start child session: %w", err)
+	}
+	if parentID == resolvedChildID {
+		return nil, xerrors.Errorf("cannot start child session %s with itself as parent: %w", resolvedChildID, model.ErrInvalidSessionState)
 	}
 	resolvedAgent, err := types.AgentFrom(agent.String())
 	if err != nil {
@@ -237,6 +247,23 @@ func (u *sessionUsecase) Tree(ctx context.Context, workspace types.Workspace, li
 	return summaries, nil
 }
 
+func (u *sessionUsecase) Lineage(ctx context.Context, sessionID types.SessionID) ([]apptypes.SessionSummary, error) {
+	trimmedSessionID := strings.TrimSpace(sessionID.String())
+	if trimmedSessionID == "" {
+		return nil, xerrors.Errorf("session ID must not be empty")
+	}
+	resolvedSessionID, err := types.SessionIDFrom(trimmedSessionID)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to resolve session ID: %w", err)
+	}
+
+	summaries, err := u.sessionQuery.LineageOf(ctx, resolvedSessionID)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get session lineage: %w", err)
+	}
+	return summaries, nil
+}
+
 func (u *sessionUsecase) Active(ctx context.Context, criteria apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error) {
 	result, err := u.sessionQuery.FindLatest(ctx, criteria.Client(), criteria.Agent(), criteria.Workspace(), true)
 	if err != nil {
@@ -294,6 +321,18 @@ func (u *sessionUsecase) resolveSessionStartID(sessionID types.SessionID) (types
 		return types.SessionID(""), false, xerrors.Errorf("failed to convert session ID: %w", err)
 	}
 	return resolved, false, nil
+}
+
+func resolveOptionalParentSessionID(parentSessionID types.SessionID) (types.SessionID, error) {
+	trimmedValue := strings.TrimSpace(parentSessionID.String())
+	if trimmedValue == "" {
+		return types.SessionID(""), nil
+	}
+	resolved, err := types.SessionIDFrom(trimmedValue)
+	if err != nil {
+		return types.SessionID(""), xerrors.Errorf("failed to convert parent session ID: %w", err)
+	}
+	return resolved, nil
 }
 
 // buildBoundaryEvent constructs the session start/end event.

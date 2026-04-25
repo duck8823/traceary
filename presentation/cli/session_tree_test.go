@@ -322,6 +322,71 @@ func TestRootCLI_SessionTreeCommand_RootFilter(t *testing.T) {
 	}
 }
 
+func TestRootCLI_SessionTreeCommand_OrdersSiblingsBySpawnOrder(t *testing.T) {
+	t.Parallel()
+
+	started := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	listStub := &sessionUsecaseStub{
+		listResult: []apptypes.SessionSummary{
+			apptypes.SessionSummaryOf(types.SessionID("root"), types.Workspace("ws"), started, types.None[time.Time](), "active", 1, 0, []string{"claude"}, "", "", types.SessionID("")),
+			apptypes.SessionSummaryOf(types.SessionID("child-2"), types.Workspace("ws"), started, types.None[time.Time](), "active", 1, 0, []string{"codex"}, "", "", types.SessionID("root"), types.EventID("spawn-2"), "task", types.Some(2)),
+			apptypes.SessionSummaryOf(types.SessionID("child-1"), types.Workspace("ws"), started, types.None[time.Time](), "active", 1, 0, []string{"codex"}, "", "", types.SessionID("root"), types.EventID("spawn-1"), "task", types.Some(1)),
+		},
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(listStub),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"session", "tree", "--db-path", "/tmp/test-traceary.db", "--json"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	var trees []struct {
+		Children []struct {
+			SessionID string `json:"session_id"`
+		} `json:"children"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &trees); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if len(trees) != 1 || len(trees[0].Children) != 2 {
+		t.Fatalf("unexpected tree shape: %+v", trees)
+	}
+	if trees[0].Children[0].SessionID != "child-1" || trees[0].Children[1].SessionID != "child-2" {
+		t.Fatalf("children were not ordered by spawn_order: %+v", trees[0].Children)
+	}
+}
+
+func TestRootCLI_SessionLineageCommand_JSON(t *testing.T) {
+	t.Parallel()
+
+	started := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	lineageStub := &sessionUsecaseStub{
+		lineageResult: []apptypes.SessionSummary{
+			apptypes.SessionSummaryOf(types.SessionID("root"), types.Workspace("ws"), started, types.None[time.Time](), "active", 1, 0, []string{"claude"}, "", "", types.SessionID("")),
+			apptypes.SessionSummaryOf(types.SessionID("child"), types.Workspace("ws"), started.Add(time.Minute), types.None[time.Time](), "active", 1, 0, []string{"codex"}, "", "", types.SessionID("root"), types.EventID("spawn"), "task", types.Some(1)),
+		},
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(lineageStub),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"session", "lineage", "child", "--db-path", "/tmp/test-traceary.db", "--json"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !strings.Contains(stdout.String(), `"session_id": "root"`) || !strings.Contains(stdout.String(), `"session_id": "child"`) {
+		t.Fatalf("lineage JSON should include root and child, got: %s", stdout.String())
+	}
+}
+
 func TestRootCLI_SessionTreeCommand_OngoingOnly(t *testing.T) {
 	t.Parallel()
 

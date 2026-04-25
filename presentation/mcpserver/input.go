@@ -47,7 +47,7 @@ type queryMemoryInput struct {
 
 // sessionActionInput is shared by manage_session and session_status.
 type sessionActionInput struct {
-	Action              string `json:"action" jsonschema:"required,action enum"`
+	Action              string `json:"action" jsonschema:"required,action enum: start, end, active, latest, handoff, lineage"`
 	Client              string `json:"client,omitempty" jsonschema:"recording channel or filter"`
 	Agent               string `json:"agent,omitempty" jsonschema:"actor name or filter"`
 	SessionID           string `json:"session_id,omitempty" jsonschema:"session identifier"`
