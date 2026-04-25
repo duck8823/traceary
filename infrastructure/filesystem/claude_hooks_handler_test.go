@@ -127,7 +127,7 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 			t.Fatalf("len(PreToolUse entries) mismatch (-want +got):\n%s", diff)
 		}
 		matcher, _ := entries[0].Matcher().Value()
-		if diff := cmp.Diff("Task", matcher); diff != "" {
+		if diff := cmp.Diff("Task|Agent", matcher); diff != "" {
 			t.Fatalf("PreToolUse matcher mismatch (-want +got):\n%s", diff)
 		}
 		if diff := cmp.Diff("traceary-subagent-start.sh:claude", entries[0].Commands()[0].ManagedKey()); diff != "" {

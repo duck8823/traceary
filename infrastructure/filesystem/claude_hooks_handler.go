@@ -162,7 +162,7 @@ func (h *ClaudeHooksHandler) BuildWithMatcher(tracearyBin string, preset ClaudeM
 			}),
 		},
 		"PreToolUse": {
-			model.HookEntryOf(types.Some("Task"), []model.HookCommand{
+			model.HookEntryOf(types.Some("Task|Agent"), []model.HookCommand{
 				model.HookCommandOf("traceary-subagent-start", "command", subagentStartCommand, types.None[int](), "", managedKeyOf("traceary-subagent-start.sh", "claude")),
 			}),
 		},

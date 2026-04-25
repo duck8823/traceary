@@ -5,6 +5,11 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.10.1] - 2026-04-26
+
+### Fixed
+- **`Agent` tool 名に対する PreToolUse subagent capture (#785)** — Claude Code の plugin hook が PreToolUse:subagent-start で `Task|Agent` を matcher に取るよう修正しました。以前は `Task` のみを受け付けていたため、現行の Claude Code が `Agent` という tool 名で dispatch する subagent 呼び出しが active-subagent state file も子 session 行も生成せずに通過していました。v0.10.0 リリース後の dogfooding (#778) で発見しました。
+
 ## [v0.10.0] - 2026-04-26
 
 ### Added
