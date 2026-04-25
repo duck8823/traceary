@@ -69,6 +69,104 @@ func TestSessionDatasource_SaveBoundary_Start(t *testing.T) {
 	}
 }
 
+func TestSessionDatasource_SaveBoundary_RoundTripsSpawnMetadata(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	db := infra.NewDatabase(dbPath, listSessionsTestMigrations())
+	ctx := context.Background()
+	if err := infra.NewStoreManagementDatasource(db).Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	sessionDS := infra.NewSessionDatasource(db)
+
+	parentID, _ := types.SessionIDFrom("parent-session")
+	childID, _ := types.SessionIDFrom("child-session")
+	parentAgent, _ := types.AgentFrom("codex")
+	childAgent, _ := types.AgentFrom("codex/worker")
+	startedAt := time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC)
+
+	parent := model.NewSession(parentID, startedAt, types.Client("cli"), parentAgent, types.Workspace("workspace"))
+	parentEvent := model.EventOf(
+		types.EventID("parent-start"),
+		types.EventKindSessionStarted,
+		types.Client("cli"),
+		parentAgent,
+		parentID,
+		types.Workspace("workspace"),
+		"parent session started",
+		startedAt,
+	)
+	if err := sessionDS.SaveBoundary(ctx, parent, parentEvent); err != nil {
+		t.Fatalf("SaveBoundary(parent) error = %v", err)
+	}
+
+	child := model.NewChildSession(
+		parent,
+		childID,
+		childAgent,
+		types.Workspace("workspace"),
+		types.EventID("spawn-event"),
+		"worker",
+		2,
+	)
+	childEvent := model.EventOf(
+		types.EventID("child-start"),
+		types.EventKindSessionStarted,
+		types.Client("cli"),
+		childAgent,
+		childID,
+		types.Workspace("workspace"),
+		"child session started",
+		startedAt.Add(time.Second),
+	)
+	if err := sessionDS.SaveBoundary(ctx, child, childEvent); err != nil {
+		t.Fatalf("SaveBoundary(child) error = %v", err)
+	}
+
+	storedOpt, err := sessionDS.FindByID(ctx, childID)
+	if err != nil {
+		t.Fatalf("FindByID() error = %v", err)
+	}
+	stored, ok := storedOpt.Value()
+	if !ok {
+		t.Fatalf("FindByID() should be present")
+	}
+	if diff := cmp.Diff(parentID, stored.ParentSessionID()); diff != "" {
+		t.Errorf("ParentSessionID() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(types.EventID("spawn-event"), stored.SpawnEventID()); diff != "" {
+		t.Errorf("SpawnEventID() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff("worker", stored.SubagentKind()); diff != "" {
+		t.Errorf("SubagentKind() mismatch (-want +got):\n%s", diff)
+	}
+	if spawnOrder, ok := stored.SpawnOrder().Value(); !ok {
+		t.Fatalf("SpawnOrder() should be present")
+	} else if diff := cmp.Diff(2, spawnOrder); diff != "" {
+		t.Errorf("SpawnOrder() mismatch (-want +got):\n%s", diff)
+	}
+
+	summaries, err := sessionDS.ListSummaries(ctx, 10, 0, childID, types.Workspace(""), types.Client(""), types.Agent(""), "", types.None[time.Time](), types.None[time.Time]())
+	if err != nil {
+		t.Fatalf("ListSummaries() error = %v", err)
+	}
+	if len(summaries) != 1 {
+		t.Fatalf("ListSummaries() len = %d, want 1", len(summaries))
+	}
+	if diff := cmp.Diff(types.EventID("spawn-event"), summaries[0].SpawnEventID()); diff != "" {
+		t.Errorf("summary SpawnEventID() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff("worker", summaries[0].SubagentKind()); diff != "" {
+		t.Errorf("summary SubagentKind() mismatch (-want +got):\n%s", diff)
+	}
+	if spawnOrder, ok := summaries[0].SpawnOrder().Value(); !ok {
+		t.Fatalf("summary SpawnOrder() should be present")
+	} else if diff := cmp.Diff(2, spawnOrder); diff != "" {
+		t.Errorf("summary SpawnOrder() mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestSessionDatasource_SaveBoundary_End(t *testing.T) {
 	t.Parallel()
 

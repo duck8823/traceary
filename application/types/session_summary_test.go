@@ -29,6 +29,9 @@ func TestSessionSummaryOf_Getters(t *testing.T) {
 		"daily-standup",
 		"body text",
 		domtypes.SessionID("parent-session"),
+		domtypes.EventID("spawn-event"),
+		"task",
+		domtypes.Some(4),
 	)
 
 	if diff := cmp.Diff(domtypes.SessionID("session-1"), summary.SessionID()); diff != "" {
@@ -67,6 +70,17 @@ func TestSessionSummaryOf_Getters(t *testing.T) {
 	}
 	if diff := cmp.Diff(domtypes.SessionID("parent-session"), summary.ParentSessionID()); diff != "" {
 		t.Errorf("ParentSessionID() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(domtypes.EventID("spawn-event"), summary.SpawnEventID()); diff != "" {
+		t.Errorf("SpawnEventID() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff("task", summary.SubagentKind()); diff != "" {
+		t.Errorf("SubagentKind() mismatch (-want +got):\n%s", diff)
+	}
+	if spawnOrder, ok := summary.SpawnOrder().Value(); !ok {
+		t.Fatalf("SpawnOrder() should be present")
+	} else if diff := cmp.Diff(4, spawnOrder); diff != "" {
+		t.Errorf("SpawnOrder() mismatch (-want +got):\n%s", diff)
 	}
 }
 

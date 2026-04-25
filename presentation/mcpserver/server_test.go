@@ -953,6 +953,14 @@ CREATE TABLE IF NOT EXISTS sessions (
     parent_session_id TEXT REFERENCES sessions(session_id)
 );`),
 		},
+		"000014_add_session_spawn_metadata.sql": {
+			Data: []byte(`
+ALTER TABLE sessions ADD COLUMN spawn_event_id TEXT;
+ALTER TABLE sessions ADD COLUMN subagent_kind TEXT NOT NULL DEFAULT '';
+ALTER TABLE sessions ADD COLUMN spawn_order INTEGER;
+CREATE INDEX IF NOT EXISTS idx_sessions_parent_spawn_order
+    ON sessions(parent_session_id, spawn_order);`),
+		},
 		"000008_create_memories.sql": {
 			Data: []byte(`
 CREATE TABLE memories (

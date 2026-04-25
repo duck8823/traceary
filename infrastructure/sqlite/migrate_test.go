@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -94,6 +95,32 @@ func TestMigrations_applyToEmptyDatabase(t *testing.T) {
 	if migrationCount != wantMigrations {
 		t.Errorf("schema_migrations count = %d, want %d", migrationCount, wantMigrations)
 	}
+
+	assertSessionSpawnMetadataSchema(t, db)
+}
+
+func TestMigration014_addsSessionSpawnMetadataToUpgradedDatabase(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	preV010 := migrationsWithout(t, "../../schema/sqlite/migrations", "000014_add_session_spawn_metadata.sql")
+	ds := newStoreManagementDatasource(t, dbPath, preV010)
+	if err := ds.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize(pre-v0.10) error = %v", err)
+	}
+
+	ds = newStoreManagementDatasource(t, dbPath, os.DirFS("../../schema/sqlite/migrations"))
+	if err := ds.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize(upgrade) error = %v", err)
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	assertSessionSpawnMetadataSchema(t, db)
 }
 
 func TestMigrations_idempotentOnExistingDatabase(t *testing.T) {
@@ -132,6 +159,101 @@ func TestMigrations_idempotentOnExistingDatabase(t *testing.T) {
 	}
 	if count != wantMigrations {
 		t.Errorf("schema_migrations count = %d, want %d", count, wantMigrations)
+	}
+}
+
+func migrationsWithout(t *testing.T, dir string, excludedNames ...string) fstest.MapFS {
+	t.Helper()
+
+	excluded := make(map[string]struct{}, len(excludedNames))
+	for _, name := range excludedNames {
+		excluded[name] = struct{}{}
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir() error = %v", err)
+	}
+	migrations := fstest.MapFS{}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
+			continue
+		}
+		if _, ok := excluded[entry.Name()]; ok {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			t.Fatalf("ReadFile(%s) error = %v", entry.Name(), err)
+		}
+		migrations[entry.Name()] = &fstest.MapFile{Data: data}
+	}
+	return migrations
+}
+
+func assertSessionSpawnMetadataSchema(t *testing.T, db *sql.DB) {
+	t.Helper()
+
+	rows, err := db.Query(`PRAGMA table_info(sessions)`)
+	if err != nil {
+		t.Fatalf("PRAGMA table_info(sessions) error = %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	type column struct {
+		typ        string
+		notNull    bool
+		defaultVal string
+	}
+	columns := map[string]column{}
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			typ        string
+			notNull    int
+			defaultVal sql.NullString
+			pk         int
+		)
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultVal, &pk); err != nil {
+			t.Fatalf("scan table_info row error = %v", err)
+		}
+		columns[name] = column{
+			typ:        strings.ToUpper(typ),
+			notNull:    notNull == 1,
+			defaultVal: defaultVal.String,
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate table_info rows error = %v", err)
+	}
+
+	assertColumn := func(name, typ string, notNull bool, defaultVal string) {
+		t.Helper()
+		got, ok := columns[name]
+		if !ok {
+			t.Fatalf("sessions.%s column not found", name)
+		}
+		if got.typ != typ {
+			t.Errorf("sessions.%s type = %q, want %q", name, got.typ, typ)
+		}
+		if got.notNull != notNull {
+			t.Errorf("sessions.%s notNull = %v, want %v", name, got.notNull, notNull)
+		}
+		if got.defaultVal != defaultVal {
+			t.Errorf("sessions.%s default = %q, want %q", name, got.defaultVal, defaultVal)
+		}
+	}
+	assertColumn("spawn_event_id", "TEXT", false, "")
+	assertColumn("subagent_kind", "TEXT", true, "''")
+	assertColumn("spawn_order", "INTEGER", false, "")
+
+	var indexCount int
+	if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_sessions_parent_spawn_order'`).Scan(&indexCount); err != nil {
+		t.Fatalf("query index count error = %v", err)
+	}
+	if indexCount != 1 {
+		t.Fatalf("idx_sessions_parent_spawn_order index count = %d, want 1", indexCount)
 	}
 }
 

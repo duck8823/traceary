@@ -167,11 +167,16 @@ func writeSessionSummariesJSON(output io.Writer, summaries []apptypes.SessionSum
 			Label:           s.Label(),
 			Summary:         s.Summary(),
 			ParentSessionID: string(s.ParentSessionID()),
+			SpawnEventID:    s.SpawnEventID().String(),
+			SubagentKind:    s.SubagentKind(),
 			StartedAt:       formatJSONTime(s.StartedAt()),
 			Status:          s.Status(),
 			TotalEvents:     s.TotalEvents(),
 			CommandCount:    s.CommandCount(),
 			Agents:          s.Agents(),
+		}
+		if spawnOrder, ok := s.SpawnOrder().Value(); ok {
+			item.SpawnOrder = &spawnOrder
 		}
 		if endedAt, ok := s.EndedAt().Value(); ok {
 			endStr := formatJSONTime(endedAt)

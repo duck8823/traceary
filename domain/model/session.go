@@ -17,6 +17,9 @@ type Session struct {
 	label           string
 	summary         string
 	parentSessionID types.SessionID
+	spawnEventID    types.EventID
+	subagentKind    string
+	spawnOrder      types.Optional[int]
 }
 
 // NewSession creates a new Session for session start.
@@ -36,6 +39,24 @@ func NewSession(
 	}
 }
 
+// NewChildSession creates a new child Session spawned from a parent session.
+func NewChildSession(
+	parent *Session,
+	sessionID types.SessionID,
+	agent types.Agent,
+	workspace types.Workspace,
+	spawnEventID types.EventID,
+	kind string,
+	order int,
+) *Session {
+	session := NewSession(sessionID, parent.StartedAt(), parent.Client(), agent, workspace)
+	session.parentSessionID = parent.SessionID()
+	session.spawnEventID = spawnEventID
+	session.subagentKind = kind
+	session.spawnOrder = types.Some(order)
+	return session
+}
+
 // SessionOf restores a Session from persisted data.
 func SessionOf(
 	sessionID types.SessionID,
@@ -47,7 +68,28 @@ func SessionOf(
 	label string,
 	summary string,
 	parentSessionID types.SessionID,
+	spawnMetadata ...any,
 ) *Session {
+	var (
+		spawnEventID types.EventID
+		subagentKind string
+		spawnOrder   types.Optional[int]
+	)
+	if len(spawnMetadata) >= 1 {
+		if value, ok := spawnMetadata[0].(types.EventID); ok {
+			spawnEventID = value
+		}
+	}
+	if len(spawnMetadata) >= 2 {
+		if value, ok := spawnMetadata[1].(string); ok {
+			subagentKind = value
+		}
+	}
+	if len(spawnMetadata) >= 3 {
+		if value, ok := spawnMetadata[2].(types.Optional[int]); ok {
+			spawnOrder = value
+		}
+	}
 	return &Session{
 		sessionID:       sessionID,
 		startedAt:       startedAt,
@@ -58,6 +100,9 @@ func SessionOf(
 		label:           label,
 		summary:         summary,
 		parentSessionID: parentSessionID,
+		spawnEventID:    spawnEventID,
+		subagentKind:    subagentKind,
+		spawnOrder:      spawnOrder,
 	}
 }
 
@@ -101,3 +146,12 @@ func (s *Session) Summary() string { return s.summary }
 
 // ParentSessionID returns the parent session ID, or empty if top-level.
 func (s *Session) ParentSessionID() types.SessionID { return s.parentSessionID }
+
+// SpawnEventID returns the event that spawned this session, or empty if unknown.
+func (s *Session) SpawnEventID() types.EventID { return s.spawnEventID }
+
+// SubagentKind returns the kind of subagent spawn, or empty for top-level sessions.
+func (s *Session) SubagentKind() string { return s.subagentKind }
+
+// SpawnOrder returns this child session's sibling order when available.
+func (s *Session) SpawnOrder() types.Optional[int] { return s.spawnOrder }

@@ -20,6 +20,9 @@ type SessionSummary struct {
 	label           string
 	summary         string
 	parentSessionID domtypes.SessionID
+	spawnEventID    domtypes.EventID
+	subagentKind    string
+	spawnOrder      domtypes.Optional[int]
 }
 
 // SessionSummaryOf creates a SessionSummary.
@@ -35,7 +38,28 @@ func SessionSummaryOf(
 	label string,
 	summary string,
 	parentSessionID domtypes.SessionID,
+	spawnMetadata ...any,
 ) SessionSummary {
+	var (
+		spawnEventID domtypes.EventID
+		subagentKind string
+		spawnOrder   domtypes.Optional[int]
+	)
+	if len(spawnMetadata) >= 1 {
+		if value, ok := spawnMetadata[0].(domtypes.EventID); ok {
+			spawnEventID = value
+		}
+	}
+	if len(spawnMetadata) >= 2 {
+		if value, ok := spawnMetadata[1].(string); ok {
+			subagentKind = value
+		}
+	}
+	if len(spawnMetadata) >= 3 {
+		if value, ok := spawnMetadata[2].(domtypes.Optional[int]); ok {
+			spawnOrder = value
+		}
+	}
 	return SessionSummary{
 		sessionID:       sessionID,
 		workspace:       workspace,
@@ -48,6 +72,9 @@ func SessionSummaryOf(
 		label:           label,
 		summary:         summary,
 		parentSessionID: parentSessionID,
+		spawnEventID:    spawnEventID,
+		subagentKind:    subagentKind,
+		spawnOrder:      spawnOrder,
 	}
 }
 
@@ -83,3 +110,12 @@ func (s SessionSummary) Summary() string { return s.summary }
 
 // ParentSessionID returns the parent session ID.
 func (s SessionSummary) ParentSessionID() domtypes.SessionID { return s.parentSessionID }
+
+// SpawnEventID returns the event that spawned this session, or empty if unknown.
+func (s SessionSummary) SpawnEventID() domtypes.EventID { return s.spawnEventID }
+
+// SubagentKind returns the kind of subagent spawn, or empty for top-level sessions.
+func (s SessionSummary) SubagentKind() string { return s.subagentKind }
+
+// SpawnOrder returns this child session's sibling order when available.
+func (s SessionSummary) SpawnOrder() domtypes.Optional[int] { return s.spawnOrder }

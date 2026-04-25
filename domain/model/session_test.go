@@ -53,6 +53,15 @@ func TestNewSession(t *testing.T) {
 	if diff := cmp.Diff(types.SessionID(""), session.ParentSessionID()); diff != "" {
 		t.Errorf("ParentSessionID() mismatch (-want +got):\n%s", diff)
 	}
+	if diff := cmp.Diff(types.EventID(""), session.SpawnEventID()); diff != "" {
+		t.Errorf("SpawnEventID() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff("", session.SubagentKind()); diff != "" {
+		t.Errorf("SubagentKind() mismatch (-want +got):\n%s", diff)
+	}
+	if _, ok := session.SpawnOrder().Value(); ok {
+		t.Errorf("SpawnOrder() should be empty")
+	}
 }
 
 func TestSessionOf(t *testing.T) {
@@ -63,7 +72,11 @@ func TestSessionOf(t *testing.T) {
 	start := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 4, 10, 13, 0, 0, 0, time.UTC)
 
-	session := model.SessionOf(sid, start, types.Some(end), types.Client("cli"), agent, types.Workspace("workspace"), "sprint-1", "did stuff", types.SessionID("parent-123"))
+	session := model.SessionOf(
+		sid, start, types.Some(end), types.Client("cli"), agent, types.Workspace("workspace"),
+		"sprint-1", "did stuff", types.SessionID("parent-123"),
+		types.EventID("spawn-event-1"), "task", types.Some(3),
+	)
 
 	if diff := cmp.Diff(sid, session.SessionID()); diff != "" {
 		t.Errorf("SessionID() mismatch (-want +got):\n%s", diff)
@@ -81,6 +94,56 @@ func TestSessionOf(t *testing.T) {
 	}
 	if diff := cmp.Diff(types.SessionID("parent-123"), session.ParentSessionID()); diff != "" {
 		t.Errorf("ParentSessionID() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(types.EventID("spawn-event-1"), session.SpawnEventID()); diff != "" {
+		t.Errorf("SpawnEventID() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff("task", session.SubagentKind()); diff != "" {
+		t.Errorf("SubagentKind() mismatch (-want +got):\n%s", diff)
+	}
+	if spawnOrder, ok := session.SpawnOrder().Value(); !ok {
+		t.Errorf("SpawnOrder() should be present")
+	} else if diff := cmp.Diff(3, spawnOrder); diff != "" {
+		t.Errorf("SpawnOrder() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestNewChildSession(t *testing.T) {
+	t.Parallel()
+
+	parentAgent, _ := types.AgentFrom("codex")
+	childAgent, _ := types.AgentFrom("codex/reviewer")
+	parentID, _ := types.SessionIDFrom("parent-session")
+	childID, _ := types.SessionIDFrom("child-session")
+	start := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	parent := model.NewSession(parentID, start, types.Client("hook"), parentAgent, types.Workspace("parent-workspace"))
+
+	child := model.NewChildSession(
+		parent,
+		childID,
+		childAgent,
+		types.Workspace("child-workspace"),
+		types.EventID("spawn-event"),
+		"worker",
+		2,
+	)
+
+	if diff := cmp.Diff(childID, child.SessionID()); diff != "" {
+		t.Errorf("SessionID() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(parentID, child.ParentSessionID()); diff != "" {
+		t.Errorf("ParentSessionID() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(types.EventID("spawn-event"), child.SpawnEventID()); diff != "" {
+		t.Errorf("SpawnEventID() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff("worker", child.SubagentKind()); diff != "" {
+		t.Errorf("SubagentKind() mismatch (-want +got):\n%s", diff)
+	}
+	if spawnOrder, ok := child.SpawnOrder().Value(); !ok {
+		t.Errorf("SpawnOrder() should be present")
+	} else if diff := cmp.Diff(2, spawnOrder); diff != "" {
+		t.Errorf("SpawnOrder() mismatch (-want +got):\n%s", diff)
 	}
 }
 

@@ -49,6 +49,9 @@ func TestRootCLI_SessionTreeCommand_JSON(t *testing.T) {
 					"",
 					"",
 					types.SessionID("root-session"),
+					types.EventID("spawn-event"),
+					"task",
+					types.Some(1),
 				),
 			},
 		}
@@ -97,6 +100,15 @@ func TestRootCLI_SessionTreeCommand_JSON(t *testing.T) {
 		// Verify nested children
 		if !strings.Contains(output, `"session_id": "child-session"`) {
 			t.Fatalf("JSON output should contain child session_id, got: %s", output)
+		}
+		if !strings.Contains(output, `"spawn_event_id": "spawn-event"`) {
+			t.Fatalf("JSON output should contain child spawn_event_id, got: %s", output)
+		}
+		if !strings.Contains(output, `"subagent_kind": "task"`) {
+			t.Fatalf("JSON output should contain child subagent_kind, got: %s", output)
+		}
+		if !strings.Contains(output, `"spawn_order": 1`) {
+			t.Fatalf("JSON output should contain child spawn_order, got: %s", output)
 		}
 		// Child has no ended_at so no duration_sec -- just verify it's nested in children
 		if !strings.Contains(output, `"children"`) {
