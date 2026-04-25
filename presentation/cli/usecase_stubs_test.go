@@ -428,6 +428,30 @@ func (s *memoryUsecaseStub) Show(_ context.Context, memoryID types.MemoryID) (ap
 	return s.showDetails, s.showErr
 }
 
+func (s *memoryUsecaseStub) Extract(_ context.Context, _ apptypes.MemoryExtractionCriteria) ([]apptypes.MemoryDetails, error) {
+	return nil, nil
+}
+
+func (s *memoryUsecaseStub) ImportCodex(_ context.Context, _ apptypes.CodexImportCriteria) (apptypes.MemoryImportResult, error) {
+	return apptypes.MemoryImportResult{}, nil
+}
+
+func (s *memoryUsecaseStub) ImportInstructions(_ context.Context, _ apptypes.MemoryBridgeImportCriteria) (apptypes.MemoryBridgeImportResult, error) {
+	return apptypes.MemoryBridgeImportResult{}, nil
+}
+
+func (s *memoryUsecaseStub) Scan(_ context.Context, _ apptypes.MemoryHygieneScanCriteria) (apptypes.MemoryHygieneScanResult, error) {
+	return apptypes.MemoryHygieneScanResult{}, nil
+}
+
+func (s *memoryUsecaseStub) Apply(_ context.Context, _ apptypes.MemoryHygieneApplyCriteria) (apptypes.MemoryHygieneApplyResult, error) {
+	return apptypes.MemoryHygieneApplyResult{}, nil
+}
+
+func (s *memoryUsecaseStub) Export(_ context.Context, _ apptypes.MemoryExportCriteria) (apptypes.MemoryExportResult, error) {
+	return apptypes.MemoryExportResult{}, nil
+}
+
 // storeManagementUsecaseStub implements usecase.StoreManagementUsecase for testing.
 type storeManagementUsecaseStub struct {
 	initCalled      bool

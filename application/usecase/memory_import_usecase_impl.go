@@ -14,7 +14,7 @@ import (
 )
 
 type memoryImportUsecase struct {
-	memoryUsecase       MemoryUsecase
+	memoryUsecase       memoryProposer
 	memoryQuery         queryservice.MemoryQueryService
 	codexSource         application.CodexMemorySource
 	extraRedactPatterns []string
@@ -23,14 +23,22 @@ type memoryImportUsecase struct {
 // NewMemoryImportUsecase creates a MemoryImportUsecase. The sanitizer uses
 // the same extra redaction patterns as the durable-memory write path so a
 // single config source covers both manual writes and imports.
+//
+// Deprecated: use NewMemoryUsecase with MemoryUsecaseDependencies and call ImportCodex.
 func NewMemoryImportUsecase(
-	memoryUsecase MemoryUsecase,
+	memory memoryProposer,
 	memoryQuery queryservice.MemoryQueryService,
 	codexSource application.CodexMemorySource,
 	extraRedactPatterns []string,
 ) MemoryImportUsecase {
+	if facade, ok := memory.(*memoryUsecase); ok {
+		facade.memoryQuery = memoryQuery
+		facade.codexSource = codexSource
+		facade.extraRedactPatterns = slices.Clone(extraRedactPatterns)
+		return facade
+	}
 	return &memoryImportUsecase{
-		memoryUsecase:       memoryUsecase,
+		memoryUsecase:       memory,
 		memoryQuery:         memoryQuery,
 		codexSource:         codexSource,
 		extraRedactPatterns: slices.Clone(extraRedactPatterns),

@@ -20,8 +20,10 @@ type memoryExportUsecase struct {
 }
 
 // NewMemoryExportUsecase creates a MemoryExportUsecase.
+//
+// Deprecated: use NewMemoryUsecase and call Export.
 func NewMemoryExportUsecase(memoryQuery queryservice.MemoryQueryService) MemoryExportUsecase {
-	return &memoryExportUsecase{memoryQuery: memoryQuery}
+	return NewMemoryUsecase(nil, memoryQuery, nil)
 }
 
 // MemoryBridgeMarkerBegin / End wrap every block Traceary manages inside a

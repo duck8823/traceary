@@ -10,6 +10,9 @@ linters:
       - linters:
           - staticcheck
         text: 'SA1019: "golang.org/x/xerrors"'
+      - linters:
+          - staticcheck
+        text: 'SA1019: usecase\.(NewMemory(Extraction|Import|Export|BridgeImport|Hygiene)Usecase|Memory(Extraction|Import|Export|BridgeImport|Hygiene)Usecase) is deprecated:'
       - path: ".*/types/[^/]+\\.go"
         text: "var-naming: avoid meaningless package names"
         linters:

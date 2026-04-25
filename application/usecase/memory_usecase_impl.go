@@ -8,6 +8,7 @@ import (
 
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/redaction"
 	apptypes "github.com/duck8823/traceary/application/types"
@@ -18,20 +19,42 @@ import (
 type memoryUsecase struct {
 	memoryRepo          model.MemoryRepository
 	memoryQuery         queryservice.MemoryQueryService
+	sessionQuery        queryservice.SessionQueryService
+	eventQuery          queryservice.EventQueryService
+	codexSource         application.CodexMemorySource
 	extraRedactPatterns []string
 }
 
-// NewMemoryUsecase creates a MemoryUsecase.
+// MemoryUsecaseDependencies carries the optional dependency set needed by
+// capture, hygiene, and export methods on the consolidated MemoryUsecase.
+//
+// The parameter remains optional during the adapter-shim transition so legacy
+// lifecycle/query-only call sites keep compiling until DI is collapsed.
+type MemoryUsecaseDependencies struct {
+	SessionQuery queryservice.SessionQueryService
+	EventQuery   queryservice.EventQueryService
+	CodexSource  application.CodexMemorySource
+}
+
+// NewMemoryUsecase creates a consolidated MemoryUsecase facade.
 func NewMemoryUsecase(
 	memoryRepo model.MemoryRepository,
 	memoryQuery queryservice.MemoryQueryService,
 	extraRedactPatterns []string,
+	optionalDeps ...MemoryUsecaseDependencies,
 ) MemoryUsecase {
-	return &memoryUsecase{
+	usecase := &memoryUsecase{
 		memoryRepo:          memoryRepo,
 		memoryQuery:         memoryQuery,
 		extraRedactPatterns: slices.Clone(extraRedactPatterns),
 	}
+	if len(optionalDeps) > 0 {
+		deps := optionalDeps[0]
+		usecase.sessionQuery = deps.SessionQuery
+		usecase.eventQuery = deps.EventQuery
+		usecase.codexSource = deps.CodexSource
+	}
+	return usecase
 }
 
 func (u *memoryUsecase) Remember(
@@ -447,6 +470,52 @@ func (u *memoryUsecase) Show(ctx context.Context, memoryID domtypes.MemoryID) (a
 		return apptypes.MemoryDetails{}, xerrors.Errorf("failed to get memory details: %w", err)
 	}
 	return details, nil
+}
+
+func (u *memoryUsecase) Extract(ctx context.Context, criteria apptypes.MemoryExtractionCriteria) ([]apptypes.MemoryDetails, error) {
+	return (&memoryExtractionUsecase{
+		sessionQuery:        u.sessionQuery,
+		eventQuery:          u.eventQuery,
+		memory:              u,
+		extraRedactPatterns: slices.Clone(u.extraRedactPatterns),
+	}).Extract(ctx, criteria)
+}
+
+func (u *memoryUsecase) ImportCodex(ctx context.Context, criteria apptypes.CodexImportCriteria) (apptypes.MemoryImportResult, error) {
+	return (&memoryImportUsecase{
+		memoryUsecase:       u,
+		memoryQuery:         u.memoryQuery,
+		codexSource:         u.codexSource,
+		extraRedactPatterns: slices.Clone(u.extraRedactPatterns),
+	}).ImportCodex(ctx, criteria)
+}
+
+func (u *memoryUsecase) ImportInstructions(ctx context.Context, criteria apptypes.MemoryBridgeImportCriteria) (apptypes.MemoryBridgeImportResult, error) {
+	return (&memoryBridgeImportUsecase{
+		memoryUsecase:       u,
+		memoryQuery:         u.memoryQuery,
+		extraRedactPatterns: slices.Clone(u.extraRedactPatterns),
+	}).ImportInstructions(ctx, criteria)
+}
+
+func (u *memoryUsecase) Scan(ctx context.Context, criteria apptypes.MemoryHygieneScanCriteria) (apptypes.MemoryHygieneScanResult, error) {
+	return (&memoryHygieneUsecase{
+		memory:              u,
+		memoryQuery:         u.memoryQuery,
+		extraRedactPatterns: slices.Clone(u.extraRedactPatterns),
+	}).Scan(ctx, criteria)
+}
+
+func (u *memoryUsecase) Apply(ctx context.Context, criteria apptypes.MemoryHygieneApplyCriteria) (apptypes.MemoryHygieneApplyResult, error) {
+	return (&memoryHygieneUsecase{
+		memory:              u,
+		memoryQuery:         u.memoryQuery,
+		extraRedactPatterns: slices.Clone(u.extraRedactPatterns),
+	}).Apply(ctx, criteria)
+}
+
+func (u *memoryUsecase) Export(ctx context.Context, criteria apptypes.MemoryExportCriteria) (apptypes.MemoryExportResult, error) {
+	return (&memoryExportUsecase{memoryQuery: u.memoryQuery}).Export(ctx, criteria)
 }
 
 func (u *memoryUsecase) findMemoryByID(ctx context.Context, memoryID domtypes.MemoryID) (*model.Memory, error) {

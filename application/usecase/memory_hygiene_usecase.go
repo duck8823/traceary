@@ -6,11 +6,11 @@ import (
 	apptypes "github.com/duck8823/traceary/application/types"
 )
 
-// MemoryHygieneUsecase surfaces suggestions for accepted durable memories
-// that need attention — redaction patterns now mask their content, the
-// memory has gone stale, or another accepted memory duplicates it — and
-// applies the matching lifecycle transitions when the operator commits
-// a subset of those suggestions.
+// MemoryHygieneUsecase is a legacy adapter interface for hygiene behavior now
+// exposed by MemoryUsecase.
+//
+// Deprecated: use MemoryUsecase.Scan and MemoryUsecase.Apply instead. This
+// shim remains until DI is collapsed in the follow-up consolidation PR.
 type MemoryHygieneUsecase interface {
 	Scan(ctx context.Context, criteria apptypes.MemoryHygieneScanCriteria) (apptypes.MemoryHygieneScanResult, error)
 	// Apply commits the lifecycle transition implied by each matching
