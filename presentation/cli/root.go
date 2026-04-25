@@ -4,30 +4,32 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/duck8823/traceary/application"
+	"github.com/duck8823/traceary/application/redaction"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/presentation"
 )
 
 // RootCLI provides the Traceary root command.
 type RootCLI struct {
-	event                usecase.EventUsecase
-	session              usecase.SessionUsecase
-	memory               usecase.MemoryUsecase
-	memoryEdge           usecase.MemoryEdgeUsecase
-	bundle               usecase.BundleUsecase
-	context              usecase.ContextUsecase
-	replay               usecase.ReplayUsecase
-	codexIntegration     usecase.CodexIntegrationUsecase
-	storeManagement      usecase.StoreManagementUsecase
-	mcpServerRunner      MCPServerRunner
-	hooksOrchestrator    application.HooksOrchestrator
-	hooksInspector       application.HooksInspector
-	pluginCacheInspector application.PluginCacheInspector
-	pluginDetector       application.ClaudePluginDetector
-	extraRedactPatterns  []string
-	defaultReadFields    []string
-	readPresets          map[string]presentation.ReadPreset
-	defaultReadColor     string
+	event                 usecase.EventUsecase
+	session               usecase.SessionUsecase
+	memory                usecase.MemoryUsecase
+	memoryEdge            usecase.MemoryEdgeUsecase
+	bundle                usecase.BundleUsecase
+	context               usecase.ContextUsecase
+	replay                usecase.ReplayUsecase
+	codexIntegration      usecase.CodexIntegrationUsecase
+	storeManagement       usecase.StoreManagementUsecase
+	mcpServerRunner       MCPServerRunner
+	hooksOrchestrator     application.HooksOrchestrator
+	hooksInspector        application.HooksInspector
+	pluginCacheInspector  application.PluginCacheInspector
+	pluginDetector        application.ClaudePluginDetector
+	extraRedactPatterns   []string
+	structuredRedactRules []redaction.RuleConfig
+	defaultReadFields     []string
+	readPresets           map[string]presentation.ReadPreset
+	defaultReadColor      string
 	// databasePathSetter is invoked by each subcommand's RunE after it
 	// resolves --db-path / TRACEARY_DB_PATH, so the shared Database
 	// instance opens the user-specified path instead of the composition-
@@ -127,6 +129,11 @@ func WithClaudePluginDetector(detector application.ClaudePluginDetector) RootCLI
 // by the audit command.
 func WithExtraRedactPatterns(patterns []string) RootCLIOption {
 	return func(c *RootCLI) { c.extraRedactPatterns = patterns }
+}
+
+// WithStructuredRedactRules injects named/configurable redaction rules.
+func WithStructuredRedactRules(rules []redaction.RuleConfig) RootCLIOption {
+	return func(c *RootCLI) { c.structuredRedactRules = rules }
 }
 
 // WithDefaultReadFields injects the default column order used by tail / list

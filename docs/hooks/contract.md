@@ -18,7 +18,7 @@ This document defines the hook capability tiers across AI agent clients.
 | PostToolUseFailure | `Bash`, `mcp__.*`, built-in tools | Record failed tool execution |
 | PostCompact | `*` | Record compact summary |
 | UserPromptSubmit | `*` | Record user prompt text |
-| Stop | `*` | Record last assistant message from `transcript_path` as a `transcript` event (built-in secret redaction + operator-configured `redact.extra_patterns` applied) |
+| Stop | `*` | Record last assistant message from `transcript_path` as a `transcript` event (built-in secret redaction + operator-configured `redact.rules` / `redact.extra_patterns` applied) |
 | SessionStart (compact) (planned) | `compact` | Inject context pointer via stdout |
 
 ### Tier 2: Partial (Codex)
@@ -27,7 +27,7 @@ This document defines the hook capability tiers across AI agent clients.
 |---|---|---|
 | SessionStart | (all) | Record session start |
 | UserPromptSubmit | (all) | Record user prompt text |
-| Stop | (all) | Record session end and the final assistant message (from `last_assistant_message`) as a `transcript` event (built-in secret redaction + operator-configured `redact.extra_patterns` applied) |
+| Stop | (all) | Record session end and the final assistant message (from `last_assistant_message`) as a `transcript` event (built-in secret redaction + operator-configured `redact.rules` / `redact.extra_patterns` applied) |
 | PostToolUse | (all) | Record tool audit |
 
 **Limitations**: No SessionEnd (uses Stop instead), no compact hooks, no failure-specific event.
@@ -38,7 +38,7 @@ This document defines the hook capability tiers across AI agent clients.
 |---|---|---|
 | SessionStart | `*` | Record session start |
 | SessionEnd | `*` | Record session end |
-| AfterAgent | `*` | Record the agent response (from `prompt_response`) as a `transcript` event (built-in secret redaction + operator-configured `redact.extra_patterns` applied) |
+| AfterAgent | `*` | Record the agent response (from `prompt_response`) as a `transcript` event (built-in secret redaction + operator-configured `redact.rules` / `redact.extra_patterns` applied) |
 | AfterTool | `*` | Record tool audit |
 
 **Limitations**: No compact hooks, no failure-specific event, no PostCompact/SessionStart(compact). Gemini has no Stop event, so transcript capture is attached to `AfterAgent` instead.

@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/duck8823/traceary/application/redaction"
 	"github.com/duck8823/traceary/presentation"
 )
 
@@ -88,6 +89,47 @@ func TestLoadConfig_returnsReadFieldsAlongsideRedact(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_returnsStructuredRedactRules(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configDir := filepath.Join(home, ".config", "traceary")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configJSON := `{
+		"redact": {
+			"extra_patterns": ["legacy"],
+			"rules": [
+				{
+					"name": "internal-token",
+					"pattern": "INT-[A-Z0-9]{16}",
+					"replacement": "[INT-TOKEN]",
+					"targets": ["audit.input"]
+				},
+				{
+					"name": "password-fields",
+					"type": "field",
+					"fields": ["password"]
+				}
+			]
+		}
+	}`
+	if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(configJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := presentation.LoadConfig()
+
+	want := []redaction.RuleConfig{
+		{Name: "internal-token", Pattern: "INT-[A-Z0-9]{16}", Replacement: "[INT-TOKEN]", Targets: []string{"audit.input"}},
+		{Name: "password-fields", Type: "field", Fields: []string{"password"}},
+	}
+	if diff := cmp.Diff(want, cfg.StructuredRedactRules); diff != "" {
+		t.Fatalf("StructuredRedactRules mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestLoadConfig_returnsZeroValueWhenFileMissing(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
@@ -95,6 +137,9 @@ func TestLoadConfig_returnsZeroValueWhenFileMissing(t *testing.T) {
 
 	if len(cfg.ExtraRedactPatterns) != 0 {
 		t.Errorf("expected empty ExtraRedactPatterns, got %v", cfg.ExtraRedactPatterns)
+	}
+	if len(cfg.StructuredRedactRules) != 0 {
+		t.Errorf("expected empty StructuredRedactRules, got %v", cfg.StructuredRedactRules)
 	}
 	if len(cfg.ReadFields) != 0 {
 		t.Errorf("expected empty ReadFields, got %v", cfg.ReadFields)

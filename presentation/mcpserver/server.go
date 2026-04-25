@@ -8,6 +8,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application/redaction"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
@@ -27,20 +28,22 @@ const (
 
 // Server provides the Traceary MCP server.
 type Server struct {
-	serverName          string
-	serverVersion       string
-	extraRedactPatterns []string
-	event               usecase.EventUsecase
-	session             usecase.SessionUsecase
-	memory              usecase.MemoryUsecase
-	context             usecase.ContextUsecase
-	storeManagement     usecase.StoreManagementUsecase
+	serverName            string
+	serverVersion         string
+	extraRedactPatterns   []string
+	structuredRedactRules []redaction.RuleConfig
+	event                 usecase.EventUsecase
+	session               usecase.SessionUsecase
+	memory                usecase.MemoryUsecase
+	context               usecase.ContextUsecase
+	storeManagement       usecase.StoreManagementUsecase
 }
 
 // NewServer creates a new MCP server.
 func NewServer(
 	serverVersion string,
 	extraRedactPatterns []string,
+	structuredRedactRules []redaction.RuleConfig,
 	event usecase.EventUsecase,
 	session usecase.SessionUsecase,
 	memory usecase.MemoryUsecase,
@@ -69,14 +72,15 @@ func NewServer(
 	}
 
 	return &Server{
-		serverName:          defaultServerName,
-		serverVersion:       trimmedVersion,
-		extraRedactPatterns: extraRedactPatterns,
-		event:               event,
-		session:             session,
-		memory:              memory,
-		context:             contextUsecase,
-		storeManagement:     storeManagement,
+		serverName:            defaultServerName,
+		serverVersion:         trimmedVersion,
+		extraRedactPatterns:   extraRedactPatterns,
+		structuredRedactRules: structuredRedactRules,
+		event:                 event,
+		session:               session,
+		memory:                memory,
+		context:               contextUsecase,
+		storeManagement:       storeManagement,
 	}, nil
 }
 
@@ -325,7 +329,7 @@ func (s *Server) recordEvent() mcp.ToolHandlerFor[recordEventInput, recordEventO
 			if strings.TrimSpace(input.Message) == "" {
 				return nil, recordEventOutput{}, xerrors.Errorf("record_event type log requires message")
 			}
-			logCfg := apptypes.NewLogRedactionBuilder().ExtraRedactPatterns(s.extraRedactPatterns).Build()
+			logCfg := apptypes.NewLogRedactionBuilder().ExtraRedactPatterns(s.extraRedactPatterns).StructuredRules(s.structuredRedactRules).Build()
 			event, err := s.event.Log(ctx, input.Message, types.EventKind(strings.TrimSpace(input.Kind)), types.Client(resolveValue(input.Client, defaultClientValue)), types.Agent(resolveValue(input.Agent, defaultAgentValue)), types.SessionID(resolveValue(input.SessionID, defaultSessionValue)), types.Workspace(strings.TrimSpace(input.Workspace)), logCfg)
 			if err != nil {
 				return nil, recordEventOutput{}, xerrors.Errorf("failed to record log: %w", err)
@@ -336,7 +340,7 @@ func (s *Server) recordEvent() mcp.ToolHandlerFor[recordEventInput, recordEventO
 			if strings.TrimSpace(input.Command) == "" {
 				return nil, recordEventOutput{}, xerrors.Errorf("record_event type audit requires command")
 			}
-			auditCfg := apptypes.NewAuditRedactionBuilder().ExtraRedactPatterns(s.extraRedactPatterns).Build()
+			auditCfg := apptypes.NewAuditRedactionBuilder().ExtraRedactPatterns(s.extraRedactPatterns).StructuredRules(s.structuredRedactRules).Build()
 			event, audit, err := s.event.Audit(ctx, input.Command, input.Input, input.Output, types.Client(resolveValue(input.Client, defaultClientValue)), types.Agent(resolveValue(input.Agent, defaultAgentValue)), types.SessionID(resolveValue(input.SessionID, defaultSessionValue)), types.Workspace(strings.TrimSpace(input.Workspace)), types.None[int](), auditCfg)
 			if err != nil {
 				return nil, recordEventOutput{}, xerrors.Errorf("failed to record command audit: %w", err)

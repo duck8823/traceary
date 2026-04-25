@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+
+	"github.com/duck8823/traceary/application/redaction"
 )
 
 // configFile mirrors the on-disk JSON layout. It is intentionally unexported
@@ -15,7 +17,8 @@ type configFile struct {
 }
 
 type redactSection struct {
-	ExtraPatterns []string `json:"extra_patterns"`
+	ExtraPatterns []string               `json:"extra_patterns"`
+	Rules         []redaction.RuleConfig `json:"rules"`
 }
 
 type readSection struct {
@@ -51,6 +54,9 @@ type Config struct {
 	// ExtraRedactPatterns are additional regex patterns applied on top of the
 	// built-in audit redaction rules. Nil / empty means "no extras".
 	ExtraRedactPatterns []string
+	// StructuredRedactRules are named/configurable redaction rules applied
+	// alongside ExtraRedactPatterns. Nil / empty means "no configured structured rules".
+	StructuredRedactRules []redaction.RuleConfig
 	// ReadFields is the default column order applied to tail / list / search
 	// text output when the user does not pass --fields. Nil / empty means
 	// "fall back to the built-in default column order".
@@ -95,10 +101,11 @@ func LoadConfig() Config {
 		return Config{}
 	}
 	return Config{
-		ExtraRedactPatterns: file.Redact.ExtraPatterns,
-		ReadFields:          file.Read.Fields,
-		ReadPresets:         toReadPresetMap(file.Read.Presets),
-		ReadColor:           file.Read.Color,
+		ExtraRedactPatterns:   file.Redact.ExtraPatterns,
+		StructuredRedactRules: file.Redact.Rules,
+		ReadFields:            file.Read.Fields,
+		ReadPresets:           toReadPresetMap(file.Read.Presets),
+		ReadColor:             file.Read.Color,
 	}
 }
 

@@ -412,6 +412,7 @@ func (c *RootCLI) runHookAudit(
 
 	auditCfg := apptypes.NewAuditRedactionBuilder().
 		ExtraRedactPatterns(c.extraRedactPatterns).
+		StructuredRules(c.structuredRedactRules).
 		Build()
 	_, _, err = c.event.Audit(
 		ctx,
@@ -834,6 +835,7 @@ func (c *RootCLI) runHookTranscript(
 	// intact for block-aware downstream readers.
 	logCfg := apptypes.NewLogRedactionBuilder().
 		ExtraRedactPatterns(c.extraRedactPatterns).
+		StructuredRules(c.structuredRedactRules).
 		Build()
 
 	sessionID, err := resolveHookSessionID(payload, client)

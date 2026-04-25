@@ -183,6 +183,7 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		MaxInputBytes(maxInputBytes).
 		MaxOutputBytes(maxOutputBytes).
 		ExtraRedactPatterns(c.extraRedactPatterns).
+		StructuredRules(c.structuredRedactRules).
 		Build()
 	event, commandAudit, err := c.event.Audit(ctx,
 		input.command, input.input, input.output,

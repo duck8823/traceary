@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/duck8823/traceary/application/redaction"
 	apptypes "github.com/duck8823/traceary/application/types"
 )
 
@@ -73,5 +74,24 @@ func TestAuditRedaction_ExtraRedactPatternsDefensiveCopy(t *testing.T) {
 	returned[0] = "mutated-return"
 	if diff := cmp.Diff([]string{`password=\S+`, `token=\S+`}, redaction.ExtraRedactPatterns()); diff != "" {
 		t.Errorf("ExtraRedactPatterns() is not a defensive copy (-want +got):\n%s", diff)
+	}
+}
+
+func TestAuditRedaction_StructuredRulesDefensiveCopy(t *testing.T) {
+	t.Parallel()
+
+	original := []redaction.RuleConfig{{Name: "internal", Pattern: `INT-\w+`}}
+	redactionCfg := apptypes.NewAuditRedactionBuilder().
+		StructuredRules(original).
+		Build()
+	original[0].Name = "mutated"
+
+	if got := redactionCfg.StructuredRules(); got[0].Name != "internal" {
+		t.Fatalf("StructuredRules() = %v, builder did not copy input", got)
+	}
+	returned := redactionCfg.StructuredRules()
+	returned[0].Name = "mutated"
+	if got := redactionCfg.StructuredRules(); got[0].Name != "internal" {
+		t.Fatalf("StructuredRules() = %v, getter did not copy output", got)
 	}
 }

@@ -118,6 +118,7 @@ func (c *RootCLI) runLog(ctx context.Context, output io.Writer, input logCommand
 	// pass through the zero-value LogRedaction unchanged.
 	logCfg := apptypes.NewLogRedactionBuilder().
 		ExtraRedactPatterns(c.extraRedactPatterns).
+		StructuredRules(c.structuredRedactRules).
 		Build()
 	event, err := c.event.Log(ctx, message, kind, client, agent, sessionID, workspace, logCfg)
 	if err != nil {

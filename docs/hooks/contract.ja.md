@@ -18,7 +18,7 @@
 | PostToolUseFailure | `Bash`, `mcp__.*`, 組み込みツール | 失敗したツール実行を記録 |
 | PostCompact | `*` | compact サマリーを記録 |
 | UserPromptSubmit | `*` | ユーザーの指示テキストを記録 |
-| Stop | `*` | `transcript_path` から最後の assistant メッセージを読み取り `transcript` event として記録（既知 secret の redaction + オペレーター設定の `redact.extra_patterns` を適用） |
+| Stop | `*` | `transcript_path` から最後の assistant メッセージを読み取り `transcript` event として記録（既知 secret の redaction + オペレーター設定の `redact.rules` / `redact.extra_patterns` を適用） |
 | SessionStart (compact) (予定) | `compact` | stdout 経由でコンテキストポインタを注入 |
 
 ### Tier 2: 部分対応 (Codex)
@@ -27,7 +27,7 @@
 |---|---|---|
 | SessionStart | (全て) | セッション開始を記録 |
 | UserPromptSubmit | (全て) | ユーザーの指示テキストを記録 |
-| Stop | (全て) | セッション終了を記録し、`last_assistant_message` から最終 assistant メッセージを `transcript` event として記録（既知 secret の redaction + オペレーター設定の `redact.extra_patterns` を適用） |
+| Stop | (全て) | セッション終了を記録し、`last_assistant_message` から最終 assistant メッセージを `transcript` event として記録（既知 secret の redaction + オペレーター設定の `redact.rules` / `redact.extra_patterns` を適用） |
 | PostToolUse | (全て) | ツール監査を記録 |
 
 **制限**: SessionEnd なし（Stop を使用）、compact hooks なし、failure 専用イベントなし。
@@ -38,7 +38,7 @@
 |---|---|---|
 | SessionStart | `*` | セッション開始を記録 |
 | SessionEnd | `*` | セッション終了を記録 |
-| AfterAgent | `*` | `prompt_response` から agent 応答を `transcript` event として記録（既知 secret の redaction + オペレーター設定の `redact.extra_patterns` を適用） |
+| AfterAgent | `*` | `prompt_response` から agent 応答を `transcript` event として記録（既知 secret の redaction + オペレーター設定の `redact.rules` / `redact.extra_patterns` を適用） |
 | AfterTool | `*` | ツール監査を記録 |
 
 **制限**: compact hooks なし、failure 専用イベントなし。Gemini には Stop event が存在しないため、transcript 取得は `AfterAgent` に紐付けている。

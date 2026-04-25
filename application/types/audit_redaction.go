@@ -1,6 +1,10 @@
 package types
 
-import "slices"
+import (
+	"slices"
+
+	"github.com/duck8823/traceary/application/redaction"
+)
 
 // AuditRedaction holds redaction and truncation settings for command audit recording.
 type AuditRedaction struct {
@@ -8,6 +12,7 @@ type AuditRedaction struct {
 	maxInputBytes       int
 	maxOutputBytes      int
 	extraRedactPatterns []string
+	structuredRules     []redaction.RuleConfig
 }
 
 // AllowSecrets reports whether default secret redaction should be bypassed.
@@ -22,6 +27,11 @@ func (r AuditRedaction) MaxOutputBytes() int { return r.maxOutputBytes }
 // ExtraRedactPatterns returns additional redaction regex patterns.
 func (r AuditRedaction) ExtraRedactPatterns() []string {
 	return slices.Clone(r.extraRedactPatterns)
+}
+
+// StructuredRules returns configured structured redaction rules.
+func (r AuditRedaction) StructuredRules() []redaction.RuleConfig {
+	return slices.Clone(r.structuredRules)
 }
 
 // AuditRedactionBuilder builds an AuditRedaction value.
@@ -55,6 +65,12 @@ func (b *AuditRedactionBuilder) MaxOutputBytes(n int) *AuditRedactionBuilder {
 // ExtraRedactPatterns sets additional redaction regex patterns.
 func (b *AuditRedactionBuilder) ExtraRedactPatterns(patterns []string) *AuditRedactionBuilder {
 	b.redaction.extraRedactPatterns = slices.Clone(patterns)
+	return b
+}
+
+// StructuredRules sets structured redaction rules.
+func (b *AuditRedactionBuilder) StructuredRules(rules []redaction.RuleConfig) *AuditRedactionBuilder {
+	b.redaction.structuredRules = slices.Clone(rules)
 	return b
 }
 

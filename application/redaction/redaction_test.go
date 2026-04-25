@@ -113,3 +113,117 @@ func TestCompileExtraPatterns(t *testing.T) {
 		}
 	})
 }
+
+func TestApplyWithRules_FieldRuleRedactsJSONKeysAndPaths(t *testing.T) {
+	t.Parallel()
+
+	rules, err := redaction.CompileRules(nil, []redaction.RuleConfig{
+		{
+			Name:        "sensitive-fields",
+			Type:        "field",
+			Fields:      []string{"credential"},
+			Paths:       []string{"nested.apiKey"},
+			Replacement: "[FIELD]",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CompileRules() error = %v", err)
+	}
+
+	got, fired := redaction.ApplyWithRules(`{"credential":"plain-value","nested":{"apiKey":"abc123"},"safe":"keep"}`, rules, "audit.input")
+	if !fired {
+		t.Fatalf("ApplyWithRules() fired = false, want true")
+	}
+	for _, leaked := range []string{"plain-value", "abc123"} {
+		if strings.Contains(got, leaked) {
+			t.Errorf("ApplyWithRules() = %q, leaked %q", got, leaked)
+		}
+	}
+	if !strings.Contains(got, `"safe":"keep"`) {
+		t.Errorf("ApplyWithRules() = %q, expected safe field to remain", got)
+	}
+}
+
+func TestApplyWithRules_URLRuleRedactsUserInfoAndConfiguredQueryParams(t *testing.T) {
+	t.Parallel()
+
+	rules, err := redaction.CompileRules(nil, []redaction.RuleConfig{
+		{
+			Name:        "signed-url",
+			Type:        "url",
+			QueryParams: []string{"signature"},
+			Replacement: "[URL-SECRET]",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CompileRules() error = %v", err)
+	}
+
+	got, fired := redaction.ApplyWithRules("fetch https://user:pass@example.com/path?signature=abc&keep=1", rules, "audit.input")
+	if !fired {
+		t.Fatalf("ApplyWithRules() fired = false, want true")
+	}
+	for _, leaked := range []string{"user:pass", "signature=abc"} {
+		if strings.Contains(got, leaked) {
+			t.Errorf("ApplyWithRules() = %q, leaked %q", got, leaked)
+		}
+	}
+	if !strings.Contains(got, "keep=1") || !strings.Contains(got, "signature=%5BURL-SECRET%5D") {
+		t.Errorf("ApplyWithRules() = %q, expected redacted signature and preserved query", got)
+	}
+}
+
+func TestApplyWithRules_ContextRuleOnlyRedactsSecretShapesForSensitiveKeys(t *testing.T) {
+	t.Parallel()
+
+	rules, err := redaction.CompileRules(nil, []redaction.RuleConfig{
+		{
+			Name:      "credential-shapes",
+			Type:      "context",
+			Fields:    []string{"credential"},
+			MinLength: 24,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CompileRules() error = %v", err)
+	}
+
+	got, fired := redaction.ApplyWithRules(`{"credential":"0123456789abcdef0123456789abcdef","note":"0123456789abcdef0123456789abcdef","short":"abc"}`, rules, "audit.input")
+	if !fired {
+		t.Fatalf("ApplyWithRules() fired = false, want true")
+	}
+	if strings.Contains(got, `"credential":"0123456789abcdef0123456789abcdef"`) {
+		t.Errorf("ApplyWithRules() = %q, expected credential to be redacted", got)
+	}
+	if !strings.Contains(got, `"note":"0123456789abcdef0123456789abcdef"`) {
+		t.Errorf("ApplyWithRules() = %q, expected non-sensitive surrounding key to remain", got)
+	}
+}
+
+func TestApplyWithRules_RegexRuleSupportsReplacementAndTargetScoping(t *testing.T) {
+	t.Parallel()
+
+	rules, err := redaction.CompileRules([]string{`legacy-secret=\S+`}, []redaction.RuleConfig{
+		{
+			Name:        "input-only",
+			Pattern:     `INTERNAL-[A-Z0-9]+`,
+			Replacement: "[INTERNAL]",
+			Targets:     []string{"audit.input"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CompileRules() error = %v", err)
+	}
+
+	input, inputFired := redaction.ApplyWithRules("INTERNAL-ABC legacy-secret=value", rules, "audit.input")
+	output, outputFired := redaction.ApplyWithRules("INTERNAL-ABC legacy-secret=value", rules, "audit.output")
+	if !inputFired || !outputFired {
+		t.Fatalf("ApplyWithRules() fired = (%v, %v), want both true because legacy rule applies everywhere", inputFired, outputFired)
+	}
+	if !strings.Contains(input, "[INTERNAL]") || strings.Contains(input, "legacy-secret=value") {
+		t.Errorf("input ApplyWithRules() = %q", input)
+	}
+	if !strings.Contains(output, "INTERNAL-ABC") || strings.Contains(output, "legacy-secret=value") {
+		t.Errorf("output ApplyWithRules() = %q", output)
+	}
+}

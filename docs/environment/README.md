@@ -39,7 +39,8 @@ Traceary reads an optional JSON configuration file from `~/.config/traceary/conf
 
 | Key | Type | Purpose |
 | --- | --- | --- |
-| `redact.extra_patterns` | string array | Extra regex patterns for audit and transcript redaction. Each entry is compiled as a Go `regexp` pattern and matched content is replaced with `[REDACTED]`. Applied after the built-in redaction rules in both the CLI (`traceary audit`, `traceary log --kind transcript`, Claude Stop-hook transcript capture) and MCP server (`record_event(type="audit")`, `record_event(type="log")` with `kind=transcript`). |
+| `redact.extra_patterns` | string array | Backward-compatible extra regex patterns for audit and transcript redaction. Each entry is compiled as a Go `regexp` pattern and matched content is replaced with `[REDACTED]`. Applied after the built-in redaction rules in both the CLI (`traceary audit`, `traceary log --kind transcript`, Claude Stop-hook transcript capture) and MCP server (`record_event(type="audit")`, `record_event(type="log")` with `kind=transcript`). |
+| `redact.rules` | object array | Structured redaction rules applied alongside `extra_patterns`. Rules may be named, scoped to targets (`audit.input`, `audit.output`, `log.message`), and may set a custom `replacement`. Supported types: `regex` (`pattern`), `field` (`fields` or dotted JSON `paths`), `url` (`query_params` plus built-in URL credential masking), and `context` (`fields` + secret-shaped values such as JWT / long hex / long base64, with optional `min_length`). Built-in redaction remains a safety floor and cannot be disabled. |
 | `read.fields` | string array | Default compact column order for `traceary tail` / `list` / `search` text output when `--fields` is omitted. Accepted field names: `ts`, `kind`, `session`, `ws`, `client`, `agent`, `message`, `exit_code`, `id`. Unknown / empty / duplicate entries are rejected at command runtime; the `--fields` flag always overrides this setting. Does not affect `--wide` or `--json` output. |
 | `read.presets` | object | Named saved views for `traceary tail` / `list` / `search`, applied via `--preset <name>`. Each entry can set `fields` (same registry as `read.fields`) and `filters` (any of `kind`, `failures`, `workspace`, `session_id`, `client`, `agent`). Explicit CLI flags always override preset values. Entries whose name collides with a built-in preset (`failures`, `prompts-only`, `compact-summaries`) win over the built-in but emit a `[WARN]` line on stderr. |
 | `read.color` | string | Default `--color` mode for `traceary tail` / `list` / `search` compact text output. Accepted values: `auto`, `always`, `never`. `auto` colorizes only when stdout is a TTY. `NO_COLOR` env and explicit `--color=never` always win over the config. `--wide` and `--json` output are always uncolored regardless of this setting. |
@@ -66,6 +67,8 @@ Example:
 }
 ```
 
+Rule precedence is: built-in safety redactors first, built-in structured URL/context safeguards next for audit/transcript payloads, configured structured rules, then configured regex rules (including `extra_patterns`). `field` and `context` rules parse JSON payloads and redact matching keys at any depth; `paths` use dotted object paths such as `request.headers.authorization`. `url` rules redact basic-auth user info in `http://` / `https://` URLs and configured query parameters.
+
 If the file does not exist, Traceary uses the built-in defaults for every config-backed feature.
 If the file exists but is unreadable or invalid JSON, Traceary falls back to the built-in defaults, emits an operator-visible warning when a config-backed feature would have been used, and reports the broken state in `traceary doctor`.
 
@@ -84,7 +87,7 @@ If the file exists but is unreadable or invalid JSON, Traceary falls back to the
 - Traceary does not send telemetry to a Traceary-owned backend
 - when you run `traceary audit`, payloads are written to your local SQLite store unless redaction or truncation changes them first
 - `prompt` events (from `UserPromptSubmit` hooks) and `compact_summary` events (from `PostCompact` hooks) are stored as-is without redaction or truncation — this is by design, as recording the user's intent is a core purpose of Traceary
-- `transcript` events (from Claude `Stop` hook, `traceary log --kind transcript`, or MCP `record_event(type="log")` with `kind=transcript`) are redacted in the same way as `audit` events (built-in redactors plus `redact.extra_patterns`) because assistant transcripts routinely re-state shell output and file contents that include secrets
+- `transcript` events (from Claude `Stop` hook, `traceary log --kind transcript`, or MCP `record_event(type="log")` with `kind=transcript`) are redacted in the same way as `audit` events (built-in redactors plus `redact.rules` and `redact.extra_patterns`) because assistant transcripts routinely re-state shell output and file contents that include secrets
 - secret redaction is best effort, not a complete data-loss-prevention system
 
 ## Related docs
