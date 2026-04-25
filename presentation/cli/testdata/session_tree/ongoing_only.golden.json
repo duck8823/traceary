@@ -1,0 +1,54 @@
+[
+  {
+    "session_id": "session-tree-live-root",
+    "depth": 0,
+    "workspace": "duck8823/traceary",
+    "label": "live",
+    "summary": "Keep active root sessions.",
+    "started_at": "2026-04-10T12:00:00Z",
+    "status": "active",
+    "total_events": 5,
+    "command_count": 2,
+    "agents": [
+      "codex"
+    ],
+    "subagent_type": "codex",
+    "children": []
+  },
+  {
+    "session_id": "session-tree-ended-root",
+    "depth": 0,
+    "workspace": "duck8823/traceary",
+    "label": "done",
+    "summary": "Pruned by ongoing-only.",
+    "started_at": "2026-04-10T12:00:00Z",
+    "ended_at": "2026-04-10T13:30:00Z",
+    "status": "ended",
+    "duration_sec": 5400,
+    "total_events": 12,
+    "command_count": 8,
+    "agents": [
+      "claude"
+    ],
+    "subagent_type": "claude",
+    "children": [
+      {
+        "session_id": "session-tree-live-child",
+        "parent_session_id": "session-tree-ended-root",
+        "depth": 1,
+        "workspace": "duck8823/traceary",
+        "label": "child-live",
+        "summary": "Keep ended ancestors when a child is active.",
+        "started_at": "2026-04-10T12:05:00Z",
+        "status": "active",
+        "total_events": 4,
+        "command_count": 3,
+        "agents": [
+          "claude/planner"
+        ],
+        "subagent_type": "claude/planner",
+        "children": []
+      }
+    ]
+  }
+]

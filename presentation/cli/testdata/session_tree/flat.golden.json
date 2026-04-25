@@ -1,0 +1,36 @@
+[
+  {
+    "session_id": "session-tree-flat-a",
+    "depth": 0,
+    "workspace": "duck8823/traceary",
+    "label": "planning",
+    "summary": "Plan the golden coverage.",
+    "started_at": "2026-04-10T12:00:00Z",
+    "ended_at": "2026-04-10T13:30:00Z",
+    "status": "ended",
+    "duration_sec": 5400,
+    "total_events": 15,
+    "command_count": 8,
+    "agents": [
+      "claude"
+    ],
+    "subagent_type": "claude",
+    "children": []
+  },
+  {
+    "session_id": "session-tree-flat-b",
+    "depth": 0,
+    "workspace": "duck8823/traceary",
+    "label": "implementation",
+    "summary": "Implement session golden tests.",
+    "started_at": "2026-04-10T14:00:00Z",
+    "status": "active",
+    "total_events": 6,
+    "command_count": 2,
+    "agents": [
+      "codex"
+    ],
+    "subagent_type": "codex",
+    "children": []
+  }
+]

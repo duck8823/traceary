@@ -1,0 +1,33 @@
+[
+  {
+    "session_id": "session-list-ended-a",
+    "workspace": "duck8823/traceary",
+    "label": "docs",
+    "summary": "Document session JSON contracts.",
+    "started_at": "2026-04-09T12:00:00Z",
+    "ended_at": "2026-04-09T13:30:00Z",
+    "status": "ended",
+    "duration_sec": 5400,
+    "total_events": 42,
+    "command_count": 30,
+    "agents": [
+      "claude",
+      "codex"
+    ]
+  },
+  {
+    "session_id": "session-list-ended-b",
+    "workspace": "duck8823/traceary",
+    "label": "tests",
+    "summary": "Lock flat session list output.",
+    "started_at": "2026-04-09T14:00:00Z",
+    "ended_at": "2026-04-09T15:15:00Z",
+    "status": "ended",
+    "duration_sec": 4500,
+    "total_events": 11,
+    "command_count": 7,
+    "agents": [
+      "codex"
+    ]
+  }
+]
