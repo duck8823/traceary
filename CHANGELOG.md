@@ -6,6 +6,11 @@ This file summarizes what changed in each Traceary release in chronological orde
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
 
+## [v0.10.1] - 2026-04-26
+
+### Fixed
+- **PreToolUse subagent capture for `Agent` tool name (#785)** — Claude Code's plugin hooks now match `Task|Agent` for the PreToolUse:subagent-start hook. Previously the matcher accepted only `Task`, so subagent invocations dispatched as `Agent` (the current Claude Code tool name) never created the active-subagent state file or a child session row. Surfaced during the v0.10.0 post-release dogfooding (#778).
+
 ## [v0.10.0] - 2026-04-26
 
 ### Added
