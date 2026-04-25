@@ -16,14 +16,30 @@ import (
 	infra "github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
+type fakeClock struct {
+	now time.Time
+}
+
+func (c fakeClock) Now() time.Time { return c.now }
+
 func newMemoryDatasource(
 	t *testing.T,
 	dbPath string,
 	migrations fs.FS,
 ) (*infra.MemoryDatasource, *infra.StoreManagementDatasource) {
 	t.Helper()
+	return newMemoryDatasourceWithClock(t, dbPath, migrations, types.SystemClock{})
+}
+
+func newMemoryDatasourceWithClock(
+	t *testing.T,
+	dbPath string,
+	migrations fs.FS,
+	clock types.Clock,
+) (*infra.MemoryDatasource, *infra.StoreManagementDatasource) {
+	t.Helper()
 	db := infra.NewDatabase(dbPath, migrations)
-	return infra.NewMemoryDatasource(db), infra.NewStoreManagementDatasource(db)
+	return infra.NewMemoryDatasourceWithClock(db, clock), infra.NewStoreManagementDatasource(db)
 }
 
 func memoryDatasourceTestMigrations() fstest.MapFS {
@@ -729,5 +745,69 @@ func TestMemoryDatasource_ValiditySubSecondBoundaryRespectsPrecision(t *testing.
 	}
 	if got, want := summaries[0].MemoryID().String(), "mem-validity-late"; got != want {
 		t.Fatalf("List(as_of=.500)[0] = %q, want %q", got, want)
+	}
+}
+
+func TestMemoryDatasource_ListUsesInjectedClockForDefaultAsOf(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "clock.db")
+	evaluationTime := time.Date(2026, 4, 10, 0, 0, 0, int(500*time.Millisecond), time.UTC)
+	sut, store := newMemoryDatasourceWithClock(t, dbPath, memoryDatasourceTestMigrations(), fakeClock{now: evaluationTime})
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	validFrom := evaluationTime.Add(-time.Hour)
+	activeMemory := model.MemoryOf(
+		mustMemoryID(t, "mem-clock-active"),
+		types.MemoryTypeDecision,
+		mustWorkspaceScope(t, "github.com/example/clock"),
+		"active at injected now",
+		types.MemoryStatusAccepted,
+		types.ConfidenceVerified,
+		types.MemorySourceManual,
+		nil,
+		nil,
+		types.None[types.MemoryID](),
+		types.None[time.Time](),
+		validFrom,
+		types.Some(evaluationTime.Add(time.Hour)),
+		validFrom,
+		validFrom,
+	)
+	expiredMemory := model.MemoryOf(
+		mustMemoryID(t, "mem-clock-expired"),
+		types.MemoryTypeDecision,
+		mustWorkspaceScope(t, "github.com/example/clock"),
+		"expired before injected now",
+		types.MemoryStatusAccepted,
+		types.ConfidenceVerified,
+		types.MemorySourceManual,
+		nil,
+		nil,
+		types.None[types.MemoryID](),
+		types.None[time.Time](),
+		validFrom,
+		types.Some(evaluationTime.Add(-time.Nanosecond)),
+		validFrom,
+		validFrom,
+	)
+	for _, memory := range []*model.Memory{activeMemory, expiredMemory} {
+		if err := sut.Save(ctx, memory); err != nil {
+			t.Fatalf("Save(%s) error = %v", memory.MemoryID(), err)
+		}
+	}
+
+	summaries, err := sut.List(ctx, apptypes.NewMemoryListCriteriaBuilder(10).Build())
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if got := len(summaries); got != 1 {
+		t.Fatalf("List() returned %d memories, want 1", got)
+	}
+	if got, want := summaries[0].MemoryID().String(), "mem-clock-active"; got != want {
+		t.Fatalf("List()[0] = %q, want %q", got, want)
 	}
 }

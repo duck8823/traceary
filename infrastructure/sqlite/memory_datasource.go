@@ -63,12 +63,21 @@ WHERE 1 = 1`
 // MemoryDatasource is the SQLite-backed implementation of the memory
 // repository and memory query service.
 type MemoryDatasource struct {
-	db *Database
+	db    *Database
+	clock types.Clock
 }
 
 // NewMemoryDatasource creates a new MemoryDatasource bound to the given database.
 func NewMemoryDatasource(db *Database) *MemoryDatasource {
-	return &MemoryDatasource{db: db}
+	return NewMemoryDatasourceWithClock(db, types.SystemClock{})
+}
+
+// NewMemoryDatasourceWithClock creates a new MemoryDatasource using the provided clock.
+func NewMemoryDatasourceWithClock(db *Database, clock types.Clock) *MemoryDatasource {
+	if clock == nil {
+		clock = types.SystemClock{}
+	}
+	return &MemoryDatasource{db: db, clock: clock}
 }
 
 var (
@@ -288,7 +297,7 @@ func (d *MemoryDatasource) List(ctx context.Context, criteria apptypes.MemoryLis
 		}
 	}()
 
-	query, args, err := buildMemoryListQuery(criteria)
+	query, args, err := buildMemoryListQuery(criteria, d.clock)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to build memory list query: %w", err)
 	}
@@ -337,7 +346,7 @@ func (d *MemoryDatasource) Search(ctx context.Context, criteria apptypes.MemoryS
 		}
 	}()
 
-	query, args, err := buildMemorySearchQuery(criteria)
+	query, args, err := buildMemorySearchQuery(criteria, d.clock)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to build memory search query: %w", err)
 	}
@@ -640,20 +649,20 @@ func loadMemoryArtifactRefs(ctx context.Context, db *sql.DB, memoryID types.Memo
 	return artifactRefs, nil
 }
 
-func buildMemoryListQuery(criteria apptypes.MemoryListCriteria) (string, []any, error) {
+func buildMemoryListQuery(criteria apptypes.MemoryListCriteria, clock types.Clock) (string, []any, error) {
 	var builder strings.Builder
 	builder.WriteString(selectMemorySummaryColumnsQuery)
 	args, err := appendMemoryFilters(&builder, nil, criteria.Scopes(), criteria.Statuses(), criteria.MemoryTypes(), criteria.Sources())
 	if err != nil {
 		return "", nil, err
 	}
-	args = appendMemoryValidityWindowFilter(&builder, args, criteria.AsOf(), criteria.IncludeExpiredByValidity())
+	args = appendMemoryValidityWindowFilter(&builder, args, criteria.AsOf(), criteria.IncludeExpiredByValidity(), clock)
 	builder.WriteString(" ORDER BY m.updated_at DESC, m.id DESC LIMIT ? OFFSET ?")
 	args = append(args, criteria.Limit(), criteria.Offset())
 	return builder.String(), args, nil
 }
 
-func buildMemorySearchQuery(criteria apptypes.MemorySearchCriteria) (string, []any, error) {
+func buildMemorySearchQuery(criteria apptypes.MemorySearchCriteria, clock types.Clock) (string, []any, error) {
 	var builder strings.Builder
 	builder.WriteString(selectMemorySummaryColumnsQuery)
 	args := make([]any, 0)
@@ -684,7 +693,7 @@ func buildMemorySearchQuery(criteria apptypes.MemorySearchCriteria) (string, []a
 	if err != nil {
 		return "", nil, err
 	}
-	args = appendMemoryValidityWindowFilter(&builder, args, criteria.AsOf(), criteria.IncludeExpiredByValidity())
+	args = appendMemoryValidityWindowFilter(&builder, args, criteria.AsOf(), criteria.IncludeExpiredByValidity(), clock)
 	builder.WriteString(" ORDER BY m.updated_at DESC, m.id DESC LIMIT ? OFFSET ?")
 	args = append(args, criteria.Limit(), criteria.Offset())
 	return builder.String(), args, nil
@@ -710,11 +719,15 @@ func appendMemoryValidityWindowFilter(
 	args []any,
 	asOf types.Optional[time.Time],
 	includeExpired bool,
+	clock types.Clock,
 ) []any {
 	if includeExpired {
 		return args
 	}
-	evaluationTime := nowFunc()
+	if clock == nil {
+		clock = types.SystemClock{}
+	}
+	evaluationTime := clock.Now()
 	if explicit, ok := asOf.Value(); ok {
 		evaluationTime = explicit
 	}
@@ -723,9 +736,6 @@ func appendMemoryValidityWindowFilter(
 	builder.WriteString(" AND (m.valid_to IS NULL OR m.valid_to > ?)")
 	return append(args, formatted, formatted)
 }
-
-// nowFunc is overridden in tests to pin wall-clock calls.
-var nowFunc = time.Now
 
 func appendMemoryFilters(
 	builder *strings.Builder,
