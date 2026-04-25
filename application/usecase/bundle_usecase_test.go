@@ -22,6 +22,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"log/slog"
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/chacha20poly1305"
@@ -59,7 +60,9 @@ type fakeBundleRepo struct {
 	exportSessions            []*model.Session
 	exportCommandAudits       []*model.CommandAudit
 	memories                  map[string]*model.Memory
+	memoryEdges               map[string]*model.MemoryEdge
 	exportMemories            []apptypes.MemoryDetails
+	exportMemoryEdges         []*model.MemoryEdge
 	enforceMemorySupersedesFK bool
 	forceErr                  error
 }
@@ -74,11 +77,34 @@ func (r *fakeBundleRepo) ListBundleCommandAudits(context.Context) ([]*model.Comm
 func (r *fakeBundleRepo) ListBundleMemories(context.Context) ([]apptypes.MemoryDetails, error) {
 	return r.exportMemories, nil
 }
+func (r *fakeBundleRepo) ListBundleMemoryEdges(context.Context) ([]*model.MemoryEdge, error) {
+	return r.exportMemoryEdges, nil
+}
 func (r *fakeBundleRepo) BeginBundleImport(context.Context) (usecase.BundleImportTransaction, error) {
-	return &fakeBundleTx{repo: r}, nil
+	tx := &fakeBundleTx{
+		repo:        r,
+		events:      map[string]bool{},
+		memories:    map[string]*model.Memory{},
+		memoryEdges: map[string]*model.MemoryEdge{},
+	}
+	for id, value := range r.events {
+		tx.events[id] = value
+	}
+	for id, value := range r.memories {
+		tx.memories[id] = value
+	}
+	for id, value := range r.memoryEdges {
+		tx.memoryEdges[id] = value
+	}
+	return tx, nil
 }
 
-type fakeBundleTx struct{ repo *fakeBundleRepo }
+type fakeBundleTx struct {
+	repo        *fakeBundleRepo
+	events      map[string]bool
+	memories    map[string]*model.Memory
+	memoryEdges map[string]*model.MemoryEdge
+}
 
 func (tx *fakeBundleTx) ImportSession(_ context.Context, session *model.Session, policy usecase.BundleConflictPolicy, missingParent usecase.BundleMissingParentPolicy) (bool, error) {
 	r := tx.repo
@@ -120,11 +146,8 @@ func (tx *fakeBundleTx) ImportEvent(_ context.Context, event *model.Event, polic
 	if r.forceErr != nil {
 		return false, r.forceErr
 	}
-	if r.events == nil {
-		r.events = map[string]bool{}
-	}
 	id := event.EventID().String()
-	if r.events[id] {
+	if tx.events[id] {
 		if policy == usecase.BundleConflictError {
 			return false, xerrors.Errorf("event conflict")
 		}
@@ -133,7 +156,7 @@ func (tx *fakeBundleTx) ImportEvent(_ context.Context, event *model.Event, polic
 		}
 		return false, nil
 	}
-	r.events[id] = true
+	tx.events[id] = true
 	return true, nil
 }
 
@@ -146,7 +169,7 @@ func (tx *fakeBundleTx) ImportCommandAudit(_ context.Context, audit *model.Comma
 		r.commandAudits = map[string]*model.CommandAudit{}
 	}
 	id := audit.EventID().String()
-	if _, ok := r.events[id]; !ok {
+	if !tx.events[id] {
 		return false, xerrors.Errorf("foreign key constraint failed: event_id %s is missing", id)
 	}
 	if _, ok := r.commandAudits[id]; ok {
@@ -167,31 +190,60 @@ func (tx *fakeBundleTx) ImportMemory(_ context.Context, memory *model.Memory, po
 	if r.forceErr != nil {
 		return false, r.forceErr
 	}
-	if r.memories == nil {
-		r.memories = map[string]*model.Memory{}
-	}
 	id := memory.MemoryID().String()
-	if _, ok := r.memories[id]; ok {
+	if _, ok := tx.memories[id]; ok {
 		if policy == usecase.BundleConflictError {
 			return false, xerrors.Errorf("memory conflict")
 		}
 		if policy == usecase.BundleConflictReplace {
-			r.memories[id] = memory
+			tx.memories[id] = memory
 			return true, nil
 		}
 		return false, nil
 	}
 	if r.enforceMemorySupersedesFK {
 		if supersedes, ok := memory.Supersedes().Value(); ok {
-			if _, exists := r.memories[supersedes.String()]; !exists {
+			if _, exists := tx.memories[supersedes.String()]; !exists {
 				return false, xerrors.Errorf("foreign key constraint failed: supersedes_memory_id %s is missing", supersedes)
 			}
 		}
 	}
-	r.memories[id] = memory
+	tx.memories[id] = memory
 	return true, nil
 }
-func (tx *fakeBundleTx) Commit(context.Context) error   { return nil }
+func (tx *fakeBundleTx) MemoryExists(_ context.Context, memoryID types.MemoryID) (bool, error) {
+	_, ok := tx.memories[memoryID.String()]
+	return ok, nil
+}
+func (tx *fakeBundleTx) MemoryEdgeExists(_ context.Context, edgeID types.MemoryEdgeID) (bool, error) {
+	_, ok := tx.memoryEdges[edgeID.String()]
+	return ok, nil
+}
+func (tx *fakeBundleTx) ImportMemoryEdge(_ context.Context, edge *model.MemoryEdge, policy usecase.BundleConflictPolicy) (bool, error) {
+	r := tx.repo
+	if r.forceErr != nil {
+		return false, r.forceErr
+	}
+	id := edge.EdgeID().String()
+	if _, ok := tx.memoryEdges[id]; ok {
+		if policy == usecase.BundleConflictError {
+			return false, xerrors.Errorf("memory edge conflict")
+		}
+		if policy == usecase.BundleConflictReplace {
+			tx.memoryEdges[id] = edge
+			return true, nil
+		}
+		return false, nil
+	}
+	tx.memoryEdges[id] = edge
+	return true, nil
+}
+func (tx *fakeBundleTx) Commit(context.Context) error {
+	tx.repo.events = tx.events
+	tx.repo.memories = tx.memories
+	tx.repo.memoryEdges = tx.memoryEdges
+	return nil
+}
 func (tx *fakeBundleTx) Rollback(context.Context) error { return nil }
 
 func mustEvent(t *testing.T, id string, ts time.Time) *model.Event {
@@ -218,6 +270,36 @@ func mustEventInSessionWorkspace(t *testing.T, id string, ts time.Time, session 
 		sessionID, workspace,
 		"body-"+id, ts,
 	)
+}
+
+func mustBundleMemoryID(t *testing.T, id string) types.MemoryID {
+	t.Helper()
+	memoryID, err := types.MemoryIDFrom(id)
+	if err != nil {
+		t.Fatalf("MemoryIDFrom: %v", err)
+	}
+	return memoryID
+}
+
+func mustMemoryEdge(t *testing.T, id, fromID, toID string, ts time.Time) *model.MemoryEdge {
+	t.Helper()
+	edgeID, err := types.MemoryEdgeIDFrom(id)
+	if err != nil {
+		t.Fatalf("MemoryEdgeIDFrom: %v", err)
+	}
+	edge, err := model.NewMemoryEdge(
+		edgeID,
+		mustBundleMemoryID(t, fromID),
+		mustBundleMemoryID(t, toID),
+		types.MemoryEdgeRelationSupports,
+		ts.Add(-time.Minute),
+		types.None[time.Time](),
+		ts,
+	)
+	if err != nil {
+		t.Fatalf("NewMemoryEdge: %v", err)
+	}
+	return edge
 }
 
 func mustSession(t *testing.T, id, parent string, ts time.Time) *model.Session {
@@ -667,7 +749,9 @@ func TestBundleUsecase_ExportWritesManifestV2Tables(t *testing.T) {
 
 	ts := time.Date(2026, 4, 25, 10, 0, 0, 0, time.UTC)
 	events := []*model.Event{mustEvent(t, "e-1", ts)}
-	uc := usecase.NewBundleUsecase(fakeEventQuery{events: events}, &fakeBundleRepo{schema: 13}, func() time.Time { return ts })
+	memories := []apptypes.MemoryDetails{mustMemoryDetails(t, "mem-a", types.MemoryStatusAccepted, ts)}
+	edges := []*model.MemoryEdge{mustMemoryEdge(t, "edge-a", "mem-a", "mem-b", ts)}
+	uc := usecase.NewBundleUsecase(fakeEventQuery{events: events}, &fakeBundleRepo{schema: 13, exportMemories: memories, exportMemoryEdges: edges}, func() time.Time { return ts })
 
 	out := filepath.Join(t.TempDir(), "bundle.tbun")
 	if err := uc.Export(context.Background(), usecase.BundleExportOptions{
@@ -699,6 +783,146 @@ func TestBundleUsecase_ExportWritesManifestV2Tables(t *testing.T) {
 	}
 	if got := hashForTest(files["events.ndjson"]); got != entry.Checksum {
 		t.Fatalf("events checksum = %s, want %s", entry.Checksum, got)
+	}
+	for table, file := range map[string]string{"memories": "memories.ndjson", "memory_edges": "memory_edges.ndjson"} {
+		entry := manifest.Tables[table]
+		if entry.TableName != table || entry.File != file || entry.RowCount != 1 {
+			t.Fatalf("%s table entry = %+v", table, entry)
+		}
+		if got := hashForTest(files[file]); got != entry.Checksum {
+			t.Fatalf("%s checksum = %s, want %s", table, entry.Checksum, got)
+		}
+	}
+}
+
+func TestBundleUsecase_OrphanMemoryEdgeDefaultSkipsWithStructuredWarning(t *testing.T) {
+	ts := time.Date(2026, 4, 25, 10, 0, 0, 0, time.UTC)
+	exportRepo := &fakeBundleRepo{
+		schema: 13,
+		exportMemories: []apptypes.MemoryDetails{
+			mustMemoryDetails(t, "mem-a", types.MemoryStatusAccepted, ts),
+		},
+		exportMemoryEdges: []*model.MemoryEdge{
+			mustMemoryEdge(t, "edge-orphan", "mem-a", "mem-missing", ts),
+		},
+	}
+	uc := usecase.NewBundleUsecase(fakeEventQuery{}, exportRepo, func() time.Time { return ts })
+	out := filepath.Join(t.TempDir(), "bundle.tbun")
+	if err := uc.Export(context.Background(), usecase.BundleExportOptions{OutPath: out, Passphrase: []byte("pass1")}); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	files := openTestBundle(t, out, []byte("pass1"))
+	if _, ok := files["memory_edges.ndjson"]; !ok {
+		t.Fatalf("bundle missing memory_edges.ndjson")
+	}
+
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	defer slog.SetDefault(previous)
+
+	importRepo := &fakeBundleRepo{schema: 13}
+	importUC := usecase.NewBundleUsecase(fakeEventQuery{}, importRepo, nil)
+	result, err := importUC.Import(context.Background(), usecase.BundleImportOptions{InPath: out, Passphrase: []byte("pass1")})
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if result.MemoriesImported != 1 || result.MemoryEdgesImported != 0 || result.MemoryEdgesSkipped != 1 {
+		t.Fatalf("Import result = %+v, want memory imported and orphan edge skipped", result)
+	}
+	logText := logs.String()
+	for _, want := range []string{"bundle import skipped orphan memory edge", "\"table\":\"memory_edges\"", "\"edge_id\":\"edge-orphan\"", "\"to_exists\":false"} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("structured warning = %q, want containing %q", logText, want)
+		}
+	}
+}
+
+func TestBundleUsecase_OrphanMemoryEdgeRejectRollsBackTransaction(t *testing.T) {
+	ts := time.Date(2026, 4, 25, 10, 0, 0, 0, time.UTC)
+	exportRepo := &fakeBundleRepo{
+		schema: 13,
+		exportMemories: []apptypes.MemoryDetails{
+			mustMemoryDetails(t, "mem-a", types.MemoryStatusAccepted, ts),
+		},
+		exportMemoryEdges: []*model.MemoryEdge{
+			mustMemoryEdge(t, "edge-orphan", "mem-a", "mem-missing", ts),
+		},
+	}
+	uc := usecase.NewBundleUsecase(fakeEventQuery{}, exportRepo, func() time.Time { return ts })
+	out := filepath.Join(t.TempDir(), "bundle.tbun")
+	if err := uc.Export(context.Background(), usecase.BundleExportOptions{OutPath: out, Passphrase: []byte("pass1")}); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	importRepo := &fakeBundleRepo{schema: 13}
+	importUC := usecase.NewBundleUsecase(fakeEventQuery{}, importRepo, nil)
+	_, err := importUC.Import(context.Background(), usecase.BundleImportOptions{
+		InPath:      out,
+		Passphrase:  []byte("pass1"),
+		OrphanEdges: usecase.BundleOrphanEdgesReject,
+	})
+	if err == nil {
+		t.Fatalf("Import unexpectedly succeeded")
+	}
+	if !strings.Contains(err.Error(), "references missing endpoint") {
+		t.Fatalf("Import error = %q, want missing endpoint", err.Error())
+	}
+	if len(importRepo.memories) != 0 || len(importRepo.memoryEdges) != 0 {
+		t.Fatalf("rollback failed: memories=%d edges=%d", len(importRepo.memories), len(importRepo.memoryEdges))
+	}
+}
+
+func TestBundleUsecase_OrphanMemoryEdgeConflictErrorRollsBackBeforeSkip(t *testing.T) {
+	ts := time.Date(2026, 4, 25, 10, 0, 0, 0, time.UTC)
+	exportRepo := &fakeBundleRepo{
+		schema: 13,
+		exportMemories: []apptypes.MemoryDetails{
+			mustMemoryDetails(t, "mem-new", types.MemoryStatusAccepted, ts),
+		},
+		exportMemoryEdges: []*model.MemoryEdge{
+			mustMemoryEdge(t, "edge-collide", "mem-missing-from", "mem-missing-to", ts),
+		},
+	}
+	uc := usecase.NewBundleUsecase(fakeEventQuery{}, exportRepo, func() time.Time { return ts })
+	out := filepath.Join(t.TempDir(), "bundle.tbun")
+	if err := uc.Export(context.Background(), usecase.BundleExportOptions{OutPath: out, Passphrase: []byte("pass1")}); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	importRepo := &fakeBundleRepo{
+		schema: 13,
+		memoryEdges: map[string]*model.MemoryEdge{
+			"edge-collide": mustMemoryEdge(t, "edge-collide", "mem-existing-from", "mem-existing-to", ts),
+		},
+	}
+	importUC := usecase.NewBundleUsecase(fakeEventQuery{}, importRepo, nil)
+	_, err := importUC.Import(context.Background(), usecase.BundleImportOptions{
+		InPath:     out,
+		Passphrase: []byte("pass1"),
+		OnConflict: usecase.BundleConflictError,
+	})
+	if err == nil {
+		t.Fatalf("Import unexpectedly succeeded")
+	}
+	if !strings.Contains(err.Error(), "memory edge conflict") {
+		t.Fatalf("Import error = %q, want memory edge conflict", err.Error())
+	}
+	if len(importRepo.memories) != 0 {
+		t.Fatalf("rollback failed: imported memories=%d, want 0", len(importRepo.memories))
+	}
+}
+
+func TestBundleUsecase_ManifestV2FourTableSpecDocReachable(t *testing.T) {
+	t.Parallel()
+	content, err := os.ReadFile(filepath.Join("..", "..", "docs", "operations", "cross-machine-handoff.md"))
+	if err != nil {
+		t.Fatalf("ReadFile(cross-machine-handoff.md): %v", err)
+	}
+	text := string(content)
+	for _, want := range []string{"manifest_version = 2", "events.ndjson", "sessions.ndjson", "memories.ndjson", "memory_edges.ndjson", "Conflict matrix", "Four-table inclusion rules"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("doc missing %q", want)
+		}
 	}
 }
 

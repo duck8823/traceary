@@ -19,6 +19,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"os"
 	"sort"
 	"time"
@@ -112,6 +113,28 @@ func (p BundleMissingParentPolicy) normalized() (BundleMissingParentPolicy, erro
 	}
 }
 
+// BundleOrphanEdgesPolicy controls how bundle import handles memory edges
+// whose endpoints are absent from the destination store after memories import.
+type BundleOrphanEdgesPolicy string
+
+const (
+	// BundleOrphanEdgesSkip skips orphan edges and emits a structured warning.
+	BundleOrphanEdgesSkip BundleOrphanEdgesPolicy = "skip"
+	// BundleOrphanEdgesReject fails the import on the first orphan edge.
+	BundleOrphanEdgesReject BundleOrphanEdgesPolicy = "reject"
+)
+
+func (p BundleOrphanEdgesPolicy) normalized() (BundleOrphanEdgesPolicy, error) {
+	switch p {
+	case "", BundleOrphanEdgesSkip:
+		return BundleOrphanEdgesSkip, nil
+	case BundleOrphanEdgesReject, "error":
+		return BundleOrphanEdgesReject, nil
+	default:
+		return "", xerrors.Errorf("unsupported bundle orphan-edges policy %q (want skip or reject)", p)
+	}
+}
+
 // BundleImportOptions controls a single Import call.
 type BundleImportOptions struct {
 	// InPath is the filesystem path of the archive to read.
@@ -121,9 +144,11 @@ type BundleImportOptions struct {
 	// OnConflict controls UNIQUE collisions. Empty defaults to skip for
 	// v0.9-compatible idempotent re-imports.
 	OnConflict BundleConflictPolicy
-	// MissingParent is wired for forthcoming sessions / memories / edges
-	// importers. Empty defaults to reject.
+	// MissingParent is wired for forthcoming sessions importers. Empty defaults to reject.
 	MissingParent BundleMissingParentPolicy
+	// OrphanEdges controls memory_edges rows whose endpoints are missing after
+	// memories import. Empty defaults to skip-with-warning.
+	OrphanEdges BundleOrphanEdgesPolicy
 }
 
 // BundleImportResult summarises what changed during Import.
@@ -141,6 +166,10 @@ type BundleImportResult struct {
 	// written vs dropped because of a pre-existing memory id collision.
 	MemoriesImported int
 	MemoriesSkipped  int
+	// MemoryEdgesImported / MemoryEdgesSkipped count memory graph edges that were
+	// newly written vs skipped due to idempotency or orphan-edge tolerance.
+	MemoryEdgesImported int
+	MemoryEdgesSkipped  int
 	// BundleSchemaVersion is the schema_migrations version the
 	// archive carried at Export time.
 	BundleSchemaVersion int
@@ -173,6 +202,7 @@ type bundleManifestWriter struct {
 type bundleManifestImportDefaults struct {
 	OnConflict    string `json:"on_conflict"`
 	MissingParent string `json:"missing_parent"`
+	OrphanEdges   string `json:"orphan_edges"`
 }
 
 type bundleTableEntry struct {
@@ -206,6 +236,8 @@ type BundleEventRepository interface {
 	ListBundleCommandAudits(ctx context.Context) ([]*model.CommandAudit, error)
 	// ListBundleMemories returns all durable memories and their refs for bundle export.
 	ListBundleMemories(ctx context.Context) ([]apptypes.MemoryDetails, error)
+	// ListBundleMemoryEdges returns all memory graph edges for bundle export.
+	ListBundleMemoryEdges(ctx context.Context) ([]*model.MemoryEdge, error)
 	// BeginBundleImport starts the single transaction used by all table
 	// importers in registry order.
 	BeginBundleImport(ctx context.Context) (BundleImportTransaction, error)
@@ -218,6 +250,9 @@ type BundleImportTransaction interface {
 	ImportEvent(ctx context.Context, event *model.Event, policy BundleConflictPolicy) (bool, error)
 	ImportCommandAudit(ctx context.Context, audit *model.CommandAudit, policy BundleConflictPolicy) (bool, error)
 	ImportMemory(ctx context.Context, memory *model.Memory, policy BundleConflictPolicy) (bool, error)
+	MemoryExists(ctx context.Context, memoryID types.MemoryID) (bool, error)
+	MemoryEdgeExists(ctx context.Context, edgeID types.MemoryEdgeID) (bool, error)
+	ImportMemoryEdge(ctx context.Context, edge *model.MemoryEdge, policy BundleConflictPolicy) (bool, error)
 	Commit(ctx context.Context) error
 	Rollback(ctx context.Context) error
 }
@@ -277,6 +312,10 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 	if err != nil {
 		return xerrors.Errorf("failed to list memories for bundle: %w", err)
 	}
+	memoryEdges, err := u.repository.ListBundleMemoryEdges(ctx)
+	if err != nil {
+		return xerrors.Errorf("failed to list memory edges for bundle: %w", err)
+	}
 
 	registry := u.bundleTableRegistry()
 	sessionsImporter := registry["sessions"]
@@ -286,6 +325,7 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 	}
 	eventsImporter := registry["events"]
 	eventsBuf, err := eventsImporter.Export(ctx, bundleExportInputRows{Events: events})
+
 	if err != nil {
 		return xerrors.Errorf("failed to encode events: %w", err)
 	}
@@ -296,8 +336,14 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 	}
 	memoriesImporter := registry["memories"]
 	memoriesBuf, err := memoriesImporter.Export(ctx, bundleExportInputRows{Memories: memories})
+
 	if err != nil {
 		return xerrors.Errorf("failed to encode memories: %w", err)
+	}
+	memoryEdgesImporter := registry["memory_edges"]
+	memoryEdgesBuf, err := memoryEdgesImporter.Export(ctx, bundleExportInputRows{MemoryEdges: memoryEdges})
+	if err != nil {
+		return xerrors.Errorf("failed to encode memory edges: %w", err)
 	}
 
 	manifest := bundleManifest{
@@ -309,6 +355,7 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 		ImportDefaults: bundleManifestImportDefaults{
 			OnConflict:    string(BundleConflictSkip),
 			MissingParent: string(BundleMissingParentReject),
+			OrphanEdges:   string(BundleOrphanEdgesSkip),
 		},
 		Filters: bundleFilters{
 			Since:     formatOptionalTime(opts.Since),
@@ -340,6 +387,12 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 				RowCount:  len(memories),
 				Checksum:  hashSHA256(memoriesBuf.Bytes()),
 			},
+			"memory_edges": {
+				TableName: "memory_edges",
+				File:      memoryEdgesImporter.FileName(),
+				RowCount:  len(memoryEdges),
+				Checksum:  hashSHA256(memoryEdgesBuf.Bytes()),
+			},
 		},
 	}
 	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
@@ -353,6 +406,7 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 		"events.ndjson":         eventsBuf.Bytes(),
 		"command_audits.ndjson": commandAuditsBuf.Bytes(),
 		"memories.ndjson":       memoriesBuf.Bytes(),
+		"memory_edges.ndjson":   memoryEdgesBuf.Bytes(),
 	})
 	if err != nil {
 		return xerrors.Errorf("failed to build tar.gz: %w", err)
@@ -379,6 +433,10 @@ func (u *bundleUsecase) Import(ctx context.Context, opts BundleImportOptions) (B
 		return BundleImportResult{}, err
 	}
 	missingParent, err := opts.MissingParent.normalized()
+	if err != nil {
+		return BundleImportResult{}, err
+	}
+	orphanEdges, err := opts.OrphanEdges.normalized()
 	if err != nil {
 		return BundleImportResult{}, err
 	}
@@ -455,7 +513,7 @@ func (u *bundleUsecase) Import(ctx context.Context, opts BundleImportOptions) (B
 				entry.TableName, entry.RowCount, len(rows),
 			)
 		}
-		imported, skipped, err := importer.Apply(ctx, tx, rows, bundleImportPolicy{OnConflict: onConflict, MissingParent: missingParent})
+		imported, skipped, err := importer.Apply(ctx, tx, rows, bundleImportPolicy{OnConflict: onConflict, MissingParent: missingParent, OrphanEdges: orphanEdges})
 		if err != nil {
 			return result, xerrors.Errorf("failed to import %s: %w", entry.TableName, err)
 		}
@@ -472,6 +530,9 @@ func (u *bundleUsecase) Import(ctx context.Context, opts BundleImportOptions) (B
 		case "memories":
 			result.MemoriesImported += imported
 			result.MemoriesSkipped += skipped
+		case "memory_edges":
+			result.MemoryEdgesImported += imported
+			result.MemoryEdgesSkipped += skipped
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -490,11 +551,13 @@ type bundleExportInputRows struct {
 	Events        []*model.Event
 	CommandAudits []*model.CommandAudit
 	Memories      []apptypes.MemoryDetails
+	MemoryEdges   []*model.MemoryEdge
 }
 
 type bundleImportPolicy struct {
 	OnConflict    BundleConflictPolicy
 	MissingParent BundleMissingParentPolicy
+	OrphanEdges   BundleOrphanEdgesPolicy
 }
 
 type bundleTableImporter interface {
@@ -510,16 +573,18 @@ func (u *bundleUsecase) bundleTableRegistry() map[string]bundleTableImporter {
 	events := bundleEventsTable{}
 	commandAudits := bundleCommandAuditsTable{}
 	memories := bundleMemoriesTable{}
+	memoryEdges := bundleMemoryEdgesTable{}
 	return map[string]bundleTableImporter{
 		sessions.Name():      sessions,
 		events.Name():        events,
 		commandAudits.Name(): commandAudits,
 		memories.Name():      memories,
+		memoryEdges.Name():   memoryEdges,
 	}
 }
 
 func bundleTableImportOrder() []string {
-	return []string{"sessions", "events", "command_audits", "memories"}
+	return []string{"sessions", "events", "command_audits", "memories", "memory_edges"}
 }
 
 type bundleSessionsTable struct{}
@@ -583,6 +648,7 @@ func (bundleEventsTable) FileName() string { return "events.ndjson" }
 
 func (bundleEventsTable) Export(_ context.Context, input bundleExportInputRows) (*bytes.Buffer, error) {
 	return encodeEventsNDJSON(input.Events)
+
 }
 
 func (bundleEventsTable) Decode(r io.Reader) ([]bundleRow, error) {
@@ -603,6 +669,7 @@ func (bundleEventsTable) Apply(
 	tx BundleImportTransaction,
 	rows []bundleRow,
 	policy bundleImportPolicy,
+
 ) (int, int, error) {
 	imported := 0
 	skipped := 0
@@ -616,6 +683,7 @@ func (bundleEventsTable) Apply(
 			return imported, skipped, xerrors.Errorf("restore event: %w", err)
 		}
 		didImport, err := tx.ImportEvent(ctx, event, policy.OnConflict)
+
 		if err != nil {
 			return imported, skipped, xerrors.Errorf("event %s: %w", event.EventID(), err)
 		}
@@ -689,6 +757,7 @@ func (bundleMemoriesTable) FileName() string { return "memories.ndjson" }
 
 func (bundleMemoriesTable) Export(_ context.Context, input bundleExportInputRows) (*bytes.Buffer, error) {
 	return encodeMemoriesNDJSON(input.Memories)
+
 }
 
 func (bundleMemoriesTable) Decode(r io.Reader) ([]bundleRow, error) {
@@ -709,6 +778,7 @@ func (bundleMemoriesTable) Apply(
 	tx BundleImportTransaction,
 	rows []bundleRow,
 	policy bundleImportPolicy,
+
 ) (int, int, error) {
 	sortedRows, err := topologicallySortBundleMemoryRows(rows)
 	if err != nil {
@@ -722,8 +792,101 @@ func (bundleMemoriesTable) Apply(
 			return imported, skipped, xerrors.Errorf("restore memory: %w", err)
 		}
 		didImport, err := tx.ImportMemory(ctx, memory, policy.OnConflict)
+
 		if err != nil {
 			return imported, skipped, xerrors.Errorf("memory %s: %w", memory.MemoryID(), err)
+		}
+		if didImport {
+			imported++
+		} else {
+			skipped++
+		}
+	}
+	return imported, skipped, nil
+}
+
+type bundleMemoryEdgesTable struct{}
+
+func (bundleMemoryEdgesTable) Name() string { return "memory_edges" }
+
+func (bundleMemoryEdgesTable) FileName() string { return "memory_edges.ndjson" }
+
+func (bundleMemoryEdgesTable) Export(_ context.Context, input bundleExportInputRows) (*bytes.Buffer, error) {
+	return encodeMemoryEdgesNDJSON(input.MemoryEdges)
+}
+
+func (bundleMemoryEdgesTable) Decode(r io.Reader) ([]bundleRow, error) {
+	decoder := json.NewDecoder(r)
+	rows := []bundleRow{}
+	for decoder.More() {
+		var row bundleMemoryEdgeRow
+		if err := decoder.Decode(&row); err != nil {
+			return nil, xerrors.Errorf("memory edge row: %w", err)
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+func (bundleMemoryEdgesTable) Apply(
+	ctx context.Context,
+	tx BundleImportTransaction,
+	rows []bundleRow,
+	policy bundleImportPolicy,
+) (int, int, error) {
+	imported := 0
+	skipped := 0
+	for _, generic := range rows {
+		row, ok := generic.(bundleMemoryEdgeRow)
+		if !ok {
+			return imported, skipped, xerrors.Errorf("unexpected memory_edges row type %T", generic)
+		}
+		edge, err := row.toMemoryEdge()
+		if err != nil {
+			return imported, skipped, xerrors.Errorf("restore memory edge: %w", err)
+		}
+		edgeExists, err := tx.MemoryEdgeExists(ctx, edge.EdgeID())
+		if err != nil {
+			return imported, skipped, xerrors.Errorf("edge %s conflict check: %w", edge.EdgeID(), err)
+		}
+		if edgeExists {
+			switch policy.OnConflict {
+			case BundleConflictError:
+				return imported, skipped, xerrors.Errorf("memory edge %s: memory edge conflict", edge.EdgeID())
+			case BundleConflictSkip:
+				skipped++
+				continue
+			}
+		}
+		fromExists, err := tx.MemoryExists(ctx, edge.FromMemoryID())
+		if err != nil {
+			return imported, skipped, xerrors.Errorf("edge %s from endpoint check: %w", edge.EdgeID(), err)
+		}
+		toExists, err := tx.MemoryExists(ctx, edge.ToMemoryID())
+		if err != nil {
+			return imported, skipped, xerrors.Errorf("edge %s to endpoint check: %w", edge.EdgeID(), err)
+		}
+		if !fromExists || !toExists {
+			if policy.OrphanEdges == BundleOrphanEdgesReject {
+				return imported, skipped, xerrors.Errorf("memory edge %s references missing endpoint(s): from_memory_id=%s exists=%t, to_memory_id=%s exists=%t", edge.EdgeID(), edge.FromMemoryID(), fromExists, edge.ToMemoryID(), toExists)
+			}
+			slog.WarnContext(
+				ctx,
+				"bundle import skipped orphan memory edge",
+				"table", "memory_edges",
+				"edge_id", edge.EdgeID().String(),
+				"from_memory_id", edge.FromMemoryID().String(),
+				"from_exists", fromExists,
+				"to_memory_id", edge.ToMemoryID().String(),
+				"to_exists", toExists,
+				"policy", string(BundleOrphanEdgesSkip),
+			)
+			skipped++
+			continue
+		}
+		didImport, err := tx.ImportMemoryEdge(ctx, edge, policy.OnConflict)
+		if err != nil {
+			return imported, skipped, xerrors.Errorf("memory edge %s: %w", edge.EdgeID(), err)
 		}
 		if didImport {
 			imported++
@@ -892,6 +1055,48 @@ type bundleMemoryRow struct {
 	ValidTo            string         `json:"valid_to,omitempty"`
 	CreatedAt          string         `json:"created_at"`
 	UpdatedAt          string         `json:"updated_at"`
+}
+
+type bundleMemoryEdgeRow struct {
+	EdgeID       string `json:"id"`
+	FromMemoryID string `json:"from_memory_id"`
+	ToMemoryID   string `json:"to_memory_id"`
+	RelationType string `json:"relation_type"`
+	ValidFrom    string `json:"valid_from"`
+	ValidTo      string `json:"valid_to,omitempty"`
+	CreatedAt    string `json:"created_at"`
+}
+
+func (r bundleMemoryEdgeRow) toMemoryEdge() (*model.MemoryEdge, error) {
+	edgeID, err := types.MemoryEdgeIDFrom(r.EdgeID)
+	if err != nil {
+		return nil, xerrors.Errorf("id: %w", err)
+	}
+	fromID, err := types.MemoryIDFrom(r.FromMemoryID)
+	if err != nil {
+		return nil, xerrors.Errorf("from_memory_id: %w", err)
+	}
+	toID, err := types.MemoryIDFrom(r.ToMemoryID)
+	if err != nil {
+		return nil, xerrors.Errorf("to_memory_id: %w", err)
+	}
+	validFrom, err := time.Parse(time.RFC3339Nano, r.ValidFrom)
+	if err != nil {
+		return nil, xerrors.Errorf("valid_from: %w", err)
+	}
+	validTo, err := parseOptionalBundleTime(r.ValidTo, "valid_to")
+	if err != nil {
+		return nil, err
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, r.CreatedAt)
+	if err != nil {
+		return nil, xerrors.Errorf("created_at: %w", err)
+	}
+	edge, err := model.NewMemoryEdge(edgeID, fromID, toID, types.MemoryEdgeRelationOf(r.RelationType), validFrom, validTo, createdAt)
+	if err != nil {
+		return nil, xerrors.Errorf("memory edge: %w", err)
+	}
+	return edge, nil
 }
 
 func (r bundleMemoryRow) toMemory() (*model.Memory, error) {
@@ -1242,6 +1447,35 @@ func encodeMemoriesNDJSON(memories []apptypes.MemoryDetails) (*bytes.Buffer, err
 		}
 		if err := enc.Encode(row); err != nil {
 			return nil, xerrors.Errorf("encode memory: %w", err)
+		}
+	}
+	return buf, nil
+}
+
+func encodeMemoryEdgesNDJSON(edges []*model.MemoryEdge) (*bytes.Buffer, error) {
+	buf := &bytes.Buffer{}
+	edges = append([]*model.MemoryEdge(nil), edges...)
+	sort.Slice(edges, func(i, j int) bool {
+		if !edges[i].ValidFrom().Equal(edges[j].ValidFrom()) {
+			return edges[i].ValidFrom().Before(edges[j].ValidFrom())
+		}
+		return edges[i].EdgeID().String() < edges[j].EdgeID().String()
+	})
+	enc := json.NewEncoder(buf)
+	for _, edge := range edges {
+		row := bundleMemoryEdgeRow{
+			EdgeID:       edge.EdgeID().String(),
+			FromMemoryID: edge.FromMemoryID().String(),
+			ToMemoryID:   edge.ToMemoryID().String(),
+			RelationType: edge.RelationType().String(),
+			ValidFrom:    edge.ValidFrom().UTC().Format(time.RFC3339Nano),
+			CreatedAt:    edge.CreatedAt().UTC().Format(time.RFC3339Nano),
+		}
+		if validTo, ok := edge.ValidTo().Value(); ok {
+			row.ValidTo = validTo.UTC().Format(time.RFC3339Nano)
+		}
+		if err := enc.Encode(row); err != nil {
+			return nil, xerrors.Errorf("encode memory edge: %w", err)
 		}
 	}
 	return buf, nil
