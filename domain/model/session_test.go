@@ -118,9 +118,11 @@ func TestNewChildSession(t *testing.T) {
 	start := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 	parent := model.NewSession(parentID, start, types.Client("hook"), parentAgent, types.Workspace("parent-workspace"))
 
+	childStart := start.Add(5 * time.Second)
 	child := model.NewChildSession(
 		parent,
 		childID,
+		childStart,
 		childAgent,
 		types.Workspace("child-workspace"),
 		types.EventID("spawn-event"),
@@ -130,6 +132,12 @@ func TestNewChildSession(t *testing.T) {
 
 	if diff := cmp.Diff(childID, child.SessionID()); diff != "" {
 		t.Errorf("SessionID() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(childStart, child.StartedAt()); diff != "" {
+		t.Errorf("StartedAt() mismatch (-want +got):\n%s", diff)
+	}
+	if child.StartedAt().Equal(parent.StartedAt()) {
+		t.Errorf("StartedAt() should use the child start time, got parent start time %s", child.StartedAt())
 	}
 	if diff := cmp.Diff(parentID, child.ParentSessionID()); diff != "" {
 		t.Errorf("ParentSessionID() mismatch (-want +got):\n%s", diff)

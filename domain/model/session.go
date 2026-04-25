@@ -43,13 +43,14 @@ func NewSession(
 func NewChildSession(
 	parent *Session,
 	sessionID types.SessionID,
+	startedAt time.Time,
 	agent types.Agent,
 	workspace types.Workspace,
 	spawnEventID types.EventID,
 	kind string,
 	order int,
 ) *Session {
-	session := NewSession(sessionID, parent.StartedAt(), parent.Client(), agent, workspace)
+	session := NewSession(sessionID, startedAt, parent.Client(), agent, workspace)
 	session.parentSessionID = parent.SessionID()
 	session.spawnEventID = spawnEventID
 	session.subagentKind = kind

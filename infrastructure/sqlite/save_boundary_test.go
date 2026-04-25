@@ -101,9 +101,11 @@ func TestSessionDatasource_SaveBoundary_RoundTripsSpawnMetadata(t *testing.T) {
 		t.Fatalf("SaveBoundary(parent) error = %v", err)
 	}
 
+	childStartedAt := startedAt.Add(time.Second)
 	child := model.NewChildSession(
 		parent,
 		childID,
+		childStartedAt,
 		childAgent,
 		types.Workspace("workspace"),
 		types.EventID("spawn-event"),
@@ -118,7 +120,7 @@ func TestSessionDatasource_SaveBoundary_RoundTripsSpawnMetadata(t *testing.T) {
 		childID,
 		types.Workspace("workspace"),
 		"child session started",
-		startedAt.Add(time.Second),
+		childStartedAt,
 	)
 	if err := sessionDS.SaveBoundary(ctx, child, childEvent); err != nil {
 		t.Fatalf("SaveBoundary(child) error = %v", err)
