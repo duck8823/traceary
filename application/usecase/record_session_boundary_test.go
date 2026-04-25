@@ -49,6 +49,68 @@ func TestSessionUsecase_Start(t *testing.T) {
 	})
 }
 
+func TestSessionUsecase_StartChild(t *testing.T) {
+	t.Parallel()
+
+	parent := model.SessionOf(
+		types.SessionID("parent-session"),
+		mustTime(t),
+		types.None[time.Time](),
+		types.Client("hook"),
+		types.Agent("claude"),
+		types.Workspace("github.com/duck8823/traceary"),
+		"", "",
+		types.SessionID(""),
+	)
+	sessionStub := &sessionRepositoryStub{
+		session:        parent,
+		nextChildOrder: 2,
+	}
+	sut := usecase.NewSessionUsecase(nil, sessionStub, nil, nil)
+	startedAt := time.Date(2026, 4, 25, 10, 11, 12, 0, time.UTC)
+
+	event, err := sut.StartChild(
+		context.Background(),
+		types.SessionID("parent-session"),
+		types.SessionID("parent-session:sub:toolu_1"),
+		types.Agent("claude/code-reviewer"),
+		types.Workspace("github.com/duck8823/traceary"),
+		types.EventID("toolu_1"),
+		"task",
+		startedAt,
+	)
+	if err != nil {
+		t.Fatalf("StartChild() error = %v", err)
+	}
+	if event == nil {
+		t.Fatalf("StartChild() event is nil")
+	}
+	if diff := cmp.Diff(types.SessionID("parent-session:sub:toolu_1"), event.SessionID()); diff != "" {
+		t.Fatalf("event SessionID() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(startedAt, event.CreatedAt()); diff != "" {
+		t.Fatalf("event CreatedAt() mismatch (-want +got):\n%s", diff)
+	}
+	child := sessionStub.savedBoundary
+	if child == nil {
+		t.Fatalf("saved child session is nil")
+	}
+	if diff := cmp.Diff(types.SessionID("parent-session"), child.ParentSessionID()); diff != "" {
+		t.Fatalf("ParentSessionID() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(types.EventID("toolu_1"), child.SpawnEventID()); diff != "" {
+		t.Fatalf("SpawnEventID() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff("task", child.SubagentKind()); diff != "" {
+		t.Fatalf("SubagentKind() mismatch (-want +got):\n%s", diff)
+	}
+	if got, ok := child.SpawnOrder().Value(); !ok {
+		t.Fatalf("SpawnOrder() should be present")
+	} else if diff := cmp.Diff(2, got); diff != "" {
+		t.Fatalf("SpawnOrder() mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestSessionUsecase_End(t *testing.T) {
 	t.Parallel()
 
@@ -271,16 +333,21 @@ type sessionRepositoryStub struct {
 	savedBoundary      *model.Session
 	savedEvent         *model.Event
 	saveBoundaryErr    error
+	nextChildOrder     int
+	nextChildOrderErr  error
 }
 
 func (s *sessionRepositoryStub) FindByID(
 	_ context.Context,
-	_ types.SessionID,
+	sessionID types.SessionID,
 ) (types.Optional[*model.Session], error) {
 	if s.findErr != nil {
 		return types.None[*model.Session](), s.findErr
 	}
 	if s.empty || s.session == nil {
+		return types.None[*model.Session](), nil
+	}
+	if s.session.SessionID() != sessionID {
 		return types.None[*model.Session](), nil
 	}
 	return types.Some(s.session), nil
@@ -297,6 +364,16 @@ func (s *sessionRepositoryStub) SaveBoundary(_ context.Context, session *model.S
 	s.savedBoundary = session
 	s.savedEvent = event
 	return s.saveBoundaryErr
+}
+
+func (s *sessionRepositoryStub) NextChildSpawnOrder(_ context.Context, _ types.SessionID) (int, error) {
+	if s.nextChildOrderErr != nil {
+		return 0, s.nextChildOrderErr
+	}
+	if s.nextChildOrder == 0 {
+		return 1, nil
+	}
+	return s.nextChildOrder, nil
 }
 
 func mustTime(t *testing.T) time.Time {

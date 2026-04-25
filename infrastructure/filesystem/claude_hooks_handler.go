@@ -93,6 +93,7 @@ func (h *ClaudeHooksHandler) BuildWithMatcher(tracearyBin string, preset ClaudeM
 	compactResumeCommand := newHookRuntimeCommand(tracearyBin, "hook", "compact", "claude", "session-start-compact")
 	promptCommand := newHookRuntimeCommand(tracearyBin, "hook", "prompt", "claude")
 	transcriptCommand := newHookRuntimeCommand(tracearyBin, "hook", "transcript", "claude")
+	subagentStartCommand := newHookRuntimeCommand(tracearyBin, "hook", "subagent-start", "claude")
 	subagentStopCommand := newHookRuntimeCommand(tracearyBin, "hook", "subagent-stop", "claude")
 
 	// Build the PostToolUse / PostToolUseFailure entries according to
@@ -129,6 +130,7 @@ func (h *ClaudeHooksHandler) BuildWithMatcher(tracearyBin string, preset ClaudeM
 		"SessionEnd",
 		"Stop",
 		"SubagentStop",
+		"PreToolUse",
 		"PostToolUse",
 		"PostToolUseFailure",
 		"PreCompact",
@@ -157,6 +159,11 @@ func (h *ClaudeHooksHandler) BuildWithMatcher(tracearyBin string, preset ClaudeM
 		"SubagentStop": {
 			model.HookEntryOf(types.Some("*"), []model.HookCommand{
 				model.HookCommandOf("traceary-subagent-stop", "command", subagentStopCommand, types.None[int](), "", managedKeyOf("traceary-subagent-stop.sh", "claude")),
+			}),
+		},
+		"PreToolUse": {
+			model.HookEntryOf(types.Some("Task"), []model.HookCommand{
+				model.HookCommandOf("traceary-subagent-start", "command", subagentStartCommand, types.None[int](), "", managedKeyOf("traceary-subagent-start.sh", "claude")),
 			}),
 		},
 		"PostToolUse":        postToolUseEntries,

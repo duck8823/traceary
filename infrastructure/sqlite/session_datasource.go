@@ -333,6 +333,30 @@ func (d *SessionDatasource) FindByID(ctx context.Context, sessionID types.Sessio
 	)), nil
 }
 
+// NextChildSpawnOrder returns one greater than the current maximum
+// spawn_order among the parent's children.
+func (d *SessionDatasource) NextChildSpawnOrder(ctx context.Context, parentSessionID types.SessionID) (int, error) {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return 0, xerrors.Errorf("failed to open DB for child spawn order lookup: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	var order int
+	if err := db.QueryRowContext(
+		ctx,
+		`SELECT COALESCE(MAX(spawn_order), 0) + 1 FROM sessions WHERE parent_session_id = ?`,
+		parentSessionID.String(),
+	).Scan(&order); err != nil {
+		return 0, xerrors.Errorf("failed to query child spawn order: %w", err)
+	}
+	return order, nil
+}
+
 // FindLatest returns the session_started event for the latest matching
 // session. Returns an empty Optional when no matching session exists.
 func (d *SessionDatasource) FindLatest(

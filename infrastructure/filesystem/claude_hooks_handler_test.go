@@ -22,6 +22,7 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 		"SessionEnd",
 		"Stop",
 		"SubagentStop",
+		"PreToolUse",
 		"PostToolUse",
 		"PostToolUseFailure",
 		"PreCompact",
@@ -115,6 +116,28 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 		}
 		if diff := cmp.Diff("traceary-audit.sh:claude", entries[2].Commands()[0].ManagedKey()); diff != "" {
 			t.Fatalf("PostToolUse[2] managed key mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("PreToolUse captures Task subagent start", func(t *testing.T) {
+		t.Parallel()
+
+		entries := hooks.Entries("PreToolUse")
+		if diff := cmp.Diff(1, len(entries)); diff != "" {
+			t.Fatalf("len(PreToolUse entries) mismatch (-want +got):\n%s", diff)
+		}
+		matcher, _ := entries[0].Matcher().Value()
+		if diff := cmp.Diff("Task", matcher); diff != "" {
+			t.Fatalf("PreToolUse matcher mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("traceary-subagent-start.sh:claude", entries[0].Commands()[0].ManagedKey()); diff != "" {
+			t.Fatalf("PreToolUse managed key mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("traceary-subagent-start", entries[0].Commands()[0].Name()); diff != "" {
+			t.Fatalf("PreToolUse name mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(`'traceary' 'hook' 'subagent-start' 'claude'`, entries[0].Commands()[0].Command()); diff != "" {
+			t.Fatalf("PreToolUse command mismatch (-want +got):\n%s", diff)
 		}
 	})
 

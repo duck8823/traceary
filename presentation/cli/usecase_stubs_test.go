@@ -120,6 +120,15 @@ type sessionUsecaseStub struct {
 		workspace       types.Workspace
 		parentSessionID types.SessionID
 	}
+	startChildCall struct {
+		parent       types.SessionID
+		childID      types.SessionID
+		agent        types.Agent
+		workspace    types.Workspace
+		spawnEventID types.EventID
+		kind         string
+		startedAt    time.Time
+	}
 	endCall struct {
 		client    types.Client
 		agent     types.Agent
@@ -135,6 +144,16 @@ func (s *sessionUsecaseStub) Start(_ context.Context, client types.Client, agent
 	s.startCall.sessionID = sessionID
 	s.startCall.workspace = workspace
 	s.startCall.parentSessionID = parentSessionID
+	return s.startEvent, s.startErr
+}
+func (s *sessionUsecaseStub) StartChild(_ context.Context, parent types.SessionID, childID types.SessionID, agent types.Agent, workspace types.Workspace, spawnEventID types.EventID, kind string, startedAt time.Time) (*model.Event, error) {
+	s.startChildCall.parent = parent
+	s.startChildCall.childID = childID
+	s.startChildCall.agent = agent
+	s.startChildCall.workspace = workspace
+	s.startChildCall.spawnEventID = spawnEventID
+	s.startChildCall.kind = kind
+	s.startChildCall.startedAt = startedAt
 	return s.startEvent, s.startErr
 }
 func (s *sessionUsecaseStub) End(_ context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, summary string) (*model.Event, error) {

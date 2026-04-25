@@ -74,6 +74,74 @@ func (u *sessionUsecase) Start(ctx context.Context, client types.Client, agent t
 	return event, nil
 }
 
+func (u *sessionUsecase) StartChild(
+	ctx context.Context,
+	parent types.SessionID,
+	childID types.SessionID,
+	agent types.Agent,
+	workspace types.Workspace,
+	spawnEventID types.EventID,
+	kind string,
+	startedAt time.Time,
+) (*model.Event, error) {
+	if u.sessionRepo == nil {
+		return nil, xerrors.Errorf("session repository is not configured")
+	}
+
+	parentID, err := types.SessionIDFrom(parent.String())
+	if err != nil {
+		return nil, xerrors.Errorf("failed to start child session: %w", err)
+	}
+	resolvedChildID, err := types.SessionIDFrom(childID.String())
+	if err != nil {
+		return nil, xerrors.Errorf("failed to start child session: %w", err)
+	}
+	resolvedAgent, err := types.AgentFrom(agent.String())
+	if err != nil {
+		return nil, xerrors.Errorf("failed to start child session: %w", err)
+	}
+	if strings.TrimSpace(kind) == "" {
+		return nil, xerrors.Errorf("failed to start child session: subagent kind must not be empty")
+	}
+	if spawnEventID.String() == "" {
+		return nil, xerrors.Errorf("failed to start child session: spawn event ID must not be empty")
+	}
+	if startedAt.IsZero() {
+		startedAt = time.Now()
+	}
+
+	parentResult, err := u.sessionRepo.FindByID(ctx, parentID)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to find parent session: %w", err)
+	}
+	parentSession, ok := parentResult.Value()
+	if !ok {
+		return nil, xerrors.Errorf("parent session not found: %s", parentID)
+	}
+	existingChild, err := u.sessionRepo.FindByID(ctx, resolvedChildID)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to check existing child session: %w", err)
+	}
+	if _, ok := existingChild.Value(); ok {
+		return nil, xerrors.Errorf("cannot start child session %s: %w", resolvedChildID, model.ErrInvalidSessionState)
+	}
+
+	spawnOrder, err := u.sessionRepo.NextChildSpawnOrder(ctx, parentID)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to allocate child spawn order: %w", err)
+	}
+	event, err := u.buildBoundaryEventAt(ctx, types.EventKindSessionStarted, parentSession.Client(), resolvedAgent, resolvedChildID, workspace, startedAt)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to start child session: %w", err)
+	}
+	session := model.NewChildSession(parentSession, resolvedChildID, startedAt, resolvedAgent, workspace, spawnEventID, strings.TrimSpace(kind), spawnOrder)
+	if err := u.sessionRepo.SaveBoundary(ctx, session, event); err != nil {
+		return nil, xerrors.Errorf("failed to save child session start: %w", err)
+	}
+
+	return event, nil
+}
+
 func (u *sessionUsecase) End(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, summary string) (*model.Event, error) {
 	if u.sessionRepo == nil {
 		return nil, xerrors.Errorf("session repository is not configured")
@@ -245,6 +313,24 @@ func (u *sessionUsecase) buildBoundaryEvent(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to build session boundary event: %w", err)
 	}
+	event.SetSourceHook(apptypes.SourceHookFromContext(ctx))
+	return event, nil
+}
+
+func (u *sessionUsecase) buildBoundaryEventAt(
+	ctx context.Context,
+	kind types.EventKind,
+	client types.Client,
+	agent types.Agent,
+	sessionID types.SessionID,
+	workspace types.Workspace,
+	createdAt time.Time,
+) (*model.Event, error) {
+	eventID, err := newEventID()
+	if err != nil {
+		return nil, xerrors.Errorf("failed to generate event ID: %w", err)
+	}
+	event := model.EventOf(eventID, kind, client, agent, sessionID, workspace, sessionBoundaryBody(kind), createdAt)
 	event.SetSourceHook(apptypes.SourceHookFromContext(ctx))
 	return event, nil
 }

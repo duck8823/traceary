@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"time"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
@@ -14,6 +15,9 @@ type SessionUsecase interface {
 	// Start begins a new session. If sessionID is zero, a new ID is generated.
 	// Zero-value parentSessionID means no parent (top-level session).
 	Start(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, parentSessionID types.SessionID) (*model.Event, error)
+
+	// StartChild begins a child session spawned from an existing parent.
+	StartChild(ctx context.Context, parent types.SessionID, childID types.SessionID, agent types.Agent, workspace types.Workspace, spawnEventID types.EventID, kind string, startedAt time.Time) (*model.Event, error)
 
 	// End closes an existing session. Zero-value client/agent/workspace
 	// falls back to values from the corresponding session_started event.
