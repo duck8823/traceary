@@ -11,6 +11,7 @@
 - 更新系コマンドは既定で読みやすいテキスト形式を出力します
 - イベント / セッションの識別子を返すコマンドは、スクリプト向けに `--id-only` をサポートします
 - 構造化出力を持つコマンドは `--json` をサポートします
+- CLI 出力の JSON/NDJSON contract test は [`../operations/json-contract-tests.ja.md`](../operations/json-contract-tests.ja.md) にまとめています。
 
 ## イベント記録コマンド
 
