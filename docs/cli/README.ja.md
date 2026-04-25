@@ -592,9 +592,31 @@ alias: `claude-code`, `codex-cli`, `gemini-cli`
 
 DB アクセス、生成済み hook 設定の有無、クライアント設定のつながりを診断します。
 
-`warn` は、hooks 未導入などの初回状態や未設定状態を表します。
-`fail` は、DB アクセス不良や unreadable / invalid config のような壊れた状態を表します。
-`traceary doctor` が非 0 で終了するのは `fail` があるときだけです。
+text 出力は `Environment`、`Database`、`Plugins`、`MCP`、`Hooks` の安定した section に分かれます。
+各 check は `PASS` / `WARN` / `FAIL` の severity を持ちます。`WARN` は hooks 未導入などの初回状態や未設定状態を表します。`FAIL` は DB アクセス不良や unreadable / invalid config のような壊れた状態を表します。
+
+終了コード:
+
+- `0`: すべての check が `PASS`
+- `1`: 1 件以上の check が `FAIL`
+- `2`: `FAIL` はないが、1 件以上の check が `WARN`
+
+`--json` は legacy top-level `checks` を維持しつつ、sectioned structure を追加します。
+
+```json
+{
+  "sections": [
+    {
+      "name": "Environment",
+      "checks": [
+        {"name": "config", "severity": "PASS", "message": "...", "hint": ""}
+      ]
+    }
+  ],
+  "summary": {"pass": 3, "warn": 1, "fail": 0},
+  "exit_code": 2
+}
+```
 
 alias:
 

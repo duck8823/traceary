@@ -4,6 +4,7 @@ package main
 
 import (
 	"embed"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -220,12 +221,21 @@ func run() error {
 	return nil
 }
 
+type cliExitCoder interface {
+	ExitCode() int
+}
+
 func main() {
 	if err := run(); err != nil {
 		if writeErr := writeCLIError(os.Stderr, err); writeErr != nil {
 			log.Printf("%s: %v", cli.Localize("failed to print CLI error", "CLI error の出力に失敗しました"), writeErr)
 		}
-		os.Exit(1)
+		exitCode := 1
+		var exitCoder cliExitCoder
+		if errors.As(err, &exitCoder) && exitCoder.ExitCode() != 0 {
+			exitCode = exitCoder.ExitCode()
+		}
+		os.Exit(exitCode)
 	}
 }
 
