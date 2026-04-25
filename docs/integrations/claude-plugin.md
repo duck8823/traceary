@@ -70,7 +70,11 @@ Primary runtime check:
 
 ```sh
 traceary doctor --client claude --json
+traceary doctor --client claude --fix
+traceary doctor --client claude --fix --dry-run
 ```
+
+`--fix` is intentionally conservative: it can install or upgrade Traceary-managed hooks when the plugin is not active and can register the `traceary mcp-server` entry in Claude settings, backing up an existing settings file before changing the MCP block. It does not auto-update plugin versions or remove double registrations; those remain guided warnings with the upgrade/removal command in the doctor output.
 
 Local package validation:
 

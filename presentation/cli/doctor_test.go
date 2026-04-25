@@ -20,6 +20,7 @@ type doctorReport struct {
 	Sections []doctorSection `json:"sections"`
 	Summary  doctorSummary   `json:"summary"`
 	ExitCode int             `json:"exit_code"`
+	Fixes    []doctorFixLog  `json:"fixes"`
 }
 
 type doctorSection struct {
@@ -34,13 +35,22 @@ type doctorSummary struct {
 }
 
 type doctorCheck struct {
-	Name       string `json:"name"`
-	Status     string `json:"status"`
-	Severity   string `json:"severity"`
-	Section    string `json:"section"`
-	Message    string `json:"message"`
-	Hint       string `json:"hint"`
-	FixCommand string `json:"fix_command"`
+	Name             string `json:"name"`
+	Status           string `json:"status"`
+	Severity         string `json:"severity"`
+	Section          string `json:"section"`
+	Message          string `json:"message"`
+	Hint             string `json:"hint"`
+	FixCommand       string `json:"fix_command"`
+	AutoFixAvailable bool   `json:"auto_fix_available"`
+}
+
+type doctorFixLog struct {
+	Name   string `json:"name"`
+	Action string `json:"action"`
+	Before string `json:"before"`
+	After  string `json:"after"`
+	Error  string `json:"error"`
 }
 
 func executeDoctorAllowWarnings(t *testing.T, cmd interface{ Execute() error }) {

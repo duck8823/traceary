@@ -18,8 +18,14 @@ These packages all share the same runtime contract:
 | MCP server | exposes the Traceary read/write tools through `traceary mcp-server` |
 | Session hooks | records session start/end (or `Stop` on Codex) as Traceary events |
 | Shell audit hooks | records shell-command executions through `traceary audit` |
-| Doctor flow | uses `traceary doctor --client <host>` for troubleshooting |
+| Doctor flow | uses `traceary doctor --client <host>` for troubleshooting; add `--fix` to apply safe hook/MCP remediations and `--dry-run` to preview writes |
 | Versioning | integration packages are published together with Traceary releases |
+
+## Doctor auto-remediation
+
+`traceary doctor --fix --client <host>` first runs the normal doctor checks, applies only checks that advertise a safe automatic remediation, then runs doctor again and exits with the final report's normal exit-code semantics. A run that fixes every warning/failure exits `0`; remaining guided-only warnings/failures keep the regular non-zero status.
+
+Current automatic fixes cover Traceary-managed hook config installation/upgrade and Traceary MCP registration for supported config files, with a backup written before modifying an existing MCP config. Checks such as PATH problems, plugin version mismatch/cache staleness, double registration, host capability notes, and stale custom binary references are guided-only; `--fix` prints a clear skip note and the suggested command when available. Use `--dry-run` with `--fix` to print `would:` actions without writing files. JSON output includes a `fixes` array with the attempted action and before/after status for each warning/failure.
 
 ## Host packages
 

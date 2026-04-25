@@ -39,6 +39,12 @@ func TestRootCLI_Doctor_ClaudePluginInteractions(t *testing.T) {
 		if !strings.Contains(claudeCfg.Message, "twice") && !strings.Contains(claudeCfg.Message, "二重") {
 			t.Errorf("claude-config message = %q; want double-registration hint", claudeCfg.Message)
 		}
+		if claudeCfg.AutoFixAvailable {
+			t.Fatalf("claude-config AutoFixAvailable = true, want guided-only remediation")
+		}
+		if !strings.Contains(claudeCfg.Hint, "remove") && !strings.Contains(claudeCfg.Hint, "disable") {
+			t.Fatalf("claude-config hint = %q, want manual choice hint", claudeCfg.Hint)
+		}
 	})
 
 	t.Run("plugin active without settings hooks passes", func(t *testing.T) {

@@ -11,7 +11,8 @@
       "section": "Database",
       "message": "resolved DB path: /tmp/test-traceary.db",
       "hint": "",
-      "fix_command": ""
+      "fix_command": "",
+      "auto_fix_available": false
     },
     {
       "name": "path",
@@ -20,7 +21,8 @@
       "section": "Environment",
       "message": "PATH resolves traceary to /tmp/traceary-json-golden-bin/traceary (directory: /tmp/traceary-json-golden-bin)",
       "hint": "",
-      "fix_command": ""
+      "fix_command": "",
+      "auto_fix_available": false
     },
     {
       "name": "config",
@@ -29,7 +31,8 @@
       "section": "Environment",
       "message": "optional config file is not present yet; built-in defaults remain active: /tmp/traceary-json-golden-home/.config/traceary/config.json",
       "hint": "",
-      "fix_command": ""
+      "fix_command": "",
+      "auto_fix_available": false
     },
     {
       "name": "db-write",
@@ -38,7 +41,8 @@
       "section": "Database",
       "message": "initialized SQLite store: /tmp/test-traceary.db",
       "hint": "",
-      "fix_command": ""
+      "fix_command": "",
+      "auto_fix_available": false
     },
     {
       "name": "project-dir",
@@ -47,7 +51,8 @@
       "section": "Environment",
       "message": "resolved project directory: /tmp/traceary-json-golden-project",
       "hint": "",
-      "fix_command": ""
+      "fix_command": "",
+      "auto_fix_available": false
     },
     {
       "name": "codex-config",
@@ -56,16 +61,18 @@
       "section": "Hooks",
       "message": "codex config file does not exist yet (run `traceary hooks install --client codex` to fix) (first-run / pre-install state): /tmp/traceary-json-golden-home/.codex/hooks.json",
       "hint": "",
-      "fix_command": ""
+      "fix_command": "",
+      "auto_fix_available": true
     },
     {
       "name": "codex-mcp",
-      "status": "skip",
-      "severity": "PASS",
+      "status": "warn",
+      "severity": "WARN",
       "section": "MCP",
-      "message": "codex MCP config file is absent; skipped registration check: /tmp/traceary-json-golden-home/.codex/config.toml",
-      "hint": "",
-      "fix_command": ""
+      "message": "codex MCP config file is absent; traceary MCP server is not registered: /tmp/traceary-json-golden-home/.codex/config.toml",
+      "hint": "register traceary MCP server",
+      "fix_command": "traceary mcp-server",
+      "auto_fix_available": true
     },
     {
       "name": "codex-host-capabilities",
@@ -74,7 +81,8 @@
       "section": "MCP",
       "message": "codex host: memory features ship behind a per-install feature flag in /tmp/traceary-json-golden-home/.codex/config.toml; consult the Codex release notes for the exact flag name and your enablement state. Traceary's `memory import codex` works regardless of the flag state",
       "hint": "",
-      "fix_command": ""
+      "fix_command": "",
+      "auto_fix_available": false
     },
     {
       "name": "version",
@@ -83,7 +91,8 @@
       "section": "Environment",
       "message": "version check skipped: current version unknown",
       "hint": "",
-      "fix_command": ""
+      "fix_command": "",
+      "auto_fix_available": false
     }
   ],
   "sections": [
@@ -97,7 +106,8 @@
           "section": "Environment",
           "message": "PATH resolves traceary to /tmp/traceary-json-golden-bin/traceary (directory: /tmp/traceary-json-golden-bin)",
           "hint": "",
-          "fix_command": ""
+          "fix_command": "",
+          "auto_fix_available": false
         },
         {
           "name": "config",
@@ -106,7 +116,8 @@
           "section": "Environment",
           "message": "optional config file is not present yet; built-in defaults remain active: /tmp/traceary-json-golden-home/.config/traceary/config.json",
           "hint": "",
-          "fix_command": ""
+          "fix_command": "",
+          "auto_fix_available": false
         },
         {
           "name": "project-dir",
@@ -115,7 +126,8 @@
           "section": "Environment",
           "message": "resolved project directory: /tmp/traceary-json-golden-project",
           "hint": "",
-          "fix_command": ""
+          "fix_command": "",
+          "auto_fix_available": false
         },
         {
           "name": "version",
@@ -124,7 +136,8 @@
           "section": "Environment",
           "message": "version check skipped: current version unknown",
           "hint": "",
-          "fix_command": ""
+          "fix_command": "",
+          "auto_fix_available": false
         }
       ]
     },
@@ -138,7 +151,8 @@
           "section": "Database",
           "message": "resolved DB path: /tmp/test-traceary.db",
           "hint": "",
-          "fix_command": ""
+          "fix_command": "",
+          "auto_fix_available": false
         },
         {
           "name": "db-write",
@@ -147,7 +161,8 @@
           "section": "Database",
           "message": "initialized SQLite store: /tmp/test-traceary.db",
           "hint": "",
-          "fix_command": ""
+          "fix_command": "",
+          "auto_fix_available": false
         }
       ]
     },
@@ -160,12 +175,13 @@
       "checks": [
         {
           "name": "codex-mcp",
-          "status": "skip",
-          "severity": "PASS",
+          "status": "warn",
+          "severity": "WARN",
           "section": "MCP",
-          "message": "codex MCP config file is absent; skipped registration check: /tmp/traceary-json-golden-home/.codex/config.toml",
-          "hint": "",
-          "fix_command": ""
+          "message": "codex MCP config file is absent; traceary MCP server is not registered: /tmp/traceary-json-golden-home/.codex/config.toml",
+          "hint": "register traceary MCP server",
+          "fix_command": "traceary mcp-server",
+          "auto_fix_available": true
         },
         {
           "name": "codex-host-capabilities",
@@ -174,7 +190,8 @@
           "section": "MCP",
           "message": "codex host: memory features ship behind a per-install feature flag in /tmp/traceary-json-golden-home/.codex/config.toml; consult the Codex release notes for the exact flag name and your enablement state. Traceary's `memory import codex` works regardless of the flag state",
           "hint": "",
-          "fix_command": ""
+          "fix_command": "",
+          "auto_fix_available": false
         }
       ]
     },
@@ -188,14 +205,15 @@
           "section": "Hooks",
           "message": "codex config file does not exist yet (run `traceary hooks install --client codex` to fix) (first-run / pre-install state): /tmp/traceary-json-golden-home/.codex/hooks.json",
           "hint": "",
-          "fix_command": ""
+          "fix_command": "",
+          "auto_fix_available": true
         }
       ]
     }
   ],
   "summary": {
-    "pass": 8,
-    "warn": 1,
+    "pass": 7,
+    "warn": 2,
     "fail": 0
   },
   "exit_code": 2
