@@ -8,15 +8,15 @@ This document answers "how do I use Traceary's memory store from my agent SDK?" 
 
 ## Summary matrix
 
-| SDK | MCP support | Native memory abstraction | Traceary-custom adapter needed? | v0.9 decision |
+| SDK | MCP support | Native memory abstraction | Traceary-custom adapter needed? | Current decision |
 |---|---|---|---|---|
-| Claude Agent SDK | ✅ stable (`mcp_servers`) | `BetaAbstractMemoryTool` (Python / TypeScript) | **Split** — MCP integration now (this release); native memory-tool backend deferred (#699) | docs now, native backend defer |
+| Claude / Anthropic APIs | ✅ stable (`mcp_servers`) for agent hosts | Native `memory_20250818` client tool in the Anthropic SDKs | **Both** — MCP remains the portable path; Go native backend is experimental | MCP docs + [native memory tool](./anthropic-memory-tool.md) |
 | OpenAI Agents SDK | ✅ stable (`MCPServerStdio` / `MCPServerSse`) | `Session` persistence is backend-swappable; no memory-tool abstraction | No | defer (MCP is enough) |
 | Google ADK | ✅ stable (`McpToolset` + `StdioConnectionParams`) | `MemoryService` pluggable backend | No (yet) — revisit when ADK memory API stabilises | defer (MCP is enough) |
 
-## Claude Agent SDK
+## Claude / Anthropic APIs
 
-**Status**: connect via MCP today; native memory-tool backend deferred.
+**Status**: connect via MCP for agent hosts; use the experimental Go native memory-tool backend for direct Anthropic API integrations.
 
 `traceary mcp-server` exposes `query_memory(action="retrieve")`, `manage_memory(action="remember")`, `manage_memory(action="accept")`, and related memory tools via the standard MCP protocol. (The v0.9 graph overlay is CLI-only via `traceary memory graph`; MCP graph tools are a follow-up.) The Claude Agent SDK consumes MCP servers through `ClaudeAgentOptions.mcp_servers`:
 
@@ -40,7 +40,7 @@ async for message in query(prompt="...", options=options):
 
 That covers the **external-tool** path: the agent calls `traceary.query_memory(action="retrieve")(...)` explicitly, and Traceary owns the store.
 
-`BetaAbstractMemoryTool` is a different surface — it lets the SDK redirect the model's **built-in `memory` tool** (which the model may invoke without explicit prompting) to a custom backend. Building that adapter would legitimately route more traffic into Traceary, but it means maintaining a Python package that tracks Anthropic's beta API. v0.9 defers it; #699 will revisit once Anthropic ships a stable memory-tool abstraction and the signal from operators is clearly in favour.
+Anthropic's native `memory_20250818` tool is a different surface: the model emits memory commands and the client application executes them. Traceary now ships an experimental Go backend for that flow in `pkg/anthropicmemory`; see [Anthropic native memory tool](./anthropic-memory-tool.md). This is useful when you own the Anthropic Go SDK loop directly. For hosted agent SDKs and multi-provider workflows, MCP remains the default integration path.
 
 ## OpenAI Agents SDK
 
@@ -79,16 +79,11 @@ agent = Agent(tools=[traceary])
 
 ADK also has a `MemoryService` pluggable backend that could theoretically hold Traceary data. That surface is younger than Anthropic's memory-tool abstraction and — per current docs — still shifting. Shipping a Traceary-custom `MemoryService` today risks chasing a moving API. Defer to post-v0.9 and reassess once the ADK memory API stabilises.
 
-## What we explicitly did NOT do in v0.9
+## What remains out of scope
 
-- No Python packages added under `integrations/`. Traceary stays Go-only from a distributed-artifact perspective. `scripts/*.py` are release-tooling helpers and are not user-facing.
-- No `BetaAbstractMemoryTool` subclass (tracked in #699 as a follow-up).
+- No Python / TypeScript convenience wrappers for Anthropic memory-tool backends; the Go API is the experimental native surface.
 - No `MemoryService` adapter for Google ADK.
-
-## Follow-up issues
-
-- #699 — experiment with Anthropic native memory-tool backend for Traceary (opened when this doc ships).
 
 ## Revisit cadence
 
-Revisit this doc at the v0.10 / v1.0 planning gate. SDK APIs (especially Anthropic's memory tool, still in beta) will move, and the right call now — "MCP is enough" — is specifically time-bound.
+Revisit this doc at the v1.0 planning gate. SDK APIs (especially Anthropic's memory tool, still in beta) will move, and the right call now — "MCP by default, native memory tool when you own the Anthropic loop" — is specifically time-bound.

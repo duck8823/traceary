@@ -34,6 +34,7 @@ Traceary は、Claude Code / Codex / Gemini CLI 向けにネイティブ連携�
 - [Claude Code plugin](./claude-plugin.ja.md)
 - [Codex plugin](./codex-plugin.ja.md)
 - [Gemini CLI extension](./gemini-extension.ja.md)
+- [Anthropic native memory tool (experimental)](./anthropic-memory-tool.ja.md)
 
 ## 検証と smoke test
 
