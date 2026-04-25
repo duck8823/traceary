@@ -102,6 +102,7 @@ type sessionUsecaseStub struct {
 	labelErr       error
 	listResult     []apptypes.SessionSummary
 	listErr        error
+	listCriteria   apptypes.SessionListCriteria
 	treeResult     []apptypes.SessionSummary
 	treeErr        error
 	lineageResult  []apptypes.SessionSummary
@@ -187,7 +188,8 @@ func (s *sessionUsecaseStub) End(_ context.Context, client types.Client, agent t
 func (s *sessionUsecaseStub) Label(_ context.Context, _ types.SessionID, _ string) error {
 	return s.labelErr
 }
-func (s *sessionUsecaseStub) List(_ context.Context, _ apptypes.SessionListCriteria) ([]apptypes.SessionSummary, error) {
+func (s *sessionUsecaseStub) List(_ context.Context, criteria apptypes.SessionListCriteria) ([]apptypes.SessionSummary, error) {
+	s.listCriteria = criteria
 	return s.listResult, s.listErr
 }
 func (s *sessionUsecaseStub) Tree(_ context.Context, _ types.Workspace, _ int) ([]apptypes.SessionSummary, error) {
@@ -197,6 +199,9 @@ func (s *sessionUsecaseStub) Tree(_ context.Context, _ types.Workspace, _ int) (
 	return s.treeResult, s.treeErr
 }
 func (s *sessionUsecaseStub) Lineage(_ context.Context, _ types.SessionID) ([]apptypes.SessionSummary, error) {
+	if s.lineageResult == nil && s.lineageErr == nil {
+		return s.listResult, s.listErr
+	}
 	return s.lineageResult, s.lineageErr
 }
 func (s *sessionUsecaseStub) Active(_ context.Context, criteria apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error) {

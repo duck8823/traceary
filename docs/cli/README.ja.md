@@ -479,6 +479,19 @@ session end 境界を記録し、生成された event ID を出力します。
 - `--id-only`
 - `--json`
 
+### `traceary top`
+
+active session を root session ごとにまとめたライブ自動更新 tree dashboard を表示します。各行には最も具体的な agent/subagent role、記録 client、開始時刻、最新 activity 時刻、event 件数を表示します。最新 activity が `--idle` より古い session は dim 表示しますが、非表示にはしません。`q` または Ctrl-C で終了します。`traceary session tree` は静的な retrospective view のままです。
+
+主な flag:
+
+- `--workspace`
+- `--client`
+- `--agent`
+- `--idle <duration>` — threshold より古い行を非表示にせず dim 表示
+- `--snapshot --json` — `traceary session tree --json` と同じ node 契約で一回限りの JSON tree を出力
+- `--limit`
+
 ### `traceary session list`
 
 session の一覧サマリーを表示します。

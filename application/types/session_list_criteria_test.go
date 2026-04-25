@@ -36,6 +36,9 @@ func TestSessionListCriteriaBuilder_DefaultsLimitOnly(t *testing.T) {
 	if diff := cmp.Diff("", criteria.Label()); diff != "" {
 		t.Errorf("Label() mismatch (-want +got):\n%s", diff)
 	}
+	if criteria.ActiveOnly() {
+		t.Errorf("ActiveOnly() = true, want false")
+	}
 	if _, ok := criteria.From().Value(); ok {
 		t.Errorf("From().Value() = true, want false")
 	}
@@ -57,6 +60,7 @@ func TestSessionListCriteriaBuilder_AllSettersChained(t *testing.T) {
 		Client(domtypes.Client("cli")).
 		Agent(domtypes.Agent("claude")).
 		Label("feature/foo").
+		ActiveOnly(true).
 		From(domtypes.Some(from)).
 		To(domtypes.Some(to)).
 		Build()
@@ -81,6 +85,9 @@ func TestSessionListCriteriaBuilder_AllSettersChained(t *testing.T) {
 	}
 	if diff := cmp.Diff("feature/foo", criteria.Label()); diff != "" {
 		t.Errorf("Label() mismatch (-want +got):\n%s", diff)
+	}
+	if !criteria.ActiveOnly() {
+		t.Errorf("ActiveOnly() = false, want true")
 	}
 
 	gotFrom, ok := criteria.From().Value()

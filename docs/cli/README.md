@@ -479,6 +479,19 @@ Useful flags:
 - `--id-only`
 - `--json`
 
+### `traceary top`
+
+Show a live, auto-refreshing tree dashboard of active sessions grouped by root session. Rows include the most specific agent/subagent role, recording client, start time, latest activity time, and event count. Idle sessions are dimmed when their latest activity is older than `--idle`; they are not hidden. Press `q` or Ctrl-C to quit. `traceary session tree` remains the static retrospective view.
+
+Useful flags:
+
+- `--workspace`
+- `--client`
+- `--agent`
+- `--idle <duration>` — dim rows older than the threshold without hiding them
+- `--snapshot --json` — print a one-shot JSON tree using the same node contract as `traceary session tree --json`
+- `--limit`
+
 ### `traceary session list`
 
 List session summaries.

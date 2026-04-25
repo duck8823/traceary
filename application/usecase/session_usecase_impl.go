@@ -228,7 +228,7 @@ func (u *sessionUsecase) List(ctx context.Context, criteria apptypes.SessionList
 		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
 	}
 
-	summaries, err := u.sessionQuery.ListSummaries(ctx, criteria.Limit(), criteria.Offset(), criteria.SessionID(), criteria.Workspace(), criteria.Client(), criteria.Agent(), criteria.Label(), criteria.From(), criteria.To())
+	summaries, err := u.sessionQuery.ListSummaries(ctx, criteria.Limit(), criteria.Offset(), criteria.SessionID(), criteria.Workspace(), criteria.Client(), criteria.Agent(), criteria.Label(), criteria.ActiveOnly(), criteria.From(), criteria.To())
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list sessions: %w", err)
 	}
@@ -240,7 +240,7 @@ func (u *sessionUsecase) Tree(ctx context.Context, workspace types.Workspace, li
 		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
 	}
 
-	summaries, err := u.sessionQuery.ListSummaries(ctx, limit, 0, types.SessionID(""), workspace, types.Client(""), types.Agent(""), "", types.None[time.Time](), types.None[time.Time]())
+	summaries, err := u.sessionQuery.ListSummaries(ctx, limit, 0, types.SessionID(""), workspace, types.Client(""), types.Agent(""), "", false, types.None[time.Time](), types.None[time.Time]())
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list sessions for tree: %w", err)
 	}

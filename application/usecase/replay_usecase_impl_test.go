@@ -19,7 +19,7 @@ type stubReplaySessionQuery struct {
 func (s *stubReplaySessionQuery) FindLatest(context.Context, domtypes.Client, domtypes.Agent, domtypes.Workspace, bool) (domtypes.Optional[*model.Event], error) {
 	return domtypes.None[*model.Event](), nil
 }
-func (s *stubReplaySessionQuery) ListSummaries(context.Context, int, int, domtypes.SessionID, domtypes.Workspace, domtypes.Client, domtypes.Agent, string, domtypes.Optional[time.Time], domtypes.Optional[time.Time]) ([]apptypes.SessionSummary, error) {
+func (s *stubReplaySessionQuery) ListSummaries(context.Context, int, int, domtypes.SessionID, domtypes.Workspace, domtypes.Client, domtypes.Agent, string, bool, domtypes.Optional[time.Time], domtypes.Optional[time.Time]) ([]apptypes.SessionSummary, error) {
 	return s.sessions, nil
 }
 func (s *stubReplaySessionQuery) LineageOf(context.Context, domtypes.SessionID) ([]apptypes.SessionSummary, error) {

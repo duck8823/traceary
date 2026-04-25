@@ -172,6 +172,7 @@ func (u *memoryExtractionUsecase) findTargetSession(
 		domtypes.Client(""),
 		domtypes.Agent(""),
 		"",
+		false,
 		domtypes.None[time.Time](),
 		domtypes.None[time.Time](),
 	)
