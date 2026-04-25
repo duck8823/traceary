@@ -30,8 +30,9 @@ type SessionUsecase interface {
 	List(ctx context.Context, criteria apptypes.SessionListCriteria) ([]apptypes.SessionSummary, error)
 
 	// Tree returns session summaries as a hierarchy for the given workspace.
-	// Zero-value workspace returns sessions across all workspaces.
-	Tree(ctx context.Context, workspace types.Workspace, limit int) ([]apptypes.SessionSummary, error)
+	// Zero-value workspace returns sessions across all workspaces. When rootSessionID
+	// is set, the requested root is included regardless of the limit window.
+	Tree(ctx context.Context, workspace types.Workspace, rootSessionID types.SessionID, limit int) ([]apptypes.SessionSummary, error)
 
 	// Lineage returns the full hierarchy rooted at the topmost ancestor of sessionID.
 	Lineage(ctx context.Context, sessionID types.SessionID) ([]apptypes.SessionSummary, error)

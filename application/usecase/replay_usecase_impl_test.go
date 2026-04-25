@@ -22,6 +22,9 @@ func (s *stubReplaySessionQuery) FindLatest(context.Context, domtypes.Client, do
 func (s *stubReplaySessionQuery) ListSummaries(context.Context, int, int, domtypes.SessionID, domtypes.Workspace, domtypes.Client, domtypes.Agent, string, bool, domtypes.Optional[time.Time], domtypes.Optional[time.Time]) ([]apptypes.SessionSummary, error) {
 	return s.sessions, nil
 }
+func (s *stubReplaySessionQuery) ListTreeSummaries(context.Context, int, domtypes.Workspace, domtypes.SessionID) ([]apptypes.SessionSummary, error) {
+	return s.sessions, nil
+}
 func (s *stubReplaySessionQuery) LineageOf(context.Context, domtypes.SessionID) ([]apptypes.SessionSummary, error) {
 	return nil, nil
 }

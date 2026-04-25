@@ -3,6 +3,7 @@ package sqlite_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -424,6 +425,41 @@ func TestDatasource_LineageOfCycleDetection(t *testing.T) {
 	wantIDs := []string{"cycle-a", "cycle-b"}
 	if diff := cmp.Diff(wantIDs, gotIDs); diff != "" {
 		t.Fatalf("LineageOf() IDs mismatch (-want +got):\n%s", diff)
+	}
+}
+
+type fakeClock struct {
+	now time.Time
+}
+
+func (c fakeClock) Now() time.Time { return c.now }
+
+func TestDatasource_ListTreeSummariesIncludesRequestedRootOutsideLimit(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	fixture := newListSessionsFixture(t, dbPath, listSessionsTestMigrations())
+	ctx := context.Background()
+	if err := fixture.storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	started := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	saveTestSession(ctx, t, fixture.sessionDS, "old-root", started, types.None[time.Time](), "claude", "duck8823/traceary")
+	for i := 0; i < 60; i++ {
+		saveTestSession(ctx, t, fixture.sessionDS, fmt.Sprintf("newer-unrelated-%02d", i), started.Add(time.Duration(i+1)*time.Minute), types.None[time.Time](), "codex", "duck8823/traceary")
+	}
+
+	got, err := fixture.sessionDS.ListTreeSummaries(ctx, 50, types.Workspace("duck8823/traceary"), types.SessionID("old-root"))
+	if err != nil {
+		t.Fatalf("ListTreeSummaries() error = %v", err)
+	}
+	gotIDs := make([]string, 0, len(got))
+	for _, summary := range got {
+		gotIDs = append(gotIDs, summary.SessionID().String())
+	}
+	if diff := cmp.Diff([]string{"old-root"}, gotIDs); diff != "" {
+		t.Fatalf("ListTreeSummaries() IDs mismatch (-want +got):\n%s", diff)
 	}
 }
 

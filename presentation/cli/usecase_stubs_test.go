@@ -192,7 +192,7 @@ func (s *sessionUsecaseStub) List(_ context.Context, criteria apptypes.SessionLi
 	s.listCriteria = criteria
 	return s.listResult, s.listErr
 }
-func (s *sessionUsecaseStub) Tree(_ context.Context, _ types.Workspace, _ int) ([]apptypes.SessionSummary, error) {
+func (s *sessionUsecaseStub) Tree(_ context.Context, _ types.Workspace, _ types.SessionID, _ int) ([]apptypes.SessionSummary, error) {
 	if s.treeResult == nil && s.treeErr == nil {
 		return s.listResult, s.listErr
 	}

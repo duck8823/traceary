@@ -89,6 +89,29 @@ func (s *sessionQueryServiceStub) ListSummaries(
 	return s.listSummariesResult, nil
 }
 
+func (s *sessionQueryServiceStub) ListTreeSummaries(
+	_ context.Context,
+	limit int,
+	workspace types.Workspace,
+	rootSessionID types.SessionID,
+) ([]apptypes.SessionSummary, error) {
+	s.listSummariesCalls++
+	s.listLimit = limit
+	s.listOffset = 0
+	s.listSessionID = rootSessionID
+	s.listWorkspace = workspace
+	s.listClient = types.Client("")
+	s.listAgent = types.Agent("")
+	s.listLabel = ""
+	s.listActiveOnly = false
+	s.listFrom = types.None[time.Time]()
+	s.listTo = types.None[time.Time]()
+	if s.listSummariesErr != nil {
+		return nil, s.listSummariesErr
+	}
+	return s.listSummariesResult, nil
+}
+
 func (s *sessionQueryServiceStub) LineageOf(_ context.Context, sessionID types.SessionID) ([]apptypes.SessionSummary, error) {
 	s.lineageCalls++
 	s.lineageSessionID = sessionID
@@ -576,7 +599,7 @@ func TestSessionUsecase_Tree(t *testing.T) {
 		queryStub := &sessionQueryServiceStub{}
 		sut := usecase.NewSessionUsecase(nil, nil, queryStub, nil)
 
-		_, err := sut.Tree(context.Background(), types.Workspace("duck8823/traceary"), 0)
+		_, err := sut.Tree(context.Background(), types.Workspace("duck8823/traceary"), types.SessionID(""), 0)
 		if err == nil {
 			t.Fatalf("Tree() error = nil, want error")
 		}
@@ -591,7 +614,7 @@ func TestSessionUsecase_Tree(t *testing.T) {
 		queryStub := &sessionQueryServiceStub{}
 		sut := usecase.NewSessionUsecase(nil, nil, queryStub, nil)
 
-		_, err := sut.Tree(context.Background(), types.Workspace("duck8823/traceary"), -1)
+		_, err := sut.Tree(context.Background(), types.Workspace("duck8823/traceary"), types.SessionID(""), -1)
 		if err == nil {
 			t.Fatalf("Tree() error = nil, want error")
 		}
@@ -618,7 +641,7 @@ func TestSessionUsecase_Tree(t *testing.T) {
 		queryStub := &sessionQueryServiceStub{listSummariesResult: want}
 		sut := usecase.NewSessionUsecase(nil, nil, queryStub, nil)
 
-		got, err := sut.Tree(context.Background(), types.Workspace("duck8823/traceary"), 50)
+		got, err := sut.Tree(context.Background(), types.Workspace("duck8823/traceary"), types.SessionID(""), 50)
 		if err != nil {
 			t.Fatalf("Tree() error = %v", err)
 		}
@@ -648,7 +671,7 @@ func TestSessionUsecase_Tree(t *testing.T) {
 		queryStub := &sessionQueryServiceStub{listSummariesErr: errors.New("query failed")}
 		sut := usecase.NewSessionUsecase(nil, nil, queryStub, nil)
 
-		_, err := sut.Tree(context.Background(), types.Workspace("duck8823/traceary"), 10)
+		_, err := sut.Tree(context.Background(), types.Workspace("duck8823/traceary"), types.SessionID(""), 10)
 		if err == nil {
 			t.Fatalf("Tree() error = nil, want error")
 		}
