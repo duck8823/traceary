@@ -691,13 +691,14 @@ func (c *RootCLI) runHookSubagentStop(
 		}
 		activeToolUseID = toolUseID
 	} else {
-		active, findErr := findHookDeepestLatestActiveSubagentState(client, parentSessionID)
+		var latestChildSessionID types.SessionID
+		var findErr error
+		activeToolUseID, latestChildSessionID, findErr = readHookLatestActiveSubagentState(client, parentSessionID)
 		if findErr != nil {
 			return findErr
 		}
-		activeToolUseID = active.ToolUseID
-		childSessionID = active.ChildSessionID
-		activeParentSessionID = active.ParentSessionID
+		childSessionID = latestChildSessionID
+		activeParentSessionID = parentSessionID
 		childWasActive = childSessionID != ""
 	}
 	if childSessionID != "" {
@@ -1123,10 +1124,7 @@ func resolveHookSessionID(payload []byte, client string) (types.SessionID, error
 }
 
 func resolveHookSubagentStartParentSessionID(payload []byte, client string) (types.SessionID, error) {
-	if hookPayloadString(payload, "session_id", "") == "" {
-		return resolveHookParentSessionID(payload, client)
-	}
-	return resolveHookSessionID(payload, client)
+	return resolveHookParentSessionID(payload, client)
 }
 
 func resolveHookParentSessionID(payload []byte, client string) (types.SessionID, error) {

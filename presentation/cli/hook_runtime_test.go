@@ -576,6 +576,65 @@ func TestRootCLI_HookSubagentStartCommand_CreatesChildAndActiveState(t *testing.
 	}
 }
 
+func TestRootCLI_HookSubagentStartCommand_UsesExplicitSessionIDAsParentForOverlappingSiblings(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "explicit-sibling-key")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	sessionStub := &sessionUsecaseStub{}
+	runStart := func(payload string) {
+		t.Helper()
+		rootCmd := newTestRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithSession(sessionStub),
+		).Command()
+		rootCmd.SetOut(&bytes.Buffer{})
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetIn(strings.NewReader(payload))
+		rootCmd.SetArgs([]string{"hook", "subagent-start", "claude"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute(subagent-start) error = %v", err)
+		}
+	}
+
+	runStart(`{"session_id":"parent-session","tool_use_id":"toolu_1","tool_input":{"subagent_type":"worker"}}`)
+	time.Sleep(time.Millisecond)
+	runStart(`{"session_id":"parent-session","tool_use_id":"toolu_2","tool_input":{"subagent_type":"qa"}}`)
+
+	if len(sessionStub.startChildCalls) != 2 {
+		t.Fatalf("StartChild calls len = %d, want 2", len(sessionStub.startChildCalls))
+	}
+	for i, call := range sessionStub.startChildCalls {
+		if got, want := call.parent, types.SessionID("parent-session"); got != want {
+			t.Fatalf("StartChild call %d parent = %q, want %q", i, got, want)
+		}
+	}
+	if got, want := sessionStub.startChildCalls[0].childID, types.SessionID("parent-session:sub:toolu_1"); got != want {
+		t.Fatalf("first childID = %q, want %q", got, want)
+	}
+	if got, want := sessionStub.startChildCalls[1].childID, types.SessionID("parent-session:sub:toolu_2"); got != want {
+		t.Fatalf("second childID = %q, want %q", got, want)
+	}
+
+	activeState, err := os.ReadFile(filepath.Join(stateDir, "active-subagents", "claude-parent-session"))
+	if err != nil {
+		t.Fatalf("ReadFile(parent active state) error = %v", err)
+	}
+	if !strings.Contains(string(activeState), `"toolu_1"`) || !strings.Contains(string(activeState), `"toolu_2"`) {
+		t.Fatalf("parent active state = %s, want both siblings", string(activeState))
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "active-subagents", "claude-parent-session:sub:toolu_1")); !os.IsNotExist(err) {
+		t.Fatalf("nested active state should not exist; stat err=%v", err)
+	}
+}
+
 func TestRootCLI_HookSubagentState_TracksOverlappingTaskChildren(t *testing.T) {
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "overlap-key")
 
@@ -631,11 +690,11 @@ func TestRootCLI_HookSubagentState_TracksOverlappingTaskChildren(t *testing.T) {
 		}
 	}
 
-	runHook([]string{"hook", "subagent-start", "claude"}, `{"tool_use_id":"toolu_1","tool_input":{"subagent_type":"worker"}}`, nil)
+	runHook([]string{"hook", "subagent-start", "claude"}, `{"session_id":"parent-session","tool_use_id":"toolu_1","tool_input":{"subagent_type":"worker"}}`, nil)
 	time.Sleep(time.Millisecond)
-	runHook([]string{"hook", "subagent-start", "claude"}, `{"tool_use_id":"toolu_2","tool_input":{"subagent_type":"qa"}}`, nil)
+	runHook([]string{"hook", "subagent-start", "claude"}, `{"session_id":"parent-session","tool_use_id":"toolu_2","tool_input":{"subagent_type":"qa"}}`, nil)
 	time.Sleep(time.Millisecond)
-	runHook([]string{"hook", "subagent-start", "claude"}, `{"tool_use_id":"toolu_3","tool_input":{"subagent_type":"planner"}}`, nil)
+	runHook([]string{"hook", "subagent-start", "claude"}, `{"session_id":"parent-session","tool_use_id":"toolu_3","tool_input":{"subagent_type":"planner"}}`, nil)
 
 	sqlDB, err := sql.Open("sqlite", dbPath)
 	if err != nil {
@@ -910,9 +969,12 @@ func TestRootCLI_HookSubagentStopCommand_UsesLatestActiveChildWhenToolUseIDMissi
 	if err := os.WriteFile(filepath.Join(stateDir, "claude-stop-missing-tool-key"), []byte("parent-session"), 0o600); err != nil {
 		t.Fatalf("WriteFile(session state) error = %v", err)
 	}
-	activeJSON := `{"children":{"toolu_1":{"child_session_id":"parent-session:sub:toolu_1","started_at":"` +
-		time.Now().Add(-time.Second).UTC().Format(time.RFC3339) +
-		`"}}}`
+	olderStartedAt := time.Now().Add(-2 * time.Second).UTC().Format(time.RFC3339)
+	newerStartedAt := time.Now().Add(-time.Second).UTC().Format(time.RFC3339)
+	activeJSON := `{"children":{` +
+		`"toolu_1":{"child_session_id":"parent-session:sub:toolu_1","started_at":"` + olderStartedAt + `"},` +
+		`"toolu_2":{"child_session_id":"parent-session:sub:toolu_2","started_at":"` + newerStartedAt + `"}` +
+		`}}`
 	if err := os.WriteFile(filepath.Join(activeDir, "claude-parent-session"), []byte(activeJSON), 0o600); err != nil {
 		t.Fatalf("WriteFile(active state) error = %v", err)
 	}
@@ -932,11 +994,15 @@ func TestRootCLI_HookSubagentStopCommand_UsesLatestActiveChildWhenToolUseIDMissi
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute(subagent-stop) error = %v", err)
 	}
-	if got, want := sessionStub.endCall.sessionID, types.SessionID("parent-session:sub:toolu_1"); got != want {
+	if got, want := sessionStub.endCall.sessionID, types.SessionID("parent-session:sub:toolu_2"); got != want {
 		t.Fatalf("End child sessionID = %q, want %q", got, want)
 	}
-	if _, err := os.Stat(filepath.Join(activeDir, "claude-parent-session")); !os.IsNotExist(err) {
-		t.Fatalf("active state should be cleared after missing-id stop; stat err=%v", err)
+	activeState, err := os.ReadFile(filepath.Join(activeDir, "claude-parent-session"))
+	if err != nil {
+		t.Fatalf("ReadFile(active state after missing-id stop) error = %v", err)
+	}
+	if strings.Contains(string(activeState), "toolu_2") || !strings.Contains(string(activeState), "toolu_1") {
+		t.Fatalf("active state after missing-id stop = %s, want only older toolu_1 remaining", string(activeState))
 	}
 }
 
