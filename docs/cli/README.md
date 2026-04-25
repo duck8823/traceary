@@ -11,6 +11,7 @@ Use it together with the quick-start section in `README.md`.
 - Mutating commands print human-friendly text by default
 - Commands that create an event or session identifier support `--id-only` when scripts want the raw identifier
 - Commands that support structured output expose `--json`
+- JSON/NDJSON contract tests for CLI output are documented in [`../operations/json-contract-tests.md`](../operations/json-contract-tests.md).
 
 ## Core event commands
 

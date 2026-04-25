@@ -1,0 +1,20 @@
+{
+  "event": {
+    "event_id": "event-golden-1",
+    "kind": "command_executed",
+    "client": "cli",
+    "agent": "codex",
+    "session_id": "session-golden-1",
+    "workspace": "duck8823/traceary",
+    "message": "go test ./presentation/cli",
+    "created_at": "2026-04-08T12:30:00Z"
+  },
+  "command_audit": {
+    "command": "go test ./presentation/cli",
+    "input": "stdin",
+    "output": "stdout",
+    "input_truncated": false,
+    "output_truncated": false,
+    "exit_code": 0
+  }
+}
