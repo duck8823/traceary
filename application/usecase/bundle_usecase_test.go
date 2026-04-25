@@ -54,6 +54,10 @@ func (f fakeEventQuery) ListTimelineBlocks(context.Context, types.Workspace, tim
 type fakeBundleRepo struct {
 	schema                    int
 	events                    map[string]bool
+	sessions                  map[string]*model.Session
+	commandAudits             map[string]*model.CommandAudit
+	exportSessions            []*model.Session
+	exportCommandAudits       []*model.CommandAudit
 	memories                  map[string]*model.Memory
 	exportMemories            []apptypes.MemoryDetails
 	enforceMemorySupersedesFK bool
@@ -61,6 +65,12 @@ type fakeBundleRepo struct {
 }
 
 func (r *fakeBundleRepo) SchemaVersion(context.Context) (int, error) { return r.schema, nil }
+func (r *fakeBundleRepo) ListBundleSessions(context.Context) ([]*model.Session, error) {
+	return r.exportSessions, nil
+}
+func (r *fakeBundleRepo) ListBundleCommandAudits(context.Context) ([]*model.CommandAudit, error) {
+	return r.exportCommandAudits, nil
+}
 func (r *fakeBundleRepo) ListBundleMemories(context.Context) ([]apptypes.MemoryDetails, error) {
 	return r.exportMemories, nil
 }
@@ -69,6 +79,41 @@ func (r *fakeBundleRepo) BeginBundleImport(context.Context) (usecase.BundleImpor
 }
 
 type fakeBundleTx struct{ repo *fakeBundleRepo }
+
+func (tx *fakeBundleTx) ImportSession(_ context.Context, session *model.Session, policy usecase.BundleConflictPolicy, missingParent usecase.BundleMissingParentPolicy) (bool, error) {
+	r := tx.repo
+	if r.forceErr != nil {
+		return false, r.forceErr
+	}
+	if r.sessions == nil {
+		r.sessions = map[string]*model.Session{}
+	}
+	if parent := session.ParentSessionID().String(); parent != "" {
+		if _, ok := r.sessions[parent]; !ok {
+			switch missingParent {
+			case usecase.BundleMissingParentSkip:
+				return false, nil
+			case usecase.BundleMissingParentBackfill:
+				r.sessions[parent] = model.SessionOf(session.ParentSessionID(), session.StartedAt(), types.None[time.Time](), session.Client(), session.Agent(), session.Workspace(), "traceary:bundle-backfilled-parent", "", "")
+			default:
+				return false, xerrors.Errorf("parent session not found: %s", parent)
+			}
+		}
+	}
+	id := session.SessionID().String()
+	if _, ok := r.sessions[id]; ok {
+		if policy == usecase.BundleConflictError {
+			return false, xerrors.Errorf("session conflict")
+		}
+		if policy == usecase.BundleConflictReplace {
+			r.sessions[id] = session
+			return true, nil
+		}
+		return false, nil
+	}
+	r.sessions[id] = session
+	return true, nil
+}
 
 func (tx *fakeBundleTx) ImportEvent(_ context.Context, event *model.Event, policy usecase.BundleConflictPolicy) (bool, error) {
 	r := tx.repo
@@ -89,6 +134,32 @@ func (tx *fakeBundleTx) ImportEvent(_ context.Context, event *model.Event, polic
 		return false, nil
 	}
 	r.events[id] = true
+	return true, nil
+}
+
+func (tx *fakeBundleTx) ImportCommandAudit(_ context.Context, audit *model.CommandAudit, policy usecase.BundleConflictPolicy) (bool, error) {
+	r := tx.repo
+	if r.forceErr != nil {
+		return false, r.forceErr
+	}
+	if r.commandAudits == nil {
+		r.commandAudits = map[string]*model.CommandAudit{}
+	}
+	id := audit.EventID().String()
+	if _, ok := r.events[id]; !ok {
+		return false, xerrors.Errorf("foreign key constraint failed: event_id %s is missing", id)
+	}
+	if _, ok := r.commandAudits[id]; ok {
+		if policy == usecase.BundleConflictError {
+			return false, xerrors.Errorf("command audit conflict")
+		}
+		if policy == usecase.BundleConflictReplace {
+			r.commandAudits[id] = audit
+			return true, nil
+		}
+		return false, nil
+	}
+	r.commandAudits[id] = audit
 	return true, nil
 }
 func (tx *fakeBundleTx) ImportMemory(_ context.Context, memory *model.Memory, policy usecase.BundleConflictPolicy) (bool, error) {
@@ -142,6 +213,43 @@ func mustEvent(t *testing.T, id string, ts time.Time) *model.Event {
 		sessionID, types.Workspace("ws"),
 		"body-"+id, ts,
 	)
+}
+
+func mustSession(t *testing.T, id, parent string, ts time.Time) *model.Session {
+	t.Helper()
+	sessionID, err := types.SessionIDFrom(id)
+	if err != nil {
+		t.Fatalf("SessionIDFrom: %v", err)
+	}
+	agent, err := types.AgentFrom("test")
+	if err != nil {
+		t.Fatalf("AgentFrom: %v", err)
+	}
+	return model.SessionOf(
+		sessionID,
+		ts,
+		types.None[time.Time](),
+		types.Client("cli"),
+		agent,
+		types.Workspace("ws"),
+		"label-"+id,
+		"summary-"+id,
+		types.SessionID(parent),
+	)
+}
+
+func mustCommandAudit(t *testing.T, eventID string) *model.CommandAudit {
+	t.Helper()
+	id, err := types.EventIDFrom(eventID)
+	if err != nil {
+		t.Fatalf("EventIDFrom: %v", err)
+	}
+	audit, err := model.NewCommandAudit(id, "go test ./...", "stdin", "stdout", false, false)
+	if err != nil {
+		t.Fatalf("NewCommandAudit: %v", err)
+	}
+	audit.SetExitCode(types.Some(0))
+	return audit
 }
 
 func mustMemoryDetails(t *testing.T, id string, status types.MemoryStatus, ts time.Time) apptypes.MemoryDetails {
@@ -248,6 +356,105 @@ func TestBundleUsecase_RoundTrip(t *testing.T) {
 	}
 	if result2.EventsImported != 0 || result2.EventsSkipped != 2 {
 		t.Fatalf("Re-Import result = %+v, want 0 imported / 2 skipped", result2)
+	}
+}
+
+func TestBundleUsecase_RoundTripSessionsAndCommandAudits(t *testing.T) {
+	t.Parallel()
+
+	ts := time.Date(2026, 4, 25, 10, 0, 0, 0, time.UTC)
+	parent := mustSession(t, "session-parent", "", ts)
+	child := mustSession(t, "session-child", "session-parent", ts.Add(time.Minute))
+	events := []*model.Event{mustEvent(t, "e-1", ts)}
+	exportRepo := &fakeBundleRepo{
+		schema:              13,
+		exportSessions:      []*model.Session{child, parent},
+		exportCommandAudits: []*model.CommandAudit{mustCommandAudit(t, "e-1")},
+	}
+	exportUC := usecase.NewBundleUsecase(fakeEventQuery{events: events}, exportRepo, func() time.Time { return ts })
+	out := filepath.Join(t.TempDir(), "bundle.tbun")
+	if err := exportUC.Export(context.Background(), usecase.BundleExportOptions{
+		OutPath:    out,
+		Passphrase: []byte("pass1"),
+	}); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	files := openTestBundle(t, out, []byte("pass1"))
+	if _, ok := files["sessions.ndjson"]; !ok {
+		t.Fatalf("bundle missing sessions.ndjson")
+	}
+	if _, ok := files["command_audits.ndjson"]; !ok {
+		t.Fatalf("bundle missing command_audits.ndjson")
+	}
+
+	importRepo := &fakeBundleRepo{schema: 13}
+	importUC := usecase.NewBundleUsecase(fakeEventQuery{}, importRepo, nil)
+	result, err := importUC.Import(context.Background(), usecase.BundleImportOptions{
+		InPath:     out,
+		Passphrase: []byte("pass1"),
+	})
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if result.SessionsImported != 2 || result.CommandAuditsImported != 1 {
+		t.Fatalf("Import result = %+v, want sessions=2 audits=1", result)
+	}
+	gotChild := importRepo.sessions["session-child"]
+	if gotChild == nil {
+		t.Fatalf("child session not imported")
+	}
+	if got := gotChild.ParentSessionID().String(); got != "session-parent" {
+		t.Fatalf("child parent_session_id = %q, want session-parent", got)
+	}
+	if importRepo.commandAudits["e-1"] == nil {
+		t.Fatalf("command audit not imported")
+	}
+}
+
+func TestBundleUsecase_MissingSessionParentRejectsOrBackfills(t *testing.T) {
+	t.Parallel()
+
+	ts := time.Date(2026, 4, 25, 10, 0, 0, 0, time.UTC)
+	child := mustSession(t, "session-child", "session-parent", ts)
+	exportRepo := &fakeBundleRepo{schema: 13, exportSessions: []*model.Session{child}}
+	exportUC := usecase.NewBundleUsecase(fakeEventQuery{}, exportRepo, func() time.Time { return ts })
+	out := filepath.Join(t.TempDir(), "bundle.tbun")
+	if err := exportUC.Export(context.Background(), usecase.BundleExportOptions{
+		OutPath:    out,
+		Passphrase: []byte("pass1"),
+	}); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	rejectRepo := &fakeBundleRepo{schema: 13}
+	rejectUC := usecase.NewBundleUsecase(fakeEventQuery{}, rejectRepo, nil)
+	_, err := rejectUC.Import(context.Background(), usecase.BundleImportOptions{
+		InPath:     out,
+		Passphrase: []byte("pass1"),
+	})
+	if err == nil || !strings.Contains(err.Error(), "parent session not found") {
+		t.Fatalf("Import reject error = %v, want parent session not found", err)
+	}
+
+	backfillRepo := &fakeBundleRepo{schema: 13}
+	backfillUC := usecase.NewBundleUsecase(fakeEventQuery{}, backfillRepo, nil)
+	result, err := backfillUC.Import(context.Background(), usecase.BundleImportOptions{
+		InPath:        out,
+		Passphrase:    []byte("pass1"),
+		MissingParent: usecase.BundleMissingParentBackfill,
+	})
+	if err != nil {
+		t.Fatalf("Import backfill: %v", err)
+	}
+	if result.SessionsImported != 1 {
+		t.Fatalf("Import result = %+v, want 1 child session imported", result)
+	}
+	stub := backfillRepo.sessions["session-parent"]
+	if stub == nil {
+		t.Fatalf("backfilled parent not found")
+	}
+	if got := stub.Label(); got != "traceary:bundle-backfilled-parent" {
+		t.Fatalf("backfilled label = %q, want marker label", got)
 	}
 }
 
