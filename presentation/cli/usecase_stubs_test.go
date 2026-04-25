@@ -12,21 +12,22 @@ import (
 
 // eventUsecaseStub implements usecase.EventUsecase for testing.
 type eventUsecaseStub struct {
-	logEvent       *model.Event
-	logErr         error
-	auditEvent     *model.Event
-	auditAudit     *model.CommandAudit
-	auditErr       error
-	searchEvents   []*model.Event
-	searchErr      error
-	listEvents     []*model.Event
-	listErr        error
-	showDetails    apptypes.EventDetails
-	showErr        error
-	contextEvents  []*model.Event
-	contextErr     error
-	timelineBlocks []apptypes.TimelineBlock
-	timelineErr    error
+	logEvent         *model.Event
+	logErr           error
+	auditEvent       *model.Event
+	auditAudit       *model.CommandAudit
+	auditErr         error
+	searchEvents     []*model.Event
+	searchErr        error
+	listEvents       []*model.Event
+	listErr          error
+	showDetails      apptypes.EventDetails
+	showErr          error
+	contextEvents    []*model.Event
+	contextErr       error
+	timelineBlocks   []apptypes.TimelineBlock
+	timelineErr      error
+	timelineCriteria apptypes.TimelineCriteria
 
 	logCall struct {
 		message    string
@@ -89,7 +90,8 @@ func (s *eventUsecaseStub) Show(_ context.Context, _ types.EventID) (apptypes.Ev
 func (s *eventUsecaseStub) Context(_ context.Context, _ apptypes.EventContextCriteria) ([]*model.Event, error) {
 	return s.contextEvents, s.contextErr
 }
-func (s *eventUsecaseStub) Timeline(_ context.Context, _ apptypes.TimelineCriteria) ([]apptypes.TimelineBlock, error) {
+func (s *eventUsecaseStub) Timeline(_ context.Context, criteria apptypes.TimelineCriteria) ([]apptypes.TimelineBlock, error) {
+	s.timelineCriteria = criteria
 	return s.timelineBlocks, s.timelineErr
 }
 

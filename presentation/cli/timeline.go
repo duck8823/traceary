@@ -7,7 +7,6 @@ import (
 	"io"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
@@ -91,11 +90,11 @@ func (c *RootCLI) runTimeline(ctx context.Context, output io.Writer, input timel
 	if err != nil {
 		return err
 	}
-	fromTime, err := parseDateFlag(fromValue)
+	fromTime, err := parseFlexibleTime(fromValue, false)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("invalid --from value", "--from の値が不正です"), err)
 	}
-	toTime, err := parseDateFlag(toValue)
+	toTime, err := parseFlexibleTime(toValue, true)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("invalid --to value", "--to の値が不正です"), err)
 	}
@@ -290,18 +289,4 @@ func writeTimelineJSON(output io.Writer, blocks []apptypes.TimelineBlock) error 
 		return xerrors.Errorf("failed to print timeline JSON: %w", err)
 	}
 	return nil
-}
-
-func parseDateFlag(value string) (time.Time, error) {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return time.Time{}, nil
-	}
-	if t, err := time.Parse(time.RFC3339, trimmed); err == nil {
-		return t, nil
-	}
-	if t, err := time.Parse("2006-01-02", trimmed); err == nil {
-		return t, nil
-	}
-	return time.Time{}, xerrors.Errorf("unsupported date format: %s (use YYYY-MM-DD or RFC3339)", trimmed)
 }
