@@ -51,6 +51,12 @@ All tiers:
 - Exit code extraction from `tool_response.exitCode` when available
 - MCP tool name fallback: `tool_input.command` → `tool_name`
 
+Claude Task subagent capture:
+- `PreToolUse:Task` opens a child session under the currently active immediate parent. If that child starts another Task, Traceary links the grandchild to the child rather than to the top-level session.
+- Active Task state is tracked per parent session, so sibling spawn order is allocated independently within each `parent_session_id`.
+- If `tool_use_id` is missing, Traceary synthesizes a stable Task key from `event_id`. If a later `PostToolUse` / `SubagentStop` omits `tool_use_id`, Traceary falls back to the most-recent active child under the parent.
+- Orphaned active Task entries whose `SubagentStop` never arrived are pruned after 24 hours when hook state is next read or a new session starts. This prevents a crashed or killed host process from leaking stale child state into later captures.
+
 ## Fallback for Missing Capabilities
 
 | Missing Capability | Fallback |
