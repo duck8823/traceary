@@ -144,6 +144,10 @@ func (tx *fakeBundleTx) MemoryExists(_ context.Context, memoryID types.MemoryID)
 	_, ok := tx.memories[memoryID.String()]
 	return ok, nil
 }
+func (tx *fakeBundleTx) MemoryEdgeExists(_ context.Context, edgeID types.MemoryEdgeID) (bool, error) {
+	_, ok := tx.memoryEdges[edgeID.String()]
+	return ok, nil
+}
 func (tx *fakeBundleTx) ImportMemoryEdge(_ context.Context, edge *model.MemoryEdge, policy usecase.BundleConflictPolicy) (bool, error) {
 	r := tx.repo
 	if r.forceErr != nil {
@@ -602,6 +606,46 @@ func TestBundleUsecase_OrphanMemoryEdgeRejectRollsBackTransaction(t *testing.T) 
 	}
 	if len(importRepo.memories) != 0 || len(importRepo.memoryEdges) != 0 {
 		t.Fatalf("rollback failed: memories=%d edges=%d", len(importRepo.memories), len(importRepo.memoryEdges))
+	}
+}
+
+func TestBundleUsecase_OrphanMemoryEdgeConflictErrorRollsBackBeforeSkip(t *testing.T) {
+	ts := time.Date(2026, 4, 25, 10, 0, 0, 0, time.UTC)
+	exportRepo := &fakeBundleRepo{
+		schema: 13,
+		exportMemories: []apptypes.MemoryDetails{
+			mustMemoryDetails(t, "mem-new", types.MemoryStatusAccepted, ts),
+		},
+		exportMemoryEdges: []*model.MemoryEdge{
+			mustMemoryEdge(t, "edge-collide", "mem-missing-from", "mem-missing-to", ts),
+		},
+	}
+	uc := usecase.NewBundleUsecase(fakeEventQuery{}, exportRepo, func() time.Time { return ts })
+	out := filepath.Join(t.TempDir(), "bundle.tbun")
+	if err := uc.Export(context.Background(), usecase.BundleExportOptions{OutPath: out, Passphrase: []byte("pass1")}); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	importRepo := &fakeBundleRepo{
+		schema: 13,
+		memoryEdges: map[string]*model.MemoryEdge{
+			"edge-collide": mustMemoryEdge(t, "edge-collide", "mem-existing-from", "mem-existing-to", ts),
+		},
+	}
+	importUC := usecase.NewBundleUsecase(fakeEventQuery{}, importRepo, nil)
+	_, err := importUC.Import(context.Background(), usecase.BundleImportOptions{
+		InPath:     out,
+		Passphrase: []byte("pass1"),
+		OnConflict: usecase.BundleConflictError,
+	})
+	if err == nil {
+		t.Fatalf("Import unexpectedly succeeded")
+	}
+	if !strings.Contains(err.Error(), "memory edge conflict") {
+		t.Fatalf("Import error = %q, want memory edge conflict", err.Error())
+	}
+	if len(importRepo.memories) != 0 {
+		t.Fatalf("rollback failed: imported memories=%d, want 0", len(importRepo.memories))
 	}
 }
 

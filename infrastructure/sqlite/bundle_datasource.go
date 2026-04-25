@@ -290,6 +290,18 @@ func (t *bundleImportTx) MemoryExists(ctx context.Context, memoryID types.Memory
 	return false, xerrors.Errorf("failed to check memory conflict %s: %w", memoryID, err)
 }
 
+func (t *bundleImportTx) MemoryEdgeExists(ctx context.Context, edgeID types.MemoryEdgeID) (bool, error) {
+	var value int
+	err := t.tx.QueryRowContext(ctx, `SELECT 1 FROM memory_edges WHERE id = ?`, edgeID.String()).Scan(&value)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return false, xerrors.Errorf("failed to check memory edge conflict %s: %w", edgeID, err)
+}
+
 func (t *bundleImportTx) Commit(context.Context) error {
 	if err := t.tx.Commit(); err != nil {
 		_ = t.db.Close()

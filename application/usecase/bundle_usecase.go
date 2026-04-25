@@ -243,6 +243,7 @@ type BundleImportTransaction interface {
 	ImportEvent(ctx context.Context, event *model.Event, policy BundleConflictPolicy) (bool, error)
 	ImportMemory(ctx context.Context, memory *model.Memory, policy BundleConflictPolicy) (bool, error)
 	MemoryExists(ctx context.Context, memoryID types.MemoryID) (bool, error)
+	MemoryEdgeExists(ctx context.Context, edgeID types.MemoryEdgeID) (bool, error)
 	ImportMemoryEdge(ctx context.Context, edge *model.MemoryEdge, policy BundleConflictPolicy) (bool, error)
 	Commit(ctx context.Context) error
 	Rollback(ctx context.Context) error
@@ -669,6 +670,19 @@ func (bundleMemoryEdgesTable) Apply(
 		edge, err := row.toMemoryEdge()
 		if err != nil {
 			return imported, skipped, xerrors.Errorf("restore memory edge: %w", err)
+		}
+		edgeExists, err := tx.MemoryEdgeExists(ctx, edge.EdgeID())
+		if err != nil {
+			return imported, skipped, xerrors.Errorf("edge %s conflict check: %w", edge.EdgeID(), err)
+		}
+		if edgeExists {
+			switch opts.OnConflict {
+			case BundleConflictError:
+				return imported, skipped, xerrors.Errorf("memory edge %s: memory edge conflict", edge.EdgeID())
+			case BundleConflictSkip:
+				skipped++
+				continue
+			}
 		}
 		fromExists, err := tx.MemoryExists(ctx, edge.FromMemoryID())
 		if err != nil {
