@@ -227,6 +227,135 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 	})
 
+	t.Run("session_status tree returns subtree rooted at session_id", func(t *testing.T) {
+		startSession := func(sessionID, parentSessionID, agent string) {
+			t.Helper()
+			args := map[string]any{
+				"action":     "start",
+				"session_id": sessionID,
+				"agent":      agent,
+				"workspace":  "github.com/duck8823/traceary",
+			}
+			if parentSessionID != "" {
+				args["parent_session_id"] = parentSessionID
+			}
+			result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+				Name:      "manage_session",
+				Arguments: args,
+			})
+			if err != nil {
+				t.Fatalf("CallTool(manage_session start %s) error = %v", sessionID, err)
+			}
+			if result.IsError {
+				t.Fatalf("CallTool(manage_session start %s) returned tool error", sessionID)
+			}
+		}
+
+		startSession("tree-root", "", "codex")
+		startSession("tree-child-a", "tree-root", "codex/explorer")
+		startSession("tree-child-b", "tree-root", "codex/worker")
+		startSession("tree-grandchild", "tree-child-a", "codex/reviewer")
+
+		treeResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "session_status",
+			Arguments: map[string]any{
+				"action":     "tree",
+				"session_id": "tree-root",
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(session_status tree) error = %v", err)
+		}
+		if treeResult.IsError {
+			t.Fatalf("CallTool(session_status tree) returned tool error")
+		}
+
+		roots := decodeJSONArrayPayload(t, treeResult)
+		if len(roots) != 1 {
+			t.Fatalf("tree roots len = %d, want 1", len(roots))
+		}
+		root, ok := roots[0].(map[string]any)
+		if !ok {
+			t.Fatalf("root type = %T, want map[string]any", roots[0])
+		}
+		if diff := cmp.Diff("tree-root", root["session_id"]); diff != "" {
+			t.Fatalf("root session_id mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(float64(0), root["depth"]); diff != "" {
+			t.Fatalf("root depth mismatch (-want +got):\n%s", diff)
+		}
+
+		children, ok := root["children"].([]any)
+		if !ok || len(children) != 2 {
+			t.Fatalf("root children = %T len=%d, want 2", root["children"], len(children))
+		}
+		childrenByID := map[string]map[string]any{}
+		for _, childValue := range children {
+			child, ok := childValue.(map[string]any)
+			if !ok {
+				t.Fatalf("child type = %T, want map[string]any", childValue)
+			}
+			childrenByID[child["session_id"].(string)] = child
+			if diff := cmp.Diff("tree-root", child["parent_session_id"]); diff != "" {
+				t.Fatalf("child parent_session_id mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(float64(1), child["depth"]); diff != "" {
+				t.Fatalf("child depth mismatch (-want +got):\n%s", diff)
+			}
+		}
+		childA := childrenByID["tree-child-a"]
+		if childA == nil {
+			t.Fatalf("tree-child-a missing from children: %#v", childrenByID)
+		}
+		grandchildren, ok := childA["children"].([]any)
+		if !ok || len(grandchildren) != 1 {
+			t.Fatalf("tree-child-a children = %T len=%d, want 1", childA["children"], len(grandchildren))
+		}
+		grandchild := grandchildren[0].(map[string]any)
+		if diff := cmp.Diff("tree-grandchild", grandchild["session_id"]); diff != "" {
+			t.Fatalf("grandchild session_id mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(float64(2), grandchild["depth"]); diff != "" {
+			t.Fatalf("grandchild depth mismatch (-want +got):\n%s", diff)
+		}
+
+		depthResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "session_status",
+			Arguments: map[string]any{
+				"action":     "tree",
+				"session_id": "tree-root",
+				"depth":      1,
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(session_status tree depth) error = %v", err)
+		}
+		if depthResult.IsError {
+			t.Fatalf("CallTool(session_status tree depth) returned tool error")
+		}
+		depthRoots := decodeJSONArrayPayload(t, depthResult)
+		depthRoot := depthRoots[0].(map[string]any)
+		for _, childValue := range depthRoot["children"].([]any) {
+			child := childValue.(map[string]any)
+			if grandchildren := child["children"].([]any); len(grandchildren) != 0 {
+				t.Fatalf("depth-limited child %s has %d grandchildren, want 0", child["session_id"], len(grandchildren))
+			}
+		}
+
+		missingIDResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "session_status",
+			Arguments: map[string]any{
+				"action": "tree",
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(session_status tree missing id) protocol error = %v", err)
+		}
+		if !missingIDResult.IsError {
+			t.Fatalf("CallTool(session_status tree missing id) IsError = false, want true")
+		}
+	})
+
 	t.Run("memory tools manage lifecycle and retrieval", func(t *testing.T) {
 		proposeResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 			Name: "manage_memory",
@@ -900,6 +1029,25 @@ func decodeJSONPayload(t *testing.T, result *mcp.CallToolResult) map[string]any 
 	}
 
 	payload := map[string]any{}
+	if err := json.Unmarshal([]byte(textContent.Text), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	return payload
+}
+
+func decodeJSONArrayPayload(t *testing.T, result *mcp.CallToolResult) []any {
+	t.Helper()
+
+	if len(result.Content) == 0 {
+		t.Fatalf("tool result content is empty")
+	}
+
+	textContent, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("unexpected content type: %T", result.Content[0])
+	}
+
+	payload := []any{}
 	if err := json.Unmarshal([]byte(textContent.Text), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}

@@ -47,7 +47,7 @@ type queryMemoryInput struct {
 
 // sessionActionInput is shared by manage_session and session_status.
 type sessionActionInput struct {
-	Action              string `json:"action" jsonschema:"required,action enum: start, end, active, latest, handoff, lineage"`
+	Action              string `json:"action" jsonschema:"required,action enum: start, end, active, latest, handoff, lineage, tree"`
 	Client              string `json:"client,omitempty" jsonschema:"recording channel or filter"`
 	Agent               string `json:"agent,omitempty" jsonschema:"actor name or filter"`
 	SessionID           string `json:"session_id,omitempty" jsonschema:"session identifier"`
@@ -60,6 +60,7 @@ type sessionActionInput struct {
 	MemoryLimit         *int   `json:"memory_limit,omitempty" jsonschema:"maximum durable memories to include"`
 	Preset              string `json:"preset,omitempty" jsonschema:"built-in retrieval preset applied to durable memories"`
 	AsOf                string `json:"as_of,omitempty" jsonschema:"evaluate durable memory validity at this timestamp"`
+	Depth               *int   `json:"depth,omitempty" jsonschema:"maximum descendant depth for action=tree (0 returns only the root)"`
 }
 
 // recordEventInput is the MCP input for the record_event tool.

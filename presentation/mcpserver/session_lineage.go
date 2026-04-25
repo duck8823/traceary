@@ -14,6 +14,24 @@ type sessionLineageNode struct {
 }
 
 func newSessionLineageOutput(summaries []apptypes.SessionSummary) sessionLineageOutput {
+	_, roots := buildSessionLineageNodes(summaries)
+	output := sessionLineageOutput{Roots: make([]sessionLineageNodeOutput, 0, len(roots))}
+	for _, root := range roots {
+		output.Roots = append(output.Roots, sessionLineageNodeToOutput(root, 0))
+	}
+	return output
+}
+
+func newSessionTreeOutput(summaries []apptypes.SessionSummary, rootSessionID string, depthLimit *int) []sessionLineageNodeOutput {
+	nodeMap, _ := buildSessionLineageNodes(summaries)
+	root, ok := nodeMap[rootSessionID]
+	if !ok {
+		return []sessionLineageNodeOutput{}
+	}
+	return []sessionLineageNodeOutput{sessionLineageNodeToOutputWithDepthLimit(root, 0, depthLimit)}
+}
+
+func buildSessionLineageNodes(summaries []apptypes.SessionSummary) (map[string]*sessionLineageNode, []*sessionLineageNode) {
 	nodeMap := make(map[string]*sessionLineageNode, len(summaries))
 	roots := make([]*sessionLineageNode, 0)
 	for _, summary := range summaries {
@@ -30,12 +48,7 @@ func newSessionLineageOutput(summaries []apptypes.SessionSummary) sessionLineage
 		roots = append(roots, node)
 	}
 	sortSessionLineageNodes(roots)
-
-	output := sessionLineageOutput{Roots: make([]sessionLineageNodeOutput, 0, len(roots))}
-	for _, root := range roots {
-		output.Roots = append(output.Roots, sessionLineageNodeToOutput(root, 0))
-	}
-	return output
+	return nodeMap, roots
 }
 
 func sortSessionLineageNodes(nodes []*sessionLineageNode) {
@@ -63,6 +76,10 @@ func sessionLineageNodeLess(left, right *sessionLineageNode) bool {
 }
 
 func sessionLineageNodeToOutput(node *sessionLineageNode, depth int) sessionLineageNodeOutput {
+	return sessionLineageNodeToOutputWithDepthLimit(node, depth, nil)
+}
+
+func sessionLineageNodeToOutputWithDepthLimit(node *sessionLineageNode, depth int, depthLimit *int) sessionLineageNodeOutput {
 	summary := node.summary
 	output := sessionLineageNodeOutput{
 		SessionID:       summary.SessionID().String(),
@@ -90,8 +107,10 @@ func sessionLineageNodeToOutput(node *sessionLineageNode, depth int) sessionLine
 		durationSec := endedAt.Sub(summary.StartedAt()).Seconds()
 		output.DurationSec = &durationSec
 	}
-	for _, child := range node.children {
-		output.Children = append(output.Children, sessionLineageNodeToOutput(child, depth+1))
+	if depthLimit == nil || depth < *depthLimit {
+		for _, child := range node.children {
+			output.Children = append(output.Children, sessionLineageNodeToOutputWithDepthLimit(child, depth+1, depthLimit))
+		}
 	}
 	return output
 }
