@@ -256,10 +256,7 @@ const (
 )
 
 func writeMemoryExportJSONSummary(output io.Writer, result apptypes.MemoryExportResult) error {
-	payload := struct {
-		Target        string `json:"target"`
-		ExportedCount int    `json:"exported_count"`
-	}{
+	payload := memoryExportOutput{
 		Target:        result.Target.String(),
 		ExportedCount: result.ExportedCount,
 	}

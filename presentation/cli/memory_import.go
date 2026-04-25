@@ -183,12 +183,7 @@ func writeMemoryImportResult(output io.Writer, warnWriter io.Writer, result appt
 		for _, details := range result.Imported {
 			imported = append(imported, newMemoryDetailsOutput(details))
 		}
-		payload := struct {
-			Imported              []memoryDetailsOutput `json:"imported"`
-			SkippedDuplicateCount int                   `json:"skipped_duplicate_count"`
-			SkippedRejectedCount  int                   `json:"skipped_rejected_count"`
-			Warnings              []string              `json:"warnings,omitempty"`
-		}{
+		payload := memoryImportOutput{
 			Imported:              imported,
 			SkippedDuplicateCount: result.SkippedDuplicateCount,
 			SkippedRejectedCount:  result.SkippedRejectedCount,

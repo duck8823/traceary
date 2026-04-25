@@ -32,12 +32,12 @@ func (c *RootCLI) newBundleCommand() *cobra.Command {
 
 func (c *RootCLI) newBundleExportCommand() *cobra.Command {
 	var (
-		dbPath          string
-		outPath         string
-		sinceValue      string
-		untilValue      string
-		workspaceValue  string
-		passphraseEnv   string
+		dbPath         string
+		outPath        string
+		sinceValue     string
+		untilValue     string
+		workspaceValue string
+		passphraseEnv  string
 	)
 	cmd := &cobra.Command{
 		Use:   "export",
@@ -176,10 +176,10 @@ func (c *RootCLI) runBundleImport(ctx context.Context, output io.Writer, input b
 	if input.asJSON {
 		enc := json.NewEncoder(output)
 		enc.SetIndent("", "  ")
-		if err := enc.Encode(map[string]any{
-			"events_imported":       result.EventsImported,
-			"events_skipped":        result.EventsSkipped,
-			"bundle_schema_version": result.BundleSchemaVersion,
+		if err := enc.Encode(bundleImportOutput{
+			EventsImported:      result.EventsImported,
+			EventsSkipped:       result.EventsSkipped,
+			BundleSchemaVersion: result.BundleSchemaVersion,
 		}); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print bundle import result", "bundle import 結果の出力に失敗しました"), err)
 		}

@@ -32,12 +32,12 @@ func (c *RootCLI) newMemoryGraphCommand() *cobra.Command {
 
 func (c *RootCLI) newMemoryGraphAddCommand() *cobra.Command {
 	var (
-		dbPath     string
-		toMemory   string
-		relation   string
-		validFrom  string
-		validTo    string
-		asJSON     bool
+		dbPath    string
+		toMemory  string
+		relation  string
+		validFrom string
+		validTo   string
+		asJSON    bool
 	)
 	cmd := &cobra.Command{
 		Use:   "add <from-memory-id>",
@@ -196,13 +196,13 @@ func (c *RootCLI) runMemoryGraphList(ctx context.Context, output io.Writer, inpu
 }
 
 type memoryEdgeJSON struct {
-	ID           string `json:"id"`
-	From         string `json:"from_memory_id"`
-	To           string `json:"to_memory_id"`
-	Relation     string `json:"relation_type"`
-	ValidFrom    string `json:"valid_from"`
-	ValidTo      string `json:"valid_to,omitempty"`
-	CreatedAt    string `json:"created_at"`
+	ID        string `json:"id"`
+	From      string `json:"from_memory_id"`
+	To        string `json:"to_memory_id"`
+	Relation  string `json:"relation_type"`
+	ValidFrom string `json:"valid_from"`
+	ValidTo   string `json:"valid_to,omitempty"`
+	CreatedAt string `json:"created_at"`
 }
 
 func memoryEdgeToJSON(edge *model.MemoryEdge) memoryEdgeJSON {
@@ -211,11 +211,11 @@ func memoryEdgeToJSON(edge *model.MemoryEdge) memoryEdgeJSON {
 		From:      edge.FromMemoryID().String(),
 		To:        edge.ToMemoryID().String(),
 		Relation:  edge.RelationType().String(),
-		ValidFrom: edge.ValidFrom().UTC().Format(time.RFC3339Nano),
-		CreatedAt: edge.CreatedAt().UTC().Format(time.RFC3339Nano),
+		ValidFrom: formatJSONTime(edge.ValidFrom()),
+		CreatedAt: formatJSONTime(edge.CreatedAt()),
 	}
 	if to, ok := edge.ValidTo().Value(); ok {
-		out.ValidTo = to.UTC().Format(time.RFC3339Nano)
+		out.ValidTo = formatJSONTime(to)
 	}
 	return out
 }
@@ -236,7 +236,7 @@ func printMemoryEdge(output io.Writer, edge *model.MemoryEdge, asJSON bool) erro
 		edge.FromMemoryID(),
 		edge.RelationType(),
 		edge.ToMemoryID(),
-		edge.ValidFrom().UTC().Format(time.RFC3339Nano),
+		formatJSONTime(edge.ValidFrom()),
 		formatOptionalEdgeBound(edge.ValidTo()),
 	)
 	if err != nil {
@@ -274,7 +274,7 @@ func printMemoryEdges(output io.Writer, edges []*model.MemoryEdge, asJSON bool) 
 
 func formatOptionalEdgeBound(value domtypes.Optional[time.Time]) string {
 	if t, ok := value.Value(); ok {
-		return t.UTC().Format(time.RFC3339Nano)
+		return formatJSONTime(t)
 	}
 	return "-"
 }

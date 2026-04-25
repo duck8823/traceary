@@ -81,15 +81,12 @@ func writeMemoryHygieneApplyResult(output io.Writer, result apptypes.MemoryHygie
 		encoder := json.NewEncoder(output)
 		encoder.SetEscapeHTML(false)
 		encoder.SetIndent("", "  ")
-		payload := struct {
-			Applied  []applyAppliedOutput `json:"applied"`
-			Failures []applyFailureOutput `json:"failures,omitempty"`
-		}{
-			Applied:  make([]applyAppliedOutput, 0, len(result.Applied)),
-			Failures: make([]applyFailureOutput, 0, len(result.Failures)),
+		payload := memoryHygieneApplyOutput{
+			Applied:  make([]memoryHygieneApplyAppliedOutput, 0, len(result.Applied)),
+			Failures: make([]memoryHygieneApplyFailureOutput, 0, len(result.Failures)),
 		}
 		for _, applied := range result.Applied {
-			payload.Applied = append(payload.Applied, applyAppliedOutput{
+			payload.Applied = append(payload.Applied, memoryHygieneApplyAppliedOutput{
 				MemoryID:   applied.MemoryID,
 				Kind:       string(applied.Kind),
 				Transition: applied.Transition,
@@ -97,7 +94,7 @@ func writeMemoryHygieneApplyResult(output io.Writer, result apptypes.MemoryHygie
 			})
 		}
 		for _, failure := range result.Failures {
-			payload.Failures = append(payload.Failures, applyFailureOutput{MemoryID: failure.MemoryID, Error: failure.Error})
+			payload.Failures = append(payload.Failures, memoryHygieneApplyFailureOutput{MemoryID: failure.MemoryID, Error: failure.Error})
 		}
 		if err := encoder.Encode(payload); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to encode hygiene apply result", "hygiene apply 結果の JSON 出力に失敗しました"), err)
@@ -121,18 +118,6 @@ func writeMemoryHygieneApplyResult(output io.Writer, result apptypes.MemoryHygie
 		}
 	}
 	return nil
-}
-
-type applyAppliedOutput struct {
-	MemoryID   string `json:"memory_id"`
-	Kind       string `json:"kind"`
-	Transition string `json:"transition"`
-	Status     string `json:"status"`
-}
-
-type applyFailureOutput struct {
-	MemoryID string `json:"memory_id"`
-	Error    string `json:"error"`
 }
 
 func (c *RootCLI) newMemoryHygieneScanCommand() *cobra.Command {
@@ -197,14 +182,7 @@ func (c *RootCLI) runMemoryHygieneScan(ctx context.Context, output io.Writer, in
 
 func writeMemoryHygieneScanResult(output io.Writer, result apptypes.MemoryHygieneScanResult, asJSON bool) error {
 	if asJSON {
-		payload := struct {
-			RedactionHitCount             int                        `json:"redaction_hit_count"`
-			ExpiryCandidateCount          int                        `json:"expiry_candidate_count"`
-			DuplicateCount                int                        `json:"duplicate_count"`
-			SupersedeCandidateCount       int                        `json:"supersede_candidate_count"`
-			ValidityOverlapSupersedeCount int                        `json:"validity_overlap_supersede_count"`
-			Suggestions                   []memoryHygieneOutputEntry `json:"suggestions"`
-		}{
+		payload := memoryHygieneScanOutput{
 			RedactionHitCount:             result.RedactionHitCount,
 			ExpiryCandidateCount:          result.ExpiryCandidateCount,
 			DuplicateCount:                result.DuplicateCount,
@@ -277,7 +255,7 @@ func newMemoryHygieneOutputEntry(suggestion apptypes.MemoryHygieneSuggestion) me
 		Fact:          suggestion.Fact,
 		SanitizedFact: suggestion.SanitizedFact,
 		Similarity:    suggestion.Similarity,
-		UpdatedAt:     suggestion.UpdatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:     formatJSONTime(suggestion.UpdatedAt),
 	}
 	if suggestion.DuplicateMemoryID != "" {
 		entry.DuplicateMemoryID = suggestion.DuplicateMemoryID.String()

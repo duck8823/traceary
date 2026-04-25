@@ -242,31 +242,12 @@ func formatKindCounts(counts map[string]int) string {
 }
 
 func writeTimelineJSON(output io.Writer, blocks []apptypes.TimelineBlock) error {
-	type jsonWorkspaceBreakdown struct {
-		Workspace     string         `json:"workspace"`
-		EventCount    int            `json:"event_count"`
-		KindCounts    map[string]int `json:"kind_counts"`
-		Agents        []string       `json:"agents"`
-		Summary       string         `json:"summary"`
-		SummarySource string         `json:"summary_source"`
-	}
-	type jsonBlock struct {
-		Start              string                   `json:"start"`
-		End                string                   `json:"end"`
-		Duration           string                   `json:"duration"`
-		EventCount         int                      `json:"event_count"`
-		Workspaces         []string                 `json:"workspaces"`
-		Agents             []string                 `json:"agents"`
-		KindCounts         map[string]int           `json:"kind_counts"`
-		WorkspaceBreakdown []jsonWorkspaceBreakdown `json:"workspace_breakdown"`
-	}
-
-	result := make([]jsonBlock, 0, len(blocks))
+	result := make([]timelineBlockOutput, 0, len(blocks))
 	for _, b := range blocks {
 		breakdown := b.WorkspaceBreakdown()
-		wsOut := make([]jsonWorkspaceBreakdown, 0, len(breakdown))
+		wsOut := make([]timelineWorkspaceBreakdownOutput, 0, len(breakdown))
 		for _, ws := range breakdown {
-			wsOut = append(wsOut, jsonWorkspaceBreakdown{
+			wsOut = append(wsOut, timelineWorkspaceBreakdownOutput{
 				Workspace:     ws.Workspace(),
 				EventCount:    ws.EventCount(),
 				KindCounts:    computeKindCounts(ws.Kinds()),
@@ -275,10 +256,10 @@ func writeTimelineJSON(output io.Writer, blocks []apptypes.TimelineBlock) error 
 				SummarySource: string(ws.SummarySource()),
 			})
 		}
-		result = append(result, jsonBlock{
-			Start:              b.BlockStart().Format(time.RFC3339),
-			End:                b.BlockEnd().Format(time.RFC3339),
-			Duration:           formatDuration(b.BlockEnd().Sub(b.BlockStart())),
+		result = append(result, timelineBlockOutput{
+			Start:              formatJSONTime(b.BlockStart()),
+			End:                formatJSONTime(b.BlockEnd()),
+			DurationSec:        b.BlockEnd().Sub(b.BlockStart()).Seconds(),
 			EventCount:         b.EventCount(),
 			Workspaces:         b.Workspaces(),
 			Agents:             b.Agents(),

@@ -63,7 +63,7 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 
 		output := stdout.String()
 		if !strings.Contains(output, "3h30m") {
-			t.Errorf("output missing duration, got: %s", output)
+			t.Errorf("output missing duration_sec, got: %s", output)
 		}
 		if !strings.Contains(output, "github.com/duck8823/traceary") {
 			t.Errorf("output missing workspace, got: %s", output)
@@ -138,8 +138,8 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 		if !strings.Contains(output, `"event_count": 5`) {
 			t.Errorf("output missing event_count, got: %s", output)
 		}
-		if !strings.Contains(output, `"duration": "1h0m"`) {
-			t.Errorf("output missing duration, got: %s", output)
+		if !strings.Contains(output, `"duration_sec": 3600`) {
+			t.Errorf("output missing duration_sec, got: %s", output)
 		}
 	})
 

@@ -290,11 +290,7 @@ func writeMemoryInboxList(output io.Writer, items []apptypes.MemoryDetails, asJS
 
 func writeMemoryInboxBatch(output io.Writer, result memoryInboxBatchResult, asJSON bool) error {
 	if asJSON {
-		payload := struct {
-			Action    string                `json:"action"`
-			Processed []memoryDetailsOutput `json:"processed"`
-			Failures  []memoryInboxFailure  `json:"failures,omitempty"`
-		}{
+		payload := memoryInboxBatchOutput{
 			Action:    result.Action,
 			Processed: make([]memoryDetailsOutput, 0, len(result.Processed)),
 			Failures:  result.Failures,

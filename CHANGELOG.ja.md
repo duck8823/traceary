@@ -5,6 +5,11 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.10.0] - Unreleased
+
+### Breaking changes
+- **CLI JSON timestamp と duration の freeze (#729)** — golden fixture を記録する前段として、CLI `--json` のすべての timestamp フィールド (`created_at` / `started_at` / `ended_at` / `valid_from` / `valid_to` 等) を UTC RFC3339Nano (`YYYY-MM-DDTHH:MM:SS[.nnnnnnnnn]Z`) に統一。`traceary session tree --json` は `duration_ms` を削除し `duration_sec` のみを保持。`traceary timeline --json` は string `duration` を numeric `duration_sec` に置き換え。
+
 ## [v0.9.0] - 2026-04-25
 
 マイナーリリース: **multi-host local memory substrate completion (v1.0 前の安定化)**。v0.9 では v1.0 スコーピング前の portability + 構造ギャップを埋めます。CLI のトップレベル整理、durable memory への additive な temporal graph overlay、暗号化済みクロスマシン event バンドル、agent SDK 統合 docs の整備が中心です。
