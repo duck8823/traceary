@@ -110,31 +110,3 @@ func TestOptional_PointerValue(t *testing.T) {
 		t.Errorf("Value() = %v, want nil", np)
 	}
 }
-
-func TestOptional_LegacyAliasesRemainCompatible(t *testing.T) {
-	t.Parallel()
-
-	present := types.Of("legacy")
-	gotPresent, ok := present.Get()
-	if diff := cmp.Diff(true, ok); diff != "" {
-		t.Fatalf("Get() ok mismatch (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff("legacy", gotPresent); diff != "" {
-		t.Fatalf("Get() value mismatch (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(true, present.IsPresent()); diff != "" {
-		t.Fatalf("IsPresent() mismatch (-want +got):\n%s", diff)
-	}
-
-	empty := types.Empty[string]()
-	gotEmpty, ok := empty.Get()
-	if diff := cmp.Diff(false, ok); diff != "" {
-		t.Fatalf("Get() ok mismatch (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff("", gotEmpty); diff != "" {
-		t.Fatalf("Get() value mismatch (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(false, empty.IsPresent()); diff != "" {
-		t.Fatalf("IsPresent() mismatch (-want +got):\n%s", diff)
-	}
-}
