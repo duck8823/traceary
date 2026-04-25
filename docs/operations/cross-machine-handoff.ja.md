@@ -70,9 +70,11 @@ traceary bundle import --in ~/Downloads/traceary-*.tbun
    done
    ```
 
-`bundle import` の既定は `--on-conflict skip` です。送信先にすでに存在する event は skip され (`events_skipped` にカウント)、同じ bundle を何度取り込んでも安全です。`--on-conflict replace` は bundle 側の event row で上書きし、`--on-conflict error` は最初の UNIQUE 衝突で失敗して import 全体を rollback します。
+`bundle import` の既定は `--on-conflict skip` です。送信先にすでに存在する event / memory は skip され (`events_skipped` / `memories_skipped` にカウント)、同じ bundle を何度取り込んでも安全です。`--on-conflict replace` は bundle 側の row で上書きし、`--on-conflict error` は最初の UNIQUE 衝突で失敗して import 全体を rollback します。
 
-`--missing-parent {reject,skip,backfill}` も受け付けます。v2 events ではまだ使いませんが、今後の sessions / memories / edges table 用に予約されています。既定は `reject` です。
+Imported memory は proposed trust default を使います。新規 insert される row は、source machine で accepted だった場合でも常に `candidate` として保存されます。memory fact は accept 後に prompt context へ影響するため、別 machine からの import では既存の memory inbox review を必ず通します。既定の `skip` policy では送信先の既存 row は変更しないため、一度ローカルで review / accept した memory が re-import で candidate に戻ることはありません。
+
+`--missing-parent {reject,skip,backfill}` も受け付けます。v2 events / memories ではまだ使いませんが、今後の sessions / edges table 用に予約されています。既定は `reject` です。
 
 ## スキーマ安全性
 
@@ -88,5 +90,5 @@ manifest には export 時の `schema_migrations` 最大バージョンが記録
 
 ## Follow-up (v0.9 以降)
 
-- `bundle export` / `bundle import` を sessions、command audits、durable memories (既定 `candidate`)、graph edges にも拡張。本 doc 出荷時に follow-up issue を作成。
+- `bundle export` / `bundle import` を sessions、command audits、graph edges にも拡張。
 - 公開鍵モード (passphrase 共有なしで受信者 pubkey に暗号化) で、passphrase を共有せずに協力者へ bundle を送る。

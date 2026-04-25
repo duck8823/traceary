@@ -52,12 +52,17 @@ func (f fakeEventQuery) ListTimelineBlocks(context.Context, types.Workspace, tim
 
 // Fake repository that tracks imports + schema version.
 type fakeBundleRepo struct {
-	schema   int
-	events   map[string]bool
-	forceErr error
+	schema         int
+	events         map[string]bool
+	memories       map[string]*model.Memory
+	exportMemories []apptypes.MemoryDetails
+	forceErr       error
 }
 
 func (r *fakeBundleRepo) SchemaVersion(context.Context) (int, error) { return r.schema, nil }
+func (r *fakeBundleRepo) ListBundleMemories(context.Context) ([]apptypes.MemoryDetails, error) {
+	return r.exportMemories, nil
+}
 func (r *fakeBundleRepo) BeginBundleImport(context.Context) (usecase.BundleImportTransaction, error) {
 	return &fakeBundleTx{repo: r}, nil
 }
@@ -85,6 +90,28 @@ func (tx *fakeBundleTx) ImportEvent(_ context.Context, event *model.Event, polic
 	r.events[id] = true
 	return true, nil
 }
+func (tx *fakeBundleTx) ImportMemory(_ context.Context, memory *model.Memory, policy usecase.BundleConflictPolicy) (bool, error) {
+	r := tx.repo
+	if r.forceErr != nil {
+		return false, r.forceErr
+	}
+	if r.memories == nil {
+		r.memories = map[string]*model.Memory{}
+	}
+	id := memory.MemoryID().String()
+	if _, ok := r.memories[id]; ok {
+		if policy == usecase.BundleConflictError {
+			return false, xerrors.Errorf("memory conflict")
+		}
+		if policy == usecase.BundleConflictReplace {
+			r.memories[id] = memory
+			return true, nil
+		}
+		return false, nil
+	}
+	r.memories[id] = memory
+	return true, nil
+}
 func (tx *fakeBundleTx) Commit(context.Context) error   { return nil }
 func (tx *fakeBundleTx) Rollback(context.Context) error { return nil }
 
@@ -107,6 +134,44 @@ func mustEvent(t *testing.T, id string, ts time.Time) *model.Event {
 		sessionID, types.Workspace("ws"),
 		"body-"+id, ts,
 	)
+}
+
+func mustMemoryDetails(t *testing.T, id string, status types.MemoryStatus, ts time.Time) apptypes.MemoryDetails {
+	t.Helper()
+	memoryID, err := types.MemoryIDFrom(id)
+	if err != nil {
+		t.Fatalf("MemoryIDFrom: %v", err)
+	}
+	evidence, err := types.EvidenceRefFrom(types.EvidenceRefKindEvent, "event-1")
+	if err != nil {
+		t.Fatalf("EvidenceRefFrom: %v", err)
+	}
+	artifact, err := types.ArtifactRefFrom(types.ArtifactRefKindFile, "/tmp/artifact.txt")
+	if err != nil {
+		t.Fatalf("ArtifactRefFrom: %v", err)
+	}
+	memory := model.MemoryOf(
+		memoryID,
+		types.MemoryTypeDecision,
+		types.WorkspaceScopeOf(types.Workspace("ws")),
+		"Bundle memory "+id,
+		status,
+		types.ConfidenceHigh,
+		types.MemorySourceManual,
+		[]types.EvidenceRef{evidence},
+		[]types.ArtifactRef{artifact},
+		types.None[types.MemoryID](),
+		types.None[time.Time](),
+		ts.Add(-time.Hour),
+		types.None[time.Time](),
+		ts,
+		ts.Add(time.Minute),
+	)
+	details, err := apptypes.MemoryDetailsFrom(memory)
+	if err != nil {
+		t.Fatalf("MemoryDetailsFrom: %v", err)
+	}
+	return details
 }
 
 func TestBundleUsecase_RoundTrip(t *testing.T) {
@@ -156,6 +221,96 @@ func TestBundleUsecase_RoundTrip(t *testing.T) {
 	}
 	if result2.EventsImported != 0 || result2.EventsSkipped != 2 {
 		t.Fatalf("Re-Import result = %+v, want 0 imported / 2 skipped", result2)
+	}
+}
+
+func TestBundleUsecase_RoundTripMemoriesDowngradesStatusToCandidate(t *testing.T) {
+	t.Parallel()
+
+	ts := time.Date(2026, 4, 25, 10, 0, 0, 0, time.UTC)
+	exportRepo := &fakeBundleRepo{
+		schema: 13,
+		exportMemories: []apptypes.MemoryDetails{
+			mustMemoryDetails(t, "mem-accepted", types.MemoryStatusAccepted, ts),
+		},
+	}
+	exportUC := usecase.NewBundleUsecase(fakeEventQuery{}, exportRepo, func() time.Time { return ts })
+
+	out := filepath.Join(t.TempDir(), "bundle.tbun")
+	if err := exportUC.Export(context.Background(), usecase.BundleExportOptions{
+		OutPath:    out,
+		Passphrase: []byte("pass1"),
+	}); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	files := openTestBundle(t, out, []byte("pass1"))
+	if _, ok := files["memories.ndjson"]; !ok {
+		t.Fatalf("bundle missing memories.ndjson")
+	}
+
+	importRepo := &fakeBundleRepo{schema: 13}
+	importUC := usecase.NewBundleUsecase(fakeEventQuery{}, importRepo, func() time.Time { return ts })
+	result, err := importUC.Import(context.Background(), usecase.BundleImportOptions{
+		InPath:     out,
+		Passphrase: []byte("pass1"),
+	})
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if result.MemoriesImported != 1 || result.MemoriesSkipped != 0 {
+		t.Fatalf("Import result = %+v, want 1 memory imported / 0 skipped", result)
+	}
+	got := importRepo.memories["mem-accepted"]
+	if got == nil {
+		t.Fatalf("imported memory not found")
+	}
+	if got.Status() != types.MemoryStatusCandidate {
+		t.Fatalf("imported status = %s, want candidate", got.Status())
+	}
+	if len(got.EvidenceRefs()) != 1 || len(got.ArtifactRefs()) != 1 {
+		t.Fatalf("refs not restored: evidence=%d artifacts=%d", len(got.EvidenceRefs()), len(got.ArtifactRefs()))
+	}
+}
+
+func TestBundleUsecase_ReimportDoesNotDowngradeAlreadyAcceptedMemory(t *testing.T) {
+	t.Parallel()
+
+	ts := time.Date(2026, 4, 25, 10, 0, 0, 0, time.UTC)
+	exportRepo := &fakeBundleRepo{
+		schema: 13,
+		exportMemories: []apptypes.MemoryDetails{
+			mustMemoryDetails(t, "mem-existing", types.MemoryStatusAccepted, ts),
+		},
+	}
+	exportUC := usecase.NewBundleUsecase(fakeEventQuery{}, exportRepo, func() time.Time { return ts })
+	out := filepath.Join(t.TempDir(), "bundle.tbun")
+	if err := exportUC.Export(context.Background(), usecase.BundleExportOptions{
+		OutPath:    out,
+		Passphrase: []byte("pass1"),
+	}); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	existing := mustMemoryDetails(t, "mem-existing", types.MemoryStatusAccepted, ts).Summary()
+	accepted := model.MemoryOf(
+		existing.MemoryID(), existing.MemoryType(), existing.Scope(), existing.Fact(), types.MemoryStatusAccepted,
+		existing.Confidence(), existing.Source(), nil, nil, existing.Supersedes(), existing.ExpiresAt(),
+		existing.ValidFrom(), existing.ValidTo(), existing.CreatedAt(), existing.UpdatedAt(),
+	)
+	importRepo := &fakeBundleRepo{schema: 13, memories: map[string]*model.Memory{"mem-existing": accepted}}
+	importUC := usecase.NewBundleUsecase(fakeEventQuery{}, importRepo, func() time.Time { return ts })
+	result, err := importUC.Import(context.Background(), usecase.BundleImportOptions{
+		InPath:     out,
+		Passphrase: []byte("pass1"),
+	})
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if result.MemoriesImported != 0 || result.MemoriesSkipped != 1 {
+		t.Fatalf("Import result = %+v, want 0 memory imported / 1 skipped", result)
+	}
+	if got := importRepo.memories["mem-existing"].Status(); got != types.MemoryStatusAccepted {
+		t.Fatalf("existing memory status = %s, want accepted", got)
 	}
 }
 

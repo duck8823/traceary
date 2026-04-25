@@ -189,6 +189,8 @@ func (c *RootCLI) runBundleImport(ctx context.Context, output io.Writer, input b
 		if err := enc.Encode(bundleImportOutput{
 			EventsImported:      result.EventsImported,
 			EventsSkipped:       result.EventsSkipped,
+			MemoriesImported:    result.MemoriesImported,
+			MemoriesSkipped:     result.MemoriesSkipped,
 			BundleSchemaVersion: result.BundleSchemaVersion,
 		}); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print bundle import result", "bundle import 結果の出力に失敗しました"), err)
@@ -197,9 +199,9 @@ func (c *RootCLI) runBundleImport(ctx context.Context, output io.Writer, input b
 	}
 	if _, err := fmt.Fprintf(
 		output,
-		"%s: imported=%d, skipped=%d, schema=%d\n",
+		"%s: events_imported=%d, events_skipped=%d, memories_imported=%d, memories_skipped=%d, schema=%d\n",
 		Localize("Imported bundle", "bundle を取り込みました"),
-		result.EventsImported, result.EventsSkipped, result.BundleSchemaVersion,
+		result.EventsImported, result.EventsSkipped, result.MemoriesImported, result.MemoriesSkipped, result.BundleSchemaVersion,
 	); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print bundle import result", "bundle import 結果の出力に失敗しました"), err)
 	}

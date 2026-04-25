@@ -12,8 +12,9 @@ Current bundle (manifest_version = 2):
 
 - `manifest.json` — store schema version, creation time, filters used, writer metadata, import defaults, and a per-table registry (`tables`) with `{table_name, file, row_count, checksum}` entries.
 - `events.ndjson` — every event matching `--since` / `--until` / `--workspace`, ordered by `created_at` for deterministic output.
+- `memories.ndjson` — durable memories with scope, validity window, supersession pointer, evidence refs, and artifact refs.
 
-Traceary still imports v0.9.0 `manifest_version = 1` bundles that use `file_checksums`. v2 currently registers the `events` table only; sessions, command audits, durable memories, and graph edges are follow-up tables. Events are the primary portable history, so the first v2 skeleton ships with events while the rest of the data model stabilises.
+Traceary still imports v0.9.0 `manifest_version = 1` bundles that use `file_checksums`. v2 registers `events` and `memories`; sessions, command audits, and graph edges are follow-up tables.
 
 ## Encryption
 
@@ -70,9 +71,11 @@ traceary bundle import --in ~/Downloads/traceary-*.tbun
    done
    ```
 
-`bundle import` defaults to `--on-conflict skip`: an event already present in the destination store is skipped (counted under `events_skipped`), so re-importing the same bundle any number of times is safe. Use `--on-conflict replace` to overwrite existing event rows from the bundle, or `--on-conflict error` to fail on the first UNIQUE collision and roll back the import.
+`bundle import` defaults to `--on-conflict skip`: an event or memory already present in the destination store is skipped (counted under `events_skipped` / `memories_skipped`), so re-importing the same bundle any number of times is safe. Use `--on-conflict replace` to overwrite existing rows from the bundle, or `--on-conflict error` to fail on the first UNIQUE collision and roll back the import.
 
-The import command also accepts `--missing-parent {reject,skip,backfill}`. v2 events do not need this yet, but the flag is reserved for forthcoming sessions / memories / edges tables; the default is `reject`.
+Imported memories use the proposed trust default: newly inserted rows are always written as `candidate`, even when the source machine had already accepted them. A memory fact can influence prompt context after acceptance, so importing from another machine keeps the existing memory inbox review step in the loop. Existing destination rows are untouched under the default `skip` policy; re-importing a bundle does not downgrade a memory you already reviewed and accepted locally.
+
+The import command also accepts `--missing-parent {reject,skip,backfill}`. v2 events / memories do not need this yet, but the flag is reserved for forthcoming sessions / edges tables; the default is `reject`.
 
 ## Schema safety
 
@@ -88,5 +91,5 @@ A bundle created on an **older** schema imports cleanly — the destination stor
 
 ## Follow-up (post-v0.9)
 
-- Extend `bundle export` / `bundle import` to sessions, command audits, durable memories (as `candidate` by default), and graph edges. Tracked as a new follow-up issue when this doc ships.
+- Extend `bundle export` / `bundle import` to sessions, command audits, and graph edges.
 - Public-key mode (recipient pubkey instead of passphrase) for sending a bundle to a collaborator without sharing a passphrase.
