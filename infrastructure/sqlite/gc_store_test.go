@@ -233,7 +233,10 @@ func TestDatasource_CollectGarbage_deletesOldEmptySessionsButProtectsActiveAndRe
 		('empty-old', '2026-04-01T00:00:00Z', '2026-04-02T00:00:00Z', 'cli', 'codex', 'repo'),
 		('active-old', '2026-04-01T00:00:00Z', NULL, 'cli', 'codex', 'repo'),
 		('with-event-old', '2026-04-01T00:00:00Z', '2026-04-02T00:00:00Z', 'cli', 'codex', 'repo'),
-		('empty-recent', '2026-04-08T00:00:00Z', '2026-04-08T01:00:00Z', 'cli', 'codex', 'repo')`)
+		('empty-recent', '2026-04-08T00:00:00Z', '2026-04-08T01:00:00Z', 'cli', 'codex', 'repo'),
+		('referenced-parent-old', '2026-04-01T00:00:00Z', '2026-04-02T00:00:00Z', 'cli', 'codex', 'repo')`)
+	execRetentionSQL(t, db, `INSERT INTO sessions (session_id, started_at, ended_at, client, agent, repo, parent_session_id) VALUES
+		('active-child', '2026-04-08T00:00:00Z', NULL, 'cli', 'codex', 'repo', 'referenced-parent-old')`)
 	execRetentionSQL(t, db, `INSERT INTO events (id, kind, agent, session_id, body, created_at, source_hook, client, workspace) VALUES
 		('event-recent', 'note', 'codex', 'with-event-old', 'recent', '2026-04-08T00:00:00Z', NULL, 'cli', 'repo')`)
 
@@ -244,7 +247,7 @@ func TestDatasource_CollectGarbage_deletesOldEmptySessionsButProtectsActiveAndRe
 	if diff := cmp.Diff(1, deletedCount); diff != "" {
 		t.Fatalf("deletedCount mismatch (-want +got):\n%s", diff)
 	}
-	assertRetentionIDs(t, db, "sessions", "session_id", []string{"active-old", "empty-recent", "with-event-old"})
+	assertRetentionIDs(t, db, "sessions", "session_id", []string{"active-child", "active-old", "empty-recent", "referenced-parent-old", "with-event-old"})
 	assertNoForeignKeyViolations(t, db)
 }
 
