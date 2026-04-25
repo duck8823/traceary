@@ -223,10 +223,7 @@ func pruneEndedLineages(node *sessionNode) bool {
 		}
 	}
 	node.children = keptChildren
-	if isSessionActive(node.summary) {
-		return true
-	}
-	return len(node.children) > 0
+	return isSessionActive(node.summary) || len(node.children) > 0
 }
 
 // isSessionActive treats only sessions with status=active as live. A

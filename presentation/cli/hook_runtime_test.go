@@ -1266,6 +1266,105 @@ func TestRootCLI_HookSubagentStopCommand_LazilySynthesizesMissingStart(t *testin
 	}
 }
 
+func TestRootCLI_HookSubagentStopCommand_LazySynthesisKeepsParentAgent(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "lazy-plan-key")
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-lazy-plan-key"), []byte("parent-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-lazy-plan-key-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	t.Setenv("TRACEARY_DB_PATH", dbPath)
+	db := sqliteinfra.NewDatabase(dbPath, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+	eventDS := sqliteinfra.NewEventDatasource(db)
+	sessionDS := sqliteinfra.NewSessionDatasource(db)
+	storeUC := usecase.NewStoreManagementUsecase(sqliteinfra.NewStoreManagementDatasource(db))
+	sessionUC := usecase.NewSessionUsecase(eventDS, sessionDS, sessionDS, eventDS)
+	eventUC := usecase.NewEventUsecase(eventDS, eventDS)
+	ctx := context.Background()
+	if err := storeUC.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	if _, err := sessionUC.Start(ctx, types.Client("hook"), types.Agent("claude"), types.SessionID("parent-session"), types.Workspace("github.com/duck8823/traceary"), ""); err != nil {
+		t.Fatalf("Start(parent) error = %v", err)
+	}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(storeUC),
+		cli.WithSession(sessionUC),
+		cli.WithEvent(eventUC),
+		cli.WithDatabasePathSetter(db.SetPath),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"session_id":"parent-session","tool_use_id":"toolu_plan","agent_type":"Plan","subagent_type":"Plan"}`))
+	rootCmd.SetArgs([]string{"hook", "subagent-stop", "claude"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(subagent-stop) error = %v", err)
+	}
+
+	sqlDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = sqlDB.Close() }()
+	var parentAgent string
+	if err := sqlDB.QueryRow(`SELECT agent FROM sessions WHERE session_id = ?`, "parent-session").Scan(&parentAgent); err != nil {
+		t.Fatalf("query parent agent error = %v", err)
+	}
+	if parentAgent != "claude" {
+		t.Fatalf("parent session agent = %q, want claude", parentAgent)
+	}
+	var childParent, childAgent, childKind string
+	if err := sqlDB.QueryRow(`SELECT COALESCE(parent_session_id, ''), agent, subagent_kind FROM sessions WHERE session_id = ?`, "parent-session:sub:toolu_plan").Scan(&childParent, &childAgent, &childKind); err != nil {
+		t.Fatalf("query child session error = %v", err)
+	}
+	if childParent != "parent-session" || childAgent != "claude/Plan" || childKind != "task" {
+		t.Fatalf("child metadata = parent:%q agent:%q kind:%q, want parent-session claude/Plan task", childParent, childAgent, childKind)
+	}
+	var parentPlanEvents int
+	if err := sqlDB.QueryRow(`SELECT COUNT(*) FROM events WHERE session_id = ? AND agent = ?`, "parent-session", "claude/Plan").Scan(&parentPlanEvents); err != nil {
+		t.Fatalf("query parent Plan event count error = %v", err)
+	}
+	if parentPlanEvents != 0 {
+		t.Fatalf("parent claude/Plan events = %d, want 0", parentPlanEvents)
+	}
+
+	stdout := &bytes.Buffer{}
+	topCmd := newTestRootCLI(
+		cli.WithStoreManagement(storeUC),
+		cli.WithSession(sessionUC),
+		cli.WithDatabasePathSetter(db.SetPath),
+	).Command()
+	topCmd.SetOut(stdout)
+	topCmd.SetErr(&bytes.Buffer{})
+	topCmd.SetArgs([]string{"top", "--snapshot", "--json", "--db-path", dbPath})
+	if err := topCmd.Execute(); err != nil {
+		t.Fatalf("Execute(top --snapshot --json) error = %v", err)
+	}
+	output := stdout.String()
+	if !strings.Contains(output, `"agents": [
+      "claude"
+    ]`) {
+		t.Fatalf("top JSON parent agents should stay claude only, got: %s", output)
+	}
+	if strings.Contains(output, `"session_id": "parent-session:sub:toolu_plan"`) {
+		t.Fatalf("top JSON should prune ended synthesized Plan child, got: %s", output)
+	}
+}
+
 func TestRootCLI_HookSubagentStopCommand_NoOpWhenSessionIDMissing(t *testing.T) {
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key-missing")
 

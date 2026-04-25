@@ -683,6 +683,7 @@ func (c *RootCLI) runHookSubagentStop(
 	activeToolUseID := ""
 	activeParentSessionID := types.SessionID("")
 	childWasActive := false
+	lazySynthesizedChild := false
 	if toolUseID != "" {
 		active, findErr := findHookActiveSubagentStateForTool(client, parentSessionID, toolUseID)
 		if findErr != nil {
@@ -711,15 +712,11 @@ func (c *RootCLI) runHookSubagentStop(
 	}
 	if childSessionID != "" {
 		if !childWasActive {
-			childAgent := agent
-			if subagentType := hookPayloadString(payload, "subagent_type", ""); subagentType != "" {
-				if resolvedAgent, resolveErr := types.AgentFrom(strings.TrimSpace(client) + "/" + subagentType); resolveErr == nil {
-					childAgent = resolvedAgent
-				}
-			}
+			childAgent := resolveHookSubagentAgentOrDefault(client, payload, agent)
 			if _, startErr := c.session.StartChild(ctx, parentSessionID, childSessionID, childAgent, workspace, types.EventID(toolUseID), "task", time.Now()); startErr != nil {
 				return xerrors.Errorf("failed to synthesize missing subagent start: %w", startErr)
 			}
+			lazySynthesizedChild = true
 		}
 		if _, err := c.session.End(ctx, types.Client("hook"), types.Agent(""), childSessionID, workspace, ""); err != nil {
 			return xerrors.Errorf("failed to end subagent session: %w", err)
@@ -736,6 +733,9 @@ func (c *RootCLI) runHookSubagentStop(
 	// discriminates the subagent boundary from main-session session_ended
 	// events; the legacy `[phase:subagent]` body prefix is retired on
 	// write but readers still match it for pre-#672 rows.
+	if lazySynthesizedChild {
+		return nil
+	}
 	subagentType := hookPayloadString(payload, "subagent_type", "")
 	_, err = c.event.Log(ctx, subagentType, types.EventKindSessionEnded, types.Client("hook"), agent, parentSessionID, workspace, apptypes.LogRedaction{})
 	if err != nil {
@@ -1111,6 +1111,21 @@ func resolveHookAgent(client string, payload []byte) (types.Agent, error) {
 	}
 
 	return agent, nil
+}
+
+func resolveHookSubagentAgentOrDefault(client string, payload []byte, defaultAgent types.Agent) types.Agent {
+	subagentType := hookPayloadString(payload, "subagent_type", "")
+	if subagentType == "" {
+		subagentType = hookPayloadString(payload, "tool_input.subagent_type", "")
+	}
+	if strings.TrimSpace(subagentType) == "" {
+		return defaultAgent
+	}
+	agent, err := types.AgentFrom(strings.TrimSpace(client) + "/" + strings.TrimSpace(subagentType))
+	if err != nil {
+		return defaultAgent
+	}
+	return agent
 }
 
 func (c *RootCLI) inferHookParentSessionID(ctx context.Context, payload []byte, client string, agent types.Agent, workspace types.Workspace) (types.SessionID, error) {
