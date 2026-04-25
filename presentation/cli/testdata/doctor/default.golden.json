@@ -1,0 +1,43 @@
+{
+  "db_path": "/tmp/test-traceary.db",
+  "clients": [
+    "codex"
+  ],
+  "checks": [
+    {
+      "name": "db-path",
+      "status": "pass",
+      "message": "resolved DB path: /tmp/test-traceary.db"
+    },
+    {
+      "name": "config",
+      "status": "pass",
+      "message": "optional config file is not present yet; built-in defaults remain active: /tmp/traceary-json-golden-home/.config/traceary/config.json"
+    },
+    {
+      "name": "db-write",
+      "status": "pass",
+      "message": "initialized SQLite store: /tmp/test-traceary.db"
+    },
+    {
+      "name": "project-dir",
+      "status": "pass",
+      "message": "resolved project directory: /tmp/traceary-json-golden-project"
+    },
+    {
+      "name": "codex-config",
+      "status": "warn",
+      "message": "codex config file does not exist yet (run `traceary hooks install --client codex` to fix) (first-run / pre-install state): /tmp/traceary-json-golden-home/.codex/hooks.json"
+    },
+    {
+      "name": "codex-host-capabilities",
+      "status": "pass",
+      "message": "codex host: memory features ship behind a per-install feature flag in /tmp/traceary-json-golden-home/.codex/config.toml; consult the Codex release notes for the exact flag name and your enablement state. Traceary's `memory import codex` works regardless of the flag state"
+    },
+    {
+      "name": "version",
+      "status": "skip",
+      "message": "version check skipped: current version unknown"
+    }
+  ]
+}

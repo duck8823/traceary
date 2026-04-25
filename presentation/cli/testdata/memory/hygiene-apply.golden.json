@@ -1,0 +1,16 @@
+{
+  "applied": [
+    {
+      "memory_id": "memory-golden-accepted",
+      "kind": "supersede_candidate",
+      "transition": "superseded",
+      "status": "superseded"
+    }
+  ],
+  "failures": [
+    {
+      "memory_id": "memory-missing",
+      "error": "no current hygiene suggestion"
+    }
+  ]
+}

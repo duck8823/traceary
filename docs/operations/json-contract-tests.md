@@ -4,6 +4,8 @@
 
 Traceary uses golden tests to protect public JSON and newline-delimited JSON (NDJSON) CLI output from accidental changes. A golden fixture is the reviewed byte-for-byte contract for one command output.
 
+Every new CLI `--json` flag must ship with a matching golden fixture under `presentation/cli/testdata/<command>/<case>.golden.json` in the same change. The existing golden tests act as the CI gate: if a command output has no fixture, add one before merging the flag rather than relying on ad-hoc string assertions.
+
 ## Run golden tests
 
 Run a specific contract test while developing:
