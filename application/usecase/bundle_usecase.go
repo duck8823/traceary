@@ -372,7 +372,10 @@ func (u *bundleUsecase) Import(ctx context.Context, opts BundleImportOptions) (B
 		}
 	}()
 	for _, entry := range tableEntries {
-		importer := registry[entry.TableName]
+		importer, ok := registry[entry.TableName]
+		if !ok {
+			continue
+		}
 		raw := files[entry.File]
 		rows, err := importer.Decode(bytes.NewReader(raw))
 		if err != nil {
@@ -485,12 +488,24 @@ func manifestTableEntries(
 				requiredChecksumFile, manifest.ManifestVersion,
 			)
 		}
-		return []bundleTableEntry{{
-			TableName: "events",
-			File:      requiredChecksumFile,
-			Checksum:  manifest.FileChecksums[requiredChecksumFile],
-			RowCount:  -1,
-		}}, nil
+		files := make([]string, 0, len(manifest.FileChecksums))
+		for file := range manifest.FileChecksums {
+			files = append(files, file)
+		}
+		sort.Strings(files)
+		entries := make([]bundleTableEntry, 0, len(files))
+		for _, file := range files {
+			entry := bundleTableEntry{
+				File:     file,
+				Checksum: manifest.FileChecksums[file],
+				RowCount: -1,
+			}
+			if file == requiredChecksumFile {
+				entry.TableName = "events"
+			}
+			entries = append(entries, entry)
+		}
+		return entries, nil
 	case 2:
 		if len(manifest.Tables) == 0 {
 			return nil, xerrors.Errorf("bundle manifest has no table entries")

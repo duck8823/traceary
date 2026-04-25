@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -234,6 +236,102 @@ func TestBundleUsecase_ImportsV1Manifest(t *testing.T) {
 	}
 }
 
+func TestBundleUsecase_ImportsV1ManifestWithExtraChecksummedFile(t *testing.T) {
+	t.Parallel()
+
+	row := mustEvent(t, "e-v1-extra", time.Date(2026, 4, 25, 10, 0, 0, 0, time.UTC))
+	eventsBuf := &bytes.Buffer{}
+	if err := json.NewEncoder(eventsBuf).Encode(map[string]string{
+		"event_id":   row.EventID().String(),
+		"kind":       row.Kind().String(),
+		"client":     row.Client().String(),
+		"agent":      row.Agent().String(),
+		"session_id": row.SessionID().String(),
+		"workspace":  row.Workspace().String(),
+		"body":       row.Body(),
+		"created_at": row.CreatedAt().UTC().Format(time.RFC3339Nano),
+	}); err != nil {
+		t.Fatalf("encode row: %v", err)
+	}
+	extra := []byte("legacy sidecar data\n")
+	bundle := buildBundleWithManifestAndFiles(t, 1, map[string]string{
+		"events.ndjson": hashForTest(eventsBuf.Bytes()),
+		"extra.ndjson":  hashForTest(extra),
+	}, map[string][]byte{
+		"events.ndjson": eventsBuf.Bytes(),
+		"extra.ndjson":  extra,
+	}, nil)
+	in := filepath.Join(t.TempDir(), "v1-extra.tbun")
+	if err := os.WriteFile(in, bundle, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	uc := usecase.NewBundleUsecase(fakeEventQuery{}, &fakeBundleRepo{schema: 13}, nil)
+	result, err := uc.Import(context.Background(), usecase.BundleImportOptions{
+		InPath:     in,
+		Passphrase: []byte("testpass"),
+	})
+	if err != nil {
+		t.Fatalf("Import v1 with extra file: %v", err)
+	}
+	if result.EventsImported != 1 || result.EventsSkipped != 0 {
+		t.Fatalf("Import v1 result = %+v, want 1 imported / 0 skipped", result)
+	}
+}
+
+func TestBundleUsecase_RejectsV1ManifestWithInvalidExtraChecksum(t *testing.T) {
+	t.Parallel()
+
+	events := []byte("")
+	extra := []byte("legacy sidecar data\n")
+	tests := []struct {
+		name   string
+		files  map[string][]byte
+		wantIn string
+	}{
+		{
+			name: "missing extra file",
+			files: map[string][]byte{
+				"events.ndjson": events,
+			},
+			wantIn: "bundle missing extra.ndjson referenced by manifest",
+		},
+		{
+			name: "mismatched extra checksum",
+			files: map[string][]byte{
+				"events.ndjson": events,
+				"extra.ndjson":  []byte("tampered\n"),
+			},
+			wantIn: "checksum mismatch on extra.ndjson",
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bundle := buildBundleWithManifestAndFiles(t, 1, map[string]string{
+				"events.ndjson": hashForTest(events),
+				"extra.ndjson":  hashForTest(extra),
+			}, tt.files, nil)
+			in := filepath.Join(t.TempDir(), "v1-invalid-extra.tbun")
+			if err := os.WriteFile(in, bundle, 0o600); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+			uc := usecase.NewBundleUsecase(fakeEventQuery{}, &fakeBundleRepo{schema: 13}, nil)
+			_, err := uc.Import(context.Background(), usecase.BundleImportOptions{
+				InPath:     in,
+				Passphrase: []byte("testpass"),
+			})
+			if err == nil {
+				t.Fatalf("Import unexpectedly succeeded")
+			}
+			if !strings.Contains(err.Error(), tt.wantIn) {
+				t.Fatalf("Import error = %q, want containing %q", err.Error(), tt.wantIn)
+			}
+		})
+	}
+}
+
 func TestBundleUsecase_OnConflictErrorFails(t *testing.T) {
 	t.Parallel()
 
@@ -356,6 +454,18 @@ func buildBundleWithManifestAndEvents(
 	files := map[string][]byte{
 		"events.ndjson": events,
 	}
+	return buildBundleWithManifestAndFiles(t, manifestVersion, checksums, files, tables)
+}
+
+func buildBundleWithManifestAndFiles(
+	t *testing.T,
+	manifestVersion int,
+	checksums map[string]string,
+	files map[string][]byte,
+	tables map[string]any,
+) []byte {
+	t.Helper()
+	files = cloneBundleFilesForTest(files)
 	manifest := map[string]any{
 		"manifest_version": manifestVersion,
 		"created_at":       time.Now().UTC(),
@@ -378,7 +488,12 @@ func buildBundleWithManifestAndEvents(
 	gzw := gzip.NewWriter(buf)
 	tw := tar.NewWriter(gzw)
 	// Deterministic order.
-	for _, name := range []string{"events.ndjson", "manifest.json"} {
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
 		data := files[name]
 		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o600, Size: int64(len(data))}); err != nil {
 			t.Fatalf("tar hdr: %v", err)
@@ -417,6 +532,14 @@ func buildBundleWithManifestAndEvents(
 	out.Write(nonce)
 	out.Write(ciphertext)
 	return out.Bytes()
+}
+
+func cloneBundleFilesForTest(files map[string][]byte) map[string][]byte {
+	clone := make(map[string][]byte, len(files))
+	for name, data := range files {
+		clone[name] = bytes.Clone(data)
+	}
+	return clone
 }
 
 func openTestBundle(t *testing.T, path string, passphrase []byte) map[string][]byte {
