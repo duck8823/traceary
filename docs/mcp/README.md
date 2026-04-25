@@ -14,13 +14,15 @@ Traceary v0.10.0 exposes exactly 8 MCP tools:
 | `manage_memory` | `propose`, `remember`, `accept`, `reject`, `expire`, `supersede`, `set_validity`, `import_instructions` | write; destructive subset: `reject`, `expire` |
 | `query_memory` | `retrieve`, `export`, `pack`, `scan_hygiene` | read |
 | `manage_session` | `start`, `end` | write |
-| `session_status` | `active`, `latest`, `handoff` | read |
+| `session_status` | `active`, `latest`, `handoff`, `tree` | read |
 | `record_event` | `type="log"` or `type="audit"` | write |
 | `list_events` | unchanged event listing | read |
 | `search` | unchanged event search | read |
 | `get_context` | unchanged recent-context read | read |
 
 `manage_memory.ids` accepts either a single string or an array of strings for accept/reject flows. `record_event` returns one uniform shape for both `type="log"` and `type="audit"`.
+
+`session_status(action="tree", session_id="...", depth=N)` returns the JSON session subtree rooted at `session_id` using the same node array shape as `traceary session tree --json`; `depth` is optional and `0` returns only the root.
 
 ## v0.10.0 migration map (24 → 8 tools)
 
@@ -45,6 +47,7 @@ Traceary v0.10.0 exposes exactly 8 MCP tools:
 | `active_session` | `session_status(action="active", ...)` |
 | `latest_session` | `session_status(action="latest", ...)` |
 | `session_handoff` | `session_status(action="handoff", ...)` |
+| `session tree --json --root <session-id>` | `session_status(action="tree", session_id="<session-id>", ...)` |
 | `add_log` | `record_event(type="log", ...)` |
 | `add_audit` | `record_event(type="audit", ...)` |
 | `list_events` | `list_events(...)` |

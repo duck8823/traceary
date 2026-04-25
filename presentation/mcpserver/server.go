@@ -116,7 +116,7 @@ func (s *Server) Build(ctx context.Context) (*mcp.Server, error) {
 	}, s.manageSession())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "session_status",
-		Description: "Dispatch session status reads by action: active, latest, handoff, or lineage.",
+		Description: "Dispatch session status reads by action: active, latest, handoff, lineage, or tree.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.sessionStatus())
 	mcp.AddTool(server, &mcp.Tool{
@@ -319,8 +319,11 @@ func (s *Server) sessionStatus() mcp.ToolHandlerFor[sessionActionInput, any] {
 		case "lineage":
 			out, err := s.sessionLineage(ctx, input.SessionID)
 			return nil, out, err
+		case "tree":
+			out, err := s.sessionTree(ctx, input.SessionID, input.Depth)
+			return nil, out, err
 		default:
-			return nil, nil, xerrors.Errorf("session_status action must be one of active, latest, handoff, lineage")
+			return nil, nil, xerrors.Errorf("session_status action must be one of active, latest, handoff, lineage, tree")
 		}
 	}
 }
@@ -335,6 +338,21 @@ func (s *Server) sessionLineage(ctx context.Context, sessionID string) (sessionL
 		return sessionLineageOutput{}, xerrors.Errorf("failed to get session lineage: %w", err)
 	}
 	return newSessionLineageOutput(summaries), nil
+}
+
+func (s *Server) sessionTree(ctx context.Context, sessionID string, depth *int) ([]sessionLineageNodeOutput, error) {
+	trimmedSessionID := strings.TrimSpace(sessionID)
+	if trimmedSessionID == "" {
+		return nil, xerrors.Errorf("session_status action tree requires session_id")
+	}
+	if depth != nil && *depth < 0 {
+		return nil, xerrors.Errorf("session_status action tree requires depth to be greater than or equal to 0")
+	}
+	summaries, err := s.session.Lineage(ctx, types.SessionID(trimmedSessionID))
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get session tree: %w", err)
+	}
+	return newSessionTreeOutput(summaries, trimmedSessionID, depth), nil
 }
 
 func (s *Server) recordEvent() mcp.ToolHandlerFor[recordEventInput, recordEventOutput] {

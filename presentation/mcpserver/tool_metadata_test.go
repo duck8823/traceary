@@ -54,7 +54,7 @@ func TestServer_ToolMetadata(t *testing.T) {
 		{name: "manage_memory", want: toolMetadataExpectation{description: "Dispatch durable memory writes by action; reject and expire are destructive actions.", destructiveTrue: true}},
 		{name: "query_memory", want: toolMetadataExpectation{description: "Dispatch durable memory reads by action: retrieve, export, pack, or scan_hygiene.", readOnly: true}},
 		{name: "manage_session", want: toolMetadataExpectation{description: "Dispatch session lifecycle writes by action: start or end. action=end is destructive (closes the session).", destructiveTrue: true}},
-		{name: "session_status", want: toolMetadataExpectation{description: "Dispatch session status reads by action: active, latest, handoff, or lineage.", readOnly: true}},
+		{name: "session_status", want: toolMetadataExpectation{description: "Dispatch session status reads by action: active, latest, handoff, lineage, or tree.", readOnly: true}},
 		{name: "record_event", want: toolMetadataExpectation{description: "Record a log or command audit event by type, returning one uniform event shape.", destructiveFalse: true}},
 		{name: "list_events", want: toolMetadataExpectation{description: "List recent events, logs, audits, prompts, transcripts, and summaries.", readOnly: true}},
 		{name: "search", want: toolMetadataExpectation{description: "Search events, logs, audits, prompts, transcripts, and summaries by text, time, or workspace.", readOnly: true}},
