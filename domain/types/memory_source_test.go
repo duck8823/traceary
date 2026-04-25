@@ -6,7 +6,7 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-func TestMemorySourceOf(t *testing.T) {
+func TestMemorySourceFrom(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -25,12 +25,12 @@ func TestMemorySourceOf(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := types.MemorySourceOf(tt.input)
+			got, err := types.MemorySourceFrom(tt.input)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("MemorySourceOf() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("MemorySourceFrom() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if !tt.wantErr && got != tt.want {
-				t.Fatalf("MemorySourceOf() = %v, want %v", got, tt.want)
+				t.Fatalf("MemorySourceFrom() = %v, want %v", got, tt.want)
 			}
 		})
 	}

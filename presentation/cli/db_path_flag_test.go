@@ -23,8 +23,8 @@ import (
 func TestRootCLI_DBPathFlagPropagates(t *testing.T) {
 	// Not t.Parallel(): each sub-test manipulates process-wide environ.
 
-	sessionID, _ := types.SessionIDOf("flag-propagates")
-	agent, _ := types.AgentOf("smoke")
+	sessionID, _ := types.SessionIDFrom("flag-propagates")
+	agent, _ := types.AgentFrom("smoke")
 	startEvent := model.EventOf(
 		types.EventID("evt-start"),
 		types.EventKindSessionStarted,

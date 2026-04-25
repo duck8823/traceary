@@ -451,17 +451,17 @@ func TestPollTailEvents_DelegatesPagingToWindowQuery(t *testing.T) {
 func mustTailEvent(t *testing.T, eventID string, client string, agent string, sessionID string, workspace string, body string, createdAt time.Time) *model.Event {
 	t.Helper()
 
-	resolvedEventID, err := types.EventIDOf(eventID)
+	resolvedEventID, err := types.EventIDFrom(eventID)
 	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
+		t.Fatalf("EventIDFrom() error = %v", err)
 	}
-	resolvedAgent, err := types.AgentOf(agent)
+	resolvedAgent, err := types.AgentFrom(agent)
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
-	resolvedSessionID, err := types.SessionIDOf(sessionID)
+	resolvedSessionID, err := types.SessionIDFrom(sessionID)
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
 
 	return model.EventOf(

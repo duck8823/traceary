@@ -14,9 +14,9 @@ import (
 
 func buildInboxCandidateDetails(t *testing.T, id string, fact string, source domtypes.MemorySource) apptypes.MemoryDetails {
 	t.Helper()
-	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
 	if err != nil {
-		t.Fatalf("WorkspaceOf: %v", err)
+		t.Fatalf("WorkspaceFrom: %v", err)
 	}
 	summary, err := apptypes.MemorySummaryOf(
 		domtypes.MemoryID(id),
@@ -36,9 +36,9 @@ func buildInboxCandidateDetails(t *testing.T, id string, fact string, source dom
 	if err != nil {
 		t.Fatalf("MemorySummaryOf: %v", err)
 	}
-	evidence, err := domtypes.EvidenceRefOf(domtypes.EvidenceRefKindFile, "/tmp/MEMORY.md#L1-L2")
+	evidence, err := domtypes.EvidenceRefFrom(domtypes.EvidenceRefKindFile, "/tmp/MEMORY.md#L1-L2")
 	if err != nil {
-		t.Fatalf("EvidenceRefOf: %v", err)
+		t.Fatalf("EvidenceRefFrom: %v", err)
 	}
 	return apptypes.MemoryDetailsOf(summary, []domtypes.EvidenceRef{evidence}, nil)
 }
@@ -168,9 +168,9 @@ func TestMemoryInboxAccept_EmptyIDsErrors(t *testing.T) {
 
 func mustSummaryWithStatus(t *testing.T, id string, status domtypes.MemoryStatus) apptypes.MemorySummary {
 	t.Helper()
-	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
 	if err != nil {
-		t.Fatalf("WorkspaceOf: %v", err)
+		t.Fatalf("WorkspaceFrom: %v", err)
 	}
 	summary, err := apptypes.MemorySummaryOf(
 		domtypes.MemoryID(id),

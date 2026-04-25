@@ -11,8 +11,8 @@ import (
 // paths (github.com/org/repo) and absolute filesystem paths.
 type Workspace string
 
-// WorkspaceOf creates a Workspace from a string.
-func WorkspaceOf(value string) (Workspace, error) {
+// WorkspaceFrom creates a Workspace from a string.
+func WorkspaceFrom(value string) (Workspace, error) {
 	trimmedValue := strings.TrimSpace(value)
 	if trimmedValue == "" {
 		return Workspace(""), xerrors.Errorf("workspace must not be empty")

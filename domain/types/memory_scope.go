@@ -32,8 +32,8 @@ type MemoryScope interface {
 	Key() string
 }
 
-// MemoryScopeKindOf creates a MemoryScopeKind from a string.
-func MemoryScopeKindOf(value string) (MemoryScopeKind, error) {
+// MemoryScopeKindFrom creates a MemoryScopeKind from a string.
+func MemoryScopeKindFrom(value string) (MemoryScopeKind, error) {
 	trimmedValue := strings.TrimSpace(value)
 	if trimmedValue == "" {
 		return MemoryScopeKind(""), xerrors.Errorf("memory scope kind must not be empty")
@@ -112,26 +112,26 @@ func (s SessionFamilyScope) SessionID() SessionID { return s.sessionID }
 
 // MemoryScopeFrom restores a typed MemoryScope from persisted values.
 func MemoryScopeFrom(kind string, value string) (MemoryScope, error) {
-	resolvedKind, err := MemoryScopeKindOf(kind)
+	resolvedKind, err := MemoryScopeKindFrom(kind)
 	if err != nil {
 		return nil, err
 	}
 
 	switch resolvedKind {
 	case MemoryScopeKindWorkspace:
-		workspace, err := WorkspaceOf(value)
+		workspace, err := WorkspaceFrom(value)
 		if err != nil {
 			return nil, xerrors.Errorf("invalid workspace scope: %w", err)
 		}
 		return WorkspaceScopeOf(workspace), nil
 	case MemoryScopeKindAgent:
-		agent, err := AgentOf(value)
+		agent, err := AgentFrom(value)
 		if err != nil {
 			return nil, xerrors.Errorf("invalid agent scope: %w", err)
 		}
 		return AgentScopeOf(agent), nil
 	case MemoryScopeKindSessionFamily:
-		sessionID, err := SessionIDOf(value)
+		sessionID, err := SessionIDFrom(value)
 		if err != nil {
 			return nil, xerrors.Errorf("invalid session family scope: %w", err)
 		}

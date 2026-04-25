@@ -15,7 +15,7 @@ func newEventID() (types.EventID, error) {
 		return types.EventID(""), xerrors.Errorf("failed to generate event ID: %w", err)
 	}
 
-	eventID, err := types.EventIDOf(value)
+	eventID, err := types.EventIDFrom(value)
 	if err != nil {
 		return types.EventID(""), xerrors.Errorf("failed to convert event ID: %w", err)
 	}
@@ -29,7 +29,7 @@ func newMemoryID() (types.MemoryID, error) {
 		return types.MemoryID(""), xerrors.Errorf("failed to generate memory ID: %w", err)
 	}
 
-	memoryID, err := types.MemoryIDOf("memory-" + value)
+	memoryID, err := types.MemoryIDFrom("memory-" + value)
 	if err != nil {
 		return types.MemoryID(""), xerrors.Errorf("failed to convert memory ID: %w", err)
 	}
@@ -42,7 +42,7 @@ func newSessionID() (types.SessionID, error) {
 		return types.SessionID(""), xerrors.Errorf("failed to generate session ID: %w", err)
 	}
 
-	sessionID, err := types.SessionIDOf("session-" + value)
+	sessionID, err := types.SessionIDFrom("session-" + value)
 	if err != nil {
 		return types.SessionID(""), xerrors.Errorf("failed to convert session ID: %w", err)
 	}
@@ -56,7 +56,7 @@ func newMemoryEdgeID() (types.MemoryEdgeID, error) {
 		return types.MemoryEdgeID(""), xerrors.Errorf("failed to generate memory edge ID: %w", err)
 	}
 
-	edgeID, err := types.MemoryEdgeIDOf("edge-" + value)
+	edgeID, err := types.MemoryEdgeIDFrom("edge-" + value)
 	if err != nil {
 		return types.MemoryEdgeID(""), xerrors.Errorf("failed to convert memory edge ID: %w", err)
 	}

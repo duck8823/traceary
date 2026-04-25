@@ -7,7 +7,7 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-func TestEventKindOf(t *testing.T) {
+func TestEventKindFrom(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -51,9 +51,9 @@ func TestEventKindOf(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := types.EventKindOf(tt.value)
+			got, err := types.EventKindFrom(tt.value)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("EventKindOf() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("EventKindFrom() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.wantErr {
 				if tt.name == "returns error for unknown event kind" &&
@@ -63,7 +63,7 @@ func TestEventKindOf(t *testing.T) {
 				return
 			}
 			if got != tt.want {
-				t.Fatalf("EventKindOf() = %v, want %v", got, tt.want)
+				t.Fatalf("EventKindFrom() = %v, want %v", got, tt.want)
 			}
 		})
 	}

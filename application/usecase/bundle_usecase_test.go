@@ -71,17 +71,17 @@ func (r *fakeBundleRepo) ImportEvent(_ context.Context, event *model.Event) (boo
 
 func mustEvent(t *testing.T, id string, ts time.Time) *model.Event {
 	t.Helper()
-	eventID, err := types.EventIDOf(id)
+	eventID, err := types.EventIDFrom(id)
 	if err != nil {
-		t.Fatalf("EventIDOf: %v", err)
+		t.Fatalf("EventIDFrom: %v", err)
 	}
-	agent, err := types.AgentOf("test")
+	agent, err := types.AgentFrom("test")
 	if err != nil {
-		t.Fatalf("AgentOf: %v", err)
+		t.Fatalf("AgentFrom: %v", err)
 	}
-	sessionID, err := types.SessionIDOf("session-x")
+	sessionID, err := types.SessionIDFrom("session-x")
 	if err != nil {
-		t.Fatalf("SessionIDOf: %v", err)
+		t.Fatalf("SessionIDFrom: %v", err)
 	}
 	return model.EventOf(
 		eventID, types.EventKindNote, types.Client("cli"), agent,

@@ -581,9 +581,9 @@ func TestMemoryUsecase_Show(t *testing.T) {
 func mustMemoryID(t *testing.T, value string) domtypes.MemoryID {
 	t.Helper()
 
-	memoryID, err := domtypes.MemoryIDOf(value)
+	memoryID, err := domtypes.MemoryIDFrom(value)
 	if err != nil {
-		t.Fatalf("MemoryIDOf() error = %v", err)
+		t.Fatalf("MemoryIDFrom() error = %v", err)
 	}
 	return memoryID
 }
@@ -591,9 +591,9 @@ func mustMemoryID(t *testing.T, value string) domtypes.MemoryID {
 func mustEvidenceRef(t *testing.T, kind domtypes.EvidenceRefKind, value string) domtypes.EvidenceRef {
 	t.Helper()
 
-	ref, err := domtypes.EvidenceRefOf(kind, value)
+	ref, err := domtypes.EvidenceRefFrom(kind, value)
 	if err != nil {
-		t.Fatalf("EvidenceRefOf() error = %v", err)
+		t.Fatalf("EvidenceRefFrom() error = %v", err)
 	}
 	return ref
 }
@@ -601,9 +601,9 @@ func mustEvidenceRef(t *testing.T, kind domtypes.EvidenceRefKind, value string) 
 func mustArtifactRef(t *testing.T, kind domtypes.ArtifactRefKind, value string) domtypes.ArtifactRef {
 	t.Helper()
 
-	ref, err := domtypes.ArtifactRefOf(kind, value)
+	ref, err := domtypes.ArtifactRefFrom(kind, value)
 	if err != nil {
-		t.Fatalf("ArtifactRefOf() error = %v", err)
+		t.Fatalf("ArtifactRefFrom() error = %v", err)
 	}
 	return ref
 }

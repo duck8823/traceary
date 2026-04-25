@@ -554,27 +554,27 @@ func mustMemoryDetails(t *testing.T, memoryIDValue string, fact string, status t
 
 func mustMemoryIDForCLI(t *testing.T, value string) types.MemoryID {
 	t.Helper()
-	memoryID, err := types.MemoryIDOf(value)
+	memoryID, err := types.MemoryIDFrom(value)
 	if err != nil {
-		t.Fatalf("MemoryIDOf() error = %v", err)
+		t.Fatalf("MemoryIDFrom() error = %v", err)
 	}
 	return memoryID
 }
 
 func mustEvidenceRefForCLI(t *testing.T, kind types.EvidenceRefKind, value string) types.EvidenceRef {
 	t.Helper()
-	ref, err := types.EvidenceRefOf(kind, value)
+	ref, err := types.EvidenceRefFrom(kind, value)
 	if err != nil {
-		t.Fatalf("EvidenceRefOf() error = %v", err)
+		t.Fatalf("EvidenceRefFrom() error = %v", err)
 	}
 	return ref
 }
 
 func mustArtifactRefForCLI(t *testing.T, kind types.ArtifactRefKind, value string) types.ArtifactRef {
 	t.Helper()
-	ref, err := types.ArtifactRefOf(kind, value)
+	ref, err := types.ArtifactRefFrom(kind, value)
 	if err != nil {
-		t.Fatalf("ArtifactRefOf() error = %v", err)
+		t.Fatalf("ArtifactRefFrom() error = %v", err)
 	}
 	return ref
 }

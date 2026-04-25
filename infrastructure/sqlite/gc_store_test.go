@@ -160,17 +160,17 @@ func newGCEventFixture(
 ) *model.Event {
 	t.Helper()
 
-	eventID, err := types.EventIDOf(eventIDValue)
+	eventID, err := types.EventIDFrom(eventIDValue)
 	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
+		t.Fatalf("EventIDFrom() error = %v", err)
 	}
-	agent, err := types.AgentOf("codex")
+	agent, err := types.AgentFrom("codex")
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
-	sessionID, err := types.SessionIDOf("session-1")
+	sessionID, err := types.SessionIDFrom("session-1")
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
 
 	return model.EventOf(

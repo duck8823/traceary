@@ -55,9 +55,9 @@ func mustAcceptedSummary(t *testing.T, id string, memoryType domtypes.MemoryType
 func TestMemoryExportUsecase_RendersStableMarkdown(t *testing.T) {
 	t.Parallel()
 
-	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
 	if err != nil {
-		t.Fatalf("WorkspaceOf: %v", err)
+		t.Fatalf("WorkspaceFrom: %v", err)
 	}
 	scope := domtypes.WorkspaceScopeOf(workspace)
 	query := &stubExportMemoryQuery{

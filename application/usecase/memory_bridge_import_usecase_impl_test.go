@@ -13,9 +13,9 @@ import (
 func TestMemoryBridgeImport_ProposesBulletsOutsideMarkers(t *testing.T) {
 	t.Parallel()
 
-	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
 	if err != nil {
-		t.Fatalf("WorkspaceOf: %v", err)
+		t.Fatalf("WorkspaceFrom: %v", err)
 	}
 
 	content := strings.Join([]string{
@@ -65,9 +65,9 @@ func TestMemoryBridgeImport_ProposesBulletsOutsideMarkers(t *testing.T) {
 func TestMemoryBridgeImport_FutureMarkerVersionStillSkipsManagedBlock(t *testing.T) {
 	t.Parallel()
 
-	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
 	if err != nil {
-		t.Fatalf("WorkspaceOf: %v", err)
+		t.Fatalf("WorkspaceFrom: %v", err)
 	}
 
 	// A future Traceary build wrote the block as :v42; the current build

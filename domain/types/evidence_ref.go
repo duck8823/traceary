@@ -40,8 +40,8 @@ type EvidenceRef struct {
 	value string
 }
 
-// EvidenceRefKindOf creates an EvidenceRefKind from a string.
-func EvidenceRefKindOf(value string) (EvidenceRefKind, error) {
+// EvidenceRefKindFrom creates an EvidenceRefKind from a string.
+func EvidenceRefKindFrom(value string) (EvidenceRefKind, error) {
 	trimmedValue := strings.TrimSpace(value)
 	if trimmedValue == "" {
 		return EvidenceRefKind(""), xerrors.Errorf("evidence ref kind must not be empty")
@@ -52,13 +52,13 @@ func EvidenceRefKindOf(value string) (EvidenceRefKind, error) {
 	return EvidenceRefKind(""), xerrors.Errorf("unknown evidence ref kind: %s", trimmedValue)
 }
 
-// EvidenceRefOf creates an EvidenceRef.
-func EvidenceRefOf(kind EvidenceRefKind, value string) (EvidenceRef, error) {
+// EvidenceRefFrom creates an EvidenceRef.
+func EvidenceRefFrom(kind EvidenceRefKind, value string) (EvidenceRef, error) {
 	trimmedValue := strings.TrimSpace(value)
 	if trimmedValue == "" {
 		return EvidenceRef{}, xerrors.Errorf("evidence ref value must not be empty")
 	}
-	if _, err := EvidenceRefKindOf(kind.String()); err != nil {
+	if _, err := EvidenceRefKindFrom(kind.String()); err != nil {
 		return EvidenceRef{}, err
 	}
 	return EvidenceRef{kind: kind, value: trimmedValue}, nil

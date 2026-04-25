@@ -98,8 +98,8 @@ func TestInferArtifactRefs_ProducesValidArtifactRefs(t *testing.T) {
 	}
 
 	for _, ref := range refs {
-		if _, err := domtypes.ArtifactRefOf(ref.Kind(), ref.Value()); err != nil {
-			t.Fatalf("ArtifactRefOf(%s, %q) error = %v", ref.Kind(), ref.Value(), err)
+		if _, err := domtypes.ArtifactRefFrom(ref.Kind(), ref.Value()); err != nil {
+			t.Fatalf("ArtifactRefFrom(%s, %q) error = %v", ref.Kind(), ref.Value(), err)
 		}
 	}
 }

@@ -6,7 +6,7 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-func TestAgentOf(t *testing.T) {
+func TestAgentFrom(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -25,12 +25,12 @@ func TestAgentOf(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := types.AgentOf(tt.input)
+			got, err := types.AgentFrom(tt.input)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("AgentOf(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+				t.Fatalf("AgentFrom(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
 			}
 			if !tt.wantErr && got.String() != tt.want {
-				t.Errorf("AgentOf(%q).String() = %q, want %q", tt.input, got.String(), tt.want)
+				t.Errorf("AgentFrom(%q).String() = %q, want %q", tt.input, got.String(), tt.want)
 			}
 		})
 	}

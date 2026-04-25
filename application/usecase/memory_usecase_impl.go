@@ -437,7 +437,7 @@ func (u *memoryUsecase) Show(ctx context.Context, memoryID domtypes.MemoryID) (a
 	if u.memoryQuery == nil {
 		return apptypes.MemoryDetails{}, xerrors.Errorf("memory query service is not configured")
 	}
-	resolvedMemoryID, err := domtypes.MemoryIDOf(memoryID.String())
+	resolvedMemoryID, err := domtypes.MemoryIDFrom(memoryID.String())
 	if err != nil {
 		return apptypes.MemoryDetails{}, xerrors.Errorf("failed to resolve memory ID: %w", err)
 	}
@@ -450,7 +450,7 @@ func (u *memoryUsecase) Show(ctx context.Context, memoryID domtypes.MemoryID) (a
 }
 
 func (u *memoryUsecase) findMemoryByID(ctx context.Context, memoryID domtypes.MemoryID) (*model.Memory, error) {
-	resolvedMemoryID, err := domtypes.MemoryIDOf(memoryID.String())
+	resolvedMemoryID, err := domtypes.MemoryIDFrom(memoryID.String())
 	if err != nil {
 		return nil, xerrors.Errorf("failed to resolve memory ID: %w", err)
 	}
@@ -478,7 +478,7 @@ func sanitizeEvidenceRefs(refs []domtypes.EvidenceRef, extraRedactors []redactio
 	sanitized := make([]domtypes.EvidenceRef, 0, len(refs))
 	for _, ref := range refs {
 		value, _ := redaction.Apply(ref.Value(), extraRedactors)
-		resolvedRef, err := domtypes.EvidenceRefOf(ref.Kind(), value)
+		resolvedRef, err := domtypes.EvidenceRefFrom(ref.Kind(), value)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to sanitize evidence ref: %w", err)
 		}
@@ -491,7 +491,7 @@ func sanitizeArtifactRefs(refs []domtypes.ArtifactRef, extraRedactors []redactio
 	sanitized := make([]domtypes.ArtifactRef, 0, len(refs))
 	for _, ref := range refs {
 		value, _ := redaction.Apply(ref.Value(), extraRedactors)
-		resolvedRef, err := domtypes.ArtifactRefOf(ref.Kind(), value)
+		resolvedRef, err := domtypes.ArtifactRefFrom(ref.Kind(), value)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to sanitize artifact ref: %w", err)
 		}
@@ -501,7 +501,7 @@ func sanitizeArtifactRefs(refs []domtypes.ArtifactRef, extraRedactors []redactio
 }
 
 func resolveRequiredMemoryType(memoryType domtypes.MemoryType) (domtypes.MemoryType, error) {
-	resolved, err := domtypes.MemoryTypeOf(memoryType.String())
+	resolved, err := domtypes.MemoryTypeFrom(memoryType.String())
 	if err != nil {
 		return domtypes.MemoryType(""), xerrors.Errorf("failed to resolve memory type: %w", err)
 	}
@@ -536,7 +536,7 @@ func resolveMemorySource(source domtypes.MemorySource) (domtypes.MemorySource, e
 	if strings.TrimSpace(source.String()) == "" {
 		return domtypes.MemorySourceManual, nil
 	}
-	resolved, err := domtypes.MemorySourceOf(source.String())
+	resolved, err := domtypes.MemorySourceFrom(source.String())
 	if err != nil {
 		return domtypes.MemorySource(""), xerrors.Errorf("failed to resolve memory source: %w", err)
 	}
@@ -545,7 +545,7 @@ func resolveMemorySource(source domtypes.MemorySource) (domtypes.MemorySource, e
 
 func resolveAcceptedConfidence(confidence domtypes.Optional[domtypes.Confidence]) (domtypes.Confidence, error) {
 	if value, ok := confidence.Value(); ok {
-		resolved, err := domtypes.ConfidenceOf(value.String())
+		resolved, err := domtypes.ConfidenceFrom(value.String())
 		if err != nil {
 			return domtypes.Confidence(""), xerrors.Errorf("failed to resolve confidence: %w", err)
 		}

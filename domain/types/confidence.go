@@ -28,8 +28,8 @@ var knownConfidenceLevels = []Confidence{
 	ConfidenceVerified,
 }
 
-// ConfidenceOf creates a Confidence from a string.
-func ConfidenceOf(value string) (Confidence, error) {
+// ConfidenceFrom creates a Confidence from a string.
+func ConfidenceFrom(value string) (Confidence, error) {
 	trimmedValue := strings.TrimSpace(value)
 	if trimmedValue == "" {
 		return Confidence(""), xerrors.Errorf("confidence must not be empty")

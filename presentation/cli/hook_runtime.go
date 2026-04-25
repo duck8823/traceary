@@ -928,7 +928,7 @@ func resolveHookAgent(client string, payload []byte) (types.Agent, error) {
 		agentValue += "/" + agentType
 	}
 
-	agent, err := types.AgentOf(agentValue)
+	agent, err := types.AgentFrom(agentValue)
 	if err != nil {
 		return "", xerrors.Errorf("failed to resolve hook agent: %w", err)
 	}

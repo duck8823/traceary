@@ -74,8 +74,8 @@ func TestSessionUsecase_End(t *testing.T) {
 	t.Run("saves session end event", func(t *testing.T) {
 		t.Parallel()
 
-		sessionID, _ := types.SessionIDOf("session-1")
-		agent, _ := types.AgentOf("codex")
+		sessionID, _ := types.SessionIDFrom("session-1")
+		agent, _ := types.AgentFrom("codex")
 		existing := model.SessionOf(
 			sessionID, mustTime(t), types.None[time.Time](),
 			types.Client("cli"), agent, types.Workspace("duck8823/traceary"),
@@ -109,13 +109,13 @@ func TestSessionUsecase_End(t *testing.T) {
 	t.Run("session end inherits client/agent/repo from start", func(t *testing.T) {
 		t.Parallel()
 
-		sessionID, err := types.SessionIDOf("session-1")
+		sessionID, err := types.SessionIDFrom("session-1")
 		if err != nil {
-			t.Fatalf("SessionIDOf() error = %v", err)
+			t.Fatalf("SessionIDFrom() error = %v", err)
 		}
-		startAgent, err := types.AgentOf("claude")
+		startAgent, err := types.AgentFrom("claude")
 		if err != nil {
-			t.Fatalf("AgentOf() error = %v", err)
+			t.Fatalf("AgentFrom() error = %v", err)
 		}
 
 		stub := &eventRepositoryStub{}
@@ -156,13 +156,13 @@ func TestSessionUsecase_End(t *testing.T) {
 	t.Run("session end prefers explicit client/agent over inherited", func(t *testing.T) {
 		t.Parallel()
 
-		sessionID, err := types.SessionIDOf("session-1")
+		sessionID, err := types.SessionIDFrom("session-1")
 		if err != nil {
-			t.Fatalf("SessionIDOf() error = %v", err)
+			t.Fatalf("SessionIDFrom() error = %v", err)
 		}
-		startAgent, err := types.AgentOf("claude")
+		startAgent, err := types.AgentFrom("claude")
 		if err != nil {
-			t.Fatalf("AgentOf() error = %v", err)
+			t.Fatalf("AgentFrom() error = %v", err)
 		}
 
 		stub := &eventRepositoryStub{}
@@ -222,13 +222,13 @@ func TestSessionUsecase_End(t *testing.T) {
 	t.Run("returns ErrInvalidSessionState when session is already ended", func(t *testing.T) {
 		t.Parallel()
 
-		sessionID, err := types.SessionIDOf("session-already-ended")
+		sessionID, err := types.SessionIDFrom("session-already-ended")
 		if err != nil {
-			t.Fatalf("SessionIDOf() error = %v", err)
+			t.Fatalf("SessionIDFrom() error = %v", err)
 		}
-		agent, err := types.AgentOf("claude")
+		agent, err := types.AgentFrom("claude")
 		if err != nil {
-			t.Fatalf("AgentOf() error = %v", err)
+			t.Fatalf("AgentFrom() error = %v", err)
 		}
 		endedAt := mustTime(t).Add(time.Hour)
 		alreadyEnded := model.SessionOf(
@@ -339,13 +339,13 @@ func TestSessionUsecase_SessionSaver(t *testing.T) {
 	t.Run("calls SaveBoundary on session end with existing session", func(t *testing.T) {
 		t.Parallel()
 
-		sessionID, err := types.SessionIDOf("test-session")
+		sessionID, err := types.SessionIDFrom("test-session")
 		if err != nil {
-			t.Fatalf("SessionIDOf() error = %v", err)
+			t.Fatalf("SessionIDFrom() error = %v", err)
 		}
-		agent, err := types.AgentOf("claude")
+		agent, err := types.AgentFrom("claude")
 		if err != nil {
-			t.Fatalf("AgentOf() error = %v", err)
+			t.Fatalf("AgentFrom() error = %v", err)
 		}
 
 		eventStub := &eventRepositoryStub{}
@@ -413,8 +413,8 @@ func TestSessionUsecase_SessionSaver(t *testing.T) {
 	t.Run("session start returns ErrInvalidSessionState when explicit session ID already exists", func(t *testing.T) {
 		t.Parallel()
 
-		existingID, _ := types.SessionIDOf("existing-session")
-		agent, _ := types.AgentOf("claude")
+		existingID, _ := types.SessionIDFrom("existing-session")
+		agent, _ := types.AgentFrom("claude")
 		existingSession := model.SessionOf(
 			existingID, mustTime(t), types.None[time.Time](),
 			types.Client("cli"), agent, types.Workspace("duck8823/traceary"),

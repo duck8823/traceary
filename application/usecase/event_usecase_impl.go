@@ -39,15 +39,15 @@ func (u *eventUsecase) Log(ctx context.Context, message string, kind types.Event
 		return nil, xerrors.Errorf("event repository is not configured")
 	}
 
-	if _, err := types.AgentOf(agent.String()); err != nil {
+	if _, err := types.AgentFrom(agent.String()); err != nil {
 		return nil, xerrors.Errorf("failed to resolve agent: %w", err)
 	}
-	if _, err := types.SessionIDOf(sessionID.String()); err != nil {
+	if _, err := types.SessionIDFrom(sessionID.String()); err != nil {
 		return nil, xerrors.Errorf("failed to resolve session ID: %w", err)
 	}
 	resolvedKind := types.EventKindNote
 	if strings.TrimSpace(kind.String()) != "" {
-		resolved, err := types.EventKindOf(kind.String())
+		resolved, err := types.EventKindFrom(kind.String())
 		if err != nil {
 			return nil, xerrors.Errorf("failed to resolve event kind: %w", err)
 		}
@@ -109,10 +109,10 @@ func (u *eventUsecase) Audit(ctx context.Context, command string, input string, 
 		return nil, nil, xerrors.Errorf("event repository is not configured")
 	}
 
-	if _, err := types.AgentOf(agent.String()); err != nil {
+	if _, err := types.AgentFrom(agent.String()); err != nil {
 		return nil, nil, xerrors.Errorf("failed to resolve agent: %w", err)
 	}
-	if _, err := types.SessionIDOf(sessionID.String()); err != nil {
+	if _, err := types.SessionIDFrom(sessionID.String()); err != nil {
 		return nil, nil, xerrors.Errorf("failed to resolve session ID: %w", err)
 	}
 	eventID, err := newEventID()
@@ -294,7 +294,7 @@ func resolveOptionalSearchKind(value string) (types.EventKind, error) {
 		return types.EventKindCommandExecuted, nil
 	}
 
-	kind, err := types.EventKindOf(trimmedValue)
+	kind, err := types.EventKindFrom(trimmedValue)
 	if err != nil {
 		return types.EventKind(""), xerrors.Errorf("failed to resolve kind: %w", err)
 	}

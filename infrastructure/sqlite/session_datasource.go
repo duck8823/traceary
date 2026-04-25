@@ -277,7 +277,7 @@ func (d *SessionDatasource) FindByID(ctx context.Context, sessionID types.Sessio
 		return types.None[*model.Session](), xerrors.Errorf("failed to scan session row: %w", err)
 	}
 
-	sid, err := types.SessionIDOf(sessionIDValue)
+	sid, err := types.SessionIDFrom(sessionIDValue)
 	if err != nil {
 		return types.None[*model.Session](), xerrors.Errorf("failed to restore session ID: %w", err)
 	}
@@ -285,7 +285,7 @@ func (d *SessionDatasource) FindByID(ctx context.Context, sessionID types.Sessio
 	if err != nil {
 		return types.None[*model.Session](), xerrors.Errorf("failed to parse started_at: %w", err)
 	}
-	agent, err := types.AgentOf(agentValue)
+	agent, err := types.AgentFrom(agentValue)
 	if err != nil {
 		return types.None[*model.Session](), xerrors.Errorf("failed to restore agent: %w", err)
 	}

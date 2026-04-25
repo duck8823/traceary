@@ -6,7 +6,7 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-func TestConfidenceOf(t *testing.T) {
+func TestConfidenceFrom(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -25,12 +25,12 @@ func TestConfidenceOf(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := types.ConfidenceOf(tt.input)
+			got, err := types.ConfidenceFrom(tt.input)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("ConfidenceOf() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("ConfidenceFrom() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if !tt.wantErr && got != tt.want {
-				t.Fatalf("ConfidenceOf() = %v, want %v", got, tt.want)
+				t.Fatalf("ConfidenceFrom() = %v, want %v", got, tt.want)
 			}
 		})
 	}

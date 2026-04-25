@@ -31,8 +31,8 @@ var knownMemoryStatuses = []MemoryStatus{
 	MemoryStatusExpired,
 }
 
-// MemoryStatusOf creates a MemoryStatus from a string.
-func MemoryStatusOf(value string) (MemoryStatus, error) {
+// MemoryStatusFrom creates a MemoryStatus from a string.
+func MemoryStatusFrom(value string) (MemoryStatus, error) {
 	trimmedValue := strings.TrimSpace(value)
 	if trimmedValue == "" {
 		return MemoryStatus(""), xerrors.Errorf("memory status must not be empty")

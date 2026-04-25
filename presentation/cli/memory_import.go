@@ -161,7 +161,7 @@ func resolveImportFallbackWorkspace(ctx context.Context, raw string) (domtypes.W
 	if strings.TrimSpace(resolved) == "" {
 		return domtypes.Workspace(""), nil
 	}
-	workspace, err := domtypes.WorkspaceOf(resolved)
+	workspace, err := domtypes.WorkspaceFrom(resolved)
 	if err != nil {
 		return domtypes.Workspace(""), xerrors.Errorf("%s: %w", Localize("failed to resolve workspace", "workspace の解決に失敗しました"), err)
 	}

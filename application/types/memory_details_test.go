@@ -14,10 +14,10 @@ import (
 func TestMemoryDetailsFrom(t *testing.T) {
 	t.Parallel()
 
-	memoryID, _ := domtypes.MemoryIDOf("mem-details")
-	workspace, _ := domtypes.WorkspaceOf("github.com/duck8823/traceary")
-	evidenceRef, _ := domtypes.EvidenceRefOf(domtypes.EvidenceRefKindIssue, "454")
-	artifactRef, _ := domtypes.ArtifactRefOf(domtypes.ArtifactRefKindPR, "466")
+	memoryID, _ := domtypes.MemoryIDFrom("mem-details")
+	workspace, _ := domtypes.WorkspaceFrom("github.com/duck8823/traceary")
+	evidenceRef, _ := domtypes.EvidenceRefFrom(domtypes.EvidenceRefKindIssue, "454")
+	artifactRef, _ := domtypes.ArtifactRefFrom(domtypes.ArtifactRefKindPR, "466")
 	memory := model.MemoryOf(
 		memoryID,
 		domtypes.MemoryTypeArtifact,

@@ -18,7 +18,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 	t.Run("prints summary with active session and recent commands", func(t *testing.T) {
 		t.Parallel()
 
-		sessionID, _ := types.SessionIDOf("session-abc")
+		sessionID, _ := types.SessionIDFrom("session-abc")
 
 		dbPath := filepath.Join(t.TempDir(), "traceary.db")
 		contextStub := &contextUsecaseStub{
@@ -135,7 +135,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 	t.Run("includes memories when available", func(t *testing.T) {
 		t.Parallel()
 
-		sessionID, _ := types.SessionIDOf("session-abc")
+		sessionID, _ := types.SessionIDFrom("session-abc")
 		scope := types.WorkspaceScopeOf(types.Workspace("duck8823/traceary"))
 		memorySummary, err := apptypes.MemorySummaryOf(
 			types.MemoryID("memory-1"),

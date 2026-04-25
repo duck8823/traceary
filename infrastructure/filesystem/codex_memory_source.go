@@ -147,7 +147,7 @@ func (s *codexMemorySource) Load(
 			continue
 		}
 
-		evidence, err := domtypes.EvidenceRefOf(
+		evidence, err := domtypes.EvidenceRefFrom(
 			domtypes.EvidenceRefKindFile,
 			fmt.Sprintf("%s#L%d-L%d", containedPath, bullet.startLine, bullet.endLine),
 		)
@@ -155,7 +155,7 @@ func (s *codexMemorySource) Load(
 			warnings = append(warnings, fmt.Sprintf("skipped bullet at %s:%d (evidence ref rejected: %v)", containedPath, bullet.startLine, err))
 			continue
 		}
-		artifact, err := domtypes.ArtifactRefOf(domtypes.ArtifactRefKindFile, containedPath)
+		artifact, err := domtypes.ArtifactRefFrom(domtypes.ArtifactRefKindFile, containedPath)
 		if err != nil {
 			warnings = append(warnings, fmt.Sprintf("skipped bullet at %s:%d (artifact ref rejected: %v)", containedPath, bullet.startLine, err))
 			continue
@@ -435,7 +435,7 @@ func resolveCandidateScope(
 }
 
 func newWorkspaceScope(value string) (domtypes.MemoryScope, error) {
-	workspace, err := domtypes.WorkspaceOf(value)
+	workspace, err := domtypes.WorkspaceFrom(value)
 	if err != nil {
 		return nil, xerrors.Errorf("invalid workspace scope value: %w", err)
 	}

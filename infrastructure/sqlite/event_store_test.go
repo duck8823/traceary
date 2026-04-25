@@ -436,9 +436,9 @@ CREATE TABLE command_audits (
 func mustEventIDForSQLite(t *testing.T, value string) types.EventID {
 	t.Helper()
 
-	eventID, err := types.EventIDOf(value)
+	eventID, err := types.EventIDFrom(value)
 	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
+		t.Fatalf("EventIDFrom() error = %v", err)
 	}
 
 	return eventID
@@ -447,9 +447,9 @@ func mustEventIDForSQLite(t *testing.T, value string) types.EventID {
 func mustAgentForSQLite(t *testing.T, value string) types.Agent {
 	t.Helper()
 
-	agent, err := types.AgentOf(value)
+	agent, err := types.AgentFrom(value)
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
 
 	return agent
@@ -458,9 +458,9 @@ func mustAgentForSQLite(t *testing.T, value string) types.Agent {
 func mustSessionIDForSQLite(t *testing.T, value string) types.SessionID {
 	t.Helper()
 
-	sessionID, err := types.SessionIDOf(value)
+	sessionID, err := types.SessionIDFrom(value)
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
 
 	return sessionID
@@ -478,17 +478,17 @@ func newEventForSQLiteTest(
 ) *model.Event {
 	t.Helper()
 
-	eventID, err := types.EventIDOf(eventIDValue)
+	eventID, err := types.EventIDFrom(eventIDValue)
 	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
+		t.Fatalf("EventIDFrom() error = %v", err)
 	}
-	agent, err := types.AgentOf(agentValue)
+	agent, err := types.AgentFrom(agentValue)
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
-	sessionID, err := types.SessionIDOf(sessionIDValue)
+	sessionID, err := types.SessionIDFrom(sessionIDValue)
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
 
 	return model.EventOf(

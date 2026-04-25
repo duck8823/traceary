@@ -11,8 +11,8 @@ import (
 // by additional integrations (e.g. cli, hook, mcp).
 type Client string
 
-// ClientOf creates a Client from a string.
-func ClientOf(value string) (Client, error) {
+// ClientFrom creates a Client from a string.
+func ClientFrom(value string) (Client, error) {
 	trimmedValue := strings.TrimSpace(value)
 	if trimmedValue == "" {
 		return Client(""), xerrors.Errorf("client must not be empty")

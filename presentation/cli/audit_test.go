@@ -16,17 +16,17 @@ import (
 func TestRootCLI_AuditCommand(t *testing.T) {
 	t.Setenv("TRACEARY_SESSION_ID", "session-env")
 
-	eventID, err := types.EventIDOf("event-1")
+	eventID, err := types.EventIDFrom("event-1")
 	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
+		t.Fatalf("EventIDFrom() error = %v", err)
 	}
-	agent, err := types.AgentOf("codex")
+	agent, err := types.AgentFrom("codex")
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
-	sessionID, err := types.SessionIDOf("session-env")
+	sessionID, err := types.SessionIDFrom("session-env")
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
 	commandAudit, err := model.NewCommandAudit(
 		eventID,
@@ -85,13 +85,13 @@ func TestRootCLI_AuditCommand_FallsBackFromStaleActiveSession(t *testing.T) {
 	})
 	defer cli.ResetDetectRepoContextFunc()
 
-	eventID, err := types.EventIDOf("event-stale-audit")
+	eventID, err := types.EventIDFrom("event-stale-audit")
 	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
+		t.Fatalf("EventIDFrom() error = %v", err)
 	}
-	agent, err := types.AgentOf("codex")
+	agent, err := types.AgentFrom("codex")
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
 	commandAudit, err := model.NewCommandAudit(
 		eventID,
@@ -161,9 +161,9 @@ func TestRootCLI_AuditCommand_FallsBackFromStaleActiveSession(t *testing.T) {
 func mustEventID(t *testing.T, value string) types.EventID {
 	t.Helper()
 
-	eventID, err := types.EventIDOf(value)
+	eventID, err := types.EventIDFrom(value)
 	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
+		t.Fatalf("EventIDFrom() error = %v", err)
 	}
 
 	return eventID
@@ -172,17 +172,17 @@ func mustEventID(t *testing.T, value string) types.EventID {
 func TestRootCLI_AuditCommand_IdOnly(t *testing.T) {
 	t.Setenv("TRACEARY_SESSION_ID", "session-env")
 
-	eventID, err := types.EventIDOf("event-id-only")
+	eventID, err := types.EventIDFrom("event-id-only")
 	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
+		t.Fatalf("EventIDFrom() error = %v", err)
 	}
-	agent, err := types.AgentOf("codex")
+	agent, err := types.AgentFrom("codex")
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
-	sessionID, err := types.SessionIDOf("session-env")
+	sessionID, err := types.SessionIDFrom("session-env")
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
 	commandAudit, err := model.NewCommandAudit(
 		eventID,
@@ -236,17 +236,17 @@ func TestRootCLI_AuditCommand_IdOnly(t *testing.T) {
 func TestRootCLI_AuditCommand_NamedFlags(t *testing.T) {
 	t.Setenv("TRACEARY_SESSION_ID", "session-env")
 
-	eventID, err := types.EventIDOf("event-5")
+	eventID, err := types.EventIDFrom("event-5")
 	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
+		t.Fatalf("EventIDFrom() error = %v", err)
 	}
-	agent, err := types.AgentOf("codex")
+	agent, err := types.AgentFrom("codex")
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
-	sessionID, err := types.SessionIDOf("session-env")
+	sessionID, err := types.SessionIDFrom("session-env")
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
 	commandAudit, err := model.NewCommandAudit(
 		eventID,
@@ -387,17 +387,17 @@ func TestRootCLI_AuditCommand_TruncationNotice(t *testing.T) {
 	t.Setenv("TRACEARY_SESSION_ID", "session-env")
 	t.Setenv("TRACEARY_MAX_AUDIT_OUTPUT_BYTES", "128")
 
-	eventID, err := types.EventIDOf("event-2")
+	eventID, err := types.EventIDFrom("event-2")
 	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
+		t.Fatalf("EventIDFrom() error = %v", err)
 	}
-	agent, err := types.AgentOf("codex")
+	agent, err := types.AgentFrom("codex")
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
-	sessionID, err := types.SessionIDOf("session-env")
+	sessionID, err := types.SessionIDFrom("session-env")
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
 	commandAudit, err := model.NewCommandAudit(
 		eventID,
@@ -455,17 +455,17 @@ func TestRootCLI_AuditCommand_TruncationNotice(t *testing.T) {
 func TestRootCLI_AuditCommand_RedactionNotice(t *testing.T) {
 	t.Setenv("TRACEARY_SESSION_ID", "session-env")
 
-	eventID, err := types.EventIDOf("event-3")
+	eventID, err := types.EventIDFrom("event-3")
 	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
+		t.Fatalf("EventIDFrom() error = %v", err)
 	}
-	agent, err := types.AgentOf("codex")
+	agent, err := types.AgentFrom("codex")
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
-	sessionID, err := types.SessionIDOf("session-env")
+	sessionID, err := types.SessionIDFrom("session-env")
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
 	commandAudit, err := model.NewCommandAudit(
 		eventID,
@@ -525,17 +525,17 @@ func TestRootCLI_AuditCommand_AllowSecretsEnv(t *testing.T) {
 	t.Setenv("TRACEARY_SESSION_ID", "session-env")
 	t.Setenv("TRACEARY_ALLOW_SECRETS", "true")
 
-	eventID, err := types.EventIDOf("event-4")
+	eventID, err := types.EventIDFrom("event-4")
 	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
+		t.Fatalf("EventIDFrom() error = %v", err)
 	}
-	agent, err := types.AgentOf("codex")
+	agent, err := types.AgentFrom("codex")
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
-	sessionID, err := types.SessionIDOf("session-env")
+	sessionID, err := types.SessionIDFrom("session-env")
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
 	commandAudit, err := model.NewCommandAudit(
 		eventID,

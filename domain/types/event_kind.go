@@ -42,8 +42,8 @@ var knownEventKinds = []EventKind{
 	EventKindTranscript,
 }
 
-// EventKindOf builds EventKind from a string value.
-func EventKindOf(value string) (EventKind, error) {
+// EventKindFrom builds EventKind from a string value.
+func EventKindFrom(value string) (EventKind, error) {
 	trimmedValue := strings.TrimSpace(value)
 	if trimmedValue == "" {
 		return EventKind(""), xerrors.Errorf("event kind must not be empty")

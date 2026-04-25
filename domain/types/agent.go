@@ -9,8 +9,8 @@ import (
 // Agent is a value object representing the actor that produced an event.
 type Agent string
 
-// AgentOf creates an Agent from a string.
-func AgentOf(value string) (Agent, error) {
+// AgentFrom creates an Agent from a string.
+func AgentFrom(value string) (Agent, error) {
 	trimmedValue := strings.TrimSpace(value)
 	if trimmedValue == "" {
 		return Agent(""), xerrors.Errorf("agent must not be empty")

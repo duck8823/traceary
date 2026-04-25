@@ -179,7 +179,7 @@ func (c *RootCLI) runMemoryInboxBatch(ctx context.Context, output io.Writer, inp
 
 	result := memoryInboxBatchResult{Action: string(action)}
 	for _, rawID := range ids {
-		memoryID, err := domtypes.MemoryIDOf(rawID)
+		memoryID, err := domtypes.MemoryIDFrom(rawID)
 		if err != nil {
 			result.Failures = append(result.Failures, memoryInboxFailure{ID: rawID, Error: err.Error()})
 			continue
@@ -243,7 +243,7 @@ func parseMemorySources(values []string) ([]domtypes.MemorySource, error) {
 		if strings.TrimSpace(value) == "" {
 			continue
 		}
-		source, err := domtypes.MemorySourceOf(value)
+		source, err := domtypes.MemorySourceFrom(value)
 		if err != nil {
 			return nil, xerrors.Errorf("%s: %w", Localize("failed to resolve memory source", "memory source の解決に失敗しました"), err)
 		}

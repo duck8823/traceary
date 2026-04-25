@@ -6,12 +6,12 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-func TestArtifactRefOf(t *testing.T) {
+func TestArtifactRefFrom(t *testing.T) {
 	t.Parallel()
 
-	ref, err := types.ArtifactRefOf(types.ArtifactRefKindFile, "docs/spec.md")
+	ref, err := types.ArtifactRefFrom(types.ArtifactRefKindFile, "docs/spec.md")
 	if err != nil {
-		t.Fatalf("ArtifactRefOf() error = %v", err)
+		t.Fatalf("ArtifactRefFrom() error = %v", err)
 	}
 	if ref.Kind() != types.ArtifactRefKindFile {
 		t.Fatalf("Kind() = %v, want %v", ref.Kind(), types.ArtifactRefKindFile)
@@ -21,13 +21,13 @@ func TestArtifactRefOf(t *testing.T) {
 	}
 }
 
-func TestArtifactRefOf_RejectsInvalidInput(t *testing.T) {
+func TestArtifactRefFrom_RejectsInvalidInput(t *testing.T) {
 	t.Parallel()
 
-	if _, err := types.ArtifactRefOf(types.ArtifactRefKind(""), "value"); err == nil {
-		t.Fatalf("ArtifactRefOf() error = nil, want error for empty kind")
+	if _, err := types.ArtifactRefFrom(types.ArtifactRefKind(""), "value"); err == nil {
+		t.Fatalf("ArtifactRefFrom() error = nil, want error for empty kind")
 	}
-	if _, err := types.ArtifactRefOf(types.ArtifactRefKindFile, " "); err == nil {
-		t.Fatalf("ArtifactRefOf() error = nil, want error for empty value")
+	if _, err := types.ArtifactRefFrom(types.ArtifactRefKindFile, " "); err == nil {
+		t.Fatalf("ArtifactRefFrom() error = nil, want error for empty value")
 	}
 }

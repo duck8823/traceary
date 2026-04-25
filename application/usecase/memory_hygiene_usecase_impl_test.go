@@ -36,9 +36,9 @@ func acceptedSummaryAt(t *testing.T, id string, scope domtypes.MemoryScope, fact
 func TestMemoryHygieneScan_DetectsRedactionExpiryAndDuplicates(t *testing.T) {
 	t.Parallel()
 
-	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
 	if err != nil {
-		t.Fatalf("WorkspaceOf: %v", err)
+		t.Fatalf("WorkspaceFrom: %v", err)
 	}
 	scope := domtypes.WorkspaceScopeOf(workspace)
 	now := time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC)
@@ -80,9 +80,9 @@ func TestMemoryHygieneScan_DetectsRedactionExpiryAndDuplicates(t *testing.T) {
 func TestMemoryHygieneScan_SimilarFactsEmitSupersedeCandidate(t *testing.T) {
 	t.Parallel()
 
-	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
 	if err != nil {
-		t.Fatalf("WorkspaceOf: %v", err)
+		t.Fatalf("WorkspaceFrom: %v", err)
 	}
 	scope := domtypes.WorkspaceScopeOf(workspace)
 	older := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
@@ -168,9 +168,9 @@ func validitySummary(
 func TestMemoryHygieneScan_ValidityOverlapEmitsSupersede(t *testing.T) {
 	t.Parallel()
 
-	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
 	if err != nil {
-		t.Fatalf("WorkspaceOf: %v", err)
+		t.Fatalf("WorkspaceFrom: %v", err)
 	}
 	scope := domtypes.WorkspaceScopeOf(workspace)
 	t1 := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
@@ -219,9 +219,9 @@ func TestMemoryHygieneScan_ValidityOverlapEmitsSupersede(t *testing.T) {
 func TestMemoryHygieneScan_DisjointValidityWindowsAreNotSuperseded(t *testing.T) {
 	t.Parallel()
 
-	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
 	if err != nil {
-		t.Fatalf("WorkspaceOf: %v", err)
+		t.Fatalf("WorkspaceFrom: %v", err)
 	}
 	scope := domtypes.WorkspaceScopeOf(workspace)
 	t1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -259,9 +259,9 @@ func TestMemoryHygieneScan_DisjointValidityWindowsAreNotSuperseded(t *testing.T)
 func TestMemoryHygieneScan_TouchingValidityWindowsAreDisjoint(t *testing.T) {
 	t.Parallel()
 
-	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
 	if err != nil {
-		t.Fatalf("WorkspaceOf: %v", err)
+		t.Fatalf("WorkspaceFrom: %v", err)
 	}
 	scope := domtypes.WorkspaceScopeOf(workspace)
 	t1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -299,9 +299,9 @@ func TestMemoryHygieneScan_TouchingValidityWindowsAreDisjoint(t *testing.T) {
 func TestMemoryHygieneScan_OneOpenOneExplicitOverlapEmitsValidity(t *testing.T) {
 	t.Parallel()
 
-	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
 	if err != nil {
-		t.Fatalf("WorkspaceOf: %v", err)
+		t.Fatalf("WorkspaceFrom: %v", err)
 	}
 	scope := domtypes.WorkspaceScopeOf(workspace)
 	t1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -339,9 +339,9 @@ func TestMemoryHygieneScan_OneOpenOneExplicitOverlapEmitsValidity(t *testing.T) 
 func TestMemoryHygieneScan_BothOpenEndedWindowsAreNotValidityOverlap(t *testing.T) {
 	t.Parallel()
 
-	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
 	if err != nil {
-		t.Fatalf("WorkspaceOf: %v", err)
+		t.Fatalf("WorkspaceFrom: %v", err)
 	}
 	scope := domtypes.WorkspaceScopeOf(workspace)
 	t1 := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
@@ -380,9 +380,9 @@ func TestMemoryHygieneScan_BothOpenEndedWindowsAreNotValidityOverlap(t *testing.
 func TestMemoryHygieneScan_ValidityOverlapDifferentTypesDoNotPair(t *testing.T) {
 	t.Parallel()
 
-	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
 	if err != nil {
-		t.Fatalf("WorkspaceOf: %v", err)
+		t.Fatalf("WorkspaceFrom: %v", err)
 	}
 	scope := domtypes.WorkspaceScopeOf(workspace)
 	t1 := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
@@ -415,9 +415,9 @@ func TestMemoryHygieneScan_ValidityOverlapDifferentTypesDoNotPair(t *testing.T) 
 func TestMemoryHygieneScan_ValidityOverlapOverridesSupersedeCandidate(t *testing.T) {
 	t.Parallel()
 
-	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
 	if err != nil {
-		t.Fatalf("WorkspaceOf: %v", err)
+		t.Fatalf("WorkspaceFrom: %v", err)
 	}
 	scope := domtypes.WorkspaceScopeOf(workspace)
 	t1 := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)

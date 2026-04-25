@@ -6,7 +6,7 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-func TestMemoryStatusOf(t *testing.T) {
+func TestMemoryStatusFrom(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -25,12 +25,12 @@ func TestMemoryStatusOf(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := types.MemoryStatusOf(tt.input)
+			got, err := types.MemoryStatusFrom(tt.input)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("MemoryStatusOf() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("MemoryStatusFrom() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if !tt.wantErr && got != tt.want {
-				t.Fatalf("MemoryStatusOf() = %v, want %v", got, tt.want)
+				t.Fatalf("MemoryStatusFrom() = %v, want %v", got, tt.want)
 			}
 		})
 	}

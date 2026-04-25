@@ -15,17 +15,17 @@ import (
 )
 
 func TestRootCLI_LogCommand(t *testing.T) {
-	eventID, err := types.EventIDOf("event-1")
+	eventID, err := types.EventIDFrom("event-1")
 	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
+		t.Fatalf("EventIDFrom() error = %v", err)
 	}
-	agent, err := types.AgentOf("codex")
+	agent, err := types.AgentFrom("codex")
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
-	sessionID, err := types.SessionIDOf("session-1")
+	sessionID, err := types.SessionIDFrom("session-1")
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
 
 	t.Run("records log with flag values", func(t *testing.T) {
@@ -212,13 +212,13 @@ func TestRootCLI_LogCommand(t *testing.T) {
 		})
 		defer cli.ResetDetectRepoContextFunc()
 
-		activeEventID, err := types.EventIDOf("event-session-start")
+		activeEventID, err := types.EventIDFrom("event-session-start")
 		if err != nil {
-			t.Fatalf("EventIDOf() error = %v", err)
+			t.Fatalf("EventIDFrom() error = %v", err)
 		}
-		activeSessionID, err := types.SessionIDOf("session-active")
+		activeSessionID, err := types.SessionIDFrom("session-active")
 		if err != nil {
-			t.Fatalf("SessionIDOf() error = %v", err)
+			t.Fatalf("SessionIDFrom() error = %v", err)
 		}
 
 		stdout := &bytes.Buffer{}
@@ -311,9 +311,9 @@ func fixedLogTime() time.Time {
 func mustSessionID(t *testing.T, value string) types.SessionID {
 	t.Helper()
 
-	sessionID, err := types.SessionIDOf(value)
+	sessionID, err := types.SessionIDFrom(value)
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
 
 	return sessionID

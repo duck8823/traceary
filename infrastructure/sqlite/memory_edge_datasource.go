@@ -147,15 +147,15 @@ func scanMemoryEdge(scanner interface {
 	); err != nil {
 		return nil, xerrors.Errorf("failed to scan edge: %w", err)
 	}
-	edgeID, err := types.MemoryEdgeIDOf(idValue)
+	edgeID, err := types.MemoryEdgeIDFrom(idValue)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to restore edge ID: %w", err)
 	}
-	fromID, err := types.MemoryIDOf(fromIDValue)
+	fromID, err := types.MemoryIDFrom(fromIDValue)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to restore from memory ID: %w", err)
 	}
-	toID, err := types.MemoryIDOf(toIDValue)
+	toID, err := types.MemoryIDFrom(toIDValue)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to restore to memory ID: %w", err)
 	}

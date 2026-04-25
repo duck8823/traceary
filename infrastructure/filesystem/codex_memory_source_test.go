@@ -165,9 +165,9 @@ func TestCodexMemorySource_LoadUsesWorkspaceFallbackWhenCWDMissing(t *testing.T)
 		t.Fatalf("write MEMORY.md: %v", err)
 	}
 
-	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
 	if err != nil {
-		t.Fatalf("WorkspaceOf: %v", err)
+		t.Fatalf("WorkspaceFrom: %v", err)
 	}
 	source := NewCodexMemorySource()
 	candidates, _, err := source.Load(context.Background(), apptypes.CodexImportCriteria{
@@ -227,9 +227,9 @@ func TestCodexMemorySource_LoadEmitsWarningForOversizedLine(t *testing.T) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatalf("mkdir memories: %v", err)
 	}
-	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
 	if err != nil {
-		t.Fatalf("WorkspaceOf: %v", err)
+		t.Fatalf("WorkspaceFrom: %v", err)
 	}
 	giant := strings.Repeat("a", 64*1024)
 	content := "# Task Group: x\n\n## User preferences\n- short bullet before giant.\n- " + giant + "\n- short bullet after giant.\n"

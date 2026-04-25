@@ -819,19 +819,19 @@ func restoreEvent(
 	sourceHookValue string,
 	createdAtValue string,
 ) (*model.Event, error) {
-	eventID, err := types.EventIDOf(eventIDValue)
+	eventID, err := types.EventIDFrom(eventIDValue)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to restore event ID: %w", err)
 	}
-	eventKind, err := types.EventKindOf(eventKindValue)
+	eventKind, err := types.EventKindFrom(eventKindValue)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to restore event kind: %w", err)
 	}
-	agent, err := types.AgentOf(agentValue)
+	agent, err := types.AgentFrom(agentValue)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to restore agent: %w", err)
 	}
-	sessionID, err := types.SessionIDOf(sessionIDValue)
+	sessionID, err := types.SessionIDFrom(sessionIDValue)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to restore session ID: %w", err)
 	}

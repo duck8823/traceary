@@ -26,12 +26,12 @@ func TestSessionDatasource_SaveBoundary_Start(t *testing.T) {
 	sessionDS := infra.NewSessionDatasource(db)
 	eventDS := infra.NewEventDatasource(db)
 
-	sessionID, _ := types.SessionIDOf("session-start")
-	agent, _ := types.AgentOf("claude")
+	sessionID, _ := types.SessionIDFrom("session-start")
+	agent, _ := types.AgentFrom("claude")
 	startedAt := time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC)
 	session := model.NewSession(sessionID, startedAt, types.Client("cli"), agent, types.Workspace("workspace"))
 
-	eventID, _ := types.EventIDOf("event-start")
+	eventID, _ := types.EventIDFrom("event-start")
 	event := model.EventOf(
 		eventID,
 		types.EventKindSessionStarted,
@@ -80,13 +80,13 @@ func TestSessionDatasource_SaveBoundary_End(t *testing.T) {
 	}
 	sessionDS := infra.NewSessionDatasource(db)
 
-	sessionID, _ := types.SessionIDOf("session-end")
-	agent, _ := types.AgentOf("claude")
+	sessionID, _ := types.SessionIDFrom("session-end")
+	agent, _ := types.AgentFrom("claude")
 	startedAt := time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC)
 
 	// First, start the session.
 	startSession := model.NewSession(sessionID, startedAt, types.Client("cli"), agent, types.Workspace("workspace"))
-	startEventID, _ := types.EventIDOf("event-start")
+	startEventID, _ := types.EventIDFrom("event-start")
 	startEvent := model.EventOf(
 		startEventID, types.EventKindSessionStarted,
 		types.Client("cli"), agent, sessionID, types.Workspace("workspace"),
@@ -107,7 +107,7 @@ func TestSessionDatasource_SaveBoundary_End(t *testing.T) {
 		t.Fatalf("End() error = %v", err)
 	}
 
-	endEventID, _ := types.EventIDOf("event-end")
+	endEventID, _ := types.EventIDFrom("event-end")
 	endEvent := model.EventOf(
 		endEventID, types.EventKindSessionEnded,
 		types.Client("cli"), agent, sessionID, types.Workspace("workspace"),
@@ -150,12 +150,12 @@ func TestSessionDatasource_Save_LabelDoesNotTouchEndedAt(t *testing.T) {
 	}
 	sessionDS := infra.NewSessionDatasource(db)
 
-	sessionID, _ := types.SessionIDOf("session-label-only")
-	agent, _ := types.AgentOf("claude")
+	sessionID, _ := types.SessionIDFrom("session-label-only")
+	agent, _ := types.AgentFrom("claude")
 	startedAt := time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC)
 
 	startSession := model.NewSession(sessionID, startedAt, types.Client("cli"), agent, types.Workspace("workspace"))
-	startEventID, _ := types.EventIDOf("event-start")
+	startEventID, _ := types.EventIDFrom("event-start")
 	startEvent := model.EventOf(
 		startEventID, types.EventKindSessionStarted,
 		types.Client("cli"), agent, sessionID, types.Workspace("workspace"),
@@ -202,12 +202,12 @@ func TestSessionDatasource_SaveBoundary_EndPreservesLabel(t *testing.T) {
 	}
 	sessionDS := infra.NewSessionDatasource(db)
 
-	sessionID, _ := types.SessionIDOf("session-label-vs-end")
-	agent, _ := types.AgentOf("claude")
+	sessionID, _ := types.SessionIDFrom("session-label-vs-end")
+	agent, _ := types.AgentFrom("claude")
 	startedAt := time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC)
 
 	startSession := model.NewSession(sessionID, startedAt, types.Client("cli"), agent, types.Workspace("workspace"))
-	startEventID, _ := types.EventIDOf("event-start")
+	startEventID, _ := types.EventIDFrom("event-start")
 	startEvent := model.EventOf(
 		startEventID, types.EventKindSessionStarted,
 		types.Client("cli"), agent, sessionID, types.Workspace("workspace"),
@@ -241,7 +241,7 @@ func TestSessionDatasource_SaveBoundary_EndPreservesLabel(t *testing.T) {
 	if err := endingSession.End(endedAt, "wrapped up"); err != nil {
 		t.Fatalf("End() error = %v", err)
 	}
-	endEventID, _ := types.EventIDOf("event-end")
+	endEventID, _ := types.EventIDFrom("event-end")
 	endEvent := model.EventOf(
 		endEventID, types.EventKindSessionEnded,
 		types.Client("cli"), agent, sessionID, types.Workspace("workspace"),
@@ -282,12 +282,12 @@ func TestSessionDatasource_SaveBoundary_DuplicateEndRejected(t *testing.T) {
 	sessionDS := infra.NewSessionDatasource(db)
 	eventDS := infra.NewEventDatasource(db)
 
-	sessionID, _ := types.SessionIDOf("session-double-end")
-	agent, _ := types.AgentOf("claude")
+	sessionID, _ := types.SessionIDFrom("session-double-end")
+	agent, _ := types.AgentFrom("claude")
 	startedAt := time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC)
 
 	startSession := model.NewSession(sessionID, startedAt, types.Client("cli"), agent, types.Workspace("workspace"))
-	startEventID, _ := types.EventIDOf("event-start")
+	startEventID, _ := types.EventIDFrom("event-start")
 	startEvent := model.EventOf(
 		startEventID, types.EventKindSessionStarted,
 		types.Client("cli"), agent, sessionID, types.Workspace("workspace"),
@@ -307,7 +307,7 @@ func TestSessionDatasource_SaveBoundary_DuplicateEndRejected(t *testing.T) {
 	if err := firstEnding.End(firstEndedAt, "first"); err != nil {
 		t.Fatalf("End(first) error = %v", err)
 	}
-	firstEventID, _ := types.EventIDOf("event-end-1")
+	firstEventID, _ := types.EventIDFrom("event-end-1")
 	firstEndEvent := model.EventOf(
 		firstEventID, types.EventKindSessionEnded,
 		types.Client("cli"), agent, sessionID, types.Workspace("workspace"),
@@ -329,7 +329,7 @@ func TestSessionDatasource_SaveBoundary_DuplicateEndRejected(t *testing.T) {
 	if err := secondEnding.End(secondEndedAt, "second"); err != nil {
 		t.Fatalf("End(second) error = %v", err)
 	}
-	secondEventID, _ := types.EventIDOf("event-end-2")
+	secondEventID, _ := types.EventIDFrom("event-end-2")
 	secondEndEvent := model.EventOf(
 		secondEventID, types.EventKindSessionEnded,
 		types.Client("cli"), agent, sessionID, types.Workspace("workspace"),
@@ -390,12 +390,12 @@ func TestSessionDatasource_SaveBoundary_DuplicateStartRejected(t *testing.T) {
 	sessionDS := infra.NewSessionDatasource(db)
 	eventDS := infra.NewEventDatasource(db)
 
-	sessionID, _ := types.SessionIDOf("session-double-start")
-	agent, _ := types.AgentOf("claude")
+	sessionID, _ := types.SessionIDFrom("session-double-start")
+	agent, _ := types.AgentFrom("claude")
 	startedAt := time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC)
 
 	firstSession := model.NewSession(sessionID, startedAt, types.Client("cli"), agent, types.Workspace("workspace"))
-	firstEventID, _ := types.EventIDOf("event-start-1")
+	firstEventID, _ := types.EventIDFrom("event-start-1")
 	firstEvent := model.EventOf(
 		firstEventID, types.EventKindSessionStarted,
 		types.Client("cli"), agent, sessionID, types.Workspace("workspace"),
@@ -406,7 +406,7 @@ func TestSessionDatasource_SaveBoundary_DuplicateStartRejected(t *testing.T) {
 	}
 
 	secondSession := model.NewSession(sessionID, startedAt.Add(time.Minute), types.Client("cli"), agent, types.Workspace("workspace"))
-	secondEventID, _ := types.EventIDOf("event-start-2")
+	secondEventID, _ := types.EventIDFrom("event-start-2")
 	secondEvent := model.EventOf(
 		secondEventID, types.EventKindSessionStarted,
 		types.Client("cli"), agent, sessionID, types.Workspace("workspace"),
@@ -449,12 +449,12 @@ func TestSessionDatasource_Save_LabelOnEndedSession(t *testing.T) {
 	}
 	sessionDS := infra.NewSessionDatasource(db)
 
-	sessionID, _ := types.SessionIDOf("session-label-after-end")
-	agent, _ := types.AgentOf("claude")
+	sessionID, _ := types.SessionIDFrom("session-label-after-end")
+	agent, _ := types.AgentFrom("claude")
 	startedAt := time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC)
 
 	startSession := model.NewSession(sessionID, startedAt, types.Client("cli"), agent, types.Workspace("workspace"))
-	startEventID, _ := types.EventIDOf("event-start")
+	startEventID, _ := types.EventIDFrom("event-start")
 	startEvent := model.EventOf(
 		startEventID, types.EventKindSessionStarted,
 		types.Client("cli"), agent, sessionID, types.Workspace("workspace"),
@@ -474,7 +474,7 @@ func TestSessionDatasource_Save_LabelOnEndedSession(t *testing.T) {
 	if err := endingSession.End(endedAt, "done"); err != nil {
 		t.Fatalf("End() error = %v", err)
 	}
-	endEventID, _ := types.EventIDOf("event-end")
+	endEventID, _ := types.EventIDFrom("event-end")
 	endEvent := model.EventOf(
 		endEventID, types.EventKindSessionEnded,
 		types.Client("cli"), agent, sessionID, types.Workspace("workspace"),
@@ -530,12 +530,12 @@ func TestSessionDatasource_Save_ClearLabel(t *testing.T) {
 	}
 	sessionDS := infra.NewSessionDatasource(db)
 
-	sessionID, _ := types.SessionIDOf("session-clear-label")
-	agent, _ := types.AgentOf("claude")
+	sessionID, _ := types.SessionIDFrom("session-clear-label")
+	agent, _ := types.AgentFrom("claude")
 	startedAt := time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC)
 
 	startSession := model.NewSession(sessionID, startedAt, types.Client("cli"), agent, types.Workspace("workspace"))
-	startEventID, _ := types.EventIDOf("event-start")
+	startEventID, _ := types.EventIDFrom("event-start")
 	startEvent := model.EventOf(
 		startEventID, types.EventKindSessionStarted,
 		types.Client("cli"), agent, sessionID, types.Workspace("workspace"),
