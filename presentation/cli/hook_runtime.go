@@ -1128,7 +1128,8 @@ func (c *RootCLI) inferHookParentSessionID(ctx context.Context, payload []byte, 
 	if !ok || activeEvent.SessionID() == "" {
 		return "", nil
 	}
-	activeSubagent, err := findHookDeepestLatestActiveSubagentState(client, activeEvent.SessionID())
+	searchStartSessionID := hookParentInferenceSearchStartSessionID(activeEvent.SessionID())
+	activeSubagent, err := findHookDeepestLatestActiveSubagentState(client, searchStartSessionID)
 	if err != nil {
 		return "", err
 	}
@@ -1136,6 +1137,17 @@ func (c *RootCLI) inferHookParentSessionID(ctx context.Context, payload []byte, 
 		return "", nil
 	}
 	return activeSubagent.ParentSessionID, nil
+}
+
+func hookParentInferenceSearchStartSessionID(sessionID types.SessionID) types.SessionID {
+	value := strings.TrimSpace(sessionID.String())
+	if value == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(value, ":sub:"); idx > 0 {
+		return types.SessionID(value[:idx])
+	}
+	return sessionID
 }
 
 func hookParentSessionInferenceEnabled() bool {

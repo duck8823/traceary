@@ -152,6 +152,63 @@ func TestRootCLI_HookSessionCommand_StartInfersParentFromActiveSubagentState(t *
 	}
 }
 
+func TestRootCLI_HookSessionCommand_StartInfersParentWhenActiveSessionIsSyntheticChild(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "infer-synthetic-key")
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	activeDir := filepath.Join(homeDir, ".config", "traceary", "hooks", "active-subagents")
+	if err := os.MkdirAll(activeDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(activeDir) error = %v", err)
+	}
+	activeJSON := `{"children":{"toolu_child":{"child_session_id":"parent-session:sub:toolu_child","started_at":"` + time.Now().UTC().Format(time.RFC3339) + `"}}}`
+	if err := os.WriteFile(filepath.Join(activeDir, "claude-parent-session"), []byte(activeJSON), 0o600); err != nil {
+		t.Fatalf("WriteFile(active state) error = %v", err)
+	}
+
+	sessionStub := &sessionUsecaseStub{
+		activeEvent: model.EventOf(
+			types.EventID("evt-child-boundary"),
+			types.EventKindSessionStarted,
+			types.Client("hook"),
+			types.Agent("claude/worker"),
+			types.SessionID("parent-session:sub:toolu_child"),
+			types.Workspace("github.com/duck8823/traceary"),
+			"session started",
+			time.Now(),
+		),
+		startEvent: model.EventOf(
+			types.EventID("evt-subagent-session-start"),
+			types.EventKindSessionStarted,
+			types.Client("hook"),
+			types.Agent("claude/worker"),
+			types.SessionID("real-subagent-session"),
+			types.Workspace("github.com/duck8823/traceary"),
+			"session started",
+			time.Now(),
+		),
+	}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(sessionStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"session_id":"real-subagent-session","cwd":"/tmp/project","agent_type":"worker"}`))
+	rootCmd.SetArgs([]string{"hook", "session", "claude", "start"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got, want := sessionStub.startCall.parentSessionID, types.SessionID("parent-session"); got != want {
+		t.Fatalf("inferred parentSessionID = %q, want %q", got, want)
+	}
+}
+
 func TestRootCLI_HookSessionCommand_ExplicitParentOverridesInference(t *testing.T) {
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "explicit-infer-key")
 	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
