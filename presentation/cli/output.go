@@ -132,6 +132,8 @@ type bundleImportOutput struct {
 	EventsSkipped       int `json:"events_skipped"`
 	MemoriesImported    int `json:"memories_imported"`
 	MemoriesSkipped     int `json:"memories_skipped"`
+	MemoryEdgesImported int `json:"memory_edges_imported"`
+	MemoryEdgesSkipped  int `json:"memory_edges_skipped"`
 	BundleSchemaVersion int `json:"bundle_schema_version"`
 }
 

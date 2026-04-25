@@ -3,5 +3,7 @@
   "events_skipped": 1,
   "memories_imported": 0,
   "memories_skipped": 0,
+  "memory_edges_imported": 0,
+  "memory_edges_skipped": 0,
   "bundle_schema_version": 12
 }

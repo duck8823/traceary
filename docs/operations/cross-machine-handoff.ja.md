@@ -12,8 +12,10 @@ Traceary は local-first かつ single-SQLite です。`traceary bundle export` 
 
 - `manifest.json` — store schema version、作成時刻、使用 filter、writer metadata、import defaults、`{table_name, file, row_count, checksum}` を持つ table registry (`tables`)。
 - `events.ndjson` — `--since` / `--until` / `--workspace` に一致する event。決定的な出力にするため `created_at` 順。
+- `memories.ndjson` — scope、validity window、supersession pointer、evidence refs、artifact refs を含む durable memories。
+- `memory_edges.ndjson` — `id`、`from_memory_id`、`to_memory_id`、`relation_type`、validity window、`created_at` を含む memory graph edge。
 
-Traceary は `file_checksums` を使う v0.9.0 `manifest_version = 1` bundle も引き続き import できます。v2 は現時点では `events` table のみを登録します。sessions、command audits、durable memories、graph edges は follow-up table です。
+Traceary は `file_checksums` を使う v0.9.0 `manifest_version = 1` bundle も引き続き import できます。v2 は `tables` で table file を登録します。現在の writer は `events`、`memories`、`memory_edges` を含みます。`sessions.ndjson` は v2 spec では予約済みですが、sessions follow-up までは出力されません。
 
 ## 暗号化
 
@@ -74,7 +76,47 @@ traceary bundle import --in ~/Downloads/traceary-*.tbun
 
 Imported memory は proposed trust default を使います。新規 insert される row は、source machine で accepted だった場合でも常に `candidate` として保存されます。memory fact は accept 後に prompt context へ影響するため、別 machine からの import では既存の memory inbox review を必ず通します。既定の `skip` policy では送信先の既存 row は変更しないため、一度ローカルで review / accept した memory が re-import で candidate に戻ることはありません。
 
-`--missing-parent {reject,skip,backfill}` も受け付けます。v2 events / memories ではまだ使いませんが、今後の sessions / edges table 用に予約されています。既定は `reject` です。
+`--missing-parent {reject,skip,backfill}` も受け付けます。これは今後の session parent handling 用で、既定は `reject` です。Memory graph edges は代わりに `--orphan-edges {skip,reject}` を使います。既定は `skip` です。`memories.ndjson` import 後に endpoint が存在しない edge は skip され、`table=memory_edges`、`edge_id`、両 endpoint ID、endpoint 存在 boolean を含む structured warning を出します。`--orphan-edges=reject` は import を中止し、周囲の transaction を rollback します。
+
+## Manifest v2 table registry spec
+
+`manifest_version = 2` は `manifest.json.tables` を正とします。key は table name、value は次の形です。
+
+```json
+{
+  "table_name": "memory_edges",
+  "file": "memory_edges.ndjson",
+  "row_count": 12,
+  "checksum": "<NDJSON bytes の SHA-256>"
+}
+```
+
+Import は write transaction を開く前に登録 file の checksum を検証し、未登録 payload file を拒否します。現在の four-table portability surface では、dependency order は次の通りです。
+
+1. `events.ndjson`
+2. `memories.ndjson`
+3. `memory_edges.ndjson`
+4. `sessions.ndjson` (予約済み。現在の writer は未出力)
+
+### Four-table inclusion rules
+
+| Table | 現在の writer | Import requirement |
+|---|---:|---|
+| `events` / `events.ndjson` | Included | 独立 row。`events.id` で冪等。 |
+| `sessions` / `sessions.ndjson` | Reserved | follow-up table。session parent handling は `--missing-parent` を使う予定。 |
+| `memories` / `memories.ndjson` | Included | `memory_edges` より先に import。新規 row は既存でない限り `candidate` status。 |
+| `memory_edges` / `memory_edges.ndjson` | Included | memories の後に import。両 endpoint が destination DB に存在する必要がある。既存 edge ID は既定 `--on-conflict=skip` で skip。 |
+
+### Conflict matrix
+
+| Condition | Default | Strict option | Transaction outcome |
+|---|---|---|---|
+| 既存 event ID | skip して `events_skipped` に count | `--on-conflict=error` | strict mode は rollback。 |
+| 既存 memory ID | skip して `memories_skipped` に count | `--on-conflict=error` | strict mode は rollback。 |
+| 既存 memory edge ID | skip して `memory_edges_skipped` に count | `--on-conflict=error` | strict mode は rollback。 |
+| memories import 後も memory edge endpoint が missing | skip、`memory_edges_skipped` に count、structured warning を log | `--orphan-edges=reject` | strict mode は bundle import transaction 全体を rollback。 |
+| bundle schema が local store より新しい | reject | n/a | write transaction は開始しない。 |
+| manifest checksum / row-count mismatch | reject | n/a | write transaction は開始しない。 |
 
 ## スキーマ安全性
 
