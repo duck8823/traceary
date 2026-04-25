@@ -51,13 +51,13 @@ import (
     "github.com/duck8823/traceary/pkg/anthropicmemory"
 )
 
-func buildHandler(dbPath string) (*anthropicmemory.Handler, error) {
+func buildHandler(ctx context.Context, dbPath string) (*anthropicmemory.Handler, error) {
     migrations, err := fs.Sub(os.DirFS("."), "schema/sqlite/migrations")
     if err != nil {
         return nil, err
     }
     db := sqlite.NewDatabase(dbPath, migrations)
-    return anthropicmemory.NewSQLiteHandler(db)
+    return anthropicmemory.NewSQLiteHandler(ctx, db)
 }
 
 func call(ctx context.Context, handler *anthropicmemory.Handler) error {
@@ -99,6 +99,9 @@ func call(ctx context.Context, handler *anthropicmemory.Handler) error {
 ```
 
 See [`examples/anthropic-memory/`](../../examples/anthropic-memory/) for a runnable conversation loop.
+
+`NewSQLiteHandler` runs Traceary's SQLite store initialization (directory creation, permissions, and pending migrations) before it returns. If you construct a handler from `NewHandler` or `NewHandlerWithRepository` instead, the repository you pass in must already point at an initialized store. Fresh `TRACEARY_DB_PATH` files are supported as long as the `sqlite.Database` was created with Traceary's migration filesystem.
+
 
 ## Storage, inspection, and backup
 

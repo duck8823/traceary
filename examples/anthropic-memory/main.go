@@ -41,7 +41,7 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	handler, err := newHandler(dbPath)
+	handler, err := newHandler(ctx, dbPath)
 	if err != nil {
 		return err
 	}
@@ -91,13 +91,13 @@ func messageParams(messages []anthropic.BetaMessageParam) anthropic.BetaMessageN
 	}
 }
 
-func newHandler(dbPath string) (*anthropicmemory.Handler, error) {
+func newHandler(ctx context.Context, dbPath string) (*anthropicmemory.Handler, error) {
 	migrations, err := fs.Sub(os.DirFS("."), "schema/sqlite/migrations")
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open migration directory: %w", err)
 	}
 	db := sqlite.NewDatabase(dbPath, migrations)
-	handler, err := anthropicmemory.NewSQLiteHandler(db)
+	handler, err := anthropicmemory.NewSQLiteHandler(ctx, db)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to create Anthropic memory handler: %w", err)
 	}

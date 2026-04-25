@@ -51,10 +51,16 @@ func NewHandlerWithRepository(repository model.MemoryToolFileRepository, clock t
 // NewSQLiteHandler creates a Handler backed by Traceary's SQLite store.
 //
 // The caller owns Database construction, including the migration filesystem and
-// DB path policy. The underlying datasource applies pending migrations on use.
-func NewSQLiteHandler(db *sqlite.Database) (*Handler, error) {
+// DB path policy. This constructor initializes the store before wrapping the
+// memory-tool datasource so fresh database files have the memory_tool_files
+// table before the first command executes.
+func NewSQLiteHandler(ctx context.Context, db *sqlite.Database) (*Handler, error) {
 	if db == nil {
 		return nil, xerrors.Errorf("sqlite database must not be nil")
+	}
+	store := sqlite.NewStoreManagementDatasource(db)
+	if err := store.Initialize(ctx); err != nil {
+		return nil, xerrors.Errorf("failed to initialize SQLite store for Anthropic memory handler: %w", err)
 	}
 	return NewHandlerWithRepository(sqlite.NewMemoryToolFileDatasource(db), types.SystemClock{})
 }

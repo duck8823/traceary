@@ -3,17 +3,19 @@ package anthropicmemory_test
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
-
-	"golang.org/x/xerrors"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/google/go-cmp/cmp"
+	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
+	"github.com/duck8823/traceary/infrastructure/sqlite"
 	"github.com/duck8823/traceary/pkg/anthropicmemory"
 )
 
@@ -61,6 +63,33 @@ func TestHandler_handleMemoryToolCommands(t *testing.T) {
 	}
 	if !strings.Contains(block.Content[0].OfText.Text, "has been edited") {
 		t.Fatalf("tool result text = %q, want edit confirmation", block.Content[0].OfText.Text)
+	}
+}
+
+func TestNewSQLiteHandler_initializesFreshDatabaseBeforeFirstCommand(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	db := sqlite.NewDatabase(dbPath, os.DirFS("../../schema/sqlite/migrations"))
+	sut, err := anthropicmemory.NewSQLiteHandler(ctx, db)
+	if err != nil {
+		t.Fatalf("NewSQLiteHandler() error = %v", err)
+	}
+
+	create := decodeInput(t, `{"command":"create","path":"/memories/project.md","file_text":"alpha\nbeta\n"}`)
+	if _, err := sut.HandleText(ctx, create); err != nil {
+		t.Fatalf("HandleText(create) error = %v", err)
+	}
+
+	view := decodeInput(t, `{"command":"view","path":"/memories/project.md"}`)
+	got, err := sut.HandleText(ctx, view)
+	if err != nil {
+		t.Fatalf("HandleText(view) error = %v", err)
+	}
+	want := "Here's the content of /memories/project.md with line numbers:\n     1\talpha\n     2\tbeta"
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Fatalf("view result mismatch (-want +got):\n%s", diff)
 	}
 }
 
