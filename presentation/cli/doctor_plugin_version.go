@@ -77,20 +77,8 @@ func detectManifestInstalls(pattern, client, hint string) []doctorPluginInstall 
 func inspectPluginVersion(install doctorPluginInstall, currentVersion string) doctorCheck {
 	name := install.Client + "-plugin-version"
 	current := normalizeDoctorVersion(currentVersion)
-	if current == "" || current == "dev" {
+	if current == "" {
 		return doctorCheck{Name: name, Status: doctorStatusSkip, Message: localizef("running traceary version is %q; skipped plugin version comparison for %s", "実行中 traceary version は %q のため %s plugin version 比較を skip しました", currentVersion, install.Client)}
-	}
-	if isDevBuild(currentVersion) {
-		return doctorCheck{
-			Name:   name,
-			Status: doctorStatusPass,
-			Message: localizef(
-				"%s plugin version comparison soft-passed because traceary is running a dev build: %s (%s)",
-				"traceary が dev build として実行中のため %s plugin version 比較を soft-pass しました: %s (%s)",
-				install.Client, currentVersion, install.ManifestPath,
-			),
-			Hint: "running a dev build (rebuild + reinstall plugin to verify version alignment)",
-		}
 	}
 	installedVersion := ""
 	if install.InstalledVersion != "" {
@@ -108,6 +96,18 @@ func inspectPluginVersion(install doctorPluginInstall, currentVersion string) do
 	installed := normalizeDoctorVersion(installedVersion)
 	if installed == "" {
 		return doctorCheck{Name: name, Status: doctorStatusWarn, Message: localizef("%s plugin manifest has no version: %s", "%s plugin manifest に version がありません: %s", install.Client, install.ManifestPath), Hint: "reinstall plugin to align", FixCommand: install.UpdateHint}
+	}
+	if isDevBuild(currentVersion) {
+		return doctorCheck{
+			Name:   name,
+			Status: doctorStatusPass,
+			Message: localizef(
+				"%s plugin version comparison soft-passed because traceary is running a dev build: %s (plugin %s at %s)",
+				"traceary が dev build として実行中のため %s plugin version 比較を soft-pass しました: %s (plugin %s at %s)",
+				install.Client, currentVersion, installedVersion, install.ManifestPath,
+			),
+			Hint: "running a dev build (rebuild + reinstall plugin to verify version alignment)",
+		}
 	}
 	if installed != current {
 		return doctorCheck{Name: name, Status: doctorStatusWarn, Message: localizef("%s plugin version %s does not match running traceary version %s (%s)", "%s plugin version %s は実行中 traceary version %s と一致しません (%s)", install.Client, installedVersion, currentVersion, install.ManifestPath), Hint: "reinstall plugin to align", FixCommand: install.UpdateHint}
@@ -135,7 +135,7 @@ func isDevBuild(version string) bool {
 		return false
 	}
 	lower := strings.ToLower(version)
-	if strings.Contains(lower, "devel") || strings.Contains(lower, "dirty") {
+	if lower == "dev" || strings.Contains(lower, "devel") || strings.Contains(lower, "dirty") {
 		return true
 	}
 	return doctorPseudoVersionPattern.MatchString(normalizeDoctorVersion(version))

@@ -87,6 +87,68 @@ func TestInspectPluginVersionSoftPassesDevBuilds(t *testing.T) {
 	}
 }
 
+func TestInspectPluginVersionDevBuildValidatesManifestBeforeSoftPass(t *testing.T) {
+	tests := map[string]struct {
+		manifestContent string
+		manifestPath    func(t *testing.T) string
+		wantStatus      string
+		wantMessagePart string
+		wantHint        string
+	}{
+		"valid mismatched plugin version soft-passes comparison": {
+			manifestContent: `{"name":"traceary","version":"0.9.0"}`,
+			wantStatus:      doctorStatusPass,
+			wantMessagePart: "soft-passed",
+			wantHint:        "running a dev build (rebuild + reinstall plugin to verify version alignment)",
+		},
+		"unreadable manifest fails before soft-pass": {
+			manifestPath: func(t *testing.T) string {
+				t.Helper()
+				return t.TempDir()
+			},
+			wantStatus:      doctorStatusFail,
+			wantMessagePart: "failed to read codex plugin manifest version",
+		},
+		"parse error fails before soft-pass": {
+			manifestContent: `{`,
+			wantStatus:      doctorStatusFail,
+			wantMessagePart: "failed to read codex plugin manifest version",
+		},
+		"missing version warns before soft-pass": {
+			manifestContent: `{"name":"traceary"}`,
+			wantStatus:      doctorStatusWarn,
+			wantMessagePart: "has no version",
+			wantHint:        "reinstall plugin to align",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			manifest := ""
+			if tt.manifestPath != nil {
+				manifest = tt.manifestPath(t)
+			} else {
+				manifest = filepath.Join(t.TempDir(), "plugin.json")
+				if err := os.WriteFile(manifest, []byte(tt.manifestContent), 0o644); err != nil {
+					t.Fatalf("WriteFile() error = %v", err)
+				}
+			}
+			install := doctorPluginInstall{Client: "codex", ManifestPath: manifest, UpdateHint: "reinstall plugin to align"}
+
+			got := inspectPluginVersion(install, "dev")
+			if got.Status != tt.wantStatus {
+				t.Fatalf("status = %q, want %q; msg=%q", got.Status, tt.wantStatus, got.Message)
+			}
+			if !strings.Contains(got.Message, tt.wantMessagePart) {
+				t.Fatalf("message = %q, want to contain %q", got.Message, tt.wantMessagePart)
+			}
+			if got.Hint != tt.wantHint {
+				t.Fatalf("hint = %q, want %q", got.Hint, tt.wantHint)
+			}
+		})
+	}
+}
+
 func TestInspectPluginVersionReleaseTaggedBuildMatch(t *testing.T) {
 	manifest := filepath.Join(t.TempDir(), "plugin.json")
 	if err := os.WriteFile(manifest, []byte(`{"name":"traceary","version":"0.10.0"}`), 0o644); err != nil {
