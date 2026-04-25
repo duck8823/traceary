@@ -34,16 +34,18 @@ type doctorSummary struct {
 }
 
 type doctorCheck struct {
-	Name     string `json:"name"`
-	Status   string `json:"status"`
-	Severity string `json:"severity"`
-	Message  string `json:"message"`
-	Hint     string `json:"hint"`
+	Name       string `json:"name"`
+	Status     string `json:"status"`
+	Severity   string `json:"severity"`
+	Section    string `json:"section"`
+	Message    string `json:"message"`
+	Hint       string `json:"hint"`
+	FixCommand string `json:"fix_command"`
 }
 
 func executeDoctorAllowWarnings(t *testing.T, cmd interface{ Execute() error }) {
 	t.Helper()
-	if err := cmd.Execute(); err != nil && !strings.Contains(err.Error(), "warning checks") {
+	if err := cmd.Execute(); err != nil && !strings.Contains(err.Error(), "warning checks") && !strings.Contains(err.Error(), "failing checks") {
 		t.Fatalf("Execute() error = %v", err)
 	}
 }
@@ -390,6 +392,7 @@ func TestRootCLI_DoctorExitCodeMatrixAndJSONSections(t *testing.T) {
 		homeDir := t.TempDir()
 		projectDir := t.TempDir()
 		t.Setenv("HOME", homeDir)
+		setTracearyPathToCurrentExecutable(t)
 		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
 		t.Cleanup(cli.ResetUserHomeDirFunc)
 		writeTracearyConfig(t, homeDir, `{"redact":{"extra_patterns":["internal_token"]}}`)
@@ -408,6 +411,7 @@ func TestRootCLI_DoctorExitCodeMatrixAndJSONSections(t *testing.T) {
 		homeDir := t.TempDir()
 		projectDir := t.TempDir()
 		t.Setenv("HOME", homeDir)
+		setTracearyPathToCurrentExecutable(t)
 		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
 		t.Cleanup(cli.ResetUserHomeDirFunc)
 
@@ -500,6 +504,12 @@ func writeClaudeHookSettings(t *testing.T, projectDir string) {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 	if err := os.WriteFile(settingsPath, []byte(`{
+  "mcpServers": {
+    "traceary": {
+      "command": "traceary",
+      "args": ["mcp-server"]
+    }
+  },
   "hooks": {
     "SessionStart": [
       {
@@ -517,6 +527,22 @@ func writeClaudeHookSettings(t *testing.T, projectDir string) {
 `), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
+}
+
+func setTracearyPathToCurrentExecutable(t *testing.T) {
+	t.Helper()
+	current, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable() error = %v", err)
+	}
+	dir := t.TempDir()
+	link := filepath.Join(dir, "traceary")
+	if err := os.Symlink(current, link); err != nil {
+		if err := os.WriteFile(link, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatalf("failed to create traceary test executable: %v", err)
+		}
+	}
+	t.Setenv("PATH", dir)
 }
 
 func decodeDoctorReport(t *testing.T, data []byte) doctorReport {

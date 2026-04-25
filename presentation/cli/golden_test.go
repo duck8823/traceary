@@ -410,6 +410,7 @@ func TestDoctor_JSON_Golden(t *testing.T) {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 	t.Setenv("HOME", homeDir)
+	setTracearyPathToCurrentExecutableAt(t, "/tmp/traceary-json-golden-bin")
 	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
 	t.Cleanup(cli.ResetUserHomeDirFunc)
 
@@ -422,6 +423,24 @@ func TestDoctor_JSON_Golden(t *testing.T) {
 	executeDoctorAllowWarnings(t, rootCmd)
 
 	assertJSONGolden(t, stdout.Bytes(), filepath.Join("testdata", "doctor", "default.golden.json"))
+}
+
+func setTracearyPathToCurrentExecutableAt(t *testing.T, dir string) {
+	t.Helper()
+	current, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable() error = %v", err)
+	}
+	_ = os.RemoveAll(dir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	link := filepath.Join(dir, "traceary")
+	if err := os.Symlink(current, link); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+	t.Setenv("PATH", dir)
 }
 
 func TestBundleImport_JSON_Golden(t *testing.T) {

@@ -1,0 +1,160 @@
+package cli
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/pelletier/go-toml/v2"
+)
+
+type doctorMCPServer struct {
+	Command string   `json:"command" toml:"command"`
+	Args    []string `json:"args" toml:"args"`
+}
+
+func (c *RootCLI) inspectMCPRegistrationForClient(client, outputPath string) doctorCheck {
+	name := client + "-mcp"
+	switch client {
+	case "claude":
+		if detection := c.detectClaudeTracearyPluginForCLI(); detection.Active {
+			return doctorCheck{Name: name, Status: doctorStatusPass, Message: localizef("claude plugin %q provides the traceary MCP server (%s)", "claude plugin %q が traceary MCP server を提供しています (%s)", detection.PluginKey, detection.SettingsPath)}
+		}
+		paths := []string{outputPath}
+		if home, err := userHomeDirFunc(); err == nil {
+			paths = append(paths, filepath.Join(home, ".claude", "settings.json"))
+		}
+		return inspectJSONMCPRegistration(name, "claude", paths, "traceary mcp-server")
+	case "codex":
+		if home, err := userHomeDirFunc(); err == nil && codexTracearyPluginEnabled(filepath.Join(home, ".codex", "config.toml")) {
+			return doctorCheck{Name: name, Status: doctorStatusPass, Message: localizef("codex plugin traceary@local-traceary-plugins is enabled and provides the traceary MCP server: %s", "codex plugin traceary@local-traceary-plugins が有効で traceary MCP server を提供しています: %s", filepath.Join(home, ".codex", "config.toml"))}
+		}
+		if home, err := userHomeDirFunc(); err == nil {
+			return inspectTOMLMCPRegistration(name, "codex", filepath.Join(home, ".codex", "config.toml"), "traceary mcp-server")
+		}
+		return doctorCheck{Name: name, Status: doctorStatusFail, Message: "failed to resolve home directory for codex MCP registration"}
+	case "gemini":
+		paths := []string{outputPath}
+		if home, err := userHomeDirFunc(); err == nil {
+			paths = append(paths, filepath.Join(home, ".gemini", "extensions", "traceary", "gemini-extension.json"))
+		}
+		return inspectJSONMCPRegistration(name, "gemini", paths, "gemini extensions install https://github.com/duck8823/traceary")
+	default:
+		return doctorCheck{Name: name, Status: doctorStatusSkip, Message: localizef("%s MCP registration check is not supported", "%s MCP registration check は未対応です", client)}
+	}
+}
+
+func inspectJSONMCPRegistration(name, client string, paths []string, fix string) doctorCheck {
+	seenConfig := false
+	for _, path := range uniqueNonEmpty(paths) {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		seenConfig = true
+		var root struct {
+			MCPServers map[string]doctorMCPServer `json:"mcpServers"`
+		}
+		if err := json.Unmarshal(content, &root); err != nil {
+			return doctorCheck{Name: name, Status: doctorStatusFail, Message: localizef("%s MCP config is invalid JSON: %s", "%s MCP config の JSON が不正です: %s", client, path)}
+		}
+		server, ok := root.MCPServers["traceary"]
+		if !ok {
+			continue
+		}
+		return evaluateMCPServer(name, client, path, server, fix)
+	}
+	if !seenConfig {
+		return doctorCheck{Name: name, Status: doctorStatusSkip, Message: localizef("%s MCP config file is absent; skipped registration check", "%s MCP config file がないため registration check を skip しました", client)}
+	}
+	return doctorCheck{Name: name, Status: doctorStatusWarn, Message: localizef("%s config exists but does not register the traceary MCP server", "%s config はありますが traceary MCP server が登録されていません", client), Hint: "register traceary MCP server", FixCommand: fix}
+}
+
+func inspectTOMLMCPRegistration(name, client, path, fix string) doctorCheck {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return doctorCheck{Name: name, Status: doctorStatusSkip, Message: localizef("%s MCP config file is absent; skipped registration check: %s", "%s MCP config file がないため registration check を skip しました: %s", client, path)}
+		}
+		return doctorCheck{Name: name, Status: doctorStatusFail, Message: localizef("failed to read %s MCP config: %v", "%s MCP config の読み込みに失敗しました: %v", client, err)}
+	}
+	var root struct {
+		MCPServers map[string]doctorMCPServer `toml:"mcp_servers"`
+	}
+	if err := toml.Unmarshal(content, &root); err != nil {
+		return doctorCheck{Name: name, Status: doctorStatusFail, Message: localizef("%s MCP config is invalid TOML: %s", "%s MCP config の TOML が不正です: %s", client, path)}
+	}
+	server, ok := root.MCPServers["traceary"]
+	if !ok {
+		return doctorCheck{Name: name, Status: doctorStatusWarn, Message: localizef("%s config exists but does not register the traceary MCP server: %s", "%s config はありますが traceary MCP server が登録されていません: %s", client, path), Hint: "register traceary MCP server", FixCommand: fix}
+	}
+	return evaluateMCPServer(name, client, path, server, fix)
+}
+
+func evaluateMCPServer(name, client, path string, server doctorMCPServer, fix string) doctorCheck {
+	if !hasMCPServerCommand(server) {
+		return doctorCheck{Name: name, Status: doctorStatusWarn, Message: localizef("%s MCP registration exists but does not run `traceary mcp-server`: %s", "%s MCP registration はありますが `traceary mcp-server` を実行していません: %s", client, path), Hint: "update traceary MCP server command", FixCommand: fix}
+	}
+	if commandLooksStale(server.Command) {
+		return doctorCheck{Name: name, Status: doctorStatusWarn, Message: localizef("%s MCP registration points at a stale traceary binary %s: %s", "%s MCP registration が古い traceary binary %s を参照しています: %s", client, server.Command, path), Hint: "update MCP registration to the running traceary binary", FixCommand: fix}
+	}
+	return doctorCheck{Name: name, Status: doctorStatusPass, Message: localizef("%s config registers traceary MCP server via %s: %s", "%s config は %s で traceary MCP server を登録しています: %s", client, formatMCPCommand(server), path)}
+}
+
+func hasMCPServerCommand(server doctorMCPServer) bool {
+	return strings.HasSuffix(filepath.Base(server.Command), "traceary") && len(server.Args) > 0 && server.Args[0] == "mcp-server"
+}
+
+func commandLooksStale(command string) bool {
+	if command == "traceary" || !filepath.IsAbs(command) {
+		return false
+	}
+	current, err := osExecutableFunc()
+	if err != nil || current == "" {
+		return false
+	}
+	return !sameFile(command, current)
+}
+
+func formatMCPCommand(server doctorMCPServer) string {
+	parts := append([]string{server.Command}, server.Args...)
+	return strings.Join(parts, " ")
+}
+
+func codexTracearyPluginEnabled(path string) bool {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var root struct {
+		Plugins map[string]struct {
+			Enabled bool `toml:"enabled"`
+		} `toml:"plugins"`
+	}
+	if err := toml.Unmarshal(content, &root); err != nil {
+		return false
+	}
+	for key, plugin := range root.Plugins {
+		if strings.HasPrefix(key, "traceary@") && plugin.Enabled {
+			return true
+		}
+	}
+	return false
+}
+
+func uniqueNonEmpty(values []string) []string {
+	seen := map[string]struct{}{}
+	out := []string{}
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
