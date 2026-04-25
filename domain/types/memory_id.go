@@ -9,8 +9,8 @@ import (
 // MemoryID identifies a durable memory.
 type MemoryID string
 
-// MemoryIDOf creates a MemoryID from a string.
-func MemoryIDOf(value string) (MemoryID, error) {
+// MemoryIDFrom creates a MemoryID from a string.
+func MemoryIDFrom(value string) (MemoryID, error) {
 	trimmedValue := strings.TrimSpace(value)
 	if trimmedValue == "" {
 		return MemoryID(""), xerrors.Errorf("memory ID must not be empty")

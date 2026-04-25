@@ -11,10 +11,10 @@ import (
 // within a single SQLite store and has no cross-store meaning.
 type MemoryEdgeID string
 
-// MemoryEdgeIDOf creates a MemoryEdgeID from a string. Empty /
+// MemoryEdgeIDFrom creates a MemoryEdgeID from a string. Empty /
 // whitespace-only values are rejected — callers should pass a fresh
 // UUID-like token the edge repository can write.
-func MemoryEdgeIDOf(value string) (MemoryEdgeID, error) {
+func MemoryEdgeIDFrom(value string) (MemoryEdgeID, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
 		return MemoryEdgeID(""), xerrors.Errorf("memory edge ID must not be empty")

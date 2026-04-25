@@ -576,7 +576,7 @@ func (s *Server) retrieveMemories() mcp.ToolHandlerFor[retrieveMemoriesInput, me
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input retrieveMemoriesInput) (*mcp.CallToolResult, memoriesOutput, error) {
 		memoryIDValue := strings.TrimSpace(input.MemoryID)
 		if memoryIDValue != "" {
-			memoryID, err := types.MemoryIDOf(memoryIDValue)
+			memoryID, err := types.MemoryIDFrom(memoryIDValue)
 			if err != nil {
 				return nil, memoriesOutput{}, xerrors.Errorf("failed to resolve memory_id: %w", err)
 			}
@@ -714,7 +714,7 @@ func (s *Server) proposeMemory() mcp.ToolHandlerFor[proposeMemoryInput, memoryOu
 
 func (s *Server) acceptMemory() mcp.ToolHandlerFor[acceptMemoryInput, memoryOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input acceptMemoryInput) (*mcp.CallToolResult, memoryOutput, error) {
-		memoryID, err := types.MemoryIDOf(strings.TrimSpace(input.MemoryID))
+		memoryID, err := types.MemoryIDFrom(strings.TrimSpace(input.MemoryID))
 		if err != nil {
 			return nil, memoryOutput{}, xerrors.Errorf("failed to resolve memory_id: %w", err)
 		}
@@ -732,7 +732,7 @@ func (s *Server) acceptMemory() mcp.ToolHandlerFor[acceptMemoryInput, memoryOutp
 
 func (s *Server) rejectMemory() mcp.ToolHandlerFor[rejectMemoryInput, memoryOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input rejectMemoryInput) (*mcp.CallToolResult, memoryOutput, error) {
-		memoryID, err := types.MemoryIDOf(strings.TrimSpace(input.MemoryID))
+		memoryID, err := types.MemoryIDFrom(strings.TrimSpace(input.MemoryID))
 		if err != nil {
 			return nil, memoryOutput{}, xerrors.Errorf("failed to resolve memory_id: %w", err)
 		}
@@ -763,7 +763,7 @@ func (s *Server) acceptMemoriesBatch() mcp.ToolHandlerFor[acceptMemoriesBatchInp
 			if trimmed == "" {
 				continue
 			}
-			memoryID, err := types.MemoryIDOf(trimmed)
+			memoryID, err := types.MemoryIDFrom(trimmed)
 			if err != nil {
 				out.Failures = append(out.Failures, inboxBatchMemoryFailureOutput{MemoryID: trimmed, Error: err.Error()})
 				continue
@@ -789,7 +789,7 @@ func (s *Server) scanMemoryHygiene() mcp.ToolHandlerFor[scanMemoryHygieneInput, 
 		}
 		criteria := apptypes.MemoryHygieneScanCriteria{}
 		if workspace := strings.TrimSpace(input.Workspace); workspace != "" {
-			resolvedWorkspace, err := types.WorkspaceOf(workspace)
+			resolvedWorkspace, err := types.WorkspaceFrom(workspace)
 			if err != nil {
 				return nil, memoryHygieneOutput{}, xerrors.Errorf("failed to resolve workspace: %w", err)
 			}
@@ -852,7 +852,7 @@ func (s *Server) exportMemories() mcp.ToolHandlerFor[exportMemoriesInput, export
 		}
 		criteria := apptypes.MemoryExportCriteria{Target: target}
 		if workspace := strings.TrimSpace(input.Workspace); workspace != "" {
-			resolvedWorkspace, err := types.WorkspaceOf(workspace)
+			resolvedWorkspace, err := types.WorkspaceFrom(workspace)
 			if err != nil {
 				return nil, exportMemoriesOutput{}, xerrors.Errorf("failed to resolve workspace: %w", err)
 			}
@@ -888,7 +888,7 @@ func (s *Server) importMemoryInstructions() mcp.ToolHandlerFor[importMemoryInstr
 			Markdown: input.Markdown,
 		}
 		if workspace := strings.TrimSpace(input.Workspace); workspace != "" {
-			resolvedWorkspace, err := types.WorkspaceOf(workspace)
+			resolvedWorkspace, err := types.WorkspaceFrom(workspace)
 			if err != nil {
 				return nil, importMemoryInstructionsOutput{}, xerrors.Errorf("failed to resolve workspace: %w", err)
 			}
@@ -926,7 +926,7 @@ func (s *Server) rejectMemoriesBatch() mcp.ToolHandlerFor[rejectMemoriesBatchInp
 			if trimmed == "" {
 				continue
 			}
-			memoryID, err := types.MemoryIDOf(trimmed)
+			memoryID, err := types.MemoryIDFrom(trimmed)
 			if err != nil {
 				out.Failures = append(out.Failures, inboxBatchMemoryFailureOutput{MemoryID: trimmed, Error: err.Error()})
 				continue
@@ -944,7 +944,7 @@ func (s *Server) rejectMemoriesBatch() mcp.ToolHandlerFor[rejectMemoriesBatchInp
 
 func (s *Server) supersedeMemory() mcp.ToolHandlerFor[supersedeMemoryInput, memoryOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input supersedeMemoryInput) (*mcp.CallToolResult, memoryOutput, error) {
-		memoryID, err := types.MemoryIDOf(strings.TrimSpace(input.MemoryID))
+		memoryID, err := types.MemoryIDFrom(strings.TrimSpace(input.MemoryID))
 		if err != nil {
 			return nil, memoryOutput{}, xerrors.Errorf("failed to resolve memory_id: %w", err)
 		}
@@ -987,7 +987,7 @@ func (s *Server) supersedeMemory() mcp.ToolHandlerFor[supersedeMemoryInput, memo
 
 func (s *Server) expireMemory() mcp.ToolHandlerFor[expireMemoryInput, memoryOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input expireMemoryInput) (*mcp.CallToolResult, memoryOutput, error) {
-		memoryID, err := types.MemoryIDOf(strings.TrimSpace(input.MemoryID))
+		memoryID, err := types.MemoryIDFrom(strings.TrimSpace(input.MemoryID))
 		if err != nil {
 			return nil, memoryOutput{}, xerrors.Errorf("failed to resolve memory_id: %w", err)
 		}
@@ -1009,7 +1009,7 @@ func (s *Server) expireMemory() mcp.ToolHandlerFor[expireMemoryInput, memoryOutp
 
 func (s *Server) setMemoryValidity() mcp.ToolHandlerFor[setMemoryValidityInput, memoryOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input setMemoryValidityInput) (*mcp.CallToolResult, memoryOutput, error) {
-		memoryID, err := types.MemoryIDOf(strings.TrimSpace(input.MemoryID))
+		memoryID, err := types.MemoryIDFrom(strings.TrimSpace(input.MemoryID))
 		if err != nil {
 			return nil, memoryOutput{}, xerrors.Errorf("failed to resolve memory_id: %w", err)
 		}
@@ -1189,21 +1189,21 @@ func formatOptionalMemoryIDPtr(value types.Optional[types.MemoryID]) *string {
 func parseMemoryScopes(workspace string, agent string, sessionFamily string) ([]types.MemoryScope, error) {
 	scopes := make([]types.MemoryScope, 0, 3)
 	if trimmedWorkspace := strings.TrimSpace(workspace); trimmedWorkspace != "" {
-		resolvedWorkspace, err := types.WorkspaceOf(trimmedWorkspace)
+		resolvedWorkspace, err := types.WorkspaceFrom(trimmedWorkspace)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to resolve workspace scope: %w", err)
 		}
 		scopes = append(scopes, types.WorkspaceScopeOf(resolvedWorkspace))
 	}
 	if trimmedAgent := strings.TrimSpace(agent); trimmedAgent != "" {
-		resolvedAgent, err := types.AgentOf(trimmedAgent)
+		resolvedAgent, err := types.AgentFrom(trimmedAgent)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to resolve agent scope: %w", err)
 		}
 		scopes = append(scopes, types.AgentScopeOf(resolvedAgent))
 	}
 	if trimmedSessionFamily := strings.TrimSpace(sessionFamily); trimmedSessionFamily != "" {
-		resolvedSessionID, err := types.SessionIDOf(trimmedSessionFamily)
+		resolvedSessionID, err := types.SessionIDFrom(trimmedSessionFamily)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to resolve session_family scope: %w", err)
 		}
@@ -1243,7 +1243,7 @@ func parseOptionalMemoryScope(workspace string, agent string, sessionFamily stri
 func parseMemoryStatuses(values []string) ([]types.MemoryStatus, error) {
 	statuses := make([]types.MemoryStatus, 0, len(values))
 	for _, value := range values {
-		resolved, err := types.MemoryStatusOf(strings.TrimSpace(value))
+		resolved, err := types.MemoryStatusFrom(strings.TrimSpace(value))
 		if err != nil {
 			return nil, xerrors.Errorf("failed to resolve memory status: %w", err)
 		}
@@ -1255,7 +1255,7 @@ func parseMemoryStatuses(values []string) ([]types.MemoryStatus, error) {
 func parseMemoryTypes(values []string) ([]types.MemoryType, error) {
 	memoryTypes := make([]types.MemoryType, 0, len(values))
 	for _, value := range values {
-		resolved, err := types.MemoryTypeOf(strings.TrimSpace(value))
+		resolved, err := types.MemoryTypeFrom(strings.TrimSpace(value))
 		if err != nil {
 			return nil, xerrors.Errorf("failed to resolve memory type: %w", err)
 		}
@@ -1268,7 +1268,7 @@ func parseOptionalConfidence(value string) (types.Optional[types.Confidence], er
 	if strings.TrimSpace(value) == "" {
 		return types.None[types.Confidence](), nil
 	}
-	resolved, err := types.ConfidenceOf(strings.TrimSpace(value))
+	resolved, err := types.ConfidenceFrom(strings.TrimSpace(value))
 	if err != nil {
 		return types.None[types.Confidence](), xerrors.Errorf("failed to resolve confidence: %w", err)
 	}
@@ -1279,7 +1279,7 @@ func parseMemorySource(value string) (types.MemorySource, error) {
 	if strings.TrimSpace(value) == "" {
 		return types.MemorySource(""), nil
 	}
-	resolved, err := types.MemorySourceOf(strings.TrimSpace(value))
+	resolved, err := types.MemorySourceFrom(strings.TrimSpace(value))
 	if err != nil {
 		return types.MemorySource(""), xerrors.Errorf("failed to resolve memory source: %w", err)
 	}
@@ -1289,11 +1289,11 @@ func parseMemorySource(value string) (types.MemorySource, error) {
 func parseEvidenceRefs(refs []memoryRefInput) ([]types.EvidenceRef, error) {
 	outputs := make([]types.EvidenceRef, 0, len(refs))
 	for _, ref := range refs {
-		kind, err := types.EvidenceRefKindOf(strings.TrimSpace(ref.Kind))
+		kind, err := types.EvidenceRefKindFrom(strings.TrimSpace(ref.Kind))
 		if err != nil {
 			return nil, xerrors.Errorf("failed to resolve evidence ref kind: %w", err)
 		}
-		resolved, err := types.EvidenceRefOf(kind, strings.TrimSpace(ref.Value))
+		resolved, err := types.EvidenceRefFrom(kind, strings.TrimSpace(ref.Value))
 		if err != nil {
 			return nil, xerrors.Errorf("failed to resolve evidence ref: %w", err)
 		}
@@ -1305,11 +1305,11 @@ func parseEvidenceRefs(refs []memoryRefInput) ([]types.EvidenceRef, error) {
 func parseArtifactRefs(refs []memoryRefInput) ([]types.ArtifactRef, error) {
 	outputs := make([]types.ArtifactRef, 0, len(refs))
 	for _, ref := range refs {
-		kind, err := types.ArtifactRefKindOf(strings.TrimSpace(ref.Kind))
+		kind, err := types.ArtifactRefKindFrom(strings.TrimSpace(ref.Kind))
 		if err != nil {
 			return nil, xerrors.Errorf("failed to resolve artifact ref kind: %w", err)
 		}
-		resolved, err := types.ArtifactRefOf(kind, strings.TrimSpace(ref.Value))
+		resolved, err := types.ArtifactRefFrom(kind, strings.TrimSpace(ref.Value))
 		if err != nil {
 			return nil, xerrors.Errorf("failed to resolve artifact ref: %w", err)
 		}
@@ -1328,7 +1328,7 @@ func parseMemoryWriteInput(
 	evidenceRefs []memoryRefInput,
 	artifactRefs []memoryRefInput,
 ) (types.MemoryType, types.MemoryScope, types.Optional[types.Confidence], types.MemorySource, []types.EvidenceRef, []types.ArtifactRef, error) {
-	resolvedType, err := types.MemoryTypeOf(strings.TrimSpace(memoryType))
+	resolvedType, err := types.MemoryTypeFrom(strings.TrimSpace(memoryType))
 	if err != nil {
 		return types.MemoryType(""), nil, types.None[types.Confidence](), types.MemorySource(""), nil, nil, xerrors.Errorf("failed to resolve memory type: %w", err)
 	}
@@ -1389,7 +1389,7 @@ func parseOptionalMemoryWriteInput(
 ) (types.MemoryType, types.MemoryScope, types.Optional[types.Confidence], types.MemorySource, []types.EvidenceRef, []types.ArtifactRef, error) {
 	var resolvedType types.MemoryType
 	if strings.TrimSpace(memoryType) != "" {
-		value, err := types.MemoryTypeOf(strings.TrimSpace(memoryType))
+		value, err := types.MemoryTypeFrom(strings.TrimSpace(memoryType))
 		if err != nil {
 			return types.MemoryType(""), nil, types.None[types.Confidence](), types.MemorySource(""), nil, nil, xerrors.Errorf("failed to resolve memory type: %w", err)
 		}

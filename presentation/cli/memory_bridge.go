@@ -148,7 +148,7 @@ func resolveExportScope(ctx context.Context, raw string) (domtypes.MemoryScope, 
 	if strings.TrimSpace(resolved) == "" {
 		return nil, nil
 	}
-	workspace, err := domtypes.WorkspaceOf(resolved)
+	workspace, err := domtypes.WorkspaceFrom(resolved)
 	if err != nil {
 		return nil, xerrors.Errorf("%s: %w", Localize("failed to resolve workspace", "workspace の解決に失敗しました"), err)
 	}

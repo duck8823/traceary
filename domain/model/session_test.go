@@ -14,13 +14,13 @@ import (
 func TestNewSession(t *testing.T) {
 	t.Parallel()
 
-	agent, err := types.AgentOf("claude")
+	agent, err := types.AgentFrom("claude")
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
-	sid, err := types.SessionIDOf("session-1")
+	sid, err := types.SessionIDFrom("session-1")
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
 	now := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 
@@ -58,8 +58,8 @@ func TestNewSession(t *testing.T) {
 func TestSessionOf(t *testing.T) {
 	t.Parallel()
 
-	agent, _ := types.AgentOf("codex")
-	sid, _ := types.SessionIDOf("session-2")
+	agent, _ := types.AgentFrom("codex")
+	sid, _ := types.SessionIDFrom("session-2")
 	start := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 4, 10, 13, 0, 0, 0, time.UTC)
 
@@ -87,8 +87,8 @@ func TestSessionOf(t *testing.T) {
 func TestSession_End(t *testing.T) {
 	t.Parallel()
 
-	agent, _ := types.AgentOf("claude")
-	sid, _ := types.SessionIDOf("session-end")
+	agent, _ := types.AgentFrom("claude")
+	sid, _ := types.SessionIDFrom("session-end")
 	start := time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 4, 11, 13, 30, 0, 0, time.UTC)
 
@@ -152,8 +152,8 @@ func TestSession_End(t *testing.T) {
 func TestSession_SetLabel(t *testing.T) {
 	t.Parallel()
 
-	agent, _ := types.AgentOf("claude")
-	sid, _ := types.SessionIDOf("session-3")
+	agent, _ := types.AgentFrom("claude")
+	sid, _ := types.SessionIDFrom("session-3")
 	now := time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC)
 
 	session := model.NewSession(sid, now, types.Client("cli"), agent, types.Workspace("duck8823/traceary"))

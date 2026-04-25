@@ -49,9 +49,9 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 
 	saveEvent := func(t *testing.T, ds *sqlite.EventDatasource, id string, workspace string, createdAt time.Time) {
 		t.Helper()
-		eventID, _ := types.EventIDOf(id)
-		agent, _ := types.AgentOf("claude")
-		sessionID, _ := types.SessionIDOf("session-1")
+		eventID, _ := types.EventIDFrom(id)
+		agent, _ := types.AgentFrom("claude")
+		sessionID, _ := types.SessionIDFrom("session-1")
 		event := model.EventOf(eventID, types.EventKindCommandExecuted, types.Client("hook"), agent, sessionID, types.Workspace(workspace), "cmd", createdAt)
 		if err := ds.Save(context.Background(), event); err != nil {
 			t.Fatalf("Save() error = %v", err)
@@ -122,9 +122,9 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 
 	saveEventKind := func(t *testing.T, ds *sqlite.EventDatasource, id string, workspace string, kind types.EventKind, body string, createdAt time.Time) {
 		t.Helper()
-		eventID, _ := types.EventIDOf(id)
-		agent, _ := types.AgentOf("claude")
-		sessionID, _ := types.SessionIDOf("session-1")
+		eventID, _ := types.EventIDFrom(id)
+		agent, _ := types.AgentFrom("claude")
+		sessionID, _ := types.SessionIDFrom("session-1")
 		event := model.EventOf(eventID, kind, types.Client("hook"), agent, sessionID, types.Workspace(workspace), body, createdAt)
 		if err := ds.Save(context.Background(), event); err != nil {
 			t.Fatalf("Save() error = %v", err)

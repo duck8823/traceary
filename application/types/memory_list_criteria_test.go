@@ -22,7 +22,7 @@ func TestDefaultActiveMemoryStatuses(t *testing.T) {
 func TestMemoryListCriteriaBuilder(t *testing.T) {
 	t.Parallel()
 
-	workspace, _ := domtypes.WorkspaceOf("github.com/duck8823/traceary")
+	workspace, _ := domtypes.WorkspaceFrom("github.com/duck8823/traceary")
 	criteria := apptypes.NewMemoryListCriteriaBuilder(20).
 		Offset(5).
 		Scope(domtypes.WorkspaceScopeOf(workspace)).

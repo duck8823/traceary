@@ -6,12 +6,12 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-func TestEvidenceRefOf(t *testing.T) {
+func TestEvidenceRefFrom(t *testing.T) {
 	t.Parallel()
 
-	ref, err := types.EvidenceRefOf(types.EvidenceRefKindEvent, "event-123")
+	ref, err := types.EvidenceRefFrom(types.EvidenceRefKindEvent, "event-123")
 	if err != nil {
-		t.Fatalf("EvidenceRefOf() error = %v", err)
+		t.Fatalf("EvidenceRefFrom() error = %v", err)
 	}
 	if ref.Kind() != types.EvidenceRefKindEvent {
 		t.Fatalf("Kind() = %v, want %v", ref.Kind(), types.EvidenceRefKindEvent)
@@ -21,13 +21,13 @@ func TestEvidenceRefOf(t *testing.T) {
 	}
 }
 
-func TestEvidenceRefOf_RejectsInvalidInput(t *testing.T) {
+func TestEvidenceRefFrom_RejectsInvalidInput(t *testing.T) {
 	t.Parallel()
 
-	if _, err := types.EvidenceRefOf(types.EvidenceRefKind(""), "value"); err == nil {
-		t.Fatalf("EvidenceRefOf() error = nil, want error for empty kind")
+	if _, err := types.EvidenceRefFrom(types.EvidenceRefKind(""), "value"); err == nil {
+		t.Fatalf("EvidenceRefFrom() error = nil, want error for empty kind")
 	}
-	if _, err := types.EvidenceRefOf(types.EvidenceRefKindEvent, " "); err == nil {
-		t.Fatalf("EvidenceRefOf() error = nil, want error for empty value")
+	if _, err := types.EvidenceRefFrom(types.EvidenceRefKindEvent, " "); err == nil {
+		t.Fatalf("EvidenceRefFrom() error = nil, want error for empty value")
 	}
 }

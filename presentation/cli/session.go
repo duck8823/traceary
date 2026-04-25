@@ -242,7 +242,7 @@ func (c *RootCLI) runSessionBoundary(
 	if agentStr == "" {
 		agentStr = defaultAgentValue
 	}
-	agent, _ := types.AgentOf(agentStr)
+	agent, _ := types.AgentFrom(agentStr)
 	sid := types.SessionID(input.sessionID)
 	ws := types.Workspace(resolveSessionBoundaryRepo(input))
 	if ws == "" {

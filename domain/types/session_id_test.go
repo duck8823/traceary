@@ -6,7 +6,7 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-func TestSessionIDOf(t *testing.T) {
+func TestSessionIDFrom(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -24,12 +24,12 @@ func TestSessionIDOf(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := types.SessionIDOf(tt.input)
+			got, err := types.SessionIDFrom(tt.input)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("SessionIDOf(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+				t.Fatalf("SessionIDFrom(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
 			}
 			if !tt.wantErr && got.String() != tt.want {
-				t.Errorf("SessionIDOf(%q).String() = %q, want %q", tt.input, got.String(), tt.want)
+				t.Errorf("SessionIDFrom(%q).String() = %q, want %q", tt.input, got.String(), tt.want)
 			}
 		})
 	}

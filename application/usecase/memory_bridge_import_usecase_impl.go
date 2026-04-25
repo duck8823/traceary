@@ -78,12 +78,12 @@ func (u *memoryBridgeImportUsecase) ImportInstructions(ctx context.Context, crit
 	}
 
 	for _, bullet := range bullets {
-		evidence, err := domtypes.EvidenceRefOf(domtypes.EvidenceRefKindFile, fmt.Sprintf("%s#L%d", bullet.SourcePath, bullet.Line))
+		evidence, err := domtypes.EvidenceRefFrom(domtypes.EvidenceRefKindFile, fmt.Sprintf("%s#L%d", bullet.SourcePath, bullet.Line))
 		if err != nil {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("skipped bullet at %s:%d (evidence ref rejected: %v)", bullet.SourcePath, bullet.Line, err))
 			continue
 		}
-		artifact, err := domtypes.ArtifactRefOf(domtypes.ArtifactRefKindFile, bullet.SourcePath)
+		artifact, err := domtypes.ArtifactRefFrom(domtypes.ArtifactRefKindFile, bullet.SourcePath)
 		if err != nil {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("skipped bullet at %s:%d (artifact ref rejected: %v)", bullet.SourcePath, bullet.Line, err))
 			continue

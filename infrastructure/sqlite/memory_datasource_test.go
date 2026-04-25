@@ -103,54 +103,54 @@ WHERE valid_to IS NOT NULL;`),
 
 func mustMemoryID(t *testing.T, value string) types.MemoryID {
 	t.Helper()
-	memoryID, err := types.MemoryIDOf(value)
+	memoryID, err := types.MemoryIDFrom(value)
 	if err != nil {
-		t.Fatalf("MemoryIDOf() error = %v", err)
+		t.Fatalf("MemoryIDFrom() error = %v", err)
 	}
 	return memoryID
 }
 
 func mustWorkspaceScope(t *testing.T, value string) types.MemoryScope {
 	t.Helper()
-	workspace, err := types.WorkspaceOf(value)
+	workspace, err := types.WorkspaceFrom(value)
 	if err != nil {
-		t.Fatalf("WorkspaceOf() error = %v", err)
+		t.Fatalf("WorkspaceFrom() error = %v", err)
 	}
 	return types.WorkspaceScopeOf(workspace)
 }
 
 func mustAgentScope(t *testing.T, value string) types.MemoryScope {
 	t.Helper()
-	agent, err := types.AgentOf(value)
+	agent, err := types.AgentFrom(value)
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
 	return types.AgentScopeOf(agent)
 }
 
 func mustSessionFamilyScope(t *testing.T, value string) types.MemoryScope {
 	t.Helper()
-	sessionID, err := types.SessionIDOf(value)
+	sessionID, err := types.SessionIDFrom(value)
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
 	return types.SessionFamilyScopeOf(sessionID)
 }
 
 func mustEvidenceRef(t *testing.T, kind types.EvidenceRefKind, value string) types.EvidenceRef {
 	t.Helper()
-	ref, err := types.EvidenceRefOf(kind, value)
+	ref, err := types.EvidenceRefFrom(kind, value)
 	if err != nil {
-		t.Fatalf("EvidenceRefOf() error = %v", err)
+		t.Fatalf("EvidenceRefFrom() error = %v", err)
 	}
 	return ref
 }
 
 func mustArtifactRef(t *testing.T, kind types.ArtifactRefKind, value string) types.ArtifactRef {
 	t.Helper()
-	ref, err := types.ArtifactRefOf(kind, value)
+	ref, err := types.ArtifactRefFrom(kind, value)
 	if err != nil {
-		t.Fatalf("ArtifactRefOf() error = %v", err)
+		t.Fatalf("ArtifactRefFrom() error = %v", err)
 	}
 	return ref
 }

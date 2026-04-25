@@ -416,7 +416,7 @@ func (c *RootCLI) runMemoryShow(ctx context.Context, output io.Writer, dbPath st
 	if err := c.initializeStore(ctx, dbPath); err != nil {
 		return err
 	}
-	resolvedMemoryID, err := domtypes.MemoryIDOf(memoryID)
+	resolvedMemoryID, err := domtypes.MemoryIDFrom(memoryID)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve memory ID", "memory ID の解決に失敗しました"), err)
 	}
@@ -471,7 +471,7 @@ func (c *RootCLI) runMemoryAccept(ctx context.Context, output io.Writer, input m
 	if err := c.initializeMemoryStore(ctx, input.dbPath); err != nil {
 		return err
 	}
-	memoryID, err := domtypes.MemoryIDOf(input.memoryID)
+	memoryID, err := domtypes.MemoryIDFrom(input.memoryID)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve memory ID", "memory ID の解決に失敗しました"), err)
 	}
@@ -490,7 +490,7 @@ func (c *RootCLI) runMemoryReject(ctx context.Context, output io.Writer, input m
 	if err := c.initializeMemoryStore(ctx, input.dbPath); err != nil {
 		return err
 	}
-	memoryID, err := domtypes.MemoryIDOf(input.memoryID)
+	memoryID, err := domtypes.MemoryIDFrom(input.memoryID)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve memory ID", "memory ID の解決に失敗しました"), err)
 	}
@@ -508,7 +508,7 @@ func (c *RootCLI) runMemorySupersede(ctx context.Context, output io.Writer, inpu
 	if err := c.initializeMemoryStore(ctx, input.dbPath); err != nil {
 		return err
 	}
-	memoryID, err := domtypes.MemoryIDOf(input.memoryID)
+	memoryID, err := domtypes.MemoryIDFrom(input.memoryID)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve memory ID", "memory ID の解決に失敗しました"), err)
 	}
@@ -555,7 +555,7 @@ func (c *RootCLI) runMemoryExpire(ctx context.Context, output io.Writer, input m
 	if err := c.initializeMemoryStore(ctx, input.dbPath); err != nil {
 		return err
 	}
-	memoryID, err := domtypes.MemoryIDOf(input.memoryID)
+	memoryID, err := domtypes.MemoryIDFrom(input.memoryID)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve memory ID", "memory ID の解決に失敗しました"), err)
 	}
@@ -574,7 +574,7 @@ func (c *RootCLI) runMemorySetValidity(ctx context.Context, output io.Writer, in
 	if err := c.initializeMemoryStore(ctx, input.dbPath); err != nil {
 		return err
 	}
-	memoryID, err := domtypes.MemoryIDOf(input.memoryID)
+	memoryID, err := domtypes.MemoryIDFrom(input.memoryID)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve memory ID", "memory ID の解決に失敗しました"), err)
 	}
@@ -678,7 +678,7 @@ func validateMemoryWriteInput(input memoryWriteCommandInput) error {
 }
 
 func parseRequiredMemoryType(value string) (domtypes.MemoryType, error) {
-	resolved, err := domtypes.MemoryTypeOf(value)
+	resolved, err := domtypes.MemoryTypeFrom(value)
 	if err != nil {
 		return domtypes.MemoryType(""), xerrors.Errorf("%s: %w", Localize("failed to resolve memory type", "memory type の解決に失敗しました"), err)
 	}
@@ -696,7 +696,7 @@ func parseOptionalConfidence(value string) (domtypes.Optional[domtypes.Confidenc
 	if strings.TrimSpace(value) == "" {
 		return domtypes.None[domtypes.Confidence](), nil
 	}
-	confidence, err := domtypes.ConfidenceOf(value)
+	confidence, err := domtypes.ConfidenceFrom(value)
 	if err != nil {
 		return domtypes.None[domtypes.Confidence](), xerrors.Errorf("%s: %w", Localize("failed to resolve confidence", "confidence の解決に失敗しました"), err)
 	}
@@ -707,7 +707,7 @@ func parseMemorySource(value string) (domtypes.MemorySource, error) {
 	if strings.TrimSpace(value) == "" {
 		return domtypes.MemorySource(""), nil
 	}
-	source, err := domtypes.MemorySourceOf(value)
+	source, err := domtypes.MemorySourceFrom(value)
 	if err != nil {
 		return domtypes.MemorySource(""), xerrors.Errorf("%s: %w", Localize("failed to resolve memory source", "memory source の解決に失敗しました"), err)
 	}
@@ -720,7 +720,7 @@ func parseMemoryStatuses(values []string) ([]domtypes.MemoryStatus, error) {
 		if strings.TrimSpace(value) == "" {
 			continue
 		}
-		status, err := domtypes.MemoryStatusOf(value)
+		status, err := domtypes.MemoryStatusFrom(value)
 		if err != nil {
 			return nil, xerrors.Errorf("%s: %w", Localize("failed to resolve memory status", "memory status の解決に失敗しました"), err)
 		}
@@ -735,7 +735,7 @@ func parseMemoryTypes(values []string) ([]domtypes.MemoryType, error) {
 		if strings.TrimSpace(value) == "" {
 			continue
 		}
-		memoryType, err := domtypes.MemoryTypeOf(value)
+		memoryType, err := domtypes.MemoryTypeFrom(value)
 		if err != nil {
 			return nil, xerrors.Errorf("%s: %w", Localize("failed to resolve memory type", "memory type の解決に失敗しました"), err)
 		}
@@ -751,11 +751,11 @@ func parseEvidenceRefs(values []string) ([]domtypes.EvidenceRef, error) {
 		if err != nil {
 			return nil, xerrors.Errorf("%s: %w", Localize("failed to parse evidence ref", "evidence ref の解析に失敗しました"), err)
 		}
-		resolvedKind, err := domtypes.EvidenceRefKindOf(kind)
+		resolvedKind, err := domtypes.EvidenceRefKindFrom(kind)
 		if err != nil {
 			return nil, xerrors.Errorf("%s: %w", Localize("failed to resolve evidence ref kind", "evidence ref kind の解決に失敗しました"), err)
 		}
-		ref, err := domtypes.EvidenceRefOf(resolvedKind, rawValue)
+		ref, err := domtypes.EvidenceRefFrom(resolvedKind, rawValue)
 		if err != nil {
 			return nil, xerrors.Errorf("%s: %w", Localize("failed to resolve evidence ref", "evidence ref の解決に失敗しました"), err)
 		}
@@ -771,11 +771,11 @@ func parseArtifactRefs(values []string) ([]domtypes.ArtifactRef, error) {
 		if err != nil {
 			return nil, xerrors.Errorf("%s: %w", Localize("failed to parse artifact ref", "artifact ref の解析に失敗しました"), err)
 		}
-		resolvedKind, err := domtypes.ArtifactRefKindOf(kind)
+		resolvedKind, err := domtypes.ArtifactRefKindFrom(kind)
 		if err != nil {
 			return nil, xerrors.Errorf("%s: %w", Localize("failed to resolve artifact ref kind", "artifact ref kind の解決に失敗しました"), err)
 		}
-		ref, err := domtypes.ArtifactRefOf(resolvedKind, rawValue)
+		ref, err := domtypes.ArtifactRefFrom(resolvedKind, rawValue)
 		if err != nil {
 			return nil, xerrors.Errorf("%s: %w", Localize("failed to resolve artifact ref", "artifact ref の解決に失敗しました"), err)
 		}
@@ -795,14 +795,14 @@ func parseKindValueToken(value string) (string, string, error) {
 
 func resolveMemoryWriteScope(ctx context.Context, workspace string, agent string, sessionFamily string) (domtypes.MemoryScope, error) {
 	if strings.TrimSpace(agent) != "" {
-		resolvedAgent, err := domtypes.AgentOf(agent)
+		resolvedAgent, err := domtypes.AgentFrom(agent)
 		if err != nil {
 			return nil, xerrors.Errorf("%s: %w", Localize("failed to resolve agent scope", "agent scope の解決に失敗しました"), err)
 		}
 		return domtypes.AgentScopeOf(resolvedAgent), nil
 	}
 	if strings.TrimSpace(sessionFamily) != "" {
-		resolvedSessionID, err := domtypes.SessionIDOf(sessionFamily)
+		resolvedSessionID, err := domtypes.SessionIDFrom(sessionFamily)
 		if err != nil {
 			return nil, xerrors.Errorf("%s: %w", Localize("failed to resolve session-family scope", "session-family scope の解決に失敗しました"), err)
 		}
@@ -812,7 +812,7 @@ func resolveMemoryWriteScope(ctx context.Context, workspace string, agent string
 	if strings.TrimSpace(resolvedWorkspace) == "" {
 		return nil, xerrors.Errorf(Localize("workspace scope could not be resolved", "workspace scope を解決できませんでした"))
 	}
-	workspaceValue, err := domtypes.WorkspaceOf(resolvedWorkspace)
+	workspaceValue, err := domtypes.WorkspaceFrom(resolvedWorkspace)
 	if err != nil {
 		return nil, xerrors.Errorf("%s: %w", Localize("failed to resolve workspace scope", "workspace scope の解決に失敗しました"), err)
 	}
@@ -821,14 +821,14 @@ func resolveMemoryWriteScope(ctx context.Context, workspace string, agent string
 
 func resolveOptionalMemoryScope(workspace string, agent string, sessionFamily string) (domtypes.MemoryScope, error) {
 	if strings.TrimSpace(agent) != "" {
-		resolvedAgent, err := domtypes.AgentOf(agent)
+		resolvedAgent, err := domtypes.AgentFrom(agent)
 		if err != nil {
 			return nil, xerrors.Errorf("%s: %w", Localize("failed to resolve agent scope", "agent scope の解決に失敗しました"), err)
 		}
 		return domtypes.AgentScopeOf(resolvedAgent), nil
 	}
 	if strings.TrimSpace(sessionFamily) != "" {
-		resolvedSessionID, err := domtypes.SessionIDOf(sessionFamily)
+		resolvedSessionID, err := domtypes.SessionIDFrom(sessionFamily)
 		if err != nil {
 			return nil, xerrors.Errorf("%s: %w", Localize("failed to resolve session-family scope", "session-family scope の解決に失敗しました"), err)
 		}
@@ -837,7 +837,7 @@ func resolveOptionalMemoryScope(workspace string, agent string, sessionFamily st
 	if strings.TrimSpace(workspace) == "" {
 		return nil, nil
 	}
-	workspaceValue, err := domtypes.WorkspaceOf(workspace)
+	workspaceValue, err := domtypes.WorkspaceFrom(workspace)
 	if err != nil {
 		return nil, xerrors.Errorf("%s: %w", Localize("failed to resolve workspace scope", "workspace scope の解決に失敗しました"), err)
 	}
@@ -847,21 +847,21 @@ func resolveOptionalMemoryScope(workspace string, agent string, sessionFamily st
 func resolveMemoryFilterScopes(ctx context.Context, workspace string, agent string, sessionFamily string, defaultWorkspace bool) ([]domtypes.MemoryScope, error) {
 	scopes := make([]domtypes.MemoryScope, 0, 3)
 	if strings.TrimSpace(workspace) != "" {
-		workspaceValue, err := domtypes.WorkspaceOf(workspace)
+		workspaceValue, err := domtypes.WorkspaceFrom(workspace)
 		if err != nil {
 			return nil, xerrors.Errorf("%s: %w", Localize("failed to resolve workspace scope", "workspace scope の解決に失敗しました"), err)
 		}
 		scopes = append(scopes, domtypes.WorkspaceScopeOf(workspaceValue))
 	}
 	if strings.TrimSpace(agent) != "" {
-		resolvedAgent, err := domtypes.AgentOf(agent)
+		resolvedAgent, err := domtypes.AgentFrom(agent)
 		if err != nil {
 			return nil, xerrors.Errorf("%s: %w", Localize("failed to resolve agent scope", "agent scope の解決に失敗しました"), err)
 		}
 		scopes = append(scopes, domtypes.AgentScopeOf(resolvedAgent))
 	}
 	if strings.TrimSpace(sessionFamily) != "" {
-		resolvedSessionID, err := domtypes.SessionIDOf(sessionFamily)
+		resolvedSessionID, err := domtypes.SessionIDFrom(sessionFamily)
 		if err != nil {
 			return nil, xerrors.Errorf("%s: %w", Localize("failed to resolve session-family scope", "session-family scope の解決に失敗しました"), err)
 		}
@@ -874,7 +874,7 @@ func resolveMemoryFilterScopes(ctx context.Context, workspace string, agent stri
 	if strings.TrimSpace(resolvedWorkspace) == "" {
 		return nil, nil
 	}
-	workspaceValue, err := domtypes.WorkspaceOf(resolvedWorkspace)
+	workspaceValue, err := domtypes.WorkspaceFrom(resolvedWorkspace)
 	if err != nil {
 		return nil, xerrors.Errorf("%s: %w", Localize("failed to resolve workspace scope", "workspace scope の解決に失敗しました"), err)
 	}

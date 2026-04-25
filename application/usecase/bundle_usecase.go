@@ -326,19 +326,19 @@ type bundleEventRow struct {
 }
 
 func (r bundleEventRow) toEvent() (*model.Event, error) {
-	eventID, err := types.EventIDOf(r.EventID)
+	eventID, err := types.EventIDFrom(r.EventID)
 	if err != nil {
 		return nil, xerrors.Errorf("event_id: %w", err)
 	}
-	kind, err := types.EventKindOf(r.Kind)
+	kind, err := types.EventKindFrom(r.Kind)
 	if err != nil {
 		return nil, xerrors.Errorf("kind: %w", err)
 	}
-	agent, err := types.AgentOf(r.Agent)
+	agent, err := types.AgentFrom(r.Agent)
 	if err != nil {
 		return nil, xerrors.Errorf("agent: %w", err)
 	}
-	sessionID, err := types.SessionIDOf(r.SessionID)
+	sessionID, err := types.SessionIDFrom(r.SessionID)
 	if err != nil {
 		return nil, xerrors.Errorf("session_id: %w", err)
 	}

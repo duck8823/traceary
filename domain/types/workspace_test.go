@@ -6,7 +6,7 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-func TestWorkspaceOf(t *testing.T) {
+func TestWorkspaceFrom(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -26,12 +26,12 @@ func TestWorkspaceOf(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := types.WorkspaceOf(tt.input)
+			got, err := types.WorkspaceFrom(tt.input)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("WorkspaceOf(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+				t.Fatalf("WorkspaceFrom(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
 			}
 			if !tt.wantErr && got.String() != tt.want {
-				t.Errorf("WorkspaceOf(%q).String() = %q, want %q", tt.input, got.String(), tt.want)
+				t.Errorf("WorkspaceFrom(%q).String() = %q, want %q", tt.input, got.String(), tt.want)
 			}
 		})
 	}

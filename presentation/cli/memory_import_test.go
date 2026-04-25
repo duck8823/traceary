@@ -14,9 +14,9 @@ import (
 
 func buildMemoryImportStubDetails(t *testing.T, fact string) apptypes.MemoryDetails {
 	t.Helper()
-	workspace, err := domtypes.WorkspaceOf("github.com/example/repo")
+	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
 	if err != nil {
-		t.Fatalf("WorkspaceOf: %v", err)
+		t.Fatalf("WorkspaceFrom: %v", err)
 	}
 	summary, err := apptypes.MemorySummaryOf(
 		domtypes.MemoryID("memory-import-cli"),

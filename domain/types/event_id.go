@@ -9,8 +9,8 @@ import (
 // EventID is a value object representing an event identifier.
 type EventID string
 
-// EventIDOf creates an EventID from a string.
-func EventIDOf(value string) (EventID, error) {
+// EventIDFrom creates an EventID from a string.
+func EventIDFrom(value string) (EventID, error) {
 	trimmedValue := strings.TrimSpace(value)
 	if trimmedValue == "" {
 		return EventID(""), xerrors.Errorf("event ID must not be empty")

@@ -420,11 +420,11 @@ func scanMemorySummary(rowScanner interface {
 }
 
 func restoreMemorySummary(row memoryRow) (apptypes.MemorySummary, error) {
-	memoryID, err := types.MemoryIDOf(row.memoryID)
+	memoryID, err := types.MemoryIDFrom(row.memoryID)
 	if err != nil {
 		return apptypes.MemorySummary{}, xerrors.Errorf("failed to restore memory ID: %w", err)
 	}
-	memoryType, err := types.MemoryTypeOf(row.memoryType)
+	memoryType, err := types.MemoryTypeFrom(row.memoryType)
 	if err != nil {
 		return apptypes.MemorySummary{}, xerrors.Errorf("failed to restore memory type: %w", err)
 	}
@@ -432,21 +432,21 @@ func restoreMemorySummary(row memoryRow) (apptypes.MemorySummary, error) {
 	if err != nil {
 		return apptypes.MemorySummary{}, xerrors.Errorf("failed to restore memory scope: %w", err)
 	}
-	status, err := types.MemoryStatusOf(row.status)
+	status, err := types.MemoryStatusFrom(row.status)
 	if err != nil {
 		return apptypes.MemorySummary{}, xerrors.Errorf("failed to restore memory status: %w", err)
 	}
-	confidence, err := types.ConfidenceOf(row.confidence)
+	confidence, err := types.ConfidenceFrom(row.confidence)
 	if err != nil {
 		return apptypes.MemorySummary{}, xerrors.Errorf("failed to restore memory confidence: %w", err)
 	}
-	source, err := types.MemorySourceOf(row.source)
+	source, err := types.MemorySourceFrom(row.source)
 	if err != nil {
 		return apptypes.MemorySummary{}, xerrors.Errorf("failed to restore memory source: %w", err)
 	}
 	supersedes := types.None[types.MemoryID]()
 	if row.supersedes.Valid {
-		memoryIDValue, err := types.MemoryIDOf(row.supersedes.String)
+		memoryIDValue, err := types.MemoryIDFrom(row.supersedes.String)
 		if err != nil {
 			return apptypes.MemorySummary{}, xerrors.Errorf("failed to restore superseded memory ID: %w", err)
 		}
@@ -589,11 +589,11 @@ func loadMemoryEvidenceRefs(ctx context.Context, db *sql.DB, memoryID types.Memo
 		if err := rows.Scan(&kindValue, &refValue); err != nil {
 			return nil, xerrors.Errorf("failed to scan memory evidence ref row: %w", err)
 		}
-		kind, err := types.EvidenceRefKindOf(kindValue)
+		kind, err := types.EvidenceRefKindFrom(kindValue)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to restore evidence ref kind: %w", err)
 		}
-		evidenceRef, err := types.EvidenceRefOf(kind, refValue)
+		evidenceRef, err := types.EvidenceRefFrom(kind, refValue)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to restore evidence ref: %w", err)
 		}
@@ -623,11 +623,11 @@ func loadMemoryArtifactRefs(ctx context.Context, db *sql.DB, memoryID types.Memo
 		if err := rows.Scan(&kindValue, &refValue); err != nil {
 			return nil, xerrors.Errorf("failed to scan memory artifact ref row: %w", err)
 		}
-		kind, err := types.ArtifactRefKindOf(kindValue)
+		kind, err := types.ArtifactRefKindFrom(kindValue)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to restore artifact ref kind: %w", err)
 		}
-		artifactRef, err := types.ArtifactRefOf(kind, refValue)
+		artifactRef, err := types.ArtifactRefFrom(kind, refValue)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to restore artifact ref: %w", err)
 		}

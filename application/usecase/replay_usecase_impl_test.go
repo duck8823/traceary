@@ -71,9 +71,9 @@ func (s *stubReplayMemoryQuery) GetDetails(context.Context, domtypes.MemoryID) (
 
 func sessionSummary(t *testing.T, id string, workspace string) apptypes.SessionSummary {
 	t.Helper()
-	ws, err := domtypes.WorkspaceOf(workspace)
+	ws, err := domtypes.WorkspaceFrom(workspace)
 	if err != nil {
-		t.Fatalf("WorkspaceOf: %v", err)
+		t.Fatalf("WorkspaceFrom: %v", err)
 	}
 	return apptypes.SessionSummaryOf(
 		domtypes.SessionID(id),
@@ -87,9 +87,9 @@ func sessionSummary(t *testing.T, id string, workspace string) apptypes.SessionS
 
 func memorySummary(t *testing.T, id string, workspace string, fact string) apptypes.MemorySummary {
 	t.Helper()
-	ws, err := domtypes.WorkspaceOf(workspace)
+	ws, err := domtypes.WorkspaceFrom(workspace)
 	if err != nil {
-		t.Fatalf("WorkspaceOf: %v", err)
+		t.Fatalf("WorkspaceFrom: %v", err)
 	}
 	scope := domtypes.WorkspaceScopeOf(ws)
 	now := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)

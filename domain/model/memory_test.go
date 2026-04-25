@@ -16,9 +16,9 @@ func TestNewMemoryCandidate(t *testing.T) {
 	model.SetNowFunc(func() time.Time { return now })
 	defer model.ResetNowFunc()
 
-	memoryID, _ := types.MemoryIDOf("mem-1")
-	evidence, _ := types.EvidenceRefOf(types.EvidenceRefKindEvent, "event-1")
-	artifact, _ := types.ArtifactRefOf(types.ArtifactRefKindURL, "https://example.com/docs")
+	memoryID, _ := types.MemoryIDFrom("mem-1")
+	evidence, _ := types.EvidenceRefFrom(types.EvidenceRefKindEvent, "event-1")
+	artifact, _ := types.ArtifactRefFrom(types.ArtifactRefKindURL, "https://example.com/docs")
 	memory, err := model.NewMemoryCandidate(
 		memoryID,
 		types.MemoryTypeDecision,
@@ -76,8 +76,8 @@ func TestNewMemoryCandidate(t *testing.T) {
 func TestNewAcceptedMemory(t *testing.T) {
 	t.Parallel()
 
-	memoryID, _ := types.MemoryIDOf("mem-2")
-	previousID, _ := types.MemoryIDOf("mem-1")
+	memoryID, _ := types.MemoryIDFrom("mem-2")
+	previousID, _ := types.MemoryIDFrom("mem-1")
 	memory, err := model.NewAcceptedMemory(
 		memoryID,
 		types.MemoryTypePreference,
@@ -111,7 +111,7 @@ func TestMemory_StateTransitions(t *testing.T) {
 
 	newCandidate := func(t *testing.T) *model.Memory {
 		t.Helper()
-		memoryID, _ := types.MemoryIDOf("mem-transition")
+		memoryID, _ := types.MemoryIDFrom("mem-transition")
 		memory, err := model.NewMemoryCandidate(
 			memoryID,
 			types.MemoryTypeLesson,
@@ -236,9 +236,9 @@ func TestMemory_StateTransitions(t *testing.T) {
 func TestNewMemoryCandidate_ClonesSlices(t *testing.T) {
 	t.Parallel()
 
-	memoryID, _ := types.MemoryIDOf("mem-clone")
-	evidence, _ := types.EvidenceRefOf(types.EvidenceRefKindEvent, "event-9")
-	artifact, _ := types.ArtifactRefOf(types.ArtifactRefKindFile, "docs/spec.md")
+	memoryID, _ := types.MemoryIDFrom("mem-clone")
+	evidence, _ := types.EvidenceRefFrom(types.EvidenceRefKindEvent, "event-9")
+	artifact, _ := types.ArtifactRefFrom(types.ArtifactRefKindFile, "docs/spec.md")
 	evidenceRefs := []types.EvidenceRef{evidence}
 	artifactRefs := []types.ArtifactRef{artifact}
 	memory, err := model.NewMemoryCandidate(

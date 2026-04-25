@@ -175,9 +175,9 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve secret handling policy", "secret 取り扱いポリシーの解決に失敗しました"), err)
 	}
 
-	client, _ := types.ClientOf(resolveOptionalValue(input.client, "TRACEARY_CLIENT", defaultClientValue))
-	agent, _ := types.AgentOf(resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue))
-	sid, _ := types.SessionIDOf(sessionResolution.sessionID)
+	client, _ := types.ClientFrom(resolveOptionalValue(input.client, "TRACEARY_CLIENT", defaultClientValue))
+	agent, _ := types.AgentFrom(resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue))
+	sid, _ := types.SessionIDFrom(sessionResolution.sessionID)
 	auditCfg := apptypes.NewAuditRedactionBuilder().
 		AllowSecrets(allowSecrets).
 		MaxInputBytes(maxInputBytes).

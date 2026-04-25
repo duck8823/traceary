@@ -131,11 +131,11 @@ func (c *RootCLI) runMemoryGraphAdd(ctx context.Context, output io.Writer, input
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
-	fromID, err := domtypes.MemoryIDOf(strings.TrimSpace(input.fromID))
+	fromID, err := domtypes.MemoryIDFrom(strings.TrimSpace(input.fromID))
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to parse from memory ID", "from memory ID の解析に失敗しました"), err)
 	}
-	toID, err := domtypes.MemoryIDOf(strings.TrimSpace(input.toID))
+	toID, err := domtypes.MemoryIDFrom(strings.TrimSpace(input.toID))
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to parse to memory ID", "to memory ID の解析に失敗しました"), err)
 	}

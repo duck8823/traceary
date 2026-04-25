@@ -34,8 +34,8 @@ type ArtifactRef struct {
 	value string
 }
 
-// ArtifactRefKindOf creates an ArtifactRefKind from a string.
-func ArtifactRefKindOf(value string) (ArtifactRefKind, error) {
+// ArtifactRefKindFrom creates an ArtifactRefKind from a string.
+func ArtifactRefKindFrom(value string) (ArtifactRefKind, error) {
 	trimmedValue := strings.TrimSpace(value)
 	if trimmedValue == "" {
 		return ArtifactRefKind(""), xerrors.Errorf("artifact ref kind must not be empty")
@@ -46,13 +46,13 @@ func ArtifactRefKindOf(value string) (ArtifactRefKind, error) {
 	return ArtifactRefKind(""), xerrors.Errorf("unknown artifact ref kind: %s", trimmedValue)
 }
 
-// ArtifactRefOf creates an ArtifactRef.
-func ArtifactRefOf(kind ArtifactRefKind, value string) (ArtifactRef, error) {
+// ArtifactRefFrom creates an ArtifactRef.
+func ArtifactRefFrom(kind ArtifactRefKind, value string) (ArtifactRef, error) {
 	trimmedValue := strings.TrimSpace(value)
 	if trimmedValue == "" {
 		return ArtifactRef{}, xerrors.Errorf("artifact ref value must not be empty")
 	}
-	if _, err := ArtifactRefKindOf(kind.String()); err != nil {
+	if _, err := ArtifactRefKindFrom(kind.String()); err != nil {
 		return ArtifactRef{}, err
 	}
 	return ArtifactRef{kind: kind, value: trimmedValue}, nil

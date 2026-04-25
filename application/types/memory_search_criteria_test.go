@@ -12,7 +12,7 @@ import (
 func TestMemorySearchCriteriaBuilder(t *testing.T) {
 	t.Parallel()
 
-	agent, _ := domtypes.AgentOf("codex")
+	agent, _ := domtypes.AgentFrom("codex")
 	criteria := apptypes.NewMemorySearchCriteriaBuilder(10).
 		Query("release").
 		Offset(2).

@@ -12,9 +12,9 @@ import (
 func TestNewCommandAudit(t *testing.T) {
 	t.Parallel()
 
-	eventID, err := types.EventIDOf("event-1")
+	eventID, err := types.EventIDFrom("event-1")
 	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
+		t.Fatalf("EventIDFrom() error = %v", err)
 	}
 
 	t.Run("creates command audit successfully", func(t *testing.T) {
@@ -62,7 +62,7 @@ func TestNewCommandAudit(t *testing.T) {
 func TestCommandAuditOf(t *testing.T) {
 	t.Parallel()
 
-	eventID, _ := types.EventIDOf("event-2")
+	eventID, _ := types.EventIDFrom("event-2")
 
 	audit := model.CommandAuditOf(eventID, "go build", "input-data", "output-data", false, true, types.None[int]())
 

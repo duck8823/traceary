@@ -13,17 +13,17 @@ func TestNewEvent(t *testing.T) {
 	model.SetNowFunc(func() time.Time { return fixedTime })
 	defer model.ResetNowFunc()
 
-	eventID, err := types.EventIDOf("event-1")
+	eventID, err := types.EventIDFrom("event-1")
 	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
+		t.Fatalf("EventIDFrom() error = %v", err)
 	}
-	agent, err := types.AgentOf("codex")
+	agent, err := types.AgentFrom("codex")
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
-	sessionID, err := types.SessionIDOf("session-1")
+	sessionID, err := types.SessionIDFrom("session-1")
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
 
 	tests := []struct {
@@ -83,9 +83,9 @@ func TestNewEvent(t *testing.T) {
 func TestEventOf(t *testing.T) {
 	t.Parallel()
 
-	eventID, _ := types.EventIDOf("event-1")
-	agent, _ := types.AgentOf("claude")
-	sessionID, _ := types.SessionIDOf("session-1")
+	eventID, _ := types.EventIDFrom("event-1")
+	agent, _ := types.AgentFrom("claude")
+	sessionID, _ := types.SessionIDFrom("session-1")
 	ts := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 
 	event := model.EventOf(eventID, types.EventKindNote, types.Client("cli"), agent, sessionID, types.Workspace("duck8823/traceary"), "hello", ts)

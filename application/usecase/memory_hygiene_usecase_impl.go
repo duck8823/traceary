@@ -514,7 +514,7 @@ func (u *memoryHygieneUsecase) Apply(ctx context.Context, criteria apptypes.Memo
 			})
 			continue
 		}
-		memoryID, err := domtypes.MemoryIDOf(trimmed)
+		memoryID, err := domtypes.MemoryIDFrom(trimmed)
 		if err != nil {
 			result.Failures = append(result.Failures, apptypes.MemoryHygieneApplyFailure{
 				MemoryID: trimmed,

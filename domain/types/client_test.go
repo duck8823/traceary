@@ -6,7 +6,7 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-func TestClientOf(t *testing.T) {
+func TestClientFrom(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -27,12 +27,12 @@ func TestClientOf(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := types.ClientOf(tt.input)
+			got, err := types.ClientFrom(tt.input)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("ClientOf(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+				t.Fatalf("ClientFrom(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
 			}
 			if !tt.wantErr && got.String() != tt.want {
-				t.Errorf("ClientOf(%q).String() = %q, want %q", tt.input, got.String(), tt.want)
+				t.Errorf("ClientFrom(%q).String() = %q, want %q", tt.input, got.String(), tt.want)
 			}
 		})
 	}

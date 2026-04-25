@@ -17,17 +17,17 @@ func TestRootCLI_ListCommand(t *testing.T) {
 	t.Run("displays event list", func(t *testing.T) {
 		t.Parallel()
 
-		eventID, err := types.EventIDOf("event-1")
+		eventID, err := types.EventIDFrom("event-1")
 		if err != nil {
-			t.Fatalf("EventIDOf() error = %v", err)
+			t.Fatalf("EventIDFrom() error = %v", err)
 		}
-		agent, err := types.AgentOf("codex")
+		agent, err := types.AgentFrom("codex")
 		if err != nil {
-			t.Fatalf("AgentOf() error = %v", err)
+			t.Fatalf("AgentFrom() error = %v", err)
 		}
-		sessionID, err := types.SessionIDOf("session-1")
+		sessionID, err := types.SessionIDFrom("session-1")
 		if err != nil {
-			t.Fatalf("SessionIDOf() error = %v", err)
+			t.Fatalf("SessionIDFrom() error = %v", err)
 		}
 
 		listStub := &eventUsecaseStub{
@@ -79,17 +79,17 @@ func TestRootCLI_ListCommand(t *testing.T) {
 	t.Run("displays event list in JSON format", func(t *testing.T) {
 		t.Parallel()
 
-		eventID, err := types.EventIDOf("event-2")
+		eventID, err := types.EventIDFrom("event-2")
 		if err != nil {
-			t.Fatalf("EventIDOf() error = %v", err)
+			t.Fatalf("EventIDFrom() error = %v", err)
 		}
-		agent, err := types.AgentOf("codex")
+		agent, err := types.AgentFrom("codex")
 		if err != nil {
-			t.Fatalf("AgentOf() error = %v", err)
+			t.Fatalf("AgentFrom() error = %v", err)
 		}
-		sessionID, err := types.SessionIDOf("session-2")
+		sessionID, err := types.SessionIDFrom("session-2")
 		if err != nil {
-			t.Fatalf("SessionIDOf() error = %v", err)
+			t.Fatalf("SessionIDFrom() error = %v", err)
 		}
 
 		listStub := &eventUsecaseStub{

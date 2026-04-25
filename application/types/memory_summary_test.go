@@ -14,9 +14,9 @@ import (
 func TestMemorySummaryOf(t *testing.T) {
 	t.Parallel()
 
-	memoryID, _ := domtypes.MemoryIDOf("mem-1")
-	workspace, _ := domtypes.WorkspaceOf("github.com/duck8823/traceary")
-	supersedes, _ := domtypes.MemoryIDOf("mem-0")
+	memoryID, _ := domtypes.MemoryIDFrom("mem-1")
+	workspace, _ := domtypes.WorkspaceFrom("github.com/duck8823/traceary")
+	supersedes, _ := domtypes.MemoryIDFrom("mem-0")
 	expiresAt := time.Date(2026, 4, 13, 10, 0, 0, 0, time.UTC)
 	createdAt := time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC)
 	updatedAt := time.Date(2026, 4, 12, 12, 0, 0, 0, time.UTC)
@@ -54,8 +54,8 @@ func TestMemorySummaryOf(t *testing.T) {
 func TestMemorySummaryFrom(t *testing.T) {
 	t.Parallel()
 
-	memoryID, _ := domtypes.MemoryIDOf("mem-2")
-	agent, _ := domtypes.AgentOf("codex")
+	memoryID, _ := domtypes.MemoryIDFrom("mem-2")
+	agent, _ := domtypes.AgentFrom("codex")
 	memory := model.MemoryOf(
 		memoryID,
 		domtypes.MemoryTypeLesson,

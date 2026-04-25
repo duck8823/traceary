@@ -31,8 +31,8 @@ var knownMemoryTypes = []MemoryType{
 	MemoryTypeArtifact,
 }
 
-// MemoryTypeOf creates a MemoryType from a string.
-func MemoryTypeOf(value string) (MemoryType, error) {
+// MemoryTypeFrom creates a MemoryType from a string.
+func MemoryTypeFrom(value string) (MemoryType, error) {
 	trimmedValue := strings.TrimSpace(value)
 	if trimmedValue == "" {
 		return MemoryType(""), xerrors.Errorf("memory type must not be empty")

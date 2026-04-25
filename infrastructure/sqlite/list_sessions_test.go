@@ -84,8 +84,8 @@ GROUP BY e.session_id;`),
 
 func saveTestSession(ctx context.Context, t *testing.T, ds *infra.SessionDatasource, sessionID string, startedAt time.Time, endedAt types.Optional[time.Time], agent string, workspace string) {
 	t.Helper()
-	ag, _ := types.AgentOf(agent)
-	sid, _ := types.SessionIDOf(sessionID)
+	ag, _ := types.AgentFrom(agent)
+	sid, _ := types.SessionIDFrom(sessionID)
 	session := model.SessionOf(sid, startedAt, endedAt, types.Client("hook"), ag, types.Workspace(workspace), "", "", types.SessionID(""))
 	if err := ds.SaveSessionBoundaryForTest(ctx, session); err != nil {
 		t.Fatalf("SaveSessionBoundaryForTest() error = %v", err)
@@ -122,9 +122,9 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		}
 
 		for _, e := range events {
-			eid, _ := types.EventIDOf(e.id)
-			agent, _ := types.AgentOf(e.agent)
-			sid, _ := types.SessionIDOf(e.sessionID)
+			eid, _ := types.EventIDFrom(e.id)
+			agent, _ := types.AgentFrom(e.agent)
+			sid, _ := types.SessionIDFrom(e.sessionID)
 			event, _ := model.NewEvent(eid, e.kind, "hook", agent, sid, "duck8823/traceary", e.body)
 			if err := fixture.eventDS.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
@@ -196,9 +196,9 @@ func TestDatasource_ListSummaries(t *testing.T) {
 			{"e1", "claude", "s1"},
 			{"e2", "codex", "s2"},
 		} {
-			eid, _ := types.EventIDOf(e.id)
-			agent, _ := types.AgentOf(e.agent)
-			sid, _ := types.SessionIDOf(e.sid)
+			eid, _ := types.EventIDFrom(e.id)
+			agent, _ := types.AgentFrom(e.agent)
+			sid, _ := types.SessionIDFrom(e.sid)
 			event, _ := model.NewEvent(eid, types.EventKindSessionStarted, "hook", agent, sid, "workspace", "start")
 			if err := fixture.eventDS.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
@@ -239,9 +239,9 @@ func TestDatasource_ListSummaries(t *testing.T) {
 			{"e1", "s-old", 1},
 			{"e2", "s-new", 10},
 		} {
-			eid, _ := types.EventIDOf(e.id)
-			agent, _ := types.AgentOf("claude")
-			sid, _ := types.SessionIDOf(e.sid)
+			eid, _ := types.EventIDFrom(e.id)
+			agent, _ := types.AgentFrom("claude")
+			sid, _ := types.SessionIDFrom(e.sid)
 			ts := time.Date(2026, 4, e.dayOfMon, 12, 0, 0, 0, time.UTC)
 			event := model.EventOf(eid, types.EventKindSessionStarted, "hook", agent, sid, "workspace", "start", ts)
 			if err := fixture.eventDS.Save(ctx, event); err != nil {
@@ -280,9 +280,9 @@ func TestDatasource_ListSummaries(t *testing.T) {
 			{"e1", "claude", "s1"},
 			{"e2", "claude", "s2"},
 		} {
-			eid, _ := types.EventIDOf(e.id)
-			agent, _ := types.AgentOf(e.agent)
-			sid, _ := types.SessionIDOf(e.sid)
+			eid, _ := types.EventIDFrom(e.id)
+			agent, _ := types.AgentFrom(e.agent)
+			sid, _ := types.SessionIDFrom(e.sid)
 			event, _ := model.NewEvent(eid, types.EventKindSessionStarted, "hook", agent, sid, "workspace", "start")
 			if err := fixture.eventDS.Save(ctx, event); err != nil {
 				t.Fatalf("Save() error = %v", err)
@@ -323,9 +323,9 @@ func TestDatasource_ListSummaries(t *testing.T) {
 			{"e1", "s-old", 1},
 			{"e2", "s-new", 10},
 		} {
-			eid, _ := types.EventIDOf(e.id)
-			agent, _ := types.AgentOf("claude")
-			sid, _ := types.SessionIDOf(e.sid)
+			eid, _ := types.EventIDFrom(e.id)
+			agent, _ := types.AgentFrom("claude")
+			sid, _ := types.SessionIDFrom(e.sid)
 			ts := time.Date(2026, 4, e.dayOfMon, 12, 0, 0, 0, time.UTC)
 			event := model.EventOf(eid, types.EventKindSessionStarted, "hook", agent, sid, "workspace", "start", ts)
 			if err := fixture.eventDS.Save(ctx, event); err != nil {

@@ -44,7 +44,7 @@ func (u *sessionUsecase) Start(ctx context.Context, client types.Client, agent t
 	if err != nil {
 		return nil, xerrors.Errorf("failed to start session: %w", err)
 	}
-	if _, err := types.AgentOf(agent.String()); err != nil {
+	if _, err := types.AgentFrom(agent.String()); err != nil {
 		return nil, xerrors.Errorf("failed to start session: %w", err)
 	}
 
@@ -79,7 +79,7 @@ func (u *sessionUsecase) End(ctx context.Context, client types.Client, agent typ
 		return nil, xerrors.Errorf("session repository is not configured")
 	}
 
-	resolvedSessionID, err := types.SessionIDOf(sessionID.String())
+	resolvedSessionID, err := types.SessionIDFrom(sessionID.String())
 	if err != nil {
 		return nil, xerrors.Errorf("failed to end session: %w", err)
 	}
@@ -94,7 +94,7 @@ func (u *sessionUsecase) End(ctx context.Context, client types.Client, agent typ
 	}
 
 	resolvedClient, resolvedAgent, resolvedWorkspace := inheritAttribution(client, agent, workspace, existingSession)
-	if _, err := types.AgentOf(resolvedAgent.String()); err != nil {
+	if _, err := types.AgentFrom(resolvedAgent.String()); err != nil {
 		return nil, xerrors.Errorf("failed to end session: %w", err)
 	}
 
@@ -119,7 +119,7 @@ func (u *sessionUsecase) Label(ctx context.Context, sessionID types.SessionID, l
 		return xerrors.Errorf("session ID must not be empty")
 	}
 
-	resolvedSessionID, err := types.SessionIDOf(trimmedSessionID)
+	resolvedSessionID, err := types.SessionIDFrom(trimmedSessionID)
 	if err != nil {
 		return xerrors.Errorf("failed to resolve session ID: %w", err)
 	}
@@ -221,7 +221,7 @@ func (u *sessionUsecase) resolveSessionStartID(sessionID types.SessionID) (types
 		return generated, true, nil
 	}
 
-	resolved, err := types.SessionIDOf(trimmedValue)
+	resolved, err := types.SessionIDFrom(trimmedValue)
 	if err != nil {
 		return types.SessionID(""), false, xerrors.Errorf("failed to convert session ID: %w", err)
 	}

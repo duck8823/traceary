@@ -8,7 +8,7 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-func TestMemoryScopeKindOf(t *testing.T) {
+func TestMemoryScopeKindFrom(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -27,12 +27,12 @@ func TestMemoryScopeKindOf(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := types.MemoryScopeKindOf(tt.input)
+			got, err := types.MemoryScopeKindFrom(tt.input)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("MemoryScopeKindOf() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("MemoryScopeKindFrom() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if !tt.wantErr && got != tt.want {
-				t.Fatalf("MemoryScopeKindOf() = %v, want %v", got, tt.want)
+				t.Fatalf("MemoryScopeKindFrom() = %v, want %v", got, tt.want)
 			}
 		})
 	}

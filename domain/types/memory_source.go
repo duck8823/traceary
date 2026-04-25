@@ -25,8 +25,8 @@ var knownMemorySources = []MemorySource{
 	MemorySourceImported,
 }
 
-// MemorySourceOf creates a MemorySource from a string.
-func MemorySourceOf(value string) (MemorySource, error) {
+// MemorySourceFrom creates a MemorySource from a string.
+func MemorySourceFrom(value string) (MemorySource, error) {
 	trimmedValue := strings.TrimSpace(value)
 	if trimmedValue == "" {
 		return MemorySource(""), xerrors.Errorf("memory source must not be empty")

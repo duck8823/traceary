@@ -19,17 +19,17 @@ import (
 func TestRootCLI_SessionStartCommand(t *testing.T) {
 	t.Parallel()
 
-	eventID, err := types.EventIDOf("event-1")
+	eventID, err := types.EventIDFrom("event-1")
 	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
+		t.Fatalf("EventIDFrom() error = %v", err)
 	}
-	agent, err := types.AgentOf("codex")
+	agent, err := types.AgentFrom("codex")
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
-	sessionID, err := types.SessionIDOf("session-1")
+	sessionID, err := types.SessionIDFrom("session-1")
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
 
 	stdout := &bytes.Buffer{}
@@ -71,17 +71,17 @@ func TestRootCLI_SessionStartCommand(t *testing.T) {
 func TestRootCLI_SessionStartCommand_IdOnly(t *testing.T) {
 	t.Parallel()
 
-	eventID, err := types.EventIDOf("event-start-id-only")
+	eventID, err := types.EventIDFrom("event-start-id-only")
 	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
+		t.Fatalf("EventIDFrom() error = %v", err)
 	}
-	agent, err := types.AgentOf("codex")
+	agent, err := types.AgentFrom("codex")
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
-	sessionID, err := types.SessionIDOf("session-start-id-only")
+	sessionID, err := types.SessionIDFrom("session-start-id-only")
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
 
 	stdout := &bytes.Buffer{}
@@ -159,17 +159,17 @@ func TestRootCLI_SessionStartCommand_UsesDetectedRepoByDefault(t *testing.T) {
 	})
 	defer cli.ResetDetectRepoContextFunc()
 
-	eventID, err := types.EventIDOf("event-1b")
+	eventID, err := types.EventIDFrom("event-1b")
 	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
+		t.Fatalf("EventIDFrom() error = %v", err)
 	}
-	agent, err := types.AgentOf("codex")
+	agent, err := types.AgentFrom("codex")
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
-	sessionID, err := types.SessionIDOf("session-auto-repo")
+	sessionID, err := types.SessionIDFrom("session-auto-repo")
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
@@ -205,17 +205,17 @@ func TestRootCLI_SessionEndCommand(t *testing.T) {
 	})
 	defer cli.ResetDetectRepoContextFunc()
 
-	eventID, err := types.EventIDOf("event-2")
+	eventID, err := types.EventIDFrom("event-2")
 	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
+		t.Fatalf("EventIDFrom() error = %v", err)
 	}
-	agent, err := types.AgentOf("codex")
+	agent, err := types.AgentFrom("codex")
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
-	sessionID, err := types.SessionIDOf("session-env")
+	sessionID, err := types.SessionIDFrom("session-env")
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
@@ -250,17 +250,17 @@ func TestRootCLI_SessionEndCommand(t *testing.T) {
 func TestRootCLI_SessionEndCommand_IdOnly(t *testing.T) {
 	t.Setenv("TRACEARY_SESSION_ID", "session-env")
 
-	eventID, err := types.EventIDOf("event-end-id-only")
+	eventID, err := types.EventIDFrom("event-end-id-only")
 	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
+		t.Fatalf("EventIDFrom() error = %v", err)
 	}
-	agent, err := types.AgentOf("codex")
+	agent, err := types.AgentFrom("codex")
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
-	sessionID, err := types.SessionIDOf("session-env")
+	sessionID, err := types.SessionIDFrom("session-env")
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
 
 	stdout := &bytes.Buffer{}
@@ -334,17 +334,17 @@ func TestRootCLI_SessionEndCommand_JSON(t *testing.T) {
 func TestRootCLI_SessionLatestCommand(t *testing.T) {
 	t.Parallel()
 
-	eventID, err := types.EventIDOf("event-3")
+	eventID, err := types.EventIDFrom("event-3")
 	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
+		t.Fatalf("EventIDFrom() error = %v", err)
 	}
-	agent, err := types.AgentOf("codex")
+	agent, err := types.AgentFrom("codex")
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
-	sessionID, err := types.SessionIDOf("session-latest")
+	sessionID, err := types.SessionIDFrom("session-latest")
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
 
 	stdout := &bytes.Buffer{}
@@ -422,17 +422,17 @@ func TestRootCLI_SessionLatestCommand_JSON(t *testing.T) {
 func TestRootCLI_SessionActiveCommand(t *testing.T) {
 	t.Parallel()
 
-	eventID, err := types.EventIDOf("event-4")
+	eventID, err := types.EventIDFrom("event-4")
 	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
+		t.Fatalf("EventIDFrom() error = %v", err)
 	}
-	agent, err := types.AgentOf("codex")
+	agent, err := types.AgentFrom("codex")
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
-	sessionID, err := types.SessionIDOf("session-active")
+	sessionID, err := types.SessionIDFrom("session-active")
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
 
 	stdout := &bytes.Buffer{}
@@ -472,17 +472,17 @@ func TestRootCLI_SessionActiveCommand(t *testing.T) {
 func TestRootCLI_SessionActiveCommand_StaleError(t *testing.T) {
 	t.Parallel()
 
-	eventID, err := types.EventIDOf("event-5")
+	eventID, err := types.EventIDFrom("event-5")
 	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
+		t.Fatalf("EventIDFrom() error = %v", err)
 	}
-	agent, err := types.AgentOf("codex")
+	agent, err := types.AgentFrom("codex")
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
-	sessionID, err := types.SessionIDOf("session-stale")
+	sessionID, err := types.SessionIDFrom("session-stale")
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
 
 	rootCmd := cli.NewRootCLI(
@@ -521,17 +521,17 @@ func TestRootCLI_SessionActiveCommand_StaleError(t *testing.T) {
 func TestRootCLI_SessionActiveCommand_AllowStale(t *testing.T) {
 	t.Parallel()
 
-	eventID, err := types.EventIDOf("event-6")
+	eventID, err := types.EventIDFrom("event-6")
 	if err != nil {
-		t.Fatalf("EventIDOf() error = %v", err)
+		t.Fatalf("EventIDFrom() error = %v", err)
 	}
-	agent, err := types.AgentOf("codex")
+	agent, err := types.AgentFrom("codex")
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
-	sessionID, err := types.SessionIDOf("session-stale")
+	sessionID, err := types.SessionIDFrom("session-stale")
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
 
 	stdout := &bytes.Buffer{}
@@ -603,9 +603,9 @@ func decodeJSONMap(t *testing.T, value string) map[string]any {
 func mustAgent(t *testing.T, value string) types.Agent {
 	t.Helper()
 
-	agent, err := types.AgentOf(value)
+	agent, err := types.AgentFrom(value)
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
 
 	return agent

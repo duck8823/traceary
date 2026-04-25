@@ -123,7 +123,7 @@ func buildImportDetails(scope domtypes.MemoryScope, fact string, status domtypes
 	}
 	var artifacts []domtypes.ArtifactRef
 	if sourcePath != "" {
-		artifact, err := domtypes.ArtifactRefOf(domtypes.ArtifactRefKindFile, sourcePath)
+		artifact, err := domtypes.ArtifactRefFrom(domtypes.ArtifactRefKindFile, sourcePath)
 		if err != nil {
 			panic(err)
 		}
@@ -134,22 +134,22 @@ func buildImportDetails(scope domtypes.MemoryScope, fact string, status domtypes
 
 func workspaceScope(t *testing.T, value string) domtypes.MemoryScope {
 	t.Helper()
-	workspace, err := domtypes.WorkspaceOf(value)
+	workspace, err := domtypes.WorkspaceFrom(value)
 	if err != nil {
-		t.Fatalf("WorkspaceOf: %v", err)
+		t.Fatalf("WorkspaceFrom: %v", err)
 	}
 	return domtypes.WorkspaceScopeOf(workspace)
 }
 
 func importCandidate(t *testing.T, fact string, scope domtypes.MemoryScope) apptypes.ImportedMemoryCandidate {
 	t.Helper()
-	evidence, err := domtypes.EvidenceRefOf(domtypes.EvidenceRefKindFile, "/tmp/MEMORY.md#L1-L1")
+	evidence, err := domtypes.EvidenceRefFrom(domtypes.EvidenceRefKindFile, "/tmp/MEMORY.md#L1-L1")
 	if err != nil {
-		t.Fatalf("EvidenceRefOf: %v", err)
+		t.Fatalf("EvidenceRefFrom: %v", err)
 	}
-	artifact, err := domtypes.ArtifactRefOf(domtypes.ArtifactRefKindFile, "/tmp/MEMORY.md")
+	artifact, err := domtypes.ArtifactRefFrom(domtypes.ArtifactRefKindFile, "/tmp/MEMORY.md")
 	if err != nil {
-		t.Fatalf("ArtifactRefOf: %v", err)
+		t.Fatalf("ArtifactRefFrom: %v", err)
 	}
 	return apptypes.ImportedMemoryCandidate{
 		MemoryType:   domtypes.MemoryTypePreference,

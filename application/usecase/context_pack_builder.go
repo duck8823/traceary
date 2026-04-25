@@ -226,7 +226,7 @@ func relevantMemoryScopes(session apptypes.SessionSummary) []domtypes.MemoryScop
 		appendScope(domtypes.SessionFamilyScopeOf(session.SessionID()))
 	}
 	for _, agentValue := range session.Agents() {
-		agent, err := domtypes.AgentOf(agentValue)
+		agent, err := domtypes.AgentFrom(agentValue)
 		if err != nil {
 			continue
 		}

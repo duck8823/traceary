@@ -106,9 +106,9 @@ func (c *RootCLI) runLog(ctx context.Context, output io.Writer, input logCommand
 		return err
 	}
 
-	client, _ := types.ClientOf(resolveOptionalValue(input.client, "TRACEARY_CLIENT", defaultClientValue))
-	agent, _ := types.AgentOf(resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue))
-	sessionID, _ := types.SessionIDOf(sessionResolution.sessionID)
+	client, _ := types.ClientFrom(resolveOptionalValue(input.client, "TRACEARY_CLIENT", defaultClientValue))
+	agent, _ := types.AgentFrom(resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue))
+	sessionID, _ := types.SessionIDFrom(sessionResolution.sessionID)
 	workspace := types.Workspace(resolvedRepo)
 	kind := types.EventKind(strings.TrimSpace(input.kind))
 	message := input.message

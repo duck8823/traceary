@@ -516,14 +516,14 @@ func containsAny(value string, needles ...string) bool {
 func buildSignalEvidenceRefs(sessionID domtypes.SessionID, event *model.Event) ([]domtypes.EvidenceRef, error) {
 	evidenceRefs := make([]domtypes.EvidenceRef, 0, 2)
 	if sessionID.String() != "" {
-		ref, err := domtypes.EvidenceRefOf(domtypes.EvidenceRefKindSession, sessionID.String())
+		ref, err := domtypes.EvidenceRefFrom(domtypes.EvidenceRefKindSession, sessionID.String())
 		if err != nil {
 			return nil, xerrors.Errorf("failed to build session evidence ref: %w", err)
 		}
 		evidenceRefs = append(evidenceRefs, ref)
 	}
 	if event != nil {
-		ref, err := domtypes.EvidenceRefOf(domtypes.EvidenceRefKindEvent, event.EventID().String())
+		ref, err := domtypes.EvidenceRefFrom(domtypes.EvidenceRefKindEvent, event.EventID().String())
 		if err != nil {
 			return nil, xerrors.Errorf("failed to build event evidence ref: %w", err)
 		}
@@ -540,7 +540,7 @@ func inferArtifactRefs(text string) ([]domtypes.ArtifactRef, error) {
 		if _, exists := seen[key]; exists {
 			return nil
 		}
-		ref, err := domtypes.ArtifactRefOf(kind, value)
+		ref, err := domtypes.ArtifactRefFrom(kind, value)
 		if err != nil {
 			return xerrors.Errorf("invalid artifact ref %s:%s: %w", kind, value, err)
 		}

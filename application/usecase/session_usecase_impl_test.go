@@ -184,13 +184,13 @@ func (s *eventQueryServiceStub) ListTimelineBlocks(
 func TestSessionUsecase_Label(t *testing.T) {
 	t.Parallel()
 
-	sessionID, err := types.SessionIDOf("session-1")
+	sessionID, err := types.SessionIDFrom("session-1")
 	if err != nil {
-		t.Fatalf("SessionIDOf() error = %v", err)
+		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
-	agent, err := types.AgentOf("claude")
+	agent, err := types.AgentFrom("claude")
 	if err != nil {
-		t.Fatalf("AgentOf() error = %v", err)
+		t.Fatalf("AgentFrom() error = %v", err)
 	}
 
 	t.Run("sets label on existing session", func(t *testing.T) {
