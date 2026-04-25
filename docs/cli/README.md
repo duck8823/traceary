@@ -592,9 +592,31 @@ Useful flags:
 
 Diagnose DB access, generated hook configuration presence, and client config integration.
 
-`warn` means Traceary found a first-run / not-configured-yet state, such as a missing host config file before hooks are installed.
-`fail` means Traceary found a broken runtime state, such as DB access problems or unreadable / invalid config.
-Only `fail` checks make `traceary doctor` exit non-zero.
+Text output is grouped into stable sections: `Environment`, `Database`, `Plugins`, `MCP`, and `Hooks`.
+Each check has a severity: `PASS`, `WARN`, or `FAIL`. `WARN` means Traceary found a first-run / not-configured-yet state, such as a missing host config file before hooks are installed. `FAIL` means Traceary found a broken runtime state, such as DB access problems or unreadable / invalid config.
+
+Exit codes:
+
+- `0`: all checks are `PASS`
+- `1`: at least one check is `FAIL`
+- `2`: at least one check is `WARN` and no checks are `FAIL`
+
+`--json` keeps the legacy top-level `checks` list and adds a sectioned structure:
+
+```json
+{
+  "sections": [
+    {
+      "name": "Environment",
+      "checks": [
+        {"name": "config", "severity": "PASS", "message": "...", "hint": ""}
+      ]
+    }
+  ],
+  "summary": {"pass": 3, "warn": 1, "fail": 0},
+  "exit_code": 2
+}
+```
 
 Alias:
 

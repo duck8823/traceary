@@ -9,6 +9,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [v0.10.0] - Unreleased
 
 ### Added
+- **Sectioned `traceary doctor` output (#734)** — doctor reports are grouped into `Environment`, `Database`, `Plugins`, `MCP`, and `Hooks`; JSON output now includes additive `sections`, `summary`, and `exit_code` fields. Check severities are normalized to `PASS` / `WARN` / `FAIL`, with exit code `0` for all pass, `1` for any fail, and `2` for warnings without failures.
 - **Experimental Anthropic native memory-tool backend (#742)** — `pkg/anthropicmemory` exposes a Go handler for Anthropic SDK `BetaMemoryTool20250818CommandUnion` payloads and returns SDK `tool_result` content backed by Traceary's local `memory_tool_files` table. The tool contract is pinned to `memory_20250818`; upgrades require manual review, not automatic SDK field bumps. A live-API smoke example is available in `examples/anthropic-memory/`.
 
 ### Docs
