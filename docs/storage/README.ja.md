@@ -141,18 +141,26 @@ Durable memory に紐づく artifact ref です。
 
 ## `gc` の既定動作
 
-`traceary gc` は、古い event 履歴を retention ベースで掃除するコマンドです。
+`traceary store gc` は、local store data を retention ベースで掃除するコマンドです。
 
 - 既定 retention: `90` 日 (`--keep-days 90`)
-- 選択条件: `events.created_at < cutoff` の row を削除
-- `--dry-run`: 削除候補件数だけ表示
-- 削除後に `VACUUM` を実行
+- 既定 target: `all` (`--target all`)
+- 利用可能な target: `events`, `sessions`, `memories`, `memory_edges`, `all`
+- `--dry-run`: 同じ削除計画を rollback される transaction 内で実行し、候補件数だけ表示
+- 非 dry-run で削除があった場合は `VACUUM` を実行
+
+target ごとの policy:
+
+- `events`: `events.created_at < cutoff` の row を削除します。紐づく `command_audits` は foreign key により cascade されます。
+- `sessions`: `COALESCE(ended_at, started_at) < cutoff` かつ surviving event から参照されていない終了済み session を削除します。active session (`ended_at IS NULL`) は常に保護されます。
+- `memories`: `updated_at < cutoff` の `expired` / `superseded` memory だけを削除します。`accepted`、`proposed`、その他の status は status が変わらない限り無期限に保持します。evidence/artifact ref は cascade され、削除対象を指す `supersedes_memory_id` は FK 整合性維持のため事前に NULL へ更新されます。
+- `memory_edges`: `valid_to < cutoff` の終了済み edge を削除します。endpoint の memory が削除される場合も edge は自動 cascade されます。
+- `all`: events、sessions、memories、memory_edges の順に依存関係を保って適用します。
 
 実務上の意味:
 
 - `gc` は opt-in であり、Traceary が background で自動削除することはありません
-- `gc` を実行すると、該当する `events` と紐づく `command_audits` は削除されます
-- 現在の `gc` は `sessions` や durable memory (`memories`, `memory_evidence_refs`, `memory_artifact_refs`) を削除しません
+- 従来どおり event だけを掃除したい場合は `--target events` を使ってください
 - 長期の監査履歴を残したい場合は、強めの cleanup の前に backup を取ってください
 
 ## backup の既定動作

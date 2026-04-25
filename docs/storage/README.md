@@ -142,18 +142,26 @@ If you need a portable copy, use `traceary backup create` instead of editing the
 
 ## `gc` defaults
 
-`traceary gc` is retention-based cleanup for old event history.
+`traceary store gc` is retention-based cleanup for local store data.
 
 - default retention: `90` days (`--keep-days 90`)
-- selection rule: delete rows where `events.created_at < cutoff`
-- `--dry-run`: print only the candidate count
-- after deletion, Traceary runs `VACUUM`
+- default target: `all` (`--target all`)
+- available targets: `events`, `sessions`, `memories`, `memory_edges`, `all`
+- `--dry-run`: run the same deletion plan inside a rolled-back transaction and print only the candidate count
+- after a non-dry-run deletion, Traceary runs `VACUUM`
+
+Target policies:
+
+- `events`: delete rows where `events.created_at < cutoff`; linked `command_audits` cascade via foreign keys.
+- `sessions`: delete ended sessions where `COALESCE(ended_at, started_at) < cutoff` and no surviving events reference the session. Active sessions (`ended_at IS NULL`) are always protected.
+- `memories`: delete only `expired` or `superseded` memories where `updated_at < cutoff`. `accepted`, `proposed`, and other statuses are kept indefinitely unless their status changes. Evidence/artifact refs cascade; `supersedes_memory_id` pointers to deleted rows are cleared first to preserve FK integrity.
+- `memory_edges`: delete closed edges where `valid_to < cutoff`; edges also cascade automatically when either endpoint memory is deleted.
+- `all`: apply the policies in dependency order: events, sessions, memories, then memory_edges.
 
 Practical implications:
 
 - `gc` is opt-in; Traceary does not delete history automatically in the background
-- a `gc` run removes matching `events` rows and linked `command_audits`
-- the current `gc` implementation does **not** delete `sessions` or durable-memory rows from `memories`, `memory_evidence_refs`, or `memory_artifact_refs`
+- use `--target events` for legacy event-only cleanup
 - if you care about long-term audit history, take a backup before an aggressive cleanup
 
 ## Backup defaults

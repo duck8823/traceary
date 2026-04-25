@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	_ "embed"
 	"fmt"
 	"io"
@@ -15,13 +16,23 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/application"
+	apptypes "github.com/duck8823/traceary/application/types"
 )
-
-//go:embed sql/count_deletable_events.sql
-var countDeletableEventsQuery string
 
 //go:embed sql/delete_old_events.sql
 var deleteOldEventsQuery string
+
+//go:embed sql/delete_empty_sessions.sql
+var deleteEmptySessionsQuery string
+
+//go:embed sql/clear_deleted_memory_supersedes_refs.sql
+var clearDeletedMemorySupersedesRefsQuery string
+
+//go:embed sql/delete_old_memories.sql
+var deleteOldMemoriesQuery string
+
+//go:embed sql/delete_old_memory_edges.sql
+var deleteOldMemoryEdgesQuery string
 
 //go:embed sql/count_stale_sessions.sql
 var countStaleSessionsQuery string
@@ -170,10 +181,11 @@ func (d *StoreManagementDatasource) RestoreBackup(ctx context.Context, inputPath
 	return nil
 }
 
-// CollectGarbage deletes events older than the given time.
+// CollectGarbage deletes store records older than the given time for the selected target.
 func (d *StoreManagementDatasource) CollectGarbage(
 	ctx context.Context,
 	before time.Time,
+	target apptypes.GarbageCollectionTarget,
 	dryRun bool,
 ) (int, error) {
 	db, err := d.db.open(ctx)
@@ -186,48 +198,109 @@ func (d *StoreManagementDatasource) CollectGarbage(
 		}
 	}()
 
-	beforeValue := formatTimestamp(before)
-
-	var deleteCount int
-	if err := db.QueryRowContext(
-		ctx,
-		countDeletableEventsQuery,
-		beforeValue,
-	).Scan(&deleteCount); err != nil {
-		return 0, xerrors.Errorf("failed to count deletable events: %w", err)
-	}
-
-	if dryRun || deleteCount == 0 {
-		return deleteCount, nil
-	}
-
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, xerrors.Errorf("failed to begin garbage-collection transaction: %w", err)
 	}
+	committed := false
 	defer func() {
+		if committed {
+			return
+		}
 		if err := tx.Rollback(); err != nil {
 			slog.Debug("failed to rollback transaction", "error", err)
 		}
 	}()
 
-	if _, err := tx.ExecContext(
-		ctx,
-		deleteOldEventsQuery,
-		beforeValue,
-	); err != nil {
-		return 0, xerrors.Errorf("failed to delete old events: %w", err)
+	deleteCount, err := d.collectGarbageInTx(ctx, tx, before, target)
+	if err != nil {
+		return 0, xerrors.Errorf("failed to collect garbage: %w", err)
 	}
-
+	if dryRun {
+		return deleteCount, nil
+	}
 	if err := tx.Commit(); err != nil {
 		return 0, xerrors.Errorf("failed to commit garbage-collection transaction: %w", err)
 	}
+	committed = true
 
-	if _, err := db.ExecContext(ctx, `VACUUM`); err != nil {
-		return 0, xerrors.Errorf("failed to run VACUUM: %w", err)
+	if deleteCount > 0 {
+		if _, err := db.ExecContext(ctx, `VACUUM`); err != nil {
+			return 0, xerrors.Errorf("failed to run VACUUM: %w", err)
+		}
 	}
 
 	return deleteCount, nil
+}
+
+func (d *StoreManagementDatasource) collectGarbageInTx(
+	ctx context.Context,
+	tx interface {
+		ExecContext(context.Context, string, ...any) (sql.Result, error)
+	},
+	before time.Time,
+	target apptypes.GarbageCollectionTarget,
+) (int, error) {
+	beforeValue := formatTimestamp(before)
+	memoryEdgeBeforeValue := formatMemoryValidityTimestamp(before)
+
+	if _, ok := apptypes.GarbageCollectionTargetFrom(target.String()); !ok {
+		return 0, xerrors.Errorf("unsupported garbage-collection target: %s", target)
+	}
+
+	total := 0
+	if target == apptypes.GarbageCollectionTargetEvents || target == apptypes.GarbageCollectionTargetAll {
+		count, err := execRowsAffected(ctx, tx, deleteOldEventsQuery, beforeValue)
+		if err != nil {
+			return 0, xerrors.Errorf("failed to delete old events: %w", err)
+		}
+		total += count
+	}
+	if target == apptypes.GarbageCollectionTargetSessions || target == apptypes.GarbageCollectionTargetAll {
+		count, err := execRowsAffected(ctx, tx, deleteEmptySessionsQuery, beforeValue)
+		if err != nil {
+			return 0, xerrors.Errorf("failed to delete empty sessions: %w", err)
+		}
+		total += count
+	}
+	if target == apptypes.GarbageCollectionTargetMemories || target == apptypes.GarbageCollectionTargetAll {
+		if _, err := tx.ExecContext(ctx, clearDeletedMemorySupersedesRefsQuery, beforeValue); err != nil {
+			return 0, xerrors.Errorf("failed to clear deleted memory supersedes references: %w", err)
+		}
+		count, err := execRowsAffected(ctx, tx, deleteOldMemoriesQuery, beforeValue)
+		if err != nil {
+			return 0, xerrors.Errorf("failed to delete old memories: %w", err)
+		}
+		total += count
+	}
+	if target == apptypes.GarbageCollectionTargetMemoryEdges || target == apptypes.GarbageCollectionTargetAll {
+		count, err := execRowsAffected(ctx, tx, deleteOldMemoryEdgesQuery, memoryEdgeBeforeValue)
+		if err != nil {
+			return 0, xerrors.Errorf("failed to delete old memory edges: %w", err)
+		}
+		total += count
+	}
+
+	return total, nil
+}
+
+func execRowsAffected(
+	ctx context.Context,
+	executor interface {
+		ExecContext(context.Context, string, ...any) (sql.Result, error)
+	},
+	query string,
+	args ...any,
+) (int, error) {
+	result, err := executor.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, xerrors.Errorf("failed to execute deletion query: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, xerrors.Errorf("failed to check rows affected: %w", err)
+	}
+	return int(rowsAffected), nil
 }
 
 // CloseStaleSessions closes active sessions that have no recent events.

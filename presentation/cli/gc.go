@@ -8,6 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
+
+	apptypes "github.com/duck8823/traceary/application/types"
 )
 
 const defaultRetentionDays = 90
@@ -29,23 +31,26 @@ func (c *RootCLI) newGCCommandWithDeprecation(deprecated string) *cobra.Command 
 	var (
 		dbPath   string
 		keepDays int
+		target   string
 		dryRun   bool
 	)
 
 	gcCmd := &cobra.Command{
 		Use:   "gc",
-		Short: Localize("Delete old events and compact the store", "古いイベントを削除してストアを最適化する"),
+		Short: Localize("Delete retained store records and compact the store", "保持期間を過ぎたストアレコードを削除して最適化する"),
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runGC(cmd.Context(), cmd.OutOrStdout(), gcCommandInput{
 				dbPath:   dbPath,
 				keepDays: keepDays,
+				target:   target,
 				dryRun:   dryRun,
 			})
 		},
 	}
 	gcCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	gcCmd.Flags().IntVar(&keepDays, "keep-days", defaultRetentionDays, Localize("number of days to retain", "保持する日数"))
+	gcCmd.Flags().StringVar(&target, "target", "all", Localize("records to prune (events | sessions | memories | memory_edges | all)", "削除対象 (events | sessions | memories | memory_edges | all)"))
 	gcCmd.Flags().BoolVar(&dryRun, "dry-run", false, Localize("print the number of candidate records only", "削除対象件数のみ表示する"))
 	if deprecated != "" {
 		applyDeprecation(gcCmd, deprecated)
@@ -71,8 +76,13 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
+	target, ok := apptypes.GarbageCollectionTargetFrom(input.target)
+	if !ok {
+		return xerrors.Errorf(Localize("--target must be one of events, sessions, memories, memory_edges, all", "--target は events, sessions, memories, memory_edges, all のいずれかである必要があります"))
+	}
+
 	cutoff := gcNowFunc().AddDate(0, 0, -input.keepDays)
-	result, err := c.storeManagement.CollectGarbage(ctx, cutoff, input.dryRun)
+	result, err := c.storeManagement.CollectGarbage(ctx, cutoff, target, input.dryRun)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to run garbage collection", "gc の実行に失敗しました"), err)
 	}

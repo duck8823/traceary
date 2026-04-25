@@ -637,13 +637,12 @@ DB 作成と migration 適用を明示的に先行実行します。通常コマ
 
 ### `traceary store gc`
 
-古いイベントを削除し、必要に応じて SQLite ストアを圧縮します。
+保持期間を過ぎたストアレコードを削除し、SQLite ストアを圧縮します。既定では `--target all` により、events、空になった終了済み sessions、expired/superseded memories、終了済み memory_edges に retention を適用します。従来の event のみの動作にしたい場合は `--target events` を指定します。
 
 主な flag:
 
-- `--before`
 - `--keep-days`
-- `--vacuum`
+- `--target events|sessions|memories|memory_edges|all`
 - `--dry-run`
 
 ## Integration コマンド

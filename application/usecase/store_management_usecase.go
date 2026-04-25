@@ -19,7 +19,7 @@ type StoreManagementUsecase interface {
 	RestoreBackup(ctx context.Context, inputPath string, overwrite bool) error
 
 	// CollectGarbage removes events older than the given time.
-	CollectGarbage(ctx context.Context, before time.Time, dryRun bool) (apptypes.CollectGarbageResult, error)
+	CollectGarbage(ctx context.Context, before time.Time, target apptypes.GarbageCollectionTarget, dryRun bool) (apptypes.CollectGarbageResult, error)
 
 	// CloseStaleSessions closes sessions active beyond the given duration.
 	CloseStaleSessions(ctx context.Context, staleAfter time.Duration, dryRun bool) (apptypes.CloseStaleSessionsResult, error)

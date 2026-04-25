@@ -86,7 +86,7 @@ func (tailStoreManagementStub) CreateBackup(context.Context, string, bool) error
 func (tailStoreManagementStub) RestoreBackup(context.Context, string, bool) error {
 	return nil
 }
-func (tailStoreManagementStub) CollectGarbage(context.Context, time.Time, bool) (apptypes.CollectGarbageResult, error) {
+func (tailStoreManagementStub) CollectGarbage(context.Context, time.Time, apptypes.GarbageCollectionTarget, bool) (apptypes.CollectGarbageResult, error) {
 	return apptypes.CollectGarbageResult{}, nil
 }
 func (tailStoreManagementStub) CloseStaleSessions(context.Context, time.Duration, bool) (apptypes.CloseStaleSessionsResult, error) {

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 )
 
@@ -23,7 +24,7 @@ func (s *storeInitializerStub) CreateBackup(_ context.Context, _ string, _ bool)
 func (s *storeInitializerStub) RestoreBackup(_ context.Context, _ string, _ bool) error {
 	return nil
 }
-func (s *storeInitializerStub) CollectGarbage(_ context.Context, _ time.Time, _ bool) (int, error) {
+func (s *storeInitializerStub) CollectGarbage(_ context.Context, _ time.Time, _ apptypes.GarbageCollectionTarget, _ bool) (int, error) {
 	return 0, nil
 }
 func (s *storeInitializerStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool) (int, error) {
