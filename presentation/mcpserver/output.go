@@ -68,6 +68,32 @@ type sessionHandoffOutput struct {
 	Memories       []memorySummaryOutput `json:"memories,omitempty"`
 }
 
+// sessionLineageOutput is the MCP output for session_status action=lineage.
+type sessionLineageOutput struct {
+	Roots []sessionLineageNodeOutput `json:"roots" jsonschema:"top-level root nodes in the lineage tree"`
+}
+
+type sessionLineageNodeOutput struct {
+	SessionID       string                     `json:"session_id" jsonschema:"session identifier"`
+	ParentSessionID string                     `json:"parent_session_id,omitempty" jsonschema:"parent session identifier"`
+	SpawnEventID    string                     `json:"spawn_event_id,omitempty" jsonschema:"event that spawned this child session"`
+	SubagentKind    string                     `json:"subagent_kind,omitempty" jsonschema:"subagent spawn kind"`
+	SpawnOrder      *int                       `json:"spawn_order,omitempty" jsonschema:"sibling spawn order"`
+	Depth           int                        `json:"depth" jsonschema:"depth from the lineage root"`
+	Workspace       string                     `json:"workspace,omitempty" jsonschema:"workspace identifier"`
+	Label           string                     `json:"label,omitempty" jsonschema:"user-assigned session label"`
+	Summary         string                     `json:"summary,omitempty" jsonschema:"session summary"`
+	StartedAt       string                     `json:"started_at" jsonschema:"start timestamp"`
+	EndedAt         *string                    `json:"ended_at,omitempty" jsonschema:"end timestamp"`
+	Status          string                     `json:"status" jsonschema:"session status"`
+	DurationSec     *float64                   `json:"duration_sec,omitempty" jsonschema:"duration in seconds"`
+	TotalEvents     int                        `json:"total_events" jsonschema:"total event count"`
+	CommandCount    int                        `json:"command_count" jsonschema:"command event count"`
+	Agents          []string                   `json:"agents" jsonschema:"agents seen in this session"`
+	SubagentType    string                     `json:"subagent_type,omitempty" jsonschema:"most specific subagent role"`
+	Children        []sessionLineageNodeOutput `json:"children" jsonschema:"child sessions ordered by spawn_order"`
+}
+
 // memoryPackOutput is the MCP output for the memory_pack tool.
 type memoryPackOutput = sessionHandoffOutput
 

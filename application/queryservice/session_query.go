@@ -16,4 +16,6 @@ type SessionQueryService interface {
 	FindLatest(ctx context.Context, client types.Client, agent types.Agent, workspace types.Workspace, activeOnly bool) (types.Optional[*model.Event], error)
 	// ListSummaries returns session summaries matching the criteria.
 	ListSummaries(ctx context.Context, limit, offset int, sessionID types.SessionID, workspace types.Workspace, client types.Client, agent types.Agent, label string, from, to types.Optional[time.Time]) ([]apptypes.SessionSummary, error)
+	// LineageOf returns the full session tree rooted at the topmost ancestor of sessionID.
+	LineageOf(ctx context.Context, sessionID types.SessionID) ([]apptypes.SessionSummary, error)
 }

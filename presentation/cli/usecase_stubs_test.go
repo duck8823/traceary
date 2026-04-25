@@ -104,6 +104,8 @@ type sessionUsecaseStub struct {
 	listErr        error
 	treeResult     []apptypes.SessionSummary
 	treeErr        error
+	lineageResult  []apptypes.SessionSummary
+	lineageErr     error
 	activeEvent    *model.Event
 	activeErr      error
 	activeCriteria apptypes.SessionLookupCriteria
@@ -189,7 +191,13 @@ func (s *sessionUsecaseStub) List(_ context.Context, _ apptypes.SessionListCrite
 	return s.listResult, s.listErr
 }
 func (s *sessionUsecaseStub) Tree(_ context.Context, _ types.Workspace, _ int) ([]apptypes.SessionSummary, error) {
+	if s.treeResult == nil && s.treeErr == nil {
+		return s.listResult, s.listErr
+	}
 	return s.treeResult, s.treeErr
+}
+func (s *sessionUsecaseStub) Lineage(_ context.Context, _ types.SessionID) ([]apptypes.SessionSummary, error) {
+	return s.lineageResult, s.lineageErr
 }
 func (s *sessionUsecaseStub) Active(_ context.Context, criteria apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error) {
 	s.activeCriteria = criteria

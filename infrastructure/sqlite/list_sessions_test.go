@@ -3,6 +3,8 @@ package sqlite_test
 import (
 	"context"
 	"path/filepath"
+	"slices"
+	"sort"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -94,6 +96,31 @@ func saveTestSession(ctx context.Context, t *testing.T, ds *infra.SessionDatasou
 	ag, _ := types.AgentFrom(agent)
 	sid, _ := types.SessionIDFrom(sessionID)
 	session := model.SessionOf(sid, startedAt, endedAt, types.Client("hook"), ag, types.Workspace(workspace), "", "", types.SessionID(""))
+	if err := ds.SaveSessionBoundaryForTest(ctx, session); err != nil {
+		t.Fatalf("SaveSessionBoundaryForTest() error = %v", err)
+	}
+}
+
+func saveTestSessionWithParent(ctx context.Context, t *testing.T, ds *infra.SessionDatasource, sessionID string, parentID string, startedAt time.Time, order int) {
+	t.Helper()
+	agent, _ := types.AgentFrom("codex")
+	sid, _ := types.SessionIDFrom(sessionID)
+	parentSID, _ := types.SessionIDFrom(parentID)
+	spawnEventID, _ := types.EventIDFrom("spawn-" + sessionID)
+	session := model.SessionOf(
+		sid,
+		startedAt,
+		types.None[time.Time](),
+		types.Client("hook"),
+		agent,
+		types.Workspace("duck8823/traceary"),
+		"",
+		"",
+		parentSID,
+		spawnEventID,
+		"task",
+		types.Some(order),
+	)
 	if err := ds.SaveSessionBoundaryForTest(ctx, session); err != nil {
 		t.Fatalf("SaveSessionBoundaryForTest() error = %v", err)
 	}
@@ -354,4 +381,48 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		}
 	})
 
+}
+
+func TestDatasource_LineageOf(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	fixture := newListSessionsFixture(t, dbPath, listSessionsTestMigrations())
+	ctx := context.Background()
+	if err := fixture.storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	started := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	saveTestSession(ctx, t, fixture.sessionDS, "root", started, types.None[time.Time](), "claude", "duck8823/traceary")
+	saveTestSessionWithParent(ctx, t, fixture.sessionDS, "child-2", "root", started, 2)
+	saveTestSessionWithParent(ctx, t, fixture.sessionDS, "child-1", "root", started, 1)
+	saveTestSessionWithParent(ctx, t, fixture.sessionDS, "grandchild", "child-1", started.Add(time.Minute), 1)
+	saveTestSession(ctx, t, fixture.sessionDS, "unrelated", started, types.None[time.Time](), "claude", "duck8823/traceary")
+
+	got, err := fixture.sessionDS.LineageOf(ctx, types.SessionID("child-1"))
+	if err != nil {
+		t.Fatalf("LineageOf() error = %v", err)
+	}
+	gotIDs := make([]string, 0, len(got))
+	for _, summary := range got {
+		gotIDs = append(gotIDs, summary.SessionID().String())
+	}
+	wantIDs := []string{"root", "child-1", "child-2", "grandchild"}
+	gotIDSet := append([]string(nil), gotIDs...)
+	sort.Strings(gotIDSet)
+	wantIDSet := append([]string(nil), wantIDs...)
+	sort.Strings(wantIDSet)
+	if diff := cmp.Diff(wantIDSet, gotIDSet); diff != "" {
+		t.Fatalf("LineageOf() IDs mismatch (-want +got):\n%s", diff)
+	}
+	childOneIndex := slices.Index(gotIDs, "child-1")
+	childTwoIndex := slices.Index(gotIDs, "child-2")
+	if childOneIndex < 0 || childTwoIndex < 0 || childOneIndex > childTwoIndex {
+		t.Fatalf("siblings were not ordered by spawn_order: %v", gotIDs)
+	}
+	spawnOrder, ok := got[childOneIndex].SpawnOrder().Value()
+	if !ok || spawnOrder != 1 {
+		t.Fatalf("child-1 spawn_order = (%d, %v), want (1, true)", spawnOrder, ok)
+	}
 }

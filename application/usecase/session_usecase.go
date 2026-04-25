@@ -33,6 +33,9 @@ type SessionUsecase interface {
 	// Zero-value workspace returns sessions across all workspaces.
 	Tree(ctx context.Context, workspace types.Workspace, limit int) ([]apptypes.SessionSummary, error)
 
+	// Lineage returns the full hierarchy rooted at the topmost ancestor of sessionID.
+	Lineage(ctx context.Context, sessionID types.SessionID) ([]apptypes.SessionSummary, error)
+
 	// Active returns the session_started event for the active session matching the criteria.
 	// Returns an empty Optional when no active session exists.
 	Active(ctx context.Context, criteria apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error)

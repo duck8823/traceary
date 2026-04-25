@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -42,10 +43,7 @@ func (c *RootCLI) newSessionTreeCommand() *cobra.Command {
 
 			resolvedRepo := resolveWorkspaceValue(ctx, repo)
 
-			criteria := apptypes.NewSessionListCriteriaBuilder(limit).
-				Workspace(types.Workspace(resolvedRepo)).
-				Build()
-			summaries, err := c.session.List(ctx, criteria)
+			summaries, err := c.session.Tree(ctx, types.Workspace(resolvedRepo), limit)
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to list sessions", "セッション一覧の取得に失敗しました"), err)
 			}
@@ -70,6 +68,44 @@ func (c *RootCLI) newSessionTreeCommand() *cobra.Command {
 		"keep only lineages that contain at least one active session",
 		"active session を少なくとも1つ含む lineage だけに絞る",
 	))
+
+	return cmd
+}
+
+func (c *RootCLI) newSessionLineageCommand() *cobra.Command {
+	var (
+		dbPath string
+		asJSON bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "lineage <session-id>",
+		Short: Localize("Display the full lineage containing a session", "指定セッションを含む lineage 全体を表示する"),
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			output := cmd.OutOrStdout()
+
+			resolvedDBPath, err := resolveDBPath(dbPath)
+			if err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
+			}
+			c.applyDatabasePath(resolvedDBPath)
+			if err := c.storeManagement.Initialize(ctx); err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
+			}
+
+			summaries, err := c.session.Lineage(ctx, types.SessionID(strings.TrimSpace(args[0])))
+			if err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to get session lineage", "セッション lineage の取得に失敗しました"), err)
+			}
+
+			return writeSessionTreeFiltered(output, summaries, sessionTreeFilter{asJSON: asJSON})
+		},
+	}
+
+	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
+	cmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 
 	return cmd
 }
@@ -109,6 +145,7 @@ func writeSessionTreeFiltered(output io.Writer, summaries []apptypes.SessionSumm
 		}
 		roots = append(roots, node)
 	}
+	sortSessionNodes(roots)
 
 	if filter.root != "" {
 		if rootNode, ok := nodeMap[filter.root]; ok {
@@ -138,6 +175,30 @@ func writeSessionTreeFiltered(output io.Writer, summaries []apptypes.SessionSumm
 	}
 
 	return nil
+}
+
+func sortSessionNodes(nodes []*sessionNode) {
+	sort.SliceStable(nodes, func(i, j int) bool {
+		return sessionNodeLess(nodes[i], nodes[j])
+	})
+	for _, node := range nodes {
+		sortSessionNodes(node.children)
+	}
+}
+
+func sessionNodeLess(left, right *sessionNode) bool {
+	leftOrder, leftHasOrder := left.summary.SpawnOrder().Value()
+	rightOrder, rightHasOrder := right.summary.SpawnOrder().Value()
+	if leftHasOrder && rightHasOrder && leftOrder != rightOrder {
+		return leftOrder < rightOrder
+	}
+	if leftHasOrder != rightHasOrder {
+		return leftHasOrder
+	}
+	if !left.summary.StartedAt().Equal(right.summary.StartedAt()) {
+		return left.summary.StartedAt().Before(right.summary.StartedAt())
+	}
+	return false
 }
 
 // keepOngoingLineages prunes every subtree whose sessions are all ended so

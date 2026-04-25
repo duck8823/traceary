@@ -237,6 +237,23 @@ func (u *sessionUsecase) Tree(ctx context.Context, workspace types.Workspace, li
 	return summaries, nil
 }
 
+func (u *sessionUsecase) Lineage(ctx context.Context, sessionID types.SessionID) ([]apptypes.SessionSummary, error) {
+	trimmedSessionID := strings.TrimSpace(sessionID.String())
+	if trimmedSessionID == "" {
+		return nil, xerrors.Errorf("session ID must not be empty")
+	}
+	resolvedSessionID, err := types.SessionIDFrom(trimmedSessionID)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to resolve session ID: %w", err)
+	}
+
+	summaries, err := u.sessionQuery.LineageOf(ctx, resolvedSessionID)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get session lineage: %w", err)
+	}
+	return summaries, nil
+}
+
 func (u *sessionUsecase) Active(ctx context.Context, criteria apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error) {
 	result, err := u.sessionQuery.FindLatest(ctx, criteria.Client(), criteria.Agent(), criteria.Workspace(), true)
 	if err != nil {

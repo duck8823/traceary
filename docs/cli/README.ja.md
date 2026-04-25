@@ -498,7 +498,7 @@ session の一覧サマリーを表示します。
 
 ### `traceary session tree`
 
-読み込んだ session の parent → child → grandchild 階層を描画します。各行は session id / status / 最も具体的な subagent role (例: Claude Code の subagent なら `claude/Explore`) / workspace / duration / `N cmds/M events` breakdown を表示します。JSON 出力では各ノードに `parent_session_id` / `depth` / 数値の `duration_sec` / `subagent_type` を追加し、外部ツールが lineage を扱えるようにしています。
+読み込んだ session の parent → child → grandchild 階層を描画します。各行は session id / status / 最も具体的な subagent role (例: Claude Code の subagent なら `claude/Explore`) / workspace / duration / `N cmds/M events` breakdown を表示します。同じ親を持つ child は `spawn_order` 昇順で並び、`spawn_order` を持たない top-level session は `started_at` 順で並びます。JSON 出力では各ノードに `parent_session_id` / `spawn_event_id` / `subagent_kind` / `spawn_order` / `depth` / 数値の `duration_sec` / `subagent_type` を追加し、外部ツールが lineage を扱えるようにしています。
 
 主な flag:
 
@@ -506,6 +506,14 @@ session の一覧サマリーを表示します。
 - `--limit`
 - `--root <session-id>` — 指定 session を root とするサブツリーのみ表示
 - `--ongoing-only` — active session を含む lineage だけを残す
+- `--json`
+
+### `traceary session lineage <session-id>`
+
+指定 session を含む lineage 全体を表示します。Traceary は `<session-id>` から最上位の ancestor まで上にたどり、その root と全 descendant を `session tree` と同じ text / JSON node 形式で返します。
+
+主な flag:
+
 - `--json`
 
 ### `traceary session label <label-text>`
