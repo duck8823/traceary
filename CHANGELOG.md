@@ -9,6 +9,35 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [v0.10.0] - Unreleased
 
 ### Breaking changes
+- **MCP tool consolidation (#708, breaking)** — the MCP server now exposes exactly 8 tools. The old 24 tool names were removed and replaced by action-parameter dispatch:
+
+  | Old tool | New call |
+  |---|---|
+  | `propose_memory` | `manage_memory(action="propose", ...)` |
+  | `remember_memory` | `manage_memory(action="remember", ...)` |
+  | `accept_memory` | `manage_memory(action="accept", ids="<id>", ...)` |
+  | `reject_memory` | `manage_memory(action="reject", ids="<id>")` |
+  | `expire_memory` | `manage_memory(action="expire", ids="<id>", ...)` |
+  | `supersede_memory` | `manage_memory(action="supersede", target_id="<id>", fact="...", ...)` |
+  | `set_memory_validity` | `manage_memory(action="set_validity", ids="<id>", valid_from="...", valid_to="...", ...)` |
+  | `import_memory_instructions` | `manage_memory(action="import_instructions", ...)` |
+  | `accept_memories_batch` | `manage_memory(action="accept", ids=[...], ...)` |
+  | `reject_memories_batch` | `manage_memory(action="reject", ids=[...])` |
+  | `retrieve_memories` | `query_memory(action="retrieve", ...)` |
+  | `export_memories` | `query_memory(action="export", ...)` |
+  | `memory_pack` | `query_memory(action="pack", ...)` |
+  | `scan_memory_hygiene` | `query_memory(action="scan_hygiene", ...)` |
+  | `start_session` | `manage_session(action="start", ...)` |
+  | `end_session` | `manage_session(action="end", ...)` |
+  | `active_session` | `session_status(action="active", ...)` |
+  | `latest_session` | `session_status(action="latest", ...)` |
+  | `session_handoff` | `session_status(action="handoff", ...)` |
+  | `add_log` | `record_event(type="log", ...)` |
+  | `add_audit` | `record_event(type="audit", ...)` |
+  | `list_events` | `list_events(...)` |
+  | `search` | `search(...)` |
+  | `get_context` | `get_context(...)` |
+
 - **CLI JSON timestamp and duration freeze (#729)** — all CLI `--json` timestamp fields (`created_at`, `started_at`, `ended_at`, `valid_from`, `valid_to`, etc.) now serialize as UTC RFC3339Nano (`YYYY-MM-DDTHH:MM:SS[.nnnnnnnnn]Z`) before golden fixtures are recorded. `traceary session tree --json` drops `duration_ms` and keeps `duration_sec`; `traceary timeline --json` replaces the string `duration` field with numeric `duration_sec`.
 
 ## [v0.9.0] - 2026-04-25

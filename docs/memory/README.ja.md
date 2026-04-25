@@ -39,14 +39,14 @@ durable memory を `type` + `scope` で分類する方針にし、別軸 `block`
 - `valid_from` — fact が真として主張され始める時刻（既定値は `created_at`）
 - `valid_to` — fact が真でなくなる時刻（`NULL` は open-ended）
 
-既定の取得経路（CLI の `memory list` / `memory search`、MCP の `retrieve_memories` / `memory_pack` / `session_handoff`）は `valid_to` が過去の memory を自動で隠します。つまり、いま真と主張されている memory だけが返ります。
+既定の取得経路（CLI の `memory list` / `memory search`、MCP の `query_memory(action="retrieve")` / `query_memory(action="pack")` / `session_status(action="handoff")`）は `valid_to` が過去の memory を自動で隠します。つまり、いま真と主張されている memory だけが返ります。
 
 時間移動したい場合は CLI list / search に `--as-of <timestamp>` を渡すと、その時点での `valid_from <= asOf < valid_to` で評価します。validity filter を外す `--include-expired` は、過去の決定を監査する場合などに使えます。これらは lifecycle な `status` filter と独立で、superseded / rejected の memory を見たい場合は引き続き `--status` を使ってください。
 
 window の設定・更新は次で行います。
 
 - CLI: `traceary memory set-validity <memory-id> [--from <time>] [--to <time>] [--clear-to]`
-- MCP: `set_memory_validity(memory_id, valid_from?, valid_to?, clear_valid_to?)`
+- MCP: `manage_memory({"action":"set_validity","ids":"<id>","valid_from":"...","valid_to":"..."})`
 
 `--clear-to` / `clear_valid_to` は既存の `valid_to` を外して open-ended に戻します。新しい `valid_to` との併用はできません。
 
@@ -106,9 +106,9 @@ accepted memory layer を定期的に手入れしたいときに使います。
 
 - `traceary memory hygiene scan`
 - `traceary memory hygiene apply --ids id1,id2,...`
-- MCP `scan_memory_hygiene`
+- MCP `query_memory(action="scan_hygiene")`
 
-scan は accepted memory に対して 5 種類の条件をチェックします: 現在の redaction ルールで mask されるべき内容 (`redaction_hit`)、`--expiry-days` 以上更新が無い stale row (`expiry_candidate`)、同一 scope + 同一 fact の衝突 (`duplicate`)、scope を共有し単語 Jaccard 類似度が閾値を超える書き換えペア (`supersede_candidate`)、`(scope, type)` を共有し明示的な temporal validity window が重なるペア (`validity_overlap_supersede`)。validity_overlap_supersede はより具体的なシグナルで、両方の検出に該当するペアは重複表示せず `validity_overlap_supersede` 側だけ報告します。apply は `--ids` に渡した memory について該当 suggestion の lifecycle transition を commit します (`redaction_hit` は sanitized fact に supersede、`expiry_candidate` は expire、`duplicate` は reject、`supersede_candidate` / `validity_overlap_supersede` は新しい memory の fact で supersede)。MCP 側の `scan_memory_hygiene` は read-only で、agent からも同じ hygiene 候補を確認できます。
+scan は accepted memory に対して 5 種類の条件をチェックします: 現在の redaction ルールで mask されるべき内容 (`redaction_hit`)、`--expiry-days` 以上更新が無い stale row (`expiry_candidate`)、同一 scope + 同一 fact の衝突 (`duplicate`)、scope を共有し単語 Jaccard 類似度が閾値を超える書き換えペア (`supersede_candidate`)、`(scope, type)` を共有し明示的な temporal validity window が重なるペア (`validity_overlap_supersede`)。validity_overlap_supersede はより具体的なシグナルで、両方の検出に該当するペアは重複表示せず `validity_overlap_supersede` 側だけ報告します。apply は `--ids` に渡した memory について該当 suggestion の lifecycle transition を commit します (`redaction_hit` は sanitized fact に supersede、`expiry_candidate` は expire、`duplicate` は reject、`supersede_candidate` / `validity_overlap_supersede` は新しい memory の fact で supersede)。MCP 側の `query_memory(action="scan_hygiene")` は read-only で、agent からも同じ hygiene 候補を確認できます。
 
 ### ブリッジ / 書き出し経路
 
@@ -116,7 +116,7 @@ Traceary をローカルの source of truth として保ちつつ、accepted な
 
 - `traceary memory export --target <claude|codex|gemini> --out <path>`
 - `traceary memory import instructions --source <...> --in <path>`
-- MCP `export_memories` / `import_memory_instructions` (agent からの呼び出し)
+- MCP `query_memory(action="export")` / `manage_memory(action="import_instructions")` (agent からの呼び出し)
 
 export 出力は常に `<!-- traceary-memories:begin:v1 -->` / `<!-- traceary-memories:end -->` マーカーで囲まれており、続けて `memory import instructions` を走らせても重複 candidate は作られません。operator やホストの auto-memory 機能が管理ブロック外に書き足した bullet は inbox に candidate として入り、レビュー対象になります。
 
@@ -132,7 +132,7 @@ import は Codex の handbook（既定値は `~/.codex/memories/MEMORY.md`）を
 
 #### 取り出し preset
 
-`memory list` / `memory search` / MCP `retrieve_memories` は `--preset <name>` で用途別の取り出し shape をプリセットできます。`--status` / `--type` を明示した場合は preset のデフォルトを上書きします。
+`memory list` / `memory search` / MCP `query_memory(action="retrieve")` は `--preset <name>` で用途別の取り出し shape をプリセットできます。`--status` / `--type` を明示した場合は preset のデフォルトを上書きします。
 
 | Preset | 用途 | 既定フィルタ |
 | --- | --- | --- |
@@ -144,17 +144,17 @@ import は Codex の handbook（既定値は `~/.codex/memories/MEMORY.md`）を
 
 - `traceary memory list --preset review --workspace github.com/org/repo`
 - `traceary memory list --preset review --type lesson` — 明示 `--type` は preset の既定を上書き
-- MCP: `retrieve_memories({"preset":"incident","workspace":"..."})`
+- MCP: `query_memory({"action":"retrieve","preset":"incident","workspace":"..."})`
 
 ### 文脈に載せる経路
 
 Durable memory を再開向けの pack に組み込んで使いたいときは次を使います。
 
 - `traceary handoff`
-- MCP `session_handoff`
-- MCP `memory_pack`
+- MCP `session_status(action="handoff")`
+- MCP `query_memory(action="pack")`
 
-`handoff` は次の session 向けの working-memory 要約です。`memory_pack` は、durable memory を含む構造化 bundle がほしい MCP client 向けの相当物です。
+`handoff` は次の session 向けの working-memory 要約です。`query_memory(action="pack")` は、durable memory を含む構造化 bundle がほしい MCP client 向けの相当物です。
 
 ## sanitization / redaction
 

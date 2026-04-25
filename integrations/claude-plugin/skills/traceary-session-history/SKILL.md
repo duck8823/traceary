@@ -10,8 +10,8 @@ Use the packaged `traceary` MCP server as the default read path when the user as
 
 ## Preferred tools
 
-- `latest_session`: most recent session metadata for the current workspace
-- `active_session`: only when the user is asking about the still-open session
+- `session_status(action="latest")`: most recent session metadata for the current workspace
+- `session_status(action="active")`: only when the user is asking about the still-open session
 - `list_events`: recent history without a keyword filter
 - `search`: keyword-driven lookups
 - `get_context`: summarize the lead-up around an event
@@ -19,5 +19,5 @@ Use the packaged `traceary` MCP server as the default read path when the user as
 ## Guardrails
 
 - Prefer the read tools above before suggesting direct SQLite inspection.
-- Do not call `add_log` or `add_audit` unless the user explicitly wants to record a new event.
+- Do not call `record_event(type="log")` or `record_event(type="audit")` unless the user explicitly wants to record a new event.
 - Hooks already capture session boundaries and shell command audits, so avoid duplicating those writes manually.

@@ -11,7 +11,7 @@ The Gemini package lives under `integrations/gemini-extension/`. Gemini CLI expe
 - `AfterAgent` transcript hook — records the agent response as a `transcript` event
 - `AfterTool` shell-audit hook for `run_shell_command`
 - slash commands: `/traceary-help` and `/traceary-doctor`
-- contextual skills: `traceary-session-history` and `traceary-memory-capture` (the latter prompts the agent to proactively call `propose_memory` when the conversation surfaces a durable decision / constraint / lesson / preference / artifact)
+- contextual skills: `traceary-session-history` and `traceary-memory-capture` (the latter prompts the agent to proactively call `manage_memory(action="propose")` when the conversation surfaces a durable decision / constraint / lesson / preference / artifact)
 
 ## Install
 

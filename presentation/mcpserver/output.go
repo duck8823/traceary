@@ -2,18 +2,24 @@ package mcpserver
 
 import apptypes "github.com/duck8823/traceary/application/types"
 
-// addLogOutput is the MCP output for the add_log tool.
-type addLogOutput struct {
-	EventID    string                     `json:"event_id" jsonschema:"saved event ID"`
-	Kind       string                     `json:"kind" jsonschema:"event kind"`
-	Client     string                     `json:"client" jsonschema:"recording channel"`
-	Agent      string                     `json:"agent" jsonschema:"actor"`
-	SessionID  string                     `json:"session_id" jsonschema:"session identifier"`
-	Workspace  string                     `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
-	Body       string                     `json:"body" jsonschema:"event body as a plain-text projection; for transcript JSON envelopes this joins the text blocks and excludes thinking blocks — use body_blocks for the canonical structured form"`
-	BodyBlocks []apptypes.EventBodyBlock  `json:"body_blocks,omitempty" jsonschema:"structured block form of the body when it is a canonical transcript envelope with at least one block; absent for legacy plain-text bodies, non-envelope JSON bodies, and empty envelopes"`
-	SourceHook string                     `json:"source_hook,omitempty" jsonschema:"hook identifier that produced this event (omitted for non-hook writes)"`
-	CreatedAt  string                     `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
+// recordEventOutput is the uniform MCP output for record_event type=log|audit.
+type recordEventOutput struct {
+	EventID         string                    `json:"event_id" jsonschema:"saved event ID"`
+	Type            string                    `json:"type" jsonschema:"event write type: log or audit"`
+	Kind            string                    `json:"kind" jsonschema:"event kind"`
+	Client          string                    `json:"client" jsonschema:"recording channel"`
+	Agent           string                    `json:"agent" jsonschema:"actor"`
+	SessionID       string                    `json:"session_id" jsonschema:"session identifier"`
+	Workspace       string                    `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
+	Body            string                    `json:"body,omitempty" jsonschema:"event body plain-text projection"`
+	BodyBlocks      []apptypes.EventBodyBlock `json:"body_blocks,omitempty" jsonschema:"structured block form of transcript body"`
+	Command         string                    `json:"command,omitempty" jsonschema:"executed command for audit records"`
+	InputRedacted   bool                      `json:"input_redacted" jsonschema:"whether input was redacted"`
+	OutputRedacted  bool                      `json:"output_redacted" jsonschema:"whether output was redacted"`
+	InputTruncated  bool                      `json:"input_truncated" jsonschema:"whether input was truncated"`
+	OutputTruncated bool                      `json:"output_truncated" jsonschema:"whether output was truncated"`
+	SourceHook      string                    `json:"source_hook,omitempty" jsonschema:"hook identifier that produced this event"`
+	CreatedAt       string                    `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
 }
 
 // sessionEventOutput is the MCP output for session tools (start/end/active/latest).
@@ -26,20 +32,6 @@ type sessionEventOutput struct {
 	Workspace  string `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
 	SourceHook string `json:"source_hook,omitempty" jsonschema:"hook identifier that produced this event (omitted for non-hook writes)"`
 	CreatedAt  string `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
-}
-
-// addAuditOutput is the MCP output for the add_audit tool.
-type addAuditOutput struct {
-	EventID         string `json:"event_id" jsonschema:"saved event ID"`
-	Kind            string `json:"kind" jsonschema:"event kind"`
-	SessionID       string `json:"session_id" jsonschema:"session identifier"`
-	Workspace       string `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
-	Command         string `json:"command" jsonschema:"executed command"`
-	InputRedacted   bool   `json:"input_redacted" jsonschema:"whether input was redacted"`
-	OutputRedacted  bool   `json:"output_redacted" jsonschema:"whether output was redacted"`
-	InputTruncated  bool   `json:"input_truncated" jsonschema:"whether input was truncated"`
-	OutputTruncated bool   `json:"output_truncated" jsonschema:"whether output was truncated"`
-	CreatedAt       string `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
 }
 
 // eventsOutput is the MCP output for event listing tools (list_events, search, get_context).

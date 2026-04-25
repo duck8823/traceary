@@ -58,7 +58,7 @@ SessionStart → [AfterTool]* → SessionEnd
 
 | Kind | Description | Source |
 |------|-------------|--------|
-| `note` | Free-text log entry | CLI `traceary log` / MCP `add_log` |
+| `note` | Free-text log entry | CLI `traceary log` / MCP `record_event(type="log")` |
 | `command_executed` | Command or tool execution record | PostToolUse hooks |
 | `reviewed` | Review result | CLI / MCP |
 | `session_started` | Session start boundary | SessionStart hooks |

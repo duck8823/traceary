@@ -39,14 +39,14 @@ Every durable memory carries a content validity window `(valid_from, valid_to)` 
 - `valid_from` — when the fact starts being asserted (defaults to `created_at`)
 - `valid_to` — when the fact stops being asserted (`NULL` means open-ended)
 
-Default retrieval (CLI `memory list` / `memory search`, MCP `retrieve_memories`, `memory_pack`, and `session_handoff`) hides memories whose `valid_to` is in the past — you only see what is still asserted as true right now.
+Default retrieval (CLI `memory list` / `memory search`, MCP `query_memory(action="retrieve")`, `query_memory(action="pack")`, and `session_status(action="handoff")`) hides memories whose `valid_to` is in the past — you only see what is still asserted as true right now.
 
 To time-travel, pass `--as-of <timestamp>` to CLI list / search, which evaluates `valid_from <= asOf < valid_to` against the supplied point in time. Pass `--include-expired` to bypass the validity filter entirely (e.g. when auditing historical decisions). Neither flag replaces lifecycle `status` filtering — a superseded or rejected memory still needs `--status` to surface.
 
 Set or update the window with:
 
 - CLI: `traceary memory set-validity <memory-id> [--from <time>] [--to <time>] [--clear-to]`
-- MCP: `set_memory_validity(memory_id, valid_from?, valid_to?, clear_valid_to?)`
+- MCP: `manage_memory({"action":"set_validity","ids":"<id>","valid_from":"...","valid_to":"..."})`
 
 `--clear-to` / `clear_valid_to` explicitly returns a memory to open-ended validity and is mutually exclusive with supplying a new `valid_to`.
 
@@ -109,7 +109,7 @@ Use this periodically to keep the accepted layer tidy:
 
 - `traceary memory hygiene scan`
 - `traceary memory hygiene apply --ids id1,id2,...`
-- MCP `scan_memory_hygiene`
+- MCP `query_memory(action="scan_hygiene")`
 
 Scan flags five conditions on `accepted` memories: content the current
 redaction rules would mask (`redaction_hit`), stale rows that have not
@@ -126,7 +126,7 @@ ids — `redaction_hit` becomes a supersede with the sanitized fact,
 `expiry_candidate` becomes an expire, `duplicate` becomes a reject,
 and both `supersede_candidate` and `validity_overlap_supersede` become
 a supersede using the newer memory's fact as the replacement. MCP
-exposes the scanner (read-only) via `scan_memory_hygiene` so agents
+exposes the scanner (read-only) via `query_memory(action="scan_hygiene")` so agents
 can surface hygiene suggestions alongside the inbox review workflow.
 
 ### Bridge / export path
@@ -137,7 +137,7 @@ instruction file:
 
 - `traceary memory export --target <claude|codex|gemini> --out <path>`
 - `traceary memory import instructions --source <...> --in <path>`
-- MCP `export_memories` / `import_memory_instructions` (agent-driven)
+- MCP `query_memory(action="export")` / `manage_memory(action="import_instructions")` (agent-driven)
 
 Export always wraps its output in `<!-- traceary-memories:begin:v1 -->` /
 `<!-- traceary-memories:end -->` markers so a subsequent `memory import
@@ -163,7 +163,7 @@ Use these to inspect existing durable memories:
 
 #### Retrieval presets
 
-`memory list` and `memory search` (and MCP `retrieve_memories`) accept `--preset <name>` to apply a built-in retrieval shape for a common operator scenario. Explicit `--status` / `--type` flags still win — the preset only pre-populates the defaults.
+`memory list` and `memory search` (and MCP `query_memory(action="retrieve")`) accept `--preset <name>` to apply a built-in retrieval shape for a common operator scenario. Explicit `--status` / `--type` flags still win — the preset only pre-populates the defaults.
 
 | Preset | Intent | Defaults applied |
 | --- | --- | --- |
@@ -175,17 +175,17 @@ Examples:
 
 - `traceary memory list --preset review --workspace github.com/org/repo`
 - `traceary memory list --preset review --type lesson` — explicit `--type` overrides the preset's default
-- MCP: `retrieve_memories({"preset":"incident","workspace":"..."})`
+- MCP: `query_memory({"action":"retrieve","preset":"incident","workspace":"..."})`
 
 ### Context / handoff path
 
 Use these when you want the memory layer folded into a resume-friendly context pack:
 
 - `traceary handoff`
-- MCP `session_handoff`
-- MCP `memory_pack`
+- MCP `session_status(action="handoff")`
+- MCP `query_memory(action="pack")`
 
-`handoff` returns a working-memory summary for the next session. `memory_pack` is the MCP-oriented equivalent when a client wants a structured bundle that already includes durable memories.
+`handoff` returns a working-memory summary for the next session. `query_memory(action="pack")` is the MCP-oriented equivalent when a client wants a structured bundle that already includes durable memories.
 
 ## Sanitization and redaction
 

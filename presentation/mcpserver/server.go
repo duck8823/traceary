@@ -96,40 +96,35 @@ func (s *Server) Build(ctx context.Context) (*mcp.Server, error) {
 	}, nil)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "add_log",
-		Description: "Add a log event, note, prompt, transcript, or compact summary.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
-	}, s.addLog())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "start_session",
-		Description: "Start a session and record a session_started event.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
-	}, s.startSession())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "end_session",
-		Description: "End a session and record a session_ended event.",
+		Name:        "manage_memory",
+		Description: "Dispatch durable memory writes by action; reject and expire are destructive actions.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true)},
-	}, s.endSession())
+	}, s.manageMemory())
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "latest_session",
-		Description: "Get the latest session for resume or handoff by agent, client, or workspace.",
+		Name:        "query_memory",
+		Description: "Dispatch durable memory reads by action: retrieve, export, pack, or scan_hygiene.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-	}, s.latestSession())
+	}, s.queryMemory())
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "active_session",
-		Description: "Get the active or open session for resume by agent, client, or workspace.",
+		Name:        "manage_session",
+		Description: "Dispatch session lifecycle writes by action: start or end. action=end is destructive (closes the session).",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true)},
+	}, s.manageSession())
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "session_status",
+		Description: "Dispatch session status reads by action: active, latest, or handoff.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-	}, s.activeSession())
+	}, s.sessionStatus())
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "record_event",
+		Description: "Record a log or command audit event by type, returning one uniform event shape.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
+	}, s.recordEvent())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_events",
 		Description: "List recent events, logs, audits, prompts, transcripts, and summaries.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.listEvents())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "add_audit",
-		Description: "Add a shell command audit log with redacted input and output.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
-	}, s.addAudit())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search",
 		Description: "Search events, logs, audits, prompts, transcripts, and summaries by text, time, or workspace.",
@@ -140,82 +135,6 @@ func (s *Server) Build(ctx context.Context) (*mcp.Server, error) {
 		Description: "Get recent context events, logs, audits, prompts, transcripts, and summaries for a session or workspace.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.getContext())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "session_handoff",
-		Description: "Get a session handoff summary for resume, context, memory, and recent commands.",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-	}, s.sessionHandoff())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "retrieve_memories",
-		Description: "Retrieve durable memories by ID, query, status, type, agent, or workspace.",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-	}, s.retrieveMemories())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "remember_memory",
-		Description: "Remember and record an accepted durable memory with evidence and artifacts.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
-	}, s.rememberMemory())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "propose_memory",
-		Description: "Propose and record a candidate durable memory for review.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
-	}, s.proposeMemory())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "accept_memory",
-		Description: "Accept a candidate durable memory and set confidence.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true)},
-	}, s.acceptMemory())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "reject_memory",
-		Description: "Reject a candidate durable memory from review.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true)},
-	}, s.rejectMemory())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "supersede_memory",
-		Description: "Supersede an accepted durable memory with a replacement memory.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true)},
-	}, s.supersedeMemory())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "expire_memory",
-		Description: "Expire or retire a durable memory at a timestamp.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true)},
-	}, s.expireMemory())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "set_memory_validity",
-		Description: "Set the content validity window (valid_from / valid_to) on a durable memory.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true)},
-	}, s.setMemoryValidity())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "memory_pack",
-		Description: "Build a memory pack for prompt context, handoff, automation, and recent commands.",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-	}, s.memoryPack())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "accept_memories_batch",
-		Description: "Batch accept candidate durable memories by id, mirroring `traceary memory inbox accept --ids`.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true)},
-	}, s.acceptMemoriesBatch())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "reject_memories_batch",
-		Description: "Batch reject candidate durable memories by id, mirroring `traceary memory inbox reject --ids`.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true)},
-	}, s.rejectMemoriesBatch())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "scan_memory_hygiene",
-		Description: "Scan accepted memories for redaction / expiry / duplicate hygiene suggestions.",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-	}, s.scanMemoryHygiene())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "export_memories",
-		Description: "Render accepted memories into CLAUDE.md / AGENTS.md / GEMINI.md markdown.",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-	}, s.exportMemories())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "import_memory_instructions",
-		Description: "Import bullets from a host instruction file as durable-memory candidates.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false)},
-	}, s.importMemoryInstructions())
-
 	return server, nil
 }
 
@@ -232,44 +151,200 @@ func (s *Server) Run(ctx context.Context) error {
 	return nil
 }
 
-func (s *Server) addLog() mcp.ToolHandlerFor[addLogInput, addLogOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, input addLogInput) (*mcp.CallToolResult, addLogOutput, error) {
-		kind := types.EventKind(strings.TrimSpace(input.Kind))
-		message := input.Message
-		// EventUsecase.Log applies the redaction policy itself when
-		// kind == transcript (see #648, consolidated in #666). We
-		// only hand over the config here so MCP, CLI log, and the
-		// transcript hook share a single implementation path.
-		logCfg := apptypes.NewLogRedactionBuilder().
-			ExtraRedactPatterns(s.extraRedactPatterns).
-			Build()
-
-		event, err := s.event.Log(ctx,
-			message,
-			kind,
-			types.Client(resolveValue(input.Client, defaultClientValue)),
-			types.Agent(resolveValue(input.Agent, defaultAgentValue)),
-			types.SessionID(resolveValue(input.SessionID, defaultSessionValue)),
-			types.Workspace(strings.TrimSpace(input.Workspace)),
-			logCfg,
-		)
-		if err != nil {
-			return nil, addLogOutput{}, xerrors.Errorf("failed to record log: %w", err)
+func (s *Server) manageMemory() mcp.ToolHandlerFor[manageMemoryInput, any] {
+	return func(ctx context.Context, req *mcp.CallToolRequest, input manageMemoryInput) (*mcp.CallToolResult, any, error) {
+		action := strings.ToLower(strings.TrimSpace(input.Action))
+		switch action {
+		case "propose":
+			if strings.TrimSpace(input.MemoryType) == "" || strings.TrimSpace(input.Fact) == "" {
+				return nil, nil, xerrors.Errorf("manage_memory action propose requires type and fact")
+			}
+			_, out, err := s.proposeMemory()(ctx, req, proposeMemoryInput{MemoryType: input.MemoryType, Workspace: input.Workspace, Agent: input.Agent, SessionFamily: input.SessionFamily, Fact: input.Fact, Source: input.Source, EvidenceRefs: input.EvidenceRefs, ArtifactRefs: input.ArtifactRefs})
+			return nil, out, err
+		case "remember":
+			if strings.TrimSpace(input.MemoryType) == "" || strings.TrimSpace(input.Fact) == "" {
+				return nil, nil, xerrors.Errorf("manage_memory action remember requires type and fact")
+			}
+			_, out, err := s.rememberMemory()(ctx, req, rememberMemoryInput{MemoryType: input.MemoryType, Workspace: input.Workspace, Agent: input.Agent, SessionFamily: input.SessionFamily, Fact: input.Fact, Confidence: input.Confidence, Source: input.Source, EvidenceRefs: input.EvidenceRefs, ArtifactRefs: input.ArtifactRefs})
+			return nil, out, err
+		case "accept":
+			ids := resolveManageMemoryIDs(input)
+			if len(ids) == 0 {
+				return nil, nil, xerrors.Errorf("manage_memory action accept requires ids or memory_id")
+			}
+			if len(ids) == 1 {
+				_, out, err := s.acceptMemory()(ctx, req, acceptMemoryInput{MemoryID: ids[0], Confidence: input.Confidence})
+				return nil, out, err
+			}
+			_, out, err := s.acceptMemoriesBatch()(ctx, req, acceptMemoriesBatchInput{MemoryIDs: ids, Confidence: input.Confidence})
+			return nil, out, err
+		case "reject":
+			ids := resolveManageMemoryIDs(input)
+			if len(ids) == 0 {
+				return nil, nil, xerrors.Errorf("manage_memory action reject requires ids or memory_id")
+			}
+			if len(ids) == 1 {
+				_, out, err := s.rejectMemory()(ctx, req, rejectMemoryInput{MemoryID: ids[0]})
+				return nil, out, err
+			}
+			_, out, err := s.rejectMemoriesBatch()(ctx, req, rejectMemoriesBatchInput{MemoryIDs: ids})
+			return nil, out, err
+		case "expire":
+			id := strings.TrimSpace(input.MemoryID)
+			if id == "" {
+				ids := resolveManageMemoryIDs(input)
+				if len(ids) > 0 {
+					id = strings.TrimSpace(ids[0])
+				}
+			}
+			if id == "" {
+				return nil, nil, xerrors.Errorf("manage_memory action expire requires memory_id or ids")
+			}
+			_, out, err := s.expireMemory()(ctx, req, expireMemoryInput{MemoryID: id, ExpiresAt: input.ExpiresAt})
+			return nil, out, err
+		case "supersede":
+			if strings.TrimSpace(input.TargetID) == "" || strings.TrimSpace(input.Fact) == "" {
+				return nil, nil, xerrors.Errorf("manage_memory action supersede requires target_id and fact")
+			}
+			_, out, err := s.supersedeMemory()(ctx, req, supersedeMemoryInput{MemoryID: input.TargetID, MemoryType: input.MemoryType, Workspace: input.Workspace, Agent: input.Agent, SessionFamily: input.SessionFamily, Fact: input.Fact, Confidence: input.Confidence, Source: input.Source, EvidenceRefs: input.EvidenceRefs, ArtifactRefs: input.ArtifactRefs, ValidFrom: input.ValidFrom, ValidTo: input.ValidTo})
+			return nil, out, err
+		case "set_validity":
+			id := strings.TrimSpace(input.MemoryID)
+			if id == "" {
+				ids := resolveManageMemoryIDs(input)
+				if len(ids) > 0 {
+					id = strings.TrimSpace(ids[0])
+				}
+			}
+			if id == "" || (strings.TrimSpace(input.ValidFrom) == "" && strings.TrimSpace(input.ValidTo) == "" && !input.ClearValidTo) {
+				return nil, nil, xerrors.Errorf("manage_memory action set_validity requires memory_id plus valid_from and/or valid_to")
+			}
+			_, out, err := s.setMemoryValidity()(ctx, req, setMemoryValidityInput{MemoryID: id, ValidFrom: input.ValidFrom, ValidTo: input.ValidTo, ClearValidTo: input.ClearValidTo})
+			return nil, out, err
+		case "import_instructions":
+			if strings.TrimSpace(input.Source) == "" || (strings.TrimSpace(input.Path) == "" && strings.TrimSpace(input.Markdown) == "") {
+				return nil, nil, xerrors.Errorf("manage_memory action import_instructions requires source and exactly one of path or markdown")
+			}
+			_, out, err := s.importMemoryInstructions()(ctx, req, importMemoryInstructionsInput{Source: input.Source, Path: input.Path, Markdown: input.Markdown, Workspace: input.Workspace})
+			return nil, out, err
+		default:
+			return nil, nil, xerrors.Errorf("manage_memory action must be one of propose, remember, accept, reject, expire, supersede, set_validity, import_instructions")
 		}
+	}
+}
 
-		blocks, _ := apptypes.DecodeCanonicalEnvelope(event.Body())
-		return nil, addLogOutput{
-			EventID:    event.EventID().String(),
-			Kind:       event.Kind().String(),
-			Client:     event.Client().String(),
-			Agent:      event.Agent().String(),
-			SessionID:  event.SessionID().String(),
-			Workspace:  event.Workspace().String(),
-			Body:       apptypes.ExtractPlainBody(event.Body()),
-			BodyBlocks: blocks,
-			SourceHook: event.SourceHook(),
-			CreatedAt:  event.CreatedAt().UTC().Format(time.RFC3339Nano),
-		}, nil
+func resolveManageMemoryIDs(input manageMemoryInput) []string {
+	if input.IDs != nil {
+		switch ids := input.IDs.(type) {
+		case string:
+			return []string{ids}
+		case []string:
+			return ids
+		case []any:
+			resolved := make([]string, 0, len(ids))
+			for _, raw := range ids {
+				value, ok := raw.(string)
+				if !ok {
+					resolved = append(resolved, "")
+					continue
+				}
+				resolved = append(resolved, value)
+			}
+			return resolved
+		}
+	}
+	if strings.TrimSpace(input.MemoryID) != "" {
+		return []string{input.MemoryID}
+	}
+	return nil
+}
+
+func (s *Server) queryMemory() mcp.ToolHandlerFor[queryMemoryInput, any] {
+	return func(ctx context.Context, req *mcp.CallToolRequest, input queryMemoryInput) (*mcp.CallToolResult, any, error) {
+		action := strings.ToLower(strings.TrimSpace(input.Action))
+		switch action {
+		case "retrieve":
+			_, out, err := s.retrieveMemories()(ctx, req, retrieveMemoriesInput{MemoryID: input.MemoryID, Query: input.Query, Workspace: input.Workspace, Agent: input.Agent, SessionFamily: input.SessionFamily, Statuses: input.Statuses, MemoryTypes: input.MemoryTypes, Limit: input.Limit, Offset: input.Offset, AsOf: input.AsOf, IncludeExpired: input.IncludeExpired, Preset: input.Preset})
+			return nil, out, err
+		case "export":
+			if strings.TrimSpace(input.Target) == "" {
+				return nil, nil, xerrors.Errorf("query_memory action export requires target")
+			}
+			_, out, err := s.exportMemories()(ctx, req, exportMemoriesInput{Target: input.Target, Workspace: input.Workspace})
+			return nil, out, err
+		case "pack":
+			_, out, err := s.memoryPack()(ctx, req, memoryPackInput{SessionID: input.SessionID, Workspace: input.Workspace, RecentCommandsLimit: input.RecentCommandsLimit, MemoryLimit: input.MemoryLimit, Preset: input.Preset, AsOf: input.AsOf})
+			return nil, out, err
+		case "scan_hygiene":
+			_, out, err := s.scanMemoryHygiene()(ctx, req, scanMemoryHygieneInput{Workspace: input.Workspace, ExpiryDays: input.ExpiryDays})
+			return nil, out, err
+		default:
+			return nil, nil, xerrors.Errorf("query_memory action must be one of retrieve, export, pack, scan_hygiene")
+		}
+	}
+}
+
+func (s *Server) manageSession() mcp.ToolHandlerFor[sessionActionInput, sessionEventOutput] {
+	return func(ctx context.Context, req *mcp.CallToolRequest, input sessionActionInput) (*mcp.CallToolResult, sessionEventOutput, error) {
+		switch strings.ToLower(strings.TrimSpace(input.Action)) {
+		case "start":
+			return s.startSession()(ctx, req, startSessionInput{Client: input.Client, Agent: input.Agent, SessionID: input.SessionID, Workspace: input.Workspace})
+		case "end":
+			if strings.TrimSpace(input.SessionID) == "" {
+				return nil, sessionEventOutput{}, xerrors.Errorf("manage_session action end requires session_id")
+			}
+			return s.endSession()(ctx, req, endSessionInput{Client: input.Client, Agent: input.Agent, SessionID: input.SessionID, Workspace: input.Workspace})
+		default:
+			return nil, sessionEventOutput{}, xerrors.Errorf("manage_session action must be one of start, end")
+		}
+	}
+}
+
+func (s *Server) sessionStatus() mcp.ToolHandlerFor[sessionActionInput, any] {
+	return func(ctx context.Context, req *mcp.CallToolRequest, input sessionActionInput) (*mcp.CallToolResult, any, error) {
+		switch strings.ToLower(strings.TrimSpace(input.Action)) {
+		case "active":
+			_, out, err := s.activeSession()(ctx, req, sessionLookupInput{Client: input.Client, Agent: input.Agent, Workspace: input.Workspace, AllowStale: input.AllowStale, StaleAfterSeconds: input.StaleAfterSeconds})
+			return nil, out, err
+		case "latest":
+			_, out, err := s.latestSession()(ctx, req, sessionLookupInput{Client: input.Client, Agent: input.Agent, Workspace: input.Workspace, AllowStale: input.AllowStale, StaleAfterSeconds: input.StaleAfterSeconds})
+			return nil, out, err
+		case "handoff":
+			_, out, err := s.sessionHandoff()(ctx, req, sessionHandoffInput{SessionID: input.SessionID, Workspace: input.Workspace, RecentCommandsLimit: input.RecentCommandsLimit, MemoryLimit: input.MemoryLimit, Preset: input.Preset, AsOf: input.AsOf})
+			return nil, out, err
+		default:
+			return nil, nil, xerrors.Errorf("session_status action must be one of active, latest, handoff")
+		}
+	}
+}
+
+func (s *Server) recordEvent() mcp.ToolHandlerFor[recordEventInput, recordEventOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, input recordEventInput) (*mcp.CallToolResult, recordEventOutput, error) {
+		switch strings.ToLower(strings.TrimSpace(input.Type)) {
+		case "log":
+			if strings.TrimSpace(input.Message) == "" {
+				return nil, recordEventOutput{}, xerrors.Errorf("record_event type log requires message")
+			}
+			logCfg := apptypes.NewLogRedactionBuilder().ExtraRedactPatterns(s.extraRedactPatterns).Build()
+			event, err := s.event.Log(ctx, input.Message, types.EventKind(strings.TrimSpace(input.Kind)), types.Client(resolveValue(input.Client, defaultClientValue)), types.Agent(resolveValue(input.Agent, defaultAgentValue)), types.SessionID(resolveValue(input.SessionID, defaultSessionValue)), types.Workspace(strings.TrimSpace(input.Workspace)), logCfg)
+			if err != nil {
+				return nil, recordEventOutput{}, xerrors.Errorf("failed to record log: %w", err)
+			}
+			blocks, _ := apptypes.DecodeCanonicalEnvelope(event.Body())
+			return nil, recordEventOutput{EventID: event.EventID().String(), Type: "log", Kind: event.Kind().String(), Client: event.Client().String(), Agent: event.Agent().String(), SessionID: event.SessionID().String(), Workspace: event.Workspace().String(), Body: apptypes.ExtractPlainBody(event.Body()), BodyBlocks: blocks, SourceHook: event.SourceHook(), CreatedAt: event.CreatedAt().UTC().Format(time.RFC3339Nano)}, nil
+		case "audit":
+			if strings.TrimSpace(input.Command) == "" {
+				return nil, recordEventOutput{}, xerrors.Errorf("record_event type audit requires command")
+			}
+			auditCfg := apptypes.NewAuditRedactionBuilder().ExtraRedactPatterns(s.extraRedactPatterns).Build()
+			event, audit, err := s.event.Audit(ctx, input.Command, input.Input, input.Output, types.Client(resolveValue(input.Client, defaultClientValue)), types.Agent(resolveValue(input.Agent, defaultAgentValue)), types.SessionID(resolveValue(input.SessionID, defaultSessionValue)), types.Workspace(strings.TrimSpace(input.Workspace)), types.None[int](), auditCfg)
+			if err != nil {
+				return nil, recordEventOutput{}, xerrors.Errorf("failed to record command audit: %w", err)
+			}
+			return nil, recordEventOutput{EventID: event.EventID().String(), Type: "audit", Kind: event.Kind().String(), Client: event.Client().String(), Agent: event.Agent().String(), SessionID: event.SessionID().String(), Workspace: event.Workspace().String(), Body: apptypes.ExtractPlainBody(event.Body()), Command: audit.Command(), InputRedacted: audit.InputRedacted(), OutputRedacted: audit.OutputRedacted(), InputTruncated: audit.InputTruncated(), OutputTruncated: audit.OutputTruncated(), SourceHook: event.SourceHook(), CreatedAt: event.CreatedAt().UTC().Format(time.RFC3339Nano)}, nil
+		default:
+			return nil, recordEventOutput{}, xerrors.Errorf("record_event type must be one of log, audit")
+		}
 	}
 }
 
@@ -352,41 +427,6 @@ func (s *Server) activeSession() mcp.ToolHandlerFor[sessionLookupInput, sessionE
 		}
 
 		return nil, newSessionEventOutput(activeEvent), nil
-	}
-}
-
-func (s *Server) addAudit() mcp.ToolHandlerFor[addAuditInput, addAuditOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, input addAuditInput) (*mcp.CallToolResult, addAuditOutput, error) {
-		auditCfg := apptypes.NewAuditRedactionBuilder().
-			ExtraRedactPatterns(s.extraRedactPatterns).
-			Build()
-		event, audit, err := s.event.Audit(ctx,
-			input.Command,
-			input.Input,
-			input.Output,
-			types.Client(resolveValue(input.Client, defaultClientValue)),
-			types.Agent(resolveValue(input.Agent, defaultAgentValue)),
-			types.SessionID(resolveValue(input.SessionID, defaultSessionValue)),
-			types.Workspace(strings.TrimSpace(input.Workspace)),
-			types.None[int](), // no exit code from MCP
-			auditCfg,
-		)
-		if err != nil {
-			return nil, addAuditOutput{}, xerrors.Errorf("failed to record command audit: %w", err)
-		}
-
-		return nil, addAuditOutput{
-			EventID:         event.EventID().String(),
-			Kind:            event.Kind().String(),
-			SessionID:       event.SessionID().String(),
-			Workspace:       event.Workspace().String(),
-			Command:         audit.Command(),
-			InputRedacted:   audit.InputRedacted(),
-			OutputRedacted:  audit.OutputRedacted(),
-			InputTruncated:  audit.InputTruncated(),
-			OutputTruncated: audit.OutputTruncated(),
-			CreatedAt:       event.CreatedAt().UTC().Format(time.RFC3339Nano),
-		}, nil
 	}
 }
 

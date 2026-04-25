@@ -18,7 +18,7 @@ This document answers "how do I use Traceary's memory store from my agent SDK?" 
 
 **Status**: connect via MCP today; native memory-tool backend deferred.
 
-`traceary mcp-server` exposes `retrieve_memories`, `remember_memory`, `accept_memory`, and related memory tools via the standard MCP protocol. (The v0.9 graph overlay is CLI-only via `traceary memory graph`; MCP graph tools are a follow-up.) The Claude Agent SDK consumes MCP servers through `ClaudeAgentOptions.mcp_servers`:
+`traceary mcp-server` exposes `query_memory(action="retrieve")`, `manage_memory(action="remember")`, `manage_memory(action="accept")`, and related memory tools via the standard MCP protocol. (The v0.9 graph overlay is CLI-only via `traceary memory graph`; MCP graph tools are a follow-up.) The Claude Agent SDK consumes MCP servers through `ClaudeAgentOptions.mcp_servers`:
 
 ```python
 from claude_agent_sdk import query, ClaudeAgentOptions
@@ -38,7 +38,7 @@ async for message in query(prompt="...", options=options):
 
 `ClaudeSDKClient` (streaming variant) accepts the same `options` — pick whichever matches your invocation style.
 
-That covers the **external-tool** path: the agent calls `traceary.retrieve_memories(...)` explicitly, and Traceary owns the store.
+That covers the **external-tool** path: the agent calls `traceary.query_memory(action="retrieve")(...)` explicitly, and Traceary owns the store.
 
 `BetaAbstractMemoryTool` is a different surface — it lets the SDK redirect the model's **built-in `memory` tool** (which the model may invoke without explicit prompting) to a custom backend. Building that adapter would legitimately route more traffic into Traceary, but it means maintaining a Python package that tracks Anthropic's beta API. v0.9 defers it; #699 will revisit once Anthropic ships a stable memory-tool abstraction and the signal from operators is clearly in favour.
 
