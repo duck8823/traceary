@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 )
 
@@ -31,6 +32,7 @@ func (s *garbageCollectorStub) CloseStaleSessions(_ context.Context, _ time.Dura
 func (s *garbageCollectorStub) CollectGarbage(
 	_ context.Context,
 	before time.Time,
+	_ apptypes.GarbageCollectionTarget,
 	dryRun bool,
 ) (int, error) {
 	s.receivedBefore = before
@@ -49,7 +51,7 @@ func TestStoreManagementUsecase_CollectGarbage(t *testing.T) {
 		stub := &garbageCollectorStub{deletedCount: 3}
 		sut := usecase.NewStoreManagementUsecase(stub)
 
-		got, err := sut.CollectGarbage(context.Background(), cutoff, true)
+		got, err := sut.CollectGarbage(context.Background(), cutoff, apptypes.GarbageCollectionTargetEvents, true)
 		if err != nil {
 			t.Fatalf("CollectGarbage() error = %v", err)
 		}
@@ -69,7 +71,7 @@ func TestStoreManagementUsecase_CollectGarbage(t *testing.T) {
 
 		sut := usecase.NewStoreManagementUsecase(&garbageCollectorStub{})
 
-		_, err := sut.CollectGarbage(context.Background(), time.Time{}, false)
+		_, err := sut.CollectGarbage(context.Background(), time.Time{}, apptypes.GarbageCollectionTargetEvents, false)
 		if err == nil {
 			t.Fatalf("CollectGarbage() error = nil, want error")
 		}

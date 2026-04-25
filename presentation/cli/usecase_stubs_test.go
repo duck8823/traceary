@@ -435,7 +435,7 @@ func (s *storeManagementUsecaseStub) CreateBackup(_ context.Context, _ string, _
 func (s *storeManagementUsecaseStub) RestoreBackup(_ context.Context, _ string, _ bool) error {
 	return s.restoreErr
 }
-func (s *storeManagementUsecaseStub) CollectGarbage(_ context.Context, _ time.Time, _ bool) (apptypes.CollectGarbageResult, error) {
+func (s *storeManagementUsecaseStub) CollectGarbage(_ context.Context, _ time.Time, _ apptypes.GarbageCollectionTarget, _ bool) (apptypes.CollectGarbageResult, error) {
 	return s.gcResult, s.gcErr
 }
 func (s *storeManagementUsecaseStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool) (apptypes.CloseStaleSessionsResult, error) {

@@ -76,6 +76,7 @@ type doctorCommandInput struct {
 type gcCommandInput struct {
 	dbPath   string
 	keepDays int
+	target   string
 	dryRun   bool
 }
 

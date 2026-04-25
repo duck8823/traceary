@@ -637,13 +637,12 @@ Useful flags:
 
 ### `traceary store gc`
 
-Delete old events and compact the SQLite store.
+Delete retained store records and compact the SQLite store. By default, `--target all` applies retention to events, empty ended sessions, expired/superseded memories, and closed memory edges. Use `--target events` to keep the legacy event-only behavior.
 
 Useful flags:
 
-- `--before`
 - `--keep-days`
-- `--vacuum`
+- `--target events|sessions|memories|memory_edges|all`
 - `--dry-run`
 
 ## Integration commands
