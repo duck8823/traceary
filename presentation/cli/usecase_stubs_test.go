@@ -129,7 +129,23 @@ type sessionUsecaseStub struct {
 		kind         string
 		startedAt    time.Time
 	}
+	startChildCalls []struct {
+		parent       types.SessionID
+		childID      types.SessionID
+		agent        types.Agent
+		workspace    types.Workspace
+		spawnEventID types.EventID
+		kind         string
+		startedAt    time.Time
+	}
 	endCall struct {
+		client    types.Client
+		agent     types.Agent
+		sessionID types.SessionID
+		workspace types.Workspace
+		summary   string
+	}
+	endCalls []struct {
 		client    types.Client
 		agent     types.Agent
 		sessionID types.SessionID
@@ -154,6 +170,7 @@ func (s *sessionUsecaseStub) StartChild(_ context.Context, parent types.SessionI
 	s.startChildCall.spawnEventID = spawnEventID
 	s.startChildCall.kind = kind
 	s.startChildCall.startedAt = startedAt
+	s.startChildCalls = append(s.startChildCalls, s.startChildCall)
 	return s.startEvent, s.startErr
 }
 func (s *sessionUsecaseStub) End(_ context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, summary string) (*model.Event, error) {
@@ -162,6 +179,7 @@ func (s *sessionUsecaseStub) End(_ context.Context, client types.Client, agent t
 	s.endCall.sessionID = sessionID
 	s.endCall.workspace = workspace
 	s.endCall.summary = summary
+	s.endCalls = append(s.endCalls, s.endCall)
 	return s.endEvent, s.endErr
 }
 func (s *sessionUsecaseStub) Label(_ context.Context, _ types.SessionID, _ string) error {
