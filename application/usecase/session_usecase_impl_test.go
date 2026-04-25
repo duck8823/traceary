@@ -33,6 +33,7 @@ type sessionQueryServiceStub struct {
 	listClient          types.Client
 	listAgent           types.Agent
 	listLabel           string
+	listActiveOnly      bool
 	listFrom            types.Optional[time.Time]
 	listTo              types.Optional[time.Time]
 
@@ -68,6 +69,7 @@ func (s *sessionQueryServiceStub) ListSummaries(
 	client types.Client,
 	agent types.Agent,
 	label string,
+	activeOnly bool,
 	from, to types.Optional[time.Time],
 ) ([]apptypes.SessionSummary, error) {
 	s.listSummariesCalls++
@@ -78,6 +80,7 @@ func (s *sessionQueryServiceStub) ListSummaries(
 	s.listClient = client
 	s.listAgent = agent
 	s.listLabel = label
+	s.listActiveOnly = activeOnly
 	s.listFrom = from
 	s.listTo = to
 	if s.listSummariesErr != nil {

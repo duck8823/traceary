@@ -9,15 +9,16 @@ import (
 // SessionListCriteria holds filter parameters for session listing.
 // Zero-value fields are ignored (no filter applied).
 type SessionListCriteria struct {
-	limit     int
-	offset    int
-	sessionID domtypes.SessionID
-	workspace domtypes.Workspace
-	client    domtypes.Client
-	agent     domtypes.Agent
-	label     string
-	from      domtypes.Optional[time.Time]
-	to        domtypes.Optional[time.Time]
+	limit      int
+	offset     int
+	sessionID  domtypes.SessionID
+	workspace  domtypes.Workspace
+	client     domtypes.Client
+	agent      domtypes.Agent
+	label      string
+	activeOnly bool
+	from       domtypes.Optional[time.Time]
+	to         domtypes.Optional[time.Time]
 }
 
 // Limit returns the maximum number of results to return.
@@ -40,6 +41,9 @@ func (c SessionListCriteria) Agent() domtypes.Agent { return c.agent }
 
 // Label returns the session label filter.
 func (c SessionListCriteria) Label() string { return c.label }
+
+// ActiveOnly reports whether only active sessions should be returned.
+func (c SessionListCriteria) ActiveOnly() bool { return c.activeOnly }
 
 // From returns the lower bound of the time range (inclusive).
 func (c SessionListCriteria) From() domtypes.Optional[time.Time] { return c.from }
@@ -97,6 +101,12 @@ func (b *SessionListCriteriaBuilder) Agent(agent domtypes.Agent) *SessionListCri
 // Label sets the session label filter.
 func (b *SessionListCriteriaBuilder) Label(label string) *SessionListCriteriaBuilder {
 	b.criteria.label = label
+	return b
+}
+
+// ActiveOnly restricts the list to active sessions when set to true.
+func (b *SessionListCriteriaBuilder) ActiveOnly(activeOnly bool) *SessionListCriteriaBuilder {
+	b.criteria.activeOnly = activeOnly
 	return b
 }
 

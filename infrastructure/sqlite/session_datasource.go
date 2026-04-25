@@ -414,7 +414,7 @@ func (d *SessionDatasource) FindLatest(
 func (d *SessionDatasource) ListSummaries(
 	ctx context.Context,
 	limit, offset int,
-	sessionID types.SessionID, workspace types.Workspace, client types.Client, agent types.Agent, label string,
+	sessionID types.SessionID, workspace types.Workspace, client types.Client, agent types.Agent, label string, activeOnly bool,
 	from, to types.Optional[time.Time],
 ) ([]apptypes.SessionSummary, error) {
 	db, err := d.db.open(ctx)
@@ -442,8 +442,9 @@ func (d *SessionDatasource) ListSummaries(
 		sessionID.String(), sessionID.String(),
 		workspace.String(), workspace.String(),
 		client.String(), client.String(),
-		agent.String(), agent.String(),
+		agent.String(), agent.String(), agent.String(), agent.String(),
 		label, label,
+		activeOnly,
 		fromValue, fromValue,
 		toValue, toValue,
 		limit, offset,

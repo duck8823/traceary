@@ -28,8 +28,9 @@ LEFT JOIN (
 WHERE (? = '' OR s.session_id = ?)
   AND (? = '' OR s.workspace = ?)
   AND (? = '' OR s.client = ?)
-  AND (? = '' OR s.agent = ?)
+  AND (? = '' OR s.agent = ? OR s.subagent_kind = ? OR EXISTS (SELECT 1 FROM events agent_events WHERE agent_events.session_id = s.session_id AND agent_events.agent = ?))
   AND (? = '' OR s.label = ?)
+  AND (? = 0 OR s.ended_at IS NULL)
   AND (? = '' OR s.started_at >= ?)
   AND (? = '' OR s.started_at < ?)
 ORDER BY s.started_at DESC

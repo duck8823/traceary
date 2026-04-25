@@ -199,6 +199,9 @@ func (s *sessionUsecaseStub) Tree(_ context.Context, _ types.Workspace, _ int) (
 	return s.treeResult, s.treeErr
 }
 func (s *sessionUsecaseStub) Lineage(_ context.Context, _ types.SessionID) ([]apptypes.SessionSummary, error) {
+	if s.lineageResult == nil && s.lineageErr == nil {
+		return s.listResult, s.listErr
+	}
 	return s.lineageResult, s.lineageErr
 }
 func (s *sessionUsecaseStub) Active(_ context.Context, criteria apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error) {
