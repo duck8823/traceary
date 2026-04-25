@@ -202,6 +202,7 @@ func (c *RootCLI) Command() *cobra.Command {
 	rootCmd.AddCommand(c.newAuditCommand())
 	rootCmd.AddCommand(c.newSearchCommand())
 	rootCmd.AddCommand(c.newTailCommand())
+	rootCmd.AddCommand(c.newTopCommand())
 	rootCmd.AddCommand(c.newContextCommand())
 	rootCmd.AddCommand(c.newListCommand())
 	rootCmd.AddCommand(c.newShowCommand())
