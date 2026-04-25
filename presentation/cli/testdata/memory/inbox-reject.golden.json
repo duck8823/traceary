@@ -1,0 +1,26 @@
+{
+  "action": "reject",
+  "processed": [
+    {
+      "summary": {
+        "memory_id": "memory-golden-rejected",
+        "type": "decision",
+        "scope_kind": "workspace",
+        "scope_value": "github.com/duck8823/traceary",
+        "fact": "Rejected golden memory",
+        "status": "rejected",
+        "confidence": "verified",
+        "source": "manual",
+        "valid_from": "2026-04-13T09:00:00Z",
+        "created_at": "2026-04-13T09:00:00Z",
+        "updated_at": "2026-04-13T10:00:00Z"
+      },
+      "evidence_refs": [
+        "issue:#462"
+      ],
+      "artifact_refs": [
+        "pr:#468"
+      ]
+    }
+  ]
+}

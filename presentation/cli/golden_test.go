@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
@@ -283,4 +284,217 @@ func mustGoldenEvent(
 		body,
 		createdAt,
 	)
+}
+
+func TestMemoryFamily_JSON_Goldens(t *testing.T) {
+	accepted := mustMemoryDetails(t, "memory-golden-accepted", "Accepted golden memory", types.MemoryStatusAccepted)
+	candidate := mustMemoryDetails(t, "memory-golden-candidate", "Candidate golden memory", types.MemoryStatusCandidate)
+	rejected := mustMemoryDetails(t, "memory-golden-rejected", "Rejected golden memory", types.MemoryStatusRejected)
+	superseded := mustMemoryDetails(t, "memory-golden-superseded", "Superseded golden memory", types.MemoryStatusSuperseded)
+	expired := mustMemoryDetails(t, "memory-golden-expired", "Expired golden memory", types.MemoryStatusExpired)
+
+	memoryStub := &memoryUsecaseStub{
+		listResult:         []apptypes.MemorySummary{accepted.Summary()},
+		searchResult:       []apptypes.MemorySummary{accepted.Summary()},
+		showDetails:        accepted,
+		rememberDetails:    accepted,
+		proposeDetails:     candidate,
+		acceptDetails:      accepted,
+		rejectDetails:      rejected,
+		supersedeDetails:   superseded,
+		expireDetails:      expired,
+		setValidityDetails: accepted,
+	}
+	importResult := apptypes.MemoryImportResult{
+		Imported:              []apptypes.MemoryDetails{candidate},
+		SkippedDuplicateCount: 2,
+		SkippedRejectedCount:  1,
+		Warnings:              []string{"ignored blank bullet"},
+	}
+	exportResult := apptypes.MemoryExportResult{
+		Target:        apptypes.MemoryBridgeTargetCodex,
+		Markdown:      "- Accepted golden memory\n",
+		ExportedCount: 1,
+	}
+	hygieneSuggestion := apptypes.MemoryHygieneSuggestion{
+		MemoryID:            accepted.Summary().MemoryID(),
+		Kind:                apptypes.MemoryHygieneSuggestionSupersedeCandidate,
+		Reason:              "newer overlapping decision",
+		Fact:                "Accepted golden memory",
+		ReplacementMemoryID: candidate.Summary().MemoryID(),
+		ReplacementFact:     "Candidate golden memory",
+		Similarity:          0.75,
+		Scope:               accepted.Summary().Scope(),
+		UpdatedAt:           time.Date(2026, 4, 14, 15, 0, 0, 0, time.UTC),
+	}
+	hygieneResult := apptypes.MemoryHygieneScanResult{
+		Suggestions:             []apptypes.MemoryHygieneSuggestion{hygieneSuggestion},
+		SupersedeCandidateCount: 1,
+	}
+	hygieneApplyResult := apptypes.MemoryHygieneApplyResult{
+		Applied: []apptypes.MemoryHygieneApplied{{
+			MemoryID:   accepted.Summary().MemoryID().String(),
+			Kind:       apptypes.MemoryHygieneSuggestionSupersedeCandidate,
+			Transition: "superseded",
+			Details:    superseded,
+		}},
+		Failures: []apptypes.MemoryHygieneApplyFailure{{MemoryID: "memory-missing", Error: "no current hygiene suggestion"}},
+	}
+	edge := mustMemoryEdgeForGolden(t, "edge-golden-1")
+
+	cases := []struct {
+		name    string
+		args    []string
+		fixture string
+	}{
+		{"list", []string{"memory", "list", "--db-path", "/tmp/test-traceary.db", "--workspace", "github.com/duck8823/traceary", "--json"}, "list.golden.json"},
+		{"search", []string{"memory", "search", "--db-path", "/tmp/test-traceary.db", "--workspace", "github.com/duck8823/traceary", "--json", "golden"}, "search.golden.json"},
+		{"show", []string{"memory", "show", "--db-path", "/tmp/test-traceary.db", "--json", "memory-golden-accepted"}, "show.golden.json"},
+		{"remember", []string{"memory", "remember", "--db-path", "/tmp/test-traceary.db", "--workspace", "github.com/duck8823/traceary", "--type", "decision", "--fact", "Accepted golden memory", "--json"}, "remember.golden.json"},
+		{"propose", []string{"memory", "propose", "--db-path", "/tmp/test-traceary.db", "--workspace", "github.com/duck8823/traceary", "--type", "decision", "--fact", "Candidate golden memory", "--json"}, "propose.golden.json"},
+		{"accept", []string{"memory", "accept", "--db-path", "/tmp/test-traceary.db", "--confidence", "verified", "--json", "memory-golden-candidate"}, "accept.golden.json"},
+		{"reject", []string{"memory", "reject", "--db-path", "/tmp/test-traceary.db", "--json", "memory-golden-candidate"}, "reject.golden.json"},
+		{"supersede", []string{"memory", "supersede", "--db-path", "/tmp/test-traceary.db", "--workspace", "github.com/duck8823/traceary", "--type", "decision", "--fact", "Superseded golden memory", "--json", "memory-golden-accepted"}, "supersede.golden.json"},
+		{"expire", []string{"memory", "expire", "--db-path", "/tmp/test-traceary.db", "--at", "2026-04-15T00:00:00Z", "--json", "memory-golden-accepted"}, "expire.golden.json"},
+		{"set-validity", []string{"memory", "set-validity", "--db-path", "/tmp/test-traceary.db", "--from", "2026-04-13T09:00:00Z", "--to", "2026-05-13T09:00:00Z", "--json", "memory-golden-accepted"}, "set-validity.golden.json"},
+		{"extract", []string{"memory", "extract", "--db-path", "/tmp/test-traceary.db", "--session-id", "session-golden", "--json"}, "extract.golden.json"},
+		{"import-codex", []string{"memory", "import", "codex", "--db-path", "/tmp/test-traceary.db", "--root", "/tmp/codex-memories", "--workspace", "github.com/duck8823/traceary", "--json"}, "import-codex.golden.json"},
+		{"import-instructions", []string{"memory", "import", "instructions", "--db-path", "/tmp/test-traceary.db", "--source", "codex", "--in", "/tmp/AGENTS.md", "--workspace", "github.com/duck8823/traceary", "--json"}, "import-instructions.golden.json"},
+		{"export", []string{"memory", "export", "--db-path", "/tmp/test-traceary.db", "--target", "codex", "--workspace", "github.com/duck8823/traceary", "--out", filepath.Join(t.TempDir(), "AGENTS.md"), "--json"}, "export.golden.json"},
+		{"inbox-list", []string{"memory", "inbox", "list", "--db-path", "/tmp/test-traceary.db", "--workspace", "github.com/duck8823/traceary", "--json"}, "inbox-list.golden.json"},
+		{"inbox-accept", []string{"memory", "inbox", "accept", "--db-path", "/tmp/test-traceary.db", "--ids", "memory-golden-candidate", "--confidence", "verified", "--json"}, "inbox-accept.golden.json"},
+		{"inbox-reject", []string{"memory", "inbox", "reject", "--db-path", "/tmp/test-traceary.db", "--ids", "memory-golden-candidate", "--json"}, "inbox-reject.golden.json"},
+		{"hygiene-scan", []string{"memory", "hygiene", "scan", "--db-path", "/tmp/test-traceary.db", "--workspace", "github.com/duck8823/traceary", "--json"}, "hygiene-scan.golden.json"},
+		{"hygiene-apply", []string{"memory", "hygiene", "apply", "--db-path", "/tmp/test-traceary.db", "--ids", "memory-golden-accepted,memory-missing", "--json"}, "hygiene-apply.golden.json"},
+		{"graph-add", []string{"memory", "graph", "add", "memory-golden-accepted", "--db-path", "/tmp/test-traceary.db", "--to", "memory-golden-candidate", "--relation", "supports", "--from", "2026-04-14T15:00:00Z", "--json"}, "graph-add.golden.json"},
+		{"graph-list", []string{"memory", "graph", "list", "--db-path", "/tmp/test-traceary.db", "--memory-id", "memory-golden-accepted", "--json"}, "graph-list.golden.json"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stdout := &bytes.Buffer{}
+			rootCmd := newTestRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+				cli.WithMemory(memoryStub),
+				cli.WithMemoryExtraction(&memoryExtractionUsecaseStub{details: []apptypes.MemoryDetails{candidate}}),
+				cli.WithMemoryImport(&memoryImportUsecaseStub{result: importResult}),
+				cli.WithMemoryBridgeImport(&memoryBridgeImportUsecaseStub{result: apptypes.MemoryBridgeImportResult(importResult)}),
+				cli.WithMemoryExport(&memoryExportUsecaseStub{result: exportResult}),
+				cli.WithMemoryHygiene(&memoryHygieneUsecaseStub{scanResult: hygieneResult, applyResult: hygieneApplyResult}),
+				cli.WithMemoryEdge(&memoryEdgeUsecaseStub{addEdge: edge, listEdges: []*model.MemoryEdge{edge}}),
+			).Command()
+			rootCmd.SetOut(stdout)
+			rootCmd.SetErr(&bytes.Buffer{})
+			rootCmd.SetArgs(tc.args)
+
+			if err := rootCmd.Execute(); err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+
+			assertJSONGolden(t, stdout.Bytes(), filepath.Join("testdata", "memory", tc.fixture))
+		})
+	}
+}
+
+func TestDoctor_JSON_Golden(t *testing.T) {
+	homeDir := "/tmp/traceary-json-golden-home"
+	projectDir := "/tmp/traceary-json-golden-project"
+	t.Cleanup(func() {
+		_ = os.RemoveAll(homeDir)
+		_ = os.RemoveAll(projectDir)
+	})
+	_ = os.RemoveAll(homeDir)
+	_ = os.RemoveAll(projectDir)
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	t.Setenv("HOME", homeDir)
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stdout := &bytes.Buffer{}
+	rootCmd := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"doctor", "--db-path", "/tmp/test-traceary.db", "--client", "codex", "--project-dir", projectDir, "--json"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	assertJSONGolden(t, stdout.Bytes(), filepath.Join("testdata", "doctor", "default.golden.json"))
+}
+
+func TestBundleImport_JSON_Golden(t *testing.T) {
+	t.Setenv("TRACEARY_BUNDLE_PASSPHRASE", "golden-passphrase")
+	stdout := &bytes.Buffer{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithBundle(&bundleUsecaseStub{importResult: usecase.BundleImportResult{EventsImported: 3, EventsSkipped: 1, BundleSchemaVersion: 12}}),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"bundle", "import", "--db-path", "/tmp/test-traceary.db", "--in", "/tmp/traceary.golden.bundle", "--json"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	assertJSONGolden(t, stdout.Bytes(), filepath.Join("testdata", "bundle", "import.golden.json"))
+}
+
+func TestTimeline_JSON_Golden(t *testing.T) {
+	breakdown := []apptypes.TimelineWorkspaceBreakdown{
+		apptypes.TimelineWorkspaceBreakdownOf(
+			"github.com/duck8823/traceary",
+			4,
+			[]string{"command_executed", "command_executed", "note", "prompt"},
+			[]string{"codex", "claude"},
+			"Recorded memory and doctor JSON contracts",
+			apptypes.TimelineSummarySourcePrompt,
+		),
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(&eventUsecaseStub{timelineBlocks: []apptypes.TimelineBlock{
+			apptypes.TimelineBlockOf(
+				time.Date(2026, 4, 14, 9, 0, 0, 0, time.UTC),
+				time.Date(2026, 4, 14, 10, 30, 30, 0, time.UTC),
+				4,
+				[]string{"codex", "claude"},
+				breakdown,
+			),
+		}}),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"timeline", "--db-path", "/tmp/test-traceary.db", "--json"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	assertJSONGolden(t, stdout.Bytes(), filepath.Join("testdata", "timeline", "default.golden.json"))
+}
+
+func mustMemoryEdgeForGolden(t *testing.T, id string) *model.MemoryEdge {
+	t.Helper()
+	edgeID, err := types.MemoryEdgeIDFrom(id)
+	if err != nil {
+		t.Fatalf("MemoryEdgeIDFrom() error = %v", err)
+	}
+	edge, err := model.NewMemoryEdge(
+		edgeID,
+		mustMemoryIDForCLI(t, "memory-golden-accepted"),
+		mustMemoryIDForCLI(t, "memory-golden-candidate"),
+		types.MemoryEdgeRelationSupports,
+		time.Date(2026, 4, 14, 15, 0, 0, 0, time.UTC),
+		types.Some(time.Date(2026, 5, 14, 15, 0, 0, 0, time.UTC)),
+		time.Date(2026, 4, 14, 15, 1, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatalf("NewMemoryEdge() error = %v", err)
+	}
+	return edge
 }

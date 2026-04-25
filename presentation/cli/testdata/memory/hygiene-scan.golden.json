@@ -1,0 +1,21 @@
+{
+  "redaction_hit_count": 0,
+  "expiry_candidate_count": 0,
+  "duplicate_count": 0,
+  "supersede_candidate_count": 1,
+  "validity_overlap_supersede_count": 0,
+  "suggestions": [
+    {
+      "memory_id": "memory-golden-accepted",
+      "kind": "supersede_candidate",
+      "reason": "newer overlapping decision",
+      "fact": "Accepted golden memory",
+      "replacement_memory_id": "memory-golden-candidate",
+      "replacement_fact": "Candidate golden memory",
+      "similarity": 0.75,
+      "scope_kind": "workspace",
+      "scope_value": "github.com/duck8823/traceary",
+      "updated_at": "2026-04-14T15:00:00Z"
+    }
+  ]
+}

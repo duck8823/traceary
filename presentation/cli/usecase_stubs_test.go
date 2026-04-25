@@ -5,6 +5,7 @@ import (
 	"time"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -178,9 +179,9 @@ func (s *sessionUsecaseStub) Handoff(_ context.Context, _ types.SessionID, _ typ
 }
 
 type contextUsecaseStub struct {
-	handoff        types.Optional[apptypes.ContextPack]
-	handoffErr     error
-	handoffCalls   []apptypes.ContextPackCriteria
+	handoff      types.Optional[apptypes.ContextPack]
+	handoffErr   error
+	handoffCalls []apptypes.ContextPackCriteria
 }
 
 func (s *contextUsecaseStub) Handoff(_ context.Context, criteria apptypes.ContextPackCriteria) (types.Optional[apptypes.ContextPack], error) {
@@ -252,25 +253,91 @@ func (s *memoryImportUsecaseStub) ImportCodex(_ context.Context, criteria apptyp
 	return s.result, s.err
 }
 
+type memoryExportUsecaseStub struct {
+	result apptypes.MemoryExportResult
+	err    error
+	calls  []apptypes.MemoryExportCriteria
+}
+
+func (s *memoryExportUsecaseStub) Export(_ context.Context, criteria apptypes.MemoryExportCriteria) (apptypes.MemoryExportResult, error) {
+	s.calls = append(s.calls, criteria)
+	return s.result, s.err
+}
+
+type memoryBridgeImportUsecaseStub struct {
+	result apptypes.MemoryBridgeImportResult
+	err    error
+	calls  []apptypes.MemoryBridgeImportCriteria
+}
+
+func (s *memoryBridgeImportUsecaseStub) ImportInstructions(_ context.Context, criteria apptypes.MemoryBridgeImportCriteria) (apptypes.MemoryBridgeImportResult, error) {
+	s.calls = append(s.calls, criteria)
+	return s.result, s.err
+}
+
+type memoryHygieneUsecaseStub struct {
+	scanResult  apptypes.MemoryHygieneScanResult
+	scanErr     error
+	applyResult apptypes.MemoryHygieneApplyResult
+	applyErr    error
+}
+
+func (s *memoryHygieneUsecaseStub) Scan(_ context.Context, _ apptypes.MemoryHygieneScanCriteria) (apptypes.MemoryHygieneScanResult, error) {
+	return s.scanResult, s.scanErr
+}
+
+func (s *memoryHygieneUsecaseStub) Apply(_ context.Context, _ apptypes.MemoryHygieneApplyCriteria) (apptypes.MemoryHygieneApplyResult, error) {
+	return s.applyResult, s.applyErr
+}
+
+type memoryEdgeUsecaseStub struct {
+	addEdge   *model.MemoryEdge
+	addErr    error
+	listEdges []*model.MemoryEdge
+	listErr   error
+}
+
+func (s *memoryEdgeUsecaseStub) Add(_ context.Context, _ types.MemoryID, _ types.MemoryID, _ types.MemoryEdgeRelation, _ types.Optional[time.Time], _ types.Optional[time.Time]) (*model.MemoryEdge, error) {
+	return s.addEdge, s.addErr
+}
+
+func (s *memoryEdgeUsecaseStub) List(_ context.Context, _ model.MemoryEdgeListFilter) ([]*model.MemoryEdge, error) {
+	return s.listEdges, s.listErr
+}
+
+type bundleUsecaseStub struct {
+	importResult usecase.BundleImportResult
+	importErr    error
+	exportErr    error
+}
+
+func (s *bundleUsecaseStub) Export(_ context.Context, _ usecase.BundleExportOptions) error {
+	return s.exportErr
+}
+
+func (s *bundleUsecaseStub) Import(_ context.Context, _ usecase.BundleImportOptions) (usecase.BundleImportResult, error) {
+	return s.importResult, s.importErr
+}
+
 type memoryUsecaseStub struct {
-	listResult       []apptypes.MemorySummary
-	listErr          error
-	searchResult     []apptypes.MemorySummary
-	searchErr        error
-	showDetails      apptypes.MemoryDetails
-	showErr          error
-	rememberDetails  apptypes.MemoryDetails
-	rememberErr      error
-	proposeDetails   apptypes.MemoryDetails
-	proposeErr       error
-	acceptDetails    apptypes.MemoryDetails
-	acceptErr        error
-	rejectDetails    apptypes.MemoryDetails
-	rejectErr        error
-	supersedeDetails apptypes.MemoryDetails
-	supersedeErr     error
-	expireDetails    apptypes.MemoryDetails
-	expireErr        error
+	listResult         []apptypes.MemorySummary
+	listErr            error
+	searchResult       []apptypes.MemorySummary
+	searchErr          error
+	showDetails        apptypes.MemoryDetails
+	showErr            error
+	rememberDetails    apptypes.MemoryDetails
+	rememberErr        error
+	proposeDetails     apptypes.MemoryDetails
+	proposeErr         error
+	acceptDetails      apptypes.MemoryDetails
+	acceptErr          error
+	rejectDetails      apptypes.MemoryDetails
+	rejectErr          error
+	supersedeDetails   apptypes.MemoryDetails
+	supersedeErr       error
+	expireDetails      apptypes.MemoryDetails
+	expireErr          error
 	setValidityDetails apptypes.MemoryDetails
 	setValidityErr     error
 
