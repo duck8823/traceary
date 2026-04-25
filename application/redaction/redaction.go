@@ -11,6 +11,7 @@ package redaction
 
 import (
 	"encoding/json"
+	"io"
 	"net/url"
 	"regexp"
 	"slices"
@@ -312,6 +313,12 @@ func applyJSONRule(value string, rule structuredRule, contextAware bool) string 
 	if err := decoder.Decode(&payload); err != nil {
 		return value
 	}
+	if decoder.More() {
+		return value
+	}
+	if !jsonDecoderAtEOF(decoder) {
+		return value
+	}
 	changed := redactJSONValue(&payload, nil, rule, contextAware)
 	if !changed {
 		return value
@@ -321,6 +328,11 @@ func applyJSONRule(value string, rule structuredRule, contextAware bool) string 
 		return value
 	}
 	return string(out)
+}
+
+func jsonDecoderAtEOF(decoder *json.Decoder) bool {
+	var trailing any
+	return decoder.Decode(&trailing) == io.EOF
 }
 
 func redactJSONValue(value *any, path []string, rule structuredRule, contextAware bool) bool {
@@ -455,6 +467,7 @@ func cloneTrimmed(values []string) []string {
 	return out
 }
 
+// IsZero reports whether the rule set has no regex or structured rules.
 func (r Rules) IsZero() bool {
 	return len(r.RegexRules) == 0 && len(r.StructuredRules) == 0
 }

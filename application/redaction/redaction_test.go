@@ -144,6 +144,22 @@ func TestApplyWithRules_FieldRuleRedactsJSONKeysAndPaths(t *testing.T) {
 	}
 }
 
+func TestApplyWithRules_JSONRulePreservesPayloadWithTrailingText(t *testing.T) {
+	t.Parallel()
+
+	rules, err := redaction.CompileRules(nil, nil)
+	if err != nil {
+		t.Fatalf("CompileRules() error = %v", err)
+	}
+
+	input := "{\"authorization\":\"0123456789abcdef0123456789abcdef\"}\nnext line\nmore content"
+	got, _ := redaction.ApplyWithRules(input, rules, "audit.input")
+
+	if !strings.Contains(got, "next line\nmore content") {
+		t.Fatalf("ApplyWithRules() = %q, expected trailing text to be preserved", got)
+	}
+}
+
 func TestApplyWithRules_URLRuleRedactsUserInfoAndConfiguredQueryParams(t *testing.T) {
 	t.Parallel()
 

@@ -31,7 +31,7 @@ func (r AuditRedaction) ExtraRedactPatterns() []string {
 
 // StructuredRules returns configured structured redaction rules.
 func (r AuditRedaction) StructuredRules() []redaction.RuleConfig {
-	return slices.Clone(r.structuredRules)
+	return cloneRuleConfigs(r.structuredRules)
 }
 
 // AuditRedactionBuilder builds an AuditRedaction value.
@@ -70,7 +70,7 @@ func (b *AuditRedactionBuilder) ExtraRedactPatterns(patterns []string) *AuditRed
 
 // StructuredRules sets structured redaction rules.
 func (b *AuditRedactionBuilder) StructuredRules(rules []redaction.RuleConfig) *AuditRedactionBuilder {
-	b.redaction.structuredRules = slices.Clone(rules)
+	b.redaction.structuredRules = cloneRuleConfigs(rules)
 	return b
 }
 

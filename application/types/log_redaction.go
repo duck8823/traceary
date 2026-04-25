@@ -26,7 +26,7 @@ func (r LogRedaction) ExtraRedactPatterns() []string {
 
 // StructuredRules returns configured structured redaction rules.
 func (r LogRedaction) StructuredRules() []redaction.RuleConfig {
-	return slices.Clone(r.structuredRules)
+	return cloneRuleConfigs(r.structuredRules)
 }
 
 // LogRedactionBuilder builds a LogRedaction value.
@@ -47,7 +47,7 @@ func (b *LogRedactionBuilder) ExtraRedactPatterns(patterns []string) *LogRedacti
 
 // StructuredRules sets structured redaction rules.
 func (b *LogRedactionBuilder) StructuredRules(rules []redaction.RuleConfig) *LogRedactionBuilder {
-	b.redaction.structuredRules = slices.Clone(rules)
+	b.redaction.structuredRules = cloneRuleConfigs(rules)
 	return b
 }
 
