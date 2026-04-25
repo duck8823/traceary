@@ -131,8 +131,12 @@ type BundleImportResult struct {
 	// EventsImported / EventsSkipped count events that were newly
 	// written vs dropped because of a pre-existing (event_id)
 	// collision.
-	EventsImported int
-	EventsSkipped  int
+	EventsImported        int
+	EventsSkipped         int
+	SessionsImported      int
+	SessionsSkipped       int
+	CommandAuditsImported int
+	CommandAuditsSkipped  int
 	// MemoriesImported / MemoriesSkipped count durable memories that were newly
 	// written vs dropped because of a pre-existing memory id collision.
 	MemoriesImported int
@@ -198,6 +202,8 @@ var (
 type BundleEventRepository interface {
 	// SchemaVersion is the current schema_migrations max version.
 	SchemaVersion(ctx context.Context) (int, error)
+	ListBundleSessions(ctx context.Context) ([]*model.Session, error)
+	ListBundleCommandAudits(ctx context.Context) ([]*model.CommandAudit, error)
 	// ListBundleMemories returns all durable memories and their refs for bundle export.
 	ListBundleMemories(ctx context.Context) ([]apptypes.MemoryDetails, error)
 	// BeginBundleImport starts the single transaction used by all table
@@ -208,7 +214,9 @@ type BundleEventRepository interface {
 // BundleImportTransaction is the write-side transaction shared by all
 // bundle table importers.
 type BundleImportTransaction interface {
+	ImportSession(ctx context.Context, session *model.Session, policy BundleConflictPolicy, missingParent BundleMissingParentPolicy) (bool, error)
 	ImportEvent(ctx context.Context, event *model.Event, policy BundleConflictPolicy) (bool, error)
+	ImportCommandAudit(ctx context.Context, audit *model.CommandAudit, policy BundleConflictPolicy) (bool, error)
 	ImportMemory(ctx context.Context, memory *model.Memory, policy BundleConflictPolicy) (bool, error)
 	Commit(ctx context.Context) error
 	Rollback(ctx context.Context) error
@@ -255,19 +263,39 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 		return xerrors.Errorf("failed to list events for bundle: %w", err)
 	}
 
+	sessions, err := u.repository.ListBundleSessions(ctx)
+	if err != nil {
+		return xerrors.Errorf("failed to list sessions for bundle: %w", err)
+	}
+	sessions = filterSessionsForBundleExport(sessions, events, opts)
+	commandAudits, err := u.repository.ListBundleCommandAudits(ctx)
+	if err != nil {
+		return xerrors.Errorf("failed to list command audits for bundle: %w", err)
+	}
+	commandAudits = filterCommandAuditsForEvents(commandAudits, events)
 	memories, err := u.repository.ListBundleMemories(ctx)
 	if err != nil {
 		return xerrors.Errorf("failed to list memories for bundle: %w", err)
 	}
 
 	registry := u.bundleTableRegistry()
+	sessionsImporter := registry["sessions"]
+	sessionsBuf, err := sessionsImporter.Export(ctx, bundleExportInputRows{Sessions: sessions})
+	if err != nil {
+		return xerrors.Errorf("failed to encode sessions: %w", err)
+	}
 	eventsImporter := registry["events"]
-	eventsBuf, err := eventsImporter.Export(ctx, events, nil)
+	eventsBuf, err := eventsImporter.Export(ctx, bundleExportInputRows{Events: events})
 	if err != nil {
 		return xerrors.Errorf("failed to encode events: %w", err)
 	}
+	commandAuditsImporter := registry["command_audits"]
+	commandAuditsBuf, err := commandAuditsImporter.Export(ctx, bundleExportInputRows{CommandAudits: commandAudits})
+	if err != nil {
+		return xerrors.Errorf("failed to encode command audits: %w", err)
+	}
 	memoriesImporter := registry["memories"]
-	memoriesBuf, err := memoriesImporter.Export(ctx, nil, memories)
+	memoriesBuf, err := memoriesImporter.Export(ctx, bundleExportInputRows{Memories: memories})
 	if err != nil {
 		return xerrors.Errorf("failed to encode memories: %w", err)
 	}
@@ -288,11 +316,23 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 			Workspace: opts.Workspace.String(),
 		},
 		Tables: map[string]bundleTableEntry{
+			"sessions": {
+				TableName: "sessions",
+				File:      sessionsImporter.FileName(),
+				RowCount:  len(sessions),
+				Checksum:  hashSHA256(sessionsBuf.Bytes()),
+			},
 			"events": {
 				TableName: "events",
 				File:      eventsImporter.FileName(),
 				RowCount:  len(events),
 				Checksum:  hashSHA256(eventsBuf.Bytes()),
+			},
+			"command_audits": {
+				TableName: "command_audits",
+				File:      commandAuditsImporter.FileName(),
+				RowCount:  len(commandAudits),
+				Checksum:  hashSHA256(commandAuditsBuf.Bytes()),
 			},
 			"memories": {
 				TableName: "memories",
@@ -308,9 +348,11 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 	}
 
 	plaintext, err := encodeTarGz(map[string][]byte{
-		"manifest.json":   manifestBytes,
-		"events.ndjson":   eventsBuf.Bytes(),
-		"memories.ndjson": memoriesBuf.Bytes(),
+		"manifest.json":         manifestBytes,
+		"sessions.ndjson":       sessionsBuf.Bytes(),
+		"events.ndjson":         eventsBuf.Bytes(),
+		"command_audits.ndjson": commandAuditsBuf.Bytes(),
+		"memories.ndjson":       memoriesBuf.Bytes(),
 	})
 	if err != nil {
 		return xerrors.Errorf("failed to build tar.gz: %w", err)
@@ -336,7 +378,8 @@ func (u *bundleUsecase) Import(ctx context.Context, opts BundleImportOptions) (B
 	if err != nil {
 		return BundleImportResult{}, err
 	}
-	if _, err := opts.MissingParent.normalized(); err != nil {
+	missingParent, err := opts.MissingParent.normalized()
+	if err != nil {
 		return BundleImportResult{}, err
 	}
 	encrypted, err := os.ReadFile(opts.InPath)
@@ -412,14 +455,20 @@ func (u *bundleUsecase) Import(ctx context.Context, opts BundleImportOptions) (B
 				entry.TableName, entry.RowCount, len(rows),
 			)
 		}
-		imported, skipped, err := importer.Apply(ctx, tx, rows, onConflict)
+		imported, skipped, err := importer.Apply(ctx, tx, rows, bundleImportPolicy{OnConflict: onConflict, MissingParent: missingParent})
 		if err != nil {
 			return result, xerrors.Errorf("failed to import %s: %w", entry.TableName, err)
 		}
 		switch entry.TableName {
+		case "sessions":
+			result.SessionsImported += imported
+			result.SessionsSkipped += skipped
 		case "events":
 			result.EventsImported += imported
 			result.EventsSkipped += skipped
+		case "command_audits":
+			result.CommandAuditsImported += imported
+			result.CommandAuditsSkipped += skipped
 		case "memories":
 			result.MemoriesImported += imported
 			result.MemoriesSkipped += skipped
@@ -436,21 +485,94 @@ func (u *bundleUsecase) Import(ctx context.Context, opts BundleImportOptions) (B
 
 type bundleRow any
 
+type bundleExportInputRows struct {
+	Sessions      []*model.Session
+	Events        []*model.Event
+	CommandAudits []*model.CommandAudit
+	Memories      []apptypes.MemoryDetails
+}
+
+type bundleImportPolicy struct {
+	OnConflict    BundleConflictPolicy
+	MissingParent BundleMissingParentPolicy
+}
+
 type bundleTableImporter interface {
 	Name() string
 	FileName() string
-	Export(context.Context, []*model.Event, []apptypes.MemoryDetails) (*bytes.Buffer, error)
+	Export(context.Context, bundleExportInputRows) (*bytes.Buffer, error)
 	Decode(io.Reader) ([]bundleRow, error)
-	Apply(context.Context, BundleImportTransaction, []bundleRow, BundleConflictPolicy) (imported int, skipped int, err error)
+	Apply(context.Context, BundleImportTransaction, []bundleRow, bundleImportPolicy) (imported int, skipped int, err error)
 }
 
 func (u *bundleUsecase) bundleTableRegistry() map[string]bundleTableImporter {
+	sessions := bundleSessionsTable{}
 	events := bundleEventsTable{}
+	commandAudits := bundleCommandAuditsTable{}
 	memories := bundleMemoriesTable{}
 	return map[string]bundleTableImporter{
-		events.Name():   events,
-		memories.Name(): memories,
+		sessions.Name():      sessions,
+		events.Name():        events,
+		commandAudits.Name(): commandAudits,
+		memories.Name():      memories,
 	}
+}
+
+func bundleTableImportOrder() []string {
+	return []string{"sessions", "events", "command_audits", "memories"}
+}
+
+type bundleSessionsTable struct{}
+
+func (bundleSessionsTable) Name() string { return "sessions" }
+
+func (bundleSessionsTable) FileName() string { return "sessions.ndjson" }
+
+func (bundleSessionsTable) Export(_ context.Context, input bundleExportInputRows) (*bytes.Buffer, error) {
+	return encodeSessionsNDJSON(input.Sessions)
+}
+
+func (bundleSessionsTable) Decode(r io.Reader) ([]bundleRow, error) {
+	decoder := json.NewDecoder(r)
+	rows := []bundleRow{}
+	for decoder.More() {
+		var row bundleSessionRow
+		if err := decoder.Decode(&row); err != nil {
+			return nil, xerrors.Errorf("session row: %w", err)
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+func (bundleSessionsTable) Apply(
+	ctx context.Context,
+	tx BundleImportTransaction,
+	rows []bundleRow,
+	policy bundleImportPolicy,
+) (int, int, error) {
+	sortedRows, err := sortBundleSessionRows(rows)
+	if err != nil {
+		return 0, 0, err
+	}
+	imported := 0
+	skipped := 0
+	for _, row := range sortedRows {
+		session, err := row.toSession()
+		if err != nil {
+			return imported, skipped, xerrors.Errorf("restore session: %w", err)
+		}
+		didImport, err := tx.ImportSession(ctx, session, policy.OnConflict, policy.MissingParent)
+		if err != nil {
+			return imported, skipped, xerrors.Errorf("session %s: %w", session.SessionID(), err)
+		}
+		if didImport {
+			imported++
+		} else {
+			skipped++
+		}
+	}
+	return imported, skipped, nil
 }
 
 type bundleEventsTable struct{}
@@ -459,8 +581,8 @@ func (bundleEventsTable) Name() string { return "events" }
 
 func (bundleEventsTable) FileName() string { return "events.ndjson" }
 
-func (bundleEventsTable) Export(_ context.Context, events []*model.Event, _ []apptypes.MemoryDetails) (*bytes.Buffer, error) {
-	return encodeEventsNDJSON(events)
+func (bundleEventsTable) Export(_ context.Context, input bundleExportInputRows) (*bytes.Buffer, error) {
+	return encodeEventsNDJSON(input.Events)
 }
 
 func (bundleEventsTable) Decode(r io.Reader) ([]bundleRow, error) {
@@ -480,7 +602,7 @@ func (bundleEventsTable) Apply(
 	ctx context.Context,
 	tx BundleImportTransaction,
 	rows []bundleRow,
-	policy BundleConflictPolicy,
+	policy bundleImportPolicy,
 ) (int, int, error) {
 	imported := 0
 	skipped := 0
@@ -493,9 +615,62 @@ func (bundleEventsTable) Apply(
 		if err != nil {
 			return imported, skipped, xerrors.Errorf("restore event: %w", err)
 		}
-		didImport, err := tx.ImportEvent(ctx, event, policy)
+		didImport, err := tx.ImportEvent(ctx, event, policy.OnConflict)
 		if err != nil {
 			return imported, skipped, xerrors.Errorf("event %s: %w", event.EventID(), err)
+		}
+		if didImport {
+			imported++
+		} else {
+			skipped++
+		}
+	}
+	return imported, skipped, nil
+}
+
+type bundleCommandAuditsTable struct{}
+
+func (bundleCommandAuditsTable) Name() string { return "command_audits" }
+
+func (bundleCommandAuditsTable) FileName() string { return "command_audits.ndjson" }
+
+func (bundleCommandAuditsTable) Export(_ context.Context, input bundleExportInputRows) (*bytes.Buffer, error) {
+	return encodeCommandAuditsNDJSON(input.CommandAudits)
+}
+
+func (bundleCommandAuditsTable) Decode(r io.Reader) ([]bundleRow, error) {
+	decoder := json.NewDecoder(r)
+	rows := []bundleRow{}
+	for decoder.More() {
+		var row bundleCommandAuditRow
+		if err := decoder.Decode(&row); err != nil {
+			return nil, xerrors.Errorf("command audit row: %w", err)
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+func (bundleCommandAuditsTable) Apply(
+	ctx context.Context,
+	tx BundleImportTransaction,
+	rows []bundleRow,
+	policy bundleImportPolicy,
+) (int, int, error) {
+	imported := 0
+	skipped := 0
+	for _, generic := range rows {
+		row, ok := generic.(bundleCommandAuditRow)
+		if !ok {
+			return imported, skipped, xerrors.Errorf("unexpected command_audits row type %T", generic)
+		}
+		audit, err := row.toCommandAudit()
+		if err != nil {
+			return imported, skipped, xerrors.Errorf("restore command audit: %w", err)
+		}
+		didImport, err := tx.ImportCommandAudit(ctx, audit, policy.OnConflict)
+		if err != nil {
+			return imported, skipped, xerrors.Errorf("command audit %s: %w", audit.EventID(), err)
 		}
 		if didImport {
 			imported++
@@ -512,8 +687,8 @@ func (bundleMemoriesTable) Name() string { return "memories" }
 
 func (bundleMemoriesTable) FileName() string { return "memories.ndjson" }
 
-func (bundleMemoriesTable) Export(_ context.Context, _ []*model.Event, memories []apptypes.MemoryDetails) (*bytes.Buffer, error) {
-	return encodeMemoriesNDJSON(memories)
+func (bundleMemoriesTable) Export(_ context.Context, input bundleExportInputRows) (*bytes.Buffer, error) {
+	return encodeMemoriesNDJSON(input.Memories)
 }
 
 func (bundleMemoriesTable) Decode(r io.Reader) ([]bundleRow, error) {
@@ -533,7 +708,7 @@ func (bundleMemoriesTable) Apply(
 	ctx context.Context,
 	tx BundleImportTransaction,
 	rows []bundleRow,
-	policy BundleConflictPolicy,
+	policy bundleImportPolicy,
 ) (int, int, error) {
 	sortedRows, err := topologicallySortBundleMemoryRows(rows)
 	if err != nil {
@@ -546,7 +721,7 @@ func (bundleMemoriesTable) Apply(
 		if err != nil {
 			return imported, skipped, xerrors.Errorf("restore memory: %w", err)
 		}
-		didImport, err := tx.ImportMemory(ctx, memory, policy)
+		didImport, err := tx.ImportMemory(ctx, memory, policy.OnConflict)
 		if err != nil {
 			return imported, skipped, xerrors.Errorf("memory %s: %w", memory.MemoryID(), err)
 		}
@@ -594,13 +769,17 @@ func manifestTableEntries(
 		if len(manifest.Tables) == 0 {
 			return nil, xerrors.Errorf("bundle manifest has no table entries")
 		}
-		names := make([]string, 0, len(manifest.Tables))
 		for name := range manifest.Tables {
-			names = append(names, name)
+			if _, ok := registry[name]; !ok {
+				return nil, xerrors.Errorf("bundle table %s is not supported by this build", name)
+			}
 		}
-		sort.Strings(names)
+		names := bundleTableImportOrder()
 		entries := make([]bundleTableEntry, 0, len(names))
 		for _, name := range names {
+			if _, present := manifest.Tables[name]; !present {
+				continue
+			}
 			entry := manifest.Tables[name]
 			if entry.TableName == "" {
 				entry.TableName = name
@@ -664,6 +843,31 @@ type bundleEventRow struct {
 	Body       string `json:"body"`
 	SourceHook string `json:"source_hook,omitempty"`
 	CreatedAt  string `json:"created_at"`
+}
+
+type bundleSessionRow struct {
+	SessionID       string `json:"session_id"`
+	StartedAt       string `json:"started_at"`
+	EndedAt         string `json:"ended_at,omitempty"`
+	Client          string `json:"client"`
+	Agent           string `json:"agent"`
+	Workspace       string `json:"workspace"`
+	Label           string `json:"label,omitempty"`
+	Summary         string `json:"summary,omitempty"`
+	ParentSessionID string `json:"parent_session_id,omitempty"`
+	SpawnEventID    string `json:"spawn_event_id,omitempty"`
+	SubagentKind    string `json:"subagent_kind,omitempty"`
+	SpawnOrder      *int   `json:"spawn_order,omitempty"`
+}
+
+type bundleCommandAuditRow struct {
+	EventID         string `json:"event_id"`
+	Command         string `json:"command"`
+	Input           string `json:"input"`
+	Output          string `json:"output"`
+	InputTruncated  bool   `json:"input_truncated"`
+	OutputTruncated bool   `json:"output_truncated"`
+	ExitCode        *int   `json:"exit_code,omitempty"`
 }
 
 type bundleRefRow struct {
@@ -769,6 +973,63 @@ func (r bundleMemoryRow) toMemory() (*model.Memory, error) {
 	return model.MemoryOf(memoryID, memoryType, scope, r.Fact, status, confidence, source, evidenceRefs, artifactRefs, supersedes, expiresAt, validFrom, validTo, createdAt, updatedAt), nil
 }
 
+func (r bundleSessionRow) toSession() (*model.Session, error) {
+	sessionID, err := types.SessionIDFrom(r.SessionID)
+	if err != nil {
+		return nil, xerrors.Errorf("session_id: %w", err)
+	}
+	startedAt, err := time.Parse(time.RFC3339Nano, r.StartedAt)
+	if err != nil {
+		return nil, xerrors.Errorf("started_at: %w", err)
+	}
+	endedAt, err := parseOptionalBundleTime(r.EndedAt, "ended_at")
+	if err != nil {
+		return nil, err
+	}
+	agent, err := types.AgentFrom(r.Agent)
+	if err != nil {
+		return nil, xerrors.Errorf("agent: %w", err)
+	}
+	spawnOrder := types.None[int]()
+	if r.SpawnOrder != nil {
+		spawnOrder = types.Some(*r.SpawnOrder)
+	}
+	return model.SessionOf(
+		sessionID,
+		startedAt,
+		endedAt,
+		types.Client(r.Client),
+		agent,
+		types.Workspace(r.Workspace),
+		r.Label,
+		r.Summary,
+		types.SessionID(r.ParentSessionID),
+		types.EventID(r.SpawnEventID),
+		r.SubagentKind,
+		spawnOrder,
+	), nil
+}
+
+func (r bundleCommandAuditRow) toCommandAudit() (*model.CommandAudit, error) {
+	eventID, err := types.EventIDFrom(r.EventID)
+	if err != nil {
+		return nil, xerrors.Errorf("event_id: %w", err)
+	}
+	exitCode := types.None[int]()
+	if r.ExitCode != nil {
+		exitCode = types.Some(*r.ExitCode)
+	}
+	return model.CommandAuditOf(
+		eventID,
+		r.Command,
+		r.Input,
+		r.Output,
+		r.InputTruncated,
+		r.OutputTruncated,
+		exitCode,
+	), nil
+}
+
 func (r bundleEventRow) toEvent() (*model.Event, error) {
 	eventID, err := types.EventIDFrom(r.EventID)
 	if err != nil {
@@ -798,6 +1059,47 @@ func (r bundleEventRow) toEvent() (*model.Event, error) {
 	), nil
 }
 
+func encodeSessionsNDJSON(sessions []*model.Session) (*bytes.Buffer, error) {
+	buf := &bytes.Buffer{}
+	sorted := append([]*model.Session(nil), sessions...)
+	sort.Slice(sorted, func(i, j int) bool {
+		leftParent := sorted[i].ParentSessionID().String()
+		rightParent := sorted[j].ParentSessionID().String()
+		if (leftParent == "") != (rightParent == "") {
+			return leftParent == ""
+		}
+		if leftParent != rightParent {
+			return leftParent < rightParent
+		}
+		return sorted[i].SessionID().String() < sorted[j].SessionID().String()
+	})
+	enc := json.NewEncoder(buf)
+	for _, session := range sorted {
+		row := bundleSessionRow{
+			SessionID:       session.SessionID().String(),
+			StartedAt:       session.StartedAt().UTC().Format(time.RFC3339Nano),
+			Client:          session.Client().String(),
+			Agent:           session.Agent().String(),
+			Workspace:       session.Workspace().String(),
+			Label:           session.Label(),
+			Summary:         session.Summary(),
+			ParentSessionID: session.ParentSessionID().String(),
+			SpawnEventID:    session.SpawnEventID().String(),
+			SubagentKind:    session.SubagentKind(),
+		}
+		if endedAt, ok := session.EndedAt().Value(); ok {
+			row.EndedAt = endedAt.UTC().Format(time.RFC3339Nano)
+		}
+		if spawnOrder, ok := session.SpawnOrder().Value(); ok {
+			row.SpawnOrder = &spawnOrder
+		}
+		if err := enc.Encode(row); err != nil {
+			return nil, xerrors.Errorf("encode session: %w", err)
+		}
+	}
+	return buf, nil
+}
+
 func encodeEventsNDJSON(events []*model.Event) (*bytes.Buffer, error) {
 	buf := &bytes.Buffer{}
 	// Sort to make output reproducible for a given filter set.
@@ -824,6 +1126,88 @@ func encodeEventsNDJSON(events []*model.Event) (*bytes.Buffer, error) {
 		}
 	}
 	return buf, nil
+}
+
+func encodeCommandAuditsNDJSON(audits []*model.CommandAudit) (*bytes.Buffer, error) {
+	buf := &bytes.Buffer{}
+	sorted := append([]*model.CommandAudit(nil), audits...)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].EventID().String() < sorted[j].EventID().String()
+	})
+	enc := json.NewEncoder(buf)
+	for _, audit := range sorted {
+		row := bundleCommandAuditRow{
+			EventID:         audit.EventID().String(),
+			Command:         audit.Command(),
+			Input:           audit.Input(),
+			Output:          audit.Output(),
+			InputTruncated:  audit.InputTruncated(),
+			OutputTruncated: audit.OutputTruncated(),
+		}
+		if exitCode, ok := audit.ExitCode().Value(); ok {
+			row.ExitCode = &exitCode
+		}
+		if err := enc.Encode(row); err != nil {
+			return nil, xerrors.Errorf("encode command audit: %w", err)
+		}
+	}
+	return buf, nil
+}
+
+func filterSessionsForBundleExport(sessions []*model.Session, events []*model.Event, opts BundleExportOptions) []*model.Session {
+	referencedSessionIDs := make(map[string]struct{}, len(events))
+	for _, event := range events {
+		referencedSessionIDs[event.SessionID().String()] = struct{}{}
+	}
+
+	filtered := make([]*model.Session, 0, len(sessions))
+	includedSessionIDs := make(map[string]struct{}, len(sessions))
+	for _, session := range sessions {
+		if sessionMatchesBundleExportFilters(session, opts) {
+			filtered = append(filtered, session)
+			includedSessionIDs[session.SessionID().String()] = struct{}{}
+		}
+	}
+
+	for _, session := range sessions {
+		sessionID := session.SessionID().String()
+		if _, referenced := referencedSessionIDs[sessionID]; !referenced {
+			continue
+		}
+		if _, alreadyIncluded := includedSessionIDs[sessionID]; alreadyIncluded {
+			continue
+		}
+		filtered = append(filtered, session)
+		includedSessionIDs[sessionID] = struct{}{}
+	}
+	return filtered
+}
+
+func sessionMatchesBundleExportFilters(session *model.Session, opts BundleExportOptions) bool {
+	if opts.Workspace.String() != "" && session.Workspace() != opts.Workspace {
+		return false
+	}
+	if !opts.Since.IsZero() && session.StartedAt().Before(opts.Since) {
+		return false
+	}
+	if !opts.Until.IsZero() && !session.StartedAt().Before(opts.Until) {
+		return false
+	}
+	return true
+}
+
+func filterCommandAuditsForEvents(audits []*model.CommandAudit, events []*model.Event) []*model.CommandAudit {
+	eventIDs := make(map[string]struct{}, len(events))
+	for _, event := range events {
+		eventIDs[event.EventID().String()] = struct{}{}
+	}
+	filtered := make([]*model.CommandAudit, 0, len(audits))
+	for _, audit := range audits {
+		if _, ok := eventIDs[audit.EventID().String()]; ok {
+			filtered = append(filtered, audit)
+		}
+	}
+	return filtered
 }
 
 func encodeMemoriesNDJSON(memories []apptypes.MemoryDetails) (*bytes.Buffer, error) {
@@ -885,6 +1269,29 @@ func topologicallySortBundleMemoryRows(rows []bundleRow) ([]bundleMemoryRow, err
 		sorted = append(sorted, memories[idx])
 	}
 	return sorted, nil
+}
+
+func sortBundleSessionRows(rows []bundleRow) ([]bundleSessionRow, error) {
+	sessions := make([]bundleSessionRow, 0, len(rows))
+	for _, generic := range rows {
+		row, ok := generic.(bundleSessionRow)
+		if !ok {
+			return nil, xerrors.Errorf("unexpected sessions row type %T", generic)
+		}
+		sessions = append(sessions, row)
+	}
+	sort.Slice(sessions, func(i, j int) bool {
+		leftParent := sessions[i].ParentSessionID
+		rightParent := sessions[j].ParentSessionID
+		if (leftParent == "") != (rightParent == "") {
+			return leftParent == ""
+		}
+		if leftParent != rightParent {
+			return leftParent < rightParent
+		}
+		return sessions[i].SessionID < sessions[j].SessionID
+	})
+	return sessions, nil
 }
 
 func topologicallySortMemoryDetails(memories []apptypes.MemoryDetails) []apptypes.MemoryDetails {
