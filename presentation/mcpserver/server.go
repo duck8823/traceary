@@ -33,11 +33,23 @@ type Server struct {
 	event               usecase.EventUsecase
 	session             usecase.SessionUsecase
 	memory              usecase.MemoryUsecase
-	memoryHygiene       usecase.MemoryHygieneUsecase
-	memoryExport        usecase.MemoryExportUsecase
-	memoryBridgeImport  usecase.MemoryBridgeImportUsecase
+	memoryHygiene       memoryHygieneUsecase
+	memoryExport        memoryExportUsecase
+	memoryBridgeImport  memoryBridgeImportUsecase
 	context             usecase.ContextUsecase
 	storeManagement     usecase.StoreManagementUsecase
+}
+
+type memoryHygieneUsecase interface {
+	Scan(context.Context, apptypes.MemoryHygieneScanCriteria) (apptypes.MemoryHygieneScanResult, error)
+}
+
+type memoryExportUsecase interface {
+	Export(context.Context, apptypes.MemoryExportCriteria) (apptypes.MemoryExportResult, error)
+}
+
+type memoryBridgeImportUsecase interface {
+	ImportInstructions(context.Context, apptypes.MemoryBridgeImportCriteria) (apptypes.MemoryBridgeImportResult, error)
 }
 
 // NewServer creates a new MCP server.
@@ -47,9 +59,9 @@ func NewServer(
 	event usecase.EventUsecase,
 	session usecase.SessionUsecase,
 	memory usecase.MemoryUsecase,
-	memoryHygiene usecase.MemoryHygieneUsecase,
-	memoryExport usecase.MemoryExportUsecase,
-	memoryBridgeImport usecase.MemoryBridgeImportUsecase,
+	memoryHygiene memoryHygieneUsecase,
+	memoryExport memoryExportUsecase,
+	memoryBridgeImport memoryBridgeImportUsecase,
 	contextUsecase usecase.ContextUsecase,
 	storeManagement usecase.StoreManagementUsecase,
 ) (*Server, error) {

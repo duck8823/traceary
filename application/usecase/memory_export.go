@@ -19,13 +19,6 @@ type memoryExportUsecase struct {
 	memoryQuery queryservice.MemoryQueryService
 }
 
-// NewMemoryExportUsecase creates a MemoryExportUsecase.
-//
-// Deprecated: use NewMemoryUsecase and call Export.
-func NewMemoryExportUsecase(memoryQuery queryservice.MemoryQueryService) MemoryExportUsecase {
-	return NewMemoryUsecase(nil, memoryQuery, nil)
-}
-
 // MemoryBridgeMarkerBegin / End wrap every block Traceary manages inside a
 // host instruction file. The exporter always writes the current version
 // (MemoryBridgeCurrentVersion) so consumers see a stable stamp; the

@@ -20,31 +20,6 @@ type memoryImportUsecase struct {
 	extraRedactPatterns []string
 }
 
-// NewMemoryImportUsecase creates a MemoryImportUsecase. The sanitizer uses
-// the same extra redaction patterns as the durable-memory write path so a
-// single config source covers both manual writes and imports.
-//
-// Deprecated: use NewMemoryUsecase with MemoryUsecaseDependencies and call ImportCodex.
-func NewMemoryImportUsecase(
-	memory memoryProposer,
-	memoryQuery queryservice.MemoryQueryService,
-	codexSource application.CodexMemorySource,
-	extraRedactPatterns []string,
-) MemoryImportUsecase {
-	if facade, ok := memory.(*memoryUsecase); ok {
-		facade.memoryQuery = memoryQuery
-		facade.codexSource = codexSource
-		facade.extraRedactPatterns = slices.Clone(extraRedactPatterns)
-		return facade
-	}
-	return &memoryImportUsecase{
-		memoryUsecase:       memory,
-		memoryQuery:         memoryQuery,
-		codexSource:         codexSource,
-		extraRedactPatterns: slices.Clone(extraRedactPatterns),
-	}
-}
-
 // ImportCodex loads candidate rows out of the configured Codex memory root,
 // sanitizes each one, and proposes brand-new candidates through the shared
 // durable-memory usecase. Rows that duplicate an existing memory (at any

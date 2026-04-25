@@ -3,7 +3,6 @@ package usecase
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -18,26 +17,6 @@ type memoryHygieneUsecase struct {
 	memory              memoryHygieneWriter
 	memoryQuery         queryservice.MemoryQueryService
 	extraRedactPatterns []string
-}
-
-// NewMemoryHygieneUsecase creates a MemoryHygieneUsecase. The scanner
-// shares the sanitizer with every other memory-write surface so a
-// redaction pattern added to the config is detected uniformly: the scan
-// reports any memory whose sanitized fact differs from the stored fact,
-// which is exactly the set of memories a later supersede would rewrite.
-//
-// Deprecated: use NewMemoryUsecase and call Scan/Apply.
-func NewMemoryHygieneUsecase(memory memoryHygieneWriter, memoryQuery queryservice.MemoryQueryService, extraRedactPatterns []string) MemoryHygieneUsecase {
-	if facade, ok := memory.(*memoryUsecase); ok {
-		facade.memoryQuery = memoryQuery
-		facade.extraRedactPatterns = slices.Clone(extraRedactPatterns)
-		return facade
-	}
-	return &memoryHygieneUsecase{
-		memory:              memory,
-		memoryQuery:         memoryQuery,
-		extraRedactPatterns: slices.Clone(extraRedactPatterns),
-	}
 }
 
 // defaultStalenessThreshold controls the expiry-suggestion window when

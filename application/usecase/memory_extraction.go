@@ -83,29 +83,6 @@ type memoryExtractionUsecase struct {
 	extraRedactPatterns []string
 }
 
-// NewMemoryExtractionUsecase creates a MemoryExtractionUsecase.
-//
-// Deprecated: use NewMemoryUsecase with MemoryUsecaseDependencies and call Extract.
-func NewMemoryExtractionUsecase(
-	sessionQuery queryservice.SessionQueryService,
-	eventQuery queryservice.EventQueryService,
-	memory memoryExtractionWriter,
-	extraRedactPatterns []string,
-) MemoryExtractionUsecase {
-	if facade, ok := memory.(*memoryUsecase); ok {
-		facade.sessionQuery = sessionQuery
-		facade.eventQuery = eventQuery
-		facade.extraRedactPatterns = slices.Clone(extraRedactPatterns)
-		return facade
-	}
-	return &memoryExtractionUsecase{
-		sessionQuery:        sessionQuery,
-		eventQuery:          eventQuery,
-		memory:              memory,
-		extraRedactPatterns: slices.Clone(extraRedactPatterns),
-	}
-}
-
 func (u *memoryExtractionUsecase) Extract(ctx context.Context, criteria apptypes.MemoryExtractionCriteria) ([]apptypes.MemoryDetails, error) {
 	if u.sessionQuery == nil {
 		return nil, xerrors.Errorf("session query service is not configured")

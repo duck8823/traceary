@@ -34,7 +34,7 @@ func TestMemoryBridgeImport_ProposesBulletsOutsideMarkers(t *testing.T) {
 
 	memoryStub := &stubImportMemoryUsecase{}
 	querySvc := &stubMemoryQueryService{}
-	sut := usecase.NewMemoryBridgeImportUsecase(memoryStub, querySvc, nil)
+	sut := usecase.NewMemoryUsecase(memoryStub, querySvc, nil)
 
 	result, err := sut.ImportInstructions(context.Background(), apptypes.MemoryBridgeImportCriteria{
 		Target:            apptypes.MemoryBridgeTargetClaude,
@@ -86,7 +86,7 @@ func TestMemoryBridgeImport_FutureMarkerVersionStillSkipsManagedBlock(t *testing
 
 	memoryStub := &stubImportMemoryUsecase{}
 	querySvc := &stubMemoryQueryService{}
-	sut := usecase.NewMemoryBridgeImportUsecase(memoryStub, querySvc, nil)
+	sut := usecase.NewMemoryUsecase(memoryStub, querySvc, nil)
 
 	result, err := sut.ImportInstructions(context.Background(), apptypes.MemoryBridgeImportCriteria{
 		Target:            apptypes.MemoryBridgeTargetClaude,
@@ -122,7 +122,7 @@ func TestMemoryBridgeImport_MissingWorkspaceEmitsWarning(t *testing.T) {
 	content := "# Project\n\n- sample bullet\n"
 	memoryStub := &stubImportMemoryUsecase{}
 	querySvc := &stubMemoryQueryService{}
-	sut := usecase.NewMemoryBridgeImportUsecase(memoryStub, querySvc, nil)
+	sut := usecase.NewMemoryUsecase(memoryStub, querySvc, nil)
 
 	result, err := sut.ImportInstructions(context.Background(), apptypes.MemoryBridgeImportCriteria{
 		Target:   apptypes.MemoryBridgeTargetClaude,

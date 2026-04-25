@@ -8,6 +8,7 @@ import (
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/model"
 	domtypes "github.com/duck8823/traceary/domain/types"
 )
 
@@ -52,6 +53,23 @@ type importProposeCall struct {
 type stubImportMemoryUsecase struct {
 	proposeCalls []importProposeCall
 	proposeErr   error
+}
+
+func (s *stubImportMemoryUsecase) Save(_ context.Context, memory *model.Memory) error {
+	s.proposeCalls = append(s.proposeCalls, importProposeCall{
+		fact:   memory.Fact(),
+		source: memory.Source(),
+		scope:  memory.Scope(),
+	})
+	return s.proposeErr
+}
+
+func (s *stubImportMemoryUsecase) SaveSupersession(context.Context, *model.Memory, *model.Memory) error {
+	return nil
+}
+
+func (s *stubImportMemoryUsecase) FindByID(context.Context, domtypes.MemoryID) (domtypes.Optional[*model.Memory], error) {
+	return domtypes.None[*model.Memory](), nil
 }
 
 func (s *stubImportMemoryUsecase) Remember(context.Context, domtypes.MemoryType, domtypes.MemoryScope, string, domtypes.Optional[domtypes.Confidence], domtypes.MemorySource, []domtypes.EvidenceRef, []domtypes.ArtifactRef) (apptypes.MemoryDetails, error) {
@@ -161,7 +179,7 @@ func importCandidate(t *testing.T, fact string, scope domtypes.MemoryScope) appt
 	}
 }
 
-func TestMemoryImportUsecase_ImportCodex_ProposesCandidates(t *testing.T) {
+func TestMemoryUsecase_ImportCodex_ProposesCandidates(t *testing.T) {
 	t.Parallel()
 
 	scope := workspaceScope(t, "github.com/example/repo")
@@ -173,7 +191,7 @@ func TestMemoryImportUsecase_ImportCodex_ProposesCandidates(t *testing.T) {
 	memoryStub := &stubImportMemoryUsecase{}
 	querySvc := &stubMemoryQueryService{}
 
-	sut := usecase.NewMemoryImportUsecase(memoryStub, querySvc, source, nil)
+	sut := usecase.NewMemoryUsecase(memoryStub, querySvc, nil, usecase.MemoryUsecaseDependencies{CodexSource: source})
 	result, err := sut.ImportCodex(context.Background(), apptypes.CodexImportCriteria{Root: "/tmp/codex"})
 	if err != nil {
 		t.Fatalf("ImportCodex: %v", err)
@@ -196,7 +214,7 @@ func TestMemoryImportUsecase_ImportCodex_ProposesCandidates(t *testing.T) {
 	}
 }
 
-func TestMemoryImportUsecase_ImportCodex_SkipsExistingCandidate(t *testing.T) {
+func TestMemoryUsecase_ImportCodex_SkipsExistingCandidate(t *testing.T) {
 	t.Parallel()
 
 	scope := workspaceScope(t, "github.com/example/repo")
@@ -212,7 +230,7 @@ func TestMemoryImportUsecase_ImportCodex_SkipsExistingCandidate(t *testing.T) {
 		},
 	}
 
-	sut := usecase.NewMemoryImportUsecase(memoryStub, querySvc, source, nil)
+	sut := usecase.NewMemoryUsecase(memoryStub, querySvc, nil, usecase.MemoryUsecaseDependencies{CodexSource: source})
 	result, err := sut.ImportCodex(context.Background(), apptypes.CodexImportCriteria{Root: "/tmp/codex"})
 	if err != nil {
 		t.Fatalf("ImportCodex: %v", err)
@@ -225,7 +243,7 @@ func TestMemoryImportUsecase_ImportCodex_SkipsExistingCandidate(t *testing.T) {
 	}
 }
 
-func TestMemoryImportUsecase_ImportCodex_DoesNotResurrectRejected(t *testing.T) {
+func TestMemoryUsecase_ImportCodex_DoesNotResurrectRejected(t *testing.T) {
 	t.Parallel()
 
 	scope := workspaceScope(t, "github.com/example/repo")
@@ -241,7 +259,7 @@ func TestMemoryImportUsecase_ImportCodex_DoesNotResurrectRejected(t *testing.T) 
 		},
 	}
 
-	sut := usecase.NewMemoryImportUsecase(memoryStub, querySvc, source, nil)
+	sut := usecase.NewMemoryUsecase(memoryStub, querySvc, nil, usecase.MemoryUsecaseDependencies{CodexSource: source})
 	result, err := sut.ImportCodex(context.Background(), apptypes.CodexImportCriteria{Root: "/tmp/codex"})
 	if err != nil {
 		t.Fatalf("ImportCodex: %v", err)
@@ -254,13 +272,13 @@ func TestMemoryImportUsecase_ImportCodex_DoesNotResurrectRejected(t *testing.T) 
 	}
 }
 
-// TestMemoryImportUsecase_ImportCodex_DifferentSourcePathIsNotDuplicate pins
+// TestMemoryUsecase_ImportCodex_DifferentSourcePathIsNotDuplicate pins
 // the regression that earlier collapsed memories with identical facts but
 // distinct source files. With SourcePath in the dedupe key, a rejected
 // memory imported from /tmp/MEMORY.md must not suppress a new candidate
 // read out of /home/shared/MEMORY.md, because they represent independent
 // statements from independent hosts.
-func TestMemoryImportUsecase_ImportCodex_DifferentSourcePathIsNotDuplicate(t *testing.T) {
+func TestMemoryUsecase_ImportCodex_DifferentSourcePathIsNotDuplicate(t *testing.T) {
 	t.Parallel()
 
 	scope := workspaceScope(t, "github.com/example/repo")
@@ -274,7 +292,7 @@ func TestMemoryImportUsecase_ImportCodex_DifferentSourcePathIsNotDuplicate(t *te
 	otherRootCandidate.SourcePath = "/home/shared/MEMORY.md"
 	source := &stubCodexSource{candidates: []apptypes.ImportedMemoryCandidate{otherRootCandidate}}
 
-	sut := usecase.NewMemoryImportUsecase(memoryStub, querySvc, source, nil)
+	sut := usecase.NewMemoryUsecase(memoryStub, querySvc, nil, usecase.MemoryUsecaseDependencies{CodexSource: source})
 	result, err := sut.ImportCodex(context.Background(), apptypes.CodexImportCriteria{Root: "/home/shared"})
 	if err != nil {
 		t.Fatalf("ImportCodex: %v", err)
@@ -287,7 +305,7 @@ func TestMemoryImportUsecase_ImportCodex_DifferentSourcePathIsNotDuplicate(t *te
 	}
 }
 
-func TestMemoryImportUsecase_ImportCodex_RedactionAppliedToFact(t *testing.T) {
+func TestMemoryUsecase_ImportCodex_RedactionAppliedToFact(t *testing.T) {
 	t.Parallel()
 
 	scope := workspaceScope(t, "github.com/example/repo")
@@ -297,7 +315,7 @@ func TestMemoryImportUsecase_ImportCodex_RedactionAppliedToFact(t *testing.T) {
 	memoryStub := &stubImportMemoryUsecase{}
 	querySvc := &stubMemoryQueryService{}
 
-	sut := usecase.NewMemoryImportUsecase(memoryStub, querySvc, source, nil)
+	sut := usecase.NewMemoryUsecase(memoryStub, querySvc, nil, usecase.MemoryUsecaseDependencies{CodexSource: source})
 	_, err := sut.ImportCodex(context.Background(), apptypes.CodexImportCriteria{Root: "/tmp/codex"})
 	if err != nil {
 		t.Fatalf("ImportCodex: %v", err)
@@ -311,14 +329,14 @@ func TestMemoryImportUsecase_ImportCodex_RedactionAppliedToFact(t *testing.T) {
 	}
 }
 
-func TestMemoryImportUsecase_ImportCodex_PropagatesSourceError(t *testing.T) {
+func TestMemoryUsecase_ImportCodex_PropagatesSourceError(t *testing.T) {
 	t.Parallel()
 
 	source := &stubCodexSource{err: errors.New("boom")}
 	memoryStub := &stubImportMemoryUsecase{}
 	querySvc := &stubMemoryQueryService{}
 
-	sut := usecase.NewMemoryImportUsecase(memoryStub, querySvc, source, nil)
+	sut := usecase.NewMemoryUsecase(memoryStub, querySvc, nil, usecase.MemoryUsecaseDependencies{CodexSource: source})
 	_, err := sut.ImportCodex(context.Background(), apptypes.CodexImportCriteria{Root: "/tmp/codex"})
 	if err == nil {
 		t.Fatalf("expected error from source failure")

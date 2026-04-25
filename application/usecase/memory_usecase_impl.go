@@ -477,7 +477,7 @@ func (u *memoryUsecase) Extract(ctx context.Context, criteria apptypes.MemoryExt
 		sessionQuery:        u.sessionQuery,
 		eventQuery:          u.eventQuery,
 		memory:              u,
-		extraRedactPatterns: slices.Clone(u.extraRedactPatterns),
+		extraRedactPatterns: u.extraRedactPatterns,
 	}).Extract(ctx, criteria)
 }
 
@@ -486,7 +486,7 @@ func (u *memoryUsecase) ImportCodex(ctx context.Context, criteria apptypes.Codex
 		memoryUsecase:       u,
 		memoryQuery:         u.memoryQuery,
 		codexSource:         u.codexSource,
-		extraRedactPatterns: slices.Clone(u.extraRedactPatterns),
+		extraRedactPatterns: u.extraRedactPatterns,
 	}).ImportCodex(ctx, criteria)
 }
 
@@ -494,7 +494,7 @@ func (u *memoryUsecase) ImportInstructions(ctx context.Context, criteria apptype
 	return (&memoryBridgeImportUsecase{
 		memoryUsecase:       u,
 		memoryQuery:         u.memoryQuery,
-		extraRedactPatterns: slices.Clone(u.extraRedactPatterns),
+		extraRedactPatterns: u.extraRedactPatterns,
 	}).ImportInstructions(ctx, criteria)
 }
 
@@ -502,7 +502,7 @@ func (u *memoryUsecase) Scan(ctx context.Context, criteria apptypes.MemoryHygien
 	return (&memoryHygieneUsecase{
 		memory:              u,
 		memoryQuery:         u.memoryQuery,
-		extraRedactPatterns: slices.Clone(u.extraRedactPatterns),
+		extraRedactPatterns: u.extraRedactPatterns,
 	}).Scan(ctx, criteria)
 }
 
@@ -510,7 +510,7 @@ func (u *memoryUsecase) Apply(ctx context.Context, criteria apptypes.MemoryHygie
 	return (&memoryHygieneUsecase{
 		memory:              u,
 		memoryQuery:         u.memoryQuery,
-		extraRedactPatterns: slices.Clone(u.extraRedactPatterns),
+		extraRedactPatterns: u.extraRedactPatterns,
 	}).Apply(ctx, criteria)
 }
 
