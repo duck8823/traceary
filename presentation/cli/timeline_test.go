@@ -76,6 +76,27 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("accepts since until aliases", func(t *testing.T) {
+		t.Parallel()
+
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{}),
+		).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"timeline", "--db-path", "/tmp/test.db", "--since", "2026-04-10", "--until", "2026-04-11"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		if !strings.Contains(stdout.String(), "No work blocks found.") {
+			t.Errorf("output missing empty message, got: %s", stdout.String())
+		}
+	})
+
 	t.Run("displays empty message when no blocks", func(t *testing.T) {
 		t.Parallel()
 

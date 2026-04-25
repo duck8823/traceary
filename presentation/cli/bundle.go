@@ -34,7 +34,9 @@ func (c *RootCLI) newBundleExportCommand() *cobra.Command {
 	var (
 		dbPath         string
 		outPath        string
+		fromValue      string
 		sinceValue     string
+		toValue        string
 		untilValue     string
 		workspaceValue string
 		passphraseEnv  string
@@ -47,7 +49,9 @@ func (c *RootCLI) newBundleExportCommand() *cobra.Command {
 			return c.runBundleExport(cmd.Context(), cmd.OutOrStdout(), bundleExportInput{
 				dbPath:        dbPath,
 				outPath:       outPath,
+				from:          fromValue,
 				since:         sinceValue,
+				to:            toValue,
 				until:         untilValue,
 				workspace:     workspaceValue,
 				passphraseEnv: passphraseEnv,
@@ -56,8 +60,10 @@ func (c *RootCLI) newBundleExportCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	cmd.Flags().StringVar(&outPath, "out", "", Localize("output path for the encrypted bundle (required)", "暗号化バンドルの出力先 (必須)"))
-	cmd.Flags().StringVar(&sinceValue, "since", "", Localize("lower bound for event created_at (YYYY-MM-DD or RFC3339)", "event created_at の下限 (YYYY-MM-DD または RFC3339)"))
-	cmd.Flags().StringVar(&untilValue, "until", "", Localize("upper bound for event created_at (exclusive; YYYY-MM-DD or RFC3339)", "event created_at の上限 (排他; YYYY-MM-DD または RFC3339)"))
+	cmd.Flags().StringVar(&fromValue, "from", "", Localize("lower bound for event created_at (YYYY-MM-DD or RFC3339; alias: --since)", "event created_at の下限 (YYYY-MM-DD または RFC3339; 別名: --since)"))
+	cmd.Flags().StringVar(&sinceValue, "since", "", Localize("lower bound for event created_at (alias for --from)", "event created_at の下限 (--from の別名)"))
+	cmd.Flags().StringVar(&toValue, "to", "", Localize("upper bound for event created_at (exclusive; YYYY-MM-DD or RFC3339; alias: --until)", "event created_at の上限 (排他; YYYY-MM-DD または RFC3339; 別名: --until)"))
+	cmd.Flags().StringVar(&untilValue, "until", "", Localize("upper bound for event created_at (exclusive; alias for --to)", "event created_at の上限 (排他; --to の別名)"))
 	cmd.Flags().StringVar(&workspaceValue, "workspace", "", Localize("restrict to a single workspace", "1 つの workspace に絞る"))
 	cmd.Flags().StringVar(&passphraseEnv, "passphrase-env", "TRACEARY_BUNDLE_PASSPHRASE", Localize("environment variable that carries the encryption passphrase", "暗号化 passphrase を格納した環境変数名"))
 	_ = cmd.MarkFlagRequired("out")
@@ -104,7 +110,9 @@ func (c *RootCLI) newBundleImportCommand() *cobra.Command {
 type bundleExportInput struct {
 	dbPath        string
 	outPath       string
+	from          string
 	since         string
+	to            string
 	until         string
 	workspace     string
 	passphraseEnv string
@@ -137,13 +145,21 @@ func (c *RootCLI) runBundleExport(ctx context.Context, output io.Writer, input b
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
-	since, err := parseFlexibleTime(input.since, false)
+	fromValue, err := resolveSearchDateValue(input.from, input.since, "from", "since")
 	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to parse --since", "--since の解析に失敗しました"), err)
+		return err
 	}
-	until, err := parseFlexibleTime(input.until, true)
+	toValue, err := resolveSearchDateValue(input.to, input.until, "to", "until")
 	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to parse --until", "--until の解析に失敗しました"), err)
+		return err
+	}
+	since, err := parseFlexibleTime(fromValue, false)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to parse --from", "--from の解析に失敗しました"), err)
+	}
+	until, err := parseFlexibleTime(toValue, true)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to parse --to", "--to の解析に失敗しました"), err)
 	}
 
 	if err := c.bundle.Export(ctx, usecase.BundleExportOptions{

@@ -297,12 +297,14 @@ func (s *memoryEdgeUsecaseStub) List(_ context.Context, _ model.MemoryEdgeListFi
 }
 
 type bundleUsecaseStub struct {
-	importResult usecase.BundleImportResult
-	importErr    error
-	exportErr    error
+	importResult  usecase.BundleImportResult
+	importErr     error
+	exportErr     error
+	exportOptions usecase.BundleExportOptions
 }
 
-func (s *bundleUsecaseStub) Export(_ context.Context, _ usecase.BundleExportOptions) error {
+func (s *bundleUsecaseStub) Export(_ context.Context, options usecase.BundleExportOptions) error {
+	s.exportOptions = options
 	return s.exportErr
 }
 

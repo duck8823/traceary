@@ -92,9 +92,9 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 			"絞り込む kind (note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt, transcript; alias: audit)",
 		),
 	)
-	searchCmd.Flags().StringVar(&from, "from", "", Localize("start date (`YYYY-MM-DD` or RFC3339)", "開始日 (`YYYY-MM-DD` または RFC3339)"))
+	searchCmd.Flags().StringVar(&from, "from", "", Localize("start date (`YYYY-MM-DD` or RFC3339; alias: `--since`)", "開始日 (`YYYY-MM-DD` または RFC3339; 別名: `--since`)"))
 	searchCmd.Flags().StringVar(&since, "since", "", Localize("start date (`YYYY-MM-DD` or RFC3339) (alias for `--from`)", "開始日 (`YYYY-MM-DD` または RFC3339) (`--from` の別名)"))
-	searchCmd.Flags().StringVar(&to, "to", "", Localize("end date (`YYYY-MM-DD` or RFC3339)", "終了日 (`YYYY-MM-DD` または RFC3339)"))
+	searchCmd.Flags().StringVar(&to, "to", "", Localize("end date (`YYYY-MM-DD` or RFC3339; alias: `--until`)", "終了日 (`YYYY-MM-DD` または RFC3339; 別名: `--until`)"))
 	searchCmd.Flags().StringVar(&until, "until", "", Localize("end date (`YYYY-MM-DD` or RFC3339) (alias for `--to`)", "終了日 (`YYYY-MM-DD` または RFC3339) (`--to` の別名)"))
 	searchCmd.Flags().IntVar(&limit, "limit", 20, Localize("maximum number of results", "表示件数"))
 	searchCmd.Flags().IntVar(&offset, "offset", 0, Localize("number of matching events to skip before returning results", "結果を返す前にスキップする件数"))
