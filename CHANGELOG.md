@@ -6,7 +6,7 @@ This file summarizes what changed in each Traceary release in chronological orde
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
 
-## [v0.10.0] - Unreleased
+## [v0.10.0] - 2026-04-26
 
 ### Added
 - **Bundle manifest v2 skeleton (#737)** — bundle export now writes `manifest_version=2` with a per-table registry entry for `events` (`table_name`, file, row count, SHA-256 checksum), import keeps the v1 reader path, and `bundle import` adds `--on-conflict {skip,replace,error}` plus the reserved `--missing-parent {reject,skip,backfill}` flag.
