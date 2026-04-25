@@ -18,7 +18,10 @@ type doctorPluginInstall struct {
 	UpdateHint       string
 }
 
-var doctorVersionPrefixPattern = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+){0,2}(?:[-+][0-9A-Za-z.-]+)?`)
+var (
+	doctorVersionPrefixPattern = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+){0,2}(?:[-+][0-9A-Za-z.-]+)?`)
+	doctorPseudoVersionPattern = regexp.MustCompile(`-0\.\d{14}-[a-f0-9]{12,}$`)
+)
 
 func (c *RootCLI) inspectPluginVersionChecks(currentVersion string) []doctorCheck {
 	checks := []doctorCheck{}
@@ -77,6 +80,18 @@ func inspectPluginVersion(install doctorPluginInstall, currentVersion string) do
 	if current == "" || current == "dev" {
 		return doctorCheck{Name: name, Status: doctorStatusSkip, Message: localizef("running traceary version is %q; skipped plugin version comparison for %s", "実行中 traceary version は %q のため %s plugin version 比較を skip しました", currentVersion, install.Client)}
 	}
+	if isDevBuild(currentVersion) {
+		return doctorCheck{
+			Name:   name,
+			Status: doctorStatusPass,
+			Message: localizef(
+				"%s plugin version comparison soft-passed because traceary is running a dev build: %s (%s)",
+				"traceary が dev build として実行中のため %s plugin version 比較を soft-pass しました: %s (%s)",
+				install.Client, currentVersion, install.ManifestPath,
+			),
+			Hint: "running a dev build (rebuild + reinstall plugin to verify version alignment)",
+		}
+	}
 	installedVersion := ""
 	if install.InstalledVersion != "" {
 		installedVersion = strings.TrimSpace(install.InstalledVersion)
@@ -112,4 +127,16 @@ func normalizeDoctorVersion(version string) string {
 		return version[:index]
 	}
 	return version
+}
+
+func isDevBuild(version string) bool {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return false
+	}
+	lower := strings.ToLower(version)
+	if strings.Contains(lower, "devel") || strings.Contains(lower, "dirty") {
+		return true
+	}
+	return doctorPseudoVersionPattern.MatchString(normalizeDoctorVersion(version))
 }
