@@ -8,12 +8,12 @@ Traceary は local-first かつ single-SQLite です。`traceary bundle export` 
 
 ## bundle の中身
 
-v0.9.0 bundle (manifest_version = 1):
+現在の bundle (manifest_version = 2):
 
-- `manifest.json` — schema version、作成時刻、使ったフィルタ、各ファイルの SHA-256。
-- `events.ndjson` — `--since` / `--until` / `--workspace` に一致するイベント (deterministic な出力のため `created_at` でソート済み)。
+- `manifest.json` — store schema version、作成時刻、使用 filter、writer metadata、import defaults、`{table_name, file, row_count, checksum}` を持つ table registry (`tables`)。
+- `events.ndjson` — `--since` / `--until` / `--workspace` に一致する event。決定的な出力にするため `created_at` 順。
 
-**v0.9.0 にはまだ入っていないもの**: sessions、command audits、durable memories、graph edges。本 doc 出荷時に新規 follow-up issue に回します。event が主要な履歴であり、残りのデータモデルは安定化の途上にあるため、MVP はまず events のみで出します。
+Traceary は `file_checksums` を使う v0.9.0 `manifest_version = 1` bundle も引き続き import できます。v2 は現時点では `events` table のみを登録します。sessions、command audits、durable memories、graph edges は follow-up table です。
 
 ## 暗号化
 
@@ -70,7 +70,9 @@ traceary bundle import --in ~/Downloads/traceary-*.tbun
    done
    ```
 
-`bundle import` は冪等です。送信先にすでに存在する event は skip され (`events_skipped` にカウント)、同じ bundle を何度取り込んでも安全です。
+`bundle import` の既定は `--on-conflict skip` です。送信先にすでに存在する event は skip され (`events_skipped` にカウント)、同じ bundle を何度取り込んでも安全です。`--on-conflict replace` は bundle 側の event row で上書きし、`--on-conflict error` は最初の UNIQUE 衝突で失敗して import 全体を rollback します。
+
+`--missing-parent {reject,skip,backfill}` も受け付けます。v2 events ではまだ使いませんが、今後の sessions / memories / edges table 用に予約されています。既定は `reject` です。
 
 ## スキーマ安全性
 

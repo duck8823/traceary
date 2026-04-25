@@ -8,12 +8,12 @@ Traceary is local-first and single-SQLite. `traceary bundle export` / `bundle im
 
 ## What the bundle contains
 
-v0.9.0 bundle (manifest_version = 1):
+Current bundle (manifest_version = 2):
 
-- `manifest.json` — schema version, creation time, filters used, per-file SHA-256 checksums.
+- `manifest.json` — store schema version, creation time, filters used, writer metadata, import defaults, and a per-table registry (`tables`) with `{table_name, file, row_count, checksum}` entries.
 - `events.ndjson` — every event matching `--since` / `--until` / `--workspace`, ordered by `created_at` for deterministic output.
 
-**Not yet in v0.9.0**: sessions, command audits, durable memories, graph edges. Tracked as a follow-up (see bottom of this doc). Events are the primary portable history, so the MVP ships with events only while the rest of the data model stabilises.
+Traceary still imports v0.9.0 `manifest_version = 1` bundles that use `file_checksums`. v2 currently registers the `events` table only; sessions, command audits, durable memories, and graph edges are follow-up tables. Events are the primary portable history, so the first v2 skeleton ships with events while the rest of the data model stabilises.
 
 ## Encryption
 
@@ -70,7 +70,9 @@ traceary bundle import --in ~/Downloads/traceary-*.tbun
    done
    ```
 
-`bundle import` is idempotent — an event already present in the destination store is skipped (counted under `events_skipped`), so re-importing the same bundle any number of times is safe.
+`bundle import` defaults to `--on-conflict skip`: an event already present in the destination store is skipped (counted under `events_skipped`), so re-importing the same bundle any number of times is safe. Use `--on-conflict replace` to overwrite existing event rows from the bundle, or `--on-conflict error` to fail on the first UNIQUE collision and roll back the import.
+
+The import command also accepts `--missing-parent {reject,skip,backfill}`. v2 events do not need this yet, but the flag is reserved for forthcoming sessions / memories / edges tables; the default is `reject`.
 
 ## Schema safety
 

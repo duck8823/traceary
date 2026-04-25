@@ -66,10 +66,12 @@ func (c *RootCLI) newBundleExportCommand() *cobra.Command {
 
 func (c *RootCLI) newBundleImportCommand() *cobra.Command {
 	var (
-		dbPath        string
-		inPath        string
-		passphraseEnv string
-		asJSON        bool
+		dbPath             string
+		inPath             string
+		passphraseEnv      string
+		onConflictValue    string
+		missingParentValue string
+		asJSON             bool
 	)
 	cmd := &cobra.Command{
 		Use:   "import",
@@ -80,6 +82,8 @@ func (c *RootCLI) newBundleImportCommand() *cobra.Command {
 				dbPath:        dbPath,
 				inPath:        inPath,
 				passphraseEnv: passphraseEnv,
+				onConflict:    onConflictValue,
+				missingParent: missingParentValue,
 				asJSON:        asJSON,
 			})
 		},
@@ -87,6 +91,8 @@ func (c *RootCLI) newBundleImportCommand() *cobra.Command {
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	cmd.Flags().StringVar(&inPath, "in", "", Localize("input path of the encrypted bundle (required)", "暗号化バンドルの入力パス (必須)"))
 	cmd.Flags().StringVar(&passphraseEnv, "passphrase-env", "TRACEARY_BUNDLE_PASSPHRASE", Localize("environment variable that carries the decryption passphrase", "復号 passphrase を格納した環境変数名"))
+	cmd.Flags().StringVar(&onConflictValue, "on-conflict", "skip", Localize("UNIQUE conflict policy: skip, replace, or error", "UNIQUE 衝突時の方針: skip, replace, error"))
+	cmd.Flags().StringVar(&missingParentValue, "missing-parent", "reject", Localize("missing parent policy for future multi-table imports: reject, skip, or backfill", "将来の複数テーブル import で親がない場合の方針: reject, skip, backfill"))
 	cmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON result", "JSON 形式で結果を出力する"))
 	_ = cmd.MarkFlagRequired("in")
 	return cmd
@@ -105,6 +111,8 @@ type bundleImportInput struct {
 	dbPath        string
 	inPath        string
 	passphraseEnv string
+	onConflict    string
+	missingParent string
 	asJSON        bool
 }
 
@@ -167,8 +175,10 @@ func (c *RootCLI) runBundleImport(ctx context.Context, output io.Writer, input b
 	}
 
 	result, err := c.bundle.Import(ctx, usecase.BundleImportOptions{
-		InPath:     input.inPath,
-		Passphrase: passphrase,
+		InPath:        input.inPath,
+		Passphrase:    passphrase,
+		OnConflict:    usecase.BundleConflictPolicy(strings.TrimSpace(input.onConflict)),
+		MissingParent: usecase.BundleMissingParentPolicy(strings.TrimSpace(input.missingParent)),
 	})
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to import bundle", "bundle の import に失敗しました"), err)
