@@ -52,11 +52,12 @@ func (f fakeEventQuery) ListTimelineBlocks(context.Context, types.Workspace, tim
 
 // Fake repository that tracks imports + schema version.
 type fakeBundleRepo struct {
-	schema         int
-	events         map[string]bool
-	memories       map[string]*model.Memory
-	exportMemories []apptypes.MemoryDetails
-	forceErr       error
+	schema                    int
+	events                    map[string]bool
+	memories                  map[string]*model.Memory
+	exportMemories            []apptypes.MemoryDetails
+	enforceMemorySupersedesFK bool
+	forceErr                  error
 }
 
 func (r *fakeBundleRepo) SchemaVersion(context.Context) (int, error) { return r.schema, nil }
@@ -109,6 +110,13 @@ func (tx *fakeBundleTx) ImportMemory(_ context.Context, memory *model.Memory, po
 		}
 		return false, nil
 	}
+	if r.enforceMemorySupersedesFK {
+		if supersedes, ok := memory.Supersedes().Value(); ok {
+			if _, exists := r.memories[supersedes.String()]; !exists {
+				return false, xerrors.Errorf("foreign key constraint failed: supersedes_memory_id %s is missing", supersedes)
+			}
+		}
+	}
 	r.memories[id] = memory
 	return true, nil
 }
@@ -138,6 +146,17 @@ func mustEvent(t *testing.T, id string, ts time.Time) *model.Event {
 
 func mustMemoryDetails(t *testing.T, id string, status types.MemoryStatus, ts time.Time) apptypes.MemoryDetails {
 	t.Helper()
+	return mustMemoryDetailsSuperseding(t, id, "", status, ts)
+}
+
+func mustMemoryDetailsSuperseding(
+	t *testing.T,
+	id string,
+	supersedesID string,
+	status types.MemoryStatus,
+	ts time.Time,
+) apptypes.MemoryDetails {
+	t.Helper()
 	memoryID, err := types.MemoryIDFrom(id)
 	if err != nil {
 		t.Fatalf("MemoryIDFrom: %v", err)
@@ -150,6 +169,14 @@ func mustMemoryDetails(t *testing.T, id string, status types.MemoryStatus, ts ti
 	if err != nil {
 		t.Fatalf("ArtifactRefFrom: %v", err)
 	}
+	supersedes := types.None[types.MemoryID]()
+	if supersedesID != "" {
+		parentID, err := types.MemoryIDFrom(supersedesID)
+		if err != nil {
+			t.Fatalf("MemoryIDFrom(supersedes): %v", err)
+		}
+		supersedes = types.Some(parentID)
+	}
 	memory := model.MemoryOf(
 		memoryID,
 		types.MemoryTypeDecision,
@@ -160,7 +187,7 @@ func mustMemoryDetails(t *testing.T, id string, status types.MemoryStatus, ts ti
 		types.MemorySourceManual,
 		[]types.EvidenceRef{evidence},
 		[]types.ArtifactRef{artifact},
-		types.None[types.MemoryID](),
+		supersedes,
 		types.None[time.Time](),
 		ts.Add(-time.Hour),
 		types.None[time.Time](),
@@ -311,6 +338,64 @@ func TestBundleUsecase_ReimportDoesNotDowngradeAlreadyAcceptedMemory(t *testing.
 	}
 	if got := importRepo.memories["mem-existing"].Status(); got != types.MemoryStatusAccepted {
 		t.Fatalf("existing memory status = %s, want accepted", got)
+	}
+}
+
+func TestBundleUsecase_ImportTopologicallySortsMemorySupersessionChain(t *testing.T) {
+	t.Parallel()
+
+	ts := time.Date(2026, 4, 25, 10, 0, 0, 0, time.UTC)
+	memoriesBuf := &bytes.Buffer{}
+	encoder := json.NewEncoder(memoriesBuf)
+	// Intentionally emit rows in non-topological order. Lexicographic sorting
+	// by supersedes_memory_id would put mem-m before mem-a here, even though
+	// mem-m depends on mem-a and mem-a depends on mem-z.
+	for _, row := range []map[string]string{
+		bundleMemoryRowForTest("mem-m", "mem-a", ts),
+		bundleMemoryRowForTest("mem-a", "mem-z", ts),
+		bundleMemoryRowForTest("mem-z", "", ts),
+	} {
+		if err := encoder.Encode(row); err != nil {
+			t.Fatalf("encode memory row: %v", err)
+		}
+	}
+	events := []byte("")
+	bundle := buildBundleWithManifestAndFiles(t, 2, nil, map[string][]byte{
+		"events.ndjson":   events,
+		"memories.ndjson": memoriesBuf.Bytes(),
+	}, map[string]any{
+		"events": map[string]any{
+			"table_name": "events",
+			"file":       "events.ndjson",
+			"row_count":  0,
+			"checksum":   hashForTest(events),
+		},
+		"memories": map[string]any{
+			"table_name": "memories",
+			"file":       "memories.ndjson",
+			"row_count":  3,
+			"checksum":   hashForTest(memoriesBuf.Bytes()),
+		},
+	})
+	in := filepath.Join(t.TempDir(), "unordered-memory-chain.tbun")
+	if err := os.WriteFile(in, bundle, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	importRepo := &fakeBundleRepo{schema: 13, enforceMemorySupersedesFK: true}
+	uc := usecase.NewBundleUsecase(fakeEventQuery{}, importRepo, nil)
+	result, err := uc.Import(context.Background(), usecase.BundleImportOptions{
+		InPath:     in,
+		Passphrase: []byte("testpass"),
+	})
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if result.MemoriesImported != 3 || result.MemoriesSkipped != 0 {
+		t.Fatalf("Import result = %+v, want 3 memory imported / 0 skipped", result)
+	}
+	if len(importRepo.memories) != 3 {
+		t.Fatalf("imported memories = %d, want 3", len(importRepo.memories))
 	}
 }
 
@@ -745,4 +830,24 @@ func openTestBundle(t *testing.T, path string, passphrase []byte) map[string][]b
 func hashForTest(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+func bundleMemoryRowForTest(id string, supersedesID string, ts time.Time) map[string]string {
+	row := map[string]string{
+		"memory_id":   id,
+		"type":        "decision",
+		"scope_kind":  "workspace",
+		"scope_value": "ws",
+		"fact":        "Bundle memory " + id,
+		"status":      "accepted",
+		"confidence":  "high",
+		"source":      "manual",
+		"valid_from":  ts.Add(-time.Hour).UTC().Format(time.RFC3339Nano),
+		"created_at":  ts.UTC().Format(time.RFC3339Nano),
+		"updated_at":  ts.Add(time.Minute).UTC().Format(time.RFC3339Nano),
+	}
+	if supersedesID != "" {
+		row["supersedes_memory_id"] = supersedesID
+	}
+	return row
 }

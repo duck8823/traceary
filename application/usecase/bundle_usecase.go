@@ -535,13 +535,13 @@ func (bundleMemoriesTable) Apply(
 	rows []bundleRow,
 	policy BundleConflictPolicy,
 ) (int, int, error) {
+	sortedRows, err := topologicallySortBundleMemoryRows(rows)
+	if err != nil {
+		return 0, 0, err
+	}
 	imported := 0
 	skipped := 0
-	for _, generic := range rows {
-		row, ok := generic.(bundleMemoryRow)
-		if !ok {
-			return imported, skipped, xerrors.Errorf("unexpected memories row type %T", generic)
-		}
+	for _, row := range sortedRows {
 		memory, err := row.toMemory()
 		if err != nil {
 			return imported, skipped, xerrors.Errorf("restore memory: %w", err)
@@ -828,19 +828,7 @@ func encodeEventsNDJSON(events []*model.Event) (*bytes.Buffer, error) {
 
 func encodeMemoriesNDJSON(memories []apptypes.MemoryDetails) (*bytes.Buffer, error) {
 	buf := &bytes.Buffer{}
-	sort.Slice(memories, func(i, j int) bool {
-		left := memories[i].Summary()
-		right := memories[j].Summary()
-		leftSupersedes, leftOK := left.Supersedes().Value()
-		rightSupersedes, rightOK := right.Supersedes().Value()
-		if leftOK != rightOK {
-			return !leftOK
-		}
-		if leftOK && rightOK && leftSupersedes.String() != rightSupersedes.String() {
-			return leftSupersedes.String() < rightSupersedes.String()
-		}
-		return left.MemoryID().String() < right.MemoryID().String()
-	})
+	memories = topologicallySortMemoryDetails(memories)
 	enc := json.NewEncoder(buf)
 	for _, details := range memories {
 		summary := details.Summary()
@@ -873,6 +861,135 @@ func encodeMemoriesNDJSON(memories []apptypes.MemoryDetails) (*bytes.Buffer, err
 		}
 	}
 	return buf, nil
+}
+
+func topologicallySortBundleMemoryRows(rows []bundleRow) ([]bundleMemoryRow, error) {
+	memories := make([]bundleMemoryRow, 0, len(rows))
+	for _, generic := range rows {
+		row, ok := generic.(bundleMemoryRow)
+		if !ok {
+			return nil, xerrors.Errorf("unexpected memories row type %T", generic)
+		}
+		memories = append(memories, row)
+	}
+	sortedIndexes, err := topologicallySortMemoryIndexes(
+		len(memories),
+		func(i int) string { return memories[i].MemoryID },
+		func(i int) string { return memories[i].SupersedesMemoryID },
+	)
+	if err != nil {
+		return nil, err
+	}
+	sorted := make([]bundleMemoryRow, 0, len(memories))
+	for _, idx := range sortedIndexes {
+		sorted = append(sorted, memories[idx])
+	}
+	return sorted, nil
+}
+
+func topologicallySortMemoryDetails(memories []apptypes.MemoryDetails) []apptypes.MemoryDetails {
+	sortedIndexes, err := topologicallySortMemoryIndexes(
+		len(memories),
+		func(i int) string { return memories[i].Summary().MemoryID().String() },
+		func(i int) string {
+			if supersedes, ok := memories[i].Summary().Supersedes().Value(); ok {
+				return supersedes.String()
+			}
+			return ""
+		},
+	)
+	if err != nil {
+		// Export reads trusted local state. If that state contains impossible
+		// cycles or duplicate IDs, keep deterministic ID order rather than
+		// failing bundle creation here; repository constraints own that invariant.
+		sorted := append([]apptypes.MemoryDetails(nil), memories...)
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].Summary().MemoryID().String() < sorted[j].Summary().MemoryID().String()
+		})
+		return sorted
+	}
+	sorted := make([]apptypes.MemoryDetails, 0, len(memories))
+	for _, idx := range sortedIndexes {
+		sorted = append(sorted, memories[idx])
+	}
+	return sorted
+}
+
+func topologicallySortMemoryIndexes(
+	count int,
+	idAt func(int) string,
+	supersedesAt func(int) string,
+) ([]int, error) {
+	indexByID := make(map[string]int, count)
+	for i := 0; i < count; i++ {
+		id := idAt(i)
+		if id == "" {
+			return nil, xerrors.Errorf("memory row has empty memory_id")
+		}
+		if _, exists := indexByID[id]; exists {
+			return nil, xerrors.Errorf("bundle contains duplicate memory_id %s", id)
+		}
+		indexByID[id] = i
+	}
+
+	childrenByParent := make(map[string][]int, count)
+	indegree := make([]int, count)
+	for i := 0; i < count; i++ {
+		parentID := supersedesAt(i)
+		if parentID == "" {
+			continue
+		}
+		if _, parentInBundle := indexByID[parentID]; !parentInBundle {
+			continue
+		}
+		childrenByParent[parentID] = append(childrenByParent[parentID], i)
+		indegree[i]++
+	}
+	for parentID := range childrenByParent {
+		sort.Slice(childrenByParent[parentID], func(i, j int) bool {
+			return idAt(childrenByParent[parentID][i]) < idAt(childrenByParent[parentID][j])
+		})
+	}
+
+	ready := make([]int, 0, count)
+	for i := 0; i < count; i++ {
+		if indegree[i] == 0 {
+			ready = append(ready, i)
+		}
+	}
+	sort.Slice(ready, func(i, j int) bool {
+		leftRoot := supersedesAt(ready[i]) == ""
+		rightRoot := supersedesAt(ready[j]) == ""
+		if leftRoot != rightRoot {
+			return leftRoot
+		}
+		return idAt(ready[i]) < idAt(ready[j])
+	})
+
+	sorted := make([]int, 0, count)
+	for len(ready) > 0 {
+		current := ready[0]
+		ready = ready[1:]
+		sorted = append(sorted, current)
+		for _, child := range childrenByParent[idAt(current)] {
+			indegree[child]--
+			if indegree[child] == 0 {
+				ready = append(ready, child)
+			}
+		}
+		sort.Slice(ready, func(i, j int) bool {
+			leftRoot := supersedesAt(ready[i]) == ""
+			rightRoot := supersedesAt(ready[j]) == ""
+			if leftRoot != rightRoot {
+				return leftRoot
+			}
+			return idAt(ready[i]) < idAt(ready[j])
+		})
+	}
+	if len(sorted) != count {
+		return nil, xerrors.Errorf("bundle memories contain a supersession cycle")
+	}
+	return sorted, nil
 }
 
 func refsToBundleEvidenceRows(refs []types.EvidenceRef) []bundleRefRow {
