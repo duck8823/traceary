@@ -33,23 +33,8 @@ type Server struct {
 	event               usecase.EventUsecase
 	session             usecase.SessionUsecase
 	memory              usecase.MemoryUsecase
-	memoryHygiene       memoryHygieneUsecase
-	memoryExport        memoryExportUsecase
-	memoryBridgeImport  memoryBridgeImportUsecase
 	context             usecase.ContextUsecase
 	storeManagement     usecase.StoreManagementUsecase
-}
-
-type memoryHygieneUsecase interface {
-	Scan(context.Context, apptypes.MemoryHygieneScanCriteria) (apptypes.MemoryHygieneScanResult, error)
-}
-
-type memoryExportUsecase interface {
-	Export(context.Context, apptypes.MemoryExportCriteria) (apptypes.MemoryExportResult, error)
-}
-
-type memoryBridgeImportUsecase interface {
-	ImportInstructions(context.Context, apptypes.MemoryBridgeImportCriteria) (apptypes.MemoryBridgeImportResult, error)
 }
 
 // NewServer creates a new MCP server.
@@ -59,9 +44,6 @@ func NewServer(
 	event usecase.EventUsecase,
 	session usecase.SessionUsecase,
 	memory usecase.MemoryUsecase,
-	memoryHygiene memoryHygieneUsecase,
-	memoryExport memoryExportUsecase,
-	memoryBridgeImport memoryBridgeImportUsecase,
 	contextUsecase usecase.ContextUsecase,
 	storeManagement usecase.StoreManagementUsecase,
 ) (*Server, error) {
@@ -93,9 +75,6 @@ func NewServer(
 		event:               event,
 		session:             session,
 		memory:              memory,
-		memoryHygiene:       memoryHygiene,
-		memoryExport:        memoryExport,
-		memoryBridgeImport:  memoryBridgeImport,
 		context:             contextUsecase,
 		storeManagement:     storeManagement,
 	}, nil
@@ -796,8 +775,8 @@ func (s *Server) acceptMemoriesBatch() mcp.ToolHandlerFor[acceptMemoriesBatchInp
 // operators see the same expiry cadence out of the box.
 func (s *Server) scanMemoryHygiene() mcp.ToolHandlerFor[scanMemoryHygieneInput, memoryHygieneOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input scanMemoryHygieneInput) (*mcp.CallToolResult, memoryHygieneOutput, error) {
-		if s.memoryHygiene == nil {
-			return nil, memoryHygieneOutput{}, xerrors.Errorf("memory hygiene usecase is not configured")
+		if s.memory == nil {
+			return nil, memoryHygieneOutput{}, xerrors.Errorf("memory usecase is not configured")
 		}
 		criteria := apptypes.MemoryHygieneScanCriteria{}
 		if workspace := strings.TrimSpace(input.Workspace); workspace != "" {
@@ -810,7 +789,7 @@ func (s *Server) scanMemoryHygiene() mcp.ToolHandlerFor[scanMemoryHygieneInput, 
 		if input.ExpiryDays > 0 {
 			criteria.StalenessThreshold = time.Duration(input.ExpiryDays) * 24 * time.Hour
 		}
-		result, err := s.memoryHygiene.Scan(ctx, criteria)
+		result, err := s.memory.Scan(ctx, criteria)
 		if err != nil {
 			return nil, memoryHygieneOutput{}, xerrors.Errorf("failed to scan memory hygiene: %w", err)
 		}
@@ -855,8 +834,8 @@ func (s *Server) scanMemoryHygiene() mcp.ToolHandlerFor[scanMemoryHygieneInput, 
 // diff it, or post-process it before committing.
 func (s *Server) exportMemories() mcp.ToolHandlerFor[exportMemoriesInput, exportMemoriesOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input exportMemoriesInput) (*mcp.CallToolResult, exportMemoriesOutput, error) {
-		if s.memoryExport == nil {
-			return nil, exportMemoriesOutput{}, xerrors.Errorf("memory export usecase is not configured")
+		if s.memory == nil {
+			return nil, exportMemoriesOutput{}, xerrors.Errorf("memory usecase is not configured")
 		}
 		target, ok := apptypes.MemoryBridgeTargetOf(strings.ToLower(strings.TrimSpace(input.Target)))
 		if !ok {
@@ -870,7 +849,7 @@ func (s *Server) exportMemories() mcp.ToolHandlerFor[exportMemoriesInput, export
 			}
 			criteria.Scopes = []types.MemoryScope{types.WorkspaceScopeOf(resolvedWorkspace)}
 		}
-		result, err := s.memoryExport.Export(ctx, criteria)
+		result, err := s.memory.Export(ctx, criteria)
 		if err != nil {
 			return nil, exportMemoriesOutput{}, xerrors.Errorf("failed to export memories: %w", err)
 		}
@@ -887,8 +866,8 @@ func (s *Server) exportMemories() mcp.ToolHandlerFor[exportMemoriesInput, export
 // one and the usecase rejects an empty combination.
 func (s *Server) importMemoryInstructions() mcp.ToolHandlerFor[importMemoryInstructionsInput, importMemoryInstructionsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input importMemoryInstructionsInput) (*mcp.CallToolResult, importMemoryInstructionsOutput, error) {
-		if s.memoryBridgeImport == nil {
-			return nil, importMemoryInstructionsOutput{}, xerrors.Errorf("memory bridge import usecase is not configured")
+		if s.memory == nil {
+			return nil, importMemoryInstructionsOutput{}, xerrors.Errorf("memory usecase is not configured")
 		}
 		target, ok := apptypes.MemoryBridgeTargetOf(strings.ToLower(strings.TrimSpace(input.Source)))
 		if !ok {
@@ -906,7 +885,7 @@ func (s *Server) importMemoryInstructions() mcp.ToolHandlerFor[importMemoryInstr
 			}
 			criteria.WorkspaceFallback = resolvedWorkspace
 		}
-		result, err := s.memoryBridgeImport.ImportInstructions(ctx, criteria)
+		result, err := s.memory.ImportInstructions(ctx, criteria)
 		if err != nil {
 			return nil, importMemoryInstructionsOutput{}, xerrors.Errorf("failed to import instructions: %w", err)
 		}

@@ -231,65 +231,6 @@ func (s *codexIntegrationUsecaseStub) Uninstall(
 	return s.uninstallResult, s.uninstallErr
 }
 
-type memoryExtractionUsecaseStub struct {
-	details  []apptypes.MemoryDetails
-	err      error
-	criteria apptypes.MemoryExtractionCriteria
-}
-
-func (s *memoryExtractionUsecaseStub) Extract(_ context.Context, criteria apptypes.MemoryExtractionCriteria) ([]apptypes.MemoryDetails, error) {
-	s.criteria = criteria
-	return s.details, s.err
-}
-
-type memoryImportUsecaseStub struct {
-	result apptypes.MemoryImportResult
-	err    error
-	calls  []apptypes.CodexImportCriteria
-}
-
-func (s *memoryImportUsecaseStub) ImportCodex(_ context.Context, criteria apptypes.CodexImportCriteria) (apptypes.MemoryImportResult, error) {
-	s.calls = append(s.calls, criteria)
-	return s.result, s.err
-}
-
-type memoryExportUsecaseStub struct {
-	result apptypes.MemoryExportResult
-	err    error
-	calls  []apptypes.MemoryExportCriteria
-}
-
-func (s *memoryExportUsecaseStub) Export(_ context.Context, criteria apptypes.MemoryExportCriteria) (apptypes.MemoryExportResult, error) {
-	s.calls = append(s.calls, criteria)
-	return s.result, s.err
-}
-
-type memoryBridgeImportUsecaseStub struct {
-	result apptypes.MemoryBridgeImportResult
-	err    error
-	calls  []apptypes.MemoryBridgeImportCriteria
-}
-
-func (s *memoryBridgeImportUsecaseStub) ImportInstructions(_ context.Context, criteria apptypes.MemoryBridgeImportCriteria) (apptypes.MemoryBridgeImportResult, error) {
-	s.calls = append(s.calls, criteria)
-	return s.result, s.err
-}
-
-type memoryHygieneUsecaseStub struct {
-	scanResult  apptypes.MemoryHygieneScanResult
-	scanErr     error
-	applyResult apptypes.MemoryHygieneApplyResult
-	applyErr    error
-}
-
-func (s *memoryHygieneUsecaseStub) Scan(_ context.Context, _ apptypes.MemoryHygieneScanCriteria) (apptypes.MemoryHygieneScanResult, error) {
-	return s.scanResult, s.scanErr
-}
-
-func (s *memoryHygieneUsecaseStub) Apply(_ context.Context, _ apptypes.MemoryHygieneApplyCriteria) (apptypes.MemoryHygieneApplyResult, error) {
-	return s.applyResult, s.applyErr
-}
-
 type memoryEdgeUsecaseStub struct {
 	addEdge   *model.MemoryEdge
 	addErr    error
@@ -340,6 +281,18 @@ type memoryUsecaseStub struct {
 	expireErr          error
 	setValidityDetails apptypes.MemoryDetails
 	setValidityErr     error
+	extractDetails     []apptypes.MemoryDetails
+	extractErr         error
+	importResult       apptypes.MemoryImportResult
+	importErr          error
+	bridgeImportResult apptypes.MemoryBridgeImportResult
+	bridgeImportErr    error
+	scanResult         apptypes.MemoryHygieneScanResult
+	scanErr            error
+	applyResult        apptypes.MemoryHygieneApplyResult
+	applyErr           error
+	exportResult       apptypes.MemoryExportResult
+	exportErr          error
 
 	rememberCall struct {
 		memoryType   types.MemoryType
@@ -367,6 +320,10 @@ type memoryUsecaseStub struct {
 		clearTo   bool
 	}
 	setValidityCallCount int
+	extractCriteria      apptypes.MemoryExtractionCriteria
+	importCalls          []apptypes.CodexImportCriteria
+	bridgeImportCalls    []apptypes.MemoryBridgeImportCriteria
+	exportCalls          []apptypes.MemoryExportCriteria
 }
 
 func (s *memoryUsecaseStub) Remember(_ context.Context, memoryType types.MemoryType, scope types.MemoryScope, fact string, confidence types.Optional[types.Confidence], source types.MemorySource, evidenceRefs []types.EvidenceRef, artifactRefs []types.ArtifactRef) (apptypes.MemoryDetails, error) {
@@ -428,28 +385,32 @@ func (s *memoryUsecaseStub) Show(_ context.Context, memoryID types.MemoryID) (ap
 	return s.showDetails, s.showErr
 }
 
-func (s *memoryUsecaseStub) Extract(_ context.Context, _ apptypes.MemoryExtractionCriteria) ([]apptypes.MemoryDetails, error) {
-	return nil, nil
+func (s *memoryUsecaseStub) Extract(_ context.Context, criteria apptypes.MemoryExtractionCriteria) ([]apptypes.MemoryDetails, error) {
+	s.extractCriteria = criteria
+	return s.extractDetails, s.extractErr
 }
 
-func (s *memoryUsecaseStub) ImportCodex(_ context.Context, _ apptypes.CodexImportCriteria) (apptypes.MemoryImportResult, error) {
-	return apptypes.MemoryImportResult{}, nil
+func (s *memoryUsecaseStub) ImportCodex(_ context.Context, criteria apptypes.CodexImportCriteria) (apptypes.MemoryImportResult, error) {
+	s.importCalls = append(s.importCalls, criteria)
+	return s.importResult, s.importErr
 }
 
-func (s *memoryUsecaseStub) ImportInstructions(_ context.Context, _ apptypes.MemoryBridgeImportCriteria) (apptypes.MemoryBridgeImportResult, error) {
-	return apptypes.MemoryBridgeImportResult{}, nil
+func (s *memoryUsecaseStub) ImportInstructions(_ context.Context, criteria apptypes.MemoryBridgeImportCriteria) (apptypes.MemoryBridgeImportResult, error) {
+	s.bridgeImportCalls = append(s.bridgeImportCalls, criteria)
+	return s.bridgeImportResult, s.bridgeImportErr
 }
 
 func (s *memoryUsecaseStub) Scan(_ context.Context, _ apptypes.MemoryHygieneScanCriteria) (apptypes.MemoryHygieneScanResult, error) {
-	return apptypes.MemoryHygieneScanResult{}, nil
+	return s.scanResult, s.scanErr
 }
 
 func (s *memoryUsecaseStub) Apply(_ context.Context, _ apptypes.MemoryHygieneApplyCriteria) (apptypes.MemoryHygieneApplyResult, error) {
-	return apptypes.MemoryHygieneApplyResult{}, nil
+	return s.applyResult, s.applyErr
 }
 
-func (s *memoryUsecaseStub) Export(_ context.Context, _ apptypes.MemoryExportCriteria) (apptypes.MemoryExportResult, error) {
-	return apptypes.MemoryExportResult{}, nil
+func (s *memoryUsecaseStub) Export(_ context.Context, criteria apptypes.MemoryExportCriteria) (apptypes.MemoryExportResult, error) {
+	s.exportCalls = append(s.exportCalls, criteria)
+	return s.exportResult, s.exportErr
 }
 
 // storeManagementUsecaseStub implements usecase.StoreManagementUsecase for testing.

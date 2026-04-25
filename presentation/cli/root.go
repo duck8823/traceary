@@ -1,12 +1,9 @@
 package cli
 
 import (
-	"context"
-
 	"github.com/spf13/cobra"
 
 	"github.com/duck8823/traceary/application"
-	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/presentation"
 )
@@ -16,11 +13,6 @@ type RootCLI struct {
 	event                usecase.EventUsecase
 	session              usecase.SessionUsecase
 	memory               usecase.MemoryUsecase
-	memoryExtraction     memoryExtractionUsecase
-	memoryImport         memoryImportUsecase
-	memoryExport         memoryExportUsecase
-	memoryBridgeImport   memoryBridgeImportUsecase
-	memoryHygiene        memoryHygieneUsecase
 	memoryEdge           usecase.MemoryEdgeUsecase
 	bundle               usecase.BundleUsecase
 	context              usecase.ContextUsecase
@@ -43,27 +35,6 @@ type RootCLI struct {
 	databasePathSetter func(string)
 }
 
-type memoryExtractionUsecase interface {
-	Extract(context.Context, apptypes.MemoryExtractionCriteria) ([]apptypes.MemoryDetails, error)
-}
-
-type memoryImportUsecase interface {
-	ImportCodex(context.Context, apptypes.CodexImportCriteria) (apptypes.MemoryImportResult, error)
-}
-
-type memoryExportUsecase interface {
-	Export(context.Context, apptypes.MemoryExportCriteria) (apptypes.MemoryExportResult, error)
-}
-
-type memoryBridgeImportUsecase interface {
-	ImportInstructions(context.Context, apptypes.MemoryBridgeImportCriteria) (apptypes.MemoryBridgeImportResult, error)
-}
-
-type memoryHygieneUsecase interface {
-	Scan(context.Context, apptypes.MemoryHygieneScanCriteria) (apptypes.MemoryHygieneScanResult, error)
-	Apply(context.Context, apptypes.MemoryHygieneApplyCriteria) (apptypes.MemoryHygieneApplyResult, error)
-}
-
 // RootCLIOption configures a RootCLI during construction. Options are
 // applied in order, so later options override earlier ones.
 type RootCLIOption func(*RootCLI)
@@ -83,32 +54,6 @@ func WithMemory(memory usecase.MemoryUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.memory = memory }
 }
 
-// WithMemoryExtraction injects the MemoryUsecase extraction surface used by candidate
-// extraction commands.
-func WithMemoryExtraction(memoryExtraction memoryExtractionUsecase) RootCLIOption {
-	return func(c *RootCLI) { c.memoryExtraction = memoryExtraction }
-}
-
-// WithMemoryImport injects the MemoryUsecase import surface used by `memory import`
-// subcommands (for example Codex MEMORY.md import).
-func WithMemoryImport(memoryImport memoryImportUsecase) RootCLIOption {
-	return func(c *RootCLI) { c.memoryImport = memoryImport }
-}
-
-// WithMemoryExport injects the MemoryUsecase export surface used by `memory
-// export`, which serializes accepted memories into a host-specific
-// instruction file.
-func WithMemoryExport(memoryExport memoryExportUsecase) RootCLIOption {
-	return func(c *RootCLI) { c.memoryExport = memoryExport }
-}
-
-// WithMemoryBridgeImport injects the MemoryUsecase bridge import surface used by
-// `memory import instructions`, which parses host instruction files
-// into durable-memory candidates.
-func WithMemoryBridgeImport(importUsecase memoryBridgeImportUsecase) RootCLIOption {
-	return func(c *RootCLI) { c.memoryBridgeImport = importUsecase }
-}
-
 // WithBundle injects the BundleUsecase used by `traceary bundle`
 // export / import subcommands.
 func WithBundle(b usecase.BundleUsecase) RootCLIOption {
@@ -119,13 +64,6 @@ func WithBundle(b usecase.BundleUsecase) RootCLIOption {
 // `traceary memory graph` subcommands.
 func WithMemoryEdge(edge usecase.MemoryEdgeUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.memoryEdge = edge }
-}
-
-// WithMemoryHygiene injects the MemoryUsecase hygiene surface used by
-// `memory hygiene scan` to surface redaction / expiry / duplicate
-// suggestions over the durable-memory store.
-func WithMemoryHygiene(hygiene memoryHygieneUsecase) RootCLIOption {
-	return func(c *RootCLI) { c.memoryHygiene = hygiene }
 }
 
 // WithContext injects the ContextUsecase used by structured handoff commands.

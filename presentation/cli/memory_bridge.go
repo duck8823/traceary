@@ -75,8 +75,8 @@ func (c *RootCLI) runMemoryExport(ctx context.Context, output io.Writer, warnWri
 	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
-	if c.memoryExport == nil {
-		return xerrors.Errorf(Localize("memory export usecase is not configured", "memory export ユースケースが設定されていません"))
+	if c.memory == nil {
+		return xerrors.Errorf(Localize("memory usecase is not configured", "memory export ユースケースが設定されていません"))
 	}
 	target, ok := apptypes.MemoryBridgeTargetOf(strings.ToLower(strings.TrimSpace(input.target)))
 	if !ok {
@@ -93,7 +93,7 @@ func (c *RootCLI) runMemoryExport(ctx context.Context, output io.Writer, warnWri
 	if scope != nil {
 		criteria.Scopes = []domtypes.MemoryScope{scope}
 	}
-	result, err := c.memoryExport.Export(ctx, criteria)
+	result, err := c.memory.Export(ctx, criteria)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to export durable memories", "durable memory の書き出しに失敗しました"), err)
 	}
@@ -111,8 +111,8 @@ func (c *RootCLI) runMemoryImportInstructions(ctx context.Context, output io.Wri
 	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
-	if c.memoryBridgeImport == nil {
-		return xerrors.Errorf(Localize("memory bridge import usecase is not configured", "memory bridge import ユースケースが設定されていません"))
+	if c.memory == nil {
+		return xerrors.Errorf(Localize("memory usecase is not configured", "memory bridge import ユースケースが設定されていません"))
 	}
 	target, ok := apptypes.MemoryBridgeTargetOf(strings.ToLower(strings.TrimSpace(input.source)))
 	if !ok {
@@ -130,7 +130,7 @@ func (c *RootCLI) runMemoryImportInstructions(ctx context.Context, output io.Wri
 		Path:              input.inPath,
 		WorkspaceFallback: fallback,
 	}
-	result, err := c.memoryBridgeImport.ImportInstructions(ctx, criteria)
+	result, err := c.memory.ImportInstructions(ctx, criteria)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to import instructions file", "instructions ファイルの取り込みに失敗しました"), err)
 	}

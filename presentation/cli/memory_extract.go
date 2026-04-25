@@ -39,8 +39,8 @@ func (c *RootCLI) runMemoryExtract(ctx context.Context, output io.Writer, input 
 	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
-	if c.memoryExtraction == nil {
-		return xerrors.Errorf(Localize("memory extraction usecase is not configured", "memory extraction ユースケースが設定されていません"))
+	if c.memory == nil {
+		return xerrors.Errorf(Localize("memory usecase is not configured", "memory extraction ユースケースが設定されていません"))
 	}
 	if input.eventLimit < 0 {
 		return xerrors.Errorf(Localize("event-limit must be greater than or equal to 0", "event-limit は 0 以上である必要があります"))
@@ -61,7 +61,7 @@ func (c *RootCLI) runMemoryExtract(ctx context.Context, output io.Writer, input 
 		return xerrors.Errorf(Localize("failed to resolve a target session for memory extraction", "memory extraction 対象の session を解決できませんでした"))
 	}
 
-	details, err := c.memoryExtraction.Extract(
+	details, err := c.memory.Extract(
 		ctx,
 		apptypes.NewMemoryExtractionCriteriaBuilder().
 			SessionID(types.SessionID(resolvedSessionID)).

@@ -42,8 +42,8 @@ func buildMemoryImportStubDetails(t *testing.T, fact string) apptypes.MemoryDeta
 func TestMemoryImportCodex_TextOutput(t *testing.T) {
 	t.Parallel()
 
-	importStub := &memoryImportUsecaseStub{
-		result: apptypes.MemoryImportResult{
+	importStub := &memoryUsecaseStub{
+		importResult: apptypes.MemoryImportResult{
 			Imported:              []apptypes.MemoryDetails{buildMemoryImportStubDetails(t, "prefer bulleted commits")},
 			SkippedDuplicateCount: 2,
 			SkippedRejectedCount:  1,
@@ -52,7 +52,7 @@ func TestMemoryImportCodex_TextOutput(t *testing.T) {
 	}
 	root := cli.NewRootCLI(
 		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-		cli.WithMemoryImport(importStub),
+		cli.WithMemory(importStub),
 	)
 	cmd := root.Command()
 	stdout := &bytes.Buffer{}
@@ -74,19 +74,19 @@ func TestMemoryImportCodex_TextOutput(t *testing.T) {
 	if !strings.Contains(stderr.String(), "bullet at line 42") {
 		t.Fatalf("expected warning in stderr, got %q", stderr.String())
 	}
-	if len(importStub.calls) != 1 {
-		t.Fatalf("expected 1 ImportCodex call, got %d", len(importStub.calls))
+	if len(importStub.importCalls) != 1 {
+		t.Fatalf("expected 1 ImportCodex call, got %d", len(importStub.importCalls))
 	}
-	if importStub.calls[0].Root != "/tmp/codex-memories" {
-		t.Fatalf("root = %q, want /tmp/codex-memories", importStub.calls[0].Root)
+	if importStub.importCalls[0].Root != "/tmp/codex-memories" {
+		t.Fatalf("root = %q, want /tmp/codex-memories", importStub.importCalls[0].Root)
 	}
 }
 
 func TestMemoryImportCodex_JSONOutput(t *testing.T) {
 	t.Parallel()
 
-	importStub := &memoryImportUsecaseStub{
-		result: apptypes.MemoryImportResult{
+	importStub := &memoryUsecaseStub{
+		importResult: apptypes.MemoryImportResult{
 			Imported:              []apptypes.MemoryDetails{buildMemoryImportStubDetails(t, "always update docs")},
 			SkippedDuplicateCount: 0,
 			SkippedRejectedCount:  0,
@@ -94,7 +94,7 @@ func TestMemoryImportCodex_JSONOutput(t *testing.T) {
 	}
 	root := cli.NewRootCLI(
 		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-		cli.WithMemoryImport(importStub),
+		cli.WithMemory(importStub),
 	)
 	cmd := root.Command()
 	stdout := &bytes.Buffer{}

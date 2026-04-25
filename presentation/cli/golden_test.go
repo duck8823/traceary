@@ -340,6 +340,12 @@ func TestMemoryFamily_JSON_Goldens(t *testing.T) {
 		}},
 		Failures: []apptypes.MemoryHygieneApplyFailure{{MemoryID: "memory-missing", Error: "no current hygiene suggestion"}},
 	}
+	memoryStub.extractDetails = []apptypes.MemoryDetails{candidate}
+	memoryStub.importResult = importResult
+	memoryStub.bridgeImportResult = apptypes.MemoryBridgeImportResult(importResult)
+	memoryStub.exportResult = exportResult
+	memoryStub.scanResult = hygieneResult
+	memoryStub.applyResult = hygieneApplyResult
 	edge := mustMemoryEdgeForGolden(t, "edge-golden-1")
 
 	cases := []struct {
@@ -376,11 +382,6 @@ func TestMemoryFamily_JSON_Goldens(t *testing.T) {
 			rootCmd := newTestRootCLI(
 				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 				cli.WithMemory(memoryStub),
-				cli.WithMemoryExtraction(&memoryExtractionUsecaseStub{details: []apptypes.MemoryDetails{candidate}}),
-				cli.WithMemoryImport(&memoryImportUsecaseStub{result: importResult}),
-				cli.WithMemoryBridgeImport(&memoryBridgeImportUsecaseStub{result: apptypes.MemoryBridgeImportResult(importResult)}),
-				cli.WithMemoryExport(&memoryExportUsecaseStub{result: exportResult}),
-				cli.WithMemoryHygiene(&memoryHygieneUsecaseStub{scanResult: hygieneResult, applyResult: hygieneApplyResult}),
 				cli.WithMemoryEdge(&memoryEdgeUsecaseStub{addEdge: edge, listEdges: []*model.MemoryEdge{edge}}),
 			).Command()
 			rootCmd.SetOut(stdout)
