@@ -82,7 +82,7 @@ The legacy `traceary integration codex install` helper still works as a transiti
 bash <(curl -sL https://raw.githubusercontent.com/duck8823/traceary/main/scripts/install-gemini-extension.sh)
 ```
 
-For the integration overview, use the [native integrations guide](./docs/integrations/README.md).
+For the integration overview, use the [native integrations guide](./docs/integrations/README.md). Direct Anthropic API users can also try the experimental [native memory-tool backend](./docs/integrations/anthropic-memory-tool.md).
 
 ### Step 3: Verify
 

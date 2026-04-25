@@ -8,6 +8,12 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [v0.10.0] - Unreleased
 
+### Added
+- **Experimental Anthropic native memory-tool backend (#742)** — `pkg/anthropicmemory` exposes a Go handler for Anthropic SDK `BetaMemoryTool20250818CommandUnion` payloads and returns SDK `tool_result` content backed by Traceary's local `memory_tool_files` table. The tool contract is pinned to `memory_20250818`; upgrades require manual review, not automatic SDK field bumps. A live-API smoke example is available in `examples/anthropic-memory/`.
+
+### Docs
+- `docs/integrations/anthropic-memory-tool.{md,ja.md}` — explains native memory tool vs Traceary MCP `manage_memory`, path-traversal and size-limit threat model, SDK wiring, storage inspection/backup, experimental status, and version pinning. `docs/integrations/agent-sdks.{md,ja.md}` now removes the incorrect Python lock-in rationale and links to the native Go backend.
+
 ### Breaking changes
 - **MCP tool consolidation (#708, breaking)** — the MCP server now exposes exactly 8 tools. The old 24 tool names were removed and replaced by action-parameter dispatch:
 

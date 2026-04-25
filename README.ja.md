@@ -81,7 +81,7 @@ codex   # Codex 内で /plugins を開き、Traceary Plugins から Traceary を
 bash <(curl -sL https://raw.githubusercontent.com/duck8823/traceary/main/scripts/install-gemini-extension.sh)
 ```
 
-全体像は [ネイティブ連携ガイド](./docs/integrations/README.ja.md) にまとめています。
+全体像は [ネイティブ連携ガイド](./docs/integrations/README.ja.md) にまとめています。Anthropic API を直接使う場合は experimental な [native memory-tool backend](./docs/integrations/anthropic-memory-tool.ja.md) も試せます。
 
 ### Step 3: 設定を確認する
 

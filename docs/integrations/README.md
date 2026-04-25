@@ -34,6 +34,7 @@ These packages all share the same runtime contract:
 - [Claude Code plugin](./claude-plugin.md)
 - [Codex plugin](./codex-plugin.md)
 - [Gemini CLI extension](./gemini-extension.md)
+- [Anthropic native memory tool (experimental)](./anthropic-memory-tool.md)
 
 ## Validation and smoke tests
 
