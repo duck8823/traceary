@@ -307,6 +307,12 @@ func (c *RootCLI) attachDoctorConfigFix(check *doctorCheck, client, outputPath, 
 	if check == nil || check.Name != client+"-config" || check.Status != doctorStatusWarn {
 		return
 	}
+	if client == "claude" {
+		detection := c.detectClaudeTracearyPluginForCLI()
+		if detection.Active && c.claudeConfigHasTracearyHooks(outputPath) {
+			return
+		}
+	}
 	check.AutoFixAvailable = true
 	check.FixFunc = func(ctx context.Context, dryRun bool) (string, error) {
 		action := fmt.Sprintf("upgrade Traceary-managed %s hooks at %s", client, outputPath)
@@ -530,6 +536,7 @@ func (c *RootCLI) inspectClaudeOrConfigFile(client, outputPath, projectDir strin
 			return doctorCheck{
 				Name:   "claude-config",
 				Status: doctorStatusWarn,
+				Hint:   "choose one registration path: remove Traceary hooks from settings.json or disable the Claude plugin",
 				Message: localizef(
 					"claude plugin %q is active in %s and %s also registers Traceary hooks. Every audit event will be recorded twice — remove the settings.json hooks or disable the plugin",
 					"claude plugin %q が %s で有効ですが %s にも Traceary hook が登録されています。audit が二重記録されます — settings.json 側の hook を削除するか plugin を無効化してください",

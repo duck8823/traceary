@@ -166,11 +166,15 @@ func writeJSONMCPRegistration(path string) error {
 			return err
 		}
 	}
-	servers := map[string]doctorMCPServer{}
+	servers := map[string]json.RawMessage{}
 	if raw, ok := root["mcpServers"]; ok {
 		_ = json.Unmarshal(raw, &servers)
 	}
-	servers["traceary"] = doctorMCPServer{Command: "traceary", Args: []string{"mcp-server"}}
+	tracearyRaw, err := json.Marshal(doctorMCPServer{Command: "traceary", Args: []string{"mcp-server"}})
+	if err != nil {
+		return xerrors.Errorf("failed to marshal traceary MCP server: %w", err)
+	}
+	servers["traceary"] = tracearyRaw
 	raw, err := json.Marshal(servers)
 	if err != nil {
 		return xerrors.Errorf("failed to marshal MCP servers: %w", err)
@@ -201,9 +205,10 @@ func writeTOMLMCPRegistration(path string) error {
 	}
 	text := ""
 	if err == nil {
-		text = strings.TrimRight(string(content), "\n") + "\n\n"
+		text = replaceOrAppendTOMLTracearyMCPRegistration(string(content))
+	} else {
+		text = tracearyMCPServerTOML()
 	}
-	text += "[mcp_servers.traceary]\ncommand = \"traceary\"\nargs = [\"mcp-server\"]\n"
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return xerrors.Errorf("failed to create MCP config directory: %w", err)
 	}
@@ -211,6 +216,67 @@ func writeTOMLMCPRegistration(path string) error {
 		return xerrors.Errorf("failed to write MCP config: %w", err)
 	}
 	return nil
+}
+
+func tracearyMCPServerTOML() string {
+	return "[mcp_servers.traceary]\ncommand = \"traceary\"\nargs = [\"mcp-server\"]\n"
+}
+
+func replaceOrAppendTOMLTracearyMCPRegistration(content string) string {
+	lines := strings.SplitAfter(content, "\n")
+	start := -1
+	end := len(lines)
+	for i, line := range lines {
+		if tomlTableHeaderName(line) == "mcp_servers.traceary" {
+			if start == -1 {
+				start = i
+			}
+			continue
+		}
+		if start != -1 && isTOMLTableHeader(line) {
+			end = i
+			break
+		}
+	}
+	replacement := tracearyMCPServerTOML()
+	if start == -1 {
+		text := strings.TrimRight(content, "\n")
+		if text == "" {
+			return replacement
+		}
+		return text + "\n\n" + replacement
+	}
+	out := strings.Join(lines[:start], "") + replacement
+	if end < len(lines) {
+		if out != "" && !strings.HasSuffix(out, "\n\n") && strings.TrimSpace(strings.Join(lines[end:], "")) != "" {
+			out += "\n"
+		}
+		out += strings.Join(lines[end:], "")
+	}
+	return out
+}
+
+func isTOMLTableHeader(line string) bool {
+	return tomlTableHeaderName(line) != ""
+}
+
+func tomlTableHeaderName(line string) string {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "[") {
+		return ""
+	}
+	if strings.HasPrefix(trimmed, "[[") {
+		return ""
+	}
+	end := strings.Index(trimmed, "]")
+	if end <= 1 {
+		return ""
+	}
+	after := strings.TrimSpace(trimmed[end+1:])
+	if after != "" && !strings.HasPrefix(after, "#") {
+		return ""
+	}
+	return strings.TrimSpace(trimmed[1:end])
 }
 
 func backupDoctorOriginal(path string) error {

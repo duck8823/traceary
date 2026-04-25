@@ -104,6 +104,50 @@ func TestRootCLI_DoctorFix(t *testing.T) {
 			t.Fatalf("path status after fix = %q, want fail or warn", got)
 		}
 	})
+
+	t.Run("claude plugin and project hooks duplicate registration is guided only", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		setDoctorFixHome(t, homeDir)
+		setTracearyPathToCurrentExecutableAt(t, filepath.Join(t.TempDir(), "bin"))
+		writePluginEnabledSettings(t, homeDir)
+		writeClaudeProjectHook(t, projectDir)
+
+		stdout := &bytes.Buffer{}
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--fix", "--client", "claude", "--project-dir", projectDir, "--json"})
+		executeDoctorAllowWarnings(t, rootCmd)
+		report := decodeDoctorReport(t, stdout.Bytes())
+
+		claudeCfg := statusByName(report, "claude-config")
+		if claudeCfg.Status != "warn" {
+			t.Fatalf("claude-config status = %q, want warn; msg = %q", claudeCfg.Status, claudeCfg.Message)
+		}
+		if claudeCfg.AutoFixAvailable {
+			t.Fatalf("claude-config AutoFixAvailable = true, want false")
+		}
+		foundGuidedSkip := false
+		for _, fix := range report.Fixes {
+			if fix.Name == "claude-config" {
+				if !strings.HasPrefix(fix.Action, "skip:") {
+					t.Fatalf("claude-config fix action = %q, want guided skip", fix.Action)
+				}
+				foundGuidedSkip = true
+			}
+		}
+		if !foundGuidedSkip {
+			t.Fatalf("fixes = %#v, want guided skip for claude-config", report.Fixes)
+		}
+		content, err := os.ReadFile(filepath.Join(projectDir, ".claude", "settings.json"))
+		if err != nil {
+			t.Fatalf("ReadFile(settings) error = %v", err)
+		}
+		if !strings.Contains(string(content), "traceary") {
+			t.Fatalf("--fix unexpectedly removed project hooks:\n%s", content)
+		}
+	})
 }
 
 func setDoctorFixHome(t *testing.T, homeDir string) {
