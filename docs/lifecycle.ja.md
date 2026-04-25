@@ -58,7 +58,7 @@ SessionStart → [AfterTool]* → SessionEnd
 
 | 種別 | 説明 | ソース |
 |------|------|--------|
-| `note` | 自由テキストログ | CLI `traceary log` / MCP `add_log` |
+| `note` | 自由テキストログ | CLI `traceary log` / MCP `record_event(type="log")` |
 | `command_executed` | コマンド・ツール実行の記録 | PostToolUse hooks |
 | `reviewed` | レビュー結果 | CLI / MCP |
 | `session_started` | セッション開始境界 | SessionStart hooks |

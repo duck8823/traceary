@@ -18,7 +18,7 @@
 
 **現状**: MCP 経由で今日から使える。native memory-tool backend は defer。
 
-`traceary mcp-server` は `retrieve_memories` / `remember_memory` / `accept_memory` 等の memory tool を標準 MCP で公開しています (v0.9 の graph overlay は `traceary memory graph` の CLI 側のみ。MCP tool は follow-up)。Claude Agent SDK は `ClaudeAgentOptions.mcp_servers` 経由で取り込みます:
+`traceary mcp-server` は `query_memory(action="retrieve")` / `manage_memory(action="remember")` / `manage_memory(action="accept")` 等の memory tool を標準 MCP で公開しています (v0.9 の graph overlay は `traceary memory graph` の CLI 側のみ。MCP tool は follow-up)。Claude Agent SDK は `ClaudeAgentOptions.mcp_servers` 経由で取り込みます:
 
 ```python
 from claude_agent_sdk import query, ClaudeAgentOptions
@@ -38,7 +38,7 @@ async for message in query(prompt="...", options=options):
 
 streaming の場合は `ClaudeSDKClient` に同じ `options` を渡す形になります。
 
-ここまでが **外部 tool 呼び出し**の経路。agent が `traceary.retrieve_memories(...)` を明示的に叩き、Traceary がストアを持つ形です。
+ここまでが **外部 tool 呼び出し**の経路。agent が `traceary.query_memory(action="retrieve")(...)` を明示的に叩き、Traceary がストアを持つ形です。
 
 `BetaAbstractMemoryTool` はこれと別の面です。SDK が持つ **built-in `memory` tool** (モデルが明示指示なしに使うことがある) を独自 backend に差し替える抽象です。これを作れば Traceary への流量は正当に増えますが、Anthropic の beta API に追従する Python パッケージを維持する義務が発生します。v0.9 では defer。#699 で、Anthropic の memory-tool 抽象が安定し、運用者からの明確な要望が出た段階で再評価します。
 

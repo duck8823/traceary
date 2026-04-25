@@ -10,4 +10,4 @@ Prefer the packaged MCP tools when the user asks about prior sessions, command a
 
 Use `/traceary-doctor` when the user needs setup or troubleshooting guidance.
 
-When the conversation surfaces a durable decision, constraint, lesson, preference, or project artifact that should outlive the current session, proactively call `propose_memory` so the candidate lands in Traceary's review inbox. See the `traceary-memory-capture` skill for trigger phrases and guardrails (always propose, never auto-accept).
+When the conversation surfaces a durable decision, constraint, lesson, preference, or project artifact that should outlive the current session, proactively call `manage_memory(action="propose")` so the candidate lands in Traceary's review inbox. See the `traceary-memory-capture` skill for trigger phrases and guardrails (always propose, never auto-accept).

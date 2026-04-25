@@ -43,8 +43,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 
 	t.Run("add_log saves an event", func(t *testing.T) {
 		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "add_log",
+			Name: "record_event",
 			Arguments: map[string]any{
+				"type":       "log",
 				"message":    "hello from mcp",
 				"agent":      "claude",
 				"session_id": "session-1",
@@ -95,8 +96,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 
 	t.Run("add_log with kind saves event with specified kind", func(t *testing.T) {
 		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "add_log",
+			Name: "record_event",
 			Arguments: map[string]any{
+				"type":       "log",
 				"message":    "compact summary text",
 				"kind":       "compact_summary",
 				"agent":      "claude",
@@ -116,8 +118,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 
 	t.Run("add_audit and get_context work together", func(t *testing.T) {
 		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "add_audit",
+			Name: "record_event",
 			Arguments: map[string]any{
+				"type":       "audit",
 				"command":    "go test ./...",
 				"input":      "stdin",
 				"output":     "stdout",
@@ -153,8 +156,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 
 	t.Run("session tools work correctly", func(t *testing.T) {
 		startResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "start_session",
+			Name: "manage_session",
 			Arguments: map[string]any{
+				"action":    "start",
 				"agent":     "codex",
 				"workspace": "github.com/duck8823/traceary",
 			},
@@ -167,8 +171,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 
 		activeResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "active_session",
+			Name: "session_status",
 			Arguments: map[string]any{
+				"action":    "active",
 				"workspace": "github.com/duck8823/traceary",
 			},
 		})
@@ -180,8 +185,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 
 		latestResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "latest_session",
+			Name: "session_status",
 			Arguments: map[string]any{
+				"action":    "latest",
 				"workspace": "github.com/duck8823/traceary",
 			},
 		})
@@ -204,8 +210,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 
 		endResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "end_session",
+			Name: "manage_session",
 			Arguments: map[string]any{
+				"action":     "end",
 				"session_id": sessionID,
 			},
 		})
@@ -222,8 +229,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 
 	t.Run("memory tools manage lifecycle and retrieval", func(t *testing.T) {
 		proposeResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "propose_memory",
+			Name: "manage_memory",
 			Arguments: map[string]any{
+				"action":    "propose",
 				"type":      "decision",
 				"workspace": "github.com/duck8823/traceary",
 				"fact":      "Use ContextUsecase for structured handoff output",
@@ -244,9 +252,10 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 
 		acceptResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "accept_memory",
+			Name: "manage_memory",
 			Arguments: map[string]any{
-				"memory_id": proposedID,
+				"action": "accept",
+				"ids":    proposedID,
 			},
 		})
 		if err != nil {
@@ -260,10 +269,11 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 
 		retrieveResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "retrieve_memories",
+			Name: "query_memory",
 			Arguments: map[string]any{
-				"query": "ContextUsecase",
-				"limit": 5,
+				"action": "retrieve",
+				"query":  "ContextUsecase",
+				"limit":  5,
 			},
 		})
 		if err != nil {
@@ -289,8 +299,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 
 		rejectResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "propose_memory",
+			Name: "manage_memory",
 			Arguments: map[string]any{
+				"action":    "propose",
 				"type":      "lesson",
 				"workspace": "github.com/duck8823/traceary",
 				"fact":      "Candidate memory for rejection",
@@ -304,8 +315,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 		rejectedID := extractJSONStringValue(t, rejectResult, "memory_id")
 		rejectMutationResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "reject_memory",
+			Name: "manage_memory",
 			Arguments: map[string]any{
+				"action":    "reject",
 				"memory_id": rejectedID,
 			},
 		})
@@ -322,8 +334,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 		batchProposeIDs := make([]string, 0, 2)
 		for i := 0; i < 2; i++ {
 			res, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-				Name: "propose_memory",
+				Name: "manage_memory",
 				Arguments: map[string]any{
+					"action":    "propose",
 					"type":      "preference",
 					"workspace": "github.com/duck8823/traceary",
 					"fact":      fmt.Sprintf("Candidate memory %d for inbox batch", i),
@@ -338,9 +351,10 @@ func TestServer_BuildAndTools(t *testing.T) {
 			batchProposeIDs = append(batchProposeIDs, extractJSONStringValue(t, res, "memory_id"))
 		}
 		batchResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "accept_memories_batch",
+			Name: "manage_memory",
 			Arguments: map[string]any{
-				"memory_ids": append(append([]any(nil), batchProposeIDs[0]), append([]any(nil), batchProposeIDs[1], "not-a-real-id")...),
+				"action": "accept",
+				"ids":    []any{batchProposeIDs[0], batchProposeIDs[1], "not-a-real-id"},
 			},
 		})
 		if err != nil {
@@ -365,8 +379,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 		// Accept one more candidate so the export has something concrete
 		// to serialise, then exercise the MCP bridge tools end-to-end.
 		bridgeProposeResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "propose_memory",
+			Name: "manage_memory",
 			Arguments: map[string]any{
+				"action":    "propose",
 				"type":      "preference",
 				"workspace": "github.com/duck8823/traceary",
 				"fact":      "Prefer concise PR descriptions",
@@ -380,8 +395,11 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 		bridgeMemoryID := extractJSONStringValue(t, bridgeProposeResult, "memory_id")
 		bridgeAcceptResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name:      "accept_memory",
-			Arguments: map[string]any{"memory_id": bridgeMemoryID},
+			Name: "manage_memory",
+			Arguments: map[string]any{
+				"action":    "accept",
+				"memory_id": bridgeMemoryID,
+			},
 		})
 		if err != nil {
 			t.Fatalf("CallTool(accept_memory) for bridge export error = %v", err)
@@ -391,8 +409,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 
 		exportResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "export_memories",
+			Name: "query_memory",
 			Arguments: map[string]any{
+				"action":    "export",
 				"target":    "claude",
 				"workspace": "github.com/duck8823/traceary",
 			},
@@ -416,8 +435,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 
 		importResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "import_memory_instructions",
+			Name: "manage_memory",
 			Arguments: map[string]any{
+				"action":    "import_instructions",
 				"source":    "claude",
 				"markdown":  "# Project\n\n- prefer monospace fonts in the CLI output\n" + markdown,
 				"workspace": "github.com/duck8823/traceary",
@@ -441,8 +461,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 
 	t.Run("session_handoff and memory_pack expose structured working memory", func(t *testing.T) {
 		startResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "start_session",
+			Name: "manage_session",
 			Arguments: map[string]any{
+				"action":    "start",
 				"agent":     "claude",
 				"workspace": "github.com/duck8823/traceary",
 			},
@@ -453,8 +474,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 		sessionID := extractJSONStringValue(t, startResult, "session_id")
 
 		_, err = clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "add_log",
+			Name: "record_event",
 			Arguments: map[string]any{
+				"type":       "log",
 				"message":    "<summary>\n8. Current Work:\n   Wire MCP memory tools\n9. Pending Tasks:\n   Cover MCP server tests\n</summary>",
 				"kind":       "compact_summary",
 				"agent":      "claude",
@@ -466,8 +488,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 			t.Fatalf("CallTool(add_log compact_summary) error = %v", err)
 		}
 		_, err = clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "add_audit",
+			Name: "record_event",
 			Arguments: map[string]any{
+				"type":       "audit",
 				"command":    "go test ./...",
 				"agent":      "claude",
 				"session_id": sessionID,
@@ -478,8 +501,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 			t.Fatalf("CallTool(add_audit) error = %v", err)
 		}
 		_, err = clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "remember_memory",
+			Name: "manage_memory",
 			Arguments: map[string]any{
+				"action":    "remember",
 				"type":      "decision",
 				"workspace": "github.com/duck8823/traceary",
 				"fact":      "MCP session_handoff should be backed by ContextUsecase",
@@ -493,8 +517,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 
 		handoffResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "session_handoff",
+			Name: "session_status",
 			Arguments: map[string]any{
+				"action":     "handoff",
 				"session_id": sessionID,
 			},
 		})
@@ -524,8 +549,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 
 		packResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "memory_pack",
+			Name: "query_memory",
 			Arguments: map[string]any{
+				"action":                "pack",
 				"session_id":            sessionID,
 				"recent_commands_limit": 1,
 				"memory_limit":          1,
@@ -546,8 +572,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 
 	t.Run("memory_pack preserves explicit zero limits", func(t *testing.T) {
 		startResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "start_session",
+			Name: "manage_session",
 			Arguments: map[string]any{
+				"action":    "start",
 				"agent":     "claude",
 				"workspace": "github.com/duck8823/traceary",
 			},
@@ -558,8 +585,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 		sessionID := extractJSONStringValue(t, startResult, "session_id")
 
 		_, err = clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "add_log",
+			Name: "record_event",
 			Arguments: map[string]any{
+				"type":       "log",
 				"message":    "Decision summary",
 				"kind":       "compact_summary",
 				"agent":      "claude",
@@ -571,8 +599,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 			t.Fatalf("CallTool(add_log compact_summary) error = %v", err)
 		}
 		_, err = clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "add_audit",
+			Name: "record_event",
 			Arguments: map[string]any{
+				"type":       "audit",
 				"command":    "go test ./...",
 				"agent":      "claude",
 				"session_id": sessionID,
@@ -583,8 +612,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 			t.Fatalf("CallTool(add_audit) error = %v", err)
 		}
 		_, err = clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "remember_memory",
+			Name: "manage_memory",
 			Arguments: map[string]any{
+				"action":    "remember",
 				"type":      "decision",
 				"workspace": "github.com/duck8823/traceary",
 				"fact":      "Context packs may disable optional sections",
@@ -598,8 +628,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 
 		packResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "memory_pack",
+			Name: "query_memory",
 			Arguments: map[string]any{
+				"action":                "pack",
 				"session_id":            sessionID,
 				"recent_commands_limit": 0,
 				"memory_limit":          0,
@@ -629,8 +660,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 
 	t.Run("supersede and expire memory return updated memory details", func(t *testing.T) {
 		rememberResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "remember_memory",
+			Name: "manage_memory",
 			Arguments: map[string]any{
+				"action":    "remember",
 				"type":      "constraint",
 				"workspace": "github.com/duck8823/traceary",
 				"fact":      "Old memory fact",
@@ -645,9 +677,10 @@ func TestServer_BuildAndTools(t *testing.T) {
 		oldID := extractJSONStringValue(t, rememberResult, "memory_id")
 
 		supersedeResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "supersede_memory",
+			Name: "manage_memory",
 			Arguments: map[string]any{
-				"memory_id": oldID,
+				"action":    "supersede",
+				"target_id": oldID,
 				"fact":      "Replacement memory fact",
 				"evidence_refs": []any{
 					map[string]any{"kind": "issue", "value": "#464"},
@@ -669,8 +702,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 
 		expireResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "expire_memory",
+			Name: "manage_memory",
 			Arguments: map[string]any{
+				"action":     "expire",
 				"memory_id":  newID,
 				"expires_at": "2026-04-13T00:00:00Z",
 			},
@@ -688,8 +722,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 
 	t.Run("add_log redacts transcript kind body using built-in redactors", func(t *testing.T) {
 		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "add_log",
+			Name: "record_event",
 			Arguments: map[string]any{
+				"type":       "log",
 				"message":    "assistant echoed back: Authorization: Bearer abc.def.ghi-should-not-leak",
 				"kind":       "transcript",
 				"agent":      "claude",
@@ -714,8 +749,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 
 	t.Run("add_log preserves prompt body verbatim (no redaction by design)", func(t *testing.T) {
 		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "add_log",
+			Name: "record_event",
 			Arguments: map[string]any{
+				"type":       "log",
 				"message":    "user prompt with password=intent: preserved-by-design",
 				"kind":       "prompt",
 				"agent":      "claude",
@@ -737,8 +773,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 
 	t.Run("set_memory_validity accepts bounds and clear_valid_to separately", func(t *testing.T) {
 		rememberResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "remember_memory",
+			Name: "manage_memory",
 			Arguments: map[string]any{
+				"action":    "remember",
 				"type":      "decision",
 				"workspace": "github.com/duck8823/traceary",
 				"fact":      "Memory used for validity plumbing test",
@@ -756,8 +793,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 
 		setResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "set_memory_validity",
+			Name: "manage_memory",
 			Arguments: map[string]any{
+				"action":     "set_validity",
 				"memory_id":  memoryID,
 				"valid_from": "2026-04-20T00:00:00Z",
 				"valid_to":   "2026-07-01T00:00:00Z",
@@ -771,8 +809,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 
 		clearResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "set_memory_validity",
+			Name: "manage_memory",
 			Arguments: map[string]any{
+				"action":         "set_validity",
 				"memory_id":      memoryID,
 				"clear_valid_to": true,
 			},
@@ -785,8 +824,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 
 		conflictResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "set_memory_validity",
+			Name: "manage_memory",
 			Arguments: map[string]any{
+				"action":         "set_validity",
 				"memory_id":      memoryID,
 				"valid_to":       "2026-12-31T00:00:00Z",
 				"clear_valid_to": true,
@@ -802,8 +842,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 
 	t.Run("returns tool error", func(t *testing.T) {
 		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "add_log",
+			Name: "record_event",
 			Arguments: map[string]any{
+				"type":    "log",
 				"message": "   ",
 			},
 		})

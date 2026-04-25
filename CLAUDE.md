@@ -95,4 +95,4 @@ go tool golangci-lint run
 
 ### Durable memory capture (agent guidance)
 
-When working on this repository with a Claude Code agent, proactively call the `propose_memory` MCP tool when the conversation surfaces a durable decision, constraint, lesson, preference, or project artifact that should outlive the current session. The candidate lands in Traceary's review inbox — it does not auto-accept. See the packaged `traceary-memory-capture` skill for trigger phrases, the five memory types, and the required input shape (exactly one of `workspace` / `agent` / `session_family`).
+When working on this repository with a Claude Code agent, proactively call the `manage_memory(action="propose")` MCP tool when the conversation surfaces a durable decision, constraint, lesson, preference, or project artifact that should outlive the current session. The candidate lands in Traceary's review inbox — it does not auto-accept. See the packaged `traceary-memory-capture` skill for trigger phrases, the five memory types, and the required input shape (exactly one of `workspace` / `agent` / `session_family`).
