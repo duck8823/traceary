@@ -235,12 +235,20 @@ func (u *sessionUsecase) List(ctx context.Context, criteria apptypes.SessionList
 	return summaries, nil
 }
 
-func (u *sessionUsecase) Tree(ctx context.Context, workspace types.Workspace, limit int) ([]apptypes.SessionSummary, error) {
+func (u *sessionUsecase) Tree(ctx context.Context, workspace types.Workspace, rootSessionID types.SessionID, limit int) ([]apptypes.SessionSummary, error) {
 	if limit <= 0 {
 		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
 	}
+	trimmedRootID := strings.TrimSpace(rootSessionID.String())
+	if trimmedRootID != "" {
+		resolvedRootID, err := types.SessionIDFrom(trimmedRootID)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to resolve root session ID: %w", err)
+		}
+		rootSessionID = resolvedRootID
+	}
 
-	summaries, err := u.sessionQuery.ListSummaries(ctx, limit, 0, types.SessionID(""), workspace, types.Client(""), types.Agent(""), "", false, types.None[time.Time](), types.None[time.Time]())
+	summaries, err := u.sessionQuery.ListTreeSummaries(ctx, limit, workspace, rootSessionID)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list sessions for tree: %w", err)
 	}

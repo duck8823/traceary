@@ -3,6 +3,7 @@ package sqlite_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -105,6 +106,11 @@ func saveTestSession(ctx context.Context, t *testing.T, ds *infra.SessionDatasou
 
 func saveTestSessionWithParent(ctx context.Context, t *testing.T, ds *infra.SessionDatasource, sessionID string, parentID string, startedAt time.Time, order int) {
 	t.Helper()
+	saveTestSessionWithParentInWorkspace(ctx, t, ds, sessionID, parentID, startedAt, order, "duck8823/traceary")
+}
+
+func saveTestSessionWithParentInWorkspace(ctx context.Context, t *testing.T, ds *infra.SessionDatasource, sessionID string, parentID string, startedAt time.Time, order int, workspace string) {
+	t.Helper()
 	agent, _ := types.AgentFrom("codex")
 	sid, _ := types.SessionIDFrom(sessionID)
 	parentSID, _ := types.SessionIDFrom(parentID)
@@ -115,7 +121,7 @@ func saveTestSessionWithParent(ctx context.Context, t *testing.T, ds *infra.Sess
 		types.None[time.Time](),
 		types.Client("hook"),
 		agent,
-		types.Workspace("duck8823/traceary"),
+		types.Workspace(workspace),
 		"",
 		"",
 		parentSID,
@@ -424,6 +430,130 @@ func TestDatasource_LineageOfCycleDetection(t *testing.T) {
 	wantIDs := []string{"cycle-a", "cycle-b"}
 	if diff := cmp.Diff(wantIDs, gotIDs); diff != "" {
 		t.Fatalf("LineageOf() IDs mismatch (-want +got):\n%s", diff)
+	}
+}
+
+type fakeClock struct {
+	now time.Time
+}
+
+func (c fakeClock) Now() time.Time { return c.now }
+
+func TestDatasource_ListTreeSummariesWithRootAppliesWorkspaceToDescendants(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	fixture := newListSessionsFixture(t, dbPath, listSessionsTestMigrations())
+	ctx := context.Background()
+	if err := fixture.storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	started := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	saveTestSession(ctx, t, fixture.sessionDS, "parent", started, types.None[time.Time](), "codex", "workspace-a")
+	saveTestSessionWithParentInWorkspace(ctx, t, fixture.sessionDS, "child-in-a", "parent", started.Add(time.Minute), 1, "workspace-a")
+	saveTestSessionWithParentInWorkspace(ctx, t, fixture.sessionDS, "child-in-b", "parent", started.Add(2*time.Minute), 2, "workspace-b")
+
+	got, err := fixture.sessionDS.ListTreeSummaries(ctx, 50, types.Workspace("workspace-a"), types.SessionID("parent"))
+	if err != nil {
+		t.Fatalf("ListTreeSummaries() error = %v", err)
+	}
+	gotIDs := make([]string, 0, len(got))
+	for _, summary := range got {
+		gotIDs = append(gotIDs, summary.SessionID().String())
+	}
+	if diff := cmp.Diff([]string{"parent", "child-in-a"}, gotIDs); diff != "" {
+		t.Fatalf("ListTreeSummaries() IDs mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestDatasource_ListTreeSummariesIncludesRequestedRootOutsideWorkspace(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	fixture := newListSessionsFixture(t, dbPath, listSessionsTestMigrations())
+	ctx := context.Background()
+	if err := fixture.storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	started := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	saveTestSession(ctx, t, fixture.sessionDS, "parent", started, types.None[time.Time](), "codex", "workspace-b")
+	saveTestSessionWithParentInWorkspace(ctx, t, fixture.sessionDS, "child-in-a", "parent", started.Add(time.Minute), 1, "workspace-a")
+	saveTestSessionWithParentInWorkspace(ctx, t, fixture.sessionDS, "child-in-b", "parent", started.Add(2*time.Minute), 2, "workspace-b")
+
+	got, err := fixture.sessionDS.ListTreeSummaries(ctx, 50, types.Workspace("workspace-a"), types.SessionID("parent"))
+	if err != nil {
+		t.Fatalf("ListTreeSummaries() error = %v", err)
+	}
+	gotIDs := make([]string, 0, len(got))
+	for _, summary := range got {
+		gotIDs = append(gotIDs, summary.SessionID().String())
+	}
+	if diff := cmp.Diff([]string{"parent", "child-in-a"}, gotIDs); diff != "" {
+		t.Fatalf("ListTreeSummaries() IDs mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestDatasource_ListTreeSummariesIncludesRequestedRootOutsideLimit(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	fixture := newListSessionsFixture(t, dbPath, listSessionsTestMigrations())
+	ctx := context.Background()
+	if err := fixture.storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	started := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	saveTestSession(ctx, t, fixture.sessionDS, "old-root", started, types.None[time.Time](), "claude", "duck8823/traceary")
+	for i := 0; i < 60; i++ {
+		saveTestSession(ctx, t, fixture.sessionDS, fmt.Sprintf("newer-unrelated-%02d", i), started.Add(time.Duration(i+1)*time.Minute), types.None[time.Time](), "codex", "duck8823/traceary")
+	}
+
+	got, err := fixture.sessionDS.ListTreeSummaries(ctx, 50, types.Workspace("duck8823/traceary"), types.SessionID("old-root"))
+	if err != nil {
+		t.Fatalf("ListTreeSummaries() error = %v", err)
+	}
+	gotIDs := make([]string, 0, len(got))
+	for _, summary := range got {
+		gotIDs = append(gotIDs, summary.SessionID().String())
+	}
+	if diff := cmp.Diff([]string{"old-root"}, gotIDs); diff != "" {
+		t.Fatalf("ListTreeSummaries() IDs mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestDatasource_ListTreeSummariesWithRootIncludesDescendantsOutsideRecentLimit(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	fixture := newListSessionsFixture(t, dbPath, listSessionsTestMigrations())
+	ctx := context.Background()
+	if err := fixture.storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	started := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	saveTestSession(ctx, t, fixture.sessionDS, "parent", started, types.None[time.Time](), "claude", "duck8823/traceary")
+	for i := 0; i < 5; i++ {
+		saveTestSessionWithParent(ctx, t, fixture.sessionDS, fmt.Sprintf("child-%02d", i+1), "parent", started.Add(time.Duration(i+1)*time.Minute), i+1)
+	}
+	for i := 0; i < 100; i++ {
+		saveTestSession(ctx, t, fixture.sessionDS, fmt.Sprintf("newer-unrelated-%03d", i), started.Add(time.Duration(i+1)*time.Hour), types.None[time.Time](), "codex", "duck8823/traceary")
+	}
+
+	got, err := fixture.sessionDS.ListTreeSummaries(ctx, 3, types.Workspace("duck8823/traceary"), types.SessionID("parent"))
+	if err != nil {
+		t.Fatalf("ListTreeSummaries() error = %v", err)
+	}
+	gotIDs := make([]string, 0, len(got))
+	for _, summary := range got {
+		gotIDs = append(gotIDs, summary.SessionID().String())
+	}
+	wantIDs := []string{"parent", "child-01", "child-02", "child-03", "child-04", "child-05"}
+	if diff := cmp.Diff(wantIDs, gotIDs); diff != "" {
+		t.Fatalf("ListTreeSummaries() IDs mismatch (-want +got):\n%s", diff)
 	}
 }
 

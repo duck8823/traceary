@@ -43,7 +43,7 @@ func (c *RootCLI) newSessionTreeCommand() *cobra.Command {
 
 			resolvedRepo := resolveWorkspaceValue(ctx, repo)
 
-			summaries, err := c.session.Tree(ctx, types.Workspace(resolvedRepo), limit)
+			summaries, err := c.session.Tree(ctx, types.Workspace(resolvedRepo), types.SessionID(strings.TrimSpace(rootID)), limit)
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to list sessions", "セッション一覧の取得に失敗しました"), err)
 			}
@@ -178,11 +178,21 @@ func writeSessionTreeFiltered(output io.Writer, summaries []apptypes.SessionSumm
 }
 
 func sortSessionNodes(nodes []*sessionNode) {
+	sortSessionNodesWithVisited(nodes, map[string]bool{})
+}
+
+func sortSessionNodesWithVisited(nodes []*sessionNode, visited map[string]bool) {
 	sort.SliceStable(nodes, func(i, j int) bool {
 		return sessionNodeLess(nodes[i], nodes[j])
 	})
 	for _, node := range nodes {
-		sortSessionNodes(node.children)
+		sessionID := node.summary.SessionID().String()
+		if visited[sessionID] {
+			continue
+		}
+		visited[sessionID] = true
+		sortSessionNodesWithVisited(node.children, visited)
+		delete(visited, sessionID)
 	}
 }
 
@@ -249,6 +259,10 @@ func writeSessionTreeEmpty(output io.Writer, asJSON bool) error {
 }
 
 func sessionNodeToOutput(node *sessionNode, depth int) *sessionTreeNode {
+	return sessionNodeToOutputWithVisited(node, depth, map[string]bool{})
+}
+
+func sessionNodeToOutputWithVisited(node *sessionNode, depth int, visited map[string]bool) *sessionTreeNode {
 	s := node.summary
 	jn := &sessionTreeNode{
 		SessionID:       string(s.SessionID()),
@@ -277,9 +291,15 @@ func sessionNodeToOutput(node *sessionNode, depth int) *sessionTreeNode {
 		secs := dur.Seconds()
 		jn.DurationSec = &secs
 	}
-	for _, child := range node.children {
-		jn.Children = append(jn.Children, sessionNodeToOutput(child, depth+1))
+	if visited[s.SessionID().String()] {
+		jn.Status = "cycle-detected"
+		return jn
 	}
+	visited[s.SessionID().String()] = true
+	for _, child := range node.children {
+		jn.Children = append(jn.Children, sessionNodeToOutputWithVisited(child, depth+1, visited))
+	}
+	delete(visited, s.SessionID().String())
 	return jn
 }
 
@@ -316,6 +336,10 @@ func writeSessionTreeJSON(output io.Writer, roots []*sessionNode) error {
 }
 
 func printNode(output io.Writer, node *sessionNode, prefix string, isLast bool) error {
+	return printNodeWithVisited(output, node, prefix, isLast, map[string]bool{})
+}
+
+func printNodeWithVisited(output io.Writer, node *sessionNode, prefix string, isLast bool, visited map[string]bool) error {
 	s := node.summary
 
 	connector := "\u251c\u2500\u2500 "
@@ -342,10 +366,16 @@ func printNode(output io.Writer, node *sessionNode, prefix string, isLast bool) 
 		subagentFragment = " " + subagent
 	}
 
+	status := s.Status()
+	cycleDetected := visited[s.SessionID().String()]
+	if cycleDetected {
+		status = "cycle-detected"
+	}
+
 	line := fmt.Sprintf("%s%s%s [%s]%s %s (%s, %d cmds/%d events)%s\n",
 		prefix, connector,
 		s.SessionID(),
-		s.Status(),
+		status,
 		subagentFragment,
 		formatOptionalColumn(s.Workspace().String()),
 		duration,
@@ -367,11 +397,16 @@ func printNode(output io.Writer, node *sessionNode, prefix string, isLast bool) 
 		}
 	}
 
+	if cycleDetected {
+		return nil
+	}
+	visited[s.SessionID().String()] = true
 	for i, child := range node.children {
-		if err := printNode(output, child, childPrefix, i == len(node.children)-1); err != nil {
+		if err := printNodeWithVisited(output, child, childPrefix, i == len(node.children)-1, visited); err != nil {
 			return err
 		}
 	}
+	delete(visited, s.SessionID().String())
 
 	return nil
 }

@@ -35,6 +35,9 @@ var findLatestSessionQuery string
 //go:embed sql/list_sessions.sql
 var listSessionsQuery string
 
+//go:embed sql/list_session_tree.sql
+var listSessionTreeQuery string
+
 //go:embed sql/session_lineage.sql
 var sessionLineageQuery string
 
@@ -468,6 +471,62 @@ func (d *SessionDatasource) ListSummaries(
 	}
 	if err := rows.Err(); err != nil {
 		return nil, xerrors.Errorf("failed to iterate session summary rows: %w", err)
+	}
+
+	return summaries, nil
+}
+
+// ListTreeSummaries returns sessions for the tree view. Without a root filter it
+// preserves the regular recent-session listing behavior. With a root filter it
+// returns the requested root and its full descendant subtree. The workspace
+// filter applies to descendants when provided, while the requested root is kept
+// even if it is outside that workspace. The recent-session limit is intentionally
+// not applied to descendants of an explicit root.
+func (d *SessionDatasource) ListTreeSummaries(
+	ctx context.Context,
+	limit int,
+	workspace types.Workspace,
+	rootSessionID types.SessionID,
+) ([]apptypes.SessionSummary, error) {
+	if strings.TrimSpace(rootSessionID.String()) == "" {
+		return d.ListSummaries(ctx, limit, 0, types.SessionID(""), workspace, types.Client(""), types.Agent(""), "", false, types.None[time.Time](), types.None[time.Time]())
+	}
+
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to open DB for session tree: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	rows, err := db.QueryContext(
+		ctx,
+		listSessionTreeQuery,
+		rootSessionID.String(),
+		workspace.String(), workspace.String(),
+	)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query session tree summaries: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	summaries := make([]apptypes.SessionSummary, 0)
+	for rows.Next() {
+		summary, err := scanSessionSummary(rows)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to scan session tree summary row: %w", err)
+		}
+		summaries = append(summaries, summary)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, xerrors.Errorf("failed to iterate session tree summary rows: %w", err)
 	}
 
 	return summaries, nil

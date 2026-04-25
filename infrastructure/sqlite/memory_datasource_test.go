@@ -16,12 +16,6 @@ import (
 	infra "github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
-type fakeClock struct {
-	now time.Time
-}
-
-func (c fakeClock) Now() time.Time { return c.now }
-
 func newMemoryDatasource(
 	t *testing.T,
 	dbPath string,
