@@ -223,7 +223,9 @@ type timelineCommandInput struct {
 	dbPath    string
 	workspace string
 	from      string
+	since     string
 	to        string
+	until     string
 	gap       int
 	limit     int
 	asJSON    bool

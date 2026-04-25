@@ -76,6 +76,50 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("accepts since until aliases", func(t *testing.T) {
+		t.Parallel()
+
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{}),
+		).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"timeline", "--db-path", "/tmp/test.db", "--since", "2026-04-10", "--until", "2026-04-11"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		if !strings.Contains(stdout.String(), "No work blocks found.") {
+			t.Errorf("output missing empty message, got: %s", stdout.String())
+		}
+	})
+
+	t.Run("date-only until includes events on that date", func(t *testing.T) {
+		t.Parallel()
+
+		eventStub := &eventUsecaseStub{}
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(eventStub),
+		).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"timeline", "--db-path", "/tmp/test.db", "--until", "2026-04-26"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		wantTo := time.Date(2026, 4, 27, 0, 0, 0, 0, time.UTC)
+		if got := eventStub.timelineCriteria.To(); !got.Equal(wantTo) {
+			t.Fatalf("Timeline To() = %v, want %v so 2026-04-26 events are included by the exclusive upper bound", got, wantTo)
+		}
+	})
+
 	t.Run("displays empty message when no blocks", func(t *testing.T) {
 		t.Parallel()
 

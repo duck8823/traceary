@@ -7,7 +7,6 @@ import (
 	"io"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
@@ -26,7 +25,9 @@ func (c *RootCLI) newTimelineCommand() *cobra.Command {
 		dbPath    string
 		workspace string
 		from      string
+		since     string
 		to        string
+		until     string
 		gap       int
 		limit     int
 		asJSON    bool
@@ -42,7 +43,9 @@ func (c *RootCLI) newTimelineCommand() *cobra.Command {
 				dbPath:    dbPath,
 				workspace: workspace,
 				from:      from,
+				since:     since,
 				to:        to,
+				until:     until,
 				gap:       gap,
 				limit:     limit,
 				asJSON:    asJSON,
@@ -53,8 +56,10 @@ func (c *RootCLI) newTimelineCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	cmd.Flags().StringVar(&workspace, "workspace", "", Localize("filter by workspace", "ワークスペースでフィルタ"))
-	cmd.Flags().StringVar(&from, "from", "", Localize("start date (YYYY-MM-DD or RFC3339)", "開始日 (YYYY-MM-DD または RFC3339)"))
-	cmd.Flags().StringVar(&to, "to", "", Localize("end date (YYYY-MM-DD or RFC3339)", "終了日 (YYYY-MM-DD または RFC3339)"))
+	cmd.Flags().StringVar(&from, "from", "", Localize("start date (YYYY-MM-DD or RFC3339; alias: --since)", "開始日 (YYYY-MM-DD または RFC3339; 別名: --since)"))
+	cmd.Flags().StringVar(&since, "since", "", Localize("start date (alias for --from)", "開始日 (--from の別名)"))
+	cmd.Flags().StringVar(&to, "to", "", Localize("end date (YYYY-MM-DD or RFC3339; alias: --until)", "終了日 (YYYY-MM-DD または RFC3339; 別名: --until)"))
+	cmd.Flags().StringVar(&until, "until", "", Localize("end date (alias for --to)", "終了日 (--to の別名)"))
 	cmd.Flags().IntVar(&gap, "gap", defaultGapMinutes, Localize("idle gap threshold in minutes", "アイドル判定の閾値（分）"))
 	cmd.Flags().IntVar(&limit, "limit", 20, Localize("maximum number of blocks to display", "表示するブロック数の上限"))
 	cmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
@@ -77,11 +82,19 @@ func (c *RootCLI) runTimeline(ctx context.Context, output io.Writer, input timel
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
-	fromTime, err := parseDateFlag(input.from)
+	fromValue, err := resolveSearchDateValue(input.from, input.since, "from", "since")
+	if err != nil {
+		return err
+	}
+	toValue, err := resolveSearchDateValue(input.to, input.until, "to", "until")
+	if err != nil {
+		return err
+	}
+	fromTime, err := parseFlexibleTime(fromValue, false)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("invalid --from value", "--from の値が不正です"), err)
 	}
-	toTime, err := parseDateFlag(input.to)
+	toTime, err := parseFlexibleTime(toValue, true)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("invalid --to value", "--to の値が不正です"), err)
 	}
@@ -276,18 +289,4 @@ func writeTimelineJSON(output io.Writer, blocks []apptypes.TimelineBlock) error 
 		return xerrors.Errorf("failed to print timeline JSON: %w", err)
 	}
 	return nil
-}
-
-func parseDateFlag(value string) (time.Time, error) {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return time.Time{}, nil
-	}
-	if t, err := time.Parse(time.RFC3339, trimmed); err == nil {
-		return t, nil
-	}
-	if t, err := time.Parse("2006-01-02", trimmed); err == nil {
-		return t, nil
-	}
-	return time.Time{}, xerrors.Errorf("unsupported date format: %s (use YYYY-MM-DD or RFC3339)", trimmed)
 }
