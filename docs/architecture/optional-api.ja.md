@@ -1,47 +1,51 @@
-# Optional[T] API の移行方針
+# Optional[T] API 移行ポリシー
 
 [English](./optional-api.md)
 
-Traceary には、`duck8823/dotfiles/conventions/go/type-system.md` にある Go 規約より前から使っていた独自の `Optional[T]` API がありました。
-この文書では、その差分、目標 API、そして unrelated な機能変更に repo-wide refactor を混ぜずに repository を規約側へ寄せた移行方針を整理します。
+Traceary は `duck8823/dotfiles/conventions/go/type-system.md` で文書化された Go 規約より前に独自の `Optional[T]` API を使っていた。
+このドキュメントはギャップ・目標 API・移行ロールアウトを記録する。
 
-## 現在の Traceary の状態
+## 現状
 
-`domain/types.Optional[T]` は現在、規約側の entrypoint として次を公開しています。
+`domain/types.Optional[T]` は規約エントリポイントのみを公開している:
 
 - `types.Some(...)`
 - `types.None[T]()`
 - `Value()`
-
-そのうえで、legacy surface との互換のために、次も残しています。
-
-- `types.Of(...)`
-- `types.Empty[T]()`
-- `IsPresent()`
-- `Get()`
 - `OrElse(...)`
 
-repository 内のコードは、すでに規約側の entrypoint へ移行済みです。
-legacy 名は、downstream caller をすぐに壊さないための compatibility alias としてだけ残しています。
+レガシー互換 alias (`Of`, `Empty`, `IsPresent`, `Get`) は **v0.10 で削除済み**。リポジトリは規約サーフェスに完全移行した。
 
-## 規約上の target API
+## 規約目標
 
-この repository が参照している Go 規約では、次を推奨しています。
+このリポジトリで追跡している Go 規約は以下を推奨する:
 
 - `types.Some(...)`
 - `types.None[T]()`
 - `Value()`
 
-Traceary の方針は、この規約 API へ寄せることです。
-つまり、恒久的なローカル例外にするのではなく、移行を選びます。
+Traceary はこの規約に完全準拠している。
 
-## 方針
+## 移行履歴
 
-Traceary は、段階的に規約 API へ移行しました。
+### フェーズ 1: 互換サーフェス追加
 
-### 目指す最終形
+レガシー API を残したまま、規約エントリポイント (`Some`, `None`, `Value`) を追加した。意味論は変更なし。
 
-新しいコードは、次の形で読める状態を目指します。
+### フェーズ 2: リポジトリ呼び出し側の移行
+
+呼び出し側を以下のバッチで移行した:
+
+- `domain/` と `application/`
+- `infrastructure/`
+- `presentation/`
+- テストとヘルパー
+
+### フェーズ 3: レガシー名削除 (v0.10)
+
+`Of`, `Empty`, `IsPresent`, `Get` を削除した。pre-1.0 のクリーンアップで、互換 shim は残していない。
+
+## 新規コードのルール
 
 ```go
 opt := types.Some(value)
@@ -49,63 +53,17 @@ none := types.None[string]()
 value, ok := opt.Value()
 ```
 
-### 過渡期の扱い
+- 新規コードでは `Some`, `None`, `Value` を使う
+- レガシー名を再導入しない
 
-unrelated な作業を止めないために、移行では明示的な compatibility window を設けました。
+## Non-goals
 
-1. まず規約 API (`Some`, `None`, `Value`) を追加する
-2. repository 内の call site を review しやすい単位で順に移す
-3. repository 内の移行が終わった段階で、legacy 名は compatibility alias として当面残す、と明示的に決める
+このポリシーは以下を意味しない:
 
-## 推奨 rollout
+- Optional の意味論変更
+- すべてを pointer に置き換える
 
-### Phase 1: compatibility surface を足す
+## 関連ドキュメント
 
-まず、意味を変えずに次を追加しました。
-
-- `Some`
-- `None`
-- `Value`
-
-この段階では、call site を全部まとめて変えませんでした。
-
-### Phase 2: repository 内の call site を順に移す
-
-移行は、review 可能な大きさを保ちながら進めました。たとえば、次のような単位が考えられます。
-
-- `domain/` と `application/`
-- `infrastructure/`
-- `presentation/`
-- test / helper
-
-粒度は調整してよいですが、規約側 API を既定にすることが目的です。
-
-### Phase 3: legacy 名の扱いを確定する
-
-repository 側の移行が終わった現時点では、次の方針にしています。
-
-- `Of`, `Empty`, `IsPresent`, `Get` は compatibility alias として当面残す
-- 削除するなら、別 issue で明示的に扱う
-
-ここは曖昧にしません。repo 全体が半端に混在した状態へ戻らないためです。
-
-## 移行中の新規コードに対するルール
-
-現在のルールは次です。
-
-- 新しいコードでは `Some`, `None`, `Value` を使う
-- `Of`, `Empty`, `IsPresent`, `Get` を新規 call site に増やさない
-- legacy 名は compatibility shim であって、通常の記法ではないと扱う
-
-## 非対象
-
-この方針は、次を意味しません。
-
-- Optional の意味自体を変えること
-- `Optional[T]` を pointer に全面置換すること
-- 1 本の巨大 PR で repo 全体を rename し切ること
-
-## 関連文書
-
-- [アーキテクチャ原則](./README.ja.md)
-- [ドキュメント索引](../README.ja.md)
+- [アーキテクチャ原則](./README.md)
+- [ドキュメントインデックス](../README.md)
