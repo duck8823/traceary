@@ -1360,14 +1360,8 @@ func TestRootCLI_HookSubagentStopCommand_LazySynthesisKeepsParentAgent(t *testin
     ]`) {
 		t.Fatalf("top JSON parent agents should stay claude only, got: %s", output)
 	}
-	if !strings.Contains(output, `"session_id": "parent-session:sub:toolu_plan"`) {
-		t.Fatalf("top JSON should include synthesized Plan child, got: %s", output)
-	}
-	if !strings.Contains(output, `"subagent_kind": "task"`) {
-		t.Fatalf("top JSON should include child subagent_kind=task, got: %s", output)
-	}
-	if !strings.Contains(output, `"subagent_type": "claude/Plan"`) {
-		t.Fatalf("top JSON should include child subagent_type=claude/Plan, got: %s", output)
+	if strings.Contains(output, `"session_id": "parent-session:sub:toolu_plan"`) {
+		t.Fatalf("top JSON should prune ended synthesized Plan child, got: %s", output)
 	}
 }
 

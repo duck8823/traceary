@@ -216,9 +216,6 @@ func keepOngoingLineages(roots []*sessionNode) []*sessionNode {
 }
 
 func pruneEndedLineages(node *sessionNode) bool {
-	if isSessionActive(node.summary) {
-		return true
-	}
 	keptChildren := node.children[:0]
 	for _, child := range node.children {
 		if pruneEndedLineages(child) {
@@ -226,7 +223,7 @@ func pruneEndedLineages(node *sessionNode) bool {
 		}
 	}
 	node.children = keptChildren
-	return len(node.children) > 0
+	return isSessionActive(node.summary) || len(node.children) > 0
 }
 
 // isSessionActive treats only sessions with status=active as live. A

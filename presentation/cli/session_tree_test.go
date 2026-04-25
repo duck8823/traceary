@@ -401,6 +401,12 @@ func TestRootCLI_SessionTreeCommand_OngoingOnly(t *testing.T) {
 				"active", 1, 0, []string{"claude"}, "", "", types.SessionID(""),
 			),
 			apptypes.SessionSummaryOf(
+				types.SessionID("ended-child-under-live-root"),
+				types.Workspace("ws"),
+				started, types.Some(ended),
+				"ended", 1, 0, []string{"codex"}, "", "", types.SessionID("live-root"),
+			),
+			apptypes.SessionSummaryOf(
 				types.SessionID("dead-root"),
 				types.Workspace("ws"),
 				started, types.Some(ended),
@@ -437,6 +443,9 @@ func TestRootCLI_SessionTreeCommand_OngoingOnly(t *testing.T) {
 	out := stdout.String()
 	if !strings.Contains(out, "live-root") {
 		t.Fatalf("--ongoing-only should keep live-root, got %q", out)
+	}
+	if strings.Contains(out, "ended-child-under-live-root") {
+		t.Fatalf("--ongoing-only should prune ended descendants under active parents, got %q", out)
 	}
 	if strings.Contains(out, "dead-root") || strings.Contains(out, "dead-child") {
 		t.Fatalf("--ongoing-only should prune dead lineage, got %q", out)
