@@ -11,21 +11,9 @@ WITH RECURSIVE
       AND instr(descendants.path, ',' || child.session_id || ',') = 0
       AND (? = '' OR child.workspace = ?)
   ),
-  candidate_ids(session_id) AS (
-    SELECT s.session_id
-    FROM sessions s
-    WHERE (? = '' OR s.workspace = ?)
-    ORDER BY s.started_at DESC
-    LIMIT ?
-  ),
   selected_ids(session_id) AS (
-    SELECT descendants.session_id
-    FROM descendants
-    JOIN candidate_ids ON candidate_ids.session_id = descendants.session_id
-    UNION
     SELECT session_id
     FROM descendants
-    WHERE session_id = ?
   )
 SELECT
   s.session_id,

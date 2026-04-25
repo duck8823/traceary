@@ -478,10 +478,10 @@ func (d *SessionDatasource) ListSummaries(
 
 // ListTreeSummaries returns sessions for the tree view. Without a root filter it
 // preserves the regular recent-session listing behavior. With a root filter it
-// selects the recent limited candidates that are descendants of the requested
-// root and match the workspace filter when provided. It unions the root row
-// itself so --root never disappears solely because it is older than the limit
-// window or outside the requested workspace.
+// returns the requested root and its full descendant subtree. The workspace
+// filter applies to descendants when provided, while the requested root is kept
+// even if it is outside that workspace. The recent-session limit is intentionally
+// not applied to descendants of an explicit root.
 func (d *SessionDatasource) ListTreeSummaries(
 	ctx context.Context,
 	limit int,
@@ -507,9 +507,6 @@ func (d *SessionDatasource) ListTreeSummaries(
 		listSessionTreeQuery,
 		rootSessionID.String(),
 		workspace.String(), workspace.String(),
-		workspace.String(), workspace.String(),
-		limit,
-		rootSessionID.String(),
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query session tree summaries: %w", err)

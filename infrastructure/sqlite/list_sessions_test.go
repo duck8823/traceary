@@ -524,6 +524,39 @@ func TestDatasource_ListTreeSummariesIncludesRequestedRootOutsideLimit(t *testin
 	}
 }
 
+func TestDatasource_ListTreeSummariesWithRootIncludesDescendantsOutsideRecentLimit(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	fixture := newListSessionsFixture(t, dbPath, listSessionsTestMigrations())
+	ctx := context.Background()
+	if err := fixture.storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	started := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	saveTestSession(ctx, t, fixture.sessionDS, "parent", started, types.None[time.Time](), "claude", "duck8823/traceary")
+	for i := 0; i < 5; i++ {
+		saveTestSessionWithParent(ctx, t, fixture.sessionDS, fmt.Sprintf("child-%02d", i+1), "parent", started.Add(time.Duration(i+1)*time.Minute), i+1)
+	}
+	for i := 0; i < 100; i++ {
+		saveTestSession(ctx, t, fixture.sessionDS, fmt.Sprintf("newer-unrelated-%03d", i), started.Add(time.Duration(i+1)*time.Hour), types.None[time.Time](), "codex", "duck8823/traceary")
+	}
+
+	got, err := fixture.sessionDS.ListTreeSummaries(ctx, 3, types.Workspace("duck8823/traceary"), types.SessionID("parent"))
+	if err != nil {
+		t.Fatalf("ListTreeSummaries() error = %v", err)
+	}
+	gotIDs := make([]string, 0, len(got))
+	for _, summary := range got {
+		gotIDs = append(gotIDs, summary.SessionID().String())
+	}
+	wantIDs := []string{"parent", "child-01", "child-02", "child-03", "child-04", "child-05"}
+	if diff := cmp.Diff(wantIDs, gotIDs); diff != "" {
+		t.Fatalf("ListTreeSummaries() IDs mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestDatasource_RejectsSelfParentSession(t *testing.T) {
 	t.Parallel()
 
