@@ -1,6 +1,10 @@
 package types
 
-import "slices"
+import (
+	"slices"
+
+	"github.com/duck8823/traceary/application/redaction"
+)
 
 // LogRedaction holds redaction settings for event logging via
 // EventUsecase.Log. It mirrors AuditRedaction for the Audit path so
@@ -12,11 +16,17 @@ import "slices"
 // matching today's behaviour for non-transcript kinds.
 type LogRedaction struct {
 	extraRedactPatterns []string
+	structuredRules     []redaction.RuleConfig
 }
 
 // ExtraRedactPatterns returns additional redaction regex patterns.
 func (r LogRedaction) ExtraRedactPatterns() []string {
 	return slices.Clone(r.extraRedactPatterns)
+}
+
+// StructuredRules returns configured structured redaction rules.
+func (r LogRedaction) StructuredRules() []redaction.RuleConfig {
+	return cloneRuleConfigs(r.structuredRules)
 }
 
 // LogRedactionBuilder builds a LogRedaction value.
@@ -32,6 +42,12 @@ func NewLogRedactionBuilder() *LogRedactionBuilder {
 // ExtraRedactPatterns sets additional redaction regex patterns.
 func (b *LogRedactionBuilder) ExtraRedactPatterns(patterns []string) *LogRedactionBuilder {
 	b.redaction.extraRedactPatterns = slices.Clone(patterns)
+	return b
+}
+
+// StructuredRules sets structured redaction rules.
+func (b *LogRedactionBuilder) StructuredRules(rules []redaction.RuleConfig) *LogRedactionBuilder {
+	b.redaction.structuredRules = cloneRuleConfigs(rules)
 	return b
 }
 

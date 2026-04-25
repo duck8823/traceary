@@ -147,6 +147,7 @@ func run() error {
 
 	cfg := presentation.LoadConfig()
 	extraRedactPatterns := cfg.ExtraRedactPatterns
+	structuredRedactRules := cfg.StructuredRedactRules
 	defaultReadFields := cfg.ReadFields
 	readPresets := cfg.ReadPresets
 	defaultReadColor := cfg.ReadColor
@@ -170,6 +171,7 @@ func run() error {
 	mcpServer, err := mcpserver.NewServer(
 		resolvedVersion,
 		extraRedactPatterns,
+		structuredRedactRules,
 		eventUsecase,
 		sessionUsecase,
 		memoryUsecase,
@@ -206,6 +208,7 @@ func run() error {
 		cli.WithPluginCacheInspector(pluginCacheInspector),
 		cli.WithClaudePluginDetector(pluginDetector),
 		cli.WithExtraRedactPatterns(extraRedactPatterns),
+		cli.WithStructuredRedactRules(structuredRedactRules),
 		cli.WithDefaultReadFields(defaultReadFields),
 		cli.WithReadPresets(readPresets),
 		cli.WithDefaultReadColor(defaultReadColor),

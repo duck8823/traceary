@@ -1033,6 +1033,7 @@ CREATE INDEX idx_memories_valid_window ON memories(valid_to, valid_from);`),
 	server, err := mcpserver.NewServer(
 		"test-version",
 		nil,
+		nil,
 		eventUsecase,
 		sessionUsecase,
 		memoryUsecase,

@@ -68,14 +68,14 @@ func (u *eventUsecase) Log(ctx context.Context, message string, kind types.Event
 	// would risk inserting "[REDACTED]" inside JSON delimiters and
 	// breaking the envelope for downstream block-aware readers.
 	if resolvedKind == types.EventKindTranscript {
-		extraRedactors, err := redaction.CompileExtraPatterns(logCfg.ExtraRedactPatterns())
+		rules, err := redaction.CompileRules(logCfg.ExtraRedactPatterns(), logCfg.StructuredRules())
 		if err != nil {
-			return nil, xerrors.Errorf("failed to compile extra redaction patterns for transcript: %w", err)
+			return nil, xerrors.Errorf("failed to compile redaction rules for transcript: %w", err)
 		}
-		if redactedBody, ok := redactStructuredBodyBlocks(message, extraRedactors); ok {
+		if redactedBody, ok := redactStructuredBodyBlocks(message, rules); ok {
 			message = redactedBody
 		} else {
-			message, _ = redaction.Apply(message, extraRedactors)
+			message, _ = redaction.ApplyWithRules(message, rules, "log.message")
 		}
 	}
 
@@ -129,9 +129,9 @@ func (u *eventUsecase) Audit(ctx context.Context, command string, input string, 
 		return nil, nil, xerrors.Errorf("failed to resolve output limit: %w", err)
 	}
 
-	extraRedactors, err := redaction.CompileExtraPatterns(auditCfg.ExtraRedactPatterns())
+	rules, err := redaction.CompileRules(auditCfg.ExtraRedactPatterns(), auditCfg.StructuredRules())
 	if err != nil {
-		return nil, nil, xerrors.Errorf("failed to compile extra redaction patterns: %w", err)
+		return nil, nil, xerrors.Errorf("failed to compile redaction rules: %w", err)
 	}
 
 	normalizedInput := input
@@ -139,8 +139,8 @@ func (u *eventUsecase) Audit(ctx context.Context, command string, input string, 
 	var inputRedacted bool
 	var outputRedacted bool
 	if !auditCfg.AllowSecrets() {
-		normalizedInput, inputRedacted = redaction.Apply(normalizedInput, extraRedactors)
-		normalizedOutput, outputRedacted = redaction.Apply(normalizedOutput, extraRedactors)
+		normalizedInput, inputRedacted = redaction.ApplyWithRules(normalizedInput, rules, "audit.input")
+		normalizedOutput, outputRedacted = redaction.ApplyWithRules(normalizedOutput, rules, "audit.output")
 	}
 
 	normalizedInput, inputTruncated := truncateAuditPayload(normalizedInput, maxInputBytes)
@@ -335,7 +335,7 @@ func resolveAuditPayloadLimit(value int, defaultValue int) (int, error) {
 // re-serialized JSON. Returns ok=false when the body isn't JSON-
 // shaped so the caller can fall back to the legacy whole-string
 // redaction path.
-func redactStructuredBodyBlocks(body string, extraRedactors []redaction.Redactor) (string, bool) {
+func redactStructuredBodyBlocks(body string, rules redaction.Rules) (string, bool) {
 	blocks := apptypes.ParseEventBodyBlocks(body)
 	if len(blocks) == 0 {
 		return "", false
@@ -347,7 +347,7 @@ func redactStructuredBodyBlocks(body string, extraRedactors []redaction.Redactor
 		return "", false
 	}
 	for i := range blocks {
-		blocks[i].Text, _ = redaction.Apply(blocks[i].Text, extraRedactors)
+		blocks[i].Text, _ = redaction.ApplyWithRules(blocks[i].Text, rules, "log.message")
 	}
 	encoded, err := apptypes.MarshalEventBodyBlocks(blocks)
 	if err != nil {

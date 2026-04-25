@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/duck8823/traceary/application/redaction"
 	apptypes "github.com/duck8823/traceary/application/types"
 )
 
@@ -73,5 +74,48 @@ func TestAuditRedaction_ExtraRedactPatternsDefensiveCopy(t *testing.T) {
 	returned[0] = "mutated-return"
 	if diff := cmp.Diff([]string{`password=\S+`, `token=\S+`}, redaction.ExtraRedactPatterns()); diff != "" {
 		t.Errorf("ExtraRedactPatterns() is not a defensive copy (-want +got):\n%s", diff)
+	}
+}
+
+func TestAuditRedaction_StructuredRulesDefensiveCopy(t *testing.T) {
+	t.Parallel()
+
+	original := []redaction.RuleConfig{{
+		Name:        "internal",
+		Pattern:     `INT-\w+`,
+		Targets:     []string{"audit.input"},
+		Fields:      []string{"authorization"},
+		Paths:       []string{"nested.apiKey"},
+		QueryParams: []string{"token"},
+	}}
+	redactionCfg := apptypes.NewAuditRedactionBuilder().
+		StructuredRules(original).
+		Build()
+	original[0].Name = "mutated"
+	original[0].Targets[0] = "mutated-target"
+	original[0].Fields[0] = "mutated-field"
+	original[0].Paths[0] = "mutated-path"
+	original[0].QueryParams[0] = "mutated-query"
+
+	want := []redaction.RuleConfig{{
+		Name:        "internal",
+		Pattern:     `INT-\w+`,
+		Targets:     []string{"audit.input"},
+		Fields:      []string{"authorization"},
+		Paths:       []string{"nested.apiKey"},
+		QueryParams: []string{"token"},
+	}}
+	if diff := cmp.Diff(want, redactionCfg.StructuredRules()); diff != "" {
+		t.Fatalf("builder did not defensively copy source rule (-want +got):\n%s", diff)
+	}
+
+	returned := redactionCfg.StructuredRules()
+	returned[0].Name = "mutated"
+	returned[0].Targets[0] = "mutated-target"
+	returned[0].Fields[0] = "mutated-field"
+	returned[0].Paths[0] = "mutated-path"
+	returned[0].QueryParams[0] = "mutated-query"
+	if diff := cmp.Diff(want, redactionCfg.StructuredRules()); diff != "" {
+		t.Fatalf("StructuredRules() is not a defensive copy (-want +got):\n%s", diff)
 	}
 }
