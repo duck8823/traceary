@@ -4,6 +4,8 @@
 
 Traceary は、公開 CLI の JSON / newline-delimited JSON (NDJSON) 出力が意図せず変わらないように golden test を使います。golden fixture は、レビュー済みの byte-for-byte な command output contract です。
 
+新しい CLI `--json` flag を追加するときは、同じ変更で `presentation/cli/testdata/<command>/<case>.golden.json` 配下に対応する golden fixture も追加してください。既存の golden test が CI ゲートとして機能します — fixture が無い command output は、ad-hoc な string assertion で済ませず、merge 前に fixture を追加してください。
+
 ## golden test の実行
 
 開発中は対象の contract test だけを実行できます。
