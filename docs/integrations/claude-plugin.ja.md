@@ -34,7 +34,7 @@ GO111MODULE=on go install github.com/duck8823/traceary@latest
 /plugin install traceary
 ```
 
-user 全体に入れたくない場合は `--scope project` または `--scope local` を使います。
+`/plugin install` のスコープ指定オプションは、現在の Claude Code slash-command 経由 install では使用できません。Claude Code の plugin 設定 UI から有効化スコープを管理してください。
 
 ## Update
 
