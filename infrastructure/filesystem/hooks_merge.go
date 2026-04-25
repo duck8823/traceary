@@ -17,19 +17,26 @@ import (
 // are disjoint and sorted alphabetically for stable output.
 //
 // AddedEvents     : the event had no Traceary-managed commands in the
-//                   existing config but the desired config includes at
-//                   least one Traceary command for it.
+//
+//	existing config but the desired config includes at
+//	least one Traceary command for it.
+//
 // RefreshedEvents : the event already had Traceary-managed commands in
-//                   the existing config, but the normalized command set
-//                   is different from the desired set (upgrade, demotion,
-//                   or binary-path rename).
+//
+//	the existing config, but the normalized command set
+//	is different from the desired set (upgrade, demotion,
+//	or binary-path rename).
+//
 // PreservedEvents : the normalized Traceary command set is identical, so
-//                   re-running would produce the same bytes.
+//
+//	re-running would produce the same bytes.
+//
 // RemovedEvents   : the event is only in the existing config (no longer
-//                   emitted by the current release) but held Traceary-
-//                   managed commands; the merge strips those so the
-//                   Traceary footprint on disk stays consistent with the
-//                   running binary.
+//
+//	emitted by the current release) but held Traceary-
+//	managed commands; the merge strips those so the
+//	Traceary footprint on disk stays consistent with the
+//	running binary.
 type hookMergeDiff struct {
 	AddedEvents     []string
 	RefreshedEvents []string
@@ -381,6 +388,12 @@ func parseTracearyDirectManagedCommand(commandValue string) (directManagedComman
 			return directManagedCommand{}, false
 		}
 		directCommand.managedKey = managedKeyOf("traceary-subagent-stop.sh", tokens[3])
+		return directCommand, true
+	case "subagent-start":
+		if len(tokens) != 4 {
+			return directManagedCommand{}, false
+		}
+		directCommand.managedKey = managedKeyOf("traceary-subagent-start.sh", tokens[3])
 		return directCommand, true
 	default:
 		return directManagedCommand{}, false

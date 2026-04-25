@@ -120,7 +120,32 @@ type sessionUsecaseStub struct {
 		workspace       types.Workspace
 		parentSessionID types.SessionID
 	}
+	startChildCall struct {
+		parent       types.SessionID
+		childID      types.SessionID
+		agent        types.Agent
+		workspace    types.Workspace
+		spawnEventID types.EventID
+		kind         string
+		startedAt    time.Time
+	}
+	startChildCalls []struct {
+		parent       types.SessionID
+		childID      types.SessionID
+		agent        types.Agent
+		workspace    types.Workspace
+		spawnEventID types.EventID
+		kind         string
+		startedAt    time.Time
+	}
 	endCall struct {
+		client    types.Client
+		agent     types.Agent
+		sessionID types.SessionID
+		workspace types.Workspace
+		summary   string
+	}
+	endCalls []struct {
 		client    types.Client
 		agent     types.Agent
 		sessionID types.SessionID
@@ -137,12 +162,24 @@ func (s *sessionUsecaseStub) Start(_ context.Context, client types.Client, agent
 	s.startCall.parentSessionID = parentSessionID
 	return s.startEvent, s.startErr
 }
+func (s *sessionUsecaseStub) StartChild(_ context.Context, parent types.SessionID, childID types.SessionID, agent types.Agent, workspace types.Workspace, spawnEventID types.EventID, kind string, startedAt time.Time) (*model.Event, error) {
+	s.startChildCall.parent = parent
+	s.startChildCall.childID = childID
+	s.startChildCall.agent = agent
+	s.startChildCall.workspace = workspace
+	s.startChildCall.spawnEventID = spawnEventID
+	s.startChildCall.kind = kind
+	s.startChildCall.startedAt = startedAt
+	s.startChildCalls = append(s.startChildCalls, s.startChildCall)
+	return s.startEvent, s.startErr
+}
 func (s *sessionUsecaseStub) End(_ context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, summary string) (*model.Event, error) {
 	s.endCall.client = client
 	s.endCall.agent = agent
 	s.endCall.sessionID = sessionID
 	s.endCall.workspace = workspace
 	s.endCall.summary = summary
+	s.endCalls = append(s.endCalls, s.endCall)
 	return s.endEvent, s.endErr
 }
 func (s *sessionUsecaseStub) Label(_ context.Context, _ types.SessionID, _ string) error {

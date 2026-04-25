@@ -94,6 +94,17 @@
         ]
       }
     ],
+    "PreToolUse": [
+      {
+        "matcher": "Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'traceary' 'hook' 'subagent-start' 'claude'"
+          }
+        ]
+      }
+    ],
     "PostCompact": [
       {
         "matcher": "*",

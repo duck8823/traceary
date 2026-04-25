@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
@@ -28,6 +29,15 @@ type hookParentProcessInfo struct {
 	command   string
 }
 
+type hookActiveSubagentState struct {
+	Children map[string]hookActiveSubagentChild `json:"children"`
+}
+
+type hookActiveSubagentChild struct {
+	ChildSessionID types.SessionID `json:"child_session_id"`
+	StartedAt      time.Time       `json:"started_at"`
+}
+
 var hookParentProcessLookup = defaultHookParentProcessLookup
 
 func (c *RootCLI) newHookCommand() *cobra.Command {
@@ -39,6 +49,7 @@ func (c *RootCLI) newHookCommand() *cobra.Command {
 	hookCmd.AddCommand(c.newHookSessionCommand())
 	hookCmd.AddCommand(c.newHookAuditCommand())
 	hookCmd.AddCommand(c.newHookCompactCommand())
+	hookCmd.AddCommand(c.newHookSubagentStartCommand())
 	hookCmd.AddCommand(c.newHookSubagentStopCommand())
 	hookCmd.AddCommand(c.newHookPromptCommand())
 	hookCmd.AddCommand(c.newHookTranscriptCommand())
@@ -95,6 +106,25 @@ func (c *RootCLI) newHookCompactCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runHookBestEffort("compact", func() error {
 				return c.runHookCompact(cmd.Context(), cmd.OutOrStdout(), cmd.InOrStdin(), args[0], args[1], dbPath)
+			})
+		},
+	}
+	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
+
+	return cmd
+}
+
+func (c *RootCLI) newHookSubagentStartCommand() *cobra.Command {
+	var dbPath string
+
+	cmd := &cobra.Command{
+		Use:    "subagent-start <client>",
+		Short:  "Record a subagent-start boundary event",
+		Hidden: true,
+		Args:   exactArgsLocalized(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runHookBestEffort("subagent-start", func() error {
+				return c.runHookSubagentStart(cmd.Context(), cmd.InOrStdin(), args[0], dbPath)
 			})
 		},
 	}
@@ -287,6 +317,9 @@ func (c *RootCLI) runHookSession(
 			return err
 		}
 		if err := clearHookWorkspaceState(client); err != nil {
+			return err
+		}
+		if err := clearHookActiveSubagentState(client, sessionID, ""); err != nil {
 			return err
 		}
 		if err := markHookSessionEnded(client, sessionID); err != nil {
@@ -509,6 +542,69 @@ func (c *RootCLI) runHookCompact(
 	}
 }
 
+func (c *RootCLI) runHookSubagentStart(
+	ctx context.Context,
+	input io.Reader,
+	client string,
+	dbPath string,
+) error {
+	if c.storeManagement == nil {
+		return xerrors.Errorf("initialize store usecase is not configured")
+	}
+	if c.session == nil {
+		return xerrors.Errorf("session usecase is not configured")
+	}
+	ctx = apptypes.WithSourceHook(ctx, "pre_tool_use")
+
+	payload, err := readHookPayload(input)
+	if err != nil {
+		return err
+	}
+	parentSessionID, err := resolveHookParentSessionID(payload, client)
+	if err != nil {
+		return err
+	}
+	if parentSessionID == "" {
+		return nil
+	}
+	toolUseID := hookPayloadString(payload, "tool_use_id", "")
+	if toolUseID == "" {
+		return nil
+	}
+	subagentType := hookPayloadString(payload, "subagent_type", "")
+	if subagentType == "" {
+		subagentType = hookPayloadString(payload, "tool_input.subagent_type", "")
+	}
+	if subagentType == "" {
+		subagentType = "task"
+	}
+	agent, err := types.AgentFrom(strings.TrimSpace(client) + "/" + subagentType)
+	if err != nil {
+		return xerrors.Errorf("failed to resolve subagent agent: %w", err)
+	}
+	workspace, err := resolveHookWorkspace(ctx, payload, client, true)
+	if err != nil {
+		return err
+	}
+
+	resolvedDBPath, err := resolveDBPath(dbPath)
+	if err != nil {
+		return xerrors.Errorf("failed to resolve DB path: %w", err)
+	}
+	c.applyDatabasePath(resolvedDBPath)
+	if err := c.storeManagement.Initialize(ctx); err != nil {
+		return xerrors.Errorf("failed to initialize store: %w", err)
+	}
+
+	childSessionID := synthesizeHookChildSessionID(parentSessionID, toolUseID)
+	if _, err := c.session.StartChild(ctx, parentSessionID, childSessionID, agent, workspace, types.EventID(toolUseID), "task", time.Now()); err != nil {
+		return xerrors.Errorf("failed to record subagent start: %w", err)
+	}
+	if err := writeHookActiveSubagentState(client, parentSessionID, toolUseID, childSessionID); err != nil {
+		return err
+	}
+	return nil
+}
 
 func (c *RootCLI) runHookSubagentStop(
 	ctx context.Context,
@@ -521,6 +617,9 @@ func (c *RootCLI) runHookSubagentStop(
 	}
 	if c.event == nil {
 		return xerrors.Errorf("event usecase is not configured")
+	}
+	if c.session == nil {
+		return xerrors.Errorf("session usecase is not configured")
 	}
 	// Tag for #672: SubagentStop produces a session_ended event
 	// (distinguished today only via the `[phase:subagent]` body
@@ -539,11 +638,11 @@ func (c *RootCLI) runHookSubagentStop(
 	if err := c.storeManagement.Initialize(ctx); err != nil {
 		return xerrors.Errorf("failed to initialize store: %w", err)
 	}
-	sessionID, err := resolveHookSessionID(payload, client)
+	parentSessionID, err := resolveHookParentSessionID(payload, client)
 	if err != nil {
 		return err
 	}
-	if sessionID == "" {
+	if parentSessionID == "" {
 		return nil
 	}
 	workspace, err := resolveHookWorkspace(ctx, payload, client, true)
@@ -554,19 +653,57 @@ func (c *RootCLI) runHookSubagentStop(
 	if err != nil {
 		return err
 	}
+	toolUseID := hookPayloadString(payload, "tool_use_id", "")
+	childSessionID := types.SessionID("")
+	activeToolUseID := ""
+	childWasActive := false
+	if toolUseID != "" {
+		childSessionID, childWasActive, err = readHookActiveSubagentStateForTool(client, parentSessionID, toolUseID)
+		if err != nil {
+			return err
+		}
+		if childSessionID == "" {
+			childSessionID = synthesizeHookChildSessionID(parentSessionID, toolUseID)
+		}
+		activeToolUseID = toolUseID
+	} else {
+		activeToolUseID, childSessionID, err = readHookLatestActiveSubagentState(client, parentSessionID)
+		if err != nil {
+			return err
+		}
+		childWasActive = childSessionID != ""
+	}
+	if childSessionID != "" {
+		if !childWasActive {
+			childAgent := agent
+			if subagentType := hookPayloadString(payload, "subagent_type", ""); subagentType != "" {
+				if resolvedAgent, resolveErr := types.AgentFrom(strings.TrimSpace(client) + "/" + subagentType); resolveErr == nil {
+					childAgent = resolvedAgent
+				}
+			}
+			if _, startErr := c.session.StartChild(ctx, parentSessionID, childSessionID, childAgent, workspace, types.EventID(toolUseID), "task", time.Now()); startErr != nil {
+				return xerrors.Errorf("failed to synthesize missing subagent start: %w", startErr)
+			}
+		}
+		if _, err := c.session.End(ctx, types.Client("hook"), types.Agent(""), childSessionID, workspace, ""); err != nil {
+			return xerrors.Errorf("failed to end subagent session: %w", err)
+		}
+		if err := clearHookActiveSubagentState(client, parentSessionID, activeToolUseID); err != nil {
+			return err
+		}
+	}
 	// Claude Code's SubagentStop hook fires whenever a Task-tool subagent
 	// completes. source_hook = "subagent_stop" (stamped via ctx) now
 	// discriminates the subagent boundary from main-session session_ended
 	// events; the legacy `[phase:subagent]` body prefix is retired on
 	// write but readers still match it for pre-#672 rows.
 	subagentType := hookPayloadString(payload, "subagent_type", "")
-	_, err = c.event.Log(ctx, subagentType, types.EventKindSessionEnded, types.Client("hook"), agent, sessionID, workspace, apptypes.LogRedaction{})
+	_, err = c.event.Log(ctx, subagentType, types.EventKindSessionEnded, types.Client("hook"), agent, parentSessionID, workspace, apptypes.LogRedaction{})
 	if err != nil {
 		return xerrors.Errorf("failed to record subagent-stop event: %w", err)
 	}
 	return nil
 }
-
 
 func (c *RootCLI) runHookPrompt(
 	ctx context.Context,
@@ -937,12 +1074,34 @@ func resolveHookAgent(client string, payload []byte) (types.Agent, error) {
 }
 
 func resolveHookSessionID(payload []byte, client string) (types.SessionID, error) {
+	parentSessionID, err := resolveHookParentSessionID(payload, client)
+	if err != nil {
+		return "", err
+	}
+	if parentSessionID == "" {
+		return "", nil
+	}
+	_, childSessionID, err := readHookLatestActiveSubagentState(client, parentSessionID)
+	if err != nil {
+		return "", err
+	}
+	if childSessionID != "" {
+		return childSessionID, nil
+	}
+
+	return parentSessionID, nil
+}
+
+func resolveHookParentSessionID(payload []byte, client string) (types.SessionID, error) {
 	sessionID := types.SessionID(hookPayloadString(payload, "session_id", ""))
 	if sessionID != "" {
 		return sessionID, nil
 	}
-
 	return readHookSessionState(client)
+}
+
+func synthesizeHookChildSessionID(parentSessionID types.SessionID, toolUseID string) types.SessionID {
+	return types.SessionID(parentSessionID.String() + ":sub:" + strings.TrimSpace(toolUseID))
 }
 
 func resolveHookWorkspace(ctx context.Context, payload []byte, client string, preferState bool) (types.Workspace, error) {
@@ -1170,6 +1329,15 @@ func hookSessionEndMarkerPath(client string, sessionID types.SessionID) (string,
 	return filepath.Join(stateDir, "ended", client+"-"+sanitizedSessionID), nil
 }
 
+func hookActiveSubagentStatePath(client string, parentSessionID types.SessionID) (string, error) {
+	stateDir, err := resolveHookStateDir()
+	if err != nil {
+		return "", err
+	}
+	sanitizedParentSessionID := sanitizeHookStateKey(parentSessionID.String())
+	return filepath.Join(stateDir, "active-subagents", client+"-"+sanitizedParentSessionID), nil
+}
+
 func writeHookSessionState(client string, sessionID types.SessionID) error {
 	statePath, err := hookSessionStatePath(client)
 	if err != nil {
@@ -1212,6 +1380,168 @@ func clearHookSessionState(client string) error {
 	}
 
 	return nil
+}
+
+func withHookActiveSubagentStateLock(client string, parentSessionID types.SessionID, fn func() error) error {
+	statePath, err := hookActiveSubagentStatePath(client, parentSessionID)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
+		return xerrors.Errorf("failed to create hook active-subagent state directory: %w", err)
+	}
+	lockPath := statePath + ".lock"
+	for i := 0; ; i++ {
+		err := os.Mkdir(lockPath, 0o700)
+		if err == nil {
+			defer func() { _ = os.Remove(lockPath) }()
+			return fn()
+		}
+		if !os.IsExist(err) {
+			return xerrors.Errorf("failed to lock hook active-subagent state: %w", err)
+		}
+		if i >= 100 {
+			return xerrors.Errorf("failed to lock hook active-subagent state: timed out")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func writeHookActiveSubagentState(client string, parentSessionID types.SessionID, toolUseID string, childSessionID types.SessionID) error {
+	if strings.TrimSpace(toolUseID) == "" {
+		return nil
+	}
+	return withHookActiveSubagentStateLock(client, parentSessionID, func() error {
+		statePath, err := hookActiveSubagentStatePath(client, parentSessionID)
+		if err != nil {
+			return err
+		}
+		state, err := readHookActiveSubagentStateFile(statePath)
+		if err != nil {
+			return err
+		}
+		if state.Children == nil {
+			state.Children = map[string]hookActiveSubagentChild{}
+		}
+		state.Children[toolUseID] = hookActiveSubagentChild{
+			ChildSessionID: childSessionID,
+			StartedAt:      time.Now().UTC(),
+		}
+		data, err := json.Marshal(state)
+		if err != nil {
+			return xerrors.Errorf("failed to encode hook active-subagent state: %w", err)
+		}
+		if err := os.WriteFile(statePath, data, 0o600); err != nil {
+			return xerrors.Errorf("failed to write hook active-subagent state: %w", err)
+		}
+		return nil
+	})
+}
+
+func readHookActiveSubagentStateFile(statePath string) (hookActiveSubagentState, error) {
+	data, err := os.ReadFile(statePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return hookActiveSubagentState{Children: map[string]hookActiveSubagentChild{}}, nil
+		}
+		return hookActiveSubagentState{}, xerrors.Errorf("failed to read hook active-subagent state: %w", err)
+	}
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" {
+		return hookActiveSubagentState{Children: map[string]hookActiveSubagentChild{}}, nil
+	}
+	if !strings.HasPrefix(trimmed, "{") {
+		return hookActiveSubagentState{
+			Children: map[string]hookActiveSubagentChild{
+				"legacy": {
+					ChildSessionID: types.SessionID(trimmed),
+				},
+			},
+		}, nil
+	}
+	var state hookActiveSubagentState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return hookActiveSubagentState{}, xerrors.Errorf("failed to decode hook active-subagent state: %w", err)
+	}
+	if state.Children == nil {
+		state.Children = map[string]hookActiveSubagentChild{}
+	}
+	return state, nil
+}
+
+func readHookActiveSubagentStateForTool(client string, parentSessionID types.SessionID, toolUseID string) (types.SessionID, bool, error) {
+	statePath, err := hookActiveSubagentStatePath(client, parentSessionID)
+	if err != nil {
+		return "", false, err
+	}
+	state, err := readHookActiveSubagentStateFile(statePath)
+	if err != nil {
+		return "", false, err
+	}
+	child, ok := state.Children[toolUseID]
+	if !ok || child.ChildSessionID == "" {
+		return "", false, nil
+	}
+	return child.ChildSessionID, true, nil
+}
+
+func readHookLatestActiveSubagentState(client string, parentSessionID types.SessionID) (string, types.SessionID, error) {
+	statePath, err := hookActiveSubagentStatePath(client, parentSessionID)
+	if err != nil {
+		return "", "", err
+	}
+	state, err := readHookActiveSubagentStateFile(statePath)
+	if err != nil {
+		return "", "", err
+	}
+	var latestToolUseID string
+	var latestChildID types.SessionID
+	var latestStartedAt time.Time
+	for toolUseID, child := range state.Children {
+		if child.ChildSessionID == "" {
+			continue
+		}
+		if latestChildID == "" || child.StartedAt.After(latestStartedAt) {
+			latestToolUseID = toolUseID
+			latestChildID = child.ChildSessionID
+			latestStartedAt = child.StartedAt
+		}
+	}
+	return latestToolUseID, latestChildID, nil
+}
+
+func clearHookActiveSubagentState(client string, parentSessionID types.SessionID, toolUseID string) error {
+	return withHookActiveSubagentStateLock(client, parentSessionID, func() error {
+		statePath, err := hookActiveSubagentStatePath(client, parentSessionID)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(toolUseID) == "" || toolUseID == "legacy" {
+			if err := os.Remove(statePath); err != nil && !os.IsNotExist(err) {
+				return xerrors.Errorf("failed to clear hook active-subagent state: %w", err)
+			}
+			return nil
+		}
+		state, err := readHookActiveSubagentStateFile(statePath)
+		if err != nil {
+			return err
+		}
+		delete(state.Children, toolUseID)
+		if len(state.Children) == 0 {
+			if err := os.Remove(statePath); err != nil && !os.IsNotExist(err) {
+				return xerrors.Errorf("failed to clear hook active-subagent state: %w", err)
+			}
+			return nil
+		}
+		data, err := json.Marshal(state)
+		if err != nil {
+			return xerrors.Errorf("failed to encode hook active-subagent state: %w", err)
+		}
+		if err := os.WriteFile(statePath, data, 0o600); err != nil {
+			return xerrors.Errorf("failed to write hook active-subagent state: %w", err)
+		}
+		return nil
+	})
 }
 
 func writeHookWorkspaceState(client string, workspace types.Workspace) error {
