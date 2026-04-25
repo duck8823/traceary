@@ -133,6 +133,10 @@ type BundleImportResult struct {
 	// collision.
 	EventsImported int
 	EventsSkipped  int
+	// MemoriesImported / MemoriesSkipped count durable memories that were newly
+	// written vs dropped because of a pre-existing memory id collision.
+	MemoriesImported int
+	MemoriesSkipped  int
 	// BundleSchemaVersion is the schema_migrations version the
 	// archive carried at Export time.
 	BundleSchemaVersion int
@@ -194,6 +198,8 @@ var (
 type BundleEventRepository interface {
 	// SchemaVersion is the current schema_migrations max version.
 	SchemaVersion(ctx context.Context) (int, error)
+	// ListBundleMemories returns all durable memories and their refs for bundle export.
+	ListBundleMemories(ctx context.Context) ([]apptypes.MemoryDetails, error)
 	// BeginBundleImport starts the single transaction used by all table
 	// importers in registry order.
 	BeginBundleImport(ctx context.Context) (BundleImportTransaction, error)
@@ -203,6 +209,7 @@ type BundleEventRepository interface {
 // bundle table importers.
 type BundleImportTransaction interface {
 	ImportEvent(ctx context.Context, event *model.Event, policy BundleConflictPolicy) (bool, error)
+	ImportMemory(ctx context.Context, memory *model.Memory, policy BundleConflictPolicy) (bool, error)
 	Commit(ctx context.Context) error
 	Rollback(ctx context.Context) error
 }
@@ -248,10 +255,21 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 		return xerrors.Errorf("failed to list events for bundle: %w", err)
 	}
 
-	eventsImporter := u.bundleTableRegistry()["events"]
-	eventsBuf, err := eventsImporter.Export(ctx, events)
+	memories, err := u.repository.ListBundleMemories(ctx)
+	if err != nil {
+		return xerrors.Errorf("failed to list memories for bundle: %w", err)
+	}
+
+	registry := u.bundleTableRegistry()
+	eventsImporter := registry["events"]
+	eventsBuf, err := eventsImporter.Export(ctx, events, nil)
 	if err != nil {
 		return xerrors.Errorf("failed to encode events: %w", err)
+	}
+	memoriesImporter := registry["memories"]
+	memoriesBuf, err := memoriesImporter.Export(ctx, nil, memories)
+	if err != nil {
+		return xerrors.Errorf("failed to encode memories: %w", err)
 	}
 
 	manifest := bundleManifest{
@@ -276,6 +294,12 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 				RowCount:  len(events),
 				Checksum:  hashSHA256(eventsBuf.Bytes()),
 			},
+			"memories": {
+				TableName: "memories",
+				File:      memoriesImporter.FileName(),
+				RowCount:  len(memories),
+				Checksum:  hashSHA256(memoriesBuf.Bytes()),
+			},
 		},
 	}
 	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
@@ -284,8 +308,9 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 	}
 
 	plaintext, err := encodeTarGz(map[string][]byte{
-		"manifest.json": manifestBytes,
-		"events.ndjson": eventsBuf.Bytes(),
+		"manifest.json":   manifestBytes,
+		"events.ndjson":   eventsBuf.Bytes(),
+		"memories.ndjson": memoriesBuf.Bytes(),
 	})
 	if err != nil {
 		return xerrors.Errorf("failed to build tar.gz: %w", err)
@@ -391,9 +416,13 @@ func (u *bundleUsecase) Import(ctx context.Context, opts BundleImportOptions) (B
 		if err != nil {
 			return result, xerrors.Errorf("failed to import %s: %w", entry.TableName, err)
 		}
-		if entry.TableName == "events" {
+		switch entry.TableName {
+		case "events":
 			result.EventsImported += imported
 			result.EventsSkipped += skipped
+		case "memories":
+			result.MemoriesImported += imported
+			result.MemoriesSkipped += skipped
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -410,15 +439,17 @@ type bundleRow any
 type bundleTableImporter interface {
 	Name() string
 	FileName() string
-	Export(context.Context, []*model.Event) (*bytes.Buffer, error)
+	Export(context.Context, []*model.Event, []apptypes.MemoryDetails) (*bytes.Buffer, error)
 	Decode(io.Reader) ([]bundleRow, error)
 	Apply(context.Context, BundleImportTransaction, []bundleRow, BundleConflictPolicy) (imported int, skipped int, err error)
 }
 
 func (u *bundleUsecase) bundleTableRegistry() map[string]bundleTableImporter {
 	events := bundleEventsTable{}
+	memories := bundleMemoriesTable{}
 	return map[string]bundleTableImporter{
-		events.Name(): events,
+		events.Name():   events,
+		memories.Name(): memories,
 	}
 }
 
@@ -428,7 +459,7 @@ func (bundleEventsTable) Name() string { return "events" }
 
 func (bundleEventsTable) FileName() string { return "events.ndjson" }
 
-func (bundleEventsTable) Export(_ context.Context, events []*model.Event) (*bytes.Buffer, error) {
+func (bundleEventsTable) Export(_ context.Context, events []*model.Event, _ []apptypes.MemoryDetails) (*bytes.Buffer, error) {
 	return encodeEventsNDJSON(events)
 }
 
@@ -465,6 +496,59 @@ func (bundleEventsTable) Apply(
 		didImport, err := tx.ImportEvent(ctx, event, policy)
 		if err != nil {
 			return imported, skipped, xerrors.Errorf("event %s: %w", event.EventID(), err)
+		}
+		if didImport {
+			imported++
+		} else {
+			skipped++
+		}
+	}
+	return imported, skipped, nil
+}
+
+type bundleMemoriesTable struct{}
+
+func (bundleMemoriesTable) Name() string { return "memories" }
+
+func (bundleMemoriesTable) FileName() string { return "memories.ndjson" }
+
+func (bundleMemoriesTable) Export(_ context.Context, _ []*model.Event, memories []apptypes.MemoryDetails) (*bytes.Buffer, error) {
+	return encodeMemoriesNDJSON(memories)
+}
+
+func (bundleMemoriesTable) Decode(r io.Reader) ([]bundleRow, error) {
+	decoder := json.NewDecoder(r)
+	rows := []bundleRow{}
+	for decoder.More() {
+		var row bundleMemoryRow
+		if err := decoder.Decode(&row); err != nil {
+			return nil, xerrors.Errorf("memory row: %w", err)
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+func (bundleMemoriesTable) Apply(
+	ctx context.Context,
+	tx BundleImportTransaction,
+	rows []bundleRow,
+	policy BundleConflictPolicy,
+) (int, int, error) {
+	sortedRows, err := topologicallySortBundleMemoryRows(rows)
+	if err != nil {
+		return 0, 0, err
+	}
+	imported := 0
+	skipped := 0
+	for _, row := range sortedRows {
+		memory, err := row.toMemory()
+		if err != nil {
+			return imported, skipped, xerrors.Errorf("restore memory: %w", err)
+		}
+		didImport, err := tx.ImportMemory(ctx, memory, policy)
+		if err != nil {
+			return imported, skipped, xerrors.Errorf("memory %s: %w", memory.MemoryID(), err)
 		}
 		if didImport {
 			imported++
@@ -582,6 +666,109 @@ type bundleEventRow struct {
 	CreatedAt  string `json:"created_at"`
 }
 
+type bundleRefRow struct {
+	Kind  string `json:"kind"`
+	Value string `json:"value"`
+}
+
+type bundleMemoryRow struct {
+	MemoryID           string         `json:"memory_id"`
+	Type               string         `json:"type"`
+	ScopeKind          string         `json:"scope_kind"`
+	ScopeValue         string         `json:"scope_value"`
+	Fact               string         `json:"fact"`
+	Status             string         `json:"status"`
+	Confidence         string         `json:"confidence"`
+	Source             string         `json:"source"`
+	EvidenceRefs       []bundleRefRow `json:"evidence_refs,omitempty"`
+	ArtifactRefs       []bundleRefRow `json:"artifact_refs,omitempty"`
+	SupersedesMemoryID string         `json:"supersedes_memory_id,omitempty"`
+	ExpiresAt          string         `json:"expires_at,omitempty"`
+	ValidFrom          string         `json:"valid_from"`
+	ValidTo            string         `json:"valid_to,omitempty"`
+	CreatedAt          string         `json:"created_at"`
+	UpdatedAt          string         `json:"updated_at"`
+}
+
+func (r bundleMemoryRow) toMemory() (*model.Memory, error) {
+	memoryID, err := types.MemoryIDFrom(r.MemoryID)
+	if err != nil {
+		return nil, xerrors.Errorf("memory_id: %w", err)
+	}
+	memoryType, err := types.MemoryTypeFrom(r.Type)
+	if err != nil {
+		return nil, xerrors.Errorf("type: %w", err)
+	}
+	scope, err := types.MemoryScopeFrom(r.ScopeKind, r.ScopeValue)
+	if err != nil {
+		return nil, xerrors.Errorf("scope: %w", err)
+	}
+	// Bundle imports intentionally do not trust source lifecycle state:
+	// every newly imported memory enters the existing review inbox first.
+	status := types.MemoryStatusCandidate
+	confidence, err := types.ConfidenceFrom(r.Confidence)
+	if err != nil {
+		return nil, xerrors.Errorf("confidence: %w", err)
+	}
+	source, err := types.MemorySourceFrom(r.Source)
+	if err != nil {
+		return nil, xerrors.Errorf("source: %w", err)
+	}
+	evidenceRefs := make([]types.EvidenceRef, 0, len(r.EvidenceRefs))
+	for _, ref := range r.EvidenceRefs {
+		kind, err := types.EvidenceRefKindFrom(ref.Kind)
+		if err != nil {
+			return nil, xerrors.Errorf("evidence ref kind: %w", err)
+		}
+		restored, err := types.EvidenceRefFrom(kind, ref.Value)
+		if err != nil {
+			return nil, xerrors.Errorf("evidence ref: %w", err)
+		}
+		evidenceRefs = append(evidenceRefs, restored)
+	}
+	artifactRefs := make([]types.ArtifactRef, 0, len(r.ArtifactRefs))
+	for _, ref := range r.ArtifactRefs {
+		kind, err := types.ArtifactRefKindFrom(ref.Kind)
+		if err != nil {
+			return nil, xerrors.Errorf("artifact ref kind: %w", err)
+		}
+		restored, err := types.ArtifactRefFrom(kind, ref.Value)
+		if err != nil {
+			return nil, xerrors.Errorf("artifact ref: %w", err)
+		}
+		artifactRefs = append(artifactRefs, restored)
+	}
+	supersedes := types.None[types.MemoryID]()
+	if r.SupersedesMemoryID != "" {
+		supersededID, err := types.MemoryIDFrom(r.SupersedesMemoryID)
+		if err != nil {
+			return nil, xerrors.Errorf("supersedes_memory_id: %w", err)
+		}
+		supersedes = types.Some(supersededID)
+	}
+	expiresAt, err := parseOptionalBundleTime(r.ExpiresAt, "expires_at")
+	if err != nil {
+		return nil, err
+	}
+	validFrom, err := time.Parse(time.RFC3339Nano, r.ValidFrom)
+	if err != nil {
+		return nil, xerrors.Errorf("valid_from: %w", err)
+	}
+	validTo, err := parseOptionalBundleTime(r.ValidTo, "valid_to")
+	if err != nil {
+		return nil, err
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, r.CreatedAt)
+	if err != nil {
+		return nil, xerrors.Errorf("created_at: %w", err)
+	}
+	updatedAt, err := time.Parse(time.RFC3339Nano, r.UpdatedAt)
+	if err != nil {
+		return nil, xerrors.Errorf("updated_at: %w", err)
+	}
+	return model.MemoryOf(memoryID, memoryType, scope, r.Fact, status, confidence, source, evidenceRefs, artifactRefs, supersedes, expiresAt, validFrom, validTo, createdAt, updatedAt), nil
+}
+
 func (r bundleEventRow) toEvent() (*model.Event, error) {
 	eventID, err := types.EventIDFrom(r.EventID)
 	if err != nil {
@@ -637,6 +824,199 @@ func encodeEventsNDJSON(events []*model.Event) (*bytes.Buffer, error) {
 		}
 	}
 	return buf, nil
+}
+
+func encodeMemoriesNDJSON(memories []apptypes.MemoryDetails) (*bytes.Buffer, error) {
+	buf := &bytes.Buffer{}
+	memories = topologicallySortMemoryDetails(memories)
+	enc := json.NewEncoder(buf)
+	for _, details := range memories {
+		summary := details.Summary()
+		row := bundleMemoryRow{
+			MemoryID:     summary.MemoryID().String(),
+			Type:         summary.MemoryType().String(),
+			ScopeKind:    summary.Scope().Kind().String(),
+			ScopeValue:   summary.Scope().Key(),
+			Fact:         summary.Fact(),
+			Status:       summary.Status().String(),
+			Confidence:   summary.Confidence().String(),
+			Source:       summary.Source().String(),
+			EvidenceRefs: refsToBundleEvidenceRows(details.EvidenceRefs()),
+			ArtifactRefs: refsToBundleArtifactRows(details.ArtifactRefs()),
+			ValidFrom:    summary.ValidFrom().UTC().Format(time.RFC3339Nano),
+			CreatedAt:    summary.CreatedAt().UTC().Format(time.RFC3339Nano),
+			UpdatedAt:    summary.UpdatedAt().UTC().Format(time.RFC3339Nano),
+		}
+		if supersedes, ok := summary.Supersedes().Value(); ok {
+			row.SupersedesMemoryID = supersedes.String()
+		}
+		if expiresAt, ok := summary.ExpiresAt().Value(); ok {
+			row.ExpiresAt = expiresAt.UTC().Format(time.RFC3339Nano)
+		}
+		if validTo, ok := summary.ValidTo().Value(); ok {
+			row.ValidTo = validTo.UTC().Format(time.RFC3339Nano)
+		}
+		if err := enc.Encode(row); err != nil {
+			return nil, xerrors.Errorf("encode memory: %w", err)
+		}
+	}
+	return buf, nil
+}
+
+func topologicallySortBundleMemoryRows(rows []bundleRow) ([]bundleMemoryRow, error) {
+	memories := make([]bundleMemoryRow, 0, len(rows))
+	for _, generic := range rows {
+		row, ok := generic.(bundleMemoryRow)
+		if !ok {
+			return nil, xerrors.Errorf("unexpected memories row type %T", generic)
+		}
+		memories = append(memories, row)
+	}
+	sortedIndexes, err := topologicallySortMemoryIndexes(
+		len(memories),
+		func(i int) string { return memories[i].MemoryID },
+		func(i int) string { return memories[i].SupersedesMemoryID },
+	)
+	if err != nil {
+		return nil, err
+	}
+	sorted := make([]bundleMemoryRow, 0, len(memories))
+	for _, idx := range sortedIndexes {
+		sorted = append(sorted, memories[idx])
+	}
+	return sorted, nil
+}
+
+func topologicallySortMemoryDetails(memories []apptypes.MemoryDetails) []apptypes.MemoryDetails {
+	sortedIndexes, err := topologicallySortMemoryIndexes(
+		len(memories),
+		func(i int) string { return memories[i].Summary().MemoryID().String() },
+		func(i int) string {
+			if supersedes, ok := memories[i].Summary().Supersedes().Value(); ok {
+				return supersedes.String()
+			}
+			return ""
+		},
+	)
+	if err != nil {
+		// Export reads trusted local state. If that state contains impossible
+		// cycles or duplicate IDs, keep deterministic ID order rather than
+		// failing bundle creation here; repository constraints own that invariant.
+		sorted := append([]apptypes.MemoryDetails(nil), memories...)
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].Summary().MemoryID().String() < sorted[j].Summary().MemoryID().String()
+		})
+		return sorted
+	}
+	sorted := make([]apptypes.MemoryDetails, 0, len(memories))
+	for _, idx := range sortedIndexes {
+		sorted = append(sorted, memories[idx])
+	}
+	return sorted
+}
+
+func topologicallySortMemoryIndexes(
+	count int,
+	idAt func(int) string,
+	supersedesAt func(int) string,
+) ([]int, error) {
+	indexByID := make(map[string]int, count)
+	for i := 0; i < count; i++ {
+		id := idAt(i)
+		if id == "" {
+			return nil, xerrors.Errorf("memory row has empty memory_id")
+		}
+		if _, exists := indexByID[id]; exists {
+			return nil, xerrors.Errorf("bundle contains duplicate memory_id %s", id)
+		}
+		indexByID[id] = i
+	}
+
+	childrenByParent := make(map[string][]int, count)
+	indegree := make([]int, count)
+	for i := 0; i < count; i++ {
+		parentID := supersedesAt(i)
+		if parentID == "" {
+			continue
+		}
+		if _, parentInBundle := indexByID[parentID]; !parentInBundle {
+			continue
+		}
+		childrenByParent[parentID] = append(childrenByParent[parentID], i)
+		indegree[i]++
+	}
+	for parentID := range childrenByParent {
+		sort.Slice(childrenByParent[parentID], func(i, j int) bool {
+			return idAt(childrenByParent[parentID][i]) < idAt(childrenByParent[parentID][j])
+		})
+	}
+
+	ready := make([]int, 0, count)
+	for i := 0; i < count; i++ {
+		if indegree[i] == 0 {
+			ready = append(ready, i)
+		}
+	}
+	sort.Slice(ready, func(i, j int) bool {
+		leftRoot := supersedesAt(ready[i]) == ""
+		rightRoot := supersedesAt(ready[j]) == ""
+		if leftRoot != rightRoot {
+			return leftRoot
+		}
+		return idAt(ready[i]) < idAt(ready[j])
+	})
+
+	sorted := make([]int, 0, count)
+	for len(ready) > 0 {
+		current := ready[0]
+		ready = ready[1:]
+		sorted = append(sorted, current)
+		for _, child := range childrenByParent[idAt(current)] {
+			indegree[child]--
+			if indegree[child] == 0 {
+				ready = append(ready, child)
+			}
+		}
+		sort.Slice(ready, func(i, j int) bool {
+			leftRoot := supersedesAt(ready[i]) == ""
+			rightRoot := supersedesAt(ready[j]) == ""
+			if leftRoot != rightRoot {
+				return leftRoot
+			}
+			return idAt(ready[i]) < idAt(ready[j])
+		})
+	}
+	if len(sorted) != count {
+		return nil, xerrors.Errorf("bundle memories contain a supersession cycle")
+	}
+	return sorted, nil
+}
+
+func refsToBundleEvidenceRows(refs []types.EvidenceRef) []bundleRefRow {
+	rows := make([]bundleRefRow, 0, len(refs))
+	for _, ref := range refs {
+		rows = append(rows, bundleRefRow{Kind: ref.Kind().String(), Value: ref.Value()})
+	}
+	return rows
+}
+
+func refsToBundleArtifactRows(refs []types.ArtifactRef) []bundleRefRow {
+	rows := make([]bundleRefRow, 0, len(refs))
+	for _, ref := range refs {
+		rows = append(rows, bundleRefRow{Kind: ref.Kind().String(), Value: ref.Value()})
+	}
+	return rows
+}
+
+func parseOptionalBundleTime(value, field string) (types.Optional[time.Time], error) {
+	if value == "" {
+		return types.None[time.Time](), nil
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return types.None[time.Time](), xerrors.Errorf("%s: %w", field, err)
+	}
+	return types.Some(parsed), nil
 }
 
 func encodeTarGz(files map[string][]byte) ([]byte, error) {

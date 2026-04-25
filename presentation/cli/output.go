@@ -130,6 +130,8 @@ type timelineBlockOutput struct {
 type bundleImportOutput struct {
 	EventsImported      int `json:"events_imported"`
 	EventsSkipped       int `json:"events_skipped"`
+	MemoriesImported    int `json:"memories_imported"`
+	MemoriesSkipped     int `json:"memories_skipped"`
 	BundleSchemaVersion int `json:"bundle_schema_version"`
 }
 

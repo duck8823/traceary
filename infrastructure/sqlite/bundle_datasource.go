@@ -10,8 +10,10 @@ import (
 
 	sqlitelib "modernc.org/sqlite"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 // SQLite constraint codes emitted by modernc.org/sqlite. See
@@ -58,6 +60,52 @@ func (d *BundleDatasource) SchemaVersion(ctx context.Context) (int, error) {
 		return 0, xerrors.Errorf("failed to read schema_migrations: %w", err)
 	}
 	return version, nil
+}
+
+// ListBundleMemories returns every durable memory with refs for bundle export.
+func (d *BundleDatasource) ListBundleMemories(ctx context.Context) ([]apptypes.MemoryDetails, error) {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to open DB for bundle memory export: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+	rows, err := db.QueryContext(ctx, selectMemorySummaryColumnsQuery+`
+ORDER BY
+  CASE WHEN m.supersedes_memory_id IS NULL THEN 0 ELSE 1 END,
+  m.supersedes_memory_id,
+  m.id`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query memories for bundle export: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+	out := []apptypes.MemoryDetails{}
+	for rows.Next() {
+		summary, err := scanMemorySummary(rows)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to scan bundle memory row: %w", err)
+		}
+		memory, err := findMemoryByID(ctx, db, summary.MemoryID())
+		if err != nil {
+			return nil, xerrors.Errorf("failed to load memory refs for %s: %w", summary.MemoryID(), err)
+		}
+		details, err := apptypes.MemoryDetailsFrom(memory)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to build memory details for %s: %w", summary.MemoryID(), err)
+		}
+		out = append(out, details)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, xerrors.Errorf("failed to iterate bundle memory rows: %w", err)
+	}
+	return out, nil
 }
 
 // BeginBundleImport starts the transaction shared by every table
@@ -126,6 +174,41 @@ ON CONFLICT(id) DO UPDATE SET
 		return false, nil
 	}
 	return false, xerrors.Errorf("failed to import event %s: %w", event.EventID(), err)
+}
+
+// ImportMemory inserts or replaces a durable memory according to policy.
+func (t *bundleImportTx) ImportMemory(ctx context.Context, memory *model.Memory, policy usecase.BundleConflictPolicy) (bool, error) {
+	if memory == nil {
+		return false, xerrors.Errorf("memory must not be nil")
+	}
+	exists, err := t.memoryExists(ctx, memory.MemoryID())
+	if err != nil {
+		return false, err
+	}
+	if exists {
+		switch policy {
+		case usecase.BundleConflictSkip:
+			return false, nil
+		case usecase.BundleConflictError:
+			return false, xerrors.Errorf("memory conflict")
+		}
+	}
+	if err := persistMemoryTx(ctx, t.tx, memory); err != nil {
+		return false, xerrors.Errorf("failed to import memory %s: %w", memory.MemoryID(), err)
+	}
+	return true, nil
+}
+
+func (t *bundleImportTx) memoryExists(ctx context.Context, memoryID types.MemoryID) (bool, error) {
+	var value int
+	err := t.tx.QueryRowContext(ctx, `SELECT 1 FROM memories WHERE id = ?`, memoryID.String()).Scan(&value)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return false, xerrors.Errorf("failed to check memory conflict %s: %w", memoryID, err)
 }
 
 func (t *bundleImportTx) Commit(context.Context) error {
