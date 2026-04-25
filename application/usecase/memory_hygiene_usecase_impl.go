@@ -15,7 +15,7 @@ import (
 )
 
 type memoryHygieneUsecase struct {
-	memory              MemoryUsecase
+	memory              memoryHygieneWriter
 	memoryQuery         queryservice.MemoryQueryService
 	extraRedactPatterns []string
 }
@@ -25,7 +25,14 @@ type memoryHygieneUsecase struct {
 // redaction pattern added to the config is detected uniformly: the scan
 // reports any memory whose sanitized fact differs from the stored fact,
 // which is exactly the set of memories a later supersede would rewrite.
-func NewMemoryHygieneUsecase(memory MemoryUsecase, memoryQuery queryservice.MemoryQueryService, extraRedactPatterns []string) MemoryHygieneUsecase {
+//
+// Deprecated: use NewMemoryUsecase and call Scan/Apply.
+func NewMemoryHygieneUsecase(memory memoryHygieneWriter, memoryQuery queryservice.MemoryQueryService, extraRedactPatterns []string) MemoryHygieneUsecase {
+	if facade, ok := memory.(*memoryUsecase); ok {
+		facade.memoryQuery = memoryQuery
+		facade.extraRedactPatterns = slices.Clone(extraRedactPatterns)
+		return facade
+	}
 	return &memoryHygieneUsecase{
 		memory:              memory,
 		memoryQuery:         memoryQuery,

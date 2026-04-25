@@ -79,17 +79,25 @@ const memoryExtractionDedupePageSize = 200
 type memoryExtractionUsecase struct {
 	sessionQuery        queryservice.SessionQueryService
 	eventQuery          queryservice.EventQueryService
-	memory              MemoryUsecase
+	memory              memoryExtractionWriter
 	extraRedactPatterns []string
 }
 
 // NewMemoryExtractionUsecase creates a MemoryExtractionUsecase.
+//
+// Deprecated: use NewMemoryUsecase with MemoryUsecaseDependencies and call Extract.
 func NewMemoryExtractionUsecase(
 	sessionQuery queryservice.SessionQueryService,
 	eventQuery queryservice.EventQueryService,
-	memory MemoryUsecase,
+	memory memoryExtractionWriter,
 	extraRedactPatterns []string,
 ) MemoryExtractionUsecase {
+	if facade, ok := memory.(*memoryUsecase); ok {
+		facade.sessionQuery = sessionQuery
+		facade.eventQuery = eventQuery
+		facade.extraRedactPatterns = slices.Clone(extraRedactPatterns)
+		return facade
+	}
 	return &memoryExtractionUsecase{
 		sessionQuery:        sessionQuery,
 		eventQuery:          eventQuery,

@@ -6,11 +6,11 @@ import (
 	apptypes "github.com/duck8823/traceary/application/types"
 )
 
-// MemoryExtractionUsecase extracts candidate durable memories from existing
-// session/history signals.
+// MemoryExtractionUsecase is a legacy adapter interface for the capture
+// methods now exposed by MemoryUsecase.
 //
-// Extraction is intentionally candidate-only. The resulting facts still need
-// review before they become accepted durable memories.
+// Deprecated: use MemoryUsecase.Extract instead. This shim remains until DI is
+// collapsed in the follow-up consolidation PR.
 type MemoryExtractionUsecase interface {
 	// Extract proposes candidate memories from the target session and returns the
 	// created candidate details.

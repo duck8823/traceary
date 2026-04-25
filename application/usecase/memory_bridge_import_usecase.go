@@ -6,11 +6,11 @@ import (
 	apptypes "github.com/duck8823/traceary/application/types"
 )
 
-// MemoryBridgeImportUsecase reads a host instruction file (CLAUDE.md /
-// AGENTS.md / GEMINI.md) and records free-form content outside the
-// Traceary-managed block as durable-memory candidates. Content inside the
-// Traceary markers is already round-trippable via export, so it is
-// intentionally ignored on import to keep re-runs idempotent.
+// MemoryBridgeImportUsecase is a legacy adapter interface for instruction-file
+// import capture now exposed by MemoryUsecase.
+//
+// Deprecated: use MemoryUsecase.ImportInstructions instead. This shim remains
+// until DI is collapsed in the follow-up consolidation PR.
 type MemoryBridgeImportUsecase interface {
 	ImportInstructions(ctx context.Context, criteria apptypes.MemoryBridgeImportCriteria) (apptypes.MemoryBridgeImportResult, error)
 }

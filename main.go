@@ -152,9 +152,13 @@ func run() error {
 
 	eventUsecase := usecase.NewEventUsecase(eventDatasource, eventDatasource)
 	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource)
-	memoryUsecase := usecase.NewMemoryUsecase(memoryDatasource, memoryDatasource, extraRedactPatterns)
-	memoryExtractionUsecase := usecase.NewMemoryExtractionUsecase(sessionDatasource, eventDatasource, memoryUsecase, extraRedactPatterns)
 	codexMemorySource := filesystem.NewCodexMemorySource()
+	memoryUsecase := usecase.NewMemoryUsecase(memoryDatasource, memoryDatasource, extraRedactPatterns, usecase.MemoryUsecaseDependencies{
+		SessionQuery: sessionDatasource,
+		EventQuery:   eventDatasource,
+		CodexSource:  codexMemorySource,
+	})
+	memoryExtractionUsecase := usecase.NewMemoryExtractionUsecase(sessionDatasource, eventDatasource, memoryUsecase, extraRedactPatterns)
 	memoryImportUsecase := usecase.NewMemoryImportUsecase(memoryUsecase, memoryDatasource, codexMemorySource, extraRedactPatterns)
 	memoryExportUsecase := usecase.NewMemoryExportUsecase(memoryDatasource)
 	memoryBridgeImportUsecase := usecase.NewMemoryBridgeImportUsecase(memoryUsecase, memoryDatasource, extraRedactPatterns)

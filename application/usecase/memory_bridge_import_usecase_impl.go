@@ -16,7 +16,7 @@ import (
 )
 
 type memoryBridgeImportUsecase struct {
-	memoryUsecase       MemoryUsecase
+	memoryUsecase       memoryProposer
 	memoryQuery         queryservice.MemoryQueryService
 	extraRedactPatterns []string
 }
@@ -26,13 +26,20 @@ type memoryBridgeImportUsecase struct {
 // Codex memories import path so everything imported through Traceary
 // goes through the same redaction and "never resurrect rejected
 // memories" guarantees.
+//
+// Deprecated: use NewMemoryUsecase and call ImportInstructions.
 func NewMemoryBridgeImportUsecase(
-	memoryUsecase MemoryUsecase,
+	memory memoryProposer,
 	memoryQuery queryservice.MemoryQueryService,
 	extraRedactPatterns []string,
 ) MemoryBridgeImportUsecase {
+	if facade, ok := memory.(*memoryUsecase); ok {
+		facade.memoryQuery = memoryQuery
+		facade.extraRedactPatterns = slices.Clone(extraRedactPatterns)
+		return facade
+	}
 	return &memoryBridgeImportUsecase{
-		memoryUsecase:       memoryUsecase,
+		memoryUsecase:       memory,
 		memoryQuery:         memoryQuery,
 		extraRedactPatterns: slices.Clone(extraRedactPatterns),
 	}
