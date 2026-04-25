@@ -1,12 +1,16 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
+	"golang.org/x/xerrors"
 )
 
 type doctorMCPServer struct {
@@ -25,13 +29,13 @@ func (c *RootCLI) inspectMCPRegistrationForClient(client, outputPath string) doc
 		if home, err := userHomeDirFunc(); err == nil {
 			paths = append(paths, filepath.Join(home, ".claude", "settings.json"))
 		}
-		return inspectJSONMCPRegistration(name, "claude", paths, "traceary mcp-server")
+		return c.inspectJSONMCPRegistration(name, "claude", paths, "traceary mcp-server")
 	case "codex":
 		if home, err := userHomeDirFunc(); err == nil && codexTracearyPluginEnabled(filepath.Join(home, ".codex", "config.toml")) {
 			return doctorCheck{Name: name, Status: doctorStatusPass, Message: localizef("codex plugin traceary@local-traceary-plugins is enabled and provides the traceary MCP server: %s", "codex plugin traceary@local-traceary-plugins が有効で traceary MCP server を提供しています: %s", filepath.Join(home, ".codex", "config.toml"))}
 		}
 		if home, err := userHomeDirFunc(); err == nil {
-			return inspectTOMLMCPRegistration(name, "codex", filepath.Join(home, ".codex", "config.toml"), "traceary mcp-server")
+			return c.inspectTOMLMCPRegistration(name, "codex", filepath.Join(home, ".codex", "config.toml"), "traceary mcp-server")
 		}
 		return doctorCheck{Name: name, Status: doctorStatusFail, Message: "failed to resolve home directory for codex MCP registration"}
 	case "gemini":
@@ -46,8 +50,16 @@ func (c *RootCLI) inspectMCPRegistrationForClient(client, outputPath string) doc
 }
 
 func inspectJSONMCPRegistration(name, client string, paths []string, fix string) doctorCheck {
+	return (&RootCLI{}).inspectJSONMCPRegistration(name, client, paths, fix)
+}
+
+func (c *RootCLI) inspectJSONMCPRegistration(name, client string, paths []string, fix string) doctorCheck {
 	seenConfig := false
+	firstPath := ""
 	for _, path := range uniqueNonEmpty(paths) {
+		if firstPath == "" {
+			firstPath = path
+		}
 		content, err := os.ReadFile(path)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -66,19 +78,34 @@ func inspectJSONMCPRegistration(name, client string, paths []string, fix string)
 		if !ok {
 			continue
 		}
-		return evaluateMCPServer(name, client, path, server, fix)
+		check := evaluateMCPServer(name, client, path, server, fix)
+		if check.Status == doctorStatusWarn && client == "claude" {
+			attachJSONMCPFix(&check, path)
+		}
+		return check
 	}
 	if !seenConfig {
+		if client == "claude" && firstPath != "" {
+			check := doctorCheck{Name: name, Status: doctorStatusWarn, Message: localizef("%s MCP config file is absent; traceary MCP server is not registered: %s", "%s MCP config file がないため traceary MCP server が登録されていません: %s", client, firstPath), Hint: "register traceary MCP server", FixCommand: fix}
+			attachJSONMCPFix(&check, firstPath)
+			return check
+		}
 		return doctorCheck{Name: name, Status: doctorStatusSkip, Message: localizef("%s MCP config file is absent; skipped registration check", "%s MCP config file がないため registration check を skip しました", client)}
 	}
-	return doctorCheck{Name: name, Status: doctorStatusWarn, Message: localizef("%s config exists but does not register the traceary MCP server", "%s config はありますが traceary MCP server が登録されていません", client), Hint: "register traceary MCP server", FixCommand: fix}
+	check := doctorCheck{Name: name, Status: doctorStatusWarn, Message: localizef("%s config exists but does not register the traceary MCP server", "%s config はありますが traceary MCP server が登録されていません", client), Hint: "register traceary MCP server", FixCommand: fix}
+	if client == "claude" && firstPath != "" {
+		attachJSONMCPFix(&check, firstPath)
+	}
+	return check
 }
 
-func inspectTOMLMCPRegistration(name, client, path, fix string) doctorCheck {
+func (c *RootCLI) inspectTOMLMCPRegistration(name, client, path, fix string) doctorCheck {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return doctorCheck{Name: name, Status: doctorStatusSkip, Message: localizef("%s MCP config file is absent; skipped registration check: %s", "%s MCP config file がないため registration check を skip しました: %s", client, path)}
+			check := doctorCheck{Name: name, Status: doctorStatusWarn, Message: localizef("%s MCP config file is absent; traceary MCP server is not registered: %s", "%s MCP config file がないため traceary MCP server が登録されていません: %s", client, path), Hint: "register traceary MCP server", FixCommand: fix}
+			attachTOMLMCPFix(&check, path)
+			return check
 		}
 		return doctorCheck{Name: name, Status: doctorStatusFail, Message: localizef("failed to read %s MCP config: %v", "%s MCP config の読み込みに失敗しました: %v", client, err)}
 	}
@@ -90,9 +117,112 @@ func inspectTOMLMCPRegistration(name, client, path, fix string) doctorCheck {
 	}
 	server, ok := root.MCPServers["traceary"]
 	if !ok {
-		return doctorCheck{Name: name, Status: doctorStatusWarn, Message: localizef("%s config exists but does not register the traceary MCP server: %s", "%s config はありますが traceary MCP server が登録されていません: %s", client, path), Hint: "register traceary MCP server", FixCommand: fix}
+		check := doctorCheck{Name: name, Status: doctorStatusWarn, Message: localizef("%s config exists but does not register the traceary MCP server: %s", "%s config はありますが traceary MCP server が登録されていません: %s", client, path), Hint: "register traceary MCP server", FixCommand: fix}
+		attachTOMLMCPFix(&check, path)
+		return check
 	}
-	return evaluateMCPServer(name, client, path, server, fix)
+	check := evaluateMCPServer(name, client, path, server, fix)
+	if check.Status == doctorStatusWarn {
+		attachTOMLMCPFix(&check, path)
+	}
+	return check
+}
+
+func attachJSONMCPFix(check *doctorCheck, path string) {
+	check.AutoFixAvailable = true
+	check.FixFunc = func(_ context.Context, dryRun bool) (string, error) {
+		action := fmt.Sprintf("write traceary MCP registration to %s", path)
+		if dryRun {
+			return "would: " + action, nil
+		}
+		return action, writeJSONMCPRegistration(path)
+	}
+}
+
+func attachTOMLMCPFix(check *doctorCheck, path string) {
+	check.AutoFixAvailable = true
+	check.FixFunc = func(_ context.Context, dryRun bool) (string, error) {
+		action := fmt.Sprintf("write traceary MCP registration to %s", path)
+		if dryRun {
+			return "would: " + action, nil
+		}
+		return action, writeTOMLMCPRegistration(path)
+	}
+}
+
+func writeJSONMCPRegistration(path string) error {
+	var root map[string]json.RawMessage
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return xerrors.Errorf("failed to read existing MCP config: %w", err)
+		}
+		root = map[string]json.RawMessage{}
+	} else {
+		if err := json.Unmarshal(content, &root); err != nil {
+			return xerrors.Errorf("failed to parse existing MCP JSON: %w", err)
+		}
+		if err := backupDoctorOriginal(path); err != nil {
+			return err
+		}
+	}
+	servers := map[string]doctorMCPServer{}
+	if raw, ok := root["mcpServers"]; ok {
+		_ = json.Unmarshal(raw, &servers)
+	}
+	servers["traceary"] = doctorMCPServer{Command: "traceary", Args: []string{"mcp-server"}}
+	raw, err := json.Marshal(servers)
+	if err != nil {
+		return xerrors.Errorf("failed to marshal MCP servers: %w", err)
+	}
+	root["mcpServers"] = raw
+	out, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return xerrors.Errorf("failed to marshal MCP config: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return xerrors.Errorf("failed to create MCP config directory: %w", err)
+	}
+	if err := os.WriteFile(path, append(out, '\n'), 0o644); err != nil {
+		return xerrors.Errorf("failed to write MCP config: %w", err)
+	}
+	return nil
+}
+
+func writeTOMLMCPRegistration(path string) error {
+	content, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return xerrors.Errorf("failed to read existing MCP config: %w", err)
+	}
+	if err == nil {
+		if err := backupDoctorOriginal(path); err != nil {
+			return err
+		}
+	}
+	text := ""
+	if err == nil {
+		text = strings.TrimRight(string(content), "\n") + "\n\n"
+	}
+	text += "[mcp_servers.traceary]\ncommand = \"traceary\"\nargs = [\"mcp-server\"]\n"
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return xerrors.Errorf("failed to create MCP config directory: %w", err)
+	}
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		return xerrors.Errorf("failed to write MCP config: %w", err)
+	}
+	return nil
+}
+
+func backupDoctorOriginal(path string) error {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return xerrors.Errorf("failed to read original config for backup: %w", err)
+	}
+	backup := fmt.Sprintf("%s.bak.%s", path, time.Now().UTC().Format("20060102T150405Z"))
+	if err := os.WriteFile(backup, content, 0o644); err != nil {
+		return xerrors.Errorf("failed to write MCP config backup: %w", err)
+	}
+	return nil
 }
 
 func evaluateMCPServer(name, client, path string, server doctorMCPServer, fix string) doctorCheck {

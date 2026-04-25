@@ -29,13 +29,25 @@ const (
 )
 
 type doctorCheck struct {
-	Name       string `json:"name"`
-	Status     string `json:"status"`
-	Severity   string `json:"severity"`
-	Section    string `json:"section"`
-	Message    string `json:"message"`
-	Hint       string `json:"hint"`
-	FixCommand string `json:"fix_command"`
+	Name             string        `json:"name"`
+	Status           string        `json:"status"`
+	Severity         string        `json:"severity"`
+	Section          string        `json:"section"`
+	Message          string        `json:"message"`
+	Hint             string        `json:"hint"`
+	FixCommand       string        `json:"fix_command"`
+	AutoFixAvailable bool          `json:"auto_fix_available"`
+	FixFunc          doctorFixFunc `json:"-"`
+}
+
+type doctorFixFunc func(context.Context, bool) (string, error)
+
+type doctorFixLog struct {
+	Name   string `json:"name"`
+	Action string `json:"action"`
+	Before string `json:"before"`
+	After  string `json:"after"`
+	Error  string `json:"error,omitempty"`
 }
 
 type doctorSection struct {
@@ -56,6 +68,7 @@ type doctorReport struct {
 	Sections []doctorSection `json:"sections"`
 	Summary  doctorSummary   `json:"summary"`
 	ExitCode int             `json:"exit_code"`
+	Fixes    []doctorFixLog  `json:"fixes,omitempty"`
 }
 
 type doctorExitError struct {
@@ -72,6 +85,8 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 		client     string
 		projectDir string
 		asJSON     bool
+		fix        bool
+		dryRun     bool
 	)
 
 	doctorCmd := &cobra.Command{
@@ -86,6 +101,8 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 				projectDir:     projectDir,
 				currentVersion: cmd.Root().Version,
 				asJSON:         asJSON,
+				fix:            fix,
+				dryRun:         dryRun,
 			})
 		},
 	}
@@ -93,6 +110,8 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 	doctorCmd.Flags().StringVar(&client, "client", "", hooksClientFlagUsage)
 	doctorCmd.Flags().StringVar(&projectDir, "project-dir", "", Localize("project directory used for client config checks", "client 設定チェックに使う project directory"))
 	doctorCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
+	doctorCmd.Flags().BoolVar(&fix, "fix", false, Localize("apply known safe remediations for warning and failing checks", "警告・失敗チェックに対して既知の安全な修復を適用する"))
+	doctorCmd.Flags().BoolVar(&dryRun, "dry-run", false, Localize("preview --fix actions without writing files", "ファイルを書き込まずに --fix の処理をプレビューする"))
 
 	return doctorCmd
 }
@@ -106,6 +125,16 @@ func (c *RootCLI) runDoctor(ctx context.Context, output io.Writer, input doctorC
 	if err != nil {
 		return err
 	}
+	if input.fix {
+		fixes := c.applyDoctorFixes(ctx, report, input.dryRun)
+		after, err := c.buildDoctorReport(ctx, input)
+		if err != nil {
+			return err
+		}
+		annotateDoctorFixesAfter(fixes, after)
+		after.Fixes = fixes
+		report = after
+	}
 	if err := writeDoctorReport(output, report, input.asJSON); err != nil {
 		return err
 	}
@@ -118,6 +147,53 @@ func (c *RootCLI) runDoctor(ctx context.Context, output io.Writer, input doctorC
 	}
 
 	return nil
+}
+
+func (c *RootCLI) applyDoctorFixes(ctx context.Context, report *doctorReport, dryRun bool) []doctorFixLog {
+	if report == nil {
+		return nil
+	}
+	fixes := []doctorFixLog{}
+	for _, check := range report.Checks {
+		if check.Severity != doctorSeverityWarn && check.Severity != doctorSeverityFail {
+			continue
+		}
+		log := doctorFixLog{Name: check.Name, Before: check.Status}
+		if !check.AutoFixAvailable || check.FixFunc == nil {
+			log.Action = guidedDoctorFixAction(check)
+			fixes = append(fixes, log)
+			continue
+		}
+		action, err := check.FixFunc(ctx, dryRun)
+		log.Action = action
+		if err != nil {
+			log.Error = err.Error()
+		}
+		fixes = append(fixes, log)
+	}
+	return fixes
+}
+
+func guidedDoctorFixAction(check doctorCheck) string {
+	if check.FixCommand != "" {
+		return "skip: guided remediation only; run `" + check.FixCommand + "`"
+	}
+	return "skip: no automatic remediation is available"
+}
+
+func annotateDoctorFixesAfter(fixes []doctorFixLog, report *doctorReport) {
+	if report == nil {
+		return
+	}
+	statusByName := map[string]string{}
+	for _, check := range report.Checks {
+		statusByName[check.Name] = check.Status
+	}
+	for i := range fixes {
+		if status, ok := statusByName[fixes[i].Name]; ok {
+			fixes[i].After = status
+		}
+	}
 }
 
 func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInput) (*doctorReport, error) {
@@ -193,6 +269,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		}
 
 		check := c.inspectClaudeOrConfigFile(targetClient, outputPath, resolvedProjectDir)
+		c.attachDoctorConfigFix(&check, targetClient, outputPath, resolvedProjectDir)
 		report.Checks = append(report.Checks, check)
 		report.Checks = append(report.Checks, c.inspectMCPRegistrationForClient(targetClient, outputPath))
 
@@ -225,6 +302,25 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 // stay dark until the operator runs `claude plugins update`. The check
 // returns nil when the plugin is not active or when either side cannot
 // be resolved (reported indirectly by the existing claude-config check).
+
+func (c *RootCLI) attachDoctorConfigFix(check *doctorCheck, client, outputPath, projectDir string) {
+	if check == nil || check.Name != client+"-config" || check.Status != doctorStatusWarn {
+		return
+	}
+	check.AutoFixAvailable = true
+	check.FixFunc = func(ctx context.Context, dryRun bool) (string, error) {
+		action := fmt.Sprintf("upgrade Traceary-managed %s hooks at %s", client, outputPath)
+		if dryRun {
+			return "would: " + action, nil
+		}
+		_, _, err := c.hooksOrchestrator.UpgradeWithMatcher(ctx, client, "traceary", projectDir, types.Some(outputPath), "")
+		if err != nil {
+			return action, xerrors.Errorf("failed to upgrade Traceary-managed hooks: %w", err)
+		}
+		return action, nil
+	}
+}
+
 func (c *RootCLI) inspectClaudePluginCacheStatus() *doctorCheck {
 	detection := c.detectClaudeTracearyPluginForCLI()
 	if !detection.Active {
@@ -813,6 +909,21 @@ func writeDoctorReport(output io.Writer, report *doctorReport, asJSON bool) erro
 	if _, err := fmt.Fprintf(output, "SUMMARY: pass=%d warn=%d fail=%d exit_code=%d\n", report.Summary.Pass, report.Summary.Warn, report.Summary.Fail, report.ExitCode); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print doctor summary", "doctor サマリーの出力に失敗しました"), err)
 	}
+	if len(report.Fixes) > 0 {
+		if _, err := fmt.Fprintln(output, "\nFixes"); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print doctor fixes", "doctor 修復結果の出力に失敗しました"), err)
+		}
+		for _, fix := range report.Fixes {
+			line := fmt.Sprintf("- %s: %s (before=%s after=%s)", fix.Name, fix.Action, fix.Before, fix.After)
+			if fix.Error != "" {
+				line += ": " + fix.Error
+			}
+			if _, err := fmt.Fprintln(output, line); err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to print doctor fix", "doctor 修復結果の出力に失敗しました"), err)
+			}
+		}
+	}
+
 	for _, section := range report.Sections {
 		if len(section.Checks) == 0 {
 			continue

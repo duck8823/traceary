@@ -70,6 +70,8 @@ type doctorCommandInput struct {
 	projectDir     string
 	currentVersion string
 	asJSON         bool
+	fix            bool
+	dryRun         bool
 }
 
 // gcCommandInput is the resolved input to the `traceary gc` command.
@@ -108,26 +110,26 @@ type hooksGuideCommandInput struct {
 
 // listCommandInput is the resolved input to the `traceary list` command.
 type listCommandInput struct {
-	dbPath       string
-	limit        int
-	offset       int
-	kind         string
-	client       string
-	agent        string
-	sessionID    string
-	repo         string
-	from         string
-	since        string
-	to           string
-	until        string
-	failuresOnly bool
-	sourceHook   string
-	asJSON       bool
-	wide         bool
-	utc          bool
-	location     *time.Location
-	fields       []string
-	fieldsSet    bool
+	dbPath          string
+	limit           int
+	offset          int
+	kind            string
+	client          string
+	agent           string
+	sessionID       string
+	repo            string
+	from            string
+	since           string
+	to              string
+	until           string
+	failuresOnly    bool
+	sourceHook      string
+	asJSON          bool
+	wide            bool
+	utc             bool
+	location        *time.Location
+	fields          []string
+	fieldsSet       bool
 	preset          string
 	presetSet       bool
 	kindSet         bool
@@ -156,26 +158,26 @@ type logCommandInput struct {
 
 // searchCommandInput is the resolved input to the `traceary search` command.
 type searchCommandInput struct {
-	dbPath       string
-	repo         string
-	sessionID    string
-	client       string
-	agent        string
-	kind         string
-	from         string
-	since        string
-	to           string
-	until        string
-	limit        int
-	offset       int
-	query        string
-	failuresOnly bool
-	asJSON       bool
-	wide         bool
-	utc          bool
-	location     *time.Location
-	fields       []string
-	fieldsSet    bool
+	dbPath          string
+	repo            string
+	sessionID       string
+	client          string
+	agent           string
+	kind            string
+	from            string
+	since           string
+	to              string
+	until           string
+	limit           int
+	offset          int
+	query           string
+	failuresOnly    bool
+	asJSON          bool
+	wide            bool
+	utc             bool
+	location        *time.Location
+	fields          []string
+	fieldsSet       bool
 	preset          string
 	presetSet       bool
 	kindSet         bool
@@ -231,28 +233,28 @@ type timelineCommandInput struct {
 
 // tailCommandInput is the resolved input to the `traceary tail` command.
 type tailCommandInput struct {
-	dbPath        string
-	limit         int
-	kind          string
-	client        string
-	agent         string
-	sessionID     string
-	repo          string
-	failuresOnly  bool
-	asJSON        bool
-	wide          bool
-	utc           bool
-	location      *time.Location
-	fields        []string
-	fieldsSet     bool
-	preset          string
-	presetSet       bool
-	kindSet         bool
-	clientSet       bool
-	agentSet        bool
-	sessionIDSet    bool
-	repoSet         bool
-	failuresOnlySet bool
+	dbPath           string
+	limit            int
+	kind             string
+	client           string
+	agent            string
+	sessionID        string
+	repo             string
+	failuresOnly     bool
+	asJSON           bool
+	wide             bool
+	utc              bool
+	location         *time.Location
+	fields           []string
+	fieldsSet        bool
+	preset           string
+	presetSet        bool
+	kindSet          bool
+	clientSet        bool
+	agentSet         bool
+	sessionIDSet     bool
+	repoSet          bool
+	failuresOnlySet  bool
 	color            string
 	colorSet         bool
 	followSession    string
@@ -263,35 +265,35 @@ type tailCommandInput struct {
 
 // memoryListCommandInput is the resolved input to `traceary memory list`.
 type memoryListCommandInput struct {
-	dbPath          string
-	workspace       string
-	agent           string
-	sessionFamily   string
-	statuses        []string
-	memoryTypes     []string
-	limit           int
-	offset          int
-	asOf            string
-	includeExpired  bool
-	preset          string
-	asJSON          bool
+	dbPath         string
+	workspace      string
+	agent          string
+	sessionFamily  string
+	statuses       []string
+	memoryTypes    []string
+	limit          int
+	offset         int
+	asOf           string
+	includeExpired bool
+	preset         string
+	asJSON         bool
 }
 
 // memorySearchCommandInput is the resolved input to `traceary memory search`.
 type memorySearchCommandInput struct {
-	dbPath          string
-	workspace       string
-	agent           string
-	sessionFamily   string
-	statuses        []string
-	memoryTypes     []string
-	limit           int
-	offset          int
-	query           string
-	asOf            string
-	includeExpired  bool
-	preset          string
-	asJSON          bool
+	dbPath         string
+	workspace      string
+	agent          string
+	sessionFamily  string
+	statuses       []string
+	memoryTypes    []string
+	limit          int
+	offset         int
+	query          string
+	asOf           string
+	includeExpired bool
+	preset         string
+	asJSON         bool
 }
 
 // memoryWriteCommandInput is the resolved input to memory write commands.
