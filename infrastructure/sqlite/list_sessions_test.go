@@ -2,9 +2,11 @@ package sqlite_test
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -381,6 +383,93 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		}
 	})
 
+}
+
+func TestDatasource_LineageOfCycleDetection(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	fixture := newListSessionsFixture(t, dbPath, listSessionsTestMigrations())
+	ctx := context.Background()
+	if err := fixture.storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	started := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	saveTestSession(ctx, t, fixture.sessionDS, "self-cycle", started, types.None[time.Time](), "claude", "duck8823/traceary")
+	updateTestSessionParent(ctx, t, dbPath, "self-cycle", "self-cycle")
+	saveTestSession(ctx, t, fixture.sessionDS, "cycle-a", started, types.None[time.Time](), "claude", "duck8823/traceary")
+	saveTestSessionWithParent(ctx, t, fixture.sessionDS, "cycle-b", "cycle-a", started.Add(time.Minute), 1)
+	updateTestSessionParent(ctx, t, dbPath, "cycle-a", "cycle-b")
+
+	lineageCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	selfGot, err := fixture.sessionDS.LineageOf(lineageCtx, types.SessionID("self-cycle"))
+	if err != nil {
+		t.Fatalf("LineageOf() self-cycle error = %v", err)
+	}
+	if len(selfGot) != 1 || selfGot[0].SessionID() != types.SessionID("self-cycle") {
+		t.Fatalf("LineageOf() self-cycle = %+v, want self-cycle once", selfGot)
+	}
+
+	got, err := fixture.sessionDS.LineageOf(lineageCtx, types.SessionID("cycle-a"))
+	if err != nil {
+		t.Fatalf("LineageOf() error = %v", err)
+	}
+	gotIDs := make([]string, 0, len(got))
+	for _, summary := range got {
+		gotIDs = append(gotIDs, summary.SessionID().String())
+	}
+	sort.Strings(gotIDs)
+	wantIDs := []string{"cycle-a", "cycle-b"}
+	if diff := cmp.Diff(wantIDs, gotIDs); diff != "" {
+		t.Fatalf("LineageOf() IDs mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestDatasource_RejectsSelfParentSession(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	fixture := newListSessionsFixture(t, dbPath, listSessionsTestMigrations())
+	ctx := context.Background()
+	if err := fixture.storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	agent, _ := types.AgentFrom("codex")
+	sid, _ := types.SessionIDFrom("self-parent")
+	session := model.SessionOf(
+		sid,
+		time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC),
+		types.None[time.Time](),
+		types.Client("cli"),
+		agent,
+		types.Workspace("duck8823/traceary"),
+		"",
+		"",
+		sid,
+	)
+
+	err := fixture.sessionDS.SaveSessionBoundaryForTest(ctx, session)
+	if err == nil {
+		t.Fatalf("SaveSessionBoundaryForTest() error = nil, want self-parent rejection")
+	}
+	if !strings.Contains(err.Error(), "itself as parent") {
+		t.Fatalf("SaveSessionBoundaryForTest() error = %v, want self-parent rejection", err)
+	}
+}
+
+func updateTestSessionParent(ctx context.Context, t *testing.T, dbPath string, sessionID string, parentID string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.ExecContext(ctx, "UPDATE sessions SET parent_session_id = ? WHERE session_id = ?", parentID, sessionID); err != nil {
+		t.Fatalf("UPDATE sessions parent_session_id error = %v", err)
+	}
 }
 
 func TestDatasource_LineageOf(t *testing.T) {

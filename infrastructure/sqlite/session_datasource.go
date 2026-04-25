@@ -147,6 +147,10 @@ type sqlExecer interface {
 // existing row (false), so the caller can decide whether the pre-existing
 // state is acceptable.
 func insertSessionRowIfMissing(ctx context.Context, exec sqlExecer, session *model.Session) (bool, error) {
+	if session.ParentSessionID().String() != "" && session.ParentSessionID() == session.SessionID() {
+		return false, xerrors.Errorf("cannot save session %s with itself as parent: %w", session.SessionID(), model.ErrInvalidSessionState)
+	}
+
 	var parentSessionID *string
 	if session.ParentSessionID().String() != "" {
 		v := session.ParentSessionID().String()
