@@ -634,6 +634,8 @@ func TestRootCLI_HookSubagentState_TracksOverlappingTaskChildren(t *testing.T) {
 	runHook([]string{"hook", "subagent-start", "claude"}, `{"tool_use_id":"toolu_1","tool_input":{"subagent_type":"worker"}}`, nil)
 	time.Sleep(time.Millisecond)
 	runHook([]string{"hook", "subagent-start", "claude"}, `{"tool_use_id":"toolu_2","tool_input":{"subagent_type":"qa"}}`, nil)
+	time.Sleep(time.Millisecond)
+	runHook([]string{"hook", "subagent-start", "claude"}, `{"tool_use_id":"toolu_3","tool_input":{"subagent_type":"planner"}}`, nil)
 
 	sqlDB, err := sql.Open("sqlite", dbPath)
 	if err != nil {
@@ -664,8 +666,8 @@ func TestRootCLI_HookSubagentState_TracksOverlappingTaskChildren(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatalf("Rows error = %v", err)
 	}
-	if len(children) != 2 {
-		t.Fatalf("child rows len = %d, want 2: %#v", len(children), children)
+	if len(children) != 3 {
+		t.Fatalf("child rows len = %d, want 3: %#v", len(children), children)
 	}
 	if children[0].id != "parent-session:sub:toolu_1" || children[0].spawnOrder != 1 {
 		t.Fatalf("first child = %#v, want toolu_1 spawn_order 1", children[0])
@@ -673,43 +675,268 @@ func TestRootCLI_HookSubagentState_TracksOverlappingTaskChildren(t *testing.T) {
 	if children[1].id != "parent-session:sub:toolu_2" || children[1].spawnOrder != 2 {
 		t.Fatalf("second child = %#v, want toolu_2 spawn_order 2", children[1])
 	}
+	if children[2].id != "parent-session:sub:toolu_3" || children[2].spawnOrder != 3 {
+		t.Fatalf("third child = %#v, want toolu_3 spawn_order 3", children[2])
+	}
 
 	auditStub := &eventUsecaseStub{}
 	runHook([]string{"hook", "audit", "claude"}, `{"session_id":"parent-session","tool_name":"Read","tool_input":{"file_path":"README.md"},"tool_response":{"content":"ok"}}`, auditStub)
-	if got, want := auditStub.auditCall.sessionID, types.SessionID("parent-session:sub:toolu_2"); got != want {
+	if got, want := auditStub.auditCall.sessionID, types.SessionID("parent-session:sub:toolu_3"); got != want {
 		t.Fatalf("audit sessionID with overlapping children = %q, want %q", got, want)
 	}
 
 	runHook([]string{"hook", "subagent-stop", "claude"}, `{"tool_use_id":"toolu_1","subagent_type":"worker"}`, nil)
-	var child1Ended, child2Ended bool
+	var child1Ended, child2Ended, child3Ended bool
 	if err := sqlDB.QueryRow(`SELECT ended_at IS NOT NULL FROM sessions WHERE session_id = ?`, "parent-session:sub:toolu_1").Scan(&child1Ended); err != nil {
 		t.Fatalf("query child1 ended error = %v", err)
 	}
 	if err := sqlDB.QueryRow(`SELECT ended_at IS NOT NULL FROM sessions WHERE session_id = ?`, "parent-session:sub:toolu_2").Scan(&child2Ended); err != nil {
 		t.Fatalf("query child2 ended error = %v", err)
 	}
-	if !child1Ended || child2Ended {
-		t.Fatalf("after stopping toolu_1: child1 ended=%v child2 ended=%v, want true/false", child1Ended, child2Ended)
+	if err := sqlDB.QueryRow(`SELECT ended_at IS NOT NULL FROM sessions WHERE session_id = ?`, "parent-session:sub:toolu_3").Scan(&child3Ended); err != nil {
+		t.Fatalf("query child3 ended error = %v", err)
+	}
+	if !child1Ended || child2Ended || child3Ended {
+		t.Fatalf("after stopping toolu_1: child1 ended=%v child2 ended=%v child3 ended=%v, want true/false/false", child1Ended, child2Ended, child3Ended)
 	}
 	activeState, err := os.ReadFile(filepath.Join(stateDir, "active-subagents", "claude-parent-session"))
 	if err != nil {
 		t.Fatalf("ReadFile(active state after first stop) error = %v", err)
 	}
-	if strings.Contains(string(activeState), "toolu_1") || !strings.Contains(string(activeState), "toolu_2") {
-		t.Fatalf("active state after stopping toolu_1 = %s, want only toolu_2 active", string(activeState))
+	if strings.Contains(string(activeState), "toolu_1") || !strings.Contains(string(activeState), "toolu_2") || !strings.Contains(string(activeState), "toolu_3") {
+		t.Fatalf("active state after stopping toolu_1 = %s, want toolu_2 and toolu_3 active", string(activeState))
 	}
 
 	auditStub = &eventUsecaseStub{}
 	runHook([]string{"hook", "audit", "claude"}, `{"session_id":"parent-session","tool_name":"Read","tool_input":{"file_path":"README.md"},"tool_response":{"content":"ok"}}`, auditStub)
-	if got, want := auditStub.auditCall.sessionID, types.SessionID("parent-session:sub:toolu_2"); got != want {
+	if got, want := auditStub.auditCall.sessionID, types.SessionID("parent-session:sub:toolu_3"); got != want {
 		t.Fatalf("audit sessionID after stopping toolu_1 = %q, want %q", got, want)
 	}
 
 	runHook([]string{"hook", "subagent-stop", "claude"}, `{"tool_use_id":"toolu_2","subagent_type":"qa"}`, nil)
 	auditStub = &eventUsecaseStub{}
 	runHook([]string{"hook", "audit", "claude"}, `{"session_id":"parent-session","tool_name":"Read","tool_input":{"file_path":"README.md"},"tool_response":{"content":"ok"}}`, auditStub)
+	if got, want := auditStub.auditCall.sessionID, types.SessionID("parent-session:sub:toolu_3"); got != want {
+		t.Fatalf("audit sessionID after stopping toolu_2 = %q, want %q", got, want)
+	}
+
+	runHook([]string{"hook", "subagent-stop", "claude"}, `{"tool_use_id":"toolu_3","subagent_type":"planner"}`, nil)
+	auditStub = &eventUsecaseStub{}
+	runHook([]string{"hook", "audit", "claude"}, `{"session_id":"parent-session","tool_name":"Read","tool_input":{"file_path":"README.md"},"tool_response":{"content":"ok"}}`, auditStub)
 	if got, want := auditStub.auditCall.sessionID, types.SessionID("parent-session"); got != want {
 		t.Fatalf("audit sessionID after both children stop = %q, want %q", got, want)
+	}
+}
+
+func TestRootCLI_HookSubagentState_TracksNestedTaskChildren(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "nested-key")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-nested-key"), []byte("parent-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-nested-key-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	t.Setenv("TRACEARY_DB_PATH", dbPath)
+	db := sqliteinfra.NewDatabase(dbPath, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+	eventDS := sqliteinfra.NewEventDatasource(db)
+	sessionDS := sqliteinfra.NewSessionDatasource(db)
+	storeUC := usecase.NewStoreManagementUsecase(sqliteinfra.NewStoreManagementDatasource(db))
+	sessionUC := usecase.NewSessionUsecase(eventDS, sessionDS, sessionDS, eventDS)
+	eventUC := usecase.NewEventUsecase(eventDS, eventDS)
+	ctx := context.Background()
+	if err := storeUC.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	if _, err := sessionUC.Start(ctx, types.Client("hook"), types.Agent("claude"), types.SessionID("parent-session"), types.Workspace("github.com/duck8823/traceary"), ""); err != nil {
+		t.Fatalf("Start(parent) error = %v", err)
+	}
+	runHook := func(args []string, payload string, eventOverride *eventUsecaseStub) {
+		t.Helper()
+		opts := []cli.RootCLIOption{
+			cli.WithStoreManagement(storeUC),
+			cli.WithSession(sessionUC),
+			cli.WithDatabasePathSetter(db.SetPath),
+		}
+		if eventOverride != nil {
+			opts = append(opts, cli.WithEvent(eventOverride))
+		} else {
+			opts = append(opts, cli.WithEvent(eventUC))
+		}
+		rootCmd := newTestRootCLI(opts...).Command()
+		rootCmd.SetOut(&bytes.Buffer{})
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetIn(strings.NewReader(payload))
+		rootCmd.SetArgs(args)
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute(%v) error = %v", args, err)
+		}
+	}
+
+	runHook([]string{"hook", "subagent-start", "claude"}, `{"session_id":"parent-session","tool_use_id":"toolu_child","tool_input":{"subagent_type":"worker"}}`, nil)
+	runHook([]string{"hook", "subagent-start", "claude"}, `{"session_id":"parent-session:sub:toolu_child","tool_use_id":"toolu_grandchild","tool_input":{"subagent_type":"qa"}}`, nil)
+
+	sqlDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = sqlDB.Close() }()
+	var childParent, grandchildParent string
+	var childOrder, grandchildOrder int
+	if err := sqlDB.QueryRow(`SELECT parent_session_id, spawn_order FROM sessions WHERE session_id = ?`, "parent-session:sub:toolu_child").Scan(&childParent, &childOrder); err != nil {
+		t.Fatalf("query child error = %v", err)
+	}
+	if err := sqlDB.QueryRow(`SELECT parent_session_id, spawn_order FROM sessions WHERE session_id = ?`, "parent-session:sub:toolu_child:sub:toolu_grandchild").Scan(&grandchildParent, &grandchildOrder); err != nil {
+		t.Fatalf("query grandchild error = %v", err)
+	}
+	if childParent != "parent-session" || childOrder != 1 {
+		t.Fatalf("child parent/order = %q/%d, want parent-session/1", childParent, childOrder)
+	}
+	if grandchildParent != "parent-session:sub:toolu_child" || grandchildOrder != 1 {
+		t.Fatalf("grandchild parent/order = %q/%d, want child/1", grandchildParent, grandchildOrder)
+	}
+
+	auditStub := &eventUsecaseStub{}
+	runHook([]string{"hook", "audit", "claude"}, `{"session_id":"parent-session","tool_name":"Read","tool_input":{"file_path":"README.md"},"tool_response":{"content":"ok"}}`, auditStub)
+	if got, want := auditStub.auditCall.sessionID, types.SessionID("parent-session:sub:toolu_child:sub:toolu_grandchild"); got != want {
+		t.Fatalf("nested audit sessionID = %q, want %q", got, want)
+	}
+
+	runHook([]string{"hook", "subagent-stop", "claude"}, `{"session_id":"parent-session","tool_use_id":"toolu_grandchild","subagent_type":"qa"}`, nil)
+	auditStub = &eventUsecaseStub{}
+	runHook([]string{"hook", "audit", "claude"}, `{"session_id":"parent-session","tool_name":"Read","tool_input":{"file_path":"README.md"},"tool_response":{"content":"ok"}}`, auditStub)
+	if got, want := auditStub.auditCall.sessionID, types.SessionID("parent-session:sub:toolu_child"); got != want {
+		t.Fatalf("nested audit after grandchild stop sessionID = %q, want %q", got, want)
+	}
+}
+
+func TestRootCLI_HookSubagentState_PrunesOrphanedActiveChild(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "orphan-key")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	activeDir := filepath.Join(stateDir, "active-subagents")
+	if err := os.MkdirAll(activeDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-orphan-key"), []byte("parent-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	staleStartedAt := time.Now().Add(-25 * time.Hour).UTC().Format(time.RFC3339)
+	activeJSON := `{"children":{"toolu_stale":{"child_session_id":"parent-session:sub:toolu_stale","started_at":"` + staleStartedAt + `"}}}`
+	if err := os.WriteFile(filepath.Join(activeDir, "claude-parent-session"), []byte(activeJSON), 0o600); err != nil {
+		t.Fatalf("WriteFile(active state) error = %v", err)
+	}
+
+	eventStub := &eventUsecaseStub{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(eventStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"session_id":"parent-session","tool_name":"Read","tool_input":{"file_path":"README.md"},"tool_response":{"content":"ok"}}`))
+	rootCmd.SetArgs([]string{"hook", "audit", "claude"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(audit) error = %v", err)
+	}
+	if got, want := eventStub.auditCall.sessionID, types.SessionID("parent-session"); got != want {
+		t.Fatalf("audit sessionID after orphan pruning = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(activeDir, "claude-parent-session")); !os.IsNotExist(err) {
+		t.Fatalf("stale active state should be removed; stat err=%v", err)
+	}
+}
+
+func TestRootCLI_HookSubagentStartCommand_SynthesizesToolUseIDFromEventID(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "missing-tool-use-key")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-missing-tool-use-key"), []byte("parent-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+
+	sessionStub := &sessionUsecaseStub{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(sessionStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"event_id":"evt_123","tool_input":{"subagent_type":"worker"}}`))
+	rootCmd.SetArgs([]string{"hook", "subagent-start", "claude"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(subagent-start) error = %v", err)
+	}
+	if got, want := sessionStub.startChildCall.childID, types.SessionID("parent-session:sub:event-evt_123"); got != want {
+		t.Fatalf("StartChild childID = %q, want %q", got, want)
+	}
+}
+
+func TestRootCLI_HookSubagentStopCommand_UsesLatestActiveChildWhenToolUseIDMissing(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "stop-missing-tool-key")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	activeDir := filepath.Join(stateDir, "active-subagents")
+	if err := os.MkdirAll(activeDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-stop-missing-tool-key"), []byte("parent-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	activeJSON := `{"children":{"toolu_1":{"child_session_id":"parent-session:sub:toolu_1","started_at":"` +
+		time.Now().Add(-time.Second).UTC().Format(time.RFC3339) +
+		`"}}}`
+	if err := os.WriteFile(filepath.Join(activeDir, "claude-parent-session"), []byte(activeJSON), 0o600); err != nil {
+		t.Fatalf("WriteFile(active state) error = %v", err)
+	}
+
+	sessionStub := &sessionUsecaseStub{}
+	eventStub := &eventUsecaseStub{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(sessionStub),
+		cli.WithEvent(eventStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"subagent_type":"worker"}`))
+	rootCmd.SetArgs([]string{"hook", "subagent-stop", "claude"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(subagent-stop) error = %v", err)
+	}
+	if got, want := sessionStub.endCall.sessionID, types.SessionID("parent-session:sub:toolu_1"); got != want {
+		t.Fatalf("End child sessionID = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(activeDir, "claude-parent-session")); !os.IsNotExist(err) {
+		t.Fatalf("active state should be cleared after missing-id stop; stat err=%v", err)
 	}
 }
 

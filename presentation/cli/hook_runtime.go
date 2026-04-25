@@ -24,6 +24,8 @@ import (
 
 const hookStateDirEnvKey = "TRACEARY_HOOK_STATE_DIR"
 
+const hookActiveSubagentStateTTL = 24 * time.Hour
+
 type hookParentProcessInfo struct {
 	parentPID int
 	command   string
@@ -36,6 +38,12 @@ type hookActiveSubagentState struct {
 type hookActiveSubagentChild struct {
 	ChildSessionID types.SessionID `json:"child_session_id"`
 	StartedAt      time.Time       `json:"started_at"`
+}
+
+type hookResolvedActiveSubagent struct {
+	ParentSessionID types.SessionID
+	ToolUseID       string
+	ChildSessionID  types.SessionID
 }
 
 var hookParentProcessLookup = defaultHookParentProcessLookup
@@ -255,6 +263,12 @@ func (c *RootCLI) runHookSession(
 		if err := writeHookSessionState(client, event.SessionID()); err != nil {
 			return err
 		}
+		if err := clearHookActiveSubagentState(client, event.SessionID(), ""); err != nil {
+			return err
+		}
+		if err := cleanupHookActiveSubagentStates(client); err != nil {
+			return err
+		}
 		if err := clearHookSessionEndMarker(client, event.SessionID()); err != nil {
 			return err
 		}
@@ -320,6 +334,9 @@ func (c *RootCLI) runHookSession(
 			return err
 		}
 		if err := clearHookActiveSubagentState(client, sessionID, ""); err != nil {
+			return err
+		}
+		if err := cleanupHookActiveSubagentStates(client); err != nil {
 			return err
 		}
 		if err := markHookSessionEnded(client, sessionID); err != nil {
@@ -560,14 +577,14 @@ func (c *RootCLI) runHookSubagentStart(
 	if err != nil {
 		return err
 	}
-	parentSessionID, err := resolveHookParentSessionID(payload, client)
+	parentSessionID, err := resolveHookSubagentStartParentSessionID(payload, client)
 	if err != nil {
 		return err
 	}
 	if parentSessionID == "" {
 		return nil
 	}
-	toolUseID := hookPayloadString(payload, "tool_use_id", "")
+	toolUseID := resolveHookToolUseID(payload)
 	if toolUseID == "" {
 		return nil
 	}
@@ -653,24 +670,34 @@ func (c *RootCLI) runHookSubagentStop(
 	if err != nil {
 		return err
 	}
-	toolUseID := hookPayloadString(payload, "tool_use_id", "")
+	toolUseID := resolveHookToolUseID(payload)
 	childSessionID := types.SessionID("")
 	activeToolUseID := ""
+	activeParentSessionID := types.SessionID("")
 	childWasActive := false
 	if toolUseID != "" {
-		childSessionID, childWasActive, err = readHookActiveSubagentStateForTool(client, parentSessionID, toolUseID)
-		if err != nil {
-			return err
+		active, findErr := findHookActiveSubagentStateForTool(client, parentSessionID, toolUseID)
+		if findErr != nil {
+			return findErr
+		}
+		childSessionID = active.ChildSessionID
+		activeParentSessionID = active.ParentSessionID
+		childWasActive = childSessionID != ""
+		if activeParentSessionID == "" {
+			activeParentSessionID = parentSessionID
 		}
 		if childSessionID == "" {
 			childSessionID = synthesizeHookChildSessionID(parentSessionID, toolUseID)
 		}
 		activeToolUseID = toolUseID
 	} else {
-		activeToolUseID, childSessionID, err = readHookLatestActiveSubagentState(client, parentSessionID)
-		if err != nil {
-			return err
+		active, findErr := findHookDeepestLatestActiveSubagentState(client, parentSessionID)
+		if findErr != nil {
+			return findErr
 		}
+		activeToolUseID = active.ToolUseID
+		childSessionID = active.ChildSessionID
+		activeParentSessionID = active.ParentSessionID
 		childWasActive = childSessionID != ""
 	}
 	if childSessionID != "" {
@@ -687,6 +714,9 @@ func (c *RootCLI) runHookSubagentStop(
 		}
 		if _, err := c.session.End(ctx, types.Client("hook"), types.Agent(""), childSessionID, workspace, ""); err != nil {
 			return xerrors.Errorf("failed to end subagent session: %w", err)
+		}
+		if activeParentSessionID != "" {
+			parentSessionID = activeParentSessionID
 		}
 		if err := clearHookActiveSubagentState(client, parentSessionID, activeToolUseID); err != nil {
 			return err
@@ -1081,15 +1111,22 @@ func resolveHookSessionID(payload []byte, client string) (types.SessionID, error
 	if parentSessionID == "" {
 		return "", nil
 	}
-	_, childSessionID, err := readHookLatestActiveSubagentState(client, parentSessionID)
+	active, err := findHookDeepestLatestActiveSubagentState(client, parentSessionID)
 	if err != nil {
 		return "", err
 	}
-	if childSessionID != "" {
-		return childSessionID, nil
+	if active.ChildSessionID != "" {
+		return active.ChildSessionID, nil
 	}
 
 	return parentSessionID, nil
+}
+
+func resolveHookSubagentStartParentSessionID(payload []byte, client string) (types.SessionID, error) {
+	if hookPayloadString(payload, "session_id", "") == "" {
+		return resolveHookParentSessionID(payload, client)
+	}
+	return resolveHookSessionID(payload, client)
 }
 
 func resolveHookParentSessionID(payload []byte, client string) (types.SessionID, error) {
@@ -1102,6 +1139,16 @@ func resolveHookParentSessionID(payload []byte, client string) (types.SessionID,
 
 func synthesizeHookChildSessionID(parentSessionID types.SessionID, toolUseID string) types.SessionID {
 	return types.SessionID(parentSessionID.String() + ":sub:" + strings.TrimSpace(toolUseID))
+}
+
+func resolveHookToolUseID(payload []byte) string {
+	if toolUseID := strings.TrimSpace(hookPayloadString(payload, "tool_use_id", "")); toolUseID != "" {
+		return toolUseID
+	}
+	if eventID := strings.TrimSpace(hookPayloadString(payload, "event_id", "")); eventID != "" {
+		return "event-" + eventID
+	}
+	return ""
 }
 
 func resolveHookWorkspace(ctx context.Context, payload []byte, client string, preferState bool) (types.Workspace, error) {
@@ -1408,7 +1455,8 @@ func withHookActiveSubagentStateLock(client string, parentSessionID types.Sessio
 }
 
 func writeHookActiveSubagentState(client string, parentSessionID types.SessionID, toolUseID string, childSessionID types.SessionID) error {
-	if strings.TrimSpace(toolUseID) == "" {
+	toolUseID = strings.TrimSpace(toolUseID)
+	if toolUseID == "" {
 		return nil
 	}
 	return withHookActiveSubagentStateLock(client, parentSessionID, func() error {
@@ -1466,7 +1514,40 @@ func readHookActiveSubagentStateFile(statePath string) (hookActiveSubagentState,
 	if state.Children == nil {
 		state.Children = map[string]hookActiveSubagentChild{}
 	}
+	if pruneHookActiveSubagentState(&state, time.Now().UTC()) {
+		if len(state.Children) == 0 {
+			if err := os.Remove(statePath); err != nil && !os.IsNotExist(err) {
+				return hookActiveSubagentState{}, xerrors.Errorf("failed to clear stale hook active-subagent state: %w", err)
+			}
+		} else {
+			data, err := json.Marshal(state)
+			if err != nil {
+				return hookActiveSubagentState{}, xerrors.Errorf("failed to encode hook active-subagent state: %w", err)
+			}
+			if err := os.WriteFile(statePath, data, 0o600); err != nil {
+				return hookActiveSubagentState{}, xerrors.Errorf("failed to write hook active-subagent state: %w", err)
+			}
+		}
+	}
 	return state, nil
+}
+
+func pruneHookActiveSubagentState(state *hookActiveSubagentState, now time.Time) bool {
+	if state == nil || hookActiveSubagentStateTTL <= 0 {
+		return false
+	}
+	changed := false
+	cutoff := now.Add(-hookActiveSubagentStateTTL)
+	for toolUseID, child := range state.Children {
+		if child.StartedAt.IsZero() {
+			continue
+		}
+		if child.StartedAt.Before(cutoff) {
+			delete(state.Children, toolUseID)
+			changed = true
+		}
+	}
+	return changed
 }
 
 func readHookActiveSubagentStateForTool(client string, parentSessionID types.SessionID, toolUseID string) (types.SessionID, bool, error) {
@@ -1483,6 +1564,44 @@ func readHookActiveSubagentStateForTool(client string, parentSessionID types.Ses
 		return "", false, nil
 	}
 	return child.ChildSessionID, true, nil
+}
+
+func findHookActiveSubagentStateForTool(client string, rootParentSessionID types.SessionID, toolUseID string) (hookResolvedActiveSubagent, error) {
+	if strings.TrimSpace(toolUseID) == "" {
+		return hookResolvedActiveSubagent{}, nil
+	}
+	return findHookActiveSubagentStateForToolDepth(client, rootParentSessionID, toolUseID, 0)
+}
+
+func findHookActiveSubagentStateForToolDepth(client string, parentSessionID types.SessionID, toolUseID string, depth int) (hookResolvedActiveSubagent, error) {
+	if depth >= 32 || parentSessionID == "" {
+		return hookResolvedActiveSubagent{}, nil
+	}
+	childSessionID, ok, err := readHookActiveSubagentStateForTool(client, parentSessionID, toolUseID)
+	if err != nil {
+		return hookResolvedActiveSubagent{}, err
+	}
+	if ok {
+		return hookResolvedActiveSubagent{
+			ParentSessionID: parentSessionID,
+			ToolUseID:       toolUseID,
+			ChildSessionID:  childSessionID,
+		}, nil
+	}
+	children, err := readHookActiveSubagentChildren(client, parentSessionID)
+	if err != nil {
+		return hookResolvedActiveSubagent{}, err
+	}
+	for _, childSessionID := range children {
+		found, err := findHookActiveSubagentStateForToolDepth(client, childSessionID, toolUseID, depth+1)
+		if err != nil {
+			return hookResolvedActiveSubagent{}, err
+		}
+		if found.ChildSessionID != "" {
+			return found, nil
+		}
+	}
+	return hookResolvedActiveSubagent{}, nil
 }
 
 func readHookLatestActiveSubagentState(client string, parentSessionID types.SessionID) (string, types.SessionID, error) {
@@ -1508,6 +1627,53 @@ func readHookLatestActiveSubagentState(client string, parentSessionID types.Sess
 		}
 	}
 	return latestToolUseID, latestChildID, nil
+}
+
+func readHookActiveSubagentChildren(client string, parentSessionID types.SessionID) ([]types.SessionID, error) {
+	statePath, err := hookActiveSubagentStatePath(client, parentSessionID)
+	if err != nil {
+		return nil, err
+	}
+	state, err := readHookActiveSubagentStateFile(statePath)
+	if err != nil {
+		return nil, err
+	}
+	children := make([]types.SessionID, 0, len(state.Children))
+	for _, child := range state.Children {
+		if child.ChildSessionID != "" {
+			children = append(children, child.ChildSessionID)
+		}
+	}
+	return children, nil
+}
+
+func findHookDeepestLatestActiveSubagentState(client string, rootParentSessionID types.SessionID) (hookResolvedActiveSubagent, error) {
+	return findHookDeepestLatestActiveSubagentStateDepth(client, rootParentSessionID, 0)
+}
+
+func findHookDeepestLatestActiveSubagentStateDepth(client string, parentSessionID types.SessionID, depth int) (hookResolvedActiveSubagent, error) {
+	if depth >= 32 || parentSessionID == "" {
+		return hookResolvedActiveSubagent{}, nil
+	}
+	toolUseID, childSessionID, err := readHookLatestActiveSubagentState(client, parentSessionID)
+	if err != nil {
+		return hookResolvedActiveSubagent{}, err
+	}
+	if childSessionID == "" {
+		return hookResolvedActiveSubagent{}, nil
+	}
+	deeper, err := findHookDeepestLatestActiveSubagentStateDepth(client, childSessionID, depth+1)
+	if err != nil {
+		return hookResolvedActiveSubagent{}, err
+	}
+	if deeper.ChildSessionID != "" {
+		return deeper, nil
+	}
+	return hookResolvedActiveSubagent{
+		ParentSessionID: parentSessionID,
+		ToolUseID:       toolUseID,
+		ChildSessionID:  childSessionID,
+	}, nil
 }
 
 func clearHookActiveSubagentState(client string, parentSessionID types.SessionID, toolUseID string) error {
@@ -1542,6 +1708,32 @@ func clearHookActiveSubagentState(client string, parentSessionID types.SessionID
 		}
 		return nil
 	})
+}
+
+func cleanupHookActiveSubagentStates(client string) error {
+	stateDir, err := resolveHookStateDir()
+	if err != nil {
+		return err
+	}
+	activeDir := filepath.Join(stateDir, "active-subagents")
+	entries, err := os.ReadDir(activeDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return xerrors.Errorf("failed to read hook active-subagent state directory: %w", err)
+	}
+	prefix := client + "-"
+	for _, entry := range entries {
+		if entry.IsDir() || strings.HasSuffix(entry.Name(), ".lock") || !strings.HasPrefix(entry.Name(), prefix) {
+			continue
+		}
+		statePath := filepath.Join(activeDir, entry.Name())
+		if _, err := readHookActiveSubagentStateFile(statePath); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeHookWorkspaceState(client string, workspace types.Workspace) error {

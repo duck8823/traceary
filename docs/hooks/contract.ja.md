@@ -51,6 +51,12 @@
 - `tool_response.exitCode` から exit code を抽出（利用可能時）
 - MCP ツール名 fallback: `tool_input.command` → `tool_name`
 
+Claude Task subagent capture:
+- `PreToolUse:Task` は現在 active な直近の親セッション配下に child session を開始する。その child がさらに Task を開始した場合、grandchild は top-level session ではなく child にリンクする。
+- active Task state は parent session ごとに管理するため、sibling の `spawn_order` は各 `parent_session_id` 内で独立して採番される。
+- `tool_use_id` が欠落している場合は `event_id` から安定した Task key を合成する。後続の `PostToolUse` / `SubagentStop` が `tool_use_id` を渡さない場合は、親配下の most-recent active child にフォールバックする。
+- `SubagentStop` が到達しなかった orphan active Task entry は、hook state を次に読む時または新しい session start 時に 24 時間超で prune する。これにより host process の crash / kill 後に stale child state が後続 capture へ漏れることを防ぐ。
+
 ## 欠落機能のフォールバック
 
 | 欠落機能 | フォールバック |
