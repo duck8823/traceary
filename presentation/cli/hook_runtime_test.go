@@ -95,6 +95,90 @@ func TestRootCLI_HookSessionCommand_StartRecordsSessionAndState(t *testing.T) {
 	}
 }
 
+func TestRootCLI_HookSessionCommand_StartInfersParentFromActiveSubagentState(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "infer-key")
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	activeDir := filepath.Join(homeDir, ".config", "traceary", "hooks", "active-subagents")
+	if err := os.MkdirAll(activeDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(activeDir) error = %v", err)
+	}
+	activeJSON := `{"children":{"toolu_child":{"child_session_id":"parent-session:sub:toolu_child","started_at":"` + time.Now().UTC().Format(time.RFC3339) + `"}}}`
+	if err := os.WriteFile(filepath.Join(activeDir, "claude-parent-session"), []byte(activeJSON), 0o600); err != nil {
+		t.Fatalf("WriteFile(active state) error = %v", err)
+	}
+
+	sessionStub := &sessionUsecaseStub{
+		activeEvent: model.EventOf(
+			types.EventID("evt-parent-start"),
+			types.EventKindSessionStarted,
+			types.Client("hook"),
+			types.Agent("claude"),
+			types.SessionID("parent-session"),
+			types.Workspace("github.com/duck8823/traceary"),
+			"session started",
+			time.Now(),
+		),
+		startEvent: model.EventOf(
+			types.EventID("evt-child-start"),
+			types.EventKindSessionStarted,
+			types.Client("hook"),
+			types.Agent("claude/planner"),
+			types.SessionID("child-session"),
+			types.Workspace("github.com/duck8823/traceary"),
+			"session started",
+			time.Now(),
+		),
+	}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(sessionStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"session_id":"child-session","cwd":"/tmp/project","agent_type":"planner"}`))
+	rootCmd.SetArgs([]string{"hook", "session", "claude", "start"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got, want := sessionStub.startCall.parentSessionID, types.SessionID("parent-session"); got != want {
+		t.Fatalf("inferred parentSessionID = %q, want %q", got, want)
+	}
+}
+
+func TestRootCLI_HookSessionCommand_ExplicitParentOverridesInference(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "explicit-infer-key")
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+	t.Setenv("TRACEARY_PARENT_SESSION_ID", "explicit-parent")
+
+	sessionStub := &sessionUsecaseStub{
+		activeEvent: model.EventOf(types.EventID("evt-parent-start"), types.EventKindSessionStarted, types.Client("hook"), types.Agent("claude"), types.SessionID("inferred-parent"), types.Workspace("github.com/duck8823/traceary"), "session started", time.Now()),
+		startEvent:  model.EventOf(types.EventID("evt-child-start"), types.EventKindSessionStarted, types.Client("hook"), types.Agent("claude/planner"), types.SessionID("child-session"), types.Workspace("github.com/duck8823/traceary"), "session started", time.Now()),
+	}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(sessionStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"session_id":"child-session","agent_type":"planner"}`))
+	rootCmd.SetArgs([]string{"hook", "session", "claude", "start"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got, want := sessionStub.startCall.parentSessionID, types.SessionID("explicit-parent"); got != want {
+		t.Fatalf("parentSessionID = %q, want explicit %q", got, want)
+	}
+}
+
 func TestRootCLI_HookSessionCommand_StopUsesStateAndCreatesEndMarker(t *testing.T) {
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
 
