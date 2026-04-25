@@ -60,21 +60,95 @@ func (d *BundleDatasource) SchemaVersion(ctx context.Context) (int, error) {
 	return version, nil
 }
 
-// ImportEvent inserts the event; a unique-constraint violation on
-// the event id is treated as "already present, skip" and returns
-// (false, nil) so the caller can count skips without treating them
-// as errors. This is the idempotency primitive the bundle usecase
-// relies on — re-importing the same bundle into the same store is
-// a no-op.
-func (d *BundleDatasource) ImportEvent(ctx context.Context, event *model.Event) (bool, error) {
-	err := d.eventStore.Save(ctx, event)
+// BeginBundleImport starts the transaction shared by every table
+// importer in a bundle. v2 only registers events, but sessions /
+// memories / edges can join this transaction in follow-up issues.
+func (d *BundleDatasource) BeginBundleImport(ctx context.Context) (usecase.BundleImportTransaction, error) {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to open DB for bundle import: %w", err)
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		if closeErr := db.Close(); closeErr != nil {
+			slog.Debug("failed to close resource", "error", closeErr)
+		}
+		return nil, xerrors.Errorf("failed to begin bundle import transaction: %w", err)
+	}
+	return &bundleImportTx{db: db, tx: tx}, nil
+}
+
+type bundleImportTx struct {
+	db *sql.DB
+	tx *sql.Tx
+}
+
+// ImportEvent inserts or replaces the event according to policy. For
+// skip, a unique-constraint violation on the event id returns
+// (false, nil) so re-importing the same bundle remains idempotent and
+// surfaces events_skipped. For error, the same collision is returned as
+// a failure so the whole bundle transaction rolls back.
+func (t *bundleImportTx) ImportEvent(ctx context.Context, event *model.Event, policy usecase.BundleConflictPolicy) (bool, error) {
+	if event == nil {
+		return false, xerrors.Errorf("event must not be nil")
+	}
+	query := insertEventQuery
+	if policy == usecase.BundleConflictReplace {
+		query = `INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at, source_hook)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+  kind = excluded.kind,
+  client = excluded.client,
+  agent = excluded.agent,
+  session_id = excluded.session_id,
+  workspace = excluded.workspace,
+  body = excluded.body,
+  created_at = excluded.created_at,
+  source_hook = excluded.source_hook`
+	}
+	_, err := t.tx.ExecContext(
+		ctx,
+		query,
+		event.EventID().String(),
+		event.Kind().String(),
+		event.Client().String(),
+		event.Agent().String(),
+		event.SessionID().String(),
+		event.Workspace().String(),
+		event.Body(),
+		formatTimestamp(event.CreatedAt()),
+		nullableString(event.SourceHook()),
+	)
 	if err == nil {
 		return true, nil
 	}
-	if isSQLiteUniqueOrPKConflict(err) {
+	if policy == usecase.BundleConflictSkip && isSQLiteUniqueOrPKConflict(err) {
 		return false, nil
 	}
 	return false, xerrors.Errorf("failed to import event %s: %w", event.EventID(), err)
+}
+
+func (t *bundleImportTx) Commit(context.Context) error {
+	if err := t.tx.Commit(); err != nil {
+		_ = t.db.Close()
+		return xerrors.Errorf("failed to commit bundle import transaction: %w", err)
+	}
+	if err := t.db.Close(); err != nil {
+		return xerrors.Errorf("failed to close DB after bundle import: %w", err)
+	}
+	return nil
+}
+
+func (t *bundleImportTx) Rollback(context.Context) error {
+	rollbackErr := t.tx.Rollback()
+	closeErr := t.db.Close()
+	if rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+		return xerrors.Errorf("failed to rollback bundle import transaction: %w", rollbackErr)
+	}
+	if closeErr != nil {
+		return xerrors.Errorf("failed to close DB after bundle import rollback: %w", closeErr)
+	}
+	return nil
 }
 
 // isSQLiteUniqueOrPKConflict reports whether err is a

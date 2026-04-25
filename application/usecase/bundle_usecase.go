@@ -58,12 +58,72 @@ type BundleExportOptions struct {
 	Workspace types.Workspace
 }
 
+// BundleConflictPolicy controls how bundle import handles a row whose
+// durable identity already exists in the destination store.
+type BundleConflictPolicy string
+
+const (
+	// BundleConflictSkip keeps the destination row and counts a skip.
+	BundleConflictSkip BundleConflictPolicy = "skip"
+	// BundleConflictReplace overwrites the destination row with the bundle row.
+	BundleConflictReplace BundleConflictPolicy = "replace"
+	// BundleConflictError fails the import on the first conflict.
+	BundleConflictError BundleConflictPolicy = "error"
+)
+
+func (p BundleConflictPolicy) normalized() (BundleConflictPolicy, error) {
+	switch p {
+	case "", BundleConflictSkip:
+		return BundleConflictSkip, nil
+	case BundleConflictReplace, "overwrite":
+		return BundleConflictReplace, nil
+	case BundleConflictError, "reject":
+		return BundleConflictError, nil
+	default:
+		return "", xerrors.Errorf("unsupported bundle conflict policy %q (want skip, replace, or error)", p)
+	}
+}
+
+// BundleMissingParentPolicy is reserved for multi-table bundle imports
+// where child rows can reference parents that are absent from the bundle
+// and the destination store. v2 only ships events, but wiring this now
+// keeps #738/#739/#740 on the same CLI/API surface.
+type BundleMissingParentPolicy string
+
+const (
+	// BundleMissingParentReject fails imports that reference missing parents.
+	BundleMissingParentReject BundleMissingParentPolicy = "reject"
+	// BundleMissingParentSkip skips rows that reference missing parents.
+	BundleMissingParentSkip BundleMissingParentPolicy = "skip"
+	// BundleMissingParentBackfill creates placeholder parents when supported.
+	BundleMissingParentBackfill BundleMissingParentPolicy = "backfill"
+)
+
+func (p BundleMissingParentPolicy) normalized() (BundleMissingParentPolicy, error) {
+	switch p {
+	case "", BundleMissingParentReject:
+		return BundleMissingParentReject, nil
+	case BundleMissingParentSkip:
+		return BundleMissingParentSkip, nil
+	case BundleMissingParentBackfill:
+		return BundleMissingParentBackfill, nil
+	default:
+		return "", xerrors.Errorf("unsupported bundle missing-parent policy %q (want reject, skip, or backfill)", p)
+	}
+}
+
 // BundleImportOptions controls a single Import call.
 type BundleImportOptions struct {
 	// InPath is the filesystem path of the archive to read.
 	InPath string
 	// Passphrase decrypts the archive. Must match what Export used.
 	Passphrase []byte
+	// OnConflict controls UNIQUE collisions. Empty defaults to skip for
+	// v0.9-compatible idempotent re-imports.
+	OnConflict BundleConflictPolicy
+	// MissingParent is wired for forthcoming sessions / memories / edges
+	// importers. Empty defaults to reject.
+	MissingParent BundleMissingParentPolicy
 }
 
 // BundleImportResult summarises what changed during Import.
@@ -82,14 +142,36 @@ type BundleImportResult struct {
 // Traceary knows how to write and read. Bumping it is a
 // migration-level change; readers that see a higher manifest version
 // refuse to import rather than silently skipping unknown fields.
-const bundleManifestVersion = 1
+const bundleManifestVersion = 2
+const minBundleReaderManifestVersion = 1
 
 type bundleManifest struct {
-	ManifestVersion     int               `json:"manifest_version"`
-	CreatedAt           time.Time         `json:"created_at"`
-	BundleSchemaVersion int               `json:"schema_version"`
-	Filters             bundleFilters     `json:"filters"`
-	FileChecksums       map[string]string `json:"file_checksums"`
+	ManifestVersion        int                          `json:"manifest_version"`
+	MinReaderSchemaVersion int                          `json:"min_reader_schema_version,omitempty"`
+	CreatedAt              time.Time                    `json:"created_at"`
+	BundleSchemaVersion    int                          `json:"schema_version"`
+	Writer                 bundleManifestWriter         `json:"writer,omitempty"`
+	ImportDefaults         bundleManifestImportDefaults `json:"import_defaults,omitempty"`
+	Filters                bundleFilters                `json:"filters"`
+	Tables                 map[string]bundleTableEntry  `json:"tables,omitempty"`
+	FileChecksums          map[string]string            `json:"file_checksums,omitempty"`
+}
+
+type bundleManifestWriter struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+type bundleManifestImportDefaults struct {
+	OnConflict    string `json:"on_conflict"`
+	MissingParent string `json:"missing_parent"`
+}
+
+type bundleTableEntry struct {
+	TableName string `json:"table_name"`
+	File      string `json:"file"`
+	RowCount  int    `json:"row_count"`
+	Checksum  string `json:"checksum"`
 }
 
 type bundleFilters struct {
@@ -112,9 +194,17 @@ var (
 type BundleEventRepository interface {
 	// SchemaVersion is the current schema_migrations max version.
 	SchemaVersion(ctx context.Context) (int, error)
-	// ImportEvent inserts the event; conflicting event_id results
-	// in (imported=false, err=nil) for idempotent re-imports.
-	ImportEvent(ctx context.Context, event *model.Event) (bool, error)
+	// BeginBundleImport starts the single transaction used by all table
+	// importers in registry order.
+	BeginBundleImport(ctx context.Context) (BundleImportTransaction, error)
+}
+
+// BundleImportTransaction is the write-side transaction shared by all
+// bundle table importers.
+type BundleImportTransaction interface {
+	ImportEvent(ctx context.Context, event *model.Event, policy BundleConflictPolicy) (bool, error)
+	Commit(ctx context.Context) error
+	Rollback(ctx context.Context) error
 }
 
 type bundleUsecase struct {
@@ -158,22 +248,34 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 		return xerrors.Errorf("failed to list events for bundle: %w", err)
 	}
 
-	eventsBuf, err := encodeEventsNDJSON(events)
+	eventsImporter := u.bundleTableRegistry()["events"]
+	eventsBuf, err := eventsImporter.Export(ctx, events)
 	if err != nil {
 		return xerrors.Errorf("failed to encode events: %w", err)
 	}
 
 	manifest := bundleManifest{
-		ManifestVersion:     bundleManifestVersion,
-		CreatedAt:           u.nowFunc().UTC(),
-		BundleSchemaVersion: schemaVersion,
+		ManifestVersion:        bundleManifestVersion,
+		MinReaderSchemaVersion: minBundleReaderManifestVersion,
+		CreatedAt:              u.nowFunc().UTC(),
+		BundleSchemaVersion:    schemaVersion,
+		Writer:                 bundleManifestWriter{Name: "traceary", Version: "dev"},
+		ImportDefaults: bundleManifestImportDefaults{
+			OnConflict:    string(BundleConflictSkip),
+			MissingParent: string(BundleMissingParentReject),
+		},
 		Filters: bundleFilters{
 			Since:     formatOptionalTime(opts.Since),
 			Until:     formatOptionalTime(opts.Until),
 			Workspace: opts.Workspace.String(),
 		},
-		FileChecksums: map[string]string{
-			"events.ndjson": hashSHA256(eventsBuf.Bytes()),
+		Tables: map[string]bundleTableEntry{
+			"events": {
+				TableName: "events",
+				File:      eventsImporter.FileName(),
+				RowCount:  len(events),
+				Checksum:  hashSHA256(eventsBuf.Bytes()),
+			},
 		},
 	}
 	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
@@ -205,6 +307,13 @@ func (u *bundleUsecase) Import(ctx context.Context, opts BundleImportOptions) (B
 	if opts.InPath == "" {
 		return BundleImportResult{}, xerrors.Errorf("in path must not be empty")
 	}
+	onConflict, err := opts.OnConflict.normalized()
+	if err != nil {
+		return BundleImportResult{}, err
+	}
+	if _, err := opts.MissingParent.normalized(); err != nil {
+		return BundleImportResult{}, err
+	}
 	encrypted, err := os.ReadFile(opts.InPath)
 	if err != nil {
 		return BundleImportResult{}, xerrors.Errorf("failed to read bundle: %w", err)
@@ -226,51 +335,19 @@ func (u *bundleUsecase) Import(ctx context.Context, opts BundleImportOptions) (B
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
 		return BundleImportResult{}, xerrors.Errorf("failed to parse manifest: %w", err)
 	}
-	if manifest.ManifestVersion != bundleManifestVersion {
+	if manifest.ManifestVersion < minBundleReaderManifestVersion || manifest.ManifestVersion > bundleManifestVersion {
 		return BundleImportResult{}, xerrors.Errorf(
 			"unsupported bundle manifest version %d (this build understands %d)",
 			manifest.ManifestVersion, bundleManifestVersion,
 		)
 	}
-	// manifest_version=1 requires at least a checksum entry for
-	// events.ndjson. A bundle that skipped the checksum field, or
-	// lists files without a matching manifest entry, is rejected
-	// so the AEAD + checksum double-verify contract stays
-	// enforced rather than optional.
-	const requiredChecksumFile = "events.ndjson"
-	if _, ok := manifest.FileChecksums[requiredChecksumFile]; !ok {
-		return BundleImportResult{}, xerrors.Errorf(
-			"bundle manifest is missing a checksum for %s (required for manifest_version=%d)",
-			requiredChecksumFile, bundleManifestVersion,
-		)
+	registry := u.bundleTableRegistry()
+	tableEntries, err := manifestTableEntries(manifest, registry)
+	if err != nil {
+		return BundleImportResult{}, err
 	}
-	for name, want := range manifest.FileChecksums {
-		if want == "" {
-			return BundleImportResult{}, xerrors.Errorf("bundle manifest has an empty checksum for %s", name)
-		}
-		data, present := files[name]
-		if !present {
-			return BundleImportResult{}, xerrors.Errorf("bundle missing %s referenced by manifest", name)
-		}
-		got := hashSHA256(data)
-		if got != want {
-			return BundleImportResult{}, xerrors.Errorf(
-				"checksum mismatch on %s (want %s, got %s)", name, want, got,
-			)
-		}
-	}
-	// Every entry file in the archive must be covered by a
-	// manifest checksum — a listed file without a checksum entry
-	// would silently bypass verification.
-	for name := range files {
-		if name == "manifest.json" {
-			continue
-		}
-		if _, ok := manifest.FileChecksums[name]; !ok {
-			return BundleImportResult{}, xerrors.Errorf(
-				"bundle entry %s is not covered by a manifest checksum", name,
-			)
-		}
+	if err := verifyBundleFiles(files, tableEntries); err != nil {
+		return BundleImportResult{}, err
 	}
 	currentSchema, err := u.repository.SchemaVersion(ctx)
 	if err != nil {
@@ -284,34 +361,214 @@ func (u *bundleUsecase) Import(ctx context.Context, opts BundleImportOptions) (B
 	}
 
 	result := BundleImportResult{BundleSchemaVersion: manifest.BundleSchemaVersion}
-	eventsRaw, present := files["events.ndjson"]
-	if !present {
-		return result, xerrors.Errorf("bundle missing events.ndjson")
+	tx, err := u.repository.BeginBundleImport(ctx)
+	if err != nil {
+		return result, xerrors.Errorf("failed to begin bundle import transaction: %w", err)
 	}
-	decoder := json.NewDecoder(bytes.NewReader(eventsRaw))
-	for decoder.More() {
-		var row bundleEventRow
-		if err := decoder.Decode(&row); err != nil {
-			return result, xerrors.Errorf("failed to decode event row: %w", err)
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
 		}
-		event, err := row.toEvent()
+	}()
+	for _, entry := range tableEntries {
+		importer, ok := registry[entry.TableName]
+		if !ok {
+			continue
+		}
+		raw := files[entry.File]
+		rows, err := importer.Decode(bytes.NewReader(raw))
 		if err != nil {
-			return result, xerrors.Errorf("failed to restore event: %w", err)
+			return result, xerrors.Errorf("failed to decode %s rows: %w", entry.TableName, err)
 		}
-		imported, err := u.repository.ImportEvent(ctx, event)
+		if entry.RowCount >= 0 && len(rows) != entry.RowCount {
+			return result, xerrors.Errorf(
+				"bundle table %s row count mismatch (manifest=%d, decoded=%d)",
+				entry.TableName, entry.RowCount, len(rows),
+			)
+		}
+		imported, skipped, err := importer.Apply(ctx, tx, rows, onConflict)
 		if err != nil {
-			return result, xerrors.Errorf("failed to import event %s: %w", event.EventID(), err)
+			return result, xerrors.Errorf("failed to import %s: %w", entry.TableName, err)
 		}
-		if imported {
-			result.EventsImported++
-		} else {
-			result.EventsSkipped++
+		if entry.TableName == "events" {
+			result.EventsImported += imported
+			result.EventsSkipped += skipped
 		}
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return result, xerrors.Errorf("failed to commit bundle import transaction: %w", err)
+	}
+	committed = true
 	return result, nil
 }
 
-// ---- NDJSON row + tar.gz + AEAD helpers ----
+// ---- Table registry + NDJSON row + tar.gz + AEAD helpers ----
+
+type bundleRow any
+
+type bundleTableImporter interface {
+	Name() string
+	FileName() string
+	Export(context.Context, []*model.Event) (*bytes.Buffer, error)
+	Decode(io.Reader) ([]bundleRow, error)
+	Apply(context.Context, BundleImportTransaction, []bundleRow, BundleConflictPolicy) (imported int, skipped int, err error)
+}
+
+func (u *bundleUsecase) bundleTableRegistry() map[string]bundleTableImporter {
+	events := bundleEventsTable{}
+	return map[string]bundleTableImporter{
+		events.Name(): events,
+	}
+}
+
+type bundleEventsTable struct{}
+
+func (bundleEventsTable) Name() string { return "events" }
+
+func (bundleEventsTable) FileName() string { return "events.ndjson" }
+
+func (bundleEventsTable) Export(_ context.Context, events []*model.Event) (*bytes.Buffer, error) {
+	return encodeEventsNDJSON(events)
+}
+
+func (bundleEventsTable) Decode(r io.Reader) ([]bundleRow, error) {
+	decoder := json.NewDecoder(r)
+	rows := []bundleRow{}
+	for decoder.More() {
+		var row bundleEventRow
+		if err := decoder.Decode(&row); err != nil {
+			return nil, xerrors.Errorf("event row: %w", err)
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+func (bundleEventsTable) Apply(
+	ctx context.Context,
+	tx BundleImportTransaction,
+	rows []bundleRow,
+	policy BundleConflictPolicy,
+) (int, int, error) {
+	imported := 0
+	skipped := 0
+	for _, generic := range rows {
+		row, ok := generic.(bundleEventRow)
+		if !ok {
+			return imported, skipped, xerrors.Errorf("unexpected events row type %T", generic)
+		}
+		event, err := row.toEvent()
+		if err != nil {
+			return imported, skipped, xerrors.Errorf("restore event: %w", err)
+		}
+		didImport, err := tx.ImportEvent(ctx, event, policy)
+		if err != nil {
+			return imported, skipped, xerrors.Errorf("event %s: %w", event.EventID(), err)
+		}
+		if didImport {
+			imported++
+		} else {
+			skipped++
+		}
+	}
+	return imported, skipped, nil
+}
+
+func manifestTableEntries(
+	manifest bundleManifest,
+	registry map[string]bundleTableImporter,
+) ([]bundleTableEntry, error) {
+	switch manifest.ManifestVersion {
+	case 1:
+		const requiredChecksumFile = "events.ndjson"
+		if _, ok := manifest.FileChecksums[requiredChecksumFile]; !ok {
+			return nil, xerrors.Errorf(
+				"bundle manifest is missing a checksum for %s (required for manifest_version=%d)",
+				requiredChecksumFile, manifest.ManifestVersion,
+			)
+		}
+		files := make([]string, 0, len(manifest.FileChecksums))
+		for file := range manifest.FileChecksums {
+			files = append(files, file)
+		}
+		sort.Strings(files)
+		entries := make([]bundleTableEntry, 0, len(files))
+		for _, file := range files {
+			entry := bundleTableEntry{
+				File:     file,
+				Checksum: manifest.FileChecksums[file],
+				RowCount: -1,
+			}
+			if file == requiredChecksumFile {
+				entry.TableName = "events"
+			}
+			entries = append(entries, entry)
+		}
+		return entries, nil
+	case 2:
+		if len(manifest.Tables) == 0 {
+			return nil, xerrors.Errorf("bundle manifest has no table entries")
+		}
+		names := make([]string, 0, len(manifest.Tables))
+		for name := range manifest.Tables {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		entries := make([]bundleTableEntry, 0, len(names))
+		for _, name := range names {
+			entry := manifest.Tables[name]
+			if entry.TableName == "" {
+				entry.TableName = name
+			}
+			if entry.TableName != name {
+				return nil, xerrors.Errorf("bundle table key %s does not match table_name %s", name, entry.TableName)
+			}
+			if _, ok := registry[entry.TableName]; !ok {
+				return nil, xerrors.Errorf("bundle table %s is not supported by this build", entry.TableName)
+			}
+			if entry.File == "" {
+				return nil, xerrors.Errorf("bundle table %s has an empty file", entry.TableName)
+			}
+			if entry.Checksum == "" {
+				return nil, xerrors.Errorf("bundle table %s has an empty checksum", entry.TableName)
+			}
+			if entry.RowCount < 0 {
+				return nil, xerrors.Errorf("bundle table %s has a negative row_count", entry.TableName)
+			}
+			entries = append(entries, entry)
+		}
+		return entries, nil
+	default:
+		return nil, xerrors.Errorf("unsupported bundle manifest version %d", manifest.ManifestVersion)
+	}
+}
+
+func verifyBundleFiles(files map[string][]byte, entries []bundleTableEntry) error {
+	covered := map[string]bool{}
+	for _, entry := range entries {
+		data, present := files[entry.File]
+		if !present {
+			return xerrors.Errorf("bundle missing %s referenced by manifest", entry.File)
+		}
+		got := hashSHA256(data)
+		if got != entry.Checksum {
+			return xerrors.Errorf(
+				"checksum mismatch on %s (want %s, got %s)", entry.File, entry.Checksum, got,
+			)
+		}
+		covered[entry.File] = true
+	}
+	for name := range files {
+		if name == "manifest.json" {
+			continue
+		}
+		if !covered[name] {
+			return xerrors.Errorf("bundle entry %s is not covered by a manifest checksum", name)
+		}
+	}
+	return nil
+}
 
 type bundleEventRow struct {
 	EventID    string `json:"event_id"`
