@@ -9,6 +9,7 @@ WITH RECURSIVE
     JOIN descendants ON child.parent_session_id = descendants.session_id
     WHERE descendants.depth < 100
       AND instr(descendants.path, ',' || child.session_id || ',') = 0
+      AND (? = '' OR child.workspace = ?)
   ),
   candidate_ids(session_id) AS (
     SELECT s.session_id
