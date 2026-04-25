@@ -5,7 +5,7 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
-## [v0.10.0] - Unreleased
+## [v0.10.0] - 2026-04-26
 
 ### Added
 - **Bundle manifest v2 skeleton (#737)** — bundle export は `events` の table registry entry (`table_name`, file, row count, SHA-256 checksum) を含む `manifest_version=2` を書き出します。import は v1 reader path を維持し、`bundle import` に `--on-conflict {skip,replace,error}` と予約済みの `--missing-parent {reject,skip,backfill}` flag を追加しました。
