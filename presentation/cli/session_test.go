@@ -68,6 +68,37 @@ func TestRootCLI_SessionStartCommand(t *testing.T) {
 	}
 }
 
+func TestRootCLI_SessionStartCommand_NoParentStaysParentless(t *testing.T) {
+	t.Parallel()
+
+	sessionStub := &sessionUsecaseStub{
+		startEvent: model.EventOf(
+			types.EventID("event-parentless"),
+			types.EventKindSessionStarted,
+			types.Client("cli"),
+			types.Agent("claude/planner"),
+			types.SessionID("session-parentless"),
+			types.Workspace("duck8823/traceary"),
+			"session started",
+			time.Now(),
+		),
+	}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(sessionStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"session", "start", "--client", "cli", "--agent", "claude/planner", "--workspace", "duck8823/traceary"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got := sessionStub.startCall.parentSessionID; got != "" {
+		t.Fatalf("parentSessionID = %q, want empty for explicit CLI start", got)
+	}
+}
+
 func TestRootCLI_SessionStartCommand_IdOnly(t *testing.T) {
 	t.Parallel()
 

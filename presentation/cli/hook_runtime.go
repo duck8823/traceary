@@ -256,6 +256,13 @@ func (c *RootCLI) runHookSession(
 		}
 		sessionID := types.SessionID(hookPayloadString(payload, "session_id", ""))
 		parentSessionID := types.SessionID(strings.TrimSpace(os.Getenv("TRACEARY_PARENT_SESSION_ID")))
+		if parentSessionID == "" {
+			inferredParentSessionID, inferErr := c.inferHookParentSessionID(ctx, payload, client, agent, workspace)
+			if inferErr != nil {
+				return inferErr
+			}
+			parentSessionID = inferredParentSessionID
+		}
 		event, err := c.session.Start(ctx, types.Client("hook"), agent, sessionID, workspace, parentSessionID)
 		if err != nil {
 			return xerrors.Errorf("failed to record hook session start: %w", err)
@@ -1104,6 +1111,63 @@ func resolveHookAgent(client string, payload []byte) (types.Agent, error) {
 	}
 
 	return agent, nil
+}
+
+func (c *RootCLI) inferHookParentSessionID(ctx context.Context, payload []byte, client string, agent types.Agent, workspace types.Workspace) (types.SessionID, error) {
+	if !hookParentSessionInferenceEnabled() || !isPlausibleSubagentStart(payload, agent) {
+		return "", nil
+	}
+	active, err := c.session.Active(ctx, apptypes.NewSessionLookupCriteriaBuilder().
+		Client(types.Client("hook")).
+		Workspace(workspace).
+		Build())
+	if err != nil {
+		return "", xerrors.Errorf("failed to infer parent session: %w", err)
+	}
+	activeEvent, ok := active.Value()
+	if !ok || activeEvent.SessionID() == "" {
+		return "", nil
+	}
+	searchStartSessionID := hookParentInferenceSearchStartSessionID(activeEvent.SessionID())
+	activeSubagent, err := findHookDeepestLatestActiveSubagentState(client, searchStartSessionID)
+	if err != nil {
+		return "", err
+	}
+	if activeSubagent.ParentSessionID == "" {
+		return "", nil
+	}
+	return activeSubagent.ParentSessionID, nil
+}
+
+func hookParentInferenceSearchStartSessionID(sessionID types.SessionID) types.SessionID {
+	value := strings.TrimSpace(sessionID.String())
+	if value == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(value, ":sub:"); idx > 0 {
+		return types.SessionID(value[:idx])
+	}
+	return sessionID
+}
+
+func hookParentSessionInferenceEnabled() bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv("TRACEARY_INFER_PARENT_SESSION")))
+	switch value {
+	case "0", "false", "no", "off", "disabled":
+		return false
+	default:
+		return true
+	}
+}
+
+func isPlausibleSubagentStart(payload []byte, agent types.Agent) bool {
+	if strings.TrimSpace(hookPayloadString(payload, "agent_type", "")) != "" ||
+		strings.TrimSpace(hookPayloadString(payload, "subagent_type", "")) != "" ||
+		strings.TrimSpace(hookPayloadString(payload, "tool_input.subagent_type", "")) != "" {
+		return true
+	}
+	parts := strings.Split(strings.TrimSpace(agent.String()), "/")
+	return len(parts) > 1 && strings.TrimSpace(parts[len(parts)-1]) != ""
 }
 
 func resolveHookSessionID(payload []byte, client string) (types.SessionID, error) {

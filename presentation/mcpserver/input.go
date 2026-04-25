@@ -52,6 +52,8 @@ type sessionActionInput struct {
 	Agent               string `json:"agent,omitempty" jsonschema:"actor name or filter"`
 	SessionID           string `json:"session_id,omitempty" jsonschema:"session identifier"`
 	Workspace           string `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
+	ParentSessionID     string `json:"parent_session_id,omitempty" jsonschema:"parent session identifier for sub-agent sessions"`
+	InferParentSession  *bool  `json:"infer_parent_session,omitempty" jsonschema:"infer parent from the active session when parent_session_id is omitted (default: true for MCP starts)"`
 	AllowStale          bool   `json:"allow_stale,omitempty" jsonschema:"allow stale active sessions"`
 	StaleAfterSeconds   int    `json:"stale_after_seconds,omitempty" jsonschema:"mark active sessions older than this many seconds as stale"`
 	RecentCommandsLimit *int   `json:"recent_commands_limit,omitempty" jsonschema:"maximum recent commands to include"`
@@ -76,10 +78,12 @@ type recordEventInput struct {
 
 // startSessionInput is the MCP input for the start_session tool.
 type startSessionInput struct {
-	Client    string `json:"client,omitempty" jsonschema:"recording channel (default: mcp)"`
-	Agent     string `json:"agent,omitempty" jsonschema:"actor name (default: manual)"`
-	SessionID string `json:"session_id,omitempty" jsonschema:"session identifier (auto-generates when omitted)"`
-	Workspace string `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
+	Client             string `json:"client,omitempty" jsonschema:"recording channel (default: mcp)"`
+	Agent              string `json:"agent,omitempty" jsonschema:"actor name (default: manual)"`
+	SessionID          string `json:"session_id,omitempty" jsonschema:"session identifier (auto-generates when omitted)"`
+	Workspace          string `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
+	ParentSessionID    string `json:"parent_session_id,omitempty" jsonschema:"parent session identifier for sub-agent sessions"`
+	InferParentSession *bool  `json:"infer_parent_session,omitempty" jsonschema:"infer parent from the active session when parent_session_id is omitted (default: true)"`
 }
 
 // endSessionInput is the MCP input for the end_session tool.

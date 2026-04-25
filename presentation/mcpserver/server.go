@@ -292,7 +292,7 @@ func (s *Server) manageSession() mcp.ToolHandlerFor[sessionActionInput, sessionE
 	return func(ctx context.Context, req *mcp.CallToolRequest, input sessionActionInput) (*mcp.CallToolResult, sessionEventOutput, error) {
 		switch strings.ToLower(strings.TrimSpace(input.Action)) {
 		case "start":
-			return s.startSession()(ctx, req, startSessionInput{Client: input.Client, Agent: input.Agent, SessionID: input.SessionID, Workspace: input.Workspace})
+			return s.startSession()(ctx, req, startSessionInput{Client: input.Client, Agent: input.Agent, SessionID: input.SessionID, Workspace: input.Workspace, ParentSessionID: input.ParentSessionID, InferParentSession: input.InferParentSession})
 		case "end":
 			if strings.TrimSpace(input.SessionID) == "" {
 				return nil, sessionEventOutput{}, xerrors.Errorf("manage_session action end requires session_id")
@@ -369,12 +369,25 @@ func (s *Server) recordEvent() mcp.ToolHandlerFor[recordEventInput, recordEventO
 
 func (s *Server) startSession() mcp.ToolHandlerFor[startSessionInput, sessionEventOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input startSessionInput) (*mcp.CallToolResult, sessionEventOutput, error) {
+		client := types.Client(resolveValue(input.Client, defaultClientValue))
+		agent := types.Agent(resolveValue(input.Agent, defaultAgentValue))
+		workspace := types.Workspace(strings.TrimSpace(input.Workspace))
+		sessionID := types.SessionID(strings.TrimSpace(input.SessionID))
+		parentSessionID := types.SessionID(strings.TrimSpace(input.ParentSessionID))
+		if parentSessionID == "" && mcpParentSessionInferenceEnabled(input.InferParentSession) && isPlausibleMCPSubagent(agent) {
+			inferredParentSessionID, inferErr := s.inferMCPParentSessionID(ctx, client, workspace, sessionID)
+			if inferErr != nil {
+				return nil, sessionEventOutput{}, inferErr
+			}
+			parentSessionID = inferredParentSessionID
+		}
+
 		event, err := s.session.Start(ctx,
-			types.Client(resolveValue(input.Client, defaultClientValue)),
-			types.Agent(resolveValue(input.Agent, defaultAgentValue)),
-			types.SessionID(strings.TrimSpace(input.SessionID)),
-			types.Workspace(strings.TrimSpace(input.Workspace)),
-			types.SessionID(""), // no parent session
+			client,
+			agent,
+			sessionID,
+			workspace,
+			parentSessionID,
 		)
 		if err != nil {
 			return nil, sessionEventOutput{}, xerrors.Errorf("failed to record session start: %w", err)
@@ -382,6 +395,30 @@ func (s *Server) startSession() mcp.ToolHandlerFor[startSessionInput, sessionEve
 
 		return nil, newSessionEventOutput(event), nil
 	}
+}
+
+func (s *Server) inferMCPParentSessionID(ctx context.Context, client types.Client, workspace types.Workspace, childSessionID types.SessionID) (types.SessionID, error) {
+	active, err := s.session.Active(ctx, apptypes.NewSessionLookupCriteriaBuilder().Client(client).Workspace(workspace).Build())
+	if err != nil {
+		return "", xerrors.Errorf("failed to infer parent session: %w", err)
+	}
+	activeEvent, ok := active.Value()
+	if !ok || activeEvent.SessionID() == "" || activeEvent.SessionID() == childSessionID {
+		return "", nil
+	}
+	return activeEvent.SessionID(), nil
+}
+
+func mcpParentSessionInferenceEnabled(value *bool) bool {
+	if value == nil {
+		return true
+	}
+	return *value
+}
+
+func isPlausibleMCPSubagent(agent types.Agent) bool {
+	parts := strings.Split(strings.TrimSpace(agent.String()), "/")
+	return len(parts) > 1 && strings.TrimSpace(parts[len(parts)-1]) != ""
 }
 
 func (s *Server) endSession() mcp.ToolHandlerFor[endSessionInput, sessionEventOutput] {
