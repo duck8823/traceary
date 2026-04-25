@@ -419,9 +419,7 @@ func TestDoctor_JSON_Golden(t *testing.T) {
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"doctor", "--db-path", "/tmp/test-traceary.db", "--client", "codex", "--project-dir", projectDir, "--json"})
 
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
+	executeDoctorAllowWarnings(t, rootCmd)
 
 	assertJSONGolden(t, stdout.Bytes(), filepath.Join("testdata", "doctor", "default.golden.json"))
 }

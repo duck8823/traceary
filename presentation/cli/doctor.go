@@ -22,19 +22,47 @@ const (
 	doctorStatusWarn = "warn"
 	doctorStatusFail = "fail"
 	doctorStatusSkip = "skip"
+
+	doctorSeverityPass = "PASS"
+	doctorSeverityWarn = "WARN"
+	doctorSeverityFail = "FAIL"
 )
 
 type doctorCheck struct {
-	Name    string `json:"name"`
-	Status  string `json:"status"`
-	Message string `json:"message"`
+	Name     string `json:"name"`
+	Status   string `json:"status"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+	Hint     string `json:"hint"`
+}
+
+type doctorSection struct {
+	Name   string        `json:"name"`
+	Checks []doctorCheck `json:"checks"`
+}
+
+type doctorSummary struct {
+	Pass int `json:"pass"`
+	Warn int `json:"warn"`
+	Fail int `json:"fail"`
 }
 
 type doctorReport struct {
-	DBPath  string        `json:"db_path"`
-	Clients []string      `json:"clients"`
-	Checks  []doctorCheck `json:"checks"`
+	DBPath   string          `json:"db_path"`
+	Clients  []string        `json:"clients"`
+	Checks   []doctorCheck   `json:"checks"`
+	Sections []doctorSection `json:"sections"`
+	Summary  doctorSummary   `json:"summary"`
+	ExitCode int             `json:"exit_code"`
 }
+
+type doctorExitError struct {
+	message  string
+	exitCode int
+}
+
+func (e doctorExitError) Error() string { return e.message }
+func (e doctorExitError) ExitCode() int { return e.exitCode }
 
 func (c *RootCLI) newDoctorCommand() *cobra.Command {
 	var (
@@ -79,8 +107,12 @@ func (c *RootCLI) runDoctor(ctx context.Context, output io.Writer, input doctorC
 	if err := writeDoctorReport(output, report, input.asJSON); err != nil {
 		return err
 	}
-	if reportHasFailures(report) {
-		return xerrors.Errorf(Localize("doctor found failing checks", "doctor で失敗したチェックがあります"))
+	if report.ExitCode != 0 {
+		message := Localize("doctor found warning checks", "doctor で警告のチェックがあります")
+		if report.ExitCode == 1 {
+			message = Localize("doctor found failing checks", "doctor で失敗したチェックがあります")
+		}
+		return doctorExitError{message: message, exitCode: report.ExitCode}
 	}
 
 	return nil
@@ -96,6 +128,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		Clients: resolvedClients,
 		Checks:  make([]doctorCheck, 0, 8),
 	}
+	defer finalizeDoctorReport(report)
 
 	resolvedDBPath, err := resolveDBPath(input.dbPath)
 	if err != nil {
@@ -758,6 +791,7 @@ func writeDoctorReport(output io.Writer, report *doctorReport, asJSON bool) erro
 	if report == nil {
 		return xerrors.Errorf(Localize("doctor report must not be nil", "doctor report は nil にできません"))
 	}
+	finalizeDoctorReport(report)
 
 	if asJSON {
 		return writeJSON(output, report)
@@ -771,25 +805,107 @@ func writeDoctorReport(output io.Writer, report *doctorReport, asJSON bool) erro
 			return xerrors.Errorf("%s: %w", Localize("failed to print DB path", "DB パスの出力に失敗しました"), err)
 		}
 	}
-	for _, check := range report.Checks {
-		if _, err := fmt.Fprintf(output, "[%s] %s: %s\n", strings.ToUpper(check.Status), check.Name, check.Message); err != nil {
-			return xerrors.Errorf("%s: %w", Localize("failed to print doctor check", "doctor チェックの出力に失敗しました"), err)
+	if _, err := fmt.Fprintf(output, "SUMMARY: pass=%d warn=%d fail=%d exit_code=%d\n", report.Summary.Pass, report.Summary.Warn, report.Summary.Fail, report.ExitCode); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print doctor summary", "doctor サマリーの出力に失敗しました"), err)
+	}
+	for _, section := range report.Sections {
+		if len(section.Checks) == 0 {
+			continue
+		}
+		if _, err := fmt.Fprintf(output, "\n%s\n", section.Name); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print doctor section", "doctor セクションの出力に失敗しました"), err)
+		}
+		for _, check := range section.Checks {
+			if _, err := fmt.Fprintf(output, "[%s] %s: %s\n", check.Severity, check.Name, check.Message); err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to print doctor check", "doctor チェックの出力に失敗しました"), err)
+			}
+			if check.Hint != "" {
+				if _, err := fmt.Fprintf(output, "  hint: %s\n", check.Hint); err != nil {
+					return xerrors.Errorf("%s: %w", Localize("failed to print doctor check hint", "doctor チェックヒントの出力に失敗しました"), err)
+				}
+			}
 		}
 	}
 
 	return nil
 }
 
-func reportHasFailures(report *doctorReport) bool {
+func finalizeDoctorReport(report *doctorReport) {
 	if report == nil {
-		return false
+		return
 	}
-
+	for i := range report.Checks {
+		applyDoctorSeverity(&report.Checks[i])
+	}
+	report.Summary = doctorSummary{}
 	for _, check := range report.Checks {
-		if check.Status == doctorStatusFail {
-			return true
+		switch check.Severity {
+		case doctorSeverityFail:
+			report.Summary.Fail++
+		case doctorSeverityWarn:
+			report.Summary.Warn++
+		default:
+			report.Summary.Pass++
 		}
 	}
+	switch {
+	case report.Summary.Fail > 0:
+		report.ExitCode = 1
+	case report.Summary.Warn > 0:
+		report.ExitCode = 2
+	default:
+		report.ExitCode = 0
+	}
+	report.Sections = buildDoctorSections(report.Checks)
+}
 
-	return false
+func applyDoctorSeverity(check *doctorCheck) {
+	if check == nil {
+		return
+	}
+	if check.Status == "" {
+		check.Status = doctorStatusPass
+	}
+	switch check.Status {
+	case doctorStatusFail:
+		check.Severity = doctorSeverityFail
+	case doctorStatusWarn:
+		check.Severity = doctorSeverityWarn
+	default:
+		check.Severity = doctorSeverityPass
+	}
+}
+
+func buildDoctorSections(checks []doctorCheck) []doctorSection {
+	sections := []doctorSection{
+		{Name: "Environment", Checks: []doctorCheck{}},
+		{Name: "Database", Checks: []doctorCheck{}},
+		{Name: "Plugins", Checks: []doctorCheck{}},
+		{Name: "MCP", Checks: []doctorCheck{}},
+		{Name: "Hooks", Checks: []doctorCheck{}},
+	}
+	index := map[string]int{}
+	for i, section := range sections {
+		index[section.Name] = i
+	}
+	for _, check := range checks {
+		sectionName := doctorSectionNameForCheck(check.Name)
+		sections[index[sectionName]].Checks = append(sections[index[sectionName]].Checks, check)
+	}
+	return sections
+}
+
+func doctorSectionNameForCheck(name string) string {
+	switch {
+	case name == "db-path" || name == "db-write":
+		return "Database"
+	case name == "config" || name == "project-dir" || name == "version":
+		return "Environment"
+	case strings.Contains(name, "plugin"):
+		return "Plugins"
+	case strings.HasSuffix(name, "-host-capabilities") || strings.HasPrefix(name, "mcp"):
+		return "MCP"
+	default:
+		return "Hooks"
+	}
 }

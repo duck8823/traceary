@@ -253,9 +253,7 @@ func runDoctorForClient(t *testing.T, client, projectDir string) doctorReport {
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"doctor", "--client", client, "--project-dir", projectDir, "--json"})
 
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
+	executeDoctorAllowWarnings(t, rootCmd)
 	return decodeDoctorReport(t, stdout.Bytes())
 }
 
@@ -376,9 +374,7 @@ func runDoctor(t *testing.T, projectDir string) doctorReport {
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"doctor", "--client", "claude", "--project-dir", projectDir, "--json"})
 
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
+	executeDoctorAllowWarnings(t, rootCmd)
 	return decodeDoctorReport(t, stdout.Bytes())
 }
 
