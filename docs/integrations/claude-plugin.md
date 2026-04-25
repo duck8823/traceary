@@ -25,36 +25,36 @@ GO111MODULE=on go install github.com/duck8823/traceary@latest
 2. Add this repository as a Claude marketplace.
 
 ```sh
-claude plugins marketplace add https://github.com/duck8823/traceary
+/plugin marketplace add duck8823/traceary
 ```
 
 3. Install the Traceary plugin from that marketplace.
 
 ```sh
-claude plugins install traceary@traceary-plugins --scope user
+/plugin install traceary
 ```
 
-Use `--scope project` or `--scope local` when you do not want a user-wide install.
+Run these commands inside Claude Code. Project/local scoping is controlled by Claude Code during the `/plugin install` flow.
 
 ## Update
 
 ```sh
-claude plugins marketplace update traceary-plugins
-claude plugins update traceary@traceary-plugins
+/plugin marketplace update traceary-plugins
+/plugin update traceary
 ```
 
-> **Important**: `brew upgrade traceary` refreshes the CLI binary but **does not touch the Claude plugin cache**. When new Traceary releases add hooks (for example the v0.8 transcript and built-in-tool matcher hooks), you must also run `claude plugins update traceary@traceary-plugins` before the newer hooks become active in a running Claude Code session. `traceary doctor --client claude` now surfaces a `claude-plugin-cache` check that warns when the cached version is behind the marketplace manifest.
+> **Important**: `brew upgrade traceary` refreshes the CLI binary but **does not touch the Claude plugin cache**. When new Traceary releases add hooks (for example the v0.8 transcript and built-in-tool matcher hooks), you must also run `/plugin update traceary` before the newer hooks become active in a running Claude Code session. `traceary doctor --client claude` now surfaces a `claude-plugin-cache` check that warns when the cached version is behind the marketplace manifest.
 
 ## Uninstall
 
 ```sh
-claude plugins uninstall traceary@traceary-plugins
+/plugin uninstall traceary
 ```
 
 If you no longer need the marketplace at all:
 
 ```sh
-claude plugins marketplace remove traceary-plugins
+/plugin marketplace remove traceary-plugins
 ```
 
 ## When the plugin is installed, `hooks install` is not needed

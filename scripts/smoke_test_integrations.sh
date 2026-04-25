@@ -11,16 +11,13 @@ run_claude() {
     return 0
   }
 
-  local tmp_home tmp_workdir
+  local tmp_home
   tmp_home="$(mktemp -d)"
-  tmp_workdir="$(mktemp -d)"
   HOME="${tmp_home}" claude plugins validate "${ROOT_DIR}/.claude-plugin/marketplace.json"
   HOME="${tmp_home}" claude plugins validate "${ROOT_DIR}/integrations/claude-plugin"
-  HOME="${tmp_home}" claude plugins marketplace add "${ROOT_DIR}"
-  HOME="${tmp_home}" claude plugins install traceary@traceary-plugins --scope local
-  HOME="${tmp_home}" claude plugins list | grep -q 'traceary@traceary-plugins'
-  rm -rf "${tmp_home}" "${tmp_workdir}"
-  echo 'ok: claude smoke test passed'
+  rm -rf "${tmp_home}"
+  echo 'ok: claude package validation passed'
+  echo 'manual runtime probe: in a clean Claude Code profile, run /plugin marketplace add duck8823/traceary, then /plugin install traceary, then traceary doctor --client claude --json'
 }
 
 run_gemini() {

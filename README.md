@@ -62,8 +62,8 @@ See the [release guide](./docs/release/README.md) for packaging details.
 **Claude Code** ([guide](./docs/integrations/claude-plugin.md))
 
 ```sh
-claude plugins marketplace add https://github.com/duck8823/traceary
-claude plugins install traceary@traceary-plugins --scope user
+/plugin marketplace add duck8823/traceary
+/plugin install traceary
 ```
 
 **Codex** ([guide](./docs/integrations/codex-plugin.md))
