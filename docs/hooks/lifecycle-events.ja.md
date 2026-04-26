@@ -31,7 +31,7 @@
 ### `prompt`
 
 - ユーザの指示を redact 後そのまま記録。`traceary timeline` / `traceary search` / L2 `get_context` の本体に出る。
-- 現状 Claude Code と Codex CLI のみ発行。Gemini CLI は prompt 相当の hook を公開していない。
+- 現状 Claude Code と Codex CLI のみ発行。Gemini CLI は prompt 相当の hook を公開していない（[host-coverage.ja.md](./host-coverage.ja.md) 参照）。
 - Body marker なし（生テキスト）。アシスタント側は `transcript` と区別する。
 
 ### `command_executed`
@@ -59,11 +59,12 @@
 ### `session_ended`
 
 - `sessions` 行の終了境界として記録される。
-- Claude / Gemini は専用の `SessionEnd` を持つ。Codex は `SessionEnd` を公開していないため `Stop` で代用。
+- Claude / Gemini は専用の `SessionEnd` を持つ。Codex は `SessionEnd` を公開していないため `Stop` で代用（[host-coverage.ja.md](./host-coverage.ja.md) 参照）。
 - best-effort: ホストが hook を発火させずに終了するケース（kill -9、シェルクラッシュ）もあり、dangling session は L2 reconciliation で吸収する。
 
 ## 関連ドキュメント
 
 - [Event Lifecycle](../lifecycle.ja.md) — クライアント別 hook → event mapping。
 - [Hook Contract](./contract.ja.md) — capability tier (Tier 1 / 2 / 3)。
+- [ホスト hook 対応マトリクス](./host-coverage.ja.md) — host ごとの wired / available / unsupported。
 - [Memory layers](../memory/README.ja.md) — これらのイベントが L1 / L2 / L3 に流れる構造。
