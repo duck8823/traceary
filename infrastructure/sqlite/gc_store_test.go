@@ -362,6 +362,45 @@ func TestDatasource_CollectGarbage_deletesStaleExtractedCandidatesAfter14d(t *te
 	assertNoForeignKeyViolations(t, db)
 }
 
+// TestDatasource_CollectGarbage_clearsSupersedesRefBeforeDeletingStaleExtractedCandidate
+// verifies that an unusual graph in which a manual memory supersedes
+// an auto-extracted candidate does not trip a foreign-key violation
+// when the candidate ages out under the 14-day rule.
+func TestDatasource_CollectGarbage_clearsSupersedesRefBeforeDeletingStaleExtractedCandidate(t *testing.T) {
+	t.Parallel()
+
+	dbPath, storeManager := prepareRetentionFixture(t)
+	db := openRetentionDB(t, dbPath)
+	defer func() { _ = db.Close() }()
+
+	now := time.Now().UTC()
+	stale := now.Add(-30 * 24 * time.Hour).Format(time.RFC3339Nano)
+
+	insertRetentionMemoryWithSource(t, db, "stale-extracted", "candidate", "extracted", "", stale)
+	// Manual memory points at the stale extracted candidate via
+	// supersedes_memory_id. The clearing pass must NULL the link
+	// before the delete fires.
+	insertRetentionMemoryWithSource(t, db, "manual-pointer", "accepted", "manual", "stale-extracted", stale)
+
+	if _, err := storeManager.CollectGarbage(
+		context.Background(),
+		time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		apptypes.GarbageCollectionTargetMemories,
+		false,
+	); err != nil {
+		t.Fatalf("CollectGarbage() error = %v", err)
+	}
+	assertRetentionIDs(t, db, "memories", "id", []string{"manual-pointer"})
+	assertNoForeignKeyViolations(t, db)
+	var supersedes sql.NullString
+	if err := db.QueryRow(`SELECT supersedes_memory_id FROM memories WHERE id = 'manual-pointer'`).Scan(&supersedes); err != nil {
+		t.Fatalf("query supersedes_memory_id: %v", err)
+	}
+	if supersedes.Valid {
+		t.Fatalf("supersedes_memory_id = %q, want NULL after deleting referenced extracted candidate", supersedes.String)
+	}
+}
+
 func TestDatasource_CollectGarbage_deletesOldClosedMemoryEdges(t *testing.T) {
 	t.Parallel()
 

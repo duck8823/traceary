@@ -34,6 +34,9 @@ var deleteOldMemoriesQuery string
 //go:embed sql/delete_stale_extracted_candidates.sql
 var deleteStaleExtractedCandidatesQuery string
 
+//go:embed sql/clear_stale_extracted_candidate_supersedes_refs.sql
+var clearStaleExtractedCandidateSupersedesRefsQuery string
+
 // staleExtractedCandidateRetention is the fixed retention window
 // applied to candidate memories with `source IN (extracted,
 // extracted-hidden)`. The default operator-controlled cutoff
@@ -290,6 +293,13 @@ func (d *StoreManagementDatasource) collectGarbageInTx(
 		// operator-controlled cutoff because these rows are best-effort
 		// signal, not curated facts. See #810/#832.
 		extractedCutoff := formatTimestamp(time.Now().Add(-staleExtractedCandidateRetention))
+		// Clear supersedes_memory_id references that point at stale
+		// extracted candidates first so the subsequent delete cannot
+		// trip a foreign-key constraint when an unusual operator
+		// graph references one of these candidates.
+		if _, err := tx.ExecContext(ctx, clearStaleExtractedCandidateSupersedesRefsQuery, extractedCutoff); err != nil {
+			return 0, xerrors.Errorf("failed to clear stale extracted candidate supersedes references: %w", err)
+		}
 		extractedCount, err := execRowsAffected(ctx, tx, deleteStaleExtractedCandidatesQuery, extractedCutoff)
 		if err != nil {
 			return 0, xerrors.Errorf("failed to delete stale extracted candidates: %w", err)
