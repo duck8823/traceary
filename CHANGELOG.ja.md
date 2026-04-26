@@ -5,6 +5,26 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.11.0] - 2026-04-27
+
+### Added
+- **lifecycle 観測ドキュメント (#817, #818)** — `docs/hooks/lifecycle-events.md` と `docs/hooks/host-coverage.md` (en+ja) を新設し、6 つの lifecycle event kind と host 別 wiring matrix を整理しました。
+- **hook 駆動 L2/L3 memory pipeline (#825, #826, #829, #831)** — Claude `PreCompact` の summary を `sessions.summary` に sync し、subagent-stop / session-end hook が `source=extracted` / `status=candidate` の memory を auto-extract、`handoff` と `get_context` の payload に candidate を status marker 付きで含めるようになりました。
+- **品質フィルタ + extracted-hidden 可視性 (#831, #833)** — auto-extract された candidate を文字長ヒューリスティック (Latin 20 / CJK 10 runes、artifact 系は除外) でフィルタし、新規 `extracted-hidden` source は store には残しつつデフォルトでは表示しません。CLI / MCP search ともデフォルトでは `extracted-hidden` を除外し、明示時のみ含めます。
+- **14 日経過した stale candidate の自動 expire (#834)** — gc が 14 日以上前の `extracted-hidden` candidate を削除します。FK 制約を壊さないよう、`supersedes_memory_id` で参照している側を先に NULL 化します。
+- **SKILL 再定義 (#821, #822)** — `traceary-memory-review` (review/inbox/recap 専用) と `traceary-memory-remember` (明示要請時の write 専用) を 3 ホストすべてに同梱し、旧 `traceary-memory-capture` を deprecate しました。
+- **Gemini lifecycle wiring (#819, #820)** — Gemini CLI で `BeforeAgent` を `prompt` event 源に、`PreCompress` を `compact_summary` marker に配線しました。
+- **日次 host hook drift check (#828)** — `docs/operations/scheduled-tasks.md` に、上流 host hook reference と `host-coverage.md` の日次 diff を `/schedule` で回す手順を記載しました。
+- **memory モデル docs (#823, #824, #827)** — README を 3 層モデル表現に揃え、`candidate` status の表記を統一、`evidence_refs` / `artifact_refs` の kind enum を公開しました。
+
+### Changed
+- **`traceary top` の East Asian Wide 文字対応 (#836)** — `top` / `event_text_formatter` / timeline padding の column 計算を rune count から runewidth ベースに置き換えました。host locale の差で結果が変わらないよう、init 時に `runewidth.DefaultCondition.EastAsianWidth` を narrow に固定しています。
+- **MCP body truncation (#837)** — `list_events` / `get_context` / `search` で event body を default 500 runes で truncate し、`body_truncated` / `body_length` marker と `body_limit` / `full_body=true` の override を追加しました。truncate 時には `body_blocks` を出さず、再取得は同じ呼び出しに `full_body=true` を付ける指示を schema に明記しています。
+
+### Notes
+- Codex CLI の `compact_summary` は upstream openai/codex#16098 が未着地のため v0.11.0 でも未対応です。
+- v0.11.0 は minor release: schema 変更なし、JSON contract の追加のみです。
+
 ## [v0.10.3] - 2026-04-26
 
 ### Breaking changes
