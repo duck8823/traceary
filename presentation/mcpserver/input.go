@@ -129,6 +129,8 @@ type searchInput struct {
 	From      string `json:"from,omitempty" jsonschema:"start time (YYYY-MM-DD or RFC3339)"`
 	To        string `json:"to,omitempty" jsonschema:"end time (YYYY-MM-DD or RFC3339)"`
 	Limit     int    `json:"limit,omitempty" jsonschema:"result limit (default: 20)"`
+	BodyLimit int    `json:"body_limit,omitempty" jsonschema:"truncate event body to this many runes; default 500. Set to 0 or pass full_body=true to disable truncation."`
+	FullBody  bool   `json:"full_body,omitempty" jsonschema:"return the full body even when it is long. Equivalent to body_limit=0"`
 }
 
 // getContextInput is the MCP input for the get_context tool.

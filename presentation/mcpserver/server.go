@@ -623,7 +623,7 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 		// not re-exposed through this surface — #682 strips thinking
 		// from the LIKE match, but the envelope is still attached to
 		// the returned event and body_blocks would bypass the gate.
-		return nil, eventsOutput{Events: convertEventsWithoutBlocks(events)}, nil
+		return nil, eventsOutput{Events: convertEventsWithoutBlocksWithBodyLimit(events, resolveBodyLimit(input.BodyLimit, input.FullBody))}, nil
 	}
 }
 
@@ -1678,14 +1678,9 @@ func convertEventsWithBodyLimit(events []*model.Event, bodyLimit int) []eventOut
 	return convertEventsInternal(events, true, bodyLimit)
 }
 
-// convertEventsWithoutBlocks serializes events for MCP search at the
-// default body limit. search has no caller-tunable body limit today.
-func convertEventsWithoutBlocks(events []*model.Event) []eventOutput {
-	return convertEventsInternal(events, false, defaultListEventBodyLimit)
-}
-
-// convertEventsWithoutBlocksWithBodyLimit is the explicit-limit variant
-// for surfaces that omit body_blocks (search / get_context).
+// convertEventsWithoutBlocksWithBodyLimit serializes events for MCP
+// search / get_context. body_blocks is always omitted on these
+// surfaces so thinking-block text does not leak through (#682).
 func convertEventsWithoutBlocksWithBodyLimit(events []*model.Event, bodyLimit int) []eventOutput {
 	return convertEventsInternal(events, false, bodyLimit)
 }
@@ -1693,10 +1688,6 @@ func convertEventsWithoutBlocksWithBodyLimit(events []*model.Event, bodyLimit in
 func convertEventsInternal(events []*model.Event, includeBlocks bool, bodyLimit int) []eventOutput {
 	outputs := make([]eventOutput, 0, len(events))
 	for _, event := range events {
-		var blocks []apptypes.EventBodyBlock
-		if includeBlocks {
-			blocks, _ = apptypes.DecodeCanonicalEnvelope(event.Body())
-		}
 		body := apptypes.ExtractPlainBody(event.Body())
 		truncated := false
 		fullLen := 0
@@ -1707,6 +1698,16 @@ func convertEventsInternal(events []*model.Event, includeBlocks bool, bodyLimit 
 				fullLen = len(runes)
 				body = string(runes[:bodyLimit]) + "…"
 			}
+		}
+		// body_blocks duplicates the canonical envelope inline. When
+		// the plain-text body is truncated, returning the full
+		// envelope here would defeat the token-saving intent of the
+		// truncation. Drop body_blocks for truncated rows; callers
+		// who need the canonical structure pass full_body=true.
+		// See #799.
+		var blocks []apptypes.EventBodyBlock
+		if includeBlocks && !truncated {
+			blocks, _ = apptypes.DecodeCanonicalEnvelope(event.Body())
 		}
 		outputs = append(outputs, eventOutput{
 			EventID:       event.EventID().String(),
