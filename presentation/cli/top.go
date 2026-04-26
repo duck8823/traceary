@@ -6,9 +6,9 @@ import (
 	"io"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/mattn/go-runewidth"
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
@@ -295,17 +295,41 @@ const topWorkspaceMaxWidth = 36
 // Unlike compactWorkspace (basename only), top needs to keep the
 // owner/repo qualifier so users can tell parallel sessions apart, so
 // this preserves the tail and prepends an ellipsis when the value is
-// longer than topWorkspaceMaxWidth runes.
+// wider than topWorkspaceMaxWidth columns. The budget is measured in
+// visual columns (East Asian Wide characters count as 2) so a
+// CJK-heavy workspace does not overflow the cell.
 func compactTopWorkspace(workspace string) string {
 	normalized := normalizeTabularColumn(workspace)
 	if normalized == "" {
 		return "-"
 	}
-	runes := []rune(normalized)
-	if len(runes) <= topWorkspaceMaxWidth {
+	if runewidth.StringWidth(normalized) <= topWorkspaceMaxWidth {
 		return normalized
 	}
-	return "…" + string(runes[len(runes)-(topWorkspaceMaxWidth-1):])
+	// Truncate from the head while keeping the tail (repo identifier)
+	// readable. Walk runes right-to-left until adding another rune
+	// would push us past the column budget. The leading "…" itself
+	// claims a variable number of columns (1 in most fonts, 2 under
+	// East Asian Ambiguous width); reserve that many columns from
+	// the budget.
+	const ellipsis = '…'
+	ellipsisWidth := runewidth.RuneWidth(ellipsis)
+	budget := topWorkspaceMaxWidth - ellipsisWidth
+	if budget < 0 {
+		budget = 0
+	}
+	runes := []rune(normalized)
+	width := 0
+	cut := len(runes)
+	for i := len(runes) - 1; i >= 0; i-- {
+		w := runewidth.RuneWidth(runes[i])
+		if width+w > budget {
+			break
+		}
+		width += w
+		cut = i
+	}
+	return string(ellipsis) + string(runes[cut:])
 }
 
 func formatTopLatestEvent(s apptypes.SessionSummary) string {
@@ -440,16 +464,29 @@ func drawString(screen tcell.Screen, x, y, maxWidth int, style tcell.Style, text
 	}
 	col := x
 	for _, r := range text {
-		if col-x >= maxWidth {
+		w := runewidth.RuneWidth(r)
+		if w == 0 {
+			// Combining marks attach to the previous cell; tcell
+			// itself merges them via SetContent's combining
+			// argument when needed. Skip them at the column level
+			// so the cursor does not stall on zero-width runes.
+			continue
+		}
+		if col-x+w > maxWidth {
 			break
 		}
 		screen.SetContent(col, y, r, nil, style)
-		col++
+		col += w
 	}
 }
 
+// runeWidth returns the visual column width of s, accounting for
+// East Asian Wide characters (CJK ideographs / kana / hangul) that
+// occupy two terminal cells. This replaces the prior rune-count
+// approximation which broke tree-prefix alignment when a workspace
+// or message contained wide characters.
 func runeWidth(s string) int {
-	return utf8.RuneCountInString(s)
+	return runewidth.StringWidth(s)
 }
 
 func formatFilterValue(value string) string {
