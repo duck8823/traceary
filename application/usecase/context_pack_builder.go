@@ -188,7 +188,15 @@ func (b *contextPackBuilder) loadMemories(
 		// the same pack shape as before.
 		builder = preset.ApplyToMemoryListCriteriaBuilder(builder)
 	} else {
-		builder = builder.Statuses([]domtypes.MemoryStatus{domtypes.MemoryStatusAccepted})
+		// Default handoff / get_context surface returns both accepted and
+		// candidate memories so the next session sees pending review
+		// items with a status marker rather than only the curated set.
+		// Callers that want strict accepted-only behavior should pass an
+		// explicit preset (resume / review / incident).
+		builder = builder.Statuses([]domtypes.MemoryStatus{
+			domtypes.MemoryStatusAccepted,
+			domtypes.MemoryStatusCandidate,
+		})
 	}
 	if asOfValue, ok := asOf.Value(); ok {
 		builder = builder.AsOf(asOfValue)
