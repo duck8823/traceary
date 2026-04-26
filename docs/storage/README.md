@@ -155,7 +155,7 @@ Target policies:
 
 - `events`: delete rows where `events.created_at < cutoff`; linked `command_audits` cascade via foreign keys.
 - `sessions`: delete ended sessions where `COALESCE(ended_at, started_at) < cutoff` and no surviving events reference the session. Active sessions (`ended_at IS NULL`) are always protected.
-- `memories`: delete only `expired` or `superseded` memories where `updated_at < cutoff`. `accepted`, `proposed`, and other statuses are kept indefinitely unless their status changes. Evidence/artifact refs cascade; `supersedes_memory_id` pointers to deleted rows are cleared first to preserve FK integrity.
+- `memories`: delete only `expired` or `superseded` memories where `updated_at < cutoff`. `accepted`, `candidate`, and other statuses are kept indefinitely unless their status changes. Evidence/artifact refs cascade; `supersedes_memory_id` pointers to deleted rows are cleared first to preserve FK integrity.
 - `memory_edges`: delete closed edges where `valid_to < cutoff`; edges also cascade automatically when either endpoint memory is deleted.
 - `all`: apply the policies in dependency order: events, sessions, memories, then memory_edges.
 

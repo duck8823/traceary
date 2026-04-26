@@ -154,7 +154,7 @@ target ごとの policy:
 
 - `events`: `events.created_at < cutoff` の row を削除します。紐づく `command_audits` は foreign key により cascade されます。
 - `sessions`: `COALESCE(ended_at, started_at) < cutoff` かつ surviving event から参照されていない終了済み session を削除します。active session (`ended_at IS NULL`) は常に保護されます。
-- `memories`: `updated_at < cutoff` の `expired` / `superseded` memory だけを削除します。`accepted`、`proposed`、その他の status は status が変わらない限り無期限に保持します。evidence/artifact ref は cascade され、削除対象を指す `supersedes_memory_id` は FK 整合性維持のため事前に NULL へ更新されます。
+- `memories`: `updated_at < cutoff` の `expired` / `superseded` memory だけを削除します。`accepted`、`candidate`、その他の status は status が変わらない限り無期限に保持します。evidence/artifact ref は cascade され、削除対象を指す `supersedes_memory_id` は FK 整合性維持のため事前に NULL へ更新されます。
 - `memory_edges`: `valid_to < cutoff` の終了済み edge を削除します。endpoint の memory が削除される場合も edge は自動 cascade されます。
 - `all`: events、sessions、memories、memory_edges の順に依存関係を保って適用します。
 

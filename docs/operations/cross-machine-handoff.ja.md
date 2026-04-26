@@ -74,7 +74,7 @@ traceary bundle import --in ~/Downloads/traceary-*.tbun
 
 `bundle import` の既定は `--on-conflict skip` です。送信先にすでに存在する event / memory は skip され (`events_skipped` / `memories_skipped` にカウント)、同じ bundle を何度取り込んでも安全です。`--on-conflict replace` は bundle 側の row で上書きし、`--on-conflict error` は最初の UNIQUE 衝突で失敗して import 全体を rollback します。
 
-Imported memory は proposed trust default を使います。新規 insert される row は、source machine で accepted だった場合でも常に `candidate` として保存されます。memory fact は accept 後に prompt context へ影響するため、別 machine からの import では既存の memory inbox review を必ず通します。既定の `skip` policy では送信先の既存 row は変更しないため、一度ローカルで review / accept した memory が re-import で candidate に戻ることはありません。
+Imported memory は candidate trust default を使います。新規 insert される row は、source machine で accepted だった場合でも常に `candidate` として保存されます。memory fact は accept 後に prompt context へ影響するため、別 machine からの import では既存の memory inbox review を必ず通します。既定の `skip` policy では送信先の既存 row は変更しないため、一度ローカルで review / accept した memory が re-import で candidate に戻ることはありません。
 
 `--missing-parent {reject,skip,backfill}` も受け付けます。これは今後の session parent handling 用で、既定は `reject` です。Memory graph edges は代わりに `--orphan-edges {skip,reject}` を使います。既定は `skip` です。`memories.ndjson` import 後に endpoint が存在しない edge は skip され、`table=memory_edges`、`edge_id`、両 endpoint ID、endpoint 存在 boolean を含む structured warning を出します。`--orphan-edges=reject` は import を中止し、周囲の transaction を rollback します。
 
