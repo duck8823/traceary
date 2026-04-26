@@ -357,6 +357,62 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 	})
 
+	t.Run("session_status lineage tree and handoff do not expose latest event fields", func(t *testing.T) {
+		startResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "manage_session",
+			Arguments: map[string]any{
+				"action":     "start",
+				"session_id": "leak-guard-root",
+				"agent":      "codex",
+				"workspace":  "github.com/duck8823/traceary",
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(manage_session start leak guard root) error = %v", err)
+		}
+		if startResult.IsError {
+			t.Fatalf("CallTool(manage_session start leak guard root) returned tool error")
+		}
+		_, err = clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "record_event",
+			Arguments: map[string]any{
+				"type":       "log",
+				"message":    "latest event should remain internal",
+				"kind":       "note",
+				"agent":      "codex",
+				"session_id": "leak-guard-root",
+				"workspace":  "github.com/duck8823/traceary",
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(record_event leak guard) error = %v", err)
+		}
+
+		for _, action := range []string{"lineage", "tree", "handoff"} {
+			t.Run(action, func(t *testing.T) {
+				result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+					Name: "session_status",
+					Arguments: map[string]any{
+						"action":     action,
+						"session_id": "leak-guard-root",
+					},
+				})
+				if err != nil {
+					t.Fatalf("CallTool(session_status %s) error = %v", action, err)
+				}
+				if result.IsError {
+					t.Fatalf("CallTool(session_status %s) returned tool error", action)
+				}
+
+				if action == "tree" {
+					assertNoLatestEventFieldLeak(t, decodeJSONArrayPayload(t, result))
+					return
+				}
+				assertNoLatestEventFieldLeak(t, decodeJSONPayload(t, result))
+			})
+		}
+	})
+
 	t.Run("session_status tree handles stored cyclic parent links", func(t *testing.T) {
 		startSession := func(sessionID, parentSessionID string) {
 			t.Helper()
@@ -1060,6 +1116,20 @@ func TestServer_BuildAndTools(t *testing.T) {
 			t.Fatalf("CallTool(add_log) IsError = false, want true")
 		}
 	})
+}
+
+func assertNoLatestEventFieldLeak(t *testing.T, payload any) {
+	t.Helper()
+	marshaled, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("json.Marshal(payload) error = %v", err)
+	}
+	body := string(marshaled)
+	for _, forbidden := range []string{"latest_event_kind", "latest_event_message", "latestEventKind", "latestEventMessage"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("payload contains forbidden latest event field %q: %s", forbidden, body)
+		}
+	}
 }
 
 func extractJSONStringValue(t *testing.T, result *mcp.CallToolResult, key string) string {
