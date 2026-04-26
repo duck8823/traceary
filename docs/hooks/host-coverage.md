@@ -20,12 +20,12 @@ Legend:
 | `prompt` | ● `UserPromptSubmit` | ● `UserPromptSubmit` | ● `BeforeAgent` | `traceary list events --kind prompt --limit 5` |
 | `command_executed` | ● `PostToolUse` + `PostToolUseFailure` (Bash, `mcp__.*`, built-in tool matcher) | ● `PostToolUse` | ● `AfterTool` | `traceary list events --kind command_executed --limit 5` |
 | `transcript` | ● `Stop` | ● `Stop` (`last_assistant_message`) | ● `AfterAgent` | `traceary list events --kind transcript --limit 5` |
-| `compact_summary` | ● `PostCompact` (+ `PreCompact` marker, `SessionStart matcher=compact` resume) | ✕ no compact hook in Codex 0.125 (upstream openai/codex#16098) | ○ `PreCompress` exists; no post-compress hook in Gemini 0.36.x (planned wiring in #807 — `PreCompress` marker only) | `traceary list events --kind compact_summary --limit 5` |
+| `compact_summary` | ● `PostCompact` (+ `PreCompact` marker, `SessionStart matcher=compact` resume) | ✕ no compact hook in Codex 0.125 (upstream openai/codex#16098) | ● `PreCompress` (marker only — Gemini exposes no post-compress hook with the resulting summary) | `traceary list events --kind compact_summary --limit 5` |
 | `session_ended` | ● `SessionEnd` | ● `Stop` (best effort — Codex has no dedicated `SessionEnd`) | ● `SessionEnd` | `traceary list events --kind session_ended --limit 5` |
 
 ### Other host hooks Traceary does not wire today
 
-This list excludes hooks that already appear in the lifecycle matrix above (e.g. Gemini `PreCompress` is tracked there for #807).
+This list excludes hooks that already appear in the lifecycle matrix above.
 
 | Host | Hook | Status | Note |
 |---|---|---|---|

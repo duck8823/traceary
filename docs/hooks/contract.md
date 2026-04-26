@@ -41,8 +41,9 @@ This document defines the hook capability tiers across AI agent clients.
 | BeforeAgent | `*` | Record user prompt text (from `prompt`) as a `prompt` event |
 | AfterAgent | `*` | Record the agent response (from `prompt_response`) as a `transcript` event (built-in secret redaction + operator-configured `redact.rules` / `redact.extra_patterns` applied) |
 | AfterTool | `*` | Record tool audit |
+| PreCompress | `*` | Record a `compact_summary` marker (`trigger` field only — Gemini exposes no post-compress digest) |
 
-**Limitations**: No compact hooks (Gemini exposes `PreCompress` only — see #807), no failure-specific event, no PostCompact/SessionStart(compact). Gemini has no Stop event, so transcript capture is attached to `AfterAgent` instead.
+**Limitations**: No post-compress digest (Gemini's `PreCompress` is advisory and fires asynchronously), no failure-specific event, no PostCompact/SessionStart(compact). Gemini has no Stop event, so transcript capture is attached to `AfterAgent` instead.
 
 ## Shared Behavior
 
@@ -82,6 +83,7 @@ runtime under the `<client>-host-capabilities` check.
 | Codex CLI | Memory feature flag (`~/.codex/config.toml`) | opt-in per install | import path `traceary memory import codex` works regardless of the flag — the flag only changes Codex's own capture behaviour |
 | Gemini CLI | `AfterAgent.prompt_response` | wired | persisted as `transcript` event via `traceary hook transcript gemini` on the Gemini `AfterAgent` event (Gemini has no Stop event) |
 | Gemini CLI | `BeforeAgent.prompt` | wired | persisted as `prompt` event via `traceary hook prompt gemini` on the Gemini `BeforeAgent` event (parity with Claude / Codex `UserPromptSubmit`) |
+| Gemini CLI | `PreCompress.trigger` | wired (marker only) | persisted as `compact_summary` event with `source_hook=pre_compact` and the `trigger` value as body via `traceary hook compact gemini pre-compact` (Gemini exposes no post-compress digest) |
 | Gemini CLI 0.38.x | Memory manager agent / auto-memory | preview | Traceary's Tier 3 surface does not yet subscribe to the preview signals |
 
 Operators who want to enable any of the preview features above should
