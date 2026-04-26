@@ -6,6 +6,12 @@ This file summarizes what changed in each Traceary release in chronological orde
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
 
+## [v0.10.3] - 2026-04-26
+
+### Breaking changes
+- **`traceary top --snapshot --json` contract split (#795)** — top snapshot JSON now uses a top-specific contract instead of reusing `traceary session tree --json`. Existing session tree fields remain intact, and top snapshots add `latest_event_kind`, `latest_event_message`, and `latest_event_at` for live dashboard consumers.
+
+
 ## [v0.10.2] - 2026-04-26
 
 ### Fixed
