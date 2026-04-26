@@ -15,6 +15,7 @@ type MemorySearchCriteria struct {
 	scopes         []domtypes.MemoryScope
 	statuses       []domtypes.MemoryStatus
 	memoryTypes    []domtypes.MemoryType
+	sources        []domtypes.MemorySource
 	asOf           domtypes.Optional[time.Time]
 	includeExpired bool
 }
@@ -36,6 +37,9 @@ func (c MemorySearchCriteria) Statuses() []domtypes.MemoryStatus { return slices
 
 // MemoryTypes returns the memory type filters.
 func (c MemorySearchCriteria) MemoryTypes() []domtypes.MemoryType { return slices.Clone(c.memoryTypes) }
+
+// Sources returns the memory source filters.
+func (c MemorySearchCriteria) Sources() []domtypes.MemorySource { return slices.Clone(c.sources) }
 
 // AsOf returns the point-in-time at which validity windows are
 // evaluated. See MemoryListCriteria.AsOf for semantics.
@@ -106,6 +110,12 @@ func (b *MemorySearchCriteriaBuilder) MemoryType(memoryType domtypes.MemoryType)
 // MemoryTypes replaces the memory type filters.
 func (b *MemorySearchCriteriaBuilder) MemoryTypes(memoryTypes []domtypes.MemoryType) *MemorySearchCriteriaBuilder {
 	b.criteria.memoryTypes = slices.Clone(memoryTypes)
+	return b
+}
+
+// Sources replaces the memory source filters.
+func (b *MemorySearchCriteriaBuilder) Sources(sources []domtypes.MemorySource) *MemorySearchCriteriaBuilder {
+	b.criteria.sources = slices.Clone(sources)
 	return b
 }
 

@@ -747,6 +747,17 @@ func (c *RootCLI) runHookSubagentStop(
 		if _, err := c.session.End(ctx, types.Client("hook"), types.Agent(""), childSessionID, workspace, ""); err != nil {
 			return xerrors.Errorf("failed to end subagent session: %w", err)
 		}
+		// Subagent-end auto-extract parity with main session-end
+		// (#810, #832). Best-effort: errors must not block the
+		// boundary record.
+		if c.memory != nil {
+			if _, extractErr := c.memory.Extract(ctx, apptypes.NewMemoryExtractionCriteriaBuilder().
+				SessionID(childSessionID).
+				Workspace(workspace).
+				Build()); extractErr != nil {
+				slog.Debug("hook subagent-stop auto-extract failed", "client", client, "child_session_id", childSessionID, "error", extractErr)
+			}
+		}
 		if activeParentSessionID != "" {
 			parentSessionID = activeParentSessionID
 		}

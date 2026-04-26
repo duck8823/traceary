@@ -273,6 +273,8 @@ type memoryListCommandInput struct {
 	sessionFamily  string
 	statuses       []string
 	memoryTypes    []string
+	sources        []string
+	includeHidden  bool
 	limit          int
 	offset         int
 	asOf           string
@@ -289,6 +291,8 @@ type memorySearchCommandInput struct {
 	sessionFamily  string
 	statuses       []string
 	memoryTypes    []string
+	sources        []string
+	includeHidden  bool
 	limit          int
 	offset         int
 	query          string

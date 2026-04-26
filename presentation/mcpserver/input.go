@@ -33,6 +33,8 @@ type queryMemoryInput struct {
 	SessionFamily       string   `json:"session_family,omitempty" jsonschema:"session-family scope filter"`
 	Statuses            []string `json:"status,omitempty" jsonschema:"memory lifecycle status filters"`
 	MemoryTypes         []string `json:"type,omitempty" jsonschema:"memory type filters"`
+	Sources             []string `json:"source,omitempty" jsonschema:"memory source filters: manual, extracted, extracted-hidden, imported"`
+	IncludeHidden       bool     `json:"include_hidden,omitempty" jsonschema:"include extracted-hidden candidates (default omits them)"`
 	Limit               int      `json:"limit,omitempty" jsonschema:"maximum number of memories to return (default: 20)"`
 	Offset              int      `json:"offset,omitempty" jsonschema:"number of memories to skip before returning results (default: 0)"`
 	AsOf                string   `json:"as_of,omitempty" jsonschema:"evaluate content validity at this timestamp"`
@@ -177,6 +179,8 @@ type retrieveMemoriesInput struct {
 	SessionFamily  string   `json:"session_family,omitempty" jsonschema:"session-family scope filter"`
 	Statuses       []string `json:"status,omitempty" jsonschema:"memory lifecycle status filters"`
 	MemoryTypes    []string `json:"type,omitempty" jsonschema:"memory type filters"`
+	Sources        []string `json:"source,omitempty" jsonschema:"memory source filters: manual, extracted, extracted-hidden, imported"`
+	IncludeHidden  bool     `json:"include_hidden,omitempty" jsonschema:"include extracted-hidden candidates (low-quality auto-extractions kept for audit). Default omits them"`
 	Limit          int      `json:"limit,omitempty" jsonschema:"maximum number of memories to return (default: 20)"`
 	Offset         int      `json:"offset,omitempty" jsonschema:"number of memories to skip before returning results (default: 0)"`
 	AsOf           string   `json:"as_of,omitempty" jsonschema:"evaluate content validity at this timestamp (YYYY-MM-DD or RFC3339); defaults to now"`

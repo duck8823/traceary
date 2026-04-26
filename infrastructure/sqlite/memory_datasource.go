@@ -689,7 +689,7 @@ func buildMemorySearchQuery(criteria apptypes.MemorySearchCriteria, clock types.
 		args = append(args, likeQuery, likeQuery, likeQuery)
 	}
 
-	args, err := appendMemoryFilters(&builder, args, criteria.Scopes(), criteria.Statuses(), criteria.MemoryTypes(), nil)
+	args, err := appendMemoryFilters(&builder, args, criteria.Scopes(), criteria.Statuses(), criteria.MemoryTypes(), criteria.Sources())
 	if err != nil {
 		return "", nil, err
 	}
