@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	infra "github.com/duck8823/traceary/infrastructure/sqlite"
@@ -91,6 +92,21 @@ ALTER TABLE sessions ADD COLUMN spawn_order INTEGER;
 CREATE INDEX IF NOT EXISTS idx_sessions_parent_spawn_order
     ON sessions(parent_session_id, spawn_order);`),
 		},
+		"000016_add_events_session_created_at_id_desc.sql": {
+			Data: []byte(`CREATE INDEX IF NOT EXISTS idx_events_session_created_at_id_desc
+ON events(session_id, created_at DESC, id DESC);`),
+		},
+	}
+}
+
+func saveListTestEvent(ctx context.Context, t *testing.T, ds *infra.EventDatasource, id string, kind types.EventKind, sessionID string, body string, createdAt time.Time) {
+	t.Helper()
+	eid, _ := types.EventIDFrom(id)
+	agent, _ := types.AgentFrom("codex")
+	sid, _ := types.SessionIDFrom(sessionID)
+	event := model.EventOf(eid, kind, types.Client("hook"), agent, sid, types.Workspace("duck8823/traceary"), body, createdAt)
+	if err := ds.Save(ctx, event); err != nil {
+		t.Fatalf("Save(%s) error = %v", id, err)
 	}
 }
 
@@ -644,4 +660,156 @@ func TestDatasource_LineageOf(t *testing.T) {
 	if !ok || spawnOrder != 1 {
 		t.Fatalf("child-1 spawn_order = (%d, %v), want (1, true)", spawnOrder, ok)
 	}
+}
+
+func TestDatasource_ListSummariesLatestEvent(t *testing.T) {
+	t.Parallel()
+
+	t.Run("uses event id as tie breaker for equal timestamps", func(t *testing.T) {
+		t.Parallel()
+		fixture := newListSessionsFixture(t, filepath.Join(t.TempDir(), "traceary.db"), listSessionsTestMigrations())
+		ctx := context.Background()
+		if err := fixture.storeManager.Initialize(ctx); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+		started := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+		saveTestSession(ctx, t, fixture.sessionDS, "tie", started, types.None[time.Time](), "codex", "duck8823/traceary")
+		saveListTestEvent(ctx, t, fixture.eventDS, "event-a", types.EventKindNote, "tie", "older id", started.Add(time.Minute))
+		saveListTestEvent(ctx, t, fixture.eventDS, "event-z", types.EventKindReviewed, "tie", "newer id", started.Add(time.Minute))
+
+		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID("tie"), types.Workspace(""), types.Client(""), types.Agent(""), "", false, types.None[time.Time](), types.None[time.Time]())
+		if err != nil {
+			t.Fatalf("ListSummaries() error = %v", err)
+		}
+		if len(summaries) != 1 {
+			t.Fatalf("got %d summaries, want 1", len(summaries))
+		}
+		if diff := cmp.Diff(types.EventKindReviewed, summaries[0].LatestEventKind()); diff != "" {
+			t.Fatalf("LatestEventKind() mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("newer id", summaries[0].LatestEventMessage()); diff != "" {
+			t.Fatalf("LatestEventMessage() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("empty when session has no events", func(t *testing.T) {
+		t.Parallel()
+		fixture := newListSessionsFixture(t, filepath.Join(t.TempDir(), "traceary.db"), listSessionsTestMigrations())
+		ctx := context.Background()
+		if err := fixture.storeManager.Initialize(ctx); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+		started := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+		saveTestSession(ctx, t, fixture.sessionDS, "empty", started, types.None[time.Time](), "codex", "duck8823/traceary")
+
+		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID("empty"), types.Workspace(""), types.Client(""), types.Agent(""), "", false, types.None[time.Time](), types.None[time.Time]())
+		if err != nil {
+			t.Fatalf("ListSummaries() error = %v", err)
+		}
+		if len(summaries) != 1 {
+			t.Fatalf("got %d summaries, want 1", len(summaries))
+		}
+		if diff := cmp.Diff(types.EventKind(""), summaries[0].LatestEventKind()); diff != "" {
+			t.Fatalf("LatestEventKind() mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("", summaries[0].LatestEventMessage()); diff != "" {
+			t.Fatalf("LatestEventMessage() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("thinking-only transcript has empty plain message", func(t *testing.T) {
+		t.Parallel()
+		fixture := newListSessionsFixture(t, filepath.Join(t.TempDir(), "traceary.db"), listSessionsTestMigrations())
+		ctx := context.Background()
+		if err := fixture.storeManager.Initialize(ctx); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+		started := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+		saveTestSession(ctx, t, fixture.sessionDS, "thinking", started, types.None[time.Time](), "codex", "duck8823/traceary")
+		saveListTestEvent(ctx, t, fixture.eventDS, "thinking-event", types.EventKindTranscript, "thinking", `{"blocks":[{"type":"thinking","text":"hidden reasoning"}]}`, started.Add(time.Minute))
+
+		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID("thinking"), types.Workspace(""), types.Client(""), types.Agent(""), "", false, types.None[time.Time](), types.None[time.Time]())
+		if err != nil {
+			t.Fatalf("ListSummaries() error = %v", err)
+		}
+		if diff := cmp.Diff(types.EventKindTranscript, summaries[0].LatestEventKind()); diff != "" {
+			t.Fatalf("LatestEventKind() mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("", summaries[0].LatestEventMessage()); diff != "" {
+			t.Fatalf("LatestEventMessage() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("session ended can be latest", func(t *testing.T) {
+		t.Parallel()
+		fixture := newListSessionsFixture(t, filepath.Join(t.TempDir(), "traceary.db"), listSessionsTestMigrations())
+		ctx := context.Background()
+		if err := fixture.storeManager.Initialize(ctx); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+		started := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+		ended := started.Add(2 * time.Minute)
+		saveTestSession(ctx, t, fixture.sessionDS, "ended", started, types.Some(ended), "codex", "duck8823/traceary")
+		saveListTestEvent(ctx, t, fixture.eventDS, "ended-start", types.EventKindSessionStarted, "ended", "start", started)
+		saveListTestEvent(ctx, t, fixture.eventDS, "ended-end", types.EventKindSessionEnded, "ended", "session ended body", ended)
+
+		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID("ended"), types.Workspace(""), types.Client(""), types.Agent(""), "", false, types.None[time.Time](), types.None[time.Time]())
+		if err != nil {
+			t.Fatalf("ListSummaries() error = %v", err)
+		}
+		if diff := cmp.Diff(types.EventKindSessionEnded, summaries[0].LatestEventKind()); diff != "" {
+			t.Fatalf("LatestEventKind() mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("session ended body", summaries[0].LatestEventMessage()); diff != "" {
+			t.Fatalf("LatestEventMessage() mismatch (-want +got):\n%s", diff)
+		}
+	})
+}
+
+func TestDatasource_LineageAndTreeLatestEventsArePerSession(t *testing.T) {
+	t.Parallel()
+
+	fixture := newListSessionsFixture(t, filepath.Join(t.TempDir(), "traceary.db"), listSessionsTestMigrations())
+	ctx := context.Background()
+	if err := fixture.storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	started := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	saveTestSession(ctx, t, fixture.sessionDS, "latest-root", started, types.None[time.Time](), "codex", "duck8823/traceary")
+	saveTestSessionWithParent(ctx, t, fixture.sessionDS, "latest-child", "latest-root", started.Add(time.Minute), 1)
+	saveListTestEvent(ctx, t, fixture.eventDS, "latest-root-1", types.EventKindNote, "latest-root", "root old", started)
+	saveListTestEvent(ctx, t, fixture.eventDS, "latest-root-2", types.EventKindPrompt, "latest-root", "root latest", started.Add(3*time.Minute))
+	saveListTestEvent(ctx, t, fixture.eventDS, "latest-child-1", types.EventKindNote, "latest-child", "child old", started.Add(time.Minute))
+	saveListTestEvent(ctx, t, fixture.eventDS, "latest-child-2", types.EventKindReviewed, "latest-child", "child latest", started.Add(2*time.Minute))
+
+	lineage, err := fixture.sessionDS.LineageOf(ctx, types.SessionID("latest-child"))
+	if err != nil {
+		t.Fatalf("LineageOf() error = %v", err)
+	}
+	assertSummaryLatest(t, lineage, "latest-root", types.EventKindPrompt, "root latest")
+	assertSummaryLatest(t, lineage, "latest-child", types.EventKindReviewed, "child latest")
+
+	tree, err := fixture.sessionDS.ListTreeSummaries(ctx, 10, types.Workspace("duck8823/traceary"), types.SessionID("latest-root"))
+	if err != nil {
+		t.Fatalf("ListTreeSummaries() error = %v", err)
+	}
+	assertSummaryLatest(t, tree, "latest-root", types.EventKindPrompt, "root latest")
+	assertSummaryLatest(t, tree, "latest-child", types.EventKindReviewed, "child latest")
+}
+
+func assertSummaryLatest(t *testing.T, summaries []apptypes.SessionSummary, sessionID string, wantKind types.EventKind, wantMessage string) {
+	t.Helper()
+	for _, summary := range summaries {
+		if summary.SessionID().String() != sessionID {
+			continue
+		}
+		if diff := cmp.Diff(wantKind, summary.LatestEventKind()); diff != "" {
+			t.Fatalf("%s LatestEventKind() mismatch (-want +got):\n%s", sessionID, diff)
+		}
+		if diff := cmp.Diff(wantMessage, summary.LatestEventMessage()); diff != "" {
+			t.Fatalf("%s LatestEventMessage() mismatch (-want +got):\n%s", sessionID, diff)
+		}
+		return
+	}
+	t.Fatalf("session %s not found in summaries", sessionID)
 }

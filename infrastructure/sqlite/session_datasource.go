@@ -574,21 +574,23 @@ func scanSessionSummary(row interface {
 	Scan(dest ...any) error
 }) (apptypes.SessionSummary, error) {
 	var (
-		sessionID        string
-		repo             string
-		client           string
-		startedAtStr     string
-		endedAtStr       sql.NullString
-		totalEvents      int
-		commandCount     int
-		latestEventAtStr string
-		agentsStr        sql.NullString
-		label            string
-		summary          string
-		parentSessionID  string
-		spawnEventID     string
-		subagentKind     string
-		spawnOrder       sql.NullInt64
+		sessionID          string
+		repo               string
+		client             string
+		startedAtStr       string
+		endedAtStr         sql.NullString
+		totalEvents        int
+		commandCount       int
+		latestEventAtStr   string
+		agentsStr          sql.NullString
+		label              string
+		summary            string
+		parentSessionID    string
+		spawnEventID       string
+		subagentKind       string
+		spawnOrder         sql.NullInt64
+		latestEventKindStr string
+		latestEventRawBody string
 	)
 
 	if err := row.Scan(
@@ -607,6 +609,8 @@ func scanSessionSummary(row interface {
 		&spawnEventID,
 		&subagentKind,
 		&spawnOrder,
+		&latestEventKindStr,
+		&latestEventRawBody,
 	); err != nil {
 		return apptypes.SessionSummary{}, xerrors.Errorf("failed to scan session summary: %w", err)
 	}
@@ -656,6 +660,7 @@ func scanSessionSummary(row interface {
 		subagentKind,
 		optionalIntFromNullInt64(spawnOrder),
 		latestEventAt,
+		apptypes.SessionSummaryLatestEventOf(types.EventKind(latestEventKindStr), apptypes.ExtractPlainBody(latestEventRawBody)),
 	), nil
 }
 
