@@ -235,6 +235,76 @@ func TestSessionDatasource_SaveBoundary_End(t *testing.T) {
 	}
 }
 
+// TestSessionDatasource_SaveBoundary_EndPreservesPreviouslySyncedSummary
+// asserts that an empty summary at SessionEnd does not clobber a summary
+// previously written by UpdateSummaryIfEmpty (e.g. PreCompact sync — see #811).
+func TestSessionDatasource_SaveBoundary_EndPreservesPreviouslySyncedSummary(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	db := infra.NewDatabase(dbPath, listSessionsTestMigrations())
+	ctx := context.Background()
+	if err := infra.NewStoreManagementDatasource(db).Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	sessionDS := infra.NewSessionDatasource(db)
+
+	sessionID, _ := types.SessionIDFrom("session-precompact-sync")
+	agent, _ := types.AgentFrom("claude")
+	startedAt := time.Date(2026, 4, 26, 10, 0, 0, 0, time.UTC)
+
+	startSession := model.NewSession(sessionID, startedAt, types.Client("cli"), agent, types.Workspace("workspace"))
+	startEventID, _ := types.EventIDFrom("event-start-sync")
+	startEvent := model.EventOf(
+		startEventID, types.EventKindSessionStarted,
+		types.Client("cli"), agent, sessionID, types.Workspace("workspace"),
+		"session started", startedAt,
+	)
+	if err := sessionDS.SaveBoundary(ctx, startSession, startEvent); err != nil {
+		t.Fatalf("SaveBoundary(start) error = %v", err)
+	}
+
+	preCompactSummary := "Discussed compact behavior, agreed on PreCompact body sync."
+	updated, err := sessionDS.UpdateSummaryIfEmpty(ctx, sessionID, preCompactSummary)
+	if err != nil {
+		t.Fatalf("UpdateSummaryIfEmpty() error = %v", err)
+	}
+	if !updated {
+		t.Fatalf("UpdateSummaryIfEmpty() should report an update on an empty summary")
+	}
+
+	// Now end the session with an empty summary (the path runHookSession
+	// uses on SessionEnd hook).
+	endedAt := startedAt.Add(time.Hour)
+	storedOpt, err := sessionDS.FindByID(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("FindByID() error = %v", err)
+	}
+	storedSession, _ := storedOpt.Value()
+	if err := storedSession.End(endedAt, ""); err != nil {
+		t.Fatalf("End() error = %v", err)
+	}
+
+	endEventID, _ := types.EventIDFrom("event-end-sync")
+	endEvent := model.EventOf(
+		endEventID, types.EventKindSessionEnded,
+		types.Client("cli"), agent, sessionID, types.Workspace("workspace"),
+		"session ended", endedAt,
+	)
+	if err := sessionDS.SaveBoundary(ctx, storedSession, endEvent); err != nil {
+		t.Fatalf("SaveBoundary(end) error = %v", err)
+	}
+
+	resultOpt, err := sessionDS.FindByID(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("FindByID(after end) error = %v", err)
+	}
+	result, _ := resultOpt.Value()
+	if diff := cmp.Diff(preCompactSummary, result.Summary()); diff != "" {
+		t.Errorf("Summary should be preserved when SessionEnd carries empty summary (-want +got):\n%s", diff)
+	}
+}
+
 // TestSessionDatasource_Save_LabelDoesNotTouchEndedAt asserts that persisting
 // a label change leaves the ended_at column untouched. Without this guarantee,
 // a session label operation that interleaves with a session end would clobber

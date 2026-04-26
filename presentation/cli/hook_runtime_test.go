@@ -611,6 +611,113 @@ func TestRootCLI_HookCompactCommand_RecordsPreCompactSnapshot(t *testing.T) {
 	}
 }
 
+func TestRootCLI_HookCompactCommand_PreCompactSyncsSessionSummaryWhenEmpty(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key"), []byte("sync-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	eventStub := &eventUsecaseStub{
+		logEvent: model.EventOf(
+			types.EventID("evt-pre-compact-sync"),
+			types.EventKindCompactSummary,
+			types.Client("hook"),
+			types.Agent("claude"),
+			types.SessionID("sync-session"),
+			types.Workspace("github.com/duck8823/traceary"),
+			"",
+			time.Now(),
+		),
+	}
+	sessionStub := &sessionUsecaseStub{}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(eventStub),
+		cli.WithSession(sessionStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"pre_compact_context":"Discussed compact behavior, agreed on PreCompact body sync."}`))
+	rootCmd.SetArgs([]string{"hook", "compact", "claude", "pre-compact"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(pre-compact) error = %v", err)
+	}
+	if got := eventStub.logCall.message; got == "" {
+		t.Fatalf("pre-compact log body must not be empty when pre_compact_context is provided")
+	}
+	got, ok := sessionStub.setSummaryCalls[types.SessionID("sync-session")]
+	if !ok {
+		t.Fatalf("SetSummaryIfEmpty was not called for the active session")
+	}
+	if want := "Discussed compact behavior, agreed on PreCompact body sync."; got != want {
+		t.Fatalf("SetSummaryIfEmpty body = %q, want %q", got, want)
+	}
+}
+
+func TestRootCLI_HookCompactCommand_PreCompactSkipsSessionSummarySyncForEmptyBody(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key"), []byte("trigger-only"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	eventStub := &eventUsecaseStub{
+		logEvent: model.EventOf(
+			types.EventID("evt-trigger-only"),
+			types.EventKindCompactSummary,
+			types.Client("hook"),
+			types.Agent("claude"),
+			types.SessionID("trigger-only"),
+			types.Workspace("github.com/duck8823/traceary"),
+			"",
+			time.Now(),
+		),
+	}
+	sessionStub := &sessionUsecaseStub{}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(eventStub),
+		cli.WithSession(sessionStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"trigger":"size-threshold"}`))
+	rootCmd.SetArgs([]string{"hook", "compact", "claude", "pre-compact"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(pre-compact) error = %v", err)
+	}
+	if _, ok := sessionStub.setSummaryCalls[types.SessionID("trigger-only")]; ok {
+		t.Fatalf("SetSummaryIfEmpty must not be called when pre_compact_context is empty (trigger-only payload)")
+	}
+}
+
 func TestRootCLI_HookSubagentStopCommand_RecordsSessionEnded(t *testing.T) {
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
 

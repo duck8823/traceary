@@ -117,6 +117,8 @@ type sessionUsecaseStub struct {
 	latestCriteria apptypes.SessionLookupCriteria
 	handoff        types.Optional[apptypes.HandoffSummary]
 	handoffErr     error
+	setSummaryErr  error
+	setSummaryCalls map[types.SessionID]string
 
 	startCall struct {
 		client          types.Client
@@ -228,6 +230,17 @@ func (s *sessionUsecaseStub) Latest(_ context.Context, criteria apptypes.Session
 }
 func (s *sessionUsecaseStub) Handoff(_ context.Context, _ types.SessionID, _ types.Workspace, _ int) (types.Optional[apptypes.HandoffSummary], error) {
 	return s.handoff, s.handoffErr
+}
+
+func (s *sessionUsecaseStub) SetSummaryIfEmpty(_ context.Context, sessionID types.SessionID, summary string) (bool, error) {
+	if s.setSummaryErr != nil {
+		return false, s.setSummaryErr
+	}
+	if s.setSummaryCalls == nil {
+		s.setSummaryCalls = make(map[types.SessionID]string)
+	}
+	s.setSummaryCalls[sessionID] = summary
+	return true, nil
 }
 
 type contextUsecaseStub struct {

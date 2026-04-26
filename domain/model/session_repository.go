@@ -20,4 +20,8 @@ type SessionRepository interface {
 	// NextChildSpawnOrder returns the next sibling order for a child session
 	// under the given parent.
 	NextChildSpawnOrder(ctx context.Context, parentSessionID types.SessionID) (int, error)
+	// UpdateSummaryIfEmpty writes summary into sessions.summary when the
+	// existing value is NULL or empty, leaving manually authored summaries
+	// untouched. Returns true when a row was updated.
+	UpdateSummaryIfEmpty(ctx context.Context, sessionID types.SessionID, summary string) (bool, error)
 }

@@ -45,6 +45,11 @@ type SessionUsecase interface {
 	// Returns an empty Optional when no matching session exists.
 	Latest(ctx context.Context, criteria apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error)
 
+	// SetSummaryIfEmpty stores summary into sessions.summary when the existing
+	// value is NULL or empty. Manually authored summaries are preserved.
+	// Returns true when a row was actually updated.
+	SetSummaryIfEmpty(ctx context.Context, sessionID types.SessionID, summary string) (bool, error)
+
 	// Handoff returns the legacy session handoff summary shape used by older CLI
 	// and MCP callers.
 	//

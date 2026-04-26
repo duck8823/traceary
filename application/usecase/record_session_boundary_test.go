@@ -382,6 +382,8 @@ type sessionRepositoryStub struct {
 	saveBoundaryErr    error
 	nextChildOrder     int
 	nextChildOrderErr  error
+	updateSummaryErr   error
+	updatedSummaries   map[types.SessionID]string
 }
 
 func (s *sessionRepositoryStub) FindByID(
@@ -421,6 +423,17 @@ func (s *sessionRepositoryStub) NextChildSpawnOrder(_ context.Context, _ types.S
 		return 1, nil
 	}
 	return s.nextChildOrder, nil
+}
+
+func (s *sessionRepositoryStub) UpdateSummaryIfEmpty(_ context.Context, sessionID types.SessionID, summary string) (bool, error) {
+	if s.updateSummaryErr != nil {
+		return false, s.updateSummaryErr
+	}
+	if s.updatedSummaries == nil {
+		s.updatedSummaries = make(map[types.SessionID]string)
+	}
+	s.updatedSummaries[sessionID] = summary
+	return true, nil
 }
 
 func mustTime(t *testing.T) time.Time {
