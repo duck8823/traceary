@@ -115,6 +115,54 @@ func TestMemoryInboxList_SourceFilterPropagatesToCriteria(t *testing.T) {
 	}
 }
 
+func TestMemoryInboxList_DefaultExcludesExtractedHidden(t *testing.T) {
+	t.Parallel()
+
+	memoryStub := &memoryUsecaseStub{}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"memory", "inbox", "list", "--db-path", t.TempDir() + "/t.db"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	got := memoryStub.listCriteria.Sources()
+	if len(got) == 0 {
+		t.Fatalf("default inbox list must constrain Sources to exclude extracted-hidden, got empty filter")
+	}
+	for _, s := range got {
+		if s == domtypes.MemorySourceExtractedHidden {
+			t.Fatalf("default inbox list must not include extracted-hidden in Sources, got %v", got)
+		}
+	}
+}
+
+func TestMemoryInboxList_IncludeHiddenSkipsDefaultFilter(t *testing.T) {
+	t.Parallel()
+
+	memoryStub := &memoryUsecaseStub{}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"memory", "inbox", "list", "--include-hidden", "--db-path", t.TempDir() + "/t.db"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	if got := memoryStub.listCriteria.Sources(); len(got) != 0 {
+		t.Fatalf("--include-hidden should not add a Sources filter, got %v", got)
+	}
+}
+
 func TestMemoryInboxAccept_BatchIDs(t *testing.T) {
 	t.Parallel()
 

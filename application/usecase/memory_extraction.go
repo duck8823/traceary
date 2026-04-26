@@ -171,17 +171,54 @@ func (u *memoryExtractionUsecase) Extract(ctx context.Context, criteria apptypes
 	return results, nil
 }
 
-// extractionQualityMinRunes is the soft minimum length, in runes, a
-// candidate fact must reach to land at the visible `extracted` source.
-// Shorter facts are persisted under `extracted-hidden` for audit; they
-// stay reachable through `memory inbox --include-hidden`. The threshold
-// is intentionally a length heuristic rather than a confidence
-// classifier — extraction signals do not yet carry confidence (#830).
-const extractionQualityMinRunes = 20
+// extractionQualityMinRunesLatin is the soft minimum length, in runes,
+// a Latin-script candidate fact must reach to land at the visible
+// `extracted` source. Shorter facts are persisted under
+// `extracted-hidden` for audit; they stay reachable through
+// `memory inbox --include-hidden`. The threshold is intentionally a
+// length heuristic rather than a confidence classifier — extraction
+// signals do not yet carry confidence (#830).
+const extractionQualityMinRunesLatin = 20
+
+// extractionQualityMinRunesCJK is the lower threshold applied when the
+// fact contains CJK ideographs / kana / hangul. CJK text is much
+// information-denser per rune than Latin text — a 10-rune sentence in
+// Japanese is comparable to a 20-rune Latin sentence — so a single
+// global threshold over-rejects CJK candidates.
+const extractionQualityMinRunesCJK = 10
 
 func passesExtractionQualityFilter(fact string) bool {
 	trimmed := strings.TrimSpace(fact)
-	return len([]rune(trimmed)) >= extractionQualityMinRunes
+	runes := []rune(trimmed)
+	threshold := extractionQualityMinRunesLatin
+	if containsCJK(runes) {
+		threshold = extractionQualityMinRunesCJK
+	}
+	return len(runes) >= threshold
+}
+
+// containsCJK reports whether the rune slice carries at least one
+// Chinese / Japanese / Korean character. The set covers the common
+// Unicode blocks for these scripts; punctuation and ASCII intermixed
+// with CJK still counts as a CJK fact.
+func containsCJK(runes []rune) bool {
+	for _, r := range runes {
+		switch {
+		case r >= 0x3040 && r <= 0x309F: // Hiragana
+			return true
+		case r >= 0x30A0 && r <= 0x30FF: // Katakana
+			return true
+		case r >= 0x3400 && r <= 0x4DBF: // CJK Unified Ideographs Extension A
+			return true
+		case r >= 0x4E00 && r <= 0x9FFF: // CJK Unified Ideographs
+			return true
+		case r >= 0xAC00 && r <= 0xD7AF: // Hangul Syllables
+			return true
+		case r >= 0xF900 && r <= 0xFAFF: // CJK Compatibility Ideographs
+			return true
+		}
+	}
+	return false
 }
 
 func (u *memoryExtractionUsecase) findTargetSession(
