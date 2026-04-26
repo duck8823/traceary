@@ -28,6 +28,20 @@
         ]
       }
     ],
+    "BeforeAgent": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "traceary-prompt",
+            "type": "command",
+            "command": "'traceary' 'hook' 'prompt' 'gemini'",
+            "timeout": 5000,
+            "description": "Record user prompt as a prompt event"
+          }
+        ]
+      }
+    ],
     "AfterAgent": [
       {
         "matcher": "*",

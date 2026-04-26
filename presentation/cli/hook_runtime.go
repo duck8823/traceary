@@ -756,7 +756,14 @@ func (c *RootCLI) runHookPrompt(
 	if c.event == nil {
 		return xerrors.Errorf("record log usecase is not configured")
 	}
-	ctx = apptypes.WithSourceHook(ctx, "user_prompt_submit")
+	// Gemini delivers prompts on `BeforeAgent`, while Claude / Codex use
+	// `UserPromptSubmit`. Persist the host-specific source_hook so the
+	// distinction remains recoverable downstream.
+	if client == "gemini" {
+		ctx = apptypes.WithSourceHook(ctx, "before_agent")
+	} else {
+		ctx = apptypes.WithSourceHook(ctx, "user_prompt_submit")
+	}
 
 	payload, err := readHookPayload(input)
 	if err != nil {

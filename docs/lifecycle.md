@@ -49,10 +49,12 @@ SessionStart → [AfterTool]* → SessionEnd
 | Hook Event | Traceary Event Kind | Description |
 |---|---|---|
 | SessionStart | `session_started` | Session start |
+| BeforeAgent | `prompt` | User instruction text (`prompt` field) |
+| AfterAgent | `transcript` | Final agent response text (`prompt_response` field) |
 | AfterTool | `command_executed` | Tool execution |
 | SessionEnd | `session_ended` | Session end |
 
-**Limitations**: No `compact` hooks, no `prompt` recording, no failure-specific events.
+**Limitations**: No `compact` hooks (Gemini exposes `PreCompress` only — see #807), no failure-specific events.
 
 ## Event Kinds
 
@@ -64,7 +66,7 @@ SessionStart → [AfterTool]* → SessionEnd
 | `session_started` | Session start boundary | SessionStart hooks |
 | `session_ended` | Session end boundary | SessionEnd / Stop hooks |
 | `compact_summary` | Structured summary from context compression | PostCompact hook |
-| `prompt` | User instruction text | UserPromptSubmit hook |
+| `prompt` | User instruction text | UserPromptSubmit (Claude / Codex), BeforeAgent (Gemini) hooks |
 | `transcript` | Last assistant-message text blocks (reasoning / explanation). Tool-use blocks are excluded — those are captured by `command_executed`. | Stop hook (Claude Code) |
 
 ## Data Flow
@@ -94,6 +96,6 @@ AI Client (Claude Code / Codex CLI / Gemini CLI)
 | `traceary hook session <client> <start|end|stop>` | Session start/end | All |
 | `traceary hook audit <client>` | Command/tool audit | All |
 | `traceary hook compact <client> <post-compact|session-start-compact>` | Compact summary recording / compact resume output | Claude Code |
-| `traceary hook prompt <client>` | User prompt recording | Claude Code |
+| `traceary hook prompt <client>` | User prompt recording | Claude Code, Codex CLI, Gemini CLI |
 | `traceary hook transcript <client>` | Assistant-message transcript recording (Stop hook) | Claude Code |
 | packaged shell wrappers under `scripts/hooks/` | Compatibility layer that forwards into `traceary hook ...` | Packaged integrations / legacy installs |

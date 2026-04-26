@@ -17,7 +17,7 @@
 | Traceary lifecycle event | Claude Code (`claude-plugin`) | Codex CLI 0.125 (`plugins/traceary`) | Gemini CLI (`gemini-extension`) | 確認方法 |
 |---|---|---|---|---|
 | `session_started` | ● `SessionStart` | ● `SessionStart` | ● `SessionStart` | `traceary list events --kind session_started --limit 5` |
-| `prompt` | ● `UserPromptSubmit` | ● `UserPromptSubmit` | ○ `BeforeAgent` (#806 で配線予定) | `traceary list events --kind prompt --limit 5` |
+| `prompt` | ● `UserPromptSubmit` | ● `UserPromptSubmit` | ● `BeforeAgent` | `traceary list events --kind prompt --limit 5` |
 | `command_executed` | ● `PostToolUse` + `PostToolUseFailure` (Bash, `mcp__.*`, built-in tool matcher) | ● `PostToolUse` | ● `AfterTool` | `traceary list events --kind command_executed --limit 5` |
 | `transcript` | ● `Stop` | ● `Stop` (`last_assistant_message`) | ● `AfterAgent` | `traceary list events --kind transcript --limit 5` |
 | `compact_summary` | ● `PostCompact` (+ `PreCompact` marker, `SessionStart matcher=compact` で resume) | ✕ Codex 0.125 に compact hook なし (upstream openai/codex#16098) | ○ `PreCompress` あり、Gemini 0.36.x に post-compress 相当の hook なし (#807 で marker 配線予定) | `traceary list events --kind compact_summary --limit 5` |
@@ -25,7 +25,7 @@
 
 ### Traceary 未配線のホスト hook
 
-上のライフサイクルマトリクスに既出の hook はここでは省略している（例: Gemini `BeforeAgent` は #806 で prompt 配線予定としてマトリクス側に記載、`PreCompress` は #807）。
+上のライフサイクルマトリクスに既出の hook はここでは省略している（例: Gemini `PreCompress` は #807 でマトリクス側に追跡）。
 
 | Host | Hook | 状態 | 備考 |
 |---|---|---|---|

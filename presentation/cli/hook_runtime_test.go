@@ -2081,6 +2081,72 @@ func TestRootCLI_HookPromptCommand_RecordsCodexPromptPayload(t *testing.T) {
 	}
 }
 
+func TestRootCLI_HookPromptCommand_RecordsGeminiBeforeAgentPayload(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "gemini-test-key"), []byte("gemini-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "gemini-test-key-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	storeStub := &storeManagementUsecaseStub{}
+	eventStub := &eventUsecaseStub{
+		logEvent: model.EventOf(
+			types.EventID("evt-prompt"),
+			types.EventKindPrompt,
+			types.Client("hook"),
+			types.Agent("gemini"),
+			types.SessionID("gemini-session"),
+			types.Workspace("github.com/duck8823/traceary"),
+			"Refactor module",
+			time.Now(),
+		),
+	}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(storeStub),
+		cli.WithEvent(eventStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	// Payload mirrors the Gemini CLI 0.36.x BeforeAgent schema: the agent
+	// hook fires after the user submits a prompt and the only field
+	// Traceary needs is `prompt`. Other Gemini-specific fields are
+	// ignored.
+	rootCmd.SetIn(strings.NewReader(`{
+		"hook_event_name": "BeforeAgent",
+		"prompt": "Refactor module"
+	}`))
+	rootCmd.SetArgs([]string{"hook", "prompt", "gemini"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got, want := eventStub.logCall.kind, types.EventKindPrompt; got != want {
+		t.Fatalf("prompt log kind = %q, want %q", got, want)
+	}
+	if got, want := eventStub.logCall.message, "Refactor module"; got != want {
+		t.Fatalf("prompt log message = %q, want %q", got, want)
+	}
+	if got, want := eventStub.logCall.agent, types.Agent("gemini"); got != want {
+		t.Fatalf("prompt log agent = %q, want %q", got, want)
+	}
+	if got, want := eventStub.logCall.sessionID, types.SessionID("gemini-session"); got != want {
+		t.Fatalf("prompt log session = %q, want %q", got, want)
+	}
+}
+
 func TestRootCLI_HookCommand_SwallowsOperationalErrors(t *testing.T) {
 	storeStub := &storeManagementUsecaseStub{initErr: errors.New("boom")}
 	sessionStub := &sessionUsecaseStub{}

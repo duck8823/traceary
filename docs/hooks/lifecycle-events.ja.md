@@ -31,7 +31,7 @@
 ### `prompt`
 
 - ユーザの指示を redact 後そのまま記録。`traceary timeline` / `traceary search` / L2 `get_context` の本体に出る。
-- 現状 Claude Code と Codex CLI のみ発行。Gemini CLI には `BeforeAgent` があるが Traceary 側で prompt として配線していない（[host-coverage.ja.md](./host-coverage.ja.md) と #806 参照）。
+- Claude Code (`UserPromptSubmit`), Codex CLI (`UserPromptSubmit`), Gemini CLI (`BeforeAgent`) すべてが発行（[host-coverage.ja.md](./host-coverage.ja.md) 参照）。
 - Body marker なし（生テキスト）。アシスタント側は `transcript` と区別する。
 
 ### `command_executed`

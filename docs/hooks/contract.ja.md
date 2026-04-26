@@ -38,10 +38,11 @@
 |---|---|---|
 | SessionStart | `*` | セッション開始を記録 |
 | SessionEnd | `*` | セッション終了を記録 |
+| BeforeAgent | `*` | `prompt` フィールドからユーザ prompt を `prompt` event として記録 |
 | AfterAgent | `*` | `prompt_response` から agent 応答を `transcript` event として記録（既知 secret の redaction + オペレーター設定の `redact.rules` / `redact.extra_patterns` を適用） |
 | AfterTool | `*` | ツール監査を記録 |
 
-**制限**: compact hooks なし、failure 専用イベントなし。Gemini には Stop event が存在しないため、transcript 取得は `AfterAgent` に紐付けている。
+**制限**: compact hook 相当は `PreCompress` のみ（#807 で marker 配線予定）、failure 専用イベントなし。Gemini には Stop event が存在しないため、transcript 取得は `AfterAgent` に紐付けている。
 
 ## 共通動作
 
@@ -76,6 +77,7 @@ Traceary の managed hook 集合は、リリースをまたいで安定させる
 | Codex CLI | `Stop.last_assistant_message` | wire 済み | Codex `Stop` event 上で既存の session-stop hook と並んで `traceary hook transcript codex` が起動し `transcript` event として記録 |
 | Codex CLI | Memory feature flag (`~/.codex/config.toml`) | install 単位で opt-in | `traceary memory import codex` は flag 状態に関わらず動作。flag は Codex 側の capture 挙動にしか影響しない |
 | Gemini CLI | `AfterAgent.prompt_response` | wire 済み | Gemini `AfterAgent` event 上で `traceary hook transcript gemini` が起動し `transcript` event として記録 (Gemini には Stop event が存在しない) |
+| Gemini CLI | `BeforeAgent.prompt` | wire 済み | Gemini `BeforeAgent` event 上で `traceary hook prompt gemini` が起動し `prompt` event として記録 (Claude / Codex の `UserPromptSubmit` と同等) |
 | Gemini CLI 0.38.x | Memory manager agent / auto-memory | プレビュー | Traceary Tier 3 surface はまだこれらの preview 信号を subscribe していない |
 
 これらの preview 機能を有効化したいオペレーターはクライアント側の公式ドキュメントを参照してください。Traceary は Tier 1-3 表に記載した安定 capability のみを記録し、`doctor` の informational check はギャップを可視化するためのものであり、有効化を強制するものではありません。
