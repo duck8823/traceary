@@ -1162,7 +1162,8 @@ func TestRootCLI_HookAuditCommand_UsesActiveSubagentSession(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(stateDir, "claude-audit-child-key"), []byte("parent-session"), 0o600); err != nil {
 		t.Fatalf("WriteFile(session state) error = %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(activeDir, "claude-parent-session"), []byte(`{"children":{"toolu_1":{"child_session_id":"parent-session:sub:toolu_1","started_at":"2026-04-25T00:00:00Z"}}}`), 0o600); err != nil {
+	startedAt := time.Now().UTC().Format(time.RFC3339)
+	if err := os.WriteFile(filepath.Join(activeDir, "claude-parent-session"), []byte(`{"children":{"toolu_1":{"child_session_id":"parent-session:sub:toolu_1","started_at":"`+startedAt+`"}}}`), 0o600); err != nil {
 		t.Fatalf("WriteFile(active state) error = %v", err)
 	}
 
@@ -1199,7 +1200,8 @@ func TestRootCLI_HookSubagentStopCommand_EndsChildAndClearsActiveState(t *testin
 	if err := os.WriteFile(filepath.Join(stateDir, "claude-stop-child-key"), []byte("parent-session"), 0o600); err != nil {
 		t.Fatalf("WriteFile(session state) error = %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(activeDir, "claude-parent-session"), []byte(`{"children":{"toolu_1":{"child_session_id":"parent-session:sub:toolu_1","started_at":"2026-04-25T00:00:00Z"}}}`), 0o600); err != nil {
+	startedAt := time.Now().UTC().Format(time.RFC3339)
+	if err := os.WriteFile(filepath.Join(activeDir, "claude-parent-session"), []byte(`{"children":{"toolu_1":{"child_session_id":"parent-session:sub:toolu_1","started_at":"`+startedAt+`"}}}`), 0o600); err != nil {
 		t.Fatalf("WriteFile(active state) error = %v", err)
 	}
 	sessionStub := &sessionUsecaseStub{}
