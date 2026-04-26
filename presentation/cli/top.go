@@ -16,6 +16,19 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
+// init pins go-runewidth's East-Asian-ambiguous handling to "narrow"
+// so column widths stay deterministic across host locales. Without
+// this, characters in the Unicode "ambiguous" category (notably the
+// horizontal ellipsis "…") are 1 column on a Posix locale and 2 in
+// a CJK locale; that drift would make snapshot golden tests
+// environment-dependent and let production output overflow on the
+// other locale. We choose narrow because Traceary's output ships
+// in markdown / monospace contexts where most fonts render
+// ambiguous characters as 1 column.
+func init() {
+	runewidth.DefaultCondition.EastAsianWidth = false
+}
+
 const defaultTopLimit = 500
 
 type topCommandOptions struct {

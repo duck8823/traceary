@@ -70,14 +70,14 @@ func TestTruncateNormalized(t *testing.T) {
 		want     string
 	}{
 		"collapses whitespace": {input: "hello   world", maxRunes: 32, want: "hello world"},
-		// "…" is rendered as 2 columns in this environment (East Asian
-		// ambiguous width), so truncation reserves 2 cols for it.
-		// Budget=5 → 3 visible chars + "…" = 5 visual cols.
-		"truncates and appends ellipsis":  {input: "abcdefghij", maxRunes: 5, want: "abc…"},
+		// `init()` in top.go pins runewidth ambiguous handling to
+		// narrow, so "…" is 1 column. Budget=5 → 4 visible chars + "…".
+		"truncates and appends ellipsis":  {input: "abcdefghij", maxRunes: 5, want: "abcd…"},
 		"zero budget yields empty string": {input: "abc", maxRunes: 0, want: ""},
 		"budget larger than input":        {input: "abc", maxRunes: 10, want: "abc"},
-		// CJK input: each rune is 2 visual cols. budget=8 reserves 2
-		// for ellipsis, leaving 6 cols = 3 wide chars.
+		// CJK input: each rune is 2 visual cols. Budget=8 reserves 1
+		// for the (narrow) ellipsis, leaving 7 cols = 3 wide chars
+		// (6 cols) + 1 unused col.
 		"truncates CJK at visual width": {input: "あいうえお", maxRunes: 8, want: "あいう…"},
 	}
 	for name, tc := range tests {
