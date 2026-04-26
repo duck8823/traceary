@@ -107,5 +107,6 @@ Possible but not actively tuned:
 - hooks integration: [`../hooks/README.md`](../hooks/README.md)
 - storage model: [`../storage/README.md`](../storage/README.md)
 - backup guide: [`../backup/README.md`](../backup/README.md)
+- Scheduled operations: [`./scheduled-tasks.md`](./scheduled-tasks.md)
 - Python dependency plan: [`./python-dependencies.md`](./python-dependencies.md)
 - Repository tooling plan: [`./repo-tooling.md`](./repo-tooling.md)
