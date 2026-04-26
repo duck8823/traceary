@@ -721,17 +721,7 @@ func (s *Server) retrieveMemories() mcp.ToolHandlerFor[retrieveMemoriesInput, me
 		if err != nil {
 			return nil, memoriesOutput{}, err
 		}
-		// Default-exclude `extracted-hidden` from generic retrieve so AI
-		// agents triaging the inbox do not get drowned by low-quality
-		// auto-extractions. Explicit `source` filter wins; otherwise
-		// `include_hidden=true` toggles the hidden tier on (#832).
-		if len(sources) == 0 && !input.IncludeHidden {
-			sources = []types.MemorySource{
-				types.MemorySourceManual,
-				types.MemorySourceExtracted,
-				types.MemorySourceImported,
-			}
-		}
+		sources = applyExtractedHiddenDefaultMCP(sources, input.IncludeHidden)
 
 		asOfTime := time.Time{}
 		if trimmedAsOf := strings.TrimSpace(input.AsOf); trimmedAsOf != "" {
@@ -1417,6 +1407,22 @@ func parseMemorySourcesMCP(values []string) ([]types.MemorySource, error) {
 		sources = append(sources, resolved)
 	}
 	return sources, nil
+}
+
+// applyExtractedHiddenDefaultMCP mirrors presentation/cli's
+// applyExtractedHiddenDefault. Both layers default to omitting
+// `extracted-hidden`; explicit `source` always wins, and
+// `include_hidden=true` opts back in. Kept as a separate symbol so
+// the MCP package does not import the CLI package (clean direction).
+func applyExtractedHiddenDefaultMCP(sources []types.MemorySource, includeHidden bool) []types.MemorySource {
+	if len(sources) > 0 || includeHidden {
+		return sources
+	}
+	return []types.MemorySource{
+		types.MemorySourceManual,
+		types.MemorySourceExtracted,
+		types.MemorySourceImported,
+	}
 }
 
 func parseOptionalConfidence(value string) (types.Optional[types.Confidence], error) {

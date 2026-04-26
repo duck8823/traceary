@@ -113,6 +113,14 @@ func (b *MemorySearchCriteriaBuilder) MemoryTypes(memoryTypes []domtypes.MemoryT
 	return b
 }
 
+// Source appends a memory source filter.
+func (b *MemorySearchCriteriaBuilder) Source(source domtypes.MemorySource) *MemorySearchCriteriaBuilder {
+	if source != "" {
+		b.criteria.sources = append(b.criteria.sources, source)
+	}
+	return b
+}
+
 // Sources replaces the memory source filters.
 func (b *MemorySearchCriteriaBuilder) Sources(sources []domtypes.MemorySource) *MemorySearchCriteriaBuilder {
 	b.criteria.sources = slices.Clone(sources)
