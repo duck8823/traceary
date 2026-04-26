@@ -36,8 +36,8 @@ func (c *RootCLI) newTopCommand() *cobra.Command {
 		Use:   "top",
 		Short: Localize("Live active session tree dashboard", "active session tree のライブダッシュボードを表示する"),
 		Long: Localize(
-			"Show a live, auto-refreshing tree of active sessions grouped by root session. Press q or Ctrl-C to quit. Use --snapshot --json for a one-shot JSON tree that shares the session tree JSON contract.",
-			"active session を root session ごとにまとめたライブ自動更新 tree を表示します。q または Ctrl-C で終了します。--snapshot --json で session tree と同じ JSON 契約の一回限りの tree を出力します。",
+			"Show a live, auto-refreshing tree of active sessions grouped by root session. Press q or Ctrl-C to quit. Use --snapshot --json for a one-shot top JSON snapshot with latest-event metadata.",
+			"active session を root session ごとにまとめたライブ自動更新 tree を表示します。q または Ctrl-C で終了します。--snapshot --json で latest event metadata を含む top 専用 JSON snapshot を一回出力します。",
 		),
 		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -79,7 +79,7 @@ func (c *RootCLI) runTop(ctx context.Context, output io.Writer, opts topCommandO
 			return err
 		}
 		if opts.asJSON {
-			return writeSessionTreeJSON(output, roots)
+			return writeTopSnapshotJSON(output, roots)
 		}
 		return writeTopSnapshotText(output, roots, opts.idle, time.Now())
 	}

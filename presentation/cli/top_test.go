@@ -36,6 +36,7 @@ func TestRootCLI_TopCommand_SnapshotJSONGolden(t *testing.T) {
 			types.SessionID(""),
 			types.Client("claude"),
 			endedAt,
+			apptypes.SessionSummaryLatestEventOf(types.EventKindSessionEnded, "Root session ended."),
 		),
 		apptypes.SessionSummaryOf(
 			types.SessionID("top-child"),
@@ -54,6 +55,7 @@ func TestRootCLI_TopCommand_SnapshotJSONGolden(t *testing.T) {
 			"task",
 			types.Some(1),
 			startedAt.Add(20*time.Minute),
+			apptypes.SessionSummaryLatestEventOf(types.EventKindTranscript, "Working on active child."),
 		),
 		apptypes.SessionSummaryOf(
 			types.SessionID("top-ended-only"),
