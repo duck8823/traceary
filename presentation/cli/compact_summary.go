@@ -168,6 +168,14 @@ func buildCompactSummaryText(result types.Optional[apptypes.ContextPack]) (strin
 			if index > 0 {
 				sb.WriteString(" | ")
 			}
+			// Mark non-accepted entries so the resuming agent does not
+			// treat candidate facts as curated (parity with handoff
+			// text format — see #812).
+			if memory.Status() != types.MemoryStatusAccepted {
+				sb.WriteString("[")
+				sb.WriteString(memory.Status().String())
+				sb.WriteString("] ")
+			}
 			sb.WriteString(truncateCompactSummarySegment(memory.Fact(), 60))
 		}
 		sb.WriteString("\n")

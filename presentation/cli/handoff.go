@@ -240,9 +240,18 @@ func writeHandoffText(output io.Writer, result types.Optional[apptypes.ContextPa
 		return xerrors.Errorf("failed to print memories heading: %w", err)
 	}
 	for _, memory := range pack.Memories() {
+		// Tag candidate (and any non-accepted) entries with a leading
+		// status marker so the reader can tell pending review items
+		// apart from curated ones. Accepted entries keep their
+		// established two-bracket layout.
+		statusPrefix := ""
+		if memory.Status() != types.MemoryStatusAccepted {
+			statusPrefix = fmt.Sprintf("[%s]", memory.Status())
+		}
 		if _, err := fmt.Fprintf(
 			output,
-			"- [%s][%s:%s] %s\n",
+			"- %s[%s][%s:%s] %s\n",
+			statusPrefix,
 			memory.MemoryType(),
 			memory.Scope().Kind(),
 			memory.Scope().Key(),
