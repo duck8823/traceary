@@ -10,4 +10,9 @@ Prefer the packaged MCP tools when the user asks about prior sessions, command a
 
 Use `/traceary-doctor` when the user needs setup or troubleshooting guidance.
 
-When the conversation surfaces a durable decision, constraint, lesson, preference, or project artifact that should outlive the current session, proactively call `manage_memory(action="propose")` so the candidate lands in Traceary's review inbox. See the `traceary-memory-capture` skill for trigger phrases and guardrails (always propose, never auto-accept).
+Memory capture is split into two narrow skills:
+
+- `traceary-memory-review` — list / accept / reject the inbox; triggered by review-intent phrases ("Traceary inbox", "review memory candidates", "session recap").
+- `traceary-memory-remember` — write durable memory only when the user explicitly asks ("remember that", "覚えておいて"). Lands as `status=candidate` for review.
+
+The previous `traceary-memory-capture` skill is deprecated in v0.11.0 (will be removed in v0.12).

@@ -95,4 +95,9 @@ go tool golangci-lint run
 
 ### Durable memory capture (agent guidance)
 
-When working on this repository with a Claude Code agent, proactively call the `manage_memory(action="propose")` MCP tool when the conversation surfaces a durable decision, constraint, lesson, preference, or project artifact that should outlive the current session. The candidate lands in Traceary's review inbox — it does not auto-accept. See the packaged `traceary-memory-capture` skill for trigger phrases, the five memory types, and the required input shape (exactly one of `workspace` / `agent` / `session_family`).
+Memory capture in v0.11.0+ is split into two narrow skills plus hook-driven auto-extraction:
+
+- `traceary-memory-review` — list and curate inbox candidates, write a short session recap. Trigger phrases are review-intent only ("Traceary inbox", "review memory candidates", "session recap").
+- `traceary-memory-remember` — write durable memory **only** when the user explicitly asks ("remember that", "覚えておいて"). Lands in `status=candidate` for review, never auto-accepted.
+
+Hook-driven auto-extraction (planned in v0.11.0 #810 / #811) populates the inbox so the LLM does not have to. The deprecated `traceary-memory-capture` skill is retained as a stub through v0.11 and removed in v0.12.
