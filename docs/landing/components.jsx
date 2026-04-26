@@ -6,12 +6,10 @@ function HeroTerminal() {
   const lines = [
     { type: 'cmd', text: 'brew install traceary' },
     { type: 'out', text: '==> Installing traceary from duck8823/traceary\n==> Pouring traceary--0.10.2.arm64_sequoia.bottle.tar.gz\n🍺  /opt/homebrew/Cellar/traceary/0.10.2: 12 files, 18.4MB' },
-    { type: 'cmd', text: 'traceary tail --limit 4' },
+    { type: 'cmd', text: 'traceary top --snapshot' },
     { type: 'out', html: true, text:
-      '<span class="ts">07:06:44</span>  <span class="kind">command_executed</span>  agent=codex   <span class="sess">sess=4a70c5</span>  <span class="ws">ws=traceary</span>  go test ./...\n' +
-      '<span class="ts">07:06:47</span>  <span class="kind">prompt</span>            agent=codex   <span class="sess">sess=4a70c5</span>  <span class="ws">ws=traceary</span>  refactor session handoff\n' +
-      '<span class="ts">07:06:52</span>  <span class="kind">command_executed</span>  agent=codex   <span class="sess">sess=4a70c5</span>  <span class="ws">ws=traceary</span>  go vet ./...\n' +
-      '<span class="ts">07:06:58</span>  <span class="kind">session_ended</span>     agent=codex   <span class="sess">sess=4a70c5</span>  <span class="ws">ws=traceary</span>  duration=29m21s'
+      '<span class="sess">4a70c526</span> workspace=<span class="ws">github.com/duck8823/traceary</span> agent=codex client=claude started=<span class="ts">07:06:37</span> latest=<span class="ts">07:06:58</span> events=165 last=<span class="kind">session_ended</span>: duration=29m21s\n' +
+      '└── <span class="sess">7c91a2bf</span> workspace=<span class="ws">github.com/duck8823/traceary</span> agent=worker client=claude started=<span class="ts">07:03:12</span> latest=<span class="ts">07:06:52</span> events=42 last=<span class="kind">command_executed</span>: go test ./presentation/cli'
     },
     { type: 'cmd', text: 'traceary session handoff --compact-only' },
     { type: 'out', text: 'Investigating failing tests in application/usecase. Reproduced panic via `go test ./...`. Next: triage stacktrace.' },
@@ -91,6 +89,19 @@ function HeroTerminal() {
 
 // Inspect previews
 const inspectViews = {
+  top: {
+    cmd: 'traceary top --snapshot',
+    title: 'active session tree',
+    body: (
+      <>
+        <div className="term-line"><span className="term-prompt">$</span><span className="term-cmd">traceary top --snapshot</span></div>
+        <div className="term-out" dangerouslySetInnerHTML={{__html:
+          '<span class="sess">4a70c526</span> workspace=<span class="ws">github.com/duck8823/traceary</span> agent=codex client=claude started=<span class="ts">07:06:37</span> latest=<span class="ts">07:06:58</span> events=165 last=<span class="kind">session_ended</span>: duration=29m21s\n' +
+          '└── <span class="sess">7c91a2bf</span> workspace=<span class="ws">github.com/duck8823/traceary</span> agent=worker client=claude started=<span class="ts">07:03:12</span> latest=<span class="ts">07:06:52</span> events=42 last=<span class="kind">command_executed</span>: go test ./presentation/cli'
+        }}/>
+      </>
+    )
+  },
   tail: {
     cmd: 'traceary tail --limit 3',
     title: 'live event stream',
@@ -164,8 +175,9 @@ const inspectViews = {
 };
 
 function InspectSection() {
-  const [active, setActive] = useState('tail');
+  const [active, setActive] = useState('top');
   const items = [
+    { id: 'top', cmd: 'traceary top', desc: 'Watch active root and subagent sessions with workspace and latest activity' },
     { id: 'tail', cmd: 'traceary tail', desc: 'Confirm hooks are firing, watch failures in real time' },
     { id: 'timeline', cmd: 'traceary timeline', desc: 'See gap-separated work blocks with per-workspace summaries' },
     { id: 'search', cmd: 'traceary search', desc: 'Jump to an exact kind, session, or query' },
