@@ -60,6 +60,35 @@ type sessionTreeNode struct {
 	Children        []*sessionTreeNode `json:"children"`
 }
 
+// topSnapshotNode is the JSON shape of a single node in the
+// `traceary top --snapshot --json` output. It is intentionally
+// independent from sessionTreeNode so the top contract can carry
+// latest_event_* fields without reshaping the session tree contract
+// that other consumers depend on.
+type topSnapshotNode struct {
+	SessionID          string             `json:"session_id"`
+	ParentSessionID    string             `json:"parent_session_id,omitempty"`
+	SpawnEventID       string             `json:"spawn_event_id,omitempty"`
+	SubagentKind       string             `json:"subagent_kind,omitempty"`
+	SpawnOrder         *int               `json:"spawn_order,omitempty"`
+	Depth              int                `json:"depth"`
+	Workspace          string             `json:"workspace,omitempty"`
+	LatestEventKind    string             `json:"latest_event_kind"`
+	LatestEventMessage string             `json:"latest_event_message"`
+	LatestEventAt      string             `json:"latest_event_at"`
+	Label              string             `json:"label,omitempty"`
+	Summary            string             `json:"summary,omitempty"`
+	StartedAt          string             `json:"started_at"`
+	EndedAt            *string            `json:"ended_at,omitempty"`
+	Status             string             `json:"status"`
+	DurationSec        *float64           `json:"duration_sec,omitempty"`
+	TotalEvents        int                `json:"total_events"`
+	CommandCount       int                `json:"command_count"`
+	Agents             []string           `json:"agents"`
+	SubagentType       string             `json:"subagent_type,omitempty"`
+	Children           []*topSnapshotNode `json:"children"`
+}
+
 // memorySummaryOutput is the JSON shape of a durable memory summary in CLI output.
 type memorySummaryOutput struct {
 	MemoryID   string  `json:"memory_id"`
