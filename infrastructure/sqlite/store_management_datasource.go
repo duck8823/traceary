@@ -31,6 +31,22 @@ var clearDeletedMemorySupersedesRefsQuery string
 //go:embed sql/delete_old_memories.sql
 var deleteOldMemoriesQuery string
 
+//go:embed sql/delete_stale_extracted_candidates.sql
+var deleteStaleExtractedCandidatesQuery string
+
+//go:embed sql/clear_stale_extracted_candidate_supersedes_refs.sql
+var clearStaleExtractedCandidateSupersedesRefsQuery string
+
+// staleExtractedCandidateRetention is the fixed retention window
+// applied to candidate memories with `source IN (extracted,
+// extracted-hidden)`. The default operator-controlled cutoff
+// (`--keep-days`) protects long-lived facts; this shorter window
+// applies only to auto-extracted candidates that were never reviewed.
+// Untouched extracted candidates older than this are deleted on the
+// next gc pass that targets `memories` or `all`. Tracked under
+// v0.11.0 sub-issue #832.
+const staleExtractedCandidateRetention = 14 * 24 * time.Hour
+
 //go:embed sql/delete_old_memory_edges.sql
 var deleteOldMemoryEdgesQuery string
 
@@ -272,6 +288,23 @@ func (d *StoreManagementDatasource) collectGarbageInTx(
 			return 0, xerrors.Errorf("failed to delete old memories: %w", err)
 		}
 		total += count
+		// Auto-expire stale auto-extracted candidates that the operator
+		// never reviewed. The retention window is shorter than the
+		// operator-controlled cutoff because these rows are best-effort
+		// signal, not curated facts. See #810/#832.
+		extractedCutoff := formatTimestamp(time.Now().Add(-staleExtractedCandidateRetention))
+		// Clear supersedes_memory_id references that point at stale
+		// extracted candidates first so the subsequent delete cannot
+		// trip a foreign-key constraint when an unusual operator
+		// graph references one of these candidates.
+		if _, err := tx.ExecContext(ctx, clearStaleExtractedCandidateSupersedesRefsQuery, extractedCutoff); err != nil {
+			return 0, xerrors.Errorf("failed to clear stale extracted candidate supersedes references: %w", err)
+		}
+		extractedCount, err := execRowsAffected(ctx, tx, deleteStaleExtractedCandidatesQuery, extractedCutoff)
+		if err != nil {
+			return 0, xerrors.Errorf("failed to delete stale extracted candidates: %w", err)
+		}
+		total += extractedCount
 	}
 	if target == apptypes.GarbageCollectionTargetMemoryEdges || target == apptypes.GarbageCollectionTargetAll {
 		count, err := execRowsAffected(ctx, tx, deleteOldMemoryEdgesQuery, memoryEdgeBeforeValue)
