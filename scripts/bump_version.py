@@ -17,6 +17,9 @@ MANIFESTS = [
     ROOT / 'plugins' / 'traceary' / '.codex-plugin' / 'plugin.json',
 ]
 
+LANDING_INDEX = ROOT / 'docs' / 'landing' / 'index.html'
+LANDING_COMPONENTS = ROOT / 'docs' / 'landing' / 'components.jsx'
+
 
 def validate_version(version: str) -> str:
     if not re.fullmatch(r'\d+\.\d+\.\d+', version):
@@ -42,6 +45,40 @@ def bump(version: str) -> None:
         manifest_path.write_text(updated, encoding='utf-8')
         print(f'  {manifest_path.relative_to(ROOT)} -> {version}')
 
+    bump_landing(version)
+
+
+def bump_landing(version: str) -> None:
+    major_minor = '.'.join(version.split('.')[:2])
+
+    index_content = LANDING_INDEX.read_text(encoding='utf-8')
+    updated_index = re.sub(
+        r'(<span class="hero-eyebrow"><span class="dot"></span>)v\d+\.\d+(\b)',
+        rf'\g<1>v{major_minor}\g<2>',
+        index_content,
+        count=1,
+    )
+    if updated_index == index_content:
+        print(
+            f'  warning: hero eyebrow version marker not found in {LANDING_INDEX.relative_to(ROOT)}',
+            file=sys.stderr,
+        )
+    LANDING_INDEX.write_text(updated_index, encoding='utf-8')
+    print(f'  {LANDING_INDEX.relative_to(ROOT)} -> v{major_minor}')
+
+    components_content = LANDING_COMPONENTS.read_text(encoding='utf-8')
+    updated_components = re.sub(r'traceary--\d+\.\d+\.\d+', f'traceary--{version}', components_content)
+    updated_components = re.sub(
+        r'(/Cellar/traceary/)\d+\.\d+\.\d+', rf'\g<1>{version}', updated_components,
+    )
+    if updated_components == components_content:
+        print(
+            f'  warning: version markers not found in {LANDING_COMPONENTS.relative_to(ROOT)}',
+            file=sys.stderr,
+        )
+    LANDING_COMPONENTS.write_text(updated_components, encoding='utf-8')
+    print(f'  {LANDING_COMPONENTS.relative_to(ROOT)} -> {version}')
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description='Bump version across all manifests')
@@ -51,7 +88,11 @@ def main() -> None:
     version = validate_version(args.version)
     print(f'Bumping version to {version}:')
     bump(version)
-    print('Done. Run `python3 scripts/verify_release_manifests.py` and `python3 scripts/verify_integrations.py` to verify.')
+    print(
+        'Done. Run `python3 scripts/verify_release_manifests.py`, '
+        '`python3 scripts/verify_integrations.py`, and '
+        '`python3 scripts/verify_landing.py` to verify.'
+    )
 
 
 if __name__ == '__main__':

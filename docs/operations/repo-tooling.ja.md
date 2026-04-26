@@ -97,7 +97,17 @@ maintainer-only の repository automation は性質が異なります。
 
 - `go run ./cmd/repo-tooling release verify-changelog`
 
-### 4. version bump helper
+### 4. landing page version drift verification
+
+4 番目の対象:
+
+- `scripts/verify_landing.py`
+
+置き換え先:
+
+- `go run ./cmd/repo-tooling docs verify-landing`
+
+### 5. version bump helper
 
 最後の対象:
 
