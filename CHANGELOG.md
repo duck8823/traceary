@@ -11,6 +11,13 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ### Breaking changes
 - **`traceary top --snapshot --json` contract split (#795)** — top snapshot JSON now uses a top-specific contract instead of reusing `traceary session tree --json`. Existing session tree fields remain intact, and top snapshots add `latest_event_kind`, `latest_event_message`, and `latest_event_at` for live dashboard consumers.
 
+### Added
+- **Workspace and latest event in `traceary top` rows (#794)** — text snapshot and the live TUI now include `workspace=…/owner/repo` (tail-preserving truncate at 36 runes) and `last=<kind>: <message>` (80-rune scrubbed message, `-` when there is no event yet) so parallel sessions are distinguishable at a glance. The recommended interactive workflow doc now lists `traceary top` as the first live-inspection command.
+- **Latest event metadata on `SessionSummary` (#793)** — `LatestEventKind` and `LatestEventMessage` are populated by a new `latest_events` window-function CTE in `list_sessions.sql` / `list_session_tree.sql` / `session_lineage.sql`, with deterministic tie-breaking (`created_at DESC, id DESC`) and a new `idx_events_session_created_at_id_desc` index. Bodies are passed through `ExtractPlainBody` so transcript thinking blocks never reach the message field. MCP `session_status` payloads are explicitly guarded against exposing the new fields.
+
+### Performance
+- **`list_sessions` paginates before aggregating (#793)** — `LIMIT` / `OFFSET` are now pushed into the `filtered_sessions` CTE so the per-session event aggregation only touches the page that the caller actually requested, instead of every session matching the filter.
+
 
 ## [v0.10.2] - 2026-04-26
 
