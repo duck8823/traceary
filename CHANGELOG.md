@@ -6,6 +6,11 @@ This file summarizes what changed in each Traceary release in chronological orde
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
 
+## [v0.10.2] - 2026-04-26
+
+### Fixed
+- **Hook audit / subagent-stop tests time bomb** — `TestRootCLI_HookAuditCommand_UsesActiveSubagentSession` and `TestRootCLI_HookSubagentStopCommand_EndsChildAndClearsActiveState` had hard-coded `started_at` timestamps that aged past the 24-hour `hookActiveSubagentStateTTL`, so `pruneHookActiveSubagentState` cleared the state before the assertion ran. Surfaced when v0.10.1's Homebrew formula PR CI ran. Tests now use `time.Now().UTC()` so the fixture is always within TTL.
+
 ## [v0.10.1] - 2026-04-26
 
 ### Fixed
