@@ -16,9 +16,9 @@ Traceary v0.10.0 が公開する MCP tool はちょうど 8 個です:
 | `manage_session` | `start`, `end` | write |
 | `session_status` | `active`, `latest`, `handoff`, `tree` | read |
 | `record_event` | `type="log"` or `type="audit"` | write |
-| `list_events` | 変更なしの event listing | read |
+| `list_events` | event listing。body は既定で 500 rune に truncate (`body_limit` / `full_body=true` で上書き可) | read |
 | `search` | 変更なしの event search | read |
-| `get_context` | 変更なしの recent-context read | read |
+| `get_context` | recent-context read。body は既定で 500 rune に truncate (`body_limit` / `full_body=true` で上書き可) | read |
 
 `manage_memory.ids` は accept/reject flow 向けに単一 string と string array の両方を受け付けます。`record_event` は `type="log"` と `type="audit"` のどちらでも同じ shape を返します。
 
