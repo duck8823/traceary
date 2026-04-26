@@ -237,6 +237,7 @@ Traceary CLI が失敗したときの stderr は plain `Error: ...` です。wra
 
 ## 参考
 
+- [ライフサイクルイベント](./lifecycle-events.ja.md) — hook が発行する canonical Traceary event kind 一覧。
 - Claude Code hooks reference: https://code.claude.com/docs/en/hooks
 - Claude Code hooks guide: https://code.claude.com/docs/en/hooks-guide
 - Gemini CLI hooks reference used during local validation: `/opt/homebrew/Cellar/gemini-cli/0.36.0/libexec/lib/node_modules/@google/gemini-cli/bundle/docs/hooks/reference.md`
