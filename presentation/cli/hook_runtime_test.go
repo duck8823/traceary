@@ -301,6 +301,115 @@ func TestRootCLI_HookSessionCommand_StopUsesStateAndCreatesEndMarker(t *testing.
 	}
 }
 
+func TestRootCLI_HookSessionCommand_StopFiresMemoryAutoExtract(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key-extract")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key-extract"), []byte("auto-extract-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key-extract-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	memoryStub := &memoryUsecaseStub{}
+	sessionStub := &sessionUsecaseStub{
+		endEvent: model.EventOf(
+			types.EventID("evt-end-extract"),
+			types.EventKindSessionEnded,
+			types.Client("hook"),
+			types.Agent("claude"),
+			types.SessionID("auto-extract-session"),
+			types.Workspace("github.com/duck8823/traceary"),
+			"session ended",
+			time.Now(),
+		),
+	}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(sessionStub),
+		cli.WithMemory(memoryStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"agent_type":"planner"}`))
+	rootCmd.SetArgs([]string{"hook", "session", "claude", "stop"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got, want := memoryStub.extractCriteria.SessionID(), types.SessionID("auto-extract-session"); got != want {
+		t.Fatalf("auto-extract session ID = %q, want %q", got, want)
+	}
+	if got, want := memoryStub.extractCriteria.Workspace(), types.Workspace("github.com/duck8823/traceary"); got != want {
+		t.Fatalf("auto-extract workspace = %q, want %q", got, want)
+	}
+}
+
+func TestRootCLI_HookSessionCommand_StopAutoExtractFailureDoesNotPropagate(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key-extract-fail")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key-extract-fail"), []byte("auto-extract-fail-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key-extract-fail-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	memoryStub := &memoryUsecaseStub{
+		extractErr: errors.New("simulated extract failure"),
+	}
+	sessionStub := &sessionUsecaseStub{
+		endEvent: model.EventOf(
+			types.EventID("evt-end-extract-fail"),
+			types.EventKindSessionEnded,
+			types.Client("hook"),
+			types.Agent("claude"),
+			types.SessionID("auto-extract-fail-session"),
+			types.Workspace("github.com/duck8823/traceary"),
+			"session ended",
+			time.Now(),
+		),
+	}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(sessionStub),
+		cli.WithMemory(memoryStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{}`))
+	rootCmd.SetArgs([]string{"hook", "session", "claude", "stop"})
+
+	// runHookBestEffort swallows the error in production, but the test
+	// runtime returns nil too — auto-extract failure must NEVER block
+	// the session-end record from committing.
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v (auto-extract failure must not propagate)", err)
+	}
+	if got, want := sessionStub.endCall.sessionID, types.SessionID("auto-extract-fail-session"); got != want {
+		t.Fatalf("session.End sessionID = %q, want %q (must be invoked even when extract fails)", got, want)
+	}
+}
+
 func TestRootCLI_HookSessionCommand_StopClearsDuplicateEndStateBeforeStoreInitialization(t *testing.T) {
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
 

@@ -104,6 +104,8 @@ Use these when Traceary should infer candidate memories from existing session si
 
 Extraction is candidate-only. It does not auto-accept memories.
 
+Since v0.11.0, the hook-driven session-end path (`traceary hook session <client> end|stop`) also fires extraction automatically as a best-effort step after the session-end record commits, so the inbox grows without the agent having to ask. Errors there are swallowed so the boundary record is never blocked.
+
 ### Review path
 
 Use these once candidates have accumulated in the store and you need to
