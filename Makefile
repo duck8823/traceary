@@ -33,6 +33,9 @@ integrations/check: ## Verify native integration packages
 release/check: ## Verify release marketplace and plugin manifests
 	@python3 scripts/verify_release_manifests.py
 
+landing/check: ## Verify docs/landing/ stays in sync with VERSION
+	@python3 scripts/verify_landing.py
+
 release/gemini-extension: ## Package Gemini CLI extension archive to dist/
 	@./scripts/package_gemini_extension.sh
 
@@ -44,8 +47,9 @@ release/bump: ## Bump version across all manifests (usage: make release/bump VER
 	@python3 scripts/bump_version.py --version "$(VERSION)"
 	@python3 scripts/verify_release_manifests.py
 	@python3 scripts/verify_integrations.py
+	@python3 scripts/verify_landing.py
 
-ci: docs/check release/check integrations/check code/lint code/test ## Run full CI validation
+ci: docs/check release/check integrations/check landing/check code/lint code/test ## Run full CI validation
 
 install: ## Download Go module dependencies
 	@go mod download

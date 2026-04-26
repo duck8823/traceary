@@ -97,7 +97,17 @@ Planned replacement:
 
 - `go run ./cmd/repo-tooling release verify-changelog`
 
-### 4. Version bump helper
+### 4. Landing page version drift verification
+
+Fourth target:
+
+- `scripts/verify_landing.py`
+
+Planned replacement:
+
+- `go run ./cmd/repo-tooling docs verify-landing`
+
+### 5. Version bump helper
 
 Final target:
 
