@@ -27,6 +27,15 @@ Use this skill **only** when the operator explicitly asks Traceary to remember a
    | `pr` | `#468` |
 
    Unknown values fail with `unknown evidence ref kind: <value>`. At minimum include the current `session` id.
+
+   For optional `artifact_refs[].kind` (used to point at follow-up reading material), the enum is **smaller** — `event` and `session` are NOT allowed:
+
+   | `kind` | Typical `value` |
+   | --- | --- |
+   | `url` | `https://grafana.internal/...` |
+   | `file` | `docs/architecture/redaction.md` |
+   | `issue` | `#462` |
+   | `pr` | `#468` |
 4. **Call `manage_memory`**:
    - For an explicit "remember this now" verb, use `action="remember"`. The memory lands at `status=accepted` because the user's direct ask **is** the acceptance signal.
    - If you are unsure whether the user wants the fact made permanent right now, use `action="propose"` instead. That lands at `status=candidate` and the operator can review it later via `traceary-memory-review`.

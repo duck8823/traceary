@@ -155,8 +155,16 @@ type memoryPackInput struct {
 }
 
 // memoryRefInput is the MCP representation of evidence/artifact references.
+//
+// The accepted `kind` enum differs by ref family:
+//   - evidence_refs: event, session, url, file, issue, pr
+//   - artifact_refs: url, file, issue, pr (no event / session)
+//
+// The MCP server validates the actual kind against the per-family enum
+// at write time and rejects unknown values with `unknown evidence ref
+// kind` or `unknown artifact ref kind`.
 type memoryRefInput struct {
-	Kind  string `json:"kind" jsonschema:"reference kind enum: event, session, url, file, issue, pr"`
+	Kind  string `json:"kind" jsonschema:"reference kind enum (evidence_refs: event, session, url, file, issue, pr; artifact_refs: url, file, issue, pr)"`
 	Value string `json:"value" jsonschema:"reference value (event/session id, URL, file path, issue or pr number)"`
 }
 

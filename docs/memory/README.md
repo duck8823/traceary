@@ -74,13 +74,14 @@ The MCP / CLI accept exactly these `kind` values for `evidence_refs[].kind` (def
 
 ### Artifact ref `kind` enum
 
-`artifact_refs[].kind` is a separate enum with these values:
+`artifact_refs[].kind` is a separate enum (defined in [`domain/types/artifact_ref.go`](../../domain/types/artifact_ref.go)). It overlaps with the evidence enum but does **not** include `event` / `session`:
 
 | `kind` | Typical `value` |
 | --- | --- |
-| `file` | `docs/architecture/redaction.md` |
 | `url` | `https://grafana.internal/...` |
-| `command` | `go test ./...` |
+| `file` | `docs/architecture/redaction.md` |
+| `issue` | `#462` |
+| `pr` | `#468` |
 
 ## How the memory commands relate
 
