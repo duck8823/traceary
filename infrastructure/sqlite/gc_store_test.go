@@ -315,6 +315,53 @@ func TestDatasource_CollectGarbage_deletesOnlyExpiredAndSupersededMemoriesWithCa
 	assertNoForeignKeyViolations(t, db)
 }
 
+func TestDatasource_CollectGarbage_deletesStaleExtractedCandidatesAfter14d(t *testing.T) {
+	t.Parallel()
+
+	dbPath, storeManager := prepareRetentionFixture(t)
+	db := openRetentionDB(t, dbPath)
+	defer func() { _ = db.Close() }()
+
+	now := time.Now().UTC()
+	stale := now.Add(-30 * 24 * time.Hour).Format(time.RFC3339Nano)
+	fresh := now.Add(-3 * 24 * time.Hour).Format(time.RFC3339Nano)
+
+	// Stale candidates from extraction: should be auto-deleted.
+	insertRetentionMemoryWithSource(t, db, "extracted-stale", "candidate", "extracted", "", stale)
+	insertRetentionMemoryWithSource(t, db, "hidden-stale", "candidate", "extracted-hidden", "", stale)
+	// Fresh extracted candidate: keep.
+	insertRetentionMemoryWithSource(t, db, "extracted-fresh", "candidate", "extracted", "", fresh)
+	// Manual / imported candidates do not auto-expire on this short window.
+	insertRetentionMemoryWithSource(t, db, "manual-old", "candidate", "manual", "", stale)
+	insertRetentionMemoryWithSource(t, db, "imported-old", "candidate", "imported", "", stale)
+	// Accepted extraction is curated and survives gc unless it is
+	// expired/superseded.
+	insertRetentionMemoryWithSource(t, db, "extracted-accepted", "accepted", "extracted", "", stale)
+
+	// Use a `before` cutoff far in the past so the operator-controlled
+	// retention does not delete anything; only the 14-day extracted
+	// auto-expire should fire.
+	deletedCount, err := storeManager.CollectGarbage(
+		context.Background(),
+		time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		apptypes.GarbageCollectionTargetMemories,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("CollectGarbage() error = %v", err)
+	}
+	if diff := cmp.Diff(2, deletedCount); diff != "" {
+		t.Fatalf("deletedCount mismatch (-want +got):\n%s", diff)
+	}
+	assertRetentionIDs(t, db, "memories", "id", []string{
+		"extracted-accepted",
+		"extracted-fresh",
+		"imported-old",
+		"manual-old",
+	})
+	assertNoForeignKeyViolations(t, db)
+}
+
 func TestDatasource_CollectGarbage_deletesOldClosedMemoryEdges(t *testing.T) {
 	t.Parallel()
 
@@ -434,12 +481,17 @@ func execRetentionSQL(t *testing.T, db *sql.DB, query string, args ...any) {
 
 func insertRetentionMemory(t *testing.T, db *sql.DB, id, status, supersedesID, updatedAt string) {
 	t.Helper()
+	insertRetentionMemoryWithSource(t, db, id, status, "manual", supersedesID, updatedAt)
+}
+
+func insertRetentionMemoryWithSource(t *testing.T, db *sql.DB, id, status, source, supersedesID, updatedAt string) {
+	t.Helper()
 	var supersedes any
 	if supersedesID != "" {
 		supersedes = supersedesID
 	}
 	execRetentionSQL(t, db, `INSERT INTO memories (id, type, scope_kind, scope_value, fact, status, confidence, source, supersedes_memory_id, expires_at, valid_from, valid_to, created_at, updated_at)
-		VALUES (?, 'preference', 'workspace', 'repo', ?, ?, 'medium', 'manual', ?, NULL, '2026-04-01T00:00:00.000000000Z', NULL, '2026-04-01T00:00:00Z', ?)`, id, id, status, supersedes, updatedAt)
+		VALUES (?, 'preference', 'workspace', 'repo', ?, ?, 'medium', ?, ?, NULL, '2026-04-01T00:00:00.000000000Z', NULL, '2026-04-01T00:00:00Z', ?)`, id, id, status, source, supersedes, updatedAt)
 }
 
 func assertRetentionIDs(t *testing.T, db *sql.DB, table, column string, want []string) {
