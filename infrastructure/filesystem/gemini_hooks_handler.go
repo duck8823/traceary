@@ -28,6 +28,7 @@ func (h *GeminiHooksHandler) Build(tracearyBin string) model.Hooks {
 	auditCommand := newHookRuntimeCommand(tracearyBin, "hook", "audit", "gemini")
 	transcriptCommand := newHookRuntimeCommand(tracearyBin, "hook", "transcript", "gemini")
 	promptCommand := newHookRuntimeCommand(tracearyBin, "hook", "prompt", "gemini")
+	preCompressCommand := newHookRuntimeCommand(tracearyBin, "hook", "compact", "gemini", "pre-compact")
 
 	// Gemini has no Stop event — the closest analogue is AfterAgent,
 	// which fires once the agent has produced a complete response and
@@ -39,7 +40,14 @@ func (h *GeminiHooksHandler) Build(tracearyBin string) model.Hooks {
 	// `prompt` in its payload, so it is wired as the prompt-capture
 	// source for Gemini (parity with Claude UserPromptSubmit and
 	// Codex UserPromptSubmit).
-	eventOrder := []string{"SessionStart", "SessionEnd", "BeforeAgent", "AfterAgent", "AfterTool"}
+	// PreCompress fires asynchronously before Gemini compresses its
+	// chat history. The payload only carries `trigger` (auto / manual)
+	// — Gemini exposes no post-compress event with the resulting
+	// summary, so Traceary records this as a `compact_summary` *marker*
+	// (no digest body). source_hook=pre_compact normalizes the host's
+	// `PreCompress` name onto the same internal label Claude uses for
+	// PreCompact.
+	eventOrder := []string{"SessionStart", "SessionEnd", "BeforeAgent", "AfterAgent", "AfterTool", "PreCompress"}
 	events := map[string][]model.HookEntry{
 		"SessionStart": {
 			model.HookEntryOf(types.Some("*"), []model.HookCommand{
@@ -98,6 +106,18 @@ func (h *GeminiHooksHandler) Build(tracearyBin string) model.Hooks {
 					timeout,
 					"Record shell command audits in Traceary",
 					managedKeyOf("traceary-audit.sh", "gemini"),
+				),
+			}),
+		},
+		"PreCompress": {
+			model.HookEntryOf(types.Some("*"), []model.HookCommand{
+				model.HookCommandOf(
+					"traceary-pre-compress",
+					"command",
+					preCompressCommand,
+					timeout,
+					"Record a pre-compact marker (Gemini exposes no post-compress hook)",
+					managedKeyOf("traceary-compact.sh", "gemini", "pre-compact"),
 				),
 			}),
 		},

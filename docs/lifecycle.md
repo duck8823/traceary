@@ -52,9 +52,10 @@ SessionStart → [AfterTool]* → SessionEnd
 | BeforeAgent | `prompt` | User instruction text (`prompt` field) |
 | AfterAgent | `transcript` | Final agent response text (`prompt_response` field) |
 | AfterTool | `command_executed` | Tool execution |
+| PreCompress | `compact_summary` | Pre-compact marker only (`trigger` field; Gemini has no post-compress event) |
 | SessionEnd | `session_ended` | Session end |
 
-**Limitations**: No `compact` hooks (Gemini exposes `PreCompress` only — see #807), no failure-specific events.
+**Limitations**: No post-compress digest (Gemini fires `PreCompress` async only), no failure-specific events.
 
 ## Event Kinds
 

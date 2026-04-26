@@ -14,7 +14,7 @@ func TestGeminiHooksHandler_Build(t *testing.T) {
 	handler := filesystem.NewGeminiHooksHandler()
 	hooks := handler.Build("traceary")
 
-	wantEventOrder := []string{"SessionStart", "SessionEnd", "BeforeAgent", "AfterAgent", "AfterTool"}
+	wantEventOrder := []string{"SessionStart", "SessionEnd", "BeforeAgent", "AfterAgent", "AfterTool", "PreCompress"}
 	if diff := cmp.Diff(wantEventOrder, hooks.EventOrder()); diff != "" {
 		t.Fatalf("EventOrder() mismatch (-want +got):\n%s", diff)
 	}
@@ -111,6 +111,32 @@ func TestGeminiHooksHandler_Build(t *testing.T) {
 		}
 		if diff := cmp.Diff(5000, timeout); diff != "" {
 			t.Fatalf("AfterAgent timeout mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("PreCompress records a pre-compact marker", func(t *testing.T) {
+		t.Parallel()
+
+		entries := hooks.Entries("PreCompress")
+		if diff := cmp.Diff(1, len(entries)); diff != "" {
+			t.Fatalf("len(PreCompress entries) mismatch (-want +got):\n%s", diff)
+		}
+		matcher, ok := entries[0].Matcher().Value()
+		if diff := cmp.Diff(true, ok); diff != "" {
+			t.Fatalf("PreCompress matcher presence mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("*", matcher); diff != "" {
+			t.Fatalf("PreCompress matcher mismatch (-want +got):\n%s", diff)
+		}
+		command := entries[0].Commands()[0]
+		if diff := cmp.Diff("traceary-pre-compress", command.Name()); diff != "" {
+			t.Fatalf("PreCompress command name mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("traceary-compact.sh:gemini:pre-compact", command.ManagedKey()); diff != "" {
+			t.Fatalf("PreCompress managed key mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(`'traceary' 'hook' 'compact' 'gemini' 'pre-compact'`, command.Command()); diff != "" {
+			t.Fatalf("PreCompress command mismatch (-want +got):\n%s", diff)
 		}
 	})
 

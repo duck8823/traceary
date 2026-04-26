@@ -69,6 +69,20 @@
           }
         ]
       }
+    ],
+    "PreCompress": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "traceary-pre-compress",
+            "type": "command",
+            "command": "'traceary' 'hook' 'compact' 'gemini' 'pre-compact'",
+            "timeout": 5000,
+            "description": "Record a pre-compact marker (Gemini exposes no post-compress hook)"
+          }
+        ]
+      }
     ]
   }
 }

@@ -53,7 +53,7 @@
 ### `compact_summary`
 
 - ホスト側で context window が圧縮されたときに発行。
-- 現状 Claude Code のみ（`PostCompact`）。Codex 0.125 に compact hook なし（upstream `openai/codex#16098`）。Gemini は `PreCompress` を持つが post-compress 側 event は無い — Traceary では #807 で `PreCompress` の marker 配線を予定。
+- Claude Code (`PostCompact`) は digest 本文を生成する。Gemini CLI (`PreCompress`) は marker のみ — Gemini に post-compress 側の event がないため。Codex 0.125 は compact hook 自体を公開していない（upstream `openai/codex#16098`）。
 - L2 で、`SessionStart` matcher `compact` 経由のセッション再開時に `sessions.summary` の seed として使う。
 
 ### `session_ended`

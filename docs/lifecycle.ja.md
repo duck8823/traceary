@@ -52,9 +52,10 @@ SessionStart → [AfterTool]* → SessionEnd
 | BeforeAgent | `prompt` | ユーザの指示テキスト（`prompt` フィールド） |
 | AfterAgent | `transcript` | エージェントの最終応答（`prompt_response` フィールド） |
 | AfterTool | `command_executed` | ツール実行 |
+| PreCompress | `compact_summary` | pre-compact marker のみ（`trigger` フィールド。Gemini に post-compress event はない） |
 | SessionEnd | `session_ended` | セッション終了 |
 
-**制限**: `compact` hook 相当は `PreCompress` のみ（#807 で marker 配線予定）。failure 専用イベントもありません。
+**制限**: post-compress digest はなし（Gemini の `PreCompress` は async marker のみ）、failure 専用イベントもありません。
 
 ## イベント種別
 
