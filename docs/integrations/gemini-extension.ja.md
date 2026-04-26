@@ -11,7 +11,7 @@ Gemini 向け package は `integrations/gemini-extension/` にあります。Gem
 - `AfterAgent` transcript hook（agent の応答を `transcript` event として記録）
 - `run_shell_command` 向け `AfterTool` audit hook
 - slash command の `/traceary-help` と `/traceary-doctor`
-- 文脈で効く `traceary-session-history` / `traceary-memory-capture` skill（後者は decision / constraint / lesson / preference / artifact を発見したときにエージェントが `manage_memory(action="propose")` を能動的に呼ぶよう誘導します）
+- 文脈で効く `traceary-session-history` / `traceary-memory-review` / `traceary-memory-remember` skill。`traceary-memory-review` は review 意図の発話 (「Traceary inbox」「review memory candidates」「session recap」など) で発火し inbox の curate を案内、`traceary-memory-remember` は明示 write 発話 (「覚えておいて」「remember that」など) のみで発火します。旧 `traceary-memory-capture` は deprecated stub として残存（v0.12 で削除予定）。
 
 ## Install
 

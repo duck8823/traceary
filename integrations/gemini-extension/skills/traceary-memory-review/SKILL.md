@@ -22,8 +22,8 @@ Use this skill when the operator explicitly asks to look at Traceary's pending m
 2. **Present the inbox to the user**. For each candidate include the memory id, type, fact, and the conversation evidence the candidate carries. Do not narrate the JSON verbatim — summarize so a busy operator can decide quickly.
 3. **Wait for the operator's decision per memory**. The operator may accept, reject, or ask to re-scope a candidate. Do not assume silence implies accept.
 4. **Apply decisions** via `manage_memory`:
-   - Accept: `manage_memory({"action": "accept", "memory_ids": ["<id>", ...]})`
-   - Reject: `manage_memory({"action": "reject", "memory_ids": ["<id>", ...]})`
+   - Accept: `manage_memory({"action": "accept", "ids": ["<id>", ...]})`
+   - Reject: `manage_memory({"action": "reject", "ids": ["<id>", ...]})`
    - Re-scope or amend: reject the original, then call `manage_memory({"action": "remember", ...})` (or ask the operator to invoke `traceary-memory-remember`) with the corrected scope / fact text.
 5. **(Optional) session recap** when the operator says "session recap" / "summarize for next time": compose a 3–5 sentence summary from the events visible via `get_context` / `query_memory(pack)` and present it inline. Persistent storage of session summaries is wired through compact-summary events (see hook contract); a dedicated MCP write path for `sessions.summary` is not exposed today.
 
