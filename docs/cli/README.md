@@ -481,7 +481,29 @@ Useful flags:
 
 ### `traceary top`
 
-Show a live, auto-refreshing tree dashboard of active sessions grouped by root session. Rows include the most specific agent/subagent role, recording client, start time, latest activity time, and event count. Idle sessions are dimmed when their latest activity is older than `--idle`; they are not hidden. Press `q` or Ctrl-C to quit. `traceary session tree` remains the static retrospective view.
+Show a live, auto-refreshing tree dashboard of active sessions grouped by root session. Rows include the workspace (truncated tail-first when long), the most specific agent/subagent role, recording client, start time, latest activity time, event count, and the latest event as `<kind>: <message>`. Idle sessions are dimmed when their latest activity is older than `--idle`; they are not hidden. Press `q` or Ctrl-C to quit. `traceary session tree` remains the static retrospective view.
+
+Example snapshot:
+
+```sh
+traceary top --snapshot
+```
+
+```text
+4a70c526 workspace=github.com/duck8823/traceary agent=codex client=claude started=07:06:37 latest=07:06:58 events=165 last=session_ended: duration=29m21s
+└── 7c91a2bf workspace=github.com/duck8823/traceary agent=worker client=claude started=07:03:12 latest=07:06:52 events=42 last=command_executed: go test ./presentation/cli
+```
+
+Columns:
+
+- `workspace` — compact workspace path; tail is preserved when truncated so the repo qualifier stays readable
+- `agent` — most specific agent / subagent role
+- `client` — recording client
+- `started` — session start time
+- `latest` — latest event time
+- `events` — total event count
+- `last` — latest event as `<kind>: <message>`, or `-` when there is no event yet (the message is scrubbed of newlines / control characters and capped at 80 runes)
+- `idle` — appended when latest activity is older than `--idle`
 
 Useful flags:
 
@@ -489,7 +511,7 @@ Useful flags:
 - `--client`
 - `--agent`
 - `--idle <duration>` — dim rows older than the threshold without hiding them
-- `--snapshot --json` — print a one-shot JSON tree using the same node contract as `traceary session tree --json`
+- `--snapshot --json` — print a one-shot JSON tree using the top-specific snapshot contract; the JSON nodes additionally carry `latest_event_kind`, `latest_event_message`, and `latest_event_at`. `traceary session tree --json` keeps its independent contract and does not expose those fields
 - `--limit`
 
 ### `traceary session list`

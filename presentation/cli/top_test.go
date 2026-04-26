@@ -114,6 +114,105 @@ func TestRootCLI_TopCommand_SnapshotJSONGolden(t *testing.T) {
 	assertJSONGolden(t, stdout.Bytes(), filepath.Join("testdata", "top", "snapshot_json.golden.json"))
 }
 
+func TestRootCLI_TopCommand_SnapshotTextGolden(t *testing.T) {
+	prevLocal := time.Local
+	time.Local = time.UTC
+	t.Cleanup(func() { time.Local = prevLocal })
+
+	startedAt := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+
+	stub := &sessionUsecaseStub{listResult: []apptypes.SessionSummary{
+		apptypes.SessionSummaryOf(
+			types.SessionID("ws-long"),
+			types.Workspace("/Users/sample/repos/very/long/path/github.com/duck8823/traceary"),
+			startedAt,
+			types.None[time.Time](),
+			"active",
+			165,
+			12,
+			[]string{"codex"},
+			"refactor session handoff",
+			"",
+			types.SessionID(""),
+			types.Client("claude"),
+			startedAt.Add(15*time.Minute),
+			apptypes.SessionSummaryLatestEventOf(types.EventKindCommandExecuted, "go test ./..."),
+		),
+		apptypes.SessionSummaryOf(
+			types.SessionID("ws-empty"),
+			types.Workspace("duck8823/traceary"),
+			startedAt.Add(2*time.Hour),
+			types.None[time.Time](),
+			"active",
+			0,
+			0,
+			[]string{},
+			"",
+			"",
+			types.SessionID(""),
+			types.Client("claude"),
+			startedAt.Add(2*time.Hour),
+		),
+		// Ended root retained because an active child still references it; the
+		// row exercises the `last=session_ended: …` formatting that would
+		// otherwise be filtered out of `top` along with idle ended roots.
+		apptypes.SessionSummaryOf(
+			types.SessionID("ws-parent-ended"),
+			types.Workspace("duck8823/traceary"),
+			startedAt.Add(3*time.Hour),
+			types.Some(startedAt.Add(3*time.Hour+30*time.Minute)),
+			"ended",
+			42,
+			6,
+			[]string{"claude"},
+			"investigate failing tests",
+			"",
+			types.SessionID(""),
+			types.Client("claude"),
+			startedAt.Add(3*time.Hour+30*time.Minute),
+			apptypes.SessionSummaryLatestEventOf(types.EventKindSessionEnded, "duration=29m21s"),
+		),
+		apptypes.SessionSummaryOf(
+			types.SessionID("ws-child-active"),
+			types.Workspace("duck8823/traceary"),
+			startedAt.Add(3*time.Hour+10*time.Minute),
+			types.None[time.Time](),
+			"active",
+			7,
+			3,
+			[]string{"claude/explore"},
+			"explore",
+			"",
+			types.SessionID("ws-parent-ended"),
+			types.Client("claude"),
+			types.EventID("spawn-ws-child-active"),
+			"task",
+			types.Some(1),
+			startedAt.Add(3*time.Hour+25*time.Minute),
+			apptypes.SessionSummaryLatestEventOf(types.EventKindTranscript, "investigating panic in usecase layer"),
+		),
+	}}
+
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(stub),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"top",
+		"--db-path", "/tmp/test-traceary.db",
+		"--snapshot",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	assertGolden(t, stdout.Bytes(), filepath.Join("testdata", "top", "snapshot_text.golden"))
+}
+
 func TestRootCLI_TopCommand_JSONRequiresSnapshot(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(

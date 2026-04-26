@@ -481,7 +481,29 @@ session end 境界を記録し、生成された event ID を出力します。
 
 ### `traceary top`
 
-active session を root session ごとにまとめたライブ自動更新 tree dashboard を表示します。各行には最も具体的な agent/subagent role、記録 client、開始時刻、最新 activity 時刻、event 件数を表示します。最新 activity が `--idle` より古い session は dim 表示しますが、非表示にはしません。`q` または Ctrl-C で終了します。`traceary session tree` は静的な retrospective view のままです。
+active session を root session ごとにまとめたライブ自動更新 tree dashboard を表示します。各行には workspace（長い場合は末尾を保持して短縮）、最も具体的な agent/subagent role、記録 client、開始時刻、最新 activity 時刻、event 件数、最新 event を `<kind>: <message>` で表示します。最新 activity が `--idle` より古い session は dim 表示しますが、非表示にはしません。`q` または Ctrl-C で終了します。`traceary session tree` は静的な retrospective view のままです。
+
+snapshot 例:
+
+```sh
+traceary top --snapshot
+```
+
+```text
+4a70c526 workspace=github.com/duck8823/traceary agent=codex client=claude started=07:06:37 latest=07:06:58 events=165 last=session_ended: duration=29m21s
+└── 7c91a2bf workspace=github.com/duck8823/traceary agent=worker client=claude started=07:03:12 latest=07:06:52 events=42 last=command_executed: go test ./presentation/cli
+```
+
+列:
+
+- `workspace` — 短縮した workspace path。truncate 時は末尾を保持して repo 識別子が読めるようにする
+- `agent` — 最も具体的な agent / subagent role
+- `client` — 記録 client
+- `started` — session 開始時刻
+- `latest` — latest event 時刻
+- `events` — event 件数
+- `last` — latest event を `<kind>: <message>` で表示。event が無い場合は `-`（message は改行 / 制御文字を scrub し、80 runes で truncate）
+- `idle` — latest activity が `--idle` より古い場合に付与
 
 主な flag:
 
@@ -489,7 +511,7 @@ active session を root session ごとにまとめたライブ自動更新 tree 
 - `--client`
 - `--agent`
 - `--idle <duration>` — threshold より古い行を非表示にせず dim 表示
-- `--snapshot --json` — `traceary session tree --json` と同じ node 契約で一回限りの JSON tree を出力
+- `--snapshot --json` — top 専用 snapshot contract で一回限りの JSON tree を出力。各 node には追加で `latest_event_kind` / `latest_event_message` / `latest_event_at` が含まれる。`traceary session tree --json` は独立した contract を保ち、これら field を露出しない
 - `--limit`
 
 ### `traceary session list`

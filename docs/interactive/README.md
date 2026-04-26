@@ -27,7 +27,17 @@ traceary list --limit 20
 traceary list --workspace github.com/duck8823/traceary --client codex
 ```
 
-### 2. "Is the system writing events right now?" → `traceary tail`
+### 2. "Which sessions are running right now?" → `traceary top`
+
+Use `top` to watch the live tree of active sessions. Each row shows the workspace, the most specific agent role, the latest event time, and the latest event as `<kind>: <message>` so it is obvious which session is doing what.
+
+```sh
+traceary top
+traceary top --workspace github.com/duck8823/traceary
+traceary top --snapshot
+```
+
+### 3. "Is the system writing events right now?" → `traceary tail`
 
 Use `tail` when you want to watch new events arrive in real time.
 This is the best command for confirming that hooks are firing, that the expected workspace is receiving writes, or that failures are visible as they happen.
@@ -38,7 +48,7 @@ traceary tail --workspace github.com/duck8823/traceary --failures
 traceary tail --json
 ```
 
-### 3. "Find a specific error / command / note" → `traceary search`
+### 4. "Find a specific error / command / note" → `traceary search`
 
 Use `search` for text lookup combined with time or workspace filters.
 
@@ -47,7 +57,7 @@ traceary search panic --workspace github.com/duck8823/traceary
 traceary search --since 2026-04-01 --kind command_executed lint
 ```
 
-### 4. "Show me the full structured record" → `traceary show`
+### 5. "Show me the full structured record" → `traceary show`
 
 Use `show` when you already have an event ID and want the structured event or audit payload.
 
@@ -55,7 +65,7 @@ Use `show` when you already have an event ID and want the structured event or au
 traceary show evt_123 --json
 ```
 
-### 5. "What context should I carry into the next session?" → `traceary handoff`
+### 6. "What context should I carry into the next session?" → `traceary handoff`
 
 Use `handoff` when you want a concise working-memory pack instead of the raw event stream.
 This is the operator-facing summary view for resuming work or handing context to another agent.

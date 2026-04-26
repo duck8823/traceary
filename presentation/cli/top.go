@@ -248,6 +248,14 @@ func printTopNode(output io.Writer, node *sessionNode, prefix string, isLast boo
 }
 
 func formatTopNodeLine(node *sessionNode, prefix string, idle time.Duration, now time.Time) string {
+	return formatTopNodeLineIn(node, prefix, idle, now, time.Local)
+}
+
+// formatTopNodeLineIn renders the row in the supplied location so
+// tests can assert against a deterministic timezone without mutating
+// the global time.Local. Production callers go through
+// formatTopNodeLine which pins it to time.Local.
+func formatTopNodeLineIn(node *sessionNode, prefix string, idle time.Duration, now time.Time, loc *time.Location) string {
 	s := node.summary
 	latest := s.LatestEventAt()
 	idleFor := now.Sub(latest)
@@ -263,16 +271,48 @@ func formatTopNodeLine(node *sessionNode, prefix string, idle time.Duration, now
 	if client == "" {
 		client = "-"
 	}
-	return fmt.Sprintf("%s%s agent=%s client=%s started=%s latest=%s events=%d%s",
+	return fmt.Sprintf("%s%s workspace=%s agent=%s client=%s started=%s latest=%s events=%d last=%s%s",
 		prefix,
 		s.SessionID(),
+		compactTopWorkspace(s.Workspace().String()),
 		agent,
 		client,
-		s.StartedAt().Local().Format("15:04:05"),
-		latest.Local().Format("15:04:05"),
+		s.StartedAt().In(loc).Format("15:04:05"),
+		latest.In(loc).Format("15:04:05"),
 		s.TotalEvents(),
+		formatTopLatestEvent(s),
 		idleMarker,
 	)
+}
+
+// topWorkspaceMaxWidth is the column budget for the workspace cell
+// in `traceary top` rows. The truncate strategy preserves the tail
+// (the repo identifier) so that `github.com/owner/repo` paths stay
+// readable even when truncated.
+const topWorkspaceMaxWidth = 36
+
+// compactTopWorkspace renders a workspace path for the top dashboard.
+// Unlike compactWorkspace (basename only), top needs to keep the
+// owner/repo qualifier so users can tell parallel sessions apart, so
+// this preserves the tail and prepends an ellipsis when the value is
+// longer than topWorkspaceMaxWidth runes.
+func compactTopWorkspace(workspace string) string {
+	normalized := normalizeTabularColumn(workspace)
+	if normalized == "" {
+		return "-"
+	}
+	runes := []rune(normalized)
+	if len(runes) <= topWorkspaceMaxWidth {
+		return normalized
+	}
+	return "…" + string(runes[len(runes)-(topWorkspaceMaxWidth-1):])
+}
+
+func formatTopLatestEvent(s apptypes.SessionSummary) string {
+	if s.TotalEvents() == 0 || s.LatestEventKind().String() == "" {
+		return "-"
+	}
+	return fmt.Sprintf("%s: %s", s.LatestEventKind(), truncateMessage(s.LatestEventMessage()))
 }
 
 func (c *RootCLI) runTopTUI(ctx context.Context, opts topCommandOptions) error {
