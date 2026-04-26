@@ -29,13 +29,13 @@ Traceary keeps those records in one local SQLite store so the same history can b
 
 Traceary is no longer just a local event log. `v0.5.0` organizes the product around three layers that map to how agent workflows actually need context.
 
-| Layer | What lives there | Why it matters |
+| Layer | What lives there | How it is fed |
 |---|---|---|
-| Audit / Archive | raw events (prompts, transcripts, command audits), session boundaries | keeps the source-of-truth timeline for inspection, search, and forensic review |
-| Working memory | handoff/context packs assembled from recent sessions | helps the next agent or resumed session start with the right context instead of the whole log |
-| Durable memory | reusable facts such as decisions, constraints, preferences, and artifact refs | stores the small set of facts that should survive across sessions and be retrieved on demand |
+| Audit / Archive | raw events (prompts, transcripts, command audits), session boundaries | host hooks (`SessionStart`, `UserPromptSubmit` / `BeforeAgent`, `PostToolUse` / `AfterTool`, `Stop` / `AfterAgent`, `PreCompact` / `PreCompress`, `SessionEnd`) — see [host coverage matrix](./docs/hooks/host-coverage.md) |
+| Working memory | handoff / context packs assembled from recent sessions | derived on demand by `traceary session handoff` / MCP `get_context`. Claude `PreCompact` digest also syncs into `sessions.summary` so timeline / handoff have a useful header before the session ends |
+| Durable memory | reusable facts such as decisions, constraints, preferences, and artifact refs | curated through the `traceary-memory-review` skill (review-intent triggers) and the `traceary-memory-remember` skill (explicit-write triggers); the older `traceary-memory-capture` skill is deprecated in v0.11.0 and removed in v0.12 |
 
-In practice, this means Traceary can act as a local-first memory substrate for AI agents rather than only a CLI that appends logs.
+In practice, Traceary acts as a local-first memory substrate for AI agents: hooks feed L1 mechanically, L2 is recomputed when the next session starts, and L3 stays small because it only grows when the operator (or an explicit "remember that" verb) says so.
 
 Traceary is local-first. It writes to SQLite on your machine and does not include built-in telemetry, analytics, or hosted storage.
 
