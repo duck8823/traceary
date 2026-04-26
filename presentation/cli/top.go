@@ -248,6 +248,14 @@ func printTopNode(output io.Writer, node *sessionNode, prefix string, isLast boo
 }
 
 func formatTopNodeLine(node *sessionNode, prefix string, idle time.Duration, now time.Time) string {
+	return formatTopNodeLineIn(node, prefix, idle, now, time.Local)
+}
+
+// formatTopNodeLineIn renders the row in the supplied location so
+// tests can assert against a deterministic timezone without mutating
+// the global time.Local. Production callers go through
+// formatTopNodeLine which pins it to time.Local.
+func formatTopNodeLineIn(node *sessionNode, prefix string, idle time.Duration, now time.Time, loc *time.Location) string {
 	s := node.summary
 	latest := s.LatestEventAt()
 	idleFor := now.Sub(latest)
@@ -269,8 +277,8 @@ func formatTopNodeLine(node *sessionNode, prefix string, idle time.Duration, now
 		compactTopWorkspace(s.Workspace().String()),
 		agent,
 		client,
-		s.StartedAt().Local().Format("15:04:05"),
-		latest.Local().Format("15:04:05"),
+		s.StartedAt().In(loc).Format("15:04:05"),
+		latest.In(loc).Format("15:04:05"),
 		s.TotalEvents(),
 		formatTopLatestEvent(s),
 		idleMarker,
