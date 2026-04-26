@@ -544,8 +544,24 @@ func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] 
 			return nil, eventsOutput{}, xerrors.Errorf("failed to list events: %w", err)
 		}
 
-		return nil, eventsOutput{Events: convertEvents(events)}, nil
+		return nil, eventsOutput{Events: convertEventsWithBodyLimit(events, resolveBodyLimit(input.BodyLimit, input.FullBody))}, nil
 	}
+}
+
+// resolveBodyLimit picks the effective rune budget for event body
+// truncation in list_events / get_context responses. `full_body=true`
+// disables truncation; otherwise body_limit > 0 wins and a missing
+// body_limit falls back to defaultListEventBodyLimit. The default
+// keeps multi-hundred-line command audits from dominating listings
+// (#799). Callers that want full content pass full_body=true.
+func resolveBodyLimit(bodyLimit int, fullBody bool) int {
+	if fullBody {
+		return 0
+	}
+	if bodyLimit > 0 {
+		return bodyLimit
+	}
+	return defaultListEventBodyLimit
 }
 
 func newSessionEventOutput(event *model.Event) sessionEventOutput {
@@ -607,7 +623,7 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 		// not re-exposed through this surface — #682 strips thinking
 		// from the LIKE match, but the envelope is still attached to
 		// the returned event and body_blocks would bypass the gate.
-		return nil, eventsOutput{Events: convertEventsWithoutBlocks(events)}, nil
+		return nil, eventsOutput{Events: convertEventsWithoutBlocksWithBodyLimit(events, resolveBodyLimit(input.BodyLimit, input.FullBody))}, nil
 	}
 }
 
@@ -625,7 +641,7 @@ func (s *Server) getContext() mcp.ToolHandlerFor[getContextInput, eventsOutput] 
 		// get_context also omits body_blocks for the same reason as
 		// search: the canonical envelope would re-expose thinking
 		// block text that other surfaces already strip.
-		return nil, eventsOutput{Events: convertEventsWithoutBlocks(events)}, nil
+		return nil, eventsOutput{Events: convertEventsWithoutBlocksWithBodyLimit(events, resolveBodyLimit(input.BodyLimit, input.FullBody))}, nil
 	}
 }
 
@@ -1640,45 +1656,72 @@ func parseFlexibleTimeOptional(value string) (types.Optional[time.Time], error) 
 	return types.Some(parsed), nil
 }
 
-// convertEvents serializes events for MCP list_events. It includes
-// body_blocks (the canonical envelope form, thinking blocks and all)
-// because list_events is the primary surface where programmatic
+// defaultListEventBodyLimit caps body length in list_events / get_context
+// responses by default (in runes) so a single multi-hundred-line
+// command_executed payload does not dominate the listing. Callers that
+// need the full body pass body_limit=0 or full_body=true. See #799.
+const defaultListEventBodyLimit = 500
+
+// convertEventsWithBodyLimit serializes events for MCP list_events with
+// body_blocks included (the canonical envelope form, thinking blocks
+// and all). list_events is the primary surface where programmatic
 // consumers round-trip transcript structure.
 //
-// search / get_context deliberately use convertEventsWithoutBlocks so
-// their responses do not re-expose thinking-block text through the
+// search / get_context deliberately use convertEventsWithoutBlocksWithBodyLimit
+// so their responses do not re-expose thinking-block text through the
 // MCP layer — #682 filters thinking out of the LIKE match, but the
 // full envelope is still attached to the returned event, and dumping
 // it via body_blocks would undo that protection on those surfaces.
-func convertEvents(events []*model.Event) []eventOutput {
-	return convertEventsInternal(events, true)
+//
+// `bodyLimit <= 0` means "no truncation".
+func convertEventsWithBodyLimit(events []*model.Event, bodyLimit int) []eventOutput {
+	return convertEventsInternal(events, true, bodyLimit)
 }
 
-// convertEventsWithoutBlocks serializes events for MCP search /
-// get_context without the body_blocks field so thinking content
-// cannot leak through those surfaces.
-func convertEventsWithoutBlocks(events []*model.Event) []eventOutput {
-	return convertEventsInternal(events, false)
+// convertEventsWithoutBlocksWithBodyLimit serializes events for MCP
+// search / get_context. body_blocks is always omitted on these
+// surfaces so thinking-block text does not leak through (#682).
+func convertEventsWithoutBlocksWithBodyLimit(events []*model.Event, bodyLimit int) []eventOutput {
+	return convertEventsInternal(events, false, bodyLimit)
 }
 
-func convertEventsInternal(events []*model.Event, includeBlocks bool) []eventOutput {
+func convertEventsInternal(events []*model.Event, includeBlocks bool, bodyLimit int) []eventOutput {
 	outputs := make([]eventOutput, 0, len(events))
 	for _, event := range events {
+		body := apptypes.ExtractPlainBody(event.Body())
+		truncated := false
+		fullLen := 0
+		if bodyLimit > 0 {
+			runes := []rune(body)
+			if len(runes) > bodyLimit {
+				truncated = true
+				fullLen = len(runes)
+				body = string(runes[:bodyLimit]) + "…"
+			}
+		}
+		// body_blocks duplicates the canonical envelope inline. When
+		// the plain-text body is truncated, returning the full
+		// envelope here would defeat the token-saving intent of the
+		// truncation. Drop body_blocks for truncated rows; callers
+		// who need the canonical structure pass full_body=true.
+		// See #799.
 		var blocks []apptypes.EventBodyBlock
-		if includeBlocks {
+		if includeBlocks && !truncated {
 			blocks, _ = apptypes.DecodeCanonicalEnvelope(event.Body())
 		}
 		outputs = append(outputs, eventOutput{
-			EventID:    event.EventID().String(),
-			Kind:       event.Kind().String(),
-			Client:     event.Client().String(),
-			Agent:      event.Agent().String(),
-			SessionID:  event.SessionID().String(),
-			Workspace:  event.Workspace().String(),
-			Body:       apptypes.ExtractPlainBody(event.Body()),
-			BodyBlocks: blocks,
-			SourceHook: event.SourceHook(),
-			CreatedAt:  event.CreatedAt().UTC().Format(time.RFC3339Nano),
+			EventID:       event.EventID().String(),
+			Kind:          event.Kind().String(),
+			Client:        event.Client().String(),
+			Agent:         event.Agent().String(),
+			SessionID:     event.SessionID().String(),
+			Workspace:     event.Workspace().String(),
+			Body:          body,
+			BodyBlocks:    blocks,
+			BodyTruncated: truncated,
+			BodyLength:    fullLen,
+			SourceHook:    event.SourceHook(),
+			CreatedAt:     event.CreatedAt().UTC().Format(time.RFC3339Nano),
 		})
 	}
 

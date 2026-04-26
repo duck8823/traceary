@@ -41,16 +41,18 @@ type eventsOutput struct {
 
 // eventOutput is an individual event in an eventsOutput list.
 type eventOutput struct {
-	EventID    string                    `json:"event_id" jsonschema:"event ID"`
-	Kind       string                    `json:"kind" jsonschema:"event kind"`
-	Client     string                    `json:"client" jsonschema:"recording channel"`
-	Agent      string                    `json:"agent" jsonschema:"actor"`
-	SessionID  string                    `json:"session_id" jsonschema:"session identifier"`
-	Workspace  string                    `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
-	Body       string                    `json:"body" jsonschema:"event body as a plain-text projection; for transcript JSON envelopes this joins the text blocks and excludes thinking blocks — use body_blocks for the canonical structured form"`
-	BodyBlocks []apptypes.EventBodyBlock `json:"body_blocks,omitempty" jsonschema:"structured block form of the body when it is a canonical transcript envelope; populated for list_events only — search and get_context omit it so thinking-block text does not leak through those surfaces; also absent for legacy plain-text bodies, non-envelope JSON bodies, and empty envelopes"`
-	SourceHook string                    `json:"source_hook,omitempty" jsonschema:"hook identifier that produced this event (omitted for non-hook writes)"`
-	CreatedAt  string                    `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
+	EventID        string                    `json:"event_id" jsonschema:"event ID"`
+	Kind           string                    `json:"kind" jsonschema:"event kind"`
+	Client         string                    `json:"client" jsonschema:"recording channel"`
+	Agent          string                    `json:"agent" jsonschema:"actor"`
+	SessionID      string                    `json:"session_id" jsonschema:"session identifier"`
+	Workspace      string                    `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
+	Body           string                    `json:"body" jsonschema:"event body as a plain-text projection; for transcript JSON envelopes this joins the text blocks and excludes thinking blocks — use body_blocks for the canonical structured form. May be truncated to body_limit characters; check body_truncated and body_length"`
+	BodyBlocks     []apptypes.EventBodyBlock `json:"body_blocks,omitempty" jsonschema:"structured block form of the body when it is a canonical transcript envelope; populated for list_events only — search and get_context omit it so thinking-block text does not leak through those surfaces; also absent for legacy plain-text bodies, non-envelope JSON bodies, empty envelopes, and rows whose body is truncated"`
+	BodyTruncated  bool                      `json:"body_truncated,omitempty" jsonschema:"true when body was truncated to fit body_limit. Re-issue the same call with full_body=true (or a larger body_limit) to retrieve the full content"`
+	BodyLength     int                       `json:"body_length,omitempty" jsonschema:"original body length in runes before any truncation; only emitted when body_truncated is true"`
+	SourceHook     string                    `json:"source_hook,omitempty" jsonschema:"hook identifier that produced this event (omitted for non-hook writes)"`
+	CreatedAt      string                    `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
 }
 
 // sessionHandoffOutput is the MCP output for the session_handoff tool.
