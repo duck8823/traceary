@@ -137,12 +137,24 @@ func (u *memoryExtractionUsecase) Extract(ctx context.Context, criteria apptypes
 			continue
 		}
 
+		// Quality filter (#810 follow-up #830): low-quality candidates
+		// are still persisted for audit, but tagged with the
+		// extracted-hidden source so the default inbox view skips
+		// them. `memory inbox --include-hidden` surfaces them when
+		// reviewers want to triage borderline cases. Artifact memory
+		// types are exempted because their facts are file paths /
+		// URLs / commands that can be short yet valid.
+		source := domtypes.MemorySourceExtracted
+		if spec.memoryType != domtypes.MemoryTypeArtifact && !passesExtractionQualityFilter(spec.fact) {
+			source = domtypes.MemorySourceExtractedHidden
+		}
+
 		details, err := u.memory.Propose(
 			ctx,
 			spec.memoryType,
 			scope,
 			spec.fact,
-			domtypes.MemorySourceExtracted,
+			source,
 			spec.evidenceRefs,
 			spec.artifactRefs,
 		)
@@ -157,6 +169,19 @@ func (u *memoryExtractionUsecase) Extract(ctx context.Context, criteria apptypes
 	}
 
 	return results, nil
+}
+
+// extractionQualityMinRunes is the soft minimum length, in runes, a
+// candidate fact must reach to land at the visible `extracted` source.
+// Shorter facts are persisted under `extracted-hidden` for audit; they
+// stay reachable through `memory inbox --include-hidden`. The threshold
+// is intentionally a length heuristic rather than a confidence
+// classifier — extraction signals do not yet carry confidence (#830).
+const extractionQualityMinRunes = 20
+
+func passesExtractionQualityFilter(fact string) bool {
+	trimmed := strings.TrimSpace(fact)
+	return len([]rune(trimmed)) >= extractionQualityMinRunes
 }
 
 func (u *memoryExtractionUsecase) findTargetSession(

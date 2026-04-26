@@ -15,6 +15,12 @@ const (
 	MemorySourceManual MemorySource = "manual"
 	// MemorySourceExtracted indicates a memory extracted from existing signals.
 	MemorySourceExtracted MemorySource = "extracted"
+	// MemorySourceExtractedHidden indicates a memory extracted from existing
+	// signals that did not pass the quality filter. The row is kept in the
+	// store for audit and `--include-hidden` review, but is omitted from the
+	// default inbox view so reviewers do not get drowned by low-quality
+	// candidates.
+	MemorySourceExtractedHidden MemorySource = "extracted-hidden"
 	// MemorySourceImported indicates a memory imported from another source.
 	MemorySourceImported MemorySource = "imported"
 )
@@ -22,6 +28,7 @@ const (
 var knownMemorySources = []MemorySource{
 	MemorySourceManual,
 	MemorySourceExtracted,
+	MemorySourceExtractedHidden,
 	MemorySourceImported,
 }
 

@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -455,6 +456,18 @@ func (s *Server) endSession() mcp.ToolHandlerFor[endSessionInput, sessionEventOu
 		)
 		if err != nil {
 			return nil, sessionEventOutput{}, xerrors.Errorf("failed to record session end: %w", err)
+		}
+
+		// MCP parity with the hook session-end auto-extract path
+		// (#810, follow-up #830). Best-effort: an extraction failure
+		// must not block the session-end response.
+		if s.memory != nil {
+			if _, extractErr := s.memory.Extract(ctx, apptypes.NewMemoryExtractionCriteriaBuilder().
+				SessionID(types.SessionID(sessionID)).
+				Workspace(types.Workspace(strings.TrimSpace(input.Workspace))).
+				Build()); extractErr != nil {
+				slog.Debug("MCP session-end auto-extract failed", "session_id", sessionID, "error", extractErr)
+			}
 		}
 
 		return nil, newSessionEventOutput(event), nil
