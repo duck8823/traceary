@@ -25,6 +25,8 @@ Legend:
 
 ### Other host hooks Traceary does not wire today
 
+This list excludes hooks that already appear in the lifecycle matrix above (e.g. Gemini `BeforeAgent` is tracked there as a planned prompt source for #806; `PreCompress` for #807).
+
 | Host | Hook | Status | Note |
 |---|---|---|---|
 | Claude Code | `SubagentStart` (`PreToolUse matcher=Task\|Agent`) | ● wired (subagent capture, not a lifecycle event) | recorded as `note` body marker, not in the six lifecycle kinds |

@@ -25,6 +25,8 @@
 
 ### Traceary 未配線のホスト hook
 
+上のライフサイクルマトリクスに既出の hook はここでは省略している（例: Gemini `BeforeAgent` は #806 で prompt 配線予定としてマトリクス側に記載、`PreCompress` は #807）。
+
 | Host | Hook | 状態 | 備考 |
 |---|---|---|---|
 | Claude Code | `SubagentStart` (`PreToolUse matcher=Task\|Agent`) | ● 配線済（subagent 補足、lifecycle event ではない） | `note` body marker として記録 |

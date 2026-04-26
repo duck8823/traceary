@@ -31,7 +31,7 @@
 ### `prompt`
 
 - ユーザの指示を redact 後そのまま記録。`traceary timeline` / `traceary search` / L2 `get_context` の本体に出る。
-- 現状 Claude Code と Codex CLI のみ発行。Gemini CLI は prompt 相当の hook を公開していない（[host-coverage.ja.md](./host-coverage.ja.md) 参照）。
+- 現状 Claude Code と Codex CLI のみ発行。Gemini CLI には `BeforeAgent` があるが Traceary 側で prompt として配線していない（[host-coverage.ja.md](./host-coverage.ja.md) と #806 参照）。
 - Body marker なし（生テキスト）。アシスタント側は `transcript` と区別する。
 
 ### `command_executed`
@@ -53,7 +53,7 @@
 ### `compact_summary`
 
 - ホスト側で context window が圧縮されたときに発行。
-- 現状 Claude Code のみ（`PostCompact`）。Codex 0.125 と Gemini には post-compact 相当の hook が無い（Gemini は `PreCompress` を持つが、生成された summary を渡す post 側 event は無い — v0.11.0 で追跡）。
+- 現状 Claude Code のみ（`PostCompact`）。Codex 0.125 に compact hook なし（upstream `openai/codex#16098`）。Gemini は `PreCompress` を持つが post-compress 側 event は無い — Traceary では #807 で `PreCompress` の marker 配線を予定。
 - L2 で、`SessionStart` matcher `compact` 経由のセッション再開時に `sessions.summary` の seed として使う。
 
 ### `session_ended`
