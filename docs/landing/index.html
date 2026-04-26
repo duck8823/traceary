@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Traceary — Local-first memory for AI coding agents</title>
+<meta name="description" content="A local-first CLI and MCP server for recording and searching AI agent work logs, session boundaries, and shell command audits.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" type="image/svg+xml" href="assets/traceary-mark.svg">
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+</head>
+<body>
+<div class="bg-grid"></div>
+<div class="bg-glow"></div>
+
+<header class="nav">
+  <div class="container nav-inner">
+    <a class="nav-brand" href="#">
+      <img src="assets/traceary-mark.svg" alt="Traceary">
+      <span>Traceary</span>
+    </a>
+    <nav class="nav-links">
+      <a class="nav-link" href="#why">Why</a>
+      <a class="nav-link" href="#model">Model</a>
+      <a class="nav-link" href="#install">Install</a>
+      <a class="nav-link" href="#inspect">Inspect</a>
+      <a class="nav-link" href="#docs">Docs</a>
+      <a class="nav-cta" href="https://github.com/duck8823/traceary" target="_blank" rel="noopener">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56 0-.27-.01-1-.02-1.96-3.2.69-3.87-1.54-3.87-1.54-.52-1.33-1.28-1.69-1.28-1.69-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11.07 11.07 0 0 1 5.79 0c2.21-1.49 3.18-1.18 3.18-1.18.62 1.59.23 2.76.11 3.05.74.81 1.18 1.84 1.18 3.1 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.06.78 2.13 0 1.54-.01 2.78-.01 3.16 0 .31.21.67.8.56C20.21 21.39 23.5 17.07 23.5 12 23.5 5.65 18.35.5 12 .5z"/></svg>
+        GitHub
+      </a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <!-- Hero -->
+  <section class="hero">
+    <div class="container hero-grid">
+      <div>
+        <span class="hero-eyebrow"><span class="dot"></span>v0.10 · local-first · OSS</span>
+        <h1>Memory substrate for <span class="accent">AI coding agents</span>.</h1>
+        <p class="lead">Traceary records session lifecycle, shell command audits, and — where the host hooks expose them — prompts and compact summaries from Claude, Codex, and Gemini into a single local SQLite store, so context survives <code class="inl">/clear</code>, <code class="inl">/compact</code>, and the gaps between agents.</p>
+        <div class="hero-ctas">
+          <a class="btn btn-primary btn-mono" href="#install">$ brew install traceary</a>
+          <a class="btn btn-ghost" href="https://github.com/duck8823/traceary" target="_blank" rel="noopener">
+            View on GitHub
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg>
+          </a>
+        </div>
+        <div class="hero-meta">
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Local-first</span>
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>No telemetry</span>
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v6H4zM4 14h16v6H4z"/><circle cx="8" cy="7" r="0.8" fill="currentColor"/><circle cx="8" cy="17" r="0.8" fill="currentColor"/></svg>SQLite-backed</span>
+        </div>
+      </div>
+      <div id="hero-terminal-mount"></div>
+    </div>
+  </section>
+
+  <!-- Why -->
+  <section id="why">
+    <div class="container">
+      <div class="section-eyebrow">The problem</div>
+      <h2 class="section-title">AI-assisted development gets messy quickly.</h2>
+      <p class="section-lead">Git history tells you what changed, but not why. Sessions disappear after compaction. Output scatters across three different agents. Traceary keeps the timeline whole.</p>
+      <div class="why-grid">
+        <div class="why-card">
+          <div class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h12"/></svg></div>
+          <h3>Context lost on <code class="inl">/clear</code></h3>
+          <p>Agent context disappears after compaction. Decisions and intent vanish with it.</p>
+        </div>
+        <div class="why-card">
+          <div class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M3 4v5h5"/></svg></div>
+          <h3>Git shows what, not why</h3>
+          <p>Commit logs miss the reasoning, the failed attempts, and the decisions you reverted.</p>
+        </div>
+        <div class="why-card">
+          <div class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></div>
+          <h3>Audits float free</h3>
+          <p>Hard to connect a shell command back to the agent, session, and prompt that produced it.</p>
+        </div>
+        <div class="why-card">
+          <div class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M6 8v2a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V8M12 13v3"/></svg></div>
+          <h3>Three agents, three logs</h3>
+          <p>Claude, Codex, and Gemini each keep their own state. Cross-tool history needs one home.</p>
+        </div>
+        <div class="why-card">
+          <div class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/></svg></div>
+          <h3>Worktrees & parallel sessions</h3>
+          <p>Multiple sessions and worktree moves break the timeline you're trying to follow.</p>
+        </div>
+        <div class="why-card">
+          <div class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l3 3M16 16l3 3M5 19l3-3M16 8l3-3"/></svg></div>
+          <h3>No place for durable facts</h3>
+          <p>Decisions and constraints worth keeping around have no home outside the session log.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Three-layer model -->
+  <section id="model" style="border-top:1px solid var(--line);">
+    <div class="container">
+      <div class="section-eyebrow">Three-layer model · v0.5+</div>
+      <h2 class="section-title">More than a log. A memory substrate.</h2>
+      <p class="section-lead">Traceary organizes records the way agent workflows actually need them — raw timeline at the bottom, working memory in the middle, durable facts at the top.</p>
+      <div class="layers">
+        <div class="layer-card l1">
+          <div class="num">LAYER 01</div>
+          <div class="layer-label">// audit · archive</div>
+          <h3>Source-of-truth timeline</h3>
+          <p>Raw events — prompts, transcripts, command audits, session boundaries — kept untouched for inspection, search, and forensic review.</p>
+          <ul>
+            <li>prompt</li>
+            <li>command_executed</li>
+            <li>session_started / ended</li>
+            <li>transcript</li>
+          </ul>
+        </div>
+        <div class="layer-card l2">
+          <div class="num">LAYER 02</div>
+          <div class="layer-label">// working memory</div>
+          <h3>Curated context packs</h3>
+          <p>Handoff packs assembled from recent sessions, so the next agent — or a resumed session — starts with the right context, not the whole log.</p>
+          <ul>
+            <li>compact_summary</li>
+            <li>session handoff</li>
+            <li>workspace breakdown</li>
+            <li>activity rollups</li>
+          </ul>
+        </div>
+        <div class="layer-card l3">
+          <div class="num">LAYER 03</div>
+          <div class="layer-label">// durable memory</div>
+          <h3>Facts that should survive</h3>
+          <p>Decisions, constraints, preferences, and artifact refs — the small set of things that need to outlive any single session and be retrieved on demand.</p>
+          <ul>
+            <li>decision</li>
+            <li>constraint</li>
+            <li>preference</li>
+            <li>lesson</li>
+            <li>artifact</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Install -->
+  <section id="install" style="border-top:1px solid var(--line);">
+    <div class="container">
+      <div class="section-eyebrow">Getting started</div>
+      <h2 class="section-title">Three steps. Then it just records.</h2>
+      <p class="section-lead">The CLI is the foundation — agent plugins invoke the <code class="inl">traceary</code> binary via hooks. Install once, then plug in whichever agents you use.</p>
+      <div class="steps">
+        <div class="step">
+          <div class="step-head">
+            <div class="step-num">STEP <span>01</span></div>
+            <h3 class="step-title">Install the CLI</h3>
+            <p class="step-desc">Required first. macOS / Linux archives on GitHub Releases too.</p>
+          </div>
+          <div class="step-body">
+<pre class="code-block"><span class="cmt"># Homebrew (recommended)</span>
+brew tap duck8823/traceary <span class="str">https://github.com/duck8823/traceary</span>
+brew install traceary
+
+<span class="cmt"># or via Go</span>
+go install github.com/duck8823/traceary@latest</pre>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-head">
+            <div class="step-num">STEP <span>02</span></div>
+            <h3 class="step-title">Wire your agent</h3>
+            <p class="step-desc">Plugins for Claude Code, Codex, and Gemini CLI.</p>
+          </div>
+          <div id="install-tabs-mount"></div>
+        </div>
+        <div class="step">
+          <div class="step-head">
+            <div class="step-num">STEP <span>03</span></div>
+            <h3 class="step-title">Verify and start</h3>
+            <p class="step-desc">Then open a session and start recording.</p>
+          </div>
+          <div class="step-body">
+<pre class="code-block">traceary doctor
+
+<span class="cmt"># start a session</span>
+sid=$(traceary session start --client dogfood --agent codex)
+traceary log --client dogfood --agent codex --session-id <span class="var">"$sid"</span> <span class="str">"Investigating failing tests"</span>
+traceary search boom --json</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Host capture matrix -->
+  <section style="border-top:1px solid var(--line);">
+    <div class="container">
+      <div class="section-eyebrow">Host capture matrix</div>
+      <h2 class="section-title">One query surface. Three capture tiers.</h2>
+      <p class="section-lead">Once installed, every host shares the same CLI and MCP commands. What differs is how much each one captures automatically through hooks.</p>
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th>Host</th>
+            <th>Session lifecycle</th>
+            <th>Tool audit</th>
+            <th>Prompt</th>
+            <th>Compact summary</th>
+            <th>Tier</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="host">Claude Code</td>
+            <td>Full</td>
+            <td>Bash + MCP + failure</td>
+            <td><span class="check">●</span></td>
+            <td><span class="check">●</span></td>
+            <td><span class="tier full">FULL</span></td>
+          </tr>
+          <tr>
+            <td class="host">Codex</td>
+            <td>SessionStart + Stop</td>
+            <td>Tool hooks</td>
+            <td><span class="check">●</span></td>
+            <td><span class="dash">—</span></td>
+            <td><span class="tier partial">PARTIAL</span></td>
+          </tr>
+          <tr>
+            <td class="host">Gemini CLI</td>
+            <td>SessionStart + End</td>
+            <td>Tool hooks</td>
+            <td><span class="dash">—</span></td>
+            <td><span class="dash">—</span></td>
+            <td><span class="tier basic">BASIC</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Inspect -->
+  <section id="inspect" style="border-top:1px solid var(--line);">
+    <div class="container">
+      <div class="section-eyebrow">Four inspection views</div>
+      <h2 class="section-title">From "what's happening now" to "what happened then".</h2>
+      <p class="section-lead">Switch between live tailing, gap-separated work blocks, raw search, and assembled handoff context — all from the terminal.</p>
+      <div id="inspect-mount"></div>
+    </div>
+  </section>
+
+  <!-- Docs -->
+  <section id="docs" style="border-top:1px solid var(--line);">
+    <div class="container">
+      <div class="section-eyebrow">Documentation</div>
+      <h2 class="section-title">Go deeper.</h2>
+      <p class="section-lead">The most common next pages — start anywhere.</p>
+      <div class="docs-grid">
+        <a class="doc-card" href="https://github.com/duck8823/traceary/blob/main/docs/integrations/README.md" target="_blank" rel="noopener">
+          <span class="arrow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M7 17 17 7M9 7h8v8"/></svg></span>
+          <h4>Native integrations</h4>
+          <p>Claude Code, Codex, Gemini CLI, and Anthropic memory tool.</p>
+        </a>
+        <a class="doc-card" href="https://github.com/duck8823/traceary/blob/main/docs/architecture/README.md" target="_blank" rel="noopener">
+          <span class="arrow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M7 17 17 7M9 7h8v8"/></svg></span>
+          <h4>Architecture</h4>
+          <p>Principles behind the three-layer model and the storage layout.</p>
+        </a>
+        <a class="doc-card" href="https://github.com/duck8823/traceary/blob/main/docs/memory/README.md" target="_blank" rel="noopener">
+          <span class="arrow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M7 17 17 7M9 7h8v8"/></svg></span>
+          <h4>Durable memory</h4>
+          <p>Decisions, constraints, preferences — what to remember and how.</p>
+        </a>
+        <a class="doc-card" href="https://github.com/duck8823/traceary/blob/main/docs/cli/README.md" target="_blank" rel="noopener">
+          <span class="arrow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M7 17 17 7M9 7h8v8"/></svg></span>
+          <h4>CLI reference</h4>
+          <p>Every flag, every command, with copy-pasteable examples.</p>
+        </a>
+        <a class="doc-card" href="https://github.com/duck8823/traceary/blob/main/docs/hooks/README.md" target="_blank" rel="noopener">
+          <span class="arrow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M7 17 17 7M9 7h8v8"/></svg></span>
+          <h4>Hooks guide</h4>
+          <p>Hook contract, capability tiers, and how capture actually works.</p>
+        </a>
+        <a class="doc-card" href="https://github.com/duck8823/traceary/blob/main/docs/mcp/README.md" target="_blank" rel="noopener">
+          <span class="arrow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M7 17 17 7M9 7h8v8"/></svg></span>
+          <h4>MCP server</h4>
+          <p>Expose Traceary's memory and context surface to MCP clients.</p>
+        </a>
+        <a class="doc-card" href="https://github.com/duck8823/traceary/blob/main/docs/lifecycle.md" target="_blank" rel="noopener">
+          <span class="arrow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M7 17 17 7M9 7h8v8"/></svg></span>
+          <h4>Event lifecycle</h4>
+          <p>How prompts, audits, and sessions flow through the store.</p>
+        </a>
+        <a class="doc-card" href="https://github.com/duck8823/traceary/blob/main/docs/environment/README.md" target="_blank" rel="noopener">
+          <span class="arrow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M7 17 17 7M9 7h8v8"/></svg></span>
+          <h4>Environment & storage</h4>
+          <p>Env vars, DB paths, and the local-first storage model.</p>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="cta">
+    <div class="container">
+      <h2>Make context survive the next <code class="inl">/clear</code>.</h2>
+      <p>Local-first. SQLite-backed. No telemetry. Released under the MIT license.</p>
+      <div class="cta-row">
+        <a class="btn btn-primary btn-mono" href="#install">$ brew install traceary</a>
+        <a class="btn btn-ghost" href="https://github.com/duck8823/traceary" target="_blank" rel="noopener">
+          Star on GitHub
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.6 6.5L22 9.3l-5.5 4.7L18.2 22 12 17.9 5.8 22l1.7-8L2 9.3l7.4-.8z"/></svg>
+        </a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="container footer-inner">
+    <div class="footer-brand">
+      <img src="assets/traceary-mark.svg" alt="">
+      <span>Traceary · MIT License</span>
+    </div>
+    <div class="footer-links">
+      <a href="https://github.com/duck8823/traceary" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/duck8823/traceary/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a>
+      <a href="https://github.com/duck8823/traceary/blob/main/SECURITY.md" target="_blank" rel="noopener">Security</a>
+      <a href="https://github.com/duck8823/traceary/issues" target="_blank" rel="noopener">Issues</a>
+    </div>
+  </div>
+</footer>
+
+<script type="text/babel" src="components.jsx"></script>
+<script type="text/babel" src="app.jsx"></script>
+</body>
+</html>
