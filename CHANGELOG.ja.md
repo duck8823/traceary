@@ -5,6 +5,12 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.10.3] - 2026-04-26
+
+### Breaking changes
+- **`traceary top --snapshot --json` contract の分離 (#795)** — top snapshot JSON は `traceary session tree --json` の contract 再利用をやめ、top 専用 contract に分離しました。既存の session tree field は維持しつつ、live dashboard consumer 向けに `latest_event_kind` / `latest_event_message` / `latest_event_at` を追加します。
+
+
 ## [v0.10.2] - 2026-04-26
 
 ### Fixed
