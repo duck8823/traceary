@@ -10,6 +10,8 @@ WITH
       AND (? = 0 OR s.ended_at IS NULL)
       AND (? = '' OR s.started_at >= ?)
       AND (? = '' OR s.started_at < ?)
+    ORDER BY s.started_at DESC
+    LIMIT ? OFFSET ?
   ),
   event_agg AS (
     SELECT
@@ -60,4 +62,3 @@ FROM filtered_sessions s
 LEFT JOIN event_agg agg ON agg.session_id = s.session_id
 LEFT JOIN latest_events latest ON latest.session_id = s.session_id
 ORDER BY s.started_at DESC
-LIMIT ? OFFSET ?
