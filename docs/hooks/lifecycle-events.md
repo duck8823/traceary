@@ -31,7 +31,7 @@ All event bodies pass through built-in secret redaction plus operator-configured
 ### `prompt`
 
 - Captures the user's instruction text verbatim (after redaction). Visible in `traceary timeline`, `traceary search`, and the L2 `get_context` body.
-- Today only Claude Code and Codex CLI emit this. Gemini CLI does not expose a prompt-level hook (see [host-coverage.md](./host-coverage.md)).
+- Today only Claude Code and Codex CLI emit this. Gemini CLI does not expose a prompt-level hook.
 - Body marker: none (raw text). Distinct from `transcript`, which is the assistant side.
 
 ### `command_executed`
@@ -59,12 +59,11 @@ All event bodies pass through built-in secret redaction plus operator-configured
 ### `session_ended`
 
 - Marks the close boundary of a session row.
-- Claude / Gemini use a dedicated `SessionEnd` hook. Codex piggybacks on `Stop` because its CLI exposes no `SessionEnd` (see [host-coverage.md](./host-coverage.md)).
+- Claude / Gemini use a dedicated `SessionEnd` hook. Codex piggybacks on `Stop` because its CLI exposes no `SessionEnd`.
 - Best-effort: hosts may exit without firing the hook (kill -9, crashed shell). L2 reconciliation tolerates dangling sessions.
 
 ## Where to go next
 
 - [Event Lifecycle](../lifecycle.md) — hook → event mapping per client.
 - [Hook Contract](./contract.md) — capability tiers (Tier 1 / 2 / 3).
-- [Host hook coverage matrix](./host-coverage.md) — wired vs available vs unsupported per host.
 - [Memory layers](../memory/README.md) — how these events feed L1 / L2 / L3.

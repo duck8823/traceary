@@ -4,7 +4,7 @@
 
 このページでは Traceary の **canonical lifecycle event kind**（ふだん hook によって発行され、セッションの監査タイムライン (L1) を形成する 6 種類の `EventKind`）をまとめる。
 
-完全な enum は [`domain/types/event_kind.go`](../../domain/types/event_kind.go) を参照。lifecycle 以外の 2 種類（`note`、`reviewed`）は operator 主導で発行されるためここでは扱わない。各クライアントの hook → event 対応は [Event Lifecycle](../lifecycle.ja.md)、capability tier は [Hook Contract](./contract.ja.md) を参照。
+完全な enum は [`domain/types/event_kind.go`](../../domain/types/event_kind.go) を参照。lifecycle 以外の 2 種類（`note`、`reviewed`）は operator 主導で発行されるためここでは扱わない。各クライアントの hook → event 対応は [イベントライフサイクル](../lifecycle.ja.md)、capability tier は [Hook Contract](./contract.ja.md) を参照。
 
 ## 一覧
 
@@ -31,7 +31,7 @@
 ### `prompt`
 
 - ユーザの指示を redact 後そのまま記録。`traceary timeline` / `traceary search` / L2 `get_context` の本体に出る。
-- 現状 Claude Code と Codex CLI のみ発行。Gemini CLI は prompt 相当の hook を公開していない（[host-coverage.md](./host-coverage.ja.md) 参照）。
+- 現状 Claude Code と Codex CLI のみ発行。Gemini CLI は prompt 相当の hook を公開していない。
 - Body marker なし（生テキスト）。アシスタント側は `transcript` と区別する。
 
 ### `command_executed`
@@ -59,12 +59,11 @@
 ### `session_ended`
 
 - `sessions` 行の終了境界として記録される。
-- Claude / Gemini は専用の `SessionEnd` を持つ。Codex は `SessionEnd` を公開していないため `Stop` で代用（[host-coverage.md](./host-coverage.ja.md) 参照）。
+- Claude / Gemini は専用の `SessionEnd` を持つ。Codex は `SessionEnd` を公開していないため `Stop` で代用。
 - best-effort: ホストが hook を発火させずに終了するケース（kill -9、シェルクラッシュ）もあり、dangling session は L2 reconciliation で吸収する。
 
 ## 関連ドキュメント
 
 - [Event Lifecycle](../lifecycle.ja.md) — クライアント別 hook → event mapping。
 - [Hook Contract](./contract.ja.md) — capability tier (Tier 1 / 2 / 3)。
-- [ホスト hook 対応マトリクス](./host-coverage.ja.md) — host ごとの wired / available / unsupported。
 - [Memory layers](../memory/README.ja.md) — これらのイベントが L1 / L2 / L3 に流れる構造。
