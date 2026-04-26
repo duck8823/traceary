@@ -36,6 +36,7 @@ Key columns:
 Important indexes:
 
 - `idx_events_session_created_at` on `(session_id, created_at)`
+- `idx_events_session_created_at_id_desc` on `(session_id, created_at DESC, id DESC)`
 - `idx_events_created_at` on `(created_at DESC, id DESC)`
 - `idx_events_workspace_created_at` on `(workspace, created_at)`
 
