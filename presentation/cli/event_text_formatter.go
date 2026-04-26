@@ -5,6 +5,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
+
+	"github.com/mattn/go-runewidth"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
@@ -220,22 +223,42 @@ func compactWorkspace(value string) string {
 }
 
 // truncateNormalized collapses whitespace runs and caps the result at
-// maxRunes runes, appending a single-char ellipsis when truncation happens.
+// the given visual column budget, appending a single-char ellipsis when
+// truncation happens. The budget is measured in **visual columns**
+// (East Asian Wide characters count as 2) so a CJK-heavy field never
+// overruns its tabular slot. The parameter is named `maxRunes` for
+// historical reasons; treat it as a column width.
 func truncateNormalized(value string, maxRunes int) string {
 	normalized := normalizeTabularColumn(value)
 	if maxRunes <= 0 {
 		return ""
 	}
-	runes := []rune(normalized)
-	if len(runes) <= maxRunes {
+	if runewidth.StringWidth(normalized) <= maxRunes {
 		return normalized
 	}
 	if maxRunes == 1 {
 		return "…"
 	}
-	return string(runes[:maxRunes-1]) + "…"
+	const ellipsis = '…'
+	ellipsisWidth := runewidth.RuneWidth(ellipsis)
+	if ellipsisWidth > maxRunes {
+		// Pathological narrow budget. Fall back to the ellipsis itself.
+		return string(ellipsis)
+	}
+	budget := maxRunes - ellipsisWidth
+	width := 0
+	cut := 0
+	for _, r := range normalized {
+		w := runewidth.RuneWidth(r)
+		if width+w > budget {
+			break
+		}
+		width += w
+		cut += utf8.RuneLen(r)
+	}
+	return normalized[:cut] + string(ellipsis)
 }
 
 func runeLen(s string) int {
-	return len([]rune(s))
+	return runewidth.StringWidth(s)
 }
