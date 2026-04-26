@@ -17,7 +17,7 @@ Legend:
 | Traceary lifecycle event | Claude Code (`claude-plugin`) | Codex CLI 0.125 (`plugins/traceary`) | Gemini CLI (`gemini-extension`) | Verification |
 |---|---|---|---|---|
 | `session_started` | ● `SessionStart` | ● `SessionStart` | ● `SessionStart` | `traceary list events --kind session_started --limit 5` |
-| `prompt` | ● `UserPromptSubmit` | ● `UserPromptSubmit` | ○ `BeforeAgent` (planned in #806) | `traceary list events --kind prompt --limit 5` |
+| `prompt` | ● `UserPromptSubmit` | ● `UserPromptSubmit` | ● `BeforeAgent` | `traceary list events --kind prompt --limit 5` |
 | `command_executed` | ● `PostToolUse` + `PostToolUseFailure` (Bash, `mcp__.*`, built-in tool matcher) | ● `PostToolUse` | ● `AfterTool` | `traceary list events --kind command_executed --limit 5` |
 | `transcript` | ● `Stop` | ● `Stop` (`last_assistant_message`) | ● `AfterAgent` | `traceary list events --kind transcript --limit 5` |
 | `compact_summary` | ● `PostCompact` (+ `PreCompact` marker, `SessionStart matcher=compact` resume) | ✕ no compact hook in Codex 0.125 (upstream openai/codex#16098) | ○ `PreCompress` exists; no post-compress hook in Gemini 0.36.x (planned wiring in #807 — `PreCompress` marker only) | `traceary list events --kind compact_summary --limit 5` |
@@ -25,7 +25,7 @@ Legend:
 
 ### Other host hooks Traceary does not wire today
 
-This list excludes hooks that already appear in the lifecycle matrix above (e.g. Gemini `BeforeAgent` is tracked there as a planned prompt source for #806; `PreCompress` for #807).
+This list excludes hooks that already appear in the lifecycle matrix above (e.g. Gemini `PreCompress` is tracked there for #807).
 
 | Host | Hook | Status | Note |
 |---|---|---|---|

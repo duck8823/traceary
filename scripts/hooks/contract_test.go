@@ -42,7 +42,7 @@ func TestHooksContract_AllClientsHaveRequiredEvents(t *testing.T) {
 		{
 			name:           "gemini",
 			hooksPath:      "../../integrations/gemini-extension/hooks/hooks.json",
-			requiredEvents: []string{"SessionStart", "SessionEnd", "AfterAgent", "AfterTool"},
+			requiredEvents: []string{"SessionStart", "SessionEnd", "BeforeAgent", "AfterAgent", "AfterTool"},
 		},
 	}
 

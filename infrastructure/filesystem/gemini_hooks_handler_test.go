@@ -14,7 +14,7 @@ func TestGeminiHooksHandler_Build(t *testing.T) {
 	handler := filesystem.NewGeminiHooksHandler()
 	hooks := handler.Build("traceary")
 
-	wantEventOrder := []string{"SessionStart", "SessionEnd", "AfterAgent", "AfterTool"}
+	wantEventOrder := []string{"SessionStart", "SessionEnd", "BeforeAgent", "AfterAgent", "AfterTool"}
 	if diff := cmp.Diff(wantEventOrder, hooks.EventOrder()); diff != "" {
 		t.Fatalf("EventOrder() mismatch (-want +got):\n%s", diff)
 	}
@@ -45,6 +45,39 @@ func TestGeminiHooksHandler_Build(t *testing.T) {
 		}
 		if diff := cmp.Diff(`'traceary' 'hook' 'session' 'gemini' 'start'`, command.Command()); diff != "" {
 			t.Fatalf("SessionStart command mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("BeforeAgent records user prompt as prompt event", func(t *testing.T) {
+		t.Parallel()
+
+		entries := hooks.Entries("BeforeAgent")
+		if diff := cmp.Diff(1, len(entries)); diff != "" {
+			t.Fatalf("len(BeforeAgent entries) mismatch (-want +got):\n%s", diff)
+		}
+		matcher, ok := entries[0].Matcher().Value()
+		if diff := cmp.Diff(true, ok); diff != "" {
+			t.Fatalf("BeforeAgent matcher presence mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("*", matcher); diff != "" {
+			t.Fatalf("BeforeAgent matcher mismatch (-want +got):\n%s", diff)
+		}
+		command := entries[0].Commands()[0]
+		if diff := cmp.Diff("traceary-prompt", command.Name()); diff != "" {
+			t.Fatalf("BeforeAgent command name mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("traceary-prompt.sh:gemini", command.ManagedKey()); diff != "" {
+			t.Fatalf("BeforeAgent managed key mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(`'traceary' 'hook' 'prompt' 'gemini'`, command.Command()); diff != "" {
+			t.Fatalf("BeforeAgent command mismatch (-want +got):\n%s", diff)
+		}
+		timeout, hasTimeout := command.Timeout().Value()
+		if diff := cmp.Diff(true, hasTimeout); diff != "" {
+			t.Fatalf("BeforeAgent timeout presence mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(5000, timeout); diff != "" {
+			t.Fatalf("BeforeAgent timeout mismatch (-want +got):\n%s", diff)
 		}
 	})
 

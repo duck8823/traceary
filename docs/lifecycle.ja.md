@@ -49,10 +49,12 @@ SessionStart → [AfterTool]* → SessionEnd
 | Hook イベント | Traceary イベント種別 | 説明 |
 |---|---|---|
 | SessionStart | `session_started` | セッション開始 |
+| BeforeAgent | `prompt` | ユーザの指示テキスト（`prompt` フィールド） |
+| AfterAgent | `transcript` | エージェントの最終応答（`prompt_response` フィールド） |
 | AfterTool | `command_executed` | ツール実行 |
 | SessionEnd | `session_ended` | セッション終了 |
 
-**制限**: `compact` hook はなく、`prompt` も記録できません。failure 専用イベントもありません。
+**制限**: `compact` hook 相当は `PreCompress` のみ（#807 で marker 配線予定）。failure 専用イベントもありません。
 
 ## イベント種別
 
@@ -64,7 +66,7 @@ SessionStart → [AfterTool]* → SessionEnd
 | `session_started` | セッション開始境界 | SessionStart hooks |
 | `session_ended` | セッション終了境界 | SessionEnd / Stop hooks |
 | `compact_summary` | コンテキスト圧縮時の構造化サマリー | PostCompact hook |
-| `prompt` | ユーザーの指示テキスト | UserPromptSubmit hook |
+| `prompt` | ユーザーの指示テキスト | UserPromptSubmit (Claude / Codex), BeforeAgent (Gemini) hooks |
 | `transcript` | 最後の assistant メッセージの text ブロック（reasoning / 説明）。tool_use ブロックは `command_executed` に寄せるため除外する | Stop hook (Claude Code) |
 
 ## データフロー
@@ -94,6 +96,6 @@ AI クライアント (Claude Code / Codex CLI / Gemini CLI)
 | `traceary hook session <client> <start|end|stop>` | セッション開始・終了の記録 | 全クライアント |
 | `traceary hook audit <client>` | コマンド・ツール監査の記録 | 全クライアント |
 | `traceary hook compact <client> <post-compact|session-start-compact>` | compact サマリーの記録 / compact resume 出力 | Claude Code |
-| `traceary hook prompt <client>` | ユーザー prompt の記録 | Claude Code |
+| `traceary hook prompt <client>` | ユーザー prompt の記録 | Claude Code, Codex CLI, Gemini CLI |
 | `traceary hook transcript <client>` | assistant 発話の transcript 記録（Stop hook 経由） | Claude Code |
 | `scripts/hooks/` 配下の shell wrapper | `traceary hook ...` へ転送する互換レイヤー | packaged integration / 既存導入環境 |
