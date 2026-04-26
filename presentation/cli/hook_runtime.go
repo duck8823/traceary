@@ -334,6 +334,20 @@ func (c *RootCLI) runHookSession(
 		if _, err := c.session.End(ctx, types.Client("hook"), agent, sessionID, workspace, ""); err != nil {
 			return xerrors.Errorf("failed to record hook session end: %w", err)
 		}
+		// Auto-extract candidate durable memories at session end so the
+		// next session sees fresh inbox candidates without requiring
+		// the agent to ask. Best-effort: any error here must not block
+		// the session-end record from committing. The extractor is
+		// candidate-only (no auto-accept) and dedupes against existing
+		// candidate keys, so re-firing is safe. See #810.
+		if c.memory != nil {
+			if _, err := c.memory.Extract(ctx, apptypes.NewMemoryExtractionCriteriaBuilder().
+				SessionID(sessionID).
+				Workspace(workspace).
+				Build()); err != nil {
+				slog.Debug("hook session-end auto-extract failed", "client", client, "session_id", sessionID, "error", err)
+			}
+		}
 		if err := clearHookSessionState(client); err != nil {
 			return err
 		}
