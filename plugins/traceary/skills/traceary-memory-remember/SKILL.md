@@ -15,7 +15,18 @@ Use this skill **only** when the operator explicitly asks Traceary to remember a
    - `agent` — applies to a specific agent identity across workspaces.
    - `session_family` — applies to a session family (rare; use only when the operator says so).
 2. **Pick a memory type** that matches the fact: `decision`, `constraint`, `lesson`, `preference`, `artifact`.
-3. **Build evidence_refs**. Each ref has `kind` (one of `event`, `session`, `url`, `file`, `issue`) and `value`. At minimum include the current `session` id; add `event` ids, `file` paths, `issue` numbers, or `url`s when they support the fact.
+3. **Build evidence_refs**. Each ref has `kind` and `value`. The `kind` is constrained to this enum:
+
+   | `kind` | Typical `value` |
+   | --- | --- |
+   | `event` | `events.id` (e.g. `evt-abc123…`) |
+   | `session` | `sessions.session_id` (e.g. `session-…`) |
+   | `url` | `https://…` |
+   | `file` | `docs/memory/README.md` |
+   | `issue` | `#462` |
+   | `pr` | `#468` |
+
+   Unknown values fail with `unknown evidence ref kind: <value>`. At minimum include the current `session` id.
 4. **Call `manage_memory`**:
    - For an explicit "remember this now" verb, use `action="remember"`. The memory lands at `status=accepted` because the user's direct ask **is** the acceptance signal.
    - If you are unsure whether the user wants the fact made permanent right now, use `action="propose"` instead. That lands at `status=candidate` and the operator can review it later via `traceary-memory-review`.

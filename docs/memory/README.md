@@ -55,11 +55,32 @@ Set or update the window with:
 Traceary stores two different kinds of references with a memory:
 
 - **evidence refs** explain why the fact is justified
-  - examples: `event:...`, `session:...`, `issue:#462`, `pr:#468`
 - **artifact refs** point to things an operator or agent may want to open next
-  - examples: `file:docs/release/README.md`, `url:https://...`, `command:go test ./...`
 
 Accepted memories require evidence refs. Artifact refs are optional.
+
+### Evidence ref `kind` enum
+
+The MCP / CLI accept exactly these `kind` values for `evidence_refs[].kind` (defined in [`domain/types/evidence_ref.go`](../../domain/types/evidence_ref.go)). Unknown values fail with `unknown evidence ref kind: <value>`.
+
+| `kind` | Meaning | Typical `value` |
+| --- | --- | --- |
+| `event` | A recorded `events.id` | `evt-abc123…` |
+| `session` | A `sessions.session_id` | `session-…` |
+| `url` | A web URL | `https://…` |
+| `file` | A repo-relative or absolute file path | `docs/memory/README.md` |
+| `issue` | An issue identifier | `#462` |
+| `pr` | A pull-request identifier | `#468` |
+
+### Artifact ref `kind` enum
+
+`artifact_refs[].kind` is a separate enum with these values:
+
+| `kind` | Typical `value` |
+| --- | --- |
+| `file` | `docs/architecture/redaction.md` |
+| `url` | `https://grafana.internal/...` |
+| `command` | `go test ./...` |
 
 ## How the memory commands relate
 

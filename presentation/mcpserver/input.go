@@ -156,8 +156,8 @@ type memoryPackInput struct {
 
 // memoryRefInput is the MCP representation of evidence/artifact references.
 type memoryRefInput struct {
-	Kind  string `json:"kind" jsonschema:"reference kind"`
-	Value string `json:"value" jsonschema:"reference value"`
+	Kind  string `json:"kind" jsonschema:"reference kind enum: event, session, url, file, issue, pr"`
+	Value string `json:"value" jsonschema:"reference value (event/session id, URL, file path, issue or pr number)"`
 }
 
 // retrieveMemoriesInput is the MCP input for the retrieve_memories tool.

@@ -55,11 +55,32 @@ window の設定・更新は次で行います。
 Traceary は、memory に 2 種類の参照を持たせます。
 
 - **evidence ref**: その fact を正当化する根拠
-  - 例: `event:...`, `session:...`, `issue:#462`, `pr:#468`
 - **artifact ref**: 次に人やエージェントが開きたくなる対象
-  - 例: `file:docs/release/README.md`, `url:https://...`, `command:go test ./...`
 
 accepted memory には evidence ref が必須です。artifact ref は任意です。
+
+### evidence ref の `kind` enum
+
+MCP / CLI が受け入れる `evidence_refs[].kind` は次の値だけです（実装は [`domain/types/evidence_ref.go`](../../domain/types/evidence_ref.go)）。未知の値は `unknown evidence ref kind: <value>` で reject されます。
+
+| `kind` | 意味 | 典型的な `value` |
+| --- | --- | --- |
+| `event` | `events.id` | `evt-abc123…` |
+| `session` | `sessions.session_id` | `session-…` |
+| `url` | Web URL | `https://…` |
+| `file` | リポジトリ相対 / 絶対ファイルパス | `docs/memory/README.ja.md` |
+| `issue` | issue 番号 | `#462` |
+| `pr` | pull-request 番号 | `#468` |
+
+### artifact ref の `kind` enum
+
+`artifact_refs[].kind` は別 enum で次の値を取ります。
+
+| `kind` | 典型的な `value` |
+| --- | --- |
+| `file` | `docs/architecture/redaction.md` |
+| `url` | `https://grafana.internal/...` |
+| `command` | `go test ./...` |
 
 ## memory コマンドの関係
 
