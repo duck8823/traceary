@@ -107,5 +107,6 @@ session end の精度が重要なら、明示的な end hook を持つ client in
 - hooks integration: [`../hooks/README.ja.md`](../hooks/README.ja.md)
 - storage model: [`../storage/README.ja.md`](../storage/README.ja.md)
 - backup guide: [`../backup/README.ja.md`](../backup/README.ja.md)
+- 定期メンテナンスタスク: [`./scheduled-tasks.ja.md`](./scheduled-tasks.ja.md)
 - Python 依存の縮小計画: [`./python-dependencies.ja.md`](./python-dependencies.ja.md)
 - repository tooling の方針: [`./repo-tooling.ja.md`](./repo-tooling.ja.md)
