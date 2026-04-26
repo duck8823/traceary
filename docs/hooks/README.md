@@ -237,6 +237,7 @@ When a Traceary CLI command fails, stderr is a plain `Error: ...` line. Hook wra
 
 ## References
 
+- [Lifecycle events](./lifecycle-events.md) — canonical Traceary event kinds emitted by hooks.
 - Claude Code hooks reference: https://code.claude.com/docs/en/hooks
 - Claude Code hooks guide: https://code.claude.com/docs/en/hooks-guide
 - Gemini CLI hooks reference in the local install used for validation: `/opt/homebrew/Cellar/gemini-cli/0.36.0/libexec/lib/node_modules/@google/gemini-cli/bundle/docs/hooks/reference.md`

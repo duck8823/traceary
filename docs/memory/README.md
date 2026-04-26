@@ -211,4 +211,5 @@ That means:
 - [CLI reference](../cli/README.md)
 - [MCP guide](../mcp/README.md)
 - [Hook contract](../hooks/contract.md)
+- [Lifecycle events](../hooks/lifecycle-events.md)
 - [Event lifecycle](../lifecycle.md)
