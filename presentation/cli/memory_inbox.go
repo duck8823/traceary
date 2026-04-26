@@ -133,13 +133,7 @@ func (c *RootCLI) runMemoryInboxList(ctx context.Context, output io.Writer, inpu
 	// reviewer is not drowned by low-quality auto-extractions. The
 	// rows are still in the store for audit; `--include-hidden`
 	// surfaces them. Explicit `--source` always wins (#810/#830).
-	if len(sources) == 0 && !input.includeHidden {
-		sources = []domtypes.MemorySource{
-			domtypes.MemorySourceManual,
-			domtypes.MemorySourceExtracted,
-			domtypes.MemorySourceImported,
-		}
-	}
+	sources = applyExtractedHiddenDefault(sources, input.includeHidden)
 
 	// Inbox is always scoped to candidate — that is the point of the view.
 	// Source filters go into the criteria so pagination is consistent: if
@@ -263,6 +257,24 @@ func parseMemorySources(values []string) ([]domtypes.MemorySource, error) {
 		out = append(out, source)
 	}
 	return out, nil
+}
+
+// applyExtractedHiddenDefault returns the source filter to use when
+// the operator did not pass `--source` and `--include-hidden` is
+// false. It pins the default to the visible-by-default sources so
+// `extracted-hidden` rows are skipped. When the operator passed an
+// explicit source filter, this function returns it unchanged so
+// explicit always wins. Shared by `memory list`, `memory search`, and
+// `memory inbox list` to avoid drift.
+func applyExtractedHiddenDefault(sources []domtypes.MemorySource, includeHidden bool) []domtypes.MemorySource {
+	if len(sources) > 0 || includeHidden {
+		return sources
+	}
+	return []domtypes.MemorySource{
+		domtypes.MemorySourceManual,
+		domtypes.MemorySourceExtracted,
+		domtypes.MemorySourceImported,
+	}
 }
 
 func writeMemoryInboxList(output io.Writer, items []apptypes.MemoryDetails, asJSON bool) error {

@@ -269,7 +269,7 @@ func (s *Server) queryMemory() mcp.ToolHandlerFor[queryMemoryInput, any] {
 		action := strings.ToLower(strings.TrimSpace(input.Action))
 		switch action {
 		case "retrieve":
-			_, out, err := s.retrieveMemories()(ctx, req, retrieveMemoriesInput{MemoryID: input.MemoryID, Query: input.Query, Workspace: input.Workspace, Agent: input.Agent, SessionFamily: input.SessionFamily, Statuses: input.Statuses, MemoryTypes: input.MemoryTypes, Limit: input.Limit, Offset: input.Offset, AsOf: input.AsOf, IncludeExpired: input.IncludeExpired, Preset: input.Preset})
+			_, out, err := s.retrieveMemories()(ctx, req, retrieveMemoriesInput{MemoryID: input.MemoryID, Query: input.Query, Workspace: input.Workspace, Agent: input.Agent, SessionFamily: input.SessionFamily, Statuses: input.Statuses, MemoryTypes: input.MemoryTypes, Sources: input.Sources, IncludeHidden: input.IncludeHidden, Limit: input.Limit, Offset: input.Offset, AsOf: input.AsOf, IncludeExpired: input.IncludeExpired, Preset: input.Preset})
 			return nil, out, err
 		case "export":
 			if strings.TrimSpace(input.Target) == "" {
@@ -717,6 +717,11 @@ func (s *Server) retrieveMemories() mcp.ToolHandlerFor[retrieveMemoriesInput, me
 		if err != nil {
 			return nil, memoriesOutput{}, err
 		}
+		sources, err := parseMemorySourcesMCP(input.Sources)
+		if err != nil {
+			return nil, memoriesOutput{}, err
+		}
+		sources = applyExtractedHiddenDefaultMCP(sources, input.IncludeHidden)
 
 		asOfTime := time.Time{}
 		if trimmedAsOf := strings.TrimSpace(input.AsOf); trimmedAsOf != "" {
@@ -746,6 +751,9 @@ func (s *Server) retrieveMemories() mcp.ToolHandlerFor[retrieveMemoriesInput, me
 			if len(memoryTypes) > 0 {
 				searchBuilder = searchBuilder.MemoryTypes(memoryTypes)
 			}
+			if len(sources) > 0 {
+				searchBuilder = searchBuilder.Sources(sources)
+			}
 			searchBuilder = searchBuilder.IncludeExpiredByValidity(input.IncludeExpired)
 			if !asOfTime.IsZero() {
 				searchBuilder = searchBuilder.AsOf(asOfTime)
@@ -766,6 +774,9 @@ func (s *Server) retrieveMemories() mcp.ToolHandlerFor[retrieveMemoriesInput, me
 			}
 			if len(memoryTypes) > 0 {
 				listBuilder = listBuilder.MemoryTypes(memoryTypes)
+			}
+			if len(sources) > 0 {
+				listBuilder = listBuilder.Sources(sources)
 			}
 			listBuilder = listBuilder.IncludeExpiredByValidity(input.IncludeExpired)
 			if !asOfTime.IsZero() {
@@ -1380,6 +1391,38 @@ func parseMemoryTypes(values []string) ([]types.MemoryType, error) {
 		memoryTypes = append(memoryTypes, resolved)
 	}
 	return memoryTypes, nil
+}
+
+func parseMemorySourcesMCP(values []string) ([]types.MemorySource, error) {
+	sources := make([]types.MemorySource, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		resolved, err := types.MemorySourceFrom(trimmed)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to resolve memory source: %w", err)
+		}
+		sources = append(sources, resolved)
+	}
+	return sources, nil
+}
+
+// applyExtractedHiddenDefaultMCP mirrors presentation/cli's
+// applyExtractedHiddenDefault. Both layers default to omitting
+// `extracted-hidden`; explicit `source` always wins, and
+// `include_hidden=true` opts back in. Kept as a separate symbol so
+// the MCP package does not import the CLI package (clean direction).
+func applyExtractedHiddenDefaultMCP(sources []types.MemorySource, includeHidden bool) []types.MemorySource {
+	if len(sources) > 0 || includeHidden {
+		return sources
+	}
+	return []types.MemorySource{
+		types.MemorySourceManual,
+		types.MemorySourceExtracted,
+		types.MemorySourceImported,
+	}
 }
 
 func parseOptionalConfidence(value string) (types.Optional[types.Confidence], error) {

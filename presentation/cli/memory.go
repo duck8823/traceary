@@ -53,6 +53,8 @@ func (c *RootCLI) newMemoryListCommand() *cobra.Command {
 	cmd.Flags().StringVar(&input.sessionFamily, "session-family", "", Localize("filter by session-family scope", "session-family scope で絞り込む"))
 	cmd.Flags().StringSliceVar(&input.statuses, "status", nil, Localize("filter by memory lifecycle status", "memory の lifecycle status で絞り込む"))
 	cmd.Flags().StringSliceVar(&input.memoryTypes, "type", nil, Localize("filter by memory type", "memory type で絞り込む"))
+	cmd.Flags().StringSliceVar(&input.sources, "source", nil, Localize("filter by memory source (manual / extracted / extracted-hidden / imported)", "memory source (manual / extracted / extracted-hidden / imported) で絞り込む"))
+	cmd.Flags().BoolVar(&input.includeHidden, "include-hidden", false, Localize("include extracted-hidden candidates (low-quality auto-extractions kept for audit)", "extracted-hidden の候補も含める (audit 用に保存された低品質自動抽出)"))
 	cmd.Flags().IntVar(&input.limit, "limit", 20, Localize("maximum number of memories to return", "表示件数"))
 	cmd.Flags().IntVar(&input.offset, "offset", 0, Localize("number of memories to skip before listing", "一覧表示前にスキップする件数"))
 	cmd.Flags().StringVar(&input.asOf, "as-of", "", Localize("evaluate memory validity as of this timestamp (`YYYY-MM-DD` or RFC3339, defaults to now)", "この時点の validity で評価する (`YYYY-MM-DD` または RFC3339、既定は now)"))
@@ -82,6 +84,8 @@ func (c *RootCLI) newMemorySearchCommand() *cobra.Command {
 	cmd.Flags().StringVar(&input.sessionFamily, "session-family", "", Localize("filter by session-family scope", "session-family scope で絞り込む"))
 	cmd.Flags().StringSliceVar(&input.statuses, "status", nil, Localize("filter by memory lifecycle status", "memory の lifecycle status で絞り込む"))
 	cmd.Flags().StringSliceVar(&input.memoryTypes, "type", nil, Localize("filter by memory type", "memory type で絞り込む"))
+	cmd.Flags().StringSliceVar(&input.sources, "source", nil, Localize("filter by memory source (manual / extracted / extracted-hidden / imported)", "memory source (manual / extracted / extracted-hidden / imported) で絞り込む"))
+	cmd.Flags().BoolVar(&input.includeHidden, "include-hidden", false, Localize("include extracted-hidden candidates (low-quality auto-extractions kept for audit)", "extracted-hidden の候補も含める (audit 用に保存された低品質自動抽出)"))
 	cmd.Flags().IntVar(&input.limit, "limit", 20, Localize("maximum number of memories to return", "表示件数"))
 	cmd.Flags().IntVar(&input.offset, "offset", 0, Localize("number of memories to skip before returning results", "結果を返す前にスキップする件数"))
 	cmd.Flags().StringVar(&input.asOf, "as-of", "", Localize("evaluate memory validity as of this timestamp (`YYYY-MM-DD` or RFC3339, defaults to now)", "この時点の validity で評価する (`YYYY-MM-DD` または RFC3339、既定は now)"))
@@ -300,6 +304,11 @@ func (c *RootCLI) runMemoryList(ctx context.Context, output io.Writer, input mem
 	if err != nil {
 		return err
 	}
+	sources, err := parseMemorySources(input.sources)
+	if err != nil {
+		return err
+	}
+	sources = applyExtractedHiddenDefault(sources, input.includeHidden)
 
 	asOf, err := parseOptionalValidityTime(input.asOf)
 	if err != nil {
@@ -321,6 +330,9 @@ func (c *RootCLI) runMemoryList(ctx context.Context, output io.Writer, input mem
 	}
 	if len(memoryTypes) > 0 {
 		criteriaBuilder = criteriaBuilder.MemoryTypes(memoryTypes)
+	}
+	if len(sources) > 0 {
+		criteriaBuilder = criteriaBuilder.Sources(sources)
 	}
 	criteriaBuilder = criteriaBuilder.IncludeExpiredByValidity(input.includeExpired)
 	if t, ok := asOf.Value(); ok {
@@ -369,6 +381,11 @@ func (c *RootCLI) runMemorySearch(ctx context.Context, output io.Writer, input m
 	if err != nil {
 		return err
 	}
+	sources, err := parseMemorySources(input.sources)
+	if err != nil {
+		return err
+	}
+	sources = applyExtractedHiddenDefault(sources, input.includeHidden)
 
 	asOf, err := parseOptionalValidityTime(input.asOf)
 	if err != nil {
@@ -390,6 +407,9 @@ func (c *RootCLI) runMemorySearch(ctx context.Context, output io.Writer, input m
 	}
 	if len(memoryTypes) > 0 {
 		criteriaBuilder = criteriaBuilder.MemoryTypes(memoryTypes)
+	}
+	if len(sources) > 0 {
+		criteriaBuilder = criteriaBuilder.Sources(sources)
 	}
 	criteriaBuilder = criteriaBuilder.IncludeExpiredByValidity(input.includeExpired)
 	if t, ok := asOf.Value(); ok {

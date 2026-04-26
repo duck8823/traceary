@@ -98,6 +98,51 @@ func TestRootCLI_MemoryListCommand_DefaultWorkspaceScope(t *testing.T) {
 	}
 }
 
+func TestRootCLI_MemoryListCommand_DefaultExcludesExtractedHidden(t *testing.T) {
+	stub := &memoryUsecaseStub{}
+
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(stub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"memory", "list", "--workspace", "duck8823/traceary", "--db-path", "/tmp/t.db"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	got := stub.listCriteria.Sources()
+	if len(got) == 0 {
+		t.Fatalf("default memory list must constrain Sources to exclude extracted-hidden, got empty filter")
+	}
+	for _, s := range got {
+		if s == types.MemorySourceExtractedHidden {
+			t.Fatalf("default memory list must not include extracted-hidden in Sources, got %v", got)
+		}
+	}
+}
+
+func TestRootCLI_MemoryListCommand_IncludeHiddenSkipsDefaultFilter(t *testing.T) {
+	stub := &memoryUsecaseStub{}
+
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(stub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"memory", "list", "--workspace", "duck8823/traceary", "--include-hidden", "--db-path", "/tmp/t.db"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got := stub.listCriteria.Sources(); len(got) != 0 {
+		t.Fatalf("--include-hidden should not add a Sources filter, got %v", got)
+	}
+}
+
 func TestRootCLI_MemorySearchCommand_RequiresConstraint(t *testing.T) {
 	rootCmd := cli.NewRootCLI(
 		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
