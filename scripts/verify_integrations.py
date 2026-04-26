@@ -141,7 +141,8 @@ def check_claude() -> None:
     require((ROOT / 'integrations' / 'claude-plugin' / 'scripts' / 'traceary-compact.sh').exists(), 'missing Claude compact hook script')
     require((ROOT / 'integrations' / 'claude-plugin' / 'skills' / 'traceary-help' / 'SKILL.md').exists(), 'missing Claude traceary-help skill')
     require((ROOT / 'integrations' / 'claude-plugin' / 'skills' / 'traceary-session-history' / 'SKILL.md').exists(), 'missing Claude traceary-session-history skill')
-    require((ROOT / 'integrations' / 'claude-plugin' / 'skills' / 'traceary-memory-capture' / 'SKILL.md').exists(), 'missing Claude traceary-memory-capture skill')
+    require((ROOT / 'integrations' / 'claude-plugin' / 'skills' / 'traceary-memory-capture' / 'SKILL.md').exists(), 'missing Claude traceary-memory-capture skill (kept until v0.12 as deprecated stub)')
+    require((ROOT / 'integrations' / 'claude-plugin' / 'skills' / 'traceary-memory-review' / 'SKILL.md').exists(), 'missing Claude traceary-memory-review skill')
 
 
 def check_codex() -> None:
@@ -172,7 +173,8 @@ def check_codex() -> None:
     require((ROOT / 'plugins' / 'traceary' / 'commands' / 'help.md').exists(), 'missing Codex help command')
     require((ROOT / 'plugins' / 'traceary' / 'commands' / 'doctor.md').exists(), 'missing Codex doctor command')
     require((ROOT / 'plugins' / 'traceary' / 'skills' / 'traceary-session-history' / 'SKILL.md').exists(), 'missing Codex traceary-session-history skill')
-    require((ROOT / 'plugins' / 'traceary' / 'skills' / 'traceary-memory-capture' / 'SKILL.md').exists(), 'missing Codex traceary-memory-capture skill')
+    require((ROOT / 'plugins' / 'traceary' / 'skills' / 'traceary-memory-capture' / 'SKILL.md').exists(), 'missing Codex traceary-memory-capture skill (kept until v0.12 as deprecated stub)')
+    require((ROOT / 'plugins' / 'traceary' / 'skills' / 'traceary-memory-review' / 'SKILL.md').exists(), 'missing Codex traceary-memory-review skill')
 
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_root = Path(temp_dir)
@@ -352,7 +354,8 @@ def check_gemini() -> None:
     require((ROOT / 'integrations' / 'gemini-extension' / 'commands' / 'traceary-help.toml').exists(), 'missing Gemini help command')
     require((ROOT / 'integrations' / 'gemini-extension' / 'commands' / 'traceary-doctor.toml').exists(), 'missing Gemini doctor command')
     require((ROOT / 'integrations' / 'gemini-extension' / 'skills' / 'traceary-session-history' / 'SKILL.md').exists(), 'missing Gemini traceary-session-history skill')
-    require((ROOT / 'integrations' / 'gemini-extension' / 'skills' / 'traceary-memory-capture' / 'SKILL.md').exists(), 'missing Gemini traceary-memory-capture skill')
+    require((ROOT / 'integrations' / 'gemini-extension' / 'skills' / 'traceary-memory-capture' / 'SKILL.md').exists(), 'missing Gemini traceary-memory-capture skill (kept until v0.12 as deprecated stub)')
+    require((ROOT / 'integrations' / 'gemini-extension' / 'skills' / 'traceary-memory-review' / 'SKILL.md').exists(), 'missing Gemini traceary-memory-review skill')
     require((ROOT / 'integrations' / 'gemini-extension' / 'GEMINI.md').exists(), 'missing Gemini context file')
 
 

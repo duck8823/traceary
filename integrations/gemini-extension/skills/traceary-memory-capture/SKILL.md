@@ -1,7 +1,18 @@
 ---
 name: traceary-memory-capture
-description: Use when the conversation surfaces a durable decision, constraint, lesson, preference, or project artifact that should outlive the current session. Call Traceary's manage_memory(action="propose") MCP tool so the candidate lands in the review inbox; manage_memory(action="accept") only after the user confirms. Trigger on phrases like "let's always", "never X", "the rule is", "from now on", "remember that", "the decision is", "the constraint is", or when the user explicitly states a preference.
-version: 1.0.0
+description: DEPRECATED — split into traceary-memory-review (inbox / session summary) and traceary-memory-remember (explicit write). Will be removed in v0.12. Empirically this skill never fired — over 30 days / 16,026 hook events the durable-phrase trigger produced 0 propose calls, so the work moved to hook-driven L2/L3 capture plus the two new skills above. This entry stays only so existing references resolve.
+version: 1.1.0
+---
+
+# Traceary memory capture (deprecated)
+
+This skill no longer fires by intent. Two replacements:
+
+- **`traceary-memory-review`** — list pending inbox candidates, accept / reject, write a session summary. Triggered by review-intent phrases ("Traceary inbox", "review memory candidates", "session recap").
+- **`traceary-memory-remember`** — write durable memory **only** when the user explicitly asks ("remember that", "覚えておいて"). Lands in `status=candidate` for review.
+
+The previous content of this skill is preserved below for reference only. New work should use the two skills above; this file will be removed in v0.12.
+
 ---
 
 # Traceary memory capture
