@@ -10,7 +10,7 @@
 - `○` ホスト側に hook はあるが Traceary 未配線
 - `✕` ホスト自体が公開していない
 
-**最終確認日: 2026-04-26.** Traceary 統合パッケージのバンプ、もしくは host CLI のリリースで hook surface が変化したときに更新する。
+**最終確認日: 2026-04-27.** Traceary 統合パッケージのバンプ、もしくは host CLI のリリースで hook surface が変化したときに更新する。
 
 ## ライフサイクルイベント → ホスト hook マトリクス
 
@@ -31,15 +31,15 @@
 |---|---|---|---|
 | Claude Code | `SubagentStart` (`PreToolUse matcher=Task\|Agent`) | ● 配線済（subagent 補足、lifecycle event ではない） | `note` body marker として記録 |
 | Claude Code | `SubagentStop` | ● 配線済（subagent 補足） | 同上 |
-| Claude Code | `Notification`, `PreToolUse` (他 matcher), `StopFailure` | ○ 利用可 | 現行パッケージでは未配線 |
+| Claude Code | `Notification`, `PreToolUse` (他 matcher), `StopFailure`, `UserPromptExpansion`, `PermissionRequest`, `PermissionDenied`, `PostToolBatch`, `TaskCreated`, `TaskCompleted`, `TeammateIdle`, `InstructionsLoaded`, `ConfigChange`, `CwdChanged`, `FileChanged`, `WorktreeCreate`, `WorktreeRemove`, `Elicitation`, `ElicitationResult` | ○ 利用可 | 現行パッケージでは未配線 |
 | Codex CLI | `PreToolUse`, `PermissionRequest`, `Notification` | ○ 利用可 | 未配線 |
 | Gemini CLI | `BeforeTool`, `BeforeToolSelection`, `BeforeModel`, `AfterModel`, `Notification` | ○ 利用可 | 未配線 |
 
 ## ホスト別参照
 
 - Claude Code: https://code.claude.com/docs/en/hooks · パッケージ config: [`integrations/claude-plugin/hooks/hooks.json`](../../integrations/claude-plugin/hooks/hooks.json)
-- Codex CLI: upstream binary `codex-cli 0.125` — hook surface はローカルインストールのバイナリ文字列 (`SessionStart`, `Stop`, `PreToolUse`, `PostToolUse`, `Notification`, `PermissionDenied`, `UserPromptSubmit`, `Elicitation`) から推定。compact hook tracking: openai/codex#16098. パッケージ config: [`plugins/traceary/hooks.json`](../../plugins/traceary/hooks.json)
-- Gemini CLI: ローカルインストール同梱の hooks reference (`/opt/homebrew/Cellar/gemini-cli/0.36.0/libexec/lib/node_modules/@google/gemini-cli/bundle/docs/hooks/reference.md`). パッケージ config: [`integrations/gemini-extension/hooks/hooks.json`](../../integrations/gemini-extension/hooks/hooks.json)
+- Codex CLI: upstream binary `codex-cli 0.125.0` — hook surface はローカルインストールのバイナリ文字列 (`SessionStart`, `Stop`, `PreToolUse`, `PostToolUse`, `Notification`, `PermissionRequest`, `UserPromptSubmit`) から推定。compact hook tracking: openai/codex#16098. パッケージ config: [`plugins/traceary/hooks.json`](../../plugins/traceary/hooks.json)
+- Gemini CLI: ローカルインストール同梱の hooks reference (`/opt/homebrew/Cellar/gemini-cli/0.38.2/libexec/lib/node_modules/@google/gemini-cli/bundle/docs/hooks/reference.md`). パッケージ config: [`integrations/gemini-extension/hooks/hooks.json`](../../integrations/gemini-extension/hooks/hooks.json)
 
 ## 更新方法
 

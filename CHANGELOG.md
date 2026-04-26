@@ -6,6 +6,26 @@ This file summarizes what changed in each Traceary release in chronological orde
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
 
+## [v0.11.0] - 2026-04-27
+
+### Added
+- **Lifecycle observability documentation (#817, #818)** — new `docs/hooks/lifecycle-events.md` and `docs/hooks/host-coverage.md` (en+ja) describe the six lifecycle event kinds and a per-host wiring matrix.
+- **Hook-driven L2/L3 memory pipeline (#825, #826, #829, #831)** — Claude `PreCompact` summary is synced into `sessions.summary`; subagent-stop and session-end hooks auto-extract candidate memories (`source=extracted`, `status=candidate`); `handoff` and `get_context` payloads include candidate memories with a status marker.
+- **Quality filter + extracted-hidden visibility (#831, #833)** — auto-extracted candidates are filtered by length heuristic (Latin 20 / CJK 10 runes; artifact-types exempt), and the new `extracted-hidden` source flag preserves rejected items without surfacing them by default. CLI and MCP search both default-exclude `extracted-hidden` while exposing it on opt-in.
+- **14-day auto-expire for stale candidates (#834)** — gc deletes stale auto-extracted candidates (`source IN ('extracted', 'extracted-hidden')`) older than 14 days, NULL-ing any incoming `supersedes_memory_id` references first to keep FK constraints intact.
+- **SKILL redesign (#821, #822)** — `traceary-memory-review` (review/inbox/recap) and `traceary-memory-remember` (explicit-write only) replace the deprecated `traceary-memory-capture`, shipped to all three host integrations.
+- **Gemini lifecycle wiring (#819, #820)** — Gemini CLI now records `prompt` events via `BeforeAgent` and `compact_summary` markers via `PreCompress`.
+- **Daily host hook drift check (#828)** — `docs/operations/scheduled-tasks.md` documents a `/schedule`-driven daily diff between upstream host hook references and `host-coverage.md`.
+- **Memory model docs (#823, #824, #827)** — README aligns on the three-layer model wording, the `candidate` status terminology is unified across docs, and `evidence_refs` / `artifact_refs` kind enums are now published.
+
+### Changed
+- **`traceary top` handles East Asian Wide characters (#836)** — runewidth-based column tracking replaces rune counting in `top`, `event_text_formatter`, and timeline padding. `runewidth.DefaultCondition.EastAsianWidth` is pinned to narrow at init time so column accounting is deterministic regardless of host locale.
+- **MCP body truncation (#837)** — `list_events`, `get_context`, and `search` now truncate long event bodies at 500 runes by default, with `body_truncated` / `body_length` markers and `body_limit` / `full_body=true` overrides. `body_blocks` is omitted when truncation occurs.
+
+### Notes
+- Codex CLI `compact_summary` remains unimplemented because upstream openai/codex#16098 has not landed a compact hook.
+- v0.11.0 is a minor release: no schema migrations; JSON contract additions only.
+
 ## [v0.10.3] - 2026-04-26
 
 ### Breaking changes

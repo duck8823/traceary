@@ -10,7 +10,7 @@ Legend:
 - `○` available in the host but not wired by Traceary yet
 - `✕` not exposed by this host
 
-**Last verified: 2026-04-26.** Refresh this page when bumping Traceary integration packages or when a host CLI release changes its hook surface.
+**Last verified: 2026-04-27.** Refresh this page when bumping Traceary integration packages or when a host CLI release changes its hook surface.
 
 ## Lifecycle event → host hook matrix
 
@@ -31,15 +31,15 @@ This list excludes hooks that already appear in the lifecycle matrix above.
 |---|---|---|---|
 | Claude Code | `SubagentStart` (`PreToolUse matcher=Task\|Agent`) | ● wired (subagent capture, not a lifecycle event) | recorded as `note` body marker, not in the six lifecycle kinds |
 | Claude Code | `SubagentStop` | ● wired (subagent capture) | same |
-| Claude Code | `Notification`, `PreToolUse` (other matchers), `StopFailure` | ○ available | not in current packaged hooks |
+| Claude Code | `Notification`, `PreToolUse` (other matchers), `StopFailure`, `UserPromptExpansion`, `PermissionRequest`, `PermissionDenied`, `PostToolBatch`, `TaskCreated`, `TaskCompleted`, `TeammateIdle`, `InstructionsLoaded`, `ConfigChange`, `CwdChanged`, `FileChanged`, `WorktreeCreate`, `WorktreeRemove`, `Elicitation`, `ElicitationResult` | ○ available | not in current packaged hooks |
 | Codex CLI | `PreToolUse`, `PermissionRequest`, `Notification` | ○ available | not wired |
 | Gemini CLI | `BeforeTool`, `BeforeToolSelection`, `BeforeModel`, `AfterModel`, `Notification` | ○ available | not wired |
 
 ## Per-host references
 
 - Claude Code: https://code.claude.com/docs/en/hooks · packaged config: [`integrations/claude-plugin/hooks/hooks.json`](../../integrations/claude-plugin/hooks/hooks.json)
-- Codex CLI: upstream binary `codex-cli 0.125` — hook surface inferred from local install strings (`SessionStart`, `Stop`, `PreToolUse`, `PostToolUse`, `Notification`, `PermissionDenied`, `UserPromptSubmit`, `Elicitation`). Compact hook tracking: openai/codex#16098. Packaged config: [`plugins/traceary/hooks.json`](../../plugins/traceary/hooks.json)
-- Gemini CLI: hooks reference shipped with the local install at `/opt/homebrew/Cellar/gemini-cli/0.36.0/libexec/lib/node_modules/@google/gemini-cli/bundle/docs/hooks/reference.md`. Packaged config: [`integrations/gemini-extension/hooks/hooks.json`](../../integrations/gemini-extension/hooks/hooks.json)
+- Codex CLI: upstream binary `codex-cli 0.125.0` — hook surface inferred from local install strings (`SessionStart`, `Stop`, `PreToolUse`, `PostToolUse`, `Notification`, `PermissionRequest`, `UserPromptSubmit`). Compact hook tracking: openai/codex#16098. Packaged config: [`plugins/traceary/hooks.json`](../../plugins/traceary/hooks.json)
+- Gemini CLI: hooks reference shipped with the local install at `/opt/homebrew/Cellar/gemini-cli/0.38.2/libexec/lib/node_modules/@google/gemini-cli/bundle/docs/hooks/reference.md`. Packaged config: [`integrations/gemini-extension/hooks/hooks.json`](../../integrations/gemini-extension/hooks/hooks.json)
 
 ## Maintenance
 
