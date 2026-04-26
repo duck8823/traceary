@@ -22,7 +22,7 @@ Every durable memory has a type, scope, status, confidence, evidence refs, and o
 
 ### Statuses
 
-- `candidate`: extracted or proposed memory that still needs review
+- `candidate`: extracted or proposed memory that still needs review (the lifecycle status is always `candidate` — earlier docs sometimes used "proposed" interchangeably)
 - `accepted`: active memory that should be reused across sessions
 - `rejected`: candidate that should not be reused
 - `superseded`: older accepted memory replaced by a newer one
