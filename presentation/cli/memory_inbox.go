@@ -45,7 +45,8 @@ func (c *RootCLI) newMemoryInboxListCommand() *cobra.Command {
 	cmd.Flags().StringVar(&input.agent, "agent", "", Localize("filter by agent scope", "agent scope で絞り込む"))
 	cmd.Flags().StringVar(&input.sessionFamily, "session-family", "", Localize("filter by session-family scope", "session-family scope で絞り込む"))
 	cmd.Flags().StringSliceVar(&input.memoryTypes, "type", nil, Localize("filter by memory type", "memory type で絞り込む"))
-	cmd.Flags().StringSliceVar(&input.sources, "source", nil, Localize("filter by memory source (manual / extracted / imported)", "memory source (manual / extracted / imported) で絞り込む"))
+	cmd.Flags().StringSliceVar(&input.sources, "source", nil, Localize("filter by memory source (manual / extracted / extracted-hidden / imported)", "memory source (manual / extracted / extracted-hidden / imported) で絞り込む"))
+	cmd.Flags().BoolVar(&input.includeHidden, "include-hidden", false, Localize("include extracted-hidden candidates (low-quality auto-extractions kept for audit)", "extracted-hidden の候補も含める (audit 用に保存された低品質自動抽出)"))
 	cmd.Flags().IntVar(&input.limit, "limit", defaultMemoryInboxLimit, Localize("maximum number of candidates to return", "表示件数"))
 	cmd.Flags().IntVar(&input.offset, "offset", 0, Localize("number of candidates to skip before listing", "一覧表示前にスキップする件数"))
 	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
@@ -126,6 +127,18 @@ func (c *RootCLI) runMemoryInboxList(ctx context.Context, output io.Writer, inpu
 	sources, err := parseMemorySources(input.sources)
 	if err != nil {
 		return err
+	}
+
+	// Default inbox view excludes the extracted-hidden source so the
+	// reviewer is not drowned by low-quality auto-extractions. The
+	// rows are still in the store for audit; `--include-hidden`
+	// surfaces them. Explicit `--source` always wins (#810/#830).
+	if len(sources) == 0 && !input.includeHidden {
+		sources = []domtypes.MemorySource{
+			domtypes.MemorySourceManual,
+			domtypes.MemorySourceExtracted,
+			domtypes.MemorySourceImported,
+		}
 	}
 
 	// Inbox is always scoped to candidate — that is the point of the view.

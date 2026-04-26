@@ -104,7 +104,9 @@ Use these when Traceary should infer candidate memories from existing session si
 
 Extraction is candidate-only. It does not auto-accept memories.
 
-Since v0.11.0, the hook-driven session-end path (`traceary hook session <client> end|stop`) also fires extraction automatically as a best-effort step after the session-end record commits, so the inbox grows without the agent having to ask. Errors there are swallowed so the boundary record is never blocked.
+Since v0.11.0, the hook-driven session-end path (`traceary hook session <client> end|stop`), the CLI session-end path (`traceary session --end`), and the MCP `manage_session(action="end")` tool all fire extraction automatically as a best-effort step after the session-end record commits, so the inbox grows without the agent having to ask. Errors there are swallowed so the boundary record is never blocked.
+
+A length-based quality filter routes short candidates (under 20 runes; artifact refs are exempt) to `source=extracted-hidden` instead of `source=extracted`. The hidden rows stay in the store for audit but are skipped by the default `traceary memory inbox list` view; `--include-hidden` surfaces them.
 
 ### Review path
 

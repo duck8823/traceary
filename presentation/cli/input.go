@@ -393,6 +393,7 @@ type memoryInboxListCommandInput struct {
 	sessionFamily string
 	memoryTypes   []string
 	sources       []string
+	includeHidden bool
 	limit         int
 	offset        int
 	asJSON        bool

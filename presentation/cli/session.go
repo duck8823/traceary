@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -261,6 +262,17 @@ func (c *RootCLI) runSessionBoundary(
 	}
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to record session boundary", "session 境界の記録に失敗しました"), err)
+	}
+	// CLI parity with the hook session-end auto-extract path (#810,
+	// follow-up #830). Best-effort: an extraction failure must not
+	// block the session-end record from being reported.
+	if input.kind == types.EventKindSessionEnded && c.memory != nil {
+		if _, extractErr := c.memory.Extract(ctx, apptypes.NewMemoryExtractionCriteriaBuilder().
+			SessionID(sid).
+			Workspace(ws).
+			Build()); extractErr != nil {
+			slog.Debug("CLI session-end auto-extract failed", "session_id", sid, "error", extractErr)
+		}
 	}
 	if input.asJSON {
 		if err := writeEventJSON(output, event); err != nil {
