@@ -32,6 +32,8 @@ func TestSessionSummaryOf_Getters(t *testing.T) {
 		domtypes.EventID("spawn-event"),
 		"task",
 		domtypes.Some(4),
+		startedAt.Add(30*time.Minute),
+		apptypes.SessionSummaryLatestEventOf(domtypes.EventKindTranscript, "assistant reply"),
 	)
 
 	if diff := cmp.Diff(domtypes.SessionID("session-1"), summary.SessionID()); diff != "" {
@@ -81,6 +83,15 @@ func TestSessionSummaryOf_Getters(t *testing.T) {
 		t.Fatalf("SpawnOrder() should be present")
 	} else if diff := cmp.Diff(4, spawnOrder); diff != "" {
 		t.Errorf("SpawnOrder() mismatch (-want +got):\n%s", diff)
+	}
+	if !summary.LatestEventAt().Equal(startedAt.Add(30 * time.Minute)) {
+		t.Errorf("LatestEventAt() = %v, want %v", summary.LatestEventAt(), startedAt.Add(30*time.Minute))
+	}
+	if diff := cmp.Diff(domtypes.EventKindTranscript, summary.LatestEventKind()); diff != "" {
+		t.Errorf("LatestEventKind() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff("assistant reply", summary.LatestEventMessage()); diff != "" {
+		t.Errorf("LatestEventMessage() mismatch (-want +got):\n%s", diff)
 	}
 }
 

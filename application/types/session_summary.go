@@ -9,22 +9,35 @@ import (
 
 // SessionSummary holds aggregated information about a single session.
 type SessionSummary struct {
-	sessionID       domtypes.SessionID
-	workspace       domtypes.Workspace
-	client          domtypes.Client
-	startedAt       time.Time
-	endedAt         domtypes.Optional[time.Time]
-	status          string
-	totalEvents     int
-	commandCount    int
-	agents          []string
-	label           string
-	summary         string
-	parentSessionID domtypes.SessionID
-	spawnEventID    domtypes.EventID
-	subagentKind    string
-	spawnOrder      domtypes.Optional[int]
-	latestEventAt   time.Time
+	sessionID          domtypes.SessionID
+	workspace          domtypes.Workspace
+	client             domtypes.Client
+	startedAt          time.Time
+	endedAt            domtypes.Optional[time.Time]
+	status             string
+	totalEvents        int
+	commandCount       int
+	agents             []string
+	label              string
+	summary            string
+	parentSessionID    domtypes.SessionID
+	spawnEventID       domtypes.EventID
+	subagentKind       string
+	spawnOrder         domtypes.Optional[int]
+	latestEventAt      time.Time
+	latestEventKind    domtypes.EventKind
+	latestEventMessage string
+}
+
+// SessionSummaryLatestEvent carries latest-event metadata for SessionSummaryOf.
+type SessionSummaryLatestEvent struct {
+	Kind    domtypes.EventKind
+	Message string
+}
+
+// SessionSummaryLatestEventOf creates latest-event metadata for SessionSummaryOf.
+func SessionSummaryLatestEventOf(kind domtypes.EventKind, message string) SessionSummaryLatestEvent {
+	return SessionSummaryLatestEvent{Kind: kind, Message: message}
 }
 
 // SessionSummaryOf creates a SessionSummary.
@@ -43,11 +56,13 @@ func SessionSummaryOf(
 	spawnMetadata ...any,
 ) SessionSummary {
 	var (
-		spawnEventID  domtypes.EventID
-		subagentKind  string
-		spawnOrder    domtypes.Optional[int]
-		latestEventAt = startedAt
-		client        domtypes.Client
+		spawnEventID       domtypes.EventID
+		subagentKind       string
+		spawnOrder         domtypes.Optional[int]
+		latestEventAt      = startedAt
+		latestEventKind    domtypes.EventKind
+		latestEventMessage string
+		client             domtypes.Client
 	)
 	for _, metadata := range spawnMetadata {
 		switch value := metadata.(type) {
@@ -61,25 +76,30 @@ func SessionSummaryOf(
 			spawnOrder = value
 		case time.Time:
 			latestEventAt = value
+		case SessionSummaryLatestEvent:
+			latestEventKind = value.Kind
+			latestEventMessage = value.Message
 		}
 	}
 	return SessionSummary{
-		sessionID:       sessionID,
-		workspace:       workspace,
-		client:          client,
-		startedAt:       startedAt,
-		endedAt:         endedAt,
-		status:          status,
-		totalEvents:     totalEvents,
-		commandCount:    commandCount,
-		agents:          slices.Clone(agents),
-		label:           label,
-		summary:         summary,
-		parentSessionID: parentSessionID,
-		spawnEventID:    spawnEventID,
-		subagentKind:    subagentKind,
-		spawnOrder:      spawnOrder,
-		latestEventAt:   latestEventAt,
+		sessionID:          sessionID,
+		workspace:          workspace,
+		client:             client,
+		startedAt:          startedAt,
+		endedAt:            endedAt,
+		status:             status,
+		totalEvents:        totalEvents,
+		commandCount:       commandCount,
+		agents:             slices.Clone(agents),
+		label:              label,
+		summary:            summary,
+		parentSessionID:    parentSessionID,
+		spawnEventID:       spawnEventID,
+		subagentKind:       subagentKind,
+		spawnOrder:         spawnOrder,
+		latestEventAt:      latestEventAt,
+		latestEventKind:    latestEventKind,
+		latestEventMessage: latestEventMessage,
 	}
 }
 
@@ -130,3 +150,9 @@ func (s SessionSummary) SpawnOrder() domtypes.Optional[int] { return s.spawnOrde
 
 // LatestEventAt returns the latest recorded event timestamp in the session.
 func (s SessionSummary) LatestEventAt() time.Time { return s.latestEventAt }
+
+// LatestEventKind returns the kind of the latest recorded event in the session.
+func (s SessionSummary) LatestEventKind() domtypes.EventKind { return s.latestEventKind }
+
+// LatestEventMessage returns the plain-text message of the latest recorded event in the session.
+func (s SessionSummary) LatestEventMessage() string { return s.latestEventMessage }
