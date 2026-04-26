@@ -238,11 +238,16 @@ func saveSessionBoundary(ctx context.Context, exec sqlExecer, session *model.Ses
 	}
 
 	endedAt, _ := session.EndedAt().Value()
+	summary := session.Summary()
+	// summary is bound twice: once for the empty-check, once for the
+	// SET branch. Empty new summaries leave any previously-synced
+	// summary (e.g. from PreCompact) untouched. See #811.
 	result, err := exec.ExecContext(
 		ctx,
 		updateSessionEndQuery,
 		formatTimestamp(endedAt),
-		session.Summary(),
+		summary,
+		summary,
 		session.SessionID().String(),
 	)
 	if err != nil {
