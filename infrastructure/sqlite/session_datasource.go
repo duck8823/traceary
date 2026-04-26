@@ -26,6 +26,9 @@ var updateSessionLabelQuery string
 //go:embed sql/update_session_end.sql
 var updateSessionEndQuery string
 
+//go:embed sql/update_session_summary_if_empty.sql
+var updateSessionSummaryIfEmptyQuery string
+
 //go:embed sql/select_session_by_id.sql
 var selectSessionByIDQuery string
 
@@ -365,6 +368,38 @@ func (d *SessionDatasource) NextChildSpawnOrder(ctx context.Context, parentSessi
 		return 0, xerrors.Errorf("failed to query child spawn order: %w", err)
 	}
 	return order, nil
+}
+
+// UpdateSummaryIfEmpty writes summary into sessions.summary when the row's
+// existing value is NULL or empty. Manually authored summaries are left
+// alone. Returns true when a row was actually updated.
+func (d *SessionDatasource) UpdateSummaryIfEmpty(ctx context.Context, sessionID types.SessionID, summary string) (bool, error) {
+	if strings.TrimSpace(sessionID.String()) == "" {
+		return false, xerrors.Errorf("session ID must not be empty")
+	}
+	if strings.TrimSpace(summary) == "" {
+		return false, nil
+	}
+
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return false, xerrors.Errorf("failed to open DB for session summary update: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	res, err := db.ExecContext(ctx, updateSessionSummaryIfEmptyQuery, summary, sessionID.String())
+	if err != nil {
+		return false, xerrors.Errorf("failed to update session summary: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return false, xerrors.Errorf("failed to read rows affected: %w", err)
+	}
+	return rows > 0, nil
 }
 
 // FindLatest returns the session_started event for the latest matching

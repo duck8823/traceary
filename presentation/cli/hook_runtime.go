@@ -556,6 +556,18 @@ func (c *RootCLI) runHookCompact(
 		if err != nil {
 			return xerrors.Errorf("failed to record pre-compact hook event: %w", err)
 		}
+		// Sync the digest into sessions.summary so timeline / handoff
+		// surfaces have a useful header without waiting for SessionEnd.
+		// Only Claude carries a real digest — Gemini's PreCompress body
+		// is just the trigger value, not a summary.
+		if client == "claude" && c.session != nil {
+			rawDigest := hookPayloadString(payload, "pre_compact_context", "")
+			if strings.TrimSpace(rawDigest) != "" {
+				if _, err := c.session.SetSummaryIfEmpty(ctx, sessionID, rawDigest); err != nil {
+					return xerrors.Errorf("failed to sync pre-compact summary into session: %w", err)
+				}
+			}
+		}
 		return nil
 	case "session-start-compact":
 		if output == nil {

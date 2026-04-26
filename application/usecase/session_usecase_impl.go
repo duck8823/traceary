@@ -220,6 +220,25 @@ func (u *sessionUsecase) Label(ctx context.Context, sessionID types.SessionID, l
 	return nil
 }
 
+func (u *sessionUsecase) SetSummaryIfEmpty(ctx context.Context, sessionID types.SessionID, summary string) (bool, error) {
+	trimmedSessionID := strings.TrimSpace(sessionID.String())
+	if trimmedSessionID == "" {
+		return false, xerrors.Errorf("session ID must not be empty")
+	}
+	if strings.TrimSpace(summary) == "" {
+		return false, nil
+	}
+	resolvedSessionID, err := types.SessionIDFrom(trimmedSessionID)
+	if err != nil {
+		return false, xerrors.Errorf("failed to resolve session ID: %w", err)
+	}
+	updated, err := u.sessionRepo.UpdateSummaryIfEmpty(ctx, resolvedSessionID, summary)
+	if err != nil {
+		return false, xerrors.Errorf("failed to update session summary: %w", err)
+	}
+	return updated, nil
+}
+
 func (u *sessionUsecase) List(ctx context.Context, criteria apptypes.SessionListCriteria) ([]apptypes.SessionSummary, error) {
 	if criteria.Limit() <= 0 {
 		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
