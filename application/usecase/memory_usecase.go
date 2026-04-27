@@ -97,6 +97,9 @@ type MemoryUsecase interface {
 	// Extract proposes candidate memories from existing session/history signals.
 	Extract(ctx context.Context, criteria apptypes.MemoryExtractionCriteria) ([]apptypes.MemoryDetails, error)
 
+	// ExplainExtraction returns segment-level extraction diagnostics without proposing candidates.
+	ExplainExtraction(ctx context.Context, criteria apptypes.MemoryExtractionCriteria) (apptypes.MemoryExtractionDebugReport, error)
+
 	// ImportCodex proposes candidate memories from host-native Codex memory sources.
 	ImportCodex(ctx context.Context, criteria apptypes.CodexImportCriteria) (apptypes.MemoryImportResult, error)
 

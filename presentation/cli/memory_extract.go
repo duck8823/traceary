@@ -31,6 +31,7 @@ func (c *RootCLI) newMemoryExtractCommand() *cobra.Command {
 	cmd.Flags().StringVar(&input.workspace, "workspace", "", Localize("workspace used to resolve the target session", "対象 session 解決に使う workspace"))
 	cmd.Flags().IntVar(&input.eventLimit, "event-limit", 5, Localize("maximum number of recent events to inspect per signal kind", "signal kind ごとに調べる recent event 数"))
 	cmd.Flags().IntVar(&input.candidateLimit, "candidate-limit", 10, Localize("maximum number of candidates to create", "作成する candidate 数の上限"))
+	cmd.Flags().BoolVar(&input.debugSignals, "debug-signals", false, Localize("explain segment-level extraction decisions without creating candidates", "candidate を作成せず segment 単位の抽出判断を説明する"))
 	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	return cmd
 }
@@ -61,14 +62,26 @@ func (c *RootCLI) runMemoryExtract(ctx context.Context, output io.Writer, input 
 		return xerrors.Errorf(Localize("failed to resolve a target session for memory extraction", "memory extraction 対象の session を解決できませんでした"))
 	}
 
+	criteria := apptypes.NewMemoryExtractionCriteriaBuilder().
+		SessionID(types.SessionID(resolvedSessionID)).
+		Workspace(types.Workspace(resolvedLookupWorkspace)).
+		EventLimit(input.eventLimit).
+		CandidateLimit(input.candidateLimit).
+		Build()
+	if input.debugSignals {
+		report, err := c.memory.ExplainExtraction(ctx, criteria)
+		if err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to explain durable-memory extraction", "durable memory extraction の説明に失敗しました"), err)
+		}
+		if err := writeMemoryExtractionDebugReport(output, report, input.asJSON); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print extraction debug report", "抽出 debug report の出力に失敗しました"), err)
+		}
+		return nil
+	}
+
 	details, err := c.memory.Extract(
 		ctx,
-		apptypes.NewMemoryExtractionCriteriaBuilder().
-			SessionID(types.SessionID(resolvedSessionID)).
-			Workspace(types.Workspace(resolvedLookupWorkspace)).
-			EventLimit(input.eventLimit).
-			CandidateLimit(input.candidateLimit).
-			Build(),
+		criteria,
 	)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to extract durable-memory candidates", "durable memory candidate の抽出に失敗しました"), err)

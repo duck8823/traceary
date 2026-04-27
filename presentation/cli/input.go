@@ -369,6 +369,7 @@ type memoryExtractCommandInput struct {
 	workspace      string
 	eventLimit     int
 	candidateLimit int
+	debugSignals   bool
 	asJSON         bool
 }
 

@@ -97,27 +97,27 @@ func (s *eventUsecaseStub) Timeline(_ context.Context, criteria apptypes.Timelin
 
 // sessionUsecaseStub implements usecase.SessionUsecase for testing.
 type sessionUsecaseStub struct {
-	startEvent     *model.Event
-	startErr       error
-	endEvent       *model.Event
-	endErr         error
-	labelErr       error
-	listResult     []apptypes.SessionSummary
-	listErr        error
-	listCriteria   apptypes.SessionListCriteria
-	treeResult     []apptypes.SessionSummary
-	treeErr        error
-	lineageResult  []apptypes.SessionSummary
-	lineageErr     error
-	activeEvent    *model.Event
-	activeErr      error
-	activeCriteria apptypes.SessionLookupCriteria
-	latestEvent    *model.Event
-	latestErr      error
-	latestCriteria apptypes.SessionLookupCriteria
-	handoff        types.Optional[apptypes.HandoffSummary]
-	handoffErr     error
-	setSummaryErr  error
+	startEvent      *model.Event
+	startErr        error
+	endEvent        *model.Event
+	endErr          error
+	labelErr        error
+	listResult      []apptypes.SessionSummary
+	listErr         error
+	listCriteria    apptypes.SessionListCriteria
+	treeResult      []apptypes.SessionSummary
+	treeErr         error
+	lineageResult   []apptypes.SessionSummary
+	lineageErr      error
+	activeEvent     *model.Event
+	activeErr       error
+	activeCriteria  apptypes.SessionLookupCriteria
+	latestEvent     *model.Event
+	latestErr       error
+	latestCriteria  apptypes.SessionLookupCriteria
+	handoff         types.Optional[apptypes.HandoffSummary]
+	handoffErr      error
+	setSummaryErr   error
 	setSummaryCalls map[types.SessionID]string
 
 	startCall struct {
@@ -455,6 +455,10 @@ func (s *memoryUsecaseStub) Show(_ context.Context, memoryID types.MemoryID) (ap
 func (s *memoryUsecaseStub) Extract(_ context.Context, criteria apptypes.MemoryExtractionCriteria) ([]apptypes.MemoryDetails, error) {
 	s.extractCriteria = criteria
 	return s.extractDetails, s.extractErr
+}
+
+func (s *memoryUsecaseStub) ExplainExtraction(context.Context, apptypes.MemoryExtractionCriteria) (apptypes.MemoryExtractionDebugReport, error) {
+	return apptypes.MemoryExtractionDebugReport{}, nil
 }
 
 func (s *memoryUsecaseStub) ImportCodex(_ context.Context, criteria apptypes.CodexImportCriteria) (apptypes.MemoryImportResult, error) {

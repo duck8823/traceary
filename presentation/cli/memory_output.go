@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -247,4 +248,79 @@ func formatOptionalTime(value domtypes.Optional[time.Time]) string {
 	}
 
 	return "-"
+}
+
+type memoryExtractionDebugOutput struct {
+	SessionID string                               `json:"session_id"`
+	Workspace string                               `json:"workspace"`
+	Segments  []memoryExtractionSegmentDebugOutput `json:"segments"`
+}
+
+type memoryExtractionSegmentDebugOutput struct {
+	Text         string            `json:"text"`
+	Client       string            `json:"client,omitempty"`
+	EventKind    string            `json:"event_kind,omitempty"`
+	SourceHook   string            `json:"source_hook,omitempty"`
+	MemoryType   string            `json:"memory_type,omitempty"`
+	Features     []string          `json:"features,omitempty"`
+	Score        int               `json:"score"`
+	Decision     string            `json:"decision"`
+	Reason       string            `json:"reason"`
+	EvidenceRefs []memoryRefOutput `json:"evidence_refs,omitempty"`
+	ArtifactRefs []memoryRefOutput `json:"artifact_refs,omitempty"`
+}
+
+type memoryRefOutput struct {
+	Kind  string `json:"kind"`
+	Value string `json:"value"`
+}
+
+func writeMemoryExtractionDebugReport(output io.Writer, report apptypes.MemoryExtractionDebugReport, asJSON bool) error {
+	serialized := newMemoryExtractionDebugOutput(report)
+	if asJSON {
+		return writeJSON(output, serialized)
+	}
+	if _, err := fmt.Fprintf(output, "SESSION_ID\t%s\nWORKSPACE\t%s\n", serialized.SessionID, serialized.Workspace); err != nil {
+		return xerrors.Errorf("failed to print extraction debug header: %w", err)
+	}
+	if len(serialized.Segments) == 0 {
+		if _, err := fmt.Fprintln(output, Localize("No extraction signals were inspected.", "検査された extraction signal はありません。")); err != nil {
+			return xerrors.Errorf("failed to print empty extraction debug message: %w", err)
+		}
+		return nil
+	}
+	if _, err := fmt.Fprintln(output, "DECISION\tREASON\tSCORE\tTYPE\tFEATURES\tTEXT"); err != nil {
+		return xerrors.Errorf("failed to print extraction debug table header: %w", err)
+	}
+	for _, segment := range serialized.Segments {
+		if _, err := fmt.Fprintf(output, "%s\t%s\t%d\t%s\t%s\t%s\n", segment.Decision, segment.Reason, segment.Score, segment.MemoryType, strings.Join(segment.Features, ","), truncateMessage(segment.Text)); err != nil {
+			return xerrors.Errorf("failed to print extraction debug row: %w", err)
+		}
+	}
+	return nil
+}
+
+func newMemoryExtractionDebugOutput(report apptypes.MemoryExtractionDebugReport) memoryExtractionDebugOutput {
+	segments := make([]memoryExtractionSegmentDebugOutput, 0, len(report.Segments))
+	for _, segment := range report.Segments {
+		out := memoryExtractionSegmentDebugOutput{
+			Text:       segment.Text,
+			Client:     segment.Client.String(),
+			EventKind:  segment.EventKind.String(),
+			SourceHook: segment.SourceHook,
+			MemoryType: segment.MemoryType.String(),
+			Features:   append([]string(nil), segment.Features...),
+			Score:      segment.Score,
+			Decision:   segment.Decision,
+			Reason:     segment.Reason,
+		}
+		for _, ref := range segment.EvidenceRefs {
+			out.EvidenceRefs = append(out.EvidenceRefs, memoryRefOutput{Kind: ref.Kind().String(), Value: ref.Value()})
+		}
+		for _, ref := range segment.ArtifactRefs {
+			out.ArtifactRefs = append(out.ArtifactRefs, memoryRefOutput{Kind: ref.Kind().String(), Value: ref.Value()})
+		}
+		segments = append(segments, out)
+	}
+	return memoryExtractionDebugOutput{SessionID: report.SessionID.String(), Workspace: report.Workspace.String(), Segments: segments}
 }

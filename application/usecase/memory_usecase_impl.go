@@ -473,12 +473,20 @@ func (u *memoryUsecase) Show(ctx context.Context, memoryID domtypes.MemoryID) (a
 }
 
 func (u *memoryUsecase) Extract(ctx context.Context, criteria apptypes.MemoryExtractionCriteria) ([]apptypes.MemoryDetails, error) {
-	return (&memoryExtractionUsecase{
+	return u.newMemoryExtractionUsecase().Extract(ctx, criteria)
+}
+
+func (u *memoryUsecase) ExplainExtraction(ctx context.Context, criteria apptypes.MemoryExtractionCriteria) (apptypes.MemoryExtractionDebugReport, error) {
+	return u.newMemoryExtractionUsecase().Explain(ctx, criteria)
+}
+
+func (u *memoryUsecase) newMemoryExtractionUsecase() *memoryExtractionUsecase {
+	return &memoryExtractionUsecase{
 		sessionQuery:        u.sessionQuery,
 		eventQuery:          u.eventQuery,
 		memory:              u,
 		extraRedactPatterns: u.extraRedactPatterns,
-	}).Extract(ctx, criteria)
+	}
 }
 
 func (u *memoryUsecase) ImportCodex(ctx context.Context, criteria apptypes.CodexImportCriteria) (apptypes.MemoryImportResult, error) {
