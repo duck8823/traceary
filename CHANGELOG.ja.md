@@ -5,6 +5,16 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.11.1] - 2026-04-28
+
+### Fixed
+- **command audit 証跡を汎用 event surface から取得可能に (#842)** — `command_executed` の event body に command line / exit code / input payload / output payload を含め、`list` / `search` / MCP `list_events` / MCP `search` から Bash の検証証跡を取得できるようにしました。handoff の recent command summary は従来どおり command line のみに丸めます。
+- **Claude compact summary から durable-memory candidate を生成 (#844)** — compact-summary event にも prompt / transcript / note と同じ heuristic extraction を適用し、日本語 label / durable marker (`決定`, `判断`, `制約`, `教訓`, `次回`, `確認済み` など) を認識するようにしました。Claude 風の日本語 summary が silent `[]` にならず、review-only candidate を生成します。
+- **Codex の stale hook install を memory-capture gap として診断 (#843)** — `traceary doctor` が Codex `Stop` hook について `transcript` と `session stop` の両方を要求し、`UserPromptSubmit` / transcript capture の欠落が durable-memory extraction を starvation させることを明示します。修復導線は `traceary hooks install --client codex --upgrade` です。
+
+### Changed
+- **memory extraction の可視性判定を signal scoring 化 (#835)** — `extracted` / `extracted-hidden` の判定を、文字長だけでなく structured label、evidence ref、artifact ref、英日 durable marker、Latin/CJK 長さを組み合わせた score で行うようにしました。duplicate candidate は source 判定前に dedupe key ごとの最高 score を選ぶため、弱い先行 signal が強い structured evidence を隠しません。
+
 ## [v0.11.0] - 2026-04-27
 
 ### Added
