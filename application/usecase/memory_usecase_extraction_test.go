@@ -368,6 +368,121 @@ func TestMemoryUsecase_Extract_ClaudeJapaneseSummarySignals(t *testing.T) {
 	}
 }
 
+func TestMemoryUsecase_Extract_ScoresWeakSignalsAsHidden(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(
+		domtypes.SessionID("session-score"),
+		domtypes.Workspace("github.com/duck8823/traceary"),
+		time.Now().Add(-time.Hour),
+		domtypes.None[time.Time](),
+		"ended",
+		2,
+		0,
+		[]string{"claude"},
+		"",
+		"",
+		domtypes.SessionID(""),
+	)
+	weakPrompt := mustExtractionEvent(t, "event-weak", domtypes.EventKindPrompt, "must fix")
+	structuredPrompt := mustExtractionEvent(t, "event-structured", domtypes.EventKindPrompt, "Decision: Ship")
+
+	details1 := mustMemoryDetailsFromSummary(t, "memory-score-1", domtypes.MemoryTypeConstraint, "must fix")
+	details2 := mustMemoryDetailsFromSummary(t, "memory-score-2", domtypes.MemoryTypeDecision, "Ship")
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{
+		proposeResult: []apptypes.MemoryDetails{details1, details2},
+	}
+
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{
+		listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
+			domtypes.EventKindPrompt: {weakPrompt, structuredPrompt},
+		},
+	}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	_, err := sut.Extract(
+		context.Background(),
+		apptypes.NewMemoryExtractionCriteriaBuilder().
+			SessionID(domtypes.SessionID("session-score")).
+			Workspace(domtypes.Workspace("github.com/duck8823/traceary")).
+			EventLimit(2).
+			CandidateLimit(10).
+			Build(),
+	)
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(memoryUsecase.proposeCalls) != 2 {
+		t.Fatalf("proposeCalls = %d, want 2", len(memoryUsecase.proposeCalls))
+	}
+	if got := memoryUsecase.proposeCalls[0].source; got != domtypes.MemorySourceExtractedHidden {
+		t.Fatalf("weak source = %q, want extracted-hidden", got)
+	}
+	if got := memoryUsecase.proposeCalls[1].source; got != domtypes.MemorySourceExtracted {
+		t.Fatalf("structured source = %q, want extracted", got)
+	}
+}
+
+func TestMemoryUsecase_Extract_DeduplicatesByBestSignalScore(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(
+		domtypes.SessionID("session-best-score"),
+		domtypes.Workspace("github.com/duck8823/traceary"),
+		time.Now().Add(-time.Hour),
+		domtypes.None[time.Time](),
+		"ended",
+		2,
+		0,
+		[]string{"claude"},
+		"",
+		"",
+		domtypes.SessionID(""),
+	)
+	weakPrompt := mustExtractionEvent(t, "event-weak-duplicate", domtypes.EventKindPrompt, "must fix")
+	structuredPrompt := mustExtractionEvent(t, "event-structured-duplicate", domtypes.EventKindPrompt, "Constraint: must fix")
+
+	details := mustMemoryDetailsFromSummary(t, "memory-best-score-1", domtypes.MemoryTypeConstraint, "must fix")
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{
+		proposeResult: []apptypes.MemoryDetails{details},
+	}
+
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{
+		listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
+			domtypes.EventKindPrompt: {weakPrompt, structuredPrompt},
+		},
+	}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	got, err := sut.Extract(
+		context.Background(),
+		apptypes.NewMemoryExtractionCriteriaBuilder().
+			SessionID(domtypes.SessionID("session-best-score")).
+			Workspace(domtypes.Workspace("github.com/duck8823/traceary")).
+			EventLimit(2).
+			CandidateLimit(10).
+			Build(),
+	)
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(Extract()) = %d, want 1 deduped candidate", len(got))
+	}
+	if len(memoryUsecase.proposeCalls) != 1 {
+		t.Fatalf("proposeCalls = %d, want 1", len(memoryUsecase.proposeCalls))
+	}
+	call := memoryUsecase.proposeCalls[0]
+	if call.fact != "must fix" {
+		t.Fatalf("fact = %q, want deduped structured fact", call.fact)
+	}
+	if call.source != domtypes.MemorySourceExtracted {
+		t.Fatalf("source = %q, want high-score extracted source", call.source)
+	}
+}
+
 func TestMemoryUsecase_Extract_DeduplicatesExistingAndGracefullyHandlesMissingPrompts(t *testing.T) {
 	t.Parallel()
 
