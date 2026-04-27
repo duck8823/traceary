@@ -240,6 +240,12 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 		if !bytes.Contains([]byte(codex.Message), []byte("UserPromptSubmit")) {
 			t.Fatalf("expected warn message to mention UserPromptSubmit, got %q", codex.Message)
 		}
+		if !bytes.Contains([]byte(codex.Message), []byte("Stop")) {
+			t.Fatalf("expected warn message to mention Stop transcript gap, got %q", codex.Message)
+		}
+		if !bytes.Contains([]byte(codex.Message), []byte("durable-memory extraction")) {
+			t.Fatalf("expected warn message to explain memory extraction impact, got %q", codex.Message)
+		}
 	})
 
 	t.Run("codex config with user-managed UserPromptSubmit warns", func(t *testing.T) {
@@ -296,7 +302,10 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 			"hooks": {
 				"SessionStart": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'session' 'codex' 'start'"}]}],
 				"UserPromptSubmit": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'prompt' 'codex'"}]}],
-				"Stop": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'session' 'codex' 'stop'"}]}],
+				"Stop": [{"hooks": [
+					{"type": "command", "command": "'traceary' 'hook' 'transcript' 'codex'"},
+					{"type": "command", "command": "'traceary' 'hook' 'session' 'codex' 'stop'"}
+				]}],
 				"PostToolUse": [{"matcher": "", "hooks": [{"type": "command", "command": "'traceary' 'hook' 'audit' 'codex'"}]}]
 			}
 		}`
@@ -339,7 +348,10 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 			"hooks": {
 				"SessionStart": [{"hooks": [{"name": "traceary-session-start", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'session' 'codex' 'start'"}]}],
 				"UserPromptSubmit": [{"hooks": [{"name": "traceary-prompt", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'prompt' 'codex'"}]}],
-				"Stop": [{"hooks": [{"name": "traceary-session-stop", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'session' 'codex' 'stop'"}]}],
+				"Stop": [{"hooks": [
+					{"name": "traceary-transcript", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'transcript' 'codex'"},
+					{"name": "traceary-session-stop", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'session' 'codex' 'stop'"}
+				]}],
 				"PostToolUse": [{"matcher": "", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'audit' 'codex'"}]}]
 			}
 		}`
