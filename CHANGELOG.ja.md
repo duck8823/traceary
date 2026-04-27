@@ -5,6 +5,17 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.11.2] - 2026-04-28
+
+### Added
+- **durable-memory intent の診断 (#851)** — `traceary memory extract --debug-signals` が candidate を作成せずに、segment 単位の抽出判断を説明するようになりました。検出 feature、推定 type、score、decision、reason、evidence ref、artifact ref、source metadata (`client`, `event_kind`, `source_hook`) を出力します。debug path は extraction の dedupe、最高 score 選択、candidate-limit 挙動に揃えているため、dogfooding 時に signal が proposed / hidden / skipped / ignored のどれになったかを確認できます。
+
+### Changed
+- **明示的な memory intent を keyword 追加ではなく分類 (#851)** — `Durable Memory:`、`Memory Note:`、`Remember:`、`Remember this:`、`覚えておいて:`、`記憶:` などの durable-memory intent を認識します。明示 intent は default で可視 candidate になるだけの score を持ち、type が曖昧な場合も `preference` / `constraint` / `decision` / `artifact` / それ以外は `lesson` に安全に fallback して、remember request を silent drop しません。
+
+### Fixed
+- **memory metric の false positive を抑制 (#851)** — generic な `Memory:` / `メモリ:` telemetry 風の行は explicit durable-memory intent として扱わないようにし、`Memory: 2 GB` のような通常の resource log が visible lesson candidate になることを防ぎます。
+
 ## [v0.11.1] - 2026-04-28
 
 ### Fixed
