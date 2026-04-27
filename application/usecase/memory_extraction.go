@@ -18,12 +18,13 @@ import (
 )
 
 var (
-	explicitMemoryLabelPattern = regexp.MustCompile(`(?i)^(?:[-*]\s+|\d+\.\s+)?(?:(?:user\s+)?(preference|decision|constraint|lesson|artifact|feedback|correction))s?\s*[:\-]\s*(.+)$`)
-	urlRefPattern              = regexp.MustCompile(`https?://[^\s)]+`)
-	issueRefPattern            = regexp.MustCompile(`(?i)\bissues?\s*#(\d+)\b`)
-	prRefPattern               = regexp.MustCompile(`(?i)\b(?:pr|pull request)\s*#(\d+)\b`)
-	bareFileRefPattern         = regexp.MustCompile(`(?i)\b[A-Za-z0-9_.-]+\.(?:[A-Za-z0-9_-]+\.)*(?:go|md|json|sh|sql|yaml|yml|toml|ts|tsx|js|jsx|py|rb|ini|cfg|conf|proto|tpl)\b`)
-	pathLikeRefPattern         = regexp.MustCompile(`(?:\./|\.\./|/)?(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+(?:\.[A-Za-z0-9_-]+)*`)
+	explicitMemoryLabelPattern         = regexp.MustCompile(`(?i)^(?:[-*]\s+|\d+\.\s+)?(?:(?:user\s+)?(preference|decision|constraint|lesson|artifact|feedback|correction))s?\s*[:\-]\s*(.+)$`)
+	explicitJapaneseMemoryLabelPattern = regexp.MustCompile(`^(?:[-*]\s+|\d+\.\s+)?(好み|設定|要望|決定|判断|制約|教訓|学び|成果物|資料|修正|フィードバック)\s*[:：\-ー]\s*(.+)$`)
+	urlRefPattern                      = regexp.MustCompile(`https?://[^\s)]+`)
+	issueRefPattern                    = regexp.MustCompile(`(?i)\bissues?\s*#(\d+)\b`)
+	prRefPattern                       = regexp.MustCompile(`(?i)\b(?:pr|pull request)\s*#(\d+)\b`)
+	bareFileRefPattern                 = regexp.MustCompile(`(?i)\b[A-Za-z0-9_.-]+\.(?:[A-Za-z0-9_-]+\.)*(?:go|md|json|sh|sql|yaml|yml|toml|ts|tsx|js|jsx|py|rb|ini|cfg|conf|proto|tpl)\b`)
+	pathLikeRefPattern                 = regexp.MustCompile(`(?:\./|\.\./|/)?(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+(?:\.[A-Za-z0-9_-]+)*`)
 )
 
 var extensionlessArtifactRootSegments = map[string]struct{}{
@@ -348,7 +349,7 @@ func (u *memoryExtractionUsecase) collectCandidateSpecs(ctx context.Context, ses
 	if err := appendKindSignals(domtypes.EventKindNote, true, true); err != nil {
 		return nil, err
 	}
-	if err := appendKindSignals(domtypes.EventKindCompactSummary, false, true); err != nil {
+	if err := appendKindSignals(domtypes.EventKindCompactSummary, true, true); err != nil {
 		return nil, err
 	}
 
@@ -406,7 +407,10 @@ func extractMemoryCandidatesFromSignal(signal extractionSignal, evidenceRefs []d
 func structuredCandidateSpec(segment string, evidenceRefs []domtypes.EvidenceRef) (memoryCandidateSpec, bool, error) {
 	matches := explicitMemoryLabelPattern.FindStringSubmatch(segment)
 	if len(matches) != 3 {
-		return memoryCandidateSpec{}, false, nil
+		matches = explicitJapaneseMemoryLabelPattern.FindStringSubmatch(segment)
+		if len(matches) != 3 {
+			return memoryCandidateSpec{}, false, nil
+		}
 	}
 
 	memoryType, err := memoryTypeFromLabel(matches[1])
@@ -485,13 +489,23 @@ func memoryTypeFromLabel(label string) (domtypes.MemoryType, error) {
 	switch strings.ToLower(strings.TrimSpace(label)) {
 	case "preference", "feedback", "correction":
 		return domtypes.MemoryTypePreference, nil
+	case "好み", "設定", "要望", "修正", "フィードバック":
+		return domtypes.MemoryTypePreference, nil
 	case "decision":
+		return domtypes.MemoryTypeDecision, nil
+	case "決定", "判断":
 		return domtypes.MemoryTypeDecision, nil
 	case "constraint":
 		return domtypes.MemoryTypeConstraint, nil
+	case "制約":
+		return domtypes.MemoryTypeConstraint, nil
 	case "lesson":
 		return domtypes.MemoryTypeLesson, nil
+	case "教訓", "学び":
+		return domtypes.MemoryTypeLesson, nil
 	case "artifact":
+		return domtypes.MemoryTypeArtifact, nil
+	case "成果物", "資料":
 		return domtypes.MemoryTypeArtifact, nil
 	default:
 		return domtypes.MemoryType(""), xerrors.Errorf("unsupported memory label: %s", label)
@@ -515,8 +529,30 @@ func inferMemoryTypeFromText(text string) (domtypes.MemoryType, bool) {
 		"use japanese",
 		"correction:",
 		"feedback:",
+		"してください",
+		"してほしい",
+		"常に",
+		"必ず",
 	):
 		return domtypes.MemoryTypePreference, true
+	case containsAny(lower,
+		"decision:",
+		"decided ",
+		"we chose",
+		"chosen ",
+		"agreed ",
+		"not tech-debt",
+		"not technical debt",
+		"not be treated as tech-debt",
+		"決定",
+		"判断",
+		"採用",
+		"ではない",
+		"扱わない",
+		"扱う",
+		"済み",
+	):
+		return domtypes.MemoryTypeDecision, true
 	case containsAny(lower,
 		"must ",
 		"must not",
@@ -526,22 +562,28 @@ func inferMemoryTypeFromText(text string) (domtypes.MemoryType, bool) {
 		"only ",
 		"forbidden",
 		"out of scope",
+		"必須",
+		"必要",
+		"不可",
+		"できない",
+		"してはいけない",
+		"禁止",
 	):
 		return domtypes.MemoryTypeConstraint, true
-	case containsAny(lower,
-		"decision:",
-		"decided ",
-		"we chose",
-		"chosen ",
-		"agreed ",
-	):
-		return domtypes.MemoryTypeDecision, true
 	case containsAny(lower,
 		"lesson:",
 		"learned ",
 		"next time",
 		"remember to",
 		"mistake",
+		"教訓",
+		"学び",
+		"次回",
+		"再起動",
+		"restart",
+		"解消",
+		"確認済み",
+		"誤り",
 	):
 		return domtypes.MemoryTypeLesson, true
 	default:
