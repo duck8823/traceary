@@ -20,7 +20,7 @@ import (
 var (
 	explicitMemoryLabelPattern         = regexp.MustCompile(`(?i)^(?:[-*]\s+|\d+\.\s+)?(?:(?:user\s+)?(preference|decision|constraint|lesson|artifact|feedback|correction))s?\s*[:\-]\s*(.+)$`)
 	explicitJapaneseMemoryLabelPattern = regexp.MustCompile(`^(?:[-*]\s+|\d+\.\s+)?(好み|設定|要望|決定|判断|制約|教訓|学び|成果物|資料|修正|フィードバック)\s*[:：\-ー]\s*(.+)$`)
-	explicitRememberLabelPattern       = regexp.MustCompile(`(?i)^(?:[-*]\s+|\d+\.\s+)?(?:durable\s+memory|memory|remember(?:\s+this)?|keep\s+this\s+in\s+memory)\s*[:\-]\s*(.+)$`)
+	explicitRememberLabelPattern       = regexp.MustCompile(`(?i)^(?:[-*]\s+|\d+\.\s+)?(?:durable\s+memory|memory\s+note|remember(?:\s+this)?|keep\s+this\s+in\s+memory)\s*[:\-]\s*(.+)$`)
 	explicitJapaneseRememberPattern    = regexp.MustCompile(`^(?:[-*]\s+|\d+\.\s+)?(?:覚えておいて|覚えておく|記憶|メモリ|メモリー)\s*[:：\-ー]\s*(.+)$`)
 	urlRefPattern                      = regexp.MustCompile(`https?://[^\s)]+`)
 	issueRefPattern                    = regexp.MustCompile(`(?i)\bissues?\s*#(\d+)\b`)
@@ -222,6 +222,7 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 	}
 
 	report := apptypes.MemoryExtractionDebugReport{SessionID: session.SessionID(), Workspace: session.Workspace()}
+	seenRunKeys := make(map[string]struct{})
 	for _, signal := range signals {
 		evidenceRefs, err := buildSignalEvidenceRefs(session.SessionID(), signal.event)
 		if err != nil {
@@ -253,12 +254,17 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 			if _, exists := existingKeys[key]; exists {
 				decision.Decision = "skipped"
 				decision.Reason = "duplicate"
+			} else if _, exists := seenRunKeys[key]; exists {
+				decision.Decision = "skipped"
+				decision.Reason = "duplicate_in_run"
 			} else if spec.signalScore < extractionVisibleScoreThreshold {
 				decision.Decision = "hidden"
 				decision.Reason = "below_visible_threshold"
+				seenRunKeys[key] = struct{}{}
 			} else {
 				decision.Decision = "proposed"
 				decision.Reason = "visible_candidate"
+				seenRunKeys[key] = struct{}{}
 			}
 			report.Segments = append(report.Segments, decision)
 		}

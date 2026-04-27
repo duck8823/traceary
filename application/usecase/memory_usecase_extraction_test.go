@@ -962,3 +962,50 @@ func TestMemoryUsecase_ExplainExtraction_ReportsIgnoredAndProposedSegments(t *te
 		t.Fatalf("score = %d, want visible threshold", second.Score)
 	}
 }
+
+func TestMemoryUsecase_Extract_DoesNotTreatMetricMemoryLabelAsDurableIntent(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-memory-metric"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"codex"}, "", "", domtypes.SessionID(""))
+	promptEvent := mustExtractionEvent(t, "event-memory-metric", domtypes.EventKindPrompt, "Memory: 2 GB")
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindPrompt: {promptEvent}}}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	got, err := sut.Extract(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-memory-metric")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(10).Build())
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(got) != 0 || len(memoryUsecase.proposeCalls) != 0 {
+		t.Fatalf("metric memory line produced candidates: got=%d proposeCalls=%d", len(got), len(memoryUsecase.proposeCalls))
+	}
+}
+
+func TestMemoryUsecase_ExplainExtraction_MarksDuplicateInRun(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-duplicates"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"codex"}, "", "", domtypes.SessionID(""))
+	promptEvent := mustExtractionEvent(t, "event-debug-duplicates", domtypes.EventKindPrompt, strings.Join([]string{
+		"Remember: Poll Codex review status before assuming it timed out.",
+		"Remember: Poll Codex review status before assuming it timed out.",
+	}, "\n"))
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindPrompt: {promptEvent}}}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	report, err := sut.ExplainExtraction(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-debug-duplicates")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(10).Build())
+	if err != nil {
+		t.Fatalf("ExplainExtraction() error = %v", err)
+	}
+	if len(report.Segments) != 2 {
+		t.Fatalf("segments = %d, want 2", len(report.Segments))
+	}
+	if report.Segments[0].Decision != "proposed" {
+		t.Fatalf("first decision = %s, want proposed", report.Segments[0].Decision)
+	}
+	if report.Segments[1].Decision != "skipped" || report.Segments[1].Reason != "duplicate_in_run" {
+		t.Fatalf("second decision = %s/%s, want skipped/duplicate_in_run", report.Segments[1].Decision, report.Segments[1].Reason)
+	}
+}
