@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -287,6 +288,83 @@ func TestMemoryUsecase_Extract_IncludesTranscriptEvents(t *testing.T) {
 	}
 	if memoryUsecase.proposeCalls[0].memoryType != domtypes.MemoryTypeDecision {
 		t.Errorf("memoryType = %v, want Decision", memoryUsecase.proposeCalls[0].memoryType)
+	}
+}
+
+func TestMemoryUsecase_Extract_ClaudeJapaneseSummarySignals(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(
+		domtypes.SessionID("session-claude-ja"),
+		domtypes.Workspace("github.com/duck8823/traceary"),
+		time.Now().Add(-time.Hour),
+		domtypes.None[time.Time](),
+		"ended",
+		3,
+		0,
+		[]string{"claude"},
+		"",
+		"",
+		domtypes.SessionID(""),
+	)
+	compactEvent := mustExtractionEvent(t,
+		"event-claude-summary",
+		domtypes.EventKindCompactSummary,
+		strings.Join([]string{
+			"<summary>",
+			"835 は tech-debt ではない。設計/API 判断が必要な新規タスクとして扱う。",
+			"次回 Claude Code restart で stale MCP server cache は解消する。",
+			"v0.11.0 release PR #840 と Homebrew PR #841 は merge 済み。",
+			"</summary>",
+		}, "\n"),
+	)
+
+	details1 := mustMemoryDetailsFromSummary(t, "memory-claude-ja-1", domtypes.MemoryTypeDecision, "835 は tech-debt ではない。設計/API 判断が必要な新規タスクとして扱う。")
+	details2 := mustMemoryDetailsFromSummary(t, "memory-claude-ja-2", domtypes.MemoryTypeLesson, "次回 Claude Code restart で stale MCP server cache は解消する。")
+	details3 := mustMemoryDetailsFromSummary(t, "memory-claude-ja-3", domtypes.MemoryTypeDecision, "v0.11.0 release PR #840 と Homebrew PR #841 は merge 済み。")
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{
+		proposeResult: []apptypes.MemoryDetails{details1, details2, details3},
+	}
+
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{
+		listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
+			domtypes.EventKindCompactSummary: {compactEvent},
+		},
+	}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	got, err := sut.Extract(
+		context.Background(),
+		apptypes.NewMemoryExtractionCriteriaBuilder().
+			SessionID(domtypes.SessionID("session-claude-ja")).
+			Workspace(domtypes.Workspace("github.com/duck8823/traceary")).
+			EventLimit(1).
+			CandidateLimit(10).
+			Build(),
+	)
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("len(Extract()) = %d, want 3", len(got))
+	}
+
+	gotTypes := make([]domtypes.MemoryType, 0, len(memoryUsecase.proposeCalls))
+	gotFacts := make([]string, 0, len(memoryUsecase.proposeCalls))
+	for _, call := range memoryUsecase.proposeCalls {
+		gotTypes = append(gotTypes, call.memoryType)
+		gotFacts = append(gotFacts, call.fact)
+	}
+	if diff := cmp.Diff([]domtypes.MemoryType{domtypes.MemoryTypeDecision, domtypes.MemoryTypeLesson, domtypes.MemoryTypeDecision}, gotTypes); diff != "" {
+		t.Fatalf("memory types mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]string{
+		"835 は tech-debt ではない。設計/API 判断が必要な新規タスクとして扱う。",
+		"次回 Claude Code restart で stale MCP server cache は解消する。",
+		"v0.11.0 release PR #840 と Homebrew PR #841 は merge 済み。",
+	}, gotFacts); diff != "" {
+		t.Fatalf("facts mismatch (-want +got):\n%s", diff)
 	}
 }
 
