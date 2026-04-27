@@ -138,15 +138,13 @@ func (u *memoryExtractionUsecase) Extract(ctx context.Context, criteria apptypes
 			continue
 		}
 
-		// Quality filter (#810 follow-up #830): low-quality candidates
-		// are still persisted for audit, but tagged with the
-		// extracted-hidden source so the default inbox view skips
-		// them. `memory inbox --include-hidden` surfaces them when
-		// reviewers want to triage borderline cases. Artifact memory
-		// types are exempted because their facts are file paths /
-		// URLs / commands that can be short yet valid.
+		// Signal-quality classifier (#835): low-score candidates are
+		// still persisted for audit, but tagged with the extracted-hidden
+		// source so the default inbox view skips them. `memory inbox
+		// --include-hidden` surfaces them when reviewers want to triage
+		// borderline cases.
 		source := domtypes.MemorySourceExtracted
-		if spec.memoryType != domtypes.MemoryTypeArtifact && !passesExtractionQualityFilter(spec.fact) {
+		if spec.signalScore < extractionVisibleScoreThreshold {
 			source = domtypes.MemorySourceExtractedHidden
 		}
 
@@ -172,30 +170,80 @@ func (u *memoryExtractionUsecase) Extract(ctx context.Context, criteria apptypes
 	return results, nil
 }
 
-// extractionQualityMinRunesLatin is the soft minimum length, in runes,
-// a Latin-script candidate fact must reach to land at the visible
-// `extracted` source. Shorter facts are persisted under
-// `extracted-hidden` for audit; they stay reachable through
-// `memory inbox --include-hidden`. The threshold is intentionally a
-// length heuristic rather than a confidence classifier — extraction
-// signals do not yet carry confidence (#830).
+// extractionQualityMinRunesLatin contributes to the signal-quality score for
+// Latin-script candidates. Length alone no longer decides visibility (#835);
+// it is just one weak signal combined with labels, evidence, and artifacts.
 const extractionQualityMinRunesLatin = 20
 
-// extractionQualityMinRunesCJK is the lower threshold applied when the
-// fact contains CJK ideographs / kana / hangul. CJK text is much
-// information-denser per rune than Latin text — a 10-rune sentence in
-// Japanese is comparable to a 20-rune Latin sentence — so a single
-// global threshold over-rejects CJK candidates.
+// extractionQualityMinRunesCJK is the lower length score threshold applied
+// when the fact contains CJK ideographs / kana / hangul. CJK text is much
+// information-denser per rune than Latin text.
 const extractionQualityMinRunesCJK = 10
 
-func passesExtractionQualityFilter(fact string) bool {
-	trimmed := strings.TrimSpace(fact)
+const extractionVisibleScoreThreshold = 4
+
+func memoryExtractionSignalScore(spec memoryCandidateSpec) int {
+	if spec.memoryType == domtypes.MemoryTypeArtifact {
+		return extractionVisibleScoreThreshold
+	}
+
+	score := 0
+	if spec.structured {
+		score += 3
+	}
+	if len(spec.evidenceRefs) > 0 {
+		score++
+	}
+	if len(spec.artifactRefs) > 0 {
+		score++
+	}
+
+	trimmed := strings.TrimSpace(spec.fact)
 	runes := []rune(trimmed)
 	threshold := extractionQualityMinRunesLatin
 	if containsCJK(runes) {
 		threshold = extractionQualityMinRunesCJK
 	}
-	return len(runes) >= threshold
+	if len(runes) >= threshold {
+		score++
+	}
+	if len(runes) >= threshold*2 {
+		score++
+	}
+	if hasDurableSignalMarker(trimmed) {
+		score += 2
+	}
+
+	return score
+}
+
+func hasDurableSignalMarker(value string) bool {
+	lower := strings.ToLower(value)
+	return containsAny(lower,
+		"decision:",
+		"constraint:",
+		"lesson:",
+		"artifact:",
+		"preference:",
+		"decided ",
+		"agreed ",
+		"must ",
+		"must not",
+		"never ",
+		"always ",
+		"next time",
+		"remember to",
+		"決定",
+		"判断",
+		"制約",
+		"教訓",
+		"学び",
+		"必須",
+		"必要",
+		"次回",
+		"再起動",
+		"確認済み",
+	)
 }
 
 // containsCJK reports whether the rune slice carries at least one
@@ -374,6 +422,8 @@ type memoryCandidateSpec struct {
 	fact         string
 	evidenceRefs []domtypes.EvidenceRef
 	artifactRefs []domtypes.ArtifactRef
+	structured   bool
+	signalScore  int
 }
 
 func extractMemoryCandidatesFromSignal(signal extractionSignal, evidenceRefs []domtypes.EvidenceRef) ([]memoryCandidateSpec, error) {
@@ -426,12 +476,15 @@ func structuredCandidateSpec(segment string, evidenceRefs []domtypes.EvidenceRef
 	if err != nil {
 		return memoryCandidateSpec{}, false, err
 	}
-	return memoryCandidateSpec{
+	spec := memoryCandidateSpec{
 		memoryType:   memoryType,
 		fact:         fact,
 		evidenceRefs: slices.Clone(evidenceRefs),
 		artifactRefs: artifactRefs,
-	}, true, nil
+		structured:   true,
+	}
+	spec.signalScore = memoryExtractionSignalScore(spec)
+	return spec, true, nil
 }
 
 func heuristicCandidateSpec(segment string, evidenceRefs []domtypes.EvidenceRef) (memoryCandidateSpec, bool, error) {
@@ -449,12 +502,14 @@ func heuristicCandidateSpec(segment string, evidenceRefs []domtypes.EvidenceRef)
 	if err != nil {
 		return memoryCandidateSpec{}, false, err
 	}
-	return memoryCandidateSpec{
+	spec := memoryCandidateSpec{
 		memoryType:   memoryType,
 		fact:         fact,
 		evidenceRefs: slices.Clone(evidenceRefs),
 		artifactRefs: artifactRefs,
-	}, true, nil
+	}
+	spec.signalScore = memoryExtractionSignalScore(spec)
+	return spec, true, nil
 }
 
 func candidateSegments(text string) []string {
