@@ -5,6 +5,15 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.11.1] - 2026-04-28
+
+### Fixed
+- **Command audit evidence is visible from generic event surfaces (#842)** — `command_executed` event bodies now include the command line, exit code, input payload, and output payload so `list`, `search`, MCP `list_events`, and MCP `search` can retrieve Bash verification evidence without requiring a command-audit-specific detail lookup. Handoff recent-command summaries still trim back to the command line.
+- **Claude compact summaries produce durable-memory candidates (#844)** — compact-summary events now run the same heuristic extraction path as prompt / transcript / note signals, and the extractor recognizes Japanese labels and durable markers (`決定`, `判断`, `制約`, `教訓`, `次回`, `確認済み`, etc.). Claude-style Japanese summaries now generate review-only candidates instead of silently returning `[]`.
+- **Codex stale hook installs are diagnosed as memory-capture gaps (#843)** — `traceary doctor` now requires both Codex `Stop` hooks (`transcript` and `session stop`) and explains that missing `UserPromptSubmit` / transcript capture starves durable-memory extraction. The repair hint points to `traceary hooks install --client codex --upgrade`.
+
+### Changed
+- **Memory extraction visibility uses signal scoring (#835)** — the `extracted` vs `extracted-hidden` decision now combines structured labels, evidence refs, artifact refs, durable English/Japanese markers, and Latin/CJK length instead of using a length-only gate. Duplicate candidates are collapsed by dedupe key using the highest-scoring signal before assigning source, so weak early signals cannot hide stronger structured evidence.
 
 ## [v0.11.0] - 2026-04-27
 
