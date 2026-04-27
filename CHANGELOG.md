@@ -5,6 +5,17 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.11.2] - 2026-04-28
+
+### Added
+- **Durable-memory intent diagnostics (#851)** — `traceary memory extract --debug-signals` explains segment-level extraction decisions without creating candidates, including detected features, inferred type, score, decision, reason, evidence refs, artifact refs, and source metadata (`client`, `event_kind`, `source_hook`). The debug path mirrors extraction dedupe, best-score selection, and candidate-limit behavior so dogfooding can see why a signal was proposed, hidden, skipped, or ignored.
+
+### Changed
+- **Explicit memory intent is classified instead of keyword-only matching (#851)** — extraction now recognizes durable-memory intent such as `Durable Memory:`, `Memory Note:`, `Remember:`, `Remember this:`, `覚えておいて:`, and `記憶:`. Explicit intent is scored strongly enough to be visible by default, with safe fallback type inference (`preference`, `constraint`, `decision`, `artifact`, otherwise `lesson`) instead of silently dropping ambiguous remember requests.
+
+### Fixed
+- **Avoid false-positive memory metrics (#851)** — generic `Memory:` / `メモリ:` telemetry-style lines are intentionally not treated as explicit durable-memory intent, preventing routine resource logs such as `Memory: 2 GB` from becoming visible lesson candidates.
+
 ## [v0.11.1] - 2026-04-28
 
 ### Fixed
