@@ -21,7 +21,7 @@ var (
 	explicitMemoryLabelPattern         = regexp.MustCompile(`(?i)^(?:[-*]\s+|\d+\.\s+)?(?:(?:user\s+)?(preference|decision|constraint|lesson|artifact|feedback|correction))s?\s*[:\-]\s*(.+)$`)
 	explicitJapaneseMemoryLabelPattern = regexp.MustCompile(`^(?:[-*]\s+|\d+\.\s+)?(好み|設定|要望|決定|判断|制約|教訓|学び|成果物|資料|修正|フィードバック)\s*[:：\-ー]\s*(.+)$`)
 	explicitRememberLabelPattern       = regexp.MustCompile(`(?i)^(?:[-*]\s+|\d+\.\s+)?(?:durable\s+memory|memory\s+note|remember(?:\s+this)?|keep\s+this\s+in\s+memory)\s*[:\-]\s*(.+)$`)
-	explicitJapaneseRememberPattern    = regexp.MustCompile(`^(?:[-*]\s+|\d+\.\s+)?(?:覚えておいて|覚えておく|記憶|メモリ|メモリー)\s*[:：\-ー]\s*(.+)$`)
+	explicitJapaneseRememberPattern    = regexp.MustCompile(`^(?:[-*]\s+|\d+\.\s+)?(?:覚えておいて|覚えておく|記憶)\s*[:：\-ー]\s*(.+)$`)
 	urlRefPattern                      = regexp.MustCompile(`https?://[^\s)]+`)
 	issueRefPattern                    = regexp.MustCompile(`(?i)\bissues?\s*#(\d+)\b`)
 	prRefPattern                       = regexp.MustCompile(`(?i)\b(?:pr|pull request)\s*#(\d+)\b`)
@@ -221,8 +221,15 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 		return apptypes.MemoryExtractionDebugReport{}, err
 	}
 
+	type candidateDecision struct {
+		segmentIndex int
+		key          string
+		score        int
+	}
+
 	report := apptypes.MemoryExtractionDebugReport{SessionID: session.SessionID(), Workspace: session.Workspace()}
-	seenRunKeys := make(map[string]struct{})
+	candidates := make([]candidateDecision, 0)
+	bestCandidateByKey := make(map[string]int)
 	for _, signal := range signals {
 		evidenceRefs, err := buildSignalEvidenceRefs(session.SessionID(), signal.event)
 		if err != nil {
@@ -250,24 +257,37 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 			decision.Features = spec.intent.featureNames()
 			decision.Score = spec.signalScore
 			decision.ArtifactRefs = slices.Clone(spec.artifactRefs)
-			key := memoryCandidateKey(scope, spec.memoryType, sanitizeCandidateFact(spec.fact, extraRedactors))
-			if _, exists := existingKeys[key]; exists {
-				decision.Decision = "skipped"
-				decision.Reason = "duplicate"
-			} else if _, exists := seenRunKeys[key]; exists {
-				decision.Decision = "skipped"
-				decision.Reason = "duplicate_in_run"
-			} else if spec.signalScore < extractionVisibleScoreThreshold {
-				decision.Decision = "hidden"
-				decision.Reason = "below_visible_threshold"
-				seenRunKeys[key] = struct{}{}
-			} else {
-				decision.Decision = "proposed"
-				decision.Reason = "visible_candidate"
-				seenRunKeys[key] = struct{}{}
-			}
+			segmentIndex := len(report.Segments)
 			report.Segments = append(report.Segments, decision)
+			key := memoryCandidateKey(scope, spec.memoryType, sanitizeCandidateFact(spec.fact, extraRedactors))
+			candidateIndex := len(candidates)
+			candidates = append(candidates, candidateDecision{segmentIndex: segmentIndex, key: key, score: spec.signalScore})
+			bestIndex, exists := bestCandidateByKey[key]
+			if !exists || candidates[bestIndex].score < spec.signalScore {
+				bestCandidateByKey[key] = candidateIndex
+			}
 		}
+	}
+
+	for index, candidate := range candidates {
+		decision := &report.Segments[candidate.segmentIndex]
+		if _, exists := existingKeys[candidate.key]; exists {
+			decision.Decision = "skipped"
+			decision.Reason = "duplicate"
+			continue
+		}
+		if bestCandidateByKey[candidate.key] != index {
+			decision.Decision = "skipped"
+			decision.Reason = "duplicate_in_run"
+			continue
+		}
+		if candidate.score < extractionVisibleScoreThreshold {
+			decision.Decision = "hidden"
+			decision.Reason = "below_visible_threshold"
+			continue
+		}
+		decision.Decision = "proposed"
+		decision.Reason = "visible_candidate"
 	}
 	return report, nil
 }

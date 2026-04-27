@@ -987,8 +987,8 @@ func TestMemoryUsecase_ExplainExtraction_MarksDuplicateInRun(t *testing.T) {
 
 	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-duplicates"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"codex"}, "", "", domtypes.SessionID(""))
 	promptEvent := mustExtractionEvent(t, "event-debug-duplicates", domtypes.EventKindPrompt, strings.Join([]string{
-		"Remember: Poll Codex review status before assuming it timed out.",
-		"Remember: Poll Codex review status before assuming it timed out.",
+		"must fix",
+		"Constraint: must fix",
 	}, "\n"))
 	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
 	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
@@ -1002,10 +1002,29 @@ func TestMemoryUsecase_ExplainExtraction_MarksDuplicateInRun(t *testing.T) {
 	if len(report.Segments) != 2 {
 		t.Fatalf("segments = %d, want 2", len(report.Segments))
 	}
-	if report.Segments[0].Decision != "proposed" {
-		t.Fatalf("first decision = %s, want proposed", report.Segments[0].Decision)
+	if report.Segments[0].Decision != "skipped" || report.Segments[0].Reason != "duplicate_in_run" {
+		t.Fatalf("first decision = %s/%s, want skipped/duplicate_in_run", report.Segments[0].Decision, report.Segments[0].Reason)
 	}
-	if report.Segments[1].Decision != "skipped" || report.Segments[1].Reason != "duplicate_in_run" {
-		t.Fatalf("second decision = %s/%s, want skipped/duplicate_in_run", report.Segments[1].Decision, report.Segments[1].Reason)
+	if report.Segments[1].Decision != "proposed" {
+		t.Fatalf("second decision = %s, want proposed", report.Segments[1].Decision)
+	}
+}
+
+func TestMemoryUsecase_Extract_DoesNotTreatJapaneseMemoryMetricAsDurableIntent(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-ja-memory-metric"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"codex"}, "", "", domtypes.SessionID(""))
+	promptEvent := mustExtractionEvent(t, "event-ja-memory-metric", domtypes.EventKindPrompt, "メモリ: 2 GB")
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindPrompt: {promptEvent}}}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	got, err := sut.Extract(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-ja-memory-metric")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(10).Build())
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(got) != 0 || len(memoryUsecase.proposeCalls) != 0 {
+		t.Fatalf("Japanese memory metric produced candidates: got=%d proposeCalls=%d", len(got), len(memoryUsecase.proposeCalls))
 	}
 }
