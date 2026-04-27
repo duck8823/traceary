@@ -199,6 +199,9 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 	if criteria.EventLimit() < 0 {
 		return apptypes.MemoryExtractionDebugReport{}, xerrors.Errorf("event limit must be greater than or equal to 0")
 	}
+	if criteria.CandidateLimit() <= 0 {
+		return apptypes.MemoryExtractionDebugReport{}, xerrors.Errorf("candidate limit must be greater than or equal to 1")
+	}
 
 	session, ok, err := u.findTargetSession(ctx, criteria)
 	if err != nil {
@@ -269,6 +272,7 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 		}
 	}
 
+	emittedCandidates := 0
 	for index, candidate := range candidates {
 		decision := &report.Segments[candidate.segmentIndex]
 		if _, exists := existingKeys[candidate.key]; exists {
@@ -281,6 +285,12 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 			decision.Reason = "duplicate_in_run"
 			continue
 		}
+		if emittedCandidates >= criteria.CandidateLimit() {
+			decision.Decision = "skipped"
+			decision.Reason = "candidate_limit"
+			continue
+		}
+		emittedCandidates++
 		if candidate.score < extractionVisibleScoreThreshold {
 			decision.Decision = "hidden"
 			decision.Reason = "below_visible_threshold"

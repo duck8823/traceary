@@ -1028,3 +1028,31 @@ func TestMemoryUsecase_Extract_DoesNotTreatJapaneseMemoryMetricAsDurableIntent(t
 		t.Fatalf("Japanese memory metric produced candidates: got=%d proposeCalls=%d", len(got), len(memoryUsecase.proposeCalls))
 	}
 }
+
+func TestMemoryUsecase_ExplainExtraction_RespectsCandidateLimit(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-limit"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"codex"}, "", "", domtypes.SessionID(""))
+	promptEvent := mustExtractionEvent(t, "event-debug-limit", domtypes.EventKindPrompt, strings.Join([]string{
+		"Remember: Poll Codex review status before assuming it timed out.",
+		"Remember: Check release workflow before announcing completion.",
+	}, "\n"))
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindPrompt: {promptEvent}}}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	report, err := sut.ExplainExtraction(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-debug-limit")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(1).Build())
+	if err != nil {
+		t.Fatalf("ExplainExtraction() error = %v", err)
+	}
+	if len(report.Segments) != 2 {
+		t.Fatalf("segments = %d, want 2", len(report.Segments))
+	}
+	if report.Segments[0].Decision != "proposed" {
+		t.Fatalf("first decision = %s, want proposed", report.Segments[0].Decision)
+	}
+	if report.Segments[1].Decision != "skipped" || report.Segments[1].Reason != "candidate_limit" {
+		t.Fatalf("second decision = %s/%s, want skipped/candidate_limit", report.Segments[1].Decision, report.Segments[1].Reason)
+	}
+}
