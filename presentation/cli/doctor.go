@@ -731,8 +731,8 @@ func (c *RootCLI) inspectDoctorConfigFile(client string, outputPath string) doct
 					Name:   client + "-config",
 					Status: doctorStatusWarn,
 					Message: localizef(
-						"codex config is missing Traceary-managed events (%s); run `traceary hooks install --client codex` to fix: %s",
-						"codex の設定に Traceary 管理下の event が不足しています (%s)。`traceary hooks install --client codex` で修復できます: %s",
+						"codex config is missing Traceary-managed events (%s); prompt/transcript gaps starve durable-memory extraction. Run `traceary hooks install --client codex --upgrade` to fix: %s",
+						"codex の設定に Traceary 管理下の event が不足しています (%s)。prompt/transcript が欠けると durable-memory extraction に入力が渡りません。`traceary hooks install --client codex --upgrade` で修復できます: %s",
 						strings.Join(missing, ", "),
 						outputPath,
 					),
@@ -770,11 +770,11 @@ var codexManagedEvents = []string{"SessionStart", "UserPromptSubmit", "Stop", "P
 // Traceary install — a substring check on the command string would
 // misclassify user-managed commands that happen to contain "hook" and
 // "codex".
-var codexManagedEventKeys = map[string]string{
-	"SessionStart":     "traceary-session.sh:codex:start",
-	"UserPromptSubmit": "traceary-prompt.sh:codex",
-	"Stop":             "traceary-session.sh:codex:stop",
-	"PostToolUse":      "traceary-audit.sh:codex",
+var codexManagedEventKeys = map[string][]string{
+	"SessionStart":     []string{"traceary-session.sh:codex:start"},
+	"UserPromptSubmit": []string{"traceary-prompt.sh:codex"},
+	"Stop":             []string{"traceary-transcript.sh:codex", "traceary-session.sh:codex:stop"},
+	"PostToolUse":      []string{"traceary-audit.sh:codex"},
 }
 
 // missingTracearyManagedCodexEvents returns the subset of Traceary-managed
@@ -791,7 +791,7 @@ func (c *RootCLI) missingTracearyManagedCodexEvents(content []byte) []string {
 	}
 	missing := make([]string, 0, len(codexManagedEvents))
 	for _, event := range codexManagedEvents {
-		expectedKey, ok := codexManagedEventKeys[event]
+		expectedKeys, ok := codexManagedEventKeys[event]
 		if !ok {
 			continue
 		}
@@ -800,19 +800,19 @@ func (c *RootCLI) missingTracearyManagedCodexEvents(content []byte) []string {
 			missing = append(missing, event)
 			continue
 		}
-		if !c.hasEntryWithManagedKey(raw, expectedKey) {
+		if !c.hasEntriesWithManagedKeys(raw, expectedKeys) {
 			missing = append(missing, event)
 		}
 	}
 	return missing
 }
 
-// hasEntryWithManagedKey reports whether the given hook-event entries
-// contain at least one command whose parsed Traceary managed key equals
-// expectedKey. Empty expectedKey always returns false so the caller cannot
-// accidentally match user-managed commands.
-func (c *RootCLI) hasEntryWithManagedKey(raw json.RawMessage, expectedKey string) bool {
-	if expectedKey == "" {
+// hasEntriesWithManagedKeys reports whether the given hook-event entries
+// contain commands for every expected Traceary managed key. Empty key sets
+// always return false so the caller cannot accidentally match user-managed
+// commands.
+func (c *RootCLI) hasEntriesWithManagedKeys(raw json.RawMessage, expectedKeys []string) bool {
+	if len(expectedKeys) == 0 {
 		return false
 	}
 	if c.hooksInspector == nil {
@@ -828,6 +828,13 @@ func (c *RootCLI) hasEntryWithManagedKey(raw json.RawMessage, expectedKey string
 	if err := json.Unmarshal(raw, &entries); err != nil {
 		return false
 	}
+	remaining := make(map[string]struct{}, len(expectedKeys))
+	for _, expectedKey := range expectedKeys {
+		if expectedKey == "" {
+			return false
+		}
+		remaining[expectedKey] = struct{}{}
+	}
 	for _, entry := range entries {
 		for _, h := range entry.Hooks {
 			if h.Type != "command" {
@@ -836,12 +843,10 @@ func (c *RootCLI) hasEntryWithManagedKey(raw json.RawMessage, expectedKey string
 			// Use the Name-aware extractor so entries installed via
 			// `--traceary-bin <non-traceary-basename>` (dev builds)
 			// are still recognized through the `traceary-*` Name.
-			if c.hooksInspector.ExtractManagedKeyFromEntry(h.Name, h.Command) == expectedKey {
-				return true
-			}
+			delete(remaining, c.hooksInspector.ExtractManagedKeyFromEntry(h.Name, h.Command))
 		}
 	}
-	return false
+	return len(remaining) == 0
 }
 
 func inspectDoctorPluginPackage(projectDir string) doctorCheck {
