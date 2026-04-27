@@ -233,6 +233,8 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 	report := apptypes.MemoryExtractionDebugReport{SessionID: session.SessionID(), Workspace: session.Workspace()}
 	candidates := make([]candidateDecision, 0)
 	bestCandidateByKey := make(map[string]int)
+	seenKeys := make(map[string]struct{})
+	orderedKeys := make([]string, 0)
 	for _, signal := range signals {
 		evidenceRefs, err := buildSignalEvidenceRefs(session.SessionID(), signal.event)
 		if err != nil {
@@ -263,6 +265,10 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 			segmentIndex := len(report.Segments)
 			report.Segments = append(report.Segments, decision)
 			key := memoryCandidateKey(scope, spec.memoryType, sanitizeCandidateFact(spec.fact, extraRedactors))
+			if _, exists := seenKeys[key]; !exists {
+				seenKeys[key] = struct{}{}
+				orderedKeys = append(orderedKeys, key)
+			}
 			candidateIndex := len(candidates)
 			candidates = append(candidates, candidateDecision{segmentIndex: segmentIndex, key: key, score: spec.signalScore})
 			bestIndex, exists := bestCandidateByKey[key]
@@ -272,7 +278,24 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 		}
 	}
 
+	selectedKeys := make(map[string]struct{})
+	limitSkippedKeys := make(map[string]struct{})
 	emittedCandidates := 0
+	for _, key := range orderedKeys {
+		if _, exists := existingKeys[key]; exists {
+			continue
+		}
+		if _, exists := bestCandidateByKey[key]; !exists {
+			continue
+		}
+		if emittedCandidates >= criteria.CandidateLimit() {
+			limitSkippedKeys[key] = struct{}{}
+			continue
+		}
+		selectedKeys[key] = struct{}{}
+		emittedCandidates++
+	}
+
 	for index, candidate := range candidates {
 		decision := &report.Segments[candidate.segmentIndex]
 		if _, exists := existingKeys[candidate.key]; exists {
@@ -285,12 +308,16 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 			decision.Reason = "duplicate_in_run"
 			continue
 		}
-		if emittedCandidates >= criteria.CandidateLimit() {
+		if _, exists := limitSkippedKeys[candidate.key]; exists {
 			decision.Decision = "skipped"
 			decision.Reason = "candidate_limit"
 			continue
 		}
-		emittedCandidates++
+		if _, exists := selectedKeys[candidate.key]; !exists {
+			decision.Decision = "skipped"
+			decision.Reason = "candidate_limit"
+			continue
+		}
 		if candidate.score < extractionVisibleScoreThreshold {
 			decision.Decision = "hidden"
 			decision.Reason = "below_visible_threshold"

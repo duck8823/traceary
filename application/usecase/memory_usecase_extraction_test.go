@@ -1056,3 +1056,35 @@ func TestMemoryUsecase_ExplainExtraction_RespectsCandidateLimit(t *testing.T) {
 		t.Fatalf("second decision = %s/%s, want skipped/candidate_limit", report.Segments[1].Decision, report.Segments[1].Reason)
 	}
 }
+
+func TestMemoryUsecase_ExplainExtraction_AppliesCandidateLimitInExtractionKeyOrder(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-limit-key-order"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"codex"}, "", "", domtypes.SessionID(""))
+	promptEvent := mustExtractionEvent(t, "event-debug-limit-key-order", domtypes.EventKindPrompt, strings.Join([]string{
+		"must fix",
+		"Remember: Check release workflow before announcing completion.",
+		"Constraint: must fix",
+	}, "\n"))
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindPrompt: {promptEvent}}}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	report, err := sut.ExplainExtraction(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-debug-limit-key-order")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(1).Build())
+	if err != nil {
+		t.Fatalf("ExplainExtraction() error = %v", err)
+	}
+	if len(report.Segments) != 3 {
+		t.Fatalf("segments = %d, want 3", len(report.Segments))
+	}
+	if report.Segments[0].Decision != "skipped" || report.Segments[0].Reason != "duplicate_in_run" {
+		t.Fatalf("first decision = %s/%s, want skipped/duplicate_in_run", report.Segments[0].Decision, report.Segments[0].Reason)
+	}
+	if report.Segments[1].Decision != "skipped" || report.Segments[1].Reason != "candidate_limit" {
+		t.Fatalf("second decision = %s/%s, want skipped/candidate_limit", report.Segments[1].Decision, report.Segments[1].Reason)
+	}
+	if report.Segments[2].Decision != "proposed" {
+		t.Fatalf("third decision = %s, want proposed", report.Segments[2].Decision)
+	}
+}
