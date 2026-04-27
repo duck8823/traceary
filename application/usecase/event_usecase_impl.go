@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -166,7 +167,7 @@ func (u *eventUsecase) Audit(ctx context.Context, command string, input string, 
 		agent,
 		sessionID,
 		workspace,
-		commandAudit.Command(),
+		commandAuditEventBody(commandAudit),
 	)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("failed to build audit event: %w", err)
@@ -178,6 +179,45 @@ func (u *eventUsecase) Audit(ctx context.Context, command string, input string, 
 	}
 
 	return event, commandAudit, nil
+}
+
+func commandAuditEventBody(commandAudit *model.CommandAudit) string {
+	if commandAudit == nil {
+		return ""
+	}
+
+	var builder strings.Builder
+	builder.WriteString(commandAudit.Command())
+
+	exitCode, hasExitCode := commandAudit.ExitCode().Value()
+	if hasExitCode || commandAudit.Input() != "" || commandAudit.Output() != "" || commandAudit.InputTruncated() || commandAudit.OutputTruncated() {
+		builder.WriteString("\n")
+	}
+	if hasExitCode {
+		builder.WriteString("\nEXIT_CODE: ")
+		builder.WriteString(strconv.Itoa(exitCode))
+		builder.WriteString("\n")
+	}
+	if commandAudit.Input() != "" || commandAudit.InputTruncated() {
+		builder.WriteString("\nINPUT")
+		if commandAudit.InputTruncated() {
+			builder.WriteString(" (truncated)")
+		}
+		builder.WriteString(":\n")
+		builder.WriteString(commandAudit.Input())
+		builder.WriteString("\n")
+	}
+	if commandAudit.Output() != "" || commandAudit.OutputTruncated() {
+		builder.WriteString("\nOUTPUT")
+		if commandAudit.OutputTruncated() {
+			builder.WriteString(" (truncated)")
+		}
+		builder.WriteString(":\n")
+		builder.WriteString(commandAudit.Output())
+		builder.WriteString("\n")
+	}
+
+	return strings.TrimRight(builder.String(), "\n")
 }
 
 func (u *eventUsecase) Search(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error) {

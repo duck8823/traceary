@@ -246,6 +246,9 @@ func relevantMemoryScopes(session apptypes.SessionSummary) []domtypes.MemoryScop
 }
 
 func summarizeCommand(command string) string {
+	if beforeDetails, _, found := strings.Cut(strings.TrimSpace(command), "\n\n"); found {
+		command = beforeDetails
+	}
 	trimmed := strings.Join(strings.Fields(command), " ")
 	if trimmed == "" {
 		return "-"

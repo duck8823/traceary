@@ -69,7 +69,8 @@ func TestEventUsecase_Audit(t *testing.T) {
 		if diff := cmp.Diff("command_executed", event.Kind().String()); diff != "" {
 			t.Fatalf("Kind() mismatch (-want +got):\n%s", diff)
 		}
-		if diff := cmp.Diff("go test ./...", event.Body()); diff != "" {
+		wantBody := "go test ./...\n\nINPUT:\nstdin\n\nOUTPUT:\nstdout"
+		if diff := cmp.Diff(wantBody, event.Body()); diff != "" {
 			t.Fatalf("Body() mismatch (-want +got):\n%s", diff)
 		}
 	})
