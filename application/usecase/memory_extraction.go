@@ -20,6 +20,8 @@ import (
 var (
 	explicitMemoryLabelPattern         = regexp.MustCompile(`(?i)^(?:[-*]\s+|\d+\.\s+)?(?:(?:user\s+)?(preference|decision|constraint|lesson|artifact|feedback|correction))s?\s*[:\-]\s*(.+)$`)
 	explicitJapaneseMemoryLabelPattern = regexp.MustCompile(`^(?:[-*]\s+|\d+\.\s+)?(好み|設定|要望|決定|判断|制約|教訓|学び|成果物|資料|修正|フィードバック)\s*[:：\-ー]\s*(.+)$`)
+	explicitRememberLabelPattern       = regexp.MustCompile(`(?i)^(?:[-*]\s+|\d+\.\s+)?(?:durable\s+memory|memory|remember(?:\s+this)?|keep\s+this\s+in\s+memory)\s*[:\-]\s*(.+)$`)
+	explicitJapaneseRememberPattern    = regexp.MustCompile(`^(?:[-*]\s+|\d+\.\s+)?(?:覚えておいて|覚えておく|記憶|メモリ|メモリー)\s*[:：\-ー]\s*(.+)$`)
 	urlRefPattern                      = regexp.MustCompile(`https?://[^\s)]+`)
 	issueRefPattern                    = regexp.MustCompile(`(?i)\bissues?\s*#(\d+)\b`)
 	prRefPattern                       = regexp.MustCompile(`(?i)\b(?:pr|pull request)\s*#(\d+)\b`)
@@ -181,6 +183,89 @@ func (u *memoryExtractionUsecase) Extract(ctx context.Context, criteria apptypes
 	return results, nil
 }
 
+func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes.MemoryExtractionCriteria) (apptypes.MemoryExtractionDebugReport, error) {
+	if u.sessionQuery == nil {
+		return apptypes.MemoryExtractionDebugReport{}, xerrors.Errorf("session query service is not configured")
+	}
+	if u.eventQuery == nil {
+		return apptypes.MemoryExtractionDebugReport{}, xerrors.Errorf("event query service is not configured")
+	}
+	if u.memory == nil {
+		return apptypes.MemoryExtractionDebugReport{}, xerrors.Errorf("memory usecase is not configured")
+	}
+	if criteria.SessionID().String() == "" {
+		return apptypes.MemoryExtractionDebugReport{}, xerrors.Errorf("session ID must not be empty")
+	}
+	if criteria.EventLimit() < 0 {
+		return apptypes.MemoryExtractionDebugReport{}, xerrors.Errorf("event limit must be greater than or equal to 0")
+	}
+
+	session, ok, err := u.findTargetSession(ctx, criteria)
+	if err != nil {
+		return apptypes.MemoryExtractionDebugReport{}, err
+	}
+	if !ok {
+		return apptypes.MemoryExtractionDebugReport{}, nil
+	}
+	scope := extractedMemoryScope(session)
+	extraRedactors, err := redaction.CompileExtraPatterns(u.extraRedactPatterns)
+	if err != nil {
+		return apptypes.MemoryExtractionDebugReport{}, xerrors.Errorf("failed to compile extraction redaction patterns: %w", err)
+	}
+	existingKeys, err := u.loadExistingCandidateKeys(ctx, scope, extraRedactors)
+	if err != nil {
+		return apptypes.MemoryExtractionDebugReport{}, err
+	}
+	signals, err := u.collectExtractionSignals(ctx, session, criteria.EventLimit())
+	if err != nil {
+		return apptypes.MemoryExtractionDebugReport{}, err
+	}
+
+	report := apptypes.MemoryExtractionDebugReport{SessionID: session.SessionID(), Workspace: session.Workspace()}
+	for _, signal := range signals {
+		evidenceRefs, err := buildSignalEvidenceRefs(session.SessionID(), signal.event)
+		if err != nil {
+			return apptypes.MemoryExtractionDebugReport{}, err
+		}
+		for _, segment := range candidateSegments(signal.text) {
+			decision := apptypes.MemoryExtractionSegmentDecision{
+				Text:         segment,
+				Client:       signal.client,
+				EventKind:    signal.kind,
+				SourceHook:   signal.sourceHook,
+				EvidenceRefs: slices.Clone(evidenceRefs),
+			}
+			spec, ok, err := extractBestMemoryCandidateFromSegment(signal, segment, evidenceRefs)
+			if err != nil {
+				return apptypes.MemoryExtractionDebugReport{}, err
+			}
+			if !ok {
+				decision.Decision = "ignored"
+				decision.Reason = "no_memory_intent"
+				report.Segments = append(report.Segments, decision)
+				continue
+			}
+			decision.MemoryType = spec.memoryType
+			decision.Features = spec.intent.featureNames()
+			decision.Score = spec.signalScore
+			decision.ArtifactRefs = slices.Clone(spec.artifactRefs)
+			key := memoryCandidateKey(scope, spec.memoryType, sanitizeCandidateFact(spec.fact, extraRedactors))
+			if _, exists := existingKeys[key]; exists {
+				decision.Decision = "skipped"
+				decision.Reason = "duplicate"
+			} else if spec.signalScore < extractionVisibleScoreThreshold {
+				decision.Decision = "hidden"
+				decision.Reason = "below_visible_threshold"
+			} else {
+				decision.Decision = "proposed"
+				decision.Reason = "visible_candidate"
+			}
+			report.Segments = append(report.Segments, decision)
+		}
+	}
+	return report, nil
+}
+
 // extractionQualityMinRunesLatin contributes to the signal-quality score for
 // Latin-script candidates. Length alone no longer decides visibility (#835);
 // it is just one weak signal combined with labels, evidence, and artifacts.
@@ -199,6 +284,23 @@ func memoryExtractionSignalScore(spec memoryCandidateSpec) int {
 	}
 
 	score := 0
+	trimmed := strings.TrimSpace(spec.fact)
+	runes := []rune(trimmed)
+	threshold := extractionQualityMinRunesLatin
+	if containsCJK(runes) {
+		threshold = extractionQualityMinRunesCJK
+	}
+	hasSufficientLength := len(runes) >= threshold
+
+	if spec.intent.explicitRemember {
+		score += 5
+	}
+	if spec.intent.futureApplicability {
+		score += 2
+	}
+	if (spec.intent.userPreference || spec.intent.userCorrection || spec.intent.operationalConstraint || spec.intent.recurringWorkflow) && (spec.intent.explicitRemember || hasSufficientLength) {
+		score += 2
+	}
 	if spec.structured {
 		score += 3
 	}
@@ -209,13 +311,7 @@ func memoryExtractionSignalScore(spec memoryCandidateSpec) int {
 		score++
 	}
 
-	trimmed := strings.TrimSpace(spec.fact)
-	runes := []rune(trimmed)
-	threshold := extractionQualityMinRunesLatin
-	if containsCJK(runes) {
-		threshold = extractionQualityMinRunesCJK
-	}
-	if len(runes) >= threshold {
+	if hasSufficientLength {
 		score++
 	}
 	if len(runes) >= threshold*2 {
@@ -226,6 +322,70 @@ func memoryExtractionSignalScore(spec memoryCandidateSpec) int {
 	}
 
 	return score
+}
+
+type memoryIntentFeatures struct {
+	explicitRemember      bool
+	futureApplicability   bool
+	userPreference        bool
+	userCorrection        bool
+	operationalConstraint bool
+	recurringWorkflow     bool
+}
+
+func classifyMemoryIntent(value string) memoryIntentFeatures {
+	lower := strings.ToLower(strings.TrimSpace(value))
+	features := memoryIntentFeatures{}
+	if explicitRememberLabelPattern.MatchString(value) || explicitJapaneseRememberPattern.MatchString(value) || containsAny(lower,
+		"remember this",
+		"remember to",
+		"keep this in memory",
+		"durable memory",
+		"覚えておいて",
+		"覚えておく",
+		"記憶して",
+	) {
+		features.explicitRemember = true
+	}
+	if containsAny(lower, "next time", "from now on", "going forward", "future", "今後", "以後", "次回", "次から", "これから") {
+		features.futureApplicability = true
+	}
+	if containsAny(lower, "prefer ", "preference", "please ", "respond in", "use english", "use japanese", "好み", "設定", "要望", "してほしい") {
+		features.userPreference = true
+	}
+	if containsAny(lower, "correction", "instead of", "rather than", "not ", "違う", "ではなく", "修正", "訂正") {
+		features.userCorrection = true
+	}
+	if containsAny(lower, "must ", "must not", "never ", "always ", "required", "forbidden", "only ", "cannot ", "can't ", "必須", "必要", "禁止", "不可", "常に", "必ず") {
+		features.operationalConstraint = true
+	}
+	if containsAny(lower, "review", "merge", "release", "issue", "pr ", "pull request", "poll", "polling", "dogfood", "workflow", "レビュー", "マージ", "リリース", "ポーリング", "起票") {
+		features.recurringWorkflow = true
+	}
+	return features
+}
+
+func (f memoryIntentFeatures) featureNames() []string {
+	names := make([]string, 0, 6)
+	if f.explicitRemember {
+		names = append(names, "explicit_remember")
+	}
+	if f.futureApplicability {
+		names = append(names, "future_applicability")
+	}
+	if f.userPreference {
+		names = append(names, "user_preference")
+	}
+	if f.userCorrection {
+		names = append(names, "user_correction")
+	}
+	if f.operationalConstraint {
+		names = append(names, "operational_constraint")
+	}
+	if f.recurringWorkflow {
+		names = append(names, "recurring_workflow")
+	}
+	return names
 }
 
 func hasDurableSignalMarker(value string) bool {
@@ -244,6 +404,9 @@ func hasDurableSignalMarker(value string) bool {
 		"always ",
 		"next time",
 		"remember to",
+		"remember this",
+		"durable memory",
+		"keep this in memory",
 		"決定",
 		"判断",
 		"制約",
@@ -254,6 +417,11 @@ func hasDurableSignalMarker(value string) bool {
 		"次回",
 		"再起動",
 		"確認済み",
+		"覚えておいて",
+		"覚えておく",
+		"記憶",
+		"今後",
+		"以後",
 	)
 }
 
@@ -352,15 +520,41 @@ type extractionSignal struct {
 	event           *model.Event
 	heuristics      bool
 	allowStructured bool
+	client          domtypes.Client
+	kind            domtypes.EventKind
+	sourceHook      string
 }
 
 func (u *memoryExtractionUsecase) collectCandidateSpecs(ctx context.Context, session apptypes.SessionSummary, eventLimit int) ([]memoryCandidateSpec, error) {
-	signals := make([]extractionSignal, 0, 1+4*max(eventLimit, 1))
+	signals, err := u.collectExtractionSignals(ctx, session, eventLimit)
+	if err != nil {
+		return nil, err
+	}
+
+	specs := make([]memoryCandidateSpec, 0, len(signals))
+	for _, signal := range signals {
+		evidenceRefs, err := buildSignalEvidenceRefs(session.SessionID(), signal.event)
+		if err != nil {
+			return nil, err
+		}
+		signalSpecs, err := extractMemoryCandidatesFromSignal(signal, evidenceRefs)
+		if err != nil {
+			return nil, err
+		}
+		specs = append(specs, signalSpecs...)
+	}
+
+	return specs, nil
+}
+
+func (u *memoryExtractionUsecase) collectExtractionSignals(ctx context.Context, session apptypes.SessionSummary, eventLimit int) ([]extractionSignal, error) {
+	signals := make([]extractionSignal, 0, 1+5*max(eventLimit, 1))
 	if summary := strings.TrimSpace(session.Summary()); summary != "" {
 		signals = append(signals, extractionSignal{
 			text:            summary,
 			heuristics:      true,
 			allowStructured: true,
+			kind:            domtypes.EventKind("session_summary"),
 		})
 	}
 
@@ -391,6 +585,9 @@ func (u *memoryExtractionUsecase) collectCandidateSpecs(ctx context.Context, ses
 				event:           event,
 				heuristics:      heuristics,
 				allowStructured: allowStructured,
+				client:          event.Client(),
+				kind:            event.Kind(),
+				sourceHook:      event.SourceHook(),
 			})
 		}
 		return nil
@@ -412,20 +609,7 @@ func (u *memoryExtractionUsecase) collectCandidateSpecs(ctx context.Context, ses
 		return nil, err
 	}
 
-	specs := make([]memoryCandidateSpec, 0, len(signals))
-	for _, signal := range signals {
-		evidenceRefs, err := buildSignalEvidenceRefs(session.SessionID(), signal.event)
-		if err != nil {
-			return nil, err
-		}
-		signalSpecs, err := extractMemoryCandidatesFromSignal(signal, evidenceRefs)
-		if err != nil {
-			return nil, err
-		}
-		specs = append(specs, signalSpecs...)
-	}
-
-	return specs, nil
+	return signals, nil
 }
 
 type memoryCandidateSpec struct {
@@ -434,6 +618,7 @@ type memoryCandidateSpec struct {
 	evidenceRefs []domtypes.EvidenceRef
 	artifactRefs []domtypes.ArtifactRef
 	structured   bool
+	intent       memoryIntentFeatures
 	signalScore  int
 }
 
@@ -441,61 +626,111 @@ func extractMemoryCandidatesFromSignal(signal extractionSignal, evidenceRefs []d
 	segments := candidateSegments(signal.text)
 	specs := make([]memoryCandidateSpec, 0, len(segments))
 	for _, segment := range segments {
-		if signal.allowStructured {
-			spec, ok, err := structuredCandidateSpec(segment, evidenceRefs)
-			if err != nil {
-				return nil, err
-			}
-			if ok {
-				specs = append(specs, spec)
-				continue
-			}
+		spec, ok, err := extractBestMemoryCandidateFromSegment(signal, segment, evidenceRefs)
+		if err != nil {
+			return nil, err
 		}
-
-		if signal.heuristics {
-			spec, ok, err := heuristicCandidateSpec(segment, evidenceRefs)
-			if err != nil {
-				return nil, err
-			}
-			if ok {
-				specs = append(specs, spec)
-			}
+		if ok {
+			specs = append(specs, spec)
 		}
 	}
 	return specs, nil
 }
 
-func structuredCandidateSpec(segment string, evidenceRefs []domtypes.EvidenceRef) (memoryCandidateSpec, bool, error) {
-	matches := explicitMemoryLabelPattern.FindStringSubmatch(segment)
-	if len(matches) != 3 {
-		matches = explicitJapaneseMemoryLabelPattern.FindStringSubmatch(segment)
-		if len(matches) != 3 {
-			return memoryCandidateSpec{}, false, nil
+func extractBestMemoryCandidateFromSegment(signal extractionSignal, segment string, evidenceRefs []domtypes.EvidenceRef) (memoryCandidateSpec, bool, error) {
+	if signal.allowStructured {
+		spec, ok, err := structuredCandidateSpec(segment, evidenceRefs)
+		if err != nil {
+			return memoryCandidateSpec{}, false, err
+		}
+		if ok {
+			return spec, true, nil
 		}
 	}
 
-	memoryType, err := memoryTypeFromLabel(matches[1])
-	if err != nil {
-		return memoryCandidateSpec{}, false, err
+	if signal.heuristics {
+		spec, ok, err := heuristicCandidateSpec(segment, evidenceRefs)
+		if err != nil {
+			return memoryCandidateSpec{}, false, err
+		}
+		if ok {
+			return spec, true, nil
+		}
 	}
-	fact := normalizeCandidateFact(matches[2])
+	return memoryCandidateSpec{}, false, nil
+}
+
+func structuredCandidateSpec(segment string, evidenceRefs []domtypes.EvidenceRef) (memoryCandidateSpec, bool, error) {
+	matches := explicitMemoryLabelPattern.FindStringSubmatch(segment)
+	if len(matches) == 3 {
+		memoryType, err := memoryTypeFromLabel(matches[1])
+		if err != nil {
+			return memoryCandidateSpec{}, false, err
+		}
+		return buildMemoryCandidateSpec(memoryType, normalizeCandidateFact(matches[2]), evidenceRefs, true)
+	}
+	matches = explicitJapaneseMemoryLabelPattern.FindStringSubmatch(segment)
+	if len(matches) == 3 {
+		memoryType, err := memoryTypeFromLabel(matches[1])
+		if err != nil {
+			return memoryCandidateSpec{}, false, err
+		}
+		return buildMemoryCandidateSpec(memoryType, normalizeCandidateFact(matches[2]), evidenceRefs, true)
+	}
+
+	fact, ok := stripExplicitRememberLabel(segment)
+	if !ok {
+		return memoryCandidateSpec{}, false, nil
+	}
+	spec, ok, err := buildMemoryCandidateSpec(inferMemoryTypeForExplicitIntent(fact), fact, evidenceRefs, true)
+	if !ok || err != nil {
+		return spec, ok, err
+	}
+	spec.intent.explicitRemember = true
+	spec.signalScore = memoryExtractionSignalScore(spec)
+	return spec, true, nil
+}
+
+func buildMemoryCandidateSpec(memoryType domtypes.MemoryType, fact string, evidenceRefs []domtypes.EvidenceRef, structured bool) (memoryCandidateSpec, bool, error) {
+	fact = normalizeCandidateFact(fact)
 	if fact == "" {
 		return memoryCandidateSpec{}, false, nil
 	}
-
 	artifactRefs, err := inferArtifactRefs(fact)
 	if err != nil {
 		return memoryCandidateSpec{}, false, err
 	}
+	intent := classifyMemoryIntent(fact)
 	spec := memoryCandidateSpec{
 		memoryType:   memoryType,
 		fact:         fact,
 		evidenceRefs: slices.Clone(evidenceRefs),
 		artifactRefs: artifactRefs,
-		structured:   true,
+		structured:   structured,
+		intent:       intent,
 	}
 	spec.signalScore = memoryExtractionSignalScore(spec)
 	return spec, true, nil
+}
+
+func stripExplicitRememberLabel(segment string) (string, bool) {
+	if matches := explicitRememberLabelPattern.FindStringSubmatch(segment); len(matches) == 2 {
+		return normalizeCandidateFact(matches[1]), true
+	}
+	if matches := explicitJapaneseRememberPattern.FindStringSubmatch(segment); len(matches) == 2 {
+		return normalizeCandidateFact(matches[1]), true
+	}
+	return "", false
+}
+
+func inferMemoryTypeForExplicitIntent(fact string) domtypes.MemoryType {
+	if memoryType, ok := inferMemoryTypeFromText(fact); ok {
+		return memoryType
+	}
+	if refs, err := inferArtifactRefs(fact); err == nil && len(refs) > 0 {
+		return domtypes.MemoryTypeArtifact
+	}
+	return domtypes.MemoryTypeLesson
 }
 
 func heuristicCandidateSpec(segment string, evidenceRefs []domtypes.EvidenceRef) (memoryCandidateSpec, bool, error) {
@@ -504,21 +739,21 @@ func heuristicCandidateSpec(segment string, evidenceRefs []domtypes.EvidenceRef)
 		return memoryCandidateSpec{}, false, nil
 	}
 
+	intent := classifyMemoryIntent(fact)
 	memoryType, ok := inferMemoryTypeFromText(fact)
+	if !ok && intent.explicitRemember {
+		memoryType = inferMemoryTypeForExplicitIntent(fact)
+		ok = true
+	}
 	if !ok {
 		return memoryCandidateSpec{}, false, nil
 	}
 
-	artifactRefs, err := inferArtifactRefs(fact)
-	if err != nil {
-		return memoryCandidateSpec{}, false, err
+	spec, ok, err := buildMemoryCandidateSpec(memoryType, fact, evidenceRefs, false)
+	if !ok || err != nil {
+		return spec, ok, err
 	}
-	spec := memoryCandidateSpec{
-		memoryType:   memoryType,
-		fact:         fact,
-		evidenceRefs: slices.Clone(evidenceRefs),
-		artifactRefs: artifactRefs,
-	}
+	spec.intent = intent
 	spec.signalScore = memoryExtractionSignalScore(spec)
 	return spec, true, nil
 }
@@ -641,6 +876,9 @@ func inferMemoryTypeFromText(text string) (domtypes.MemoryType, bool) {
 		"learned ",
 		"next time",
 		"remember to",
+		"remember this",
+		"durable memory",
+		"keep this in memory",
 		"mistake",
 		"教訓",
 		"学び",
@@ -649,6 +887,11 @@ func inferMemoryTypeFromText(text string) (domtypes.MemoryType, bool) {
 		"restart",
 		"解消",
 		"確認済み",
+		"覚えておいて",
+		"覚えておく",
+		"記憶",
+		"今後",
+		"以後",
 		"誤り",
 	):
 		return domtypes.MemoryTypeLesson, true

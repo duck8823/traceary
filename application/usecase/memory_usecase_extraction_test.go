@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -853,4 +854,111 @@ func mustMemoryDetailsFromSummary(t *testing.T, memoryID string, memoryType domt
 		t.Fatalf("MemorySummaryOf() error = %v", err)
 	}
 	return apptypes.MemoryDetailsOf(summary, []domtypes.EvidenceRef{mustEvidenceRef(t, domtypes.EvidenceRefKindSession, "session-1")}, nil)
+}
+
+func TestMemoryUsecase_Extract_ExplicitDurableMemoryIntentFromCompactSummary(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(
+		domtypes.SessionID("session-durable-intent"),
+		domtypes.Workspace("github.com/duck8823/traceary"),
+		time.Now().Add(-time.Hour),
+		domtypes.None[time.Time](),
+		"ended",
+		3,
+		0,
+		[]string{"codex"},
+		"",
+		"",
+		domtypes.SessionID(""),
+	)
+	compactEvent := mustExtractionEvent(t,
+		"event-durable-intent",
+		domtypes.EventKindCompactSummary,
+		"Durable Memory: When dogfooding v0.11.1, verify command audit show/context include INPUT and OUTPUT fields before closing the validation session. Evidence: dogfood session session-1.",
+	)
+	details := mustMemoryDetailsFromSummary(t, "memory-durable-intent", domtypes.MemoryTypeLesson, "When dogfooding v0.11.1, verify command audit show/context include INPUT and OUTPUT fields before closing the validation session. Evidence: dogfood session session-1.")
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{proposeResult: []apptypes.MemoryDetails{details}}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindCompactSummary: {compactEvent}}}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	got, err := sut.Extract(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-durable-intent")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(10).Build())
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(Extract()) = %d, want 1", len(got))
+	}
+	call := memoryUsecase.proposeCalls[0]
+	if call.memoryType != domtypes.MemoryTypeLesson {
+		t.Fatalf("memoryType = %q, want lesson fallback", call.memoryType)
+	}
+	if call.source != domtypes.MemorySourceExtracted {
+		t.Fatalf("source = %q, want visible extracted", call.source)
+	}
+	if strings.HasPrefix(call.fact, "Durable Memory:") {
+		t.Fatalf("fact kept explicit label: %q", call.fact)
+	}
+}
+
+func TestMemoryUsecase_Extract_JapaneseExplicitMemoryIntent(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-ja-intent"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 2, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	promptEvent := mustExtractionEvent(t, "event-ja-intent", domtypes.EventKindPrompt, "覚えておいて: Codex review は数分かかることがあるので、PR review/check 状態をポーリングして待つ。")
+	details := mustMemoryDetailsFromSummary(t, "memory-ja-intent", domtypes.MemoryTypeLesson, "Codex review は数分かかることがあるので、PR review/check 状態をポーリングして待つ。")
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{proposeResult: []apptypes.MemoryDetails{details}}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindPrompt: {promptEvent}}}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	_, err := sut.Extract(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-ja-intent")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(10).Build())
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(memoryUsecase.proposeCalls) != 1 {
+		t.Fatalf("proposeCalls = %d, want 1", len(memoryUsecase.proposeCalls))
+	}
+	if got := memoryUsecase.proposeCalls[0].source; got != domtypes.MemorySourceExtracted {
+		t.Fatalf("source = %q, want extracted", got)
+	}
+}
+
+func TestMemoryUsecase_ExplainExtraction_ReportsIgnoredAndProposedSegments(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 2, 0, []string{"codex"}, "", "", domtypes.SessionID(""))
+	promptEvent := mustExtractionEvent(t, "event-debug", domtypes.EventKindPrompt, strings.Join([]string{
+		"I ran the command and checked the output.",
+		"Remember: Poll Codex review status before assuming it timed out.",
+	}, "\n"))
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindPrompt: {promptEvent}}}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	report, err := sut.ExplainExtraction(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-debug")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(10).Build())
+	if err != nil {
+		t.Fatalf("ExplainExtraction() error = %v", err)
+	}
+	if len(report.Segments) != 2 {
+		t.Fatalf("segments = %d, want 2", len(report.Segments))
+	}
+	if report.Segments[0].Decision != "ignored" || report.Segments[0].Reason != "no_memory_intent" {
+		t.Fatalf("first segment decision = %s/%s, want ignored/no_memory_intent", report.Segments[0].Decision, report.Segments[0].Reason)
+	}
+	second := report.Segments[1]
+	if second.Decision != "proposed" {
+		t.Fatalf("second decision = %s, want proposed", second.Decision)
+	}
+	if second.MemoryType != domtypes.MemoryTypeLesson {
+		t.Fatalf("second memory type = %q, want lesson", second.MemoryType)
+	}
+	if !slices.Contains(second.Features, "explicit_remember") {
+		t.Fatalf("features = %v, want explicit_remember", second.Features)
+	}
+	if second.Score < 4 {
+		t.Fatalf("score = %d, want visible threshold", second.Score)
+	}
 }
