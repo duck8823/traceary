@@ -127,17 +127,29 @@ func (u *memoryExtractionUsecase) Extract(ctx context.Context, criteria apptypes
 		return nil, err
 	}
 
-	results := make([]apptypes.MemoryDetails, 0, min(criteria.CandidateLimit(), len(specs)))
-	seenKeys := make(map[string]struct{}, len(specs))
+	bestSpecs := make(map[string]memoryCandidateSpec, len(specs))
+	orderedKeys := make([]string, 0, len(specs))
 	for _, spec := range specs {
 		key := memoryCandidateKey(scope, spec.memoryType, sanitizeCandidateFact(spec.fact, extraRedactors))
-		if _, exists := seenKeys[key]; exists {
-			continue
-		}
 		if _, exists := existingKeys[key]; exists {
 			continue
 		}
+		current, exists := bestSpecs[key]
+		if exists && current.signalScore >= spec.signalScore {
+			continue
+		}
+		if !exists {
+			orderedKeys = append(orderedKeys, key)
+		}
+		bestSpecs[key] = spec
+	}
 
+	results := make([]apptypes.MemoryDetails, 0, min(criteria.CandidateLimit(), len(bestSpecs)))
+	for _, key := range orderedKeys {
+		spec, ok := bestSpecs[key]
+		if !ok {
+			continue
+		}
 		// Signal-quality classifier (#835): low-score candidates are
 		// still persisted for audit, but tagged with the extracted-hidden
 		// source so the default inbox view skips them. `memory inbox
@@ -161,7 +173,6 @@ func (u *memoryExtractionUsecase) Extract(ctx context.Context, criteria apptypes
 			return nil, xerrors.Errorf("failed to propose extracted memory candidate: %w", err)
 		}
 		results = append(results, details)
-		seenKeys[key] = struct{}{}
 		if len(results) >= criteria.CandidateLimit() {
 			break
 		}
