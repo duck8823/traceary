@@ -436,11 +436,13 @@ type memoryInboxBatchCommandInput struct {
 // usecase itself stays filesystem-free so tests can exercise the
 // rendering without touching the disk.
 type memoryExportCommandInput struct {
-	dbPath    string
-	target    string
-	workspace string
-	outPath   string
-	asJSON    bool
+	dbPath        string
+	target        string
+	workspace     string
+	outPath       string
+	includeGlobal bool
+	noGlobal      bool
+	asJSON        bool
 }
 
 // memoryImportInstructionsCommandInput is the resolved input to

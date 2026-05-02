@@ -67,8 +67,9 @@ func (u *memoryExportUsecase) Export(ctx context.Context, criteria apptypes.Memo
 
 	builder := apptypes.NewMemoryListCriteriaBuilder(maxMemoryBridgeRows).
 		Statuses([]domtypes.MemoryStatus{domtypes.MemoryStatusAccepted})
-	if len(criteria.Scopes) > 0 {
-		builder = builder.Scopes(criteria.Scopes)
+	exportScopes := memoryExportScopes(criteria.Scopes, criteria.IncludeGlobal)
+	if len(exportScopes) > 0 {
+		builder = builder.Scopes(exportScopes)
 	}
 	list := builder.Build()
 
@@ -80,10 +81,39 @@ func (u *memoryExportUsecase) Export(ctx context.Context, criteria apptypes.Memo
 	markdown := renderMemoryBridgeBlock(criteria.Target, summaries)
 	return apptypes.MemoryExportResult{
 		Target:        criteria.Target,
-		Scopes:        criteria.Scopes,
+		Scopes:        exportScopes,
 		Markdown:      markdown,
 		ExportedCount: len(summaries),
 	}, nil
+}
+
+func memoryExportScopes(scopes []domtypes.MemoryScope, includeGlobal bool) []domtypes.MemoryScope {
+	if len(scopes) == 0 {
+		return nil
+	}
+	result := append([]domtypes.MemoryScope(nil), scopes...)
+	if includeGlobal {
+		result = append(result, domtypes.GlobalScopeOf())
+	}
+	return dedupeMemoryScopes(result)
+}
+
+func dedupeMemoryScopes(scopes []domtypes.MemoryScope) []domtypes.MemoryScope {
+	seen := make(map[string]struct{}, len(scopes))
+	result := make([]domtypes.MemoryScope, 0, len(scopes))
+	for _, scope := range scopes {
+		if scope == nil {
+			result = append(result, scope)
+			continue
+		}
+		key := scope.Kind().String() + "\x00" + scope.Key()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, scope)
+	}
+	return result
 }
 
 // maxMemoryBridgeRows caps the single-shot export. Real operators run
@@ -96,17 +126,23 @@ const maxMemoryBridgeRows = 2000
 // inside the host instruction file. Sorting keeps the output
 // idempotent — summaries come back in updated_at order from the store,
 // which is not stable if two memories share the same timestamp, so the
-// function re-sorts by memory type + fact.
+// function re-sorts by scope + memory type + fact.
 func renderMemoryBridgeBlock(target apptypes.MemoryBridgeTarget, summaries []apptypes.MemorySummary) string {
 	sorted := append([]apptypes.MemorySummary(nil), summaries...)
 	sort.SliceStable(sorted, func(i, j int) bool {
+		leftScopeRank, rightScopeRank := memoryScopeRenderRank(sorted[i].Scope()), memoryScopeRenderRank(sorted[j].Scope())
+		if leftScopeRank != rightScopeRank {
+			return leftScopeRank < rightScopeRank
+		}
+		if memoryScopeLabel(sorted[i].Scope()) != memoryScopeLabel(sorted[j].Scope()) {
+			return memoryScopeLabel(sorted[i].Scope()) < memoryScopeLabel(sorted[j].Scope())
+		}
 		if sorted[i].MemoryType() != sorted[j].MemoryType() {
 			return sorted[i].MemoryType() < sorted[j].MemoryType()
 		}
 		return sorted[i].Fact() < sorted[j].Fact()
 	})
 
-	grouped := groupMemoriesByType(sorted)
 	typeOrder := []domtypes.MemoryType{
 		domtypes.MemoryTypePreference,
 		domtypes.MemoryTypeDecision,
@@ -124,22 +160,49 @@ func renderMemoryBridgeBlock(target apptypes.MemoryBridgeTarget, summaries []app
 	if len(sorted) == 0 {
 		body.WriteString("_No accepted durable memories matched the export scope._\n\n")
 	}
-	for _, memoryType := range typeOrder {
-		entries, ok := grouped[memoryType]
-		if !ok {
-			continue
+	for _, scopeGroup := range groupMemoriesByScope(sorted) {
+		fmt.Fprintf(&body, "## %s\n\n", titleForMemoryScope(scopeGroup.scope))
+		grouped := groupMemoriesByType(scopeGroup.summaries)
+		for _, memoryType := range typeOrder {
+			entries, ok := grouped[memoryType]
+			if !ok {
+				continue
+			}
+			fmt.Fprintf(&body, "### %s\n\n", titleForMemoryType(memoryType))
+			for _, summary := range entries {
+				body.WriteString("- ")
+				body.WriteString(escapeMarkdownBullet(summary.Fact()))
+				fmt.Fprintf(&body, " (memory_id: %s, scope: %s)\n", summary.MemoryID().String(), memoryScopeLabel(summary.Scope()))
+			}
+			body.WriteString("\n")
 		}
-		fmt.Fprintf(&body, "## %s\n\n", titleForMemoryType(memoryType))
-		for _, summary := range entries {
-			body.WriteString("- ")
-			body.WriteString(escapeMarkdownBullet(summary.Fact()))
-			fmt.Fprintf(&body, " (memory_id: %s, scope: %s)\n", summary.MemoryID().String(), memoryScopeLabel(summary.Scope()))
-		}
-		body.WriteString("\n")
 	}
 	body.WriteString(MemoryBridgeMarkerEnd)
 	body.WriteString("\n")
 	return body.String()
+}
+
+type memoryScopeGroup struct {
+	scope     domtypes.MemoryScope
+	summaries []apptypes.MemorySummary
+}
+
+func groupMemoriesByScope(summaries []apptypes.MemorySummary) []memoryScopeGroup {
+	groups := make([]memoryScopeGroup, 0)
+	for _, summary := range summaries {
+		if len(groups) == 0 || !sameMemoryScope(groups[len(groups)-1].scope, summary.Scope()) {
+			groups = append(groups, memoryScopeGroup{scope: summary.Scope()})
+		}
+		groups[len(groups)-1].summaries = append(groups[len(groups)-1].summaries, summary)
+	}
+	return groups
+}
+
+func sameMemoryScope(left, right domtypes.MemoryScope) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return left.Kind() == right.Kind() && left.Key() == right.Key()
 }
 
 func groupMemoriesByType(summaries []apptypes.MemorySummary) map[domtypes.MemoryType][]apptypes.MemorySummary {
@@ -167,11 +230,50 @@ func titleForMemoryType(memoryType domtypes.MemoryType) string {
 	}
 }
 
+func titleForMemoryScope(scope domtypes.MemoryScope) string {
+	if scope == nil {
+		return "Unknown-scope memories"
+	}
+	switch scope.Kind() {
+	case domtypes.MemoryScopeKindGlobal:
+		return "Global memories"
+	case domtypes.MemoryScopeKindWorkspace:
+		return fmt.Sprintf("Workspace memories: %s", scope.Key())
+	case domtypes.MemoryScopeKindSessionFamily:
+		return fmt.Sprintf("Session-family memories: %s", scope.Key())
+	case domtypes.MemoryScopeKindAgent:
+		return fmt.Sprintf("Agent memories: %s", scope.Key())
+	default:
+		return fmt.Sprintf("%s memories: %s", scope.Kind().String(), scope.Key())
+	}
+}
+
 func memoryScopeLabel(scope domtypes.MemoryScope) string {
 	if scope == nil {
 		return "?"
 	}
+	if scope.Kind() == domtypes.MemoryScopeKindGlobal {
+		return "global"
+	}
 	return fmt.Sprintf("%s=%s", scope.Kind().String(), scope.Key())
+}
+
+func memoryScopeRenderRank(scope domtypes.MemoryScope) int {
+	if scope == nil {
+		return 99
+	}
+	switch scope.Kind() {
+	case domtypes.MemoryScopeKindGlobal:
+		return 0
+	case domtypes.MemoryScopeKindWorkspace:
+		return 1
+	case domtypes.MemoryScopeKindSessionFamily:
+		return 2
+	case domtypes.MemoryScopeKindAgent:
+		return 3
+	default:
+		return 98
+	}
 }
 
 // escapeMarkdownBullet keeps multi-line facts readable inside a bullet by

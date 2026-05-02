@@ -197,6 +197,14 @@ instructions` run round-trips cleanly. Bullets added outside the managed
 block by the operator (or the host's own auto-memory feature) land in the
 inbox as candidates for review.
 
+Workspace exports include `global` memories by default so user-level
+operating rules (for example PR title or review policy) are available
+next to repository-specific memories in the generated host file. The
+markdown separates `Global memories`, `Workspace memories`, and other
+scope groups under distinct headings. Use `--no-global` (or
+`include_global=false` over MCP) to preserve the old workspace-only
+filter; use `--include-global` to make the default explicit.
+
 Import reads the local Codex handbook (`~/.codex/memories/MEMORY.md` by
 default) and records each bullet under `## User preferences`, `## Reusable
 knowledge`, and `## Failures and how to do differently` as a `candidate`

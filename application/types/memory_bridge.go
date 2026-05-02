@@ -26,11 +26,14 @@ const (
 func (t MemoryBridgeTarget) String() string { return string(t) }
 
 // MemoryExportCriteria is the input to the export usecase. An empty scope
-// means the caller accepted the default (workspace scope resolved from
-// the environment) and the usecase will apply the active-workspace rule.
+// exports every accepted memory. Callers that pass explicit workspace
+// scopes can set IncludeGlobal to add the global memory scope beside the
+// workspace filter.
 type MemoryExportCriteria struct {
 	Target MemoryBridgeTarget
 	Scopes []domtypes.MemoryScope
+	// IncludeGlobal adds the global scope when Scopes is non-empty.
+	IncludeGlobal bool
 }
 
 // MemoryExportResult carries the serialized markdown emitted by an export

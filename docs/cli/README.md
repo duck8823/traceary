@@ -344,7 +344,9 @@ Write the accepted durable memories for the current scope into a host-native ins
 Useful flags:
 
 - `--target` — one of `claude`, `codex`, `gemini`
-- `--workspace` — scope filter (defaults to env/detected workspace)
+- `--workspace` — workspace scope filter (defaults to env/detected workspace). Workspace exports include `global` memories by default so host-level rules follow the repository export.
+- `--include-global` — include `global` memories alongside the workspace scope (default `true`)
+- `--no-global` — opt out and export only the explicit workspace scope
 - `--out` — output path; pass `-` (or omit) to write to stdout
 - `--json` — print a summary of the export result in addition to writing the file
 

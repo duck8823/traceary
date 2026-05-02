@@ -166,6 +166,8 @@ Traceary をローカルの source of truth として保ちつつ、accepted な
 
 export 出力は常に `<!-- traceary-memories:begin:v1 -->` / `<!-- traceary-memories:end -->` マーカーで囲まれており、続けて `memory import instructions` を走らせても重複 candidate は作られません。operator やホストの auto-memory 機能が管理ブロック外に書き足した bullet は inbox に candidate として入り、レビュー対象になります。
 
+workspace export は user-level の運用ルール (PR title や review policy など) も host file に載るよう、既定で `global` memory を含めます。Markdown は `Global memories` / `Workspace memories` など scope ごとに見出しを分けます。従来の workspace-only filter を維持したい場合は `--no-global` (MCP では `include_global=false`) を使い、既定挙動を明示したい場合は `--include-global` を指定します。
+
 import は Codex の handbook（既定値は `~/.codex/memories/MEMORY.md`）を読み、`## User preferences` / `## Reusable knowledge` / `## Failures and how to do differently` 配下の各 bullet を `source=imported` + `status=candidate` として記録します。evidence / artifact ref には元ファイルと行範囲を付与し、sanitizer は全ての imported fact に適用されます。auto-accept はされず、再実行時の dedupe は rejected / superseded / expired を含む全状態を見るので、一度 operator が reject した memory が別 run で resurrect することはありません。
 
 ### 参照する経路

@@ -18,7 +18,7 @@ import (
 )
 
 func (c *RootCLI) newMemoryExportCommand() *cobra.Command {
-	input := memoryExportCommandInput{}
+	input := memoryExportCommandInput{includeGlobal: true}
 	cmd := &cobra.Command{
 		Use:   "export",
 		Short: Localize("Export accepted durable memories into a host instruction file", "accepted durable memory をホスト別 instruction file に書き出す"),
@@ -39,6 +39,14 @@ func (c *RootCLI) newMemoryExportCommand() *cobra.Command {
 	cmd.Flags().StringVar(&input.outPath, "out", "", Localize(
 		"output path for the generated instruction file (use - to write to stdout)",
 		"書き出し先ファイル (- を指定すると stdout へ出力)",
+	))
+	cmd.Flags().BoolVar(&input.includeGlobal, "include-global", true, Localize(
+		"include global memories alongside an explicit workspace export (default true)",
+		"明示した workspace export に global memory も含める (default true)",
+	))
+	cmd.Flags().BoolVar(&input.noGlobal, "no-global", false, Localize(
+		"export only the explicit workspace scope; do not include global memories",
+		"明示した workspace scope のみを書き出し、global memory は含めない",
 	))
 	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON summary", "JSON 形式で結果サマリを出力する"))
 	_ = cmd.MarkFlagRequired("target")
@@ -92,6 +100,7 @@ func (c *RootCLI) runMemoryExport(ctx context.Context, output io.Writer, warnWri
 	criteria := apptypes.MemoryExportCriteria{Target: target}
 	if scope != nil {
 		criteria.Scopes = []domtypes.MemoryScope{scope}
+		criteria.IncludeGlobal = input.includeGlobal && !input.noGlobal
 	}
 	result, err := c.memory.Export(ctx, criteria)
 	if err != nil {

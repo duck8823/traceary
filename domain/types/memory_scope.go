@@ -11,6 +11,8 @@ import (
 type MemoryScopeKind string
 
 const (
+	// MemoryScopeKindGlobal scopes memory to every workspace / host export.
+	MemoryScopeKindGlobal MemoryScopeKind = "global"
 	// MemoryScopeKindWorkspace scopes memory to a workspace.
 	MemoryScopeKindWorkspace MemoryScopeKind = "workspace"
 	// MemoryScopeKindAgent scopes memory to an agent.
@@ -20,6 +22,7 @@ const (
 )
 
 var knownMemoryScopeKinds = []MemoryScopeKind{
+	MemoryScopeKindGlobal,
 	MemoryScopeKindWorkspace,
 	MemoryScopeKindAgent,
 	MemoryScopeKindSessionFamily,
@@ -31,6 +34,24 @@ type MemoryScope interface {
 	Kind() MemoryScopeKind
 	Key() string
 }
+
+const globalMemoryScopeKey = "global"
+
+// GlobalScope constrains memory to every workspace / host export.
+type GlobalScope struct{}
+
+// GlobalScopeOf creates a GlobalScope.
+func GlobalScopeOf() GlobalScope {
+	return GlobalScope{}
+}
+
+func (GlobalScope) mustEmbedMemoryScope() {}
+
+// Kind returns the scope kind.
+func (GlobalScope) Kind() MemoryScopeKind { return MemoryScopeKindGlobal }
+
+// Key returns the flattened key representation.
+func (GlobalScope) Key() string { return globalMemoryScopeKey }
 
 // MemoryScopeKindFrom creates a MemoryScopeKind from a string.
 func MemoryScopeKindFrom(value string) (MemoryScopeKind, error) {
@@ -118,6 +139,11 @@ func MemoryScopeFrom(kind string, value string) (MemoryScope, error) {
 	}
 
 	switch resolvedKind {
+	case MemoryScopeKindGlobal:
+		if strings.TrimSpace(value) != globalMemoryScopeKey {
+			return nil, xerrors.Errorf("invalid global scope value: %s", value)
+		}
+		return GlobalScopeOf(), nil
 	case MemoryScopeKindWorkspace:
 		workspace, err := WorkspaceFrom(value)
 		if err != nil {

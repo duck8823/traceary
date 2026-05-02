@@ -344,7 +344,9 @@ accepted な durable memory をホスト別 instruction file (CLAUDE.md / AGENTS
 主な flag:
 
 - `--target` — `claude` / `codex` / `gemini` のいずれか
-- `--workspace` — 書き出し対象の workspace scope (未指定時は env/検出 workspace)
+- `--workspace` — 書き出し対象の workspace scope (未指定時は env/検出 workspace)。workspace export は host-level ルールも反映されるよう、既定で `global` memory も含めます。
+- `--include-global` — workspace scope と一緒に `global` memory を含める (default `true`)
+- `--no-global` — opt out して明示した workspace scope のみを書き出す
 - `--out` — 書き出し先パス。`-` (または未指定) で stdout へ
 - `--json` — 書き出しサマリを JSON で出力
 

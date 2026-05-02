@@ -275,7 +275,7 @@ func (s *Server) queryMemory() mcp.ToolHandlerFor[queryMemoryInput, any] {
 			if strings.TrimSpace(input.Target) == "" {
 				return nil, nil, xerrors.Errorf("query_memory action export requires target")
 			}
-			_, out, err := s.exportMemories()(ctx, req, exportMemoriesInput{Target: input.Target, Workspace: input.Workspace})
+			_, out, err := s.exportMemories()(ctx, req, exportMemoriesInput{Target: input.Target, Workspace: input.Workspace, IncludeGlobal: input.IncludeGlobal, NoGlobal: input.NoGlobal})
 			return nil, out, err
 		case "pack":
 			_, out, err := s.memoryPack()(ctx, req, memoryPackInput{SessionID: input.SessionID, Workspace: input.Workspace, RecentCommandsLimit: input.RecentCommandsLimit, MemoryLimit: input.MemoryLimit, Preset: input.Preset, AsOf: input.AsOf})
@@ -1012,6 +1012,7 @@ func (s *Server) exportMemories() mcp.ToolHandlerFor[exportMemoriesInput, export
 				return nil, exportMemoriesOutput{}, xerrors.Errorf("failed to resolve workspace: %w", err)
 			}
 			criteria.Scopes = []types.MemoryScope{types.WorkspaceScopeOf(resolvedWorkspace)}
+			criteria.IncludeGlobal = resolveMCPExportIncludeGlobal(input.IncludeGlobal, input.NoGlobal)
 		}
 		result, err := s.memory.Export(ctx, criteria)
 		if err != nil {
@@ -1023,6 +1024,16 @@ func (s *Server) exportMemories() mcp.ToolHandlerFor[exportMemoriesInput, export
 			Markdown:      result.Markdown,
 		}, nil
 	}
+}
+
+func resolveMCPExportIncludeGlobal(includeGlobal *bool, noGlobal bool) bool {
+	if noGlobal {
+		return false
+	}
+	if includeGlobal != nil {
+		return *includeGlobal
+	}
+	return true
 }
 
 // importMemoryInstructions mirrors the CLI `memory import instructions`
