@@ -8,6 +8,7 @@ This page is the detailed docs index for Traceary. Start here when the top-level
 
 - [Architecture principles](./architecture/README.md): layering rules, runtime boundaries, the role of `scripts/`, and the current `internal/` stance
 - [Optional API migration policy](./architecture/optional-api.md): current Optional[T] gap, target convention API, and staged rollout
+- [Host-native memory activation contract](./architecture/host-native-memory-activation.md): v0.13.0 Claude/Gemini activation target, import-stub, marker, and safety contract
 - [Durable memory guide](./memory/README.md): the three-layer model, memory lifecycle, refs, and how memory commands relate
 - [CLI reference](./cli/README.md): command-by-command behavior, flags, and output contracts
 - [Hook contract](./hooks/contract.md): automatic-capture coverage and shared hook semantics across hosts
