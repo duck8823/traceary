@@ -163,6 +163,32 @@ func TestMemoryInboxList_IncludeHiddenSkipsDefaultFilter(t *testing.T) {
 	}
 }
 
+// TestMemoryInboxList_RememberIntentPriorityFlagSetOnCriteria pins that the
+// inbox view enables the remember-intent priority flag at the query layer
+// so pagination is consistent with the displayed priority order. A
+// post-fetch in-memory sort would only re-order the current page and could
+// hide remember-intent rows past page boundaries.
+func TestMemoryInboxList_RememberIntentPriorityFlagSetOnCriteria(t *testing.T) {
+	t.Parallel()
+
+	memoryStub := &memoryUsecaseStub{}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"memory", "inbox", "list", "--db-path", t.TempDir() + "/t.db", "--limit", "5", "--offset", "10"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	if !memoryStub.listCriteria.RememberIntentPriority() {
+		t.Fatalf("inbox list must enable RememberIntentPriority on the criteria so ordering is applied before LIMIT/OFFSET")
+	}
+}
+
 func TestMemoryInboxAccept_BatchIDs(t *testing.T) {
 	t.Parallel()
 

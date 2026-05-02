@@ -21,6 +21,13 @@ const (
 	// default inbox view so reviewers do not get drowned by low-quality
 	// candidates.
 	MemorySourceExtractedHidden MemorySource = "extracted-hidden"
+	// MemorySourceRememberIntent indicates a candidate produced from an
+	// explicit user remember-intent prompt (e.g. "remember this:", "覚えて
+	// おいて") or from the immediately adjacent context of a short
+	// remember-intent confirmation. The candidate stays reviewable
+	// (status=candidate) and is prioritized above generic extracted
+	// candidates in the default inbox view.
+	MemorySourceRememberIntent MemorySource = "remember-intent"
 	// MemorySourceImported indicates a memory imported from another source.
 	MemorySourceImported MemorySource = "imported"
 )
@@ -29,6 +36,7 @@ var knownMemorySources = []MemorySource{
 	MemorySourceManual,
 	MemorySourceExtracted,
 	MemorySourceExtractedHidden,
+	MemorySourceRememberIntent,
 	MemorySourceImported,
 }
 
