@@ -111,7 +111,7 @@ external memory file:
 
 external memory block は既存の `memory export` renderer を再利用し、Codex / Claude / Gemini の projection を一貫させます。
 
-host context file に supported な Traceary import stub が既にある場合、Traceary はその region を in-place で置換します。managed import stub が無い場合は、既存 managed-block spacing rule に従って end-of-file に append します。つまり既存 bytes を保持し、stub を分離するために必要な newline を追加してから managed region を append します。frontmatter、heading、Gemini の `## Gemini Added Memories` section より前へ挿入することはしません。user-authored markdown structure の解釈が必要になるためです。file に、Traceary-managed stub 外で expected `.traceary/memories/<host>.md` file を指す unmanaged import line が既にある場合、status は `invalid` とし、apply は duplicate import を追加せず拒否します。operator がその unmanaged line を削除するか、将来の明示 adopt workflow を使うまで進めません。
+host context file に supported な Traceary import stub が既にある場合、Traceary はその region を in-place で置換します。managed import stub が無い場合は、既存 managed-block spacing rule に従って end-of-file に append します。つまり既存 bytes を保持し、stub の前に空行が 1 つ残るように必要な newline を追加してから managed region を append します。frontmatter、heading、Gemini の `## Gemini Added Memories` section より前へ挿入することはしません。user-authored markdown structure の解釈が必要になるためです。file に、Traceary-managed stub 外で expected `.traceary/memories/<host>.md` file を指す unmanaged import line が既にある場合、status は `invalid` とし、apply は duplicate import を追加せず拒否します。operator がその unmanaged line を削除するか、将来の明示 adopt workflow を使うまで進めません。別 file を指す unmanaged import は user-authored content とみなし、activation は無視します。
 
 ## status semantics
 
