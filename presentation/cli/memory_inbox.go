@@ -45,7 +45,7 @@ func (c *RootCLI) newMemoryInboxListCommand() *cobra.Command {
 	cmd.Flags().StringVar(&input.agent, "agent", "", Localize("filter by agent scope", "agent scope で絞り込む"))
 	cmd.Flags().StringVar(&input.sessionFamily, "session-family", "", Localize("filter by session-family scope", "session-family scope で絞り込む"))
 	cmd.Flags().StringSliceVar(&input.memoryTypes, "type", nil, Localize("filter by memory type", "memory type で絞り込む"))
-	cmd.Flags().StringSliceVar(&input.sources, "source", nil, Localize("filter by memory source (manual / extracted / extracted-hidden / remember-intent / imported)", "memory source (manual / extracted / extracted-hidden / remember-intent / imported) で絞り込む"))
+	cmd.Flags().StringSliceVar(&input.sources, "source", nil, Localize("filter by memory source (manual / extracted / extracted-hidden / remember-intent / compact-summary / imported)", "memory source (manual / extracted / extracted-hidden / remember-intent / compact-summary / imported) で絞り込む"))
 	cmd.Flags().BoolVar(&input.includeHidden, "include-hidden", false, Localize("include extracted-hidden candidates (low-quality auto-extractions kept for audit)", "extracted-hidden の候補も含める (audit 用に保存された低品質自動抽出)"))
 	cmd.Flags().IntVar(&input.limit, "limit", defaultMemoryInboxLimit, Localize("maximum number of candidates to return", "表示件数"))
 	cmd.Flags().IntVar(&input.offset, "offset", 0, Localize("number of candidates to skip before listing", "一覧表示前にスキップする件数"))
@@ -142,11 +142,12 @@ func (c *RootCLI) runMemoryInboxList(ctx context.Context, output io.Writer, inpu
 	// instead of handing back an empty page because the first 20 rows
 	// were some other source.
 	//
-	// RememberIntentPriority is enforced at the query layer so remember-intent
-	// rows surface ahead of other candidates BEFORE limit/offset applies — a
-	// post-fetch in-memory sort would only re-order the current page and
-	// could let a remember-intent row that lives just past the page boundary
-	// stay hidden until later pages (#856).
+	// RememberIntentPriority is enforced at the query layer so prioritized
+	// inbox sources (remember-intent, then compact-summary) surface ahead of
+	// other candidates BEFORE limit/offset applies — a post-fetch in-memory
+	// sort would only re-order the current page and could let a prioritized
+	// row that lives just past the page boundary stay hidden until later pages
+	// (#856/#857).
 	criteria := apptypes.NewMemoryListCriteriaBuilder(input.limit).
 		Offset(input.offset).
 		Scopes(scopes).
@@ -281,6 +282,7 @@ func applyExtractedHiddenDefault(sources []domtypes.MemorySource, includeHidden 
 		domtypes.MemorySourceManual,
 		domtypes.MemorySourceExtracted,
 		domtypes.MemorySourceRememberIntent,
+		domtypes.MemorySourceCompactSummary,
 		domtypes.MemorySourceImported,
 	}
 }

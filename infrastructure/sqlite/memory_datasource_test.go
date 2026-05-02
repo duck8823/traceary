@@ -566,14 +566,15 @@ func TestMemoryDatasource_List_RememberIntentPriorityAppliesBeforePagination(t *
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
-	// Three candidates whose updated_at puts the remember-intent row in the
-	// middle of the timeline. Without query-level priority, a LIMIT 1 page
-	// would surface the most recent extracted candidate and leave the
-	// remember-intent row hidden until later pages.
+	// Candidates whose updated_at puts the prioritized rows behind a newer
+	// extracted row. Without query-level priority, LIMIT/OFFSET pages would
+	// surface the extracted row first and leave prioritized inbox rows hidden
+	// until later pages.
 	scope := mustWorkspaceScope(t, "github.com/duck8823/traceary")
 	fixtureMemories := []*model.Memory{
 		memoryOf(t, "mem-extracted-newest", types.MemoryTypeLesson, scope, "newest extracted", types.MemoryStatusCandidate, types.ConfidenceLow, types.MemorySourceExtracted, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), time.Date(2026, 4, 12, 12, 0, 0, 0, time.UTC), time.Date(2026, 4, 12, 12, 0, 0, 0, time.UTC)),
 		memoryOf(t, "mem-remember-intent-mid", types.MemoryTypePreference, scope, "remember-intent middle", types.MemoryStatusCandidate, types.ConfidenceLow, types.MemorySourceRememberIntent, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), time.Date(2026, 4, 12, 11, 0, 0, 0, time.UTC), time.Date(2026, 4, 12, 11, 0, 0, 0, time.UTC)),
+		memoryOf(t, "mem-compact-summary-older", types.MemoryTypeLesson, scope, "compact summary older", types.MemoryStatusCandidate, types.ConfidenceLow, types.MemorySourceCompactSummary, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), time.Date(2026, 4, 12, 9, 30, 0, 0, time.UTC), time.Date(2026, 4, 12, 9, 30, 0, 0, time.UTC)),
 		memoryOf(t, "mem-extracted-oldest", types.MemoryTypeLesson, scope, "oldest extracted", types.MemoryStatusCandidate, types.ConfidenceLow, types.MemorySourceExtracted, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC), time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC)),
 	}
 	for _, memory := range fixtureMemories {
@@ -595,6 +596,22 @@ func TestMemoryDatasource_List_RememberIntentPriorityAppliesBeforePagination(t *
 	}
 	if diff := cmp.Diff("mem-remember-intent-mid", summaries[0].MemoryID().String()); diff != "" {
 		t.Fatalf("first page must surface remember-intent row before extracted rows; mismatch (-want +got):\n%s", diff)
+	}
+
+	criteria = apptypes.NewMemoryListCriteriaBuilder(1).
+		Offset(1).
+		Statuses([]types.MemoryStatus{types.MemoryStatusCandidate}).
+		RememberIntentPriority(true).
+		Build()
+	summaries, err = sut.List(ctx, criteria)
+	if err != nil {
+		t.Fatalf("List(offset=1) error = %v", err)
+	}
+	if got := len(summaries); got != 1 {
+		t.Fatalf("len(List(offset=1)) = %d, want 1", got)
+	}
+	if diff := cmp.Diff("mem-compact-summary-older", summaries[0].MemoryID().String()); diff != "" {
+		t.Fatalf("second page must surface compact-summary row before extracted rows; mismatch (-want +got):\n%s", diff)
 	}
 }
 

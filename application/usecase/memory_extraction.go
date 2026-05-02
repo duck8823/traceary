@@ -185,14 +185,17 @@ func (u *memoryExtractionUsecase) Extract(ctx context.Context, criteria apptypes
 		// extracted-hidden. The explicit-remember intent is exempt so
 		// user-driven `remember this:` prompts always remain visible.
 		source := spec.source
+		hiddenByQuality := spec.signalScore < extractionVisibleScoreThreshold ||
+			(len(spec.lowQualityReasons) > 0 && !spec.intent.explicitRemember)
+		if hiddenByQuality && !spec.intent.explicitRemember {
+			// Preserve audit-first gating for every auto-extracted source,
+			// including compact-summary. Source-specific candidates should not
+			// bypass the low-quality/noise routing just because their source was
+			// assigned before this final persistence step.
+			source = domtypes.MemorySourceExtractedHidden
+		}
 		if source == "" {
 			source = domtypes.MemorySourceExtracted
-			if spec.signalScore < extractionVisibleScoreThreshold {
-				source = domtypes.MemorySourceExtractedHidden
-			}
-			if len(spec.lowQualityReasons) > 0 && !spec.intent.explicitRemember {
-				source = domtypes.MemorySourceExtractedHidden
-			}
 		}
 
 		details, err := u.memory.Propose(
@@ -880,8 +883,12 @@ func (u *memoryExtractionUsecase) collectExtractionSignals(ctx context.Context, 
 			return xerrors.Errorf("failed to list %s events for extraction: %w", kind, err)
 		}
 		for _, event := range events {
+			body := apptypes.ExtractPlainBody(event.Body())
+			if kind == domtypes.EventKindCompactSummary && !shouldUseCompactSummaryExtractionSignal(event, body) {
+				continue
+			}
 			signals = append(signals, extractionSignal{
-				text:            apptypes.ExtractPlainBody(event.Body()),
+				text:            body,
 				event:           event,
 				heuristics:      heuristics,
 				allowStructured: allowStructured,
@@ -949,6 +956,27 @@ func (u *memoryExtractionUsecase) collectRememberIntentContextSignals(ctx contex
 	return signals, nil
 }
 
+func shouldUseCompactSummaryExtractionSignal(event *model.Event, body string) bool {
+	if event == nil {
+		return false
+	}
+	trimmed := strings.TrimSpace(body)
+	if trimmed == "" {
+		return false
+	}
+	if event.SourceHook() == "pre_compact" || strings.HasPrefix(trimmed, domtypes.EventBodyMarkerCompactPreSnapshot) {
+		return false
+	}
+	lower := strings.ToLower(trimmed)
+	switch lower {
+	case "manual", "auto", "automatic", "compact triggered", "triggered", "clear", "reset":
+		return false
+	default:
+		return true
+	}
+
+}
+
 type memoryCandidateSpec struct {
 	memoryType        domtypes.MemoryType
 	fact              string
@@ -976,6 +1004,9 @@ func extractMemoryCandidatesFromSignal(signal extractionSignal, evidenceRefs []d
 			if shouldUseRememberIntentSource(signal, spec) {
 				spec.source = domtypes.MemorySourceRememberIntent
 			}
+			if shouldUseCompactSummarySource(signal, spec) {
+				spec.source = domtypes.MemorySourceCompactSummary
+			}
 			specs = append(specs, spec)
 		}
 	}
@@ -987,6 +1018,13 @@ func shouldUseRememberIntentSource(signal extractionSignal, spec memoryCandidate
 		return false
 	}
 	return signal.kind == domtypes.EventKindPrompt || signal.kind == domtypes.EventKindTranscript
+}
+
+func shouldUseCompactSummarySource(signal extractionSignal, spec memoryCandidateSpec) bool {
+	if spec.source != "" {
+		return false
+	}
+	return signal.kind == domtypes.EventKindCompactSummary
 }
 
 func extractBestMemoryCandidateFromSegment(signal extractionSignal, segment string, evidenceRefs []domtypes.EvidenceRef) (memoryCandidateSpec, bool, error) {

@@ -28,6 +28,11 @@ const (
 	// (status=candidate) and is prioritized above generic extracted
 	// candidates in the default inbox view.
 	MemorySourceRememberIntent MemorySource = "remember-intent"
+	// MemorySourceCompactSummary indicates a candidate produced from a
+	// meaningful compact_summary event, especially a post_compact digest.
+	// It remains a candidate so operators can review condensed session
+	// memories before accepting them.
+	MemorySourceCompactSummary MemorySource = "compact-summary"
 	// MemorySourceImported indicates a memory imported from another source.
 	MemorySourceImported MemorySource = "imported"
 )
@@ -37,6 +42,7 @@ var knownMemorySources = []MemorySource{
 	MemorySourceExtracted,
 	MemorySourceExtractedHidden,
 	MemorySourceRememberIntent,
+	MemorySourceCompactSummary,
 	MemorySourceImported,
 }
 

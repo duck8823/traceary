@@ -194,12 +194,11 @@ func TestMemoryUsecase_Extract(t *testing.T) {
 
 	gotTypes := make([]domtypes.MemoryType, 0, len(memoryUsecase.proposeCalls))
 	gotFacts := make([]string, 0, len(memoryUsecase.proposeCalls))
+	gotSources := make([]domtypes.MemorySource, 0, len(memoryUsecase.proposeCalls))
 	for _, call := range memoryUsecase.proposeCalls {
 		gotTypes = append(gotTypes, call.memoryType)
 		gotFacts = append(gotFacts, call.fact)
-		if diff := cmp.Diff(domtypes.MemorySourceExtracted, call.source); diff != "" {
-			t.Fatalf("source mismatch (-want +got):\n%s", diff)
-		}
+		gotSources = append(gotSources, call.source)
 		if call.scope == nil || call.scope.Kind() != domtypes.MemoryScopeKindWorkspace || call.scope.Key() != "github.com/duck8823/traceary" {
 			t.Fatalf("scope = %v, want workspace scope", call.scope)
 		}
@@ -218,6 +217,18 @@ func TestMemoryUsecase_Extract(t *testing.T) {
 		gotTypes,
 	); diff != "" {
 		t.Fatalf("memory types mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(
+		[]domtypes.MemorySource{
+			domtypes.MemorySourceExtracted,
+			domtypes.MemorySourceExtracted,
+			domtypes.MemorySourceExtracted,
+			domtypes.MemorySourceCompactSummary,
+			domtypes.MemorySourceCompactSummary,
+		},
+		gotSources,
+	); diff != "" {
+		t.Fatalf("sources mismatch (-want +got):\n%s", diff)
 	}
 	if diff := cmp.Diff(
 		[]string{
@@ -909,11 +920,125 @@ func TestMemoryUsecase_Extract_ExplicitDurableMemoryIntentFromCompactSummary(t *
 	if call.memoryType != domtypes.MemoryTypeLesson {
 		t.Fatalf("memoryType = %q, want lesson fallback", call.memoryType)
 	}
-	if call.source != domtypes.MemorySourceExtracted {
-		t.Fatalf("source = %q, want visible extracted", call.source)
+	if call.source != domtypes.MemorySourceCompactSummary {
+		t.Fatalf("source = %q, want compact-summary", call.source)
 	}
 	if strings.HasPrefix(call.fact, "Durable Memory:") {
 		t.Fatalf("fact kept explicit label: %q", call.fact)
+	}
+}
+
+func TestMemoryUsecase_Extract_PostCompactSummaryUsesCompactSummarySource(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-post-compact-memory"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 2, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	compactEvent := mustExtractionEvent(t, "event-post-compact-memory", domtypes.EventKindCompactSummary, strings.Join([]string{
+		"Preference: Please respond in Japanese for Traceary planning.",
+		"Constraint: Never merge v0.12.0 PRs before Codex review passes.",
+	}, "\n"))
+	compactEvent.SetSourceHook("post_compact")
+	details1 := mustMemoryDetailsFromSummary(t, "memory-post-compact-1", domtypes.MemoryTypePreference, "Please respond in Japanese for Traceary planning.")
+	details2 := mustMemoryDetailsFromSummary(t, "memory-post-compact-2", domtypes.MemoryTypeConstraint, "Never merge v0.12.0 PRs before Codex review passes.")
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{proposeResult: []apptypes.MemoryDetails{details1, details2}}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindCompactSummary: {compactEvent}}}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	_, err := sut.Extract(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-post-compact-memory")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(10).Build())
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(memoryUsecase.proposeCalls) != 2 {
+		t.Fatalf("proposeCalls = %d, want 2", len(memoryUsecase.proposeCalls))
+	}
+	for _, call := range memoryUsecase.proposeCalls {
+		if call.source != domtypes.MemorySourceCompactSummary {
+			t.Fatalf("source = %q, want compact-summary", call.source)
+		}
+		gotEvidence := make(map[string]bool)
+		for _, ref := range call.evidenceRefs {
+			if ref.Kind() == domtypes.EvidenceRefKindEvent {
+				gotEvidence[ref.Value()] = true
+			}
+		}
+		if !gotEvidence["event-post-compact-memory"] {
+			t.Fatalf("evidenceRefs = %v, want compact summary event id", call.evidenceRefs)
+		}
+	}
+}
+
+func TestMemoryUsecase_Extract_PostCompactSummaryKeepsLowQualityCandidatesHidden(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-post-compact-noise"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	compactEvent := mustExtractionEvent(t, "event-post-compact-noise", domtypes.EventKindCompactSummary, "Decision: I will read presentation/cli/memory_inbox.go")
+	compactEvent.SetSourceHook("post_compact")
+	details := mustMemoryDetailsFromSummary(t, "memory-post-compact-noise", domtypes.MemoryTypeDecision, "I will read presentation/cli/memory_inbox.go")
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{proposeResult: []apptypes.MemoryDetails{details}}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindCompactSummary: {compactEvent}}}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	_, err := sut.Extract(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-post-compact-noise")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(10).Build())
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(memoryUsecase.proposeCalls) != 1 {
+		t.Fatalf("proposeCalls = %d, want 1 hidden compact-summary noise candidate", len(memoryUsecase.proposeCalls))
+	}
+	call := memoryUsecase.proposeCalls[0]
+	if call.source != domtypes.MemorySourceExtractedHidden {
+		t.Fatalf("source = %q, want extracted-hidden for low-quality compact-summary candidate", call.source)
+	}
+	if call.fact != "I will read presentation/cli/memory_inbox.go" {
+		t.Fatalf("fact = %q, want compact-summary noise fact", call.fact)
+	}
+}
+
+func TestMemoryUsecase_Extract_SkipsPreCompactMarkerOnlySummary(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-pre-compact-marker"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	compactEvent := mustExtractionEvent(t, "event-pre-compact-marker", domtypes.EventKindCompactSummary, "manual")
+	compactEvent.SetSourceHook("pre_compact")
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindCompactSummary: {compactEvent}}}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	got, err := sut.Extract(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-pre-compact-marker")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(10).Build())
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(got) != 0 || len(memoryUsecase.proposeCalls) != 0 {
+		t.Fatalf("pre-compact marker produced candidates: got=%d calls=%d", len(got), len(memoryUsecase.proposeCalls))
+	}
+}
+
+func TestMemoryUsecase_ExplainExtraction_ShowsPostCompactSummaryDecision(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-post-compact"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	compactEvent := mustExtractionEvent(t, "event-debug-post-compact", domtypes.EventKindCompactSummary, "Constraint: Never merge v0.12.0 PRs before Codex review passes.")
+	compactEvent.SetSourceHook("post_compact")
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindCompactSummary: {compactEvent}}}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	report, err := sut.ExplainExtraction(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-debug-post-compact")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(10).Build())
+	if err != nil {
+		t.Fatalf("ExplainExtraction() error = %v", err)
+	}
+	if len(report.Segments) != 1 {
+		t.Fatalf("segments = %d, want 1", len(report.Segments))
+	}
+	segment := report.Segments[0]
+	if segment.EventKind != domtypes.EventKindCompactSummary || segment.SourceHook != "post_compact" {
+		t.Fatalf("segment provenance = %s/%s, want compact_summary/post_compact", segment.EventKind, segment.SourceHook)
+	}
+	if segment.Decision != "proposed" || segment.MemoryType != domtypes.MemoryTypeConstraint {
+		t.Fatalf("segment decision/type = %s/%s, want proposed/constraint", segment.Decision, segment.MemoryType)
 	}
 }
 

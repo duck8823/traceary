@@ -39,7 +39,7 @@ var clearStaleExtractedCandidateSupersedesRefsQuery string
 
 // staleExtractedCandidateRetention is the fixed retention window
 // applied to candidate memories with `source IN (extracted,
-// extracted-hidden)`. The default operator-controlled cutoff
+// extracted-hidden, compact-summary)`. The default operator-controlled cutoff
 // (`--keep-days`) protects long-lived facts; this shorter window
 // applies only to auto-extracted candidates that were never reviewed.
 // Untouched extracted candidates older than this are deleted on the

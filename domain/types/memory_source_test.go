@@ -16,6 +16,10 @@ func TestMemorySourceFrom(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "manual", input: "manual", want: types.MemorySourceManual},
+		{name: "extracted", input: "extracted", want: types.MemorySourceExtracted},
+		{name: "extracted hidden", input: "extracted-hidden", want: types.MemorySourceExtractedHidden},
+		{name: "remember intent", input: "remember-intent", want: types.MemorySourceRememberIntent},
+		{name: "compact summary", input: "compact-summary", want: types.MemorySourceCompactSummary},
 		{name: "imported", input: "imported", want: types.MemorySourceImported},
 		{name: "rejects empty", input: "", wantErr: true},
 		{name: "rejects unknown", input: "generated", wantErr: true},

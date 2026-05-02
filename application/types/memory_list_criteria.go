@@ -62,9 +62,9 @@ func (c MemoryListCriteria) AsOf() domtypes.Optional[time.Time] { return c.asOf 
 // ("give me memories that are still valid right now") is the default.
 func (c MemoryListCriteria) IncludeExpiredByValidity() bool { return c.includeExpired }
 
-// RememberIntentPriority reports whether remember-intent rows should be
-// returned ahead of other rows in the result set. The flag is honoured at the
-// query layer so pagination (--limit/--offset) is consistent with the
+// RememberIntentPriority reports whether prioritized inbox source rows should
+// be returned ahead of other rows in the result set. The flag is honoured at
+// the query layer so pagination (--limit/--offset) is consistent with the
 // displayed order. Used by the inbox view; default is false.
 func (c MemoryListCriteria) RememberIntentPriority() bool { return c.rememberIntentPriority }
 
@@ -156,10 +156,10 @@ func (b *MemoryListCriteriaBuilder) IncludeExpiredByValidity(include bool) *Memo
 	return b
 }
 
-// RememberIntentPriority toggles whether remember-intent rows should be
-// returned ahead of other rows in the result set. The flag is honoured at the
-// query layer so pagination is consistent with the displayed order. Default
-// is false.
+// RememberIntentPriority toggles whether prioritized inbox source rows should
+// be returned ahead of other rows in the result set. The flag is honoured at
+// the query layer so pagination is consistent with the displayed order.
+// Default is false.
 func (b *MemoryListCriteriaBuilder) RememberIntentPriority(priority bool) *MemoryListCriteriaBuilder {
 	b.criteria.rememberIntentPriority = priority
 	return b
