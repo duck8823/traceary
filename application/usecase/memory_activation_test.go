@@ -496,6 +496,36 @@ func TestMemoryUsecase_ActivationStatus_InvalidManagedBlock(t *testing.T) {
 	}
 }
 
+func TestMemoryUsecase_ActivationStatus_InvalidDanglingSymlinkTarget(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	targetPath := filepath.Join(dir, "traceary.md")
+	missingTarget := filepath.Join(dir, "missing.md")
+	if err := os.Symlink(missingTarget, targetPath); err != nil {
+		t.Skipf("symlink unsupported on this platform: %v", err)
+	}
+	scope := mustWorkspaceScope(t, "github.com/example/repo")
+	query := &stubExportMemoryQuery{
+		summaries: []apptypes.MemorySummary{
+			mustAcceptedSummary(t, "m-status-symlink", domtypes.MemoryTypePreference, scope, "status should reject symlink activation targets"),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(nil, query, nil)
+
+	status, err := sut.ActivationStatus(context.Background(), apptypes.MemoryActivationCriteria{
+		Target: apptypes.MemoryBridgeTargetCodex,
+		Path:   targetPath,
+		Scopes: []domtypes.MemoryScope{scope},
+	})
+	if err != nil {
+		t.Fatalf("ActivationStatus: %v", err)
+	}
+	if status.State != apptypes.MemoryActivationStatusInvalid || !strings.Contains(status.Message, "symlinks are not supported") {
+		t.Fatalf("status = %+v, want invalid symlink target", status)
+	}
+}
+
 func mustWorkspaceScope(t *testing.T, value string) domtypes.MemoryScope {
 	t.Helper()
 	workspace, err := domtypes.WorkspaceFrom(value)

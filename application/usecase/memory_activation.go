@@ -106,6 +106,12 @@ func (u *memoryActivationUsecase) Status(ctx context.Context, criteria apptypes.
 		ActivatedCount: exportResult.ExportedCount,
 	}
 
+	if _, _, err := inspectActivationTargetForWrite(targetPath); err != nil {
+		result.State = apptypes.MemoryActivationStatusInvalid
+		result.Message = err.Error()
+		return result, nil
+	}
+
 	existing, exists, err := readExistingActivationTarget(targetPath)
 	if err != nil {
 		result.State = apptypes.MemoryActivationStatusInvalid
@@ -297,18 +303,14 @@ func writeActivationTargetAtomic(path string, content string, existed bool) erro
 		return xerrors.Errorf("failed to create activation target directory %s: %w", dir, err)
 	}
 	perm := os.FileMode(0o600)
-	if info, err := os.Lstat(path); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 {
-			return xerrors.Errorf("activation target symlinks are not supported: %s", path)
-		}
-		if info.IsDir() {
-			return xerrors.Errorf("activation target is a directory: %s", path)
-		}
+	info, statExists, err := inspectActivationTargetForWrite(path)
+	if err != nil {
+		return err
+	}
+	if statExists {
 		if mode := info.Mode().Perm(); mode != 0 {
 			perm = mode
 		}
-	} else if existed || !os.IsNotExist(err) {
-		return xerrors.Errorf("failed to stat activation target %s: %w", path, err)
 	}
 	tmp, err := os.CreateTemp(dir, ".traceary-"+filepath.Base(path)+".*.tmp")
 	if err != nil {
@@ -341,6 +343,23 @@ func writeActivationTargetAtomic(path string, content string, existed bool) erro
 	}
 	cleanup = false
 	return nil
+}
+
+func inspectActivationTargetForWrite(path string) (os.FileInfo, bool, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, false, xerrors.Errorf("failed to stat activation target %s: %w", path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, true, xerrors.Errorf("activation target symlinks are not supported: %s", path)
+	}
+	if info.IsDir() {
+		return nil, true, xerrors.Errorf("activation target is a directory: %s", path)
+	}
+	return info, true, nil
 }
 
 func renderActivationDiff(path string, existing string, planned string) string {
