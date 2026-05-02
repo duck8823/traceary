@@ -1049,24 +1049,28 @@ func extractInlineRememberIntentFact(segment string) (string, bool) {
 		return "", false
 	}
 	for _, trigger := range rememberIntentEnglishTriggers {
-		index := indexFoldASCII(normalized, trigger)
-		if index < 0 {
-			continue
+		searchStart := 0
+		for searchStart < len(normalized) {
+			index := indexFoldASCIIFrom(normalized, trigger, searchStart)
+			if index < 0 {
+				break
+			}
+			// Only treat the inline trigger as explicit remember-intent when
+			// it is used imperatively (start of a clause, after a sentence
+			// boundary, or after a polite softener). This rejects declarative
+			// phrasing like "I remember that we already fixed this" and
+			// trigger-only negations like "Don't remember this." without
+			// discarding later imperative instructions in the same segment.
+			if !isImperativeEnglishRememberContext(normalized, index) {
+				searchStart = index + len(trigger)
+				continue
+			}
+			fact := rememberIntentFactAroundTrigger(normalized, index, len(trigger))
+			if fact != "" {
+				return fact, true
+			}
+			searchStart = index + len(trigger)
 		}
-		// Only treat the inline trigger as explicit remember-intent when it
-		// is used imperatively (start of a clause, after a sentence boundary,
-		// or after a polite softener). This rejects declarative phrasing like
-		// "I remember that we already fixed this" and trigger-only negations
-		// like "Don't remember this." which would otherwise produce
-		// remember-intent candidates from non-intent prose.
-		if !isImperativeEnglishRememberContext(normalized, index) {
-			return "", false
-		}
-		fact := rememberIntentFactAroundTrigger(normalized, index, len(trigger))
-		if fact != "" {
-			return fact, true
-		}
-		return "", false
 	}
 	for _, trigger := range rememberIntentJapaneseTriggers {
 		index := strings.Index(normalized, trigger)
@@ -1123,10 +1127,21 @@ func isImperativeEnglishRememberContext(value string, index int) bool {
 }
 
 func indexFoldASCII(value string, needle string) int {
+	return indexFoldASCIIFrom(value, needle, 0)
+}
+
+func indexFoldASCIIFrom(value string, needle string, start int) int {
 	if needle == "" {
-		return 0
+		return start
 	}
-	for index := range value {
+	if start < 0 {
+		start = 0
+	}
+	if start > len(value) {
+		return -1
+	}
+	for offset := range value[start:] {
+		index := start + offset
 		if index+len(needle) > len(value) {
 			continue
 		}
