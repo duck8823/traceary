@@ -241,6 +241,41 @@ func TestCodexMemorySource_LoadTreatsOnlyRootMemoryMDAsLegacy(t *testing.T) {
 	}
 }
 
+func TestCodexMemorySource_LoadGenericShardPreservesCWDAcrossH1(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "project")
+	root := filepath.Join(dir, "memories")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("mkdir project: %v", err)
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("mkdir memories: %v", err)
+	}
+	content := "# First section\napplies_to: cwd=" + projectDir + "\n\n- First bullet keeps declared cwd.\n\n# Second section\n- Second bullet keeps the same cwd.\n"
+	if err := os.WriteFile(filepath.Join(root, "team-shard.md"), []byte(content), 0o600); err != nil {
+		t.Fatalf("write shard: %v", err)
+	}
+
+	source := NewCodexMemorySource()
+	candidates, warnings, err := source.Load(context.Background(), apptypes.CodexImportCriteria{Root: root})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	if len(candidates) != 2 {
+		t.Fatalf("candidates = %d, want 2", len(candidates))
+	}
+	for _, candidate := range candidates {
+		if candidate.Scope.Key() != projectDir {
+			t.Fatalf("candidate %q scope = %q, want cwd %q", candidate.Fact, candidate.Scope.Key(), projectDir)
+		}
+	}
+}
+
 func TestCodexMemorySource_LoadHonorsCancelledContextDuringDiscovery(t *testing.T) {
 	t.Parallel()
 

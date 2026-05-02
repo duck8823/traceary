@@ -406,7 +406,7 @@ func parseCodexMemoryFile(reader io.Reader, maxBulletBytes int64, mode codexPars
 
 		if heading, ok := parseCodexHeading(line); ok {
 			flushBullet()
-			if heading.level == 1 {
+			if mode == codexParseModeLegacyHandbook && heading.level == 1 {
 				currentCWD = ""
 				currentSection = ""
 			}
