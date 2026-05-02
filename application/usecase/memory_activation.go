@@ -57,6 +57,9 @@ func resolveMemoryActivationTargetPath(criteria apptypes.MemoryActivationCriteri
 	if _, ok := apptypes.MemoryBridgeTargetOf(criteria.Target.String()); !ok {
 		return "", xerrors.Errorf("unsupported memory activation target: %s", criteria.Target)
 	}
+	if criteria.Target != apptypes.MemoryBridgeTargetCodex {
+		return "", xerrors.Errorf("memory activation target %s is not supported yet", criteria.Target)
+	}
 	if trimmed := strings.TrimSpace(criteria.Path); trimmed != "" {
 		abs, err := filepath.Abs(trimmed)
 		if err != nil {
@@ -79,9 +82,8 @@ func resolveMemoryActivationTargetPath(criteria apptypes.MemoryActivationCriteri
 			return "", xerrors.Errorf("failed to resolve codex memory root: %w", err)
 		}
 		return filepath.Join(absRoot, codexActivationFileName), nil
-	default:
-		return "", xerrors.Errorf("memory activation target %s is not supported yet", criteria.Target)
 	}
+	return "", xerrors.Errorf("memory activation target %s is not supported yet", criteria.Target)
 }
 
 func readExistingActivationTarget(path string) (string, bool, error) {

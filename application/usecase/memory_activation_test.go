@@ -97,3 +97,16 @@ func TestMemoryUsecase_ActivatePlan_PathOverrideAndExistingDiff(t *testing.T) {
 		t.Fatalf("dry-run diff must not mutate existing file, got %q", string(data))
 	}
 }
+
+func TestMemoryUsecase_ActivatePlan_RejectsUnsupportedTargetWithPathOverride(t *testing.T) {
+	t.Parallel()
+
+	sut := usecase.NewMemoryUsecase(nil, &stubExportMemoryQuery{}, nil)
+	_, err := sut.ActivatePlan(context.Background(), apptypes.MemoryActivationCriteria{
+		Target: apptypes.MemoryBridgeTargetClaude,
+		Path:   filepath.Join(t.TempDir(), "CLAUDE.md"),
+	})
+	if err == nil || !strings.Contains(err.Error(), "not supported yet") {
+		t.Fatalf("ActivatePlan error = %v, want unsupported target", err)
+	}
+}
