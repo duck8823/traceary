@@ -42,12 +42,15 @@ func TestResolveActivationTarget_RejectsUnknownTarget(t *testing.T) {
 	}
 }
 
-func TestResolveActivationTarget_RejectsGeminiUntilLaterIssues(t *testing.T) {
+func TestResolveActivationTarget_ReturnsGeminiDescriptor(t *testing.T) {
 	t.Parallel()
 
-	_, err := resolveActivationTarget(apptypes.MemoryBridgeTargetGemini)
-	if err == nil || !strings.Contains(err.Error(), "not supported yet") {
-		t.Fatalf("resolveActivationTarget(gemini) err = %v, want not-supported-yet rejection", err)
+	target, err := resolveActivationTarget(apptypes.MemoryBridgeTargetGemini)
+	if err != nil {
+		t.Fatalf("resolveActivationTarget(gemini) error = %v", err)
+	}
+	if got := target.Target(); got != apptypes.MemoryBridgeTargetGemini {
+		t.Fatalf("Target() = %q, want gemini", got)
 	}
 }
 
@@ -210,6 +213,108 @@ func TestClaudeActivationTarget_DefaultRootFallsBackToCwdWhenNoGit(t *testing.T)
 			t.Fatalf("Getwd: %v", err)
 		}
 		wantHost := filepath.Join(cwd, claudeHostContextFileName)
+		if got.HostContextPath != wantHost {
+			t.Fatalf("HostContextPath = %q, want cwd fallback %q", got.HostContextPath, wantHost)
+		}
+	})
+}
+
+func TestGeminiActivationTarget_PathOverrideWinsOverRoot(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	custom := filepath.Join(dir, "nested", "OTHER.md")
+	if err := os.MkdirAll(filepath.Dir(custom), 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	got, err := geminiActivationTarget{}.Resolve(apptypes.MemoryActivationCriteria{
+		Target: apptypes.MemoryBridgeTargetGemini,
+		Path:   custom,
+		Root:   filepath.Join(dir, "ignored"),
+	})
+	if err != nil {
+		t.Fatalf("Resolve error = %v", err)
+	}
+	if got.HostContextPath != custom {
+		t.Fatalf("HostContextPath = %q, want %q (Path must override Root)", got.HostContextPath, custom)
+	}
+	wantExternal := filepath.Join(filepath.Dir(custom), filepath.FromSlash(geminiExternalMemoryRelDir), geminiExternalMemoryFileName)
+	if got.ExternalMemoryPath != wantExternal {
+		t.Fatalf("ExternalMemoryPath = %q, want %q (must derive from Path's directory)", got.ExternalMemoryPath, wantExternal)
+	}
+	if got.ImportPath != "./.traceary/memories/gemini.md" {
+		t.Fatalf("ImportPath = %q, want ./.traceary/memories/gemini.md", got.ImportPath)
+	}
+}
+
+func TestGeminiActivationTarget_RootOverrideUsesCanonicalLayout(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	got, err := geminiActivationTarget{}.Resolve(apptypes.MemoryActivationCriteria{
+		Target: apptypes.MemoryBridgeTargetGemini,
+		Root:   dir,
+	})
+	if err != nil {
+		t.Fatalf("Resolve error = %v", err)
+	}
+	wantHost := filepath.Join(dir, geminiHostContextFileName)
+	if got.HostContextPath != wantHost {
+		t.Fatalf("HostContextPath = %q, want %q", got.HostContextPath, wantHost)
+	}
+	wantExternal := filepath.Join(dir, filepath.FromSlash(geminiExternalMemoryRelDir), geminiExternalMemoryFileName)
+	if got.ExternalMemoryPath != wantExternal {
+		t.Fatalf("ExternalMemoryPath = %q, want %q", got.ExternalMemoryPath, wantExternal)
+	}
+	if got.ImportPath != "./.traceary/memories/gemini.md" {
+		t.Fatalf("ImportPath = %q, want ./.traceary/memories/gemini.md", got.ImportPath)
+	}
+	if !got.IsTwoFile() {
+		t.Fatalf("gemini resolution must be two-file: %+v", got)
+	}
+}
+
+func TestGeminiActivationTarget_DefaultRootDetectsGitAncestor(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o700); err != nil {
+		t.Fatalf("MkdirAll(.git): %v", err)
+	}
+	nested := filepath.Join(root, "pkg", "feature")
+	if err := os.MkdirAll(nested, 0o700); err != nil {
+		t.Fatalf("MkdirAll(nested): %v", err)
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatalf("EvalSymlinks: %v", err)
+	}
+	withWorkingDir(t, nested, func() {
+		got, err := geminiActivationTarget{}.Resolve(apptypes.MemoryActivationCriteria{
+			Target: apptypes.MemoryBridgeTargetGemini,
+		})
+		if err != nil {
+			t.Fatalf("Resolve error = %v", err)
+		}
+		wantHost := filepath.Join(resolvedRoot, geminiHostContextFileName)
+		if got.HostContextPath != wantHost {
+			t.Fatalf("HostContextPath = %q, want git ancestor %q", got.HostContextPath, wantHost)
+		}
+	})
+}
+
+func TestGeminiActivationTarget_DefaultRootFallsBackToCwdWhenNoGit(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDir(t, root, func() {
+		got, err := geminiActivationTarget{}.Resolve(apptypes.MemoryActivationCriteria{
+			Target: apptypes.MemoryBridgeTargetGemini,
+		})
+		if err != nil {
+			t.Fatalf("Resolve error = %v", err)
+		}
+		cwd, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("Getwd: %v", err)
+		}
+		wantHost := filepath.Join(cwd, geminiHostContextFileName)
 		if got.HostContextPath != wantHost {
 			t.Fatalf("HostContextPath = %q, want cwd fallback %q", got.HostContextPath, wantHost)
 		}

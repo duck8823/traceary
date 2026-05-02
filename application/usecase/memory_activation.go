@@ -73,6 +73,10 @@ func (u *memoryActivationUsecase) Apply(ctx context.Context, criteria apptypes.M
 		return apptypes.MemoryActivationApplyResult{}, err
 	}
 
+	if criteria.Target == apptypes.MemoryBridgeTargetGemini {
+		return apptypes.MemoryActivationApplyResult{}, xerrors.Errorf("memory activation --apply is not supported yet for target %s", criteria.Target)
+	}
+
 	exportResult, err := u.renderActivationBlock(ctx, criteria)
 	if err != nil {
 		return apptypes.MemoryActivationApplyResult{}, err
