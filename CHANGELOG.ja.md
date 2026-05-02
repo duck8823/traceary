@@ -5,6 +5,23 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.12.0] - 2026-05-02
+
+### Added
+- **Durable-memory candidate の品質制御 (#857, #864)** — extraction が diff fragment、generated-code marker、単独 shell command（`rtk ...` wrapper を含む）、review-only conclusion、一時的な作業宣言、PR round chatter などの低 signal noise を隠すようになりました。一方で durable な日本語 / multilingual preference や constraint は保持します。
+- **明示 remember / lifecycle 由来の抽出経路 (#856, #862, #865)** — explicit な "remember this" prompt、短い remember-intent follow-up と隣接 context、post-compact summary、clear/reset summary から、manual note だけに頼らず evidence ref 付きの reviewable durable-memory candidate を提案できるようになりました。
+- **Candidate distillation (#858)** — `traceary memory distill` が 1 件以上の candidate memory を operator が整えた accepted fact に変換します。source ref を保持し、元 candidate の keep / reject / supersede handling を選べます。
+- **Codex memory bridge の拡張 (#859, #860)** — Codex import は `~/.codex/memories/*.md` 配下の multi-file Markdown memory layout を決定論的に読みます。export は workspace memory と一緒に `global` memory も含められるため、host-level の運用ルールを repository-specific fact と一緒に渡せます。
+- **Codex native activation (#866, #861, #867)** — `traceary memory activate --target codex` が dry-run/diff planning、read-only status (`missing`, `stale`, `in_sync`, `invalid`)、明示的な `--apply` 書き込みに対応しました。既定 target は Traceary 管理の Codex memory file (`~/.codex/memories/traceary.md`) です。apply は管理ブロック外の user-authored content を保持し、冪等で、新しい marker version を上書きせず、text/JSON で activated count を返します。`traceary doctor --client codex` でも同じ activation status と remediation command を表示します。
+- **Host activation strategy docs (#868)** — memory / integration docs で、Traceary accepted store、instruction-file export、host-native activation の違いを明確化しました。v0.12 で実装済みなのは Codex で、Claude / Gemini native write は #883 / #884 に明示的に defer しています。
+
+### Changed
+- **Workspace export は既定で global memory を含む (#860)** — `memory export` / MCP export は、明示 workspace に対して `--no-global` / `include_global=false` を使わない限り global scope entry も含めます。
+- **Codex import は legacy safety を維持しつつ shard に対応 (#859)** — legacy `MEMORY.md` は従来の heading allow-list を維持し、それ以外の Markdown shard は任意 heading 配下の list item を per-file evidence/artifact ref と symlink/size guard 付きで取り込みます。
+
+### Notes
+- v0.12.0 は durable-memory の品質、curation、Codex-native activation に焦点を当てた minor release です。Claude / Gemini は v0.12 では MCP tools と instruction-file export を使います。これらの host-native activation write は今後の follow-up であり、このリリースには含まれません。
+
 ## [v0.11.2] - 2026-04-28
 
 ### Added
