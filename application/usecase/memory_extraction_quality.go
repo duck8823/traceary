@@ -27,7 +27,7 @@ var (
 	diffHeaderPrefixPattern  = regexp.MustCompile(`^(?:@@|diff --git\b|index [0-9a-fA-F]{4,}\.\.[0-9a-fA-F]{4,}|\+\+\+ |--- |Binary files )`)
 
 	standaloneCommandPattern = regexp.MustCompile(`(?i)^` +
-		`(?:git|gh|npm|npx|yarn|pnpm|make|go|flutter|dart|python3?|pip3?|cargo|brew|docker(?:-compose)?|kubectl|helm|aws|gcloud|terraform|psql|sqlite3?|mkdir|rmdir|rm|mv|cp|cd|ls|ssh|scp|curl|wget|cat|tail|head|sed|awk|grep|rg|bash|zsh|sh|tree|env|export|source|sudo|node|deno|bun|tsx|swift|xcrun|adb|fastlane|gem|bundle|rake|tox|pytest|jest|vitest|mvn|gradle|sbt|cmake|ninja|jq|tar|zip|unzip|gzip|gunzip|hg|svn|nslookup|dig|ping|traceroute|systemctl|service|launchctl|crontab|chmod|chown|kill|pkill|ps|lsof|netstat|whoami|id|uname|date|traceary|claude|codex|gemini)` +
+		`(?:git|gh|npm|npx|yarn|pnpm|make|go|flutter|dart|python3?|pip3?|cargo|brew|docker(?:-compose)?|kubectl|helm|aws|gcloud|terraform|psql|sqlite3?|mkdir|rmdir|rm|mv|cp|cd|ls|ssh|scp|curl|wget|cat|tail|head|sed|awk|grep|rg|bash|zsh|sh|tree|env|export|source|sudo|node|deno|bun|tsx|swift|xcrun|adb|fastlane|gem|bundle|rake|tox|pytest|jest|vitest|mvn|gradle|sbt|cmake|ninja|jq|tar|zip|unzip|gzip|gunzip|hg|svn|nslookup|dig|ping|traceroute|systemctl|service|launchctl|crontab|chmod|chown|kill|pkill|ps|lsof|netstat|whoami|id|uname|date|rtk|traceary|claude|codex|gemini)` +
 		`\s+\S`)
 
 	// reviewConclusionEnglishPattern is conservatively anchored: each
