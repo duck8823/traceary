@@ -269,7 +269,11 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 	bestCandidateByKey := make(map[string]int)
 	seenKeys := make(map[string]struct{})
 	orderedKeys := make([]string, 0)
-	rememberContextSpecs, err := collectRememberIntentContextSpecs(session.SessionID(), signals)
+	rememberContextSignals, err := u.collectRememberIntentContextSignals(ctx, session, criteria.EventLimit())
+	if err != nil {
+		return apptypes.MemoryExtractionDebugReport{}, err
+	}
+	rememberContextSpecs, err := collectRememberIntentContextSpecs(session.SessionID(), rememberContextSignals)
 	if err != nil {
 		return apptypes.MemoryExtractionDebugReport{}, err
 	}

@@ -1540,6 +1540,41 @@ func TestMemoryUsecase_ExplainExtraction_ReportsShortRememberIntentContextCandid
 	}
 }
 
+func TestMemoryUsecase_ExplainExtraction_UsesUnifiedRememberIntentChronology(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-remember-unified-timeline"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), "ended", 3, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	olderTranscript := mustExtractionEventAt(t, "event-debug-old-transcript-context", domtypes.EventKindTranscript, "Always run go test before merging.", now)
+	rememberEvent := mustExtractionEventAt(t, "event-debug-latest-remember", domtypes.EventKindPrompt, "覚えておいてね", now.Add(2*time.Second))
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{
+		listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
+			domtypes.EventKind(""):           {rememberEvent},
+			domtypes.EventKindPrompt:         {rememberEvent},
+			domtypes.EventKindTranscript:     {olderTranscript},
+			domtypes.EventKindReviewed:       {},
+			domtypes.EventKindNote:           {},
+			domtypes.EventKindCompactSummary: {},
+		},
+	}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	report, err := sut.ExplainExtraction(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-debug-remember-unified-timeline")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(10).Build())
+	if err != nil {
+		t.Fatalf("ExplainExtraction() error = %v", err)
+	}
+	if eventQuery.listRecentCallsByKind[domtypes.EventKind("")] == 0 {
+		t.Fatalf("ListRecent was not called for the unified event chronology")
+	}
+	for _, segment := range report.Segments {
+		if segment.Decision == "proposed" && slices.Contains(segment.Features, "explicit_remember") {
+			t.Fatalf("debug report must not bind stale per-kind transcript context as remember-intent: %+v", segment)
+		}
+	}
+}
+
 // TestMemoryUsecase_ExplainExtraction_DeclarativeRememberPhrasingNotPromoted
 // pins that the debug report agrees with Extract on the imperative gate so an
 // operator diagnosing why a candidate was created sees the same decision.
