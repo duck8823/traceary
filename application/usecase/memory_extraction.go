@@ -157,8 +157,18 @@ func (u *memoryExtractionUsecase) Extract(ctx context.Context, criteria apptypes
 		// source so the default inbox view skips them. `memory inbox
 		// --include-hidden` surfaces them when reviewers want to triage
 		// borderline cases.
+		//
+		// Noise classifier (#857): high-score candidates that match the
+		// deterministic noise rules (diff fragments, standalone commands,
+		// generated-code markers, review-only conclusions, work
+		// declarations, PR/Round chatter) are also routed to
+		// extracted-hidden. The explicit-remember intent is exempt so
+		// user-driven `remember this:` prompts always remain visible.
 		source := domtypes.MemorySourceExtracted
 		if spec.signalScore < extractionVisibleScoreThreshold {
+			source = domtypes.MemorySourceExtractedHidden
+		}
+		if len(spec.lowQualityReasons) > 0 && !spec.intent.explicitRemember {
 			source = domtypes.MemorySourceExtractedHidden
 		}
 
@@ -225,9 +235,11 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 	}
 
 	type candidateDecision struct {
-		segmentIndex int
-		key          string
-		score        int
+		segmentIndex      int
+		key               string
+		score             int
+		explicitRemember  bool
+		lowQualityReasons []string
 	}
 
 	report := apptypes.MemoryExtractionDebugReport{SessionID: session.SessionID(), Workspace: session.Workspace()}
@@ -262,6 +274,7 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 			decision.Features = spec.intent.featureNames()
 			decision.Score = spec.signalScore
 			decision.ArtifactRefs = slices.Clone(spec.artifactRefs)
+			decision.LowQualityReasons = slices.Clone(spec.lowQualityReasons)
 			segmentIndex := len(report.Segments)
 			report.Segments = append(report.Segments, decision)
 			key := memoryCandidateKey(scope, spec.memoryType, sanitizeCandidateFact(spec.fact, extraRedactors))
@@ -270,7 +283,13 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 				orderedKeys = append(orderedKeys, key)
 			}
 			candidateIndex := len(candidates)
-			candidates = append(candidates, candidateDecision{segmentIndex: segmentIndex, key: key, score: spec.signalScore})
+			candidates = append(candidates, candidateDecision{
+				segmentIndex:      segmentIndex,
+				key:               key,
+				score:             spec.signalScore,
+				explicitRemember:  spec.intent.explicitRemember,
+				lowQualityReasons: slices.Clone(spec.lowQualityReasons),
+			})
 			bestIndex, exists := bestCandidateByKey[key]
 			if !exists || candidates[bestIndex].score < spec.signalScore {
 				bestCandidateByKey[key] = candidateIndex
@@ -321,6 +340,11 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 		if candidate.score < extractionVisibleScoreThreshold {
 			decision.Decision = "hidden"
 			decision.Reason = "below_visible_threshold"
+			continue
+		}
+		if len(candidate.lowQualityReasons) > 0 && !candidate.explicitRemember {
+			decision.Decision = "hidden"
+			decision.Reason = "low_quality:" + strings.Join(candidate.lowQualityReasons, ",")
 			continue
 		}
 		decision.Decision = "proposed"
@@ -477,6 +501,8 @@ func hasDurableSignalMarker(value string) bool {
 		"学び",
 		"必須",
 		"必要",
+		"必ず",
+		"常に",
 		"次回",
 		"再起動",
 		"確認済み",
@@ -485,6 +511,15 @@ func hasDurableSignalMarker(value string) bool {
 		"記憶",
 		"今後",
 		"以後",
+		// Japanese preference / request markers — durable signals equivalent
+		// to English "please / prefer / want X to". They override the
+		// work-declaration prefix so durable preferences like
+		// "これから日本語で回答してほしい" stay visible (#857).
+		"してほしい",
+		"してください",
+		"好み",
+		"要望",
+		"希望",
 	)
 }
 
@@ -676,13 +711,14 @@ func (u *memoryExtractionUsecase) collectExtractionSignals(ctx context.Context, 
 }
 
 type memoryCandidateSpec struct {
-	memoryType   domtypes.MemoryType
-	fact         string
-	evidenceRefs []domtypes.EvidenceRef
-	artifactRefs []domtypes.ArtifactRef
-	structured   bool
-	intent       memoryIntentFeatures
-	signalScore  int
+	memoryType        domtypes.MemoryType
+	fact              string
+	evidenceRefs      []domtypes.EvidenceRef
+	artifactRefs      []domtypes.ArtifactRef
+	structured        bool
+	intent            memoryIntentFeatures
+	signalScore       int
+	lowQualityReasons []string
 }
 
 func extractMemoryCandidatesFromSignal(signal extractionSignal, evidenceRefs []domtypes.EvidenceRef) ([]memoryCandidateSpec, error) {
@@ -765,12 +801,13 @@ func buildMemoryCandidateSpec(memoryType domtypes.MemoryType, fact string, evide
 	}
 	intent := classifyMemoryIntent(fact)
 	spec := memoryCandidateSpec{
-		memoryType:   memoryType,
-		fact:         fact,
-		evidenceRefs: slices.Clone(evidenceRefs),
-		artifactRefs: artifactRefs,
-		structured:   structured,
-		intent:       intent,
+		memoryType:        memoryType,
+		fact:              fact,
+		evidenceRefs:      slices.Clone(evidenceRefs),
+		artifactRefs:      artifactRefs,
+		structured:        structured,
+		intent:            intent,
+		lowQualityReasons: classifyExtractionNoise(fact),
 	}
 	spec.signalScore = memoryExtractionSignalScore(spec)
 	return spec, true, nil
