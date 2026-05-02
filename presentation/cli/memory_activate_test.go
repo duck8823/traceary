@@ -277,6 +277,54 @@ func TestRootCLI_MemoryActivateStatusTextOmitsCommandsWhenInSync(t *testing.T) {
 	assertMemoryStatusCall(t, memoryStub, true)
 }
 
+func TestRootCLI_MemoryActivateStatusOmitsCommandsWhenInvalid(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	targetPath := filepath.Join(root, "traceary.md")
+	memoryStub := &memoryUsecaseStub{
+		activationStatus: apptypes.MemoryActivationStatusResult{
+			Target:         apptypes.MemoryBridgeTargetCodex,
+			TargetPath:     targetPath,
+			State:          apptypes.MemoryActivationStatusInvalid,
+			Existing:       true,
+			ActivatedCount: 2,
+			Message:        "newer managed block version",
+		},
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "activate",
+		"--target", "codex",
+		"--root", root,
+		"--workspace", "github.com/duck8823/traceary",
+		"--status",
+		"--json",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	var payload struct {
+		State         string `json:"state"`
+		DryRunCommand string `json:"dry_run_command"`
+		ApplyCommand  string `json:"apply_command"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("Unmarshal: %v\nstdout=%s", err, stdout.String())
+	}
+	if payload.State != "invalid" || payload.DryRunCommand != "" || payload.ApplyCommand != "" {
+		t.Fatalf("payload = %+v, want invalid status without remediation commands", payload)
+	}
+	assertMemoryStatusCall(t, memoryStub, true)
+}
+
 func assertMemoryActivateCall(t *testing.T, stub *memoryUsecaseStub, wantIncludeGlobal bool) {
 	t.Helper()
 	if len(stub.activationPlanCalls) != 1 {

@@ -207,7 +207,7 @@ func writeMemoryActivationStatus(output io.Writer, result apptypes.MemoryActivat
 			ActivatedCount: result.ActivatedCount,
 			Message:        result.Message,
 		}
-		if result.State != apptypes.MemoryActivationStatusInSync {
+		if memoryActivationStatusHasRemediation(result.State) {
 			payload.DryRunCommand = commands.DryRun
 			payload.ApplyCommand = commands.Apply
 		}
@@ -230,13 +230,17 @@ func writeMemoryActivationStatus(output io.Writer, result apptypes.MemoryActivat
 	); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print memory activation status", "memory activation status の出力に失敗しました"), err)
 	}
-	if result.State == apptypes.MemoryActivationStatusInSync {
+	if !memoryActivationStatusHasRemediation(result.State) {
 		return nil
 	}
 	if _, err := fmt.Fprintf(output, "next_dry_run: %s\nnext_apply: %s\n", commands.DryRun, commands.Apply); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print memory activation remediation", "memory activation remediation の出力に失敗しました"), err)
 	}
 	return nil
+}
+
+func memoryActivationStatusHasRemediation(state apptypes.MemoryActivationStatusState) bool {
+	return state == apptypes.MemoryActivationStatusMissing || state == apptypes.MemoryActivationStatusStale
 }
 
 func writeMemoryActivationApplyResult(output io.Writer, result apptypes.MemoryActivationApplyResult, asJSON bool) error {
