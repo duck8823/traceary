@@ -1423,15 +1423,19 @@ func TestMemoryUsecase_Extract_ShortRememberIntentUsesUnifiedChronology(t *testi
 	t.Parallel()
 
 	now := time.Now()
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-remember-unified-timeline"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), "ended", 3, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-remember-unified-timeline"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), "ended", 5, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 	olderTranscript := mustExtractionEventAt(t, "event-old-transcript-context", domtypes.EventKindTranscript, "Always run go test before merging.", now)
-	rememberEvent := mustExtractionEventAt(t, "event-latest-remember", domtypes.EventKindPrompt, "覚えておいてね", now.Add(2*time.Second))
+	noisePrompts := []*model.Event{
+		mustExtractionEventAt(t, "event-unified-noise-prompt-1", domtypes.EventKindPrompt, "Hmm.", now.Add(time.Second)),
+		mustExtractionEventAt(t, "event-unified-noise-prompt-2", domtypes.EventKindPrompt, "Got it.", now.Add(2*time.Second)),
+		mustExtractionEventAt(t, "event-unified-noise-prompt-3", domtypes.EventKindPrompt, "Right.", now.Add(3*time.Second)),
+	}
+	rememberEvent := mustExtractionEventAt(t, "event-latest-remember", domtypes.EventKindPrompt, "覚えておいてね", now.Add(4*time.Second))
 	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
 	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
 	eventQuery := &eventQueryServiceStub{
 		listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
-			domtypes.EventKind(""):           {rememberEvent},
-			domtypes.EventKindPrompt:         {rememberEvent},
+			domtypes.EventKindPrompt:         append([]*model.Event{rememberEvent}, noisePrompts...),
 			domtypes.EventKindTranscript:     {olderTranscript},
 			domtypes.EventKindReviewed:       {},
 			domtypes.EventKindNote:           {},
@@ -1440,18 +1444,69 @@ func TestMemoryUsecase_Extract_ShortRememberIntentUsesUnifiedChronology(t *testi
 	}
 	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
 
-	_, err := sut.Extract(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-remember-unified-timeline")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(10).Build())
+	_, err := sut.Extract(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-remember-unified-timeline")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(4).CandidateLimit(10).Build())
 	if err != nil {
 		t.Fatalf("Extract() error = %v", err)
 	}
-	if eventQuery.listRecentCallsByKind[domtypes.EventKind("")] == 0 {
-		t.Fatalf("ListRecent was not called for the unified event chronology")
+	if eventQuery.listRecentCallsByKind[domtypes.EventKind("")] != 0 {
+		t.Fatalf("ListRecent used an unfiltered remember chronology; want prompt/transcript kind queries")
+	}
+	for _, kind := range []domtypes.EventKind{domtypes.EventKindPrompt, domtypes.EventKindTranscript} {
+		if eventQuery.listRecentCallsByKind[kind] == 0 {
+			t.Fatalf("ListRecent was not called for %s remember chronology", kind)
+		}
+		if got := eventQuery.listRecentLimitByKind[kind]; got != 4 {
+			t.Fatalf("ListRecent limit for %s = %d, want 4", kind, got)
+		}
 	}
 	for _, call := range memoryUsecase.proposeCalls {
 		if call.source == domtypes.MemorySourceRememberIntent {
 			t.Fatalf("short remember prompt must not bind stale per-kind transcript context: got fact %q", call.fact)
 		}
 	}
+}
+
+func TestMemoryUsecase_Extract_ShortRememberIntentIgnoresNonPromptGlobalNoise(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-remember-global-noise"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), "ended", 4, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	contextEvent := mustExtractionEventAt(t, "event-remember-context", domtypes.EventKindPrompt, "Always run go test before merging.", now)
+	reviewNoise := mustExtractionEventAt(t, "event-remember-review-noise", domtypes.EventKindReviewed, "Reviewed the diff.", now.Add(time.Second))
+	noteNoise := mustExtractionEventAt(t, "event-remember-note-noise", domtypes.EventKindNote, "Working note.", now.Add(2*time.Second))
+	rememberEvent := mustExtractionEventAt(t, "event-remember-short-noise", domtypes.EventKindPrompt, "keep this in memory", now.Add(3*time.Second))
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{
+		listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
+			domtypes.EventKind(""):           {noteNoise, reviewNoise},
+			domtypes.EventKindPrompt:         {rememberEvent, contextEvent},
+			domtypes.EventKindTranscript:     {},
+			domtypes.EventKindReviewed:       {reviewNoise},
+			domtypes.EventKindNote:           {noteNoise},
+			domtypes.EventKindCompactSummary: {},
+		},
+	}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	_, err := sut.Extract(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-remember-global-noise")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(2).CandidateLimit(10).Build())
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if eventQuery.listRecentCallsByKind[domtypes.EventKind("")] != 0 {
+		t.Fatalf("ListRecent used an unfiltered remember chronology that can be exhausted by non-prompt noise")
+	}
+	for _, kind := range []domtypes.EventKind{domtypes.EventKindPrompt, domtypes.EventKindTranscript} {
+		if got := eventQuery.listRecentLimitByKind[kind]; got != 2 {
+			t.Fatalf("ListRecent limit for %s = %d, want 2", kind, got)
+		}
+	}
+	for _, call := range memoryUsecase.proposeCalls {
+		if call.source == domtypes.MemorySourceRememberIntent && call.fact == "Always run go test before merging." {
+			return
+		}
+	}
+	t.Fatalf("proposeCalls = %+v, want remember-intent candidate from adjacent prompt context", memoryUsecase.proposeCalls)
 }
 
 // TestMemoryUsecase_Extract_RememberIntentContextSpecsPreserveRecency pins
@@ -1549,15 +1604,19 @@ func TestMemoryUsecase_ExplainExtraction_UsesUnifiedRememberIntentChronology(t *
 	t.Parallel()
 
 	now := time.Now()
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-remember-unified-timeline"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), "ended", 3, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-remember-unified-timeline"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), "ended", 5, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 	olderTranscript := mustExtractionEventAt(t, "event-debug-old-transcript-context", domtypes.EventKindTranscript, "Always run go test before merging.", now)
-	rememberEvent := mustExtractionEventAt(t, "event-debug-latest-remember", domtypes.EventKindPrompt, "覚えておいてね", now.Add(2*time.Second))
+	noisePrompts := []*model.Event{
+		mustExtractionEventAt(t, "event-debug-unified-noise-prompt-1", domtypes.EventKindPrompt, "Hmm.", now.Add(time.Second)),
+		mustExtractionEventAt(t, "event-debug-unified-noise-prompt-2", domtypes.EventKindPrompt, "Got it.", now.Add(2*time.Second)),
+		mustExtractionEventAt(t, "event-debug-unified-noise-prompt-3", domtypes.EventKindPrompt, "Right.", now.Add(3*time.Second)),
+	}
+	rememberEvent := mustExtractionEventAt(t, "event-debug-latest-remember", domtypes.EventKindPrompt, "覚えておいてね", now.Add(4*time.Second))
 	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
 	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
 	eventQuery := &eventQueryServiceStub{
 		listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
-			domtypes.EventKind(""):           {rememberEvent},
-			domtypes.EventKindPrompt:         {rememberEvent},
+			domtypes.EventKindPrompt:         append([]*model.Event{rememberEvent}, noisePrompts...),
 			domtypes.EventKindTranscript:     {olderTranscript},
 			domtypes.EventKindReviewed:       {},
 			domtypes.EventKindNote:           {},
@@ -1566,12 +1625,20 @@ func TestMemoryUsecase_ExplainExtraction_UsesUnifiedRememberIntentChronology(t *
 	}
 	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
 
-	report, err := sut.ExplainExtraction(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-debug-remember-unified-timeline")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(10).Build())
+	report, err := sut.ExplainExtraction(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-debug-remember-unified-timeline")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(4).CandidateLimit(10).Build())
 	if err != nil {
 		t.Fatalf("ExplainExtraction() error = %v", err)
 	}
-	if eventQuery.listRecentCallsByKind[domtypes.EventKind("")] == 0 {
-		t.Fatalf("ListRecent was not called for the unified event chronology")
+	if eventQuery.listRecentCallsByKind[domtypes.EventKind("")] != 0 {
+		t.Fatalf("ListRecent used an unfiltered remember chronology; want prompt/transcript kind queries")
+	}
+	for _, kind := range []domtypes.EventKind{domtypes.EventKindPrompt, domtypes.EventKindTranscript} {
+		if eventQuery.listRecentCallsByKind[kind] == 0 {
+			t.Fatalf("ListRecent was not called for %s remember chronology", kind)
+		}
+		if got := eventQuery.listRecentLimitByKind[kind]; got != 4 {
+			t.Fatalf("ListRecent limit for %s = %d, want 4", kind, got)
+		}
 	}
 	for _, segment := range report.Segments {
 		if segment.Decision == "proposed" && slices.Contains(segment.Features, "explicit_remember") {

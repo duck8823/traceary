@@ -916,35 +916,35 @@ func (u *memoryExtractionUsecase) collectRememberIntentContextSignals(ctx contex
 	if eventLimit == 0 {
 		return nil, nil
 	}
-	events, err := u.eventQuery.ListRecent(
-		ctx,
-		eventLimit,
-		0,
-		domtypes.EventKind(""),
-		domtypes.Client(""),
-		domtypes.Agent(""),
-		session.SessionID(),
-		domtypes.Workspace(""),
-		false,
-		time.Time{},
-		time.Time{},
-		"",
-	)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to list recent events for remember-intent context: %w", err)
-	}
-	signals := make([]extractionSignal, 0, len(events))
-	for _, event := range events {
-		if event.Kind() != domtypes.EventKindPrompt && event.Kind() != domtypes.EventKindTranscript {
-			continue
+	kinds := []domtypes.EventKind{domtypes.EventKindPrompt, domtypes.EventKindTranscript}
+	signals := make([]extractionSignal, 0, len(kinds)*eventLimit)
+	for _, kind := range kinds {
+		events, err := u.eventQuery.ListRecent(
+			ctx,
+			eventLimit,
+			0,
+			kind,
+			domtypes.Client(""),
+			domtypes.Agent(""),
+			session.SessionID(),
+			domtypes.Workspace(""),
+			false,
+			time.Time{},
+			time.Time{},
+			"",
+		)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to list %s events for remember-intent context: %w", kind, err)
 		}
-		signals = append(signals, extractionSignal{
-			text:       apptypes.ExtractPlainBody(event.Body()),
-			event:      event,
-			client:     event.Client(),
-			kind:       event.Kind(),
-			sourceHook: event.SourceHook(),
-		})
+		for _, event := range events {
+			signals = append(signals, extractionSignal{
+				text:       apptypes.ExtractPlainBody(event.Body()),
+				event:      event,
+				client:     event.Client(),
+				kind:       event.Kind(),
+				sourceHook: event.SourceHook(),
+			})
+		}
 	}
 	return signals, nil
 }
