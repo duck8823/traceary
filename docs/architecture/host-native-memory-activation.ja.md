@@ -128,6 +128,13 @@ JSON output は host context file と external memory file の component-level d
 
 host import visibility は release dogfood だけではなく、implementation-readiness gate です。最初の Claude/Gemini read-only PR では、host が planned import path を解決することを smoke test または記録済み manual verification として残します。apply PR は、その証跡が出るまで draft / blocked のままにします。
 
+Claude については、v0.13.0-4 の read-only PR が以下 2 つの artefact を組み合わせて、ライブ launch のフレーキネスに依存しない readiness 証跡を残します。
+
+- `application/usecase/claude_import_readiness_internal_test.go` は、rendering 済み import line・marker layout・external file 解決を Claude 公式 memory documentation の `@<relative-path>` フォーマット（`CLAUDE.md` のあるディレクトリ基準）に固定します。CI 上で常時実行されるため、リファクタで import path を黙って動かせません。
+- `scripts/smoke_test_claude_activation.sh` は `traceary memory activate --target claude --dry-run --json` の生成 plan を使って一時プロジェクト (`.git`、`CLAUDE.md`、`.traceary/memories/claude.md`) を materialize します。既定では structural check 後に一時プロジェクトを削除します。manual runtime probe のために保持して、そのディレクトリで `claude` を起動する場合は `TRACEARY_KEEP_SMOKE_TEMP=1` を指定します。Claude Code の初回 external-import approval dialog と認証状態のため、無人ランタイム probe は非決定的です。ライブ launch は `TRACEARY_ENABLE_CLAUDE_RUNTIME_SMOKE=1` を指定したときだけ実行します。
+
+Claude `--apply` PR (#893) では、`TRACEARY_ENABLE_CLAUDE_RUNTIME_SMOKE=1` で記録した `smoke_test_claude_activation.sh` のログを PR に添付するか、別 gate を採用する場合はその根拠を ADR にも追記する必要があります。
+
 ## apply semantics
 
 `--status` と `--dry-run` は read-only です。変更するのは `--apply` だけです。

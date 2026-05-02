@@ -16,6 +16,12 @@ type MemoryActivationCriteria struct {
 
 // MemoryActivationPlan is the resolved dry-run output for a host-native
 // activation. Markdown is the content that would be written to TargetPath.
+//
+// For two-file targets (Claude / Gemini) the top-level fields describe the
+// host context file so codex JSON consumers continue to see the same shape;
+// component-level details for both files are exposed through HostContext and
+// ExternalMemory so callers that understand the pair contract can render
+// per-file diffs and apply paths.
 type MemoryActivationPlan struct {
 	Target         MemoryBridgeTarget
 	TargetPath     string
@@ -24,6 +30,23 @@ type MemoryActivationPlan struct {
 	Existing       bool
 	Diff           string
 	ActivatedCount int
+	HostContext    *MemoryActivationComponent
+	ExternalMemory *MemoryActivationComponent
+}
+
+// MemoryActivationComponent is the per-file plan inside a two-file
+// activation pair (host context stub + external memory file). Single-file
+// targets do not populate this type; two-file targets populate one
+// MemoryActivationComponent per file so callers see the planned content,
+// status, and diff for each file independently.
+type MemoryActivationComponent struct {
+	Path     string
+	Existing bool
+	Markdown string
+	Diff     string
+	Action   MemoryActivationApplyAction
+	State    MemoryActivationStatusState
+	Message  string
 }
 
 // MemoryActivationApplyAction summarizes the observable filesystem outcome of
@@ -73,6 +96,11 @@ func (s MemoryActivationStatusState) String() string { return string(s) }
 
 // MemoryActivationStatusResult is the read-only activation health view used by
 // `memory activate --status` and doctor.
+//
+// For two-file targets the top-level State is the aggregated pair state per
+// the v0.13 ADR (invalid > missing > stale > in_sync), and the per-file
+// HostContext / ExternalMemory components carry the underlying state and
+// path so doctor can give actionable remediation without reparsing files.
 type MemoryActivationStatusResult struct {
 	Target         MemoryBridgeTarget
 	TargetPath     string
@@ -81,4 +109,6 @@ type MemoryActivationStatusResult struct {
 	Existing       bool
 	ActivatedCount int
 	Message        string
+	HostContext    *MemoryActivationComponent
+	ExternalMemory *MemoryActivationComponent
 }

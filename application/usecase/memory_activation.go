@@ -28,7 +28,7 @@ func (u *memoryActivationUsecase) writer() activationFileWriter {
 }
 
 func (u *memoryActivationUsecase) Plan(ctx context.Context, criteria apptypes.MemoryActivationCriteria) (apptypes.MemoryActivationPlan, error) {
-	targetPath, err := resolveMemoryActivationTargetPath(criteria)
+	resolution, err := resolveMemoryActivationTargetResolution(criteria)
 	if err != nil {
 		return apptypes.MemoryActivationPlan{}, err
 	}
@@ -38,8 +38,12 @@ func (u *memoryActivationUsecase) Plan(ctx context.Context, criteria apptypes.Me
 		return apptypes.MemoryActivationPlan{}, err
 	}
 
+	if resolution.IsTwoFile() {
+		return u.planTwoFile(criteria, resolution, exportResult), nil
+	}
+
 	writer := u.writer()
-	existing, exists, err := writer.ReadIfExists(targetPath)
+	existing, exists, err := writer.ReadIfExists(resolution.HostContextPath)
 	if err != nil {
 		return apptypes.MemoryActivationPlan{}, xerrors.Errorf("failed to load activation target for plan: %w", err)
 	}
@@ -49,12 +53,12 @@ func (u *memoryActivationUsecase) Plan(ctx context.Context, criteria apptypes.Me
 	}
 	diff := ""
 	if criteria.Diff && exists && existing != planned {
-		diff = renderActivationDiff(targetPath, existing, planned)
+		diff = renderActivationDiff(resolution.HostContextPath, existing, planned)
 	}
 
 	return apptypes.MemoryActivationPlan{
 		Target:         criteria.Target,
-		TargetPath:     targetPath,
+		TargetPath:     resolution.HostContextPath,
 		Scopes:         exportResult.Scopes,
 		Markdown:       planned,
 		Existing:       exists,
@@ -64,9 +68,13 @@ func (u *memoryActivationUsecase) Plan(ctx context.Context, criteria apptypes.Me
 }
 
 func (u *memoryActivationUsecase) Apply(ctx context.Context, criteria apptypes.MemoryActivationCriteria) (apptypes.MemoryActivationApplyResult, error) {
-	targetPath, err := resolveMemoryActivationTargetPath(criteria)
+	resolution, err := resolveMemoryActivationTargetResolution(criteria)
 	if err != nil {
 		return apptypes.MemoryActivationApplyResult{}, err
+	}
+
+	if resolution.IsTwoFile() {
+		return apptypes.MemoryActivationApplyResult{}, xerrors.Errorf("memory activation --apply is not supported yet for target %s", criteria.Target)
 	}
 
 	exportResult, err := u.renderActivationBlock(ctx, criteria)
@@ -75,7 +83,7 @@ func (u *memoryActivationUsecase) Apply(ctx context.Context, criteria apptypes.M
 	}
 
 	writer := u.writer()
-	existing, exists, err := writer.ReadIfExists(targetPath)
+	existing, exists, err := writer.ReadIfExists(resolution.HostContextPath)
 	if err != nil {
 		return apptypes.MemoryActivationApplyResult{}, xerrors.Errorf("failed to load activation target before apply: %w", err)
 	}
@@ -84,14 +92,14 @@ func (u *memoryActivationUsecase) Apply(ctx context.Context, criteria apptypes.M
 		return apptypes.MemoryActivationApplyResult{}, err
 	}
 	if action != apptypes.MemoryActivationApplyNoop {
-		if err := writer.WriteAtomic(targetPath, planned); err != nil {
+		if err := writer.WriteAtomic(resolution.HostContextPath, planned); err != nil {
 			return apptypes.MemoryActivationApplyResult{}, xerrors.Errorf("failed to apply activation target: %w", err)
 		}
 	}
 
 	return apptypes.MemoryActivationApplyResult{
 		Target:         criteria.Target,
-		TargetPath:     targetPath,
+		TargetPath:     resolution.HostContextPath,
 		Scopes:         exportResult.Scopes,
 		Action:         action,
 		Existing:       exists,
@@ -100,7 +108,7 @@ func (u *memoryActivationUsecase) Apply(ctx context.Context, criteria apptypes.M
 }
 
 func (u *memoryActivationUsecase) Status(ctx context.Context, criteria apptypes.MemoryActivationCriteria) (apptypes.MemoryActivationStatusResult, error) {
-	targetPath, err := resolveMemoryActivationTargetPath(criteria)
+	resolution, err := resolveMemoryActivationTargetResolution(criteria)
 	if err != nil {
 		return apptypes.MemoryActivationStatusResult{}, err
 	}
@@ -109,21 +117,26 @@ func (u *memoryActivationUsecase) Status(ctx context.Context, criteria apptypes.
 	if err != nil {
 		return apptypes.MemoryActivationStatusResult{}, err
 	}
+
+	if resolution.IsTwoFile() {
+		return u.statusTwoFile(criteria, resolution, exportResult), nil
+	}
+
 	result := apptypes.MemoryActivationStatusResult{
 		Target:         criteria.Target,
-		TargetPath:     targetPath,
+		TargetPath:     resolution.HostContextPath,
 		Scopes:         exportResult.Scopes,
 		ActivatedCount: exportResult.ExportedCount,
 	}
 
 	writer := u.writer()
-	if _, _, err := writer.Inspect(targetPath); err != nil {
+	if _, _, err := writer.Inspect(resolution.HostContextPath); err != nil {
 		result.State = apptypes.MemoryActivationStatusInvalid
 		result.Message = err.Error()
 		return result, nil
 	}
 
-	existing, exists, err := writer.ReadIfExists(targetPath)
+	existing, exists, err := writer.ReadIfExists(resolution.HostContextPath)
 	if err != nil {
 		result.State = apptypes.MemoryActivationStatusInvalid
 		result.Message = err.Error()
@@ -156,6 +169,132 @@ func (u *memoryActivationUsecase) Status(ctx context.Context, criteria apptypes.
 	return result, nil
 }
 
+func (u *memoryActivationUsecase) planTwoFile(criteria apptypes.MemoryActivationCriteria, resolution activationTargetResolution, exportResult apptypes.MemoryExportResult) apptypes.MemoryActivationPlan {
+	planner := &importStubActivationPlanner{fileWriter: u.fileWriter}
+	pair := planner.Plan(importStubActivationCriteria{
+		Target:             criteria.Target,
+		HostContextPath:    resolution.HostContextPath,
+		ExternalMemoryPath: resolution.ExternalMemoryPath,
+		ImportPath:         resolution.ImportPath,
+		ExternalMarkdown:   exportResult.Markdown,
+		Scopes:             exportResult.Scopes,
+		ActivatedCount:     exportResult.ExportedCount,
+		Diff:               criteria.Diff,
+	})
+	host := componentFromPlan(pair.HostContext)
+	external := componentFromPlan(pair.ExternalMemory)
+	plan := apptypes.MemoryActivationPlan{
+		Target:         criteria.Target,
+		TargetPath:     resolution.HostContextPath,
+		Scopes:         exportResult.Scopes,
+		Markdown:       pair.HostContext.Markdown,
+		Existing:       pair.HostContext.Existing,
+		Diff:           strings.Join(pair.orderedDiffs(), "\n"),
+		ActivatedCount: exportResult.ExportedCount,
+		HostContext:    &host,
+		ExternalMemory: &external,
+	}
+	return plan
+}
+
+func (u *memoryActivationUsecase) statusTwoFile(criteria apptypes.MemoryActivationCriteria, resolution activationTargetResolution, exportResult apptypes.MemoryExportResult) apptypes.MemoryActivationStatusResult {
+	planner := &importStubActivationPlanner{fileWriter: u.fileWriter}
+	pair := planner.Plan(importStubActivationCriteria{
+		Target:             criteria.Target,
+		HostContextPath:    resolution.HostContextPath,
+		ExternalMemoryPath: resolution.ExternalMemoryPath,
+		ImportPath:         resolution.ImportPath,
+		ExternalMarkdown:   exportResult.Markdown,
+		Scopes:             exportResult.Scopes,
+		ActivatedCount:     exportResult.ExportedCount,
+	})
+	host := componentFromPlan(pair.HostContext)
+	external := componentFromPlan(pair.ExternalMemory)
+	state := aggregateTwoFileStatus(host.State, external.State)
+	return apptypes.MemoryActivationStatusResult{
+		Target:         criteria.Target,
+		TargetPath:     resolution.HostContextPath,
+		Scopes:         exportResult.Scopes,
+		State:          state,
+		Existing:       pair.HostContext.Existing,
+		ActivatedCount: exportResult.ExportedCount,
+		Message:        statusMessageForPair(state, host, external),
+		HostContext:    &host,
+		ExternalMemory: &external,
+	}
+}
+
+// componentFromPlan maps the planner's per-file result onto the public
+// MemoryActivationComponent type so callers outside the usecase package
+// can consume the per-file diff and state without reaching into the
+// internal planner type.
+func componentFromPlan(plan activationComponentPlan) apptypes.MemoryActivationComponent {
+	return apptypes.MemoryActivationComponent{
+		Path:     plan.Path,
+		Existing: plan.Existing,
+		Markdown: plan.Markdown,
+		Diff:     plan.Diff,
+		Action:   plan.Action,
+		State:    plan.Status,
+		Message:  plan.Message,
+	}
+}
+
+// aggregateTwoFileStatus collapses the per-file states into the pair
+// state documented in the v0.13 ADR. The priority is invalid → missing
+// → stale → in_sync; any in-sync value short-circuits only when both
+// components are in sync.
+func aggregateTwoFileStatus(host apptypes.MemoryActivationStatusState, external apptypes.MemoryActivationStatusState) apptypes.MemoryActivationStatusState {
+	if host == apptypes.MemoryActivationStatusInvalid || external == apptypes.MemoryActivationStatusInvalid {
+		return apptypes.MemoryActivationStatusInvalid
+	}
+	if host == apptypes.MemoryActivationStatusMissing || external == apptypes.MemoryActivationStatusMissing {
+		return apptypes.MemoryActivationStatusMissing
+	}
+	if host == apptypes.MemoryActivationStatusStale || external == apptypes.MemoryActivationStatusStale {
+		return apptypes.MemoryActivationStatusStale
+	}
+	return apptypes.MemoryActivationStatusInSync
+}
+
+func statusMessageForPair(state apptypes.MemoryActivationStatusState, host, external apptypes.MemoryActivationComponent) string {
+	switch state {
+	case apptypes.MemoryActivationStatusInSync:
+		return "activation pair is in sync"
+	case apptypes.MemoryActivationStatusInvalid:
+		if external.Message != "" && external.State == apptypes.MemoryActivationStatusInvalid {
+			return fmt.Sprintf("external memory file invalid: %s", external.Message)
+		}
+		if host.Message != "" {
+			return fmt.Sprintf("host context file invalid: %s", host.Message)
+		}
+		return "activation pair is invalid"
+	case apptypes.MemoryActivationStatusMissing:
+		switch {
+		case host.State == apptypes.MemoryActivationStatusMissing && external.State == apptypes.MemoryActivationStatusMissing:
+			return "host context import stub and external memory file are missing"
+		case host.State == apptypes.MemoryActivationStatusMissing:
+			return "host context import stub is missing"
+		case external.State == apptypes.MemoryActivationStatusMissing:
+			return "external memory file is missing"
+		default:
+			return "activation pair is missing"
+		}
+	case apptypes.MemoryActivationStatusStale:
+		switch {
+		case host.State == apptypes.MemoryActivationStatusStale && external.State == apptypes.MemoryActivationStatusStale:
+			return "host context import stub and external memory file are stale"
+		case host.State == apptypes.MemoryActivationStatusStale:
+			return "host context import stub is stale"
+		case external.State == apptypes.MemoryActivationStatusStale:
+			return "external memory file is stale"
+		default:
+			return "activation pair is stale"
+		}
+	}
+	return ""
+}
+
 func (u *memoryActivationUsecase) renderActivationBlock(ctx context.Context, criteria apptypes.MemoryActivationCriteria) (apptypes.MemoryExportResult, error) {
 	return (&memoryExportUsecase{memoryQuery: u.memoryQuery}).Export(ctx, apptypes.MemoryExportCriteria{
 		Target:        criteria.Target,
@@ -164,19 +303,20 @@ func (u *memoryActivationUsecase) renderActivationBlock(ctx context.Context, cri
 	})
 }
 
-// resolveMemoryActivationTargetPath dispatches the criteria to the
-// host-specific descriptor and returns the absolute file path the
-// activation usecase will manage.
-func resolveMemoryActivationTargetPath(criteria apptypes.MemoryActivationCriteria) (string, error) {
+// resolveMemoryActivationTargetResolution dispatches the criteria to the
+// host-specific descriptor and returns the resolved file path(s). For
+// single-file targets only HostContextPath is populated; two-file
+// targets fill ExternalMemoryPath and ImportPath as well.
+func resolveMemoryActivationTargetResolution(criteria apptypes.MemoryActivationCriteria) (activationTargetResolution, error) {
 	target, err := resolveActivationTarget(criteria.Target)
 	if err != nil {
-		return "", err
+		return activationTargetResolution{}, err
 	}
-	path, err := target.ResolvePath(criteria)
+	resolution, err := target.Resolve(criteria)
 	if err != nil {
-		return "", xerrors.Errorf("failed to resolve %s activation target path: %w", criteria.Target, err)
+		return activationTargetResolution{}, xerrors.Errorf("failed to resolve %s activation target: %w", criteria.Target, err)
 	}
-	return path, nil
+	return resolution, nil
 }
 
 func renderActivationDiff(path string, existing string, planned string) string {

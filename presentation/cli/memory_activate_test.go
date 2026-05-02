@@ -365,6 +365,291 @@ func assertMemoryStatusCall(t *testing.T, stub *memoryUsecaseStub, wantIncludeGl
 	}
 }
 
+func TestRootCLI_MemoryActivateClaudeDryRunRendersComponents(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	hostPath := filepath.Join(root, "CLAUDE.md")
+	externalPath := filepath.Join(root, ".traceary", "memories", "claude.md")
+	memoryStub := &memoryUsecaseStub{
+		activationPlan: apptypes.MemoryActivationPlan{
+			Target:     apptypes.MemoryBridgeTargetClaude,
+			TargetPath: hostPath,
+			HostContext: &apptypes.MemoryActivationComponent{
+				Path:     hostPath,
+				Existing: false,
+				Markdown: "<!-- traceary-memory-import:begin:v1 -->\n@./.traceary/memories/claude.md\n<!-- traceary-memory-import:end -->\n",
+				Action:   apptypes.MemoryActivationApplyCreated,
+				State:    apptypes.MemoryActivationStatusMissing,
+			},
+			ExternalMemory: &apptypes.MemoryActivationComponent{
+				Path:     externalPath,
+				Existing: false,
+				Markdown: "<!-- traceary-memories:begin:v1 -->\nplanned\n<!-- traceary-memories:end -->\n",
+				Action:   apptypes.MemoryActivationApplyCreated,
+				State:    apptypes.MemoryActivationStatusMissing,
+			},
+		},
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "activate",
+		"--target", "claude",
+		"--root", root,
+		"--workspace", "github.com/duck8823/traceary",
+		"--dry-run",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	out := stdout.String()
+	for _, want := range []string{
+		"target: claude",
+		"external_memory: " + externalPath,
+		"host_context: " + hostPath,
+		"# external memory plan",
+		"# host context plan",
+		"@./.traceary/memories/claude.md",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stdout missing %q: %q", want, out)
+		}
+	}
+	if len(memoryStub.activationPlanCalls) != 1 {
+		t.Fatalf("activation plan calls = %d, want 1", len(memoryStub.activationPlanCalls))
+	}
+	if memoryStub.activationPlanCalls[0].Target != apptypes.MemoryBridgeTargetClaude {
+		t.Fatalf("Target = %q, want claude", memoryStub.activationPlanCalls[0].Target)
+	}
+}
+
+func TestRootCLI_MemoryActivateClaudeDryRunDiffOrdersExternalFirst(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	hostPath := filepath.Join(root, "CLAUDE.md")
+	externalPath := filepath.Join(root, ".traceary", "memories", "claude.md")
+	memoryStub := &memoryUsecaseStub{
+		activationPlan: apptypes.MemoryActivationPlan{
+			Target:     apptypes.MemoryBridgeTargetClaude,
+			TargetPath: hostPath,
+			Diff:       "--- " + externalPath + "\n+++ " + externalPath + " (planned)\n--- " + hostPath + "\n+++ " + hostPath + " (planned)\n",
+			HostContext: &apptypes.MemoryActivationComponent{
+				Path:     hostPath,
+				Existing: true,
+				Diff:     "--- " + hostPath + "\n+++ " + hostPath + " (planned)\n",
+				State:    apptypes.MemoryActivationStatusStale,
+				Action:   apptypes.MemoryActivationApplyUpdated,
+			},
+			ExternalMemory: &apptypes.MemoryActivationComponent{
+				Path:     externalPath,
+				Existing: true,
+				Diff:     "--- " + externalPath + "\n+++ " + externalPath + " (planned)\n",
+				State:    apptypes.MemoryActivationStatusStale,
+				Action:   apptypes.MemoryActivationApplyUpdated,
+			},
+		},
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "activate",
+		"--target", "claude",
+		"--root", root,
+		"--workspace", "github.com/duck8823/traceary",
+		"--dry-run",
+		"--diff",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	out := stdout.String()
+	externalIdx := strings.Index(out, "# external memory diff")
+	hostIdx := strings.Index(out, "# host context diff")
+	if externalIdx < 0 || hostIdx < 0 || externalIdx >= hostIdx {
+		t.Fatalf("diff output must order external before host, externalIdx=%d hostIdx=%d out=%q", externalIdx, hostIdx, out)
+	}
+	if len(memoryStub.activationPlanCalls) != 1 {
+		t.Fatalf("activation plan calls = %d, want 1", len(memoryStub.activationPlanCalls))
+	}
+	if !memoryStub.activationPlanCalls[0].Diff {
+		t.Fatalf("plan call did not propagate Diff=true")
+	}
+}
+
+func TestRootCLI_MemoryActivateClaudeStatusJSONIncludesComponentsAndDryRunCommand(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	hostPath := filepath.Join(root, "CLAUDE.md")
+	externalPath := filepath.Join(root, ".traceary", "memories", "claude.md")
+	memoryStub := &memoryUsecaseStub{
+		activationStatus: apptypes.MemoryActivationStatusResult{
+			Target:         apptypes.MemoryBridgeTargetClaude,
+			TargetPath:     hostPath,
+			State:          apptypes.MemoryActivationStatusMissing,
+			Existing:       false,
+			ActivatedCount: 1,
+			Message:        "host context import stub and external memory file are missing",
+			HostContext: &apptypes.MemoryActivationComponent{
+				Path:  hostPath,
+				State: apptypes.MemoryActivationStatusMissing,
+			},
+			ExternalMemory: &apptypes.MemoryActivationComponent{
+				Path:  externalPath,
+				State: apptypes.MemoryActivationStatusMissing,
+			},
+		},
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "activate",
+		"--target", "claude",
+		"--root", root,
+		"--workspace", "github.com/duck8823/traceary",
+		"--status",
+		"--json",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	var payload struct {
+		Target         string `json:"target"`
+		TargetPath     string `json:"target_path"`
+		State          string `json:"state"`
+		ActivatedCount int    `json:"activated_count"`
+		DryRunCommand  string `json:"dry_run_command"`
+		ApplyCommand   string `json:"apply_command"`
+		HostContext    *struct {
+			Path  string `json:"path"`
+			State string `json:"state"`
+		} `json:"host_context"`
+		ExternalMemory *struct {
+			Path  string `json:"path"`
+			State string `json:"state"`
+		} `json:"external_memory"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("Unmarshal: %v\nstdout=%s", err, stdout.String())
+	}
+	if payload.Target != "claude" || payload.TargetPath != hostPath || payload.State != "missing" {
+		t.Fatalf("payload = %+v, want claude/missing", payload)
+	}
+	if payload.HostContext == nil || payload.HostContext.Path != hostPath || payload.HostContext.State != "missing" {
+		t.Fatalf("host_context = %+v, want missing component", payload.HostContext)
+	}
+	if payload.ExternalMemory == nil || payload.ExternalMemory.Path != externalPath || payload.ExternalMemory.State != "missing" {
+		t.Fatalf("external_memory = %+v, want missing component", payload.ExternalMemory)
+	}
+	if !strings.Contains(payload.DryRunCommand, "--target claude") || !strings.Contains(payload.DryRunCommand, "--dry-run --diff") {
+		t.Fatalf("dry_run_command = %q, want claude dry-run command", payload.DryRunCommand)
+	}
+	if payload.ApplyCommand != "" {
+		t.Fatalf("apply_command = %q, want empty for claude (apply unsupported until #893)", payload.ApplyCommand)
+	}
+}
+
+func TestRootCLI_MemoryActivateClaudeStatusTextOmitsApplyRemediation(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	hostPath := filepath.Join(root, "CLAUDE.md")
+	externalPath := filepath.Join(root, ".traceary", "memories", "claude.md")
+	memoryStub := &memoryUsecaseStub{
+		activationStatus: apptypes.MemoryActivationStatusResult{
+			Target:         apptypes.MemoryBridgeTargetClaude,
+			TargetPath:     hostPath,
+			State:          apptypes.MemoryActivationStatusMissing,
+			Existing:       false,
+			ActivatedCount: 1,
+			Message:        "host context import stub and external memory file are missing",
+			HostContext: &apptypes.MemoryActivationComponent{
+				Path:  hostPath,
+				State: apptypes.MemoryActivationStatusMissing,
+			},
+			ExternalMemory: &apptypes.MemoryActivationComponent{
+				Path:  externalPath,
+				State: apptypes.MemoryActivationStatusMissing,
+			},
+		},
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "activate",
+		"--target", "claude",
+		"--root", root,
+		"--workspace", "github.com/duck8823/traceary",
+		"--status",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "next_dry_run:") {
+		t.Fatalf("stdout missing next_dry_run remediation: %q", out)
+	}
+	if strings.Contains(out, "next_apply:") {
+		t.Fatalf("stdout must omit next_apply for claude (apply unsupported until #893): %q", out)
+	}
+}
+
+func TestRootCLI_MemoryActivateClaudeApplyRefused(t *testing.T) {
+	t.Parallel()
+
+	memoryStub := &memoryUsecaseStub{}
+	stderr := &bytes.Buffer{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(stderr)
+	rootCmd.SetArgs([]string{
+		"memory", "activate",
+		"--target", "claude",
+		"--apply",
+	})
+
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatalf("expected --target claude --apply to be refused")
+	}
+	if !strings.Contains(err.Error(), "not supported yet") {
+		t.Fatalf("err = %v, want claude apply refusal", err)
+	}
+	if len(memoryStub.activationCalls) != 0 || len(memoryStub.activationPlanCalls) != 0 || len(memoryStub.activationStatusCalls) != 0 {
+		t.Fatalf("memory usecase should not be invoked when apply is refused: plan=%d apply=%d status=%d",
+			len(memoryStub.activationPlanCalls), len(memoryStub.activationCalls), len(memoryStub.activationStatusCalls))
+	}
+}
+
 func assertMemoryApplyCall(t *testing.T, stub *memoryUsecaseStub, wantIncludeGlobal bool) {
 	t.Helper()
 	if len(stub.activationCalls) != 1 {

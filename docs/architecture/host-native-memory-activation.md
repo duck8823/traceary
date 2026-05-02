@@ -128,6 +128,13 @@ JSON output should expose component-level details for the host context file and 
 
 Host import visibility is an implementation-readiness gate, not only a release dogfood task. The first Claude/Gemini read-only PRs must include a smoke test or recorded manual verification that the host resolves the planned import path; the apply PRs must stay draft/blocked until that evidence exists.
 
+For Claude, the v0.13.0-4 read-only PR records that evidence in two artefacts that together stand in for a flaky live launch:
+
+- `application/usecase/claude_import_readiness_internal_test.go` pins the rendered import line, marker layout, and external-file resolution to the exact form Claude's official memory documentation specifies (`@<relative-path>` resolved against the directory containing `CLAUDE.md`). It runs in CI, so a refactor cannot silently move the import path.
+- `scripts/smoke_test_claude_activation.sh` materialises a temp project (`.git`, `CLAUDE.md`, `.traceary/memories/claude.md`) using the live `traceary memory activate --target claude --dry-run --json` plan. By default it removes the temp project after the structural check; set `TRACEARY_KEEP_SMOKE_TEMP=1` to retain it and launch `claude` from that directory for a manual runtime probe. The live launch is gated behind `TRACEARY_ENABLE_CLAUDE_RUNTIME_SMOKE=1` because Claude Code's first-time external-import approval dialog and authentication state make an unattended runtime probe non-deterministic.
+
+The Claude `--apply` PR (#893) must keep the live runtime evidence in scope: either a maintainer-recorded `smoke_test_claude_activation.sh` run with `TRACEARY_ENABLE_CLAUDE_RUNTIME_SMOKE=1` attached to the PR, or an updated ADR explaining why an alternative gate is acceptable.
+
 ## Apply semantics
 
 `--status` and `--dry-run` are read-only. `--apply` is the only mutating mode.
