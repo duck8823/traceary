@@ -74,7 +74,7 @@ func (u *memoryActivationUsecase) Apply(ctx context.Context, criteria apptypes.M
 		return apptypes.MemoryActivationApplyResult{}, err
 	}
 	if action != apptypes.MemoryActivationApplyNoop {
-		if err := writeActivationTargetAtomic(targetPath, planned, exists); err != nil {
+		if err := writeActivationTargetAtomic(targetPath, planned); err != nil {
 			return apptypes.MemoryActivationApplyResult{}, err
 		}
 	}
@@ -297,7 +297,7 @@ func appendManagedBlock(existing string, managedBlock string) string {
 	return existing + managedBlock
 }
 
-func writeActivationTargetAtomic(path string, content string, existed bool) error {
+func writeActivationTargetAtomic(path string, content string) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return xerrors.Errorf("failed to create activation target directory %s: %w", dir, err)
