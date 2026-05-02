@@ -5,6 +5,21 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.13.0] - 2026-05-03
+
+### Added
+- **Claude Code host-native activation (#892, #893)** — `traceary memory activate --target claude` が、`CLAUDE.md` 内の managed import stub と `.traceary/memories/claude.md` 内の accepted memory からなる二ファイル activation pair を plan / diff / status 表示し、明示 `--apply` で適用できるようになりました。`traceary doctor --client claude` も同じ status と dry-run/apply remediation を表示し、構造 smoke test は初回 apply、冪等な再 apply、最終 `in_sync`、doctor pass を検証します。
+- **Gemini CLI host-native activation (#894, #895)** — `traceary memory activate --target gemini` が、`GEMINI.md` と `.traceary/memories/gemini.md` に対して Claude と同じ read-only status / dry-run / diff / 明示 apply workflow を提供します。apply は user-authored な host context と Gemini が所有する `## Gemini Added Memories` content を保持し、`traceary doctor --client gemini` は actionable な activation check を表示します。
+- **Activation target contract と docs (#889, #896)** — 新しい host-native activation ADR で、Claude/Gemini の path、import-stub marker layout、status state、安全ルール、`.gitignore` policy、却下した代替案、release sub-issue sequence を定義しました。memory / CLI / integration docs は、Codex・Claude・Gemini を横断する 1 つの workflow として activation を説明します。
+
+### Changed
+- **共通 activation infrastructure (#890, #891)** — marker parsing、managed-region replacement、host target resolution、安全な activation file I/O を host 非依存の primitive に整理しました。二ファイル planner は host context stub と external memory file それぞれの action / status / diff を追跡し、external memory file を先に書き、symlink / directory / newer marker などの unsafe target を拒否し、冪等に動作します。
+- **Activation workflow の dogfooding 証跡 (#896)** — release-prep docs に、Claude / Gemini の一時 fixture で `status -> dry-run --diff -> apply -> apply -> status -> doctor` を通した dogfood 結果を記録しました。Codex activation の挙動は v0.12.0 から変更ありません。
+
+### Notes
+- v0.13.0 は、v0.12 の Codex activation contract を維持しながら Claude Code / Gemini CLI の host-native activation を完成させる minor release です。
+- Claude / Gemini の live runtime probe は、host authentication と初回 import approval が環境依存であるため、引き続き `TRACEARY_ENABLE_CLAUDE_RUNTIME_SMOKE=1` / `TRACEARY_ENABLE_GEMINI_RUNTIME_SMOKE=1` による opt-in です。default の smoke / dogfood path は、Traceary 側の決定論的な file planning、apply、冪等性、preservation、doctor behavior を検証します。
+
 ## [v0.12.0] - 2026-05-02
 
 ### Added
