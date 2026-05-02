@@ -40,6 +40,16 @@ func TestClassifyExtractionNoise(t *testing.T) {
 		{name: "make build command", fact: "make build", want: []string{"standalone_command"}},
 		{name: "gh pr list command", fact: "gh pr list --state open", want: []string{"standalone_command"}},
 		{name: "cd command", fact: "cd /tmp", want: []string{"standalone_command"}},
+		{name: "docker compose pull command", fact: "docker-compose pull", want: []string{"standalone_command"}},
+		{name: "kubectl apply command", fact: "kubectl apply -f deploy.yaml", want: []string{"standalone_command"}},
+		// Prose that *starts with* a command token must remain visible — these
+		// are explanations of what the command does, not command lines (#857).
+		{name: "git pull infinitive prose", fact: "git pull to keep local branches current", want: nil},
+		{name: "git pull purpose prose", fact: "git pull for daily upstream sync", want: nil},
+		{name: "go test platform prose", fact: "go test on macOS only", want: nil},
+		{name: "make build origin prose", fact: "make build from a clean working tree", want: nil},
+		{name: "claude command with prose", fact: "claude with prompt caching saves tokens", want: nil},
+		{name: "npm install role prose", fact: "npm install as a postinstall step", want: nil},
 
 		// Review-only conclusions
 		{name: "must findings none", fact: "MUST findings: none", want: []string{"review_conclusion"}},
@@ -71,12 +81,21 @@ func TestClassifyExtractionNoise(t *testing.T) {
 		{name: "going to investigate", fact: "Going to investigate the failure", want: []string{"work_declaration"}},
 		{name: "i need to update", fact: "I need to update the config", want: []string{"work_declaration"}},
 		{name: "japanese korekara", fact: "これから foo を実装します", want: []string{"work_declaration"}},
+		{name: "japanese tsugi work", fact: "次はテストを実行します", want: []string{"work_declaration"}},
+		{name: "japanese imakara work", fact: "今から PR をドラフトで開きます", want: []string{"work_declaration"}},
 		// Work-declaration prefixes paired with a durable signal must NOT be hidden
 		{name: "lets use durable choice", fact: "Let's use ContextUsecase for handoff output", want: nil},
 		{name: "ill prefer durable choice", fact: "I'll prefer Go over Python in this codebase", want: nil},
 		{name: "i will adopt durable choice", fact: "I will adopt the new linter config across all repos", want: nil},
 		{name: "i need to always", fact: "I need to always run gofmt before committing", want: nil},
 		{name: "let me never", fact: "Let me never push directly to main again", want: nil},
+		// Japanese durable preferences / requests must NOT be hidden even
+		// when the line begins with a work-declaration prefix (#857).
+		{name: "japanese korekara preference visible", fact: "これから日本語で回答してほしい", want: nil},
+		{name: "japanese korekara request visible", fact: "これから慎重にレビューしてください", want: nil},
+		{name: "japanese tsugi must visible", fact: "次は必ず PR レビューを通す", want: nil},
+		{name: "japanese korekara always visible", fact: "これから常に Codex でレビューする", want: nil},
+		{name: "japanese korekara wish visible", fact: "これから日本語での応答を希望", want: nil},
 
 		// Transient PR / Round chatter
 		{name: "round 3", fact: "Round 3:", want: []string{"transient_pr_round"}},
@@ -128,6 +147,14 @@ func TestIsStandaloneCommand_RejectsProseSentences(t *testing.T) {
 		{name: "make fails on platform", fact: "make build fails on Windows"},
 		{name: "git uses flag", fact: "git uses --ff-only in CI"},
 		{name: "node depends on lock file", fact: "node depends on package-lock.json being committed"},
+		// Newly classified prose: command-prefix followed by a preposition
+		// strongly signals an explanation rather than an executable line.
+		{name: "git pull infinitive", fact: "git pull to keep local branches current"},
+		{name: "go test purpose", fact: "go test for the integration suite"},
+		{name: "claude on platform", fact: "claude on macOS uses Keychain by default"},
+		{name: "npm install with prose", fact: "npm install with --legacy-peer-deps when conflicts arise"},
+		{name: "docker run as role", fact: "docker run as the entrypoint of CI"},
+		{name: "make build until", fact: "make build until it reproduces the failure"},
 	}
 
 	for _, tc := range cases {

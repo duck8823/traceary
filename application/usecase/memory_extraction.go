@@ -501,6 +501,8 @@ func hasDurableSignalMarker(value string) bool {
 		"学び",
 		"必須",
 		"必要",
+		"必ず",
+		"常に",
 		"次回",
 		"再起動",
 		"確認済み",
@@ -509,6 +511,15 @@ func hasDurableSignalMarker(value string) bool {
 		"記憶",
 		"今後",
 		"以後",
+		// Japanese preference / request markers — durable signals equivalent
+		// to English "please / prefer / want X to". They override the
+		// work-declaration prefix so durable preferences like
+		// "これから日本語で回答してほしい" stay visible (#857).
+		"してほしい",
+		"してください",
+		"好み",
+		"要望",
+		"希望",
 	)
 }
 

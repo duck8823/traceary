@@ -87,8 +87,13 @@ var (
 		" can ", " could ", " should ", " would ", " might ", " may ", " must ", " will ", " shall ",
 		// Negations / temporal adverbs
 		" not ", " never ", " always ", " sometimes ", " often ", " rarely ", " usually ",
-		// Conjunctions
-		" because ", " therefore ", " however ", " although ", " though ", " unless ", " whereas ", " while ", " when ", " since ",
+		// Conjunctions and subordinators
+		" because ", " therefore ", " however ", " although ", " though ", " unless ", " whereas ", " while ", " when ", " since ", " until ", " before ", " after ",
+		// Prepositions that mark prose context (infinitives, purpose, platform,
+		// origin, accompaniment). These are very rare in real command lines
+		// because shell tokens are unquoted identifiers, flags, paths, or
+		// `KEY=VALUE` pairs — bare English prepositions almost never appear.
+		" to ", " for ", " on ", " from ", " with ", " of ", " into ", " as ", " than ",
 		// Descriptive verbs (3rd-person / past / gerund forms rarely appear in commands)
 		" require ", " requires ", " required ", " requiring ",
 		" need ", " needs ", " needed ", " needing ",
