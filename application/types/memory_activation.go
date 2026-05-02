@@ -31,9 +31,12 @@ type MemoryActivationPlan struct {
 type MemoryActivationApplyAction string
 
 const (
+	// MemoryActivationApplyCreated means the activation target file was created.
 	MemoryActivationApplyCreated MemoryActivationApplyAction = "created"
+	// MemoryActivationApplyUpdated means an existing activation target changed.
 	MemoryActivationApplyUpdated MemoryActivationApplyAction = "updated"
-	MemoryActivationApplyNoop    MemoryActivationApplyAction = "noop"
+	// MemoryActivationApplyNoop means the activation target was already current.
+	MemoryActivationApplyNoop MemoryActivationApplyAction = "noop"
 )
 
 // String returns the canonical string form.
