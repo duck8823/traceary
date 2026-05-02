@@ -108,6 +108,12 @@ Since v0.11.0, the hook-driven session-end path (`traceary hook session <client>
 
 A length-based quality filter routes short candidates (under 20 runes; artifact refs are exempt) to `source=extracted-hidden` instead of `source=extracted`. The hidden rows stay in the store for audit but are skipped by the default `traceary memory inbox list` view; `--include-hidden` surfaces them.
 
+#### Context-boundary extraction
+
+`traceary memory extract` treats meaningful post-compact summaries and clear/reset-equivalent summary events as extraction inputs. Candidates from compact-summary style events use `source=compact-summary` and keep the originating event as evidence, so reviewers can inspect the exact host signal before accepting.
+
+Marker-only lifecycle signals such as `manual`, `clear`, `reset`, or hosts that only notify Traceary that context was cleared do not create candidates. In `memory extract --debug-signals --json`, those rows appear as `ignored` with `reason=marker_only_context_boundary` (or `pre_compact_snapshot` for pre-compact snapshots). Today Claude post-compact can provide summary text; clear/reset support depends on whether the host supplies a summary body. When a host only emits a marker, Traceary records/debugs the boundary but does not fabricate durable memory.
+
 ### Review path
 
 Use these once candidates have accumulated in the store and you need to

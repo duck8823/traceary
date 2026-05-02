@@ -108,6 +108,12 @@ v0.11.0 以降、hook 経由の session 終了 (`traceary hook session <client> 
 
 長さベースの quality filter により、短い候補 (20 rune 未満。artifact ref は除外) は `source=extracted` ではなく `source=extracted-hidden` で保存されます。hidden 行は audit 用に store に残りますが、`traceary memory inbox list` の既定 view には出ません。`--include-hidden` で surface できます。
 
+#### context boundary からの抽出
+
+`traceary memory extract` は、意味のある post-compact summary と clear/reset 相当の summary event を抽出入力として扱います。compact-summary 系 event からできた candidate は `source=compact-summary` になり、元 event を evidence として保持するため、accept 前に reviewer が実際の host signal を確認できます。
+
+`manual`、`clear`、`reset` のような marker-only lifecycle signal や、context が clear された事実だけを Traceary に通知する host からは candidate を作りません。`memory extract --debug-signals --json` では、これらは `ignored` かつ `reason=marker_only_context_boundary` として表示されます（pre-compact snapshot の場合は `pre_compact_snapshot`）。現時点では Claude の post-compact は summary text を渡せますが、clear/reset の support は host が summary body を提供できるかに依存します。host が marker だけを emit する場合、Traceary は boundary を記録・debug 表示しますが、durable memory を捏造しません。
+
 ### レビューする経路
 
 candidate が溜まってきて、accepted に昇格させる前に inbox を walk したいときは次を使います。
