@@ -378,7 +378,7 @@ durable memory inbox をレビューします。`list` は candidate memory を 
 
 ### `traceary memory import codex`
 
-ローカルの Codex memory layout（既定値は `~/.codex/memories/MEMORY.md`）から durable memory の candidate を取り込みます。今リリースでは handbook 相当の `MEMORY.md` のみを読み、`raw_memories.md` や `rollout_summaries/*` は対象外です。`## User preferences` / `## Reusable knowledge` / `## Failures and how to do differently` 配下の各 bullet が `source=imported` + `status=candidate` で記録され、evidence/artifact ref として元ファイル・行範囲が付与されます。scope は Codex の `applies_to: cwd=...` から解決し、ヒントが無い場合は `--workspace` flag の値を fallback に使います。取り込み時は既存の redaction rule を必ず通し、auto-accept は行いません。再実行は冪等で、同じ scope/fact の memory が既に存在する場合（rejected/superseded/expired を含むすべての状態）は duplicate として skip するため、一度 reject した memory が自動的に resurrect することはありません。
+ローカルの Codex memory layout（既定値は `~/.codex/memories` 配下の `*.md`）から durable memory の candidate を取り込みます。legacy `MEMORY.md` は handbook allow-list (`## User preferences` / `## Reusable knowledge` / `## Failures and how to do differently`) を維持し、それ以外の Markdown shard は任意の見出し配下の bullet/list item を取り込みます。各 bullet が `source=imported` + `status=candidate` で記録され、evidence/artifact ref として元ファイル・行範囲が付与されます。scope は Codex の `applies_to: cwd=...` から解決し、ヒントが無い場合は `--workspace` flag の値を fallback に使います。取り込み時は既存の redaction rule を必ず通し、auto-accept は行いません。再実行は冪等で、同じ scope/fact の memory が既に存在する場合（rejected/superseded/expired を含むすべての状態）は duplicate として skip するため、一度 reject した memory が自動的に resurrect することはありません。
 
 主な flag:
 

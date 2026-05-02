@@ -205,13 +205,15 @@ scope groups under distinct headings. Use `--no-global` (or
 `include_global=false` over MCP) to preserve the old workspace-only
 filter; use `--include-global` to make the default explicit.
 
-Import reads the local Codex handbook (`~/.codex/memories/MEMORY.md` by
-default) and records each bullet under `## User preferences`, `## Reusable
-knowledge`, and `## Failures and how to do differently` as a `candidate`
-with `source=imported` plus file-level evidence/artifact refs. The sanitizer
-runs on every imported fact, nothing is auto-accepted, and dedupe walks
-every lifecycle status (including rejected) so memories the operator has
-already declined are never resurrected by a later import run.
+Import reads local Codex Markdown memories (`~/.codex/memories/*.md` by
+default). Legacy `MEMORY.md` keeps the handbook allow-list
+(`## User preferences`, `## Reusable knowledge`, and `## Failures and how to
+do differently`); additional Markdown shards import bullet/list items under
+any heading. Each row lands as a `candidate` with `source=imported` plus
+file-level evidence/artifact refs. The sanitizer runs on every imported fact,
+nothing is auto-accepted, and dedupe walks every lifecycle status (including
+rejected) so memories the operator has already declined are never resurrected
+by a later import run.
 
 ### Query path
 

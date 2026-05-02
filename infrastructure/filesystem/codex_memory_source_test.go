@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,6 +100,200 @@ func TestCodexMemorySource_LoadParsesSupportedSections(t *testing.T) {
 	}
 	if !strings.Contains(candidates[0].EvidenceRefs[0].Value(), "#L") {
 		t.Fatalf("evidence ref should include line range, got %q", candidates[0].EvidenceRefs[0].Value())
+	}
+}
+
+func TestCodexMemorySource_LoadParsesMultiFileLayout(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	root := filepath.Join(dir, "memories")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("mkdir memories: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "confluence-writing.md"), []byte(`# Confluence writing
+- Prefer short sections with explicit owners.
+* Link related Jira tickets from the summary.
+`), 0o600); err != nil {
+		t.Fatalf("write confluence: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "pr-title-format.md"), []byte(`# PR title format
+1. Prefix release issues with the version.
+2. Keep the title imperative.
+`), 0o600); err != nil {
+		t.Fatalf("write pr-title: %v", err)
+	}
+	nested := filepath.Join(root, "teams")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("mkdir nested: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "jira-ticket-creation-rules.md"), []byte(`## Ticket rules
+- Include acceptance criteria.
+`), 0o600); err != nil {
+		t.Fatalf("write nested: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "raw_memories.txt"), []byte("- ignored\n"), 0o600); err != nil {
+		t.Fatalf("write txt: %v", err)
+	}
+
+	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
+	if err != nil {
+		t.Fatalf("WorkspaceFrom: %v", err)
+	}
+	source := NewCodexMemorySource()
+	candidates, warnings, err := source.Load(context.Background(), apptypes.CodexImportCriteria{
+		Root:              root,
+		WorkspaceFallback: workspace,
+	})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	if len(candidates) != 5 {
+		t.Fatalf("expected 5 candidates from markdown shards, got %d", len(candidates))
+	}
+
+	gotFacts := make([]string, 0, len(candidates))
+	gotPaths := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		gotFacts = append(gotFacts, candidate.Fact)
+		gotPaths = append(gotPaths, filepath.Base(candidate.SourcePath))
+		if len(candidate.EvidenceRefs) != 1 || !strings.Contains(candidate.EvidenceRefs[0].Value(), "#L") {
+			t.Fatalf("candidate %q missing line-range evidence: %+v", candidate.Fact, candidate.EvidenceRefs)
+		}
+		if len(candidate.ArtifactRefs) != 1 || candidate.ArtifactRefs[0].Value() != candidate.SourcePath {
+			t.Fatalf("candidate %q missing source artifact: %+v", candidate.Fact, candidate.ArtifactRefs)
+		}
+		if candidate.Scope.Key() != "github.com/example/repo" {
+			t.Fatalf("candidate %q scope = %q, want workspace fallback", candidate.Fact, candidate.Scope.Key())
+		}
+	}
+	wantFacts := []string{
+		"Prefer short sections with explicit owners.",
+		"Link related Jira tickets from the summary.",
+		"Prefix release issues with the version.",
+		"Keep the title imperative.",
+		"Include acceptance criteria.",
+	}
+	for _, want := range wantFacts {
+		if !containsAny(gotFacts, want) {
+			t.Fatalf("missing fact %q in %v", want, gotFacts)
+		}
+	}
+	if gotPaths[0] != "confluence-writing.md" || gotPaths[2] != "pr-title-format.md" || gotPaths[4] != "jira-ticket-creation-rules.md" {
+		t.Fatalf("import order should be deterministic by path, got paths %v", gotPaths)
+	}
+	if candidates[2].MemoryType != domtypes.MemoryTypeConstraint {
+		t.Fatalf("pr-title-format.md should infer constraint memories, got %s", candidates[2].MemoryType)
+	}
+}
+
+func TestCodexMemorySource_LoadTreatsOnlyRootMemoryMDAsLegacy(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	root := filepath.Join(dir, "memories")
+	nested := filepath.Join(root, "teams")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("mkdir nested: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "memory.md"), []byte(`# Lowercase shard
+## Team-specific rules
+- Lowercase root shard should use generic parsing.
+`), 0o600); err != nil {
+		t.Fatalf("write lowercase shard: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "MEMORY.md"), []byte(`# Nested shard
+## Team-specific rules
+- Nested MEMORY.md should use generic parsing.
+`), 0o600); err != nil {
+		t.Fatalf("write nested MEMORY.md: %v", err)
+	}
+
+	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
+	if err != nil {
+		t.Fatalf("WorkspaceFrom: %v", err)
+	}
+	source := NewCodexMemorySource()
+	candidates, warnings, err := source.Load(context.Background(), apptypes.CodexImportCriteria{
+		Root:              root,
+		WorkspaceFallback: workspace,
+	})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	facts := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		facts = append(facts, candidate.Fact)
+	}
+	for _, want := range []string{
+		"Lowercase root shard should use generic parsing.",
+		"Nested MEMORY.md should use generic parsing.",
+	} {
+		if !containsAny(facts, want) {
+			t.Fatalf("missing fact %q in %v", want, facts)
+		}
+	}
+}
+
+func TestCodexMemorySource_LoadGenericShardPreservesCWDAcrossH1(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "project")
+	root := filepath.Join(dir, "memories")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("mkdir project: %v", err)
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("mkdir memories: %v", err)
+	}
+	content := "# First section\napplies_to: cwd=" + projectDir + "\n\n- First bullet keeps declared cwd.\n\n# Second section\n- Second bullet keeps the same cwd.\n"
+	if err := os.WriteFile(filepath.Join(root, "team-shard.md"), []byte(content), 0o600); err != nil {
+		t.Fatalf("write shard: %v", err)
+	}
+
+	source := NewCodexMemorySource()
+	candidates, warnings, err := source.Load(context.Background(), apptypes.CodexImportCriteria{Root: root})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	if len(candidates) != 2 {
+		t.Fatalf("candidates = %d, want 2", len(candidates))
+	}
+	for _, candidate := range candidates {
+		if candidate.Scope.Key() != projectDir {
+			t.Fatalf("candidate %q scope = %q, want cwd %q", candidate.Fact, candidate.Scope.Key(), projectDir)
+		}
+	}
+}
+
+func TestCodexMemorySource_LoadHonorsCancelledContextDuringDiscovery(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	root := filepath.Join(dir, "memories")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("mkdir memories: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes.md"), []byte("- ignored after cancellation\n"), 0o600); err != nil {
+		t.Fatalf("write notes: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	source := NewCodexMemorySource()
+	_, _, err := source.Load(ctx, apptypes.CodexImportCriteria{Root: root})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Load error = %v, want context.Canceled", err)
 	}
 }
 
@@ -250,6 +445,41 @@ func TestCodexMemorySource_LoadEmitsWarningForOversizedLine(t *testing.T) {
 	}
 	if len(warnings) == 0 {
 		t.Fatalf("expected a size-guard warning, got none")
+	}
+}
+
+func TestCodexMemorySource_LoadSkipsOversizedMarkdownFile(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	root := filepath.Join(dir, "memories")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("mkdir memories: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "large.md"), []byte(strings.Repeat("x", 128)), 0o600); err != nil {
+		t.Fatalf("write large: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "small.md"), []byte("- usable bullet\n"), 0o600); err != nil {
+		t.Fatalf("write small: %v", err)
+	}
+	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
+	if err != nil {
+		t.Fatalf("WorkspaceFrom: %v", err)
+	}
+
+	source := &codexMemorySource{maxBulletBytes: defaultCodexMaxBulletBytes, maxFileBytes: 32}
+	candidates, warnings, err := source.Load(context.Background(), apptypes.CodexImportCriteria{
+		Root:              root,
+		WorkspaceFallback: workspace,
+	})
+	if err != nil {
+		t.Fatalf("Load should not fail on oversized file, got %v", err)
+	}
+	if len(candidates) != 1 || candidates[0].Fact != "usable bullet" {
+		t.Fatalf("expected only small.md candidate, got %+v", candidates)
+	}
+	if len(warnings) == 0 || !strings.Contains(strings.Join(warnings, "\n"), "exceeds size guard") {
+		t.Fatalf("expected oversized-file warning, got %v", warnings)
 	}
 }
 
