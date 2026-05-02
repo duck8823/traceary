@@ -13,6 +13,22 @@ The Gemini package lives under `integrations/gemini-extension/`. Gemini CLI expe
 - slash commands: `/traceary-help` and `/traceary-doctor`
 - contextual skills: `traceary-session-history`, `traceary-memory-review`, and `traceary-memory-remember`. `traceary-memory-review` triggers on review-intent phrases ("Traceary inbox", "review memory candidates", "session recap") and curates the inbox; `traceary-memory-remember` triggers only on explicit-write phrases ("remember that", "覚えておいて"). The legacy `traceary-memory-capture` skill is retained as a deprecated stub (will be removed in v0.12).
 
+## Memory activation strategy
+
+Gemini integration in v0.12 uses Traceary's accepted memory store through MCP
+tools and instruction-file export. To make reviewed memories visible in Gemini
+instructions, export them into a Traceary-managed block:
+
+```sh
+traceary memory export --target gemini --out GEMINI.md
+```
+
+This is intentionally separate from Codex host-native activation. `traceary
+memory activate --target gemini` is **not implemented** in v0.12, and the
+extension does not write Gemini-native memory files. Follow-up #884 tracks a
+future safe Gemini-native activation path once the host-native surface and
+preview/feature-flag behavior are stable enough to target.
+
 ## Install
 
 1. Install the Traceary CLI first.

@@ -11,6 +11,16 @@ Claude 向け package は `integrations/claude-plugin/` にあり、repository r
 - `Bash` / `mcp__.*` / 組み込み tool matcher (`Read`, `NotebookRead`, `Edit`, `MultiEdit`, `Write`, `NotebookEdit`, `Grep`, `Glob`, `Agent`, `Task`, `TodoWrite`, `WebFetch`, `WebSearch`, `ExitPlanMode`) 向けの `PostToolUse` / `PostToolUseFailure` audit hook
 - slash command として使える `/traceary-help` と、文脈で自動適用される `traceary-session-history` / `traceary-memory-review` / `traceary-memory-remember` skill。`traceary-memory-review` は review 意図の発話 (「Traceary inbox」「review memory candidates」「session recap」など) で発火し inbox の curate を案内、`traceary-memory-remember` は明示 write 発話 (「覚えておいて」「remember that」など) のみで発火します。旧 `traceary-memory-capture` は deprecated stub として残存（v0.12 で削除予定）。
 
+## Memory activation strategy
+
+Claude integration の v0.12 は、Traceary の accepted memory store を MCP tools と instruction-file export 経由で使います。review 済み memory を Claude project instructions に見せるには、Traceary 管理ブロックとして export します。
+
+```sh
+traceary memory export --target claude --out CLAUDE.md
+```
+
+これは Codex host-native activation とは別の経路です。`traceary memory activate --target claude` は v0.12 では**未実装**で、Claude plugin は Claude-native memory file を書きません。Anthropic SDK loop を自前で持つ場合は experimental な [Anthropic native memory tool](./anthropic-memory-tool.ja.md) backend も使えますが、その store は curated な `memories` aggregate とは分離しています。将来の安全な Claude-native activation path は follow-up #883 で扱います。
+
 ## Install
 
 1. 先に Traceary CLI を入れます。

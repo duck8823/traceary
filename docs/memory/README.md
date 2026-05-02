@@ -224,6 +224,36 @@ it reports `missing`, `stale`, `in_sync`, or `invalid` and emits exact
 dry-run/apply commands when the Codex file needs to be created or refreshed.
 `traceary doctor --client codex` includes the same activation status.
 
+### Activation strategy by host
+
+Traceary uses three distinct layers:
+
+1. **Accepted memory store** — the local SQLite `memories` aggregate. This is
+   the source of truth for reviewed durable facts.
+2. **Instruction-file export** — deterministic markdown blocks written by
+   `traceary memory export --target <claude|codex|gemini>`. Export is the
+   portable path for hosts that consume project/user instruction files.
+3. **Host-native activation** — a host-specific file/write path that makes the
+   accepted store visible to that host's native memory system while preserving
+   user-authored content outside Traceary-managed blocks.
+
+v0.12 implements full host-native activation for **Codex** only:
+
+- `traceary memory activate --target codex --dry-run`
+- `traceary memory activate --target codex --status`
+- `traceary memory activate --target codex --apply`
+
+For **Claude**, the recommended v0.12 workflow remains Traceary MCP tools plus
+instruction-file export (`traceary memory export --target claude --out
+CLAUDE.md`) or the experimental Anthropic native memory-tool backend when you
+own the Anthropic SDK loop directly. `memory activate --target claude` is not
+implemented in v0.12; follow-up #883 tracks a future safe write path.
+
+For **Gemini**, the recommended v0.12 workflow is Traceary MCP/extension usage
+plus instruction-file export (`traceary memory export --target gemini --out
+GEMINI.md`). Gemini host-native activation writes are intentionally deferred;
+follow-up #884 tracks that work.
+
 Import reads local Codex Markdown memories (`~/.codex/memories/*.md` by
 default). Legacy `MEMORY.md` keeps the handbook allow-list
 (`## User preferences`, `## Reusable knowledge`, and `## Failures and how to

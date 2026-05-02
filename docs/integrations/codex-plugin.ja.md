@@ -44,6 +44,19 @@ traceary doctor --client codex --json
 - slash command: `/traceary:help`, `/traceary:doctor`
 - 文脈に効く skill: `traceary-session-history` / `traceary-memory-review` / `traceary-memory-remember`。`traceary-memory-review` は review 意図の発話 (「Traceary inbox」「review memory candidates」「session recap」など) で発火し inbox の curate を案内、`traceary-memory-remember` は明示 write 発話 (「覚えておいて」「remember that」など) のみで発火します。旧 `traceary-memory-capture` は deprecated stub として残存（v0.12 で削除予定）。
 
+## Memory activation strategy
+
+Codex は v0.12 で full Traceary host-native activation を持つ最初のホストです。accepted memory は引き続き Traceary の SQLite store を source of truth とし、activation command は Codex memory target（既定は `~/.codex/memories/traceary.md`）へ Traceary 管理ブロックだけを書きます。
+
+```sh
+traceary memory activate --target codex --dry-run --diff
+traceary memory activate --target codex --status
+traceary memory activate --target codex --apply
+traceary doctor --client codex --json
+```
+
+apply path は必要に応じて target directory/file を作成し、管理ブロック外の user-authored content を保持します。accepted memory set が変わっていなければ冪等に no-op となり、新しい marker version の管理ブロックは上書きしません。
+
 ## 更新
 
 リポジトリを更新して、次回 Codex が `/plugins` をリフレッシュした時に新しいバージョンを取り込みます。

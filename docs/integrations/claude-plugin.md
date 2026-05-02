@@ -11,6 +11,24 @@ The Claude package lives under `integrations/claude-plugin/` and is published th
 - `PostToolUse` / `PostToolUseFailure` audit hooks for `Bash`, `mcp__.*`, and the built-in tool matcher (`Read`, `NotebookRead`, `Edit`, `MultiEdit`, `Write`, `NotebookEdit`, `Grep`, `Glob`, `Agent`, `Task`, `TodoWrite`, `WebFetch`, `WebSearch`, `ExitPlanMode`)
 - slash-style skills: `/traceary-help` plus the contextual `traceary-session-history`, `traceary-memory-review`, and `traceary-memory-remember` skills. `traceary-memory-review` triggers on review-intent phrases ("Traceary inbox", "review memory candidates", "session recap") and curates the inbox; `traceary-memory-remember` triggers only on explicit-write phrases ("remember that", "覚えておいて") and writes durable memory directly. The legacy `traceary-memory-capture` skill is retained as a deprecated stub (will be removed in v0.12).
 
+## Memory activation strategy
+
+Claude integration in v0.12 uses Traceary's accepted memory store through MCP
+tools and instruction-file export. To make reviewed memories visible in Claude
+project instructions, export them into a Traceary-managed block:
+
+```sh
+traceary memory export --target claude --out CLAUDE.md
+```
+
+This is different from Codex host-native activation. `traceary memory activate
+--target claude` is **not implemented** in v0.12, and the Claude plugin does not
+write Claude-native memory files. If you own a direct Anthropic SDK loop, the
+experimental native memory-tool backend remains available via
+[`anthropic-memory-tool`](./anthropic-memory-tool.md), but that store is
+separate from the curated `memories` aggregate. Follow-up #883 tracks a future
+safe Claude-native activation path.
+
 ## Install
 
 1. Install the Traceary CLI first.
