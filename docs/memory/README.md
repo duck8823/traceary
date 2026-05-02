@@ -25,7 +25,7 @@ Every durable memory has a type, scope, status, confidence, evidence refs, and o
 - `candidate`: extracted or proposed memory that still needs review (the lifecycle status is always `candidate` — earlier docs sometimes used "proposed" interchangeably)
 - `accepted`: active memory that should be reused across sessions
 - `rejected`: candidate that should not be reused
-- `superseded`: older accepted memory replaced by a newer one
+- `superseded`: older accepted memory replaced by a newer one, or a reviewed candidate replaced by a distilled accepted fact
 - `expired`: memory that was valid for a limited period and is no longer active
 
 Only active accepted memories are returned by the default "active memory" paths.
@@ -91,6 +91,7 @@ Use these when a human or agent wants to record a fact deliberately:
 
 - `traceary memory remember`
 - `traceary memory propose`
+- `traceary memory distill`
 - `traceary memory accept`
 - `traceary memory reject`
 - `traceary memory supersede`
@@ -126,6 +127,25 @@ walk the inbox before anything is promoted to `accepted`:
 
 The review path is deliberately `candidate`-scoped so extraction and
 import feed the same inbox and a single reviewer pass can clear them.
+
+When one or more raw candidates are useful as evidence but are not suitable
+as accepted facts verbatim, use `traceary memory distill`. Distillation
+requires the operator to supply the final fact, type, and scope explicitly;
+Traceary does not perform LLM rewriting or auto-acceptance. The command
+creates a new accepted memory with the union of evidence refs and artifact
+refs from the source candidates, then handles the source candidates according
+to `--replace=keep|reject|supersede`.
+
+Example:
+
+```sh
+traceary memory distill \
+  --from memory-f332...,memory-7f83... \
+  --type constraint \
+  --workspace github.com/asahi-digital/delivery-platform \
+  --fact 'SNS Publish error mapping must not collapse operationally important AWS SDK v2 SNS errors to unknown.' \
+  --replace=supersede
+```
 
 ### Import path
 

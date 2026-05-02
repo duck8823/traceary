@@ -212,6 +212,119 @@ func (u *memoryUsecase) Accept(ctx context.Context, memoryID domtypes.MemoryID, 
 	return details, nil
 }
 
+func (u *memoryUsecase) Distill(ctx context.Context, criteria apptypes.MemoryDistillCriteria) (apptypes.MemoryDistillResult, error) {
+	if u.memoryRepo == nil {
+		return apptypes.MemoryDistillResult{}, xerrors.Errorf("memory repository is not configured")
+	}
+
+	sourceIDs := dedupeMemoryIDs(criteria.FromIDs())
+	if len(sourceIDs) == 0 {
+		return apptypes.MemoryDistillResult{}, xerrors.Errorf("distill requires at least one source candidate")
+	}
+	resolvedType, err := resolveRequiredMemoryType(criteria.MemoryType())
+	if err != nil {
+		return apptypes.MemoryDistillResult{}, err
+	}
+	resolvedScope, err := resolveRequiredMemoryScope(criteria.Scope())
+	if err != nil {
+		return apptypes.MemoryDistillResult{}, err
+	}
+	resolvedSource, err := resolveMemorySource(criteria.Source())
+	if err != nil {
+		return apptypes.MemoryDistillResult{}, err
+	}
+	resolvedConfidence, err := resolveAcceptedConfidence(criteria.Confidence())
+	if err != nil {
+		return apptypes.MemoryDistillResult{}, err
+	}
+	replace, err := resolveMemoryDistillReplace(criteria.Replace())
+	if err != nil {
+		return apptypes.MemoryDistillResult{}, err
+	}
+
+	sources := make([]*model.Memory, 0, len(sourceIDs))
+	evidenceRefs := make([]domtypes.EvidenceRef, 0)
+	artifactRefs := make([]domtypes.ArtifactRef, 0)
+	for _, sourceID := range sourceIDs {
+		memory, err := u.findMemoryByID(ctx, sourceID)
+		if err != nil {
+			return apptypes.MemoryDistillResult{}, err
+		}
+		if memory.Status() != domtypes.MemoryStatusCandidate {
+			return apptypes.MemoryDistillResult{}, xerrors.Errorf("distill source must be a candidate memory: %s", sourceID)
+		}
+		sources = append(sources, memory)
+		evidenceRefs = appendMemoryEvidenceRefs(evidenceRefs, memory.EvidenceRefs())
+		artifactRefs = appendMemoryArtifactRefs(artifactRefs, memory.ArtifactRefs())
+	}
+
+	fact, evidenceRefs, artifactRefs, err := u.sanitizeMemoryPayload(criteria.Fact(), evidenceRefs, artifactRefs)
+	if err != nil {
+		return apptypes.MemoryDistillResult{}, err
+	}
+	if err := requireAcceptedEvidenceRefs(evidenceRefs); err != nil {
+		return apptypes.MemoryDistillResult{}, err
+	}
+
+	newMemoryID, err := newMemoryID()
+	if err != nil {
+		return apptypes.MemoryDistillResult{}, xerrors.Errorf("failed to generate distilled memory ID: %w", err)
+	}
+	distilled, err := model.NewAcceptedMemory(
+		newMemoryID,
+		resolvedType,
+		resolvedScope,
+		fact,
+		resolvedConfidence,
+		resolvedSource,
+		evidenceRefs,
+		artifactRefs,
+		domtypes.None[domtypes.MemoryID](),
+	)
+	if err != nil {
+		return apptypes.MemoryDistillResult{}, xerrors.Errorf("failed to build distilled memory: %w", err)
+	}
+	if err := u.memoryRepo.Save(ctx, distilled); err != nil {
+		return apptypes.MemoryDistillResult{}, xerrors.Errorf("failed to save distilled memory: %w", err)
+	}
+
+	resultSources := make([]apptypes.MemorySummary, 0, len(sources))
+	for _, source := range sources {
+		switch replace {
+		case apptypes.MemoryDistillReplaceKeep:
+			// Leave the candidate as-is.
+		case apptypes.MemoryDistillReplaceReject:
+			if err := source.Reject(); err != nil {
+				return apptypes.MemoryDistillResult{}, xerrors.Errorf("failed to reject source candidate %s: %w", source.MemoryID(), err)
+			}
+			if err := u.memoryRepo.Save(ctx, source); err != nil {
+				return apptypes.MemoryDistillResult{}, xerrors.Errorf("failed to save rejected source candidate %s: %w", source.MemoryID(), err)
+			}
+		case apptypes.MemoryDistillReplaceSupersede:
+			if err := source.MarkSuperseded(); err != nil {
+				return apptypes.MemoryDistillResult{}, xerrors.Errorf("failed to supersede source candidate %s: %w", source.MemoryID(), err)
+			}
+			if err := u.memoryRepo.Save(ctx, source); err != nil {
+				return apptypes.MemoryDistillResult{}, xerrors.Errorf("failed to save superseded source candidate %s: %w", source.MemoryID(), err)
+			}
+		default:
+			return apptypes.MemoryDistillResult{}, xerrors.Errorf("unsupported distill replace policy: %s", replace)
+		}
+
+		summary, err := apptypes.MemorySummaryFrom(source)
+		if err != nil {
+			return apptypes.MemoryDistillResult{}, xerrors.Errorf("failed to build source summary: %w", err)
+		}
+		resultSources = append(resultSources, summary)
+	}
+
+	details, err := apptypes.MemoryDetailsFrom(distilled)
+	if err != nil {
+		return apptypes.MemoryDistillResult{}, xerrors.Errorf("failed to build distilled memory details: %w", err)
+	}
+	return apptypes.MemoryDistillResultOf(details, resultSources, replace), nil
+}
+
 func (u *memoryUsecase) Reject(ctx context.Context, memoryID domtypes.MemoryID) (apptypes.MemoryDetails, error) {
 	if u.memoryRepo == nil {
 		return apptypes.MemoryDetails{}, xerrors.Errorf("memory repository is not configured")
@@ -631,11 +744,73 @@ func resolveAcceptedConfidence(confidence domtypes.Optional[domtypes.Confidence]
 	return domtypes.ConfidenceVerified, nil
 }
 
+func resolveMemoryDistillReplace(replace apptypes.MemoryDistillReplace) (apptypes.MemoryDistillReplace, error) {
+	switch replace {
+	case "", apptypes.MemoryDistillReplaceKeep:
+		return apptypes.MemoryDistillReplaceKeep, nil
+	case apptypes.MemoryDistillReplaceReject:
+		return apptypes.MemoryDistillReplaceReject, nil
+	case apptypes.MemoryDistillReplaceSupersede:
+		return apptypes.MemoryDistillReplaceSupersede, nil
+	default:
+		return "", xerrors.Errorf("unsupported distill replace policy: %s", replace)
+	}
+}
+
 func requireAcceptedEvidenceRefs(evidenceRefs []domtypes.EvidenceRef) error {
 	if len(evidenceRefs) == 0 {
 		return xerrors.Errorf("accepted memory requires at least one evidence ref")
 	}
 	return nil
+}
+
+func dedupeMemoryIDs(ids []domtypes.MemoryID) []domtypes.MemoryID {
+	result := make([]domtypes.MemoryID, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		key := id.String()
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, id)
+	}
+	return result
+}
+
+func appendMemoryEvidenceRefs(dst []domtypes.EvidenceRef, refs []domtypes.EvidenceRef) []domtypes.EvidenceRef {
+	seen := make(map[string]struct{}, len(dst)+len(refs))
+	for _, ref := range dst {
+		seen[ref.Kind().String()+":"+ref.Value()] = struct{}{}
+	}
+	for _, ref := range refs {
+		key := ref.Kind().String() + ":" + ref.Value()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		dst = append(dst, ref)
+	}
+	return dst
+}
+
+func appendMemoryArtifactRefs(dst []domtypes.ArtifactRef, refs []domtypes.ArtifactRef) []domtypes.ArtifactRef {
+	seen := make(map[string]struct{}, len(dst)+len(refs))
+	for _, ref := range dst {
+		seen[ref.Kind().String()+":"+ref.Value()] = struct{}{}
+	}
+	for _, ref := range refs {
+		key := ref.Kind().String() + ":" + ref.Value()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		dst = append(dst, ref)
+	}
+	return dst
 }
 
 func resolveExpiresAt(expiresAt domtypes.Optional[time.Time]) (time.Time, error) {

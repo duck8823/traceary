@@ -232,6 +232,133 @@ func TestMemoryUsecase_Accept(t *testing.T) {
 	}
 }
 
+func TestMemoryUsecase_DistillRejectsSourceCandidate(t *testing.T) {
+	t.Parallel()
+
+	sourceID := mustMemoryID(t, "memory-distill-source")
+	source, err := model.NewMemoryCandidate(
+		sourceID,
+		domtypes.MemoryTypeLesson,
+		domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/traceary")),
+		"raw fact needs rewriting",
+		domtypes.MemorySourceExtracted,
+		[]domtypes.EvidenceRef{mustEvidenceRef(t, domtypes.EvidenceRefKindEvent, "event-1")},
+		[]domtypes.ArtifactRef{mustArtifactRef(t, domtypes.ArtifactRefKindPR, "#858")},
+		domtypes.None[domtypes.MemoryID](),
+	)
+	if err != nil {
+		t.Fatalf("NewMemoryCandidate() error = %v", err)
+	}
+
+	repo := &memoryRepositoryStub{byID: map[string]*model.Memory{sourceID.String(): source}}
+	sut := usecase.NewMemoryUsecase(repo, nil, nil)
+	result, err := sut.Distill(context.Background(), apptypes.MemoryDistillCriteriaOf(
+		[]domtypes.MemoryID{sourceID},
+		domtypes.MemoryTypeConstraint,
+		domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/traceary")),
+		"Distilled constraint from raw candidate",
+		domtypes.Some(domtypes.ConfidenceHigh),
+		domtypes.MemorySource(""),
+		apptypes.MemoryDistillReplaceReject,
+	))
+	if err != nil {
+		t.Fatalf("Distill() error = %v", err)
+	}
+
+	distilled := result.Distilled()
+	if distilled.Summary().Status() != domtypes.MemoryStatusAccepted {
+		t.Fatalf("distilled status = %s, want accepted", distilled.Summary().Status())
+	}
+	if distilled.Summary().MemoryType() != domtypes.MemoryTypeConstraint {
+		t.Fatalf("distilled type = %s, want constraint", distilled.Summary().MemoryType())
+	}
+	if distilled.Summary().Confidence() != domtypes.ConfidenceHigh {
+		t.Fatalf("distilled confidence = %s, want high", distilled.Summary().Confidence())
+	}
+	if got := distilled.EvidenceRefs(); len(got) != 1 || got[0].Value() != "event-1" {
+		t.Fatalf("distilled evidence refs = %#v, want source event", got)
+	}
+	if got := distilled.ArtifactRefs(); len(got) != 1 || got[0].Value() != "#858" {
+		t.Fatalf("distilled artifact refs = %#v, want source artifact", got)
+	}
+	if repo.byID[sourceID.String()].Status() != domtypes.MemoryStatusRejected {
+		t.Fatalf("source status = %s, want rejected", repo.byID[sourceID.String()].Status())
+	}
+	if len(result.Sources()) != 1 || result.Sources()[0].Status() != domtypes.MemoryStatusRejected {
+		t.Fatalf("result sources = %#v, want one rejected source", result.Sources())
+	}
+}
+
+func TestMemoryUsecase_DistillMultipleSourcesSupersedesAndUnionsRefs(t *testing.T) {
+	t.Parallel()
+
+	scope := domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/traceary"))
+	firstID := mustMemoryID(t, "memory-distill-first")
+	first, err := model.NewMemoryCandidate(
+		firstID,
+		domtypes.MemoryTypeLesson,
+		scope,
+		"first raw candidate",
+		domtypes.MemorySourceExtracted,
+		[]domtypes.EvidenceRef{mustEvidenceRef(t, domtypes.EvidenceRefKindEvent, "event-first")},
+		[]domtypes.ArtifactRef{mustArtifactRef(t, domtypes.ArtifactRefKindFile, "docs/memory/README.md")},
+		domtypes.None[domtypes.MemoryID](),
+	)
+	if err != nil {
+		t.Fatalf("NewMemoryCandidate(first) error = %v", err)
+	}
+	secondID := mustMemoryID(t, "memory-distill-second")
+	second, err := model.NewMemoryCandidate(
+		secondID,
+		domtypes.MemoryTypeLesson,
+		scope,
+		"second raw candidate",
+		domtypes.MemorySourceExtracted,
+		[]domtypes.EvidenceRef{
+			mustEvidenceRef(t, domtypes.EvidenceRefKindEvent, "event-first"),
+			mustEvidenceRef(t, domtypes.EvidenceRefKindEvent, "event-second"),
+		},
+		[]domtypes.ArtifactRef{
+			mustArtifactRef(t, domtypes.ArtifactRefKindFile, "docs/memory/README.md"),
+			mustArtifactRef(t, domtypes.ArtifactRefKindPR, "#858"),
+		},
+		domtypes.None[domtypes.MemoryID](),
+	)
+	if err != nil {
+		t.Fatalf("NewMemoryCandidate(second) error = %v", err)
+	}
+
+	repo := &memoryRepositoryStub{byID: map[string]*model.Memory{firstID.String(): first, secondID.String(): second}}
+	sut := usecase.NewMemoryUsecase(repo, nil, nil)
+	result, err := sut.Distill(context.Background(), apptypes.MemoryDistillCriteriaOf(
+		[]domtypes.MemoryID{firstID, secondID, firstID},
+		domtypes.MemoryTypeLesson,
+		scope,
+		"Distilled lesson from two raw candidates",
+		domtypes.None[domtypes.Confidence](),
+		domtypes.MemorySourceManual,
+		apptypes.MemoryDistillReplaceSupersede,
+	))
+	if err != nil {
+		t.Fatalf("Distill() error = %v", err)
+	}
+
+	if got := result.Distilled().EvidenceRefs(); len(got) != 2 {
+		t.Fatalf("len(evidence refs) = %d, want deduped union of 2: %#v", len(got), got)
+	}
+	if got := result.Distilled().ArtifactRefs(); len(got) != 2 {
+		t.Fatalf("len(artifact refs) = %d, want deduped union of 2: %#v", len(got), got)
+	}
+	for _, sourceID := range []domtypes.MemoryID{firstID, secondID} {
+		if repo.byID[sourceID.String()].Status() != domtypes.MemoryStatusSuperseded {
+			t.Fatalf("source %s status = %s, want superseded", sourceID, repo.byID[sourceID.String()].Status())
+		}
+	}
+	if len(result.Sources()) != 2 {
+		t.Fatalf("sources = %d, want duplicate input ids collapsed to 2", len(result.Sources()))
+	}
+}
+
 func TestMemoryUsecase_Supersede(t *testing.T) {
 	t.Parallel()
 

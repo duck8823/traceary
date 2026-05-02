@@ -318,6 +318,22 @@ type memoryWriteCommandInput struct {
 	asJSON        bool
 }
 
+// memoryDistillCommandInput is the resolved input to `traceary memory distill`.
+type memoryDistillCommandInput struct {
+	dbPath        string
+	fromIDs       []string
+	workspace     string
+	agent         string
+	sessionFamily string
+	memoryType    string
+	fact          string
+	confidence    string
+	source        string
+	replace       string
+	idOnly        bool
+	asJSON        bool
+}
+
 // memoryMutationCommandInput is the resolved input to memory status commands.
 type memoryMutationCommandInput struct {
 	dbPath     string

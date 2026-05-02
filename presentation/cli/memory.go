@@ -23,6 +23,7 @@ func (c *RootCLI) newMemoryCommand() *cobra.Command {
 	memoryCmd.AddCommand(c.newMemoryShowCommand())
 	memoryCmd.AddCommand(c.newMemoryRememberCommand())
 	memoryCmd.AddCommand(c.newMemoryProposeCommand())
+	memoryCmd.AddCommand(c.newMemoryDistillCommand())
 	memoryCmd.AddCommand(c.newMemoryExtractCommand())
 	memoryCmd.AddCommand(c.newMemoryImportCommand())
 	memoryCmd.AddCommand(c.newMemoryInboxCommand())
@@ -138,6 +139,41 @@ func (c *RootCLI) newMemoryProposeCommand() *cobra.Command {
 		},
 	}
 	configureMemoryWriteFlags(cmd, &input)
+	return cmd
+}
+
+func (c *RootCLI) newMemoryDistillCommand() *cobra.Command {
+	input := memoryDistillCommandInput{}
+	cmd := &cobra.Command{
+		Use:   "distill",
+		Short: Localize("Distill candidate memories into an accepted fact", "candidate memory を accepted fact に distill する"),
+		Long: Localize(
+			"Distill one or more candidate memories into a new accepted durable memory using an operator-provided fact. Traceary preserves the union of evidence and artifact refs from the source candidates and never rewrites content automatically.",
+			"1つ以上の candidate memory を、operator が指定した fact で新しい accepted durable memory に distill します。Traceary は source candidate の evidence / artifact ref の union を保持し、内容を自動で書き換えません。",
+		),
+		Example: strings.Join([]string{
+			"  traceary memory distill --from memory-f332,memory-7f83 --type constraint --workspace github.com/org/repo --fact 'SNS Publish error mapping must preserve AWS SDK v2 SNS error classes.' --replace=supersede",
+			"  traceary memory distill --from memory-raw --type lesson --agent codex --fact 'Wait for Codex review completion before merging.' --replace=reject",
+		}, "\n"),
+		Args: noArgsLocalized(),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return c.runMemoryDistill(cmd.Context(), cmd.OutOrStdout(), input)
+		},
+	}
+	cmd.Flags().StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
+	cmd.Flags().StringSliceVar(&input.fromIDs, "from", nil, Localize("comma-separated source candidate memory ids (repeatable)", "source candidate memory id をカンマ区切りで指定 (複数指定可)"))
+	cmd.Flags().StringVar(&input.workspace, "workspace", "", Localize("accepted memory workspace scope", "accepted memory の workspace scope"))
+	cmd.Flags().StringVar(&input.agent, "agent", "", Localize("accepted memory agent scope", "accepted memory の agent scope"))
+	cmd.Flags().StringVar(&input.sessionFamily, "session-family", "", Localize("accepted memory session-family scope", "accepted memory の session-family scope"))
+	cmd.Flags().StringVar(&input.memoryType, "type", "", Localize("accepted memory type", "accepted memory type"))
+	cmd.Flags().StringVar(&input.fact, "fact", "", Localize("operator-provided distilled memory fact", "operator が指定する distilled memory fact"))
+	cmd.Flags().StringVar(&input.confidence, "confidence", "", Localize("accepted confidence (defaults to verified)", "accepted 時の confidence (既定値は verified)"))
+	cmd.Flags().StringVar(&input.source, "source", "", Localize("memory source (defaults to manual)", "memory source (既定値は manual)"))
+	cmd.Flags().StringVar(&input.replace, "replace", "keep", Localize("source candidate handling: keep, reject, or supersede", "source candidate の扱い: keep, reject, supersede"))
+	cmd.Flags().BoolVar(&input.idOnly, "id-only", false, Localize("print only the resulting memory ID", "結果の memory ID だけを出力する"))
+	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
+	cmd.MarkFlagsMutuallyExclusive("id-only", "json")
+	cmd.MarkFlagsMutuallyExclusive("workspace", "agent", "session-family")
 	return cmd
 }
 
@@ -487,6 +523,56 @@ func (c *RootCLI) runMemoryPropose(ctx context.Context, output io.Writer, input 
 	return writeMemoryMutationResult(output, details, input.idOnly, input.asJSON)
 }
 
+func (c *RootCLI) runMemoryDistill(ctx context.Context, output io.Writer, input memoryDistillCommandInput) error {
+	if strings.TrimSpace(input.memoryType) == "" {
+		return xerrors.Errorf(Localize("memory type must not be empty", "memory type は空にできません"))
+	}
+	if strings.TrimSpace(input.fact) == "" {
+		return xerrors.Errorf(Localize("fact must not be empty", "fact は空にできません"))
+	}
+	rawIDs := normaliseInboxIDs(input.fromIDs)
+	if len(rawIDs) == 0 {
+		return xerrors.Errorf(Localize("--from must list at least one source candidate memory id", "--from に少なくとも1つの source candidate memory id を指定してください"))
+	}
+	if err := c.initializeMemoryStore(ctx, input.dbPath); err != nil {
+		return err
+	}
+
+	fromIDs := make([]domtypes.MemoryID, 0, len(rawIDs))
+	for _, rawID := range rawIDs {
+		memoryID, err := domtypes.MemoryIDFrom(rawID)
+		if err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to resolve source memory ID", "source memory ID の解決に失敗しました"), err)
+		}
+		fromIDs = append(fromIDs, memoryID)
+	}
+	memoryType, err := parseRequiredMemoryType(input.memoryType)
+	if err != nil {
+		return err
+	}
+	scope, err := resolveRequiredExplicitMemoryScope(input.workspace, input.agent, input.sessionFamily)
+	if err != nil {
+		return err
+	}
+	confidence, err := parseOptionalConfidence(input.confidence)
+	if err != nil {
+		return err
+	}
+	source, err := parseMemorySource(input.source)
+	if err != nil {
+		return err
+	}
+	replace, err := parseMemoryDistillReplace(input.replace)
+	if err != nil {
+		return err
+	}
+	result, err := c.memory.Distill(ctx, apptypes.MemoryDistillCriteriaOf(fromIDs, memoryType, scope, input.fact, confidence, source, replace))
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to distill durable memory", "durable memory の distill に失敗しました"), err)
+	}
+	return writeMemoryDistillResult(output, result, input.idOnly, input.asJSON)
+}
+
 func (c *RootCLI) runMemoryAccept(ctx context.Context, output io.Writer, input memoryMutationCommandInput) error {
 	if err := c.initializeMemoryStore(ctx, input.dbPath); err != nil {
 		return err
@@ -734,6 +820,19 @@ func parseMemorySource(value string) (domtypes.MemorySource, error) {
 	return source, nil
 }
 
+func parseMemoryDistillReplace(value string) (apptypes.MemoryDistillReplace, error) {
+	switch apptypes.MemoryDistillReplace(strings.TrimSpace(value)) {
+	case "", apptypes.MemoryDistillReplaceKeep:
+		return apptypes.MemoryDistillReplaceKeep, nil
+	case apptypes.MemoryDistillReplaceReject:
+		return apptypes.MemoryDistillReplaceReject, nil
+	case apptypes.MemoryDistillReplaceSupersede:
+		return apptypes.MemoryDistillReplaceSupersede, nil
+	default:
+		return "", xerrors.Errorf(Localize("replace must be one of keep, reject, supersede", "replace は keep, reject, supersede のいずれかである必要があります"))
+	}
+}
+
 func parseMemoryStatuses(values []string) ([]domtypes.MemoryStatus, error) {
 	statuses := make([]domtypes.MemoryStatus, 0, len(values))
 	for _, value := range values {
@@ -811,6 +910,17 @@ func parseKindValueToken(value string) (string, string, error) {
 		return "", "", xerrors.Errorf(Localize("references must use kind:value format", "参照は kind:value 形式で指定する必要があります"))
 	}
 	return trimmed[:separator], trimmed[separator+1:], nil
+}
+
+func resolveRequiredExplicitMemoryScope(workspace string, agent string, sessionFamily string) (domtypes.MemoryScope, error) {
+	scope, err := resolveOptionalMemoryScope(workspace, agent, sessionFamily)
+	if err != nil {
+		return nil, err
+	}
+	if scope == nil {
+		return nil, xerrors.Errorf(Localize("one of --workspace, --agent, or --session-family is required", "--workspace, --agent, --session-family のいずれかが必要です"))
+	}
+	return scope, nil
 }
 
 func resolveMemoryWriteScope(ctx context.Context, workspace string, agent string, sessionFamily string) (domtypes.MemoryScope, error) {

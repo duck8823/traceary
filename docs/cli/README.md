@@ -278,6 +278,22 @@ Record a candidate durable memory that still needs review.
 
 Useful flags are the same as `memory remember`, except `--confidence` is ignored.
 
+### `traceary memory distill`
+
+Create a new accepted durable memory from one or more existing candidate IDs using an operator-provided fact. Evidence refs and artifact refs from the source candidates are unioned onto the accepted memory; Traceary does not rewrite or accept content automatically.
+
+Useful flags:
+
+- `--from` — comma-separated source candidate IDs (repeatable)
+- `--type`
+- `--fact`
+- `--workspace` / `--agent` / `--session-family` (one is required)
+- `--confidence`
+- `--source`
+- `--replace=keep|reject|supersede`
+- `--id-only`
+- `--json`
+
 ### `traceary memory extract`
 
 Extract candidate durable memories from a target session using session summaries, compact summaries, prompt events, and note/review signals. Extraction is candidate-only: Traceary never auto-accepts the extracted memories. Prompt events are optional; missing prompt or compact-summary events simply reduce the available signals. When `--session-id` is omitted, Traceary resolves the active session first and then falls back to the latest matching session in the workspace. `Feedback:` / `Correction:` labels are preserved by mapping them into the current minimal durable-memory taxonomy as `preference` candidates. Persisted candidates go through the same sanitization/redaction path as other durable-memory writes before they are stored.

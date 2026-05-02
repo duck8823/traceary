@@ -319,9 +319,12 @@ func (m *Memory) Reject() error {
 	return nil
 }
 
-// MarkSuperseded transitions an accepted memory to superseded.
+// MarkSuperseded transitions a candidate or accepted memory to superseded.
+// Accepted supersession is used by the direct replacement flow; candidate
+// supersession is used when an operator distills one or more raw candidates
+// into a cleaner accepted memory while keeping the candidates' audit trail.
 func (m *Memory) MarkSuperseded() error {
-	if m.status != types.MemoryStatusAccepted {
+	if m.status != types.MemoryStatusCandidate && m.status != types.MemoryStatusAccepted {
 		return ErrInvalidMemoryState
 	}
 	m.status = types.MemoryStatusSuperseded

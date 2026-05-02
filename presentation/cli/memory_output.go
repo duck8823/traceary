@@ -43,6 +43,35 @@ func writeMemoryMutationResult(output io.Writer, details apptypes.MemoryDetails,
 	return writeMemoryDetailsByFormat(output, details, asJSON)
 }
 
+func writeMemoryDistillResult(output io.Writer, result apptypes.MemoryDistillResult, idOnly bool, asJSON bool) error {
+	if idOnly {
+		if _, err := fmt.Fprintln(output, result.Distilled().Summary().MemoryID()); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print memory ID", "memory ID の出力に失敗しました"), err)
+		}
+		return nil
+	}
+
+	if asJSON {
+		return writeJSON(output, newMemoryDistillOutput(result))
+	}
+
+	if _, err := fmt.Fprintln(output, "DISTILLED_MEMORY:"); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print distill heading", "distill 見出しの出力に失敗しました"), err)
+	}
+	if err := writeMemoryDetails(output, result.Distilled()); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(output, "\nSOURCE_CANDIDATES replace=%s count=%d:\n", result.Replace(), len(result.Sources())); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print distill source summary", "distill source summary の出力に失敗しました"), err)
+	}
+	for _, source := range result.Sources() {
+		if _, err := fmt.Fprintf(output, "- %s status=%s\n", source.MemoryID(), source.Status()); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print distill source", "distill source の出力に失敗しました"), err)
+		}
+	}
+	return nil
+}
+
 func writeExtractedMemoryCandidatesByFormat(output io.Writer, details []apptypes.MemoryDetails, asJSON bool) error {
 	if asJSON {
 		serialized := make([]memoryDetailsOutput, 0, len(details))
@@ -219,6 +248,18 @@ func newMemoryDetailsOutput(details apptypes.MemoryDetails) memoryDetailsOutput 
 		Summary:      newMemorySummaryOutput(details.Summary()),
 		EvidenceRefs: evidenceRefs,
 		ArtifactRefs: artifactRefs,
+	}
+}
+
+func newMemoryDistillOutput(result apptypes.MemoryDistillResult) memoryDistillOutput {
+	sources := make([]memorySummaryOutput, 0, len(result.Sources()))
+	for _, source := range result.Sources() {
+		sources = append(sources, newMemorySummaryOutput(source))
+	}
+	return memoryDistillOutput{
+		Distilled: newMemoryDetailsOutput(result.Distilled()),
+		Replace:   result.Replace().String(),
+		Sources:   sources,
 	}
 }
 
