@@ -560,7 +560,7 @@ func TestImportStubActivationPlanner_ApplySurfacesPermissionFailureOnExternalWri
 
 	planner := newPlannerWithWriter(writer)
 	plan := planner.Plan(planClaudeFixture(importStubActivationCriteria{}))
-	_, err := planner.Apply(plan)
+	result, err := planner.Apply(plan)
 	if err == nil {
 		t.Fatalf("Apply err = nil, want permission failure on external write")
 	}
@@ -573,6 +573,12 @@ func TestImportStubActivationPlanner_ApplySurfacesPermissionFailureOnExternalWri
 	if writer.writes[0].path != "/repo/.traceary/memories/claude.md" {
 		t.Fatalf("attempted write path = %q, want external", writer.writes[0].path)
 	}
+	if result.ExternalMemory.Action != "" {
+		t.Fatalf("result.ExternalMemory.Action = %q, want empty because the external write failed", result.ExternalMemory.Action)
+	}
+	if result.HostContext.Action != "" {
+		t.Fatalf("result.HostContext.Action = %q, want empty because host write was never attempted", result.HostContext.Action)
+	}
 }
 
 func TestImportStubActivationPlanner_ApplySurfacesPermissionFailureOnHostWriteAfterExternalSucceeds(t *testing.T) {
@@ -583,7 +589,7 @@ func TestImportStubActivationPlanner_ApplySurfacesPermissionFailureOnHostWriteAf
 
 	planner := newPlannerWithWriter(writer)
 	plan := planner.Plan(planClaudeFixture(importStubActivationCriteria{}))
-	_, err := planner.Apply(plan)
+	result, err := planner.Apply(plan)
 	if err == nil {
 		t.Fatalf("Apply err = nil, want permission failure on host write")
 	}
@@ -600,5 +606,11 @@ func TestImportStubActivationPlanner_ApplySurfacesPermissionFailureOnHostWriteAf
 	}
 	if _, present := writer.files["/repo/CLAUDE.md"]; present {
 		t.Fatalf("host context file must not be persisted on permission failure")
+	}
+	if result.ExternalMemory.Action != apptypes.MemoryActivationApplyCreated {
+		t.Fatalf("result.ExternalMemory.Action = %q, want created because external write succeeded", result.ExternalMemory.Action)
+	}
+	if result.HostContext.Action != "" {
+		t.Fatalf("result.HostContext.Action = %q, want empty because host write failed", result.HostContext.Action)
 	}
 }

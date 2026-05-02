@@ -154,17 +154,23 @@ func (p *importStubActivationPlanner) Apply(plan importStubActivationPlan) (impo
 		return importStubActivationApplyResult{}, xerrors.Errorf("refusing to apply invalid host context stub %s: %s", plan.HostContext.Path, plan.HostContext.Message)
 	}
 	writer := p.writer()
-	result := importStubActivationApplyResult(plan)
+	result := importStubActivationApplyResult{
+		Target:         plan.Target,
+		Scopes:         slices.Clone(plan.Scopes),
+		ActivatedCount: plan.ActivatedCount,
+	}
 	if plan.ExternalMemory.Action != apptypes.MemoryActivationApplyNoop {
 		if err := writer.WriteAtomic(plan.ExternalMemory.Path, plan.ExternalMemory.Markdown); err != nil {
 			return result, xerrors.Errorf("failed to apply external memory file %s: %w", plan.ExternalMemory.Path, err)
 		}
 	}
+	result.ExternalMemory = plan.ExternalMemory
 	if plan.HostContext.Action != apptypes.MemoryActivationApplyNoop {
 		if err := writer.WriteAtomic(plan.HostContext.Path, plan.HostContext.Markdown); err != nil {
 			return result, xerrors.Errorf("failed to apply host context stub %s: %w", plan.HostContext.Path, err)
 		}
 	}
+	result.HostContext = plan.HostContext
 	return result, nil
 }
 
