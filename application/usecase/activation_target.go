@@ -32,6 +32,24 @@ const (
 	claudeExternalMemoryFileName = "claude.md"
 )
 
+// geminiHostContextFileName is the canonical GEMINI.md filename Gemini
+// CLI loads as hierarchical context. Traceary writes the import stub
+// region inside this file when --target gemini is applied (planned for
+// v0.13.0-7 / #895). The v0.13.0-6 status/dry-run path renders the
+// stub without mutating disk.
+const geminiHostContextFileName = "GEMINI.md"
+
+// geminiExternalMemoryRelDir / geminiExternalMemoryFileName describe
+// the hidden directory layout Traceary owns under the activation root
+// for Gemini. `<root>/.traceary/memories/gemini.md` is the v0.13
+// default external memory file, and the rendered import line is the
+// relative form `./.traceary/memories/gemini.md` so Gemini resolves it
+// relative to the host GEMINI.md per its Memory Import Processor docs.
+const (
+	geminiExternalMemoryRelDir   = ".traceary/memories"
+	geminiExternalMemoryFileName = "gemini.md"
+)
+
 // activationTargetResolution describes the file paths Traceary will
 // inspect, read, or write for one activation criteria. Single-file
 // targets (Codex) populate only HostContextPath. Two-file targets
@@ -107,6 +125,52 @@ func (codexActivationTarget) Resolve(criteria apptypes.MemoryActivationCriteria)
 	return activationTargetResolution{HostContextPath: filepath.Join(absRoot, codexActivationFileName)}, nil
 }
 
+// hostContextActivationConfig describes the canonical layout for a
+// two-file host activation target (host context file + external memory
+// file). Claude (CLAUDE.md / .traceary/memories/claude.md) and Gemini
+// (GEMINI.md / .traceary/memories/gemini.md) share the same resolution
+// algorithm and only differ in these constants, so the resolver is
+// parameterised on this struct rather than duplicated per target.
+type hostContextActivationConfig struct {
+	// Target identifies the host activation target the config drives.
+	// It is used purely for error messages so failures are
+	// attributable to the right target.
+	Target apptypes.MemoryBridgeTarget
+	// HostFileName is the canonical instruction file the host loads at
+	// session start (e.g. CLAUDE.md, GEMINI.md). Traceary writes the
+	// import stub region inside this file.
+	HostFileName string
+	// ExternalMemoryRelDir is the directory under the activation root
+	// that Traceary owns for this host's external memory file. The
+	// path is rendered with forward slashes; the resolver converts it
+	// to platform separators before joining.
+	ExternalMemoryRelDir string
+	// ExternalMemoryFileName is the file Traceary writes inside
+	// ExternalMemoryRelDir to hold the rendered managed memory block.
+	ExternalMemoryFileName string
+}
+
+// claudeActivationConfig is the v0.13 default layout for Claude Code.
+var claudeActivationConfig = hostContextActivationConfig{
+	Target:                 apptypes.MemoryBridgeTargetClaude,
+	HostFileName:           claudeHostContextFileName,
+	ExternalMemoryRelDir:   claudeExternalMemoryRelDir,
+	ExternalMemoryFileName: claudeExternalMemoryFileName,
+}
+
+// geminiActivationConfig is the v0.13 default layout for Gemini CLI.
+// The hidden `.traceary/memories/gemini.md` external file mirrors the
+// Claude layout so Traceary's diff/status/apply story is identical for
+// both hosts. The host instruction file is GEMINI.md per the Gemini
+// CLI memory documentation; Traceary never modifies the
+// `## Gemini Added Memories` section produced by `save_memory`.
+var geminiActivationConfig = hostContextActivationConfig{
+	Target:                 apptypes.MemoryBridgeTargetGemini,
+	HostFileName:           geminiHostContextFileName,
+	ExternalMemoryRelDir:   geminiExternalMemoryRelDir,
+	ExternalMemoryFileName: geminiExternalMemoryFileName,
+}
+
 type claudeActivationTarget struct{}
 
 // Target returns MemoryBridgeTargetClaude.
@@ -133,61 +197,97 @@ func (claudeActivationTarget) Target() apptypes.MemoryBridgeTarget {
 // external memory file do not share a directory tree (a future custom
 // override), the import path falls back to the absolute external path.
 func (claudeActivationTarget) Resolve(criteria apptypes.MemoryActivationCriteria) (activationTargetResolution, error) {
-	hostContextPath, err := claudeHostContextPath(criteria)
+	return resolveHostContextActivation(criteria, claudeActivationConfig)
+}
+
+type geminiActivationTarget struct{}
+
+// Target returns MemoryBridgeTargetGemini.
+func (geminiActivationTarget) Target() apptypes.MemoryBridgeTarget {
+	return apptypes.MemoryBridgeTargetGemini
+}
+
+// Resolve returns the host context (GEMINI.md) and external memory
+// file Traceary will manage for Gemini activation. The resolution
+// rules and import-path semantics are identical to Claude — Path beats
+// Root beats nearest-`.git` ancestor with cwd fallback — so Gemini
+// reuses the shared host-context resolver. The rendered import line is
+// `@./.traceary/memories/gemini.md`, matching the v0.13 ADR contract
+// and the Gemini CLI Memory Import Processor's documented relative
+// path resolution.
+//
+// v0.13.0-6 ships the read-only status/dry-run/diff surface; --apply
+// stays refused at the usecase boundary until #895 wires the apply
+// path. Traceary never writes into Gemini's
+// `## Gemini Added Memories` section regardless of mode — the import
+// stub lives outside that section because the planner's safe append
+// rule only attaches the managed region at end-of-file.
+func (geminiActivationTarget) Resolve(criteria apptypes.MemoryActivationCriteria) (activationTargetResolution, error) {
+	return resolveHostContextActivation(criteria, geminiActivationConfig)
+}
+
+// resolveHostContextActivation runs the shared two-file path
+// resolution algorithm for one host config. The function is the only
+// caller that knows the activation root precedence (Path > Root >
+// nearest-`.git` ancestor > cwd) so adding a third host (or
+// renaming a path) does not require touching the per-target Resolve
+// methods.
+func resolveHostContextActivation(criteria apptypes.MemoryActivationCriteria, config hostContextActivationConfig) (activationTargetResolution, error) {
+	hostPath, err := resolveHostContextPath(criteria, config)
 	if err != nil {
 		return activationTargetResolution{}, err
 	}
-	externalMemoryPath := claudeExternalMemoryPath(hostContextPath)
-	importPath, err := claudeImportPath(hostContextPath, externalMemoryPath)
+	externalMemoryPath := hostExternalMemoryPath(hostPath, config)
+	importPath, err := hostImportPath(hostPath, externalMemoryPath, config)
 	if err != nil {
 		return activationTargetResolution{}, err
 	}
 	return activationTargetResolution{
-		HostContextPath:    hostContextPath,
+		HostContextPath:    hostPath,
 		ExternalMemoryPath: externalMemoryPath,
 		ImportPath:         importPath,
 	}, nil
 }
 
-func claudeHostContextPath(criteria apptypes.MemoryActivationCriteria) (string, error) {
+func resolveHostContextPath(criteria apptypes.MemoryActivationCriteria, config hostContextActivationConfig) (string, error) {
 	if trimmed := strings.TrimSpace(criteria.Path); trimmed != "" {
 		abs, err := filepath.Abs(trimmed)
 		if err != nil {
-			return "", xerrors.Errorf("failed to resolve claude host context path: %w", err)
+			return "", xerrors.Errorf("failed to resolve %s host context path: %w", config.Target, err)
 		}
 		return abs, nil
 	}
 	if trimmed := strings.TrimSpace(criteria.Root); trimmed != "" {
 		absRoot, err := filepath.Abs(trimmed)
 		if err != nil {
-			return "", xerrors.Errorf("failed to resolve claude activation root: %w", err)
+			return "", xerrors.Errorf("failed to resolve %s activation root: %w", config.Target, err)
 		}
-		return filepath.Join(absRoot, claudeHostContextFileName), nil
+		return filepath.Join(absRoot, config.HostFileName), nil
 	}
-	root, err := detectClaudeActivationRoot()
+	root, err := detectHostActivationRoot(config.Target)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(root, claudeHostContextFileName), nil
+	return filepath.Join(root, config.HostFileName), nil
 }
 
-func claudeExternalMemoryPath(hostContextPath string) string {
+func hostExternalMemoryPath(hostContextPath string, config hostContextActivationConfig) string {
 	hostDir := filepath.Dir(hostContextPath)
-	return filepath.Join(hostDir, filepath.FromSlash(claudeExternalMemoryRelDir), claudeExternalMemoryFileName)
+	return filepath.Join(hostDir, filepath.FromSlash(config.ExternalMemoryRelDir), config.ExternalMemoryFileName)
 }
 
-// claudeImportPath renders the literal text Traceary writes after `@`
-// inside the host context import stub. Claude resolves relative imports
-// against the file containing the import, so the renderer always
-// prefers the relative form when the external file lives below the
-// host context directory. When a future override puts the external
-// file outside that subtree, the function returns the absolute path so
-// the generated stub still resolves cleanly.
-func claudeImportPath(hostContextPath, externalMemoryPath string) (string, error) {
+// hostImportPath renders the literal text Traceary writes after `@`
+// inside the host context import stub. Both Claude and Gemini resolve
+// relative imports against the file containing the import, so the
+// renderer always prefers the relative form when the external file
+// lives below the host context directory. When a future override puts
+// the external file outside that subtree, the function returns the
+// absolute path so the generated stub still resolves cleanly.
+func hostImportPath(hostContextPath, externalMemoryPath string, config hostContextActivationConfig) (string, error) {
 	hostDir := filepath.Dir(hostContextPath)
 	rel, err := filepath.Rel(hostDir, externalMemoryPath)
 	if err != nil {
-		return "", xerrors.Errorf("failed to compute relative claude import path: %w", err)
+		return "", xerrors.Errorf("failed to compute relative %s import path: %w", config.Target, err)
 	}
 	relSlash := filepath.ToSlash(rel)
 	if strings.HasPrefix(relSlash, "../") || relSlash == ".." {
@@ -199,19 +299,20 @@ func claudeImportPath(hostContextPath, externalMemoryPath string) (string, error
 	return "./" + relSlash, nil
 }
 
-// detectClaudeActivationRoot walks the command working directory
+// detectHostActivationRoot walks the command working directory
 // upwards searching for the nearest ancestor that contains a `.git`
 // entry. When no `.git` is found, the current working directory is
 // returned per the v0.13 ADR. Symlink and stat errors propagate so a
-// broken filesystem cannot silently move the activation root.
-func detectClaudeActivationRoot() (string, error) {
+// broken filesystem cannot silently move the activation root. The
+// target name is used purely so error messages name the right host.
+func detectHostActivationRoot(target apptypes.MemoryBridgeTarget) (string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
-		return "", xerrors.Errorf("failed to resolve claude activation working directory: %w", err)
+		return "", xerrors.Errorf("failed to resolve %s activation working directory: %w", target, err)
 	}
 	current, err := filepath.Abs(cwd)
 	if err != nil {
-		return "", xerrors.Errorf("failed to resolve claude activation absolute working directory: %w", err)
+		return "", xerrors.Errorf("failed to resolve %s activation absolute working directory: %w", target, err)
 	}
 	for {
 		gitPath := filepath.Join(current, ".git")
@@ -242,6 +343,8 @@ func resolveActivationTarget(target apptypes.MemoryBridgeTarget) (activationTarg
 		return codexActivationTarget{}, nil
 	case apptypes.MemoryBridgeTargetClaude:
 		return claudeActivationTarget{}, nil
+	case apptypes.MemoryBridgeTargetGemini:
+		return geminiActivationTarget{}, nil
 	}
 	return nil, xerrors.Errorf("memory activation target %s is not supported yet", target)
 }

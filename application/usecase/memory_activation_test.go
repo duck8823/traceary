@@ -101,16 +101,31 @@ func TestMemoryUsecase_ActivatePlan_PathOverrideAndExistingDiff(t *testing.T) {
 	}
 }
 
-func TestMemoryUsecase_ActivatePlan_RejectsGeminiUntilLaterIssue(t *testing.T) {
+func TestMemoryUsecase_Activate_RefusesGeminiApplyUntilLaterIssue(t *testing.T) {
 	t.Parallel()
 
-	sut := usecase.NewMemoryUsecase(nil, &stubExportMemoryQuery{}, nil)
-	_, err := sut.ActivatePlan(context.Background(), apptypes.MemoryActivationCriteria{
+	root := t.TempDir()
+	scope := mustWorkspaceScope(t, "github.com/example/repo")
+	query := &stubExportMemoryQuery{
+		summaries: []apptypes.MemorySummary{
+			mustAcceptedSummary(t, "m-gemini-apply-refused", domtypes.MemoryTypePreference, scope, "Gemini --apply lands in #895"),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(nil, query, nil)
+
+	_, err := sut.Activate(context.Background(), apptypes.MemoryActivationCriteria{
 		Target: apptypes.MemoryBridgeTargetGemini,
-		Path:   filepath.Join(t.TempDir(), "GEMINI.md"),
+		Root:   root,
+		Scopes: []domtypes.MemoryScope{scope},
 	})
 	if err == nil || !strings.Contains(err.Error(), "not supported yet") {
-		t.Fatalf("ActivatePlan error = %v, want unsupported target", err)
+		t.Fatalf("Activate err = %v, want gemini --apply rejection", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "GEMINI.md")); !os.IsNotExist(statErr) {
+		t.Fatalf("apply must not create GEMINI.md when refused, stat err = %v", statErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, ".traceary", "memories", "gemini.md")); !os.IsNotExist(statErr) {
+		t.Fatalf("apply must not create external memory file when refused, stat err = %v", statErr)
 	}
 }
 func TestMemoryUsecase_Activate_CreatesCodexTarget(t *testing.T) {
@@ -1059,6 +1074,414 @@ func TestMemoryUsecase_ActivationStatus_ClaudeInSyncAfterPlanWriteback(t *testin
 	sut := usecase.NewMemoryUsecase(nil, query, nil)
 	criteria := apptypes.MemoryActivationCriteria{
 		Target: apptypes.MemoryBridgeTargetClaude,
+		Root:   root,
+		Scopes: []domtypes.MemoryScope{scope},
+	}
+	plan, err := sut.ActivatePlan(context.Background(), criteria)
+	if err != nil {
+		t.Fatalf("ActivatePlan: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(externalPath), 0o700); err != nil {
+		t.Fatalf("MkdirAll external: %v", err)
+	}
+	if err := os.WriteFile(externalPath, []byte(plan.ExternalMemory.Markdown), 0o600); err != nil {
+		t.Fatalf("WriteFile external: %v", err)
+	}
+	if err := os.WriteFile(hostPath, []byte(plan.HostContext.Markdown), 0o600); err != nil {
+		t.Fatalf("WriteFile host: %v", err)
+	}
+
+	status, err := sut.ActivationStatus(context.Background(), criteria)
+	if err != nil {
+		t.Fatalf("ActivationStatus: %v", err)
+	}
+	if status.State != apptypes.MemoryActivationStatusInSync {
+		t.Fatalf("State = %q, want in_sync after writing planned content", status.State)
+	}
+}
+
+func TestMemoryUsecase_ActivatePlan_GeminiMissingPairExposesComponents(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	scope := mustWorkspaceScope(t, "github.com/example/repo")
+	query := &stubExportMemoryQuery{
+		summaries: []apptypes.MemorySummary{
+			mustAcceptedSummary(t, "m-gemini-plan", domtypes.MemoryTypePreference, scope, "prefer concise PRs"),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(nil, query, nil)
+
+	plan, err := sut.ActivatePlan(context.Background(), apptypes.MemoryActivationCriteria{
+		Target: apptypes.MemoryBridgeTargetGemini,
+		Root:   root,
+		Scopes: []domtypes.MemoryScope{scope},
+	})
+	if err != nil {
+		t.Fatalf("ActivatePlan: %v", err)
+	}
+	if plan.HostContext == nil || plan.ExternalMemory == nil {
+		t.Fatalf("two-file plan must expose components, got %+v", plan)
+	}
+	wantHost := filepath.Join(root, "GEMINI.md")
+	wantExternal := filepath.Join(root, ".traceary", "memories", "gemini.md")
+	if plan.HostContext.Path != wantHost {
+		t.Fatalf("HostContext.Path = %q, want %q", plan.HostContext.Path, wantHost)
+	}
+	if plan.ExternalMemory.Path != wantExternal {
+		t.Fatalf("ExternalMemory.Path = %q, want %q", plan.ExternalMemory.Path, wantExternal)
+	}
+	if plan.HostContext.State != apptypes.MemoryActivationStatusMissing {
+		t.Fatalf("HostContext.State = %q, want missing", plan.HostContext.State)
+	}
+	if plan.ExternalMemory.State != apptypes.MemoryActivationStatusMissing {
+		t.Fatalf("ExternalMemory.State = %q, want missing", plan.ExternalMemory.State)
+	}
+	if !strings.Contains(plan.HostContext.Markdown, "@./.traceary/memories/gemini.md") {
+		t.Fatalf("HostContext.Markdown missing relative import line: %q", plan.HostContext.Markdown)
+	}
+	if !strings.Contains(plan.HostContext.Markdown, "--target gemini") {
+		t.Fatalf("HostContext.Markdown remediation must point at --target gemini, got %q", plan.HostContext.Markdown)
+	}
+	if !strings.Contains(plan.ExternalMemory.Markdown, "prefer concise PRs") {
+		t.Fatalf("ExternalMemory.Markdown missing accepted memory: %q", plan.ExternalMemory.Markdown)
+	}
+	if _, err := os.Stat(wantHost); !os.IsNotExist(err) {
+		t.Fatalf("dry-run plan must not create GEMINI.md, stat err = %v", err)
+	}
+	if _, err := os.Stat(wantExternal); !os.IsNotExist(err) {
+		t.Fatalf("dry-run plan must not create external memory file, stat err = %v", err)
+	}
+}
+
+func TestMemoryUsecase_ActivatePlan_GeminiPreservesAddedMemoriesSection(t *testing.T) {
+	t.Parallel()
+
+	// Gemini's `save_memory` tool owns `## Gemini Added Memories` in
+	// the user's GEMINI.md. The v0.13 ADR forbids touching that section
+	// during activation. This test seeds a host context file that
+	// contains the section, runs --dry-run, and asserts that the
+	// rendered managed stub is appended without disturbing the
+	// existing user-authored section.
+	root := t.TempDir()
+	hostPath := filepath.Join(root, "GEMINI.md")
+	addedMemories := strings.Join([]string{
+		"# Project notes",
+		"",
+		"- prefer English commit messages",
+		"",
+		"## Gemini Added Memories",
+		"",
+		"- The user prefers concise replies.",
+		"- Always cite sources.",
+		"",
+	}, "\n")
+	if err := os.WriteFile(hostPath, []byte(addedMemories), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	scope := mustWorkspaceScope(t, "github.com/example/repo")
+	query := &stubExportMemoryQuery{
+		summaries: []apptypes.MemorySummary{
+			mustAcceptedSummary(t, "m-gemini-preserve", domtypes.MemoryTypeDecision, scope, "Traceary owns its managed import region only"),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(nil, query, nil)
+
+	plan, err := sut.ActivatePlan(context.Background(), apptypes.MemoryActivationCriteria{
+		Target: apptypes.MemoryBridgeTargetGemini,
+		Root:   root,
+		Scopes: []domtypes.MemoryScope{scope},
+	})
+	if err != nil {
+		t.Fatalf("ActivatePlan: %v", err)
+	}
+	if plan.HostContext == nil {
+		t.Fatalf("ActivatePlan returned nil HostContext: %+v", plan)
+	}
+	planned := plan.HostContext.Markdown
+	if !strings.HasPrefix(planned, addedMemories) {
+		t.Fatalf("planned host context did not preserve the user-authored prefix verbatim: %q", planned)
+	}
+	if !strings.Contains(planned, "## Gemini Added Memories") {
+		t.Fatalf("planned host context dropped the Gemini Added Memories section: %q", planned)
+	}
+	if strings.Count(planned, "## Gemini Added Memories") != 1 {
+		t.Fatalf("planned host context duplicated the Gemini Added Memories section: %q", planned)
+	}
+	if !strings.Contains(planned, "<!-- traceary-memory-import:begin:v1 -->") {
+		t.Fatalf("planned host context missing managed import stub: %q", planned)
+	}
+	beginIdx := strings.Index(planned, "<!-- traceary-memory-import:begin:v1 -->")
+	addedIdx := strings.Index(planned, "## Gemini Added Memories")
+	if beginIdx < 0 || addedIdx < 0 || beginIdx < addedIdx {
+		t.Fatalf("managed import stub must be appended after the Gemini Added Memories section, got beginIdx=%d addedIdx=%d", beginIdx, addedIdx)
+	}
+
+	// Dry-run must not mutate disk; the on-disk content must match the
+	// original byte-for-byte.
+	disk, err := os.ReadFile(hostPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(disk) != addedMemories {
+		t.Fatalf("dry-run mutated GEMINI.md: %q", disk)
+	}
+}
+
+func TestMemoryUsecase_ActivatePlan_GeminiDiffRendersDeterministically(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	hostPath := filepath.Join(root, "GEMINI.md")
+	externalPath := filepath.Join(root, ".traceary", "memories", "gemini.md")
+	if err := os.WriteFile(hostPath, []byte("# user notes\n\n<!-- traceary-memory-import:begin:v1 -->\n@./old.md\n<!-- traceary-memory-import:end -->\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile host: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(externalPath), 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(externalPath, []byte(usecase.MemoryBridgeMarkerBegin+"\nold body\n"+usecase.MemoryBridgeMarkerEnd+"\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile external: %v", err)
+	}
+	scope := mustWorkspaceScope(t, "github.com/example/repo")
+	query := &stubExportMemoryQuery{
+		summaries: []apptypes.MemorySummary{
+			mustAcceptedSummary(t, "m-gemini-diff", domtypes.MemoryTypePreference, scope, "prefer fresh activation"),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(nil, query, nil)
+
+	plan, err := sut.ActivatePlan(context.Background(), apptypes.MemoryActivationCriteria{
+		Target: apptypes.MemoryBridgeTargetGemini,
+		Root:   root,
+		Scopes: []domtypes.MemoryScope{scope},
+		Diff:   true,
+	})
+	if err != nil {
+		t.Fatalf("ActivatePlan: %v", err)
+	}
+	if plan.ExternalMemory.Diff == "" {
+		t.Fatalf("ExternalMemory.Diff is empty, want stale-content diff")
+	}
+	if plan.HostContext.Diff == "" {
+		t.Fatalf("HostContext.Diff is empty, want stub diff")
+	}
+	externalIdx := strings.Index(plan.Diff, "--- "+externalPath)
+	hostIdx := strings.Index(plan.Diff, "--- "+hostPath)
+	if externalIdx < 0 || hostIdx < 0 || externalIdx >= hostIdx {
+		t.Fatalf("Plan.Diff must order external before host, externalIdx=%d hostIdx=%d diff=%q", externalIdx, hostIdx, plan.Diff)
+	}
+	if !strings.Contains(plan.Diff, plan.ExternalMemory.Diff+"\n--- "+hostPath) {
+		t.Fatalf("Plan.Diff must separate external and host diffs with a blank line, got %q", plan.Diff)
+	}
+
+	plan2, err := sut.ActivatePlan(context.Background(), apptypes.MemoryActivationCriteria{
+		Target: apptypes.MemoryBridgeTargetGemini,
+		Root:   root,
+		Scopes: []domtypes.MemoryScope{scope},
+		Diff:   true,
+	})
+	if err != nil {
+		t.Fatalf("ActivatePlan second: %v", err)
+	}
+	if plan.Diff != plan2.Diff {
+		t.Fatalf("diff is not deterministic across runs")
+	}
+
+	// Dry-run + diff must not mutate either file.
+	hostDisk, err := os.ReadFile(hostPath)
+	if err != nil {
+		t.Fatalf("ReadFile host: %v", err)
+	}
+	if !strings.Contains(string(hostDisk), "@./old.md") {
+		t.Fatalf("dry-run mutated GEMINI.md: %q", hostDisk)
+	}
+	externalDisk, err := os.ReadFile(externalPath)
+	if err != nil {
+		t.Fatalf("ReadFile external: %v", err)
+	}
+	if !strings.Contains(string(externalDisk), "old body") {
+		t.Fatalf("dry-run mutated external memory file: %q", externalDisk)
+	}
+}
+
+func TestMemoryUsecase_ActivationStatus_GeminiMissingPair(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	scope := mustWorkspaceScope(t, "github.com/example/repo")
+	query := &stubExportMemoryQuery{
+		summaries: []apptypes.MemorySummary{
+			mustAcceptedSummary(t, "m-gemini-missing", domtypes.MemoryTypePreference, scope, "prefer gemini status"),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(nil, query, nil)
+
+	status, err := sut.ActivationStatus(context.Background(), apptypes.MemoryActivationCriteria{
+		Target: apptypes.MemoryBridgeTargetGemini,
+		Root:   root,
+		Scopes: []domtypes.MemoryScope{scope},
+	})
+	if err != nil {
+		t.Fatalf("ActivationStatus: %v", err)
+	}
+	if status.State != apptypes.MemoryActivationStatusMissing {
+		t.Fatalf("State = %q, want missing", status.State)
+	}
+	if status.HostContext == nil || status.ExternalMemory == nil {
+		t.Fatalf("two-file status must expose components, got %+v", status)
+	}
+	if status.HostContext.State != apptypes.MemoryActivationStatusMissing || status.ExternalMemory.State != apptypes.MemoryActivationStatusMissing {
+		t.Fatalf("component states = host=%q external=%q, want both missing", status.HostContext.State, status.ExternalMemory.State)
+	}
+	if !strings.Contains(status.Message, "stub") {
+		t.Fatalf("Message = %q, want pair-aware message", status.Message)
+	}
+	if status.HostContext.Path != filepath.Join(root, "GEMINI.md") {
+		t.Fatalf("HostContext.Path = %q, want GEMINI.md", status.HostContext.Path)
+	}
+	if status.ExternalMemory.Path != filepath.Join(root, ".traceary", "memories", "gemini.md") {
+		t.Fatalf("ExternalMemory.Path = %q, want gemini.md", status.ExternalMemory.Path)
+	}
+}
+
+func TestMemoryUsecase_ActivationStatus_GeminiStaleStubInSyncExternal(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	hostPath := filepath.Join(root, "GEMINI.md")
+	externalPath := filepath.Join(root, ".traceary", "memories", "gemini.md")
+	if err := os.WriteFile(hostPath, []byte("<!-- traceary-memory-import:begin:v1 -->\n@./stale.md\n<!-- traceary-memory-import:end -->\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile host: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(externalPath), 0o700); err != nil {
+		t.Fatalf("MkdirAll external: %v", err)
+	}
+	scope := mustWorkspaceScope(t, "github.com/example/repo")
+	query := &stubExportMemoryQuery{
+		summaries: []apptypes.MemorySummary{
+			mustAcceptedSummary(t, "m-gemini-stale", domtypes.MemoryTypePreference, scope, "prefer stable stubs"),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(nil, query, nil)
+	criteria := apptypes.MemoryActivationCriteria{
+		Target: apptypes.MemoryBridgeTargetGemini,
+		Root:   root,
+		Scopes: []domtypes.MemoryScope{scope},
+	}
+	plan, err := sut.ActivatePlan(context.Background(), criteria)
+	if err != nil {
+		t.Fatalf("ActivatePlan: %v", err)
+	}
+	if err := os.WriteFile(externalPath, []byte(plan.ExternalMemory.Markdown), 0o600); err != nil {
+		t.Fatalf("WriteFile external: %v", err)
+	}
+
+	status, err := sut.ActivationStatus(context.Background(), criteria)
+	if err != nil {
+		t.Fatalf("ActivationStatus: %v", err)
+	}
+	if status.State != apptypes.MemoryActivationStatusStale {
+		t.Fatalf("State = %q, want stale (host stale, external in_sync)", status.State)
+	}
+	if status.HostContext.State != apptypes.MemoryActivationStatusStale {
+		t.Fatalf("HostContext.State = %q, want stale", status.HostContext.State)
+	}
+	if status.ExternalMemory.State != apptypes.MemoryActivationStatusInSync {
+		t.Fatalf("ExternalMemory.State = %q, want in_sync", status.ExternalMemory.State)
+	}
+}
+
+func TestMemoryUsecase_ActivationStatus_GeminiInvalidStubBeginsWithoutEnd(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	hostPath := filepath.Join(root, "GEMINI.md")
+	if err := os.WriteFile(hostPath, []byte("<!-- traceary-memory-import:begin:v1 -->\n@./.traceary/memories/gemini.md\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	scope := mustWorkspaceScope(t, "github.com/example/repo")
+	query := &stubExportMemoryQuery{
+		summaries: []apptypes.MemorySummary{
+			mustAcceptedSummary(t, "m-gemini-invalid", domtypes.MemoryTypePreference, scope, "prefer invalid pair detection"),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(nil, query, nil)
+
+	status, err := sut.ActivationStatus(context.Background(), apptypes.MemoryActivationCriteria{
+		Target: apptypes.MemoryBridgeTargetGemini,
+		Root:   root,
+		Scopes: []domtypes.MemoryScope{scope},
+	})
+	if err != nil {
+		t.Fatalf("ActivationStatus: %v", err)
+	}
+	if status.State != apptypes.MemoryActivationStatusInvalid {
+		t.Fatalf("State = %q, want invalid", status.State)
+	}
+	if status.HostContext.State != apptypes.MemoryActivationStatusInvalid {
+		t.Fatalf("HostContext.State = %q, want invalid", status.HostContext.State)
+	}
+	if !strings.Contains(status.HostContext.Message, "without end marker") {
+		t.Fatalf("HostContext.Message = %q, want orphan-begin reason", status.HostContext.Message)
+	}
+}
+
+func TestMemoryUsecase_ActivationStatus_GeminiInvalidSymlinkHostContext(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	hostPath := filepath.Join(root, "GEMINI.md")
+	missingTarget := filepath.Join(root, "missing-target.md")
+	if err := os.Symlink(missingTarget, hostPath); err != nil {
+		t.Skipf("symlink unsupported on this platform: %v", err)
+	}
+	scope := mustWorkspaceScope(t, "github.com/example/repo")
+	query := &stubExportMemoryQuery{
+		summaries: []apptypes.MemorySummary{
+			mustAcceptedSummary(t, "m-gemini-symlink", domtypes.MemoryTypePreference, scope, "prefer symlink refusal"),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(nil, query, nil)
+
+	status, err := sut.ActivationStatus(context.Background(), apptypes.MemoryActivationCriteria{
+		Target: apptypes.MemoryBridgeTargetGemini,
+		Root:   root,
+		Scopes: []domtypes.MemoryScope{scope},
+	})
+	if err != nil {
+		t.Fatalf("ActivationStatus: %v", err)
+	}
+	if status.State != apptypes.MemoryActivationStatusInvalid {
+		t.Fatalf("State = %q, want invalid", status.State)
+	}
+	if status.HostContext == nil || !strings.Contains(status.HostContext.Message, "symlinks are not supported") {
+		t.Fatalf("HostContext.Message = %q, want symlink rejection", status.HostContext.Message)
+	}
+	info, statErr := os.Lstat(hostPath)
+	if statErr != nil {
+		t.Fatalf("Lstat: %v", statErr)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("status must not replace dangling symlink, got mode %s", info.Mode())
+	}
+}
+
+func TestMemoryUsecase_ActivationStatus_GeminiInSyncAfterPlanWriteback(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	hostPath := filepath.Join(root, "GEMINI.md")
+	externalPath := filepath.Join(root, ".traceary", "memories", "gemini.md")
+	scope := mustWorkspaceScope(t, "github.com/example/repo")
+	query := &stubExportMemoryQuery{
+		summaries: []apptypes.MemorySummary{
+			mustAcceptedSummary(t, "m-gemini-insync", domtypes.MemoryTypePreference, scope, "prefer in_sync gemini pair"),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(nil, query, nil)
+	criteria := apptypes.MemoryActivationCriteria{
+		Target: apptypes.MemoryBridgeTargetGemini,
 		Root:   root,
 		Scopes: []domtypes.MemoryScope{scope},
 	}

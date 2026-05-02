@@ -777,3 +777,286 @@ func assertMemoryApplyCall(t *testing.T, stub *memoryUsecaseStub, wantIncludeGlo
 		t.Fatalf("Scopes[0] = %s:%s, want workspace:github.com/duck8823/traceary", call.Scopes[0].Kind(), call.Scopes[0].Key())
 	}
 }
+
+func TestRootCLI_MemoryActivateGeminiDryRunRendersComponents(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	hostPath := filepath.Join(root, "GEMINI.md")
+	externalPath := filepath.Join(root, ".traceary", "memories", "gemini.md")
+	memoryStub := &memoryUsecaseStub{
+		activationPlan: apptypes.MemoryActivationPlan{
+			Target:     apptypes.MemoryBridgeTargetGemini,
+			TargetPath: hostPath,
+			HostContext: &apptypes.MemoryActivationComponent{
+				Path:     hostPath,
+				Existing: false,
+				Markdown: "<!-- traceary-memory-import:begin:v1 -->\n@./.traceary/memories/gemini.md\n<!-- traceary-memory-import:end -->\n",
+				Action:   apptypes.MemoryActivationApplyCreated,
+				State:    apptypes.MemoryActivationStatusMissing,
+			},
+			ExternalMemory: &apptypes.MemoryActivationComponent{
+				Path:     externalPath,
+				Existing: false,
+				Markdown: "<!-- traceary-memories:begin:v1 -->\nplanned\n<!-- traceary-memories:end -->\n",
+				Action:   apptypes.MemoryActivationApplyCreated,
+				State:    apptypes.MemoryActivationStatusMissing,
+			},
+		},
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "activate",
+		"--target", "gemini",
+		"--root", root,
+		"--workspace", "github.com/duck8823/traceary",
+		"--dry-run",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	out := stdout.String()
+	for _, want := range []string{
+		"target: gemini",
+		"external_memory: " + externalPath,
+		"host_context: " + hostPath,
+		"# external memory plan",
+		"# host context plan",
+		"@./.traceary/memories/gemini.md",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stdout missing %q: %q", want, out)
+		}
+	}
+	if len(memoryStub.activationPlanCalls) != 1 {
+		t.Fatalf("activation plan calls = %d, want 1", len(memoryStub.activationPlanCalls))
+	}
+	if memoryStub.activationPlanCalls[0].Target != apptypes.MemoryBridgeTargetGemini {
+		t.Fatalf("Target = %q, want gemini", memoryStub.activationPlanCalls[0].Target)
+	}
+}
+
+func TestRootCLI_MemoryActivateGeminiDryRunDiffOrdersExternalFirst(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	hostPath := filepath.Join(root, "GEMINI.md")
+	externalPath := filepath.Join(root, ".traceary", "memories", "gemini.md")
+	memoryStub := &memoryUsecaseStub{
+		activationPlan: apptypes.MemoryActivationPlan{
+			Target:     apptypes.MemoryBridgeTargetGemini,
+			TargetPath: hostPath,
+			Diff:       "--- " + externalPath + "\n+++ " + externalPath + " (planned)\n--- " + hostPath + "\n+++ " + hostPath + " (planned)\n",
+			HostContext: &apptypes.MemoryActivationComponent{
+				Path:     hostPath,
+				Existing: true,
+				Diff:     "--- " + hostPath + "\n+++ " + hostPath + " (planned)\n",
+				State:    apptypes.MemoryActivationStatusStale,
+				Action:   apptypes.MemoryActivationApplyUpdated,
+			},
+			ExternalMemory: &apptypes.MemoryActivationComponent{
+				Path:     externalPath,
+				Existing: true,
+				Diff:     "--- " + externalPath + "\n+++ " + externalPath + " (planned)\n",
+				State:    apptypes.MemoryActivationStatusStale,
+				Action:   apptypes.MemoryActivationApplyUpdated,
+			},
+		},
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "activate",
+		"--target", "gemini",
+		"--root", root,
+		"--workspace", "github.com/duck8823/traceary",
+		"--dry-run",
+		"--diff",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	out := stdout.String()
+	externalIdx := strings.Index(out, "# external memory diff")
+	hostIdx := strings.Index(out, "# host context diff")
+	if externalIdx < 0 || hostIdx < 0 || externalIdx >= hostIdx {
+		t.Fatalf("diff output must order external before host, externalIdx=%d hostIdx=%d out=%q", externalIdx, hostIdx, out)
+	}
+	if !memoryStub.activationPlanCalls[0].Diff {
+		t.Fatalf("plan call did not propagate Diff=true")
+	}
+}
+
+func TestRootCLI_MemoryActivateGeminiStatusJSONOmitsApplyCommand(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	hostPath := filepath.Join(root, "GEMINI.md")
+	externalPath := filepath.Join(root, ".traceary", "memories", "gemini.md")
+	memoryStub := &memoryUsecaseStub{
+		activationStatus: apptypes.MemoryActivationStatusResult{
+			Target:         apptypes.MemoryBridgeTargetGemini,
+			TargetPath:     hostPath,
+			State:          apptypes.MemoryActivationStatusMissing,
+			Existing:       false,
+			ActivatedCount: 1,
+			Message:        "host context import stub and external memory file are missing",
+			HostContext: &apptypes.MemoryActivationComponent{
+				Path:  hostPath,
+				State: apptypes.MemoryActivationStatusMissing,
+			},
+			ExternalMemory: &apptypes.MemoryActivationComponent{
+				Path:  externalPath,
+				State: apptypes.MemoryActivationStatusMissing,
+			},
+		},
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "activate",
+		"--target", "gemini",
+		"--root", root,
+		"--workspace", "github.com/duck8823/traceary",
+		"--status",
+		"--json",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	var payload struct {
+		Target         string `json:"target"`
+		TargetPath     string `json:"target_path"`
+		State          string `json:"state"`
+		ActivatedCount int    `json:"activated_count"`
+		DryRunCommand  string `json:"dry_run_command"`
+		ApplyCommand   string `json:"apply_command"`
+		HostContext    *struct {
+			Path  string `json:"path"`
+			State string `json:"state"`
+		} `json:"host_context"`
+		ExternalMemory *struct {
+			Path  string `json:"path"`
+			State string `json:"state"`
+		} `json:"external_memory"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("Unmarshal: %v\nstdout=%s", err, stdout.String())
+	}
+	if payload.Target != "gemini" || payload.State != "missing" {
+		t.Fatalf("payload = %+v, want gemini/missing", payload)
+	}
+	if !strings.Contains(payload.DryRunCommand, "--target gemini") || !strings.Contains(payload.DryRunCommand, "--dry-run --diff") {
+		t.Fatalf("dry_run_command = %q, want gemini dry-run command", payload.DryRunCommand)
+	}
+	if payload.ApplyCommand != "" {
+		t.Fatalf("apply_command = %q, want empty until #895 wires gemini --apply", payload.ApplyCommand)
+	}
+	if payload.HostContext == nil || payload.HostContext.Path != hostPath {
+		t.Fatalf("host_context = %+v, want gemini host", payload.HostContext)
+	}
+	if payload.ExternalMemory == nil || payload.ExternalMemory.Path != externalPath {
+		t.Fatalf("external_memory = %+v, want gemini external", payload.ExternalMemory)
+	}
+}
+
+func TestRootCLI_MemoryActivateGeminiStatusTextOmitsApplyRemediation(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	hostPath := filepath.Join(root, "GEMINI.md")
+	externalPath := filepath.Join(root, ".traceary", "memories", "gemini.md")
+	memoryStub := &memoryUsecaseStub{
+		activationStatus: apptypes.MemoryActivationStatusResult{
+			Target:         apptypes.MemoryBridgeTargetGemini,
+			TargetPath:     hostPath,
+			State:          apptypes.MemoryActivationStatusMissing,
+			Existing:       false,
+			ActivatedCount: 1,
+			Message:        "host context import stub and external memory file are missing",
+			HostContext: &apptypes.MemoryActivationComponent{
+				Path:  hostPath,
+				State: apptypes.MemoryActivationStatusMissing,
+			},
+			ExternalMemory: &apptypes.MemoryActivationComponent{
+				Path:  externalPath,
+				State: apptypes.MemoryActivationStatusMissing,
+			},
+		},
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "activate",
+		"--target", "gemini",
+		"--root", root,
+		"--workspace", "github.com/duck8823/traceary",
+		"--status",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "next_dry_run:") {
+		t.Fatalf("stdout missing next_dry_run remediation: %q", out)
+	}
+	if strings.Contains(out, "next_apply:") {
+		t.Fatalf("stdout must omit next_apply for gemini until #895: %q", out)
+	}
+	if !strings.Contains(out, "--target gemini") {
+		t.Fatalf("next_dry_run must reference --target gemini: %q", out)
+	}
+}
+
+func TestRootCLI_MemoryActivateGeminiApplyRefused(t *testing.T) {
+	t.Parallel()
+
+	memoryStub := &memoryUsecaseStub{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "activate",
+		"--target", "gemini",
+		"--apply",
+	})
+
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatalf("expected --target gemini --apply to be refused")
+	}
+	if !strings.Contains(err.Error(), "not supported yet") {
+		t.Fatalf("err = %v, want 'not supported yet' refusal", err)
+	}
+	if len(memoryStub.activationCalls) != 0 {
+		t.Fatalf("Activate must not be called when --target gemini --apply is refused, got %d calls", len(memoryStub.activationCalls))
+	}
+}

@@ -135,6 +135,13 @@ Claude については、v0.13.0-4 の read-only PR が以下 2 つの artefact 
 
 Claude `--apply` PR (#893) でも同じ 2 つの artefact をスコープに保持します。script の structural section は `--apply` を end-to-end で実行するように更新済みで、初回 apply で 2 ファイルが created になり、再 apply は noop へ収束し、apply 後の `--status` が `in_sync` になることを CI 側で検査します。ライブ launch を含む `TRACEARY_ENABLE_CLAUDE_RUNTIME_SMOKE=1` 実行記録は引き続き maintainer が保持するか、別 gate を採用するときはその根拠を ADR に追記します。
 
+Gemini については、v0.13.0-6 の read-only PR が以下 2 つの artefact を組み合わせて、ライブ launch のフレーキネスに依存しない readiness 証跡を残します。
+
+- `application/usecase/gemini_import_readiness_internal_test.go` は、rendering 済み import line・marker layout・external file 解決を Gemini 公式 Memory Import Processor documentation の `@<relative-path>` フォーマット（`GEMINI.md` のあるディレクトリ基準）に固定します。さらに、render される DO NOT EDIT 警告が `--target gemini` を含むことを検査するため、誤って Claude 向け remediation を出してしまう regression が CI で捕捉されます。
+- `scripts/smoke_test_gemini_activation.sh` は `traceary memory activate --target gemini --dry-run --json` の生成 plan を使って一時プロジェクト (`.git`、`GEMINI.md`、`.traceary/memories/gemini.md`) を materialize します。Gemini `--apply` はまだ実装されていない (#895 で導入) ため、現時点の script は dry-run pair contract のみ検証します。`--apply` 経路は #895 で同 script を拡張してカバーします。manual runtime probe のために一時プロジェクトを保持して、そのディレクトリで `gemini` を起動する場合は `TRACEARY_KEEP_SMOKE_TEMP=1` を指定します。Gemini CLI の階層的 context loading と認証状態のため無人ランタイム probe は非決定的なので、ライブ launch は `TRACEARY_ENABLE_GEMINI_RUNTIME_SMOKE=1` を指定したときだけ実行します。
+
+Gemini `--apply` PR (#895) は `scripts/smoke_test_gemini_activation.sh` を end-to-end まで拡張し（初回 apply で 2 ファイルが created、再 apply は noop、apply 後の status が `in_sync`）、apply 経路にも CI 側 regression coverage を備えさせる必要があります。さらに、事前に `GEMINI.md` 内に存在する `## Gemini Added Memories` section が `--apply` 後も byte-for-byte で保持されることを確認します。`TRACEARY_ENABLE_GEMINI_RUNTIME_SMOKE=1` を指定した maintainer 実行記録は、代替 gate が無い場合は引き続き必須です。
+
 ## apply semantics
 
 `--status` と `--dry-run` は read-only です。変更するのは `--apply` だけです。

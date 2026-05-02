@@ -25,8 +25,8 @@ func (c *RootCLI) newMemoryActivateCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().StringVar(&input.target, "target", "", Localize("activation target host (codex, claude)", "activation 対象ホスト (codex, claude)"))
-	cmd.Flags().StringVar(&input.root, "root", "", Localize("host memory root override (Codex default: ~/.codex/memories; Claude default: nearest .git ancestor or cwd)", "host memory root の上書き (Codex 既定: ~/.codex/memories; Claude 既定: 直近の .git 祖先または cwd)"))
+	cmd.Flags().StringVar(&input.target, "target", "", Localize("activation target host (codex, claude, gemini)", "activation 対象ホスト (codex, claude, gemini)"))
+	cmd.Flags().StringVar(&input.root, "root", "", Localize("host memory root override (Codex default: ~/.codex/memories; Claude/Gemini default: nearest .git ancestor or cwd)", "host memory root の上書き (Codex 既定: ~/.codex/memories; Claude/Gemini 既定: 直近の .git 祖先または cwd)"))
 	cmd.Flags().StringVar(&input.path, "path", "", Localize("explicit activation target file path override", "activation 対象ファイルパスを明示的に上書き"))
 	cmd.Flags().StringVar(&input.workspace, "workspace", "", Localize("workspace scope to activate (defaults to env/detected workspace)", "activation 対象の workspace scope (未指定時は env/検出 workspace)"))
 	cmd.Flags().BoolVar(&input.includeGlobal, "include-global", true, Localize("include global memories alongside a workspace activation (default true)", "workspace activation に global memory も含める (default true)"))
@@ -55,13 +55,18 @@ func (c *RootCLI) runMemoryActivate(ctx context.Context, output io.Writer, input
 	}
 	target, ok := apptypes.MemoryBridgeTargetOf(strings.ToLower(strings.TrimSpace(input.target)))
 	if !ok {
-		return xerrors.Errorf(Localize("--target must be codex or claude", "--target は codex または claude を指定してください"))
+		return xerrors.Errorf(Localize("--target must be codex, claude, or gemini", "--target は codex, claude, gemini のいずれかを指定してください"))
 	}
 	switch target {
 	case apptypes.MemoryBridgeTargetCodex, apptypes.MemoryBridgeTargetClaude:
 		// fully supported (status / dry-run / apply)
+	case apptypes.MemoryBridgeTargetGemini:
+		// status / dry-run / diff supported in v0.13.0-6; --apply lands in v0.13.0-7 (#895).
+		if input.apply {
+			return xerrors.Errorf(Localize("memory activate --apply is not supported yet for target gemini", "memory activate --apply は target gemini ではまだサポートされていません"))
+		}
 	default:
-		return xerrors.Errorf(Localize("--target must be codex or claude", "--target は codex または claude を指定してください"))
+		return xerrors.Errorf(Localize("--target must be codex, claude, or gemini", "--target は codex, claude, gemini のいずれかを指定してください"))
 	}
 	if err := c.initializeStore(ctx, input.dbPath); err != nil {
 		return err
@@ -301,7 +306,7 @@ func writeMemoryActivationStatus(output io.Writer, result apptypes.MemoryActivat
 			payload.DryRunCommand = commands.DryRun
 			payload.ApplyCommand = commands.Apply
 			// commands.Apply is empty for targets where --apply is not
-			// supported yet (Claude until #893). The JSON field uses
+			// supported yet (Gemini until #895). The JSON field uses
 			// `omitempty` so the payload simply drops `apply_command`
 			// instead of advertising a command the CLI would refuse.
 		}
