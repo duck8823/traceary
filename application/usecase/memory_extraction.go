@@ -268,6 +268,41 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 	bestCandidateByKey := make(map[string]int)
 	seenKeys := make(map[string]struct{})
 	orderedKeys := make([]string, 0)
+	rememberContextSpecs, err := collectRememberIntentContextSpecs(session.SessionID(), signals)
+	if err != nil {
+		return apptypes.MemoryExtractionDebugReport{}, err
+	}
+	for _, spec := range rememberContextSpecs {
+		decision := apptypes.MemoryExtractionSegmentDecision{
+			Text:              spec.fact,
+			EventKind:         domtypes.EventKindPrompt,
+			MemoryType:        spec.memoryType,
+			Features:          spec.intent.featureNames(),
+			Score:             spec.signalScore,
+			EvidenceRefs:      slices.Clone(spec.evidenceRefs),
+			ArtifactRefs:      slices.Clone(spec.artifactRefs),
+			LowQualityReasons: slices.Clone(spec.lowQualityReasons),
+		}
+		segmentIndex := len(report.Segments)
+		report.Segments = append(report.Segments, decision)
+		key := memoryCandidateKey(scope, spec.memoryType, sanitizeCandidateFact(spec.fact, extraRedactors))
+		if _, exists := seenKeys[key]; !exists {
+			seenKeys[key] = struct{}{}
+			orderedKeys = append(orderedKeys, key)
+		}
+		candidateIndex := len(candidates)
+		candidates = append(candidates, candidateDecision{
+			segmentIndex:      segmentIndex,
+			key:               key,
+			score:             spec.signalScore,
+			explicitRemember:  spec.intent.explicitRemember,
+			lowQualityReasons: slices.Clone(spec.lowQualityReasons),
+		})
+		bestIndex, exists := bestCandidateByKey[key]
+		if !exists || candidates[bestIndex].score < spec.signalScore {
+			bestCandidateByKey[key] = candidateIndex
+		}
+	}
 	for _, signal := range signals {
 		evidenceRefs, err := buildSignalEvidenceRefs(session.SessionID(), signal.event)
 		if err != nil {
@@ -280,6 +315,12 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 				EventKind:    signal.kind,
 				SourceHook:   signal.sourceHook,
 				EvidenceRefs: slices.Clone(evidenceRefs),
+			}
+			if isShortRememberIntentSegment(segment) {
+				decision.Decision = "ignored"
+				decision.Reason = "remember_intent_context_only"
+				report.Segments = append(report.Segments, decision)
+				continue
 			}
 			spec, ok, err := extractBestMemoryCandidateFromSegment(signal, segment, evidenceRefs)
 			if err != nil {
@@ -982,9 +1023,8 @@ func extractInlineRememberIntentFact(segment string) (string, bool) {
 	if normalized == "" {
 		return "", false
 	}
-	lower := strings.ToLower(normalized)
 	for _, trigger := range rememberIntentEnglishTriggers {
-		index := strings.Index(lower, trigger)
+		index := indexFoldASCII(normalized, trigger)
 		if index < 0 {
 			continue
 		}
@@ -1006,6 +1046,21 @@ func extractInlineRememberIntentFact(segment string) (string, bool) {
 		return "", false
 	}
 	return "", false
+}
+
+func indexFoldASCII(value string, needle string) int {
+	if needle == "" {
+		return 0
+	}
+	for index := range value {
+		if index+len(needle) > len(value) {
+			continue
+		}
+		if strings.EqualFold(value[index:index+len(needle)], needle) {
+			return index
+		}
+	}
+	return -1
 }
 
 func rememberIntentFactAroundTrigger(value string, index int, triggerLength int) string {

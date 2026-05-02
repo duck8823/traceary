@@ -954,6 +954,11 @@ func TestMemoryUsecase_Extract_RememberIntentInlineFactsUseRememberSource(t *tes
 			wantFact: "Codex review can take a few minutes before comments appear",
 		},
 		{
+			name:     "english trigger after unicode case-folding expansion",
+			body:     "İ remember this use Japanese responses",
+			wantFact: "use Japanese responses",
+		},
+		{
 			name:     "english trigger after fact",
 			body:     "Codex review can take a few minutes before comments appear, remember this.",
 			wantFact: "Codex review can take a few minutes before comments appear",
@@ -1040,6 +1045,63 @@ func TestMemoryUsecase_Extract_ShortRememberIntentUsesAdjacentContextEvidence(t 
 	for _, eventID := range []string{"event-remember-short", "event-context"} {
 		if !gotEvidence[eventID] {
 			t.Fatalf("evidence refs = %v, want event %s", call.evidenceRefs, eventID)
+		}
+	}
+}
+
+func TestMemoryUsecase_ExplainExtraction_ReportsShortRememberIntentContextCandidate(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-remember-context"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), "ended", 2, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	contextEvent := mustExtractionEventAt(t, "event-debug-context", domtypes.EventKindPrompt, "Please answer in Japanese for this repository.", now)
+	rememberEvent := mustExtractionEventAt(t, "event-debug-remember-short", domtypes.EventKindPrompt, "覚えておいてね", now.Add(time.Second))
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{
+		listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
+			domtypes.EventKindPrompt: {rememberEvent, contextEvent},
+		},
+	}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	report, err := sut.ExplainExtraction(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-debug-remember-context")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(2).CandidateLimit(10).Build())
+	if err != nil {
+		t.Fatalf("ExplainExtraction() error = %v", err)
+	}
+
+	var proposed *apptypes.MemoryExtractionSegmentDecision
+	foundContextOnlyPrompt := false
+	for index := range report.Segments {
+		segment := &report.Segments[index]
+		if segment.Decision == "ignored" && segment.Reason == "remember_intent_context_only" && segment.Text == "覚えておいてね" {
+			foundContextOnlyPrompt = true
+		}
+		if segment.Decision == "proposed" && segment.Text == "Please answer in Japanese for this repository." {
+			proposed = segment
+		}
+	}
+	if !foundContextOnlyPrompt {
+		t.Fatalf("segments = %+v, want short remember prompt marked remember_intent_context_only", report.Segments)
+	}
+	if proposed == nil {
+		t.Fatalf("segments = %+v, want proposed adjacent-context candidate", report.Segments)
+	}
+	if proposed.MemoryType != domtypes.MemoryTypePreference {
+		t.Fatalf("proposed memory type = %q, want preference", proposed.MemoryType)
+	}
+	if !slices.Contains(proposed.Features, "explicit_remember") {
+		t.Fatalf("proposed features = %v, want explicit_remember", proposed.Features)
+	}
+	gotEvidence := make(map[string]bool)
+	for _, ref := range proposed.EvidenceRefs {
+		if ref.Kind() == domtypes.EvidenceRefKindEvent {
+			gotEvidence[ref.Value()] = true
+		}
+	}
+	for _, eventID := range []string{"event-debug-remember-short", "event-debug-context"} {
+		if !gotEvidence[eventID] {
+			t.Fatalf("proposed evidence refs = %v, want event %s", proposed.EvidenceRefs, eventID)
 		}
 	}
 }
