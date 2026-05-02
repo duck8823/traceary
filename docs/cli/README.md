@@ -352,17 +352,18 @@ Useful flags:
 
 ### `traceary memory activate`
 
-Plan host-native activation without writing files. For v0.12.0 the command is dry-run only; `memory activate --target codex --dry-run` resolves the Traceary-managed Codex target (`~/.codex/memories/traceary.md`, or `--root <dir>/traceary.md` / `--path <file>` when overridden) and prints the content that would be written. The planned content uses the same workspace + global export semantics as `memory export`. Pass `--diff` to compare the planned content with an existing target file.
+Activate accepted memories into a Traceary-managed Codex native memory file. `memory activate --target codex --dry-run` resolves the target (`~/.codex/memories/traceary.md`, or `--root <dir>/traceary.md` / `--path <file>` when overridden) and prints the content that would be written without mutating the filesystem. `memory activate --target codex --apply` writes the file, creating the directory/file when needed, replacing only the Traceary-managed block, and preserving user-authored content outside that block. Re-running with unchanged memories is a no-op, and Traceary refuses to overwrite a managed block from a newer marker version.
 
 Useful flags:
 
 - `--target` — currently `codex`
-- `--dry-run` — required in this release; never writes or creates files
+- `--dry-run` — print the activation plan without writing or creating files
+- `--apply` — write the activation target file
 - `--root` — Codex memory root override
 - `--path` — explicit target file override
 - `--workspace` / `--include-global` / `--no-global` — activation scope controls
-- `--diff` — include a diff when the target file exists
-- `--json` — print the activation plan as JSON
+- `--diff` — include a diff when the target file exists (dry-run only)
+- `--json` — print the activation plan or apply result as JSON
 
 ### `traceary memory import instructions`
 

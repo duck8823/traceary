@@ -352,17 +352,18 @@ accepted な durable memory をホスト別 instruction file (CLAUDE.md / AGENTS
 
 ### `traceary memory activate`
 
-host-native activation をファイル書き込みなしで計画します。v0.12.0 では dry-run 専用で、`memory activate --target codex --dry-run` は Traceary 管理の Codex target (`~/.codex/memories/traceary.md`、または `--root <dir>/traceary.md` / `--path <file>` で上書き) を解決し、書き込まれる予定の content を表示します。計画される content は `memory export` と同じ workspace + global scope ルールを使います。`--diff` を指定すると既存 target file との差分を表示します。
+accepted な memory を Traceary 管理の Codex native memory file に activation します。`memory activate --target codex --dry-run` は target (`~/.codex/memories/traceary.md`、または `--root <dir>/traceary.md` / `--path <file>` で上書き) を解決し、filesystem を変更せずに書き込まれる予定の content を表示します。`memory activate --target codex --apply` は directory/file を必要に応じて作成し、Traceary 管理ブロックだけを置換して、その外側の user-authored content は保持します。memory が変わらない再実行は no-op になり、新しい marker version の管理ブロックは古い binary で上書きしません。
 
 主な flag:
 
 - `--target` — 現時点では `codex`
-- `--dry-run` — このリリースでは必須。ファイルは作成・更新しません
+- `--dry-run` — ファイルを作成・更新せず activation plan を表示
+- `--apply` — activation target file に書き込む
 - `--root` — Codex memory root の上書き
 - `--path` — target file の明示上書き
 - `--workspace` / `--include-global` / `--no-global` — activation scope control
-- `--diff` — target file が存在する場合に diff を含める
-- `--json` — activation plan を JSON で出力
+- `--diff` — target file が存在する場合に diff を含める (dry-run のみ)
+- `--json` — activation plan / apply result を JSON で出力
 
 ### `traceary memory import instructions`
 
