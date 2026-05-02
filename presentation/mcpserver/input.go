@@ -45,6 +45,8 @@ type queryMemoryInput struct {
 	MemoryLimit         *int     `json:"memory_limit,omitempty" jsonschema:"maximum durable memories to include"`
 	ExpiryDays          int      `json:"expiry_days,omitempty" jsonschema:"staleness threshold in days (default 90)"`
 	Target              string   `json:"target,omitempty" jsonschema:"export target host (claude / codex / gemini)"`
+	IncludeGlobal       *bool    `json:"include_global,omitempty" jsonschema:"include global memories alongside a workspace export (default true)"`
+	NoGlobal            bool     `json:"no_global,omitempty" jsonschema:"export only the explicit workspace scope; do not include global memories"`
 }
 
 // sessionActionInput is shared by manage_session and session_status.
@@ -298,8 +300,10 @@ type scanMemoryHygieneInput struct {
 // filesystem-free — the generated markdown comes back in the response so
 // the caller decides what to do with it.
 type exportMemoriesInput struct {
-	Target    string `json:"target" jsonschema:"export target host (claude / codex / gemini)"`
-	Workspace string `json:"workspace,omitempty" jsonschema:"workspace scope to export (omitted exports every accepted memory)"`
+	Target        string `json:"target" jsonschema:"export target host (claude / codex / gemini)"`
+	Workspace     string `json:"workspace,omitempty" jsonschema:"workspace scope to export (omitted exports every accepted memory)"`
+	IncludeGlobal *bool  `json:"include_global,omitempty" jsonschema:"include global memories alongside a workspace export (default true)"`
+	NoGlobal      bool   `json:"no_global,omitempty" jsonschema:"export only the explicit workspace scope; do not include global memories"`
 }
 
 // importMemoryInstructionsInput is the MCP input for the
