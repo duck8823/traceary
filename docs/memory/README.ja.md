@@ -172,9 +172,11 @@ host-native file を変更する前段として activation planning を dry-run 
 
 - `traceary memory activate --target codex --dry-run`
 - `traceary memory activate --target codex --apply`
+- `traceary memory activate --target codex --status`
 
 Codex の既定 target は Traceary 管理ファイル (`~/.codex/memories/traceary.md`) で、user-authored な memory shard を上書きしません。`--root` / `--path` で明示上書きでき、`--diff` で既存 target file との差分を表示できます。
 apply mode は必要に応じて target directory/file を作成し、Traceary 管理ブロックだけを置換し、その外側の user-authored content は保持します。出力には activated memory count を含み、新しい marker version の管理ブロックは古い binary で上書きしません。
+status mode は read-only で `missing` / `stale` / `in_sync` / `invalid` を表示し、Codex file の作成・更新が必要な場合は正確な dry-run/apply command を出力します。`traceary doctor --client codex` でも同じ activation status を確認できます。
 
 import は Codex の Markdown memory（既定値は `~/.codex/memories/*.md`）を読みます。legacy `MEMORY.md` は `## User preferences` / `## Reusable knowledge` / `## Failures and how to do differently` の allow-list を維持し、それ以外の Markdown shard は任意の見出し配下の bullet/list item を `source=imported` + `status=candidate` として記録します。evidence / artifact ref には元ファイルと行範囲を付与し、sanitizer は全ての imported fact に適用されます。auto-accept はされず、再実行時の dedupe は rejected / superseded / expired を含む全状態を見るので、一度 operator が reject した memory が別 run で resurrect することはありません。
 

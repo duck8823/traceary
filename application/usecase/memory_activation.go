@@ -74,7 +74,7 @@ func (u *memoryActivationUsecase) Apply(ctx context.Context, criteria apptypes.M
 		return apptypes.MemoryActivationApplyResult{}, err
 	}
 	if action != apptypes.MemoryActivationApplyNoop {
-		if err := writeActivationTargetAtomic(targetPath, planned, exists); err != nil {
+		if err := writeActivationTargetAtomic(targetPath, planned); err != nil {
 			return apptypes.MemoryActivationApplyResult{}, err
 		}
 	}
@@ -87,6 +87,62 @@ func (u *memoryActivationUsecase) Apply(ctx context.Context, criteria apptypes.M
 		Existing:       exists,
 		ActivatedCount: exportResult.ExportedCount,
 	}, nil
+}
+
+func (u *memoryActivationUsecase) Status(ctx context.Context, criteria apptypes.MemoryActivationCriteria) (apptypes.MemoryActivationStatusResult, error) {
+	targetPath, err := resolveMemoryActivationTargetPath(criteria)
+	if err != nil {
+		return apptypes.MemoryActivationStatusResult{}, err
+	}
+
+	exportResult, err := u.renderActivationBlock(ctx, criteria)
+	if err != nil {
+		return apptypes.MemoryActivationStatusResult{}, err
+	}
+	result := apptypes.MemoryActivationStatusResult{
+		Target:         criteria.Target,
+		TargetPath:     targetPath,
+		Scopes:         exportResult.Scopes,
+		ActivatedCount: exportResult.ExportedCount,
+	}
+
+	if _, _, err := inspectActivationTargetForWrite(targetPath); err != nil {
+		result.State = apptypes.MemoryActivationStatusInvalid
+		result.Message = err.Error()
+		return result, nil
+	}
+
+	existing, exists, err := readExistingActivationTarget(targetPath)
+	if err != nil {
+		result.State = apptypes.MemoryActivationStatusInvalid
+		result.Message = err.Error()
+		return result, nil
+	}
+	result.Existing = exists
+	if !exists {
+		result.State = apptypes.MemoryActivationStatusMissing
+		result.Message = "activation target file is missing"
+		return result, nil
+	}
+	region, found, err := findMemoryBridgeBlockRegion(existing)
+	if err != nil {
+		result.State = apptypes.MemoryActivationStatusInvalid
+		result.Message = err.Error()
+		return result, nil
+	}
+	if !found {
+		result.State = apptypes.MemoryActivationStatusMissing
+		result.Message = "Traceary managed memory block is missing"
+		return result, nil
+	}
+	if existing[region.start:region.end] == exportResult.Markdown {
+		result.State = apptypes.MemoryActivationStatusInSync
+		result.Message = "activation target is in sync"
+		return result, nil
+	}
+	result.State = apptypes.MemoryActivationStatusStale
+	result.Message = "Traceary managed memory block differs from the current accepted memories"
+	return result, nil
 }
 
 func (u *memoryActivationUsecase) renderActivationBlock(ctx context.Context, criteria apptypes.MemoryActivationCriteria) (apptypes.MemoryExportResult, error) {
@@ -241,24 +297,20 @@ func appendManagedBlock(existing string, managedBlock string) string {
 	return existing + managedBlock
 }
 
-func writeActivationTargetAtomic(path string, content string, existed bool) error {
+func writeActivationTargetAtomic(path string, content string) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return xerrors.Errorf("failed to create activation target directory %s: %w", dir, err)
 	}
 	perm := os.FileMode(0o600)
-	if info, err := os.Lstat(path); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 {
-			return xerrors.Errorf("activation target symlinks are not supported: %s", path)
-		}
-		if info.IsDir() {
-			return xerrors.Errorf("activation target is a directory: %s", path)
-		}
+	info, statExists, err := inspectActivationTargetForWrite(path)
+	if err != nil {
+		return err
+	}
+	if statExists {
 		if mode := info.Mode().Perm(); mode != 0 {
 			perm = mode
 		}
-	} else if existed || !os.IsNotExist(err) {
-		return xerrors.Errorf("failed to stat activation target %s: %w", path, err)
 	}
 	tmp, err := os.CreateTemp(dir, ".traceary-"+filepath.Base(path)+".*.tmp")
 	if err != nil {
@@ -291,6 +343,23 @@ func writeActivationTargetAtomic(path string, content string, existed bool) erro
 	}
 	cleanup = false
 	return nil
+}
+
+func inspectActivationTargetForWrite(path string) (os.FileInfo, bool, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, false, xerrors.Errorf("failed to stat activation target %s: %w", path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, true, xerrors.Errorf("activation target symlinks are not supported: %s", path)
+	}
+	if info.IsDir() {
+		return nil, true, xerrors.Errorf("activation target is a directory: %s", path)
+	}
+	return info, true, nil
 }
 
 func renderActivationDiff(path string, existing string, planned string) string {

@@ -33,6 +33,7 @@ func (c *RootCLI) newMemoryActivateCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&input.noGlobal, "no-global", false, Localize("activate only the explicit workspace scope; do not include global memories", "明示した workspace scope のみを activation し、global memory は含めない"))
 	cmd.Flags().BoolVar(&input.dryRun, "dry-run", false, Localize("print the activation plan without writing files", "ファイルを書き込まず activation plan を表示する"))
 	cmd.Flags().BoolVar(&input.apply, "apply", false, Localize("write the activation target file", "activation target file に書き込む"))
+	cmd.Flags().BoolVar(&input.status, "status", false, Localize("print read-only activation status", "read-only な activation status を表示する"))
 	cmd.Flags().BoolVar(&input.diff, "diff", false, Localize("include a diff against the existing target file when present", "既存の対象ファイルがある場合に diff を含める"))
 	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	_ = cmd.MarkFlagRequired("target")
@@ -46,10 +47,10 @@ func (c *RootCLI) runMemoryActivate(ctx context.Context, output io.Writer, input
 	if c.memory == nil {
 		return xerrors.Errorf(Localize("memory usecase is not configured", "memory activation ユースケースが設定されていません"))
 	}
-	if input.dryRun == input.apply {
-		return xerrors.Errorf(Localize("pass exactly one of --dry-run or --apply", "--dry-run または --apply のどちらか一方を指定してください"))
+	if countActivationModes(input) != 1 {
+		return xerrors.Errorf(Localize("pass exactly one of --dry-run, --apply, or --status", "--dry-run / --apply / --status のいずれか一つだけを指定してください"))
 	}
-	if input.diff && input.apply {
+	if input.diff && !input.dryRun {
 		return xerrors.Errorf(Localize("--diff can only be used with --dry-run", "--diff は --dry-run と一緒にのみ使用できます"))
 	}
 	target, ok := apptypes.MemoryBridgeTargetOf(strings.ToLower(strings.TrimSpace(input.target)))
@@ -73,6 +74,14 @@ func (c *RootCLI) runMemoryActivate(ctx context.Context, output io.Writer, input
 		criteria.Scopes = []domtypes.MemoryScope{scope}
 		criteria.IncludeGlobal = input.includeGlobal && !input.noGlobal
 	}
+	if input.status {
+		result, err := c.memory.ActivationStatus(ctx, criteria)
+		if err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to inspect memory activation status", "memory activation status の確認に失敗しました"), err)
+		}
+		commands := memoryActivationCommands(criteria)
+		return writeMemoryActivationStatus(output, result, commands, input.asJSON)
+	}
 	if input.apply {
 		result, err := c.memory.Activate(ctx, criteria)
 		if err != nil {
@@ -85,6 +94,16 @@ func (c *RootCLI) runMemoryActivate(ctx context.Context, output io.Writer, input
 		return xerrors.Errorf("%s: %w", Localize("failed to plan memory activation", "memory activation plan の作成に失敗しました"), err)
 	}
 	return writeMemoryActivationPlan(output, plan, input.asJSON)
+}
+
+func countActivationModes(input memoryActivateCommandInput) int {
+	count := 0
+	for _, enabled := range []bool{input.dryRun, input.apply, input.status} {
+		if enabled {
+			count++
+		}
+	}
+	return count
 }
 
 func writeMemoryActivationPlan(output io.Writer, plan apptypes.MemoryActivationPlan, asJSON bool) error {
@@ -116,6 +135,112 @@ func writeMemoryActivationPlan(output io.Writer, plan apptypes.MemoryActivationP
 		return xerrors.Errorf("%s: %w", Localize("failed to print memory activation content", "memory activation content の出力に失敗しました"), err)
 	}
 	return nil
+}
+
+type memoryActivationCommandSet struct {
+	DryRun string
+	Apply  string
+}
+
+func memoryActivationCommands(criteria apptypes.MemoryActivationCriteria) memoryActivationCommandSet {
+	base := []string{"traceary", "memory", "activate", "--target", criteria.Target.String()}
+	if strings.TrimSpace(criteria.Path) != "" {
+		base = append(base, "--path", criteria.Path)
+	} else if strings.TrimSpace(criteria.Root) != "" {
+		base = append(base, "--root", criteria.Root)
+	}
+	hasWorkspaceScope := false
+	for _, scope := range criteria.Scopes {
+		if scope == nil || scope.Kind() != domtypes.MemoryScopeKindWorkspace {
+			continue
+		}
+		hasWorkspaceScope = true
+		base = append(base, "--workspace", scope.Key())
+		break
+	}
+	if hasWorkspaceScope && !criteria.IncludeGlobal {
+		base = append(base, "--no-global")
+	}
+	return memoryActivationCommandSet{
+		DryRun: renderShellCommand(append(append([]string(nil), base...), "--dry-run", "--diff")),
+		Apply:  renderShellCommand(append(append([]string(nil), base...), "--apply")),
+	}
+}
+
+func renderShellCommand(args []string) string {
+	parts := make([]string, 0, len(args))
+	for _, arg := range args {
+		if isSimpleShellToken(arg) {
+			parts = append(parts, arg)
+			continue
+		}
+		parts = append(parts, shellQuote(arg))
+	}
+	return strings.Join(parts, " ")
+}
+
+func isSimpleShellToken(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			continue
+		}
+		switch r {
+		case '_', '-', '.', '/', ':', '=', '@':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func writeMemoryActivationStatus(output io.Writer, result apptypes.MemoryActivationStatusResult, commands memoryActivationCommandSet, asJSON bool) error {
+	if asJSON {
+		payload := memoryActivationStatusOutput{
+			Target:         result.Target.String(),
+			TargetPath:     result.TargetPath,
+			State:          result.State.String(),
+			Existing:       result.Existing,
+			ActivatedCount: result.ActivatedCount,
+			Message:        result.Message,
+		}
+		if memoryActivationStatusHasRemediation(result.State) {
+			payload.DryRunCommand = commands.DryRun
+			payload.ApplyCommand = commands.Apply
+		}
+		encoder := json.NewEncoder(output)
+		encoder.SetEscapeHTML(false)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(payload); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to encode memory activation status", "memory activation status の JSON 出力に失敗しました"), err)
+		}
+		return nil
+	}
+	if _, err := fmt.Fprintf(
+		output,
+		"target: %s\nstate: %s\nexisting: %t\nactivated_count: %d\nmessage: %s\n",
+		result.TargetPath,
+		result.State.String(),
+		result.Existing,
+		result.ActivatedCount,
+		result.Message,
+	); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print memory activation status", "memory activation status の出力に失敗しました"), err)
+	}
+	if !memoryActivationStatusHasRemediation(result.State) {
+		return nil
+	}
+	if _, err := fmt.Fprintf(output, "next_dry_run: %s\nnext_apply: %s\n", commands.DryRun, commands.Apply); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print memory activation remediation", "memory activation remediation の出力に失敗しました"), err)
+	}
+	return nil
+}
+
+func memoryActivationStatusHasRemediation(state apptypes.MemoryActivationStatusState) bool {
+	return state == apptypes.MemoryActivationStatusMissing || state == apptypes.MemoryActivationStatusStale
 }
 
 func writeMemoryActivationApplyResult(output io.Writer, result apptypes.MemoryActivationApplyResult, asJSON bool) error {
