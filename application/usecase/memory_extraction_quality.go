@@ -31,18 +31,19 @@ var (
 		`\s+\S`)
 
 	// reviewConclusionEnglishPattern is conservatively anchored: each
-	// alternative now requires the conclusion phrase to reach end-of-string
-	// with only short, non-substantive trailing text. This prevents durable
-	// facts that *start* with LGTM / "No issues" / "MUST findings: none"
-	// from being hidden when the user continues with a real follow-up.
+	// alternative must end after a small review-scope suffix. This prevents
+	// durable facts that *start* with LGTM / "No issues" /
+	// "MUST findings: none" from being hidden when the user continues with a
+	// real follow-up.
 	reviewConclusionEnglishPattern = regexp.MustCompile(`(?i)^` +
 		`(?:` +
-		// "(severity) findings: none|nothing|n/a|0" with up to ~20 chars of
-		// trailing scope/punctuation (e.g. " for this round", ".", "!").
-		`(?:must|should|nice-to-have|critical|high|medium|low|severe|blocker)?\s*findings?\s*[:\-]\s*(?:none|nothing|n/?a|0)\b[^\n]{0,20}$` +
+		// "(severity) findings: none|nothing|n/a|0" with optional
+		// review-scope wording such as "for this round" plus terminal
+		// punctuation. Do not allow arbitrary words after "none".
+		`(?:must|should|nice-to-have|critical|high|medium|low|severe|blocker)?\s*findings?\s*[:\-]\s*(?:none|nothing|n/?a|0)\b` + reviewConclusionScopeTailPattern +
 		// "(no|zero) (severity)? (findings|issues|problems|concerns|defects) (found|detected)?"
-		// with the same short trailing allowance.
-		`|(?:no|zero)\s+(?:must|critical|high|medium|low|blocker(?:s)?|severe)?\s*(?:findings?|issues?|problems?|concerns?|defects?)(?:\s+(?:found|detected))?\b[^\n]{0,20}$` +
+		// with the same constrained review-scope tail.
+		`|(?:no|zero)\s+(?:must|critical|high|medium|low|blocker(?:s)?|severe)?\s*(?:findings?|issues?|problems?|concerns?|defects?)(?:\s+(?:found|detected))?\b` + reviewConclusionScopeTailPattern +
 		// LGTM-style approvals must reach end-of-string with only non-word
 		// trailing characters (whitespace, punctuation, emoji). Any letter
 		// after the phrase signals durable continuation and excludes it.
@@ -70,6 +71,8 @@ var (
 	)
 
 	transientPRRoundPattern = regexp.MustCompile(`(?i)^(?:round\s+\d+\b|pr\s*#?\d+\s+(?:review|check|status|round|update|recap|notes?|pass|follow-?ups?))`)
+
+	reviewConclusionScopeTailPattern = `(?:\s+(?:for|in|on)\s+(?:(?:this|the)\s+)?(?:round|review|pass|pr|pull\s+request|change|changes))?[\s.!?。．]*$`
 
 	// standaloneCommandProseMarkers list connectives, modal verbs, articles,
 	// and descriptive verb forms that strongly indicate the input is prose
@@ -178,6 +181,9 @@ func isStandaloneCommand(value, lower string) bool {
 	if hasCJKScript(value) {
 		return false
 	}
+	if !hasStandaloneCommandShape(value) {
+		return false
+	}
 	paddedLower := " " + lower + " "
 	for _, marker := range standaloneCommandProseMarkers {
 		if strings.Contains(paddedLower, marker) {
@@ -185,6 +191,116 @@ func isStandaloneCommand(value, lower string) bool {
 		}
 	}
 	return true
+}
+
+func hasStandaloneCommandShape(value string) bool {
+	fields := strings.Fields(value)
+	if len(fields) < 2 {
+		return false
+	}
+	command := normalizeStandaloneCommandToken(fields[0])
+	second := normalizeStandaloneCommandToken(fields[1])
+	if command == "" || second == "" {
+		return false
+	}
+	if isKnownStandaloneSubcommand(command, second) {
+		return true
+	}
+	if isLikelyShellOperand(fields[1]) {
+		return true
+	}
+	for _, field := range fields[2:] {
+		if strings.HasPrefix(field, "-") || strings.Contains(field, "=") || isLikelyShellOperand(field) {
+			return true
+		}
+	}
+	return allowsLooseStandaloneOperand(command) && len(fields) == 2 && !looksLikeCommonProsePair(command, second)
+}
+
+func normalizeStandaloneCommandToken(value string) string {
+	trimmed := strings.Trim(value, "`'\"()[]{}.,:;!?")
+	return strings.ToLower(trimmed)
+}
+
+func isKnownStandaloneSubcommand(command, subcommand string) bool {
+	subcommands, ok := standaloneCommandSubcommands[command]
+	if !ok {
+		return false
+	}
+	_, ok = subcommands[subcommand]
+	return ok
+}
+
+var standaloneCommandSubcommands = map[string]map[string]struct{}{
+	"git": {
+		"add": {}, "bisect": {}, "branch": {}, "checkout": {}, "clone": {}, "commit": {}, "diff": {}, "fetch": {}, "grep": {}, "init": {}, "log": {}, "merge": {}, "mv": {}, "pull": {}, "push": {}, "rebase": {}, "reset": {}, "restore": {}, "rm": {}, "show": {}, "stash": {}, "status": {}, "switch": {}, "tag": {}, "worktree": {},
+	},
+	"gh": {
+		"api": {}, "auth": {}, "codespace": {}, "config": {}, "extension": {}, "gist": {}, "issue": {}, "label": {}, "pr": {}, "release": {}, "repo": {}, "run": {}, "search": {}, "workflow": {},
+	},
+	"go": {
+		"build": {}, "clean": {}, "env": {}, "fmt": {}, "generate": {}, "get": {}, "install": {}, "list": {}, "mod": {}, "run": {}, "test": {}, "tool": {}, "version": {}, "vet": {}, "work": {},
+	},
+	"docker": {
+		"build": {}, "compose": {}, "down": {}, "exec": {}, "images": {}, "logs": {}, "network": {}, "ps": {}, "pull": {}, "push": {}, "restart": {}, "run": {}, "start": {}, "stop": {}, "up": {}, "volume": {},
+	},
+	"docker-compose": {
+		"build": {}, "down": {}, "exec": {}, "images": {}, "logs": {}, "ps": {}, "pull": {}, "push": {}, "restart": {}, "run": {}, "start": {}, "stop": {}, "up": {},
+	},
+	"kubectl": {
+		"apply": {}, "config": {}, "delete": {}, "describe": {}, "exec": {}, "get": {}, "logs": {}, "patch": {}, "rollout": {}, "scale": {},
+	},
+	"npm":      stringSet("audit", "build", "ci", "create", "exec", "install", "publish", "run", "start", "test"),
+	"npx":      stringSet("create", "jest", "tsx", "vite"),
+	"pnpm":     stringSet("add", "build", "create", "dlx", "exec", "install", "remove", "run", "start", "test"),
+	"yarn":     stringSet("add", "build", "create", "dlx", "exec", "install", "remove", "run", "start", "test"),
+	"cargo":    stringSet("build", "check", "clippy", "fmt", "install", "run", "test"),
+	"brew":     stringSet("bundle", "cleanup", "install", "list", "tap", "uninstall", "update", "upgrade"),
+	"rtk":      stringSet("git", "gh", "go", "gofmt", "golangci-lint"),
+	"traceary": stringSet("context", "hook", "memory", "session", "shell", "version"),
+}
+
+func stringSet(values ...string) map[string]struct{} {
+	result := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		result[value] = struct{}{}
+	}
+	return result
+}
+
+func isLikelyShellOperand(value string) bool {
+	trimmed := strings.Trim(value, "`'\"")
+	return strings.HasPrefix(trimmed, "-") ||
+		strings.HasPrefix(trimmed, "/") ||
+		strings.HasPrefix(trimmed, "./") ||
+		strings.HasPrefix(trimmed, "../") ||
+		strings.Contains(trimmed, "/") ||
+		strings.Contains(trimmed, "=") ||
+		strings.Contains(trimmed, "*") ||
+		strings.Contains(trimmed, "$") ||
+		strings.Contains(trimmed, "{") ||
+		strings.Contains(trimmed, "}") ||
+		strings.Contains(trimmed, "|") ||
+		strings.Contains(trimmed, ">") ||
+		strings.Contains(trimmed, "<")
+}
+
+func allowsLooseStandaloneOperand(command string) bool {
+	switch command {
+	case "make", "cmake", "ninja", "pytest", "jest", "vitest", "tox", "mvn", "gradle", "sbt", "bash", "zsh", "sh", "node", "deno", "bun", "tsx", "python", "python3", "pip", "pip3", "ruby", "gem", "bundle", "rake", "dart", "flutter", "swift", "xcrun", "adb", "fastlane", "helm", "aws", "gcloud", "terraform", "psql", "sqlite", "sqlite3", "mkdir", "rmdir", "rm", "mv", "cp", "cd", "ls", "ssh", "scp", "curl", "wget", "cat", "tail", "head", "sed", "awk", "grep", "rg", "tree", "env", "export", "source", "sudo", "jq", "tar", "zip", "unzip", "gzip", "gunzip", "hg", "svn", "nslookup", "dig", "ping", "traceroute", "systemctl", "service", "launchctl", "crontab", "chmod", "chown", "kill", "pkill", "ps", "lsof", "netstat", "whoami", "id", "uname", "date", "claude", "gemini":
+		return true
+	default:
+		return false
+	}
+}
+
+func looksLikeCommonProsePair(command, second string) bool {
+	switch command + " " + second {
+	case "make sure", "codex review", "gemini review", "claude code":
+		return true
+	default:
+		return false
+	}
 }
 
 func hasCJKScript(value string) bool {

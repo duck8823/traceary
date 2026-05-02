@@ -51,6 +51,8 @@ func TestClassifyExtractionNoise(t *testing.T) {
 		{name: "make build origin prose", fact: "make build from a clean working tree", want: nil},
 		{name: "claude command with prose", fact: "claude with prompt caching saves tokens", want: nil},
 		{name: "npm install role prose", fact: "npm install as a postinstall step", want: nil},
+		{name: "codex review prose", fact: "Codex review found flaky tests", want: nil},
+		{name: "git hooks prose", fact: "git hooks enforce signed commits", want: nil},
 
 		// Review-only conclusions
 		{name: "must findings none", fact: "MUST findings: none", want: []string{"review_conclusion"}},
@@ -72,7 +74,9 @@ func TestClassifyExtractionNoise(t *testing.T) {
 		{name: "approved with durable follow-up", fact: "Approved but flag it for follow-up next sprint", want: nil},
 		{name: "no issues found with durable continuation", fact: "No issues found in production but check staging carefully", want: nil},
 		{name: "no issues with substantive trailing", fact: "No issues right now, but the migration script must be re-run after the v2 deploy", want: nil},
+		{name: "no issues with substantive object", fact: "No issues with auth rollover", want: nil},
 		{name: "must findings none with durable continuation", fact: "MUST findings: none yet, but the security review is still pending downstream", want: nil},
+		{name: "must findings none with follow-up action", fact: "MUST findings: none, rotate keys", want: nil},
 
 		// Work declarations
 		{name: "i will read", fact: "I will read foo.go", want: []string{"work_declaration"}},
@@ -158,6 +162,8 @@ func TestIsStandaloneCommand_RejectsProseSentences(t *testing.T) {
 		{name: "npm install with prose", fact: "npm install with --legacy-peer-deps when conflicts arise"},
 		{name: "docker run as role", fact: "docker run as the entrypoint of CI"},
 		{name: "make build until", fact: "make build until it reproduces the failure"},
+		{name: "codex review found", fact: "Codex review found flaky tests"},
+		{name: "git hooks enforce", fact: "git hooks enforce signed commits"},
 		// Kanji-only durable markers are also Japanese prose and must not be
 		// hidden as standalone commands (#857).
 		{name: "go test kanji constraint", fact: "go test 必須"},
