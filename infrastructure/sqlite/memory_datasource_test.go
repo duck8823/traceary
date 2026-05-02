@@ -555,6 +555,49 @@ func TestMemoryDatasource_List(t *testing.T) {
 	})
 }
 
+func TestMemoryDatasource_List_RememberIntentPriorityAppliesBeforePagination(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	sut, storeManager := newMemoryDatasource(t, dbPath, memoryDatasourceTestMigrations())
+	ctx := context.Background()
+
+	if err := storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	// Three candidates whose updated_at puts the remember-intent row in the
+	// middle of the timeline. Without query-level priority, a LIMIT 1 page
+	// would surface the most recent extracted candidate and leave the
+	// remember-intent row hidden until later pages.
+	scope := mustWorkspaceScope(t, "github.com/duck8823/traceary")
+	fixtureMemories := []*model.Memory{
+		memoryOf(t, "mem-extracted-newest", types.MemoryTypeLesson, scope, "newest extracted", types.MemoryStatusCandidate, types.ConfidenceLow, types.MemorySourceExtracted, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), time.Date(2026, 4, 12, 12, 0, 0, 0, time.UTC), time.Date(2026, 4, 12, 12, 0, 0, 0, time.UTC)),
+		memoryOf(t, "mem-remember-intent-mid", types.MemoryTypePreference, scope, "remember-intent middle", types.MemoryStatusCandidate, types.ConfidenceLow, types.MemorySourceRememberIntent, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), time.Date(2026, 4, 12, 11, 0, 0, 0, time.UTC), time.Date(2026, 4, 12, 11, 0, 0, 0, time.UTC)),
+		memoryOf(t, "mem-extracted-oldest", types.MemoryTypeLesson, scope, "oldest extracted", types.MemoryStatusCandidate, types.ConfidenceLow, types.MemorySourceExtracted, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC), time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC)),
+	}
+	for _, memory := range fixtureMemories {
+		if err := sut.Save(ctx, memory); err != nil {
+			t.Fatalf("Save(%s) error = %v", memory.MemoryID(), err)
+		}
+	}
+
+	criteria := apptypes.NewMemoryListCriteriaBuilder(1).
+		Statuses([]types.MemoryStatus{types.MemoryStatusCandidate}).
+		RememberIntentPriority(true).
+		Build()
+	summaries, err := sut.List(ctx, criteria)
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if got := len(summaries); got != 1 {
+		t.Fatalf("len(List()) = %d, want 1 (LIMIT 1)", got)
+	}
+	if diff := cmp.Diff("mem-remember-intent-mid", summaries[0].MemoryID().String()); diff != "" {
+		t.Fatalf("first page must surface remember-intent row before extracted rows; mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestMemoryDatasource_Search(t *testing.T) {
 	t.Parallel()
 

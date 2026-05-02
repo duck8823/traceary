@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/xerrors"
 
@@ -784,19 +785,33 @@ func collectRememberIntentContextSpecs(sessionID domtypes.SessionID, signals []e
 		spec.signalScore = memoryExtractionSignalScore(spec)
 		specs = append(specs, spec)
 	}
+	// Reverse so the newest remember-intent prompt comes first. Extract
+	// applies CandidateLimit by first-seen key, so without this older context
+	// would consume the budget before more recent facts.
+	slices.Reverse(specs)
 	return specs, nil
 }
 
+// rememberIntentContextLookback bounds how far back a short remember-only
+// prompt scans for adjacent factual context. Anything further away than the
+// last few prompt/transcript turns is treated as unrelated stale chatter and
+// will not be used as evidence for the candidate.
+const rememberIntentContextLookback = 3
+
 func previousRememberIntentContext(signals []extractionSignal) (extractionSignal, bool) {
+	examined := 0
 	for index := len(signals) - 1; index >= 0; index-- {
 		signal := signals[index]
 		if signal.kind != domtypes.EventKindPrompt && signal.kind != domtypes.EventKindTranscript {
 			continue
 		}
-		if rememberIntentContextFact(signal.text) == "" {
-			continue
+		examined++
+		if rememberIntentContextFact(signal.text) != "" {
+			return signal, true
 		}
-		return signal, true
+		if examined >= rememberIntentContextLookback {
+			return extractionSignal{}, false
+		}
 	}
 	return extractionSignal{}, false
 }
@@ -1038,6 +1053,15 @@ func extractInlineRememberIntentFact(segment string) (string, bool) {
 		if index < 0 {
 			continue
 		}
+		// Only treat the inline trigger as explicit remember-intent when it
+		// is used imperatively (start of a clause, after a sentence boundary,
+		// or after a polite softener). This rejects declarative phrasing like
+		// "I remember that we already fixed this" and trigger-only negations
+		// like "Don't remember this." which would otherwise produce
+		// remember-intent candidates from non-intent prose.
+		if !isImperativeEnglishRememberContext(normalized, index) {
+			return "", false
+		}
 		fact := rememberIntentFactAroundTrigger(normalized, index, len(trigger))
 		if fact != "" {
 			return fact, true
@@ -1056,6 +1080,46 @@ func extractInlineRememberIntentFact(segment string) (string, bool) {
 		return "", false
 	}
 	return "", false
+}
+
+// imperativeRememberContextEndings list characters that mark a clause boundary
+// before an English remember-intent trigger. When the immediately-preceding
+// non-whitespace character belongs to this set, the trigger introduces a new
+// imperative clause ("..., remember this." / "Stop. Remember this.").
+const imperativeRememberContextEndings = ".!?;:,、。"
+
+// imperativeRememberSoftenerTokens list polite request markers that may
+// directly precede an imperative trigger ("please remember this:", "kindly
+// remember that", "do remember"). They are the only non-boundary tokens that
+// count as imperative context.
+var imperativeRememberSoftenerTokens = map[string]struct{}{
+	"please": {},
+	"pls":    {},
+	"kindly": {},
+	"do":     {},
+}
+
+func isImperativeEnglishRememberContext(value string, index int) bool {
+	before := strings.TrimRight(value[:index], " \t\r\n")
+	if before == "" {
+		return true
+	}
+	last, _ := utf8.DecodeLastRuneInString(before)
+	if strings.ContainsRune(imperativeRememberContextEndings, last) {
+		return true
+	}
+	lastSpace := strings.LastIndexAny(before, " \t")
+	var lastToken string
+	if lastSpace < 0 {
+		lastToken = strings.ToLower(before)
+	} else {
+		lastToken = strings.ToLower(before[lastSpace+1:])
+	}
+	lastToken = strings.Trim(lastToken, "`'\"()[]{}.,:;!?")
+	if _, ok := imperativeRememberSoftenerTokens[lastToken]; ok {
+		return true
+	}
+	return false
 }
 
 func indexFoldASCII(value string, needle string) int {
@@ -1095,8 +1159,16 @@ func cleanRememberIntentFactRemainder(value string) string {
 	trimmed = strings.TrimSpace(strings.TrimSuffix(trimmed, "を"))
 	trimmed = strings.TrimSpace(strings.TrimSuffix(trimmed, "は"))
 	trimmed = strings.TrimSpace(strings.TrimSuffix(trimmed, "ね"))
+	// Negation-only remainders ("Don't remember this." → "Don't") would
+	// otherwise be promoted to a remember-intent candidate when no factual
+	// text follows the trigger. Drop them here as a second line of defense
+	// behind the imperative gate.
 	switch strings.ToLower(trimmed) {
-	case "", "please", "pls", "this", "that", "it", "ね", "ください", "お願いします":
+	case "", "please", "pls", "this", "that", "it", "ね", "ください", "お願いします",
+		"don't", "dont", "don´t", "do not", "donot",
+		"never", "no", "not",
+		"won't", "wont", "can't", "cant", "couldn't", "couldnt",
+		"shouldn't", "shouldnt", "wouldn't", "wouldnt":
 		return ""
 	}
 	return normalizeCandidateFact(trimmed)

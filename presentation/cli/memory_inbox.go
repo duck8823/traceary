@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -142,12 +141,19 @@ func (c *RootCLI) runMemoryInboxList(ctx context.Context, output io.Writer, inpu
 	// 21st imported candidate matches, the datasource returns the match
 	// instead of handing back an empty page because the first 20 rows
 	// were some other source.
+	//
+	// RememberIntentPriority is enforced at the query layer so remember-intent
+	// rows surface ahead of other candidates BEFORE limit/offset applies — a
+	// post-fetch in-memory sort would only re-order the current page and
+	// could let a remember-intent row that lives just past the page boundary
+	// stay hidden until later pages (#856).
 	criteria := apptypes.NewMemoryListCriteriaBuilder(input.limit).
 		Offset(input.offset).
 		Scopes(scopes).
 		Statuses([]domtypes.MemoryStatus{domtypes.MemoryStatusCandidate}).
 		MemoryTypes(memoryTypes).
 		Sources(sources).
+		RememberIntentPriority(true).
 		Build()
 	summaries, err := c.memory.List(ctx, criteria)
 	if err != nil {
@@ -162,30 +168,7 @@ func (c *RootCLI) runMemoryInboxList(ctx context.Context, output io.Writer, inpu
 		}
 		items = append(items, details)
 	}
-	prioritizeRememberIntentInboxItems(items)
 	return writeMemoryInboxList(output, items, input.asJSON)
-}
-
-func prioritizeRememberIntentInboxItems(items []apptypes.MemoryDetails) {
-	slices.SortStableFunc(items, func(left, right apptypes.MemoryDetails) int {
-		leftPriority := memoryInboxSourcePriority(left.Summary().Source())
-		rightPriority := memoryInboxSourcePriority(right.Summary().Source())
-		switch {
-		case leftPriority < rightPriority:
-			return -1
-		case leftPriority > rightPriority:
-			return 1
-		default:
-			return 0
-		}
-	})
-}
-
-func memoryInboxSourcePriority(source domtypes.MemorySource) int {
-	if source == domtypes.MemorySourceRememberIntent {
-		return 0
-	}
-	return 1
 }
 
 func (c *RootCLI) runMemoryInboxBatch(ctx context.Context, output io.Writer, input memoryInboxBatchCommandInput, action memoryInboxAction) error {

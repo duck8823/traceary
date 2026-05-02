@@ -21,14 +21,15 @@ func DefaultActiveMemoryStatuses() []domtypes.MemoryStatus {
 // MemoryListCriteria holds filter parameters for memory listing.
 // Zero-value fields are ignored unless documented otherwise.
 type MemoryListCriteria struct {
-	limit           int
-	offset          int
-	scopes          []domtypes.MemoryScope
-	statuses        []domtypes.MemoryStatus
-	memoryTypes     []domtypes.MemoryType
-	sources         []domtypes.MemorySource
-	asOf            domtypes.Optional[time.Time]
-	includeExpired  bool
+	limit                  int
+	offset                 int
+	scopes                 []domtypes.MemoryScope
+	statuses               []domtypes.MemoryStatus
+	memoryTypes            []domtypes.MemoryType
+	sources                []domtypes.MemorySource
+	asOf                   domtypes.Optional[time.Time]
+	includeExpired         bool
+	rememberIntentPriority bool
 }
 
 // Limit returns the maximum number of results.
@@ -60,6 +61,12 @@ func (c MemoryListCriteria) AsOf() domtypes.Optional[time.Time] { return c.asOf 
 // the past as well. Defaults to false so the common case
 // ("give me memories that are still valid right now") is the default.
 func (c MemoryListCriteria) IncludeExpiredByValidity() bool { return c.includeExpired }
+
+// RememberIntentPriority reports whether remember-intent rows should be
+// returned ahead of other rows in the result set. The flag is honoured at the
+// query layer so pagination (--limit/--offset) is consistent with the
+// displayed order. Used by the inbox view; default is false.
+func (c MemoryListCriteria) RememberIntentPriority() bool { return c.rememberIntentPriority }
 
 // MemoryListCriteriaBuilder builds a MemoryListCriteria value.
 type MemoryListCriteriaBuilder struct {
@@ -146,6 +153,15 @@ func (b *MemoryListCriteriaBuilder) AsOf(asOf time.Time) *MemoryListCriteriaBuil
 // the past are included in results. Default is false.
 func (b *MemoryListCriteriaBuilder) IncludeExpiredByValidity(include bool) *MemoryListCriteriaBuilder {
 	b.criteria.includeExpired = include
+	return b
+}
+
+// RememberIntentPriority toggles whether remember-intent rows should be
+// returned ahead of other rows in the result set. The flag is honoured at the
+// query layer so pagination is consistent with the displayed order. Default
+// is false.
+func (b *MemoryListCriteriaBuilder) RememberIntentPriority(priority bool) *MemoryListCriteriaBuilder {
+	b.criteria.rememberIntentPriority = priority
 	return b
 }
 
