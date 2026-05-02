@@ -33,6 +33,7 @@ var (
 
 var (
 	rememberIntentEnglishTriggers = []string{
+		"keep this in memory",
 		"keep this in mind",
 		"remember this",
 		"remember that",

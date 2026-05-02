@@ -954,6 +954,11 @@ func TestMemoryUsecase_Extract_RememberIntentInlineFactsUseRememberSource(t *tes
 			wantFact: "Codex review can take a few minutes before comments appear",
 		},
 		{
+			name:     "english keep this in memory trigger before fact",
+			body:     "keep this in memory we always run go test before merge",
+			wantFact: "we always run go test before merge",
+		},
+		{
 			// Verifies the inline trigger scan stays byte-safe when the
 			// preceding text contains a Unicode character whose lowercase
 			// form expands ("İ" → "i̇"). The imperative gate still requires
