@@ -3,8 +3,6 @@ package usecase
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -13,10 +11,20 @@ import (
 	apptypes "github.com/duck8823/traceary/application/types"
 )
 
-const codexActivationFileName = "traceary.md"
-
 type memoryActivationUsecase struct {
 	memoryQuery queryservice.MemoryQueryService
+	// fileWriter is the safe-write adapter for the activation target
+	// file. The zero value uses osActivationFileWriter so callers that
+	// build the usecase inline (memoryUsecase delegations and tests)
+	// keep the v0.12 filesystem semantics without explicit wiring.
+	fileWriter activationFileWriter
+}
+
+func (u *memoryActivationUsecase) writer() activationFileWriter {
+	if u.fileWriter == nil {
+		return osActivationFileWriter{}
+	}
+	return u.fileWriter
 }
 
 func (u *memoryActivationUsecase) Plan(ctx context.Context, criteria apptypes.MemoryActivationCriteria) (apptypes.MemoryActivationPlan, error) {
@@ -30,11 +38,12 @@ func (u *memoryActivationUsecase) Plan(ctx context.Context, criteria apptypes.Me
 		return apptypes.MemoryActivationPlan{}, err
 	}
 
-	existing, exists, err := readExistingActivationTarget(targetPath)
+	writer := u.writer()
+	existing, exists, err := writer.ReadIfExists(targetPath)
 	if err != nil {
-		return apptypes.MemoryActivationPlan{}, err
+		return apptypes.MemoryActivationPlan{}, xerrors.Errorf("failed to load activation target for plan: %w", err)
 	}
-	planned, _, err := mergeActivationTarget(existing, exists, exportResult.Markdown)
+	planned, _, err := memoryBridgeBlockMarkers.replaceOrAppend(existing, exists, exportResult.Markdown)
 	if err != nil {
 		return apptypes.MemoryActivationPlan{}, err
 	}
@@ -65,17 +74,18 @@ func (u *memoryActivationUsecase) Apply(ctx context.Context, criteria apptypes.M
 		return apptypes.MemoryActivationApplyResult{}, err
 	}
 
-	existing, exists, err := readExistingActivationTarget(targetPath)
+	writer := u.writer()
+	existing, exists, err := writer.ReadIfExists(targetPath)
 	if err != nil {
-		return apptypes.MemoryActivationApplyResult{}, err
+		return apptypes.MemoryActivationApplyResult{}, xerrors.Errorf("failed to load activation target before apply: %w", err)
 	}
-	planned, action, err := mergeActivationTarget(existing, exists, exportResult.Markdown)
+	planned, action, err := memoryBridgeBlockMarkers.replaceOrAppend(existing, exists, exportResult.Markdown)
 	if err != nil {
 		return apptypes.MemoryActivationApplyResult{}, err
 	}
 	if action != apptypes.MemoryActivationApplyNoop {
-		if err := writeActivationTargetAtomic(targetPath, planned); err != nil {
-			return apptypes.MemoryActivationApplyResult{}, err
+		if err := writer.WriteAtomic(targetPath, planned); err != nil {
+			return apptypes.MemoryActivationApplyResult{}, xerrors.Errorf("failed to apply activation target: %w", err)
 		}
 	}
 
@@ -106,13 +116,14 @@ func (u *memoryActivationUsecase) Status(ctx context.Context, criteria apptypes.
 		ActivatedCount: exportResult.ExportedCount,
 	}
 
-	if _, _, err := inspectActivationTargetForWrite(targetPath); err != nil {
+	writer := u.writer()
+	if _, _, err := writer.Inspect(targetPath); err != nil {
 		result.State = apptypes.MemoryActivationStatusInvalid
 		result.Message = err.Error()
 		return result, nil
 	}
 
-	existing, exists, err := readExistingActivationTarget(targetPath)
+	existing, exists, err := writer.ReadIfExists(targetPath)
 	if err != nil {
 		result.State = apptypes.MemoryActivationStatusInvalid
 		result.Message = err.Error()
@@ -124,7 +135,7 @@ func (u *memoryActivationUsecase) Status(ctx context.Context, criteria apptypes.
 		result.Message = "activation target file is missing"
 		return result, nil
 	}
-	region, found, err := findMemoryBridgeBlockRegion(existing)
+	region, found, err := memoryBridgeBlockMarkers.findRegion(existing)
 	if err != nil {
 		result.State = apptypes.MemoryActivationStatusInvalid
 		result.Message = err.Error()
@@ -153,213 +164,19 @@ func (u *memoryActivationUsecase) renderActivationBlock(ctx context.Context, cri
 	})
 }
 
+// resolveMemoryActivationTargetPath dispatches the criteria to the
+// host-specific descriptor and returns the absolute file path the
+// activation usecase will manage.
 func resolveMemoryActivationTargetPath(criteria apptypes.MemoryActivationCriteria) (string, error) {
-	if _, ok := apptypes.MemoryBridgeTargetOf(criteria.Target.String()); !ok {
-		return "", xerrors.Errorf("unsupported memory activation target: %s", criteria.Target)
-	}
-	if criteria.Target != apptypes.MemoryBridgeTargetCodex {
-		return "", xerrors.Errorf("memory activation target %s is not supported yet", criteria.Target)
-	}
-	if trimmed := strings.TrimSpace(criteria.Path); trimmed != "" {
-		abs, err := filepath.Abs(trimmed)
-		if err != nil {
-			return "", xerrors.Errorf("failed to resolve activation path: %w", err)
-		}
-		return abs, nil
-	}
-	switch criteria.Target {
-	case apptypes.MemoryBridgeTargetCodex:
-		root := strings.TrimSpace(criteria.Root)
-		if root == "" {
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return "", xerrors.Errorf("failed to resolve user home directory: %w", err)
-			}
-			root = filepath.Join(home, ".codex", "memories")
-		}
-		absRoot, err := filepath.Abs(root)
-		if err != nil {
-			return "", xerrors.Errorf("failed to resolve codex memory root: %w", err)
-		}
-		return filepath.Join(absRoot, codexActivationFileName), nil
-	}
-	return "", xerrors.Errorf("memory activation target %s is not supported yet", criteria.Target)
-}
-
-func readExistingActivationTarget(path string) (string, bool, error) {
-	data, err := os.ReadFile(path)
+	target, err := resolveActivationTarget(criteria.Target)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return "", false, nil
-		}
-		return "", false, xerrors.Errorf("failed to read activation target %s: %w", path, err)
+		return "", err
 	}
-	return string(data), true, nil
-}
-
-func mergeActivationTarget(existing string, exists bool, managedBlock string) (string, apptypes.MemoryActivationApplyAction, error) {
-	if !exists {
-		return managedBlock, apptypes.MemoryActivationApplyCreated, nil
-	}
-	region, found, err := findMemoryBridgeBlockRegion(existing)
+	path, err := target.ResolvePath(criteria)
 	if err != nil {
-		return "", "", err
+		return "", xerrors.Errorf("failed to resolve %s activation target path: %w", criteria.Target, err)
 	}
-	if found {
-		merged := existing[:region.start] + managedBlock + existing[region.end:]
-		if merged == existing {
-			return existing, apptypes.MemoryActivationApplyNoop, nil
-		}
-		return merged, apptypes.MemoryActivationApplyUpdated, nil
-	}
-	merged := appendManagedBlock(existing, managedBlock)
-	if merged == existing {
-		return existing, apptypes.MemoryActivationApplyNoop, nil
-	}
-	return merged, apptypes.MemoryActivationApplyUpdated, nil
-}
-
-type memoryBridgeBlockRegion struct {
-	start int
-	end   int
-}
-
-func findMemoryBridgeBlockRegion(content string) (memoryBridgeBlockRegion, bool, error) {
-	offset := 0
-	beginStart := -1
-	endOffset := -1
-	for _, line := range splitContentLines(content) {
-		trimmed := strings.TrimSpace(line.text)
-		if version, ok := MatchMemoryBridgeBeginLine(trimmed); ok {
-			if version > MemoryBridgeCurrentVersion {
-				return memoryBridgeBlockRegion{}, false, xerrors.Errorf("refusing to overwrite newer Traceary managed block version v%d (current v%d)", version, MemoryBridgeCurrentVersion)
-			}
-			if beginStart >= 0 {
-				return memoryBridgeBlockRegion{}, false, xerrors.Errorf("multiple Traceary managed memory blocks found")
-			}
-			beginStart = offset
-		}
-		if trimmed == MemoryBridgeMarkerEnd {
-			if beginStart < 0 {
-				offset += len(line.raw)
-				continue
-			}
-			if endOffset >= 0 {
-				return memoryBridgeBlockRegion{}, false, xerrors.Errorf("multiple Traceary managed memory end markers found")
-			}
-			endOffset = offset + len(line.raw)
-		}
-		offset += len(line.raw)
-	}
-	if beginStart < 0 {
-		return memoryBridgeBlockRegion{}, false, nil
-	}
-	if endOffset < 0 {
-		return memoryBridgeBlockRegion{}, false, xerrors.Errorf("Traceary managed memory begin marker found without end marker")
-	}
-	return memoryBridgeBlockRegion{start: beginStart, end: endOffset}, true, nil
-}
-
-type contentLine struct {
-	raw  string
-	text string
-}
-
-func splitContentLines(content string) []contentLine {
-	if content == "" {
-		return nil
-	}
-	lines := make([]contentLine, 0, strings.Count(content, "\n")+1)
-	for len(content) > 0 {
-		next := strings.IndexByte(content, '\n')
-		if next < 0 {
-			lines = append(lines, contentLine{raw: content, text: strings.TrimSuffix(content, "\r")})
-			break
-		}
-		raw := content[:next+1]
-		text := strings.TrimSuffix(strings.TrimSuffix(raw, "\n"), "\r")
-		lines = append(lines, contentLine{raw: raw, text: text})
-		content = content[next+1:]
-	}
-	return lines
-}
-
-func appendManagedBlock(existing string, managedBlock string) string {
-	if existing == "" {
-		return managedBlock
-	}
-	if !strings.HasSuffix(existing, "\n") {
-		return existing + "\n\n" + managedBlock
-	}
-	if !strings.HasSuffix(existing, "\n\n") {
-		return existing + "\n" + managedBlock
-	}
-	return existing + managedBlock
-}
-
-func writeActivationTargetAtomic(path string, content string) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return xerrors.Errorf("failed to create activation target directory %s: %w", dir, err)
-	}
-	perm := os.FileMode(0o600)
-	info, statExists, err := inspectActivationTargetForWrite(path)
-	if err != nil {
-		return err
-	}
-	if statExists {
-		if mode := info.Mode().Perm(); mode != 0 {
-			perm = mode
-		}
-	}
-	tmp, err := os.CreateTemp(dir, ".traceary-"+filepath.Base(path)+".*.tmp")
-	if err != nil {
-		return xerrors.Errorf("failed to create temporary activation target in %s: %w", dir, err)
-	}
-	tmpPath := tmp.Name()
-	cleanup := true
-	defer func() {
-		if cleanup {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-	if err := tmp.Chmod(perm); err != nil {
-		_ = tmp.Close()
-		return xerrors.Errorf("failed to chmod temporary activation target %s: %w", tmpPath, err)
-	}
-	if _, err := tmp.WriteString(content); err != nil {
-		_ = tmp.Close()
-		return xerrors.Errorf("failed to write temporary activation target %s: %w", tmpPath, err)
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return xerrors.Errorf("failed to sync temporary activation target %s: %w", tmpPath, err)
-	}
-	if err := tmp.Close(); err != nil {
-		return xerrors.Errorf("failed to close temporary activation target %s: %w", tmpPath, err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return xerrors.Errorf("failed to replace activation target %s: %w", path, err)
-	}
-	cleanup = false
-	return nil
-}
-
-func inspectActivationTargetForWrite(path string) (os.FileInfo, bool, error) {
-	info, err := os.Lstat(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, false, nil
-		}
-		return nil, false, xerrors.Errorf("failed to stat activation target %s: %w", path, err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return nil, true, xerrors.Errorf("activation target symlinks are not supported: %s", path)
-	}
-	if info.IsDir() {
-		return nil, true, xerrors.Errorf("activation target is a directory: %s", path)
-	}
-	return info, true, nil
+	return path, nil
 }
 
 func renderActivationDiff(path string, existing string, planned string) string {
