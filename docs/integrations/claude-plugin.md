@@ -29,16 +29,18 @@ traceary memory export --target claude --out CLAUDE.md
 `CLAUDE.md` and an external memory file under `.traceary/memories/claude.md`.
 The activation pair preserves user-authored content outside the managed
 regions, refuses unsafe targets (symlinks, directories, malformed markers,
-newer marker versions), and is idempotent.
+newer marker versions), and is idempotent. Traceary never writes into Claude's
+host-owned auto memory under `~/.claude/projects/<project>/memory/`; that
+store remains owned by Claude itself.
 
 ```sh
-# preview the planned changes (dry-run, no writes)
-traceary memory activate --target claude --dry-run --diff
-
 # inspect the live host pair (read-only)
 traceary memory activate --target claude --status
 
-# apply the pair with safe per-file writes
+# preview the planned changes (dry-run, no writes)
+traceary memory activate --target claude --dry-run --diff
+
+# apply the pair with safe per-file writes (idempotent)
 traceary memory activate --target claude --apply
 ```
 
@@ -53,8 +55,10 @@ Defaults:
 Override with `--root <dir>` or `--path <file>`; see the v0.13 host-native
 memory activation [ADR](../architecture/host-native-memory-activation.md) for
 the full contract (managed marker layout, status states, and tracked-file
-policy). `traceary doctor --client claude` surfaces a `claude-memory-activation`
-check with the same dry-run / apply remediation commands.
+policy) and the [durable memory guide](../memory/README.md#recovering-from-invalid-state)
+for `invalid` recovery steps. `traceary doctor --client claude` surfaces a
+`claude-memory-activation` check with the same dry-run / apply remediation
+commands.
 
 If you own a direct Anthropic SDK loop, the experimental native memory-tool
 backend remains available via

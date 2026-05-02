@@ -46,21 +46,27 @@ traceary doctor --client codex --json
 
 ## Memory activation strategy
 
-Codex is the first host with full Traceary host-native activation in v0.12.
-Accepted memories remain in Traceary's SQLite store as the source of truth, and
-the activation command writes only a Traceary-managed block into the Codex memory
-target (`~/.codex/memories/traceary.md` by default):
+Codex was the first host with full Traceary host-native activation (shipped
+in v0.12); v0.13.0 extends the same activation contract to Claude and
+Gemini using a two-file import-stub strategy. Codex remains a single-file
+target. Accepted memories stay in Traceary's SQLite store as the source of
+truth, and the activation command writes only a Traceary-managed block into
+the Codex memory target (`~/.codex/memories/traceary.md` by default):
 
 ```sh
-traceary memory activate --target codex --dry-run --diff
 traceary memory activate --target codex --status
+traceary memory activate --target codex --dry-run --diff
 traceary memory activate --target codex --apply
 traceary doctor --client codex --json
 ```
 
 The apply path creates the target directory/file when needed, preserves
-user-authored content outside the managed block, is idempotent when the accepted
-memory set has not changed, and refuses newer managed-block marker versions.
+user-authored content outside the managed block, is idempotent when the
+accepted memory set has not changed, and refuses newer managed-block marker
+versions. See the [host-native memory activation ADR](../architecture/host-native-memory-activation.md)
+for the full safety contract and the
+[durable memory guide](../memory/README.md#activation-strategy-by-host) for
+the cross-host strategy comparison and `invalid` recovery steps.
 
 ## Update
 

@@ -33,18 +33,20 @@ The activation pair preserves user-authored content outside the managed
 regions, refuses unsafe targets (symlinks, directories, malformed markers,
 newer marker versions), and is idempotent. Traceary never reads or rewrites
 Gemini's `## Gemini Added Memories` section produced by `save_memory`; that
-user-authored section is preserved as ordinary host-context content, and the
-managed import stub is appended after it so both sources of truth coexist
-safely.
+section is owned by Gemini's auto-memory tool and is preserved as ordinary
+host-context content. When the section is present, Traceary appends the
+managed import stub at end-of-file so both sources of truth coexist safely.
+The Gemini activation smoke test asserts that the seeded `## Gemini Added
+Memories` section is preserved byte-for-byte after `--apply`.
 
 ```sh
-# preview the planned changes (dry-run, no writes)
-traceary memory activate --target gemini --dry-run --diff
-
 # inspect the live host pair (read-only)
 traceary memory activate --target gemini --status
 
-# apply the pair with safe per-file writes
+# preview the planned changes (dry-run, no writes)
+traceary memory activate --target gemini --dry-run --diff
+
+# apply the pair with safe per-file writes (idempotent)
 traceary memory activate --target gemini --apply
 ```
 
@@ -59,8 +61,10 @@ Defaults:
 Override with `--root <dir>` or `--path <file>`; see the v0.13 host-native
 memory activation [ADR](../architecture/host-native-memory-activation.md) for
 the full contract (managed marker layout, status states, and tracked-file
-policy). `traceary doctor --client gemini` surfaces a `gemini-memory-activation`
-check with the same dry-run / apply remediation commands.
+policy) and the [durable memory guide](../memory/README.md#recovering-from-invalid-state)
+for `invalid` recovery steps. `traceary doctor --client gemini` surfaces a
+`gemini-memory-activation` check with the same dry-run / apply remediation
+commands.
 
 ## Install
 
