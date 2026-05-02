@@ -1015,6 +1015,87 @@ func TestMemoryUsecase_Extract_SkipsPreCompactMarkerOnlySummary(t *testing.T) {
 	}
 }
 
+func TestMemoryUsecase_Extract_ClearResetSummaryBodyProducesCandidate(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-clear-summary"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	clearEvent := mustExtractionEvent(t, "event-clear-summary", domtypes.EventKindCompactSummary, "Decision: After /clear, use traceary session handoff --compact-only before resuming implementation.")
+	clearEvent.SetSourceHook("clear")
+	details := mustMemoryDetailsFromSummary(t, "memory-clear-summary", domtypes.MemoryTypeDecision, "After /clear, use traceary session handoff --compact-only before resuming implementation.")
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{proposeResult: []apptypes.MemoryDetails{details}}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindCompactSummary: {clearEvent}}}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	_, err := sut.Extract(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-clear-summary")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(10).Build())
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(memoryUsecase.proposeCalls) != 1 {
+		t.Fatalf("proposeCalls = %d, want 1", len(memoryUsecase.proposeCalls))
+	}
+	call := memoryUsecase.proposeCalls[0]
+	if call.source != domtypes.MemorySourceCompactSummary {
+		t.Fatalf("source = %q, want compact-summary", call.source)
+	}
+	gotEvidence := make(map[string]bool)
+	for _, ref := range call.evidenceRefs {
+		if ref.Kind() == domtypes.EvidenceRefKindEvent {
+			gotEvidence[ref.Value()] = true
+		}
+	}
+	if !gotEvidence["event-clear-summary"] {
+		t.Fatalf("evidenceRefs = %v, want clear/reset summary event id", call.evidenceRefs)
+	}
+}
+
+func TestMemoryUsecase_Extract_SkipsClearResetMarkerOnlySummary(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-clear-marker"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	clearEvent := mustExtractionEvent(t, "event-clear-marker", domtypes.EventKindCompactSummary, "clear")
+	clearEvent.SetSourceHook("clear")
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindCompactSummary: {clearEvent}}}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	got, err := sut.Extract(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-clear-marker")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(10).Build())
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(got) != 0 || len(memoryUsecase.proposeCalls) != 0 {
+		t.Fatalf("clear marker produced candidates: got=%d calls=%d", len(got), len(memoryUsecase.proposeCalls))
+	}
+}
+
+func TestMemoryUsecase_ExplainExtraction_ReportsClearResetMarkerSkipReason(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-clear-marker"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	clearEvent := mustExtractionEvent(t, "event-debug-clear-marker", domtypes.EventKindCompactSummary, "reset")
+	clearEvent.SetSourceHook("reset")
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindCompactSummary: {clearEvent}}}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	report, err := sut.ExplainExtraction(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-debug-clear-marker")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(10).Build())
+	if err != nil {
+		t.Fatalf("ExplainExtraction() error = %v", err)
+	}
+	if len(report.Segments) != 1 {
+		t.Fatalf("segments = %d, want 1", len(report.Segments))
+	}
+	segment := report.Segments[0]
+	if segment.Decision != "ignored" || segment.Reason != "marker_only_context_boundary" {
+		t.Fatalf("segment decision/reason = %s/%s, want ignored/marker_only_context_boundary", segment.Decision, segment.Reason)
+	}
+	if segment.EventKind != domtypes.EventKindCompactSummary || segment.SourceHook != "reset" {
+		t.Fatalf("segment provenance = %s/%s, want compact_summary/reset", segment.EventKind, segment.SourceHook)
+	}
+}
+
 func TestMemoryUsecase_ExplainExtraction_ShowsPostCompactSummaryDecision(t *testing.T) {
 	t.Parallel()
 

@@ -325,6 +325,12 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 				SourceHook:   signal.sourceHook,
 				EvidenceRefs: slices.Clone(evidenceRefs),
 			}
+			if signal.skipReason != "" {
+				decision.Decision = "ignored"
+				decision.Reason = signal.skipReason
+				report.Segments = append(report.Segments, decision)
+				continue
+			}
 			if isShortRememberIntentSegment(segment) {
 				decision.Decision = "ignored"
 				decision.Reason = "remember_intent_context_only"
@@ -699,6 +705,7 @@ type extractionSignal struct {
 	client          domtypes.Client
 	kind            domtypes.EventKind
 	sourceHook      string
+	skipReason      string
 }
 
 func (u *memoryExtractionUsecase) collectCandidateSpecs(ctx context.Context, session apptypes.SessionSummary, eventLimit int) ([]memoryCandidateSpec, error) {
@@ -884,8 +891,9 @@ func (u *memoryExtractionUsecase) collectExtractionSignals(ctx context.Context, 
 		}
 		for _, event := range events {
 			body := apptypes.ExtractPlainBody(event.Body())
-			if kind == domtypes.EventKindCompactSummary && !shouldUseCompactSummaryExtractionSignal(event, body) {
-				continue
+			skipReason := ""
+			if kind == domtypes.EventKindCompactSummary {
+				skipReason = compactSummaryExtractionSkipReason(event, body)
 			}
 			signals = append(signals, extractionSignal{
 				text:            body,
@@ -895,6 +903,7 @@ func (u *memoryExtractionUsecase) collectExtractionSignals(ctx context.Context, 
 				client:          event.Client(),
 				kind:            event.Kind(),
 				sourceHook:      event.SourceHook(),
+				skipReason:      skipReason,
 			})
 		}
 		return nil
@@ -956,25 +965,24 @@ func (u *memoryExtractionUsecase) collectRememberIntentContextSignals(ctx contex
 	return signals, nil
 }
 
-func shouldUseCompactSummaryExtractionSignal(event *model.Event, body string) bool {
+func compactSummaryExtractionSkipReason(event *model.Event, body string) string {
 	if event == nil {
-		return false
+		return "missing_event"
 	}
 	trimmed := strings.TrimSpace(body)
 	if trimmed == "" {
-		return false
+		return "empty_summary"
 	}
 	if event.SourceHook() == "pre_compact" || strings.HasPrefix(trimmed, domtypes.EventBodyMarkerCompactPreSnapshot) {
-		return false
+		return "pre_compact_snapshot"
 	}
 	lower := strings.ToLower(trimmed)
 	switch lower {
-	case "manual", "auto", "automatic", "compact triggered", "triggered", "clear", "reset":
-		return false
+	case "manual", "auto", "automatic", "compact triggered", "triggered", "clear", "cleared", "context cleared", "reset", "reset context", "context reset":
+		return "marker_only_context_boundary"
 	default:
-		return true
+		return ""
 	}
-
 }
 
 type memoryCandidateSpec struct {
@@ -990,6 +998,9 @@ type memoryCandidateSpec struct {
 }
 
 func extractMemoryCandidatesFromSignal(signal extractionSignal, evidenceRefs []domtypes.EvidenceRef) ([]memoryCandidateSpec, error) {
+	if signal.skipReason != "" {
+		return nil, nil
+	}
 	segments := candidateSegments(signal.text)
 	specs := make([]memoryCandidateSpec, 0, len(segments))
 	for _, segment := range segments {
