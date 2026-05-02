@@ -26,7 +26,7 @@ v0.13.0 extends the same safety model to Claude Code and Gemini CLI. The new par
 
 The contract relies on host-supported markdown imports rather than host-owned auto-memory stores.
 
-- Claude Code loads `CLAUDE.md` files at session start and supports `@path/to/import` entries inside `CLAUDE.md`. Imported files are expanded into context at launch; relative paths resolve relative to the file containing the import. External imports may require a first-time approval dialog. Source: <https://code.claude.com/docs/en/memory>
+- Claude Code loads `CLAUDE.md` files at session start and supports `@path/to/import` entries inside `CLAUDE.md`. Imported files are expanded into context at launch; relative paths resolve relative to the file containing the import. External imports may require a first-time approval dialog. The same documentation shows importing from a hidden user directory such as `@~/.claude/...`, so hidden paths are not rejected solely because they start with a dot. Source: <https://code.claude.com/docs/en/memory>
 - Claude auto memory is host-owned, stored under `~/.claude/projects/<project>/memory/`, and read/written by Claude during sessions. Traceary must not write there by default. Source: <https://code.claude.com/docs/en/memory>
 - Gemini CLI loads hierarchical `GEMINI.md` context files, supports `@file.md` imports in `GEMINI.md`, and supports relative and absolute import paths. Source: <https://google-gemini.github.io/gemini-cli/docs/cli/gemini-md.html>
 - Gemini `save_memory` appends facts to the user's `~/.gemini/GEMINI.md` under `## Gemini Added Memories`. Traceary must not modify that section. Source: <https://google-gemini.github.io/gemini-cli/docs/tools/memory.html>
@@ -56,6 +56,8 @@ When `--target claude` is implemented:
 
 `CLAUDE.local.md` remains a possible future user-local mode, but it is not the v0.13.0 default because Traceary must first ship one deterministic path that `status`, `doctor`, and tests can validate.
 
+Implementation PRs must prove that the current Claude Code version can load this exact import line from the default hidden `.traceary/` directory before Claude apply is marked ready. If that smoke test fails, this ADR and the downstream issues must be updated before applying writes to real user files.
+
 ### Gemini
 
 When `--target gemini` is implemented:
@@ -66,6 +68,8 @@ When `--target gemini` is implemented:
 - default import line rendered in `GEMINI.md`: `@./.traceary/memories/gemini.md`
 
 Traceary must not rewrite or reorder Gemini's `## Gemini Added Memories` section. If a Traceary-managed import stub is added to a file that also contains that section, the section must remain byte-for-byte unchanged outside the managed region.
+
+Implementation PRs must prove that the current Gemini CLI version can load this exact import line from the default hidden `.traceary/` directory before Gemini apply is marked ready. If that smoke test fails, this ADR and the downstream issues must be updated before applying writes to real user files.
 
 ### Overrides
 
@@ -117,6 +121,8 @@ Claude/Gemini status is computed from the pair of files, not from one file alone
 | `invalid` | Traceary cannot safely interpret or write either file: unsupported symlink, directory target, duplicate markers, orphan markers, newer marker version, malformed managed region, unreadable file, or an import path that escapes the allowed activation root without an explicit override. |
 
 JSON output should expose component-level details for the host context file and external memory file so `traceary doctor` can give actionable remediation.
+
+Host import visibility is an implementation-readiness gate, not only a release dogfood task. The first Claude/Gemini read-only PRs must include a smoke test or recorded manual verification that the host resolves the planned import path; the apply PRs must stay draft/blocked until that evidence exists.
 
 ## Apply semantics
 
@@ -176,7 +182,7 @@ Rejected. Symlink behavior is platform-sensitive and weakens the existing activa
 
 ## Review notes
 
-Gemini review was run twice. The first pass objected to import stubs, but it assumed imports were not loaded natively. After providing the official Claude and Gemini import documentation, the second pass accepted the import-stub strategy and highlighted the real risks: Claude's first-time external-import approval dialog, safe stub injection, and import-path resolution relative to the host context file.
+Gemini review was run multiple times. One pass objected to import stubs because it assumed Claude imports were not loaded natively and worried that `.traceary/` might be ignored. That was triaged against the official Claude memory documentation, which documents `@path/to/import` expansion at launch and includes a hidden-directory import example. The remaining real risks are therefore captured as implementation gates: Claude's first-time external-import approval dialog, safe stub injection, import-path resolution relative to the host context file, and smoke verification that each host loads the default `.traceary/` import path before apply PRs are made ready.
 
 Claude Opus 4.7 Max review was attempted locally, but Claude Code is not authenticated in this environment:
 
