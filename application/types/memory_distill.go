@@ -11,8 +11,11 @@ import (
 type MemoryDistillReplace string
 
 const (
-	MemoryDistillReplaceKeep      MemoryDistillReplace = "keep"
-	MemoryDistillReplaceReject    MemoryDistillReplace = "reject"
+	// MemoryDistillReplaceKeep leaves source candidates unchanged after distillation.
+	MemoryDistillReplaceKeep MemoryDistillReplace = "keep"
+	// MemoryDistillReplaceReject rejects source candidates after distillation.
+	MemoryDistillReplaceReject MemoryDistillReplace = "reject"
+	// MemoryDistillReplaceSupersede marks source candidates as superseded after distillation.
 	MemoryDistillReplaceSupersede MemoryDistillReplace = "supersede"
 )
 
