@@ -350,6 +350,20 @@ Useful flags:
 - `--out` — output path; pass `-` (or omit) to write to stdout
 - `--json` — print a summary of the export result in addition to writing the file
 
+### `traceary memory activate`
+
+Plan host-native activation without writing files. For v0.12.0 the command is dry-run only; `memory activate --target codex --dry-run` resolves the Traceary-managed Codex target (`~/.codex/memories/traceary.md`, or `--root <dir>/traceary.md` / `--path <file>` when overridden) and prints the content that would be written. The planned content uses the same workspace + global export semantics as `memory export`. Pass `--diff` to compare the planned content with an existing target file.
+
+Useful flags:
+
+- `--target` — currently `codex`
+- `--dry-run` — required in this release; never writes or creates files
+- `--root` — Codex memory root override
+- `--path` — explicit target file override
+- `--workspace` / `--include-global` / `--no-global` — activation scope controls
+- `--diff` — include a diff when the target file exists
+- `--json` — print the activation plan as JSON
+
 ### `traceary memory import instructions`
 
 Read a host instruction file (CLAUDE.md / AGENTS.md / GEMINI.md) and create `candidate` durable memories for every bullet outside the Traceary-managed block. Bullets inside the managed block are already represented in the store via export, so they are intentionally skipped.

@@ -231,6 +231,15 @@ type memoryExportOutput struct {
 	ExportedCount int    `json:"exported_count"`
 }
 
+// memoryActivationPlanOutput is the JSON shape of a dry-run activation plan.
+type memoryActivationPlanOutput struct {
+	Target     string `json:"target"`
+	TargetPath string `json:"target_path"`
+	Existing   bool   `json:"existing"`
+	Markdown   string `json:"markdown"`
+	Diff       string `json:"diff,omitempty"`
+}
+
 func formatJSONTime(t time.Time) string {
 	return t.UTC().Format(time.RFC3339Nano)
 }
