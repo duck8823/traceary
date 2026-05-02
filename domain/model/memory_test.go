@@ -167,11 +167,20 @@ func TestMemory_StateTransitions(t *testing.T) {
 		}
 	})
 
-	t.Run("marks candidate memory as superseded", func(t *testing.T) {
+	t.Run("rejects direct candidate supersession", func(t *testing.T) {
 		t.Parallel()
 		memory := newCandidate(t)
-		if err := memory.MarkSuperseded(); err != nil {
-			t.Fatalf("MarkSuperseded() error = %v", err)
+		err := memory.MarkSuperseded()
+		if !errors.Is(err, model.ErrInvalidMemoryState) {
+			t.Fatalf("MarkSuperseded() error = %v, want ErrInvalidMemoryState", err)
+		}
+	})
+
+	t.Run("marks candidate memory as superseded by distillation", func(t *testing.T) {
+		t.Parallel()
+		memory := newCandidate(t)
+		if err := memory.MarkCandidateSupersededByDistillation(); err != nil {
+			t.Fatalf("MarkCandidateSupersededByDistillation() error = %v", err)
 		}
 		if diff := cmp.Diff(types.MemoryStatusSuperseded, memory.Status()); diff != "" {
 			t.Errorf("Status() mismatch (-want +got):\n%s", diff)

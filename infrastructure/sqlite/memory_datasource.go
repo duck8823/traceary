@@ -99,6 +99,31 @@ func (d *MemoryDatasource) Save(ctx context.Context, memory *model.Memory) error
 	})
 }
 
+// SaveDistillation persists a distilled accepted memory and source-candidate
+// lifecycle updates in a single transaction.
+func (d *MemoryDatasource) SaveDistillation(ctx context.Context, distilled *model.Memory, sources []*model.Memory) error {
+	if distilled == nil {
+		return xerrors.Errorf("distilled memory must not be nil")
+	}
+	for i, source := range sources {
+		if source == nil {
+			return xerrors.Errorf("source memory at index %d must not be nil", i)
+		}
+	}
+
+	return d.runMemoryWriteTx(ctx, func(tx *sql.Tx) error {
+		if err := persistMemoryTx(ctx, tx, distilled); err != nil {
+			return xerrors.Errorf("failed to persist distilled memory: %w", err)
+		}
+		for _, source := range sources {
+			if err := persistMemoryTx(ctx, tx, source); err != nil {
+				return xerrors.Errorf("failed to persist distillation source %s: %w", source.MemoryID(), err)
+			}
+		}
+		return nil
+	})
+}
+
 // SaveSupersession persists a superseded memory state and its replacement in a
 // single transaction.
 func (d *MemoryDatasource) SaveSupersession(ctx context.Context, superseded *model.Memory, replacement *model.Memory) error {

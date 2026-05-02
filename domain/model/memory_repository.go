@@ -10,6 +10,9 @@ import (
 type MemoryRepository interface {
 	// Save persists a memory aggregate.
 	Save(ctx context.Context, memory *Memory) error
+	// SaveDistillation persists a newly distilled accepted memory together with
+	// any source-candidate lifecycle updates atomically.
+	SaveDistillation(ctx context.Context, distilled *Memory, sources []*Memory) error
 	// SaveSupersession persists a superseded memory state and its replacement
 	// atomically.
 	SaveSupersession(ctx context.Context, superseded *Memory, replacement *Memory) error

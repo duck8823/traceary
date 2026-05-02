@@ -404,6 +404,86 @@ func TestMemoryDatasource_SaveSupersession(t *testing.T) {
 	}
 }
 
+func TestMemoryDatasource_SaveDistillation(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	sut, storeManager := newMemoryDatasource(t, dbPath, memoryDatasourceTestMigrations())
+	ctx := context.Background()
+
+	if err := storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	scope := mustWorkspaceScope(t, "github.com/duck8823/traceary")
+	source := memoryOf(
+		t,
+		"mem-distill-source",
+		types.MemoryTypeLesson,
+		scope,
+		"Raw distillation candidate",
+		types.MemoryStatusCandidate,
+		types.ConfidenceLow,
+		types.MemorySourceExtracted,
+		[]types.EvidenceRef{mustEvidenceRef(t, types.EvidenceRefKindEvent, "event-1")},
+		nil,
+		types.None[types.MemoryID](),
+		types.None[time.Time](),
+		time.Date(2026, 4, 12, 9, 0, 0, 0, time.UTC),
+		time.Date(2026, 4, 12, 9, 0, 0, 0, time.UTC),
+	)
+	if err := sut.Save(ctx, source); err != nil {
+		t.Fatalf("Save(source) error = %v", err)
+	}
+	if err := source.Reject(); err != nil {
+		t.Fatalf("Reject() error = %v", err)
+	}
+
+	distilled := memoryOf(
+		t,
+		"mem-distilled",
+		types.MemoryTypeLesson,
+		scope,
+		"Distilled accepted fact",
+		types.MemoryStatusAccepted,
+		types.ConfidenceVerified,
+		types.MemorySourceManual,
+		[]types.EvidenceRef{mustEvidenceRef(t, types.EvidenceRefKindEvent, "event-1")},
+		nil,
+		types.None[types.MemoryID](),
+		types.None[time.Time](),
+		time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC),
+		time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC),
+	)
+	if err := sut.SaveDistillation(ctx, distilled, []*model.Memory{source}); err != nil {
+		t.Fatalf("SaveDistillation() error = %v", err)
+	}
+
+	gotSourceOpt, err := sut.FindByID(ctx, source.MemoryID())
+	if err != nil {
+		t.Fatalf("FindByID(source) error = %v", err)
+	}
+	gotSource, ok := gotSourceOpt.Value()
+	if !ok {
+		t.Fatal("FindByID(source) returned empty result")
+	}
+	if diff := cmp.Diff(types.MemoryStatusRejected, gotSource.Status()); diff != "" {
+		t.Fatalf("source status mismatch (-want +got):\n%s", diff)
+	}
+
+	gotDistilledOpt, err := sut.FindByID(ctx, distilled.MemoryID())
+	if err != nil {
+		t.Fatalf("FindByID(distilled) error = %v", err)
+	}
+	gotDistilled, ok := gotDistilledOpt.Value()
+	if !ok {
+		t.Fatal("FindByID(distilled) returned empty result")
+	}
+	if diff := cmp.Diff(types.MemoryStatusAccepted, gotDistilled.Status()); diff != "" {
+		t.Fatalf("distilled status mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestMemoryDatasource_GetDetails(t *testing.T) {
 	t.Parallel()
 

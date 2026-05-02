@@ -17,6 +17,7 @@ import (
 type memoryRepositoryStub struct {
 	byID              map[string]*model.Memory
 	saveCalls         []*model.Memory
+	distillationCalls []memoryDistillationCall
 	supersessionCalls []memorySupersessionCall
 	saveErr           error
 	findErr           error
@@ -28,6 +29,26 @@ func (s *memoryRepositoryStub) Save(_ context.Context, memory *model.Memory) err
 	}
 	s.saveCalls = append(s.saveCalls, memory)
 	s.byID[memory.MemoryID().String()] = memory
+	return s.saveErr
+}
+
+type memoryDistillationCall struct {
+	distilled *model.Memory
+	sources   []*model.Memory
+}
+
+func (s *memoryRepositoryStub) SaveDistillation(_ context.Context, distilled *model.Memory, sources []*model.Memory) error {
+	if s.byID == nil {
+		s.byID = make(map[string]*model.Memory)
+	}
+	s.distillationCalls = append(s.distillationCalls, memoryDistillationCall{
+		distilled: distilled,
+		sources:   append([]*model.Memory(nil), sources...),
+	})
+	s.byID[distilled.MemoryID().String()] = distilled
+	for _, source := range sources {
+		s.byID[source.MemoryID().String()] = source
+	}
 	return s.saveErr
 }
 
@@ -284,6 +305,15 @@ func TestMemoryUsecase_DistillRejectsSourceCandidate(t *testing.T) {
 	if repo.byID[sourceID.String()].Status() != domtypes.MemoryStatusRejected {
 		t.Fatalf("source status = %s, want rejected", repo.byID[sourceID.String()].Status())
 	}
+	if len(repo.distillationCalls) != 1 {
+		t.Fatalf("SaveDistillation() call count = %d, want 1", len(repo.distillationCalls))
+	}
+	if len(repo.distillationCalls[0].sources) != 1 {
+		t.Fatalf("distillation sources = %d, want 1", len(repo.distillationCalls[0].sources))
+	}
+	if len(repo.saveCalls) != 0 {
+		t.Fatalf("Save() call count = %d, want 0 for atomic distillation", len(repo.saveCalls))
+	}
 	if len(result.Sources()) != 1 || result.Sources()[0].Status() != domtypes.MemoryStatusRejected {
 		t.Fatalf("result sources = %#v, want one rejected source", result.Sources())
 	}
@@ -356,6 +386,12 @@ func TestMemoryUsecase_DistillMultipleSourcesSupersedesAndUnionsRefs(t *testing.
 	}
 	if len(result.Sources()) != 2 {
 		t.Fatalf("sources = %d, want duplicate input ids collapsed to 2", len(result.Sources()))
+	}
+	if len(repo.distillationCalls) != 1 {
+		t.Fatalf("SaveDistillation() call count = %d, want 1", len(repo.distillationCalls))
+	}
+	if len(repo.distillationCalls[0].sources) != 2 {
+		t.Fatalf("distillation sources = %d, want 2", len(repo.distillationCalls[0].sources))
 	}
 }
 

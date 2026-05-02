@@ -284,11 +284,8 @@ func (u *memoryUsecase) Distill(ctx context.Context, criteria apptypes.MemoryDis
 	if err != nil {
 		return apptypes.MemoryDistillResult{}, xerrors.Errorf("failed to build distilled memory: %w", err)
 	}
-	if err := u.memoryRepo.Save(ctx, distilled); err != nil {
-		return apptypes.MemoryDistillResult{}, xerrors.Errorf("failed to save distilled memory: %w", err)
-	}
-
 	resultSources := make([]apptypes.MemorySummary, 0, len(sources))
+	sourcesToPersist := make([]*model.Memory, 0, len(sources))
 	for _, source := range sources {
 		switch replace {
 		case apptypes.MemoryDistillReplaceKeep:
@@ -297,16 +294,12 @@ func (u *memoryUsecase) Distill(ctx context.Context, criteria apptypes.MemoryDis
 			if err := source.Reject(); err != nil {
 				return apptypes.MemoryDistillResult{}, xerrors.Errorf("failed to reject source candidate %s: %w", source.MemoryID(), err)
 			}
-			if err := u.memoryRepo.Save(ctx, source); err != nil {
-				return apptypes.MemoryDistillResult{}, xerrors.Errorf("failed to save rejected source candidate %s: %w", source.MemoryID(), err)
-			}
+			sourcesToPersist = append(sourcesToPersist, source)
 		case apptypes.MemoryDistillReplaceSupersede:
-			if err := source.MarkSuperseded(); err != nil {
+			if err := source.MarkCandidateSupersededByDistillation(); err != nil {
 				return apptypes.MemoryDistillResult{}, xerrors.Errorf("failed to supersede source candidate %s: %w", source.MemoryID(), err)
 			}
-			if err := u.memoryRepo.Save(ctx, source); err != nil {
-				return apptypes.MemoryDistillResult{}, xerrors.Errorf("failed to save superseded source candidate %s: %w", source.MemoryID(), err)
-			}
+			sourcesToPersist = append(sourcesToPersist, source)
 		default:
 			return apptypes.MemoryDistillResult{}, xerrors.Errorf("unsupported distill replace policy: %s", replace)
 		}
@@ -316,6 +309,10 @@ func (u *memoryUsecase) Distill(ctx context.Context, criteria apptypes.MemoryDis
 			return apptypes.MemoryDistillResult{}, xerrors.Errorf("failed to build source summary: %w", err)
 		}
 		resultSources = append(resultSources, summary)
+	}
+
+	if err := u.memoryRepo.SaveDistillation(ctx, distilled, sourcesToPersist); err != nil {
+		return apptypes.MemoryDistillResult{}, xerrors.Errorf("failed to save distilled memory and source updates: %w", err)
 	}
 
 	details, err := apptypes.MemoryDetailsFrom(distilled)
