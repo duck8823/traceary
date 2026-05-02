@@ -232,13 +232,31 @@ type memoryExportOutput struct {
 }
 
 // memoryActivationPlanOutput is the JSON shape of a dry-run activation plan.
+//
+// HostContext / ExternalMemory are populated only for two-file targets
+// (Claude / Gemini); single-file Codex output omits them so existing
+// JSON consumers see the same shape they did in v0.12.
 type memoryActivationPlanOutput struct {
-	Target         string `json:"target"`
-	TargetPath     string `json:"target_path"`
-	Existing       bool   `json:"existing"`
-	ActivatedCount int    `json:"activated_count"`
-	Markdown       string `json:"markdown"`
-	Diff           string `json:"diff,omitempty"`
+	Target         string                           `json:"target"`
+	TargetPath     string                           `json:"target_path"`
+	Existing       bool                             `json:"existing"`
+	ActivatedCount int                              `json:"activated_count"`
+	Markdown       string                           `json:"markdown"`
+	Diff           string                           `json:"diff,omitempty"`
+	HostContext    *memoryActivationComponentOutput `json:"host_context,omitempty"`
+	ExternalMemory *memoryActivationComponentOutput `json:"external_memory,omitempty"`
+}
+
+// memoryActivationComponentOutput is the JSON shape of one file inside a
+// two-file activation pair.
+type memoryActivationComponentOutput struct {
+	Path     string `json:"path"`
+	Existing bool   `json:"existing"`
+	Markdown string `json:"markdown,omitempty"`
+	Diff     string `json:"diff,omitempty"`
+	Action   string `json:"action,omitempty"`
+	State    string `json:"state,omitempty"`
+	Message  string `json:"message,omitempty"`
 }
 
 // memoryActivationApplyOutput is the JSON shape of a write activation result.
@@ -252,14 +270,16 @@ type memoryActivationApplyOutput struct {
 
 // memoryActivationStatusOutput is the JSON shape of a read-only activation status.
 type memoryActivationStatusOutput struct {
-	Target         string `json:"target"`
-	TargetPath     string `json:"target_path"`
-	State          string `json:"state"`
-	Existing       bool   `json:"existing"`
-	ActivatedCount int    `json:"activated_count"`
-	Message        string `json:"message"`
-	DryRunCommand  string `json:"dry_run_command,omitempty"`
-	ApplyCommand   string `json:"apply_command,omitempty"`
+	Target         string                           `json:"target"`
+	TargetPath     string                           `json:"target_path"`
+	State          string                           `json:"state"`
+	Existing       bool                             `json:"existing"`
+	ActivatedCount int                              `json:"activated_count"`
+	Message        string                           `json:"message"`
+	DryRunCommand  string                           `json:"dry_run_command,omitempty"`
+	ApplyCommand   string                           `json:"apply_command,omitempty"`
+	HostContext    *memoryActivationComponentOutput `json:"host_context,omitempty"`
+	ExternalMemory *memoryActivationComponentOutput `json:"external_memory,omitempty"`
 }
 
 func formatJSONTime(t time.Time) string {

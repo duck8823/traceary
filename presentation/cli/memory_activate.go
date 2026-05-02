@@ -25,8 +25,8 @@ func (c *RootCLI) newMemoryActivateCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().StringVar(&input.target, "target", "", Localize("activation target host (codex)", "activation 対象ホスト (codex)"))
-	cmd.Flags().StringVar(&input.root, "root", "", Localize("host memory root override (Codex default: ~/.codex/memories)", "host memory root の上書き (Codex 既定: ~/.codex/memories)"))
+	cmd.Flags().StringVar(&input.target, "target", "", Localize("activation target host (codex, claude)", "activation 対象ホスト (codex, claude)"))
+	cmd.Flags().StringVar(&input.root, "root", "", Localize("host memory root override (Codex default: ~/.codex/memories; Claude default: nearest .git ancestor or cwd)", "host memory root の上書き (Codex 既定: ~/.codex/memories; Claude 既定: 直近の .git 祖先または cwd)"))
 	cmd.Flags().StringVar(&input.path, "path", "", Localize("explicit activation target file path override", "activation 対象ファイルパスを明示的に上書き"))
 	cmd.Flags().StringVar(&input.workspace, "workspace", "", Localize("workspace scope to activate (defaults to env/detected workspace)", "activation 対象の workspace scope (未指定時は env/検出 workspace)"))
 	cmd.Flags().BoolVar(&input.includeGlobal, "include-global", true, Localize("include global memories alongside a workspace activation (default true)", "workspace activation に global memory も含める (default true)"))
@@ -54,8 +54,18 @@ func (c *RootCLI) runMemoryActivate(ctx context.Context, output io.Writer, input
 		return xerrors.Errorf(Localize("--diff can only be used with --dry-run", "--diff は --dry-run と一緒にのみ使用できます"))
 	}
 	target, ok := apptypes.MemoryBridgeTargetOf(strings.ToLower(strings.TrimSpace(input.target)))
-	if !ok || target != apptypes.MemoryBridgeTargetCodex {
-		return xerrors.Errorf(Localize("--target must be codex", "--target は codex を指定してください"))
+	if !ok {
+		return xerrors.Errorf(Localize("--target must be codex or claude", "--target は codex または claude を指定してください"))
+	}
+	switch target {
+	case apptypes.MemoryBridgeTargetCodex:
+		// fully supported (status / dry-run / apply)
+	case apptypes.MemoryBridgeTargetClaude:
+		if input.apply {
+			return xerrors.Errorf(Localize("memory activate --target claude --apply is not supported yet (read-only status / dry-run only)", "memory activate --target claude --apply は未対応です (status / dry-run のみ可)"))
+		}
+	default:
+		return xerrors.Errorf(Localize("--target must be codex or claude", "--target は codex または claude を指定してください"))
 	}
 	if err := c.initializeStore(ctx, input.dbPath); err != nil {
 		return err
@@ -115,6 +125,8 @@ func writeMemoryActivationPlan(output io.Writer, plan apptypes.MemoryActivationP
 			ActivatedCount: plan.ActivatedCount,
 			Markdown:       plan.Markdown,
 			Diff:           plan.Diff,
+			HostContext:    componentOutput(plan.HostContext),
+			ExternalMemory: componentOutput(plan.ExternalMemory),
 		}
 		encoder := json.NewEncoder(output)
 		encoder.SetEscapeHTML(false)
@@ -123,6 +135,9 @@ func writeMemoryActivationPlan(output io.Writer, plan apptypes.MemoryActivationP
 			return xerrors.Errorf("%s: %w", Localize("failed to encode memory activation plan", "memory activation plan の JSON 出力に失敗しました"), err)
 		}
 		return nil
+	}
+	if plan.HostContext != nil && plan.ExternalMemory != nil {
+		return writeMemoryActivationPairPlanText(output, plan)
 	}
 	if _, err := fmt.Fprintf(output, "target: %s\nexisting: %t\n\n", plan.TargetPath, plan.Existing); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print memory activation plan", "memory activation plan の出力に失敗しました"), err)
@@ -135,6 +150,67 @@ func writeMemoryActivationPlan(output io.Writer, plan apptypes.MemoryActivationP
 		return xerrors.Errorf("%s: %w", Localize("failed to print memory activation content", "memory activation content の出力に失敗しました"), err)
 	}
 	return nil
+}
+
+// writeMemoryActivationPairPlanText renders the dry-run / diff text for a
+// two-file activation pair (Claude / Gemini). External memory is rendered
+// first because it matches the documented apply ordering, and each
+// component is labelled so operators can tell which planned content
+// corresponds to which file.
+func writeMemoryActivationPairPlanText(output io.Writer, plan apptypes.MemoryActivationPlan) error {
+	host := plan.HostContext
+	external := plan.ExternalMemory
+	if _, err := fmt.Fprintf(output, "target: %s\n", plan.Target.String()); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print memory activation plan", "memory activation plan の出力に失敗しました"), err)
+	}
+	if _, err := fmt.Fprintf(
+		output,
+		"external_memory: %s (existing: %t, action: %s)\nhost_context: %s (existing: %t, action: %s)\n\n",
+		external.Path, external.Existing, external.Action,
+		host.Path, host.Existing, host.Action,
+	); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print memory activation plan", "memory activation plan の出力に失敗しました"), err)
+	}
+	if external.Diff != "" || host.Diff != "" {
+		if external.Diff != "" {
+			if _, err := fmt.Fprintf(output, "# external memory diff\n%s", external.Diff); err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to print memory activation diff", "memory activation diff の出力に失敗しました"), err)
+			}
+		}
+		if host.Diff != "" {
+			if external.Diff != "" {
+				if _, err := fmt.Fprint(output, "\n"); err != nil {
+					return xerrors.Errorf("%s: %w", Localize("failed to print memory activation diff", "memory activation diff の出力に失敗しました"), err)
+				}
+			}
+			if _, err := fmt.Fprintf(output, "# host context diff\n%s", host.Diff); err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to print memory activation diff", "memory activation diff の出力に失敗しました"), err)
+			}
+		}
+		return nil
+	}
+	if _, err := fmt.Fprintf(output, "# external memory plan\n%s\n", external.Markdown); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print memory activation content", "memory activation content の出力に失敗しました"), err)
+	}
+	if _, err := fmt.Fprintf(output, "# host context plan\n%s", host.Markdown); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print memory activation content", "memory activation content の出力に失敗しました"), err)
+	}
+	return nil
+}
+
+func componentOutput(component *apptypes.MemoryActivationComponent) *memoryActivationComponentOutput {
+	if component == nil {
+		return nil
+	}
+	return &memoryActivationComponentOutput{
+		Path:     component.Path,
+		Existing: component.Existing,
+		Markdown: component.Markdown,
+		Diff:     component.Diff,
+		Action:   component.Action.String(),
+		State:    component.State.String(),
+		Message:  component.Message,
+	}
 }
 
 type memoryActivationCommandSet struct {
@@ -161,10 +237,22 @@ func memoryActivationCommands(criteria apptypes.MemoryActivationCriteria) memory
 	if hasWorkspaceScope && !criteria.IncludeGlobal {
 		base = append(base, "--no-global")
 	}
-	return memoryActivationCommandSet{
+	set := memoryActivationCommandSet{
 		DryRun: renderShellCommand(append(append([]string(nil), base...), "--dry-run", "--diff")),
-		Apply:  renderShellCommand(append(append([]string(nil), base...), "--apply")),
 	}
+	if memoryActivationApplySupported(criteria.Target) {
+		set.Apply = renderShellCommand(append(append([]string(nil), base...), "--apply"))
+	}
+	return set
+}
+
+// memoryActivationApplySupported reports whether `memory activate
+// --apply` is available for the given target. Claude apply lands in
+// #893; until then --status must not surface a remediation command that
+// the CLI would refuse, so this helper gates both the JSON
+// `apply_command` field and the text `next_apply` line.
+func memoryActivationApplySupported(target apptypes.MemoryBridgeTarget) bool {
+	return target == apptypes.MemoryBridgeTargetCodex
 }
 
 func renderShellCommand(args []string) string {
@@ -206,10 +294,16 @@ func writeMemoryActivationStatus(output io.Writer, result apptypes.MemoryActivat
 			Existing:       result.Existing,
 			ActivatedCount: result.ActivatedCount,
 			Message:        result.Message,
+			HostContext:    componentOutput(result.HostContext),
+			ExternalMemory: componentOutput(result.ExternalMemory),
 		}
 		if memoryActivationStatusHasRemediation(result.State) {
 			payload.DryRunCommand = commands.DryRun
 			payload.ApplyCommand = commands.Apply
+			// commands.Apply is empty for targets where --apply is not
+			// supported yet (Claude until #893). The JSON field uses
+			// `omitempty` so the payload simply drops `apply_command`
+			// instead of advertising a command the CLI would refuse.
 		}
 		encoder := json.NewEncoder(output)
 		encoder.SetEscapeHTML(false)
@@ -230,11 +324,26 @@ func writeMemoryActivationStatus(output io.Writer, result apptypes.MemoryActivat
 	); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print memory activation status", "memory activation status の出力に失敗しました"), err)
 	}
+	if result.HostContext != nil && result.ExternalMemory != nil {
+		if _, err := fmt.Fprintf(
+			output,
+			"external_memory: %s (state: %s, existing: %t)\nhost_context: %s (state: %s, existing: %t)\n",
+			result.ExternalMemory.Path, result.ExternalMemory.State, result.ExternalMemory.Existing,
+			result.HostContext.Path, result.HostContext.State, result.HostContext.Existing,
+		); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print memory activation status", "memory activation status の出力に失敗しました"), err)
+		}
+	}
 	if !memoryActivationStatusHasRemediation(result.State) {
 		return nil
 	}
-	if _, err := fmt.Fprintf(output, "next_dry_run: %s\nnext_apply: %s\n", commands.DryRun, commands.Apply); err != nil {
+	if _, err := fmt.Fprintf(output, "next_dry_run: %s\n", commands.DryRun); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print memory activation remediation", "memory activation remediation の出力に失敗しました"), err)
+	}
+	if commands.Apply != "" {
+		if _, err := fmt.Fprintf(output, "next_apply: %s\n", commands.Apply); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print memory activation remediation", "memory activation remediation の出力に失敗しました"), err)
+		}
 	}
 	return nil
 }
