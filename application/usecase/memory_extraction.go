@@ -486,19 +486,9 @@ type memoryIntentFeatures struct {
 func classifyMemoryIntent(value string) memoryIntentFeatures {
 	lower := strings.ToLower(strings.TrimSpace(value))
 	features := memoryIntentFeatures{}
-	if explicitRememberLabelPattern.MatchString(value) || explicitJapaneseRememberPattern.MatchString(value) || containsAny(lower,
-		"remember this",
-		"remember that",
+	if hasExplicitRememberIntentMarker(value) || containsAny(lower,
 		"remember to",
-		"keep this in memory",
-		"keep this in mind",
 		"durable memory",
-		"覚えておいて",
-		"おぼえておいて",
-		"覚えてください",
-		"覚えておく",
-		"記憶しておいて",
-		"記憶して",
 	) {
 		features.explicitRemember = true
 	}
@@ -545,6 +535,9 @@ func (f memoryIntentFeatures) featureNames() []string {
 
 func hasDurableSignalMarker(value string) bool {
 	lower := strings.ToLower(value)
+	if hasExplicitRememberIntentMarker(value) {
+		return true
+	}
 	return containsAny(lower,
 		"decision:",
 		"constraint:",
@@ -559,11 +552,7 @@ func hasDurableSignalMarker(value string) bool {
 		"always ",
 		"next time",
 		"remember to",
-		"remember this",
-		"remember that",
 		"durable memory",
-		"keep this in memory",
-		"keep this in mind",
 		"決定",
 		"判断",
 		"制約",
@@ -576,12 +565,6 @@ func hasDurableSignalMarker(value string) bool {
 		"次回",
 		"再起動",
 		"確認済み",
-		"覚えておいて",
-		"おぼえておいて",
-		"覚えてください",
-		"覚えておく",
-		"記憶しておいて",
-		"記憶",
 		"今後",
 		"以後",
 		// Japanese preference / request markers — durable signals equivalent
@@ -594,6 +577,20 @@ func hasDurableSignalMarker(value string) bool {
 		"要望",
 		"希望",
 	)
+}
+
+func hasExplicitRememberIntentMarker(value string) bool {
+	normalized := normalizeCandidateFact(value)
+	if normalized == "" {
+		return false
+	}
+	if explicitRememberLabelPattern.MatchString(normalized) || explicitJapaneseRememberPattern.MatchString(normalized) {
+		return true
+	}
+	if fact, ok := extractInlineRememberIntentFact(normalized); ok && fact != "" {
+		return true
+	}
+	return isShortEnglishRememberIntentSegment(normalized) || isShortJapaneseRememberIntentSegment(normalized)
 }
 
 // containsCJK reports whether the rune slice carries at least one
@@ -1267,18 +1264,48 @@ func isShortRememberIntentSegment(segment string) bool {
 	if fact, ok := rememberIntentFactFromSegment(normalized); ok && fact != "" {
 		return false
 	}
-	lower := strings.ToLower(normalized)
+	return isShortEnglishRememberIntentSegment(normalized) || isShortJapaneseRememberIntentSegment(normalized)
+}
+
+func isShortEnglishRememberIntentSegment(normalized string) bool {
 	for _, trigger := range rememberIntentEnglishTriggers {
-		if strings.Contains(lower, trigger) {
-			return true
-		}
-	}
-	for _, trigger := range rememberIntentJapaneseTriggers {
-		if strings.Contains(normalized, trigger) {
-			return true
+		searchStart := 0
+		for searchStart < len(normalized) {
+			index := indexFoldASCIIFrom(normalized, trigger, searchStart)
+			if index < 0 {
+				break
+			}
+			if isImperativeEnglishRememberContext(normalized, index) && rememberIntentTriggerHasNoFact(normalized, index, len(trigger)) {
+				return true
+			}
+			searchStart = index + len(trigger)
 		}
 	}
 	return false
+}
+
+func isShortJapaneseRememberIntentSegment(normalized string) bool {
+	for _, trigger := range rememberIntentJapaneseTriggers {
+		searchStart := 0
+		for searchStart < len(normalized) {
+			relativeIndex := strings.Index(normalized[searchStart:], trigger)
+			if relativeIndex < 0 {
+				break
+			}
+			index := searchStart + relativeIndex
+			if isImperativeJapaneseRememberContext(normalized, index, len(trigger)) && rememberIntentTriggerHasNoFact(normalized, index, len(trigger)) {
+				return true
+			}
+			searchStart = index + len(trigger)
+		}
+	}
+	return false
+}
+
+func rememberIntentTriggerHasNoFact(value string, index int, triggerLength int) bool {
+	before := cleanRememberIntentFactRemainder(value[:index])
+	after := cleanRememberIntentFactRemainder(value[index+triggerLength:])
+	return before == "" && after == ""
 }
 
 const rememberIntentContextMaxRunes = 500

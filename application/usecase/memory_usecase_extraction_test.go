@@ -1198,6 +1198,32 @@ func TestMemoryUsecase_Extract_JapaneseDeclarativeRememberPhrasesAreNotRememberI
 	}
 }
 
+func TestMemoryUsecase_Extract_DeclarativeRememberStillUsesHeuristics(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-decl-remember-heuristic"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	promptEvent := mustExtractionEvent(t, "event-decl-remember-heuristic", domtypes.EventKindPrompt, "I remember that we should always run go test before merging.")
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindPrompt: {promptEvent}}}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	_, err := sut.Extract(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-decl-remember-heuristic")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(10).Build())
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(memoryUsecase.proposeCalls) != 1 {
+		t.Fatalf("proposeCalls = %d, want 1 heuristic candidate", len(memoryUsecase.proposeCalls))
+	}
+	call := memoryUsecase.proposeCalls[0]
+	if call.source == domtypes.MemorySourceRememberIntent {
+		t.Fatalf("source = %q, want heuristic extraction rather than remember-intent", call.source)
+	}
+	if call.fact != "I remember that we should always run go test before merging." {
+		t.Fatalf("fact = %q, want original heuristic fact", call.fact)
+	}
+}
+
 func TestMemoryUsecase_Extract_InlineRememberContinuesAfterDeclarativeMatch(t *testing.T) {
 	t.Parallel()
 
