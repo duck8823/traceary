@@ -1448,6 +1448,7 @@ func applyExtractedHiddenDefaultMCP(sources []types.MemorySource, includeHidden 
 		types.MemorySourceManual,
 		types.MemorySourceExtracted,
 		types.MemorySourceRememberIntent,
+		types.MemorySourceCompactSummary,
 		types.MemorySourceImported,
 	}
 }

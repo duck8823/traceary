@@ -659,12 +659,14 @@ func buildMemoryListQuery(criteria apptypes.MemoryListCriteria, clock types.Cloc
 	args = appendMemoryValidityWindowFilter(&builder, args, criteria.AsOf(), criteria.IncludeExpiredByValidity(), clock)
 	builder.WriteString(" ORDER BY ")
 	if criteria.RememberIntentPriority() {
-		// Pin remember-intent rows to the top of the result set BEFORE
-		// LIMIT/OFFSET applies so pagination is consistent with the
-		// displayed priority. Used by `memory inbox list` (#856).
+		// Pin prioritized inbox sources to the top of the result set BEFORE
+		// LIMIT/OFFSET applies so pagination is consistent with the displayed
+		// priority. Used by `memory inbox list` (#856/#857).
 		builder.WriteString("CASE WHEN m.source = '")
 		builder.WriteString(types.MemorySourceRememberIntent.String())
-		builder.WriteString("' THEN 0 ELSE 1 END, ")
+		builder.WriteString("' THEN 0 WHEN m.source = '")
+		builder.WriteString(types.MemorySourceCompactSummary.String())
+		builder.WriteString("' THEN 1 ELSE 2 END, ")
 	}
 	builder.WriteString("m.updated_at DESC, m.id DESC LIMIT ? OFFSET ?")
 	args = append(args, criteria.Limit(), criteria.Offset())

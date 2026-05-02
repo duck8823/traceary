@@ -880,8 +880,12 @@ func (u *memoryExtractionUsecase) collectExtractionSignals(ctx context.Context, 
 			return xerrors.Errorf("failed to list %s events for extraction: %w", kind, err)
 		}
 		for _, event := range events {
+			body := apptypes.ExtractPlainBody(event.Body())
+			if kind == domtypes.EventKindCompactSummary && !shouldUseCompactSummaryExtractionSignal(event, body) {
+				continue
+			}
 			signals = append(signals, extractionSignal{
-				text:            apptypes.ExtractPlainBody(event.Body()),
+				text:            body,
 				event:           event,
 				heuristics:      heuristics,
 				allowStructured: allowStructured,
@@ -949,6 +953,27 @@ func (u *memoryExtractionUsecase) collectRememberIntentContextSignals(ctx contex
 	return signals, nil
 }
 
+func shouldUseCompactSummaryExtractionSignal(event *model.Event, body string) bool {
+	if event == nil {
+		return false
+	}
+	trimmed := strings.TrimSpace(body)
+	if trimmed == "" {
+		return false
+	}
+	if event.SourceHook() == "pre_compact" || strings.HasPrefix(trimmed, domtypes.EventBodyMarkerCompactPreSnapshot) {
+		return false
+	}
+	lower := strings.ToLower(trimmed)
+	switch lower {
+	case "manual", "auto", "automatic", "compact triggered", "triggered", "clear", "reset":
+		return false
+	default:
+		return true
+	}
+
+}
+
 type memoryCandidateSpec struct {
 	memoryType        domtypes.MemoryType
 	fact              string
@@ -976,6 +1001,9 @@ func extractMemoryCandidatesFromSignal(signal extractionSignal, evidenceRefs []d
 			if shouldUseRememberIntentSource(signal, spec) {
 				spec.source = domtypes.MemorySourceRememberIntent
 			}
+			if shouldUseCompactSummarySource(signal, spec) {
+				spec.source = domtypes.MemorySourceCompactSummary
+			}
 			specs = append(specs, spec)
 		}
 	}
@@ -987,6 +1015,13 @@ func shouldUseRememberIntentSource(signal extractionSignal, spec memoryCandidate
 		return false
 	}
 	return signal.kind == domtypes.EventKindPrompt || signal.kind == domtypes.EventKindTranscript
+}
+
+func shouldUseCompactSummarySource(signal extractionSignal, spec memoryCandidateSpec) bool {
+	if spec.source != "" {
+		return false
+	}
+	return signal.kind == domtypes.EventKindCompactSummary
 }
 
 func extractBestMemoryCandidateFromSegment(signal extractionSignal, segment string, evidenceRefs []domtypes.EvidenceRef) (memoryCandidateSpec, bool, error) {
