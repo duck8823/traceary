@@ -257,17 +257,18 @@ type memoryExtractionDebugOutput struct {
 }
 
 type memoryExtractionSegmentDebugOutput struct {
-	Text         string            `json:"text"`
-	Client       string            `json:"client,omitempty"`
-	EventKind    string            `json:"event_kind,omitempty"`
-	SourceHook   string            `json:"source_hook,omitempty"`
-	MemoryType   string            `json:"memory_type,omitempty"`
-	Features     []string          `json:"features,omitempty"`
-	Score        int               `json:"score"`
-	Decision     string            `json:"decision"`
-	Reason       string            `json:"reason"`
-	EvidenceRefs []memoryRefOutput `json:"evidence_refs,omitempty"`
-	ArtifactRefs []memoryRefOutput `json:"artifact_refs,omitempty"`
+	Text              string            `json:"text"`
+	Client            string            `json:"client,omitempty"`
+	EventKind         string            `json:"event_kind,omitempty"`
+	SourceHook        string            `json:"source_hook,omitempty"`
+	MemoryType        string            `json:"memory_type,omitempty"`
+	Features          []string          `json:"features,omitempty"`
+	Score             int               `json:"score"`
+	Decision          string            `json:"decision"`
+	Reason            string            `json:"reason"`
+	EvidenceRefs      []memoryRefOutput `json:"evidence_refs,omitempty"`
+	ArtifactRefs      []memoryRefOutput `json:"artifact_refs,omitempty"`
+	LowQualityReasons []string          `json:"low_quality_reasons,omitempty"`
 }
 
 type memoryRefOutput struct {
@@ -304,15 +305,16 @@ func newMemoryExtractionDebugOutput(report apptypes.MemoryExtractionDebugReport)
 	segments := make([]memoryExtractionSegmentDebugOutput, 0, len(report.Segments))
 	for _, segment := range report.Segments {
 		out := memoryExtractionSegmentDebugOutput{
-			Text:       segment.Text,
-			Client:     segment.Client.String(),
-			EventKind:  segment.EventKind.String(),
-			SourceHook: segment.SourceHook,
-			MemoryType: segment.MemoryType.String(),
-			Features:   append([]string(nil), segment.Features...),
-			Score:      segment.Score,
-			Decision:   segment.Decision,
-			Reason:     segment.Reason,
+			Text:              segment.Text,
+			Client:            segment.Client.String(),
+			EventKind:         segment.EventKind.String(),
+			SourceHook:        segment.SourceHook,
+			MemoryType:        segment.MemoryType.String(),
+			Features:          append([]string(nil), segment.Features...),
+			Score:             segment.Score,
+			Decision:          segment.Decision,
+			Reason:            segment.Reason,
+			LowQualityReasons: append([]string(nil), segment.LowQualityReasons...),
 		}
 		for _, ref := range segment.EvidenceRefs {
 			out.EvidenceRefs = append(out.EvidenceRefs, memoryRefOutput{Kind: ref.Kind().String(), Value: ref.Value()})
