@@ -189,12 +189,17 @@ type memoryHygieneApplyFailureOutput struct {
 }
 
 // memoryHygieneScanOutput is the JSON shape of a memory hygiene scan result.
+// low_quality_candidate_count keeps the number of candidate-side
+// suggestions discoverable without walking Suggestions on the consumer
+// side, mirroring the other counters. The field is documented in the
+// hygiene scan tests so MCP/JSON consumers can rely on the new shape.
 type memoryHygieneScanOutput struct {
 	RedactionHitCount             int                        `json:"redaction_hit_count"`
 	ExpiryCandidateCount          int                        `json:"expiry_candidate_count"`
 	DuplicateCount                int                        `json:"duplicate_count"`
 	SupersedeCandidateCount       int                        `json:"supersede_candidate_count"`
 	ValidityOverlapSupersedeCount int                        `json:"validity_overlap_supersede_count"`
+	LowQualityCandidateCount      int                        `json:"low_quality_candidate_count"`
 	Suggestions                   []memoryHygieneOutputEntry `json:"suggestions"`
 }
 

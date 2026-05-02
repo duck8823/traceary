@@ -4,6 +4,7 @@
   "duplicate_count": 0,
   "supersede_candidate_count": 1,
   "validity_overlap_supersede_count": 0,
+  "low_quality_candidate_count": 0,
   "suggestions": [
     {
       "memory_id": "memory-golden-accepted",

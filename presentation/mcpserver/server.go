@@ -281,7 +281,7 @@ func (s *Server) queryMemory() mcp.ToolHandlerFor[queryMemoryInput, any] {
 			_, out, err := s.memoryPack()(ctx, req, memoryPackInput{SessionID: input.SessionID, Workspace: input.Workspace, RecentCommandsLimit: input.RecentCommandsLimit, MemoryLimit: input.MemoryLimit, Preset: input.Preset, AsOf: input.AsOf})
 			return nil, out, err
 		case "scan_hygiene":
-			_, out, err := s.scanMemoryHygiene()(ctx, req, scanMemoryHygieneInput{Workspace: input.Workspace, ExpiryDays: input.ExpiryDays})
+			_, out, err := s.scanMemoryHygiene()(ctx, req, scanMemoryHygieneInput{Workspace: input.Workspace, ExpiryDays: input.ExpiryDays, IncludeHidden: input.IncludeHidden})
 			return nil, out, err
 		default:
 			return nil, nil, xerrors.Errorf("query_memory action must be one of retrieve, export, pack, scan_hygiene")
@@ -932,7 +932,7 @@ func (s *Server) scanMemoryHygiene() mcp.ToolHandlerFor[scanMemoryHygieneInput, 
 		if s.memory == nil {
 			return nil, memoryHygieneOutput{}, xerrors.Errorf("memory usecase is not configured")
 		}
-		criteria := apptypes.MemoryHygieneScanCriteria{}
+		criteria := apptypes.MemoryHygieneScanCriteria{IncludeHiddenCandidates: input.IncludeHidden}
 		if workspace := strings.TrimSpace(input.Workspace); workspace != "" {
 			resolvedWorkspace, err := types.WorkspaceFrom(workspace)
 			if err != nil {
@@ -953,6 +953,7 @@ func (s *Server) scanMemoryHygiene() mcp.ToolHandlerFor[scanMemoryHygieneInput, 
 			DuplicateCount:                result.DuplicateCount,
 			SupersedeCandidateCount:       result.SupersedeCandidateCount,
 			ValidityOverlapSupersedeCount: result.ValidityOverlapSupersedeCount,
+			LowQualityCandidateCount:      result.LowQualityCandidateCount,
 			Suggestions:                   make([]memoryHygieneSuggestionOutput, 0, len(result.Suggestions)),
 		}
 		for _, suggestion := range result.Suggestions {
@@ -975,6 +976,15 @@ func (s *Server) scanMemoryHygiene() mcp.ToolHandlerFor[scanMemoryHygieneInput, 
 			if suggestion.Scope != nil {
 				entry.ScopeKind = suggestion.Scope.Kind().String()
 				entry.ScopeValue = suggestion.Scope.Key()
+			}
+			if suggestion.Status != "" {
+				entry.Status = suggestion.Status.String()
+			}
+			if suggestion.Source != "" {
+				entry.Source = suggestion.Source.String()
+			}
+			if len(suggestion.QualityReasons) > 0 {
+				entry.QualityReasons = append(entry.QualityReasons, suggestion.QualityReasons...)
 			}
 			out.Suggestions = append(out.Suggestions, entry)
 		}

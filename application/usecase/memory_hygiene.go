@@ -42,6 +42,11 @@ const hygieneScanPageSize = 2000
 // memory that trips any of the three hygiene rules. The function is
 // deliberately simple: each rule is independent so an operator can
 // triage the suggestions without the scanner second-guessing them.
+//
+// Candidate hygiene runs as a separate pass on status=candidate rows so
+// the deterministic low-quality classifier (#857) can flag noisy
+// auto-extractions. The candidate pass never inspects accepted memories,
+// so the apply path that consumes its suggestions cannot mutate them.
 func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.MemoryHygieneScanCriteria) (apptypes.MemoryHygieneScanResult, error) {
 	if u.memoryQuery == nil {
 		return apptypes.MemoryHygieneScanResult{}, xerrors.Errorf("memory query service is not configured")
@@ -186,7 +191,61 @@ func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.Memor
 	result.Suggestions = append(result.Suggestions, validityOverlapSuggestions...)
 	result.ValidityOverlapSupersedeCount = len(validityOverlapSuggestions)
 
+	candidateSuggestions, err := u.scanLowQualityCandidates(ctx, criteria)
+	if err != nil {
+		return apptypes.MemoryHygieneScanResult{}, err
+	}
+	result.Suggestions = append(result.Suggestions, candidateSuggestions...)
+	result.LowQualityCandidateCount = len(candidateSuggestions)
+
 	return result, nil
+}
+
+// scanLowQualityCandidates walks every status=candidate memory in scope
+// and emits a low_quality_candidate suggestion for each row whose fact
+// matches the deterministic extraction-noise classifier (#857). The
+// default pass restricts the source to MemorySourceExtracted because
+// extracted-hidden rows are already suppressed from the inbox; callers
+// who explicitly opt into IncludeHiddenCandidates also see those rows
+// so they can clean up backlog from before the extractor learned to
+// hide them.
+//
+// The candidate pass is a separate read so the existing redaction /
+// expiry / duplicate / supersede passes keep operating on accepted
+// memories only — there is no path through this scan that mutates an
+// accepted row, satisfying the issue's guarantee that the candidate
+// cleanup path cannot touch accepted memories.
+func (u *memoryHygieneUsecase) scanLowQualityCandidates(
+	ctx context.Context,
+	criteria apptypes.MemoryHygieneScanCriteria,
+) ([]apptypes.MemoryHygieneSuggestion, error) {
+	sources := []domtypes.MemorySource{domtypes.MemorySourceExtracted}
+	if criteria.IncludeHiddenCandidates {
+		sources = append(sources, domtypes.MemorySourceExtractedHidden)
+	}
+	candidates, err := u.loadCandidateSummaries(ctx, criteria.Scopes, sources)
+	if err != nil {
+		return nil, err
+	}
+	suggestions := make([]apptypes.MemoryHygieneSuggestion, 0, len(candidates))
+	for _, candidate := range candidates {
+		reasons := classifyExtractionNoise(candidate.Fact())
+		if len(reasons) == 0 {
+			continue
+		}
+		suggestions = append(suggestions, apptypes.MemoryHygieneSuggestion{
+			MemoryID:       candidate.MemoryID(),
+			Kind:           apptypes.MemoryHygieneSuggestionLowQualityCandidate,
+			Reason:         fmt.Sprintf("low-quality extraction: %s", strings.Join(reasons, ",")),
+			Fact:           candidate.Fact(),
+			Scope:          candidate.Scope(),
+			UpdatedAt:      candidate.UpdatedAt(),
+			Status:         candidate.Status(),
+			Source:         candidate.Source(),
+			QualityReasons: reasons,
+		})
+	}
+	return suggestions, nil
 }
 
 // detectSupersedeCandidates groups accepted memories by scope, computes
@@ -467,8 +526,9 @@ func (u *memoryHygieneUsecase) Apply(ctx context.Context, criteria apptypes.Memo
 		return apptypes.MemoryHygieneApplyResult{}, xerrors.Errorf("memory usecase is not configured")
 	}
 	scanResult, err := u.Scan(ctx, apptypes.MemoryHygieneScanCriteria{
-		StalenessThreshold: criteria.StalenessThreshold,
-		Now:                criteria.Now,
+		StalenessThreshold:      criteria.StalenessThreshold,
+		Now:                     criteria.Now,
+		IncludeHiddenCandidates: criteria.IncludeHiddenCandidates,
 	})
 	if err != nil {
 		return apptypes.MemoryHygieneApplyResult{}, err
@@ -560,6 +620,19 @@ func (u *memoryHygieneUsecase) applyOne(ctx context.Context, memoryID domtypes.M
 			return apptypes.MemoryHygieneApplied{}, xerrors.Errorf("failed to reject memory: %w", err)
 		}
 		return apptypes.MemoryHygieneApplied{MemoryID: memoryID.String(), Kind: suggestion.Kind, Transition: "reject", Details: rejected}, nil
+	case apptypes.MemoryHygieneSuggestionLowQualityCandidate:
+		// Low-quality candidates are rejected outright. The scan only
+		// flags status=candidate rows so this branch can never receive
+		// an accepted memory id, satisfying the issue's guarantee that
+		// the candidate cleanup path leaves accepted memories alone.
+		// Reject() in turn refuses to operate on accepted memories, so
+		// any race that flipped the row to accepted between scan and
+		// apply surfaces as an error in the per-id failure list.
+		rejected, err := u.memory.Reject(ctx, memoryID)
+		if err != nil {
+			return apptypes.MemoryHygieneApplied{}, xerrors.Errorf("failed to reject low-quality candidate: %w", err)
+		}
+		return apptypes.MemoryHygieneApplied{MemoryID: memoryID.String(), Kind: suggestion.Kind, Transition: "reject", Details: rejected}, nil
 	case apptypes.MemoryHygieneSuggestionSupersedeCandidate,
 		apptypes.MemoryHygieneSuggestionValidityOverlapSupersede:
 		details, err := u.memory.Show(ctx, memoryID)
@@ -603,18 +676,44 @@ func (u *memoryHygieneUsecase) applyOne(ctx context.Context, memoryID domtypes.M
 // worth of memories is still scanned in full. The scan stops when the
 // datasource returns fewer rows than the requested page size.
 func (u *memoryHygieneUsecase) loadAcceptedSummaries(ctx context.Context, scopes []domtypes.MemoryScope) ([]apptypes.MemorySummary, error) {
+	return u.loadSummariesPage(ctx, scopes, []domtypes.MemoryStatus{domtypes.MemoryStatusAccepted}, nil, "accepted")
+}
+
+// loadCandidateSummaries walks every candidate memory in scope and
+// (optional) sources in hygieneScanPageSize-sized pages. Sources is
+// applied as an inclusive filter — passing only MemorySourceExtracted
+// excludes manually-proposed candidates from the noise pass so a
+// reviewer's deliberate proposal is never tagged as low-quality.
+func (u *memoryHygieneUsecase) loadCandidateSummaries(
+	ctx context.Context,
+	scopes []domtypes.MemoryScope,
+	sources []domtypes.MemorySource,
+) ([]apptypes.MemorySummary, error) {
+	return u.loadSummariesPage(ctx, scopes, []domtypes.MemoryStatus{domtypes.MemoryStatusCandidate}, sources, "candidate")
+}
+
+func (u *memoryHygieneUsecase) loadSummariesPage(
+	ctx context.Context,
+	scopes []domtypes.MemoryScope,
+	statuses []domtypes.MemoryStatus,
+	sources []domtypes.MemorySource,
+	label string,
+) ([]apptypes.MemorySummary, error) {
 	var all []apptypes.MemorySummary
 	offset := 0
 	for {
 		builder := apptypes.NewMemoryListCriteriaBuilder(hygieneScanPageSize).
 			Offset(offset).
-			Statuses([]domtypes.MemoryStatus{domtypes.MemoryStatusAccepted})
+			Statuses(statuses)
 		if len(scopes) > 0 {
 			builder = builder.Scopes(scopes)
 		}
+		if len(sources) > 0 {
+			builder = builder.Sources(sources)
+		}
 		page, err := u.memoryQuery.List(ctx, builder.Build())
 		if err != nil {
-			return nil, xerrors.Errorf("failed to list accepted memories: %w", err)
+			return nil, xerrors.Errorf("failed to list %s memories: %w", label, err)
 		}
 		if len(page) == 0 {
 			break
