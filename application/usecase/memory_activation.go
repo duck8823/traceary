@@ -247,11 +247,7 @@ func writeActivationTargetAtomic(path string, content string, existed bool) erro
 		return xerrors.Errorf("failed to create activation target directory %s: %w", dir, err)
 	}
 	perm := os.FileMode(0o600)
-	if existed {
-		info, err := os.Lstat(path)
-		if err != nil {
-			return xerrors.Errorf("failed to stat activation target %s: %w", path, err)
-		}
+	if info, err := os.Lstat(path); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
 			return xerrors.Errorf("activation target symlinks are not supported: %s", path)
 		}
@@ -261,6 +257,8 @@ func writeActivationTargetAtomic(path string, content string, existed bool) erro
 		if mode := info.Mode().Perm(); mode != 0 {
 			perm = mode
 		}
+	} else if existed || !os.IsNotExist(err) {
+		return xerrors.Errorf("failed to stat activation target %s: %w", path, err)
 	}
 	tmp, err := os.CreateTemp(dir, ".traceary-"+filepath.Base(path)+".*.tmp")
 	if err != nil {

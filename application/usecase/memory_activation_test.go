@@ -342,6 +342,40 @@ func TestMemoryUsecase_Activate_RefusesNewerManagedBlockVersion(t *testing.T) {
 	}
 }
 
+func TestMemoryUsecase_Activate_RejectsDanglingSymlinkTarget(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	targetPath := filepath.Join(dir, "traceary.md")
+	missingTarget := filepath.Join(dir, "missing.md")
+	if err := os.Symlink(missingTarget, targetPath); err != nil {
+		t.Skipf("symlink unsupported on this platform: %v", err)
+	}
+	scope := mustWorkspaceScope(t, "github.com/example/repo")
+	query := &stubExportMemoryQuery{
+		summaries: []apptypes.MemorySummary{
+			mustAcceptedSummary(t, "m-dangling-symlink", domtypes.MemoryTypePreference, scope, "reject dangling symlink activation targets"),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(nil, query, nil)
+
+	_, err := sut.Activate(context.Background(), apptypes.MemoryActivationCriteria{
+		Target: apptypes.MemoryBridgeTargetCodex,
+		Path:   targetPath,
+		Scopes: []domtypes.MemoryScope{scope},
+	})
+	if err == nil || !strings.Contains(err.Error(), "symlinks are not supported") {
+		t.Fatalf("Activate error = %v, want symlink rejection", err)
+	}
+	info, statErr := os.Lstat(targetPath)
+	if statErr != nil {
+		t.Fatalf("Lstat: %v", statErr)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("activation replaced dangling symlink with mode %s", info.Mode())
+	}
+}
+
 func mustWorkspaceScope(t *testing.T, value string) domtypes.MemoryScope {
 	t.Helper()
 	workspace, err := domtypes.WorkspaceFrom(value)
