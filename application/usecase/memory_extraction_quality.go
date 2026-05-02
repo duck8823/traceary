@@ -107,6 +107,9 @@ var (
 		" produce ", " produces ", " produced ", " producing ",
 		" return ", " returns ", " returned ", " returning ",
 		" use ", " uses ", " used ", " using ",
+		" follow ", " follows ", " followed ", " following ",
+		" cover ", " covers ", " covered ", " covering ",
+		" enforce ", " enforces ", " enforced ", " enforcing ",
 		" work ", " works ", " worked ", " working ",
 		" exist ", " exists ", " existed ", " existing ",
 		" allow ", " allows ", " allowed ", " allowing ",
@@ -212,12 +215,25 @@ func hasStandaloneCommandShape(value string) bool {
 		}
 	}
 	if knownSubcommand {
-		return len(fields) == 2 || hasShellOperand
+		return len(fields) == 2 || hasShellOperand || !looksLikeKnownSubcommandProseContinuation(fields[2:])
 	}
 	if hasShellOperand {
 		return true
 	}
 	return allowsLooseStandaloneOperand(command) && len(fields) == 2 && !looksLikeCommonProsePair(command, second)
+}
+
+func looksLikeKnownSubcommandProseContinuation(fields []string) bool {
+	if len(fields) == 0 {
+		return false
+	}
+	continuation := " " + strings.ToLower(strings.Join(fields, " ")) + " "
+	for _, marker := range standaloneCommandProseMarkers {
+		if strings.Contains(continuation, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeStandaloneCommandToken(value string) string {

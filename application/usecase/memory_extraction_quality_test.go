@@ -37,7 +37,10 @@ func TestClassifyExtractionNoise(t *testing.T) {
 
 		// Standalone commands
 		{name: "git pull command", fact: "git pull --ff-only origin main", want: []string{"standalone_command"}},
+		{name: "git pull positional command", fact: "git pull origin main", want: []string{"standalone_command"}},
+		{name: "git checkout positional command", fact: "git checkout feature-x", want: []string{"standalone_command"}},
 		{name: "go test command", fact: "go test ./...", want: []string{"standalone_command"}},
+		{name: "npm install positional command", fact: "npm install lodash", want: []string{"standalone_command"}},
 		{name: "make build command", fact: "make build", want: []string{"standalone_command"}},
 		{name: "gh pr list command", fact: "gh pr list --state open", want: []string{"standalone_command"}},
 		{name: "cd command", fact: "cd /tmp", want: []string{"standalone_command"}},
