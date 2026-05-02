@@ -1073,15 +1073,28 @@ func extractInlineRememberIntentFact(segment string) (string, bool) {
 		}
 	}
 	for _, trigger := range rememberIntentJapaneseTriggers {
-		index := strings.Index(normalized, trigger)
-		if index < 0 {
-			continue
+		searchStart := 0
+		for searchStart < len(normalized) {
+			relativeIndex := strings.Index(normalized[searchStart:], trigger)
+			if relativeIndex < 0 {
+				break
+			}
+			index := searchStart + relativeIndex
+			// Japanese remember phrases can also appear in non-imperative
+			// thanks/declarative clauses ("覚えておいてくれてありがとう").
+			// Require either a clause boundary, whitespace before the fact,
+			// a polite short prompt, or a trigger at the end of a clause before
+			// promoting the surrounding text as explicit remember intent.
+			if !isImperativeJapaneseRememberContext(normalized, index, len(trigger)) {
+				searchStart = index + len(trigger)
+				continue
+			}
+			fact := rememberIntentFactAroundTrigger(normalized, index, len(trigger))
+			if fact != "" {
+				return fact, true
+			}
+			searchStart = index + len(trigger)
 		}
-		fact := rememberIntentFactAroundTrigger(normalized, index, len(trigger))
-		if fact != "" {
-			return fact, true
-		}
-		return "", false
 	}
 	return "", false
 }
@@ -1124,6 +1137,67 @@ func isImperativeEnglishRememberContext(value string, index int) bool {
 		return true
 	}
 	return false
+}
+
+const japaneseRememberFactDelimiters = ":：-ー,，.。!！?？;；「」『』()[]{}"
+
+var japaneseRememberNonImperativeContinuations = []string{
+	"くれて",
+	"くれた",
+	"くれる",
+	"くださり",
+	"くださって",
+	"もらって",
+	"もらえる",
+	"いただいて",
+	"いただき",
+	"ありがとう",
+	"ありがとうございます",
+}
+
+func isImperativeJapaneseRememberContext(value string, index int, triggerLength int) bool {
+	suffix := value[index+triggerLength:]
+	if suffix == "" || strings.TrimSpace(suffix) == "" {
+		return true
+	}
+	if startsWithASCIIWhitespace(suffix) {
+		return true
+	}
+	first, _ := utf8.DecodeRuneInString(suffix)
+	if strings.ContainsRune(japaneseRememberFactDelimiters, first) {
+		return true
+	}
+	for _, continuation := range japaneseRememberNonImperativeContinuations {
+		if strings.HasPrefix(suffix, continuation) {
+			return false
+		}
+	}
+	for _, particle := range []string{"ね", "よ"} {
+		if strings.HasPrefix(suffix, particle) {
+			remainder := strings.TrimPrefix(suffix, particle)
+			if remainder == "" || strings.TrimSpace(remainder) == "" {
+				return true
+			}
+			if startsWithASCIIWhitespace(remainder) {
+				return true
+			}
+			next, _ := utf8.DecodeRuneInString(remainder)
+			return strings.ContainsRune(japaneseRememberFactDelimiters, next)
+		}
+	}
+	return false
+}
+
+func startsWithASCIIWhitespace(value string) bool {
+	if value == "" {
+		return false
+	}
+	switch value[0] {
+	case ' ', '\t', '\r', '\n':
+		return true
+	default:
+		return false
+	}
 }
 
 func indexFoldASCIIFrom(value string, needle string, start int) int {

@@ -1153,6 +1153,51 @@ func TestMemoryUsecase_Extract_DeclarativeRememberPhrasesAreNotRememberIntent(t 
 	}
 }
 
+func TestMemoryUsecase_Extract_JapaneseDeclarativeRememberPhrasesAreNotRememberIntent(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "thanks for remembering",
+			body: "覚えておいてくれてありがとう",
+		},
+		{
+			name: "polite continuation without fact",
+			body: "覚えておいてくれると助かります",
+		},
+		{
+			name: "thanks for remembering politely",
+			body: "覚えておいてくださってありがとうございます",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			session := apptypes.SessionSummaryOf(domtypes.SessionID("session-ja-decl-remember"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+			promptEvent := mustExtractionEvent(t, "event-ja-decl-remember", domtypes.EventKindPrompt, tc.body)
+			memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
+			sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+			eventQuery := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindPrompt: {promptEvent}}}
+			sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+			_, err := sut.Extract(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-ja-decl-remember")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(10).Build())
+			if err != nil {
+				t.Fatalf("Extract() error = %v", err)
+			}
+			for _, call := range memoryUsecase.proposeCalls {
+				if call.source == domtypes.MemorySourceRememberIntent {
+					t.Fatalf("Japanese declarative phrasing %q must not produce remember-intent candidate (got fact %q)", tc.body, call.fact)
+				}
+			}
+		})
+	}
+}
+
 func TestMemoryUsecase_Extract_InlineRememberContinuesAfterDeclarativeMatch(t *testing.T) {
 	t.Parallel()
 
@@ -1177,6 +1222,33 @@ func TestMemoryUsecase_Extract_InlineRememberContinuesAfterDeclarativeMatch(t *t
 	}
 	if call.fact != "run tests first" {
 		t.Fatalf("fact = %q, want later imperative fact", call.fact)
+	}
+}
+
+func TestMemoryUsecase_Extract_JapaneseInlineRememberContinuesAfterDeclarativeMatch(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-ja-decl-then-imperative"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	promptEvent := mustExtractionEvent(t, "event-ja-decl-then-imperative", domtypes.EventKindPrompt, "覚えておいてくれてありがとう。覚えておいて: go test before merge")
+	details := mustMemoryDetailsFromSummary(t, "memory-ja-decl-then-imperative", domtypes.MemoryTypeLesson, "go test before merge")
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{proposeResult: []apptypes.MemoryDetails{details}}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindPrompt: {promptEvent}}}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	_, err := sut.Extract(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-ja-decl-then-imperative")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(10).Build())
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(memoryUsecase.proposeCalls) != 1 {
+		t.Fatalf("proposeCalls = %d, want 1 imperative remember candidate", len(memoryUsecase.proposeCalls))
+	}
+	call := memoryUsecase.proposeCalls[0]
+	if call.source != domtypes.MemorySourceRememberIntent {
+		t.Fatalf("source = %q, want remember-intent", call.source)
+	}
+	if call.fact != "go test before merge" {
+		t.Fatalf("fact = %q, want later Japanese imperative fact", call.fact)
 	}
 }
 
