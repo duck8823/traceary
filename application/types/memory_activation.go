@@ -58,9 +58,13 @@ type MemoryActivationApplyResult struct {
 type MemoryActivationStatusState string
 
 const (
+	// MemoryActivationStatusMissing means the target file or managed block is absent.
 	MemoryActivationStatusMissing MemoryActivationStatusState = "missing"
-	MemoryActivationStatusStale   MemoryActivationStatusState = "stale"
-	MemoryActivationStatusInSync  MemoryActivationStatusState = "in_sync"
+	// MemoryActivationStatusStale means the managed block differs from current accepted memories.
+	MemoryActivationStatusStale MemoryActivationStatusState = "stale"
+	// MemoryActivationStatusInSync means the managed block matches current accepted memories.
+	MemoryActivationStatusInSync MemoryActivationStatusState = "in_sync"
+	// MemoryActivationStatusInvalid means the target cannot be safely interpreted.
 	MemoryActivationStatusInvalid MemoryActivationStatusState = "invalid"
 )
 
