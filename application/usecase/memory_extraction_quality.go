@@ -106,6 +106,7 @@ var (
 		" expect ", " expects ", " expected ", " expecting ",
 		" produce ", " produces ", " produced ", " producing ",
 		" return ", " returns ", " returned ", " returning ",
+		" find ", " finds ", " found ", " finding ",
 		" use ", " uses ", " used ", " using ",
 		" follow ", " follows ", " followed ", " following ",
 		" cover ", " covers ", " covered ", " covering ",
@@ -277,6 +278,7 @@ var standaloneCommandSubcommands = map[string]map[string]struct{}{
 	"brew":     stringSet("bundle", "cleanup", "install", "list", "tap", "uninstall", "update", "upgrade"),
 	"rtk":      stringSet("git", "gh", "go", "gofmt", "golangci-lint"),
 	"traceary": stringSet("context", "hook", "memory", "session", "shell", "version"),
+	"codex":    stringSet("review"),
 }
 
 func stringSet(values ...string) map[string]struct{} {

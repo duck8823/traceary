@@ -44,6 +44,7 @@ func TestClassifyExtractionNoise(t *testing.T) {
 		{name: "make build command", fact: "make build", want: []string{"standalone_command"}},
 		{name: "gh pr list command", fact: "gh pr list --state open", want: []string{"standalone_command"}},
 		{name: "cd command", fact: "cd /tmp", want: []string{"standalone_command"}},
+		{name: "codex review command", fact: "codex review", want: []string{"standalone_command"}},
 		{name: "docker compose pull command", fact: "docker-compose pull", want: []string{"standalone_command"}},
 		{name: "kubectl apply command", fact: "kubectl apply -f deploy.yaml", want: []string{"standalone_command"}},
 		// Prose that *starts with* a command token must remain visible — these
