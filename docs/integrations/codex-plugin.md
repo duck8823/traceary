@@ -44,6 +44,24 @@ traceary doctor --client codex --json
 - slash commands: `/traceary:help` and `/traceary:doctor`
 - contextual skills: `traceary-session-history`, `traceary-memory-review`, and `traceary-memory-remember`. `traceary-memory-review` triggers on review-intent phrases ("Traceary inbox", "review memory candidates", "session recap") and curates the inbox; `traceary-memory-remember` triggers only on explicit-write phrases ("remember that", "覚えておいて"). The legacy `traceary-memory-capture` skill is retained as a deprecated stub (will be removed in v0.12).
 
+## Memory activation strategy
+
+Codex is the first host with full Traceary host-native activation in v0.12.
+Accepted memories remain in Traceary's SQLite store as the source of truth, and
+the activation command writes only a Traceary-managed block into the Codex memory
+target (`~/.codex/memories/traceary.md` by default):
+
+```sh
+traceary memory activate --target codex --dry-run --diff
+traceary memory activate --target codex --status
+traceary memory activate --target codex --apply
+traceary doctor --client codex --json
+```
+
+The apply path creates the target directory/file when needed, preserves
+user-authored content outside the managed block, is idempotent when the accepted
+memory set has not changed, and refuses newer managed-block marker versions.
+
 ## Update
 
 Refresh the repository and let Codex pick up the new plugin version on the next `/plugins` refresh:

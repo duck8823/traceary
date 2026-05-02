@@ -178,6 +178,24 @@ Codex の既定 target は Traceary 管理ファイル (`~/.codex/memories/trace
 apply mode は必要に応じて target directory/file を作成し、Traceary 管理ブロックだけを置換し、その外側の user-authored content は保持します。出力には activated memory count を含み、新しい marker version の管理ブロックは古い binary で上書きしません。
 status mode は read-only で `missing` / `stale` / `in_sync` / `invalid` を表示し、Codex file の作成・更新が必要な場合は正確な dry-run/apply command を出力します。`traceary doctor --client codex` でも同じ activation status を確認できます。
 
+### ホスト別 activation strategy
+
+Traceary では 3 つの層を分けます。
+
+1. **Accepted memory store** — local SQLite の `memories` aggregate。review 済み durable fact の source of truth です。
+2. **Instruction-file export** — `traceary memory export --target <claude|codex|gemini>` が書く決定論的な markdown block。project/user instruction file を読むホスト向けの portable path です。
+3. **Host-native activation** — accepted store をホスト固有の native memory system から見えるようにする file/write path。Traceary 管理ブロック外の user-authored content は保持します。
+
+v0.12 で full host-native activation を実装しているのは **Codex** のみです。
+
+- `traceary memory activate --target codex --dry-run`
+- `traceary memory activate --target codex --status`
+- `traceary memory activate --target codex --apply`
+
+**Claude** の v0.12 推奨 workflow は、Traceary MCP tools と instruction-file export (`traceary memory export --target claude --out CLAUDE.md`) です。Anthropic SDK loop を自前で持つ場合だけ experimental な Anthropic native memory-tool backend も選べます。`memory activate --target claude` は v0.12 では未実装で、将来の safe write path は follow-up #883 で扱います。
+
+**Gemini** の v0.12 推奨 workflow は、Traceary MCP/extension と instruction-file export (`traceary memory export --target gemini --out GEMINI.md`) です。Gemini host-native activation write は意図的に defer しており、follow-up #884 で扱います。
+
 import は Codex の Markdown memory（既定値は `~/.codex/memories/*.md`）を読みます。legacy `MEMORY.md` は `## User preferences` / `## Reusable knowledge` / `## Failures and how to do differently` の allow-list を維持し、それ以外の Markdown shard は任意の見出し配下の bullet/list item を `source=imported` + `status=candidate` として記録します。evidence / artifact ref には元ファイルと行範囲を付与し、sanitizer は全ての imported fact に適用されます。auto-accept はされず、再実行時の dedupe は rejected / superseded / expired を含む全状態を見るので、一度 operator が reject した memory が別 run で resurrect することはありません。
 
 ### 参照する経路
