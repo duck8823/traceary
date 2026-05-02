@@ -1126,10 +1126,6 @@ func isImperativeEnglishRememberContext(value string, index int) bool {
 	return false
 }
 
-func indexFoldASCII(value string, needle string) int {
-	return indexFoldASCIIFrom(value, needle, 0)
-}
-
 func indexFoldASCIIFrom(value string, needle string, start int) int {
 	if needle == "" {
 		return start
