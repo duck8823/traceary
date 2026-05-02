@@ -1331,6 +1331,51 @@ func TestMemoryUsecase_Extract_TriggerOnlyNegationsRejected(t *testing.T) {
 	}
 }
 
+func TestMemoryUsecase_Extract_SoftenerOnlyRememberTriggersAreContextOnly(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "english do softener",
+			body: "do remember this",
+		},
+		{
+			name: "english kindly softener",
+			body: "kindly remember this",
+		},
+		{
+			name: "english please softener",
+			body: "please remember this",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			session := apptypes.SessionSummaryOf(domtypes.SessionID("session-softener-remember"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+			promptEvent := mustExtractionEvent(t, "event-softener-remember", domtypes.EventKindPrompt, tc.body)
+			memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
+			sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+			eventQuery := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindPrompt: {promptEvent}}}
+			sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+			_, err := sut.Extract(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-softener-remember")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(10).Build())
+			if err != nil {
+				t.Fatalf("Extract() error = %v", err)
+			}
+			for _, call := range memoryUsecase.proposeCalls {
+				if call.source == domtypes.MemorySourceRememberIntent {
+					t.Fatalf("softener-only prompt %q must not produce remember-intent candidate (got fact %q)", tc.body, call.fact)
+				}
+			}
+		})
+	}
+}
+
 // TestMemoryUsecase_Extract_ShortRememberIntentDoesNotBindStaleContext pins
 // the bounded lookback so a short remember-only prompt does not pull a
 // factual context from many turns earlier when intervening turns are
@@ -1365,6 +1410,41 @@ func TestMemoryUsecase_Extract_ShortRememberIntentDoesNotBindStaleContext(t *tes
 	for _, call := range memoryUsecase.proposeCalls {
 		if call.source == domtypes.MemorySourceRememberIntent {
 			t.Fatalf("stale factual context far behind a short remember prompt must not be linked: got fact %q", call.fact)
+		}
+	}
+}
+
+func TestMemoryUsecase_Extract_ShortRememberIntentUsesUnifiedChronology(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-remember-unified-timeline"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), "ended", 3, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	olderTranscript := mustExtractionEventAt(t, "event-old-transcript-context", domtypes.EventKindTranscript, "Always run go test before merging.", now)
+	rememberEvent := mustExtractionEventAt(t, "event-latest-remember", domtypes.EventKindPrompt, "覚えておいてね", now.Add(2*time.Second))
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{
+		listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
+			domtypes.EventKind(""):           {rememberEvent},
+			domtypes.EventKindPrompt:         {rememberEvent},
+			domtypes.EventKindTranscript:     {olderTranscript},
+			domtypes.EventKindReviewed:       {},
+			domtypes.EventKindNote:           {},
+			domtypes.EventKindCompactSummary: {},
+		},
+	}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	_, err := sut.Extract(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-remember-unified-timeline")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(10).Build())
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if eventQuery.listRecentCallsByKind[domtypes.EventKind("")] == 0 {
+		t.Fatalf("ListRecent was not called for the unified event chronology")
+	}
+	for _, call := range memoryUsecase.proposeCalls {
+		if call.source == domtypes.MemorySourceRememberIntent {
+			t.Fatalf("short remember prompt must not bind stale per-kind transcript context: got fact %q", call.fact)
 		}
 	}
 }

@@ -171,6 +171,13 @@ func (s *eventQueryServiceStub) ListRecent(
 	if result, ok := s.listRecentResultByKind[kind]; ok {
 		return result, nil
 	}
+	if kind == "" && s.listRecentResult == nil && len(s.listRecentResultByKind) > 0 {
+		merged := make([]*model.Event, 0)
+		for _, result := range s.listRecentResultByKind {
+			merged = append(merged, result...)
+		}
+		return merged, nil
+	}
 	return s.listRecentResult, nil
 }
 
