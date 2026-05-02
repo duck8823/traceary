@@ -182,12 +182,127 @@ func TestRootCLI_MemoryActivateRejectsDiffWithApply(t *testing.T) {
 	}
 }
 
+func TestRootCLI_MemoryActivateStatusJSONIncludesCommands(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	targetPath := filepath.Join(root, "traceary.md")
+	memoryStub := &memoryUsecaseStub{
+		activationStatus: apptypes.MemoryActivationStatusResult{
+			Target:         apptypes.MemoryBridgeTargetCodex,
+			TargetPath:     targetPath,
+			State:          apptypes.MemoryActivationStatusStale,
+			Existing:       true,
+			ActivatedCount: 4,
+			Message:        "Traceary managed memory block differs from the current accepted memories",
+		},
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "activate",
+		"--target", "codex",
+		"--root", root,
+		"--workspace", "github.com/duck8823/traceary",
+		"--status",
+		"--json",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	var payload struct {
+		Target         string `json:"target"`
+		TargetPath     string `json:"target_path"`
+		State          string `json:"state"`
+		Existing       bool   `json:"existing"`
+		ActivatedCount int    `json:"activated_count"`
+		DryRunCommand  string `json:"dry_run_command"`
+		ApplyCommand   string `json:"apply_command"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("Unmarshal: %v\nstdout=%s", err, stdout.String())
+	}
+	if payload.State != "stale" || payload.TargetPath != targetPath || !payload.Existing || payload.ActivatedCount != 4 {
+		t.Fatalf("payload = %+v, want stale status", payload)
+	}
+	if !strings.Contains(payload.DryRunCommand, "--dry-run --diff") || !strings.Contains(payload.ApplyCommand, "--apply") {
+		t.Fatalf("payload commands = dry-run %q apply %q", payload.DryRunCommand, payload.ApplyCommand)
+	}
+	assertMemoryStatusCall(t, memoryStub, true)
+}
+
+func TestRootCLI_MemoryActivateStatusTextOmitsCommandsWhenInSync(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	targetPath := filepath.Join(root, "traceary.md")
+	memoryStub := &memoryUsecaseStub{
+		activationStatus: apptypes.MemoryActivationStatusResult{
+			Target:         apptypes.MemoryBridgeTargetCodex,
+			TargetPath:     targetPath,
+			State:          apptypes.MemoryActivationStatusInSync,
+			Existing:       true,
+			ActivatedCount: 1,
+			Message:        "activation target is in sync",
+		},
+	}
+	stdout := &bytes.Buffer{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "activate",
+		"--target", "codex",
+		"--root", root,
+		"--workspace", "github.com/duck8823/traceary",
+		"--status",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "state: in_sync") || strings.Contains(out, "next_apply:") {
+		t.Fatalf("stdout = %q; want in_sync without remediation commands", out)
+	}
+	assertMemoryStatusCall(t, memoryStub, true)
+}
+
 func assertMemoryActivateCall(t *testing.T, stub *memoryUsecaseStub, wantIncludeGlobal bool) {
 	t.Helper()
 	if len(stub.activationPlanCalls) != 1 {
 		t.Fatalf("activation plan calls = %d, want 1", len(stub.activationPlanCalls))
 	}
 	call := stub.activationPlanCalls[0]
+	if call.Target != apptypes.MemoryBridgeTargetCodex {
+		t.Fatalf("Target = %q, want codex", call.Target)
+	}
+	if call.IncludeGlobal != wantIncludeGlobal {
+		t.Fatalf("IncludeGlobal = %v, want %v", call.IncludeGlobal, wantIncludeGlobal)
+	}
+	if len(call.Scopes) != 1 {
+		t.Fatalf("Scopes len = %d, want 1", len(call.Scopes))
+	}
+	if call.Scopes[0].Kind() != types.MemoryScopeKindWorkspace || call.Scopes[0].Key() != "github.com/duck8823/traceary" {
+		t.Fatalf("Scopes[0] = %s:%s, want workspace:github.com/duck8823/traceary", call.Scopes[0].Kind(), call.Scopes[0].Key())
+	}
+}
+
+func assertMemoryStatusCall(t *testing.T, stub *memoryUsecaseStub, wantIncludeGlobal bool) {
+	t.Helper()
+	if len(stub.activationStatusCalls) != 1 {
+		t.Fatalf("activation status calls = %d, want 1", len(stub.activationStatusCalls))
+	}
+	call := stub.activationStatusCalls[0]
 	if call.Target != apptypes.MemoryBridgeTargetCodex {
 		t.Fatalf("Target = %q, want codex", call.Target)
 	}

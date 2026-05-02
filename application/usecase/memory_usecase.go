@@ -128,6 +128,9 @@ type MemoryUsecase interface {
 
 	// Activate writes accepted durable memories into a host-native activation target.
 	Activate(ctx context.Context, criteria apptypes.MemoryActivationCriteria) (apptypes.MemoryActivationApplyResult, error)
+
+	// ActivationStatus compares the host-native activation target with the current accepted memories.
+	ActivationStatus(ctx context.Context, criteria apptypes.MemoryActivationCriteria) (apptypes.MemoryActivationStatusResult, error)
 }
 
 type memoryProposer interface {

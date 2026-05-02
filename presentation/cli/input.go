@@ -458,6 +458,7 @@ type memoryActivateCommandInput struct {
 	noGlobal      bool
 	dryRun        bool
 	apply         bool
+	status        bool
 	diff          bool
 	asJSON        bool
 }

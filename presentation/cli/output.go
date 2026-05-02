@@ -250,6 +250,18 @@ type memoryActivationApplyOutput struct {
 	ActivatedCount int    `json:"activated_count"`
 }
 
+// memoryActivationStatusOutput is the JSON shape of a read-only activation status.
+type memoryActivationStatusOutput struct {
+	Target         string `json:"target"`
+	TargetPath     string `json:"target_path"`
+	State          string `json:"state"`
+	Existing       bool   `json:"existing"`
+	ActivatedCount int    `json:"activated_count"`
+	Message        string `json:"message"`
+	DryRunCommand  string `json:"dry_run_command,omitempty"`
+	ApplyCommand   string `json:"apply_command,omitempty"`
+}
+
 func formatJSONTime(t time.Time) string {
 	return t.UTC().Format(time.RFC3339Nano)
 }

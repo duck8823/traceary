@@ -89,6 +89,56 @@ func (u *memoryActivationUsecase) Apply(ctx context.Context, criteria apptypes.M
 	}, nil
 }
 
+func (u *memoryActivationUsecase) Status(ctx context.Context, criteria apptypes.MemoryActivationCriteria) (apptypes.MemoryActivationStatusResult, error) {
+	targetPath, err := resolveMemoryActivationTargetPath(criteria)
+	if err != nil {
+		return apptypes.MemoryActivationStatusResult{}, err
+	}
+
+	exportResult, err := u.renderActivationBlock(ctx, criteria)
+	if err != nil {
+		return apptypes.MemoryActivationStatusResult{}, err
+	}
+	result := apptypes.MemoryActivationStatusResult{
+		Target:         criteria.Target,
+		TargetPath:     targetPath,
+		Scopes:         exportResult.Scopes,
+		ActivatedCount: exportResult.ExportedCount,
+	}
+
+	existing, exists, err := readExistingActivationTarget(targetPath)
+	if err != nil {
+		result.State = apptypes.MemoryActivationStatusInvalid
+		result.Message = err.Error()
+		return result, nil
+	}
+	result.Existing = exists
+	if !exists {
+		result.State = apptypes.MemoryActivationStatusMissing
+		result.Message = "activation target file is missing"
+		return result, nil
+	}
+	region, found, err := findMemoryBridgeBlockRegion(existing)
+	if err != nil {
+		result.State = apptypes.MemoryActivationStatusInvalid
+		result.Message = err.Error()
+		return result, nil
+	}
+	if !found {
+		result.State = apptypes.MemoryActivationStatusMissing
+		result.Message = "Traceary managed memory block is missing"
+		return result, nil
+	}
+	if existing[region.start:region.end] == exportResult.Markdown {
+		result.State = apptypes.MemoryActivationStatusInSync
+		result.Message = "activation target is in sync"
+		return result, nil
+	}
+	result.State = apptypes.MemoryActivationStatusStale
+	result.Message = "Traceary managed memory block differs from the current accepted memories"
+	return result, nil
+}
+
 func (u *memoryActivationUsecase) renderActivationBlock(ctx context.Context, criteria apptypes.MemoryActivationCriteria) (apptypes.MemoryExportResult, error) {
 	return (&memoryExportUsecase{memoryQuery: u.memoryQuery}).Export(ctx, apptypes.MemoryExportCriteria{
 		Target:        criteria.Target,

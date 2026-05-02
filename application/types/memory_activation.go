@@ -52,3 +52,29 @@ type MemoryActivationApplyResult struct {
 	Existing       bool
 	ActivatedCount int
 }
+
+// MemoryActivationStatusState describes whether the host-native file reflects
+// the currently accepted Traceary memories.
+type MemoryActivationStatusState string
+
+const (
+	MemoryActivationStatusMissing MemoryActivationStatusState = "missing"
+	MemoryActivationStatusStale   MemoryActivationStatusState = "stale"
+	MemoryActivationStatusInSync  MemoryActivationStatusState = "in_sync"
+	MemoryActivationStatusInvalid MemoryActivationStatusState = "invalid"
+)
+
+// String returns the canonical string form.
+func (s MemoryActivationStatusState) String() string { return string(s) }
+
+// MemoryActivationStatusResult is the read-only activation health view used by
+// `memory activate --status` and doctor.
+type MemoryActivationStatusResult struct {
+	Target         MemoryBridgeTarget
+	TargetPath     string
+	Scopes         []domtypes.MemoryScope
+	State          MemoryActivationStatusState
+	Existing       bool
+	ActivatedCount int
+	Message        string
+}

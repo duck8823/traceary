@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
@@ -463,6 +465,57 @@ func TestRootCLI_DoctorExitCodeMatrixAndJSONSections(t *testing.T) {
 			t.Fatalf("report summary = %+v exit_code=%d, want fail exit 1", report.Summary, report.ExitCode)
 		}
 	})
+}
+
+func TestRootCLI_DoctorCodexMemoryActivationStatus(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("TRACEARY_WORKSPACE", "")
+	setTracearyPathToCurrentExecutable(t)
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	targetPath := filepath.Join(homeDir, ".codex", "memories", "traceary.md")
+	memoryStub := &memoryUsecaseStub{
+		activationStatus: apptypes.MemoryActivationStatusResult{
+			Target:         apptypes.MemoryBridgeTargetCodex,
+			TargetPath:     targetPath,
+			State:          apptypes.MemoryActivationStatusMissing,
+			Existing:       false,
+			ActivatedCount: 2,
+			Message:        "activation target file is missing",
+		},
+	}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	).Command()
+	stdout := &bytes.Buffer{}
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"doctor", "--client", "codex", "--project-dir", projectDir, "--json"})
+
+	executeDoctorAllowWarnings(t, rootCmd)
+
+	report := decodeDoctorReport(t, stdout.Bytes())
+	check := statusByName(report, "codex-memory-activation")
+	if check.Status != "warn" {
+		t.Fatalf("codex-memory-activation status = %q, want warn (message: %q)", check.Status, check.Message)
+	}
+	if !strings.Contains(check.Message, targetPath) || !strings.Contains(check.Message, "--dry-run --diff") || !strings.Contains(check.FixCommand, "--apply") {
+		t.Fatalf("unexpected activation doctor check: %+v", check)
+	}
+	if len(memoryStub.activationStatusCalls) != 1 {
+		t.Fatalf("activation status calls = %d, want 1", len(memoryStub.activationStatusCalls))
+	}
+	call := memoryStub.activationStatusCalls[0]
+	if call.Target != apptypes.MemoryBridgeTargetCodex || !call.IncludeGlobal {
+		t.Fatalf("activation status criteria = %+v, want codex include global", call)
+	}
+	if len(call.Scopes) != 1 || call.Scopes[0].Kind() != types.MemoryScopeKindWorkspace || call.Scopes[0].Key() != projectDir {
+		t.Fatalf("activation status scope = %+v, want workspace %s", call.Scopes, projectDir)
+	}
 }
 
 func executeDoctorJSON(t *testing.T, args []string) (doctorReport, error) {

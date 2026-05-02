@@ -328,44 +328,46 @@ func (s *bundleUsecaseStub) Import(_ context.Context, _ usecase.BundleImportOpti
 }
 
 type memoryUsecaseStub struct {
-	listResult         []apptypes.MemorySummary
-	listErr            error
-	searchResult       []apptypes.MemorySummary
-	searchErr          error
-	showDetails        apptypes.MemoryDetails
-	showErr            error
-	rememberDetails    apptypes.MemoryDetails
-	rememberErr        error
-	proposeDetails     apptypes.MemoryDetails
-	proposeErr         error
-	acceptDetails      apptypes.MemoryDetails
-	acceptErr          error
-	distillResult      apptypes.MemoryDistillResult
-	distillErr         error
-	rejectDetails      apptypes.MemoryDetails
-	rejectErr          error
-	supersedeDetails   apptypes.MemoryDetails
-	supersedeErr       error
-	expireDetails      apptypes.MemoryDetails
-	expireErr          error
-	setValidityDetails apptypes.MemoryDetails
-	setValidityErr     error
-	extractDetails     []apptypes.MemoryDetails
-	extractErr         error
-	importResult       apptypes.MemoryImportResult
-	importErr          error
-	bridgeImportResult apptypes.MemoryBridgeImportResult
-	bridgeImportErr    error
-	scanResult         apptypes.MemoryHygieneScanResult
-	scanErr            error
-	applyResult        apptypes.MemoryHygieneApplyResult
-	applyErr           error
-	exportResult       apptypes.MemoryExportResult
-	exportErr          error
-	activationPlan     apptypes.MemoryActivationPlan
-	activationPlanErr  error
-	activationResult   apptypes.MemoryActivationApplyResult
-	activationErr      error
+	listResult          []apptypes.MemorySummary
+	listErr             error
+	searchResult        []apptypes.MemorySummary
+	searchErr           error
+	showDetails         apptypes.MemoryDetails
+	showErr             error
+	rememberDetails     apptypes.MemoryDetails
+	rememberErr         error
+	proposeDetails      apptypes.MemoryDetails
+	proposeErr          error
+	acceptDetails       apptypes.MemoryDetails
+	acceptErr           error
+	distillResult       apptypes.MemoryDistillResult
+	distillErr          error
+	rejectDetails       apptypes.MemoryDetails
+	rejectErr           error
+	supersedeDetails    apptypes.MemoryDetails
+	supersedeErr        error
+	expireDetails       apptypes.MemoryDetails
+	expireErr           error
+	setValidityDetails  apptypes.MemoryDetails
+	setValidityErr      error
+	extractDetails      []apptypes.MemoryDetails
+	extractErr          error
+	importResult        apptypes.MemoryImportResult
+	importErr           error
+	bridgeImportResult  apptypes.MemoryBridgeImportResult
+	bridgeImportErr     error
+	scanResult          apptypes.MemoryHygieneScanResult
+	scanErr             error
+	applyResult         apptypes.MemoryHygieneApplyResult
+	applyErr            error
+	exportResult        apptypes.MemoryExportResult
+	exportErr           error
+	activationPlan      apptypes.MemoryActivationPlan
+	activationPlanErr   error
+	activationResult    apptypes.MemoryActivationApplyResult
+	activationErr       error
+	activationStatus    apptypes.MemoryActivationStatusResult
+	activationStatusErr error
 
 	rememberCall struct {
 		memoryType   types.MemoryType
@@ -393,13 +395,14 @@ type memoryUsecaseStub struct {
 		validTo   types.Optional[time.Time]
 		clearTo   bool
 	}
-	setValidityCallCount int
-	extractCriteria      apptypes.MemoryExtractionCriteria
-	importCalls          []apptypes.CodexImportCriteria
-	bridgeImportCalls    []apptypes.MemoryBridgeImportCriteria
-	exportCalls          []apptypes.MemoryExportCriteria
-	activationPlanCalls  []apptypes.MemoryActivationCriteria
-	activationCalls      []apptypes.MemoryActivationCriteria
+	setValidityCallCount  int
+	extractCriteria       apptypes.MemoryExtractionCriteria
+	importCalls           []apptypes.CodexImportCriteria
+	bridgeImportCalls     []apptypes.MemoryBridgeImportCriteria
+	exportCalls           []apptypes.MemoryExportCriteria
+	activationPlanCalls   []apptypes.MemoryActivationCriteria
+	activationCalls       []apptypes.MemoryActivationCriteria
+	activationStatusCalls []apptypes.MemoryActivationCriteria
 }
 
 func (s *memoryUsecaseStub) Remember(_ context.Context, memoryType types.MemoryType, scope types.MemoryScope, fact string, confidence types.Optional[types.Confidence], source types.MemorySource, evidenceRefs []types.EvidenceRef, artifactRefs []types.ArtifactRef) (apptypes.MemoryDetails, error) {
@@ -506,6 +509,11 @@ func (s *memoryUsecaseStub) ActivatePlan(_ context.Context, criteria apptypes.Me
 func (s *memoryUsecaseStub) Activate(_ context.Context, criteria apptypes.MemoryActivationCriteria) (apptypes.MemoryActivationApplyResult, error) {
 	s.activationCalls = append(s.activationCalls, criteria)
 	return s.activationResult, s.activationErr
+}
+
+func (s *memoryUsecaseStub) ActivationStatus(_ context.Context, criteria apptypes.MemoryActivationCriteria) (apptypes.MemoryActivationStatusResult, error) {
+	s.activationStatusCalls = append(s.activationStatusCalls, criteria)
+	return s.activationStatus, s.activationStatusErr
 }
 
 // storeManagementUsecaseStub implements usecase.StoreManagementUsecase for testing.

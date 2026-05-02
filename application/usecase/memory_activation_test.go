@@ -376,6 +376,126 @@ func TestMemoryUsecase_Activate_RejectsDanglingSymlinkTarget(t *testing.T) {
 	}
 }
 
+func TestMemoryUsecase_ActivationStatus_MissingFile(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	scope := mustWorkspaceScope(t, "github.com/example/repo")
+	query := &stubExportMemoryQuery{
+		summaries: []apptypes.MemorySummary{
+			mustAcceptedSummary(t, "m6", domtypes.MemoryTypePreference, scope, "prefer visible activation status"),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(nil, query, nil)
+
+	status, err := sut.ActivationStatus(context.Background(), apptypes.MemoryActivationCriteria{
+		Target: apptypes.MemoryBridgeTargetCodex,
+		Root:   root,
+		Scopes: []domtypes.MemoryScope{scope},
+	})
+	if err != nil {
+		t.Fatalf("ActivationStatus: %v", err)
+	}
+	if status.State != apptypes.MemoryActivationStatusMissing || status.Existing {
+		t.Fatalf("status = %+v, want missing/non-existing", status)
+	}
+	if status.TargetPath != filepath.Join(root, "traceary.md") {
+		t.Fatalf("TargetPath = %q, want root target", status.TargetPath)
+	}
+	if status.ActivatedCount != 1 {
+		t.Fatalf("ActivatedCount = %d, want 1", status.ActivatedCount)
+	}
+}
+
+func TestMemoryUsecase_ActivationStatus_InSyncManagedBlock(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	scope := mustWorkspaceScope(t, "github.com/example/repo")
+	query := &stubExportMemoryQuery{
+		summaries: []apptypes.MemorySummary{
+			mustAcceptedSummary(t, "m7", domtypes.MemoryTypePreference, scope, "prefer status checks before release"),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(nil, query, nil)
+	criteria := apptypes.MemoryActivationCriteria{
+		Target: apptypes.MemoryBridgeTargetCodex,
+		Root:   root,
+		Scopes: []domtypes.MemoryScope{scope},
+	}
+	if _, err := sut.Activate(context.Background(), criteria); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+
+	status, err := sut.ActivationStatus(context.Background(), criteria)
+	if err != nil {
+		t.Fatalf("ActivationStatus: %v", err)
+	}
+	if status.State != apptypes.MemoryActivationStatusInSync || !status.Existing {
+		t.Fatalf("status = %+v, want in_sync/existing", status)
+	}
+}
+
+func TestMemoryUsecase_ActivationStatus_StaleManagedBlock(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	targetPath := filepath.Join(dir, "traceary.md")
+	existing := usecase.MemoryBridgeMarkerBegin + "\nold managed content\n" + usecase.MemoryBridgeMarkerEnd + "\n"
+	if err := os.WriteFile(targetPath, []byte(existing), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	scope := mustWorkspaceScope(t, "github.com/example/repo")
+	query := &stubExportMemoryQuery{
+		summaries: []apptypes.MemorySummary{
+			mustAcceptedSummary(t, "m8", domtypes.MemoryTypePreference, scope, "prefer fresh activation"),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(nil, query, nil)
+
+	status, err := sut.ActivationStatus(context.Background(), apptypes.MemoryActivationCriteria{
+		Target: apptypes.MemoryBridgeTargetCodex,
+		Path:   targetPath,
+		Scopes: []domtypes.MemoryScope{scope},
+	})
+	if err != nil {
+		t.Fatalf("ActivationStatus: %v", err)
+	}
+	if status.State != apptypes.MemoryActivationStatusStale || !status.Existing {
+		t.Fatalf("status = %+v, want stale/existing", status)
+	}
+}
+
+func TestMemoryUsecase_ActivationStatus_InvalidManagedBlock(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	targetPath := filepath.Join(dir, "traceary.md")
+	existing := usecase.MemoryBridgeMarkerBegin + "\nunterminated managed content\n"
+	if err := os.WriteFile(targetPath, []byte(existing), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	scope := mustWorkspaceScope(t, "github.com/example/repo")
+	query := &stubExportMemoryQuery{
+		summaries: []apptypes.MemorySummary{
+			mustAcceptedSummary(t, "m9", domtypes.MemoryTypePreference, scope, "prefer invalid block warnings"),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(nil, query, nil)
+
+	status, err := sut.ActivationStatus(context.Background(), apptypes.MemoryActivationCriteria{
+		Target: apptypes.MemoryBridgeTargetCodex,
+		Path:   targetPath,
+		Scopes: []domtypes.MemoryScope{scope},
+	})
+	if err != nil {
+		t.Fatalf("ActivationStatus: %v", err)
+	}
+	if status.State != apptypes.MemoryActivationStatusInvalid || !strings.Contains(status.Message, "without end marker") {
+		t.Fatalf("status = %+v, want invalid unterminated block", status)
+	}
+}
+
 func mustWorkspaceScope(t *testing.T, value string) domtypes.MemoryScope {
 	t.Helper()
 	workspace, err := domtypes.WorkspaceFrom(value)

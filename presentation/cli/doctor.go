@@ -286,6 +286,11 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		if hostCheck := inspectHostCapabilityGaps(targetClient, outputPath); hostCheck != nil {
 			report.Checks = append(report.Checks, *hostCheck)
 		}
+		if targetClient == "codex" {
+			if activationCheck := c.inspectCodexMemoryActivationStatus(ctx, resolvedProjectDir); activationCheck != nil {
+				report.Checks = append(report.Checks, *activationCheck)
+			}
+		}
 	}
 
 	report.Checks = append(report.Checks, c.inspectPluginVersionChecks(input.currentVersion)...)
