@@ -206,23 +206,24 @@ scope groups under distinct headings. Use `--no-global` (or
 filter; use `--include-global` to make the default explicit.
 
 Activation can be planned before any host-native file is mutated, then
-applied explicitly:
+applied explicitly. The same `--target <codex|claude|gemini>` command set
+covers every host:
 
-- `traceary memory activate --target codex --dry-run`
-- `traceary memory activate --target codex --apply`
-- `traceary memory activate --target codex --status`
+- `traceary memory activate --target <host> --status` — read-only health view
+- `traceary memory activate --target <host> --dry-run [--diff]` — print the planned content/diff without writing
+- `traceary memory activate --target <host> --apply` — write the activation target safely
 
-The Codex default target is Traceary-managed
-(`~/.codex/memories/traceary.md`) so user-authored memory shards are not
-overwritten. `--root` and `--path` provide explicit overrides, and
-`--diff` prints a planned diff against an existing target file in dry-run
-mode. Apply mode creates the target directory/file when needed, replaces
-only the Traceary-managed block, preserves user-authored content outside
-that block, reports the activated memory count, and refuses to overwrite a
-managed block stamped with a newer marker version. Status mode is read-only:
-it reports `missing`, `stale`, `in_sync`, or `invalid` and emits exact
-dry-run/apply commands when the Codex file needs to be created or refreshed.
-`traceary doctor --client codex` includes the same activation status.
+`--root` overrides the activation root and `--path` overrides the activation
+target file path. For Claude/Gemini, `--path` points at the host context file
+and the external memory file is derived from its directory. Apply is
+idempotent (re-running with unchanged accepted memories is a no-op), preserves
+user-authored content outside the Traceary-managed regions, refuses unsafe
+targets (symlinks, directories, malformed markers, newer marker versions), and
+reports the activated memory count. Status reports `missing`, `stale`,
+`in_sync`, or `invalid` and emits the exact dry-run/apply commands when the
+host needs to be refreshed.
+`traceary doctor --client <host>` surfaces the same activation status as a
+`<host>-memory-activation` check with actionable remediation.
 
 ### Activation strategy by host
 
@@ -237,22 +238,80 @@ Traceary uses three distinct layers:
    accepted store visible to that host's native memory system while preserving
    user-authored content outside Traceary-managed blocks.
 
-v0.12 implements full host-native activation for **Codex** only:
+v0.13.0 ships full host-native activation for **Codex**, **Claude**, and
+**Gemini**. The CLI surface is identical across hosts; only the resolved
+target paths and managed-region layout differ.
 
-- `traceary memory activate --target codex --dry-run`
-- `traceary memory activate --target codex --status`
-- `traceary memory activate --target codex --apply`
+| Host | Default activation root | Managed file(s) | Strategy |
+| --- | --- | --- | --- |
+| Codex | `~/.codex/memories` (legacy native memory root) | `~/.codex/memories/traceary.md` (single-file) | Traceary-managed memory file. Apply replaces only the managed block within it and preserves content outside that block. |
+| Claude | nearest `.git` ancestor or cwd | `<root>/CLAUDE.md` (host context) + `<root>/.traceary/memories/claude.md` (external memory) | Two-file pair. Apply renders the external memory file first, then writes a small managed import stub (`@./.traceary/memories/claude.md`) into `CLAUDE.md` only when missing or stale. |
+| Gemini | nearest `.git` ancestor or cwd | `<root>/GEMINI.md` (host context) + `<root>/.traceary/memories/gemini.md` (external memory) | Two-file pair, same shape as Claude. Apply preserves Gemini's `## Gemini Added Memories` byte-for-byte and only appends or updates the managed import stub. |
 
-For **Claude**, the recommended v0.12 workflow remains Traceary MCP tools plus
-instruction-file export (`traceary memory export --target claude --out
-CLAUDE.md`) or the experimental Anthropic native memory-tool backend when you
-own the Anthropic SDK loop directly. `memory activate --target claude` is not
-implemented in v0.12; follow-up #883 tracks a future safe write path.
+The full contract — managed marker layout, status states, root detection,
+tracked-file policy, and rejected alternatives — lives in the
+[host-native memory activation ADR](../architecture/host-native-memory-activation.md).
 
-For **Gemini**, the recommended v0.12 workflow is Traceary MCP/extension usage
-plus instruction-file export (`traceary memory export --target gemini --out
-GEMINI.md`). Gemini host-native activation writes are intentionally deferred;
-follow-up #884 tracks that work.
+#### Why Traceary does not write into host-owned auto-memory sections
+
+Each host already has a memory surface that the host itself reads and writes:
+
+- Claude Code reads/writes `~/.claude/projects/<project>/memory/` as
+  host-owned auto memory.
+- Gemini's `save_memory` tool appends facts to `~/.gemini/GEMINI.md` under a
+  `## Gemini Added Memories` heading.
+
+Traceary deliberately stays out of those regions for v0.13.0:
+
+- The accepted memory store remains the source of truth. Mixing it with
+  host-managed facts would couple Traceary's projection to a format the host
+  may rewrite at any time.
+- User-authored content outside Traceary-managed regions must round-trip
+  unchanged through `dry-run`, `apply`, `status`, and `doctor`. The Gemini
+  smoke test explicitly asserts that the seeded `## Gemini Added Memories`
+  section is preserved byte-for-byte after apply.
+- Instead of writing into auto-memory, Traceary appends a small
+  Traceary-managed import stub plus an external memory file pair. The host
+  loads the external memories through its native markdown import mechanism,
+  so refreshes touch the rarely-edited host context file only when the stub
+  itself needs to change.
+
+The managed import-stub markers (`<!-- traceary-memory-import:begin:v1 -->`
+… `<!-- traceary-memory-import:end -->`) and the external-file markers
+(`<!-- traceary-memories:begin:v1 -->` … `<!-- traceary-memories:end -->`)
+let `import instructions` and other tooling round-trip cleanly without
+duplicating bullets or destroying user-authored prose.
+
+#### Common workflow
+
+1. Inspect status — `traceary memory activate --target <host> --status`. Run
+   inside the project root for Claude/Gemini so the activation root resolves
+   to the nearest ancestor that contains `.git`.
+2. Preview the planned changes — `traceary memory activate --target <host>
+   --dry-run --diff`. The output labels each component (`external memory plan`
+   / `host context plan` for two-file targets), so reviewers can see exactly
+   which file will change.
+3. Apply — `traceary memory activate --target <host> --apply`. A second apply
+   converges to noop when nothing has changed.
+4. Verify — `traceary doctor --client <host>` includes a
+   `<host>-memory-activation` check with the same dry-run/apply remediation.
+
+If status returns `invalid`, do not rerun apply blindly. The most common
+causes are listed under "Recovering from invalid state" below.
+
+#### Recovering from invalid state
+
+`invalid` means Traceary refuses to write because it cannot safely interpret
+the host file or the external memory file. Common causes and the recommended
+remediation:
+
+| Cause | Why apply refuses | How to recover |
+| --- | --- | --- |
+| Target is a symlink or a directory | The safe writer rejects non-regular files to avoid following arbitrary paths during atomic rename | Replace the symlink/directory with a regular file (or remove it), then re-run `--status` |
+| Managed block was hand-edited and the markers are duplicated, orphaned, or malformed | Traceary cannot tell which bytes are user-authored | Open the affected file, restore the original markers (or remove the managed region entirely), then re-run `--status` and `--apply` |
+| Managed block was written by a newer marker version | A newer Traceary on another machine wrote a contract this binary does not understand; overwriting would silently downgrade it | Upgrade Traceary on this machine, or remove the managed block and re-apply |
+| An unmanaged import line outside any Traceary stub already points at the expected `.traceary/memories/<host>.md` | Apply would create a duplicate import | Remove the unmanaged line (or wait for the future explicit adopt workflow) before re-running apply |
+| Status reports `invalid` for the host context file but the external file looks fine (or vice versa) | The pair is judged by aggregated state | Inspect the per-component fields in `--json` (`host_context.state`, `external_memory.state`) to identify the offending file before editing |
 
 Import reads local Codex Markdown memories (`~/.codex/memories/*.md` by
 default). Legacy `MEMORY.md` keeps the handbook allow-list

@@ -168,15 +168,13 @@ export 出力は常に `<!-- traceary-memories:begin:v1 -->` / `<!-- traceary-me
 
 workspace export は user-level の運用ルール (PR title や review policy など) も host file に載るよう、既定で `global` memory を含めます。Markdown は `Global memories` / `Workspace memories` など scope ごとに見出しを分けます。従来の workspace-only filter を維持したい場合は `--no-global` (MCP では `include_global=false`) を使い、既定挙動を明示したい場合は `--include-global` を指定します。
 
-host-native file を変更する前段として activation planning を dry-run で使い、その後明示的に apply できます。
+host-native file を変更する前段として activation planning を dry-run で使い、その後明示的に apply できます。`--target <codex|claude|gemini>` のコマンド集合は全 host で共通です。
 
-- `traceary memory activate --target codex --dry-run`
-- `traceary memory activate --target codex --apply`
-- `traceary memory activate --target codex --status`
+- `traceary memory activate --target <host> --status` — read-only な health view
+- `traceary memory activate --target <host> --dry-run [--diff]` — 書き込まずに content/diff を表示
+- `traceary memory activate --target <host> --apply` — activation target に安全に書き込み
 
-Codex の既定 target は Traceary 管理ファイル (`~/.codex/memories/traceary.md`) で、user-authored な memory shard を上書きしません。`--root` / `--path` で明示上書きでき、`--diff` で既存 target file との差分を表示できます。
-apply mode は必要に応じて target directory/file を作成し、Traceary 管理ブロックだけを置換し、その外側の user-authored content は保持します。出力には activated memory count を含み、新しい marker version の管理ブロックは古い binary で上書きしません。
-status mode は read-only で `missing` / `stale` / `in_sync` / `invalid` を表示し、Codex file の作成・更新が必要な場合は正確な dry-run/apply command を出力します。`traceary doctor --client codex` でも同じ activation status を確認できます。
+`--root` は activation root の上書き、`--path` は activation target file の上書きです。Claude / Gemini では `--path` が host context file を指し、external memory file はその directory から導出されます。apply は idempotent（accepted memory が変わらなければ再実行は no-op）で、Traceary 管理ブロック外の user-authored content を保持し、symlink / directory / 不正マーカー / 新バージョンマーカー等の安全でない target を拒否します。出力には activated memory count を含みます。status は `missing` / `stale` / `in_sync` / `invalid` を表示し、refresh が必要な場合は正確な dry-run/apply command を出力します。`traceary doctor --client <host>` は同じ activation status を `<host>-memory-activation` check として surface し、同じ remediation command を提示します。
 
 ### ホスト別 activation strategy
 
@@ -186,15 +184,51 @@ Traceary では 3 つの層を分けます。
 2. **Instruction-file export** — `traceary memory export --target <claude|codex|gemini>` が書く決定論的な markdown block。project/user instruction file を読むホスト向けの portable path です。
 3. **Host-native activation** — accepted store をホスト固有の native memory system から見えるようにする file/write path。Traceary 管理ブロック外の user-authored content は保持します。
 
-v0.12 で full host-native activation を実装しているのは **Codex** のみです。
+v0.13.0 で **Codex** / **Claude** / **Gemini** のすべてに host-native activation を提供します。CLI 表面は host を問わず同一で、解決される target path と管理 region のレイアウトだけが異なります。
 
-- `traceary memory activate --target codex --dry-run`
-- `traceary memory activate --target codex --status`
-- `traceary memory activate --target codex --apply`
+| Host | 既定 activation root | 管理ファイル | 戦略 |
+| --- | --- | --- | --- |
+| Codex | `~/.codex/memories`（legacy native memory root） | `~/.codex/memories/traceary.md`（single-file） | Traceary 管理ファイル。apply はその中の管理ブロックだけを置換し、ブロック外の content は保持 |
+| Claude | 直近の `.git` 祖先、無ければ cwd | `<root>/CLAUDE.md`（host context）+ `<root>/.traceary/memories/claude.md`（external memory） | 二ファイル pair。apply は external memory file を先に書き、`CLAUDE.md` には小さな managed import stub (`@./.traceary/memories/claude.md`) を missing / stale のときだけ書く |
+| Gemini | 直近の `.git` 祖先、無ければ cwd | `<root>/GEMINI.md`（host context）+ `<root>/.traceary/memories/gemini.md`（external memory） | Claude と同形の二ファイル pair。apply は Gemini の `## Gemini Added Memories` を byte-for-byte で保持し、managed import stub は append または更新のみ |
 
-**Claude** の v0.12 推奨 workflow は、Traceary MCP tools と instruction-file export (`traceary memory export --target claude --out CLAUDE.md`) です。Anthropic SDK loop を自前で持つ場合だけ experimental な Anthropic native memory-tool backend も選べます。`memory activate --target claude` は v0.12 では未実装で、将来の safe write path は follow-up #883 で扱います。
+managed marker layout、status state、root detection、tracked-file policy、却下した代替案を含む完全な契約は [host-native memory activation ADR](../architecture/host-native-memory-activation.ja.md) を参照してください。
 
-**Gemini** の v0.12 推奨 workflow は、Traceary MCP/extension と instruction-file export (`traceary memory export --target gemini --out GEMINI.md`) です。Gemini host-native activation write は意図的に defer しており、follow-up #884 で扱います。
+#### host-owned auto-memory section に書かない理由
+
+各 host にはすでに host 自身が read/write する memory 表面があります。
+
+- Claude Code は `~/.claude/projects/<project>/memory/` を host-owned auto memory として read/write します。
+- Gemini の `save_memory` tool は `~/.gemini/GEMINI.md` の `## Gemini Added Memories` 見出し配下に fact を append します。
+
+v0.13.0 では Traceary は意図的にこれらの region に書きません。
+
+- accepted memory store を source of truth として保つため。host 管理の事実と混ぜると、host 側がいつ rewrite してもおかしくない format に Traceary projection が密結合します。
+- Traceary 管理 region 外の user-authored content は `dry-run` / `apply` / `status` / `doctor` を通っても変わらないと約束する必要があるため。Gemini smoke test は seed した `## Gemini Added Memories` section が apply 後も byte-for-byte で保持されることを明示的に検査します。
+- auto-memory を書き換える代わりに、Traceary は小さな managed import stub と external memory file の pair を append します。host は native な markdown import で external memory を読むため、refresh の頻度が高い更新は基本的に external file 側に閉じ、host context file はマーカー自体が変わる時だけ touch します。
+
+managed import stub のマーカー (`<!-- traceary-memory-import:begin:v1 -->` … `<!-- traceary-memory-import:end -->`) と external file のマーカー (`<!-- traceary-memories:begin:v1 -->` … `<!-- traceary-memories:end -->`) により、`import instructions` などのツールは bullet を重複させず、user-authored 文も壊さず round-trip できます。
+
+#### 共通ワークフロー
+
+1. status を確認 — `traceary memory activate --target <host> --status`。Claude / Gemini は project root 内で実行して、`.git` を含む最も近い ancestor へ activation root を解決させる。
+2. 計画差分を確認 — `traceary memory activate --target <host> --dry-run --diff`。出力は component ごとにラベル（two-file target は `external memory plan` / `host context plan`）が付くので、どのファイルが変わるか確認できる。
+3. 反映 — `traceary memory activate --target <host> --apply`。何も変わっていなければ再実行は noop に収束する。
+4. 検証 — `traceary doctor --client <host>` の `<host>-memory-activation` check に同じ dry-run/apply remediation が含まれる。
+
+status が `invalid` を返したときに apply を盲目的に再実行しないでください。よくある原因は次の "invalid からの復旧" を参照してください。
+
+#### invalid からの復旧
+
+`invalid` は host file または external memory file を安全に解釈できないため Traceary が書き込みを拒否した状態です。よくある原因と推奨復旧手順:
+
+| 原因 | apply が拒否する理由 | 復旧手順 |
+| --- | --- | --- |
+| target が symlink または directory | safe writer が atomic rename で任意 path を辿らないよう、regular file 以外は拒否 | symlink / directory を regular file に置き換える（または削除）→ `--status` を再実行 |
+| 管理ブロックが手で編集されており、マーカーが重複・孤立・不正 | どのバイトが user-authored かを判定できない | 該当ファイルを開き、元のマーカーを復旧する（または管理 region を削除する）→ `--status` と `--apply` を再実行 |
+| 管理ブロックが新しい marker version で書かれている | 別マシンの新しい Traceary が知らない契約を書いている。上書きすると静かに downgrade になる | このマシンの Traceary を upgrade、または管理ブロックを削除して再 apply |
+| Traceary stub の外で、expected `.traceary/memories/<host>.md` を指す unmanaged import line が既にある | apply すると import が二重になる | unmanaged line を削除（将来の明示 adopt workflow を待つ）→ apply を再実行 |
+| host context file は invalid だが external file は正常（または逆） | pair の状態は集約 state で判定 | `--json` の component fields (`host_context.state` / `external_memory.state`) を見て該当ファイルを特定してから編集 |
 
 import は Codex の Markdown memory（既定値は `~/.codex/memories/*.md`）を読みます。legacy `MEMORY.md` は `## User preferences` / `## Reusable knowledge` / `## Failures and how to do differently` の allow-list を維持し、それ以外の Markdown shard は任意の見出し配下の bullet/list item を `source=imported` + `status=candidate` として記録します。evidence / artifact ref には元ファイルと行範囲を付与し、sanitizer は全ての imported fact に適用されます。auto-accept はされず、再実行時の dedupe は rejected / superseded / expired を含む全状態を見るので、一度 operator が reject した memory が別 run で resurrect することはありません。
 

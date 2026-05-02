@@ -352,19 +352,89 @@ Useful flags:
 
 ### `traceary memory activate`
 
-Activate accepted memories into a Traceary-managed Codex native memory file. `memory activate --target codex --dry-run` resolves the target (`~/.codex/memories/traceary.md`, or `--root <dir>/traceary.md` / `--path <file>` when overridden) and prints the content that would be written without mutating the filesystem. `memory activate --target codex --apply` writes the file, creating the directory/file when needed, replacing only the Traceary-managed block, and preserving user-authored content outside that block. `memory activate --target codex --status` is read-only and reports `missing`, `stale`, `in_sync`, or `invalid` plus remediation commands for missing/stale targets. Re-running with unchanged memories is a no-op, and Traceary refuses to overwrite a managed block from a newer marker version.
+Activate accepted memories into a host's native context surface using safe,
+explicit writes. The same flag set works for **Codex**, **Claude**, and
+**Gemini**; the resolved target paths and managed-region layout differ per
+host (see the [host-native memory activation ADR](../architecture/host-native-memory-activation.md)
+and the [durable memory guide](../memory/README.md#activation-strategy-by-host)).
+
+Modes are mutually exclusive — exactly one of `--status`, `--dry-run`, or
+`--apply` must be passed. `--diff` is only valid with `--dry-run`.
+
+| Mode | Effect |
+| --- | --- |
+| `--status` | Read-only. Reports `missing` / `stale` / `in_sync` / `invalid` plus a per-component breakdown for two-file targets. Emits `next_dry_run` and `next_apply` remediation commands when refresh is needed. |
+| `--dry-run [--diff]` | Read-only. Prints the planned content; with `--diff` prints a diff against the existing target file(s). For two-file targets the output is labeled `external memory plan` / `host context plan` (or the corresponding diffs). |
+| `--apply` | Mutating. Writes the target safely (lstat → reject symlinks/directories → atomic temp-file rename, parent directory creation only for the file being written). Idempotent; re-running converges to noop. Refuses newer marker versions. |
+
+Default targets:
+
+- `codex` — Traceary-managed file at `~/.codex/memories/traceary.md`. Single-file target; the whole file is owned by Traceary.
+- `claude` — host context `<root>/CLAUDE.md` plus external file `<root>/.traceary/memories/claude.md`. Activation root defaults to the nearest `.git` ancestor or cwd.
+- `gemini` — host context `<root>/GEMINI.md` plus external file `<root>/.traceary/memories/gemini.md`. Same root resolution as Claude. Gemini's `## Gemini Added Memories` section is preserved byte-for-byte; the managed import stub is appended after it.
 
 Useful flags:
 
-- `--target` — currently `codex`
+- `--target` — `codex`, `claude`, or `gemini` (required)
 - `--dry-run` — print the activation plan without writing or creating files
-- `--apply` — write the activation target file
-- `--status` — compare the current accepted memories with the target file without writing
-- `--root` — Codex memory root override
-- `--path` — explicit target file override
+- `--apply` — write the activation target file (and external memory file for two-file targets)
+- `--status` — read-only comparison with the current accepted memories
+- `--root` — activation root override (Codex: memory root; Claude/Gemini: project root containing the host context file)
+- `--path` — explicit activation target file override; for Claude/Gemini this points at the host context file, and the external memory file is derived as `<dir-of-path>/.traceary/memories/<target>.md`
 - `--workspace` / `--include-global` / `--no-global` — activation scope controls
 - `--diff` — include a diff when the target file exists (dry-run only)
-- `--json` — print the activation plan or apply result as JSON
+- `--json` — print the activation plan, status, or apply result as JSON. For two-file targets the JSON exposes `host_context` and `external_memory` components with per-file `path`, `state`, `action`, `existing`, and (for plans) `markdown` / `diff`.
+
+#### Examples
+
+Status (read-only, run inside a project for Claude/Gemini so the activation
+root resolves to the nearest ancestor that contains `.git`):
+
+```sh
+traceary memory activate --target codex --status
+traceary memory activate --target claude --status --json
+traceary memory activate --target gemini --status
+```
+
+Dry-run with diff against existing files:
+
+```sh
+traceary memory activate --target codex --dry-run --diff
+traceary memory activate --target claude --dry-run --diff
+traceary memory activate --target gemini --dry-run --diff
+```
+
+Apply (idempotent — safe to re-run):
+
+```sh
+traceary memory activate --target codex --apply
+traceary memory activate --target claude --apply
+traceary memory activate --target gemini --apply
+```
+
+Override the activation root or the host context file path explicitly:
+
+```sh
+# scope Claude activation to a specific project directory regardless of cwd
+traceary memory activate --target claude --root /path/to/project --status
+
+# point Gemini at an explicit host context file (external file is derived)
+traceary memory activate --target gemini --path /path/to/GEMINI.md --apply
+```
+
+#### Recovering from `invalid`
+
+If `--status` reports `invalid`, do not blindly re-run `--apply` — the apply
+path will refuse the same target. Inspect the per-component state with
+`--json`, fix the root cause, then re-run `--status`:
+
+| Cause | Recovery |
+| --- | --- |
+| Symlink or directory at the target | Replace with a regular file or remove it |
+| Duplicate / orphan / malformed managed markers | Restore the original markers, or remove the managed region entirely |
+| Newer marker version present | Upgrade the local Traceary binary, or remove the managed block and re-apply |
+| Unmanaged import line outside any Traceary stub already points at the expected `.traceary/memories/<host>.md` | Remove the unmanaged line, then re-run apply |
+| Host context file is `invalid` but external memory looks fine (or vice versa) | Use the JSON `host_context.state` / `external_memory.state` fields to identify the offending file before editing |
 
 ### `traceary memory import instructions`
 
@@ -677,7 +747,7 @@ Additional doctor checks:
 - `path` confirms `traceary` resolves on `PATH` and reports the directory. Missing is `FAIL`; multiple matches are `WARN`.
 - `<client>-mcp` checks Claude Code, Codex, and Gemini config/plugin registration for the `traceary mcp-server` MCP server.
 - `<client>-plugin-version` compares detected installed plugin manifests/caches with the running binary version and suggests reinstalling/updating the plugin when they drift.
-- `codex-memory-activation` checks whether accepted durable memories are missing, stale, in sync, or invalid in the Codex native memory target, and prints exact `memory activate --dry-run --diff` / `--apply` remediation commands when refresh is needed.
+- `codex-memory-activation` / `claude-memory-activation` / `gemini-memory-activation` check whether accepted durable memories are missing, stale, in sync, or invalid in the host's native activation target. `missing` and `stale` are reported as `WARN` with exact `memory activate --dry-run --diff` (preview) and `memory activate --apply` (refresh) remediation commands; `invalid` is reported as `FAIL` with a hint to inspect the host file before applying. Run with `--client <claude|codex|gemini>` to scope the report and with `--project-dir <dir>` to pin the Claude/Gemini activation root to a specific repository instead of the doctor process's working directory.
 
 Exit codes:
 

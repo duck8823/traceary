@@ -21,16 +21,16 @@ Claude integration は、Traceary の accepted memory store を MCP tools / inst
 traceary memory export --target claude --out CLAUDE.md
 ```
 
-**Option 2 — host-native activation（v0.13.0+ で利用可、project では推奨）。** `traceary memory activate --target claude` で `CLAUDE.md` 内の小さな import stub と `.traceary/memories/claude.md` の external memory file を二ファイル構成で管理します。activation pair は管理ブロック外の user-authored content を保持し、安全でない対象（symlink / directory / 不正マーカー / 新バージョンマーカー）を拒否し、冪等です。
+**Option 2 — host-native activation（v0.13.0+ で利用可、project では推奨）。** `traceary memory activate --target claude` で `CLAUDE.md` 内の小さな import stub と `.traceary/memories/claude.md` の external memory file を二ファイル構成で管理します。activation pair は管理ブロック外の user-authored content を保持し、安全でない対象（symlink / directory / 不正マーカー / 新バージョンマーカー）を拒否し、冪等です。Traceary は Claude が所有する `~/.claude/projects/<project>/memory/` 配下の auto memory に書き込みません。その store は Claude 自身の所有のままです。
 
 ```sh
-# 適用予定の差分を事前確認 (dry-run, 書き込みなし)
-traceary memory activate --target claude --dry-run --diff
-
 # host pair を read-only で点検
 traceary memory activate --target claude --status
 
-# pair を file 単位の safe write で反映
+# 適用予定の差分を事前確認 (dry-run, 書き込みなし)
+traceary memory activate --target claude --dry-run --diff
+
+# pair を file 単位の safe write で反映（idempotent）
 traceary memory activate --target claude --apply
 ```
 
@@ -41,7 +41,7 @@ traceary memory activate --target claude --apply
 - external memory file: `<root>/.traceary/memories/claude.md`
 - `CLAUDE.md` に書き込まれる import 行: `@./.traceary/memories/claude.md`
 
-`--root <dir>` / `--path <file>` で override 可能です。詳細な contract（managed marker layout、status の状態、tracked-file ポリシー）は v0.13 host-native memory activation [ADR](../architecture/host-native-memory-activation.ja.md) を参照してください。`traceary doctor --client claude` は `claude-memory-activation` チェックで同じ dry-run / apply 再実行コマンドを案内します。
+`--root <dir>` / `--path <file>` で override 可能です。詳細な contract（managed marker layout、status の状態、tracked-file ポリシー）は v0.13 host-native memory activation [ADR](../architecture/host-native-memory-activation.ja.md) を参照してください。`invalid` からの復旧手順は [durable memory ガイド](../memory/README.ja.md#invalid-からの復旧)にまとめています。`traceary doctor --client claude` は `claude-memory-activation` チェックで同じ dry-run / apply 再実行コマンドを案内します。
 
 Anthropic SDK loop を自前で持つ場合は experimental な [Anthropic native memory tool](./anthropic-memory-tool.ja.md) backend も使えますが、その store は curated な `memories` aggregate とは分離しています。
 
