@@ -1049,6 +1049,52 @@ func TestMemoryUsecase_Extract_ShortRememberIntentUsesAdjacentContextEvidence(t 
 	}
 }
 
+func TestMemoryUsecase_Extract_ShortRememberIntentSkipsNonFactualAdjacentAck(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-remember-skip-ack"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), "ended", 3, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	contextEvent := mustExtractionEventAt(t, "event-factual-context", domtypes.EventKindPrompt, "Always run go test before merging.", now)
+	ackEvent := mustExtractionEventAt(t, "event-ack-context", domtypes.EventKindTranscript, "Sure, got it.", now.Add(time.Second))
+	rememberEvent := mustExtractionEventAt(t, "event-remember-after-ack", domtypes.EventKindPrompt, "覚えておいてね", now.Add(2*time.Second))
+	details := mustMemoryDetailsFromSummary(t, "memory-remember-skip-ack", domtypes.MemoryTypePreference, "Always run go test before merging.")
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{proposeResult: []apptypes.MemoryDetails{details}}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{
+		listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
+			domtypes.EventKindPrompt:     {rememberEvent, contextEvent},
+			domtypes.EventKindTranscript: {ackEvent},
+		},
+	}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	_, err := sut.Extract(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-remember-skip-ack")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(3).CandidateLimit(10).Build())
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(memoryUsecase.proposeCalls) != 1 {
+		t.Fatalf("proposeCalls = %d, want 1 adjacent factual context candidate", len(memoryUsecase.proposeCalls))
+	}
+	call := memoryUsecase.proposeCalls[0]
+	if call.fact != "Always run go test before merging." {
+		t.Fatalf("fact = %q, want factual context rather than acknowledgement", call.fact)
+	}
+	gotEvidence := make(map[string]bool)
+	for _, ref := range call.evidenceRefs {
+		if ref.Kind() == domtypes.EvidenceRefKindEvent {
+			gotEvidence[ref.Value()] = true
+		}
+	}
+	if gotEvidence["event-ack-context"] {
+		t.Fatalf("evidence refs = %v, should not include non-factual acknowledgement", call.evidenceRefs)
+	}
+	for _, eventID := range []string{"event-remember-after-ack", "event-factual-context"} {
+		if !gotEvidence[eventID] {
+			t.Fatalf("evidence refs = %v, want event %s", call.evidenceRefs, eventID)
+		}
+	}
+}
+
 func TestMemoryUsecase_ExplainExtraction_ReportsShortRememberIntentContextCandidate(t *testing.T) {
 	t.Parallel()
 

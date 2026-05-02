@@ -811,7 +811,17 @@ func rememberIntentContextFact(text string) string {
 		if fact, ok := rememberIntentFactFromSegment(segment); ok {
 			return boundRememberIntentContext(fact)
 		}
-		return boundRememberIntentContext(segment)
+		fact := normalizeCandidateFact(segment)
+		if fact == "" {
+			continue
+		}
+		if _, ok := inferMemoryTypeFromText(fact); !ok {
+			continue
+		}
+		if len(classifyExtractionNoise(fact)) > 0 {
+			continue
+		}
+		return boundRememberIntentContext(fact)
 	}
 	return ""
 }
