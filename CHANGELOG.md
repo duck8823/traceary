@@ -5,6 +5,21 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.13.0] - 2026-05-03
+
+### Added
+- **Claude Code host-native activation (#892, #893)** — `traceary memory activate --target claude` now plans, diffs, reports status, and explicitly applies a two-file activation pair: a managed import stub in `CLAUDE.md` plus accepted memories in `.traceary/memories/claude.md`. `traceary doctor --client claude` surfaces the same status and dry-run/apply remediation, and the structural smoke test verifies first apply, idempotent re-apply, final `in_sync`, and doctor pass behavior.
+- **Gemini CLI host-native activation (#894, #895)** — `traceary memory activate --target gemini` provides the same read-only status/dry-run/diff and explicit apply workflow for `GEMINI.md` plus `.traceary/memories/gemini.md`. Apply preserves user-authored host context and Gemini-owned `## Gemini Added Memories` content, and `traceary doctor --client gemini` exposes actionable activation checks.
+- **Activation target contract and docs (#889, #896)** — the new host-native activation ADR defines Claude/Gemini paths, import-stub marker layout, status states, safety rules, `.gitignore` policy, rejected alternatives, and the release sub-issue sequence. Memory, CLI, and integration docs now describe one cross-host workflow for Codex, Claude, and Gemini.
+
+### Changed
+- **Shared activation infrastructure (#890, #891)** — marker parsing, managed-region replacement, host target resolution, and safe activation file I/O are now host-agnostic primitives. The two-file planner tracks independent actions, statuses, and diffs for the host context stub and external memory file, writes the external memory file first, rejects unsafe targets such as symlinks/directories/newer markers, and remains idempotent.
+- **Dogfooding evidence for activation workflows (#896)** — release-prep docs now record a Claude and Gemini temp-fixture dogfood pass covering `status -> dry-run --diff -> apply -> apply -> status -> doctor`. Codex activation behavior is unchanged from v0.12.0.
+
+### Notes
+- v0.13.0 is a minor release focused on completing host-native activation for Claude Code and Gemini CLI while preserving the v0.12 Codex activation contract.
+- Live Claude/Gemini runtime probes remain opt-in via `TRACEARY_ENABLE_CLAUDE_RUNTIME_SMOKE=1` and `TRACEARY_ENABLE_GEMINI_RUNTIME_SMOKE=1` because host authentication and first-time import approval are environment-dependent. The default smoke/dogfood path verifies Traceary's deterministic file planning, apply, idempotency, preservation, and doctor behavior.
+
 ## [v0.12.0] - 2026-05-02
 
 ### Added
