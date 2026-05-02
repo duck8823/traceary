@@ -67,6 +67,13 @@ func (a MemoryActivationApplyAction) String() string { return string(a) }
 
 // MemoryActivationApplyResult reports the effect of writing accepted memories
 // into a host-native activation target.
+//
+// For two-file targets (Claude / Gemini) the top-level Action is the
+// aggregated pair action per the v0.13 ADR (created when either file was
+// created, updated when at least one file changed and none was created,
+// otherwise noop). The per-file HostContext / ExternalMemory components
+// carry the underlying action and path so callers can render the apply
+// summary independently for each file.
 type MemoryActivationApplyResult struct {
 	Target         MemoryBridgeTarget
 	TargetPath     string
@@ -74,6 +81,8 @@ type MemoryActivationApplyResult struct {
 	Action         MemoryActivationApplyAction
 	Existing       bool
 	ActivatedCount int
+	HostContext    *MemoryActivationComponent
+	ExternalMemory *MemoryActivationComponent
 }
 
 // MemoryActivationStatusState describes whether the host-native file reflects

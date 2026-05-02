@@ -133,7 +133,7 @@ Claude については、v0.13.0-4 の read-only PR が以下 2 つの artefact 
 - `application/usecase/claude_import_readiness_internal_test.go` は、rendering 済み import line・marker layout・external file 解決を Claude 公式 memory documentation の `@<relative-path>` フォーマット（`CLAUDE.md` のあるディレクトリ基準）に固定します。CI 上で常時実行されるため、リファクタで import path を黙って動かせません。
 - `scripts/smoke_test_claude_activation.sh` は `traceary memory activate --target claude --dry-run --json` の生成 plan を使って一時プロジェクト (`.git`、`CLAUDE.md`、`.traceary/memories/claude.md`) を materialize します。既定では structural check 後に一時プロジェクトを削除します。manual runtime probe のために保持して、そのディレクトリで `claude` を起動する場合は `TRACEARY_KEEP_SMOKE_TEMP=1` を指定します。Claude Code の初回 external-import approval dialog と認証状態のため、無人ランタイム probe は非決定的です。ライブ launch は `TRACEARY_ENABLE_CLAUDE_RUNTIME_SMOKE=1` を指定したときだけ実行します。
 
-Claude `--apply` PR (#893) では、`TRACEARY_ENABLE_CLAUDE_RUNTIME_SMOKE=1` で記録した `smoke_test_claude_activation.sh` のログを PR に添付するか、別 gate を採用する場合はその根拠を ADR にも追記する必要があります。
+Claude `--apply` PR (#893) でも同じ 2 つの artefact をスコープに保持します。script の structural section は `--apply` を end-to-end で実行するように更新済みで、初回 apply で 2 ファイルが created になり、再 apply は noop へ収束し、apply 後の `--status` が `in_sync` になることを CI 側で検査します。ライブ launch を含む `TRACEARY_ENABLE_CLAUDE_RUNTIME_SMOKE=1` 実行記録は引き続き maintainer が保持するか、別 gate を採用するときはその根拠を ADR に追記します。
 
 ## apply semantics
 

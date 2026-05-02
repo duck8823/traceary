@@ -58,12 +58,8 @@ func (c *RootCLI) runMemoryActivate(ctx context.Context, output io.Writer, input
 		return xerrors.Errorf(Localize("--target must be codex or claude", "--target は codex または claude を指定してください"))
 	}
 	switch target {
-	case apptypes.MemoryBridgeTargetCodex:
+	case apptypes.MemoryBridgeTargetCodex, apptypes.MemoryBridgeTargetClaude:
 		// fully supported (status / dry-run / apply)
-	case apptypes.MemoryBridgeTargetClaude:
-		if input.apply {
-			return xerrors.Errorf(Localize("memory activate --target claude --apply is not supported yet (read-only status / dry-run only)", "memory activate --target claude --apply は未対応です (status / dry-run のみ可)"))
-		}
 	default:
 		return xerrors.Errorf(Localize("--target must be codex or claude", "--target は codex または claude を指定してください"))
 	}
@@ -247,12 +243,16 @@ func memoryActivationCommands(criteria apptypes.MemoryActivationCriteria) memory
 }
 
 // memoryActivationApplySupported reports whether `memory activate
-// --apply` is available for the given target. Claude apply lands in
-// #893; until then --status must not surface a remediation command that
-// the CLI would refuse, so this helper gates both the JSON
-// `apply_command` field and the text `next_apply` line.
+// --apply` is available for the given target. Codex shipped in v0.12 and
+// Claude shipped in v0.13.0-5 (#893); Gemini follows in #895. The helper
+// gates both the JSON `apply_command` field and the text `next_apply`
+// line so --status only surfaces remediation the CLI can actually run.
 func memoryActivationApplySupported(target apptypes.MemoryBridgeTarget) bool {
-	return target == apptypes.MemoryBridgeTargetCodex
+	switch target {
+	case apptypes.MemoryBridgeTargetCodex, apptypes.MemoryBridgeTargetClaude:
+		return true
+	}
+	return false
 }
 
 func renderShellCommand(args []string) string {
@@ -360,12 +360,28 @@ func writeMemoryActivationApplyResult(output io.Writer, result apptypes.MemoryAc
 			Action:         result.Action.String(),
 			Existing:       result.Existing,
 			ActivatedCount: result.ActivatedCount,
+			HostContext:    componentOutput(result.HostContext),
+			ExternalMemory: componentOutput(result.ExternalMemory),
 		}
 		encoder := json.NewEncoder(output)
 		encoder.SetEscapeHTML(false)
 		encoder.SetIndent("", "  ")
 		if err := encoder.Encode(payload); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to encode memory activation result", "memory activation result の JSON 出力に失敗しました"), err)
+		}
+		return nil
+	}
+	if result.HostContext != nil && result.ExternalMemory != nil {
+		if _, err := fmt.Fprintf(
+			output,
+			"target: %s\nactivated_count: %d\naction: %s\nexternal_memory: %s (action: %s)\nhost_context: %s (action: %s)\n",
+			result.Target.String(),
+			result.ActivatedCount,
+			result.Action.String(),
+			result.ExternalMemory.Path, result.ExternalMemory.Action.String(),
+			result.HostContext.Path, result.HostContext.Action.String(),
+		); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print memory activation result", "memory activation result の出力に失敗しました"), err)
 		}
 		return nil
 	}

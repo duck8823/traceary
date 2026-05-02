@@ -518,6 +518,123 @@ func TestRootCLI_DoctorCodexMemoryActivationStatus(t *testing.T) {
 	}
 }
 
+func TestRootCLI_DoctorClaudeMemoryActivationStatus(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("TRACEARY_WORKSPACE", "")
+	setTracearyPathToCurrentExecutable(t)
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	hostPath := filepath.Join(projectDir, "CLAUDE.md")
+	externalPath := filepath.Join(projectDir, ".traceary", "memories", "claude.md")
+	memoryStub := &memoryUsecaseStub{
+		activationStatus: apptypes.MemoryActivationStatusResult{
+			Target:         apptypes.MemoryBridgeTargetClaude,
+			TargetPath:     hostPath,
+			State:          apptypes.MemoryActivationStatusMissing,
+			Existing:       false,
+			ActivatedCount: 3,
+			Message:        "host context import stub and external memory file are missing",
+			HostContext: &apptypes.MemoryActivationComponent{
+				Path:  hostPath,
+				State: apptypes.MemoryActivationStatusMissing,
+			},
+			ExternalMemory: &apptypes.MemoryActivationComponent{
+				Path:  externalPath,
+				State: apptypes.MemoryActivationStatusMissing,
+			},
+		},
+	}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	).Command()
+	stdout := &bytes.Buffer{}
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"doctor", "--client", "claude", "--project-dir", projectDir, "--json"})
+
+	executeDoctorAllowWarnings(t, rootCmd)
+
+	report := decodeDoctorReport(t, stdout.Bytes())
+	check := statusByName(report, "claude-memory-activation")
+	if check.Status != "warn" {
+		t.Fatalf("claude-memory-activation status = %q, want warn (message: %q)", check.Status, check.Message)
+	}
+	if !strings.Contains(check.Message, hostPath) || !strings.Contains(check.Message, "--dry-run --diff") {
+		t.Fatalf("unexpected activation doctor message: %+v", check)
+	}
+	if !strings.Contains(check.FixCommand, "--target claude") || !strings.Contains(check.FixCommand, "--apply") {
+		t.Fatalf("FixCommand = %q, want claude apply remediation", check.FixCommand)
+	}
+	if len(memoryStub.activationStatusCalls) != 1 {
+		t.Fatalf("activation status calls = %d, want 1", len(memoryStub.activationStatusCalls))
+	}
+	call := memoryStub.activationStatusCalls[0]
+	if call.Target != apptypes.MemoryBridgeTargetClaude || !call.IncludeGlobal {
+		t.Fatalf("activation status criteria = %+v, want claude include global", call)
+	}
+	if call.Root != projectDir {
+		t.Fatalf("activation status Root = %q, want %q", call.Root, projectDir)
+	}
+}
+
+func TestRootCLI_DoctorClaudeMemoryActivationInvalid(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("TRACEARY_WORKSPACE", "")
+	setTracearyPathToCurrentExecutable(t)
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	hostPath := filepath.Join(projectDir, "CLAUDE.md")
+	externalPath := filepath.Join(projectDir, ".traceary", "memories", "claude.md")
+	memoryStub := &memoryUsecaseStub{
+		activationStatus: apptypes.MemoryActivationStatusResult{
+			Target:         apptypes.MemoryBridgeTargetClaude,
+			TargetPath:     hostPath,
+			State:          apptypes.MemoryActivationStatusInvalid,
+			Existing:       true,
+			ActivatedCount: 1,
+			Message:        "host context file invalid: refusing to overwrite newer Traceary managed block version v9",
+			HostContext: &apptypes.MemoryActivationComponent{
+				Path:    hostPath,
+				State:   apptypes.MemoryActivationStatusInvalid,
+				Message: "refusing to overwrite newer Traceary managed block version v9",
+			},
+			ExternalMemory: &apptypes.MemoryActivationComponent{
+				Path:  externalPath,
+				State: apptypes.MemoryActivationStatusMissing,
+			},
+		},
+	}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	).Command()
+	stdout := &bytes.Buffer{}
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"doctor", "--client", "claude", "--project-dir", projectDir, "--json"})
+
+	_ = rootCmd.Execute()
+
+	report := decodeDoctorReport(t, stdout.Bytes())
+	check := statusByName(report, "claude-memory-activation")
+	if check.Status != "fail" {
+		t.Fatalf("claude-memory-activation status = %q, want fail", check.Status)
+	}
+	if !strings.Contains(check.Message, "invalid") {
+		t.Fatalf("invalid claude activation message must mention invalid: %q", check.Message)
+	}
+	if check.FixCommand != "" {
+		t.Fatalf("FixCommand = %q, want empty for invalid state", check.FixCommand)
+	}
+}
+
 func executeDoctorJSON(t *testing.T, args []string) (doctorReport, error) {
 	t.Helper()
 	rootCmd := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()

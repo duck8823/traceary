@@ -73,13 +73,13 @@ func (u *memoryActivationUsecase) Apply(ctx context.Context, criteria apptypes.M
 		return apptypes.MemoryActivationApplyResult{}, err
 	}
 
-	if resolution.IsTwoFile() {
-		return apptypes.MemoryActivationApplyResult{}, xerrors.Errorf("memory activation --apply is not supported yet for target %s", criteria.Target)
-	}
-
 	exportResult, err := u.renderActivationBlock(ctx, criteria)
 	if err != nil {
 		return apptypes.MemoryActivationApplyResult{}, err
+	}
+
+	if resolution.IsTwoFile() {
+		return u.applyTwoFile(criteria, resolution, exportResult)
 	}
 
 	writer := u.writer()
@@ -105,6 +105,63 @@ func (u *memoryActivationUsecase) Apply(ctx context.Context, criteria apptypes.M
 		Existing:       exists,
 		ActivatedCount: exportResult.ExportedCount,
 	}, nil
+}
+
+func (u *memoryActivationUsecase) applyTwoFile(criteria apptypes.MemoryActivationCriteria, resolution activationTargetResolution, exportResult apptypes.MemoryExportResult) (apptypes.MemoryActivationApplyResult, error) {
+	planner := &importStubActivationPlanner{fileWriter: u.fileWriter}
+	plan := planner.Plan(importStubActivationCriteria{
+		Target:             criteria.Target,
+		HostContextPath:    resolution.HostContextPath,
+		ExternalMemoryPath: resolution.ExternalMemoryPath,
+		ImportPath:         resolution.ImportPath,
+		ExternalMarkdown:   exportResult.Markdown,
+		Scopes:             exportResult.Scopes,
+		ActivatedCount:     exportResult.ExportedCount,
+	})
+	applyResult, applyErr := planner.Apply(plan)
+	host := componentFromPlan(applyResult.HostContext)
+	external := componentFromPlan(applyResult.ExternalMemory)
+	if applyErr != nil {
+		if host.Path == "" {
+			host = componentFromPlan(plan.HostContext)
+		}
+		if external.Path == "" {
+			external = componentFromPlan(plan.ExternalMemory)
+		}
+		return apptypes.MemoryActivationApplyResult{
+			Target:         criteria.Target,
+			TargetPath:     resolution.HostContextPath,
+			Scopes:         exportResult.Scopes,
+			Existing:       plan.HostContext.Existing,
+			ActivatedCount: exportResult.ExportedCount,
+			HostContext:    &host,
+			ExternalMemory: &external,
+		}, xerrors.Errorf("failed to apply activation target: %w", applyErr)
+	}
+	return apptypes.MemoryActivationApplyResult{
+		Target:         criteria.Target,
+		TargetPath:     resolution.HostContextPath,
+		Scopes:         exportResult.Scopes,
+		Action:         aggregateTwoFileApplyAction(applyResult.HostContext.Action, applyResult.ExternalMemory.Action),
+		Existing:       plan.HostContext.Existing,
+		ActivatedCount: exportResult.ExportedCount,
+		HostContext:    &host,
+		ExternalMemory: &external,
+	}, nil
+}
+
+// aggregateTwoFileApplyAction collapses the per-file actions into the
+// pair action surfaced through MemoryActivationApplyResult.Action. The
+// priority is created > updated > noop so a single-file change still
+// reports as an updated pair, while no-change reapplies remain noops.
+func aggregateTwoFileApplyAction(host, external apptypes.MemoryActivationApplyAction) apptypes.MemoryActivationApplyAction {
+	if host == apptypes.MemoryActivationApplyCreated || external == apptypes.MemoryActivationApplyCreated {
+		return apptypes.MemoryActivationApplyCreated
+	}
+	if host == apptypes.MemoryActivationApplyUpdated || external == apptypes.MemoryActivationApplyUpdated {
+		return apptypes.MemoryActivationApplyUpdated
+	}
+	return apptypes.MemoryActivationApplyNoop
 }
 
 func (u *memoryActivationUsecase) Status(ctx context.Context, criteria apptypes.MemoryActivationCriteria) (apptypes.MemoryActivationStatusResult, error) {

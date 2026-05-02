@@ -445,6 +445,12 @@ func TestImportStubActivationPlanner_ApplyWritesBothFilesInExternalThenHostOrder
 	if result.ExternalMemory.Action != apptypes.MemoryActivationApplyCreated {
 		t.Fatalf("result ExternalMemory.Action = %q, want created", result.ExternalMemory.Action)
 	}
+	if result.HostContext.Status != apptypes.MemoryActivationStatusInSync {
+		t.Fatalf("result HostContext.Status = %q, want in_sync after apply", result.HostContext.Status)
+	}
+	if result.ExternalMemory.Status != apptypes.MemoryActivationStatusInSync {
+		t.Fatalf("result ExternalMemory.Status = %q, want in_sync after apply", result.ExternalMemory.Status)
+	}
 	if len(writer.writes) != 2 {
 		t.Fatalf("writes = %d, want 2", len(writer.writes))
 	}
@@ -609,6 +615,9 @@ func TestImportStubActivationPlanner_ApplySurfacesPermissionFailureOnHostWriteAf
 	}
 	if result.ExternalMemory.Action != apptypes.MemoryActivationApplyCreated {
 		t.Fatalf("result.ExternalMemory.Action = %q, want created because external write succeeded", result.ExternalMemory.Action)
+	}
+	if result.ExternalMemory.Status != apptypes.MemoryActivationStatusInSync {
+		t.Fatalf("result.ExternalMemory.Status = %q, want in_sync because external write succeeded", result.ExternalMemory.Status)
 	}
 	if result.HostContext.Action != "" {
 		t.Fatalf("result.HostContext.Action = %q, want empty because host write failed", result.HostContext.Action)
