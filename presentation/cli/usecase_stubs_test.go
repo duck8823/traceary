@@ -364,6 +364,8 @@ type memoryUsecaseStub struct {
 	exportErr          error
 	activationPlan     apptypes.MemoryActivationPlan
 	activationPlanErr  error
+	activationResult   apptypes.MemoryActivationApplyResult
+	activationErr      error
 
 	rememberCall struct {
 		memoryType   types.MemoryType
@@ -397,6 +399,7 @@ type memoryUsecaseStub struct {
 	bridgeImportCalls    []apptypes.MemoryBridgeImportCriteria
 	exportCalls          []apptypes.MemoryExportCriteria
 	activationPlanCalls  []apptypes.MemoryActivationCriteria
+	activationCalls      []apptypes.MemoryActivationCriteria
 }
 
 func (s *memoryUsecaseStub) Remember(_ context.Context, memoryType types.MemoryType, scope types.MemoryScope, fact string, confidence types.Optional[types.Confidence], source types.MemorySource, evidenceRefs []types.EvidenceRef, artifactRefs []types.ArtifactRef) (apptypes.MemoryDetails, error) {
@@ -498,6 +501,11 @@ func (s *memoryUsecaseStub) Export(_ context.Context, criteria apptypes.MemoryEx
 func (s *memoryUsecaseStub) ActivatePlan(_ context.Context, criteria apptypes.MemoryActivationCriteria) (apptypes.MemoryActivationPlan, error) {
 	s.activationPlanCalls = append(s.activationPlanCalls, criteria)
 	return s.activationPlan, s.activationPlanErr
+}
+
+func (s *memoryUsecaseStub) Activate(_ context.Context, criteria apptypes.MemoryActivationCriteria) (apptypes.MemoryActivationApplyResult, error) {
+	s.activationCalls = append(s.activationCalls, criteria)
+	return s.activationResult, s.activationErr
 }
 
 // storeManagementUsecaseStub implements usecase.StoreManagementUsecase for testing.

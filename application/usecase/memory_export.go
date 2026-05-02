@@ -29,7 +29,7 @@ const (
 	MemoryBridgeMarkerBegin    = "<!-- traceary-memories:begin:v1 -->"
 	MemoryBridgeMarkerEnd      = "<!-- traceary-memories:end -->"
 	MemoryBridgeCurrentVersion = 1
-	memoryBridgeWarning        = "<!-- DO NOT EDIT: this block is managed by `traceary memory export`. Hand edits will be overwritten on the next export. -->"
+	memoryBridgeWarning        = "<!-- DO NOT EDIT: this block is managed by Traceary. Hand edits will be overwritten by `traceary memory export` or `traceary memory activate`. -->"
 )
 
 // memoryBridgeBeginPattern matches every begin marker Traceary has ever

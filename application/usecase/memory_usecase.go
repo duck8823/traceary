@@ -125,6 +125,9 @@ type MemoryUsecase interface {
 
 	// ActivatePlan resolves a host-native activation target and renders the dry-run content.
 	ActivatePlan(ctx context.Context, criteria apptypes.MemoryActivationCriteria) (apptypes.MemoryActivationPlan, error)
+
+	// Activate writes accepted durable memories into a host-native activation target.
+	Activate(ctx context.Context, criteria apptypes.MemoryActivationCriteria) (apptypes.MemoryActivationApplyResult, error)
 }
 
 type memoryProposer interface {
