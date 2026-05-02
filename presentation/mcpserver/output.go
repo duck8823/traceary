@@ -41,18 +41,18 @@ type eventsOutput struct {
 
 // eventOutput is an individual event in an eventsOutput list.
 type eventOutput struct {
-	EventID        string                    `json:"event_id" jsonschema:"event ID"`
-	Kind           string                    `json:"kind" jsonschema:"event kind"`
-	Client         string                    `json:"client" jsonschema:"recording channel"`
-	Agent          string                    `json:"agent" jsonschema:"actor"`
-	SessionID      string                    `json:"session_id" jsonschema:"session identifier"`
-	Workspace      string                    `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
-	Body           string                    `json:"body" jsonschema:"event body as a plain-text projection; for transcript JSON envelopes this joins the text blocks and excludes thinking blocks — use body_blocks for the canonical structured form. May be truncated to body_limit characters; check body_truncated and body_length"`
-	BodyBlocks     []apptypes.EventBodyBlock `json:"body_blocks,omitempty" jsonschema:"structured block form of the body when it is a canonical transcript envelope; populated for list_events only — search and get_context omit it so thinking-block text does not leak through those surfaces; also absent for legacy plain-text bodies, non-envelope JSON bodies, empty envelopes, and rows whose body is truncated"`
-	BodyTruncated  bool                      `json:"body_truncated,omitempty" jsonschema:"true when body was truncated to fit body_limit. Re-issue the same call with full_body=true (or a larger body_limit) to retrieve the full content"`
-	BodyLength     int                       `json:"body_length,omitempty" jsonschema:"original body length in runes before any truncation; only emitted when body_truncated is true"`
-	SourceHook     string                    `json:"source_hook,omitempty" jsonschema:"hook identifier that produced this event (omitted for non-hook writes)"`
-	CreatedAt      string                    `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
+	EventID       string                    `json:"event_id" jsonschema:"event ID"`
+	Kind          string                    `json:"kind" jsonschema:"event kind"`
+	Client        string                    `json:"client" jsonschema:"recording channel"`
+	Agent         string                    `json:"agent" jsonschema:"actor"`
+	SessionID     string                    `json:"session_id" jsonschema:"session identifier"`
+	Workspace     string                    `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
+	Body          string                    `json:"body" jsonschema:"event body as a plain-text projection; for transcript JSON envelopes this joins the text blocks and excludes thinking blocks — use body_blocks for the canonical structured form. May be truncated to body_limit characters; check body_truncated and body_length"`
+	BodyBlocks    []apptypes.EventBodyBlock `json:"body_blocks,omitempty" jsonschema:"structured block form of the body when it is a canonical transcript envelope; populated for list_events only — search and get_context omit it so thinking-block text does not leak through those surfaces; also absent for legacy plain-text bodies, non-envelope JSON bodies, empty envelopes, and rows whose body is truncated"`
+	BodyTruncated bool                      `json:"body_truncated,omitempty" jsonschema:"true when body was truncated to fit body_limit. Re-issue the same call with full_body=true (or a larger body_limit) to retrieve the full content"`
+	BodyLength    int                       `json:"body_length,omitempty" jsonschema:"original body length in runes before any truncation; only emitted when body_truncated is true"`
+	SourceHook    string                    `json:"source_hook,omitempty" jsonschema:"hook identifier that produced this event (omitted for non-hook writes)"`
+	CreatedAt     string                    `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
 }
 
 // sessionHandoffOutput is the MCP output for the session_handoff tool.
@@ -201,28 +201,33 @@ type importMemoryInstructionsOutput struct {
 }
 
 // memoryHygieneOutput mirrors the CLI `memory hygiene scan` shape so
-// agent hosts receive the same five-suggestion view an operator sees
-// on stdout.
+// agent hosts receive the same six-suggestion view an operator sees on
+// stdout. low_quality_candidate_count is the v0.12 candidate-noise
+// counter (#864) and is documented in tests as part of the JSON shape.
 type memoryHygieneOutput struct {
 	RedactionHitCount             int                             `json:"redaction_hit_count" jsonschema:"number of accepted memories flagged by the current redaction rules"`
 	ExpiryCandidateCount          int                             `json:"expiry_candidate_count" jsonschema:"number of accepted memories older than the staleness threshold"`
 	DuplicateCount                int                             `json:"duplicate_count" jsonschema:"number of accepted memories that share scope + fact with another row"`
 	SupersedeCandidateCount       int                             `json:"supersede_candidate_count" jsonschema:"number of accepted memories paired by word-Jaccard similarity"`
 	ValidityOverlapSupersedeCount int                             `json:"validity_overlap_supersede_count" jsonschema:"number of accepted memories paired by (scope, type) with overlapping validity windows"`
+	LowQualityCandidateCount      int                             `json:"low_quality_candidate_count" jsonschema:"number of candidate memories flagged by the deterministic low-quality classifier"`
 	Suggestions                   []memoryHygieneSuggestionOutput `json:"suggestions" jsonschema:"per-memory hygiene suggestions"`
 }
 
 type memoryHygieneSuggestionOutput struct {
-	MemoryID            string  `json:"memory_id" jsonschema:"memory identifier"`
-	Kind                string  `json:"kind" jsonschema:"suggestion kind (redaction_hit / expiry_candidate / duplicate / supersede_candidate / validity_overlap_supersede)"`
-	Reason              string  `json:"reason" jsonschema:"human-readable reason the scanner flagged this memory"`
-	Fact                string  `json:"fact" jsonschema:"stored fact at scan time"`
-	SanitizedFact       string  `json:"sanitized_fact,omitempty" jsonschema:"masked fact the apply path would write via supersede"`
-	DuplicateMemoryID   string  `json:"duplicate_memory_id,omitempty" jsonschema:"paired duplicate when kind=duplicate"`
-	ReplacementMemoryID string  `json:"replacement_memory_id,omitempty" jsonschema:"newer memory whose fact is suggested as the supersede replacement"`
-	ReplacementFact     string  `json:"replacement_fact,omitempty" jsonschema:"fact the apply path would write via supersede"`
-	Similarity          float64 `json:"similarity,omitempty" jsonschema:"word-Jaccard similarity score (supersede_candidate / validity_overlap_supersede only)"`
-	ScopeKind           string  `json:"scope_kind,omitempty" jsonschema:"scope kind"`
-	ScopeValue          string  `json:"scope_value,omitempty" jsonschema:"scope value"`
-	UpdatedAt           string  `json:"updated_at" jsonschema:"last update timestamp (RFC3339)"`
+	MemoryID            string   `json:"memory_id" jsonschema:"memory identifier"`
+	Kind                string   `json:"kind" jsonschema:"suggestion kind (redaction_hit / expiry_candidate / duplicate / supersede_candidate / validity_overlap_supersede / low_quality_candidate)"`
+	Reason              string   `json:"reason" jsonschema:"human-readable reason the scanner flagged this memory"`
+	Fact                string   `json:"fact" jsonschema:"stored fact at scan time"`
+	SanitizedFact       string   `json:"sanitized_fact,omitempty" jsonschema:"masked fact the apply path would write via supersede"`
+	DuplicateMemoryID   string   `json:"duplicate_memory_id,omitempty" jsonschema:"paired duplicate when kind=duplicate"`
+	ReplacementMemoryID string   `json:"replacement_memory_id,omitempty" jsonschema:"newer memory whose fact is suggested as the supersede replacement"`
+	ReplacementFact     string   `json:"replacement_fact,omitempty" jsonschema:"fact the apply path would write via supersede"`
+	Similarity          float64  `json:"similarity,omitempty" jsonschema:"word-Jaccard similarity score (supersede_candidate / validity_overlap_supersede only)"`
+	ScopeKind           string   `json:"scope_kind,omitempty" jsonschema:"scope kind"`
+	ScopeValue          string   `json:"scope_value,omitempty" jsonschema:"scope value"`
+	UpdatedAt           string   `json:"updated_at" jsonschema:"last update timestamp (RFC3339)"`
+	Status              string   `json:"status,omitempty" jsonschema:"memory lifecycle status (only populated for candidate-side suggestions)"`
+	Source              string   `json:"source,omitempty" jsonschema:"memory source (only populated for candidate-side suggestions)"`
+	QualityReasons      []string `json:"quality_reasons,omitempty" jsonschema:"deterministic noise markers from the extraction-quality classifier (low_quality_candidate only)"`
 }

@@ -283,11 +283,13 @@ type rejectMemoriesBatchInput struct {
 
 // scanMemoryHygieneInput is the MCP input for the scan_memory_hygiene
 // tool. The tool is read-only; agents use it to inspect redaction /
-// expiry / duplicate suggestions before deciding whether to drive
-// supersede / expire / reject via the single-memory tools.
+// expiry / duplicate / supersede / low-quality candidate suggestions
+// before deciding whether to drive supersede / expire / reject via the
+// single-memory tools or the candidate apply path.
 type scanMemoryHygieneInput struct {
-	Workspace  string `json:"workspace,omitempty" jsonschema:"workspace scope to scan (omitted scans every scope)"`
-	ExpiryDays int    `json:"expiry_days,omitempty" jsonschema:"staleness threshold in days (default 90)"`
+	Workspace     string `json:"workspace,omitempty" jsonschema:"workspace scope to scan (omitted scans every scope)"`
+	ExpiryDays    int    `json:"expiry_days,omitempty" jsonschema:"staleness threshold in days (default 90)"`
+	IncludeHidden bool   `json:"include_hidden,omitempty" jsonschema:"include extracted-hidden candidates in the low-quality candidate pass (default omits them)"`
 }
 
 // exportMemoriesInput is the MCP input for the export_memories tool that

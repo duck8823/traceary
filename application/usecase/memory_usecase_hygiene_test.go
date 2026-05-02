@@ -7,6 +7,7 @@ import (
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/model"
 	domtypes "github.com/duck8823/traceary/domain/types"
 )
 
@@ -467,7 +468,373 @@ func TestMemoryHygieneScan_EmptyStoreReturnsEmptyResult(t *testing.T) {
 	if len(result.Suggestions) != 0 {
 		t.Fatalf("expected empty suggestions, got %d", len(result.Suggestions))
 	}
-	if result.RedactionHitCount+result.ExpiryCandidateCount+result.DuplicateCount != 0 {
-		t.Fatalf("expected zero counts across all suggestion kinds, got r=%d e=%d d=%d", result.RedactionHitCount, result.ExpiryCandidateCount, result.DuplicateCount)
+	if result.RedactionHitCount+result.ExpiryCandidateCount+result.DuplicateCount+result.LowQualityCandidateCount != 0 {
+		t.Fatalf("expected zero counts across all suggestion kinds, got r=%d e=%d d=%d l=%d", result.RedactionHitCount, result.ExpiryCandidateCount, result.DuplicateCount, result.LowQualityCandidateCount)
+	}
+}
+
+// candidateSummary builds a status=candidate MemorySummary with the
+// supplied source so the candidate hygiene tests can flip between
+// extracted (visible by default) and extracted-hidden (only inspected
+// when the caller opts in).
+func candidateSummary(t *testing.T, id string, scope domtypes.MemoryScope, fact string, source domtypes.MemorySource, updatedAt time.Time) apptypes.MemorySummary {
+	t.Helper()
+	summary, err := apptypes.MemorySummaryOf(
+		domtypes.MemoryID(id),
+		domtypes.MemoryTypePreference,
+		scope,
+		fact,
+		domtypes.MemoryStatusCandidate,
+		domtypes.ConfidenceMedium,
+		source,
+		domtypes.None[domtypes.MemoryID](),
+		domtypes.None[time.Time](),
+		updatedAt,
+		domtypes.None[time.Time](),
+		updatedAt,
+		updatedAt,
+	)
+	if err != nil {
+		t.Fatalf("MemorySummaryOf: %v", err)
+	}
+	return summary
+}
+
+func TestMemoryHygieneScan_LowQualityCandidatesSurfaceWithReasons(t *testing.T) {
+	t.Parallel()
+
+	scope := workspaceScope(t, "github.com/example/repo")
+	now := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+
+	// Each candidate represents one of the noisy patterns the issue
+	// calls out: diff fragment, standalone command, and review-only
+	// conclusion. The classifier already covers more reasons but the
+	// regression bar is "at least diff fragments, standalone commands,
+	// and review-conclusion noise" per #864.
+	query := &stubMemoryQueryService{
+		summaries: []apptypes.MemorySummary{
+			candidateSummary(t, "mem-diff", scope, "+def _required_env(name):", domtypes.MemorySourceExtracted, now),
+			candidateSummary(t, "mem-cmd", scope, "git pull --ff-only origin main", domtypes.MemorySourceExtracted, now),
+			candidateSummary(t, "mem-review", scope, "MUST findings: none", domtypes.MemorySourceExtracted, now),
+			// High-signal candidate must remain untouched even though
+			// it is also status=candidate.
+			candidateSummary(t, "mem-keep", scope, "Always run go test before merging", domtypes.MemorySourceExtracted, now),
+			// Hidden source must NOT be inspected unless the caller
+			// opts in (see TestMemoryHygieneScan_HiddenCandidatesRequireOptIn).
+			candidateSummary(t, "mem-hidden", scope, "+old_helper()", domtypes.MemorySourceExtractedHidden, now),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, nil)
+
+	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{Now: now})
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if result.LowQualityCandidateCount != 3 {
+		t.Fatalf("LowQualityCandidateCount = %d, want 3 (diff/cmd/review)", result.LowQualityCandidateCount)
+	}
+	flagged := map[string]apptypes.MemoryHygieneSuggestion{}
+	for _, suggestion := range result.Suggestions {
+		if suggestion.Kind == apptypes.MemoryHygieneSuggestionLowQualityCandidate {
+			flagged[suggestion.MemoryID.String()] = suggestion
+		}
+	}
+	for _, want := range []string{"mem-diff", "mem-cmd", "mem-review"} {
+		suggestion, ok := flagged[want]
+		if !ok {
+			t.Fatalf("expected %s to be flagged as low_quality_candidate, got %v", want, flagged)
+		}
+		if suggestion.Status != domtypes.MemoryStatusCandidate {
+			t.Fatalf("%s: status = %q, want candidate", want, suggestion.Status)
+		}
+		if suggestion.Source != domtypes.MemorySourceExtracted {
+			t.Fatalf("%s: source = %q, want extracted", want, suggestion.Source)
+		}
+		if len(suggestion.QualityReasons) == 0 {
+			t.Fatalf("%s: QualityReasons must not be empty", want)
+		}
+		if suggestion.Reason == "" {
+			t.Fatalf("%s: Reason must not be empty", want)
+		}
+	}
+	if _, leaked := flagged["mem-keep"]; leaked {
+		t.Fatalf("durable preference must not be flagged as low-quality")
+	}
+	if _, leaked := flagged["mem-hidden"]; leaked {
+		t.Fatalf("extracted-hidden candidate must require --include-hidden to surface, got %+v", flagged["mem-hidden"])
+	}
+
+	expectedReasons := map[string]string{
+		"mem-diff":   "diff_fragment",
+		"mem-cmd":    "standalone_command",
+		"mem-review": "review_conclusion",
+	}
+	for id, marker := range expectedReasons {
+		suggestion := flagged[id]
+		matched := false
+		for _, reason := range suggestion.QualityReasons {
+			if reason == marker {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			t.Fatalf("%s: expected QualityReasons to include %q, got %v", id, marker, suggestion.QualityReasons)
+		}
+	}
+}
+
+func TestMemoryHygieneScan_HiddenCandidatesRequireOptIn(t *testing.T) {
+	t.Parallel()
+
+	scope := workspaceScope(t, "github.com/example/repo")
+	now := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+
+	query := &stubMemoryQueryService{
+		summaries: []apptypes.MemorySummary{
+			candidateSummary(t, "mem-hidden", scope, "+old_helper()", domtypes.MemorySourceExtractedHidden, now),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, nil)
+
+	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{
+		Now:                     now,
+		IncludeHiddenCandidates: true,
+	})
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if result.LowQualityCandidateCount != 1 {
+		t.Fatalf("LowQualityCandidateCount = %d, want 1 once hidden candidates are inspected", result.LowQualityCandidateCount)
+	}
+	var flagged *apptypes.MemoryHygieneSuggestion
+	for i := range result.Suggestions {
+		if result.Suggestions[i].Kind == apptypes.MemoryHygieneSuggestionLowQualityCandidate {
+			flagged = &result.Suggestions[i]
+			break
+		}
+	}
+	if flagged == nil {
+		t.Fatalf("expected the hidden candidate to be flagged with IncludeHiddenCandidates=true")
+	}
+	if flagged.MemoryID.String() != "mem-hidden" {
+		t.Fatalf("MemoryID = %q, want mem-hidden", flagged.MemoryID)
+	}
+	if flagged.Source != domtypes.MemorySourceExtractedHidden {
+		t.Fatalf("Source = %q, want extracted-hidden", flagged.Source)
+	}
+}
+
+// candidateApplyMemoryRepository is a minimal model.MemoryRepository
+// stub for the candidate apply tests. It serves the candidate memory
+// ids the test seeds, records the ids that flowed through Save() so we
+// can assert the lifecycle transition the apply path drove, and refuses
+// to surface accepted ids — so any test that would otherwise mutate an
+// accepted memory through the candidate path fails fast.
+type candidateApplyMemoryRepository struct {
+	candidates map[string]*model.Memory
+	saved      []*model.Memory
+	saveErr    error
+	findErr    error
+}
+
+func newCandidateApplyMemoryRepository(t *testing.T, scope domtypes.MemoryScope, candidates map[string]string) *candidateApplyMemoryRepository {
+	t.Helper()
+	repo := &candidateApplyMemoryRepository{candidates: make(map[string]*model.Memory, len(candidates))}
+	for id, fact := range candidates {
+		evidence, err := domtypes.EvidenceRefFrom(domtypes.EvidenceRefKindFile, "/tmp/MEMORY.md#L1-L1")
+		if err != nil {
+			t.Fatalf("EvidenceRefFrom: %v", err)
+		}
+		memory, err := model.NewMemoryCandidate(
+			domtypes.MemoryID(id),
+			domtypes.MemoryTypePreference,
+			scope,
+			fact,
+			domtypes.MemorySourceExtracted,
+			[]domtypes.EvidenceRef{evidence},
+			nil,
+			domtypes.None[domtypes.MemoryID](),
+		)
+		if err != nil {
+			t.Fatalf("NewMemoryCandidate: %v", err)
+		}
+		repo.candidates[id] = memory
+	}
+	return repo
+}
+
+func (r *candidateApplyMemoryRepository) Save(_ context.Context, memory *model.Memory) error {
+	if r.saveErr != nil {
+		return r.saveErr
+	}
+	r.saved = append(r.saved, memory)
+	return nil
+}
+
+func (r *candidateApplyMemoryRepository) SaveSupersession(context.Context, *model.Memory, *model.Memory) error {
+	return nil
+}
+
+func (r *candidateApplyMemoryRepository) FindByID(_ context.Context, memoryID domtypes.MemoryID) (domtypes.Optional[*model.Memory], error) {
+	if r.findErr != nil {
+		return domtypes.None[*model.Memory](), r.findErr
+	}
+	if memory, ok := r.candidates[memoryID.String()]; ok {
+		return domtypes.Some(memory), nil
+	}
+	return domtypes.None[*model.Memory](), nil
+}
+
+func (r *candidateApplyMemoryRepository) rejectedIDs() []string {
+	ids := make([]string, 0, len(r.saved))
+	for _, memory := range r.saved {
+		if memory.Status() == domtypes.MemoryStatusRejected {
+			ids = append(ids, memory.MemoryID().String())
+		}
+	}
+	return ids
+}
+
+func TestMemoryHygieneApply_RejectsLowQualityCandidate(t *testing.T) {
+	t.Parallel()
+
+	scope := workspaceScope(t, "github.com/example/repo")
+	now := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+
+	noisyCandidate := candidateSummary(t, "mem-noise", scope, "+def _required_env(name):", domtypes.MemorySourceExtracted, now)
+	durableAccepted := acceptedSummaryAt(t, "mem-keep", scope, "Always run go test before merging", now)
+	query := &stubMemoryQueryService{
+		summaries: []apptypes.MemorySummary{noisyCandidate, durableAccepted},
+	}
+	repo := newCandidateApplyMemoryRepository(t, scope, map[string]string{
+		"mem-noise": "+def _required_env(name):",
+	})
+	sut := usecase.NewMemoryUsecase(repo, query, nil)
+
+	result, err := sut.Apply(context.Background(), apptypes.MemoryHygieneApplyCriteria{
+		MemoryIDs: []string{"mem-noise"},
+		Now:       now,
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(result.Failures) != 0 {
+		t.Fatalf("Apply failures = %+v, want none", result.Failures)
+	}
+	if len(result.Applied) != 1 {
+		t.Fatalf("Applied entries = %d, want 1", len(result.Applied))
+	}
+	if result.Applied[0].Transition != "reject" {
+		t.Fatalf("Transition = %q, want reject", result.Applied[0].Transition)
+	}
+	if result.Applied[0].Kind != apptypes.MemoryHygieneSuggestionLowQualityCandidate {
+		t.Fatalf("Kind = %q, want low_quality_candidate", result.Applied[0].Kind)
+	}
+	rejected := repo.rejectedIDs()
+	if len(rejected) != 1 || rejected[0] != "mem-noise" {
+		t.Fatalf("rejected ids = %v, want [mem-noise]", rejected)
+	}
+}
+
+func TestMemoryHygieneApply_AcceptedMemoriesUntouchedByCandidatePath(t *testing.T) {
+	t.Parallel()
+
+	scope := workspaceScope(t, "github.com/example/repo")
+	now := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+
+	// An accepted memory whose fact happens to look like noise must not
+	// trip the candidate cleanup path. The candidate scan filters by
+	// status=candidate, so even when an operator passes the accepted
+	// id to apply the re-scan does not produce a suggestion for it.
+	noisyAccepted := acceptedSummaryAt(t, "mem-accepted-noise", scope, "+def _required_env(name):", now)
+	query := &stubMemoryQueryService{
+		summaries: []apptypes.MemorySummary{noisyAccepted},
+	}
+	repo := newCandidateApplyMemoryRepository(t, scope, map[string]string{})
+	sut := usecase.NewMemoryUsecase(repo, query, nil)
+
+	result, err := sut.Apply(context.Background(), apptypes.MemoryHygieneApplyCriteria{
+		MemoryIDs: []string{"mem-accepted-noise"},
+		Now:       now,
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(result.Applied) != 0 {
+		t.Fatalf("Applied = %+v, want none (accepted row must not be touched by candidate cleanup)", result.Applied)
+	}
+	if len(result.Failures) != 1 {
+		t.Fatalf("Failures = %+v, want one (id without a current suggestion)", result.Failures)
+	}
+	if rejected := repo.rejectedIDs(); len(rejected) != 0 {
+		t.Fatalf("rejected ids = %v, want none — accepted memories must never go through the candidate apply path", rejected)
+	}
+}
+
+func TestMemoryHygieneApply_HiddenCandidateRequiresOptIn(t *testing.T) {
+	t.Parallel()
+
+	scope := workspaceScope(t, "github.com/example/repo")
+	now := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+
+	hiddenNoisy := candidateSummary(t, "mem-hidden", scope, "+def helper():", domtypes.MemorySourceExtractedHidden, now)
+	query := &stubMemoryQueryService{
+		summaries: []apptypes.MemorySummary{hiddenNoisy},
+	}
+	repo := newCandidateApplyMemoryRepository(t, scope, map[string]string{
+		"mem-hidden": "+def helper():",
+	})
+	// Override the seeded source so the repo serves a hidden candidate
+	// the apply path should reject only when IncludeHiddenCandidates is
+	// set. NewMemoryCandidate hard-codes MemorySourceExtracted so we
+	// rebuild the candidate using the hidden source explicitly.
+	evidence, err := domtypes.EvidenceRefFrom(domtypes.EvidenceRefKindFile, "/tmp/MEMORY.md#L1-L1")
+	if err != nil {
+		t.Fatalf("EvidenceRefFrom: %v", err)
+	}
+	hiddenMemory, err := model.NewMemoryCandidate(
+		domtypes.MemoryID("mem-hidden"),
+		domtypes.MemoryTypePreference,
+		scope,
+		"+def helper():",
+		domtypes.MemorySourceExtractedHidden,
+		[]domtypes.EvidenceRef{evidence},
+		nil,
+		domtypes.None[domtypes.MemoryID](),
+	)
+	if err != nil {
+		t.Fatalf("NewMemoryCandidate hidden: %v", err)
+	}
+	repo.candidates["mem-hidden"] = hiddenMemory
+	sut := usecase.NewMemoryUsecase(repo, query, nil)
+
+	withoutOptIn, err := sut.Apply(context.Background(), apptypes.MemoryHygieneApplyCriteria{
+		MemoryIDs: []string{"mem-hidden"},
+		Now:       now,
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(withoutOptIn.Applied) != 0 {
+		t.Fatalf("Applied without IncludeHiddenCandidates = %+v, want none", withoutOptIn.Applied)
+	}
+	if len(withoutOptIn.Failures) != 1 {
+		t.Fatalf("Failures without IncludeHiddenCandidates = %+v, want one", withoutOptIn.Failures)
+	}
+
+	withOptIn, err := sut.Apply(context.Background(), apptypes.MemoryHygieneApplyCriteria{
+		MemoryIDs:               []string{"mem-hidden"},
+		Now:                     now,
+		IncludeHiddenCandidates: true,
+	})
+	if err != nil {
+		t.Fatalf("Apply with IncludeHiddenCandidates: %v", err)
+	}
+	if len(withOptIn.Applied) != 1 {
+		t.Fatalf("Applied with IncludeHiddenCandidates = %+v, want one", withOptIn.Applied)
+	}
+	if withOptIn.Applied[0].Transition != "reject" {
+		t.Fatalf("Transition = %q, want reject", withOptIn.Applied[0].Transition)
 	}
 }

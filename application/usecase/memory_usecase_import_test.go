@@ -30,7 +30,40 @@ type stubMemoryQueryService struct {
 
 func (s *stubMemoryQueryService) List(_ context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
 	s.calls = append(s.calls, criteria)
-	return s.summaries, nil
+	statuses := criteria.Statuses()
+	sources := criteria.Sources()
+	if len(statuses) == 0 && len(sources) == 0 {
+		return s.summaries, nil
+	}
+	filtered := make([]apptypes.MemorySummary, 0, len(s.summaries))
+	for _, summary := range s.summaries {
+		if len(statuses) > 0 && !statusContains(statuses, summary.Status()) {
+			continue
+		}
+		if len(sources) > 0 && !sourceContains(sources, summary.Source()) {
+			continue
+		}
+		filtered = append(filtered, summary)
+	}
+	return filtered, nil
+}
+
+func statusContains(statuses []domtypes.MemoryStatus, target domtypes.MemoryStatus) bool {
+	for _, status := range statuses {
+		if status == target {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceContains(sources []domtypes.MemorySource, target domtypes.MemorySource) bool {
+	for _, source := range sources {
+		if source == target {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *stubMemoryQueryService) Search(_ context.Context, _ apptypes.MemorySearchCriteria) ([]apptypes.MemorySummary, error) {
