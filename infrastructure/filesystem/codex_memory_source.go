@@ -93,7 +93,7 @@ func (s *codexMemorySource) Load(
 	for _, memoryPath := range memoryPaths {
 		select {
 		case <-ctx.Done():
-			return nil, warnings, ctx.Err()
+			return nil, warnings, xerrors.Errorf("codex memory import cancelled: %w", ctx.Err())
 		default:
 		}
 
@@ -133,7 +133,7 @@ func discoverCodexMemoryMarkdownFiles(root string) ([]string, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, xerrors.Errorf("failed to discover codex memory markdown files under %s: %w", root, err)
 	}
 	return paths, nil
 }
