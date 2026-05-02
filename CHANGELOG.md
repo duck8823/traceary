@@ -5,6 +5,23 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.12.0] - 2026-05-02
+
+### Added
+- **Durable-memory candidate quality controls (#857, #864)** — extraction now hides low-signal noise such as diff fragments, generated-code markers, standalone shell commands (including `rtk ...` wrappers), review-only conclusions, transient work declarations, and PR-round chatter while preserving durable Japanese / multilingual preferences and constraints.
+- **Explicit remember and lifecycle extraction paths (#856, #862, #865)** — explicit "remember this" prompts, short remember-intent follow-ups with adjacent context, post-compact summaries, and clear/reset summaries now propose reviewable durable-memory candidates with evidence refs instead of relying on manual notes only.
+- **Candidate distillation (#858)** — `traceary memory distill` turns one or more candidate memories into an accepted operator-curated fact while preserving source refs and supporting keep / reject / supersede source handling.
+- **Codex memory bridge expansion (#859, #860)** — Codex import reads deterministic multi-file Markdown memory layouts under `~/.codex/memories/*.md`, while exports can include `global` memories alongside workspace memories so host-level operating rules travel with repository-specific facts.
+- **Codex native activation (#866, #861, #867)** — `traceary memory activate --target codex` now supports dry-run/diff planning, read-only status (`missing`, `stale`, `in_sync`, `invalid`), and explicit `--apply` writes to the Traceary-managed Codex memory target (`~/.codex/memories/traceary.md` by default). Apply preserves user-authored content outside the managed block, is idempotent, refuses newer marker versions, and reports activated counts in text/JSON. `traceary doctor --client codex` surfaces the same activation status and remediation commands.
+- **Host activation strategy docs (#868)** — memory and integration docs now distinguish the accepted Traceary store, instruction-file export, and host-native activation, with Codex implemented in v0.12 and Claude/Gemini native writes explicitly deferred to #883 / #884.
+
+### Changed
+- **Workspace exports include global memories by default (#860)** — `memory export` / MCP export include global scope entries beside an explicit workspace unless `--no-global` / `include_global=false` is used.
+- **Codex import keeps legacy safety but supports shards (#859)** — legacy `MEMORY.md` keeps the historical heading allow-list, while additional Markdown shards import list items under any heading with per-file evidence/artifact refs and symlink/size guards.
+
+### Notes
+- v0.12.0 is a minor release focused on durable-memory quality, curation, and Codex-native activation. Claude and Gemini continue to use MCP tools plus instruction-file export for v0.12; native activation writes for those hosts are planned follow-ups, not shipped behavior.
+
 ## [v0.11.2] - 2026-04-28
 
 ### Added
