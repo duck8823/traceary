@@ -203,16 +203,19 @@ func hasStandaloneCommandShape(value string) bool {
 	if command == "" || second == "" {
 		return false
 	}
-	if isKnownStandaloneSubcommand(command, second) {
-		return true
-	}
-	if isLikelyShellOperand(fields[1]) {
-		return true
-	}
+	knownSubcommand := isKnownStandaloneSubcommand(command, second)
+	hasShellOperand := isLikelyShellOperand(fields[1])
 	for _, field := range fields[2:] {
 		if strings.HasPrefix(field, "-") || strings.Contains(field, "=") || isLikelyShellOperand(field) {
-			return true
+			hasShellOperand = true
+			break
 		}
+	}
+	if knownSubcommand {
+		return len(fields) == 2 || hasShellOperand
+	}
+	if hasShellOperand {
+		return true
 	}
 	return allowsLooseStandaloneOperand(command) && len(fields) == 2 && !looksLikeCommonProsePair(command, second)
 }

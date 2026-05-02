@@ -53,6 +53,9 @@ func TestClassifyExtractionNoise(t *testing.T) {
 		{name: "npm install role prose", fact: "npm install as a postinstall step", want: nil},
 		{name: "codex review prose", fact: "Codex review found flaky tests", want: nil},
 		{name: "git hooks prose", fact: "git hooks enforce signed commits", want: nil},
+		{name: "git commit policy prose", fact: "git commit messages follow Conventional Commits", want: nil},
+		{name: "go test policy prose", fact: "go test covers memory extraction regressions", want: nil},
+		{name: "docker run policy prose", fact: "docker run uses the production image tag", want: nil},
 
 		// Review-only conclusions
 		{name: "must findings none", fact: "MUST findings: none", want: []string{"review_conclusion"}},
@@ -164,6 +167,9 @@ func TestIsStandaloneCommand_RejectsProseSentences(t *testing.T) {
 		{name: "make build until", fact: "make build until it reproduces the failure"},
 		{name: "codex review found", fact: "Codex review found flaky tests"},
 		{name: "git hooks enforce", fact: "git hooks enforce signed commits"},
+		{name: "git commit policy", fact: "git commit messages follow Conventional Commits"},
+		{name: "go test policy", fact: "go test covers memory extraction regressions"},
+		{name: "docker run policy", fact: "docker run uses the production image tag"},
 		// Kanji-only durable markers are also Japanese prose and must not be
 		// hidden as standalone commands (#857).
 		{name: "go test kanji constraint", fact: "go test 必須"},
