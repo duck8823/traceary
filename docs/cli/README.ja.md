@@ -350,6 +350,20 @@ accepted な durable memory をホスト別 instruction file (CLAUDE.md / AGENTS
 - `--out` — 書き出し先パス。`-` (または未指定) で stdout へ
 - `--json` — 書き出しサマリを JSON で出力
 
+### `traceary memory activate`
+
+host-native activation をファイル書き込みなしで計画します。v0.12.0 では dry-run 専用で、`memory activate --target codex --dry-run` は Traceary 管理の Codex target (`~/.codex/memories/traceary.md`、または `--root <dir>/traceary.md` / `--path <file>` で上書き) を解決し、書き込まれる予定の content を表示します。計画される content は `memory export` と同じ workspace + global scope ルールを使います。`--diff` を指定すると既存 target file との差分を表示します。
+
+主な flag:
+
+- `--target` — 現時点では `codex`
+- `--dry-run` — このリリースでは必須。ファイルは作成・更新しません
+- `--root` — Codex memory root の上書き
+- `--path` — target file の明示上書き
+- `--workspace` / `--include-global` / `--no-global` — activation scope control
+- `--diff` — target file が存在する場合に diff を含める
+- `--json` — activation plan を JSON で出力
+
 ### `traceary memory import instructions`
 
 ホスト別 instruction file (CLAUDE.md / AGENTS.md / GEMINI.md) を読み、Traceary が書いた管理ブロック外の bullet を `candidate` として取り込みます。管理ブロック内はすでに store に存在するため意図的に skip します。

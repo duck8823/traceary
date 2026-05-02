@@ -122,6 +122,9 @@ type MemoryUsecase interface {
 
 	// Export serializes accepted durable memories into host instruction markdown.
 	Export(ctx context.Context, criteria apptypes.MemoryExportCriteria) (apptypes.MemoryExportResult, error)
+
+	// ActivatePlan resolves a host-native activation target and renders the dry-run content.
+	ActivatePlan(ctx context.Context, criteria apptypes.MemoryActivationCriteria) (apptypes.MemoryActivationPlan, error)
 }
 
 type memoryProposer interface {

@@ -636,6 +636,10 @@ func (u *memoryUsecase) Export(ctx context.Context, criteria apptypes.MemoryExpo
 	return (&memoryExportUsecase{memoryQuery: u.memoryQuery}).Export(ctx, criteria)
 }
 
+func (u *memoryUsecase) ActivatePlan(ctx context.Context, criteria apptypes.MemoryActivationCriteria) (apptypes.MemoryActivationPlan, error) {
+	return (&memoryActivationUsecase{memoryQuery: u.memoryQuery}).Plan(ctx, criteria)
+}
+
 func (u *memoryUsecase) findMemoryByID(ctx context.Context, memoryID domtypes.MemoryID) (*model.Memory, error) {
 	resolvedMemoryID, err := domtypes.MemoryIDFrom(memoryID.String())
 	if err != nil {

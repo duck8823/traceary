@@ -168,6 +168,12 @@ export 出力は常に `<!-- traceary-memories:begin:v1 -->` / `<!-- traceary-me
 
 workspace export は user-level の運用ルール (PR title や review policy など) も host file に載るよう、既定で `global` memory を含めます。Markdown は `Global memories` / `Workspace memories` など scope ごとに見出しを分けます。従来の workspace-only filter を維持したい場合は `--no-global` (MCP では `include_global=false`) を使い、既定挙動を明示したい場合は `--include-global` を指定します。
 
+host-native file を変更する前段として activation planning を dry-run で使えます。
+
+- `traceary memory activate --target codex --dry-run`
+
+Codex の既定 target は Traceary 管理ファイル (`~/.codex/memories/traceary.md`) で、user-authored な memory shard を上書きしません。`--root` / `--path` で明示上書きでき、`--diff` で既存 target file との差分を表示できます。
+
 import は Codex の Markdown memory（既定値は `~/.codex/memories/*.md`）を読みます。legacy `MEMORY.md` は `## User preferences` / `## Reusable knowledge` / `## Failures and how to do differently` の allow-list を維持し、それ以外の Markdown shard は任意の見出し配下の bullet/list item を `source=imported` + `status=candidate` として記録します。evidence / artifact ref には元ファイルと行範囲を付与し、sanitizer は全ての imported fact に適用されます。auto-accept はされず、再実行時の dedupe は rejected / superseded / expired を含む全状態を見るので、一度 operator が reject した memory が別 run で resurrect することはありません。
 
 ### 参照する経路

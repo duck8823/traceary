@@ -205,6 +205,16 @@ scope groups under distinct headings. Use `--no-global` (or
 `include_global=false` over MCP) to preserve the old workspace-only
 filter; use `--include-global` to make the default explicit.
 
+Activation planning is available as a dry-run layer before any host-native
+file is mutated:
+
+- `traceary memory activate --target codex --dry-run`
+
+The Codex default target is Traceary-managed
+(`~/.codex/memories/traceary.md`) so user-authored memory shards are not
+overwritten. `--root` and `--path` provide explicit overrides, and `--diff`
+prints a planned diff against an existing target file.
+
 Import reads local Codex Markdown memories (`~/.codex/memories/*.md` by
 default). Legacy `MEMORY.md` keeps the handbook allow-list
 (`## User preferences`, `## Reusable knowledge`, and `## Failures and how to

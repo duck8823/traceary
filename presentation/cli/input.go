@@ -445,6 +445,22 @@ type memoryExportCommandInput struct {
 	asJSON        bool
 }
 
+// memoryActivateCommandInput is the resolved input to `traceary memory
+// activate`. v0.12's first activation surface is dry-run only; the
+// write-side path is introduced by the follow-up issue.
+type memoryActivateCommandInput struct {
+	dbPath        string
+	target        string
+	root          string
+	path          string
+	workspace     string
+	includeGlobal bool
+	noGlobal      bool
+	dryRun        bool
+	diff          bool
+	asJSON        bool
+}
+
 // memoryImportInstructionsCommandInput is the resolved input to
 // `traceary memory import instructions`. Path / Source are independent
 // of the Codex-memory import subcommand so operators can mix both in the
