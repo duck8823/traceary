@@ -832,6 +832,21 @@ func mustExtractionEvent(t *testing.T, eventID string, kind domtypes.EventKind, 
 	return event
 }
 
+func mustExtractionEventAt(t *testing.T, eventID string, kind domtypes.EventKind, body string, createdAt time.Time) *model.Event {
+	t.Helper()
+
+	return model.EventOf(
+		domtypes.EventID(eventID),
+		kind,
+		domtypes.Client("cli"),
+		domtypes.Agent("claude"),
+		domtypes.SessionID("session-1"),
+		domtypes.Workspace("github.com/duck8823/traceary"),
+		body,
+		createdAt,
+	)
+}
+
 func mustMemoryDetailsFromSummary(t *testing.T, memoryID string, memoryType domtypes.MemoryType, fact string) apptypes.MemoryDetails {
 	t.Helper()
 
@@ -920,8 +935,112 @@ func TestMemoryUsecase_Extract_JapaneseExplicitMemoryIntent(t *testing.T) {
 	if len(memoryUsecase.proposeCalls) != 1 {
 		t.Fatalf("proposeCalls = %d, want 1", len(memoryUsecase.proposeCalls))
 	}
-	if got := memoryUsecase.proposeCalls[0].source; got != domtypes.MemorySourceExtracted {
-		t.Fatalf("source = %q, want extracted", got)
+	if got := memoryUsecase.proposeCalls[0].source; got != domtypes.MemorySourceRememberIntent {
+		t.Fatalf("source = %q, want remember-intent", got)
+	}
+}
+
+func TestMemoryUsecase_Extract_RememberIntentInlineFactsUseRememberSource(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		body     string
+		wantFact string
+	}{
+		{
+			name:     "english trigger before fact without colon",
+			body:     "remember this Codex review can take a few minutes before comments appear.",
+			wantFact: "Codex review can take a few minutes before comments appear",
+		},
+		{
+			name:     "english trigger after fact",
+			body:     "Codex review can take a few minutes before comments appear, remember this.",
+			wantFact: "Codex review can take a few minutes before comments appear",
+		},
+		{
+			name:     "japanese trigger before fact",
+			body:     "覚えておいて: Codex review は数分かかることがある。",
+			wantFact: "Codex review は数分かかることがある。",
+		},
+		{
+			name:     "japanese trigger after fact",
+			body:     "Codex review は数分かかることがあるので覚えておいて",
+			wantFact: "Codex review は数分かかることがあるので",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			session := apptypes.SessionSummaryOf(domtypes.SessionID("session-remember-inline"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+			promptEvent := mustExtractionEvent(t, "event-remember-inline", domtypes.EventKindPrompt, tc.body)
+			details := mustMemoryDetailsFromSummary(t, "memory-remember-inline", domtypes.MemoryTypeLesson, tc.wantFact)
+			memoryUsecase := &memoryExtractionMemoryUsecaseStub{proposeResult: []apptypes.MemoryDetails{details}}
+			sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+			eventQuery := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindPrompt: {promptEvent}}}
+			sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+			_, err := sut.Extract(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-remember-inline")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(10).Build())
+			if err != nil {
+				t.Fatalf("Extract() error = %v", err)
+			}
+			if len(memoryUsecase.proposeCalls) != 1 {
+				t.Fatalf("proposeCalls = %d, want 1", len(memoryUsecase.proposeCalls))
+			}
+			call := memoryUsecase.proposeCalls[0]
+			if call.fact != tc.wantFact {
+				t.Fatalf("fact = %q, want %q", call.fact, tc.wantFact)
+			}
+			if call.source != domtypes.MemorySourceRememberIntent {
+				t.Fatalf("source = %q, want remember-intent", call.source)
+			}
+		})
+	}
+}
+
+func TestMemoryUsecase_Extract_ShortRememberIntentUsesAdjacentContextEvidence(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-remember-context"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), "ended", 2, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	contextEvent := mustExtractionEventAt(t, "event-context", domtypes.EventKindPrompt, "Please answer in Japanese for this repository.", now)
+	rememberEvent := mustExtractionEventAt(t, "event-remember-short", domtypes.EventKindPrompt, "覚えておいてね", now.Add(time.Second))
+	details := mustMemoryDetailsFromSummary(t, "memory-remember-context", domtypes.MemoryTypePreference, "Please answer in Japanese for this repository.")
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{proposeResult: []apptypes.MemoryDetails{details}}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{
+		listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
+			domtypes.EventKindPrompt: {rememberEvent, contextEvent},
+		},
+	}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	_, err := sut.Extract(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-remember-context")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(2).CandidateLimit(10).Build())
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(memoryUsecase.proposeCalls) != 1 {
+		t.Fatalf("proposeCalls = %d, want 1 adjacent-context candidate", len(memoryUsecase.proposeCalls))
+	}
+	call := memoryUsecase.proposeCalls[0]
+	if call.fact != "Please answer in Japanese for this repository." {
+		t.Fatalf("fact = %q, want adjacent context fact", call.fact)
+	}
+	if call.source != domtypes.MemorySourceRememberIntent {
+		t.Fatalf("source = %q, want remember-intent", call.source)
+	}
+	gotEvidence := make(map[string]bool)
+	for _, ref := range call.evidenceRefs {
+		if ref.Kind() == domtypes.EvidenceRefKindEvent {
+			gotEvidence[ref.Value()] = true
+		}
+	}
+	for _, eventID := range []string{"event-remember-short", "event-context"} {
+		if !gotEvidence[eventID] {
+			t.Fatalf("evidence refs = %v, want event %s", call.evidenceRefs, eventID)
+		}
 	}
 }
 
@@ -1236,8 +1355,8 @@ func TestMemoryUsecase_Extract_KeepsExplicitRememberVisibleEvenWhenNoisy(t *test
 	if len(memoryUsecase.proposeCalls) != 1 {
 		t.Fatalf("proposeCalls = %d, want 1 visible candidate", len(memoryUsecase.proposeCalls))
 	}
-	if got := memoryUsecase.proposeCalls[0].source; got != domtypes.MemorySourceExtracted {
-		t.Fatalf("source = %q, want extracted (explicit remember overrides noise)", got)
+	if got := memoryUsecase.proposeCalls[0].source; got != domtypes.MemorySourceRememberIntent {
+		t.Fatalf("source = %q, want remember-intent (explicit remember overrides noise)", got)
 	}
 }
 

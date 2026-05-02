@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -20,13 +21,30 @@ import (
 var (
 	explicitMemoryLabelPattern         = regexp.MustCompile(`(?i)^(?:[-*]\s+|\d+\.\s+)?(?:(?:user\s+)?(preference|decision|constraint|lesson|artifact|feedback|correction))s?\s*[:\-]\s*(.+)$`)
 	explicitJapaneseMemoryLabelPattern = regexp.MustCompile(`^(?:[-*]\s+|\d+\.\s+)?(好み|設定|要望|決定|判断|制約|教訓|学び|成果物|資料|修正|フィードバック)\s*[:：\-ー]\s*(.+)$`)
-	explicitRememberLabelPattern       = regexp.MustCompile(`(?i)^(?:[-*]\s+|\d+\.\s+)?(?:durable\s+memory|memory\s+note|remember(?:\s+this)?|keep\s+this\s+in\s+memory)\s*[:\-]\s*(.+)$`)
-	explicitJapaneseRememberPattern    = regexp.MustCompile(`^(?:[-*]\s+|\d+\.\s+)?(?:覚えておいて|覚えておく|記憶)\s*[:：\-ー]\s*(.+)$`)
+	explicitRememberLabelPattern       = regexp.MustCompile(`(?i)^(?:[-*]\s+|\d+\.\s+)?(?:durable\s+memory|memory\s+note|remember(?:\s+(?:this|that))?|keep\s+this\s+in\s+(?:memory|mind))\s*[:\-]\s*(.+)$`)
+	explicitJapaneseRememberPattern    = regexp.MustCompile(`^(?:[-*]\s+|\d+\.\s+)?(?:覚えておいて(?:ください)?|おぼえておいて(?:ください)?|覚えておく|覚えてください|記憶しておいて(?:ください)?|記憶して(?:ください)?|記憶)\s*[:：\-ー]\s*(.+)$`)
 	urlRefPattern                      = regexp.MustCompile(`https?://[^\s)]+`)
 	issueRefPattern                    = regexp.MustCompile(`(?i)\bissues?\s*#(\d+)\b`)
 	prRefPattern                       = regexp.MustCompile(`(?i)\b(?:pr|pull request)\s*#(\d+)\b`)
 	bareFileRefPattern                 = regexp.MustCompile(`(?i)\b[A-Za-z0-9_.-]+\.(?:[A-Za-z0-9_-]+\.)*(?:go|md|json|sh|sql|yaml|yml|toml|ts|tsx|js|jsx|py|rb|ini|cfg|conf|proto|tpl)\b`)
 	pathLikeRefPattern                 = regexp.MustCompile(`(?:\./|\.\./|/)?(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+(?:\.[A-Za-z0-9_-]+)*`)
+)
+
+var (
+	rememberIntentEnglishTriggers = []string{
+		"keep this in mind",
+		"remember this",
+		"remember that",
+	}
+	rememberIntentJapaneseTriggers = []string{
+		"記憶しておいてください",
+		"おぼえておいてください",
+		"覚えておいてください",
+		"記憶しておいて",
+		"おぼえておいて",
+		"覚えてください",
+		"覚えておいて",
+	}
 )
 
 var extensionlessArtifactRootSegments = map[string]struct{}{
@@ -164,12 +182,15 @@ func (u *memoryExtractionUsecase) Extract(ctx context.Context, criteria apptypes
 		// declarations, PR/Round chatter) are also routed to
 		// extracted-hidden. The explicit-remember intent is exempt so
 		// user-driven `remember this:` prompts always remain visible.
-		source := domtypes.MemorySourceExtracted
-		if spec.signalScore < extractionVisibleScoreThreshold {
-			source = domtypes.MemorySourceExtractedHidden
-		}
-		if len(spec.lowQualityReasons) > 0 && !spec.intent.explicitRemember {
-			source = domtypes.MemorySourceExtractedHidden
+		source := spec.source
+		if source == "" {
+			source = domtypes.MemorySourceExtracted
+			if spec.signalScore < extractionVisibleScoreThreshold {
+				source = domtypes.MemorySourceExtractedHidden
+			}
+			if len(spec.lowQualityReasons) > 0 && !spec.intent.explicitRemember {
+				source = domtypes.MemorySourceExtractedHidden
+			}
 		}
 
 		details, err := u.memory.Propose(
@@ -425,11 +446,16 @@ func classifyMemoryIntent(value string) memoryIntentFeatures {
 	features := memoryIntentFeatures{}
 	if explicitRememberLabelPattern.MatchString(value) || explicitJapaneseRememberPattern.MatchString(value) || containsAny(lower,
 		"remember this",
+		"remember that",
 		"remember to",
 		"keep this in memory",
+		"keep this in mind",
 		"durable memory",
 		"覚えておいて",
+		"おぼえておいて",
+		"覚えてください",
 		"覚えておく",
+		"記憶しておいて",
 		"記憶して",
 	) {
 		features.explicitRemember = true
@@ -492,8 +518,10 @@ func hasDurableSignalMarker(value string) bool {
 		"next time",
 		"remember to",
 		"remember this",
+		"remember that",
 		"durable memory",
 		"keep this in memory",
+		"keep this in mind",
 		"決定",
 		"判断",
 		"制約",
@@ -507,7 +535,10 @@ func hasDurableSignalMarker(value string) bool {
 		"再起動",
 		"確認済み",
 		"覚えておいて",
+		"おぼえておいて",
+		"覚えてください",
 		"覚えておく",
+		"記憶しておいて",
 		"記憶",
 		"今後",
 		"以後",
@@ -629,7 +660,11 @@ func (u *memoryExtractionUsecase) collectCandidateSpecs(ctx context.Context, ses
 		return nil, err
 	}
 
-	specs := make([]memoryCandidateSpec, 0, len(signals))
+	rememberSpecs, err := collectRememberIntentContextSpecs(session.SessionID(), signals)
+	if err != nil {
+		return nil, err
+	}
+	genericSpecs := make([]memoryCandidateSpec, 0, len(signals))
 	for _, signal := range signals {
 		evidenceRefs, err := buildSignalEvidenceRefs(session.SessionID(), signal.event)
 		if err != nil {
@@ -639,10 +674,105 @@ func (u *memoryExtractionUsecase) collectCandidateSpecs(ctx context.Context, ses
 		if err != nil {
 			return nil, err
 		}
-		specs = append(specs, signalSpecs...)
+		for _, spec := range signalSpecs {
+			if spec.source == domtypes.MemorySourceRememberIntent {
+				rememberSpecs = append(rememberSpecs, spec)
+				continue
+			}
+			genericSpecs = append(genericSpecs, spec)
+		}
 	}
 
+	specs := make([]memoryCandidateSpec, 0, len(rememberSpecs)+len(genericSpecs))
+	specs = append(specs, rememberSpecs...)
+	specs = append(specs, genericSpecs...)
 	return specs, nil
+}
+
+func collectRememberIntentContextSpecs(sessionID domtypes.SessionID, signals []extractionSignal) ([]memoryCandidateSpec, error) {
+	timeline := make([]extractionSignal, 0, len(signals))
+	for _, signal := range signals {
+		if signal.event == nil {
+			continue
+		}
+		if signal.kind != domtypes.EventKindPrompt && signal.kind != domtypes.EventKindTranscript {
+			continue
+		}
+		timeline = append(timeline, signal)
+	}
+	sort.SliceStable(timeline, func(i, j int) bool {
+		left := timeline[i].event.CreatedAt()
+		right := timeline[j].event.CreatedAt()
+		if left.Equal(right) {
+			return timeline[i].event.EventID().String() < timeline[j].event.EventID().String()
+		}
+		return left.Before(right)
+	})
+
+	specs := make([]memoryCandidateSpec, 0)
+	for index, signal := range timeline {
+		if signal.kind != domtypes.EventKindPrompt || !isShortRememberIntentSegment(signal.text) {
+			continue
+		}
+		contextSignal, ok := previousRememberIntentContext(timeline[:index])
+		if !ok {
+			continue
+		}
+		fact := rememberIntentContextFact(contextSignal.text)
+		if fact == "" {
+			continue
+		}
+		rememberEvidenceRefs, err := buildSignalEvidenceRefs(sessionID, signal.event)
+		if err != nil {
+			return nil, err
+		}
+		contextEvidenceRefs, err := buildSignalEvidenceRefs(sessionID, contextSignal.event)
+		if err != nil {
+			return nil, err
+		}
+		evidenceRefs := mergeEvidenceRefs(rememberEvidenceRefs, contextEvidenceRefs)
+		spec, ok, err := buildMemoryCandidateSpec(inferMemoryTypeForExplicitIntent(fact), fact, evidenceRefs, false)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		spec.intent.explicitRemember = true
+		spec.source = domtypes.MemorySourceRememberIntent
+		spec.signalScore = memoryExtractionSignalScore(spec)
+		specs = append(specs, spec)
+	}
+	return specs, nil
+}
+
+func previousRememberIntentContext(signals []extractionSignal) (extractionSignal, bool) {
+	for index := len(signals) - 1; index >= 0; index-- {
+		signal := signals[index]
+		if signal.kind != domtypes.EventKindPrompt && signal.kind != domtypes.EventKindTranscript {
+			continue
+		}
+		if rememberIntentContextFact(signal.text) == "" {
+			continue
+		}
+		return signal, true
+	}
+	return extractionSignal{}, false
+}
+
+func rememberIntentContextFact(text string) string {
+	segments := candidateSegments(text)
+	for index := len(segments) - 1; index >= 0; index-- {
+		segment := segments[index]
+		if isShortRememberIntentSegment(segment) {
+			continue
+		}
+		if fact, ok := rememberIntentFactFromSegment(segment); ok {
+			return boundRememberIntentContext(fact)
+		}
+		return boundRememberIntentContext(segment)
+	}
+	return ""
 }
 
 func (u *memoryExtractionUsecase) collectExtractionSignals(ctx context.Context, session apptypes.SessionSummary, eventLimit int) ([]extractionSignal, error) {
@@ -713,6 +843,7 @@ func (u *memoryExtractionUsecase) collectExtractionSignals(ctx context.Context, 
 type memoryCandidateSpec struct {
 	memoryType        domtypes.MemoryType
 	fact              string
+	source            domtypes.MemorySource
 	evidenceRefs      []domtypes.EvidenceRef
 	artifactRefs      []domtypes.ArtifactRef
 	structured        bool
@@ -725,15 +856,28 @@ func extractMemoryCandidatesFromSignal(signal extractionSignal, evidenceRefs []d
 	segments := candidateSegments(signal.text)
 	specs := make([]memoryCandidateSpec, 0, len(segments))
 	for _, segment := range segments {
+		if isShortRememberIntentSegment(segment) {
+			continue
+		}
 		spec, ok, err := extractBestMemoryCandidateFromSegment(signal, segment, evidenceRefs)
 		if err != nil {
 			return nil, err
 		}
 		if ok {
+			if shouldUseRememberIntentSource(signal, spec) {
+				spec.source = domtypes.MemorySourceRememberIntent
+			}
 			specs = append(specs, spec)
 		}
 	}
 	return specs, nil
+}
+
+func shouldUseRememberIntentSource(signal extractionSignal, spec memoryCandidateSpec) bool {
+	if !spec.intent.explicitRemember {
+		return false
+	}
+	return signal.kind == domtypes.EventKindPrompt || signal.kind == domtypes.EventKindTranscript
 }
 
 func extractBestMemoryCandidateFromSegment(signal extractionSignal, segment string, evidenceRefs []domtypes.EvidenceRef) (memoryCandidateSpec, bool, error) {
@@ -777,7 +921,7 @@ func structuredCandidateSpec(segment string, evidenceRefs []domtypes.EvidenceRef
 		return buildMemoryCandidateSpec(memoryType, normalizeCandidateFact(matches[2]), evidenceRefs, true)
 	}
 
-	fact, ok := stripExplicitRememberLabel(segment)
+	fact, ok := rememberIntentFactFromSegment(segment)
 	if !ok {
 		return memoryCandidateSpec{}, false, nil
 	}
@@ -821,6 +965,112 @@ func stripExplicitRememberLabel(segment string) (string, bool) {
 		return normalizeCandidateFact(matches[1]), true
 	}
 	return "", false
+}
+
+func rememberIntentFactFromSegment(segment string) (string, bool) {
+	if fact, ok := stripExplicitRememberLabel(segment); ok {
+		return fact, true
+	}
+	if fact, ok := extractInlineRememberIntentFact(segment); ok {
+		return fact, true
+	}
+	return "", false
+}
+
+func extractInlineRememberIntentFact(segment string) (string, bool) {
+	normalized := normalizeCandidateFact(segment)
+	if normalized == "" {
+		return "", false
+	}
+	lower := strings.ToLower(normalized)
+	for _, trigger := range rememberIntentEnglishTriggers {
+		index := strings.Index(lower, trigger)
+		if index < 0 {
+			continue
+		}
+		fact := rememberIntentFactAroundTrigger(normalized, index, len(trigger))
+		if fact != "" {
+			return fact, true
+		}
+		return "", false
+	}
+	for _, trigger := range rememberIntentJapaneseTriggers {
+		index := strings.Index(normalized, trigger)
+		if index < 0 {
+			continue
+		}
+		fact := rememberIntentFactAroundTrigger(normalized, index, len(trigger))
+		if fact != "" {
+			return fact, true
+		}
+		return "", false
+	}
+	return "", false
+}
+
+func rememberIntentFactAroundTrigger(value string, index int, triggerLength int) string {
+	before := cleanRememberIntentFactRemainder(value[:index])
+	after := cleanRememberIntentFactRemainder(value[index+triggerLength:])
+	if after != "" {
+		return after
+	}
+	return before
+}
+
+func cleanRememberIntentFactRemainder(value string) string {
+	trimmed := strings.TrimSpace(value)
+	trimmed = strings.Trim(trimmed, " \t\r\n:：-ー,，.。!！?？;；「」『』()[]{}")
+	lower := strings.ToLower(trimmed)
+	for _, prefix := range []string{"please ", "pls ", "that "} {
+		if strings.HasPrefix(lower, prefix) {
+			trimmed = strings.TrimSpace(trimmed[len(prefix):])
+			lower = strings.ToLower(trimmed)
+		}
+	}
+	trimmed = strings.TrimSpace(strings.TrimSuffix(trimmed, "を"))
+	trimmed = strings.TrimSpace(strings.TrimSuffix(trimmed, "は"))
+	trimmed = strings.TrimSpace(strings.TrimSuffix(trimmed, "ね"))
+	switch strings.ToLower(trimmed) {
+	case "", "please", "pls", "this", "that", "it", "ね", "ください", "お願いします":
+		return ""
+	}
+	return normalizeCandidateFact(trimmed)
+}
+
+func isShortRememberIntentSegment(segment string) bool {
+	normalized := normalizeCandidateFact(segment)
+	if normalized == "" {
+		return false
+	}
+	if fact, ok := rememberIntentFactFromSegment(normalized); ok && fact != "" {
+		return false
+	}
+	lower := strings.ToLower(normalized)
+	for _, trigger := range rememberIntentEnglishTriggers {
+		if strings.Contains(lower, trigger) {
+			return true
+		}
+	}
+	for _, trigger := range rememberIntentJapaneseTriggers {
+		if strings.Contains(normalized, trigger) {
+			return true
+		}
+	}
+	return false
+}
+
+const rememberIntentContextMaxRunes = 500
+
+func boundRememberIntentContext(value string) string {
+	normalized := normalizeCandidateFact(value)
+	if normalized == "" {
+		return ""
+	}
+	runes := []rune(normalized)
+	if len(runes) <= rememberIntentContextMaxRunes {
+		return normalized
+	}
+	return string(runes[:rememberIntentContextMaxRunes])
 }
 
 func inferMemoryTypeForExplicitIntent(fact string) domtypes.MemoryType {
@@ -977,8 +1227,10 @@ func inferMemoryTypeFromText(text string) (domtypes.MemoryType, bool) {
 		"next time",
 		"remember to",
 		"remember this",
+		"remember that",
 		"durable memory",
 		"keep this in memory",
+		"keep this in mind",
 		"mistake",
 		"教訓",
 		"学び",
@@ -988,7 +1240,10 @@ func inferMemoryTypeFromText(text string) (domtypes.MemoryType, bool) {
 		"解消",
 		"確認済み",
 		"覚えておいて",
+		"おぼえておいて",
+		"覚えてください",
 		"覚えておく",
+		"記憶しておいて",
 		"記憶",
 		"今後",
 		"以後",
@@ -1029,6 +1284,22 @@ func buildSignalEvidenceRefs(sessionID domtypes.SessionID, event *model.Event) (
 		evidenceRefs = append(evidenceRefs, ref)
 	}
 	return evidenceRefs, nil
+}
+
+func mergeEvidenceRefs(groups ...[]domtypes.EvidenceRef) []domtypes.EvidenceRef {
+	refs := make([]domtypes.EvidenceRef, 0)
+	seen := make(map[string]struct{})
+	for _, group := range groups {
+		for _, ref := range group {
+			key := ref.Kind().String() + ":" + ref.Value()
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			refs = append(refs, ref)
+		}
+	}
+	return refs
 }
 
 func inferArtifactRefs(text string) ([]domtypes.ArtifactRef, error) {

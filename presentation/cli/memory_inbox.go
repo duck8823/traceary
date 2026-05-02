@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -45,7 +46,7 @@ func (c *RootCLI) newMemoryInboxListCommand() *cobra.Command {
 	cmd.Flags().StringVar(&input.agent, "agent", "", Localize("filter by agent scope", "agent scope で絞り込む"))
 	cmd.Flags().StringVar(&input.sessionFamily, "session-family", "", Localize("filter by session-family scope", "session-family scope で絞り込む"))
 	cmd.Flags().StringSliceVar(&input.memoryTypes, "type", nil, Localize("filter by memory type", "memory type で絞り込む"))
-	cmd.Flags().StringSliceVar(&input.sources, "source", nil, Localize("filter by memory source (manual / extracted / extracted-hidden / imported)", "memory source (manual / extracted / extracted-hidden / imported) で絞り込む"))
+	cmd.Flags().StringSliceVar(&input.sources, "source", nil, Localize("filter by memory source (manual / extracted / extracted-hidden / remember-intent / imported)", "memory source (manual / extracted / extracted-hidden / remember-intent / imported) で絞り込む"))
 	cmd.Flags().BoolVar(&input.includeHidden, "include-hidden", false, Localize("include extracted-hidden candidates (low-quality auto-extractions kept for audit)", "extracted-hidden の候補も含める (audit 用に保存された低品質自動抽出)"))
 	cmd.Flags().IntVar(&input.limit, "limit", defaultMemoryInboxLimit, Localize("maximum number of candidates to return", "表示件数"))
 	cmd.Flags().IntVar(&input.offset, "offset", 0, Localize("number of candidates to skip before listing", "一覧表示前にスキップする件数"))
@@ -161,7 +162,30 @@ func (c *RootCLI) runMemoryInboxList(ctx context.Context, output io.Writer, inpu
 		}
 		items = append(items, details)
 	}
+	prioritizeRememberIntentInboxItems(items)
 	return writeMemoryInboxList(output, items, input.asJSON)
+}
+
+func prioritizeRememberIntentInboxItems(items []apptypes.MemoryDetails) {
+	slices.SortStableFunc(items, func(left, right apptypes.MemoryDetails) int {
+		leftPriority := memoryInboxSourcePriority(left.Summary().Source())
+		rightPriority := memoryInboxSourcePriority(right.Summary().Source())
+		switch {
+		case leftPriority < rightPriority:
+			return -1
+		case leftPriority > rightPriority:
+			return 1
+		default:
+			return 0
+		}
+	})
+}
+
+func memoryInboxSourcePriority(source domtypes.MemorySource) int {
+	if source == domtypes.MemorySourceRememberIntent {
+		return 0
+	}
+	return 1
 }
 
 func (c *RootCLI) runMemoryInboxBatch(ctx context.Context, output io.Writer, input memoryInboxBatchCommandInput, action memoryInboxAction) error {
@@ -273,6 +297,7 @@ func applyExtractedHiddenDefault(sources []domtypes.MemorySource, includeHidden 
 	return []domtypes.MemorySource{
 		domtypes.MemorySourceManual,
 		domtypes.MemorySourceExtracted,
+		domtypes.MemorySourceRememberIntent,
 		domtypes.MemorySourceImported,
 	}
 }
