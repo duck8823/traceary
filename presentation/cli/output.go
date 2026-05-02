@@ -233,11 +233,21 @@ type memoryExportOutput struct {
 
 // memoryActivationPlanOutput is the JSON shape of a dry-run activation plan.
 type memoryActivationPlanOutput struct {
-	Target     string `json:"target"`
-	TargetPath string `json:"target_path"`
-	Existing   bool   `json:"existing"`
-	Markdown   string `json:"markdown"`
-	Diff       string `json:"diff,omitempty"`
+	Target         string `json:"target"`
+	TargetPath     string `json:"target_path"`
+	Existing       bool   `json:"existing"`
+	ActivatedCount int    `json:"activated_count"`
+	Markdown       string `json:"markdown"`
+	Diff           string `json:"diff,omitempty"`
+}
+
+// memoryActivationApplyOutput is the JSON shape of a write activation result.
+type memoryActivationApplyOutput struct {
+	Target         string `json:"target"`
+	TargetPath     string `json:"target_path"`
+	Action         string `json:"action"`
+	Existing       bool   `json:"existing"`
+	ActivatedCount int    `json:"activated_count"`
 }
 
 func formatJSONTime(t time.Time) string {

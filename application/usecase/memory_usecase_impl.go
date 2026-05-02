@@ -640,6 +640,10 @@ func (u *memoryUsecase) ActivatePlan(ctx context.Context, criteria apptypes.Memo
 	return (&memoryActivationUsecase{memoryQuery: u.memoryQuery}).Plan(ctx, criteria)
 }
 
+func (u *memoryUsecase) Activate(ctx context.Context, criteria apptypes.MemoryActivationCriteria) (apptypes.MemoryActivationApplyResult, error) {
+	return (&memoryActivationUsecase{memoryQuery: u.memoryQuery}).Apply(ctx, criteria)
+}
+
 func (u *memoryUsecase) findMemoryByID(ctx context.Context, memoryID domtypes.MemoryID) (*model.Memory, error) {
 	resolvedMemoryID, err := domtypes.MemoryIDFrom(memoryID.String())
 	if err != nil {

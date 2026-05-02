@@ -446,8 +446,8 @@ type memoryExportCommandInput struct {
 }
 
 // memoryActivateCommandInput is the resolved input to `traceary memory
-// activate`. v0.12's first activation surface is dry-run only; the
-// write-side path is introduced by the follow-up issue.
+// activate`. Callers must explicitly choose dry-run planning or apply mode
+// so host-native memory files are never mutated by accident.
 type memoryActivateCommandInput struct {
 	dbPath        string
 	target        string
@@ -457,6 +457,7 @@ type memoryActivateCommandInput struct {
 	includeGlobal bool
 	noGlobal      bool
 	dryRun        bool
+	apply         bool
 	diff          bool
 	asJSON        bool
 }
