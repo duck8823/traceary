@@ -672,6 +672,10 @@ func (r *candidateApplyMemoryRepository) Save(_ context.Context, memory *model.M
 	return nil
 }
 
+func (r *candidateApplyMemoryRepository) SaveDistillation(context.Context, *model.Memory, []*model.Memory) error {
+	return nil
+}
+
 func (r *candidateApplyMemoryRepository) SaveSupersession(context.Context, *model.Memory, *model.Memory) error {
 	return nil
 }

@@ -37,6 +37,10 @@ func (s *memoryExtractionMemoryUsecaseStub) Save(_ context.Context, memory *mode
 	return s.proposeErr
 }
 
+func (s *memoryExtractionMemoryUsecaseStub) SaveDistillation(context.Context, *model.Memory, []*model.Memory) error {
+	return nil
+}
+
 func (s *memoryExtractionMemoryUsecaseStub) SaveSupersession(context.Context, *model.Memory, *model.Memory) error {
 	return nil
 }

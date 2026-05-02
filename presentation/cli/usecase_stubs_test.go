@@ -340,6 +340,8 @@ type memoryUsecaseStub struct {
 	proposeErr         error
 	acceptDetails      apptypes.MemoryDetails
 	acceptErr          error
+	distillResult      apptypes.MemoryDistillResult
+	distillErr         error
 	rejectDetails      apptypes.MemoryDetails
 	rejectErr          error
 	supersedeDetails   apptypes.MemoryDetails
@@ -378,6 +380,7 @@ type memoryUsecaseStub struct {
 		confidence types.Optional[types.Confidence]
 	}
 	acceptCallCount int
+	distillCalls    []apptypes.MemoryDistillCriteria
 	rejectCallCount int
 
 	setValidityCall struct {
@@ -413,6 +416,11 @@ func (s *memoryUsecaseStub) Accept(_ context.Context, memoryID types.MemoryID, c
 	s.acceptCall.confidence = confidence
 	s.acceptCallCount++
 	return s.acceptDetails, s.acceptErr
+}
+
+func (s *memoryUsecaseStub) Distill(_ context.Context, criteria apptypes.MemoryDistillCriteria) (apptypes.MemoryDistillResult, error) {
+	s.distillCalls = append(s.distillCalls, criteria)
+	return s.distillResult, s.distillErr
 }
 
 func (s *memoryUsecaseStub) Reject(_ context.Context, _ types.MemoryID) (apptypes.MemoryDetails, error) {

@@ -238,6 +238,79 @@ func TestRootCLI_MemoryAcceptCommand_PassesConfidence(t *testing.T) {
 	}
 }
 
+func TestRootCLI_MemoryDistillCommand_PassesCriteria(t *testing.T) {
+	distilled := mustMemoryDetails(t, "memory-distilled", "Distilled memory", types.MemoryStatusAccepted)
+	source := mustMemorySummary(t, "memory-source-a", "Raw source", types.MemoryStatusSuperseded)
+	stub := &memoryUsecaseStub{
+		distillResult: apptypes.MemoryDistillResultOf(distilled, []apptypes.MemorySummary{source}, apptypes.MemoryDistillReplaceSupersede),
+	}
+
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(stub),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "distill",
+		"--db-path", "/tmp/test-traceary.db",
+		"--from", "memory-source-a,memory-source-b,memory-source-a",
+		"--type", "constraint",
+		"--workspace", "github.com/duck8823/traceary",
+		"--fact", "Distilled memory",
+		"--confidence", "high",
+		"--replace", "supersede",
+		"--id-only",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if len(stub.distillCalls) != 1 {
+		t.Fatalf("distill calls = %d, want 1", len(stub.distillCalls))
+	}
+	call := stub.distillCalls[0]
+	if got := call.FromIDs(); len(got) != 2 || got[0].String() != "memory-source-a" || got[1].String() != "memory-source-b" {
+		t.Fatalf("FromIDs() = %v, want deduped sources", got)
+	}
+	if call.MemoryType() != types.MemoryTypeConstraint {
+		t.Fatalf("MemoryType() = %s, want constraint", call.MemoryType())
+	}
+	if call.Scope().Kind() != types.MemoryScopeKindWorkspace || call.Scope().Key() != "github.com/duck8823/traceary" {
+		t.Fatalf("Scope() = %s:%s, want workspace scope", call.Scope().Kind(), call.Scope().Key())
+	}
+	if confidence, ok := call.Confidence().Value(); !ok || confidence != types.ConfidenceHigh {
+		t.Fatalf("Confidence() = %v/%v, want high", confidence, ok)
+	}
+	if call.Replace() != apptypes.MemoryDistillReplaceSupersede {
+		t.Fatalf("Replace() = %s, want supersede", call.Replace())
+	}
+	if stdout.String() != "memory-distilled\n" {
+		t.Fatalf("stdout = %q, want distilled memory id", stdout.String())
+	}
+}
+
+func TestRootCLI_MemoryDistillCommand_RequiresExplicitScope(t *testing.T) {
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(&memoryUsecaseStub{}),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"memory", "distill",
+		"--db-path", "/tmp/test-traceary.db",
+		"--from", "memory-source",
+		"--type", "lesson",
+		"--fact", "Distilled memory",
+	})
+
+	if err := rootCmd.Execute(); err == nil {
+		t.Fatal("Execute() error = nil, want explicit scope error")
+	}
+}
+
 func TestRootCLI_MemoryProposeCommand_IgnoresConfidenceFlagValidation(t *testing.T) {
 	stub := &memoryUsecaseStub{
 		proposeDetails: mustMemoryDetails(t, "memory-proposed", "Candidate memory", types.MemoryStatusCandidate),

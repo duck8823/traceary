@@ -329,6 +329,18 @@ func (m *Memory) MarkSuperseded() error {
 	return nil
 }
 
+// MarkCandidateSupersededByDistillation transitions a candidate memory to
+// superseded after an operator distills it into an accepted memory while
+// preserving the candidate audit trail.
+func (m *Memory) MarkCandidateSupersededByDistillation() error {
+	if m.status != types.MemoryStatusCandidate {
+		return ErrInvalidMemoryState
+	}
+	m.status = types.MemoryStatusSuperseded
+	m.updatedAt = m.now()
+	return nil
+}
+
 // Expire transitions an active memory to expired.
 func (m *Memory) Expire(expiresAt time.Time) error {
 	if m.status != types.MemoryStatusCandidate && m.status != types.MemoryStatusAccepted {

@@ -38,6 +38,10 @@ type MemoryUsecase interface {
 	// Accept accepts an existing candidate memory.
 	Accept(ctx context.Context, memoryID domtypes.MemoryID, confidence domtypes.Optional[domtypes.Confidence]) (apptypes.MemoryDetails, error)
 
+	// Distill turns one or more candidate memories into a new accepted
+	// operator-provided memory while preserving source refs.
+	Distill(ctx context.Context, criteria apptypes.MemoryDistillCriteria) (apptypes.MemoryDistillResult, error)
+
 	// Reject rejects an existing candidate memory.
 	Reject(ctx context.Context, memoryID domtypes.MemoryID) (apptypes.MemoryDetails, error)
 

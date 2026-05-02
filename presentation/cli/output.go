@@ -114,6 +114,13 @@ type memoryDetailsOutput struct {
 	ArtifactRefs []string            `json:"artifact_refs"`
 }
 
+// memoryDistillOutput is the JSON shape of a distillation run.
+type memoryDistillOutput struct {
+	Distilled memoryDetailsOutput   `json:"distilled"`
+	Replace   string                `json:"replace"`
+	Sources   []memorySummaryOutput `json:"sources"`
+}
+
 // sessionSummaryOutput is the JSON shape of a session summary in list output.
 type sessionSummaryOutput struct {
 	SessionID       string   `json:"session_id"`

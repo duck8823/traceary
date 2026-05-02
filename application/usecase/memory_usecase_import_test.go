@@ -97,6 +97,10 @@ func (s *stubImportMemoryUsecase) Save(_ context.Context, memory *model.Memory) 
 	return s.proposeErr
 }
 
+func (s *stubImportMemoryUsecase) SaveDistillation(context.Context, *model.Memory, []*model.Memory) error {
+	return nil
+}
+
 func (s *stubImportMemoryUsecase) SaveSupersession(context.Context, *model.Memory, *model.Memory) error {
 	return nil
 }
