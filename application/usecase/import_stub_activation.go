@@ -164,14 +164,20 @@ func (p *importStubActivationPlanner) Apply(plan importStubActivationPlan) (impo
 			return result, xerrors.Errorf("failed to apply external memory file %s: %w", plan.ExternalMemory.Path, err)
 		}
 	}
-	result.ExternalMemory = plan.ExternalMemory
+	result.ExternalMemory = appliedActivationComponent(plan.ExternalMemory)
 	if plan.HostContext.Action != apptypes.MemoryActivationApplyNoop {
 		if err := writer.WriteAtomic(plan.HostContext.Path, plan.HostContext.Markdown); err != nil {
 			return result, xerrors.Errorf("failed to apply host context stub %s: %w", plan.HostContext.Path, err)
 		}
 	}
-	result.HostContext = plan.HostContext
+	result.HostContext = appliedActivationComponent(plan.HostContext)
 	return result, nil
+}
+
+func appliedActivationComponent(plan activationComponentPlan) activationComponentPlan {
+	plan.Status = apptypes.MemoryActivationStatusInSync
+	plan.Message = ""
+	return plan
 }
 
 // planComponent computes the planned content / action / status for one

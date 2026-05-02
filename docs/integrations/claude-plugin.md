@@ -13,21 +13,53 @@ The Claude package lives under `integrations/claude-plugin/` and is published th
 
 ## Memory activation strategy
 
-Claude integration in v0.12 uses Traceary's accepted memory store through MCP
-tools and instruction-file export. To make reviewed memories visible in Claude
-project instructions, export them into a Traceary-managed block:
+Claude integration uses Traceary's accepted memory store through MCP tools,
+instruction-file export, and host-native activation. To make reviewed memories
+visible in Claude project instructions, you have two options.
+
+**Option 1 — instruction-file export (still supported).** Export accepted
+memories into a Traceary-managed block inside `CLAUDE.md` directly:
 
 ```sh
 traceary memory export --target claude --out CLAUDE.md
 ```
 
-This is different from Codex host-native activation. `traceary memory activate
---target claude` is **not implemented** in v0.12, and the Claude plugin does not
-write Claude-native memory files. If you own a direct Anthropic SDK loop, the
-experimental native memory-tool backend remains available via
+**Option 2 — host-native activation (v0.13.0+, recommended for projects).** Use
+`traceary memory activate --target claude` to manage a small import stub inside
+`CLAUDE.md` and an external memory file under `.traceary/memories/claude.md`.
+The activation pair preserves user-authored content outside the managed
+regions, refuses unsafe targets (symlinks, directories, malformed markers,
+newer marker versions), and is idempotent.
+
+```sh
+# preview the planned changes (dry-run, no writes)
+traceary memory activate --target claude --dry-run --diff
+
+# inspect the live host pair (read-only)
+traceary memory activate --target claude --status
+
+# apply the pair with safe per-file writes
+traceary memory activate --target claude --apply
+```
+
+Defaults:
+
+- activation root: nearest `.git` ancestor, or the working directory when no
+  `.git` is present
+- host context file: `<root>/CLAUDE.md`
+- external memory file: `<root>/.traceary/memories/claude.md`
+- import line rendered into `CLAUDE.md`: `@./.traceary/memories/claude.md`
+
+Override with `--root <dir>` or `--path <file>`; see the v0.13 host-native
+memory activation [ADR](../architecture/host-native-memory-activation.md) for
+the full contract (managed marker layout, status states, and tracked-file
+policy). `traceary doctor --client claude` surfaces a `claude-memory-activation`
+check with the same dry-run / apply remediation commands.
+
+If you own a direct Anthropic SDK loop, the experimental native memory-tool
+backend remains available via
 [`anthropic-memory-tool`](./anthropic-memory-tool.md), but that store is
-separate from the curated `memories` aggregate. Follow-up #883 tracks a future
-safe Claude-native activation path.
+separate from the curated `memories` aggregate.
 
 ## Install
 

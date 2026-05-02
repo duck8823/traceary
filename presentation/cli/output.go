@@ -260,12 +260,18 @@ type memoryActivationComponentOutput struct {
 }
 
 // memoryActivationApplyOutput is the JSON shape of a write activation result.
+//
+// HostContext / ExternalMemory are populated only for two-file targets
+// (Claude / Gemini); single-file Codex output omits them so existing
+// JSON consumers see the same shape they did in v0.12.
 type memoryActivationApplyOutput struct {
-	Target         string `json:"target"`
-	TargetPath     string `json:"target_path"`
-	Action         string `json:"action"`
-	Existing       bool   `json:"existing"`
-	ActivatedCount int    `json:"activated_count"`
+	Target         string                           `json:"target"`
+	TargetPath     string                           `json:"target_path"`
+	Action         string                           `json:"action"`
+	Existing       bool                             `json:"existing"`
+	ActivatedCount int                              `json:"activated_count"`
+	HostContext    *memoryActivationComponentOutput `json:"host_context,omitempty"`
+	ExternalMemory *memoryActivationComponentOutput `json:"external_memory,omitempty"`
 }
 
 // memoryActivationStatusOutput is the JSON shape of a read-only activation status.

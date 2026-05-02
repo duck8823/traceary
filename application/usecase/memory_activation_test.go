@@ -652,14 +652,227 @@ func TestMemoryUsecase_ActivatePlan_ClaudeDiffRendersDeterministically(t *testin
 	}
 }
 
-func TestMemoryUsecase_ActivatePlan_ClaudeRejectsApplyMode(t *testing.T) {
+func TestMemoryUsecase_Activate_ClaudeCreatesPair(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
 	scope := mustWorkspaceScope(t, "github.com/example/repo")
 	query := &stubExportMemoryQuery{
 		summaries: []apptypes.MemorySummary{
-			mustAcceptedSummary(t, "m-claude-apply", domtypes.MemoryTypePreference, scope, "prefer staged Claude apply"),
+			mustAcceptedSummary(t, "m-claude-apply", domtypes.MemoryTypePreference, scope, "prefer concise PRs"),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(nil, query, nil)
+
+	result, err := sut.Activate(context.Background(), apptypes.MemoryActivationCriteria{
+		Target: apptypes.MemoryBridgeTargetClaude,
+		Root:   root,
+		Scopes: []domtypes.MemoryScope{scope},
+	})
+	if err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	if result.Action != apptypes.MemoryActivationApplyCreated {
+		t.Fatalf("Action = %q, want created", result.Action)
+	}
+	if result.HostContext == nil || result.ExternalMemory == nil {
+		t.Fatalf("Claude result must expose HostContext and ExternalMemory components, got %+v", result)
+	}
+	if result.HostContext.Action != apptypes.MemoryActivationApplyCreated {
+		t.Fatalf("HostContext.Action = %q, want created", result.HostContext.Action)
+	}
+	if result.ExternalMemory.Action != apptypes.MemoryActivationApplyCreated {
+		t.Fatalf("ExternalMemory.Action = %q, want created", result.ExternalMemory.Action)
+	}
+	if result.HostContext.State != apptypes.MemoryActivationStatusInSync {
+		t.Fatalf("HostContext.State = %q, want in_sync after apply", result.HostContext.State)
+	}
+	if result.ExternalMemory.State != apptypes.MemoryActivationStatusInSync {
+		t.Fatalf("ExternalMemory.State = %q, want in_sync after apply", result.ExternalMemory.State)
+	}
+	hostPath := filepath.Join(root, "CLAUDE.md")
+	externalPath := filepath.Join(root, ".traceary", "memories", "claude.md")
+	if result.HostContext.Path != hostPath {
+		t.Fatalf("HostContext.Path = %q, want %q", result.HostContext.Path, hostPath)
+	}
+	if result.ExternalMemory.Path != externalPath {
+		t.Fatalf("ExternalMemory.Path = %q, want %q", result.ExternalMemory.Path, externalPath)
+	}
+	hostBody, err := os.ReadFile(hostPath)
+	if err != nil {
+		t.Fatalf("ReadFile host: %v", err)
+	}
+	if !strings.Contains(string(hostBody), "<!-- traceary-memory-import:begin:v1 -->") {
+		t.Fatalf("CLAUDE.md missing import stub: %q", string(hostBody))
+	}
+	if !strings.Contains(string(hostBody), "@./.traceary/memories/claude.md") {
+		t.Fatalf("CLAUDE.md missing relative import line: %q", string(hostBody))
+	}
+	externalBody, err := os.ReadFile(externalPath)
+	if err != nil {
+		t.Fatalf("ReadFile external: %v", err)
+	}
+	if !strings.Contains(string(externalBody), usecase.MemoryBridgeMarkerBegin) {
+		t.Fatalf("external memory file missing managed block: %q", string(externalBody))
+	}
+	if !strings.Contains(string(externalBody), "prefer concise PRs") {
+		t.Fatalf("external memory file missing accepted memory: %q", string(externalBody))
+	}
+}
+
+func TestMemoryUsecase_Activate_ClaudePreservesUserAuthoredHostContext(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	hostPath := filepath.Join(root, "CLAUDE.md")
+	userBody := "# Project rules\n\n- always run `make test` before commit\n- prefer plain markdown\n"
+	if err := os.WriteFile(hostPath, []byte(userBody), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	scope := mustWorkspaceScope(t, "github.com/example/repo")
+	query := &stubExportMemoryQuery{
+		summaries: []apptypes.MemorySummary{
+			mustAcceptedSummary(t, "m-claude-preserve", domtypes.MemoryTypeDecision, scope, "use Traceary as memory source"),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(nil, query, nil)
+
+	result, err := sut.Activate(context.Background(), apptypes.MemoryActivationCriteria{
+		Target: apptypes.MemoryBridgeTargetClaude,
+		Root:   root,
+		Scopes: []domtypes.MemoryScope{scope},
+	})
+	if err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	if result.Action != apptypes.MemoryActivationApplyCreated {
+		t.Fatalf("Action = %q, want created (external file new + host stub appended)", result.Action)
+	}
+	hostBody, err := os.ReadFile(hostPath)
+	if err != nil {
+		t.Fatalf("ReadFile host: %v", err)
+	}
+	got := string(hostBody)
+	for _, want := range []string{"# Project rules", "- always run `make test` before commit", "- prefer plain markdown", "<!-- traceary-memory-import:begin:v1 -->"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("CLAUDE.md missing %q after apply: %q", want, got)
+		}
+	}
+	if !strings.HasPrefix(got, userBody) {
+		t.Fatalf("user-authored content was not preserved at the top of CLAUDE.md: %q", got)
+	}
+}
+
+func TestMemoryUsecase_Activate_ClaudeRefreshesStaleExternal(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	hostPath := filepath.Join(root, "CLAUDE.md")
+	externalPath := filepath.Join(root, ".traceary", "memories", "claude.md")
+	scope := mustWorkspaceScope(t, "github.com/example/repo")
+	query := &stubExportMemoryQuery{
+		summaries: []apptypes.MemorySummary{
+			mustAcceptedSummary(t, "m-claude-refresh", domtypes.MemoryTypePreference, scope, "prefer fresh activation projection"),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(nil, query, nil)
+	criteria := apptypes.MemoryActivationCriteria{
+		Target: apptypes.MemoryBridgeTargetClaude,
+		Root:   root,
+		Scopes: []domtypes.MemoryScope{scope},
+	}
+
+	if _, err := sut.Activate(context.Background(), criteria); err != nil {
+		t.Fatalf("first Activate: %v", err)
+	}
+	if err := os.WriteFile(externalPath, []byte("preface\n\n"+usecase.MemoryBridgeMarkerBegin+"\nstale body\n"+usecase.MemoryBridgeMarkerEnd+"\n\nepilogue\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile stale external: %v", err)
+	}
+
+	result, err := sut.Activate(context.Background(), criteria)
+	if err != nil {
+		t.Fatalf("second Activate: %v", err)
+	}
+	if result.Action != apptypes.MemoryActivationApplyUpdated {
+		t.Fatalf("Action = %q, want updated", result.Action)
+	}
+	if result.HostContext.Action != apptypes.MemoryActivationApplyNoop {
+		t.Fatalf("HostContext.Action = %q, want noop after first apply", result.HostContext.Action)
+	}
+	if result.ExternalMemory.Action != apptypes.MemoryActivationApplyUpdated {
+		t.Fatalf("ExternalMemory.Action = %q, want updated", result.ExternalMemory.Action)
+	}
+	externalBody, err := os.ReadFile(externalPath)
+	if err != nil {
+		t.Fatalf("ReadFile external: %v", err)
+	}
+	got := string(externalBody)
+	for _, want := range []string{"preface", "epilogue", "prefer fresh activation projection"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("external memory missing %q after stale refresh: %q", want, got)
+		}
+	}
+	if strings.Contains(got, "stale body") {
+		t.Fatalf("stale managed body was not replaced: %q", got)
+	}
+	hostBody, err := os.ReadFile(hostPath)
+	if err != nil {
+		t.Fatalf("ReadFile host: %v", err)
+	}
+	if !strings.Contains(string(hostBody), "@./.traceary/memories/claude.md") {
+		t.Fatalf("CLAUDE.md import stub regressed after refresh: %q", string(hostBody))
+	}
+}
+
+func TestMemoryUsecase_Activate_ClaudeIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	scope := mustWorkspaceScope(t, "github.com/example/repo")
+	query := &stubExportMemoryQuery{
+		summaries: []apptypes.MemorySummary{
+			mustAcceptedSummary(t, "m-claude-idem", domtypes.MemoryTypePreference, scope, "prefer idempotent applies"),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(nil, query, nil)
+	criteria := apptypes.MemoryActivationCriteria{
+		Target: apptypes.MemoryBridgeTargetClaude,
+		Root:   root,
+		Scopes: []domtypes.MemoryScope{scope},
+	}
+
+	first, err := sut.Activate(context.Background(), criteria)
+	if err != nil {
+		t.Fatalf("first Activate: %v", err)
+	}
+	if first.Action != apptypes.MemoryActivationApplyCreated {
+		t.Fatalf("first Action = %q, want created", first.Action)
+	}
+
+	second, err := sut.Activate(context.Background(), criteria)
+	if err != nil {
+		t.Fatalf("second Activate: %v", err)
+	}
+	if second.Action != apptypes.MemoryActivationApplyNoop {
+		t.Fatalf("second Action = %q, want noop", second.Action)
+	}
+	if second.HostContext.Action != apptypes.MemoryActivationApplyNoop || second.ExternalMemory.Action != apptypes.MemoryActivationApplyNoop {
+		t.Fatalf("second per-component actions = host=%q external=%q, want both noop", second.HostContext.Action, second.ExternalMemory.Action)
+	}
+}
+
+func TestMemoryUsecase_Activate_ClaudeRefusesInvalidHostStub(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	hostPath := filepath.Join(root, "CLAUDE.md")
+	if err := os.WriteFile(hostPath, []byte("<!-- traceary-memory-import:begin:v9 -->\n@./.traceary/memories/claude.md\n<!-- traceary-memory-import:end -->\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	scope := mustWorkspaceScope(t, "github.com/example/repo")
+	query := &stubExportMemoryQuery{
+		summaries: []apptypes.MemorySummary{
+			mustAcceptedSummary(t, "m-claude-refuse", domtypes.MemoryTypePreference, scope, "prefer safe refusals"),
 		},
 	}
 	sut := usecase.NewMemoryUsecase(nil, query, nil)
@@ -669,14 +882,49 @@ func TestMemoryUsecase_ActivatePlan_ClaudeRejectsApplyMode(t *testing.T) {
 		Root:   root,
 		Scopes: []domtypes.MemoryScope{scope},
 	})
-	if err == nil || !strings.Contains(err.Error(), "not supported yet") {
-		t.Fatalf("Activate err = %v, want claude apply refusal", err)
+	if err == nil || !strings.Contains(err.Error(), "refusing to apply invalid host context stub") {
+		t.Fatalf("Activate err = %v, want invalid host stub refusal", err)
 	}
-	if _, statErr := os.Stat(filepath.Join(root, "CLAUDE.md")); !os.IsNotExist(statErr) {
-		t.Fatalf("apply refusal must not create CLAUDE.md, stat err = %v", statErr)
+	hostBody, readErr := os.ReadFile(hostPath)
+	if readErr != nil {
+		t.Fatalf("ReadFile host: %v", readErr)
 	}
-	if _, statErr := os.Stat(filepath.Join(root, ".traceary", "memories", "claude.md")); !os.IsNotExist(statErr) {
-		t.Fatalf("apply refusal must not create external memory file, stat err = %v", statErr)
+	if !strings.Contains(string(hostBody), "<!-- traceary-memory-import:begin:v9 -->") {
+		t.Fatalf("apply must not overwrite a newer-version stub, got %q", string(hostBody))
+	}
+}
+
+func TestMemoryUsecase_Activate_ClaudeRefusesSymlinkHostContext(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	hostPath := filepath.Join(root, "CLAUDE.md")
+	missingTarget := filepath.Join(root, "missing-target.md")
+	if err := os.Symlink(missingTarget, hostPath); err != nil {
+		t.Skipf("symlink unsupported on this platform: %v", err)
+	}
+	scope := mustWorkspaceScope(t, "github.com/example/repo")
+	query := &stubExportMemoryQuery{
+		summaries: []apptypes.MemorySummary{
+			mustAcceptedSummary(t, "m-claude-symlink", domtypes.MemoryTypePreference, scope, "prefer symlink refusal"),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(nil, query, nil)
+
+	_, err := sut.Activate(context.Background(), apptypes.MemoryActivationCriteria{
+		Target: apptypes.MemoryBridgeTargetClaude,
+		Root:   root,
+		Scopes: []domtypes.MemoryScope{scope},
+	})
+	if err == nil || !strings.Contains(err.Error(), "symlinks are not supported") {
+		t.Fatalf("Activate err = %v, want symlink refusal", err)
+	}
+	info, statErr := os.Lstat(hostPath)
+	if statErr != nil {
+		t.Fatalf("Lstat: %v", statErr)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("apply must not replace a dangling symlink, got mode %s", info.Mode())
 	}
 }
 

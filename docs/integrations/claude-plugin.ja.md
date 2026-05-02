@@ -13,13 +13,37 @@ Claude 向け package は `integrations/claude-plugin/` にあり、repository r
 
 ## Memory activation strategy
 
-Claude integration の v0.12 は、Traceary の accepted memory store を MCP tools と instruction-file export 経由で使います。review 済み memory を Claude project instructions に見せるには、Traceary 管理ブロックとして export します。
+Claude integration は、Traceary の accepted memory store を MCP tools / instruction-file export / host-native activation 経由で使います。review 済み memory を Claude project instructions に見せる方法は二つあります。
+
+**Option 1 — instruction-file export（従来通り利用可）。** Traceary 管理ブロックを `CLAUDE.md` に直接 export します。
 
 ```sh
 traceary memory export --target claude --out CLAUDE.md
 ```
 
-これは Codex host-native activation とは別の経路です。`traceary memory activate --target claude` は v0.12 では**未実装**で、Claude plugin は Claude-native memory file を書きません。Anthropic SDK loop を自前で持つ場合は experimental な [Anthropic native memory tool](./anthropic-memory-tool.ja.md) backend も使えますが、その store は curated な `memories` aggregate とは分離しています。将来の安全な Claude-native activation path は follow-up #883 で扱います。
+**Option 2 — host-native activation（v0.13.0+ で利用可、project では推奨）。** `traceary memory activate --target claude` で `CLAUDE.md` 内の小さな import stub と `.traceary/memories/claude.md` の external memory file を二ファイル構成で管理します。activation pair は管理ブロック外の user-authored content を保持し、安全でない対象（symlink / directory / 不正マーカー / 新バージョンマーカー）を拒否し、冪等です。
+
+```sh
+# 適用予定の差分を事前確認 (dry-run, 書き込みなし)
+traceary memory activate --target claude --dry-run --diff
+
+# host pair を read-only で点検
+traceary memory activate --target claude --status
+
+# pair を file 単位の safe write で反映
+traceary memory activate --target claude --apply
+```
+
+既定値:
+
+- activation root: 直近の `.git` 祖先（無ければ作業ディレクトリ）
+- host context file: `<root>/CLAUDE.md`
+- external memory file: `<root>/.traceary/memories/claude.md`
+- `CLAUDE.md` に書き込まれる import 行: `@./.traceary/memories/claude.md`
+
+`--root <dir>` / `--path <file>` で override 可能です。詳細な contract（managed marker layout、status の状態、tracked-file ポリシー）は v0.13 host-native memory activation [ADR](../architecture/host-native-memory-activation.ja.md) を参照してください。`traceary doctor --client claude` は `claude-memory-activation` チェックで同じ dry-run / apply 再実行コマンドを案内します。
+
+Anthropic SDK loop を自前で持つ場合は experimental な [Anthropic native memory tool](./anthropic-memory-tool.ja.md) backend も使えますが、その store は curated な `memories` aggregate とは分離しています。
 
 ## Install
 

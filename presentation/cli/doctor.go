@@ -291,6 +291,11 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 				report.Checks = append(report.Checks, *activationCheck)
 			}
 		}
+		if targetClient == "claude" {
+			if activationCheck := c.inspectClaudeMemoryActivationStatus(ctx, resolvedProjectDir); activationCheck != nil {
+				report.Checks = append(report.Checks, *activationCheck)
+			}
+		}
 	}
 
 	report.Checks = append(report.Checks, c.inspectPluginVersionChecks(input.currentVersion)...)
