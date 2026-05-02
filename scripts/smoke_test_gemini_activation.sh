@@ -1,23 +1,18 @@
 #!/bin/bash
 
-# smoke_test_gemini_activation.sh runs
-# `traceary memory activate --target gemini --dry-run` and materialises
-# that returned plan into a temp project without using the product
-# `--apply` path. This gives operators a concrete GEMINI.md +
-# `.traceary/memories/gemini.md` pair for manual runtime probes while
-# keeping v0.13.0-6 itself read-only. The real `--apply` path is wired
-# in v0.13.0-7 (#895), so this script intentionally confirms `--apply`
-# is still refused today. When #895 lands, this script must be
-# extended end-to-end (apply creates both files, second apply converges
-# to noop, post-apply status is in_sync) so Gemini inherits the same
-# CI-side regression coverage Claude already has.
-#
-# Launching Gemini CLI from CI is non-deterministic (auth state, model
-# availability, hierarchical context load order), so the live runtime
-# probe is gated behind TRACEARY_ENABLE_GEMINI_RUNTIME_SMOKE=1 and
-# falls through to a printed manual verification when gemini is not
-# available. The structural checks (file paths, marker layout,
-# import-line format) always run regardless of gemini availability.
+# smoke_test_gemini_activation.sh materialises a temp project and runs
+# `traceary memory activate --target gemini` end-to-end so an operator
+# can manually verify Gemini CLI loads the resulting `.traceary/`
+# import path. The script is best-effort: launching Gemini CLI from
+# CI is non-deterministic (auth, model availability, hierarchical
+# context loading), so the live runtime probe is gated behind
+# TRACEARY_ENABLE_GEMINI_RUNTIME_SMOKE=1 and falls through to a printed
+# manual verification when gemini is not available. The structural
+# checks (file paths, marker layout, import-line format, first apply,
+# idempotent re-apply, post-apply status convergence, and byte-for-byte
+# preservation of `## Gemini Added Memories`) always run regardless of
+# gemini availability so v0.13.0-7 keeps a CI-side verification of the
+# apply path.
 
 set -euo pipefail
 
@@ -31,6 +26,23 @@ fi
 
 mkdir -p "${TMP_PROJECT}/.git"
 echo 'ref: refs/heads/main' > "${TMP_PROJECT}/.git/HEAD"
+
+# Seed GEMINI.md with a pre-existing `## Gemini Added Memories`
+# section so the apply path can prove it preserves Gemini's
+# save_memory output byte-for-byte.
+ADDED_MEMORIES_FIXTURE="$(cat <<'MEMORIES'
+# Project notes
+
+- prefer English commit messages
+
+## Gemini Added Memories
+
+- The user prefers concise replies.
+- Always cite sources.
+MEMORIES
+)"
+printf '%s\n' "${ADDED_MEMORIES_FIXTURE}" > "${TMP_PROJECT}/GEMINI.md"
+ADDED_MEMORIES_BYTES_BEFORE="$(wc -c < "${TMP_PROJECT}/GEMINI.md" | tr -d ' ')"
 
 (cd "${ROOT_DIR}" && go run . memory activate \
   --target gemini \
@@ -72,58 +84,107 @@ for component in (host, external):
     assert os.path.commonpath([tmp_project, component_path]) == tmp_project, (
         f"refusing to materialise path outside temp project: {component['path']}"
     )
-    os.makedirs(os.path.dirname(component_path), exist_ok=True)
-    with open(component_path, "w", encoding="utf-8") as fp:
-        fp.write(component["markdown"])
 
-print("ok: traceary memory activate --target gemini --dry-run produced and materialised the expected pair plan")
+print("ok: traceary memory activate --target gemini --dry-run produced the expected pair plan")
 PY
 
-(cd "${ROOT_DIR}" && go run . memory activate \
+# Materialise the planned files via the live --apply path. v0.13.0-7
+# expects `traceary memory activate --target gemini --apply` to update
+# the seeded host context import stub and create the external memory
+# file using the safe activation writer. Running --apply twice must
+# converge to noop; the second run validates that the planner is
+# idempotent.
+APPLY_FIRST="$(cd "${ROOT_DIR}" && go run . memory activate \
+  --target gemini \
+  --db-path "${TMP_PROJECT}/traceary.db" \
+  --root "${TMP_PROJECT}" \
+  --workspace github.com/duck8823/traceary-gemini-smoke \
+  --apply \
+  --json)"
+echo "${APPLY_FIRST}" > "${TMP_PROJECT}/apply_first.json"
+
+APPLY_SECOND="$(cd "${ROOT_DIR}" && go run . memory activate \
+  --target gemini \
+  --db-path "${TMP_PROJECT}/traceary.db" \
+  --root "${TMP_PROJECT}" \
+  --workspace github.com/duck8823/traceary-gemini-smoke \
+  --apply \
+  --json)"
+echo "${APPLY_SECOND}" > "${TMP_PROJECT}/apply_second.json"
+
+STATUS_AFTER="$(cd "${ROOT_DIR}" && go run . memory activate \
   --target gemini \
   --db-path "${TMP_PROJECT}/traceary.db" \
   --root "${TMP_PROJECT}" \
   --workspace github.com/duck8823/traceary-gemini-smoke \
   --status \
-  --json) > "${TMP_PROJECT}/status.json"
+  --json)"
+echo "${STATUS_AFTER}" > "${TMP_PROJECT}/status_after.json"
 
-python3 - "${TMP_PROJECT}/status.json" <<'PY'
+python3 - "${TMP_PROJECT}/plan.json" "${TMP_PROJECT}/apply_first.json" "${TMP_PROJECT}/apply_second.json" "${TMP_PROJECT}/status_after.json" "${TMP_PROJECT}" "${ADDED_MEMORIES_FIXTURE}" "${ADDED_MEMORIES_BYTES_BEFORE}" <<'PY'
 import json
+import os
 import sys
 
-status_path = sys.argv[1]
+plan_path, first_path, second_path, status_path, project, fixture, bytes_before = sys.argv[1:8]
+with open(plan_path, encoding="utf-8") as fp:
+    plan = json.load(fp)
+with open(first_path, encoding="utf-8") as fp:
+    first = json.load(fp)
+with open(second_path, encoding="utf-8") as fp:
+    second = json.load(fp)
 with open(status_path, encoding="utf-8") as fp:
     status = json.load(fp)
 
-assert status.get("target") == "gemini", f"unexpected target: {status.get('target')}"
-assert status.get("state") == "in_sync", f"status after materialising plan must be in_sync: {status}"
-assert "apply_command" not in status, f"gemini status must not advertise apply until #895: {status}"
-assert status.get("host_context", {}).get("state") == "in_sync", f"host not in_sync: {status}"
-assert status.get("external_memory", {}).get("state") == "in_sync", f"external not in_sync: {status}"
+host = plan["host_context"]
+external = plan["external_memory"]
 
-print("ok: materialised gemini dry-run plan is recognised as in_sync by --status")
+# First apply must update host (existing GEMINI.md gains the stub) and
+# create the external file. The aggregate action priority (created >
+# updated > noop) means the pair action reports "created".
+assert first.get("action") == "created", f"first apply action = {first.get('action')!r}, want created"
+assert first.get("host_context", {}).get("action") == "updated", "host context first apply action mismatch"
+assert first.get("external_memory", {}).get("action") == "created", "external memory first apply action mismatch"
+assert first.get("host_context", {}).get("state") == "in_sync", "host context first apply state mismatch"
+assert first.get("external_memory", {}).get("state") == "in_sync", "external memory first apply state mismatch"
+
+# Second apply must converge to noop on both files.
+assert second.get("action") == "noop", f"second apply action = {second.get('action')!r}, want noop"
+assert second.get("host_context", {}).get("action") == "noop", "host context second apply must be noop"
+assert second.get("external_memory", {}).get("action") == "noop", "external memory second apply must be noop"
+
+# Post-apply status must be in_sync for both files.
+assert status.get("state") == "in_sync", f"post-apply state = {status.get('state')!r}, want in_sync"
+assert status.get("host_context", {}).get("state") == "in_sync", "host context post-apply state mismatch"
+assert status.get("external_memory", {}).get("state") == "in_sync", "external memory post-apply state mismatch"
+
+# The on-disk files must match the planned managed regions.
+with open(host["path"], encoding="utf-8") as fp:
+    host_disk = fp.read()
+with open(external["path"], encoding="utf-8") as fp:
+    external_disk = fp.read()
+assert "<!-- traceary-memory-import:begin:v1 -->" in host_disk, "applied GEMINI.md missing import begin marker"
+assert "@./.traceary/memories/gemini.md" in host_disk, "applied GEMINI.md missing relative import line"
+assert "<!-- traceary-memories:begin:v1 -->" in external_disk, "applied external memory file missing managed begin marker"
+
+# The pre-existing `## Gemini Added Memories` section must be preserved
+# byte-for-byte. Apply may only append the managed import stub at the
+# end; it must never mutate the user-authored prefix.
+fixture_prefix = fixture if fixture.endswith("\n") else fixture + "\n"
+assert host_disk.startswith(fixture_prefix), (
+    f"applied GEMINI.md did not preserve the user-authored Gemini Added Memories prefix byte-for-byte:\n--- expected prefix ---\n{fixture_prefix!r}\n--- got ---\n{host_disk[:len(fixture_prefix)]!r}"
+)
+assert host_disk.count("## Gemini Added Memories") == 1, "applied GEMINI.md duplicated the Gemini Added Memories section"
+begin_idx = host_disk.index("<!-- traceary-memory-import:begin:v1 -->")
+added_idx = host_disk.index("## Gemini Added Memories")
+assert begin_idx > added_idx, "managed import stub must be appended after the Gemini Added Memories section"
+
+print(f"applied pair under {project}")
+print(f"  GEMINI.md = {host['path']}")
+print(f"  external memory = {external['path']}")
+print("ok: --apply materialised the pair, second --apply was noop, post-apply status is in_sync")
+print(f"ok: pre-existing `## Gemini Added Memories` section preserved byte-for-byte ({bytes_before} bytes prefix)")
 PY
-
-# v0.13.0-6 ships read-only surfaces. The apply path lands in #895, so
-# this script only calls `traceary memory activate --target gemini
-# --apply` to assert the command is refused today; #895 must replace
-# this refusal assertion with the same end-to-end checks the Claude
-# smoke script performs (first apply creates both files, second apply
-# converges to noop, post-apply status is in_sync), and must
-# additionally assert that any pre-existing `## Gemini Added Memories`
-# section in GEMINI.md survives byte-for-byte after apply.
-
-# Confirm `--apply` is currently refused for gemini so a regression
-# that silently enables apply is caught immediately.
-if (cd "${ROOT_DIR}" && go run . memory activate \
-  --target gemini \
-  --db-path "${TMP_PROJECT}/traceary.db" \
-  --root "${TMP_PROJECT}" \
-  --workspace github.com/duck8823/traceary-gemini-smoke \
-  --apply >/dev/null 2>&1); then
-  echo 'fail: gemini --apply must be refused until #895 lands.' >&2
-  exit 1
-fi
 
 if [[ "${TRACEARY_ENABLE_GEMINI_RUNTIME_SMOKE:-0}" != "1" ]]; then
   if [[ "${KEEP_TEMP}" == "1" ]]; then
@@ -140,8 +201,9 @@ if ! command -v gemini >/dev/null 2>&1; then
   exit 0
 fi
 
-# Live probe: v0.13.0-6 leaves Gemini launch as an operator-run
-# readiness check because authenticated Gemini CLI startup is
-# environment-dependent. The materialised temp project is ready for
-# that manual probe when TRACEARY_KEEP_SMOKE_TEMP=1.
-echo 'skip: automated live gemini probe is reserved for #895; structural materialisation already passed.'
+# Live probe: ask Gemini CLI to echo back the marker we placed in the
+# external memory file. Whether this works depends on the operator's
+# Gemini auth state and on whether the hierarchical context load picks
+# up the @./.traceary/memories/gemini.md import.
+(cd "${TMP_PROJECT}" && gemini --prompt \
+  'Quote one bullet from the Traceary-managed memories that you can see in GEMINI.md, verbatim.')

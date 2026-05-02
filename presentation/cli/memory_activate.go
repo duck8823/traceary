@@ -58,13 +58,8 @@ func (c *RootCLI) runMemoryActivate(ctx context.Context, output io.Writer, input
 		return xerrors.Errorf(Localize("--target must be codex, claude, or gemini", "--target は codex, claude, gemini のいずれかを指定してください"))
 	}
 	switch target {
-	case apptypes.MemoryBridgeTargetCodex, apptypes.MemoryBridgeTargetClaude:
+	case apptypes.MemoryBridgeTargetCodex, apptypes.MemoryBridgeTargetClaude, apptypes.MemoryBridgeTargetGemini:
 		// fully supported (status / dry-run / apply)
-	case apptypes.MemoryBridgeTargetGemini:
-		// status / dry-run / diff supported in v0.13.0-6; --apply lands in v0.13.0-7 (#895).
-		if input.apply {
-			return xerrors.Errorf(Localize("memory activate --apply is not supported yet for target gemini", "memory activate --apply は target gemini ではまだサポートされていません"))
-		}
 	default:
 		return xerrors.Errorf(Localize("--target must be codex, claude, or gemini", "--target は codex, claude, gemini のいずれかを指定してください"))
 	}
@@ -248,13 +243,14 @@ func memoryActivationCommands(criteria apptypes.MemoryActivationCriteria) memory
 }
 
 // memoryActivationApplySupported reports whether `memory activate
-// --apply` is available for the given target. Codex shipped in v0.12 and
-// Claude shipped in v0.13.0-5 (#893); Gemini follows in #895. The helper
-// gates both the JSON `apply_command` field and the text `next_apply`
-// line so --status only surfaces remediation the CLI can actually run.
+// --apply` is available for the given target. Codex shipped in v0.12,
+// Claude shipped in v0.13.0-5 (#893), and Gemini shipped in v0.13.0-7
+// (#895). The helper gates both the JSON `apply_command` field and the
+// text `next_apply` line so --status only surfaces remediation the CLI
+// can actually run.
 func memoryActivationApplySupported(target apptypes.MemoryBridgeTarget) bool {
 	switch target {
-	case apptypes.MemoryBridgeTargetCodex, apptypes.MemoryBridgeTargetClaude:
+	case apptypes.MemoryBridgeTargetCodex, apptypes.MemoryBridgeTargetClaude, apptypes.MemoryBridgeTargetGemini:
 		return true
 	}
 	return false

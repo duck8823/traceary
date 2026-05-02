@@ -141,6 +141,76 @@ func (c *RootCLI) inspectClaudeMemoryActivationStatus(ctx context.Context, proje
 	return &check
 }
 
+// inspectGeminiMemoryActivationStatus reports the Gemini two-file
+// activation pair (GEMINI.md import stub plus
+// .traceary/memories/gemini.md external memory file) as a doctor check.
+// The check mirrors the Claude variant: aggregated pair state per the
+// v0.13 ADR, dry-run/apply remediation derived from the same activation
+// criteria, and the explicit promise that Gemini's `## Gemini Added
+// Memories` section is never managed or rewritten by Traceary.
+func (c *RootCLI) inspectGeminiMemoryActivationStatus(ctx context.Context, projectDir string) *doctorCheck {
+	if c.memory == nil {
+		return nil
+	}
+	criteria := geminiActivationStatusCriteria(ctx, projectDir)
+	status, err := c.memory.ActivationStatus(ctx, criteria)
+	if err != nil {
+		return &doctorCheck{
+			Name:    "gemini-memory-activation",
+			Status:  doctorStatusFail,
+			Message: localizef("failed to inspect Gemini memory activation: %v", "Gemini memory activation の確認に失敗しました: %v", err),
+		}
+	}
+	commands := memoryActivationCommands(criteria)
+	check := doctorCheck{
+		Name:    "gemini-memory-activation",
+		Status:  doctorStatusPass,
+		Message: fmt.Sprintf("%s: %s", status.TargetPath, status.Message),
+	}
+	switch status.State {
+	case apptypes.MemoryActivationStatusInSync:
+		check.Status = doctorStatusPass
+		check.Message = localizef("Gemini memory activation is in sync at %s (%d accepted memories)", "Gemini memory activation は %s で同期済みです (%d accepted memories)", status.TargetPath, status.ActivatedCount)
+	case apptypes.MemoryActivationStatusMissing:
+		check.Status = doctorStatusWarn
+		check.Hint = "activate accepted memories into the Gemini host import stub"
+		check.FixCommand = commands.Apply
+		check.Message = localizef(
+			"Gemini memory activation is missing at %s (%d accepted memories). Preview with `%s`, then apply with `%s`",
+			"Gemini memory activation が %s にありません (%d accepted memories)。`%s` で確認してから `%s` で反映してください",
+			status.TargetPath,
+			status.ActivatedCount,
+			commands.DryRun,
+			commands.Apply,
+		)
+	case apptypes.MemoryActivationStatusStale:
+		check.Status = doctorStatusWarn
+		check.Hint = "refresh the Gemini host import stub and external memory file"
+		check.FixCommand = commands.Apply
+		check.Message = localizef(
+			"Gemini memory activation is stale at %s (%d accepted memories). Preview with `%s`, then refresh with `%s`",
+			"Gemini memory activation は %s で stale です (%d accepted memories)。`%s` で確認してから `%s` で更新してください",
+			status.TargetPath,
+			status.ActivatedCount,
+			commands.DryRun,
+			commands.Apply,
+		)
+	case apptypes.MemoryActivationStatusInvalid:
+		check.Status = doctorStatusFail
+		check.Hint = "inspect the Gemini host context and external memory files before applying Traceary activation"
+		check.Message = localizef(
+			"Gemini memory activation target is invalid at %s: %s",
+			"Gemini memory activation target が %s で不正です: %s",
+			status.TargetPath,
+			status.Message,
+		)
+	default:
+		check.Status = doctorStatusFail
+		check.Message = localizef("Gemini memory activation returned unknown state at %s: %s", "Gemini memory activation が %s で不明な state を返しました: %s", status.TargetPath, status.State.String())
+	}
+	return &check
+}
+
 func codexActivationStatusCriteria(ctx context.Context, projectDir string) apptypes.MemoryActivationCriteria {
 	criteria := apptypes.MemoryActivationCriteria{
 		Target:        apptypes.MemoryBridgeTargetCodex,
@@ -166,6 +236,29 @@ func codexActivationStatusCriteria(ctx context.Context, projectDir string) appty
 func claudeActivationStatusCriteria(ctx context.Context, projectDir string) apptypes.MemoryActivationCriteria {
 	criteria := apptypes.MemoryActivationCriteria{
 		Target:        apptypes.MemoryBridgeTargetClaude,
+		IncludeGlobal: true,
+	}
+	if root := strings.TrimSpace(projectDir); root != "" {
+		criteria.Root = root
+	}
+	if workspace := detectActivationStatusWorkspace(ctx, projectDir); workspace != "" {
+		resolvedWorkspace, err := domtypes.WorkspaceFrom(workspace)
+		if err == nil {
+			criteria.Scopes = []domtypes.MemoryScope{domtypes.WorkspaceScopeOf(resolvedWorkspace)}
+		}
+	}
+	return criteria
+}
+
+// geminiActivationStatusCriteria mirrors claudeActivationStatusCriteria
+// for the Gemini target. Pinning `Root` to `--project-dir` when set
+// keeps the doctor check scoped to the same activation root the
+// operator would see from `traceary memory activate --target gemini
+// --status` inside that repository, instead of the doctor process's
+// working directory.
+func geminiActivationStatusCriteria(ctx context.Context, projectDir string) apptypes.MemoryActivationCriteria {
+	criteria := apptypes.MemoryActivationCriteria{
+		Target:        apptypes.MemoryBridgeTargetGemini,
 		IncludeGlobal: true,
 	}
 	if root := strings.TrimSpace(projectDir); root != "" {

@@ -34,9 +34,8 @@ const (
 
 // geminiHostContextFileName is the canonical GEMINI.md filename Gemini
 // CLI loads as hierarchical context. Traceary writes the import stub
-// region inside this file when --target gemini is applied (planned for
-// v0.13.0-7 / #895). The v0.13.0-6 status/dry-run path renders the
-// stub without mutating disk.
+// region inside this file when --target gemini is applied. The
+// status/dry-run path renders the stub without mutating disk.
 const geminiHostContextFileName = "GEMINI.md"
 
 // geminiExternalMemoryRelDir / geminiExternalMemoryFileName describe
@@ -216,12 +215,10 @@ func (geminiActivationTarget) Target() apptypes.MemoryBridgeTarget {
 // and the Gemini CLI Memory Import Processor's documented relative
 // path resolution.
 //
-// v0.13.0-6 ships the read-only status/dry-run/diff surface; --apply
-// stays refused at the usecase boundary until #895 wires the apply
-// path. Traceary never writes into Gemini's
-// `## Gemini Added Memories` section regardless of mode — the import
-// stub lives outside that section because the planner's safe append
-// rule only attaches the managed region at end-of-file.
+// Traceary never writes into Gemini's `## Gemini Added Memories`
+// section regardless of mode — the import stub lives outside that
+// section because the planner's safe append rule only attaches the
+// managed region at end-of-file, after the user-authored content.
 func (geminiActivationTarget) Resolve(criteria apptypes.MemoryActivationCriteria) (activationTargetResolution, error) {
 	return resolveHostContextActivation(criteria, geminiActivationConfig)
 }

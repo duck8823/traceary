@@ -15,19 +15,52 @@ The Gemini package lives under `integrations/gemini-extension/`. Gemini CLI expe
 
 ## Memory activation strategy
 
-Gemini integration in v0.12 uses Traceary's accepted memory store through MCP
-tools and instruction-file export. To make reviewed memories visible in Gemini
-instructions, export them into a Traceary-managed block:
+Gemini integration uses Traceary's accepted memory store through MCP tools,
+instruction-file export, and host-native activation. To make reviewed memories
+visible in Gemini instructions, you have two options.
+
+**Option 1 — instruction-file export (still supported).** Export accepted
+memories into a Traceary-managed block inside `GEMINI.md` directly:
 
 ```sh
 traceary memory export --target gemini --out GEMINI.md
 ```
 
-This is intentionally separate from Codex host-native activation. `traceary
-memory activate --target gemini` is **not implemented** in v0.12, and the
-extension does not write Gemini-native memory files. Follow-up #884 tracks a
-future safe Gemini-native activation path once the host-native surface and
-preview/feature-flag behavior are stable enough to target.
+**Option 2 — host-native activation (v0.13.0+, recommended for projects).** Use
+`traceary memory activate --target gemini` to manage a small import stub inside
+`GEMINI.md` and an external memory file under `.traceary/memories/gemini.md`.
+The activation pair preserves user-authored content outside the managed
+regions, refuses unsafe targets (symlinks, directories, malformed markers,
+newer marker versions), and is idempotent. Traceary never reads or rewrites
+Gemini's `## Gemini Added Memories` section produced by `save_memory`; that
+user-authored section is preserved as ordinary host-context content, and the
+managed import stub is appended after it so both sources of truth coexist
+safely.
+
+```sh
+# preview the planned changes (dry-run, no writes)
+traceary memory activate --target gemini --dry-run --diff
+
+# inspect the live host pair (read-only)
+traceary memory activate --target gemini --status
+
+# apply the pair with safe per-file writes
+traceary memory activate --target gemini --apply
+```
+
+Defaults:
+
+- activation root: nearest `.git` ancestor, or the working directory when no
+  `.git` is present
+- host context file: `<root>/GEMINI.md`
+- external memory file: `<root>/.traceary/memories/gemini.md`
+- import line rendered into `GEMINI.md`: `@./.traceary/memories/gemini.md`
+
+Override with `--root <dir>` or `--path <file>`; see the v0.13 host-native
+memory activation [ADR](../architecture/host-native-memory-activation.md) for
+the full contract (managed marker layout, status states, and tracked-file
+policy). `traceary doctor --client gemini` surfaces a `gemini-memory-activation`
+check with the same dry-run / apply remediation commands.
 
 ## Install
 
