@@ -352,13 +352,14 @@ Useful flags:
 
 ### `traceary memory activate`
 
-Activate accepted memories into a Traceary-managed Codex native memory file. `memory activate --target codex --dry-run` resolves the target (`~/.codex/memories/traceary.md`, or `--root <dir>/traceary.md` / `--path <file>` when overridden) and prints the content that would be written without mutating the filesystem. `memory activate --target codex --apply` writes the file, creating the directory/file when needed, replacing only the Traceary-managed block, and preserving user-authored content outside that block. Re-running with unchanged memories is a no-op, and Traceary refuses to overwrite a managed block from a newer marker version.
+Activate accepted memories into a Traceary-managed Codex native memory file. `memory activate --target codex --dry-run` resolves the target (`~/.codex/memories/traceary.md`, or `--root <dir>/traceary.md` / `--path <file>` when overridden) and prints the content that would be written without mutating the filesystem. `memory activate --target codex --apply` writes the file, creating the directory/file when needed, replacing only the Traceary-managed block, and preserving user-authored content outside that block. `memory activate --target codex --status` is read-only and reports `missing`, `stale`, `in_sync`, or `invalid` plus remediation commands for missing/stale targets. Re-running with unchanged memories is a no-op, and Traceary refuses to overwrite a managed block from a newer marker version.
 
 Useful flags:
 
 - `--target` — currently `codex`
 - `--dry-run` — print the activation plan without writing or creating files
 - `--apply` — write the activation target file
+- `--status` — compare the current accepted memories with the target file without writing
 - `--root` — Codex memory root override
 - `--path` — explicit target file override
 - `--workspace` / `--include-global` / `--no-global` — activation scope controls
@@ -676,6 +677,7 @@ Additional doctor checks:
 - `path` confirms `traceary` resolves on `PATH` and reports the directory. Missing is `FAIL`; multiple matches are `WARN`.
 - `<client>-mcp` checks Claude Code, Codex, and Gemini config/plugin registration for the `traceary mcp-server` MCP server.
 - `<client>-plugin-version` compares detected installed plugin manifests/caches with the running binary version and suggests reinstalling/updating the plugin when they drift.
+- `codex-memory-activation` checks whether accepted durable memories are missing, stale, in sync, or invalid in the Codex native memory target, and prints exact `memory activate --dry-run --diff` / `--apply` remediation commands when refresh is needed.
 
 Exit codes:
 

@@ -210,6 +210,7 @@ applied explicitly:
 
 - `traceary memory activate --target codex --dry-run`
 - `traceary memory activate --target codex --apply`
+- `traceary memory activate --target codex --status`
 
 The Codex default target is Traceary-managed
 (`~/.codex/memories/traceary.md`) so user-authored memory shards are not
@@ -218,7 +219,10 @@ overwritten. `--root` and `--path` provide explicit overrides, and
 mode. Apply mode creates the target directory/file when needed, replaces
 only the Traceary-managed block, preserves user-authored content outside
 that block, reports the activated memory count, and refuses to overwrite a
-managed block stamped with a newer marker version.
+managed block stamped with a newer marker version. Status mode is read-only:
+it reports `missing`, `stale`, `in_sync`, or `invalid` and emits exact
+dry-run/apply commands when the Codex file needs to be created or refreshed.
+`traceary doctor --client codex` includes the same activation status.
 
 Import reads local Codex Markdown memories (`~/.codex/memories/*.md` by
 default). Legacy `MEMORY.md` keeps the handbook allow-list
