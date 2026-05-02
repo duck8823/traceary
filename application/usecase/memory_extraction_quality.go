@@ -172,10 +172,11 @@ func isStandaloneCommand(value, lower string) bool {
 	if !standaloneCommandPattern.MatchString(value) {
 		return false
 	}
-	// Hiragana / Katakana strongly suggest a Japanese sentence describing
-	// or referencing a command rather than an executable line — keep those
-	// out of the standalone-command bucket so they are not mis-hidden.
-	if hasHiraganaOrKatakana(value) {
+	// CJK prose strongly suggests a sentence describing or constraining a
+	// command rather than an executable line — keep those out of the
+	// standalone-command bucket so durable Japanese / multilingual facts such
+	// as "go test 必須" or "git pull 常に" are not mis-hidden.
+	if hasCJKScript(value) {
 		return false
 	}
 	paddedLower := " " + lower + " "
@@ -187,12 +188,20 @@ func isStandaloneCommand(value, lower string) bool {
 	return true
 }
 
-func hasHiraganaOrKatakana(value string) bool {
+func hasCJKScript(value string) bool {
 	for _, r := range value {
 		switch {
 		case r >= 0x3040 && r <= 0x309F: // Hiragana
 			return true
 		case r >= 0x30A0 && r <= 0x30FF: // Katakana
+			return true
+		case r >= 0x3400 && r <= 0x4DBF: // CJK Unified Ideographs Extension A
+			return true
+		case r >= 0x4E00 && r <= 0x9FFF: // CJK Unified Ideographs
+			return true
+		case r >= 0xAC00 && r <= 0xD7AF: // Hangul Syllables
+			return true
+		case r >= 0xF900 && r <= 0xFAFF: // CJK Compatibility Ideographs
 			return true
 		}
 	}

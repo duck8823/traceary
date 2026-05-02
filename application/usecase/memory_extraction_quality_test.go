@@ -96,6 +96,8 @@ func TestClassifyExtractionNoise(t *testing.T) {
 		{name: "japanese tsugi must visible", fact: "次は必ず PR レビューを通す", want: nil},
 		{name: "japanese korekara always visible", fact: "これから常に Codex でレビューする", want: nil},
 		{name: "japanese korekara wish visible", fact: "これから日本語での応答を希望", want: nil},
+		{name: "kanji constraint after command visible", fact: "go test 必須", want: nil},
+		{name: "kanji always after command visible", fact: "git pull 常に", want: nil},
 
 		// Transient PR / Round chatter
 		{name: "round 3", fact: "Round 3:", want: []string{"transient_pr_round"}},
@@ -155,6 +157,10 @@ func TestIsStandaloneCommand_RejectsProseSentences(t *testing.T) {
 		{name: "npm install with prose", fact: "npm install with --legacy-peer-deps when conflicts arise"},
 		{name: "docker run as role", fact: "docker run as the entrypoint of CI"},
 		{name: "make build until", fact: "make build until it reproduces the failure"},
+		// Kanji-only durable markers are also Japanese prose and must not be
+		// hidden as standalone commands (#857).
+		{name: "go test kanji constraint", fact: "go test 必須"},
+		{name: "git pull kanji always", fact: "git pull 常に"},
 	}
 
 	for _, tc := range cases {
