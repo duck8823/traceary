@@ -296,6 +296,11 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 				report.Checks = append(report.Checks, *activationCheck)
 			}
 		}
+		if targetClient == "gemini" {
+			if activationCheck := c.inspectGeminiMemoryActivationStatus(ctx, resolvedProjectDir); activationCheck != nil {
+				report.Checks = append(report.Checks, *activationCheck)
+			}
+		}
 	}
 
 	report.Checks = append(report.Checks, c.inspectPluginVersionChecks(input.currentVersion)...)

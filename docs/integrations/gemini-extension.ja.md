@@ -15,13 +15,35 @@ Gemini 向け package は `integrations/gemini-extension/` にあります。Gem
 
 ## Memory activation strategy
 
-Gemini integration の v0.12 は、Traceary の accepted memory store を MCP tools と instruction-file export 経由で使います。review 済み memory を Gemini instructions に見せるには、Traceary 管理ブロックとして export します。
+Gemini integration は、Traceary の accepted memory store を MCP tools・instruction-file export・host-native activation 経由で利用できます。review 済み memory を Gemini instructions に見せる方法は次の 2 通りです。
+
+**Option 1 — instruction-file export (引き続き利用可能)**: review 済み memory を `GEMINI.md` の Traceary 管理ブロックへ export します。
 
 ```sh
 traceary memory export --target gemini --out GEMINI.md
 ```
 
-これは Codex host-native activation とは意図的に分けています。`traceary memory activate --target gemini` は v0.12 では**未実装**で、extension は Gemini-native memory file を書きません。host-native surface と preview / feature-flag 挙動が十分安定してから扱うため、将来の安全な Gemini-native activation path は follow-up #884 で追跡します。
+**Option 2 — host-native activation (v0.13.0+、project 推奨)**: `traceary memory activate --target gemini` で `GEMINI.md` 内の小さな import stub と `.traceary/memories/gemini.md` の external memory file を管理します。activation pair は管理領域外の user-authored 内容を保持し、symlink / directory / malformed marker / newer marker 等の不安全 target を拒否し、idempotent です。Traceary は `save_memory` が生成する `## Gemini Added Memories` セクションを管理・書き換えず、通常の host-context content として保持します。managed import stub はそのセクションの後ろに append されるため、両者は安全に共存します。
+
+```sh
+# 計画の確認 (dry-run、書き込みなし)
+traceary memory activate --target gemini --dry-run --diff
+
+# host pair を読み取り専用で確認
+traceary memory activate --target gemini --status
+
+# 安全な per-file write で pair を反映
+traceary memory activate --target gemini --apply
+```
+
+既定値:
+
+- activation root: 直近の `.git` 祖先、なければ cwd
+- host context file: `<root>/GEMINI.md`
+- external memory file: `<root>/.traceary/memories/gemini.md`
+- `GEMINI.md` に書き込む import 行: `@./.traceary/memories/gemini.md`
+
+`--root <dir>` / `--path <file>` で上書き可能です。managed marker layout・status state・tracked-file policy などの全契約は v0.13 host-native memory activation [ADR](../architecture/host-native-memory-activation.ja.md) を参照してください。`traceary doctor --client gemini` には同じ dry-run / apply 再実行 command を持つ `gemini-memory-activation` check が surface されます。
 
 ## Install
 
