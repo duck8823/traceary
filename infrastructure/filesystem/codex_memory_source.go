@@ -5,9 +5,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -17,17 +19,16 @@ import (
 	domtypes "github.com/duck8823/traceary/domain/types"
 )
 
-// codexMemorySource parses ~/.codex/memories/MEMORY.md into durable-memory
-// candidates. v0.7-3 deliberately limits the reader to the handbook-style
-// MEMORY.md file — raw memories and rollout summaries are intentionally
-// excluded to keep the candidate surface reviewable.
+// codexMemorySource parses ~/.codex/memories/*.md files into durable-memory
+// candidates. Legacy MEMORY.md keeps its handbook section allow-list, while
+// additional Markdown files are treated as user-authored memory shards.
 type codexMemorySource struct {
 	maxBulletBytes int64
 	maxFileBytes   int64
 }
 
-// NewCodexMemorySource returns the default Codex MEMORY.md reader. The
-// configured limits are generous enough for real handbook files but still
+// NewCodexMemorySource returns the default Codex memory reader. The
+// configured limits are generous enough for real Markdown memory files but still
 // clamp pathological inputs so a runaway file never blocks the import.
 func NewCodexMemorySource() application.CodexMemorySource {
 	return &codexMemorySource{
@@ -42,10 +43,10 @@ const (
 	codexMemoryFileName              = "MEMORY.md"
 )
 
-// Load reads MEMORY.md from criteria.Root and extracts every bullet under
-// the supported sections. It returns candidates plus non-fatal warnings for
-// the CLI to surface; parser failures that make the run unsafe (bad root,
-// path escape, unreadable file) still come back as errors.
+// Load reads Markdown files from criteria.Root and extracts memory bullets.
+// It returns candidates plus non-fatal warnings for the CLI to surface;
+// parser failures that make the run unsafe (bad root, path escape,
+// unreadable file) still come back as errors.
 func (s *codexMemorySource) Load(
 	ctx context.Context,
 	criteria apptypes.CodexImportCriteria,
@@ -78,22 +79,71 @@ func (s *codexMemorySource) Load(
 		return nil, nil, xerrors.Errorf("codex memory root is not a directory: %s", root)
 	}
 
-	memoryPath := filepath.Join(root, codexMemoryFileName)
-	// Lstat the raw path first so a symlinked MEMORY.md cannot redirect the
-	// reader at another file inside the root (for example raw_memories.md).
-	// This preserves the "handbook only" scope guarantee even when the
-	// caller deliberately points MEMORY.md at another path.
-	entryInfo, err := os.Lstat(memoryPath)
+	walkRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil, nil
-		}
-		return nil, nil, xerrors.Errorf("failed to stat %s: %w", memoryPath, err)
+		return nil, nil, xerrors.Errorf("failed to resolve codex memory root %q: %w", root, err)
 	}
-	if entryInfo.Mode()&os.ModeSymlink != 0 {
-		return nil, nil, xerrors.Errorf("codex MEMORY.md must not be a symlink: %s", memoryPath)
+	memoryPaths, err := discoverCodexMemoryMarkdownFiles(walkRoot)
+	if err != nil {
+		return nil, nil, err
 	}
 
+	candidates := make([]apptypes.ImportedMemoryCandidate, 0)
+	var warnings []string
+	for _, memoryPath := range memoryPaths {
+		select {
+		case <-ctx.Done():
+			return nil, warnings, ctx.Err()
+		default:
+		}
+
+		fileCandidates, fileWarnings, err := s.loadCodexMemoryMarkdownFile(ctx, root, memoryPath, criteria)
+		if err != nil {
+			return nil, warnings, err
+		}
+		warnings = append(warnings, fileWarnings...)
+		candidates = append(candidates, fileCandidates...)
+	}
+
+	return candidates, warnings, nil
+}
+
+func discoverCodexMemoryMarkdownFiles(root string) ([]string, error) {
+	var paths []string
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return xerrors.Errorf("failed to inspect codex memory path %s: %w", path, walkErr)
+		}
+		if path == root {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			if strings.EqualFold(filepath.Ext(entry.Name()), ".md") {
+				return xerrors.Errorf("codex memory file must not be a symlink: %s", path)
+			}
+			return nil
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if !strings.EqualFold(filepath.Ext(entry.Name()), ".md") {
+			return nil
+		}
+		paths = append(paths, path)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return paths, nil
+}
+
+func (s *codexMemorySource) loadCodexMemoryMarkdownFile(
+	_ context.Context,
+	root string,
+	memoryPath string,
+	criteria apptypes.CodexImportCriteria,
+) ([]apptypes.ImportedMemoryCandidate, []string, error) {
 	containedPath, err := resolveCodexMemoryFile(root, memoryPath)
 	if err != nil {
 		return nil, nil, err
@@ -110,10 +160,10 @@ func (s *codexMemorySource) Load(
 		return nil, nil, xerrors.Errorf("failed to stat %s: %w", containedPath, err)
 	}
 	if !fileInfo.Mode().IsRegular() {
-		return nil, nil, xerrors.Errorf("codex MEMORY.md is not a regular file: %s", containedPath)
+		return nil, nil, xerrors.Errorf("codex memory file is not a regular file: %s", containedPath)
 	}
 	if fileInfo.Size() > s.maxFileBytes {
-		return nil, []string{fmt.Sprintf("codex MEMORY.md exceeds size guard (%d bytes); skipping", fileInfo.Size())}, nil
+		return nil, []string{fmt.Sprintf("codex memory file %s exceeds size guard (%d bytes); skipping", containedPath, fileInfo.Size())}, nil
 	}
 
 	file, err := os.Open(containedPath)
@@ -122,14 +172,19 @@ func (s *codexMemorySource) Load(
 	}
 	defer func() { _ = file.Close() }()
 
-	parsed, warnings, err := parseCodexMemoryFile(file, s.maxBulletBytes)
+	parseMode := codexParseModeGeneric
+	if isLegacyCodexMemoryFile(containedPath) {
+		parseMode = codexParseModeLegacyHandbook
+	}
+	parsed, parseWarnings, err := parseCodexMemoryFile(file, s.maxBulletBytes, parseMode)
+	warnings := prefixCodexMemoryWarnings(containedPath, parseWarnings)
 	if err != nil {
 		return nil, warnings, xerrors.Errorf("failed to parse %s: %w", containedPath, err)
 	}
 
 	candidates := make([]apptypes.ImportedMemoryCandidate, 0, len(parsed.bullets))
 	for _, bullet := range parsed.bullets {
-		memoryType, ok := sectionMemoryType(bullet.section)
+		memoryType, ok := codexMemoryTypeForBullet(bullet, containedPath)
 		if !ok {
 			continue
 		}
@@ -170,8 +225,22 @@ func (s *codexMemorySource) Load(
 			SourcePath:   containedPath,
 		})
 	}
-
 	return candidates, warnings, nil
+}
+
+func prefixCodexMemoryWarnings(path string, warnings []string) []string {
+	if len(warnings) == 0 {
+		return nil
+	}
+	prefixed := make([]string, 0, len(warnings))
+	for _, warning := range warnings {
+		prefixed = append(prefixed, fmt.Sprintf("%s: %s", path, warning))
+	}
+	return prefixed
+}
+
+func isLegacyCodexMemoryFile(path string) bool {
+	return strings.EqualFold(filepath.Base(path), codexMemoryFileName)
 }
 
 // resolveCodexMemoryFile ensures the candidate file stays inside root after
@@ -190,8 +259,8 @@ func resolveCodexMemoryFile(root, memoryPath string) (string, error) {
 		return "", xerrors.Errorf("failed to resolve root %s: %w", root, err)
 	}
 	rel, err := filepath.Rel(resolvedRoot, resolved)
-	if err != nil || strings.HasPrefix(rel, "..") || rel == ".." {
-		return "", xerrors.Errorf("codex MEMORY.md escapes the configured root: %s", resolved)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", xerrors.Errorf("codex memory file escapes the configured root: %s", resolved)
 	}
 	return resolved, nil
 }
@@ -212,6 +281,7 @@ const (
 	codexSectionUserPreferences = "User preferences"
 	codexSectionReusable        = "Reusable knowledge"
 	codexSectionFailures        = "Failures and how to do differently"
+	codexSectionGeneric         = "Generic memory"
 )
 
 var knownCodexSections = map[string]struct{}{
@@ -220,28 +290,56 @@ var knownCodexSections = map[string]struct{}{
 	codexSectionFailures:        {},
 }
 
-func sectionMemoryType(section string) (domtypes.MemoryType, bool) {
+func codexMemoryTypeForBullet(bullet codexMemoryBullet, sourcePath string) (domtypes.MemoryType, bool) {
+	return sectionMemoryType(bullet.section, sourcePath)
+}
+
+func sectionMemoryType(section string, sourcePath string) (domtypes.MemoryType, bool) {
 	switch section {
 	case codexSectionUserPreferences:
 		return domtypes.MemoryTypePreference, true
 	case codexSectionReusable, codexSectionFailures:
 		return domtypes.MemoryTypeLesson, true
+	}
+
+	lower := strings.ToLower(section + " " + strings.TrimSuffix(filepath.Base(sourcePath), filepath.Ext(sourcePath)))
+	switch {
+	case strings.Contains(lower, "preference"):
+		return domtypes.MemoryTypePreference, true
+	case strings.Contains(lower, "decision"):
+		return domtypes.MemoryTypeDecision, true
+	case strings.Contains(lower, "constraint") ||
+		strings.Contains(lower, "rule") ||
+		strings.Contains(lower, "policy") ||
+		strings.Contains(lower, "format"):
+		return domtypes.MemoryTypeConstraint, true
+	case strings.Contains(lower, "failure") ||
+		strings.Contains(lower, "lesson") ||
+		strings.Contains(lower, "how to do differently"):
+		return domtypes.MemoryTypeLesson, true
 	default:
-		return domtypes.MemoryType(""), false
+		return domtypes.MemoryTypeLesson, true
 	}
 }
 
-// parseCodexMemoryFile scans the Codex handbook top-down. State is carried
-// through three pointers: the current Task Group's `applies_to: cwd=...`
-// hint, the current known section heading, and the bullet currently being
-// collected. Bullets close when we encounter another bullet, a new heading,
-// or end-of-file.
+type codexParseMode int
+
+const (
+	codexParseModeLegacyHandbook codexParseMode = iota
+	codexParseModeGeneric
+)
+
+// parseCodexMemoryFile scans one Codex Markdown memory file top-down. State
+// is carried through three pointers: the current Task Group's
+// `applies_to: cwd=...` hint, the current section heading, and the bullet
+// currently being collected. Bullets close when we encounter another bullet,
+// a new heading, or end-of-file.
 //
 // The reader uses bufio.Reader.ReadString rather than bufio.Scanner so a
 // single pathological line (for example a malformed handbook with a
 // multi-megabyte one-line bullet) degrades to a size-guard warning instead
 // of bubbling up as a fatal scanner error that aborts the whole import.
-func parseCodexMemoryFile(reader io.Reader, maxBulletBytes int64) (codexMemoryParseResult, []string, error) {
+func parseCodexMemoryFile(reader io.Reader, maxBulletBytes int64, mode codexParseMode) (codexMemoryParseResult, []string, error) {
 	var result codexMemoryParseResult
 	var warnings []string
 
@@ -265,7 +363,10 @@ func parseCodexMemoryFile(reader io.Reader, maxBulletBytes int64) (codexMemoryPa
 			bulletBuilder.Reset()
 			return
 		}
-		if _, ok := knownCodexSections[currentBullet.section]; ok {
+		if mode == codexParseModeGeneric {
+			currentBullet.fact = fact
+			result.bullets = append(result.bullets, *currentBullet)
+		} else if _, ok := knownCodexSections[currentBullet.section]; ok {
 			currentBullet.fact = fact
 			result.bullets = append(result.bullets, *currentBullet)
 		}
@@ -301,7 +402,9 @@ func parseCodexMemoryFile(reader io.Reader, maxBulletBytes int64) (codexMemoryPa
 				currentCWD = ""
 				currentSection = ""
 			}
-			if heading.level == 2 {
+			if mode == codexParseModeGeneric {
+				currentSection = heading.title
+			} else if heading.level == 2 {
 				if _, known := knownCodexSections[heading.title]; known {
 					currentSection = heading.title
 				} else {
@@ -321,19 +424,23 @@ func parseCodexMemoryFile(reader io.Reader, maxBulletBytes int64) (codexMemoryPa
 			}
 			continue
 		}
-		if strings.HasPrefix(line, "- ") {
+		if text, ok := parseMarkdownListItem(line); ok {
 			flushBullet()
-			if currentSection == "" {
+			if currentSection == "" && mode == codexParseModeLegacyHandbook {
 				continue
 			}
+			section := currentSection
+			if section == "" {
+				section = codexSectionGeneric
+			}
 			currentBullet = &codexMemoryBullet{
-				section:   currentSection,
+				section:   section,
 				cwd:       currentCWD,
 				startLine: lineNo,
 				endLine:   lineNo,
 			}
 			bulletBuilder.Reset()
-			bulletBuilder.WriteString(strings.TrimPrefix(line, "- "))
+			bulletBuilder.WriteString(text)
 			if int64(bulletBuilder.Len()) > maxBulletBytes {
 				warnings = append(warnings, fmt.Sprintf("bullet at line %d exceeds size guard; skipping", lineNo))
 				currentBullet = nil
@@ -363,6 +470,25 @@ func parseCodexMemoryFile(reader io.Reader, maxBulletBytes int64) (codexMemoryPa
 	flushBullet()
 
 	return result, warnings, nil
+}
+
+var orderedMarkdownListItemPattern = regexp.MustCompile(`^\d+[\.)]\s+(.+)$`)
+
+func parseMarkdownListItem(line string) (string, bool) {
+	trimmed := strings.TrimLeft(line, " ")
+	if len(line)-len(trimmed) > 3 {
+		return "", false
+	}
+	for _, marker := range []string{"- ", "* ", "+ "} {
+		if strings.HasPrefix(trimmed, marker) {
+			return strings.TrimPrefix(trimmed, marker), true
+		}
+	}
+	match := orderedMarkdownListItemPattern.FindStringSubmatch(trimmed)
+	if match == nil {
+		return "", false
+	}
+	return match[1], true
 }
 
 type codexHeading struct {

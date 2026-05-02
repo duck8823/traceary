@@ -378,7 +378,7 @@ The `--source` filter pairs naturally with the extraction and import paths:
 
 ### `traceary memory import codex`
 
-Import durable-memory candidates from a local Codex memory layout — by default `~/.codex/memories/MEMORY.md`. Only the handbook file is read; raw memories and rollout summaries are intentionally skipped in this release. Each bullet under `## User preferences`, `## Reusable knowledge`, or `## Failures and how to do differently` becomes a `candidate` with `source=imported`, file evidence/artifact refs, and a scope resolved from the Codex `applies_to: cwd=...` hint (falling back to `--workspace` when the source file does not declare one). Sanitization runs on every imported fact, and nothing is auto-accepted. Re-running the command is idempotent: existing candidates (at any lifecycle status, including rejected) suppress a duplicate import so previously reviewed memories are never resurrected.
+Import durable-memory candidates from a local Codex memory layout — by default every `*.md` file under `~/.codex/memories`. Legacy `MEMORY.md` keeps the handbook allow-list (`## User preferences`, `## Reusable knowledge`, `## Failures and how to do differently`), while additional Markdown shards import bullet/list items under any heading. Each candidate gets `source=imported`, file evidence/artifact refs with line ranges, and a scope resolved from the Codex `applies_to: cwd=...` hint (falling back to `--workspace` when the source file does not declare one). Sanitization runs on every imported fact, and nothing is auto-accepted. Re-running the command is idempotent: existing candidates (at any lifecycle status, including rejected) suppress a duplicate import so previously reviewed memories are never resurrected.
 
 Useful flags:
 

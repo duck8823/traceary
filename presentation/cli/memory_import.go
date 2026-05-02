@@ -38,7 +38,7 @@ func (c *RootCLI) newMemoryImportCodexCommand() *cobra.Command {
 	}
 	cmd := &cobra.Command{
 		Use:   "codex",
-		Short: Localize("Import ~/.codex/memories/MEMORY.md as durable-memory candidates", "~/.codex/memories/MEMORY.md を durable memory の candidate として取り込む"),
+		Short: Localize("Import ~/.codex/memories/*.md as durable-memory candidates", "~/.codex/memories/*.md を durable memory の candidate として取り込む"),
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runMemoryImportCodex(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), input)

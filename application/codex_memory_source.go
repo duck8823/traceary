@@ -7,7 +7,7 @@ import (
 )
 
 // CodexMemorySource reads raw candidate rows out of a Codex memory layout
-// (for example ~/.codex/memories/MEMORY.md). It is declared in the
+// (for example ~/.codex/memories/*.md). It is declared in the
 // application package so the usecase can depend on the interface and the
 // filesystem adapter can supply the concrete reader without dragging in
 // parser-specific types.
