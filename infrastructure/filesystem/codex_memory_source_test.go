@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -186,6 +187,78 @@ func TestCodexMemorySource_LoadParsesMultiFileLayout(t *testing.T) {
 	}
 	if candidates[2].MemoryType != domtypes.MemoryTypeConstraint {
 		t.Fatalf("pr-title-format.md should infer constraint memories, got %s", candidates[2].MemoryType)
+	}
+}
+
+func TestCodexMemorySource_LoadTreatsOnlyRootMemoryMDAsLegacy(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	root := filepath.Join(dir, "memories")
+	nested := filepath.Join(root, "teams")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("mkdir nested: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "memory.md"), []byte(`# Lowercase shard
+## Team-specific rules
+- Lowercase root shard should use generic parsing.
+`), 0o600); err != nil {
+		t.Fatalf("write lowercase shard: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "MEMORY.md"), []byte(`# Nested shard
+## Team-specific rules
+- Nested MEMORY.md should use generic parsing.
+`), 0o600); err != nil {
+		t.Fatalf("write nested MEMORY.md: %v", err)
+	}
+
+	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
+	if err != nil {
+		t.Fatalf("WorkspaceFrom: %v", err)
+	}
+	source := NewCodexMemorySource()
+	candidates, warnings, err := source.Load(context.Background(), apptypes.CodexImportCriteria{
+		Root:              root,
+		WorkspaceFallback: workspace,
+	})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	facts := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		facts = append(facts, candidate.Fact)
+	}
+	for _, want := range []string{
+		"Lowercase root shard should use generic parsing.",
+		"Nested MEMORY.md should use generic parsing.",
+	} {
+		if !containsAny(facts, want) {
+			t.Fatalf("missing fact %q in %v", want, facts)
+		}
+	}
+}
+
+func TestCodexMemorySource_LoadHonorsCancelledContextDuringDiscovery(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	root := filepath.Join(dir, "memories")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("mkdir memories: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes.md"), []byte("- ignored after cancellation\n"), 0o600); err != nil {
+		t.Fatalf("write notes: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	source := NewCodexMemorySource()
+	_, _, err := source.Load(ctx, apptypes.CodexImportCriteria{Root: root})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Load error = %v, want context.Canceled", err)
 	}
 }
 

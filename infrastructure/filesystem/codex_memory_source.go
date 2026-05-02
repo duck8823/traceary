@@ -83,7 +83,7 @@ func (s *codexMemorySource) Load(
 	if err != nil {
 		return nil, nil, xerrors.Errorf("failed to resolve codex memory root %q: %w", root, err)
 	}
-	memoryPaths, err := discoverCodexMemoryMarkdownFiles(walkRoot)
+	memoryPaths, err := discoverCodexMemoryMarkdownFiles(ctx, walkRoot)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -97,7 +97,7 @@ func (s *codexMemorySource) Load(
 		default:
 		}
 
-		fileCandidates, fileWarnings, err := s.loadCodexMemoryMarkdownFile(ctx, root, memoryPath, criteria)
+		fileCandidates, fileWarnings, err := s.loadCodexMemoryMarkdownFile(ctx, walkRoot, memoryPath, criteria)
 		if err != nil {
 			return nil, warnings, err
 		}
@@ -108,9 +108,14 @@ func (s *codexMemorySource) Load(
 	return candidates, warnings, nil
 }
 
-func discoverCodexMemoryMarkdownFiles(root string) ([]string, error) {
+func discoverCodexMemoryMarkdownFiles(ctx context.Context, root string) ([]string, error) {
 	var paths []string
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		if walkErr != nil {
 			return xerrors.Errorf("failed to inspect codex memory path %s: %w", path, walkErr)
 		}
@@ -133,6 +138,9 @@ func discoverCodexMemoryMarkdownFiles(root string) ([]string, error) {
 		return nil
 	})
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, xerrors.Errorf("codex memory import cancelled: %w", ctxErr)
+		}
 		return nil, xerrors.Errorf("failed to discover codex memory markdown files under %s: %w", root, err)
 	}
 	return paths, nil
@@ -173,7 +181,7 @@ func (s *codexMemorySource) loadCodexMemoryMarkdownFile(
 	defer func() { _ = file.Close() }()
 
 	parseMode := codexParseModeGeneric
-	if isLegacyCodexMemoryFile(containedPath) {
+	if isLegacyCodexMemoryFile(root, containedPath) {
 		parseMode = codexParseModeLegacyHandbook
 	}
 	parsed, parseWarnings, err := parseCodexMemoryFile(file, s.maxBulletBytes, parseMode)
@@ -239,8 +247,8 @@ func prefixCodexMemoryWarnings(path string, warnings []string) []string {
 	return prefixed
 }
 
-func isLegacyCodexMemoryFile(path string) bool {
-	return strings.EqualFold(filepath.Base(path), codexMemoryFileName)
+func isLegacyCodexMemoryFile(root, path string) bool {
+	return filepath.Clean(path) == filepath.Join(filepath.Clean(root), codexMemoryFileName)
 }
 
 // resolveCodexMemoryFile ensures the candidate file stays inside root after
