@@ -967,6 +967,34 @@ func TestMemoryUsecase_Extract_PostCompactSummaryUsesCompactSummarySource(t *tes
 	}
 }
 
+func TestMemoryUsecase_Extract_PostCompactSummaryKeepsLowQualityCandidatesHidden(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-post-compact-noise"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	compactEvent := mustExtractionEvent(t, "event-post-compact-noise", domtypes.EventKindCompactSummary, "Decision: I will read presentation/cli/memory_inbox.go")
+	compactEvent.SetSourceHook("post_compact")
+	details := mustMemoryDetailsFromSummary(t, "memory-post-compact-noise", domtypes.MemoryTypeDecision, "I will read presentation/cli/memory_inbox.go")
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{proposeResult: []apptypes.MemoryDetails{details}}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindCompactSummary: {compactEvent}}}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	_, err := sut.Extract(context.Background(), apptypes.NewMemoryExtractionCriteriaBuilder().SessionID(domtypes.SessionID("session-post-compact-noise")).Workspace(domtypes.Workspace("github.com/duck8823/traceary")).EventLimit(1).CandidateLimit(10).Build())
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(memoryUsecase.proposeCalls) != 1 {
+		t.Fatalf("proposeCalls = %d, want 1 hidden compact-summary noise candidate", len(memoryUsecase.proposeCalls))
+	}
+	call := memoryUsecase.proposeCalls[0]
+	if call.source != domtypes.MemorySourceExtractedHidden {
+		t.Fatalf("source = %q, want extracted-hidden for low-quality compact-summary candidate", call.source)
+	}
+	if call.fact != "I will read presentation/cli/memory_inbox.go" {
+		t.Fatalf("fact = %q, want compact-summary noise fact", call.fact)
+	}
+}
+
 func TestMemoryUsecase_Extract_SkipsPreCompactMarkerOnlySummary(t *testing.T) {
 	t.Parallel()
 

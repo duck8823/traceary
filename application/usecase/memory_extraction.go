@@ -185,14 +185,17 @@ func (u *memoryExtractionUsecase) Extract(ctx context.Context, criteria apptypes
 		// extracted-hidden. The explicit-remember intent is exempt so
 		// user-driven `remember this:` prompts always remain visible.
 		source := spec.source
+		hiddenByQuality := spec.signalScore < extractionVisibleScoreThreshold ||
+			(len(spec.lowQualityReasons) > 0 && !spec.intent.explicitRemember)
+		if hiddenByQuality && !spec.intent.explicitRemember {
+			// Preserve audit-first gating for every auto-extracted source,
+			// including compact-summary. Source-specific candidates should not
+			// bypass the low-quality/noise routing just because their source was
+			// assigned before this final persistence step.
+			source = domtypes.MemorySourceExtractedHidden
+		}
 		if source == "" {
 			source = domtypes.MemorySourceExtracted
-			if spec.signalScore < extractionVisibleScoreThreshold {
-				source = domtypes.MemorySourceExtractedHidden
-			}
-			if len(spec.lowQualityReasons) > 0 && !spec.intent.explicitRemember {
-				source = domtypes.MemorySourceExtractedHidden
-			}
 		}
 
 		details, err := u.memory.Propose(

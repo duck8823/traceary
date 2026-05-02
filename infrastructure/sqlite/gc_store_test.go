@@ -329,6 +329,7 @@ func TestDatasource_CollectGarbage_deletesStaleExtractedCandidatesAfter14d(t *te
 	// Stale candidates from extraction: should be auto-deleted.
 	insertRetentionMemoryWithSource(t, db, "extracted-stale", "candidate", "extracted", "", stale)
 	insertRetentionMemoryWithSource(t, db, "hidden-stale", "candidate", "extracted-hidden", "", stale)
+	insertRetentionMemoryWithSource(t, db, "compact-summary-stale", "candidate", "compact-summary", "", stale)
 	// Fresh extracted candidate: keep.
 	insertRetentionMemoryWithSource(t, db, "extracted-fresh", "candidate", "extracted", "", fresh)
 	// Manual / imported candidates do not auto-expire on this short window.
@@ -350,7 +351,7 @@ func TestDatasource_CollectGarbage_deletesStaleExtractedCandidatesAfter14d(t *te
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
-	if diff := cmp.Diff(2, deletedCount); diff != "" {
+	if diff := cmp.Diff(3, deletedCount); diff != "" {
 		t.Fatalf("deletedCount mismatch (-want +got):\n%s", diff)
 	}
 	assertRetentionIDs(t, db, "memories", "id", []string{
@@ -364,7 +365,7 @@ func TestDatasource_CollectGarbage_deletesStaleExtractedCandidatesAfter14d(t *te
 
 // TestDatasource_CollectGarbage_clearsSupersedesRefBeforeDeletingStaleExtractedCandidate
 // verifies that an unusual graph in which a manual memory supersedes
-// an auto-extracted candidate does not trip a foreign-key violation
+// an auto-extracted/compact-summary candidate does not trip a foreign-key violation
 // when the candidate ages out under the 14-day rule.
 func TestDatasource_CollectGarbage_clearsSupersedesRefBeforeDeletingStaleExtractedCandidate(t *testing.T) {
 	t.Parallel()
@@ -376,11 +377,11 @@ func TestDatasource_CollectGarbage_clearsSupersedesRefBeforeDeletingStaleExtract
 	now := time.Now().UTC()
 	stale := now.Add(-30 * 24 * time.Hour).Format(time.RFC3339Nano)
 
-	insertRetentionMemoryWithSource(t, db, "stale-extracted", "candidate", "extracted", "", stale)
-	// Manual memory points at the stale extracted candidate via
+	insertRetentionMemoryWithSource(t, db, "stale-compact", "candidate", "compact-summary", "", stale)
+	// Manual memory points at the stale compact-summary candidate via
 	// supersedes_memory_id. The clearing pass must NULL the link
 	// before the delete fires.
-	insertRetentionMemoryWithSource(t, db, "manual-pointer", "accepted", "manual", "stale-extracted", stale)
+	insertRetentionMemoryWithSource(t, db, "manual-pointer", "accepted", "manual", "stale-compact", stale)
 
 	if _, err := storeManager.CollectGarbage(
 		context.Background(),
