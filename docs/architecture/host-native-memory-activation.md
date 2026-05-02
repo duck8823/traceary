@@ -4,7 +4,7 @@
 
 This ADR defines the v0.13.0 contract for activating accepted Traceary durable memories into Claude Code and Gemini CLI native context surfaces.
 
-Status: accepted for implementation planning, with Claude Opus review still blocked by local authentication.
+Status: accepted for implementation planning. Claude Opus 4.7 Max and Gemini scout reviews found no MUST blockers for this design/spec PR.
 
 ## Context
 
@@ -49,7 +49,7 @@ Codex remains unchanged in v0.13.0: its activation target is still a Traceary-ma
 
 When `--target claude` is implemented:
 
-- default activation root: detected project root, or the current working directory when no project root is available
+- default activation root: the nearest ancestor containing `.git`, or the current working directory when no `.git` root is available
 - default host context file: `<root>/CLAUDE.md`
 - default external memory file: `<root>/.traceary/memories/claude.md`
 - default import line rendered in `CLAUDE.md`: `@./.traceary/memories/claude.md`
@@ -62,7 +62,7 @@ Implementation PRs must prove that the current Claude Code version can load this
 
 When `--target gemini` is implemented:
 
-- default activation root: detected project root, or the current working directory when no project root is available
+- default activation root: the nearest ancestor containing `.git`, or the current working directory when no `.git` root is available
 - default host context file: `<root>/GEMINI.md`
 - default external memory file: `<root>/.traceary/memories/gemini.md`
 - default import line rendered in `GEMINI.md`: `@./.traceary/memories/gemini.md`
@@ -81,6 +81,8 @@ The existing activation flags keep their meanings, with host-specific resolution
 - v0.13.0 should not add a second path flag unless implementation proves the derived external-file path blocks a real dogfood scenario. If such a flag is needed, prefer `--memory-path` and document it before implementation.
 
 Import paths must be rendered relative to the host context file whenever both files share a root. Absolute import paths are allowed only when a future explicit override makes relative rendering impossible.
+
+The root detector must be deterministic: starting from the command working directory, walk upward until the first directory containing `.git`; if none is found, use the command working directory. `--root` bypasses detection entirely, and `--path` bypasses both detection and `--root` for the host context file path.
 
 ## Managed regions
 
@@ -108,6 +110,8 @@ External memory file:
 ```
 
 The external memory block should reuse the existing `memory export` renderer so Codex, Claude, and Gemini projections stay consistent.
+
+When the host context file already contains a supported Traceary import stub, Traceary replaces that region in place. When the file has no managed import stub, Traceary appends the stub at end-of-file using the existing managed-block spacing rule: preserve the existing bytes, add enough newlines to separate the stub, then append the managed region. Traceary does not insert before frontmatter, headings, or Gemini's `## Gemini Added Memories` section because doing so would require interpreting user-authored markdown structure. If the file contains an unmanaged import line that already points at the expected `.traceary/memories/<host>.md` file outside a Traceary-managed stub, status must be `invalid` and apply must refuse to add a duplicate import until the operator removes or adopts that unmanaged line through a future explicit workflow.
 
 ## Status semantics
 
@@ -138,6 +142,8 @@ If the first write succeeds and the second write fails, Traceary does not attemp
 
 Atomic write behavior, permission preservation, parent-directory creation, symlink refusal, and newer-marker refusal should follow the v0.12 Codex activation implementation.
 
+Those safety guarantees apply independently to both files in the pair. Traceary must inspect and write the host context file and external memory file through the same safe-writer contract: `lstat` before write, reject symlinks and directories, preserve existing permissions when replacing a file, create parent directories only for the file being written, write through a temporary file in the same directory, sync, and rename atomically where the platform supports it.
+
 ## Tracked project file policy
 
 Traceary may update project files only through explicit `--apply`. It must never mutate `CLAUDE.md`, `GEMINI.md`, or `.traceary/memories/<host>.md` from `doctor`, `status`, or `dry-run`.
@@ -145,6 +151,8 @@ Traceary may update project files only through explicit `--apply`. It must never
 When the host context file is tracked in Git, Traceary still may update the managed stub under explicit `--apply`, but the diff must be reviewable and limited to the managed region. Traceary must not stage or commit those changes.
 
 When the host context file does not exist, `--apply` may create it with only the managed stub. The dry-run output and doctor remediation command must make that planned creation explicit.
+
+Traceary does not edit `.gitignore` during activation. Teams may choose to commit `.traceary/memories/<host>.md` when they want shared project memory projection, or ignore it when they want each machine to project from its own local Traceary store. The source of truth remains SQLite either way, so documentation and dry-run output must make the selected path visible before apply.
 
 ## Rejected alternatives
 
@@ -184,7 +192,7 @@ Rejected. Symlink behavior is platform-sensitive and weakens the existing activa
 
 Gemini review was run multiple times. One pass objected to import stubs because it assumed Claude imports were not loaded natively and worried that `.traceary/` might be ignored. That was triaged against the official Claude memory documentation, which documents `@path/to/import` expansion at launch and includes a hidden-directory import example. The remaining real risks are therefore captured as implementation gates: Claude's first-time external-import approval dialog, safe stub injection, import-path resolution relative to the host context file, and smoke verification that each host loads the default `.traceary/` import path before apply PRs are made ready.
 
-Claude Opus 4.7 Max review was attempted locally, but Claude Code is not authenticated in this environment:
+Claude Opus 4.7 Max review initially failed while Claude Code was not authenticated:
 
 ```text
 $ claude auth status
@@ -195,3 +203,5 @@ Not logged in · Please run /login
 ```
 
 Implementation PRs after this ADR should remain draft or blocked until Claude Opus review is obtained, unless maintainers explicitly accept an exception on the PR.
+
+After authentication was restored, Claude Opus 4.7 Max reviewed PR #898 and reported no MUST blockers. Its SHOULD findings are captured in this ADR: deterministic append-only insertion, both-file safe-writer guarantees, `.git` root detection precedence, and explicit `.gitignore` non-mutation policy. Claude's ready decision for this design/spec PR was `ready`, assuming CI and Gemini scout pass.
