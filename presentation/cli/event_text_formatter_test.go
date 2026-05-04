@@ -119,6 +119,100 @@ func TestFormatEventCompactRow_FitsWithin100Columns(t *testing.T) {
 	}
 }
 
+func TestFormatEventCompactRow_TargetWidthZeroFallsBackToDefault(t *testing.T) {
+	t.Parallel()
+
+	event := mustTailEvent(
+		t,
+		"abcdef1234567890",
+		"claude-code",
+		"claude",
+		"123e4567-e89b-12d3-a456-426614174000",
+		"/Users/duck8823/Repositories/traceary",
+		strings.Repeat("long message ", 40),
+		time.Date(2026, 4, 15, 9, 30, 15, 0, time.UTC),
+	)
+
+	explicitZero := formatEventCompactRow(event, eventTextFormatOptions{utc: true, targetWidth: 0}, compactRowExtras{})
+	implicitDefault := formatEventCompactRow(event, eventTextFormatOptions{utc: true}, compactRowExtras{})
+
+	if diff := cmp.Diff(implicitDefault, explicitZero); diff != "" {
+		t.Fatalf("targetWidth=0 should match the zero-value default so non-TTY output stays byte-stable (-want +got):\n%s", diff)
+	}
+	if width := runeLen(explicitZero); width > eventCompactTargetWidth {
+		t.Fatalf("targetWidth=0 row exceeded fallback budget %d cols: %d cols, row=%q",
+			eventCompactTargetWidth, width, explicitZero)
+	}
+}
+
+func TestFormatEventCompactRow_TargetWidth160FillsWiderBudget(t *testing.T) {
+	t.Parallel()
+
+	event := mustTailEvent(
+		t,
+		"abcdef1234567890",
+		"claude-code",
+		"claude",
+		"123e4567-e89b-12d3-a456-426614174000",
+		"/Users/duck8823/Repositories/traceary",
+		strings.Repeat("long message ", 40),
+		time.Date(2026, 4, 15, 9, 30, 15, 0, time.UTC),
+	)
+
+	const widerBudget = 160
+	wider := formatEventCompactRow(event, eventTextFormatOptions{utc: true, targetWidth: widerBudget}, compactRowExtras{})
+	defaultRow := formatEventCompactRow(event, eventTextFormatOptions{utc: true}, compactRowExtras{})
+
+	widerWidth := runeLen(wider)
+	if widerWidth > widerBudget {
+		t.Fatalf("targetWidth=%d row exceeded budget: %d cols, row=%q", widerBudget, widerWidth, wider)
+	}
+	if widerWidth <= eventCompactTargetWidth {
+		t.Fatalf("targetWidth=%d row should fill more than the default %d-col budget for a long message: width=%d row=%q",
+			widerBudget, eventCompactTargetWidth, widerWidth, wider)
+	}
+
+	if !strings.HasSuffix(wider, "…") {
+		t.Fatalf("expected long message to be truncated with ellipsis at wider budget, got %q", wider)
+	}
+	if !strings.HasSuffix(defaultRow, "…") {
+		t.Fatalf("expected long message to be truncated with ellipsis at default budget, got %q", defaultRow)
+	}
+
+	// The wider-budget row must extend the default-budget row's visible
+	// content: its pre-ellipsis prefix has to start with the default row's
+	// pre-ellipsis prefix. This guards against a regression where the
+	// formatter ignored targetWidth and re-truncated to the 100-col cap.
+	defaultPre := strings.TrimSuffix(defaultRow, "…")
+	widerPre := strings.TrimSuffix(wider, "…")
+	if !strings.HasPrefix(widerPre, defaultPre) {
+		t.Fatalf("targetWidth=%d row should extend the default-budget content; wider=%q default=%q",
+			widerBudget, wider, defaultRow)
+	}
+}
+
+func TestFormatEventCompactRow_TargetWidth160ShortMessageMatchesDefault(t *testing.T) {
+	t.Parallel()
+
+	event := mustTailEvent(
+		t,
+		"abcdef1234567890",
+		"claude-code",
+		"claude",
+		"123e4567-e89b-12d3-a456-426614174000",
+		"/Users/duck8823/Repositories/traceary",
+		"short message",
+		time.Date(2026, 4, 15, 9, 30, 15, 0, time.UTC),
+	)
+
+	wider := formatEventCompactRow(event, eventTextFormatOptions{utc: true, targetWidth: 160}, compactRowExtras{})
+	defaultRow := formatEventCompactRow(event, eventTextFormatOptions{utc: true}, compactRowExtras{})
+
+	if diff := cmp.Diff(defaultRow, wider); diff != "" {
+		t.Fatalf("a short message should render identically at targetWidth=0 and targetWidth=160 (no padding to fill the budget) (-want +got):\n%s", diff)
+	}
+}
+
 func TestFormatEventCompactRow_UsesInjectedLocation(t *testing.T) {
 	t.Parallel()
 
