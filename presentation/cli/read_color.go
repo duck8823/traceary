@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"golang.org/x/term"
 	"golang.org/x/xerrors"
 )
 
@@ -126,6 +127,22 @@ func isTerminalWriter(w io.Writer) bool {
 		return false
 	}
 	return (info.Mode() & os.ModeCharDevice) != 0
+}
+
+// terminalWidthOf returns the visible column count of the terminal backing w,
+// or 0 when w is not a TTY (for example a pipe, buffer, or file). Callers
+// should fall back to a fixed width when 0 is returned so non-interactive
+// output stays deterministic.
+func terminalWidthOf(w io.Writer) int {
+	f, ok := w.(*os.File)
+	if !ok {
+		return 0
+	}
+	width, _, err := term.GetSize(int(f.Fd()))
+	if err != nil || width <= 0 {
+		return 0
+	}
+	return width
 }
 
 // applyCompactRowHighlight wraps a rendered compact row with ANSI sequences

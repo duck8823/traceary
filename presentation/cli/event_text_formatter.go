@@ -44,6 +44,10 @@ type eventTextFormatOptions struct {
 	// Wide and JSON writers ignore this flag so their legacy / machine
 	// readable contract is preserved.
 	colorEnabled bool
+	// targetWidth overrides the compact row column budget. 0 means use the
+	// fixed eventCompactTargetWidth default so non-interactive output (pipes,
+	// golden tests) stays byte-stable.
+	targetWidth int
 }
 
 // compactRowExtras carries hydrated data that a specific field needs but is
@@ -124,11 +128,15 @@ func formatEventCompactRow(event *model.Event, opts eventTextFormatOptions, extr
 		return strings.Join(tokens, sep)
 	}
 
+	targetWidth := opts.targetWidth
+	if targetWidth <= 0 {
+		targetWidth = eventCompactTargetWidth
+	}
 	prefix := strings.Join(tokens[:messageIndex], sep)
 	if messageIndex > 0 {
 		prefix += sep
 	}
-	remaining := eventCompactTargetWidth - runeLen(prefix)
+	remaining := targetWidth - runeLen(prefix)
 	if remaining < eventCompactMessageMinRunes {
 		for i := 0; i < messageIndex; i++ {
 			if fields[i] == readFieldWorkspace {
@@ -140,7 +148,7 @@ func formatEventCompactRow(event *model.Event, opts eventTextFormatOptions, extr
 		if messageIndex > 0 {
 			prefix += sep
 		}
-		remaining = eventCompactTargetWidth - runeLen(prefix)
+		remaining = targetWidth - runeLen(prefix)
 		if remaining < eventCompactMessageMinRunes {
 			remaining = eventCompactMessageMinRunes
 		}
