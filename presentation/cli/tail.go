@@ -318,6 +318,7 @@ func (c *RootCLI) runTail(ctx context.Context, warnWriter io.Writer, output io.W
 		location:     input.location,
 		fields:       resolvedFields,
 		colorEnabled: colorEnabled,
+		targetWidth:  terminalWidthOf(output),
 	}
 	extrasFor := c.makeCompactExtrasResolver(ctx, resolvedFields, colorEnabled)
 	writer := newTailEventWriter(output, input.asJSON, textOpts, extrasFor)

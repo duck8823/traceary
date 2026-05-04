@@ -194,6 +194,7 @@ func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.W
 		location:     input.location,
 		fields:       resolvedFields,
 		colorEnabled: colorEnabled,
+		targetWidth:  terminalWidthOf(output),
 	}
 	extrasFor := c.makeCompactExtrasResolver(ctx, resolvedFields, colorEnabled)
 	if err := writeEventsByFormat(output, events, input.asJSON, textOpts, extrasFor); err != nil {
