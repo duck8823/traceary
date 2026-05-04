@@ -5,6 +5,16 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.13.1] - 2026-05-04
+
+### Changed
+- **Compact read rows use interactive terminal width (#908, #912, #914)** — `traceary list`, `traceary search`, and `traceary tail` compact text output now use the detected TTY width instead of the legacy fixed 100-column cap when writing to an interactive terminal. Pipe, redirection, and non-TTY output keep the prior 100-column fallback so scripted output stays stable; `--wide` and `--json` remain outside the compact formatter contract. Dogfood coverage exercised all three commands in both TTY and pipe paths, and regression tests now pin the formatter budget behavior.
+- **Dependency maintenance for v0.13.1 (#879, #910)** — updated `github.com/mattn/go-runewidth` to 0.0.23, `github.com/modelcontextprotocol/go-sdk` to 1.6.0, `github.com/pelletier/go-toml/v2` to 2.3.1, and `modernc.org/sqlite` to 1.50.0. Review triage confirmed Traceary does not use the MCP SDK `SetError` or Streamable HTTP cross-origin paths affected by upstream behavior changes, and the SQLite-backed store tests pass on the new driver.
+- **Release-drafter action pin refresh (#878, #911)** — updated the pinned `release-drafter/release-drafter` and autolabeler action SHA to the upstream `v7.2.1` commit while keeping full-SHA pinning for supply-chain hygiene.
+
+### Notes
+- v0.13.1 is a patch release: no schema migrations, no new CLI flags, and no host activation behavior changes.
+
 ## [v0.13.0] - 2026-05-03
 
 ### Added

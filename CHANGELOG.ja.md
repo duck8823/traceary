@@ -5,6 +5,16 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.13.1] - 2026-05-04
+
+### Changed
+- **compact read 行が interactive terminal 幅を使うように (#908, #912, #914)** — `traceary list` / `traceary search` / `traceary tail` の compact text output は、interactive terminal に出力する場合に従来の固定 100 column cap ではなく検出した TTY 幅を使います。pipe / redirect / non-TTY 出力は従来どおり 100 column fallback を維持するため、scripted output は安定したままです。`--wide` と `--json` は compact formatter contract の外にあります。dogfood では 3 コマンドすべてについて TTY / pipe の両経路を確認し、formatter budget の regression test も追加しました。
+- **v0.13.1 向け dependency maintenance (#879, #910)** — `github.com/mattn/go-runewidth` を 0.0.23、`github.com/modelcontextprotocol/go-sdk` を 1.6.0、`github.com/pelletier/go-toml/v2` を 2.3.1、`modernc.org/sqlite` を 1.50.0 に更新しました。上流の挙動変更がある MCP SDK の `SetError` と Streamable HTTP cross-origin path は Traceary では使っていないことを確認し、新しい SQLite driver でも SQLite-backed store tests は通過しています。
+- **release-drafter action pin の更新 (#878, #911)** — `release-drafter/release-drafter` と autolabeler action の pin を上流 `v7.2.1` commit に更新しました。supply-chain hygiene のため full-SHA pinning は維持しています。
+
+### Notes
+- v0.13.1 は patch release です。schema migration、新規 CLI flag、host activation の挙動変更はありません。
+
 ## [v0.13.0] - 2026-05-03
 
 ### Added
