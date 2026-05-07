@@ -577,7 +577,9 @@ session end 境界を記録し、生成された event ID を出力します。
 
 ### `traceary top`
 
-active session を root session ごとにまとめたライブ自動更新 tree dashboard を表示します。各行には workspace（長い場合は末尾を保持して短縮）、最も具体的な agent/subagent role、記録 client、開始時刻、最新 activity 時刻、event 件数、最新 event を `<kind>: <message>` で表示します。最新 activity が `--idle` より古い session は dim 表示しますが、非表示にはしません。`q` または Ctrl-C で終了します。`traceary session tree` は静的な retrospective view のままです。
+ワークスペースの状況をライブ multi-pane dashboard で表示します。画面は active sessions (root → child) / 直近の失敗 / 直近の `command_executed` / durable memory inbox 候補の 4 ペイン構成で、それぞれ独立にスクロールできます。`tab` / `shift+tab` でフォーカスペイン切替、`↑/↓` (`k/j`) で 1 行スクロール、`pgup/pgdn` でページング、`g/G` で先頭 / 末尾へ、`r` で snapshot 再取得、`?` でヘルプ overlay 切替、`q` / Ctrl-C / Esc は共通の安全網経由で終了します。最新 activity が `--idle` より古い session は sessions ペイン内で dim 表示しますが、非表示にはしません。非 TTY 呼び出し (パイプ / CI ログ) では snapshot text 出力に自動でフォールバックします。`traceary session tree` は静的な retrospective view のままです。
+
+snapshot 出力は変更ありません: `traceary top --snapshot` はテキスト tree を維持し、`traceary top --snapshot --json` は JSON 契約を維持します。
 
 snapshot 例:
 

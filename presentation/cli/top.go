@@ -4,15 +4,16 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
-	"github.com/gdamore/tcell/v2"
 	"github.com/mattn/go-runewidth"
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/presentation/cli/tui"
 )
 
 // init pins go-runewidth's East-Asian-ambiguous handling to "narrow"
@@ -98,7 +99,7 @@ func (c *RootCLI) runTop(ctx context.Context, output io.Writer, opts topCommandO
 	if opts.asJSON {
 		return xerrors.Errorf("%s", Localize("--json requires --snapshot", "--json には --snapshot が必要です"))
 	}
-	return c.runTopTUI(ctx, opts)
+	return c.runTopTUI(ctx, output, opts)
 }
 
 func (c *RootCLI) loadTopSessionTree(ctx context.Context, opts topCommandOptions) ([]*sessionNode, error) {
@@ -323,145 +324,56 @@ func formatTopLatestEvent(s apptypes.SessionSummary) string {
 	return fmt.Sprintf("%s: %s", s.LatestEventKind(), truncateMessage(s.LatestEventMessage()))
 }
 
-func (c *RootCLI) runTopTUI(ctx context.Context, opts topCommandOptions) error {
-	screen, err := tcell.NewScreen()
-	if err != nil {
-		return xerrors.Errorf("failed to create terminal screen: %w", err)
+// runTopTUI launches the multi-pane Bubble Tea dashboard. The runner
+// inherits the shared TUI safety net (TTY guard, terminal restore, signal
+// handling); a non-TTY caller falls back to the snapshot text writer so
+// `traceary top` keeps working when piped into a file or CI log.
+func (c *RootCLI) runTopTUI(ctx context.Context, output io.Writer, opts topCommandOptions) error {
+	loader := c.newTopDataLoader()
+	criteria := topDataCriteria{
+		Workspace:          opts.workspace,
+		Client:             opts.client,
+		Agent:              opts.agent,
+		SessionLimit:       opts.limit,
+		FailureLimit:       topPaneFailureLimit,
+		RecentCommandLimit: topPaneRecentCommandLimit,
+		CandidateLimit:     topPaneCandidateLimit,
 	}
-	if err := screen.Init(); err != nil {
-		return xerrors.Errorf("failed to initialize terminal screen: %w", err)
-	}
-	defer screen.Fini()
-
-	events := make(chan tcell.Event, 8)
-	go func() {
-		for {
-			events <- screen.PollEvent()
-		}
-	}()
-
-	draw := func() {
+	model := newTopModel(topModelConfig{
+		Keys:            tui.DefaultKeyMap(),
+		Actions:         defaultTopPaneActionKeys(),
+		Styles:          tui.DefaultStyles(),
+		Loader:          loader,
+		Criteria:        criteria,
+		Idle:            opts.idle,
+		RefreshInterval: topDashboardRefreshInterval,
+		LoaderCtx:       ctx,
+	})
+	stdin, stdout := topDashboardIO(output)
+	if !tui.Interactive(stdin, stdout) {
+		// Non-TTY callers (pipes, CI) get the same one-shot text snapshot
+		// `--snapshot` would have produced. The contract matches the rest
+		// of the interactive surface: refuse to start an alt-screen when
+		// it would leave the operator's terminal unrestorable.
 		roots, loadErr := c.loadTopSessionTree(ctx, opts)
-		drawTopScreen(screen, roots, opts, loadErr, time.Now())
-	}
-	draw()
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-			draw()
-		case ev := <-events:
-			switch event := ev.(type) {
-			case *tcell.EventKey:
-				if event.Key() == tcell.KeyCtrlC || event.Rune() == 'q' || event.Rune() == 'Q' {
-					return nil
-				}
-			case *tcell.EventResize:
-				screen.Sync()
-				draw()
-			}
+		if loadErr != nil {
+			return loadErr
 		}
+		return writeTopSnapshotText(output, roots, opts.idle, time.Now())
 	}
+	if err := tui.Run(model, tui.RunOptions{Input: stdin, Output: stdout, AltScreen: true}); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to run top dashboard", "top ダッシュボードの実行に失敗しました"), err)
+	}
+	return nil
 }
 
-func drawTopScreen(screen tcell.Screen, roots []*sessionNode, opts topCommandOptions, loadErr error, now time.Time) {
-	screen.Clear()
-	width, height := screen.Size()
-	if width <= 0 || height <= 0 {
-		return
-	}
-	headerStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Bold(true)
-	parentStyle := tcell.StyleDefault.Foreground(tcell.ColorBlue)
-	activeStyle := tcell.StyleDefault.Foreground(tcell.ColorGreen)
-	idleStyle := tcell.StyleDefault.Foreground(tcell.ColorGray).Dim(true)
-	errorStyle := tcell.StyleDefault.Foreground(tcell.ColorRed)
-
-	row := 0
-	drawString(screen, 0, row, width, headerStyle, "traceary top — active sessions (q/Ctrl-C to quit)")
-	row++
-	filterLine := fmt.Sprintf("workspace=%s client=%s agent=%s idle=%s refresh=1s",
-		formatFilterValue(opts.workspace), formatFilterValue(opts.client), formatFilterValue(opts.agent), opts.idle)
-	drawString(screen, 0, row, width, tcell.StyleDefault.Foreground(tcell.ColorGray), filterLine)
-	row += 2
-	if loadErr != nil {
-		drawString(screen, 0, row, width, errorStyle, loadErr.Error())
-		screen.Show()
-		return
-	}
-	if len(roots) == 0 {
-		drawString(screen, 0, row, width, tcell.StyleDefault.Foreground(tcell.ColorGray), Localize("No active sessions found.", "active session が見つかりません"))
-		screen.Show()
-		return
-	}
-	for _, root := range roots {
-		row = drawTopNode(screen, root, "", true, false, row, width, height, opts.idle, now, parentStyle, activeStyle, idleStyle)
-		if row >= height {
-			break
-		}
-	}
-	screen.Show()
-}
-
-func drawTopNode(screen tcell.Screen, node *sessionNode, prefix string, isLast bool, hasParent bool, row, width, height int, idle time.Duration, now time.Time, parentStyle, activeStyle, idleStyle tcell.Style) int {
-	if row >= height {
-		return row
-	}
-	connector := "├── "
-	if isLast {
-		connector = "└── "
-	}
-	if !hasParent {
-		connector = ""
-	}
-	linePrefix := prefix + connector
-	style := activeStyle
-	if idle > 0 && now.Sub(node.summary.LatestEventAt()) >= idle {
-		style = idleStyle
-	}
-	drawString(screen, 0, row, width, parentStyle, linePrefix)
-	drawString(screen, runeWidth(linePrefix), row, width-runeWidth(linePrefix), style, strings.TrimPrefix(formatTopNodeLine(node, linePrefix, idle, now), linePrefix))
-	row++
-	childPrefix := prefix
-	if hasParent {
-		if isLast {
-			childPrefix += "    "
-		} else {
-			childPrefix += "│   "
-		}
-	}
-	for i, child := range node.children {
-		row = drawTopNode(screen, child, childPrefix, i == len(node.children)-1, true, row, width, height, idle, now, parentStyle, activeStyle, idleStyle)
-		if row >= height {
-			break
-		}
-	}
-	return row
-}
-
-func drawString(screen tcell.Screen, x, y, maxWidth int, style tcell.Style, text string) {
-	if maxWidth <= 0 {
-		return
-	}
-	col := x
-	for _, r := range text {
-		w := runewidth.RuneWidth(r)
-		if w == 0 {
-			// Combining marks attach to the previous cell; tcell
-			// itself merges them via SetContent's combining
-			// argument when needed. Skip them at the column level
-			// so the cursor does not stall on zero-width runes.
-			continue
-		}
-		if col-x+w > maxWidth {
-			break
-		}
-		screen.SetContent(col, y, r, nil, style)
-		col += w
-	}
+// topDashboardIO resolves the stdin/stdout pair the Bubble Tea program
+// should drive. Tests pass a non-file writer (e.g. *bytes.Buffer) into
+// cobra, which makes the type assertion fail and tui.Interactive then
+// refuses the run — exactly the behavior the non-TTY contract requires.
+func topDashboardIO(output io.Writer) (*os.File, *os.File) {
+	stdout, _ := output.(*os.File)
+	return os.Stdin, stdout
 }
 
 // runeWidth returns the visual column width of s, accounting for

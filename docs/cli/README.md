@@ -585,7 +585,9 @@ Useful flags:
 
 ### `traceary top`
 
-Show a live, auto-refreshing tree dashboard of active sessions grouped by root session. Rows include the workspace (truncated tail-first when long), the most specific agent/subagent role, recording client, start time, latest activity time, event count, and the latest event as `<kind>: <message>`. Idle sessions are dimmed when their latest activity is older than `--idle`; they are not hidden. Press `q` or Ctrl-C to quit. `traceary session tree` remains the static retrospective view.
+Launch a live multi-pane dashboard that splits the workspace view into four panes: active sessions (root → child), recent failures, recent `command_executed` events, and durable-memory inbox candidates. Each pane scrolls independently; `tab` / `shift+tab` cycle pane focus, `↑/↓` (or `k/j`) scroll by one row, `pgup/pgdn` page, `g/G` jump to top/bottom, `r` forces a refresh, `?` toggles a help overlay, and `q` / Ctrl-C / Esc quit cleanly. Idle sessions are dimmed in the sessions pane when their latest activity is older than `--idle`; they are not hidden. Non-TTY callers (pipes, CI logs) automatically fall back to the snapshot text writer. `traceary session tree` remains the static retrospective view.
+
+Snapshot output is preserved unchanged: `traceary top --snapshot` keeps the existing text tree, and `traceary top --snapshot --json` keeps the existing JSON contract.
 
 Example snapshot:
 

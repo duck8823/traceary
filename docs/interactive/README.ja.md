@@ -29,13 +29,21 @@ traceary list --workspace github.com/duck8823/traceary --client codex
 
 ### 2. 「今どの session が動いているか」を見たい → `traceary top`
 
-現在 active な session の tree をライブで眺めたいときは `top` を使います。各行に workspace、最も具体的な agent role、latest event 時刻、latest event を `<kind>: <message>` で表示するため、どの session が何をしているか一目で分かります。
+ワークスペースの状況をライブの multi-pane dashboard で眺めたいときは `top` を使います。画面は次の 4 ペイン構成です。
+
+- **sessions** — active session tree (workspace、agent role、latest event 時刻、latest event を `<kind>: <message>`)
+- **failures** — 直近の失敗 `command_executed`
+- **commands** — 直近の `command_executed`
+- **candidates** — durable-memory inbox の候補 (remember-intent priority 順)
 
 ```sh
 traceary top
 traceary top --workspace github.com/duck8823/traceary
 traceary top --snapshot
+traceary top --snapshot --json
 ```
+
+dashboard 内では `tab` / `shift+tab` でフォーカスペインを切り替え、`↑/↓` (`k/j`) で 1 行ずつスクロール、`pgup/pgdn` でページング、`g/G` で先頭 / 末尾、`r` で snapshot 再取得、`?` でヘルプ切替、`q` / Ctrl-C / Esc は共通の安全網を経由して終了します。非 TTY (パイプ / CI ログ) では自動的に snapshot text 出力にフォールバックします。`--snapshot` / `--snapshot --json` の単発出力はスクリプト用途向けにそのまま残ります。
 
 ### 3. 「今まさに書き込まれているか」を追いたい → `traceary tail`
 
