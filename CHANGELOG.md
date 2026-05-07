@@ -7,6 +7,9 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+### Docs
+- **Memory command surface plan for v0.14 (#921)** — added `docs/operations/memory-command-surface.md` (and the Japanese paired doc) auditing every current `traceary memory ...` path and mapping it to the v0.14 target tree. The new tree groups subcommands under `memory inbox`, `memory store`, and `memory admin` while keeping `memory search`, `memory show`, and `memory list` at the top level for daily use. The doc lists every old path that will become a hidden deprecated alias in v0.14 and is scheduled for removal in v0.15.
+
 ### Removed
 - **Deprecated top-level command aliases (#918)** — `traceary init`, `traceary backup`, `traceary gc`, `traceary handoff`, and `traceary compact-summary` are no longer registered as working commands and have been dropped from `traceary --help`. Invoking the old names now exits with a usage error that points at the canonical replacement: `traceary store init`, `traceary store backup ...`, `traceary store gc`, `traceary session handoff`, and `traceary session handoff --compact-only`. The aliases have shipped a deprecation notice since v0.9 (see #696); v0.14.0 completes the planned removal.
 - **Deprecated `traceary-memory-capture` skill stubs removed (#919)** — the placeholder `traceary-memory-capture` skill is removed from the Claude Code plugin, Gemini CLI extension, and Codex plugin packages. Use `traceary-memory-review` for inbox curation and session recaps, and `traceary-memory-remember` for explicit durable-memory writes.

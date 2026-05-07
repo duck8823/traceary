@@ -110,3 +110,4 @@ Possible but not actively tuned:
 - Scheduled operations: [`./scheduled-tasks.md`](./scheduled-tasks.md)
 - Python dependency plan: [`./python-dependencies.md`](./python-dependencies.md)
 - Repository tooling plan: [`./repo-tooling.md`](./repo-tooling.md)
+- Memory command surface plan: [`./memory-command-surface.md`](./memory-command-surface.md)
