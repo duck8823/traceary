@@ -121,6 +121,103 @@ func TestReviewModel_SkipDoesNotQueue(t *testing.T) {
 	}
 }
 
+// TestReviewModel_SkipClearsPriorDecision pins that revisiting a row that
+// already has a queued accept/reject and pressing skip discards the prior
+// decision instead of leaving it queued. Without this guard, the runner
+// would still apply the previous accept/reject after quit even though the
+// operator's last word for the row was "skip".
+func TestReviewModel_SkipClearsPriorDecision(t *testing.T) {
+	t.Parallel()
+	model := newReviewTestModel(
+		buildReviewCandidate(t, "id-1", "fact one"),
+		buildReviewCandidate(t, "id-2", "fact two"),
+	)
+
+	// accept id-1, then go back and skip it.
+	step1, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	step2, _ := step1.(reviewModel).Update(tea.KeyMsg{Type: tea.KeyUp})
+	step3, _ := step2.(reviewModel).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	got := step3.(reviewModel)
+
+	if len(got.Decisions()) != 0 {
+		t.Fatalf("skip after accept must drop the queued decision; got %+v", got.Decisions())
+	}
+	if got.reviewed[0] != "" {
+		t.Fatalf("skip must clear reviewed marker for current row; got %q", got.reviewed[0])
+	}
+	if got.cursor != 1 {
+		t.Fatalf("cursor = %d, want advanced to 1 after skip", got.cursor)
+	}
+}
+
+// TestReviewModel_ActionKeysIgnoredInHelpMode pins that accept / reject /
+// skip / edit are inert while the help modal is open. Without this guard,
+// pressing 'a' while reading help would queue a destructive accept on the
+// row underneath the modal.
+func TestReviewModel_ActionKeysIgnoredInHelpMode(t *testing.T) {
+	t.Parallel()
+	model := newReviewTestModel(
+		buildReviewCandidate(t, "id-1", "fact one"),
+		buildReviewCandidate(t, "id-2", "fact two"),
+	)
+	helpOn, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	helpM := helpOn.(reviewModel)
+	if helpM.mode != reviewModeHelp {
+		t.Fatalf("expected help mode, got %v", helpM.mode)
+	}
+
+	for _, action := range []rune{'a', 'x', 's', 'e'} {
+		next, _ := helpM.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{action}})
+		nextM := next.(reviewModel)
+		if len(nextM.Decisions()) != 0 {
+			t.Fatalf("%q in help mode must not queue a decision; got %+v", action, nextM.Decisions())
+		}
+		if nextM.mode != reviewModeHelp {
+			t.Fatalf("%q in help mode must not change mode; got %v", action, nextM.mode)
+		}
+		if nextM.cursor != 0 {
+			t.Fatalf("%q in help mode must not advance cursor; got %d", action, nextM.cursor)
+		}
+		if nextM.reviewed[0] != "" {
+			t.Fatalf("%q in help mode must not mark row reviewed; got %q", action, nextM.reviewed[0])
+		}
+	}
+}
+
+// TestReviewModel_ActionKeysIgnoredInEvidenceMode pins the same modal
+// guard for the evidence overlay. The evidence view is read-only; an
+// accidental rune press while reading evidence must not queue a decision
+// against the candidate behind it.
+func TestReviewModel_ActionKeysIgnoredInEvidenceMode(t *testing.T) {
+	t.Parallel()
+	model := newReviewTestModel(
+		buildReviewCandidate(t, "id-1", "fact one"),
+		buildReviewCandidate(t, "id-2", "fact two"),
+	)
+	evOn, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	evM := evOn.(reviewModel)
+	if evM.mode != reviewModeViewEvidence {
+		t.Fatalf("expected evidence mode, got %v", evM.mode)
+	}
+
+	for _, action := range []rune{'a', 'x', 's', 'e'} {
+		next, _ := evM.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{action}})
+		nextM := next.(reviewModel)
+		if len(nextM.Decisions()) != 0 {
+			t.Fatalf("%q in evidence mode must not queue a decision; got %+v", action, nextM.Decisions())
+		}
+		if nextM.mode != reviewModeViewEvidence {
+			t.Fatalf("%q in evidence mode must not change mode; got %v", action, nextM.mode)
+		}
+		if nextM.cursor != 0 {
+			t.Fatalf("%q in evidence mode must not advance cursor; got %d", action, nextM.cursor)
+		}
+		if nextM.reviewed[0] != "" {
+			t.Fatalf("%q in evidence mode must not mark row reviewed; got %q", action, nextM.reviewed[0])
+		}
+	}
+}
+
 // TestReviewModel_RequeueReplacesPriorDecision pins that re-deciding on
 // the same id replaces the prior decision so the operator's last word
 // wins. Without this guard, accidentally tapping `a` twice would queue
@@ -244,13 +341,17 @@ func TestReviewModel_EditBackspaceTrimsBuffer(t *testing.T) {
 
 // TestReviewModel_QuitProducesTeaQuit pins that quitting issues the
 // canonical tui.Quit command so the runner exits cleanly. Three keys
-// (q, ctrl+c, esc) all map to quit per the shared keymap.
+// (q, ctrl+c, esc) all map to quit per the shared keymap while the
+// operator is on the browse screen — overlay-mode Esc behavior is
+// covered by TestReviewModel_EscDismissesHelpOverlay /
+// TestReviewModel_EscDismissesEvidenceOverlay.
 func TestReviewModel_QuitProducesTeaQuit(t *testing.T) {
 	t.Parallel()
 	model := newReviewTestModel(buildReviewCandidate(t, "id-1", "fact"))
 	cases := []tea.KeyMsg{
 		{Type: tea.KeyRunes, Runes: []rune{'q'}},
 		{Type: tea.KeyCtrlC},
+		{Type: tea.KeyEsc},
 	}
 	for _, msg := range cases {
 		_, cmd := model.Update(msg)
@@ -259,6 +360,55 @@ func TestReviewModel_QuitProducesTeaQuit(t *testing.T) {
 		}
 		if _, ok := cmd().(tea.QuitMsg); !ok {
 			t.Fatalf("expected tea.QuitMsg for %#v, got %T", msg, cmd())
+		}
+	}
+}
+
+// TestReviewModel_EscDismissesHelpOverlay pins that Esc inside the help
+// overlay returns to browse instead of quitting the program. The shared
+// keymap binds esc to Quit, so without an overlay-aware override the
+// operator's Esc would yank them out of the review entirely — surprising
+// when the matching `?` toggle just dismisses the overlay.
+func TestReviewModel_EscDismissesHelpOverlay(t *testing.T) {
+	t.Parallel()
+	model := newReviewTestModel(buildReviewCandidate(t, "id-1", "fact"))
+	on, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	helpM := on.(reviewModel)
+	if helpM.mode != reviewModeHelp {
+		t.Fatalf("expected help mode before Esc, got %v", helpM.mode)
+	}
+	off, cmd := helpM.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	got := off.(reviewModel)
+	if got.mode != reviewModeBrowse {
+		t.Fatalf("Esc in help mode should return to browse, got mode=%v", got.mode)
+	}
+	if cmd != nil {
+		if _, isQuit := cmd().(tea.QuitMsg); isQuit {
+			t.Fatalf("Esc in help mode must not quit the program")
+		}
+	}
+}
+
+// TestReviewModel_EscDismissesEvidenceOverlay mirrors the help-overlay
+// guard for the evidence modal: the overlay's hint text says "v / esc
+// back" and the model must honor it instead of falling through to the
+// shared Quit binding.
+func TestReviewModel_EscDismissesEvidenceOverlay(t *testing.T) {
+	t.Parallel()
+	model := newReviewTestModel(buildReviewCandidate(t, "id-1", "fact"))
+	on, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	evM := on.(reviewModel)
+	if evM.mode != reviewModeViewEvidence {
+		t.Fatalf("expected evidence mode before Esc, got %v", evM.mode)
+	}
+	off, cmd := evM.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	got := off.(reviewModel)
+	if got.mode != reviewModeBrowse {
+		t.Fatalf("Esc in evidence mode should return to browse, got mode=%v", got.mode)
+	}
+	if cmd != nil {
+		if _, isQuit := cmd().(tea.QuitMsg); isQuit {
+			t.Fatalf("Esc in evidence mode must not quit the program")
 		}
 	}
 }

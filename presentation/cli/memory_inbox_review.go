@@ -402,11 +402,22 @@ func (m reviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m.updateBrowse(keyMsg)
 }
 
-// updateBrowse handles keys outside of edit mode. Accept / reject /
-// distill commit a decision and advance; navigation and toggles never
-// touch the decisions queue.
+// updateBrowse handles keys outside of edit mode. Quit, help toggle, and
+// view toggle work from any non-edit mode; navigation and action keys
+// (accept / reject / skip / edit) only fire in browse mode so a stray
+// rune from the help or evidence modal cannot queue a destructive
+// decision against the underlying candidate.
 func (m reviewModel) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	actions := defaultReviewActionKeys()
+	// Esc has mode-specific semantics. The shared Quit binding maps esc
+	// to quit, but inside the help / evidence overlays the operator
+	// expects esc to dismiss the overlay (mirroring the ? / v toggles).
+	// Handle that override before falling through to Quit so esc only
+	// quits while the operator is actually on the browse screen.
+	if key.Matches(msg, actions.Cancel) && (m.mode == reviewModeHelp || m.mode == reviewModeViewEvidence) {
+		m.mode = reviewModeBrowse
+		return m, nil
+	}
 	switch {
 	case key.Matches(msg, m.keys.Quit):
 		return m, tea.Quit
@@ -427,6 +438,11 @@ func (m reviewModel) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = reviewModeViewEvidence
 		}
 		return m, nil
+	}
+	if m.mode != reviewModeBrowse {
+		return m, nil
+	}
+	switch {
 	case key.Matches(msg, m.keys.Up):
 		if len(m.items) > 0 && m.cursor > 0 {
 			m.cursor--
@@ -456,6 +472,14 @@ func (m reviewModel) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, actions.Skip):
 		if len(m.items) == 0 {
 			return m, nil
+		}
+		idx := m.cursor
+		if idx >= 0 && idx < len(m.items) {
+			// Skip clears any prior decision/review marker for this row so
+			// a revisit-then-skip discards the queued action instead of
+			// silently leaving it for the runner to apply on quit.
+			m.removeDecisionFor(m.items[idx].Summary().MemoryID())
+			m.reviewed[idx] = ""
 		}
 		m.statusMsg = Localize("skipped", "skip しました")
 		m.advanceCursor()
@@ -674,7 +698,7 @@ func (m reviewModel) renderHelp() string {
 		"edit / distill では candidate の fact を自動採用しません。operator が新しい fact を入力した上で `memory store distill --replace=supersede` 経由で記録します。",
 	))
 	b.WriteString("\n\n")
-	b.WriteString(m.styles.Help.Render(Localize("? close help · q quit", "? ヘルプを閉じる · q quit")))
+	b.WriteString(m.styles.Help.Render(Localize("? / esc close help · q quit", "? / esc ヘルプを閉じる · q quit")))
 	return b.String()
 }
 
