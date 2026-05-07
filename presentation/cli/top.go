@@ -13,6 +13,7 @@ import (
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/presentation/cli/tui"
 )
 
@@ -87,14 +88,14 @@ func (c *RootCLI) runTop(ctx context.Context, output io.Writer, opts topCommandO
 	}
 
 	if opts.snapshot {
-		roots, err := c.loadTopSessionTree(ctx, opts)
+		snap, err := c.loadTopSnapshot(ctx, opts)
 		if err != nil {
 			return err
 		}
 		if opts.asJSON {
-			return writeTopSnapshotJSON(output, roots)
+			return writeTopSnapshotJSON(output, snap)
 		}
-		return writeTopSnapshotText(output, roots, opts.idle, time.Now())
+		return writeTopSnapshotText(output, snap, opts.idle, time.Now())
 	}
 	if opts.asJSON {
 		return xerrors.Errorf("%s", Localize("--json requires --snapshot", "--json には --snapshot が必要です"))
@@ -102,12 +103,22 @@ func (c *RootCLI) runTop(ctx context.Context, output io.Writer, opts topCommandO
 	return c.runTopTUI(ctx, output, opts)
 }
 
-func (c *RootCLI) loadTopSessionTree(ctx context.Context, opts topCommandOptions) ([]*sessionNode, error) {
-	return c.newTopDataLoader().loadSessions(ctx, topDataCriteria{
-		Workspace:    opts.workspace,
-		Client:       opts.client,
-		Agent:        opts.agent,
-		SessionLimit: opts.limit,
+// loadTopSnapshot fetches every data slice the redesigned snapshot
+// surfaces — active session tree, recent failures, recent commands,
+// and candidate durable memories — using the same per-pane caps the
+// live dashboard applies. The session pane reuses the operator-controlled
+// --limit flag; the secondary panes intentionally use the small dashboard
+// caps so the script-friendly snapshot does not balloon under a noisy
+// workspace.
+func (c *RootCLI) loadTopSnapshot(ctx context.Context, opts topCommandOptions) (topDataSnapshot, error) {
+	return c.newTopDataLoader().loadSnapshot(ctx, topDataCriteria{
+		Workspace:          opts.workspace,
+		Client:             opts.client,
+		Agent:              opts.agent,
+		SessionLimit:       opts.limit,
+		FailureLimit:       topPaneFailureLimit,
+		RecentCommandLimit: topPaneRecentCommandLimit,
+		CandidateLimit:     topPaneCandidateLimit,
 	})
 }
 
@@ -189,7 +200,23 @@ func sessionSummaryHasAgent(summary apptypes.SessionSummary, agent string) bool 
 	return extractSubagentType(summary.Agents()) == agent
 }
 
-func writeTopSnapshotText(output io.Writer, roots []*sessionNode, idle time.Duration, now time.Time) error {
+func writeTopSnapshotText(output io.Writer, snap topDataSnapshot, idle time.Duration, now time.Time) error {
+	if err := writeTopSnapshotTextSessions(output, snap.Sessions, idle, now); err != nil {
+		return err
+	}
+	if err := writeTopSnapshotTextEvents(output, "RECENT FAILURES", snap.Failures, now.Location()); err != nil {
+		return err
+	}
+	if err := writeTopSnapshotTextEvents(output, "RECENT COMMANDS", snap.RecentCommands, now.Location()); err != nil {
+		return err
+	}
+	return writeTopSnapshotTextCandidates(output, snap.Candidates)
+}
+
+func writeTopSnapshotTextSessions(output io.Writer, roots []*sessionNode, idle time.Duration, now time.Time) error {
+	if _, err := fmt.Fprintln(output, "ACTIVE SESSIONS:"); err != nil {
+		return xerrors.Errorf("failed to print active sessions header: %w", err)
+	}
 	if len(roots) == 0 {
 		if _, err := fmt.Fprintln(output, Localize("No active sessions found.", "active session が見つかりません")); err != nil {
 			return xerrors.Errorf("failed to print empty active sessions message: %w", err)
@@ -199,6 +226,43 @@ func writeTopSnapshotText(output io.Writer, roots []*sessionNode, idle time.Dura
 	for _, root := range roots {
 		if err := printTopNode(output, root, "", true, idle, now, false); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func writeTopSnapshotTextEvents(output io.Writer, header string, events []*model.Event, loc *time.Location) error {
+	if _, err := fmt.Fprintf(output, "\n%s:\n", header); err != nil {
+		return xerrors.Errorf("failed to print %s header: %w", header, err)
+	}
+	if len(events) == 0 {
+		if _, err := fmt.Fprintln(output, Localize("No matching records.", "一致する記録はありません")); err != nil {
+			return xerrors.Errorf("failed to print empty %s message: %w", header, err)
+		}
+		return nil
+	}
+	for _, ev := range events {
+		ts := ev.CreatedAt().In(loc).Format(eventCompactTimeLayout)
+		if _, err := fmt.Fprintf(output, "%s %s %s\n", ts, ev.Kind(), truncateMessage(ev.Body())); err != nil {
+			return xerrors.Errorf("failed to print %s row: %w", header, err)
+		}
+	}
+	return nil
+}
+
+func writeTopSnapshotTextCandidates(output io.Writer, candidates []apptypes.MemorySummary) error {
+	if _, err := fmt.Fprintf(output, "\nCANDIDATE MEMORIES (count=%d):\n", len(candidates)); err != nil {
+		return xerrors.Errorf("failed to print candidates header: %w", err)
+	}
+	if len(candidates) == 0 {
+		if _, err := fmt.Fprintln(output, Localize("No candidate durable memories in the inbox.", "inbox に candidate durable memory はありません")); err != nil {
+			return xerrors.Errorf("failed to print empty candidates message: %w", err)
+		}
+		return nil
+	}
+	for _, candidate := range candidates {
+		if _, err := fmt.Fprintf(output, "%s %s %s\n", candidate.MemoryID(), candidate.MemoryType(), truncateMessage(candidate.Fact())); err != nil {
+			return xerrors.Errorf("failed to print candidate row: %w", err)
 		}
 	}
 	return nil
@@ -355,11 +419,11 @@ func (c *RootCLI) runTopTUI(ctx context.Context, output io.Writer, opts topComma
 		// `--snapshot` would have produced. The contract matches the rest
 		// of the interactive surface: refuse to start an alt-screen when
 		// it would leave the operator's terminal unrestorable.
-		roots, loadErr := c.loadTopSessionTree(ctx, opts)
+		snap, loadErr := c.loadTopSnapshot(ctx, opts)
 		if loadErr != nil {
 			return loadErr
 		}
-		return writeTopSnapshotText(output, roots, opts.idle, time.Now())
+		return writeTopSnapshotText(output, snap, opts.idle, time.Now())
 	}
 	if err := tui.Run(model, tui.RunOptions{Input: stdin, Output: stdout, AltScreen: true}); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to run top dashboard", "top ダッシュボードの実行に失敗しました"), err)

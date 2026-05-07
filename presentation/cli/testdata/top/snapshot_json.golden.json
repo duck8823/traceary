@@ -1,47 +1,91 @@
-[
-  {
-    "session_id": "top-root",
-    "depth": 0,
-    "workspace": "duck8823/traceary",
-    "latest_event_kind": "session_ended",
-    "latest_event_message": "Root session ended.",
-    "latest_event_at": "2026-04-10T12:30:00Z",
-    "label": "root",
-    "summary": "Root session retained because a child is active.",
-    "started_at": "2026-04-10T12:00:00Z",
-    "ended_at": "2026-04-10T12:30:00Z",
-    "status": "ended",
-    "duration_sec": 1800,
-    "total_events": 12,
-    "command_count": 5,
-    "agents": [
-      "claude"
-    ],
-    "subagent_type": "claude",
-    "children": [
+{
+  "sessions": [
+    {
+      "session_id": "top-root",
+      "depth": 0,
+      "workspace": "duck8823/traceary",
+      "latest_event_kind": "session_ended",
+      "latest_event_message": "Root session ended.",
+      "latest_event_at": "2026-04-10T12:30:00Z",
+      "label": "root",
+      "summary": "Root session retained because a child is active.",
+      "started_at": "2026-04-10T12:00:00Z",
+      "ended_at": "2026-04-10T12:30:00Z",
+      "status": "ended",
+      "duration_sec": 1800,
+      "total_events": 12,
+      "command_count": 5,
+      "agents": [
+        "claude"
+      ],
+      "subagent_type": "claude",
+      "children": [
+        {
+          "session_id": "top-child",
+          "parent_session_id": "top-root",
+          "spawn_event_id": "spawn-top-child",
+          "subagent_kind": "task",
+          "spawn_order": 1,
+          "depth": 1,
+          "workspace": "duck8823/traceary",
+          "latest_event_kind": "transcript",
+          "latest_event_message": "Working on active child.",
+          "latest_event_at": "2026-04-10T12:20:00Z",
+          "label": "child",
+          "summary": "Active child session.",
+          "started_at": "2026-04-10T12:10:00Z",
+          "status": "active",
+          "total_events": 7,
+          "command_count": 3,
+          "agents": [
+            "claude/explore"
+          ],
+          "subagent_type": "claude/explore",
+          "children": []
+        }
+      ]
+    }
+  ],
+  "failures": [
+    {
+      "event_id": "evt-fail",
+      "kind": "command_executed",
+      "client": "claude",
+      "agent": "claude/explore",
+      "session_id": "top-child",
+      "workspace": "duck8823/traceary",
+      "message": "go test ./... [exit=1]",
+      "created_at": "2026-04-10T12:20:00Z"
+    }
+  ],
+  "recent_commands": [
+    {
+      "event_id": "evt-cmd",
+      "kind": "command_executed",
+      "client": "claude",
+      "agent": "claude/explore",
+      "session_id": "top-child",
+      "workspace": "duck8823/traceary",
+      "message": "ls -la",
+      "created_at": "2026-04-10T12:22:00Z"
+    }
+  ],
+  "candidates": {
+    "count": 1,
+    "items": [
       {
-        "session_id": "top-child",
-        "parent_session_id": "top-root",
-        "spawn_event_id": "spawn-top-child",
-        "subagent_kind": "task",
-        "spawn_order": 1,
-        "depth": 1,
-        "workspace": "duck8823/traceary",
-        "latest_event_kind": "transcript",
-        "latest_event_message": "Working on active child.",
-        "latest_event_at": "2026-04-10T12:20:00Z",
-        "label": "child",
-        "summary": "Active child session.",
-        "started_at": "2026-04-10T12:10:00Z",
-        "status": "active",
-        "total_events": 7,
-        "command_count": 3,
-        "agents": [
-          "claude/explore"
-        ],
-        "subagent_type": "claude/explore",
-        "children": []
+        "memory_id": "mem-1",
+        "type": "preference",
+        "scope_kind": "workspace",
+        "scope_value": "duck8823/traceary",
+        "fact": "prefer table-driven subtests",
+        "status": "candidate",
+        "confidence": "medium",
+        "source": "manual",
+        "valid_from": "2026-04-10T12:00:00Z",
+        "created_at": "2026-04-10T12:00:00Z",
+        "updated_at": "2026-04-10T12:00:00Z"
       }
     ]
   }
-]
+}

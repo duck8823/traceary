@@ -60,6 +60,32 @@ type sessionTreeNode struct {
 	Children        []*sessionTreeNode `json:"children"`
 }
 
+// topSnapshotPayload is the top-level JSON shape of
+// `traceary top --snapshot --json`. The envelope was introduced in
+// v0.14.0 alongside the multi-pane redesign so the snapshot can carry
+// the dashboard's secondary surfaces (recent failures, recent
+// commands, durable-memory inbox candidates) next to the active
+// session tree. Earlier releases emitted a bare top-level array of
+// session nodes; the inner session shape is unchanged so consumers
+// that already destructure `sessions[*]` keep working — only the
+// outer wrapping is new.
+type topSnapshotPayload struct {
+	Sessions       []*topSnapshotNode    `json:"sessions"`
+	Failures       []event               `json:"failures"`
+	RecentCommands []event               `json:"recent_commands"`
+	Candidates     topSnapshotCandidates `json:"candidates"`
+}
+
+// topSnapshotCandidates wraps the durable-memory inbox slice with an
+// explicit count so JSON consumers do not have to read len(items) to
+// learn how many candidates the snapshot returned. The number reflects
+// the rows included in the snapshot (capped by the per-pane limit), so
+// it is the same value the dashboard renders in the candidates pane.
+type topSnapshotCandidates struct {
+	Count int                   `json:"count"`
+	Items []memorySummaryOutput `json:"items"`
+}
+
 // topSnapshotNode is the JSON shape of a single node in the
 // `traceary top --snapshot --json` output. It is intentionally
 // independent from sessionTreeNode so the top contract can carry

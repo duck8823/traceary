@@ -587,7 +587,7 @@ Useful flags:
 
 Launch a live multi-pane dashboard that splits the workspace view into four panes: active sessions (root → child), recent failures, recent `command_executed` events, and durable-memory inbox candidates. Each pane scrolls independently; `tab` / `shift+tab` cycle pane focus, `↑/↓` (or `k/j`) scroll by one row, `pgup/pgdn` page, `g/G` jump to top/bottom, `r` forces a refresh, `?` toggles a help overlay, and `q` / Ctrl-C / Esc quit cleanly. Idle sessions are dimmed in the sessions pane when their latest activity is older than `--idle`; they are not hidden. Non-TTY callers (pipes, CI logs) automatically fall back to the snapshot text writer. `traceary session tree` remains the static retrospective view.
 
-Snapshot output is preserved unchanged: `traceary top --snapshot` keeps the existing text tree, and `traceary top --snapshot --json` keeps the existing JSON contract.
+Snapshot output mirrors the four dashboard panes so non-interactive consumers (pipes, CI, scripts) see the same data the live view shows. The text snapshot is split into `ACTIVE SESSIONS`, `RECENT FAILURES`, `RECENT COMMANDS`, and `CANDIDATE MEMORIES (count=N)` sections; empty panes print a stable empty-state line so headers always render. The JSON snapshot is wrapped in an envelope with `sessions`, `failures`, `recent_commands`, and `candidates` (`{ count, items }`) keys; each session node keeps the same fields earlier releases emitted, but the top-level shape changed from a bare array to this envelope in v0.14.0 — scripts that read the array directly need to read `sessions` from the envelope. Per-pane row caps follow the dashboard defaults (50 failures, 50 recent commands, 25 candidates); the session pane keeps using `--limit`.
 
 Example snapshot:
 
@@ -596,11 +596,21 @@ traceary top --snapshot
 ```
 
 ```text
+ACTIVE SESSIONS:
 4a70c526 workspace=github.com/duck8823/traceary agent=codex client=claude started=07:06:37 latest=07:06:58 events=165 last=session_ended: duration=29m21s
 └── 7c91a2bf workspace=github.com/duck8823/traceary agent=worker client=claude started=07:03:12 latest=07:06:52 events=42 last=command_executed: go test ./presentation/cli
+
+RECENT FAILURES:
+07:06:58 command_executed go test ./presentation/cli [exit=1]
+
+RECENT COMMANDS:
+07:06:52 command_executed go build ./...
+
+CANDIDATE MEMORIES (count=1):
+mem-1 preference prefer table-driven subtests
 ```
 
-Columns:
+Active session columns:
 
 - `workspace` — compact workspace path; tail is preserved when truncated so the repo qualifier stays readable
 - `agent` — most specific agent / subagent role
@@ -617,7 +627,7 @@ Useful flags:
 - `--client`
 - `--agent`
 - `--idle <duration>` — dim rows older than the threshold without hiding them
-- `--snapshot --json` — print a one-shot JSON tree using the top-specific snapshot contract; the JSON nodes additionally carry `latest_event_kind`, `latest_event_message`, and `latest_event_at`. `traceary session tree --json` keeps its independent contract and does not expose those fields
+- `--snapshot --json` — print a one-shot JSON envelope with `sessions`, `failures`, `recent_commands`, and `candidates` (`{ count, items }`). Each session node carries `latest_event_kind`, `latest_event_message`, and `latest_event_at` in addition to the standard session fields; failures and recent commands reuse the standard event JSON shape; candidate memories reuse the durable-memory summary JSON shape. `traceary session tree --json` keeps its independent contract and does not expose any of these surfaces
 - `--limit`
 
 ### `traceary session list`

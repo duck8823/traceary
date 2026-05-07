@@ -579,7 +579,7 @@ session end 境界を記録し、生成された event ID を出力します。
 
 ワークスペースの状況をライブ multi-pane dashboard で表示します。画面は active sessions (root → child) / 直近の失敗 / 直近の `command_executed` / durable memory inbox 候補の 4 ペイン構成で、それぞれ独立にスクロールできます。`tab` / `shift+tab` でフォーカスペイン切替、`↑/↓` (`k/j`) で 1 行スクロール、`pgup/pgdn` でページング、`g/G` で先頭 / 末尾へ、`r` で snapshot 再取得、`?` でヘルプ overlay 切替、`q` / Ctrl-C / Esc は共通の安全網経由で終了します。最新 activity が `--idle` より古い session は sessions ペイン内で dim 表示しますが、非表示にはしません。非 TTY 呼び出し (パイプ / CI ログ) では snapshot text 出力に自動でフォールバックします。`traceary session tree` は静的な retrospective view のままです。
 
-snapshot 出力は変更ありません: `traceary top --snapshot` はテキスト tree を維持し、`traceary top --snapshot --json` は JSON 契約を維持します。
+snapshot 出力は dashboard の 4 ペインに合わせて拡張されており、パイプ / CI / スクリプト経由の利用者も live view と同じデータを取得できます。テキスト snapshot は `ACTIVE SESSIONS` / `RECENT FAILURES` / `RECENT COMMANDS` / `CANDIDATE MEMORIES (count=N)` の各セクションに分かれ、空のペインも安定した empty-state 行を 1 行出すためヘッダーは常に出力されます。JSON snapshot は `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, items }`) を持つ envelope オブジェクトでラップされており、session node の各フィールドは従来通り保持されますが、トップレベルの shape は v0.14.0 で「session node の配列」から envelope オブジェクトに変わりました。配列をそのまま読み取っていたスクリプトは envelope の `sessions` を読むよう更新が必要です。各ペインの行上限は dashboard と揃えており (failures 50 / recent commands 50 / candidates 25)、session ペインは引き続き `--limit` を使用します。
 
 snapshot 例:
 
@@ -588,11 +588,21 @@ traceary top --snapshot
 ```
 
 ```text
+ACTIVE SESSIONS:
 4a70c526 workspace=github.com/duck8823/traceary agent=codex client=claude started=07:06:37 latest=07:06:58 events=165 last=session_ended: duration=29m21s
 └── 7c91a2bf workspace=github.com/duck8823/traceary agent=worker client=claude started=07:03:12 latest=07:06:52 events=42 last=command_executed: go test ./presentation/cli
+
+RECENT FAILURES:
+07:06:58 command_executed go test ./presentation/cli [exit=1]
+
+RECENT COMMANDS:
+07:06:52 command_executed go build ./...
+
+CANDIDATE MEMORIES (count=1):
+mem-1 preference prefer table-driven subtests
 ```
 
-列:
+active session の列:
 
 - `workspace` — 短縮した workspace path。truncate 時は末尾を保持して repo 識別子が読めるようにする
 - `agent` — 最も具体的な agent / subagent role
@@ -609,7 +619,7 @@ traceary top --snapshot
 - `--client`
 - `--agent`
 - `--idle <duration>` — threshold より古い行を非表示にせず dim 表示
-- `--snapshot --json` — top 専用 snapshot contract で一回限りの JSON tree を出力。各 node には追加で `latest_event_kind` / `latest_event_message` / `latest_event_at` が含まれる。`traceary session tree --json` は独立した contract を保ち、これら field を露出しない
+- `--snapshot --json` — top 専用 snapshot contract で `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, items }`) の envelope を一回限り出力します。各 session node には標準の session フィールドに加えて `latest_event_kind` / `latest_event_message` / `latest_event_at` が含まれます。failures と recent_commands は標準 event JSON、candidate memories は durable memory summary JSON と同じ shape を再利用します。`traceary session tree --json` は独立した contract を保ち、これらいずれも露出しません
 - `--limit`
 
 ### `traceary session list`
