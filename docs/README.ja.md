@@ -11,6 +11,7 @@
 - [Host-native memory activation contract](./architecture/host-native-memory-activation.ja.md): v0.13.0 の Claude/Gemini activation target、import stub、marker、安全契約
 - [Durable memory ガイド](./memory/README.ja.md): 3 層モデル、memory のライフサイクル、ref の意味、memory コマンドの関係
 - [CLI リファレンス](./cli/README.ja.md): コマンドごとの挙動、主要フラグ、出力仕様
+- [CLI 安定性と非推奨ポリシー](./cli-stability.ja.md): public / admin / plumbing のティア、非推奨通知の出し方、v0 と v1 の削除ポリシー
 - [Hook contract](./hooks/contract.ja.md): ホストごとの自動記録範囲と共通動作
 - [イベントライフサイクル](./lifecycle.ja.md): session 開始、audit、prompt、summary がどう event になるか
 - [環境変数リファレンス](./environment/README.ja.md): 環境変数、実行時の前提、対応プラットフォーム

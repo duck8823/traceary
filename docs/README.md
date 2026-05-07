@@ -11,6 +11,7 @@ This page is the detailed docs index for Traceary. Start here when the top-level
 - [Host-native memory activation contract](./architecture/host-native-memory-activation.md): v0.13.0 Claude/Gemini activation target, import-stub, marker, and safety contract
 - [Durable memory guide](./memory/README.md): the three-layer model, memory lifecycle, refs, and how memory commands relate
 - [CLI reference](./cli/README.md): command-by-command behavior, flags, and output contracts
+- [CLI stability and deprecation policy](./cli-stability.md): public / admin / plumbing tiers, deprecation notice expectations, and v0 vs v1 removal policy
 - [Hook contract](./hooks/contract.md): automatic-capture coverage and shared hook semantics across hosts
 - [Event lifecycle](./lifecycle.md): how session starts, audits, prompts, and summaries become Traceary events
 - [Environment reference](./environment/README.md): environment variables, runtime assumptions, and platform support
