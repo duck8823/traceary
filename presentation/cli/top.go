@@ -13,7 +13,6 @@ import (
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
-	"github.com/duck8823/traceary/domain/types"
 )
 
 // init pins go-runewidth's East-Asian-ambiguous handling to "narrow"
@@ -103,47 +102,19 @@ func (c *RootCLI) runTop(ctx context.Context, output io.Writer, opts topCommandO
 }
 
 func (c *RootCLI) loadTopSessionTree(ctx context.Context, opts topCommandOptions) ([]*sessionNode, error) {
-	criteria := apptypes.NewSessionListCriteriaBuilder(opts.limit).
-		Workspace(types.Workspace(strings.TrimSpace(opts.workspace))).
-		Client(types.Client(strings.TrimSpace(opts.client))).
-		Agent(types.Agent(strings.TrimSpace(opts.agent))).
-		ActiveOnly(true).
-		Build()
-	summaries, err := c.session.List(ctx, criteria)
-	if err != nil {
-		return nil, xerrors.Errorf("%s: %w", Localize("failed to list sessions", "セッション一覧の取得に失敗しました"), err)
-	}
-	summaries, err = c.expandTopSessionLineages(ctx, summaries)
-	if err != nil {
-		return nil, err
-	}
-	return filterTopSessionTree(buildActiveSessionTree(summaries), opts), nil
+	return c.newTopDataLoader().loadSessions(ctx, topDataCriteria{
+		Workspace:    opts.workspace,
+		Client:       opts.client,
+		Agent:        opts.agent,
+		SessionLimit: opts.limit,
+	})
 }
 
-func (c *RootCLI) expandTopSessionLineages(ctx context.Context, summaries []apptypes.SessionSummary) ([]apptypes.SessionSummary, error) {
-	if len(summaries) == 0 {
-		return nil, nil
-	}
-	merged := make([]apptypes.SessionSummary, 0, len(summaries))
-	seen := make(map[string]struct{}, len(summaries))
-	for _, summary := range summaries {
-		lineage, err := c.session.Lineage(ctx, summary.SessionID())
-		if err != nil {
-			return nil, xerrors.Errorf("%s: %w", Localize("failed to load session lineage", "セッション lineage の取得に失敗しました"), err)
-		}
-		if len(lineage) == 0 {
-			lineage = []apptypes.SessionSummary{summary}
-		}
-		for _, lineageSummary := range lineage {
-			key := lineageSummary.SessionID().String()
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
-			merged = append(merged, lineageSummary)
-		}
-	}
-	return merged, nil
+// newTopDataLoader builds a topDataLoader bound to the RootCLI's
+// configured usecases. Subcommands route their data fetching through
+// the loader so the application-layer wiring stays in a single place.
+func (c *RootCLI) newTopDataLoader() *topDataLoader {
+	return newTopDataLoader(c.session, c.event, c.memory)
 }
 
 func buildActiveSessionTree(summaries []apptypes.SessionSummary) []*sessionNode {
