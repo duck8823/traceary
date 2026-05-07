@@ -207,6 +207,7 @@ The most common next pages are:
 - [Architecture principles](./docs/architecture/README.md)
 - [Durable memory guide](./docs/memory/README.md)
 - [CLI reference](./docs/cli/README.md)
+- [CLI stability and deprecation policy](./docs/cli-stability.md)
 - [Hooks guide](./docs/hooks/README.md)
 - [Hook contract and capability tiers](./docs/hooks/contract.md)
 - [Event lifecycle](./docs/lifecycle.md)

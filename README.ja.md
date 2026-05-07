@@ -204,6 +204,7 @@ $ traceary timeline --limit 2
 - [アーキテクチャ原則](./docs/architecture/README.ja.md)
 - [Durable memory ガイド](./docs/memory/README.ja.md)
 - [CLI リファレンス](./docs/cli/README.ja.md)
+- [CLI 安定性と非推奨ポリシー](./docs/cli-stability.ja.md)
 - [Hooks ガイド](./docs/hooks/README.ja.md)
 - [Hook contract と対応レベル](./docs/hooks/contract.ja.md)
 - [イベントライフサイクル](./docs/lifecycle.ja.md)
