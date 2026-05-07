@@ -55,8 +55,8 @@ func (c *RootCLI) addDeprecatedMemoryAliases(memoryCmd *cobra.Command) {
 		replacement string
 	}
 	aliases := []alias{
-		{cmd: c.newMemoryAcceptCommand(), replacement: "traceary memory inbox accept --ids <id>"},
-		{cmd: c.newMemoryRejectCommand(), replacement: "traceary memory inbox reject --ids <id>"},
+		{cmd: c.newMemoryAcceptCommand(), replacement: "traceary memory inbox accept <id>"},
+		{cmd: c.newMemoryRejectCommand(), replacement: "traceary memory inbox reject <id>"},
 		{cmd: c.newMemoryRememberCommand(), replacement: "traceary memory store remember"},
 		{cmd: c.newMemoryProposeCommand(), replacement: "traceary memory store propose"},
 		{cmd: c.newMemoryDistillCommand(), replacement: "traceary memory store distill"},

@@ -56,40 +56,67 @@ func (c *RootCLI) newMemoryInboxListCommand() *cobra.Command {
 func (c *RootCLI) newMemoryInboxAcceptCommand() *cobra.Command {
 	input := memoryInboxBatchCommandInput{}
 	cmd := &cobra.Command{
-		Use:   "accept",
-		Short: Localize("Accept every candidate durable memory in the id list", "指定した candidate durable memory をまとめて accept する"),
-		Args:  noArgsLocalized(),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return c.runMemoryInboxBatch(cmd.Context(), cmd.OutOrStdout(), input, memoryInboxActionAccept)
+		Use:   "accept [memory-id]",
+		Short: Localize("Accept one or more candidate durable memories", "candidate durable memory を accept する (単一/複数)"),
+		Args:  maximumNArgsLocalized(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			input.ids = mergePositionalInboxID(args, input.ids)
+			return c.runMemoryInboxBatch(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), input, memoryInboxActionAccept)
 		},
 	}
 	cmd.Flags().StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
 	cmd.Flags().StringSliceVar(&input.ids, "ids", nil, Localize(
-		"comma-separated list of memory ids to accept (repeatable)",
-		"accept 対象の memory id をカンマ区切りで指定 (複数指定可)",
+		"comma-separated list of memory ids to accept (repeatable; alternative to the positional id for batch scripts)",
+		"accept 対象の memory id をカンマ区切りで指定 (複数指定可。バッチ用途では positional id の代わりに使用)",
 	))
 	cmd.Flags().StringVar(&input.confidence, "confidence", "", Localize("accepted confidence (defaults to verified)", "accepted 時の confidence (既定値は verified)"))
+	cmd.Flags().BoolVar(&input.idOnly, "id-only", false, Localize(
+		"print only the resulting memory ids (one per successful row); failures go to stderr",
+		"処理に成功した memory id だけを 1 行ずつ出力する (失敗は stderr に書き出す)",
+	))
 	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
+	cmd.MarkFlagsMutuallyExclusive("id-only", "json")
 	return cmd
 }
 
 func (c *RootCLI) newMemoryInboxRejectCommand() *cobra.Command {
 	input := memoryInboxBatchCommandInput{}
 	cmd := &cobra.Command{
-		Use:   "reject",
-		Short: Localize("Reject every candidate durable memory in the id list", "指定した candidate durable memory をまとめて reject する"),
-		Args:  noArgsLocalized(),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return c.runMemoryInboxBatch(cmd.Context(), cmd.OutOrStdout(), input, memoryInboxActionReject)
+		Use:   "reject [memory-id]",
+		Short: Localize("Reject one or more candidate durable memories", "candidate durable memory を reject する (単一/複数)"),
+		Args:  maximumNArgsLocalized(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			input.ids = mergePositionalInboxID(args, input.ids)
+			return c.runMemoryInboxBatch(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), input, memoryInboxActionReject)
 		},
 	}
 	cmd.Flags().StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
 	cmd.Flags().StringSliceVar(&input.ids, "ids", nil, Localize(
-		"comma-separated list of memory ids to reject (repeatable)",
-		"reject 対象の memory id をカンマ区切りで指定 (複数指定可)",
+		"comma-separated list of memory ids to reject (repeatable; alternative to the positional id for batch scripts)",
+		"reject 対象の memory id をカンマ区切りで指定 (複数指定可。バッチ用途では positional id の代わりに使用)",
+	))
+	cmd.Flags().BoolVar(&input.idOnly, "id-only", false, Localize(
+		"print only the resulting memory ids (one per successful row); failures go to stderr",
+		"処理に成功した memory id だけを 1 行ずつ出力する (失敗は stderr に書き出す)",
 	))
 	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
+	cmd.MarkFlagsMutuallyExclusive("id-only", "json")
 	return cmd
+}
+
+// mergePositionalInboxID prepends the optional positional id onto the
+// --ids slice so the canonical single-id form (`memory inbox accept <id>`)
+// shares the same dedupe / parse path as `--ids`. The caller's --ids value
+// is preserved verbatim (the runner re-normalises with normaliseInboxIDs),
+// which keeps batch scripts working unchanged.
+func mergePositionalInboxID(args []string, ids []string) []string {
+	if len(args) == 0 {
+		return ids
+	}
+	merged := make([]string, 0, len(args)+len(ids))
+	merged = append(merged, args...)
+	merged = append(merged, ids...)
+	return merged
 }
 
 type memoryInboxAction string
@@ -172,7 +199,7 @@ func (c *RootCLI) runMemoryInboxList(ctx context.Context, output io.Writer, inpu
 	return writeMemoryInboxList(output, items, input.asJSON)
 }
 
-func (c *RootCLI) runMemoryInboxBatch(ctx context.Context, output io.Writer, input memoryInboxBatchCommandInput, action memoryInboxAction) error {
+func (c *RootCLI) runMemoryInboxBatch(ctx context.Context, output io.Writer, errOutput io.Writer, input memoryInboxBatchCommandInput, action memoryInboxAction) error {
 	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
@@ -181,7 +208,7 @@ func (c *RootCLI) runMemoryInboxBatch(ctx context.Context, output io.Writer, inp
 	}
 	ids := normaliseInboxIDs(input.ids)
 	if len(ids) == 0 {
-		return xerrors.Errorf(Localize("--ids must list at least one memory id", "--ids に少なくとも1つの memory id を指定してください"))
+		return xerrors.Errorf(Localize("at least one memory id is required (positional id or --ids)", "memory id を1つ以上指定してください (positional id または --ids)"))
 	}
 	if err := c.initializeStore(ctx, input.dbPath); err != nil {
 		return err
@@ -213,6 +240,9 @@ func (c *RootCLI) runMemoryInboxBatch(ctx context.Context, output io.Writer, inp
 			continue
 		}
 		result.Processed = append(result.Processed, details)
+	}
+	if input.idOnly {
+		return writeMemoryInboxBatchIDOnly(output, errOutput, result)
 	}
 	return writeMemoryInboxBatch(output, result, input.asJSON)
 }
@@ -321,6 +351,34 @@ func writeMemoryInboxList(output io.Writer, items []apptypes.MemoryDetails, asJS
 		}
 	}
 	return nil
+}
+
+// writeMemoryInboxBatchIDOnly writes one memory id per successfully
+// processed row to stdout so scripted callers can pipe the result list.
+// Per-id failures are reported on stderr (non-empty Failures yields an
+// aggregated error, mirroring the old `memory accept <id> --id-only`
+// contract that exited non-zero on a failed Accept). The stdout shape
+// stays a strict superset of the old single-id form: when exactly one
+// id succeeds, the only stdout line is that id.
+func writeMemoryInboxBatchIDOnly(output io.Writer, errOutput io.Writer, result memoryInboxBatchResult) error {
+	for _, details := range result.Processed {
+		if _, err := fmt.Fprintln(output, details.Summary().MemoryID()); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print memory ID", "memory ID の出力に失敗しました"), err)
+		}
+	}
+	if len(result.Failures) == 0 {
+		return nil
+	}
+	for _, failure := range result.Failures {
+		if _, err := fmt.Fprintf(errOutput, "FAILED\t%s\t%s\n", failure.ID, failure.Error); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print inbox failure row", "inbox 失敗行の出力に失敗しました"), err)
+		}
+	}
+	return xerrors.Errorf(Localizef(
+		"inbox %s failed for %d memory id(s)",
+		"inbox %s が %d 件の memory id で失敗しました",
+		result.Action, len(result.Failures),
+	))
 }
 
 func writeMemoryInboxBatch(output io.Writer, result memoryInboxBatchResult, asJSON bool) error {

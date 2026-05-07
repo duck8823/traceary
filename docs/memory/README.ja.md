@@ -120,8 +120,8 @@ v0.11.0 以降、hook 経由の session 終了 (`traceary hook session <client> 
 candidate が溜まってきて、accepted に昇格させる前に inbox を walk したいときは次を使います。
 
 - `traceary memory inbox list`
-- `traceary memory inbox accept --ids id1,id2,...`
-- `traceary memory inbox reject --ids id1,id2,...`
+- `traceary memory inbox accept <id>` (単一 id。バッチ用途は `--ids id1,id2,...`。scripted caller 向けには `--id-only` で memory id だけを stdout に出力)
+- `traceary memory inbox reject <id>` (単一 id。バッチ用途は `--ids id1,id2,...`。scripted caller 向けには `--id-only` で memory id だけを stdout に出力)
 - MCP `memory_inbox_batch` (agent からの一括 review 用)
 
 review 経路は `candidate` のみを対象にしているため、extraction と import は同じ inbox に合流し、1回の review pass でまとめて捌けます。

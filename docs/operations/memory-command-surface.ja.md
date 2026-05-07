@@ -96,8 +96,8 @@ memory
 | `memory show` | `memory show` | 変更なし |
 | `memory list` | `memory list` | 変更なし（実装で問題が出たら再検討） |
 | `memory inbox list` | `memory inbox list` | 変更なし |
-| `memory inbox accept` | `memory inbox accept` | 変更なし |
-| `memory inbox reject` | `memory inbox reject` | 変更なし |
+| `memory inbox accept` | `memory inbox accept` | パス変更なし。v0.14 では `--ids` に加えて positional id を受け付け、`--id-only` も追加するため canonical な surface は `memory accept <memory-id>` の strict superset となる (シグネチャの注意は後述) |
+| `memory inbox reject` | `memory inbox reject` | パス変更なし。v0.14 では `--ids` に加えて positional id を受け付け、`--id-only` も追加するため canonical な surface は `memory reject <memory-id>` の strict superset となる (シグネチャの注意は後述) |
 | `memory accept <memory-id>` | `memory inbox accept <memory-id>` | hidden な deprecated alias (シグネチャの注意は後述) |
 | `memory reject <memory-id>` | `memory inbox reject <memory-id>` | hidden な deprecated alias (シグネチャの注意は後述) |
 | `memory remember` | `memory store remember` | hidden な deprecated alias |

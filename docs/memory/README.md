@@ -121,8 +121,8 @@ Use these once candidates have accumulated in the store and you need to
 walk the inbox before anything is promoted to `accepted`:
 
 - `traceary memory inbox list`
-- `traceary memory inbox accept --ids id1,id2,...`
-- `traceary memory inbox reject --ids id1,id2,...`
+- `traceary memory inbox accept <id>` (single id; pass `--ids id1,id2,...` for batch scripts; add `--id-only` for scripted callers that want only the memory id on stdout)
+- `traceary memory inbox reject <id>` (single id; pass `--ids id1,id2,...` for batch scripts; add `--id-only` for scripted callers that want only the memory id on stdout)
 - MCP `memory_inbox_batch` for agent-driven review
 
 The review path is deliberately `candidate`-scoped so extraction and
