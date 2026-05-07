@@ -11,7 +11,7 @@ The Gemini package lives under `integrations/gemini-extension/`. Gemini CLI expe
 - `AfterAgent` transcript hook — records the agent response as a `transcript` event
 - `AfterTool` shell-audit hook for `run_shell_command`
 - slash commands: `/traceary-help` and `/traceary-doctor`
-- contextual skills: `traceary-session-history`, `traceary-memory-review`, and `traceary-memory-remember`. `traceary-memory-review` triggers on review-intent phrases ("Traceary inbox", "review memory candidates", "session recap") and curates the inbox; `traceary-memory-remember` triggers only on explicit-write phrases ("remember that", "覚えておいて"). The legacy `traceary-memory-capture` skill is retained as a deprecated stub (will be removed in v0.12).
+- contextual skills: `traceary-session-history`, `traceary-memory-review`, and `traceary-memory-remember`. `traceary-memory-review` triggers on review-intent phrases ("Traceary inbox", "review memory candidates", "session recap") and curates the inbox; `traceary-memory-remember` triggers only on explicit-write phrases ("remember that", "覚えておいて").
 
 ## Memory activation strategy
 
