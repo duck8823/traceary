@@ -27,6 +27,7 @@ func (c *RootCLI) newMemoryInboxCommand() *cobra.Command {
 	cmd.AddCommand(c.newMemoryInboxListCommand())
 	cmd.AddCommand(c.newMemoryInboxAcceptCommand())
 	cmd.AddCommand(c.newMemoryInboxRejectCommand())
+	cmd.AddCommand(c.newMemoryInboxReviewCommand())
 	return cmd
 }
 
