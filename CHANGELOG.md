@@ -7,6 +7,9 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+### Changed
+- **Memory CLI grouped into `inbox` / `store` / `admin` namespaces (#922)** — `traceary memory --help` now advertises the grouped surface (`memory inbox`, `memory store`, `memory admin`) on top of the daily-read commands (`memory search`, `memory show`, `memory list`). The flat implementation verbs (`memory remember`, `memory propose`, `memory distill`, `memory extract`, `memory accept`, `memory reject`, `memory supersede`, `memory expire`, `memory set-validity`, `memory import`, `memory export`, `memory activate`, `memory hygiene`, `memory graph`) keep working as hidden deprecated aliases that emit a single-line stderr deprecation notice naming the canonical replacement and the v0.15 removal target. JSON / stdout output is unchanged so scripted callers and AI integrations keep working through one release of overlap.
+
 ### Docs
 - **Memory command surface plan for v0.14 (#921)** — added `docs/operations/memory-command-surface.md` (and the Japanese paired doc) auditing every current `traceary memory ...` path and mapping it to the v0.14 target tree. The new tree groups subcommands under `memory inbox`, `memory store`, and `memory admin` while keeping `memory search`, `memory show`, and `memory list` at the top level for daily use. The doc lists every old path that will become a hidden deprecated alias in v0.14 and is scheduled for removal in v0.15.
 

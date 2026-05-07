@@ -50,19 +50,16 @@ memory
 ├── search           # 日常 read（変更なし）
 ├── show             # 日常 read（変更なし）
 ├── list             # 日常 read（変更なし）
-├── inbox            # candidate のレビュー
+├── inbox            # candidate のレビュー専用
 │   ├── list
 │   ├── accept
-│   ├── reject
-│   ├── propose
-│   ├── distill
-│   └── extract
-├── store            # durable 書き込み + ライフサイクル
+│   └── reject
+├── store            # 意図的な書き込み / 保存系
 │   ├── remember
-│   ├── supersede
-│   ├── expire
-│   └── set-validity
-└── admin            # host 連携 + メンテナンス
+│   ├── propose
+│   └── distill
+└── admin            # 抽出 + host 連携 + メンテナンス + lifecycle
+    ├── extract
     ├── import       # 親グループ (単独では実行不可)
     │   ├── codex
     │   └── instructions
@@ -71,16 +68,19 @@ memory
     ├── hygiene
     │   ├── scan
     │   └── apply
-    └── graph
-        ├── add
-        └── list
+    ├── graph
+    │   ├── add
+    │   └── list
+    ├── supersede
+    ├── expire
+    └── set-validity
 ```
 
 ### この 3 グループにする理由
 
-- `memory inbox` は既に candidate レビューの namespace になっており、独立していた `accept` / `reject` / `propose` / `distill` / `extract` を吸収するのが自然。
-- `memory store` は durable な書き込み面。新しい memory を記録する、置き換える、expire する、validity window を変える、と durable 層を実際に書き換える操作だけをまとめる。
-- `memory admin` は運用・host 連携寄りのコマンド。host file との出し入れ、Claude / Codex / Gemini への activation 計画、hygiene スキャン、graph 操作はいずれも日常 read ではなく、これまで個別に top-level に並んでいた。
+- `memory inbox` は candidate レビュー専用に絞る。レビュー待ち一覧と、id 単位での accept / reject だけを置く。durable-memory 行を「書き込む」コマンドは `memory store` に、既存行を「変換する」コマンドは `memory admin` に集約する。
+- `memory store` は意図的な書き込み / 保存系を 1 箇所にまとめる。`remember` は accepted 行を書き、`propose` は candidate 行を書き、`distill` は既存 candidate を統合して新しい accepted 行を書く。「durable-memory 行を書き込む」動詞は、結果のライフサイクル状態 (accepted / candidate) によらずすべてここに置く。
+- `memory admin` はそれ以外のすべてを集約する。既存セッションから候補を抽出する `extract`、host file との出し入れ (`import` / `export` / `activate`)、メンテナンス (`hygiene` / `graph`)、そして既に保存された行を変更する lifecycle 動詞 (`supersede` / `expire` / `set-validity`)。これらは運用者向けで、日常 read 経路ではない。
 
 ### `search` / `show` / `list` を top-level に残す理由
 
@@ -100,15 +100,15 @@ memory
 | `memory inbox reject` | `memory inbox reject` | 変更なし |
 | `memory accept <memory-id>` | `memory inbox accept <memory-id>` | hidden な deprecated alias (シグネチャの注意は後述) |
 | `memory reject <memory-id>` | `memory inbox reject <memory-id>` | hidden な deprecated alias (シグネチャの注意は後述) |
-| `memory propose` | `memory inbox propose` | hidden な deprecated alias |
-| `memory distill` | `memory inbox distill` | hidden な deprecated alias |
-| `memory extract` | `memory inbox extract` | hidden な deprecated alias |
 | `memory remember` | `memory store remember` | hidden な deprecated alias |
-| `memory supersede` | `memory store supersede` | hidden な deprecated alias |
-| `memory expire` | `memory store expire` | hidden な deprecated alias |
-| `memory set-validity` | `memory store set-validity` | hidden な deprecated alias |
-| `memory import codex` | `memory admin import codex` | hidden な deprecated alias |
-| `memory import instructions` | `memory admin import instructions` | hidden な deprecated alias |
+| `memory propose` | `memory store propose` | hidden な deprecated alias |
+| `memory distill` | `memory store distill` | hidden な deprecated alias |
+| `memory extract` | `memory admin extract` | hidden な deprecated alias |
+| `memory supersede` | `memory admin supersede` | hidden な deprecated alias |
+| `memory expire` | `memory admin expire` | hidden な deprecated alias |
+| `memory set-validity` | `memory admin set-validity` | hidden な deprecated alias |
+| `memory import codex` | `memory admin import codex` | hidden な deprecated alias (シグネチャの注意は後述) |
+| `memory import instructions` | `memory admin import instructions` | hidden な deprecated alias (シグネチャの注意は後述) |
 | `memory export` | `memory admin export` | hidden な deprecated alias |
 | `memory activate` | `memory admin activate` | hidden な deprecated alias |
 | `memory hygiene scan` | `memory admin hygiene scan` | hidden な deprecated alias |

@@ -18,24 +18,18 @@ func (c *RootCLI) newMemoryCommand() *cobra.Command {
 		Use:   "memory",
 		Short: Localize("Manage durable memories", "durable memory を管理する"),
 	}
+	// Daily read path (top-level, unchanged).
 	memoryCmd.AddCommand(c.newMemoryListCommand())
 	memoryCmd.AddCommand(c.newMemorySearchCommand())
 	memoryCmd.AddCommand(c.newMemoryShowCommand())
-	memoryCmd.AddCommand(c.newMemoryRememberCommand())
-	memoryCmd.AddCommand(c.newMemoryProposeCommand())
-	memoryCmd.AddCommand(c.newMemoryDistillCommand())
-	memoryCmd.AddCommand(c.newMemoryExtractCommand())
-	memoryCmd.AddCommand(c.newMemoryImportCommand())
+	// Grouped namespaces by operator intent (#922).
 	memoryCmd.AddCommand(c.newMemoryInboxCommand())
-	memoryCmd.AddCommand(c.newMemoryExportCommand())
-	memoryCmd.AddCommand(c.newMemoryActivateCommand())
-	memoryCmd.AddCommand(c.newMemoryHygieneCommand())
-	memoryCmd.AddCommand(c.newMemoryAcceptCommand())
-	memoryCmd.AddCommand(c.newMemoryRejectCommand())
-	memoryCmd.AddCommand(c.newMemorySupersedeCommand())
-	memoryCmd.AddCommand(c.newMemoryExpireCommand())
-	memoryCmd.AddCommand(c.newMemorySetValidityCommand())
-	memoryCmd.AddCommand(c.newMemoryGraphCommand())
+	memoryCmd.AddCommand(c.newMemoryStoreCommand())
+	memoryCmd.AddCommand(c.newMemoryAdminCommand())
+	// Hidden deprecated aliases preserve every legacy flat path
+	// through one release of overlap; they are scheduled for removal
+	// in v0.15 (see docs/operations/memory-command-surface.md).
+	c.addDeprecatedMemoryAliases(memoryCmd)
 	return memoryCmd
 }
 

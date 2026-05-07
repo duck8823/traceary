@@ -395,7 +395,12 @@ type memoryUsecaseStub struct {
 		validTo   types.Optional[time.Time]
 		clearTo   bool
 	}
-	setValidityCallCount  int
+	setValidityCallCount int
+	expireCall           struct {
+		memoryID  types.MemoryID
+		expiresAt types.Optional[time.Time]
+	}
+	expireCallCount       int
 	extractCriteria       apptypes.MemoryExtractionCriteria
 	importCalls           []apptypes.CodexImportCriteria
 	bridgeImportCalls     []apptypes.MemoryBridgeImportCriteria
@@ -441,7 +446,10 @@ func (s *memoryUsecaseStub) Supersede(_ context.Context, _ types.MemoryID, _ typ
 	return s.supersedeDetails, s.supersedeErr
 }
 
-func (s *memoryUsecaseStub) Expire(_ context.Context, _ types.MemoryID, _ types.Optional[time.Time]) (apptypes.MemoryDetails, error) {
+func (s *memoryUsecaseStub) Expire(_ context.Context, memoryID types.MemoryID, expiresAt types.Optional[time.Time]) (apptypes.MemoryDetails, error) {
+	s.expireCall.memoryID = memoryID
+	s.expireCall.expiresAt = expiresAt
+	s.expireCallCount++
 	return s.expireDetails, s.expireErr
 }
 
