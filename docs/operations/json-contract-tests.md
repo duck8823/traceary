@@ -6,7 +6,7 @@ Traceary uses golden tests to protect public JSON and newline-delimited JSON (ND
 
 Every new CLI `--json` flag must ship with a matching golden fixture under `presentation/cli/testdata/<command>/<case>.golden.json` in the same change. The existing golden tests act as the CI gate: if a command output has no fixture, add one before merging the flag rather than relying on ad-hoc string assertions.
 
-`traceary top --snapshot --json` has a top-specific contract that is intentionally separate from `traceary session tree --json`; the `latest_event_*` fields belong only to the top snapshot contract.
+`traceary top --snapshot --json` has a top-specific contract that is intentionally separate from `traceary session tree --json`; the `latest_event_*` fields belong only to the top snapshot contract. Starting in v0.14.0 the top snapshot is wrapped in an envelope object with `sessions`, `failures`, `recent_commands`, and `candidates` (`{ count, items }`) keys so the snapshot mirrors the dashboard's secondary panes; consumers that previously read a bare top-level array of session nodes must read `sessions` from the envelope.
 
 ## Run golden tests
 

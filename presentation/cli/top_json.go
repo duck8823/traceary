@@ -1,23 +1,46 @@
 package cli
 
 import (
-	"encoding/json"
 	"io"
-
-	"golang.org/x/xerrors"
 )
 
-func writeTopSnapshotJSON(output io.Writer, roots []*sessionNode) error {
-	items := make([]*topSnapshotNode, 0, len(roots))
-	for _, root := range roots {
-		items = append(items, topSnapshotNodeFromSessionNode(root, 0))
+// writeTopSnapshotJSON renders the top dashboard snapshot as the
+// envelope-wrapped JSON contract added in v0.14.0. The active session
+// tree continues to live under `sessions` with its existing field
+// shape; `failures`, `recent_commands`, and `candidates` mirror the
+// new dashboard panes so a script that consumes the snapshot has the
+// same data the live dashboard renders.
+func writeTopSnapshotJSON(output io.Writer, snap topDataSnapshot) error {
+	sessions := make([]*topSnapshotNode, 0, len(snap.Sessions))
+	for _, root := range snap.Sessions {
+		sessions = append(sessions, topSnapshotNodeFromSessionNode(root, 0))
 	}
-	encoder := json.NewEncoder(output)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(items); err != nil {
-		return xerrors.Errorf("failed to encode top snapshot JSON: %w", err)
+
+	failures := make([]event, 0, len(snap.Failures))
+	for _, ev := range snap.Failures {
+		failures = append(failures, newEventOutput(ev))
 	}
-	return nil
+
+	commands := make([]event, 0, len(snap.RecentCommands))
+	for _, ev := range snap.RecentCommands {
+		commands = append(commands, newEventOutput(ev))
+	}
+
+	candidateItems := make([]memorySummaryOutput, 0, len(snap.Candidates))
+	for _, candidate := range snap.Candidates {
+		candidateItems = append(candidateItems, newMemorySummaryOutput(candidate))
+	}
+
+	payload := topSnapshotPayload{
+		Sessions:       sessions,
+		Failures:       failures,
+		RecentCommands: commands,
+		Candidates: topSnapshotCandidates{
+			Count: len(candidateItems),
+			Items: candidateItems,
+		},
+	}
+	return writeJSON(output, payload)
 }
 
 func topSnapshotNodeFromSessionNode(node *sessionNode, depth int) *topSnapshotNode {

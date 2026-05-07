@@ -1574,8 +1574,8 @@ func TestRootCLI_HookSubagentStopCommand_LazySynthesisKeepsParentAgent(t *testin
 	}
 	output := stdout.String()
 	if !strings.Contains(output, `"agents": [
-      "claude"
-    ]`) {
+        "claude"
+      ]`) {
 		t.Fatalf("top JSON parent agents should stay claude only, got: %s", output)
 	}
 	if strings.Contains(output, `"session_id": "parent-session:sub:toolu_plan"`) {

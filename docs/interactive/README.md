@@ -43,7 +43,7 @@ traceary top --snapshot
 traceary top --snapshot --json
 ```
 
-Inside the dashboard `tab` / `shift+tab` cycle the focused pane, `↑/↓` (or `k/j`) scroll it by one row, `pgup/pgdn` page through it, `g/G` jump to the top/bottom, `r` forces a refresh, `?` toggles help, and `q` / Ctrl-C / Esc quit cleanly. Non-TTY callers (pipes, CI logs) fall back to the snapshot text writer automatically; `--snapshot` / `--snapshot --json` keep their existing one-shot output for scripts.
+Inside the dashboard `tab` / `shift+tab` cycle the focused pane, `↑/↓` (or `k/j`) scroll it by one row, `pgup/pgdn` page through it, `g/G` jump to the top/bottom, `r` forces a refresh, `?` toggles help, and `q` / Ctrl-C / Esc quit cleanly. Non-TTY callers (pipes, CI logs) fall back to the snapshot text writer automatically. `--snapshot` and `--snapshot --json` mirror the four panes for scripts: the text snapshot prints `ACTIVE SESSIONS`, `RECENT FAILURES`, `RECENT COMMANDS`, and `CANDIDATE MEMORIES (count=N)` sections; the JSON snapshot is wrapped in an envelope with `sessions`, `failures`, `recent_commands`, and `candidates` (`{ count, items }`) keys.
 
 ### 3. "Is the system writing events right now?" → `traceary tail`
 

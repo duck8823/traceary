@@ -12,10 +12,31 @@ import (
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	sqliteinfra "github.com/duck8823/traceary/infrastructure/sqlite"
 	"github.com/duck8823/traceary/presentation/cli"
 )
+
+// topPaneEventStub returns separate fixtures for the failures call and
+// the recent-commands call so the top snapshot's two EventUsecase.List
+// invocations can be distinguished by FailuresOnly / Kind criteria.
+type topPaneEventStub struct {
+	usecase.EventUsecase
+
+	failures []*model.Event
+	commands []*model.Event
+}
+
+func (s *topPaneEventStub) List(_ context.Context, criteria apptypes.EventListCriteria) ([]*model.Event, error) {
+	if criteria.FailuresOnly() {
+		return s.failures, nil
+	}
+	if criteria.Kind() == types.EventKindCommandExecuted {
+		return s.commands, nil
+	}
+	return nil, nil
+}
 
 func TestRootCLI_TopCommand_SnapshotJSONGolden(t *testing.T) {
 	startedAt := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
@@ -73,10 +94,57 @@ func TestRootCLI_TopCommand_SnapshotJSONGolden(t *testing.T) {
 		),
 	}}
 
+	failureEvent := model.EventOf(
+		types.EventID("evt-fail"),
+		types.EventKindCommandExecuted,
+		types.Client("claude"),
+		types.Agent("claude/explore"),
+		types.SessionID("top-child"),
+		types.Workspace("duck8823/traceary"),
+		"go test ./... [exit=1]",
+		startedAt.Add(20*time.Minute),
+	)
+	commandEvent := model.EventOf(
+		types.EventID("evt-cmd"),
+		types.EventKindCommandExecuted,
+		types.Client("claude"),
+		types.Agent("claude/explore"),
+		types.SessionID("top-child"),
+		types.Workspace("duck8823/traceary"),
+		"ls -la",
+		startedAt.Add(22*time.Minute),
+	)
+	eventStub := &topPaneEventStub{
+		failures: []*model.Event{failureEvent},
+		commands: []*model.Event{commandEvent},
+	}
+
+	candidate, err := apptypes.MemorySummaryOf(
+		types.MemoryID("mem-1"),
+		types.MemoryTypePreference,
+		types.WorkspaceScopeOf(types.Workspace("duck8823/traceary")),
+		"prefer table-driven subtests",
+		types.MemoryStatusCandidate,
+		types.ConfidenceMedium,
+		types.MemorySourceManual,
+		types.None[types.MemoryID](),
+		types.None[time.Time](),
+		startedAt,
+		types.None[time.Time](),
+		startedAt,
+		startedAt,
+	)
+	if err != nil {
+		t.Fatalf("MemorySummaryOf: %v", err)
+	}
+	memoryStub := &memoryUsecaseStub{listResult: []apptypes.MemorySummary{candidate}}
+
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(
 		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 		cli.WithSession(stub),
+		cli.WithEvent(eventStub),
+		cli.WithMemory(memoryStub),
 	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -193,10 +261,57 @@ func TestRootCLI_TopCommand_SnapshotTextGolden(t *testing.T) {
 		),
 	}}
 
+	failureEvent := model.EventOf(
+		types.EventID("evt-fail"),
+		types.EventKindCommandExecuted,
+		types.Client("claude"),
+		types.Agent("codex"),
+		types.SessionID("ws-long"),
+		types.Workspace("duck8823/traceary"),
+		"go test ./... [exit=1]",
+		startedAt.Add(15*time.Minute),
+	)
+	commandEvent := model.EventOf(
+		types.EventID("evt-cmd"),
+		types.EventKindCommandExecuted,
+		types.Client("claude"),
+		types.Agent("codex"),
+		types.SessionID("ws-long"),
+		types.Workspace("duck8823/traceary"),
+		"go build ./...",
+		startedAt.Add(20*time.Minute),
+	)
+	eventStub := &topPaneEventStub{
+		failures: []*model.Event{failureEvent},
+		commands: []*model.Event{commandEvent},
+	}
+
+	candidate, err := apptypes.MemorySummaryOf(
+		types.MemoryID("mem-1"),
+		types.MemoryTypePreference,
+		types.WorkspaceScopeOf(types.Workspace("duck8823/traceary")),
+		"prefer table-driven subtests",
+		types.MemoryStatusCandidate,
+		types.ConfidenceMedium,
+		types.MemorySourceManual,
+		types.None[types.MemoryID](),
+		types.None[time.Time](),
+		startedAt,
+		types.None[time.Time](),
+		startedAt,
+		startedAt,
+	)
+	if err != nil {
+		t.Fatalf("MemorySummaryOf: %v", err)
+	}
+	memoryStub := &memoryUsecaseStub{listResult: []apptypes.MemorySummary{candidate}}
+
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(
 		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 		cli.WithSession(stub),
+		cli.WithEvent(eventStub),
+		cli.WithMemory(memoryStub),
 	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -211,6 +326,65 @@ func TestRootCLI_TopCommand_SnapshotTextGolden(t *testing.T) {
 	}
 
 	assertGolden(t, stdout.Bytes(), filepath.Join("testdata", "top", "snapshot_text.golden"))
+}
+
+// TestRootCLI_TopCommand_SnapshotEmptyTextGolden covers the empty-state
+// path where no active sessions, failures, recent commands, or candidate
+// memories are available. Each new section keeps its header and prints
+// a localized empty-state line so script consumers get a stable shape.
+func TestRootCLI_TopCommand_SnapshotEmptyTextGolden(t *testing.T) {
+	prevLocal := time.Local
+	time.Local = time.UTC
+	t.Cleanup(func() { time.Local = prevLocal })
+
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{}),
+		cli.WithEvent(&topPaneEventStub{}),
+		cli.WithMemory(&memoryUsecaseStub{}),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"top",
+		"--db-path", "/tmp/test-traceary.db",
+		"--snapshot",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	assertGolden(t, stdout.Bytes(), filepath.Join("testdata", "top", "snapshot_text_empty.golden"))
+}
+
+// TestRootCLI_TopCommand_SnapshotEmptyJSONGolden pins the JSON envelope
+// shape for the empty-state case so consumers can rely on the
+// `failures`, `recent_commands`, and `candidates` keys always being
+// present (as empty slices / count=0) rather than omitted.
+func TestRootCLI_TopCommand_SnapshotEmptyJSONGolden(t *testing.T) {
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{}),
+		cli.WithEvent(&topPaneEventStub{}),
+		cli.WithMemory(&memoryUsecaseStub{}),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"top",
+		"--db-path", "/tmp/test-traceary.db",
+		"--snapshot",
+		"--json",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	assertJSONGolden(t, stdout.Bytes(), filepath.Join("testdata", "top", "snapshot_empty_json.golden.json"))
 }
 
 func TestRootCLI_TopCommand_JSONRequiresSnapshot(t *testing.T) {

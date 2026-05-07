@@ -43,7 +43,7 @@ traceary top --snapshot
 traceary top --snapshot --json
 ```
 
-dashboard 内では `tab` / `shift+tab` でフォーカスペインを切り替え、`↑/↓` (`k/j`) で 1 行ずつスクロール、`pgup/pgdn` でページング、`g/G` で先頭 / 末尾、`r` で snapshot 再取得、`?` でヘルプ切替、`q` / Ctrl-C / Esc は共通の安全網を経由して終了します。非 TTY (パイプ / CI ログ) では自動的に snapshot text 出力にフォールバックします。`--snapshot` / `--snapshot --json` の単発出力はスクリプト用途向けにそのまま残ります。
+dashboard 内では `tab` / `shift+tab` でフォーカスペインを切り替え、`↑/↓` (`k/j`) で 1 行ずつスクロール、`pgup/pgdn` でページング、`g/G` で先頭 / 末尾、`r` で snapshot 再取得、`?` でヘルプ切替、`q` / Ctrl-C / Esc は共通の安全網を経由して終了します。非 TTY (パイプ / CI ログ) では自動的に snapshot text 出力にフォールバックします。`--snapshot` / `--snapshot --json` も dashboard の 4 ペインに合わせて拡張されており、テキスト出力は `ACTIVE SESSIONS` / `RECENT FAILURES` / `RECENT COMMANDS` / `CANDIDATE MEMORIES (count=N)` のセクション、JSON 出力は `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, items }`) を持つ envelope オブジェクトを返します。
 
 ### 3. 「今まさに書き込まれているか」を追いたい → `traceary tail`
 
