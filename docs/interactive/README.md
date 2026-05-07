@@ -29,13 +29,21 @@ traceary list --workspace github.com/duck8823/traceary --client codex
 
 ### 2. "Which sessions are running right now?" → `traceary top`
 
-Use `top` to watch the live tree of active sessions. Each row shows the workspace, the most specific agent role, the latest event time, and the latest event as `<kind>: <message>` so it is obvious which session is doing what.
+Use `top` to watch a live multi-pane dashboard of the workspace. The screen is split into four panes:
+
+- **sessions** — active session tree (workspace, agent role, latest event time, latest event as `<kind>: <message>`)
+- **failures** — recent failed `command_executed` events
+- **commands** — recent `command_executed` events
+- **candidates** — durable-memory inbox candidates ordered by remember-intent priority
 
 ```sh
 traceary top
 traceary top --workspace github.com/duck8823/traceary
 traceary top --snapshot
+traceary top --snapshot --json
 ```
+
+Inside the dashboard `tab` / `shift+tab` cycle the focused pane, `↑/↓` (or `k/j`) scroll it by one row, `pgup/pgdn` page through it, `g/G` jump to the top/bottom, `r` forces a refresh, `?` toggles help, and `q` / Ctrl-C / Esc quit cleanly. Non-TTY callers (pipes, CI logs) fall back to the snapshot text writer automatically; `--snapshot` / `--snapshot --json` keep their existing one-shot output for scripts.
 
 ### 3. "Is the system writing events right now?" → `traceary tail`
 
