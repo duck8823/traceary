@@ -84,13 +84,13 @@ traceary memory inbox review --workspace github.com/duck8823/traceary --type pre
 
 Inside the screen the action keys are `a` accept, `x` reject, `s` skip, `e` edit/distill, `v` view evidence, `?` help, `q` quit. Accept / reject reuse the same application use cases as `memory inbox accept|reject`. `e` opens an editor prompt that requires you to type a new operator-authored fact and routes through `traceary memory store distill` (no auto-accept of LLM output).
 
-### 7. "What context should I carry into the next session?" → `traceary handoff`
+### 7. "What context should I carry into the next session?" → `traceary session handoff`
 
-Use `handoff` when you want a concise working-memory pack instead of the raw event stream.
-This is the operator-facing summary view for resuming work or handing context to another agent.
+Use `session handoff` when you want a concise working-memory pack instead of the raw event stream.
+This is the operator-facing summary view for resuming work or handing context to another agent. (The v0.13.x top-level `traceary handoff` alias was removed in v0.14.0.)
 
 ```sh
-traceary handoff --workspace github.com/duck8823/traceary
+traceary session handoff --workspace github.com/duck8823/traceary
 traceary session handoff --session-id sess_123
 ```
 

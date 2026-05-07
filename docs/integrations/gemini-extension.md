@@ -23,11 +23,11 @@ visible in Gemini instructions, you have two options.
 memories into a Traceary-managed block inside `GEMINI.md` directly:
 
 ```sh
-traceary memory export --target gemini --out GEMINI.md
+traceary memory admin export --target gemini --out GEMINI.md
 ```
 
 **Option 2 — host-native activation (v0.13.0+, recommended for projects).** Use
-`traceary memory activate --target gemini` to manage a small import stub inside
+`traceary memory admin activate --target gemini` to manage a small import stub inside
 `GEMINI.md` and an external memory file under `.traceary/memories/gemini.md`.
 The activation pair preserves user-authored content outside the managed
 regions, refuses unsafe targets (symlinks, directories, malformed markers,
@@ -41,13 +41,13 @@ Memories` section is preserved byte-for-byte after `--apply`.
 
 ```sh
 # inspect the live host pair (read-only)
-traceary memory activate --target gemini --status
+traceary memory admin activate --target gemini --status
 
 # preview the planned changes (dry-run, no writes)
-traceary memory activate --target gemini --dry-run --diff
+traceary memory admin activate --target gemini --dry-run --diff
 
 # apply the pair with safe per-file writes (idempotent)
-traceary memory activate --target gemini --apply
+traceary memory admin activate --target gemini --apply
 ```
 
 Defaults:

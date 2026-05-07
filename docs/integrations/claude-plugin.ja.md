@@ -18,20 +18,20 @@ Claude integration は、Traceary の accepted memory store を MCP tools / inst
 **Option 1 — instruction-file export（従来通り利用可）。** Traceary 管理ブロックを `CLAUDE.md` に直接 export します。
 
 ```sh
-traceary memory export --target claude --out CLAUDE.md
+traceary memory admin export --target claude --out CLAUDE.md
 ```
 
-**Option 2 — host-native activation（v0.13.0+ で利用可、project では推奨）。** `traceary memory activate --target claude` で `CLAUDE.md` 内の小さな import stub と `.traceary/memories/claude.md` の external memory file を二ファイル構成で管理します。activation pair は管理ブロック外の user-authored content を保持し、安全でない対象（symlink / directory / 不正マーカー / 新バージョンマーカー）を拒否し、冪等です。Traceary は Claude が所有する `~/.claude/projects/<project>/memory/` 配下の auto memory に書き込みません。その store は Claude 自身の所有のままです。
+**Option 2 — host-native activation（v0.13.0+ で利用可、project では推奨）。** `traceary memory admin activate --target claude` で `CLAUDE.md` 内の小さな import stub と `.traceary/memories/claude.md` の external memory file を二ファイル構成で管理します。activation pair は管理ブロック外の user-authored content を保持し、安全でない対象（symlink / directory / 不正マーカー / 新バージョンマーカー）を拒否し、冪等です。Traceary は Claude が所有する `~/.claude/projects/<project>/memory/` 配下の auto memory に書き込みません。その store は Claude 自身の所有のままです。
 
 ```sh
 # host pair を read-only で点検
-traceary memory activate --target claude --status
+traceary memory admin activate --target claude --status
 
 # 適用予定の差分を事前確認 (dry-run, 書き込みなし)
-traceary memory activate --target claude --dry-run --diff
+traceary memory admin activate --target claude --dry-run --diff
 
 # pair を file 単位の safe write で反映（idempotent）
-traceary memory activate --target claude --apply
+traceary memory admin activate --target claude --apply
 ```
 
 既定値:

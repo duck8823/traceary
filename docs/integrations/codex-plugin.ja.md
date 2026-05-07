@@ -49,9 +49,9 @@ traceary doctor --client codex --json
 Codex は v0.12 で Traceary の full host-native activation を備えた最初の host でした。v0.13.0 では同じ activation 契約を Claude / Gemini に拡張し、これらは二ファイル import-stub 戦略を採用しています。Codex は single-file target のままです。accepted memory は引き続き Traceary の SQLite store を source of truth とし、activation command は Codex memory target（既定は `~/.codex/memories/traceary.md`）へ Traceary 管理ブロックだけを書きます。
 
 ```sh
-traceary memory activate --target codex --status
-traceary memory activate --target codex --dry-run --diff
-traceary memory activate --target codex --apply
+traceary memory admin activate --target codex --status
+traceary memory admin activate --target codex --dry-run --diff
+traceary memory admin activate --target codex --apply
 traceary doctor --client codex --json
 ```
 

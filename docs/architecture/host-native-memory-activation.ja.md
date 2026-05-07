@@ -109,7 +109,7 @@ external memory file:
 <!-- traceary-memories:end -->
 ```
 
-external memory block は既存の `memory export` renderer を再利用し、Codex / Claude / Gemini の projection を一貫させます。
+external memory block は既存の `memory admin export` renderer を再利用し、Codex / Claude / Gemini の projection を一貫させます。
 
 host context file に supported な Traceary import stub が既にある場合、Traceary はその region を in-place で置換します。managed import stub が無い場合は、既存 managed-block spacing rule に従って end-of-file に append します。つまり既存 bytes を保持し、stub の前に空行が 1 つ残るように必要な newline を追加してから managed region を append します。frontmatter、heading、Gemini の `## Gemini Added Memories` section より前へ挿入することはしません。user-authored markdown structure の解釈が必要になるためです。file に、Traceary-managed stub 外で expected `.traceary/memories/<host>.md` file を指す unmanaged import line が既にある場合、status は `invalid` とし、apply は duplicate import を追加せず拒否します。operator がその unmanaged line を削除するか、将来の明示 adopt workflow を使うまで進めません。別 file を指す unmanaged import は user-authored content とみなし、activation は無視します。
 
@@ -131,7 +131,7 @@ host import visibility は release dogfood だけではなく、implementation-r
 Claude については、v0.13.0-4 の read-only PR が以下 2 つの artefact を組み合わせて、ライブ launch のフレーキネスに依存しない readiness 証跡を残します。
 
 - `application/usecase/claude_import_readiness_internal_test.go` は、rendering 済み import line・marker layout・external file 解決を Claude 公式 memory documentation の `@<relative-path>` フォーマット（`CLAUDE.md` のあるディレクトリ基準）に固定します。CI 上で常時実行されるため、リファクタで import path を黙って動かせません。
-- `scripts/smoke_test_claude_activation.sh` は `traceary memory activate --target claude --dry-run --json` の生成 plan を使って一時プロジェクト (`.git`、`CLAUDE.md`、`.traceary/memories/claude.md`) を materialize します。既定では structural check 後に一時プロジェクトを削除します。manual runtime probe のために保持して、そのディレクトリで `claude` を起動する場合は `TRACEARY_KEEP_SMOKE_TEMP=1` を指定します。Claude Code の初回 external-import approval dialog と認証状態のため、無人ランタイム probe は非決定的です。ライブ launch は `TRACEARY_ENABLE_CLAUDE_RUNTIME_SMOKE=1` を指定したときだけ実行します。
+- `scripts/smoke_test_claude_activation.sh` は `traceary memory admin activate --target claude --dry-run --json` の生成 plan を使って一時プロジェクト (`.git`、`CLAUDE.md`、`.traceary/memories/claude.md`) を materialize します。既定では structural check 後に一時プロジェクトを削除します。manual runtime probe のために保持して、そのディレクトリで `claude` を起動する場合は `TRACEARY_KEEP_SMOKE_TEMP=1` を指定します。Claude Code の初回 external-import approval dialog と認証状態のため、無人ランタイム probe は非決定的です。ライブ launch は `TRACEARY_ENABLE_CLAUDE_RUNTIME_SMOKE=1` を指定したときだけ実行します。
 
 Claude `--apply` PR (#893) でも同じ 2 つの artefact をスコープに保持します。script の structural section は `--apply` を end-to-end で実行するように更新済みで、初回 apply で 2 ファイルが created になり、再 apply は noop へ収束し、apply 後の `--status` が `in_sync` になることを CI 側で検査します。ライブ launch を含む `TRACEARY_ENABLE_CLAUDE_RUNTIME_SMOKE=1` 実行記録は引き続き maintainer が保持するか、別 gate を採用するときはその根拠を ADR に追記します。
 
@@ -182,7 +182,7 @@ Traceary は activation 中に `.gitignore` を編集しません。team は、s
 
 default としては却下。単純ですが、accepted memory が変わるたびに user/project instruction file が churn します。import-stub strategy なら、host-native context loading を使いつつ、頻繁な更新を `.traceary/memories/<host>.md` に閉じ込められます。
 
-### 手動 `memory export --out` だけにする
+### 手動 `memory admin export --out` だけにする
 
 v0.13.0 では却下。export は引き続き有用ですが、activation には read-only status、dry-run/diff、明示 apply、doctor integration、idempotent remediation command が必要です。
 

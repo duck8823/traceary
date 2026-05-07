@@ -83,12 +83,12 @@ traceary memory inbox review --workspace github.com/duck8823/traceary --type pre
 
 画面内のキーは `a` accept、`x` reject、`s` skip、`e` edit/distill、`v` evidence 表示、`?` help、`q` quit です。Accept / reject は `memory inbox accept|reject` と同じ application usecase を呼びます。`e` で開くエディトプロンプトは operator が手書きした fact のみ受け付け、`traceary memory store distill` 経由で記録します (LLM 出力は自動採用しません)。
 
-### 7. 「次に持ち越す文脈だけをまとめたい」 → `traceary handoff`
+### 7. 「次に持ち越す文脈だけをまとめたい」 → `traceary session handoff`
 
-生の event stream ではなく、再開や引き継ぎに使う working-memory pack を見たいときは `handoff` を使います。別エージェントへ渡す前提の要約を見るなら、まずここです。
+生の event stream ではなく、再開や引き継ぎに使う working-memory pack を見たいときは `session handoff` を使います。別エージェントへ渡す前提の要約を見るなら、まずここです（v0.13.x までの top-level alias `traceary handoff` は v0.14.0 で削除されました）。
 
 ```sh
-traceary handoff --workspace github.com/duck8823/traceary
+traceary session handoff --workspace github.com/duck8823/traceary
 traceary session handoff --session-id sess_123
 ```
 

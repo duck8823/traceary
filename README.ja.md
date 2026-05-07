@@ -91,7 +91,7 @@ traceary doctor
 
 ## クイックスタート
 
-`traceary store init` は必須ではありません。通常コマンドを実行すれば、必要に応じて DB の作成とマイグレーションが自動で行われます。DB パスの事前作成や書き込み権限の確認をしたいときだけ `store init` を使ってください (旧 top-level `traceary init` も deprecated alias として動きますが、v1.0 で削除予定です)。
+`traceary store init` は必須ではありません。通常コマンドを実行すれば、必要に応じて DB の作成とマイグレーションが自動で行われます。DB パスの事前作成や書き込み権限の確認をしたいときだけ `store init` を使ってください。旧 top-level の `traceary init` alias は v0.14.0 で削除されました。実行すると `traceary store init` を案内する usage error で終了します。v0.14 で削除された alias 一覧と置き換え先は [CLI 安定性と非推奨ポリシー](./docs/cli-stability.ja.md) にまとめています。
 
 ### 1. セッションを開始してメモを残す
 
@@ -127,7 +127,7 @@ traceary session end --session-id "$sid" --id-only
 ### 4. 再利用したい事実は durable memory に残す
 
 ```sh
-traceary memory remember \
+traceary memory store remember \
   --type decision \
   --workspace github.com/duck8823/traceary \
   --fact "再開時の要約には traceary session handoff --compact-only を使う" \
@@ -135,6 +135,19 @@ traceary memory remember \
 
 traceary session handoff --workspace github.com/duck8823/traceary
 ```
+
+### 5. durable memory inbox をレビューする
+
+v0.14 から `traceary memory ...` は intent 別に namespace を分けています。`memory inbox` は candidate review 専用、`memory store` は deliberate write (`remember` / `propose` / `distill`) 用、`memory admin` は extraction / host 連携 (`import` / `export` / `activate`) / maintenance (`hygiene` / `graph`) / lifecycle (`supersede` / `expire` / `set-validity`) 用です。日常 read 用途の `memory search` / `memory show` / `memory list` はこれまで通り top-level に置いています。flat な verb (`memory remember` / `memory accept` 等) は v0.14.x の間 hidden deprecated alias として動作しますが、stderr に 1 行 deprecation notice を出力し、v0.15 で削除予定です。
+
+ターミナルから対話的に candidate を捌くときは:
+
+```sh
+traceary memory inbox review
+traceary memory inbox review --workspace github.com/duck8823/traceary --type preference --limit 10
+```
+
+`memory inbox review` は共通 Bubble Tea TUI の上に乗った TTY 専用のウォークスルーです。画面内のキー操作は `a` accept / `x` reject / `s` skip / `e` edit/distill / `v` evidence 表示 / `?` help / `q` quit です。edit/distill は LLM が書いた candidate を自動で accept しません。`traceary memory store distill` 経由で記録し、operator 自身に新しい fact を入力させる作りです。非 TTY で起動した場合はエラー終了（exit code `2`）し、batch 用の fallback として `memory inbox list` + `memory inbox accept|reject`（v0.14 から positional id と `--id-only` も使えます）を案内します。
 
 ## 直近の動きを確認する
 
@@ -183,7 +196,7 @@ $ traceary timeline --limit 2
 | Codex | 完全対応（`SessionStart` + `Stop`） | tool hook | あり | なし | Partial |
 | Gemini CLI | 完全対応（`SessionStart` + `SessionEnd`） | tool hook | なし | なし | Basic |
 
-> 2026 Q2 メモ: Claude Code の `SubagentStop` / `PreCompact` hook と Gemini CLI 0.38.x の memory-manager プレビューは利用可能ですが、Traceary の managed hook 集合には wire していません。Codex の memory feature flag (`~/.codex/config.toml`) は Codex 側の capture 挙動にのみ影響し、Traceary の `memory import codex` は flag 状態に関わらず動作します。`traceary doctor` は同じ内容を `<client>-host-capabilities` として surface します。詳細は [hook contract](./docs/hooks/contract.ja.md#2026-q2-ホスト別機能メモ) を参照。
+> 2026 Q2 メモ: Claude Code の `SubagentStop` / `PreCompact` hook と Gemini CLI 0.38.x の memory-manager プレビューは利用可能ですが、Traceary の managed hook 集合には wire していません。Codex の memory feature flag (`~/.codex/config.toml`) は Codex 側の capture 挙動にのみ影響し、Traceary の `memory admin import codex` は flag 状態に関わらず動作します。`traceary doctor` は同じ内容を `<client>-host-capabilities` として surface します。詳細は [hook contract](./docs/hooks/contract.ja.md#2026-q2-ホスト別機能メモ) を参照。
 
 詳しい契約と hook の意味付けは、[Hook contract](./docs/hooks/contract.ja.md) と [イベントライフサイクル](./docs/lifecycle.ja.md) を参照してください。
 

@@ -20,20 +20,20 @@ Gemini integration は、Traceary の accepted memory store を MCP tools・inst
 **Option 1 — instruction-file export (引き続き利用可能)**: review 済み memory を `GEMINI.md` の Traceary 管理ブロックへ export します。
 
 ```sh
-traceary memory export --target gemini --out GEMINI.md
+traceary memory admin export --target gemini --out GEMINI.md
 ```
 
-**Option 2 — host-native activation (v0.13.0+、project 推奨)**: `traceary memory activate --target gemini` で `GEMINI.md` 内の小さな import stub と `.traceary/memories/gemini.md` の external memory file を管理します。activation pair は管理領域外の user-authored 内容を保持し、symlink / directory / malformed marker / newer marker 等の不安全 target を拒否し、idempotent です。Traceary は `save_memory` が生成する `## Gemini Added Memories` セクションを管理・書き換えません。そのセクションは Gemini auto-memory tool の所有物で、通常の host-context content として保持されます。セクションが既に存在する場合、Traceary は managed import stub をファイル末尾に append するため、両者は安全に共存します。Gemini 用 smoke test は `--apply` 後も seed した `## Gemini Added Memories` が byte-for-byte で保持されることを検査します。
+**Option 2 — host-native activation (v0.13.0+、project 推奨)**: `traceary memory admin activate --target gemini` で `GEMINI.md` 内の小さな import stub と `.traceary/memories/gemini.md` の external memory file を管理します。activation pair は管理領域外の user-authored 内容を保持し、symlink / directory / malformed marker / newer marker 等の不安全 target を拒否し、idempotent です。Traceary は `save_memory` が生成する `## Gemini Added Memories` セクションを管理・書き換えません。そのセクションは Gemini auto-memory tool の所有物で、通常の host-context content として保持されます。セクションが既に存在する場合、Traceary は managed import stub をファイル末尾に append するため、両者は安全に共存します。Gemini 用 smoke test は `--apply` 後も seed した `## Gemini Added Memories` が byte-for-byte で保持されることを検査します。
 
 ```sh
 # host pair を読み取り専用で確認
-traceary memory activate --target gemini --status
+traceary memory admin activate --target gemini --status
 
 # 計画の確認 (dry-run、書き込みなし)
-traceary memory activate --target gemini --dry-run --diff
+traceary memory admin activate --target gemini --dry-run --diff
 
 # 安全な per-file write で pair を反映（idempotent）
-traceary memory activate --target gemini --apply
+traceary memory admin activate --target gemini --apply
 ```
 
 既定値:

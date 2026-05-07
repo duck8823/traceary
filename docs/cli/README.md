@@ -202,7 +202,7 @@ Useful flags:
 
 ### `traceary session handoff`
 
-Print a structured working-memory handoff summary built from session metadata, recent commands, compact summaries, and accepted durable memories. Pass `--compact-only` to emit the short prompt-injection summary (replaces `traceary compact-summary`). `--compact-only` defaults `--recent` to 3 (matching the legacy behavior) when the flag is not set.
+Print a structured working-memory handoff summary built from session metadata, recent commands, compact summaries, and accepted durable memories. Pass `--compact-only` to emit the short prompt-injection summary form. `--compact-only` defaults `--recent` to 3 when the flag is not set.
 
 Useful flags:
 
@@ -212,13 +212,43 @@ Useful flags:
 - `--memories`
 - `--preset` (optional): apply a built-in retrieval preset (`resume` / `review` / `incident`) to durable memory filters
 - `--as-of` (optional): evaluate durable memory validity at the given timestamp (YYYY-MM-DD or RFC3339); defaults to "now"
-- `--compact-only` (optional): emit the short prompt-injection summary form (replaces `traceary compact-summary`); implicitly sets `--recent=3` unless `--recent` is given explicitly
+- `--compact-only` (optional): emit the short prompt-injection summary form; implicitly sets `--recent=3` unless `--recent` is given explicitly
 
-> **v0.8 → v0.9 migration**: The former top-level `traceary handoff` and `traceary compact-summary` commands are deprecated aliases that print a notice and will be removed in v1.0. Use `traceary session handoff` (plus `--compact-only` for the compact form).
+> **v0.14 migration**: The former top-level `traceary handoff` and `traceary compact-summary` aliases were removed in v0.14.0. Running them now exits with a usage error pointing at `traceary session handoff` (plus `--compact-only` for the compact form). See [CLI stability and deprecation policy](../cli-stability.md) for the full removal list.
 
 ## Durable memory commands
 
-### `traceary memory list`
+In v0.14.0 `traceary memory ...` is grouped by operator intent. The daily-read commands stay top-level; every other verb sits under one of three namespaces. The flat verbs from earlier releases (`memory remember`, `memory accept`, `memory hygiene scan`, ...) keep working as hidden deprecated aliases through v0.14.x and are scheduled for removal in v0.15. Each alias emits a one-line stderr deprecation notice naming the canonical replacement; stdout, `--json`, and exit codes are byte-for-byte identical to the canonical command. See the [memory command surface plan](../operations/memory-command-surface.md) for the full mapping and the [CLI stability and deprecation policy](../cli-stability.md) for the deprecation contract.
+
+```
+memory
+├── search           # daily read (top-level)
+├── show             # daily read (top-level)
+├── list             # daily read (top-level)
+├── inbox            # candidate review surface
+│   ├── list
+│   ├── accept
+│   ├── reject
+│   └── review       # interactive TUI walk-through
+├── store            # deliberate write/store workflows
+│   ├── remember
+│   ├── propose
+│   └── distill
+└── admin            # extraction + host-side I/O + maintenance + lifecycle
+    ├── extract
+    ├── import { codex | instructions }
+    ├── export
+    ├── activate
+    ├── hygiene { scan | apply }
+    ├── graph { add | list }
+    ├── supersede
+    ├── expire
+    └── set-validity
+```
+
+### Daily-read commands
+
+#### `traceary memory list`
 
 List durable memories. When no explicit scope flag is set, `memory list` defaults to the resolved workspace scope.
 
@@ -229,11 +259,16 @@ Useful flags:
 - `--session-family`
 - `--status`
 - `--type`
+- `--source`
+- `--include-hidden`
 - `--limit`
 - `--offset`
+- `--as-of`
+- `--include-expired`
+- `--preset`
 - `--json`
 
-### `traceary memory search [<query>]`
+#### `traceary memory search [<query>]`
 
 Search durable memories by text and structured filters. At least one query or filter is required.
 
@@ -244,11 +279,16 @@ Useful flags:
 - `--session-family`
 - `--status`
 - `--type`
+- `--source`
+- `--include-hidden`
 - `--limit`
 - `--offset`
+- `--as-of`
+- `--include-expired`
+- `--preset`
 - `--json`
 
-### `traceary memory show <memory-id>`
+#### `traceary memory show <memory-id>`
 
 Show one durable memory in detail, including evidence and artifact references.
 
@@ -256,7 +296,66 @@ Useful flags:
 
 - `--json`
 
-### `traceary memory remember`
+### `traceary memory inbox` — candidate review surface
+
+Review the durable-memory inbox. `list` surfaces `candidate` memories together with their evidence / artifact ref counts so a reviewer can judge provenance before accepting. `accept` and `reject` take either a single positional id (the common interactive case) or `--ids id1,id2,...` for batch scripts and MCP callers; partial batches return a per-id success / failure breakdown so a failure never hides which entries transitioned. `--id-only` prints just the resulting memory id on stdout (mutually exclusive with `--json`); the canonical inbox surface is a strict superset of the v0.13.x positional-id form.
+
+#### `traceary memory inbox list`
+
+Useful flags: `--workspace`, `--agent`, `--session-family`, `--type`, `--source` (manual / extracted / extracted-hidden / imported / remember-intent / compact-summary), `--include-hidden`, `--limit`, `--offset`, `--json`.
+
+The `--source` filter pairs naturally with the extraction and import paths:
+
+- `--source imported` focuses on memories read from host-native sources such as Codex (see `memory admin import codex`).
+- `--source extracted` focuses on memories `traceary memory admin extract` produced from session signals.
+- `--source extracted-hidden` surfaces low-signal auto-extractions that are kept for audit but skipped from the default view.
+
+#### `traceary memory inbox accept <memory-id>`
+
+Accept one or more candidate durable memories.
+
+Useful flags:
+
+- positional `<memory-id>` for the common single-id case
+- `--ids id1,id2,...` (repeatable) for batch scripts and MCP callers
+- `--confidence`
+- `--id-only` (mutually exclusive with `--json`)
+- `--json`
+
+#### `traceary memory inbox reject <memory-id>`
+
+Reject one or more candidate durable memories.
+
+Useful flags:
+
+- positional `<memory-id>` for the common single-id case
+- `--ids id1,id2,...` (repeatable) for batch scripts and MCP callers
+- `--id-only` (mutually exclusive with `--json`)
+- `--json`
+
+#### `traceary memory inbox review`
+
+Interactive TTY walk-through over the candidate inbox built on the shared Bubble Tea TUI foundation. Filters mirror `memory inbox list` so reviewers can pivot between the snapshot view and the interactive walk without re-tuning flags.
+
+Action keys inside the screen:
+
+- `a` accept the focused candidate
+- `x` reject the focused candidate
+- `s` skip (no state change, advance the cursor)
+- `e` edit/distill — prompts for an operator-authored fact and routes through `traceary memory store distill --replace=supersede`. The original LLM-authored candidate text is never auto-accepted.
+- `v` view evidence / artifact refs for the focused candidate
+- `?` toggle the help overlay
+- `q` / Ctrl-C / Esc quit cleanly
+
+The command refuses to start without a TTY and exits with code `2`, printing fallback guidance pointing at `memory inbox list` plus `memory inbox accept|reject` for batch / scripted callers (so non-interactive shells branch deterministically). Accept and reject reuse the same `MemoryUsecase.Accept` / `Reject` use cases as the batch commands; dedupe / status transitions are unchanged.
+
+Useful flags: `--workspace`, `--agent`, `--session-family`, `--type`, `--source`, `--include-hidden`, `--limit`.
+
+### `traceary memory store` — deliberate writes
+
+Every command under `memory store` writes a durable-memory row, regardless of whether the row lands as `accepted` or `candidate`.
+
+#### `traceary memory store remember`
 
 Record an accepted durable memory directly.
 
@@ -272,13 +371,13 @@ Useful flags:
 - `--id-only`
 - `--json`
 
-### `traceary memory propose`
+#### `traceary memory store propose`
 
 Record a candidate durable memory that still needs review.
 
-Useful flags are the same as `memory remember`, except `--confidence` is ignored.
+Useful flags are the same as `memory store remember`, except `--confidence` is ignored.
 
-### `traceary memory distill`
+#### `traceary memory store distill`
 
 Create a new accepted durable memory from one or more existing candidate IDs using an operator-provided fact. Evidence refs and artifact refs from the source candidates are unioned onto the accepted memory; Traceary does not rewrite or accept content automatically.
 
@@ -294,7 +393,11 @@ Useful flags:
 - `--id-only`
 - `--json`
 
-### `traceary memory extract`
+### `traceary memory admin` — extraction, host I/O, maintenance, lifecycle
+
+Operator-facing concerns: extraction (mines candidates from existing sessions), host-native I/O (`import` / `export` / `activate`), maintenance (`hygiene` / `graph`), and the lifecycle verbs that mutate already-stored rows (`supersede` / `expire` / `set-validity`).
+
+#### `traceary memory admin extract`
 
 Extract candidate durable memories from a target session using session summaries, compact summaries, prompt events, and note/review signals. Extraction is candidate-only: Traceary never auto-accepts the extracted memories. Prompt events are optional; missing prompt or compact-summary events simply reduce the available signals. When `--session-id` is omitted, Traceary resolves the active session first and then falls back to the latest matching session in the workspace. `Feedback:` / `Correction:` labels are preserved by mapping them into the current minimal durable-memory taxonomy as `preference` candidates. Persisted candidates go through the same sanitization/redaction path as other durable-memory writes before they are stored.
 
@@ -304,42 +407,35 @@ Useful flags:
 - `--workspace`
 - `--event-limit`
 - `--candidate-limit`
+- `--debug-signals`
 - `--json`
 
-### `traceary memory hygiene scan`
+#### `traceary memory admin import codex`
 
-Scan `accepted` durable memories and surface three kinds of hygiene suggestions without mutating the store:
-
-- `redaction_hit` — the current audit redaction rules mask content the stored fact still exposes (for example after the operator added a new extra pattern to `~/.config/traceary/config.json`). The suggestion carries `sanitized_fact` so a follow-up `memory supersede` call has a ready replacement.
-- `expiry_candidate` — the memory has not been updated for longer than `--expiry-days`; the operator may want to expire it.
-- `duplicate` — two or more `accepted` memories share the same scope + fact pair; one should supersede or expire the other.
-- `supersede_candidate` — two accepted memories in the same scope differ in text but share a word-Jaccard similarity at or above `--similarity` (default 0.6). The older memory is the supersede target; the newer memory's fact is the suggested replacement (`replacement_memory_id`, `replacement_fact`, `similarity`).
+Import durable-memory candidates from a local Codex memory layout — by default every `*.md` file under `~/.codex/memories`. Legacy `MEMORY.md` keeps the handbook allow-list (`## User preferences`, `## Reusable knowledge`, `## Failures and how to do differently`), while additional Markdown shards import bullet/list items under any heading. Each candidate gets `source=imported`, file evidence/artifact refs with line ranges, and a scope resolved from the Codex `applies_to: cwd=...` hint (falling back to `--workspace` when the source file does not declare one). Sanitization runs on every imported fact, and nothing is auto-accepted. Re-running the command is idempotent: existing candidates (at any lifecycle status, including rejected) suppress a duplicate import so previously reviewed memories are never resurrected.
 
 Useful flags:
 
-- `--workspace` — scope filter (defaults to env/detected workspace; leave empty to scan every scope)
-- `--expiry-days` — staleness threshold in days (default 90)
-- `--similarity` — word-Jaccard threshold for supersede_candidate detection, between 0.0 and 1.0 (0 uses the built-in default 0.6)
-- `--json` — print JSON output with per-suggestion metadata
+- `--root` — Codex memory root (defaults to `~/.codex/memories`)
+- `--workspace` — fallback scope when the source file has no `applies_to` hint
+- `--watch` — keep polling instead of exiting after one run
+- `--interval` — polling interval when `--watch` is set (minimum 1s)
+- `--json`
 
-### `traceary memory hygiene apply`
+#### `traceary memory admin import instructions`
 
-Commit the lifecycle transition implied by each suggestion for the memories in `--ids`. The usecase re-runs the scan first so stale ids (memories the operator already resolved) land in the failure list instead of silently mutating state. Transitions applied:
-
-- `redaction_hit` → `supersede` with the sanitized fact, inheriting the existing scope / type / refs.
-- `expiry_candidate` → `expire` at the current time.
-- `duplicate` → `reject` the duplicate copy (pick the id whose partner you want to keep).
-- `supersede_candidate` → `supersede` with the newer memory's fact (scope / type / refs inherited from the older memory).
+Read a host instruction file (CLAUDE.md / AGENTS.md / GEMINI.md) and create `candidate` durable memories for every bullet outside the Traceary-managed block. Bullets inside the managed block are already represented in the store via export, so they are intentionally skipped.
 
 Useful flags:
 
-- `--ids` — comma-separated memory ids (repeatable)
-- `--expiry-days` — staleness threshold used by the internal scan (default 90)
-- `--json` — print JSON output with per-id transition metadata
+- `--source` — host that wrote the file (`claude` / `codex` / `gemini`)
+- `--in` — path to the instruction file
+- `--workspace` — scope assigned to imported candidates (defaults to env/detected workspace)
+- `--json` — print JSON output
 
-### `traceary memory export`
+#### `traceary memory admin export`
 
-Write the accepted durable memories for the current scope into a host-native instruction file (CLAUDE.md, AGENTS.md, or GEMINI.md). Output is deterministic and idempotent: re-running with unchanged memories produces a byte-identical file, and every Traceary-managed block is bracketed by `<!-- traceary-memories:begin:v1 -->` / `<!-- traceary-memories:end -->` markers so a later `memory import instructions` run can round-trip without creating duplicates.
+Write the accepted durable memories for the current scope into a host-native instruction file (CLAUDE.md, AGENTS.md, or GEMINI.md). Output is deterministic and idempotent: re-running with unchanged memories produces a byte-identical file, and every Traceary-managed block is bracketed by `<!-- traceary-memories:begin:v1 -->` / `<!-- traceary-memories:end -->` markers so a later `memory admin import instructions` run can round-trip without creating duplicates.
 
 Useful flags:
 
@@ -350,7 +446,7 @@ Useful flags:
 - `--out` — output path; pass `-` (or omit) to write to stdout
 - `--json` — print a summary of the export result in addition to writing the file
 
-### `traceary memory activate`
+#### `traceary memory admin activate`
 
 Activate accepted memories into a host's native context surface using safe,
 explicit writes. The same flag set works for **Codex**, **Claude**, and
@@ -385,44 +481,44 @@ Useful flags:
 - `--diff` — include a diff when the target file exists (dry-run only)
 - `--json` — print the activation plan, status, or apply result as JSON. For two-file targets the JSON exposes `host_context` and `external_memory` components with per-file `path`, `state`, `action`, `existing`, and (for plans) `markdown` / `diff`.
 
-#### Examples
+##### Examples
 
 Status (read-only, run inside a project for Claude/Gemini so the activation
 root resolves to the nearest ancestor that contains `.git`):
 
 ```sh
-traceary memory activate --target codex --status
-traceary memory activate --target claude --status --json
-traceary memory activate --target gemini --status
+traceary memory admin activate --target codex --status
+traceary memory admin activate --target claude --status --json
+traceary memory admin activate --target gemini --status
 ```
 
 Dry-run with diff against existing files:
 
 ```sh
-traceary memory activate --target codex --dry-run --diff
-traceary memory activate --target claude --dry-run --diff
-traceary memory activate --target gemini --dry-run --diff
+traceary memory admin activate --target codex --dry-run --diff
+traceary memory admin activate --target claude --dry-run --diff
+traceary memory admin activate --target gemini --dry-run --diff
 ```
 
 Apply (idempotent — safe to re-run):
 
 ```sh
-traceary memory activate --target codex --apply
-traceary memory activate --target claude --apply
-traceary memory activate --target gemini --apply
+traceary memory admin activate --target codex --apply
+traceary memory admin activate --target claude --apply
+traceary memory admin activate --target gemini --apply
 ```
 
 Override the activation root or the host context file path explicitly:
 
 ```sh
 # scope Claude activation to a specific project directory regardless of cwd
-traceary memory activate --target claude --root /path/to/project --status
+traceary memory admin activate --target claude --root /path/to/project --status
 
 # point Gemini at an explicit host context file (external file is derived)
-traceary memory activate --target gemini --path /path/to/GEMINI.md --apply
+traceary memory admin activate --target gemini --path /path/to/GEMINI.md --apply
 ```
 
-#### Recovering from `invalid`
+##### Recovering from `invalid`
 
 If `--status` reports `invalid`, do not blindly re-run `--apply` — the apply
 path will refuse the same target. Inspect the per-component state with
@@ -436,64 +532,63 @@ path will refuse the same target. Inspect the per-component state with
 | Unmanaged import line outside any Traceary stub already points at the expected `.traceary/memories/<host>.md` | Remove the unmanaged line, then re-run apply |
 | Host context file is `invalid` but external memory looks fine (or vice versa) | Use the JSON `host_context.state` / `external_memory.state` fields to identify the offending file before editing |
 
-### `traceary memory import instructions`
+#### `traceary memory admin hygiene scan`
 
-Read a host instruction file (CLAUDE.md / AGENTS.md / GEMINI.md) and create `candidate` durable memories for every bullet outside the Traceary-managed block. Bullets inside the managed block are already represented in the store via export, so they are intentionally skipped.
+Scan `accepted` durable memories and surface hygiene suggestions without mutating the store:
 
-Useful flags:
-
-- `--source` — host that wrote the file (`claude` / `codex` / `gemini`)
-- `--in` — path to the instruction file
-- `--workspace` — scope assigned to imported candidates (defaults to env/detected workspace)
-- `--json` — print JSON output
-
-### `traceary memory inbox`
-
-Review the durable-memory inbox. `list` surfaces `candidate` memories together with their evidence / artifact ref counts so a reviewer can judge provenance before accepting. `accept` and `reject` take a comma-separated id list via `--ids` and walk the list in order, returning a per-id success / failure breakdown so a partial batch never hides which entries transitioned.
+- `redaction_hit` — the current audit redaction rules mask content the stored fact still exposes (for example after the operator added a new extra pattern to `~/.config/traceary/config.json`). The suggestion carries `sanitized_fact` so a follow-up `memory admin supersede` call has a ready replacement.
+- `expiry_candidate` — the memory has not been updated for longer than `--expiry-days`; the operator may want to expire it.
+- `duplicate` — two or more `accepted` memories share the same scope + fact pair; one should supersede or expire the other.
+- `supersede_candidate` — two accepted memories in the same scope differ in text but share a word-Jaccard similarity at or above `--similarity` (default 0.6). The older memory is the supersede target; the newer memory's fact is the suggested replacement (`replacement_memory_id`, `replacement_fact`, `similarity`).
+- `validity_overlap_supersede` — `(scope, type)`-sharing pairs whose explicit `[valid_from, valid_to)` windows overlap; reported in preference to `supersede_candidate` when both apply.
 
 Useful flags:
 
-- `list` — `--workspace`, `--agent`, `--session-family`, `--type`, `--source` (manual / extracted / imported), `--limit`, `--offset`, `--json`
-- `accept` — `--ids id1,id2,...` (repeatable), `--confidence`, `--json`
-- `reject` — `--ids id1,id2,...` (repeatable), `--json`
+- `--workspace` — scope filter (defaults to env/detected workspace; leave empty to scan every scope)
+- `--expiry-days` — staleness threshold in days (default 90)
+- `--similarity` — word-Jaccard threshold for supersede_candidate detection, between 0.0 and 1.0 (0 uses the built-in default 0.6)
+- `--json` — print JSON output with per-suggestion metadata
 
-The `--source` filter pairs naturally with the extraction and import paths:
+#### `traceary memory admin hygiene apply`
 
-- `--source imported` focuses on memories read from host-native sources such as Codex (see `memory import codex`).
-- `--source extracted` focuses on memories `traceary memory extract` produced from session signals.
+Commit the lifecycle transition implied by each suggestion for the memories in `--ids`. The usecase re-runs the scan first so stale ids (memories the operator already resolved) land in the failure list instead of silently mutating state. Transitions applied:
 
-### `traceary memory import codex`
-
-Import durable-memory candidates from a local Codex memory layout — by default every `*.md` file under `~/.codex/memories`. Legacy `MEMORY.md` keeps the handbook allow-list (`## User preferences`, `## Reusable knowledge`, `## Failures and how to do differently`), while additional Markdown shards import bullet/list items under any heading. Each candidate gets `source=imported`, file evidence/artifact refs with line ranges, and a scope resolved from the Codex `applies_to: cwd=...` hint (falling back to `--workspace` when the source file does not declare one). Sanitization runs on every imported fact, and nothing is auto-accepted. Re-running the command is idempotent: existing candidates (at any lifecycle status, including rejected) suppress a duplicate import so previously reviewed memories are never resurrected.
+- `redaction_hit` → `supersede` with the sanitized fact, inheriting the existing scope / type / refs.
+- `expiry_candidate` → `expire` at the current time.
+- `duplicate` → `reject` the duplicate copy (pick the id whose partner you want to keep).
+- `supersede_candidate` / `validity_overlap_supersede` → `supersede` with the newer memory's fact (scope / type / refs inherited from the older memory).
 
 Useful flags:
 
-- `--root` — Codex memory root (defaults to `~/.codex/memories`)
-- `--workspace` — fallback scope when the source file has no `applies_to` hint
-- `--watch` — keep polling instead of exiting after one run
-- `--interval` — polling interval when `--watch` is set (minimum 1s)
+- `--ids` — comma-separated memory ids (repeatable)
+- `--expiry-days` — staleness threshold used by the internal scan (default 90)
+- `--json` — print JSON output with per-id transition metadata
+
+#### `traceary memory admin graph add <from-memory-id> --to <to-memory-id> --relation <type>`
+
+Record a typed relationship between two memories (graph overlay introduced in v0.9.0). See [temporal memory architecture](../architecture/temporal-memory.md) for the relation vocabulary and overlay design.
+
+Useful flags:
+
+- `--to`: target memory ID (required)
+- `--relation`: `supersedes` / `contradicts` / `supports` / `related-to` / `causes` (required; unknown values are accepted for forward compatibility)
+- `--from`: validity window lower bound (YYYY-MM-DD or RFC3339); defaults to "now"
+- `--to-date`: validity window upper bound (exclusive); open-ended when omitted
 - `--json`
 
-### `traceary memory accept <memory-id>`
+#### `traceary memory admin graph list`
 
-Accept a candidate durable memory.
-
-Useful flags:
-
-- `--confidence`
-- `--id-only`
-- `--json`
-
-### `traceary memory reject <memory-id>`
-
-Reject a candidate durable memory.
+List edges matching the given filters. Uses the same half-open `[valid_from, valid_to)` semantics as `memory list --as-of`.
 
 Useful flags:
 
-- `--id-only`
+- `--memory-id`: restrict to edges touching this memory (source or target)
+- `--relation`: filter by relation type
+- `--as-of`: evaluate validity at a given timestamp
+- `--limit`
 - `--json`
 
-### `traceary memory supersede <memory-id>`
+#### `traceary memory admin supersede <memory-id>`
 
 Replace an accepted durable memory with a new accepted memory. Omitted `--type` and scope flags inherit from the current memory.
 
@@ -506,10 +601,11 @@ Useful flags:
 - `--source`
 - `--evidence`
 - `--artifact`
+- `--from` / `--to` — content validity window for the replacement
 - `--id-only`
 - `--json`
 
-### `traceary memory expire <memory-id>`
+#### `traceary memory admin expire <memory-id>`
 
 Expire an active durable memory.
 
@@ -519,29 +615,41 @@ Useful flags:
 - `--id-only`
 - `--json`
 
-### `traceary memory graph add <from-memory-id> --to <to-memory-id> --relation <type>`
+#### `traceary memory admin set-validity <memory-id>`
 
-Record a typed relationship between two memories (v0.9.0 graph overlay). See [temporal memory architecture](../architecture/temporal-memory.md) for the relation vocabulary and overlay design.
-
-Useful flags:
-
-- `--to`: target memory ID (required)
-- `--relation`: `supersedes` / `contradicts` / `supports` / `related-to` / `causes` (required; unknown values are accepted for forward compatibility)
-- `--from`: validity window lower bound (YYYY-MM-DD or RFC3339); defaults to "now"
-- `--to-date`: validity window upper bound (exclusive); open-ended when omitted
-- `--json`
-
-### `traceary memory graph list`
-
-List edges matching the given filters. Uses the same half-open `[valid_from, valid_to)` semantics as `memory list --as-of`.
+Set or update the content validity window (`valid_from` / `valid_to`) on a durable memory. The validity window describes when the fact is asserted to be true and is independent of the lifecycle `expires_at` written by `memory admin expire`.
 
 Useful flags:
 
-- `--memory-id`: restrict to edges touching this memory (source or target)
-- `--relation`: filter by relation type
-- `--as-of`: evaluate validity at a given timestamp
-- `--limit`
+- `--from` — start of the window (`YYYY-MM-DD` or RFC3339)
+- `--to` — end of the window
+- `--clear-to` — return to open-ended validity (mutually exclusive with `--to`)
+- `--id-only`
 - `--json`
+
+### Hidden deprecated aliases (v0.14)
+
+The flat verbs from earlier releases are still registered as `Hidden: true` Cobra commands so existing scripts and AI integrations have one release of overlap before removal in v0.15. Each alias completes the same operation as before, emits a single stderr deprecation notice naming the canonical replacement, and keeps stdout / `--json` / NDJSON byte-for-byte compatible. The migration table:
+
+| Hidden alias (v0.14) | Canonical replacement |
+| --- | --- |
+| `memory accept <id>` | `memory inbox accept <id>` |
+| `memory reject <id>` | `memory inbox reject <id>` |
+| `memory remember` | `memory store remember` |
+| `memory propose` | `memory store propose` |
+| `memory distill` | `memory store distill` |
+| `memory extract` | `memory admin extract` |
+| `memory import codex` | `memory admin import codex` |
+| `memory import instructions` | `memory admin import instructions` |
+| `memory export` | `memory admin export` |
+| `memory activate` | `memory admin activate` |
+| `memory hygiene scan` | `memory admin hygiene scan` |
+| `memory hygiene apply` | `memory admin hygiene apply` |
+| `memory graph add` | `memory admin graph add` |
+| `memory graph list` | `memory admin graph list` |
+| `memory supersede` | `memory admin supersede` |
+| `memory expire` | `memory admin expire` |
+| `memory set-validity` | `memory admin set-validity` |
 
 ## Session commands
 
@@ -759,7 +867,7 @@ Additional doctor checks:
 - `path` confirms `traceary` resolves on `PATH` and reports the directory. Missing is `FAIL`; multiple matches are `WARN`.
 - `<client>-mcp` checks Claude Code, Codex, and Gemini config/plugin registration for the `traceary mcp-server` MCP server.
 - `<client>-plugin-version` compares detected installed plugin manifests/caches with the running binary version and suggests reinstalling/updating the plugin when they drift.
-- `codex-memory-activation` / `claude-memory-activation` / `gemini-memory-activation` check whether accepted durable memories are missing, stale, in sync, or invalid in the host's native activation target. `missing` and `stale` are reported as `WARN` with exact `memory activate --dry-run --diff` (preview) and `memory activate --apply` (refresh) remediation commands; `invalid` is reported as `FAIL` with a hint to inspect the host file before applying. Run with `--client <claude|codex|gemini>` to scope the report and with `--project-dir <dir>` to pin the Claude/Gemini activation root to a specific repository instead of the doctor process's working directory.
+- `codex-memory-activation` / `claude-memory-activation` / `gemini-memory-activation` check whether accepted durable memories are missing, stale, in sync, or invalid in the host's native activation target. `missing` and `stale` are reported as `WARN` with exact `memory admin activate --dry-run --diff` (preview) and `memory admin activate --apply` (refresh) remediation commands; `invalid` is reported as `FAIL` with a hint to inspect the host file before applying. Run with `--client <claude|codex|gemini>` to scope the report and with `--project-dir <dir>` to pin the Claude/Gemini activation root to a specific repository instead of the doctor process's working directory.
 
 Exit codes:
 
@@ -796,7 +904,7 @@ Useful flags:
 
 ## Store administration (`traceary store ...`)
 
-Starting with v0.9.0, store administration commands live under the `store` namespace. The old top-level `traceary init`, `traceary backup`, and `traceary gc` still work as deprecated aliases (with a notice) and will be removed in v1.0.
+Store administration commands live under the `store` namespace. The old top-level `traceary init`, `traceary backup`, and `traceary gc` aliases were removed in v0.14.0; running them now exits with a usage error that names the canonical replacement (`traceary store init`, `traceary store backup ...`, `traceary store gc`). The aliases shipped a deprecation notice from v0.9.0 through v0.13.x. See [CLI stability and deprecation policy](../cli-stability.md).
 
 ### `traceary store init`
 
@@ -837,11 +945,13 @@ Useful flags:
 
 ### `traceary integration codex install` (retired, hidden)
 
-Retired in v0.14.0. The command is hidden and no longer installs anything; invoking it only prints a hint pointing to Codex's official `/plugins` flow (run `codex` inside the repository → `/plugins` → `Traceary Plugins` → `Traceary`). See the [Codex plugin guide](../integrations/codex-plugin.md) for the full setup.
+Retired in v0.14.0 and **not a supported install surface**. The command is hidden and no longer installs anything; invoking it only prints a hint pointing to Codex's official `/plugins` flow. New installs must go through Codex's official `/plugins` flow (run `codex` inside the repository → `/plugins` → `Traceary Plugins` → `Traceary`). See the [Codex plugin guide](../integrations/codex-plugin.md) for the full setup. This hidden alias is scheduled for removal in v0.15.
 
 ### `traceary integration codex uninstall` (hidden cleanup-only)
 
-Hidden cleanup-only command kept for users who still have legacy Traceary-managed Codex plugin state on disk. It removes the Traceary-managed Codex plugin cache, plugin config entry, and hook entries while preserving unrelated local Codex settings. Scheduled for removal in v0.15 once migration is complete.
+**Not a supported install/uninstall management surface.** This command is a hidden, cleanup-only escape hatch. It exists solely to remove legacy Traceary-managed Codex plugin state left over from the retired pre-v0.14 install path (`traceary integration codex install`), for users who installed via that path before it was retired. New installs go through Codex's official `/plugins` flow and are managed by Codex itself, not by this command.
+
+When invoked, it removes the Traceary-managed Codex plugin cache, plugin config entry, and hook entries while preserving unrelated local Codex settings. Like its `install` counterpart, this hidden cleanup command is scheduled for removal in v0.15 once migration off the retired install path is complete.
 
 Useful flags:
 

@@ -76,7 +76,7 @@ session end の精度が重要なら、明示的な end hook を持つ client in
 
 ### active ingestion 中に cleanup を強く走らせる
 
-`traceary gc` は古い row を削除したあとに `VACUUM` を実行します。
+`traceary store gc` は古い row を削除したあとに `VACUUM` を実行します。
 同じ DB に対して多くの session が書き込んでいる最中に、強めの cleanup を background maintenance のように常時回す前提ではありません。
 先に backup を取り、比較的静かなタイミングで実行してください。
 
@@ -99,7 +99,7 @@ session end の精度が重要なら、明示的な end hook を持つ client in
 1. hook generation を疑う前に `traceary doctor` を使う
 2. 複数の作業フローで DB を分けたい場合は `TRACEARY_DB_PATH` を明示する
 3. PPID grouping が不安定なら `TRACEARY_HOOK_STATE_KEY` を明示する
-4. risky cleanup や手動調査の前に `traceary backup create` を実行する
+4. risky cleanup や手動調査の前に `traceary store backup create` を実行する
 5. best-effort session-end hook に依存する場合は、自分たちの team automation に client 固有注意点を明記する
 
 ## 関連文書
