@@ -123,6 +123,7 @@ walk the inbox before anything is promoted to `accepted`:
 - `traceary memory inbox list`
 - `traceary memory inbox accept <id>` (single id; pass `--ids id1,id2,...` for batch scripts; add `--id-only` for scripted callers that want only the memory id on stdout)
 - `traceary memory inbox reject <id>` (single id; pass `--ids id1,id2,...` for batch scripts; add `--id-only` for scripted callers that want only the memory id on stdout)
+- `traceary memory inbox review` — interactive walk-through with the same filters as `inbox list` (`--workspace`, `--agent`, `--session-family`, `--type`, `--source`, `--include-hidden`, `--limit`). Accept / reject reuse the same application use cases as the batch commands; `e` opens an edit prompt that requires an operator-authored fact and routes through `traceary memory store distill` (no auto-accept of LLM output). Refuses to start without a TTY and exits with code `2`, pointing at the batch commands above so non-interactive shells branch deterministically.
 - MCP `memory_inbox_batch` for agent-driven review
 
 The review path is deliberately `candidate`-scoped so extraction and

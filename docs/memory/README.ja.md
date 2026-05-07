@@ -122,6 +122,7 @@ candidate が溜まってきて、accepted に昇格させる前に inbox を wa
 - `traceary memory inbox list`
 - `traceary memory inbox accept <id>` (単一 id。バッチ用途は `--ids id1,id2,...`。scripted caller 向けには `--id-only` で memory id だけを stdout に出力)
 - `traceary memory inbox reject <id>` (単一 id。バッチ用途は `--ids id1,id2,...`。scripted caller 向けには `--id-only` で memory id だけを stdout に出力)
+- `traceary memory inbox review` — `inbox list` と同じフィルター (`--workspace` / `--agent` / `--session-family` / `--type` / `--source` / `--include-hidden` / `--limit`) で対話的にレビューします。accept / reject は batch コマンドと同じ application usecase を呼び出し、`e` で開く edit プロンプトでは operator が手書きした fact のみを受け付け、`traceary memory store distill` 経由で記録します (LLM 出力を自動採用しません)。TTY が無いシェルでは exit code `2` で起動を拒否し、上記のバッチコマンドを案内するため、非対話シェルから条件分岐できます。
 - MCP `memory_inbox_batch` (agent からの一括 review 用)
 
 review 経路は `candidate` のみを対象にしているため、extraction と import は同じ inbox に合流し、1回の review pass でまとめて捌けます。

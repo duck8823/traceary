@@ -55,6 +55,16 @@ func Quit() Msg { return tea.Quit() }
 //     including panics inside the model. We surface any restore-time error
 //     up to the caller wrapped with xerrors so the stack is preserved.
 func Run(model Model, opts RunOptions) error {
+	_, err := RunModel(model, opts)
+	return err
+}
+
+// RunModel is the variant of Run that returns the final model after the
+// Bubble Tea program exits. Screens that accumulate state inside the model
+// (e.g. memory inbox review queues operator decisions) need the post-quit
+// snapshot so they can apply the queued work; Run remains for screens that
+// are pure renderers and only care about the run-time error.
+func RunModel(model Model, opts RunOptions) (Model, error) {
 	in := opts.Input
 	if in == nil {
 		in = os.Stdin
@@ -64,7 +74,7 @@ func Run(model Model, opts RunOptions) error {
 		out = os.Stdout
 	}
 	if !Interactive(in, out) {
-		return ErrNotInteractive
+		return model, ErrNotInteractive
 	}
 
 	teaOpts := []tea.ProgramOption{
@@ -77,8 +87,9 @@ func Run(model Model, opts RunOptions) error {
 	teaOpts = append(teaOpts, opts.ExtraTeaOptions...)
 
 	prog := tea.NewProgram(model, teaOpts...)
-	if _, err := prog.Run(); err != nil {
-		return xerrors.Errorf("tui: program run: %w", err)
+	final, err := prog.Run()
+	if err != nil {
+		return final, xerrors.Errorf("tui: program run: %w", err)
 	}
-	return nil
+	return final, nil
 }

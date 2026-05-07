@@ -65,7 +65,18 @@ Use `show` when you already have an event ID and want the structured event or au
 traceary show evt_123 --json
 ```
 
-### 6. "What context should I carry into the next session?" → `traceary handoff`
+### 6. "Walk through candidate durable memories" → `traceary memory inbox review`
+
+Use `memory inbox review` for an interactive walk through the durable-memory candidate inbox. It is TTY-only — non-interactive shells receive a refusal with exit code `2` and pointers to `traceary memory inbox list / accept / reject`. The same filters as the snapshot view are accepted (`--workspace`, `--agent`, `--session-family`, `--type`, `--source`, `--include-hidden`, `--limit`).
+
+```sh
+traceary memory inbox review
+traceary memory inbox review --workspace github.com/duck8823/traceary --type preference --limit 10
+```
+
+Inside the screen the action keys are `a` accept, `x` reject, `s` skip, `e` edit/distill, `v` view evidence, `?` help, `q` quit. Accept / reject reuse the same application use cases as `memory inbox accept|reject`. `e` opens an editor prompt that requires you to type a new operator-authored fact and routes through `traceary memory store distill` (no auto-accept of LLM output).
+
+### 7. "What context should I carry into the next session?" → `traceary handoff`
 
 Use `handoff` when you want a concise working-memory pack instead of the raw event stream.
 This is the operator-facing summary view for resuming work or handing context to another agent.
