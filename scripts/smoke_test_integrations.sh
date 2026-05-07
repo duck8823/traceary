@@ -47,28 +47,22 @@ run_gemini() {
 }
 
 run_codex() {
+  # The Python-side smoke now owns both the install-removal assertion
+  # and the cleanup-only `traceary integration codex uninstall` probe
+  # (see scripts/verify_integrations.py::check_codex). The shell side
+  # adds a quick CLI-level guard so a regression that re-registers the
+  # legacy install command would surface here too.
   python3 "${ROOT_DIR}/scripts/verify_integrations.py"
-  local tmp_root tmp_codex_home tmp_marketplace_root
-  tmp_root="$(mktemp -d)"
-  tmp_codex_home="${tmp_root}/codex-home"
-  tmp_marketplace_root="${tmp_root}/agents/plugins"
-  go run . integration codex install \
-    --repo-root "${ROOT_DIR}" \
-    --codex-home "${tmp_codex_home}" \
-    --marketplace-root "${tmp_marketplace_root}" \
-    --traceary-bin /tmp/traceary
-  test -f "${tmp_marketplace_root}/plugins/traceary/.codex-plugin/plugin.json"
-  test -f "${tmp_marketplace_root}/marketplace.json"
-  test -f "${tmp_codex_home}/plugins/cache/local-traceary-plugins/traceary/local/.codex-plugin/plugin.json"
-  test -f "${tmp_codex_home}/hooks.json"
-  grep -q 'UserPromptSubmit' "${tmp_codex_home}/hooks.json"
-  grep -q "'hook' 'prompt' 'codex'" "${tmp_codex_home}/hooks.json"
-  grep -q 'codex_hooks = true' "${tmp_codex_home}/config.toml"
-  grep -q 'traceary@local-traceary-plugins' "${tmp_codex_home}/config.toml"
-  go run . integration codex uninstall \
-    --codex-home "${tmp_codex_home}" \
-    --marketplace-root "${tmp_marketplace_root}"
-  rm -rf "${tmp_root}"
+  local install_output
+  if install_output="$(go run . integration codex install 2>&1)"; then
+    echo "error: 'go run . integration codex install' unexpectedly succeeded after v0.14.0 removal" >&2
+    echo "${install_output}" >&2
+    return 1
+  fi
+  if [[ "${install_output}" != *"v0.14.0"* || "${install_output}" != *"/plugins"* ]]; then
+    echo "error: install removal hint missing replacement details: ${install_output}" >&2
+    return 1
+  fi
   if [[ "${TRACEARY_ENABLE_CODEX_RUNTIME_SMOKE:-0}" != "1" ]]; then
     echo 'ok: codex smoke test passed (set TRACEARY_ENABLE_CODEX_RUNTIME_SMOKE=1 for an authenticated runtime probe)'
     return 0

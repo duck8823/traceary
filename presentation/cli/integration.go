@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -31,35 +30,32 @@ func (c *RootCLI) newIntegrationCodexCommand() *cobra.Command {
 	return codexCmd
 }
 
+// newIntegrationCodexInstallCommand registers a hidden stub for the
+// retired `traceary integration codex install` command. The command is
+// no longer a working install path; invoking it returns a usage error
+// pointing at the Codex official `/plugins` flow. The hidden registration
+// keeps the replacement hint reachable for users on automation that still
+// types the old command (#920).
 func (c *RootCLI) newIntegrationCodexInstallCommand() *cobra.Command {
-	var (
-		repoRoot        string
-		codexHome       string
-		marketplaceRoot string
-		tracearyBin     string
-	)
-
-	cmd := &cobra.Command{
-		Use:   "install",
-		Short: Localize("Install the packaged Codex integration (deprecated; use Codex's /plugins flow)", "Codex 連携パッケージを組み込む (非推奨。Codex 公式の /plugins flow を使ってください)"),
-		Args:  noArgsLocalized(),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), codexIntegrationInstallDeprecationNotice())
-			return c.runIntegrationCodexInstall(cmd.Context(), cmd.OutOrStdout(), integrationCodexInstallCommandInput{
-				repoRoot:        repoRoot,
-				codexHome:       codexHome,
-				marketplaceRoot: marketplaceRoot,
-				tracearyBin:     tracearyBin,
-			})
+	return &cobra.Command{
+		Use:                "install",
+		Hidden:             true,
+		DisableFlagParsing: true,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return xerrors.New(Localize(
+				"`traceary integration codex install` was removed in v0.14.0. Use Codex's official /plugins flow: run `codex` inside this repository, open `/plugins`, and install `Traceary` from `Traceary Plugins`. The hidden `traceary integration codex uninstall` remains as cleanup-only until v0.15.",
+				"`traceary integration codex install` は v0.14.0 で削除されました。Codex 公式の /plugins flow を使ってください: この repository 上で `codex` を起動し、`/plugins` を開き、`Traceary Plugins` から `Traceary` を install してください。hidden な `traceary integration codex uninstall` は v0.15 までの cleanup 用途として残します。",
+			))
 		},
 	}
-	cmd.Flags().StringVar(&repoRoot, "repo-root", "", Localize("repository root that contains plugins/traceary (defaults to the current directory)", "plugins/traceary を含む repository root (既定値: カレントディレクトリ)"))
-	cmd.Flags().StringVar(&codexHome, "codex-home", "", Localize("Codex home directory (defaults to ~/.codex)", "Codex home ディレクトリ (既定値: ~/.codex)"))
-	cmd.Flags().StringVar(&marketplaceRoot, "marketplace-root", "", Localize("local marketplace root (defaults to ~/.agents/plugins)", "local marketplace root (既定値: ~/.agents/plugins)"))
-	cmd.Flags().StringVar(&tracearyBin, "traceary-bin", "", Localize("traceary binary path or command name", "traceary バイナリパス"))
-	return cmd
 }
 
+// newIntegrationCodexUninstallCommand registers the cleanup-only
+// `traceary integration codex uninstall` command. v0.14.0 hides the
+// command from default help so it stays available for users migrating
+// off the retired install path without advertising it as a normal flow.
+// The command is scheduled for removal in v0.15 once migration is
+// complete (#920).
 func (c *RootCLI) newIntegrationCodexUninstallCommand() *cobra.Command {
 	var (
 		codexHome       string
@@ -67,9 +63,10 @@ func (c *RootCLI) newIntegrationCodexUninstallCommand() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "uninstall",
-		Short: Localize("Remove the packaged Codex integration from the local Codex runtime", "Codex 向けの連携パッケージをローカルの Codex runtime から外す"),
-		Args:  noArgsLocalized(),
+		Use:    "uninstall",
+		Hidden: true,
+		Short:  Localize("Remove legacy Codex integration state (hidden cleanup-only command, scheduled for removal in v0.15)", "旧 Codex 連携 state を取り除く (非表示の cleanup 専用 command、v0.15 で削除予定)"),
+		Args:   noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runIntegrationCodexUninstall(cmd.Context(), cmd.OutOrStdout(), integrationCodexUninstallCommandInput{
 				codexHome:       codexHome,
@@ -82,80 +79,9 @@ func (c *RootCLI) newIntegrationCodexUninstallCommand() *cobra.Command {
 	return cmd
 }
 
-// codexIntegrationInstallDeprecationNotice returns the deprecation banner
-// printed to stderr before the legacy `traceary integration codex install`
-// command runs. The banner stays on stderr so scripts that already parse
-// stdout for install results keep working unchanged.
-func codexIntegrationInstallDeprecationNotice() string {
-	return Localize(
-		"DEPRECATED: 'traceary integration codex install' is a legacy compatibility path. Use Codex's official /plugins flow instead: run 'codex' inside this repository, open '/plugins', and install 'Traceary' from 'Traceary Plugins'. This command will be removed no earlier than v0.8.0. If you migrate from an older install, run 'traceary integration codex uninstall' once after the official install to remove legacy cache/config/hooks and avoid duplicate recordings.",
-		"非推奨: 'traceary integration codex install' は旧互換の導入経路です。今後は Codex 公式の /plugins flow を使ってください: この repository 上で 'codex' を起動し、'/plugins' を開き、'Traceary Plugins' から 'Traceary' を install してください。このコマンドは v0.8.0 より前には削除しませんが、それ以降で削除予定です。旧 install からの移行時は、official install 完了後に 'traceary integration codex uninstall' を 1 回実行して legacy cache/config/hooks を掃除し、二重記録を防いでください。",
-	)
-}
-
-type integrationCodexInstallCommandInput struct {
-	repoRoot        string
-	codexHome       string
-	marketplaceRoot string
-	tracearyBin     string
-}
-
 type integrationCodexUninstallCommandInput struct {
 	codexHome       string
 	marketplaceRoot string
-}
-
-func (c *RootCLI) runIntegrationCodexInstall(
-	ctx context.Context,
-	output io.Writer,
-	input integrationCodexInstallCommandInput,
-) error {
-	if c.codexIntegration == nil {
-		return xerrors.Errorf("Codex integration usecase is not configured")
-	}
-
-	resolvedRepoRoot, err := resolveRepoRoot(input.repoRoot)
-	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to resolve repository root", "repository root の解決に失敗しました"), err)
-	}
-	resolvedCodexHome, err := resolveCodexHome(input.codexHome)
-	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to resolve Codex home", "Codex home の解決に失敗しました"), err)
-	}
-	resolvedMarketplaceRoot, err := resolveMarketplaceRoot(input.marketplaceRoot)
-	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to resolve marketplace root", "marketplace root の解決に失敗しました"), err)
-	}
-	resolvedTracearyBin, err := resolveHooksTracearyBin(input.tracearyBin)
-	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to resolve traceary binary path", "traceary binary path の解決に失敗しました"), err)
-	}
-
-	result, err := c.codexIntegration.Install(
-		ctx,
-		resolvedRepoRoot,
-		resolvedCodexHome,
-		resolvedMarketplaceRoot,
-		resolvedTracearyBin,
-	)
-	if err != nil {
-		return xerrors.Errorf("failed to install Codex integration: %w", err)
-	}
-
-	_, err = fmt.Fprintf(
-		output,
-		"installed marketplace copy at %s\ninstalled active Codex plugin at %s\nupdated Codex config at %s\nupdated Codex hooks at %s\nenabled plugin id %s\n",
-		result.MarketplaceCopyPath(),
-		result.ActivePluginPath(),
-		result.ConfigPath(),
-		result.HooksPath(),
-		result.PluginID(),
-	)
-	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to print Codex integration install result", "Codex 連携 install 結果の出力に失敗しました"), err)
-	}
-
-	return nil
 }
 
 func (c *RootCLI) runIntegrationCodexUninstall(
@@ -210,22 +136,6 @@ func (c *RootCLI) runIntegrationCodexUninstall(
 	}
 
 	return nil
-}
-
-func resolveRepoRoot(flagValue string) (string, error) {
-	if strings.TrimSpace(flagValue) == "" {
-		currentDir, err := os.Getwd()
-		if err != nil {
-			return "", xerrors.Errorf("%s: %w", Localize("failed to get current directory", "カレントディレクトリの取得に失敗しました"), err)
-		}
-		flagValue = currentDir
-	}
-
-	resolvedPath, err := filepath.Abs(strings.TrimSpace(flagValue))
-	if err != nil {
-		return "", xerrors.Errorf("%s: %w", Localize("failed to resolve absolute path", "絶対パス化に失敗しました"), err)
-	}
-	return resolvedPath, nil
 }
 
 func resolveCodexHome(flagValue string) (string, error) {

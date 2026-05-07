@@ -815,27 +815,13 @@ DB 作成と migration 適用を明示的に先行実行します。通常コマ
 
 ## Integration コマンド
 
-### `traceary integration codex install` (非推奨)
+### `traceary integration codex install` (廃止・非表示)
 
-ローカル checkout した repository から、次の場所へ Codex 向け Traceary integration を入れます。
+v0.14.0 で廃止されました。コマンドは非表示扱いとなり、実行しても install は行われず、Codex 公式の `/plugins` flow（リポジトリ内で `codex` を起動 → `/plugins` → `Traceary Plugins` → `Traceary`）を案内するヒントのみを返します。詳細は [Codex plugin ガイド](../integrations/codex-plugin.ja.md) を参照してください。
 
-- `~/.agents/plugins`
-- `~/.codex/plugins/cache/...`
-- `~/.codex/config.toml`
-- `~/.codex/hooks.json`
+### `traceary integration codex uninstall` (非表示・cleanup 専用)
 
-**非推奨**: Codex 公式の `/plugins` flow を優先してください（リポジトリ内で `codex` を起動 → `/plugins` → `Traceary Plugins` → `Traceary`）。このコマンドは v0.8.0 より早くは削除しませんが、それ以降で削除予定です。詳しい移行手順は [Codex plugin ガイド](../integrations/codex-plugin.ja.md) を参照してください。
-
-主な flag:
-
-- `--repo-root`
-- `--codex-home`
-- `--marketplace-root`
-- `--traceary-bin`
-
-### `traceary integration codex uninstall`
-
-Traceary が管理する Codex plugin cache、plugin config entry、hook entry を外します。Codex の他の設定は保持します。非推奨の `install` から移行するユーザーの cleanup 用として推奨される手順です。
+過去に Traceary 管理で配置された Codex plugin state がローカルに残っているユーザー向けに、cleanup 専用として残している非表示コマンドです。Traceary が管理する Codex plugin cache、plugin config entry、hook entry を外し、Codex の他の設定は保持します。移行完了後の v0.15 で削除予定です。
 
 主な flag:
 
