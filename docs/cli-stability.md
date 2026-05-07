@@ -56,15 +56,28 @@ Admin commands are operator-facing maintenance surfaces. They are still listed i
 Admin commands in v0.14:
 
 - **Store administration** — `traceary store init`, `traceary store backup create`, `traceary store backup restore`, `traceary store gc`
+- **Session administration** — `traceary session gc` (closes stale sessions; visible under the `session` namespace and registered alongside the public session subcommands, but treated as an admin-tier maintenance entrypoint)
 - **Durable memory admin** — `traceary memory admin extract`, `traceary memory admin import codex`, `traceary memory admin import instructions`, `traceary memory admin export`, `traceary memory admin activate`, `traceary memory admin hygiene scan`, `traceary memory admin hygiene apply`, `traceary memory admin graph add`, `traceary memory admin graph list`, `traceary memory admin supersede`, `traceary memory admin expire`, `traceary memory admin set-validity`
 
 ### Plumbing / hidden / deprecated commands (v0.14)
 
-These commands are hidden from `traceary --help`. They exist either as deprecation shims that re-route into a canonical replacement, or as cleanup-only paths kept for users migrating off retired surfaces.
+These commands are hidden from `traceary --help`. They exist as deprecation shims that re-route into a canonical replacement, cleanup-only paths kept for users migrating off retired surfaces, or runtime entrypoints called by packaged Traceary hook scripts.
 
 Hidden deprecated alias commands in v0.14 (registered with `Hidden: true`, keep working, emit a stderr deprecation notice; scheduled for removal in v0.15):
 
 - `traceary memory accept`, `traceary memory reject`, `traceary memory remember`, `traceary memory propose`, `traceary memory distill`, `traceary memory extract`, `traceary memory supersede`, `traceary memory expire`, `traceary memory set-validity`, `traceary memory import codex`, `traceary memory import instructions`, `traceary memory export`, `traceary memory activate`, `traceary memory hygiene scan`, `traceary memory hygiene apply`, `traceary memory graph add`, `traceary memory graph list` — see the [memory command surface plan](./operations/memory-command-surface.md) for the complete mapping.
+
+Hidden runtime entrypoints called by packaged Traceary hook scripts (registered with `Hidden: true`, no stderr deprecation notice):
+
+- `traceary hook session`, `traceary hook audit`, `traceary hook compact`, `traceary hook subagent-start`, `traceary hook subagent-stop`, `traceary hook prompt`, `traceary hook transcript` — invoked from hook scripts written out by `traceary hooks print` / `traceary hooks install`.
+- `traceary hooks helper json-get`, `traceary hooks helper build-failure-output`, `traceary hooks helper normalize-git-remote` — internal helpers used by the same packaged hook scripts.
+
+Stability and deprecation expectations for these runtime entrypoints:
+
+- They are an internal contract between the Traceary binary and the hook configs it generates. Operators and external scripts should not invoke them directly; the canonical operator-facing entrypoint is `traceary hooks print` / `traceary hooks install`, and reinstalling regenerates hook configs that match the installed Traceary version.
+- The command path and argument shape stay stable across patch releases (`v0.N.x`).
+- Across minor boundaries (`v0.N.0` → `v0.(N+1).0`) and across `v1.x` minors once v1.0 ships, they may be renamed, removed, or have their argument shape changed without going through the public stderr deprecation flow, provided the new minor's `traceary hooks install` regenerates compatible scripts and the changelog calls out that hooks must be reinstalled to upgrade.
+- Adding a new hidden runtime entrypoint follows the same rule: it is allowed at any minor boundary as long as it is paired with a same-version `traceary hooks print` / `traceary hooks install` update.
 
 Hidden cleanup-only commands kept for legacy users (no replacement; scheduled for removal in v0.15):
 

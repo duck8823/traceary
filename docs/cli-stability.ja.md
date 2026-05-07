@@ -56,15 +56,28 @@ admin コマンドは運用者向けのメンテサーフェスです。`--help`
 v0.14 の admin コマンド：
 
 - **ストア管理** — `traceary store init`、`traceary store backup create`、`traceary store backup restore`、`traceary store gc`
+- **セッション管理** — `traceary session gc`（stale なセッションを終了する。`session` 名前空間配下に公開セッションサブコマンドと同じ位置で登録されているが、扱いとしては admin ティアのメンテナンス入口）
 - **durable memory admin** — `traceary memory admin extract`、`traceary memory admin import codex`、`traceary memory admin import instructions`、`traceary memory admin export`、`traceary memory admin activate`、`traceary memory admin hygiene scan`、`traceary memory admin hygiene apply`、`traceary memory admin graph add`、`traceary memory admin graph list`、`traceary memory admin supersede`、`traceary memory admin expire`、`traceary memory admin set-validity`
 
 ### plumbing / hidden / deprecated コマンド (v0.14)
 
-これらは `traceary --help` から非表示です。canonical 置き換えへ再ルーティングする deprecation シム、または廃止サーフェスから移行する利用者向けの cleanup-only パスです。
+これらは `traceary --help` から非表示です。canonical 置き換えへ再ルーティングする deprecation シム、廃止サーフェスから移行する利用者向けの cleanup-only パス、または同梱の Traceary hook スクリプトから呼び出されるランタイム入口です。
 
 v0.14 の hidden な deprecated alias（`Hidden: true` で登録、動作は維持、stderr に非推奨通知、v0.15 で削除予定）：
 
 - `traceary memory accept`、`traceary memory reject`、`traceary memory remember`、`traceary memory propose`、`traceary memory distill`、`traceary memory extract`、`traceary memory supersede`、`traceary memory expire`、`traceary memory set-validity`、`traceary memory import codex`、`traceary memory import instructions`、`traceary memory export`、`traceary memory activate`、`traceary memory hygiene scan`、`traceary memory hygiene apply`、`traceary memory graph add`、`traceary memory graph list` — 完全なマッピングは [memory コマンド体系の整理計画](./operations/memory-command-surface.ja.md) を参照。
+
+同梱の Traceary hook スクリプトから呼び出される hidden ランタイム入口（`Hidden: true` で登録、stderr 非推奨通知は出さない）：
+
+- `traceary hook session`、`traceary hook audit`、`traceary hook compact`、`traceary hook subagent-start`、`traceary hook subagent-stop`、`traceary hook prompt`、`traceary hook transcript` — `traceary hooks print` / `traceary hooks install` が出力する hook スクリプトから呼び出される。
+- `traceary hooks helper json-get`、`traceary hooks helper build-failure-output`、`traceary hooks helper normalize-git-remote` — 同じ同梱 hook スクリプトが使う内部ヘルパー。
+
+これら runtime 入口の安定性 / 非推奨ポリシー：
+
+- これらは Traceary バイナリと、そのバイナリが生成する hook 設定との間の内部契約として扱う。運用者や外部スクリプトが直接呼び出す対象ではなく、canonical な運用者入口は `traceary hooks print` / `traceary hooks install` で、再インストールするとインストール済みバージョンに合った hook 設定が再生成される。
+- コマンドパスと引数形状は patch リリース (`v0.N.x`) では安定。
+- マイナー境界 (`v0.N.0` → `v0.(N+1).0`)、および v1.0 以降の `v1.x` マイナー間でも、新マイナーの `traceary hooks install` が互換 script を再生成し、CHANGELOG で「hook を再インストールする必要がある」旨を案内することを前提に、改名・削除・引数形状変更を公開の stderr 非推奨フローを通さずに行ってよい。
+- 新しい hidden ランタイム入口の追加も同じルール。マイナー境界で追加してよく、同じバージョンの `traceary hooks print` / `traceary hooks install` 更新と組で出荷する。
 
 旧サーフェスから移行中の利用者向けに残している hidden な cleanup-only コマンド（置き換え先なし、v0.15 で削除予定）：
 
