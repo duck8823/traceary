@@ -5,7 +5,7 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
-## [Unreleased]
+## [v0.14.0] - 2026-05-07
 
 ### Added
 - **Shared Bubble Tea TUI foundation under `presentation/cli/tui` (#924)** — introduced a small, opinionated package that wraps Bubble Tea, Bubbles, and Lip Gloss for Traceary's interactive surfaces. The package ships a Lip Gloss palette, a shared key map (movement, paging, select, refresh, help, quit with Ctrl-C and Esc bound to quit), TTY guard helpers, and a `Run` entry point that refuses to start without a TTY and delegates terminal restoration plus signal handling to Bubble Tea. The upcoming `memory inbox review` UI and the redesigned `top` dashboard will both build on this foundation. No user-visible command behavior changes in this release; existing `traceary top` keeps using its current renderer.

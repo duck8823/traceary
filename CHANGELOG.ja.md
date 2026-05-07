@@ -5,7 +5,7 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
-## [Unreleased]
+## [v0.14.0] - 2026-05-07
 
 ### Added
 - **共通 Bubble Tea TUI 基盤を `presentation/cli/tui` に追加 (#924)** — Bubble Tea / Bubbles / Lip Gloss を内製しすぎないよう、対話 CLI 向けの小さな共通パッケージを追加しました。Lip Gloss の共通スタイル、共有 keymap (移動 / paging / 選択 / refresh / help / quit、Ctrl-C と Esc も quit に bind)、TTY ガード、`Run` エントリ (TTY でなければ起動を拒否し、terminal restoration と signal handling は Bubble Tea に委譲) を提供します。今後の `memory inbox review` UI と再設計版 `top` dashboard はこの基盤の上に乗ります。本リリースではユーザーから見える挙動の変更はありません (`traceary top` は従来の renderer のままです)。
