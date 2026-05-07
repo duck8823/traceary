@@ -93,22 +93,19 @@ Structural package validation (for maintainers who change the plugin manifest, h
 python3 scripts/verify_integrations.py
 ```
 
-## Legacy install (deprecated, compatibility only)
+## Legacy install removal (v0.14.0)
 
-`traceary integration codex install` is kept as a transitional path for users on earlier Traceary releases. It prints a deprecation banner to stderr and will be removed **no earlier than v0.8.0**.
+`traceary integration codex install` was retired in **v0.14.0** (#920) and is no longer a working install path. New installs must use the official `/plugins` flow documented above. Invoking the legacy command exits with a usage error that names the v0.14.0 removal and points at the Codex `/plugins` flow.
 
-The legacy command still performs every step manually — it copies the plugin into `~/.agents/plugins`, materializes the active cache under `~/.codex/plugins/cache/local-traceary-plugins/traceary/local`, enables the plugin in `~/.codex/config.toml`, and merges Traceary hooks into `~/.codex/hooks.json`. Scripts that parse its stdout keep working; only the stderr banner is new.
+### Cleanup-only uninstall (hidden, scheduled for v0.15 removal)
 
-### Migrating from the legacy install
-
-1. Run the official `/plugins` install above.
-2. Once Codex confirms the plugin is enabled, clean up the legacy state once:
+`traceary integration codex uninstall` is retained as a hidden cleanup-only command for users migrating off the retired install path. It is absent from `traceary integration codex --help` so it stays invisible to new users while remaining executable for cleanup scripts.
 
 ```sh
 cd ~/src/traceary
 traceary integration codex uninstall
 ```
 
-The uninstall path is intentionally kept for this cleanup. It removes the Traceary-managed plugin cache, the `[plugins."traceary@local-traceary-plugins"]` entry from `~/.codex/config.toml`, and the Traceary hook entries from `~/.codex/hooks.json`, leaving unrelated hooks and the `[features].codex_hooks` flag untouched. This avoids double-recording prompts and audits while both install paths are active.
+The cleanup-only uninstall removes the Traceary-managed plugin cache, the `[plugins."traceary@local-traceary-plugins"]` entry from `~/.codex/config.toml`, and Traceary-managed hook entries from `~/.codex/hooks.json`. Unrelated hooks and the `[features].codex_hooks` flag are left untouched.
 
-Both `traceary integration codex install` and `traceary integration codex uninstall` are scheduled for removal after the v0.7.x window closes; plan your migration before that release line ends.
+The hidden uninstall command is scheduled for removal in **v0.15**. Run it once after migrating to the official `/plugins` install to avoid duplicate prompt / audit recordings, then drop the call from any automation.

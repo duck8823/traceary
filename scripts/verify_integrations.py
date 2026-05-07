@@ -178,122 +178,137 @@ def check_codex() -> None:
     require((ROOT / 'plugins' / 'traceary' / 'skills' / 'traceary-memory-remember' / 'SKILL.md').exists(), 'missing Codex traceary-memory-remember skill')
     require(not (ROOT / 'plugins' / 'traceary' / 'skills' / 'traceary-memory-capture').exists(), 'Codex traceary-memory-capture skill stub must be removed (replaced by traceary-memory-review and traceary-memory-remember)')
 
+    # v0.14.0 retired `traceary integration codex install` (#920); the
+    # legacy command now refuses to run and only prints a replacement
+    # hint pointing at the Codex official `/plugins` flow. The hidden
+    # `traceary integration codex uninstall` command remains as a
+    # cleanup-only path until v0.15. The smoke verifies both contracts
+    # by pre-staging legacy state and exercising the cleanup, and by
+    # asserting install fails fast.
+    install_result = subprocess.run(
+        [
+            'go',
+            'run',
+            '.',
+            'integration',
+            'codex',
+            'install',
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    require(install_result.returncode != 0, 'Codex install command must exit non-zero after v0.14.0 removal')
+    install_message = install_result.stderr + install_result.stdout
+    require('v0.14.0' in install_message, 'Codex install removal message must name v0.14.0')
+    require('/plugins' in install_message, 'Codex install removal message must point at the Codex /plugins flow')
+
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_root = Path(temp_dir)
         codex_home = temp_root / 'codex-home'
         marketplace_root = temp_root / 'agents' / 'plugins'
-        subprocess.run(
-            [
-                'go',
-                'run',
-                '.',
-                'integration',
-                'codex',
-                'install',
-                '--repo-root',
-                str(ROOT),
-                '--codex-home',
-                str(codex_home),
-                '--marketplace-root',
-                str(marketplace_root),
-                '--traceary-bin',
-                '/tmp/custom-traceary-wrapper',
-            ],
-            check=True,
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
+        cached_plugin_dir = codex_home / 'plugins' / 'cache' / 'local-traceary-plugins' / 'traceary' / 'local'
+        cached_plugin_manifest = cached_plugin_dir / '.codex-plugin' / 'plugin.json'
+        marketplace_plugin_dir = marketplace_root / 'plugins' / 'traceary'
+
+        # Stage legacy state as if a previous Traceary install had
+        # populated the marketplace copy, the active plugin cache, the
+        # Codex config, and the Traceary-managed hook entries. The
+        # cleanup-only uninstall must remove all of those without
+        # touching unrelated user-authored hooks or plugin entries.
+        cached_plugin_manifest.parent.mkdir(parents=True, exist_ok=True)
+        cached_plugin_manifest.write_text('{}\n', encoding='utf-8')
+        marketplace_plugin_dir.mkdir(parents=True, exist_ok=True)
+        write_json(
+            marketplace_root / 'marketplace.json',
+            {
+                'name': 'local-traceary-plugins',
+                'plugins': [
+                    {
+                        'name': 'traceary',
+                        'source': {'path': './plugins/traceary'},
+                    }
+                ],
+            },
+        )
+
+        config_path = codex_home / 'config.toml'
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(
+            '[features]\n'
+            'codex_hooks = true\n'
+            '\n'
+            '[plugins."traceary@local-traceary-plugins"]\n'
+            'enabled = true\n'
+            '\n'
+            '[plugins."traceary@local-traceary-plugins".auth]\n'
+            'provider = "local"\n'
+            '\n'
+            '[plugins."other-plugin"]\n'
+            'enabled = true\n',
+            encoding='utf-8',
         )
 
         hooks_path = codex_home / 'hooks.json'
-        existing_custom_hook = {
-            'hooks': {
-                'SessionStart': [
-                    {
-                        'hooks': [
-                            {
-                                'type': 'command',
-                                'command': "custom-cli hook session codex start",
-                            }
-                        ]
-                    }
-                ],
-                'PostToolUse': [
-                    {
-                        'matcher': '',
-                        'hooks': [
-                            {
-                                'type': 'command',
-                                'command': "custom-cli hook audit codex",
-                            }
-                        ],
-                    }
-                ],
-            }
-        }
-        write_json(hooks_path, existing_custom_hook)
-
-        subprocess.run(
-            [
-                'go',
-                'run',
-                '.',
-                'integration',
-                'codex',
-                'install',
-                '--repo-root',
-                str(ROOT),
-                '--codex-home',
-                str(codex_home),
-                '--marketplace-root',
-                str(marketplace_root),
-                '--traceary-bin',
-                '/tmp/custom-traceary-wrapper',
-            ],
-            check=True,
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-        )
-
-        cached_plugin_manifest = codex_home / 'plugins' / 'cache' / 'local-traceary-plugins' / 'traceary' / 'local' / '.codex-plugin' / 'plugin.json'
-        require(cached_plugin_manifest.exists(), 'Codex install command must install the plugin into the active cache')
-
-        local_config = read_toml(codex_home / 'config.toml')
-        features = local_config.get('features', {})
-        plugins_config = local_config.get('plugins', {})
-        require(features.get('codex_hooks') is True, 'Codex install command must enable codex_hooks')
-        require(
-            plugins_config.get('traceary@local-traceary-plugins', {}).get('enabled') is True,
-            'Codex install command must enable the Traceary plugin in config.toml',
-        )
-
-        installed_hooks = read_json(hooks_path)
-        require('SessionStart' in installed_hooks['hooks'], 'Codex install command must write SessionStart hooks')
-        require('UserPromptSubmit' in installed_hooks['hooks'], 'Codex install command must write UserPromptSubmit hooks')
-        require('Stop' in installed_hooks['hooks'], 'Codex install command must write Stop hooks')
-        require('PostToolUse' in installed_hooks['hooks'], 'Codex install command must write PostToolUse hooks')
-        hook_commands = json.dumps(installed_hooks['hooks'])
-        require('/tmp/custom-traceary-wrapper' in hook_commands, 'Codex install command must carry the configured traceary binary into hooks.json')
-        require(("'hook' 'session' 'codex'" in hook_commands or ' hook session codex' in hook_commands), 'Codex install command must install direct hook session commands')
-        require(("'hook' 'prompt' 'codex'" in hook_commands or ' hook prompt codex' in hook_commands), 'Codex install command must install direct hook prompt commands')
-        require(("'hook' 'audit' 'codex'" in hook_commands or ' hook audit codex' in hook_commands), 'Codex install command must install direct hook audit commands')
-        require('custom-cli hook session codex start' in hook_commands, 'Codex install command must preserve unrelated session hooks')
-        require('custom-cli hook audit codex' in hook_commands, 'Codex install command must preserve unrelated audit hooks')
-        require('traceary-session-start' in hook_commands, 'Codex install command must name managed session-start hooks')
-        require('traceary-session-stop' in hook_commands, 'Codex install command must name managed session-stop hooks')
-        require('traceary-audit' in hook_commands, 'Codex install command must name managed audit hooks')
-
-        config_path = codex_home / 'config.toml'
-        config_path.write_text(
-            config_path.read_text(encoding='utf-8')
-            + '\n'
-            + '[plugins."traceary@local-traceary-plugins".auth]\n'
-            + 'provider = "local"\n'
-            + '\n'
-            + '[plugins."other-plugin"]\n'
-            + 'enabled = true\n',
-            encoding='utf-8',
+        write_json(
+            hooks_path,
+            {
+                'hooks': {
+                    'SessionStart': [
+                        {
+                            'hooks': [
+                                {
+                                    'type': 'command',
+                                    'command': "custom-cli hook session codex start",
+                                },
+                                {
+                                    'type': 'command',
+                                    'name': 'traceary-session-start',
+                                    'command': "/tmp/custom-traceary-wrapper 'hook' 'session' 'codex' 'start'",
+                                },
+                            ]
+                        }
+                    ],
+                    'Stop': [
+                        {
+                            'hooks': [
+                                {
+                                    'type': 'command',
+                                    'name': 'traceary-session-stop',
+                                    'command': "/tmp/custom-traceary-wrapper 'hook' 'session' 'codex' 'stop'",
+                                },
+                            ]
+                        }
+                    ],
+                    'UserPromptSubmit': [
+                        {
+                            'hooks': [
+                                {
+                                    'type': 'command',
+                                    'name': 'traceary-prompt',
+                                    'command': "/tmp/custom-traceary-wrapper 'hook' 'prompt' 'codex'",
+                                },
+                            ]
+                        }
+                    ],
+                    'PostToolUse': [
+                        {
+                            'matcher': '',
+                            'hooks': [
+                                {
+                                    'type': 'command',
+                                    'command': "custom-cli hook audit codex",
+                                },
+                                {
+                                    'type': 'command',
+                                    'name': 'traceary-audit',
+                                    'command': "/tmp/custom-traceary-wrapper 'hook' 'audit' 'codex'",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
         )
 
         subprocess.run(
@@ -316,7 +331,7 @@ def check_codex() -> None:
         )
 
         require(not cached_plugin_manifest.exists(), 'Codex uninstall command must remove the cached plugin')
-        local_config = read_toml(codex_home / 'config.toml')
+        local_config = read_toml(config_path)
         require(
             'traceary@local-traceary-plugins' not in local_config.get('plugins', {}),
             'Codex uninstall command must remove the Traceary plugin config entry',
@@ -327,9 +342,10 @@ def check_codex() -> None:
         )
         if hooks_path.exists():
             remaining_hooks = json.dumps(read_json(hooks_path))
-            require('traceary-session.sh' not in remaining_hooks, 'Codex uninstall command must remove Traceary session hooks')
-            require('traceary-audit.sh' not in remaining_hooks, 'Codex uninstall command must remove Traceary audit hooks')
-            require('/tmp/custom-traceary-wrapper' not in remaining_hooks, 'Codex uninstall command must remove direct Traceary hooks that use the configured traceary binary')
+            require('traceary-session-start' not in remaining_hooks, 'Codex uninstall command must remove Traceary managed session-start hook entries')
+            require('traceary-session-stop' not in remaining_hooks, 'Codex uninstall command must remove Traceary managed session-stop hook entries')
+            require('traceary-audit' not in remaining_hooks, 'Codex uninstall command must remove Traceary managed audit hook entries')
+            require('/tmp/custom-traceary-wrapper' not in remaining_hooks, 'Codex uninstall command must remove direct Traceary hooks that used the configured traceary binary')
             require('custom-cli hook session codex start' in remaining_hooks, 'Codex uninstall command must preserve unrelated session hooks')
             require('custom-cli hook audit codex' in remaining_hooks, 'Codex uninstall command must preserve unrelated audit hooks')
 

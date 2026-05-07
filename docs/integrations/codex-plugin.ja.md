@@ -82,22 +82,19 @@ maintainer 向けの構造確認（plugin manifest や hook、marketplace を変
 python3 scripts/verify_integrations.py
 ```
 
-## 旧 install（非推奨。互換目的のみ）
+## 旧 install の削除 (v0.14.0)
 
-`traceary integration codex install` は旧リリースから移行するユーザー向けの過渡的な経路として残してあります。stderr に deprecation banner を出し、**v0.8.0 以降のタイミングで削除予定**です。
+`traceary integration codex install` は **v0.14.0** で削除されました (#920)。実行可能な install path としては機能しません。新規 install は上記の公式 `/plugins` flow を使ってください。旧コマンドを実行すると、v0.14.0 での削除と Codex 公式の `/plugins` flow を案内する usage error を返して終了します。
 
-旧コマンドは従来どおり全工程を手動で行います — `~/.agents/plugins` に plugin をコピーし、`~/.codex/plugins/cache/local-traceary-plugins/traceary/local` にアクティブ cache を展開し、`~/.codex/config.toml` で plugin を有効化し、`~/.codex/hooks.json` に Traceary hook をマージします。stdout を parse している既存スクリプトはそのまま動作します（stderr の banner だけが新規）。
+### cleanup 専用 uninstall (hidden、v0.15 で削除予定)
 
-### 旧 install からの移行手順
-
-1. 上記の公式 `/plugins` install を実行します。
-2. Codex 側で plugin が有効になったら、旧状態を 1 回だけ片付けます。
+`traceary integration codex uninstall` は、削除済みの install から移行するユーザー向けの cleanup 専用 command として hidden で残してあります。`traceary integration codex --help` には表示されないため新規ユーザーには見えませんが、cleanup スクリプトからは引き続き実行できます。
 
 ```sh
 cd ~/src/traceary
 traceary integration codex uninstall
 ```
 
-uninstall 側はこの cleanup 用途のために意図的に残してあります。Traceary が入れた plugin cache、`~/.codex/config.toml` の `[plugins."traceary@local-traceary-plugins"]` エントリ、`~/.codex/hooks.json` の Traceary 管理下の hook だけを取り除き、ユーザー自身の hook や `[features].codex_hooks` フラグはそのまま残します。これで両経路が同時に有効な期間でも prompt / audit の二重記録を避けられます。
+cleanup 専用 uninstall は、Traceary が入れた plugin cache、`~/.codex/config.toml` の `[plugins."traceary@local-traceary-plugins"]` エントリ、`~/.codex/hooks.json` の Traceary 管理下の hook を取り除きます。ユーザー自身の hook や `[features].codex_hooks` フラグはそのまま残ります。
 
-`traceary integration codex install` と `traceary integration codex uninstall` は、どちらも v0.7.x の window 終了後に削除予定です。そのリリースライン内で移行を終わらせてください。
+hidden な uninstall command は **v0.15** で削除予定です。公式 `/plugins` install に移行した後に 1 回だけ実行して prompt / audit の二重記録を解消し、自動化からは呼び出しを外してください。

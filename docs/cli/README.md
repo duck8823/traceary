@@ -823,27 +823,13 @@ Useful flags:
 
 ## Integration commands
 
-### `traceary integration codex install` (deprecated)
+### `traceary integration codex install` (retired, hidden)
 
-Install the packaged Codex plugin from a local repository checkout into:
+Retired in v0.14.0. The command is hidden and no longer installs anything; invoking it only prints a hint pointing to Codex's official `/plugins` flow (run `codex` inside the repository → `/plugins` → `Traceary Plugins` → `Traceary`). See the [Codex plugin guide](../integrations/codex-plugin.md) for the full setup.
 
-- `~/.agents/plugins`
-- `~/.codex/plugins/cache/...`
-- `~/.codex/config.toml`
-- `~/.codex/hooks.json`
+### `traceary integration codex uninstall` (hidden cleanup-only)
 
-**Deprecated**: prefer Codex's official `/plugins` flow (run `codex` inside the repository → `/plugins` → `Traceary Plugins` → `Traceary`). This command will be removed no earlier than v0.8.0; see the [Codex plugin guide](../integrations/codex-plugin.md) for the full migration recipe.
-
-Useful flags:
-
-- `--repo-root`
-- `--codex-home`
-- `--marketplace-root`
-- `--traceary-bin`
-
-### `traceary integration codex uninstall`
-
-Remove the Traceary-managed Codex plugin cache, plugin config entry, and hook entries while preserving unrelated local Codex settings. Kept as the recommended cleanup step for users migrating away from the deprecated `install` command above.
+Hidden cleanup-only command kept for users who still have legacy Traceary-managed Codex plugin state on disk. It removes the Traceary-managed Codex plugin cache, plugin config entry, and hook entries while preserving unrelated local Codex settings. Scheduled for removal in v0.15 once migration is complete.
 
 Useful flags:
 

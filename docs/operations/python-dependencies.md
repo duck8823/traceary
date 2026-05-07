@@ -16,10 +16,7 @@ This guide records where that dependency still exists, which audience it affects
 ### User-facing
 
 There are currently no supported user-facing install or runtime flows that require `python3`.
-The primary Codex install path is Codex CLI's official `/plugins` flow (run `codex` inside the repository → `/plugins` → `Traceary Plugins` → `Traceary`). The legacy Codex CLI helpers stay available as a deprecated compatibility path and, like the official flow, do not depend on `python3`:
-
-- `traceary integration codex install` (deprecated; scheduled for removal no earlier than v0.8.0)
-- `traceary integration codex uninstall` (kept as the recommended cleanup step for users migrating off the deprecated install)
+The only supported Codex install path is Codex CLI's official `/plugins` flow (run `codex` inside the repository → `/plugins` → `Traceary Plugins` → `Traceary`). The `traceary integration codex install` helper was retired in v0.14.0 and no longer exists. A hidden `traceary integration codex uninstall` command is still shipped as a cleanup-only path for legacy installs and stays until v0.15; neither path depends on `python3`.
 
 ### Maintainer-only
 
