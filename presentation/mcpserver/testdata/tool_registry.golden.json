@@ -1,0 +1,628 @@
+[
+  {
+    "name": "get_context",
+    "description": "Get recent context events, logs, audits, prompts, transcripts, and summaries for a session or workspace.",
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "body_limit": {
+          "description": "truncate event body to this many runes; default 500. Set to 0 or pass full_body=true to disable truncation.",
+          "type": "integer"
+        },
+        "full_body": {
+          "description": "return the full body even when it is long. Equivalent to body_limit=0",
+          "type": "boolean"
+        },
+        "limit": {
+          "description": "result limit (default: 20)",
+          "type": "integer"
+        },
+        "session_id": {
+          "description": "session identifier filter",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "work context filter",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "list_events",
+    "description": "List recent events, logs, audits, prompts, transcripts, and summaries.",
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "description": "filter by agent",
+          "type": "string"
+        },
+        "body_limit": {
+          "description": "truncate event body to this many runes; default 500. Set to 0 or pass full_body=true to disable truncation. Truncated rows expose body_truncated=true and body_length so callers can fetch the full body via record_event lookup.",
+          "type": "integer"
+        },
+        "client": {
+          "description": "filter by client",
+          "type": "string"
+        },
+        "from": {
+          "description": "start time (YYYY-MM-DD or RFC3339)",
+          "type": "string"
+        },
+        "full_body": {
+          "description": "return the full body even when it is long. Equivalent to body_limit=0",
+          "type": "boolean"
+        },
+        "kind": {
+          "description": "filter by event kind (note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt; alias: audit)",
+          "type": "string"
+        },
+        "limit": {
+          "description": "result limit (default: 20)",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "offset from the newest result (default: 0)",
+          "type": "integer"
+        },
+        "session_id": {
+          "description": "filter by session ID",
+          "type": "string"
+        },
+        "source_hook": {
+          "description": "filter by hook identifier that produced the event (stop, subagent_stop, pre_compact, post_compact, session_start, session_end, user_prompt_submit, post_tool_use, after_agent, after_tool)",
+          "type": "string"
+        },
+        "to": {
+          "description": "end time (YYYY-MM-DD or RFC3339)",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "filter by work context",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "manage_memory",
+    "description": "Dispatch durable memory writes by action; reject and expire are destructive actions.",
+    "annotations": {
+      "destructiveHint": true
+    },
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "description": "required,action enum: propose, remember, accept, reject, expire, supersede, set_validity, import_instructions",
+          "type": "string"
+        },
+        "agent": {
+          "description": "agent scope",
+          "type": "string"
+        },
+        "artifact_refs": {
+          "description": "related artifact refs",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "description": "reference kind enum (evidence_refs: event, session, url, file, issue, pr; artifact_refs: url, file, issue, pr)",
+                "type": "string"
+              },
+              "value": {
+                "description": "reference value (event/session id, URL, file path, issue or pr number)",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "clear_valid_to": {
+          "description": "remove the existing valid_to; incompatible with valid_to",
+          "type": "boolean"
+        },
+        "confidence": {
+          "description": "accepted confidence (default: verified)",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "description": "supporting evidence refs",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "description": "reference kind enum (evidence_refs: event, session, url, file, issue, pr; artifact_refs: url, file, issue, pr)",
+                "type": "string"
+              },
+              "value": {
+                "description": "reference value (event/session id, URL, file path, issue or pr number)",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "expires_at": {
+          "description": "expiry timestamp (YYYY-MM-DD or RFC3339, defaults to now)",
+          "type": "string"
+        },
+        "fact": {
+          "description": "distilled memory fact",
+          "type": "string"
+        },
+        "ids": {
+          "description": "single memory id or array of memory ids for accept/reject batch actions"
+        },
+        "markdown": {
+          "description": "raw markdown content to parse when path is not provided",
+          "type": "string"
+        },
+        "memory_id": {
+          "description": "durable memory identifier for single-id actions",
+          "type": "string"
+        },
+        "path": {
+          "description": "absolute path to the instruction file",
+          "type": "string"
+        },
+        "session_family": {
+          "description": "session-family scope",
+          "type": "string"
+        },
+        "source": {
+          "description": "memory/import source",
+          "type": "string"
+        },
+        "target_id": {
+          "description": "accepted durable memory identifier to supersede",
+          "type": "string"
+        },
+        "type": {
+          "description": "memory type",
+          "type": "string"
+        },
+        "valid_from": {
+          "description": "start of validity window (YYYY-MM-DD or RFC3339)",
+          "type": "string"
+        },
+        "valid_to": {
+          "description": "end of validity window (YYYY-MM-DD or RFC3339)",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "workspace scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "manage_session",
+    "description": "Dispatch session lifecycle writes by action: start or end. action=end is destructive (closes the session).",
+    "annotations": {
+      "destructiveHint": true
+    },
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "description": "required,action enum: start, end, active, latest, handoff, lineage, tree",
+          "type": "string"
+        },
+        "agent": {
+          "description": "actor name or filter",
+          "type": "string"
+        },
+        "allow_stale": {
+          "description": "allow stale active sessions",
+          "type": "boolean"
+        },
+        "as_of": {
+          "description": "evaluate durable memory validity at this timestamp",
+          "type": "string"
+        },
+        "client": {
+          "description": "recording channel or filter",
+          "type": "string"
+        },
+        "depth": {
+          "description": "maximum descendant depth for action=tree (0 returns only the root)",
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "infer_parent_session": {
+          "description": "infer parent from the active session when parent_session_id is omitted (default: true for MCP starts)",
+          "type": [
+            "null",
+            "boolean"
+          ]
+        },
+        "memory_limit": {
+          "description": "maximum durable memories to include",
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "parent_session_id": {
+          "description": "parent session identifier for sub-agent sessions",
+          "type": "string"
+        },
+        "preset": {
+          "description": "built-in retrieval preset applied to durable memories",
+          "type": "string"
+        },
+        "recent_commands_limit": {
+          "description": "maximum recent commands to include",
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "session_id": {
+          "description": "session identifier",
+          "type": "string"
+        },
+        "stale_after_seconds": {
+          "description": "mark active sessions older than this many seconds as stale",
+          "type": "integer"
+        },
+        "workspace": {
+          "description": "auxiliary work context identifier",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "query_memory",
+    "description": "Dispatch durable memory reads by action: retrieve, export, pack, or scan_hygiene.",
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "description": "required,action enum: retrieve, export, pack, scan_hygiene",
+          "type": "string"
+        },
+        "agent": {
+          "description": "agent scope filter",
+          "type": "string"
+        },
+        "as_of": {
+          "description": "evaluate content validity at this timestamp",
+          "type": "string"
+        },
+        "expiry_days": {
+          "description": "staleness threshold in days (default 90)",
+          "type": "integer"
+        },
+        "include_expired": {
+          "description": "include memories whose valid_to is in the past",
+          "type": "boolean"
+        },
+        "include_global": {
+          "description": "include global memories alongside a workspace export (default true)",
+          "type": [
+            "null",
+            "boolean"
+          ]
+        },
+        "include_hidden": {
+          "description": "include extracted-hidden candidates (default omits them)",
+          "type": "boolean"
+        },
+        "limit": {
+          "description": "maximum number of memories to return (default: 20)",
+          "type": "integer"
+        },
+        "memory_id": {
+          "description": "durable memory identifier to fetch directly",
+          "type": "string"
+        },
+        "memory_limit": {
+          "description": "maximum durable memories to include",
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "no_global": {
+          "description": "export only the explicit workspace scope; do not include global memories",
+          "type": "boolean"
+        },
+        "offset": {
+          "description": "number of memories to skip before returning results (default: 0)",
+          "type": "integer"
+        },
+        "preset": {
+          "description": "built-in retrieval preset: resume | review | incident",
+          "type": "string"
+        },
+        "query": {
+          "description": "full-text search query",
+          "type": "string"
+        },
+        "recent_commands_limit": {
+          "description": "maximum recent commands to include",
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "session_family": {
+          "description": "session-family scope filter",
+          "type": "string"
+        },
+        "session_id": {
+          "description": "session identifier filter",
+          "type": "string"
+        },
+        "source": {
+          "description": "memory source filters: manual, extracted, extracted-hidden, imported",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "status": {
+          "description": "memory lifecycle status filters",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "target": {
+          "description": "export target host (claude / codex / gemini)",
+          "type": "string"
+        },
+        "type": {
+          "description": "memory type filters",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "workspace": {
+          "description": "workspace scope filter",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "record_event",
+    "description": "Record a log or command audit event by type, returning one uniform event shape.",
+    "annotations": {
+      "destructiveHint": false
+    },
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "description": "actor name (default: manual)",
+          "type": "string"
+        },
+        "client": {
+          "description": "recording channel (default: mcp)",
+          "type": "string"
+        },
+        "command": {
+          "description": "executed command for audit records",
+          "type": "string"
+        },
+        "input": {
+          "description": "command input",
+          "type": "string"
+        },
+        "kind": {
+          "description": "event kind for log records",
+          "type": "string"
+        },
+        "message": {
+          "description": "log body to record",
+          "type": "string"
+        },
+        "output": {
+          "description": "command output",
+          "type": "string"
+        },
+        "session_id": {
+          "description": "session ID (default: default)",
+          "type": "string"
+        },
+        "type": {
+          "description": "required,event write type: log or audit",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "auxiliary work context identifier",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "search",
+    "description": "Search events, logs, audits, prompts, transcripts, and summaries by text, time, or workspace.",
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "body_limit": {
+          "description": "truncate event body to this many runes; default 500. Set to 0 or pass full_body=true to disable truncation.",
+          "type": "integer"
+        },
+        "from": {
+          "description": "start time (YYYY-MM-DD or RFC3339)",
+          "type": "string"
+        },
+        "full_body": {
+          "description": "return the full body even when it is long. Equivalent to body_limit=0",
+          "type": "boolean"
+        },
+        "limit": {
+          "description": "result limit (default: 20)",
+          "type": "integer"
+        },
+        "query": {
+          "description": "search query",
+          "type": "string"
+        },
+        "to": {
+          "description": "end time (YYYY-MM-DD or RFC3339)",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "work context filter",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "session_status",
+    "description": "Dispatch session status reads by action: active, latest, handoff, lineage, or tree.",
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "description": "required,action enum: start, end, active, latest, handoff, lineage, tree",
+          "type": "string"
+        },
+        "agent": {
+          "description": "actor name or filter",
+          "type": "string"
+        },
+        "allow_stale": {
+          "description": "allow stale active sessions",
+          "type": "boolean"
+        },
+        "as_of": {
+          "description": "evaluate durable memory validity at this timestamp",
+          "type": "string"
+        },
+        "client": {
+          "description": "recording channel or filter",
+          "type": "string"
+        },
+        "depth": {
+          "description": "maximum descendant depth for action=tree (0 returns only the root)",
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "infer_parent_session": {
+          "description": "infer parent from the active session when parent_session_id is omitted (default: true for MCP starts)",
+          "type": [
+            "null",
+            "boolean"
+          ]
+        },
+        "memory_limit": {
+          "description": "maximum durable memories to include",
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "parent_session_id": {
+          "description": "parent session identifier for sub-agent sessions",
+          "type": "string"
+        },
+        "preset": {
+          "description": "built-in retrieval preset applied to durable memories",
+          "type": "string"
+        },
+        "recent_commands_limit": {
+          "description": "maximum recent commands to include",
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "session_id": {
+          "description": "session identifier",
+          "type": "string"
+        },
+        "stale_after_seconds": {
+          "description": "mark active sessions older than this many seconds as stale",
+          "type": "integer"
+        },
+        "workspace": {
+          "description": "auxiliary work context identifier",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    }
+  }
+]
