@@ -33,7 +33,7 @@ Traceary is no longer just a local event log. `v0.5.0` organizes the product aro
 |---|---|---|
 | Audit / Archive | raw events (prompts, transcripts, command audits), session boundaries | host hooks (`SessionStart`, `UserPromptSubmit` / `BeforeAgent`, `PostToolUse` / `AfterTool`, `Stop` / `AfterAgent`, `PreCompact` / `PreCompress`, `SessionEnd`) — see [host coverage matrix](./docs/hooks/host-coverage.md) |
 | Working memory | handoff / context packs assembled from recent sessions | derived on demand by `traceary session handoff` / MCP `get_context`. Claude `PreCompact` digest also syncs into `sessions.summary` so timeline / handoff have a useful header before the session ends |
-| Durable memory | reusable facts such as decisions, constraints, preferences, and artifact refs | curated through the `traceary-memory-review` skill (review-intent triggers) and the `traceary-memory-remember` skill (explicit-write triggers); the older `traceary-memory-capture` skill is deprecated in v0.11.0 and removed in v0.12 |
+| Durable memory | reusable facts such as decisions, constraints, preferences, and artifact refs | curated through the `traceary-memory-review` skill (review-intent triggers) and the `traceary-memory-remember` skill (explicit-write triggers) |
 
 In practice, Traceary acts as a local-first memory substrate for AI agents: hooks feed L1 mechanically, L2 is recomputed when the next session starts, and L3 stays small because it only grows when the operator (or an explicit "remember that" verb) says so.
 
