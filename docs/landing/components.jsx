@@ -5,7 +5,7 @@ const { useState, useEffect, useRef } = React;
 function HeroTerminal() {
   const lines = [
     { type: 'cmd', text: 'brew install traceary' },
-    { type: 'out', text: '==> Installing traceary from duck8823/traceary\n==> Pouring traceary--0.13.1.arm64_sequoia.bottle.tar.gz\n🍺  /opt/homebrew/Cellar/traceary/0.13.1: 12 files, 18.4MB' },
+    { type: 'out', text: '==> Installing traceary from duck8823/traceary\n==> Pouring traceary--0.14.0.arm64_sequoia.bottle.tar.gz\n🍺  /opt/homebrew/Cellar/traceary/0.14.0: 12 files, 18.4MB' },
     { type: 'cmd', text: 'traceary top --snapshot' },
     { type: 'out', html: true, text:
       '<span class="sess">4a70c526</span> workspace=<span class="ws">github.com/duck8823/traceary</span> agent=codex client=claude started=<span class="ts">07:06:37</span> latest=<span class="ts">07:06:58</span> events=165 last=<span class="kind">session_ended</span>: duration=29m21s\n' +
