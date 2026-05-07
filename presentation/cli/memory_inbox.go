@@ -375,11 +375,7 @@ func writeMemoryInboxBatchIDOnly(output io.Writer, errOutput io.Writer, result m
 			return xerrors.Errorf("%s: %w", Localize("failed to print inbox failure row", "inbox 失敗行の出力に失敗しました"), err)
 		}
 	}
-	return xerrors.Errorf(Localizef(
-		"inbox %s failed for %d memory id(s)",
-		"inbox %s が %d 件の memory id で失敗しました",
-		result.Action, len(result.Failures),
-	))
+	return memoryInboxBatchFailureError(result)
 }
 
 func writeMemoryInboxBatch(output io.Writer, result memoryInboxBatchResult, asJSON bool) error {
@@ -398,6 +394,9 @@ func writeMemoryInboxBatch(output io.Writer, result memoryInboxBatchResult, asJS
 		if err := encoder.Encode(payload); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to encode inbox batch result", "inbox batch 結果の JSON 出力に失敗しました"), err)
 		}
+		if len(result.Failures) > 0 {
+			return memoryInboxBatchFailureError(result)
+		}
 		return nil
 	}
 	if _, err := fmt.Fprintf(output, "action=%s processed=%d failures=%d\n", result.Action, len(result.Processed), len(result.Failures)); err != nil {
@@ -414,5 +413,16 @@ func writeMemoryInboxBatch(output io.Writer, result memoryInboxBatchResult, asJS
 			return xerrors.Errorf("%s: %w", Localize("failed to print inbox failure row", "inbox 失敗行の出力に失敗しました"), err)
 		}
 	}
+	if len(result.Failures) > 0 {
+		return memoryInboxBatchFailureError(result)
+	}
 	return nil
+}
+
+func memoryInboxBatchFailureError(result memoryInboxBatchResult) error {
+	return xerrors.Errorf(Localizef(
+		"inbox %s failed for %d memory id(s)",
+		"inbox %s が %d 件の memory id で失敗しました",
+		result.Action, len(result.Failures),
+	))
 }

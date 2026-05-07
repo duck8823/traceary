@@ -13,7 +13,10 @@ import (
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
-var errSyntheticAcceptFailure = errors.New("synthetic accept failure")
+var (
+	errSyntheticAcceptFailure = errors.New("synthetic accept failure")
+	errSyntheticRejectFailure = errors.New("synthetic reject failure")
+)
 
 func buildInboxCandidateDetails(t *testing.T, id string, fact string, source domtypes.MemorySource) apptypes.MemoryDetails {
 	t.Helper()
@@ -514,6 +517,138 @@ func TestMemoryInboxAccept_IDOnlyFailureReturnsError(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "FAILED\tmemory-fail\t") {
 		t.Fatalf("expected FAILED stderr line for the failing id, got %q", stderr.String())
+	}
+}
+
+func TestMemoryInboxBatch_TextFailureReturnsError(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		args        []string
+		memoryStub  *memoryUsecaseStub
+		wantAction  string
+		wantFailure string
+	}{
+		{
+			name:        "accept",
+			args:        []string{"memory", "inbox", "accept", "memory-fail"},
+			memoryStub:  &memoryUsecaseStub{acceptErr: errSyntheticAcceptFailure},
+			wantAction:  "accept",
+			wantFailure: "synthetic accept failure",
+		},
+		{
+			name:        "reject",
+			args:        []string{"memory", "inbox", "reject", "memory-fail"},
+			memoryStub:  &memoryUsecaseStub{rejectErr: errSyntheticRejectFailure},
+			wantAction:  "reject",
+			wantFailure: "synthetic reject failure",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := cli.NewRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+				cli.WithMemory(tc.memoryStub),
+			)
+			cmd := root.Command()
+			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
+			cmd.SetOut(stdout)
+			cmd.SetErr(stderr)
+			cmd.SetArgs(append(tc.args, "--db-path", t.TempDir()+"/t.db"))
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("expected error when %s has per-id failures", tc.wantAction)
+			}
+			if !strings.Contains(err.Error(), "inbox "+tc.wantAction+" failed for 1 memory id(s)") {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			out := stdout.String()
+			for _, want := range []string{
+				"action=" + tc.wantAction + " processed=0 failures=1",
+				"FAILED\tmemory-fail\t" + tc.wantFailure,
+			} {
+				if !strings.Contains(out, want) {
+					t.Fatalf("stdout missing %q: %q", want, out)
+				}
+			}
+			if stderr.Len() != 0 {
+				t.Fatalf("expected empty stderr for formatted text output, got %q", stderr.String())
+			}
+		})
+	}
+}
+
+func TestMemoryInboxBatch_JSONFailureReturnsErrorWithValidJSON(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		args        []string
+		memoryStub  *memoryUsecaseStub
+		wantAction  string
+		wantFailure string
+	}{
+		{
+			name:        "accept",
+			args:        []string{"memory", "inbox", "accept", "memory-fail", "--json"},
+			memoryStub:  &memoryUsecaseStub{acceptErr: errSyntheticAcceptFailure},
+			wantAction:  "accept",
+			wantFailure: "synthetic accept failure",
+		},
+		{
+			name:        "reject",
+			args:        []string{"memory", "inbox", "reject", "memory-fail", "--json"},
+			memoryStub:  &memoryUsecaseStub{rejectErr: errSyntheticRejectFailure},
+			wantAction:  "reject",
+			wantFailure: "synthetic reject failure",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := cli.NewRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+				cli.WithMemory(tc.memoryStub),
+			)
+			cmd := root.Command()
+			stdout := &bytes.Buffer{}
+			cmd.SetOut(stdout)
+			cmd.SetErr(&bytes.Buffer{})
+			cmd.SetArgs(append(tc.args, "--db-path", t.TempDir()+"/t.db"))
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("expected error when %s JSON output has per-id failures", tc.wantAction)
+			}
+			if !strings.Contains(err.Error(), "inbox "+tc.wantAction+" failed for 1 memory id(s)") {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			var payload struct {
+				Action    string `json:"action"`
+				Processed []any  `json:"processed"`
+				Failures  []struct {
+					ID    string `json:"ID"`
+					Error string `json:"Error"`
+				} `json:"failures"`
+			}
+			if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+				t.Fatalf("json.Unmarshal: %v (body=%s)", err, stdout.String())
+			}
+			if payload.Action != tc.wantAction {
+				t.Fatalf("payload.Action = %q, want %q", payload.Action, tc.wantAction)
+			}
+			if len(payload.Processed) != 0 {
+				t.Fatalf("expected no processed rows, got %+v", payload.Processed)
+			}
+			if len(payload.Failures) != 1 || payload.Failures[0].ID != "memory-fail" || payload.Failures[0].Error != tc.wantFailure {
+				t.Fatalf("unexpected failures payload: %+v", payload.Failures)
+			}
+		})
 	}
 }
 
