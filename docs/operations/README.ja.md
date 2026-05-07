@@ -110,3 +110,4 @@ session end の精度が重要なら、明示的な end hook を持つ client in
 - 定期メンテナンスタスク: [`./scheduled-tasks.ja.md`](./scheduled-tasks.ja.md)
 - Python 依存の縮小計画: [`./python-dependencies.ja.md`](./python-dependencies.ja.md)
 - repository tooling の方針: [`./repo-tooling.ja.md`](./repo-tooling.ja.md)
+- Memory コマンド体系の整理計画: [`./memory-command-surface.ja.md`](./memory-command-surface.ja.md)
