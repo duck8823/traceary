@@ -428,6 +428,7 @@ type memoryInboxBatchCommandInput struct {
 	dbPath     string
 	ids        []string
 	confidence string
+	idOnly     bool
 	asJSON     bool
 }
 

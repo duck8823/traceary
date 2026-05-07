@@ -387,6 +387,9 @@ type memoryUsecaseStub struct {
 	}
 	acceptCallCount int
 	distillCalls    []apptypes.MemoryDistillCriteria
+	rejectCall      struct {
+		memoryID types.MemoryID
+	}
 	rejectCallCount int
 
 	setValidityCall struct {
@@ -437,7 +440,8 @@ func (s *memoryUsecaseStub) Distill(_ context.Context, criteria apptypes.MemoryD
 	return s.distillResult, s.distillErr
 }
 
-func (s *memoryUsecaseStub) Reject(_ context.Context, _ types.MemoryID) (apptypes.MemoryDetails, error) {
+func (s *memoryUsecaseStub) Reject(_ context.Context, memoryID types.MemoryID) (apptypes.MemoryDetails, error) {
+	s.rejectCall.memoryID = memoryID
 	s.rejectCallCount++
 	return s.rejectDetails, s.rejectErr
 }

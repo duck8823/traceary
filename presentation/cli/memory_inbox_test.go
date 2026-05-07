@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,8 @@ import (
 	domtypes "github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
 )
+
+var errSyntheticAcceptFailure = errors.New("synthetic accept failure")
 
 func buildInboxCandidateDetails(t *testing.T, id string, fact string, source domtypes.MemorySource) apptypes.MemoryDetails {
 	t.Helper()
@@ -221,6 +224,315 @@ func TestMemoryInboxAccept_BatchIDs(t *testing.T) {
 	out := stdout.String()
 	if !strings.Contains(out, "action=accept processed=1 failures=0") {
 		t.Fatalf("unexpected summary in stdout: %q", out)
+	}
+}
+
+// TestMemoryInboxAccept_PositionalID pins #923: a single positional id
+// resolves through the same Accept path as `--ids` so operators can write
+// the natural `traceary memory inbox accept <id>` form interactively.
+func TestMemoryInboxAccept_PositionalID(t *testing.T) {
+	t.Parallel()
+
+	accepted := apptypes.MemoryDetailsOf(
+		mustSummaryWithStatus(t, "memory-pos", domtypes.MemoryStatusAccepted),
+		nil, nil,
+	)
+	memoryStub := &memoryUsecaseStub{
+		acceptDetails: accepted,
+		showDetails:   buildInboxCandidateDetails(t, "memory-pos", "fact", domtypes.MemorySourceManual),
+	}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	stdout := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"memory", "inbox", "accept", "memory-pos", "--db-path", t.TempDir() + "/t.db"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	if got := memoryStub.acceptCallCount; got != 1 {
+		t.Fatalf("Accept should be called once for positional id, got %d", got)
+	}
+	if got := memoryStub.acceptCall.memoryID.String(); got != "memory-pos" {
+		t.Fatalf("Accept memoryID = %q, want memory-pos", got)
+	}
+	if !strings.Contains(stdout.String(), "action=accept processed=1 failures=0") {
+		t.Fatalf("unexpected summary: %q", stdout.String())
+	}
+}
+
+func TestMemoryInboxAccept_PositionalJSON(t *testing.T) {
+	t.Parallel()
+
+	accepted := apptypes.MemoryDetailsOf(
+		mustSummaryWithStatus(t, "memory-json", domtypes.MemoryStatusAccepted),
+		nil, nil,
+	)
+	memoryStub := &memoryUsecaseStub{acceptDetails: accepted}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	stdout := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"memory", "inbox", "accept", "memory-json", "--json", "--db-path", t.TempDir() + "/t.db"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	var payload struct {
+		Action    string `json:"action"`
+		Processed []struct {
+			Summary struct {
+				MemoryID string `json:"memory_id"`
+				Status   string `json:"status"`
+			} `json:"summary"`
+		} `json:"processed"`
+		Failures []any `json:"failures"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal: %v (body=%s)", err, stdout.String())
+	}
+	if payload.Action != "accept" {
+		t.Fatalf("payload.Action = %q, want accept", payload.Action)
+	}
+	if len(payload.Processed) != 1 || payload.Processed[0].Summary.MemoryID != "memory-json" {
+		t.Fatalf("unexpected processed payload: %+v", payload.Processed)
+	}
+	if len(payload.Failures) != 0 {
+		t.Fatalf("unexpected failures: %+v", payload.Failures)
+	}
+}
+
+func TestMemoryInboxReject_PositionalAndIDs(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "positional",
+			args: []string{"memory", "inbox", "reject", "memory-x"},
+		},
+		{
+			name: "ids flag",
+			args: []string{"memory", "inbox", "reject", "--ids", "memory-x"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rejected := apptypes.MemoryDetailsOf(
+				mustSummaryWithStatus(t, "memory-x", domtypes.MemoryStatusRejected),
+				nil, nil,
+			)
+			memoryStub := &memoryUsecaseStub{rejectDetails: rejected}
+			root := cli.NewRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+				cli.WithMemory(memoryStub),
+			)
+			cmd := root.Command()
+			stdout := &bytes.Buffer{}
+			cmd.SetOut(stdout)
+			cmd.SetErr(&bytes.Buffer{})
+			args := append([]string{}, tc.args...)
+			args = append(args, "--db-path", t.TempDir()+"/t.db")
+			cmd.SetArgs(args)
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("execute: %v", err)
+			}
+			if memoryStub.rejectCallCount != 1 {
+				t.Fatalf("Reject should be called once, got %d", memoryStub.rejectCallCount)
+			}
+			if got := memoryStub.rejectCall.memoryID.String(); got != "memory-x" {
+				t.Fatalf("Reject memoryID = %q, want memory-x", got)
+			}
+			if !strings.Contains(stdout.String(), "action=reject processed=1 failures=0") {
+				t.Fatalf("unexpected summary: %q", stdout.String())
+			}
+		})
+	}
+}
+
+// TestMemoryInboxAccept_IDOnlyPositionalSingle pins the v0.14 contract that
+// the canonical `memory inbox accept` is a strict superset of the old
+// flat `memory accept <memory-id> --id-only`: a single positional id with
+// --id-only prints exactly that id on stdout and nothing else.
+func TestMemoryInboxAccept_IDOnlyPositionalSingle(t *testing.T) {
+	t.Parallel()
+
+	accepted := apptypes.MemoryDetailsOf(
+		mustSummaryWithStatus(t, "memory-only", domtypes.MemoryStatusAccepted),
+		nil, nil,
+	)
+	memoryStub := &memoryUsecaseStub{acceptDetails: accepted}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"memory", "inbox", "accept", "memory-only", "--id-only", "--db-path", t.TempDir() + "/t.db"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	if got := strings.TrimRight(stdout.String(), "\n"); got != "memory-only" {
+		t.Fatalf("stdout = %q, want only the memory id", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("expected empty stderr on success, got %q", stderr.String())
+	}
+}
+
+// TestMemoryInboxReject_IDOnlyPositionalSingle is the matching contract
+// pin for `memory inbox reject <id> --id-only`.
+func TestMemoryInboxReject_IDOnlyPositionalSingle(t *testing.T) {
+	t.Parallel()
+
+	rejected := apptypes.MemoryDetailsOf(
+		mustSummaryWithStatus(t, "memory-only", domtypes.MemoryStatusRejected),
+		nil, nil,
+	)
+	memoryStub := &memoryUsecaseStub{rejectDetails: rejected}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"memory", "inbox", "reject", "memory-only", "--id-only", "--db-path", t.TempDir() + "/t.db"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	if got := strings.TrimRight(stdout.String(), "\n"); got != "memory-only" {
+		t.Fatalf("stdout = %q, want only the memory id", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("expected empty stderr on success, got %q", stderr.String())
+	}
+}
+
+// TestMemoryInboxAccept_IDOnlyBatchPrintsOnePerRow pins the deterministic
+// batch behavior for --id-only: when --ids carries multiple entries that
+// all succeed, stdout has one id per processed row in input order.
+func TestMemoryInboxAccept_IDOnlyBatchPrintsOnePerRow(t *testing.T) {
+	t.Parallel()
+
+	// Stub returns the same details for every Accept call so the test
+	// pins the row-count behavior, not the per-row id mapping (which the
+	// usecase wires; the CLI just walks the result list).
+	accepted := apptypes.MemoryDetailsOf(
+		mustSummaryWithStatus(t, "memory-batch", domtypes.MemoryStatusAccepted),
+		nil, nil,
+	)
+	memoryStub := &memoryUsecaseStub{acceptDetails: accepted}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"memory", "inbox", "accept", "--ids", "id-1,id-2", "--id-only", "--db-path", t.TempDir() + "/t.db"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimRight(stdout.String(), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 stdout lines for 2 accepted ids, got %d (%q)", len(lines), stdout.String())
+	}
+	for _, line := range lines {
+		if line != "memory-batch" {
+			t.Fatalf("each line should print the resulting memory id, got %q", line)
+		}
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("expected empty stderr on success, got %q", stderr.String())
+	}
+}
+
+// TestMemoryInboxAccept_IDOnlyJSONMutuallyExclusive pins that --id-only
+// and --json reject combined use, matching the existing memory write
+// commands so scripted callers do not get conflicting output shapes.
+func TestMemoryInboxAccept_IDOnlyJSONMutuallyExclusive(t *testing.T) {
+	t.Parallel()
+
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(&memoryUsecaseStub{}),
+	)
+	cmd := root.Command()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"memory", "inbox", "accept", "memory-x", "--id-only", "--json", "--db-path", t.TempDir() + "/t.db"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected error when --id-only and --json are combined")
+	}
+}
+
+// TestMemoryInboxAccept_IDOnlyFailureReturnsError pins that --id-only
+// surfaces failures: the failing id appears on stderr and Execute
+// returns a non-nil error so scripts checking exit code do not silently
+// swallow per-id failures (matching the old `memory accept <id>
+// --id-only` contract).
+func TestMemoryInboxAccept_IDOnlyFailureReturnsError(t *testing.T) {
+	t.Parallel()
+
+	memoryStub := &memoryUsecaseStub{acceptErr: errSyntheticAcceptFailure}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"memory", "inbox", "accept", "memory-fail", "--id-only", "--db-path", t.TempDir() + "/t.db"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected error when an Accept call fails under --id-only")
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("expected empty stdout when no row succeeds, got %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "FAILED\tmemory-fail\t") {
+		t.Fatalf("expected FAILED stderr line for the failing id, got %q", stderr.String())
+	}
+}
+
+// TestMemoryInboxAccept_TooManyPositionalArgsErrors guards the documented
+// shape: positional usage is for a single id; batch use must go through
+// --ids so deduplication and ordering stay deterministic.
+func TestMemoryInboxAccept_TooManyPositionalArgsErrors(t *testing.T) {
+	t.Parallel()
+
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(&memoryUsecaseStub{}),
+	)
+	cmd := root.Command()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"memory", "inbox", "accept", "id1", "id2", "--db-path", t.TempDir() + "/t.db"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected error when more than one positional id is given")
 	}
 }
 

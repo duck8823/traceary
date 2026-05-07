@@ -96,8 +96,8 @@ The acceptance criteria for this issue explicitly mention `search` and `show`. `
 | `memory show` | `memory show` | Unchanged |
 | `memory list` | `memory list` | Unchanged (revisit only if implementation forces it) |
 | `memory inbox list` | `memory inbox list` | Unchanged |
-| `memory inbox accept` | `memory inbox accept` | Unchanged |
-| `memory inbox reject` | `memory inbox reject` | Unchanged |
+| `memory inbox accept` | `memory inbox accept` | Unchanged path; v0.14 also accepts a positional id alongside `--ids` and adds `--id-only` so the canonical surface is a strict superset of `memory accept <memory-id>` (see signature note below) |
+| `memory inbox reject` | `memory inbox reject` | Unchanged path; v0.14 also accepts a positional id alongside `--ids` and adds `--id-only` so the canonical surface is a strict superset of `memory reject <memory-id>` (see signature note below) |
 | `memory accept <memory-id>` | `memory inbox accept <memory-id>` | Hidden deprecated alias (see signature note below) |
 | `memory reject <memory-id>` | `memory inbox reject <memory-id>` | Hidden deprecated alias (see signature note below) |
 | `memory remember` | `memory store remember` | Hidden deprecated alias |
