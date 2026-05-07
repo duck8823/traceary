@@ -5,6 +5,11 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [Unreleased]
+
+### Removed
+- **deprecated な top-level command alias を削除 (#918)** — `traceary init` / `traceary backup` / `traceary gc` / `traceary handoff` / `traceary compact-summary` は実行可能 command として登録されなくなり、`traceary --help` からも消えました。旧名を実行すると、canonical な置き換え (`traceary store init` / `traceary store backup ...` / `traceary store gc` / `traceary session handoff` / `traceary session handoff --compact-only`) を案内する usage error で終了します。これらの alias は v0.9 から deprecation 通知を出していました (#696)。v0.14.0 で予定どおり削除します。
+
 ## [v0.13.1] - 2026-05-04
 
 ### Changed

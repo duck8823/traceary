@@ -20,19 +20,7 @@ func dbPathFlagUsage() string {
 	return Localize("SQLite DB path (env: TRACEARY_DB_PATH)", "SQLite DB パス (env: TRACEARY_DB_PATH)")
 }
 
-func (c *RootCLI) newInitCommand() *cobra.Command {
-	cmd := c.newInitCommandWithDeprecation(Localize(
-		"use `traceary store init` — the top-level alias will be removed in v1.0",
-		"`traceary store init` を使ってください — この top-level alias は v1.0 で削除されます",
-	))
-	return cmd
-}
-
 func (c *RootCLI) newStoreInitCommand() *cobra.Command {
-	return c.newInitCommandWithDeprecation("")
-}
-
-func (c *RootCLI) newInitCommandWithDeprecation(deprecated string) *cobra.Command {
 	var dbPath string
 
 	initCmd := &cobra.Command{
@@ -46,8 +34,8 @@ func (c *RootCLI) newInitCommandWithDeprecation(deprecated string) *cobra.Comman
 				"traceary の他コマンドも必要に応じて DB を自動作成し、マイグレーションを適用します。",
 			),
 			Localize(
-				"Use `traceary store init` when you want to verify the DB path or write permissions before a session starts. The top-level `traceary init` stays alive as a deprecated alias through the v0.9 series and will be removed in v1.0.",
-				"`traceary store init` は DB パスや書き込み権限を事前に確認したいときに使います。旧 top-level `traceary init` も v0.9 系列では deprecated alias として動作しますが、v1.0 で削除予定です。",
+				"Use `traceary store init` when you want to verify the DB path or write permissions before a session starts.",
+				"`traceary store init` は DB パスや書き込み権限を事前に確認したいときに使います。",
 			),
 		}, "\n"),
 		Example: strings.Join([]string{
@@ -60,9 +48,6 @@ func (c *RootCLI) newInitCommandWithDeprecation(deprecated string) *cobra.Comman
 		},
 	}
 	initCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
-	if deprecated != "" {
-		applyDeprecation(initCmd, deprecated)
-	}
 
 	return initCmd
 }

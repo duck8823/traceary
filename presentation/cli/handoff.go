@@ -14,26 +14,6 @@ import (
 )
 
 func (c *RootCLI) newSessionHandoffCommand() *cobra.Command {
-	return c.newHandoffCommandWithUse(
-		"handoff",
-		Localize("Print a structured session handoff summary", "構造化された session handoff サマリーを出力する"),
-		"",
-	)
-}
-
-func (c *RootCLI) newHandoffCommand() *cobra.Command {
-	cmd := c.newHandoffCommandWithUse(
-		"handoff",
-		Localize("Print a structured session handoff summary", "構造化された session handoff サマリーを出力する"),
-		Localize(
-			"use `traceary session handoff` — the top-level alias will be removed in v1.0",
-			"`traceary session handoff` を使ってください — この top-level alias は v1.0 で削除されます",
-		),
-	)
-	return cmd
-}
-
-func (c *RootCLI) newHandoffCommandWithUse(use string, short string, deprecated string) *cobra.Command {
 	var (
 		dbPath      string
 		sessionID   string
@@ -46,8 +26,8 @@ func (c *RootCLI) newHandoffCommandWithUse(use string, short string, deprecated 
 	)
 
 	cmd := &cobra.Command{
-		Use:   use,
-		Short: short,
+		Use:   "handoff",
+		Short: Localize("Print a structured session handoff summary", "構造化された session handoff サマリーを出力する"),
 		Long: Localize(
 			"Print a structured working-memory summary for handoff or context resumption. Pass --compact-only to emit the single-line summary used on session resume.",
 			"引き継ぎや文脈再開のための構造化された working-memory サマリーを出力します。--compact-only を指定するとセッション再開で使う 1 行形式を出力します。",
@@ -110,9 +90,6 @@ func (c *RootCLI) newHandoffCommandWithUse(use string, short string, deprecated 
 				asOf:      asOf,
 			})
 		},
-	}
-	if deprecated != "" {
-		applyDeprecation(cmd, deprecated)
 	}
 
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())

@@ -19,7 +19,7 @@ func TestRootCLI_BackupCreateCommand(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"backup", "create",
+		"store", "backup", "create",
 		"--db-path",
 		"/tmp/test-traceary.db",
 		"--output", outputPath,
@@ -87,7 +87,7 @@ func TestRootCLI_BackupRestoreCommand(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"backup", "restore",
+		"store", "backup", "restore",
 		"--db-path",
 		"/tmp/test-traceary.db",
 		"--input", inputPath,

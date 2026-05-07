@@ -16,18 +16,7 @@ const defaultRetentionDays = 90
 
 var gcNowFunc = time.Now
 
-func (c *RootCLI) newGCCommand() *cobra.Command {
-	return c.newGCCommandWithDeprecation(Localize(
-		"use `traceary store gc` — the top-level alias will be removed in v1.0",
-		"`traceary store gc` を使ってください — この top-level alias は v1.0 で削除されます",
-	))
-}
-
 func (c *RootCLI) newStoreGCCommand() *cobra.Command {
-	return c.newGCCommandWithDeprecation("")
-}
-
-func (c *RootCLI) newGCCommandWithDeprecation(deprecated string) *cobra.Command {
 	var (
 		dbPath   string
 		keepDays int
@@ -52,9 +41,6 @@ func (c *RootCLI) newGCCommandWithDeprecation(deprecated string) *cobra.Command 
 	gcCmd.Flags().IntVar(&keepDays, "keep-days", defaultRetentionDays, Localize("number of days to retain", "保持する日数"))
 	gcCmd.Flags().StringVar(&target, "target", "all", Localize("records to prune (events | sessions | memories | memory_edges | all)", "削除対象 (events | sessions | memories | memory_edges | all)"))
 	gcCmd.Flags().BoolVar(&dryRun, "dry-run", false, Localize("print the number of candidate records only", "削除対象件数のみ表示する"))
-	if deprecated != "" {
-		applyDeprecation(gcCmd, deprecated)
-	}
 
 	return gcCmd
 }

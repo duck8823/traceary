@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
@@ -16,63 +15,16 @@ import (
 
 const maxCompactSummaryOutputLen = 560
 
-// compactSummaryDefaultRecent is the legacy default for --recent on
-// `traceary compact-summary`. `traceary session handoff --compact-only`
-// falls back to this value when the caller does not set --recent, to
-// keep the compact output byte-for-byte compatible with v0.8.x.
+// compactSummaryDefaultRecent is the default --recent value used by
+// `traceary session handoff --compact-only`. It matches the v0.8.x
+// `traceary compact-summary` default (removed in v0.14.0) so the
+// compact output stays byte-for-byte compatible.
 const compactSummaryDefaultRecent = 3
 
-func (c *RootCLI) newCompactSummaryCommand() *cobra.Command {
-	var (
-		dbPath    string
-		sessionID string
-		repo      string
-		limit     int
-	)
-
-	cmd := &cobra.Command{
-		Use:   "compact-summary",
-		Short: Localize("Generate a compact context pointer for session resumption", "compact 後のセッション再開用コンテキストポインタを生成する"),
-		Args:  noArgsLocalized(),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			ctx := cmd.Context()
-			output := cmd.OutOrStdout()
-
-			resolvedDBPath, err := resolveDBPath(dbPath)
-			if err != nil {
-				return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
-			}
-			c.applyDatabasePath(resolvedDBPath)
-			if err := c.storeManagement.Initialize(ctx); err != nil {
-				return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
-			}
-
-			resolvedRepo := resolveWorkspaceValue(ctx, repo)
-			resolvedSessionID := resolveOptionalValue(sessionID, "TRACEARY_SESSION_ID", "")
-
-			return c.printCompactSummary(ctx, output, resolvedDBPath, resolvedSessionID, resolvedRepo, limit)
-		},
-	}
-
-	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID", "セッション ID"))
-	cmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by workspace", "ワークスペースでフィルタ"))
-	cmd.Flags().IntVar(&limit, "recent", compactSummaryDefaultRecent, Localize("number of recent commands to show", "表示する直近コマンド数"))
-
-	applyDeprecation(cmd, Localize(
-		"use `traceary session handoff --compact-only` — this alias will be removed in v1.0",
-		"`traceary session handoff --compact-only` を使ってください — この alias は v1.0 で削除されます",
-	))
-
-	return cmd
-}
-
 // compactSummaryOptions captures every knob the compact-summary path
-// supports. Callers from `session handoff --compact-only` can thread
-// --memories / --preset / --as-of through here so those flags are not
-// silent no-ops (Codex verifier MUST on #697). The legacy
-// `compact-summary` command passes zero / None for the new fields so
-// its byte-for-byte output stays unchanged.
+// supports. `session handoff --compact-only` threads --memories /
+// --preset / --as-of through here so those flags are not silent
+// no-ops.
 type compactSummaryOptions struct {
 	sessionID   string
 	workspace   string
@@ -80,22 +32,6 @@ type compactSummaryOptions struct {
 	memoryLimit int
 	preset      apptypes.MemoryRetrievalPreset
 	asOf        types.Optional[time.Time]
-}
-
-func (c *RootCLI) printCompactSummary(
-	ctx context.Context,
-	output io.Writer,
-	_ string, // dbPath (resolved at Datasource construction)
-	sessionID string,
-	repo string,
-	recentCount int,
-) error {
-	return c.printCompactSummaryWithOptions(ctx, output, compactSummaryOptions{
-		sessionID:   sessionID,
-		workspace:   repo,
-		recentCount: recentCount,
-		memoryLimit: recentCount,
-	})
 }
 
 func (c *RootCLI) printCompactSummaryWithOptions(

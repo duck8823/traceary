@@ -5,6 +5,11 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [Unreleased]
+
+### Removed
+- **Deprecated top-level command aliases (#918)** — `traceary init`, `traceary backup`, `traceary gc`, `traceary handoff`, and `traceary compact-summary` are no longer registered as working commands and have been dropped from `traceary --help`. Invoking the old names now exits with a usage error that points at the canonical replacement: `traceary store init`, `traceary store backup ...`, `traceary store gc`, `traceary session handoff`, and `traceary session handoff --compact-only`. The aliases have shipped a deprecation notice since v0.9 (see #696); v0.14.0 completes the planned removal.
+
 ## [v0.13.1] - 2026-05-04
 
 ### Changed
