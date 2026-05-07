@@ -34,7 +34,8 @@
 | `memory supersede` | accepted を置き換える | durable 書き込み |
 | `memory expire` | active memory を expire | durable ライフサイクル |
 | `memory set-validity` | validity window を設定 | durable ライフサイクル |
-| `memory import` | host のメモリを candidate として取り込む | admin / host 連携 |
+| `memory import codex` | `~/.codex/memories/*.md` を candidate として取り込む | admin / host 連携 (`memory import` 配下の実行 leaf) |
+| `memory import instructions` | host instruction file の bullet を candidate として取り込む | admin / host 連携 (`memory import` 配下の実行 leaf) |
 | `memory export` | accepted を host instruction file に書き出す | admin / host 連携 |
 | `memory activate` | host-native activation の plan / apply | admin / host 連携 |
 | `memory hygiene scan` | hygiene 問題を検出 | admin |
@@ -62,7 +63,9 @@ memory
 │   ├── expire
 │   └── set-validity
 └── admin            # host 連携 + メンテナンス
-    ├── import
+    ├── import       # 親グループ (単独では実行不可)
+    │   ├── codex
+    │   └── instructions
     ├── export
     ├── activate
     ├── hygiene
@@ -95,8 +98,8 @@ memory
 | `memory inbox list` | `memory inbox list` | 変更なし |
 | `memory inbox accept` | `memory inbox accept` | 変更なし |
 | `memory inbox reject` | `memory inbox reject` | 変更なし |
-| `memory accept` | `memory inbox accept` | hidden な deprecated alias |
-| `memory reject` | `memory inbox reject` | hidden な deprecated alias |
+| `memory accept <memory-id>` | `memory inbox accept <memory-id>` | hidden な deprecated alias (シグネチャの注意は後述) |
+| `memory reject <memory-id>` | `memory inbox reject <memory-id>` | hidden な deprecated alias (シグネチャの注意は後述) |
 | `memory propose` | `memory inbox propose` | hidden な deprecated alias |
 | `memory distill` | `memory inbox distill` | hidden な deprecated alias |
 | `memory extract` | `memory inbox extract` | hidden な deprecated alias |
@@ -104,7 +107,8 @@ memory
 | `memory supersede` | `memory store supersede` | hidden な deprecated alias |
 | `memory expire` | `memory store expire` | hidden な deprecated alias |
 | `memory set-validity` | `memory store set-validity` | hidden な deprecated alias |
-| `memory import` | `memory admin import` | hidden な deprecated alias |
+| `memory import codex` | `memory admin import codex` | hidden な deprecated alias |
+| `memory import instructions` | `memory admin import instructions` | hidden な deprecated alias |
 | `memory export` | `memory admin export` | hidden な deprecated alias |
 | `memory activate` | `memory admin activate` | hidden な deprecated alias |
 | `memory hygiene scan` | `memory admin hygiene scan` | hidden な deprecated alias |
@@ -122,6 +126,21 @@ memory
 - stdout / JSON 出力のバイト列は変えない（スクリプトを壊さない）。
 
 これは v0.13 → v0.14 への upgrade で利用者のスクリプト・AI skill・古いドキュメント中のサンプルが silent に壊れないようにするためです。alias は v0.15 で削除します。これは #918 の top-level alias 廃止と同じ「1 リリース猶予」のポリシーに合わせています。
+
+### シグネチャを保持しなければならない箇所
+
+旧 → 新のマッピングのうち、単なる名前替えではなくシグネチャ境界を跨ぐものが 2 種類あります。以降の sub-issue 実装では v0.13.1 の caller contract をそのまま維持しなければなりません。
+
+- `memory accept <memory-id>` / `memory reject <memory-id>` は memory id を **位置引数** (`exactArgsLocalized(1)`) で受け取り、scripted caller 用に `--id-only` を提供しています。一方、現状の `memory inbox accept` / `memory inbox reject` は `--ids` (カンマ区切り、複数指定可) しか受け付けず、`--id-only` もありません。
+- `memory import` は親グループであり、**実行可能な leaf は `memory import codex` / `memory import instructions` の 2 つ**です。`traceary memory import` 単独ではコマンドとして動作しません。`memory admin import` を導入する follow-up は、`memory admin import codex` / `memory admin import instructions` を canonical leaf として実装し、旧 leaf 2 つをそれぞれそこへルーティングしてください。親パスだけを差し替えるのは不可です。
+
+これらを script を壊さずに両立させるため、v0.14 では次の方針を取ります。
+
+1. **canonical な `memory inbox accept` / `memory inbox reject` に位置引数と `--id-only` を追加する。** sub-issue #923 で canonical inbox 側に位置引数サポートを追加することが既に決まっています。`--id-only` も canonical 側に追加し、scripts が移行する先のサーフェスが旧 surface のスーパーセットになるようにします。既存の `--ids` バッチフラグは残します。
+2. **hidden alias は旧 flag / 旧 arg の形を完全に保つ。** `memory accept <memory-id>` / `memory reject <memory-id>` は位置引数・`--id-only`・`--confidence` (accept のみ)・`--db-path`・`--json` をすべて維持します。deprecation 期間中に新たな required flag を追加してはいけません。
+3. **`memory import codex` / `memory import instructions` は現状のフラグをそのまま維持する** (`codex` 側: `--db-path` / `--root` / `--workspace` / `--watch` / `--interval` / `--json`、`instructions` 側: 既存のフラグ集合)。hidden alias は path だけを再ルーティングし、フラグサーフェスは変更しません。
+
+もし follow-up sub-issue でこれらの要件を満たせない事情 (例: canonical inbox 側でフラグ衝突が発生する) が出た場合、その実装 PR は merge **前に** 本ドキュメントを更新してください。merge 後の事後修正にすると deprecation contract の単一情報源が崩れます。
 
 ## 削除タイムライン
 
