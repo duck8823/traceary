@@ -587,7 +587,11 @@ func (c *RootCLI) runHookCompact(
 		if output == nil {
 			return nil
 		}
-		return c.printCompactSummary(ctx, output, resolvedDBPath, sessionID.String(), "", 3)
+		return c.printCompactSummaryWithOptions(ctx, output, compactSummaryOptions{
+			sessionID:   sessionID.String(),
+			recentCount: compactSummaryDefaultRecent,
+			memoryLimit: compactSummaryDefaultRecent,
+		})
 	default:
 		return xerrors.Errorf("unsupported hook compact action: %s", action)
 	}

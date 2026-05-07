@@ -236,48 +236,33 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("session handoff --compact-only passes the same recent default as compact-summary", func(t *testing.T) {
+	t.Run("session handoff --compact-only defaults --recent to 3", func(t *testing.T) {
 		t.Parallel()
 
-		// Verifies the fix for Codex verifier MUST on #697: a fresh
-		// `session handoff --compact-only` invocation (no --recent
-		// flag) must build a ContextPackCriteria with the same
-		// RecentCommandsLimit as the legacy `compact-summary`
-		// command did — otherwise the compact output drifts from
-		// the v0.8.x byte-for-byte output when --recent defaults
-		// differ (handoff uses 5, compact-summary used 3).
-		runArgs := func(args []string) apptypes.ContextPackCriteria {
-			dbPath := filepath.Join(t.TempDir(), "traceary.db")
-			contextStub := &contextUsecaseStub{
-				handoff: types.None[apptypes.ContextPack](),
-			}
-			rootCmd := cli.NewRootCLI(
-				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-				cli.WithContext(contextStub),
-			).Command()
-			rootCmd.SetOut(&bytes.Buffer{})
-			rootCmd.SetErr(&bytes.Buffer{})
-			rootCmd.SetArgs(append([]string{}, append(args, "--db-path", dbPath)...))
-			if err := rootCmd.Execute(); err != nil {
-				t.Fatalf("Execute(%v) error = %v", args, err)
-			}
-			if len(contextStub.handoffCalls) != 1 {
-				t.Fatalf("expected exactly one Handoff call, got %d", len(contextStub.handoffCalls))
-			}
-			return contextStub.handoffCalls[0]
+		// `session handoff` defaults --recent to 5 because the full
+		// handoff dump expects more history; the --compact-only path
+		// must drop back to the 3-line default that the legacy
+		// `compact-summary` command (removed in v0.14.0) used so the
+		// compact output stays byte-for-byte compatible with v0.8.x.
+		dbPath := filepath.Join(t.TempDir(), "traceary.db")
+		contextStub := &contextUsecaseStub{
+			handoff: types.None[apptypes.ContextPack](),
 		}
-
-		legacy := runArgs([]string{"compact-summary"})
-		newPath := runArgs([]string{"session", "handoff", "--compact-only"})
-
-		if legacy.RecentCommandsLimit() != newPath.RecentCommandsLimit() {
-			t.Fatalf(
-				"recent-commands default drift: legacy=%d new=%d (both should be %d)",
-				legacy.RecentCommandsLimit(), newPath.RecentCommandsLimit(), 3,
-			)
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithContext(contextStub),
+		).Command()
+		rootCmd.SetOut(&bytes.Buffer{})
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"session", "handoff", "--compact-only", "--db-path", dbPath})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
 		}
-		if legacy.RecentCommandsLimit() != 3 {
-			t.Fatalf("compact-summary legacy default = %d, want 3", legacy.RecentCommandsLimit())
+		if len(contextStub.handoffCalls) != 1 {
+			t.Fatalf("expected exactly one Handoff call, got %d", len(contextStub.handoffCalls))
+		}
+		if got := contextStub.handoffCalls[0].RecentCommandsLimit(); got != 3 {
+			t.Fatalf("--compact-only RecentCommandsLimit = %d, want 3", got)
 		}
 	})
 }

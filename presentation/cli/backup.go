@@ -28,27 +28,13 @@ func newDefaultBackupRestorePrompter() *backupRestorePrompter {
 	}
 }
 
-func (c *RootCLI) newBackupCommand() *cobra.Command {
-	return c.newBackupCommandWithDeprecation(Localize(
-		"use `traceary store backup` — the top-level alias will be removed in v1.0",
-		"`traceary store backup` を使ってください — この top-level alias は v1.0 で削除されます",
-	))
-}
-
 func (c *RootCLI) newStoreBackupCommand() *cobra.Command {
-	return c.newBackupCommandWithDeprecation("")
-}
-
-func (c *RootCLI) newBackupCommandWithDeprecation(deprecated string) *cobra.Command {
 	backupCmd := &cobra.Command{
 		Use:   "backup",
 		Short: Localize("Create or restore SQLite-backed backups", "SQLite ベースのバックアップを作成・復元する"),
 	}
 	backupCmd.AddCommand(c.newBackupCreateCommand())
 	backupCmd.AddCommand(c.newBackupRestoreCommand())
-	if deprecated != "" {
-		applyDeprecation(backupCmd, deprecated)
-	}
 
 	return backupCmd
 }

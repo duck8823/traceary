@@ -222,13 +222,9 @@ func (c *RootCLI) Command() *cobra.Command {
 	// session-bootstrap helpers moved behind parent commands.
 	rootCmd.AddCommand(c.newStoreCommand())
 
-	// Deprecated top-level aliases kept during the v0.9 series. They
-	// already carry `Deprecated` messages so `--help` surfaces the
-	// replacement path. Scheduled for removal in v1.0 (see #696).
-	rootCmd.AddCommand(c.newInitCommand())
-	rootCmd.AddCommand(c.newBackupCommand())
-	rootCmd.AddCommand(c.newGCCommand())
-	rootCmd.AddCommand(c.newHandoffCommand())
-	rootCmd.AddCommand(c.newCompactSummaryCommand())
+	// v0.14.0 retired the v0.9-era top-level aliases (init / backup /
+	// gc / handoff / compact-summary). Hidden stubs stay so the old
+	// names produce a usage error pointing at the canonical command.
+	c.addRemovedAliases(rootCmd)
 	return rootCmd
 }
