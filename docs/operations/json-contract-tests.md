@@ -1,12 +1,18 @@
-# JSON contract tests
+# JSON and snapshot contract tests
 
 [日本語](./json-contract-tests.ja.md)
 
-Traceary uses golden tests to protect public JSON and newline-delimited JSON (NDJSON) CLI output from accidental changes. A golden fixture is the reviewed byte-for-byte contract for one command output.
+Traceary uses golden tests to protect public JSON, newline-delimited JSON (NDJSON), structured-text CLI output, and the MCP tool registry from accidental changes. A golden fixture is the reviewed byte-for-byte contract for one surface output.
 
-Every new CLI `--json` flag must ship with a matching golden fixture under `presentation/cli/testdata/<command>/<case>.golden.json` in the same change. The existing golden tests act as the CI gate: if a command output has no fixture, add one before merging the flag rather than relying on ad-hoc string assertions.
+The contract surfaces are:
+
+- **CLI `--json` outputs** — `presentation/cli/testdata/<command>/<case>.golden.json`. Every new CLI `--json` flag must ship with a matching golden fixture in the same change. The covered representative surfaces include `event list` / `event search` / `event show`, `session list` / `session tree` / `session start` / `session end` / `session active` / `session latest`, `memory list` / `memory search` / `memory show` and the full `memory inbox` / `memory hygiene` / `memory graph` family, `top --snapshot --json`, `bundle import --json`, `timeline --json`, and `doctor --json`.
+- **CLI structured-text outputs** — `presentation/cli/testdata/session_handoff/*.golden`, `presentation/cli/testdata/top/*.golden`, etc. Some commands (notably `traceary session handoff`) intentionally do not expose `--json` because their structured-text shape is the documented contract that prompt-injection / resume tooling parses directly. These goldens guard the field labels (`SESSION_ID:`, `WORKING_STATE:`, `RECENT_COMMANDS:`, `MEMORIES:`) and ordering.
+- **MCP tool registry snapshot** — `presentation/mcpserver/testdata/tool_registry.golden.json`. A single fixture pins every registered MCP tool's name, description, annotations (`readOnlyHint` / `destructiveHint`), and the full inferred input schema (property names, types, descriptions, and required fields). The test (`TestServer_ToolRegistrySnapshot`) lists tools through the in-memory MCP transport and sorts by name so the diff catches accidental adds / removes / renames as well as field-level drift inside any tool's input schema.
 
 `traceary top --snapshot --json` has a top-specific contract that is intentionally separate from `traceary session tree --json`; the `latest_event_*` fields belong only to the top snapshot contract. Starting in v0.14.0 the top snapshot is wrapped in an envelope object with `sessions`, `failures`, `recent_commands`, and `candidates` (`{ count, items }`) keys so the snapshot mirrors the dashboard's secondary panes; consumers that previously read a bare top-level array of session nodes must read `sessions` from the envelope.
+
+If a CLI command has no fixture for one of its public outputs, add one before merging rather than relying on ad-hoc string assertions. Likewise, do not add or remove an MCP tool without regenerating the registry snapshot in the same change.
 
 ## Run golden tests
 
@@ -16,40 +22,58 @@ Run a specific contract test while developing:
 go test ./presentation/cli -run TestEventShow_JSON_Golden
 ```
 
-Run all CLI tests when a contract change is ready:
+Run the focused MCP registry contract test:
 
 ```sh
-go test ./presentation/cli
+go test ./presentation/mcpserver -run TestServer_ToolRegistrySnapshot
 ```
 
-The helpers compare the actual output with the fixture using a byte-for-byte string diff. They do not apply time, ID, ordering, or whitespace transformers, so test data must be deterministic before it reaches the assertion.
+Run all CLI and MCP tests when a contract change is ready:
+
+```sh
+go test ./presentation/cli ./presentation/mcpserver
+```
+
+The helpers compare the actual output with the fixture using a byte-for-byte string diff. They do not apply time, ID, ordering, or whitespace transformers, so test data must be deterministic before it reaches the assertion. The MCP registry test sorts tools by name and re-marshals the schema with sorted property keys (`encoding/json` map ordering) so it is stable across runs and platforms.
 
 ## Update fixtures
 
 When the intended contract changes, rewrite fixtures with the standard Go test flag:
 
 ```sh
+# CLI golden (JSON, NDJSON, or structured text)
 go test ./presentation/cli -run TestEventShow_JSON_Golden -update
+go test ./presentation/cli -run TestSessionHandoff_TextGoldens -update
+
+# MCP tool registry snapshot
+go test ./presentation/mcpserver -run TestServer_ToolRegistrySnapshot -update
 ```
 
 Then re-run without `-update` to prove the checked-in fixture is clean:
 
 ```sh
 go test ./presentation/cli -run TestEventShow_JSON_Golden
+go test ./presentation/mcpserver -run TestServer_ToolRegistrySnapshot
 ```
 
-Review the fixture diff before committing it. The generated bytes are the API contract that downstream scripts may rely on.
+Review the fixture diff before committing it. The generated bytes are the API contract that downstream scripts and MCP clients may rely on.
 
 ## When not to use `-update`
 
-Do not use `-update` just to make a failing test pass. A golden diff may reveal an accidental breaking change, such as a renamed field, removed field, changed timestamp format, reordered NDJSON stream, or new whitespace shape.
+Do not use `-update` just to make a failing test pass. A golden diff may reveal an accidental breaking change, such as:
+
+- a renamed or removed CLI JSON field
+- a changed timestamp format or reordered NDJSON stream
+- a new whitespace shape in a structured-text contract (e.g. handoff)
+- an MCP tool added, removed, or renamed without a corresponding doc / migration update
+- an MCP input schema field with a renamed JSON key, dropped `required` entry, or changed type
 
 Use `-update` only after deciding that the output change is intentional and should become the new public contract.
 
 ## Contract review process
 
-1. Identify the command, flags, and fixture affected by the diff.
-2. Decide whether the output change is compatible. Add migration notes or release notes for breaking or user-visible changes.
+1. Identify the surface (CLI command + flags, structured-text command, or MCP tool) and the fixture affected by the diff.
+2. Decide whether the output change is compatible. Add migration notes or release notes for breaking or user-visible changes — this applies to CLI shape changes and to MCP tool / schema changes alike.
 3. Update the fixture with `-update` only after that decision.
 4. Re-run the focused golden test without `-update`.
 5. Re-run the normal validation suite before committing:

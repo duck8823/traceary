@@ -1,0 +1,17 @@
+TRACEARY HANDOFF
+SESSION_ID: session-handoff-golden
+WORKSPACE: duck8823/traceary
+LABEL: v0.14.0
+STATUS: active
+TOTAL_EVENTS: 42
+COMMAND_COUNT: 9
+AGENTS: claude, codex
+WORKING_STATE:
+- session_summary: Lock CLI/MCP contract surfaces before v1.0.
+- compact_summary: Add MCP registry snapshot.
+RECENT_COMMANDS:
+- go test ./...
+- go tool golangci-lint run
+MEMORIES:
+- [decision][workspace:duck8823/traceary] Keep handoff format stable for downstream parsers
+- [candidate][lesson][workspace:duck8823/traceary] Mark non-accepted entries with a status prefix
