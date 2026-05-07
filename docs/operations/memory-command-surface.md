@@ -53,16 +53,13 @@ memory
 ├── inbox            # candidate review surface
 │   ├── list
 │   ├── accept
-│   ├── reject
-│   ├── propose
-│   ├── distill
-│   └── extract
-├── store            # durable write + lifecycle
+│   └── reject
+├── store            # deliberate write/store workflows
 │   ├── remember
-│   ├── supersede
-│   ├── expire
-│   └── set-validity
-└── admin            # host-side + maintenance
+│   ├── propose
+│   └── distill
+└── admin            # extraction + host-side + maintenance + lifecycle
+    ├── extract
     ├── import       # parent group (no executable form)
     │   ├── codex
     │   └── instructions
@@ -71,16 +68,19 @@ memory
     ├── hygiene
     │   ├── scan
     │   └── apply
-    └── graph
-        ├── add
-        └── list
+    ├── graph
+    │   ├── add
+    │   └── list
+    ├── supersede
+    ├── expire
+    └── set-validity
 ```
 
 ### Why these three groupings
 
-- `memory inbox` is already the natural home for candidate review. We are folding the standalone `accept`, `reject`, `propose`, `distill`, and `extract` subcommands underneath it so all curation happens in one namespace.
-- `memory store` is the durable write surface. Recording new accepted memories, replacing them, expiring them, and adjusting their validity window are the operations that actually mutate the durable layer.
-- `memory admin` collects the operator-facing concerns: bringing memories in from host files, exporting them out to host files, planning activation against Claude/Codex/Gemini, hygiene scans, and the typed-relationship graph. These are not part of the daily read path and historically each had its own top-level entry.
+- `memory inbox` is the candidate review surface only — listing what is awaiting review and approving or rejecting individual ids. Anything that *writes* a candidate (or an accepted row) lives under `memory store`; anything that *transforms* existing rows lives under `memory admin`.
+- `memory store` is the deliberate write/store surface. `remember` writes an accepted row, `propose` writes a candidate row, and `distill` writes a new accepted row out of one or more existing candidates. Grouping all three together keeps every "this command writes a durable-memory row" verb in one namespace, regardless of the lifecycle status of the resulting row.
+- `memory admin` collects everything else: extraction (`extract`) which mines candidates from existing sessions, host-side I/O (`import`, `export`, `activate`), maintenance (`hygiene`, `graph`), and the lifecycle verbs that mutate already-stored rows (`supersede`, `expire`, `set-validity`). These are operator-facing concerns, not part of the daily read path.
 
 ### Why `search`, `show`, and `list` stay top-level
 
@@ -100,15 +100,15 @@ The acceptance criteria for this issue explicitly mention `search` and `show`. `
 | `memory inbox reject` | `memory inbox reject` | Unchanged |
 | `memory accept <memory-id>` | `memory inbox accept <memory-id>` | Hidden deprecated alias (see signature note below) |
 | `memory reject <memory-id>` | `memory inbox reject <memory-id>` | Hidden deprecated alias (see signature note below) |
-| `memory propose` | `memory inbox propose` | Hidden deprecated alias |
-| `memory distill` | `memory inbox distill` | Hidden deprecated alias |
-| `memory extract` | `memory inbox extract` | Hidden deprecated alias |
 | `memory remember` | `memory store remember` | Hidden deprecated alias |
-| `memory supersede` | `memory store supersede` | Hidden deprecated alias |
-| `memory expire` | `memory store expire` | Hidden deprecated alias |
-| `memory set-validity` | `memory store set-validity` | Hidden deprecated alias |
-| `memory import codex` | `memory admin import codex` | Hidden deprecated alias |
-| `memory import instructions` | `memory admin import instructions` | Hidden deprecated alias |
+| `memory propose` | `memory store propose` | Hidden deprecated alias |
+| `memory distill` | `memory store distill` | Hidden deprecated alias |
+| `memory extract` | `memory admin extract` | Hidden deprecated alias |
+| `memory supersede` | `memory admin supersede` | Hidden deprecated alias |
+| `memory expire` | `memory admin expire` | Hidden deprecated alias |
+| `memory set-validity` | `memory admin set-validity` | Hidden deprecated alias |
+| `memory import codex` | `memory admin import codex` | Hidden deprecated alias (see signature note below) |
+| `memory import instructions` | `memory admin import instructions` | Hidden deprecated alias (see signature note below) |
 | `memory export` | `memory admin export` | Hidden deprecated alias |
 | `memory activate` | `memory admin activate` | Hidden deprecated alias |
 | `memory hygiene scan` | `memory admin hygiene scan` | Hidden deprecated alias |

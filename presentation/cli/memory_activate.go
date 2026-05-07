@@ -21,7 +21,7 @@ func (c *RootCLI) newMemoryActivateCommand() *cobra.Command {
 		Short: Localize("Plan host-native durable-memory activation", "host-native durable-memory activation を計画する"),
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return c.runMemoryActivate(cmd.Context(), cmd.OutOrStdout(), input)
+			return c.runMemoryActivate(cmd.Context(), cmd.OutOrStdout(), input, cmd.CommandPath())
 		},
 	}
 	cmd.Flags().StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
@@ -40,7 +40,7 @@ func (c *RootCLI) newMemoryActivateCommand() *cobra.Command {
 	return cmd
 }
 
-func (c *RootCLI) runMemoryActivate(ctx context.Context, output io.Writer, input memoryActivateCommandInput) error {
+func (c *RootCLI) runMemoryActivate(ctx context.Context, output io.Writer, input memoryActivateCommandInput, invokedCommandPath string) error {
 	if c.storeManagement == nil {
 		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
@@ -85,7 +85,7 @@ func (c *RootCLI) runMemoryActivate(ctx context.Context, output io.Writer, input
 		if err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to inspect memory activation status", "memory activation status の確認に失敗しました"), err)
 		}
-		commands := memoryActivationCommands(criteria)
+		commands := memoryActivationCommands(criteria, invokedCommandPath)
 		return writeMemoryActivationStatus(output, result, commands, input.asJSON)
 	}
 	if input.apply {
@@ -214,8 +214,33 @@ type memoryActivationCommandSet struct {
 	Apply  string
 }
 
-func memoryActivationCommands(criteria apptypes.MemoryActivationCriteria) memoryActivationCommandSet {
-	base := []string{"traceary", "memory", "activate", "--target", criteria.Target.String()}
+// canonicalMemoryActivateCommandPath is the cobra command path doctor
+// checks and other synthetic callers should advertise as the recommended
+// remediation. The runtime activate command uses cmd.CommandPath() to
+// echo back whichever entry point the caller used — either this
+// canonical path or the v0.13 flat alias — so legacy stdout / JSON
+// shapes stay byte-compatible during the v0.14 deprecation window.
+const canonicalMemoryActivateCommandPath = "traceary memory admin activate"
+
+// memoryActivationCommands renders the dry-run / apply remediation
+// commands surfaced by `--status` output. invokedCommandPath is the
+// space-separated cobra command path that produced this status call —
+// e.g. "traceary memory admin activate" for the canonical surface or
+// "traceary memory activate" when the user reached this code through
+// the hidden v0.13 flat alias. Echoing the same path back keeps the
+// stdout / JSON payload byte-compatible with whichever entry point the
+// caller scripted against, so the legacy alias does not silently start
+// emitting the canonical replacement command in fields that scripts
+// already parse.
+func memoryActivationCommands(criteria apptypes.MemoryActivationCriteria, invokedCommandPath string) memoryActivationCommandSet {
+	pathTokens := strings.Fields(invokedCommandPath)
+	if len(pathTokens) == 0 {
+		// Defensive fallback: an empty command path should not happen
+		// when called from a real cobra RunE, but the canonical v0.14
+		// surface is the safest default for synthetic callers.
+		pathTokens = strings.Fields(canonicalMemoryActivateCommandPath)
+	}
+	base := append(append([]string(nil), pathTokens...), "--target", criteria.Target.String())
 	if strings.TrimSpace(criteria.Path) != "" {
 		base = append(base, "--path", criteria.Path)
 	} else if strings.TrimSpace(criteria.Root) != "" {

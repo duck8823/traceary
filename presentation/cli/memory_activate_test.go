@@ -1167,3 +1167,193 @@ func TestRootCLI_MemoryActivateGeminiApplyJSONIncludesComponents(t *testing.T) {
 		t.Fatalf("component states = host=%q external=%q, want in_sync after apply", payload.HostContext.State, payload.ExternalMemory.State)
 	}
 }
+
+// TestRootCLI_MemoryActivateStatusCommandPathRespectsInvocation pins the
+// JSON `dry_run_command` / `apply_command` rendering to the surface the
+// caller actually invoked. v0.14 #922 introduced the grouped `traceary
+// memory admin activate` surface plus a hidden flat alias `traceary
+// memory activate` that keeps existing scripts working through one
+// release of overlap (Codex P2 on PR #938). The flat alias must
+// preserve its v0.13 stdout / JSON payload shape — it cannot silently
+// start emitting `traceary memory admin activate ...` in remediation
+// fields, because scripts that filter or post-process those fields
+// would see a different command than they invoked. Conversely, the
+// canonical grouped surface must echo back its own canonical path so
+// operators copy-paste the supported v0.14 form.
+func TestRootCLI_MemoryActivateStatusCommandPathRespectsInvocation(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		args        []string
+		wantPrefix  string
+		extraReject string
+	}{
+		{
+			name: "canonical memory admin activate emits canonical command path",
+			args: []string{
+				"memory", "admin", "activate",
+				"--target", "codex",
+				"--status",
+				"--json",
+			},
+			wantPrefix: "traceary memory admin activate",
+		},
+		{
+			name: "legacy flat memory activate alias preserves flat command path",
+			args: []string{
+				"memory", "activate",
+				"--target", "codex",
+				"--status",
+				"--json",
+			},
+			wantPrefix:  "traceary memory activate",
+			extraReject: "traceary memory admin activate",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			targetPath := filepath.Join(root, "traceary.md")
+			memoryStub := &memoryUsecaseStub{
+				activationStatus: apptypes.MemoryActivationStatusResult{
+					Target:         apptypes.MemoryBridgeTargetCodex,
+					TargetPath:     targetPath,
+					State:          apptypes.MemoryActivationStatusStale,
+					Existing:       true,
+					ActivatedCount: 2,
+					Message:        "stale",
+				},
+			}
+			stdout := &bytes.Buffer{}
+			rootCmd := newTestRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+				cli.WithMemory(memoryStub),
+			).Command()
+			rootCmd.SetOut(stdout)
+			rootCmd.SetErr(&bytes.Buffer{})
+			args := append([]string(nil), tc.args...)
+			args = append(args, "--root", root)
+			rootCmd.SetArgs(args)
+
+			if err := rootCmd.Execute(); err != nil {
+				t.Fatalf("Execute(%v) error = %v", tc.args, err)
+			}
+
+			var payload struct {
+				DryRunCommand string `json:"dry_run_command"`
+				ApplyCommand  string `json:"apply_command"`
+			}
+			if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+				t.Fatalf("Unmarshal: %v\nstdout=%s", err, stdout.String())
+			}
+			if !strings.HasPrefix(payload.DryRunCommand, tc.wantPrefix+" ") {
+				t.Errorf("dry_run_command = %q, want prefix %q", payload.DryRunCommand, tc.wantPrefix)
+			}
+			if !strings.HasPrefix(payload.ApplyCommand, tc.wantPrefix+" ") {
+				t.Errorf("apply_command = %q, want prefix %q", payload.ApplyCommand, tc.wantPrefix)
+			}
+			if tc.extraReject != "" {
+				if strings.HasPrefix(payload.DryRunCommand, tc.extraReject+" ") {
+					t.Errorf("dry_run_command must not start with %q (legacy alias must preserve flat path); got %q", tc.extraReject, payload.DryRunCommand)
+				}
+				if strings.HasPrefix(payload.ApplyCommand, tc.extraReject+" ") {
+					t.Errorf("apply_command must not start with %q (legacy alias must preserve flat path); got %q", tc.extraReject, payload.ApplyCommand)
+				}
+			}
+		})
+	}
+}
+
+// TestRootCLI_MemoryActivateStatusTextCommandPathRespectsInvocation
+// covers the same contract as the JSON variant for the human-text
+// `next_dry_run` / `next_apply` lines emitted on stdout. Both the
+// canonical grouped surface and the v0.13 hidden flat alias must echo
+// the path the operator actually invoked so copy-paste remediation
+// matches the surface they reached this status output through.
+func TestRootCLI_MemoryActivateStatusTextCommandPathRespectsInvocation(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name       string
+		args       []string
+		wantPrefix string
+		rejectStr  string
+	}{
+		{
+			name: "canonical memory admin activate text emits canonical command path",
+			args: []string{
+				"memory", "admin", "activate",
+				"--target", "claude",
+				"--status",
+			},
+			wantPrefix: "traceary memory admin activate",
+		},
+		{
+			name: "legacy memory activate text emits flat command path",
+			args: []string{
+				"memory", "activate",
+				"--target", "claude",
+				"--status",
+			},
+			wantPrefix: "traceary memory activate",
+			rejectStr:  "next_dry_run: traceary memory admin activate",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			hostPath := filepath.Join(root, "CLAUDE.md")
+			externalPath := filepath.Join(root, ".traceary", "memories", "claude.md")
+			memoryStub := &memoryUsecaseStub{
+				activationStatus: apptypes.MemoryActivationStatusResult{
+					Target:         apptypes.MemoryBridgeTargetClaude,
+					TargetPath:     hostPath,
+					State:          apptypes.MemoryActivationStatusMissing,
+					Existing:       false,
+					ActivatedCount: 1,
+					Message:        "missing",
+					HostContext: &apptypes.MemoryActivationComponent{
+						Path:     hostPath,
+						State:    apptypes.MemoryActivationStatusMissing,
+						Existing: false,
+					},
+					ExternalMemory: &apptypes.MemoryActivationComponent{
+						Path:     externalPath,
+						State:    apptypes.MemoryActivationStatusMissing,
+						Existing: false,
+					},
+				},
+			}
+			stdout := &bytes.Buffer{}
+			rootCmd := newTestRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+				cli.WithMemory(memoryStub),
+			).Command()
+			rootCmd.SetOut(stdout)
+			rootCmd.SetErr(&bytes.Buffer{})
+			args := append([]string(nil), tc.args...)
+			args = append(args, "--root", root)
+			rootCmd.SetArgs(args)
+
+			if err := rootCmd.Execute(); err != nil {
+				t.Fatalf("Execute(%v) error = %v", tc.args, err)
+			}
+
+			out := stdout.String()
+			wantDryRun := "next_dry_run: " + tc.wantPrefix + " "
+			wantApply := "next_apply: " + tc.wantPrefix + " "
+			if !strings.Contains(out, wantDryRun) {
+				t.Errorf("stdout missing %q in output: %q", wantDryRun, out)
+			}
+			if !strings.Contains(out, wantApply) {
+				t.Errorf("stdout missing %q in output: %q", wantApply, out)
+			}
+			if tc.rejectStr != "" && strings.Contains(out, tc.rejectStr) {
+				t.Errorf("stdout must not contain canonical replacement %q (legacy alias output: %q)", tc.rejectStr, out)
+			}
+		})
+	}
+}

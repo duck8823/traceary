@@ -22,7 +22,7 @@ func (c *RootCLI) inspectCodexMemoryActivationStatus(ctx context.Context, projec
 			Message: localizef("failed to inspect Codex memory activation: %v", "Codex memory activation の確認に失敗しました: %v", err),
 		}
 	}
-	commands := memoryActivationCommands(criteria)
+	commands := memoryActivationCommands(criteria, canonicalMemoryActivateCommandPath)
 	check := doctorCheck{
 		Name:    "codex-memory-activation",
 		Status:  doctorStatusPass,
@@ -91,7 +91,7 @@ func (c *RootCLI) inspectClaudeMemoryActivationStatus(ctx context.Context, proje
 			Message: localizef("failed to inspect Claude memory activation: %v", "Claude memory activation の確認に失敗しました: %v", err),
 		}
 	}
-	commands := memoryActivationCommands(criteria)
+	commands := memoryActivationCommands(criteria, canonicalMemoryActivateCommandPath)
 	check := doctorCheck{
 		Name:    "claude-memory-activation",
 		Status:  doctorStatusPass,
@@ -161,7 +161,7 @@ func (c *RootCLI) inspectGeminiMemoryActivationStatus(ctx context.Context, proje
 			Message: localizef("failed to inspect Gemini memory activation: %v", "Gemini memory activation の確認に失敗しました: %v", err),
 		}
 	}
-	commands := memoryActivationCommands(criteria)
+	commands := memoryActivationCommands(criteria, canonicalMemoryActivateCommandPath)
 	check := doctorCheck{
 		Name:    "gemini-memory-activation",
 		Status:  doctorStatusPass,
