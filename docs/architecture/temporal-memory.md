@@ -6,7 +6,7 @@ Part of #567 · closes the evaluation half of #573.
 
 ## Context
 
-v0.8 (#565) added half-open `[valid_from, valid_to)` windows to every accepted memory. Readers can time-travel with `traceary memory list --as-of <date>`, and `memory hygiene scan`'s `validity_overlap_supersede` detector uses the same windows to propose replacement chains.
+v0.8 (#565) added half-open `[valid_from, valid_to)` windows to every accepted memory. Readers can time-travel with `traceary memory list --as-of <date>`, and `memory admin hygiene scan`'s `validity_overlap_supersede` detector uses the same windows to propose replacement chains.
 
 Windows alone answer "what did we believe about X at time T" but they do not record **why** X was superseded or **how** X relates to neighbouring facts. Zep / Letta / Graphiti and similar 2026 temporal memory systems model memories as nodes in a temporal knowledge graph with typed edges, which unlocks queries like:
 
@@ -91,8 +91,8 @@ Migration `000013_create_memory_edges.sql` creates the table plus two indexes:
 
 ### CLI
 
-- `traceary memory graph add <from-memory-id> --to <to-memory-id> --relation <type> [--from <ts>] [--to-date <ts>]`
-- `traceary memory graph list [--memory-id <id>] [--relation <type>] [--as-of <ts>] [--limit N]`
+- `traceary memory admin graph add <from-memory-id> --to <to-memory-id> --relation <type> [--from <ts>] [--to-date <ts>]`
+- `traceary memory admin graph list [--memory-id <id>] [--relation <type>] [--as-of <ts>] [--limit N]`
 
 `--to-date` (not `--to`) is the validity-window upper bound — the flag name avoids colliding with the `--to <memory-id>` target flag on `graph add`. Multi-hop traversal is explicitly deferred; `graph list` only returns direct edges.
 
@@ -104,7 +104,7 @@ MCP tools for graph operations are **not shipped in this release**. The overlay 
 
 - **Multi-hop traversal beyond depth 1.** Land after real usage shows which chains are needed.
 - **Cycle detection.** Opt-in edges can form cycles; we accept them and document that the caller is responsible for sane modelling.
-- **LLM-driven edge extraction.** No auto-extraction. Edges are written intentionally, same posture as `memory remember`.
+- **LLM-driven edge extraction.** No auto-extraction. Edges are written intentionally, same posture as `memory store remember`.
 - **Graph visualization.** Replay HTML does not render edges yet. Add only after operator demand.
 - **Edge validity overlap hygiene detector.** Future follow-up once edge histories exist.
 - **Edge supersedes semantics.** Edges are append-only in v1; use a new edge with a different `valid_from` to "update" the relationship rather than rewriting the old one.

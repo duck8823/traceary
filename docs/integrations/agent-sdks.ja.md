@@ -18,7 +18,7 @@
 
 **現状**: agent host は MCP 経由で使う。Anthropic API を直接組み込む場合は experimental な Go native memory-tool backend を使える。
 
-`traceary mcp-server` は `query_memory(action="retrieve")` / `manage_memory(action="remember")` / `manage_memory(action="accept")` 等の memory tool を標準 MCP で公開しています (v0.9 の graph overlay は `traceary memory graph` の CLI 側のみ。MCP tool は follow-up)。Claude Agent SDK は `ClaudeAgentOptions.mcp_servers` 経由で取り込みます:
+`traceary mcp-server` は `query_memory(action="retrieve")` / `manage_memory(action="remember")` / `manage_memory(action="accept")` 等の memory tool を標準 MCP で公開しています (v0.9 の graph overlay は `traceary memory admin graph` の CLI 側のみ。MCP tool は follow-up)。Claude Agent SDK は `ClaudeAgentOptions.mcp_servers` 経由で取り込みます:
 
 ```python
 from claude_agent_sdk import query, ClaudeAgentOptions

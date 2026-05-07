@@ -5,15 +5,15 @@
 Traceary の現時点の backup / export / import 導線は、意図的にシンプルにしています。
 
 - サポートする export 形式は compact な SQLite バックアップファイルです
-- `traceary backup create` でそのファイルを明示的に作成します
-- `traceary backup restore` で Traceary の DB path へ復元し、必要なら migration を再適用します
+- `traceary store backup create` でそのファイルを明示的に作成します
+- `traceary store backup restore` で Traceary の DB path へ復元し、必要なら migration を再適用します
 
 現時点では JSON / CSV のような別形式 export はありません。
 
 ## バックアップを作成する
 
 ```sh
-traceary backup create --output /tmp/traceary-backup.db
+traceary store backup create --output /tmp/traceary-backup.db
 ```
 
 主な flag:
@@ -21,12 +21,12 @@ traceary backup create --output /tmp/traceary-backup.db
 - `--db-path`: 既定以外の DB をバックアップしたいとき
 - `--force`: 既存のバックアップファイルを上書きしたいとき
 
-`backup create` は source DB が既に存在する前提です。まだ何も記録していない場合は、先に `traceary init` や通常の logging flow で DB を作ってください。
+`store backup create` は source DB が既に存在する前提です。まだ何も記録していない場合は、先に `traceary store init` や通常の logging flow で DB を作ってください。
 
 ## バックアップから復元する
 
 ```sh
-traceary backup restore --input /tmp/traceary-backup.db --force
+traceary store backup restore --input /tmp/traceary-backup.db --force
 ```
 
 主な flag:
@@ -43,9 +43,9 @@ traceary backup restore --input /tmp/traceary-backup.db --force
 
 実用上は、次の流れを推奨します。
 
-1. source machine で `traceary backup create --output /path/to/traceary-backup.db` を実行する
+1. source machine で `traceary store backup create --output /path/to/traceary-backup.db` を実行する
 2. その SQLite file を普段使っている file transfer 手段で新しい machine にコピーする
-3. destination machine で `traceary backup restore --input /path/to/traceary-backup.db --force` を実行する
+3. destination machine で `traceary store backup restore --input /path/to/traceary-backup.db --force` を実行する
 4. 既定 path を使わない場合は、hooks / MCP client の DB path 設定も復元先に合わせる
 
 ## 運用上の注意
@@ -54,8 +54,8 @@ traceary backup restore --input /tmp/traceary-backup.db --force
 - destination を上書きするのは `--force` を渡したときだけです
 - destination DB path の解決順は通常どおり `--db-path` → `TRACEARY_DB_PATH` → `~/.config/traceary/traceary.db` です
 - マシン外に保存したい場合は、その SQLite file を既存の暗号化ディスク / backup tooling で保護してください
-- **`traceary backup create` の出力は単一ファイルとしてそのままコピーして安全** — `VACUUM INTO` で固めているため WAL sidecar は生成されません
-- **稼働中の DB を直接コピーする場合は WAL sidecar も必要** — runtime の DB は `journal_mode=WAL` を使用しており、本体の隣に `<db>-wal` と `<db>-shm` が生成されます。外部のファイルレベル backup ツールで `.db` だけをスナップショットすると不整合なコピーになる恐れがあるため、`traceary backup create` を使うか、sidecar も一緒にコピーしてください
+- **`traceary store backup create` の出力は単一ファイルとしてそのままコピーして安全** — `VACUUM INTO` で固めているため WAL sidecar は生成されません
+- **稼働中の DB を直接コピーする場合は WAL sidecar も必要** — runtime の DB は `journal_mode=WAL` を使用しており、本体の隣に `<db>-wal` と `<db>-shm` が生成されます。外部のファイルレベル backup ツールで `.db` だけをスナップショットすると不整合なコピーになる恐れがあるため、`traceary store backup create` を使うか、sidecar も一緒にコピーしてください
 
 ## この release でやらないこと
 

@@ -54,9 +54,9 @@ truth, and the activation command writes only a Traceary-managed block into
 the Codex memory target (`~/.codex/memories/traceary.md` by default):
 
 ```sh
-traceary memory activate --target codex --status
-traceary memory activate --target codex --dry-run --diff
-traceary memory activate --target codex --apply
+traceary memory admin activate --target codex --status
+traceary memory admin activate --target codex --dry-run --diff
+traceary memory admin activate --target codex --apply
 traceary doctor --client codex --json
 ```
 

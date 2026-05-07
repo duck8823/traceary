@@ -76,7 +76,7 @@ Set `TRACEARY_HOOK_STATE_KEY` explicitly in the hook environment when you need a
 
 ### Concurrent cleanup versus active ingestion
 
-`traceary gc` deletes old rows and then runs `VACUUM`.
+`traceary store gc` deletes old rows and then runs `VACUUM`.
 Do not treat aggressive cleanup as a background maintenance task while many sessions are actively writing to the same DB.
 Take a backup first and prefer running cleanup during a quieter period.
 
@@ -99,7 +99,7 @@ Possible but not actively tuned:
 1. use `traceary doctor` before blaming hook generation
 2. set `TRACEARY_DB_PATH` explicitly when multiple workflows should not share one DB
 3. set `TRACEARY_HOOK_STATE_KEY` when PPID-based grouping is not stable enough
-4. run `traceary backup create` before risky cleanup or manual inspection
+4. run `traceary store backup create` before risky cleanup or manual inspection
 5. document client-specific caveats in your own team automation if you rely on best-effort session-end hooks
 
 ## Related docs

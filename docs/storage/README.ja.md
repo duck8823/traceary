@@ -12,7 +12,7 @@ Traceary は、ローカル状態を 1 つの SQLite DB ファイルに保存し
 - file permission: parent directory は `0700`、DB file は `0600` で作成
 - 外部のホスト型サービスは使わない: CLI / hooks / MCP server は同じローカル SQLite ファイルを読み書きする
 
-`traceary init` は任意です。ストアが必要なコマンドは、必要に応じて DB を作成し、migration を自動適用します。
+`traceary store init` は任意です。ストアが必要なコマンドは、必要に応じて DB を作成し、migration を自動適用します。
 
 ## 現在の schema
 
@@ -138,7 +138,7 @@ Durable memory に紐づく artifact ref です。
 - 通常コマンドの実行前に store initialization が走るため、upgrade 時も migration は自動適用されます
 - backup restore では、まず SQLite file をコピーし、その後に store initialization を再実行して newer migration を適用します
 
-任意の手動 schema edit との後方互換は保証しません。持ち運べるコピーが必要な場合は、DB を直接編集する代わりに `traceary backup create` を使ってください。
+任意の手動 schema edit との後方互換は保証しません。持ち運べるコピーが必要な場合は、DB を直接編集する代わりに `traceary store backup create` を使ってください。
 
 ## `gc` の既定動作
 
@@ -168,8 +168,8 @@ target ごとの policy:
 
 サポートする backup 導線は意図的にシンプルです。
 
-- `traceary backup create` で compact な SQLite backup file を出力
-- `traceary backup restore` で destination DB path へその file をコピー
+- `traceary store backup create` で compact な SQLite backup file を出力
+- `traceary store backup restore` で destination DB path へその file をコピー
 - restore 後に、現在の binary がより新しい schema version を知っていれば migration を再適用
 
 マシン移行や破壊的 restore の注意点は専用ガイドを参照してください。
@@ -181,4 +181,4 @@ target ごとの policy:
 
 1. `traceary doctor` で解決された DB path と書き込み可否を確認する
 2. 正確な SQL が必要なら `schema/sqlite/migrations/` を見る
-3. 手動調査や危険な cleanup の前に `traceary backup create` を実行する
+3. 手動調査や危険な cleanup の前に `traceary store backup create` を実行する

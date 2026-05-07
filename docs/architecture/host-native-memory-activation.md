@@ -109,7 +109,7 @@ External memory file:
 <!-- traceary-memories:end -->
 ```
 
-The external memory block should reuse the existing `memory export` renderer so Codex, Claude, and Gemini projections stay consistent.
+The external memory block should reuse the existing `memory admin export` renderer so Codex, Claude, and Gemini projections stay consistent.
 
 When the host context file already contains a supported Traceary import stub, Traceary replaces that region in place. When the file has no managed import stub, Traceary appends the stub at end-of-file using the existing managed-block spacing rule: preserve the existing bytes, add enough newlines to leave one blank line before the stub, then append the managed region. Traceary does not insert before frontmatter, headings, or Gemini's `## Gemini Added Memories` section because doing so would require interpreting user-authored markdown structure. If the file contains an unmanaged import line that already points at the expected `.traceary/memories/<host>.md` file outside a Traceary-managed stub, status must be `invalid` and apply must refuse to add a duplicate import until the operator removes or adopts that unmanaged line through a future explicit workflow. Unmanaged imports pointing at different files are user-authored content and are ignored by activation.
 
@@ -131,7 +131,7 @@ Host import visibility is an implementation-readiness gate, not only a release d
 For Claude, the v0.13.0-4 read-only PR records that evidence in two artefacts that together stand in for a flaky live launch:
 
 - `application/usecase/claude_import_readiness_internal_test.go` pins the rendered import line, marker layout, and external-file resolution to the exact form Claude's official memory documentation specifies (`@<relative-path>` resolved against the directory containing `CLAUDE.md`). It runs in CI, so a refactor cannot silently move the import path.
-- `scripts/smoke_test_claude_activation.sh` materialises a temp project (`.git`, `CLAUDE.md`, `.traceary/memories/claude.md`) using the live `traceary memory activate --target claude --dry-run --json` plan. By default it removes the temp project after the structural check; set `TRACEARY_KEEP_SMOKE_TEMP=1` to retain it and launch `claude` from that directory for a manual runtime probe. The live launch is gated behind `TRACEARY_ENABLE_CLAUDE_RUNTIME_SMOKE=1` because Claude Code's first-time external-import approval dialog and authentication state make an unattended runtime probe non-deterministic.
+- `scripts/smoke_test_claude_activation.sh` materialises a temp project (`.git`, `CLAUDE.md`, `.traceary/memories/claude.md`) using the live `traceary memory admin activate --target claude --dry-run --json` plan. By default it removes the temp project after the structural check; set `TRACEARY_KEEP_SMOKE_TEMP=1` to retain it and launch `claude` from that directory for a manual runtime probe. The live launch is gated behind `TRACEARY_ENABLE_CLAUDE_RUNTIME_SMOKE=1` because Claude Code's first-time external-import approval dialog and authentication state make an unattended runtime probe non-deterministic.
 
 The Claude `--apply` PR (#893) keeps the live runtime evidence in scope through the same two artefacts. The script's structural section now exercises `--apply` end-to-end (first apply creates both files, a second apply converges to noop, and `--status` reports `in_sync` afterwards), so a CI-side regression in the apply path is detected without launching Claude. A maintainer-recorded `smoke_test_claude_activation.sh` run with `TRACEARY_ENABLE_CLAUDE_RUNTIME_SMOKE=1` is still required when an alternative gate is not available, or the ADR must be updated explaining why a different gate is acceptable.
 
@@ -182,7 +182,7 @@ Rejected. Gemini `save_memory` owns that section in the user's global `GEMINI.md
 
 Rejected as the default. It is simpler, but it churns user/project instruction files every time accepted memories change. The import-stub strategy confines frequent updates to `.traceary/memories/<host>.md` while still using host-native context loading.
 
-### Keep only manual `memory export --out`
+### Keep only manual `memory admin export --out`
 
 Rejected for v0.13.0. Export remains useful, but activation needs read-only status, dry-run/diff, explicit apply, doctor integration, and idempotent remediation commands.
 

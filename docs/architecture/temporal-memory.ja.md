@@ -6,7 +6,7 @@
 
 ## 背景
 
-v0.8 (#565) で、すべての accepted memory に半開区間 `[valid_from, valid_to)` が付きました。`traceary memory list --as-of <date>` で時間をさかのぼれ、`memory hygiene scan` の `validity_overlap_supersede` 検出も同じ窓を使って置換チェーンを提案します。
+v0.8 (#565) で、すべての accepted memory に半開区間 `[valid_from, valid_to)` が付きました。`traceary memory list --as-of <date>` で時間をさかのぼれ、`memory admin hygiene scan` の `validity_overlap_supersede` 検出も同じ窓を使って置換チェーンを提案します。
 
 しかし、窓だけでは「時点 T で X について何を信じていたか」には答えられますが、**なぜ X が supersede されたか**、**X が隣接する事実とどう関係するか**は記録できません。Zep / Letta / Graphiti のような 2026 年の temporal memory システムは、memory をノード、関係を型付き edge としてモデル化し、次のようなクエリを実現します:
 
@@ -91,8 +91,8 @@ migration `000013_create_memory_edges.sql` でテーブルと以下 2 つの ind
 
 ### CLI
 
-- `traceary memory graph add <from-memory-id> --to <to-memory-id> --relation <type> [--from <ts>] [--to-date <ts>]`
-- `traceary memory graph list [--memory-id <id>] [--relation <type>] [--as-of <ts>] [--limit N]`
+- `traceary memory admin graph add <from-memory-id> --to <to-memory-id> --relation <type> [--from <ts>] [--to-date <ts>]`
+- `traceary memory admin graph list [--memory-id <id>] [--relation <type>] [--as-of <ts>] [--limit N]`
 
 validity 窓の上限は `--to-date` (`--to` は対象 memory ID 指定に使うため fallback の名前)。多段トラバースは明示的に scope 外で、`graph list` は直接の edge のみ返します。
 
@@ -104,7 +104,7 @@ validity 窓の上限は `--to-date` (`--to` は対象 memory ID 指定に使う
 
 - **depth > 1 の多段トラバース**。実運用でどのチェーンが必要か見えてから実装。
 - **サイクル検出**。opt-in edge はサイクルを作り得るが、許容する。呼び出し側が健全にモデル化する責任を負う旨を docs に記載。
-- **LLM 駆動の edge 抽出**。自動抽出なし。edge は `memory remember` と同じく意図的に書く。
+- **LLM 駆動の edge 抽出**。自動抽出なし。edge は `memory store remember` と同じく意図的に書く。
 - **グラフ可視化**。replay HTML に edge を描画しない。運用需要が出てから追加。
 - **edge の validity 重複 hygiene 検出器**。edge 履歴がたまってからの future follow-up。
 - **edge の supersedes セマンティクス**。v1 では append-only。関係を「更新」したいときは新しい `valid_from` で新 edge を作る。

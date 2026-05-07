@@ -80,7 +80,7 @@ runtime under the `<client>-host-capabilities` check.
 | Claude Code | `SubagentStop` (available since 2026-01) | wired | persisted as `session_ended` with `[phase:subagent]` body prefix via `traceary hook subagent-stop claude` |
 | Claude Code | `PreCompact` (available since 2026-01) | wired | persisted as `compact_summary` with `[phase:pre-compact]` body prefix via `traceary hook compact claude pre-compact`; `loadCompactSummary` filters the marker so handoff / memory_pack keep returning the latest post-compact digest |
 | Codex CLI | `Stop.last_assistant_message` | wired | persisted as `transcript` event via `traceary hook transcript codex` alongside the existing session-stop hook on the Codex `Stop` event |
-| Codex CLI | Memory feature flag (`~/.codex/config.toml`) | opt-in per install | import path `traceary memory import codex` works regardless of the flag — the flag only changes Codex's own capture behaviour |
+| Codex CLI | Memory feature flag (`~/.codex/config.toml`) | opt-in per install | import path `traceary memory admin import codex` works regardless of the flag — the flag only changes Codex's own capture behaviour |
 | Gemini CLI | `AfterAgent.prompt_response` | wired | persisted as `transcript` event via `traceary hook transcript gemini` on the Gemini `AfterAgent` event (Gemini has no Stop event) |
 | Gemini CLI | `BeforeAgent.prompt` | wired | persisted as `prompt` event via `traceary hook prompt gemini` on the Gemini `BeforeAgent` event (parity with Claude / Codex `UserPromptSubmit`) |
 | Gemini CLI | `PreCompress.trigger` | wired (marker only) | persisted as `compact_summary` event with `source_hook=pre_compact` and the `trigger` value as body via `traceary hook compact gemini pre-compact` (Gemini exposes no post-compress digest) |

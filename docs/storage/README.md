@@ -12,7 +12,7 @@ This guide explains what gets written there, how the schema is organized today, 
 - file permissions: Traceary creates the parent directory with `0700` and the DB file with `0600`
 - no hidden remote service: the CLI, hooks, and MCP server all read and write the same local SQLite file
 
-`traceary init` is optional. Any command that needs the store will create the DB and apply migrations on demand.
+`traceary store init` is optional. Any command that needs the store will create the DB and apply migrations on demand.
 
 ## Current schema
 
@@ -139,7 +139,7 @@ Current non-goals:
 - backup restore copies the SQLite file first and then reruns store initialization so newer migrations can be applied
 
 Traceary does not promise backward compatibility for arbitrary manual schema edits.
-If you need a portable copy, use `traceary backup create` instead of editing the DB directly.
+If you need a portable copy, use `traceary store backup create` instead of editing the DB directly.
 
 ## `gc` defaults
 
@@ -169,8 +169,8 @@ Practical implications:
 
 The supported backup story is intentionally simple:
 
-- `traceary backup create` writes a compact SQLite backup file
-- `traceary backup restore` copies that file into the destination DB path
+- `traceary store backup create` writes a compact SQLite backup file
+- `traceary store backup restore` copies that file into the destination DB path
 - restore then reapplies migrations if the current binary knows newer schema versions
 
 See the dedicated backup guide for machine transfer and destructive restore behavior:
@@ -182,4 +182,4 @@ When you need to understand what Traceary is doing locally:
 
 1. run `traceary doctor` to confirm the resolved DB path and writeability
 2. inspect `schema/sqlite/migrations/` if you need the exact SQL
-3. use `traceary backup create` before manual investigation or risky cleanup
+3. use `traceary store backup create` before manual investigation or risky cleanup

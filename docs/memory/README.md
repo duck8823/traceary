@@ -34,7 +34,7 @@ See also [Memory blocks: evaluation and decision](../architecture/memory-blocks.
 
 ### Content validity window
 
-Every durable memory carries a content validity window `(valid_from, valid_to)` distinct from the lifecycle `status` and the `expires_at` operation timestamp written by `memory expire`:
+Every durable memory carries a content validity window `(valid_from, valid_to)` distinct from the lifecycle `status` and the `expires_at` operation timestamp written by `memory admin expire`:
 
 - `valid_from` — when the fact starts being asserted (defaults to `created_at`)
 - `valid_to` — when the fact stops being asserted (`NULL` means open-ended)
@@ -45,7 +45,7 @@ To time-travel, pass `--as-of <timestamp>` to CLI list / search, which evaluates
 
 Set or update the window with:
 
-- CLI: `traceary memory set-validity <memory-id> [--from <time>] [--to <time>] [--clear-to]`
+- CLI: `traceary memory admin set-validity <memory-id> [--from <time>] [--to <time>] [--clear-to]`
 - MCP: `manage_memory({"action":"set_validity","ids":"<id>","valid_from":"...","valid_to":"..."})`
 
 `--clear-to` / `clear_valid_to` explicitly returns a memory to open-ended validity and is mutually exclusive with supplying a new `valid_to`.
@@ -89,19 +89,19 @@ The MCP / CLI accept exactly these `kind` values for `evidence_refs[].kind` (def
 
 Use these when a human or agent wants to record a fact deliberately:
 
-- `traceary memory remember`
-- `traceary memory propose`
-- `traceary memory distill`
-- `traceary memory accept`
-- `traceary memory reject`
-- `traceary memory supersede`
-- `traceary memory expire`
+- `traceary memory store remember`
+- `traceary memory store propose`
+- `traceary memory store distill`
+- `traceary memory inbox accept`
+- `traceary memory inbox reject`
+- `traceary memory admin supersede`
+- `traceary memory admin expire`
 
 ### Extraction path
 
 Use these when Traceary should infer candidate memories from existing session signals:
 
-- `traceary memory extract`
+- `traceary memory admin extract`
 
 Extraction is candidate-only. It does not auto-accept memories.
 
@@ -111,9 +111,9 @@ A length-based quality filter routes short candidates (under 20 runes; artifact 
 
 #### Context-boundary extraction
 
-`traceary memory extract` treats meaningful post-compact summaries and clear/reset-equivalent summary events as extraction inputs. Candidates from compact-summary style events use `source=compact-summary` and keep the originating event as evidence, so reviewers can inspect the exact host signal before accepting.
+`traceary memory admin extract` treats meaningful post-compact summaries and clear/reset-equivalent summary events as extraction inputs. Candidates from compact-summary style events use `source=compact-summary` and keep the originating event as evidence, so reviewers can inspect the exact host signal before accepting.
 
-Marker-only lifecycle signals such as `manual`, `clear`, `reset`, or hosts that only notify Traceary that context was cleared do not create candidates. In `memory extract --debug-signals --json`, those rows appear as `ignored` with `reason=marker_only_context_boundary` (or `pre_compact_snapshot` for pre-compact snapshots). Today Claude post-compact can provide summary text; clear/reset support depends on whether the host supplies a summary body. When a host only emits a marker, Traceary records/debugs the boundary but does not fabricate durable memory.
+Marker-only lifecycle signals such as `manual`, `clear`, `reset`, or hosts that only notify Traceary that context was cleared do not create candidates. In `memory admin extract --debug-signals --json`, those rows appear as `ignored` with `reason=marker_only_context_boundary` (or `pre_compact_snapshot` for pre-compact snapshots). Today Claude post-compact can provide summary text; clear/reset support depends on whether the host supplies a summary body. When a host only emits a marker, Traceary records/debugs the boundary but does not fabricate durable memory.
 
 ### Review path
 
@@ -130,7 +130,7 @@ The review path is deliberately `candidate`-scoped so extraction and
 import feed the same inbox and a single reviewer pass can clear them.
 
 When one or more raw candidates are useful as evidence but are not suitable
-as accepted facts verbatim, use `traceary memory distill`. Distillation
+as accepted facts verbatim, use `traceary memory store distill`. Distillation
 requires the operator to supply the final fact, type, and scope explicitly;
 Traceary does not perform LLM rewriting or auto-acceptance. The command
 creates a new accepted memory with the union of evidence refs and artifact
@@ -140,7 +140,7 @@ to `--replace=keep|reject|supersede`.
 Example:
 
 ```sh
-traceary memory distill \
+traceary memory store distill \
   --from memory-f332...,memory-7f83... \
   --type constraint \
   --workspace github.com/asahi-digital/delivery-platform \
@@ -153,15 +153,15 @@ traceary memory distill \
 Use this when you want to surface memories written by another local agent as
 Traceary durable-memory candidates without merging the underlying stores:
 
-- `traceary memory import codex`
-- `traceary memory import instructions --source <claude|codex|gemini> --in <path>`
+- `traceary memory admin import codex`
+- `traceary memory admin import instructions --source <claude|codex|gemini> --in <path>`
 
 ### Hygiene path
 
 Use this periodically to keep the accepted layer tidy:
 
-- `traceary memory hygiene scan`
-- `traceary memory hygiene apply --ids id1,id2,...`
+- `traceary memory admin hygiene scan`
+- `traceary memory admin hygiene apply --ids id1,id2,...`
 - MCP `query_memory(action="scan_hygiene")`
 
 Scan flags five conditions on `accepted` memories: content the current
@@ -188,12 +188,12 @@ Use this when you want Traceary to remain the local source of truth but
 still publish the current set of accepted memories into the host's own
 instruction file:
 
-- `traceary memory export --target <claude|codex|gemini> --out <path>`
-- `traceary memory import instructions --source <...> --in <path>`
+- `traceary memory admin export --target <claude|codex|gemini> --out <path>`
+- `traceary memory admin import instructions --source <...> --in <path>`
 - MCP `query_memory(action="export")` / `manage_memory(action="import_instructions")` (agent-driven)
 
 Export always wraps its output in `<!-- traceary-memories:begin:v1 -->` /
-`<!-- traceary-memories:end -->` markers so a subsequent `memory import
+`<!-- traceary-memories:end -->` markers so a subsequent `memory admin import
 instructions` run round-trips cleanly. Bullets added outside the managed
 block by the operator (or the host's own auto-memory feature) land in the
 inbox as candidates for review.
@@ -210,9 +210,9 @@ Activation can be planned before any host-native file is mutated, then
 applied explicitly. The same `--target <codex|claude|gemini>` command set
 covers every host:
 
-- `traceary memory activate --target <host> --status` — read-only health view
-- `traceary memory activate --target <host> --dry-run [--diff]` — print the planned content/diff without writing
-- `traceary memory activate --target <host> --apply` — write the activation target safely
+- `traceary memory admin activate --target <host> --status` — read-only health view
+- `traceary memory admin activate --target <host> --dry-run [--diff]` — print the planned content/diff without writing
+- `traceary memory admin activate --target <host> --apply` — write the activation target safely
 
 `--root` overrides the activation root and `--path` overrides the activation
 target file path. For Claude/Gemini, `--path` points at the host context file
@@ -233,7 +233,7 @@ Traceary uses three distinct layers:
 1. **Accepted memory store** — the local SQLite `memories` aggregate. This is
    the source of truth for reviewed durable facts.
 2. **Instruction-file export** — deterministic markdown blocks written by
-   `traceary memory export --target <claude|codex|gemini>`. Export is the
+   `traceary memory admin export --target <claude|codex|gemini>`. Export is the
    portable path for hosts that consume project/user instruction files.
 3. **Host-native activation** — a host-specific file/write path that makes the
    accepted store visible to that host's native memory system while preserving
@@ -285,14 +285,14 @@ duplicating bullets or destroying user-authored prose.
 
 #### Common workflow
 
-1. Inspect status — `traceary memory activate --target <host> --status`. Run
+1. Inspect status — `traceary memory admin activate --target <host> --status`. Run
    inside the project root for Claude/Gemini so the activation root resolves
    to the nearest ancestor that contains `.git`.
-2. Preview the planned changes — `traceary memory activate --target <host>
+2. Preview the planned changes — `traceary memory admin activate --target <host>
    --dry-run --diff`. The output labels each component (`external memory plan`
    / `host context plan` for two-file targets), so reviewers can see exactly
    which file will change.
-3. Apply — `traceary memory activate --target <host> --apply`. A second apply
+3. Apply — `traceary memory admin activate --target <host> --apply`. A second apply
    converges to noop when nothing has changed.
 4. Verify — `traceary doctor --client <host>` includes a
    `<host>-memory-activation` check with the same dry-run/apply remediation.
@@ -352,11 +352,11 @@ Examples:
 
 Use these when you want the memory layer folded into a resume-friendly context pack:
 
-- `traceary handoff`
+- `traceary session handoff`
 - MCP `session_status(action="handoff")`
 - MCP `query_memory(action="pack")`
 
-`handoff` returns a working-memory summary for the next session. `query_memory(action="pack")` is the MCP-oriented equivalent when a client wants a structured bundle that already includes durable memories.
+`session handoff` returns a working-memory summary for the next session (the v0.13.x top-level `traceary handoff` alias was removed in v0.14.0). `query_memory(action="pack")` is the MCP-oriented equivalent when a client wants a structured bundle that already includes durable memories.
 
 ## Sanitization and redaction
 
@@ -372,9 +372,9 @@ That means:
 
 1. keep raw history in the audit layer through hooks or CLI writes
 2. inspect recent work with `traceary tail`, `traceary list`, `traceary search`, or `traceary show`
-3. use `traceary memory remember` for explicit facts you already trust
-4. use `traceary memory extract` to generate reviewable candidates from session summaries and compact summaries
-5. use `traceary handoff` when the next agent or session should start from a compact context bundle
+3. use `traceary memory store remember` for explicit facts you already trust
+4. use `traceary memory admin extract` to generate reviewable candidates from session summaries and compact summaries
+5. use `traceary session handoff` when the next agent or session should start from a compact context bundle
 
 ## Related docs
 

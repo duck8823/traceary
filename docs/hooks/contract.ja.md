@@ -76,7 +76,7 @@ Traceary の managed hook 集合は、リリースをまたいで安定させる
 | Claude Code | `SubagentStop` (2026-01 から利用可能) | wire 済み | `traceary hook subagent-stop claude` 経由で `session_ended` + `[phase:subagent]` プレフィックスで記録 |
 | Claude Code | `PreCompact` (2026-01 から利用可能) | wire 済み | `traceary hook compact claude pre-compact` 経由で `compact_summary` + `[phase:pre-compact]` プレフィックスで記録。`loadCompactSummary` が prefix を skip するため handoff / memory_pack は引き続き post-compact summary を返す |
 | Codex CLI | `Stop.last_assistant_message` | wire 済み | Codex `Stop` event 上で既存の session-stop hook と並んで `traceary hook transcript codex` が起動し `transcript` event として記録 |
-| Codex CLI | Memory feature flag (`~/.codex/config.toml`) | install 単位で opt-in | `traceary memory import codex` は flag 状態に関わらず動作。flag は Codex 側の capture 挙動にしか影響しない |
+| Codex CLI | Memory feature flag (`~/.codex/config.toml`) | install 単位で opt-in | `traceary memory admin import codex` は flag 状態に関わらず動作。flag は Codex 側の capture 挙動にしか影響しない |
 | Gemini CLI | `AfterAgent.prompt_response` | wire 済み | Gemini `AfterAgent` event 上で `traceary hook transcript gemini` が起動し `transcript` event として記録 (Gemini には Stop event が存在しない) |
 | Gemini CLI | `BeforeAgent.prompt` | wire 済み | Gemini `BeforeAgent` event 上で `traceary hook prompt gemini` が起動し `prompt` event として記録 (Claude / Codex の `UserPromptSubmit` と同等) |
 | Gemini CLI | `PreCompress.trigger` | wire 済み (marker のみ) | Gemini `PreCompress` event 上で `traceary hook compact gemini pre-compact` が起動し、`source_hook=pre_compact` で `trigger` 値を body にした `compact_summary` event として記録 (Gemini に post-compress digest はない) |

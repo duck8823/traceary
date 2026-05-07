@@ -21,11 +21,11 @@ visible in Claude project instructions, you have two options.
 memories into a Traceary-managed block inside `CLAUDE.md` directly:
 
 ```sh
-traceary memory export --target claude --out CLAUDE.md
+traceary memory admin export --target claude --out CLAUDE.md
 ```
 
 **Option 2 — host-native activation (v0.13.0+, recommended for projects).** Use
-`traceary memory activate --target claude` to manage a small import stub inside
+`traceary memory admin activate --target claude` to manage a small import stub inside
 `CLAUDE.md` and an external memory file under `.traceary/memories/claude.md`.
 The activation pair preserves user-authored content outside the managed
 regions, refuses unsafe targets (symlinks, directories, malformed markers,
@@ -35,13 +35,13 @@ store remains owned by Claude itself.
 
 ```sh
 # inspect the live host pair (read-only)
-traceary memory activate --target claude --status
+traceary memory admin activate --target claude --status
 
 # preview the planned changes (dry-run, no writes)
-traceary memory activate --target claude --dry-run --diff
+traceary memory admin activate --target claude --dry-run --diff
 
 # apply the pair with safe per-file writes (idempotent)
-traceary memory activate --target claude --apply
+traceary memory admin activate --target claude --apply
 ```
 
 Defaults:

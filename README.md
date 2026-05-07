@@ -93,7 +93,7 @@ traceary doctor
 ## Quick start
 
 `traceary store init` is optional. Commands create the database and run migrations on demand.
-Use `store init` only when you want to create the DB path up front or confirm write permissions before a session starts. (The v0.8.x top-level `traceary init` still works as a deprecated alias and will be removed in v1.0.)
+Use `store init` only when you want to create the DB path up front or confirm write permissions before a session starts. The v0.8.x top-level alias `traceary init` was removed in v0.14.0; running it now exits with a usage error pointing at `traceary store init`. See the [CLI stability and deprecation policy](./docs/cli-stability.md) for the full list of v0.14 removals and replacements.
 
 ### 1. Start a session and write a note
 
@@ -129,7 +129,7 @@ traceary session end --session-id "$sid" --id-only
 ### 4. Promote reusable context when it matters
 
 ```sh
-traceary memory remember \
+traceary memory store remember \
   --type decision \
   --workspace github.com/duck8823/traceary \
   --fact "Use traceary session handoff --compact-only for compact resume context" \
@@ -137,6 +137,19 @@ traceary memory remember \
 
 traceary session handoff --workspace github.com/duck8823/traceary
 ```
+
+### 5. Curate the durable-memory inbox
+
+`traceary memory ...` is grouped by intent in v0.14: `memory inbox` for candidate review, `memory store` for deliberate writes (`remember` / `propose` / `distill`), and `memory admin` for extraction, host-side I/O (`import` / `export` / `activate`), maintenance (`hygiene` / `graph`), and lifecycle (`supersede` / `expire` / `set-validity`). Daily-read commands (`memory search` / `memory show` / `memory list`) stay top-level. The flat verbs from earlier releases (`memory remember`, `memory accept`, ...) keep working as hidden deprecated aliases through v0.14.x; they emit a one-line stderr deprecation notice and are scheduled for removal in v0.15.
+
+For interactive review of the candidate inbox at the terminal:
+
+```sh
+traceary memory inbox review
+traceary memory inbox review --workspace github.com/duck8823/traceary --type preference --limit 10
+```
+
+`memory inbox review` is a TTY-only walk-through built on a shared Bubble Tea TUI. Inside the screen `a` accept, `x` reject, `s` skip, `e` edit/distill, `v` view evidence, `?` help, `q` quit. Edit/distill never auto-accepts LLM-authored text — it routes through `traceary memory store distill` and requires you to type the operator-authored fact. Non-interactive shells receive a refusal with exit code `2` and a pointer to the script-friendly fallback (`memory inbox list` plus `memory inbox accept|reject`, both of which now also accept a positional id and `--id-only`).
 
 ## Inspect recent and live activity
 
@@ -185,7 +198,7 @@ The query surface is shared: once Traceary is installed, every host can use the 
 | Codex | Full (`SessionStart` + `Stop`) | Tool hooks | Yes | No | Partial |
 | Gemini CLI | Full (`SessionStart` + `SessionEnd`) | Tool hooks | No | No | Basic |
 
-> 2026 Q2 note: Claude Code's `SubagentStop` / `PreCompact` hooks and Gemini CLI 0.38.x's memory-manager preview are available but not wired into Traceary's managed hook set. The Codex memory feature flag in `~/.codex/config.toml` changes Codex's own capture behaviour, not Traceary's — `traceary memory import codex` works regardless. `traceary doctor` surfaces the same notes under `<client>-host-capabilities`, and the full list lives in the [hook contract](./docs/hooks/contract.md#2026-q2-host-capability-notes).
+> 2026 Q2 note: Claude Code's `SubagentStop` / `PreCompact` hooks and Gemini CLI 0.38.x's memory-manager preview are available but not wired into Traceary's managed hook set. The Codex memory feature flag in `~/.codex/config.toml` changes Codex's own capture behaviour, not Traceary's — `traceary memory admin import codex` works regardless. `traceary doctor` surfaces the same notes under `<client>-host-capabilities`, and the full list lives in the [hook contract](./docs/hooks/contract.md#2026-q2-host-capability-notes).
 
 For the full contract and hook semantics, see the [hook contract](./docs/hooks/contract.md) and [event lifecycle](./docs/lifecycle.md).
 
