@@ -233,6 +233,27 @@ func newMemorySummaryOutput(summary apptypes.MemorySummary) memorySummaryOutput 
 	}
 }
 
+func newStaleMemoryOutput(row apptypes.StaleMemoryRow) staleMemoryOutput {
+	summary := newMemorySummaryOutput(row.Summary())
+	return staleMemoryOutput{
+		MemoryID:   summary.MemoryID,
+		Type:       summary.Type,
+		ScopeKind:  summary.ScopeKind,
+		ScopeValue: summary.ScopeValue,
+		Fact:       summary.Fact,
+		Status:     summary.Status,
+		Confidence: summary.Confidence,
+		Source:     summary.Source,
+		Supersedes: summary.Supersedes,
+		ExpiresAt:  summary.ExpiresAt,
+		ValidFrom:  summary.ValidFrom,
+		ValidTo:    summary.ValidTo,
+		CreatedAt:  summary.CreatedAt,
+		UpdatedAt:  summary.UpdatedAt,
+		Reason:     row.Reason().String(),
+	}
+}
+
 func newMemoryDetailsOutput(details apptypes.MemoryDetails) memoryDetailsOutput {
 	evidenceRefs := make([]string, 0, len(details.EvidenceRefs()))
 	for _, ref := range details.EvidenceRefs() {

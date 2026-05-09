@@ -103,15 +103,15 @@ func (c *RootCLI) runTop(ctx context.Context, output io.Writer, opts topCommandO
 	return c.runTopTUI(ctx, output, opts)
 }
 
-// loadTopSnapshot fetches every data slice the redesigned snapshot
-// surfaces — active session tree, recent failures, recent commands,
-// and candidate durable memories — using the same per-pane caps the
-// live dashboard applies. The session pane reuses the operator-controlled
-// --limit flag; the secondary panes intentionally use the small dashboard
-// caps so the script-friendly snapshot does not balloon under a noisy
-// workspace.
+// loadTopSnapshot fetches the data slices the redesigned snapshot surfaces
+// using the same per-pane caps the live dashboard applies. The session pane
+// reuses the operator-controlled --limit flag; the secondary panes
+// intentionally use the small dashboard caps so the script-friendly snapshot
+// does not balloon under a noisy workspace. The stale-memory pane is enabled
+// for the JSON snapshot contract in #959 and remains disabled for text/TUI
+// paths until #960 renders it.
 func (c *RootCLI) loadTopSnapshot(ctx context.Context, opts topCommandOptions) (topDataSnapshot, error) {
-	return c.newTopDataLoader().loadSnapshot(ctx, topDataCriteria{
+	criteria := topDataCriteria{
 		Workspace:          opts.workspace,
 		Client:             opts.client,
 		Agent:              opts.agent,
@@ -119,7 +119,11 @@ func (c *RootCLI) loadTopSnapshot(ctx context.Context, opts topCommandOptions) (
 		FailureLimit:       topPaneFailureLimit,
 		RecentCommandLimit: topPaneRecentCommandLimit,
 		CandidateLimit:     topPaneCandidateLimit,
-	})
+	}
+	if opts.asJSON {
+		criteria.StaleMemoryLimit = topPaneStaleMemoryLimit
+	}
+	return c.newTopDataLoader().loadSnapshot(ctx, criteria)
 }
 
 // newTopDataLoader builds a topDataLoader bound to the RootCLI's

@@ -16,3 +16,12 @@ type MemoryQueryService interface {
 	// GetDetails returns the details for a single memory.
 	GetDetails(ctx context.Context, memoryID types.MemoryID) (apptypes.MemoryDetails, error)
 }
+
+// StaleMemoryQueryService provides the additive read-side query used by
+// `traceary top --snapshot --json` to surface stale durable memories without
+// introducing a write-side use case.
+type StaleMemoryQueryService interface {
+	// ListStale returns stale durable-memory rows plus the total count before
+	// paging.
+	ListStale(ctx context.Context, criteria apptypes.StaleMemoryListCriteria) (apptypes.StaleMemoryListResult, error)
+}

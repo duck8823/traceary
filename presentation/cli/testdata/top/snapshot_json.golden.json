@@ -87,5 +87,24 @@
         "updated_at": "2026-04-10T12:00:00Z"
       }
     ]
+  },
+  "stale_memories": {
+    "count": 3,
+    "items": [
+      {
+        "memory_id": "mem-stale-1",
+        "type": "decision",
+        "scope_kind": "workspace",
+        "scope_value": "duck8823/traceary",
+        "fact": "superseded rollout note",
+        "status": "superseded",
+        "confidence": "high",
+        "source": "manual",
+        "valid_from": "2026-04-10T12:00:00Z",
+        "created_at": "2026-04-10T12:00:00Z",
+        "updated_at": "2026-04-10T12:01:00Z",
+        "reason": "superseded"
+      }
+    ]
   }
 }

@@ -90,6 +90,11 @@ type MemoryUsecase interface {
 	// List returns memory summaries matching the criteria.
 	List(ctx context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error)
 
+	// ListStale returns stale durable-memory rows and the total count before
+	// paging. It is a read-side helper for the top dashboard's stale-memory
+	// pane.
+	ListStale(ctx context.Context, criteria apptypes.StaleMemoryListCriteria) (apptypes.StaleMemoryListResult, error)
+
 	// Search searches durable memories.
 	Search(ctx context.Context, criteria apptypes.MemorySearchCriteria) ([]apptypes.MemorySummary, error)
 

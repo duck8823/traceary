@@ -74,6 +74,7 @@ type topSnapshotPayload struct {
 	Failures       []event               `json:"failures"`
 	RecentCommands []event               `json:"recent_commands"`
 	Candidates     topSnapshotCandidates `json:"candidates"`
+	StaleMemories  topSnapshotStale      `json:"stale_memories"`
 }
 
 // topSnapshotCandidates wraps the durable-memory inbox slice with an
@@ -84,6 +85,13 @@ type topSnapshotPayload struct {
 type topSnapshotCandidates struct {
 	Count int                   `json:"count"`
 	Items []memorySummaryOutput `json:"items"`
+}
+
+// topSnapshotStale wraps stale durable-memory rows with the total stale count
+// before the per-pane item cap is applied.
+type topSnapshotStale struct {
+	Count int                 `json:"count"`
+	Items []staleMemoryOutput `json:"items"`
 }
 
 // topSnapshotNode is the JSON shape of a single node in the
@@ -131,6 +139,25 @@ type memorySummaryOutput struct {
 	ValidTo    *string `json:"valid_to,omitempty"`
 	CreatedAt  string  `json:"created_at"`
 	UpdatedAt  string  `json:"updated_at"`
+}
+
+// staleMemoryOutput is the JSON shape of a stale durable-memory top row.
+type staleMemoryOutput struct {
+	MemoryID   string  `json:"memory_id"`
+	Type       string  `json:"type"`
+	ScopeKind  string  `json:"scope_kind"`
+	ScopeValue string  `json:"scope_value"`
+	Fact       string  `json:"fact"`
+	Status     string  `json:"status"`
+	Confidence string  `json:"confidence"`
+	Source     string  `json:"source"`
+	Supersedes *string `json:"supersedes,omitempty"`
+	ExpiresAt  *string `json:"expires_at,omitempty"`
+	ValidFrom  string  `json:"valid_from"`
+	ValidTo    *string `json:"valid_to,omitempty"`
+	CreatedAt  string  `json:"created_at"`
+	UpdatedAt  string  `json:"updated_at"`
+	Reason     string  `json:"reason"`
 }
 
 // memoryDetailsOutput is the JSON shape of a durable memory with refs.

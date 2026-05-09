@@ -69,16 +69,26 @@ func (s *topDataEventStub) List(_ context.Context, criteria apptypes.EventListCr
 type topDataMemoryStub struct {
 	usecase.MemoryUsecase
 
-	listResult   []apptypes.MemorySummary
-	listErr      error
-	listCriteria apptypes.MemoryListCriteria
-	listCalls    int
+	listResult          []apptypes.MemorySummary
+	listErr             error
+	listCriteria        apptypes.MemoryListCriteria
+	listCalls           int
+	staleResult         apptypes.StaleMemoryListResult
+	staleErr            error
+	staleMemoryCriteria apptypes.StaleMemoryListCriteria
+	staleMemoryCalls    int
 }
 
 func (s *topDataMemoryStub) List(_ context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
 	s.listCriteria = criteria
 	s.listCalls++
 	return s.listResult, s.listErr
+}
+
+func (s *topDataMemoryStub) ListStale(_ context.Context, criteria apptypes.StaleMemoryListCriteria) (apptypes.StaleMemoryListResult, error) {
+	s.staleMemoryCriteria = criteria
+	s.staleMemoryCalls++
+	return s.staleResult, s.staleErr
 }
 
 // fixedStartedAt is the deterministic anchor every fixture in this file
@@ -427,6 +437,77 @@ func TestTopDataLoader_LoadCandidates_ClientDoesNotAddScope(t *testing.T) {
 	}
 }
 
+func TestTopDataLoader_LoadStaleMemories_ForwardsScopesAndLimit(t *testing.T) {
+	t.Parallel()
+
+	staleSummary := memorySummaryFixture(t, "mem-stale", domtypes.MemoryStatusSuperseded, "stale fixture")
+	staleRow, err := apptypes.StaleMemoryRowOf(staleSummary, apptypes.StaleMemoryReasonSuperseded)
+	if err != nil {
+		t.Fatalf("StaleMemoryRowOf: %v", err)
+	}
+	staleResult, err := apptypes.StaleMemoryListResultOf(7, []apptypes.StaleMemoryRow{staleRow})
+	if err != nil {
+		t.Fatalf("StaleMemoryListResultOf: %v", err)
+	}
+	memory := &topDataMemoryStub{staleResult: staleResult}
+	loader := newTopDataLoader(nil, nil, memory)
+
+	got, err := loader.loadStaleMemories(context.Background(), topDataCriteria{
+		Workspace:        "  duck8823/traceary  ",
+		Client:           "claude",
+		Agent:            "  codex  ",
+		StaleMemoryLimit: 4,
+	})
+	if err != nil {
+		t.Fatalf("loadStaleMemories() error = %v", err)
+	}
+	if got.Count() != 7 {
+		t.Fatalf("loadStaleMemories().Count = %d, want 7", got.Count())
+	}
+	if items := got.Items(); len(items) != 1 || items[0].Summary().MemoryID().String() != "mem-stale" {
+		t.Fatalf("loadStaleMemories().Items = %#v, want one mem-stale", items)
+	}
+	if got, want := memory.staleMemoryCriteria.Limit(), 4; got != want {
+		t.Fatalf("ListStale criteria Limit = %d, want %d", got, want)
+	}
+	scopes := memory.staleMemoryCriteria.Scopes()
+	if len(scopes) != 2 {
+		t.Fatalf("ListStale criteria Scopes length = %d, want 2 (workspace + agent)", len(scopes))
+	}
+	workspaceScope, ok := scopes[0].(domtypes.WorkspaceScope)
+	if !ok {
+		t.Fatalf("scopes[0] = %T, want WorkspaceScope", scopes[0])
+	}
+	if got, want := workspaceScope.Workspace().String(), "duck8823/traceary"; got != want {
+		t.Fatalf("scopes[0].Workspace = %q, want %q", got, want)
+	}
+	agentScope, ok := scopes[1].(domtypes.AgentScope)
+	if !ok {
+		t.Fatalf("scopes[1] = %T, want AgentScope", scopes[1])
+	}
+	if got, want := agentScope.Agent().String(), "codex"; got != want {
+		t.Fatalf("scopes[1].Agent = %q, want %q", got, want)
+	}
+}
+
+func TestTopDataLoader_LoadStaleMemories_ZeroLimitIsNoOp(t *testing.T) {
+	t.Parallel()
+
+	memory := &topDataMemoryStub{}
+	loader := newTopDataLoader(nil, nil, memory)
+
+	got, err := loader.loadStaleMemories(context.Background(), topDataCriteria{StaleMemoryLimit: 0})
+	if err != nil {
+		t.Fatalf("loadStaleMemories() error = %v", err)
+	}
+	if got.Count() != 0 || len(got.Items()) != 0 {
+		t.Fatalf("loadStaleMemories() = %#v, want empty result when StaleMemoryLimit <= 0", got)
+	}
+	if memory.staleMemoryCalls != 0 {
+		t.Fatalf("memory.ListStale calls = %d, want 0", memory.staleMemoryCalls)
+	}
+}
+
 func TestTopDataLoader_LoadSnapshot_AggregatesEveryPane(t *testing.T) {
 	t.Parallel()
 
@@ -455,6 +536,15 @@ func TestTopDataLoader_LoadSnapshot_AggregatesEveryPane(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MemorySummaryOf: %v", err)
 	}
+	staleSummary := memorySummaryFixture(t, "mem-stale", domtypes.MemoryStatusSuperseded, "stale snapshot fixture")
+	staleRow, err := apptypes.StaleMemoryRowOf(staleSummary, apptypes.StaleMemoryReasonSuperseded)
+	if err != nil {
+		t.Fatalf("StaleMemoryRowOf: %v", err)
+	}
+	staleResult, err := apptypes.StaleMemoryListResultOf(3, []apptypes.StaleMemoryRow{staleRow})
+	if err != nil {
+		t.Fatalf("StaleMemoryListResultOf: %v", err)
+	}
 
 	session := &topDataSessionStub{
 		listResult: []apptypes.SessionSummary{root},
@@ -462,7 +552,7 @@ func TestTopDataLoader_LoadSnapshot_AggregatesEveryPane(t *testing.T) {
 			domtypes.SessionID("root"): {root},
 		},
 	}
-	memory := &topDataMemoryStub{listResult: []apptypes.MemorySummary{candidate}}
+	memory := &topDataMemoryStub{listResult: []apptypes.MemorySummary{candidate}, staleResult: staleResult}
 	// snapshotEventStub differentiates the two EventUsecase.List calls
 	// loadSnapshot makes (failures vs recent commands) by inspecting
 	// the FailuresOnly / Kind criteria, so each pane sees a distinct
@@ -475,6 +565,7 @@ func TestTopDataLoader_LoadSnapshot_AggregatesEveryPane(t *testing.T) {
 		FailureLimit:       3,
 		RecentCommandLimit: 3,
 		CandidateLimit:     2,
+		StaleMemoryLimit:   2,
 	})
 	if err != nil {
 		t.Fatalf("loadSnapshot() error = %v", err)
@@ -490,6 +581,12 @@ func TestTopDataLoader_LoadSnapshot_AggregatesEveryPane(t *testing.T) {
 	}
 	if len(snap.Candidates) != 1 || snap.Candidates[0].MemoryID().String() != "mem-1" {
 		t.Fatalf("snap.Candidates = %#v, want one mem-1", snap.Candidates)
+	}
+	if snap.StaleMemories.Count() != 3 {
+		t.Fatalf("snap.StaleMemories.Count = %d, want 3", snap.StaleMemories.Count())
+	}
+	if items := snap.StaleMemories.Items(); len(items) != 1 || items[0].Summary().MemoryID().String() != "mem-stale" {
+		t.Fatalf("snap.StaleMemories.Items = %#v, want one mem-stale", items)
 	}
 }
 
@@ -522,13 +619,41 @@ func TestTopDataLoader_LoadSnapshot_NoUsecasesReturnsEmpty(t *testing.T) {
 		FailureLimit:       10,
 		RecentCommandLimit: 10,
 		CandidateLimit:     10,
+		StaleMemoryLimit:   10,
 	})
 	if err != nil {
 		t.Fatalf("loadSnapshot() error = %v", err)
 	}
-	if snap.Sessions != nil || snap.Failures != nil || snap.RecentCommands != nil || snap.Candidates != nil {
+	if snap.Sessions != nil || snap.Failures != nil || snap.RecentCommands != nil || snap.Candidates != nil || snap.StaleMemories.Count() != 0 || len(snap.StaleMemories.Items()) != 0 {
 		t.Fatalf("loadSnapshot() = %#v, want zero-value snapshot when no usecases are wired", snap)
 	}
+}
+
+func memorySummaryFixture(t *testing.T, id string, status domtypes.MemoryStatus, fact string) apptypes.MemorySummary {
+	t.Helper()
+	workspace, err := domtypes.WorkspaceFrom("duck8823/traceary")
+	if err != nil {
+		t.Fatalf("WorkspaceFrom: %v", err)
+	}
+	summary, err := apptypes.MemorySummaryOf(
+		domtypes.MemoryID(id),
+		domtypes.MemoryTypePreference,
+		domtypes.WorkspaceScopeOf(workspace),
+		fact,
+		status,
+		domtypes.ConfidenceMedium,
+		domtypes.MemorySourceManual,
+		domtypes.None[domtypes.MemoryID](),
+		domtypes.None[time.Time](),
+		fixedStartedAt,
+		domtypes.None[time.Time](),
+		fixedStartedAt,
+		fixedStartedAt,
+	)
+	if err != nil {
+		t.Fatalf("MemorySummaryOf: %v", err)
+	}
+	return summary
 }
 
 func mustEvent(t *testing.T, id string, kind domtypes.EventKind, body string) *model.Event {

@@ -545,6 +545,28 @@ func (u *memoryUsecase) List(ctx context.Context, criteria apptypes.MemoryListCr
 	return summaries, nil
 }
 
+func (u *memoryUsecase) ListStale(ctx context.Context, criteria apptypes.StaleMemoryListCriteria) (apptypes.StaleMemoryListResult, error) {
+	if u.memoryQuery == nil {
+		return apptypes.StaleMemoryListResult{}, xerrors.Errorf("memory query service is not configured")
+	}
+	staleQuery, ok := u.memoryQuery.(queryservice.StaleMemoryQueryService)
+	if !ok {
+		return apptypes.StaleMemoryListResult{}, xerrors.Errorf("stale memory query service is not configured")
+	}
+	if criteria.Limit() <= 0 {
+		return apptypes.StaleMemoryListResult{}, xerrors.Errorf("limit must be greater than or equal to 1")
+	}
+	if criteria.Offset() < 0 {
+		return apptypes.StaleMemoryListResult{}, xerrors.Errorf("offset must be greater than or equal to 0")
+	}
+
+	result, err := staleQuery.ListStale(ctx, criteria)
+	if err != nil {
+		return apptypes.StaleMemoryListResult{}, xerrors.Errorf("failed to list stale durable memories: %w", err)
+	}
+	return result, nil
+}
+
 func (u *memoryUsecase) Search(ctx context.Context, criteria apptypes.MemorySearchCriteria) ([]apptypes.MemorySummary, error) {
 	if u.memoryQuery == nil {
 		return nil, xerrors.Errorf("memory query service is not configured")

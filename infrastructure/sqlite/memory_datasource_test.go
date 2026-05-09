@@ -695,6 +695,191 @@ func TestMemoryDatasource_List_RememberIntentPriorityAppliesBeforePagination(t *
 	}
 }
 
+func TestMemoryDatasource_ListStale_ReturnsCountItemsAndReasons(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "stale.db")
+	evaluationTime := time.Date(2026, 4, 20, 12, 0, 0, 0, time.UTC)
+	sut, store := newMemoryDatasourceWithClock(t, dbPath, memoryDatasourceTestMigrations(), fakeClock{now: evaluationTime})
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	scope := mustWorkspaceScope(t, "github.com/duck8823/traceary")
+	otherScope := mustWorkspaceScope(t, "github.com/example/other")
+	validFrom := evaluationTime.Add(-24 * time.Hour)
+	memories := []*model.Memory{
+		model.MemoryOf(
+			mustMemoryID(t, "mem-valid-expired"),
+			types.MemoryTypeDecision,
+			scope,
+			"validity window already closed",
+			types.MemoryStatusAccepted,
+			types.ConfidenceHigh,
+			types.MemorySourceManual,
+			nil,
+			nil,
+			types.None[types.MemoryID](),
+			types.None[time.Time](),
+			validFrom,
+			types.Some(evaluationTime.Add(-time.Nanosecond)),
+			validFrom,
+			evaluationTime.Add(1*time.Minute),
+		),
+		model.MemoryOf(
+			mustMemoryID(t, "mem-lifecycle-expired"),
+			types.MemoryTypeLesson,
+			scope,
+			"lifecycle expired but retained for audit",
+			types.MemoryStatusExpired,
+			types.ConfidenceMedium,
+			types.MemorySourceManual,
+			nil,
+			nil,
+			types.None[types.MemoryID](),
+			types.Some(evaluationTime.Add(-time.Hour)),
+			validFrom,
+			types.None[time.Time](),
+			validFrom,
+			evaluationTime.Add(2*time.Minute),
+		),
+		model.MemoryOf(
+			mustMemoryID(t, "mem-superseded"),
+			types.MemoryTypePreference,
+			scope,
+			"superseded preference",
+			types.MemoryStatusSuperseded,
+			types.ConfidenceHigh,
+			types.MemorySourceManual,
+			nil,
+			nil,
+			types.None[types.MemoryID](),
+			types.None[time.Time](),
+			validFrom,
+			types.None[time.Time](),
+			validFrom,
+			evaluationTime.Add(3*time.Minute),
+		),
+		model.MemoryOf(
+			mustMemoryID(t, "mem-overlap-a"),
+			types.MemoryTypeConstraint,
+			scope,
+			"same fact in same scope",
+			types.MemoryStatusAccepted,
+			types.ConfidenceVerified,
+			types.MemorySourceManual,
+			nil,
+			nil,
+			types.None[types.MemoryID](),
+			types.None[time.Time](),
+			validFrom,
+			types.None[time.Time](),
+			validFrom,
+			evaluationTime.Add(4*time.Minute),
+		),
+		model.MemoryOf(
+			mustMemoryID(t, "mem-overlap-b"),
+			types.MemoryTypeConstraint,
+			scope,
+			"same fact in same scope",
+			types.MemoryStatusAccepted,
+			types.ConfidenceVerified,
+			types.MemorySourceManual,
+			nil,
+			nil,
+			types.None[types.MemoryID](),
+			types.None[time.Time](),
+			validFrom,
+			types.None[time.Time](),
+			validFrom,
+			evaluationTime.Add(5*time.Minute),
+		),
+		model.MemoryOf(
+			mustMemoryID(t, "mem-active"),
+			types.MemoryTypeDecision,
+			scope,
+			"active memory stays out of stale list",
+			types.MemoryStatusAccepted,
+			types.ConfidenceHigh,
+			types.MemorySourceManual,
+			nil,
+			nil,
+			types.None[types.MemoryID](),
+			types.None[time.Time](),
+			validFrom,
+			types.None[time.Time](),
+			validFrom,
+			evaluationTime.Add(6*time.Minute),
+		),
+		model.MemoryOf(
+			mustMemoryID(t, "mem-rotated-active"),
+			types.MemoryTypeDecision,
+			scope,
+			"validity window already closed",
+			types.MemoryStatusAccepted,
+			types.ConfidenceHigh,
+			types.MemorySourceManual,
+			nil,
+			nil,
+			types.None[types.MemoryID](),
+			types.None[time.Time](),
+			evaluationTime.Add(-time.Minute),
+			types.None[time.Time](),
+			evaluationTime.Add(-time.Minute),
+			evaluationTime.Add(7*time.Minute),
+		),
+		model.MemoryOf(
+			mustMemoryID(t, "mem-other-scope"),
+			types.MemoryTypeDecision,
+			otherScope,
+			"other scope stale memory",
+			types.MemoryStatusSuperseded,
+			types.ConfidenceHigh,
+			types.MemorySourceManual,
+			nil,
+			nil,
+			types.None[types.MemoryID](),
+			types.None[time.Time](),
+			validFrom,
+			types.None[time.Time](),
+			validFrom,
+			evaluationTime.Add(8*time.Minute),
+		),
+	}
+	for _, memory := range memories {
+		if err := sut.Save(ctx, memory); err != nil {
+			t.Fatalf("Save(%s) error = %v", memory.MemoryID(), err)
+		}
+	}
+
+	result, err := sut.ListStale(ctx, apptypes.NewStaleMemoryListCriteriaBuilder(3).
+		Scope(scope).
+		Build())
+	if err != nil {
+		t.Fatalf("ListStale() error = %v", err)
+	}
+	if got, want := result.Count(), 5; got != want {
+		t.Fatalf("ListStale().Count = %d, want %d", got, want)
+	}
+	items := result.Items()
+	if got, want := len(items), 3; got != want {
+		t.Fatalf("len(ListStale().Items) = %d, want %d", got, want)
+	}
+	gotRows := make([]string, 0, len(items))
+	for _, item := range items {
+		gotRows = append(gotRows, item.Summary().MemoryID().String()+":"+item.Reason().String())
+	}
+	wantRows := []string{
+		"mem-overlap-b:overlap",
+		"mem-overlap-a:overlap",
+		"mem-superseded:superseded",
+	}
+	if diff := cmp.Diff(wantRows, gotRows); diff != "" {
+		t.Fatalf("ListStale rows mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestMemoryDatasource_Search(t *testing.T) {
 	t.Parallel()
 
