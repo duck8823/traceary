@@ -12,3 +12,6 @@ RECENT COMMANDS:
 
 CANDIDATE MEMORIES (count=1):
 mem-1 preference prefer table-driven subtests
+
+STALE MEMORIES (count=3):
+mem-stale-1 decision workspace:duck8823/traceary superseded superseded rollout note

@@ -42,9 +42,10 @@ const (
 	topPaneFailures
 	topPaneRecentCommands
 	topPaneCandidates
+	topPaneStaleMemories
 )
 
-const topPaneCount = 4
+const topPaneCount = 5
 
 // topMode encodes the sub-screen the model is showing. Browse is the
 // dashboard itself; Help is the overlay rendered when the operator presses
@@ -383,6 +384,8 @@ func (m topModel) paneLines(pane topPane, width int) []string {
 		return m.eventLines(m.snapshot.RecentCommands, width)
 	case topPaneCandidates:
 		return m.candidateLines(width)
+	case topPaneStaleMemories:
+		return m.staleMemoryLines(width)
 	}
 	return nil
 }
@@ -481,6 +484,37 @@ func (m topModel) candidateLines(width int) []string {
 	return out
 }
 
+// staleMemoryLines renders one row per stale durable memory. The row keeps
+// the audit identifiers first (memory id, type, scope, reason) and then the
+// human-readable fact so operators can quickly decide whether the stale row
+// should be pruned or investigated from the dedicated memory commands.
+func (m topModel) staleMemoryLines(width int) []string {
+	if m.loadErr != nil {
+		return []string{m.styles.Error.Render(m.loadErr.Error())}
+	}
+	if !m.loaded {
+		return []string{m.styles.Subtle.Render(Localize("loading…", "読み込み中…"))}
+	}
+	items := m.snapshot.StaleMemories.Items()
+	if len(items) == 0 {
+		return []string{m.styles.Subtle.Render(Localize("No stale memories.", "stale な memory はありません。"))}
+	}
+	out := make([]string, 0, len(items))
+	for _, row := range items {
+		summary := row.Summary()
+		line := fmt.Sprintf(
+			"%s %s %s %s %s",
+			summary.MemoryID(),
+			summary.MemoryType(),
+			formatMemoryScope(summary.Scope()),
+			row.Reason(),
+			truncateMessage(summary.Fact()),
+		)
+		out = append(out, truncateToWidth(line, width))
+	}
+	return out
+}
+
 // truncateToWidth clamps text to width visual columns by walking runes
 // and counting East Asian Wide characters as 2 columns. Width <= 0 falls
 // back to the original string so a degenerate viewport still shows
@@ -570,6 +604,7 @@ func (m topModel) renderHelp() string {
 	b.WriteString("  2 failures       " + Localize("recent failed command_executed events", "最新の失敗 command_executed イベント") + "\n")
 	b.WriteString("  3 commands       " + Localize("recent command_executed events", "最新の command_executed イベント") + "\n")
 	b.WriteString("  4 candidates     " + Localize("durable-memory inbox candidates", "durable memory inbox の候補") + "\n")
+	b.WriteString("  5 stale memories " + Localize("stale durable memories needing cleanup", "整理対象の stale durable memory") + "\n")
 	b.WriteString("\n")
 	b.WriteString(Localize("Navigation:\n", "操作:\n"))
 	b.WriteString("  tab / shift+tab  " + Localize("focus next / previous pane", "次 / 前のペインへフォーカス") + "\n")
@@ -612,6 +647,9 @@ func (m topModel) renderPane(pane topPane) string {
 
 func (m topModel) renderPaneHeader(pane topPane, total int) string {
 	label := paneLabel(pane)
+	if pane == topPaneStaleMemories {
+		label = fmt.Sprintf("STALE MEMORIES (count=%d)", m.snapshot.StaleMemories.Count())
+	}
 	scroll := ""
 	viewport := m.paneViewportRows()
 	if total > viewport {
@@ -638,7 +676,7 @@ func (m topModel) paneInteriorWidth() int {
 }
 
 // paneInteriorHeight returns the rows allocated to one pane's body. The
-// dashboard distributes the available terminal height between the four
+// dashboard distributes the available terminal height between the configured
 // panes after subtracting the title (2 rows), per-pane header (1 row each),
 // and footer (2 rows). The minimum is clamped to 1 so navigation stays
 // well-defined on a tiny terminal.
@@ -667,6 +705,8 @@ func paneLabel(pane topPane) string {
 		return Localize("recent commands", "recent commands")
 	case topPaneCandidates:
 		return Localize("candidates", "candidates")
+	case topPaneStaleMemories:
+		return Localize("stale memories", "stale memories")
 	}
 	return ""
 }
