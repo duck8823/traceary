@@ -1,9 +1,10 @@
 package cli
 
 import (
-	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/xerrors"
 )
 
 // newMemoryStoreCommand groups the deliberate write/store surface
@@ -43,96 +44,75 @@ func (c *RootCLI) newMemoryAdminCommand() *cobra.Command {
 	return cmd
 }
 
-// addDeprecatedMemoryAliases registers the legacy flat memory paths as
-// hidden Cobra commands under `traceary memory`. Each alias still
-// executes the original use case but emits a one-line deprecation
-// notice on stderr that names the canonical replacement and the v0.15
-// removal target. JSON / stdout output is unchanged so scripted callers
-// keep working through one release of overlap.
-func (c *RootCLI) addDeprecatedMemoryAliases(memoryCmd *cobra.Command) {
-	type alias struct {
-		cmd         *cobra.Command
-		replacement string
-	}
-	aliases := []alias{
-		{cmd: c.newMemoryAcceptCommand(), replacement: "traceary memory inbox accept <id>"},
-		{cmd: c.newMemoryRejectCommand(), replacement: "traceary memory inbox reject <id>"},
-		{cmd: c.newMemoryRememberCommand(), replacement: "traceary memory store remember"},
-		{cmd: c.newMemoryProposeCommand(), replacement: "traceary memory store propose"},
-		{cmd: c.newMemoryDistillCommand(), replacement: "traceary memory store distill"},
-		{cmd: c.newMemoryExtractCommand(), replacement: "traceary memory admin extract"},
-		{cmd: c.newMemorySupersedeCommand(), replacement: "traceary memory admin supersede"},
-		{cmd: c.newMemoryExpireCommand(), replacement: "traceary memory admin expire"},
-		{cmd: c.newMemorySetValidityCommand(), replacement: "traceary memory admin set-validity"},
-		{cmd: c.newMemoryImportCommand(), replacement: "traceary memory admin import"},
-		{cmd: c.newMemoryExportCommand(), replacement: "traceary memory admin export"},
-		{cmd: c.newMemoryActivateCommand(), replacement: "traceary memory admin activate"},
-		{cmd: c.newMemoryHygieneCommand(), replacement: "traceary memory admin hygiene"},
-		{cmd: c.newMemoryGraphCommand(), replacement: "traceary memory admin graph"},
-	}
-	for _, entry := range aliases {
-		applyMemoryAliasDeprecation(entry.cmd, entry.replacement)
-		memoryCmd.AddCommand(entry.cmd)
+// removedMemoryAlias names a former flat `traceary memory <verb>` path
+// retired in v0.15.0 and the canonical replacement under
+// `memory inbox|store|admin`. The Cobra tree still registers a hidden
+// stub for each entry so scripted callers receive a localized
+// migration error instead of Cobra's generic "unknown command"
+// output. The stub does not register the legacy flags or call the old
+// use case — it only emits the removal/migration error.
+type removedMemoryAlias struct {
+	use          string
+	replacement  string
+	preserveLeaf bool
+}
+
+// addRemovedMemoryAliases registers a hidden migration stub for every
+// legacy flat `memory <verb>` path retired in v0.15.0. Each stub
+// disables flag parsing so trailing args (including `--help`) flow
+// through to the RunE that returns the localized removal error,
+// instead of letting Cobra render the legacy command help.
+func (c *RootCLI) addRemovedMemoryAliases(memoryCmd *cobra.Command) {
+	for _, alias := range []removedMemoryAlias{
+		{use: "remember", replacement: "traceary memory store remember"},
+		{use: "propose", replacement: "traceary memory store propose"},
+		{use: "distill", replacement: "traceary memory store distill"},
+		{use: "extract", replacement: "traceary memory admin extract"},
+		{use: "accept", replacement: "traceary memory inbox accept"},
+		{use: "reject", replacement: "traceary memory inbox reject"},
+		{use: "supersede", replacement: "traceary memory admin supersede"},
+		{use: "expire", replacement: "traceary memory admin expire"},
+		{use: "set-validity", replacement: "traceary memory admin set-validity"},
+		{use: "import", replacement: "traceary memory admin import", preserveLeaf: true},
+		{use: "export", replacement: "traceary memory admin export"},
+		{use: "activate", replacement: "traceary memory admin activate"},
+		{use: "hygiene", replacement: "traceary memory admin hygiene", preserveLeaf: true},
+		{use: "graph", replacement: "traceary memory admin graph", preserveLeaf: true},
+	} {
+		memoryCmd.AddCommand(newRemovedMemoryAliasCommand(alias))
 	}
 }
 
-// applyMemoryAliasDeprecation hides cmd from the parent's `--help`
-// output and installs a PersistentPreRun that emits a single-line
-// stderr deprecation notice naming the canonical replacement and the
-// v0.15 removal target. PersistentPreRun (rather than PreRun) so
-// subcommands of grouped aliases — `memory hygiene scan`, `memory
-// graph add` — still trigger the notice.
-//
-// When the executing command is a subcommand of the alias root (e.g.
-// `memory hygiene scan` under the `hygiene` alias), the runtime notice
-// names the precise canonical path (`traceary memory admin hygiene
-// scan`) so users can copy-paste the replacement directly. The Long
-// text on the alias root keeps the bare-parent replacement to avoid
-// over-promising in `--help` output.
-//
-// Cobra's built-in `Deprecated` field routes its warning through
-// `cmd.Printf` which targets stdout. The aliases must keep stdout /
-// JSON byte-for-byte compatible for scripted callers, so we emit the
-// notice ourselves to stderr instead.
-func applyMemoryAliasDeprecation(cmd *cobra.Command, replacement string) {
-	cmd.Hidden = true
-	rootNotice := deprecationNoticeFor(replacement)
-	if cmd.Long != "" {
-		cmd.Long = rootNotice + "\n\n" + cmd.Long
-	} else if cmd.Short != "" {
-		cmd.Long = rootNotice + "\n\n" + cmd.Short
-	} else {
-		cmd.Long = rootNotice
-	}
-	existing := cmd.PersistentPreRun
-	cmd.PersistentPreRun = func(c *cobra.Command, args []string) {
-		runtimeReplacement := replacement
-		if c != cmd {
-			// c is a descendant of the alias root (e.g. `scan` under
-			// `hygiene`). Walk up to cmd, collecting the subcommand
-			// path so the notice names the exact canonical equivalent.
-			var suffix []string
-			for cur := c; cur != nil && cur != cmd; cur = cur.Parent() {
-				suffix = append([]string{cur.Name()}, suffix...)
-			}
-			for _, name := range suffix {
-				runtimeReplacement += " " + name
-			}
-		}
-		// Best-effort stderr write: pipelines redirect stderr to
-		// /dev/null in headless contexts, and a closed stderr is not
-		// worth failing the command over.
-		_, _ = fmt.Fprintln(c.ErrOrStderr(), deprecationNoticeFor(runtimeReplacement))
-		if existing != nil {
-			existing(c, args)
-		}
+func newRemovedMemoryAliasCommand(alias removedMemoryAlias) *cobra.Command {
+	return &cobra.Command{
+		Use:                alias.use,
+		Hidden:             true,
+		DisableFlagParsing: true,
+		RunE: func(_ *cobra.Command, args []string) error {
+			replacement := removedMemoryAliasReplacement(alias, args)
+			return xerrors.New(Localizef(
+				"`traceary memory %s` was removed in v0.15.0; use `%s` instead",
+				"`traceary memory %s` は v0.15.0 で削除されました。代わりに `%s` を使ってください",
+				alias.use,
+				replacement,
+			))
+		},
 	}
 }
 
-func deprecationNoticeFor(replacement string) string {
-	return Localizef(
-		"DEPRECATED: this command is deprecated, use `%s` instead. Removal target: v0.15.",
-		"DEPRECATED: このコマンドは非推奨です。代わりに `%s` を使用してください。削除予定: v0.15。",
-		replacement,
-	)
+func removedMemoryAliasReplacement(alias removedMemoryAlias, args []string) string {
+	if !alias.preserveLeaf {
+		return alias.replacement
+	}
+	for _, arg := range args {
+		leaf := strings.TrimSpace(arg)
+		if leaf == "" {
+			continue
+		}
+		if strings.HasPrefix(leaf, "-") || leaf == "help" {
+			break
+		}
+		return alias.replacement + " " + leaf
+	}
+	return alias.replacement
 }

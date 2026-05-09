@@ -21,7 +21,7 @@ func TestRootCLI_MemoryGraphList_RejectsNegativeLimit(t *testing.T) {
 	rootCmd := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(stderr)
-	rootCmd.SetArgs([]string{"memory", "graph", "list", "--limit", "-1"})
+	rootCmd.SetArgs([]string{"memory", "admin", "graph", "list", "--limit", "-1"})
 	err := rootCmd.Execute()
 	if err == nil {
 		t.Fatalf("Execute(memory graph list --limit -1) unexpectedly succeeded")

@@ -32,7 +32,7 @@ func TestRootCLI_MemoryActivateDryRunPrintsPlan(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "activate",
+		"memory", "admin", "activate",
 		"--target", "codex",
 		"--root", root,
 		"--workspace", "github.com/duck8823/traceary",
@@ -58,7 +58,7 @@ func TestRootCLI_MemoryActivateRejectsNonDryRun(t *testing.T) {
 	).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"memory", "activate", "--target", "codex"})
+	rootCmd.SetArgs([]string{"memory", "admin", "activate", "--target", "codex"})
 
 	err := rootCmd.Execute()
 	if err == nil {
@@ -93,7 +93,7 @@ func TestRootCLI_MemoryActivateApplyPrintsSummary(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "activate",
+		"memory", "admin", "activate",
 		"--target", "codex",
 		"--root", root,
 		"--workspace", "github.com/duck8823/traceary",
@@ -135,7 +135,7 @@ func TestRootCLI_MemoryActivateApplyJSON(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "activate",
+		"memory", "admin", "activate",
 		"--target", "codex",
 		"--root", root,
 		"--workspace", "github.com/duck8823/traceary",
@@ -171,7 +171,7 @@ func TestRootCLI_MemoryActivateRejectsDiffWithApply(t *testing.T) {
 	).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"memory", "activate", "--target", "codex", "--apply", "--diff"})
+	rootCmd.SetArgs([]string{"memory", "admin", "activate", "--target", "codex", "--apply", "--diff"})
 
 	err := rootCmd.Execute()
 	if err == nil {
@@ -205,7 +205,7 @@ func TestRootCLI_MemoryActivateStatusJSONIncludesCommands(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "activate",
+		"memory", "admin", "activate",
 		"--target", "codex",
 		"--root", root,
 		"--workspace", "github.com/duck8823/traceary",
@@ -260,7 +260,7 @@ func TestRootCLI_MemoryActivateStatusTextOmitsCommandsWhenInSync(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "activate",
+		"memory", "admin", "activate",
 		"--target", "codex",
 		"--root", root,
 		"--workspace", "github.com/duck8823/traceary",
@@ -300,7 +300,7 @@ func TestRootCLI_MemoryActivateStatusOmitsCommandsWhenInvalid(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "activate",
+		"memory", "admin", "activate",
 		"--target", "codex",
 		"--root", root,
 		"--workspace", "github.com/duck8823/traceary",
@@ -399,7 +399,7 @@ func TestRootCLI_MemoryActivateClaudeDryRunRendersComponents(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "activate",
+		"memory", "admin", "activate",
 		"--target", "claude",
 		"--root", root,
 		"--workspace", "github.com/duck8823/traceary",
@@ -465,7 +465,7 @@ func TestRootCLI_MemoryActivateClaudeDryRunDiffOrdersExternalFirst(t *testing.T)
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "activate",
+		"memory", "admin", "activate",
 		"--target", "claude",
 		"--root", root,
 		"--workspace", "github.com/duck8823/traceary",
@@ -522,7 +522,7 @@ func TestRootCLI_MemoryActivateClaudeStatusJSONIncludesComponentsAndCommands(t *
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "activate",
+		"memory", "admin", "activate",
 		"--target", "claude",
 		"--root", root,
 		"--workspace", "github.com/duck8823/traceary",
@@ -601,7 +601,7 @@ func TestRootCLI_MemoryActivateClaudeStatusTextSurfacesApplyRemediation(t *testi
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "activate",
+		"memory", "admin", "activate",
 		"--target", "claude",
 		"--root", root,
 		"--workspace", "github.com/duck8823/traceary",
@@ -653,7 +653,7 @@ func TestRootCLI_MemoryActivateClaudeApplyPrintsPairResult(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "activate",
+		"memory", "admin", "activate",
 		"--target", "claude",
 		"--root", root,
 		"--workspace", "github.com/duck8823/traceary",
@@ -714,7 +714,7 @@ func TestRootCLI_MemoryActivateClaudeApplyJSONIncludesComponents(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "activate",
+		"memory", "admin", "activate",
 		"--target", "claude",
 		"--root", root,
 		"--workspace", "github.com/duck8823/traceary",
@@ -812,7 +812,7 @@ func TestRootCLI_MemoryActivateGeminiDryRunRendersComponents(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "activate",
+		"memory", "admin", "activate",
 		"--target", "gemini",
 		"--root", root,
 		"--workspace", "github.com/duck8823/traceary",
@@ -878,7 +878,7 @@ func TestRootCLI_MemoryActivateGeminiDryRunDiffOrdersExternalFirst(t *testing.T)
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "activate",
+		"memory", "admin", "activate",
 		"--target", "gemini",
 		"--root", root,
 		"--workspace", "github.com/duck8823/traceary",
@@ -932,7 +932,7 @@ func TestRootCLI_MemoryActivateGeminiStatusJSONIncludesApplyCommand(t *testing.T
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "activate",
+		"memory", "admin", "activate",
 		"--target", "gemini",
 		"--root", root,
 		"--workspace", "github.com/duck8823/traceary",
@@ -1011,7 +1011,7 @@ func TestRootCLI_MemoryActivateGeminiStatusTextIncludesApplyRemediation(t *testi
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "activate",
+		"memory", "admin", "activate",
 		"--target", "gemini",
 		"--root", root,
 		"--workspace", "github.com/duck8823/traceary",
@@ -1063,7 +1063,7 @@ func TestRootCLI_MemoryActivateGeminiApplyPrintsPairResult(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "activate",
+		"memory", "admin", "activate",
 		"--target", "gemini",
 		"--root", root,
 		"--workspace", "github.com/duck8823/traceary",
@@ -1124,7 +1124,7 @@ func TestRootCLI_MemoryActivateGeminiApplyJSONIncludesComponents(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "activate",
+		"memory", "admin", "activate",
 		"--target", "gemini",
 		"--root", root,
 		"--workspace", "github.com/duck8823/traceary",
@@ -1177,9 +1177,10 @@ func TestRootCLI_MemoryActivateGeminiApplyJSONIncludesComponents(t *testing.T) {
 // preserve its v0.13 stdout / JSON payload shape — it cannot silently
 // start emitting `traceary memory admin activate ...` in remediation
 // fields, because scripts that filter or post-process those fields
-// would see a different command than they invoked. Conversely, the
-// canonical grouped surface must echo back its own canonical path so
-// operators copy-paste the supported v0.14 form.
+// would see a different command than they invoked. The canonical
+// grouped surface must echo back its own canonical path so operators
+// copy-paste the supported form. The v0.14 flat alias was removed in
+// v0.15.0 (#956) so only the canonical case remains.
 func TestRootCLI_MemoryActivateStatusCommandPathRespectsInvocation(t *testing.T) {
 	t.Parallel()
 
@@ -1198,17 +1199,6 @@ func TestRootCLI_MemoryActivateStatusCommandPathRespectsInvocation(t *testing.T)
 				"--json",
 			},
 			wantPrefix: "traceary memory admin activate",
-		},
-		{
-			name: "legacy flat memory activate alias preserves flat command path",
-			args: []string{
-				"memory", "activate",
-				"--target", "codex",
-				"--status",
-				"--json",
-			},
-			wantPrefix:  "traceary memory activate",
-			extraReject: "traceary memory admin activate",
 		},
 	}
 
@@ -1268,10 +1258,11 @@ func TestRootCLI_MemoryActivateStatusCommandPathRespectsInvocation(t *testing.T)
 
 // TestRootCLI_MemoryActivateStatusTextCommandPathRespectsInvocation
 // covers the same contract as the JSON variant for the human-text
-// `next_dry_run` / `next_apply` lines emitted on stdout. Both the
-// canonical grouped surface and the v0.13 hidden flat alias must echo
-// the path the operator actually invoked so copy-paste remediation
-// matches the surface they reached this status output through.
+// `next_dry_run` / `next_apply` lines emitted on stdout. The canonical
+// grouped surface must echo the path the operator invoked so
+// copy-paste remediation matches that surface. The flat alias case
+// was retired with the v0.15.0 removal of `traceary memory activate`
+// (#956).
 func TestRootCLI_MemoryActivateStatusTextCommandPathRespectsInvocation(t *testing.T) {
 	t.Parallel()
 
@@ -1289,16 +1280,6 @@ func TestRootCLI_MemoryActivateStatusTextCommandPathRespectsInvocation(t *testin
 				"--status",
 			},
 			wantPrefix: "traceary memory admin activate",
-		},
-		{
-			name: "legacy memory activate text emits flat command path",
-			args: []string{
-				"memory", "activate",
-				"--target", "claude",
-				"--status",
-			},
-			wantPrefix: "traceary memory activate",
-			rejectStr:  "next_dry_run: traceary memory admin activate",
 		},
 	}
 

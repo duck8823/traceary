@@ -26,10 +26,10 @@ func (c *RootCLI) newMemoryCommand() *cobra.Command {
 	memoryCmd.AddCommand(c.newMemoryInboxCommand())
 	memoryCmd.AddCommand(c.newMemoryStoreCommand())
 	memoryCmd.AddCommand(c.newMemoryAdminCommand())
-	// Hidden deprecated aliases preserve every legacy flat path
-	// through one release of overlap; they are scheduled for removal
-	// in v0.15 (see docs/operations/memory-command-surface.md).
-	c.addDeprecatedMemoryAliases(memoryCmd)
+	// Removed v0.14 deprecated aliases: each old flat path is now a
+	// hidden migration stub that exits non-zero pointing at the
+	// canonical `memory inbox|store|admin` replacement (#956).
+	c.addRemovedMemoryAliases(memoryCmd)
 	return memoryCmd
 }
 
@@ -169,43 +169,6 @@ func (c *RootCLI) newMemoryDistillCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	cmd.MarkFlagsMutuallyExclusive("id-only", "json")
 	cmd.MarkFlagsMutuallyExclusive("workspace", "agent", "session-family")
-	return cmd
-}
-
-func (c *RootCLI) newMemoryAcceptCommand() *cobra.Command {
-	input := memoryMutationCommandInput{}
-	cmd := &cobra.Command{
-		Use:   "accept <memory-id>",
-		Short: Localize("Accept a candidate durable memory", "candidate durable memory を accept する"),
-		Args:  exactArgsLocalized(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			input.memoryID = args[0]
-			return c.runMemoryAccept(cmd.Context(), cmd.OutOrStdout(), input)
-		},
-	}
-	cmd.Flags().StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().StringVar(&input.confidence, "confidence", "", Localize("accepted confidence (defaults to verified)", "accepted 時の confidence (既定値は verified)"))
-	cmd.Flags().BoolVar(&input.idOnly, "id-only", false, Localize("print only the resulting memory ID", "結果の memory ID だけを出力する"))
-	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
-	cmd.MarkFlagsMutuallyExclusive("id-only", "json")
-	return cmd
-}
-
-func (c *RootCLI) newMemoryRejectCommand() *cobra.Command {
-	input := memoryMutationCommandInput{}
-	cmd := &cobra.Command{
-		Use:   "reject <memory-id>",
-		Short: Localize("Reject a candidate durable memory", "candidate durable memory を reject する"),
-		Args:  exactArgsLocalized(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			input.memoryID = args[0]
-			return c.runMemoryReject(cmd.Context(), cmd.OutOrStdout(), input)
-		},
-	}
-	cmd.Flags().StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().BoolVar(&input.idOnly, "id-only", false, Localize("print only the resulting memory ID", "結果の memory ID だけを出力する"))
-	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
-	cmd.MarkFlagsMutuallyExclusive("id-only", "json")
 	return cmd
 }
 
@@ -566,40 +529,6 @@ func (c *RootCLI) runMemoryDistill(ctx context.Context, output io.Writer, input 
 		return xerrors.Errorf("%s: %w", Localize("failed to distill durable memory", "durable memory の distill に失敗しました"), err)
 	}
 	return writeMemoryDistillResult(output, result, input.idOnly, input.asJSON)
-}
-
-func (c *RootCLI) runMemoryAccept(ctx context.Context, output io.Writer, input memoryMutationCommandInput) error {
-	if err := c.initializeMemoryStore(ctx, input.dbPath); err != nil {
-		return err
-	}
-	memoryID, err := domtypes.MemoryIDFrom(input.memoryID)
-	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to resolve memory ID", "memory ID の解決に失敗しました"), err)
-	}
-	confidence, err := parseOptionalConfidence(input.confidence)
-	if err != nil {
-		return err
-	}
-	details, err := c.memory.Accept(ctx, memoryID, confidence)
-	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to accept durable memory", "durable memory の accept に失敗しました"), err)
-	}
-	return writeMemoryMutationResult(output, details, input.idOnly, input.asJSON)
-}
-
-func (c *RootCLI) runMemoryReject(ctx context.Context, output io.Writer, input memoryMutationCommandInput) error {
-	if err := c.initializeMemoryStore(ctx, input.dbPath); err != nil {
-		return err
-	}
-	memoryID, err := domtypes.MemoryIDFrom(input.memoryID)
-	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to resolve memory ID", "memory ID の解決に失敗しました"), err)
-	}
-	details, err := c.memory.Reject(ctx, memoryID)
-	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to reject durable memory", "durable memory の reject に失敗しました"), err)
-	}
-	return writeMemoryMutationResult(output, details, input.idOnly, input.asJSON)
 }
 
 func (c *RootCLI) runMemorySupersede(ctx context.Context, output io.Writer, input memorySupersedeCommandInput) error {

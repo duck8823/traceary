@@ -59,7 +59,7 @@ func TestMemoryImportCodex_TextOutput(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"memory", "import", "codex", "--db-path", t.TempDir() + "/traceary.db", "--root", "/tmp/codex-memories"})
+	cmd.SetArgs([]string{"memory", "admin", "import", "codex", "--db-path", t.TempDir() + "/traceary.db", "--root", "/tmp/codex-memories"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestMemoryImportCodex_JSONOutput(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"memory", "import", "codex", "--db-path", t.TempDir() + "/traceary.db", "--root", "/tmp/codex-memories", "--json"})
+	cmd.SetArgs([]string{"memory", "admin", "import", "codex", "--db-path", t.TempDir() + "/traceary.db", "--root", "/tmp/codex-memories", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestMemoryImportCodex_ErrorsWhenUsecaseMissing(t *testing.T) {
 	cmd := root.Command()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"memory", "import", "codex", "--db-path", t.TempDir() + "/traceary.db", "--root", t.TempDir()})
+	cmd.SetArgs([]string{"memory", "admin", "import", "codex", "--db-path", t.TempDir() + "/traceary.db", "--root", t.TempDir()})
 	if err := cmd.Execute(); err == nil {
 		t.Fatalf("expected error when memory import usecase is missing")
 	}

@@ -29,7 +29,7 @@ func TestRootCLI_MemoryExport_DefaultIncludesGlobalAndReportsJSONCount(t *testin
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "export",
+		"memory", "admin", "export",
 		"--target", "codex",
 		"--workspace", "github.com/duck8823/traceary",
 		"--out", filepath.Join(t.TempDir(), "AGENTS.md"),
@@ -62,7 +62,7 @@ func TestRootCLI_MemoryExport_NoGlobalOptOut(t *testing.T) {
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "export",
+		"memory", "admin", "export",
 		"--target", "codex",
 		"--workspace", "github.com/duck8823/traceary",
 		"--out", filepath.Join(t.TempDir(), "AGENTS.md"),

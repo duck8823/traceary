@@ -336,12 +336,11 @@ type memoryDistillCommandInput struct {
 
 // memoryMutationCommandInput is the resolved input to memory status commands.
 type memoryMutationCommandInput struct {
-	dbPath     string
-	memoryID   string
-	confidence string
-	expiresAt  string
-	idOnly     bool
-	asJSON     bool
+	dbPath    string
+	memoryID  string
+	expiresAt string
+	idOnly    bool
+	asJSON    bool
 }
 
 // memoryValidityCommandInput is the resolved input to
