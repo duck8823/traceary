@@ -110,6 +110,53 @@ func dashboardCandidate(t *testing.T, id string, fact string) apptypes.MemorySum
 	return summary
 }
 
+func dashboardStaleMemory(t *testing.T, id string, reason apptypes.StaleMemoryReason, fact string) apptypes.StaleMemoryRow {
+	t.Helper()
+	workspace, err := domtypes.WorkspaceFrom("duck8823/traceary")
+	if err != nil {
+		t.Fatalf("WorkspaceFrom: %v", err)
+	}
+	status := domtypes.MemoryStatusAccepted
+	switch reason {
+	case apptypes.StaleMemoryReasonExpired:
+		status = domtypes.MemoryStatusExpired
+	case apptypes.StaleMemoryReasonSuperseded:
+		status = domtypes.MemoryStatusSuperseded
+	}
+	summary, err := apptypes.MemorySummaryOf(
+		domtypes.MemoryID(id),
+		domtypes.MemoryTypeDecision,
+		domtypes.WorkspaceScopeOf(workspace),
+		fact,
+		status,
+		domtypes.ConfidenceHigh,
+		domtypes.MemorySourceManual,
+		domtypes.None[domtypes.MemoryID](),
+		domtypes.None[time.Time](),
+		fixedDashboardNow,
+		domtypes.None[time.Time](),
+		fixedDashboardNow,
+		fixedDashboardNow,
+	)
+	if err != nil {
+		t.Fatalf("MemorySummaryOf(stale): %v", err)
+	}
+	row, err := apptypes.StaleMemoryRowOf(summary, reason)
+	if err != nil {
+		t.Fatalf("StaleMemoryRowOf: %v", err)
+	}
+	return row
+}
+
+func dashboardStaleResult(t *testing.T, count int, rows ...apptypes.StaleMemoryRow) apptypes.StaleMemoryListResult {
+	t.Helper()
+	result, err := apptypes.StaleMemoryListResultOf(count, rows)
+	if err != nil {
+		t.Fatalf("StaleMemoryListResultOf: %v", err)
+	}
+	return result
+}
+
 // applySnapshot is a test-only helper that drives the model through the
 // same path the production tea.Cmd takes: it calls the loader (synchronously
 // here) and feeds the resulting topSnapshotMsg back into Update.
@@ -216,6 +263,7 @@ func TestTopModel_TabCyclesPanesForward(t *testing.T) {
 		topPaneFailures,
 		topPaneRecentCommands,
 		topPaneCandidates,
+		topPaneStaleMemories,
 		topPaneSessions,
 	}
 	for i, expect := range want {
@@ -231,6 +279,7 @@ func TestTopModel_ShiftTabCyclesPanesBackward(t *testing.T) {
 	m := newDashboardTestModel(t, &stubTopLoader{})
 
 	want := []topPane{
+		topPaneStaleMemories,
 		topPaneCandidates,
 		topPaneRecentCommands,
 		topPaneFailures,
@@ -370,6 +419,7 @@ func TestTopModel_EmptySnapshotRendersPerPaneEmptyState(t *testing.T) {
 		"No active sessions found.",
 		"No matching records.",
 		"No candidate durable memories",
+		"No stale memories.",
 	} {
 		if !strings.Contains(view, expect) {
 			t.Fatalf("View() missing empty-state %q. Full view:\n%s", expect, view)
@@ -460,6 +510,48 @@ func TestTopModel_CandidateLinesRendersFactAndID(t *testing.T) {
 	}
 	if !strings.Contains(lines[0], "mem-1") || !strings.Contains(lines[0], "prefer table-driven subtests") {
 		t.Fatalf("candidateLines[0] = %q, want to contain id+fact", lines[0])
+	}
+}
+
+func TestTopModel_StaleMemoryLinesRendersReasonScopeAndFact(t *testing.T) {
+	t.Parallel()
+	stale := dashboardStaleMemory(t, "mem-stale-1", apptypes.StaleMemoryReasonSuperseded, "old rollout decision")
+	m := newDashboardTestModel(t, &stubTopLoader{snapshot: topDataSnapshot{
+		StaleMemories: dashboardStaleResult(t, 3, stale),
+	}})
+	m = applySnapshot(t, m)
+
+	lines := m.staleMemoryLines(160)
+	if len(lines) != 1 {
+		t.Fatalf("staleMemoryLines = %d, want 1", len(lines))
+	}
+	for _, expect := range []string{"mem-stale-1", "decision", "workspace:duck8823/traceary", "superseded", "old rollout decision"} {
+		if !strings.Contains(lines[0], expect) {
+			t.Fatalf("staleMemoryLines[0] = %q, want to contain %q", lines[0], expect)
+		}
+	}
+}
+
+func TestTopModel_StaleMemoryPaneRendersHeaderCountAndRows(t *testing.T) {
+	t.Parallel()
+	stale := dashboardStaleMemory(t, "mem-stale-1", apptypes.StaleMemoryReasonExpired, "expired cleanup target")
+	m := newDashboardTestModel(t, &stubTopLoader{snapshot: topDataSnapshot{
+		StaleMemories: dashboardStaleResult(t, 2, stale),
+	}})
+	m = applySnapshot(t, m)
+	m = resize(m, 120, 40)
+	for range 4 {
+		m = sendKey(m, tea.KeyMsg{Type: tea.KeyTab})
+	}
+	if m.pane != topPaneStaleMemories {
+		t.Fatalf("pane = %v, want stale memories", m.pane)
+	}
+
+	view := m.View()
+	for _, expect := range []string{"STALE MEMORIES (count=2)", "mem-stale-1", "expired cleanup target"} {
+		if !strings.Contains(view, expect) {
+			t.Fatalf("View() missing %q. Full view:\n%s", expect, view)
+		}
 	}
 }
 

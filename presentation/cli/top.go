@@ -107,9 +107,7 @@ func (c *RootCLI) runTop(ctx context.Context, output io.Writer, opts topCommandO
 // using the same per-pane caps the live dashboard applies. The session pane
 // reuses the operator-controlled --limit flag; the secondary panes
 // intentionally use the small dashboard caps so the script-friendly snapshot
-// does not balloon under a noisy workspace. The stale-memory pane is enabled
-// for the JSON snapshot contract in #959 and remains disabled for text/TUI
-// paths until #960 renders it.
+// does not balloon under a noisy workspace.
 func (c *RootCLI) loadTopSnapshot(ctx context.Context, opts topCommandOptions) (topDataSnapshot, error) {
 	criteria := topDataCriteria{
 		Workspace:          opts.workspace,
@@ -119,9 +117,7 @@ func (c *RootCLI) loadTopSnapshot(ctx context.Context, opts topCommandOptions) (
 		FailureLimit:       topPaneFailureLimit,
 		RecentCommandLimit: topPaneRecentCommandLimit,
 		CandidateLimit:     topPaneCandidateLimit,
-	}
-	if opts.asJSON {
-		criteria.StaleMemoryLimit = topPaneStaleMemoryLimit
+		StaleMemoryLimit:   topPaneStaleMemoryLimit,
 	}
 	return c.newTopDataLoader().loadSnapshot(ctx, criteria)
 }
@@ -214,7 +210,10 @@ func writeTopSnapshotText(output io.Writer, snap topDataSnapshot, idle time.Dura
 	if err := writeTopSnapshotTextEvents(output, "RECENT COMMANDS", snap.RecentCommands, now.Location()); err != nil {
 		return err
 	}
-	return writeTopSnapshotTextCandidates(output, snap.Candidates)
+	if err := writeTopSnapshotTextCandidates(output, snap.Candidates); err != nil {
+		return err
+	}
+	return writeTopSnapshotTextStaleMemories(output, snap.StaleMemories)
 }
 
 func writeTopSnapshotTextSessions(output io.Writer, roots []*sessionNode, idle time.Duration, now time.Time) error {
@@ -267,6 +266,34 @@ func writeTopSnapshotTextCandidates(output io.Writer, candidates []apptypes.Memo
 	for _, candidate := range candidates {
 		if _, err := fmt.Fprintf(output, "%s %s %s\n", candidate.MemoryID(), candidate.MemoryType(), truncateMessage(candidate.Fact())); err != nil {
 			return xerrors.Errorf("failed to print candidate row: %w", err)
+		}
+	}
+	return nil
+}
+
+func writeTopSnapshotTextStaleMemories(output io.Writer, stale apptypes.StaleMemoryListResult) error {
+	if _, err := fmt.Fprintf(output, "\nSTALE MEMORIES (count=%d):\n", stale.Count()); err != nil {
+		return xerrors.Errorf("failed to print stale memories header: %w", err)
+	}
+	items := stale.Items()
+	if len(items) == 0 {
+		if _, err := fmt.Fprintln(output, Localize("No stale memories.", "stale な memory はありません。")); err != nil {
+			return xerrors.Errorf("failed to print empty stale memories message: %w", err)
+		}
+		return nil
+	}
+	for _, row := range items {
+		summary := row.Summary()
+		if _, err := fmt.Fprintf(
+			output,
+			"%s %s %s %s %s\n",
+			summary.MemoryID(),
+			summary.MemoryType(),
+			formatMemoryScope(summary.Scope()),
+			row.Reason(),
+			truncateMessage(summary.Fact()),
+		); err != nil {
+			return xerrors.Errorf("failed to print stale memory row: %w", err)
 		}
 	}
 	return nil
@@ -406,6 +433,7 @@ func (c *RootCLI) runTopTUI(ctx context.Context, output io.Writer, opts topComma
 		FailureLimit:       topPaneFailureLimit,
 		RecentCommandLimit: topPaneRecentCommandLimit,
 		CandidateLimit:     topPaneCandidateLimit,
+		StaleMemoryLimit:   topPaneStaleMemoryLimit,
 	}
 	model := newTopModel(topModelConfig{
 		Keys:            tui.DefaultKeyMap(),
