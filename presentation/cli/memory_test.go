@@ -32,7 +32,7 @@ func TestRootCLI_MemoryRememberCommand(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "remember",
+		"memory", "store", "remember",
 		"--db-path", "/tmp/test-traceary.db",
 		"--type", "decision",
 		"--fact", "Remember release discipline",
@@ -221,7 +221,7 @@ func TestRootCLI_MemoryAcceptCommand_PassesConfidence(t *testing.T) {
 	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"memory", "accept", "--db-path", "/tmp/test-traceary.db", "--confidence", "high", "--id-only", "memory-candidate"})
+	rootCmd.SetArgs([]string{"memory", "inbox", "accept", "--db-path", "/tmp/test-traceary.db", "--confidence", "high", "--id-only", "memory-candidate"})
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -253,7 +253,7 @@ func TestRootCLI_MemoryDistillCommand_PassesCriteria(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "distill",
+		"memory", "store", "distill",
 		"--db-path", "/tmp/test-traceary.db",
 		"--from", "memory-source-a,memory-source-b,memory-source-a",
 		"--type", "constraint",
@@ -299,7 +299,7 @@ func TestRootCLI_MemoryDistillCommand_RequiresExplicitScope(t *testing.T) {
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "distill",
+		"memory", "store", "distill",
 		"--db-path", "/tmp/test-traceary.db",
 		"--from", "memory-source",
 		"--type", "lesson",
@@ -324,7 +324,7 @@ func TestRootCLI_MemoryProposeCommand_IgnoresConfidenceFlagValidation(t *testing
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "propose",
+		"memory", "store", "propose",
 		"--db-path", "/tmp/test-traceary.db",
 		"--type", "lesson",
 		"--fact", "Wait for codex review before merge",
@@ -376,7 +376,7 @@ func TestRootCLI_MemoryExtractCommand_UsesResolvedSession(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "extract",
+		"memory", "admin", "extract",
 		"--db-path", "/tmp/test-traceary.db",
 		"--event-limit", "3",
 		"--candidate-limit", "2",
@@ -433,7 +433,7 @@ func TestRootCLI_MemoryExtractCommand_FallsBackToLatestSession(t *testing.T) {
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "extract",
+		"memory", "admin", "extract",
 		"--db-path", "/tmp/test-traceary.db",
 	})
 
@@ -469,7 +469,7 @@ func TestRootCLI_MemoryExtractCommand_ExplicitSessionIDSkipsWorkspaceFilter(t *t
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "extract",
+		"memory", "admin", "extract",
 		"--db-path", "/tmp/test-traceary.db",
 		"--session-id", "session-explicit",
 	})
@@ -497,7 +497,7 @@ func TestRootCLI_MemoryExtractCommand_RequiresStoreManagement(t *testing.T) {
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "extract",
+		"memory", "admin", "extract",
 		"--db-path", "/tmp/test-traceary.db",
 		"--session-id", "session-explicit",
 	})
@@ -524,7 +524,7 @@ func TestRootCLI_MemorySetValidityCommand_ParsesFromAndTo(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "set-validity",
+		"memory", "admin", "set-validity",
 		"--db-path", "/tmp/test-traceary.db",
 		"--from", "2026-04-20",
 		"--to", "2026-07-01",
@@ -573,7 +573,7 @@ func TestRootCLI_MemorySetValidityCommand_ClearToPropagates(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"memory", "set-validity",
+		"memory", "admin", "set-validity",
 		"--db-path", "/tmp/test-traceary.db",
 		"--clear-to",
 		"memory-validity",
@@ -601,7 +601,7 @@ func TestRootCLI_MemorySetValidityCommand_RejectsInvalidFrom(t *testing.T) {
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(stderr)
 	rootCmd.SetArgs([]string{
-		"memory", "set-validity",
+		"memory", "admin", "set-validity",
 		"--db-path", "/tmp/test-traceary.db",
 		"--from", "not-a-timestamp",
 		"memory-validity",
