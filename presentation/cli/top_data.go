@@ -21,8 +21,8 @@ import (
 // Limit fields use the convention that a non-positive value disables the
 // corresponding load: callers wire the `traceary top` session limit on
 // the command surface today and leave the failures / recent-commands /
-// candidates limits at zero so the loader stays a no-op for those panes
-// until the multi-pane redesign (#928) needs them.
+// candidates / stale-memory limits at zero so the loader stays a no-op
+// for those panes until the multi-pane redesign (#928) needs them.
 type topDataCriteria struct {
 	Workspace string
 	Client    string
@@ -32,6 +32,7 @@ type topDataCriteria struct {
 	FailureLimit       int
 	RecentCommandLimit int
 	CandidateLimit     int
+	StaleMemoryLimit   int
 }
 
 // topDataSnapshot bundles every data slice the redesigned top dashboard
@@ -42,14 +43,15 @@ type topDataSnapshot struct {
 	Failures       []*model.Event
 	RecentCommands []*model.Event
 	Candidates     []apptypes.MemorySummary
+	StaleMemories  apptypes.StaleMemoryListResult
 }
 
 // topDataLoader fetches every data slice the redesigned `traceary top`
 // dashboard needs (active session tree, recent failures, recent
-// commands, and candidate memories). It is the testable seam between
-// the cobra command and the application layer; the cobra command keeps
-// its current snapshot output in this issue and routes its session
-// fetch through the loader so future panes can be added without
+// commands, candidate memories, and stale memories). It is the testable
+// seam between the cobra command and the application layer; the cobra
+// command keeps its current snapshot output in this issue and routes its
+// session fetch through the loader so future panes can be added without
 // re-wiring the command (#928 / #929).
 type topDataLoader struct {
 	session usecase.SessionUsecase
@@ -200,7 +202,29 @@ func (l *topDataLoader) loadCandidates(ctx context.Context, c topDataCriteria) (
 	return summaries, nil
 }
 
-// loadSnapshot fetches the four data slices in a single call. Each
+// loadStaleMemories returns stale durable memories for the future stale pane.
+// Workspace and Agent narrow the result to memory scopes, mirroring the
+// candidate pane; Client has no memory scope equivalent and is intentionally
+// ignored. A non-positive StaleMemoryLimit disables the load.
+func (l *topDataLoader) loadStaleMemories(ctx context.Context, c topDataCriteria) (apptypes.StaleMemoryListResult, error) {
+	if l.memory == nil || c.StaleMemoryLimit <= 0 {
+		return apptypes.StaleMemoryListResult{}, nil
+	}
+	builder := apptypes.NewStaleMemoryListCriteriaBuilder(c.StaleMemoryLimit)
+	if workspace := strings.TrimSpace(c.Workspace); workspace != "" {
+		builder = builder.Scope(domtypes.WorkspaceScopeOf(domtypes.Workspace(workspace)))
+	}
+	if agent := strings.TrimSpace(c.Agent); agent != "" {
+		builder = builder.Scope(domtypes.AgentScopeOf(domtypes.Agent(agent)))
+	}
+	result, err := l.memory.ListStale(ctx, builder.Build())
+	if err != nil {
+		return apptypes.StaleMemoryListResult{}, xerrors.Errorf("%s: %w", Localize("failed to list stale memories", "stale memory の取得に失敗しました"), err)
+	}
+	return result, nil
+}
+
+// loadSnapshot fetches the five data slices in a single call. Each
 // pane is opt-in via its limit field on topDataCriteria, so the
 // current `traceary top` (sessions only) and the upcoming multi-pane
 // dashboard share one entry point.
@@ -221,10 +245,15 @@ func (l *topDataLoader) loadSnapshot(ctx context.Context, c topDataCriteria) (to
 	if err != nil {
 		return topDataSnapshot{}, err
 	}
+	staleMemories, err := l.loadStaleMemories(ctx, c)
+	if err != nil {
+		return topDataSnapshot{}, err
+	}
 	return topDataSnapshot{
 		Sessions:       sessions,
 		Failures:       failures,
 		RecentCommands: commands,
 		Candidates:     candidates,
+		StaleMemories:  staleMemories,
 	}, nil
 }

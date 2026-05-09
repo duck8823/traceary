@@ -137,7 +137,36 @@ func TestRootCLI_TopCommand_SnapshotJSONGolden(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MemorySummaryOf: %v", err)
 	}
-	memoryStub := &memoryUsecaseStub{listResult: []apptypes.MemorySummary{candidate}}
+	staleMemory, err := apptypes.MemorySummaryOf(
+		types.MemoryID("mem-stale-1"),
+		types.MemoryTypeDecision,
+		types.WorkspaceScopeOf(types.Workspace("duck8823/traceary")),
+		"superseded rollout note",
+		types.MemoryStatusSuperseded,
+		types.ConfidenceHigh,
+		types.MemorySourceManual,
+		types.None[types.MemoryID](),
+		types.None[time.Time](),
+		startedAt,
+		types.None[time.Time](),
+		startedAt,
+		startedAt.Add(time.Minute),
+	)
+	if err != nil {
+		t.Fatalf("MemorySummaryOf(stale): %v", err)
+	}
+	staleRow, err := apptypes.StaleMemoryRowOf(staleMemory, apptypes.StaleMemoryReasonSuperseded)
+	if err != nil {
+		t.Fatalf("StaleMemoryRowOf: %v", err)
+	}
+	staleResult, err := apptypes.StaleMemoryListResultOf(3, []apptypes.StaleMemoryRow{staleRow})
+	if err != nil {
+		t.Fatalf("StaleMemoryListResultOf: %v", err)
+	}
+	memoryStub := &memoryUsecaseStub{
+		listResult:  []apptypes.MemorySummary{candidate},
+		staleResult: staleResult,
+	}
 
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(
@@ -177,6 +206,12 @@ func TestRootCLI_TopCommand_SnapshotJSONGolden(t *testing.T) {
 	}
 	if got, want := stub.listCriteria.Agent().String(), "claude/explore"; got != want {
 		t.Fatalf("agent criteria = %q, want %q", got, want)
+	}
+	if got, want := memoryStub.staleCriteria.Limit(), 25; got != want {
+		t.Fatalf("stale memory limit criteria = %d, want %d", got, want)
+	}
+	if got, want := memoryStub.staleCalls, 1; got != want {
+		t.Fatalf("ListStale calls = %d, want %d for JSON snapshot", got, want)
 	}
 
 	assertJSONGolden(t, stdout.Bytes(), filepath.Join("testdata", "top", "snapshot_json.golden.json"))
@@ -323,6 +358,9 @@ func TestRootCLI_TopCommand_SnapshotTextGolden(t *testing.T) {
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
+	}
+	if memoryStub.staleCalls != 0 {
+		t.Fatalf("ListStale calls = %d, want 0 for text snapshot until stale pane is rendered", memoryStub.staleCalls)
 	}
 
 	assertGolden(t, stdout.Bytes(), filepath.Join("testdata", "top", "snapshot_text.golden"))

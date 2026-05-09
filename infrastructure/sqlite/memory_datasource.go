@@ -60,6 +60,30 @@ SELECT
 FROM memories m
 WHERE 1 = 1`
 
+const selectStaleMemoryColumnsQuery = `
+SELECT
+    m.id,
+    m.type,
+    m.scope_kind,
+    m.scope_value,
+    m.fact,
+    m.status,
+    m.confidence,
+    m.source,
+    m.supersedes_memory_id,
+    m.expires_at,
+    m.valid_from,
+    m.valid_to,
+    m.created_at,
+    m.updated_at,
+    CASE
+      WHEN m.status = 'expired' OR (m.status = 'accepted' AND m.valid_to IS NOT NULL AND m.valid_to <= ?) THEN 'expired'
+      WHEN m.status = 'superseded' THEN 'superseded'
+      ELSE 'overlap'
+    END AS stale_reason
+FROM memories m
+WHERE 1 = 1`
+
 // MemoryDatasource is the SQLite-backed implementation of the memory
 // repository and memory query service.
 type MemoryDatasource struct {
@@ -81,8 +105,9 @@ func NewMemoryDatasourceWithClock(db *Database, clock types.Clock) *MemoryDataso
 }
 
 var (
-	_ model.MemoryRepository          = (*MemoryDatasource)(nil)
-	_ queryservice.MemoryQueryService = (*MemoryDatasource)(nil)
+	_ model.MemoryRepository               = (*MemoryDatasource)(nil)
+	_ queryservice.MemoryQueryService      = (*MemoryDatasource)(nil)
+	_ queryservice.StaleMemoryQueryService = (*MemoryDatasource)(nil)
 )
 
 // Save persists a memory aggregate together with its refs.
@@ -352,6 +377,68 @@ func (d *MemoryDatasource) List(ctx context.Context, criteria apptypes.MemoryLis
 	return summaries, nil
 }
 
+// ListStale returns stale memory rows plus the total count before paging.
+func (d *MemoryDatasource) ListStale(ctx context.Context, criteria apptypes.StaleMemoryListCriteria) (apptypes.StaleMemoryListResult, error) {
+	if criteria.Limit() <= 0 {
+		return apptypes.StaleMemoryListResult{}, xerrors.Errorf("limit must be greater than or equal to 1")
+	}
+	if criteria.Offset() < 0 {
+		return apptypes.StaleMemoryListResult{}, xerrors.Errorf("offset must be greater than or equal to 0")
+	}
+
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return apptypes.StaleMemoryListResult{}, xerrors.Errorf("failed to open DB for stale memory list: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	evaluationTimestamp := staleMemoryEvaluationTimestamp(criteria, d.clock)
+	countQuery, countArgs, err := buildStaleMemoryCountQuery(criteria, evaluationTimestamp)
+	if err != nil {
+		return apptypes.StaleMemoryListResult{}, xerrors.Errorf("failed to build stale memory count query: %w", err)
+	}
+	var count int
+	if err := db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&count); err != nil {
+		return apptypes.StaleMemoryListResult{}, xerrors.Errorf("failed to count stale memories: %w", err)
+	}
+
+	listQuery, listArgs, err := buildStaleMemoryListQuery(criteria, evaluationTimestamp)
+	if err != nil {
+		return apptypes.StaleMemoryListResult{}, xerrors.Errorf("failed to build stale memory list query: %w", err)
+	}
+	rows, err := db.QueryContext(ctx, listQuery, listArgs...)
+	if err != nil {
+		return apptypes.StaleMemoryListResult{}, xerrors.Errorf("failed to query stale memories: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	items := make([]apptypes.StaleMemoryRow, 0, criteria.Limit())
+	for rows.Next() {
+		item, err := scanStaleMemoryRow(rows)
+		if err != nil {
+			return apptypes.StaleMemoryListResult{}, xerrors.Errorf("failed to scan stale memory row: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return apptypes.StaleMemoryListResult{}, xerrors.Errorf("failed to iterate stale memory rows: %w", err)
+	}
+
+	result, err := apptypes.StaleMemoryListResultOf(count, items)
+	if err != nil {
+		return apptypes.StaleMemoryListResult{}, xerrors.Errorf("failed to build stale memory list result: %w", err)
+	}
+	return result, nil
+}
+
 // Search performs text search across durable memories and their refs.
 func (d *MemoryDatasource) Search(ctx context.Context, criteria apptypes.MemorySearchCriteria) ([]apptypes.MemorySummary, error) {
 	if criteria.Limit() <= 0 {
@@ -451,6 +538,45 @@ func scanMemorySummary(rowScanner interface {
 		return apptypes.MemorySummary{}, err
 	}
 	return restoreMemorySummary(row)
+}
+
+func scanStaleMemoryRow(rowScanner interface {
+	Scan(dest ...any) error
+}) (apptypes.StaleMemoryRow, error) {
+	var row memoryRow
+	var reasonValue string
+	if err := rowScanner.Scan(
+		&row.memoryID,
+		&row.memoryType,
+		&row.scopeKind,
+		&row.scopeValue,
+		&row.fact,
+		&row.status,
+		&row.confidence,
+		&row.source,
+		&row.supersedes,
+		&row.expiresAt,
+		&row.validFrom,
+		&row.validTo,
+		&row.createdAt,
+		&row.updatedAt,
+		&reasonValue,
+	); err != nil {
+		return apptypes.StaleMemoryRow{}, xerrors.Errorf("failed to scan stale memory row: %w", err)
+	}
+	summary, err := restoreMemorySummary(row)
+	if err != nil {
+		return apptypes.StaleMemoryRow{}, err
+	}
+	reason, err := apptypes.StaleMemoryReasonFrom(reasonValue)
+	if err != nil {
+		return apptypes.StaleMemoryRow{}, xerrors.Errorf("failed to restore stale memory reason: %w", err)
+	}
+	staleRow, err := apptypes.StaleMemoryRowOf(summary, reason)
+	if err != nil {
+		return apptypes.StaleMemoryRow{}, xerrors.Errorf("failed to build stale memory row: %w", err)
+	}
+	return staleRow, nil
 }
 
 func restoreMemorySummary(row memoryRow) (apptypes.MemorySummary, error) {
@@ -735,6 +861,86 @@ func buildMemorySearchQuery(criteria apptypes.MemorySearchCriteria, clock types.
 	return builder.String(), args, nil
 }
 
+func buildStaleMemoryCountQuery(criteria apptypes.StaleMemoryListCriteria, evaluationTimestamp string) (string, []any, error) {
+	var builder strings.Builder
+	builder.WriteString("SELECT COUNT(*) FROM memories m WHERE 1 = 1")
+	args, err := appendStaleMemoryFilters(&builder, nil, criteria, evaluationTimestamp)
+	if err != nil {
+		return "", nil, err
+	}
+	return builder.String(), args, nil
+}
+
+func buildStaleMemoryListQuery(criteria apptypes.StaleMemoryListCriteria, evaluationTimestamp string) (string, []any, error) {
+	var builder strings.Builder
+	builder.WriteString(selectStaleMemoryColumnsQuery)
+	args := []any{evaluationTimestamp}
+	args, err := appendStaleMemoryFilters(&builder, args, criteria, evaluationTimestamp)
+	if err != nil {
+		return "", nil, err
+	}
+	builder.WriteString(" ORDER BY m.updated_at DESC, m.id DESC LIMIT ? OFFSET ?")
+	args = append(args, criteria.Limit(), criteria.Offset())
+	return builder.String(), args, nil
+}
+
+func appendStaleMemoryFilters(
+	builder *strings.Builder,
+	args []any,
+	criteria apptypes.StaleMemoryListCriteria,
+	evaluationTimestamp string,
+) ([]any, error) {
+	builder.WriteString(`
+  AND (
+      m.status = ?
+      OR m.status = ?
+      OR (m.status = ? AND m.valid_to IS NOT NULL AND m.valid_to <= ?)
+      OR (
+          m.status = ?
+          AND m.valid_from <= ?
+          AND (m.valid_to IS NULL OR m.valid_to > ?)
+          AND EXISTS (
+              SELECT 1
+              FROM memories peer
+              WHERE peer.id <> m.id
+                AND peer.status = ?
+                AND peer.valid_from <= ?
+                AND (peer.valid_to IS NULL OR peer.valid_to > ?)
+                AND peer.scope_kind = m.scope_kind
+                AND peer.scope_value = m.scope_value
+                AND peer.fact = m.fact
+          )
+      )
+  )`)
+	args = append(args,
+		types.MemoryStatusExpired.String(),
+		types.MemoryStatusSuperseded.String(),
+		types.MemoryStatusAccepted.String(),
+		evaluationTimestamp,
+		types.MemoryStatusAccepted.String(),
+		evaluationTimestamp,
+		evaluationTimestamp,
+		types.MemoryStatusAccepted.String(),
+		evaluationTimestamp,
+		evaluationTimestamp,
+	)
+	if err := appendMemoryScopeFilter(builder, &args, criteria.Scopes()); err != nil {
+		return nil, err
+	}
+	return args, nil
+}
+
+func staleMemoryEvaluationTimestamp(criteria apptypes.StaleMemoryListCriteria, clock types.Clock) string {
+	if clock == nil {
+		clock = types.SystemClock{}
+	}
+	evaluationTime := clock.Now()
+	if explicit, ok := criteria.AsOf().Value(); ok {
+		evaluationTime = explicit
+	}
+	return formatMemoryValidityTimestamp(evaluationTime)
+}
+
 // appendMemoryValidityWindowFilter narrows results to memories whose
 // content validity window contains the evaluation timestamp, unless
 // includeExpired is true. When criteria.AsOf() is None we use the
@@ -792,19 +998,8 @@ func appendMemoryFilters(
 	}
 	builder.WriteString(")")
 
-	if len(scopes) > 0 {
-		builder.WriteString(" AND (")
-		for index, scope := range scopes {
-			if scope == nil {
-				return nil, xerrors.Errorf("memory scope must not be nil")
-			}
-			if index > 0 {
-				builder.WriteString(" OR ")
-			}
-			builder.WriteString("(m.scope_kind = ? AND m.scope_value = ?)")
-			args = append(args, scope.Kind().String(), scope.Key())
-		}
-		builder.WriteString(")")
+	if err := appendMemoryScopeFilter(builder, &args, scopes); err != nil {
+		return nil, err
 	}
 
 	if len(memoryTypes) > 0 {
@@ -832,6 +1027,25 @@ func appendMemoryFilters(
 	}
 
 	return args, nil
+}
+
+func appendMemoryScopeFilter(builder *strings.Builder, args *[]any, scopes []types.MemoryScope) error {
+	if len(scopes) == 0 {
+		return nil
+	}
+	builder.WriteString(" AND (")
+	for index, scope := range scopes {
+		if scope == nil {
+			return xerrors.Errorf("memory scope must not be nil")
+		}
+		if index > 0 {
+			builder.WriteString(" OR ")
+		}
+		builder.WriteString("(m.scope_kind = ? AND m.scope_value = ?)")
+		*args = append(*args, scope.Kind().String(), scope.Key())
+	}
+	builder.WriteString(")")
+	return nil
 }
 
 func normalizeMemoryStatuses(statuses []types.MemoryStatus) []types.MemoryStatus {

@@ -19,14 +19,15 @@ import (
 // idle dimming and "refresh=1s" advertised in the header line match.
 const topDashboardRefreshInterval = time.Second
 
-// topPaneFailureLimit / topPaneRecentCommandLimit / topPaneCandidateLimit
-// cap the per-pane rows the loader fetches. The session pane re-uses the
-// operator-controlled --limit flag (default 500); the secondary panes are
-// summary surfaces that only need a short window.
+// topPaneFailureLimit / topPaneRecentCommandLimit / topPaneCandidateLimit /
+// topPaneStaleMemoryLimit cap the per-pane rows the loader fetches. The
+// session pane re-uses the operator-controlled --limit flag (default 500);
+// the secondary panes are summary surfaces that only need a short window.
 const (
 	topPaneFailureLimit       = 50
 	topPaneRecentCommandLimit = 50
 	topPaneCandidateLimit     = 25
+	topPaneStaleMemoryLimit   = topPaneCandidateLimit
 )
 
 // topPane enumerates the focusable panes on the dashboard.

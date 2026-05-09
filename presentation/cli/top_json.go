@@ -7,9 +7,9 @@ import (
 // writeTopSnapshotJSON renders the top dashboard snapshot as the
 // envelope-wrapped JSON contract added in v0.14.0. The active session
 // tree continues to live under `sessions` with its existing field
-// shape; `failures`, `recent_commands`, and `candidates` mirror the
-// new dashboard panes so a script that consumes the snapshot has the
-// same data the live dashboard renders.
+// shape; `failures`, `recent_commands`, `candidates`, and `stale_memories`
+// mirror the new dashboard panes so a script that consumes the snapshot has
+// the same data the live dashboard renders.
 func writeTopSnapshotJSON(output io.Writer, snap topDataSnapshot) error {
 	sessions := make([]*topSnapshotNode, 0, len(snap.Sessions))
 	for _, root := range snap.Sessions {
@@ -31,6 +31,11 @@ func writeTopSnapshotJSON(output io.Writer, snap topDataSnapshot) error {
 		candidateItems = append(candidateItems, newMemorySummaryOutput(candidate))
 	}
 
+	staleItems := make([]staleMemoryOutput, 0, len(snap.StaleMemories.Items()))
+	for _, stale := range snap.StaleMemories.Items() {
+		staleItems = append(staleItems, newStaleMemoryOutput(stale))
+	}
+
 	payload := topSnapshotPayload{
 		Sessions:       sessions,
 		Failures:       failures,
@@ -38,6 +43,10 @@ func writeTopSnapshotJSON(output io.Writer, snap topDataSnapshot) error {
 		Candidates: topSnapshotCandidates{
 			Count: len(candidateItems),
 			Items: candidateItems,
+		},
+		StaleMemories: topSnapshotStale{
+			Count: snap.StaleMemories.Count(),
+			Items: staleItems,
 		},
 	}
 	return writeJSON(output, payload)

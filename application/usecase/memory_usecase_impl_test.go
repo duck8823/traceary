@@ -85,18 +85,26 @@ func (s *memoryRepositoryStub) FindByID(_ context.Context, memoryID domtypes.Mem
 }
 
 type memoryQueryStub struct {
-	listResult   []apptypes.MemorySummary
-	listErr      error
-	listCriteria apptypes.MemoryListCriteria
-	searchResult []apptypes.MemorySummary
-	searchErr    error
-	details      apptypes.MemoryDetails
-	detailsErr   error
+	listResult    []apptypes.MemorySummary
+	listErr       error
+	listCriteria  apptypes.MemoryListCriteria
+	staleResult   apptypes.StaleMemoryListResult
+	staleErr      error
+	staleCriteria apptypes.StaleMemoryListCriteria
+	searchResult  []apptypes.MemorySummary
+	searchErr     error
+	details       apptypes.MemoryDetails
+	detailsErr    error
 }
 
 func (s *memoryQueryStub) List(_ context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
 	s.listCriteria = criteria
 	return s.listResult, s.listErr
+}
+
+func (s *memoryQueryStub) ListStale(_ context.Context, criteria apptypes.StaleMemoryListCriteria) (apptypes.StaleMemoryListResult, error) {
+	s.staleCriteria = criteria
+	return s.staleResult, s.staleErr
 }
 
 func (s *memoryQueryStub) Search(_ context.Context, _ apptypes.MemorySearchCriteria) ([]apptypes.MemorySummary, error) {
@@ -720,6 +728,41 @@ func TestMemoryUsecase_SetValidity(t *testing.T) {
 			t.Fatalf("SetValidity() error = nil; want mutual-exclusion error")
 		}
 	})
+}
+
+func TestMemoryUsecase_ListStale(t *testing.T) {
+	t.Parallel()
+
+	memory := mustAcceptedMemory(t, "memory-stale", "stale fact")
+	summary, err := apptypes.MemorySummaryFrom(memory)
+	if err != nil {
+		t.Fatalf("MemorySummaryFrom() error = %v", err)
+	}
+	row, err := apptypes.StaleMemoryRowOf(summary, apptypes.StaleMemoryReasonOverlap)
+	if err != nil {
+		t.Fatalf("StaleMemoryRowOf() error = %v", err)
+	}
+	want, err := apptypes.StaleMemoryListResultOf(9, []apptypes.StaleMemoryRow{row})
+	if err != nil {
+		t.Fatalf("StaleMemoryListResultOf() error = %v", err)
+	}
+	query := &memoryQueryStub{staleResult: want}
+	sut := usecase.NewMemoryUsecase(nil, query, nil)
+	criteria := apptypes.NewStaleMemoryListCriteriaBuilder(3).Build()
+
+	got, err := sut.ListStale(context.Background(), criteria)
+	if err != nil {
+		t.Fatalf("ListStale() error = %v", err)
+	}
+	if got.Count() != 9 {
+		t.Fatalf("ListStale().Count = %d, want 9", got.Count())
+	}
+	if items := got.Items(); len(items) != 1 || items[0].Summary().MemoryID() != memory.MemoryID() {
+		t.Fatalf("ListStale().Items = %#v, want one memory-stale row", items)
+	}
+	if query.staleCriteria.Limit() != 3 {
+		t.Fatalf("stale criteria Limit = %d, want 3", query.staleCriteria.Limit())
+	}
 }
 
 func TestMemoryUsecase_Show(t *testing.T) {
