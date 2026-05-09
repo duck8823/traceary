@@ -187,7 +187,6 @@ func run() error {
 		"codex":  filesystem.NewCodexHooksHandler(),
 		"gemini": filesystem.NewGeminiHooksHandler(),
 	})
-	codexIntegrationUsecase := usecase.NewCodexIntegrationUsecase(filesystem.NewCodexIntegrationManager(hooksOrchestrator))
 	hooksInspector := filesystem.NewHooksInspector()
 	pluginCacheInspector := filesystem.NewPluginCacheInspector()
 	pluginDetector := filesystem.NewClaudePluginDetectorAdapter()
@@ -200,7 +199,6 @@ func run() error {
 		cli.WithBundle(bundleUsecase),
 		cli.WithContext(contextUsecase),
 		cli.WithReplay(replayUsecase),
-		cli.WithCodexIntegration(codexIntegrationUsecase),
 		cli.WithStoreManagement(storeManagementUsecase),
 		cli.WithMCPServerRunner(mcpServer),
 		cli.WithHooksOrchestrator(hooksOrchestrator),

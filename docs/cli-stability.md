@@ -79,10 +79,6 @@ Stability and deprecation expectations for these runtime entrypoints:
 - Across minor boundaries (`v0.N.0` → `v0.(N+1).0`) and across `v1.x` minors once v1.0 ships, they may be renamed, removed, or have their argument shape changed without going through the public stderr deprecation flow, provided the new minor's `traceary hooks install` regenerates compatible scripts and the changelog calls out that hooks must be reinstalled to upgrade.
 - Adding a new hidden runtime entrypoint follows the same rule: it is allowed at any minor boundary as long as it is paired with a same-version `traceary hooks print` / `traceary hooks install` update.
 
-Hidden cleanup-only commands kept for legacy users (no replacement; scheduled for removal in v0.15):
-
-- `traceary integration codex uninstall` — removes Traceary-managed Codex plugin state for users migrating off the retired install path. The `traceary integration codex install` command was retired in v0.14.0; invoking the old name now exits with a usage error pointing at Codex's official `/plugins` flow.
-
 Removed top-level aliases that exit with a usage error (no longer functional, no removal date because they are already non-functional stubs that only print migration guidance):
 
 - `traceary init` → `traceary store init`
@@ -90,6 +86,8 @@ Removed top-level aliases that exit with a usage error (no longer functional, no
 - `traceary gc` → `traceary store gc`
 - `traceary handoff` → `traceary session handoff`
 - `traceary compact-summary` → `traceary session handoff --compact-only`
+- `traceary integration codex install` → Codex official `/plugins` flow (retired in v0.14.0)
+- `traceary integration codex uninstall` → Codex official `/plugins` flow plus manual cleanup steps in `docs/integrations/codex-plugin.md` (retired in v0.15.0)
 
 ## Deprecation notice expectations
 
@@ -146,7 +144,7 @@ The default deprecation window is **one minor release**. A command, flag, or JSO
 Examples that follow this default:
 
 - The grouped memory tree introduced in v0.14.0 (`memory inbox` / `memory store` / `memory admin`) keeps the flat verbs (`memory remember`, `memory propose`, `memory accept`, ...) as hidden deprecated aliases through v0.14.x and removes them in v0.15.0. See the [memory command surface plan](./operations/memory-command-surface.md).
-- The retired Codex install helper kept its uninstall counterpart as a hidden cleanup-only command in v0.14.0; it is scheduled for removal in v0.15.0.
+- The retired Codex install helper kept its uninstall counterpart as a hidden cleanup-only command in v0.14.0; that cleanup-only command was removed in v0.15.0.
 
 ### Longer windows for breaking output changes
 

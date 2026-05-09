@@ -32,7 +32,7 @@ Current automatic fixes cover Traceary-managed hook config installation/upgrade 
 | Host | Package root | Installed surface |
 | --- | --- | --- |
 | Claude Code | `integrations/claude-plugin/` | Claude marketplace rooted at `.claude-plugin/marketplace.json` |
-| Codex | `plugins/traceary/` | Installed via Codex CLI's official `/plugins` flow against the repo-local marketplace at `.agents/plugins/marketplace.json`; the plugin manifest declares the bundled `hooks.json` so Codex wires session / prompt / audit hooks automatically. The `traceary integration codex install` helper was retired in v0.14.0; a hidden `traceary integration codex uninstall` command stays as a cleanup-only path for legacy installs until v0.15. |
+| Codex | `plugins/traceary/` | Installed via Codex CLI's official `/plugins` flow against the repo-local marketplace at `.agents/plugins/marketplace.json`; the plugin manifest declares the bundled `hooks.json` so Codex wires session / prompt / audit hooks automatically. The `traceary integration codex install` helper was retired in v0.14.0 and the cleanup-only `traceary integration codex uninstall` was retired in v0.15.0; both are now hidden stubs that point at Codex's official `/plugins` flow plus the manual cleanup steps in [docs/integrations/codex-plugin.md](./codex-plugin.md). |
 | Gemini CLI | `integrations/gemini-extension/` | Gemini extension archive rooted at `gemini-extension.json` |
 
 ## Per-host guides
@@ -53,4 +53,4 @@ The smoke-test script focuses on the installation surfaces that each host curren
 
 - Claude Code: marketplace validation + install into a temporary home
 - Gemini CLI: extension validation + link flow in a temporary home
-- Codex: structural verification of the plugin manifest (`hooks: "./hooks.json"`, commands, skills) plus the hidden `traceary integration codex uninstall` cleanup-only path (kept under smoke so legacy installs can still be uninstalled until v0.15)
+- Codex: structural verification of the plugin manifest (`hooks: "./hooks.json"`, commands, skills) plus the retired-stub probes for both `traceary integration codex install` (v0.14.0 removal) and `traceary integration codex uninstall` (v0.15.0 removal) so the migration hints stay accurate

@@ -73,7 +73,7 @@ cd ~/src/traceary
 codex   # Codex 内で /plugins を開き、Traceary Plugins から Traceary を install
 ```
 
-`traceary integration codex install` ヘルパーは v0.14.0 で廃止されました。新規 install は上記の Codex CLI 公式 `/plugins` flow を使ってください。隠しコマンド `traceary integration codex uninstall` は v0.15 までは旧 install のクリーンアップ専用として残ります。移行方法は [Codex plugin ガイド](./docs/integrations/codex-plugin.ja.md) を参照してください。
+`traceary integration codex install` ヘルパーは v0.14.0 で、cleanup 専用 `traceary integration codex uninstall` は v0.15.0 で廃止されました。いずれも上記の Codex CLI 公式 `/plugins` flow を案内する usage error を返して非ゼロ終了します。移行方法と旧 install を残した環境の手動 cleanup 手順は [Codex plugin ガイド](./docs/integrations/codex-plugin.ja.md) を参照してください。
 
 **Gemini CLI** ([ガイド](./docs/integrations/gemini-extension.ja.md))
 

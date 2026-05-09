@@ -47,11 +47,11 @@ run_gemini() {
 }
 
 run_codex() {
-  # The Python-side smoke now owns both the install-removal assertion
-  # and the cleanup-only `traceary integration codex uninstall` probe
-  # (see scripts/verify_integrations.py::check_codex). The shell side
-  # adds a quick CLI-level guard so a regression that re-registers the
-  # legacy install command would surface here too.
+  # The Python-side smoke owns both the install-removal assertion
+  # (v0.14.0) and the uninstall-removal assertion (v0.15.0); see
+  # scripts/verify_integrations.py::check_codex. The shell side adds
+  # quick CLI-level guards so regressions that re-register either of
+  # the retired commands would surface here too.
   python3 "${ROOT_DIR}/scripts/verify_integrations.py"
   local install_output
   if install_output="$(go run . integration codex install 2>&1)"; then
@@ -61,6 +61,16 @@ run_codex() {
   fi
   if [[ "${install_output}" != *"v0.14.0"* || "${install_output}" != *"/plugins"* ]]; then
     echo "error: install removal hint missing replacement details: ${install_output}" >&2
+    return 1
+  fi
+  local uninstall_output
+  if uninstall_output="$(go run . integration codex uninstall 2>&1)"; then
+    echo "error: 'go run . integration codex uninstall' unexpectedly succeeded after v0.15.0 removal" >&2
+    echo "${uninstall_output}" >&2
+    return 1
+  fi
+  if [[ "${uninstall_output}" != *"v0.15.0"* || "${uninstall_output}" != *"/plugins"* ]]; then
+    echo "error: uninstall removal hint missing replacement details: ${uninstall_output}" >&2
     return 1
   fi
   if [[ "${TRACEARY_ENABLE_CODEX_RUNTIME_SMOKE:-0}" != "1" ]]; then

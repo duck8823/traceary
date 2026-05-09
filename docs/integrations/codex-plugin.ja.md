@@ -82,19 +82,30 @@ maintainer 向けの構造確認（plugin manifest や hook、marketplace を変
 python3 scripts/verify_integrations.py
 ```
 
-## 旧 install の削除 (v0.14.0)
+## 旧 install/uninstall の削除 (v0.14.0, v0.15.0)
 
 `traceary integration codex install` は **v0.14.0** で削除されました (#920)。実行可能な install path としては機能しません。新規 install は上記の公式 `/plugins` flow を使ってください。旧コマンドを実行すると、v0.14.0 での削除と Codex 公式の `/plugins` flow を案内する usage error を返して終了します。
 
-### cleanup 専用 uninstall (hidden、v0.15 で削除予定)
+`traceary integration codex uninstall` は **v0.15.0** で削除されました (#957)。install / uninstall いずれも hidden な stub 扱いとなり、実行すると Codex 公式の `/plugins` flow を案内する usage error で非ゼロ終了します。`traceary integration codex --help` にも uninstall は表示されません。
 
-`traceary integration codex uninstall` は、削除済みの install から移行するユーザー向けの cleanup 専用 command として hidden で残してあります。`traceary integration codex --help` には表示されないため新規ユーザーには見えませんが、cleanup スクリプトからは引き続き実行できます。
+### 旧 install を残した環境向けの手動 cleanup
+
+v0.14 以前の `traceary integration codex install` 経路で配置した状態が残っている場合、まず Codex 公式の `/plugins` flow で Traceary plugin を uninstall してください（リポジトリ内で `codex` を起動 → `/plugins` → `Traceary` を uninstall）。Traceary が手動で配置していた残存ファイルは、次の手順で取り除いてください。
 
 ```sh
-cd ~/src/traceary
-traceary integration codex uninstall
+# 旧 active plugin cache を削除
+rm -rf ~/.codex/plugins/cache/local-traceary-plugins/traceary
+
+# 旧 marketplace copy を削除
+rm -rf ~/.agents/plugins/plugins/traceary
+
+# ~/.agents/plugins/marketplace.json から、source path が "./plugins/traceary" の
+# "traceary" entry を削除。この local marketplace が Traceary だけを含んでいた場合は、
+# copy 削除後に marketplace.json ごと削除してもかまいません。
+# ~/.codex/config.toml から [plugins."traceary@local-traceary-plugins"] テーブルを削除
+# ~/.codex/hooks.json から名前付きエントリ "traceary-session-start" / "traceary-session-stop" /
+# "traceary-prompt" / "traceary-audit" を削除。`[features].codex_hooks` フラグは他の hook workflow の
+# ために残します。
 ```
 
-cleanup 専用 uninstall は、Traceary が入れた plugin cache、`~/.codex/config.toml` の `[plugins."traceary@local-traceary-plugins"]` エントリ、`~/.codex/hooks.json` の Traceary 管理下の hook を取り除きます。ユーザー自身の hook や `[features].codex_hooks` フラグはそのまま残ります。
-
-hidden な uninstall command は **v0.15** で削除予定です。公式 `/plugins` install に移行した後に 1 回だけ実行して prompt / audit の二重記録を解消し、自動化からは呼び出しを外してください。
+cleanup 後は上記の公式 `/plugins` flow で install し直し、plugin lifecycle は Codex 自身に委ねてください。

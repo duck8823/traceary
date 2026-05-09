@@ -18,7 +18,6 @@ type RootCLI struct {
 	bundle                usecase.BundleUsecase
 	context               usecase.ContextUsecase
 	replay                usecase.ReplayUsecase
-	codexIntegration      usecase.CodexIntegrationUsecase
 	storeManagement       usecase.StoreManagementUsecase
 	mcpServerRunner       MCPServerRunner
 	hooksOrchestrator     application.HooksOrchestrator
@@ -78,12 +77,6 @@ func WithContext(contextUsecase usecase.ContextUsecase) RootCLIOption {
 // error at runtime if `traceary replay` is invoked without it.
 func WithReplay(replay usecase.ReplayUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.replay = replay }
-}
-
-// WithCodexIntegration injects the CodexIntegrationUsecase used by the
-// integration codex install/uninstall commands.
-func WithCodexIntegration(codexIntegration usecase.CodexIntegrationUsecase) RootCLIOption {
-	return func(c *RootCLI) { c.codexIntegration = codexIntegration }
 }
 
 // WithStoreManagement injects the StoreManagementUsecase used by init,
