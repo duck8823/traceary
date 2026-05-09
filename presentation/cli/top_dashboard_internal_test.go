@@ -178,6 +178,11 @@ func sendKey(m topModel, key tea.KeyMsg) topModel {
 	return updated.(topModel)
 }
 
+func sendRunes(m topModel, runes string) topModel {
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(runes)})
+	return updated.(topModel)
+}
+
 func TestTopModel_InitialFetchPopulatesSnapshot(t *testing.T) {
 	t.Parallel()
 	loader := &stubTopLoader{snapshot: topDataSnapshot{
@@ -405,6 +410,278 @@ func TestTopModel_HelpModeTogglesAndSwallowsNavigation(t *testing.T) {
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 	if m.mode != topModeBrowse {
 		t.Fatalf("mode = %v after second `?`, want topModeBrowse", m.mode)
+	}
+}
+
+func TestTopModel_SearchPromptFiltersRowsIncrementally(t *testing.T) {
+	t.Parallel()
+	loader := &stubTopLoader{snapshot: topDataSnapshot{Failures: []*model.Event{
+		dashboardEvent("evt-alpha", domtypes.EventKindCommandExecuted, "Alpha deploy failed"),
+		dashboardEvent("evt-beta", domtypes.EventKindCommandExecuted, "Beta deploy failed"),
+	}}}
+	m := newDashboardTestModel(t, loader)
+	m = applySnapshot(t, m)
+	m = resize(m, 120, 40)
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyTab})                       // failures
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}}) // search prompt
+	if !m.searchOpen {
+		t.Fatalf("searchOpen = false, want true after /")
+	}
+
+	m = sendRunes(m, "ALPHA")
+	view := m.View()
+	for _, expect := range []string{"search: /ALPHA", "Alpha deploy failed"} {
+		if !strings.Contains(view, expect) {
+			t.Fatalf("filtered view missing %q:\n%s", expect, view)
+		}
+	}
+	if strings.Contains(view, "Beta deploy failed") {
+		t.Fatalf("filtered view still contains non-matching row:\n%s", view)
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.searchOpen {
+		t.Fatalf("searchOpen = true, want false after Enter")
+	}
+	if got, want := m.searchQuery, "ALPHA"; got != want {
+		t.Fatalf("searchQuery = %q, want %q after Enter", got, want)
+	}
+	view = m.View()
+	if !strings.Contains(view, "Alpha deploy failed") || strings.Contains(view, "Beta deploy failed") {
+		t.Fatalf("Enter should keep the filter applied:\n%s", view)
+	}
+}
+
+func TestTopModel_SearchFiltersEveryPaneByRenderedRows(t *testing.T) {
+	t.Parallel()
+	staleAlpha := dashboardStaleMemory(t, "mem-stale-alpha", apptypes.StaleMemoryReasonExpired, "Alpha stale fact")
+	staleBeta := dashboardStaleMemory(t, "mem-stale-beta", apptypes.StaleMemoryReasonSuperseded, "Beta stale fact")
+	cases := []struct {
+		name     string
+		pane     topPane
+		snapshot topDataSnapshot
+		want     string
+		reject   string
+	}{
+		{
+			name: "sessions",
+			pane: topPaneSessions,
+			snapshot: topDataSnapshot{Sessions: []*sessionNode{
+				dashboardSessionNode("session-alpha", fixedDashboardNow),
+				dashboardSessionNode("session-beta", fixedDashboardNow),
+			}},
+			want:   "session-alpha",
+			reject: "session-beta",
+		},
+		{
+			name: "failures",
+			pane: topPaneFailures,
+			snapshot: topDataSnapshot{Failures: []*model.Event{
+				dashboardEvent("evt-alpha", domtypes.EventKindCommandExecuted, "Alpha failure"),
+				dashboardEvent("evt-beta", domtypes.EventKindCommandExecuted, "Beta failure"),
+			}},
+			want:   "Alpha failure",
+			reject: "Beta failure",
+		},
+		{
+			name: "recent commands",
+			pane: topPaneRecentCommands,
+			snapshot: topDataSnapshot{RecentCommands: []*model.Event{
+				dashboardEvent("evt-alpha", domtypes.EventKindCommandExecuted, "Alpha command"),
+				dashboardEvent("evt-beta", domtypes.EventKindCommandExecuted, "Beta command"),
+			}},
+			want:   "Alpha command",
+			reject: "Beta command",
+		},
+		{
+			name: "candidates",
+			pane: topPaneCandidates,
+			snapshot: topDataSnapshot{Candidates: []apptypes.MemorySummary{
+				dashboardCandidate(t, "mem-alpha", "Alpha candidate fact"),
+				dashboardCandidate(t, "mem-beta", "Beta candidate fact"),
+			}},
+			want:   "Alpha candidate fact",
+			reject: "Beta candidate fact",
+		},
+		{
+			name: "stale memories",
+			pane: topPaneStaleMemories,
+			snapshot: topDataSnapshot{
+				StaleMemories: dashboardStaleResult(t, 2, staleAlpha, staleBeta),
+			},
+			want:   "Alpha stale fact",
+			reject: "Beta stale fact",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newDashboardTestModel(t, &stubTopLoader{snapshot: tc.snapshot})
+			m = applySnapshot(t, m)
+			m.pane = tc.pane
+			m.searchQuery = "alpha"
+
+			lines := m.paneLines(tc.pane, 160)
+			if len(lines) != 1 {
+				t.Fatalf("filtered lines = %d, want 1: %#v", len(lines), lines)
+			}
+			if !strings.Contains(lines[0], tc.want) || strings.Contains(lines[0], tc.reject) {
+				t.Fatalf("filtered line = %q, want %q and not %q", lines[0], tc.want, tc.reject)
+			}
+		})
+	}
+}
+
+func TestTopModel_SearchSlashReopensExistingFilterForEditing(t *testing.T) {
+	t.Parallel()
+	m := newDashboardTestModel(t, &stubTopLoader{snapshot: topDataSnapshot{Failures: []*model.Event{
+		dashboardEvent("evt-alpha", domtypes.EventKindCommandExecuted, "Alpha deploy failed"),
+	}}})
+	m = applySnapshot(t, m)
+	m = resize(m, 120, 40)
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyTab})                       // failures
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}}) // open prompt
+	m = sendRunes(m, "alpha")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.searchOpen {
+		t.Fatalf("searchOpen = true, want false after Enter")
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	if !m.searchOpen {
+		t.Fatalf("searchOpen = false, want true after reopening /")
+	}
+	if got, want := m.searchQuery, "alpha"; got != want {
+		t.Fatalf("searchQuery = %q, want prior query %q", got, want)
+	}
+	if view := m.View(); !strings.Contains(view, "search: /alpha") {
+		t.Fatalf("reopened prompt missing prior query:\n%s", view)
+	}
+}
+
+func TestTopModel_SearchEscClearsFilterWithoutQuitting(t *testing.T) {
+	t.Parallel()
+	m := newDashboardTestModel(t, &stubTopLoader{snapshot: topDataSnapshot{Failures: []*model.Event{
+		dashboardEvent("evt-alpha", domtypes.EventKindCommandExecuted, "Alpha deploy failed"),
+		dashboardEvent("evt-beta", domtypes.EventKindCommandExecuted, "Beta deploy failed"),
+	}}})
+	m = applySnapshot(t, m)
+	m = resize(m, 120, 40)
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyTab})
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m = sendRunes(m, "alpha")
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd != nil {
+		t.Fatalf("Esc while search prompt is open should clear search, not quit")
+	}
+	m = updated.(topModel)
+	if m.searchOpen || m.searchQuery != "" {
+		t.Fatalf("searchOpen/searchQuery = %v/%q, want cleared", m.searchOpen, m.searchQuery)
+	}
+	view := m.View()
+	if !strings.Contains(view, "Alpha deploy failed") || !strings.Contains(view, "Beta deploy failed") {
+		t.Fatalf("cleared search should render all rows:\n%s", view)
+	}
+}
+
+func TestTopModel_SearchEscClearsCommittedFilterWithoutQuitting(t *testing.T) {
+	t.Parallel()
+	m := newDashboardTestModel(t, &stubTopLoader{snapshot: topDataSnapshot{Failures: []*model.Event{
+		dashboardEvent("evt-alpha", domtypes.EventKindCommandExecuted, "Alpha deploy failed"),
+		dashboardEvent("evt-beta", domtypes.EventKindCommandExecuted, "Beta deploy failed"),
+	}}})
+	m = applySnapshot(t, m)
+	m = resize(m, 120, 40)
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyTab})
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m = sendRunes(m, "alpha")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd != nil {
+		t.Fatalf("Esc with a committed search filter should clear search, not quit")
+	}
+	m = updated.(topModel)
+	if m.searchOpen || m.searchQuery != "" {
+		t.Fatalf("searchOpen/searchQuery = %v/%q, want cleared", m.searchOpen, m.searchQuery)
+	}
+	view := m.View()
+	if !strings.Contains(view, "Alpha deploy failed") || !strings.Contains(view, "Beta deploy failed") {
+		t.Fatalf("cleared committed search should render all rows:\n%s", view)
+	}
+}
+
+func TestTopModel_SearchRefreshPreservesFilter(t *testing.T) {
+	t.Parallel()
+	m := newDashboardTestModel(t, &stubTopLoader{snapshot: topDataSnapshot{Failures: []*model.Event{
+		dashboardEvent("evt-alpha", domtypes.EventKindCommandExecuted, "Alpha initial failure"),
+		dashboardEvent("evt-beta", domtypes.EventKindCommandExecuted, "Beta initial failure"),
+	}}})
+	m = applySnapshot(t, m)
+	m = resize(m, 120, 40)
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyTab})
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m = sendRunes(m, "alpha")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	refreshed, _ := m.Update(topSnapshotMsg{
+		snapshot: topDataSnapshot{Failures: []*model.Event{
+			dashboardEvent("evt-alpha-2", domtypes.EventKindCommandExecuted, "Alpha refreshed failure"),
+			dashboardEvent("evt-gamma", domtypes.EventKindCommandExecuted, "Gamma refreshed failure"),
+		}},
+		at: fixedDashboardNow.Add(time.Second),
+	})
+	m = refreshed.(topModel)
+	if got, want := m.searchQuery, "alpha"; got != want {
+		t.Fatalf("searchQuery after refresh = %q, want %q", got, want)
+	}
+	view := m.View()
+	if !strings.Contains(view, "Alpha refreshed failure") || strings.Contains(view, "Gamma refreshed failure") {
+		t.Fatalf("refresh should preserve active filter:\n%s", view)
+	}
+}
+
+func TestTopModel_SearchFocusSwitchClearsFilter(t *testing.T) {
+	t.Parallel()
+	m := newDashboardTestModel(t, &stubTopLoader{snapshot: topDataSnapshot{Failures: []*model.Event{
+		dashboardEvent("evt-alpha", domtypes.EventKindCommandExecuted, "Alpha deploy failed"),
+		dashboardEvent("evt-beta", domtypes.EventKindCommandExecuted, "Beta deploy failed"),
+	}}})
+	m = applySnapshot(t, m)
+	m = resize(m, 120, 40)
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyTab}) // failures
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m = sendRunes(m, "alpha")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyTab}) // recent commands
+	if m.searchOpen || m.searchQuery != "" {
+		t.Fatalf("searchOpen/searchQuery after focus switch = %v/%q, want cleared", m.searchOpen, m.searchQuery)
+	}
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyShiftTab}) // back to failures
+	view := m.View()
+	if !strings.Contains(view, "Alpha deploy failed") || !strings.Contains(view, "Beta deploy failed") {
+		t.Fatalf("focus switch should reset the previous pane filter:\n%s", view)
+	}
+}
+
+func TestTopModel_SearchPromptQuitKeysStillQuit(t *testing.T) {
+	t.Parallel()
+	for _, keyMsg := range []tea.KeyMsg{
+		{Type: tea.KeyRunes, Runes: []rune{'q'}},
+		{Type: tea.KeyCtrlC},
+	} {
+		m := newDashboardTestModel(t, &stubTopLoader{})
+		m = applySnapshot(t, m)
+		m = sendKey(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+
+		_, cmd := m.Update(keyMsg)
+		if cmd == nil {
+			t.Fatalf("key %v in search prompt should still quit", keyMsg)
+		}
+		if msg := cmd(); msg == nil {
+			t.Fatalf("quit cmd for key %v returned nil msg", keyMsg)
+		}
 	}
 }
 
