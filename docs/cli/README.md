@@ -945,18 +945,11 @@ Useful flags:
 
 ### `traceary integration codex install` (retired, hidden)
 
-Retired in v0.14.0 and **not a supported install surface**. The command is hidden and no longer installs anything; invoking it only prints a hint pointing to Codex's official `/plugins` flow. New installs must go through Codex's official `/plugins` flow (run `codex` inside the repository → `/plugins` → `Traceary Plugins` → `Traceary`). See the [Codex plugin guide](../integrations/codex-plugin.md) for the full setup. This hidden alias is scheduled for removal in v0.15.
+Retired in v0.14.0 and **not a supported install surface**. The command is hidden and no longer installs anything; invoking it only prints a hint pointing to Codex's official `/plugins` flow. New installs must go through Codex's official `/plugins` flow (run `codex` inside the repository → `/plugins` → `Traceary Plugins` → `Traceary`). See the [Codex plugin guide](../integrations/codex-plugin.md) for the full setup.
 
-### `traceary integration codex uninstall` (hidden cleanup-only)
+### `traceary integration codex uninstall` (retired, hidden)
 
-**Not a supported install/uninstall management surface.** This command is a hidden, cleanup-only escape hatch. It exists solely to remove legacy Traceary-managed Codex plugin state left over from the retired pre-v0.14 install path (`traceary integration codex install`), for users who installed via that path before it was retired. New installs go through Codex's official `/plugins` flow and are managed by Codex itself, not by this command.
-
-When invoked, it removes the Traceary-managed Codex plugin cache, plugin config entry, and hook entries while preserving unrelated local Codex settings. Like its `install` counterpart, this hidden cleanup command is scheduled for removal in v0.15 once migration off the retired install path is complete.
-
-Useful flags:
-
-- `--codex-home`
-- `--marketplace-root`
+Retired in v0.15.0 and **not a supported uninstall surface**. The command is hidden and no longer removes anything; invoking it only prints a usage error pointing at Codex's official `/plugins` flow plus the [manual cleanup steps in the Codex plugin guide](../integrations/codex-plugin.md) for state left behind by the retired pre-v0.14 install path. Use Codex's `/plugins` flow to uninstall the Traceary plugin going forward.
 
 ### `traceary mcp-server`
 

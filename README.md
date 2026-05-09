@@ -74,7 +74,7 @@ cd ~/src/traceary
 codex   # then, inside Codex: /plugins -> Traceary Plugins -> Traceary
 ```
 
-The `traceary integration codex install` helper was retired in v0.14.0; new installs must go through Codex CLI's official `/plugins` flow shown above. The hidden `traceary integration codex uninstall` command stays available as a cleanup-only path for legacy installs until v0.15. See the [Codex plugin guide](./docs/integrations/codex-plugin.md) for migration details.
+The `traceary integration codex install` helper was retired in v0.14.0 and the cleanup-only `traceary integration codex uninstall` was retired in v0.15.0; both surfaces now exit non-zero with a usage error pointing at Codex CLI's official `/plugins` flow shown above. See the [Codex plugin guide](./docs/integrations/codex-plugin.md) for migration details and manual cleanup steps for legacy installs.
 
 **Gemini CLI** ([guide](./docs/integrations/gemini-extension.md))
 

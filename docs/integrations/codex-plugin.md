@@ -93,19 +93,30 @@ Structural package validation (for maintainers who change the plugin manifest, h
 python3 scripts/verify_integrations.py
 ```
 
-## Legacy install removal (v0.14.0)
+## Legacy install/uninstall removal (v0.14.0, v0.15.0)
 
 `traceary integration codex install` was retired in **v0.14.0** (#920) and is no longer a working install path. New installs must use the official `/plugins` flow documented above. Invoking the legacy command exits with a usage error that names the v0.14.0 removal and points at the Codex `/plugins` flow.
 
-### Cleanup-only uninstall (hidden, scheduled for v0.15 removal)
+`traceary integration codex uninstall` was retired in **v0.15.0** (#957). Both the install and uninstall surfaces are now hidden stubs that exit non-zero with a usage error pointing at Codex's official `/plugins` flow as the supported install/uninstall path. The retired uninstall command no longer appears in `traceary integration codex --help`.
 
-`traceary integration codex uninstall` is retained as a hidden cleanup-only command for users migrating off the retired install path. It is absent from `traceary integration codex --help` so it stays invisible to new users while remaining executable for cleanup scripts.
+### Manual cleanup for legacy installs
+
+If you installed Traceary via the retired pre-v0.14 `traceary integration codex install` path, use Codex's official `/plugins` flow to uninstall the plugin first (run `codex` inside the repository, open `/plugins`, and uninstall `Traceary`). For state left behind by the retired Traceary-managed install, remove the residual files manually:
 
 ```sh
-cd ~/src/traceary
-traceary integration codex uninstall
+# Remove the legacy active plugin cache
+rm -rf ~/.codex/plugins/cache/local-traceary-plugins/traceary
+
+# Remove the legacy marketplace copy
+rm -rf ~/.agents/plugins/plugins/traceary
+
+# In ~/.agents/plugins/marketplace.json, remove the legacy plugin entry named
+# "traceary" whose source path is "./plugins/traceary". If that local marketplace
+# only contained Traceary, you can remove marketplace.json after deleting the copy.
+# In ~/.codex/config.toml, delete the legacy [plugins."traceary@local-traceary-plugins"] table
+# In ~/.codex/hooks.json, remove the named "traceary-session-start" / "traceary-session-stop" /
+# "traceary-prompt" / "traceary-audit" entries. Leave [features].codex_hooks untouched so other
+# local hook workflows keep working.
 ```
 
-The cleanup-only uninstall removes the Traceary-managed plugin cache, the `[plugins."traceary@local-traceary-plugins"]` entry from `~/.codex/config.toml`, and Traceary-managed hook entries from `~/.codex/hooks.json`. Unrelated hooks and the `[features].codex_hooks` flag are left untouched.
-
-The hidden uninstall command is scheduled for removal in **v0.15**. Run it once after migrating to the official `/plugins` install to avoid duplicate prompt / audit recordings, then drop the call from any automation.
+After cleanup, install via the official `/plugins` flow above so Codex itself manages the plugin lifecycle.

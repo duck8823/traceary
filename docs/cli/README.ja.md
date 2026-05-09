@@ -937,18 +937,11 @@ DB 作成と migration 適用を明示的に先行実行します。通常コマ
 
 ### `traceary integration codex install` (廃止・非表示)
 
-v0.14.0 で廃止されており、**サポート対象の install 面ではありません**。コマンドは非表示扱いとなり、実行しても install は行われず、Codex 公式の `/plugins` flow を案内するヒントのみを返します。新規 install は必ず Codex 公式の `/plugins` flow（リポジトリ内で `codex` を起動 → `/plugins` → `Traceary Plugins` → `Traceary`）を経由してください。詳細は [Codex plugin ガイド](../integrations/codex-plugin.ja.md) を参照してください。この非表示 alias は v0.15 で削除予定です。
+v0.14.0 で廃止されており、**サポート対象の install 面ではありません**。コマンドは非表示扱いとなり、実行しても install は行われず、Codex 公式の `/plugins` flow を案内するヒントのみを返します。新規 install は必ず Codex 公式の `/plugins` flow（リポジトリ内で `codex` を起動 → `/plugins` → `Traceary Plugins` → `Traceary`）を経由してください。詳細は [Codex plugin ガイド](../integrations/codex-plugin.ja.md) を参照してください。
 
-### `traceary integration codex uninstall` (非表示・cleanup 専用)
+### `traceary integration codex uninstall` (廃止・非表示)
 
-**サポート対象の install / uninstall 管理面ではありません。** これは非表示の cleanup 専用エスケープハッチです。v0.14 以前の廃止された install 経路（`traceary integration codex install`）で配置された、レガシーな Traceary 管理 Codex plugin state を取り除くためだけに残されています。対象は廃止前のその経路で install 済みのユーザーに限定されます。新規 install は Codex 公式の `/plugins` flow から行い、Codex 自身が管理するため、このコマンドの管理対象ではありません。
-
-実行時は Traceary が管理する Codex plugin cache、plugin config entry、hook entry を外し、Codex の他の設定は保持します。`install` 側と同様、この非表示 cleanup コマンドも、廃止された install 経路からの移行完了後の v0.15 で削除予定です。
-
-主な flag:
-
-- `--codex-home`
-- `--marketplace-root`
+v0.15.0 で廃止されており、**サポート対象の uninstall 面ではありません**。コマンドは非表示扱いとなり、実行しても何も削除されず、Codex 公式の `/plugins` flow と、v0.14 以前の旧 install 経路が残した state 向けの [Codex plugin ガイドの手動 cleanup 手順](../integrations/codex-plugin.ja.md) を案内する usage error を返して非ゼロ終了します。今後の uninstall は Codex 公式の `/plugins` flow を使ってください。
 
 ### `traceary mcp-server`
 

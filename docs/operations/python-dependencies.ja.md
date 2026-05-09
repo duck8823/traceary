@@ -16,7 +16,7 @@ Traceary の core runtime は Go ですが、いくつかの repository workflow
 ### user-facing
 
 現在、support 対象の user-facing install / runtime flow で `python3` を必須にするものはありません。
-Codex の唯一サポートされる install path は Codex CLI 公式の `/plugins` flow です（リポジトリ内で `codex` を起動 → `/plugins` → `Traceary Plugins` → `Traceary`）。`traceary integration codex install` helper は v0.14.0 で廃止され、もう存在しません。隠しコマンド `traceary integration codex uninstall` は旧 install を片付けるための cleanup 専用 path として v0.15 までは残ります。いずれの path も `python3` には依存しません。
+Codex の唯一サポートされる install path は Codex CLI 公式の `/plugins` flow です（リポジトリ内で `codex` を起動 → `/plugins` → `Traceary Plugins` → `Traceary`）。`traceary integration codex install` helper は v0.14.0 で、cleanup 専用 `traceary integration codex uninstall` は v0.15.0 で廃止されました。どちらも非表示の stub になり、移行ヒントを返して非ゼロ終了するのみです。いずれの path も `python3` には依存しません。
 
 ### maintainer-only
 
