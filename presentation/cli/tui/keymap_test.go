@@ -27,6 +27,7 @@ func TestDefaultKeyMap_NavigationCovered(t *testing.T) {
 		{"down arrow", "down", km.Down},
 		{"vim j", "j", km.Down},
 		{"select", "enter", km.Select},
+		{"search", "/", km.Search},
 		{"refresh", "r", km.Refresh},
 		{"help", "?", km.Help},
 		{"home", "g", km.Home},

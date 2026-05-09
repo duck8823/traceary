@@ -116,6 +116,9 @@ type topModel struct {
 	pane    topPane
 	offsets [topPaneCount]int
 
+	searchOpen  bool
+	searchQuery string
+
 	snapshot topDataSnapshot
 	loadedAt time.Time
 	loadErr  error
@@ -234,7 +237,14 @@ func (m topModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m topModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.searchOpen {
+		return m.updateSearchKey(msg)
+	}
 	switch {
+	case m.searchQuery != "" && msg.Type == tea.KeyEsc:
+		m.clearSearch()
+		m.clampOffsets()
+		return m, nil
 	case key.Matches(msg, m.keys.Quit):
 		return m, tea.Quit
 	case key.Matches(msg, m.keys.Help):
@@ -252,10 +262,14 @@ func (m topModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	switch {
 	case key.Matches(msg, m.actions.NextPane):
-		m.pane = topPane((int(m.pane) + 1) % topPaneCount)
+		m.switchPane(topPane((int(m.pane) + 1) % topPaneCount))
 		return m, nil
 	case key.Matches(msg, m.actions.PrevPane):
-		m.pane = topPane((int(m.pane) + topPaneCount - 1) % topPaneCount)
+		m.switchPane(topPane((int(m.pane) + topPaneCount - 1) % topPaneCount))
+		return m, nil
+	case key.Matches(msg, m.keys.Search):
+		m.searchOpen = true
+		m.offsets[m.pane] = 0
 		return m, nil
 	case key.Matches(msg, m.keys.Up):
 		m.scrollBy(-1)
@@ -264,17 +278,17 @@ func (m topModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.scrollBy(1)
 		return m, nil
 	case key.Matches(msg, m.keys.PageUp):
-		m.scrollBy(-m.paneViewportRows())
+		m.scrollBy(-m.paneContentViewportRows(m.pane))
 		return m, nil
 	case key.Matches(msg, m.keys.PageDown):
-		m.scrollBy(m.paneViewportRows())
+		m.scrollBy(m.paneContentViewportRows(m.pane))
 		return m, nil
 	case key.Matches(msg, m.keys.Home):
 		m.offsets[m.pane] = 0
 		return m, nil
 	case key.Matches(msg, m.keys.End):
 		lines := m.paneLineCount(m.pane)
-		viewport := m.paneViewportRows()
+		viewport := m.paneContentViewportRows(m.pane)
 		if lines > viewport {
 			m.offsets[m.pane] = lines - viewport
 		} else {
@@ -287,6 +301,60 @@ func (m topModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m topModel) updateSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case msg.Type == tea.KeyEsc:
+		m.clearSearch()
+		m.clampOffsets()
+		return m, nil
+	case key.Matches(msg, m.keys.Quit):
+		return m, tea.Quit
+	case key.Matches(msg, m.keys.Select):
+		m.searchOpen = false
+		m.clampOffsets()
+		return m, nil
+	case key.Matches(msg, m.actions.NextPane):
+		m.switchPane(topPane((int(m.pane) + 1) % topPaneCount))
+		return m, nil
+	case key.Matches(msg, m.actions.PrevPane):
+		m.switchPane(topPane((int(m.pane) + topPaneCount - 1) % topPaneCount))
+		return m, nil
+	case msg.Type == tea.KeyBackspace || msg.Type == tea.KeyCtrlH:
+		runes := []rune(m.searchQuery)
+		if len(runes) > 0 {
+			m.searchQuery = string(runes[:len(runes)-1])
+			m.offsets[m.pane] = 0
+		}
+		m.clampOffsets()
+		return m, nil
+	case msg.Type == tea.KeySpace:
+		m.searchQuery += " "
+		m.offsets[m.pane] = 0
+		m.clampOffsets()
+		return m, nil
+	case msg.Type == tea.KeyRunes:
+		m.searchQuery += string(msg.Runes)
+		m.offsets[m.pane] = 0
+		m.clampOffsets()
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m *topModel) switchPane(next topPane) {
+	if next == m.pane {
+		return
+	}
+	m.clearSearch()
+	m.pane = next
+	m.clampOffsets()
+}
+
+func (m *topModel) clearSearch() {
+	m.searchOpen = false
+	m.searchQuery = ""
+}
+
 // scrollBy adjusts the focused pane's offset, clamping to the legal range
 // so an over-scroll never wraps and so reaching the bottom of a short pane
 // stops cleanly instead of leaving a blank window.
@@ -296,7 +364,7 @@ func (m *topModel) scrollBy(delta int) {
 		offset = 0
 	}
 	lines := m.paneLineCount(m.pane)
-	viewport := m.paneViewportRows()
+	viewport := m.paneContentViewportRows(m.pane)
 	maxOffset := 0
 	if lines > viewport {
 		maxOffset = lines - viewport
@@ -311,8 +379,9 @@ func (m *topModel) scrollBy(delta int) {
 // so the focused window never points past the end of the available rows.
 func (m *topModel) clampOffsets() {
 	for i := range m.offsets {
-		viewport := m.paneViewportRows()
-		lines := m.paneLineCount(topPane(i))
+		pane := topPane(i)
+		viewport := m.paneContentViewportRows(pane)
+		lines := m.paneLineCount(pane)
 		maxOffset := 0
 		if lines > viewport {
 			maxOffset = lines - viewport
@@ -369,25 +438,56 @@ func (m topModel) paneViewportRows() int {
 	return rows
 }
 
+func (m topModel) paneContentViewportRows(pane topPane) int {
+	rows := m.paneViewportRows()
+	if m.searchOpen && pane == m.pane {
+		rows--
+	}
+	if rows < 1 {
+		return 1
+	}
+	return rows
+}
+
 // paneLines builds the slice of rendered rows for the given pane. Width
 // is the interior width (excluding pane border). The slice is recomputed
 // on every call rather than cached so the data stays in sync with the
 // last snapshot — caching would require invalidation on resize and on
 // snapshot apply, which the periodic ticker would race with.
 func (m topModel) paneLines(pane topPane, width int) []string {
+	var lines []string
 	switch pane {
 	case topPaneSessions:
-		return m.sessionLines(width)
+		lines = m.sessionLines(width)
 	case topPaneFailures:
-		return m.eventLines(m.snapshot.Failures, width)
+		lines = m.eventLines(m.snapshot.Failures, width)
 	case topPaneRecentCommands:
-		return m.eventLines(m.snapshot.RecentCommands, width)
+		lines = m.eventLines(m.snapshot.RecentCommands, width)
 	case topPaneCandidates:
-		return m.candidateLines(width)
+		lines = m.candidateLines(width)
 	case topPaneStaleMemories:
-		return m.staleMemoryLines(width)
+		lines = m.staleMemoryLines(width)
+	default:
+		return nil
 	}
-	return nil
+	return m.applyPaneSearchFilter(pane, lines)
+}
+
+func (m topModel) applyPaneSearchFilter(pane topPane, lines []string) []string {
+	if pane != m.pane || m.searchQuery == "" {
+		return lines
+	}
+	query := strings.ToLower(m.searchQuery)
+	filtered := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.Contains(strings.ToLower(line), query) {
+			filtered = append(filtered, line)
+		}
+	}
+	if len(filtered) == 0 {
+		return []string{m.styles.Subtle.Render(Localize("No rows match search.", "search に一致する行はありません。"))}
+	}
+	return filtered
 }
 
 // sessionLines renders the active session tree to one line per node so
@@ -585,12 +685,18 @@ func (m topModel) renderFooter() string {
 		loaded = m.loadedAt.In(m.location).Format(eventCompactTimeLayout)
 	}
 	status := fmt.Sprintf("loaded=%s pane=%s", loaded, paneLabel(m.pane))
+	if m.searchQuery != "" {
+		status += fmt.Sprintf(" search=%q", m.searchQuery)
+	}
+	if m.searchOpen {
+		status += " search-edit"
+	}
 	if m.loadErr != nil {
 		status += " " + m.styles.Error.Render(Localize("load error", "load error"))
 	}
 	help := Localize(
-		"tab/shift+tab pane · ↑/↓ scroll · pgup/pgdn page · g/G top/bottom · r refresh · ? help · q quit",
-		"tab/shift+tab pane · ↑/↓ スクロール · pgup/pgdn ページ · g/G 先頭/末尾 · r 更新 · ? help · q quit",
+		"tab/shift+tab pane · / search · ↑/↓ scroll · pgup/pgdn page · g/G top/bottom · r refresh · ? help · q quit",
+		"tab/shift+tab pane · / search · ↑/↓ スクロール · pgup/pgdn ページ · g/G 先頭/末尾 · r 更新 · ? help · q quit",
 	)
 	return m.styles.Subtle.Render(status) + "\n" + m.styles.Help.Render(help)
 }
@@ -611,8 +717,11 @@ func (m topModel) renderHelp() string {
 	b.WriteString("  ↑ / ↓ (k / j)    " + Localize("scroll the focused pane by one row", "フォーカス中のペインを1行スクロール") + "\n")
 	b.WriteString("  pgup / pgdn      " + Localize("page through the focused pane", "フォーカス中のペインをページ移動") + "\n")
 	b.WriteString("  g / G            " + Localize("jump to top / bottom of the pane", "ペインの先頭 / 末尾へ") + "\n")
+	b.WriteString("  /                " + Localize("open / edit pane search filter", "ペイン内 search filter を開く / 編集") + "\n")
+	b.WriteString("  enter            " + Localize("keep the current search filter and return to pane navigation", "現在の search filter を保持してペイン操作へ戻る") + "\n")
+	b.WriteString("  esc              " + Localize("clear the active search filter while editing search", "search 編集中の filter をクリア") + "\n")
 	b.WriteString("  r                " + Localize("force a snapshot refresh", "スナップショットを再取得") + "\n")
-	b.WriteString("  ? / esc          " + Localize("toggle this help", "ヘルプの表示を切替") + "\n")
+	b.WriteString("  ?                " + Localize("toggle this help", "ヘルプの表示を切替") + "\n")
 	b.WriteString("  q / ctrl+c       " + Localize("quit", "終了") + "\n")
 	b.WriteString("\n")
 	b.WriteString(m.styles.Help.Render(Localize("? close help · q quit", "? ヘルプを閉じる · q quit")))
@@ -625,7 +734,7 @@ func (m topModel) renderHelp() string {
 func (m topModel) renderPane(pane topPane) string {
 	width := m.paneInteriorWidth()
 	lines := m.paneLines(pane, width)
-	viewport := m.paneViewportRows()
+	viewport := m.paneContentViewportRows(pane)
 	if m.offsets[pane] > 0 && m.offsets[pane] >= len(lines) {
 		// Snapshot shrunk under the cursor; rewind to the last visible row
 		// so the pane never renders an empty window after a refresh.
@@ -638,11 +747,21 @@ func (m topModel) renderPane(pane topPane) string {
 	}
 	visible := lines[start:end]
 	header := m.renderPaneHeader(pane, len(lines))
-	body := strings.Join(visible, "\n")
+	bodyLines := make([]string, 0, len(visible)+1)
+	if m.searchOpen && pane == m.pane {
+		bodyLines = append(bodyLines, m.renderSearchPrompt(width))
+	}
+	bodyLines = append(bodyLines, visible...)
+	body := strings.Join(bodyLines, "\n")
 	if body == "" {
 		body = m.styles.Subtle.Render(Localize("(empty)", "(空)"))
 	}
 	return header + "\n" + body
+}
+
+func (m topModel) renderSearchPrompt(width int) string {
+	prompt := fmt.Sprintf("search: /%s", m.searchQuery)
+	return m.styles.Help.Render(truncateToWidth(prompt, width))
 }
 
 func (m topModel) renderPaneHeader(pane topPane, total int) string {
@@ -651,7 +770,7 @@ func (m topModel) renderPaneHeader(pane topPane, total int) string {
 		label = fmt.Sprintf("STALE MEMORIES (count=%d)", m.snapshot.StaleMemories.Count())
 	}
 	scroll := ""
-	viewport := m.paneViewportRows()
+	viewport := m.paneContentViewportRows(pane)
 	if total > viewport {
 		scroll = fmt.Sprintf(" %d-%d/%d", m.offsets[pane]+1, min(m.offsets[pane]+viewport, total), total)
 	} else if total > 0 {

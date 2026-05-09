@@ -18,6 +18,7 @@ type KeyMap struct {
 	Home     key.Binding
 	End      key.Binding
 	Select   key.Binding
+	Search   key.Binding
 	Refresh  key.Binding
 	Help     key.Binding
 	Quit     key.Binding
@@ -57,6 +58,10 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("enter"),
 			key.WithHelp("enter", "select"),
 		),
+		Search: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/", "search"),
+		),
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
@@ -74,13 +79,13 @@ func DefaultKeyMap() KeyMap {
 
 // ShortHelp returns the bindings shown in the always-visible help line.
 func (k KeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Select, k.Quit, k.Help}
+	return []key.Binding{k.Up, k.Down, k.Select, k.Search, k.Quit, k.Help}
 }
 
 // FullHelp returns the bindings shown in the expanded help screen.
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.PageUp, k.PageDown, k.Home, k.End},
-		{k.Select, k.Refresh, k.Help, k.Quit},
+		{k.Select, k.Search, k.Refresh, k.Help, k.Quit},
 	}
 }
