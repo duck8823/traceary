@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,12 +57,22 @@ type topDataEventStub struct {
 	listErr      error
 	listCriteria apptypes.EventListCriteria
 	listCalls    int
+	showDetails  apptypes.EventDetails
+	showErr      error
+	showEventID  domtypes.EventID
+	showCalls    int
 }
 
 func (s *topDataEventStub) List(_ context.Context, criteria apptypes.EventListCriteria) ([]*model.Event, error) {
 	s.listCriteria = criteria
 	s.listCalls++
 	return s.listEvents, s.listErr
+}
+
+func (s *topDataEventStub) Show(_ context.Context, eventID domtypes.EventID) (apptypes.EventDetails, error) {
+	s.showEventID = eventID
+	s.showCalls++
+	return s.showDetails, s.showErr
 }
 
 // topDataMemoryStub satisfies usecase.MemoryUsecase via the embedded
@@ -77,6 +88,10 @@ type topDataMemoryStub struct {
 	staleErr            error
 	staleMemoryCriteria apptypes.StaleMemoryListCriteria
 	staleMemoryCalls    int
+	showDetails         apptypes.MemoryDetails
+	showErr             error
+	showMemoryID        domtypes.MemoryID
+	showCalls           int
 }
 
 func (s *topDataMemoryStub) List(_ context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
@@ -89,6 +104,12 @@ func (s *topDataMemoryStub) ListStale(_ context.Context, criteria apptypes.Stale
 	s.staleMemoryCriteria = criteria
 	s.staleMemoryCalls++
 	return s.staleResult, s.staleErr
+}
+
+func (s *topDataMemoryStub) Show(_ context.Context, memoryID domtypes.MemoryID) (apptypes.MemoryDetails, error) {
+	s.showMemoryID = memoryID
+	s.showCalls++
+	return s.showDetails, s.showErr
 }
 
 // fixedStartedAt is the deterministic anchor every fixture in this file
@@ -505,6 +526,113 @@ func TestTopDataLoader_LoadStaleMemories_ZeroLimitIsNoOp(t *testing.T) {
 	}
 	if memory.staleMemoryCalls != 0 {
 		t.Fatalf("memory.ListStale calls = %d, want 0", memory.staleMemoryCalls)
+	}
+}
+
+func TestTopDataLoader_LoadDetail_SessionUsesLineageAndRecentEvents(t *testing.T) {
+	t.Parallel()
+
+	root := sessionSummaryFixture("root", "", fixedStartedAt, "ended", domtypes.EventKindSessionEnded, "root ended")
+	child := sessionSummaryFixture("child", "root", fixedStartedAt.Add(10*time.Minute), "active", domtypes.EventKindTranscript, "child active")
+	event := mustEvent(t, "evt-session", domtypes.EventKindTranscript, "first session event line\nsecond session event line")
+	session := &topDataSessionStub{lineageByID: map[domtypes.SessionID][]apptypes.SessionSummary{
+		domtypes.SessionID("child"): {root, child},
+	}}
+	events := &topDataEventStub{listEvents: []*model.Event{event}}
+	loader := newTopDataLoader(session, events, nil)
+
+	got, err := loader.loadDetail(context.Background(), topDetailRequest{
+		target: topDetailTarget{kind: topDetailSession, title: "SESSION child", sessionID: domtypes.SessionID("child")},
+	})
+	if err != nil {
+		t.Fatalf("loadDetail(session) error = %v", err)
+	}
+	joined := strings.Join(got.lines, "\n")
+	for _, expect := range []string{"SESSION_ID: child", "LINEAGE:", "root", "child", "RECENT_EVENTS", "first session event line", "  second session event line"} {
+		if !strings.Contains(joined, expect) {
+			t.Fatalf("session detail missing %q:\n%s", expect, joined)
+		}
+	}
+	for _, line := range got.lines {
+		if strings.Contains(line, "first session event line") && strings.Contains(line, "second session event line") {
+			t.Fatalf("multiline event body should be split into modal rows, got combined line %q", line)
+		}
+	}
+	if len(session.lineageCalls) != 1 || session.lineageCalls[0] != "child" {
+		t.Fatalf("Lineage calls = %#v, want child", session.lineageCalls)
+	}
+	if events.listCriteria.SessionID() != "child" || events.listCriteria.Limit() != topDetailRecentEventLimit {
+		t.Fatalf("event List criteria = session %q limit %d, want child/%d", events.listCriteria.SessionID(), events.listCriteria.Limit(), topDetailRecentEventLimit)
+	}
+}
+
+func TestTopDataLoader_LoadDetail_EventUsesShowAndFormatsAudit(t *testing.T) {
+	t.Parallel()
+
+	event := mustEvent(t, "evt-detail", domtypes.EventKindCommandExecuted, "full event body")
+	audit := model.CommandAuditOf(
+		event.EventID(),
+		"go test ./...",
+		"stdin payload",
+		"stdout payload",
+		false,
+		false,
+		domtypes.Some(1),
+	)
+	details, err := apptypes.EventDetailsOf(event, domtypes.Some(audit))
+	if err != nil {
+		t.Fatalf("EventDetailsOf: %v", err)
+	}
+	events := &topDataEventStub{showDetails: details}
+	loader := newTopDataLoader(nil, events, nil)
+
+	got, err := loader.loadDetail(context.Background(), topDetailRequest{
+		target: topDetailTarget{kind: topDetailEvent, title: "EVENT evt-detail", eventID: event.EventID()},
+	})
+	if err != nil {
+		t.Fatalf("loadDetail(event) error = %v", err)
+	}
+	joined := strings.Join(got.lines, "\n")
+	for _, expect := range []string{"EVENT_ID: evt-detail", "MESSAGE: full event body", "COMMAND: go test ./...", "EXIT_CODE: 1", "stdout payload"} {
+		if !strings.Contains(joined, expect) {
+			t.Fatalf("event detail missing %q:\n%s", expect, joined)
+		}
+	}
+	if events.showCalls != 1 || events.showEventID != "evt-detail" {
+		t.Fatalf("Show calls/id = %d/%q, want 1/evt-detail", events.showCalls, events.showEventID)
+	}
+}
+
+func TestTopDataLoader_LoadDetail_MemoryUsesShowAndFormatsRefs(t *testing.T) {
+	t.Parallel()
+
+	summary := memorySummaryFixture(t, "mem-detail", domtypes.MemoryStatusCandidate, "full memory fact")
+	evidence, err := domtypes.EvidenceRefFrom(domtypes.EvidenceRefKindEvent, "evt-detail")
+	if err != nil {
+		t.Fatalf("EvidenceRefFrom: %v", err)
+	}
+	artifact, err := domtypes.ArtifactRefFrom(domtypes.ArtifactRefKindFile, "docs/plan.md")
+	if err != nil {
+		t.Fatalf("ArtifactRefFrom: %v", err)
+	}
+	details := apptypes.MemoryDetailsOf(summary, []domtypes.EvidenceRef{evidence}, []domtypes.ArtifactRef{artifact})
+	memory := &topDataMemoryStub{showDetails: details}
+	loader := newTopDataLoader(nil, nil, memory)
+
+	got, err := loader.loadDetail(context.Background(), topDetailRequest{
+		target: topDetailTarget{kind: topDetailMemory, title: "MEMORY mem-detail", memoryID: summary.MemoryID()},
+	})
+	if err != nil {
+		t.Fatalf("loadDetail(memory) error = %v", err)
+	}
+	joined := strings.Join(got.lines, "\n")
+	for _, expect := range []string{"MEMORY_ID: mem-detail", "FACT: full memory fact", "EVIDENCE_REFS:", "event:evt-detail", "ARTIFACT_REFS:", "file:docs/plan.md"} {
+		if !strings.Contains(joined, expect) {
+			t.Fatalf("memory detail missing %q:\n%s", expect, joined)
+		}
+	}
+	if memory.showCalls != 1 || memory.showMemoryID != "mem-detail" {
+		t.Fatalf("Show calls/id = %d/%q, want 1/mem-detail", memory.showCalls, memory.showMemoryID)
 	}
 }
 

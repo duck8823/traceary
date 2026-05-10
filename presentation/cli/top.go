@@ -440,6 +440,7 @@ func (c *RootCLI) runTopTUI(ctx context.Context, output io.Writer, opts topComma
 		Actions:         defaultTopPaneActionKeys(),
 		Styles:          tui.DefaultStyles(),
 		Loader:          loader,
+		Detail:          loader,
 		Criteria:        criteria,
 		Idle:            opts.idle,
 		RefreshInterval: topDashboardRefreshInterval,
