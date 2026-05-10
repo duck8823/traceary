@@ -73,7 +73,7 @@ cd ~/src/traceary
 codex   # Codex 内で /plugins を開き、Traceary Plugins から Traceary を install
 ```
 
-`traceary integration codex install` ヘルパーは v0.14.0 で、cleanup 専用 `traceary integration codex uninstall` は v0.15.0 で廃止されました。いずれも上記の Codex CLI 公式 `/plugins` flow を案内する usage error を返して非ゼロ終了します。移行方法と旧 install を残した環境の手動 cleanup 手順は [Codex plugin ガイド](./docs/integrations/codex-plugin.ja.md) を参照してください。
+`traceary integration codex install` ヘルパーは v0.14.0 で廃止され、cleanup 専用 `traceary integration codex uninstall` surface は v0.15.0 で削除されました。install / uninstall は上記の Codex CLI 公式 `/plugins` flow を使ってください。移行方法と旧 install を残した環境の手動 cleanup 手順は [Codex plugin ガイド](./docs/integrations/codex-plugin.ja.md) を参照してください。
 
 **Gemini CLI** ([ガイド](./docs/integrations/gemini-extension.ja.md))
 
@@ -138,7 +138,7 @@ traceary session handoff --workspace github.com/duck8823/traceary
 
 ### 5. durable memory inbox をレビューする
 
-v0.14 から `traceary memory ...` は intent 別に namespace を分けています。`memory inbox` は candidate review 専用、`memory store` は deliberate write (`remember` / `propose` / `distill`) 用、`memory admin` は extraction / host 連携 (`import` / `export` / `activate`) / maintenance (`hygiene` / `graph`) / lifecycle (`supersede` / `expire` / `set-validity`) 用です。日常 read 用途の `memory search` / `memory show` / `memory list` はこれまで通り top-level に置いています。flat な verb (`memory remember` / `memory accept` 等) は v0.14.x の間 hidden deprecated alias として動作しますが、stderr に 1 行 deprecation notice を出力し、v0.15 で削除予定です。
+`traceary memory ...` は intent 別に namespace を分けています。`memory inbox` は candidate review 専用、`memory store` は deliberate write (`remember` / `propose` / `distill`) 用、`memory admin` は extraction / host 連携 (`import` / `export` / `activate`) / maintenance (`hygiene` / `graph`) / lifecycle (`supersede` / `expire` / `set-validity`) 用です。日常 read 用途の `memory search` / `memory show` / `memory list` はこれまで通り top-level に置いています。以前の flat な verb (`memory remember` / `memory accept` 等) は v0.14 の互換期間を経て v0.15.0 で削除されました。上記の canonical な grouped path を使ってください。
 
 ターミナルから対話的に candidate を捌くときは:
 
@@ -151,14 +151,23 @@ traceary memory inbox review --workspace github.com/duck8823/traceary --type pre
 
 ## 直近の動きを確認する
 
-Traceary は 4 つの補完的なビューを用意していて、「いま何が起きているか」と「ある期間に何が起きたか」をターミナルから切り替えて確認できます。
+Traceary は補完的なビューを用意していて、「いま何が起きているか」と「ある期間に何が起きたか」をターミナルから切り替えて確認できます。
 
 | 目的 | コマンド | 使いどころ |
 |---|---|---|
+| workspace dashboard を見る | `traceary top` | active session、直近の失敗 / command、candidate memory、stale memory を 1 つの TUI で確認 |
 | いま動いているものを追う | `traceary tail` | hook が発火しているか / 失敗がリアルタイムで見えているかを確認 |
 | ある期間の流れを俯瞰する | `traceary timeline` | アイドルギャップ区切りの作業ブロックを workspace 別のアクティビティ要約付きで表示 |
 | 生 event を直接掘る | `traceary list` / `traceary search` | kind / session / query をピンポイントで指定 |
 | 引き継ぎコンテキストで再開する | `traceary session handoff` | 整形済みの working memory を次のセッションへ |
+
+### `traceary top`
+
+```sh
+traceary top
+```
+
+`top` は Bubble Tea ベースの 5 ペイン dashboard で、active sessions、直近の failures、recent commands、candidate memories、stale memories をまとめて表示します。`tab` / `shift+tab` でペインを移動し、`/` でフォーカス中ペインを incremental filter し、Enter で highlight 中の session / event / memory detail を開けます。非 TTY では `traceary top --snapshot` と `traceary top --snapshot --json` が同じデータを script 向けに出力し、JSON envelope には `stale_memories` キーも含まれます。
 
 ### `traceary tail`
 

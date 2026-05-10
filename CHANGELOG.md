@@ -5,6 +5,30 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.15.0] - 2026-05-10
+
+### Added
+- **Stale memory data in `traceary top --snapshot --json` (#959)** — the top data loader now fetches stale durable memories alongside sessions, recent failures, recent commands, and candidate memories. The JSON snapshot envelope gains a new additive `stale_memories` (`{ count, items }`) key whose rows reuse durable-memory summary fields plus a `reason`.
+- **Stale memory pane in `traceary top` (#960)** — the live dashboard and text snapshot now include a fifth pane / section for stale durable memories so memory-hygiene work is visible in the daily-read surface without adding a new command.
+- **Per-pane `/` search in `traceary top` (#961)** — the focused dashboard pane now supports incremental filtering with `/`; Enter keeps the filter, `/` reopens it for editing, and Esc clears the active filter without quitting.
+- **Enter-to-detail drill-down in `traceary top` (#962)** — highlighted session, event, candidate-memory, and stale-memory rows can open a scrollable detail modal. Session details include lineage plus recent events; event and memory details reuse the existing CLI detail renderers.
+
+### Changed
+- **Release-drafter Dependabot intake (#953)** — updated the pinned `release-drafter/release-drafter` and autolabeler action baseline from 7.2.1 to 7.3.0 before release preparation.
+- **Go dependency Dependabot intake (#954)** — updated the Go dependency group, including `github.com/charmbracelet/bubbles` 1.0.0, `github.com/anthropics/anthropic-sdk-go` 1.41.0, and the `golang.org/x/*` refresh needed before the TUI-heavy work.
+- **Removed-alias documentation verifier covers v0.15 (#958)** — `scripts/verify_docs_no_removed_aliases.py` now rejects docs that recommend the v0.15-removed flat memory verbs or `integration codex uninstall` outside the historical migration allow-list.
+- **`memory inbox review` reports per-id failures as command failures (#963)** — queued decisions still run to completion and stdout keeps the exact `FAILED` rows, but a partial review now returns a non-zero error so shell automation cannot treat it as success.
+- **README, CLI reference, stability policy, and changelog synced for v0.15 (#964)** — the docs now describe top search / detail / stale-memory panes, the `stale_memories` JSON envelope key, v0.15 alias removals, and the completed Dependabot intake.
+
+### Removed
+- **Hidden flat memory aliases (#956)** — removed the v0.14 hidden deprecated aliases for `memory accept`, `memory reject`, `memory remember`, `memory propose`, `memory distill`, `memory extract`, `memory import codex`, `memory import instructions`, `memory export`, `memory activate`, `memory hygiene scan`, `memory hygiene apply`, `memory graph add`, `memory graph list`, `memory supersede`, `memory expire`, and `memory set-validity`. Use the canonical `memory inbox`, `memory store`, and `memory admin` paths.
+- **Cleanup-only `traceary integration codex uninstall` (#957)** — removed the hidden cleanup command after the v0.14 migration window. Codex plugin install / uninstall is handled by Codex CLI's official `/plugins` flow; the Codex plugin guide keeps manual cleanup steps for legacy installs.
+
+### Notes
+- v0.15.0 has no SQLite schema migration and no new MCP tools.
+- The `traceary top --snapshot --json` `stale_memories` key is additive; existing consumers that already read the v0.14 envelope can continue reading `sessions`, `failures`, `recent_commands`, and `candidates`.
+- The v0.14 deprecation window for flat memory verbs and the Codex uninstall cleanup path is complete; new scripts should use only the canonical grouped paths.
+
 ## [v0.14.0] - 2026-05-07
 
 ### Added

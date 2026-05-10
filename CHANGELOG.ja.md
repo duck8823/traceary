@@ -5,6 +5,30 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.15.0] - 2026-05-10
+
+### Added
+- **`traceary top --snapshot --json` に stale memory data を追加 (#959)** — top data loader が sessions / recent failures / recent commands / candidate memories に加えて stale durable memories も取得するようになりました。JSON snapshot envelope には additive な `stale_memories` (`{ count, items }`) キーが追加され、row は durable-memory summary field に `reason` を加えた shape です。
+- **`traceary top` に stale memory ペインを追加 (#960)** — live dashboard と text snapshot に 5 つ目のペイン / セクションとして stale durable memories を表示します。memory hygiene の作業候補を日常 read surface で見られるようにし、新しい command は追加していません。
+- **`traceary top` のペイン内 `/` search (#961)** — フォーカス中 dashboard ペインで `/` による incremental filter が使えるようになりました。Enter で filter を保持し、`/` で既存 filter を再編集、Esc で active filter をクリアします。
+- **`traceary top` の Enter-to-detail drill-down (#962)** — highlight 中の session / event / candidate memory / stale memory row から scroll 可能な detail modal を開けるようになりました。session detail は lineage と recent events を表示し、event / memory detail は既存の CLI detail renderer を再利用します。
+
+### Changed
+- **release-drafter Dependabot 取り込み (#953)** — release prep 前に `release-drafter/release-drafter` と autolabeler action の pin baseline を 7.2.1 から 7.3.0 へ更新しました。
+- **Go dependency Dependabot 取り込み (#954)** — TUI-heavy な作業に入る前に、`github.com/charmbracelet/bubbles` 1.0.0、`github.com/anthropics/anthropic-sdk-go` 1.41.0、`golang.org/x/*` 更新を含む Go dependency group を取り込みました。
+- **削除済み alias docs verifier を v0.15 対応に更新 (#958)** — `scripts/verify_docs_no_removed_aliases.py` が、歴史的な移行 allow-list の外で v0.15 で削除された flat memory verb や `integration codex uninstall` を推奨する docs を検出するようになりました。
+- **`memory inbox review` の id 単位 failure を command failure として返すよう変更 (#963)** — queued decision は引き続き最後まで適用し、stdout の `FAILED` 行も従来通り出力します。一方で partial review は非ゼロ error を返すため、shell automation が成功扱いしません。
+- **README / CLI reference / stability policy / changelog を v0.15 に同期 (#964)** — top search / detail / stale-memory ペイン、`stale_memories` JSON envelope key、v0.15 alias removal、Dependabot 取り込み結果を docs に反映しました。
+
+### Removed
+- **hidden flat memory alias を削除 (#956)** — v0.14 で hidden deprecated alias として残していた `memory accept`、`memory reject`、`memory remember`、`memory propose`、`memory distill`、`memory extract`、`memory import codex`、`memory import instructions`、`memory export`、`memory activate`、`memory hygiene scan`、`memory hygiene apply`、`memory graph add`、`memory graph list`、`memory supersede`、`memory expire`、`memory set-validity` を削除しました。canonical な `memory inbox` / `memory store` / `memory admin` path を使ってください。
+- **cleanup 専用 `traceary integration codex uninstall` を削除 (#957)** — v0.14 の移行期間を終えたため hidden cleanup command を削除しました。Codex plugin の install / uninstall は Codex CLI 公式の `/plugins` flow を使い、legacy install の手動 cleanup 手順は Codex plugin ガイドに残しています。
+
+### Notes
+- v0.15.0 には SQLite schema migration と新規 MCP tool はありません。
+- `traceary top --snapshot --json` の `stale_memories` キーは additive です。v0.14 envelope の `sessions` / `failures` / `recent_commands` / `candidates` を読む既存 consumer はそのまま動作します。
+- flat memory verb と Codex uninstall cleanup path の v0.14 deprecation window は完了しました。新しい script では canonical grouped path のみを使ってください。
+
 ## [v0.14.0] - 2026-05-07
 
 ### Added

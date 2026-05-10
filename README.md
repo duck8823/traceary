@@ -74,7 +74,7 @@ cd ~/src/traceary
 codex   # then, inside Codex: /plugins -> Traceary Plugins -> Traceary
 ```
 
-The `traceary integration codex install` helper was retired in v0.14.0 and the cleanup-only `traceary integration codex uninstall` was retired in v0.15.0; both surfaces now exit non-zero with a usage error pointing at Codex CLI's official `/plugins` flow shown above. See the [Codex plugin guide](./docs/integrations/codex-plugin.md) for migration details and manual cleanup steps for legacy installs.
+The `traceary integration codex install` helper was retired in v0.14.0 and the cleanup-only `traceary integration codex uninstall` surface was removed in v0.15.0. Use Codex CLI's official `/plugins` flow shown above for install / uninstall. See the [Codex plugin guide](./docs/integrations/codex-plugin.md) for migration details and manual cleanup steps for legacy installs.
 
 **Gemini CLI** ([guide](./docs/integrations/gemini-extension.md))
 
@@ -140,7 +140,7 @@ traceary session handoff --workspace github.com/duck8823/traceary
 
 ### 5. Curate the durable-memory inbox
 
-`traceary memory ...` is grouped by intent in v0.14: `memory inbox` for candidate review, `memory store` for deliberate writes (`remember` / `propose` / `distill`), and `memory admin` for extraction, host-side I/O (`import` / `export` / `activate`), maintenance (`hygiene` / `graph`), and lifecycle (`supersede` / `expire` / `set-validity`). Daily-read commands (`memory search` / `memory show` / `memory list`) stay top-level. The flat verbs from earlier releases (`memory remember`, `memory accept`, ...) keep working as hidden deprecated aliases through v0.14.x; they emit a one-line stderr deprecation notice and are scheduled for removal in v0.15.
+`traceary memory ...` is grouped by intent: `memory inbox` for candidate review, `memory store` for deliberate writes (`remember` / `propose` / `distill`), and `memory admin` for extraction, host-side I/O (`import` / `export` / `activate`), maintenance (`hygiene` / `graph`), and lifecycle (`supersede` / `expire` / `set-validity`). Daily-read commands (`memory search` / `memory show` / `memory list`) stay top-level. The flat verbs from earlier releases (`memory remember`, `memory accept`, ...) were removed in v0.15.0 after the v0.14 compatibility window; use the canonical grouped paths above.
 
 For interactive review of the candidate inbox at the terminal:
 
@@ -153,14 +153,23 @@ traceary memory inbox review --workspace github.com/duck8823/traceary --type pre
 
 ## Inspect recent and live activity
 
-Traceary ships four complementary inspection views so you can switch between "what's happening now" and "what happened across a span" without leaving the terminal:
+Traceary ships complementary inspection views so you can switch between "what's happening now" and "what happened across a span" without leaving the terminal:
 
 | When | Command | Use it to |
 |---|---|---|
+| Watching the workspace dashboard | `traceary top` | browse active sessions, recent failures / commands, candidate memories, and stale memories in one TUI |
 | Following what is happening now | `traceary tail` | confirm hooks are firing, watch failures in real time |
 | Understanding what happened across a span | `traceary timeline` | see gap-separated work blocks with a per-workspace activity summary |
 | Inspecting raw events directly | `traceary list` / `traceary search` | jump to an exact kind / session / query |
 | Resuming with assembled working memory | `traceary session handoff` | start a follow-up session with curated context |
+
+### `traceary top`
+
+```sh
+traceary top
+```
+
+`top` opens a five-pane Bubble Tea dashboard for active sessions, recent failures, recent commands, candidate memories, and stale memories. Use `tab` / `shift+tab` to move between panes, `/` to filter the focused pane incrementally, and Enter to drill into the highlighted session, event, or memory detail. In non-TTY shells, `traceary top --snapshot` and `traceary top --snapshot --json` expose the same data for scripts, including the `stale_memories` envelope key.
 
 ### `traceary tail`
 

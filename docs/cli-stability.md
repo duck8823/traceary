@@ -4,14 +4,14 @@
 
 This document is the operator- and integrator-facing contract for Traceary's CLI surface.
 It describes which commands are part of the public surface, which are admin/maintenance, and which are plumbing or hidden deprecation shims.
-It also defines the deprecation notice expectations, the one-minor compatibility window, and the v0 vs v1 removal policy that the v0.14 series and the upcoming v1.0 release commit to.
+It also defines the deprecation notice expectations, the one-minor compatibility window, and the v0 vs v1 removal policy that the v0.15 series and the upcoming v1.0 release commit to.
 
 The companion [CLI reference](./cli/README.md) documents per-command flags and behavior.
 This page deliberately stays at policy level so it can be linked from skill packs, AI integrations, and external tooling that needs to reason about stability without re-reading the full reference.
 
 ## Goals
 
-- Make the v0.14 command surface explicit before v1.0 so external tooling can pin against documented stability tiers.
+- Make the v0.15 command surface explicit before v1.0 so external tooling can pin against documented stability tiers.
 - Keep daily-use commands (the public surface) byte-for-byte stable across minor releases.
 - Allow admin/maintenance commands to evolve at minor boundaries without breaking the public surface.
 - Give scripts, AI skills, and example snippets one full minor cycle to migrate before any working command is removed.
@@ -27,11 +27,11 @@ The tier sets the rules for what may change, when it may change, and what notice
 | **Admin / maintenance** | Listed in `--help` under their namespace (`store`, `memory admin`, etc.) and in `docs/cli/README.md`. | Command path and the documented flag set; `--json` / `--dry-run` / `--apply` semantics where applicable. | Additive between minors. Breaking changes use the same deprecation flow as public commands but may move faster (stderr notice in N, removal in N+1) when the affected audience is operators only. |
 | **Plumbing / hidden / deprecated** | Hidden from `--help` (`Hidden: true`). Documented as "deprecated alias" or "cleanup-only" in the CLI reference. | Argument and flag shape of the canonical replacement they re-route into; stderr deprecation notice format. | May be removed at the next minor release named in the deprecation notice. New plumbing commands should not be introduced unless they exist to bridge an in-flight migration. |
 
-### Public commands (v0.14)
+### Public commands (v0.15)
 
 The public surface is the operator-facing daily-use surface. Public commands keep their command path, flag names, stdout text shape, and `--json` / `--id-only` / NDJSON byte shape stable across minor releases.
 
-Public commands in v0.14 (grouped by intent):
+Public commands in v0.15 (grouped by intent):
 
 - **Event recording** — `traceary log`, `traceary audit`
 - **Read / inspection** — `traceary list`, `traceary search`, `traceary tail`, `traceary timeline`, `traceary show`, `traceary context`, `traceary top` (and `traceary top --snapshot` / `--snapshot --json`)
@@ -45,27 +45,26 @@ Public commands in v0.14 (grouped by intent):
 - **Replay / archive** — `traceary replay`
 - **Bundle import / export** — `traceary bundle export`, `traceary bundle import`
 
-The `traceary doctor` JSON envelope (`sections` / `summary` / `exit_code` / per-check fields), `traceary top --snapshot --json` envelope (`sessions` / `failures` / `recent_commands` / `candidates`), `traceary timeline --json` (`workspace_breakdown`), `traceary session tree --json` lineage fields, and the structured-text `traceary session handoff` field labels are all part of the public contract. They are golden-tested under `presentation/cli/testdata/` — see [JSON and snapshot contract tests](./operations/json-contract-tests.md) for the contract test workflow.
+The `traceary doctor` JSON envelope (`sections` / `summary` / `exit_code` / per-check fields), `traceary top --snapshot --json` envelope (`sessions` / `failures` / `recent_commands` / `candidates` / `stale_memories`), `traceary timeline --json` (`workspace_breakdown`), `traceary session tree --json` lineage fields, and the structured-text `traceary session handoff` field labels are all part of the public contract. They are golden-tested under `presentation/cli/testdata/` — see [JSON and snapshot contract tests](./operations/json-contract-tests.md) for the contract test workflow.
 
 > Public commands that are TTY-only (currently `traceary memory inbox review`) document the TTY requirement explicitly and exit with a non-zero code that names the scripted fallback when stdin/stdout is not a TTY. Adding a new TTY-only public command requires a documented batch fallback path.
 
-### Admin / maintenance commands (v0.14)
+### Admin / maintenance commands (v0.15)
 
 Admin commands are operator-facing maintenance surfaces. They are still listed in `--help` and documented in the CLI reference, but they are not part of the daily read path. Admin commands may evolve faster than public commands when the affected audience is operators only, but they still follow the deprecation notice expectations below.
 
-Admin commands in v0.14:
+Admin commands in v0.15:
 
 - **Store administration** — `traceary store init`, `traceary store backup create`, `traceary store backup restore`, `traceary store gc`
 - **Session administration** — `traceary session gc` (closes stale sessions; visible under the `session` namespace and registered alongside the public session subcommands, but treated as an admin-tier maintenance entrypoint)
 - **Durable memory admin** — `traceary memory admin extract`, `traceary memory admin import codex`, `traceary memory admin import instructions`, `traceary memory admin export`, `traceary memory admin activate`, `traceary memory admin hygiene scan`, `traceary memory admin hygiene apply`, `traceary memory admin graph add`, `traceary memory admin graph list`, `traceary memory admin supersede`, `traceary memory admin expire`, `traceary memory admin set-validity`
 
-### Plumbing / hidden / deprecated commands (v0.14)
+### Plumbing / hidden / deprecated commands (v0.15)
 
-These commands are hidden from `traceary --help`. They exist as deprecation shims that re-route into a canonical replacement, cleanup-only paths kept for users migrating off retired surfaces, or runtime entrypoints called by packaged Traceary hook scripts.
+These commands are hidden from `traceary --help`. In v0.15 the hidden surface has two groups:
 
-Hidden deprecated alias commands in v0.14 (registered with `Hidden: true`, keep working, emit a stderr deprecation notice; scheduled for removal in v0.15):
-
-- `traceary memory accept`, `traceary memory reject`, `traceary memory remember`, `traceary memory propose`, `traceary memory distill`, `traceary memory extract`, `traceary memory supersede`, `traceary memory expire`, `traceary memory set-validity`, `traceary memory import codex`, `traceary memory import instructions`, `traceary memory export`, `traceary memory activate`, `traceary memory hygiene scan`, `traceary memory hygiene apply`, `traceary memory graph add`, `traceary memory graph list` — see the [memory command surface plan](./operations/memory-command-surface.md) for the complete mapping.
+- **Migration-error stubs for removed names** — former top-level aliases removed in v0.14.0, flat memory aliases removed in v0.15.0, and the retired `integration codex install` / `integration codex uninstall` paths still register hidden stubs that return targeted non-zero migration errors. They are not working aliases: they do not preserve legacy flags, do not execute the old behavior, and exist only so old invocations receive a concrete replacement instead of Cobra's generic unknown-command output.
+- **Hook runtime entrypoints** — internal commands called by packaged Traceary hook scripts.
 
 Hidden runtime entrypoints called by packaged Traceary hook scripts (registered with `Hidden: true`, no stderr deprecation notice):
 
@@ -79,15 +78,11 @@ Stability and deprecation expectations for these runtime entrypoints:
 - Across minor boundaries (`v0.N.0` → `v0.(N+1).0`) and across `v1.x` minors once v1.0 ships, they may be renamed, removed, or have their argument shape changed without going through the public stderr deprecation flow, provided the new minor's `traceary hooks install` regenerates compatible scripts and the changelog calls out that hooks must be reinstalled to upgrade.
 - Adding a new hidden runtime entrypoint follows the same rule: it is allowed at any minor boundary as long as it is paired with a same-version `traceary hooks print` / `traceary hooks install` update.
 
-Removed top-level aliases that exit with a usage error (no longer functional, no removal date because they are already non-functional stubs that only print migration guidance):
+Historical removal log:
 
-- `traceary init` → `traceary store init`
-- `traceary backup` → `traceary store backup ...`
-- `traceary gc` → `traceary store gc`
-- `traceary handoff` → `traceary session handoff`
-- `traceary compact-summary` → `traceary session handoff --compact-only`
-- `traceary integration codex install` → Codex official `/plugins` flow (retired in v0.14.0)
-- `traceary integration codex uninstall` → Codex official `/plugins` flow plus manual cleanup steps in `docs/integrations/codex-plugin.md` (retired in v0.15.0)
+- Removed in v0.14.0 after earlier deprecation: `traceary init` → `traceary store init`, `traceary backup` → `traceary store backup ...`, `traceary gc` → `traceary store gc`, `traceary handoff` → `traceary session handoff`, `traceary compact-summary` → `traceary session handoff --compact-only`, and the retired `traceary integration codex install` helper → Codex official `/plugins` flow.
+- Removed in v0.15.0 after the v0.14 compatibility window: `traceary memory accept`, `traceary memory reject`, `traceary memory remember`, `traceary memory propose`, `traceary memory distill`, `traceary memory extract`, `traceary memory supersede`, `traceary memory expire`, `traceary memory set-validity`, `traceary memory import codex`, `traceary memory import instructions`, `traceary memory export`, `traceary memory activate`, `traceary memory hygiene scan`, `traceary memory hygiene apply`, `traceary memory graph add`, and `traceary memory graph list`. Use the canonical `memory inbox` / `memory store` / `memory admin` paths documented in the CLI reference.
+- Removed in v0.15.0 after the v0.14 cleanup-only window: `traceary integration codex uninstall` → Codex official `/plugins` flow plus manual cleanup steps in `docs/integrations/codex-plugin.md`.
 
 ## Deprecation notice expectations
 
@@ -143,7 +138,7 @@ The default deprecation window is **one minor release**. A command, flag, or JSO
 
 Examples that follow this default:
 
-- The grouped memory tree introduced in v0.14.0 (`memory inbox` / `memory store` / `memory admin`) keeps the flat verbs (`memory remember`, `memory propose`, `memory accept`, ...) as hidden deprecated aliases through v0.14.x and removes them in v0.15.0. See the [memory command surface plan](./operations/memory-command-surface.md).
+- The grouped memory tree introduced in v0.14.0 (`memory inbox` / `memory store` / `memory admin`) kept the flat verbs (`memory remember`, `memory propose`, `memory accept`, ...) as hidden deprecated aliases through v0.14.x and removed them in v0.15.0. See the [memory command surface plan](./operations/memory-command-surface.md).
 - The retired Codex install helper kept its uninstall counterpart as a hidden cleanup-only command in v0.14.0; that cleanup-only command was removed in v0.15.0.
 
 ### Longer windows for breaking output changes

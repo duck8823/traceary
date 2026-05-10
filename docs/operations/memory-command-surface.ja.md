@@ -4,14 +4,14 @@
 
 `traceary memory ...` は現在 18 個の直下サブコマンドを持ち、レビュー / 書き込み / ライフサイクル / hygiene / graph / host activation / import・export と用途がフラットに混在しています。一覧から目的別に追いづらく、admin 専用のコマンドが日常用途のコマンドと並んで表示されています。
 
-この文書は v0.14 で進める「memory コマンド面のスリム化」の出発点となるベースラインです。本イシュー (#921) ではドキュメントのみを追加し、ランタイムの挙動は変更しません。
+この文書は v0.14 で進めた「memory コマンド面のスリム化」のベースラインです。v0.15.0 時点で、以下に出てくる hidden deprecated alias は削除済みです。このページは旧 flat path から canonical grouped path への歴史的な対応表として残します。
 
 ## 目的
 
 - `memory` コマンドを「日常 read」「inbox レビュー」「durable 書き込み」「admin / host 連携」の 4 グループに整理する。
 - 日常 read 用の `memory search` / `memory show` を変更しない（既存スクリプト・skill が壊れないようにする）。
 - admin / host 連携・durable ライフサイクルは新しい namespace (`memory inbox` / `memory store` / `memory admin`) の下にまとめる。
-- 既存パスはすべて v0.14 では hidden な deprecated alias として残し、v0.15 で削除する。1 リリース分の重複期間を確保する。
+- 既存パスはすべて v0.14 では hidden な deprecated alias として残し、v0.15 で削除する。1 リリース分の重複期間を確保する（完了: alias は v0.15.0 で削除済み）。
 
 ## 現在のコマンド (v0.13.1)
 
@@ -125,7 +125,7 @@ memory
 - 旧パスを実行したら、stderr に「canonical な置き換えはこちら」という deprecation 通知を 1 行出す。
 - stdout / JSON 出力のバイト列は変えない（スクリプトを壊さない）。
 
-これは v0.13 → v0.14 への upgrade で利用者のスクリプト・AI skill・古いドキュメント中のサンプルが silent に壊れないようにするためです。alias は v0.15 で削除します。これは #918 の top-level alias 廃止と同じ「1 リリース猶予」のポリシーに合わせています。
+これは v0.13 → v0.14 への upgrade で利用者のスクリプト・AI skill・古いドキュメント中のサンプルが silent に壊れないようにするためでした。alias は v0.15.0 で削除済みです。これは #918 の top-level alias 廃止と同じ「1 リリース猶予」のポリシーに合わせています。
 
 ### シグネチャを保持しなければならない箇所
 

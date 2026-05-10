@@ -218,7 +218,7 @@ session metadata、recent commands、compact summary、accepted durable memories
 
 ## Durable memory コマンド
 
-v0.14.0 から `traceary memory ...` は intent 別に namespace を分けています。日常 read 用途のコマンドは top-level に残し、それ以外の verb は 3 つの namespace に整理しました。flat な verb (`memory remember` / `memory accept` / `memory hygiene scan` ...) は v0.14.x の間 hidden な deprecated alias として動作し、v0.15 で削除予定です。各 alias は canonical な置き換えを案内する 1 行 deprecation notice を stderr に出力しますが、stdout / `--json` / NDJSON / 終了コードは canonical コマンドと byte-for-byte 同一です。完全な対応表は [memory コマンド面の整理計画](../operations/memory-command-surface.ja.md) を、deprecation のルールは [CLI 安定性と非推奨ポリシー](../cli-stability.ja.md) を参照してください。
+`traceary memory ...` は intent 別に namespace を分けています。日常 read 用途のコマンドは top-level に残し、それ以外の verb は 3 つの namespace に整理しています。flat な verb (`memory remember` / `memory accept` / `memory hygiene scan` ...) は v0.14 の 1 マイナー互換ウィンドウを経て v0.15.0 で削除されました。スクリプトやドキュメントは下記の canonical な `memory inbox` / `memory store` / `memory admin` path を使ってください。歴史的な対応表は [memory コマンド面の整理計画](../operations/memory-command-surface.ja.md) を、deprecation のルールは [CLI 安定性と非推奨ポリシー](../cli-stability.ja.md) を参照してください。
 
 ```
 memory
@@ -347,7 +347,7 @@ candidate durable memory を reject します。
 - `?` ヘルプ overlay 切替
 - `q` / Ctrl-C / Esc 安全に終了
 
-非 TTY で起動した場合はエラー終了し、exit code は `2`。fallback guidance として `memory inbox list` と `memory inbox accept|reject` を案内するため、scripted shell では deterministic に分岐します。Accept / reject は batch 系コマンドと同じ `MemoryUsecase.Accept` / `Reject` ユースケースを呼ぶため、dedupe / status 遷移の意味づけは従来と変わりません。
+非 TTY で起動した場合はエラー終了し、exit code は `2`。fallback guidance として `memory inbox list` と `memory inbox accept|reject` を案内するため、scripted shell では deterministic に分岐します。Accept / reject は batch 系コマンドと同じ `MemoryUsecase.Accept` / `Reject` ユースケースを呼ぶため、dedupe / status 遷移の意味づけは従来と変わりません。TUI 終了後に queued decision の一部が失敗した場合、サマリは従来通り stdout に各 `FAILED` 行を出力しつつ、コマンドは非ゼロ error を返すため、partial failure を shell が成功扱いしません。
 
 主な flag: `--workspace`, `--agent`, `--session-family`, `--type`, `--source`, `--include-hidden`, `--limit`。
 
@@ -619,11 +619,11 @@ durable memory の content validity 窓 (`valid_from` / `valid_to`) を設定ま
 - `--id-only`
 - `--json`
 
-### Hidden deprecated alias (v0.14)
+### 削除済み flat alias (v0.15)
 
-旧 release の flat verb は v0.14 でも `Hidden: true` として登録されており、既存スクリプト / AI integration が一回の minor で乗り換えられるよう動作を維持しています。v0.15 で削除予定です。各 alias は同じ操作を実行し、stderr に canonical な置き換えを案内する 1 行 deprecation notice を出力しますが、stdout / `--json` / NDJSON / 終了コードは canonical コマンドと byte-for-byte 同一です。
+旧 release の flat memory verb は v0.14.x の間 hidden deprecated alias として残していましたが、v0.15.0 で削除されました。以下は歴史的な移行メモです。新しいスクリプトやドキュメントでは使用しないでください。
 
-| Hidden alias (v0.14) | Canonical 置き換え |
+| 削除済み alias (v0.15) | Canonical 置き換え |
 | --- | --- |
 | `memory accept <id>` | `memory inbox accept <id>` |
 | `memory reject <id>` | `memory inbox reject <id>` |
@@ -685,9 +685,9 @@ session end 境界を記録し、生成された event ID を出力します。
 
 ### `traceary top`
 
-ワークスペースの状況をライブ multi-pane dashboard で表示します。画面は active sessions (root → child) / 直近の失敗 / 直近の `command_executed` / durable memory inbox 候補の 4 ペイン構成で、それぞれ独立にスクロールできます。`tab` / `shift+tab` でフォーカスペイン切替、`↑/↓` (`k/j`) で 1 行スクロール、`pgup/pgdn` でページング、`g/G` で先頭 / 末尾へ、`r` で snapshot 再取得、`?` でヘルプ overlay 切替、`q` / Ctrl-C / Esc は共通の安全網経由で終了します。最新 activity が `--idle` より古い session は sessions ペイン内で dim 表示しますが、非表示にはしません。非 TTY 呼び出し (パイプ / CI ログ) では snapshot text 出力に自動でフォールバックします。`traceary session tree` は静的な retrospective view のままです。
+ワークスペースの状況をライブ multi-pane dashboard で表示します。画面は active sessions (root → child) / 直近の失敗 / 直近の `command_executed` / durable memory inbox 候補 / stale durable memory の 5 ペイン構成で、それぞれ独立にスクロールできます。`tab` / `shift+tab` でフォーカスペイン切替、`↑/↓` (`k/j`) で 1 行スクロール、`pgup/pgdn` でページング、`g/G` で先頭 / 末尾へ、`r` で snapshot 再取得、`?` でヘルプ overlay 切替、`q` / Ctrl-C は終了します。`/` はフォーカス中ペインの incremental search prompt を開き、Enter で現在の filter を保持、Esc で active filter をクリアします。highlight 中の行で Enter を押すと、session / event / memory の detail modal を開きます。modal は Esc / `q` で閉じ、Ctrl-C は dashboard 全体を終了します。最新 activity が `--idle` より古い session は sessions ペイン内で dim 表示しますが、非表示にはしません。非 TTY 呼び出し (パイプ / CI ログ) では snapshot text 出力に自動でフォールバックします。`traceary session tree` は静的な retrospective view のままです。
 
-snapshot 出力は dashboard の 4 ペインに合わせて拡張されており、パイプ / CI / スクリプト経由の利用者も live view と同じデータを取得できます。テキスト snapshot は `ACTIVE SESSIONS` / `RECENT FAILURES` / `RECENT COMMANDS` / `CANDIDATE MEMORIES (count=N)` の各セクションに分かれ、空のペインも安定した empty-state 行を 1 行出すためヘッダーは常に出力されます。JSON snapshot は `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, items }`) を持つ envelope オブジェクトでラップされており、session node の各フィールドは従来通り保持されますが、トップレベルの shape は v0.14.0 で「session node の配列」から envelope オブジェクトに変わりました。配列をそのまま読み取っていたスクリプトは envelope の `sessions` を読むよう更新が必要です。各ペインの行上限は dashboard と揃えており (failures 50 / recent commands 50 / candidates 25)、session ペインは引き続き `--limit` を使用します。
+snapshot 出力は dashboard の 5 ペインに合わせて拡張されており、パイプ / CI / スクリプト経由の利用者も live view と同じデータを取得できます。テキスト snapshot は `ACTIVE SESSIONS` / `RECENT FAILURES` / `RECENT COMMANDS` / `CANDIDATE MEMORIES (count=N)` / `STALE MEMORIES (count=N)` の各セクションに分かれ、空のペインも安定した empty-state 行を 1 行出すためヘッダーは常に出力されます。JSON snapshot は `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, items }`) / `stale_memories` (`{ count, items }`) を持つ envelope オブジェクトでラップされています。各ペインの行上限は dashboard と揃えており (failures 50 / recent commands 50 / candidates 25 / stale memories 25)、session ペインは引き続き `--limit` を使用します。
 
 snapshot 例:
 
@@ -708,6 +708,9 @@ RECENT COMMANDS:
 
 CANDIDATE MEMORIES (count=1):
 mem-1 preference prefer table-driven subtests
+
+STALE MEMORIES (count=1):
+mem-stale-1 decision workspace:duck8823/traceary superseded superseded rollout note
 ```
 
 active session の列:
@@ -727,7 +730,7 @@ active session の列:
 - `--client`
 - `--agent`
 - `--idle <duration>` — threshold より古い行を非表示にせず dim 表示
-- `--snapshot --json` — top 専用 snapshot contract で `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, items }`) の envelope を一回限り出力します。各 session node には標準の session フィールドに加えて `latest_event_kind` / `latest_event_message` / `latest_event_at` が含まれます。failures と recent_commands は標準 event JSON、candidate memories は durable memory summary JSON と同じ shape を再利用します。`traceary session tree --json` は独立した contract を保ち、これらいずれも露出しません
+- `--snapshot --json` — top 専用 snapshot contract で `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, items }`) / `stale_memories` (`{ count, items }`) の envelope を一回限り出力します。各 session node には標準の session フィールドに加えて `latest_event_kind` / `latest_event_message` / `latest_event_at` が含まれます。failures と recent_commands は標準 event JSON、candidate memories は durable memory summary JSON と同じ shape を再利用します。stale memories は durable memory summary に `reason` を加えた shape です。`traceary session tree --json` は独立した contract を保ち、これらいずれも露出しません
 - `--limit`
 
 ### `traceary session list`
@@ -939,9 +942,9 @@ DB 作成と migration 適用を明示的に先行実行します。通常コマ
 
 v0.14.0 で廃止されており、**サポート対象の install 面ではありません**。コマンドは非表示扱いとなり、実行しても install は行われず、Codex 公式の `/plugins` flow を案内するヒントのみを返します。新規 install は必ず Codex 公式の `/plugins` flow（リポジトリ内で `codex` を起動 → `/plugins` → `Traceary Plugins` → `Traceary`）を経由してください。詳細は [Codex plugin ガイド](../integrations/codex-plugin.ja.md) を参照してください。
 
-### `traceary integration codex uninstall` (廃止・非表示)
+### `traceary integration codex uninstall` (v0.15 で削除)
 
-v0.15.0 で廃止されており、**サポート対象の uninstall 面ではありません**。コマンドは非表示扱いとなり、実行しても何も削除されず、Codex 公式の `/plugins` flow と、v0.14 以前の旧 install 経路が残した state 向けの [Codex plugin ガイドの手動 cleanup 手順](../integrations/codex-plugin.ja.md) を案内する usage error を返して非ゼロ終了します。今後の uninstall は Codex 公式の `/plugins` flow を使ってください。
+v0.15.0 で削除されており、**サポート対象の uninstall 面ではありません**。この名前は歴史的な移行メモとしてのみ掲載しています。今後の uninstall は Codex 公式の `/plugins` flow を使い、v0.14 以前の旧 install 経路が残した state だけ [Codex plugin ガイドの手動 cleanup 手順](../integrations/codex-plugin.ja.md) で片付けてください。
 
 ### `traceary mcp-server`
 
