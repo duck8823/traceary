@@ -525,6 +525,62 @@ func TestInboxReviewExitError_CarriesExitCodeTwo(t *testing.T) {
 	}
 }
 
+func TestWriteMemoryInboxReviewSummary_FailureReturnsError(t *testing.T) {
+	t.Parallel()
+	candidate := buildReviewCandidate(t, "id-ok", "accepted fact")
+
+	okResult := memoryInboxReviewResult{Accepted: []apptypes.MemoryDetails{candidate}}
+	okOut := &strings.Builder{}
+	if err := writeMemoryInboxReviewSummary(okOut, okResult); err != nil {
+		t.Fatalf("writeMemoryInboxReviewSummary(success) error = %v, want nil", err)
+	}
+
+	failureResult := memoryInboxReviewResult{
+		Accepted: []apptypes.MemoryDetails{candidate},
+		Failures: []memoryInboxFailure{
+			{ID: "id-fail", Error: "synthetic failure"},
+		},
+	}
+	out := &strings.Builder{}
+	err := writeMemoryInboxReviewSummary(out, failureResult)
+	if err == nil {
+		t.Fatalf("writeMemoryInboxReviewSummary(failure) error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "inbox review failed for 1 memory id(s)") {
+		t.Fatalf("unexpected failure error: %v", err)
+	}
+	want := "review accepted=1 rejected=0 distilled=0 failures=1\nACCEPT\tid-ok\tcandidate\nFAILED\tid-fail\tsynthetic failure\n"
+	if got := out.String(); got != want {
+		t.Fatalf("summary output changed:\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestFinishMemoryInboxReview_ReturnsFailureError(t *testing.T) {
+	t.Parallel()
+	candidate := buildReviewCandidate(t, "id-1", "accepted fact")
+	final := newReviewTestModel(candidate)
+	final.decisions = []reviewDecision{
+		{kind: reviewDecisionAccept, memoryID: candidate.Summary().MemoryID()},
+	}
+	stub := &reviewWriterStub{acceptErr: errors.New("synthetic accept failure")}
+	out := &strings.Builder{}
+
+	err := finishMemoryInboxReview(context.Background(), out, stub, final, []apptypes.MemoryDetails{candidate})
+	if err == nil {
+		t.Fatal("finishMemoryInboxReview error = nil, want failure summary error")
+	}
+	if !strings.Contains(err.Error(), "inbox review failed for 1 memory id(s)") {
+		t.Fatalf("unexpected failure error: %v", err)
+	}
+	if stub.acceptCalls != 1 {
+		t.Fatalf("acceptCalls = %d, want 1", stub.acceptCalls)
+	}
+	want := "review accepted=0 rejected=0 distilled=0 failures=1\nFAILED\tid-1\tsynthetic accept failure\n"
+	if got := out.String(); got != want {
+		t.Fatalf("summary output changed:\n got %q\nwant %q", got, want)
+	}
+}
+
 // TestApplyInboxReviewDecisions_DispatchesToUsecases drives the post-quit
 // runner directly with a list of decisions and verifies each one routes
 // to the correct usecase method exactly once. The corresponding stubs

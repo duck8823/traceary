@@ -109,7 +109,11 @@ func (c *RootCLI) runMemoryInboxReview(ctx context.Context, output io.Writer, in
 		return xerrors.Errorf("%s", Localize("review model returned unexpected final state", "review model が想定外の最終状態を返しました"))
 	}
 
-	result, applyErr := applyInboxReviewDecisions(ctx, c.memory, final.Decisions(), items)
+	return finishMemoryInboxReview(ctx, output, c.memory, final, items)
+}
+
+func finishMemoryInboxReview(ctx context.Context, output io.Writer, writer inboxReviewWriter, final reviewModel, items []apptypes.MemoryDetails) error {
+	result, applyErr := applyInboxReviewDecisions(ctx, writer, final.Decisions(), items)
 	if applyErr != nil {
 		return applyErr
 	}
@@ -285,7 +289,18 @@ func writeMemoryInboxReviewSummary(output io.Writer, result memoryInboxReviewRes
 			return xerrors.Errorf("%s: %w", Localize("failed to print review failure row", "review 失敗行の出力に失敗しました"), err)
 		}
 	}
+	if len(result.Failures) > 0 {
+		return memoryInboxReviewFailureError(result)
+	}
 	return nil
+}
+
+func memoryInboxReviewFailureError(result memoryInboxReviewResult) error {
+	return xerrors.Errorf(Localizef(
+		"inbox review failed for %d memory id(s)",
+		"inbox review が %d 件の memory id で失敗しました",
+		len(result.Failures),
+	))
 }
 
 // reviewDecisionKind enumerates the post-quit operations the CLI dispatches
