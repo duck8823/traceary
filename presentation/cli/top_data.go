@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"strings"
+	"time"
 
 	"golang.org/x/xerrors"
 
@@ -19,10 +22,8 @@ import (
 // underlying usecases.
 //
 // Limit fields use the convention that a non-positive value disables the
-// corresponding load: callers wire the `traceary top` session limit on
-// the command surface today and leave the failures / recent-commands /
-// candidates / stale-memory limits at zero so the loader stays a no-op
-// for those panes until the multi-pane redesign (#928) needs them.
+// corresponding load. The live dashboard and snapshot paths opt in pane by
+// pane by setting the relevant limits.
 type topDataCriteria struct {
 	Workspace string
 	Client    string
@@ -33,6 +34,134 @@ type topDataCriteria struct {
 	RecentCommandLimit int
 	CandidateLimit     int
 	StaleMemoryLimit   int
+}
+
+func (l *topDataLoader) loadDetail(ctx context.Context, req topDetailRequest) (topDetailContent, error) {
+	switch req.target.kind {
+	case topDetailSession:
+		return l.loadSessionDetail(ctx, req)
+	case topDetailEvent:
+		return l.loadEventDetail(ctx, req)
+	case topDetailMemory:
+		return l.loadMemoryDetail(ctx, req)
+	default:
+		return topDetailContent{}, xerrors.Errorf("unsupported detail target")
+	}
+}
+
+func (l *topDataLoader) loadSessionDetail(ctx context.Context, req topDetailRequest) (topDetailContent, error) {
+	if l.session == nil {
+		return topDetailContent{}, xerrors.Errorf("session detail loader is not configured")
+	}
+	lineage, err := l.session.Lineage(ctx, req.target.sessionID)
+	if err != nil {
+		return topDetailContent{}, xerrors.Errorf("%s: %w", Localize("failed to load session detail", "session detail の取得に失敗しました"), err)
+	}
+	var events []*model.Event
+	if l.event != nil {
+		events, err = l.event.List(ctx, apptypes.NewEventListCriteriaBuilder(topDetailRecentEventLimit).
+			SessionID(req.target.sessionID).
+			Build())
+		if err != nil {
+			return topDetailContent{}, xerrors.Errorf("%s: %w", Localize("failed to load session events", "session event の取得に失敗しました"), err)
+		}
+	}
+	return topDetailContent{
+		title: req.target.title,
+		lines: formatTopSessionDetailLines(req.target.sessionID, lineage, events),
+	}, nil
+}
+
+func (l *topDataLoader) loadEventDetail(ctx context.Context, req topDetailRequest) (topDetailContent, error) {
+	if l.event == nil {
+		return topDetailContent{}, xerrors.Errorf("event detail loader is not configured")
+	}
+	details, err := l.event.Show(ctx, req.target.eventID)
+	if err != nil {
+		return topDetailContent{}, xerrors.Errorf("%s: %w", Localize("failed to load event detail", "event detail の取得に失敗しました"), err)
+	}
+	var buf bytes.Buffer
+	if err := writeEventDetails(&buf, details); err != nil {
+		return topDetailContent{}, err
+	}
+	return topDetailContent{title: req.target.title, lines: splitTopDetailText(buf.String())}, nil
+}
+
+func (l *topDataLoader) loadMemoryDetail(ctx context.Context, req topDetailRequest) (topDetailContent, error) {
+	if l.memory == nil {
+		return topDetailContent{}, xerrors.Errorf("memory detail loader is not configured")
+	}
+	details, err := l.memory.Show(ctx, req.target.memoryID)
+	if err != nil {
+		return topDetailContent{}, xerrors.Errorf("%s: %w", Localize("failed to load memory detail", "memory detail の取得に失敗しました"), err)
+	}
+	var buf bytes.Buffer
+	if err := writeMemoryDetails(&buf, details); err != nil {
+		return topDetailContent{}, err
+	}
+	return topDetailContent{title: req.target.title, lines: splitTopDetailText(buf.String())}, nil
+}
+
+func formatTopSessionDetailLines(sessionID domtypes.SessionID, lineage []apptypes.SessionSummary, events []*model.Event) []string {
+	lines := []string{
+		fmt.Sprintf("SESSION_ID: %s", sessionID),
+	}
+	var selected apptypes.SessionSummary
+	for _, summary := range lineage {
+		if summary.SessionID() == sessionID {
+			selected = summary
+			break
+		}
+	}
+	if selected.SessionID() != "" {
+		lines = append(lines,
+			fmt.Sprintf("ROW: %s", formatTopNodeLineIn(&sessionNode{summary: selected}, "", 0, selected.LatestEventAt(), timeUTC())),
+			fmt.Sprintf("LABEL: %s", formatOptionalColumn(selected.Label())),
+			fmt.Sprintf("SUMMARY: %s", formatOptionalColumn(selected.Summary())),
+		)
+	}
+	lines = append(lines, "", "LINEAGE:")
+	if len(lineage) == 0 {
+		lines = append(lines, "- -")
+	} else {
+		for i, summary := range lineage {
+			lines = append(lines, fmt.Sprintf("- %d. %s status=%s workspace=%s agent=%s parent=%s", i+1, summary.SessionID(), summary.Status(), summary.Workspace(), extractSubagentType(summary.Agents()), formatOptionalColumn(summary.ParentSessionID().String())))
+		}
+	}
+	lines = append(lines, "", fmt.Sprintf("RECENT_EVENTS (limit=%d):", topDetailRecentEventLimit))
+	if len(events) == 0 {
+		lines = append(lines, "- -")
+	} else {
+		for _, ev := range events {
+			lines = appendSessionEventDetailLines(lines, ev)
+		}
+	}
+	return lines
+}
+
+func appendSessionEventDetailLines(lines []string, ev *model.Event) []string {
+	bodyLines := splitTopDetailText(apptypes.ExtractPlainBody(ev.Body()))
+	prefix := fmt.Sprintf("- %s %s %s", ev.CreatedAt().UTC().Format(eventCompactTimeLayout), ev.EventID(), ev.Kind())
+	if len(bodyLines) == 0 {
+		return append(lines, prefix)
+	}
+	lines = append(lines, fmt.Sprintf("%s %s", prefix, bodyLines[0]))
+	for _, line := range bodyLines[1:] {
+		lines = append(lines, "  "+line)
+	}
+	return lines
+}
+
+func splitTopDetailText(text string) []string {
+	trimmed := strings.TrimRight(text, "\n")
+	if trimmed == "" {
+		return nil
+	}
+	return strings.Split(trimmed, "\n")
+}
+
+func timeUTC() *time.Location {
+	return time.UTC
 }
 
 // topDataSnapshot bundles every data slice the redesigned top dashboard

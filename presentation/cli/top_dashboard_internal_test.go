@@ -20,14 +20,24 @@ import (
 // returned tea.Cmd, so wrapping it lets tests assert on Update transitions
 // without spinning up the application use cases.
 type stubTopLoader struct {
-	snapshot topDataSnapshot
-	err      error
-	calls    int
+	snapshot    topDataSnapshot
+	err         error
+	calls       int
+	detail      topDetailContent
+	detailErr   error
+	detailCalls int
+	detailReqs  []topDetailRequest
 }
 
 func (s *stubTopLoader) loadSnapshot(_ context.Context, _ topDataCriteria) (topDataSnapshot, error) {
 	s.calls++
 	return s.snapshot, s.err
+}
+
+func (s *stubTopLoader) loadDetail(_ context.Context, req topDetailRequest) (topDetailContent, error) {
+	s.detailCalls++
+	s.detailReqs = append(s.detailReqs, req)
+	return s.detail, s.detailErr
 }
 
 // fixedDashboardNow pins "now" so idle markers and last-event timestamps
@@ -41,6 +51,7 @@ func newDashboardTestModel(t *testing.T, loader topSnapshotLoader) topModel {
 		Actions:         defaultTopPaneActionKeys(),
 		Styles:          tui.DefaultStyles(),
 		Loader:          loader,
+		Detail:          loader.(topDetailLoader),
 		Criteria:        topDataCriteria{},
 		Idle:            10 * time.Minute,
 		Now:             func() time.Time { return fixedDashboardNow },
@@ -181,6 +192,18 @@ func sendKey(m topModel, key tea.KeyMsg) topModel {
 func sendRunes(m topModel, runes string) topModel {
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(runes)})
 	return updated.(topModel)
+}
+
+func detailTargetID(target topDetailTarget) string {
+	switch target.kind {
+	case topDetailSession:
+		return target.sessionID.String()
+	case topDetailEvent:
+		return target.eventID.String()
+	case topDetailMemory:
+		return target.memoryID.String()
+	}
+	return ""
 }
 
 func TestTopModel_InitialFetchPopulatesSnapshot(t *testing.T) {
@@ -398,6 +421,9 @@ func TestTopModel_HelpModeTogglesAndSwallowsNavigation(t *testing.T) {
 	view := m.View()
 	if !strings.Contains(view, "help") {
 		t.Fatalf("help view did not contain `help` marker:\n%s", view)
+	}
+	if !strings.Contains(view, "open detail") {
+		t.Fatalf("help view did not document Enter detail binding:\n%s", view)
 	}
 
 	// Tab should not change the focused pane while help is up.
@@ -682,6 +708,168 @@ func TestTopModel_SearchPromptQuitKeysStillQuit(t *testing.T) {
 		if msg := cmd(); msg == nil {
 			t.Fatalf("quit cmd for key %v returned nil msg", keyMsg)
 		}
+	}
+}
+
+func TestTopModel_DetailModalOpensFromEachPane(t *testing.T) {
+	t.Parallel()
+	candidate := dashboardCandidate(t, "mem-candidate", "candidate detail fact")
+	stale := dashboardStaleMemory(t, "mem-stale", apptypes.StaleMemoryReasonExpired, "stale detail fact")
+	staleResult := dashboardStaleResult(t, 1, stale)
+	cases := []struct {
+		name       string
+		pane       topPane
+		snapshot   topDataSnapshot
+		wantKind   topDetailKind
+		wantTarget string
+	}{
+		{
+			name:       "sessions",
+			pane:       topPaneSessions,
+			snapshot:   topDataSnapshot{Sessions: []*sessionNode{dashboardSessionNode("session-detail", fixedDashboardNow)}},
+			wantKind:   topDetailSession,
+			wantTarget: "session-detail",
+		},
+		{
+			name:       "failures",
+			pane:       topPaneFailures,
+			snapshot:   topDataSnapshot{Failures: []*model.Event{dashboardEvent("evt-fail", domtypes.EventKindCommandExecuted, "failure detail body")}},
+			wantKind:   topDetailEvent,
+			wantTarget: "evt-fail",
+		},
+		{
+			name:       "recent commands",
+			pane:       topPaneRecentCommands,
+			snapshot:   topDataSnapshot{RecentCommands: []*model.Event{dashboardEvent("evt-cmd", domtypes.EventKindCommandExecuted, "command detail body")}},
+			wantKind:   topDetailEvent,
+			wantTarget: "evt-cmd",
+		},
+		{
+			name:       "candidates",
+			pane:       topPaneCandidates,
+			snapshot:   topDataSnapshot{Candidates: []apptypes.MemorySummary{candidate}},
+			wantKind:   topDetailMemory,
+			wantTarget: "mem-candidate",
+		},
+		{
+			name:       "stale memories",
+			pane:       topPaneStaleMemories,
+			snapshot:   topDataSnapshot{StaleMemories: staleResult},
+			wantKind:   topDetailMemory,
+			wantTarget: "mem-stale",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			loader := &stubTopLoader{
+				snapshot: tc.snapshot,
+				detail:   topDetailContent{title: "DETAIL", lines: []string{"full detail body"}},
+			}
+			m := newDashboardTestModel(t, loader)
+			m = applySnapshot(t, m)
+			m = resize(m, 120, 40)
+			m.pane = tc.pane
+
+			updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			if cmd == nil {
+				t.Fatalf("Enter on pane %v returned nil detail cmd", tc.pane)
+			}
+			m = updated.(topModel)
+			if m.mode != topModeDetail || !m.detailUI.loading {
+				t.Fatalf("mode/loading = %v/%v, want detail/loading", m.mode, m.detailUI.loading)
+			}
+			if view := m.View(); !strings.Contains(view, "Loading...") {
+				t.Fatalf("detail loading view missing placeholder:\n%s", view)
+			}
+
+			msg := cmd()
+			detailMsg, ok := msg.(topDetailMsg)
+			if !ok {
+				t.Fatalf("detail cmd returned %T, want topDetailMsg", msg)
+			}
+			if detailMsg.request.target.kind != tc.wantKind {
+				t.Fatalf("detail kind = %v, want %v", detailMsg.request.target.kind, tc.wantKind)
+			}
+			if got := detailTargetID(detailMsg.request.target); got != tc.wantTarget {
+				t.Fatalf("detail target id = %q, want %q", got, tc.wantTarget)
+			}
+			updated, _ = m.Update(detailMsg)
+			m = updated.(topModel)
+			if view := m.View(); !strings.Contains(view, "full detail body") {
+				t.Fatalf("loaded detail view missing body:\n%s", view)
+			}
+		})
+	}
+}
+
+func TestTopModel_DetailModalRendersErrorAndEscCloses(t *testing.T) {
+	t.Parallel()
+	loader := &stubTopLoader{
+		snapshot:  topDataSnapshot{Failures: []*model.Event{dashboardEvent("evt-fail", domtypes.EventKindCommandExecuted, "failure detail body")}},
+		detailErr: errors.New("detail boom"),
+	}
+	m := newDashboardTestModel(t, loader)
+	m = applySnapshot(t, m)
+	m = resize(m, 120, 40)
+	m.pane = topPaneFailures
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(topModel)
+	updated, _ = m.Update(cmd())
+	m = updated.(topModel)
+	if view := m.View(); !strings.Contains(view, "detail boom") {
+		t.Fatalf("detail error view missing error:\n%s", view)
+	}
+
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd != nil {
+		t.Fatalf("Esc in detail modal returned cmd, want nil")
+	}
+	m = updated.(topModel)
+	if m.mode != topModeBrowse {
+		t.Fatalf("mode = %v, want browse after Esc", m.mode)
+	}
+}
+
+func TestTopModel_DetailModalScrollsAndQCloses(t *testing.T) {
+	t.Parallel()
+	lines := make([]string, 30)
+	for i := range lines {
+		lines[i] = "detail line " + string(rune('a'+i))
+	}
+	loader := &stubTopLoader{
+		snapshot: topDataSnapshot{Failures: []*model.Event{dashboardEvent("evt-fail", domtypes.EventKindCommandExecuted, "failure detail body")}},
+		detail:   topDetailContent{title: "EVENT evt-fail", lines: lines},
+	}
+	m := newDashboardTestModel(t, loader)
+	m = applySnapshot(t, m)
+	m = resize(m, 120, 8)
+	m.pane = topPaneFailures
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(topModel)
+	updated, _ = m.Update(cmd())
+	m = updated.(topModel)
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyPgDown})
+	if m.detailOffset == 0 {
+		t.Fatalf("detailOffset = 0 after PgDown, want scrolled")
+	}
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnd})
+	if got, want := m.detailOffset, len(lines)-m.detailViewportRows(); got != want {
+		t.Fatalf("detailOffset after End = %d, want %d", got, want)
+	}
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyUp})
+	if got, want := m.detailOffset, len(lines)-m.detailViewportRows()-1; got != want {
+		t.Fatalf("detailOffset after Up = %d, want %d", got, want)
+	}
+
+	updated, closeCmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if closeCmd != nil {
+		t.Fatalf("q in detail modal returned cmd, want nil")
+	}
+	m = updated.(topModel)
+	if m.mode != topModeBrowse {
+		t.Fatalf("mode = %v, want browse after q", m.mode)
 	}
 }
 

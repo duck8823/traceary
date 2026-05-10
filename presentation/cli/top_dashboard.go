@@ -11,6 +11,7 @@ import (
 	"github.com/mattn/go-runewidth"
 
 	"github.com/duck8823/traceary/domain/model"
+	domtypes "github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli/tui"
 )
 
@@ -55,7 +56,56 @@ type topMode int
 const (
 	topModeBrowse topMode = iota
 	topModeHelp
+	topModeDetail
 )
+
+const topDetailRecentEventLimit = 10
+
+type topDetailKind int
+
+const (
+	topDetailNone topDetailKind = iota
+	topDetailSession
+	topDetailEvent
+	topDetailMemory
+)
+
+type topDetailTarget struct {
+	kind      topDetailKind
+	title     string
+	sessionID domtypes.SessionID
+	eventID   domtypes.EventID
+	memoryID  domtypes.MemoryID
+}
+
+type topDetailRequest struct {
+	pane   topPane
+	target topDetailTarget
+}
+
+type topDetailContent struct {
+	title string
+	lines []string
+}
+
+type topDetailMsg struct {
+	request topDetailRequest
+	content topDetailContent
+	err     error
+}
+
+type topDetailState struct {
+	request topDetailRequest
+	title   string
+	lines   []string
+	err     error
+	loading bool
+}
+
+type topPaneRow struct {
+	line   string
+	target topDetailTarget
+}
 
 // topPaneActionKeys extends the shared tui.KeyMap with bindings that are
 // dashboard-specific (pane switching). Quit / Help / Refresh / movement
@@ -86,6 +136,10 @@ type topSnapshotLoader interface {
 	loadSnapshot(ctx context.Context, c topDataCriteria) (topDataSnapshot, error)
 }
 
+type topDetailLoader interface {
+	loadDetail(ctx context.Context, req topDetailRequest) (topDetailContent, error)
+}
+
 // topRefreshTickMsg is delivered by the periodic ticker; the model reacts
 // by issuing a fetch command and scheduling the next tick.
 type topRefreshTickMsg struct{}
@@ -108,6 +162,7 @@ type topModel struct {
 	styles  tui.Styles
 
 	loader   topSnapshotLoader
+	detail   topDetailLoader
 	criteria topDataCriteria
 	idle     time.Duration
 
@@ -119,10 +174,12 @@ type topModel struct {
 	searchOpen  bool
 	searchQuery string
 
-	snapshot topDataSnapshot
-	loadedAt time.Time
-	loadErr  error
-	loaded   bool
+	snapshot     topDataSnapshot
+	loadedAt     time.Time
+	loadErr      error
+	loaded       bool
+	detailUI     topDetailState
+	detailOffset int
 
 	mode topMode
 
@@ -150,6 +207,7 @@ type topModelConfig struct {
 	Actions  topPaneActionKeys
 	Styles   tui.Styles
 	Loader   topSnapshotLoader
+	Detail   topDetailLoader
 	Criteria topDataCriteria
 	Idle     time.Duration
 	// Now defaults to time.Now when nil.
@@ -189,6 +247,7 @@ func newTopModel(cfg topModelConfig) topModel {
 		actions:         cfg.Actions,
 		styles:          cfg.Styles,
 		loader:          cfg.Loader,
+		detail:          cfg.Detail,
 		criteria:        cfg.Criteria,
 		idle:            cfg.Idle,
 		now:             now,
@@ -217,6 +276,7 @@ func (m topModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.clampOffsets()
+		m.clampDetailOffset()
 		return m, nil
 	case topRefreshTickMsg:
 		if m.refreshInterval <= 0 {
@@ -230,6 +290,17 @@ func (m topModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loaded = true
 		m.clampOffsets()
 		return m, nil
+	case topDetailMsg:
+		if m.mode != topModeDetail || msg.request != m.detailUI.request {
+			return m, nil
+		}
+		m.detailUI.request = msg.request
+		m.detailUI.loading = false
+		m.detailUI.err = msg.err
+		m.detailUI.title = msg.content.title
+		m.detailUI.lines = msg.content.lines
+		m.clampDetailOffset()
+		return m, nil
 	case tea.KeyMsg:
 		return m.updateKey(msg)
 	}
@@ -237,6 +308,9 @@ func (m topModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m topModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.mode == topModeDetail {
+		return m.updateDetailKey(msg)
+	}
 	if m.searchOpen {
 		return m.updateSearchKey(msg)
 	}
@@ -271,6 +345,8 @@ func (m topModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.searchOpen = true
 		m.offsets[m.pane] = 0
 		return m, nil
+	case key.Matches(msg, m.keys.Select):
+		return m.openDetail()
 	case key.Matches(msg, m.keys.Up):
 		m.scrollBy(-1)
 		return m, nil
@@ -341,6 +417,77 @@ func (m topModel) updateSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m topModel) updateDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case msg.Type == tea.KeyCtrlC:
+		return m, tea.Quit
+	case msg.Type == tea.KeyEsc || (msg.Type == tea.KeyRunes && string(msg.Runes) == "q"):
+		m.mode = topModeBrowse
+		m.detailUI = topDetailState{}
+		m.detailOffset = 0
+		return m, nil
+	case key.Matches(msg, m.keys.Up):
+		m.scrollDetailBy(-1)
+		return m, nil
+	case key.Matches(msg, m.keys.Down):
+		m.scrollDetailBy(1)
+		return m, nil
+	case key.Matches(msg, m.keys.PageUp):
+		m.scrollDetailBy(-m.detailViewportRows())
+		return m, nil
+	case key.Matches(msg, m.keys.PageDown):
+		m.scrollDetailBy(m.detailViewportRows())
+		return m, nil
+	case key.Matches(msg, m.keys.Home):
+		m.detailOffset = 0
+		return m, nil
+	case key.Matches(msg, m.keys.End):
+		m.detailOffset = max(len(m.detailLines())-m.detailViewportRows(), 0)
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m topModel) openDetail() (tea.Model, tea.Cmd) {
+	rows := m.paneRows(m.pane, m.paneInteriorWidth())
+	if len(rows) == 0 {
+		return m, nil
+	}
+	index := m.offsets[m.pane]
+	if index < 0 {
+		index = 0
+	}
+	if index >= len(rows) {
+		index = len(rows) - 1
+	}
+	target := rows[index].target
+	if target.kind == topDetailNone {
+		return m, nil
+	}
+	req := topDetailRequest{pane: m.pane, target: target}
+	m.mode = topModeDetail
+	m.detailOffset = 0
+	m.detailUI = topDetailState{
+		request: req,
+		title:   target.title,
+		lines:   []string{Localize("Loading...", "読み込み中...")},
+		loading: true,
+	}
+	return m, m.fetchDetailCmd(req)
+}
+
+func (m topModel) fetchDetailCmd(req topDetailRequest) tea.Cmd {
+	loader := m.detail
+	ctx := m.loaderCtx
+	return func() tea.Msg {
+		if loader == nil {
+			return topDetailMsg{request: req, err: fmt.Errorf("detail loader is not configured")}
+		}
+		content, err := loader.loadDetail(ctx, req)
+		return topDetailMsg{request: req, content: content, err: err}
+	}
+}
+
 func (m *topModel) switchPane(next topPane) {
 	if next == m.pane {
 		return
@@ -392,6 +539,21 @@ func (m *topModel) clampOffsets() {
 		if m.offsets[i] < 0 {
 			m.offsets[i] = 0
 		}
+	}
+}
+
+func (m *topModel) scrollDetailBy(delta int) {
+	m.detailOffset += delta
+	m.clampDetailOffset()
+}
+
+func (m *topModel) clampDetailOffset() {
+	maxOffset := max(len(m.detailLines())-m.detailViewportRows(), 0)
+	if m.detailOffset > maxOffset {
+		m.detailOffset = maxOffset
+	}
+	if m.detailOffset < 0 {
+		m.detailOffset = 0
 	}
 }
 
@@ -455,39 +617,56 @@ func (m topModel) paneContentViewportRows(pane topPane) int {
 // last snapshot — caching would require invalidation on resize and on
 // snapshot apply, which the periodic ticker would race with.
 func (m topModel) paneLines(pane topPane, width int) []string {
-	var lines []string
+	rows := m.paneRows(pane, width)
+	lines := make([]string, 0, len(rows))
+	for _, row := range rows {
+		lines = append(lines, row.line)
+	}
+	return lines
+}
+
+func (m topModel) paneRows(pane topPane, width int) []topPaneRow {
+	var rows []topPaneRow
 	switch pane {
 	case topPaneSessions:
-		lines = m.sessionLines(width)
+		rows = m.sessionRows(width)
 	case topPaneFailures:
-		lines = m.eventLines(m.snapshot.Failures, width)
+		rows = m.eventRows(m.snapshot.Failures, width)
 	case topPaneRecentCommands:
-		lines = m.eventLines(m.snapshot.RecentCommands, width)
+		rows = m.eventRows(m.snapshot.RecentCommands, width)
 	case topPaneCandidates:
-		lines = m.candidateLines(width)
+		rows = m.candidateRows(width)
 	case topPaneStaleMemories:
-		lines = m.staleMemoryLines(width)
+		rows = m.staleMemoryRows(width)
 	default:
 		return nil
 	}
-	return m.applyPaneSearchFilter(pane, lines)
+	return m.applyPaneSearchFilter(pane, rows)
 }
 
-func (m topModel) applyPaneSearchFilter(pane topPane, lines []string) []string {
+func (m topModel) applyPaneSearchFilter(pane topPane, rows []topPaneRow) []topPaneRow {
 	if pane != m.pane || m.searchQuery == "" {
-		return lines
+		return rows
 	}
 	query := strings.ToLower(m.searchQuery)
-	filtered := make([]string, 0, len(lines))
-	for _, line := range lines {
-		if strings.Contains(strings.ToLower(line), query) {
-			filtered = append(filtered, line)
+	filtered := make([]topPaneRow, 0, len(rows))
+	for _, row := range rows {
+		if strings.Contains(strings.ToLower(row.line), query) {
+			filtered = append(filtered, row)
 		}
 	}
 	if len(filtered) == 0 {
-		return []string{m.styles.Subtle.Render(Localize("No rows match search.", "search に一致する行はありません。"))}
+		return []topPaneRow{{line: m.styles.Subtle.Render(Localize("No rows match search.", "search に一致する行はありません。"))}}
 	}
 	return filtered
+}
+
+func topPaneRowLines(rows []topPaneRow) []string {
+	lines := make([]string, 0, len(rows))
+	for _, row := range rows {
+		lines = append(lines, row.line)
+	}
+	return lines
 }
 
 // sessionLines renders the active session tree to one line per node so
@@ -496,24 +675,28 @@ func (m topModel) applyPaneSearchFilter(pane topPane, lines []string) []string {
 // look identical to `traceary top --snapshot` output, modulo the pane
 // width truncation that the Bubble Tea renderer applies on display.
 func (m topModel) sessionLines(width int) []string {
+	return topPaneRowLines(m.sessionRows(width))
+}
+
+func (m topModel) sessionRows(width int) []topPaneRow {
 	if m.loadErr != nil {
-		return []string{m.styles.Error.Render(m.loadErr.Error())}
+		return []topPaneRow{{line: m.styles.Error.Render(m.loadErr.Error())}}
 	}
 	if !m.loaded {
-		return []string{m.styles.Subtle.Render(Localize("loading…", "読み込み中…"))}
+		return []topPaneRow{{line: m.styles.Subtle.Render(Localize("loading…", "読み込み中…"))}}
 	}
 	if len(m.snapshot.Sessions) == 0 {
-		return []string{m.styles.Subtle.Render(Localize("No active sessions found.", "active session が見つかりません"))}
+		return []topPaneRow{{line: m.styles.Subtle.Render(Localize("No active sessions found.", "active session が見つかりません"))}}
 	}
 	now := m.now()
-	out := make([]string, 0)
+	out := make([]topPaneRow, 0)
 	for _, root := range m.snapshot.Sessions {
-		out = appendSessionLines(out, root, "", true, false, m.idle, now, m.location, width)
+		out = appendSessionRows(out, root, "", true, false, m.idle, now, m.location, width)
 	}
 	return out
 }
 
-func appendSessionLines(out []string, node *sessionNode, prefix string, isLast bool, hasParent bool, idle time.Duration, now time.Time, loc *time.Location, width int) []string {
+func appendSessionRows(out []topPaneRow, node *sessionNode, prefix string, isLast bool, hasParent bool, idle time.Duration, now time.Time, loc *time.Location, width int) []topPaneRow {
 	connector := "├── "
 	if isLast {
 		connector = "└── "
@@ -523,7 +706,15 @@ func appendSessionLines(out []string, node *sessionNode, prefix string, isLast b
 	}
 	linePrefix := prefix + connector
 	line := formatTopNodeLineIn(node, linePrefix, idle, now, loc)
-	out = append(out, truncateToWidth(line, width))
+	summary := node.summary
+	out = append(out, topPaneRow{
+		line: truncateToWidth(line, width),
+		target: topDetailTarget{
+			kind:      topDetailSession,
+			title:     fmt.Sprintf("SESSION %s", summary.SessionID()),
+			sessionID: summary.SessionID(),
+		},
+	})
 	childPrefix := prefix
 	if hasParent {
 		if isLast {
@@ -533,7 +724,7 @@ func appendSessionLines(out []string, node *sessionNode, prefix string, isLast b
 		}
 	}
 	for i, child := range node.children {
-		out = appendSessionLines(out, child, childPrefix, i == len(node.children)-1, true, idle, now, loc, width)
+		out = appendSessionRows(out, child, childPrefix, i == len(node.children)-1, true, idle, now, loc, width)
 	}
 	return out
 }
@@ -542,23 +733,30 @@ func appendSessionLines(out []string, node *sessionNode, prefix string, isLast b
 // panes. The format keeps timestamps and kinds aligned and truncates the
 // body to fit the pane width so a single noisy event cannot wrap and shove
 // the rest of the rows off-screen.
-func (m topModel) eventLines(events []*model.Event, width int) []string {
+func (m topModel) eventRows(events []*model.Event, width int) []topPaneRow {
 	if m.loadErr != nil {
-		return []string{m.styles.Error.Render(m.loadErr.Error())}
+		return []topPaneRow{{line: m.styles.Error.Render(m.loadErr.Error())}}
 	}
 	if !m.loaded {
-		return []string{m.styles.Subtle.Render(Localize("loading…", "読み込み中…"))}
+		return []topPaneRow{{line: m.styles.Subtle.Render(Localize("loading…", "読み込み中…"))}}
 	}
 	if len(events) == 0 {
-		return []string{m.styles.Subtle.Render(Localize("No matching records.", "一致する記録はありません"))}
+		return []topPaneRow{{line: m.styles.Subtle.Render(Localize("No matching records.", "一致する記録はありません"))}}
 	}
-	out := make([]string, 0, len(events))
+	out := make([]topPaneRow, 0, len(events))
 	for _, ev := range events {
 		ts := ev.CreatedAt().In(m.location).Format(eventCompactTimeLayout)
 		kind := ev.Kind().String()
 		body := truncateMessage(ev.Body())
 		line := fmt.Sprintf("%s %s %s", ts, kind, body)
-		out = append(out, truncateToWidth(line, width))
+		out = append(out, topPaneRow{
+			line: truncateToWidth(line, width),
+			target: topDetailTarget{
+				kind:    topDetailEvent,
+				title:   fmt.Sprintf("EVENT %s", ev.EventID()),
+				eventID: ev.EventID(),
+			},
+		})
 	}
 	return out
 }
@@ -567,19 +765,30 @@ func (m topModel) eventLines(events []*model.Event, width int) []string {
 // candidate-list ordering set by the loader (remember-intent priority) so
 // inbox and dashboard agree on which row is "next up".
 func (m topModel) candidateLines(width int) []string {
+	return topPaneRowLines(m.candidateRows(width))
+}
+
+func (m topModel) candidateRows(width int) []topPaneRow {
 	if m.loadErr != nil {
-		return []string{m.styles.Error.Render(m.loadErr.Error())}
+		return []topPaneRow{{line: m.styles.Error.Render(m.loadErr.Error())}}
 	}
 	if !m.loaded {
-		return []string{m.styles.Subtle.Render(Localize("loading…", "読み込み中…"))}
+		return []topPaneRow{{line: m.styles.Subtle.Render(Localize("loading…", "読み込み中…"))}}
 	}
 	if len(m.snapshot.Candidates) == 0 {
-		return []string{m.styles.Subtle.Render(Localize("No candidate durable memories in the inbox.", "inbox に candidate durable memory はありません"))}
+		return []topPaneRow{{line: m.styles.Subtle.Render(Localize("No candidate durable memories in the inbox.", "inbox に candidate durable memory はありません"))}}
 	}
-	out := make([]string, 0, len(m.snapshot.Candidates))
+	out := make([]topPaneRow, 0, len(m.snapshot.Candidates))
 	for _, candidate := range m.snapshot.Candidates {
 		line := fmt.Sprintf("%s %s %s", candidate.MemoryID(), candidate.MemoryType(), truncateMessage(candidate.Fact()))
-		out = append(out, truncateToWidth(line, width))
+		out = append(out, topPaneRow{
+			line: truncateToWidth(line, width),
+			target: topDetailTarget{
+				kind:     topDetailMemory,
+				title:    fmt.Sprintf("MEMORY %s", candidate.MemoryID()),
+				memoryID: candidate.MemoryID(),
+			},
+		})
 	}
 	return out
 }
@@ -589,17 +798,21 @@ func (m topModel) candidateLines(width int) []string {
 // human-readable fact so operators can quickly decide whether the stale row
 // should be pruned or investigated from the dedicated memory commands.
 func (m topModel) staleMemoryLines(width int) []string {
+	return topPaneRowLines(m.staleMemoryRows(width))
+}
+
+func (m topModel) staleMemoryRows(width int) []topPaneRow {
 	if m.loadErr != nil {
-		return []string{m.styles.Error.Render(m.loadErr.Error())}
+		return []topPaneRow{{line: m.styles.Error.Render(m.loadErr.Error())}}
 	}
 	if !m.loaded {
-		return []string{m.styles.Subtle.Render(Localize("loading…", "読み込み中…"))}
+		return []topPaneRow{{line: m.styles.Subtle.Render(Localize("loading…", "読み込み中…"))}}
 	}
 	items := m.snapshot.StaleMemories.Items()
 	if len(items) == 0 {
-		return []string{m.styles.Subtle.Render(Localize("No stale memories.", "stale な memory はありません。"))}
+		return []topPaneRow{{line: m.styles.Subtle.Render(Localize("No stale memories.", "stale な memory はありません。"))}}
 	}
-	out := make([]string, 0, len(items))
+	out := make([]topPaneRow, 0, len(items))
 	for _, row := range items {
 		summary := row.Summary()
 		line := fmt.Sprintf(
@@ -610,7 +823,14 @@ func (m topModel) staleMemoryLines(width int) []string {
 			row.Reason(),
 			truncateMessage(summary.Fact()),
 		)
-		out = append(out, truncateToWidth(line, width))
+		out = append(out, topPaneRow{
+			line: truncateToWidth(line, width),
+			target: topDetailTarget{
+				kind:     topDetailMemory,
+				title:    fmt.Sprintf("MEMORY %s", summary.MemoryID()),
+				memoryID: summary.MemoryID(),
+			},
+		})
 	}
 	return out
 }
@@ -656,6 +876,9 @@ func (m topModel) View() string {
 	if m.mode == topModeHelp {
 		return m.renderHelp()
 	}
+	if m.mode == topModeDetail {
+		return m.renderDetail()
+	}
 	var b strings.Builder
 	b.WriteString(m.renderHeader())
 	b.WriteString("\n")
@@ -665,6 +888,66 @@ func (m topModel) View() string {
 	}
 	b.WriteString(m.renderFooter())
 	return b.String()
+}
+
+func (m topModel) renderDetail() string {
+	width := m.paneInteriorWidth()
+	lines := m.detailLines()
+	viewport := m.detailViewportRows()
+	start := m.detailOffset
+	if start > len(lines) {
+		start = len(lines)
+	}
+	end := start + viewport
+	if end > len(lines) {
+		end = len(lines)
+	}
+	visible := make([]string, 0, end-start)
+	for _, line := range lines[start:end] {
+		visible = append(visible, truncateToWidth(line, width))
+	}
+	title := m.detailUI.title
+	if title == "" {
+		title = Localize("detail", "detail")
+	}
+	scroll := ""
+	if len(lines) > viewport {
+		scroll = fmt.Sprintf(" %d-%d/%d", start+1, min(start+viewport, len(lines)), len(lines))
+	} else if len(lines) > 0 {
+		scroll = fmt.Sprintf(" %d", len(lines))
+	}
+	header := m.styles.Title.Render(fmt.Sprintf("traceary top · detail · %s%s", title, scroll))
+	body := strings.Join(visible, "\n")
+	if body == "" {
+		body = m.styles.Subtle.Render(Localize("(empty)", "(空)"))
+	}
+	help := m.styles.Help.Render(Localize("↑/↓ scroll · pgup/pgdn page · g/G top/bottom · esc/q close · ctrl+c quit", "↑/↓ スクロール · pgup/pgdn ページ · g/G 先頭/末尾 · esc/q 閉じる · ctrl+c quit"))
+	return header + "\n\n" + body + "\n\n" + help
+}
+
+func (m topModel) detailLines() []string {
+	if m.detailUI.loading {
+		return []string{Localize("Loading...", "読み込み中...")}
+	}
+	if m.detailUI.err != nil {
+		return []string{m.styles.Error.Render(m.detailUI.err.Error())}
+	}
+	if len(m.detailUI.lines) == 0 {
+		return []string{Localize("(empty)", "(空)")}
+	}
+	return m.detailUI.lines
+}
+
+func (m topModel) detailViewportRows() int {
+	if m.height <= 0 {
+		return 12
+	}
+	const detailChromeRows = 4
+	rows := m.height - detailChromeRows
+	if rows < 1 {
+		return 1
+	}
+	return rows
 }
 
 func (m topModel) renderHeader() string {
@@ -695,8 +978,8 @@ func (m topModel) renderFooter() string {
 		status += " " + m.styles.Error.Render(Localize("load error", "load error"))
 	}
 	help := Localize(
-		"tab/shift+tab pane · / search · ↑/↓ scroll · pgup/pgdn page · g/G top/bottom · r refresh · ? help · q quit",
-		"tab/shift+tab pane · / search · ↑/↓ スクロール · pgup/pgdn ページ · g/G 先頭/末尾 · r 更新 · ? help · q quit",
+		"tab/shift+tab pane · enter detail · / search · ↑/↓ scroll · pgup/pgdn page · g/G top/bottom · r refresh · ? help · q quit",
+		"tab/shift+tab pane · enter detail · / search · ↑/↓ スクロール · pgup/pgdn ページ · g/G 先頭/末尾 · r 更新 · ? help · q quit",
 	)
 	return m.styles.Subtle.Render(status) + "\n" + m.styles.Help.Render(help)
 }
@@ -717,8 +1000,9 @@ func (m topModel) renderHelp() string {
 	b.WriteString("  ↑ / ↓ (k / j)    " + Localize("scroll the focused pane by one row", "フォーカス中のペインを1行スクロール") + "\n")
 	b.WriteString("  pgup / pgdn      " + Localize("page through the focused pane", "フォーカス中のペインをページ移動") + "\n")
 	b.WriteString("  g / G            " + Localize("jump to top / bottom of the pane", "ペインの先頭 / 末尾へ") + "\n")
+	b.WriteString("  enter            " + Localize("open detail for the highlighted row", "highlight 中の行の detail を開く") + "\n")
 	b.WriteString("  /                " + Localize("open / edit pane search filter", "ペイン内 search filter を開く / 編集") + "\n")
-	b.WriteString("  enter            " + Localize("keep the current search filter and return to pane navigation", "現在の search filter を保持してペイン操作へ戻る") + "\n")
+	b.WriteString("  enter (search)   " + Localize("keep the current search filter and return to pane navigation", "現在の search filter を保持してペイン操作へ戻る") + "\n")
 	b.WriteString("  esc              " + Localize("clear the active search filter while editing search", "search 編集中の filter をクリア") + "\n")
 	b.WriteString("  r                " + Localize("force a snapshot refresh", "スナップショットを再取得") + "\n")
 	b.WriteString("  ?                " + Localize("toggle this help", "ヘルプの表示を切替") + "\n")
@@ -733,30 +1017,39 @@ func (m topModel) renderHelp() string {
 // operator can tell at a glance which pane keys are bound to.
 func (m topModel) renderPane(pane topPane) string {
 	width := m.paneInteriorWidth()
-	lines := m.paneLines(pane, width)
+	rows := m.paneRows(pane, width)
 	viewport := m.paneContentViewportRows(pane)
-	if m.offsets[pane] > 0 && m.offsets[pane] >= len(lines) {
+	if m.offsets[pane] > 0 && m.offsets[pane] >= len(rows) {
 		// Snapshot shrunk under the cursor; rewind to the last visible row
 		// so the pane never renders an empty window after a refresh.
-		m.offsets[pane] = max(len(lines)-viewport, 0)
+		m.offsets[pane] = max(len(rows)-viewport, 0)
 	}
 	start := m.offsets[pane]
 	end := start + viewport
-	if end > len(lines) {
-		end = len(lines)
+	if end > len(rows) {
+		end = len(rows)
 	}
-	visible := lines[start:end]
-	header := m.renderPaneHeader(pane, len(lines))
+	visible := rows[start:end]
+	header := m.renderPaneHeader(pane, len(rows))
 	bodyLines := make([]string, 0, len(visible)+1)
 	if m.searchOpen && pane == m.pane {
 		bodyLines = append(bodyLines, m.renderSearchPrompt(width))
 	}
-	bodyLines = append(bodyLines, visible...)
+	for i, row := range visible {
+		bodyLines = append(bodyLines, m.renderPaneRow(pane, start+i, row, width))
+	}
 	body := strings.Join(bodyLines, "\n")
 	if body == "" {
 		body = m.styles.Subtle.Render(Localize("(empty)", "(空)"))
 	}
 	return header + "\n" + body
+}
+
+func (m topModel) renderPaneRow(pane topPane, index int, row topPaneRow, width int) string {
+	if pane == m.pane && index == m.offsets[pane] && row.target.kind != topDetailNone {
+		return m.styles.Active.Render(truncateToWidth("› "+row.line, width))
+	}
+	return row.line
 }
 
 func (m topModel) renderSearchPrompt(width int) string {
