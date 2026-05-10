@@ -101,5 +101,7 @@ gemini extensions validate integrations/gemini-extension
 この repository からの end-to-end smoke test は次です。
 
 ```sh
-./scripts/smoke_test_integrations.sh gemini
+TRACEARY_ENABLE_GEMINI_RUNTIME_SMOKE=1 ./scripts/smoke_test_integrations.sh gemini
 ```
+
+この opt-in 環境変数は意図的です。Gemini CLI は browser 認証 prompt を開くことがあるため、既定の `./scripts/smoke_test_integrations.sh all` は headless な release-prep shell ではこの runtime probe を skip します。

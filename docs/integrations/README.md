@@ -49,8 +49,8 @@ Traceary keeps two validation layers for these packages:
 1. structural validation in-repo through `python3 scripts/verify_integrations.py`
 2. local smoke tests for installed CLIs through `./scripts/smoke_test_integrations.sh`
 
-The smoke-test script focuses on the installation surfaces that each host currently exposes:
+The smoke-test script focuses on the installation surfaces that each host currently exposes. Gemini's link/list flow may open a browser authentication prompt, so it is opt-in for headless release prep:
 
 - Claude Code: marketplace validation + install into a temporary home
-- Gemini CLI: extension validation + link flow in a temporary home
+- Gemini CLI: authenticated extension validation + link flow in a temporary home when `TRACEARY_ENABLE_GEMINI_RUNTIME_SMOKE=1` is set
 - Codex: structural verification of the plugin manifest (`hooks: "./hooks.json"`, commands, skills) plus the retired-stub probes for both `traceary integration codex install` (v0.14.0 removal) and `traceary integration codex uninstall` (v0.15.0 removal) so the migration hints stay accurate

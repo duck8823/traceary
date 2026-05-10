@@ -21,6 +21,11 @@ run_claude() {
 }
 
 run_gemini() {
+  if [[ "${TRACEARY_ENABLE_GEMINI_RUNTIME_SMOKE:-0}" != "1" ]]; then
+    echo 'skip: gemini runtime smoke test requires an authenticated Gemini CLI and may open a browser; set TRACEARY_ENABLE_GEMINI_RUNTIME_SMOKE=1 to opt in'
+    return 0
+  fi
+
   command -v gemini >/dev/null 2>&1 || {
     echo "skip: gemini not found" >&2
     return 0
@@ -43,7 +48,7 @@ run_gemini() {
   [[ "${list_output}" == *traceary* ]]
   HOME="${tmp_home}" gemini extensions uninstall traceary >/dev/null 2>&1 || true
   rm -rf "${tmp_home}"
-  echo 'ok: gemini smoke test passed'
+  echo 'ok: gemini runtime smoke test passed'
 }
 
 run_codex() {

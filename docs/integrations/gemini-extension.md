@@ -122,5 +122,7 @@ gemini extensions validate integrations/gemini-extension
 End-to-end smoke test from this repository:
 
 ```sh
-./scripts/smoke_test_integrations.sh gemini
+TRACEARY_ENABLE_GEMINI_RUNTIME_SMOKE=1 ./scripts/smoke_test_integrations.sh gemini
 ```
+
+The opt-in environment variable is intentional: the Gemini CLI may open a browser authentication prompt, so the default `./scripts/smoke_test_integrations.sh all` path skips this runtime probe in headless release-prep shells.
