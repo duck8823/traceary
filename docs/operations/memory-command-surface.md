@@ -4,14 +4,14 @@
 
 `traceary memory ...` has grown to 18 direct subcommands across review, write, lifecycle, hygiene, graph, host activation, and import/export concerns. The flat list is no longer easy to scan, and several admin-only paths sit next to daily-use commands without any visual grouping.
 
-This document is the v0.14 baseline that subsequent v0.14 sub-issues build on. It is documentation only — no runtime behavior changes in this issue.
+This document is the v0.14 baseline that the memory namespace migration was built on. As of v0.15.0 the hidden deprecated aliases described below have been removed; keep this page as the historical mapping from the old flat paths to the canonical grouped paths.
 
 ## Goals
 
 - Group memory commands by intent: daily read, inbox curation, durable write, and admin/host-side operations.
 - Keep the everyday read path (`memory search`, `memory show`) unchanged so existing scripts and muscle memory keep working.
 - Move admin/host-side and lifecycle commands behind clearer namespaces (`memory inbox`, `memory store`, `memory admin`).
-- Preserve every old path as a hidden deprecated alias until v0.15 so external scripts and AI integrations have one release of overlap.
+- Preserve every old path as a hidden deprecated alias until v0.15 so external scripts and AI integrations have one release of overlap (completed: the aliases were removed in v0.15.0).
 
 ## Current command tree (v0.13.1)
 
@@ -124,7 +124,7 @@ For every old path marked above, v0.14 keeps the command working but registers i
 - emit a single deprecation notice on stderr that names the canonical replacement,
 - leave stdout / JSON output bytes unchanged so scripted callers do not break.
 
-The aliases exist so the v0.13 → v0.14 upgrade does not silently break user scripts, AI skill packs, or example snippets in older docs. They are scheduled for removal in v0.15, matching the rolling one-release deprecation policy already used for the top-level command aliases retired in #918.
+The aliases existed so the v0.13 → v0.14 upgrade did not silently break user scripts, AI skill packs, or example snippets in older docs. They were removed in v0.15.0, matching the rolling one-release deprecation policy already used for the top-level command aliases retired in #918.
 
 ### Signature-preservation requirements
 

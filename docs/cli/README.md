@@ -218,7 +218,7 @@ Useful flags:
 
 ## Durable memory commands
 
-In v0.14.0 `traceary memory ...` is grouped by operator intent. The daily-read commands stay top-level; every other verb sits under one of three namespaces. The flat verbs from earlier releases (`memory remember`, `memory accept`, `memory hygiene scan`, ...) keep working as hidden deprecated aliases through v0.14.x and are scheduled for removal in v0.15. Each alias emits a one-line stderr deprecation notice naming the canonical replacement; stdout, `--json`, and exit codes are byte-for-byte identical to the canonical command. See the [memory command surface plan](../operations/memory-command-surface.md) for the full mapping and the [CLI stability and deprecation policy](../cli-stability.md) for the deprecation contract.
+`traceary memory ...` is grouped by operator intent. The daily-read commands stay top-level; every other verb sits under one of three namespaces. The flat verbs from earlier releases (`memory remember`, `memory accept`, `memory hygiene scan`, ...) were removed in v0.15.0 after the v0.14 one-minor compatibility window; scripts and docs should use the canonical `memory inbox` / `memory store` / `memory admin` paths below. See the [memory command surface plan](../operations/memory-command-surface.md) for the historical mapping and the [CLI stability and deprecation policy](../cli-stability.md) for the deprecation contract.
 
 ```
 memory
@@ -347,7 +347,7 @@ Action keys inside the screen:
 - `?` toggle the help overlay
 - `q` / Ctrl-C / Esc quit cleanly
 
-The command refuses to start without a TTY and exits with code `2`, printing fallback guidance pointing at `memory inbox list` plus `memory inbox accept|reject` for batch / scripted callers (so non-interactive shells branch deterministically). Accept and reject reuse the same `MemoryUsecase.Accept` / `Reject` use cases as the batch commands; dedupe / status transitions are unchanged.
+The command refuses to start without a TTY and exits with code `2`, printing fallback guidance pointing at `memory inbox list` plus `memory inbox accept|reject` for batch / scripted callers (so non-interactive shells branch deterministically). Accept and reject reuse the same `MemoryUsecase.Accept` / `Reject` use cases as the batch commands; dedupe / status transitions are unchanged. If a queued per-id decision fails after the TUI exits, the summary still prints each `FAILED` row on stdout and the command returns a non-zero error so shell callers do not treat a partial review as successful.
 
 Useful flags: `--workspace`, `--agent`, `--session-family`, `--type`, `--source`, `--include-hidden`, `--limit`.
 
@@ -627,11 +627,11 @@ Useful flags:
 - `--id-only`
 - `--json`
 
-### Hidden deprecated aliases (v0.14)
+### Removed flat aliases (v0.15)
 
-The flat verbs from earlier releases are still registered as `Hidden: true` Cobra commands so existing scripts and AI integrations have one release of overlap before removal in v0.15. Each alias completes the same operation as before, emits a single stderr deprecation notice naming the canonical replacement, and keeps stdout / `--json` / NDJSON byte-for-byte compatible. The migration table:
+The flat memory verbs from earlier releases were hidden deprecated aliases during v0.14.x and were removed in v0.15.0. They are kept here only as a historical migration note; do not use them in new scripts or docs.
 
-| Hidden alias (v0.14) | Canonical replacement |
+| Removed alias (v0.15) | Canonical replacement |
 | --- | --- |
 | `memory accept <id>` | `memory inbox accept <id>` |
 | `memory reject <id>` | `memory inbox reject <id>` |
@@ -693,9 +693,9 @@ Useful flags:
 
 ### `traceary top`
 
-Launch a live multi-pane dashboard that splits the workspace view into four panes: active sessions (root → child), recent failures, recent `command_executed` events, and durable-memory inbox candidates. Each pane scrolls independently; `tab` / `shift+tab` cycle pane focus, `↑/↓` (or `k/j`) scroll by one row, `pgup/pgdn` page, `g/G` jump to top/bottom, `r` forces a refresh, `?` toggles a help overlay, and `q` / Ctrl-C / Esc quit cleanly. Idle sessions are dimmed in the sessions pane when their latest activity is older than `--idle`; they are not hidden. Non-TTY callers (pipes, CI logs) automatically fall back to the snapshot text writer. `traceary session tree` remains the static retrospective view.
+Launch a live multi-pane dashboard that splits the workspace view into five panes: active sessions (root → child), recent failures, recent `command_executed` events, durable-memory inbox candidates, and stale durable memories that may need cleanup. Each pane scrolls independently; `tab` / `shift+tab` cycle pane focus, `↑/↓` (or `k/j`) scroll by one row, `pgup/pgdn` page, `g/G` jump to top/bottom, `r` forces a refresh, `?` toggles a help overlay, and `q` / Ctrl-C quit cleanly. `/` opens an incremental search prompt for the focused pane; Enter keeps the current search filter, and Esc clears the active filter without quitting. Enter on a highlighted row opens a detail modal for the selected session, event, or memory; Esc / `q` close the modal and Ctrl-C still quits the dashboard. Idle sessions are dimmed in the sessions pane when their latest activity is older than `--idle`; they are not hidden. Non-TTY callers (pipes, CI logs) automatically fall back to the snapshot text writer. `traceary session tree` remains the static retrospective view.
 
-Snapshot output mirrors the four dashboard panes so non-interactive consumers (pipes, CI, scripts) see the same data the live view shows. The text snapshot is split into `ACTIVE SESSIONS`, `RECENT FAILURES`, `RECENT COMMANDS`, and `CANDIDATE MEMORIES (count=N)` sections; empty panes print a stable empty-state line so headers always render. The JSON snapshot is wrapped in an envelope with `sessions`, `failures`, `recent_commands`, and `candidates` (`{ count, items }`) keys; each session node keeps the same fields earlier releases emitted, but the top-level shape changed from a bare array to this envelope in v0.14.0 — scripts that read the array directly need to read `sessions` from the envelope. Per-pane row caps follow the dashboard defaults (50 failures, 50 recent commands, 25 candidates); the session pane keeps using `--limit`.
+Snapshot output mirrors the five dashboard panes so non-interactive consumers (pipes, CI, scripts) see the same data the live view shows. The text snapshot is split into `ACTIVE SESSIONS`, `RECENT FAILURES`, `RECENT COMMANDS`, `CANDIDATE MEMORIES (count=N)`, and `STALE MEMORIES (count=N)` sections; empty panes print a stable empty-state line so headers always render. The JSON snapshot is wrapped in an envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, items }`), and `stale_memories` (`{ count, items }`) keys; each session node keeps the same fields earlier releases emitted. Per-pane row caps follow the dashboard defaults (50 failures, 50 recent commands, 25 candidates, 25 stale memories); the session pane keeps using `--limit`.
 
 Example snapshot:
 
@@ -716,6 +716,9 @@ RECENT COMMANDS:
 
 CANDIDATE MEMORIES (count=1):
 mem-1 preference prefer table-driven subtests
+
+STALE MEMORIES (count=1):
+mem-stale-1 decision workspace:duck8823/traceary superseded superseded rollout note
 ```
 
 Active session columns:
@@ -735,7 +738,7 @@ Useful flags:
 - `--client`
 - `--agent`
 - `--idle <duration>` — dim rows older than the threshold without hiding them
-- `--snapshot --json` — print a one-shot JSON envelope with `sessions`, `failures`, `recent_commands`, and `candidates` (`{ count, items }`). Each session node carries `latest_event_kind`, `latest_event_message`, and `latest_event_at` in addition to the standard session fields; failures and recent commands reuse the standard event JSON shape; candidate memories reuse the durable-memory summary JSON shape. `traceary session tree --json` keeps its independent contract and does not expose any of these surfaces
+- `--snapshot --json` — print a one-shot JSON envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, items }`), and `stale_memories` (`{ count, items }`). Each session node carries `latest_event_kind`, `latest_event_message`, and `latest_event_at` in addition to the standard session fields; failures and recent commands reuse the standard event JSON shape; candidate memories reuse the durable-memory summary JSON shape; stale memories reuse durable-memory summary fields plus a `reason`. `traceary session tree --json` keeps its independent contract and does not expose any of these surfaces
 - `--limit`
 
 ### `traceary session list`
@@ -947,9 +950,9 @@ Useful flags:
 
 Retired in v0.14.0 and **not a supported install surface**. The command is hidden and no longer installs anything; invoking it only prints a hint pointing to Codex's official `/plugins` flow. New installs must go through Codex's official `/plugins` flow (run `codex` inside the repository → `/plugins` → `Traceary Plugins` → `Traceary`). See the [Codex plugin guide](../integrations/codex-plugin.md) for the full setup.
 
-### `traceary integration codex uninstall` (retired, hidden)
+### `traceary integration codex uninstall` (removed in v0.15)
 
-Retired in v0.15.0 and **not a supported uninstall surface**. The command is hidden and no longer removes anything; invoking it only prints a usage error pointing at Codex's official `/plugins` flow plus the [manual cleanup steps in the Codex plugin guide](../integrations/codex-plugin.md) for state left behind by the retired pre-v0.14 install path. Use Codex's `/plugins` flow to uninstall the Traceary plugin going forward.
+Removed in v0.15.0 and **not a supported uninstall surface**. The name is kept here only as a historical migration note: use Codex's official `/plugins` flow to uninstall the Traceary plugin, and use the [manual cleanup steps in the Codex plugin guide](../integrations/codex-plugin.md) only for state left behind by the retired pre-v0.14 install path.
 
 ### `traceary mcp-server`
 
