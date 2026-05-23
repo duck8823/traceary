@@ -23,6 +23,7 @@ import (
 const cockpitExitCodeNotInteractive = 2
 const cockpitLiveMaxEvents = 200
 const cockpitDoctorMessageWidth = 160
+const cockpitNewEventLimit = 200
 
 type cockpitExitError struct {
 	message  string
@@ -33,7 +34,8 @@ func (e cockpitExitError) Error() string { return e.message }
 func (e cockpitExitError) ExitCode() int { return e.exitCode }
 
 type cockpitCommandOptions struct {
-	dbPath string
+	dbPath     string
+	resetState bool
 }
 
 func (c *RootCLI) newCockpitCommand() *cobra.Command {
@@ -52,6 +54,7 @@ func (c *RootCLI) newCockpitCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&opts.dbPath, "db-path", "", dbPathFlagUsage())
+	cmd.Flags().BoolVar(&opts.resetState, "reset-state", false, Localize("reset local cockpit last-seen state before opening", "起動前に cockpit の local last-seen state をリセットする"))
 	return cmd
 }
 
@@ -59,6 +62,11 @@ func (c *RootCLI) runCockpit(ctx context.Context, output io.Writer, opts cockpit
 	stdin, stdout := cockpitIO(output)
 	if !tui.Interactive(stdin, stdout) {
 		return newCockpitNonInteractiveError(output)
+	}
+	if opts.resetState {
+		if err := c.resetCockpitState(ctx); err != nil {
+			return err
+		}
 	}
 	home, err := c.loadCockpitHome(ctx, opts)
 	if err != nil {
@@ -94,6 +102,10 @@ type cockpitHomeSnapshot struct {
 	LowQualityMemoryCount   int
 	MemoryScanLimited       bool
 	MemoryLastSeenAt        time.Time
+	EventLastSeenAt         time.Time
+	NewEventCount           int
+	NewEventKnown           bool
+	NewEventScanLimited     bool
 	StaleMemoryCount        int
 	RecentFailureCount      int
 	RecentCommandCount      int
@@ -171,6 +183,10 @@ func (c *RootCLI) loadCockpitHome(ctx context.Context, opts cockpitCommandOption
 	if home.NewCandidateMemoryKnown {
 		criteria.MemoryLastSeenAt = domtypes.Some(home.MemoryLastSeenAt)
 	}
+	if eventLastSeen, eventLastSeenKnown, err := c.loadCockpitEventLastSeen(ctx); err == nil && eventLastSeenKnown {
+		home.EventLastSeenAt = eventLastSeen.at
+		home.NewEventCount, home.NewEventScanLimited, home.NewEventKnown = c.countCockpitNewEvents(ctx, eventLastSeen)
+	}
 	snap, err := c.newTopDataLoader().loadSnapshot(ctx, criteria)
 	if err != nil {
 		return cockpitHomeSnapshot{}, err
@@ -198,6 +214,25 @@ type CockpitStateReader interface {
 	MemoryLastSeenAt(ctx context.Context) (time.Time, bool, error)
 }
 
+type cockpitEventStateReader interface {
+	EventLastSeenAt(ctx context.Context) (time.Time, bool, error)
+}
+
+type cockpitEventSeenIDsReader interface {
+	EventLastSeenIDs(ctx context.Context) ([]string, bool, error)
+}
+
+type cockpitEventLastSeenCheckpoint struct {
+	at     time.Time
+	seenID map[string]struct{}
+}
+
+type cockpitStateWriter interface {
+	MarkMemoryLastSeenAt(ctx context.Context, at time.Time) error
+	MarkEventLastSeenAt(ctx context.Context, at time.Time, seenIDs []string) error
+	ResetCockpitState(ctx context.Context) error
+}
+
 func (c *RootCLI) loadCockpitMemoryLastSeenAt(ctx context.Context) (time.Time, bool, error) {
 	if c.cockpitState == nil {
 		return time.Time{}, false, nil
@@ -207,6 +242,103 @@ func (c *RootCLI) loadCockpitMemoryLastSeenAt(ctx context.Context) (time.Time, b
 		return time.Time{}, false, xerrors.Errorf("%s: %w", Localize("failed to load cockpit memory last-seen state", "cockpit memory last-seen state の読み込みに失敗しました"), err)
 	}
 	return lastSeenAt, ok, nil
+}
+
+func (c *RootCLI) loadCockpitEventLastSeen(ctx context.Context) (cockpitEventLastSeenCheckpoint, bool, error) {
+	reader, ok := c.cockpitState.(cockpitEventStateReader)
+	if !ok {
+		return cockpitEventLastSeenCheckpoint{}, false, nil
+	}
+	lastSeenAt, ok, err := reader.EventLastSeenAt(ctx)
+	if err != nil {
+		return cockpitEventLastSeenCheckpoint{}, false, xerrors.Errorf("%s: %w", Localize("failed to load cockpit event last-seen state", "cockpit event last-seen state の読み込みに失敗しました"), err)
+	}
+	if !ok {
+		return cockpitEventLastSeenCheckpoint{}, false, nil
+	}
+	checkpoint := cockpitEventLastSeenCheckpoint{at: lastSeenAt, seenID: make(map[string]struct{})}
+	if idsReader, ok := c.cockpitState.(cockpitEventSeenIDsReader); ok {
+		seenIDs, _, err := idsReader.EventLastSeenIDs(ctx)
+		if err != nil {
+			return cockpitEventLastSeenCheckpoint{}, false, xerrors.Errorf("%s: %w", Localize("failed to load cockpit event last-seen IDs", "cockpit event last-seen ID の読み込みに失敗しました"), err)
+		}
+		for _, id := range seenIDs {
+			checkpoint.seenID[id] = struct{}{}
+		}
+	}
+	return checkpoint, true, nil
+}
+
+func (c *RootCLI) countCockpitNewEvents(ctx context.Context, checkpoint cockpitEventLastSeenCheckpoint) (int, bool, bool) {
+	if c.event == nil {
+		return 0, false, false
+	}
+	events, err := c.event.List(ctx, apptypes.NewEventListCriteriaBuilder(cockpitNewEventScanLimit(checkpoint)).From(checkpoint.at).Build())
+	if err != nil {
+		return 0, false, false
+	}
+	count := 0
+	for _, event := range events {
+		if isCockpitEventNewSinceCheckpoint(event, checkpoint) {
+			count++
+		}
+	}
+	limited := count > cockpitNewEventLimit
+	if limited {
+		count = cockpitNewEventLimit
+	}
+	return count, limited, true
+}
+
+func isCockpitEventNewSinceCheckpoint(event *model.Event, checkpoint cockpitEventLastSeenCheckpoint) bool {
+	if event == nil {
+		return false
+	}
+	if event.CreatedAt().After(checkpoint.at) {
+		return true
+	}
+	if !event.CreatedAt().Equal(checkpoint.at) {
+		return false
+	}
+	_, seen := checkpoint.seenID[event.EventID().String()]
+	return !seen
+}
+
+func cockpitNewEventScanLimit(checkpoint cockpitEventLastSeenCheckpoint) int {
+	return cockpitNewEventLimit + len(checkpoint.seenID) + 1
+}
+
+func (c *RootCLI) markCockpitMemorySeen(ctx context.Context, at time.Time) error {
+	writer, ok := c.cockpitState.(cockpitStateWriter)
+	if !ok {
+		return nil
+	}
+	if err := writer.MarkMemoryLastSeenAt(ctx, at); err != nil {
+		return xerrors.Errorf("failed to mark cockpit memory last-seen state: %w", err)
+	}
+	return nil
+}
+
+func (c *RootCLI) markCockpitEventsSeen(ctx context.Context, at time.Time, seenIDs []string) error {
+	writer, ok := c.cockpitState.(cockpitStateWriter)
+	if !ok {
+		return nil
+	}
+	if err := writer.MarkEventLastSeenAt(ctx, at, seenIDs); err != nil {
+		return xerrors.Errorf("failed to mark cockpit event last-seen state: %w", err)
+	}
+	return nil
+}
+
+func (c *RootCLI) resetCockpitState(ctx context.Context) error {
+	writer, ok := c.cockpitState.(cockpitStateWriter)
+	if !ok {
+		return nil
+	}
+	if err := writer.ResetCockpitState(ctx); err != nil {
+		return xerrors.Errorf("failed to reset cockpit state: %w", err)
+	}
+	return nil
 }
 
 func (c *RootCLI) loadCockpitDoctorReport(ctx context.Context, opts cockpitCommandOptions) (*doctorReport, error) {
@@ -276,6 +408,8 @@ type cockpitLoader interface {
 	loadCockpitEventDetail(ctx context.Context, eventID domtypes.EventID) (topDetailContent, error)
 	loadCockpitMemoryReviewItems(ctx context.Context) ([]apptypes.MemoryDetails, error)
 	finishCockpitMemoryReview(ctx context.Context, final reviewModel, items []apptypes.MemoryDetails) (memoryInboxReviewResult, error)
+	markCockpitMemorySeen(ctx context.Context, at time.Time) error
+	markCockpitEventsSeen(ctx context.Context, at time.Time, seenIDs []string) error
 }
 
 type cockpitLiveSnapshot struct {
@@ -339,6 +473,14 @@ func (l cockpitRuntimeLoader) finishCockpitMemoryReview(ctx context.Context, fin
 		return result, memoryInboxReviewFailureError(result)
 	}
 	return result, nil
+}
+
+func (l cockpitRuntimeLoader) markCockpitMemorySeen(ctx context.Context, at time.Time) error {
+	return l.root.markCockpitMemorySeen(ctx, at)
+}
+
+func (l cockpitRuntimeLoader) markCockpitEventsSeen(ctx context.Context, at time.Time, seenIDs []string) error {
+	return l.root.markCockpitEventsSeen(ctx, at, seenIDs)
 }
 
 func (c *RootCLI) loadCockpitLive(ctx context.Context, cursor tailCursor, initial bool) (cockpitLiveSnapshot, error) {
@@ -413,6 +555,13 @@ func (s cockpitHomeSnapshot) warnings() []cockpitWarning {
 	}
 	if s.LowQualityMemoryCount > 0 {
 		warnings = append(warnings, cockpitWarning{severity: "WARN", label: fmt.Sprintf("low-quality candidates=%d", s.LowQualityMemoryCount), hint: "inspect with `traceary memory inbox cleanup --include-hidden`"})
+	}
+	if s.NewEventKnown && s.NewEventCount > 0 {
+		hint := "press `t` or `l` to open live tail"
+		if s.NewEventScanLimited {
+			hint = "open live tail; count is capped at the cockpit scan limit"
+		}
+		warnings = append(warnings, cockpitWarning{severity: "WARN", label: fmt.Sprintf("new events=%d", s.NewEventCount), hint: hint})
 	}
 	if s.CandidateMemoryCount > 0 {
 		warnings = append(warnings, cockpitWarning{severity: "WARN", label: fmt.Sprintf("candidate memories=%d", s.CandidateMemoryCount), hint: "review with `traceary memory inbox review`"})
@@ -533,9 +682,10 @@ type cockpitMemoryReviewState struct {
 }
 
 type cockpitMemoryReviewLoadedMsg struct {
-	items []apptypes.MemoryDetails
-	seq   uint64
-	err   error
+	items  []apptypes.MemoryDetails
+	seq    uint64
+	seenAt time.Time
+	err    error
 }
 
 type cockpitMemoryReviewAppliedMsg struct {
@@ -588,10 +738,14 @@ func (m cockpitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.live.loadedAt = msg.snapshot.LoadedAt
 			m.clampLiveSelection()
 		}
-		if m.mode == cockpitModeLive && m.live.follow {
-			return m, m.cockpitLiveTickCmd()
+		var markCmd tea.Cmd
+		if msg.err == nil && m.mode == cockpitModeLive {
+			markCmd = m.markCockpitEventsSeenCmd(msg.snapshot)
 		}
-		return m, nil
+		if m.mode == cockpitModeLive && m.live.follow {
+			return m, tea.Batch(markCmd, m.cockpitLiveTickCmd())
+		}
+		return m, markCmd
 	case cockpitLiveTickMsg:
 		if m.mode == cockpitModeLive && m.live.follow && !m.live.loading {
 			return m, m.startCockpitLiveLoad(false)
@@ -618,7 +772,7 @@ func (m cockpitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.memoryReview.items = msg.items
 		m.memoryReview.review = newReviewModel(msg.items, m.keys, m.styles)
-		return m, nil
+		return m, m.markCockpitMemorySeenCmd(msg.seenAt)
 	case cockpitMemoryReviewAppliedMsg:
 		m.memoryReview.applying = false
 		m.memoryReview.result = msg.result
@@ -877,12 +1031,37 @@ func (m cockpitModel) fetchCockpitMemoryReviewCmd() tea.Cmd {
 	loader := m.loader
 	ctx := m.loaderCtx
 	seq := m.memoryReview.requestSeq
+	seenAt := topNowFunc().UTC()
 	return func() tea.Msg {
 		if loader == nil {
-			return cockpitMemoryReviewLoadedMsg{seq: seq, err: xerrors.Errorf("cockpit memory review loader is not configured")}
+			return cockpitMemoryReviewLoadedMsg{seq: seq, seenAt: seenAt, err: xerrors.Errorf("cockpit memory review loader is not configured")}
 		}
 		items, err := loader.loadCockpitMemoryReviewItems(ctx)
-		return cockpitMemoryReviewLoadedMsg{items: items, seq: seq, err: err}
+		return cockpitMemoryReviewLoadedMsg{items: items, seq: seq, seenAt: seenAt, err: err}
+	}
+}
+
+func (m cockpitModel) markCockpitMemorySeenCmd(at time.Time) tea.Cmd {
+	loader := m.loader
+	ctx := m.loaderCtx
+	return func() tea.Msg {
+		if loader != nil {
+			_ = loader.markCockpitMemorySeen(ctx, at)
+		}
+		return nil
+	}
+}
+
+func (m cockpitModel) markCockpitEventsSeenCmd(snapshot cockpitLiveSnapshot) tea.Cmd {
+	loader := m.loader
+	ctx := m.loaderCtx
+	at := cockpitLiveSeenAt(snapshot)
+	seenIDs := cockpitLiveSeenIDs(snapshot)
+	return func() tea.Msg {
+		if loader != nil && !at.IsZero() {
+			_ = loader.markCockpitEventsSeen(ctx, at, seenIDs)
+		}
+		return nil
 	}
 }
 
@@ -1019,6 +1198,10 @@ func (m cockpitModel) homeView() string {
 	if m.home.MemoryScanLimited {
 		memoryScanSuffix = " scan_limited=true"
 	}
+	eventScanSuffix := ""
+	if m.home.NewEventScanLimited {
+		eventScanSuffix = " scan_limited=true"
+	}
 	lines := []string{
 		m.styles.Title.Render("Traceary cockpit"),
 		"",
@@ -1049,7 +1232,7 @@ func (m cockpitModel) homeView() string {
 		m.styles.Subtle.Render("OVERVIEW"),
 		fmt.Sprintf("• doctor: pass=%d warn=%d fail=%d", m.home.DoctorPassCount, m.home.DoctorWarnCount, m.home.DoctorFailCount),
 		fmt.Sprintf("• hooks/mcp: warn=%d fail=%d", m.home.HookWarnCount, m.home.HookFailCount),
-		fmt.Sprintf("• sessions: stale_active=%d recent_failures=%d recent_commands=%d", m.home.StaleActiveSessionCount, m.home.RecentFailureCount, m.home.RecentCommandCount),
+		fmt.Sprintf("• sessions: stale_active=%d recent_failures=%d recent_commands=%d new_events=%s%s", m.home.StaleActiveSessionCount, m.home.RecentFailureCount, m.home.RecentCommandCount, formatCockpitNewEventCount(m.home), eventScanSuffix),
 		fmt.Sprintf("• memories: accepted(reviewed)=%d candidate(inbox)=%d new=%s remember-intent=%d low-quality=%d stale=%d%s", m.home.AcceptedMemoryCount, m.home.CandidateMemoryCount, formatCockpitNewCandidateCount(m.home), m.home.RememberIntentCount, m.home.LowQualityMemoryCount, m.home.StaleMemoryCount, memoryScanSuffix),
 		fmt.Sprintf("• payloads: large=%d", m.home.LargePayloadCount),
 		"",
@@ -1070,6 +1253,7 @@ func (m cockpitModel) homeView() string {
 			"traceary doctor --json",
 			"traceary session handoff",
 			"traceary memory inbox review",
+			"traceary tui --reset-state",
 		)
 	}
 	return strings.Join(lines, "\n")
@@ -1080,6 +1264,13 @@ func formatCockpitNewCandidateCount(home cockpitHomeSnapshot) string {
 		return "untracked"
 	}
 	return fmt.Sprintf("%d", home.NewCandidateMemoryCount)
+}
+
+func formatCockpitNewEventCount(home cockpitHomeSnapshot) string {
+	if !home.NewEventKnown {
+		return "untracked"
+	}
+	return fmt.Sprintf("%d", home.NewEventCount)
 }
 
 func formatCockpitMemoryReviewResult(result memoryInboxReviewResult) string {
@@ -1269,6 +1460,25 @@ func formatCockpitLiveEventRow(event *model.Event, loc *time.Location) string {
 		row += " [truncated]"
 	}
 	return row
+}
+
+func cockpitLiveSeenAt(snapshot cockpitLiveSnapshot) time.Time {
+	if !snapshot.Cursor.timestamp.IsZero() {
+		return snapshot.Cursor.timestamp
+	}
+	return snapshot.LoadedAt
+}
+
+func cockpitLiveSeenIDs(snapshot cockpitLiveSnapshot) []string {
+	if snapshot.Cursor.timestamp.IsZero() {
+		return nil
+	}
+	seenIDs := make([]string, 0, len(snapshot.Cursor.seenIDs))
+	for id := range snapshot.Cursor.seenIDs {
+		seenIDs = append(seenIDs, id)
+	}
+	slices.Sort(seenIDs)
+	return seenIDs
 }
 
 // cockpitIO resolves the stdin/stdout pair the cockpit TUI should drive. Tests

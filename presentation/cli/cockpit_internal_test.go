@@ -2,7 +2,9 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -155,6 +157,66 @@ func TestLoadCockpitHome_MemoryNotificationsUseLastSeenWhenAvailable(t *testing.
 		if !strings.Contains(view, must) {
 			t.Fatalf("cockpit view missing %q:\n%s", must, view)
 		}
+	}
+}
+
+func TestLoadCockpitHome_EventNotificationsUseLastSeenWhenAvailable(t *testing.T) {
+	t.Parallel()
+
+	lastSeenAt := fixedStartedAt.Add(-2 * time.Hour)
+	oldEvent := mustEvent(t, "evt-old", domtypes.EventKindNote, "old event")
+	oldEvent = model.EventOfWithSourceHook(oldEvent.EventID(), oldEvent.Kind(), oldEvent.Client(), oldEvent.Agent(), oldEvent.SessionID(), oldEvent.Workspace(), oldEvent.Body(), lastSeenAt, oldEvent.SourceHook())
+	newEvent := mustEvent(t, "evt-new", domtypes.EventKindNote, "new event")
+	event := &snapshotEventStub{events: []*model.Event{newEvent, oldEvent}}
+	root := &RootCLI{
+		event:        event,
+		cockpitState: cockpitStateReaderStub{eventAt: lastSeenAt, eventOk: true, eventSeenIDs: []string{oldEvent.EventID().String()}},
+	}
+
+	home, err := root.loadCockpitHome(context.Background(), cockpitCommandOptions{dbPath: filepath.Join(t.TempDir(), "traceary.db")})
+	if err != nil {
+		t.Fatalf("loadCockpitHome() error = %v", err)
+	}
+	if !home.NewEventKnown {
+		t.Fatalf("NewEventKnown = false, want true")
+	}
+	if got, want := home.NewEventCount, 1; got != want {
+		t.Fatalf("NewEventCount = %d, want %d", got, want)
+	}
+	view := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), home).View()
+	if !strings.Contains(view, "new events=1") || !strings.Contains(view, "new_events=1") {
+		t.Fatalf("cockpit view missing new event notification:\n%s", view)
+	}
+}
+
+func TestLoadCockpitHome_EventNotificationsScanPastSeenBoundaryIDs(t *testing.T) {
+	t.Parallel()
+
+	lastSeenAt := fixedStartedAt.Add(-2 * time.Hour)
+	seenIDs := make([]string, 0, cockpitNewEventLimit+5)
+	events := make([]*model.Event, 0, (cockpitNewEventLimit*2)+6)
+	for i := range cockpitNewEventLimit + 5 {
+		event := cockpitEventFixtureAt(t, fmt.Sprintf("evt-seen-%03d", i), lastSeenAt)
+		seenIDs = append(seenIDs, event.EventID().String())
+		events = append(events, event)
+	}
+	for i := range cockpitNewEventLimit + 1 {
+		events = append(events, cockpitEventFixtureAt(t, fmt.Sprintf("evt-new-%03d", i), lastSeenAt))
+	}
+	root := &RootCLI{
+		event:        &snapshotEventStub{events: events},
+		cockpitState: cockpitStateReaderStub{eventAt: lastSeenAt, eventOk: true, eventSeenIDs: seenIDs},
+	}
+
+	home, err := root.loadCockpitHome(context.Background(), cockpitCommandOptions{dbPath: filepath.Join(t.TempDir(), "traceary.db")})
+	if err != nil {
+		t.Fatalf("loadCockpitHome() error = %v", err)
+	}
+	if got, want := home.NewEventCount, cockpitNewEventLimit; got != want {
+		t.Fatalf("NewEventCount = %d, want capped %d", got, want)
+	}
+	if !home.NewEventScanLimited {
+		t.Fatalf("NewEventScanLimited = false, want true")
 	}
 }
 
@@ -469,8 +531,14 @@ func TestCockpitModel_LivePaneRefreshFollowAndDetail(t *testing.T) {
 	}
 	updated, cmd = model.Update(cmd())
 	model = updated.(cockpitModel)
-	if cmd != nil {
-		t.Fatalf("initial load command returned follow-up cmd = %T, want nil when follow is disabled", cmd)
+	if cmd == nil {
+		t.Fatalf("initial load should mark events seen")
+	}
+	if msg := cmd(); msg != nil {
+		t.Fatalf("event seen marker returned message = %T, want nil", msg)
+	}
+	if got, want := len(loader.eventSeenCalls), 1; got != want {
+		t.Fatalf("event seen calls after initial load = %d, want %d", got, want)
 	}
 	if got, want := len(model.live.events), 1; got != want {
 		t.Fatalf("live events after initial load = %d, want %d", got, want)
@@ -545,6 +613,39 @@ func TestCockpitModel_LivePaneRefreshFollowAndDetail(t *testing.T) {
 	model = updated.(cockpitModel)
 	if model.mode != cockpitModeLive || cmd == nil {
 		t.Fatalf("returning to live with follow mode/cmd = %v/%T, want live/tick command", model.mode, cmd)
+	}
+}
+
+func TestCockpitModel_LiveLoadDoesNotMarkAfterLeavingLive(t *testing.T) {
+	t.Parallel()
+
+	event := mustEvent(t, "evt-leave-live", domtypes.EventKindNote, "leave live before load completes")
+	loader := &cockpitLoaderStub{
+		liveResponses: []cockpitLiveSnapshot{
+			{Events: []*model.Event{event}, Cursor: newTailCursor(event.CreatedAt()), LoadedAt: fixedStartedAt},
+		},
+	}
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	model.loader = loader
+	model.loaderCtx = context.Background()
+
+	updated, cmd := model.Update(cockpitRuneKey("t"))
+	model = updated.(cockpitModel)
+	if cmd == nil {
+		t.Fatalf("opening live pane returned nil command")
+	}
+	updated, homeCmd := model.Update(cockpitRuneKey("h"))
+	model = updated.(cockpitModel)
+	if model.mode != cockpitModeHome || homeCmd != nil {
+		t.Fatalf("leaving live mode/cmd = %v/%T, want home/nil", model.mode, homeCmd)
+	}
+	updated, markCmd := model.Update(cmd())
+	model = updated.(cockpitModel)
+	if markCmd != nil {
+		t.Fatalf("stale live load returned mark command = %T, want nil after leaving live", markCmd)
+	}
+	if got := len(loader.eventSeenCalls); got != 0 {
+		t.Fatalf("event seen calls after leaving live = %d, want 0", got)
 	}
 }
 
@@ -642,8 +743,14 @@ func TestCockpitModel_MemoryReviewLaunchAndFinishRefreshesHome(t *testing.T) {
 	}
 	updated, cmd = model.Update(cmd())
 	model = updated.(cockpitModel)
-	if cmd != nil {
-		t.Fatalf("memory review load returned unexpected follow-up command = %T", cmd)
+	if cmd == nil {
+		t.Fatalf("memory review load should mark memory seen")
+	}
+	if msg := cmd(); msg != nil {
+		t.Fatalf("memory seen marker returned message = %T, want nil", msg)
+	}
+	if got, want := len(loader.memorySeenCalls), 1; got != want {
+		t.Fatalf("memory seen calls after review load = %d, want %d", got, want)
 	}
 	if got, want := loader.reviewLoadCalls, 1; got != want {
 		t.Fatalf("review load calls = %d, want %d", got, want)
@@ -690,6 +797,37 @@ func TestCockpitModel_MemoryReviewLaunchAndFinishRefreshesHome(t *testing.T) {
 	}
 	if got := model.View(); !strings.Contains(got, "memory review applied: accepted=1 rejected=0 distilled=0 failures=0") || !strings.Contains(got, "candidate(inbox)=0") {
 		t.Fatalf("home view missing review result/refreshed counts:\n%s", got)
+	}
+}
+
+func TestCockpitModel_MemoryReviewMarksLoadStartAsSeen(t *testing.T) {
+	candidate := cockpitMemoryDetailsFixture(t, "mem-review-checkpoint", "review checkpoint candidate", domtypes.MemoryStatusCandidate)
+	loader := &cockpitLoaderStub{reviewItems: []apptypes.MemoryDetails{candidate}}
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{
+		LoadedAt:             fixedStartedAt,
+		CandidateMemoryCount: 1,
+	})
+	model.loader = loader
+	model.loaderCtx = context.Background()
+
+	updated, cmd := model.Update(cockpitRuneKey("m"))
+	model = updated.(cockpitModel)
+	if cmd == nil {
+		t.Fatalf("memory review launch returned nil command")
+	}
+	updated, cmd = model.Update(cmd())
+	model = updated.(cockpitModel)
+	if cmd == nil {
+		t.Fatalf("memory review load should mark memory seen")
+	}
+	if msg := cmd(); msg != nil {
+		t.Fatalf("memory seen marker returned message = %T, want nil", msg)
+	}
+	if got, want := len(loader.memorySeenCalls), 1; got != want {
+		t.Fatalf("memory seen calls after review load = %d, want %d", got, want)
+	}
+	if seenAt := loader.memorySeenCalls[0]; seenAt.After(loader.reviewLoadStartedAt) {
+		t.Fatalf("memory seen checkpoint = %v, want not after loader start %v", seenAt, loader.reviewLoadStartedAt)
 	}
 }
 
@@ -1060,6 +1198,9 @@ type cockpitLoaderStub struct {
 	doctorCalls     int
 	doctorErr       error
 
+	memorySeenCalls []time.Time
+	eventSeenCalls  []time.Time
+
 	liveResponses []cockpitLiveSnapshot
 	liveCalls     []cockpitLiveCall
 	liveErr       error
@@ -1068,12 +1209,13 @@ type cockpitLoaderStub struct {
 	detailErr     error
 	detailCalls   []domtypes.EventID
 
-	reviewItems        []apptypes.MemoryDetails
-	reviewLoadCalls    int
-	reviewLoadErr      error
-	reviewFinishCalls  []reviewDecision
-	reviewFinishResult memoryInboxReviewResult
-	reviewFinishErr    error
+	reviewItems         []apptypes.MemoryDetails
+	reviewLoadCalls     int
+	reviewLoadStartedAt time.Time
+	reviewLoadErr       error
+	reviewFinishCalls   []reviewDecision
+	reviewFinishResult  memoryInboxReviewResult
+	reviewFinishErr     error
 }
 
 type cockpitLiveCall struct {
@@ -1108,13 +1250,24 @@ func (s *cockpitLoaderStub) loadCockpitDoctor(context.Context) (cockpitDoctorSna
 }
 
 type cockpitStateReaderStub struct {
-	at  time.Time
-	ok  bool
-	err error
+	at           time.Time
+	ok           bool
+	err          error
+	eventAt      time.Time
+	eventOk      bool
+	eventSeenIDs []string
 }
 
 func (s cockpitStateReaderStub) MemoryLastSeenAt(context.Context) (time.Time, bool, error) {
 	return s.at, s.ok, s.err
+}
+
+func (s cockpitStateReaderStub) EventLastSeenAt(context.Context) (time.Time, bool, error) {
+	return s.eventAt, s.eventOk, s.err
+}
+
+func (s cockpitStateReaderStub) EventLastSeenIDs(context.Context) ([]string, bool, error) {
+	return slices.Clone(s.eventSeenIDs), len(s.eventSeenIDs) > 0, s.err
 }
 
 func memorySummaryWithSourceAndUpdatedAt(t *testing.T, id string, status domtypes.MemoryStatus, source domtypes.MemorySource, updatedAt time.Time) apptypes.MemorySummary {
@@ -1175,6 +1328,12 @@ func cockpitMemoryDetailsFixture(t *testing.T, id string, fact string, status do
 	return apptypes.MemoryDetailsOf(summary, []domtypes.EvidenceRef{evidence}, nil)
 }
 
+func cockpitEventFixtureAt(t *testing.T, id string, createdAt time.Time) *model.Event {
+	t.Helper()
+	event := mustEvent(t, id, domtypes.EventKindNote, "cockpit event notification fixture "+id)
+	return model.EventOfWithSourceHook(event.EventID(), event.Kind(), event.Client(), event.Agent(), event.SessionID(), event.Workspace(), event.Body(), createdAt, event.SourceHook())
+}
+
 func (s *cockpitLoaderStub) loadCockpitLive(_ context.Context, cursor tailCursor, initial bool) (cockpitLiveSnapshot, error) {
 	s.liveCalls = append(s.liveCalls, cockpitLiveCall{cursor: cursor, initial: initial})
 	if s.liveErr != nil {
@@ -1194,6 +1353,7 @@ func (s *cockpitLoaderStub) loadCockpitEventDetail(_ context.Context, eventID do
 }
 
 func (s *cockpitLoaderStub) loadCockpitMemoryReviewItems(context.Context) ([]apptypes.MemoryDetails, error) {
+	s.reviewLoadStartedAt = time.Now()
 	s.reviewLoadCalls++
 	if s.reviewLoadErr != nil {
 		return nil, s.reviewLoadErr
@@ -1204,6 +1364,16 @@ func (s *cockpitLoaderStub) loadCockpitMemoryReviewItems(context.Context) ([]app
 func (s *cockpitLoaderStub) finishCockpitMemoryReview(_ context.Context, final reviewModel, _ []apptypes.MemoryDetails) (memoryInboxReviewResult, error) {
 	s.reviewFinishCalls = append(s.reviewFinishCalls, final.Decisions()...)
 	return s.reviewFinishResult, s.reviewFinishErr
+}
+
+func (s *cockpitLoaderStub) markCockpitMemorySeen(_ context.Context, at time.Time) error {
+	s.memorySeenCalls = append(s.memorySeenCalls, at)
+	return nil
+}
+
+func (s *cockpitLoaderStub) markCockpitEventsSeen(_ context.Context, at time.Time, _ []string) error {
+	s.eventSeenCalls = append(s.eventSeenCalls, at)
+	return nil
 }
 
 func cockpitRuneKey(value string) tea.KeyMsg {

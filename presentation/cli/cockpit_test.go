@@ -2,9 +2,11 @@ package cli_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/duck8823/traceary/presentation/cli"
 )
@@ -39,6 +41,24 @@ func TestCockpitCommand_RefusesNonTTYThroughCobra(t *testing.T) {
 	}
 }
 
+func TestCockpitCommand_ResetStateDoesNotRunForNonTTY(t *testing.T) {
+	t.Parallel()
+
+	state := &cockpitStateSpy{}
+	rootCmd := cli.NewRootCLI(cli.WithCockpitStateReader(state)).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"tui", "--reset-state"})
+
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatalf("Execute(tui --reset-state) error = nil, want non-TTY refusal")
+	}
+	if state.resetCalls != 0 {
+		t.Fatalf("ResetCockpitState() calls = %d, want 0 for non-TTY execution", state.resetCalls)
+	}
+}
+
 func TestCockpitCommand_HelpAndAliasAreDiscoverable(t *testing.T) {
 	t.Parallel()
 
@@ -52,7 +72,7 @@ func TestCockpitCommand_HelpAndAliasAreDiscoverable(t *testing.T) {
 		t.Fatalf("Execute(tui --help) error = %v", err)
 	}
 	help := stdout.String()
-	for _, must := range []string{"operator cockpit", "dashboard", "--db-path", "top", "tail", "doctor", "memory review"} {
+	for _, must := range []string{"operator cockpit", "dashboard", "--db-path", "--reset-state", "top", "tail", "doctor", "memory review"} {
 		if !strings.Contains(help, must) {
 			t.Fatalf("tui --help missing %q:\n%s", must, help)
 		}
@@ -69,6 +89,35 @@ func TestCockpitCommand_HelpAndAliasAreDiscoverable(t *testing.T) {
 	if !strings.Contains(rootHelp.String(), "tui") {
 		t.Fatalf("root help does not list tui command:\n%s", rootHelp.String())
 	}
+}
+
+type cockpitStateSpy struct {
+	resetCalls int
+}
+
+func (s *cockpitStateSpy) MemoryLastSeenAt(context.Context) (time.Time, bool, error) {
+	return time.Time{}, false, nil
+}
+
+func (s *cockpitStateSpy) EventLastSeenAt(context.Context) (time.Time, bool, error) {
+	return time.Time{}, false, nil
+}
+
+func (s *cockpitStateSpy) EventLastSeenIDs(context.Context) ([]string, bool, error) {
+	return nil, false, nil
+}
+
+func (s *cockpitStateSpy) MarkMemoryLastSeenAt(context.Context, time.Time) error {
+	return nil
+}
+
+func (s *cockpitStateSpy) MarkEventLastSeenAt(context.Context, time.Time, []string) error {
+	return nil
+}
+
+func (s *cockpitStateSpy) ResetCockpitState(context.Context) error {
+	s.resetCalls++
+	return nil
 }
 
 func TestCockpitCommand_NoArgsCompatibility(t *testing.T) {

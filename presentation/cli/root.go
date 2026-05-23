@@ -120,7 +120,7 @@ func WithClaudePluginDetector(detector application.ClaudePluginDetector) RootCLI
 }
 
 // WithCockpitStateReader injects optional local cockpit state used for
-// non-critical notification checkpoints such as memory inbox last-seen time.
+// non-critical notification checkpoints such as memory/event last-seen time.
 func WithCockpitStateReader(reader CockpitStateReader) RootCLIOption {
 	return func(c *RootCLI) { c.cockpitState = reader }
 }
