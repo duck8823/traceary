@@ -1,0 +1,36 @@
+Traceary cockpit · memory review
+sections: 1 Home  2 Live  3 Doctor  [4 Memory]  5 Sessions
+
+inbox review · decision card
+candidate 1 / 1
+
+DECISION CONTEXT
+MEMORY_ID:              mem-dogfood-ambiguous
+TYPE:                   preference
+SCOPE:                  workspace:github.com/example/repo
+SOURCE:                 extracted-hidden
+CONFIDENCE:             low
+QUALITY_SIGNAL:         low confidence; hidden extraction; no evidence refs; accept requires confirmation
+REMEMBERED_BY_OPERATOR: no
+EVIDENCE_REFS:          0 (press v to inspect)
+ARTIFACT_REFS:          0 (press v to inspect)
+CREATED_AT:             2026-05-07T00:00:00Z
+UPDATED_AT:             2026-05-07T00:00:00Z
+CANDIDATE_AGE:          48h0m
+DUPLICATE_SUPERSEDE:    not checked in cockpit yet; use edit/distill or skip if duplicate risk is unclear
+
+CANDIDATE FACT:
+Maybe the operator prefers short summaries
+
+ACCEPT AS-IS CHECKLIST
+• factual and stable
+• useful for future sessions
+• scope/type are correct
+• evidence not shown; inspect before accepting
+• not duplicate, stale, or superseded
+• This weak candidate requires pressing `a` twice to accept as-is; prefer edit/distill when wording is unclear.
+
+
+a accept as-is · x reject · s skip · e edit/distill · v evidence · ↑/↓ navigate · ? help · q quit
+
+1-5 sections · tab/shift+tab next/prev · esc back · ctrl+c quit · ? help · a accept as-is · x reject · s skip · e edit/distill · v evidence · q finish/apply

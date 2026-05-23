@@ -1,0 +1,47 @@
+Traceary cockpit · home
+sections: [1 Home]  2 Live  3 Doctor  4 Memory  5 Sessions
+
+loaded=2026-05-07T12:00:00Z db=/tmp/traceary.db
+
+TRIAGE BOARD
+PROBLEMS
+• [OK] No immediate cockpit warnings — no failing doctor, hook, MCP, or payload signals
+  next: Continue with Live, Memory, Doctor, or Sessions as needed
+
+RECENT FAILURES
+• [OK] Failures — no recent failure events in the top snapshot
+  next: 2 Live keeps watching for new events
+
+NEW ACTIVITY
+• [OK] Events — no unseen events since 2026-05-07T11:30:00Z
+  next: 2 Live opens the event stream and marks current events seen
+
+MEMORY INBOX
+• [OK] Memory review — no unseen candidates since 2026-05-07T11:00:00Z
+  next: 4 Memory opens inbox review; use edit/distill or skip for ambiguous candidates
+  detail: candidate memories=0
+  detail: accepted memories=2
+  detail: new memory checkpoint=2026-05-07T11:00:00Z
+
+ACTIVE SESSIONS
+• [OK] Sessions — no stale active sessions detected
+  next: 5 Sessions lists handoff entry points
+
+HEALTH
+• [OK] Doctor — doctor fail=0 warn=0; hook/MCP fail=0 warn=0
+  next: 3 Doctor refreshes health checks and shows remediation hints
+  detail: doctor: pass=4 warn=0 fail=0
+  detail: hooks/mcp: warn=0 fail=0
+
+ALL GREEN
+• No immediate cockpit warnings or tracked new activity.
+• Next: 2 Live for ongoing work, 4 Memory for periodic review, 3 Doctor before release, 5 Sessions for handoff.
+
+SIGNAL COUNTS
+• doctor: pass=4 warn=0 fail=0
+• hooks/mcp: warn=0 fail=0
+• sessions: stale_active=0 recent_failures=0 recent_commands=0 new_events=0
+• memories: accepted(reviewed)=2 candidate(inbox)=0 new=0 remember-intent=0 low-quality=0 stale=0
+• payloads: large=0
+
+1-5 sections · tab/shift+tab next/prev · q/ctrl+c quit · ? help

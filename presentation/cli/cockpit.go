@@ -767,6 +767,8 @@ func newCockpitNonInteractiveError(output io.Writer) error {
 type cockpitModel struct {
 	keys   tui.KeyMap
 	styles tui.Styles
+	width  int
+	height int
 
 	loader    cockpitLoader
 	loaderCtx context.Context
@@ -903,6 +905,13 @@ type cockpitMemoryReviewAppliedMsg struct {
 
 func (m cockpitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.clampLiveSelection()
+		m.clampDetailOffset()
+		m.clampDoctorOffset()
+		return m, nil
 	case cockpitHomeMsg:
 		if msg.seq != m.homeRequestSeq {
 			return m, nil
@@ -1894,6 +1903,9 @@ func (m cockpitModel) cockpitGlobalFooter(localHelp string) string {
 	parts := []string{}
 	if m.cockpitSectionNavigationAvailable() {
 		parts = append(parts, "1-5 sections", "tab/shift+tab next/prev")
+	}
+	if m.width > 0 && m.height > 0 {
+		parts = append(parts, fmt.Sprintf("terminal %dx%d", m.width, m.height))
 	}
 	if m.cockpitBackAvailable() {
 		parts = append(parts, "esc back")
