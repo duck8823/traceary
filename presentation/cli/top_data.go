@@ -45,6 +45,11 @@ type topDataCriteria struct {
 	// Now is the reference time used to evaluate staleness. Zero falls
 	// back to time.Now() inside the loader so tests can pin it.
 	Now time.Time
+	// MemoryLastSeenAt is the optional cockpit/inbox checkpoint used to
+	// compute new-since-last-seen candidate counts. The persistence layer for
+	// this checkpoint is intentionally outside topDataLoader; callers that do
+	// not have state leave it empty and get total-count metrics only.
+	MemoryLastSeenAt domtypes.Optional[time.Time]
 }
 
 func (l *topDataLoader) loadDetail(ctx context.Context, req topDetailRequest) (topDetailContent, error) {
@@ -204,6 +209,10 @@ type topReliabilityMetrics struct {
 
 	AcceptedMemoryCount  int
 	CandidateMemoryCount int
+	NewCandidateCount    int
+	NewCandidateKnown    bool
+	RememberIntentCount  int
+	LowQualityCount      int
 	MemoryScanLimit      int
 	MemoryScanLimited    bool
 
@@ -528,12 +537,23 @@ func (l *topDataLoader) loadReliabilityMetrics(ctx context.Context, c topDataCri
 	}
 	metrics.MemoryScanLimit = topReliabilityMemoryScanLimit
 	metrics.MemoryScanLimited = len(memories) >= topReliabilityMemoryScanLimit
+	lastSeenAt, lastSeenKnown := c.MemoryLastSeenAt.Value()
+	metrics.NewCandidateKnown = lastSeenKnown
 	for _, summary := range memories {
 		switch summary.Status() {
 		case domtypes.MemoryStatusAccepted:
 			metrics.AcceptedMemoryCount++
 		case domtypes.MemoryStatusCandidate:
 			metrics.CandidateMemoryCount++
+			if lastSeenKnown && summary.UpdatedAt().After(lastSeenAt) {
+				metrics.NewCandidateCount++
+			}
+			switch summary.Source() {
+			case domtypes.MemorySourceRememberIntent:
+				metrics.RememberIntentCount++
+			case domtypes.MemorySourceExtractedHidden:
+				metrics.LowQualityCount++
+			}
 			metrics.CandidateAge = topCandidateAgeMetricsAdd(metrics.CandidateAge, summary.UpdatedAt(), topDataNow(c))
 		}
 	}
