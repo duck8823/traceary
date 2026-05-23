@@ -30,6 +30,7 @@
 - [運用上の前提](./operations/README.ja.md): SQLite の同時実行、hook 状態管理、既知の制約
 - [Python 依存の縮小計画](./operations/python-dependencies.ja.md): 現在の Python helper、影響範囲、移行順
 - [repository tooling の方針](./operations/repo-tooling.ja.md): maintainer-only helper をまとめる Go entrypoint の方針
+- [Cockpit UI/UX design baseline](./operations/cockpit-ui-ux-design.ja.md): v0.18 で `traceary tui` を reference-driven に再設計する方針
 - [Memory コマンド体系の整理計画](./operations/memory-command-surface.ja.md): v0.14 で導入する `memory inbox` / `memory store` / `memory admin` と、v0.15 まで残す hidden deprecated alias の方針
 - [リリースガイド](./release/README.ja.md): リリース手順、GitHub Actions、ローカルでの確認方法
 
