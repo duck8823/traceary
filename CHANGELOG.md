@@ -5,6 +5,24 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.17.0] - 2026-05-23
+
+### Added
+- **Operator cockpit entrypoint (#990)** — `traceary tui` now opens an explicit TTY-only operator cockpit instead of requiring operators to remember separate `top`, `tail`, `doctor`, `session handoff`, and `memory inbox review` commands. Non-interactive callers keep deterministic script-friendly commands and receive fallback guidance when they try to start the cockpit without a TTY.
+- **Cockpit home status model (#991)** — the cockpit home screen summarizes active sessions, recent failures, recent commands, candidate memories, accepted-memory counts, stale-session signals, large-payload counts, and doctor status so the operator starts from one triage surface.
+- **Live tail inside the cockpit (#992)** — the cockpit can switch into a live event-tail pane with follow/refresh behavior and event-detail drill-down, reusing the existing event formatting and query paths while keeping `traceary tail` available for scripts and dedicated terminal sessions.
+- **Memory inbox notifications and review flow (#993, #994)** — the cockpit surfaces candidate-memory counts, remember-intent priority, new-candidate warnings, and a direct memory-review flow so operators can accept, reject, skip, edit/distill, or inspect evidence without leaving the cockpit.
+- **Doctor warnings pane (#995)** — `traceary tui` can open doctor details from the cockpit, grouping failures and warnings from the existing doctor report so hook/MCP/configuration problems are visible beside live work.
+- **Persistent cockpit last-seen state (#996)** — the cockpit stores local last-seen timestamps under the user state directory, tracks event boundary IDs to avoid duplicate or missed new-event counts, and exposes `traceary tui --reset-state` for operators who want to clear local notification state.
+
+### Changed
+- **Explicit cockpit entrypoint documented as the stable path (#997)** — README, CLI reference, and interactive docs now explain that `traceary tui` is the supported operator entrypoint for v0.17.0 while bare `traceary` remains unchanged and continues to show help/usage instead of auto-opening the TUI.
+
+### Notes
+- v0.17.0 has no SQLite schema migration and no new MCP tools.
+- The cockpit state file is local operator state, not shared project data; deleting it only resets cockpit notification checkpoints.
+- Existing `traceary top`, `traceary tail`, `traceary doctor`, `traceary session handoff`, and `traceary memory inbox review` commands remain available for direct use and automation.
+
 ## [v0.16.0] - 2026-05-23
 
 ### Added
