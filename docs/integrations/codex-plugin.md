@@ -3,7 +3,7 @@
 [日本語](./codex-plugin.ja.md)
 
 Traceary ships a Codex plugin under `plugins/traceary/` that plugs into Codex CLI's official `/plugins` flow.
-Codex picks up the MCP server, the slash commands, the session-history skill, and the session / prompt / transcript / audit hooks automatically as soon as the plugin is installed through the official flow.
+Codex picks up the MCP server, the slash commands, and the session-history skill automatically as soon as the plugin is installed through the official flow. Hook registration is conditional: it works on Codex builds where the `plugin_hooks` feature is enabled and stable. On builds where `plugin_hooks` is still under development or explicitly disabled (`codex features list` shows `plugin_hooks` as `under development`, or `~/.codex/config.toml` has `[features].plugin_hooks = false`), the plugin's hook manifest is not materialized into `~/.codex/hooks.json` and a manual hook install is required — see the **Hook fallback when plugin_hooks is unavailable** section below.
 
 ## Install via Codex's official /plugins flow (primary)
 
@@ -40,9 +40,42 @@ traceary doctor --client codex --json
 ## What the official flow wires automatically
 
 - `traceary` MCP server via `traceary mcp-server`
-- `SessionStart`, `UserPromptSubmit`, `Stop` (session end + transcript), and `PostToolUse` hooks (declared in `plugins/traceary/hooks.json` and referenced from the plugin manifest)
+- `SessionStart`, `UserPromptSubmit`, `Stop` (session end + transcript), and `PostToolUse` hooks (declared in `plugins/traceary/hooks.json` and referenced from the plugin manifest) — **only when `plugin_hooks` is enabled on your Codex build**; otherwise see the fallback below
 - slash commands: `/traceary:help` and `/traceary:doctor`
 - contextual skills: `traceary-session-history`, `traceary-memory-review`, and `traceary-memory-remember`. `traceary-memory-review` triggers on review-intent phrases ("Traceary inbox", "review memory candidates", "session recap") and curates the inbox; `traceary-memory-remember` triggers only on explicit-write phrases ("remember that", "覚えておいて").
+
+## Hook fallback when plugin_hooks is unavailable
+
+Codex's plugin-managed hook support shipped behind the `plugin_hooks` feature flag and is still marked `under development` on some builds. When the feature is unavailable, Codex will not materialize the plugin manifest's hook declarations into `~/.codex/hooks.json`, so `traceary tail` and durable-memory extraction will see no Codex events even though `/plugins` lists the Traceary plugin as enabled.
+
+Diagnose with:
+
+```sh
+codex features list                          # is plugin_hooks stable + on?
+cat ~/.codex/config.toml                     # does [features].plugin_hooks = false exist?
+traceary doctor --client codex --json        # surfaces the actionable fallback warning
+```
+
+If `plugin_hooks` is unavailable, install the hooks manually so events are still captured:
+
+```sh
+traceary hooks install --client codex --upgrade --traceary-bin "$(command -v traceary)"
+traceary doctor --client codex --json
+```
+
+The fallback writes Traceary-managed entries directly into `~/.codex/hooks.json` (named `traceary-session-start`, `traceary-prompt`, `traceary-transcript`, `traceary-session-stop`, `traceary-audit`). Existing non-Traceary entries are preserved.
+
+### Duplicate-capture warning
+
+If a future Codex build enables `plugin_hooks` for your install (the plugin manifest's hooks start firing automatically) while these manual entries remain in `~/.codex/hooks.json`, **every session/prompt/transcript/audit event will be recorded twice**. Before enabling plugin-managed hooks on an install that previously used the fallback, remove the manual entries:
+
+```sh
+# Inspect ~/.codex/hooks.json and delete the named entries the fallback created:
+#   traceary-session-start, traceary-prompt, traceary-transcript,
+#   traceary-session-stop, traceary-audit
+```
+
+After cleanup, re-run `traceary doctor --client codex --json` to confirm only one registration path is active.
 
 ## Memory activation strategy
 

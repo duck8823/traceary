@@ -379,6 +379,80 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("codex plugin enabled but hooks.json lacks Traceary entries warns about plugin_hooks fallback", func(t *testing.T) {
+		// Regression for #967: Codex builds with `plugin_hooks=false`
+		// (or any plugin host that does not materialize plugin-managed
+		// hooks) leave hooks.json without Traceary entries even when
+		// the Traceary plugin is enabled in config.toml. The doctor
+		// must surface the manual fallback, not the generic "no
+		// Traceary-managed hook" warning.
+		codexDir := filepath.Join(homeDir, ".codex")
+		if err := os.MkdirAll(codexDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll() error = %v", err)
+		}
+		configTOML := `[features]
+plugin_hooks = false
+
+[plugins."traceary@local-traceary-plugins"]
+enabled = true
+`
+		if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte(configTOML), 0o644); err != nil {
+			t.Fatalf("WriteFile(codex config.toml) error = %v", err)
+		}
+		// Non-Traceary user hooks already present in hooks.json.
+		nonTraceary := `{
+			"hooks": {
+				"SessionStart": [{"hooks": [{"type": "command", "command": "'/usr/local/bin/custom' 'hook' 'session' 'start'"}]}],
+				"Stop": [{"hooks": [{"type": "command", "command": "'/usr/local/bin/custom' 'hook' 'session' 'stop'"}]}]
+			}
+		}`
+		if err := os.WriteFile(filepath.Join(codexDir, "hooks.json"), []byte(nonTraceary), 0o644); err != nil {
+			t.Fatalf("WriteFile(codex hooks.json) error = %v", err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(codexDir) })
+
+		initStub := &storeManagementUsecaseStub{}
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--client", "codex", "--project-dir", projectDir, "--json"})
+
+		executeDoctorAllowWarnings(t, rootCmd)
+
+		report := decodeDoctorReport(t, stdout.Bytes())
+		var codex doctorCheck
+		for _, check := range report.Checks {
+			if check.Name == "codex-config" {
+				codex = check
+			}
+		}
+		if codex.Status != "warn" {
+			t.Fatalf("codex-config status = %q, want warn (message: %q)", codex.Status, codex.Message)
+		}
+		if !strings.Contains(codex.Message, "traceary@local-traceary-plugins") {
+			t.Fatalf("expected message to identify the enabled plugin key, got %q", codex.Message)
+		}
+		if !strings.Contains(codex.Message, "plugin_hooks") {
+			t.Fatalf("expected message to mention plugin_hooks fallback path, got %q", codex.Message)
+		}
+		if !strings.Contains(codex.Message, "manual hook install") {
+			t.Fatalf("expected message to explain manual hook install fallback, got %q", codex.Message)
+		}
+		if !strings.Contains(codex.Message, "duplicate event capture") {
+			t.Fatalf("expected message to warn about duplicate event capture, got %q", codex.Message)
+		}
+		if !strings.Contains(codex.Message, "plugin_hooks = false") {
+			t.Fatalf("expected message to surface the explicit [features].plugin_hooks=false flag, got %q", codex.Message)
+		}
+		if codex.Hint == "" {
+			t.Fatalf("expected hint to be set, got empty (check=%+v)", codex)
+		}
+		if !strings.Contains(codex.FixCommand, "traceary hooks install --client codex --upgrade") {
+			t.Fatalf("FixCommand = %q, want the manual fallback install command", codex.FixCommand)
+		}
+	})
+
 	t.Run("invalid Traceary config fails doctor", func(t *testing.T) {
 		configDir := filepath.Join(homeDir, ".config", "traceary")
 		if err := os.MkdirAll(configDir, 0o755); err != nil {
