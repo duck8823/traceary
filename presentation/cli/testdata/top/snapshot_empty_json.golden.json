@@ -10,5 +10,24 @@
   "stale_memories": {
     "count": 0,
     "items": []
+  },
+  "reliability": {
+    "stale_active_session_count": 0,
+    "memory": {
+      "accepted_count": 0,
+      "candidate_count": 0,
+      "scan_limit": 2000,
+      "scan_limit_reached": false
+    },
+    "candidate_age": {
+      "count": 0
+    },
+    "large_payloads": {
+      "count": 0,
+      "recent_command_count": 0,
+      "recent_failure_count": 0,
+      "sampled_event_count": 0,
+      "body_limit_runes": 500
+    }
   }
 }

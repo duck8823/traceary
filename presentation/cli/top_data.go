@@ -185,6 +185,7 @@ type topDataSnapshot struct {
 	Candidates                   []apptypes.MemorySummary
 	RememberIntentCandidateCount int
 	StaleMemories                apptypes.StaleMemoryListResult
+	Reliability                  topReliabilityMetrics
 
 	// StaleAfter is the threshold the loader used to evaluate session
 	// staleness; a zero or negative value means the check was disabled.
@@ -197,6 +198,36 @@ type topDataSnapshot struct {
 	// Now is the reference time staleness was evaluated against.
 	Now time.Time
 }
+
+type topReliabilityMetrics struct {
+	StaleActiveSessionCount int
+
+	AcceptedMemoryCount  int
+	CandidateMemoryCount int
+	MemoryScanLimit      int
+	MemoryScanLimited    bool
+
+	CandidateAge  topCandidateAgeMetrics
+	LargePayloads topLargePayloadMetrics
+}
+
+type topCandidateAgeMetrics struct {
+	Count      int
+	Oldest     time.Time
+	Newest     time.Time
+	OldestAge  time.Duration
+	AverageAge time.Duration
+}
+
+type topLargePayloadMetrics struct {
+	Count              int
+	RecentCommandCount int
+	RecentFailureCount int
+	SampledEventCount  int
+	BodyLimitRunes     int
+}
+
+const topReliabilityMemoryScanLimit = 2000
 
 // topDataLoader fetches every data slice the redesigned `traceary top`
 // dashboard needs (active session tree, recent failures, recent
@@ -227,8 +258,13 @@ func newTopDataLoader(session usecase.SessionUsecase, event usecase.EventUsecase
 // can swap the previous inline implementation for this call without
 // changing user-visible output.
 func (l *topDataLoader) loadSessions(ctx context.Context, c topDataCriteria) ([]*sessionNode, error) {
+	roots, _, err := l.loadSessionsWithReliability(ctx, c)
+	return roots, err
+}
+
+func (l *topDataLoader) loadSessionsWithReliability(ctx context.Context, c topDataCriteria) ([]*sessionNode, int, error) {
 	if l.session == nil || c.SessionLimit <= 0 {
-		return nil, nil
+		return nil, 0, nil
 	}
 	workspace := strings.TrimSpace(c.Workspace)
 	client := strings.TrimSpace(c.Client)
@@ -241,13 +277,14 @@ func (l *topDataLoader) loadSessions(ctx context.Context, c topDataCriteria) ([]
 		Build()
 	summaries, err := l.session.List(ctx, criteria)
 	if err != nil {
-		return nil, xerrors.Errorf("%s: %w", Localize("failed to list sessions", "セッション一覧の取得に失敗しました"), err)
+		return nil, 0, xerrors.Errorf("%s: %w", Localize("failed to list sessions", "セッション一覧の取得に失敗しました"), err)
 	}
+	now := topDataNow(c)
+	staleActiveCount := countStaleActiveSummaries(summaries, c.StaleAfter, now)
 	// Drop stale active leaves before lineage expansion when the caller
 	// did not opt in. We filter before expansion so retained ended
 	// ancestors do not stay around for a leaf the operator never sees.
 	if !c.AllowStale && c.StaleAfter > 0 {
-		now := topDataNow(c)
 		filtered := summaries[:0]
 		for _, summary := range summaries {
 			if topDataSummaryIsStale(summary, c.StaleAfter, now) {
@@ -259,14 +296,13 @@ func (l *topDataLoader) loadSessions(ctx context.Context, c topDataCriteria) ([]
 	}
 	expanded, err := l.expandSessionLineages(ctx, summaries)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	now := topDataNow(c)
 	return filterTopSessionTree(buildActiveSessionTreeWithOptions(expanded, c.AllowStale, c.StaleAfter, now), topCommandOptions{
 		workspace: workspace,
 		client:    client,
 		agent:     agent,
-	}), nil
+	}), staleActiveCount, nil
 }
 
 // topDataNow returns the reference time the loader should use for
@@ -291,6 +327,16 @@ func topDataSummaryIsStale(summary apptypes.SessionSummary, staleAfter time.Dura
 		return false
 	}
 	return summary.StartedAt().Before(now.Add(-staleAfter))
+}
+
+func countStaleActiveSummaries(summaries []apptypes.SessionSummary, staleAfter time.Duration, now time.Time) int {
+	count := 0
+	for _, summary := range summaries {
+		if topDataSummaryIsStale(summary, staleAfter, now) {
+			count++
+		}
+	}
+	return count
 }
 
 // expandSessionLineages walks every active session's lineage so root
@@ -420,7 +466,7 @@ func (l *topDataLoader) loadStaleMemories(ctx context.Context, c topDataCriteria
 // current `traceary top` (sessions only) and the upcoming multi-pane
 // dashboard share one entry point.
 func (l *topDataLoader) loadSnapshot(ctx context.Context, c topDataCriteria) (topDataSnapshot, error) {
-	sessions, err := l.loadSessions(ctx, c)
+	sessions, staleActiveCount, err := l.loadSessionsWithReliability(ctx, c)
 	if err != nil {
 		return topDataSnapshot{}, err
 	}
@@ -440,6 +486,14 @@ func (l *topDataLoader) loadSnapshot(ctx context.Context, c topDataCriteria) (to
 	if err != nil {
 		return topDataSnapshot{}, err
 	}
+	reliability, err := l.loadReliabilityMetrics(ctx, c, topReliabilityInputs{
+		StaleActiveSessionCount: staleActiveCount,
+		Failures:                failures,
+		RecentCommands:          commands,
+	})
+	if err != nil {
+		return topDataSnapshot{}, err
+	}
 	return topDataSnapshot{
 		Sessions:                     sessions,
 		Failures:                     failures,
@@ -447,10 +501,102 @@ func (l *topDataLoader) loadSnapshot(ctx context.Context, c topDataCriteria) (to
 		Candidates:                   candidates,
 		RememberIntentCandidateCount: countCandidatesBySource(candidates, domtypes.MemorySourceRememberIntent),
 		StaleMemories:                staleMemories,
+		Reliability:                  reliability,
 		StaleAfter:                   c.StaleAfter,
 		AllowStale:                   c.AllowStale,
 		Now:                          topDataNow(c),
 	}, nil
+}
+
+type topReliabilityInputs struct {
+	StaleActiveSessionCount int
+	Failures                []*model.Event
+	RecentCommands          []*model.Event
+}
+
+func (l *topDataLoader) loadReliabilityMetrics(ctx context.Context, c topDataCriteria, inputs topReliabilityInputs) (topReliabilityMetrics, error) {
+	metrics := topReliabilityMetrics{
+		StaleActiveSessionCount: inputs.StaleActiveSessionCount,
+		LargePayloads:           topLargePayloadMetricsOf(inputs.Failures, inputs.RecentCommands, apptypes.DefaultTopSnapshotBodyLimit),
+	}
+	if l.memory == nil {
+		return metrics, nil
+	}
+	memories, err := l.memory.List(ctx, topReliabilityMemoryCriteria(c))
+	if err != nil {
+		return topReliabilityMetrics{}, xerrors.Errorf("%s: %w", Localize("failed to list memories for reliability metrics", "reliability metrics 用 memory 一覧の取得に失敗しました"), err)
+	}
+	metrics.MemoryScanLimit = topReliabilityMemoryScanLimit
+	metrics.MemoryScanLimited = len(memories) >= topReliabilityMemoryScanLimit
+	for _, summary := range memories {
+		switch summary.Status() {
+		case domtypes.MemoryStatusAccepted:
+			metrics.AcceptedMemoryCount++
+		case domtypes.MemoryStatusCandidate:
+			metrics.CandidateMemoryCount++
+			metrics.CandidateAge = topCandidateAgeMetricsAdd(metrics.CandidateAge, summary.UpdatedAt(), topDataNow(c))
+		}
+	}
+	return metrics, nil
+}
+
+func topReliabilityMemoryCriteria(c topDataCriteria) apptypes.MemoryListCriteria {
+	builder := apptypes.NewMemoryListCriteriaBuilder(topReliabilityMemoryScanLimit).
+		Statuses([]domtypes.MemoryStatus{domtypes.MemoryStatusAccepted, domtypes.MemoryStatusCandidate})
+	builder = applyTopMemoryScopes(builder, c)
+	return builder.Build()
+}
+
+func applyTopMemoryScopes(builder *apptypes.MemoryListCriteriaBuilder, c topDataCriteria) *apptypes.MemoryListCriteriaBuilder {
+	if workspace := strings.TrimSpace(c.Workspace); workspace != "" {
+		builder = builder.Scope(domtypes.WorkspaceScopeOf(domtypes.Workspace(workspace)))
+	}
+	if agent := strings.TrimSpace(c.Agent); agent != "" {
+		builder = builder.Scope(domtypes.AgentScopeOf(domtypes.Agent(agent)))
+	}
+	return builder
+}
+
+func topCandidateAgeMetricsAdd(metrics topCandidateAgeMetrics, updatedAt time.Time, now time.Time) topCandidateAgeMetrics {
+	age := now.Sub(updatedAt)
+	if age < 0 {
+		age = 0
+	}
+	if metrics.Count == 0 || updatedAt.Before(metrics.Oldest) {
+		metrics.Oldest = updatedAt
+		metrics.OldestAge = age
+	}
+	if metrics.Count == 0 || updatedAt.After(metrics.Newest) {
+		metrics.Newest = updatedAt
+	}
+	totalAge := metrics.AverageAge*time.Duration(metrics.Count) + age
+	metrics.Count++
+	metrics.AverageAge = totalAge / time.Duration(metrics.Count)
+	return metrics
+}
+
+func topLargePayloadMetricsOf(failures []*model.Event, commands []*model.Event, limit int) topLargePayloadMetrics {
+	metrics := topLargePayloadMetrics{
+		SampledEventCount: len(failures) + len(commands),
+		BodyLimitRunes:    limit,
+	}
+	metrics.RecentFailureCount = countLargePayloadEvents(failures, limit)
+	metrics.RecentCommandCount = countLargePayloadEvents(commands, limit)
+	metrics.Count = metrics.RecentFailureCount + metrics.RecentCommandCount
+	return metrics
+}
+
+func countLargePayloadEvents(events []*model.Event, limit int) int {
+	count := 0
+	for _, ev := range events {
+		if ev == nil {
+			continue
+		}
+		if apptypes.TruncateCommandPayload(apptypes.ExtractPlainBody(ev.Body()), limit).Truncated {
+			count++
+		}
+	}
+	return count
 }
 
 func countCandidatesBySource(candidates []apptypes.MemorySummary, source domtypes.MemorySource) int {

@@ -1,3 +1,9 @@
+RELIABILITY:
+- stale_active_sessions=0 hint="ok"
+- memory_counts accepted=0 candidate=0 accepted_ratio=- hint="review candidates with `traceary memory inbox review` and cleanup old candidates with `traceary memory inbox cleanup --dry-run`"
+- candidate_age count=0 hint="ok"
+- large_payloads count=0 recent_commands=0 recent_failures=0 sampled=0 body_limit=500 hint="inspect full payloads with `traceary show <event_id>`; keep command output concise for handoff/top surfaces"
+
 ACTIVE SESSIONS:
 No active sessions found.
 
