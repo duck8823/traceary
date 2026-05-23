@@ -557,7 +557,7 @@ func (s cockpitHomeSnapshot) warnings() []cockpitWarning {
 		warnings = append(warnings, cockpitWarning{severity: "WARN", label: fmt.Sprintf("low-quality candidates=%d", s.LowQualityMemoryCount), hint: "inspect with `traceary memory inbox cleanup --include-hidden`"})
 	}
 	if s.NewEventKnown && s.NewEventCount > 0 {
-		hint := "press `t` or `l` to open live tail"
+		hint := "press `2` to open live tail"
 		if s.NewEventScanLimited {
 			hint = "open live tail; count is capped at the cockpit scan limit"
 		}
@@ -624,7 +624,32 @@ const (
 	cockpitModeLive
 	cockpitModeDetail
 	cockpitModeMemoryReview
+	cockpitModeSessions
 )
+
+type cockpitSectionID int
+
+const (
+	cockpitSectionHome cockpitSectionID = iota
+	cockpitSectionLive
+	cockpitSectionDoctor
+	cockpitSectionMemory
+	cockpitSectionSessions
+)
+
+type cockpitNavigationSection struct {
+	id    cockpitSectionID
+	key   string
+	label string
+}
+
+var cockpitNavigationSections = []cockpitNavigationSection{
+	{id: cockpitSectionHome, key: "1", label: "Home"},
+	{id: cockpitSectionLive, key: "2", label: "Live"},
+	{id: cockpitSectionDoctor, key: "3", label: "Doctor"},
+	{id: cockpitSectionMemory, key: "4", label: "Memory"},
+	{id: cockpitSectionSessions, key: "5", label: "Sessions"},
+}
 
 type cockpitLiveState struct {
 	events     []*model.Event
@@ -795,11 +820,19 @@ func (m cockpitModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateMemoryReviewKey(msg)
 	}
 	switch {
-	case key.Matches(msg, m.keys.Quit):
+	case isCockpitQuitKey(msg):
 		return m, tea.Quit
 	case key.Matches(msg, m.keys.Help):
 		m.showHelp = !m.showHelp
 		return m, nil
+	case isCockpitBackKey(msg):
+		return m.backCockpitSection()
+	}
+	if section, ok := cockpitSectionFromKey(msg); ok {
+		return m.openCockpitSection(section)
+	}
+	if section, ok := m.cockpitAdjacentSectionFromKey(msg); ok {
+		return m.openCockpitSection(section)
 	}
 	switch m.mode {
 	case cockpitModeDoctor:
@@ -808,24 +841,150 @@ func (m cockpitModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateDetailKey(msg)
 	case cockpitModeLive:
 		return m.updateLiveKey(msg)
+	case cockpitModeSessions:
+		return m.updateSessionsKey(msg)
 	default:
 		return m.updateHomeKey(msg)
+	}
+}
+
+func isCockpitQuitKey(msg tea.KeyMsg) bool {
+	if msg.Type == tea.KeyCtrlC {
+		return true
+	}
+	return msg.Type == tea.KeyRunes && strings.ToLower(string(msg.Runes)) == "q"
+}
+
+func isCockpitBackKey(msg tea.KeyMsg) bool {
+	return msg.Type == tea.KeyEsc
+}
+
+func cockpitSectionFromKey(msg tea.KeyMsg) (cockpitSectionID, bool) {
+	if msg.Type != tea.KeyRunes || len(msg.Runes) != 1 {
+		return 0, false
+	}
+	switch msg.Runes[0] {
+	case '1':
+		return cockpitSectionHome, true
+	case '2':
+		return cockpitSectionLive, true
+	case '3':
+		return cockpitSectionDoctor, true
+	case '4':
+		return cockpitSectionMemory, true
+	case '5':
+		return cockpitSectionSessions, true
+	default:
+		return 0, false
+	}
+}
+
+func (m cockpitModel) cockpitAdjacentSectionFromKey(msg tea.KeyMsg) (cockpitSectionID, bool) {
+	switch msg.String() {
+	case "tab":
+		return nextCockpitSection(m.activeCockpitSection(), 1), true
+	case "shift+tab":
+		return nextCockpitSection(m.activeCockpitSection(), -1), true
+	default:
+		return 0, false
+	}
+}
+
+func nextCockpitSection(current cockpitSectionID, delta int) cockpitSectionID {
+	index := 0
+	for i, section := range cockpitNavigationSections {
+		if section.id == current {
+			index = i
+			break
+		}
+	}
+	next := (index + delta) % len(cockpitNavigationSections)
+	if next < 0 {
+		next += len(cockpitNavigationSections)
+	}
+	return cockpitNavigationSections[next].id
+}
+
+func (m cockpitModel) activeCockpitSection() cockpitSectionID {
+	switch m.mode {
+	case cockpitModeLive, cockpitModeDetail:
+		return cockpitSectionLive
+	case cockpitModeDoctor:
+		return cockpitSectionDoctor
+	case cockpitModeMemoryReview:
+		return cockpitSectionMemory
+	case cockpitModeSessions:
+		return cockpitSectionSessions
+	default:
+		return cockpitSectionHome
+	}
+}
+
+func (m cockpitModel) openCockpitSection(section cockpitSectionID) (tea.Model, tea.Cmd) {
+	m.showHelp = false
+	if section == m.activeCockpitSection() {
+		if m.mode == cockpitModeDetail && section == cockpitSectionLive {
+			return m.backCockpitSection()
+		}
+		return m, nil
+	}
+	switch section {
+	case cockpitSectionHome:
+		m.mode = cockpitModeHome
+		return m, nil
+	case cockpitSectionLive:
+		if m.mode == cockpitModeDetail {
+			m.detail = topDetailState{}
+			m.detailOffset = 0
+		}
+		m.mode = cockpitModeLive
+		return m, m.startCockpitLiveLoad(true)
+	case cockpitSectionDoctor:
+		m.mode = cockpitModeDoctor
+		m.doctorOffset = 0
+		return m, m.startCockpitDoctorLoad()
+	case cockpitSectionMemory:
+		m.mode = cockpitModeMemoryReview
+		return m, m.startCockpitMemoryReviewLoad()
+	case cockpitSectionSessions:
+		m.mode = cockpitModeSessions
+		return m, nil
+	default:
+		return m, nil
+	}
+}
+
+func (m cockpitModel) backCockpitSection() (tea.Model, tea.Cmd) {
+	m.showHelp = false
+	switch m.mode {
+	case cockpitModeDetail:
+		m.mode = cockpitModeLive
+		m.detail = topDetailState{}
+		m.detailOffset = 0
+		if m.live.follow {
+			return m, m.cockpitLiveTickCmd()
+		}
+		return m, nil
+	case cockpitModeHome:
+		return m, nil
+	default:
+		m.mode = cockpitModeHome
+		return m, nil
 	}
 }
 
 func (m cockpitModel) updateHomeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyRunes {
 		switch strings.ToLower(string(msg.Runes)) {
+		// Legacy aliases stay supported, but the persistent shell advertises
+		// numbered global navigation so operators do not have to memorize
+		// per-screen one-off shortcuts.
 		case "d":
-			m.mode = cockpitModeDoctor
-			m.doctorOffset = 0
-			return m, m.startCockpitDoctorLoad()
+			return m.openCockpitSection(cockpitSectionDoctor)
 		case "t", "l":
-			m.mode = cockpitModeLive
-			return m, m.startCockpitLiveLoad(true)
+			return m.openCockpitSection(cockpitSectionLive)
 		case "m":
-			m.mode = cockpitModeMemoryReview
-			return m, m.startCockpitMemoryReviewLoad()
+			return m.openCockpitSection(cockpitSectionMemory)
 		}
 	}
 	return m, nil
@@ -918,17 +1077,27 @@ func (m cockpitModel) updateDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m cockpitModel) updateSessionsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if key.Matches(msg, m.keys.Refresh) {
+		return m, m.startCockpitHomeLoad()
+	}
+	return m, nil
+}
+
 func (m cockpitModel) updateMemoryReviewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	actions := defaultReviewActionKeys()
+	if m.memoryReview.applying {
+		return m, nil
+	}
+	if handled, next, cmd := m.updateMemoryReviewGlobalNavigationKey(msg); handled {
+		return next, cmd
+	}
 	if msg.Type == tea.KeyRunes && strings.ToLower(string(msg.Runes)) == "h" && (m.memoryReview.loading || m.memoryReview.err != nil) {
 		m.mode = cockpitModeHome
 		if m.memoryReview.err != nil {
 			m.memoryReview = cockpitMemoryReviewState{}
 			return m, m.startCockpitHomeLoad()
 		}
-		return m, nil
-	}
-	if m.memoryReview.applying {
 		return m, nil
 	}
 	if m.memoryReview.err != nil {
@@ -983,6 +1152,45 @@ func (m cockpitModel) updateMemoryReviewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		return m, nil
 	}
 	return m, nil
+}
+
+func (m cockpitModel) updateMemoryReviewGlobalNavigationKey(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyCtrlC {
+		return true, m, tea.Quit
+	}
+	if key.Matches(msg, m.keys.Help) && m.memoryReview.review.mode != reviewModeEdit {
+		m.showHelp = !m.showHelp
+		if !m.memoryReview.loading && m.memoryReview.err == nil {
+			updated, _ := m.memoryReview.review.Update(msg)
+			m.memoryReview.review = updated.(reviewModel)
+		}
+		return true, m, nil
+	}
+	reviewModeAllowsSectionJump := m.memoryReview.loading || m.memoryReview.err != nil || m.memoryReview.review.mode == reviewModeBrowse
+	if !reviewModeAllowsSectionJump {
+		return false, m, nil
+	}
+	if section, ok := cockpitSectionFromKey(msg); ok {
+		next, cmd := m.leaveCockpitMemoryReviewForSection(section)
+		return true, next, cmd
+	}
+	if section, ok := m.cockpitAdjacentSectionFromKey(msg); ok {
+		next, cmd := m.leaveCockpitMemoryReviewForSection(section)
+		return true, next, cmd
+	}
+	return false, m, nil
+}
+
+func (m cockpitModel) leaveCockpitMemoryReviewForSection(section cockpitSectionID) (tea.Model, tea.Cmd) {
+	if section == cockpitSectionMemory {
+		return m, nil
+	}
+	m.memoryReview = cockpitMemoryReviewState{}
+	if section == cockpitSectionHome {
+		m.mode = cockpitModeHome
+		return m, m.startCockpitHomeLoad()
+	}
+	return m.openCockpitSection(section)
 }
 
 func isCockpitMemoryReviewFinishKey(msg tea.KeyMsg) bool {
@@ -1189,6 +1397,8 @@ func (m cockpitModel) View() string {
 		return m.detailView()
 	case cockpitModeMemoryReview:
 		return m.memoryReviewView()
+	case cockpitModeSessions:
+		return m.sessionsView()
 	}
 	return m.homeView()
 }
@@ -1203,8 +1413,6 @@ func (m cockpitModel) homeView() string {
 		eventScanSuffix = " scan_limited=true"
 	}
 	lines := []string{
-		m.styles.Title.Render("Traceary cockpit"),
-		"",
 		m.styles.Subtle.Render(fmt.Sprintf("loaded=%s db=%s", formatJSONTime(m.home.LoadedAt), formatOptionalColumn(m.home.DBPath))),
 		"",
 	}
@@ -1237,26 +1445,12 @@ func (m cockpitModel) homeView() string {
 		fmt.Sprintf("• payloads: large=%d", m.home.LargePayloadCount),
 		"",
 		m.styles.Subtle.Render("Cockpit surfaces:"),
-		"• doctor: warnings, skips, and remediation commands",
-		"• sessions: top dashboard and detail drill-down",
-		"• tail: live event stream",
-		"• memory: inbox notifications and review launcher",
-		"",
-		m.styles.Help.Render("d doctor · t/l live tail · m memory review · q/esc/ctrl+c quit · ? help"),
+		"• 2 Live: live event stream and detail drill-down",
+		"• 3 Doctor: warnings, skips, and remediation commands",
+		"• 4 Memory: inbox notifications and review launcher",
+		"• 5 Sessions: session and handoff entry points",
 	)
-	if m.showHelp {
-		lines = append(lines,
-			"",
-			m.styles.Subtle.Render("Fallback commands available today:"),
-			"traceary top --snapshot [--json]",
-			"traceary tail [--follow]",
-			"traceary doctor --json",
-			"traceary session handoff",
-			"traceary memory inbox review",
-			"traceary tui --reset-state",
-		)
-	}
-	return strings.Join(lines, "\n")
+	return m.renderCockpitShell("home", lines, "")
 }
 
 func formatCockpitNewCandidateCount(home cockpitHomeSnapshot) string {
@@ -1278,10 +1472,7 @@ func formatCockpitMemoryReviewResult(result memoryInboxReviewResult) string {
 }
 
 func (m cockpitModel) doctorView() string {
-	lines := []string{
-		m.styles.Title.Render("Traceary cockpit · doctor"),
-		"",
-	}
+	lines := []string{}
 	content := m.doctorLines()
 	offset := m.doctorOffset
 	if offset < 0 {
@@ -1291,8 +1482,7 @@ func (m cockpitModel) doctorView() string {
 		offset = len(content)
 	}
 	lines = append(lines, content[offset:]...)
-	lines = append(lines, "", m.styles.Help.Render("h home · r refresh · ↑/↓ scroll · q quit"))
-	return strings.Join(lines, "\n")
+	return m.renderCockpitShell("doctor", lines, "r refresh · ↑/↓ scroll")
 }
 
 func (m cockpitModel) doctorLines() []string {
@@ -1364,26 +1554,26 @@ func renderCockpitDoctorCheck(styles tui.Styles, check cockpitDoctorCheck, line 
 }
 
 func (m cockpitModel) memoryReviewView() string {
-	lines := []string{
-		m.styles.Title.Render("Traceary cockpit · memory review"),
-		"",
-	}
+	lines := []string{}
+	localHelp := "q quit"
 	switch {
 	case m.memoryReview.loading:
 		lines = append(lines, m.styles.Subtle.Render("Loading memory inbox review queue..."))
 	case m.memoryReview.applying:
 		lines = append(lines, m.styles.Subtle.Render("Applying memory review decisions..."))
+		localHelp = "applying decisions"
 	case m.memoryReview.err != nil:
-		lines = append(lines, m.styles.Error.Render(m.memoryReview.err.Error()), "", m.styles.Help.Render("h home · q quit"))
+		lines = append(lines, m.styles.Error.Render(m.memoryReview.err.Error()))
+		localHelp = "q quit"
 	default:
-		lines = append(lines, m.memoryReview.review.View(), "", m.styles.Help.Render("q finish review and refresh cockpit"))
+		lines = append(lines, m.memoryReview.review.View())
+		localHelp = "a accept · x reject · s skip · e edit · v evidence · q finish/apply"
 	}
-	return strings.Join(lines, "\n")
+	return m.renderCockpitShell("memory review", lines, localHelp)
 }
 
 func (m cockpitModel) liveView() string {
 	lines := []string{
-		m.styles.Title.Render("Traceary cockpit · live tail"),
 		m.styles.Subtle.Render(fmt.Sprintf("loaded=%s follow=%t rows=%d", formatJSONTime(m.live.loadedAt), m.live.follow, len(m.live.events))),
 		"",
 	}
@@ -1408,12 +1598,11 @@ func (m cockpitModel) liveView() string {
 			lines = append(lines, line)
 		}
 	}
-	lines = append(lines, "", m.styles.Help.Render("h home · r refresh · f follow · enter detail · q quit"))
-	return strings.Join(lines, "\n")
+	return m.renderCockpitShell("live tail", lines, "r refresh · f follow · enter detail · ↑/↓ select")
 }
 
 func (m cockpitModel) detailView() string {
-	lines := []string{m.styles.Title.Render("Traceary cockpit · " + m.detail.title), ""}
+	lines := []string{}
 	if m.detail.err != nil {
 		lines = append(lines, m.styles.Error.Render(m.detail.err.Error()))
 	} else {
@@ -1423,8 +1612,95 @@ func (m cockpitModel) detailView() string {
 		}
 		lines = append(lines, detailLines[m.detailOffset:]...)
 	}
-	lines = append(lines, "", m.styles.Help.Render("t/l live · h home · ↑/↓ scroll · q quit"))
+	return m.renderCockpitShell(m.detail.title, lines, "↑/↓ scroll")
+}
+
+func (m cockpitModel) sessionsView() string {
+	eventScanSuffix := ""
+	if m.home.NewEventScanLimited {
+		eventScanSuffix = " scan_limited=true"
+	}
+	lines := []string{
+		m.styles.Subtle.Render("Session and handoff workflows"),
+		"",
+		fmt.Sprintf("• stale active sessions=%d", m.home.StaleActiveSessionCount),
+		fmt.Sprintf("• recent failures=%d", m.home.RecentFailureCount),
+		fmt.Sprintf("• recent commands=%d", m.home.RecentCommandCount),
+		fmt.Sprintf("• new events=%s%s", formatCockpitNewEventCount(m.home), eventScanSuffix),
+		"",
+		m.styles.Subtle.Render("Available today:"),
+		"traceary top --snapshot [--json]",
+		"traceary session handoff",
+		"traceary tail [--follow]",
+		"",
+		m.styles.Subtle.Render("Dedicated session list and handoff drill-down remain compatible with the existing subcommands."),
+	}
+	return m.renderCockpitShell("sessions", lines, "r refresh session summary")
+}
+
+func (m cockpitModel) renderCockpitShell(title string, body []string, localHelp string) string {
+	lines := []string{
+		m.styles.Title.Render("Traceary cockpit · " + title),
+		m.styles.Help.Render(m.cockpitNavigationBar()),
+		"",
+	}
+	lines = append(lines, body...)
+	lines = append(lines, "", m.styles.Help.Render(m.cockpitGlobalFooter(localHelp)))
+	if m.showHelp {
+		lines = append(lines, "")
+		lines = append(lines, m.cockpitGlobalHelp()...)
+	}
 	return strings.Join(lines, "\n")
+}
+
+func (m cockpitModel) cockpitNavigationBar() string {
+	active := m.activeCockpitSection()
+	parts := make([]string, 0, len(cockpitNavigationSections))
+	for _, section := range cockpitNavigationSections {
+		label := section.key + " " + section.label
+		if section.id == active {
+			label = "[" + label + "]"
+		}
+		parts = append(parts, label)
+	}
+	return "sections: " + strings.Join(parts, "  ")
+}
+
+func (m cockpitModel) cockpitGlobalFooter(localHelp string) string {
+	quitHelp := "q/ctrl+c quit"
+	if m.mode == cockpitModeMemoryReview {
+		quitHelp = "ctrl+c quit"
+		if m.memoryReview.applying {
+			quitHelp = "quit disabled while applying"
+		}
+	}
+	parts := []string{"1-5 sections", "tab/shift+tab next/prev", "esc back", quitHelp, "? help"}
+	if localHelp != "" {
+		parts = append(parts, localHelp)
+	}
+	return strings.Join(parts, " · ")
+}
+
+func (m cockpitModel) cockpitGlobalHelp() []string {
+	lines := []string{
+		m.styles.Subtle.Render("Global navigation"),
+		"1 Home      triage overview and notifications",
+		"2 Live      event stream and event details",
+		"3 Doctor    health checks and remediation hints",
+		"4 Memory    inbox review queue",
+		"5 Sessions  session and handoff entry points",
+		"tab / shift+tab cycle sections",
+		"esc backs out to the previous cockpit level; q exits the TUI",
+		"",
+		m.styles.Subtle.Render("Fallback commands available today:"),
+		"traceary top --snapshot [--json]",
+		"traceary tail [--follow]",
+		"traceary doctor --json",
+		"traceary session handoff",
+		"traceary memory inbox review",
+		"traceary tui --reset-state",
+	}
+	return lines
 }
 
 func (m cockpitModel) detailLines() []string {
