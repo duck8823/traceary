@@ -5,6 +5,24 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.17.0] - 2026-05-23
+
+### Added
+- **operator cockpit entrypoint (#990)** — `traceary tui` で TTY 専用の operator cockpit を明示的に開けるようになりました。operator が `top` / `tail` / `doctor` / `session handoff` / `memory inbox review` を個別に覚えなくても、1 つの入口から確認を始められます。非対話 caller は従来どおり deterministic な script 向け command を使い、TTY なしで cockpit を起動した場合は fallback guidance を受け取ります。
+- **cockpit home status model (#991)** — cockpit home は active session、直近の失敗、recent command、candidate memory、accepted memory 数、stale session signal、large payload 数、doctor status をまとめて表示し、operator が 1 つの triage surface から始められるようになりました。
+- **cockpit 内 live tail (#992)** — cockpit から live event-tail pane へ切り替えられるようになりました。follow / refresh と event detail drill-down を持ち、既存の event formatting / query path を再利用します。script や専用 terminal session 向けの `traceary tail` はそのまま残ります。
+- **memory inbox notification と review flow (#993, #994)** — cockpit が candidate memory 数、remember-intent priority、新着 candidate warning を表示し、cockpit から直接 memory review を起動できるようになりました。operator は cockpit を離れずに accept / reject / skip / edit-distill / evidence 確認を行えます。
+- **doctor warnings pane (#995)** — `traceary tui` から doctor details を開けるようになりました。既存 doctor report の failure / warning を grouped view として表示し、hook / MCP / configuration の問題を live work と並べて確認できます。
+- **永続 cockpit last-seen state (#996)** — cockpit は user state directory に local last-seen timestamp を保存します。event boundary ID を追跡して新着 event 数の重複・取りこぼしを避け、local notification state を消したい operator 向けに `traceary tui --reset-state` を追加しました。
+
+### Changed
+- **明示 cockpit entrypoint を安定 path としてドキュメント化 (#997)** — README、CLI reference、interactive docs で、v0.17.0 の operator entrypoint は `traceary tui` であり、bare `traceary` は変更せず cockpit を自動起動しない help / usage 表示を維持する、と説明しました。
+
+### Notes
+- v0.17.0 には SQLite schema migration も新しい MCP tool もありません。
+- cockpit state file は local operator state であり、project data として共有されません。削除しても cockpit notification checkpoint がリセットされるだけです。
+- 既存の `traceary top`、`traceary tail`、`traceary doctor`、`traceary session handoff`、`traceary memory inbox review` は直接利用・automation 向けに引き続き使えます。
+
 ## [v0.16.0] - 2026-05-23
 
 ### Added
