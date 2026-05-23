@@ -85,20 +85,31 @@ func (s *memoryRepositoryStub) FindByID(_ context.Context, memoryID domtypes.Mem
 }
 
 type memoryQueryStub struct {
-	listResult    []apptypes.MemorySummary
-	listErr       error
-	listCriteria  apptypes.MemoryListCriteria
-	staleResult   apptypes.StaleMemoryListResult
-	staleErr      error
-	staleCriteria apptypes.StaleMemoryListCriteria
-	searchResult  []apptypes.MemorySummary
-	searchErr     error
-	details       apptypes.MemoryDetails
-	detailsErr    error
+	listResult           []apptypes.MemorySummary
+	listResultByStatus   map[domtypes.MemoryStatus][]apptypes.MemorySummary
+	listErr              error
+	listCriteria         apptypes.MemoryListCriteria
+	listCriteriaByStatus map[domtypes.MemoryStatus]apptypes.MemoryListCriteria
+	staleResult          apptypes.StaleMemoryListResult
+	staleErr             error
+	staleCriteria        apptypes.StaleMemoryListCriteria
+	searchResult         []apptypes.MemorySummary
+	searchErr            error
+	details              apptypes.MemoryDetails
+	detailsErr           error
 }
 
 func (s *memoryQueryStub) List(_ context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
 	s.listCriteria = criteria
+	if statuses := criteria.Statuses(); len(statuses) > 0 {
+		if s.listCriteriaByStatus == nil {
+			s.listCriteriaByStatus = make(map[domtypes.MemoryStatus]apptypes.MemoryListCriteria)
+		}
+		s.listCriteriaByStatus[statuses[0]] = criteria
+		if result, ok := s.listResultByStatus[statuses[0]]; ok {
+			return result, s.listErr
+		}
+	}
 	return s.listResult, s.listErr
 }
 

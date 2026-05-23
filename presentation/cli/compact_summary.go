@@ -26,14 +26,15 @@ const compactSummaryDefaultRecent = 3
 // --preset / --as-of through here so those flags are not silent
 // no-ops.
 type compactSummaryOptions struct {
-	sessionID   string
-	workspace   string
-	recentCount int
-	memoryLimit int
-	preset      apptypes.MemoryRetrievalPreset
-	asOf        types.Optional[time.Time]
-	staleAfter  time.Duration
-	allowStale  bool
+	sessionID         string
+	workspace         string
+	recentCount       int
+	memoryLimit       int
+	preset            apptypes.MemoryRetrievalPreset
+	includeCandidates bool
+	asOf              types.Optional[time.Time]
+	staleAfter        time.Duration
+	allowStale        bool
 }
 
 func (c *RootCLI) printCompactSummaryWithOptions(
@@ -53,6 +54,7 @@ func (c *RootCLI) printCompactSummaryWithOptions(
 			RecentCommandsLimit(opts.recentCount).
 			MemoryLimit(opts.memoryLimit).
 			MemoryPreset(opts.preset).
+			IncludeMemoryCandidates(opts.includeCandidates).
 			MemoryAsOf(opts.asOf).
 			StaleAfter(opts.staleAfter).
 			AllowStale(opts.allowStale).
@@ -119,6 +121,18 @@ func buildCompactSummaryText(result types.Optional[apptypes.ContextPack]) (strin
 			sb.WriteString(truncateCompactSummarySegment(memory.Fact(), 60))
 		}
 		sb.WriteString("\n")
+	}
+	if candidates := pack.MemoryNeedsReview(); len(candidates) > 0 {
+		sb.WriteString("  needs_review: ")
+		for index, memory := range candidates {
+			if index > 0 {
+				sb.WriteString(" | ")
+			}
+			sb.WriteString(truncateCompactSummarySegment(memory.Fact(), 60))
+		}
+		sb.WriteString("\n")
+	} else if pack.CandidateMemoryCount() > 0 {
+		fmt.Fprintf(&sb, "  needs_review: %d candidate memories omitted (run session handoff --include-candidates)\n", pack.CandidateMemoryCount())
 	}
 	sb.WriteString("  Run list_events for full history.\n")
 	text := sb.String()

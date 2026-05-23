@@ -40,6 +40,7 @@ type queryMemoryInput struct {
 	AsOf                string   `json:"as_of,omitempty" jsonschema:"evaluate content validity at this timestamp"`
 	IncludeExpired      bool     `json:"include_expired,omitempty" jsonschema:"include memories whose valid_to is in the past"`
 	Preset              string   `json:"preset,omitempty" jsonschema:"built-in retrieval preset: resume | review | incident"`
+	IncludeCandidates   bool     `json:"include_candidates,omitempty" jsonschema:"include candidate memories in a separate needs-review section for action=pack"`
 	SessionID           string   `json:"session_id,omitempty" jsonschema:"session identifier filter"`
 	RecentCommandsLimit *int     `json:"recent_commands_limit,omitempty" jsonschema:"maximum recent commands to include"`
 	MemoryLimit         *int     `json:"memory_limit,omitempty" jsonschema:"maximum durable memories to include"`
@@ -63,6 +64,7 @@ type sessionActionInput struct {
 	RecentCommandsLimit *int   `json:"recent_commands_limit,omitempty" jsonschema:"maximum recent commands to include"`
 	MemoryLimit         *int   `json:"memory_limit,omitempty" jsonschema:"maximum durable memories to include"`
 	Preset              string `json:"preset,omitempty" jsonschema:"built-in retrieval preset applied to durable memories"`
+	IncludeCandidates   bool   `json:"include_candidates,omitempty" jsonschema:"include candidate durable memories in a separate needs-review section for action=handoff"`
 	AsOf                string `json:"as_of,omitempty" jsonschema:"evaluate durable memory validity at this timestamp"`
 	Depth               *int   `json:"depth,omitempty" jsonschema:"maximum descendant depth for action=tree (0 returns only the root)"`
 }
@@ -151,6 +153,7 @@ type sessionHandoffInput struct {
 	RecentCommandsLimit *int   `json:"recent_commands_limit,omitempty" jsonschema:"maximum recent commands to include (default: 5; explicit 0 disables recent commands)"`
 	MemoryLimit         *int   `json:"memory_limit,omitempty" jsonschema:"maximum durable memories to include (default: 5; explicit 0 disables durable memories)"`
 	Preset              string `json:"preset,omitempty" jsonschema:"built-in retrieval preset applied to durable memories: resume | review | incident"`
+	IncludeCandidates   bool   `json:"include_candidates,omitempty" jsonschema:"include candidate durable memories in a separate needs-review section"`
 	AsOf                string `json:"as_of,omitempty" jsonschema:"evaluate durable memory validity at this timestamp (YYYY-MM-DD or RFC3339); defaults to now"`
 	AllowStale          bool   `json:"allow_stale,omitempty" jsonschema:"allow stale active sessions"`
 	StaleAfterSeconds   int    `json:"stale_after_seconds,omitempty" jsonschema:"mark active sessions older than this many seconds as stale (0 or omitted: 86400)"`
@@ -163,6 +166,7 @@ type memoryPackInput struct {
 	RecentCommandsLimit *int   `json:"recent_commands_limit,omitempty" jsonschema:"maximum recent commands to include (default: 5; explicit 0 disables recent commands)"`
 	MemoryLimit         *int   `json:"memory_limit,omitempty" jsonschema:"maximum durable memories to include (default: 5; explicit 0 disables durable memories)"`
 	Preset              string `json:"preset,omitempty" jsonschema:"built-in retrieval preset applied to durable memories: resume | review | incident"`
+	IncludeCandidates   bool   `json:"include_candidates,omitempty" jsonschema:"include candidate durable memories in a separate needs-review section"`
 	AsOf                string `json:"as_of,omitempty" jsonschema:"evaluate durable memory validity at this timestamp (YYYY-MM-DD or RFC3339); defaults to now"`
 }
 

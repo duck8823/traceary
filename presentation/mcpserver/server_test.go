@@ -777,6 +777,18 @@ func TestServer_BuildAndTools(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CallTool(remember_memory) error = %v", err)
 		}
+		_, err = clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "manage_memory",
+			Arguments: map[string]any{
+				"action":    "propose",
+				"type":      "lesson",
+				"workspace": "github.com/duck8823/traceary",
+				"fact":      "Review candidate memories before using them as durable context",
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(propose_memory) error = %v", err)
+		}
 
 		handoffResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 			Name: "session_status",
@@ -809,6 +821,44 @@ func TestServer_BuildAndTools(t *testing.T) {
 		if !ok || len(memories) == 0 {
 			t.Fatalf("handoff memories = %T len=%d, want non-empty []any", handoffPayload["memories"], len(memories))
 		}
+		for _, raw := range memories {
+			memory, ok := raw.(map[string]any)
+			if !ok {
+				t.Fatalf("handoff memory item type = %T, want map[string]any", raw)
+			}
+			if got := memory["status"]; got != "accepted" {
+				t.Fatalf("default handoff memory status = %v, want accepted-only; payload=%v", got, memories)
+			}
+		}
+		if _, exists := handoffPayload["memory_needs_review"]; exists {
+			t.Fatalf("default handoff must omit memory_needs_review unless include_candidates=true: %v", handoffPayload["memory_needs_review"])
+		}
+		if got, ok := handoffPayload["accepted_memory_count"].(float64); !ok || got < 1 {
+			t.Fatalf("accepted_memory_count = %v (%T), want >= 1", handoffPayload["accepted_memory_count"], handoffPayload["accepted_memory_count"])
+		}
+		if got, ok := handoffPayload["candidate_memory_count"].(float64); !ok || got < 1 {
+			t.Fatalf("candidate_memory_count = %v (%T), want >= 1", handoffPayload["candidate_memory_count"], handoffPayload["candidate_memory_count"])
+		}
+
+		handoffWithCandidates, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "session_status",
+			Arguments: map[string]any{
+				"action":             "handoff",
+				"session_id":         sessionID,
+				"include_candidates": true,
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(session_handoff include_candidates) error = %v", err)
+		}
+		if handoffWithCandidates.IsError {
+			t.Fatalf("CallTool(session_handoff include_candidates) returned tool error")
+		}
+		handoffWithCandidatesPayload := decodeJSONPayload(t, handoffWithCandidates)
+		needsReview, ok := handoffWithCandidatesPayload["memory_needs_review"].([]any)
+		if !ok || !memoryListContainsFact(needsReview, "Review candidate memories before using them as durable context") {
+			t.Fatalf("memory_needs_review = %#v, want proposed candidate in separate section", handoffWithCandidatesPayload["memory_needs_review"])
+		}
 
 		packResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 			Name: "query_memory",
@@ -829,6 +879,31 @@ func TestServer_BuildAndTools(t *testing.T) {
 		recentCommands, ok := packPayload["recent_commands"].([]any)
 		if !ok || len(recentCommands) != 1 {
 			t.Fatalf("recent_commands = %T len=%d, want 1", packPayload["recent_commands"], len(recentCommands))
+		}
+		if _, exists := packPayload["memory_needs_review"]; exists {
+			t.Fatalf("default memory_pack must omit memory_needs_review unless include_candidates=true: %v", packPayload["memory_needs_review"])
+		}
+
+		packWithCandidatesResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "query_memory",
+			Arguments: map[string]any{
+				"action":                "pack",
+				"session_id":            sessionID,
+				"recent_commands_limit": 1,
+				"memory_limit":          1,
+				"include_candidates":    true,
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(memory_pack include_candidates) error = %v", err)
+		}
+		if packWithCandidatesResult.IsError {
+			t.Fatalf("CallTool(memory_pack include_candidates) returned tool error")
+		}
+		packWithCandidatesPayload := decodeJSONPayload(t, packWithCandidatesResult)
+		packNeedsReview, ok := packWithCandidatesPayload["memory_needs_review"].([]any)
+		if !ok || !memoryListContainsFact(packNeedsReview, "Review candidate memories before using them as durable context") {
+			t.Fatalf("memory_pack memory_needs_review = %#v, want proposed candidate in separate section", packWithCandidatesPayload["memory_needs_review"])
 		}
 	})
 
@@ -1295,6 +1370,19 @@ func decodeJSONPayload(t *testing.T, result *mcp.CallToolResult) map[string]any 
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
 	return payload
+}
+
+func memoryListContainsFact(memories []any, fact string) bool {
+	for _, raw := range memories {
+		memory, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if memory["fact"] == fact {
+			return true
+		}
+	}
+	return false
 }
 
 func decodeJSONArrayPayload(t *testing.T, result *mcp.CallToolResult) []any {

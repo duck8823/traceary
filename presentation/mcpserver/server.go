@@ -278,7 +278,7 @@ func (s *Server) queryMemory() mcp.ToolHandlerFor[queryMemoryInput, any] {
 			_, out, err := s.exportMemories()(ctx, req, exportMemoriesInput{Target: input.Target, Workspace: input.Workspace, IncludeGlobal: input.IncludeGlobal, NoGlobal: input.NoGlobal})
 			return nil, out, err
 		case "pack":
-			_, out, err := s.memoryPack()(ctx, req, memoryPackInput{SessionID: input.SessionID, Workspace: input.Workspace, RecentCommandsLimit: input.RecentCommandsLimit, MemoryLimit: input.MemoryLimit, Preset: input.Preset, AsOf: input.AsOf})
+			_, out, err := s.memoryPack()(ctx, req, memoryPackInput{SessionID: input.SessionID, Workspace: input.Workspace, RecentCommandsLimit: input.RecentCommandsLimit, MemoryLimit: input.MemoryLimit, Preset: input.Preset, IncludeCandidates: input.IncludeCandidates, AsOf: input.AsOf})
 			return nil, out, err
 		case "scan_hygiene":
 			_, out, err := s.scanMemoryHygiene()(ctx, req, scanMemoryHygieneInput{Workspace: input.Workspace, ExpiryDays: input.ExpiryDays, IncludeHidden: input.IncludeHidden})
@@ -315,7 +315,7 @@ func (s *Server) sessionStatus() mcp.ToolHandlerFor[sessionActionInput, any] {
 			_, out, err := s.latestSession()(ctx, req, sessionLookupInput{Client: input.Client, Agent: input.Agent, Workspace: input.Workspace, AllowStale: input.AllowStale, StaleAfterSeconds: input.StaleAfterSeconds})
 			return nil, out, err
 		case "handoff":
-			_, out, err := s.sessionHandoff()(ctx, req, sessionHandoffInput{SessionID: input.SessionID, Workspace: input.Workspace, RecentCommandsLimit: input.RecentCommandsLimit, MemoryLimit: input.MemoryLimit, Preset: input.Preset, AsOf: input.AsOf, AllowStale: input.AllowStale, StaleAfterSeconds: input.StaleAfterSeconds})
+			_, out, err := s.sessionHandoff()(ctx, req, sessionHandoffInput{SessionID: input.SessionID, Workspace: input.Workspace, RecentCommandsLimit: input.RecentCommandsLimit, MemoryLimit: input.MemoryLimit, Preset: input.Preset, IncludeCandidates: input.IncludeCandidates, AsOf: input.AsOf, AllowStale: input.AllowStale, StaleAfterSeconds: input.StaleAfterSeconds})
 			return nil, out, err
 		case "lineage":
 			out, err := s.sessionLineage(ctx, input.SessionID)
@@ -665,6 +665,7 @@ func (s *Server) sessionHandoff() mcp.ToolHandlerFor[sessionHandoffInput, sessio
 			input.RecentCommandsLimit,
 			input.MemoryLimit,
 			preset,
+			input.IncludeCandidates,
 			asOf,
 			input.AllowStale,
 			staleAfter,
@@ -698,6 +699,7 @@ func (s *Server) memoryPack() mcp.ToolHandlerFor[memoryPackInput, memoryPackOutp
 			input.RecentCommandsLimit,
 			input.MemoryLimit,
 			preset,
+			input.IncludeCandidates,
 			asOf,
 			false,
 			0,
@@ -1221,10 +1223,11 @@ func resolveContextPackStaleAfter(staleAfterSeconds int) (time.Duration, error) 
 	return time.Duration(staleAfterSeconds) * time.Second, nil
 }
 
-func buildContextPackCriteria(sessionID string, workspace string, recentCommandsLimit *int, memoryLimit *int, preset apptypes.MemoryRetrievalPreset, asOf types.Optional[time.Time], allowStale bool, staleAfter time.Duration) apptypes.ContextPackCriteria {
+func buildContextPackCriteria(sessionID string, workspace string, recentCommandsLimit *int, memoryLimit *int, preset apptypes.MemoryRetrievalPreset, includeCandidates bool, asOf types.Optional[time.Time], allowStale bool, staleAfter time.Duration) apptypes.ContextPackCriteria {
 	builder := apptypes.NewContextPackCriteriaBuilder().
 		SessionID(types.SessionID(strings.TrimSpace(sessionID))).
 		Workspace(types.Workspace(strings.TrimSpace(workspace))).
+		IncludeMemoryCandidates(includeCandidates).
 		AllowStale(allowStale).
 		StaleAfter(staleAfter)
 	if recentCommandsLimit != nil {
@@ -1244,17 +1247,20 @@ func buildContextPackCriteria(sessionID string, workspace string, recentCommands
 
 func newContextPackOutput(pack apptypes.ContextPack) sessionHandoffOutput {
 	out := sessionHandoffOutput{
-		SessionID:      pack.SessionID().String(),
-		Workspace:      pack.Workspace().String(),
-		Label:          pack.Label(),
-		Status:         pack.Status(),
-		TotalEvents:    pack.TotalEvents(),
-		CommandCount:   pack.CommandCount(),
-		Agents:         pack.Agents(),
-		Summary:        pack.WorkingState().CombinedSummary(),
-		WorkingState:   newWorkingStateOutput(pack.WorkingState()),
-		RecentCommands: pack.RecentCommands(),
-		Memories:       convertMemorySummaries(pack.Memories()),
+		SessionID:            pack.SessionID().String(),
+		Workspace:            pack.Workspace().String(),
+		Label:                pack.Label(),
+		Status:               pack.Status(),
+		TotalEvents:          pack.TotalEvents(),
+		CommandCount:         pack.CommandCount(),
+		Agents:               pack.Agents(),
+		Summary:              pack.WorkingState().CombinedSummary(),
+		WorkingState:         newWorkingStateOutput(pack.WorkingState()),
+		RecentCommands:       pack.RecentCommands(),
+		Memories:             convertMemorySummaries(pack.Memories()),
+		MemoryNeedsReview:    convertMemorySummaries(pack.MemoryNeedsReview()),
+		AcceptedMemoryCount:  pack.AcceptedMemoryCount(),
+		CandidateMemoryCount: pack.CandidateMemoryCount(),
 	}
 	if pack.WorkspaceFallbackUsed() {
 		out.RequestedWorkspace = pack.RequestedWorkspace().String()

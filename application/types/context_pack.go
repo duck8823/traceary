@@ -9,17 +9,20 @@ import (
 // ContextPack is the structured working-memory bundle shared by CLI and MCP
 // handoff surfaces.
 type ContextPack struct {
-	sessionID          domtypes.SessionID
-	workspace          domtypes.Workspace
-	requestedWorkspace domtypes.Workspace
-	label              string
-	status             string
-	totalEvents        int
-	commandCount       int
-	agents             []string
-	workingState       WorkingState
-	recentCommands     []string
-	memories           []MemorySummary
+	sessionID            domtypes.SessionID
+	workspace            domtypes.Workspace
+	requestedWorkspace   domtypes.Workspace
+	label                string
+	status               string
+	totalEvents          int
+	commandCount         int
+	agents               []string
+	workingState         WorkingState
+	recentCommands       []string
+	memories             []MemorySummary
+	memoryNeedsReview    []MemorySummary
+	acceptedMemoryCount  int
+	candidateMemoryCount int
 }
 
 // ContextPackOf creates a ContextPack.
@@ -35,17 +38,21 @@ func ContextPackOf(
 	recentCommands []string,
 	memories []MemorySummary,
 ) ContextPack {
+	trustedMemories, reviewMemories := splitContextPackMemories(memories)
 	return ContextPack{
-		sessionID:      sessionID,
-		workspace:      workspace,
-		label:          label,
-		status:         status,
-		totalEvents:    totalEvents,
-		commandCount:   commandCount,
-		agents:         slices.Clone(agents),
-		workingState:   workingState,
-		recentCommands: slices.Clone(recentCommands),
-		memories:       slices.Clone(memories),
+		sessionID:            sessionID,
+		workspace:            workspace,
+		label:                label,
+		status:               status,
+		totalEvents:          totalEvents,
+		commandCount:         commandCount,
+		agents:               slices.Clone(agents),
+		workingState:         workingState,
+		recentCommands:       slices.Clone(recentCommands),
+		memories:             trustedMemories,
+		memoryNeedsReview:    reviewMemories,
+		acceptedMemoryCount:  len(trustedMemories),
+		candidateMemoryCount: countMemoriesByStatus(reviewMemories, domtypes.MemoryStatusCandidate),
 	}
 }
 
@@ -102,3 +109,60 @@ func (c ContextPack) RecentCommands() []string { return slices.Clone(c.recentCom
 
 // Memories returns accepted durable memories relevant to the pack.
 func (c ContextPack) Memories() []MemorySummary { return slices.Clone(c.memories) }
+
+// MemoryNeedsReview returns candidate durable memories that were
+// explicitly included for review. They are intentionally separate from
+// Memories so host contexts do not treat unaccepted facts as trusted.
+func (c ContextPack) MemoryNeedsReview() []MemorySummary {
+	return slices.Clone(c.memoryNeedsReview)
+}
+
+// AcceptedMemoryCount returns the number of trusted accepted memories
+// represented by the pack. For query-built packs this count reflects
+// the accepted rows loaded under the context-pack limit.
+func (c ContextPack) AcceptedMemoryCount() int { return c.acceptedMemoryCount }
+
+// CandidateMemoryCount returns the number of candidate rows observed
+// under the context-pack limit. Candidate facts are only included in
+// MemoryNeedsReview when IncludeMemoryCandidates was requested.
+func (c ContextPack) CandidateMemoryCount() int { return c.candidateMemoryCount }
+
+// WithMemoryNeedsReview returns a copy of the pack with the candidate
+// review section and candidate count populated.
+func (c ContextPack) WithMemoryNeedsReview(candidates []MemorySummary, candidateCount int) ContextPack {
+	c.memoryNeedsReview = slices.Clone(candidates)
+	c.candidateMemoryCount = candidateCount
+	return c
+}
+
+// WithMemoryCounts returns a copy of the pack with explicit trust
+// counters. This is used by query-built packs to expose accepted and
+// candidate counts even when candidates are intentionally omitted.
+func (c ContextPack) WithMemoryCounts(acceptedCount int, candidateCount int) ContextPack {
+	c.acceptedMemoryCount = acceptedCount
+	c.candidateMemoryCount = candidateCount
+	return c
+}
+
+func countMemoriesByStatus(memories []MemorySummary, status domtypes.MemoryStatus) int {
+	count := 0
+	for _, memory := range memories {
+		if memory.Status() == status {
+			count++
+		}
+	}
+	return count
+}
+
+func splitContextPackMemories(memories []MemorySummary) ([]MemorySummary, []MemorySummary) {
+	trusted := make([]MemorySummary, 0, len(memories))
+	needsReview := make([]MemorySummary, 0)
+	for _, memory := range memories {
+		if memory.Status() == domtypes.MemoryStatusAccepted {
+			trusted = append(trusted, memory)
+			continue
+		}
+		needsReview = append(needsReview, memory)
+	}
+	return trusted, needsReview
+}

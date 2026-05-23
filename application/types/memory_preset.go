@@ -147,6 +147,22 @@ func (p MemoryRetrievalPreset) ApplyToMemoryListCriteriaBuilder(builder *MemoryL
 	return builder
 }
 
+// ApplyMemoryTypeFiltersToMemoryListCriteriaBuilder applies only the
+// preset's type restrictions, leaving lifecycle status untouched. This
+// lets review-oriented surfaces ask for candidate memories in a separate
+// section while preserving the same resume / review / incident memory
+// type shape as the trusted accepted section.
+func (p MemoryRetrievalPreset) ApplyMemoryTypeFiltersToMemoryListCriteriaBuilder(builder *MemoryListCriteriaBuilder) *MemoryListCriteriaBuilder {
+	if builder == nil {
+		return builder
+	}
+	filters := p.filters()
+	if len(filters.memoryTypes) > 0 {
+		builder = builder.MemoryTypes(filters.memoryTypes)
+	}
+	return builder
+}
+
 // ApplyToMemorySearchCriteriaBuilder is the search-side counterpart
 // to ApplyToMemoryListCriteriaBuilder. Same defaults, same override
 // semantics.

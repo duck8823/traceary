@@ -82,7 +82,7 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("candidate memories surface with status marker", func(t *testing.T) {
+	t.Run("candidate memories surface in needs-review section when included", func(t *testing.T) {
 		t.Parallel()
 
 		acceptedSummary, err := apptypes.MemorySummaryOf(
@@ -122,22 +122,26 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 			t.Fatalf("MemorySummaryOf(candidate) error = %v", err)
 		}
 
+		pack := apptypes.ContextPackOf(
+			types.SessionID("session-marker"),
+			types.Workspace("duck8823/traceary"),
+			"",
+			"active",
+			0,
+			0,
+			nil,
+			apptypes.WorkingStateOf("", ""),
+			nil,
+			[]apptypes.MemorySummary{acceptedSummary},
+		).
+			WithMemoryNeedsReview([]apptypes.MemorySummary{candidateSummary}, 1).
+			WithMemoryCounts(1, 1)
+
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
 			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 			cli.WithContext(&contextUsecaseStub{
-				handoff: types.Some(apptypes.ContextPackOf(
-					types.SessionID("session-marker"),
-					types.Workspace("duck8823/traceary"),
-					"",
-					"active",
-					0,
-					0,
-					nil,
-					apptypes.WorkingStateOf("", ""),
-					nil,
-					[]apptypes.MemorySummary{acceptedSummary, candidateSummary},
-				)),
+				handoff: types.Some(pack),
 			}),
 		).Command()
 		rootCmd.SetOut(stdout)
@@ -148,8 +152,11 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 			t.Fatalf("Execute() error = %v", err)
 		}
 		out := stdout.String()
-		if !strings.Contains(out, "[candidate][lesson]") {
-			t.Fatalf("candidate memory should render with [candidate] status prefix:\n%s", out)
+		if !strings.Contains(out, "MEMORY_NEEDS_REVIEW:") {
+			t.Fatalf("candidate memory should render in needs-review section:\n%s", out)
+		}
+		if !strings.Contains(out, "[lesson][workspace:duck8823/traceary] Pending review item from extraction") {
+			t.Fatalf("candidate memory should render without being mixed into trusted memories:\n%s", out)
 		}
 		if strings.Contains(out, "[accepted][decision]") {
 			t.Fatalf("accepted memory must not get a status prefix (existing layout); output:\n%s", out)
@@ -195,6 +202,44 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 		}
 		if got, want := first.StaleAfter(), 24*time.Hour; got != want {
 			t.Fatalf("default StaleAfter = %s, want %s", got, want)
+		}
+	})
+
+	t.Run("--include-candidates opts into review candidate section", func(t *testing.T) {
+		t.Parallel()
+
+		ctxStub := &contextUsecaseStub{
+			handoff: types.Some(apptypes.ContextPackOf(
+				types.SessionID("session-candidates-flag"),
+				types.Workspace("duck8823/traceary"),
+				"",
+				"active",
+				1,
+				0,
+				nil,
+				apptypes.WorkingStateOf("", ""),
+				nil,
+				nil,
+			)),
+		}
+
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithContext(ctxStub),
+		).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"session", "handoff", "--include-candidates", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		if len(ctxStub.handoffCalls) != 1 {
+			t.Fatalf("handoff calls = %d, want 1", len(ctxStub.handoffCalls))
+		}
+		if !ctxStub.handoffCalls[0].IncludeMemoryCandidates() {
+			t.Fatalf("IncludeMemoryCandidates() = false, want true")
 		}
 	})
 
