@@ -213,6 +213,16 @@ func writeHandoffText(output io.Writer, result types.Optional[apptypes.ContextPa
 	if _, err := fmt.Fprintf(output, "WORKSPACE: %s\n", formatOptionalColumn(pack.Workspace().String())); err != nil {
 		return xerrors.Errorf("failed to print handoff workspace: %w", err)
 	}
+	if pack.WorkspaceFallbackUsed() {
+		if _, err := fmt.Fprintf(
+			output,
+			"NOTE: matched through parent workspace %s (requested %s)\n",
+			pack.Workspace().String(),
+			pack.RequestedWorkspace().String(),
+		); err != nil {
+			return xerrors.Errorf("failed to print handoff workspace fallback note: %w", err)
+		}
+	}
 	if _, err := fmt.Fprintf(output, "LABEL: %s\n", formatOptionalColumn(pack.Label())); err != nil {
 		return xerrors.Errorf("failed to print handoff label: %w", err)
 	}

@@ -46,27 +46,20 @@ func (b *contextPackBuilder) Build(ctx context.Context, criteria apptypes.Contex
 		return domtypes.None[apptypes.ContextPack](), xerrors.Errorf("memory limit must be greater than or equal to 0")
 	}
 
-	sessions, err := b.sessionQuery.ListSummaries(
+	resolution, err := queryservice.ResolveSessionWorkspace(
 		ctx,
-		1,
-		0,
-		criteria.SessionID(),
-		criteria.Workspace(),
-		domtypes.Client(""),
-		domtypes.Agent(""),
-		"",
-		false,
-		domtypes.None[time.Time](),
-		domtypes.None[time.Time](),
+		b.sessionQuery,
+		b.eventQuery,
+		queryservice.WorkspaceResolutionCriteriaOf(criteria.SessionID(), criteria.Workspace(), false),
 	)
 	if err != nil {
-		return domtypes.None[apptypes.ContextPack](), xerrors.Errorf("failed to list sessions for context pack: %w", err)
+		return domtypes.None[apptypes.ContextPack](), xerrors.Errorf("failed to resolve session workspace for context pack: %w", err)
 	}
-	if len(sessions) == 0 {
+	if !resolution.MatchedFound() {
 		return domtypes.None[apptypes.ContextPack](), nil
 	}
 
-	session := sessions[0]
+	session := resolution.MatchedSession()
 	if !criteria.AllowStale() && criteria.StaleAfter() > 0 && isStaleActiveSession(session, criteria.StaleAfter(), time.Now()) {
 		return domtypes.None[apptypes.ContextPack](), nil
 	}
@@ -78,7 +71,14 @@ func (b *contextPackBuilder) Build(ctx context.Context, criteria apptypes.Contex
 	if err != nil {
 		compactSummary = ""
 	}
-	memories, err := b.loadMemories(ctx, session, criteria.MemoryLimit(), criteria.MemoryPreset(), criteria.MemoryAsOf())
+	memories, err := b.loadMemories(
+		ctx,
+		session,
+		criteria.Workspace(),
+		criteria.MemoryLimit(),
+		criteria.MemoryPreset(),
+		criteria.MemoryAsOf(),
+	)
 	if err != nil {
 		return domtypes.None[apptypes.ContextPack](), err
 	}
@@ -94,7 +94,7 @@ func (b *contextPackBuilder) Build(ctx context.Context, criteria apptypes.Contex
 		apptypes.WorkingStateOf(session.Summary(), compactSummary),
 		recentCommands,
 		memories,
-	)
+	).WithRequestedWorkspace(criteria.Workspace())
 	return domtypes.Some(pack), nil
 }
 
@@ -169,6 +169,7 @@ func (b *contextPackBuilder) loadCompactSummary(ctx context.Context, session app
 func (b *contextPackBuilder) loadMemories(
 	ctx context.Context,
 	session apptypes.SessionSummary,
+	requestedWorkspace domtypes.Workspace,
 	limit int,
 	preset apptypes.MemoryRetrievalPreset,
 	asOf domtypes.Optional[time.Time],
@@ -177,7 +178,7 @@ func (b *contextPackBuilder) loadMemories(
 		return nil, nil
 	}
 
-	scopes := relevantMemoryScopes(session)
+	scopes := relevantMemoryScopes(session, requestedWorkspace)
 	if len(scopes) == 0 {
 		return nil, nil
 	}
@@ -211,14 +212,14 @@ func (b *contextPackBuilder) loadMemories(
 	return memories, nil
 }
 
-func relevantMemoryScopes(session apptypes.SessionSummary) []domtypes.MemoryScope {
+func relevantMemoryScopes(session apptypes.SessionSummary, requestedWorkspace domtypes.Workspace) []domtypes.MemoryScope {
 	type scopeKey struct {
 		kind string
 		key  string
 	}
 
 	seen := make(map[scopeKey]struct{})
-	scopes := make([]domtypes.MemoryScope, 0, len(session.Agents())+2)
+	scopes := make([]domtypes.MemoryScope, 0, len(session.Agents())+3)
 	appendScope := func(scope domtypes.MemoryScope) {
 		if scope == nil {
 			return
@@ -233,6 +234,13 @@ func relevantMemoryScopes(session apptypes.SessionSummary) []domtypes.MemoryScop
 
 	if session.Workspace().String() != "" {
 		appendScope(domtypes.WorkspaceScopeOf(session.Workspace()))
+	}
+	// When parent fallback selected a session under an ancestor workspace,
+	// also surface memories scoped to the originally requested child
+	// workspace so the canonical resolution covers all three surfaces
+	// (sessions, events, memories) consistently.
+	if requestedWorkspace.String() != "" && requestedWorkspace != session.Workspace() {
+		appendScope(domtypes.WorkspaceScopeOf(requestedWorkspace))
 	}
 	if session.SessionID().String() != "" {
 		appendScope(domtypes.SessionFamilyScopeOf(session.SessionID()))

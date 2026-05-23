@@ -57,17 +57,20 @@ type eventOutput struct {
 
 // sessionHandoffOutput is the MCP output for the session_handoff tool.
 type sessionHandoffOutput struct {
-	SessionID      string                `json:"session_id,omitempty"`
-	Workspace      string                `json:"workspace,omitempty"`
-	Label          string                `json:"label,omitempty"`
-	Status         string                `json:"status,omitempty"`
-	TotalEvents    int                   `json:"total_events"`
-	CommandCount   int                   `json:"command_count"`
-	Agents         []string              `json:"agents,omitempty"`
-	Summary        string                `json:"summary,omitempty" jsonschema:"legacy compatibility mirror of working_state.combined_summary"`
-	WorkingState   workingStateOutput    `json:"working_state"`
-	RecentCommands []string              `json:"recent_commands,omitempty"`
-	Memories       []memorySummaryOutput `json:"memories,omitempty"`
+	SessionID             string                `json:"session_id,omitempty"`
+	Workspace             string                `json:"workspace,omitempty"`
+	RequestedWorkspace    string                `json:"requested_workspace,omitempty" jsonschema:"workspace originally requested by the caller when it differs from the matched session workspace"`
+	WorkspaceFallbackUsed bool                  `json:"workspace_fallback_used,omitempty" jsonschema:"true when Traceary matched a parent workspace session using event evidence under the requested workspace"`
+	WorkspaceMatchNote    string                `json:"workspace_match_note,omitempty" jsonschema:"human-readable explanation of parent-workspace fallback"`
+	Label                 string                `json:"label,omitempty"`
+	Status                string                `json:"status,omitempty"`
+	TotalEvents           int                   `json:"total_events"`
+	CommandCount          int                   `json:"command_count"`
+	Agents                []string              `json:"agents,omitempty"`
+	Summary               string                `json:"summary,omitempty" jsonschema:"legacy compatibility mirror of working_state.combined_summary"`
+	WorkingState          workingStateOutput    `json:"working_state"`
+	RecentCommands        []string              `json:"recent_commands,omitempty"`
+	Memories              []memorySummaryOutput `json:"memories,omitempty"`
 }
 
 // sessionLineageOutput is the MCP output for session_status action=lineage.

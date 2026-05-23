@@ -484,3 +484,279 @@ func TestContextUsecase_Handoff(t *testing.T) {
 		}
 	})
 }
+
+func TestContextUsecase_Handoff_WorkspaceFallback(t *testing.T) {
+	t.Parallel()
+
+	parentWorkspace := domtypes.Workspace("/Users/duck/repos/project")
+	childWorkspace := domtypes.Workspace("/Users/duck/repos/project/sub")
+	siblingWorkspace := domtypes.Workspace("/Users/duck/repos/project/other")
+
+	newParentSession := func() apptypes.SessionSummary {
+		return apptypes.SessionSummaryOf(
+			domtypes.SessionID("session-parent"),
+			parentWorkspace,
+			time.Now().Add(-time.Hour),
+			domtypes.None[time.Time](),
+			"active",
+			5,
+			3,
+			[]string{"claude"},
+			"",
+			"",
+			domtypes.SessionID(""),
+		)
+	}
+
+	newChildEvent := func(t *testing.T, workspace domtypes.Workspace) *model.Event {
+		t.Helper()
+		event, err := model.NewEvent(
+			domtypes.EventID("event-child"),
+			domtypes.EventKindCommandExecuted,
+			domtypes.Client("cli"),
+			domtypes.Agent("claude"),
+			domtypes.SessionID("session-parent"),
+			workspace,
+			"go test ./...",
+		)
+		if err != nil {
+			t.Fatalf("NewEvent() error = %v", err)
+		}
+		return event
+	}
+
+	t.Run("parent session matches when child workspace has event evidence", func(t *testing.T) {
+		t.Parallel()
+
+		parent := newParentSession()
+		evidence := newChildEvent(t, childWorkspace)
+
+		sessionQuery := &sessionQueryServiceStub{
+			listSummariesResultByWorkspace: map[domtypes.Workspace][]apptypes.SessionSummary{
+				parentWorkspace: {parent},
+			},
+		}
+		eventQuery := &eventQueryServiceStub{
+			listRecentResultByEvidence: map[eventEvidenceKey][]*model.Event{
+				{sessionID: domtypes.SessionID("session-parent"), workspace: childWorkspace}: {evidence},
+			},
+			listRecentResultByKind: map[domtypes.EventKind][]*model.Event{
+				domtypes.EventKindCommandExecuted: {evidence},
+			},
+		}
+		sut := usecase.NewContextUsecase(sessionQuery, eventQuery, nil)
+
+		got, err := sut.Handoff(
+			context.Background(),
+			apptypes.NewContextPackCriteriaBuilder().Workspace(childWorkspace).Build(),
+		)
+		if err != nil {
+			t.Fatalf("Handoff() error = %v", err)
+		}
+		pack, ok := got.Value()
+		if !ok {
+			t.Fatalf("Handoff() returned empty pack, want parent-fallback match")
+		}
+		if diff := cmp.Diff(parentWorkspace, pack.Workspace()); diff != "" {
+			t.Errorf("Workspace() mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(childWorkspace, pack.RequestedWorkspace()); diff != "" {
+			t.Errorf("RequestedWorkspace() mismatch (-want +got):\n%s", diff)
+		}
+		if !pack.WorkspaceFallbackUsed() {
+			t.Errorf("WorkspaceFallbackUsed() = false, want true after parent fallback")
+		}
+	})
+
+	t.Run("windows drive parent session matches when child workspace has event evidence", func(t *testing.T) {
+		t.Parallel()
+
+		windowsParentWorkspace := domtypes.Workspace("C:/Users/duck/repos/project")
+		windowsChildWorkspace := domtypes.Workspace("C:/Users/duck/repos/project/sub")
+		windowsSessionID := domtypes.SessionID("session-windows")
+		parent := apptypes.SessionSummaryOf(
+			windowsSessionID,
+			windowsParentWorkspace,
+			time.Now().Add(-time.Hour),
+			domtypes.None[time.Time](),
+			"active",
+			5,
+			3,
+			[]string{"claude"},
+			"",
+			"",
+			domtypes.SessionID(""),
+		)
+		evidence, err := model.NewEvent(
+			domtypes.EventID("event-windows-child"),
+			domtypes.EventKindCommandExecuted,
+			domtypes.Client("cli"),
+			domtypes.Agent("claude"),
+			windowsSessionID,
+			windowsChildWorkspace,
+			"go test ./...",
+		)
+		if err != nil {
+			t.Fatalf("NewEvent() error = %v", err)
+		}
+
+		sessionQuery := &sessionQueryServiceStub{
+			listSummariesResultByWorkspace: map[domtypes.Workspace][]apptypes.SessionSummary{
+				windowsParentWorkspace: {parent},
+			},
+		}
+		eventQuery := &eventQueryServiceStub{
+			listRecentResultByEvidence: map[eventEvidenceKey][]*model.Event{
+				{sessionID: windowsSessionID, workspace: windowsChildWorkspace}: {evidence},
+			},
+		}
+		sut := usecase.NewContextUsecase(sessionQuery, eventQuery, nil)
+
+		got, err := sut.Handoff(
+			context.Background(),
+			apptypes.NewContextPackCriteriaBuilder().Workspace(windowsChildWorkspace).Build(),
+		)
+		if err != nil {
+			t.Fatalf("Handoff() error = %v", err)
+		}
+		pack, ok := got.Value()
+		if !ok {
+			t.Fatalf("Handoff() returned empty pack, want Windows parent-fallback match")
+		}
+		if diff := cmp.Diff(windowsParentWorkspace, pack.Workspace()); diff != "" {
+			t.Errorf("Workspace() mismatch (-want +got):\n%s", diff)
+		}
+		if !pack.WorkspaceFallbackUsed() {
+			t.Errorf("WorkspaceFallbackUsed() = false, want true after Windows parent fallback")
+		}
+	})
+
+	t.Run("exact workspace match wins without fallback", func(t *testing.T) {
+		t.Parallel()
+
+		exactSession := apptypes.SessionSummaryOf(
+			domtypes.SessionID("session-exact"),
+			childWorkspace,
+			time.Now(),
+			domtypes.None[time.Time](),
+			"active",
+			1,
+			0,
+			[]string{"claude"},
+			"",
+			"",
+			domtypes.SessionID(""),
+		)
+		sessionQuery := &sessionQueryServiceStub{
+			listSummariesResultByWorkspace: map[domtypes.Workspace][]apptypes.SessionSummary{
+				childWorkspace:  {exactSession},
+				parentWorkspace: {newParentSession()},
+			},
+		}
+		eventQuery := &eventQueryServiceStub{}
+		sut := usecase.NewContextUsecase(sessionQuery, eventQuery, nil)
+
+		got, err := sut.Handoff(
+			context.Background(),
+			apptypes.NewContextPackCriteriaBuilder().Workspace(childWorkspace).Build(),
+		)
+		if err != nil {
+			t.Fatalf("Handoff() error = %v", err)
+		}
+		pack, ok := got.Value()
+		if !ok {
+			t.Fatalf("Handoff() returned empty pack, want exact match")
+		}
+		if diff := cmp.Diff(domtypes.SessionID("session-exact"), pack.SessionID()); diff != "" {
+			t.Errorf("SessionID() mismatch (-want +got):\n%s", diff)
+		}
+		if pack.WorkspaceFallbackUsed() {
+			t.Errorf("WorkspaceFallbackUsed() = true, want false on exact match")
+		}
+	})
+
+	t.Run("sibling workspace with events does not satisfy fallback", func(t *testing.T) {
+		t.Parallel()
+
+		parent := newParentSession()
+		siblingEvent := newChildEvent(t, siblingWorkspace)
+
+		sessionQuery := &sessionQueryServiceStub{
+			listSummariesResultByWorkspace: map[domtypes.Workspace][]apptypes.SessionSummary{
+				parentWorkspace: {parent},
+			},
+		}
+		// Events exist under the sibling workspace only — the fallback
+		// helper queries ListRecent with the *requested* workspace
+		// (childWorkspace), so this evidence must not be visible there.
+		eventQuery := &eventQueryServiceStub{
+			listRecentResultByEvidence: map[eventEvidenceKey][]*model.Event{
+				{sessionID: domtypes.SessionID("session-parent"), workspace: siblingWorkspace}: {siblingEvent},
+			},
+		}
+		sut := usecase.NewContextUsecase(sessionQuery, eventQuery, nil)
+
+		got, err := sut.Handoff(
+			context.Background(),
+			apptypes.NewContextPackCriteriaBuilder().Workspace(childWorkspace).Build(),
+		)
+		if err != nil {
+			t.Fatalf("Handoff() error = %v", err)
+		}
+		if _, ok := got.Value(); ok {
+			t.Errorf("Handoff() returned a pack, want empty when only sibling has evidence")
+		}
+	})
+
+	t.Run("no matching session under any ancestor returns empty", func(t *testing.T) {
+		t.Parallel()
+
+		sessionQuery := &sessionQueryServiceStub{
+			listSummariesResultByWorkspace: map[domtypes.Workspace][]apptypes.SessionSummary{},
+		}
+		eventQuery := &eventQueryServiceStub{}
+		sut := usecase.NewContextUsecase(sessionQuery, eventQuery, nil)
+
+		got, err := sut.Handoff(
+			context.Background(),
+			apptypes.NewContextPackCriteriaBuilder().Workspace(childWorkspace).Build(),
+		)
+		if err != nil {
+			t.Fatalf("Handoff() error = %v", err)
+		}
+		if _, ok := got.Value(); ok {
+			t.Errorf("Handoff() returned a pack, want empty when no session matches")
+		}
+	})
+
+	t.Run("git remote URL workspace skips fallback walk", func(t *testing.T) {
+		t.Parallel()
+
+		// Sessions exist neither at the requested URL workspace nor at
+		// any URL "ancestor". The helper must not walk url path segments
+		// for non-filesystem workspaces, so the result stays empty.
+		remoteWorkspace := domtypes.Workspace("github.com/duck/traceary/sub")
+		sessionQuery := &sessionQueryServiceStub{
+			listSummariesResultByWorkspace: map[domtypes.Workspace][]apptypes.SessionSummary{
+				domtypes.Workspace("github.com/duck/traceary"): {newParentSession()},
+			},
+		}
+		eventQuery := &eventQueryServiceStub{}
+		sut := usecase.NewContextUsecase(sessionQuery, eventQuery, nil)
+
+		got, err := sut.Handoff(
+			context.Background(),
+			apptypes.NewContextPackCriteriaBuilder().Workspace(remoteWorkspace).Build(),
+		)
+		if err != nil {
+			t.Fatalf("Handoff() error = %v", err)
+		}
+		if _, ok := got.Value(); ok {
+			t.Errorf("Handoff() returned a pack, want empty for URL workspace fallback skip")
+		}
+		// Only the exact workspace should have been queried; no walk.
+		if got := len(sessionQuery.listSummariesWorkspaceCalls); got != 1 {
+			t.Errorf("ListSummaries calls = %d, want 1 (no ancestor walk for URL workspace)", got)
+		}
+	})
+}

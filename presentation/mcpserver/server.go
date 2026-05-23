@@ -1243,7 +1243,7 @@ func buildContextPackCriteria(sessionID string, workspace string, recentCommands
 }
 
 func newContextPackOutput(pack apptypes.ContextPack) sessionHandoffOutput {
-	return sessionHandoffOutput{
+	out := sessionHandoffOutput{
 		SessionID:      pack.SessionID().String(),
 		Workspace:      pack.Workspace().String(),
 		Label:          pack.Label(),
@@ -1256,6 +1256,13 @@ func newContextPackOutput(pack apptypes.ContextPack) sessionHandoffOutput {
 		RecentCommands: pack.RecentCommands(),
 		Memories:       convertMemorySummaries(pack.Memories()),
 	}
+	if pack.WorkspaceFallbackUsed() {
+		out.RequestedWorkspace = pack.RequestedWorkspace().String()
+		out.WorkspaceFallbackUsed = true
+		out.WorkspaceMatchNote = "matched through parent workspace " + pack.Workspace().String() +
+			" (requested " + pack.RequestedWorkspace().String() + ")"
+	}
+	return out
 }
 
 func newWorkingStateOutput(state apptypes.WorkingState) workingStateOutput {

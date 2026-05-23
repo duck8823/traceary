@@ -23,19 +23,21 @@ type sessionQueryServiceStub struct {
 	findLatestWS     types.Workspace
 	findLatestActive bool
 
-	listSummariesResult []apptypes.SessionSummary
-	listSummariesErr    error
-	listSummariesCalls  int
-	listLimit           int
-	listOffset          int
-	listSessionID       types.SessionID
-	listWorkspace       types.Workspace
-	listClient          types.Client
-	listAgent           types.Agent
-	listLabel           string
-	listActiveOnly      bool
-	listFrom            types.Optional[time.Time]
-	listTo              types.Optional[time.Time]
+	listSummariesResult            []apptypes.SessionSummary
+	listSummariesResultByWorkspace map[types.Workspace][]apptypes.SessionSummary
+	listSummariesErr               error
+	listSummariesCalls             int
+	listSummariesWorkspaceCalls    []types.Workspace
+	listLimit                      int
+	listOffset                     int
+	listSessionID                  types.SessionID
+	listWorkspace                  types.Workspace
+	listClient                     types.Client
+	listAgent                      types.Agent
+	listLabel                      string
+	listActiveOnly                 bool
+	listFrom                       types.Optional[time.Time]
+	listTo                         types.Optional[time.Time]
 
 	lineageResult    []apptypes.SessionSummary
 	lineageErr       error
@@ -83,8 +85,15 @@ func (s *sessionQueryServiceStub) ListSummaries(
 	s.listActiveOnly = activeOnly
 	s.listFrom = from
 	s.listTo = to
+	s.listSummariesWorkspaceCalls = append(s.listSummariesWorkspaceCalls, workspace)
 	if s.listSummariesErr != nil {
 		return nil, s.listSummariesErr
+	}
+	if s.listSummariesResultByWorkspace != nil {
+		if result, ok := s.listSummariesResultByWorkspace[workspace]; ok {
+			return result, nil
+		}
+		return nil, nil
 	}
 	return s.listSummariesResult, nil
 }
@@ -122,16 +131,26 @@ func (s *sessionQueryServiceStub) LineageOf(_ context.Context, sessionID types.S
 }
 
 type eventQueryServiceStub struct {
-	listRecentResult          []*model.Event
-	listRecentResultByKind    map[types.EventKind][]*model.Event
-	listRecentErr             error
-	listRecentErrByKind       map[types.EventKind]error
-	listRecentCalls           int
-	listRecentCallsByKind     map[types.EventKind]int
-	listRecentLimit           int
-	listRecentLimitByKind     map[types.EventKind]int
-	listRecentWorkspace       types.Workspace
-	listRecentWorkspaceByKind map[types.EventKind]types.Workspace
+	listRecentResult           []*model.Event
+	listRecentResultByKind     map[types.EventKind][]*model.Event
+	listRecentResultByEvidence map[eventEvidenceKey][]*model.Event
+	listRecentErr              error
+	listRecentErrByKind        map[types.EventKind]error
+	listRecentCalls            int
+	listRecentCallsByKind      map[types.EventKind]int
+	listRecentLimit            int
+	listRecentLimitByKind      map[types.EventKind]int
+	listRecentWorkspace        types.Workspace
+	listRecentWorkspaceByKind  map[types.EventKind]types.Workspace
+}
+
+// eventEvidenceKey lets tests stub ListRecent results that depend on the
+// combination of session ID and workspace passed by the workspace fallback
+// helper. It is intentionally distinct from listRecentResultByKind so the
+// existing kind-based tests keep working unchanged.
+type eventEvidenceKey struct {
+	sessionID types.SessionID
+	workspace types.Workspace
 }
 
 func (s *eventQueryServiceStub) ListRecent(
@@ -140,7 +159,7 @@ func (s *eventQueryServiceStub) ListRecent(
 	kind types.EventKind,
 	_ types.Client,
 	_ types.Agent,
-	_ types.SessionID,
+	sessionID types.SessionID,
 	workspace types.Workspace,
 	_ bool,
 	_, _ time.Time,
@@ -167,6 +186,11 @@ func (s *eventQueryServiceStub) ListRecent(
 	}
 	if s.listRecentErr != nil {
 		return nil, s.listRecentErr
+	}
+	if s.listRecentResultByEvidence != nil {
+		if result, ok := s.listRecentResultByEvidence[eventEvidenceKey{sessionID: sessionID, workspace: workspace}]; ok {
+			return result, nil
+		}
 	}
 	if result, ok := s.listRecentResultByKind[kind]; ok {
 		return result, nil
