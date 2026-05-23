@@ -5,6 +5,14 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.17.1] - 2026-05-23
+
+### Fixed
+- **release-bot Homebrew autolabel の hardening (#1021)** — PR 側の `autolabel` job は、release workflow が生成する Homebrew formula branch (`maintenance/homebrew-v*`) では skip するようになりました。これらの PR は release note 分類の入力ではないため、その理由を workflow comment に明記しています。通常の human / Dependabot / feature branch 向け autolabel は `issues: write` permission を明示して継続し、CI で release-drafter workflow guard も検証します。
+
+### Notes
+- v0.17.1 は release automation のみを対象にした patch release です。CLI 挙動変更、SQLite schema migration、新規 MCP tool はありません。
+
 ## [v0.17.0] - 2026-05-23
 
 ### Added

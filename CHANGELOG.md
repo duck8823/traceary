@@ -5,6 +5,14 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.17.1] - 2026-05-23
+
+### Fixed
+- **Release-bot Homebrew autolabel hardening (#1021)** — the PR-side `autolabel` job now skips release-generated Homebrew formula branches (`maintenance/homebrew-v*`) and documents why those PRs are not release-note classification inputs. The normal autolabel path keeps running for human, Dependabot, and feature branches with explicit `issues: write` permission, and CI now verifies the release-drafter workflow guard.
+
+### Notes
+- v0.17.1 is a patch release for release automation only. It has no CLI behavior changes, no SQLite schema migration, and no new MCP tools.
+
 ## [v0.17.0] - 2026-05-23
 
 ### Added
