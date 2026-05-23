@@ -15,7 +15,7 @@ This document is the design baseline for issue #1030 and the v0.18 cockpit usabi
 3. **Actions are discoverable before they are memorized.** Single-key shortcuts remain, but the UI must expose a contextual action list and `?` help for the current screen.
 4. **Home is a triage board.** The home screen should prioritize what needs attention, not only print counts.
 5. **Keep CLI escape hatches.** Direct subcommands remain stable for scripts, dedicated terminal panes, and power users.
-6. **No destructive magic.** Any action that changes data, such as memory acceptance/rejection or session GC, must be explicit and reversible where possible.
+6. **No destructive magic.** Any action that changes data, such as `memory inbox accept` / `memory inbox reject` decisions or session GC, must be explicit and reversible where possible.
 
 ## Reference patterns
 

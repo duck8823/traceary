@@ -15,7 +15,7 @@
 3. **shortcut は覚える前に見つけられる。** single-key shortcut は残すが、contextual action list と現在画面向けの `?` help を必ず用意する。
 4. **Home は triage board。** count を並べるだけではなく、今 attention が必要なものを優先する。
 5. **CLI escape hatch は残す。** direct subcommand は script、専用 terminal pane、power user のために安定させる。
-6. **破壊的な魔法はしない。** memory accept/reject や session GC のようなデータ変更は明示的にし、可能な限り確認・取り消し可能性を持たせる。
+6. **破壊的な魔法はしない。** `memory inbox accept` / `memory inbox reject` や session GC のようなデータ変更は明示的にし、可能な限り確認・取り消し可能性を持たせる。
 
 ## 参考にするパターン
 
