@@ -39,6 +39,7 @@ Traceary reads an optional JSON configuration file from `~/.config/traceary/conf
 
 | Key | Type | Purpose |
 | --- | --- | --- |
+| `ui.language` | string | Default operator-facing CLI/TUI language when `TRACEARY_LANG` is not set. Supported values: `en`, `ja`. `TRACEARY_LANG` remains the process-local override. |
 | `redact.extra_patterns` | string array | Backward-compatible extra regex patterns for audit and transcript redaction. Each entry is compiled as a Go `regexp` pattern and matched content is replaced with `[REDACTED]`. Applied after the built-in redaction rules in both the CLI (`traceary audit`, `traceary log --kind transcript`, Claude Stop-hook transcript capture) and MCP server (`record_event(type="audit")`, `record_event(type="log")` with `kind=transcript`). |
 | `redact.rules` | object array | Structured redaction rules applied alongside `extra_patterns`. Rules may be named, scoped to targets (`audit.input`, `audit.output`, `log.message`), and may set a custom `replacement`. Supported types: `regex` (`pattern`), `field` (`fields` or dotted JSON `paths`), `url` (`query_params` plus built-in URL credential masking), and `context` (`fields` + secret-shaped values such as JWT / long hex / long base64, with optional `min_length`). Built-in redaction remains a safety floor and cannot be disabled. |
 | `read.fields` | string array | Default compact column order for `traceary tail` / `list` / `search` text output when `--fields` is omitted. Accepted field names: `ts`, `kind`, `session`, `ws`, `client`, `agent`, `message`, `exit_code`, `id`. Unknown / empty / duplicate entries are rejected at command runtime; the `--fields` flag always overrides this setting. Does not affect `--wide` or `--json` output. |
@@ -49,6 +50,9 @@ Example:
 
 ```json
 {
+  "ui": {
+    "language": "en"
+  },
   "redact": {
     "extra_patterns": ["my_custom_secret", "internal_auth_header:\\s*\\S+"]
   },

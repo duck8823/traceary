@@ -39,6 +39,7 @@ Traceary はオプションの JSON 設定ファイルを `~/.config/traceary/co
 
 | キー | 型 | 用途 |
 | --- | --- | --- |
+| `ui.language` | string | `TRACEARY_LANG` が未設定のときに使う operator 向け CLI/TUI language。利用可能な値: `en`, `ja`。`TRACEARY_LANG` は引き続き process-local override として優先されます。 |
 | `redact.extra_patterns` | 文字列配列 | 後方互換の追加正規表現パターン。各エントリは Go の `regexp` パターンとしてコンパイルされ、マッチした内容が `[REDACTED]` に置換されます。CLI（`traceary audit`、`traceary log --kind transcript`、Claude Stop-hook の transcript capture）と MCP サーバー（`record_event(type="audit")`、`kind=transcript` を指定した `record_event(type="log")`）の両方で、組み込みルールの後に適用されます。 |
 | `redact.rules` | object 配列 | `extra_patterns` と併用できる構造化 redaction rule。rule には `name`、target scope（`audit.input`, `audit.output`, `log.message`）、独自 `replacement` を設定できます。対応 type は `regex`（`pattern`）、`field`（`fields` または dotted JSON `paths`）、`url`（`query_params` と URL credential masking）、`context`（`fields` + JWT / 長い hex / 長い base64 などの secret 形状、任意の `min_length`）です。組み込み redaction は安全床として常に残り、無効化できません。 |
 | `read.fields` | 文字列配列 | `traceary tail` / `list` / `search` のテキスト出力で `--fields` が指定されなかった場合に使用されるコンパクトカラムのデフォルト順。利用可能なフィールド名: `ts`, `kind`, `session`, `ws`, `client`, `agent`, `message`, `exit_code`, `id`。未知・空・重複エントリはコマンド実行時に拒否されます。`--fields` フラグが指定された場合は常にこの設定を上書きします。`--wide` や `--json` 出力には影響しません。 |
@@ -49,6 +50,9 @@ Traceary はオプションの JSON 設定ファイルを `~/.config/traceary/co
 
 ```json
 {
+  "ui": {
+    "language": "en"
+  },
   "redact": {
     "extra_patterns": ["my_custom_secret", "internal_auth_header:\\s*\\S+"]
   },

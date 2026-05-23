@@ -1,5 +1,5 @@
 Traceary cockpit · home
-sections: [1 Home]  2 Live  3 Doctor  4 Memory  5 Sessions
+sections: [1 Home]  2 Live  3 Doctor  4 Memory  5 Sessions  6 Settings
 
 loaded=2026-05-07T12:00:00Z db=/tmp/traceary.db
 
@@ -46,4 +46,4 @@ NEXT ACTIONS
 • 3 Doctor: check health and remediation commands
 • 5 Sessions: session list and handoff entry points
 
-1-5 sections · tab/shift+tab next/prev · q/ctrl+c quit · ? help
+1-6 sections · tab/shift+tab next/prev · q/ctrl+c quit · ? help
