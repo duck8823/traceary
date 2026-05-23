@@ -3,16 +3,26 @@ package cli
 import "time"
 
 // event is the JSON shape of an event in CLI output.
+//
+// Truncated / MessageLength / MessageBytes are additive metadata
+// introduced for the shared recent-command truncation policy. They are
+// populated only when the snapshot renderer cut the message, so legacy
+// consumers that destructure `message` continue to work and explicit
+// detail lookups (`traceary show`) that bypass truncation never emit
+// these keys.
 type event struct {
-	EventID    string `json:"event_id"`
-	Kind       string `json:"kind"`
-	Client     string `json:"client"`
-	Agent      string `json:"agent"`
-	SessionID  string `json:"session_id"`
-	Workspace  string `json:"workspace"`
-	Message    string `json:"message"`
-	SourceHook string `json:"source_hook,omitempty"`
-	CreatedAt  string `json:"created_at"`
+	EventID       string `json:"event_id"`
+	Kind          string `json:"kind"`
+	Client        string `json:"client"`
+	Agent         string `json:"agent"`
+	SessionID     string `json:"session_id"`
+	Workspace     string `json:"workspace"`
+	Message       string `json:"message"`
+	SourceHook    string `json:"source_hook,omitempty"`
+	CreatedAt     string `json:"created_at"`
+	Truncated     bool   `json:"truncated,omitempty"`
+	MessageLength int    `json:"message_length,omitempty"`
+	MessageBytes  int    `json:"message_bytes,omitempty"`
 }
 
 // commandAudit is the JSON shape of a command audit in CLI output.

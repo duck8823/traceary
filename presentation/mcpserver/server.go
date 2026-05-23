@@ -1710,7 +1710,10 @@ func parseFlexibleTimeOptional(value string) (types.Optional[time.Time], error) 
 // responses by default (in runes) so a single multi-hundred-line
 // command_executed payload does not dominate the listing. Callers that
 // need the full body pass body_limit=0 or full_body=true. See #799.
-const defaultListEventBodyLimit = 500
+// The value is sourced from the shared truncation policy in
+// application/types so MCP list surfaces and CLI snapshot renderers
+// stay aligned on the same recent-command budget.
+const defaultListEventBodyLimit = apptypes.DefaultListEventBodyLimit
 
 // convertEventsWithBodyLimit serializes events for MCP list_events with
 // body_blocks included (the canonical envelope form, thinking blocks
@@ -1738,16 +1741,14 @@ func convertEventsWithoutBlocksWithBodyLimit(events []*model.Event, bodyLimit in
 func convertEventsInternal(events []*model.Event, includeBlocks bool, bodyLimit int) []eventOutput {
 	outputs := make([]eventOutput, 0, len(events))
 	for _, event := range events {
-		body := apptypes.ExtractPlainBody(event.Body())
-		truncated := false
+		plain := apptypes.ExtractPlainBody(event.Body())
+		result := apptypes.TruncateCommandPayload(plain, bodyLimit)
+		// BodyLength is only meaningful when the row was actually
+		// truncated; emit zero otherwise so the omitempty contract
+		// documented on eventOutput.BodyLength stays correct.
 		fullLen := 0
-		if bodyLimit > 0 {
-			runes := []rune(body)
-			if len(runes) > bodyLimit {
-				truncated = true
-				fullLen = len(runes)
-				body = string(runes[:bodyLimit]) + "…"
-			}
+		if result.Truncated {
+			fullLen = result.OriginalRuneCount
 		}
 		// body_blocks duplicates the canonical envelope inline. When
 		// the plain-text body is truncated, returning the full
@@ -1756,7 +1757,7 @@ func convertEventsInternal(events []*model.Event, includeBlocks bool, bodyLimit 
 		// who need the canonical structure pass full_body=true.
 		// See #799.
 		var blocks []apptypes.EventBodyBlock
-		if includeBlocks && !truncated {
+		if includeBlocks && !result.Truncated {
 			blocks, _ = apptypes.DecodeCanonicalEnvelope(event.Body())
 		}
 		outputs = append(outputs, eventOutput{
@@ -1766,9 +1767,9 @@ func convertEventsInternal(events []*model.Event, includeBlocks bool, bodyLimit 
 			Agent:         event.Agent().String(),
 			SessionID:     event.SessionID().String(),
 			Workspace:     event.Workspace().String(),
-			Body:          body,
+			Body:          result.Body,
 			BodyBlocks:    blocks,
-			BodyTruncated: truncated,
+			BodyTruncated: result.Truncated,
 			BodyLength:    fullLen,
 			SourceHook:    event.SourceHook(),
 			CreatedAt:     event.CreatedAt().UTC().Format(time.RFC3339Nano),

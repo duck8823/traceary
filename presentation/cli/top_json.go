@@ -3,6 +3,8 @@ package cli
 import (
 	"io"
 	"time"
+
+	apptypes "github.com/duck8823/traceary/application/types"
 )
 
 // writeTopSnapshotJSON renders the top dashboard snapshot as the
@@ -24,14 +26,20 @@ func writeTopSnapshotJSON(output io.Writer, snap topDataSnapshot) error {
 		sessions = append(sessions, topSnapshotNodeFromSessionNode(root, 0, staleCtx))
 	}
 
+	// Recent failure / command panes feed the script-friendly snapshot,
+	// so apply the shared list-surface body cap. A multi-hundred-line
+	// command_executed payload would otherwise dominate the output and
+	// waste host-agent context window. Full content stays available
+	// through `traceary show <event_id>`, which intentionally bypasses
+	// this limit.
 	failures := make([]event, 0, len(snap.Failures))
 	for _, ev := range snap.Failures {
-		failures = append(failures, newEventOutput(ev))
+		failures = append(failures, newTruncatedEventOutput(ev, apptypes.DefaultTopSnapshotBodyLimit))
 	}
 
 	commands := make([]event, 0, len(snap.RecentCommands))
 	for _, ev := range snap.RecentCommands {
-		commands = append(commands, newEventOutput(ev))
+		commands = append(commands, newTruncatedEventOutput(ev, apptypes.DefaultTopSnapshotBodyLimit))
 	}
 
 	candidateItems := make([]memorySummaryOutput, 0, len(snap.Candidates))

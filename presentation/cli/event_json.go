@@ -53,6 +53,28 @@ func newEventOutput(e *model.Event) event {
 	}
 }
 
+// newTruncatedEventOutput is the snapshot-friendly variant of
+// newEventOutput. It applies the shared recent-command truncation
+// policy so operator-facing list surfaces (top --snapshot --json,
+// candidate failure / recent-command panes) do not balloon a single
+// multi-hundred-line command_executed payload across the script's
+// output. A non-positive limit disables truncation while still
+// populating size metadata only when a cut actually happened — so the
+// JSON shape stays additive for callers that ignore the new fields.
+// Explicit detail surfaces (`traceary show`) intentionally route
+// through newEventOutput so the full body remains retrievable.
+func newTruncatedEventOutput(e *model.Event, limit int) event {
+	base := newEventOutput(e)
+	result := apptypes.TruncateCommandPayload(base.Message, limit)
+	base.Message = result.Body
+	if result.Truncated {
+		base.Truncated = true
+		base.MessageLength = result.OriginalRuneCount
+		base.MessageBytes = result.OriginalByteCount
+	}
+	return base
+}
+
 func newCommandAuditOutput(audit *model.CommandAudit) *commandAudit {
 	if audit == nil {
 		return nil

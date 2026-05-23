@@ -279,10 +279,12 @@ func summarizeCommand(command string) string {
 	if trimmed == "" {
 		return "-"
 	}
-	if runes := []rune(trimmed); len(runes) > 60 {
-		return string(runes[:60]) + "\u2026"
-	}
-	return trimmed
+	// The handoff RECENT_COMMANDS list renders one row per command, so
+	// the shared single-line cap (DefaultHandoffRecentCommandLimit) is
+	// applied here. The truncation policy lives in application/types so
+	// list, snapshot, and handoff surfaces share the same ellipsis glyph
+	// and rune-counting semantics.
+	return apptypes.TruncateCommandPayload(trimmed, apptypes.DefaultHandoffRecentCommandLimit).Body
 }
 
 func extractCompactSummarySignal(body string) string {
