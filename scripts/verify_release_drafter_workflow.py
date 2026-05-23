@@ -19,7 +19,10 @@ def require(condition: bool, message: str) -> None:
 def autolabel_should_run(head_ref: str) -> bool:
     """Mirror the release-drafter autolabel job guard for branch fixtures."""
 
-    return not head_ref.startswith('maintenance/homebrew-v')
+    return not (
+        head_ref.startswith('maintenance/homebrew-v')
+        or head_ref.startswith('maintenance/release-v')
+    )
 
 
 def main() -> None:
@@ -29,8 +32,12 @@ def main() -> None:
         'release-drafter autolabel must skip release-bot Homebrew formula PRs',
     )
     require(
+        "!startsWith(github.head_ref, 'maintenance/release-v')" in workflow,
+        'release-drafter autolabel must skip release-preparation PRs',
+    )
+    require(
         'short-lived GitHub App token' in workflow
-        and 'not\n    # inputs to release-note classification' in workflow,
+        and 'input to release-note classification' in workflow,
         'release-drafter autolabel skip rationale must be documented in workflow comments',
     )
     require(
@@ -41,6 +48,8 @@ def main() -> None:
     branch_expectations = {
         'maintenance/homebrew-v0.17.0': False,
         'maintenance/homebrew-v1.2.3': False,
+        'maintenance/release-v0.17.1': False,
+        'maintenance/release-v1.2.3': False,
         'maintenance/v0.17-10-release-autolabel': True,
         'feature/cockpit-follow-up': True,
         'fix/release-drafter': True,
