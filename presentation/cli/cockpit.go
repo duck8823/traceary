@@ -87,6 +87,12 @@ type cockpitHomeSnapshot struct {
 	StaleActiveSessionCount int
 	AcceptedMemoryCount     int
 	CandidateMemoryCount    int
+	NewCandidateMemoryCount int
+	NewCandidateMemoryKnown bool
+	RememberIntentCount     int
+	LowQualityMemoryCount   int
+	MemoryScanLimited       bool
+	MemoryLastSeenAt        time.Time
 	StaleMemoryCount        int
 	RecentFailureCount      int
 	RecentCommandCount      int
@@ -122,7 +128,14 @@ func (c *RootCLI) loadCockpitHome(ctx context.Context, opts cockpitCommandOption
 		}
 	}
 
-	snap, err := c.newTopDataLoader().loadSnapshot(ctx, topDataCriteria{
+	memoryLastSeenAt, memoryLastSeenKnown, err := c.loadCockpitMemoryLastSeenAt(ctx)
+	if err != nil {
+		home.NewCandidateMemoryKnown = false
+	} else if memoryLastSeenKnown {
+		home.MemoryLastSeenAt = memoryLastSeenAt
+		home.NewCandidateMemoryKnown = true
+	}
+	criteria := topDataCriteria{
 		SessionLimit:       defaultTopLimit,
 		FailureLimit:       topPaneFailureLimit,
 		RecentCommandLimit: topPaneRecentCommandLimit,
@@ -130,19 +143,46 @@ func (c *RootCLI) loadCockpitHome(ctx context.Context, opts cockpitCommandOption
 		StaleMemoryLimit:   topPaneStaleMemoryLimit,
 		StaleAfter:         defaultActiveSessionStaleAfter,
 		Now:                loadedAt,
-	})
+	}
+	if home.NewCandidateMemoryKnown {
+		criteria.MemoryLastSeenAt = domtypes.Some(home.MemoryLastSeenAt)
+	}
+	snap, err := c.newTopDataLoader().loadSnapshot(ctx, criteria)
 	if err != nil {
 		return cockpitHomeSnapshot{}, err
 	}
 	home.StaleActiveSessionCount = snap.Reliability.StaleActiveSessionCount
 	home.AcceptedMemoryCount = snap.Reliability.AcceptedMemoryCount
 	home.CandidateMemoryCount = snap.Reliability.CandidateMemoryCount
+	home.NewCandidateMemoryCount = snap.Reliability.NewCandidateCount
+	home.NewCandidateMemoryKnown = snap.Reliability.NewCandidateKnown
+	home.RememberIntentCount = snap.Reliability.RememberIntentCount
+	home.LowQualityMemoryCount = snap.Reliability.LowQualityCount
+	home.MemoryScanLimited = snap.Reliability.MemoryScanLimited
 	home.StaleMemoryCount = snap.StaleMemories.Count()
 	home.RecentFailureCount = len(snap.Failures)
 	home.RecentCommandCount = len(snap.RecentCommands)
 	home.LargePayloadCount = snap.Reliability.LargePayloads.Count
 
 	return home, nil
+}
+
+// CockpitStateReader provides optional local cockpit state. Missing or failing
+// state must not block read-only cockpit views; callers should treat it as a
+// notification enhancement rather than critical data.
+type CockpitStateReader interface {
+	MemoryLastSeenAt(ctx context.Context) (time.Time, bool, error)
+}
+
+func (c *RootCLI) loadCockpitMemoryLastSeenAt(ctx context.Context) (time.Time, bool, error) {
+	if c.cockpitState == nil {
+		return time.Time{}, false, nil
+	}
+	lastSeenAt, ok, err := c.cockpitState.MemoryLastSeenAt(ctx)
+	if err != nil {
+		return time.Time{}, false, xerrors.Errorf("%s: %w", Localize("failed to load cockpit memory last-seen state", "cockpit memory last-seen state の読み込みに失敗しました"), err)
+	}
+	return lastSeenAt, ok, nil
 }
 
 func (c *RootCLI) loadCockpitDoctorReport(ctx context.Context, opts cockpitCommandOptions) (*doctorReport, error) {
@@ -250,6 +290,15 @@ func (s cockpitHomeSnapshot) warnings() []cockpitWarning {
 	}
 	if s.HookWarnCount > 0 {
 		warnings = append(warnings, cockpitWarning{severity: "WARN", label: fmt.Sprintf("hook/MCP warnings=%d", s.HookWarnCount), hint: "run `traceary doctor --json` and inspect Hooks/MCP sections"})
+	}
+	if s.NewCandidateMemoryKnown && s.NewCandidateMemoryCount > 0 {
+		warnings = append(warnings, cockpitWarning{severity: "WARN", label: fmt.Sprintf("new candidate memories=%d", s.NewCandidateMemoryCount), hint: "press memory review when available or run `traceary memory inbox review`"})
+	}
+	if s.RememberIntentCount > 0 {
+		warnings = append(warnings, cockpitWarning{severity: "WARN", label: fmt.Sprintf("remember-intent candidates=%d", s.RememberIntentCount), hint: "prioritize with `traceary memory inbox review --remember-intent`"})
+	}
+	if s.LowQualityMemoryCount > 0 {
+		warnings = append(warnings, cockpitWarning{severity: "WARN", label: fmt.Sprintf("low-quality candidates=%d", s.LowQualityMemoryCount), hint: "inspect with `traceary memory inbox cleanup --include-hidden`"})
 	}
 	if s.CandidateMemoryCount > 0 {
 		warnings = append(warnings, cockpitWarning{severity: "WARN", label: fmt.Sprintf("candidate memories=%d", s.CandidateMemoryCount), hint: "review with `traceary memory inbox review`"})
@@ -556,6 +605,10 @@ func (m cockpitModel) View() string {
 }
 
 func (m cockpitModel) homeView() string {
+	memoryScanSuffix := ""
+	if m.home.MemoryScanLimited {
+		memoryScanSuffix = " scan_limited=true"
+	}
 	lines := []string{
 		m.styles.Title.Render("Traceary cockpit"),
 		"",
@@ -581,7 +634,7 @@ func (m cockpitModel) homeView() string {
 		fmt.Sprintf("• doctor: pass=%d warn=%d fail=%d", m.home.DoctorPassCount, m.home.DoctorWarnCount, m.home.DoctorFailCount),
 		fmt.Sprintf("• hooks/mcp: warn=%d fail=%d", m.home.HookWarnCount, m.home.HookFailCount),
 		fmt.Sprintf("• sessions: stale_active=%d recent_failures=%d recent_commands=%d", m.home.StaleActiveSessionCount, m.home.RecentFailureCount, m.home.RecentCommandCount),
-		fmt.Sprintf("• memories: accepted=%d candidate=%d stale=%d", m.home.AcceptedMemoryCount, m.home.CandidateMemoryCount, m.home.StaleMemoryCount),
+		fmt.Sprintf("• memories: accepted(reviewed)=%d candidate(inbox)=%d new=%s remember-intent=%d low-quality=%d stale=%d%s", m.home.AcceptedMemoryCount, m.home.CandidateMemoryCount, formatCockpitNewCandidateCount(m.home), m.home.RememberIntentCount, m.home.LowQualityMemoryCount, m.home.StaleMemoryCount, memoryScanSuffix),
 		fmt.Sprintf("• payloads: large=%d", m.home.LargePayloadCount),
 		"",
 		m.styles.Subtle.Render("Planned cockpit surfaces:"),
@@ -604,6 +657,13 @@ func (m cockpitModel) homeView() string {
 		)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func formatCockpitNewCandidateCount(home cockpitHomeSnapshot) string {
+	if !home.NewCandidateMemoryKnown {
+		return "untracked"
+	}
+	return fmt.Sprintf("%d", home.NewCandidateMemoryCount)
 }
 
 func (m cockpitModel) liveView() string {

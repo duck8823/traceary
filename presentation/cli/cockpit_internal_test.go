@@ -75,6 +75,9 @@ func TestLoadCockpitHome_AggregatesTopSignalsWithoutTTY(t *testing.T) {
 	if got, want := home.CandidateMemoryCount, 1; got != want {
 		t.Fatalf("CandidateMemoryCount = %d, want %d", got, want)
 	}
+	if home.NewCandidateMemoryKnown {
+		t.Fatalf("NewCandidateMemoryKnown = true, want false when cockpit state is not configured")
+	}
 	if got, want := home.StaleMemoryCount, 2; got != want {
 		t.Fatalf("StaleMemoryCount = %d, want %d", got, want)
 	}
@@ -86,6 +89,122 @@ func TestLoadCockpitHome_AggregatesTopSignalsWithoutTTY(t *testing.T) {
 	}
 	if got, want := home.LargePayloadCount, 1; got != want {
 		t.Fatalf("LargePayloadCount = %d, want %d", got, want)
+	}
+}
+
+func TestLoadCockpitHome_MemoryNotificationsUseLastSeenWhenAvailable(t *testing.T) {
+	now := fixedStartedAt.Add(72 * time.Hour)
+	previousTopNow := topNowFunc
+	topNowFunc = func() time.Time { return now }
+	t.Cleanup(func() { topNowFunc = previousTopNow })
+
+	lastSeenAt := now.Add(-2 * time.Hour)
+	accepted := memorySummaryWithSourceAndUpdatedAt(t, "mem-accepted", domtypes.MemoryStatusAccepted, domtypes.MemorySourceManual, now.Add(-30*time.Minute))
+	oldCandidate := memorySummaryWithSourceAndUpdatedAt(t, "mem-old", domtypes.MemoryStatusCandidate, domtypes.MemorySourceExtracted, now.Add(-3*time.Hour))
+	newRemember := memorySummaryWithSourceAndUpdatedAt(t, "mem-remember", domtypes.MemoryStatusCandidate, domtypes.MemorySourceRememberIntent, now.Add(-90*time.Minute))
+	newLowQuality := memorySummaryWithSourceAndUpdatedAt(t, "mem-low", domtypes.MemoryStatusCandidate, domtypes.MemorySourceExtractedHidden, now.Add(-15*time.Minute))
+	candidates := []apptypes.MemorySummary{oldCandidate, newRemember, newLowQuality}
+	memory := &topDataMemoryStub{
+		listFunc: func(criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
+			statuses := criteria.Statuses()
+			if len(statuses) == 1 && statuses[0] == domtypes.MemoryStatusCandidate {
+				return candidates, nil
+			}
+			return []apptypes.MemorySummary{accepted, oldCandidate, newRemember, newLowQuality}, nil
+		},
+	}
+	root := &RootCLI{
+		memory:       memory,
+		cockpitState: cockpitStateReaderStub{at: lastSeenAt, ok: true},
+	}
+
+	home, err := root.loadCockpitHome(context.Background(), cockpitCommandOptions{dbPath: filepath.Join(t.TempDir(), "traceary.db")})
+	if err != nil {
+		t.Fatalf("loadCockpitHome() error = %v", err)
+	}
+
+	if !home.NewCandidateMemoryKnown {
+		t.Fatalf("NewCandidateMemoryKnown = false, want true")
+	}
+	if got, want := home.MemoryLastSeenAt, lastSeenAt; !got.Equal(want) {
+		t.Fatalf("MemoryLastSeenAt = %v, want %v", got, want)
+	}
+	if got, want := home.AcceptedMemoryCount, 1; got != want {
+		t.Fatalf("AcceptedMemoryCount = %d, want %d", got, want)
+	}
+	if got, want := home.CandidateMemoryCount, 3; got != want {
+		t.Fatalf("CandidateMemoryCount = %d, want %d", got, want)
+	}
+	if got, want := home.NewCandidateMemoryCount, 2; got != want {
+		t.Fatalf("NewCandidateMemoryCount = %d, want %d", got, want)
+	}
+	if got, want := home.RememberIntentCount, 1; got != want {
+		t.Fatalf("RememberIntentCount = %d, want %d", got, want)
+	}
+	if got, want := home.LowQualityMemoryCount, 1; got != want {
+		t.Fatalf("LowQualityMemoryCount = %d, want %d", got, want)
+	}
+
+	view := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), home).View()
+	for _, must := range []string{
+		"new candidate memories=2",
+		"remember-intent candidates=1",
+		"low-quality candidates=1",
+		"memories: accepted(reviewed)=1 candidate(inbox)=3 new=2 remember-intent=1 low-quality=1 stale=0",
+	} {
+		if !strings.Contains(view, must) {
+			t.Fatalf("cockpit view missing %q:\n%s", must, view)
+		}
+	}
+}
+
+func TestLoadCockpitHome_MemoryNotificationsFallbackWhenLastSeenUnavailable(t *testing.T) {
+	t.Parallel()
+
+	candidate := memorySummaryWithSourceAndUpdatedAt(t, "mem-candidate", domtypes.MemoryStatusCandidate, domtypes.MemorySourceExtracted, fixedStartedAt)
+	memory := &topDataMemoryStub{
+		listFunc: func(_ apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
+			return []apptypes.MemorySummary{candidate}, nil
+		},
+	}
+	root := &RootCLI{memory: memory}
+
+	home, err := root.loadCockpitHome(context.Background(), cockpitCommandOptions{dbPath: filepath.Join(t.TempDir(), "traceary.db")})
+	if err != nil {
+		t.Fatalf("loadCockpitHome() error = %v", err)
+	}
+	if home.NewCandidateMemoryKnown {
+		t.Fatalf("NewCandidateMemoryKnown = true, want false")
+	}
+	if got, want := formatCockpitNewCandidateCount(home), "untracked"; got != want {
+		t.Fatalf("formatCockpitNewCandidateCount() = %q, want %q", got, want)
+	}
+	view := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), home).View()
+	if !strings.Contains(view, "candidate memories=1") {
+		t.Fatalf("fallback view should still surface total candidates:\n%s", view)
+	}
+	if strings.Contains(view, "new candidate memories=") {
+		t.Fatalf("fallback view should not claim a new count without last-seen state:\n%s", view)
+	}
+	if !strings.Contains(view, "new=untracked") {
+		t.Fatalf("fallback view missing untracked new-count state:\n%s", view)
+	}
+}
+
+func TestCockpitModelView_MemoryNotificationsNoneState(t *testing.T) {
+	t.Parallel()
+
+	home := cockpitHomeSnapshot{
+		LoadedAt:                fixedStartedAt,
+		AcceptedMemoryCount:     2,
+		NewCandidateMemoryKnown: true,
+	}
+	view := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), home).View()
+	if !strings.Contains(view, "memories: accepted(reviewed)=2 candidate(inbox)=0 new=0 remember-intent=0 low-quality=0 stale=0") {
+		t.Fatalf("none-state view missing zero notification summary:\n%s", view)
+	}
+	if strings.Contains(view, "candidate memories=") || strings.Contains(view, "new candidate memories=") {
+		t.Fatalf("none-state view should not show candidate warnings:\n%s", view)
 	}
 }
 
@@ -139,7 +258,7 @@ func TestCockpitModelView_RendersStableEmptyStateAndOverview(t *testing.T) {
 		"No immediate cockpit warnings",
 		"OVERVIEW",
 		"doctor: pass=4 warn=0 fail=0",
-		"memories: accepted=2 candidate=0 stale=0",
+		"memories: accepted(reviewed)=2 candidate(inbox)=0 new=untracked remember-intent=0 low-quality=0 stale=0",
 	} {
 		if !strings.Contains(view, must) {
 			t.Fatalf("cockpit view missing %q:\n%s", must, view)
@@ -340,6 +459,43 @@ type cockpitLoaderStub struct {
 type cockpitLiveCall struct {
 	cursor  tailCursor
 	initial bool
+}
+
+type cockpitStateReaderStub struct {
+	at  time.Time
+	ok  bool
+	err error
+}
+
+func (s cockpitStateReaderStub) MemoryLastSeenAt(context.Context) (time.Time, bool, error) {
+	return s.at, s.ok, s.err
+}
+
+func memorySummaryWithSourceAndUpdatedAt(t *testing.T, id string, status domtypes.MemoryStatus, source domtypes.MemorySource, updatedAt time.Time) apptypes.MemorySummary {
+	t.Helper()
+	workspace, err := domtypes.WorkspaceFrom("duck8823/traceary")
+	if err != nil {
+		t.Fatalf("WorkspaceFrom: %v", err)
+	}
+	summary, err := apptypes.MemorySummaryOf(
+		domtypes.MemoryID(id),
+		domtypes.MemoryTypePreference,
+		domtypes.WorkspaceScopeOf(workspace),
+		"cockpit notification fixture "+id,
+		status,
+		domtypes.ConfidenceMedium,
+		source,
+		domtypes.None[domtypes.MemoryID](),
+		domtypes.None[time.Time](),
+		fixedStartedAt,
+		domtypes.None[time.Time](),
+		fixedStartedAt,
+		updatedAt,
+	)
+	if err != nil {
+		t.Fatalf("MemorySummaryOf: %v", err)
+	}
+	return summary
 }
 
 func (s *cockpitLoaderStub) loadCockpitLive(_ context.Context, cursor tailCursor, initial bool) (cockpitLiveSnapshot, error) {

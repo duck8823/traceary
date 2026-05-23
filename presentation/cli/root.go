@@ -24,6 +24,7 @@ type RootCLI struct {
 	hooksInspector        application.HooksInspector
 	pluginCacheInspector  application.PluginCacheInspector
 	pluginDetector        application.ClaudePluginDetector
+	cockpitState          CockpitStateReader
 	extraRedactPatterns   []string
 	structuredRedactRules []redaction.RuleConfig
 	defaultReadFields     []string
@@ -116,6 +117,12 @@ func WithPluginCacheInspector(inspector application.PluginCacheInspector) RootCL
 // plugin is active in the user's global settings.
 func WithClaudePluginDetector(detector application.ClaudePluginDetector) RootCLIOption {
 	return func(c *RootCLI) { c.pluginDetector = detector }
+}
+
+// WithCockpitStateReader injects optional local cockpit state used for
+// non-critical notification checkpoints such as memory inbox last-seen time.
+func WithCockpitStateReader(reader CockpitStateReader) RootCLIOption {
+	return func(c *RootCLI) { c.cockpitState = reader }
 }
 
 // WithExtraRedactPatterns injects additional redaction regex patterns used
