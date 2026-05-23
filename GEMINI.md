@@ -77,3 +77,8 @@ go tool golangci-lint run
 - `go test ./...` must pass before committing
 - Test names use English descriptions (table-driven with subtests)
 - No `panic()` in runtime paths — reserved only for programming errors in init-time assertions
+
+<!-- traceary-memory-import:begin:v1 -->
+<!-- DO NOT EDIT: this import is managed by Traceary. Run `traceary memory activate --target gemini --dry-run --diff` before applying updates. -->
+@./.traceary/memories/gemini.md
+<!-- traceary-memory-import:end -->
