@@ -64,7 +64,7 @@ func (c *RootCLI) runCockpit(ctx context.Context, output io.Writer, opts cockpit
 		return err
 	}
 	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), home)
-	model.loader = c
+	model.loader = cockpitRuntimeLoader{root: c, opts: opts}
 	model.loaderCtx = ctx
 	if err := tui.Run(model, tui.RunOptions{Input: stdin, Output: stdout, AltScreen: true}); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to run cockpit TUI", "cockpit TUI の実行に失敗しました"), err)
@@ -217,14 +217,63 @@ func countCockpitHookIssues(report *doctorReport) (warn int, fail int) {
 }
 
 type cockpitLoader interface {
+	loadCockpitHome(ctx context.Context) (cockpitHomeSnapshot, error)
 	loadCockpitLive(ctx context.Context, cursor tailCursor, initial bool) (cockpitLiveSnapshot, error)
 	loadCockpitEventDetail(ctx context.Context, eventID domtypes.EventID) (topDetailContent, error)
+	loadCockpitMemoryReviewItems(ctx context.Context) ([]apptypes.MemoryDetails, error)
+	finishCockpitMemoryReview(ctx context.Context, final reviewModel, items []apptypes.MemoryDetails) (memoryInboxReviewResult, error)
 }
 
 type cockpitLiveSnapshot struct {
 	Events   []*model.Event
 	Cursor   tailCursor
 	LoadedAt time.Time
+}
+
+type cockpitRuntimeLoader struct {
+	root *RootCLI
+	opts cockpitCommandOptions
+}
+
+func (l cockpitRuntimeLoader) loadCockpitHome(ctx context.Context) (cockpitHomeSnapshot, error) {
+	return l.root.loadCockpitHome(ctx, l.opts)
+}
+
+func (l cockpitRuntimeLoader) loadCockpitLive(ctx context.Context, cursor tailCursor, initial bool) (cockpitLiveSnapshot, error) {
+	return l.root.loadCockpitLive(ctx, cursor, initial)
+}
+
+func (l cockpitRuntimeLoader) loadCockpitEventDetail(ctx context.Context, eventID domtypes.EventID) (topDetailContent, error) {
+	return l.root.loadCockpitEventDetail(ctx, eventID)
+}
+
+func (l cockpitRuntimeLoader) loadCockpitMemoryReviewItems(ctx context.Context) ([]apptypes.MemoryDetails, error) {
+	if l.root.memory == nil {
+		return nil, xerrors.Errorf(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
+	}
+	if l.root.storeManagement != nil {
+		if err := l.root.initializeStore(ctx, l.opts.dbPath); err != nil {
+			return nil, err
+		}
+	}
+	return l.root.loadInboxReviewItems(ctx, memoryInboxReviewCommandInput{
+		dbPath: l.opts.dbPath,
+		limit:  defaultMemoryInboxLimit,
+	})
+}
+
+func (l cockpitRuntimeLoader) finishCockpitMemoryReview(ctx context.Context, final reviewModel, items []apptypes.MemoryDetails) (memoryInboxReviewResult, error) {
+	if l.root.memory == nil {
+		return memoryInboxReviewResult{}, xerrors.Errorf(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
+	}
+	result, err := applyInboxReviewDecisions(ctx, l.root.memory, final.Decisions(), items)
+	if err != nil {
+		return result, err
+	}
+	if len(result.Failures) > 0 {
+		return result, memoryInboxReviewFailureError(result)
+	}
+	return result, nil
 }
 
 func (c *RootCLI) loadCockpitLive(ctx context.Context, cursor tailCursor, initial bool) (cockpitLiveSnapshot, error) {
@@ -330,13 +379,18 @@ type cockpitModel struct {
 	loader    cockpitLoader
 	loaderCtx context.Context
 
-	showHelp bool
-	mode     cockpitMode
-	home     cockpitHomeSnapshot
+	showHelp  bool
+	mode      cockpitMode
+	home      cockpitHomeSnapshot
+	statusMsg string
+	statusErr string
 
-	live         cockpitLiveState
-	detail       topDetailState
-	detailOffset int
+	live                   cockpitLiveState
+	detail                 topDetailState
+	detailOffset           int
+	homeRequestSeq         uint64
+	memoryReview           cockpitMemoryReviewState
+	memoryReviewRequestSeq uint64
 }
 
 func newCockpitModel(keys tui.KeyMap, styles tui.Styles, home cockpitHomeSnapshot) cockpitModel {
@@ -351,6 +405,7 @@ const (
 	cockpitModeHome cockpitMode = iota
 	cockpitModeLive
 	cockpitModeDetail
+	cockpitModeMemoryReview
 )
 
 type cockpitLiveState struct {
@@ -373,14 +428,53 @@ type cockpitLiveMsg struct {
 
 type cockpitLiveTickMsg struct{}
 
+type cockpitHomeMsg struct {
+	home cockpitHomeSnapshot
+	seq  uint64
+	err  error
+}
+
 type cockpitDetailLoadedMsg struct {
 	request topDetailRequest
 	content topDetailContent
 	err     error
 }
 
+type cockpitMemoryReviewState struct {
+	items      []apptypes.MemoryDetails
+	review     reviewModel
+	loading    bool
+	applying   bool
+	requestSeq uint64
+	err        error
+	result     memoryInboxReviewResult
+}
+
+type cockpitMemoryReviewLoadedMsg struct {
+	items []apptypes.MemoryDetails
+	seq   uint64
+	err   error
+}
+
+type cockpitMemoryReviewAppliedMsg struct {
+	result memoryInboxReviewResult
+	err    error
+}
+
 func (m cockpitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case cockpitHomeMsg:
+		if msg.seq != m.homeRequestSeq {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.statusMsg = ""
+			m.statusErr = msg.err.Error()
+			return m, nil
+		}
+		m.home = msg.home
+		m.statusErr = ""
+		return m, nil
 	case cockpitLiveMsg:
 		if msg.seq != m.live.requestSeq {
 			return m, nil
@@ -419,6 +513,29 @@ func (m cockpitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.detail.lines = msg.content.lines
 		m.clampDetailOffset()
 		return m, nil
+	case cockpitMemoryReviewLoadedMsg:
+		if m.mode != cockpitModeMemoryReview || msg.seq != m.memoryReview.requestSeq {
+			return m, nil
+		}
+		m.memoryReview.loading = false
+		m.memoryReview.err = msg.err
+		if msg.err != nil {
+			return m, nil
+		}
+		m.memoryReview.items = msg.items
+		m.memoryReview.review = newReviewModel(msg.items, m.keys, m.styles)
+		return m, nil
+	case cockpitMemoryReviewAppliedMsg:
+		m.memoryReview.applying = false
+		m.memoryReview.result = msg.result
+		m.memoryReview.err = msg.err
+		if msg.err != nil {
+			return m, nil
+		}
+		m.statusMsg = formatCockpitMemoryReviewResult(msg.result)
+		m.statusErr = ""
+		m.mode = cockpitModeHome
+		return m, m.startCockpitHomeLoad()
 	case tea.KeyMsg:
 		return m.updateKey(msg)
 	}
@@ -426,6 +543,9 @@ func (m cockpitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m cockpitModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.mode == cockpitModeMemoryReview {
+		return m.updateMemoryReviewKey(msg)
+	}
 	switch {
 	case key.Matches(msg, m.keys.Quit):
 		return m, tea.Quit
@@ -449,6 +569,9 @@ func (m cockpitModel) updateHomeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "t", "l":
 			m.mode = cockpitModeLive
 			return m, m.startCockpitLiveLoad(true)
+		case "m":
+			m.mode = cockpitModeMemoryReview
+			return m, m.startCockpitMemoryReviewLoad()
 		}
 	}
 	return m, nil
@@ -514,6 +637,130 @@ func (m cockpitModel) updateDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m cockpitModel) updateMemoryReviewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	actions := defaultReviewActionKeys()
+	if msg.Type == tea.KeyRunes && strings.ToLower(string(msg.Runes)) == "h" && (m.memoryReview.loading || m.memoryReview.err != nil) {
+		m.mode = cockpitModeHome
+		if m.memoryReview.err != nil {
+			m.memoryReview = cockpitMemoryReviewState{}
+			return m, m.startCockpitHomeLoad()
+		}
+		return m, nil
+	}
+	if m.memoryReview.applying {
+		return m, nil
+	}
+	if m.memoryReview.err != nil {
+		if key.Matches(msg, actions.Cancel) {
+			m.mode = cockpitModeHome
+			m.memoryReview = cockpitMemoryReviewState{}
+			return m, m.startCockpitHomeLoad()
+		}
+		if isCockpitMemoryReviewFinishKey(msg) || msg.Type == tea.KeyCtrlC {
+			return m, tea.Quit
+		}
+		return m, nil
+	}
+	if msg.Type == tea.KeyCtrlC {
+		return m, tea.Quit
+	}
+	if m.memoryReview.loading {
+		if key.Matches(msg, actions.Cancel) {
+			m.mode = cockpitModeHome
+			m.memoryReview = cockpitMemoryReviewState{}
+			return m, nil
+		}
+		if isCockpitMemoryReviewFinishKey(msg) || msg.Type == tea.KeyCtrlC {
+			return m, tea.Quit
+		}
+		return m, nil
+	}
+
+	if key.Matches(msg, actions.Cancel) {
+		switch m.memoryReview.review.mode {
+		case reviewModeHelp, reviewModeViewEvidence, reviewModeEdit:
+			updated, _ := m.memoryReview.review.Update(msg)
+			m.memoryReview.review = updated.(reviewModel)
+			return m, nil
+		default:
+			m.mode = cockpitModeHome
+			m.memoryReview = cockpitMemoryReviewState{}
+			return m, m.startCockpitHomeLoad()
+		}
+	}
+	if m.memoryReview.review.mode != reviewModeEdit && isCockpitMemoryReviewFinishKey(msg) {
+		m.memoryReview.applying = true
+		return m, m.applyCockpitMemoryReviewCmd()
+	}
+
+	updated, cmd := m.memoryReview.review.Update(msg)
+	m.memoryReview.review = updated.(reviewModel)
+	// reviewModel returns tea.Quit for standalone `memory inbox review`; the
+	// cockpit owns the outer program, so finishing review is handled above and
+	// no delegated command should escape into the cockpit runtime.
+	if cmd != nil {
+		return m, nil
+	}
+	return m, nil
+}
+
+func isCockpitMemoryReviewFinishKey(msg tea.KeyMsg) bool {
+	return msg.Type == tea.KeyRunes && strings.ToLower(string(msg.Runes)) == "q"
+}
+
+func (m *cockpitModel) startCockpitHomeLoad() tea.Cmd {
+	m.homeRequestSeq++
+	return m.fetchCockpitHomeCmd(m.homeRequestSeq)
+}
+
+func (m cockpitModel) fetchCockpitHomeCmd(seq uint64) tea.Cmd {
+	loader := m.loader
+	ctx := m.loaderCtx
+	return func() tea.Msg {
+		if loader == nil {
+			return cockpitHomeMsg{seq: seq, err: xerrors.Errorf("cockpit home loader is not configured")}
+		}
+		home, err := loader.loadCockpitHome(ctx)
+		return cockpitHomeMsg{home: home, seq: seq, err: err}
+	}
+}
+
+func (m cockpitModel) fetchCockpitMemoryReviewCmd() tea.Cmd {
+	loader := m.loader
+	ctx := m.loaderCtx
+	seq := m.memoryReview.requestSeq
+	return func() tea.Msg {
+		if loader == nil {
+			return cockpitMemoryReviewLoadedMsg{seq: seq, err: xerrors.Errorf("cockpit memory review loader is not configured")}
+		}
+		items, err := loader.loadCockpitMemoryReviewItems(ctx)
+		return cockpitMemoryReviewLoadedMsg{items: items, seq: seq, err: err}
+	}
+}
+
+func (m *cockpitModel) startCockpitMemoryReviewLoad() tea.Cmd {
+	m.memoryReviewRequestSeq++
+	m.memoryReview = cockpitMemoryReviewState{
+		loading:    true,
+		requestSeq: m.memoryReviewRequestSeq,
+	}
+	return m.fetchCockpitMemoryReviewCmd()
+}
+
+func (m cockpitModel) applyCockpitMemoryReviewCmd() tea.Cmd {
+	loader := m.loader
+	ctx := m.loaderCtx
+	final := m.memoryReview.review
+	items := append([]apptypes.MemoryDetails(nil), m.memoryReview.items...)
+	return func() tea.Msg {
+		if loader == nil {
+			return cockpitMemoryReviewAppliedMsg{err: xerrors.Errorf("cockpit memory review loader is not configured")}
+		}
+		result, err := loader.finishCockpitMemoryReview(ctx, final, items)
+		return cockpitMemoryReviewAppliedMsg{result: result, err: err}
+	}
 }
 
 func (m *cockpitModel) startCockpitLiveLoad(initial bool) tea.Cmd {
@@ -600,6 +847,8 @@ func (m cockpitModel) View() string {
 		return m.liveView()
 	case cockpitModeDetail:
 		return m.detailView()
+	case cockpitModeMemoryReview:
+		return m.memoryReviewView()
 	}
 	return m.homeView()
 }
@@ -614,8 +863,14 @@ func (m cockpitModel) homeView() string {
 		"",
 		m.styles.Subtle.Render(fmt.Sprintf("loaded=%s db=%s", formatJSONTime(m.home.LoadedAt), formatOptionalColumn(m.home.DBPath))),
 		"",
-		m.styles.Subtle.Render("ATTENTION"),
 	}
+	if m.statusMsg != "" {
+		lines = append(lines, m.styles.Success.Render("• "+m.statusMsg), "")
+	}
+	if m.statusErr != "" {
+		lines = append(lines, m.styles.Error.Render("• "+m.statusErr), "")
+	}
+	lines = append(lines, m.styles.Subtle.Render("ATTENTION"))
 	warnings := m.home.warnings()
 	if len(warnings) == 0 {
 		lines = append(lines, m.styles.Success.Render("• No immediate cockpit warnings."))
@@ -643,7 +898,7 @@ func (m cockpitModel) homeView() string {
 		"• memory: inbox notifications and review launcher",
 		"• doctor: warnings and remediation commands",
 		"",
-		m.styles.Help.Render("t/l live tail · q/esc/ctrl+c quit · ? help"),
+		m.styles.Help.Render("t/l live tail · m memory review · q/esc/ctrl+c quit · ? help"),
 	)
 	if m.showHelp {
 		lines = append(lines,
@@ -664,6 +919,28 @@ func formatCockpitNewCandidateCount(home cockpitHomeSnapshot) string {
 		return "untracked"
 	}
 	return fmt.Sprintf("%d", home.NewCandidateMemoryCount)
+}
+
+func formatCockpitMemoryReviewResult(result memoryInboxReviewResult) string {
+	return fmt.Sprintf("memory review applied: accepted=%d rejected=%d distilled=%d failures=%d", len(result.Accepted), len(result.Rejected), len(result.Distilled), len(result.Failures))
+}
+
+func (m cockpitModel) memoryReviewView() string {
+	lines := []string{
+		m.styles.Title.Render("Traceary cockpit · memory review"),
+		"",
+	}
+	switch {
+	case m.memoryReview.loading:
+		lines = append(lines, m.styles.Subtle.Render("Loading memory inbox review queue..."))
+	case m.memoryReview.applying:
+		lines = append(lines, m.styles.Subtle.Render("Applying memory review decisions..."))
+	case m.memoryReview.err != nil:
+		lines = append(lines, m.styles.Error.Render(m.memoryReview.err.Error()), "", m.styles.Help.Render("h home · q quit"))
+	default:
+		lines = append(lines, m.memoryReview.review.View(), "", m.styles.Help.Render("q finish review and refresh cockpit"))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m cockpitModel) liveView() string {
