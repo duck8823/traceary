@@ -1873,13 +1873,18 @@ func (m cockpitModel) memoryReviewContextualActions() []cockpitAction {
 			{key: "q", description: "Finish review and apply queued decisions"},
 		}
 	default:
+		acceptDescription := "Accept as-is only when the checklist passes"
+		if len(m.memoryReview.items) > 0 && m.memoryReview.review.cursor >= 0 && m.memoryReview.review.cursor < len(m.memoryReview.items) && memoryReviewRequiresAcceptConfirmation(m.memoryReview.items[m.memoryReview.review.cursor]) {
+			acceptDescription = "Accept as-is (requires pressing a twice; prefer edit/distill if unsure)"
+		}
 		actions := []cockpitAction{
-			{key: "a", description: "Accept current candidate"},
+			{key: "a", description: acceptDescription},
 			{key: "x", description: "Reject current candidate"},
-			{key: "s", description: "Skip current candidate"},
-			{key: "e", description: "Edit/distill into an operator-authored fact"},
+			{key: "s", description: "Skip when more context is needed"},
+			{key: "e", description: "Edit/distill into an operator-authored fact when wording is unclear"},
 			{key: "v", description: "View evidence and artifact refs"},
 			{key: "q", description: "Finish review and apply queued decisions"},
+			{description: "Accept checklist: factual, stable, useful later, scoped correctly, evidence-backed, not duplicate/stale."},
 		}
 		if len(m.memoryReview.items) > 1 {
 			actions = append(actions, cockpitAction{key: "↑/↓", description: "Navigate candidates"})
@@ -1934,7 +1939,7 @@ func (m cockpitModel) memoryReviewLocalHelp() string {
 	case reviewModeHelp:
 		return "?/esc close help · q finish/apply"
 	default:
-		return "a accept · x reject · s skip · e edit · v evidence · q finish/apply"
+		return "a accept as-is · x reject · s skip · e edit/distill · v evidence · q finish/apply"
 	}
 }
 

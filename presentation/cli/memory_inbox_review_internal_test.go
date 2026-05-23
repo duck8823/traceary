@@ -21,19 +21,42 @@ import (
 // so the evidence-mode renderer has something to print).
 func buildReviewCandidate(t *testing.T, id string, fact string) apptypes.MemoryDetails {
 	t.Helper()
+	return buildReviewCandidateWithOptions(t, reviewCandidateOptions{id: id, fact: fact})
+}
+
+type reviewCandidateOptions struct {
+	id         string
+	fact       string
+	confidence domtypes.Confidence
+	source     domtypes.MemorySource
+	supersedes domtypes.Optional[domtypes.MemoryID]
+	noEvidence bool
+}
+
+func buildReviewCandidateWithOptions(t *testing.T, opts reviewCandidateOptions) apptypes.MemoryDetails {
+	t.Helper()
+	if opts.confidence == "" {
+		opts.confidence = domtypes.ConfidenceMedium
+	}
+	if opts.source == "" {
+		opts.source = domtypes.MemorySourceManual
+	}
+	if opts.fact == "" {
+		opts.fact = "fact"
+	}
 	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
 	if err != nil {
 		t.Fatalf("WorkspaceFrom: %v", err)
 	}
 	summary, err := apptypes.MemorySummaryOf(
-		domtypes.MemoryID(id),
+		domtypes.MemoryID(opts.id),
 		domtypes.MemoryTypePreference,
 		domtypes.WorkspaceScopeOf(workspace),
-		fact,
+		opts.fact,
 		domtypes.MemoryStatusCandidate,
-		domtypes.ConfidenceMedium,
-		domtypes.MemorySourceManual,
-		domtypes.None[domtypes.MemoryID](),
+		opts.confidence,
+		opts.source,
+		opts.supersedes,
 		domtypes.None[time.Time](),
 		time.Date(2026, 5, 7, 0, 0, 0, 0, time.UTC),
 		domtypes.None[time.Time](),
@@ -42,6 +65,9 @@ func buildReviewCandidate(t *testing.T, id string, fact string) apptypes.MemoryD
 	)
 	if err != nil {
 		t.Fatalf("MemorySummaryOf: %v", err)
+	}
+	if opts.noEvidence {
+		return apptypes.MemoryDetailsOf(summary, nil, nil)
 	}
 	evidence, err := domtypes.EvidenceRefFrom(domtypes.EvidenceRefKindFile, "/tmp/MEMORY.md#L1-L2")
 	if err != nil {
@@ -80,6 +106,84 @@ func TestReviewModel_AcceptQueuesDecisionAndAdvances(t *testing.T) {
 	}
 	if got.cursor != 1 {
 		t.Fatalf("cursor = %d, want advanced to 1", got.cursor)
+	}
+}
+
+func TestReviewModel_DecisionCardShowsAcceptEvidenceContext(t *testing.T) {
+	previousTopNow := topNowFunc
+	topNowFunc = func() time.Time { return time.Date(2026, 5, 9, 0, 0, 0, 0, time.UTC) }
+	t.Cleanup(func() { topNowFunc = previousTopNow })
+
+	model := newReviewTestModel(buildReviewCandidateWithOptions(t, reviewCandidateOptions{
+		id:         "id-context",
+		fact:       "fact with enough context",
+		confidence: domtypes.ConfidenceHigh,
+		source:     domtypes.MemorySourceRememberIntent,
+		supersedes: domtypes.Some(domtypes.MemoryID("old-memory")),
+	}))
+
+	view := model.View()
+	for _, must := range []string{
+		"inbox review · decision card",
+		"DECISION CONTEXT",
+		"MEMORY_ID:              id-context",
+		"TYPE:                   preference",
+		"SCOPE:                  workspace:github.com/example/repo",
+		"SOURCE:                 remember-intent",
+		"CONFIDENCE:             high",
+		"QUALITY_SIGNAL:         strong confidence; explicit remember intent",
+		"REMEMBERED_BY_OPERATOR: yes (remember-intent)",
+		"EVIDENCE_REFS:          1 (press v to inspect)",
+		"CREATED_AT:             2026-05-07T00:00:00Z",
+		"CANDIDATE_AGE:          48h0m",
+		"DUPLICATE_SUPERSEDE:    supersedes old-memory",
+		"ACCEPT AS-IS CHECKLIST",
+		"factual and stable",
+		"not duplicate, stale, or superseded",
+		"a accept as-is",
+	} {
+		if !strings.Contains(view, must) {
+			t.Fatalf("decision card missing %q:\n%s", must, view)
+		}
+	}
+}
+
+func TestReviewModel_WeakCandidateRequiresDoubleAcceptAsIs(t *testing.T) {
+	t.Parallel()
+
+	model := newReviewTestModel(buildReviewCandidateWithOptions(t, reviewCandidateOptions{
+		id:         "id-weak",
+		fact:       "ambiguous extracted fact",
+		confidence: domtypes.ConfidenceLow,
+		source:     domtypes.MemorySourceExtractedHidden,
+	}))
+
+	first, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	firstM := first.(reviewModel)
+	if len(firstM.Decisions()) != 0 {
+		t.Fatalf("first accept on weak candidate must not queue decisions, got %+v", firstM.Decisions())
+	}
+	if firstM.cursor != 0 {
+		t.Fatalf("first accept cursor = %d, want stay on weak candidate", firstM.cursor)
+	}
+	if !firstM.acceptConfirmationMatchesCurrent() {
+		t.Fatalf("first accept should arm accept confirmation")
+	}
+	if !strings.Contains(firstM.statusMsg, "needs confirmation") {
+		t.Fatalf("first accept status = %q, want confirmation guidance", firstM.statusMsg)
+	}
+	if view := firstM.View(); !strings.Contains(view, "accept confirmation armed") || !strings.Contains(view, "hidden extraction") {
+		t.Fatalf("weak candidate view missing confirmation/risk context:\n%s", view)
+	}
+
+	second, _ := firstM.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	secondM := second.(reviewModel)
+	decisions := secondM.Decisions()
+	if len(decisions) != 1 || decisions[0].kind != reviewDecisionAccept {
+		t.Fatalf("second accept should queue accept, got %+v", decisions)
+	}
+	if secondM.acceptConfirmID != "" {
+		t.Fatalf("accept confirmation should clear after decision, got %q", secondM.acceptConfirmID)
 	}
 }
 
