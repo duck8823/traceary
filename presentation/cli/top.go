@@ -32,6 +32,8 @@ func init() {
 
 const defaultTopLimit = 500
 
+var topNowFunc = time.Now
+
 type topCommandOptions struct {
 	dbPath     string
 	workspace  string
@@ -115,7 +117,7 @@ func (c *RootCLI) runTop(ctx context.Context, output io.Writer, opts topCommandO
 		if opts.asJSON {
 			return writeTopSnapshotJSON(output, snap)
 		}
-		return writeTopSnapshotText(output, snap, opts.idle, time.Now())
+		return writeTopSnapshotText(output, snap, opts.idle, snap.Now)
 	}
 	if opts.asJSON {
 		return xerrors.Errorf("%s", Localize("--json requires --snapshot", "--json には --snapshot が必要です"))
@@ -140,6 +142,7 @@ func (c *RootCLI) loadTopSnapshot(ctx context.Context, opts topCommandOptions) (
 		StaleMemoryLimit:   topPaneStaleMemoryLimit,
 		StaleAfter:         opts.staleAfter,
 		AllowStale:         opts.allowStale,
+		Now:                topNowFunc(),
 	}
 	return c.newTopDataLoader().loadSnapshot(ctx, criteria)
 }
@@ -231,6 +234,9 @@ func sessionSummaryHasAgent(summary apptypes.SessionSummary, agent string) bool 
 }
 
 func writeTopSnapshotText(output io.Writer, snap topDataSnapshot, idle time.Duration, now time.Time) error {
+	if err := writeTopSnapshotTextReliability(output, snap.Reliability); err != nil {
+		return err
+	}
 	if err := writeTopSnapshotTextSessions(output, snap.Sessions, idle, now); err != nil {
 		return err
 	}
@@ -244,6 +250,77 @@ func writeTopSnapshotText(output io.Writer, snap topDataSnapshot, idle time.Dura
 		return err
 	}
 	return writeTopSnapshotTextStaleMemories(output, snap.StaleMemories)
+}
+
+func writeTopSnapshotTextReliability(output io.Writer, metrics topReliabilityMetrics) error {
+	if _, err := fmt.Fprintln(output, "RELIABILITY:"); err != nil {
+		return xerrors.Errorf("failed to print reliability header: %w", err)
+	}
+	if _, err := fmt.Fprintf(
+		output,
+		"- stale_active_sessions=%d",
+		metrics.StaleActiveSessionCount,
+	); err != nil {
+		return xerrors.Errorf("failed to print stale session reliability metric: %w", err)
+	}
+	if metrics.StaleActiveSessionCount > 0 {
+		if _, err := fmt.Fprint(output, " hint=\"run `traceary session gc --stale-after 24h --dry-run`, then drop --dry-run after confirming\""); err != nil {
+			return xerrors.Errorf("failed to print stale session reliability hint: %w", err)
+		}
+	} else if _, err := fmt.Fprint(output, " hint=\"ok\""); err != nil {
+		return xerrors.Errorf("failed to print stale session reliability hint: %w", err)
+	}
+	if _, err := fmt.Fprintln(output); err != nil {
+		return xerrors.Errorf("failed to finish stale session reliability metric: %w", err)
+	}
+
+	acceptedRatio := "-"
+	totalMemories := metrics.AcceptedMemoryCount + metrics.CandidateMemoryCount
+	if totalMemories > 0 {
+		acceptedRatio = fmt.Sprintf("%.0f%%", float64(metrics.AcceptedMemoryCount)*100/float64(totalMemories))
+	}
+	limitNote := ""
+	if metrics.MemoryScanLimited {
+		limitNote = fmt.Sprintf(" scan_limit_reached=%d", metrics.MemoryScanLimit)
+	}
+	if _, err := fmt.Fprintf(
+		output,
+		"- memory_counts accepted=%d candidate=%d accepted_ratio=%s%s hint=\"review candidates with `traceary memory inbox review` and cleanup old candidates with `traceary memory inbox cleanup --dry-run`\"\n",
+		metrics.AcceptedMemoryCount,
+		metrics.CandidateMemoryCount,
+		acceptedRatio,
+		limitNote,
+	); err != nil {
+		return xerrors.Errorf("failed to print memory reliability metric: %w", err)
+	}
+
+	if metrics.CandidateAge.Count == 0 {
+		if _, err := fmt.Fprintln(output, "- candidate_age count=0 hint=\"ok\""); err != nil {
+			return xerrors.Errorf("failed to print empty candidate age reliability metric: %w", err)
+		}
+	} else if _, err := fmt.Fprintf(
+		output,
+		"- candidate_age count=%d oldest=%s newest=%s avg_age=%s hint=\"prioritize older candidate memories first\"\n",
+		metrics.CandidateAge.Count,
+		formatJSONTime(metrics.CandidateAge.Oldest),
+		formatJSONTime(metrics.CandidateAge.Newest),
+		formatDuration(metrics.CandidateAge.AverageAge),
+	); err != nil {
+		return xerrors.Errorf("failed to print candidate age reliability metric: %w", err)
+	}
+
+	if _, err := fmt.Fprintf(
+		output,
+		"- large_payloads count=%d recent_commands=%d recent_failures=%d sampled=%d body_limit=%d hint=\"inspect full payloads with `traceary show <event_id>`; keep command output concise for handoff/top surfaces\"\n\n",
+		metrics.LargePayloads.Count,
+		metrics.LargePayloads.RecentCommandCount,
+		metrics.LargePayloads.RecentFailureCount,
+		metrics.LargePayloads.SampledEventCount,
+		metrics.LargePayloads.BodyLimitRunes,
+	); err != nil {
+		return xerrors.Errorf("failed to print large payload reliability metric: %w", err)
+	}
+	return nil
 }
 
 func writeTopSnapshotTextSessions(output io.Writer, roots []*sessionNode, idle time.Duration, now time.Time) error {
@@ -475,6 +552,7 @@ func (c *RootCLI) runTopTUI(ctx context.Context, output io.Writer, opts topComma
 		Detail:          loader,
 		Criteria:        criteria,
 		Idle:            opts.idle,
+		Now:             topNowFunc,
 		RefreshInterval: topDashboardRefreshInterval,
 		LoaderCtx:       ctx,
 	})
@@ -488,7 +566,7 @@ func (c *RootCLI) runTopTUI(ctx context.Context, output io.Writer, opts topComma
 		if loadErr != nil {
 			return loadErr
 		}
-		return writeTopSnapshotText(output, snap, opts.idle, time.Now())
+		return writeTopSnapshotText(output, snap, opts.idle, snap.Now)
 	}
 	if err := tui.Run(model, tui.RunOptions{Input: stdin, Output: stdout, AltScreen: true}); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to run top dashboard", "top ダッシュボードの実行に失敗しました"), err)

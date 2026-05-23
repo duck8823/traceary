@@ -41,6 +41,8 @@ func (s *topPaneEventStub) List(_ context.Context, criteria apptypes.EventListCr
 func TestRootCLI_TopCommand_SnapshotJSONGolden(t *testing.T) {
 	startedAt := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 	endedAt := startedAt.Add(30 * time.Minute)
+	cli.SetTopNowFunc(func() time.Time { return startedAt.Add(6 * time.Hour) })
+	t.Cleanup(cli.ResetTopNowFunc)
 
 	stub := &sessionUsecaseStub{listResult: []apptypes.SessionSummary{
 		apptypes.SessionSummaryOf(
@@ -224,6 +226,8 @@ func TestRootCLI_TopCommand_SnapshotTextGolden(t *testing.T) {
 	t.Cleanup(func() { time.Local = prevLocal })
 
 	startedAt := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	cli.SetTopNowFunc(func() time.Time { return startedAt.Add(6 * time.Hour) })
+	t.Cleanup(cli.ResetTopNowFunc)
 
 	stub := &sessionUsecaseStub{listResult: []apptypes.SessionSummary{
 		apptypes.SessionSummaryOf(

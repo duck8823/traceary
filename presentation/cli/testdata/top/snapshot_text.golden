@@ -1,3 +1,9 @@
+RELIABILITY:
+- stale_active_sessions=0 hint="ok"
+- memory_counts accepted=0 candidate=1 accepted_ratio=0% hint="review candidates with `traceary memory inbox review` and cleanup old candidates with `traceary memory inbox cleanup --dry-run`"
+- candidate_age count=1 oldest=2026-04-10T12:00:00Z newest=2026-04-10T12:00:00Z avg_age=6h0m hint="prioritize older candidate memories first"
+- large_payloads count=0 recent_commands=0 recent_failures=0 sampled=2 body_limit=500 hint="inspect full payloads with `traceary show <event_id>`; keep command output concise for handoff/top surfaces"
+
 ACTIVE SESSIONS:
 ws-long workspace=…g/path/github.com/duck8823/traceary agent=codex client=claude started=12:00:00 latest=12:15:00 events=165 last=command_executed: go test ./... idle
 ws-empty workspace=duck8823/traceary agent=- client=claude started=14:00:00 latest=14:00:00 events=0 last=- idle

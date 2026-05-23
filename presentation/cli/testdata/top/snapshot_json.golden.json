@@ -107,5 +107,29 @@
         "reason": "superseded"
       }
     ]
+  },
+  "reliability": {
+    "stale_active_session_count": 0,
+    "memory": {
+      "accepted_count": 0,
+      "candidate_count": 1,
+      "accepted_ratio": 0,
+      "scan_limit": 2000,
+      "scan_limit_reached": false
+    },
+    "candidate_age": {
+      "count": 1,
+      "oldest_updated_at": "2026-04-10T12:00:00Z",
+      "newest_updated_at": "2026-04-10T12:00:00Z",
+      "oldest_age_seconds": 21600,
+      "average_age_seconds": 21600
+    },
+    "large_payloads": {
+      "count": 0,
+      "recent_command_count": 0,
+      "recent_failure_count": 0,
+      "sampled_event_count": 2,
+      "body_limit_runes": 500
+    }
   }
 }

@@ -83,8 +83,10 @@ type topDataMemoryStub struct {
 	usecase.MemoryUsecase
 
 	listResult          []apptypes.MemorySummary
+	listFunc            func(apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error)
 	listErr             error
 	listCriteria        apptypes.MemoryListCriteria
+	listCriteriaCalls   []apptypes.MemoryListCriteria
 	listCalls           int
 	staleResult         apptypes.StaleMemoryListResult
 	staleErr            error
@@ -98,7 +100,11 @@ type topDataMemoryStub struct {
 
 func (s *topDataMemoryStub) List(_ context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
 	s.listCriteria = criteria
+	s.listCriteriaCalls = append(s.listCriteriaCalls, criteria)
 	s.listCalls++
+	if s.listFunc != nil {
+		return s.listFunc(criteria)
+	}
 	return s.listResult, s.listErr
 }
 
@@ -949,6 +955,161 @@ func TestTopDataLoader_LoadSnapshot_AggregatesEveryPane(t *testing.T) {
 	}
 }
 
+func TestTopDataLoader_LoadSnapshot_ComputesReliabilityMetrics(t *testing.T) {
+	t.Parallel()
+
+	now := fixedStartedAt.Add(48 * time.Hour)
+	fresh := sessionSummaryFixture("fresh", "", now.Add(-time.Hour), "active", domtypes.EventKindTranscript, "fresh")
+	stale := sessionSummaryFixture("stale", "", now.Add(-30*time.Hour), "stale", domtypes.EventKindTranscript, "stale")
+	session := &topDataSessionStub{
+		listResult: []apptypes.SessionSummary{fresh, stale},
+		lineageByID: map[domtypes.SessionID][]apptypes.SessionSummary{
+			domtypes.SessionID("fresh"): {fresh},
+			domtypes.SessionID("stale"): {stale},
+		},
+	}
+
+	hugeFailure := mustEvent(t, "evt-huge-fail", domtypes.EventKindCommandExecuted, strings.Repeat("f", apptypes.DefaultTopSnapshotBodyLimit+1))
+	hugeCommand := mustEvent(t, "evt-huge-cmd", domtypes.EventKindCommandExecuted, strings.Repeat("c", apptypes.DefaultTopSnapshotBodyLimit+1))
+	event := &snapshotEventStub{failures: []*model.Event{hugeFailure}, commands: []*model.Event{hugeCommand}}
+
+	accepted := memorySummaryWithUpdatedAt(t, "mem-accepted", domtypes.MemoryStatusAccepted, now.Add(-2*time.Hour))
+	oldCandidate := memorySummaryWithUpdatedAt(t, "mem-old-candidate", domtypes.MemoryStatusCandidate, now.Add(-25*time.Hour))
+	newCandidate := memorySummaryWithUpdatedAt(t, "mem-new-candidate", domtypes.MemoryStatusCandidate, now.Add(-3*time.Hour))
+	memory := &topDataMemoryStub{
+		listFunc: func(criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
+			statuses := criteria.Statuses()
+			if len(statuses) == 1 && statuses[0] == domtypes.MemoryStatusCandidate {
+				return []apptypes.MemorySummary{oldCandidate}, nil
+			}
+			return []apptypes.MemorySummary{accepted, oldCandidate, newCandidate}, nil
+		},
+	}
+	loader := newTopDataLoader(session, event, memory)
+
+	snap, err := loader.loadSnapshot(context.Background(), topDataCriteria{
+		SessionLimit:       10,
+		FailureLimit:       1,
+		RecentCommandLimit: 1,
+		CandidateLimit:     1,
+		StaleMemoryLimit:   1,
+		StaleAfter:         24 * time.Hour,
+		Now:                now,
+	})
+	if err != nil {
+		t.Fatalf("loadSnapshot() error = %v", err)
+	}
+
+	if got := snap.Reliability.StaleActiveSessionCount; got != 1 {
+		t.Fatalf("StaleActiveSessionCount = %d, want 1", got)
+	}
+	if len(snap.Sessions) != 1 || snap.Sessions[0].summary.SessionID() != "fresh" {
+		t.Fatalf("Sessions = %#v, want stale session filtered while still counted", snap.Sessions)
+	}
+	if got, want := snap.Reliability.AcceptedMemoryCount, 1; got != want {
+		t.Fatalf("AcceptedMemoryCount = %d, want %d", got, want)
+	}
+	if got, want := snap.Reliability.CandidateMemoryCount, 2; got != want {
+		t.Fatalf("CandidateMemoryCount = %d, want %d", got, want)
+	}
+	if got, want := snap.Reliability.CandidateAge.Count, 2; got != want {
+		t.Fatalf("CandidateAge.Count = %d, want %d", got, want)
+	}
+	if !snap.Reliability.CandidateAge.Oldest.Equal(oldCandidate.UpdatedAt()) {
+		t.Fatalf("CandidateAge.Oldest = %s, want %s", snap.Reliability.CandidateAge.Oldest, oldCandidate.UpdatedAt())
+	}
+	if got, want := snap.Reliability.CandidateAge.OldestAge, 25*time.Hour; got != want {
+		t.Fatalf("CandidateAge.OldestAge = %s, want %s", got, want)
+	}
+	if got, want := snap.Reliability.CandidateAge.AverageAge, 14*time.Hour; got != want {
+		t.Fatalf("CandidateAge.AverageAge = %s, want %s", got, want)
+	}
+	if got, want := snap.Reliability.LargePayloads.Count, 2; got != want {
+		t.Fatalf("LargePayloads.Count = %d, want %d", got, want)
+	}
+	if got, want := snap.Reliability.LargePayloads.RecentCommandCount, 1; got != want {
+		t.Fatalf("LargePayloads.RecentCommandCount = %d, want %d", got, want)
+	}
+	if got, want := snap.Reliability.LargePayloads.RecentFailureCount, 1; got != want {
+		t.Fatalf("LargePayloads.RecentFailureCount = %d, want %d", got, want)
+	}
+	if got, want := len(memory.listCriteriaCalls), 2; got != want {
+		t.Fatalf("memory.List calls = %d, want %d (candidate pane + reliability scan)", got, want)
+	}
+}
+
+func TestWriteTopSnapshotJSON_EmitsReliabilityShape(t *testing.T) {
+	t.Parallel()
+
+	oldest := fixedStartedAt
+	newest := fixedStartedAt.Add(2 * time.Hour)
+	var buf bytes.Buffer
+	if err := writeTopSnapshotJSON(&buf, topDataSnapshot{
+		Reliability: topReliabilityMetrics{
+			StaleActiveSessionCount: 2,
+			AcceptedMemoryCount:     3,
+			CandidateMemoryCount:    1,
+			MemoryScanLimit:         topReliabilityMemoryScanLimit,
+			CandidateAge: topCandidateAgeMetrics{
+				Count:      1,
+				Oldest:     oldest,
+				Newest:     newest,
+				OldestAge:  4 * time.Hour,
+				AverageAge: 4 * time.Hour,
+			},
+			LargePayloads: topLargePayloadMetrics{
+				Count:              2,
+				RecentCommandCount: 1,
+				RecentFailureCount: 1,
+				SampledEventCount:  3,
+				BodyLimitRunes:     apptypes.DefaultTopSnapshotBodyLimit,
+			},
+		},
+	}); err != nil {
+		t.Fatalf("writeTopSnapshotJSON() error = %v", err)
+	}
+
+	var payload struct {
+		Reliability struct {
+			StaleActiveSessionCount int `json:"stale_active_session_count"`
+			Memory                  struct {
+				AcceptedCount  int      `json:"accepted_count"`
+				CandidateCount int      `json:"candidate_count"`
+				AcceptedRatio  *float64 `json:"accepted_ratio"`
+			} `json:"memory"`
+			CandidateAge struct {
+				Count             int    `json:"count"`
+				OldestUpdatedAt   string `json:"oldest_updated_at"`
+				NewestUpdatedAt   string `json:"newest_updated_at"`
+				OldestAgeSeconds  int64  `json:"oldest_age_seconds"`
+				AverageAgeSeconds int64  `json:"average_age_seconds"`
+			} `json:"candidate_age"`
+			LargePayloads struct {
+				Count              int `json:"count"`
+				RecentCommandCount int `json:"recent_command_count"`
+				RecentFailureCount int `json:"recent_failure_count"`
+				SampledEventCount  int `json:"sampled_event_count"`
+				BodyLimitRunes     int `json:"body_limit_runes"`
+			} `json:"large_payloads"`
+		} `json:"reliability"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
+		t.Fatalf("Unmarshal(top snapshot) error = %v\n%s", err, buf.String())
+	}
+	if got, want := payload.Reliability.StaleActiveSessionCount, 2; got != want {
+		t.Fatalf("stale_active_session_count = %d, want %d", got, want)
+	}
+	if payload.Reliability.Memory.AcceptedRatio == nil || *payload.Reliability.Memory.AcceptedRatio != 0.75 {
+		t.Fatalf("accepted_ratio = %v, want 0.75", payload.Reliability.Memory.AcceptedRatio)
+	}
+	if got, want := payload.Reliability.CandidateAge.OldestAgeSeconds, int64((4 * time.Hour).Seconds()); got != want {
+		t.Fatalf("oldest_age_seconds = %d, want %d", got, want)
+	}
+	if got, want := payload.Reliability.LargePayloads.SampledEventCount, 3; got != want {
+		t.Fatalf("sampled_event_count = %d, want %d", got, want)
+	}
+}
+
 // snapshotEventStub returns separate fixtures for the failures call and
 // the recent-commands call so loadSnapshot's two EventUsecase.List
 // invocations can be distinguished by the FailuresOnly / Kind criteria.
@@ -990,6 +1151,16 @@ func TestTopDataLoader_LoadSnapshot_NoUsecasesReturnsEmpty(t *testing.T) {
 
 func memorySummaryFixture(t *testing.T, id string, status domtypes.MemoryStatus, fact string) apptypes.MemorySummary {
 	t.Helper()
+	return memorySummaryWithFactAndUpdatedAt(t, id, status, fact, fixedStartedAt)
+}
+
+func memorySummaryWithUpdatedAt(t *testing.T, id string, status domtypes.MemoryStatus, updatedAt time.Time) apptypes.MemorySummary {
+	t.Helper()
+	return memorySummaryWithFactAndUpdatedAt(t, id, status, "reliability metric fixture "+id, updatedAt)
+}
+
+func memorySummaryWithFactAndUpdatedAt(t *testing.T, id string, status domtypes.MemoryStatus, fact string, updatedAt time.Time) apptypes.MemorySummary {
+	t.Helper()
 	workspace, err := domtypes.WorkspaceFrom("duck8823/traceary")
 	if err != nil {
 		t.Fatalf("WorkspaceFrom: %v", err)
@@ -1007,7 +1178,7 @@ func memorySummaryFixture(t *testing.T, id string, status domtypes.MemoryStatus,
 		fixedStartedAt,
 		domtypes.None[time.Time](),
 		fixedStartedAt,
-		fixedStartedAt,
+		updatedAt,
 	)
 	if err != nil {
 		t.Fatalf("MemorySummaryOf: %v", err)

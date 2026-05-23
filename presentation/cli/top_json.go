@@ -65,8 +65,55 @@ func writeTopSnapshotJSON(output io.Writer, snap topDataSnapshot) error {
 			Count: snap.StaleMemories.Count(),
 			Items: staleItems,
 		},
+		Reliability: topSnapshotReliabilityFromMetrics(snap.Reliability),
 	}
 	return writeJSON(output, payload)
+}
+
+func topSnapshotReliabilityFromMetrics(metrics topReliabilityMetrics) topSnapshotReliability {
+	return topSnapshotReliability{
+		StaleActiveSessionCount: metrics.StaleActiveSessionCount,
+		Memory:                  topSnapshotReliabilityMemoryFromMetrics(metrics),
+		CandidateAge:            topSnapshotCandidateAgeFromMetrics(metrics.CandidateAge),
+		LargePayloads: topSnapshotLargePayloads{
+			Count:              metrics.LargePayloads.Count,
+			RecentCommandCount: metrics.LargePayloads.RecentCommandCount,
+			RecentFailureCount: metrics.LargePayloads.RecentFailureCount,
+			SampledEventCount:  metrics.LargePayloads.SampledEventCount,
+			BodyLimitRunes:     metrics.LargePayloads.BodyLimitRunes,
+		},
+	}
+}
+
+func topSnapshotReliabilityMemoryFromMetrics(metrics topReliabilityMetrics) topSnapshotReliabilityMemory {
+	out := topSnapshotReliabilityMemory{
+		AcceptedCount:    metrics.AcceptedMemoryCount,
+		CandidateCount:   metrics.CandidateMemoryCount,
+		ScanLimit:        metrics.MemoryScanLimit,
+		ScanLimitReached: metrics.MemoryScanLimited,
+	}
+	total := metrics.AcceptedMemoryCount + metrics.CandidateMemoryCount
+	if total > 0 {
+		ratio := float64(metrics.AcceptedMemoryCount) / float64(total)
+		out.AcceptedRatio = &ratio
+	}
+	return out
+}
+
+func topSnapshotCandidateAgeFromMetrics(metrics topCandidateAgeMetrics) topSnapshotCandidateAge {
+	out := topSnapshotCandidateAge{Count: metrics.Count}
+	if metrics.Count == 0 {
+		return out
+	}
+	oldest := formatJSONTime(metrics.Oldest)
+	newest := formatJSONTime(metrics.Newest)
+	oldestAge := int64(metrics.OldestAge.Seconds())
+	averageAge := int64(metrics.AverageAge.Seconds())
+	out.OldestUpdatedAt = &oldest
+	out.NewestUpdatedAt = &newest
+	out.OldestAgeSeconds = &oldestAge
+	out.AverageAgeSeconds = &averageAge
+	return out
 }
 
 // snapshotStaleContext carries the per-snapshot stale-evaluation inputs

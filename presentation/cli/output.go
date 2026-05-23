@@ -80,11 +80,12 @@ type sessionTreeNode struct {
 // that already destructure `sessions[*]` keep working — only the
 // outer wrapping is new.
 type topSnapshotPayload struct {
-	Sessions       []*topSnapshotNode    `json:"sessions"`
-	Failures       []event               `json:"failures"`
-	RecentCommands []event               `json:"recent_commands"`
-	Candidates     topSnapshotCandidates `json:"candidates"`
-	StaleMemories  topSnapshotStale      `json:"stale_memories"`
+	Sessions       []*topSnapshotNode     `json:"sessions"`
+	Failures       []event                `json:"failures"`
+	RecentCommands []event                `json:"recent_commands"`
+	Candidates     topSnapshotCandidates  `json:"candidates"`
+	StaleMemories  topSnapshotStale       `json:"stale_memories"`
+	Reliability    topSnapshotReliability `json:"reliability"`
 }
 
 // topSnapshotCandidates wraps the durable-memory inbox slice with an
@@ -103,6 +104,41 @@ type topSnapshotCandidates struct {
 type topSnapshotStale struct {
 	Count int                 `json:"count"`
 	Items []staleMemoryOutput `json:"items"`
+}
+
+// topSnapshotReliability groups additive dogfood reliability signals for
+// operator cockpit and script consumers. Counts are derived from the same
+// filtered snapshot window as the dashboard so existing consumers can ignore
+// the key without changing their session / event parsing.
+type topSnapshotReliability struct {
+	StaleActiveSessionCount int                          `json:"stale_active_session_count"`
+	Memory                  topSnapshotReliabilityMemory `json:"memory"`
+	CandidateAge            topSnapshotCandidateAge      `json:"candidate_age"`
+	LargePayloads           topSnapshotLargePayloads     `json:"large_payloads"`
+}
+
+type topSnapshotReliabilityMemory struct {
+	AcceptedCount    int      `json:"accepted_count"`
+	CandidateCount   int      `json:"candidate_count"`
+	AcceptedRatio    *float64 `json:"accepted_ratio,omitempty"`
+	ScanLimit        int      `json:"scan_limit"`
+	ScanLimitReached bool     `json:"scan_limit_reached"`
+}
+
+type topSnapshotCandidateAge struct {
+	Count             int     `json:"count"`
+	OldestUpdatedAt   *string `json:"oldest_updated_at,omitempty"`
+	NewestUpdatedAt   *string `json:"newest_updated_at,omitempty"`
+	OldestAgeSeconds  *int64  `json:"oldest_age_seconds,omitempty"`
+	AverageAgeSeconds *int64  `json:"average_age_seconds,omitempty"`
+}
+
+type topSnapshotLargePayloads struct {
+	Count              int `json:"count"`
+	RecentCommandCount int `json:"recent_command_count"`
+	RecentFailureCount int `json:"recent_failure_count"`
+	SampledEventCount  int `json:"sampled_event_count"`
+	BodyLimitRunes     int `json:"body_limit_runes"`
 }
 
 // topSnapshotNode is the JSON shape of a single node in the

@@ -36,6 +36,17 @@ func ResetGCNowFunc() {
 	gcNowFunc = time.Now
 }
 
+// SetTopNowFunc replaces the current-time function used by top snapshot and
+// dashboard loading for tests.
+func SetTopNowFunc(f func() time.Time) {
+	topNowFunc = f
+}
+
+// ResetTopNowFunc restores the default top current-time function for tests.
+func ResetTopNowFunc() {
+	topNowFunc = time.Now
+}
+
 // SetDetectRepoContextFunc replaces the work-context resolver for tests.
 func SetDetectRepoContextFunc(f func(context.Context) (string, error)) {
 	detectRepoContextFunc = f
