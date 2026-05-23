@@ -57,6 +57,23 @@ func TestSessionHandoff_TextGoldens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MemorySummaryOf(candidate) error = %v", err)
 	}
+	fullPack := apptypes.ContextPackOf(
+		types.SessionID("session-handoff-golden"),
+		types.Workspace("duck8823/traceary"),
+		"v0.14.0",
+		"active",
+		42,
+		9,
+		[]string{"claude", "codex"},
+		apptypes.WorkingStateOf(
+			"Lock CLI/MCP contract surfaces before v1.0.",
+			"Add MCP registry snapshot.",
+		),
+		[]string{"go test ./...", "go tool golangci-lint run"},
+		[]apptypes.MemorySummary{acceptedSummary},
+	).
+		WithMemoryNeedsReview([]apptypes.MemorySummary{candidateSummary}, 1).
+		WithMemoryCounts(1, 1)
 
 	cases := []struct {
 		name    string
@@ -64,22 +81,8 @@ func TestSessionHandoff_TextGoldens(t *testing.T) {
 		fixture string
 	}{
 		{
-			name: "full",
-			handoff: types.Some(apptypes.ContextPackOf(
-				types.SessionID("session-handoff-golden"),
-				types.Workspace("duck8823/traceary"),
-				"v0.14.0",
-				"active",
-				42,
-				9,
-				[]string{"claude", "codex"},
-				apptypes.WorkingStateOf(
-					"Lock CLI/MCP contract surfaces before v1.0.",
-					"Add MCP registry snapshot.",
-				),
-				[]string{"go test ./...", "go tool golangci-lint run"},
-				[]apptypes.MemorySummary{acceptedSummary, candidateSummary},
-			)),
+			name:    "full",
+			handoff: types.Some(fullPack),
 			fixture: "full.golden",
 		},
 		{

@@ -262,6 +262,10 @@
             "integer"
           ]
         },
+        "include_candidates": {
+          "description": "include candidate durable memories in a separate needs-review section for action=handoff",
+          "type": "boolean"
+        },
         "infer_parent_session": {
           "description": "infer parent from the active session when parent_session_id is omitted (default: true for MCP starts)",
           "type": [
@@ -334,6 +338,10 @@
         "expiry_days": {
           "description": "staleness threshold in days (default 90)",
           "type": "integer"
+        },
+        "include_candidates": {
+          "description": "include candidate memories in a separate needs-review section for action=pack",
+          "type": "boolean"
         },
         "include_expired": {
           "description": "include memories whose valid_to is in the past",
@@ -576,6 +584,10 @@
             "null",
             "integer"
           ]
+        },
+        "include_candidates": {
+          "description": "include candidate durable memories in a separate needs-review section for action=handoff",
+          "type": "boolean"
         },
         "infer_parent_session": {
           "description": "infer parent from the active session when parent_session_id is omitted (default: true for MCP starts)",

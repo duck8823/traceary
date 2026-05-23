@@ -71,6 +71,9 @@ type sessionHandoffOutput struct {
 	WorkingState          workingStateOutput    `json:"working_state"`
 	RecentCommands        []string              `json:"recent_commands,omitempty"`
 	Memories              []memorySummaryOutput `json:"memories,omitempty"`
+	MemoryNeedsReview     []memorySummaryOutput `json:"memory_needs_review,omitempty" jsonschema:"candidate memories included only when include_candidates is true; review before trusting"`
+	AcceptedMemoryCount   int                   `json:"accepted_memory_count" jsonschema:"number of accepted memories loaded into trusted context"`
+	CandidateMemoryCount  int                   `json:"candidate_memory_count" jsonschema:"number of candidate memories observed under the context-pack limit"`
 }
 
 // sessionLineageOutput is the MCP output for session_status action=lineage.

@@ -18,6 +18,7 @@ type ContextPackCriteria struct {
 	recentCommandsLimit int
 	memoryLimit         int
 	memoryPreset        MemoryRetrievalPreset
+	includeCandidates   bool
 	memoryAsOf          domtypes.Optional[time.Time]
 	allowStale          bool
 	staleAfter          time.Duration
@@ -39,6 +40,12 @@ func (c ContextPackCriteria) MemoryLimit() int { return c.memoryLimit }
 // durable memories for the pack. Empty means "no preset — use the
 // default accepted-only behavior of the memory query path."
 func (c ContextPackCriteria) MemoryPreset() MemoryRetrievalPreset { return c.memoryPreset }
+
+// IncludeMemoryCandidates reports whether candidate durable memories
+// should be included in the review-oriented section of a context pack.
+// Defaults to false so handoff / MCP context treat only accepted
+// durable memories as trusted.
+func (c ContextPackCriteria) IncludeMemoryCandidates() bool { return c.includeCandidates }
 
 // MemoryAsOf returns the point-in-time at which content validity should
 // be evaluated when loading durable memories for the pack. A present
@@ -99,6 +106,15 @@ func (b *ContextPackCriteriaBuilder) MemoryLimit(limit int) *ContextPackCriteria
 // durable-memory filters for the pack.
 func (b *ContextPackCriteriaBuilder) MemoryPreset(preset MemoryRetrievalPreset) *ContextPackCriteriaBuilder {
 	b.criteria.memoryPreset = preset
+	return b
+}
+
+// IncludeMemoryCandidates opts in to including candidate memories in a
+// separate review-oriented section. Candidate backlog counts can still
+// be populated when this is false, but candidate facts are not mixed
+// into the trusted memory section.
+func (b *ContextPackCriteriaBuilder) IncludeMemoryCandidates(include bool) *ContextPackCriteriaBuilder {
+	b.criteria.includeCandidates = include
 	return b
 }
 

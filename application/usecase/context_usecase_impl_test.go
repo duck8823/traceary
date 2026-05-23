@@ -211,6 +211,173 @@ func TestContextUsecase_Handoff(t *testing.T) {
 		}
 	})
 
+	t.Run("defaults durable memory context to accepted memories only with candidate counts", func(t *testing.T) {
+		t.Parallel()
+
+		session := apptypes.SessionSummaryOf(
+			domtypes.SessionID("session-memory-trust-default"),
+			domtypes.Workspace("duck8823/traceary"),
+			time.Now().Add(-time.Hour),
+			domtypes.None[time.Time](),
+			"active",
+			1,
+			0,
+			[]string{"claude"},
+			"",
+			"",
+			domtypes.SessionID(""),
+		)
+		accepted := contextPackMemorySummary(t, "memory-accepted", domtypes.MemoryStatusAccepted, "Trusted architectural decision")
+		candidate := contextPackMemorySummary(t, "memory-candidate", domtypes.MemoryStatusCandidate, "Unreviewed extracted note")
+		memoryQuery := &memoryQueryStub{listResultByStatus: map[domtypes.MemoryStatus][]apptypes.MemorySummary{
+			domtypes.MemoryStatusAccepted:  {accepted},
+			domtypes.MemoryStatusCandidate: {candidate},
+		}}
+		sut := usecase.NewContextUsecase(
+			&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}},
+			&eventQueryServiceStub{},
+			memoryQuery,
+		)
+
+		got, err := sut.Handoff(
+			context.Background(),
+			apptypes.NewContextPackCriteriaBuilder().
+				SessionID(domtypes.SessionID("session-memory-trust-default")).
+				Workspace(domtypes.Workspace("duck8823/traceary")).
+				MemoryLimit(5).
+				Build(),
+		)
+		if err != nil {
+			t.Fatalf("Handoff() error = %v", err)
+		}
+		pack, ok := got.Value()
+		if !ok {
+			t.Fatalf("Handoff() returned empty pack")
+		}
+		if diff := cmp.Diff([]domtypes.MemoryID{accepted.MemoryID()}, memoryIDs(pack.Memories())); diff != "" {
+			t.Fatalf("trusted memories mismatch (-want +got):\n%s", diff)
+		}
+		if len(pack.MemoryNeedsReview()) != 0 {
+			t.Fatalf("MemoryNeedsReview() length = %d, want 0 by default", len(pack.MemoryNeedsReview()))
+		}
+		if pack.AcceptedMemoryCount() != 1 || pack.CandidateMemoryCount() != 1 {
+			t.Fatalf("memory counts = accepted %d candidate %d, want 1/1", pack.AcceptedMemoryCount(), pack.CandidateMemoryCount())
+		}
+		acceptedStatuses := memoryQuery.listCriteriaByStatus[domtypes.MemoryStatusAccepted].Statuses()
+		if diff := cmp.Diff([]domtypes.MemoryStatus{domtypes.MemoryStatusAccepted}, acceptedStatuses); diff != "" {
+			t.Fatalf("accepted query statuses mismatch (-want +got):\n%s", diff)
+		}
+		candidateStatuses := memoryQuery.listCriteriaByStatus[domtypes.MemoryStatusCandidate].Statuses()
+		if diff := cmp.Diff([]domtypes.MemoryStatus{domtypes.MemoryStatusCandidate}, candidateStatuses); diff != "" {
+			t.Fatalf("candidate query statuses mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("include candidates keeps review backlog separate from trusted memories", func(t *testing.T) {
+		t.Parallel()
+
+		session := apptypes.SessionSummaryOf(
+			domtypes.SessionID("session-memory-trust-review"),
+			domtypes.Workspace("duck8823/traceary"),
+			time.Now().Add(-time.Hour),
+			domtypes.None[time.Time](),
+			"active",
+			1,
+			0,
+			[]string{"claude"},
+			"",
+			"",
+			domtypes.SessionID(""),
+		)
+		accepted := contextPackMemorySummary(t, "memory-accepted-review", domtypes.MemoryStatusAccepted, "Trusted deployment invariant")
+		candidate := contextPackMemorySummary(t, "memory-candidate-review", domtypes.MemoryStatusCandidate, "Review this possible follow-up")
+		memoryQuery := &memoryQueryStub{listResultByStatus: map[domtypes.MemoryStatus][]apptypes.MemorySummary{
+			domtypes.MemoryStatusAccepted:  {accepted},
+			domtypes.MemoryStatusCandidate: {candidate},
+		}}
+		sut := usecase.NewContextUsecase(
+			&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}},
+			&eventQueryServiceStub{},
+			memoryQuery,
+		)
+
+		got, err := sut.Handoff(
+			context.Background(),
+			apptypes.NewContextPackCriteriaBuilder().
+				SessionID(domtypes.SessionID("session-memory-trust-review")).
+				Workspace(domtypes.Workspace("duck8823/traceary")).
+				MemoryLimit(5).
+				IncludeMemoryCandidates(true).
+				Build(),
+		)
+		if err != nil {
+			t.Fatalf("Handoff() error = %v", err)
+		}
+		pack, ok := got.Value()
+		if !ok {
+			t.Fatalf("Handoff() returned empty pack")
+		}
+		if diff := cmp.Diff([]domtypes.MemoryID{accepted.MemoryID()}, memoryIDs(pack.Memories())); diff != "" {
+			t.Fatalf("trusted memories mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff([]domtypes.MemoryID{candidate.MemoryID()}, memoryIDs(pack.MemoryNeedsReview())); diff != "" {
+			t.Fatalf("needs-review memories mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("no accepted memories still reports candidate backlog without trusting it", func(t *testing.T) {
+		t.Parallel()
+
+		session := apptypes.SessionSummaryOf(
+			domtypes.SessionID("session-memory-trust-empty"),
+			domtypes.Workspace("duck8823/traceary"),
+			time.Now().Add(-time.Hour),
+			domtypes.None[time.Time](),
+			"active",
+			1,
+			0,
+			[]string{"claude"},
+			"",
+			"",
+			domtypes.SessionID(""),
+		)
+		candidate := contextPackMemorySummary(t, "memory-candidate-only", domtypes.MemoryStatusCandidate, "Do not trust me yet")
+		memoryQuery := &memoryQueryStub{listResultByStatus: map[domtypes.MemoryStatus][]apptypes.MemorySummary{
+			domtypes.MemoryStatusAccepted:  nil,
+			domtypes.MemoryStatusCandidate: {candidate},
+		}}
+		sut := usecase.NewContextUsecase(
+			&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}},
+			&eventQueryServiceStub{},
+			memoryQuery,
+		)
+
+		got, err := sut.Handoff(
+			context.Background(),
+			apptypes.NewContextPackCriteriaBuilder().
+				SessionID(domtypes.SessionID("session-memory-trust-empty")).
+				Workspace(domtypes.Workspace("duck8823/traceary")).
+				MemoryLimit(5).
+				Build(),
+		)
+		if err != nil {
+			t.Fatalf("Handoff() error = %v", err)
+		}
+		pack, ok := got.Value()
+		if !ok {
+			t.Fatalf("Handoff() returned empty pack")
+		}
+		if len(pack.Memories()) != 0 {
+			t.Fatalf("trusted memories length = %d, want 0", len(pack.Memories()))
+		}
+		if len(pack.MemoryNeedsReview()) != 0 {
+			t.Fatalf("needs-review memories length = %d, want 0 by default", len(pack.MemoryNeedsReview()))
+		}
+		if pack.AcceptedMemoryCount() != 0 || pack.CandidateMemoryCount() != 1 {
+			t.Fatalf("memory counts = accepted %d candidate %d, want 0/1", pack.AcceptedMemoryCount(), pack.CandidateMemoryCount())
+		}
+	})
+
 	t.Run("skips memory lookup when no scopes are available", func(t *testing.T) {
 		t.Parallel()
 
@@ -483,6 +650,38 @@ func TestContextUsecase_Handoff(t *testing.T) {
 			t.Errorf("context pack missing post-compact summary; compact = %q", compact)
 		}
 	})
+}
+
+func contextPackMemorySummary(t *testing.T, id string, status domtypes.MemoryStatus, fact string) apptypes.MemorySummary {
+	t.Helper()
+	now := time.Date(2026, 5, 23, 0, 0, 0, 0, time.UTC)
+	summary, err := apptypes.MemorySummaryOf(
+		domtypes.MemoryID(id),
+		domtypes.MemoryTypeDecision,
+		domtypes.WorkspaceScopeOf(domtypes.Workspace("duck8823/traceary")),
+		fact,
+		status,
+		domtypes.ConfidenceVerified,
+		domtypes.MemorySourceManual,
+		domtypes.None[domtypes.MemoryID](),
+		domtypes.None[time.Time](),
+		now,
+		domtypes.None[time.Time](),
+		now,
+		now,
+	)
+	if err != nil {
+		t.Fatalf("MemorySummaryOf(%s) error = %v", id, err)
+	}
+	return summary
+}
+
+func memoryIDs(memories []apptypes.MemorySummary) []domtypes.MemoryID {
+	ids := make([]domtypes.MemoryID, 0, len(memories))
+	for _, memory := range memories {
+		ids = append(ids, memory.MemoryID())
+	}
+	return ids
 }
 
 func TestContextUsecase_Handoff_WorkspaceFallback(t *testing.T) {

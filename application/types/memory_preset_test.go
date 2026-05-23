@@ -111,3 +111,24 @@ func TestMemoryRetrievalPreset_ExplicitFiltersOverride(t *testing.T) {
 		t.Fatalf("MemoryTypes mismatch (-want +got):\n%s", diff)
 	}
 }
+
+func TestMemoryRetrievalPreset_ApplyMemoryTypeFiltersLeavesStatusUntouched(t *testing.T) {
+	t.Parallel()
+
+	builder := apptypes.NewMemoryListCriteriaBuilder(10).Status(domtypes.MemoryStatusCandidate)
+	criteria := apptypes.MemoryRetrievalPresetReview.
+		ApplyMemoryTypeFiltersToMemoryListCriteriaBuilder(builder).
+		Build()
+
+	if diff := cmp.Diff([]domtypes.MemoryStatus{domtypes.MemoryStatusCandidate}, criteria.Statuses()); diff != "" {
+		t.Fatalf("Statuses mismatch (-want +got):\n%s", diff)
+	}
+	wantTypes := []domtypes.MemoryType{
+		domtypes.MemoryTypeDecision,
+		domtypes.MemoryTypeConstraint,
+		domtypes.MemoryTypeArtifact,
+	}
+	if diff := cmp.Diff(wantTypes, criteria.MemoryTypes()); diff != "" {
+		t.Fatalf("MemoryTypes mismatch (-want +got):\n%s", diff)
+	}
+}

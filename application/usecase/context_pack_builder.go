@@ -77,6 +77,7 @@ func (b *contextPackBuilder) Build(ctx context.Context, criteria apptypes.Contex
 		criteria.Workspace(),
 		criteria.MemoryLimit(),
 		criteria.MemoryPreset(),
+		criteria.IncludeMemoryCandidates(),
 		criteria.MemoryAsOf(),
 	)
 	if err != nil {
@@ -93,8 +94,11 @@ func (b *contextPackBuilder) Build(ctx context.Context, criteria apptypes.Contex
 		session.Agents(),
 		apptypes.WorkingStateOf(session.Summary(), compactSummary),
 		recentCommands,
-		memories,
-	).WithRequestedWorkspace(criteria.Workspace())
+		memories.trusted,
+	).
+		WithRequestedWorkspace(criteria.Workspace()).
+		WithMemoryNeedsReview(memories.needsReview, memories.candidateCount).
+		WithMemoryCounts(memories.acceptedCount, memories.candidateCount)
 	return domtypes.Some(pack), nil
 }
 
@@ -172,44 +176,81 @@ func (b *contextPackBuilder) loadMemories(
 	requestedWorkspace domtypes.Workspace,
 	limit int,
 	preset apptypes.MemoryRetrievalPreset,
+	includeCandidates bool,
 	asOf domtypes.Optional[time.Time],
-) ([]apptypes.MemorySummary, error) {
+) (contextPackMemoryLoad, error) {
 	if b.memoryQuery == nil || limit == 0 {
-		return nil, nil
+		return contextPackMemoryLoad{}, nil
 	}
 
 	scopes := relevantMemoryScopes(session, requestedWorkspace)
 	if len(scopes) == 0 {
-		return nil, nil
+		return contextPackMemoryLoad{}, nil
 	}
 
-	builder := apptypes.NewMemoryListCriteriaBuilder(limit).Scopes(scopes)
+	acceptedBuilder := apptypes.NewMemoryListCriteriaBuilder(limit).Scopes(scopes)
 	if preset != "" {
 		// Preset wins for context packs: callers asked for a specific
 		// retrieval shape (resume / review / incident), so we honor
-		// its Statuses + MemoryTypes defaults. No preset falls back to
-		// the legacy accepted-only behavior so existing clients see
-		// the same pack shape as before.
-		builder = preset.ApplyToMemoryListCriteriaBuilder(builder)
+		// its Statuses + MemoryTypes defaults.
+		acceptedBuilder = preset.ApplyToMemoryListCriteriaBuilder(acceptedBuilder)
 	} else {
-		// Default handoff / get_context surface returns both accepted and
-		// candidate memories so the next session sees pending review
-		// items with a status marker rather than only the curated set.
-		// Callers that want strict accepted-only behavior should pass an
-		// explicit preset (resume / review / incident).
-		builder = builder.Statuses([]domtypes.MemoryStatus{
-			domtypes.MemoryStatusAccepted,
-			domtypes.MemoryStatusCandidate,
-		})
+		// Default handoff / MCP context is accepted-only. Candidate
+		// memories are untrusted backlog and must not be mixed into the
+		// durable-memory context unless the caller opts into the separate
+		// review section.
+		acceptedBuilder = acceptedBuilder.Status(domtypes.MemoryStatusAccepted)
 	}
 	if asOfValue, ok := asOf.Value(); ok {
-		builder = builder.AsOf(asOfValue)
+		acceptedBuilder = acceptedBuilder.AsOf(asOfValue)
 	}
-	memories, err := b.memoryQuery.List(ctx, builder.Build())
+	trusted, err := b.memoryQuery.List(ctx, acceptedBuilder.Build())
 	if err != nil {
-		return nil, xerrors.Errorf("failed to list durable memories for context pack: %w", err)
+		return contextPackMemoryLoad{}, xerrors.Errorf("failed to list accepted durable memories for context pack: %w", err)
 	}
-	return memories, nil
+
+	candidateBuilder := apptypes.NewMemoryListCriteriaBuilder(limit).
+		Scopes(scopes).
+		Status(domtypes.MemoryStatusCandidate).
+		Sources(contextPackCandidateMemorySources())
+	if preset != "" {
+		candidateBuilder = preset.ApplyMemoryTypeFiltersToMemoryListCriteriaBuilder(candidateBuilder)
+	}
+	if asOfValue, ok := asOf.Value(); ok {
+		candidateBuilder = candidateBuilder.AsOf(asOfValue)
+	}
+	candidates, err := b.memoryQuery.List(ctx, candidateBuilder.Build())
+	if err != nil {
+		return contextPackMemoryLoad{}, xerrors.Errorf("failed to list candidate durable memories for context pack: %w", err)
+	}
+
+	needsReview := []apptypes.MemorySummary(nil)
+	if includeCandidates {
+		needsReview = candidates
+	}
+	return contextPackMemoryLoad{
+		trusted:        trusted,
+		needsReview:    needsReview,
+		acceptedCount:  len(trusted),
+		candidateCount: len(candidates),
+	}, nil
+}
+
+type contextPackMemoryLoad struct {
+	trusted        []apptypes.MemorySummary
+	needsReview    []apptypes.MemorySummary
+	acceptedCount  int
+	candidateCount int
+}
+
+func contextPackCandidateMemorySources() []domtypes.MemorySource {
+	return []domtypes.MemorySource{
+		domtypes.MemorySourceManual,
+		domtypes.MemorySourceExtracted,
+		domtypes.MemorySourceRememberIntent,
+		domtypes.MemorySourceCompactSummary,
+		domtypes.MemorySourceImported,
+	}
 }
 
 func relevantMemoryScopes(session apptypes.SessionSummary, requestedWorkspace domtypes.Workspace) []domtypes.MemoryScope {

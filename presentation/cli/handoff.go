@@ -16,16 +16,17 @@ import (
 
 func (c *RootCLI) newSessionHandoffCommand() *cobra.Command {
 	var (
-		dbPath      string
-		sessionID   string
-		repo        string
-		recent      int
-		memories    int
-		preset      string
-		asOf        string
-		compactOnly bool
-		staleAfter  time.Duration
-		allowStale  bool
+		dbPath            string
+		sessionID         string
+		repo              string
+		recent            int
+		memories          int
+		preset            string
+		includeCandidates bool
+		asOf              string
+		compactOnly       bool
+		staleAfter        time.Duration
+		allowStale        bool
 	)
 
 	cmd := &cobra.Command{
@@ -75,26 +76,28 @@ func (c *RootCLI) newSessionHandoffCommand() *cobra.Command {
 					return xerrors.Errorf("%s: %w", Localize("failed to parse --as-of", "--as-of の解析に失敗しました"), err)
 				}
 				return c.printCompactSummaryWithOptions(cmd.Context(), cmd.OutOrStdout(), compactSummaryOptions{
-					sessionID:   resolveOptionalValue(sessionID, "TRACEARY_SESSION_ID", ""),
-					workspace:   resolveWorkspaceValue(cmd.Context(), repo),
-					recentCount: compactRecent,
-					memoryLimit: memoryLimit,
-					preset:      parsedPreset,
-					asOf:        parsedAsOf,
-					staleAfter:  staleAfter,
-					allowStale:  allowStale,
+					sessionID:         resolveOptionalValue(sessionID, "TRACEARY_SESSION_ID", ""),
+					workspace:         resolveWorkspaceValue(cmd.Context(), repo),
+					recentCount:       compactRecent,
+					memoryLimit:       memoryLimit,
+					preset:            parsedPreset,
+					includeCandidates: includeCandidates,
+					asOf:              parsedAsOf,
+					staleAfter:        staleAfter,
+					allowStale:        allowStale,
 				})
 			}
 			return c.runHandoff(cmd.Context(), cmd.OutOrStdout(), handoffCommandInput{
-				dbPath:     dbPath,
-				sessionID:  sessionID,
-				workspace:  repo,
-				recent:     recent,
-				memories:   memories,
-				preset:     preset,
-				asOf:       asOf,
-				staleAfter: staleAfter,
-				allowStale: allowStale,
+				dbPath:            dbPath,
+				sessionID:         sessionID,
+				workspace:         repo,
+				recent:            recent,
+				memories:          memories,
+				preset:            preset,
+				includeCandidates: includeCandidates,
+				asOf:              asOf,
+				staleAfter:        staleAfter,
+				allowStale:        allowStale,
 			})
 		},
 	}
@@ -105,6 +108,7 @@ func (c *RootCLI) newSessionHandoffCommand() *cobra.Command {
 	cmd.Flags().IntVar(&recent, "recent", 5, Localize("number of recent commands to show", "表示する直近コマンド数"))
 	cmd.Flags().IntVar(&memories, "memories", 5, Localize("number of durable memories to include", "含める durable memory 数"))
 	cmd.Flags().StringVar(&preset, "preset", "", Localize("apply a built-in retrieval preset to durable memories (resume | review | incident)", "durable memory 取得に built-in preset を適用する (resume | review | incident)"))
+	cmd.Flags().BoolVar(&includeCandidates, "include-candidates", false, Localize("include candidate durable memories in a separate needs-review section", "candidate durable memory を別の needs-review セクションに含める"))
 	cmd.Flags().StringVar(&asOf, "as-of", "", Localize("evaluate durable memory validity at the given timestamp (RFC3339 or YYYY-MM-DD)", "指定時刻 (RFC3339 または YYYY-MM-DD) の時点で durable memory の validity を評価する"))
 	cmd.Flags().BoolVar(&compactOnly, "compact-only", false, Localize("emit the short prompt-injection summary used on session resume (replaces the v0.8.x compact-summary command); implicitly sets --recent=3 unless --recent is given", "セッション再開時に使う短い prompt-injection summary を出力する (v0.8.x の compact-summary を置き換え); --recent 未指定時は 3 に自動設定"))
 	cmd.Flags().DurationVar(
@@ -119,15 +123,16 @@ func (c *RootCLI) newSessionHandoffCommand() *cobra.Command {
 }
 
 type handoffCommandInput struct {
-	dbPath     string
-	sessionID  string
-	workspace  string
-	recent     int
-	memories   int
-	preset     string
-	asOf       string
-	staleAfter time.Duration
-	allowStale bool
+	dbPath            string
+	sessionID         string
+	workspace         string
+	recent            int
+	memories          int
+	preset            string
+	includeCandidates bool
+	asOf              string
+	staleAfter        time.Duration
+	allowStale        bool
 }
 
 func (c *RootCLI) runHandoff(ctx context.Context, output io.Writer, input handoffCommandInput) error {
@@ -163,6 +168,7 @@ func (c *RootCLI) runHandoff(ctx context.Context, output io.Writer, input handof
 		RecentCommandsLimit(input.recent).
 		MemoryLimit(input.memories).
 		MemoryPreset(preset).
+		IncludeMemoryCandidates(input.includeCandidates).
 		MemoryAsOf(asOf).
 		StaleAfter(input.staleAfter).
 		AllowStale(input.allowStale)
@@ -260,6 +266,14 @@ func writeHandoffText(output io.Writer, result types.Optional[apptypes.ContextPa
 			return xerrors.Errorf("failed to print empty recent-commands item: %w", err)
 		}
 	}
+	if _, err := fmt.Fprintf(
+		output,
+		"MEMORY_COUNTS: accepted=%d candidate=%d\n",
+		pack.AcceptedMemoryCount(),
+		pack.CandidateMemoryCount(),
+	); err != nil {
+		return xerrors.Errorf("failed to print memory counts: %w", err)
+	}
 	if _, err := fmt.Fprintln(output, "MEMORIES:"); err != nil {
 		return xerrors.Errorf("failed to print memories heading: %w", err)
 	}
@@ -287,6 +301,28 @@ func writeHandoffText(output io.Writer, result types.Optional[apptypes.ContextPa
 	if len(pack.Memories()) == 0 {
 		if _, err := fmt.Fprintln(output, "-"); err != nil {
 			return xerrors.Errorf("failed to print empty memories item: %w", err)
+		}
+	}
+	if pack.CandidateMemoryCount() > 0 {
+		if _, err := fmt.Fprintln(output, "MEMORY_NEEDS_REVIEW:"); err != nil {
+			return xerrors.Errorf("failed to print memory needs-review heading: %w", err)
+		}
+		for _, memory := range pack.MemoryNeedsReview() {
+			if _, err := fmt.Fprintf(
+				output,
+				"- [%s][%s:%s] %s\n",
+				memory.MemoryType(),
+				memory.Scope().Kind(),
+				memory.Scope().Key(),
+				memory.Fact(),
+			); err != nil {
+				return xerrors.Errorf("failed to print handoff memory candidate: %w", err)
+			}
+		}
+		if len(pack.MemoryNeedsReview()) == 0 {
+			if _, err := fmt.Fprintln(output, "- (candidate backlog omitted; pass --include-candidates to review)"); err != nil {
+				return xerrors.Errorf("failed to print omitted memory candidates hint: %w", err)
+			}
 		}
 	}
 
