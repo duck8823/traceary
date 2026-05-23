@@ -152,6 +152,8 @@ type sessionHandoffInput struct {
 	MemoryLimit         *int   `json:"memory_limit,omitempty" jsonschema:"maximum durable memories to include (default: 5; explicit 0 disables durable memories)"`
 	Preset              string `json:"preset,omitempty" jsonschema:"built-in retrieval preset applied to durable memories: resume | review | incident"`
 	AsOf                string `json:"as_of,omitempty" jsonschema:"evaluate durable memory validity at this timestamp (YYYY-MM-DD or RFC3339); defaults to now"`
+	AllowStale          bool   `json:"allow_stale,omitempty" jsonschema:"allow stale active sessions"`
+	StaleAfterSeconds   int    `json:"stale_after_seconds,omitempty" jsonschema:"mark active sessions older than this many seconds as stale (0 or omitted: 86400)"`
 }
 
 // memoryPackInput is the MCP input for the memory_pack tool.

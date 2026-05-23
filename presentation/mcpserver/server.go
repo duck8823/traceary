@@ -315,7 +315,7 @@ func (s *Server) sessionStatus() mcp.ToolHandlerFor[sessionActionInput, any] {
 			_, out, err := s.latestSession()(ctx, req, sessionLookupInput{Client: input.Client, Agent: input.Agent, Workspace: input.Workspace, AllowStale: input.AllowStale, StaleAfterSeconds: input.StaleAfterSeconds})
 			return nil, out, err
 		case "handoff":
-			_, out, err := s.sessionHandoff()(ctx, req, sessionHandoffInput{SessionID: input.SessionID, Workspace: input.Workspace, RecentCommandsLimit: input.RecentCommandsLimit, MemoryLimit: input.MemoryLimit, Preset: input.Preset, AsOf: input.AsOf})
+			_, out, err := s.sessionHandoff()(ctx, req, sessionHandoffInput{SessionID: input.SessionID, Workspace: input.Workspace, RecentCommandsLimit: input.RecentCommandsLimit, MemoryLimit: input.MemoryLimit, Preset: input.Preset, AsOf: input.AsOf, AllowStale: input.AllowStale, StaleAfterSeconds: input.StaleAfterSeconds})
 			return nil, out, err
 		case "lineage":
 			out, err := s.sessionLineage(ctx, input.SessionID)
@@ -655,6 +655,10 @@ func (s *Server) sessionHandoff() mcp.ToolHandlerFor[sessionHandoffInput, sessio
 		if err != nil {
 			return nil, sessionHandoffOutput{}, xerrors.Errorf("failed to parse as_of: %w", err)
 		}
+		staleAfter, err := resolveContextPackStaleAfter(input.StaleAfterSeconds)
+		if err != nil {
+			return nil, sessionHandoffOutput{}, err
+		}
 		result, err := s.context.Handoff(ctx, buildContextPackCriteria(
 			input.SessionID,
 			input.Workspace,
@@ -662,6 +666,8 @@ func (s *Server) sessionHandoff() mcp.ToolHandlerFor[sessionHandoffInput, sessio
 			input.MemoryLimit,
 			preset,
 			asOf,
+			input.AllowStale,
+			staleAfter,
 		))
 		if err != nil {
 			return nil, sessionHandoffOutput{}, xerrors.Errorf("failed to get session handoff: %w", err)
@@ -693,6 +699,8 @@ func (s *Server) memoryPack() mcp.ToolHandlerFor[memoryPackInput, memoryPackOutp
 			input.MemoryLimit,
 			preset,
 			asOf,
+			false,
+			0,
 		))
 		if err != nil {
 			return nil, memoryPackOutput{}, xerrors.Errorf("failed to build memory pack: %w", err)
@@ -1203,10 +1211,22 @@ func (s *Server) setMemoryValidity() mcp.ToolHandlerFor[setMemoryValidityInput, 
 	}
 }
 
-func buildContextPackCriteria(sessionID string, workspace string, recentCommandsLimit *int, memoryLimit *int, preset apptypes.MemoryRetrievalPreset, asOf types.Optional[time.Time]) apptypes.ContextPackCriteria {
+func resolveContextPackStaleAfter(staleAfterSeconds int) (time.Duration, error) {
+	if staleAfterSeconds < 0 {
+		return 0, xerrors.Errorf("stale_after_seconds must be greater than or equal to 0")
+	}
+	if staleAfterSeconds == 0 {
+		return defaultActiveStaleAfter, nil
+	}
+	return time.Duration(staleAfterSeconds) * time.Second, nil
+}
+
+func buildContextPackCriteria(sessionID string, workspace string, recentCommandsLimit *int, memoryLimit *int, preset apptypes.MemoryRetrievalPreset, asOf types.Optional[time.Time], allowStale bool, staleAfter time.Duration) apptypes.ContextPackCriteria {
 	builder := apptypes.NewContextPackCriteriaBuilder().
 		SessionID(types.SessionID(strings.TrimSpace(sessionID))).
-		Workspace(types.Workspace(strings.TrimSpace(workspace)))
+		Workspace(types.Workspace(strings.TrimSpace(workspace))).
+		AllowStale(allowStale).
+		StaleAfter(staleAfter)
 	if recentCommandsLimit != nil {
 		builder.RecentCommandsLimit(*recentCommandsLimit)
 	}

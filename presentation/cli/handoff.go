@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
@@ -23,6 +24,8 @@ func (c *RootCLI) newSessionHandoffCommand() *cobra.Command {
 		preset      string
 		asOf        string
 		compactOnly bool
+		staleAfter  time.Duration
+		allowStale  bool
 	)
 
 	cmd := &cobra.Command{
@@ -78,16 +81,20 @@ func (c *RootCLI) newSessionHandoffCommand() *cobra.Command {
 					memoryLimit: memoryLimit,
 					preset:      parsedPreset,
 					asOf:        parsedAsOf,
+					staleAfter:  staleAfter,
+					allowStale:  allowStale,
 				})
 			}
 			return c.runHandoff(cmd.Context(), cmd.OutOrStdout(), handoffCommandInput{
-				dbPath:    dbPath,
-				sessionID: sessionID,
-				workspace: repo,
-				recent:    recent,
-				memories:  memories,
-				preset:    preset,
-				asOf:      asOf,
+				dbPath:     dbPath,
+				sessionID:  sessionID,
+				workspace:  repo,
+				recent:     recent,
+				memories:   memories,
+				preset:     preset,
+				asOf:       asOf,
+				staleAfter: staleAfter,
+				allowStale: allowStale,
 			})
 		},
 	}
@@ -100,18 +107,27 @@ func (c *RootCLI) newSessionHandoffCommand() *cobra.Command {
 	cmd.Flags().StringVar(&preset, "preset", "", Localize("apply a built-in retrieval preset to durable memories (resume | review | incident)", "durable memory 取得に built-in preset を適用する (resume | review | incident)"))
 	cmd.Flags().StringVar(&asOf, "as-of", "", Localize("evaluate durable memory validity at the given timestamp (RFC3339 or YYYY-MM-DD)", "指定時刻 (RFC3339 または YYYY-MM-DD) の時点で durable memory の validity を評価する"))
 	cmd.Flags().BoolVar(&compactOnly, "compact-only", false, Localize("emit the short prompt-injection summary used on session resume (replaces the v0.8.x compact-summary command); implicitly sets --recent=3 unless --recent is given", "セッション再開時に使う短い prompt-injection summary を出力する (v0.8.x の compact-summary を置き換え); --recent 未指定時は 3 に自動設定"))
+	cmd.Flags().DurationVar(
+		&staleAfter,
+		"stale-after",
+		defaultActiveSessionStaleAfter,
+		Localize("treat unended sessions older than this duration as stale", "この duration を超える未終了 session は stale とみなす"),
+	)
+	cmd.Flags().BoolVar(&allowStale, "allow-stale", false, Localize("allow stale active sessions to be selected", "stale な active session の選択を許可する"))
 
 	return cmd
 }
 
 type handoffCommandInput struct {
-	dbPath    string
-	sessionID string
-	workspace string
-	recent    int
-	memories  int
-	preset    string
-	asOf      string
+	dbPath     string
+	sessionID  string
+	workspace  string
+	recent     int
+	memories   int
+	preset     string
+	asOf       string
+	staleAfter time.Duration
+	allowStale bool
 }
 
 func (c *RootCLI) runHandoff(ctx context.Context, output io.Writer, input handoffCommandInput) error {
@@ -140,19 +156,40 @@ func (c *RootCLI) runHandoff(ctx context.Context, output io.Writer, input handof
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to parse --as-of", "--as-of の解析に失敗しました"), err)
 	}
-	result, err := c.context.Handoff(
-		ctx,
-		apptypes.NewContextPackCriteriaBuilder().
-			SessionID(types.SessionID(resolveOptionalValue(input.sessionID, "TRACEARY_SESSION_ID", ""))).
-			Workspace(types.Workspace(resolvedWorkspace)).
-			RecentCommandsLimit(input.recent).
-			MemoryLimit(input.memories).
-			MemoryPreset(preset).
-			MemoryAsOf(asOf).
-			Build(),
-	)
+	resolvedSessionID := types.SessionID(resolveOptionalValue(input.sessionID, "TRACEARY_SESSION_ID", ""))
+	baseBuilder := apptypes.NewContextPackCriteriaBuilder().
+		SessionID(resolvedSessionID).
+		Workspace(types.Workspace(resolvedWorkspace)).
+		RecentCommandsLimit(input.recent).
+		MemoryLimit(input.memories).
+		MemoryPreset(preset).
+		MemoryAsOf(asOf).
+		StaleAfter(input.staleAfter).
+		AllowStale(input.allowStale)
+	result, err := c.context.Handoff(ctx, baseBuilder.Build())
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to build handoff summary", "handoff サマリーの構築に失敗しました"), err)
+	}
+
+	if _, ok := result.Value(); !ok && !input.allowStale && input.staleAfter > 0 {
+		// The builder may have skipped a stale active session. Re-query
+		// with allowStale=true so we can surface a specific hint instead
+		// of the generic "no matching session" message — this is only a
+		// best-effort lookup; an error here falls through to the empty
+		// output below so the user still sees a reasonable response.
+		recheck, recheckErr := c.context.Handoff(ctx, baseBuilder.AllowStale(true).Build())
+		if recheckErr == nil {
+			if pack, ok := recheck.Value(); ok {
+				return xerrors.Errorf(
+					Localize(
+						"active session %s is older than %s and considered stale; pass --allow-stale or close it with session end",
+						"active session %s は %s を超えており stale です。--allow-stale を指定するか session end で閉じてください",
+					),
+					pack.SessionID(),
+					input.staleAfter,
+				)
+			}
+		}
 	}
 
 	return writeHandoffText(output, result)

@@ -247,10 +247,17 @@ type contextUsecaseStub struct {
 	handoff      types.Optional[apptypes.ContextPack]
 	handoffErr   error
 	handoffCalls []apptypes.ContextPackCriteria
+	// handoffFn, when set, overrides the static handoff/handoffErr fields
+	// so a test can vary the response across calls (e.g. the handoff
+	// re-query that distinguishes stale-skip from missing-session).
+	handoffFn func(apptypes.ContextPackCriteria) (types.Optional[apptypes.ContextPack], error)
 }
 
 func (s *contextUsecaseStub) Handoff(_ context.Context, criteria apptypes.ContextPackCriteria) (types.Optional[apptypes.ContextPack], error) {
 	s.handoffCalls = append(s.handoffCalls, criteria)
+	if s.handoffFn != nil {
+		return s.handoffFn(criteria)
+	}
 	return s.handoff, s.handoffErr
 }
 
@@ -506,6 +513,10 @@ type storeManagementUsecaseStub struct {
 	gcErr           error
 	staleResult     apptypes.CloseStaleSessionsResult
 	staleErr        error
+	staleCalls      []struct {
+		staleAfter time.Duration
+		dryRun     bool
+	}
 }
 
 func (s *storeManagementUsecaseStub) Initialize(_ context.Context) error {
@@ -521,6 +532,10 @@ func (s *storeManagementUsecaseStub) RestoreBackup(_ context.Context, _ string, 
 func (s *storeManagementUsecaseStub) CollectGarbage(_ context.Context, _ time.Time, _ apptypes.GarbageCollectionTarget, _ bool) (apptypes.CollectGarbageResult, error) {
 	return s.gcResult, s.gcErr
 }
-func (s *storeManagementUsecaseStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool) (apptypes.CloseStaleSessionsResult, error) {
+func (s *storeManagementUsecaseStub) CloseStaleSessions(_ context.Context, staleAfter time.Duration, dryRun bool) (apptypes.CloseStaleSessionsResult, error) {
+	s.staleCalls = append(s.staleCalls, struct {
+		staleAfter time.Duration
+		dryRun     bool
+	}{staleAfter: staleAfter, dryRun: dryRun})
 	return s.staleResult, s.staleErr
 }

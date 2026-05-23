@@ -99,6 +99,12 @@ type topSnapshotStale struct {
 // independent from sessionTreeNode so the top contract can carry
 // latest_event_* fields without reshaping the session tree contract
 // that other consumers depend on.
+//
+// IsStale / StaleAfterSec / StaleAgeSec were added in v0.16.0 so script
+// consumers can distinguish a fresh active session from one that has
+// been abandoned beyond the configured stale threshold. The fields are
+// optional — they only appear when the node is in the stale-active
+// state, so existing tooling that does not yet read them is unaffected.
 type topSnapshotNode struct {
 	SessionID          string             `json:"session_id"`
 	ParentSessionID    string             `json:"parent_session_id,omitempty"`
@@ -120,6 +126,9 @@ type topSnapshotNode struct {
 	CommandCount       int                `json:"command_count"`
 	Agents             []string           `json:"agents"`
 	SubagentType       string             `json:"subagent_type,omitempty"`
+	IsStale            bool               `json:"is_stale,omitempty"`
+	StaleAfterSec      *float64           `json:"stale_after_seconds,omitempty"`
+	StaleAgeSec        *float64           `json:"stale_age_seconds,omitempty"`
 	Children           []*topSnapshotNode `json:"children"`
 }
 

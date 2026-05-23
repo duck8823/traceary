@@ -2,6 +2,7 @@ package cli
 
 import (
 	"io"
+	"time"
 )
 
 // writeTopSnapshotJSON renders the top dashboard snapshot as the
@@ -11,9 +12,16 @@ import (
 // mirror the new dashboard panes so a script that consumes the snapshot has
 // the same data the live dashboard renders.
 func writeTopSnapshotJSON(output io.Writer, snap topDataSnapshot) error {
+	staleCtx := snapshotStaleContext{
+		staleAfter: snap.StaleAfter,
+		now:        snap.Now,
+	}
+	if staleCtx.now.IsZero() {
+		staleCtx.now = time.Now()
+	}
 	sessions := make([]*topSnapshotNode, 0, len(snap.Sessions))
 	for _, root := range snap.Sessions {
-		sessions = append(sessions, topSnapshotNodeFromSessionNode(root, 0))
+		sessions = append(sessions, topSnapshotNodeFromSessionNode(root, 0, staleCtx))
 	}
 
 	failures := make([]event, 0, len(snap.Failures))
@@ -52,11 +60,19 @@ func writeTopSnapshotJSON(output io.Writer, snap topDataSnapshot) error {
 	return writeJSON(output, payload)
 }
 
-func topSnapshotNodeFromSessionNode(node *sessionNode, depth int) *topSnapshotNode {
-	return topSnapshotNodeFromSessionNodeWithVisited(node, depth, map[string]bool{})
+// snapshotStaleContext carries the per-snapshot stale-evaluation inputs
+// down through the recursive JSON encoder so each node can report its
+// own is_stale state without re-reading from globals.
+type snapshotStaleContext struct {
+	staleAfter time.Duration
+	now        time.Time
 }
 
-func topSnapshotNodeFromSessionNodeWithVisited(node *sessionNode, depth int, visited map[string]bool) *topSnapshotNode {
+func topSnapshotNodeFromSessionNode(node *sessionNode, depth int, staleCtx snapshotStaleContext) *topSnapshotNode {
+	return topSnapshotNodeFromSessionNodeWithVisited(node, depth, map[string]bool{}, staleCtx)
+}
+
+func topSnapshotNodeFromSessionNodeWithVisited(node *sessionNode, depth int, visited map[string]bool, staleCtx snapshotStaleContext) *topSnapshotNode {
 	s := node.summary
 	jn := &topSnapshotNode{
 		SessionID:          s.SessionID().String(),
@@ -87,13 +103,23 @@ func topSnapshotNodeFromSessionNodeWithVisited(node *sessionNode, depth int, vis
 		secs := endedAt.Sub(s.StartedAt()).Seconds()
 		jn.DurationSec = &secs
 	}
+	if topDataSummaryIsStale(s, staleCtx.staleAfter, staleCtx.now) {
+		jn.IsStale = true
+		staleAfterSec := staleCtx.staleAfter.Seconds()
+		jn.StaleAfterSec = &staleAfterSec
+		staleAgeSec := staleCtx.now.Sub(s.StartedAt()).Seconds() - staleAfterSec
+		if staleAgeSec < 0 {
+			staleAgeSec = 0
+		}
+		jn.StaleAgeSec = &staleAgeSec
+	}
 	if visited[s.SessionID().String()] {
 		jn.Status = "cycle-detected"
 		return jn
 	}
 	visited[s.SessionID().String()] = true
 	for _, child := range node.children {
-		jn.Children = append(jn.Children, topSnapshotNodeFromSessionNodeWithVisited(child, depth+1, visited))
+		jn.Children = append(jn.Children, topSnapshotNodeFromSessionNodeWithVisited(child, depth+1, visited, staleCtx))
 	}
 	delete(visited, s.SessionID().String())
 	return jn

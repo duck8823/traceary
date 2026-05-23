@@ -566,11 +566,13 @@ func (m topModel) fetchSnapshotCmd() tea.Cmd {
 	ctx := m.loaderCtx
 	now := m.now
 	return func() tea.Msg {
+		at := now()
+		criteria.Now = at
 		if loader == nil {
-			return topSnapshotMsg{at: now()}
+			return topSnapshotMsg{at: at}
 		}
 		snap, err := loader.loadSnapshot(ctx, criteria)
-		return topSnapshotMsg{snapshot: snap, at: now(), err: err}
+		return topSnapshotMsg{snapshot: snap, at: at, err: err}
 	}
 }
 

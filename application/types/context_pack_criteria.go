@@ -19,6 +19,8 @@ type ContextPackCriteria struct {
 	memoryLimit         int
 	memoryPreset        MemoryRetrievalPreset
 	memoryAsOf          domtypes.Optional[time.Time]
+	allowStale          bool
+	staleAfter          time.Duration
 }
 
 // SessionID returns the target session filter.
@@ -44,6 +46,16 @@ func (c ContextPackCriteria) MemoryPreset() MemoryRetrievalPreset { return c.mem
 // was valid at time T" instead of "what is valid now". None (the
 // default) evaluates validity against the current time.
 func (c ContextPackCriteria) MemoryAsOf() domtypes.Optional[time.Time] { return c.memoryAsOf }
+
+// AllowStale reports whether stale active sessions are eligible for
+// selection. Defaults to false so the handoff does not silently surface
+// an abandoned session as the current working context.
+func (c ContextPackCriteria) AllowStale() bool { return c.allowStale }
+
+// StaleAfter returns the duration after which an unended session is
+// treated as stale. A zero or negative value disables the stale check
+// (matching the historical behavior of the builder).
+func (c ContextPackCriteria) StaleAfter() time.Duration { return c.staleAfter }
 
 // ContextPackCriteriaBuilder builds a ContextPackCriteria value.
 type ContextPackCriteriaBuilder struct {
@@ -95,6 +107,22 @@ func (b *ContextPackCriteriaBuilder) MemoryPreset(preset MemoryRetrievalPreset) 
 // any previously-set value and evaluate validity against "now".
 func (b *ContextPackCriteriaBuilder) MemoryAsOf(asOf domtypes.Optional[time.Time]) *ContextPackCriteriaBuilder {
 	b.criteria.memoryAsOf = asOf
+	return b
+}
+
+// AllowStale opts the caller in to stale active sessions. When false
+// (the default), the builder skips a session whose start is older than
+// StaleAfter so the handoff does not silently surface an abandoned
+// session as the current working context.
+func (b *ContextPackCriteriaBuilder) AllowStale(allow bool) *ContextPackCriteriaBuilder {
+	b.criteria.allowStale = allow
+	return b
+}
+
+// StaleAfter sets the duration after which an unended session is
+// treated as stale. A zero or negative value disables the stale check.
+func (b *ContextPackCriteriaBuilder) StaleAfter(staleAfter time.Duration) *ContextPackCriteriaBuilder {
+	b.criteria.staleAfter = staleAfter
 	return b
 }
 

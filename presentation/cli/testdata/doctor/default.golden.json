@@ -45,6 +45,16 @@
       "auto_fix_available": false
     },
     {
+      "name": "stale-active-sessions",
+      "status": "pass",
+      "severity": "PASS",
+      "section": "Database",
+      "message": "no active sessions older than 24h0m0s",
+      "hint": "",
+      "fix_command": "",
+      "auto_fix_available": false
+    },
+    {
       "name": "project-dir",
       "status": "pass",
       "severity": "PASS",
@@ -163,6 +173,16 @@
           "hint": "",
           "fix_command": "",
           "auto_fix_available": false
+        },
+        {
+          "name": "stale-active-sessions",
+          "status": "pass",
+          "severity": "PASS",
+          "section": "Database",
+          "message": "no active sessions older than 24h0m0s",
+          "hint": "",
+          "fix_command": "",
+          "auto_fix_available": false
         }
       ]
     },
@@ -212,7 +232,7 @@
     }
   ],
   "summary": {
-    "pass": 7,
+    "pass": 8,
     "warn": 2,
     "fail": 0
   },

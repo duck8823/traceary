@@ -156,6 +156,188 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("default propagates the 24h stale threshold to the criteria", func(t *testing.T) {
+		t.Parallel()
+
+		ctxStub := &contextUsecaseStub{
+			handoff: types.Some(apptypes.ContextPackOf(
+				types.SessionID("session-fresh"),
+				types.Workspace("duck8823/traceary"),
+				"",
+				"active",
+				1,
+				0,
+				nil,
+				apptypes.WorkingStateOf("", ""),
+				nil,
+				nil,
+			)),
+		}
+
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithContext(ctxStub),
+		).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"session", "handoff", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		if len(ctxStub.handoffCalls) == 0 {
+			t.Fatalf("expected at least one Handoff call")
+		}
+		first := ctxStub.handoffCalls[0]
+		if first.AllowStale() {
+			t.Fatalf("default AllowStale = true, want false")
+		}
+		if got, want := first.StaleAfter(), 24*time.Hour; got != want {
+			t.Fatalf("default StaleAfter = %s, want %s", got, want)
+		}
+	})
+
+	t.Run("default skips a stale active session and surfaces a hint", func(t *testing.T) {
+		t.Parallel()
+
+		stalePack := apptypes.ContextPackOf(
+			types.SessionID("session-stale"),
+			types.Workspace("duck8823/traceary"),
+			"",
+			"active",
+			3,
+			1,
+			nil,
+			apptypes.WorkingStateOf("", ""),
+			nil,
+			nil,
+		)
+		// First call (AllowStale=false) returns None to simulate the
+		// builder skipping a stale active session; the re-query
+		// (AllowStale=true) returns the stale pack so the CLI can
+		// surface a targeted hint.
+		ctxStub := &contextUsecaseStub{
+			handoffFn: func(criteria apptypes.ContextPackCriteria) (types.Optional[apptypes.ContextPack], error) {
+				if criteria.AllowStale() {
+					return types.Some(stalePack), nil
+				}
+				return types.None[apptypes.ContextPack](), nil
+			},
+		}
+
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithContext(ctxStub),
+		).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"session", "handoff", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
+
+		err := rootCmd.Execute()
+		if err == nil {
+			t.Fatalf("Execute() error = nil, want stale-active-session error")
+		}
+		if !strings.Contains(err.Error(), "session-stale") || !strings.Contains(err.Error(), "--allow-stale") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(ctxStub.handoffCalls) != 2 {
+			t.Fatalf("expected 2 Handoff calls (first + recheck), got %d", len(ctxStub.handoffCalls))
+		}
+		if ctxStub.handoffCalls[0].AllowStale() {
+			t.Fatalf("first call AllowStale = true, want false")
+		}
+		if !ctxStub.handoffCalls[1].AllowStale() {
+			t.Fatalf("recheck AllowStale = false, want true")
+		}
+	})
+
+	t.Run("--allow-stale opts in and surfaces the stale session directly", func(t *testing.T) {
+		t.Parallel()
+
+		stalePack := apptypes.ContextPackOf(
+			types.SessionID("session-stale"),
+			types.Workspace("duck8823/traceary"),
+			"",
+			"active",
+			0,
+			0,
+			nil,
+			apptypes.WorkingStateOf("", ""),
+			nil,
+			nil,
+		)
+		ctxStub := &contextUsecaseStub{
+			handoff: types.Some(stalePack),
+		}
+
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithContext(ctxStub),
+		).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{
+			"session", "handoff",
+			"--db-path", filepath.Join(t.TempDir(), "traceary.db"),
+			"--allow-stale",
+			"--stale-after", "1h",
+		})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		if !strings.Contains(stdout.String(), "SESSION_ID: session-stale") {
+			t.Fatalf("expected stale session to be rendered under --allow-stale:\n%s", stdout.String())
+		}
+		if len(ctxStub.handoffCalls) != 1 {
+			t.Fatalf("expected exactly 1 Handoff call (no recheck under --allow-stale), got %d", len(ctxStub.handoffCalls))
+		}
+		first := ctxStub.handoffCalls[0]
+		if !first.AllowStale() {
+			t.Fatalf("AllowStale = false, want true after --allow-stale")
+		}
+		if got, want := first.StaleAfter(), time.Hour; got != want {
+			t.Fatalf("StaleAfter = %s, want %s", got, want)
+		}
+	})
+
+	t.Run("ended session passes through without rechecking", func(t *testing.T) {
+		t.Parallel()
+
+		ctxStub := &contextUsecaseStub{
+			handoff: types.Some(apptypes.ContextPackOf(
+				types.SessionID("session-ended"),
+				types.Workspace("duck8823/traceary"),
+				"",
+				"ended",
+				5,
+				0,
+				nil,
+				apptypes.WorkingStateOf("done", ""),
+				nil,
+				nil,
+			)),
+		}
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithContext(ctxStub),
+		).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"session", "handoff", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		if len(ctxStub.handoffCalls) != 1 {
+			t.Fatalf("expected 1 Handoff call when session is returned, got %d", len(ctxStub.handoffCalls))
+		}
+	})
+
 	t.Run("session handoff subcommand reuses the same structured output", func(t *testing.T) {
 		t.Parallel()
 
