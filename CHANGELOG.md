@@ -5,6 +5,26 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.18.0] - 2026-05-24
+
+### Added
+- **Reference-driven cockpit UX baseline (#1035)** — added bilingual design documentation that audits the v0.17 cockpit against mature terminal UI patterns, defines the v0.18 information architecture, and records the global navigation, state-feedback, and release acceptance rules for the operator console.
+- **Persistent cockpit navigation shell (#1040)** — `traceary tui` now has numbered global sections for Home, Live, Doctor, Memory, Sessions, and Settings, with visible section chrome, tab / shift-tab navigation, and `Esc` as an in-cockpit back action while `q` / Ctrl-C remain quit shortcuts.
+- **Discoverable contextual actions (#1041)** — the `?` help overlay now renders a contextual action menu for the current cockpit screen, hiding unavailable shortcuts and surfacing the valid next actions for Live details, Doctor remediation, Memory review, Sessions, and Settings.
+- **Actionable Home triage board (#1043)** — the cockpit Home screen now prioritizes operator attention cards for problems, new activity, memory inbox state, active sessions, recent failures, and health, with explicit next-action targets instead of raw count dumps.
+- **Cockpit dogfood snapshots and release checklist (#1044)** — added golden snapshots, keyboard-path tests, terminal-size smoke coverage, and bilingual manual dogfood checklists so cockpit regressions are caught before release.
+- **Japanese cockpit UI (#1045)** — localized cockpit navigation, Home cards, footer/help copy, Doctor/Live/Sessions surfaces, and Memory review decision guidance while keeping command names copyable in English.
+- **Cockpit Settings section (#1046)** — added a `6 Settings` cockpit section that shows config path/status, environment override diagnostics, read-only preset/rule summaries, and safe staged updates for `ui.language`, `read.color`, `read.fields`, and validated `redact.extra_patterns` writes.
+
+### Changed
+- **Memory review decisions are evidence-first (#1042)** — the cockpit Memory review flow now shows source, confidence, quality signals, evidence/artifact counts, candidate age, duplicate/supersede hints, and an accept-as-is checklist before accepting candidate memories. Low-confidence and `extracted-hidden` candidates require an extra accept confirmation.
+- **CLI language precedence is configurable (#1046)** — operator-facing CLI/TUI language selection now follows `TRACEARY_LANG` > config `ui.language` > built-in English, and saving Settings refreshes the current cockpit language when no environment override is set.
+
+### Notes
+- v0.18.0 has no SQLite schema migration and no new MCP tools.
+- Existing script-friendly commands such as `traceary top`, `traceary tail`, `traceary doctor`, `traceary session handoff`, and `traceary memory inbox review` remain available; the cockpit is the discoverable operator console layered on top of those surfaces.
+- Settings writes are conservative: invalid or unreadable config JSON is not overwritten, regex additions are validated before staging, and writes use atomic replacement.
+
 ## [v0.17.1] - 2026-05-23
 
 ### Fixed

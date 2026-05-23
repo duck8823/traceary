@@ -5,6 +5,26 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.18.0] - 2026-05-24
+
+### Added
+- **reference に基づく cockpit UX baseline (#1035)** — v0.17 cockpit を成熟した terminal UI pattern と比較して監査し、v0.18 の情報設計、global navigation、状態 feedback、release acceptance rule を定義する bilingual design doc を追加しました。
+- **永続的な cockpit navigation shell (#1040)** — `traceary tui` に Home / Live / Doctor / Memory / Sessions / Settings の番号付き global section を追加し、常時見える section chrome、tab / shift-tab navigation、cockpit 内の `Esc` back、`q` / Ctrl-C quit を整理しました。
+- **discoverable な contextual actions (#1041)** — `?` help overlay が現在の cockpit screen に応じた action menu を表示するようになりました。使えない shortcut は隠し、Live detail、Doctor remediation、Memory review、Sessions、Settings の有効な next action だけを案内します。
+- **actionable な Home triage board (#1043)** — cockpit Home は raw count dump ではなく、problems、新着 activity、memory inbox、active sessions、recent failures、health を優先度付き card と next-action target で表示します。
+- **cockpit dogfood snapshots と release checklist (#1044)** — golden snapshot、keyboard path test、terminal-size smoke、bilingual manual dogfood checklist を追加し、cockpit regression を release 前に検出できるようにしました。
+- **日本語 cockpit UI (#1045)** — command 名は copy しやすい英語のまま残しつつ、cockpit navigation、Home card、footer/help、Doctor/Live/Sessions、Memory review decision guidance を日本語化しました。
+- **cockpit Settings section (#1046)** — `6 Settings` cockpit section を追加し、config path/status、environment override diagnostics、read-only preset/rule summary、`ui.language` / `read.color` / `read.fields` / 検証済み `redact.extra_patterns` の staged safe update を扱えるようにしました。
+
+### Changed
+- **Memory review decision を evidence-first に変更 (#1042)** — cockpit Memory review は candidate memory を accept する前に source、confidence、quality signals、evidence/artifact count、candidate age、duplicate/supersede hint、accept-as-is checklist を表示します。low-confidence と `extracted-hidden` candidate は追加の accept confirmation が必要です。
+- **CLI language precedence を config 可能に変更 (#1046)** — operator-facing CLI/TUI language は `TRACEARY_LANG` > config `ui.language` > built-in English の順で決まります。環境変数 override が無い場合、Settings 保存後に現在の cockpit language も更新します。
+
+### Notes
+- v0.18.0 には SQLite schema migration と新しい MCP tool はありません。
+- `traceary top`、`traceary tail`、`traceary doctor`、`traceary session handoff`、`traceary memory inbox review` などの script-friendly command は引き続き利用できます。cockpit はそれらの surface の上に載る discoverable な operator console です。
+- Settings write は conservative です。invalid / unreadable な config JSON は上書きせず、regex 追加は staging 前に検証し、write は atomic replacement で行います。
+
 ## [v0.17.1] - 2026-05-23
 
 ### Fixed
