@@ -125,6 +125,37 @@ func TestMemoryInboxList_SourceFilterPropagatesToCriteria(t *testing.T) {
 	}
 }
 
+func TestMemoryInboxList_RememberIntentShortcut(t *testing.T) {
+	t.Parallel()
+
+	remember := buildInboxCandidateDetails(t, "memory-remember", "Remember that release PRs need smoke tests", domtypes.MemorySourceRememberIntent)
+	memoryStub := &memoryUsecaseStub{
+		listResult: []apptypes.MemorySummary{remember.Summary()},
+		showDetailsByID: map[domtypes.MemoryID]apptypes.MemoryDetails{
+			remember.Summary().MemoryID(): remember,
+		},
+	}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	stdout := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"memory", "inbox", "list", "--remember-intent", "--db-path", t.TempDir() + "/t.db"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	sources := memoryStub.listCriteria.Sources()
+	if len(sources) != 1 || sources[0] != domtypes.MemorySourceRememberIntent {
+		t.Fatalf("--remember-intent sources = %v, want [remember-intent]", sources)
+	}
+	if !strings.Contains(stdout.String(), "memory-remember") {
+		t.Fatalf("remember-intent candidate missing from output:\n%s", stdout.String())
+	}
+}
+
 func TestMemoryInboxList_AgeAndQualityFilters(t *testing.T) {
 	t.Parallel()
 

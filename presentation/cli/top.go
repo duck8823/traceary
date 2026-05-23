@@ -240,7 +240,7 @@ func writeTopSnapshotText(output io.Writer, snap topDataSnapshot, idle time.Dura
 	if err := writeTopSnapshotTextEvents(output, "RECENT COMMANDS", snap.RecentCommands, now.Location()); err != nil {
 		return err
 	}
-	if err := writeTopSnapshotTextCandidates(output, snap.Candidates); err != nil {
+	if err := writeTopSnapshotTextCandidates(output, snap.Candidates, snap.RememberIntentCandidateCount); err != nil {
 		return err
 	}
 	return writeTopSnapshotTextStaleMemories(output, snap.StaleMemories)
@@ -283,8 +283,8 @@ func writeTopSnapshotTextEvents(output io.Writer, header string, events []*model
 	return nil
 }
 
-func writeTopSnapshotTextCandidates(output io.Writer, candidates []apptypes.MemorySummary) error {
-	if _, err := fmt.Fprintf(output, "\nCANDIDATE MEMORIES (count=%d):\n", len(candidates)); err != nil {
+func writeTopSnapshotTextCandidates(output io.Writer, candidates []apptypes.MemorySummary, rememberIntentCount int) error {
+	if _, err := fmt.Fprintf(output, "\nCANDIDATE MEMORIES (count=%d remember_intent=%d):\n", len(candidates), rememberIntentCount); err != nil {
 		return xerrors.Errorf("failed to print candidates header: %w", err)
 	}
 	if len(candidates) == 0 {

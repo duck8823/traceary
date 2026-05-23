@@ -179,11 +179,12 @@ func timeUTC() *time.Location {
 // needs into a single value so the cobra command and tests can assert
 // against one shape.
 type topDataSnapshot struct {
-	Sessions       []*sessionNode
-	Failures       []*model.Event
-	RecentCommands []*model.Event
-	Candidates     []apptypes.MemorySummary
-	StaleMemories  apptypes.StaleMemoryListResult
+	Sessions                     []*sessionNode
+	Failures                     []*model.Event
+	RecentCommands               []*model.Event
+	Candidates                   []apptypes.MemorySummary
+	RememberIntentCandidateCount int
+	StaleMemories                apptypes.StaleMemoryListResult
 
 	// StaleAfter is the threshold the loader used to evaluate session
 	// staleness; a zero or negative value means the check was disabled.
@@ -440,13 +441,24 @@ func (l *topDataLoader) loadSnapshot(ctx context.Context, c topDataCriteria) (to
 		return topDataSnapshot{}, err
 	}
 	return topDataSnapshot{
-		Sessions:       sessions,
-		Failures:       failures,
-		RecentCommands: commands,
-		Candidates:     candidates,
-		StaleMemories:  staleMemories,
-		StaleAfter:     c.StaleAfter,
-		AllowStale:     c.AllowStale,
-		Now:            topDataNow(c),
+		Sessions:                     sessions,
+		Failures:                     failures,
+		RecentCommands:               commands,
+		Candidates:                   candidates,
+		RememberIntentCandidateCount: countCandidatesBySource(candidates, domtypes.MemorySourceRememberIntent),
+		StaleMemories:                staleMemories,
+		StaleAfter:                   c.StaleAfter,
+		AllowStale:                   c.AllowStale,
+		Now:                          topDataNow(c),
 	}, nil
+}
+
+func countCandidatesBySource(candidates []apptypes.MemorySummary, source domtypes.MemorySource) int {
+	count := 0
+	for _, candidate := range candidates {
+		if candidate.Source() == source {
+			count++
+		}
+	}
+	return count
 }

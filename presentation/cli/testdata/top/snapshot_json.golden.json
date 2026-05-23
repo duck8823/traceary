@@ -72,6 +72,7 @@
   ],
   "candidates": {
     "count": 1,
+    "remember_intent_count": 1,
     "items": [
       {
         "memory_id": "mem-1",
@@ -81,7 +82,7 @@
         "fact": "prefer table-driven subtests",
         "status": "candidate",
         "confidence": "medium",
-        "source": "manual",
+        "source": "remember-intent",
         "valid_from": "2026-04-10T12:00:00Z",
         "created_at": "2026-04-10T12:00:00Z",
         "updated_at": "2026-04-10T12:00:00Z"

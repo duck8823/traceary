@@ -57,8 +57,9 @@ func writeTopSnapshotJSON(output io.Writer, snap topDataSnapshot) error {
 		Failures:       failures,
 		RecentCommands: commands,
 		Candidates: topSnapshotCandidates{
-			Count: len(candidateItems),
-			Items: candidateItems,
+			Count:               len(candidateItems),
+			RememberIntentCount: snap.RememberIntentCandidateCount,
+			Items:               candidateItems,
 		},
 		StaleMemories: topSnapshotStale{
 			Count: snap.StaleMemories.Count(),
