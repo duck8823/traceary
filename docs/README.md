@@ -30,6 +30,7 @@ This page is the detailed docs index for Traceary. Start here when the top-level
 - [Operational assumptions](./operations/README.md): SQLite concurrency, hook-state assumptions, and known limits
 - [Python dependency plan](./operations/python-dependencies.md): current Python-backed helpers, audience impact, and reduction order
 - [Repository tooling plan](./operations/repo-tooling.md): the planned Go entrypoint for maintainer-only repository helpers
+- [Cockpit UI/UX design baseline](./operations/cockpit-ui-ux-design.md): v0.18 reference-driven redesign target for `traceary tui`
 - [Memory command surface plan](./operations/memory-command-surface.md): v0.14 plan for `memory inbox`, `memory store`, and `memory admin` plus the hidden deprecated aliases retained until v0.15
 - [Release guide](./release/README.md): release packaging, GitHub Actions, and local snapshot builds
 
