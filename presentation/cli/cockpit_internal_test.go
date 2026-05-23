@@ -266,6 +266,179 @@ func TestCockpitModelView_RendersStableEmptyStateAndOverview(t *testing.T) {
 	}
 }
 
+func TestCockpitModel_DoctorPaneRendersPassWarnFailSkipAndFixHints(t *testing.T) {
+	t.Parallel()
+
+	loader := &cockpitLoaderStub{
+		doctorResponses: []cockpitDoctorSnapshot{
+			cockpitDoctorSnapshot{
+				LoadedAt: fixedStartedAt,
+				DBPath:   "/tmp/traceary.db",
+				Summary:  doctorSummary{Pass: 2, Warn: 1, Fail: 1},
+				Sections: []cockpitDoctorSection{
+					{
+						Name: "Database",
+						Checks: []cockpitDoctorCheck{
+							{Name: "db-write", Status: doctorStatusPass, Severity: doctorSeverityPass, Message: "store is writable"},
+							{Name: "stale-active-sessions", Status: doctorStatusWarn, Severity: doctorSeverityWarn, Message: "3 stale active sessions", Hint: "preview cleanup first", FixCommand: "traceary session gc --stale-after 24h --dry-run"},
+						},
+					},
+					{
+						Name: "Hooks",
+						Checks: []cockpitDoctorCheck{
+							{Name: "claude-config", Status: doctorStatusFail, Severity: doctorSeverityFail, Message: "claude config is invalid", Hint: "repair settings.json"},
+							{Name: "claude-global-config", Status: doctorStatusSkip, Severity: doctorSeverityPass, Message: "global config not present"},
+						},
+					},
+				},
+			},
+		},
+	}
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	model.loader = loader
+	model.loaderCtx = context.Background()
+
+	updated, cmd := model.Update(cockpitRuneKey("d"))
+	model = updated.(cockpitModel)
+	if model.mode != cockpitModeDoctor || !model.doctor.loading || cmd == nil {
+		t.Fatalf("doctor launch mode/loading/cmd = %v/%v/%T, want doctor/loading/cmd", model.mode, model.doctor.loading, cmd)
+	}
+	updated, cmd = model.Update(cmd())
+	model = updated.(cockpitModel)
+	if cmd != nil {
+		t.Fatalf("doctor load returned follow-up command = %T", cmd)
+	}
+	if got, want := loader.doctorCalls, 1; got != want {
+		t.Fatalf("doctor calls = %d, want %d", got, want)
+	}
+	view := model.View()
+	for _, must := range []string{
+		"Traceary cockpit · doctor",
+		"summary: pass=2 warn=1 fail=1",
+		"[PASS] db-write",
+		"[WARN] stale-active-sessions",
+		"[FAIL] claude-config",
+		"[SKIP] claude-global-config",
+		"hint: preview cleanup first",
+		"fix: traceary session gc --stale-after 24h --dry-run",
+	} {
+		if !strings.Contains(view, must) {
+			t.Fatalf("doctor view missing %q:\n%s", must, view)
+		}
+	}
+}
+
+func TestCockpitModel_DoctorPaneRefreshesOnDemand(t *testing.T) {
+	t.Parallel()
+
+	loader := &cockpitLoaderStub{
+		doctorResponses: []cockpitDoctorSnapshot{
+			{
+				LoadedAt: fixedStartedAt,
+				Summary:  doctorSummary{Pass: 1},
+				Sections: []cockpitDoctorSection{{Name: "Environment", Checks: []cockpitDoctorCheck{
+					{Name: "path", Status: doctorStatusPass, Severity: doctorSeverityPass, Message: "traceary is on PATH"},
+				}}},
+			},
+			{
+				LoadedAt: fixedStartedAt.Add(time.Minute),
+				Summary:  doctorSummary{Pass: 0, Warn: 1},
+				Sections: []cockpitDoctorSection{{Name: "Hooks", Checks: []cockpitDoctorCheck{
+					{Name: "codex-config", Status: doctorStatusWarn, Severity: doctorSeverityWarn, Message: "codex hooks missing", FixCommand: "traceary hooks install --client codex"},
+				}}},
+			},
+		},
+	}
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	model.loader = loader
+	model.loaderCtx = context.Background()
+
+	updated, cmd := model.Update(cockpitRuneKey("d"))
+	model = updated.(cockpitModel)
+	updated, _ = model.Update(cmd())
+	model = updated.(cockpitModel)
+	if got := model.View(); !strings.Contains(got, "[PASS] path") {
+		t.Fatalf("initial doctor view missing pass check:\n%s", got)
+	}
+
+	updated, cmd = model.Update(cockpitRuneKey("r"))
+	model = updated.(cockpitModel)
+	if !model.doctor.loading || cmd == nil {
+		t.Fatalf("doctor refresh loading/cmd = %v/%T, want loading/cmd", model.doctor.loading, cmd)
+	}
+	updated, cmd = model.Update(cmd())
+	model = updated.(cockpitModel)
+	if cmd != nil {
+		t.Fatalf("doctor refresh returned follow-up command = %T", cmd)
+	}
+	if got, want := loader.doctorCalls, 2; got != want {
+		t.Fatalf("doctor calls after refresh = %d, want %d", got, want)
+	}
+	if got := model.View(); !strings.Contains(got, "[WARN] codex-config") || !strings.Contains(got, "fix: traceary hooks install --client codex") {
+		t.Fatalf("refreshed doctor view missing warning/fix:\n%s", got)
+	}
+
+	updated, cmd = model.Update(cockpitRuneKey("h"))
+	model = updated.(cockpitModel)
+	if model.mode != cockpitModeHome || cmd != nil {
+		t.Fatalf("doctor h mode/cmd = %v/%T, want home/nil", model.mode, cmd)
+	}
+}
+
+func TestCockpitModel_IgnoresStaleDoctorResponses(t *testing.T) {
+	t.Parallel()
+
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	model.loader = &cockpitLoaderStub{}
+	model.loaderCtx = context.Background()
+
+	updated, _ := model.Update(cockpitRuneKey("d"))
+	model = updated.(cockpitModel)
+	firstSeq := model.doctor.requestSeq
+	updated, _ = model.Update(cockpitRuneKey("r"))
+	model = updated.(cockpitModel)
+	secondSeq := model.doctor.requestSeq
+	if firstSeq == secondSeq {
+		t.Fatalf("doctor request sequence did not advance: first=%d second=%d", firstSeq, secondSeq)
+	}
+
+	updated, _ = model.Update(cockpitDoctorLoadedMsg{
+		seq: firstSeq,
+		snapshot: cockpitDoctorSnapshot{
+			LoadedAt: fixedStartedAt,
+			Summary:  doctorSummary{Fail: 1},
+			Sections: []cockpitDoctorSection{{Name: "Hooks", Checks: []cockpitDoctorCheck{
+				{Name: "old-config", Status: doctorStatusFail, Severity: doctorSeverityFail, Message: "old doctor response"},
+			}}},
+		},
+	})
+	model = updated.(cockpitModel)
+	if !model.doctor.loading {
+		t.Fatalf("stale doctor response cleared loading for the newer request")
+	}
+	if strings.Contains(model.View(), "old doctor response") {
+		t.Fatalf("stale doctor response mutated view:\n%s", model.View())
+	}
+
+	updated, _ = model.Update(cockpitDoctorLoadedMsg{
+		seq: secondSeq,
+		snapshot: cockpitDoctorSnapshot{
+			LoadedAt: fixedStartedAt.Add(time.Minute),
+			Summary:  doctorSummary{Warn: 1},
+			Sections: []cockpitDoctorSection{{Name: "Hooks", Checks: []cockpitDoctorCheck{
+				{Name: "new-config", Status: doctorStatusWarn, Severity: doctorSeverityWarn, Message: "new doctor response"},
+			}}},
+		},
+	})
+	model = updated.(cockpitModel)
+	if model.doctor.loading {
+		t.Fatalf("current doctor response left loading true")
+	}
+	if got := model.View(); !strings.Contains(got, "new doctor response") || strings.Contains(got, "old doctor response") {
+		t.Fatalf("doctor view did not use current response only:\n%s", got)
+	}
+}
+
 func TestCockpitModel_LivePaneRefreshFollowAndDetail(t *testing.T) {
 	t.Parallel()
 
@@ -883,6 +1056,10 @@ type cockpitLoaderStub struct {
 	homeCalls     int
 	homeErr       error
 
+	doctorResponses []cockpitDoctorSnapshot
+	doctorCalls     int
+	doctorErr       error
+
 	liveResponses []cockpitLiveSnapshot
 	liveCalls     []cockpitLiveCall
 	liveErr       error
@@ -914,6 +1091,19 @@ func (s *cockpitLoaderStub) loadCockpitHome(context.Context) (cockpitHomeSnapsho
 	}
 	next := s.homeResponses[0]
 	s.homeResponses = s.homeResponses[1:]
+	return next, nil
+}
+
+func (s *cockpitLoaderStub) loadCockpitDoctor(context.Context) (cockpitDoctorSnapshot, error) {
+	s.doctorCalls++
+	if s.doctorErr != nil {
+		return cockpitDoctorSnapshot{}, s.doctorErr
+	}
+	if len(s.doctorResponses) == 0 {
+		return cockpitDoctorSnapshot{LoadedAt: fixedStartedAt}, nil
+	}
+	next := s.doctorResponses[0]
+	s.doctorResponses = s.doctorResponses[1:]
 	return next, nil
 }
 
