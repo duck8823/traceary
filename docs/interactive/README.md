@@ -7,18 +7,35 @@ It focuses on read-side workflows for humans rather than on the write-side hook 
 
 ## What changed recently
 
-Traceary now ships two baseline interactive conveniences:
+Traceary now ships three baseline interactive conveniences:
 
+- `traceary tui` as the operator cockpit entrypoint
 - shell completion
 - `traceary tail` for live-follow inspection
 
 That means the interactive read path is no longer limited to one-shot snapshots such as `list` and `search`.
+The cockpit is the recommended starting point when you do not want to remember whether the next action is `top`, `tail`, `doctor`, `session handoff`, or `memory inbox review`.
 
 ## Recommended interactive workflow
 
 Use the commands below according to the question you are trying to answer.
 
-### 1. "What just happened?" → `traceary list`
+### 1. "I want one place to start" → `traceary tui`
+
+Use `tui` when you are at a terminal and want Traceary to show the operator cockpit first. The cockpit home screen summarizes active work, doctor warnings/failures, recent failures, new events since the last live-tail visit, and candidate durable memories since the last memory review. From there you can jump into:
+
+- live event tail
+- doctor details
+- memory inbox review
+
+```sh
+traceary tui
+traceary tui --reset-state
+```
+
+`traceary tui` is intentionally TTY-only. Non-interactive callers should keep using `traceary top --snapshot [--json]`, `traceary tail [--json]`, `traceary doctor --json`, `traceary session handoff`, and `traceary memory inbox list`.
+
+### 2. "What just happened?" → `traceary list`
 
 Use `list` when you want a quick recent feed and already know the structured filters you care about.
 
@@ -27,7 +44,7 @@ traceary list --limit 20
 traceary list --workspace github.com/duck8823/traceary --client codex
 ```
 
-### 2. "Which sessions are running right now?" → `traceary top`
+### 3. "Which sessions are running right now?" → `traceary top`
 
 Use `top` to watch a live multi-pane dashboard of the workspace. The screen is split into four panes:
 
@@ -45,7 +62,7 @@ traceary top --snapshot --json
 
 Inside the dashboard `tab` / `shift+tab` cycle the focused pane, `↑/↓` (or `k/j`) scroll it by one row, `pgup/pgdn` page through it, `g/G` jump to the top/bottom, `r` forces a refresh, `?` toggles help, and `q` / Ctrl-C / Esc quit cleanly. Non-TTY callers (pipes, CI logs) fall back to the snapshot text writer automatically. `--snapshot` and `--snapshot --json` mirror the four panes for scripts: the text snapshot prints `ACTIVE SESSIONS`, `RECENT FAILURES`, `RECENT COMMANDS`, and `CANDIDATE MEMORIES (count=N)` sections; the JSON snapshot is wrapped in an envelope with `sessions`, `failures`, `recent_commands`, and `candidates` (`{ count, items }`) keys.
 
-### 3. "Is the system writing events right now?" → `traceary tail`
+### 4. "Is the system writing events right now?" → `traceary tail`
 
 Use `tail` when you want to watch new events arrive in real time.
 This is the best command for confirming that hooks are firing, that the expected workspace is receiving writes, or that failures are visible as they happen.
@@ -56,7 +73,7 @@ traceary tail --workspace github.com/duck8823/traceary --failures
 traceary tail --json
 ```
 
-### 4. "Find a specific error / command / note" → `traceary search`
+### 5. "Find a specific error / command / note" → `traceary search`
 
 Use `search` for text lookup combined with time or workspace filters.
 
@@ -65,7 +82,7 @@ traceary search panic --workspace github.com/duck8823/traceary
 traceary search --since 2026-04-01 --kind command_executed lint
 ```
 
-### 5. "Show me the full structured record" → `traceary show`
+### 6. "Show me the full structured record" → `traceary show`
 
 Use `show` when you already have an event ID and want the structured event or audit payload.
 
@@ -73,7 +90,7 @@ Use `show` when you already have an event ID and want the structured event or au
 traceary show evt_123 --json
 ```
 
-### 6. "Walk through candidate durable memories" → `traceary memory inbox review`
+### 7. "Walk through candidate durable memories" → `traceary memory inbox review`
 
 Use `memory inbox review` for an interactive walk through the durable-memory candidate inbox. It is TTY-only — non-interactive shells receive a refusal with exit code `2` and pointers to `traceary memory inbox list / accept / reject`. The same filters as the snapshot view are accepted (`--workspace`, `--agent`, `--session-family`, `--type`, `--source`, `--include-hidden`, `--limit`).
 
@@ -84,7 +101,7 @@ traceary memory inbox review --workspace github.com/duck8823/traceary --type pre
 
 Inside the screen the action keys are `a` accept, `x` reject, `s` skip, `e` edit/distill, `v` view evidence, `?` help, `q` quit. Accept / reject reuse the same application use cases as `memory inbox accept|reject`. `e` opens an editor prompt that requires you to type a new operator-authored fact and routes through `traceary memory store distill` (no auto-accept of LLM output).
 
-### 7. "What context should I carry into the next session?" → `traceary session handoff`
+### 8. "What context should I carry into the next session?" → `traceary session handoff`
 
 Use `session handoff` when you want a concise working-memory pack instead of the raw event stream.
 This is the operator-facing summary view for resuming work or handing context to another agent. (The v0.13.x top-level `traceary handoff` alias was removed in v0.14.0.)
@@ -106,6 +123,23 @@ traceary completion powershell
 ```
 
 Completion is still worth enabling even after `tail` landed, because it reduces command discovery friction for the broader CLI surface.
+
+## Bare `traceary` entrypoint decision
+
+For v0.17.0, bare `traceary` stays unchanged. Running `traceary` with no subcommand keeps the existing help/usage behavior instead of auto-opening the cockpit.
+
+The current dogfooding evidence supports an explicit cockpit entrypoint, not a default-entrypoint takeover:
+
+- `traceary tui` now covers the main operator loop: home summary, live tail, doctor warnings, and memory review.
+- The cockpit persists local last-seen timestamps, so new events and new memory candidates can be noticed without changing script-facing commands.
+- Existing automation, completions, docs examples, and muscle memory rely on no-args usage being deterministic and non-surprising.
+
+If this decision is revisited later, the compatibility bar is:
+
+- TTY and non-TTY behavior must be tested separately.
+- Non-TTY `traceary` must keep deterministic help/script behavior.
+- Completion generation and help examples must remain stable.
+- The release notes must describe a migration path for operators who prefer the explicit `traceary tui` entrypoint.
 
 ## Still future-facing
 

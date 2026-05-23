@@ -71,6 +71,25 @@ Session resolution follows the same rules as `traceary log`.
 
 ## Read/query commands
 
+### `traceary tui`
+
+Open the Traceary operator cockpit TUI.
+
+Use `tui` as the explicit interactive entrypoint when you want one terminal surface for the operator loop instead of remembering individual subcommands. The cockpit home screen summarizes active work, recent failures, doctor status, new events since the last live-tail visit, and candidate durable memories since the last memory review. From the cockpit you can jump into live tail, doctor details, and memory inbox review.
+
+`traceary tui` requires an interactive terminal. Non-TTY callers receive a refusal with exit code `2` and guidance to use the script-friendly commands instead (`top --snapshot`, `tail`, `doctor --json`, `session handoff`, and `memory inbox list`).
+
+Useful flags:
+
+- `--workspace`
+- `--db-path`
+- `--reset-state` (reset local cockpit last-seen state before opening)
+
+Compatibility:
+
+- bare `traceary` remains unchanged in v0.17.0 and continues to show the existing help/usage behavior instead of auto-opening the cockpit
+- use `traceary tui` as the stable operator-facing entrypoint
+
 ### `traceary list`
 
 List recent events.
