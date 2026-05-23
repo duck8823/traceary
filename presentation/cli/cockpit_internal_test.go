@@ -1464,11 +1464,12 @@ func TestCockpitModel_ContextualHelpActionMenuByScreen(t *testing.T) {
 		model.memoryReview.review = newReviewModel(model.memoryReview.items, model.keys, model.styles)
 		view := model.View()
 		for _, must := range []string{
-			"Accept current candidate",
+			"Accept as-is only when the checklist passes",
 			"Reject current candidate",
-			"Skip current candidate",
-			"Edit/distill into an operator-authored fact",
+			"Skip when more context is needed",
+			"Edit/distill into an operator-authored fact when wording is unclear",
 			"View evidence and artifact refs",
+			"Accept checklist: factual, stable, useful later",
 		} {
 			if !strings.Contains(view, must) {
 				t.Fatalf("memory help missing %q:\n%s", must, view)
@@ -1500,7 +1501,7 @@ func TestCockpitModel_MemoryReviewSubmodeFootersDoNotAdvertiseBrowseActions(t *t
 			}
 		}
 		for _, mustNot := range []string{
-			"a accept · x reject",
+			"a accept as-is · x reject",
 			"esc back",
 			"? help",
 		} {
@@ -1523,7 +1524,7 @@ func TestCockpitModel_MemoryReviewSubmodeFootersDoNotAdvertiseBrowseActions(t *t
 			}
 		}
 		for _, mustNot := range []string{
-			"a accept · x reject",
+			"a accept as-is · x reject",
 			"1-5 sections",
 		} {
 			if strings.Contains(view, mustNot) {
@@ -1546,7 +1547,7 @@ func TestCockpitModel_MemoryReviewSubmodeFootersDoNotAdvertiseBrowseActions(t *t
 			}
 		}
 		for _, mustNot := range []string{
-			"Accept current candidate",
+			"Accept as-is only when the checklist passes",
 			"Reject current candidate",
 		} {
 			if strings.Contains(view, mustNot) {

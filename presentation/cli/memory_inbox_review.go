@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -362,6 +363,8 @@ type reviewModel struct {
 	editIndex  int
 	editBuffer string
 	statusMsg  string
+
+	acceptConfirmID domtypes.MemoryID
 }
 
 // reviewActionKeys is the local extension of tui.KeyMap with the actions
@@ -463,24 +466,36 @@ func (m reviewModel) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor--
 		}
 		m.statusMsg = ""
+		m.acceptConfirmID = ""
 		return m, nil
 	case key.Matches(msg, m.keys.Down):
 		if m.cursor+1 < len(m.items) {
 			m.cursor++
 		}
 		m.statusMsg = ""
+		m.acceptConfirmID = ""
 		return m, nil
 	case key.Matches(msg, m.keys.Home):
 		m.cursor = 0
 		m.statusMsg = ""
+		m.acceptConfirmID = ""
 		return m, nil
 	case key.Matches(msg, m.keys.End):
 		if len(m.items) > 0 {
 			m.cursor = len(m.items) - 1
 		}
 		m.statusMsg = ""
+		m.acceptConfirmID = ""
 		return m, nil
 	case key.Matches(msg, actions.Accept):
+		if m.currentCandidateNeedsAcceptConfirmation() && !m.acceptConfirmationMatchesCurrent() {
+			m.acceptConfirmID = m.items[m.cursor].Summary().MemoryID()
+			m.statusMsg = Localize(
+				"accept as-is needs confirmation for this weak candidate; press a again only if the checklist passes, or use e to edit/distill",
+				"この弱い候補を accept as-is するには確認が必要です。checklist を満たす場合だけ a を再入力し、不明なら e で edit/distill してください",
+			)
+			return m, nil
+		}
 		return m.queueDecision(reviewDecisionAccept, "")
 	case key.Matches(msg, actions.Reject):
 		return m.queueDecision(reviewDecisionReject, "")
@@ -497,6 +512,7 @@ func (m reviewModel) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.reviewed[idx] = ""
 		}
 		m.statusMsg = Localize("skipped", "skip しました")
+		m.acceptConfirmID = ""
 		m.advanceCursor()
 		return m, nil
 	case key.Matches(msg, actions.Edit):
@@ -507,6 +523,7 @@ func (m reviewModel) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.editIndex = m.cursor
 		m.editBuffer = ""
 		m.statusMsg = ""
+		m.acceptConfirmID = ""
 		return m, nil
 	}
 	return m, nil
@@ -530,6 +547,7 @@ func (m reviewModel) queueDecision(kind reviewDecisionKind, fact string) (tea.Mo
 	m.decisions = append(m.decisions, reviewDecision{kind: kind, memoryID: memoryID, fact: fact})
 	m.reviewed[idx] = decisionLabel(kind)
 	m.statusMsg = decisionLabel(kind)
+	m.acceptConfirmID = ""
 	m.advanceCursor()
 	return m, nil
 }
@@ -633,25 +651,51 @@ func (m reviewModel) View() string {
 
 func (m reviewModel) renderBrowse() string {
 	var b strings.Builder
-	b.WriteString(m.styles.Title.Render(Localize("inbox review", "inbox review")))
+	b.WriteString(m.styles.Title.Render(Localize("inbox review · decision card", "inbox review · decision card")))
 	b.WriteString("\n")
 	b.WriteString(m.styles.Subtle.Render(Localizef("candidate %d / %d", "candidate %d / %d", m.cursor+1, len(m.items))))
 	b.WriteString("\n\n")
 
 	current := m.items[m.cursor]
 	summary := current.Summary()
-	fmt.Fprintf(&b, "MEMORY_ID: %s\n", summary.MemoryID())
-	fmt.Fprintf(&b, "TYPE:      %s\n", summary.MemoryType())
-	fmt.Fprintf(&b, "SCOPE:     %s\n", formatMemoryScope(summary.Scope()))
-	fmt.Fprintf(&b, "SOURCE:    %s\n", summary.Source())
-	fmt.Fprintf(&b, "EVIDENCE:  %d   ARTIFACT: %d\n", len(current.EvidenceRefs()), len(current.ArtifactRefs()))
+	b.WriteString(m.styles.Subtle.Render(Localize("DECISION CONTEXT", "DECISION CONTEXT")))
 	b.WriteString("\n")
-	b.WriteString(m.styles.Active.Render(Localize("FACT:", "FACT:")))
+	fmt.Fprintf(&b, "MEMORY_ID:              %s\n", summary.MemoryID())
+	fmt.Fprintf(&b, "TYPE:                   %s\n", summary.MemoryType())
+	fmt.Fprintf(&b, "SCOPE:                  %s\n", formatMemoryScope(summary.Scope()))
+	fmt.Fprintf(&b, "SOURCE:                 %s\n", summary.Source())
+	fmt.Fprintf(&b, "CONFIDENCE:             %s\n", summary.Confidence())
+	fmt.Fprintf(&b, "QUALITY_SIGNAL:         %s\n", memoryReviewQualitySignal(current))
+	fmt.Fprintf(&b, "REMEMBERED_BY_OPERATOR: %s\n", formatMemoryReviewRememberIntent(summary))
+	fmt.Fprintf(&b, "EVIDENCE_REFS:          %d (press v to inspect)\n", len(current.EvidenceRefs()))
+	fmt.Fprintf(&b, "ARTIFACT_REFS:          %d (press v to inspect)\n", len(current.ArtifactRefs()))
+	fmt.Fprintf(&b, "CREATED_AT:             %s\n", formatJSONTime(summary.CreatedAt()))
+	fmt.Fprintf(&b, "UPDATED_AT:             %s\n", formatJSONTime(summary.UpdatedAt()))
+	fmt.Fprintf(&b, "CANDIDATE_AGE:          %s\n", formatMemoryReviewCandidateAge(summary, topNowFunc().UTC()))
+	fmt.Fprintf(&b, "DUPLICATE_SUPERSEDE:    %s\n", memoryReviewDuplicateSupersedeHint(summary))
+	b.WriteString("\n")
+	b.WriteString(m.styles.Active.Render(Localize("CANDIDATE FACT:", "CANDIDATE FACT:")))
 	b.WriteString("\n")
 	b.WriteString(summary.Fact())
 	b.WriteString("\n\n")
+	b.WriteString(m.styles.Subtle.Render(Localize("ACCEPT AS-IS CHECKLIST", "ACCEPT AS-IS CHECKLIST")))
+	b.WriteString("\n")
+	for _, item := range memoryReviewAcceptChecklist(current) {
+		b.WriteString("• ")
+		b.WriteString(item)
+		b.WriteString("\n")
+	}
+	if m.currentCandidateNeedsAcceptConfirmation() {
+		b.WriteString(m.styles.Warning.Render(Localize("• This weak candidate requires pressing `a` twice to accept as-is; prefer edit/distill when wording is unclear.", "• この弱い候補を accept as-is するには `a` を 2 回押す必要があります。文言が曖昧なら edit/distill を優先してください。")))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
 	if state := m.reviewed[m.cursor]; state != "" {
 		b.WriteString(m.styles.Subtle.Render(Localizef("queued action: %s", "予約済みアクション: %s", state)))
+		b.WriteString("\n")
+	}
+	if m.acceptConfirmationMatchesCurrent() {
+		b.WriteString(m.styles.Warning.Render(Localize("accept confirmation armed: press a again to accept this candidate as-is", "accept 確認中: この候補をそのまま accept するにはもう一度 a")))
 		b.WriteString("\n")
 	}
 	if m.statusMsg != "" {
@@ -660,8 +704,8 @@ func (m reviewModel) renderBrowse() string {
 	}
 	b.WriteString("\n")
 	b.WriteString(m.styles.Help.Render(Localize(
-		"a accept · x reject · s skip · e edit · v evidence · ↑/↓ navigate · ? help · q quit",
-		"a accept · x reject · s skip · e edit · v evidence · ↑/↓ 移動 · ? help · q quit",
+		"a accept as-is · x reject · s skip · e edit/distill · v evidence · ↑/↓ navigate · ? help · q quit",
+		"a accept as-is · x reject · s skip · e edit/distill · v evidence · ↑/↓ 移動 · ? help · q quit",
 	)))
 	return b.String()
 }
@@ -700,13 +744,20 @@ func (m reviewModel) renderHelp() string {
 	b.WriteString(m.styles.Title.Render(Localize("inbox review · help", "inbox review · ヘルプ")))
 	b.WriteString("\n\n")
 	b.WriteString(Localize("Actions:\n", "アクション:\n"))
-	b.WriteString("  a    " + Localize("accept the current candidate", "現在の候補を accept") + "\n")
-	b.WriteString("  x    " + Localize("reject the current candidate", "現在の候補を reject") + "\n")
-	b.WriteString("  s    " + Localize("skip and move to the next candidate", "skip して次の候補へ") + "\n")
-	b.WriteString("  e    " + Localize("edit / distill: type a new operator-authored fact (Enter to commit)", "edit / distill: operator 自身で fact を入力 (Enter で確定)") + "\n")
+	b.WriteString("  a    " + Localize("accept as-is only when the checklist passes; weak candidates require a second a", "checklist を満たす場合だけ accept as-is。弱い候補は a の再入力が必要") + "\n")
+	b.WriteString("  x    " + Localize("reject incorrect, stale, duplicate, or unsafe candidates", "誤り・古い・重複・危険な候補を reject") + "\n")
+	b.WriteString("  s    " + Localize("skip when more context is needed before deciding", "判断に追加 context が必要な場合は skip") + "\n")
+	b.WriteString("  e    " + Localize("edit / distill when wording is unclear or scope needs tightening (Enter to commit)", "文言が曖昧、または scope 調整が必要なら edit / distill (Enter で確定)") + "\n")
 	b.WriteString("  v    " + Localize("view evidence and artifact refs", "evidence と artifact refs を表示") + "\n")
 	b.WriteString("  ?    " + Localize("toggle this help", "このヘルプの表示を切り替え") + "\n")
 	b.WriteString("  q    " + Localize("quit and apply queued decisions", "終了して保留中のアクションを実行") + "\n")
+	b.WriteString("\n")
+	b.WriteString(Localize("Why accept as-is checklist:\n", "accept as-is の checklist:\n"))
+	b.WriteString("  - " + Localize("the fact is factual and stable", "fact が事実で安定している") + "\n")
+	b.WriteString("  - " + Localize("the memory will be useful in future sessions", "将来の session で有用") + "\n")
+	b.WriteString("  - " + Localize("the scope and type are correct", "scope と type が正しい") + "\n")
+	b.WriteString("  - " + Localize("evidence supports the candidate", "evidence が候補を支えている") + "\n")
+	b.WriteString("  - " + Localize("it is not duplicate, stale, or superseded", "重複・古い・supersede 済みではない") + "\n")
 	b.WriteString("\n")
 	b.WriteString(Localize(
 		"Edit / distill never auto-accepts the candidate's fact: the operator must type the durable fact, which is then run through `memory store distill --replace=supersede`.",
@@ -748,6 +799,93 @@ func (m reviewModel) Decisions() []reviewDecision {
 	out := make([]reviewDecision, len(m.decisions))
 	copy(out, m.decisions)
 	return out
+}
+
+func (m reviewModel) currentCandidateNeedsAcceptConfirmation() bool {
+	if len(m.items) == 0 || m.cursor < 0 || m.cursor >= len(m.items) {
+		return false
+	}
+	return memoryReviewRequiresAcceptConfirmation(m.items[m.cursor])
+}
+
+func (m reviewModel) acceptConfirmationMatchesCurrent() bool {
+	if len(m.items) == 0 || m.cursor < 0 || m.cursor >= len(m.items) {
+		return false
+	}
+	return m.acceptConfirmID != "" && m.acceptConfirmID == m.items[m.cursor].Summary().MemoryID()
+}
+
+func memoryReviewRequiresAcceptConfirmation(details apptypes.MemoryDetails) bool {
+	summary := details.Summary()
+	return summary.Source() == domtypes.MemorySourceExtractedHidden || summary.Confidence() == domtypes.ConfidenceLow
+}
+
+func memoryReviewQualitySignal(details apptypes.MemoryDetails) string {
+	summary := details.Summary()
+	signals := make([]string, 0, 4)
+	switch summary.Confidence() {
+	case domtypes.ConfidenceVerified, domtypes.ConfidenceHigh:
+		signals = append(signals, "strong confidence")
+	case domtypes.ConfidenceLow:
+		signals = append(signals, "low confidence")
+	default:
+		signals = append(signals, "medium confidence")
+	}
+	switch summary.Source() {
+	case domtypes.MemorySourceRememberIntent:
+		signals = append(signals, "explicit remember intent")
+	case domtypes.MemorySourceExtractedHidden:
+		signals = append(signals, "hidden extraction")
+	case domtypes.MemorySourceExtracted, domtypes.MemorySourceCompactSummary:
+		signals = append(signals, "generated candidate")
+	case domtypes.MemorySourceManual:
+		signals = append(signals, "manual source")
+	default:
+		signals = append(signals, summary.Source().String())
+	}
+	if len(details.EvidenceRefs()) == 0 {
+		signals = append(signals, "no evidence refs")
+	}
+	if memoryReviewRequiresAcceptConfirmation(details) {
+		signals = append(signals, "accept requires confirmation")
+	}
+	return strings.Join(signals, "; ")
+}
+
+func formatMemoryReviewRememberIntent(summary apptypes.MemorySummary) string {
+	if summary.Source() == domtypes.MemorySourceRememberIntent {
+		return "yes (remember-intent)"
+	}
+	return "no"
+}
+
+func formatMemoryReviewCandidateAge(summary apptypes.MemorySummary, now time.Time) string {
+	if summary.CreatedAt().IsZero() || now.Before(summary.CreatedAt()) {
+		return "unknown"
+	}
+	return formatDuration(now.Sub(summary.CreatedAt()))
+}
+
+func memoryReviewDuplicateSupersedeHint(summary apptypes.MemorySummary) string {
+	if supersedes, ok := summary.Supersedes().Value(); ok {
+		return fmt.Sprintf("supersedes %s", supersedes)
+	}
+	return "not checked in cockpit yet; use edit/distill or skip if duplicate risk is unclear"
+}
+
+func memoryReviewAcceptChecklist(details apptypes.MemoryDetails) []string {
+	checks := []string{
+		"factual and stable",
+		"useful for future sessions",
+		"scope/type are correct",
+	}
+	if len(details.EvidenceRefs()) > 0 {
+		checks = append(checks, "supported by evidence refs")
+	} else {
+		checks = append(checks, "evidence not shown; inspect before accepting")
+	}
+	checks = append(checks, "not duplicate, stale, or superseded")
+	return checks
 }
 
 // inboxReviewIO resolves the stdin/stdout pair the review TUI should drive.
