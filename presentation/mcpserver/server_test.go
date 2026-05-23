@@ -975,6 +975,66 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 	})
 
+	t.Run("session_handoff surfaces workspace fallback in MCP output", func(t *testing.T) {
+		parentWorkspace := "/tmp/traceary-mcp-parent"
+		childWorkspace := "/tmp/traceary-mcp-parent/sub"
+		startResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "manage_session",
+			Arguments: map[string]any{
+				"action":    "start",
+				"agent":     "claude",
+				"workspace": parentWorkspace,
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(start_session) error = %v", err)
+		}
+		sessionID := extractJSONStringValue(t, startResult, "session_id")
+
+		_, err = clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "record_event",
+			Arguments: map[string]any{
+				"type":       "audit",
+				"command":    "go test ./...",
+				"agent":      "claude",
+				"session_id": sessionID,
+				"workspace":  childWorkspace,
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(add_audit child workspace) error = %v", err)
+		}
+
+		handoffResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "session_status",
+			Arguments: map[string]any{
+				"action":    "handoff",
+				"workspace": childWorkspace,
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(session_handoff child workspace) error = %v", err)
+		}
+		if handoffResult.IsError {
+			t.Fatalf("CallTool(session_handoff child workspace) returned tool error")
+		}
+
+		payload := decodeJSONPayload(t, handoffResult)
+		if diff := cmp.Diff(parentWorkspace, payload["workspace"]); diff != "" {
+			t.Fatalf("workspace mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(childWorkspace, payload["requested_workspace"]); diff != "" {
+			t.Fatalf("requested_workspace mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(true, payload["workspace_fallback_used"]); diff != "" {
+			t.Fatalf("workspace_fallback_used mismatch (-want +got):\n%s", diff)
+		}
+		wantNote := "matched through parent workspace " + parentWorkspace + " (requested " + childWorkspace + ")"
+		if diff := cmp.Diff(wantNote, payload["workspace_match_note"]); diff != "" {
+			t.Fatalf("workspace_match_note mismatch (-want +got):\n%s", diff)
+		}
+	})
+
 	t.Run("supersede and expire memory return updated memory details", func(t *testing.T) {
 		rememberResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 			Name: "manage_memory",

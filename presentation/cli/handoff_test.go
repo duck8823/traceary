@@ -338,6 +338,44 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("workspace fallback note surfaces when matched through parent workspace", func(t *testing.T) {
+		t.Parallel()
+
+		parent := types.Workspace("/Users/duck/repos/project")
+		child := types.Workspace("/Users/duck/repos/project/sub")
+
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithContext(&contextUsecaseStub{
+				handoff: types.Some(apptypes.ContextPackOf(
+					types.SessionID("session-parent"),
+					parent,
+					"",
+					"active",
+					3,
+					1,
+					nil,
+					apptypes.WorkingStateOf("", ""),
+					nil,
+					nil,
+				).WithRequestedWorkspace(child)),
+			}),
+		).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"session", "handoff", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		out := stdout.String()
+		wantNote := "NOTE: matched through parent workspace " + parent.String() + " (requested " + child.String() + ")"
+		if !strings.Contains(out, wantNote) {
+			t.Fatalf("output missing parent-workspace fallback note %q:\n%s", wantNote, out)
+		}
+	})
+
 	t.Run("session handoff subcommand reuses the same structured output", func(t *testing.T) {
 		t.Parallel()
 

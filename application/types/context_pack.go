@@ -9,16 +9,17 @@ import (
 // ContextPack is the structured working-memory bundle shared by CLI and MCP
 // handoff surfaces.
 type ContextPack struct {
-	sessionID      domtypes.SessionID
-	workspace      domtypes.Workspace
-	label          string
-	status         string
-	totalEvents    int
-	commandCount   int
-	agents         []string
-	workingState   WorkingState
-	recentCommands []string
-	memories       []MemorySummary
+	sessionID          domtypes.SessionID
+	workspace          domtypes.Workspace
+	requestedWorkspace domtypes.Workspace
+	label              string
+	status             string
+	totalEvents        int
+	commandCount       int
+	agents             []string
+	workingState       WorkingState
+	recentCommands     []string
+	memories           []MemorySummary
 }
 
 // ContextPackOf creates a ContextPack.
@@ -46,6 +47,30 @@ func ContextPackOf(
 		recentCommands: slices.Clone(recentCommands),
 		memories:       slices.Clone(memories),
 	}
+}
+
+// WithRequestedWorkspace returns a copy of the pack with the originally
+// requested workspace recorded. When the requested value differs from the
+// matched session workspace, callers can surface a parent-fallback hint via
+// WorkspaceFallbackUsed.
+func (c ContextPack) WithRequestedWorkspace(requested domtypes.Workspace) ContextPack {
+	c.requestedWorkspace = requested
+	return c
+}
+
+// RequestedWorkspace returns the workspace the caller asked for, which may
+// differ from the matched session workspace when parent fallback was applied.
+// Returns an empty workspace when the caller did not request any specific
+// workspace.
+func (c ContextPack) RequestedWorkspace() domtypes.Workspace { return c.requestedWorkspace }
+
+// WorkspaceFallbackUsed reports whether the pack was assembled by walking up
+// to a parent workspace because no session existed under the requested one.
+func (c ContextPack) WorkspaceFallbackUsed() bool {
+	if c.requestedWorkspace.String() == "" {
+		return false
+	}
+	return c.requestedWorkspace != c.workspace
 }
 
 // SessionID returns the session ID.
