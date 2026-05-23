@@ -1116,6 +1116,7 @@ func TestWriteTopSnapshotJSON_EmitsReliabilityShape(t *testing.T) {
 type snapshotEventStub struct {
 	usecase.EventUsecase
 
+	events   []*model.Event
 	failures []*model.Event
 	commands []*model.Event
 }
@@ -1127,7 +1128,16 @@ func (s *snapshotEventStub) List(_ context.Context, criteria apptypes.EventListC
 	if criteria.Kind() == domtypes.EventKindCommandExecuted {
 		return s.commands, nil
 	}
-	return nil, nil
+	events := make([]*model.Event, 0, len(s.events))
+	for _, event := range s.events {
+		if event == nil || criteria.From().IsZero() || !event.CreatedAt().Before(criteria.From()) {
+			events = append(events, event)
+		}
+	}
+	if criteria.Limit() > 0 && len(events) > criteria.Limit() {
+		return events[:criteria.Limit()], nil
+	}
+	return events, nil
 }
 
 func TestTopDataLoader_LoadSnapshot_NoUsecasesReturnsEmpty(t *testing.T) {
