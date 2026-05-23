@@ -689,6 +689,11 @@ func (c *RootCLI) inspectDoctorConfigFile(client string, outputPath string) doct
 	content, err := os.ReadFile(outputPath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			if client == "codex" {
+				if state := c.detectCodexPluginHookFallback(); state.PluginEnabled {
+					return codexPluginHookFallbackCheck(state, outputPath, localizef("does not exist", "が存在しません"))
+				}
+			}
 			return doctorCheck{
 				Name:   client + "-config",
 				Status: doctorStatusWarn,
@@ -726,6 +731,11 @@ func (c *RootCLI) inspectDoctorConfigFile(client string, outputPath string) doct
 	}
 
 	if !hasHooksField {
+		if client == "codex" {
+			if state := c.detectCodexPluginHookFallback(); state.PluginEnabled {
+				return codexPluginHookFallbackCheck(state, outputPath, localizef("has no hooks field", "には hooks フィールドがありません"))
+			}
+		}
 		return doctorCheck{
 			Name:   client + "-config",
 			Status: doctorStatusWarn,
@@ -758,6 +768,12 @@ func (c *RootCLI) inspectDoctorConfigFile(client string, outputPath string) doct
 			Name:    client + "-config",
 			Status:  doctorStatusPass,
 			Message: localizef("%s config contains Traceary-managed hooks: %s", "%s の設定には Traceary 管理下の hook があります: %s", client, outputPath),
+		}
+	}
+
+	if client == "codex" {
+		if state := c.detectCodexPluginHookFallback(); state.PluginEnabled {
+			return codexPluginHookFallbackCheck(state, outputPath, localizef("has hook entries but none are Traceary-managed", "には hook エントリはありますが Traceary 管理のものがありません"))
 		}
 	}
 

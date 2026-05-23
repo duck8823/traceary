@@ -3,7 +3,7 @@
 [English](./codex-plugin.md)
 
 Traceary の Codex 向け plugin は `plugins/traceary/` にあり、Codex CLI 公式の `/plugins` flow に乗せて使えます。
-MCP server / slash command / session-history skill / session・prompt・transcript・audit の hook は、公式 flow で plugin を install した時点で自動配線されます。
+MCP server / slash command / session-history skill は、公式 flow で plugin を install した時点で自動配線されます。hook 登録は条件付きで、Codex 側の `plugin_hooks` feature が stable + 有効なビルドでのみ自動配線されます。`codex features list` で `plugin_hooks` が `under development` のままだったり、`~/.codex/config.toml` に `[features].plugin_hooks = false` が明示されているビルドでは、plugin 配下の hook manifest は `~/.codex/hooks.json` に展開されないため、手動 install による fallback が必要です。詳細は下記の **Hook fallback (plugin_hooks が利用できない環境向け)** セクションを参照してください。
 
 ## Codex 公式 /plugins flow で入れる (primary)
 
@@ -40,9 +40,42 @@ traceary doctor --client codex --json
 ## 公式 flow が自動で組み込むもの
 
 - `traceary mcp-server` を呼ぶ `traceary` MCP server
-- `SessionStart`, `UserPromptSubmit`, `Stop`（session 終了 + transcript）, `PostToolUse` hook（`plugins/traceary/hooks.json` で宣言、manifest から参照）
+- `SessionStart`, `UserPromptSubmit`, `Stop`（session 終了 + transcript）, `PostToolUse` hook（`plugins/traceary/hooks.json` で宣言、manifest から参照） — **Codex 側の `plugin_hooks` feature が有効なビルドに限る**。それ以外は下記 **Hook fallback (plugin_hooks が利用できない環境向け)** セクションを参照
 - slash command: `/traceary:help`, `/traceary:doctor`
 - 文脈に効く skill: `traceary-session-history` / `traceary-memory-review` / `traceary-memory-remember`。`traceary-memory-review` は review 意図の発話 (「Traceary inbox」「review memory candidates」「session recap」など) で発火し inbox の curate を案内、`traceary-memory-remember` は明示 write 発話 (「覚えておいて」「remember that」など) のみで発火します。
+
+## Hook fallback (plugin_hooks が利用できない環境向け)
+
+Codex 側の plugin-managed hook サポートは `plugin_hooks` feature flag に紐付いており、ビルドによってはまだ `under development` のままです。feature が利用できない環境では、`/plugins` で Traceary plugin が enabled になっていても Codex は plugin manifest の hook 宣言を `~/.codex/hooks.json` に展開しないため、`traceary tail` や durable-memory extraction に Codex の event が一切流れません。
+
+診断手順:
+
+```sh
+codex features list                          # plugin_hooks は stable + on か
+cat ~/.codex/config.toml                     # [features].plugin_hooks = false が無いか
+traceary doctor --client codex --json        # plugin_hooks fallback 用の actionable warning が表示される
+```
+
+`plugin_hooks` が利用できない場合は、event を捕捉するために hook を手動 install してください:
+
+```sh
+traceary hooks install --client codex --upgrade --traceary-bin "$(command -v traceary)"
+traceary doctor --client codex --json
+```
+
+fallback は `~/.codex/hooks.json` に Traceary 管理のエントリ (`traceary-session-start` / `traceary-prompt` / `traceary-transcript` / `traceary-session-stop` / `traceary-audit`) を直接書き込みます。Traceary 以外のエントリは保持されます。
+
+### 二重記録の注意点
+
+将来 Codex 側で `plugin_hooks` が有効化されると、plugin manifest 経由の hook が自動で発火するようになります。このとき `~/.codex/hooks.json` に fallback で書き込まれた手動エントリがそのまま残っていると、**session / prompt / transcript / audit の各 event が二重に記録されます**。fallback を経由した install で plugin-managed hook を改めて有効化する前に、手動エントリを削除してください:
+
+```sh
+# ~/.codex/hooks.json を開き、fallback が追加した次の名前付きエントリを削除:
+#   traceary-session-start / traceary-prompt / traceary-transcript /
+#   traceary-session-stop / traceary-audit
+```
+
+cleanup 後に `traceary doctor --client codex --json` を再実行し、登録経路が一つだけになっていることを確認してください。
 
 ## Memory activation strategy
 
