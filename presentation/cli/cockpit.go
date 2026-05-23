@@ -521,58 +521,236 @@ func (c *RootCLI) loadCockpitEventDetail(ctx context.Context, eventID domtypes.E
 	})
 }
 
-type cockpitWarning struct {
+type cockpitTriageCard struct {
+	category string
 	severity string
-	label    string
-	hint     string
+	title    string
+	summary  string
+	action   string
+	details  []string
 }
 
-func (s cockpitHomeSnapshot) warnings() []cockpitWarning {
-	warnings := make([]cockpitWarning, 0, 6)
+func (s cockpitHomeSnapshot) triageCards() []cockpitTriageCard {
+	cards := make([]cockpitTriageCard, 0, 8)
+	cards = append(cards, s.problemCards()...)
+	cards = append(cards, s.recentFailuresCard())
+	cards = append(cards, s.newActivityCard())
+	cards = append(cards, s.memoryInboxCard())
+	cards = append(cards, s.activeSessionsCard())
+	cards = append(cards, s.healthCard())
+	return cards
+}
+
+func (s cockpitHomeSnapshot) problemCards() []cockpitTriageCard {
+	cards := make([]cockpitTriageCard, 0, 4)
 	if s.DoctorError != "" {
-		warnings = append(warnings, cockpitWarning{severity: "FAIL", label: "doctor unavailable", hint: s.DoctorError})
+		cards = append(cards, cockpitTriageCard{
+			category: "PROBLEMS",
+			severity: "FAIL",
+			title:    "Doctor unavailable",
+			summary:  s.DoctorError,
+			action:   "3 Doctor, or run `traceary doctor --json` outside the cockpit",
+		})
 	}
 	if s.DoctorFailCount > 0 {
-		warnings = append(warnings, cockpitWarning{severity: "FAIL", label: fmt.Sprintf("doctor failures=%d", s.DoctorFailCount), hint: "run `traceary doctor` for remediation details"})
+		cards = append(cards, cockpitTriageCard{
+			category: "PROBLEMS",
+			severity: "FAIL",
+			title:    "Doctor failures",
+			summary:  fmt.Sprintf("%d check(s) failing", s.DoctorFailCount),
+			action:   "3 Doctor shows remediation commands",
+		})
 	}
 	if s.HookFailCount > 0 {
-		warnings = append(warnings, cockpitWarning{severity: "FAIL", label: fmt.Sprintf("hook/MCP failures=%d", s.HookFailCount), hint: "run `traceary doctor --json` and inspect Hooks/MCP sections"})
-	}
-	if s.StaleActiveSessionCount > 0 {
-		warnings = append(warnings, cockpitWarning{severity: "WARN", label: fmt.Sprintf("stale active sessions=%d", s.StaleActiveSessionCount), hint: "run `traceary session gc --stale-after 24h --dry-run`"})
-	}
-	if s.DoctorWarnCount > 0 {
-		warnings = append(warnings, cockpitWarning{severity: "WARN", label: fmt.Sprintf("doctor warnings=%d", s.DoctorWarnCount), hint: "run `traceary doctor`"})
-	}
-	if s.HookWarnCount > 0 {
-		warnings = append(warnings, cockpitWarning{severity: "WARN", label: fmt.Sprintf("hook/MCP warnings=%d", s.HookWarnCount), hint: "run `traceary doctor --json` and inspect Hooks/MCP sections"})
-	}
-	if s.NewCandidateMemoryKnown && s.NewCandidateMemoryCount > 0 {
-		warnings = append(warnings, cockpitWarning{severity: "WARN", label: fmt.Sprintf("new candidate memories=%d", s.NewCandidateMemoryCount), hint: "press memory review when available or run `traceary memory inbox review`"})
-	}
-	if s.RememberIntentCount > 0 {
-		warnings = append(warnings, cockpitWarning{severity: "WARN", label: fmt.Sprintf("remember-intent candidates=%d", s.RememberIntentCount), hint: "prioritize with `traceary memory inbox review --remember-intent`"})
-	}
-	if s.LowQualityMemoryCount > 0 {
-		warnings = append(warnings, cockpitWarning{severity: "WARN", label: fmt.Sprintf("low-quality candidates=%d", s.LowQualityMemoryCount), hint: "inspect with `traceary memory inbox cleanup --include-hidden`"})
-	}
-	if s.NewEventKnown && s.NewEventCount > 0 {
-		hint := "press `2` to open live tail"
-		if s.NewEventScanLimited {
-			hint = "open live tail; count is capped at the cockpit scan limit"
-		}
-		warnings = append(warnings, cockpitWarning{severity: "WARN", label: fmt.Sprintf("new events=%d", s.NewEventCount), hint: hint})
-	}
-	if s.CandidateMemoryCount > 0 {
-		warnings = append(warnings, cockpitWarning{severity: "WARN", label: fmt.Sprintf("candidate memories=%d", s.CandidateMemoryCount), hint: "review with `traceary memory inbox review`"})
-	}
-	if s.RecentFailureCount > 0 {
-		warnings = append(warnings, cockpitWarning{severity: "WARN", label: fmt.Sprintf("recent failures=%d", s.RecentFailureCount), hint: "open `traceary top` or `traceary tail` for details"})
+		cards = append(cards, cockpitTriageCard{
+			category: "PROBLEMS",
+			severity: "FAIL",
+			title:    "Hook/MCP failures",
+			summary:  fmt.Sprintf("%d failing hook/MCP check(s)", s.HookFailCount),
+			action:   "3 Doctor, then inspect Hooks/MCP remediation",
+		})
 	}
 	if s.LargePayloadCount > 0 {
-		warnings = append(warnings, cockpitWarning{severity: "WARN", label: fmt.Sprintf("large payloads=%d", s.LargePayloadCount), hint: "inspect full events with `traceary show <event_id>`"})
+		cards = append(cards, cockpitTriageCard{
+			category: "PROBLEMS",
+			severity: "WARN",
+			title:    "Large payloads",
+			summary:  fmt.Sprintf("%d event(s) exceed the snapshot body limit", s.LargePayloadCount),
+			action:   "2 Live for context; `traceary show <event_id>` for full payload",
+		})
 	}
-	return warnings
+	if len(cards) == 0 {
+		cards = append(cards, cockpitTriageCard{
+			category: "PROBLEMS",
+			severity: "OK",
+			title:    "No immediate cockpit warnings",
+			summary:  "no failing doctor, hook, MCP, or payload signals",
+			action:   "Continue with Live, Memory, Doctor, or Sessions as needed",
+		})
+	}
+	return cards
+}
+
+func (s cockpitHomeSnapshot) newActivityCard() cockpitTriageCard {
+	severity := "OK"
+	summary := ""
+	details := []string{}
+	if s.NewEventKnown {
+		if s.NewEventCount > 0 {
+			severity = "NEW"
+			summary = fmt.Sprintf("new events=%d since %s", s.NewEventCount, formatCockpitCheckpoint(s.EventLastSeenAt))
+		} else {
+			summary = fmt.Sprintf("no unseen events since %s", formatCockpitCheckpoint(s.EventLastSeenAt))
+		}
+	} else {
+		severity = "INFO"
+		summary = "new events=untracked until cockpit state is initialized"
+	}
+	if s.NewEventScanLimited {
+		details = append(details, "event scan limited; count is capped")
+	}
+	if s.RecentCommandCount > 0 {
+		details = append(details, fmt.Sprintf("recent commands=%d", s.RecentCommandCount))
+	}
+	return cockpitTriageCard{
+		category: "NEW ACTIVITY",
+		severity: severity,
+		title:    "Events",
+		summary:  summary,
+		action:   "2 Live opens the event stream and marks current events seen",
+		details:  details,
+	}
+}
+
+func (s cockpitHomeSnapshot) memoryInboxCard() cockpitTriageCard {
+	severity := "OK"
+	summary := "memory inbox is clear"
+	details := []string{
+		fmt.Sprintf("candidate memories=%d", s.CandidateMemoryCount),
+		fmt.Sprintf("accepted memories=%d", s.AcceptedMemoryCount),
+	}
+	if s.NewCandidateMemoryKnown {
+		details = append(details, fmt.Sprintf("new memory checkpoint=%s", formatCockpitCheckpoint(s.MemoryLastSeenAt)))
+		if s.NewCandidateMemoryCount > 0 {
+			severity = "NEW"
+			summary = fmt.Sprintf("new candidate memories=%d", s.NewCandidateMemoryCount)
+		} else {
+			summary = fmt.Sprintf("no unseen candidates since %s", formatCockpitCheckpoint(s.MemoryLastSeenAt))
+		}
+	} else {
+		details = append(details, "candidate memory new count=untracked")
+		if s.CandidateMemoryCount > 0 {
+			severity = "WARN"
+			summary = fmt.Sprintf("candidate memories=%d; new count untracked", s.CandidateMemoryCount)
+		}
+	}
+	if s.CandidateMemoryCount > 0 && severity == "OK" {
+		severity = "WARN"
+		summary = fmt.Sprintf("candidate memories=%d", s.CandidateMemoryCount)
+	}
+	if s.RememberIntentCount > 0 {
+		details = append(details, fmt.Sprintf("remember-intent candidates=%d", s.RememberIntentCount))
+	}
+	if s.LowQualityMemoryCount > 0 {
+		details = append(details, fmt.Sprintf("low-quality candidates=%d", s.LowQualityMemoryCount))
+		if severity == "OK" {
+			severity = "WARN"
+			summary = fmt.Sprintf("low-quality candidates=%d need review", s.LowQualityMemoryCount)
+		}
+	}
+	if s.StaleMemoryCount > 0 {
+		details = append(details, fmt.Sprintf("stale memories=%d", s.StaleMemoryCount))
+		if severity == "OK" {
+			severity = "WARN"
+			summary = fmt.Sprintf("stale memories=%d", s.StaleMemoryCount)
+		}
+	}
+	if s.MemoryScanLimited {
+		details = append(details, "memory scan limited; counts may be capped")
+	}
+	return cockpitTriageCard{
+		category: "MEMORY INBOX",
+		severity: severity,
+		title:    "Memory review",
+		summary:  summary,
+		action:   "4 Memory opens inbox review; use edit/distill or skip for ambiguous candidates",
+		details:  details,
+	}
+}
+
+func (s cockpitHomeSnapshot) activeSessionsCard() cockpitTriageCard {
+	if s.StaleActiveSessionCount > 0 {
+		return cockpitTriageCard{
+			category: "ACTIVE SESSIONS",
+			severity: "WARN",
+			title:    "Stale active sessions",
+			summary:  fmt.Sprintf("stale active sessions=%d", s.StaleActiveSessionCount),
+			action:   "5 Sessions for handoff context; `traceary session gc --stale-after 24h --dry-run` for cleanup",
+		}
+	}
+	return cockpitTriageCard{
+		category: "ACTIVE SESSIONS",
+		severity: "OK",
+		title:    "Sessions",
+		summary:  "no stale active sessions detected",
+		action:   "5 Sessions lists handoff entry points",
+	}
+}
+
+func (s cockpitHomeSnapshot) recentFailuresCard() cockpitTriageCard {
+	if s.RecentFailureCount > 0 {
+		return cockpitTriageCard{
+			category: "RECENT FAILURES",
+			severity: "WARN",
+			title:    "Recent failures",
+			summary:  fmt.Sprintf("recent failures=%d", s.RecentFailureCount),
+			action:   "2 Live opens the event stream; press enter on a failure for detail",
+		}
+	}
+	return cockpitTriageCard{
+		category: "RECENT FAILURES",
+		severity: "OK",
+		title:    "Failures",
+		summary:  "no recent failure events in the top snapshot",
+		action:   "2 Live keeps watching for new events",
+	}
+}
+
+func (s cockpitHomeSnapshot) healthCard() cockpitTriageCard {
+	severity := "OK"
+	if s.DoctorFailCount > 0 || s.HookFailCount > 0 || s.DoctorError != "" {
+		severity = "FAIL"
+	} else if s.DoctorWarnCount > 0 || s.HookWarnCount > 0 {
+		severity = "WARN"
+	}
+	details := []string{
+		fmt.Sprintf("doctor: pass=%d warn=%d fail=%d", s.DoctorPassCount, s.DoctorWarnCount, s.DoctorFailCount),
+		fmt.Sprintf("hooks/mcp: warn=%d fail=%d", s.HookWarnCount, s.HookFailCount),
+	}
+	return cockpitTriageCard{
+		category: "HEALTH",
+		severity: severity,
+		title:    "Doctor",
+		summary:  fmt.Sprintf("doctor fail=%d warn=%d; hook/MCP fail=%d warn=%d", s.DoctorFailCount, s.DoctorWarnCount, s.HookFailCount, s.HookWarnCount),
+		action:   "3 Doctor refreshes health checks and shows remediation hints",
+		details:  details,
+	}
+}
+
+func (s cockpitHomeSnapshot) allGreen() bool {
+	for _, card := range s.triageCards() {
+		if card.severity != "OK" && card.severity != "INFO" {
+			return false
+		}
+	}
+	return true
+}
+
+func formatCockpitCheckpoint(at time.Time) string {
+	if at.IsZero() {
+		return "not recorded"
+	}
+	return formatJSONTime(at)
 }
 
 func newCockpitNonInteractiveError(output io.Writer) error {
@@ -1409,6 +1587,7 @@ func (m cockpitModel) View() string {
 }
 
 func (m cockpitModel) homeView() string {
+	allGreen := m.home.allGreen()
 	memoryScanSuffix := ""
 	if m.home.MemoryScanLimited {
 		memoryScanSuffix = " scan_limited=true"
@@ -1427,35 +1606,66 @@ func (m cockpitModel) homeView() string {
 	if m.statusErr != "" {
 		lines = append(lines, m.styles.Error.Render("• "+m.statusErr), "")
 	}
-	lines = append(lines, m.styles.Subtle.Render("ATTENTION"))
-	warnings := m.home.warnings()
-	if len(warnings) == 0 {
-		lines = append(lines, m.styles.Success.Render("• No immediate cockpit warnings."))
-	} else {
-		for _, warning := range warnings {
-			style := m.styles.Warning
-			if warning.severity == "FAIL" {
-				style = m.styles.Error
+	lines = append(lines, m.styles.Subtle.Render("TRIAGE BOARD"))
+	currentCategory := ""
+	for _, card := range m.home.triageCards() {
+		if card.category != currentCategory {
+			if currentCategory != "" {
+				lines = append(lines, "")
 			}
-			lines = append(lines, style.Render(fmt.Sprintf("• [%s] %s — %s", warning.severity, warning.label, warning.hint)))
+			currentCategory = card.category
+			lines = append(lines, m.styles.Subtle.Render(currentCategory))
 		}
+		lines = append(lines, m.renderCockpitTriageCard(card)...)
+	}
+	if allGreen {
+		lines = append(lines,
+			"",
+			m.styles.Success.Render("ALL GREEN"),
+			"• No immediate cockpit warnings or tracked new activity.",
+			"• Next: 2 Live for ongoing work, 4 Memory for periodic review, 3 Doctor before release, 5 Sessions for handoff.",
+		)
 	}
 	lines = append(lines,
 		"",
-		m.styles.Subtle.Render("OVERVIEW"),
+		m.styles.Subtle.Render("SIGNAL COUNTS"),
 		fmt.Sprintf("• doctor: pass=%d warn=%d fail=%d", m.home.DoctorPassCount, m.home.DoctorWarnCount, m.home.DoctorFailCount),
 		fmt.Sprintf("• hooks/mcp: warn=%d fail=%d", m.home.HookWarnCount, m.home.HookFailCount),
 		fmt.Sprintf("• sessions: stale_active=%d recent_failures=%d recent_commands=%d new_events=%s%s", m.home.StaleActiveSessionCount, m.home.RecentFailureCount, m.home.RecentCommandCount, formatCockpitNewEventCount(m.home), eventScanSuffix),
 		fmt.Sprintf("• memories: accepted(reviewed)=%d candidate(inbox)=%d new=%s remember-intent=%d low-quality=%d stale=%d%s", m.home.AcceptedMemoryCount, m.home.CandidateMemoryCount, formatCockpitNewCandidateCount(m.home), m.home.RememberIntentCount, m.home.LowQualityMemoryCount, m.home.StaleMemoryCount, memoryScanSuffix),
 		fmt.Sprintf("• payloads: large=%d", m.home.LargePayloadCount),
-		"",
-		m.styles.Subtle.Render("Cockpit surfaces:"),
-		"• 2 Live: live event stream and detail drill-down",
-		"• 3 Doctor: warnings, skips, and remediation commands",
-		"• 4 Memory: inbox notifications and review launcher",
-		"• 5 Sessions: session and handoff entry points",
 	)
+	if !allGreen {
+		lines = append(lines,
+			"",
+			m.styles.Subtle.Render("NEXT ACTIONS"),
+			"• 2 Live: inspect new events, failures, and event details",
+			"• 4 Memory: review candidate memories conservatively",
+			"• 3 Doctor: check health and remediation commands",
+			"• 5 Sessions: session list and handoff entry points",
+		)
+	}
 	return m.renderCockpitShell("home", lines, "")
+}
+
+func (m cockpitModel) renderCockpitTriageCard(card cockpitTriageCard) []string {
+	style := m.styles.Subtle
+	switch card.severity {
+	case "FAIL":
+		style = m.styles.Error
+	case "WARN", "NEW":
+		style = m.styles.Warning
+	case "OK":
+		style = m.styles.Success
+	}
+	lines := []string{
+		style.Render(fmt.Sprintf("• [%s] %s — %s", card.severity, card.title, card.summary)),
+		"  next: " + card.action,
+	}
+	for _, detail := range card.details {
+		lines = append(lines, "  detail: "+detail)
+	}
+	return lines
 }
 
 func formatCockpitNewCandidateCount(home cockpitHomeSnapshot) string {
@@ -1807,12 +2017,18 @@ func (m cockpitModel) cockpitContextualActions() []cockpitAction {
 			{description: "Use `traceary session handoff` for the full handoff outside the cockpit."},
 		}
 	default:
-		return []cockpitAction{
+		actions := []cockpitAction{
 			{key: "2", description: "Open Live tail"},
 			{key: "3", description: "Run Doctor checks"},
 			{key: "4", description: "Open Memory review"},
 			{key: "5", description: "Open Sessions and handoff entry points"},
 		}
+		if m.home.allGreen() {
+			actions = append(actions, cockpitAction{description: "All green: use Live for ongoing work, Memory for periodic review, Doctor before release, Sessions for handoff."})
+		} else {
+			actions = append(actions, cockpitAction{description: "Home cards are ordered by urgency; each card shows its next action target."})
+		}
+		return actions
 	}
 }
 

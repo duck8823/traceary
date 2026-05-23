@@ -248,6 +248,9 @@ func TestLoadCockpitHome_MemoryNotificationsFallbackWhenLastSeenUnavailable(t *t
 	if strings.Contains(view, "new candidate memories=") {
 		t.Fatalf("fallback view should not claim a new count without last-seen state:\n%s", view)
 	}
+	if !strings.Contains(view, "candidate memory new count=untracked") {
+		t.Fatalf("fallback view should explain untracked memory notification state:\n%s", view)
+	}
 	if !strings.Contains(view, "new=untracked") {
 		t.Fatalf("fallback view missing untracked new-count state:\n%s", view)
 	}
@@ -265,40 +268,72 @@ func TestCockpitModelView_MemoryNotificationsNoneState(t *testing.T) {
 	if !strings.Contains(view, "memories: accepted(reviewed)=2 candidate(inbox)=0 new=0 remember-intent=0 low-quality=0 stale=0") {
 		t.Fatalf("none-state view missing zero notification summary:\n%s", view)
 	}
-	if strings.Contains(view, "candidate memories=") || strings.Contains(view, "new candidate memories=") {
+	if strings.Contains(view, "[WARN] Memory review") || strings.Contains(view, "new candidate memories=") {
 		t.Fatalf("none-state view should not show candidate warnings:\n%s", view)
+	}
+	if !strings.Contains(view, "no unseen candidates since not recorded") {
+		t.Fatalf("none-state view should explain seen memory checkpoint:\n%s", view)
 	}
 }
 
-func TestCockpitHomeWarnings_ActionableWarningsFirst(t *testing.T) {
+func TestCockpitModelView_RendersActionableTriageBoard(t *testing.T) {
 	t.Parallel()
 
 	home := cockpitHomeSnapshot{
+		LoadedAt:                fixedStartedAt,
+		DBPath:                  "/tmp/traceary.db",
+		DoctorPassCount:         3,
+		DoctorWarnCount:         1,
 		DoctorFailCount:         1,
 		HookFailCount:           1,
-		DoctorWarnCount:         2,
-		HookWarnCount:           1,
-		StaleActiveSessionCount: 3,
-		CandidateMemoryCount:    5,
+		StaleActiveSessionCount: 2,
+		CandidateMemoryCount:    4,
+		NewCandidateMemoryCount: 2,
+		NewCandidateMemoryKnown: true,
+		MemoryLastSeenAt:        fixedStartedAt.Add(-time.Hour),
+		RememberIntentCount:     1,
+		LowQualityMemoryCount:   1,
+		NewEventCount:           3,
+		NewEventKnown:           true,
+		EventLastSeenAt:         fixedStartedAt.Add(-30 * time.Minute),
 		RecentFailureCount:      2,
-		LargePayloadCount:       1,
+		RecentCommandCount:      5,
 	}
-	warnings := home.warnings()
-	if len(warnings) < 8 {
-		t.Fatalf("warnings length = %d, want all actionable signals: %#v", len(warnings), warnings)
-	}
-	for i, warning := range warnings[:2] {
-		if warning.severity != "FAIL" {
-			t.Fatalf("warnings[%d].severity = %q, want FAIL first: %#v", i, warning.severity, warnings)
+	view := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), home).View()
+	for _, must := range []string{
+		"TRIAGE BOARD",
+		"PROBLEMS",
+		"[FAIL] Doctor failures — 1 check(s) failing",
+		"next: 3 Doctor shows remediation commands",
+		"NEW ACTIVITY",
+		"[NEW] Events — new events=3 since 2026-05-07T11:30:00Z",
+		"next: 2 Live opens the event stream and marks current events seen",
+		"MEMORY INBOX",
+		"[NEW] Memory review — new candidate memories=2",
+		"detail: remember-intent candidates=1",
+		"detail: low-quality candidates=1",
+		"ACTIVE SESSIONS",
+		"stale active sessions=2",
+		"RECENT FAILURES",
+		"recent failures=2",
+		"HEALTH",
+		"doctor fail=1 warn=1; hook/MCP fail=1 warn=0",
+	} {
+		if !strings.Contains(view, must) {
+			t.Fatalf("triage board missing %q:\n%s", must, view)
 		}
 	}
-	for i, warning := range warnings[2:] {
-		if warning.severity == "FAIL" {
-			t.Fatalf("warnings[%d] is FAIL after WARN boundary: %#v", i+2, warnings)
+	order := []string{"PROBLEMS", "RECENT FAILURES", "NEW ACTIVITY", "MEMORY INBOX", "ACTIVE SESSIONS", "HEALTH"}
+	previous := -1
+	for _, label := range order {
+		index := strings.Index(view, label)
+		if index < 0 {
+			t.Fatalf("triage board missing section %q:\n%s", label, view)
 		}
-	}
-	if !strings.Contains(warnings[0].hint, "doctor") {
-		t.Fatalf("first warning should tell operator how to act, got %#v", warnings[0])
+		if index <= previous {
+			t.Fatalf("triage section %q rendered out of order:\n%s", label, view)
+		}
+		previous = index
 	}
 }
 
@@ -316,9 +351,12 @@ func TestCockpitModelView_RendersStableEmptyStateAndOverview(t *testing.T) {
 	view := model.View()
 	for _, must := range []string{
 		"Traceary cockpit",
-		"ATTENTION",
+		"TRIAGE BOARD",
+		"PROBLEMS",
 		"No immediate cockpit warnings",
-		"OVERVIEW",
+		"ALL GREEN",
+		"Next: 2 Live for ongoing work, 4 Memory for periodic review, 3 Doctor before release, 5 Sessions for handoff.",
+		"SIGNAL COUNTS",
 		"doctor: pass=4 warn=0 fail=0",
 		"memories: accepted(reviewed)=2 candidate(inbox)=0 new=untracked remember-intent=0 low-quality=0 stale=0",
 	} {
