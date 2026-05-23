@@ -1,0 +1,51 @@
+Traceary cockpit · home
+sections: [1 Home]  2 Live  3 Doctor  4 Memory  5 Sessions
+
+loaded=2026-05-07T12:00:00Z db=/tmp/traceary.db
+
+TRIAGE BOARD
+PROBLEMS
+• [FAIL] Doctor failures — 1 check(s) failing
+  next: 3 Doctor shows remediation commands
+• [FAIL] Hook/MCP failures — 1 failing hook/MCP check(s)
+  next: 3 Doctor, then inspect Hooks/MCP remediation
+
+RECENT FAILURES
+• [OK] Failures — no recent failure events in the top snapshot
+  next: 2 Live keeps watching for new events
+
+NEW ACTIVITY
+• [INFO] Events — new events=untracked until cockpit state is initialized
+  next: 2 Live opens the event stream and marks current events seen
+
+MEMORY INBOX
+• [OK] Memory review — memory inbox is clear
+  next: 4 Memory opens inbox review; use edit/distill or skip for ambiguous candidates
+  detail: candidate memories=0
+  detail: accepted memories=0
+  detail: candidate memory new count=untracked
+
+ACTIVE SESSIONS
+• [OK] Sessions — no stale active sessions detected
+  next: 5 Sessions lists handoff entry points
+
+HEALTH
+• [FAIL] Doctor — doctor fail=1 warn=1; hook/MCP fail=1 warn=0
+  next: 3 Doctor refreshes health checks and shows remediation hints
+  detail: doctor: pass=2 warn=1 fail=1
+  detail: hooks/mcp: warn=0 fail=1
+
+SIGNAL COUNTS
+• doctor: pass=2 warn=1 fail=1
+• hooks/mcp: warn=0 fail=1
+• sessions: stale_active=0 recent_failures=0 recent_commands=0 new_events=untracked
+• memories: accepted(reviewed)=0 candidate(inbox)=0 new=untracked remember-intent=0 low-quality=0 stale=0
+• payloads: large=0
+
+NEXT ACTIONS
+• 2 Live: inspect new events, failures, and event details
+• 4 Memory: review candidate memories conservatively
+• 3 Doctor: check health and remediation commands
+• 5 Sessions: session list and handoff entry points
+
+1-5 sections · tab/shift+tab next/prev · q/ctrl+c quit · ? help
