@@ -19,6 +19,10 @@ var (
 )
 
 func buildInboxCandidateDetails(t *testing.T, id string, fact string, source domtypes.MemorySource) apptypes.MemoryDetails {
+	return buildInboxMemoryDetails(t, id, fact, domtypes.MemoryStatusCandidate, source)
+}
+
+func buildInboxMemoryDetails(t *testing.T, id string, fact string, status domtypes.MemoryStatus, source domtypes.MemorySource) apptypes.MemoryDetails {
 	t.Helper()
 	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
 	if err != nil {
@@ -29,7 +33,7 @@ func buildInboxCandidateDetails(t *testing.T, id string, fact string, source dom
 		domtypes.MemoryTypePreference,
 		domtypes.WorkspaceScopeOf(workspace),
 		fact,
-		domtypes.MemoryStatusCandidate,
+		status,
 		domtypes.ConfidenceMedium,
 		source,
 		domtypes.None[domtypes.MemoryID](),
@@ -118,6 +122,186 @@ func TestMemoryInboxList_SourceFilterPropagatesToCriteria(t *testing.T) {
 	}
 	if got := memoryStub.listCriteria.Sources(); len(got) != 1 || got[0] != domtypes.MemorySourceImported {
 		t.Fatalf("inbox list should pass --source into criteria, got %v", got)
+	}
+}
+
+func TestMemoryInboxList_AgeAndQualityFilters(t *testing.T) {
+	t.Parallel()
+
+	low := buildInboxCandidateDetails(t, "memory-low", "git status", domtypes.MemorySourceExtracted)
+	normal := buildInboxCandidateDetails(t, "memory-normal", "Keep release notes concise", domtypes.MemorySourceExtracted)
+	memoryStub := &memoryUsecaseStub{
+		listResult: []apptypes.MemorySummary{low.Summary(), normal.Summary()},
+		showDetailsByID: map[domtypes.MemoryID]apptypes.MemoryDetails{
+			low.Summary().MemoryID():    low,
+			normal.Summary().MemoryID(): normal,
+		},
+		scanResult: apptypes.MemoryHygieneScanResult{
+			LowQualityCandidateCount: 1,
+			Suggestions: []apptypes.MemoryHygieneSuggestion{{
+				MemoryID: low.Summary().MemoryID(),
+				Kind:     apptypes.MemoryHygieneSuggestionLowQualityCandidate,
+			}},
+		},
+	}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	stdout := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{
+		"memory", "inbox", "list",
+		"--db-path", t.TempDir() + "/t.db",
+		"--quality", "low",
+		"--older-than", "24h",
+		"--newer-than", "720h",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "memory-low") {
+		t.Fatalf("low-quality row missing from inbox list:\n%s", out)
+	}
+	if strings.Contains(out, "memory-normal") {
+		t.Fatalf("normal-quality row leaked into --quality low list:\n%s", out)
+	}
+	if _, ok := memoryStub.listCriteria.UpdatedBefore().Value(); !ok {
+		t.Fatalf("--older-than should set UpdatedBefore in list criteria")
+	}
+	if _, ok := memoryStub.listCriteria.UpdatedAfter().Value(); !ok {
+		t.Fatalf("--newer-than should set UpdatedAfter in list criteria")
+	}
+}
+
+func TestMemoryInboxCleanup_DryRunDoesNotReject(t *testing.T) {
+	t.Parallel()
+
+	low := buildInboxCandidateDetails(t, "memory-low-cleanup", "git status", domtypes.MemorySourceExtracted)
+	memoryStub := &memoryUsecaseStub{
+		listResult: []apptypes.MemorySummary{low.Summary()},
+		showDetailsByID: map[domtypes.MemoryID]apptypes.MemoryDetails{
+			low.Summary().MemoryID(): low,
+		},
+		scanResult: apptypes.MemoryHygieneScanResult{
+			LowQualityCandidateCount: 1,
+			Suggestions: []apptypes.MemoryHygieneSuggestion{{
+				MemoryID: low.Summary().MemoryID(),
+				Kind:     apptypes.MemoryHygieneSuggestionLowQualityCandidate,
+			}},
+		},
+	}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	stdout := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"memory", "inbox", "cleanup", "--db-path", t.TempDir() + "/t.db"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	if memoryStub.rejectCallCount != 0 {
+		t.Fatalf("dry-run cleanup called Reject %d time(s), want 0", memoryStub.rejectCallCount)
+	}
+	if out := stdout.String(); !strings.Contains(out, "dry_run=true") || !strings.Contains(out, "memory-low-cleanup") {
+		t.Fatalf("dry-run output missing preview row:\n%s", out)
+	}
+}
+
+func TestMemoryInboxCleanup_ApplyRejectsCandidatesAndReportsFailures(t *testing.T) {
+	t.Parallel()
+
+	okCandidate := buildInboxCandidateDetails(t, "memory-cleanup-ok", "git status", domtypes.MemorySourceExtracted)
+	failCandidate := buildInboxCandidateDetails(t, "memory-cleanup-fail", "gh pr checks", domtypes.MemorySourceExtracted)
+	rejectedDetails := buildInboxMemoryDetails(t, "memory-cleanup-ok", "git status", domtypes.MemoryStatusRejected, domtypes.MemorySourceExtracted)
+	memoryStub := &memoryUsecaseStub{
+		listResult: []apptypes.MemorySummary{okCandidate.Summary(), failCandidate.Summary()},
+		showDetailsByID: map[domtypes.MemoryID]apptypes.MemoryDetails{
+			okCandidate.Summary().MemoryID():   okCandidate,
+			failCandidate.Summary().MemoryID(): failCandidate,
+		},
+		rejectDetailsByID: map[domtypes.MemoryID]apptypes.MemoryDetails{
+			okCandidate.Summary().MemoryID(): rejectedDetails,
+		},
+		rejectErrByID: map[domtypes.MemoryID]error{
+			failCandidate.Summary().MemoryID(): errSyntheticRejectFailure,
+		},
+		scanResult: apptypes.MemoryHygieneScanResult{
+			LowQualityCandidateCount: 2,
+			Suggestions: []apptypes.MemoryHygieneSuggestion{
+				{MemoryID: okCandidate.Summary().MemoryID(), Kind: apptypes.MemoryHygieneSuggestionLowQualityCandidate},
+				{MemoryID: failCandidate.Summary().MemoryID(), Kind: apptypes.MemoryHygieneSuggestionLowQualityCandidate},
+			},
+		},
+	}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	stdout := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"memory", "inbox", "cleanup", "--apply", "--db-path", t.TempDir() + "/t.db"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("cleanup apply error = nil, want partial failure")
+	}
+	if !strings.Contains(err.Error(), "inbox cleanup failed for 1 memory id") {
+		t.Fatalf("cleanup apply error = %v", err)
+	}
+	if memoryStub.rejectCallCount != 2 {
+		t.Fatalf("Reject call count = %d, want 2", memoryStub.rejectCallCount)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "memory-cleanup-ok") || !strings.Contains(out, "FAILED\tmemory-cleanup-fail") {
+		t.Fatalf("cleanup output missing success/failure rows:\n%s", out)
+	}
+}
+
+func TestMemoryInboxCleanup_DoesNotModifyAcceptedMemories(t *testing.T) {
+	t.Parallel()
+
+	accepted := buildInboxMemoryDetails(t, "memory-accepted-safe", "Accepted memory must remain safe", domtypes.MemoryStatusAccepted, domtypes.MemorySourceManual)
+	memoryStub := &memoryUsecaseStub{
+		listResult: []apptypes.MemorySummary{accepted.Summary()},
+		showDetailsByID: map[domtypes.MemoryID]apptypes.MemoryDetails{
+			accepted.Summary().MemoryID(): accepted,
+		},
+		scanResult: apptypes.MemoryHygieneScanResult{
+			LowQualityCandidateCount: 1,
+			Suggestions: []apptypes.MemoryHygieneSuggestion{{
+				MemoryID: accepted.Summary().MemoryID(),
+				Kind:     apptypes.MemoryHygieneSuggestionLowQualityCandidate,
+			}},
+		},
+	}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	stdout := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"memory", "inbox", "cleanup", "--apply", "--quality", "low", "--db-path", t.TempDir() + "/t.db"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("cleanup apply error = nil, want accepted safety failure")
+	}
+	if memoryStub.rejectCallCount != 0 {
+		t.Fatalf("accepted safety path called Reject %d time(s), want 0", memoryStub.rejectCallCount)
+	}
+	if !strings.Contains(stdout.String(), "cleanup only modifies candidate memories") {
+		t.Fatalf("accepted safety failure missing from output:\n%s", stdout.String())
 	}
 }
 

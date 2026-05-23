@@ -300,6 +300,7 @@ type memoryUsecaseStub struct {
 	searchResult        []apptypes.MemorySummary
 	searchErr           error
 	showDetails         apptypes.MemoryDetails
+	showDetailsByID     map[types.MemoryID]apptypes.MemoryDetails
 	showErr             error
 	rememberDetails     apptypes.MemoryDetails
 	rememberErr         error
@@ -310,7 +311,9 @@ type memoryUsecaseStub struct {
 	distillResult       apptypes.MemoryDistillResult
 	distillErr          error
 	rejectDetails       apptypes.MemoryDetails
+	rejectDetailsByID   map[types.MemoryID]apptypes.MemoryDetails
 	rejectErr           error
+	rejectErrByID       map[types.MemoryID]error
 	supersedeDetails    apptypes.MemoryDetails
 	supersedeErr        error
 	expireDetails       apptypes.MemoryDetails
@@ -412,6 +415,12 @@ func (s *memoryUsecaseStub) Distill(_ context.Context, criteria apptypes.MemoryD
 func (s *memoryUsecaseStub) Reject(_ context.Context, memoryID types.MemoryID) (apptypes.MemoryDetails, error) {
 	s.rejectCall.memoryID = memoryID
 	s.rejectCallCount++
+	if err, ok := s.rejectErrByID[memoryID]; ok {
+		return apptypes.MemoryDetails{}, err
+	}
+	if details, ok := s.rejectDetailsByID[memoryID]; ok {
+		return details, nil
+	}
 	return s.rejectDetails, s.rejectErr
 }
 
@@ -453,6 +462,9 @@ func (s *memoryUsecaseStub) Search(_ context.Context, criteria apptypes.MemorySe
 
 func (s *memoryUsecaseStub) Show(_ context.Context, memoryID types.MemoryID) (apptypes.MemoryDetails, error) {
 	s.showMemoryID = memoryID
+	if details, ok := s.showDetailsByID[memoryID]; ok {
+		return details, s.showErr
+	}
 	return s.showDetails, s.showErr
 }
 

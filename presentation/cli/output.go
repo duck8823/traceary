@@ -289,6 +289,15 @@ type memoryInboxBatchOutput struct {
 	Failures  []memoryInboxFailure  `json:"failures,omitempty"`
 }
 
+// memoryInboxCleanupOutput is the JSON shape of an inbox cleanup preview/apply run.
+type memoryInboxCleanupOutput struct {
+	Action    string                `json:"action"`
+	DryRun    bool                  `json:"dry_run"`
+	Matched   []memoryDetailsOutput `json:"matched,omitempty"`
+	Processed []memoryDetailsOutput `json:"processed,omitempty"`
+	Failures  []memoryInboxFailure  `json:"failures,omitempty"`
+}
+
 // memoryImportOutput is the JSON shape of a memory import result.
 type memoryImportOutput struct {
 	Imported              []memoryDetailsOutput `json:"imported"`

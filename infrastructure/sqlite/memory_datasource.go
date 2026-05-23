@@ -808,6 +808,7 @@ func buildMemoryListQuery(criteria apptypes.MemoryListCriteria, clock types.Cloc
 		return "", nil, err
 	}
 	args = appendMemoryValidityWindowFilter(&builder, args, criteria.AsOf(), criteria.IncludeExpiredByValidity(), clock)
+	args = appendMemoryUpdatedAtFilter(&builder, args, criteria.UpdatedBefore(), criteria.UpdatedAfter())
 	builder.WriteString(" ORDER BY ")
 	if criteria.RememberIntentPriority() {
 		// Pin prioritized inbox sources to the top of the result set BEFORE
@@ -822,6 +823,23 @@ func buildMemoryListQuery(criteria apptypes.MemoryListCriteria, clock types.Cloc
 	builder.WriteString("m.updated_at DESC, m.id DESC LIMIT ? OFFSET ?")
 	args = append(args, criteria.Limit(), criteria.Offset())
 	return builder.String(), args, nil
+}
+
+func appendMemoryUpdatedAtFilter(
+	builder *strings.Builder,
+	args []any,
+	updatedBefore types.Optional[time.Time],
+	updatedAfter types.Optional[time.Time],
+) []any {
+	if before, ok := updatedBefore.Value(); ok {
+		builder.WriteString(" AND m.updated_at <= ?")
+		args = append(args, formatMemoryValidityTimestamp(before))
+	}
+	if after, ok := updatedAfter.Value(); ok {
+		builder.WriteString(" AND m.updated_at >= ?")
+		args = append(args, formatMemoryValidityTimestamp(after))
+	}
+	return args
 }
 
 func buildMemorySearchQuery(criteria apptypes.MemorySearchCriteria, clock types.Clock) (string, []any, error) {

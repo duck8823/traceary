@@ -28,6 +28,8 @@ type MemoryListCriteria struct {
 	memoryTypes            []domtypes.MemoryType
 	sources                []domtypes.MemorySource
 	asOf                   domtypes.Optional[time.Time]
+	updatedBefore          domtypes.Optional[time.Time]
+	updatedAfter           domtypes.Optional[time.Time]
 	includeExpired         bool
 	rememberIntentPriority bool
 }
@@ -55,6 +57,12 @@ func (c MemoryListCriteria) Sources() []domtypes.MemorySource { return slices.Cl
 // (validTo is null or validTo > AsOf). The zero value (None) means
 // "use the current wall clock at query time".
 func (c MemoryListCriteria) AsOf() domtypes.Optional[time.Time] { return c.asOf }
+
+// UpdatedBefore returns an optional updated_at upper bound.
+func (c MemoryListCriteria) UpdatedBefore() domtypes.Optional[time.Time] { return c.updatedBefore }
+
+// UpdatedAfter returns an optional updated_at lower bound.
+func (c MemoryListCriteria) UpdatedAfter() domtypes.Optional[time.Time] { return c.updatedAfter }
 
 // IncludeExpiredByValidity returns true when the caller asked to bypass
 // the validity-window filter and return memories whose validTo is in
@@ -145,6 +153,24 @@ func (b *MemoryListCriteriaBuilder) Sources(sources []domtypes.MemorySource) *Me
 func (b *MemoryListCriteriaBuilder) AsOf(asOf time.Time) *MemoryListCriteriaBuilder {
 	if !asOf.IsZero() {
 		b.criteria.asOf = domtypes.Some(asOf)
+	}
+	return b
+}
+
+// UpdatedBefore filters rows whose updated_at is earlier than or equal
+// to the supplied timestamp. Zero values are ignored.
+func (b *MemoryListCriteriaBuilder) UpdatedBefore(updatedBefore time.Time) *MemoryListCriteriaBuilder {
+	if !updatedBefore.IsZero() {
+		b.criteria.updatedBefore = domtypes.Some(updatedBefore)
+	}
+	return b
+}
+
+// UpdatedAfter filters rows whose updated_at is later than or equal to
+// the supplied timestamp. Zero values are ignored.
+func (b *MemoryListCriteriaBuilder) UpdatedAfter(updatedAfter time.Time) *MemoryListCriteriaBuilder {
+	if !updatedAfter.IsZero() {
+		b.criteria.updatedAfter = domtypes.Some(updatedAfter)
 	}
 	return b
 }
