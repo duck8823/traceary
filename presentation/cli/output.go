@@ -93,8 +93,9 @@ type topSnapshotPayload struct {
 // the rows included in the snapshot (capped by the per-pane limit), so
 // it is the same value the dashboard renders in the candidates pane.
 type topSnapshotCandidates struct {
-	Count int                   `json:"count"`
-	Items []memorySummaryOutput `json:"items"`
+	Count               int                   `json:"count"`
+	RememberIntentCount int                   `json:"remember_intent_count"`
+	Items               []memorySummaryOutput `json:"items"`
 }
 
 // topSnapshotStale wraps stale durable-memory rows with the total stale count

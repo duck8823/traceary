@@ -10,7 +10,7 @@ RECENT FAILURES:
 RECENT COMMANDS:
 12:20:00 command_executed go build ./...
 
-CANDIDATE MEMORIES (count=1):
+CANDIDATE MEMORIES (count=1 remember_intent=1):
 mem-1 preference prefer table-driven subtests
 
 STALE MEMORIES (count=3):

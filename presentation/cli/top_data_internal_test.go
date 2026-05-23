@@ -546,6 +546,45 @@ func TestTopDataLoader_LoadCandidates_FiltersByCandidateStatus(t *testing.T) {
 	}
 }
 
+func TestCountCandidatesBySource_RememberIntent(t *testing.T) {
+	t.Parallel()
+
+	workspace, err := domtypes.WorkspaceFrom("duck8823/traceary")
+	if err != nil {
+		t.Fatalf("WorkspaceFrom: %v", err)
+	}
+	makeCandidate := func(t *testing.T, id string, source domtypes.MemorySource) apptypes.MemorySummary {
+		t.Helper()
+		summary, err := apptypes.MemorySummaryOf(
+			domtypes.MemoryID(id),
+			domtypes.MemoryTypePreference,
+			domtypes.WorkspaceScopeOf(workspace),
+			"remember this fact",
+			domtypes.MemoryStatusCandidate,
+			domtypes.ConfidenceMedium,
+			source,
+			domtypes.None[domtypes.MemoryID](),
+			domtypes.None[time.Time](),
+			fixedStartedAt,
+			domtypes.None[time.Time](),
+			fixedStartedAt,
+			fixedStartedAt,
+		)
+		if err != nil {
+			t.Fatalf("MemorySummaryOf: %v", err)
+		}
+		return summary
+	}
+
+	candidates := []apptypes.MemorySummary{
+		makeCandidate(t, "mem-remember", domtypes.MemorySourceRememberIntent),
+		makeCandidate(t, "mem-extracted", domtypes.MemorySourceExtracted),
+	}
+	if got := countCandidatesBySource(candidates, domtypes.MemorySourceRememberIntent); got != 1 {
+		t.Fatalf("remember-intent count = %d, want 1", got)
+	}
+}
+
 func TestTopDataLoader_LoadCandidates_WorkspaceAndAgentAddScopes(t *testing.T) {
 	t.Parallel()
 

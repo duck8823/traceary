@@ -49,6 +49,7 @@ func (c *RootCLI) newMemoryInboxListCommand() *cobra.Command {
 	cmd.Flags().StringVar(&input.sessionFamily, "session-family", "", Localize("filter by session-family scope", "session-family scope で絞り込む"))
 	cmd.Flags().StringSliceVar(&input.memoryTypes, "type", nil, Localize("filter by memory type", "memory type で絞り込む"))
 	cmd.Flags().StringSliceVar(&input.sources, "source", nil, Localize("filter by memory source (manual / extracted / extracted-hidden / remember-intent / compact-summary / imported)", "memory source (manual / extracted / extracted-hidden / remember-intent / compact-summary / imported) で絞り込む"))
+	cmd.Flags().BoolVar(&input.rememberIntent, "remember-intent", false, Localize("shortcut for --source remember-intent", "--source remember-intent のショートカット"))
 	cmd.Flags().BoolVar(&input.includeHidden, "include-hidden", false, Localize("include extracted-hidden candidates (low-quality auto-extractions kept for audit)", "extracted-hidden の候補も含める (audit 用に保存された低品質自動抽出)"))
 	cmd.Flags().DurationVar(&input.olderThan, "older-than", 0, Localize("only include candidates not updated within this duration (for example 168h)", "この duration 以内に更新されていない候補だけを含める (例: 168h)"))
 	cmd.Flags().DurationVar(&input.newerThan, "newer-than", 0, Localize("only include candidates updated within this duration (for example 24h)", "この duration 以内に更新された候補だけを含める (例: 24h)"))
@@ -104,6 +105,7 @@ func (c *RootCLI) newMemoryInboxCleanupCommand() *cobra.Command {
 	cmd.Flags().StringVar(&input.sessionFamily, "session-family", "", Localize("filter by session-family scope", "session-family scope で絞り込む"))
 	cmd.Flags().StringSliceVar(&input.memoryTypes, "type", nil, Localize("filter by memory type", "memory type で絞り込む"))
 	cmd.Flags().StringSliceVar(&input.sources, "source", nil, Localize("filter by memory source (manual / extracted / extracted-hidden / remember-intent / compact-summary / imported)", "memory source (manual / extracted / extracted-hidden / remember-intent / compact-summary / imported) で絞り込む"))
+	cmd.Flags().BoolVar(&input.rememberIntent, "remember-intent", false, Localize("shortcut for --source remember-intent", "--source remember-intent のショートカット"))
 	cmd.Flags().BoolVar(&input.includeHidden, "include-hidden", false, Localize("include extracted-hidden candidates", "extracted-hidden の候補も含める"))
 	cmd.Flags().DurationVar(&input.olderThan, "older-than", 0, Localize("only target candidates not updated within this duration (for example 168h)", "この duration 以内に更新されていない候補だけを対象にする (例: 168h)"))
 	cmd.Flags().DurationVar(&input.newerThan, "newer-than", 0, Localize("only target candidates updated within this duration (for example 24h)", "この duration 以内に更新された候補だけを対象にする (例: 24h)"))
@@ -197,6 +199,7 @@ func (c *RootCLI) runMemoryInboxList(ctx context.Context, output io.Writer, inpu
 	if err != nil {
 		return err
 	}
+	sources = applyRememberIntentSourceShortcut(sources, input.rememberIntent)
 	lowQualityIDs, err := c.loadLowQualityCandidateIDs(ctx, scopes, input.includeHidden || memorySourcesContain(sources, domtypes.MemorySourceExtractedHidden), quality)
 	if err != nil {
 		return err
@@ -320,6 +323,7 @@ func (c *RootCLI) loadMemoryInboxCleanupCandidates(ctx context.Context, input me
 	if err != nil {
 		return nil, err
 	}
+	sources = applyRememberIntentSourceShortcut(sources, input.rememberIntent)
 	lowQualityIDs, err := c.loadLowQualityCandidateIDs(ctx, scopes, input.includeHidden || memorySourcesContain(sources, domtypes.MemorySourceExtractedHidden), quality)
 	if err != nil {
 		return nil, err
@@ -426,6 +430,13 @@ func memorySourcesContain(sources []domtypes.MemorySource, target domtypes.Memor
 		}
 	}
 	return false
+}
+
+func applyRememberIntentSourceShortcut(sources []domtypes.MemorySource, rememberIntent bool) []domtypes.MemorySource {
+	if !rememberIntent {
+		return sources
+	}
+	return []domtypes.MemorySource{domtypes.MemorySourceRememberIntent}
 }
 
 func (c *RootCLI) runMemoryInboxBatch(ctx context.Context, output io.Writer, errOutput io.Writer, input memoryInboxBatchCommandInput, action memoryInboxAction) error {
@@ -640,7 +651,7 @@ func writeMemoryInboxBatch(output io.Writer, result memoryInboxBatchResult, asJS
 	}
 	for _, details := range result.Processed {
 		summary := details.Summary()
-		if _, err := fmt.Fprintf(output, "%s\t%s\t%s\n", summary.MemoryID(), summary.Status(), summary.Fact()); err != nil {
+		if _, err := fmt.Fprintf(output, "%s\t%s\t%s\t%s\n", summary.MemoryID(), summary.Status(), summary.Source(), summary.Fact()); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print inbox batch row", "inbox batch 行の出力に失敗しました"), err)
 		}
 	}

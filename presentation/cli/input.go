@@ -407,19 +407,20 @@ type memoryImportCodexCommandInput struct {
 // memories, so the filter set is identical to `memory list` but the
 // default status is pinned to candidate.
 type memoryInboxListCommandInput struct {
-	dbPath        string
-	workspace     string
-	agent         string
-	sessionFamily string
-	memoryTypes   []string
-	sources       []string
-	includeHidden bool
-	olderThan     time.Duration
-	newerThan     time.Duration
-	quality       string
-	limit         int
-	offset        int
-	asJSON        bool
+	dbPath         string
+	workspace      string
+	agent          string
+	sessionFamily  string
+	memoryTypes    []string
+	sources        []string
+	rememberIntent bool
+	includeHidden  bool
+	olderThan      time.Duration
+	newerThan      time.Duration
+	quality        string
+	limit          int
+	offset         int
+	asJSON         bool
 }
 
 // memoryInboxBatchCommandInput is the resolved input to `traceary memory
@@ -438,19 +439,20 @@ type memoryInboxBatchCommandInput struct {
 // inbox cleanup`. The command defaults to dry-run and requires --apply before
 // it rejects any candidate rows.
 type memoryInboxCleanupCommandInput struct {
-	dbPath        string
-	workspace     string
-	agent         string
-	sessionFamily string
-	memoryTypes   []string
-	sources       []string
-	includeHidden bool
-	olderThan     time.Duration
-	newerThan     time.Duration
-	quality       string
-	limit         int
-	apply         bool
-	asJSON        bool
+	dbPath         string
+	workspace      string
+	agent          string
+	sessionFamily  string
+	memoryTypes    []string
+	sources        []string
+	rememberIntent bool
+	includeHidden  bool
+	olderThan      time.Duration
+	newerThan      time.Duration
+	quality        string
+	limit          int
+	apply          bool
+	asJSON         bool
 }
 
 // memoryExportCommandInput is the resolved input to `traceary memory
