@@ -433,6 +433,438 @@ func TestCockpitModel_IgnoresStaleLiveLoadResponses(t *testing.T) {
 	}
 }
 
+func TestCockpitModel_MemoryReviewLaunchAndFinishRefreshesHome(t *testing.T) {
+	t.Parallel()
+
+	candidate := cockpitMemoryDetailsFixture(t, "mem-review", "review this candidate", domtypes.MemoryStatusCandidate)
+	accepted := cockpitMemoryDetailsFixture(t, "mem-review", "review this candidate", domtypes.MemoryStatusAccepted)
+	loader := &cockpitLoaderStub{
+		reviewItems: []apptypes.MemoryDetails{candidate},
+		reviewFinishResult: memoryInboxReviewResult{
+			Accepted: []apptypes.MemoryDetails{accepted},
+		},
+		homeResponses: []cockpitHomeSnapshot{
+			{
+				LoadedAt:                fixedStartedAt.Add(time.Minute),
+				AcceptedMemoryCount:     1,
+				CandidateMemoryCount:    0,
+				NewCandidateMemoryKnown: true,
+			},
+		},
+	}
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{
+		LoadedAt:             fixedStartedAt,
+		CandidateMemoryCount: 1,
+	})
+	model.loader = loader
+	model.loaderCtx = context.Background()
+
+	updated, cmd := model.Update(cockpitRuneKey("m"))
+	model = updated.(cockpitModel)
+	if model.mode != cockpitModeMemoryReview || !model.memoryReview.loading {
+		t.Fatalf("memory review launch mode/loading = %v/%v, want memory review/loading", model.mode, model.memoryReview.loading)
+	}
+	if cmd == nil {
+		t.Fatalf("memory review launch returned nil command")
+	}
+	updated, cmd = model.Update(cmd())
+	model = updated.(cockpitModel)
+	if cmd != nil {
+		t.Fatalf("memory review load returned unexpected follow-up command = %T", cmd)
+	}
+	if got, want := loader.reviewLoadCalls, 1; got != want {
+		t.Fatalf("review load calls = %d, want %d", got, want)
+	}
+	if got := model.View(); !strings.Contains(got, "review this candidate") {
+		t.Fatalf("memory review view missing candidate:\n%s", got)
+	}
+
+	updated, cmd = model.Update(cockpitRuneKey("a"))
+	model = updated.(cockpitModel)
+	if cmd != nil {
+		t.Fatalf("accept key returned unexpected command = %T", cmd)
+	}
+	updated, cmd = model.Update(cockpitRuneKey("q"))
+	model = updated.(cockpitModel)
+	if !model.memoryReview.applying || cmd == nil {
+		t.Fatalf("finish review applying/cmd = %v/%T, want applying/apply command", model.memoryReview.applying, cmd)
+	}
+	updated, cmd = model.Update(cmd())
+	model = updated.(cockpitModel)
+	if model.mode != cockpitModeHome {
+		t.Fatalf("after apply mode = %v, want home", model.mode)
+	}
+	if cmd == nil {
+		t.Fatalf("after apply should refresh cockpit home")
+	}
+	if got, want := len(loader.reviewFinishCalls), 1; got != want {
+		t.Fatalf("review finish decision count = %d, want %d", got, want)
+	}
+	if got := loader.reviewFinishCalls[0].kind; got != reviewDecisionAccept {
+		t.Fatalf("review finish decision = %v, want accept", got)
+	}
+
+	updated, cmd = model.Update(cmd())
+	model = updated.(cockpitModel)
+	if cmd != nil {
+		t.Fatalf("home refresh returned unexpected command = %T", cmd)
+	}
+	if got, want := loader.homeCalls, 1; got != want {
+		t.Fatalf("home refresh calls = %d, want %d", got, want)
+	}
+	if got, want := model.home.CandidateMemoryCount, 0; got != want {
+		t.Fatalf("refreshed CandidateMemoryCount = %d, want %d", got, want)
+	}
+	if got := model.View(); !strings.Contains(got, "memory review applied: accepted=1 rejected=0 distilled=0 failures=0") || !strings.Contains(got, "candidate(inbox)=0") {
+		t.Fatalf("home view missing review result/refreshed counts:\n%s", got)
+	}
+}
+
+func TestCockpitModel_MemoryReviewEscDismissesEvidenceWithoutApplying(t *testing.T) {
+	t.Parallel()
+
+	candidate := cockpitMemoryDetailsFixture(t, "mem-evidence", "check evidence", domtypes.MemoryStatusCandidate)
+	loader := &cockpitLoaderStub{reviewItems: []apptypes.MemoryDetails{candidate}}
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	model.loader = loader
+	model.loaderCtx = context.Background()
+
+	updated, cmd := model.Update(cockpitRuneKey("m"))
+	model = updated.(cockpitModel)
+	updated, _ = model.Update(cmd())
+	model = updated.(cockpitModel)
+	updated, _ = model.Update(cockpitRuneKey("v"))
+	model = updated.(cockpitModel)
+	if model.memoryReview.review.mode != reviewModeViewEvidence {
+		t.Fatalf("review mode = %v, want evidence", model.memoryReview.review.mode)
+	}
+
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(cockpitModel)
+	if cmd != nil {
+		t.Fatalf("esc from evidence returned command = %T, want nil", cmd)
+	}
+	if model.mode != cockpitModeMemoryReview || model.memoryReview.review.mode != reviewModeBrowse {
+		t.Fatalf("esc from evidence mode/reviewMode = %v/%v, want memory review/browse", model.mode, model.memoryReview.review.mode)
+	}
+	if len(loader.reviewFinishCalls) != 0 {
+		t.Fatalf("esc from evidence applied decisions unexpectedly: %#v", loader.reviewFinishCalls)
+	}
+}
+
+func TestCockpitModel_MemoryReviewEscBacksOutWithoutApplying(t *testing.T) {
+	t.Parallel()
+
+	candidate := cockpitMemoryDetailsFixture(t, "mem-backout", "do not apply on escape", domtypes.MemoryStatusCandidate)
+	loader := &cockpitLoaderStub{
+		reviewItems: []apptypes.MemoryDetails{candidate},
+		homeResponses: []cockpitHomeSnapshot{
+			{
+				LoadedAt:             fixedStartedAt.Add(time.Minute),
+				CandidateMemoryCount: 1,
+			},
+		},
+	}
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	model.loader = loader
+	model.loaderCtx = context.Background()
+
+	updated, cmd := model.Update(cockpitRuneKey("m"))
+	model = updated.(cockpitModel)
+	updated, _ = model.Update(cmd())
+	model = updated.(cockpitModel)
+	updated, _ = model.Update(cockpitRuneKey("a"))
+	model = updated.(cockpitModel)
+
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(cockpitModel)
+	if model.mode != cockpitModeHome {
+		t.Fatalf("esc from review browse mode = %v, want home", model.mode)
+	}
+	if model.memoryReview.applying {
+		t.Fatalf("esc from review browse started applying decisions")
+	}
+	if len(loader.reviewFinishCalls) != 0 {
+		t.Fatalf("esc from review browse applied decisions unexpectedly: %#v", loader.reviewFinishCalls)
+	}
+	if cmd == nil {
+		t.Fatalf("esc from review browse returned nil command, want home refresh")
+	}
+
+	updated, cmd = model.Update(cmd())
+	model = updated.(cockpitModel)
+	if cmd != nil {
+		t.Fatalf("home refresh returned unexpected command = %T", cmd)
+	}
+	if got, want := loader.homeCalls, 1; got != want {
+		t.Fatalf("home refresh calls = %d, want %d", got, want)
+	}
+}
+
+func TestCockpitModel_MemoryReviewErrorAllowsHomeAndQuit(t *testing.T) {
+	t.Parallel()
+
+	home := cockpitHomeSnapshot{LoadedAt: fixedStartedAt}
+	loader := &cockpitLoaderStub{
+		homeResponses: []cockpitHomeSnapshot{
+			{
+				LoadedAt:             fixedStartedAt.Add(time.Minute),
+				CandidateMemoryCount: 3,
+			},
+			{
+				LoadedAt:             fixedStartedAt.Add(2 * time.Minute),
+				CandidateMemoryCount: 4,
+			},
+		},
+	}
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), home)
+	model.loader = loader
+	model.loaderCtx = context.Background()
+	model.mode = cockpitModeMemoryReview
+	model.memoryReview.err = context.Canceled
+
+	updated, cmd := model.Update(cockpitRuneKey("h"))
+	model = updated.(cockpitModel)
+	if model.mode != cockpitModeHome || cmd == nil {
+		t.Fatalf("h from review error mode/cmd = %v/%T, want home/refresh command", model.mode, cmd)
+	}
+	updated, cmd = model.Update(cmd())
+	model = updated.(cockpitModel)
+	if cmd != nil {
+		t.Fatalf("home refresh after h returned follow-up command = %T", cmd)
+	}
+	if got, want := model.home.CandidateMemoryCount, 3; got != want {
+		t.Fatalf("home refresh after h CandidateMemoryCount = %d, want %d", got, want)
+	}
+
+	model.mode = cockpitModeMemoryReview
+	model.memoryReview.err = context.Canceled
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(cockpitModel)
+	if model.mode != cockpitModeHome || cmd == nil {
+		t.Fatalf("esc from review error mode/cmd = %v/%T, want home/refresh command", model.mode, cmd)
+	}
+	updated, cmd = model.Update(cmd())
+	model = updated.(cockpitModel)
+	if cmd != nil {
+		t.Fatalf("home refresh after esc returned follow-up command = %T", cmd)
+	}
+	if got, want := model.home.CandidateMemoryCount, 4; got != want {
+		t.Fatalf("home refresh after esc CandidateMemoryCount = %d, want %d", got, want)
+	}
+
+	model.mode = cockpitModeMemoryReview
+	model.memoryReview.err = context.Canceled
+	_, cmd = model.Update(cockpitRuneKey("q"))
+	if cmd == nil {
+		t.Fatalf("q from review error returned nil command, want quit command")
+	}
+}
+
+func TestCockpitModel_MemoryReviewLoadingEscBacksOut(t *testing.T) {
+	t.Parallel()
+
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	model.mode = cockpitModeMemoryReview
+	model.memoryReview.loading = true
+	model.memoryReview.requestSeq = 1
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(cockpitModel)
+	if model.mode != cockpitModeHome || cmd != nil {
+		t.Fatalf("esc while review loading mode/cmd = %v/%T, want home/nil", model.mode, cmd)
+	}
+
+	model.mode = cockpitModeMemoryReview
+	model.memoryReview.loading = true
+	_, cmd = model.Update(cockpitRuneKey("q"))
+	if cmd == nil {
+		t.Fatalf("q while review loading returned nil command, want quit command")
+	}
+}
+
+func TestCockpitModel_MemoryReviewApplyFailureStaysInReview(t *testing.T) {
+	t.Parallel()
+
+	candidate := cockpitMemoryDetailsFixture(t, "mem-fail-review", "review fails", domtypes.MemoryStatusCandidate)
+	result := memoryInboxReviewResult{Failures: []memoryInboxFailure{{ID: "mem-fail-review", Error: "conflict"}}}
+	loader := &cockpitLoaderStub{
+		reviewItems:        []apptypes.MemoryDetails{candidate},
+		reviewFinishResult: result,
+		reviewFinishErr:    memoryInboxReviewFailureError(result),
+	}
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	model.loader = loader
+	model.loaderCtx = context.Background()
+
+	updated, cmd := model.Update(cockpitRuneKey("m"))
+	model = updated.(cockpitModel)
+	updated, _ = model.Update(cmd())
+	model = updated.(cockpitModel)
+	updated, _ = model.Update(cockpitRuneKey("a"))
+	model = updated.(cockpitModel)
+	updated, cmd = model.Update(cockpitRuneKey("q"))
+	model = updated.(cockpitModel)
+	if cmd == nil {
+		t.Fatalf("finish review returned nil command")
+	}
+
+	updated, cmd = model.Update(cmd())
+	model = updated.(cockpitModel)
+	if cmd != nil {
+		t.Fatalf("failed apply returned follow-up command = %T, want nil", cmd)
+	}
+	if model.mode != cockpitModeMemoryReview || model.memoryReview.err == nil {
+		t.Fatalf("failed apply mode/err = %v/%v, want memory review/error", model.mode, model.memoryReview.err)
+	}
+	if got, want := len(model.memoryReview.result.Failures), 1; got != want {
+		t.Fatalf("failed apply result failures = %d, want %d", got, want)
+	}
+}
+
+func TestCockpitModel_MemoryReviewBlocksQuitWhileApplying(t *testing.T) {
+	t.Parallel()
+
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	model.mode = cockpitModeMemoryReview
+	model.memoryReview.applying = true
+
+	_, cmd := model.Update(cockpitRuneKey("q"))
+	if cmd != nil {
+		t.Fatalf("q while review apply is in flight returned command = %T, want nil", cmd)
+	}
+	_, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd != nil {
+		t.Fatalf("esc while review apply is in flight returned command = %T, want nil", cmd)
+	}
+}
+
+func TestCockpitModel_MemoryReviewCtrlCQuitsWithoutApplying(t *testing.T) {
+	t.Parallel()
+
+	candidate := cockpitMemoryDetailsFixture(t, "mem-ctrlc-review", "do not apply on ctrl c", domtypes.MemoryStatusCandidate)
+	loader := &cockpitLoaderStub{reviewItems: []apptypes.MemoryDetails{candidate}}
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	model.loader = loader
+	model.loaderCtx = context.Background()
+
+	updated, cmd := model.Update(cockpitRuneKey("m"))
+	model = updated.(cockpitModel)
+	updated, _ = model.Update(cmd())
+	model = updated.(cockpitModel)
+	updated, _ = model.Update(cockpitRuneKey("a"))
+	model = updated.(cockpitModel)
+
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	model = updated.(cockpitModel)
+	if cmd == nil {
+		t.Fatalf("ctrl+c during review returned nil command, want quit command")
+	}
+	if model.memoryReview.applying {
+		t.Fatalf("ctrl+c during review started applying decisions")
+	}
+	if len(loader.reviewFinishCalls) != 0 {
+		t.Fatalf("ctrl+c during review applied decisions unexpectedly: %#v", loader.reviewFinishCalls)
+	}
+}
+
+func TestCockpitModel_IgnoresStaleMemoryReviewLoadResponses(t *testing.T) {
+	t.Parallel()
+
+	oldCandidate := cockpitMemoryDetailsFixture(t, "mem-old-review", "old review queue", domtypes.MemoryStatusCandidate)
+	newCandidate := cockpitMemoryDetailsFixture(t, "mem-new-review", "new review queue", domtypes.MemoryStatusCandidate)
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+
+	updated, _ := model.Update(cockpitRuneKey("m"))
+	model = updated.(cockpitModel)
+	firstSeq := model.memoryReview.requestSeq
+
+	updated, _ = model.Update(cockpitRuneKey("h"))
+	model = updated.(cockpitModel)
+	if model.mode != cockpitModeHome {
+		t.Fatalf("h while review loading mode = %v, want home", model.mode)
+	}
+
+	updated, _ = model.Update(cockpitRuneKey("m"))
+	model = updated.(cockpitModel)
+	secondSeq := model.memoryReview.requestSeq
+	if firstSeq == secondSeq {
+		t.Fatalf("memory review request sequence did not advance: first=%d second=%d", firstSeq, secondSeq)
+	}
+
+	updated, _ = model.Update(cockpitMemoryReviewLoadedMsg{seq: firstSeq, items: []apptypes.MemoryDetails{oldCandidate}})
+	model = updated.(cockpitModel)
+	if !model.memoryReview.loading {
+		t.Fatalf("stale review response cleared loading for the newer request")
+	}
+	if len(model.memoryReview.items) != 0 {
+		t.Fatalf("stale review response mutated items: %#v", model.memoryReview.items)
+	}
+
+	updated, _ = model.Update(cockpitMemoryReviewLoadedMsg{seq: secondSeq, items: []apptypes.MemoryDetails{newCandidate}})
+	model = updated.(cockpitModel)
+	if model.memoryReview.loading {
+		t.Fatalf("current review response left loading true")
+	}
+	if got, want := len(model.memoryReview.items), 1; got != want {
+		t.Fatalf("current review items = %d, want %d", got, want)
+	}
+	if got := model.View(); !strings.Contains(got, "new review queue") || strings.Contains(got, "old review queue") {
+		t.Fatalf("review view did not use current queue only:\n%s", got)
+	}
+}
+
+func TestCockpitModel_HomeRefreshErrorUsesErrorStatus(t *testing.T) {
+	t.Parallel()
+
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	updated, _ := model.Update(cockpitHomeMsg{err: context.Canceled})
+	model = updated.(cockpitModel)
+	if model.statusMsg != "" {
+		t.Fatalf("statusMsg = %q, want empty for refresh errors", model.statusMsg)
+	}
+	if model.statusErr == "" {
+		t.Fatalf("statusErr = empty, want refresh error")
+	}
+	if got := model.View(); !strings.Contains(got, context.Canceled.Error()) {
+		t.Fatalf("home view missing refresh error:\n%s", got)
+	}
+}
+
+func TestCockpitModel_IgnoresStaleHomeRefreshResponses(t *testing.T) {
+	t.Parallel()
+
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{
+		LoadedAt:             fixedStartedAt,
+		CandidateMemoryCount: 10,
+	})
+	_ = model.startCockpitHomeLoad()
+	firstSeq := model.homeRequestSeq
+	_ = model.startCockpitHomeLoad()
+	secondSeq := model.homeRequestSeq
+	if firstSeq == secondSeq {
+		t.Fatalf("home request sequence did not advance: first=%d second=%d", firstSeq, secondSeq)
+	}
+
+	updated, _ := model.Update(cockpitHomeMsg{seq: firstSeq, err: context.Canceled})
+	model = updated.(cockpitModel)
+	if model.statusErr != "" {
+		t.Fatalf("stale home error set statusErr = %q", model.statusErr)
+	}
+	if got, want := model.home.CandidateMemoryCount, 10; got != want {
+		t.Fatalf("stale home error changed CandidateMemoryCount = %d, want %d", got, want)
+	}
+
+	updated, _ = model.Update(cockpitHomeMsg{seq: secondSeq, home: cockpitHomeSnapshot{
+		LoadedAt:             fixedStartedAt.Add(time.Minute),
+		CandidateMemoryCount: 2,
+	}})
+	model = updated.(cockpitModel)
+	if got, want := model.home.CandidateMemoryCount, 2; got != want {
+		t.Fatalf("current home response CandidateMemoryCount = %d, want %d", got, want)
+	}
+}
+
 func TestFormatCockpitLiveEventRow_TruncatesLargePayload(t *testing.T) {
 	t.Parallel()
 
@@ -447,6 +879,10 @@ func TestFormatCockpitLiveEventRow_TruncatesLargePayload(t *testing.T) {
 }
 
 type cockpitLoaderStub struct {
+	homeResponses []cockpitHomeSnapshot
+	homeCalls     int
+	homeErr       error
+
 	liveResponses []cockpitLiveSnapshot
 	liveCalls     []cockpitLiveCall
 	liveErr       error
@@ -454,11 +890,31 @@ type cockpitLoaderStub struct {
 	detailContent topDetailContent
 	detailErr     error
 	detailCalls   []domtypes.EventID
+
+	reviewItems        []apptypes.MemoryDetails
+	reviewLoadCalls    int
+	reviewLoadErr      error
+	reviewFinishCalls  []reviewDecision
+	reviewFinishResult memoryInboxReviewResult
+	reviewFinishErr    error
 }
 
 type cockpitLiveCall struct {
 	cursor  tailCursor
 	initial bool
+}
+
+func (s *cockpitLoaderStub) loadCockpitHome(context.Context) (cockpitHomeSnapshot, error) {
+	s.homeCalls++
+	if s.homeErr != nil {
+		return cockpitHomeSnapshot{}, s.homeErr
+	}
+	if len(s.homeResponses) == 0 {
+		return cockpitHomeSnapshot{LoadedAt: fixedStartedAt}, nil
+	}
+	next := s.homeResponses[0]
+	s.homeResponses = s.homeResponses[1:]
+	return next, nil
 }
 
 type cockpitStateReaderStub struct {
@@ -498,6 +954,37 @@ func memorySummaryWithSourceAndUpdatedAt(t *testing.T, id string, status domtype
 	return summary
 }
 
+func cockpitMemoryDetailsFixture(t *testing.T, id string, fact string, status domtypes.MemoryStatus) apptypes.MemoryDetails {
+	t.Helper()
+	workspace, err := domtypes.WorkspaceFrom("duck8823/traceary")
+	if err != nil {
+		t.Fatalf("WorkspaceFrom: %v", err)
+	}
+	summary, err := apptypes.MemorySummaryOf(
+		domtypes.MemoryID(id),
+		domtypes.MemoryTypePreference,
+		domtypes.WorkspaceScopeOf(workspace),
+		fact,
+		status,
+		domtypes.ConfidenceMedium,
+		domtypes.MemorySourceRememberIntent,
+		domtypes.None[domtypes.MemoryID](),
+		domtypes.None[time.Time](),
+		fixedStartedAt,
+		domtypes.None[time.Time](),
+		fixedStartedAt,
+		fixedStartedAt,
+	)
+	if err != nil {
+		t.Fatalf("MemorySummaryOf: %v", err)
+	}
+	evidence, err := domtypes.EvidenceRefFrom(domtypes.EvidenceRefKindFile, "/tmp/MEMORY.md#L1-L2")
+	if err != nil {
+		t.Fatalf("EvidenceRefFrom: %v", err)
+	}
+	return apptypes.MemoryDetailsOf(summary, []domtypes.EvidenceRef{evidence}, nil)
+}
+
 func (s *cockpitLoaderStub) loadCockpitLive(_ context.Context, cursor tailCursor, initial bool) (cockpitLiveSnapshot, error) {
 	s.liveCalls = append(s.liveCalls, cockpitLiveCall{cursor: cursor, initial: initial})
 	if s.liveErr != nil {
@@ -514,6 +1001,19 @@ func (s *cockpitLoaderStub) loadCockpitLive(_ context.Context, cursor tailCursor
 func (s *cockpitLoaderStub) loadCockpitEventDetail(_ context.Context, eventID domtypes.EventID) (topDetailContent, error) {
 	s.detailCalls = append(s.detailCalls, eventID)
 	return s.detailContent, s.detailErr
+}
+
+func (s *cockpitLoaderStub) loadCockpitMemoryReviewItems(context.Context) ([]apptypes.MemoryDetails, error) {
+	s.reviewLoadCalls++
+	if s.reviewLoadErr != nil {
+		return nil, s.reviewLoadErr
+	}
+	return s.reviewItems, nil
+}
+
+func (s *cockpitLoaderStub) finishCockpitMemoryReview(_ context.Context, final reviewModel, _ []apptypes.MemoryDetails) (memoryInboxReviewResult, error) {
+	s.reviewFinishCalls = append(s.reviewFinishCalls, final.Decisions()...)
+	return s.reviewFinishResult, s.reviewFinishErr
 }
 
 func cockpitRuneKey(value string) tea.KeyMsg {
