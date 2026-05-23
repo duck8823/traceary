@@ -25,6 +25,7 @@ The dogfood tests cover:
   - finding the latest failure from Home via Live and event detail,
   - inspecting evidence for an ambiguous memory without accidentally accepting it,
   - opening Doctor and finding a remediation command.
+- Japanese cockpit smoke coverage with `TRACEARY_LANG=ja` at 80x24.
 
 Golden snapshots live under `presentation/cli/testdata/cockpit/`. Update them only when the intended cockpit copy/layout changes:
 
@@ -54,6 +55,9 @@ Run each task in a real terminal before tagging a cockpit release:
    - Confirm warnings/failures show remediation commands inline.
 7. Press `5` for Sessions.
    - Confirm the screen points to handoff/session commands until the dedicated session UI is implemented.
+8. Run `TRACEARY_LANG=ja traceary tui --reset-state`.
+   - Confirm the shell, footer, help/action menu, Home labels, and Memory review decision aids are understandable in Japanese.
+   - Confirm literal commands such as `traceary doctor --json` remain copyable as English command names.
 
 ## Release gate
 
