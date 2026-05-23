@@ -643,6 +643,11 @@ type cockpitNavigationSection struct {
 	label string
 }
 
+type cockpitAction struct {
+	key         string
+	description string
+}
+
 var cockpitNavigationSections = []cockpitNavigationSection{
 	{id: cockpitSectionHome, key: "1", label: "Home"},
 	{id: cockpitSectionLive, key: "2", label: "Live"},
@@ -1166,7 +1171,7 @@ func (m cockpitModel) updateMemoryReviewGlobalNavigationKey(msg tea.KeyMsg) (boo
 		}
 		return true, m, nil
 	}
-	reviewModeAllowsSectionJump := m.memoryReview.loading || m.memoryReview.err != nil || m.memoryReview.review.mode == reviewModeBrowse
+	reviewModeAllowsSectionJump := m.memoryReview.loading || m.memoryReview.err != nil || m.memoryReview.review.mode == reviewModeBrowse || m.memoryReview.review.mode == reviewModeHelp
 	if !reviewModeAllowsSectionJump {
 		return false, m, nil
 	}
@@ -1482,7 +1487,7 @@ func (m cockpitModel) doctorView() string {
 		offset = len(content)
 	}
 	lines = append(lines, content[offset:]...)
-	return m.renderCockpitShell("doctor", lines, "r refresh · ↑/↓ scroll")
+	return m.renderCockpitShell("doctor", lines, m.doctorLocalHelp())
 }
 
 func (m cockpitModel) doctorLines() []string {
@@ -1499,7 +1504,10 @@ func (m cockpitModel) doctorLines() []string {
 		"",
 	}
 	if len(snapshot.Sections) == 0 {
-		return append(lines, m.styles.Success.Render("No doctor checks reported."))
+		return append(lines,
+			m.styles.Success.Render("No doctor checks reported."),
+			m.styles.Subtle.Render("Press r to refresh checks or 1 to return Home."),
+		)
 	}
 	rendered := 0
 	for _, section := range snapshot.Sections {
@@ -1525,7 +1533,10 @@ func (m cockpitModel) doctorLines() []string {
 		lines = append(lines, "")
 	}
 	if rendered == 0 {
-		lines = append(lines, m.styles.Success.Render("No doctor checks reported."))
+		lines = append(lines,
+			m.styles.Success.Render("No doctor checks reported."),
+			m.styles.Subtle.Render("Press r to refresh checks or 1 to return Home."),
+		)
 	}
 	return lines
 }
@@ -1555,21 +1566,17 @@ func renderCockpitDoctorCheck(styles tui.Styles, check cockpitDoctorCheck, line 
 
 func (m cockpitModel) memoryReviewView() string {
 	lines := []string{}
-	localHelp := "q quit"
 	switch {
 	case m.memoryReview.loading:
 		lines = append(lines, m.styles.Subtle.Render("Loading memory inbox review queue..."))
 	case m.memoryReview.applying:
 		lines = append(lines, m.styles.Subtle.Render("Applying memory review decisions..."))
-		localHelp = "applying decisions"
 	case m.memoryReview.err != nil:
 		lines = append(lines, m.styles.Error.Render(m.memoryReview.err.Error()))
-		localHelp = "q quit"
 	default:
 		lines = append(lines, m.memoryReview.review.View())
-		localHelp = "a accept · x reject · s skip · e edit · v evidence · q finish/apply"
 	}
-	return m.renderCockpitShell("memory review", lines, localHelp)
+	return m.renderCockpitShell("memory review", lines, m.memoryReviewLocalHelp())
 }
 
 func (m cockpitModel) liveView() string {
@@ -1598,7 +1605,7 @@ func (m cockpitModel) liveView() string {
 			lines = append(lines, line)
 		}
 	}
-	return m.renderCockpitShell("live tail", lines, "r refresh · f follow · enter detail · ↑/↓ select")
+	return m.renderCockpitShell("live tail", lines, m.liveLocalHelp())
 }
 
 func (m cockpitModel) detailView() string {
@@ -1612,7 +1619,7 @@ func (m cockpitModel) detailView() string {
 		}
 		lines = append(lines, detailLines[m.detailOffset:]...)
 	}
-	return m.renderCockpitShell(m.detail.title, lines, "↑/↓ scroll")
+	return m.renderCockpitShell(m.detail.title, lines, m.detailLocalHelp())
 }
 
 func (m cockpitModel) sessionsView() string {
@@ -1648,7 +1655,7 @@ func (m cockpitModel) renderCockpitShell(title string, body []string, localHelp 
 	lines = append(lines, "", m.styles.Help.Render(m.cockpitGlobalFooter(localHelp)))
 	if m.showHelp {
 		lines = append(lines, "")
-		lines = append(lines, m.cockpitGlobalHelp()...)
+		lines = append(lines, m.cockpitContextualHelp()...)
 	}
 	return strings.Join(lines, "\n")
 }
@@ -1674,15 +1681,75 @@ func (m cockpitModel) cockpitGlobalFooter(localHelp string) string {
 			quitHelp = "quit disabled while applying"
 		}
 	}
-	parts := []string{"1-5 sections", "tab/shift+tab next/prev", "esc back", quitHelp, "? help"}
+	parts := []string{}
+	if m.cockpitSectionNavigationAvailable() {
+		parts = append(parts, "1-5 sections", "tab/shift+tab next/prev")
+	}
+	if m.cockpitBackAvailable() {
+		parts = append(parts, "esc back")
+	}
+	if quitHelp != "" {
+		parts = append(parts, quitHelp)
+	}
+	if m.cockpitHelpAvailable() {
+		parts = append(parts, "? help")
+	}
 	if localHelp != "" {
 		parts = append(parts, localHelp)
 	}
 	return strings.Join(parts, " · ")
 }
 
-func (m cockpitModel) cockpitGlobalHelp() []string {
-	lines := []string{
+func (m cockpitModel) cockpitSectionNavigationAvailable() bool {
+	if m.mode != cockpitModeMemoryReview {
+		return true
+	}
+	if m.memoryReview.applying {
+		return false
+	}
+	return m.memoryReview.loading || m.memoryReview.err != nil || m.memoryReview.review.mode == reviewModeBrowse || m.memoryReview.review.mode == reviewModeHelp
+}
+
+func (m cockpitModel) cockpitBackAvailable() bool {
+	if m.mode == cockpitModeHome {
+		return false
+	}
+	if m.mode == cockpitModeMemoryReview {
+		switch {
+		case m.memoryReview.applying:
+			return false
+		case m.memoryReview.loading, m.memoryReview.err != nil:
+			return true
+		default:
+			return m.memoryReview.review.mode == reviewModeBrowse
+		}
+	}
+	return true
+}
+
+func (m cockpitModel) cockpitHelpAvailable() bool {
+	if m.mode != cockpitModeMemoryReview {
+		return true
+	}
+	return !m.memoryReview.applying && m.memoryReview.review.mode != reviewModeEdit
+}
+
+func (m cockpitModel) cockpitContextualHelp() []string {
+	lines := []string{m.styles.Subtle.Render("Action menu")}
+	actions := m.cockpitContextualActions()
+	if len(actions) == 0 {
+		lines = append(lines, "• No local actions are available while this operation is in progress.")
+	} else {
+		for _, action := range actions {
+			if action.key == "" {
+				lines = append(lines, "• "+action.description)
+				continue
+			}
+			lines = append(lines, fmt.Sprintf("• %-12s %s", action.key, action.description))
+		}
+	}
+	lines = append(lines,
+		"",
 		m.styles.Subtle.Render("Global navigation"),
 		"1 Home      triage overview and notifications",
 		"2 Live      event stream and event details",
@@ -1699,8 +1766,176 @@ func (m cockpitModel) cockpitGlobalHelp() []string {
 		"traceary session handoff",
 		"traceary memory inbox review",
 		"traceary tui --reset-state",
-	}
+	)
 	return lines
+}
+
+func (m cockpitModel) cockpitContextualActions() []cockpitAction {
+	switch m.mode {
+	case cockpitModeDoctor:
+		actions := []cockpitAction{{key: "r", description: "Refresh doctor checks"}}
+		if len(m.doctorLines()) > 3 {
+			actions = append(actions, cockpitAction{key: "↑/↓", description: "Scroll doctor output"})
+		}
+		if !m.doctor.loading && m.doctor.err == nil && cockpitDoctorHasRemediation(m.doctor.snapshot) {
+			actions = append(actions, cockpitAction{description: "Remediation commands are shown inline; copy and run them outside the cockpit."})
+		}
+		return actions
+	case cockpitModeLive:
+		actions := []cockpitAction{
+			{key: "r", description: "Refresh live events"},
+			{key: "f", description: m.liveFollowActionDescription()},
+		}
+		if len(m.live.events) > 0 {
+			actions = append(actions, cockpitAction{key: "enter", description: "Open selected event detail"})
+			if len(m.live.events) > 1 {
+				actions = append(actions, cockpitAction{key: "↑/↓", description: "Select an event"})
+			}
+		}
+		return actions
+	case cockpitModeDetail:
+		actions := []cockpitAction{{key: "esc", description: "Return to Live"}}
+		if len(m.detailLines()) > 1 {
+			actions = append(actions, cockpitAction{key: "↑/↓", description: "Scroll event detail"})
+		}
+		return actions
+	case cockpitModeMemoryReview:
+		return m.memoryReviewContextualActions()
+	case cockpitModeSessions:
+		return []cockpitAction{
+			{key: "r", description: "Refresh session summary"},
+			{description: "Use `traceary session handoff` for the full handoff outside the cockpit."},
+		}
+	default:
+		return []cockpitAction{
+			{key: "2", description: "Open Live tail"},
+			{key: "3", description: "Run Doctor checks"},
+			{key: "4", description: "Open Memory review"},
+			{key: "5", description: "Open Sessions and handoff entry points"},
+		}
+	}
+}
+
+func cockpitDoctorHasRemediation(snapshot cockpitDoctorSnapshot) bool {
+	for _, section := range snapshot.Sections {
+		for _, check := range section.Checks {
+			if check.FixCommand != "" || check.AutoFixAvailable {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (m cockpitModel) liveFollowActionDescription() string {
+	if m.live.follow {
+		return "Pause follow mode"
+	}
+	return "Start follow mode"
+}
+
+func (m cockpitModel) memoryReviewContextualActions() []cockpitAction {
+	switch {
+	case m.memoryReview.loading:
+		return []cockpitAction{
+			{key: "esc", description: "Return to Home while the inbox loads"},
+			{key: "q", description: "Quit without applying decisions"},
+		}
+	case m.memoryReview.applying:
+		return nil
+	case m.memoryReview.err != nil:
+		return []cockpitAction{
+			{key: "esc", description: "Return to Home"},
+			{key: "q", description: "Quit without applying decisions"},
+		}
+	}
+	if len(m.memoryReview.items) == 0 {
+		return []cockpitAction{
+			{key: "q", description: "Finish review and refresh Home"},
+			{key: "esc", description: "Return to Home without applying"},
+		}
+	}
+	switch m.memoryReview.review.mode {
+	case reviewModeEdit:
+		return []cockpitAction{
+			{key: "enter", description: "Commit operator-authored fact"},
+			{key: "esc", description: "Cancel edit"},
+			{key: "backspace", description: "Edit text"},
+		}
+	case reviewModeViewEvidence:
+		return []cockpitAction{
+			{key: "v / esc", description: "Close evidence view"},
+			{key: "q", description: "Finish review and apply queued decisions"},
+		}
+	case reviewModeHelp:
+		return []cockpitAction{
+			{key: "? / esc", description: "Close memory review help"},
+			{key: "q", description: "Finish review and apply queued decisions"},
+		}
+	default:
+		actions := []cockpitAction{
+			{key: "a", description: "Accept current candidate"},
+			{key: "x", description: "Reject current candidate"},
+			{key: "s", description: "Skip current candidate"},
+			{key: "e", description: "Edit/distill into an operator-authored fact"},
+			{key: "v", description: "View evidence and artifact refs"},
+			{key: "q", description: "Finish review and apply queued decisions"},
+		}
+		if len(m.memoryReview.items) > 1 {
+			actions = append(actions, cockpitAction{key: "↑/↓", description: "Navigate candidates"})
+		}
+		return actions
+	}
+}
+
+func (m cockpitModel) liveLocalHelp() string {
+	parts := []string{"r refresh", "f follow"}
+	if m.live.follow {
+		parts[1] = "f pause"
+	}
+	if len(m.live.events) > 0 {
+		parts = append(parts, "enter detail")
+		if len(m.live.events) > 1 {
+			parts = append(parts, "↑/↓ select")
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
+func (m cockpitModel) doctorLocalHelp() string {
+	parts := []string{"r refresh"}
+	if len(m.doctorLines()) > 3 {
+		parts = append(parts, "↑/↓ scroll")
+	}
+	return strings.Join(parts, " · ")
+}
+
+func (m cockpitModel) detailLocalHelp() string {
+	if len(m.detailLines()) > 1 {
+		return "↑/↓ scroll"
+	}
+	return ""
+}
+
+func (m cockpitModel) memoryReviewLocalHelp() string {
+	switch {
+	case m.memoryReview.loading, m.memoryReview.err != nil:
+		return "q quit"
+	case m.memoryReview.applying:
+		return "applying decisions"
+	case len(m.memoryReview.items) == 0:
+		return "q finish review"
+	}
+	switch m.memoryReview.review.mode {
+	case reviewModeEdit:
+		return "enter commit · esc cancel · backspace edit"
+	case reviewModeViewEvidence:
+		return "v/esc close evidence · q finish/apply"
+	case reviewModeHelp:
+		return "?/esc close help · q finish/apply"
+	default:
+		return "a accept · x reject · s skip · e edit · v evidence · q finish/apply"
+	}
 }
 
 func (m cockpitModel) detailLines() []string {
