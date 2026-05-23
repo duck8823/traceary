@@ -5,6 +5,24 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.16.0] - 2026-05-23
+
+### Added
+- **host context 取得前の stale active session 保護 (#982)** — host 向け context 経路で stale threshold を超えた active session を識別し、放置された session が現在の working context を黙って隠さないよう cleanup guidance を表示するようにしました。
+- **memory inbox backlog control (#986)** — `traceary memory inbox list` に age / quality filter を追加し、`traceary memory inbox cleanup` で accepted memory には触れずに古い candidate や低品質 candidate を dry-run-first で reject できるようにしました。
+- **remember-intent promotion の可視性 (#987)** — memory inbox と top snapshot に remember-intent candidate count と source filter を追加し、明示的な「remember this」由来の candidate を review / promote しやすくしました。
+- **`traceary top --snapshot` の dogfood reliability metrics (#988)** — text snapshot / JSON snapshot に additive な reliability section を追加し、stale active session、accepted/candidate memory count、candidate age、recent command/failure pane の large payload count を確認できるようにしました。
+
+### Changed
+- **session / event / memory の workspace resolution を共通化 (#983)** — workspace-scoped handoff と context loading が exact-match-first の parent/child fallback を共有し、child workspace の request が event evidence 経由で parent-scoped session に一致した場合は user-visible hint を出すようにしました。
+- **大きな command payload を context surface で上限付きに (#984)** — top snapshot、handoff context、MCP session context の recent command / failure payload に共通 truncation policy と metadata を適用し、巨大な command output が host-agent context window を圧迫しないようにしました。
+- **accepted memory を durable-memory context の既定に (#985)** — host context は既定で accepted memory を優先し、candidate memory は別枠で報告します。未レビューの extraction 結果が trusted long-term context として扱われるリスクを下げました。
+
+### Notes
+- v0.16.0 には SQLite schema migration と新規 MCP tool はありません。
+- `traceary top --snapshot --json` の `reliability` key は additive です。既存 consumer は引き続き `sessions` / `failures` / `recent_commands` / `candidates` / `stale_memories` を読めます。
+- candidate memory は review-first のままです。対話的な整理には `traceary memory inbox review`、一括 reject の前には `traceary memory inbox cleanup --dry-run` を使ってください。
+
 ## [v0.15.0] - 2026-05-10
 
 ### Added

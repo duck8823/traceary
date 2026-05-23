@@ -5,6 +5,24 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.16.0] - 2026-05-23
+
+### Added
+- **Stale active-session safeguards before host context retrieval (#982)** — host-facing context paths now identify active sessions that have aged past the stale threshold and surface cleanup guidance so abandoned sessions do not silently shadow the current working context.
+- **Memory inbox backlog controls (#986)** — `traceary memory inbox list` gains age and quality filters, and `traceary memory inbox cleanup` provides a dry-run-first hygiene path for rejecting old or low-quality candidate memories without touching accepted memories.
+- **Remember-intent promotion visibility (#987)** — memory inbox and top snapshot surfaces now expose remember-intent candidate counts and source filtering so explicit “remember this” prompts are easier to review and promote.
+- **Dogfood reliability metrics in `traceary top --snapshot` (#988)** — text snapshots and JSON snapshots gain an additive reliability section covering stale active sessions, accepted/candidate memory counts, candidate age, and large-payload counts for recent command/failure panes.
+
+### Changed
+- **Workspace resolution is shared across sessions, events, and memories (#983)** — workspace-scoped handoff and context loading now use exact-match-first parent/child fallback, with user-visible hints when a child workspace request matched a parent-scoped session through event evidence.
+- **Large command payloads are capped on context surfaces (#984)** — recent-command and recent-failure payloads in top snapshots, handoff context, and MCP session context use a shared truncation policy with metadata so noisy command output does not dominate host-agent context windows.
+- **Accepted memories are the default durable-memory context (#985)** — host context now prefers accepted memories by default and reports candidate memories separately, reducing the chance that unreviewed extraction output is treated as trusted long-term context.
+
+### Notes
+- v0.16.0 has no SQLite schema migration and no new MCP tools.
+- The `traceary top --snapshot --json` `reliability` key is additive; existing consumers can continue reading `sessions`, `failures`, `recent_commands`, `candidates`, and `stale_memories`.
+- Candidate memories remain review-first: use `traceary memory inbox review` for interactive curation or `traceary memory inbox cleanup --dry-run` before bulk rejection.
+
 ## [v0.15.0] - 2026-05-10
 
 ### Added
