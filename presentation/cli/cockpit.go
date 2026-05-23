@@ -22,6 +22,7 @@ import (
 
 const cockpitExitCodeNotInteractive = 2
 const cockpitLiveMaxEvents = 200
+const cockpitDoctorMessageWidth = 160
 
 type cockpitExitError struct {
 	message  string
@@ -97,6 +98,29 @@ type cockpitHomeSnapshot struct {
 	RecentFailureCount      int
 	RecentCommandCount      int
 	LargePayloadCount       int
+}
+
+type cockpitDoctorSnapshot struct {
+	LoadedAt time.Time
+	DBPath   string
+	Summary  doctorSummary
+	Sections []cockpitDoctorSection
+}
+
+type cockpitDoctorSection struct {
+	Name   string
+	Checks []cockpitDoctorCheck
+}
+
+type cockpitDoctorCheck struct {
+	Name             string
+	Status           string
+	Severity         string
+	Section          string
+	Message          string
+	Hint             string
+	FixCommand       string
+	AutoFixAvailable bool
 }
 
 func (c *RootCLI) loadCockpitHome(ctx context.Context, opts cockpitCommandOptions) (cockpitHomeSnapshot, error) {
@@ -198,6 +222,35 @@ func (c *RootCLI) loadCockpitDoctorReport(ctx context.Context, opts cockpitComma
 	})
 }
 
+func loadCockpitDoctorSnapshot(report *doctorReport, loadedAt time.Time) cockpitDoctorSnapshot {
+	if report == nil {
+		return cockpitDoctorSnapshot{LoadedAt: loadedAt}
+	}
+	snapshot := cockpitDoctorSnapshot{
+		LoadedAt: loadedAt,
+		DBPath:   report.DBPath,
+		Summary:  report.Summary,
+		Sections: make([]cockpitDoctorSection, 0, len(report.Sections)),
+	}
+	for _, section := range report.Sections {
+		out := cockpitDoctorSection{Name: section.Name, Checks: make([]cockpitDoctorCheck, 0, len(section.Checks))}
+		for _, check := range section.Checks {
+			out.Checks = append(out.Checks, cockpitDoctorCheck{
+				Name:             check.Name,
+				Status:           check.Status,
+				Severity:         check.Severity,
+				Section:          check.Section,
+				Message:          check.Message,
+				Hint:             check.Hint,
+				FixCommand:       check.FixCommand,
+				AutoFixAvailable: check.AutoFixAvailable,
+			})
+		}
+		snapshot.Sections = append(snapshot.Sections, out)
+	}
+	return snapshot
+}
+
 func countCockpitHookIssues(report *doctorReport) (warn int, fail int) {
 	if report == nil {
 		return 0, 0
@@ -218,6 +271,7 @@ func countCockpitHookIssues(report *doctorReport) (warn int, fail int) {
 
 type cockpitLoader interface {
 	loadCockpitHome(ctx context.Context) (cockpitHomeSnapshot, error)
+	loadCockpitDoctor(ctx context.Context) (cockpitDoctorSnapshot, error)
 	loadCockpitLive(ctx context.Context, cursor tailCursor, initial bool) (cockpitLiveSnapshot, error)
 	loadCockpitEventDetail(ctx context.Context, eventID domtypes.EventID) (topDetailContent, error)
 	loadCockpitMemoryReviewItems(ctx context.Context) ([]apptypes.MemoryDetails, error)
@@ -237,6 +291,17 @@ type cockpitRuntimeLoader struct {
 
 func (l cockpitRuntimeLoader) loadCockpitHome(ctx context.Context) (cockpitHomeSnapshot, error) {
 	return l.root.loadCockpitHome(ctx, l.opts)
+}
+
+func (l cockpitRuntimeLoader) loadCockpitDoctor(ctx context.Context) (cockpitDoctorSnapshot, error) {
+	// The cockpit doctor pane is explicit (`d`/`r`) and intentionally uses the
+	// read-only report builder. It never passes --fix, so remediation commands
+	// are only displayed for the operator to run separately.
+	report, err := l.root.loadCockpitDoctorReport(ctx, l.opts)
+	if err != nil {
+		return cockpitDoctorSnapshot{}, err
+	}
+	return loadCockpitDoctorSnapshot(report, topNowFunc()), nil
 }
 
 func (l cockpitRuntimeLoader) loadCockpitLive(ctx context.Context, cursor tailCursor, initial bool) (cockpitLiveSnapshot, error) {
@@ -389,6 +454,9 @@ type cockpitModel struct {
 	detail                 topDetailState
 	detailOffset           int
 	homeRequestSeq         uint64
+	doctor                 cockpitDoctorState
+	doctorOffset           int
+	doctorRequestSeq       uint64
 	memoryReview           cockpitMemoryReviewState
 	memoryReviewRequestSeq uint64
 }
@@ -403,6 +471,7 @@ type cockpitMode int
 
 const (
 	cockpitModeHome cockpitMode = iota
+	cockpitModeDoctor
 	cockpitModeLive
 	cockpitModeDetail
 	cockpitModeMemoryReview
@@ -432,6 +501,19 @@ type cockpitHomeMsg struct {
 	home cockpitHomeSnapshot
 	seq  uint64
 	err  error
+}
+
+type cockpitDoctorState struct {
+	snapshot   cockpitDoctorSnapshot
+	loading    bool
+	requestSeq uint64
+	err        error
+}
+
+type cockpitDoctorLoadedMsg struct {
+	snapshot cockpitDoctorSnapshot
+	seq      uint64
+	err      error
 }
 
 type cockpitDetailLoadedMsg struct {
@@ -474,6 +556,18 @@ func (m cockpitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.home = msg.home
 		m.statusErr = ""
+		return m, nil
+	case cockpitDoctorLoadedMsg:
+		if m.mode != cockpitModeDoctor || msg.seq != m.doctor.requestSeq {
+			return m, nil
+		}
+		m.doctor.loading = false
+		m.doctor.err = msg.err
+		if msg.err != nil {
+			return m, nil
+		}
+		m.doctor.snapshot = msg.snapshot
+		m.clampDoctorOffset()
 		return m, nil
 	case cockpitLiveMsg:
 		if msg.seq != m.live.requestSeq {
@@ -554,6 +648,8 @@ func (m cockpitModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch m.mode {
+	case cockpitModeDoctor:
+		return m.updateDoctorKey(msg)
 	case cockpitModeDetail:
 		return m.updateDetailKey(msg)
 	case cockpitModeLive:
@@ -566,12 +662,41 @@ func (m cockpitModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m cockpitModel) updateHomeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyRunes {
 		switch strings.ToLower(string(msg.Runes)) {
+		case "d":
+			m.mode = cockpitModeDoctor
+			m.doctorOffset = 0
+			return m, m.startCockpitDoctorLoad()
 		case "t", "l":
 			m.mode = cockpitModeLive
 			return m, m.startCockpitLiveLoad(true)
 		case "m":
 			m.mode = cockpitModeMemoryReview
 			return m, m.startCockpitMemoryReviewLoad()
+		}
+	}
+	return m, nil
+}
+
+func (m cockpitModel) updateDoctorKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, m.keys.Up):
+		m.doctorOffset--
+		m.clampDoctorOffset()
+		return m, nil
+	case key.Matches(msg, m.keys.Down):
+		m.doctorOffset++
+		m.clampDoctorOffset()
+		return m, nil
+	case key.Matches(msg, m.keys.Refresh):
+		return m, m.startCockpitDoctorLoad()
+	}
+	if msg.Type == tea.KeyRunes {
+		switch strings.ToLower(string(msg.Runes)) {
+		case "h":
+			m.mode = cockpitModeHome
+			m.doctor = cockpitDoctorState{}
+			m.doctorOffset = 0
+			return m, nil
 		}
 	}
 	return m, nil
@@ -727,6 +852,27 @@ func (m cockpitModel) fetchCockpitHomeCmd(seq uint64) tea.Cmd {
 	}
 }
 
+func (m *cockpitModel) startCockpitDoctorLoad() tea.Cmd {
+	m.doctor.loading = true
+	m.doctor.err = nil
+	m.doctorOffset = 0
+	m.doctorRequestSeq++
+	m.doctor.requestSeq = m.doctorRequestSeq
+	return m.fetchCockpitDoctorCmd(m.doctor.requestSeq)
+}
+
+func (m cockpitModel) fetchCockpitDoctorCmd(seq uint64) tea.Cmd {
+	loader := m.loader
+	ctx := m.loaderCtx
+	return func() tea.Msg {
+		if loader == nil {
+			return cockpitDoctorLoadedMsg{seq: seq, err: xerrors.Errorf("cockpit doctor loader is not configured")}
+		}
+		snapshot, err := loader.loadCockpitDoctor(ctx)
+		return cockpitDoctorLoadedMsg{snapshot: snapshot, seq: seq, err: err}
+	}
+}
+
 func (m cockpitModel) fetchCockpitMemoryReviewCmd() tea.Cmd {
 	loader := m.loader
 	ctx := m.loaderCtx
@@ -841,8 +987,23 @@ func (m *cockpitModel) clampDetailOffset() {
 	}
 }
 
+func (m *cockpitModel) clampDoctorOffset() {
+	maxOffset := len(m.doctorLines()) - 1
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if m.doctorOffset < 0 {
+		m.doctorOffset = 0
+	}
+	if m.doctorOffset > maxOffset {
+		m.doctorOffset = maxOffset
+	}
+}
+
 func (m cockpitModel) View() string {
 	switch m.mode {
+	case cockpitModeDoctor:
+		return m.doctorView()
 	case cockpitModeLive:
 		return m.liveView()
 	case cockpitModeDetail:
@@ -892,13 +1053,13 @@ func (m cockpitModel) homeView() string {
 		fmt.Sprintf("• memories: accepted(reviewed)=%d candidate(inbox)=%d new=%s remember-intent=%d low-quality=%d stale=%d%s", m.home.AcceptedMemoryCount, m.home.CandidateMemoryCount, formatCockpitNewCandidateCount(m.home), m.home.RememberIntentCount, m.home.LowQualityMemoryCount, m.home.StaleMemoryCount, memoryScanSuffix),
 		fmt.Sprintf("• payloads: large=%d", m.home.LargePayloadCount),
 		"",
-		m.styles.Subtle.Render("Planned cockpit surfaces:"),
+		m.styles.Subtle.Render("Cockpit surfaces:"),
+		"• doctor: warnings, skips, and remediation commands",
 		"• sessions: top dashboard and detail drill-down",
 		"• tail: live event stream",
 		"• memory: inbox notifications and review launcher",
-		"• doctor: warnings and remediation commands",
 		"",
-		m.styles.Help.Render("t/l live tail · m memory review · q/esc/ctrl+c quit · ? help"),
+		m.styles.Help.Render("d doctor · t/l live tail · m memory review · q/esc/ctrl+c quit · ? help"),
 	)
 	if m.showHelp {
 		lines = append(lines,
@@ -923,6 +1084,92 @@ func formatCockpitNewCandidateCount(home cockpitHomeSnapshot) string {
 
 func formatCockpitMemoryReviewResult(result memoryInboxReviewResult) string {
 	return fmt.Sprintf("memory review applied: accepted=%d rejected=%d distilled=%d failures=%d", len(result.Accepted), len(result.Rejected), len(result.Distilled), len(result.Failures))
+}
+
+func (m cockpitModel) doctorView() string {
+	lines := []string{
+		m.styles.Title.Render("Traceary cockpit · doctor"),
+		"",
+	}
+	content := m.doctorLines()
+	offset := m.doctorOffset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(content) {
+		offset = len(content)
+	}
+	lines = append(lines, content[offset:]...)
+	lines = append(lines, "", m.styles.Help.Render("h home · r refresh · ↑/↓ scroll · q quit"))
+	return strings.Join(lines, "\n")
+}
+
+func (m cockpitModel) doctorLines() []string {
+	if m.doctor.loading {
+		return []string{m.styles.Subtle.Render("Loading doctor checks...")}
+	}
+	if m.doctor.err != nil {
+		return []string{m.styles.Error.Render(m.doctor.err.Error())}
+	}
+	snapshot := m.doctor.snapshot
+	lines := []string{
+		m.styles.Subtle.Render(fmt.Sprintf("loaded=%s db=%s", formatJSONTime(snapshot.LoadedAt), formatOptionalColumn(snapshot.DBPath))),
+		fmt.Sprintf("summary: pass=%d warn=%d fail=%d", snapshot.Summary.Pass, snapshot.Summary.Warn, snapshot.Summary.Fail),
+		"",
+	}
+	if len(snapshot.Sections) == 0 {
+		return append(lines, m.styles.Success.Render("No doctor checks reported."))
+	}
+	rendered := 0
+	for _, section := range snapshot.Sections {
+		if len(section.Checks) == 0 {
+			continue
+		}
+		lines = append(lines, m.styles.Subtle.Render(section.Name))
+		for _, check := range section.Checks {
+			rendered++
+			label := cockpitDoctorStatusLabel(check)
+			message := truncateNormalized(check.Message, cockpitDoctorMessageWidth)
+			line := fmt.Sprintf("• [%s] %s: %s", label, check.Name, message)
+			lines = append(lines, renderCockpitDoctorCheck(m.styles, check, line))
+			if check.Hint != "" {
+				lines = append(lines, "  hint: "+truncateNormalized(check.Hint, cockpitDoctorMessageWidth))
+			}
+			if check.FixCommand != "" {
+				lines = append(lines, "  fix: "+check.FixCommand)
+			} else if check.AutoFixAvailable {
+				lines = append(lines, "  fix: traceary doctor --fix --dry-run")
+			}
+		}
+		lines = append(lines, "")
+	}
+	if rendered == 0 {
+		lines = append(lines, m.styles.Success.Render("No doctor checks reported."))
+	}
+	return lines
+}
+
+func cockpitDoctorStatusLabel(check cockpitDoctorCheck) string {
+	if check.Status != "" {
+		return strings.ToUpper(check.Status)
+	}
+	if check.Severity != "" {
+		return strings.ToUpper(check.Severity)
+	}
+	return "PASS"
+}
+
+func renderCockpitDoctorCheck(styles tui.Styles, check cockpitDoctorCheck, line string) string {
+	switch cockpitDoctorStatusLabel(check) {
+	case strings.ToUpper(doctorStatusFail), doctorSeverityFail:
+		return styles.Error.Render(line)
+	case strings.ToUpper(doctorStatusWarn), doctorSeverityWarn:
+		return styles.Warning.Render(line)
+	case strings.ToUpper(doctorStatusPass), doctorSeverityPass:
+		return styles.Success.Render(line)
+	default:
+		return styles.Subtle.Render(line)
+	}
 }
 
 func (m cockpitModel) memoryReviewView() string {
