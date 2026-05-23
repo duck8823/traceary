@@ -67,6 +67,9 @@ func (b *contextPackBuilder) Build(ctx context.Context, criteria apptypes.Contex
 	}
 
 	session := sessions[0]
+	if !criteria.AllowStale() && criteria.StaleAfter() > 0 && isStaleActiveSession(session, criteria.StaleAfter(), time.Now()) {
+		return domtypes.None[apptypes.ContextPack](), nil
+	}
 	recentCommands, err := b.loadRecentCommands(ctx, session, criteria.RecentCommandsLimit())
 	if err != nil {
 		return domtypes.None[apptypes.ContextPack](), err
@@ -243,6 +246,21 @@ func relevantMemoryScopes(session apptypes.SessionSummary) []domtypes.MemoryScop
 	}
 
 	return scopes
+}
+
+// isStaleActiveSession reports whether the supplied session is an
+// unended session whose start is older than staleAfter relative to now.
+// The threshold mirrors the existing 24h semantics used by
+// session_datasource, session active, and session gc so the handoff
+// surface stays consistent with the other stale-aware code paths.
+func isStaleActiveSession(session apptypes.SessionSummary, staleAfter time.Duration, now time.Time) bool {
+	if staleAfter <= 0 {
+		return false
+	}
+	if _, ended := session.EndedAt().Value(); ended {
+		return false
+	}
+	return session.StartedAt().Before(now.Add(-staleAfter))
 }
 
 func summarizeCommand(command string) string {

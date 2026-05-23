@@ -6,6 +6,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
@@ -216,24 +217,34 @@ func sessionNodeLess(left, right *sessionNode) bool {
 // around it. A parent is retained when either the parent itself is active
 // or any descendant is.
 func keepOngoingLineages(roots []*sessionNode) []*sessionNode {
+	return keepOngoingLineagesWithOptions(roots, staleLineageOptions{})
+}
+
+type staleLineageOptions struct {
+	allowStale bool
+	staleAfter time.Duration
+	now        time.Time
+}
+
+func keepOngoingLineagesWithOptions(roots []*sessionNode, opts staleLineageOptions) []*sessionNode {
 	filtered := make([]*sessionNode, 0, len(roots))
 	for _, root := range roots {
-		if pruneEndedLineages(root) {
+		if pruneEndedLineages(root, opts) {
 			filtered = append(filtered, root)
 		}
 	}
 	return filtered
 }
 
-func pruneEndedLineages(node *sessionNode) bool {
+func pruneEndedLineages(node *sessionNode, opts staleLineageOptions) bool {
 	keptChildren := node.children[:0]
 	for _, child := range node.children {
-		if pruneEndedLineages(child) {
+		if pruneEndedLineages(child, opts) {
 			keptChildren = append(keptChildren, child)
 		}
 	}
 	node.children = keptChildren
-	return isSessionActive(node.summary) || len(node.children) > 0
+	return isSessionActive(node.summary) || isSessionStaleAllowed(node.summary, opts) || len(node.children) > 0
 }
 
 // isSessionActive treats only sessions with status=active as live. A
@@ -243,6 +254,27 @@ func pruneEndedLineages(node *sessionNode) bool {
 // stale lineages must not resurface as ongoing work.
 func isSessionActive(summary apptypes.SessionSummary) bool {
 	return summary.Status() == "active"
+}
+
+func isSessionStale(summary apptypes.SessionSummary) bool {
+	return summary.Status() == "stale"
+}
+
+func isSessionStaleAllowed(summary apptypes.SessionSummary, opts staleLineageOptions) bool {
+	if !isSessionStale(summary) {
+		return false
+	}
+	if opts.allowStale {
+		return true
+	}
+	if opts.staleAfter <= 0 {
+		return false
+	}
+	now := opts.now
+	if now.IsZero() {
+		now = time.Now()
+	}
+	return !topDataSummaryIsStale(summary, opts.staleAfter, now)
 }
 
 func writeSessionTreeEmpty(output io.Writer, asJSON bool) error {

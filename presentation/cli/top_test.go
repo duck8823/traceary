@@ -185,6 +185,7 @@ func TestRootCLI_TopCommand_SnapshotJSONGolden(t *testing.T) {
 		"--agent", "claude/explore",
 		"--snapshot",
 		"--json",
+		"--stale-after", "100000h",
 	})
 
 	if err := rootCmd.Execute(); err != nil {
@@ -383,6 +384,7 @@ func TestRootCLI_TopCommand_SnapshotTextGolden(t *testing.T) {
 		"top",
 		"--db-path", "/tmp/test-traceary.db",
 		"--snapshot",
+		"--stale-after", "100000h",
 	})
 
 	if err := rootCmd.Execute(); err != nil {

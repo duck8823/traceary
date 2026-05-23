@@ -31,6 +31,60 @@ func TestContextUsecase_Handoff(t *testing.T) {
 		}
 	})
 
+	t.Run("skips stale active session unless explicitly allowed", func(t *testing.T) {
+		t.Parallel()
+
+		staleSession := apptypes.SessionSummaryOf(
+			domtypes.SessionID("session-stale"),
+			domtypes.Workspace("duck8823/traceary"),
+			time.Now().Add(-48*time.Hour),
+			domtypes.None[time.Time](),
+			"stale",
+			1,
+			0,
+			[]string{"codex"},
+			"",
+			"old active context",
+			domtypes.SessionID(""),
+		)
+		sut := usecase.NewContextUsecase(
+			&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{staleSession}},
+			&eventQueryServiceStub{},
+			nil,
+		)
+
+		got, err := sut.Handoff(
+			context.Background(),
+			apptypes.NewContextPackCriteriaBuilder().
+				StaleAfter(24*time.Hour).
+				Build(),
+		)
+		if err != nil {
+			t.Fatalf("Handoff(stale default) error = %v", err)
+		}
+		if _, ok := got.Value(); ok {
+			t.Fatalf("Handoff(stale default) returned a pack, want empty")
+		}
+
+		allowed, err := sut.Handoff(
+			context.Background(),
+			apptypes.NewContextPackCriteriaBuilder().
+				StaleAfter(24*time.Hour).
+				AllowStale(true).
+				Build(),
+		)
+		if err != nil {
+			t.Fatalf("Handoff(allow stale) error = %v", err)
+		}
+		pack, ok := allowed.Value()
+		if !ok {
+			t.Fatalf("Handoff(allow stale) returned empty, want stale pack")
+		}
+		if diff := cmp.Diff(domtypes.SessionID("session-stale"), pack.SessionID()); diff != "" {
+			t.Fatalf("SessionID() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
 	t.Run("builds context pack from session, compact summary, and accepted memories", func(t *testing.T) {
 		t.Parallel()
 

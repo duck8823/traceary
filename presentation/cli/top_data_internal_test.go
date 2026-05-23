@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -228,6 +230,196 @@ func TestTopDataLoader_LoadSessions_ListErrorWrapsLocalizedMessage(t *testing.T)
 	}
 	if !errors.Is(err, session.listErr) {
 		t.Fatalf("loadSessions() error chain missing underlying boom: %v", err)
+	}
+}
+
+func TestTopDataLoader_LoadSessions_StaleActiveDroppedByDefault(t *testing.T) {
+	t.Parallel()
+
+	now := fixedStartedAt.Add(48 * time.Hour)
+	fresh := sessionSummaryFixture("fresh", "", now.Add(-time.Hour), "active", domtypes.EventKindTranscript, "fresh")
+	stale := sessionSummaryFixture("stale", "", now.Add(-30*time.Hour), "stale", domtypes.EventKindTranscript, "stale")
+
+	session := &topDataSessionStub{
+		listResult: []apptypes.SessionSummary{fresh, stale},
+		lineageByID: map[domtypes.SessionID][]apptypes.SessionSummary{
+			domtypes.SessionID("fresh"): {fresh},
+			domtypes.SessionID("stale"): {stale},
+		},
+	}
+	loader := newTopDataLoader(session, nil, nil)
+
+	roots, err := loader.loadSessions(context.Background(), topDataCriteria{
+		SessionLimit: 50,
+		StaleAfter:   24 * time.Hour,
+		Now:          now,
+	})
+	if err != nil {
+		t.Fatalf("loadSessions() error = %v", err)
+	}
+	if len(roots) != 1 {
+		t.Fatalf("roots length = %d, want 1 (stale active session must be dropped)", len(roots))
+	}
+	if got, want := roots[0].summary.SessionID().String(), "fresh"; got != want {
+		t.Fatalf("retained root = %q, want %q", got, want)
+	}
+}
+
+func TestTopDataLoader_LoadSessions_AllowStaleKeepsStaleActive(t *testing.T) {
+	t.Parallel()
+
+	now := fixedStartedAt.Add(48 * time.Hour)
+	stale := sessionSummaryFixture("stale", "", now.Add(-30*time.Hour), "stale", domtypes.EventKindTranscript, "stale")
+
+	session := &topDataSessionStub{
+		listResult: []apptypes.SessionSummary{stale},
+		lineageByID: map[domtypes.SessionID][]apptypes.SessionSummary{
+			domtypes.SessionID("stale"): {stale},
+		},
+	}
+	loader := newTopDataLoader(session, nil, nil)
+
+	roots, err := loader.loadSessions(context.Background(), topDataCriteria{
+		SessionLimit: 50,
+		StaleAfter:   24 * time.Hour,
+		AllowStale:   true,
+		Now:          now,
+	})
+	if err != nil {
+		t.Fatalf("loadSessions() error = %v", err)
+	}
+	if len(roots) != 1 {
+		t.Fatalf("roots length = %d, want 1 (--allow-stale opts the stale active back in)", len(roots))
+	}
+}
+
+func TestTopDataLoader_LoadSessions_DisabledStaleAfterKeepsStaleStatus(t *testing.T) {
+	t.Parallel()
+
+	now := fixedStartedAt.Add(48 * time.Hour)
+	stale := sessionSummaryFixture("stale", "", now.Add(-30*time.Hour), "stale", domtypes.EventKindTranscript, "stale")
+
+	session := &topDataSessionStub{
+		listResult: []apptypes.SessionSummary{stale},
+		lineageByID: map[domtypes.SessionID][]apptypes.SessionSummary{
+			domtypes.SessionID("stale"): {stale},
+		},
+	}
+	loader := newTopDataLoader(session, nil, nil)
+
+	roots, err := loader.loadSessions(context.Background(), topDataCriteria{
+		SessionLimit: 50,
+		StaleAfter:   0,
+		Now:          now,
+	})
+	if err != nil {
+		t.Fatalf("loadSessions() error = %v", err)
+	}
+	if len(roots) != 1 {
+		t.Fatalf("roots length = %d, want 1 (--stale-after=0 disables stale filtering)", len(roots))
+	}
+}
+
+func TestTopDataLoader_LoadSessions_CustomStaleAfterKeepsWithinThreshold(t *testing.T) {
+	t.Parallel()
+
+	now := fixedStartedAt.Add(48 * time.Hour)
+	staleByStoreDefault := sessionSummaryFixture("store-stale", "", now.Add(-30*time.Hour), "stale", domtypes.EventKindTranscript, "within custom threshold")
+
+	session := &topDataSessionStub{
+		listResult: []apptypes.SessionSummary{staleByStoreDefault},
+		lineageByID: map[domtypes.SessionID][]apptypes.SessionSummary{
+			domtypes.SessionID("store-stale"): {staleByStoreDefault},
+		},
+	}
+	loader := newTopDataLoader(session, nil, nil)
+
+	roots, err := loader.loadSessions(context.Background(), topDataCriteria{
+		SessionLimit: 50,
+		StaleAfter:   48 * time.Hour,
+		Now:          now,
+	})
+	if err != nil {
+		t.Fatalf("loadSessions() error = %v", err)
+	}
+	if len(roots) != 1 {
+		t.Fatalf("roots length = %d, want 1 (30h-old store-stale session is within --stale-after=48h)", len(roots))
+	}
+	if got, want := roots[0].summary.SessionID().String(), "store-stale"; got != want {
+		t.Fatalf("retained root = %q, want %q", got, want)
+	}
+}
+
+func TestTopDataLoader_LoadSessions_EndedNeverConsideredStale(t *testing.T) {
+	t.Parallel()
+
+	now := fixedStartedAt.Add(48 * time.Hour)
+	// `ended` sessions are filtered out by ActiveOnly upstream, but the
+	// staleness predicate is shared with the JSON encoder which iterates
+	// over all summaries. Guard against accidentally tagging an ended
+	// session whose start happens to be older than 24h.
+	endedOld := apptypes.SessionSummaryOf(
+		domtypes.SessionID("ended-old"),
+		domtypes.Workspace("duck8823/traceary"),
+		now.Add(-72*time.Hour),
+		domtypes.Some(now.Add(-1*time.Hour)),
+		"ended",
+		1, 0, []string{"claude"}, "", "", domtypes.SessionID(""),
+	)
+	if topDataSummaryIsStale(endedOld, 24*time.Hour, now) {
+		t.Fatalf("ended session must not be reported as stale")
+	}
+}
+
+func TestWriteTopSnapshotJSON_EmitsStaleActiveMetadata(t *testing.T) {
+	t.Parallel()
+
+	now := fixedStartedAt.Add(48 * time.Hour)
+	stale := sessionSummaryFixture("stale", "", now.Add(-30*time.Hour), "stale", domtypes.EventKindTranscript, "stale")
+	var buf bytes.Buffer
+	if err := writeTopSnapshotJSON(&buf, topDataSnapshot{
+		Sessions:   []*sessionNode{{summary: stale}},
+		StaleAfter: 24 * time.Hour,
+		AllowStale: true,
+		Now:        now,
+	}); err != nil {
+		t.Fatalf("writeTopSnapshotJSON() error = %v", err)
+	}
+
+	var payload struct {
+		Sessions []struct {
+			SessionID        string   `json:"session_id"`
+			Status           string   `json:"status"`
+			IsStale          bool     `json:"is_stale"`
+			StaleAfterSec    *float64 `json:"stale_after_seconds"`
+			StaleAgeSec      *float64 `json:"stale_age_seconds"`
+			LatestEventAt    string   `json:"latest_event_at"`
+			LatestEventKind  string   `json:"latest_event_kind"`
+			LatestEventMesg  string   `json:"latest_event_message"`
+			LegacyTotalEvent int      `json:"total_events"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
+		t.Fatalf("Unmarshal(top snapshot) error = %v\n%s", err, buf.String())
+	}
+	if len(payload.Sessions) != 1 {
+		t.Fatalf("sessions length = %d, want 1; payload=%s", len(payload.Sessions), buf.String())
+	}
+	got := payload.Sessions[0]
+	if got.SessionID != "stale" || got.Status != "stale" {
+		t.Fatalf("stale node id/status = %q/%q, want stale/stale", got.SessionID, got.Status)
+	}
+	if !got.IsStale {
+		t.Fatalf("is_stale = false, want true; payload=%s", buf.String())
+	}
+	if got.StaleAfterSec == nil || *got.StaleAfterSec != (24*time.Hour).Seconds() {
+		t.Fatalf("stale_after_seconds = %v, want %v", got.StaleAfterSec, (24 * time.Hour).Seconds())
+	}
+	if got.StaleAgeSec == nil || *got.StaleAgeSec != (6*time.Hour).Seconds() {
+		t.Fatalf("stale_age_seconds = %v, want %v", got.StaleAgeSec, (6 * time.Hour).Seconds())
+	}
+	if got.LatestEventAt == "" || got.LatestEventKind == "" || got.LatestEventMesg == "" || got.LegacyTotalEvent == 0 {
+		t.Fatalf("legacy top JSON fields were not preserved: %+v", got)
 	}
 }
 

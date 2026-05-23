@@ -240,6 +240,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			Status:  doctorStatusPass,
 			Message: localizef("initialized SQLite store: %s", "SQLite ストアを初期化しました: %s", resolvedDBPath),
 		})
+		report.Checks = append(report.Checks, c.inspectStaleActiveSessions(ctx))
 	}
 
 	resolvedProjectDir, err := resolveHooksProjectDir(input.projectDir)
@@ -307,6 +308,61 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 	report.Checks = append(report.Checks, checkLatestVersion(input.currentVersion))
 
 	return report, nil
+}
+
+// inspectStaleActiveSessions reports how many unended sessions are
+// older than the default stale threshold (24h). Stale active sessions
+// silently shadow host context retrieval (top default view, session
+// handoff implicit selection, MCP session_status), so doctor surfaces a
+// count plus the actionable cleanup command. The check uses
+// CloseStaleSessions with dryRun=true so it never mutates state; an
+// underlying query error is reported as fail with the original error.
+func (c *RootCLI) inspectStaleActiveSessions(ctx context.Context) doctorCheck {
+	const checkName = "stale-active-sessions"
+	if c.storeManagement == nil {
+		return doctorCheck{
+			Name:    checkName,
+			Status:  doctorStatusSkip,
+			Message: localizef("store management usecase is not configured", "ストア管理ユースケースが設定されていません"),
+		}
+	}
+	result, err := c.storeManagement.CloseStaleSessions(ctx, defaultActiveSessionStaleAfter, true)
+	if err != nil {
+		return doctorCheck{
+			Name:    checkName,
+			Status:  doctorStatusFail,
+			Message: localizef("failed to count stale active sessions: %v", "stale active session の集計に失敗しました: %v", err),
+		}
+	}
+	count := result.ClosedCount()
+	if count <= 0 {
+		return doctorCheck{
+			Name:   checkName,
+			Status: doctorStatusPass,
+			Message: localizef(
+				"no active sessions older than %s",
+				"%s を超える active session はありません",
+				defaultActiveSessionStaleAfter,
+			),
+		}
+	}
+	fixCommand := "traceary session gc --stale-after 24h"
+	return doctorCheck{
+		Name:   checkName,
+		Status: doctorStatusWarn,
+		Hint: Localize(
+			"preview the cleanup with `traceary session gc --stale-after 24h --dry-run`, then drop --dry-run to close them",
+			"`traceary session gc --stale-after 24h --dry-run` で確認後、--dry-run を外して終了処理を実行してください",
+		),
+		FixCommand: fixCommand,
+		Message: localizef(
+			"%d active session(s) older than %s; they shadow the default host context retrieval. Close them with `%s` (use --dry-run first to preview).",
+			"%d 件の active session が %s を超えており、host context 取得の既定動作を阻害します。`%s` で終了処理を実行できます (まず --dry-run でプレビュー推奨)。",
+			count,
+			defaultActiveSessionStaleAfter,
+			fixCommand,
+		),
+	}
 }
 
 // inspectClaudePluginCacheStatus compares the cached Traceary Claude
@@ -1057,7 +1113,7 @@ func buildDoctorSections(checks []doctorCheck) []doctorSection {
 
 func doctorSectionNameForCheck(name string) string {
 	switch {
-	case name == "db-path" || name == "db-write":
+	case name == "db-path" || name == "db-write" || name == "stale-active-sessions":
 		return "Database"
 	case name == "config" || name == "project-dir" || name == "version" || name == "path":
 		return "Environment"

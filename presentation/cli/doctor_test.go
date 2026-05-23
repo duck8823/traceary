@@ -879,6 +879,73 @@ func TestRootCLI_DoctorGeminiMemoryActivationInvalid(t *testing.T) {
 	}
 }
 
+func TestRootCLI_DoctorStaleActiveSessions(t *testing.T) {
+	projectDir := t.TempDir()
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	t.Run("no stale active sessions passes", func(t *testing.T) {
+		initStub := &storeManagementUsecaseStub{
+			staleResult: apptypes.CloseStaleSessionsResultOf(0),
+		}
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--client", "claude", "--project-dir", projectDir, "--json"})
+
+		executeDoctorAllowWarnings(t, rootCmd)
+
+		report := decodeDoctorReport(t, stdout.Bytes())
+		check := statusByName(report, "stale-active-sessions")
+		if check.Status != "pass" {
+			t.Fatalf("stale-active-sessions status = %q, want pass (message: %q)", check.Status, check.Message)
+		}
+		if len(initStub.staleCalls) != 1 {
+			t.Fatalf("CloseStaleSessions calls = %d, want 1", len(initStub.staleCalls))
+		}
+		if !initStub.staleCalls[0].dryRun {
+			t.Fatalf("CloseStaleSessions dryRun = false, want true (doctor must never mutate)")
+		}
+	})
+
+	t.Run("stale active sessions warn with actionable hint", func(t *testing.T) {
+		initStub := &storeManagementUsecaseStub{
+			staleResult: apptypes.CloseStaleSessionsResultOf(3),
+		}
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--client", "claude", "--project-dir", projectDir, "--json"})
+
+		executeDoctorAllowWarnings(t, rootCmd)
+
+		report := decodeDoctorReport(t, stdout.Bytes())
+		check := statusByName(report, "stale-active-sessions")
+		if check.Status != "warn" {
+			t.Fatalf("stale-active-sessions status = %q, want warn (message: %q)", check.Status, check.Message)
+		}
+		if !strings.Contains(check.Message, "3") {
+			t.Fatalf("expected message to surface the stale count, got %q", check.Message)
+		}
+		if !strings.Contains(check.FixCommand, "session gc") {
+			t.Fatalf("FixCommand = %q, want a `session gc` remediation", check.FixCommand)
+		}
+		if !strings.Contains(check.Hint, "--dry-run") {
+			t.Fatalf("expected hint to mention --dry-run preview, got %q", check.Hint)
+		}
+		if check.Section != "Database" {
+			t.Fatalf("section = %q, want Database", check.Section)
+		}
+		if !initStub.staleCalls[0].dryRun {
+			t.Fatalf("CloseStaleSessions dryRun = false, want true (doctor must never mutate)")
+		}
+	})
+}
+
 func executeDoctorJSON(t *testing.T, args []string) (doctorReport, error) {
 	t.Helper()
 	rootCmd := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()

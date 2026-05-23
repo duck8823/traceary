@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -828,6 +829,61 @@ func TestServer_BuildAndTools(t *testing.T) {
 		recentCommands, ok := packPayload["recent_commands"].([]any)
 		if !ok || len(recentCommands) != 1 {
 			t.Fatalf("recent_commands = %T len=%d, want 1", packPayload["recent_commands"], len(recentCommands))
+		}
+	})
+
+	t.Run("session_status handoff excludes stale active sessions unless allowed", func(t *testing.T) {
+		startResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "manage_session",
+			Arguments: map[string]any{
+				"action":    "start",
+				"agent":     "codex",
+				"workspace": "github.com/duck8823/traceary",
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(start_session) error = %v", err)
+		}
+		sessionID := extractJSONStringValue(t, startResult, "session_id")
+		time.Sleep(1100 * time.Millisecond)
+
+		staleResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "session_status",
+			Arguments: map[string]any{
+				"action":              "handoff",
+				"session_id":          sessionID,
+				"stale_after_seconds": 1,
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(session_status handoff stale) error = %v", err)
+		}
+		if staleResult.IsError {
+			t.Fatalf("CallTool(session_status handoff stale) returned tool error")
+		}
+		stalePayload := decodeJSONPayload(t, staleResult)
+		if got := stalePayload["session_id"]; got != nil && got != "" {
+			t.Fatalf("stale handoff session_id = %v, want empty without allow_stale", got)
+		}
+
+		allowedResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "session_status",
+			Arguments: map[string]any{
+				"action":              "handoff",
+				"session_id":          sessionID,
+				"stale_after_seconds": 1,
+				"allow_stale":         true,
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(session_status handoff allow stale) error = %v", err)
+		}
+		if allowedResult.IsError {
+			t.Fatalf("CallTool(session_status handoff allow stale) returned tool error")
+		}
+		allowedPayload := decodeJSONPayload(t, allowedResult)
+		if diff := cmp.Diff(sessionID, allowedPayload["session_id"]); diff != "" {
+			t.Fatalf("allow_stale session_id mismatch (-want +got):\n%s", diff)
 		}
 	})
 

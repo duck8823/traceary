@@ -33,14 +33,16 @@ func init() {
 const defaultTopLimit = 500
 
 type topCommandOptions struct {
-	dbPath    string
-	workspace string
-	client    string
-	agent     string
-	idle      time.Duration
-	snapshot  bool
-	asJSON    bool
-	limit     int
+	dbPath     string
+	workspace  string
+	client     string
+	agent      string
+	idle       time.Duration
+	snapshot   bool
+	asJSON     bool
+	limit      int
+	staleAfter time.Duration
+	allowStale bool
 }
 
 func (c *RootCLI) newTopCommand() *cobra.Command {
@@ -67,6 +69,24 @@ func (c *RootCLI) newTopCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.snapshot, "snapshot", false, Localize("print one snapshot and exit", "一回限りの snapshot を出力して終了する"))
 	cmd.Flags().BoolVar(&opts.asJSON, "json", false, Localize("print JSON output with --snapshot", "--snapshot と併用して JSON 形式で出力する"))
 	cmd.Flags().IntVar(&opts.limit, "limit", defaultTopLimit, Localize("maximum number of sessions to load", "読み込む最大セッション数"))
+	cmd.Flags().DurationVar(
+		&opts.staleAfter,
+		"stale-after",
+		defaultActiveSessionStaleAfter,
+		Localize(
+			"treat unended sessions older than this duration as stale (excluded unless --allow-stale is set)",
+			"この duration を超える未終了 session は stale とみなす (--allow-stale を指定しない限り除外)",
+		),
+	)
+	cmd.Flags().BoolVar(
+		&opts.allowStale,
+		"allow-stale",
+		false,
+		Localize(
+			"include stale active sessions and emit is_stale metadata in JSON snapshots",
+			"stale な active session も含めて表示し、JSON snapshot に is_stale メタデータを出力する",
+		),
+	)
 
 	return cmd
 }
@@ -118,6 +138,8 @@ func (c *RootCLI) loadTopSnapshot(ctx context.Context, opts topCommandOptions) (
 		RecentCommandLimit: topPaneRecentCommandLimit,
 		CandidateLimit:     topPaneCandidateLimit,
 		StaleMemoryLimit:   topPaneStaleMemoryLimit,
+		StaleAfter:         opts.staleAfter,
+		AllowStale:         opts.allowStale,
 	}
 	return c.newTopDataLoader().loadSnapshot(ctx, criteria)
 }
@@ -129,7 +151,7 @@ func (c *RootCLI) newTopDataLoader() *topDataLoader {
 	return newTopDataLoader(c.session, c.event, c.memory)
 }
 
-func buildActiveSessionTree(summaries []apptypes.SessionSummary) []*sessionNode {
+func buildActiveSessionTreeWithOptions(summaries []apptypes.SessionSummary, allowStale bool, staleAfter time.Duration, now time.Time) []*sessionNode {
 	if len(summaries) == 0 {
 		return nil
 	}
@@ -149,7 +171,15 @@ func buildActiveSessionTree(summaries []apptypes.SessionSummary) []*sessionNode 
 		roots = append(roots, node)
 	}
 	sortSessionNodes(roots)
-	return keepOngoingLineages(roots)
+	// A non-positive stale threshold disables top's stale filtering. Treat
+	// already status=stale rows as allowed here while leaving the generic
+	// keepOngoingLineages() default strict for non-top --ongoing-only paths.
+	staleAllowed := allowStale || staleAfter <= 0
+	return keepOngoingLineagesWithOptions(roots, staleLineageOptions{
+		allowStale: staleAllowed,
+		staleAfter: staleAfter,
+		now:        now,
+	})
 }
 
 func filterTopSessionTree(roots []*sessionNode, opts topCommandOptions) []*sessionNode {
@@ -434,6 +464,8 @@ func (c *RootCLI) runTopTUI(ctx context.Context, output io.Writer, opts topComma
 		RecentCommandLimit: topPaneRecentCommandLimit,
 		CandidateLimit:     topPaneCandidateLimit,
 		StaleMemoryLimit:   topPaneStaleMemoryLimit,
+		StaleAfter:         opts.staleAfter,
+		AllowStale:         opts.allowStale,
 	}
 	model := newTopModel(topModelConfig{
 		Keys:            tui.DefaultKeyMap(),

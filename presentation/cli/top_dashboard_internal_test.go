@@ -23,14 +23,16 @@ type stubTopLoader struct {
 	snapshot    topDataSnapshot
 	err         error
 	calls       int
+	criteria    []topDataCriteria
 	detail      topDetailContent
 	detailErr   error
 	detailCalls int
 	detailReqs  []topDetailRequest
 }
 
-func (s *stubTopLoader) loadSnapshot(_ context.Context, _ topDataCriteria) (topDataSnapshot, error) {
+func (s *stubTopLoader) loadSnapshot(_ context.Context, c topDataCriteria) (topDataSnapshot, error) {
 	s.calls++
+	s.criteria = append(s.criteria, c)
 	return s.snapshot, s.err
 }
 
@@ -223,6 +225,38 @@ func TestTopModel_InitialFetchPopulatesSnapshot(t *testing.T) {
 	}
 	if len(m.snapshot.Sessions) != 1 {
 		t.Fatalf("snapshot.Sessions length = %d, want 1", len(m.snapshot.Sessions))
+	}
+}
+
+func TestTopModel_FetchSnapshotRefreshesCriteriaNow(t *testing.T) {
+	t.Parallel()
+	loader := &stubTopLoader{}
+	first := fixedDashboardNow
+	second := fixedDashboardNow.Add(2 * time.Second)
+	times := []time.Time{first, second}
+	call := 0
+	m := newTopModel(topModelConfig{
+		Keys:            tui.DefaultKeyMap(),
+		Actions:         defaultTopPaneActionKeys(),
+		Styles:          tui.DefaultStyles(),
+		Loader:          loader,
+		Criteria:        topDataCriteria{StaleAfter: time.Second},
+		Now:             func() time.Time { got := times[call]; call++; return got },
+		RefreshInterval: 0,
+		LoaderCtx:       context.Background(),
+	})
+
+	_ = m.fetchSnapshotCmd()()
+	_ = m.fetchSnapshotCmd()()
+
+	if loader.calls != 2 {
+		t.Fatalf("loader.calls = %d, want 2", loader.calls)
+	}
+	if got := loader.criteria[0].Now; !got.Equal(first) {
+		t.Fatalf("first criteria.Now = %s, want %s", got, first)
+	}
+	if got := loader.criteria[1].Now; !got.Equal(second) {
+		t.Fatalf("second criteria.Now = %s, want %s", got, second)
 	}
 }
 

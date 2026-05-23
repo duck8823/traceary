@@ -34,6 +34,17 @@ type topDataCriteria struct {
 	RecentCommandLimit int
 	CandidateLimit     int
 	StaleMemoryLimit   int
+
+	// StaleAfter is the threshold past which an unended session is
+	// treated as stale. A zero or negative value disables the check.
+	StaleAfter time.Duration
+	// AllowStale opts the caller in to stale active sessions. When
+	// false (the default), stale sessions are dropped from the loaded
+	// tree so the operator does not act on abandoned context.
+	AllowStale bool
+	// Now is the reference time used to evaluate staleness. Zero falls
+	// back to time.Now() inside the loader so tests can pin it.
+	Now time.Time
 }
 
 func (l *topDataLoader) loadDetail(ctx context.Context, req topDetailRequest) (topDetailContent, error) {
@@ -173,6 +184,17 @@ type topDataSnapshot struct {
 	RecentCommands []*model.Event
 	Candidates     []apptypes.MemorySummary
 	StaleMemories  apptypes.StaleMemoryListResult
+
+	// StaleAfter is the threshold the loader used to evaluate session
+	// staleness; a zero or negative value means the check was disabled.
+	StaleAfter time.Duration
+	// AllowStale reports whether the snapshot retained stale active
+	// sessions. Consumers use this together with per-node is_stale
+	// metadata to distinguish active vs stale-active rows in the JSON
+	// snapshot envelope.
+	AllowStale bool
+	// Now is the reference time staleness was evaluated against.
+	Now time.Time
 }
 
 // topDataLoader fetches every data slice the redesigned `traceary top`
@@ -220,15 +242,54 @@ func (l *topDataLoader) loadSessions(ctx context.Context, c topDataCriteria) ([]
 	if err != nil {
 		return nil, xerrors.Errorf("%s: %w", Localize("failed to list sessions", "セッション一覧の取得に失敗しました"), err)
 	}
+	// Drop stale active leaves before lineage expansion when the caller
+	// did not opt in. We filter before expansion so retained ended
+	// ancestors do not stay around for a leaf the operator never sees.
+	if !c.AllowStale && c.StaleAfter > 0 {
+		now := topDataNow(c)
+		filtered := summaries[:0]
+		for _, summary := range summaries {
+			if topDataSummaryIsStale(summary, c.StaleAfter, now) {
+				continue
+			}
+			filtered = append(filtered, summary)
+		}
+		summaries = filtered
+	}
 	expanded, err := l.expandSessionLineages(ctx, summaries)
 	if err != nil {
 		return nil, err
 	}
-	return filterTopSessionTree(buildActiveSessionTree(expanded), topCommandOptions{
+	now := topDataNow(c)
+	return filterTopSessionTree(buildActiveSessionTreeWithOptions(expanded, c.AllowStale, c.StaleAfter, now), topCommandOptions{
 		workspace: workspace,
 		client:    client,
 		agent:     agent,
 	}), nil
+}
+
+// topDataNow returns the reference time the loader should use for
+// staleness checks. Tests can pin it via topDataCriteria.Now; production
+// callers leave the field zero and the loader falls back to time.Now().
+func topDataNow(c topDataCriteria) time.Time {
+	if c.Now.IsZero() {
+		return time.Now()
+	}
+	return c.Now
+}
+
+// topDataSummaryIsStale reports whether the supplied summary is an
+// unended session whose start is older than staleAfter relative to now.
+// It mirrors the semantics used by session_active and session gc so the
+// stale signal stays consistent across surfaces.
+func topDataSummaryIsStale(summary apptypes.SessionSummary, staleAfter time.Duration, now time.Time) bool {
+	if staleAfter <= 0 {
+		return false
+	}
+	if _, ended := summary.EndedAt().Value(); ended {
+		return false
+	}
+	return summary.StartedAt().Before(now.Add(-staleAfter))
 }
 
 // expandSessionLineages walks every active session's lineage so root
@@ -384,5 +445,8 @@ func (l *topDataLoader) loadSnapshot(ctx context.Context, c topDataCriteria) (to
 		RecentCommands: commands,
 		Candidates:     candidates,
 		StaleMemories:  staleMemories,
+		StaleAfter:     c.StaleAfter,
+		AllowStale:     c.AllowStale,
+		Now:            topDataNow(c),
 	}, nil
 }

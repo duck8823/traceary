@@ -32,6 +32,8 @@ type compactSummaryOptions struct {
 	memoryLimit int
 	preset      apptypes.MemoryRetrievalPreset
 	asOf        types.Optional[time.Time]
+	staleAfter  time.Duration
+	allowStale  bool
 }
 
 func (c *RootCLI) printCompactSummaryWithOptions(
@@ -52,6 +54,8 @@ func (c *RootCLI) printCompactSummaryWithOptions(
 			MemoryLimit(opts.memoryLimit).
 			MemoryPreset(opts.preset).
 			MemoryAsOf(opts.asOf).
+			StaleAfter(opts.staleAfter).
+			AllowStale(opts.allowStale).
 			Build(),
 	)
 	if err != nil {
