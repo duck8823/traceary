@@ -2,6 +2,7 @@ package types_test
 
 import (
 	"testing"
+	"time"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	domtypes "github.com/duck8823/traceary/domain/types"
@@ -23,11 +24,15 @@ func TestMemoryListCriteriaBuilder(t *testing.T) {
 	t.Parallel()
 
 	workspace, _ := domtypes.WorkspaceFrom("github.com/duck8823/traceary")
+	updatedBefore := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	updatedAfter := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
 	criteria := apptypes.NewMemoryListCriteriaBuilder(20).
 		Offset(5).
 		Scope(domtypes.WorkspaceScopeOf(workspace)).
 		Status(domtypes.MemoryStatusAccepted).
 		MemoryType(domtypes.MemoryTypeDecision).
+		UpdatedBefore(updatedBefore).
+		UpdatedAfter(updatedAfter).
 		Build()
 
 	if got := criteria.Limit(); got != 20 {
@@ -44,5 +49,11 @@ func TestMemoryListCriteriaBuilder(t *testing.T) {
 	}
 	if got := len(criteria.MemoryTypes()); got != 1 {
 		t.Fatalf("len(MemoryTypes()) = %d, want 1", got)
+	}
+	if got, ok := criteria.UpdatedBefore().Value(); !ok || !got.Equal(updatedBefore) {
+		t.Fatalf("UpdatedBefore() = %v ok=%v, want %v", got, ok, updatedBefore)
+	}
+	if got, ok := criteria.UpdatedAfter().Value(); !ok || !got.Equal(updatedAfter) {
+		t.Fatalf("UpdatedAfter() = %v ok=%v, want %v", got, ok, updatedAfter)
 	}
 }

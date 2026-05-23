@@ -633,6 +633,36 @@ func TestMemoryDatasource_List(t *testing.T) {
 			t.Fatalf("MemoryID mismatch (-want +got):\n%s", diff)
 		}
 	})
+
+	t.Run("updated_at filters narrow candidate age windows", func(t *testing.T) {
+		t.Parallel()
+
+		summaries, err := sut.List(ctx, apptypes.NewMemoryListCriteriaBuilder(10).
+			Status(types.MemoryStatusCandidate).
+			UpdatedBefore(time.Date(2026, 4, 12, 9, 45, 0, 0, time.UTC)).
+			UpdatedAfter(time.Date(2026, 4, 12, 9, 15, 0, 0, time.UTC)).
+			Build())
+		if err != nil {
+			t.Fatalf("List(updated_at window) error = %v", err)
+		}
+		if got := len(summaries); got != 1 {
+			t.Fatalf("len(List(updated_at window)) = %d, want 1", got)
+		}
+		if diff := cmp.Diff("mem-candidate", summaries[0].MemoryID().String()); diff != "" {
+			t.Fatalf("MemoryID mismatch (-want +got):\n%s", diff)
+		}
+
+		summaries, err = sut.List(ctx, apptypes.NewMemoryListCriteriaBuilder(10).
+			Status(types.MemoryStatusCandidate).
+			UpdatedBefore(time.Date(2026, 4, 12, 9, 0, 0, 0, time.UTC)).
+			Build())
+		if err != nil {
+			t.Fatalf("List(updated_before miss) error = %v", err)
+		}
+		if len(summaries) != 0 {
+			t.Fatalf("List(updated_before miss) returned %d rows, want 0", len(summaries))
+		}
+	})
 }
 
 func TestMemoryDatasource_List_RememberIntentPriorityAppliesBeforePagination(t *testing.T) {
