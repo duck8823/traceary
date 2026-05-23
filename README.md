@@ -157,11 +157,20 @@ Traceary ships complementary inspection views so you can switch between "what's 
 
 | When | Command | Use it to |
 |---|---|---|
+| Starting from one operator cockpit | `traceary tui` | notice new events / candidate memories and jump into live tail, doctor details, or memory review |
 | Watching the workspace dashboard | `traceary top` | browse active sessions, recent failures / commands, candidate memories, and stale memories in one TUI |
 | Following what is happening now | `traceary tail` | confirm hooks are firing, watch failures in real time |
 | Understanding what happened across a span | `traceary timeline` | see gap-separated work blocks with a per-workspace activity summary |
 | Inspecting raw events directly | `traceary list` / `traceary search` | jump to an exact kind / session / query |
 | Resuming with assembled working memory | `traceary session handoff` | start a follow-up session with curated context |
+
+### `traceary tui`
+
+```sh
+traceary tui
+```
+
+`tui` opens the operator cockpit: a TTY-only home screen for new events, candidate memories, doctor warnings, and recent failures, with jumps into live tail, doctor details, and memory review. Bare `traceary` remains unchanged in v0.17.0 and continues to show the existing help/usage behavior; use `traceary tui` as the stable explicit entrypoint.
 
 ### `traceary top`
 
