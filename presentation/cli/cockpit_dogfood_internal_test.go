@@ -232,6 +232,74 @@ func TestCockpitDogfoodKeyboardPaths(t *testing.T) {
 			t.Fatalf("doctor dogfood view missing remediation command:\n%s", view)
 		}
 	})
+
+	t.Run("stage settings language read color and validated regex before save", func(t *testing.T) {
+		configPath := filepath.Join(t.TempDir(), "config.json")
+		model := newCockpitModel(tui.DefaultKeyMap(), tui.Styles{}, cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+		model.mode = cockpitModeSettings
+		model.settings = cockpitSettingsState{
+			loaded: true,
+			snapshot: cockpitSettingsSnapshot{
+				Path:   configPath,
+				Status: cockpitSettingsConfigMissing,
+				Env: cockpitSettingsEnv{
+					TracearyLang:    "en",
+					TracearyLangSet: true,
+				},
+			},
+		}
+		model.settings.draft = model.settings.snapshot.Values.clone()
+
+		updated, _ := model.Update(cockpitRuneKey("l"))
+		model = updated.(cockpitModel)
+		if view := model.View(); !strings.Contains(view, "ui.language: ja") || !strings.Contains(view, "ui.language: en (default) -> ja") {
+			t.Fatalf("settings dogfood missing staged Japanese language diff:\n%s", view)
+		}
+		updated, _ = model.Update(cockpitRuneKey("l"))
+		model = updated.(cockpitModel)
+		if view := model.View(); !strings.Contains(view, "ui.language: en") || !strings.Contains(view, "ui.language: en (default) -> en") {
+			t.Fatalf("settings dogfood missing staged English language diff:\n%s", view)
+		}
+		updated, _ = model.Update(cockpitRuneKey("c"))
+		model = updated.(cockpitModel)
+		updated, _ = model.Update(cockpitRuneKey("n"))
+		model = updated.(cockpitModel)
+		for _, r := range "SECRET-[" {
+			updated, _ = model.Update(cockpitRuneKey(string(r)))
+			model = updated.(cockpitModel)
+		}
+		updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		model = updated.(cockpitModel)
+		if view := model.View(); !strings.Contains(view, "Invalid regex") {
+			t.Fatalf("settings dogfood should reject invalid regex before save:\n%s", view)
+		}
+		updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+		model = updated.(cockpitModel)
+		updated, _ = model.Update(cockpitRuneKey("n"))
+		model = updated.(cockpitModel)
+		for _, r := range `SECRET-[0-9]+` {
+			updated, _ = model.Update(cockpitRuneKey(string(r)))
+			model = updated.(cockpitModel)
+		}
+		updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		model = updated.(cockpitModel)
+		updated, _ = model.Update(cockpitRuneKey("w"))
+		model = updated.(cockpitModel)
+		if view := model.View(); !strings.Contains(view, "Confirm config write") || !strings.Contains(view, "read.color: auto (default) -> always") {
+			t.Fatalf("settings dogfood missing confirmation diff:\n%s", view)
+		}
+		updated, _ = model.Update(cockpitRuneKey("y"))
+		model = updated.(cockpitModel)
+		data, err := os.ReadFile(configPath)
+		if err != nil {
+			t.Fatalf("settings dogfood expected saved config: %v", err)
+		}
+		for _, must := range []string{`"language": "en"`, `"color": "always"`, `SECRET-[0-9]+`} {
+			if !strings.Contains(string(data), must) {
+				t.Fatalf("settings dogfood saved config missing %q:\n%s", must, data)
+			}
+		}
+	})
 }
 
 func TestCockpitDogfoodJapaneseNarrowSmoke(t *testing.T) {
@@ -263,6 +331,7 @@ func TestCockpitDogfoodJapaneseNarrowSmoke(t *testing.T) {
 		"アクション menu",
 		"Global navigation",
 		"1 ホーム",
+		"6 設定",
 		"? ヘルプ",
 	} {
 		if !strings.Contains(view, must) {
@@ -294,6 +363,36 @@ func TestCockpitDogfoodJapaneseNarrowSmoke(t *testing.T) {
 	} {
 		if !strings.Contains(memoryView, must) {
 			t.Fatalf("Japanese memory review smoke missing %q:\n%s", must, memoryView)
+		}
+	}
+
+	settingsModel := newCockpitModel(tui.DefaultKeyMap(), tui.Styles{}, cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	settingsModel.mode = cockpitModeSettings
+	settingsModel.settings = cockpitSettingsState{
+		loaded: true,
+		snapshot: cockpitSettingsSnapshot{
+			Path:   "/tmp/config.json",
+			Status: cockpitSettingsConfigMissing,
+			Env: cockpitSettingsEnv{
+				TracearyLang:    "ja",
+				TracearyLangSet: true,
+			},
+		},
+	}
+	settingsModel.settings.draft = settingsModel.settings.snapshot.Values.clone()
+	settingsView := settingsModel.View()
+	for _, must := range []string{
+		"Traceary cockpit · 設定",
+		"config backed settings",
+		"編集可能な settings",
+		"読み取り専用 diagnostics",
+		"TRACEARY_LANG=ja",
+		"ui.language:",
+		"redact.extra_patterns:",
+		"regex 追加",
+	} {
+		if !strings.Contains(settingsView, must) {
+			t.Fatalf("Japanese settings smoke missing %q:\n%s", must, settingsView)
 		}
 	}
 }

@@ -1,5 +1,5 @@
 Traceary cockpit · home
-sections: [1 Home]  2 Live  3 Doctor  4 Memory  5 Sessions
+sections: [1 Home]  2 Live  3 Doctor  4 Memory  5 Sessions  6 Settings
 
 loaded=2026-05-07T12:00:00Z db=/tmp/traceary.db
 
@@ -35,7 +35,7 @@ HEALTH
 
 ALL GREEN
 • No immediate cockpit warnings or tracked new activity.
-• Next: 2 Live for ongoing work, 4 Memory for periodic review, 3 Doctor before release, 5 Sessions for handoff.
+• Next: 2 Live for ongoing work, 4 Memory for periodic review, 3 Doctor before release, 5 Sessions for handoff, 6 Settings for configuration.
 
 SIGNAL COUNTS
 • doctor: pass=4 warn=0 fail=0
@@ -44,4 +44,4 @@ SIGNAL COUNTS
 • memories: accepted(reviewed)=2 candidate(inbox)=0 new=0 remember-intent=0 low-quality=0 stale=0
 • payloads: large=0
 
-1-5 sections · tab/shift+tab next/prev · q/ctrl+c quit · ? help
+1-6 sections · tab/shift+tab next/prev · q/ctrl+c quit · ? help

@@ -89,6 +89,26 @@ func TestLoadConfig_returnsReadFieldsAlongsideRedact(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_returnsUILanguage(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configDir := filepath.Join(home, ".config", "traceary")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configJSON := `{"ui": {"language": "ja"}}`
+	if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(configJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := presentation.LoadConfig()
+
+	if cfg.UILanguage != "ja" {
+		t.Fatalf("UILanguage = %q, want ja", cfg.UILanguage)
+	}
+}
+
 func TestLoadConfig_returnsStructuredRedactRules(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

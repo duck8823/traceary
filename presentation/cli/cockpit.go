@@ -788,6 +788,7 @@ type cockpitModel struct {
 	doctorRequestSeq       uint64
 	memoryReview           cockpitMemoryReviewState
 	memoryReviewRequestSeq uint64
+	settings               cockpitSettingsState
 }
 
 func newCockpitModel(keys tui.KeyMap, styles tui.Styles, home cockpitHomeSnapshot) cockpitModel {
@@ -805,6 +806,7 @@ const (
 	cockpitModeDetail
 	cockpitModeMemoryReview
 	cockpitModeSessions
+	cockpitModeSettings
 )
 
 type cockpitSectionID int
@@ -815,6 +817,7 @@ const (
 	cockpitSectionDoctor
 	cockpitSectionMemory
 	cockpitSectionSessions
+	cockpitSectionSettings
 )
 
 type cockpitNavigationSection struct {
@@ -833,6 +836,7 @@ var cockpitNavigationSections = []cockpitNavigationSection{
 	{id: cockpitSectionDoctor, key: "3"},
 	{id: cockpitSectionMemory, key: "4"},
 	{id: cockpitSectionSessions, key: "5"},
+	{id: cockpitSectionSettings, key: "6"},
 }
 
 // cockpitNavigationSectionLabel returns the localized label for a cockpit
@@ -851,6 +855,8 @@ func cockpitNavigationSectionLabel(id cockpitSectionID) string {
 		return Localize("Memory", "メモリ")
 	case cockpitSectionSessions:
 		return Localize("Sessions", "セッション")
+	case cockpitSectionSettings:
+		return Localize("Settings", "設定")
 	}
 	return ""
 }
@@ -1030,6 +1036,9 @@ func (m cockpitModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.mode == cockpitModeMemoryReview {
 		return m.updateMemoryReviewKey(msg)
 	}
+	if m.mode == cockpitModeSettings {
+		return m.updateSettingsKey(msg)
+	}
 	switch {
 	case isCockpitQuitKey(msg):
 		return m, tea.Quit
@@ -1085,6 +1094,8 @@ func cockpitSectionFromKey(msg tea.KeyMsg) (cockpitSectionID, bool) {
 		return cockpitSectionMemory, true
 	case '5':
 		return cockpitSectionSessions, true
+	case '6':
+		return cockpitSectionSettings, true
 	default:
 		return 0, false
 	}
@@ -1126,6 +1137,8 @@ func (m cockpitModel) activeCockpitSection() cockpitSectionID {
 		return cockpitSectionMemory
 	case cockpitModeSessions:
 		return cockpitSectionSessions
+	case cockpitModeSettings:
+		return cockpitSectionSettings
 	default:
 		return cockpitSectionHome
 	}
@@ -1160,6 +1173,8 @@ func (m cockpitModel) openCockpitSection(section cockpitSectionID) (tea.Model, t
 	case cockpitSectionSessions:
 		m.mode = cockpitModeSessions
 		return m, nil
+	case cockpitSectionSettings:
+		return m.openCockpitSettings()
 	default:
 		return m, nil
 	}
@@ -1196,6 +1211,8 @@ func (m cockpitModel) updateHomeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.openCockpitSection(cockpitSectionLive)
 		case "m":
 			return m.openCockpitSection(cockpitSectionMemory)
+		case "s":
+			return m.openCockpitSection(cockpitSectionSettings)
 		}
 	}
 	return m, nil
@@ -1610,6 +1627,8 @@ func (m cockpitModel) View() string {
 		return m.memoryReviewView()
 	case cockpitModeSessions:
 		return m.sessionsView()
+	case cockpitModeSettings:
+		return m.settingsView()
 	}
 	return m.homeView()
 }
@@ -1651,7 +1670,7 @@ func (m cockpitModel) homeView() string {
 			"",
 			m.styles.Success.Render(Localize("ALL GREEN", "すべて正常")),
 			"• "+Localize("No immediate cockpit warnings or tracked new activity.", "直近の cockpit warning や追跡済みの新着 activity はありません。"),
-			"• "+Localize("Next: 2 Live for ongoing work, 4 Memory for periodic review, 3 Doctor before release, 5 Sessions for handoff.", "次: 作業中は 2 Live、定期確認は 4 Memory、release 前は 3 Doctor、handoff は 5 Sessions。"),
+			"• "+Localize("Next: 2 Live for ongoing work, 4 Memory for periodic review, 3 Doctor before release, 5 Sessions for handoff, 6 Settings for configuration.", "次: 作業中は 2 Live、定期確認は 4 Memory、release 前は 3 Doctor、handoff は 5 Sessions、設定は 6 Settings。"),
 		)
 	}
 	lines = append(lines,
@@ -1935,10 +1954,12 @@ func (m cockpitModel) cockpitGlobalFooter(localHelp string) string {
 		if m.memoryReview.applying {
 			quitHelp = Localize("quit disabled while applying", "適用中は終了できません")
 		}
+	} else if m.mode == cockpitModeSettings && m.settings.editingPattern {
+		quitHelp = Localize("ctrl+c quit", "ctrl+c 終了")
 	}
 	parts := []string{}
 	if m.cockpitSectionNavigationAvailable() {
-		parts = append(parts, Localize("1-5 sections", "1-5 セクション"), Localize("tab/shift+tab next/prev", "tab/shift+tab 次/前"))
+		parts = append(parts, Localize("1-6 sections", "1-6 セクション"), Localize("tab/shift+tab next/prev", "tab/shift+tab 次/前"))
 	}
 	if m.width > 0 && m.height > 0 {
 		parts = append(parts, Localizef("terminal %dx%d", "端末 %dx%d", m.width, m.height))
@@ -1959,6 +1980,9 @@ func (m cockpitModel) cockpitGlobalFooter(localHelp string) string {
 }
 
 func (m cockpitModel) cockpitSectionNavigationAvailable() bool {
+	if m.mode == cockpitModeSettings && (m.settings.editingPattern || m.settings.confirmSave) {
+		return false
+	}
 	if m.mode != cockpitModeMemoryReview {
 		return true
 	}
@@ -1969,6 +1993,9 @@ func (m cockpitModel) cockpitSectionNavigationAvailable() bool {
 }
 
 func (m cockpitModel) cockpitBackAvailable() bool {
+	if m.mode == cockpitModeSettings && (m.settings.editingPattern || m.settings.confirmSave) {
+		return false
+	}
 	if m.mode == cockpitModeHome {
 		return false
 	}
@@ -1986,6 +2013,9 @@ func (m cockpitModel) cockpitBackAvailable() bool {
 }
 
 func (m cockpitModel) cockpitHelpAvailable() bool {
+	if m.mode == cockpitModeSettings && (m.settings.editingPattern || m.settings.confirmSave) {
+		return false
+	}
 	if m.mode != cockpitModeMemoryReview {
 		return true
 	}
@@ -2014,6 +2044,7 @@ func (m cockpitModel) cockpitContextualHelp() []string {
 		Localize("3 Doctor    health checks and remediation hints", "3 Doctor    health check と修復 hint"),
 		Localize("4 Memory    inbox review queue", "4 メモリ      inbox review queue"),
 		Localize("5 Sessions  session and handoff entry points", "5 セッション  session と handoff 導線"),
+		Localize("6 Settings  language, read defaults, redaction diagnostics", "6 設定        language / read 既定 / redaction 診断"),
 		Localize("tab / shift+tab cycle sections", "tab / shift+tab で section を移動"),
 		Localize("esc backs out to the previous cockpit level; q exits the TUI", "esc で前の cockpit 階層へ戻り、q で TUI を終了"),
 		"",
@@ -2064,15 +2095,18 @@ func (m cockpitModel) cockpitContextualActions() []cockpitAction {
 			{key: "r", description: Localize("Refresh session summary", "session summary を再取得")},
 			{description: Localize("Use `traceary session handoff` for the full handoff outside the cockpit.", "完全な handoff は cockpit 外で `traceary session handoff` を使ってください。")},
 		}
+	case cockpitModeSettings:
+		return m.settingsContextualActions()
 	default:
 		actions := []cockpitAction{
 			{key: "2", description: Localize("Open Live tail", "Live tail を開く")},
 			{key: "3", description: Localize("Run Doctor checks", "Doctor check を実行")},
 			{key: "4", description: Localize("Open Memory review", "Memory review を開く")},
 			{key: "5", description: Localize("Open Sessions and handoff entry points", "Sessions と handoff 導線を開く")},
+			{key: "6", description: Localize("Open Settings", "Settings を開く")},
 		}
 		if m.home.allGreen() {
-			actions = append(actions, cockpitAction{description: Localize("All green: use Live for ongoing work, Memory for periodic review, Doctor before release, Sessions for handoff.", "すべて正常: 作業中は Live、定期確認は Memory、release 前は Doctor、handoff は Sessions を使います。")})
+			actions = append(actions, cockpitAction{description: Localize("All green: use Live for ongoing work, Memory for periodic review, Doctor before release, Sessions for handoff, Settings for config changes.", "すべて正常: 作業中は Live、定期確認は Memory、release 前は Doctor、handoff は Sessions、設定変更は Settings を使います。")})
 		} else {
 			actions = append(actions, cockpitAction{description: Localize("Home cards are ordered by urgency; each card shows its next action target.", "Home card は緊急度順です。各 card に次の action target が表示されます。")})
 		}

@@ -7,13 +7,19 @@ import (
 	"path/filepath"
 
 	"github.com/duck8823/traceary/application/redaction"
+	"golang.org/x/xerrors"
 )
 
 // configFile mirrors the on-disk JSON layout. It is intentionally unexported
 // because callers receive the loaded values through Config.
 type configFile struct {
+	UI     uiSection     `json:"ui"`
 	Redact redactSection `json:"redact"`
 	Read   readSection   `json:"read"`
+}
+
+type uiSection struct {
+	Language string `json:"language"`
 }
 
 type redactSection struct {
@@ -51,6 +57,11 @@ type readPresetFilters struct {
 // MCP server. Zero values mean "fall back to the built-in default" so callers
 // do not need to distinguish between "file missing" and "key missing".
 type Config struct {
+	// UILanguage is the operator-facing CLI/TUI language (en / ja). Empty
+	// string means "fall back to the built-in default language". Runtime
+	// environment overrides such as TRACEARY_LANG are resolved by the CLI
+	// layer because they are process-local, not persisted config.
+	UILanguage string
 	// ExtraRedactPatterns are additional regex patterns applied on top of the
 	// built-in audit redaction rules. Nil / empty means "no extras".
 	ExtraRedactPatterns []string
@@ -101,6 +112,7 @@ func LoadConfig() Config {
 		return Config{}
 	}
 	return Config{
+		UILanguage:            file.UI.Language,
 		ExtraRedactPatterns:   file.Redact.ExtraPatterns,
 		StructuredRedactRules: file.Redact.Rules,
 		ReadFields:            file.Read.Fields,
@@ -137,7 +149,7 @@ func LoadExtraRedactPatterns() []string {
 }
 
 func loadConfigFile() *configFile {
-	homeDir, err := os.UserHomeDir()
+	configPath, err := DefaultConfigPath()
 	if err != nil {
 		slog.Warn(
 			"Traceary config path could not be resolved; config-backed features fall back to built-in defaults",
@@ -146,7 +158,6 @@ func loadConfigFile() *configFile {
 		return nil
 	}
 
-	configPath := filepath.Join(homeDir, ".config", "traceary", "config.json")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -169,4 +180,14 @@ func loadConfigFile() *configFile {
 	}
 
 	return &file
+}
+
+// DefaultConfigPath returns the canonical per-user Traceary config path.
+func DefaultConfigPath() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", xerrors.Errorf("resolve home directory: %w", err)
+	}
+
+	return filepath.Join(homeDir, ".config", "traceary", "config.json"), nil
 }

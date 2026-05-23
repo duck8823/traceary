@@ -26,6 +26,7 @@ The dogfood tests cover:
   - inspecting evidence for an ambiguous memory without accidentally accepting it,
   - opening Doctor and finding a remediation command.
 - Japanese cockpit smoke coverage with `TRACEARY_LANG=ja` at 80x24.
+- Settings coverage for switching `ui.language`, cycling one safe read setting, and validating redaction regex input before save.
 
 Golden snapshots live under `presentation/cli/testdata/cockpit/`. Update them only when the intended cockpit copy/layout changes:
 
@@ -58,6 +59,10 @@ Run each task in a real terminal before tagging a cockpit release:
 8. Run `TRACEARY_LANG=ja traceary tui --reset-state`.
    - Confirm the shell, footer, help/action menu, Home labels, and Memory review decision aids are understandable in Japanese.
    - Confirm literal commands such as `traceary doctor --json` remain copyable as English command names.
+9. Press `6` for Settings.
+   - Confirm the config path/status, `TRACEARY_LANG` override explanation, environment diagnostics, and read-only preset/rule lists are visible.
+   - Stage `ui.language` from English to Japanese and back, cycle `read.color` or `read.fields`, then review the diff before confirming save.
+   - Try an invalid `redact.extra_patterns` regex and confirm it is rejected before any config write.
 
 ## Release gate
 

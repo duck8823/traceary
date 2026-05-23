@@ -26,6 +26,7 @@ dogfood テストで確認する内容:
   - 曖昧な memory の evidence を確認し、誤って accept しない。
   - Doctor を開き remediation command を見つける。
 - `TRACEARY_LANG=ja` と 80x24 での Japanese cockpit smoke。
+- `ui.language` の切り替え、安全な read setting の cycle、保存前の redaction regex 検証を含む Settings coverage。
 
 Golden snapshot は `presentation/cli/testdata/cockpit/` にあります。意図した cockpit 文言・layout 変更時だけ更新してください:
 
@@ -58,6 +59,10 @@ cockpit release の tag 前に、実 terminal で以下を確認します:
 8. `TRACEARY_LANG=ja traceary tui --reset-state` を実行。
    - shell / footer / help・action menu / Home labels / Memory review の判断補助が日本語で理解できること。
    - `traceary doctor --json` などの literal command は、copy できる英語 command 名のまま残ること。
+9. `6` で Settings へ移動。
+   - config path/status、`TRACEARY_LANG` override の説明、environment diagnostics、read-only の preset/rule list が見えること。
+   - `ui.language` を English から Japanese へ、さらに戻す操作と、`read.color` または `read.fields` の cycle を staged にし、保存前 diff を確認できること。
+   - 不正な `redact.extra_patterns` regex を入力し、config 書き込み前に拒否されること。
 
 ## Release gate
 
