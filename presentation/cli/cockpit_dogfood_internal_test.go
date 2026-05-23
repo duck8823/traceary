@@ -34,6 +34,25 @@ func TestCockpitDogfoodGoldenSnapshots(t *testing.T) {
 	}
 }
 
+func TestCockpitDogfoodJapaneseNarrowGoldenSnapshot(t *testing.T) {
+	t.Setenv(cliLanguageEnvKey, "ja")
+
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.Styles{}, cockpitHomeSnapshot{
+		LoadedAt:                fixedStartedAt,
+		DBPath:                  "/tmp/traceary.db",
+		AcceptedMemoryCount:     3,
+		CandidateMemoryCount:    4,
+		NewCandidateMemoryKnown: true,
+		NewCandidateMemoryCount: 2,
+		MemoryLastSeenAt:        fixedStartedAt.Add(-2 * time.Hour),
+		RememberIntentCount:     1,
+		LowQualityMemoryCount:   1,
+	})
+	model.showHelp = true
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	assertCockpitDogfoodGolden(t, "home_candidate_memories_ja_narrow", updated.(cockpitModel).View())
+}
+
 func TestCockpitDogfoodTerminalSizesKeepTaskCues(t *testing.T) {
 	t.Parallel()
 
@@ -213,6 +232,70 @@ func TestCockpitDogfoodKeyboardPaths(t *testing.T) {
 			t.Fatalf("doctor dogfood view missing remediation command:\n%s", view)
 		}
 	})
+}
+
+func TestCockpitDogfoodJapaneseNarrowSmoke(t *testing.T) {
+	t.Setenv(cliLanguageEnvKey, "ja")
+
+	home := cockpitHomeSnapshot{
+		LoadedAt:                fixedStartedAt,
+		DBPath:                  "/tmp/traceary.db",
+		AcceptedMemoryCount:     3,
+		CandidateMemoryCount:    4,
+		NewCandidateMemoryKnown: true,
+		NewCandidateMemoryCount: 2,
+		MemoryLastSeenAt:        fixedStartedAt.Add(-2 * time.Hour),
+		RememberIntentCount:     1,
+		LowQualityMemoryCount:   1,
+	}
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.Styles{}, home)
+	model.showHelp = true
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	view := updated.(cockpitModel).View()
+	for _, must := range []string{
+		"Traceary cockpit · ホーム",
+		"セクション:",
+		"トリアージ board",
+		"メモリ inbox",
+		"新着 candidate memory=2",
+		"次:",
+		"端末 80x24",
+		"アクション menu",
+		"Global navigation",
+		"1 ホーム",
+		"? ヘルプ",
+	} {
+		if !strings.Contains(view, must) {
+			t.Fatalf("Japanese cockpit narrow smoke missing %q:\n%s", must, view)
+		}
+	}
+
+	candidate := buildReviewCandidateWithOptions(t, reviewCandidateOptions{
+		id:         "mem-dogfood-ja-ambiguous",
+		fact:       "Maybe the operator prefers short summaries",
+		confidence: domtypes.ConfidenceLow,
+		source:     domtypes.MemorySourceExtractedHidden,
+		noEvidence: true,
+	})
+	memoryModel := newCockpitModel(tui.DefaultKeyMap(), tui.Styles{}, cockpitHomeSnapshot{LoadedAt: fixedStartedAt, CandidateMemoryCount: 1})
+	memoryModel.mode = cockpitModeMemoryReview
+	memoryModel.memoryReview.items = []apptypes.MemoryDetails{candidate}
+	memoryModel.memoryReview.review = newReviewModel(memoryModel.memoryReview.items, memoryModel.keys, memoryModel.styles)
+	updated, _ = memoryModel.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	memoryView := updated.(cockpitModel).View()
+	for _, must := range []string{
+		"Traceary cockpit · メモリ review",
+		"判断カード",
+		"判断 context",
+		"信頼度が低い",
+		"accept には確認が必要",
+		"事実で安定している",
+		"q 終了/適用",
+	} {
+		if !strings.Contains(memoryView, must) {
+			t.Fatalf("Japanese memory review smoke missing %q:\n%s", must, memoryView)
+		}
+	}
 }
 
 func cockpitDogfoodSnapshotScenarios(t *testing.T) []cockpitDogfoodSnapshotScenario {

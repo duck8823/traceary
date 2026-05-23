@@ -651,34 +651,34 @@ func (m reviewModel) View() string {
 
 func (m reviewModel) renderBrowse() string {
 	var b strings.Builder
-	b.WriteString(m.styles.Title.Render(Localize("inbox review · decision card", "inbox review · decision card")))
+	b.WriteString(m.styles.Title.Render(Localize("inbox review · decision card", "inbox review · 判断カード")))
 	b.WriteString("\n")
 	b.WriteString(m.styles.Subtle.Render(Localizef("candidate %d / %d", "candidate %d / %d", m.cursor+1, len(m.items))))
 	b.WriteString("\n\n")
 
 	current := m.items[m.cursor]
 	summary := current.Summary()
-	b.WriteString(m.styles.Subtle.Render(Localize("DECISION CONTEXT", "DECISION CONTEXT")))
+	b.WriteString(m.styles.Subtle.Render(Localize("DECISION CONTEXT", "判断 context")))
 	b.WriteString("\n")
-	fmt.Fprintf(&b, "MEMORY_ID:              %s\n", summary.MemoryID())
-	fmt.Fprintf(&b, "TYPE:                   %s\n", summary.MemoryType())
-	fmt.Fprintf(&b, "SCOPE:                  %s\n", formatMemoryScope(summary.Scope()))
-	fmt.Fprintf(&b, "SOURCE:                 %s\n", summary.Source())
-	fmt.Fprintf(&b, "CONFIDENCE:             %s\n", summary.Confidence())
-	fmt.Fprintf(&b, "QUALITY_SIGNAL:         %s\n", memoryReviewQualitySignal(current))
-	fmt.Fprintf(&b, "REMEMBERED_BY_OPERATOR: %s\n", formatMemoryReviewRememberIntent(summary))
-	fmt.Fprintf(&b, "EVIDENCE_REFS:          %d (press v to inspect)\n", len(current.EvidenceRefs()))
-	fmt.Fprintf(&b, "ARTIFACT_REFS:          %d (press v to inspect)\n", len(current.ArtifactRefs()))
-	fmt.Fprintf(&b, "CREATED_AT:             %s\n", formatJSONTime(summary.CreatedAt()))
-	fmt.Fprintf(&b, "UPDATED_AT:             %s\n", formatJSONTime(summary.UpdatedAt()))
-	fmt.Fprintf(&b, "CANDIDATE_AGE:          %s\n", formatMemoryReviewCandidateAge(summary, topNowFunc().UTC()))
-	fmt.Fprintf(&b, "DUPLICATE_SUPERSEDE:    %s\n", memoryReviewDuplicateSupersedeHint(summary))
+	fmt.Fprintf(&b, "%-23s %s\n", Localize("MEMORY_ID:", "MEMORY_ID:"), summary.MemoryID())
+	fmt.Fprintf(&b, "%-23s %s\n", Localize("TYPE:", "TYPE:"), summary.MemoryType())
+	fmt.Fprintf(&b, "%-23s %s\n", Localize("SCOPE:", "SCOPE:"), formatMemoryScope(summary.Scope()))
+	fmt.Fprintf(&b, "%-23s %s\n", Localize("SOURCE:", "SOURCE:"), summary.Source())
+	fmt.Fprintf(&b, "%-23s %s\n", Localize("CONFIDENCE:", "CONFIDENCE:"), summary.Confidence())
+	fmt.Fprintf(&b, "%-23s %s\n", Localize("QUALITY_SIGNAL:", "QUALITY_SIGNAL:"), memoryReviewQualitySignal(current))
+	fmt.Fprintf(&b, "%-23s %s\n", Localize("REMEMBERED_BY_OPERATOR:", "OPERATOR_REMEMBERED:"), formatMemoryReviewRememberIntent(summary))
+	fmt.Fprintf(&b, "%-23s %s\n", Localize("EVIDENCE_REFS:", "EVIDENCE_REFS:"), Localizef("%d (press v to inspect)", "%d (v で確認)", len(current.EvidenceRefs())))
+	fmt.Fprintf(&b, "%-23s %s\n", Localize("ARTIFACT_REFS:", "ARTIFACT_REFS:"), Localizef("%d (press v to inspect)", "%d (v で確認)", len(current.ArtifactRefs())))
+	fmt.Fprintf(&b, "%-23s %s\n", Localize("CREATED_AT:", "CREATED_AT:"), formatJSONTime(summary.CreatedAt()))
+	fmt.Fprintf(&b, "%-23s %s\n", Localize("UPDATED_AT:", "UPDATED_AT:"), formatJSONTime(summary.UpdatedAt()))
+	fmt.Fprintf(&b, "%-23s %s\n", Localize("CANDIDATE_AGE:", "CANDIDATE_AGE:"), formatMemoryReviewCandidateAge(summary, topNowFunc().UTC()))
+	fmt.Fprintf(&b, "%-23s %s\n", Localize("DUPLICATE_SUPERSEDE:", "DUPLICATE_SUPERSEDE:"), memoryReviewDuplicateSupersedeHint(summary))
 	b.WriteString("\n")
-	b.WriteString(m.styles.Active.Render(Localize("CANDIDATE FACT:", "CANDIDATE FACT:")))
+	b.WriteString(m.styles.Active.Render(Localize("CANDIDATE FACT:", "候補 fact:")))
 	b.WriteString("\n")
 	b.WriteString(summary.Fact())
 	b.WriteString("\n\n")
-	b.WriteString(m.styles.Subtle.Render(Localize("ACCEPT AS-IS CHECKLIST", "ACCEPT AS-IS CHECKLIST")))
+	b.WriteString(m.styles.Subtle.Render(Localize("ACCEPT AS-IS CHECKLIST", "accept as-is checklist")))
 	b.WriteString("\n")
 	for _, item := range memoryReviewAcceptChecklist(current) {
 		b.WriteString("• ")
@@ -705,7 +705,7 @@ func (m reviewModel) renderBrowse() string {
 	b.WriteString("\n")
 	b.WriteString(m.styles.Help.Render(Localize(
 		"a accept as-is · x reject · s skip · e edit/distill · v evidence · ↑/↓ navigate · ? help · q quit",
-		"a accept as-is · x reject · s skip · e edit/distill · v evidence · ↑/↓ 移動 · ? help · q quit",
+		"a accept as-is · x reject · s skip · e edit/distill · v evidence · ↑/↓ 移動 · ? ヘルプ · q 終了",
 	)))
 	return b.String()
 }
@@ -735,7 +735,7 @@ func (m reviewModel) renderEvidence() string {
 		}
 	}
 	b.WriteString("\n")
-	b.WriteString(m.styles.Help.Render(Localize("v / esc back · q quit", "v / esc 戻る · q quit")))
+	b.WriteString(m.styles.Help.Render(Localize("v / esc back · q quit", "v / esc 戻る · q 終了")))
 	return b.String()
 }
 
@@ -825,66 +825,66 @@ func memoryReviewQualitySignal(details apptypes.MemoryDetails) string {
 	signals := make([]string, 0, 4)
 	switch summary.Confidence() {
 	case domtypes.ConfidenceVerified, domtypes.ConfidenceHigh:
-		signals = append(signals, "strong confidence")
+		signals = append(signals, Localize("strong confidence", "信頼度が高い"))
 	case domtypes.ConfidenceLow:
-		signals = append(signals, "low confidence")
+		signals = append(signals, Localize("low confidence", "信頼度が低い"))
 	default:
-		signals = append(signals, "medium confidence")
+		signals = append(signals, Localize("medium confidence", "信頼度は中程度"))
 	}
 	switch summary.Source() {
 	case domtypes.MemorySourceRememberIntent:
-		signals = append(signals, "explicit remember intent")
+		signals = append(signals, Localize("explicit remember intent", "明示的な remember intent"))
 	case domtypes.MemorySourceExtractedHidden:
-		signals = append(signals, "hidden extraction")
+		signals = append(signals, Localize("hidden extraction", "hidden extraction"))
 	case domtypes.MemorySourceExtracted, domtypes.MemorySourceCompactSummary:
-		signals = append(signals, "generated candidate")
+		signals = append(signals, Localize("generated candidate", "生成された candidate"))
 	case domtypes.MemorySourceManual:
-		signals = append(signals, "manual source")
+		signals = append(signals, Localize("manual source", "手動 source"))
 	default:
 		signals = append(signals, summary.Source().String())
 	}
 	if len(details.EvidenceRefs()) == 0 {
-		signals = append(signals, "no evidence refs")
+		signals = append(signals, Localize("no evidence refs", "evidence ref なし"))
 	}
 	if memoryReviewRequiresAcceptConfirmation(details) {
-		signals = append(signals, "accept requires confirmation")
+		signals = append(signals, Localize("accept requires confirmation", "accept には確認が必要"))
 	}
 	return strings.Join(signals, "; ")
 }
 
 func formatMemoryReviewRememberIntent(summary apptypes.MemorySummary) string {
 	if summary.Source() == domtypes.MemorySourceRememberIntent {
-		return "yes (remember-intent)"
+		return Localize("yes (remember-intent)", "はい (remember-intent)")
 	}
-	return "no"
+	return Localize("no", "いいえ")
 }
 
 func formatMemoryReviewCandidateAge(summary apptypes.MemorySummary, now time.Time) string {
 	if summary.CreatedAt().IsZero() || now.Before(summary.CreatedAt()) {
-		return "unknown"
+		return Localize("unknown", "不明")
 	}
 	return formatDuration(now.Sub(summary.CreatedAt()))
 }
 
 func memoryReviewDuplicateSupersedeHint(summary apptypes.MemorySummary) string {
 	if supersedes, ok := summary.Supersedes().Value(); ok {
-		return fmt.Sprintf("supersedes %s", supersedes)
+		return Localizef("supersedes %s", "%s を supersede", supersedes)
 	}
-	return "not checked in cockpit yet; use edit/distill or skip if duplicate risk is unclear"
+	return Localize("not checked in cockpit yet; use edit/distill or skip if duplicate risk is unclear", "cockpit では未チェック。重複リスクが不明なら edit/distill または skip")
 }
 
 func memoryReviewAcceptChecklist(details apptypes.MemoryDetails) []string {
 	checks := []string{
-		"factual and stable",
-		"useful for future sessions",
-		"scope/type are correct",
+		Localize("factual and stable", "事実で安定している"),
+		Localize("useful for future sessions", "将来の session で有用"),
+		Localize("scope/type are correct", "scope/type が正しい"),
 	}
 	if len(details.EvidenceRefs()) > 0 {
-		checks = append(checks, "supported by evidence refs")
+		checks = append(checks, Localize("supported by evidence refs", "evidence refs に支えられている"))
 	} else {
-		checks = append(checks, "evidence not shown; inspect before accepting")
+		checks = append(checks, Localize("evidence not shown; inspect before accepting", "evidence 未表示。accept 前に確認してください"))
 	}
-	checks = append(checks, "not duplicate, stale, or superseded")
+	checks = append(checks, Localize("not duplicate, stale, or superseded", "重複・古い・supersede 済みではない"))
 	return checks
 }
 

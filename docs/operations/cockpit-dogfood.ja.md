@@ -25,6 +25,7 @@ dogfood テストで確認する内容:
   - Home から Live と event detail 経由で最新 failure を探す。
   - 曖昧な memory の evidence を確認し、誤って accept しない。
   - Doctor を開き remediation command を見つける。
+- `TRACEARY_LANG=ja` と 80x24 での Japanese cockpit smoke。
 
 Golden snapshot は `presentation/cli/testdata/cockpit/` にあります。意図した cockpit 文言・layout 変更時だけ更新してください:
 
@@ -54,6 +55,9 @@ cockpit release の tag 前に、実 terminal で以下を確認します:
    - warning/failure に remediation command が inline 表示されること。
 7. `5` で Sessions へ移動。
    - 専用 session UI 実装までは handoff/session command への導線が出ること。
+8. `TRACEARY_LANG=ja traceary tui --reset-state` を実行。
+   - shell / footer / help・action menu / Home labels / Memory review の判断補助が日本語で理解できること。
+   - `traceary doctor --json` などの literal command は、copy できる英語 command 名のまま残ること。
 
 ## Release gate
 
