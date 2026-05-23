@@ -160,7 +160,7 @@ Empty state:
 
 ```text
 No recent events.
-Actions: r refresh · f follow · / filter · h Home
+Actions: r refresh · f follow · / filter · 1 Home
 ```
 
 ## Health screen design
