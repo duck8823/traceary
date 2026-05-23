@@ -36,6 +36,9 @@ jobs:
       - name: Verify landing page in sync with VERSION
         run: python3 scripts/verify_landing.py
 
+      - name: Verify release-drafter workflow
+        run: python3 scripts/verify_release_drafter_workflow.py
+
   integrations:
     name: Integrations
     runs-on: ubuntu-latest
