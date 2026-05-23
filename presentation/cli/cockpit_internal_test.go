@@ -1245,7 +1245,7 @@ func TestCockpitModel_GlobalNavigationShellRendersOnEveryScreen(t *testing.T) {
 				"Traceary cockpit · home",
 				"sections: [1 Home]  2 Live  3 Doctor  4 Memory  5 Sessions",
 				"1-5 sections",
-				"esc back",
+				"q/ctrl+c quit",
 			},
 		},
 		{
@@ -1273,7 +1273,7 @@ func TestCockpitModel_GlobalNavigationShellRendersOnEveryScreen(t *testing.T) {
 			expect: []string{
 				"Traceary cockpit · live tail",
 				"sections: 1 Home  [2 Live]  3 Doctor  4 Memory  5 Sessions",
-				"enter detail",
+				"r refresh",
 			},
 		},
 		{
@@ -1330,6 +1330,230 @@ func TestCockpitModel_GlobalNavigationShellRendersOnEveryScreen(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCockpitModel_ContextualHelpActionMenuByScreen(t *testing.T) {
+	t.Parallel()
+
+	home := cockpitHomeSnapshot{
+		LoadedAt:                fixedStartedAt,
+		NewCandidateMemoryKnown: true,
+		CandidateMemoryCount:    1,
+	}
+	base := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), home)
+	base.showHelp = true
+
+	t.Run("home", func(t *testing.T) {
+		view := base.View()
+		for _, must := range []string{
+			"Action menu",
+			"Open Live tail",
+			"Run Doctor checks",
+			"Open Memory review",
+		} {
+			if !strings.Contains(view, must) {
+				t.Fatalf("home help missing %q:\n%s", must, view)
+			}
+		}
+	})
+
+	t.Run("live empty", func(t *testing.T) {
+		model := base
+		model.mode = cockpitModeLive
+		model.live.loadedAt = fixedStartedAt
+		view := model.View()
+		for _, must := range []string{
+			"Action menu",
+			"Refresh live events",
+			"Start follow mode",
+			"No recent events. Press r to refresh or f to follow.",
+		} {
+			if !strings.Contains(view, must) {
+				t.Fatalf("live empty help missing %q:\n%s", must, view)
+			}
+		}
+		for _, mustNot := range []string{"enter detail", "Open selected event detail"} {
+			if strings.Contains(view, mustNot) {
+				t.Fatalf("live empty help advertised unavailable %q:\n%s", mustNot, view)
+			}
+		}
+	})
+
+	t.Run("live with selection", func(t *testing.T) {
+		event := mustEvent(t, "evt-help-live", domtypes.EventKindNote, "help live event")
+		cockpit := base
+		cockpit.mode = cockpitModeLive
+		cockpit.live.loadedAt = fixedStartedAt
+		cockpit.live.events = []*model.Event{event}
+		view := cockpit.View()
+		for _, must := range []string{
+			"enter detail",
+			"Open selected event detail",
+		} {
+			if !strings.Contains(view, must) {
+				t.Fatalf("live selection help missing %q:\n%s", must, view)
+			}
+		}
+	})
+
+	t.Run("live refresh error with cached selection", func(t *testing.T) {
+		event := mustEvent(t, "evt-help-live-error", domtypes.EventKindNote, "cached help live event")
+		cockpit := base
+		cockpit.mode = cockpitModeLive
+		cockpit.live.loadedAt = fixedStartedAt
+		cockpit.live.events = []*model.Event{event}
+		cockpit.live.err = context.Canceled
+		view := cockpit.View()
+		for _, must := range []string{
+			"enter detail",
+			"Open selected event detail",
+		} {
+			if !strings.Contains(view, must) {
+				t.Fatalf("live cached-error help missing %q:\n%s", must, view)
+			}
+		}
+	})
+
+	t.Run("doctor", func(t *testing.T) {
+		model := base
+		model.mode = cockpitModeDoctor
+		model.doctor.snapshot = cockpitDoctorSnapshot{
+			LoadedAt: fixedStartedAt,
+			Summary:  doctorSummary{Warn: 1},
+			Sections: []cockpitDoctorSection{{Name: "Hooks", Checks: []cockpitDoctorCheck{
+				{Name: "codex-config", Status: doctorStatusWarn, Severity: doctorSeverityWarn, Message: "missing hook", FixCommand: "traceary hooks install --client codex"},
+			}}},
+		}
+		view := model.View()
+		for _, must := range []string{
+			"Refresh doctor checks",
+			"Remediation commands are shown inline",
+			"traceary hooks install --client codex",
+		} {
+			if !strings.Contains(view, must) {
+				t.Fatalf("doctor help missing %q:\n%s", must, view)
+			}
+		}
+	})
+
+	t.Run("doctor error with stale remediation snapshot", func(t *testing.T) {
+		model := base
+		model.mode = cockpitModeDoctor
+		model.doctor.err = context.Canceled
+		model.doctor.snapshot = cockpitDoctorSnapshot{
+			LoadedAt: fixedStartedAt,
+			Summary:  doctorSummary{Warn: 1},
+			Sections: []cockpitDoctorSection{{Name: "Hooks", Checks: []cockpitDoctorCheck{
+				{Name: "codex-config", Status: doctorStatusWarn, Severity: doctorSeverityWarn, Message: "missing hook", FixCommand: "traceary hooks install --client codex"},
+			}}},
+		}
+		view := model.View()
+		if !strings.Contains(view, "Refresh doctor checks") {
+			t.Fatalf("doctor error help missing refresh action:\n%s", view)
+		}
+		if strings.Contains(view, "Remediation commands are shown inline") {
+			t.Fatalf("doctor error help advertised stale remediation:\n%s", view)
+		}
+	})
+
+	t.Run("memory", func(t *testing.T) {
+		candidate := cockpitMemoryDetailsFixture(t, "mem-help-menu", "review from contextual menu", domtypes.MemoryStatusCandidate)
+		model := base
+		model.mode = cockpitModeMemoryReview
+		model.memoryReview.items = []apptypes.MemoryDetails{candidate}
+		model.memoryReview.review = newReviewModel(model.memoryReview.items, model.keys, model.styles)
+		view := model.View()
+		for _, must := range []string{
+			"Accept current candidate",
+			"Reject current candidate",
+			"Skip current candidate",
+			"Edit/distill into an operator-authored fact",
+			"View evidence and artifact refs",
+		} {
+			if !strings.Contains(view, must) {
+				t.Fatalf("memory help missing %q:\n%s", must, view)
+			}
+		}
+	})
+}
+
+func TestCockpitModel_MemoryReviewSubmodeFootersDoNotAdvertiseBrowseActions(t *testing.T) {
+	t.Parallel()
+
+	candidate := cockpitMemoryDetailsFixture(t, "mem-submode-footer", "submode footer candidate", domtypes.MemoryStatusCandidate)
+	base := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	base.mode = cockpitModeMemoryReview
+	base.memoryReview.items = []apptypes.MemoryDetails{candidate}
+	base.memoryReview.review = newReviewModel(base.memoryReview.items, base.keys, base.styles)
+
+	t.Run("edit", func(t *testing.T) {
+		model := base
+		model.memoryReview.review.mode = reviewModeEdit
+		model.memoryReview.review.editIndex = 0
+		view := model.View()
+		for _, must := range []string{
+			"enter commit · esc cancel · backspace edit",
+			"ctrl+c quit",
+		} {
+			if !strings.Contains(view, must) {
+				t.Fatalf("edit footer missing %q:\n%s", must, view)
+			}
+		}
+		for _, mustNot := range []string{
+			"a accept · x reject",
+			"esc back",
+			"? help",
+		} {
+			if strings.Contains(view, mustNot) {
+				t.Fatalf("edit footer advertised disabled %q:\n%s", mustNot, view)
+			}
+		}
+	})
+
+	t.Run("evidence", func(t *testing.T) {
+		model := base
+		model.memoryReview.review.mode = reviewModeViewEvidence
+		view := model.View()
+		for _, must := range []string{
+			"v/esc close evidence · q finish/apply",
+			"ctrl+c quit",
+		} {
+			if !strings.Contains(view, must) {
+				t.Fatalf("evidence footer missing %q:\n%s", must, view)
+			}
+		}
+		for _, mustNot := range []string{
+			"a accept · x reject",
+			"1-5 sections",
+		} {
+			if strings.Contains(view, mustNot) {
+				t.Fatalf("evidence footer advertised disabled %q:\n%s", mustNot, view)
+			}
+		}
+	})
+
+	t.Run("help", func(t *testing.T) {
+		model := base
+		model.showHelp = true
+		model.memoryReview.review.mode = reviewModeHelp
+		view := model.View()
+		for _, must := range []string{
+			"?/esc close help · q finish/apply",
+			"Close memory review help",
+		} {
+			if !strings.Contains(view, must) {
+				t.Fatalf("help footer/menu missing %q:\n%s", must, view)
+			}
+		}
+		for _, mustNot := range []string{
+			"Accept current candidate",
+			"Reject current candidate",
+		} {
+			if strings.Contains(view, mustNot) {
+				t.Fatalf("help action menu advertised disabled %q:\n%s", mustNot, view)
+			}
+		}
+	})
 }
 
 func TestCockpitModel_GlobalSectionKeysSwitchWithoutReturningToCLI(t *testing.T) {
