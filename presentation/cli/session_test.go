@@ -278,6 +278,151 @@ func TestRootCLI_SessionEndCommand(t *testing.T) {
 	}
 }
 
+func TestRootCLI_SessionEndCommand_DefersOmittedAttributionToUsecaseInheritance(t *testing.T) {
+	t.Setenv("TRACEARY_SESSION_ID", "session-inherit")
+	t.Setenv("TRACEARY_CLIENT", "")
+	t.Setenv("TRACEARY_AGENT", "")
+	t.Setenv("TRACEARY_WORKSPACE", "")
+	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
+		return "github.com/duck8823/traceary", nil
+	})
+	defer cli.ResetDetectRepoContextFunc()
+
+	sessionID := mustSessionID(t, "session-inherit")
+	sessionStub := &sessionUsecaseStub{
+		endEvent: model.EventOf(
+			mustEventID(t, "event-end-inherit"),
+			types.EventKindSessionEnded,
+			types.Client("claude"),
+			mustAgent(t, "qa-reviewer"),
+			sessionID,
+			types.Workspace("traceary"),
+			"session ended",
+			time.Date(2026, 4, 7, 13, 30, 0, 0, time.UTC),
+		),
+	}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(sessionStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"session", "end", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got := sessionStub.endCall.client; got != "" {
+		t.Fatalf("end client = %q, want empty so usecase inherits from session start", got)
+	}
+	if got := sessionStub.endCall.agent; got != "" {
+		t.Fatalf("end agent = %q, want empty so usecase inherits from session start", got)
+	}
+	if got := sessionStub.endCall.workspace; got != "" {
+		t.Fatalf("end workspace = %q, want empty so usecase inherits from session start", got)
+	}
+	if got := sessionStub.endCall.sessionID; got != sessionID {
+		t.Fatalf("end sessionID = %q, want %q", got, sessionID)
+	}
+}
+
+func TestRootCLI_SessionEndCommand_PreservesExplicitAttributionOverrides(t *testing.T) {
+	t.Setenv("TRACEARY_SESSION_ID", "session-override")
+	t.Setenv("TRACEARY_CLIENT", "env-client")
+	t.Setenv("TRACEARY_AGENT", "env-agent")
+	t.Setenv("TRACEARY_WORKSPACE", "env-workspace")
+
+	sessionID := mustSessionID(t, "session-override")
+	sessionStub := &sessionUsecaseStub{
+		endEvent: model.EventOf(
+			mustEventID(t, "event-end-override"),
+			types.EventKindSessionEnded,
+			types.Client("flag-client"),
+			mustAgent(t, "env-agent"),
+			sessionID,
+			types.Workspace("flag-workspace"),
+			"session ended",
+			time.Date(2026, 4, 7, 13, 30, 0, 0, time.UTC),
+		),
+	}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(sessionStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"session", "end",
+		"--db-path", filepath.Join(t.TempDir(), "traceary.db"),
+		"--client", "flag-client",
+		"--agent", "flag-agent",
+		"--workspace", "flag-workspace",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got, want := sessionStub.endCall.client, types.Client("flag-client"); got != want {
+		t.Fatalf("end client = %q, want %q", got, want)
+	}
+	if got, want := sessionStub.endCall.agent, types.Agent("flag-agent"); got != want {
+		t.Fatalf("end agent = %q, want %q", got, want)
+	}
+	if got, want := sessionStub.endCall.workspace, types.Workspace("flag-workspace"); got != want {
+		t.Fatalf("end workspace = %q, want %q", got, want)
+	}
+	if got := sessionStub.endCall.sessionID; got != sessionID {
+		t.Fatalf("end sessionID = %q, want %q", got, sessionID)
+	}
+}
+
+func TestRootCLI_SessionEndCommand_AutoExtractUsesInheritedEventWorkspace(t *testing.T) {
+	t.Setenv("TRACEARY_SESSION_ID", "session-extract")
+	t.Setenv("TRACEARY_CLIENT", "")
+	t.Setenv("TRACEARY_AGENT", "")
+	t.Setenv("TRACEARY_WORKSPACE", "")
+	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
+		return "detected-workspace-should-not-be-used-for-session-end", nil
+	})
+	defer cli.ResetDetectRepoContextFunc()
+
+	sessionID := mustSessionID(t, "session-extract")
+	memoryStub := &memoryUsecaseStub{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{
+			endEvent: model.EventOf(
+				mustEventID(t, "event-end-extract"),
+				types.EventKindSessionEnded,
+				types.Client("claude"),
+				mustAgent(t, "qa-reviewer"),
+				sessionID,
+				types.Workspace("traceary"),
+				"session ended",
+				time.Date(2026, 4, 7, 13, 30, 0, 0, time.UTC),
+			),
+		}),
+		cli.WithMemory(memoryStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"session", "end",
+		"--db-path", filepath.Join(t.TempDir(), "traceary.db"),
+		"--session-id", "session-extract",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got, want := memoryStub.extractCriteria.SessionID(), sessionID; got != want {
+		t.Fatalf("extract sessionID = %q, want %q", got, want)
+	}
+	if got, want := memoryStub.extractCriteria.Workspace(), types.Workspace("traceary"); got != want {
+		t.Fatalf("extract workspace = %q, want inherited event workspace %q", got, want)
+	}
+}
+
 func TestRootCLI_SessionEndCommand_IdOnly(t *testing.T) {
 	t.Setenv("TRACEARY_SESSION_ID", "session-env")
 

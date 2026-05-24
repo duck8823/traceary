@@ -236,20 +236,24 @@ func (c *RootCLI) runSessionBoundary(
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
+	shouldDefaultAttribution := input.kind != types.EventKindSessionEnded
 	client := types.Client(resolveSessionBoundaryClient(input))
-	if client == "" {
+	if client == "" && shouldDefaultAttribution {
 		client = types.Client(defaultClientValue)
 	}
 	agentStr := resolveSessionBoundaryAgent(input)
-	if agentStr == "" {
+	if agentStr == "" && shouldDefaultAttribution {
 		agentStr = defaultAgentValue
 	}
-	agent, _ := types.AgentFrom(agentStr)
-	sid := types.SessionID(input.sessionID)
-	ws := types.Workspace(resolveSessionBoundaryRepo(input))
-	if ws == "" {
-		ws = types.Workspace(resolveWorkspaceValue(ctx, input.repo))
+	var agent types.Agent
+	if agentStr != "" {
+		agent, err = types.AgentFrom(agentStr)
+		if err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to resolve agent", "作業主体の解決に失敗しました"), err)
+		}
 	}
+	sid := types.SessionID(input.sessionID)
+	ws := types.Workspace(resolveSessionBoundaryRepo(ctx, input))
 
 	var event *model.Event
 	switch input.kind {
@@ -267,9 +271,17 @@ func (c *RootCLI) runSessionBoundary(
 	// follow-up #830). Best-effort: an extraction failure must not
 	// block the session-end record from being reported.
 	if input.kind == types.EventKindSessionEnded && c.memory != nil {
+		// For session-end, an empty workspace is intentional: the
+		// application use case inherits attribution from the matching
+		// session start. Use the returned event workspace so auto-extract
+		// follows that inherited scope.
+		extractWorkspace := ws
+		if extractWorkspace == "" {
+			extractWorkspace = event.Workspace()
+		}
 		if _, extractErr := c.memory.Extract(ctx, apptypes.NewMemoryExtractionCriteriaBuilder().
 			SessionID(sid).
-			Workspace(ws).
+			Workspace(extractWorkspace).
 			Build()); extractErr != nil {
 			slog.Debug("CLI session-end auto-extract failed", "session_id", sid, "error", extractErr)
 		}
@@ -317,12 +329,12 @@ func resolveSessionBoundaryAgent(input sessionBoundaryCommandInput) string {
 	return resolveOptionalValue(input.agent, "TRACEARY_AGENT", defaultAgentValue)
 }
 
-func resolveSessionBoundaryRepo(input sessionBoundaryCommandInput) string {
+func resolveSessionBoundaryRepo(ctx context.Context, input sessionBoundaryCommandInput) string {
 	if input.kind == types.EventKindSessionEnded {
 		return resolveExplicitWorkspaceValue(input.repo)
 	}
 
-	return resolveWorkspaceValue(context.Background(), input.repo)
+	return resolveWorkspaceValue(ctx, input.repo)
 }
 
 func (c *RootCLI) runSessionLatest(
