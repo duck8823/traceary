@@ -149,7 +149,7 @@ traceary memory inbox review
 traceary memory inbox review --workspace github.com/duck8823/traceary --type preference --limit 10
 ```
 
-`memory inbox review` は共通 Bubble Tea TUI の上に乗った TTY 専用のウォークスルーです。画面内のキー操作は `a` accept / `x` reject / `s` skip / `e` edit/distill / `r` evidence 追加 / `v` evidence 表示 / `?` help / `q` quit です。edit/distill は LLM が書いたメモリ候補を自動で accept しません。`traceary memory store distill` 経由で記録し、operator 自身に新しい fact を入力させる作りです。非 TTY で起動した場合はエラー終了（exit code `2`）し、batch 用の fallback として `memory inbox list` + `memory inbox accept|reject`（v0.14 から positional id と `--id-only` も使えます）を案内します。
+`memory inbox review` は共通 Bubble Tea TUI の上に乗った TTY 専用のウォークスルーです。画面内のキー操作は `a` accept / `x` reject / `s` skip / `e` edit/distill / `r` evidence 追加（任意で artifact も追加可）/ `v` evidence 表示 / `?` help / `q` quit です。edit/distill は LLM が書いたメモリ候補を自動で accept しません。`traceary memory store distill` 経由で記録し、operator 自身に新しい fact を入力させる作りです。非 TTY で起動した場合はエラー終了（exit code `2`）し、batch 用の fallback として `memory inbox list` + `memory inbox accept|reject`（v0.14 から positional id と `--id-only` も使えます）を案内します。
 
 ## 直近の動きを確認する
 

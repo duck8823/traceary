@@ -148,8 +148,8 @@ func (c *RootCLI) newMemoryInboxAttachCommand() *cobra.Command {
 		Use:   "attach <memory-id>",
 		Short: Localize("Attach evidence refs to a memory candidate", "メモリ候補に evidence refs を追加する"),
 		Long: Localize(
-			"Attach evidence refs to an existing memory candidate without changing its review status. Use this when Memory review finds a useful candidate that cannot be accepted or distilled yet because accepted memories require evidence.",
-			"既存のメモリ候補に evidence refs を追加します。review status は変更しません。Memory review で有用な候補を見つけたものの、accepted memory に evidence が必要なため accept / distill できない場合に使います。",
+			"Attach evidence refs, plus optional artifact refs, to an existing memory candidate without changing its review status. Use this when Memory review finds a useful candidate that cannot be accepted or distilled yet because accepted memories require evidence.",
+			"既存のメモリ候補に evidence refs と任意の artifact refs を追加します。review status は変更しません。Memory review で有用な候補を見つけたものの、accepted memory に evidence が必要なため accept / distill できない場合に使います。",
 		),
 		Example: "  traceary memory inbox attach memory-raw --evidence event:evt-123 --evidence file:/tmp/notes.md#L10-L20",
 		Args:    exactArgsLocalized(1),

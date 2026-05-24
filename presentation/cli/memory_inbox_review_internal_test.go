@@ -226,7 +226,7 @@ func TestReviewModel_AttachEvidenceThenAcceptQueuesOrderedDecisions(t *testing.T
 	if attachM.mode != reviewModeAttach {
 		t.Fatalf("r should open attach mode, got %v", attachM.mode)
 	}
-	for _, r := range "event:evt-1" {
+	for _, r := range "event:evt-1, artifact:pr:#1074" {
 		updated, _ := attachM.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 		attachM = updated.(reviewModel)
 	}
@@ -250,6 +250,9 @@ func TestReviewModel_AttachEvidenceThenAcceptQueuesOrderedDecisions(t *testing.T
 	}
 	if len(decisions[0].evidenceRefs) != 1 || decisions[0].evidenceRefs[0].Value() != "evt-1" {
 		t.Fatalf("attach evidence refs = %+v", decisions[0].evidenceRefs)
+	}
+	if len(decisions[0].artifactRefs) != 1 || decisions[0].artifactRefs[0].Value() != "#1074" {
+		t.Fatalf("attach artifact refs = %+v", decisions[0].artifactRefs)
 	}
 }
 
@@ -278,6 +281,35 @@ func TestReviewModel_AttachEvidenceUnlocksGeneratedCandidateAcceptGate(t *testin
 	}
 	if !memoryReviewRequiresAcceptConfirmation(queuedM.items[queuedM.cursor]) {
 		t.Fatalf("generated low-confidence candidate should still require accept confirmation")
+	}
+}
+
+func TestReviewModel_AttachArtifactOnlyRequiresEvidence(t *testing.T) {
+	t.Parallel()
+
+	model := newReviewTestModel(buildReviewCandidateWithOptions(t, reviewCandidateOptions{
+		id:         "id-artifact-only",
+		fact:       "fact without evidence",
+		noEvidence: true,
+	}))
+
+	opened, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	attachM := opened.(reviewModel)
+	for _, r := range "artifact:pr:#1074" {
+		updated, _ := attachM.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		attachM = updated.(reviewModel)
+	}
+	submitted, _ := attachM.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got := submitted.(reviewModel)
+
+	if got.mode != reviewModeAttach {
+		t.Fatalf("artifact-only attach should stay in attach mode, got %v", got.mode)
+	}
+	if len(got.Decisions()) != 0 {
+		t.Fatalf("artifact-only attach must not queue decisions: %+v", got.Decisions())
+	}
+	if !strings.Contains(got.statusMsg, "at least one evidence ref") {
+		t.Fatalf("artifact-only attach status = %q", got.statusMsg)
 	}
 }
 
@@ -867,6 +899,10 @@ func TestApplyInboxReviewDecisions_DispatchesToUsecases(t *testing.T) {
 	candidate3 := buildReviewCandidate(t, "id-3", "fact 3")
 	candidate4 := buildReviewCandidateWithOptions(t, reviewCandidateOptions{id: "id-4", fact: "fact 4", noEvidence: true})
 	attachRef := mustReviewEvidenceRef(t, domtypes.EvidenceRefKindEvent, "evt-4")
+	attachArtifact, err := domtypes.ArtifactRefFrom(domtypes.ArtifactRefKindPR, "#1074")
+	if err != nil {
+		t.Fatalf("ArtifactRefFrom: %v", err)
+	}
 	stub := &reviewWriterStub{
 		acceptDetails: candidate1,
 		rejectDetails: candidate2,
@@ -875,7 +911,7 @@ func TestApplyInboxReviewDecisions_DispatchesToUsecases(t *testing.T) {
 	}
 
 	decisions := []reviewDecision{
-		{kind: reviewDecisionAttach, memoryID: candidate4.Summary().MemoryID(), evidenceRefs: []domtypes.EvidenceRef{attachRef}},
+		{kind: reviewDecisionAttach, memoryID: candidate4.Summary().MemoryID(), evidenceRefs: []domtypes.EvidenceRef{attachRef}, artifactRefs: []domtypes.ArtifactRef{attachArtifact}},
 		{kind: reviewDecisionAccept, memoryID: candidate1.Summary().MemoryID()},
 		{kind: reviewDecisionReject, memoryID: candidate2.Summary().MemoryID()},
 		{kind: reviewDecisionDistill, memoryID: candidate3.Summary().MemoryID(), fact: "operator wrote this"},
@@ -891,6 +927,9 @@ func TestApplyInboxReviewDecisions_DispatchesToUsecases(t *testing.T) {
 	}
 	if len(stub.lastAttachEvidence) != 1 || stub.lastAttachEvidence[0].Value() != "evt-4" {
 		t.Fatalf("AttachCandidateRefs evidence = %+v", stub.lastAttachEvidence)
+	}
+	if len(stub.lastAttachArtifact) != 1 || stub.lastAttachArtifact[0].Value() != "#1074" {
+		t.Fatalf("AttachCandidateRefs artifact = %+v", stub.lastAttachArtifact)
 	}
 	if got := stub.lastDistillCriteria.Fact(); got != "operator wrote this" {
 		t.Fatalf("Distill received fact=%q, want operator-authored input", got)
@@ -988,6 +1027,7 @@ type reviewWriterStub struct {
 	attachCalls         int
 	calls               []string
 	lastAttachEvidence  []domtypes.EvidenceRef
+	lastAttachArtifact  []domtypes.ArtifactRef
 	lastDistillCriteria apptypes.MemoryDistillCriteria
 }
 
@@ -1010,9 +1050,10 @@ func (s *reviewWriterStub) Distill(_ context.Context, criteria apptypes.MemoryDi
 	return s.distillResult, s.distillErr
 }
 
-func (s *reviewWriterStub) AttachCandidateRefs(_ context.Context, _ domtypes.MemoryID, evidenceRefs []domtypes.EvidenceRef, _ []domtypes.ArtifactRef) (apptypes.MemoryDetails, error) {
+func (s *reviewWriterStub) AttachCandidateRefs(_ context.Context, _ domtypes.MemoryID, evidenceRefs []domtypes.EvidenceRef, artifactRefs []domtypes.ArtifactRef) (apptypes.MemoryDetails, error) {
 	s.attachCalls++
 	s.calls = append(s.calls, "attach")
 	s.lastAttachEvidence = append([]domtypes.EvidenceRef(nil), evidenceRefs...)
+	s.lastAttachArtifact = append([]domtypes.ArtifactRef(nil), artifactRefs...)
 	return s.attachDetails, s.attachErr
 }

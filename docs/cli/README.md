@@ -353,7 +353,7 @@ Useful flags:
 
 #### `traceary memory inbox attach <memory-id>`
 
-Attach evidence refs to an existing memory candidate without changing its review status. This is the script-friendly path for useful candidates that cannot be accepted or distilled yet because accepted memories require evidence.
+Attach evidence refs (and optional artifact refs) to an existing memory candidate without changing its review status. This is the script-friendly path for useful candidates that cannot be accepted or distilled yet because accepted memories require evidence.
 
 Useful flags:
 
@@ -373,7 +373,7 @@ Action keys inside the screen:
 - `x` reject the focused candidate
 - `s` skip (no state change, advance the cursor)
 - `e` edit/distill — prompts for an operator-authored fact and routes through `traceary memory store distill --replace=supersede`. The original LLM-authored candidate text is never auto-accepted.
-- `r` attach one evidence ref to the focused candidate; queued attach decisions apply before later accept/distill decisions when the TUI exits
+- `r` attach one or more evidence refs, plus optional `artifact:kind:value` refs, to the focused candidate; decisions apply in the order you queued them, so queue attach before accept/distill
 - `v` view evidence / artifact refs for the focused candidate
 - `?` toggle the help overlay
 - `q` / Ctrl-C / Esc quit cleanly

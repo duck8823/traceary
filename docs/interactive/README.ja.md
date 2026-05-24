@@ -100,7 +100,7 @@ traceary memory inbox review
 traceary memory inbox review --workspace github.com/duck8823/traceary --type preference --limit 10
 ```
 
-画面内のキーは `a` accept、`x` reject、`s` skip、`r` evidence 追加、`e` edit/distill、`v` evidence 表示、`?` help、`q` quit です。Accept / reject / evidence 追加は `memory inbox accept|reject|attach` と同じ application usecase を呼びます。`r` では `kind:value` 形式の evidence ref を1件入力し、evidence がない candidate を採用前に裏付けできます。`e` で開くエディトプロンプトは operator が手書きした fact のみ受け付け、`traceary memory store distill` 経由で記録します (LLM 出力は自動採用しません)。
+画面内のキーは `a` accept、`x` reject、`s` skip、`r` evidence 追加、`e` edit/distill、`v` evidence 表示、`?` help、`q` quit です。Accept / reject / evidence 追加は `memory inbox accept|reject|attach` と同じ application usecase を呼びます。`r` ではカンマ区切りの `kind:value` evidence ref と任意の `artifact:kind:value` ref を入力でき、evidence がない candidate を採用前に裏付けできます。`e` で開くエディトプロンプトは operator が手書きした fact のみ受け付け、`traceary memory store distill` 経由で記録します (LLM 出力は自動採用しません)。
 
 ### 8. 「次に持ち越す文脈だけをまとめたい」 → `traceary session handoff`
 

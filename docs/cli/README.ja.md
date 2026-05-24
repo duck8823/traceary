@@ -353,7 +353,7 @@ durable memory を一覧表示します。scope flag を明示しない場合は
 
 #### `traceary memory inbox attach <memory-id>`
 
-既存のメモリ候補に evidence refs を追加します。review status は変更しません。accepted memory に evidence が必要なため、まだ accept / distill できない有用な候補向けの script-friendly path です。
+既存のメモリ候補に evidence refs（任意で artifact refs）を追加します。review status は変更しません。accepted memory に evidence が必要なため、まだ accept / distill できない有用な候補向けの script-friendly path です。
 
 主な flag:
 
@@ -373,7 +373,7 @@ durable memory を一覧表示します。scope flag を明示しない場合は
 - `x` フォーカス中のメモリ候補を reject
 - `s` skip（状態は変えずカーソルだけ進める）
 - `e` edit/distill — operator 自身に新しい fact を入力させ、`traceary memory store distill --replace=supersede` 経由で記録します。LLM が書いた candidate text を自動 accept することはありません
-- `r` フォーカス中のメモリ候補に evidence ref を1つ追加。保留された attach は TUI 終了時に後続の accept / distill より先に適用されます
+- `r` フォーカス中のメモリ候補に1件以上の evidence ref と任意の `artifact:kind:value` ref を追加。決定は保留した順に適用されるため、accept / distill の前に attach を保留してください
 - `v` evidence / artifact ref を確認
 - `?` ヘルプ overlay 切替
 - `q` / Ctrl-C / Esc 安全に終了

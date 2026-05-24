@@ -101,7 +101,7 @@ traceary memory inbox review
 traceary memory inbox review --workspace github.com/duck8823/traceary --type preference --limit 10
 ```
 
-Inside the screen the action keys are `a` accept, `x` reject, `s` skip, `r` attach evidence, `e` edit/distill, `v` view evidence, `?` help, `q` quit. Accept / reject / evidence attach reuse the same application use cases as `memory inbox accept|reject|attach`. `r` asks for one `kind:value` evidence ref so evidence-less candidates can be substantiated before acceptance. `e` opens an editor prompt that requires you to type a new operator-authored fact and routes through `traceary memory store distill` (no auto-accept of LLM output).
+Inside the screen the action keys are `a` accept, `x` reject, `s` skip, `r` attach evidence, `e` edit/distill, `v` view evidence, `?` help, `q` quit. Accept / reject / evidence attach reuse the same application use cases as `memory inbox accept|reject|attach`. `r` accepts comma-separated `kind:value` evidence refs and optional `artifact:kind:value` refs so evidence-less candidates can be substantiated before acceptance. `e` opens an editor prompt that requires you to type a new operator-authored fact and routes through `traceary memory store distill` (no auto-accept of LLM output).
 
 ### 8. "What context should I carry into the next session?" → `traceary session handoff`
 

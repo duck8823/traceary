@@ -598,7 +598,10 @@ func (m reviewModel) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = reviewModeAttach
 		m.attachIndex = m.cursor
 		m.attachBuffer = ""
-		m.statusMsg = Localize("enter evidence ref as kind:value (for example event:evt-123)", "kind:value 形式で evidence ref を入力してください (例: event:evt-123)")
+		m.statusMsg = Localize(
+			"enter refs as kind:value; comma-separated refs and artifact:kind:value are supported",
+			"kind:value 形式で refs を入力してください。カンマ区切りと artifact:kind:value も使えます",
+		)
 		m.acceptConfirmID = ""
 		return m, nil
 	}
@@ -650,6 +653,9 @@ func (m reviewModel) queueAttachDecision(evidenceRefs []domtypes.EvidenceRef, ar
 	m.items[idx] = memoryDetailsWithRefs(m.items[idx], evidenceRefs, artifactRefs)
 	m.reviewed[idx] = decisionLabel(reviewDecisionAttach)
 	m.statusMsg = Localize("evidence attach queued; accept/edit is now available for this candidate", "evidence 追加を保留しました。この候補は accept/edit できるようになりました")
+	if len(artifactRefs) > 0 {
+		m.statusMsg = Localize("evidence/artifact attach queued; accept/edit is now available for this candidate", "evidence/artifact 追加を保留しました。この候補は accept/edit できるようになりました")
+	}
 	m.acceptConfirmID = ""
 	return m, nil
 }
@@ -759,20 +765,24 @@ func (m reviewModel) updateAttach(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.statusMsg = Localize("evidence attach cancelled", "evidence 追加をキャンセルしました")
 		return m, nil
 	case key.Matches(msg, actions.Confirm):
-		rawRef := strings.TrimSpace(m.attachBuffer)
-		if rawRef == "" {
-			m.statusMsg = Localize("attach requires an evidence ref as kind:value", "evidence 追加には kind:value 形式の evidence ref が必要です")
+		rawRefs := strings.TrimSpace(m.attachBuffer)
+		if rawRefs == "" {
+			m.statusMsg = Localize("attach requires at least one evidence ref", "evidence 追加には evidence ref が1つ以上必要です")
 			return m, nil
 		}
-		evidenceRefs, err := parseEvidenceRefs([]string{rawRef})
+		evidenceRefs, artifactRefs, err := parseReviewAttachRefs(rawRefs)
 		if err != nil {
 			m.statusMsg = err.Error()
+			return m, nil
+		}
+		if len(evidenceRefs) == 0 {
+			m.statusMsg = Localize("attach requires at least one evidence ref; artifact refs are optional", "evidence 追加には evidence ref が1つ以上必要です。artifact ref は任意です")
 			return m, nil
 		}
 		m.cursor = m.attachIndex
 		m.mode = reviewModeBrowse
 		m.attachBuffer = ""
-		return m.queueAttachDecision(evidenceRefs, nil)
+		return m.queueAttachDecision(evidenceRefs, artifactRefs)
 	case msg.Type == tea.KeyBackspace || msg.Type == tea.KeyCtrlH:
 		runes := []rune(m.attachBuffer)
 		if len(runes) > 0 {
@@ -787,6 +797,52 @@ func (m reviewModel) updateAttach(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+func parseReviewAttachRefs(input string) ([]domtypes.EvidenceRef, []domtypes.ArtifactRef, error) {
+	tokens := splitReviewAttachTokens(input)
+	evidenceRefs := make([]domtypes.EvidenceRef, 0, len(tokens))
+	artifactRefs := make([]domtypes.ArtifactRef, 0)
+	for _, token := range tokens {
+		kind, rawValue, err := parseKindValueToken(token)
+		if err != nil {
+			return nil, nil, err
+		}
+		switch kind {
+		case "evidence":
+			refs, err := parseEvidenceRefs([]string{rawValue})
+			if err != nil {
+				return nil, nil, err
+			}
+			evidenceRefs = append(evidenceRefs, refs...)
+		case "artifact":
+			refs, err := parseArtifactRefs([]string{rawValue})
+			if err != nil {
+				return nil, nil, err
+			}
+			artifactRefs = append(artifactRefs, refs...)
+		default:
+			refs, err := parseEvidenceRefs([]string{token})
+			if err != nil {
+				return nil, nil, err
+			}
+			evidenceRefs = append(evidenceRefs, refs...)
+		}
+	}
+	return evidenceRefs, artifactRefs, nil
+}
+
+func splitReviewAttachTokens(input string) []string {
+	parts := strings.Split(input, ",")
+	tokens := make([]string, 0, len(parts))
+	for _, part := range parts {
+		token := strings.TrimSpace(part)
+		if token == "" {
+			continue
+		}
+		tokens = append(tokens, token)
+	}
+	return tokens
 }
 
 // View renders the current screen. The output is intentionally simple:
@@ -981,13 +1037,14 @@ func (m reviewModel) renderAttach() string {
 	fmt.Fprintf(&b, "%-14s %s\n", Localize("TYPE:", "TYPE:"), summary.MemoryType())
 	fmt.Fprintf(&b, "%-14s %s\n", Localize("SCOPE:", "SCOPE:"), formatMemoryScope(summary.Scope()))
 	fmt.Fprintf(&b, "%-14s %d\n", Localize("EVIDENCE:", "EVIDENCE:"), len(current.EvidenceRefs()))
+	fmt.Fprintf(&b, "%-14s %d\n", Localize("ARTIFACTS:", "ARTIFACTS:"), len(current.ArtifactRefs()))
 	b.WriteString("\n")
 	b.WriteString(m.styles.Subtle.Render(Localize(
-		"Enter one evidence ref as kind:value. Examples: event:evt-123, session:sess-abc, file:/tmp/notes.md#L10-L20, issue:#1070, pr:#1073",
-		"kind:value 形式の evidence ref を1つ入力してください。例: event:evt-123, session:sess-abc, file:/tmp/notes.md#L10-L20, issue:#1070, pr:#1073",
+		"Enter refs as kind:value. Comma-separated refs are supported; use artifact:kind:value for optional artifacts. Examples: event:evt-123, file:/tmp/notes.md#L10-L20, artifact:pr:#1073",
+		"kind:value 形式の refs を入力してください。カンマ区切り可。任意の artifact は artifact:kind:value です。例: event:evt-123, file:/tmp/notes.md#L10-L20, artifact:pr:#1073",
 	)))
 	b.WriteString("\n\n")
-	b.WriteString(m.styles.Active.Render(Localize("EVIDENCE_REF:", "EVIDENCE_REF:")))
+	b.WriteString(m.styles.Active.Render(Localize("REFS:", "REFS:")))
 	b.WriteString("\n")
 	b.WriteString("> ")
 	b.WriteString(m.attachBuffer)
