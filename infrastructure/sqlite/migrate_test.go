@@ -113,6 +113,30 @@ func TestMigrations_upgradeFromPreV014DatabaseAddsSessionSpawnMetadata(t *testin
 	assertSessionSpawnMetadataSchema(t, db)
 }
 
+func TestMigrations_applyMissingMidSequenceMigration(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	withoutV014 := migrationsWithoutVersion(t, onDiskSQLiteMigrationDir(t), 14)
+	ds := newStoreManagementDatasource(t, dbPath, withoutV014)
+	if err := ds.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize(without v0.14) error = %v", err)
+	}
+
+	ds = newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := ds.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize(upgrade) error = %v", err)
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	assertSessionSpawnMetadataSchema(t, db)
+}
+
 func TestMigrations_idempotentOnExistingDatabase(t *testing.T) {
 	t.Parallel()
 
@@ -157,6 +181,39 @@ func countOnDiskSQLiteMigrations(t *testing.T) int {
 		}
 	}
 	return count
+}
+
+func migrationsWithoutVersion(t *testing.T, dir string, excludedVersion int) fstest.MapFS {
+	t.Helper()
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir() error = %v", err)
+	}
+	migrations := fstest.MapFS{}
+	foundExcludedVersion := false
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
+			continue
+		}
+		version, err := sqliteMigrationVersion(entry.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if version == excludedVersion {
+			foundExcludedVersion = true
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			t.Fatalf("ReadFile(%s) error = %v", entry.Name(), err)
+		}
+		migrations[entry.Name()] = &fstest.MapFile{Data: data}
+	}
+	if !foundExcludedVersion {
+		t.Fatalf("migration version %d not found in %s", excludedVersion, dir)
+	}
+	return migrations
 }
 
 // migrationsBeforeVersion returns on-disk migrations whose numeric version is

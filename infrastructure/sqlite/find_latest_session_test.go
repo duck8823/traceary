@@ -224,6 +224,64 @@ func TestDatasource_FindLatest(t *testing.T) {
 			t.Fatalf("FindLatest() returned present, want empty")
 		}
 	})
+
+	t.Run("returns empty Optional when active-only context has no matching session", func(t *testing.T) {
+		t.Parallel()
+
+		_, sessionDS := newFindLatestScenario(t)
+
+		result, err := sessionDS.FindLatest(
+			context.Background(),
+			types.Client(""), types.Agent("claude"), types.Workspace(""), true,
+		)
+		if err != nil {
+			t.Fatalf("FindLatest() error = %v, want nil", err)
+		}
+		if _, ok := result.Value(); ok {
+			t.Fatalf("FindLatest() returned present, want empty")
+		}
+	})
+
+	t.Run("handles repeated end boundary for already ended session", func(t *testing.T) {
+		t.Parallel()
+
+		eventDS, sessionDS := newFindLatestScenario(t)
+		saveFindLatestSessionEventFixture(
+			t,
+			eventDS,
+			"event-6",
+			types.EventKindSessionStarted,
+			"session-overlapping",
+			"github.com/duck8823/traceary",
+			"session started",
+			time.Date(2026, 4, 11, 13, 0, 0, 0, time.UTC),
+		)
+		saveFindLatestSessionEventFixture(
+			t,
+			eventDS,
+			"event-7",
+			types.EventKindSessionEnded,
+			"session-finished",
+			"github.com/duck8823/traceary",
+			"session ended again",
+			time.Date(2026, 4, 11, 14, 0, 0, 0, time.UTC),
+		)
+
+		result, err := sessionDS.FindLatest(
+			context.Background(),
+			types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), false,
+		)
+		if err != nil {
+			t.Fatalf("FindLatest() error = %v", err)
+		}
+		if _, ok := result.Value(); !ok {
+			t.Fatalf("FindLatest() returned empty, want present")
+		}
+		event, _ := result.Value()
+		if diff := cmp.Diff("event-4", event.EventID().String()); diff != "" {
+			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
+		}
+	})
 }
 
 func TestDatasource_FindLatest_ignoresBoundariesFromOtherContexts(t *testing.T) {
