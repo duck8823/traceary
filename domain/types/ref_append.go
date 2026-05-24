@@ -13,7 +13,13 @@ type refWithIdentity[K comparable] interface {
 func appendUniqueRefs[T refWithIdentity[K], K comparable](dst []T, refs []T) []T {
 	seen := make(map[refIdentity[K]]struct{}, len(dst)+len(refs))
 	result := make([]T, 0, len(dst)+len(refs))
-	for _, ref := range append(append([]T(nil), dst...), refs...) {
+	result = appendUniqueRefsInto(result, seen, dst)
+	result = appendUniqueRefsInto(result, seen, refs)
+	return result
+}
+
+func appendUniqueRefsInto[T refWithIdentity[K], K comparable](result []T, seen map[refIdentity[K]]struct{}, refs []T) []T {
+	for _, ref := range refs {
 		key := refIdentity[K]{kind: ref.Kind(), value: ref.Value()}
 		if _, ok := seen[key]; ok {
 			continue

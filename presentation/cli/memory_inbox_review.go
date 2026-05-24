@@ -652,9 +652,10 @@ func (m reviewModel) queueAttachDecision(evidenceRefs []domtypes.EvidenceRef, ar
 	})
 	m.items[idx] = memoryDetailsWithRefs(m.items[idx], evidenceRefs, artifactRefs)
 	m.reviewed[idx] = decisionLabel(reviewDecisionAttach)
-	m.statusMsg = Localize("evidence attach queued; accept/edit is now available for this candidate", "evidence 追加を保留しました。この候補は accept/edit できるようになりました")
 	if len(artifactRefs) > 0 {
 		m.statusMsg = Localize("evidence/artifact attach queued; accept/edit is now available for this candidate", "evidence/artifact 追加を保留しました。この候補は accept/edit できるようになりました")
+	} else {
+		m.statusMsg = Localize("evidence attach queued; accept/edit is now available for this candidate", "evidence 追加を保留しました。この候補は accept/edit できるようになりました")
 	}
 	m.acceptConfirmID = ""
 	return m, nil
@@ -858,12 +859,15 @@ func splitReviewAttachTokens(input string) []string {
 
 func looksLikeReviewAttachToken(input string) bool {
 	trimmed := strings.TrimLeftFunc(input, unicode.IsSpace)
-	for _, prefix := range []string{"evidence:", "artifact:", "event:", "session:", "url:", "file:", "issue:", "pr:"} {
-		if strings.HasPrefix(trimmed, prefix) {
-			return true
-		}
+	kind, _, err := parseKindValueToken(trimmed)
+	if err != nil {
+		return false
 	}
-	return false
+	if kind == "evidence" || kind == "artifact" {
+		return true
+	}
+	_, err = domtypes.EvidenceRefKindFrom(kind)
+	return err == nil
 }
 
 // View renders the current screen. The output is intentionally simple:
