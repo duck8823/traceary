@@ -53,8 +53,8 @@ func (c *RootCLI) newCockpitCommand() *cobra.Command {
 		Aliases: []string{"dashboard"},
 		Short:   Localize("Open the Traceary operator cockpit TUI", "Traceary operator cockpit TUI を開く"),
 		Long: Localize(
-			"Open the Traceary operator cockpit TUI. It gathers top, tail, doctor, handoff, and memory review workflows behind one TTY-only shell. In an interactive terminal, bare `traceary` opens the same Tail-first TUI by default; `traceary tui` remains the explicit compatibility entrypoint for operators who prefer a named command.",
-			"Traceary operator cockpit TUI を開きます。top / tail / doctor / handoff / memory review を 1 つの TTY 専用 shell にまとめます。対話 terminal では subcommand なしの `traceary` も同じ Tail-first TUI をデフォルトで開きます。`traceary tui` は明示的に呼びたい operator のための互換 entrypoint として残ります。",
+			"Open the Traceary operator cockpit TUI. It gathers Tail (`tail`), Top (`top`), Doctor (`doctor`), Handoff, and memory review workflows behind one TTY-only shell. In an interactive terminal, bare `traceary` opens the same Tail-first TUI by default; `traceary tui` remains the explicit compatibility entrypoint for operators who prefer a named command.",
+			"Traceary operator cockpit TUI を開きます。Tail (`tail`) / Top (`top`) / Doctor (`doctor`) / Handoff / メモリ確認を 1 つの TTY 専用 shell にまとめます。対話 terminal では subcommand なしの `traceary` も同じ Tail-first TUI をデフォルトで開きます。`traceary tui` は明示的に呼びたい operator のための互換 entrypoint として残ります。",
 		),
 		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -374,10 +374,10 @@ func (c *RootCLI) resetCockpitState(ctx context.Context) error {
 
 func (c *RootCLI) loadCockpitDoctorReport(ctx context.Context, opts cockpitCommandOptions) (*doctorReport, error) {
 	if c.storeManagement == nil {
-		return nil, xerrors.Errorf(Localize("store management usecase is not configured", "ストア管理ユースケースが設定されていません"))
+		return nil, xerrors.New(Localize("store management usecase is not configured", "ストア管理ユースケースが設定されていません"))
 	}
 	if c.hooksOrchestrator == nil {
-		return nil, xerrors.Errorf(Localize("hooks orchestrator is not configured", "hooks orchestrator が設定されていません"))
+		return nil, xerrors.New(Localize("hooks orchestrator is not configured", "hooks orchestrator が設定されていません"))
 	}
 	return c.buildDoctorReport(ctx, doctorCommandInput{
 		dbPath:         opts.dbPath,
@@ -499,7 +499,7 @@ func (l cockpitRuntimeLoader) loadCockpitEventDetail(ctx context.Context, eventI
 
 func (l cockpitRuntimeLoader) loadCockpitMemoryReviewItems(ctx context.Context) ([]apptypes.MemoryDetails, error) {
 	if l.root.memory == nil {
-		return nil, xerrors.Errorf(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
+		return nil, xerrors.New(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
 	}
 	if l.root.storeManagement != nil {
 		if err := l.root.initializeStore(ctx, l.opts.dbPath); err != nil {
@@ -514,14 +514,14 @@ func (l cockpitRuntimeLoader) loadCockpitMemoryReviewItems(ctx context.Context) 
 
 func (l cockpitRuntimeLoader) finishCockpitMemoryReview(ctx context.Context, final reviewModel, items []apptypes.MemoryDetails) (memoryInboxReviewResult, error) {
 	if l.root.memory == nil {
-		return memoryInboxReviewResult{}, xerrors.Errorf(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
+		return memoryInboxReviewResult{}, xerrors.New(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
 	}
 	result, err := applyInboxReviewDecisions(ctx, l.root.memory, final.Decisions(), items)
 	if err != nil {
 		return result, err
 	}
 	if len(result.Failures) > 0 {
-		return result, memoryInboxReviewFailureError(result)
+		return result, memoryReviewFailureError(result)
 	}
 	return result, nil
 }
@@ -536,7 +536,7 @@ func (l cockpitRuntimeLoader) markCockpitEventsSeen(ctx context.Context, at time
 
 func (c *RootCLI) loadCockpitLive(ctx context.Context, cursor tailCursor, initial bool) (cockpitLiveSnapshot, error) {
 	if c.event == nil {
-		return cockpitLiveSnapshot{}, xerrors.Errorf(Localize("list events query service is not configured", "イベント一覧クエリサービスが設定されていません"))
+		return cockpitLiveSnapshot{}, xerrors.New(Localize("list events query service is not configured", "イベント一覧クエリサービスが設定されていません"))
 	}
 	now := topNowFunc().UTC()
 	if initial || cursor.timestamp.IsZero() {
@@ -665,12 +665,8 @@ const (
 	cockpitSectionMemory
 	cockpitSectionSessions
 	cockpitSectionSettings
+	cockpitSectionCount
 )
-
-type cockpitNavigationSection struct {
-	id  cockpitSectionID
-	key string
-}
 
 type cockpitAction struct {
 	key         string
@@ -692,34 +688,6 @@ type cockpitTopSignal struct {
 	description string
 	actionKey   string
 	actionLabel string
-}
-
-var cockpitNavigationSections = []cockpitNavigationSection{
-	{id: cockpitSectionLive, key: "1"},
-	{id: cockpitSectionTop, key: "2"},
-	{id: cockpitSectionMemory, key: "3"},
-	{id: cockpitSectionSessions, key: "4"},
-	{id: cockpitSectionSettings, key: "5"},
-}
-
-// cockpitNavigationSectionLabel returns the localized label for a cockpit
-// navigation section. Keys (1-5) and ids stay language-neutral so global
-// navigation shortcuts and stored state do not drift with the operator's
-// locale.
-func cockpitNavigationSectionLabel(id cockpitSectionID) string {
-	switch id {
-	case cockpitSectionLive:
-		return Localize("Tail", "Tail")
-	case cockpitSectionTop:
-		return Localize("Top", "Top")
-	case cockpitSectionMemory:
-		return Localize("Memory", "メモリ")
-	case cockpitSectionSessions:
-		return Localize("Sessions", "セッション")
-	case cockpitSectionSettings:
-		return Localize("Settings", "設定")
-	}
-	return ""
 }
 
 type cockpitLiveState struct {
@@ -1063,7 +1031,7 @@ func cockpitSectionFromKey(msg tea.KeyMsg) (cockpitSectionID, bool) {
 		return 0, false
 	}
 	pressed := string(msg.Runes)
-	for _, section := range cockpitNavigationSections {
+	for _, section := range cockpitNavigationSectionsList() {
 		if section.key == pressed {
 			return section.id, true
 		}
@@ -1084,17 +1052,26 @@ func (m cockpitModel) cockpitAdjacentSectionFromKey(msg tea.KeyMsg) (cockpitSect
 
 func nextCockpitSection(current cockpitSectionID, delta int) cockpitSectionID {
 	index := 0
-	for i, section := range cockpitNavigationSections {
+	found := false
+	sections := cockpitNavigationSectionsList()
+	for i, section := range sections {
 		if section.id == current {
 			index = i
+			found = true
 			break
 		}
 	}
-	next := (index + delta) % len(cockpitNavigationSections)
-	if next < 0 {
-		next += len(cockpitNavigationSections)
+	if !found {
+		// Invalid section ids should still make forward progress when the
+		// operator presses tab/arrow keys. Falling back to the first navigation
+		// item keeps the cockpit recoverable instead of leaving focus stuck.
+		return sections[0].id
 	}
-	return cockpitNavigationSections[next].id
+	next := (index + delta) % len(sections)
+	if next < 0 {
+		next += len(sections)
+	}
+	return sections[next].id
 }
 
 func (m cockpitModel) activeCockpitSection() cockpitSectionID {
@@ -1461,7 +1438,7 @@ func (m cockpitModel) fetchCockpitHomeCmd(seq uint64) tea.Cmd {
 	ctx := m.loaderCtx
 	return func() tea.Msg {
 		if loader == nil {
-			return cockpitHomeMsg{seq: seq, err: xerrors.Errorf(Localize("cockpit home loader is not configured", "cockpit home loader が設定されていません"))}
+			return cockpitHomeMsg{seq: seq, err: xerrors.New(Localize("cockpit home loader is not configured", "cockpit home 用 loader が設定されていません"))}
 		}
 		home, err := loader.loadCockpitHome(ctx)
 		return cockpitHomeMsg{home: home, seq: seq, err: err}
@@ -1475,7 +1452,7 @@ func (m cockpitModel) fetchCockpitTopCmd(seq uint64) tea.Cmd {
 		loadedAt := topNowFunc().UTC()
 		criteria := m.cockpitTopCriteriaAt(loadedAt)
 		if loader == nil {
-			return cockpitTopLoadedMsg{seq: seq, criteria: criteria, loadedAt: loadedAt, err: xerrors.New(Localize("cockpit top loader is not configured", "cockpit top loader が設定されていません"))}
+			return cockpitTopLoadedMsg{seq: seq, criteria: criteria, loadedAt: loadedAt, err: xerrors.New(Localize("cockpit top loader is not configured", "cockpit top 用 loader が設定されていません"))}
 		}
 		snapshot, err := loader.loadCockpitTop(ctx, criteria)
 		return cockpitTopLoadedMsg{snapshot: snapshot, criteria: criteria, loadedAt: loadedAt, seq: seq, err: err}
@@ -1512,7 +1489,7 @@ func (m cockpitModel) fetchCockpitDoctorCmd(seq uint64) tea.Cmd {
 	ctx := m.loaderCtx
 	return func() tea.Msg {
 		if loader == nil {
-			return cockpitDoctorLoadedMsg{seq: seq, err: xerrors.Errorf(Localize("cockpit doctor loader is not configured", "cockpit doctor loader が設定されていません"))}
+			return cockpitDoctorLoadedMsg{seq: seq, err: xerrors.New(Localize("cockpit doctor loader is not configured", "cockpit doctor 用 loader が設定されていません"))}
 		}
 		snapshot, err := loader.loadCockpitDoctor(ctx)
 		return cockpitDoctorLoadedMsg{snapshot: snapshot, seq: seq, err: err}
@@ -1526,7 +1503,7 @@ func (m cockpitModel) fetchCockpitMemoryReviewCmd() tea.Cmd {
 	seenAt := topNowFunc().UTC()
 	return func() tea.Msg {
 		if loader == nil {
-			return cockpitMemoryReviewLoadedMsg{seq: seq, seenAt: seenAt, err: xerrors.Errorf(Localize("cockpit memory review loader is not configured", "cockpit memory review loader が設定されていません"))}
+			return cockpitMemoryReviewLoadedMsg{seq: seq, seenAt: seenAt, err: xerrors.New(Localize("cockpit memory review loader is not configured", "メモリ確認用 loader が設定されていません"))}
 		}
 		items, err := loader.loadCockpitMemoryReviewItems(ctx)
 		return cockpitMemoryReviewLoadedMsg{items: items, seq: seq, seenAt: seenAt, err: err}
@@ -1573,7 +1550,7 @@ func (m cockpitModel) applyCockpitMemoryReviewCmd() tea.Cmd {
 	items := append([]apptypes.MemoryDetails(nil), m.memoryReview.items...)
 	return func() tea.Msg {
 		if loader == nil {
-			return cockpitMemoryReviewAppliedMsg{err: xerrors.Errorf(Localize("cockpit memory review loader is not configured", "cockpit memory review loader が設定されていません"))}
+			return cockpitMemoryReviewAppliedMsg{err: xerrors.New(Localize("cockpit memory review loader is not configured", "メモリ確認用 loader が設定されていません"))}
 		}
 		result, err := loader.finishCockpitMemoryReview(ctx, final, items)
 		return cockpitMemoryReviewAppliedMsg{result: result, err: err}
@@ -1592,7 +1569,7 @@ func (m cockpitModel) fetchCockpitLiveCmd(initial bool, seq uint64) tea.Cmd {
 	cursor := m.live.cursor
 	return func() tea.Msg {
 		if loader == nil {
-			return cockpitLiveMsg{initial: initial, seq: seq, err: xerrors.Errorf(Localize("cockpit live loader is not configured", "cockpit live loader が設定されていません"))}
+			return cockpitLiveMsg{initial: initial, seq: seq, err: xerrors.New(Localize("cockpit live loader is not configured", "cockpit live 用 loader が設定されていません"))}
 		}
 		snapshot, err := loader.loadCockpitLive(ctx, cursor, initial)
 		return cockpitLiveMsg{snapshot: snapshot, initial: initial, seq: seq, err: err}
@@ -1651,7 +1628,7 @@ func (m cockpitModel) fetchCockpitDetailCmd(req topDetailRequest) tea.Cmd {
 	ctx := m.loaderCtx
 	return func() tea.Msg {
 		if loader == nil {
-			return cockpitDetailLoadedMsg{request: req, err: xerrors.Errorf(Localize("cockpit detail loader is not configured", "cockpit detail loader が設定されていません"))}
+			return cockpitDetailLoadedMsg{request: req, err: xerrors.New(Localize("cockpit detail loader is not configured", "cockpit detail 用 loader が設定されていません"))}
 		}
 		content, err := loader.loadCockpitEventDetail(ctx, req.target.eventID)
 		return cockpitDetailLoadedMsg{request: req, content: content, err: err}
@@ -1663,7 +1640,7 @@ func (m cockpitModel) fetchCockpitTopDetailCmd(req topDetailRequest, seq uint64)
 	ctx := m.loaderCtx
 	return func() tea.Msg {
 		if loader == nil {
-			return cockpitTopDetailLoadedMsg{request: req, seq: seq, err: xerrors.New(Localize("cockpit top detail loader is not configured", "cockpit top detail loader が設定されていません"))}
+			return cockpitTopDetailLoadedMsg{request: req, seq: seq, err: xerrors.New(Localize("cockpit top detail loader is not configured", "cockpit top detail 用 loader が設定されていません"))}
 		}
 		content, err := loader.loadCockpitTopDetail(ctx, req)
 		return cockpitTopDetailLoadedMsg{request: req, content: content, seq: seq, err: err}
@@ -1997,7 +1974,7 @@ func formatCockpitNewEventCount(home cockpitHomeSnapshot) string {
 }
 
 func formatCockpitMemoryReviewResult(result memoryInboxReviewResult) string {
-	return Localizef("memory review applied: accepted=%d rejected=%d distilled=%d failures=%d", "memory review 適用済み: accepted=%d rejected=%d distilled=%d failures=%d", len(result.Accepted), len(result.Rejected), len(result.Distilled), len(result.Failures))
+	return Localizef("memory review applied: accepted=%d rejected=%d distilled=%d failures=%d", "メモリ確認 適用済み: accepted=%d rejected=%d distilled=%d failures=%d", len(result.Accepted), len(result.Rejected), len(result.Distilled), len(result.Failures))
 }
 
 func (m cockpitModel) doctorView() string {
@@ -2092,7 +2069,7 @@ func (m cockpitModel) memoryReviewView() string {
 	lines := []string{}
 	switch {
 	case m.memoryReview.loading:
-		lines = append(lines, m.styles.Subtle.Render(Localize("Loading memory inbox review queue...", "メモリ候補の確認キューを読み込み中...")))
+		lines = append(lines, m.styles.Subtle.Render(Localize("Loading memory review queue...", "メモリ候補の確認キューを読み込み中...")))
 	case m.memoryReview.applying:
 		lines = append(lines, m.styles.Subtle.Render(Localize("Applying memory review decisions...", "メモリ確認の判断を適用中...")))
 	case m.memoryReview.err != nil:
@@ -2100,7 +2077,7 @@ func (m cockpitModel) memoryReviewView() string {
 	default:
 		lines = append(lines, m.memoryReview.review.View())
 	}
-	return m.renderCockpitShell(Localize("memory review", "メモリ確認"), lines, m.memoryReviewLocalHelp())
+	return m.renderCockpitShell(memoryReviewWorkflowLabel(), lines, m.memoryReviewLocalHelp())
 }
 
 func (m cockpitModel) liveView() string {
@@ -2203,10 +2180,10 @@ func (m cockpitModel) topSignals() []cockpitTopSignal {
 	if home.CandidateMemoryCount > 0 || home.NewCandidateMemoryCount > 0 || home.RememberIntentCount > 0 || home.LowQualityMemoryCount > 0 {
 		signals = append(signals, cockpitTopSignal{
 			severity:    cockpitSignalWarning,
-			label:       Localize("Memory inbox needs review", "メモリ候補の確認が必要"),
+			label:       Localize("Memory review queue needs attention", "メモリ候補の確認が必要"),
 			description: Localizef("candidate=%d new=%s remember-intent=%d low-quality=%d", "candidate=%d new=%s remember-intent=%d low-quality=%d", home.CandidateMemoryCount, formatCockpitNewCandidateCount(home), home.RememberIntentCount, home.LowQualityMemoryCount),
 			actionKey:   "3",
-			actionLabel: Localize("review Memory inbox", "メモリ候補を確認"),
+			actionLabel: Localize("open Memory review", "メモリ確認を開く"),
 		})
 	}
 	if home.RecentFailureCount > 0 {
@@ -2325,18 +2302,18 @@ func (m cockpitModel) topTabView() string {
 	}
 	switch {
 	case m.home.NewCandidateMemoryKnown && m.home.NewCandidateMemoryCount > 0:
-		lines = append(lines, Localizef("• new candidate memories=%d", "• 新着メモリ候補=%d", m.home.NewCandidateMemoryCount))
+		lines = append(lines, Localizef("• new memory candidates=%d", "• 新着メモリ候補=%d", m.home.NewCandidateMemoryCount))
 	case m.home.NewCandidateMemoryKnown:
-		lines = append(lines, Localizef("• no unseen candidates since %s", "• %s 以降の未確認候補はありません", formatCockpitCheckpoint(m.home.MemoryLastSeenAt)))
+		lines = append(lines, Localizef("• no unseen candidates since %s", "• %s 以降の未確認メモリ候補はありません", formatCockpitCheckpoint(m.home.MemoryLastSeenAt)))
 	default:
-		lines = append(lines, Localize("• candidate memory new count=untracked", "• メモリ候補の新着数=未追跡"))
+		lines = append(lines, Localize("• memory candidate new count=untracked", "• メモリ候補の新着数=未追跡"))
 	}
-	lines = append(lines, Localizef("• candidate memories=%d", "• メモリ候補=%d", m.home.CandidateMemoryCount))
+	lines = append(lines, Localizef("• memory candidates=%d", "• メモリ候補=%d", m.home.CandidateMemoryCount))
 	if m.home.RememberIntentCount > 0 {
-		lines = append(lines, Localizef("• remember-intent candidates=%d", "• remember-intent 候補=%d", m.home.RememberIntentCount))
+		lines = append(lines, Localizef("• remember-intent candidates=%d", "• remember-intent メモリ候補=%d", m.home.RememberIntentCount))
 	}
 	if m.home.LowQualityMemoryCount > 0 {
-		lines = append(lines, Localizef("• low-quality candidates=%d", "• 低品質候補=%d", m.home.LowQualityMemoryCount))
+		lines = append(lines, Localizef("• low-quality candidates=%d", "• 低品質メモリ候補=%d", m.home.LowQualityMemoryCount))
 	}
 	if m.home.RecentFailureCount > 0 {
 		lines = append(lines, Localizef("• recent failures=%d", "• 最近の失敗=%d", m.home.RecentFailureCount))
@@ -2471,7 +2448,10 @@ func cockpitTopSectionLabel(pane topPane, snapshot topDataSnapshot) string {
 	case topPaneRecentCommands:
 		return Localizef("RECENT COMMANDS (%d)", "RECENT COMMANDS (%d)", len(snapshot.RecentCommands))
 	case topPaneCandidates:
-		return Localizef("CANDIDATE MEMORIES (%d)", "CANDIDATE MEMORIES (%d)", len(snapshot.Candidates))
+		// The live cockpit uses the operator-facing glossary. Keep
+		// top --snapshot's historical CANDIDATE MEMORIES text header separate
+		// for script compatibility; see writeTopSnapshotTextCandidates.
+		return Localizef("MEMORY CANDIDATES (%d)", "MEMORY CANDIDATES (%d)", len(snapshot.Candidates))
 	case topPaneStaleMemories:
 		return Localizef("STALE MEMORIES (%d)", "STALE MEMORIES (%d)", snapshot.StaleMemories.Count())
 	default:
@@ -2602,9 +2582,10 @@ func (m cockpitModel) renderCockpitShell(title string, body []string, localHelp 
 
 func (m cockpitModel) cockpitNavigationBar() string {
 	active := m.activeCockpitSection()
-	parts := make([]string, 0, len(cockpitNavigationSections))
-	for _, section := range cockpitNavigationSections {
-		label := section.key + " " + cockpitNavigationSectionLabel(section.id)
+	sections := cockpitNavigationSectionsList()
+	parts := make([]string, 0, len(sections))
+	for _, section := range sections {
+		label := section.prefix()
 		if section.id == active {
 			label = "[" + label + "]"
 		}
@@ -2735,11 +2716,11 @@ func (m cockpitModel) cockpitContextualNavigationLines() []string {
 	if m.mode == cockpitModeSettings && m.settings.confirmSave {
 		return []string{Localize("Navigation is paused while config write confirmation is active; y saves and n/esc cancels.", "config 書き込み確認中はナビゲーションを一時停止します。y で保存、n/esc でキャンセルします。")}
 	}
-	items := cockpitNavigationItems()
+	items := cockpitNavigationSectionsList()
 	labelWidth := cockpitNavigationLabelWidth(items)
 	lines := make([]string, 0, len(items)+2)
-	for i, item := range items {
-		lines = append(lines, cockpitNavigationLine(i+1, item, labelWidth))
+	for _, item := range items {
+		lines = append(lines, cockpitNavigationLine(item, labelWidth))
 	}
 	if m.mode == cockpitModeSettings {
 		lines = append(lines, Localize("tab / shift+tab cycle tabs; 1-5 jump tabs; ← / → edit selected value rows", "tab / shift+tab でタブ移動。1-5 でタブ選択。← / → は選択中の設定値を編集"))
@@ -2750,28 +2731,10 @@ func (m cockpitModel) cockpitContextualNavigationLines() []string {
 	return lines
 }
 
-type cockpitNavigationItem struct {
-	englishLabel        string
-	japaneseLabel       string
-	englishDescription  string
-	japaneseDescription string
-}
-
-func cockpitNavigationItems() []cockpitNavigationItem {
-	// Keep command/tab names and copy-paste-sensitive developer terms in English; localize surrounding guidance.
-	return []cockpitNavigationItem{
-		{englishLabel: "Tail", japaneseLabel: "Tail", englishDescription: "live event stream and event details", japaneseDescription: "イベントのライブ表示と詳細確認"},
-		{englishLabel: "Top", japaneseLabel: "Top", englishDescription: "dashboard for sessions, failures, commands, memory, and health", japaneseDescription: "セッション・失敗・コマンド・メモリ・状態の一覧"},
-		{englishLabel: "Memory", japaneseLabel: "メモリ", englishDescription: "inbox review queue", japaneseDescription: "メモリ候補の確認キュー"},
-		{englishLabel: "Sessions", japaneseLabel: "セッション", englishDescription: "session and handoff entry points", japaneseDescription: "セッション一覧と引き継ぎ導線"},
-		{englishLabel: "Settings", japaneseLabel: "設定", englishDescription: "language, read defaults, redaction diagnostics", japaneseDescription: "言語・表示既定・redaction 診断"},
-	}
-}
-
-func cockpitNavigationLabelWidth(items []cockpitNavigationItem) int {
+func cockpitNavigationLabelWidth(items []cockpitNavigationSection) int {
 	maxWidth := 0
-	for i, item := range items {
-		width := runeWidth(cockpitNavigationPrefix(i+1, item))
+	for _, item := range items {
+		width := runeWidth(item.prefix())
 		if width > maxWidth {
 			maxWidth = width
 		}
@@ -2779,17 +2742,13 @@ func cockpitNavigationLabelWidth(items []cockpitNavigationItem) int {
 	return maxWidth + 1
 }
 
-func cockpitNavigationLine(index int, item cockpitNavigationItem, labelWidth int) string {
-	prefix := cockpitNavigationPrefix(index, item)
+func cockpitNavigationLine(item cockpitNavigationSection, labelWidth int) string {
+	prefix := item.prefix()
 	padding := labelWidth - runeWidth(prefix)
 	if padding < 1 {
 		padding = 1
 	}
-	return prefix + strings.Repeat(" ", padding) + Localize(item.englishDescription, item.japaneseDescription)
-}
-
-func cockpitNavigationPrefix(index int, item cockpitNavigationItem) string {
-	return fmt.Sprintf("%d %s", index, Localize(item.englishLabel, item.japaneseLabel))
+	return prefix + strings.Repeat(" ", padding) + item.description()
 }
 
 func (m cockpitModel) cockpitContextualActions() []cockpitAction {
@@ -2875,7 +2834,7 @@ func (m cockpitModel) memoryReviewContextualActions() []cockpitAction {
 	switch {
 	case m.memoryReview.loading:
 		return []cockpitAction{
-			{key: "esc", description: Localize("Return to Tail while the inbox loads", "メモリ候補の読み込み中に Tail へ戻る")},
+			{key: "esc", description: Localize("Return to Tail while the memory review queue loads", "メモリ候補の確認キューの読み込み中に Tail へ戻る")},
 			{key: "q", description: Localize("Quit without applying decisions", "判断を適用せず終了")},
 		}
 	case m.memoryReview.applying:
@@ -2910,29 +2869,29 @@ func (m cockpitModel) memoryReviewContextualActions() []cockpitAction {
 			{key: "q", description: Localize("Finish review and apply queued decisions", "確認を終了し予約済み判断を適用")},
 		}
 	default:
-		acceptDescription := Localize("Accept as-is only when the checklist passes", "チェックリストを満たす場合のみ、そのまま採用")
-		editDescription := Localize("Edit/distill into an operator-authored fact when wording is unclear", "文言が曖昧なら operator が書いた事実に編集/要約")
+		acceptDescription := Localize("Accept as-is only when the checklist passes", "チェックリストを満たす場合のみ accept as-is")
+		editDescription := Localize("Edit/distill into an operator-authored fact when wording is unclear", "文言が曖昧なら operator が書いた事実に edit/distill")
 		if len(m.memoryReview.items) > 0 && m.memoryReview.review.cursor >= 0 && m.memoryReview.review.cursor < len(m.memoryReview.items) {
 			current := m.memoryReview.items[m.memoryReview.review.cursor]
 			switch {
 			case memoryReviewBlocksAccept(current):
-				acceptDescription = Localize("Accept as-is unavailable until evidence exists", "evidence が追加されるまで、そのまま採用はできません")
-				editDescription = Localize("Edit/distill unavailable without source evidence", "source evidence がないため編集/要約はできません")
+				acceptDescription = Localize("Accept as-is unavailable until evidence exists", "evidence が追加されるまで accept as-is はできません")
+				editDescription = Localize("Edit/distill unavailable without source evidence", "source evidence がないため edit/distill はできません")
 			case memoryReviewRequiresAcceptConfirmation(current):
-				acceptDescription = Localize("Accept as-is (requires pressing a twice; prefer edit/distill if unsure)", "そのまま採用するには a を 2 回押します。不明なら編集/要約を優先")
+				acceptDescription = Localize("Accept as-is (requires pressing a twice; prefer edit/distill if unsure)", "accept as-is するには a を 2 回押します。不明なら edit/distill を優先")
 			}
 		}
 		actions := []cockpitAction{
 			{key: "a", description: acceptDescription},
-			{key: "x", description: Localize("Reject current candidate", "現在の候補を却下")},
-			{key: "s", description: Localize("Skip when more context is needed", "追加 context が必要なら保留")},
+			{key: "x", description: Localize("Reject current candidate", "現在のメモリ候補を reject")},
+			{key: "s", description: Localize("Skip when more context is needed", "追加 context が必要なら skip")},
 			{key: "e", description: editDescription},
 			{key: "v", description: Localize("View evidence and artifact refs", "evidence と artifact refs を表示")},
 			{key: "q", description: Localize("Finish review and apply queued decisions", "確認を終了し予約済み判断を適用")},
-			{description: Localize("Accept checklist: factual, stable, useful later, scoped correctly, evidence-backed, not duplicate/stale.", "採用チェック: 事実で安定、将来有用、scope が正しい、evidence あり、重複/古さなし。")},
+			{description: Localize("Accept checklist: factual, stable, useful later, scoped correctly, evidence-backed, not duplicate/stale.", "accept checklist: 事実で安定、将来有用、scope が正しい、evidence あり、重複/古さなし。")},
 		}
 		if len(m.memoryReview.items) > 1 {
-			actions = append(actions, cockpitAction{key: "↑/↓", description: Localize("Navigate candidates", "候補を移動")})
+			actions = append(actions, cockpitAction{key: "↑/↓", description: Localize("Navigate candidates", "メモリ候補を移動")})
 		}
 		return actions
 	}
@@ -3001,9 +2960,9 @@ func (m cockpitModel) memoryReviewLocalHelp() string {
 		return Localize("?/esc close help · q finish/apply", "?/esc help を閉じる · q 終了/適用")
 	default:
 		if m.memoryReview.review.cursor >= 0 && m.memoryReview.review.cursor < len(m.memoryReview.items) && memoryReviewBlocksAccept(m.memoryReview.items[m.memoryReview.review.cursor]) {
-			return Localize("a unavailable (evidence required) · x reject · s skip · v evidence · q finish/apply", "a 不可 (evidence 必須) · x 却下 · s 保留 · v evidence · q 終了/適用")
+			return Localize("a unavailable (evidence required) · x reject · s skip · v evidence · q finish/apply", "a 不可 (evidence 必須) · x reject · s skip · v evidence · q 終了/適用")
 		}
-		return Localize("a accept as-is · x reject · s skip · e edit/distill · v evidence · q finish/apply", "a そのまま採用 · x 却下 · s 保留 · e 編集/要約 · v evidence · q 終了/適用")
+		return Localize("a accept as-is · x reject · s skip · e edit/distill · v evidence · q finish/apply", "a accept as-is · x reject · s skip · e edit/distill · v evidence · q 終了/適用")
 	}
 }
 

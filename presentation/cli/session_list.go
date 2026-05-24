@@ -70,7 +70,7 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 			}
 			if fromVal, fromOk := fromTime.Value(); fromOk {
 				if toVal, toOk := toTime.Value(); toOk && fromVal.After(toVal) {
-					return xerrors.Errorf(Localize("--from must be earlier than --to", "from は to より前である必要があります"))
+					return xerrors.New(Localize("--from must be earlier than --to", "from は to より前である必要があります"))
 				}
 			}
 

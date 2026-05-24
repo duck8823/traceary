@@ -129,7 +129,7 @@ func TestReviewModel_DecisionCardShowsAcceptEvidenceContext(t *testing.T) {
 
 	view := model.View()
 	for _, must := range []string{
-		"inbox review · decision card",
+		"memory review · decision card",
 		"DECISION CONTEXT",
 		"MEMORY_ID:              id-context",
 		"TYPE:                   preference",
@@ -140,7 +140,7 @@ func TestReviewModel_DecisionCardShowsAcceptEvidenceContext(t *testing.T) {
 		"REMEMBERED_BY_OPERATOR: yes (remember-intent)",
 		"EVIDENCE_REFS:          1 (press v to inspect)",
 		"CREATED_AT:             2026-05-07T00:00:00Z",
-		"CANDIDATE_AGE:          48h0m",
+		"MEMORY_CANDIDATE_AGE:   48h0m",
 		"DUPLICATE_SUPERSEDE:    supersedes old-memory",
 		"EVIDENCE-FIRST REVIEW",
 		"• evidence: 1 ref(s)",
@@ -243,7 +243,7 @@ func TestReviewModel_WeakCandidateRequiresDoubleAcceptAsIs(t *testing.T) {
 	if !strings.Contains(firstM.statusMsg, "needs confirmation") {
 		t.Fatalf("first accept status = %q, want confirmation guidance", firstM.statusMsg)
 	}
-	if view := firstM.View(); !strings.Contains(view, "accept confirmation armed") || !strings.Contains(view, "hidden extraction") {
+	if view := firstM.View(); !strings.Contains(view, "accept confirmation armed") || !strings.Contains(view, "source=extracted-hidden") {
 		t.Fatalf("weak candidate view missing confirmation/risk context:\n%s", view)
 	}
 
@@ -646,7 +646,7 @@ func TestReviewModel_EmptyInboxRendersGuidanceAndQuits(t *testing.T) {
 	t.Parallel()
 	model := newReviewTestModel()
 	view := model.View()
-	if !strings.Contains(view, "candidate") {
+	if !strings.Contains(view, "memory review queue") {
 		t.Fatalf("empty inbox view should mention the empty state, got:\n%s", view)
 	}
 	_, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
@@ -740,7 +740,7 @@ func TestWriteMemoryInboxReviewSummary_FailureReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatalf("writeMemoryInboxReviewSummary(failure) error = nil, want non-nil")
 	}
-	if !strings.Contains(err.Error(), "inbox review failed for 1 memory id(s)") {
+	if !strings.Contains(err.Error(), "memory review failed for 1 memory id(s)") {
 		t.Fatalf("unexpected failure error: %v", err)
 	}
 	want := "review accepted=1 rejected=0 distilled=0 failures=1\nACCEPT\tid-ok\tcandidate\nFAILED\tid-fail\tsynthetic failure\n"
@@ -763,7 +763,7 @@ func TestFinishMemoryInboxReview_ReturnsFailureError(t *testing.T) {
 	if err == nil {
 		t.Fatal("finishMemoryInboxReview error = nil, want failure summary error")
 	}
-	if !strings.Contains(err.Error(), "inbox review failed for 1 memory id(s)") {
+	if !strings.Contains(err.Error(), "memory review failed for 1 memory id(s)") {
 		t.Fatalf("unexpected failure error: %v", err)
 	}
 	if stub.acceptCalls != 1 {

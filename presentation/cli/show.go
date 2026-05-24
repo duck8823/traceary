@@ -34,10 +34,10 @@ func (c *RootCLI) newShowCommand() *cobra.Command {
 
 func (c *RootCLI) runShow(ctx context.Context, output io.Writer, dbPath string, eventID string, asJSON bool) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.event == nil {
-		return xerrors.Errorf(Localize("get event details query service is not configured", "イベント詳細クエリサービスが設定されていません"))
+		return xerrors.New(Localize("get event details query service is not configured", "イベント詳細クエリサービスが設定されていません"))
 	}
 
 	resolvedDBPath, err := resolveDBPath(dbPath)

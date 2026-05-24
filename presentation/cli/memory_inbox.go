@@ -23,7 +23,7 @@ const defaultMemoryInboxLimit = 20
 func (c *RootCLI) newMemoryInboxCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "inbox",
-		Short: Localize("Review candidate durable memories with provenance", "candidate durable memory を provenance 付きでレビューする"),
+		Short: Localize("Review memory candidates with provenance", "メモリ候補を provenance 付きで確認する"),
 	}
 	cmd.AddCommand(c.newMemoryInboxListCommand())
 	cmd.AddCommand(c.newMemoryInboxAcceptCommand())
@@ -37,7 +37,7 @@ func (c *RootCLI) newMemoryInboxListCommand() *cobra.Command {
 	input := memoryInboxListCommandInput{}
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: Localize("List candidate durable memories awaiting review", "レビュー待ちの candidate durable memory を一覧する"),
+		Short: Localize("List memory candidates in the review queue", "メモリ候補の確認キューを一覧する"),
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runMemoryInboxList(cmd.Context(), cmd.OutOrStdout(), input)
@@ -50,9 +50,9 @@ func (c *RootCLI) newMemoryInboxListCommand() *cobra.Command {
 	cmd.Flags().StringSliceVar(&input.memoryTypes, "type", nil, Localize("filter by memory type", "memory type で絞り込む"))
 	cmd.Flags().StringSliceVar(&input.sources, "source", nil, Localize("filter by memory source (manual / extracted / extracted-hidden / remember-intent / compact-summary / imported)", "memory source (manual / extracted / extracted-hidden / remember-intent / compact-summary / imported) で絞り込む"))
 	cmd.Flags().BoolVar(&input.rememberIntent, "remember-intent", false, Localize("shortcut for --source remember-intent", "--source remember-intent のショートカット"))
-	cmd.Flags().BoolVar(&input.includeHidden, "include-hidden", false, Localize("include extracted-hidden candidates (low-quality auto-extractions kept for audit)", "extracted-hidden の候補も含める (audit 用に保存された低品質自動抽出)"))
-	cmd.Flags().DurationVar(&input.olderThan, "older-than", 0, Localize("only include candidates not updated within this duration (for example 168h)", "この duration 以内に更新されていない候補だけを含める (例: 168h)"))
-	cmd.Flags().DurationVar(&input.newerThan, "newer-than", 0, Localize("only include candidates updated within this duration (for example 24h)", "この duration 以内に更新された候補だけを含める (例: 24h)"))
+	cmd.Flags().BoolVar(&input.includeHidden, "include-hidden", false, Localize("include extracted-hidden memory candidates (low-quality auto-extractions kept for audit)", "extracted-hidden のメモリ候補も含める (audit 用に保存された低品質自動抽出)"))
+	cmd.Flags().DurationVar(&input.olderThan, "older-than", 0, Localize("only include memory candidates not updated within this duration (for example 168h)", "この duration 以内に更新されていないメモリ候補だけを含める (例: 168h)"))
+	cmd.Flags().DurationVar(&input.newerThan, "newer-than", 0, Localize("only include memory candidates updated within this duration (for example 24h)", "この duration 以内に更新されたメモリ候補だけを含める (例: 24h)"))
 	cmd.Flags().StringVar(&input.quality, "quality", "any", Localize("filter by quality category (any / low / normal)", "品質カテゴリで絞り込む (any / low / normal)"))
 	cmd.Flags().IntVar(&input.limit, "limit", defaultMemoryInboxLimit, Localize("maximum number of candidates to return", "表示件数"))
 	cmd.Flags().IntVar(&input.offset, "offset", 0, Localize("number of candidates to skip before listing", "一覧表示前にスキップする件数"))
@@ -64,7 +64,7 @@ func (c *RootCLI) newMemoryInboxAcceptCommand() *cobra.Command {
 	input := memoryInboxBatchCommandInput{}
 	cmd := &cobra.Command{
 		Use:   "accept [memory-id]",
-		Short: Localize("Accept one or more candidate durable memories", "candidate durable memory を accept する (単一/複数)"),
+		Short: Localize("Accept one or more memory candidates", "メモリ候補を accept する (単一/複数)"),
 		Args:  maximumNArgsLocalized(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			input.ids = mergePositionalInboxID(args, input.ids)
@@ -93,7 +93,7 @@ func (c *RootCLI) newMemoryInboxCleanupCommand() *cobra.Command {
 	}
 	cmd := &cobra.Command{
 		Use:   "cleanup",
-		Short: Localize("Preview or reject stale/low-quality candidate durable memories in bulk", "古い/低品質の candidate durable memory を一括プレビューまたは reject する"),
+		Short: Localize("Preview or reject stale/low-quality memory candidates in bulk", "古い/低品質のメモリ候補を一括プレビューまたは reject する"),
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runMemoryInboxCleanup(cmd.Context(), cmd.OutOrStdout(), input)
@@ -106,12 +106,12 @@ func (c *RootCLI) newMemoryInboxCleanupCommand() *cobra.Command {
 	cmd.Flags().StringSliceVar(&input.memoryTypes, "type", nil, Localize("filter by memory type", "memory type で絞り込む"))
 	cmd.Flags().StringSliceVar(&input.sources, "source", nil, Localize("filter by memory source (manual / extracted / extracted-hidden / remember-intent / compact-summary / imported)", "memory source (manual / extracted / extracted-hidden / remember-intent / compact-summary / imported) で絞り込む"))
 	cmd.Flags().BoolVar(&input.rememberIntent, "remember-intent", false, Localize("shortcut for --source remember-intent", "--source remember-intent のショートカット"))
-	cmd.Flags().BoolVar(&input.includeHidden, "include-hidden", false, Localize("include extracted-hidden candidates", "extracted-hidden の候補も含める"))
-	cmd.Flags().DurationVar(&input.olderThan, "older-than", 0, Localize("only target candidates not updated within this duration (for example 168h)", "この duration 以内に更新されていない候補だけを対象にする (例: 168h)"))
-	cmd.Flags().DurationVar(&input.newerThan, "newer-than", 0, Localize("only target candidates updated within this duration (for example 24h)", "この duration 以内に更新された候補だけを対象にする (例: 24h)"))
+	cmd.Flags().BoolVar(&input.includeHidden, "include-hidden", false, Localize("include extracted-hidden memory candidates", "extracted-hidden のメモリ候補も含める"))
+	cmd.Flags().DurationVar(&input.olderThan, "older-than", 0, Localize("only target memory candidates not updated within this duration (for example 168h)", "この duration 以内に更新されていないメモリ候補だけを対象にする (例: 168h)"))
+	cmd.Flags().DurationVar(&input.newerThan, "newer-than", 0, Localize("only target memory candidates updated within this duration (for example 24h)", "この duration 以内に更新されたメモリ候補だけを対象にする (例: 24h)"))
 	cmd.Flags().StringVar(&input.quality, "quality", "low", Localize("target quality category (low / any / normal); default low", "対象の品質カテゴリ (low / any / normal); 既定は low"))
-	cmd.Flags().IntVar(&input.limit, "limit", defaultMemoryInboxLimit, Localize("maximum number of candidates to target", "対象候補数"))
-	cmd.Flags().BoolVar(&input.apply, "apply", false, Localize("reject the matched candidates; omit for dry-run preview", "一致した候補を reject する。省略時は dry-run preview"))
+	cmd.Flags().IntVar(&input.limit, "limit", defaultMemoryInboxLimit, Localize("maximum number of memory candidates to target", "対象メモリ候補数"))
+	cmd.Flags().BoolVar(&input.apply, "apply", false, Localize("reject the matched memory candidates; omit for dry-run preview", "一致したメモリ候補を reject する。省略時は dry-run preview"))
 	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	return cmd
 }
@@ -120,7 +120,7 @@ func (c *RootCLI) newMemoryInboxRejectCommand() *cobra.Command {
 	input := memoryInboxBatchCommandInput{}
 	cmd := &cobra.Command{
 		Use:   "reject [memory-id]",
-		Short: Localize("Reject one or more candidate durable memories", "candidate durable memory を reject する (単一/複数)"),
+		Short: Localize("Reject one or more memory candidates", "メモリ候補を reject する (単一/複数)"),
 		Args:  maximumNArgsLocalized(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			input.ids = mergePositionalInboxID(args, input.ids)
@@ -165,19 +165,19 @@ const (
 
 func (c *RootCLI) runMemoryInboxList(ctx context.Context, output io.Writer, input memoryInboxListCommandInput) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.memory == nil {
-		return xerrors.Errorf(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
+		return xerrors.New(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
 	}
 	if input.limit <= 0 {
-		return xerrors.Errorf(Localize("limit must be greater than or equal to 1", "limit は 1 以上である必要があります"))
+		return xerrors.New(Localize("limit must be greater than or equal to 1", "limit は 1 以上である必要があります"))
 	}
 	if input.offset < 0 {
-		return xerrors.Errorf(Localize("offset must be greater than or equal to 0", "offset は 0 以上である必要があります"))
+		return xerrors.New(Localize("offset must be greater than or equal to 0", "offset は 0 以上である必要があります"))
 	}
 	if input.olderThan < 0 || input.newerThan < 0 {
-		return xerrors.Errorf(Localize("--older-than and --newer-than must be greater than or equal to 0", "--older-than と --newer-than は 0 以上である必要があります"))
+		return xerrors.New(Localize("--older-than and --newer-than must be greater than or equal to 0", "--older-than と --newer-than は 0 以上である必要があります"))
 	}
 	quality, err := parseMemoryInboxQuality(input.quality)
 	if err != nil {
@@ -235,7 +235,7 @@ func (c *RootCLI) runMemoryInboxList(ctx context.Context, output io.Writer, inpu
 	criteria := criteriaBuilder.Build()
 	summaries, err := c.memory.List(ctx, criteria)
 	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to list candidate memories", "candidate memory の一覧取得に失敗しました"), err)
+		return xerrors.Errorf("%s: %w", Localize("failed to list memory review queue candidates", "メモリ候補の確認キューの一覧取得に失敗しました"), err)
 	}
 
 	items := make([]apptypes.MemoryDetails, 0, len(summaries))
@@ -253,23 +253,23 @@ func (c *RootCLI) runMemoryInboxList(ctx context.Context, output io.Writer, inpu
 
 func (c *RootCLI) runMemoryInboxCleanup(ctx context.Context, output io.Writer, input memoryInboxCleanupCommandInput) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.memory == nil {
-		return xerrors.Errorf(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
+		return xerrors.New(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
 	}
 	if input.limit <= 0 {
-		return xerrors.Errorf(Localize("limit must be greater than or equal to 1", "limit は 1 以上である必要があります"))
+		return xerrors.New(Localize("limit must be greater than or equal to 1", "limit は 1 以上である必要があります"))
 	}
 	if input.olderThan < 0 || input.newerThan < 0 {
-		return xerrors.Errorf(Localize("--older-than and --newer-than must be greater than or equal to 0", "--older-than と --newer-than は 0 以上である必要があります"))
+		return xerrors.New(Localize("--older-than and --newer-than must be greater than or equal to 0", "--older-than と --newer-than は 0 以上である必要があります"))
 	}
 	quality, err := parseMemoryInboxQuality(input.quality)
 	if err != nil {
 		return err
 	}
 	if quality == memoryInboxQualityAny && input.olderThan == 0 {
-		return xerrors.Errorf(Localize("cleanup with --quality any requires --older-than to avoid rejecting the whole inbox", "--quality any の cleanup では inbox 全体の reject を避けるため --older-than が必要です"))
+		return xerrors.New(Localize("cleanup with --quality any requires --older-than to avoid rejecting the whole memory review queue", "--quality any の cleanup ではメモリ候補の確認キュー全体の reject を避けるため --older-than が必要です"))
 	}
 	if err := c.initializeStore(ctx, input.dbPath); err != nil {
 		return err
@@ -292,8 +292,9 @@ func (c *RootCLI) runMemoryInboxCleanup(ctx context.Context, output io.Writer, i
 		summary := item.Summary()
 		if summary.Status() != domtypes.MemoryStatusCandidate {
 			result.Failures = append(result.Failures, memoryInboxFailure{
-				ID:    summary.MemoryID().String(),
-				Error: "cleanup only modifies candidate memories",
+				ID:        summary.MemoryID().String(),
+				Error:     memoryInboxCleanupNonCandidateError,
+				ErrorCode: memoryInboxCleanupNonCandidateCode,
 			})
 			continue
 		}
@@ -338,7 +339,7 @@ func (c *RootCLI) loadMemoryInboxCleanupCandidates(ctx context.Context, input me
 	criteriaBuilder = applyMemoryInboxAgeFilters(criteriaBuilder, input.olderThan, input.newerThan, now)
 	summaries, err := c.memory.List(ctx, criteriaBuilder.Build())
 	if err != nil {
-		return nil, xerrors.Errorf("%s: %w", Localize("failed to list cleanup candidates", "cleanup 対象 candidate の一覧取得に失敗しました"), err)
+		return nil, xerrors.Errorf("%s: %w", Localize("failed to list cleanup memory candidates", "cleanup 対象メモリ候補の一覧取得に失敗しました"), err)
 	}
 	items := make([]apptypes.MemoryDetails, 0, len(summaries))
 	for _, summary := range summaries {
@@ -370,7 +371,11 @@ func parseMemoryInboxQuality(value string) (memoryInboxQuality, error) {
 	case memoryInboxQualityNormal:
 		return memoryInboxQualityNormal, nil
 	default:
-		return "", xerrors.Errorf("unknown memory inbox quality %q (allowed values: any, low, normal)", value)
+		return "", xerrors.New(Localizef(
+			"unknown memory candidate quality %q (allowed values: any, low, normal)",
+			"メモリ候補の品質カテゴリ %q は不明です (使用可能な値: any, low, normal)",
+			value,
+		))
 	}
 }
 
@@ -383,7 +388,7 @@ func (c *RootCLI) loadLowQualityCandidateIDs(ctx context.Context, scopes []domty
 		IncludeHiddenCandidates: includeHidden,
 	})
 	if err != nil {
-		return nil, xerrors.Errorf("%s: %w", Localize("failed to scan low-quality candidates", "低品質 candidate のスキャンに失敗しました"), err)
+		return nil, xerrors.Errorf("%s: %w", Localize("failed to scan low-quality memory candidates", "低品質メモリ候補のスキャンに失敗しました"), err)
 	}
 	ids := make(map[string]struct{}, result.LowQualityCandidateCount)
 	for _, suggestion := range result.Suggestions {
@@ -441,14 +446,14 @@ func applyRememberIntentSourceShortcut(sources []domtypes.MemorySource, remember
 
 func (c *RootCLI) runMemoryInboxBatch(ctx context.Context, output io.Writer, errOutput io.Writer, input memoryInboxBatchCommandInput, action memoryInboxAction) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.memory == nil {
-		return xerrors.Errorf(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
+		return xerrors.New(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
 	}
 	ids := normaliseInboxIDs(input.ids)
 	if len(ids) == 0 {
-		return xerrors.Errorf(Localize("at least one memory id is required (positional id or --ids)", "memory id を1つ以上指定してください (positional id または --ids)"))
+		return xerrors.New(Localize("at least one memory id is required (positional id or --ids)", "memory id を1つ以上指定してください (positional id または --ids)"))
 	}
 	if err := c.initializeStore(ctx, input.dbPath); err != nil {
 		return err
@@ -473,7 +478,11 @@ func (c *RootCLI) runMemoryInboxBatch(ctx context.Context, output io.Writer, err
 		case memoryInboxActionReject:
 			details, err = c.memory.Reject(ctx, memoryID)
 		default:
-			return xerrors.Errorf("unsupported inbox action: %s", action)
+			return xerrors.New(Localizef(
+				"unsupported memory review queue action: %s",
+				"メモリ候補の確認キューのアクション %s は未対応です",
+				action,
+			))
 		}
 		if err != nil {
 			result.Failures = append(result.Failures, memoryInboxFailure{ID: rawID, Error: err.Error()})
@@ -504,10 +513,21 @@ type memoryInboxCleanupResult struct {
 	Failures  []memoryInboxFailure
 }
 
+type memoryInboxFailureCode string
+
+// memoryInboxFailure is part of the public `memory inbox ... --json` contract.
+// Keep the historical Go-style JSON field names stable; text-mode rendering
+// may localize Error via localizedMemoryInboxFailureError, but JSON Error stays
+// a machine-readable raw error string and ErrorCode is the stable discriminator.
 type memoryInboxFailure struct {
-	ID    string
-	Error string
+	ID        string                 `json:"ID"`
+	Error     string                 `json:"Error"`
+	ErrorCode memoryInboxFailureCode `json:"ErrorCode,omitempty"`
 }
+
+const memoryInboxCleanupNonCandidateCode memoryInboxFailureCode = "cleanup_non_candidate"
+
+const memoryInboxCleanupNonCandidateError = "cleanup only modifies memory candidates"
 
 // normaliseInboxIDs de-duplicates and trims the --ids slice. StringSliceVar
 // already splits on commas so repeated --ids flags accumulate; the helper
@@ -574,13 +594,13 @@ func writeMemoryInboxList(output io.Writer, items []apptypes.MemoryDetails, asJS
 		return writeJSON(output, serialized)
 	}
 	if len(items) == 0 {
-		if _, err := fmt.Fprintln(output, Localize("No candidate durable memories in the inbox.", "inbox に candidate durable memory はありません")); err != nil {
-			return xerrors.Errorf("%s: %w", Localize("failed to print empty inbox message", "空の inbox メッセージの出力に失敗しました"), err)
+		if _, err := fmt.Fprintln(output, memoryReviewEmptyQueueMessage()); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print empty memory review queue message", "メモリ候補の確認キューの空状態メッセージ出力に失敗しました"), err)
 		}
 		return nil
 	}
 	if _, err := fmt.Fprintln(output, "MEMORY_ID\tTYPE\tSCOPE\tSOURCE\tEVIDENCE\tARTIFACT\tFACT"); err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to print inbox header", "inbox ヘッダーの出力に失敗しました"), err)
+		return xerrors.Errorf("%s: %w", Localize("failed to print memory review queue header", "メモリ候補の確認キューヘッダーの出力に失敗しました"), err)
 	}
 	for _, details := range items {
 		summary := details.Summary()
@@ -595,7 +615,7 @@ func writeMemoryInboxList(output io.Writer, items []apptypes.MemoryDetails, asJS
 			len(details.ArtifactRefs()),
 			truncateMessage(summary.Fact()),
 		); err != nil {
-			return xerrors.Errorf("%s: %w", Localize("failed to print inbox row", "inbox 行の出力に失敗しました"), err)
+			return xerrors.Errorf("%s: %w", Localize("failed to print memory review queue row", "メモリ候補の確認キュー行の出力に失敗しました"), err)
 		}
 	}
 	return nil
@@ -618,8 +638,8 @@ func writeMemoryInboxBatchIDOnly(output io.Writer, errOutput io.Writer, result m
 		return nil
 	}
 	for _, failure := range result.Failures {
-		if _, err := fmt.Fprintf(errOutput, "FAILED\t%s\t%s\n", failure.ID, failure.Error); err != nil {
-			return xerrors.Errorf("%s: %w", Localize("failed to print inbox failure row", "inbox 失敗行の出力に失敗しました"), err)
+		if _, err := fmt.Fprintf(errOutput, "FAILED\t%s\t%s\n", failure.ID, localizedMemoryInboxFailureError(failure)); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print memory review queue failure row", "メモリ候補の確認キュー失敗行の出力に失敗しました"), err)
 		}
 	}
 	return memoryInboxBatchFailureError(result)
@@ -639,7 +659,7 @@ func writeMemoryInboxBatch(output io.Writer, result memoryInboxBatchResult, asJS
 		encoder.SetEscapeHTML(false)
 		encoder.SetIndent("", "  ")
 		if err := encoder.Encode(payload); err != nil {
-			return xerrors.Errorf("%s: %w", Localize("failed to encode inbox batch result", "inbox batch 結果の JSON 出力に失敗しました"), err)
+			return xerrors.Errorf("%s: %w", Localize("failed to encode memory review queue batch result", "メモリ候補の確認キュー batch 結果の JSON 出力に失敗しました"), err)
 		}
 		if len(result.Failures) > 0 {
 			return memoryInboxBatchFailureError(result)
@@ -647,17 +667,17 @@ func writeMemoryInboxBatch(output io.Writer, result memoryInboxBatchResult, asJS
 		return nil
 	}
 	if _, err := fmt.Fprintf(output, "action=%s processed=%d failures=%d\n", result.Action, len(result.Processed), len(result.Failures)); err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to print inbox batch summary", "inbox batch サマリの出力に失敗しました"), err)
+		return xerrors.Errorf("%s: %w", Localize("failed to print memory review queue batch summary", "メモリ候補の確認キュー batch サマリの出力に失敗しました"), err)
 	}
 	for _, details := range result.Processed {
 		summary := details.Summary()
 		if _, err := fmt.Fprintf(output, "%s\t%s\t%s\t%s\n", summary.MemoryID(), summary.Status(), summary.Source(), summary.Fact()); err != nil {
-			return xerrors.Errorf("%s: %w", Localize("failed to print inbox batch row", "inbox batch 行の出力に失敗しました"), err)
+			return xerrors.Errorf("%s: %w", Localize("failed to print memory review queue batch row", "メモリ候補の確認キュー batch 行の出力に失敗しました"), err)
 		}
 	}
 	for _, failure := range result.Failures {
-		if _, err := fmt.Fprintf(output, "FAILED\t%s\t%s\n", failure.ID, failure.Error); err != nil {
-			return xerrors.Errorf("%s: %w", Localize("failed to print inbox failure row", "inbox 失敗行の出力に失敗しました"), err)
+		if _, err := fmt.Fprintf(output, "FAILED\t%s\t%s\n", failure.ID, localizedMemoryInboxFailureError(failure)); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print memory review queue failure row", "メモリ候補の確認キュー失敗行の出力に失敗しました"), err)
 		}
 	}
 	if len(result.Failures) > 0 {
@@ -685,7 +705,7 @@ func writeMemoryInboxCleanupResult(output io.Writer, result memoryInboxCleanupRe
 		encoder.SetEscapeHTML(false)
 		encoder.SetIndent("", "  ")
 		if err := encoder.Encode(payload); err != nil {
-			return xerrors.Errorf("%s: %w", Localize("failed to encode inbox cleanup result", "inbox cleanup 結果の JSON 出力に失敗しました"), err)
+			return xerrors.Errorf("%s: %w", Localize("failed to encode memory review queue cleanup result", "メモリ候補の確認キュー cleanup 結果の JSON 出力に失敗しました"), err)
 		}
 		if len(result.Failures) > 0 {
 			return memoryInboxCleanupFailureError(result)
@@ -693,25 +713,25 @@ func writeMemoryInboxCleanupResult(output io.Writer, result memoryInboxCleanupRe
 		return nil
 	}
 	if _, err := fmt.Fprintf(output, "action=%s dry_run=%t matched=%d processed=%d failures=%d\n", result.Action, result.DryRun, len(result.Matched), len(result.Processed), len(result.Failures)); err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to print inbox cleanup summary", "inbox cleanup サマリの出力に失敗しました"), err)
+		return xerrors.Errorf("%s: %w", Localize("failed to print memory review queue cleanup summary", "メモリ候補の確認キュー cleanup サマリの出力に失敗しました"), err)
 	}
 	if result.DryRun {
 		for _, details := range result.Matched {
 			summary := details.Summary()
 			if _, err := fmt.Fprintf(output, "DRY_RUN\t%s\t%s\t%s\t%s\n", summary.MemoryID(), summary.Status(), summary.Source(), summary.Fact()); err != nil {
-				return xerrors.Errorf("%s: %w", Localize("failed to print inbox cleanup dry-run row", "inbox cleanup dry-run 行の出力に失敗しました"), err)
+				return xerrors.Errorf("%s: %w", Localize("failed to print memory review queue cleanup dry-run row", "メモリ候補の確認キュー cleanup dry-run 行の出力に失敗しました"), err)
 			}
 		}
 	}
 	for _, details := range result.Processed {
 		summary := details.Summary()
 		if _, err := fmt.Fprintf(output, "%s\t%s\t%s\n", summary.MemoryID(), summary.Status(), summary.Fact()); err != nil {
-			return xerrors.Errorf("%s: %w", Localize("failed to print inbox cleanup processed row", "inbox cleanup 処理済み行の出力に失敗しました"), err)
+			return xerrors.Errorf("%s: %w", Localize("failed to print memory review queue cleanup processed row", "メモリ候補の確認キュー cleanup 処理済み行の出力に失敗しました"), err)
 		}
 	}
 	for _, failure := range result.Failures {
-		if _, err := fmt.Fprintf(output, "FAILED\t%s\t%s\n", failure.ID, failure.Error); err != nil {
-			return xerrors.Errorf("%s: %w", Localize("failed to print inbox cleanup failure row", "inbox cleanup 失敗行の出力に失敗しました"), err)
+		if _, err := fmt.Fprintf(output, "FAILED\t%s\t%s\n", failure.ID, localizedMemoryInboxFailureError(failure)); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print memory review queue cleanup failure row", "メモリ候補の確認キュー cleanup 失敗行の出力に失敗しました"), err)
 		}
 	}
 	if len(result.Failures) > 0 {
@@ -721,17 +741,24 @@ func writeMemoryInboxCleanupResult(output io.Writer, result memoryInboxCleanupRe
 }
 
 func memoryInboxBatchFailureError(result memoryInboxBatchResult) error {
-	return xerrors.Errorf(Localizef(
-		"inbox %s failed for %d memory id(s)",
-		"inbox %s が %d 件の memory id で失敗しました",
+	return xerrors.New(Localizef(
+		"memory review queue %s action failed for %d memory id(s)",
+		"メモリ候補の確認キューの %s action が %d 件の memory id で失敗しました",
 		result.Action, len(result.Failures),
 	))
 }
 
+func localizedMemoryInboxFailureError(failure memoryInboxFailure) string {
+	if failure.ErrorCode == memoryInboxCleanupNonCandidateCode {
+		return Localize(memoryInboxCleanupNonCandidateError, "cleanup はメモリ候補だけを変更します")
+	}
+	return failure.Error
+}
+
 func memoryInboxCleanupFailureError(result memoryInboxCleanupResult) error {
-	return xerrors.Errorf(Localizef(
-		"inbox cleanup failed for %d memory id(s)",
-		"inbox cleanup が %d 件の memory id で失敗しました",
+	return xerrors.New(Localizef(
+		"memory review queue cleanup failed for %d memory id(s)",
+		"メモリ候補の確認キュー cleanup が %d 件の memory id で失敗しました",
 		len(result.Failures),
 	))
 }

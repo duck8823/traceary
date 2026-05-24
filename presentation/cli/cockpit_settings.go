@@ -837,7 +837,7 @@ func (m cockpitModel) settingsContextualActions() []cockpitAction {
 func validateCockpitSettingsDraft(values cockpitSettingsValues) error {
 	lang := normalizeSettingsLanguage(values.UILanguage)
 	if lang != "" && lang != "en" && lang != "ja" {
-		return xerrors.Errorf(Localize("ui.language must be en or ja", "ui.language は en または ja にしてください"))
+		return xerrors.New(Localize("ui.language must be en or ja", "ui.language は en または ja にしてください"))
 	}
 	if _, err := validateColorValue(values.ReadColor); err != nil {
 		return err
@@ -850,10 +850,10 @@ func validateCockpitSettingsDraft(values cockpitSettingsValues) error {
 	for _, pattern := range values.ExtraPatterns {
 		trimmed := strings.TrimSpace(pattern)
 		if trimmed == "" {
-			return xerrors.Errorf(Localize("redact.extra_patterns cannot contain an empty regex", "redact.extra_patterns に空の regex は保存できません"))
+			return xerrors.New(Localize("redact.extra_patterns cannot contain an empty regex", "redact.extra_patterns に空の regex は保存できません"))
 		}
 		if _, err := regexp.Compile(trimmed); err != nil {
-			return xerrors.Errorf(Localizef("invalid redact.extra_patterns regex %q: %v", "redact.extra_patterns regex %q が不正です: %v", pattern, err))
+			return xerrors.Errorf("%s: %w", Localizef("invalid redact.extra_patterns regex %q", "redact.extra_patterns regex %q が不正です", pattern), err)
 		}
 	}
 	return nil
@@ -861,7 +861,7 @@ func validateCockpitSettingsDraft(values cockpitSettingsValues) error {
 
 func saveCockpitSettingsDraft(snapshot cockpitSettingsSnapshot, values cockpitSettingsValues) error {
 	if snapshot.Path == "" {
-		return xerrors.Errorf(Localize("config path is unavailable", "config path を利用できません"))
+		return xerrors.New(Localize("config path is unavailable", "config path を利用できません"))
 	}
 	if err := validateCockpitSettingsDraft(values); err != nil {
 		return err
@@ -870,11 +870,11 @@ func saveCockpitSettingsDraft(snapshot cockpitSettingsSnapshot, values cockpitSe
 	data, err := os.ReadFile(snapshot.Path)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			return xerrors.Errorf(Localizef("failed to read config before saving: %v", "保存前の config 読み込みに失敗しました: %v", err))
+			return xerrors.Errorf("%s: %w", Localize("failed to read config before saving", "保存前の config 読み込みに失敗しました"), err)
 		}
 	} else if len(bytes.TrimSpace(data)) > 0 {
 		if err := json.Unmarshal(data, &raw); err != nil {
-			return xerrors.Errorf(Localizef("config JSON is invalid; refusing to overwrite: %v", "config JSON が不正なため上書きを拒否します: %v", err))
+			return xerrors.Errorf("%s: %w", Localize("config JSON is invalid; refusing to overwrite", "config JSON が不正なため上書きを拒否します"), err)
 		}
 	}
 	if raw == nil {
@@ -904,7 +904,7 @@ func saveCockpitSettingsDraft(snapshot cockpitSettingsSnapshot, values cockpitSe
 	}
 	encoded, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {
-		return xerrors.Errorf(Localizef("failed to encode config JSON: %v", "config JSON の encode に失敗しました: %v", err))
+		return xerrors.Errorf("%s: %w", Localize("failed to encode config JSON", "config JSON の encode に失敗しました"), err)
 	}
 	encoded = append(encoded, '\n')
 	return writeCockpitSettingsConfigAtomically(snapshot.Path, encoded)
@@ -914,7 +914,7 @@ func updateCockpitSettingsSection(raw map[string]json.RawMessage, section string
 	sectionMap := map[string]any{}
 	if existing, ok := raw[section]; ok && len(bytes.TrimSpace(existing)) > 0 {
 		if err := json.Unmarshal(existing, &sectionMap); err != nil {
-			return xerrors.Errorf(Localizef("config section %s is invalid; refusing to overwrite: %v", "config section %s が不正なため上書きを拒否します: %v", section, err))
+			return xerrors.Errorf("%s: %w", Localizef("config section %s is invalid; refusing to overwrite", "config section %s が不正なため上書きを拒否します", section), err)
 		}
 		if sectionMap == nil {
 			sectionMap = map[string]any{}
@@ -925,7 +925,7 @@ func updateCockpitSettingsSection(raw map[string]json.RawMessage, section string
 	}
 	encoded, err := json.Marshal(sectionMap)
 	if err != nil {
-		return xerrors.Errorf(Localizef("failed to encode config section %s: %v", "config section %s の encode に失敗しました: %v", section, err))
+		return xerrors.Errorf("%s: %w", Localizef("failed to encode config section %s", "config section %s の encode に失敗しました", section), err)
 	}
 	raw[section] = encoded
 	return nil
@@ -933,7 +933,7 @@ func updateCockpitSettingsSection(raw map[string]json.RawMessage, section string
 
 func writeCockpitSettingsConfigAtomically(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return xerrors.Errorf(Localizef("failed to create config directory: %v", "config directory の作成に失敗しました: %v", err))
+		return xerrors.Errorf("%s: %w", Localize("failed to create config directory", "config directory の作成に失敗しました"), err)
 	}
 	mode := os.FileMode(0o644)
 	if info, err := os.Stat(path); err == nil {
@@ -941,23 +941,23 @@ func writeCockpitSettingsConfigAtomically(path string, data []byte) error {
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".config.json.tmp-*")
 	if err != nil {
-		return xerrors.Errorf(Localizef("failed to create temp config file: %v", "一時 config file の作成に失敗しました: %v", err))
+		return xerrors.Errorf("%s: %w", Localize("failed to create temp config file", "一時 config file の作成に失敗しました"), err)
 	}
 	tmpPath := tmp.Name()
 	defer func() { _ = os.Remove(tmpPath) }()
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
-		return xerrors.Errorf(Localizef("failed to write temp config file: %v", "一時 config file の書き込みに失敗しました: %v", err))
+		return xerrors.Errorf("%s: %w", Localize("failed to write temp config file", "一時 config file の書き込みに失敗しました"), err)
 	}
 	if err := tmp.Chmod(mode); err != nil {
 		_ = tmp.Close()
-		return xerrors.Errorf(Localizef("failed to chmod temp config file: %v", "一時 config file の chmod に失敗しました: %v", err))
+		return xerrors.Errorf("%s: %w", Localize("failed to chmod temp config file", "一時 config file の chmod に失敗しました"), err)
 	}
 	if err := tmp.Close(); err != nil {
-		return xerrors.Errorf(Localizef("failed to close temp config file: %v", "一時 config file の close に失敗しました: %v", err))
+		return xerrors.Errorf("%s: %w", Localize("failed to close temp config file", "一時 config file の close に失敗しました"), err)
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
-		return xerrors.Errorf(Localizef("failed to replace config atomically: %v", "config の atomic replace に失敗しました: %v", err))
+		return xerrors.Errorf("%s: %w", Localize("failed to replace config atomically", "config の atomic replace に失敗しました"), err)
 	}
 	return nil
 }

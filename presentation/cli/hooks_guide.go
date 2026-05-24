@@ -126,7 +126,7 @@ func buildHooksGuide(c *RootCLI, client string, projectDir string, outputPath st
 
 func writeHooksGuide(output io.Writer, guide *hooksGuide) error {
 	if guide == nil {
-		return xerrors.Errorf(Localize("hooks guide must not be nil", "hooks guide は nil にできません"))
+		return xerrors.New(Localize("hooks guide must not be nil", "hooks guide は nil にできません"))
 	}
 
 	if _, err := fmt.Fprintf(output, "TRACEARY HOOKS GUIDE (%s)\n", strings.ToUpper(guide.client)); err != nil {

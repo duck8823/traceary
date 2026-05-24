@@ -44,7 +44,7 @@ func detectRepoContext(ctx context.Context) (string, error) {
 func detectRepoContextFromDir(ctx context.Context, cwd string) (string, error) {
 	trimmedCWD := strings.TrimSpace(cwd)
 	if trimmedCWD == "" {
-		return "", xerrors.Errorf(Localize("working directory must not be empty", "working directory は空にできません"))
+		return "", xerrors.New(Localize("working directory must not be empty", "working directory は空にできません"))
 	}
 
 	remote, remoteErr := gitOutput(ctx, trimmedCWD, "config", "--get", "remote.origin.url")
@@ -74,7 +74,7 @@ func detectRepoContextFromDir(ctx context.Context, cwd string) (string, error) {
 		)
 	}
 
-	return "", xerrors.Errorf(Localize("workspace could not be resolved from git context", "git コンテキストから workspace を解決できませんでした"))
+	return "", xerrors.New(Localize("workspace could not be resolved from git context", "git コンテキストから workspace を解決できませんでした"))
 }
 
 func gitOutput(ctx context.Context, cwd string, args ...string) (string, error) {

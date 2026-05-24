@@ -86,16 +86,16 @@ type replayCommandInput struct {
 
 func (c *RootCLI) runReplay(ctx context.Context, output io.Writer, input replayCommandInput) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.replay == nil {
-		return xerrors.Errorf(Localize("replay usecase is not configured", "replay ユースケースが設定されていません"))
+		return xerrors.New(Localize("replay usecase is not configured", "replay ユースケースが設定されていません"))
 	}
 	if strings.TrimSpace(input.outputPath) == "" {
-		return xerrors.Errorf(Localize("--out is required", "--out は必須です"))
+		return xerrors.New(Localize("--out is required", "--out は必須です"))
 	}
 	if input.sessions <= 0 || input.eventsPerSession <= 0 {
-		return xerrors.Errorf(Localize("--sessions and --events-per-session must be positive", "--sessions と --events-per-session は 1 以上である必要があります"))
+		return xerrors.New(Localize("--sessions and --events-per-session must be positive", "--sessions と --events-per-session は 1 以上である必要があります"))
 	}
 
 	resolvedDBPath, err := resolveDBPath(input.dbPath)
@@ -313,10 +313,11 @@ func writeReplayHTML(outputPath string, data replayData) error {
 	// intend to touch.
 	if info, err := os.Lstat(absPath); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
-			return xerrors.Errorf(Localize(
+			return xerrors.New(Localizef(
 				"refusing to write replay HTML through a symlink: %s",
 				"symlink 経由の書き込みを拒否しました: %s",
-			), absPath)
+				absPath,
+			))
 		}
 	} else if !os.IsNotExist(err) {
 		return xerrors.Errorf("%s: %w", Localize("failed to inspect replay output path", "replay 出力パスの確認に失敗しました"), err)

@@ -101,16 +101,16 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 
 func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.Writer, input listCommandInput) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.event == nil {
-		return xerrors.Errorf(Localize("list events query service is not configured", "イベント一覧クエリサービスが設定されていません"))
+		return xerrors.New(Localize("list events query service is not configured", "イベント一覧クエリサービスが設定されていません"))
 	}
 	if input.limit <= 0 {
-		return xerrors.Errorf(Localize("limit must be greater than or equal to 1", "limit は 1 以上である必要があります"))
+		return xerrors.New(Localize("limit must be greater than or equal to 1", "limit は 1 以上である必要があります"))
 	}
 	if input.offset < 0 {
-		return xerrors.Errorf(Localize("offset must be greater than or equal to 0", "offset は 0 以上である必要があります"))
+		return xerrors.New(Localize("offset must be greater than or equal to 0", "offset は 0 以上である必要があります"))
 	}
 	preset, _, err := resolveReadPreset(input.preset, c.readPresets, warnWriter)
 	if err != nil {
@@ -140,7 +140,7 @@ func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.W
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve --to", "to の解決に失敗しました"), err)
 	}
 	if !fromRaw.IsZero() && !toRaw.IsZero() && fromRaw.After(toRaw) {
-		return xerrors.Errorf(Localize("--from must be earlier than --to", "from は to より前である必要があります"))
+		return xerrors.New(Localize("--from must be earlier than --to", "from は to より前である必要があります"))
 	}
 	fromTime := fromRaw
 	toTime, err := parseFlexibleTime(toValue, true)

@@ -221,10 +221,10 @@ func (c *RootCLI) runSessionBoundary(
 	input sessionBoundaryCommandInput,
 ) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.session == nil {
-		return xerrors.Errorf(Localize("record session boundary usecase is not configured", "session 境界ユースケースが設定されていません"))
+		return xerrors.New(Localize("record session boundary usecase is not configured", "session 境界ユースケースが設定されていません"))
 	}
 
 	resolvedDBPath, err := resolveDBPath(input.dbPath)
@@ -331,10 +331,10 @@ func (c *RootCLI) runSessionLatest(
 	input sessionLatestCommandInput,
 ) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.session == nil {
-		return xerrors.Errorf(Localize("find latest session query service is not configured", "直近セッションクエリサービスが設定されていません"))
+		return xerrors.New(Localize("find latest session query service is not configured", "直近セッションクエリサービスが設定されていません"))
 	}
 
 	resolvedDBPath, err := resolveDBPath(input.dbPath)
@@ -365,9 +365,9 @@ func (c *RootCLI) runSessionLatest(
 	}
 	if _, ok := result.Value(); !ok {
 		if input.activeOnly {
-			return xerrors.Errorf(Localize("no matching active session found", "条件に一致する active session は存在しません"))
+			return xerrors.New(Localize("no matching active session found", "条件に一致する active session は存在しません"))
 		}
-		return xerrors.Errorf(Localize("no matching session found", "条件に一致する session は存在しません"))
+		return xerrors.New(Localize("no matching session found", "条件に一致する session は存在しません"))
 	}
 	event, _ := result.Value()
 	if err := validateActiveSessionFreshness(event, input); err != nil {

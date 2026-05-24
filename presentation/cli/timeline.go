@@ -70,7 +70,7 @@ func (c *RootCLI) newTimelineCommand() *cobra.Command {
 
 func (c *RootCLI) runTimeline(ctx context.Context, output io.Writer, input timelineCommandInput) error {
 	if c.event == nil {
-		return xerrors.Errorf(Localize("event usecase is not configured", "イベントユースケースが設定されていません"))
+		return xerrors.New(Localize("event usecase is not configured", "イベントユースケースが設定されていません"))
 	}
 
 	resolvedDBPath, err := resolveDBPath(input.dbPath)

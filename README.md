@@ -140,11 +140,11 @@ traceary memory store remember \
 traceary session handoff --workspace github.com/duck8823/traceary
 ```
 
-### 5. Curate the durable-memory inbox
+### 5. Curate the memory review queue
 
 `traceary memory ...` is grouped by intent: `memory inbox` for candidate review, `memory store` for deliberate writes (`remember` / `propose` / `distill`), and `memory admin` for extraction, host-side I/O (`import` / `export` / `activate`), maintenance (`hygiene` / `graph`), and lifecycle (`supersede` / `expire` / `set-validity`). Daily-read commands (`memory search` / `memory show` / `memory list`) stay top-level. The flat verbs from earlier releases (`memory remember`, `memory accept`, ...) were removed in v0.15.0 after the v0.14 compatibility window; use the canonical grouped paths above.
 
-For interactive review of the candidate inbox at the terminal:
+For interactive review of the memory review queue at the terminal:
 
 ```sh
 traceary memory inbox review
@@ -159,8 +159,8 @@ Traceary ships complementary inspection views so you can switch between "what's 
 
 | When | Command | Use it to |
 |---|---|---|
-| Starting from one operator cockpit | `traceary` (`traceary tui` explicitly) | notice new events / candidate memories and jump into live tail, doctor details, or memory review |
-| Watching the workspace dashboard | `traceary top` | browse active sessions, recent failures / commands, candidate memories, and stale memories in one TUI |
+| Starting from one operator cockpit | `traceary` (`traceary tui` explicitly) | notice new events / memory candidates and jump into live tail, doctor details, or memory review |
+| Watching the workspace dashboard | `traceary top` | browse active sessions, recent failures / commands, memory candidates, and stale memories in one TUI |
 | Following what is happening now | `traceary tail` | confirm hooks are firing, watch failures in real time |
 | Understanding what happened across a span | `traceary timeline` | see gap-separated work blocks with a per-workspace activity summary |
 | Inspecting raw events directly | `traceary list` / `traceary search` | jump to an exact kind / session / query |
@@ -172,7 +172,7 @@ Traceary ships complementary inspection views so you can switch between "what's 
 traceary tui
 ```
 
-`traceary` opens the Tail-first operator cockpit in an interactive terminal. `traceary tui` remains the explicit compatibility entrypoint for the same cockpit: a TTY-only surface for new events, candidate memories, doctor warnings, and recent failures, with jumps into live tail, doctor details, and memory review. In non-interactive shells, bare `traceary` prints deterministic help/fallback guidance so scripts should continue calling explicit commands such as `traceary list`, `traceary top --snapshot [--json]`, and `traceary doctor --json`.
+`traceary` opens the Tail-first operator cockpit in an interactive terminal. `traceary tui` remains the explicit compatibility entrypoint for the same cockpit: a TTY-only surface for new events, memory candidates, doctor warnings, and recent failures, with jumps into live tail, doctor details, and memory review. In non-interactive shells, bare `traceary` prints deterministic help/fallback guidance so scripts should continue calling explicit commands such as `traceary list`, `traceary top --snapshot [--json]`, and `traceary doctor --json`.
 
 ### `traceary top`
 
@@ -180,7 +180,7 @@ traceary tui
 traceary top
 ```
 
-`top` opens a five-pane Bubble Tea dashboard for active sessions, recent failures, recent commands, candidate memories, and stale memories. Use `tab` / `shift+tab` to move between panes, `/` to filter the focused pane incrementally, and Enter to drill into the highlighted session, event, or memory detail. In non-TTY shells, `traceary top --snapshot` and `traceary top --snapshot --json` expose the same data for scripts, including the `stale_memories` envelope key.
+`top` opens a five-pane Bubble Tea dashboard for active sessions, recent failures, recent commands, memory candidates, and stale memories. Use `tab` / `shift+tab` to move between panes, `/` to filter the focused pane incrementally, and Enter to drill into the highlighted session, event, or memory detail. In non-TTY shells, `traceary top --snapshot` and `traceary top --snapshot --json` expose the same data for scripts, including the `stale_memories` envelope key.
 
 ### `traceary tail`
 

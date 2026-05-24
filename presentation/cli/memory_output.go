@@ -82,7 +82,7 @@ func writeExtractedMemoryCandidatesByFormat(output io.Writer, details []apptypes
 	}
 
 	if len(details) == 0 {
-		if _, err := fmt.Fprintln(output, Localize("No extractable durable-memory candidates were found.", "抽出可能な durable memory candidate は見つかりませんでした")); err != nil {
+		if _, err := fmt.Fprintln(output, Localize("No extractable memory candidates were found.", "抽出可能なメモリ候補は見つかりませんでした")); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print empty extraction message", "空の抽出結果メッセージの出力に失敗しました"), err)
 		}
 		return nil

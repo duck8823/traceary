@@ -183,17 +183,17 @@ func writeEventNDJSON(output io.Writer, event *model.Event) error {
 
 func (c *RootCLI) newTailCommand() *cobra.Command {
 	var (
-		dbPath       string
-		limit        int
-		kind         string
-		client       string
-		agent        string
-		sessionID    string
-		repo         string
-		failuresOnly bool
-		asJSON       bool
-		wide         bool
-		utc          bool
+		dbPath        string
+		limit         int
+		kind          string
+		client        string
+		agent         string
+		sessionID     string
+		repo          string
+		failuresOnly  bool
+		asJSON        bool
+		wide          bool
+		utc           bool
 		fields        []string
 		preset        string
 		color         string
@@ -206,27 +206,27 @@ func (c *RootCLI) newTailCommand() *cobra.Command {
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runTail(cmd.Context(), cmd.ErrOrStderr(), cmd.OutOrStdout(), tailCommandInput{
-				dbPath:          dbPath,
-				limit:           limit,
-				kind:            kind,
-				client:          client,
-				agent:           agent,
-				sessionID:       sessionID,
-				repo:            repo,
-				failuresOnly:    failuresOnly,
-				asJSON:          asJSON,
-				wide:            wide,
-				utc:             utc,
-				fields:          fields,
-				fieldsSet:       cmd.Flags().Changed("fields"),
-				preset:          preset,
-				presetSet:       cmd.Flags().Changed("preset"),
-				kindSet:         cmd.Flags().Changed("kind"),
-				clientSet:       cmd.Flags().Changed("client"),
-				agentSet:        cmd.Flags().Changed("agent"),
-				sessionIDSet:    cmd.Flags().Changed("session-id"),
-				repoSet:         cmd.Flags().Changed("workspace"),
-				failuresOnlySet: cmd.Flags().Changed("failures"),
+				dbPath:           dbPath,
+				limit:            limit,
+				kind:             kind,
+				client:           client,
+				agent:            agent,
+				sessionID:        sessionID,
+				repo:             repo,
+				failuresOnly:     failuresOnly,
+				asJSON:           asJSON,
+				wide:             wide,
+				utc:              utc,
+				fields:           fields,
+				fieldsSet:        cmd.Flags().Changed("fields"),
+				preset:           preset,
+				presetSet:        cmd.Flags().Changed("preset"),
+				kindSet:          cmd.Flags().Changed("kind"),
+				clientSet:        cmd.Flags().Changed("client"),
+				agentSet:         cmd.Flags().Changed("agent"),
+				sessionIDSet:     cmd.Flags().Changed("session-id"),
+				repoSet:          cmd.Flags().Changed("workspace"),
+				failuresOnlySet:  cmd.Flags().Changed("failures"),
 				color:            color,
 				colorSet:         cmd.Flags().Changed("color"),
 				followSession:    followSession,
@@ -258,13 +258,13 @@ func (c *RootCLI) newTailCommand() *cobra.Command {
 
 func (c *RootCLI) runTail(ctx context.Context, warnWriter io.Writer, output io.Writer, input tailCommandInput) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.event == nil {
-		return xerrors.Errorf(Localize("list events query service is not configured", "イベント一覧クエリサービスが設定されていません"))
+		return xerrors.New(Localize("list events query service is not configured", "イベント一覧クエリサービスが設定されていません"))
 	}
 	if input.limit < 0 {
-		return xerrors.Errorf(Localize("limit must be greater than or equal to 0", "limit は 0 以上である必要があります"))
+		return xerrors.New(Localize("limit must be greater than or equal to 0", "limit は 0 以上である必要があります"))
 	}
 	followSessionPrefix, err := validateFollowSessionPrefix(input.followSession)
 	if err != nil {
@@ -396,10 +396,11 @@ func validateFollowSessionPrefix(value string) (string, error) {
 		return "", nil
 	}
 	if runeLen(trimmed) < followSessionMinRunes {
-		return "", xerrors.Errorf(Localize(
+		return "", xerrors.New(Localizef(
 			"--follow-session requires at least %d runes",
 			"--follow-session には最低 %d 文字必要です",
-		), followSessionMinRunes)
+			followSessionMinRunes,
+		))
 	}
 	return trimmed, nil
 }

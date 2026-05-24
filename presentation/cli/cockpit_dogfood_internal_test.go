@@ -86,7 +86,7 @@ func TestCockpitDogfoodTerminalSizesKeepTaskCues(t *testing.T) {
 			"doctor dependency unavailable",
 		},
 		"top_candidate_memories": {
-			"new candidate memories=2",
+			"new memory candidates=2",
 			"remember-intent candidates=1",
 		},
 		"top_stale_sessions": {
@@ -361,7 +361,7 @@ func TestCockpitDogfoodJapaneseNarrowSmoke(t *testing.T) {
 	for _, must := range []string{
 		"Traceary cockpit · メモリ確認",
 		"判断カード",
-		"判断 context",
+		"判断コンテキスト",
 		"信頼度が低い",
 		"evidence 追加まで accept 不可",
 		"evidence 優先 review",

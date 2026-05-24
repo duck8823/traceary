@@ -11,14 +11,14 @@ Top 概要
 • payloads: large=0
 
 対応が必要な通知
-• [WARN] メモリ候補の確認が必要 — candidate=4 new=2 remember-intent=1 low-quality=1 (3 メモリ候補を確認)
+• [WARN] メモリ候補の確認が必要 — candidate=4 new=2 remember-intent=1 low-quality=1 (3 メモリ確認を開く)
 
 通知の詳細
 • cockpit state 初期化まで新着イベントは未追跡
 • 新着メモリ候補=2
 • メモリ候補=4
-• remember-intent 候補=1
-• 低品質候補=1
+• remember-intent メモリ候補=1
+• 低品質メモリ候補=1
 
 Top ダッシュボード
 Top ダッシュボードはまだ読み込まれていません。r で再取得します。

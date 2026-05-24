@@ -22,7 +22,7 @@ Use the commands below according to the question you are trying to answer.
 
 ### 1. "I want one place to start" → `traceary`
 
-Use bare `traceary` when you are at an interactive terminal and want Traceary to show the Tail-first operator cockpit first. `traceary tui` remains the explicit compatibility entrypoint for the same cockpit. The cockpit summarizes active work, doctor warnings/failures, recent failures, new events since the last live-tail visit, and candidate durable memories since the last memory review. From there you can jump into:
+Use bare `traceary` when you are at an interactive terminal and want Traceary to show the Tail-first operator cockpit first. `traceary tui` remains the explicit compatibility entrypoint for the same cockpit. The cockpit summarizes active work, doctor warnings/failures, recent failures, new events since the last live-tail visit, and memory candidates queued since the last memory review. From there you can jump into:
 
 - live event tail
 - doctor details
@@ -47,12 +47,13 @@ traceary list --workspace github.com/duck8823/traceary --client codex
 
 ### 3. "Which sessions are running right now?" → `traceary top`
 
-Use `top` to watch a live multi-pane dashboard of the workspace. The screen is split into four panes:
+Use `top` to watch a live multi-pane dashboard of the workspace. The screen is split into five panes:
 
 - **sessions** — active session tree (workspace, agent role, latest event time, latest event as `<kind>: <message>`)
 - **failures** — recent failed `command_executed` events
 - **commands** — recent `command_executed` events
-- **candidates** — durable-memory inbox candidates ordered by remember-intent priority
+- **candidates** — memory review queue candidates ordered by remember-intent priority
+- **stale memories** — accepted memories that may need cleanup
 
 ```sh
 traceary top
@@ -61,7 +62,7 @@ traceary top --snapshot
 traceary top --snapshot --json
 ```
 
-Inside the dashboard `tab` / `shift+tab` cycle the focused pane, `↑/↓` (or `k/j`) scroll it by one row, `pgup/pgdn` page through it, `g/G` jump to the top/bottom, `r` forces a refresh, `?` toggles help, and `q` / Ctrl-C / Esc quit cleanly. Non-TTY callers (pipes, CI logs) fall back to the snapshot text writer automatically. `--snapshot` and `--snapshot --json` mirror the four panes for scripts: the text snapshot prints `ACTIVE SESSIONS`, `RECENT FAILURES`, `RECENT COMMANDS`, and `CANDIDATE MEMORIES (count=N)` sections; the JSON snapshot is wrapped in an envelope with `sessions`, `failures`, `recent_commands`, and `candidates` (`{ count, items }`) keys.
+Inside the dashboard `tab` / `shift+tab` cycle the focused pane, `↑/↓` (or `k/j`) scroll it by one row, `pgup/pgdn` page through it, `g/G` jump to the top/bottom, `r` forces a refresh, `?` toggles help, and `q` / Ctrl-C / Esc quit cleanly. Non-TTY callers (pipes, CI logs) fall back to the snapshot text writer automatically. `--snapshot` and `--snapshot --json` mirror the five panes for scripts: the text snapshot prints `ACTIVE SESSIONS`, `RECENT FAILURES`, `RECENT COMMANDS`, `CANDIDATE MEMORIES (count=N)`, and `STALE MEMORIES (count=N)` sections; the JSON snapshot is wrapped in an envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, items }`), and `stale_memories` (`{ count, items }`) keys.
 
 ### 4. "Is the system writing events right now?" → `traceary tail`
 
@@ -91,9 +92,9 @@ Use `show` when you already have an event ID and want the structured event or au
 traceary show evt_123 --json
 ```
 
-### 7. "Walk through candidate durable memories" → `traceary memory inbox review`
+### 7. "Walk through memory candidates" → `traceary memory inbox review`
 
-Use `memory inbox review` for an interactive walk through the durable-memory candidate inbox. It is TTY-only — non-interactive shells receive a refusal with exit code `2` and pointers to `traceary memory inbox list / accept / reject`. The same filters as the snapshot view are accepted (`--workspace`, `--agent`, `--session-family`, `--type`, `--source`, `--include-hidden`, `--limit`).
+Use `memory inbox review` for an interactive walk through the memory review queue. It is TTY-only — non-interactive shells receive a refusal with exit code `2` and pointers to `traceary memory inbox list / accept / reject`. The same filters as the snapshot view are accepted (`--workspace`, `--agent`, `--session-family`, `--type`, `--source`, `--include-hidden`, `--limit`).
 
 ```sh
 traceary memory inbox review

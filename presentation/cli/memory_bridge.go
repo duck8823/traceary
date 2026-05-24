@@ -57,7 +57,7 @@ func (c *RootCLI) newMemoryImportInstructionsCommand() *cobra.Command {
 	input := memoryImportInstructionsCommandInput{}
 	cmd := &cobra.Command{
 		Use:   "instructions",
-		Short: Localize("Import bullets from a host instruction file as durable-memory candidates", "ホスト別 instruction file の bullet を candidate durable memory として取り込む"),
+		Short: Localize("Import bullets from a host instruction file as memory candidates", "ホスト別 instruction file の bullet をメモリ候補として取り込む"),
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runMemoryImportInstructions(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), input)
@@ -81,14 +81,14 @@ func (c *RootCLI) newMemoryImportInstructionsCommand() *cobra.Command {
 
 func (c *RootCLI) runMemoryExport(ctx context.Context, output io.Writer, warnWriter io.Writer, input memoryExportCommandInput) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.memory == nil {
-		return xerrors.Errorf(Localize("memory usecase is not configured", "memory export ユースケースが設定されていません"))
+		return xerrors.New(Localize("memory usecase is not configured", "memory export ユースケースが設定されていません"))
 	}
 	target, ok := apptypes.MemoryBridgeTargetOf(strings.ToLower(strings.TrimSpace(input.target)))
 	if !ok {
-		return xerrors.Errorf(Localize("--target must be one of claude / codex / gemini", "--target は claude / codex / gemini のいずれかを指定してください"))
+		return xerrors.New(Localize("--target must be one of claude / codex / gemini", "--target は claude / codex / gemini のいずれかを指定してください"))
 	}
 	if err := c.initializeStore(ctx, input.dbPath); err != nil {
 		return err
@@ -118,14 +118,14 @@ func (c *RootCLI) runMemoryExport(ctx context.Context, output io.Writer, warnWri
 
 func (c *RootCLI) runMemoryImportInstructions(ctx context.Context, output io.Writer, warnWriter io.Writer, input memoryImportInstructionsCommandInput) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.memory == nil {
-		return xerrors.Errorf(Localize("memory usecase is not configured", "memory bridge import ユースケースが設定されていません"))
+		return xerrors.New(Localize("memory usecase is not configured", "memory bridge import ユースケースが設定されていません"))
 	}
 	target, ok := apptypes.MemoryBridgeTargetOf(strings.ToLower(strings.TrimSpace(input.source)))
 	if !ok {
-		return xerrors.Errorf(Localize("--source must be one of claude / codex / gemini", "--source は claude / codex / gemini のいずれかを指定してください"))
+		return xerrors.New(Localize("--source must be one of claude / codex / gemini", "--source は claude / codex / gemini のいずれかを指定してください"))
 	}
 	if err := c.initializeStore(ctx, input.dbPath); err != nil {
 		return err
@@ -205,10 +205,12 @@ func mergeMemoryExportIntoExistingFile(path, generated string) (string, error) {
 		return appendMemoryExportBlock(string(existing), generated), nil
 	}
 	if version > usecaseMemoryBridgeCurrentVersion {
-		return "", xerrors.Errorf(Localize(
+		return "", xerrors.New(Localizef(
 			"refusing to overwrite a bridge block written by a newer Traceary (found :v%d, this binary writes :v%d); upgrade before re-running memory export",
 			"新しい Traceary が書き出した bridge ブロック (:v%d) を古いバイナリ (:v%d) で上書きしないよう中断しました。Traceary を更新してから memory export を再実行してください",
-		), version, usecaseMemoryBridgeCurrentVersion)
+			version,
+			usecaseMemoryBridgeCurrentVersion,
+		))
 	}
 	_ = beginLen
 	endCut := endIdx + len(usecaseMemoryBridgeMarkerEnd)

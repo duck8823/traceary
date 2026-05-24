@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -154,7 +155,7 @@ func TestLoadCockpitHome_MemoryNotificationsUseLastSeenWhenAvailable(t *testing.
 	model.mode = cockpitModeTop
 	view := model.View()
 	for _, must := range []string{
-		"new candidate memories=2",
+		"new memory candidates=2",
 		"remember-intent candidates=1",
 		"low-quality candidates=1",
 		"memories: accepted(reviewed)=1 candidate(inbox)=3 new=2 remember-intent=1 low-quality=1 stale=0",
@@ -251,13 +252,13 @@ func TestLoadCockpitHome_MemoryNotificationsFallbackWhenLastSeenUnavailable(t *t
 	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), home)
 	model.mode = cockpitModeTop
 	view := model.View()
-	if !strings.Contains(view, "candidate memories=1") {
+	if !strings.Contains(view, "memory candidates=1") {
 		t.Fatalf("fallback view should still surface total candidates:\n%s", view)
 	}
-	if strings.Contains(view, "new candidate memories=") {
+	if strings.Contains(view, "new memory candidates=") {
 		t.Fatalf("fallback view should not claim a new count without last-seen state:\n%s", view)
 	}
-	if !strings.Contains(view, "candidate memory new count=untracked") {
+	if !strings.Contains(view, "memory candidate new count=untracked") {
 		t.Fatalf("fallback view should explain untracked memory notification state:\n%s", view)
 	}
 	if !strings.Contains(view, "new=untracked") {
@@ -279,7 +280,7 @@ func TestCockpitModelView_MemoryNotificationsNoneState(t *testing.T) {
 	if !strings.Contains(view, "memories: accepted(reviewed)=2 candidate(inbox)=0 new=0 remember-intent=0 low-quality=0 stale=0") {
 		t.Fatalf("none-state view missing zero notification summary:\n%s", view)
 	}
-	if strings.Contains(view, "[WARN] Memory review") || strings.Contains(view, "new candidate memories=") {
+	if strings.Contains(view, "[WARN] Memory review") || strings.Contains(view, "new memory candidates=") {
 		t.Fatalf("none-state view should not show candidate warnings:\n%s", view)
 	}
 	if !strings.Contains(view, "no unseen candidates since not recorded") {
@@ -323,13 +324,13 @@ func TestCockpitModelView_RendersActionableTriageBoard(t *testing.T) {
 		"Actionable signals",
 		"[FAIL] Health failures",
 		"(d open Doctor checks)",
-		"[WARN] Memory inbox needs review",
-		"(3 review Memory inbox)",
+		"[WARN] Memory review queue needs attention",
+		"(3 open Memory review)",
 		"[WARN] Recent command failures",
 		"[WARN] Stale active sessions",
 		"[INFO] New Tail events",
 		"new events=3 since 2026-05-07T11:30:00Z",
-		"new candidate memories=2",
+		"new memory candidates=2",
 		"remember-intent candidates=1",
 		"low-quality candidates=1",
 		"stale active sessions=2",
@@ -435,7 +436,7 @@ func TestCockpitModelTopTab_LoadsDashboardAndOpensDetail(t *testing.T) {
 		"SESSIONS (1)",
 		"RECENT FAILURES (1)",
 		"go test failed in top tab",
-		"CANDIDATE MEMORIES (1)",
+		"MEMORY CANDIDATES (1)",
 		"use the dedicated top dashboard",
 	} {
 		if !strings.Contains(view, must) {
@@ -1273,7 +1274,7 @@ func TestCockpitModel_MemoryReviewOwnSectionReselectKeepsReviewState(t *testing.
 func cockpitSectionRuneKeyForTest(t *testing.T, section cockpitSectionID) tea.KeyMsg {
 	t.Helper()
 
-	for _, navigationSection := range cockpitNavigationSections {
+	for _, navigationSection := range cockpitNavigationSectionsList() {
 		if navigationSection.id == section {
 			return cockpitRuneKey(navigationSection.key)
 		}
@@ -1370,7 +1371,7 @@ func TestCockpitModel_MemoryReviewEscDismissesEvidenceWithoutApplying(t *testing
 }
 
 func TestCockpitModel_MemoryReviewHelpKeepsGlobalShellDiscoverable(t *testing.T) {
-	t.Parallel()
+	t.Setenv(cliLanguageEnvKey, "en")
 
 	candidate := cockpitMemoryDetailsFixture(t, "mem-help", "show contextual and global help", domtypes.MemoryStatusCandidate)
 	loader := &cockpitLoaderStub{reviewItems: []apptypes.MemoryDetails{candidate}}
@@ -1391,7 +1392,7 @@ func TestCockpitModel_MemoryReviewHelpKeepsGlobalShellDiscoverable(t *testing.T)
 	if !model.showHelp || model.memoryReview.review.mode != reviewModeHelp {
 		t.Fatalf("? help state = showHelp:%v reviewMode:%v, want global help + review help", model.showHelp, model.memoryReview.review.mode)
 	}
-	if got := model.View(); !strings.Contains(got, "Global navigation") || !strings.Contains(got, "inbox review · help") {
+	if got := model.View(); !strings.Contains(got, "Global navigation") || !strings.Contains(got, "memory review · help") {
 		t.Fatalf("memory review help missing global/contextual help:\n%s", got)
 	}
 
@@ -1551,7 +1552,7 @@ func TestCockpitModel_MemoryReviewApplyFailureStaysInReview(t *testing.T) {
 	loader := &cockpitLoaderStub{
 		reviewItems:        []apptypes.MemoryDetails{candidate},
 		reviewFinishResult: result,
-		reviewFinishErr:    memoryInboxReviewFailureError(result),
+		reviewFinishErr:    memoryReviewFailureError(result),
 	}
 	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
 	model.loader = loader
@@ -1804,7 +1805,7 @@ func TestCockpitModel_GlobalNavigationShellRendersOnEveryScreen(t *testing.T) {
 			expect: []string{
 				"Traceary cockpit · memory review",
 				"tabs: 1 Tail  2 Top  [3 Memory]  4 Sessions  5 Settings",
-				"Loading memory inbox review queue",
+				"Loading memory review queue",
 			},
 		},
 		{
@@ -2202,7 +2203,7 @@ func TestCockpitModel_NavigationLinesAlignByDisplayWidth(t *testing.T) {
 			descriptions: []string{
 				"live event stream and event details",
 				"dashboard for sessions, failures, commands, memory, and health",
-				"inbox review queue",
+				"memory review queue",
 				"session and handoff entry points",
 				"language, read defaults, redaction diagnostics",
 			},
@@ -2228,7 +2229,7 @@ func TestCockpitModel_NavigationLinesAlignByDisplayWidth(t *testing.T) {
 
 			model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
 			lines := model.cockpitContextualNavigationLines()
-			if got := cockpitNavigationLabelWidth(cockpitNavigationItems()); got != tt.wantWidth {
+			if got := cockpitNavigationLabelWidth(cockpitNavigationSectionsList()); got != tt.wantWidth {
 				t.Fatalf("navigation label width = %d, want %d", got, tt.wantWidth)
 			}
 			for i, description := range tt.descriptions {
@@ -2245,6 +2246,170 @@ func TestCockpitModel_NavigationLinesAlignByDisplayWidth(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCockpitNavigationSectionsCoverKnownSectionIDs(t *testing.T) {
+	t.Parallel()
+
+	expected := []struct {
+		id                  cockpitSectionID
+		key                 string
+		englishLabel        string
+		japaneseLabel       string
+		englishDescription  string
+		japaneseDescription string
+	}{
+		{cockpitSectionLive, "1", "Tail", "Tail", "live event stream and event details", "イベントのライブ表示と詳細確認"},
+		{cockpitSectionTop, "2", "Top", "Top", "dashboard for sessions, failures, commands, memory, and health", "セッション・失敗・コマンド・メモリ・状態の一覧"},
+		{cockpitSectionMemory, "3", "Memory", "メモリ", "memory review queue", "メモリ候補の確認キュー"},
+		{cockpitSectionSessions, "4", "Sessions", "セッション", "session and handoff entry points", "セッション一覧と引き継ぎ導線"},
+		{cockpitSectionSettings, "5", "Settings", "設定", "language, read defaults, redaction diagnostics", "言語・表示既定・redaction 診断"},
+	}
+	if len(expected) != int(cockpitSectionCount) {
+		t.Fatalf("expected navigation section count = %d, want cockpitSectionCount %d", len(expected), cockpitSectionCount)
+	}
+	sections := cockpitNavigationSectionsList()
+	if got, want := len(sections), len(expected); got != want {
+		t.Fatalf("navigation section count = %d, want %d", got, want)
+	}
+	seen := map[cockpitSectionID]struct{}{}
+	seenKeys := map[string]struct{}{}
+	byID := map[cockpitSectionID]cockpitNavigationSection{}
+	for i, section := range sections {
+		if section.id != cockpitSectionID(i) {
+			t.Fatalf("navigation section %d id = %v, want %v", i, section.id, cockpitSectionID(i))
+		}
+		want := expected[i]
+		if section.id != want.id || section.key != want.key || section.englishLabel != want.englishLabel || section.japaneseLabel != want.japaneseLabel || section.englishDescription != want.englishDescription || section.japaneseDescription != want.japaneseDescription {
+			t.Fatalf("navigation section %d = %#v, want %#v", i, section, want)
+		}
+		if section.key == "" || section.englishLabel == "" || section.japaneseLabel == "" || section.englishDescription == "" || section.japaneseDescription == "" {
+			t.Fatalf("navigation section has incomplete metadata: %#v", section)
+		}
+		if _, ok := seenKeys[section.key]; ok {
+			t.Fatalf("duplicate navigation section key: %q", section.key)
+		}
+		seenKeys[section.key] = struct{}{}
+		if _, ok := seen[section.id]; ok {
+			t.Fatalf("duplicate navigation section id: %v", section.id)
+		}
+		seen[section.id] = struct{}{}
+		byID[section.id] = section
+	}
+	for _, want := range expected {
+		if _, ok := seen[want.id]; !ok {
+			t.Fatalf("navigation section id %v is missing from cockpitNavigationSections", want.id)
+		}
+		section, ok := byID[want.id]
+		if !ok {
+			t.Fatalf("navigation section id %v missing from lookup", want.id)
+		}
+		if got := section.label(); got == "" {
+			t.Fatalf("navigation section id %v has empty localized label", want.id)
+		}
+	}
+}
+
+func TestMemoryReviewWorkflowTitleLocalizesSuffixes(t *testing.T) {
+	tests := []struct {
+		name   string
+		locale string
+		suffix string
+		want   string
+	}{
+		{name: "english suffix", locale: "en", suffix: "help", want: "memory review · help"},
+		{name: "japanese suffix", locale: "ja", suffix: "ヘルプ", want: "メモリ確認 · ヘルプ"},
+		{name: "empty english suffix", locale: "en", want: "memory review"},
+		{name: "empty japanese suffix", locale: "ja", want: "メモリ確認"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetConfiguredCLILanguageCacheForTest()
+			t.Cleanup(resetConfiguredCLILanguageCacheForTest)
+			t.Setenv(cliLanguageEnvKey, tt.locale)
+
+			if got := memoryReviewWorkflowTitle(tt.suffix); got != tt.want {
+				t.Fatalf("memoryReviewWorkflowTitle() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCockpitModel_JapaneseMemoryReviewGlossary(t *testing.T) {
+	resetConfiguredCLILanguageCacheForTest()
+	t.Cleanup(resetConfiguredCLILanguageCacheForTest)
+	t.Setenv(cliLanguageEnvKey, "ja")
+
+	candidate := buildReviewCandidateWithOptions(t, reviewCandidateOptions{
+		id:         "mem-ja-glossary",
+		fact:       "glossary candidate",
+		confidence: domtypes.ConfidenceLow,
+		source:     domtypes.MemorySourceExtractedHidden,
+	})
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	model.mode = cockpitModeMemoryReview
+	model.showHelp = true
+	model.memoryReview.items = []apptypes.MemoryDetails{candidate}
+	model.memoryReview.review = newReviewModel(model.memoryReview.items, model.keys, model.styles)
+	updated, cmd := model.Update(cockpitRuneKey("a"))
+	if cmd != nil {
+		t.Fatalf("weak-candidate confirmation returned command = %T, want nil", cmd)
+	}
+	model = updated.(cockpitModel)
+
+	view := model.View()
+	for _, must := range []string{
+		"Traceary cockpit · メモリ確認",
+		"メモリ確認 · 判断カード",
+		"メモリ候補 1 / 1",
+		"メモリ候補の確認キュー",
+		"メモリ候補 fact:",
+		"この弱いメモリ候補",
+		"現在のメモリ候補を reject",
+		"evidence と artifact refs を表示",
+	} {
+		if !strings.Contains(view, must) {
+			t.Fatalf("Japanese memory review glossary missing %q:\n%s", must, view)
+		}
+	}
+	for _, mustNot := range []string{
+		"inbox review ·",
+		"candidate 1 / 1",
+		"現在の候補を reject",
+		"この弱い候補",
+		"\n候補 fact:",
+	} {
+		if strings.Contains(view, mustNot) {
+			t.Fatalf("Japanese memory review glossary leaked %q:\n%s", mustNot, view)
+		}
+	}
+
+	empty := newReviewModel(nil, tui.DefaultKeyMap(), tui.DefaultStyles()).View()
+	if !strings.Contains(empty, "メモリ候補の確認キューは空です") {
+		t.Fatalf("empty memory review glossary missing canonical queue label:\n%s", empty)
+	}
+	if strings.Contains(empty, "メモリ確認キュー") || strings.Contains(empty, "inbox review") {
+		t.Fatalf("empty memory review glossary leaked old queue term:\n%s", empty)
+	}
+
+	stdout := &bytes.Buffer{}
+	rootCmd := NewRootCLI().Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"memory", "inbox", "review", "--help"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("memory inbox review --help: %v", err)
+	}
+	help := stdout.String()
+	for _, must := range []string{
+		"メモリ候補の確認キュー",
+		"extracted-hidden のメモリ候補",
+	} {
+		if !strings.Contains(help, must) {
+			t.Fatalf("Japanese memory inbox review help missing %q:\n%s", must, help)
+		}
 	}
 }
 

@@ -47,10 +47,10 @@ func (c *RootCLI) newMemoryInboxReviewCommand() *cobra.Command {
 	input := memoryInboxReviewCommandInput{}
 	cmd := &cobra.Command{
 		Use:   "review",
-		Short: Localize("Review candidate durable memories interactively", "candidate durable memory を対話的にレビューする"),
+		Short: Localize("Review memory review queue candidates interactively", "メモリ候補を対話的に確認する"),
 		Long: Localize(
-			"Walk the candidate durable-memory inbox in an interactive TTY. Accept / reject decisions reuse the same application use cases as `memory inbox accept|reject`; edit prompts you to type a new operator-authored fact and runs through `memory store distill`. Non-TTY shells should use `memory inbox list` plus `memory inbox accept|reject` instead.",
-			"candidate durable memory の inbox を対話的に巡回します。Accept / reject は `memory inbox accept|reject` と同じ application usecase を呼び出し、edit は operator が手で書き起こした fact を入力させて `memory store distill` を経由します。非対話シェルでは `memory inbox list` と `memory inbox accept|reject` を使ってください。",
+			"Walk the memory review queue in an interactive TTY. Accept / reject decisions reuse the same application use cases as `memory inbox accept|reject`; edit prompts you to type a new operator-authored fact and runs through `memory store distill`. Non-TTY shells should use `memory inbox list` plus `memory inbox accept|reject` instead.",
+			"メモリ候補の確認キューを対話的に巡回します。Accept / reject は `memory inbox accept|reject` と同じ application usecase を呼び出し、edit は operator が手で書き起こした fact を入力させて `memory store distill` を経由します。非対話シェルでは `memory inbox list` と `memory inbox accept|reject` を使ってください。",
 		),
 		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -63,8 +63,8 @@ func (c *RootCLI) newMemoryInboxReviewCommand() *cobra.Command {
 	cmd.Flags().StringVar(&input.sessionFamily, "session-family", "", Localize("filter by session-family scope", "session-family scope で絞り込む"))
 	cmd.Flags().StringSliceVar(&input.memoryTypes, "type", nil, Localize("filter by memory type", "memory type で絞り込む"))
 	cmd.Flags().StringSliceVar(&input.sources, "source", nil, Localize("filter by memory source (manual / extracted / extracted-hidden / remember-intent / compact-summary / imported)", "memory source (manual / extracted / extracted-hidden / remember-intent / compact-summary / imported) で絞り込む"))
-	cmd.Flags().BoolVar(&input.includeHidden, "include-hidden", false, Localize("include extracted-hidden candidates (low-quality auto-extractions kept for audit)", "extracted-hidden の候補も含める (audit 用に保存された低品質自動抽出)"))
-	cmd.Flags().IntVar(&input.limit, "limit", defaultMemoryInboxLimit, Localize("maximum number of candidates to load into the review queue", "review キューに読み込む最大件数"))
+	cmd.Flags().BoolVar(&input.includeHidden, "include-hidden", false, Localize("include extracted-hidden memory candidates (low-quality auto-extractions kept for audit)", "extracted-hidden のメモリ候補も含める (audit 用に保存された低品質自動抽出)"))
+	cmd.Flags().IntVar(&input.limit, "limit", defaultMemoryInboxLimit, Localize("maximum number of memory candidates to load into the memory review queue", "メモリ候補の確認キューに読み込む最大件数"))
 	return cmd
 }
 
@@ -85,13 +85,13 @@ type memoryInboxReviewCommandInput struct {
 
 func (c *RootCLI) runMemoryInboxReview(ctx context.Context, output io.Writer, input memoryInboxReviewCommandInput) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.memory == nil {
-		return xerrors.Errorf(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
+		return xerrors.New(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
 	}
 	if input.limit <= 0 {
-		return xerrors.Errorf(Localize("limit must be greater than or equal to 1", "limit は 1 以上である必要があります"))
+		return xerrors.New(Localize("limit must be greater than or equal to 1", "limit は 1 以上である必要があります"))
 	}
 	stdin, stdout := inboxReviewIO(output)
 	if !tui.Interactive(stdin, stdout) {
@@ -156,7 +156,7 @@ func (c *RootCLI) loadInboxReviewItems(ctx context.Context, input memoryInboxRev
 		Build()
 	summaries, err := c.memory.List(ctx, criteria)
 	if err != nil {
-		return nil, xerrors.Errorf("%s: %w", Localize("failed to list candidate memories", "candidate memory の一覧取得に失敗しました"), err)
+		return nil, xerrors.Errorf("%s: %w", Localize("failed to list memory review queue candidates", "メモリ候補の確認キューの一覧取得に失敗しました"), err)
 	}
 	items := make([]apptypes.MemoryDetails, 0, len(summaries))
 	for _, summary := range summaries {
@@ -211,7 +211,7 @@ func applyInboxReviewDecisions(ctx context.Context, writer inboxReviewWriter, de
 		case reviewDecisionDistill:
 			source, ok := byID[decision.memoryID.String()]
 			if !ok {
-				result.Failures = append(result.Failures, memoryInboxFailure{ID: decision.memoryID.String(), Error: Localize("source candidate not found in review queue", "review キューに source candidate が見つかりません")})
+				result.Failures = append(result.Failures, memoryInboxFailure{ID: decision.memoryID.String(), Error: Localize("source memory candidate not found in memory review queue", "メモリ候補の確認キューに source メモリ候補が見つかりません")})
 				continue
 			}
 			details, err := distillFromReview(ctx, writer, source, decision.fact)
@@ -228,7 +228,7 @@ func applyInboxReviewDecisions(ctx context.Context, writer inboxReviewWriter, de
 // distillFromReview builds a MemoryDistillCriteria from the source
 // candidate and the operator-typed fact. Type, scope, and source
 // inherit from the candidate so the operator only has to supply the
-// fact text; replace=supersede ensures the source candidate is marked
+// fact text; replace=supersede ensures the source memory candidate is marked
 // superseded rather than left orphaned. The fact must be operator-authored
 // — the model rejects empty edits so this path can trust decision.fact
 // is non-empty.
@@ -298,15 +298,15 @@ func writeMemoryInboxReviewSummary(output io.Writer, result memoryInboxReviewRes
 		}
 	}
 	if len(result.Failures) > 0 {
-		return memoryInboxReviewFailureError(result)
+		return memoryReviewFailureError(result)
 	}
 	return nil
 }
 
-func memoryInboxReviewFailureError(result memoryInboxReviewResult) error {
-	return xerrors.Errorf(Localizef(
-		"inbox review failed for %d memory id(s)",
-		"inbox review が %d 件の memory id で失敗しました",
+func memoryReviewFailureError(result memoryInboxReviewResult) error {
+	return xerrors.New(Localizef(
+		"memory review failed for %d memory id(s)",
+		"メモリ確認が %d 件の memory id で失敗しました",
 		len(result.Failures),
 	))
 }
@@ -507,7 +507,7 @@ func (m reviewModel) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.acceptConfirmID = m.items[m.cursor].Summary().MemoryID()
 			m.statusMsg = Localize(
 				"accept as-is needs confirmation for this weak candidate; press a again only if the checklist passes, or use e to edit/distill",
-				"この弱い候補を accept as-is するには確認が必要です。checklist を満たす場合だけ a を再入力し、不明なら e で edit/distill してください",
+				"この弱いメモリ候補を accept as-is するには確認が必要です。checklist を満たす場合だけ a を再入力し、不明なら e で edit/distill してください",
 			)
 			return m, nil
 		}
@@ -536,8 +536,8 @@ func (m reviewModel) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.currentCandidateBlocksAccept() {
 			m.statusMsg = Localize(
-				"edit/distill is unavailable because the source candidate has no evidence to preserve; skip, reject, or recreate with evidence outside this review",
-				"source candidate に引き継ぐ evidence がないため edit/distill は利用できません。skip / reject するか、review 外で evidence 付きで作り直してください",
+				"edit/distill is unavailable because the source memory candidate has no evidence to preserve; skip, reject, or recreate with evidence outside this review",
+				"source メモリ候補に引き継ぐ evidence がないため edit/distill は利用できません。skip / reject するか、review 外で evidence 付きで作り直してください",
 			)
 			m.acceptConfirmID = ""
 			return m, nil
@@ -655,9 +655,9 @@ func (m reviewModel) updateEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // in dogfood.
 func (m reviewModel) View() string {
 	if len(m.items) == 0 {
-		return m.styles.Title.Render(Localize("inbox review", "inbox review")) +
+		return m.styles.Title.Render(memoryReviewWorkflowLabel()) +
 			"\n\n" +
-			m.styles.Subtle.Render(Localize("No candidate durable memories in the inbox.", "inbox に candidate durable memory はありません")) +
+			m.styles.Subtle.Render(memoryReviewEmptyQueueMessage()) +
 			"\n\n" +
 			m.styles.Help.Render(Localize("press q to quit", "終了するには q"))
 	}
@@ -674,14 +674,14 @@ func (m reviewModel) View() string {
 
 func (m reviewModel) renderBrowse() string {
 	var b strings.Builder
-	b.WriteString(m.styles.Title.Render(Localize("inbox review · decision card", "inbox review · 判断カード")))
+	b.WriteString(m.styles.Title.Render(memoryReviewWorkflowTitle(Localize("decision card", "判断カード"))))
 	b.WriteString("\n")
-	b.WriteString(m.styles.Subtle.Render(Localizef("candidate %d / %d", "candidate %d / %d", m.cursor+1, len(m.items))))
+	b.WriteString(m.styles.Subtle.Render(memoryCandidateCountLabel(m.cursor+1, len(m.items))))
 	b.WriteString("\n\n")
 
 	current := m.items[m.cursor]
 	summary := current.Summary()
-	b.WriteString(m.styles.Subtle.Render(Localize("DECISION CONTEXT", "判断 context")))
+	b.WriteString(m.styles.Subtle.Render(Localize("DECISION CONTEXT", "判断コンテキスト")))
 	b.WriteString("\n")
 	fmt.Fprintf(&b, "%-23s %s\n", Localize("MEMORY_ID:", "MEMORY_ID:"), summary.MemoryID())
 	fmt.Fprintf(&b, "%-23s %s\n", Localize("TYPE:", "TYPE:"), summary.MemoryType())
@@ -694,10 +694,10 @@ func (m reviewModel) renderBrowse() string {
 	fmt.Fprintf(&b, "%-23s %s\n", Localize("ARTIFACT_REFS:", "ARTIFACT_REFS:"), Localizef("%d (press v to inspect)", "%d (v で確認)", len(current.ArtifactRefs())))
 	fmt.Fprintf(&b, "%-23s %s\n", Localize("CREATED_AT:", "CREATED_AT:"), formatJSONTime(summary.CreatedAt()))
 	fmt.Fprintf(&b, "%-23s %s\n", Localize("UPDATED_AT:", "UPDATED_AT:"), formatJSONTime(summary.UpdatedAt()))
-	fmt.Fprintf(&b, "%-23s %s\n", Localize("CANDIDATE_AGE:", "CANDIDATE_AGE:"), formatMemoryReviewCandidateAge(summary, topNowFunc().UTC()))
+	fmt.Fprintf(&b, "%-23s %s\n", Localize("MEMORY_CANDIDATE_AGE:", "メモリ候補の経過時間:"), formatMemoryReviewCandidateAge(summary, topNowFunc().UTC()))
 	fmt.Fprintf(&b, "%-23s %s\n", Localize("DUPLICATE_SUPERSEDE:", "DUPLICATE_SUPERSEDE:"), memoryReviewDuplicateSupersedeHint(summary))
 	b.WriteString("\n")
-	b.WriteString(m.styles.Active.Render(Localize("CANDIDATE FACT:", "候補 fact:")))
+	b.WriteString(m.styles.Active.Render(Localize("MEMORY CANDIDATE FACT:", "メモリ候補 fact:")))
 	b.WriteString("\n")
 	b.WriteString(summary.Fact())
 	b.WriteString("\n\n")
@@ -717,7 +717,7 @@ func (m reviewModel) renderBrowse() string {
 		b.WriteString("\n")
 	}
 	if !m.currentCandidateBlocksAccept() && m.currentCandidateNeedsAcceptConfirmation() {
-		b.WriteString(m.styles.Warning.Render(Localize("• This weak candidate requires pressing `a` twice to accept as-is; prefer edit/distill when wording is unclear.", "• この弱い候補を accept as-is するには `a` を 2 回押す必要があります。文言が曖昧なら edit/distill を優先してください。")))
+		b.WriteString(m.styles.Warning.Render(Localize("• This weak candidate requires pressing `a` twice to accept as-is; prefer edit/distill when wording is unclear.", "• この弱いメモリ候補を accept as-is するには `a` を 2 回押す必要があります。文言が曖昧なら edit/distill を優先してください。")))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
@@ -726,7 +726,7 @@ func (m reviewModel) renderBrowse() string {
 		b.WriteString("\n")
 	}
 	if m.acceptConfirmationMatchesCurrent() {
-		b.WriteString(m.styles.Warning.Render(Localize("accept confirmation armed: press a again to accept this candidate as-is", "accept 確認中: この候補をそのまま accept するにはもう一度 a")))
+		b.WriteString(m.styles.Warning.Render(Localize("accept confirmation armed: press a again to accept this candidate as-is", "accept 確認中: このメモリ候補をそのまま accept するにはもう一度 a")))
 		b.WriteString("\n")
 	}
 	if m.currentCandidateBlocksAccept() {
@@ -745,7 +745,7 @@ func (m reviewModel) renderBrowse() string {
 func (m reviewModel) renderEvidence() string {
 	current := m.items[m.cursor]
 	var b strings.Builder
-	b.WriteString(m.styles.Title.Render(Localize("evidence", "evidence")))
+	b.WriteString(m.styles.Title.Render(memoryReviewWorkflowTitle(Localize("evidence", "evidence"))))
 	b.WriteString("\n\n")
 	b.WriteString(Localize("EVIDENCE_REFS:", "EVIDENCE_REFS:"))
 	b.WriteString("\n")
@@ -773,11 +773,11 @@ func (m reviewModel) renderEvidence() string {
 
 func (m reviewModel) renderHelp() string {
 	var b strings.Builder
-	b.WriteString(m.styles.Title.Render(Localize("inbox review · help", "inbox review · ヘルプ")))
+	b.WriteString(m.styles.Title.Render(memoryReviewWorkflowTitle(Localize("help", "ヘルプ"))))
 	b.WriteString("\n\n")
 	b.WriteString(Localize("Actions:\n", "アクション:\n"))
-	b.WriteString("  a    " + Localize("accept as-is only when the checklist passes; weak candidates require a second a", "checklist を満たす場合だけ accept as-is。弱い候補は a の再入力が必要") + "\n")
-	b.WriteString("  x    " + Localize("reject incorrect, stale, duplicate, or unsafe candidates", "誤り・古い・重複・危険な候補を reject") + "\n")
+	b.WriteString("  a    " + Localize("accept as-is only when the checklist passes; weak candidates require a second a", "checklist を満たす場合だけ accept as-is。弱いメモリ候補は a の再入力が必要") + "\n")
+	b.WriteString("  x    " + Localize("reject incorrect, stale, duplicate, or unsafe candidates", "誤り・古い・重複・危険なメモリ候補を reject") + "\n")
 	b.WriteString("  s    " + Localize("skip when more context is needed before deciding", "判断に追加 context が必要な場合は skip") + "\n")
 	b.WriteString("  e    " + Localize("edit / distill when wording is unclear or scope needs tightening (Enter to commit)", "文言が曖昧、または scope 調整が必要なら edit / distill (Enter で確定)") + "\n")
 	b.WriteString("  v    " + Localize("view evidence and artifact refs", "evidence と artifact refs を表示") + "\n")
@@ -788,12 +788,12 @@ func (m reviewModel) renderHelp() string {
 	b.WriteString("  - " + Localize("the fact is factual and stable", "fact が事実で安定している") + "\n")
 	b.WriteString("  - " + Localize("the memory will be useful in future sessions", "将来の session で有用") + "\n")
 	b.WriteString("  - " + Localize("the scope and type are correct", "scope と type が正しい") + "\n")
-	b.WriteString("  - " + Localize("evidence supports the candidate", "evidence が候補を支えている") + "\n")
+	b.WriteString("  - " + Localize("evidence supports the candidate", "evidence がメモリ候補を支えている") + "\n")
 	b.WriteString("  - " + Localize("it is not duplicate, stale, or superseded", "重複・古い・supersede 済みではない") + "\n")
 	b.WriteString("\n")
 	b.WriteString(Localize(
 		"Edit / distill never auto-accepts the candidate's fact: the operator must type the durable fact, which is then run through `memory store distill --replace=supersede`.",
-		"edit / distill では candidate の fact を自動採用しません。operator が新しい fact を入力した上で `memory store distill --replace=supersede` 経由で記録します。",
+		"edit / distill ではメモリ候補の fact を自動採用しません。operator が新しい fact を入力した上で `memory store distill --replace=supersede` 経由で記録します。",
 	))
 	b.WriteString("\n\n")
 	b.WriteString(m.styles.Help.Render(Localize("? / esc close help · q quit", "? / esc ヘルプを閉じる · q quit")))
@@ -805,7 +805,7 @@ func (m reviewModel) renderEdit() string {
 	var b strings.Builder
 	b.WriteString(m.styles.Title.Render(Localize("edit · type a new operator-authored fact", "edit · operator が書き起こした fact を入力")))
 	b.WriteString("\n\n")
-	b.WriteString(m.styles.Subtle.Render(Localize("source candidate fact:", "元の candidate の fact:")))
+	b.WriteString(m.styles.Subtle.Render(Localize("source memory candidate fact:", "元のメモリ候補の fact:")))
 	b.WriteString("\n")
 	b.WriteString(current.Summary().Fact())
 	b.WriteString("\n\n")
@@ -878,9 +878,11 @@ func memoryReviewQualitySignal(details apptypes.MemoryDetails) string {
 	case domtypes.MemorySourceRememberIntent:
 		signals = append(signals, Localize("explicit remember intent", "明示的な remember intent"))
 	case domtypes.MemorySourceExtractedHidden:
-		signals = append(signals, Localize("hidden extraction", "hidden extraction"))
+		// Keep the exact filter value visible for copy/paste parity with
+		// memory source filters and exported audit data.
+		signals = append(signals, "source=extracted-hidden")
 	case domtypes.MemorySourceExtracted, domtypes.MemorySourceCompactSummary:
-		signals = append(signals, Localize("generated candidate", "生成された candidate"))
+		signals = append(signals, Localize("generated memory candidate", "生成されたメモリ候補"))
 	case domtypes.MemorySourceManual:
 		signals = append(signals, Localize("manual source", "手動 source"))
 	default:

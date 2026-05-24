@@ -85,6 +85,80 @@ func TestMemoryInboxList_TextOutput(t *testing.T) {
 	}
 }
 
+func TestMemoryInboxHelp_JapaneseGlossary(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "ja")
+
+	for _, args := range [][]string{
+		{"memory", "inbox", "--help"},
+		{"memory", "inbox", "list", "--help"},
+		{"memory", "inbox", "accept", "--help"},
+		{"memory", "inbox", "reject", "--help"},
+		{"memory", "inbox", "cleanup", "--help"},
+		{"memory", "inbox", "review", "--help"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			root := cli.NewRootCLI()
+			cmd := root.Command()
+			stdout := &bytes.Buffer{}
+			cmd.SetOut(stdout)
+			cmd.SetErr(&bytes.Buffer{})
+			cmd.SetArgs(args)
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("execute %v: %v", args, err)
+			}
+			help := stdout.String()
+			mustContain := []string{"メモリ候補"}
+			if len(args) == 4 && args[2] == "review" {
+				mustContain = append(mustContain, "メモリ候補の確認キュー", "accept", "reject")
+			}
+			for _, must := range mustContain {
+				if !strings.Contains(help, must) {
+					t.Fatalf("Japanese memory inbox help missing %q for %v:\n%s", must, args, help)
+				}
+			}
+			for _, mustNot := range []string{"candidate durable memory", "candidate durable memories", " の候補", "対象候補数"} {
+				if strings.Contains(help, mustNot) {
+					t.Fatalf("Japanese memory inbox help leaked %q for %v:\n%s", mustNot, args, help)
+				}
+			}
+		})
+	}
+}
+
+func TestMemoryInboxHelp_EnglishGlossary(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+
+	for _, args := range [][]string{
+		{"memory", "inbox", "--help"},
+		{"memory", "inbox", "list", "--help"},
+		{"memory", "inbox", "accept", "--help"},
+		{"memory", "inbox", "reject", "--help"},
+		{"memory", "inbox", "cleanup", "--help"},
+		{"memory", "inbox", "review", "--help"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			root := cli.NewRootCLI()
+			cmd := root.Command()
+			stdout := &bytes.Buffer{}
+			cmd.SetOut(stdout)
+			cmd.SetErr(&bytes.Buffer{})
+			cmd.SetArgs(args)
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("execute %v: %v", args, err)
+			}
+			help := stdout.String()
+			if !strings.Contains(help, "memory candidates") && !strings.Contains(help, "memory review queue") {
+				t.Fatalf("English memory inbox help missing memory candidate glossary for %v:\n%s", args, help)
+			}
+			for _, mustNot := range []string{"candidate durable memory", "candidate durable memories"} {
+				if strings.Contains(help, mustNot) {
+					t.Fatalf("English memory inbox help leaked %q for %v:\n%s", mustNot, args, help)
+				}
+			}
+		})
+	}
+}
+
 func TestMemoryInboxList_SourceFilterPropagatesToCriteria(t *testing.T) {
 	t.Parallel()
 
@@ -286,7 +360,7 @@ func TestMemoryInboxCleanup_ApplyRejectsCandidatesAndReportsFailures(t *testing.
 	if err == nil {
 		t.Fatalf("cleanup apply error = nil, want partial failure")
 	}
-	if !strings.Contains(err.Error(), "inbox cleanup failed for 1 memory id") {
+	if !strings.Contains(err.Error(), "memory review queue cleanup failed for 1 memory id") {
 		t.Fatalf("cleanup apply error = %v", err)
 	}
 	if memoryStub.rejectCallCount != 2 {
@@ -299,7 +373,7 @@ func TestMemoryInboxCleanup_ApplyRejectsCandidatesAndReportsFailures(t *testing.
 }
 
 func TestMemoryInboxCleanup_DoesNotModifyAcceptedMemories(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TRACEARY_LANG", "en")
 
 	accepted := buildInboxMemoryDetails(t, "memory-accepted-safe", "Accepted memory must remain safe", domtypes.MemoryStatusAccepted, domtypes.MemorySourceManual)
 	memoryStub := &memoryUsecaseStub{
@@ -331,7 +405,7 @@ func TestMemoryInboxCleanup_DoesNotModifyAcceptedMemories(t *testing.T) {
 	if memoryStub.rejectCallCount != 0 {
 		t.Fatalf("accepted safety path called Reject %d time(s), want 0", memoryStub.rejectCallCount)
 	}
-	if !strings.Contains(stdout.String(), "cleanup only modifies candidate memories") {
+	if !strings.Contains(stdout.String(), "cleanup only modifies memory candidates") {
 		t.Fatalf("accepted safety failure missing from output:\n%s", stdout.String())
 	}
 }
@@ -778,7 +852,7 @@ func TestMemoryInboxBatch_TextFailureReturnsError(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected error when %s has per-id failures", tc.wantAction)
 			}
-			if !strings.Contains(err.Error(), "inbox "+tc.wantAction+" failed for 1 memory id(s)") {
+			if !strings.Contains(err.Error(), "memory review queue "+tc.wantAction+" action failed for 1 memory id(s)") {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			out := stdout.String()
@@ -839,7 +913,7 @@ func TestMemoryInboxBatch_JSONFailureReturnsErrorWithValidJSON(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected error when %s JSON output has per-id failures", tc.wantAction)
 			}
-			if !strings.Contains(err.Error(), "inbox "+tc.wantAction+" failed for 1 memory id(s)") {
+			if !strings.Contains(err.Error(), "memory review queue "+tc.wantAction+" action failed for 1 memory id(s)") {
 				t.Fatalf("unexpected error: %v", err)
 			}
 

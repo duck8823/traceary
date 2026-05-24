@@ -108,7 +108,7 @@ func (c *RootCLI) newSessionHandoffCommand() *cobra.Command {
 	cmd.Flags().IntVar(&recent, "recent", 5, Localize("number of recent commands to show", "表示する直近コマンド数"))
 	cmd.Flags().IntVar(&memories, "memories", 5, Localize("number of durable memories to include", "含める durable memory 数"))
 	cmd.Flags().StringVar(&preset, "preset", "", Localize("apply a built-in retrieval preset to durable memories (resume | review | incident)", "durable memory 取得に built-in preset を適用する (resume | review | incident)"))
-	cmd.Flags().BoolVar(&includeCandidates, "include-candidates", false, Localize("include candidate durable memories in a separate needs-review section", "candidate durable memory を別の needs-review セクションに含める"))
+	cmd.Flags().BoolVar(&includeCandidates, "include-candidates", false, Localize("include memory candidates in a separate needs-review section", "メモリ候補を別の needs-review セクションに含める"))
 	cmd.Flags().StringVar(&asOf, "as-of", "", Localize("evaluate durable memory validity at the given timestamp (RFC3339 or YYYY-MM-DD)", "指定時刻 (RFC3339 または YYYY-MM-DD) の時点で durable memory の validity を評価する"))
 	cmd.Flags().BoolVar(&compactOnly, "compact-only", false, Localize("emit the short prompt-injection summary used on session resume (replaces the v0.8.x compact-summary command); implicitly sets --recent=3 unless --recent is given", "セッション再開時に使う短い prompt-injection summary を出力する (v0.8.x の compact-summary を置き換え); --recent 未指定時は 3 に自動設定"))
 	cmd.Flags().DurationVar(
@@ -137,10 +137,10 @@ type handoffCommandInput struct {
 
 func (c *RootCLI) runHandoff(ctx context.Context, output io.Writer, input handoffCommandInput) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.context == nil {
-		return xerrors.Errorf(Localize("context usecase is not configured", "context ユースケースが設定されていません"))
+		return xerrors.New(Localize("context usecase is not configured", "context ユースケースが設定されていません"))
 	}
 
 	resolvedDBPath, err := resolveDBPath(input.dbPath)

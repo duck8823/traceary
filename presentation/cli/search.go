@@ -111,16 +111,16 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 
 func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io.Writer, input searchCommandInput) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.event == nil {
-		return xerrors.Errorf(Localize("search events query service is not configured", "検索クエリサービスが設定されていません"))
+		return xerrors.New(Localize("search events query service is not configured", "検索クエリサービスが設定されていません"))
 	}
 	if input.limit <= 0 {
-		return xerrors.Errorf(Localize("limit must be greater than or equal to 1", "limit は 1 以上である必要があります"))
+		return xerrors.New(Localize("limit must be greater than or equal to 1", "limit は 1 以上である必要があります"))
 	}
 	if input.offset < 0 {
-		return xerrors.Errorf(Localize("offset must be greater than or equal to 0", "offset は 0 以上である必要があります"))
+		return xerrors.New(Localize("offset must be greater than or equal to 0", "offset は 0 以上である必要があります"))
 	}
 	preset, _, err := resolveReadPreset(input.preset, c.readPresets, warnWriter)
 	if err != nil {
@@ -155,10 +155,10 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve --to", "to の解決に失敗しました"), err)
 	}
 	if !hasSearchConstraint(input.query, input.repo, input.sessionID, input.client, input.agent, input.kind, fromTime, toTime, input.failuresOnly) {
-		return xerrors.Errorf(Localize("at least one search filter is required", "検索条件は1つ以上必要です"))
+		return xerrors.New(Localize("at least one search filter is required", "検索条件は1つ以上必要です"))
 	}
 	if !fromTime.IsZero() && !toTime.IsZero() && fromTime.After(toTime) {
-		return xerrors.Errorf(Localize("--from must be earlier than --to", "from は to より前である必要があります"))
+		return xerrors.New(Localize("--from must be earlier than --to", "from は to より前である必要があります"))
 	}
 	resolvedKind, err := validateSearchKind(input.kind)
 	if err != nil {
@@ -278,8 +278,9 @@ func validateSearchKind(value string) (string, error) {
 		return resolvedKind, nil
 	}
 
-	return "", xerrors.Errorf(Localize(
+	return "", xerrors.New(Localizef(
 		"unsupported kind: %s (valid values: note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt, transcript; alias: audit)",
 		"未対応の kind です: %s (有効値: note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt, transcript; alias: audit)",
-	), trimmedValue)
+		trimmedValue,
+	))
 }

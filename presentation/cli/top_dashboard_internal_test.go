@@ -917,7 +917,7 @@ func TestTopModel_EmptySnapshotRendersPerPaneEmptyState(t *testing.T) {
 	for _, expect := range []string{
 		"No active sessions found.",
 		"No matching records.",
-		"No candidate durable memories",
+		"The memory review queue is empty.",
 		"No stale memories.",
 	} {
 		if !strings.Contains(view, expect) {

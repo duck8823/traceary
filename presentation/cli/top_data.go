@@ -240,7 +240,7 @@ const topReliabilityMemoryScanLimit = 2000
 
 // topDataLoader fetches every data slice the redesigned `traceary top`
 // dashboard needs (active session tree, recent failures, recent
-// commands, candidate memories, and stale memories). It is the testable
+// commands, memory candidates, and stale memories). It is the testable
 // seam between the cobra command and the application layer; the cobra
 // command keeps its current snapshot output in this issue and routes its
 // session fetch through the loader so future panes can be added without
@@ -421,7 +421,7 @@ func (l *topDataLoader) loadRecentCommands(ctx context.Context, c topDataCriteri
 	return events, nil
 }
 
-// loadCandidates returns recent inbox candidate memories ordered with
+// loadCandidates returns recent inbox memory candidates ordered with
 // the same remember-intent priority `memory inbox list` uses, so the
 // future top pane stays consistent with the inbox views. Workspace and
 // Agent on the criteria narrow the result to scoped candidates so the
@@ -443,7 +443,7 @@ func (l *topDataLoader) loadCandidates(ctx context.Context, c topDataCriteria) (
 	}
 	summaries, err := l.memory.List(ctx, builder.Build())
 	if err != nil {
-		return nil, xerrors.Errorf("%s: %w", Localize("failed to list candidate memories", "候補 memory の取得に失敗しました"), err)
+		return nil, xerrors.Errorf("%s: %w", Localize("failed to list memory candidates", "メモリ候補の取得に失敗しました"), err)
 	}
 	return summaries, nil
 }

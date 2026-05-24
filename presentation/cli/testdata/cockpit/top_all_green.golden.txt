@@ -16,7 +16,7 @@ Actionable signals
 Signal details
 • no unseen events since 2026-05-07T11:30:00Z
 • no unseen candidates since 2026-05-07T11:00:00Z
-• candidate memories=0
+• memory candidates=0
 
 Top dashboard
 Top dashboard has not loaded yet. Press r to refresh.

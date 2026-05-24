@@ -120,7 +120,7 @@ type memoryGraphListInput struct {
 
 func (c *RootCLI) runMemoryGraphAdd(ctx context.Context, output io.Writer, input memoryGraphAddInput) error {
 	if c.memoryEdge == nil {
-		return xerrors.Errorf(Localize("memory edge usecase is not configured", "memory edge usecase が設定されていません"))
+		return xerrors.New(Localize("memory edge usecase is not configured", "memory edge usecase が設定されていません"))
 	}
 	resolved, err := resolveDBPath(input.dbPath)
 	if err != nil {
@@ -141,7 +141,7 @@ func (c *RootCLI) runMemoryGraphAdd(ctx context.Context, output io.Writer, input
 	}
 	relation := domtypes.MemoryEdgeRelationOf(input.relation)
 	if relation.String() == "" {
-		return xerrors.Errorf(Localize("--relation must not be empty", "--relation は空にできません"))
+		return xerrors.New(Localize("--relation must not be empty", "--relation は空にできません"))
 	}
 	validFrom, err := parseOptionalValidityTime(input.validFrom)
 	if err != nil {
@@ -164,10 +164,10 @@ func (c *RootCLI) runMemoryGraphList(ctx context.Context, output io.Writer, inpu
 	// negative values up front so SQLite cannot be tricked into
 	// returning an unbounded result via `--limit -1`.
 	if input.limit < 0 {
-		return xerrors.Errorf(Localize("--limit must be greater than or equal to 0 (0 disables the cap)", "--limit は 0 以上である必要があります (0 で上限なし)"))
+		return xerrors.New(Localize("--limit must be greater than or equal to 0 (0 disables the cap)", "--limit は 0 以上である必要があります (0 で上限なし)"))
 	}
 	if c.memoryEdge == nil {
-		return xerrors.Errorf(Localize("memory edge usecase is not configured", "memory edge usecase が設定されていません"))
+		return xerrors.New(Localize("memory edge usecase is not configured", "memory edge usecase が設定されていません"))
 	}
 	resolved, err := resolveDBPath(input.dbPath)
 	if err != nil {

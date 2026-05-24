@@ -46,8 +46,8 @@ func (c *RootCLI) newMemoryHygieneApplyCommand() *cobra.Command {
 		"expiry 候補として検出するまでの未更新日数",
 	))
 	cmd.Flags().BoolVar(&input.includeHidden, "include-hidden", false, Localize(
-		"include extracted-hidden low-quality candidates when re-scanning before apply",
-		"apply 前の再スキャンで extracted-hidden の低品質 candidate も対象に含める",
+		"include extracted-hidden low-quality memory candidates when re-scanning before apply",
+		"apply 前の再スキャンで extracted-hidden の低品質メモリ候補も対象に含める",
 	))
 	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	return cmd
@@ -55,17 +55,17 @@ func (c *RootCLI) newMemoryHygieneApplyCommand() *cobra.Command {
 
 func (c *RootCLI) runMemoryHygieneApply(ctx context.Context, output io.Writer, input memoryHygieneApplyCommandInput) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.memory == nil {
-		return xerrors.Errorf(Localize("memory usecase is not configured", "memory hygiene ユースケースが設定されていません"))
+		return xerrors.New(Localize("memory usecase is not configured", "memory hygiene ユースケースが設定されていません"))
 	}
 	ids := normaliseInboxIDs(input.ids)
 	if len(ids) == 0 {
-		return xerrors.Errorf(Localize("--ids must list at least one memory id", "--ids に少なくとも1つの memory id を指定してください"))
+		return xerrors.New(Localize("--ids must list at least one memory id", "--ids に少なくとも1つの memory id を指定してください"))
 	}
 	if input.expiryDays <= 0 {
-		return xerrors.Errorf(Localize("--expiry-days must be greater than 0", "--expiry-days は 0 より大きい必要があります"))
+		return xerrors.New(Localize("--expiry-days must be greater than 0", "--expiry-days は 0 より大きい必要があります"))
 	}
 	if err := c.initializeStore(ctx, input.dbPath); err != nil {
 		return err
@@ -129,7 +129,7 @@ func (c *RootCLI) newMemoryHygieneScanCommand() *cobra.Command {
 	input := memoryHygieneScanCommandInput{expiryDays: defaultHygieneExpiryDays}
 	cmd := &cobra.Command{
 		Use:   "scan",
-		Short: Localize("Scan accepted memories for redaction / expiry / duplicate / supersede / validity-overlap and candidate memories for low-quality noise", "accepted memory に対して redaction / expiry / duplicate / supersede / validity-overlap、candidate memory に対して低品質ノイズの hygiene 候補を検出する"),
+		Short: Localize("Scan accepted memories for redaction / expiry / duplicate / supersede / validity-overlap and memory candidates for low-quality noise", "accepted memory に対して redaction / expiry / duplicate / supersede / validity-overlap、メモリ候補に対して低品質ノイズの hygiene 候補を検出する"),
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runMemoryHygieneScan(cmd.Context(), cmd.OutOrStdout(), input)
@@ -150,7 +150,7 @@ func (c *RootCLI) newMemoryHygieneScanCommand() *cobra.Command {
 	))
 	cmd.Flags().BoolVar(&input.includeHidden, "include-hidden", false, Localize(
 		"inspect extracted-hidden candidates as well (default scans visible candidates only)",
-		"extracted-hidden の candidate も検査対象に含める (既定では visible candidate のみ)",
+		"extracted-hidden のメモリ候補も検査対象に含める (既定では visible メモリ候補のみ)",
 	))
 	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	return cmd
@@ -158,13 +158,13 @@ func (c *RootCLI) newMemoryHygieneScanCommand() *cobra.Command {
 
 func (c *RootCLI) runMemoryHygieneScan(ctx context.Context, output io.Writer, input memoryHygieneScanCommandInput) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.memory == nil {
-		return xerrors.Errorf(Localize("memory usecase is not configured", "memory hygiene ユースケースが設定されていません"))
+		return xerrors.New(Localize("memory usecase is not configured", "memory hygiene ユースケースが設定されていません"))
 	}
 	if input.expiryDays <= 0 {
-		return xerrors.Errorf(Localize("--expiry-days must be greater than 0", "--expiry-days は 0 より大きい必要があります"))
+		return xerrors.New(Localize("--expiry-days must be greater than 0", "--expiry-days は 0 より大きい必要があります"))
 	}
 	if err := c.initializeStore(ctx, input.dbPath); err != nil {
 		return err
@@ -214,7 +214,7 @@ func writeMemoryHygieneScanResult(output io.Writer, result apptypes.MemoryHygien
 	}
 	if _, err := fmt.Fprintf(output, Localize(
 		"redaction_hits=%d expiry_candidates=%d duplicates=%d supersede_candidates=%d validity_overlap_supersedes=%d low_quality_candidates=%d\n",
-		"redaction ヒット=%d expiry 候補=%d 重複=%d supersede 候補=%d validity 重複 supersede=%d 低品質 candidate=%d\n",
+		"redaction ヒット=%d expiry 候補=%d 重複=%d supersede 候補=%d validity 重複 supersede=%d 低品質メモリ候補=%d\n",
 	), result.RedactionHitCount, result.ExpiryCandidateCount, result.DuplicateCount, result.SupersedeCandidateCount, result.ValidityOverlapSupersedeCount, result.LowQualityCandidateCount); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print hygiene summary", "hygiene サマリの出力に失敗しました"), err)
 	}

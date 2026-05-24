@@ -52,7 +52,7 @@ func (c *RootCLI) newBackupCreateCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resolvedOutput := outputPath
 			if len(args) == 1 && resolvedOutput != "" {
-				return xerrors.Errorf(Localize(
+				return xerrors.New(Localize(
 					"output path specified twice: positional argument and --output flag",
 					"出力先パスが二重に指定されています（位置引数と --output フラグ）",
 				))
@@ -61,7 +61,7 @@ func (c *RootCLI) newBackupCreateCommand() *cobra.Command {
 				resolvedOutput = args[0]
 			}
 			if resolvedOutput == "" {
-				return xerrors.Errorf(Localize("output path is required (positional argument or --output flag)", "出力先パスが必要です（位置引数または --output フラグ）"))
+				return xerrors.New(Localize("output path is required (positional argument or --output flag)", "出力先パスが必要です（位置引数または --output フラグ）"))
 			}
 			return c.runBackupCreate(cmd.Context(), cmd.OutOrStdout(), backupCreateCommandInput{
 				dbPath:     dbPath,
@@ -121,7 +121,7 @@ func (c *RootCLI) runBackupCreate(
 	input backupCreateCommandInput,
 ) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("create store backup usecase is not configured", "バックアップ作成ユースケースが設定されていません"))
+		return xerrors.New(Localize("create store backup usecase is not configured", "バックアップ作成ユースケースが設定されていません"))
 	}
 
 	resolvedDBPath, err := resolveDBPath(input.dbPath)
@@ -150,7 +150,7 @@ func (c *RootCLI) runBackupRestore(
 	input backupRestoreCommandInput,
 ) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("restore store backup usecase is not configured", "バックアップ復元ユースケースが設定されていません"))
+		return xerrors.New(Localize("restore store backup usecase is not configured", "バックアップ復元ユースケースが設定されていません"))
 	}
 
 	resolvedDBPath, err := resolveDBPath(input.dbPath)
@@ -252,7 +252,7 @@ func isTerminalFile(file *os.File) bool {
 func resolveRequiredAbsolutePath(path string) (string, error) {
 	trimmedPath := strings.TrimSpace(path)
 	if trimmedPath == "" {
-		return "", xerrors.Errorf(Localize("path must not be empty", "パスは空にできません"))
+		return "", xerrors.New(Localize("path must not be empty", "パスは空にできません"))
 	}
 
 	resolvedPath, err := filepath.Abs(trimmedPath)

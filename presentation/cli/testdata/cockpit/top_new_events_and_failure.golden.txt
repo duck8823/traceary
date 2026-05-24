@@ -16,8 +16,8 @@ Actionable signals
 
 Signal details
 • new events=3 since 2026-05-07T11:30:00Z
-• candidate memory new count=untracked
-• candidate memories=0
+• memory candidate new count=untracked
+• memory candidates=0
 • recent failures=1
 
 Top dashboard

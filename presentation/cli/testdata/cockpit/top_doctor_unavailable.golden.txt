@@ -15,8 +15,8 @@ Actionable signals
 
 Signal details
 • new events=untracked until cockpit state is initialized
-• candidate memory new count=untracked
-• candidate memories=0
+• memory candidate new count=untracked
+• memory candidates=0
 
 Top dashboard
 Top dashboard has not loaded yet. Press r to refresh.

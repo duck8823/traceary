@@ -285,7 +285,7 @@ func writeTopSnapshotTextReliability(output io.Writer, metrics topReliabilityMet
 	}
 	if _, err := fmt.Fprintf(
 		output,
-		"- memory_counts accepted=%d candidate=%d accepted_ratio=%s%s hint=\"review candidates with `traceary memory inbox review` and cleanup old candidates with `traceary memory inbox cleanup --dry-run`\"\n",
+		"- memory_counts accepted=%d candidate=%d accepted_ratio=%s%s hint=\"review memory candidates with `traceary memory inbox review` and cleanup old candidates with `traceary memory inbox cleanup --dry-run`\"\n",
 		metrics.AcceptedMemoryCount,
 		metrics.CandidateMemoryCount,
 		acceptedRatio,
@@ -300,7 +300,7 @@ func writeTopSnapshotTextReliability(output io.Writer, metrics topReliabilityMet
 		}
 	} else if _, err := fmt.Fprintf(
 		output,
-		"- candidate_age count=%d oldest=%s newest=%s avg_age=%s hint=\"prioritize older candidate memories first\"\n",
+		"- candidate_age count=%d oldest=%s newest=%s avg_age=%s hint=\"prioritize older memory candidates first\"\n",
 		metrics.CandidateAge.Count,
 		formatJSONTime(metrics.CandidateAge.Oldest),
 		formatJSONTime(metrics.CandidateAge.Newest),
@@ -361,11 +361,14 @@ func writeTopSnapshotTextEvents(output io.Writer, header string, events []*model
 }
 
 func writeTopSnapshotTextCandidates(output io.Writer, candidates []apptypes.MemorySummary, rememberIntentCount int) error {
+	// This script-facing text header is intentionally stable even though the
+	// live cockpit labels the pane "MEMORY CANDIDATES". Do not rename it
+	// without a top --snapshot contract migration.
 	if _, err := fmt.Fprintf(output, "\nCANDIDATE MEMORIES (count=%d remember_intent=%d):\n", len(candidates), rememberIntentCount); err != nil {
 		return xerrors.Errorf("failed to print candidates header: %w", err)
 	}
 	if len(candidates) == 0 {
-		if _, err := fmt.Fprintln(output, Localize("No candidate durable memories in the inbox.", "inbox に candidate durable memory はありません")); err != nil {
+		if _, err := fmt.Fprintln(output, memoryReviewEmptyQueueMessage()); err != nil {
 			return xerrors.Errorf("failed to print empty candidates message: %w", err)
 		}
 		return nil

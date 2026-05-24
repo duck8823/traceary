@@ -75,7 +75,7 @@ Session resolution follows the same rules as `traceary log`.
 
 Open the Traceary operator cockpit TUI.
 
-Use bare `traceary` in an interactive terminal when you want one terminal surface for the operator loop instead of remembering individual subcommands. `traceary tui` remains the explicit compatibility entrypoint for the same cockpit. The cockpit opens Tail-first and summarizes active work, recent failures, doctor status, new events since the last live-tail visit, and candidate durable memories since the last memory review. From the cockpit you can jump into live tail, doctor details, and memory inbox review.
+Use bare `traceary` in an interactive terminal when you want one terminal surface for the operator loop instead of remembering individual subcommands. `traceary tui` remains the explicit compatibility entrypoint for the same cockpit. The cockpit opens Tail-first and summarizes active work, recent failures, doctor status, new events since the last live-tail visit, and memory candidates queued since the last memory review. From the cockpit you can jump into live tail, doctor details, and memory inbox review.
 
 `traceary tui` requires an interactive terminal. Non-TTY callers receive a refusal with exit code `2` and guidance to use the script-friendly commands instead (`list`, `top --snapshot [--json]`, `doctor --json`, `session handoff`, and `memory inbox list`). Bare non-TTY `traceary` prints help plus fallback guidance rather than starting the cockpit.
 
@@ -316,7 +316,7 @@ Useful flags:
 
 ### `traceary memory inbox` — candidate review surface
 
-Review the durable-memory inbox. `list` surfaces `candidate` memories together with their evidence / artifact ref counts so a reviewer can judge provenance before accepting. `accept` and `reject` take either a single positional id (the common interactive case) or `--ids id1,id2,...` for batch scripts and MCP callers; partial batches return a per-id success / failure breakdown so a failure never hides which entries transitioned. `--id-only` prints just the resulting memory id on stdout (mutually exclusive with `--json`); the canonical inbox surface is a strict superset of the v0.13.x positional-id form.
+Review the memory review queue. `list` surfaces `candidate` memories together with their evidence / artifact ref counts so a reviewer can judge provenance before accepting. `accept` and `reject` take either a single positional id (the common interactive case) or `--ids id1,id2,...` for batch scripts and MCP callers; partial batches return a per-id success / failure breakdown so a failure never hides which entries transitioned. `--id-only` prints just the resulting memory id on stdout (mutually exclusive with `--json`); the canonical inbox surface is a strict superset of the v0.13.x positional-id form.
 
 #### `traceary memory inbox list`
 
@@ -330,7 +330,7 @@ The `--source` filter pairs naturally with the extraction and import paths:
 
 #### `traceary memory inbox accept <memory-id>`
 
-Accept one or more candidate durable memories.
+Accept one or more memory candidates.
 
 Useful flags:
 
@@ -342,7 +342,7 @@ Useful flags:
 
 #### `traceary memory inbox reject <memory-id>`
 
-Reject one or more candidate durable memories.
+Reject one or more memory candidates.
 
 Useful flags:
 
@@ -353,7 +353,7 @@ Useful flags:
 
 #### `traceary memory inbox review`
 
-Interactive TTY walk-through over the candidate inbox built on the shared Bubble Tea TUI foundation. Filters mirror `memory inbox list` so reviewers can pivot between the snapshot view and the interactive walk without re-tuning flags.
+Interactive TTY walk-through over the memory review queue built on the shared Bubble Tea TUI foundation. Filters mirror `memory inbox list` so reviewers can pivot between the snapshot view and the interactive walk without re-tuning flags.
 
 Action keys inside the screen:
 
@@ -391,17 +391,17 @@ Useful flags:
 
 #### `traceary memory store propose`
 
-Record a candidate durable memory that still needs review.
+Record a memory candidate that still needs review.
 
 Useful flags are the same as `memory store remember`, except `--confidence` is ignored.
 
 #### `traceary memory store distill`
 
-Create a new accepted durable memory from one or more existing candidate IDs using an operator-provided fact. Evidence refs and artifact refs from the source candidates are unioned onto the accepted memory; Traceary does not rewrite or accept content automatically.
+Create a new accepted durable memory from one or more existing memory candidate IDs using an operator-provided fact. Evidence refs and artifact refs from the source memory candidates are unioned onto the accepted memory; Traceary does not rewrite or accept content automatically.
 
 Useful flags:
 
-- `--from` — comma-separated source candidate IDs (repeatable)
+- `--from` — comma-separated source memory candidate IDs (repeatable)
 - `--type`
 - `--fact`
 - `--workspace` / `--agent` / `--session-family` (one is required)
@@ -417,7 +417,7 @@ Operator-facing concerns: extraction (mines candidates from existing sessions), 
 
 #### `traceary memory admin extract`
 
-Extract candidate durable memories from a target session using session summaries, compact summaries, prompt events, and note/review signals. Extraction is candidate-only: Traceary never auto-accepts the extracted memories. Prompt events are optional; missing prompt or compact-summary events simply reduce the available signals. When `--session-id` is omitted, Traceary resolves the active session first and then falls back to the latest matching session in the workspace. `Feedback:` / `Correction:` labels are preserved by mapping them into the current minimal durable-memory taxonomy as `preference` candidates. Persisted candidates go through the same sanitization/redaction path as other durable-memory writes before they are stored.
+Extract memory candidates from a target session using session summaries, compact summaries, prompt events, and note/review signals. Extraction is candidate-only: Traceary never auto-accepts the extracted memories. Prompt events are optional; missing prompt or compact-summary events simply reduce the available signals. When `--session-id` is omitted, Traceary resolves the active session first and then falls back to the latest matching session in the workspace. `Feedback:` / `Correction:` labels are preserved by mapping them into the current minimal durable-memory taxonomy as `preference` candidates. Persisted candidates go through the same sanitization/redaction path as other durable-memory writes before they are stored.
 
 Useful flags:
 
@@ -430,7 +430,7 @@ Useful flags:
 
 #### `traceary memory admin import codex`
 
-Import durable-memory candidates from a local Codex memory layout — by default every `*.md` file under `~/.codex/memories`. Legacy `MEMORY.md` keeps the handbook allow-list (`## User preferences`, `## Reusable knowledge`, `## Failures and how to do differently`), while additional Markdown shards import bullet/list items under any heading. Each candidate gets `source=imported`, file evidence/artifact refs with line ranges, and a scope resolved from the Codex `applies_to: cwd=...` hint (falling back to `--workspace` when the source file does not declare one). Sanitization runs on every imported fact, and nothing is auto-accepted. Re-running the command is idempotent: existing candidates (at any lifecycle status, including rejected) suppress a duplicate import so previously reviewed memories are never resurrected.
+Import memory candidates from a local Codex memory layout — by default every `*.md` file under `~/.codex/memories`. Legacy `MEMORY.md` keeps the handbook allow-list (`## User preferences`, `## Reusable knowledge`, `## Failures and how to do differently`), while additional Markdown shards import bullet/list items under any heading. Each candidate gets `source=imported`, file evidence/artifact refs with line ranges, and a scope resolved from the Codex `applies_to: cwd=...` hint (falling back to `--workspace` when the source file does not declare one). Sanitization runs on every imported fact, and nothing is auto-accepted. Re-running the command is idempotent: existing candidates (at any lifecycle status, including rejected) suppress a duplicate import so previously reviewed memories are never resurrected.
 
 Useful flags:
 
@@ -711,7 +711,7 @@ Useful flags:
 
 ### `traceary top`
 
-Launch a live multi-pane dashboard that splits the workspace view into five panes: active sessions (root → child), recent failures, recent `command_executed` events, durable-memory inbox candidates, and stale durable memories that may need cleanup. Each pane scrolls independently; `tab` / `shift+tab` cycle pane focus, `↑/↓` (or `k/j`) scroll by one row, `pgup/pgdn` page, `g/G` jump to top/bottom, `r` forces a refresh, `?` toggles a help overlay, and `q` / Ctrl-C quit cleanly. `/` opens an incremental search prompt for the focused pane; Enter keeps the current search filter, and Esc clears the active filter without quitting. Enter on a highlighted row opens a detail modal for the selected session, event, or memory; Esc / `q` close the modal and Ctrl-C still quits the dashboard. Idle sessions are dimmed in the sessions pane when their latest activity is older than `--idle`; they are not hidden. Non-TTY callers (pipes, CI logs) automatically fall back to the snapshot text writer. `traceary session tree` remains the static retrospective view.
+Launch a live multi-pane dashboard that splits the workspace view into five panes: active sessions (root → child), recent failures, recent `command_executed` events, memory review queue candidates, and stale durable memories that may need cleanup. Each pane scrolls independently; `tab` / `shift+tab` cycle pane focus, `↑/↓` (or `k/j`) scroll by one row, `pgup/pgdn` page, `g/G` jump to top/bottom, `r` forces a refresh, `?` toggles a help overlay, and `q` / Ctrl-C quit cleanly. `/` opens an incremental search prompt for the focused pane; Enter keeps the current search filter, and Esc clears the active filter without quitting. Enter on a highlighted row opens a detail modal for the selected session, event, or memory; Esc / `q` close the modal and Ctrl-C still quits the dashboard. Idle sessions are dimmed in the sessions pane when their latest activity is older than `--idle`; they are not hidden. Non-TTY callers (pipes, CI logs) automatically fall back to the snapshot text writer. `traceary session tree` remains the static retrospective view.
 
 Snapshot output mirrors the five dashboard panes so non-interactive consumers (pipes, CI, scripts) see the same data the live view shows. The text snapshot is split into `ACTIVE SESSIONS`, `RECENT FAILURES`, `RECENT COMMANDS`, `CANDIDATE MEMORIES (count=N)`, and `STALE MEMORIES (count=N)` sections; empty panes print a stable empty-state line so headers always render. The JSON snapshot is wrapped in an envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, items }`), and `stale_memories` (`{ count, items }`) keys; each session node keeps the same fields earlier releases emitted. Per-pane row caps follow the dashboard defaults (50 failures, 50 recent commands, 25 candidates, 25 stale memories); the session pane keeps using `--limit`.
 
@@ -756,7 +756,7 @@ Useful flags:
 - `--client`
 - `--agent`
 - `--idle <duration>` — dim rows older than the threshold without hiding them
-- `--snapshot --json` — print a one-shot JSON envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, items }`), and `stale_memories` (`{ count, items }`). Each session node carries `latest_event_kind`, `latest_event_message`, and `latest_event_at` in addition to the standard session fields; failures and recent commands reuse the standard event JSON shape; candidate memories reuse the durable-memory summary JSON shape; stale memories reuse durable-memory summary fields plus a `reason`. `traceary session tree --json` keeps its independent contract and does not expose any of these surfaces
+- `--snapshot --json` — print a one-shot JSON envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, items }`), and `stale_memories` (`{ count, items }`). Each session node carries `latest_event_kind`, `latest_event_message`, and `latest_event_at` in addition to the standard session fields; failures and recent commands reuse the standard event JSON shape; memory candidates reuse the durable-memory summary JSON shape; stale memories reuse durable-memory summary fields plus a `reason`. `traceary session tree --json` keeps its independent contract and does not expose any of these surfaces
 - `--limit`
 
 ### `traceary session list`

@@ -25,7 +25,7 @@ const (
 func (c *RootCLI) newMemoryImportCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "import",
-		Short: Localize("Import memories from host-native sources as durable-memory candidates", "ホスト固有ソースから durable memory の candidate を取り込む"),
+		Short: Localize("Import memories from host-native sources as memory candidates", "ホスト固有ソースからメモリ候補を取り込む"),
 	}
 	cmd.AddCommand(c.newMemoryImportCodexCommand())
 	cmd.AddCommand(c.newMemoryImportInstructionsCommand())
@@ -38,7 +38,7 @@ func (c *RootCLI) newMemoryImportCodexCommand() *cobra.Command {
 	}
 	cmd := &cobra.Command{
 		Use:   "codex",
-		Short: Localize("Import ~/.codex/memories/*.md as durable-memory candidates", "~/.codex/memories/*.md を durable memory の candidate として取り込む"),
+		Short: Localize("Import ~/.codex/memories/*.md as memory candidates", "~/.codex/memories/*.md をメモリ候補として取り込む"),
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runMemoryImportCodex(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), input)
@@ -67,10 +67,10 @@ func (c *RootCLI) newMemoryImportCodexCommand() *cobra.Command {
 
 func (c *RootCLI) runMemoryImportCodex(ctx context.Context, output io.Writer, warnWriter io.Writer, input memoryImportCodexCommandInput) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.memory == nil {
-		return xerrors.Errorf(Localize("memory usecase is not configured", "memory import ユースケースが設定されていません"))
+		return xerrors.New(Localize("memory usecase is not configured", "memory import ユースケースが設定されていません"))
 	}
 	if err := c.initializeStore(ctx, input.dbPath); err != nil {
 		return err

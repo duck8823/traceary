@@ -1,7 +1,7 @@
 Traceary cockpit · memory review
 tabs: 1 Tail  2 Top  [3 Memory]  4 Sessions  5 Settings
 
-inbox review · decision card
+memory review · decision card
 candidate 1 / 1
 
 DECISION CONTEXT
@@ -10,16 +10,16 @@ TYPE:                   preference
 SCOPE:                  workspace:github.com/example/repo
 SOURCE:                 extracted-hidden
 CONFIDENCE:             low
-QUALITY_SIGNAL:         low confidence; hidden extraction; no evidence refs; accept blocked until evidence exists
+QUALITY_SIGNAL:         low confidence; source=extracted-hidden; no evidence refs; accept blocked until evidence exists
 REMEMBERED_BY_OPERATOR: no
 EVIDENCE_REFS:          0 (press v to inspect)
 ARTIFACT_REFS:          0 (press v to inspect)
 CREATED_AT:             2026-05-07T00:00:00Z
 UPDATED_AT:             2026-05-07T00:00:00Z
-CANDIDATE_AGE:          48h0m
+MEMORY_CANDIDATE_AGE:   48h0m
 DUPLICATE_SUPERSEDE:    not checked in cockpit yet; use edit/distill or skip if duplicate risk is unclear
 
-CANDIDATE FACT:
+MEMORY CANDIDATE FACT:
 Maybe the operator prefers short summaries
 
 EVIDENCE-FIRST REVIEW

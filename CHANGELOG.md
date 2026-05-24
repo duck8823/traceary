@@ -9,6 +9,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ### Changed
 - **Bare CLI opens the Tail-first TUI in interactive terminals (#1060)** — running `traceary` with no subcommand now opens the same Tail-first cockpit as `traceary tui` when stdin/stdout are TTY-backed. Non-interactive callers keep deterministic help/fallback output and should continue using explicit script-friendly commands such as `traceary list`, `traceary top --snapshot [--json]`, and `traceary doctor --json`.
+- **Cockpit memory-review glossary tightened (#1070)** — the TUI, CLI help, `top --snapshot` empty state, and related memory review error messages now consistently call the candidate queue the “memory review queue” in English and `メモリ候補の確認キュー` in Japanese, while keeping literal `traceary memory inbox ...` command paths, `candidate(inbox)` metrics, and existing `top --snapshot` section headers copyable for scripts.
 
 ## [v0.18.0] - 2026-05-24
 

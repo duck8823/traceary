@@ -50,7 +50,7 @@ func (c *RootCLI) newMemoryListCommand() *cobra.Command {
 	cmd.Flags().StringSliceVar(&input.statuses, "status", nil, Localize("filter by memory lifecycle status", "memory の lifecycle status で絞り込む"))
 	cmd.Flags().StringSliceVar(&input.memoryTypes, "type", nil, Localize("filter by memory type", "memory type で絞り込む"))
 	cmd.Flags().StringSliceVar(&input.sources, "source", nil, Localize("filter by memory source (manual / extracted / extracted-hidden / remember-intent / compact-summary / imported)", "memory source (manual / extracted / extracted-hidden / remember-intent / compact-summary / imported) で絞り込む"))
-	cmd.Flags().BoolVar(&input.includeHidden, "include-hidden", false, Localize("include extracted-hidden candidates (low-quality auto-extractions kept for audit)", "extracted-hidden の候補も含める (audit 用に保存された低品質自動抽出)"))
+	cmd.Flags().BoolVar(&input.includeHidden, "include-hidden", false, Localize("include extracted-hidden memory candidates (low-quality auto-extractions kept for audit)", "extracted-hidden のメモリ候補も含める (audit 用に保存された低品質自動抽出)"))
 	cmd.Flags().IntVar(&input.limit, "limit", 20, Localize("maximum number of memories to return", "表示件数"))
 	cmd.Flags().IntVar(&input.offset, "offset", 0, Localize("number of memories to skip before listing", "一覧表示前にスキップする件数"))
 	cmd.Flags().StringVar(&input.asOf, "as-of", "", Localize("evaluate memory validity as of this timestamp (`YYYY-MM-DD` or RFC3339, defaults to now)", "この時点の validity で評価する (`YYYY-MM-DD` または RFC3339、既定は now)"))
@@ -81,7 +81,7 @@ func (c *RootCLI) newMemorySearchCommand() *cobra.Command {
 	cmd.Flags().StringSliceVar(&input.statuses, "status", nil, Localize("filter by memory lifecycle status", "memory の lifecycle status で絞り込む"))
 	cmd.Flags().StringSliceVar(&input.memoryTypes, "type", nil, Localize("filter by memory type", "memory type で絞り込む"))
 	cmd.Flags().StringSliceVar(&input.sources, "source", nil, Localize("filter by memory source (manual / extracted / extracted-hidden / remember-intent / compact-summary / imported)", "memory source (manual / extracted / extracted-hidden / remember-intent / compact-summary / imported) で絞り込む"))
-	cmd.Flags().BoolVar(&input.includeHidden, "include-hidden", false, Localize("include extracted-hidden candidates (low-quality auto-extractions kept for audit)", "extracted-hidden の候補も含める (audit 用に保存された低品質自動抽出)"))
+	cmd.Flags().BoolVar(&input.includeHidden, "include-hidden", false, Localize("include extracted-hidden memory candidates (low-quality auto-extractions kept for audit)", "extracted-hidden のメモリ候補も含める (audit 用に保存された低品質自動抽出)"))
 	cmd.Flags().IntVar(&input.limit, "limit", 20, Localize("maximum number of memories to return", "表示件数"))
 	cmd.Flags().IntVar(&input.offset, "offset", 0, Localize("number of memories to skip before returning results", "結果を返す前にスキップする件数"))
 	cmd.Flags().StringVar(&input.asOf, "as-of", "", Localize("evaluate memory validity as of this timestamp (`YYYY-MM-DD` or RFC3339, defaults to now)", "この時点の validity で評価する (`YYYY-MM-DD` または RFC3339、既定は now)"))
@@ -127,7 +127,7 @@ func (c *RootCLI) newMemoryProposeCommand() *cobra.Command {
 	input := memoryWriteCommandInput{}
 	cmd := &cobra.Command{
 		Use:   "propose",
-		Short: Localize("Record a candidate durable memory", "candidate な durable memory を記録する"),
+		Short: Localize("Record a memory candidate", "メモリ候補を記録する"),
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runMemoryPropose(cmd.Context(), cmd.OutOrStdout(), input)
@@ -141,14 +141,14 @@ func (c *RootCLI) newMemoryDistillCommand() *cobra.Command {
 	input := memoryDistillCommandInput{}
 	cmd := &cobra.Command{
 		Use:   "distill",
-		Short: Localize("Distill candidate memories into an accepted fact", "candidate memory を accepted fact に distill する"),
+		Short: Localize("Distill memory candidates into an accepted fact", "メモリ候補を accepted fact に distill する"),
 		Long: Localize(
-			"Distill one or more candidate memories into a new accepted durable memory using an operator-provided fact. Traceary preserves the union of evidence and artifact refs from the source candidates and never rewrites content automatically.",
-			"1つ以上の candidate memory を、operator が指定した fact で新しい accepted durable memory に distill します。Traceary は source candidate の evidence / artifact ref の union を保持し、内容を自動で書き換えません。",
+			"Distill one or more memory candidates into a new accepted durable memory using an operator-provided fact. Traceary preserves the union of evidence and artifact refs from the source memory candidates and never rewrites content automatically.",
+			"1つ以上のメモリ候補を、operator が指定した fact で新しい accepted durable memory に distill します。Traceary は source メモリ候補の evidence / artifact ref の union を保持し、内容を自動で書き換えません。",
 		),
 		Example: strings.Join([]string{
-			"  traceary memory distill --from memory-f332,memory-7f83 --type constraint --workspace github.com/org/repo --fact 'SNS Publish error mapping must preserve AWS SDK v2 SNS error classes.' --replace=supersede",
-			"  traceary memory distill --from memory-raw --type lesson --agent codex --fact 'Wait for Codex review completion before merging.' --replace=reject",
+			"  traceary memory store distill --from memory-f332,memory-7f83 --type constraint --workspace github.com/org/repo --fact 'SNS Publish error mapping must preserve AWS SDK v2 SNS error classes.' --replace=supersede",
+			"  traceary memory store distill --from memory-raw --type lesson --agent codex --fact 'Wait for Codex review completion before merging.' --replace=reject",
 		}, "\n"),
 		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -156,7 +156,7 @@ func (c *RootCLI) newMemoryDistillCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().StringSliceVar(&input.fromIDs, "from", nil, Localize("comma-separated source candidate memory ids (repeatable)", "source candidate memory id をカンマ区切りで指定 (複数指定可)"))
+	cmd.Flags().StringSliceVar(&input.fromIDs, "from", nil, Localize("comma-separated source memory candidate ids (repeatable)", "source メモリ候補 ID をカンマ区切りで指定 (複数指定可)"))
 	cmd.Flags().StringVar(&input.workspace, "workspace", "", Localize("accepted memory workspace scope", "accepted memory の workspace scope"))
 	cmd.Flags().StringVar(&input.agent, "agent", "", Localize("accepted memory agent scope", "accepted memory の agent scope"))
 	cmd.Flags().StringVar(&input.sessionFamily, "session-family", "", Localize("accepted memory session-family scope", "accepted memory の session-family scope"))
@@ -164,7 +164,7 @@ func (c *RootCLI) newMemoryDistillCommand() *cobra.Command {
 	cmd.Flags().StringVar(&input.fact, "fact", "", Localize("operator-provided distilled memory fact", "operator が指定する distilled memory fact"))
 	cmd.Flags().StringVar(&input.confidence, "confidence", "", Localize("accepted confidence (defaults to verified)", "accepted 時の confidence (既定値は verified)"))
 	cmd.Flags().StringVar(&input.source, "source", "", Localize("memory source (defaults to manual)", "memory source (既定値は manual)"))
-	cmd.Flags().StringVar(&input.replace, "replace", "keep", Localize("source candidate handling: keep, reject, or supersede", "source candidate の扱い: keep, reject, supersede"))
+	cmd.Flags().StringVar(&input.replace, "replace", "keep", Localize("source memory candidate handling: keep, reject, or supersede", "source メモリ候補の扱い: keep, reject, supersede"))
 	cmd.Flags().BoolVar(&input.idOnly, "id-only", false, Localize("print only the resulting memory ID", "結果の memory ID だけを出力する"))
 	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	cmd.MarkFlagsMutuallyExclusive("id-only", "json")
@@ -271,16 +271,16 @@ func configureMemoryWriteFlags(cmd *cobra.Command, input *memoryWriteCommandInpu
 
 func (c *RootCLI) runMemoryList(ctx context.Context, output io.Writer, input memoryListCommandInput) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.memory == nil {
-		return xerrors.Errorf(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
+		return xerrors.New(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
 	}
 	if input.limit <= 0 {
-		return xerrors.Errorf(Localize("limit must be greater than or equal to 1", "limit は 1 以上である必要があります"))
+		return xerrors.New(Localize("limit must be greater than or equal to 1", "limit は 1 以上である必要があります"))
 	}
 	if input.offset < 0 {
-		return xerrors.Errorf(Localize("offset must be greater than or equal to 0", "offset は 0 以上である必要があります"))
+		return xerrors.New(Localize("offset must be greater than or equal to 0", "offset は 0 以上である必要があります"))
 	}
 	if err := c.initializeStore(ctx, input.dbPath); err != nil {
 		return err
@@ -345,19 +345,19 @@ func (c *RootCLI) runMemoryList(ctx context.Context, output io.Writer, input mem
 
 func (c *RootCLI) runMemorySearch(ctx context.Context, output io.Writer, input memorySearchCommandInput) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.memory == nil {
-		return xerrors.Errorf(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
+		return xerrors.New(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
 	}
 	if input.limit <= 0 {
-		return xerrors.Errorf(Localize("limit must be greater than or equal to 1", "limit は 1 以上である必要があります"))
+		return xerrors.New(Localize("limit must be greater than or equal to 1", "limit は 1 以上である必要があります"))
 	}
 	if input.offset < 0 {
-		return xerrors.Errorf(Localize("offset must be greater than or equal to 0", "offset は 0 以上である必要があります"))
+		return xerrors.New(Localize("offset must be greater than or equal to 0", "offset は 0 以上である必要があります"))
 	}
 	if !hasMemorySearchInputConstraint(input) {
-		return xerrors.Errorf(Localize("at least one search filter is required", "検索条件は1つ以上必要です"))
+		return xerrors.New(Localize("at least one search filter is required", "検索条件は1つ以上必要です"))
 	}
 	if err := c.initializeStore(ctx, input.dbPath); err != nil {
 		return err
@@ -422,10 +422,10 @@ func (c *RootCLI) runMemorySearch(ctx context.Context, output io.Writer, input m
 
 func (c *RootCLI) runMemoryShow(ctx context.Context, output io.Writer, dbPath string, memoryID string, asJSON bool) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.memory == nil {
-		return xerrors.Errorf(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
+		return xerrors.New(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
 	}
 	if err := c.initializeStore(ctx, dbPath); err != nil {
 		return err
@@ -476,21 +476,21 @@ func (c *RootCLI) runMemoryPropose(ctx context.Context, output io.Writer, input 
 	}
 	details, err := c.memory.Propose(ctx, memoryType, scope, input.fact, source, evidenceRefs, artifactRefs)
 	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to record candidate durable memory", "candidate durable memory の記録に失敗しました"), err)
+		return xerrors.Errorf("%s: %w", Localize("failed to record memory candidate", "メモリ候補の記録に失敗しました"), err)
 	}
 	return writeMemoryMutationResult(output, details, input.idOnly, input.asJSON)
 }
 
 func (c *RootCLI) runMemoryDistill(ctx context.Context, output io.Writer, input memoryDistillCommandInput) error {
 	if strings.TrimSpace(input.memoryType) == "" {
-		return xerrors.Errorf(Localize("memory type must not be empty", "memory type は空にできません"))
+		return xerrors.New(Localize("memory type must not be empty", "memory type は空にできません"))
 	}
 	if strings.TrimSpace(input.fact) == "" {
-		return xerrors.Errorf(Localize("fact must not be empty", "fact は空にできません"))
+		return xerrors.New(Localize("fact must not be empty", "fact は空にできません"))
 	}
 	rawIDs := normaliseInboxIDs(input.fromIDs)
 	if len(rawIDs) == 0 {
-		return xerrors.Errorf(Localize("--from must list at least one source candidate memory id", "--from に少なくとも1つの source candidate memory id を指定してください"))
+		return xerrors.New(Localize("--from must list at least one source memory candidate id", "--from に少なくとも1つの source メモリ候補 ID を指定してください"))
 	}
 	if err := c.initializeMemoryStore(ctx, input.dbPath); err != nil {
 		return err
@@ -533,7 +533,7 @@ func (c *RootCLI) runMemoryDistill(ctx context.Context, output io.Writer, input 
 
 func (c *RootCLI) runMemorySupersede(ctx context.Context, output io.Writer, input memorySupersedeCommandInput) error {
 	if strings.TrimSpace(input.fact) == "" {
-		return xerrors.Errorf(Localize("fact must not be empty", "fact は空にできません"))
+		return xerrors.New(Localize("fact must not be empty", "fact は空にできません"))
 	}
 	if err := c.initializeMemoryStore(ctx, input.dbPath); err != nil {
 		return err
@@ -641,10 +641,10 @@ func parseOptionalValidityTime(value string) (domtypes.Optional[time.Time], erro
 
 func (c *RootCLI) initializeMemoryStore(ctx context.Context, dbPath string) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.memory == nil {
-		return xerrors.Errorf(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
+		return xerrors.New(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
 	}
 	return c.initializeStore(ctx, dbPath)
 }
@@ -699,10 +699,10 @@ func (c *RootCLI) resolveMemoryWriteParameters(ctx context.Context, input memory
 
 func validateMemoryWriteInput(input memoryWriteCommandInput) error {
 	if strings.TrimSpace(input.memoryType) == "" {
-		return xerrors.Errorf(Localize("memory type must not be empty", "memory type は空にできません"))
+		return xerrors.New(Localize("memory type must not be empty", "memory type は空にできません"))
 	}
 	if strings.TrimSpace(input.fact) == "" {
-		return xerrors.Errorf(Localize("fact must not be empty", "fact は空にできません"))
+		return xerrors.New(Localize("fact must not be empty", "fact は空にできません"))
 	}
 	return nil
 }
@@ -753,7 +753,7 @@ func parseMemoryDistillReplace(value string) (apptypes.MemoryDistillReplace, err
 	case apptypes.MemoryDistillReplaceSupersede:
 		return apptypes.MemoryDistillReplaceSupersede, nil
 	default:
-		return "", xerrors.Errorf(Localize("replace must be one of keep, reject, supersede", "replace は keep, reject, supersede のいずれかである必要があります"))
+		return "", xerrors.New(Localize("replace must be one of keep, reject, supersede", "replace は keep, reject, supersede のいずれかである必要があります"))
 	}
 }
 
@@ -831,7 +831,7 @@ func parseKindValueToken(value string) (string, string, error) {
 	trimmed := strings.TrimSpace(value)
 	separator := strings.Index(trimmed, ":")
 	if separator <= 0 || separator == len(trimmed)-1 {
-		return "", "", xerrors.Errorf(Localize("references must use kind:value format", "参照は kind:value 形式で指定する必要があります"))
+		return "", "", xerrors.New(Localize("references must use kind:value format", "参照は kind:value 形式で指定する必要があります"))
 	}
 	return trimmed[:separator], trimmed[separator+1:], nil
 }
@@ -842,7 +842,7 @@ func resolveRequiredExplicitMemoryScope(workspace string, agent string, sessionF
 		return nil, err
 	}
 	if scope == nil {
-		return nil, xerrors.Errorf(Localize("one of --workspace, --agent, or --session-family is required", "--workspace, --agent, --session-family のいずれかが必要です"))
+		return nil, xerrors.New(Localize("one of --workspace, --agent, or --session-family is required", "--workspace, --agent, --session-family のいずれかが必要です"))
 	}
 	return scope, nil
 }
@@ -864,7 +864,7 @@ func resolveMemoryWriteScope(ctx context.Context, workspace string, agent string
 	}
 	resolvedWorkspace := resolveWorkspaceValue(ctx, workspace)
 	if strings.TrimSpace(resolvedWorkspace) == "" {
-		return nil, xerrors.Errorf(Localize("workspace scope could not be resolved", "workspace scope を解決できませんでした"))
+		return nil, xerrors.New(Localize("workspace scope could not be resolved", "workspace scope を解決できませんでした"))
 	}
 	workspaceValue, err := domtypes.WorkspaceFrom(resolvedWorkspace)
 	if err != nil {

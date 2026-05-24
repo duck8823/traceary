@@ -34,7 +34,7 @@ func (c *RootCLI) newMCPServerCommand() *cobra.Command {
 
 func (c *RootCLI) runMCPServer(ctx context.Context, _ io.Writer, dbPath string) error {
 	if c.mcpServerRunner == nil {
-		return xerrors.Errorf(Localize("MCP server runner is not configured", "MCP server ランナーが設定されていません"))
+		return xerrors.New(Localize("MCP server runner is not configured", "MCP server ランナーが設定されていません"))
 	}
 
 	resolvedPath, err := resolveDBPath(dbPath)

@@ -137,10 +137,10 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 
 func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCommandInput) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.event == nil {
-		return xerrors.Errorf(Localize("record command audit usecase is not configured", "監査ログ記録ユースケースが設定されていません"))
+		return xerrors.New(Localize("record command audit usecase is not configured", "監査ログ記録ユースケースが設定されていません"))
 	}
 
 	resolvedDBPath, err := resolveDBPath(input.dbPath)
@@ -318,7 +318,7 @@ func resolveAuditPayloadField(
 func resolveAuditMaxBytes(flagValue int, envKey string) (int, error) {
 	if flagValue != 0 {
 		if flagValue < 0 {
-			return 0, xerrors.Errorf(Localize("value must be greater than or equal to 0", "0 以上で指定してください"))
+			return 0, xerrors.New(Localize("value must be greater than or equal to 0", "0 以上で指定してください"))
 		}
 		return flagValue, nil
 	}
