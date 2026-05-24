@@ -2299,9 +2299,10 @@ func (m cockpitModel) topTabView() string {
 		m.styles.Subtle.Render(fmt.Sprintf("loaded=%s db=%s", formatJSONTime(m.home.LoadedAt), formatOptionalColumn(m.home.DBPath))),
 		"",
 		m.styles.Subtle.Render(Localize("Top summary", "Top 概要")),
-		Localizef("• sessions: stale_active=%d recent_failures=%d recent_commands=%d new_events=%s%s", "• セッション: 古いアクティブ=%d 直近失敗=%d 直近コマンド=%d 新着イベント=%s%s", m.home.StaleActiveSessionCount, m.home.RecentFailureCount, m.home.RecentCommandCount, formatCockpitNewEventCount(m.home), eventScanSuffix),
-		Localizef("• memories: accepted(reviewed)=%d candidate(inbox)=%d new=%s remember-intent=%d low-quality=%d stale=%d%s", "• メモリ: 採用済み(reviewed)=%d 候補(inbox)=%d 新着=%s remember-intent=%d 低品質=%d 古い=%d%s", m.home.AcceptedMemoryCount, m.home.CandidateMemoryCount, formatCockpitNewCandidateCount(m.home), m.home.RememberIntentCount, m.home.LowQualityMemoryCount, m.home.StaleMemoryCount, memoryScanSuffix),
-		Localizef("• doctor: pass=%d warn=%d fail=%d", "• doctor: パス=%d 警告=%d 失敗=%d", m.home.DoctorPassCount, m.home.DoctorWarnCount, m.home.DoctorFailCount),
+		// Keep metric identifiers in English for copy/paste parity with CLI output, docs, and issue search.
+		Localizef("• sessions: stale_active=%d recent_failures=%d recent_commands=%d new_events=%s%s", "• セッション: stale_active=%d recent_failures=%d recent_commands=%d new_events=%s%s", m.home.StaleActiveSessionCount, m.home.RecentFailureCount, m.home.RecentCommandCount, formatCockpitNewEventCount(m.home), eventScanSuffix),
+		Localizef("• memories: accepted(reviewed)=%d candidate(inbox)=%d new=%s remember-intent=%d low-quality=%d stale=%d%s", "• メモリ: accepted(reviewed)=%d candidate(inbox)=%d new=%s remember-intent=%d low-quality=%d stale=%d%s", m.home.AcceptedMemoryCount, m.home.CandidateMemoryCount, formatCockpitNewCandidateCount(m.home), m.home.RememberIntentCount, m.home.LowQualityMemoryCount, m.home.StaleMemoryCount, memoryScanSuffix),
+		Localizef("• doctor: pass=%d warn=%d fail=%d", "• doctor: pass=%d warn=%d fail=%d", m.home.DoctorPassCount, m.home.DoctorWarnCount, m.home.DoctorFailCount),
 		Localizef("• hooks/mcp: warn=%d fail=%d", "• hooks/mcp: warn=%d fail=%d", m.home.HookWarnCount, m.home.HookFailCount),
 		Localizef("• payloads: large=%d", "• payloads: large=%d", m.home.LargePayloadCount),
 		"",
@@ -2729,7 +2730,7 @@ func (m cockpitModel) cockpitContextualNavigationTitle() string {
 
 func (m cockpitModel) cockpitContextualNavigationLines() []string {
 	if m.mode == cockpitModeSettings && m.settings.editingPattern {
-		return []string{Localize("Navigation is paused while regex input is active; enter stages the regex and esc cancels.", "regex 入力中はナビゲーションを一時停止します。enter で下書きに追加、esc でキャンセルします。")}
+		return []string{Localize("Navigation is paused while regex input is active; enter stages the regex and esc cancels.", "regex 入力中はナビゲーションを一時停止します。enter で staged、esc でキャンセルします。")}
 	}
 	if m.mode == cockpitModeSettings && m.settings.confirmSave {
 		return []string{Localize("Navigation is paused while config write confirmation is active; y saves and n/esc cancels.", "config 書き込み確認中はナビゲーションを一時停止します。y で保存、n/esc でキャンセルします。")}

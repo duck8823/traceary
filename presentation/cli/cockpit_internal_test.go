@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -1969,6 +1970,13 @@ func TestCockpitModel_EnglishLocaleKeepsScrollHelpEnglish(t *testing.T) {
 			help: func() string {
 				model := base
 				model.mode = cockpitModeDoctor
+				model.doctor.snapshot = cockpitDoctorSnapshot{
+					LoadedAt: fixedStartedAt,
+					Sections: []cockpitDoctorSection{{Name: "Checks", Checks: []cockpitDoctorCheck{
+						{Name: "first", Status: doctorStatusPass, Message: "ok"},
+						{Name: "second", Status: doctorStatusPass, Message: "ok"},
+					}}},
+				}
 				return model.doctorLocalHelp()
 			}(),
 		},
@@ -1995,12 +2003,66 @@ func TestCockpitModel_EnglishLocaleKeepsScrollHelpEnglish(t *testing.T) {
 	}
 }
 
+func TestCockpitModel_JapaneseLocaleKeepsScrollHelpJapanese(t *testing.T) {
+	resetConfiguredCLILanguageCacheForTest()
+	t.Cleanup(resetConfiguredCLILanguageCacheForTest)
+	t.Setenv(cliLanguageEnvKey, "ja")
+
+	base := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	cases := []struct {
+		name string
+		help string
+	}{
+		{
+			name: "top detail",
+			help: func() string {
+				model := base
+				model.mode = cockpitModeTop
+				model.top.detailOpen = true
+				model.top.detail.lines = []string{"first line", "second line"}
+				return model.topLocalHelp()
+			}(),
+		},
+		{
+			name: "doctor",
+			help: func() string {
+				model := base
+				model.mode = cockpitModeDoctor
+				model.doctor.snapshot = cockpitDoctorSnapshot{
+					LoadedAt: fixedStartedAt,
+					Sections: []cockpitDoctorSection{{Name: "Checks", Checks: []cockpitDoctorCheck{
+						{Name: "first", Status: doctorStatusPass, Message: "ok"},
+						{Name: "second", Status: doctorStatusPass, Message: "ok"},
+					}}},
+				}
+				return model.doctorLocalHelp()
+			}(),
+		},
+		{
+			name: "tail detail",
+			help: func() string {
+				model := base
+				model.mode = cockpitModeDetail
+				model.detail.lines = []string{"first line", "second line"}
+				return model.detailLocalHelp()
+			}(),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if !strings.Contains(tc.help, "↑/↓ スクロール") {
+				t.Fatalf("%s help = %q, want Japanese scroll copy", tc.name, tc.help)
+			}
+		})
+	}
+}
+
 func containsJapaneseScript(value string) bool {
 	for _, r := range value {
-		switch {
-		case r >= 0x3040 && r <= 0x30ff:
-			return true
-		case r >= 0x3400 && r <= 0x9fff:
+		if unicode.In(r, unicode.Hiragana, unicode.Katakana, unicode.Han) ||
+			(r >= 0x3000 && r <= 0x303f) ||
+			(r >= 0xff00 && r <= 0xffef) {
 			return true
 		}
 	}

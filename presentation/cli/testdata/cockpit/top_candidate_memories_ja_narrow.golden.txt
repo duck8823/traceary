@@ -4,9 +4,9 @@ Traceary cockpit · Top
 loaded=2026-05-07T12:00:00Z db=/tmp/traceary.db
 
 Top 概要
-• セッション: 古いアクティブ=0 直近失敗=0 直近コマンド=0 新着イベント=未追跡
-• メモリ: 採用済み(reviewed)=3 候補(inbox)=4 新着=2 remember-intent=1 低品質=1 古い=0
-• doctor: パス=0 警告=0 失敗=0
+• セッション: stale_active=0 recent_failures=0 recent_commands=0 new_events=未追跡
+• メモリ: accepted(reviewed)=3 candidate(inbox)=4 new=2 remember-intent=1 low-quality=1 stale=0
+• doctor: pass=0 warn=0 fail=0
 • hooks/mcp: warn=0 fail=0
 • payloads: large=0
 
