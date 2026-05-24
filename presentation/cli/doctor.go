@@ -118,7 +118,7 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 
 func (c *RootCLI) runDoctor(ctx context.Context, output io.Writer, input doctorCommandInput) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 
 	report, err := c.buildDoctorReport(ctx, input)
@@ -989,7 +989,7 @@ func inspectDoctorPluginPackage(projectDir string) doctorCheck {
 
 func writeDoctorReport(output io.Writer, report *doctorReport, asJSON bool) error {
 	if report == nil {
-		return xerrors.Errorf(Localize("doctor report must not be nil", "doctor report は nil にできません"))
+		return xerrors.New(Localize("doctor report must not be nil", "doctor report は nil にできません"))
 	}
 	finalizeDoctorReport(report)
 

@@ -74,7 +74,7 @@ type sessionTreeNode struct {
 // `traceary top --snapshot --json`. The envelope was introduced in
 // v0.14.0 alongside the multi-pane redesign so the snapshot can carry
 // the dashboard's secondary surfaces (recent failures, recent
-// commands, durable-memory inbox candidates) next to the active
+// commands, memory review queue candidates) next to the active
 // session tree. Earlier releases emitted a bare top-level array of
 // session nodes; the inner session shape is unchanged so consumers
 // that already destructure `sessions[*]` keep working — only the

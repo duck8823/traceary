@@ -11,12 +11,12 @@ Top summary
 • payloads: large=0
 
 Actionable signals
-• [WARN] Memory inbox needs review — candidate=4 new=2 remember-intent=1 low-quality=1 (3 review Memory inbox)
+• [WARN] Memory review queue needs attention — candidate=4 new=2 remember-intent=1 low-quality=1 (3 open Memory review)
 
 Signal details
 • new events=untracked until cockpit state is initialized
-• new candidate memories=2
-• candidate memories=4
+• new memory candidates=2
+• memory candidates=4
 • remember-intent candidates=1
 • low-quality candidates=1
 

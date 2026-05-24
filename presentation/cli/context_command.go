@@ -55,13 +55,13 @@ func (c *RootCLI) newContextCommand() *cobra.Command {
 
 func (c *RootCLI) runContext(ctx context.Context, output io.Writer, input contextCommandInput) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.event == nil {
-		return xerrors.Errorf(Localize("get context query service is not configured", "文脈クエリサービスが設定されていません"))
+		return xerrors.New(Localize("get context query service is not configured", "文脈クエリサービスが設定されていません"))
 	}
 	if input.limit <= 0 {
-		return xerrors.Errorf(Localize("limit must be greater than or equal to 1", "limit は 1 以上である必要があります"))
+		return xerrors.New(Localize("limit must be greater than or equal to 1", "limit は 1 以上である必要があります"))
 	}
 
 	resolvedDBPath, err := resolveDBPath(input.dbPath)

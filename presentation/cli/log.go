@@ -81,10 +81,10 @@ func (c *RootCLI) newLogCommand() *cobra.Command {
 
 func (c *RootCLI) runLog(ctx context.Context, output io.Writer, input logCommandInput) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.event == nil {
-		return xerrors.Errorf(Localize("record log usecase is not configured", "ログ記録ユースケースが設定されていません"))
+		return xerrors.New(Localize("record log usecase is not configured", "ログ記録ユースケースが設定されていません"))
 	}
 
 	resolvedDBPath, err := resolveDBPath(input.dbPath)

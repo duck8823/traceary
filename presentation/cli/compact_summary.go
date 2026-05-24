@@ -132,7 +132,7 @@ func buildCompactSummaryText(result types.Optional[apptypes.ContextPack]) (strin
 		}
 		sb.WriteString("\n")
 	} else if pack.CandidateMemoryCount() > 0 {
-		fmt.Fprintf(&sb, "  needs_review: %d candidate memories omitted (run session handoff --include-candidates)\n", pack.CandidateMemoryCount())
+		fmt.Fprintf(&sb, "  needs_review: %d memory candidates omitted (run session handoff --include-candidates)\n", pack.CandidateMemoryCount())
 	}
 	sb.WriteString("  Run list_events for full history.\n")
 	text := sb.String()

@@ -318,7 +318,7 @@ type memoryWriteCommandInput struct {
 	asJSON        bool
 }
 
-// memoryDistillCommandInput is the resolved input to `traceary memory distill`.
+// memoryDistillCommandInput is the resolved input to `traceary memory store distill`.
 type memoryDistillCommandInput struct {
 	dbPath        string
 	fromIDs       []string
@@ -377,7 +377,7 @@ type memorySupersedeCommandInput struct {
 	asJSON        bool
 }
 
-// memoryExtractCommandInput is the resolved input to `traceary memory extract`.
+// memoryExtractCommandInput is the resolved input to `traceary memory admin extract`.
 type memoryExtractCommandInput struct {
 	dbPath         string
 	sessionID      string

@@ -15,15 +15,15 @@ import (
 type readFieldID string
 
 const (
-	readFieldTS        readFieldID = "ts"
-	readFieldKind      readFieldID = "kind"
-	readFieldSession   readFieldID = "session"
-	readFieldWorkspace readFieldID = "ws"
-	readFieldClient    readFieldID = "client"
-	readFieldAgent     readFieldID = "agent"
-	readFieldMessage   readFieldID = "message"
-	readFieldExitCode  readFieldID = "exit_code"
-	readFieldEventID   readFieldID = "id"
+	readFieldTS         readFieldID = "ts"
+	readFieldKind       readFieldID = "kind"
+	readFieldSession    readFieldID = "session"
+	readFieldWorkspace  readFieldID = "ws"
+	readFieldClient     readFieldID = "client"
+	readFieldAgent      readFieldID = "agent"
+	readFieldMessage    readFieldID = "message"
+	readFieldExitCode   readFieldID = "exit_code"
+	readFieldEventID    readFieldID = "id"
 	readFieldSourceHook readFieldID = "source_hook"
 )
 
@@ -166,7 +166,7 @@ func readFieldsFlagUsage() string {
 // fields > config.read.fields > built-in default.
 func (c *RootCLI) resolveReadFieldsForCommand(explicit []string, explicitSet bool, wide bool, asJSON bool, presetFields []readFieldID) ([]readFieldID, error) {
 	if wide && explicitSet {
-		return nil, xerrors.Errorf(Localize(
+		return nil, xerrors.New(Localize(
 			"--fields cannot be combined with --wide (wide mode keeps the legacy seven-column format)",
 			"--fields は --wide と併用できません (wide モードは従来の 7 カラム形式を維持します)",
 		))

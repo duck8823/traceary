@@ -763,7 +763,7 @@ func (m topModel) eventRows(events []*model.Event, width int) []topPaneRow {
 	return out
 }
 
-// candidateLines renders one row per candidate memory. The pane reuses the
+// candidateLines renders one row per memory candidate. The pane reuses the
 // candidate-list ordering set by the loader (remember-intent priority) so
 // inbox and dashboard agree on which row is "next up".
 func (m topModel) candidateLines(width int) []string {
@@ -778,7 +778,7 @@ func (m topModel) candidateRows(width int) []topPaneRow {
 		return []topPaneRow{{line: m.styles.Subtle.Render(Localize("loading…", "読み込み中…"))}}
 	}
 	if len(m.snapshot.Candidates) == 0 {
-		return []topPaneRow{{line: m.styles.Subtle.Render(Localize("No candidate durable memories in the inbox.", "inbox に candidate durable memory はありません"))}}
+		return []topPaneRow{{line: m.styles.Subtle.Render(memoryReviewEmptyQueueMessage())}}
 	}
 	out := make([]topPaneRow, 0, len(m.snapshot.Candidates))
 	for _, candidate := range m.snapshot.Candidates {
@@ -994,7 +994,7 @@ func (m topModel) renderHelp() string {
 	b.WriteString("  1 sessions       " + Localize("active session tree (root → child)", "active session tree (root → child)") + "\n")
 	b.WriteString("  2 failures       " + Localize("recent failed command_executed events", "最新の失敗 command_executed イベント") + "\n")
 	b.WriteString("  3 commands       " + Localize("recent command_executed events", "最新の command_executed イベント") + "\n")
-	b.WriteString("  4 candidates     " + Localize("durable-memory inbox candidates", "durable memory inbox の候補") + "\n")
+	b.WriteString("  4 candidates     " + Localize("memory review queue candidates", "メモリ候補の確認キュー内のメモリ候補") + "\n")
 	b.WriteString("  5 stale memories " + Localize("stale durable memories needing cleanup", "整理対象の stale durable memory") + "\n")
 	b.WriteString("\n")
 	b.WriteString(Localize("Navigation:\n", "操作:\n"))

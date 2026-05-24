@@ -82,7 +82,7 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("candidate memories surface in needs-review section when included", func(t *testing.T) {
+	t.Run("memory candidates surface in needs-review section when included", func(t *testing.T) {
 		t.Parallel()
 
 		acceptedSummary, err := apptypes.MemorySummaryOf(
@@ -153,10 +153,10 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 		}
 		out := stdout.String()
 		if !strings.Contains(out, "MEMORY_NEEDS_REVIEW:") {
-			t.Fatalf("candidate memory should render in needs-review section:\n%s", out)
+			t.Fatalf("memory candidate should render in needs-review section:\n%s", out)
 		}
 		if !strings.Contains(out, "[lesson][workspace:duck8823/traceary] Pending review item from extraction") {
-			t.Fatalf("candidate memory should render without being mixed into trusted memories:\n%s", out)
+			t.Fatalf("memory candidate should render without being mixed into trusted memories:\n%s", out)
 		}
 		if strings.Contains(out, "[accepted][decision]") {
 			t.Fatalf("accepted memory must not get a status prefix (existing layout); output:\n%s", out)

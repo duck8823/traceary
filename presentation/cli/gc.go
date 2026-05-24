@@ -47,10 +47,10 @@ func (c *RootCLI) newStoreGCCommand() *cobra.Command {
 
 func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandInput) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("store management usecase is not configured", "ストア管理ユースケースが設定されていません"))
+		return xerrors.New(Localize("store management usecase is not configured", "ストア管理ユースケースが設定されていません"))
 	}
 	if input.keepDays <= 0 {
-		return xerrors.Errorf(Localize("--keep-days must be greater than or equal to 1", "keep-days は 1 以上である必要があります"))
+		return xerrors.New(Localize("--keep-days must be greater than or equal to 1", "keep-days は 1 以上である必要があります"))
 	}
 
 	resolvedDBPath, err := resolveDBPath(input.dbPath)
@@ -64,7 +64,7 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 
 	target, ok := apptypes.GarbageCollectionTargetFrom(input.target)
 	if !ok {
-		return xerrors.Errorf(Localize("--target must be one of events, sessions, memories, memory_edges, all", "--target は events, sessions, memories, memory_edges, all のいずれかである必要があります"))
+		return xerrors.New(Localize("--target must be one of events, sessions, memories, memory_edges, all", "--target は events, sessions, memories, memory_edges, all のいずれかである必要があります"))
 	}
 
 	cutoff := gcNowFunc().AddDate(0, 0, -input.keepDays)

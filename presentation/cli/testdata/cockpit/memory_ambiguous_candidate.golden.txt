@@ -1,7 +1,7 @@
 Traceary cockpit · memory review
 tabs: 1 Tail  2 Top  [3 Memory]  4 Sessions  5 Settings
 
-inbox review · decision card
+memory review · decision card
 candidate 1 / 1
 
 DECISION CONTEXT

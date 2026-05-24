@@ -33,7 +33,7 @@ func writeEventDetailsJSON(output io.Writer, details apptypes.EventDetails) erro
 
 func writeEventJSON(output io.Writer, e *model.Event) error {
 	if e == nil {
-		return xerrors.Errorf(Localize("event must not be nil", "イベントは nil にできません"))
+		return xerrors.New(Localize("event must not be nil", "イベントは nil にできません"))
 	}
 
 	return writeJSON(output, newEventOutput(e))

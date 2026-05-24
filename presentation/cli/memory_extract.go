@@ -16,10 +16,10 @@ func (c *RootCLI) newMemoryExtractCommand() *cobra.Command {
 	input := memoryExtractCommandInput{}
 	cmd := &cobra.Command{
 		Use:   "extract",
-		Short: Localize("Extract candidate durable memories from an existing session", "既存 session から candidate durable memory を抽出する"),
+		Short: Localize("Extract memory candidates from an existing session", "既存 session からメモリ候補を抽出する"),
 		Long: Localize(
-			"Extract candidate durable memories from session summaries, compact summaries, prompt events, and note/review signals without auto-accepting them.",
-			"session summary、compact summary、prompt event、note/review signal から candidate durable memory を抽出します。auto-accept は行いません。",
+			"Extract memory candidates from session summaries, compact summaries, prompt events, and note/review signals without auto-accepting them.",
+			"session summary、compact summary、prompt event、note/review signal からメモリ候補を抽出します。auto-accept は行いません。",
 		),
 		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -30,24 +30,24 @@ func (c *RootCLI) newMemoryExtractCommand() *cobra.Command {
 	cmd.Flags().StringVar(&input.sessionID, "session-id", "", Localize("target session ID (defaults to the active/latest session for the workspace)", "対象 session ID (省略時は workspace の active/latest session)"))
 	cmd.Flags().StringVar(&input.workspace, "workspace", "", Localize("workspace used to resolve the target session", "対象 session 解決に使う workspace"))
 	cmd.Flags().IntVar(&input.eventLimit, "event-limit", 5, Localize("maximum number of recent events to inspect per signal kind", "signal kind ごとに調べる recent event 数"))
-	cmd.Flags().IntVar(&input.candidateLimit, "candidate-limit", 10, Localize("maximum number of candidates to create", "作成する candidate 数の上限"))
-	cmd.Flags().BoolVar(&input.debugSignals, "debug-signals", false, Localize("explain segment-level extraction decisions without creating candidates", "candidate を作成せず segment 単位の抽出判断を説明する"))
+	cmd.Flags().IntVar(&input.candidateLimit, "candidate-limit", 10, Localize("maximum number of memory candidates to create", "作成するメモリ候補数の上限"))
+	cmd.Flags().BoolVar(&input.debugSignals, "debug-signals", false, Localize("explain segment-level extraction decisions without creating memory candidates", "メモリ候補を作成せず segment 単位の抽出判断を説明する"))
 	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	return cmd
 }
 
 func (c *RootCLI) runMemoryExtract(ctx context.Context, output io.Writer, input memoryExtractCommandInput) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.memory == nil {
-		return xerrors.Errorf(Localize("memory usecase is not configured", "memory extraction ユースケースが設定されていません"))
+		return xerrors.New(Localize("memory usecase is not configured", "memory extraction ユースケースが設定されていません"))
 	}
 	if input.eventLimit < 0 {
-		return xerrors.Errorf(Localize("event-limit must be greater than or equal to 0", "event-limit は 0 以上である必要があります"))
+		return xerrors.New(Localize("event-limit must be greater than or equal to 0", "event-limit は 0 以上である必要があります"))
 	}
 	if input.candidateLimit <= 0 {
-		return xerrors.Errorf(Localize("candidate-limit must be greater than or equal to 1", "candidate-limit は 1 以上である必要があります"))
+		return xerrors.New(Localize("candidate-limit must be greater than or equal to 1", "candidate-limit は 1 以上である必要があります"))
 	}
 	if err := c.initializeStore(ctx, input.dbPath); err != nil {
 		return err
@@ -59,7 +59,7 @@ func (c *RootCLI) runMemoryExtract(ctx context.Context, output io.Writer, input 
 		return err
 	}
 	if strings.TrimSpace(resolvedSessionID) == "" {
-		return xerrors.Errorf(Localize("failed to resolve a target session for memory extraction", "memory extraction 対象の session を解決できませんでした"))
+		return xerrors.New(Localize("failed to resolve a target session for memory extraction", "memory extraction 対象の session を解決できませんでした"))
 	}
 
 	criteria := apptypes.NewMemoryExtractionCriteriaBuilder().
@@ -84,10 +84,10 @@ func (c *RootCLI) runMemoryExtract(ctx context.Context, output io.Writer, input 
 		criteria,
 	)
 	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to extract durable-memory candidates", "durable memory candidate の抽出に失敗しました"), err)
+		return xerrors.Errorf("%s: %w", Localize("failed to extract memory candidates", "メモリ候補の抽出に失敗しました"), err)
 	}
 	if err := writeExtractedMemoryCandidatesByFormat(output, details, input.asJSON); err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to print extracted durable-memory candidates", "抽出した durable memory candidate の出力に失敗しました"), err)
+		return xerrors.Errorf("%s: %w", Localize("failed to print extracted memory candidates", "抽出したメモリ候補の出力に失敗しました"), err)
 	}
 	return nil
 }

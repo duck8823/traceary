@@ -42,26 +42,26 @@ func (c *RootCLI) newMemoryActivateCommand() *cobra.Command {
 
 func (c *RootCLI) runMemoryActivate(ctx context.Context, output io.Writer, input memoryActivateCommandInput, invokedCommandPath string) error {
 	if c.storeManagement == nil {
-		return xerrors.Errorf(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
 	if c.memory == nil {
-		return xerrors.Errorf(Localize("memory usecase is not configured", "memory activation ユースケースが設定されていません"))
+		return xerrors.New(Localize("memory usecase is not configured", "memory activation ユースケースが設定されていません"))
 	}
 	if countActivationModes(input) != 1 {
-		return xerrors.Errorf(Localize("pass exactly one of --dry-run, --apply, or --status", "--dry-run / --apply / --status のいずれか一つだけを指定してください"))
+		return xerrors.New(Localize("pass exactly one of --dry-run, --apply, or --status", "--dry-run / --apply / --status のいずれか一つだけを指定してください"))
 	}
 	if input.diff && !input.dryRun {
-		return xerrors.Errorf(Localize("--diff can only be used with --dry-run", "--diff は --dry-run と一緒にのみ使用できます"))
+		return xerrors.New(Localize("--diff can only be used with --dry-run", "--diff は --dry-run と一緒にのみ使用できます"))
 	}
 	target, ok := apptypes.MemoryBridgeTargetOf(strings.ToLower(strings.TrimSpace(input.target)))
 	if !ok {
-		return xerrors.Errorf(Localize("--target must be codex, claude, or gemini", "--target は codex, claude, gemini のいずれかを指定してください"))
+		return xerrors.New(Localize("--target must be codex, claude, or gemini", "--target は codex, claude, gemini のいずれかを指定してください"))
 	}
 	switch target {
 	case apptypes.MemoryBridgeTargetCodex, apptypes.MemoryBridgeTargetClaude, apptypes.MemoryBridgeTargetGemini:
 		// fully supported (status / dry-run / apply)
 	default:
-		return xerrors.Errorf(Localize("--target must be codex, claude, or gemini", "--target は codex, claude, gemini のいずれかを指定してください"))
+		return xerrors.New(Localize("--target must be codex, claude, or gemini", "--target は codex, claude, gemini のいずれかを指定してください"))
 	}
 	if err := c.initializeStore(ctx, input.dbPath); err != nil {
 		return err

@@ -130,7 +130,7 @@ type bundleImportInput struct {
 
 func (c *RootCLI) runBundleExport(ctx context.Context, output io.Writer, input bundleExportInput) error {
 	if c.bundle == nil {
-		return xerrors.Errorf(Localize("bundle usecase is not configured", "bundle usecase が設定されていません"))
+		return xerrors.New(Localize("bundle usecase is not configured", "bundle usecase が設定されていません"))
 	}
 	passphrase, err := readBundlePassphrase(input.passphraseEnv)
 	if err != nil {
@@ -179,7 +179,7 @@ func (c *RootCLI) runBundleExport(ctx context.Context, output io.Writer, input b
 
 func (c *RootCLI) runBundleImport(ctx context.Context, output io.Writer, input bundleImportInput) error {
 	if c.bundle == nil {
-		return xerrors.Errorf(Localize("bundle usecase is not configured", "bundle usecase が設定されていません"))
+		return xerrors.New(Localize("bundle usecase is not configured", "bundle usecase が設定されていません"))
 	}
 	passphrase, err := readBundlePassphrase(input.passphraseEnv)
 	if err != nil {
@@ -247,17 +247,18 @@ func (c *RootCLI) runBundleImport(ctx context.Context, output io.Writer, input b
 func readBundlePassphrase(envName string) ([]byte, error) {
 	trimmed := strings.TrimSpace(envName)
 	if trimmed == "" {
-		return nil, xerrors.Errorf(Localize(
+		return nil, xerrors.New(Localize(
 			"--passphrase-env must not be empty",
 			"--passphrase-env は空にできません",
 		))
 	}
 	raw := os.Getenv(trimmed)
 	if raw == "" {
-		return nil, xerrors.Errorf(Localize(
+		return nil, xerrors.New(Localizef(
 			"env var %s is empty; set it before running `bundle export` / `bundle import`",
 			"環境変数 %s が空です。`bundle export` / `bundle import` の前に設定してください",
-		), trimmed)
+			trimmed,
+		))
 	}
 	return []byte(raw), nil
 }
