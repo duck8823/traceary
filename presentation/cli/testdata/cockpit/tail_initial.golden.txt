@@ -1,8 +1,8 @@
 Traceary cockpit · live tail
 tabs: [1 Tail]  2 Top  3 Memory  4 Sessions  5 Settings
 
-loaded=2026-05-07T12:00:00Z follow=false rows=0
+loaded=2026-05-07T12:00:00Z auto_follow=true rows=0
 
 Loading live events...
 
-1-5 tabs · ←/→ tabs · tab/shift+tab next/prev · q/ctrl+c quit · ? help · r refresh · f follow
+1-5 tabs · ←/→ tabs · tab/shift+tab next/prev · q/ctrl+c quit · ? help · r refresh · End/G newest
