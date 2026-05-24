@@ -4,7 +4,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/duck8823/traceary/infrastructure/sqlite"
@@ -19,19 +18,30 @@ func productionSQLiteMigrations(t testing.TB) fs.FS {
 
 func productionSQLiteMigrationDir(t testing.TB) string {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatalf("runtime.Caller(0) failed")
-	}
-	dir := filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "schema", "sqlite", "migrations"))
-	info, err := os.Stat(dir)
+	cwd, err := os.Getwd()
 	if err != nil {
-		t.Fatalf("stat production SQLite migrations dir %s: %v", dir, err)
+		t.Fatalf("get working directory: %v", err)
 	}
-	if !info.IsDir() {
-		t.Fatalf("production SQLite migrations path %s is not a directory", dir)
+	dir, ok := findProductionSQLiteMigrationDir(cwd)
+	if !ok {
+		t.Fatalf("production SQLite migrations dir not found from %s", cwd)
 	}
 	return dir
+}
+
+func findProductionSQLiteMigrationDir(start string) (string, bool) {
+	dir := filepath.Clean(start)
+	for {
+		candidate := filepath.Join(dir, "schema", "sqlite", "migrations")
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate, true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+		dir = parent
+	}
 }
 
 // newEventDatasource returns an EventDatasource plus a matching
