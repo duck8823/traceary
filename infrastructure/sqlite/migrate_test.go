@@ -170,19 +170,21 @@ func migrationsBeforeVersion(t *testing.T, dir string, maxVersion int) fstest.Ma
 		t.Fatalf("ReadDir() error = %v", err)
 	}
 	migrations := fstest.MapFS{}
+	foundMaxVersion := false
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
 			continue
 		}
 		versionText, _, ok := strings.Cut(entry.Name(), "_")
 		if !ok {
-			t.Logf("skip migration filename %q: missing version separator", entry.Name())
-			continue
+			t.Fatalf("migration filename %q missing version separator", entry.Name())
 		}
 		version, parseErr := strconv.Atoi(versionText)
 		if parseErr != nil {
-			t.Logf("skip migration filename %q: invalid version: %v", entry.Name(), parseErr)
-			continue
+			t.Fatalf("migration filename %q has invalid version: %v", entry.Name(), parseErr)
+		}
+		if version == maxVersion {
+			foundMaxVersion = true
 		}
 		if version >= maxVersion {
 			continue
@@ -192,6 +194,9 @@ func migrationsBeforeVersion(t *testing.T, dir string, maxVersion int) fstest.Ma
 			t.Fatalf("ReadFile(%s) error = %v", entry.Name(), err)
 		}
 		migrations[entry.Name()] = &fstest.MapFile{Data: data}
+	}
+	if !foundMaxVersion {
+		t.Fatalf("migration version %d not found in %s", maxVersion, dir)
 	}
 	return migrations
 }

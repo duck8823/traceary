@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -16,9 +17,8 @@ import (
 )
 
 var (
-	sqliteMigrationDirOnce sync.Once
-	sqliteMigrationDir     string
-	sqliteMigrationDirErr  error
+	sqliteMigrationDirMu sync.Mutex
+	sqliteMigrationDir   string
 )
 
 // onDiskSQLiteMigrations returns the repository's on-disk migration set for
@@ -30,12 +30,19 @@ func onDiskSQLiteMigrations(t testing.TB) fs.FS {
 
 func onDiskSQLiteMigrationDir(t testing.TB) string {
 	t.Helper()
-	sqliteMigrationDirOnce.Do(func() {
-		sqliteMigrationDir, sqliteMigrationDirErr = resolveOnDiskSQLiteMigrationDir()
-	})
-	if sqliteMigrationDirErr != nil {
-		t.Fatal(sqliteMigrationDirErr)
+
+	sqliteMigrationDirMu.Lock()
+	defer sqliteMigrationDirMu.Unlock()
+
+	if sqliteMigrationDir != "" {
+		return sqliteMigrationDir
 	}
+
+	dir, err := resolveOnDiskSQLiteMigrationDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqliteMigrationDir = dir
 	return sqliteMigrationDir
 }
 
@@ -65,14 +72,14 @@ func sqliteMigrationSearchStarts() ([]string, []error) {
 	var starts []string
 	var errs []error
 
+	if _, file, _, ok := runtime.Caller(0); ok && filepath.IsAbs(file) {
+		starts = appendSearchStart(starts, filepath.Dir(file))
+	}
+
 	if cwd, err := os.Getwd(); err == nil {
 		starts = appendSearchStart(starts, cwd)
 	} else {
 		errs = append(errs, fmt.Errorf("get working directory: %w", err))
-	}
-
-	if _, file, _, ok := runtime.Caller(0); ok && filepath.IsAbs(file) {
-		starts = appendSearchStart(starts, filepath.Dir(file))
 	}
 
 	return starts, errs
@@ -129,7 +136,8 @@ func isTracearyModule(data []byte) bool {
 		if unquoted, err := strconv.Unquote(modulePath); err == nil {
 			modulePath = unquoted
 		}
-		if modulePath == "github.com/duck8823/traceary" {
+		if modulePath == "github.com/duck8823/traceary" ||
+			strings.HasPrefix(modulePath, "github.com/duck8823/traceary/v") {
 			return true
 		}
 	}

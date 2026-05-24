@@ -17,6 +17,8 @@ func TestDatasource_FindLatest(t *testing.T) {
 	t.Parallel()
 
 	t.Run("returns latest session_started", func(t *testing.T) {
+		t.Parallel()
+
 		_, sessionDS := newFindLatestScenario(t)
 
 		result, err := sessionDS.FindLatest(
@@ -36,6 +38,8 @@ func TestDatasource_FindLatest(t *testing.T) {
 	})
 
 	t.Run("session with end boundary as last event is selected as latest", func(t *testing.T) {
+		t.Parallel()
+
 		eventDS, sessionDS := newFindLatestScenario(t)
 		saveFindLatestSessionEventFixture(
 			t,
@@ -76,6 +80,8 @@ func TestDatasource_FindLatest(t *testing.T) {
 	})
 
 	t.Run("returns active session when active only is set", func(t *testing.T) {
+		t.Parallel()
+
 		eventDS, sessionDS := newFindLatestScenario(t)
 		saveFindLatestSessionEventFixture(
 			t,
@@ -86,6 +92,16 @@ func TestDatasource_FindLatest(t *testing.T) {
 			"github.com/duck8823/traceary",
 			"session started",
 			time.Date(2026, 4, 11, 13, 0, 0, 0, time.UTC),
+		)
+		saveFindLatestSessionEventFixture(
+			t,
+			eventDS,
+			"event-7",
+			types.EventKindSessionEnded,
+			"session-finished",
+			"github.com/duck8823/traceary",
+			"session ended",
+			time.Date(2026, 4, 11, 14, 0, 0, 0, time.UTC),
 		)
 
 		result, err := sessionDS.FindLatest(
@@ -105,6 +121,8 @@ func TestDatasource_FindLatest(t *testing.T) {
 	})
 
 	t.Run("returns newest start when multiple starts exist for same session_id", func(t *testing.T) {
+		t.Parallel()
+
 		eventDS, sessionDS := newFindLatestScenario(t)
 		saveFindLatestSessionEventFixture(
 			t,
@@ -144,6 +162,8 @@ func TestDatasource_FindLatest(t *testing.T) {
 	})
 
 	t.Run("returns empty Optional when no matching session exists", func(t *testing.T) {
+		t.Parallel()
+
 		_, sessionDS := newFindLatestScenario(t)
 
 		result, err := sessionDS.FindLatest(
@@ -159,11 +179,23 @@ func TestDatasource_FindLatest(t *testing.T) {
 	})
 
 	t.Run("returns empty Optional when no matching active session exists", func(t *testing.T) {
-		_, sessionDS := newFindLatestScenario(t)
+		t.Parallel()
+
+		eventDS, sessionDS := newFindLatestScenario(t)
+		saveFindLatestSessionEventFixture(
+			t,
+			eventDS,
+			"event-6",
+			types.EventKindSessionEnded,
+			"session-active",
+			"github.com/duck8823/traceary",
+			"session ended",
+			time.Date(2026, 4, 11, 13, 0, 0, 0, time.UTC),
+		)
 
 		result, err := sessionDS.FindLatest(
 			context.Background(),
-			types.Client(""), types.Agent("claude"), types.Workspace(""), true,
+			types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), true,
 		)
 		if err != nil {
 			t.Fatalf("FindLatest() error = %v, want nil", err)
