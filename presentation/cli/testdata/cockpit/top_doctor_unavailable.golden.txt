@@ -18,6 +18,7 @@ Signal details
 • candidate memory new count=untracked
 • candidate memories=0
 
-This Top tab shows a compact summary. For the full multi-pane dashboard, run `traceary top`.
+Top dashboard
+Top dashboard has not loaded yet. Press r to refresh.
 
-1-5 tabs · ←/→ tabs · tab/shift+tab next/prev · esc back · q/ctrl+c quit · ? help · r refresh top summary
+1-5 tabs · ←/→ tabs · tab/shift+tab next/prev · esc back · q/ctrl+c quit · ? help · r refresh

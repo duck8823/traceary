@@ -24,6 +24,14 @@ const cockpitExitCodeNotInteractive = 2
 const cockpitLiveMaxEvents = 200
 const cockpitDoctorMessageWidth = 160
 const cockpitNewEventLimit = 200
+const cockpitTopUnknownWidth = 120
+const cockpitTopShellHorizontalPadding = 6
+const cockpitTopRowPrefixWidth = 2
+const cockpitTopDefaultViewportRows = 12
+const cockpitTopSummaryChromeRows = 18
+const cockpitTopMinViewportRows = 5
+const cockpitTopDetailDefaultViewportRows = 16
+const cockpitTopDetailChromeRows = 6
 
 type cockpitExitError struct {
 	message  string
@@ -399,6 +407,8 @@ func countCockpitHookIssues(report *doctorReport) (warn int, fail int) {
 
 type cockpitLoader interface {
 	loadCockpitHome(ctx context.Context) (cockpitHomeSnapshot, error)
+	loadCockpitTop(ctx context.Context, criteria topDataCriteria) (topDataSnapshot, error)
+	loadCockpitTopDetail(ctx context.Context, req topDetailRequest) (topDetailContent, error)
 	loadCockpitDoctor(ctx context.Context) (cockpitDoctorSnapshot, error)
 	loadCockpitLive(ctx context.Context, cursor tailCursor, initial bool) (cockpitLiveSnapshot, error)
 	loadCockpitEventDetail(ctx context.Context, eventID domtypes.EventID) (topDetailContent, error)
@@ -421,6 +431,24 @@ type cockpitRuntimeLoader struct {
 
 func (l cockpitRuntimeLoader) loadCockpitHome(ctx context.Context) (cockpitHomeSnapshot, error) {
 	return l.root.loadCockpitHome(ctx, l.opts)
+}
+
+func (l cockpitRuntimeLoader) loadCockpitTop(ctx context.Context, criteria topDataCriteria) (topDataSnapshot, error) {
+	if l.root.storeManagement != nil {
+		if err := l.root.initializeStore(ctx, l.opts.dbPath); err != nil {
+			return topDataSnapshot{}, err
+		}
+	}
+	return l.root.newTopDataLoader().loadSnapshot(ctx, criteria)
+}
+
+func (l cockpitRuntimeLoader) loadCockpitTopDetail(ctx context.Context, req topDetailRequest) (topDetailContent, error) {
+	if l.root.storeManagement != nil {
+		if err := l.root.initializeStore(ctx, l.opts.dbPath); err != nil {
+			return topDetailContent{}, err
+		}
+	}
+	return l.root.newTopDataLoader().loadDetail(ctx, req)
 }
 
 func (l cockpitRuntimeLoader) loadCockpitDoctor(ctx context.Context) (cockpitDoctorSnapshot, error) {
@@ -551,6 +579,7 @@ type cockpitModel struct {
 	statusErr string
 
 	live                   cockpitLiveState
+	top                    cockpitTopState
 	detail                 topDetailState
 	detailOffset           int
 	homeRequestSeq         uint64
@@ -572,6 +601,9 @@ func newCockpitModel(keys tui.KeyMap, styles tui.Styles, home cockpitHomeSnapsho
 			loadedAt: home.LoadedAt,
 			loading:  true,
 			follow:   true,
+		},
+		top: cockpitTopState{
+			loadedAt: home.LoadedAt,
 		},
 	}
 }
@@ -675,6 +707,31 @@ type cockpitLiveState struct {
 	err            error
 }
 
+type cockpitTopState struct {
+	snapshot     topDataSnapshot
+	criteria     topDataCriteria
+	loadedAt     time.Time
+	loading      bool
+	loaded       bool
+	requestSeq   uint64
+	err          error
+	rows         []cockpitTopRow
+	selected     int
+	offset       int
+	detail       topDetailState
+	detailOpen   bool
+	detailSeq    uint64
+	detailOffset int
+}
+
+type cockpitTopRow struct {
+	line       string
+	pane       topPane
+	target     topDetailTarget
+	selectable bool
+	header     bool
+}
+
 type cockpitLiveMsg struct {
 	snapshot cockpitLiveSnapshot
 	initial  bool
@@ -683,6 +740,21 @@ type cockpitLiveMsg struct {
 }
 
 type cockpitLiveTickMsg struct{}
+
+type cockpitTopLoadedMsg struct {
+	snapshot topDataSnapshot
+	criteria topDataCriteria
+	loadedAt time.Time
+	seq      uint64
+	err      error
+}
+
+type cockpitTopDetailLoadedMsg struct {
+	request topDetailRequest
+	content topDetailContent
+	seq     uint64
+	err     error
+}
 
 type cockpitHomeMsg struct {
 	home cockpitHomeSnapshot
@@ -737,6 +809,9 @@ func (m cockpitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.clampLiveSelection()
+		m.rebuildCockpitTopRows()
+		m.clampTopSelection()
+		m.clampTopDetailOffset()
 		m.clampDetailOffset()
 		m.clampDoctorOffset()
 		return m, nil
@@ -797,10 +872,42 @@ func (m cockpitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(markCmd, m.cockpitLiveTickCmd())
 		}
 		return m, markCmd
+	case cockpitTopLoadedMsg:
+		if msg.seq != m.top.requestSeq {
+			return m, nil
+		}
+		m.top.loading = false
+		m.top.err = msg.err
+		if msg.err != nil {
+			m.top.criteria = msg.criteria
+			m.top.loadedAt = msg.loadedAt
+			return m, nil
+		}
+		m.top.snapshot = msg.snapshot
+		m.top.criteria = msg.criteria
+		m.top.loadedAt = msg.loadedAt
+		m.top.loaded = true
+		m.rebuildCockpitTopRows()
+		m.clampTopSelection()
+		return m, nil
 	case cockpitLiveTickMsg:
 		if m.mode == cockpitModeLive && !m.live.loading {
 			return m, m.startCockpitLiveLoad(false)
 		}
+		return m, nil
+	case cockpitTopDetailLoadedMsg:
+		if m.mode != cockpitModeTop || !m.top.detailOpen || msg.seq != m.top.detailSeq || msg.request != m.top.detail.request {
+			return m, nil
+		}
+		m.top.detail.loading = false
+		m.top.detail.err = msg.err
+		if msg.err == nil {
+			if msg.content.title != "" {
+				m.top.detail.title = msg.content.title
+			}
+			m.top.detail.lines = msg.content.lines
+		}
+		m.clampTopDetailOffset()
 		return m, nil
 	case cockpitDetailLoadedMsg:
 		if m.mode != cockpitModeDetail || msg.request != m.detail.request {
@@ -831,10 +938,11 @@ func (m cockpitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			return m, nil
 		}
+		m.invalidateCockpitTopSnapshot()
 		m.statusMsg = formatCockpitMemoryReviewResult(msg.result)
 		m.statusErr = ""
 		m.mode = cockpitModeLive
-		return m, m.startCockpitHomeAndLiveLoad()
+		return m, tea.Batch(m.startCockpitHomeAndLiveLoad(), m.startCockpitTopLoad())
 	case tea.KeyMsg:
 		return m.updateKey(msg)
 	}
@@ -847,6 +955,10 @@ func (m cockpitModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.mode == cockpitModeSettings {
 		return m.updateSettingsKey(msg)
+	}
+	if m.mode == cockpitModeTop && m.cockpitTopDetailOpen() && isCockpitBackKey(msg) {
+		m.closeCockpitTopDetail()
+		return m, nil
 	}
 	switch {
 	case isCockpitQuitKey(msg):
@@ -888,6 +1000,9 @@ func (m cockpitModel) openCockpitLegacyShortcut(msg tea.KeyMsg) (tea.Model, tea.
 	}
 	switch strings.ToLower(string(msg.Runes)) {
 	case "d":
+		if m.cockpitTopDetailOpen() {
+			m.closeCockpitTopDetail()
+		}
 		m.mode = cockpitModeDoctor
 		m.doctorOffset = 0
 		return m, m.startCockpitDoctorLoad(), true
@@ -982,9 +1097,15 @@ func (m cockpitModel) openCockpitSection(section cockpitSectionID) (tea.Model, t
 		}
 		if m.mode == cockpitModeDoctor && section == cockpitSectionTop {
 			m.mode = cockpitModeTop
+			if !m.top.loaded && !m.top.loading {
+				return m, m.startCockpitTopLoad()
+			}
 			return m, nil
 		}
 		return m, nil
+	}
+	if section != cockpitSectionTop && m.cockpitTopDetailOpen() {
+		m.closeCockpitTopDetail()
 	}
 	switch section {
 	case cockpitSectionLive:
@@ -997,6 +1118,9 @@ func (m cockpitModel) openCockpitSection(section cockpitSectionID) (tea.Model, t
 		return m, m.startCockpitLiveLoad(true)
 	case cockpitSectionTop:
 		m.mode = cockpitModeTop
+		if !m.top.loaded && !m.top.loading {
+			return m, m.startCockpitTopLoad()
+		}
 		return m, nil
 	case cockpitSectionMemory:
 		m.mode = cockpitModeMemoryReview
@@ -1089,8 +1213,56 @@ func (m cockpitModel) updateLiveKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m cockpitModel) updateTopKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if key.Matches(msg, m.keys.Refresh) {
-		return m, m.startCockpitHomeLoad()
+	if m.cockpitTopDetailOpen() {
+		switch {
+		case key.Matches(msg, m.keys.Up):
+			m.top.detailOffset--
+			m.clampTopDetailOffset()
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			m.top.detailOffset++
+			m.clampTopDetailOffset()
+			return m, nil
+		case key.Matches(msg, m.keys.PageUp):
+			m.top.detailOffset -= m.cockpitTopDetailViewportRows()
+			m.clampTopDetailOffset()
+			return m, nil
+		case key.Matches(msg, m.keys.PageDown):
+			m.top.detailOffset += m.cockpitTopDetailViewportRows()
+			m.clampTopDetailOffset()
+			return m, nil
+		case key.Matches(msg, m.keys.Home):
+			m.top.detailOffset = 0
+			return m, nil
+		case key.Matches(msg, m.keys.End):
+			m.top.detailOffset = max(len(m.cockpitTopDetailLines())-m.cockpitTopDetailViewportRows(), 0)
+			return m, nil
+		}
+		return m, nil
+	}
+	switch {
+	case key.Matches(msg, m.keys.Refresh):
+		return m, tea.Batch(m.startCockpitHomeLoad(), m.startCockpitTopLoad())
+	case key.Matches(msg, m.keys.Up):
+		m.moveCockpitTopSelection(-1)
+		return m, nil
+	case key.Matches(msg, m.keys.Down):
+		m.moveCockpitTopSelection(1)
+		return m, nil
+	case key.Matches(msg, m.keys.PageUp):
+		m.moveCockpitTopSelection(-m.cockpitTopViewportRows())
+		return m, nil
+	case key.Matches(msg, m.keys.PageDown):
+		m.moveCockpitTopSelection(m.cockpitTopViewportRows())
+		return m, nil
+	case key.Matches(msg, m.keys.Home):
+		m.moveCockpitTopSelectionToEdge(1)
+		return m, nil
+	case key.Matches(msg, m.keys.End):
+		m.moveCockpitTopSelectionToEdge(-1)
+		return m, nil
+	case key.Matches(msg, m.keys.Select):
+		return m.openCockpitTopDetail()
 	}
 	return m, nil
 }
@@ -1250,6 +1422,13 @@ func (m *cockpitModel) startCockpitHomeAndLiveLoad() tea.Cmd {
 	return tea.Batch(m.startCockpitHomeLoad(), m.startCockpitLiveLoad(true))
 }
 
+func (m *cockpitModel) startCockpitTopLoad() tea.Cmd {
+	m.top.loading = true
+	m.top.err = nil
+	m.top.requestSeq++
+	return m.fetchCockpitTopCmd(m.top.requestSeq)
+}
+
 func (m cockpitModel) fetchCockpitHomeCmd(seq uint64) tea.Cmd {
 	loader := m.loader
 	ctx := m.loaderCtx
@@ -1260,6 +1439,36 @@ func (m cockpitModel) fetchCockpitHomeCmd(seq uint64) tea.Cmd {
 		home, err := loader.loadCockpitHome(ctx)
 		return cockpitHomeMsg{home: home, seq: seq, err: err}
 	}
+}
+
+func (m cockpitModel) fetchCockpitTopCmd(seq uint64) tea.Cmd {
+	loader := m.loader
+	ctx := m.loaderCtx
+	return func() tea.Msg {
+		loadedAt := topNowFunc().UTC()
+		criteria := m.cockpitTopCriteriaAt(loadedAt)
+		if loader == nil {
+			return cockpitTopLoadedMsg{seq: seq, criteria: criteria, loadedAt: loadedAt, err: xerrors.New(Localize("cockpit top loader is not configured", "cockpit top loader が設定されていません"))}
+		}
+		snapshot, err := loader.loadCockpitTop(ctx, criteria)
+		return cockpitTopLoadedMsg{snapshot: snapshot, criteria: criteria, loadedAt: loadedAt, seq: seq, err: err}
+	}
+}
+
+func (m cockpitModel) cockpitTopCriteriaAt(now time.Time) topDataCriteria {
+	criteria := topDataCriteria{
+		SessionLimit:       defaultTopLimit,
+		FailureLimit:       topPaneFailureLimit,
+		RecentCommandLimit: topPaneRecentCommandLimit,
+		CandidateLimit:     topPaneCandidateLimit,
+		StaleMemoryLimit:   topPaneStaleMemoryLimit,
+		StaleAfter:         defaultActiveSessionStaleAfter,
+		Now:                now,
+	}
+	if m.home.NewCandidateMemoryKnown {
+		criteria.MemoryLastSeenAt = domtypes.Some(m.home.MemoryLastSeenAt)
+	}
+	return criteria
 }
 
 func (m *cockpitModel) startCockpitDoctorLoad() tea.Cmd {
@@ -1384,6 +1593,32 @@ func (m cockpitModel) openCockpitLiveDetail() (tea.Model, tea.Cmd) {
 	return m, m.fetchCockpitDetailCmd(req)
 }
 
+func (m cockpitModel) openCockpitTopDetail() (tea.Model, tea.Cmd) {
+	rows := m.cockpitTopRows()
+	if len(rows) == 0 {
+		return m, nil
+	}
+	m.clampTopSelection()
+	if m.top.selected < 0 || m.top.selected >= len(rows) {
+		return m, nil
+	}
+	row := rows[m.top.selected]
+	if !row.selectable || row.target.kind == topDetailNone {
+		return m, nil
+	}
+	req := topDetailRequest{pane: row.pane, target: row.target}
+	m.top.detailSeq++
+	m.top.detailOffset = 0
+	m.top.detailOpen = true
+	m.top.detail = topDetailState{
+		request: req,
+		title:   row.target.title,
+		lines:   []string{Localize("Loading...", "読み込み中...")},
+		loading: true,
+	}
+	return m, m.fetchCockpitTopDetailCmd(req, m.top.detailSeq)
+}
+
 func (m cockpitModel) fetchCockpitDetailCmd(req topDetailRequest) tea.Cmd {
 	loader := m.loader
 	ctx := m.loaderCtx
@@ -1393,6 +1628,18 @@ func (m cockpitModel) fetchCockpitDetailCmd(req topDetailRequest) tea.Cmd {
 		}
 		content, err := loader.loadCockpitEventDetail(ctx, req.target.eventID)
 		return cockpitDetailLoadedMsg{request: req, content: content, err: err}
+	}
+}
+
+func (m cockpitModel) fetchCockpitTopDetailCmd(req topDetailRequest, seq uint64) tea.Cmd {
+	loader := m.loader
+	ctx := m.loaderCtx
+	return func() tea.Msg {
+		if loader == nil {
+			return cockpitTopDetailLoadedMsg{request: req, seq: seq, err: xerrors.New(Localize("cockpit top detail loader is not configured", "cockpit top detail loader が設定されていません"))}
+		}
+		content, err := loader.loadCockpitTopDetail(ctx, req)
+		return cockpitTopDetailLoadedMsg{request: req, content: content, seq: seq, err: err}
 	}
 }
 
@@ -1406,6 +1653,189 @@ func (m *cockpitModel) clampLiveSelection() {
 	}
 	if m.live.selected >= len(m.live.events) {
 		m.live.selected = len(m.live.events) - 1
+	}
+}
+
+func (m *cockpitModel) clampTopSelection() {
+	rows := m.cockpitTopRows()
+	if len(rows) == 0 {
+		m.top.selected = 0
+		m.top.offset = 0
+		return
+	}
+	if m.top.selected < 0 {
+		m.top.selected = 0
+	}
+	if m.top.selected >= len(rows) {
+		m.top.selected = len(rows) - 1
+	}
+	if !rows[m.top.selected].selectable {
+		if next, ok := cockpitTopSelectableAtOrAfter(rows, m.top.selected); ok {
+			m.top.selected = next
+		} else if previous, ok := cockpitTopSelectableAtOrBefore(rows, m.top.selected); ok {
+			m.top.selected = previous
+		}
+	}
+	m.ensureCockpitTopSelectionVisible(rows)
+}
+
+func (m *cockpitModel) rebuildCockpitTopRows() {
+	if !m.top.loaded {
+		m.top.rows = nil
+		return
+	}
+	width := m.cockpitTopRowWidth()
+	criteria := m.top.criteria
+	if criteria.Now.IsZero() {
+		criteria = m.cockpitTopCriteriaAt(m.top.loadedAt)
+	}
+	m.top.rows = buildCockpitTopRows(m.top.snapshot, criteria, m.top.loadedAt, width, m.styles)
+}
+
+func (m *cockpitModel) invalidateCockpitTopSnapshot() {
+	m.top.requestSeq++
+	m.top.snapshot = topDataSnapshot{}
+	m.top.criteria = topDataCriteria{}
+	m.top.loadedAt = time.Time{}
+	m.top.loaded = false
+	m.top.loading = false
+	m.top.err = nil
+	m.top.rows = nil
+	m.top.selected = 0
+	m.top.offset = 0
+	m.closeCockpitTopDetail()
+}
+
+func cockpitTopSelectableAtOrAfter(rows []cockpitTopRow, start int) (int, bool) {
+	if start < 0 {
+		start = 0
+	}
+	for i := start; i < len(rows); i++ {
+		if rows[i].selectable {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+func cockpitTopSelectableAtOrBefore(rows []cockpitTopRow, start int) (int, bool) {
+	if start >= len(rows) {
+		start = len(rows) - 1
+	}
+	for i := start; i >= 0; i-- {
+		if rows[i].selectable {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+func (m *cockpitModel) moveCockpitTopSelection(delta int) {
+	rows := m.cockpitTopRows()
+	if len(rows) == 0 || delta == 0 {
+		return
+	}
+	if !cockpitTopHasSelectableRow(rows) {
+		m.scrollCockpitTopRows(delta)
+		return
+	}
+	m.clampTopSelection()
+	next := m.top.selected + delta
+	if next < 0 {
+		next = 0
+	}
+	if next >= len(rows) {
+		next = len(rows) - 1
+	}
+	if !rows[next].selectable {
+		if delta > 0 {
+			if selectable, ok := cockpitTopSelectableAtOrAfter(rows, next); ok {
+				next = selectable
+			} else if selectable, ok := cockpitTopSelectableAtOrBefore(rows, len(rows)-1); ok {
+				next = selectable
+			}
+		} else if selectable, ok := cockpitTopSelectableAtOrBefore(rows, next); ok {
+			next = selectable
+		} else if selectable, ok := cockpitTopSelectableAtOrAfter(rows, 0); ok {
+			next = selectable
+		}
+	}
+	m.top.selected = next
+	m.ensureCockpitTopSelectionVisible(rows)
+}
+
+func (m *cockpitModel) moveCockpitTopSelectionToEdge(direction int) {
+	rows := m.cockpitTopRows()
+	if len(rows) == 0 {
+		return
+	}
+	if !cockpitTopHasSelectableRow(rows) {
+		if direction >= 0 {
+			m.top.offset = 0
+		} else {
+			m.top.offset = max(len(rows)-m.cockpitTopViewportRows(), 0)
+		}
+		return
+	}
+	if direction >= 0 {
+		if next, ok := cockpitTopSelectableAtOrAfter(rows, 0); ok {
+			m.top.selected = next
+		}
+	} else if next, ok := cockpitTopSelectableAtOrBefore(rows, len(rows)-1); ok {
+		m.top.selected = next
+	}
+	m.ensureCockpitTopSelectionVisible(rows)
+}
+
+func (m *cockpitModel) scrollCockpitTopRows(delta int) {
+	rows := m.cockpitTopRows()
+	if len(rows) == 0 {
+		m.top.offset = 0
+		return
+	}
+	viewport := m.cockpitTopViewportRows()
+	maxOffset := max(len(rows)-viewport, 0)
+	m.top.offset += delta
+	if m.top.offset < 0 {
+		m.top.offset = 0
+	}
+	if m.top.offset > maxOffset {
+		m.top.offset = maxOffset
+	}
+}
+
+func cockpitTopHasSelectableRow(rows []cockpitTopRow) bool {
+	for _, row := range rows {
+		if row.selectable {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *cockpitModel) ensureCockpitTopSelectionVisible(rows []cockpitTopRow) {
+	viewport := m.cockpitTopViewportRows()
+	if viewport <= 0 {
+		viewport = 1
+	}
+	maxOffset := max(len(rows)-viewport, 0)
+	if m.top.offset > maxOffset {
+		m.top.offset = maxOffset
+	}
+	if m.top.offset < 0 {
+		m.top.offset = 0
+	}
+	if m.top.selected < m.top.offset {
+		m.top.offset = m.top.selected
+	}
+	if m.top.selected >= m.top.offset+viewport {
+		m.top.offset = m.top.selected - viewport + 1
+	}
+	if m.top.offset > maxOffset {
+		m.top.offset = maxOffset
+	}
+	if m.top.offset < 0 {
+		m.top.offset = 0
 	}
 }
 
@@ -1476,6 +1906,19 @@ func (m *cockpitModel) clampDetailOffset() {
 	}
 	if m.detailOffset > maxOffset {
 		m.detailOffset = maxOffset
+	}
+}
+
+func (m *cockpitModel) clampTopDetailOffset() {
+	maxOffset := len(m.cockpitTopDetailLines()) - m.cockpitTopDetailViewportRows()
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if m.top.detailOffset < 0 {
+		m.top.detailOffset = 0
+	}
+	if m.top.detailOffset > maxOffset {
+		m.top.detailOffset = maxOffset
 	}
 }
 
@@ -1802,7 +2245,21 @@ func (m cockpitModel) renderTopSignal(signal cockpitTopSignal) string {
 	}
 }
 
+func (m cockpitModel) cockpitTopDetailOpen() bool {
+	return m.top.detailOpen
+}
+
+func (m *cockpitModel) closeCockpitTopDetail() {
+	m.top.detail = topDetailState{}
+	m.top.detailOpen = false
+	m.top.detailSeq++
+	m.top.detailOffset = 0
+}
+
 func (m cockpitModel) topTabView() string {
+	if m.cockpitTopDetailOpen() {
+		return m.cockpitTopDetailView()
+	}
 	memoryScanSuffix := ""
 	if m.home.MemoryScanLimited {
 		memoryScanSuffix = " scan_limited=true"
@@ -1861,15 +2318,220 @@ func (m cockpitModel) topTabView() string {
 	}
 	lines = append(lines,
 		"",
-		m.styles.Subtle.Render(Localize("This Top tab shows a compact summary. For the full multi-pane dashboard, run `traceary top`.", "この Top tab は compact summary を表示します。完全な multi-pane dashboard は `traceary top` を使ってください。")),
 	)
+	lines = append(lines, m.cockpitTopDashboardLines()...)
 	if m.statusMsg != "" {
 		lines = append([]string{m.styles.Success.Render("• " + m.statusMsg), ""}, lines...)
 	}
 	if m.statusErr != "" {
 		lines = append([]string{m.styles.Error.Render("• " + m.statusErr), ""}, lines...)
 	}
-	return m.renderCockpitShell(Localize("top", "Top"), lines, Localize("r refresh top summary", "r top summary 再取得"))
+	return m.renderCockpitShell(Localize("top", "Top"), lines, m.topLocalHelp())
+}
+
+func (m cockpitModel) cockpitTopDashboardLines() []string {
+	lines := []string{m.styles.Subtle.Render(Localize("Top dashboard", "Top dashboard"))}
+	switch {
+	case m.top.loading && !m.top.loaded:
+		return append(lines, m.styles.Subtle.Render(Localize("Loading top dashboard...", "Top dashboard を読み込み中...")))
+	case m.top.err != nil && !m.top.loaded:
+		return append(lines, m.styles.Error.Render(m.top.err.Error()))
+	case !m.top.loaded:
+		return append(lines, m.styles.Subtle.Render(Localize("Top dashboard has not loaded yet. Press r to refresh.", "Top dashboard はまだ読み込まれていません。r で再取得します。")))
+	}
+	if m.top.err != nil {
+		lines = append(lines, m.styles.Error.Render(m.top.err.Error()))
+	}
+
+	rows := m.cockpitTopRows()
+	if len(rows) == 0 {
+		return append(lines, m.styles.Subtle.Render(Localize("No top rows available.", "Top row はありません。")))
+	}
+	viewport := m.cockpitTopViewportRows()
+	start := m.top.offset
+	if start < 0 {
+		start = 0
+	}
+	if start > len(rows) {
+		start = len(rows)
+	}
+	end := start + viewport
+	if end > len(rows) {
+		end = len(rows)
+	}
+	scroll := ""
+	if len(rows) > viewport {
+		scroll = fmt.Sprintf(" rows=%d-%d/%d", start+1, end, len(rows))
+	} else {
+		scroll = fmt.Sprintf(" rows=%d", len(rows))
+	}
+	lines = append(lines, m.styles.Subtle.Render(fmt.Sprintf("loaded=%s%s", formatJSONTime(m.top.loadedAt), scroll)))
+	for i := start; i < end; i++ {
+		row := rows[i]
+		prefix := "  "
+		if row.header {
+			prefix = ""
+		}
+		line := prefix + row.line
+		if row.selectable && i == m.top.selected {
+			line = m.styles.Active.Render("> ") + row.line
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+func (m cockpitModel) cockpitTopRows() []cockpitTopRow {
+	if !m.top.loaded {
+		return nil
+	}
+	return m.top.rows
+}
+
+func buildCockpitTopRows(snapshot topDataSnapshot, criteria topDataCriteria, loadedAt time.Time, width int, styles tui.Styles) []cockpitTopRow {
+	renderer := newCockpitTopRowRenderer(snapshot, criteria, loadedAt, width, styles)
+	rows := make([]cockpitTopRow, 0)
+	for _, pane := range []topPane{topPaneSessions, topPaneFailures, topPaneRecentCommands, topPaneCandidates, topPaneStaleMemories} {
+		rows = append(rows, cockpitTopRow{
+			line:   styles.Subtle.Render(cockpitTopSectionLabel(pane, snapshot)),
+			pane:   pane,
+			header: true,
+		})
+		for _, paneRow := range renderer.paneRows(pane, width) {
+			rows = append(rows, cockpitTopRow{
+				line:       paneRow.line,
+				pane:       pane,
+				target:     paneRow.target,
+				selectable: paneRow.target.kind != topDetailNone,
+			})
+		}
+	}
+	return rows
+}
+
+func newCockpitTopRowRenderer(snapshot topDataSnapshot, criteria topDataCriteria, loadedAt time.Time, width int, styles tui.Styles) topModel {
+	renderNow := criteria.Now
+	if renderNow.IsZero() {
+		renderNow = snapshot.Now
+	}
+	if renderNow.IsZero() {
+		renderNow = loadedAt
+	}
+	renderer := newTopModel(topModelConfig{
+		Keys:            tui.DefaultKeyMap(),
+		Actions:         defaultTopPaneActionKeys(),
+		Styles:          styles,
+		Criteria:        criteria,
+		Idle:            defaultActiveSessionStaleAfter,
+		Now:             func() time.Time { return renderNow },
+		Location:        time.Local,
+		RefreshInterval: 0,
+	})
+	renderer.snapshot = snapshot
+	renderer.loadedAt = loadedAt
+	renderer.loaded = true
+	renderer.width = width
+	return renderer
+}
+
+func cockpitTopSectionLabel(pane topPane, snapshot topDataSnapshot) string {
+	switch pane {
+	case topPaneSessions:
+		return Localizef("SESSIONS (%d)", "SESSIONS (%d)", countCockpitTopSessionRows(snapshot.Sessions))
+	case topPaneFailures:
+		return Localizef("RECENT FAILURES (%d)", "RECENT FAILURES (%d)", len(snapshot.Failures))
+	case topPaneRecentCommands:
+		return Localizef("RECENT COMMANDS (%d)", "RECENT COMMANDS (%d)", len(snapshot.RecentCommands))
+	case topPaneCandidates:
+		return Localizef("CANDIDATE MEMORIES (%d)", "CANDIDATE MEMORIES (%d)", len(snapshot.Candidates))
+	case topPaneStaleMemories:
+		return Localizef("STALE MEMORIES (%d)", "STALE MEMORIES (%d)", snapshot.StaleMemories.Count())
+	default:
+		return ""
+	}
+}
+
+func countCockpitTopSessionRows(nodes []*sessionNode) int {
+	count := 0
+	for _, node := range nodes {
+		if node == nil {
+			continue
+		}
+		count++
+		count += countCockpitTopSessionRows(node.children)
+	}
+	return count
+}
+
+func (m cockpitModel) cockpitTopRowWidth() int {
+	if m.width <= 0 {
+		return cockpitTopUnknownWidth
+	}
+	width := m.width - cockpitTopShellHorizontalPadding - cockpitTopRowPrefixWidth
+	if width < 1 {
+		return 1
+	}
+	return width
+}
+
+func (m cockpitModel) cockpitTopViewportRows() int {
+	if m.height <= 0 {
+		return cockpitTopDefaultViewportRows
+	}
+	rows := m.height - cockpitTopSummaryChromeRows
+	if rows < cockpitTopMinViewportRows {
+		return cockpitTopMinViewportRows
+	}
+	return rows
+}
+
+func (m cockpitModel) cockpitTopDetailView() string {
+	title := m.top.detail.title
+	if title == "" {
+		title = Localize("top detail", "Top detail")
+	}
+	lines := m.cockpitTopDetailLines()
+	if len(lines) == 0 {
+		lines = []string{m.styles.Subtle.Render(Localize("(empty)", "(空)"))}
+	}
+	viewport := m.cockpitTopDetailViewportRows()
+	start := m.top.detailOffset
+	if start < 0 {
+		start = 0
+	}
+	if start > len(lines) {
+		start = len(lines)
+	}
+	end := start + viewport
+	if end > len(lines) {
+		end = len(lines)
+	}
+	body := append([]string{}, lines[start:end]...)
+	if len(lines) > viewport {
+		body = append([]string{m.styles.Subtle.Render(fmt.Sprintf("rows=%d-%d/%d", start+1, end, len(lines)))}, body...)
+	}
+	return m.renderCockpitShell(Localize("top detail · ", "Top detail · ")+title, body, m.topLocalHelp())
+}
+
+func (m cockpitModel) cockpitTopDetailLines() []string {
+	if m.top.detail.loading {
+		return []string{Localize("Loading...", "読み込み中...")}
+	}
+	if m.top.detail.err != nil {
+		return []string{m.styles.Error.Render(m.top.detail.err.Error())}
+	}
+	return m.top.detail.lines
+}
+
+func (m cockpitModel) cockpitTopDetailViewportRows() int {
+	if m.height <= 0 {
+		return cockpitTopDetailDefaultViewportRows
+	}
+	rows := m.height - cockpitTopDetailChromeRows
+	if rows < 1 {
+		return 1
+	}
+	return rows
 }
 
 func (m cockpitModel) sessionsView() string {
@@ -2016,7 +2678,7 @@ func (m cockpitModel) cockpitContextualHelp() []string {
 		"",
 		m.styles.Subtle.Render(Localize("Global navigation", "Global navigation")),
 		Localize("1 Tail      live event stream and event details", "1 Tail      live event stream と event 詳細"),
-		Localize("2 Top       summary for sessions, memory, health, and payload signals", "2 Top       session / memory / health / payload の summary"),
+		Localize("2 Top       dashboard for sessions, failures, commands, memory, and health", "2 Top       session / failure / command / memory / health の dashboard"),
 		Localize("3 Memory    inbox review queue", "3 メモリ      inbox review queue"),
 		Localize("4 Sessions  session and handoff entry points", "4 セッション  session と handoff 導線"),
 		Localize("5 Settings  language, read defaults, redaction diagnostics", "5 設定        language / read 既定 / redaction 診断"),
@@ -2058,11 +2720,24 @@ func (m cockpitModel) cockpitContextualActions() []cockpitAction {
 		}
 		return actions
 	case cockpitModeTop:
-		return []cockpitAction{
-			{key: "r", description: Localize("Refresh top summary", "top summary を再取得")},
-			{key: "d", description: Localize("Open Doctor checks", "Doctor check を開く")},
-			{description: Localize("Use `traceary top` for the full dashboard.", "完全な dashboard は `traceary top` を使ってください。")},
+		if m.cockpitTopDetailOpen() {
+			actions := []cockpitAction{{key: "esc", description: Localize("Close Top detail", "Top 詳細を閉じる")}}
+			if len(m.cockpitTopDetailLines()) > 1 {
+				actions = append(actions, cockpitAction{key: "↑/↓", description: Localize("Scroll Top detail", "Top 詳細を scroll")})
+			}
+			return actions
 		}
+		actions := []cockpitAction{
+			{key: "r", description: Localize("Refresh Top dashboard", "Top dashboard を再取得")},
+			{key: "d", description: Localize("Open Doctor checks", "Doctor check を開く")},
+		}
+		if cockpitTopHasSelectableRow(m.cockpitTopRows()) {
+			actions = append(actions,
+				cockpitAction{key: "↑/↓", description: Localize("Select a Top row", "Top row を選択")},
+				cockpitAction{key: "enter", description: Localize("Open selected Top detail", "選択中 Top row の詳細を開く")},
+			)
+		}
+		return actions
 	case cockpitModeDetail:
 		actions := []cockpitAction{{key: "esc", description: Localize("Return to Tail", "Tail に戻る")}}
 		if len(m.detailLines()) > 1 {
@@ -2081,7 +2756,7 @@ func (m cockpitModel) cockpitContextualActions() []cockpitAction {
 	default:
 		return []cockpitAction{
 			{key: "1", description: Localize("Open Tail", "Tail を開く")},
-			{key: "2", description: Localize("Open Top summary", "Top summary を開く")},
+			{key: "2", description: Localize("Open Top dashboard", "Top dashboard を開く")},
 			{key: "3", description: Localize("Open Memory review", "Memory review を開く")},
 			{key: "4", description: Localize("Open Sessions and handoff entry points", "Sessions と handoff 導線を開く")},
 			{key: "5", description: Localize("Open Settings", "Settings を開く")},
@@ -2165,6 +2840,25 @@ func (m cockpitModel) liveLocalHelp() string {
 		parts = append(parts, Localize("enter detail", "enter 詳細"))
 		if len(m.live.events) > 1 {
 			parts = append(parts, Localize("↑/↓ select", "↑/↓ 選択"))
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
+func (m cockpitModel) topLocalHelp() string {
+	if m.cockpitTopDetailOpen() {
+		parts := []string{Localize("esc close detail", "esc 詳細を閉じる")}
+		if len(m.cockpitTopDetailLines()) > 1 {
+			parts = append(parts, Localize("↑/↓ scroll", "↑/↓ scroll"))
+		}
+		return strings.Join(parts, " · ")
+	}
+	parts := []string{Localize("r refresh", "r 再取得")}
+	rows := m.cockpitTopRows()
+	if cockpitTopHasSelectableRow(rows) {
+		parts = append(parts, Localize("↑/↓ select", "↑/↓ 選択"))
+		if m.top.selected >= 0 && m.top.selected < len(rows) && rows[m.top.selected].selectable {
+			parts = append(parts, Localize("enter detail", "enter 詳細"))
 		}
 	}
 	return strings.Join(parts, " · ")
