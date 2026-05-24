@@ -1975,7 +1975,7 @@ func (m cockpitModel) cockpitContextualActions() []cockpitAction {
 			{description: Localize("Use `traceary top` for the full dashboard.", "完全な dashboard は `traceary top` を使ってください。")},
 		}
 	case cockpitModeDetail:
-		actions := []cockpitAction{{key: "esc", description: Localize("Return to Live", "Live に戻る")}}
+		actions := []cockpitAction{{key: "esc", description: Localize("Return to Tail", "Tail に戻る")}}
 		if len(m.detailLines()) > 1 {
 			actions = append(actions, cockpitAction{key: "↑/↓", description: Localize("Scroll event detail", "event 詳細を scroll")})
 		}
