@@ -353,7 +353,7 @@ Useful flags:
 
 #### `traceary memory inbox attach <memory-id>`
 
-Attach evidence refs (and optional artifact refs) to an existing memory candidate without changing its review status. This is the script-friendly path for useful candidates that cannot be accepted or distilled yet because accepted memories require evidence.
+Attach evidence refs (and optional artifact refs) to an existing memory candidate without changing its review status. This is the script-friendly path for useful candidates that cannot be accepted or distilled yet because accepted memories require evidence. Artifact-only attachments are accepted only when the candidate already has evidence.
 
 Useful flags:
 

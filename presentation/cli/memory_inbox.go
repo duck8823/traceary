@@ -529,8 +529,8 @@ func (c *RootCLI) runMemoryInboxAttach(ctx context.Context, output io.Writer, in
 	if c.memory == nil {
 		return xerrors.New(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
 	}
-	if len(input.evidenceRefs) == 0 {
-		return xerrors.New(Localize("at least one --evidence ref is required", "--evidence ref を1つ以上指定してください"))
+	if len(input.evidenceRefs) == 0 && len(input.artifactRefs) == 0 {
+		return xerrors.New(Localize("at least one --evidence or --artifact ref is required", "--evidence または --artifact ref を1つ以上指定してください"))
 	}
 	if err := c.initializeStore(ctx, input.dbPath); err != nil {
 		return err

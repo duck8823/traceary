@@ -278,6 +278,75 @@ func TestMemoryUsecase_AttachCandidateRefs(t *testing.T) {
 	}
 }
 
+func TestMemoryUsecase_AttachCandidateRefsAllowsArtifactOnlyWhenCandidateHasEvidence(t *testing.T) {
+	t.Parallel()
+
+	memoryID := mustMemoryID(t, "memory-candidate-artifact-attach")
+	existingEvidence := mustEvidenceRef(t, domtypes.EvidenceRefKindEvent, "event-existing")
+	candidate, err := model.NewMemoryCandidate(
+		memoryID,
+		domtypes.MemoryTypeDecision,
+		domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/traceary")),
+		"candidate already has evidence",
+		domtypes.MemorySourceManual,
+		[]domtypes.EvidenceRef{existingEvidence},
+		nil,
+		domtypes.None[domtypes.MemoryID](),
+	)
+	if err != nil {
+		t.Fatalf("NewMemoryCandidate() error = %v", err)
+	}
+
+	repo := &memoryRepositoryStub{byID: map[string]*model.Memory{memoryID.String(): candidate}}
+	sut := usecase.NewMemoryUsecase(repo, nil, nil)
+	artifact := mustArtifactRef(t, domtypes.ArtifactRefKindPR, "#1074")
+
+	details, err := sut.AttachCandidateRefs(context.Background(), memoryID, nil, []domtypes.ArtifactRef{artifact})
+	if err != nil {
+		t.Fatalf("AttachCandidateRefs() artifact-only error = %v", err)
+	}
+	if got := details.EvidenceRefs(); len(got) != 1 || got[0].Value() != "event-existing" {
+		t.Fatalf("details evidence refs = %+v", got)
+	}
+	if got := details.ArtifactRefs(); len(got) != 1 || got[0].Value() != "#1074" {
+		t.Fatalf("details artifact refs = %+v", got)
+	}
+}
+
+func TestMemoryUsecase_AttachCandidateRefsRequiresEvidenceForEvidenceLessCandidate(t *testing.T) {
+	t.Parallel()
+
+	memoryID := mustMemoryID(t, "memory-candidate-artifact-only-no-evidence")
+	candidate, err := model.NewMemoryCandidate(
+		memoryID,
+		domtypes.MemoryTypeDecision,
+		domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/traceary")),
+		"candidate still needs evidence",
+		domtypes.MemorySourceManual,
+		nil,
+		nil,
+		domtypes.None[domtypes.MemoryID](),
+	)
+	if err != nil {
+		t.Fatalf("NewMemoryCandidate() error = %v", err)
+	}
+
+	repo := &memoryRepositoryStub{byID: map[string]*model.Memory{memoryID.String(): candidate}}
+	sut := usecase.NewMemoryUsecase(repo, nil, nil)
+	artifact := mustArtifactRef(t, domtypes.ArtifactRefKindPR, "#1074")
+
+	_, err = sut.AttachCandidateRefs(context.Background(), memoryID, nil, []domtypes.ArtifactRef{artifact})
+	if err == nil {
+		t.Fatal("AttachCandidateRefs() artifact-only error = nil, want evidence requirement")
+	}
+	if !strings.Contains(err.Error(), "requires at least one evidence ref") {
+		t.Fatalf("AttachCandidateRefs() error = %v, want evidence requirement", err)
+	}
+	if len(repo.saveCalls) != 0 {
+		t.Fatalf("Save called for rejected attach: %d", len(repo.saveCalls))
+	}
+}
+
 func TestMemoryUsecase_AttachCandidateRefsRejectsAcceptedMemory(t *testing.T) {
 	t.Parallel()
 

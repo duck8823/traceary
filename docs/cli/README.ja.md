@@ -353,7 +353,7 @@ durable memory を一覧表示します。scope flag を明示しない場合は
 
 #### `traceary memory inbox attach <memory-id>`
 
-既存のメモリ候補に evidence refs（任意で artifact refs）を追加します。review status は変更しません。accepted memory に evidence が必要なため、まだ accept / distill できない有用な候補向けの script-friendly path です。
+既存のメモリ候補に evidence refs（任意で artifact refs）を追加します。review status は変更しません。accepted memory に evidence が必要なため、まだ accept / distill できない有用な候補向けの script-friendly path です。artifact のみの追加は、その候補がすでに evidence を持っている場合だけ受け付けます。
 
 主な flag:
 

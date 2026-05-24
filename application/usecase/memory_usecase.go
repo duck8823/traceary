@@ -46,7 +46,9 @@ type MemoryUsecase interface {
 	Reject(ctx context.Context, memoryID domtypes.MemoryID) (apptypes.MemoryDetails, error)
 
 	// AttachCandidateRefs attaches supporting refs to an existing candidate
-	// memory without changing its lifecycle status.
+	// memory without changing its lifecycle status. New evidence is required
+	// unless the candidate already has evidence; artifact-only attachments are
+	// allowed only for already substantiated candidates.
 	AttachCandidateRefs(
 		ctx context.Context,
 		memoryID domtypes.MemoryID,

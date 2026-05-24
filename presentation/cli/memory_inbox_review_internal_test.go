@@ -313,6 +313,50 @@ func TestReviewModel_AttachArtifactOnlyRequiresEvidence(t *testing.T) {
 	}
 }
 
+func TestReviewModel_AttachArtifactOnlyAllowedWhenEvidenceExists(t *testing.T) {
+	t.Parallel()
+
+	model := newReviewTestModel(buildReviewCandidate(t, "id-artifact-only-ok", "fact with evidence"))
+
+	opened, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	attachM := opened.(reviewModel)
+	for _, r := range "artifact:pr:#1074" {
+		updated, _ := attachM.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		attachM = updated.(reviewModel)
+	}
+	submitted, _ := attachM.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got := submitted.(reviewModel)
+
+	if got.mode != reviewModeBrowse {
+		t.Fatalf("artifact-only attach with existing evidence should return to browse, got %v", got.mode)
+	}
+	decisions := got.Decisions()
+	if len(decisions) != 1 || decisions[0].kind != reviewDecisionAttach {
+		t.Fatalf("decisions = %+v, want one attach", decisions)
+	}
+	if len(decisions[0].evidenceRefs) != 0 {
+		t.Fatalf("artifact-only attach evidence refs = %+v, want none", decisions[0].evidenceRefs)
+	}
+	if len(decisions[0].artifactRefs) != 1 || decisions[0].artifactRefs[0].Value() != "#1074" {
+		t.Fatalf("artifact-only attach artifact refs = %+v", decisions[0].artifactRefs)
+	}
+}
+
+func TestParseReviewAttachRefs_AllowsCommaInValues(t *testing.T) {
+	t.Parallel()
+
+	evidenceRefs, artifactRefs, err := parseReviewAttachRefs("url:https://example.com/a,b, artifact:pr:#1074")
+	if err != nil {
+		t.Fatalf("parseReviewAttachRefs() error = %v", err)
+	}
+	if len(evidenceRefs) != 1 || evidenceRefs[0].Value() != "https://example.com/a,b" {
+		t.Fatalf("evidence refs = %+v, want URL value with comma preserved", evidenceRefs)
+	}
+	if len(artifactRefs) != 1 || artifactRefs[0].Value() != "#1074" {
+		t.Fatalf("artifact refs = %+v", artifactRefs)
+	}
+}
+
 func TestFormatMemoryReviewRefLineSanitizesAndTruncates(t *testing.T) {
 	t.Parallel()
 

@@ -775,7 +775,13 @@ func (m reviewModel) updateAttach(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.statusMsg = err.Error()
 			return m, nil
 		}
-		if len(evidenceRefs) == 0 {
+		if m.attachIndex < 0 || m.attachIndex >= len(m.items) {
+			m.mode = reviewModeBrowse
+			m.attachBuffer = ""
+			m.statusMsg = Localize("attach target is no longer available", "追加対象のメモリ候補が見つかりません")
+			return m, nil
+		}
+		if len(evidenceRefs) == 0 && len(m.items[m.attachIndex].EvidenceRefs()) == 0 {
 			m.statusMsg = Localize("attach requires at least one evidence ref; artifact refs are optional", "evidence 追加には evidence ref が1つ以上必要です。artifact ref は任意です")
 			return m, nil
 		}
@@ -833,16 +839,31 @@ func parseReviewAttachRefs(input string) ([]domtypes.EvidenceRef, []domtypes.Art
 }
 
 func splitReviewAttachTokens(input string) []string {
-	parts := strings.Split(input, ",")
-	tokens := make([]string, 0, len(parts))
-	for _, part := range parts {
-		token := strings.TrimSpace(part)
-		if token == "" {
+	tokens := []string{}
+	start := 0
+	for i, r := range input {
+		if r != ',' || !looksLikeReviewAttachToken(input[i+1:]) {
 			continue
 		}
+		if token := strings.TrimSpace(input[start:i]); token != "" {
+			tokens = append(tokens, token)
+		}
+		start = i + 1
+	}
+	if token := strings.TrimSpace(input[start:]); token != "" {
 		tokens = append(tokens, token)
 	}
 	return tokens
+}
+
+func looksLikeReviewAttachToken(input string) bool {
+	trimmed := strings.TrimLeftFunc(input, unicode.IsSpace)
+	for _, prefix := range []string{"evidence:", "artifact:", "event:", "session:", "url:", "file:", "issue:", "pr:"} {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // View renders the current screen. The output is intentionally simple:

@@ -354,8 +354,8 @@ func (u *memoryUsecase) AttachCandidateRefs(
 	if u.memoryRepo == nil {
 		return apptypes.MemoryDetails{}, xerrors.Errorf("memory repository is not configured")
 	}
-	if len(evidenceRefs) == 0 {
-		return apptypes.MemoryDetails{}, xerrors.Errorf("attaching candidate refs requires at least one evidence ref")
+	if len(evidenceRefs) == 0 && len(artifactRefs) == 0 {
+		return apptypes.MemoryDetails{}, xerrors.Errorf("attaching candidate refs requires at least one evidence or artifact ref")
 	}
 
 	memory, err := u.findMemoryByID(ctx, memoryID)
@@ -366,7 +366,10 @@ func (u *memoryUsecase) AttachCandidateRefs(
 	if err != nil {
 		return apptypes.MemoryDetails{}, err
 	}
-	if len(sanitizedEvidenceRefs) == 0 {
+	if len(sanitizedEvidenceRefs) == 0 && len(sanitizedArtifactRefs) == 0 {
+		return apptypes.MemoryDetails{}, xerrors.Errorf("attaching candidate refs requires at least one evidence or artifact ref")
+	}
+	if len(sanitizedEvidenceRefs) == 0 && len(memory.EvidenceRefs()) == 0 {
 		return apptypes.MemoryDetails{}, xerrors.Errorf("attaching candidate refs requires at least one evidence ref")
 	}
 	if err := memory.AttachRefs(sanitizedEvidenceRefs, sanitizedArtifactRefs); err != nil {
