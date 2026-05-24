@@ -745,7 +745,7 @@ func (m reviewModel) renderBrowse() string {
 func (m reviewModel) renderEvidence() string {
 	current := m.items[m.cursor]
 	var b strings.Builder
-	b.WriteString(m.styles.Title.Render(Localize("evidence", "evidence")))
+	b.WriteString(m.styles.Title.Render(memoryReviewWorkflowTitle(Localize("evidence", "evidence"))))
 	b.WriteString("\n\n")
 	b.WriteString(Localize("EVIDENCE_REFS:", "EVIDENCE_REFS:"))
 	b.WriteString("\n")
@@ -882,7 +882,7 @@ func memoryReviewQualitySignal(details apptypes.MemoryDetails) string {
 		// with memory source filters and exported audit data.
 		signals = append(signals, "hidden extraction")
 	case domtypes.MemorySourceExtracted, domtypes.MemorySourceCompactSummary:
-		signals = append(signals, Localize("generated candidate", "生成されたメモリ候補"))
+		signals = append(signals, Localize("generated memory candidate", "生成されたメモリ候補"))
 	case domtypes.MemorySourceManual:
 		signals = append(signals, Localize("manual source", "手動 source"))
 	default:

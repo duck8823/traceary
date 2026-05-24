@@ -37,7 +37,7 @@ func (c *RootCLI) newMemoryInboxListCommand() *cobra.Command {
 	input := memoryInboxListCommandInput{}
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: Localize("List memory candidates", "メモリ候補を一覧する"),
+		Short: Localize("List memory candidates in the review queue", "メモリ候補の確認キューを一覧する"),
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runMemoryInboxList(cmd.Context(), cmd.OutOrStdout(), input)
@@ -516,7 +516,7 @@ type memoryInboxCleanupResult struct {
 type memoryInboxFailure struct {
 	ID        string
 	Error     string
-	ErrorCode string
+	ErrorCode string `json:"ErrorCode,omitempty"`
 }
 
 const (

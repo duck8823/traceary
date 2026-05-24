@@ -62,10 +62,12 @@ var cockpitNavigationSections = [...]cockpitNavigationSection{
 var _ [int(cockpitSectionCount) - len(cockpitNavigationSections)]struct{}
 var _ [len(cockpitNavigationSections) - int(cockpitSectionCount)]struct{}
 
-// cockpitNavigationSectionsList returns a copy of the static metadata so
-// render helpers and tests cannot mutate the package-level navigation table.
-func cockpitNavigationSectionsList() [int(cockpitSectionCount)]cockpitNavigationSection {
-	return cockpitNavigationSections
+// cockpitNavigationSectionsList exposes the static metadata as a read-only
+// convention slice for render helpers and tests. Callers must not mutate the
+// returned slice; the package-level count assertions above keep enum drift
+// caught at compile time.
+func cockpitNavigationSectionsList() []cockpitNavigationSection {
+	return cockpitNavigationSections[:]
 }
 
 func (s cockpitNavigationSection) label() string {

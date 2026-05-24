@@ -49,10 +49,13 @@ func TestVisibleHelpDoesNotExposeLegacyMemoryCandidateGlossary(t *testing.T) {
 func TestDocumentationAndGoldensDoNotExposeLegacyMemoryCandidateGlossary(t *testing.T) {
 	paths := []string{
 		"../../README.md",
+		"../../README.ja.md",
 		"../../docs/cli/README.md",
 		"../../docs/cli/README.ja.md",
 		"../../docs/interactive/README.md",
 		"../../docs/interactive/README.ja.md",
+		"../../docs/memory/README.md",
+		"../../docs/memory/README.ja.md",
 		"testdata/top/snapshot_text.golden",
 		"testdata/top/snapshot_text_empty.golden",
 	}
@@ -78,6 +81,30 @@ func TestDocumentationAndGoldensDoNotExposeLegacyMemoryCandidateGlossary(t *test
 	}
 }
 
+func TestProductionCliSourcesDoNotExposeLegacyMemoryCandidateGlossary(t *testing.T) {
+	paths, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatalf("glob production cli sources: %v", err)
+	}
+	for _, path := range paths {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		t.Run(path, func(t *testing.T) {
+			content, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read %s: %v", path, err)
+			}
+			text := normalizeLegacyGlossaryText(string(content))
+			for _, forbidden := range legacyMemoryCandidateGlossaryTerms() {
+				if strings.Contains(text, forbidden) {
+					t.Fatalf("%s leaked legacy glossary %q:\n%s", path, forbidden, text)
+				}
+			}
+		})
+	}
+}
+
 func legacyMemoryCandidateGlossaryTerms() []string {
 	return []string{
 		"candidate durable memory",
@@ -85,6 +112,7 @@ func legacyMemoryCandidateGlossaryTerms() []string {
 		"candidate memory",
 		"candidate memories",
 		"candidate inbox",
+		"generated candidate",
 		"durable memory candidate",
 		"durable memory candidates",
 		"durable-memory candidate",

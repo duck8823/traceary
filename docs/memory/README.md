@@ -99,26 +99,26 @@ Use these when a human or agent wants to record a fact deliberately:
 
 ### Extraction path
 
-Use these when Traceary should infer candidate memories from existing session signals:
+Use these when Traceary should infer memory candidates from existing session signals:
 
 - `traceary memory admin extract`
 
-Extraction is candidate-only. It does not auto-accept memories.
+Extraction creates memory candidates only. It does not auto-accept memories.
 
 Since v0.11.0, the hook-driven session-end path (`traceary hook session <client> end|stop`), the CLI session-end path (`traceary session --end`), and the MCP `manage_session(action="end")` tool all fire extraction automatically as a best-effort step after the session-end record commits, so the inbox grows without the agent having to ask. Errors there are swallowed so the boundary record is never blocked.
 
-A length-based quality filter routes short candidates (under 20 runes; artifact refs are exempt) to `source=extracted-hidden` instead of `source=extracted`. The hidden rows stay in the store for audit but are skipped by the default `traceary memory inbox list` view; `--include-hidden` surfaces them.
+A length-based quality filter routes short memory candidates (under 20 runes; artifact refs are exempt) to `source=extracted-hidden` instead of `source=extracted`. The hidden rows stay in the store for audit but are skipped by the default `traceary memory inbox list` view; `--include-hidden` surfaces them.
 
 #### Context-boundary extraction
 
-`traceary memory admin extract` treats meaningful post-compact summaries and clear/reset-equivalent summary events as extraction inputs. Candidates from compact-summary style events use `source=compact-summary` and keep the originating event as evidence, so reviewers can inspect the exact host signal before accepting.
+`traceary memory admin extract` treats meaningful post-compact summaries and clear/reset-equivalent summary events as extraction inputs. Memory candidates from compact-summary style events use `source=compact-summary` and keep the originating event as evidence, so reviewers can inspect the exact host signal before accepting.
 
-Marker-only lifecycle signals such as `manual`, `clear`, `reset`, or hosts that only notify Traceary that context was cleared do not create candidates. In `memory admin extract --debug-signals --json`, those rows appear as `ignored` with `reason=marker_only_context_boundary` (or `pre_compact_snapshot` for pre-compact snapshots). Today Claude post-compact can provide summary text; clear/reset support depends on whether the host supplies a summary body. When a host only emits a marker, Traceary records/debugs the boundary but does not fabricate durable memory.
+Marker-only lifecycle signals such as `manual`, `clear`, `reset`, or hosts that only notify Traceary that context was cleared do not create memory candidates. In `memory admin extract --debug-signals --json`, those rows appear as `ignored` with `reason=marker_only_context_boundary` (or `pre_compact_snapshot` for pre-compact snapshots). Today Claude post-compact can provide summary text; clear/reset support depends on whether the host supplies a summary body. When a host only emits a marker, Traceary records/debugs the boundary but does not fabricate durable memory.
 
 ### Review path
 
-Use these once candidates have accumulated in the store and you need to
-walk the inbox before anything is promoted to `accepted`:
+Use these once memory candidates have accumulated in the store and you need to
+walk the memory review queue before anything is promoted to `accepted`:
 
 - `traceary memory inbox list`
 - `traceary memory inbox accept <id>` (single id; pass `--ids id1,id2,...` for batch scripts; add `--id-only` for scripted callers that want only the memory id on stdout)
@@ -126,16 +126,16 @@ walk the inbox before anything is promoted to `accepted`:
 - `traceary memory inbox review` — interactive walk-through with the same filters as `inbox list` (`--workspace`, `--agent`, `--session-family`, `--type`, `--source`, `--include-hidden`, `--limit`). Accept / reject reuse the same application use cases as the batch commands; `e` opens an edit prompt that requires an operator-authored fact and routes through `traceary memory store distill` (no auto-accept of LLM output). Refuses to start without a TTY and exits with code `2`, pointing at the batch commands above so non-interactive shells branch deterministically.
 - MCP `memory_inbox_batch` for agent-driven review
 
-The review path is deliberately `candidate`-scoped so extraction and
-import feed the same inbox and a single reviewer pass can clear them.
+The review path is deliberately scoped to memory candidates so extraction and
+import feed the same memory review queue and a single reviewer pass can clear them.
 
-When one or more raw candidates are useful as evidence but are not suitable
+When one or more raw memory candidates are useful as evidence but are not suitable
 as accepted facts verbatim, use `traceary memory store distill`. Distillation
 requires the operator to supply the final fact, type, and scope explicitly;
 Traceary does not perform LLM rewriting or auto-acceptance. The command
 creates a new accepted memory with the union of evidence refs and artifact
-refs from the source candidates, then handles the source candidates according
-to `--replace=keep|reject|supersede`.
+refs from the source memory candidates, then handles the source memory candidates
+according to `--replace=keep|reject|supersede`.
 
 Example:
 
@@ -151,7 +151,7 @@ traceary memory store distill \
 ### Import path
 
 Use this when you want to surface memories written by another local agent as
-Traceary durable-memory candidates without merging the underlying stores:
+Traceary memory candidates without merging the underlying stores:
 
 - `traceary memory admin import codex`
 - `traceary memory admin import instructions --source <claude|codex|gemini> --in <path>`

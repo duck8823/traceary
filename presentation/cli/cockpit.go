@@ -2727,7 +2727,7 @@ func (m cockpitModel) cockpitContextualNavigationLines() []string {
 	return lines
 }
 
-func cockpitNavigationLabelWidth(items [int(cockpitSectionCount)]cockpitNavigationSection) int {
+func cockpitNavigationLabelWidth(items []cockpitNavigationSection) int {
 	maxWidth := 0
 	for _, item := range items {
 		width := runeWidth(item.prefix())
