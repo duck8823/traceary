@@ -351,6 +351,18 @@ durable memory を一覧表示します。scope flag を明示しない場合は
 - `--id-only`（`--json` と排他）
 - `--json`
 
+#### `traceary memory inbox attach <memory-id>`
+
+既存のメモリ候補に evidence refs（任意で artifact refs）を追加します。review status は変更しません。accepted memory に evidence が必要なため、まだ accept / distill できない有用な候補向けの script-friendly path です。artifact のみの追加は、その候補がすでに evidence を持っている場合だけ受け付けます。
+
+主な flag:
+
+- 更新対象の positional `<memory-id>`
+- `--evidence kind:value`（複数指定可。1つ以上必須）
+- `--artifact kind:value`（複数指定可）
+- `--id-only`（`--json` と排他）
+- `--json`
+
 #### `traceary memory inbox review`
 
 共通 Bubble Tea TUI 基盤の上に乗った TTY 専用のメモリ候補確認ウォークスルーです。フィルタは `memory inbox list` と完全に同じなので、snapshot 表示と対話的レビューをフラグ調整なしで往復できます。
@@ -361,11 +373,12 @@ durable memory を一覧表示します。scope flag を明示しない場合は
 - `x` フォーカス中のメモリ候補を reject
 - `s` skip（状態は変えずカーソルだけ進める）
 - `e` edit/distill — operator 自身に新しい fact を入力させ、`traceary memory store distill --replace=supersede` 経由で記録します。LLM が書いた candidate text を自動 accept することはありません
+- `r` フォーカス中のメモリ候補に1件以上の evidence ref と任意の `artifact:kind:value` ref を追加。決定は保留した順に適用されるため、accept / distill の前に attach を保留してください
 - `v` evidence / artifact ref を確認
 - `?` ヘルプ overlay 切替
 - `q` / Ctrl-C / Esc 安全に終了
 
-非 TTY で起動した場合はエラー終了し、exit code は `2`。fallback guidance として `memory inbox list` と `memory inbox accept|reject` を案内するため、scripted shell では deterministic に分岐します。Accept / reject は batch 系コマンドと同じ `MemoryUsecase.Accept` / `Reject` ユースケースを呼ぶため、dedupe / status 遷移の意味づけは従来と変わりません。TUI 終了後に queued decision の一部が失敗した場合、サマリは従来通り stdout に各 `FAILED` 行を出力しつつ、コマンドは非ゼロ error を返すため、partial failure を shell が成功扱いしません。
+非 TTY で起動した場合はエラー終了し、exit code は `2`。fallback guidance として `memory inbox list` と `memory inbox accept|reject` を案内するため、scripted shell では deterministic に分岐します。Accept / reject / evidence attach は batch 系コマンドと同じ memory usecase を呼ぶため、dedupe / status 遷移の意味づけは従来と変わりません。TUI 終了後に queued decision の一部が失敗した場合、サマリは従来通り stdout に各 `FAILED` 行を出力しつつ、コマンドは非ゼロ error を返すため、partial failure を shell が成功扱いしません。
 
 主な flag: `--workspace`, `--agent`, `--session-family`, `--type`, `--source`, `--include-hidden`, `--limit`。
 

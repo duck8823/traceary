@@ -85,6 +85,76 @@ func TestMemoryInboxList_TextOutput(t *testing.T) {
 	}
 }
 
+func TestMemoryInboxAttachCommand_AttachesEvidence(t *testing.T) {
+	t.Parallel()
+
+	attached := buildInboxCandidateDetails(t, "memory-attach", "attach evidence", domtypes.MemorySourceManual)
+	memoryStub := &memoryUsecaseStub{attachDetails: attached}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	stdout := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{
+		"memory", "inbox", "attach", "memory-attach",
+		"--evidence", "event:evt-attach",
+		"--artifact", "pr:#1073",
+		"--db-path", t.TempDir() + "/t.db",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	if memoryStub.attachCall.memoryID.String() != "memory-attach" {
+		t.Fatalf("attach memory id = %s", memoryStub.attachCall.memoryID)
+	}
+	if len(memoryStub.attachCall.evidenceRefs) != 1 || memoryStub.attachCall.evidenceRefs[0].Value() != "evt-attach" {
+		t.Fatalf("attach evidence refs = %+v", memoryStub.attachCall.evidenceRefs)
+	}
+	if len(memoryStub.attachCall.artifactRefs) != 1 || memoryStub.attachCall.artifactRefs[0].Value() != "#1073" {
+		t.Fatalf("attach artifact refs = %+v", memoryStub.attachCall.artifactRefs)
+	}
+	if !strings.Contains(stdout.String(), "memory-attach") {
+		t.Fatalf("attach output missing memory id: %q", stdout.String())
+	}
+}
+
+func TestMemoryInboxAttachCommand_AllowsArtifactFlagOnly(t *testing.T) {
+	t.Parallel()
+
+	attached := buildInboxCandidateDetails(t, "memory-artifact", "attach artifact", domtypes.MemorySourceManual)
+	memoryStub := &memoryUsecaseStub{attachDetails: attached}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	stdout := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{
+		"memory", "inbox", "attach", "memory-artifact",
+		"--artifact", "pr:#1074",
+		"--db-path", t.TempDir() + "/t.db",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	if len(memoryStub.attachCall.evidenceRefs) != 0 {
+		t.Fatalf("attach evidence refs = %+v, want none", memoryStub.attachCall.evidenceRefs)
+	}
+	if len(memoryStub.attachCall.artifactRefs) != 1 || memoryStub.attachCall.artifactRefs[0].Value() != "#1074" {
+		t.Fatalf("attach artifact refs = %+v", memoryStub.attachCall.artifactRefs)
+	}
+	if !strings.Contains(stdout.String(), "memory-artifact") {
+		t.Fatalf("attach output missing memory id: %q", stdout.String())
+	}
+}
+
 func TestMemoryInboxHelp_JapaneseGlossary(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "ja")
 

@@ -292,6 +292,17 @@ func (m *Memory) SetValidity(validFrom types.Optional[time.Time], validTo types.
 	m.updatedAt = m.now()
 }
 
+// AttachRefs appends supporting refs to a candidate memory.
+func (m *Memory) AttachRefs(evidenceRefs []types.EvidenceRef, artifactRefs []types.ArtifactRef) error {
+	if m.status != types.MemoryStatusCandidate {
+		return ErrInvalidMemoryState
+	}
+	m.evidenceRefs = types.AppendEvidenceRefs(m.evidenceRefs, evidenceRefs)
+	m.artifactRefs = types.AppendArtifactRefs(m.artifactRefs, artifactRefs)
+	m.updatedAt = m.now()
+	return nil
+}
+
 // CreatedAt returns when the memory was created.
 func (m *Memory) CreatedAt() time.Time { return m.createdAt }
 

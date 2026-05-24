@@ -345,6 +345,47 @@ func (u *memoryUsecase) Reject(ctx context.Context, memoryID domtypes.MemoryID) 
 	return details, nil
 }
 
+func (u *memoryUsecase) AttachCandidateRefs(
+	ctx context.Context,
+	memoryID domtypes.MemoryID,
+	evidenceRefs []domtypes.EvidenceRef,
+	artifactRefs []domtypes.ArtifactRef,
+) (apptypes.MemoryDetails, error) {
+	if u.memoryRepo == nil {
+		return apptypes.MemoryDetails{}, xerrors.Errorf("memory repository is not configured")
+	}
+	if len(evidenceRefs) == 0 && len(artifactRefs) == 0 {
+		return apptypes.MemoryDetails{}, xerrors.Errorf("attaching candidate refs requires at least one evidence or artifact ref")
+	}
+
+	memory, err := u.findMemoryByID(ctx, memoryID)
+	if err != nil {
+		return apptypes.MemoryDetails{}, err
+	}
+	sanitizedEvidenceRefs, sanitizedArtifactRefs, err := sanitizeMemoryRefs(evidenceRefs, artifactRefs, u.extraRedactPatterns)
+	if err != nil {
+		return apptypes.MemoryDetails{}, err
+	}
+	if len(sanitizedEvidenceRefs) == 0 && len(sanitizedArtifactRefs) == 0 {
+		return apptypes.MemoryDetails{}, xerrors.Errorf("attaching candidate refs requires at least one evidence or artifact ref")
+	}
+	if len(sanitizedEvidenceRefs) == 0 && len(memory.EvidenceRefs()) == 0 {
+		return apptypes.MemoryDetails{}, xerrors.Errorf("attaching candidate refs requires at least one evidence ref")
+	}
+	if err := memory.AttachRefs(sanitizedEvidenceRefs, sanitizedArtifactRefs); err != nil {
+		return apptypes.MemoryDetails{}, xerrors.Errorf("failed to attach candidate refs: %w", err)
+	}
+	if err := u.memoryRepo.Save(ctx, memory); err != nil {
+		return apptypes.MemoryDetails{}, xerrors.Errorf("failed to save memory candidate refs: %w", err)
+	}
+
+	details, err := apptypes.MemoryDetailsFrom(memory)
+	if err != nil {
+		return apptypes.MemoryDetails{}, xerrors.Errorf("failed to build memory details: %w", err)
+	}
+	return details, nil
+}
+
 func (u *memoryUsecase) Supersede(
 	ctx context.Context,
 	memoryID domtypes.MemoryID,

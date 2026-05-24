@@ -455,6 +455,17 @@ type memoryInboxCleanupCommandInput struct {
 	asJSON         bool
 }
 
+// memoryInboxAttachCommandInput is the resolved input to
+// `traceary memory inbox attach`.
+type memoryInboxAttachCommandInput struct {
+	dbPath       string
+	memoryID     string
+	evidenceRefs []string
+	artifactRefs []string
+	idOnly       bool
+	asJSON       bool
+}
+
 // memoryExportCommandInput is the resolved input to `traceary memory
 // export`. The command always writes the markdown block to --out; the
 // usecase itself stays filesystem-free so tests can exercise the

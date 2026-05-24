@@ -28,6 +28,7 @@ func (c *RootCLI) newMemoryInboxCommand() *cobra.Command {
 	cmd.AddCommand(c.newMemoryInboxListCommand())
 	cmd.AddCommand(c.newMemoryInboxAcceptCommand())
 	cmd.AddCommand(c.newMemoryInboxRejectCommand())
+	cmd.AddCommand(c.newMemoryInboxAttachCommand())
 	cmd.AddCommand(c.newMemoryInboxCleanupCommand())
 	cmd.AddCommand(c.newMemoryInboxReviewCommand())
 	return cmd
@@ -136,6 +137,31 @@ func (c *RootCLI) newMemoryInboxRejectCommand() *cobra.Command {
 		"print only the resulting memory ids (one per successful row); failures go to stderr",
 		"処理に成功した memory id だけを 1 行ずつ出力する (失敗は stderr に書き出す)",
 	))
+	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
+	cmd.MarkFlagsMutuallyExclusive("id-only", "json")
+	return cmd
+}
+
+func (c *RootCLI) newMemoryInboxAttachCommand() *cobra.Command {
+	input := memoryInboxAttachCommandInput{}
+	cmd := &cobra.Command{
+		Use:   "attach <memory-id>",
+		Short: Localize("Attach evidence refs to a memory candidate", "メモリ候補に evidence refs を追加する"),
+		Long: Localize(
+			"Attach evidence refs, plus optional artifact refs, to an existing memory candidate without changing its review status. Use this when Memory review finds a useful candidate that cannot be accepted or distilled yet because accepted memories require evidence.",
+			"既存のメモリ候補に evidence refs と任意の artifact refs を追加します。review status は変更しません。Memory review で有用な候補を見つけたものの、accepted memory に evidence が必要なため accept / distill できない場合に使います。",
+		),
+		Example: "  traceary memory inbox attach memory-raw --evidence event:evt-123 --evidence file:/tmp/notes.md#L10-L20",
+		Args:    exactArgsLocalized(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			input.memoryID = args[0]
+			return c.runMemoryInboxAttach(cmd.Context(), cmd.OutOrStdout(), input)
+		},
+	}
+	cmd.Flags().StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
+	cmd.Flags().StringArrayVar(&input.evidenceRefs, "evidence", nil, Localize("evidence ref as kind:value (repeatable)", "kind:value 形式の evidence ref (複数指定可)"))
+	cmd.Flags().StringArrayVar(&input.artifactRefs, "artifact", nil, Localize("artifact ref as kind:value (repeatable)", "kind:value 形式の artifact ref (複数指定可)"))
+	cmd.Flags().BoolVar(&input.idOnly, "id-only", false, Localize("print only the memory ID", "memory ID だけを出力する"))
 	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	cmd.MarkFlagsMutuallyExclusive("id-only", "json")
 	return cmd
@@ -494,6 +520,38 @@ func (c *RootCLI) runMemoryInboxBatch(ctx context.Context, output io.Writer, err
 		return writeMemoryInboxBatchIDOnly(output, errOutput, result)
 	}
 	return writeMemoryInboxBatch(output, result, input.asJSON)
+}
+
+func (c *RootCLI) runMemoryInboxAttach(ctx context.Context, output io.Writer, input memoryInboxAttachCommandInput) error {
+	if c.storeManagement == nil {
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+	}
+	if c.memory == nil {
+		return xerrors.New(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
+	}
+	if len(input.evidenceRefs) == 0 && len(input.artifactRefs) == 0 {
+		return xerrors.New(Localize("at least one --evidence or --artifact ref is required", "--evidence または --artifact ref を1つ以上指定してください"))
+	}
+	if err := c.initializeStore(ctx, input.dbPath); err != nil {
+		return err
+	}
+	memoryID, err := domtypes.MemoryIDFrom(input.memoryID)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve memory ID", "memory ID の解決に失敗しました"), err)
+	}
+	evidenceRefs, err := parseEvidenceRefs(input.evidenceRefs)
+	if err != nil {
+		return err
+	}
+	artifactRefs, err := parseArtifactRefs(input.artifactRefs)
+	if err != nil {
+		return err
+	}
+	details, err := c.memory.AttachCandidateRefs(ctx, memoryID, evidenceRefs, artifactRefs)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to attach memory candidate refs", "メモリ候補 refs の追加に失敗しました"), err)
+	}
+	return writeMemoryMutationResult(output, details, input.idOnly, input.asJSON)
 }
 
 // memoryInboxBatchResult is the domain-neutral summary of a batch run,

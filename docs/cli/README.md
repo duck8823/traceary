@@ -351,6 +351,18 @@ Useful flags:
 - `--id-only` (mutually exclusive with `--json`)
 - `--json`
 
+#### `traceary memory inbox attach <memory-id>`
+
+Attach evidence refs (and optional artifact refs) to an existing memory candidate without changing its review status. This is the script-friendly path for useful candidates that cannot be accepted or distilled yet because accepted memories require evidence. Artifact-only attachments are accepted only when the candidate already has evidence.
+
+Useful flags:
+
+- positional `<memory-id>` for the candidate to update
+- `--evidence kind:value` (repeatable; at least one is required)
+- `--artifact kind:value` (repeatable)
+- `--id-only` (mutually exclusive with `--json`)
+- `--json`
+
 #### `traceary memory inbox review`
 
 Interactive TTY walk-through over the memory review queue built on the shared Bubble Tea TUI foundation. Filters mirror `memory inbox list` so reviewers can pivot between the snapshot view and the interactive walk without re-tuning flags.
@@ -361,11 +373,12 @@ Action keys inside the screen:
 - `x` reject the focused candidate
 - `s` skip (no state change, advance the cursor)
 - `e` edit/distill — prompts for an operator-authored fact and routes through `traceary memory store distill --replace=supersede`. The original LLM-authored candidate text is never auto-accepted.
+- `r` attach one or more evidence refs, plus optional `artifact:kind:value` refs, to the focused candidate; decisions apply in the order you queued them, so queue attach before accept/distill
 - `v` view evidence / artifact refs for the focused candidate
 - `?` toggle the help overlay
 - `q` / Ctrl-C / Esc quit cleanly
 
-The command refuses to start without a TTY and exits with code `2`, printing fallback guidance pointing at `memory inbox list` plus `memory inbox accept|reject` for batch / scripted callers (so non-interactive shells branch deterministically). Accept and reject reuse the same `MemoryUsecase.Accept` / `Reject` use cases as the batch commands; dedupe / status transitions are unchanged. If a queued per-id decision fails after the TUI exits, the summary still prints each `FAILED` row on stdout and the command returns a non-zero error so shell callers do not treat a partial review as successful.
+The command refuses to start without a TTY and exits with code `2`, printing fallback guidance pointing at `memory inbox list` plus `memory inbox accept|reject` for batch / scripted callers (so non-interactive shells branch deterministically). Accept, reject, and evidence attach reuse the same memory usecase as the batch commands; dedupe / status transitions are unchanged. If a queued per-id decision fails after the TUI exits, the summary still prints each `FAILED` row on stdout and the command returns a non-zero error so shell callers do not treat a partial review as successful.
 
 Useful flags: `--workspace`, `--agent`, `--session-family`, `--type`, `--source`, `--include-hidden`, `--limit`.
 

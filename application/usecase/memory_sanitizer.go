@@ -20,20 +20,42 @@ func sanitizeMemoryPayload(
 	artifactRefs []domtypes.ArtifactRef,
 	extraRedactPatterns []string,
 ) (string, []domtypes.EvidenceRef, []domtypes.ArtifactRef, error) {
-	extraRedactors, err := redaction.CompileExtraPatterns(extraRedactPatterns)
+	sanitizedEvidenceRefs, sanitizedArtifactRefs, extraRedactors, err := sanitizeMemoryRefsWithRedactors(evidenceRefs, artifactRefs, extraRedactPatterns)
 	if err != nil {
-		return "", nil, nil, xerrors.Errorf("failed to compile extra redaction patterns: %w", err)
+		return "", nil, nil, err
 	}
 
 	sanitizedFact, _ := redaction.Apply(strings.TrimSpace(fact), extraRedactors)
+	return sanitizedFact, sanitizedEvidenceRefs, sanitizedArtifactRefs, nil
+}
+
+func sanitizeMemoryRefs(
+	evidenceRefs []domtypes.EvidenceRef,
+	artifactRefs []domtypes.ArtifactRef,
+	extraRedactPatterns []string,
+) ([]domtypes.EvidenceRef, []domtypes.ArtifactRef, error) {
+	sanitizedEvidenceRefs, sanitizedArtifactRefs, _, err := sanitizeMemoryRefsWithRedactors(evidenceRefs, artifactRefs, extraRedactPatterns)
+	return sanitizedEvidenceRefs, sanitizedArtifactRefs, err
+}
+
+func sanitizeMemoryRefsWithRedactors(
+	evidenceRefs []domtypes.EvidenceRef,
+	artifactRefs []domtypes.ArtifactRef,
+	extraRedactPatterns []string,
+) ([]domtypes.EvidenceRef, []domtypes.ArtifactRef, []redaction.Redactor, error) {
+	extraRedactors, err := redaction.CompileExtraPatterns(extraRedactPatterns)
+	if err != nil {
+		return nil, nil, nil, xerrors.Errorf("failed to compile extra redaction patterns: %w", err)
+	}
+
 	sanitizedEvidenceRefs, err := sanitizeEvidenceRefs(evidenceRefs, extraRedactors)
 	if err != nil {
-		return "", nil, nil, err
+		return nil, nil, nil, err
 	}
 	sanitizedArtifactRefs, err := sanitizeArtifactRefs(artifactRefs, extraRedactors)
 	if err != nil {
-		return "", nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	return sanitizedFact, sanitizedEvidenceRefs, sanitizedArtifactRefs, nil
+	return sanitizedEvidenceRefs, sanitizedArtifactRefs, extraRedactors, nil
 }

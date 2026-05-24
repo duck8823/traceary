@@ -93,14 +93,14 @@ traceary show evt_123 --json
 
 ### 7. 「メモリ候補を1件ずつ捌きたい」 → `traceary memory inbox review`
 
-メモリ候補の確認キューを対話的に walk するときは `memory inbox review` を使います。TTY 必須なので、非対話シェルでは exit code `2` で起動を拒否し、`traceary memory inbox list / accept / reject` の利用を案内します。フィルタ flag は snapshot 版と同じく `--workspace` / `--agent` / `--session-family` / `--type` / `--source` / `--include-hidden` / `--limit` を受け付けます。
+メモリ候補の確認キューを対話的に walk するときは `memory inbox review` を使います。TTY 必須なので、非対話シェルでは exit code `2` で起動を拒否し、`traceary memory inbox list / accept / reject / attach` の利用を案内します。フィルタ flag は snapshot 版と同じく `--workspace` / `--agent` / `--session-family` / `--type` / `--source` / `--include-hidden` / `--limit` を受け付けます。
 
 ```sh
 traceary memory inbox review
 traceary memory inbox review --workspace github.com/duck8823/traceary --type preference --limit 10
 ```
 
-画面内のキーは `a` accept、`x` reject、`s` skip、`e` edit/distill、`v` evidence 表示、`?` help、`q` quit です。Accept / reject は `memory inbox accept|reject` と同じ application usecase を呼びます。`e` で開くエディトプロンプトは operator が手書きした fact のみ受け付け、`traceary memory store distill` 経由で記録します (LLM 出力は自動採用しません)。
+画面内のキーは `a` accept、`x` reject、`s` skip、`r` evidence 追加、`e` edit/distill、`v` evidence 表示、`?` help、`q` quit です。Accept / reject / evidence 追加は `memory inbox accept|reject|attach` と同じ application usecase を呼びます。`r` ではカンマ区切りの `kind:value` evidence ref と任意の `artifact:kind:value` ref を入力でき、evidence がない candidate を採用前に裏付けできます。`e` で開くエディトプロンプトは operator が手書きした fact のみ受け付け、`traceary memory store distill` 経由で記録します (LLM 出力は自動採用しません)。
 
 ### 8. 「次に持ち越す文脈だけをまとめたい」 → `traceary session handoff`
 
