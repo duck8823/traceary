@@ -1,7 +1,6 @@
 package sqlite_test
 
 import (
-	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -13,6 +12,8 @@ import (
 
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
+
+const sqliteMigrationVersionDigits = 6
 
 // onDiskSQLiteMigrations returns the repository's on-disk migration set for
 // tests that intentionally exercise full-schema compatibility.
@@ -57,7 +58,7 @@ func validateSQLiteMigrationDir(dir string) error {
 		return fmt.Errorf("stat SQLite migrations path %s: %w", dir, err)
 	}
 	if !info.IsDir() {
-		return errors.New("SQLite migrations path is not a directory: " + dir)
+		return fmt.Errorf("SQLite migrations path is not a directory: %s", dir)
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -84,10 +85,10 @@ func validateSQLiteMigrationDir(dir string) error {
 		}
 	}
 	if !foundSQL {
-		return errors.New("SQLite migrations path has no .sql files: " + dir)
+		return fmt.Errorf("SQLite migrations path has no .sql files: %s", dir)
 	}
 	if !foundVersionOne {
-		return errors.New("SQLite migrations path is missing migration version 1: " + dir)
+		return fmt.Errorf("SQLite migrations path is missing migration version 1: %s", dir)
 	}
 	return nil
 }
@@ -97,8 +98,8 @@ func sqliteMigrationVersion(name string) (int, error) {
 	if !ok {
 		return 0, fmt.Errorf("migration filename %q missing version separator", name)
 	}
-	if len(versionText) != 6 {
-		return 0, fmt.Errorf("migration filename %q must use a six-digit version prefix", name)
+	if len(versionText) != sqliteMigrationVersionDigits {
+		return 0, fmt.Errorf("migration filename %q must use a %d-digit version prefix", name, sqliteMigrationVersionDigits)
 	}
 	for _, digit := range versionText {
 		if digit < '0' || digit > '9' {

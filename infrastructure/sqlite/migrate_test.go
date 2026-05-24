@@ -116,11 +116,11 @@ func TestMigrations_upgradeFromPreV014DatabaseAddsSessionSpawnMetadata(t *testin
 	assertPreV014SessionMetadataDefaults(t, db)
 }
 
-func TestMigrations_applyMissingMidSequenceMigration(t *testing.T) {
+func TestMigrations_appliesGapInVersionHistory(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	withoutV014 := migrationsWithoutVersion(t, onDiskSQLiteMigrationDir(t), 14)
+	withoutV014 := migrationsInRangeExcluding(t, onDiskSQLiteMigrationDir(t), 1, 16, 14)
 	ds := newStoreManagementDatasource(t, dbPath, withoutV014)
 	if err := ds.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize(without v0.14) error = %v", err)
@@ -138,6 +138,7 @@ func TestMigrations_applyMissingMidSequenceMigration(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	assertSessionSpawnMetadataSchema(t, db)
+	assertMigrationApplied(t, db, 14)
 }
 
 func TestMigrations_idempotentOnExistingDatabase(t *testing.T) {
@@ -195,6 +196,9 @@ func seedPreV014SessionRow(t *testing.T, dbPath string) {
 	}
 	defer func() { _ = db.Close() }()
 
+	// This intentionally freezes the sessions table shape after migrations
+	// 000001..000013 so the v14 upgrade path proves existing rows survive
+	// the new nullable/defaulted metadata columns.
 	_, err = db.Exec(`
 INSERT INTO sessions (
     session_id,
@@ -244,16 +248,22 @@ SELECT spawn_event_id, subagent_kind, spawn_order
 		t.Errorf("spawn_order = %d, want NULL", spawnOrder.Int64)
 	}
 
+	assertMigrationApplied(t, db, 14)
+}
+
+func assertMigrationApplied(t *testing.T, db *sql.DB, version int) {
+	t.Helper()
+
 	var applied int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version = 14;`).Scan(&applied); err != nil {
-		t.Fatalf("query migration 14 application error = %v", err)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version = ?;`, version).Scan(&applied); err != nil {
+		t.Fatalf("query migration %d application error = %v", version, err)
 	}
 	if applied != 1 {
-		t.Errorf("schema_migrations version 14 count = %d, want 1", applied)
+		t.Errorf("schema_migrations version %d count = %d, want 1", version, applied)
 	}
 }
 
-func migrationsWithoutVersion(t *testing.T, dir string, excludedVersion int) fstest.MapFS {
+func migrationsInRangeExcluding(t *testing.T, dir string, minVersion, maxVersion, excludedVersion int) fstest.MapFS {
 	t.Helper()
 
 	entries, err := os.ReadDir(dir)
@@ -269,6 +279,9 @@ func migrationsWithoutVersion(t *testing.T, dir string, excludedVersion int) fst
 		version, err := sqliteMigrationVersion(entry.Name())
 		if err != nil {
 			t.Fatal(err)
+		}
+		if version < minVersion || version > maxVersion {
+			continue
 		}
 		if version == excludedVersion {
 			foundExcludedVersion = true
