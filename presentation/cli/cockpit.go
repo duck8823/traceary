@@ -2597,7 +2597,11 @@ func (m cockpitModel) cockpitGlobalFooter(localHelp string) string {
 	}
 	parts := []string{}
 	if m.cockpitSectionNavigationAvailable() {
-		parts = append(parts, Localize("1-5 tabs", "1-5 タブ"), Localize("←/→ tabs", "←/→ タブ"), Localize("tab/shift+tab next/prev", "tab/shift+tab 次/前"))
+		parts = append(parts, Localize("1-5 tabs", "1-5 タブ"))
+		if m.mode != cockpitModeSettings {
+			parts = append(parts, Localize("←/→ tabs", "←/→ タブ"))
+		}
+		parts = append(parts, Localize("tab/shift+tab next/prev", "tab/shift+tab 次/前"))
 	}
 	if m.width > 0 && m.height > 0 {
 		parts = append(parts, Localizef("terminal %dx%d", "端末 %dx%d", m.width, m.height))
@@ -2674,16 +2678,9 @@ func (m cockpitModel) cockpitContextualHelp() []string {
 			lines = append(lines, fmt.Sprintf("• %-12s %s", action.key, action.description))
 		}
 	}
+	lines = append(lines, "", m.styles.Subtle.Render(m.cockpitContextualNavigationTitle()))
+	lines = append(lines, m.cockpitContextualNavigationLines()...)
 	lines = append(lines,
-		"",
-		m.styles.Subtle.Render(Localize("Global navigation", "Global navigation")),
-		Localize("1 Tail      live event stream and event details", "1 Tail      live event stream と event 詳細"),
-		Localize("2 Top       dashboard for sessions, failures, commands, memory, and health", "2 Top       session / failure / command / memory / health の dashboard"),
-		Localize("3 Memory    inbox review queue", "3 メモリ      inbox review queue"),
-		Localize("4 Sessions  session and handoff entry points", "4 セッション  session と handoff 導線"),
-		Localize("5 Settings  language, read defaults, redaction diagnostics", "5 設定        language / read 既定 / redaction 診断"),
-		Localize("← / → cycle tabs; tab / shift+tab remain supported", "← / → でタブ移動。tab / shift+tab も利用可能"),
-		Localize("esc backs out to Tail; q exits the TUI", "esc で Tail に戻り、q で TUI を終了"),
 		"",
 		m.styles.Subtle.Render(Localize("Fallback commands available today:", "現在利用できる fallback command:")),
 		"traceary top --snapshot [--json]",
@@ -2693,6 +2690,36 @@ func (m cockpitModel) cockpitContextualHelp() []string {
 		"traceary memory inbox review",
 		"traceary tui --reset-state",
 	)
+	return lines
+}
+
+func (m cockpitModel) cockpitContextualNavigationTitle() string {
+	if m.mode == cockpitModeSettings && (m.settings.editingPattern || m.settings.confirmSave) {
+		return Localize("Navigation paused", "Navigation paused")
+	}
+	return Localize("Global navigation", "Global navigation")
+}
+
+func (m cockpitModel) cockpitContextualNavigationLines() []string {
+	if m.mode == cockpitModeSettings && m.settings.editingPattern {
+		return []string{Localize("Navigation is paused while regex input is active; enter stages the regex and esc cancels.", "regex 入力中は navigation を一時停止します。enter で staged、esc でキャンセルします。")}
+	}
+	if m.mode == cockpitModeSettings && m.settings.confirmSave {
+		return []string{Localize("Navigation is paused while config write confirmation is active; y saves and n/esc cancels.", "config 書き込み確認中は navigation を一時停止します。y で保存、n/esc でキャンセルします。")}
+	}
+	lines := []string{
+		Localize("1 Tail      live event stream and event details", "1 Tail      live event stream と event 詳細"),
+		Localize("2 Top       dashboard for sessions, failures, commands, memory, and health", "2 Top       session / failure / command / memory / health の dashboard"),
+		Localize("3 Memory    inbox review queue", "3 メモリ      inbox review queue"),
+		Localize("4 Sessions  session and handoff entry points", "4 セッション  session と handoff 導線"),
+		Localize("5 Settings  language, read defaults, redaction diagnostics", "5 設定        language / read 既定 / redaction 診断"),
+	}
+	if m.mode == cockpitModeSettings {
+		lines = append(lines, Localize("tab / shift+tab cycle tabs; 1-5 jump tabs; ← / → edit selected value rows", "tab / shift+tab でタブ移動。1-5 でタブ選択。← / → は選択中の値 row を編集"))
+	} else {
+		lines = append(lines, Localize("← / → cycle tabs; tab / shift+tab remain supported", "← / → でタブ移動。tab / shift+tab も利用可能"))
+	}
+	lines = append(lines, Localize("esc backs out to Tail; q exits the TUI", "esc で Tail に戻り、q で TUI を終了"))
 	return lines
 }
 

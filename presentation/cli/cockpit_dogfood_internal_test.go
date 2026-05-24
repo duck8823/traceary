@@ -260,8 +260,8 @@ func TestCockpitDogfoodKeyboardPaths(t *testing.T) {
 		}
 		updated, _ = model.Update(cockpitRuneKey("l"))
 		model = updated.(cockpitModel)
-		if view := model.View(); !strings.Contains(view, "ui.language: en") || !strings.Contains(view, "ui.language: en (default) -> en") {
-			t.Fatalf("settings dogfood missing staged English language diff:\n%s", view)
+		if view := model.View(); !strings.Contains(view, "ui.language: en") || strings.Contains(view, "ui.language: en (default) -> en") {
+			t.Fatalf("settings dogfood should treat explicit English as the default, not a staged diff:\n%s", view)
 		}
 		updated, _ = model.Update(cockpitRuneKey("c"))
 		model = updated.(cockpitModel)
@@ -297,10 +297,13 @@ func TestCockpitDogfoodKeyboardPaths(t *testing.T) {
 		if err != nil {
 			t.Fatalf("settings dogfood expected saved config: %v", err)
 		}
-		for _, must := range []string{`"language": "en"`, `"color": "always"`, `SECRET-[0-9]+`} {
+		for _, must := range []string{`"color": "always"`, `SECRET-[0-9]+`} {
 			if !strings.Contains(string(data), must) {
 				t.Fatalf("settings dogfood saved config missing %q:\n%s", must, data)
 			}
+		}
+		if strings.Contains(string(data), `"language": "en"`) {
+			t.Fatalf("settings dogfood should not write explicit default language:\n%s", data)
 		}
 	})
 }
@@ -388,9 +391,9 @@ func TestCockpitDogfoodJapaneseNarrowSmoke(t *testing.T) {
 		"編集可能な settings",
 		"読み取り専用 diagnostics",
 		"TRACEARY_LANG=ja",
-		"ui.language:",
-		"redact.extra_patterns:",
-		"regex 追加",
+		"UI 言語",
+		"redact.extra_patterns",
+		"を追加",
 	} {
 		if !strings.Contains(settingsView, must) {
 			t.Fatalf("Japanese settings smoke missing %q:\n%s", must, settingsView)

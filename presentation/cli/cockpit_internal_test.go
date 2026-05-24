@@ -1706,6 +1706,7 @@ func TestCockpitModel_GlobalNavigationShellRendersOnEveryScreen(t *testing.T) {
 				"Traceary cockpit · settings",
 				"tabs: 1 Tail  2 Top  3 Memory  4 Sessions  [5 Settings]",
 				"config status: missing",
+				"tab/shift+tab next/prev",
 			},
 		},
 	}
@@ -1717,6 +1718,9 @@ func TestCockpitModel_GlobalNavigationShellRendersOnEveryScreen(t *testing.T) {
 				if !strings.Contains(view, must) {
 					t.Fatalf("%s view missing %q:\n%s", tc.name, must, view)
 				}
+			}
+			if tc.name == "settings" && strings.Contains(view, "←/→ tabs") {
+				t.Fatalf("settings footer should reserve ←/→ for value rows, not tabs:\n%s", view)
 			}
 		})
 	}
@@ -1870,6 +1874,74 @@ func TestCockpitModel_ContextualHelpActionMenuByScreen(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("settings", func(t *testing.T) {
+		model := base
+		model.mode = cockpitModeSettings
+		model.settings = cockpitSettingsState{
+			loaded: true,
+			snapshot: cockpitSettingsSnapshot{
+				Path:   "/tmp/config.json",
+				Status: cockpitSettingsConfigMissing,
+			},
+		}
+		model.settings.draft = model.settings.snapshot.Values.clone()
+		view := model.View()
+		for _, must := range []string{
+			"Change ui.language, read.color, or read.fields when those rows are selected",
+			"tab / shift+tab",
+			"← / → edit selected value rows",
+		} {
+			if !strings.Contains(view, must) {
+				t.Fatalf("settings help missing %q:\n%s", must, view)
+			}
+		}
+		if strings.Contains(view, "← / → cycle tabs") {
+			t.Fatalf("settings help should not advertise ←/→ as tab navigation:\n%s", view)
+		}
+	})
+
+	t.Run("settings modal help", func(t *testing.T) {
+		model := base
+		model.mode = cockpitModeSettings
+		model.showHelp = true
+		model.settings = cockpitSettingsState{
+			loaded: true,
+			snapshot: cockpitSettingsSnapshot{
+				Path:   "/tmp/config.json",
+				Status: cockpitSettingsConfigMissing,
+			},
+		}
+		model.settings.draft = model.settings.snapshot.Values.clone()
+
+		updated, _ := model.Update(cockpitRuneKey("n"))
+		model = updated.(cockpitModel)
+		view := model.View()
+		if !strings.Contains(view, "Navigation is paused while regex input is active") {
+			t.Fatalf("settings regex modal help missing paused-navigation copy:\n%s", view)
+		}
+		for _, mustNot := range []string{"\n1 Tail      ", "← / → cycle tabs", "← / → edit selected value rows"} {
+			if strings.Contains(view, mustNot) {
+				t.Fatalf("settings regex modal help advertised unavailable navigation %q:\n%s", mustNot, view)
+			}
+		}
+
+		updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+		model = updated.(cockpitModel)
+		updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
+		model = updated.(cockpitModel)
+		updated, _ = model.Update(cockpitRuneKey("w"))
+		model = updated.(cockpitModel)
+		view = model.View()
+		if !strings.Contains(view, "Navigation is paused while config write confirmation is active") {
+			t.Fatalf("settings save-confirmation help missing paused-navigation copy:\n%s", view)
+		}
+		for _, mustNot := range []string{"\n1 Tail      ", "← / → cycle tabs", "← / → edit selected value rows"} {
+			if strings.Contains(view, mustNot) {
+				t.Fatalf("settings confirmation help advertised unavailable navigation %q:\n%s", mustNot, view)
+			}
+		}
+	})
 }
 
 func TestCockpitSettingsViewShowsConfigStatusAndEnvOverrides(t *testing.T) {
@@ -1913,16 +1985,42 @@ func TestCockpitSettingsViewShowsConfigStatusAndEnvOverrides(t *testing.T) {
 		"ui.language: ja",
 		"read.color: never",
 		"read.fields: ts,kind,message",
-		"redact.extra_patterns: SECRET-[0-9]+",
+		"redact.extra_patterns add: SECRET-[0-9]+",
 		"TRACEARY_DB_PATH=unset",
-		"read.presets (view only in v0.18)",
+		"read.presets (view only in this release)",
 		"mine fields=ts filters=kind=prompt",
-		"redact.rules (view only in v0.18)",
+		"redact.rules (view only in this release)",
 		"token(regex)",
 	} {
 		if !strings.Contains(view, must) {
 			t.Fatalf("settings view missing %q:\n%s", must, view)
 		}
+	}
+}
+
+func TestCockpitSettingsRowsMatchDispatchConstants(t *testing.T) {
+	resetConfiguredCLILanguageCacheForTest()
+	t.Cleanup(resetConfiguredCLILanguageCacheForTest)
+	t.Setenv(cliLanguageEnvKey, "en")
+
+	rows := cockpitSettingsState{}.settingsRows()
+	if got, want := len(rows), cockpitSettingsRowCount; got != want {
+		t.Fatalf("settings row count = %d, want %d", got, want)
+	}
+	if got := rows[cockpitSettingsRowLanguage]; !strings.Contains(got, "ui.language") {
+		t.Fatalf("language row = %q, want ui.language marker", got)
+	}
+	if got := rows[cockpitSettingsRowReadColor]; !strings.Contains(got, "read.color") {
+		t.Fatalf("read color row = %q, want read.color marker", got)
+	}
+	if got := rows[cockpitSettingsRowReadFields]; !strings.Contains(got, "read.fields") {
+		t.Fatalf("read fields row = %q, want read.fields marker", got)
+	}
+	if got := rows[cockpitSettingsRowAddPattern]; !strings.Contains(got, "redact.extra_patterns add") {
+		t.Fatalf("add pattern row = %q, want redact.extra_patterns add marker", got)
+	}
+	if got := rows[cockpitSettingsRowRemovePattern]; !strings.Contains(got, "redact.extra_patterns remove last") {
+		t.Fatalf("remove pattern row = %q, want redact.extra_patterns remove marker", got)
 	}
 }
 
@@ -1995,24 +2093,283 @@ func TestCockpitSettingsStagesValidatesAndSavesConfigAtomically(t *testing.T) {
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("saved config invalid JSON: %v\n%s", err, data)
 	}
-	ui := got["ui"].(map[string]any)
-	read := got["read"].(map[string]any)
-	redact := got["redact"].(map[string]any)
+	ui := settingsJSONSection(t, got, "ui")
+	read := settingsJSONSection(t, got, "read")
+	redact := settingsJSONSection(t, got, "redact")
 	if ui["language"] != "ja" {
 		t.Fatalf("ui.language = %v, want ja", ui["language"])
 	}
 	if read["color"] != "always" {
 		t.Fatalf("read.color = %v, want always", read["color"])
 	}
-	if len(read["fields"].([]any)) == 0 {
-		t.Fatalf("read.fields not saved: %#v", read["fields"])
+	fields := settingsJSONArray(t, read, "fields")
+	if len(fields) == 0 {
+		t.Fatalf("read.fields not saved: %#v", fields)
 	}
-	if gotPatterns := redact["extra_patterns"].([]any); len(gotPatterns) != 1 || gotPatterns[0] != "SECRET-[0-9]+" {
+	if gotPatterns := settingsJSONArray(t, redact, "extra_patterns"); len(gotPatterns) != 1 || gotPatterns[0] != "SECRET-[0-9]+" {
 		t.Fatalf("redact.extra_patterns = %#v, want valid staged regex", gotPatterns)
 	}
 	if !strings.Contains(model.View(), "設定") {
 		t.Fatalf("saved ui.language should refresh current cockpit language when TRACEARY_LANG is unset:\n%s", model.View())
 	}
+}
+
+func TestCockpitSettingsArrowKeyWorkflowStagesAndConfirmsSave(t *testing.T) {
+	resetConfiguredCLILanguageCacheForTest()
+	t.Cleanup(resetConfiguredCLILanguageCacheForTest)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv(cliLanguageEnvKey, "en")
+
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	updated, _ := model.Update(cockpitRuneKey("5"))
+	model = updated.(cockpitModel)
+
+	// Row 0: ui.language, Row 1: read.color, Row 2: read.fields.
+	for _, keyMsg := range []tea.KeyMsg{
+		{Type: tea.KeyRight},
+		{Type: tea.KeyDown},
+		{Type: tea.KeyRight},
+		{Type: tea.KeyDown},
+		{Type: tea.KeyRight},
+		{Type: tea.KeyDown},
+		{Type: tea.KeyEnter},
+	} {
+		updated, _ = model.Update(keyMsg)
+		model = updated.(cockpitModel)
+	}
+	if !model.settings.editingPattern {
+		t.Fatalf("enter on add-pattern row should open regex editor:\n%s", model.View())
+	}
+	for _, r := range `TOKEN-[A-Z]+` {
+		updated, _ = model.Update(cockpitRuneKey(string(r)))
+		model = updated.(cockpitModel)
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(cockpitModel)
+	for range 2 {
+		updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+		model = updated.(cockpitModel)
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(cockpitModel)
+	if !model.settings.confirmSave || !strings.Contains(model.View(), "Confirm config write") {
+		t.Fatalf("enter on save row should require explicit confirmation:\n%s", model.View())
+	}
+	updated, _ = model.Update(cockpitRuneKey("y"))
+	model = updated.(cockpitModel)
+
+	configPath := filepath.Join(home, ".config", "traceary", "config.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile(config) error = %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("saved config invalid JSON: %v\n%s", err, data)
+	}
+	ui := settingsJSONSection(t, got, "ui")
+	read := settingsJSONSection(t, got, "read")
+	redact := settingsJSONSection(t, got, "redact")
+	if ui["language"] != "ja" {
+		t.Fatalf("ui.language = %v, want ja", ui["language"])
+	}
+	if read["color"] != "always" {
+		t.Fatalf("read.color = %v, want always", read["color"])
+	}
+	fields := settingsJSONArray(t, read, "fields")
+	wantFields := []any{"ts", "kind", "exit_code", "session", "ws", "message"}
+	if !slices.Equal(fields, wantFields) {
+		t.Fatalf("read.fields = %#v, want first non-default preset %#v", fields, wantFields)
+	}
+	if gotPatterns := settingsJSONArray(t, redact, "extra_patterns"); len(gotPatterns) != 1 || gotPatterns[0] != "TOKEN-[A-Z]+" {
+		t.Fatalf("redact.extra_patterns = %#v, want valid staged regex", gotPatterns)
+	}
+	view := model.View()
+	if !strings.Contains(view, "TRACEARY_LANG=en") {
+		t.Fatalf("TRACEARY_LANG override message should remain visible after save:\n%s", view)
+	}
+}
+
+func TestCockpitSettingsLeftArrowCyclesEditableRowsBackward(t *testing.T) {
+	resetConfiguredCLILanguageCacheForTest()
+	t.Cleanup(resetConfiguredCLILanguageCacheForTest)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	updated, _ := model.Update(cockpitRuneKey("5"))
+	model = updated.(cockpitModel)
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	model = updated.(cockpitModel)
+	if got, want := model.settings.draft.UILanguage, "ja"; got != want {
+		t.Fatalf("left on ui.language = %q, want %q", got, want)
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(cockpitModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	model = updated.(cockpitModel)
+	if got, want := model.settings.draft.ReadColor, "never"; got != want {
+		t.Fatalf("left on read.color = %q, want %q", got, want)
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(cockpitModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	model = updated.(cockpitModel)
+	wantFields := []string{"ts", "kind", "message"}
+	if !slices.Equal(model.settings.draft.ReadFields, wantFields) {
+		t.Fatalf("left on read.fields = %#v, want %#v", model.settings.draft.ReadFields, wantFields)
+	}
+}
+
+func TestCockpitSettingsArrowsStayInsideSettingsRows(t *testing.T) {
+	resetConfiguredCLILanguageCacheForTest()
+	t.Cleanup(resetConfiguredCLILanguageCacheForTest)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	for row := range cockpitSettingsRowCount {
+		for _, keyMsg := range []tea.KeyMsg{{Type: tea.KeyLeft}, {Type: tea.KeyRight}} {
+			model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+			updated, _ := model.Update(cockpitRuneKey("5"))
+			model = updated.(cockpitModel)
+			model.settings.cursor = row
+
+			updated, cmd := model.Update(keyMsg)
+			model = updated.(cockpitModel)
+			if model.mode != cockpitModeSettings || cmd != nil {
+				t.Fatalf("row %d key %v mode/cmd = %v/%T, want settings/nil", row, keyMsg.Type, model.mode, cmd)
+			}
+		}
+	}
+}
+
+func TestCockpitSettingsDefaultCyclesAreSemanticallyReversible(t *testing.T) {
+	resetConfiguredCLILanguageCacheForTest()
+	t.Cleanup(resetConfiguredCLILanguageCacheForTest)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	updated, _ := model.Update(cockpitRuneKey("5"))
+	model = updated.(cockpitModel)
+
+	for _, step := range []struct {
+		name        string
+		row         int
+		defaultText string
+	}{
+		{name: "ui.language", row: cockpitSettingsRowLanguage, defaultText: "ui.language: en (default)"},
+		{name: "read.color", row: cockpitSettingsRowReadColor, defaultText: "read.color: auto (default)"},
+		{name: "read.fields", row: cockpitSettingsRowReadFields, defaultText: "read.fields: ts,kind,agent,session,ws,message (default)"},
+	} {
+		t.Run(step.name, func(t *testing.T) {
+			cycleModel := model
+			cycleModel.settings.cursor = step.row
+			updated, _ := cycleModel.Update(tea.KeyMsg{Type: tea.KeyRight})
+			cycleModel = updated.(cockpitModel)
+			if !cycleModel.settings.dirty() {
+				t.Fatalf("%s right arrow should stage a non-default value", step.name)
+			}
+			updated, _ = cycleModel.Update(tea.KeyMsg{Type: tea.KeyLeft})
+			cycleModel = updated.(cockpitModel)
+			if cycleModel.settings.dirty() {
+				t.Fatalf("%s right then left should return to the semantic default:\n%s", step.name, cycleModel.View())
+			}
+			view := cycleModel.View()
+			if !strings.Contains(view, step.defaultText) || strings.Contains(view, "Staged") {
+				t.Fatalf("%s revert should restore default display and clear staged info:\n%s", step.name, view)
+			}
+		})
+	}
+}
+
+func TestSettingsFieldSetAtOffsetCustomSetRespectsDirection(t *testing.T) {
+	custom := []string{"ts", "kind", "custom"}
+	if got, want := settingsFieldSetAtOffset(custom, 1), readFieldIDsToStrings(defaultReadFields); !slices.Equal(got, want) {
+		t.Fatalf("right from custom read.fields = %#v, want default %#v", got, want)
+	}
+	if got, want := settingsFieldSetAtOffset(custom, -1), []string{"ts", "kind", "message"}; !slices.Equal(got, want) {
+		t.Fatalf("left from custom read.fields = %#v, want final preset %#v", got, want)
+	}
+}
+
+func TestCockpitSettingsEnterActionsRemoveDiscardAndReload(t *testing.T) {
+	resetConfiguredCLILanguageCacheForTest()
+	t.Cleanup(resetConfiguredCLILanguageCacheForTest)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	configDir := filepath.Join(home, ".config", "traceary")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(configDir, "config.json")
+	if err := os.WriteFile(configPath, []byte(`{"ui":{"language":"en"},"redact":{"extra_patterns":["SECRET","TOKEN"]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	updated, _ := model.Update(cockpitRuneKey("5"))
+	model = updated.(cockpitModel)
+
+	model.settings.cursor = cockpitSettingsRowRemovePattern
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(cockpitModel)
+	if got, want := model.settings.draft.ExtraPatterns, []string{"SECRET"}; !slices.Equal(got, want) {
+		t.Fatalf("enter remove pattern = %#v, want %#v", got, want)
+	}
+
+	model.settings.cursor = cockpitSettingsRowDiscard
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(cockpitModel)
+	if got, want := model.settings.draft.ExtraPatterns, []string{"SECRET", "TOKEN"}; !slices.Equal(got, want) {
+		t.Fatalf("enter discard = %#v, want %#v", got, want)
+	}
+
+	if err := os.WriteFile(configPath, []byte(`{"ui":{"language":"ja"},"redact":{"extra_patterns":["UPDATED"]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	model.settings.cursor = cockpitSettingsRowReload
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(cockpitModel)
+	if got, want := model.settings.draft.UILanguage, "ja"; got != want {
+		t.Fatalf("enter reload ui.language = %q, want %q", got, want)
+	}
+	if got, want := model.settings.draft.ExtraPatterns, []string{"UPDATED"}; !slices.Equal(got, want) {
+		t.Fatalf("enter reload redact.extra_patterns = %#v, want %#v", got, want)
+	}
+}
+
+func settingsJSONSection(t *testing.T, doc map[string]any, name string) map[string]any {
+	t.Helper()
+	raw, ok := doc[name]
+	if !ok {
+		t.Fatalf("saved config missing %q section: %#v", name, doc)
+	}
+	section, ok := raw.(map[string]any)
+	if !ok {
+		t.Fatalf("saved config %q section type = %T, want object: %#v", name, raw, raw)
+	}
+	return section
+}
+
+func settingsJSONArray(t *testing.T, section map[string]any, name string) []any {
+	t.Helper()
+	raw, ok := section[name]
+	if !ok {
+		t.Fatalf("saved config missing %q field: %#v", name, section)
+	}
+	values, ok := raw.([]any)
+	if !ok {
+		t.Fatalf("saved config %q field type = %T, want array: %#v", name, raw, raw)
+	}
+	return values
 }
 
 func TestCockpitSettingsInvalidConfigIsRecoverableAndNotOverwritten(t *testing.T) {
@@ -2352,10 +2709,10 @@ func TestCockpitModel_GlobalSectionKeysSwitchWithoutReturningToCLI(t *testing.T)
 	if model.mode != cockpitModeSettings || cmd != nil {
 		t.Fatalf("right from sessions mode/cmd = %v/%T, want settings/nil", model.mode, cmd)
 	}
-	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyTab})
 	model = updated.(cockpitModel)
 	if model.mode != cockpitModeLive || cmd == nil {
-		t.Fatalf("right from settings mode/cmd = %v/%T, want tail/load", model.mode, cmd)
+		t.Fatalf("tab from settings mode/cmd = %v/%T, want tail/load", model.mode, cmd)
 	}
 }
 
