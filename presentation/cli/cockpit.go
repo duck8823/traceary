@@ -2738,11 +2738,11 @@ func (m cockpitModel) cockpitContextualNavigationLines() []string {
 	items := cockpitNavigationItems()
 	labelWidth := cockpitNavigationLabelWidth(items)
 	lines := make([]string, 0, len(items)+2)
-	for _, item := range items {
-		lines = append(lines, cockpitNavigationLine(item, labelWidth))
+	for i, item := range items {
+		lines = append(lines, cockpitNavigationLine(i+1, item, labelWidth))
 	}
 	if m.mode == cockpitModeSettings {
-		lines = append(lines, Localize("tab / shift+tab cycle tabs; 1-5 jump tabs; ← / → edit selected value rows", "tab / shift+tab でタブ移動。1-5 でタブ選択。← / → は選択中の値行を編集"))
+		lines = append(lines, Localize("tab / shift+tab cycle tabs; 1-5 jump tabs; ← / → edit selected value rows", "tab / shift+tab でタブ移動。1-5 でタブ選択。← / → は選択中の設定値を編集"))
 	} else {
 		lines = append(lines, Localize("← / → cycle tabs; tab / shift+tab remain supported", "← / → でタブ移動。tab / shift+tab も利用可能"))
 	}
@@ -2750,28 +2750,28 @@ func (m cockpitModel) cockpitContextualNavigationLines() []string {
 	return lines
 }
 
-func cockpitNavigationItems() []cockpitNavigationItem {
-	return []cockpitNavigationItem{
-		{index: 1, englishLabel: "Tail", japaneseLabel: "Tail", englishDescription: "live event stream and event details", japaneseDescription: "イベントのライブ表示と詳細確認"},
-		{index: 2, englishLabel: "Top", japaneseLabel: "Top", englishDescription: "dashboard for sessions, failures, commands, memory, and health", japaneseDescription: "セッション・失敗・コマンド・メモリ・状態の一覧"},
-		{index: 3, englishLabel: "Memory", japaneseLabel: "メモリ", englishDescription: "inbox review queue", japaneseDescription: "メモリ候補の確認キュー"},
-		{index: 4, englishLabel: "Sessions", japaneseLabel: "セッション", englishDescription: "session and handoff entry points", japaneseDescription: "セッション一覧と引き継ぎ導線"},
-		{index: 5, englishLabel: "Settings", japaneseLabel: "設定", englishDescription: "language, read defaults, redaction diagnostics", japaneseDescription: "言語・表示既定・redaction 診断"},
-	}
-}
-
 type cockpitNavigationItem struct {
-	index               int
 	englishLabel        string
 	japaneseLabel       string
 	englishDescription  string
 	japaneseDescription string
 }
 
+func cockpitNavigationItems() []cockpitNavigationItem {
+	// Keep command/tab names and copy-paste-sensitive developer terms in English; localize surrounding guidance.
+	return []cockpitNavigationItem{
+		{englishLabel: "Tail", japaneseLabel: "Tail", englishDescription: "live event stream and event details", japaneseDescription: "イベントのライブ表示と詳細確認"},
+		{englishLabel: "Top", japaneseLabel: "Top", englishDescription: "dashboard for sessions, failures, commands, memory, and health", japaneseDescription: "セッション・失敗・コマンド・メモリ・状態の一覧"},
+		{englishLabel: "Memory", japaneseLabel: "メモリ", englishDescription: "inbox review queue", japaneseDescription: "メモリ候補の確認キュー"},
+		{englishLabel: "Sessions", japaneseLabel: "セッション", englishDescription: "session and handoff entry points", japaneseDescription: "セッション一覧と引き継ぎ導線"},
+		{englishLabel: "Settings", japaneseLabel: "設定", englishDescription: "language, read defaults, redaction diagnostics", japaneseDescription: "言語・表示既定・redaction 診断"},
+	}
+}
+
 func cockpitNavigationLabelWidth(items []cockpitNavigationItem) int {
 	maxWidth := 0
-	for _, item := range items {
-		width := runeWidth(cockpitNavigationPrefix(item))
+	for i, item := range items {
+		width := runeWidth(cockpitNavigationPrefix(i+1, item))
 		if width > maxWidth {
 			maxWidth = width
 		}
@@ -2779,8 +2779,8 @@ func cockpitNavigationLabelWidth(items []cockpitNavigationItem) int {
 	return maxWidth + 1
 }
 
-func cockpitNavigationLine(item cockpitNavigationItem, labelWidth int) string {
-	prefix := cockpitNavigationPrefix(item)
+func cockpitNavigationLine(index int, item cockpitNavigationItem, labelWidth int) string {
+	prefix := cockpitNavigationPrefix(index, item)
 	padding := labelWidth - runeWidth(prefix)
 	if padding < 1 {
 		padding = 1
@@ -2788,9 +2788,8 @@ func cockpitNavigationLine(item cockpitNavigationItem, labelWidth int) string {
 	return prefix + strings.Repeat(" ", padding) + Localize(item.englishDescription, item.japaneseDescription)
 }
 
-func cockpitNavigationPrefix(item cockpitNavigationItem) string {
-	prefix := fmt.Sprintf("%d %s", item.index, Localize(item.englishLabel, item.japaneseLabel))
-	return prefix
+func cockpitNavigationPrefix(index int, item cockpitNavigationItem) string {
+	return fmt.Sprintf("%d %s", index, Localize(item.englishLabel, item.japaneseLabel))
 }
 
 func (m cockpitModel) cockpitContextualActions() []cockpitAction {

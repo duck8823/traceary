@@ -1975,7 +1975,7 @@ func TestCockpitModel_LocaleSpecificScrollCopy(t *testing.T) {
 					if tt.forbidJapanese && containsJapaneseScript(tc.help) {
 						t.Fatalf("%s help leaked Japanese copy in English locale: %q", tc.name, tc.help)
 					}
-					if tt.forbidEnglish && strings.Contains(tc.help, "scroll") {
+					if tt.forbidEnglish && strings.Contains(strings.ToLower(tc.help), "scroll") {
 						t.Fatalf("%s help leaked English copy in Japanese locale: %q", tc.name, tc.help)
 					}
 				})
@@ -2062,9 +2062,11 @@ func TestCockpitModel_NavigationLinesAlignByDisplayWidth(t *testing.T) {
 	tests := []struct {
 		locale       string
 		descriptions []string
+		wantWidth    int
 	}{
 		{
-			locale: "en",
+			locale:    "en",
+			wantWidth: 11,
 			descriptions: []string{
 				"live event stream and event details",
 				"dashboard for sessions, failures, commands, memory, and health",
@@ -2074,7 +2076,8 @@ func TestCockpitModel_NavigationLinesAlignByDisplayWidth(t *testing.T) {
 			},
 		},
 		{
-			locale: "ja",
+			locale:    "ja",
+			wantWidth: 13,
 			descriptions: []string{
 				"イベントのライブ表示と詳細確認",
 				"セッション・失敗・コマンド・メモリ・状態の一覧",
@@ -2093,17 +2096,19 @@ func TestCockpitModel_NavigationLinesAlignByDisplayWidth(t *testing.T) {
 
 			model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
 			lines := model.cockpitContextualNavigationLines()
-			wantWidth := cockpitNavigationLabelWidth(cockpitNavigationItems())
+			if got := cockpitNavigationLabelWidth(cockpitNavigationItems()); got != tt.wantWidth {
+				t.Fatalf("navigation label width = %d, want %d", got, tt.wantWidth)
+			}
 			for i, description := range tt.descriptions {
 				line := lines[i]
 				if !strings.HasSuffix(line, description) {
 					t.Fatalf("navigation line %d missing description %q: %q", i+1, description, line)
 				}
 				prefix := strings.TrimSuffix(line, description)
-				if got := runeWidth(prefix); got != wantWidth {
-					t.Fatalf("navigation line %d prefix display width = %d, want %d: %q", i+1, got, wantWidth, line)
+				if got := runeWidth(prefix); got != tt.wantWidth {
+					t.Fatalf("navigation line %d prefix display width = %d, want %d: %q", i+1, got, tt.wantWidth, line)
 				}
-				if got := runeWidth(strings.TrimRight(prefix, " ")); got >= wantWidth {
+				if got := runeWidth(strings.TrimRight(prefix, " ")); got >= tt.wantWidth {
 					t.Fatalf("navigation line %d label width = %d, want room for a separator: %q", i+1, got, line)
 				}
 			}
@@ -2113,7 +2118,7 @@ func TestCockpitModel_NavigationLinesAlignByDisplayWidth(t *testing.T) {
 
 func containsJapaneseScript(value string) bool {
 	for _, r := range value {
-		// Fullwidth Latin/digit/punctuation code points are treated as a Japanese-locale leak on purpose.
+		// Fullwidth Latin/digit/punctuation and halfwidth katakana code points are treated as Japanese-locale leaks on purpose.
 		if unicode.In(r, unicode.Hiragana, unicode.Katakana, unicode.Han) ||
 			(r >= 0x3000 && r <= 0x303f) ||
 			(r >= 0xff00 && r <= 0xffef) {
