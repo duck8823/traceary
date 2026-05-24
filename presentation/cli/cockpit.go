@@ -779,15 +779,7 @@ func (m cockpitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.live.pausedNewCount += len(msg.snapshot.Events)
 				}
 				m.live.events = append(m.live.events, msg.snapshot.Events...)
-				if overflow := len(m.live.events) - cockpitLiveMaxEvents; overflow > 0 {
-					m.live.events = m.live.events[overflow:]
-					if !m.live.follow {
-						m.live.selected -= overflow
-						if m.live.selected < 0 {
-							m.live.selected = 0
-						}
-					}
-				}
+				m.trimCockpitLiveEventsToLimit()
 			}
 			m.live.cursor = msg.snapshot.Cursor
 			m.live.loadedAt = msg.snapshot.LoadedAt
@@ -1414,6 +1406,30 @@ func (m *cockpitModel) clampLiveSelection() {
 	}
 	if m.live.selected >= len(m.live.events) {
 		m.live.selected = len(m.live.events) - 1
+	}
+}
+
+func (m *cockpitModel) trimCockpitLiveEventsToLimit() {
+	overflow := len(m.live.events) - cockpitLiveMaxEvents
+	if overflow <= 0 {
+		return
+	}
+	if m.live.follow {
+		m.live.events = m.live.events[overflow:]
+		return
+	}
+	m.clampLiveSelection()
+	for overflow > 0 && len(m.live.events) > cockpitLiveMaxEvents {
+		switch {
+		case m.live.selected > 0:
+			m.live.events = m.live.events[1:]
+			m.live.selected--
+		case len(m.live.events) > 1:
+			m.live.events = append(m.live.events[:1], m.live.events[2:]...)
+		default:
+			return
+		}
+		overflow--
 	}
 }
 

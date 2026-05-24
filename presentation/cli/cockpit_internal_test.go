@@ -800,31 +800,38 @@ func TestCockpitModel_LivePausedAppendTruncationKeepsFocusedRow(t *testing.T) {
 	for i := range cockpitLiveMaxEvents {
 		events = append(events, cockpitEventFixtureAt(t, fmt.Sprintf("evt-buffer-%03d", i), base.Add(time.Duration(i)*time.Second)))
 	}
-	focused := events[50]
 	newEvents := []*model.Event{}
 	for i := range 5 {
 		newEvents = append(newEvents, cockpitEventFixtureAt(t, fmt.Sprintf("evt-new-%03d", i), base.Add(time.Duration(cockpitLiveMaxEvents+i)*time.Second)))
 	}
 	cursor := newTailCursor(newEvents[len(newEvents)-1].CreatedAt())
 	cursor.Advance(newEvents)
-	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
-	model.live.events = events
-	model.live.selected = 50
-	model.live.follow = false
 
-	updated, _ := model.Update(cockpitLiveMsg{
-		seq:      model.live.requestSeq,
-		snapshot: cockpitLiveSnapshot{Events: newEvents, Cursor: cursor, LoadedAt: fixedStartedAt.Add(time.Minute)},
-	})
-	model = updated.(cockpitModel)
-	if got, want := len(model.live.events), cockpitLiveMaxEvents; got != want {
-		t.Fatalf("live events after truncate = %d, want %d", got, want)
-	}
-	if got := model.live.events[model.live.selected].EventID(); got != focused.EventID() {
-		t.Fatalf("focused event after truncate = %s, want %s", got, focused.EventID())
-	}
-	if got, want := model.live.pausedNewCount, len(newEvents); got != want {
-		t.Fatalf("paused new count after truncate append = %d, want %d", got, want)
+	for _, selected := range []int{0, 2, 50} {
+		selected := selected
+		t.Run(fmt.Sprintf("selected_%d", selected), func(t *testing.T) {
+			t.Parallel()
+			focused := events[selected]
+			model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+			model.live.events = slices.Clone(events)
+			model.live.selected = selected
+			model.live.follow = false
+
+			updated, _ := model.Update(cockpitLiveMsg{
+				seq:      model.live.requestSeq,
+				snapshot: cockpitLiveSnapshot{Events: newEvents, Cursor: cursor, LoadedAt: fixedStartedAt.Add(time.Minute)},
+			})
+			model = updated.(cockpitModel)
+			if got, want := len(model.live.events), cockpitLiveMaxEvents; got != want {
+				t.Fatalf("live events after truncate = %d, want %d", got, want)
+			}
+			if got := model.live.events[model.live.selected].EventID(); got != focused.EventID() {
+				t.Fatalf("focused event after truncate = %s, want %s", got, focused.EventID())
+			}
+			if got, want := model.live.pausedNewCount, len(newEvents); got != want {
+				t.Fatalf("paused new count after truncate append = %d, want %d", got, want)
+			}
+		})
 	}
 }
 
