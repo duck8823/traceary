@@ -5,6 +5,11 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.19.0] - Unreleased
+
+### Changed
+- **subcommand なしの `traceary` が対話 terminal で Tail-first TUI を開くように変更 (#1060)** — stdin/stdout が TTY のとき、subcommand なしの `traceary` は `traceary tui` と同じ Tail-first cockpit を開きます。非対話 caller では deterministic な help / fallback output を維持するため、script からは引き続き `traceary list`、`traceary top --snapshot [--json]`、`traceary doctor --json` などの明示的な script-friendly command を使ってください。
+
 ## [v0.18.0] - 2026-05-24
 
 ### Added

@@ -9,7 +9,7 @@ It focuses on read-side workflows for humans rather than on the write-side hook 
 
 Traceary now ships three baseline interactive conveniences:
 
-- `traceary tui` as the operator cockpit entrypoint
+- bare `traceary` as the Tail-first operator cockpit entrypoint, with `traceary tui` kept as the explicit compatibility path
 - shell completion
 - `traceary tail` for live-follow inspection
 
@@ -20,20 +20,21 @@ The cockpit is the recommended starting point when you do not want to remember w
 
 Use the commands below according to the question you are trying to answer.
 
-### 1. "I want one place to start" → `traceary tui`
+### 1. "I want one place to start" → `traceary`
 
-Use `tui` when you are at a terminal and want Traceary to show the operator cockpit first. The cockpit home screen summarizes active work, doctor warnings/failures, recent failures, new events since the last live-tail visit, and candidate durable memories since the last memory review. From there you can jump into:
+Use bare `traceary` when you are at an interactive terminal and want Traceary to show the Tail-first operator cockpit first. `traceary tui` remains the explicit compatibility entrypoint for the same cockpit. The cockpit summarizes active work, doctor warnings/failures, recent failures, new events since the last live-tail visit, and candidate durable memories since the last memory review. From there you can jump into:
 
 - live event tail
 - doctor details
 - memory inbox review
 
 ```sh
+traceary
 traceary tui
 traceary tui --reset-state
 ```
 
-`traceary tui` is intentionally TTY-only. Non-interactive callers should keep using `traceary top --snapshot [--json]`, `traceary tail [--json]`, `traceary doctor --json`, `traceary session handoff`, and `traceary memory inbox list`.
+The cockpit is intentionally TTY-only. Non-interactive callers should keep using `traceary list`, `traceary top --snapshot [--json]`, `traceary doctor --json`, `traceary session handoff`, and `traceary memory inbox list`. Bare non-TTY `traceary` prints help plus fallback guidance instead of launching the cockpit.
 
 ### 2. "What just happened?" → `traceary list`
 
@@ -124,22 +125,17 @@ traceary completion powershell
 
 Completion is still worth enabling even after `tail` landed, because it reduces command discovery friction for the broader CLI surface.
 
-## Bare `traceary` entrypoint decision
+## Bare `traceary` entrypoint policy
 
-For v0.17.0, bare `traceary` stays unchanged. Running `traceary` with no subcommand keeps the existing help/usage behavior instead of auto-opening the cockpit.
+For v0.19.0, bare `traceary` opens the Tail-first cockpit when stdin/stdout are attached to an interactive terminal. Running `traceary` with no subcommand in a non-TTY context keeps deterministic help/fallback output instead of starting Bubble Tea.
 
-The current dogfooding evidence supports an explicit cockpit entrypoint, not a default-entrypoint takeover:
+The compatibility contract is:
 
-- `traceary tui` now covers the main operator loop: home summary, live tail, doctor warnings, and memory review.
-- The cockpit persists local last-seen timestamps, so new events and new memory candidates can be noticed without changing script-facing commands.
-- Existing automation, completions, docs examples, and muscle memory rely on no-args usage being deterministic and non-surprising.
-
-If this decision is revisited later, the compatibility bar is:
-
-- TTY and non-TTY behavior must be tested separately.
+- `traceary tui` remains a stable explicit entrypoint for operators who prefer a named command.
 - Non-TTY `traceary` must keep deterministic help/script behavior.
 - Completion generation and help examples must remain stable.
-- The release notes must describe a migration path for operators who prefer the explicit `traceary tui` entrypoint.
+- Script-facing commands (`top --snapshot`, `tail`, `doctor --json`, `session handoff`, `memory inbox list`) remain the recommended automation path.
+- Release notes must call out the default-entrypoint change and the explicit `traceary tui` compatibility path.
 
 ## Still future-facing
 

@@ -75,20 +75,19 @@ session 解決ルールは `traceary log` と同じです。
 
 Traceary operator cockpit TUI を開きます。
 
-個別の subcommand を覚える代わりに、operator loop を 1 つのターミナル画面から始めたいときは明示的な interactive entrypoint として `tui` を使います。cockpit home は active work、直近の失敗、doctor status、前回 live-tail 以降の新着 event、前回 memory review 以降の candidate durable memory をまとめて表示します。cockpit から live tail、doctor details、memory inbox review へ移動できます。
+個別の subcommand を覚える代わりに、operator loop を 1 つのターミナル画面から始めたいときは、対話 terminal で bare `traceary` を使います。`traceary tui` は同じ cockpit を明示的に開く互換 entrypoint として残ります。cockpit は Tail-first で開き、active work、直近の失敗、doctor status、前回 live-tail 以降の新着 event、前回 memory review 以降の candidate durable memory をまとめて表示します。cockpit から live tail、doctor details、memory inbox review へ移動できます。
 
-`traceary tui` は対話 terminal が必要です。非 TTY で起動した場合は exit code `2` で拒否し、script 向け command (`top --snapshot`、`tail`、`doctor --json`、`session handoff`、`memory inbox list`) の利用を案内します。
+`traceary tui` は対話 terminal が必要です。非 TTY で起動した場合は exit code `2` で拒否し、script 向け command (`list`、`top --snapshot [--json]`、`doctor --json`、`session handoff`、`memory inbox list`) の利用を案内します。非 TTY の bare `traceary` は cockpit を起動せず、help と fallback guidance を表示します。
 
 主な flag:
 
-- `--workspace`
 - `--db-path`
 - `--reset-state` (起動前に cockpit の local last-seen state をリセット)
 
 互換性:
 
-- bare `traceary` は v0.17.0 でも変更せず、cockpit を自動起動せずに従来の help / usage を表示します
-- operator 向けの安定 entrypoint としては `traceary tui` を使ってください
+- 対話 terminal の bare `traceary` は Tail-first cockpit をデフォルトで開きます
+- 明示的な名前付き entrypoint や互換 path が必要な場合は `traceary tui` を使ってください
 
 ### `traceary list`
 

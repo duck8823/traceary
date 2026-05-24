@@ -40,7 +40,7 @@ esc で Tail に戻り、q で TUI を終了
 
 現在利用できる fallback command:
 traceary top --snapshot [--json]
-traceary tail [--follow]
+traceary tail
 traceary doctor --json
 traceary session handoff
 traceary memory inbox review
