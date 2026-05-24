@@ -1,0 +1,20 @@
+Traceary cockpit · top
+tabs: 1 Tail  [2 Top]  3 Memory  4 Sessions  5 Settings
+
+loaded=2026-05-07T12:00:00Z db=/tmp/traceary.db
+
+Top summary
+• sessions: stale_active=0 recent_failures=0 recent_commands=0 new_events=untracked
+• memories: accepted(reviewed)=0 candidate(inbox)=0 new=untracked remember-intent=0 low-quality=0 stale=0
+• doctor: pass=2 warn=1 fail=1
+• hooks/mcp: warn=0 fail=1
+• payloads: large=0
+
+Signal details
+• new events=untracked until cockpit state is initialized
+• candidate memory new count=untracked
+• candidate memories=0
+
+The full embedded Top dashboard will land in a follow-up tab issue. Until then, run `traceary top` for the multi-pane dashboard.
+
+1-5 tabs · ←/→ tabs · tab/shift+tab next/prev · esc back · q/ctrl+c quit · ? help · r refresh top summary

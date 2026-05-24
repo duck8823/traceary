@@ -1,0 +1,8 @@
+Traceary cockpit · live tail
+tabs: [1 Tail]  2 Top  3 Memory  4 Sessions  5 Settings
+
+loaded=2026-05-07T12:00:00Z follow=false rows=0
+
+No recent events. Press r to refresh or f to follow.
+
+1-5 tabs · ←/→ tabs · tab/shift+tab next/prev · q/ctrl+c quit · ? help · r refresh · f follow
