@@ -779,8 +779,14 @@ func (m cockpitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.live.pausedNewCount += len(msg.snapshot.Events)
 				}
 				m.live.events = append(m.live.events, msg.snapshot.Events...)
-				if len(m.live.events) > cockpitLiveMaxEvents {
-					m.live.events = m.live.events[len(m.live.events)-cockpitLiveMaxEvents:]
+				if overflow := len(m.live.events) - cockpitLiveMaxEvents; overflow > 0 {
+					m.live.events = m.live.events[overflow:]
+					if !m.live.follow {
+						m.live.selected -= overflow
+						if m.live.selected < 0 {
+							m.live.selected = 0
+						}
+					}
 				}
 			}
 			m.live.cursor = msg.snapshot.Cursor
@@ -792,7 +798,7 @@ func (m cockpitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		var markCmd tea.Cmd
-		if msg.err == nil && m.mode == cockpitModeLive {
+		if msg.err == nil && m.mode == cockpitModeLive && m.live.follow {
 			markCmd = m.markCockpitEventsSeenCmd(msg.snapshot)
 		}
 		if m.mode == cockpitModeLive {
@@ -1064,10 +1070,13 @@ func (m cockpitModel) updateLiveKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case key.Matches(msg, m.keys.Down):
+		wasFollowing := m.live.follow
 		m.live.selected++
 		m.clampLiveSelection()
 		if !m.live.isAtNewest() {
 			m.live.follow = false
+		} else if !wasFollowing {
+			return m, m.resumeCockpitLiveFollowCmd()
 		}
 		return m, nil
 	case key.Matches(msg, m.keys.Home):
@@ -1078,11 +1087,7 @@ func (m cockpitModel) updateLiveKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case key.Matches(msg, m.keys.End):
-		m.resumeCockpitLiveFollow()
-		if !m.live.loading {
-			return m, m.cockpitLiveTickCmd()
-		}
-		return m, nil
+		return m, m.resumeCockpitLiveFollowCmd()
 	case key.Matches(msg, m.keys.Refresh):
 		return m, m.startCockpitLiveLoad(true)
 	case key.Matches(msg, m.keys.Select):
@@ -1430,6 +1435,21 @@ func (m *cockpitModel) resumeCockpitLiveFollow() {
 	m.moveCockpitLiveSelectionToNewest()
 }
 
+func (m *cockpitModel) resumeCockpitLiveFollowCmd() tea.Cmd {
+	m.resumeCockpitLiveFollow()
+	return tea.Batch(m.markCurrentCockpitLiveSeenCmd(), m.cockpitLiveTickCmd())
+}
+
+func (m cockpitModel) markCurrentCockpitLiveSeenCmd() tea.Cmd {
+	if len(m.live.events) == 0 {
+		return nil
+	}
+	return m.markCockpitEventsSeenCmd(cockpitLiveSnapshot{
+		Cursor:   m.live.cursor,
+		LoadedAt: m.live.loadedAt,
+	})
+}
+
 func (m *cockpitModel) clampDetailOffset() {
 	maxOffset := len(m.detailLines()) - 1
 	if maxOffset < 0 {
@@ -1640,9 +1660,16 @@ func (m cockpitModel) livePauseMessage() string {
 		return ""
 	}
 	if m.live.pausedNewCount > 0 {
-		return m.styles.Warning.Render(Localizef("Auto-follow paused · %d newer event(s) available · press End/G for newest", "auto-follow 停止中 · 新しい event %d 件 · End/G で最新へ", m.live.pausedNewCount))
+		return m.styles.Warning.Render(formatCockpitPausedNewEvents(m.live.pausedNewCount))
 	}
 	return m.styles.Subtle.Render(Localize("Auto-follow paused · press End/G for newest", "auto-follow 停止中 · End/G で最新へ"))
+}
+
+func formatCockpitPausedNewEvents(count int) string {
+	if count == 1 {
+		return Localize("Auto-follow paused · 1 newer event available · press End/G for newest", "auto-follow 停止中 · 新しい event 1 件 · End/G で最新へ")
+	}
+	return Localizef("Auto-follow paused · %d newer events available · press End/G for newest", "auto-follow 停止中 · 新しい event %d 件 · End/G で最新へ", count)
 }
 
 func (m cockpitModel) detailView() string {

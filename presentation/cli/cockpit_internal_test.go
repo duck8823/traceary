@@ -647,6 +647,10 @@ func TestCockpitModel_LivePaneRefreshPauseResumeAndDetail(t *testing.T) {
 	if cmd == nil {
 		t.Fatalf("initial load should mark events and schedule next poll")
 	}
+	runFirstCockpitBatchCommandForTest(t, cmd)
+	if got, want := len(loader.eventSeenCalls), 1; got != want {
+		t.Fatalf("event seen calls after initial follow load = %d, want %d", got, want)
+	}
 	if got, want := len(model.live.events), 2; got != want {
 		t.Fatalf("live events after initial load = %d, want %d", got, want)
 	}
@@ -705,7 +709,10 @@ func TestCockpitModel_LivePaneRefreshPauseResumeAndDetail(t *testing.T) {
 	if got, want := model.live.pausedNewCount, 1; got != want {
 		t.Fatalf("paused new count = %d, want %d", got, want)
 	}
-	if got := model.View(); !strings.Contains(got, "1 newer event") && !strings.Contains(got, "1 newer event(s)") {
+	if got, want := len(loader.eventSeenCalls), 1; got != want {
+		t.Fatalf("event seen calls after paused poll = %d, want still %d", got, want)
+	}
+	if got := model.View(); !strings.Contains(got, "1 newer event") {
 		t.Fatalf("paused live view missing newer-event cue:\n%s", got)
 	}
 	if got := loader.liveCalls[2].initial; got {
@@ -719,6 +726,10 @@ func TestCockpitModel_LivePaneRefreshPauseResumeAndDetail(t *testing.T) {
 	model = updated.(cockpitModel)
 	if !model.live.follow || model.live.pausedNewCount != 0 || cmd == nil {
 		t.Fatalf("G resume follow/new/cmd = %v/%d/%T, want follow/0/tick", model.live.follow, model.live.pausedNewCount, cmd)
+	}
+	runFirstCockpitBatchCommandForTest(t, cmd)
+	if got, want := len(loader.eventSeenCalls), 2; got != want {
+		t.Fatalf("event seen calls after G resume = %d, want %d", got, want)
 	}
 	if got, want := model.live.selected, 2; got != want {
 		t.Fatalf("selected row after G = %d, want newest %d", got, want)
@@ -748,6 +759,72 @@ func TestCockpitModel_LivePaneRefreshPauseResumeAndDetail(t *testing.T) {
 	model = updated.(cockpitModel)
 	if model.mode != cockpitModeLive || cmd == nil {
 		t.Fatalf("returning to live mode/cmd = %v/%T, want live/tick command", model.mode, cmd)
+	}
+}
+
+func TestCockpitModel_LiveDownToNewestResumesAutoFollow(t *testing.T) {
+	t.Parallel()
+
+	olderEvent := mustEvent(t, "evt-down-older", domtypes.EventKindNote, "older event")
+	newerEvent := mustEvent(t, "evt-down-newer", domtypes.EventKindNote, "newer event")
+	loader := &cockpitLoaderStub{}
+	cockpit := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	cockpit.loader = loader
+	cockpit.loaderCtx = context.Background()
+	cockpit.live.events = []*model.Event{olderEvent, newerEvent}
+	cockpit.live.cursor = newTailCursor(newerEvent.CreatedAt())
+	cockpit.live.loadedAt = fixedStartedAt
+	cockpit.live.selected = 0
+	cockpit.live.follow = false
+	cockpit.live.pausedNewCount = 1
+
+	updated, cmd := cockpit.Update(tea.KeyMsg{Type: tea.KeyDown})
+	cockpit = updated.(cockpitModel)
+	if !cockpit.live.follow || cockpit.live.pausedNewCount != 0 || cmd == nil {
+		t.Fatalf("down to newest follow/new/cmd = %v/%d/%T, want follow/0/tick", cockpit.live.follow, cockpit.live.pausedNewCount, cmd)
+	}
+	if got, want := cockpit.live.selected, 1; got != want {
+		t.Fatalf("selected row after down = %d, want newest %d", got, want)
+	}
+	runFirstCockpitBatchCommandForTest(t, cmd)
+	if got, want := len(loader.eventSeenCalls), 1; got != want {
+		t.Fatalf("event seen calls after down resume = %d, want %d", got, want)
+	}
+}
+
+func TestCockpitModel_LivePausedAppendTruncationKeepsFocusedRow(t *testing.T) {
+	t.Parallel()
+
+	events := make([]*model.Event, 0, cockpitLiveMaxEvents)
+	base := fixedStartedAt.Add(-time.Hour)
+	for i := range cockpitLiveMaxEvents {
+		events = append(events, cockpitEventFixtureAt(t, fmt.Sprintf("evt-buffer-%03d", i), base.Add(time.Duration(i)*time.Second)))
+	}
+	focused := events[50]
+	newEvents := []*model.Event{}
+	for i := range 5 {
+		newEvents = append(newEvents, cockpitEventFixtureAt(t, fmt.Sprintf("evt-new-%03d", i), base.Add(time.Duration(cockpitLiveMaxEvents+i)*time.Second)))
+	}
+	cursor := newTailCursor(newEvents[len(newEvents)-1].CreatedAt())
+	cursor.Advance(newEvents)
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	model.live.events = events
+	model.live.selected = 50
+	model.live.follow = false
+
+	updated, _ := model.Update(cockpitLiveMsg{
+		seq:      model.live.requestSeq,
+		snapshot: cockpitLiveSnapshot{Events: newEvents, Cursor: cursor, LoadedAt: fixedStartedAt.Add(time.Minute)},
+	})
+	model = updated.(cockpitModel)
+	if got, want := len(model.live.events), cockpitLiveMaxEvents; got != want {
+		t.Fatalf("live events after truncate = %d, want %d", got, want)
+	}
+	if got := model.live.events[model.live.selected].EventID(); got != focused.EventID() {
+		t.Fatalf("focused event after truncate = %s, want %s", got, focused.EventID())
+	}
+	if got, want := model.live.pausedNewCount, len(newEvents); got != want {
+		t.Fatalf("paused new count after truncate append = %d, want %d", got, want)
 	}
 }
 
