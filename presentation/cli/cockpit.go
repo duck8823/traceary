@@ -809,7 +809,7 @@ func (m cockpitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusMsg = formatCockpitMemoryReviewResult(msg.result)
 		m.statusErr = ""
 		m.mode = cockpitModeLive
-		return m, m.startCockpitHomeLoad()
+		return m, tea.Batch(m.startCockpitHomeLoad(), m.startCockpitLiveLoad(true))
 	case tea.KeyMsg:
 		return m.updateKey(msg)
 	}
@@ -832,11 +832,11 @@ func (m cockpitModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case isCockpitBackKey(msg):
 		return m.backCockpitSection()
 	}
-	if model, cmd, ok := m.openCockpitLegacyShortcut(msg); ok {
-		return model, cmd
-	}
 	if section, ok := cockpitSectionFromKey(msg); ok {
 		return m.openCockpitSection(section)
+	}
+	if model, cmd, ok := m.openCockpitLegacyShortcut(msg); ok {
+		return model, cmd
 	}
 	if section, ok := m.cockpitAdjacentSectionFromKey(msg); ok {
 		return m.openCockpitSection(section)
@@ -895,20 +895,13 @@ func cockpitSectionFromKey(msg tea.KeyMsg) (cockpitSectionID, bool) {
 	if msg.Type != tea.KeyRunes || len(msg.Runes) != 1 {
 		return 0, false
 	}
-	switch msg.Runes[0] {
-	case '1':
-		return cockpitSectionLive, true
-	case '2':
-		return cockpitSectionTop, true
-	case '3':
-		return cockpitSectionMemory, true
-	case '4':
-		return cockpitSectionSessions, true
-	case '5':
-		return cockpitSectionSettings, true
-	default:
-		return 0, false
+	pressed := string(msg.Runes)
+	for _, section := range cockpitNavigationSections {
+		if section.key == pressed {
+			return section.id, true
+		}
 	}
+	return 0, false
 }
 
 func (m cockpitModel) cockpitAdjacentSectionFromKey(msg tea.KeyMsg) (cockpitSectionID, bool) {
@@ -1081,7 +1074,7 @@ func (m cockpitModel) updateDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyRunes {
 		switch strings.ToLower(string(msg.Runes)) {
 		case "h":
-			m.mode = cockpitModeTop
+			m.mode = cockpitModeLive
 			m.detail = topDetailState{}
 			m.detailOffset = 0
 			return m, nil
@@ -1646,7 +1639,7 @@ func (m cockpitModel) topTabView() string {
 	}
 	lines = append(lines,
 		"",
-		m.styles.Subtle.Render(Localize("The full embedded Top dashboard will land in a follow-up tab issue. Until then, run `traceary top` for the multi-pane dashboard.", "完全な Top dashboard の埋め込みは後続 issue で対応します。それまでは multi-pane dashboard に `traceary top` を使ってください。")),
+		m.styles.Subtle.Render(Localize("This Top tab shows a compact summary. For the full multi-pane dashboard, run `traceary top`.", "この Top tab は compact summary を表示します。完全な multi-pane dashboard は `traceary top` を使ってください。")),
 	)
 	if m.statusMsg != "" {
 		lines = append([]string{m.styles.Success.Render("• " + m.statusMsg), ""}, lines...)

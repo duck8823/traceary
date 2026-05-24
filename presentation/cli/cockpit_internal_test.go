@@ -823,13 +823,31 @@ func TestCockpitModel_MemoryReviewLaunchAndFinishRefreshesHome(t *testing.T) {
 		t.Fatalf("review finish decision = %v, want accept", got)
 	}
 
-	updated, cmd = model.Update(cmd())
-	model = updated.(cockpitModel)
-	if cmd != nil {
-		t.Fatalf("home refresh returned unexpected command = %T", cmd)
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("memory review apply refresh command = %T, want tea.BatchMsg", msg)
+	}
+	for _, batchedCmd := range batch {
+		if batchedCmd == nil {
+			continue
+		}
+		updated, followCmd := model.Update(batchedCmd())
+		model = updated.(cockpitModel)
+		if followCmd != nil {
+			if followMsg := followCmd(); followMsg != nil {
+				t.Fatalf("refresh follow-up returned message = %T, want nil", followMsg)
+			}
+		}
 	}
 	if got, want := loader.homeCalls, 1; got != want {
 		t.Fatalf("home refresh calls = %d, want %d", got, want)
+	}
+	if got, want := len(loader.liveCalls), 1; got != want {
+		t.Fatalf("tail refresh calls = %d, want %d", got, want)
+	}
+	if got := loader.liveCalls[0].initial; !got {
+		t.Fatalf("tail refresh initial = %v, want true", got)
 	}
 	if got, want := model.home.CandidateMemoryCount, 0; got != want {
 		t.Fatalf("refreshed CandidateMemoryCount = %d, want %d", got, want)

@@ -15,6 +15,6 @@ Signal details
 • no unseen candidates since 2026-05-07T11:00:00Z
 • candidate memories=0
 
-The full embedded Top dashboard will land in a follow-up tab issue. Until then, run `traceary top` for the multi-pane dashboard.
+This Top tab shows a compact summary. For the full multi-pane dashboard, run `traceary top`.
 
 1-5 tabs · ←/→ tabs · tab/shift+tab next/prev · esc back · q/ctrl+c quit · ? help · r refresh top summary
