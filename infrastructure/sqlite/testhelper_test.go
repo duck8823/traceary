@@ -2,10 +2,15 @@ package sqlite_test
 
 import (
 	"io/fs"
+	"os"
 	"testing"
 
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
+
+func productionSQLiteMigrations() fs.FS {
+	return os.DirFS("../../schema/sqlite/migrations")
+}
 
 // newEventDatasource returns an EventDatasource plus a matching
 // StoreManagementDatasource for initialize/migrate operations.

@@ -4,7 +4,6 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
-	"testing/fstest"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
@@ -16,27 +15,8 @@ import (
 func TestDatasource_FindLatest(t *testing.T) {
 	t.Parallel()
 
-	migrations := fstest.MapFS{
-		"000001_init.sql": {
-			Data: []byte(`
-CREATE TABLE events (
-    id TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,
-    agent TEXT NOT NULL,
-    session_id TEXT NOT NULL,
-    body TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    source_hook TEXT
-);`),
-		},
-		"000002_add_event_metadata.sql": {
-			Data: []byte(`
-ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
-ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
-		},
-	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, migrations)
+	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, productionSQLiteMigrations())
 	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -243,27 +223,8 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 func TestDatasource_FindLatest_ignoresBoundariesFromOtherContexts(t *testing.T) {
 	t.Parallel()
 
-	migrations := fstest.MapFS{
-		"000001_init.sql": {
-			Data: []byte(`
-CREATE TABLE events (
-    id TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,
-    agent TEXT NOT NULL,
-    session_id TEXT NOT NULL,
-    body TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    source_hook TEXT
-);`),
-		},
-		"000002_add_event_metadata.sql": {
-			Data: []byte(`
-ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
-ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
-		},
-	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, migrations)
+	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, productionSQLiteMigrations())
 	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -326,27 +287,8 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 func TestDatasource_FindLatest_activeOnlyIgnoresEndsFromOtherContexts(t *testing.T) {
 	t.Parallel()
 
-	migrations := fstest.MapFS{
-		"000001_init.sql": {
-			Data: []byte(`
-CREATE TABLE events (
-    id TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,
-    agent TEXT NOT NULL,
-    session_id TEXT NOT NULL,
-    body TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    source_hook TEXT
-);`),
-		},
-		"000002_add_event_metadata.sql": {
-			Data: []byte(`
-ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
-ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
-		},
-	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, migrations)
+	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, productionSQLiteMigrations())
 	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
