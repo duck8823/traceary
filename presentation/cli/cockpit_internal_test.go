@@ -1945,15 +1945,16 @@ func TestCockpitModel_ContextualHelpActionMenuByScreen(t *testing.T) {
 	})
 }
 
-func TestCockpitModel_LocaleSpecificScrollHelp(t *testing.T) {
+func TestCockpitModel_LocaleSpecificScrollCopy(t *testing.T) {
 	tests := []struct {
 		locale         string
 		want           string
+		ignoreCase     bool
 		forbidEnglish  bool
 		forbidJapanese bool
 	}{
-		{locale: "en", want: "↑/↓ scroll", forbidJapanese: true},
-		{locale: "ja", want: "↑/↓ スクロール", forbidEnglish: true},
+		{locale: "en", want: "scroll", ignoreCase: true, forbidJapanese: true},
+		{locale: "ja", want: "スクロール", forbidEnglish: true},
 	}
 
 	for _, tt := range tests {
@@ -1962,9 +1963,13 @@ func TestCockpitModel_LocaleSpecificScrollHelp(t *testing.T) {
 			t.Cleanup(resetConfiguredCLILanguageCacheForTest)
 			t.Setenv(cliLanguageEnvKey, tt.locale)
 
-			for _, tc := range cockpitScrollHelpCases() {
+			for _, tc := range cockpitScrollCopyCases() {
 				t.Run(tc.name, func(t *testing.T) {
-					if !strings.Contains(tc.help, tt.want) {
+					help := tc.help
+					if tt.ignoreCase {
+						help = strings.ToLower(help)
+					}
+					if !strings.Contains(help, tt.want) {
 						t.Fatalf("%s help = %q, want %q", tc.name, tc.help, tt.want)
 					}
 					if tt.forbidJapanese && containsJapaneseScript(tc.help) {
@@ -1979,7 +1984,7 @@ func TestCockpitModel_LocaleSpecificScrollHelp(t *testing.T) {
 	}
 }
 
-func cockpitScrollHelpCases() []struct {
+func cockpitScrollCopyCases() []struct {
 	name string
 	help string
 } {
@@ -2006,12 +2011,31 @@ func cockpitScrollHelpCases() []struct {
 			}(),
 		},
 		{
+			name: "top detail action",
+			help: func() string {
+				model := base
+				model.mode = cockpitModeTop
+				model.top.detailOpen = true
+				model.top.detail.lines = []string{"first line", "second line"}
+				return cockpitActionDescriptions(model.cockpitContextualActions())
+			}(),
+		},
+		{
 			name: "doctor",
 			help: func() string {
 				model := base
 				model.mode = cockpitModeDoctor
 				model.doctor.snapshot = doctorSnapshot
 				return model.doctorLocalHelp()
+			}(),
+		},
+		{
+			name: "doctor action",
+			help: func() string {
+				model := base
+				model.mode = cockpitModeDoctor
+				model.doctor.snapshot = doctorSnapshot
+				return cockpitActionDescriptions(model.cockpitContextualActions())
 			}(),
 		},
 		{
@@ -2026,30 +2050,64 @@ func cockpitScrollHelpCases() []struct {
 	}
 }
 
-func TestCockpitModel_JapaneseNavigationLinesAlignByDisplayWidth(t *testing.T) {
-	resetConfiguredCLILanguageCacheForTest()
-	t.Cleanup(resetConfiguredCLILanguageCacheForTest)
-	t.Setenv(cliLanguageEnvKey, "ja")
-
-	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
-	lines := model.cockpitContextualNavigationLines()
-	descriptions := []string{
-		"イベントのライブ表示と詳細確認",
-		"セッション・失敗・コマンド・メモリ・状態の一覧",
-		"メモリ候補の確認キュー",
-		"セッション一覧と引き継ぎ導線",
-		"言語・表示既定・redaction 診断",
+func cockpitActionDescriptions(actions []cockpitAction) string {
+	descriptions := make([]string, 0, len(actions))
+	for _, action := range actions {
+		descriptions = append(descriptions, action.description)
 	}
-	for i, description := range descriptions {
-		line := lines[i]
-		column := strings.Index(line, description)
-		if column < 0 {
-			t.Fatalf("navigation line %d missing description %q: %q", i+1, description, line)
-		}
-		prefix := line[:column]
-		if got := runeWidth(prefix); got != cockpitNavigationLabelWidth {
-			t.Fatalf("navigation line %d prefix display width = %d, want %d: %q", i+1, got, cockpitNavigationLabelWidth, line)
-		}
+	return strings.Join(descriptions, "\n")
+}
+
+func TestCockpitModel_NavigationLinesAlignByDisplayWidth(t *testing.T) {
+	tests := []struct {
+		locale       string
+		descriptions []string
+	}{
+		{
+			locale: "en",
+			descriptions: []string{
+				"live event stream and event details",
+				"dashboard for sessions, failures, commands, memory, and health",
+				"inbox review queue",
+				"session and handoff entry points",
+				"language, read defaults, redaction diagnostics",
+			},
+		},
+		{
+			locale: "ja",
+			descriptions: []string{
+				"イベントのライブ表示と詳細確認",
+				"セッション・失敗・コマンド・メモリ・状態の一覧",
+				"メモリ候補の確認キュー",
+				"セッション一覧と引き継ぎ導線",
+				"言語・表示既定・redaction 診断",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.locale, func(t *testing.T) {
+			resetConfiguredCLILanguageCacheForTest()
+			t.Cleanup(resetConfiguredCLILanguageCacheForTest)
+			t.Setenv(cliLanguageEnvKey, tt.locale)
+
+			model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+			lines := model.cockpitContextualNavigationLines()
+			for i, description := range tt.descriptions {
+				line := lines[i]
+				column := strings.Index(line, description)
+				if column < 0 {
+					t.Fatalf("navigation line %d missing description %q: %q", i+1, description, line)
+				}
+				prefix := line[:column]
+				if got := runeWidth(prefix); got != cockpitNavigationLabelWidth {
+					t.Fatalf("navigation line %d prefix display width = %d, want %d: %q", i+1, got, cockpitNavigationLabelWidth, line)
+				}
+				if got := runeWidth(strings.TrimRight(prefix, " ")); got >= cockpitNavigationLabelWidth {
+					t.Fatalf("navigation line %d label width = %d, want room for a separator: %q", i+1, got, line)
+				}
+			}
+		})
 	}
 }
 

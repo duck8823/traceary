@@ -11,7 +11,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/mattn/go-runewidth"
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
@@ -33,6 +32,8 @@ const cockpitTopSummaryChromeRows = 18
 const cockpitTopMinViewportRows = 5
 const cockpitTopDetailDefaultViewportRows = 16
 const cockpitTopDetailChromeRows = 6
+
+// cockpitNavigationLabelWidth is a display-cell width: it fits "4 セッション" (12 cells) plus one separator.
 const cockpitNavigationLabelWidth = 13
 
 type cockpitExitError struct {
@@ -2738,11 +2739,11 @@ func (m cockpitModel) cockpitContextualNavigationLines() []string {
 		return []string{Localize("Navigation is paused while config write confirmation is active; y saves and n/esc cancels.", "config 書き込み確認中はナビゲーションを一時停止します。y で保存、n/esc でキャンセルします。")}
 	}
 	lines := []string{
-		cockpitNavigationLine(1, "Tail", "Tail", "live event stream and event details", "イベントのライブ表示と詳細確認"),
-		cockpitNavigationLine(2, "Top", "Top", "dashboard for sessions, failures, commands, memory, and health", "セッション・失敗・コマンド・メモリ・状態の一覧"),
-		cockpitNavigationLine(3, "Memory", "メモリ", "inbox review queue", "メモリ候補の確認キュー"),
-		cockpitNavigationLine(4, "Sessions", "セッション", "session and handoff entry points", "セッション一覧と引き継ぎ導線"),
-		cockpitNavigationLine(5, "Settings", "設定", "language, read defaults, redaction diagnostics", "言語・表示既定・redaction 診断"),
+		cockpitNavigationLine(cockpitNavigationItem{index: 1, englishLabel: "Tail", japaneseLabel: "Tail", englishDescription: "live event stream and event details", japaneseDescription: "イベントのライブ表示と詳細確認"}),
+		cockpitNavigationLine(cockpitNavigationItem{index: 2, englishLabel: "Top", japaneseLabel: "Top", englishDescription: "dashboard for sessions, failures, commands, memory, and health", japaneseDescription: "セッション・失敗・コマンド・メモリ・状態の一覧"}),
+		cockpitNavigationLine(cockpitNavigationItem{index: 3, englishLabel: "Memory", japaneseLabel: "メモリ", englishDescription: "inbox review queue", japaneseDescription: "メモリ候補の確認キュー"}),
+		cockpitNavigationLine(cockpitNavigationItem{index: 4, englishLabel: "Sessions", japaneseLabel: "セッション", englishDescription: "session and handoff entry points", japaneseDescription: "セッション一覧と引き継ぎ導線"}),
+		cockpitNavigationLine(cockpitNavigationItem{index: 5, englishLabel: "Settings", japaneseLabel: "設定", englishDescription: "language, read defaults, redaction diagnostics", japaneseDescription: "言語・表示既定・redaction 診断"}),
 	}
 	if m.mode == cockpitModeSettings {
 		lines = append(lines, Localize("tab / shift+tab cycle tabs; 1-5 jump tabs; ← / → edit selected value rows", "tab / shift+tab でタブ移動。1-5 でタブ選択。← / → は選択中の値行を編集"))
@@ -2753,13 +2754,21 @@ func (m cockpitModel) cockpitContextualNavigationLines() []string {
 	return lines
 }
 
-func cockpitNavigationLine(index int, englishLabel string, japaneseLabel string, englishDescription string, japaneseDescription string) string {
-	prefix := fmt.Sprintf("%d %s", index, Localize(englishLabel, japaneseLabel))
-	padding := cockpitNavigationLabelWidth - runewidth.StringWidth(prefix)
+type cockpitNavigationItem struct {
+	index               int
+	englishLabel        string
+	japaneseLabel       string
+	englishDescription  string
+	japaneseDescription string
+}
+
+func cockpitNavigationLine(item cockpitNavigationItem) string {
+	prefix := fmt.Sprintf("%d %s", item.index, Localize(item.englishLabel, item.japaneseLabel))
+	padding := cockpitNavigationLabelWidth - runeWidth(prefix)
 	if padding < 1 {
 		padding = 1
 	}
-	return prefix + strings.Repeat(" ", padding) + Localize(englishDescription, japaneseDescription)
+	return prefix + strings.Repeat(" ", padding) + Localize(item.englishDescription, item.japaneseDescription)
 }
 
 func (m cockpitModel) cockpitContextualActions() []cockpitAction {
@@ -2767,7 +2776,7 @@ func (m cockpitModel) cockpitContextualActions() []cockpitAction {
 	case cockpitModeDoctor:
 		actions := []cockpitAction{{key: "r", description: Localize("Refresh doctor checks", "Doctor チェックを再取得")}}
 		if len(m.doctorLines()) > 3 {
-			actions = append(actions, cockpitAction{key: "↑/↓", description: Localize("Scroll doctor output", "Doctor 出力を scroll")})
+			actions = append(actions, cockpitAction{key: "↑/↓", description: Localize("Scroll doctor output", "Doctor 出力をスクロール")})
 		}
 		if !m.doctor.loading && m.doctor.err == nil && cockpitDoctorHasRemediation(m.doctor.snapshot) {
 			actions = append(actions, cockpitAction{description: Localize("Remediation commands are shown inline; copy and run them outside the cockpit.", "修復 command は inline に表示されます。copy して cockpit 外で実行してください。")})
@@ -2789,7 +2798,7 @@ func (m cockpitModel) cockpitContextualActions() []cockpitAction {
 		if m.cockpitTopDetailOpen() {
 			actions := []cockpitAction{{key: "esc", description: Localize("Close Top detail", "Top 詳細を閉じる")}}
 			if len(m.cockpitTopDetailLines()) > 1 {
-				actions = append(actions, cockpitAction{key: "↑/↓", description: Localize("Scroll Top detail", "Top 詳細を scroll")})
+				actions = append(actions, cockpitAction{key: "↑/↓", description: Localize("Scroll Top detail", "Top 詳細をスクロール")})
 			}
 			return actions
 		}
