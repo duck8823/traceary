@@ -1205,6 +1205,138 @@ func TestCockpitModel_MemoryReviewMarksLoadStartAsSeen(t *testing.T) {
 	}
 }
 
+func TestCockpitModel_MemoryReviewOwnSectionReselectKeepsReviewState(t *testing.T) {
+	t.Parallel()
+
+	first := cockpitMemoryDetailsFixture(t, "mem-review-current-1", "first candidate", domtypes.MemoryStatusCandidate)
+	second := cockpitMemoryDetailsFixture(t, "mem-review-current-2", "second candidate", domtypes.MemoryStatusCandidate)
+	third := cockpitMemoryDetailsFixture(t, "mem-review-current-3", "third candidate", domtypes.MemoryStatusCandidate)
+	loader := &cockpitLoaderStub{reviewItems: []apptypes.MemoryDetails{first, second, third}}
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{
+		LoadedAt:             fixedStartedAt,
+		CandidateMemoryCount: 3,
+	})
+	model.loader = loader
+	model.loaderCtx = context.Background()
+	memorySectionKey := cockpitSectionRuneKeyForTest(t, cockpitSectionMemory)
+	acceptKey := singleRuneReviewActionKeyMsgForTest(t, defaultReviewActionKeys().Accept.Keys())
+
+	updated, cmd := model.Update(memorySectionKey)
+	model = updated.(cockpitModel)
+	if model.mode != cockpitModeMemoryReview || !model.memoryReview.loading || cmd == nil {
+		t.Fatalf("memory launch mode/loading/cmd = %v/%v/%T, want memory/loading/cmd", model.mode, model.memoryReview.loading, cmd)
+	}
+	updated, cmd = model.Update(cmd())
+	model = updated.(cockpitModel)
+	if cmd == nil {
+		t.Fatalf("memory review load returned nil seen-marker command")
+	}
+	if msg := cmd(); msg != nil {
+		t.Fatalf("memory seen marker returned message = %T, want nil", msg)
+	}
+	if model.memoryReview.review.mode != reviewModeBrowse {
+		t.Fatalf("review mode after load = %v, want browse", model.memoryReview.review.mode)
+	}
+	if got, want := loader.reviewLoadCalls, 1; got != want {
+		t.Fatalf("review load calls after launch = %d, want %d", got, want)
+	}
+
+	updated, cmd = model.Update(acceptKey)
+	model = updated.(cockpitModel)
+	if cmd != nil {
+		t.Fatalf("accept key returned command = %T, want nil", cmd)
+	}
+	updated, cmd = model.Update(acceptKey)
+	model = updated.(cockpitModel)
+	if cmd != nil {
+		t.Fatalf("second accept key returned command = %T, want nil", cmd)
+	}
+	assertMemoryReviewQueuedAccepts(t, "before reselect", model, first, second, third)
+
+	updated, cmd = model.Update(memorySectionKey)
+	model = updated.(cockpitModel)
+	if cmd != nil {
+		t.Fatalf("own memory section reselect returned command = %T, want nil to avoid reloading/resetting review state", cmd)
+	}
+	if model.mode != cockpitModeMemoryReview {
+		t.Fatalf("mode after own memory section reselect = %v, want memory review", model.mode)
+	}
+	if model.memoryReview.loading || model.memoryReview.err != nil {
+		t.Fatalf("memory review state after own section reselect loading/err = %v/%v, want false/nil", model.memoryReview.loading, model.memoryReview.err)
+	}
+	if got, want := loader.reviewLoadCalls, 1; got != want {
+		t.Fatalf("review load calls after own memory section reselect = %d, want %d", got, want)
+	}
+	assertMemoryReviewQueuedAccepts(t, "after reselect", model, first, second, third)
+}
+
+func cockpitSectionRuneKeyForTest(t *testing.T, section cockpitSectionID) tea.KeyMsg {
+	t.Helper()
+
+	for _, navigationSection := range cockpitNavigationSections {
+		if navigationSection.id == section {
+			return cockpitRuneKey(navigationSection.key)
+		}
+	}
+	t.Fatalf("cockpit section %v has no navigation key", section)
+	return tea.KeyMsg{}
+}
+
+func singleRuneReviewActionKeyMsgForTest(t *testing.T, keys []string) tea.KeyMsg {
+	t.Helper()
+
+	if len(keys) == 0 {
+		t.Fatalf("review action has no keys")
+	}
+	switch keys[0] {
+	case "enter":
+		return tea.KeyMsg{Type: tea.KeyEnter}
+	case "esc":
+		return tea.KeyMsg{Type: tea.KeyEsc}
+	}
+	runes := []rune(keys[0])
+	if len(runes) != 1 {
+		t.Fatalf("review action key %q cannot be converted to a test KeyMsg", keys[0])
+	}
+	return cockpitRuneKey(keys[0])
+}
+
+func assertMemoryReviewQueuedAccepts(t *testing.T, phase string, model cockpitModel, first, second, third apptypes.MemoryDetails) {
+	t.Helper()
+
+	decisions := model.memoryReview.review.Decisions()
+	if got, want := len(decisions), 2; got != want {
+		t.Fatalf("%s queued decisions = %d, want %d", phase, got, want)
+	}
+	wants := []domtypes.MemoryID{first.Summary().MemoryID(), second.Summary().MemoryID()}
+	for i, wantID := range wants {
+		if decisions[i].kind != reviewDecisionAccept || decisions[i].memoryID != wantID {
+			t.Fatalf("%s queued decision[%d] = %#v, want accept for %s", phase, i, decisions[i], wantID)
+		}
+	}
+	if got, want := model.memoryReview.review.cursor, 2; got != want {
+		t.Fatalf("%s review cursor = %d, want %d", phase, got, want)
+	}
+	if got, want := len(model.memoryReview.review.reviewed), 3; got != want {
+		t.Fatalf("%s reviewed markers len = %d, want %d: %#v", phase, got, want, model.memoryReview.review.reviewed)
+	}
+	for i := 0; i < 2; i++ {
+		if got, want := model.memoryReview.review.reviewed[i], decisionLabel(reviewDecisionAccept); got != want {
+			t.Fatalf("%s reviewed[%d] = %q, want %q", phase, i, got, want)
+		}
+	}
+	if got := model.memoryReview.review.reviewed[2]; got != "" {
+		t.Fatalf("%s reviewed[2] = %q, want untouched", phase, got)
+	}
+	if model.memoryReview.review.cursor < 0 || model.memoryReview.review.cursor >= len(model.memoryReview.review.items) {
+		t.Fatalf("%s review cursor = %d outside items len %d", phase, model.memoryReview.review.cursor, len(model.memoryReview.review.items))
+	}
+	current := model.memoryReview.review.items[model.memoryReview.review.cursor]
+	if got, want := current.Summary().MemoryID(), third.Summary().MemoryID(); got != want {
+		t.Fatalf("%s current candidate = %s, want %s", phase, got, want)
+	}
+}
+
 func TestCockpitModel_MemoryReviewEscDismissesEvidenceWithoutApplying(t *testing.T) {
 	t.Parallel()
 
