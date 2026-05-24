@@ -5,7 +5,7 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
-## [v0.19.0] - Unreleased
+## [v0.19.0] - 2026-05-25
 
 ### Added
 - **Memory review evidence attach path (#1066)** — `traceary memory inbox attach <id> --evidence kind:value` で既存のメモリ候補に support refs を追加できるようになりました。対話的な Memory review TUI でも `r` で attach action を保留してから accept/edit-distill できるため、evidence のない有用な候補が skip/recreate loop に残りにくくなります。

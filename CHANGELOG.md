@@ -5,7 +5,7 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
-## [v0.19.0] - Unreleased
+## [v0.19.0] - 2026-05-25
 
 ### Added
 - **Memory review evidence attach path (#1066)** — `traceary memory inbox attach <id> --evidence kind:value` now adds supporting refs to existing memory candidates, and the interactive Memory review TUI can queue an `r` attach action before accept/edit-distill so evidence-less useful candidates no longer get stuck in skip/recreate loops.
