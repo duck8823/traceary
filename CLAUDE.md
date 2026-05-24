@@ -101,3 +101,8 @@ Memory capture in v0.11.0+ is split into two narrow skills plus hook-driven auto
 - `traceary-memory-remember` — write durable memory **only** when the user explicitly asks ("remember that", "覚えておいて"). Lands in `status=candidate` for review, never auto-accepted.
 
 Hook-driven auto-extraction (planned in v0.11.0 #810 / #811) populates the inbox so the LLM does not have to.
+
+<!-- traceary-memory-import:begin:v1 -->
+<!-- DO NOT EDIT: this import is managed by Traceary. Run `traceary memory activate --target claude --dry-run --diff` before applying updates. -->
+@./.traceary/memories/claude.md
+<!-- traceary-memory-import:end -->
