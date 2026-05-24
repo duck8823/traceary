@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -153,7 +152,7 @@ func countOnDiskSQLiteMigrations(t *testing.T) int {
 	}
 	count := 0
 	for _, entry := range entries {
-		if filepath.Ext(entry.Name()) == ".sql" {
+		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".sql" {
 			count++
 		}
 	}
@@ -175,13 +174,9 @@ func migrationsBeforeVersion(t *testing.T, dir string, maxVersion int) fstest.Ma
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
 			continue
 		}
-		versionText, _, ok := strings.Cut(entry.Name(), "_")
-		if !ok {
-			t.Fatalf("migration filename %q missing version separator", entry.Name())
-		}
-		version, parseErr := strconv.Atoi(versionText)
-		if parseErr != nil {
-			t.Fatalf("migration filename %q has invalid version: %v", entry.Name(), parseErr)
+		version, err := sqliteMigrationVersion(entry.Name())
+		if err != nil {
+			t.Fatal(err)
 		}
 		if version == maxVersion {
 			foundMaxVersion = true

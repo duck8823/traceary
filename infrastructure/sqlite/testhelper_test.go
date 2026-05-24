@@ -1,7 +1,6 @@
 package sqlite_test
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -15,6 +14,8 @@ import (
 
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
+
+const tracearyRepoRootEnv = "TRACEARY_REPO_ROOT"
 
 var (
 	sqliteMigrationDirMu sync.Mutex
@@ -47,15 +48,9 @@ func onDiskSQLiteMigrationDir(t testing.TB) string {
 }
 
 func resolveOnDiskSQLiteMigrationDir() (string, error) {
-	starts, startErrs := sqliteMigrationSearchStarts()
-	searchErrs := append([]error(nil), startErrs...)
-	for _, start := range starts {
-		root, err := findTracearyRepositoryRoot(start)
-		if err != nil {
-			searchErrs = append(searchErrs, err)
-			continue
-		}
-		dir := filepath.Join(root, "schema", "sqlite", "migrations")
+	candidates, candidateErrs := sqliteMigrationDirCandidates()
+	searchErrs := append([]error(nil), candidateErrs...)
+	for _, dir := range candidates {
 		if err := validateSQLiteMigrationDir(dir); err != nil {
 			searchErrs = append(searchErrs, err)
 			continue
@@ -63,85 +58,44 @@ func resolveOnDiskSQLiteMigrationDir() (string, error) {
 		return dir, nil
 	}
 	if len(searchErrs) == 0 {
-		return "", errors.New("no traceary repository search roots available")
+		return "", errors.New("no SQLite migration directory candidates available")
 	}
 	return "", fmt.Errorf("resolve SQLite migrations directory: %w", errors.Join(searchErrs...))
 }
 
-func sqliteMigrationSearchStarts() ([]string, []error) {
-	var starts []string
+func sqliteMigrationDirCandidates() ([]string, []error) {
+	var candidates []string
 	var errs []error
 
+	if root := os.Getenv(tracearyRepoRootEnv); root != "" {
+		candidates = appendUniquePath(candidates, filepath.Join(root, "schema", "sqlite", "migrations"))
+	}
+
 	if _, file, _, ok := runtime.Caller(0); ok && filepath.IsAbs(file) {
-		starts = appendSearchStart(starts, filepath.Dir(file))
+		candidates = appendUniquePath(
+			candidates,
+			filepath.Join(filepath.Dir(file), "..", "..", "schema", "sqlite", "migrations"),
+		)
 	}
 
 	if cwd, err := os.Getwd(); err == nil {
-		starts = appendSearchStart(starts, cwd)
+		candidates = appendUniquePath(candidates, filepath.Join(cwd, "..", "..", "schema", "sqlite", "migrations"))
+		candidates = appendUniquePath(candidates, filepath.Join(cwd, "schema", "sqlite", "migrations"))
 	} else {
 		errs = append(errs, fmt.Errorf("get working directory: %w", err))
 	}
 
-	return starts, errs
-}
-
-func appendSearchStart(starts []string, start string) []string {
-	start = filepath.Clean(start)
-	starts = appendUniquePath(starts, start)
-	if resolved, err := filepath.EvalSymlinks(start); err == nil {
-		starts = appendUniquePath(starts, resolved)
-	}
-	return starts
+	return candidates, errs
 }
 
 func appendUniquePath(paths []string, candidate string) []string {
+	candidate = filepath.Clean(candidate)
 	for _, path := range paths {
 		if path == candidate {
 			return paths
 		}
 	}
 	return append(paths, candidate)
-}
-
-func findTracearyRepositoryRoot(start string) (string, error) {
-	dir := filepath.Clean(start)
-	for {
-		goModPath := filepath.Join(dir, "go.mod")
-		data, err := os.ReadFile(goModPath)
-		switch {
-		case err == nil:
-			if isTracearyModule(data) {
-				return dir, nil
-			}
-		case errors.Is(err, os.ErrNotExist):
-			// Continue walking upward.
-		default:
-			return "", fmt.Errorf("read %s: %w", goModPath, err)
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", errors.New("traceary go.mod not found from " + start)
-		}
-		dir = parent
-	}
-}
-
-func isTracearyModule(data []byte) bool {
-	for _, line := range bytes.Split(data, []byte("\n")) {
-		fields := bytes.Fields(line)
-		if len(fields) < 2 || !bytes.Equal(fields[0], []byte("module")) {
-			continue
-		}
-		modulePath := string(fields[1])
-		if unquoted, err := strconv.Unquote(modulePath); err == nil {
-			modulePath = unquoted
-		}
-		if modulePath == "github.com/duck8823/traceary" ||
-			strings.HasPrefix(modulePath, "github.com/duck8823/traceary/v") {
-			return true
-		}
-	}
-	return false
 }
 
 func validateSQLiteMigrationDir(dir string) error {
@@ -156,12 +110,53 @@ func validateSQLiteMigrationDir(dir string) error {
 	if err != nil {
 		return fmt.Errorf("read SQLite migrations in %s: %w", dir, err)
 	}
+	seenVersions := map[int]struct{}{}
+	foundSQL := false
+	foundInitialMigration := false
 	for _, entry := range entries {
-		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".sql" {
-			return nil
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
+			continue
+		}
+		foundSQL = true
+		version, err := sqliteMigrationVersion(entry.Name())
+		if err != nil {
+			return err
+		}
+		if _, exists := seenVersions[version]; exists {
+			return fmt.Errorf("duplicate SQLite migration version %d in %s", version, dir)
+		}
+		seenVersions[version] = struct{}{}
+		if entry.Name() == "000001_init.sql" {
+			foundInitialMigration = true
 		}
 	}
-	return errors.New("SQLite migrations path has no .sql files: " + dir)
+	if !foundSQL {
+		return errors.New("SQLite migrations path has no .sql files: " + dir)
+	}
+	if !foundInitialMigration {
+		return errors.New("SQLite migrations path is missing 000001_init.sql: " + dir)
+	}
+	return nil
+}
+
+func sqliteMigrationVersion(name string) (int, error) {
+	versionText, _, ok := strings.Cut(name, "_")
+	if !ok {
+		return 0, fmt.Errorf("migration filename %q missing version separator", name)
+	}
+	if len(versionText) != 6 {
+		return 0, fmt.Errorf("migration filename %q must use a six-digit version prefix", name)
+	}
+	for _, digit := range versionText {
+		if digit < '0' || digit > '9' {
+			return 0, fmt.Errorf("migration filename %q has non-numeric version prefix", name)
+		}
+	}
+	version, err := strconv.Atoi(versionText)
+	if err != nil {
+		return 0, fmt.Errorf("migration filename %q has invalid version: %w", name, err)
+	}
+	return version, nil
 }
 
 // newEventDatasource returns an EventDatasource plus a matching

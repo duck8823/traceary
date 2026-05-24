@@ -56,8 +56,18 @@ func TestDatasource_FindLatest(t *testing.T) {
 			t,
 			eventDS,
 			"event-7",
+			types.EventKindSessionStarted,
+			"session-ended-last",
+			"github.com/duck8823/traceary",
+			"session started",
+			time.Date(2026, 4, 11, 13, 30, 0, 0, time.UTC),
+		)
+		saveFindLatestSessionEventFixture(
+			t,
+			eventDS,
+			"event-8",
 			types.EventKindSessionEnded,
-			"session-finished",
+			"session-ended-last",
 			"github.com/duck8823/traceary",
 			"session ended",
 			time.Date(2026, 4, 11, 14, 0, 0, 0, time.UTC),
@@ -74,7 +84,7 @@ func TestDatasource_FindLatest(t *testing.T) {
 			t.Fatalf("FindLatest() returned empty, want present")
 		}
 		event, _ := result.Value()
-		if diff := cmp.Diff("event-4", event.EventID().String()); diff != "" {
+		if diff := cmp.Diff("event-7", event.EventID().String()); diff != "" {
 			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 		}
 	})
@@ -97,8 +107,18 @@ func TestDatasource_FindLatest(t *testing.T) {
 			t,
 			eventDS,
 			"event-7",
+			types.EventKindSessionStarted,
+			"session-ended-later",
+			"github.com/duck8823/traceary",
+			"session started",
+			time.Date(2026, 4, 11, 13, 30, 0, 0, time.UTC),
+		)
+		saveFindLatestSessionEventFixture(
+			t,
+			eventDS,
+			"event-8",
 			types.EventKindSessionEnded,
-			"session-finished",
+			"session-ended-later",
 			"github.com/duck8823/traceary",
 			"session ended",
 			time.Date(2026, 4, 11, 14, 0, 0, 0, time.UTC),
