@@ -53,7 +53,7 @@ func TestMigrations_applyToEmptyDatabase(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	ds := newStoreManagementDatasource(t, dbPath, os.DirFS("../../schema/sqlite/migrations"))
+	ds := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t))
 
 	if err := ds.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
@@ -76,17 +76,7 @@ func TestMigrations_applyToEmptyDatabase(t *testing.T) {
 		}
 	}
 
-	// Count migration files dynamically
-	entries, err := os.ReadDir("../../schema/sqlite/migrations")
-	if err != nil {
-		t.Fatalf("ReadDir() error = %v", err)
-	}
-	wantMigrations := 0
-	for _, entry := range entries {
-		if filepath.Ext(entry.Name()) == ".sql" {
-			wantMigrations++
-		}
-	}
+	wantMigrations := countOnDiskSQLiteMigrations(t)
 
 	var migrationCount int
 	if err := db.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&migrationCount); err != nil {
@@ -99,17 +89,19 @@ func TestMigrations_applyToEmptyDatabase(t *testing.T) {
 	assertSessionSpawnMetadataSchema(t, db)
 }
 
-func TestMigration014_addsSessionSpawnMetadataToUpgradedDatabase(t *testing.T) {
+func TestMigrations_upgradeFromPreV014DatabaseAddsSessionSpawnMetadata(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	preV010 := migrationsWithout(t, "../../schema/sqlite/migrations", "000014_add_session_spawn_metadata.sql")
-	ds := newStoreManagementDatasource(t, dbPath, preV010)
+	preV014 := migrationsBeforeVersion(t, onDiskSQLiteMigrationDir(t), 14)
+	ds := newStoreManagementDatasource(t, dbPath, preV014)
 	if err := ds.Initialize(context.Background()); err != nil {
-		t.Fatalf("Initialize(pre-v0.10) error = %v", err)
+		t.Fatalf("Initialize(pre-v0.14) error = %v", err)
 	}
 
-	ds = newStoreManagementDatasource(t, dbPath, os.DirFS("../../schema/sqlite/migrations"))
+	seedPreV014SessionRow(t, dbPath)
+
+	ds = newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t))
 	if err := ds.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize(upgrade) error = %v", err)
 	}
@@ -121,13 +113,39 @@ func TestMigration014_addsSessionSpawnMetadataToUpgradedDatabase(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	assertSessionSpawnMetadataSchema(t, db)
+	assertPreV014SessionMetadataDefaults(t, db)
+}
+
+func TestMigrations_appliesGapInVersionHistory(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	withoutV014 := migrationsInRangeExcluding(t, onDiskSQLiteMigrationDir(t), 1, 16, 14)
+	ds := newStoreManagementDatasource(t, dbPath, withoutV014)
+	if err := ds.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize(without v0.14) error = %v", err)
+	}
+
+	ds = newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := ds.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize(upgrade) error = %v", err)
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	assertSessionSpawnMetadataSchema(t, db)
+	assertMigrationApplied(t, db, 14)
 }
 
 func TestMigrations_idempotentOnExistingDatabase(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	ds := newStoreManagementDatasource(t, dbPath, os.DirFS("../../schema/sqlite/migrations"))
+	ds := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t))
 
 	if err := ds.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() first error = %v", err)
@@ -142,16 +160,7 @@ func TestMigrations_idempotentOnExistingDatabase(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	entries, err := os.ReadDir("../../schema/sqlite/migrations")
-	if err != nil {
-		t.Fatalf("ReadDir() error = %v", err)
-	}
-	wantMigrations := 0
-	for _, entry := range entries {
-		if filepath.Ext(entry.Name()) == ".sql" {
-			wantMigrations++
-		}
-	}
+	wantMigrations := countOnDiskSQLiteMigrations(t)
 
 	var count int
 	if err := db.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&count); err != nil {
@@ -162,24 +171,120 @@ func TestMigrations_idempotentOnExistingDatabase(t *testing.T) {
 	}
 }
 
-func migrationsWithout(t *testing.T, dir string, excludedNames ...string) fstest.MapFS {
+func countOnDiskSQLiteMigrations(t *testing.T) int {
 	t.Helper()
 
-	excluded := make(map[string]struct{}, len(excludedNames))
-	for _, name := range excludedNames {
-		excluded[name] = struct{}{}
+	entries, err := os.ReadDir(onDiskSQLiteMigrationDir(t))
+	if err != nil {
+		t.Fatalf("ReadDir() error = %v", err)
 	}
+	count := 0
+	for _, entry := range entries {
+		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".sql" {
+			count++
+		}
+	}
+	return count
+}
+
+func seedPreV014SessionRow(t *testing.T, dbPath string) {
+	t.Helper()
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("Open(pre-v0.14 seed) error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	// This intentionally freezes the sessions table shape after migrations
+	// 000001..000013 so the v14 upgrade path proves existing rows survive
+	// the new nullable/defaulted metadata columns.
+	_, err = db.Exec(`
+INSERT INTO sessions (
+    session_id,
+    started_at,
+    client,
+    agent,
+    workspace,
+    label,
+    summary,
+    parent_session_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
+		"pre-v014-session",
+		"2026-04-11T12:00:00Z",
+		"cli",
+		"codex",
+		"github.com/duck8823/traceary",
+		"pre v0.14 row",
+		"existing summary",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("seed pre-v0.14 session row error = %v", err)
+	}
+}
+
+func assertPreV014SessionMetadataDefaults(t *testing.T, db *sql.DB) {
+	t.Helper()
+
+	var (
+		spawnEventID sql.NullString
+		subagentKind string
+		spawnOrder   sql.NullInt64
+	)
+	if err := db.QueryRow(`
+SELECT spawn_event_id, subagent_kind, spawn_order
+  FROM sessions
+ WHERE session_id = ?;`, "pre-v014-session").Scan(&spawnEventID, &subagentKind, &spawnOrder); err != nil {
+		t.Fatalf("query upgraded pre-v0.14 session row error = %v", err)
+	}
+	if spawnEventID.Valid {
+		t.Errorf("spawn_event_id = %q, want NULL", spawnEventID.String)
+	}
+	if subagentKind != "" {
+		t.Errorf("subagent_kind = %q, want empty string", subagentKind)
+	}
+	if spawnOrder.Valid {
+		t.Errorf("spawn_order = %d, want NULL", spawnOrder.Int64)
+	}
+
+	assertMigrationApplied(t, db, 14)
+}
+
+func assertMigrationApplied(t *testing.T, db *sql.DB, version int) {
+	t.Helper()
+
+	var applied int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version = ?;`, version).Scan(&applied); err != nil {
+		t.Fatalf("query migration %d application error = %v", version, err)
+	}
+	if applied != 1 {
+		t.Errorf("schema_migrations version %d count = %d, want 1", version, applied)
+	}
+}
+
+func migrationsInRangeExcluding(t *testing.T, dir string, minVersion, maxVersion, excludedVersion int) fstest.MapFS {
+	t.Helper()
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("ReadDir() error = %v", err)
 	}
 	migrations := fstest.MapFS{}
+	foundExcludedVersion := false
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
 			continue
 		}
-		if _, ok := excluded[entry.Name()]; ok {
+		version, err := sqliteMigrationVersion(entry.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if version < minVersion || version > maxVersion {
+			continue
+		}
+		if version == excludedVersion {
+			foundExcludedVersion = true
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
@@ -187,6 +292,46 @@ func migrationsWithout(t *testing.T, dir string, excludedNames ...string) fstest
 			t.Fatalf("ReadFile(%s) error = %v", entry.Name(), err)
 		}
 		migrations[entry.Name()] = &fstest.MapFile{Data: data}
+	}
+	if !foundExcludedVersion {
+		t.Fatalf("migration version %d not found in %s", excludedVersion, dir)
+	}
+	return migrations
+}
+
+// migrationsBeforeVersion returns on-disk migrations whose numeric version is
+// lower than maxVersion, preserving the history shape of an older database.
+func migrationsBeforeVersion(t *testing.T, dir string, maxVersion int) fstest.MapFS {
+	t.Helper()
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir() error = %v", err)
+	}
+	migrations := fstest.MapFS{}
+	foundMaxVersion := false
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
+			continue
+		}
+		version, err := sqliteMigrationVersion(entry.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if version == maxVersion {
+			foundMaxVersion = true
+		}
+		if version >= maxVersion {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			t.Fatalf("ReadFile(%s) error = %v", entry.Name(), err)
+		}
+		migrations[entry.Name()] = &fstest.MapFile{Data: data}
+	}
+	if !foundMaxVersion {
+		t.Fatalf("migration version %d not found in %s", maxVersion, dir)
 	}
 	return migrations
 }
@@ -292,7 +437,7 @@ func TestMigrations_backfillPopulatesSessionsFromEvents(t *testing.T) {
 	_ = db.Close()
 
 	// Apply remaining migrations via Initialize
-	ds := newStoreManagementDatasource(t, dbPath, os.DirFS("../../schema/sqlite/migrations"))
+	ds := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t))
 	if err := ds.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}

@@ -4,109 +4,23 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
-	"testing/fstest"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
+	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
 func TestDatasource_FindLatest(t *testing.T) {
 	t.Parallel()
 
-	migrations := fstest.MapFS{
-		"000001_init.sql": {
-			Data: []byte(`
-CREATE TABLE events (
-    id TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,
-    agent TEXT NOT NULL,
-    session_id TEXT NOT NULL,
-    body TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    source_hook TEXT
-);`),
-		},
-		"000002_add_event_metadata.sql": {
-			Data: []byte(`
-ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
-ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
-		},
-	}
-	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, migrations)
-	if err := storeManager.Initialize(context.Background()); err != nil {
-		t.Fatalf("Initialize() error = %v", err)
-	}
-
-	oldEvent := newFindLatestSessionEventFixture(
-		t,
-		"event-1",
-		types.EventKindSessionStarted,
-		"session-old",
-		"github.com/duck8823/traceary",
-		"session started",
-		time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC),
-	)
-	if err := eventDS.Save(context.Background(), oldEvent); err != nil {
-		t.Fatalf("Save(old) error = %v", err)
-	}
-
-	endedEvent := newFindLatestSessionEventFixture(
-		t,
-		"event-2",
-		types.EventKindSessionEnded,
-		"session-old",
-		"github.com/duck8823/traceary",
-		"session ended",
-		time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC),
-	)
-	if err := eventDS.Save(context.Background(), endedEvent); err != nil {
-		t.Fatalf("Save(ended) error = %v", err)
-	}
-
-	activeEvent := newFindLatestSessionEventFixture(
-		t,
-		"event-3",
-		types.EventKindSessionStarted,
-		"session-active",
-		"github.com/duck8823/traceary",
-		"session started",
-		time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
-	)
-	if err := eventDS.Save(context.Background(), activeEvent); err != nil {
-		t.Fatalf("Save(active) error = %v", err)
-	}
-
-	finishedStartEvent := newFindLatestSessionEventFixture(
-		t,
-		"event-4",
-		types.EventKindSessionStarted,
-		"session-finished",
-		"github.com/duck8823/traceary",
-		"session started",
-		time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC),
-	)
-	if err := eventDS.Save(context.Background(), finishedStartEvent); err != nil {
-		t.Fatalf("Save(finished start) error = %v", err)
-	}
-
-	finishedEndEvent := newFindLatestSessionEventFixture(
-		t,
-		"event-5",
-		types.EventKindSessionEnded,
-		"session-finished",
-		"github.com/duck8823/traceary",
-		"session ended",
-		time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC),
-	)
-	if err := eventDS.Save(context.Background(), finishedEndEvent); err != nil {
-		t.Fatalf("Save(finished end) error = %v", err)
-	}
-
 	t.Run("returns latest session_started", func(t *testing.T) {
+		t.Parallel()
+
+		_, sessionDS := newFindLatestScenario(t)
+
 		result, err := sessionDS.FindLatest(
 			context.Background(),
 			types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), false,
@@ -124,8 +38,12 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 	})
 
 	t.Run("session with end boundary as last event is selected as latest", func(t *testing.T) {
-		laterStartEvent := newFindLatestSessionEventFixture(
+		t.Parallel()
+
+		eventDS, sessionDS := newFindLatestScenario(t)
+		saveFindLatestSessionEventFixture(
 			t,
+			eventDS,
 			"event-6",
 			types.EventKindSessionStarted,
 			"session-overlapping",
@@ -133,22 +51,27 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 			"session started",
 			time.Date(2026, 4, 11, 13, 0, 0, 0, time.UTC),
 		)
-		if err := eventDS.Save(context.Background(), laterStartEvent); err != nil {
-			t.Fatalf("Save(later start) error = %v", err)
-		}
 
-		overlapEndEvent := newFindLatestSessionEventFixture(
+		saveFindLatestSessionEventFixture(
 			t,
+			eventDS,
 			"event-7",
+			types.EventKindSessionStarted,
+			"session-ended-last",
+			"github.com/duck8823/traceary",
+			"session started",
+			time.Date(2026, 4, 11, 12, 30, 0, 0, time.UTC),
+		)
+		saveFindLatestSessionEventFixture(
+			t,
+			eventDS,
+			"event-8",
 			types.EventKindSessionEnded,
-			"session-finished",
+			"session-ended-last",
 			"github.com/duck8823/traceary",
 			"session ended",
 			time.Date(2026, 4, 11, 14, 0, 0, 0, time.UTC),
 		)
-		if err := eventDS.Save(context.Background(), overlapEndEvent); err != nil {
-			t.Fatalf("Save(overlap end) error = %v", err)
-		}
 
 		result, err := sessionDS.FindLatest(
 			context.Background(),
@@ -161,12 +84,46 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 			t.Fatalf("FindLatest() returned empty, want present")
 		}
 		event, _ := result.Value()
-		if diff := cmp.Diff("event-4", event.EventID().String()); diff != "" {
+		if diff := cmp.Diff("event-7", event.EventID().String()); diff != "" {
 			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
 	t.Run("returns active session when active only is set", func(t *testing.T) {
+		t.Parallel()
+
+		eventDS, sessionDS := newFindLatestScenario(t)
+		saveFindLatestSessionEventFixture(
+			t,
+			eventDS,
+			"event-6",
+			types.EventKindSessionStarted,
+			"session-overlapping",
+			"github.com/duck8823/traceary",
+			"session started",
+			time.Date(2026, 4, 11, 13, 0, 0, 0, time.UTC),
+		)
+		saveFindLatestSessionEventFixture(
+			t,
+			eventDS,
+			"event-7",
+			types.EventKindSessionStarted,
+			"session-ended-later",
+			"github.com/duck8823/traceary",
+			"session started",
+			time.Date(2026, 4, 11, 12, 30, 0, 0, time.UTC),
+		)
+		saveFindLatestSessionEventFixture(
+			t,
+			eventDS,
+			"event-8",
+			types.EventKindSessionEnded,
+			"session-ended-later",
+			"github.com/duck8823/traceary",
+			"session ended",
+			time.Date(2026, 4, 11, 14, 0, 0, 0, time.UTC),
+		)
+
 		result, err := sessionDS.FindLatest(
 			context.Background(),
 			types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), true,
@@ -184,8 +141,22 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 	})
 
 	t.Run("returns newest start when multiple starts exist for same session_id", func(t *testing.T) {
-		repeatedStartEvent := newFindLatestSessionEventFixture(
+		t.Parallel()
+
+		eventDS, sessionDS := newFindLatestScenario(t)
+		saveFindLatestSessionEventFixture(
 			t,
+			eventDS,
+			"event-6",
+			types.EventKindSessionStarted,
+			"session-overlapping",
+			"github.com/duck8823/traceary",
+			"session started",
+			time.Date(2026, 4, 11, 13, 0, 0, 0, time.UTC),
+		)
+		saveFindLatestSessionEventFixture(
+			t,
+			eventDS,
 			"event-8",
 			types.EventKindSessionStarted,
 			"session-overlapping",
@@ -193,9 +164,6 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 			"session started",
 			time.Date(2026, 4, 11, 15, 0, 0, 0, time.UTC),
 		)
-		if err := eventDS.Save(context.Background(), repeatedStartEvent); err != nil {
-			t.Fatalf("Save(repeated start) error = %v", err)
-		}
 
 		result, err := sessionDS.FindLatest(
 			context.Background(),
@@ -214,6 +182,10 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 	})
 
 	t.Run("returns empty Optional when no matching session exists", func(t *testing.T) {
+		t.Parallel()
+
+		_, sessionDS := newFindLatestScenario(t)
+
 		result, err := sessionDS.FindLatest(
 			context.Background(),
 			types.Client(""), types.Agent("claude"), types.Workspace(""), false,
@@ -227,6 +199,37 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 	})
 
 	t.Run("returns empty Optional when no matching active session exists", func(t *testing.T) {
+		t.Parallel()
+
+		eventDS, sessionDS := newFindLatestScenario(t)
+		saveFindLatestSessionEventFixture(
+			t,
+			eventDS,
+			"event-6",
+			types.EventKindSessionEnded,
+			"session-active",
+			"github.com/duck8823/traceary",
+			"session ended",
+			time.Date(2026, 4, 11, 13, 0, 0, 0, time.UTC),
+		)
+
+		result, err := sessionDS.FindLatest(
+			context.Background(),
+			types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), true,
+		)
+		if err != nil {
+			t.Fatalf("FindLatest() error = %v, want nil", err)
+		}
+		if _, ok := result.Value(); ok {
+			t.Fatalf("FindLatest() returned present, want empty")
+		}
+	})
+
+	t.Run("returns empty Optional when active-only context has no matching session", func(t *testing.T) {
+		t.Parallel()
+
+		_, sessionDS := newFindLatestScenario(t)
+
 		result, err := sessionDS.FindLatest(
 			context.Background(),
 			types.Client(""), types.Agent("claude"), types.Workspace(""), true,
@@ -238,32 +241,54 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 			t.Fatalf("FindLatest() returned present, want empty")
 		}
 	})
+
+	t.Run("handles repeated end boundary for already ended session", func(t *testing.T) {
+		t.Parallel()
+
+		eventDS, sessionDS := newFindLatestScenario(t)
+		saveFindLatestSessionEventFixture(
+			t,
+			eventDS,
+			"event-6",
+			types.EventKindSessionStarted,
+			"session-overlapping",
+			"github.com/duck8823/traceary",
+			"session started",
+			time.Date(2026, 4, 11, 13, 0, 0, 0, time.UTC),
+		)
+		saveFindLatestSessionEventFixture(
+			t,
+			eventDS,
+			"event-7",
+			types.EventKindSessionEnded,
+			"session-finished",
+			"github.com/duck8823/traceary",
+			"session ended again",
+			time.Date(2026, 4, 11, 14, 0, 0, 0, time.UTC),
+		)
+
+		result, err := sessionDS.FindLatest(
+			context.Background(),
+			types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), false,
+		)
+		if err != nil {
+			t.Fatalf("FindLatest() error = %v", err)
+		}
+		if _, ok := result.Value(); !ok {
+			t.Fatalf("FindLatest() returned empty, want present")
+		}
+		event, _ := result.Value()
+		if diff := cmp.Diff("event-4", event.EventID().String()); diff != "" {
+			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
+		}
+	})
 }
 
 func TestDatasource_FindLatest_ignoresBoundariesFromOtherContexts(t *testing.T) {
 	t.Parallel()
 
-	migrations := fstest.MapFS{
-		"000001_init.sql": {
-			Data: []byte(`
-CREATE TABLE events (
-    id TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,
-    agent TEXT NOT NULL,
-    session_id TEXT NOT NULL,
-    body TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    source_hook TEXT
-);`),
-		},
-		"000002_add_event_metadata.sql": {
-			Data: []byte(`
-ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
-ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
-		},
-	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, migrations)
+	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, onDiskSQLiteMigrations(t))
 	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -326,27 +351,8 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 func TestDatasource_FindLatest_activeOnlyIgnoresEndsFromOtherContexts(t *testing.T) {
 	t.Parallel()
 
-	migrations := fstest.MapFS{
-		"000001_init.sql": {
-			Data: []byte(`
-CREATE TABLE events (
-    id TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,
-    agent TEXT NOT NULL,
-    session_id TEXT NOT NULL,
-    body TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    source_hook TEXT
-);`),
-		},
-		"000002_add_event_metadata.sql": {
-			Data: []byte(`
-ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
-ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
-		},
-	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, migrations)
+	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, onDiskSQLiteMigrations(t))
 	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -390,6 +396,87 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 	event, _ := result.Value()
 	if diff := cmp.Diff("event-1", event.EventID().String()); diff != "" {
 		t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func newFindLatestScenario(t *testing.T) (*sqlite.EventDatasource, *sqlite.SessionDatasource) {
+	t.Helper()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := storeManager.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	saveFindLatestSessionEventFixture(
+		t,
+		eventDS,
+		"event-1",
+		types.EventKindSessionStarted,
+		"session-old",
+		"github.com/duck8823/traceary",
+		"session started",
+		time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC),
+	)
+	saveFindLatestSessionEventFixture(
+		t,
+		eventDS,
+		"event-2",
+		types.EventKindSessionEnded,
+		"session-old",
+		"github.com/duck8823/traceary",
+		"session ended",
+		time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC),
+	)
+	saveFindLatestSessionEventFixture(
+		t,
+		eventDS,
+		"event-3",
+		types.EventKindSessionStarted,
+		"session-active",
+		"github.com/duck8823/traceary",
+		"session started",
+		time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
+	)
+	saveFindLatestSessionEventFixture(
+		t,
+		eventDS,
+		"event-4",
+		types.EventKindSessionStarted,
+		"session-finished",
+		"github.com/duck8823/traceary",
+		"session started",
+		time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC),
+	)
+	saveFindLatestSessionEventFixture(
+		t,
+		eventDS,
+		"event-5",
+		types.EventKindSessionEnded,
+		"session-finished",
+		"github.com/duck8823/traceary",
+		"session ended",
+		time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC),
+	)
+
+	return eventDS, sessionDS
+}
+
+func saveFindLatestSessionEventFixture(
+	t *testing.T,
+	eventDS *sqlite.EventDatasource,
+	eventIDValue string,
+	kind types.EventKind,
+	sessionIDValue string,
+	workspace string,
+	body string,
+	createdAt time.Time,
+) {
+	t.Helper()
+
+	event := newFindLatestSessionEventFixture(t, eventIDValue, kind, sessionIDValue, workspace, body, createdAt)
+	if err := eventDS.Save(context.Background(), event); err != nil {
+		t.Fatalf("Save(%s) error = %v", eventIDValue, err)
 	}
 }
 
