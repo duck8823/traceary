@@ -10,6 +10,9 @@ Top summary
 • hooks/mcp: warn=0 fail=0
 • payloads: large=0
 
+Actionable signals
+• [WARN] Stale active sessions — stale_active=2 (4 open Sessions)
+
 Signal details
 • new events=untracked until cockpit state is initialized
 • candidate memory new count=untracked

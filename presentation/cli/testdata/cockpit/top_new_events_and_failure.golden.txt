@@ -10,6 +10,10 @@ Top summary
 • hooks/mcp: warn=0 fail=0
 • payloads: large=0
 
+Actionable signals
+• [WARN] Recent command failures — recent_failures=1 (1 inspect Tail events)
+• [INFO] New Tail events — new_events=3 (1 open Tail)
+
 Signal details
 • new events=3 since 2026-05-07T11:30:00Z
 • candidate memory new count=untracked

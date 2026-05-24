@@ -319,6 +319,14 @@ func TestCockpitModelView_RendersActionableTriageBoard(t *testing.T) {
 		"memories: accepted(reviewed)=0 candidate(inbox)=4 new=2 remember-intent=1 low-quality=1 stale=0",
 		"doctor: pass=3 warn=1 fail=1",
 		"hooks/mcp: warn=0 fail=1",
+		"Actionable signals",
+		"[FAIL] Health failures",
+		"(d open Doctor checks)",
+		"[WARN] Memory inbox needs review",
+		"(3 review Memory inbox)",
+		"[WARN] Recent command failures",
+		"[WARN] Stale active sessions",
+		"[INFO] New Tail events",
 		"new events=3 since 2026-05-07T11:30:00Z",
 		"new candidate memories=2",
 		"remember-intent candidates=1",
@@ -354,6 +362,8 @@ func TestCockpitModelView_RendersStableEmptyStateAndOverview(t *testing.T) {
 		"Traceary cockpit",
 		"tabs: 1 Tail  [2 Top]  3 Memory  4 Sessions  5 Settings",
 		"Top summary",
+		"Actionable signals",
+		"[OK] No active signals",
 		"Signal details",
 		"doctor: pass=4 warn=0 fail=0",
 		"memories: accepted(reviewed)=2 candidate(inbox)=0 new=untracked remember-intent=0 low-quality=0 stale=0",
@@ -361,6 +371,65 @@ func TestCockpitModelView_RendersStableEmptyStateAndOverview(t *testing.T) {
 		if !strings.Contains(view, must) {
 			t.Fatalf("cockpit view missing %q:\n%s", must, view)
 		}
+	}
+}
+
+func TestCockpitModelView_SurfacesDoctorUnavailableSignal(t *testing.T) {
+	t.Parallel()
+
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{
+		LoadedAt:    fixedStartedAt,
+		DBPath:      "/tmp/traceary.db",
+		DoctorError: "doctor dependency unavailable",
+	})
+	model.mode = cockpitModeTop
+	view := model.View()
+	for _, must := range []string{
+		"doctor: pass=0 warn=0 fail=0",
+		"[FAIL] Doctor unavailable",
+		"doctor dependency unavailable",
+		"(d open Doctor checks)",
+	} {
+		if !strings.Contains(view, must) {
+			t.Fatalf("doctor unavailable top view missing %q:\n%s", must, view)
+		}
+	}
+}
+
+func TestCockpitModel_InitLoadsTailEvenWhenTopSummaryFails(t *testing.T) {
+	t.Parallel()
+
+	event := mustEvent(t, "evt-init-tail", domtypes.EventKindNote, "tail still opens")
+	loader := &cockpitLoaderStub{
+		homeErr:       context.Canceled,
+		liveResponses: []cockpitLiveSnapshot{{Events: []*model.Event{event}, Cursor: newTailCursor(event.CreatedAt()), LoadedAt: fixedStartedAt.Add(time.Minute)}},
+	}
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	model.loader = loader
+	model.loaderCtx = context.Background()
+
+	cmd := model.Init()
+	if cmd == nil {
+		t.Fatalf("init command = nil, want top summary + tail load")
+	}
+	model = applyCockpitImmediateCommandForTest(t, model, cmd)
+	if model.mode != cockpitModeLive {
+		t.Fatalf("mode after init = %v, want tail", model.mode)
+	}
+	if model.live.loading {
+		t.Fatalf("tail loading after init = true, want false")
+	}
+	if got, want := len(model.live.events), 1; got != want {
+		t.Fatalf("tail events after init = %d, want %d", got, want)
+	}
+	if model.statusErr == "" {
+		t.Fatalf("statusErr after failed top summary = empty, want non-empty")
+	}
+	if got, want := loader.homeCalls, 1; got != want {
+		t.Fatalf("home calls after init = %d, want %d", got, want)
+	}
+	if got, want := len(loader.liveCalls), 1; got != want {
+		t.Fatalf("tail calls after init = %d, want %d", got, want)
 	}
 }
 
@@ -423,6 +492,12 @@ func TestCockpitModel_DoctorPaneRendersPassWarnFailSkipAndFixHints(t *testing.T)
 		if !strings.Contains(view, must) {
 			t.Fatalf("doctor view missing %q:\n%s", must, view)
 		}
+	}
+
+	updated, cmd = model.Update(cockpitRuneKey("2"))
+	model = updated.(cockpitModel)
+	if model.mode != cockpitModeTop || cmd != nil {
+		t.Fatalf("2 from doctor mode/cmd = %v/%T, want top/nil", model.mode, cmd)
 	}
 }
 
@@ -995,13 +1070,12 @@ func TestCockpitModel_MemoryReviewEscBacksOutWithoutApplying(t *testing.T) {
 		t.Fatalf("esc from review browse returned nil command, want tail refresh")
 	}
 
-	updated, cmd = model.Update(cmd())
-	model = updated.(cockpitModel)
-	if cmd != nil {
-		t.Fatalf("home refresh returned unexpected command = %T", cmd)
-	}
+	model = applyCockpitImmediateCommandForTest(t, model, cmd)
 	if got, want := loader.homeCalls, 1; got != want {
 		t.Fatalf("home refresh calls = %d, want %d", got, want)
+	}
+	if got, want := len(loader.liveCalls), 1; got != want {
+		t.Fatalf("tail refresh calls = %d, want %d", got, want)
 	}
 }
 
@@ -1032,13 +1106,12 @@ func TestCockpitModel_MemoryReviewErrorAllowsHomeAndQuit(t *testing.T) {
 	if model.mode != cockpitModeLive || cmd == nil {
 		t.Fatalf("h from review error mode/cmd = %v/%T, want tail/refresh command", model.mode, cmd)
 	}
-	updated, cmd = model.Update(cmd())
-	model = updated.(cockpitModel)
-	if cmd != nil {
-		t.Fatalf("home refresh after h returned follow-up command = %T", cmd)
-	}
+	model = applyCockpitImmediateCommandForTest(t, model, cmd)
 	if got, want := model.home.CandidateMemoryCount, 3; got != want {
 		t.Fatalf("home refresh after h CandidateMemoryCount = %d, want %d", got, want)
+	}
+	if got, want := len(loader.liveCalls), 1; got != want {
+		t.Fatalf("tail refresh after h calls = %d, want %d", got, want)
 	}
 
 	model.mode = cockpitModeMemoryReview
@@ -1048,13 +1121,12 @@ func TestCockpitModel_MemoryReviewErrorAllowsHomeAndQuit(t *testing.T) {
 	if model.mode != cockpitModeLive || cmd == nil {
 		t.Fatalf("esc from review error mode/cmd = %v/%T, want tail/refresh command", model.mode, cmd)
 	}
-	updated, cmd = model.Update(cmd())
-	model = updated.(cockpitModel)
-	if cmd != nil {
-		t.Fatalf("home refresh after esc returned follow-up command = %T", cmd)
-	}
+	model = applyCockpitImmediateCommandForTest(t, model, cmd)
 	if got, want := model.home.CandidateMemoryCount, 4; got != want {
 		t.Fatalf("home refresh after esc CandidateMemoryCount = %d, want %d", got, want)
+	}
+	if got, want := len(loader.liveCalls), 2; got != want {
+		t.Fatalf("tail refresh after esc calls = %d, want %d", got, want)
 	}
 
 	model.mode = cockpitModeMemoryReview
@@ -1068,15 +1140,25 @@ func TestCockpitModel_MemoryReviewErrorAllowsHomeAndQuit(t *testing.T) {
 func TestCockpitModel_MemoryReviewLoadingEscBacksOut(t *testing.T) {
 	t.Parallel()
 
+	loader := &cockpitLoaderStub{}
 	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	model.loader = loader
+	model.loaderCtx = context.Background()
 	model.mode = cockpitModeMemoryReview
 	model.memoryReview.loading = true
 	model.memoryReview.requestSeq = 1
 
 	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	model = updated.(cockpitModel)
-	if model.mode != cockpitModeLive || cmd != nil {
-		t.Fatalf("esc while review loading mode/cmd = %v/%T, want tail/nil", model.mode, cmd)
+	if model.mode != cockpitModeLive || cmd == nil {
+		t.Fatalf("esc while review loading mode/cmd = %v/%T, want tail/refresh command", model.mode, cmd)
+	}
+	model = applyCockpitImmediateCommandForTest(t, model, cmd)
+	if got, want := loader.homeCalls, 1; got != want {
+		t.Fatalf("home refresh after loading esc calls = %d, want %d", got, want)
+	}
+	if got, want := len(loader.liveCalls), 1; got != want {
+		t.Fatalf("tail refresh after loading esc calls = %d, want %d", got, want)
 	}
 
 	model.mode = cockpitModeMemoryReview
@@ -1437,7 +1519,7 @@ func TestCockpitModel_ContextualHelpActionMenuByScreen(t *testing.T) {
 			"Action menu",
 			"Refresh live events",
 			"Start follow mode",
-			"No recent events. Press r to refresh or f to follow.",
+			"Loading live events...",
 		} {
 			if !strings.Contains(view, must) {
 				t.Fatalf("live empty help missing %q:\n%s", must, view)
@@ -2012,7 +2094,7 @@ func TestCockpitModel_GlobalSectionKeysSwitchWithoutReturningToCLI(t *testing.T)
 		t.Fatalf("global section switch applied memory decisions unexpectedly: %#v", loader.reviewFinishCalls)
 	}
 
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyTab})
 	model = updated.(cockpitModel)
 	if model.mode != cockpitModeSettings || cmd != nil {
 		t.Fatalf("tab from sessions mode/cmd = %v/%T, want settings/nil", model.mode, cmd)
@@ -2024,8 +2106,11 @@ func TestCockpitModel_GlobalSectionKeysSwitchWithoutReturningToCLI(t *testing.T)
 		t.Fatalf("shift+tab from settings mode/cmd = %v/%T, want sessions/nil", model.mode, cmd)
 	}
 
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyRight})
 	model = updated.(cockpitModel)
+	if model.mode != cockpitModeSettings || cmd != nil {
+		t.Fatalf("right from sessions mode/cmd = %v/%T, want settings/nil", model.mode, cmd)
+	}
 	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyRight})
 	model = updated.(cockpitModel)
 	if model.mode != cockpitModeLive || cmd == nil {

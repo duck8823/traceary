@@ -68,11 +68,7 @@ func (c *RootCLI) runCockpit(ctx context.Context, output io.Writer, opts cockpit
 			return err
 		}
 	}
-	home, err := c.loadCockpitHome(ctx, opts)
-	if err != nil {
-		return err
-	}
-	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), home)
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: topNowFunc()})
 	model.loader = cockpitRuntimeLoader{root: c, opts: opts}
 	model.loaderCtx = ctx
 	if err := tui.Run(model, tui.RunOptions{Input: stdin, Output: stdout, AltScreen: true}); err != nil {
@@ -574,13 +570,17 @@ func newCockpitModel(keys tui.KeyMap, styles tui.Styles, home cockpitHomeSnapsho
 		mode:   cockpitModeLive,
 		live: cockpitLiveState{
 			loadedAt: home.LoadedAt,
+			loading:  true,
 		},
 	}
 }
 
 func (m cockpitModel) Init() tea.Cmd {
 	if m.mode == cockpitModeLive {
-		return m.fetchCockpitLiveCmd(true, m.live.requestSeq)
+		return tea.Batch(
+			m.fetchCockpitHomeCmd(m.homeRequestSeq),
+			m.fetchCockpitLiveCmd(true, m.live.requestSeq),
+		)
 	}
 	return nil
 }
@@ -615,6 +615,23 @@ type cockpitNavigationSection struct {
 type cockpitAction struct {
 	key         string
 	description string
+}
+
+type cockpitSignalSeverity string
+
+const (
+	cockpitSignalOK      cockpitSignalSeverity = "OK"
+	cockpitSignalInfo    cockpitSignalSeverity = "INFO"
+	cockpitSignalWarning cockpitSignalSeverity = "WARN"
+	cockpitSignalFailure cockpitSignalSeverity = "FAIL"
+)
+
+type cockpitTopSignal struct {
+	severity    cockpitSignalSeverity
+	label       string
+	description string
+	actionKey   string
+	actionLabel string
 }
 
 var cockpitNavigationSections = []cockpitNavigationSection{
@@ -809,7 +826,7 @@ func (m cockpitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusMsg = formatCockpitMemoryReviewResult(msg.result)
 		m.statusErr = ""
 		m.mode = cockpitModeLive
-		return m, tea.Batch(m.startCockpitHomeLoad(), m.startCockpitLiveLoad(true))
+		return m, m.startCockpitHomeAndLiveLoad()
 	case tea.KeyMsg:
 		return m.updateKey(msg)
 	}
@@ -954,6 +971,10 @@ func (m cockpitModel) openCockpitSection(section cockpitSectionID) (tea.Model, t
 	if section == m.activeCockpitSection() {
 		if m.mode == cockpitModeDetail && section == cockpitSectionLive {
 			return m.backCockpitSection()
+		}
+		if m.mode == cockpitModeDoctor && section == cockpitSectionTop {
+			m.mode = cockpitModeTop
+			return m, nil
 		}
 		return m, nil
 	}
@@ -1108,17 +1129,14 @@ func (m cockpitModel) updateMemoryReviewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 	}
 	if msg.Type == tea.KeyRunes && strings.ToLower(string(msg.Runes)) == "h" && (m.memoryReview.loading || m.memoryReview.err != nil) {
 		m.mode = cockpitModeLive
-		if m.memoryReview.err != nil {
-			m.memoryReview = cockpitMemoryReviewState{}
-			return m, m.startCockpitHomeLoad()
-		}
-		return m, nil
+		m.memoryReview = cockpitMemoryReviewState{}
+		return m, m.startCockpitHomeAndLiveLoad()
 	}
 	if m.memoryReview.err != nil {
 		if key.Matches(msg, actions.Cancel) {
 			m.mode = cockpitModeLive
 			m.memoryReview = cockpitMemoryReviewState{}
-			return m, m.startCockpitHomeLoad()
+			return m, m.startCockpitHomeAndLiveLoad()
 		}
 		if isCockpitMemoryReviewFinishKey(msg) || msg.Type == tea.KeyCtrlC {
 			return m, tea.Quit
@@ -1132,7 +1150,7 @@ func (m cockpitModel) updateMemoryReviewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		if key.Matches(msg, actions.Cancel) {
 			m.mode = cockpitModeLive
 			m.memoryReview = cockpitMemoryReviewState{}
-			return m, nil
+			return m, m.startCockpitHomeAndLiveLoad()
 		}
 		if isCockpitMemoryReviewFinishKey(msg) || msg.Type == tea.KeyCtrlC {
 			return m, tea.Quit
@@ -1149,7 +1167,7 @@ func (m cockpitModel) updateMemoryReviewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		default:
 			m.mode = cockpitModeLive
 			m.memoryReview = cockpitMemoryReviewState{}
-			return m, m.startCockpitHomeLoad()
+			return m, m.startCockpitHomeAndLiveLoad()
 		}
 	}
 	if m.memoryReview.review.mode != reviewModeEdit && isCockpitMemoryReviewFinishKey(msg) {
@@ -1200,6 +1218,10 @@ func (m cockpitModel) leaveCockpitMemoryReviewForSection(section cockpitSectionI
 		return m, nil
 	}
 	m.memoryReview = cockpitMemoryReviewState{}
+	if section == cockpitSectionLive {
+		m.mode = cockpitModeLive
+		return m, m.startCockpitHomeAndLiveLoad()
+	}
 	return m.openCockpitSection(section)
 }
 
@@ -1210,6 +1232,10 @@ func isCockpitMemoryReviewFinishKey(msg tea.KeyMsg) bool {
 func (m *cockpitModel) startCockpitHomeLoad() tea.Cmd {
 	m.homeRequestSeq++
 	return m.fetchCockpitHomeCmd(m.homeRequestSeq)
+}
+
+func (m *cockpitModel) startCockpitHomeAndLiveLoad() tea.Cmd {
+	return tea.Batch(m.startCockpitHomeLoad(), m.startCockpitLiveLoad(true))
 }
 
 func (m cockpitModel) fetchCockpitHomeCmd(seq uint64) tea.Cmd {
@@ -1465,7 +1491,7 @@ func (m cockpitModel) doctorLines() []string {
 	if len(snapshot.Sections) == 0 {
 		return append(lines,
 			m.styles.Success.Render(Localize("No doctor checks reported.", "Doctor check は報告されていません。")),
-			m.styles.Subtle.Render(Localize("Press r to refresh checks or 1 to return Home.", "r で check を再取得、1 でホームへ戻ります。")),
+			m.styles.Subtle.Render(Localize("Press r to refresh checks, 1 to return Tail, or 2 to return Top.", "r で check を再取得、1 で Tail、2 で Top へ戻ります。")),
 		)
 	}
 	rendered := 0
@@ -1494,7 +1520,7 @@ func (m cockpitModel) doctorLines() []string {
 	if rendered == 0 {
 		lines = append(lines,
 			m.styles.Success.Render(Localize("No doctor checks reported.", "Doctor check は報告されていません。")),
-			m.styles.Subtle.Render(Localize("Press r to refresh checks or 1 to return Home.", "r で check を再取得、1 でホームへ戻ります。")),
+			m.styles.Subtle.Render(Localize("Press r to refresh checks, 1 to return Tail, or 2 to return Top.", "r で check を再取得、1 で Tail、2 で Top へ戻ります。")),
 		)
 	}
 	return lines
@@ -1587,6 +1613,106 @@ func (m cockpitModel) detailView() string {
 	return m.renderCockpitShell(m.detail.title, lines, m.detailLocalHelp())
 }
 
+func (m cockpitModel) topSignals() []cockpitTopSignal {
+	home := m.home
+	signals := []cockpitTopSignal{}
+	if home.DoctorError != "" {
+		signals = append(signals, cockpitTopSignal{
+			severity:    cockpitSignalFailure,
+			label:       Localize("Doctor unavailable", "Doctor を利用できません"),
+			description: home.DoctorError,
+			actionKey:   "d",
+			actionLabel: Localize("open Doctor checks", "Doctor check を開く"),
+		})
+	} else if home.DoctorFailCount > 0 || home.HookFailCount > 0 {
+		signals = append(signals, cockpitTopSignal{
+			severity:    cockpitSignalFailure,
+			label:       Localize("Health failures", "Health failure"),
+			description: Localizef("doctor_fail=%d hook_fail=%d", "doctor_fail=%d hook_fail=%d", home.DoctorFailCount, home.HookFailCount),
+			actionKey:   "d",
+			actionLabel: Localize("open Doctor checks", "Doctor check を開く"),
+		})
+	} else if home.DoctorWarnCount > 0 || home.HookWarnCount > 0 {
+		signals = append(signals, cockpitTopSignal{
+			severity:    cockpitSignalWarning,
+			label:       Localize("Health warnings", "Health warning"),
+			description: Localizef("doctor_warn=%d hook_warn=%d", "doctor_warn=%d hook_warn=%d", home.DoctorWarnCount, home.HookWarnCount),
+			actionKey:   "d",
+			actionLabel: Localize("open Doctor checks", "Doctor check を開く"),
+		})
+	}
+	if home.CandidateMemoryCount > 0 || home.NewCandidateMemoryCount > 0 || home.RememberIntentCount > 0 || home.LowQualityMemoryCount > 0 {
+		signals = append(signals, cockpitTopSignal{
+			severity:    cockpitSignalWarning,
+			label:       Localize("Memory inbox needs review", "Memory inbox の確認が必要"),
+			description: Localizef("candidate=%d new=%s remember-intent=%d low-quality=%d", "candidate=%d new=%s remember-intent=%d low-quality=%d", home.CandidateMemoryCount, formatCockpitNewCandidateCount(home), home.RememberIntentCount, home.LowQualityMemoryCount),
+			actionKey:   "3",
+			actionLabel: Localize("review Memory inbox", "Memory inbox を review"),
+		})
+	}
+	if home.RecentFailureCount > 0 {
+		signals = append(signals, cockpitTopSignal{
+			severity:    cockpitSignalWarning,
+			label:       Localize("Recent command failures", "最近の command failure"),
+			description: Localizef("recent_failures=%d", "recent_failures=%d", home.RecentFailureCount),
+			actionKey:   "1",
+			actionLabel: Localize("inspect Tail events", "Tail event を確認"),
+		})
+	}
+	if home.StaleActiveSessionCount > 0 {
+		signals = append(signals, cockpitTopSignal{
+			severity:    cockpitSignalWarning,
+			label:       Localize("Stale active sessions", "古い active session"),
+			description: Localizef("stale_active=%d", "stale_active=%d", home.StaleActiveSessionCount),
+			actionKey:   "4",
+			actionLabel: Localize("open Sessions", "Sessions を開く"),
+		})
+	}
+	if home.NewEventKnown && home.NewEventCount > 0 {
+		signals = append(signals, cockpitTopSignal{
+			severity:    cockpitSignalInfo,
+			label:       Localize("New Tail events", "新着 Tail event"),
+			description: Localizef("new_events=%d", "new_events=%d", home.NewEventCount),
+			actionKey:   "1",
+			actionLabel: Localize("open Tail", "Tail を開く"),
+		})
+	}
+	if home.LargePayloadCount > 0 {
+		signals = append(signals, cockpitTopSignal{
+			severity:    cockpitSignalWarning,
+			label:       Localize("Large payloads", "大きい payload"),
+			description: Localizef("large_payloads=%d", "large_payloads=%d", home.LargePayloadCount),
+			actionKey:   "2",
+			actionLabel: Localize("refresh Top summary", "Top summary を再取得"),
+		})
+	}
+	if len(signals) == 0 {
+		signals = append(signals, cockpitTopSignal{
+			severity:    cockpitSignalOK,
+			label:       Localize("No active signals", "Active signal なし"),
+			description: Localize("Tail and Top summaries have no review cues.", "Tail と Top summary に review cue はありません。"),
+		})
+	}
+	return signals
+}
+
+func (m cockpitModel) renderTopSignal(signal cockpitTopSignal) string {
+	label := fmt.Sprintf("• [%s] %s — %s", signal.severity, signal.label, signal.description)
+	if signal.actionKey != "" {
+		label += fmt.Sprintf(" (%s %s)", signal.actionKey, signal.actionLabel)
+	}
+	switch signal.severity {
+	case cockpitSignalFailure:
+		return m.styles.Error.Render(label)
+	case cockpitSignalWarning:
+		return m.styles.Warning.Render(label)
+	case cockpitSignalOK:
+		return m.styles.Success.Render(label)
+	default:
+		return label
+	}
+}
+
 func (m cockpitModel) topTabView() string {
 	memoryScanSuffix := ""
 	if m.home.MemoryScanLimited {
@@ -1606,8 +1732,15 @@ func (m cockpitModel) topTabView() string {
 		Localizef("• hooks/mcp: warn=%d fail=%d", "• hooks/mcp: warn=%d fail=%d", m.home.HookWarnCount, m.home.HookFailCount),
 		Localizef("• payloads: large=%d", "• payloads: large=%d", m.home.LargePayloadCount),
 		"",
-		m.styles.Subtle.Render(Localize("Signal details", "Signal details")),
+		m.styles.Subtle.Render(Localize("Actionable signals", "対応が必要な signal")),
 	}
+	for _, signal := range m.topSignals() {
+		lines = append(lines, m.renderTopSignal(signal))
+	}
+	lines = append(lines,
+		"",
+		m.styles.Subtle.Render(Localize("Signal details", "Signal details")),
+	)
 	switch {
 	case m.home.NewEventKnown && m.home.NewEventCount > 0:
 		lines = append(lines, Localizef("• new events=%d since %s", "• 新着 event=%d（%s 以降）", m.home.NewEventCount, formatCockpitCheckpoint(m.home.EventLastSeenAt)))
@@ -1838,7 +1971,8 @@ func (m cockpitModel) cockpitContextualActions() []cockpitAction {
 	case cockpitModeTop:
 		return []cockpitAction{
 			{key: "r", description: Localize("Refresh top summary", "top summary を再取得")},
-			{description: Localize("Use `traceary top` for the full dashboard until the embedded Top tab lands.", "埋め込み Top tab までは完全な dashboard に `traceary top` を使ってください。")},
+			{key: "d", description: Localize("Open Doctor checks", "Doctor check を開く")},
+			{description: Localize("Use `traceary top` for the full dashboard.", "完全な dashboard は `traceary top` を使ってください。")},
 		}
 	case cockpitModeDetail:
 		actions := []cockpitAction{{key: "esc", description: Localize("Return to Live", "Live に戻る")}}

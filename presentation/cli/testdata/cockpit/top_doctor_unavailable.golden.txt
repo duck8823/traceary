@@ -6,12 +6,12 @@ loaded=2026-05-07T12:00:00Z db=/tmp/traceary.db
 Top summary
 • sessions: stale_active=0 recent_failures=0 recent_commands=0 new_events=untracked
 • memories: accepted(reviewed)=0 candidate(inbox)=0 new=untracked remember-intent=0 low-quality=0 stale=0
-• doctor: pass=2 warn=1 fail=1
-• hooks/mcp: warn=0 fail=1
+• doctor: pass=0 warn=0 fail=0
+• hooks/mcp: warn=0 fail=0
 • payloads: large=0
 
 Actionable signals
-• [FAIL] Health failures — doctor_fail=1 hook_fail=1 (d open Doctor checks)
+• [FAIL] Doctor unavailable — doctor dependency unavailable (d open Doctor checks)
 
 Signal details
 • new events=untracked until cockpit state is initialized
