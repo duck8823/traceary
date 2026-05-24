@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -23,6 +24,12 @@ import (
 // callers branch (run the batch alternatives) without having to grep
 // stderr, mirroring the doctor command's exit-code contract.
 const reviewExitCodeNotInteractive = 2
+
+const (
+	memoryReviewRefPreviewLimit    = 5
+	memoryReviewRefDisplayMaxRunes = 160
+	memoryReviewTruncatedRefSuffix = "…"
+)
 
 // inboxReviewExitError carries a process exit code through cli.run() so the
 // non-TTY refusal returns 2 instead of the default 1. The pattern matches
@@ -488,6 +495,14 @@ func (m reviewModel) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.acceptConfirmID = ""
 		return m, nil
 	case key.Matches(msg, actions.Accept):
+		if m.currentCandidateBlocksAccept() {
+			m.acceptConfirmID = ""
+			m.statusMsg = Localize(
+				"accept as-is is unavailable because accepted memory requires evidence; skip, reject, or add evidence outside this review and retry",
+				"accepted memory には evidence が必要なため accept as-is は利用できません。skip / reject するか、review 外で evidence を追加してから再実行してください",
+			)
+			return m, nil
+		}
 		if m.currentCandidateNeedsAcceptConfirmation() && !m.acceptConfirmationMatchesCurrent() {
 			m.acceptConfirmID = m.items[m.cursor].Summary().MemoryID()
 			m.statusMsg = Localize(
@@ -517,6 +532,14 @@ func (m reviewModel) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case key.Matches(msg, actions.Edit):
 		if len(m.items) == 0 {
+			return m, nil
+		}
+		if m.currentCandidateBlocksAccept() {
+			m.statusMsg = Localize(
+				"edit/distill is unavailable because the source candidate has no evidence to preserve; skip, reject, or recreate with evidence outside this review",
+				"source candidate に引き継ぐ evidence がないため edit/distill は利用できません。skip / reject するか、review 外で evidence 付きで作り直してください",
+			)
+			m.acceptConfirmID = ""
 			return m, nil
 		}
 		m.mode = reviewModeEdit
@@ -678,6 +701,14 @@ func (m reviewModel) renderBrowse() string {
 	b.WriteString("\n")
 	b.WriteString(summary.Fact())
 	b.WriteString("\n\n")
+	b.WriteString(m.styles.Subtle.Render(Localize("EVIDENCE-FIRST REVIEW", "evidence 優先 review")))
+	b.WriteString("\n")
+	for _, line := range memoryReviewEvidencePreview(current) {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	b.WriteString(memoryReviewDecisionGuidance(current))
+	b.WriteString("\n\n")
 	b.WriteString(m.styles.Subtle.Render(Localize("ACCEPT AS-IS CHECKLIST", "accept as-is checklist")))
 	b.WriteString("\n")
 	for _, item := range memoryReviewAcceptChecklist(current) {
@@ -685,7 +716,7 @@ func (m reviewModel) renderBrowse() string {
 		b.WriteString(item)
 		b.WriteString("\n")
 	}
-	if m.currentCandidateNeedsAcceptConfirmation() {
+	if !m.currentCandidateBlocksAccept() && m.currentCandidateNeedsAcceptConfirmation() {
 		b.WriteString(m.styles.Warning.Render(Localize("• This weak candidate requires pressing `a` twice to accept as-is; prefer edit/distill when wording is unclear.", "• この弱い候補を accept as-is するには `a` を 2 回押す必要があります。文言が曖昧なら edit/distill を優先してください。")))
 		b.WriteString("\n")
 	}
@@ -698,15 +729,16 @@ func (m reviewModel) renderBrowse() string {
 		b.WriteString(m.styles.Warning.Render(Localize("accept confirmation armed: press a again to accept this candidate as-is", "accept 確認中: この候補をそのまま accept するにはもう一度 a")))
 		b.WriteString("\n")
 	}
+	if m.currentCandidateBlocksAccept() {
+		b.WriteString(m.styles.Warning.Render(Localize("accept as-is unavailable: accepted memory requires at least one evidence ref", "accept as-is 不可: accepted memory には 1 件以上の evidence ref が必要です")))
+		b.WriteString("\n")
+	}
 	if m.statusMsg != "" {
 		b.WriteString(m.styles.Subtle.Render(m.statusMsg))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
-	b.WriteString(m.styles.Help.Render(Localize(
-		"a accept as-is · x reject · s skip · e edit/distill · v evidence · ↑/↓ navigate · ? help · q quit",
-		"a accept as-is · x reject · s skip · e edit/distill · v evidence · ↑/↓ 移動 · ? ヘルプ · q 終了",
-	)))
+	b.WriteString(m.styles.Help.Render(memoryReviewBrowseHelp(current)))
 	return b.String()
 }
 
@@ -721,7 +753,7 @@ func (m reviewModel) renderEvidence() string {
 		b.WriteString("- -\n")
 	} else {
 		for _, ref := range current.EvidenceRefs() {
-			fmt.Fprintf(&b, "- %s:%s\n", ref.Kind(), ref.Value())
+			fmt.Fprintf(&b, "- %s\n", formatMemoryReviewRefLine(ref.Kind().String(), ref.Value()))
 		}
 	}
 	b.WriteString("\n")
@@ -731,7 +763,7 @@ func (m reviewModel) renderEvidence() string {
 		b.WriteString("- -\n")
 	} else {
 		for _, ref := range current.ArtifactRefs() {
-			fmt.Fprintf(&b, "- %s:%s\n", ref.Kind(), ref.Value())
+			fmt.Fprintf(&b, "- %s\n", formatMemoryReviewRefLine(ref.Kind().String(), ref.Value()))
 		}
 	}
 	b.WriteString("\n")
@@ -808,11 +840,22 @@ func (m reviewModel) currentCandidateNeedsAcceptConfirmation() bool {
 	return memoryReviewRequiresAcceptConfirmation(m.items[m.cursor])
 }
 
+func (m reviewModel) currentCandidateBlocksAccept() bool {
+	if len(m.items) == 0 || m.cursor < 0 || m.cursor >= len(m.items) {
+		return false
+	}
+	return memoryReviewBlocksAccept(m.items[m.cursor])
+}
+
 func (m reviewModel) acceptConfirmationMatchesCurrent() bool {
 	if len(m.items) == 0 || m.cursor < 0 || m.cursor >= len(m.items) {
 		return false
 	}
 	return m.acceptConfirmID != "" && m.acceptConfirmID == m.items[m.cursor].Summary().MemoryID()
+}
+
+func memoryReviewBlocksAccept(details apptypes.MemoryDetails) bool {
+	return len(details.EvidenceRefs()) == 0
 }
 
 func memoryReviewRequiresAcceptConfirmation(details apptypes.MemoryDetails) bool {
@@ -846,7 +889,9 @@ func memoryReviewQualitySignal(details apptypes.MemoryDetails) string {
 	if len(details.EvidenceRefs()) == 0 {
 		signals = append(signals, Localize("no evidence refs", "evidence ref なし"))
 	}
-	if memoryReviewRequiresAcceptConfirmation(details) {
+	if memoryReviewBlocksAccept(details) {
+		signals = append(signals, Localize("accept blocked until evidence exists", "evidence 追加まで accept 不可"))
+	} else if memoryReviewRequiresAcceptConfirmation(details) {
 		signals = append(signals, Localize("accept requires confirmation", "accept には確認が必要"))
 	}
 	return strings.Join(signals, "; ")
@@ -873,6 +918,82 @@ func memoryReviewDuplicateSupersedeHint(summary apptypes.MemorySummary) string {
 	return Localize("not checked in cockpit yet; use edit/distill or skip if duplicate risk is unclear", "cockpit では未チェック。重複リスクが不明なら edit/distill または skip")
 }
 
+func memoryReviewEvidencePreview(details apptypes.MemoryDetails) []string {
+	lines := []string{}
+	evidence := details.EvidenceRefs()
+	if len(evidence) == 0 {
+		lines = append(lines, Localize("• evidence: none recorded; accept as-is is unavailable until evidence exists", "• evidence: 記録なし。evidence が追加されるまで accept as-is は利用できません"))
+	} else {
+		lines = append(lines, Localizef("• evidence: %d ref(s)", "• evidence: %d 件", len(evidence)))
+		for i, ref := range evidence {
+			if i >= memoryReviewRefPreviewLimit {
+				lines = append(lines, Localizef("  + %d more (press v to inspect)", "  + 他 %d 件 (v で確認)", len(evidence)-i))
+				break
+			}
+			lines = append(lines, "  - "+formatMemoryReviewRefLine(ref.Kind().String(), ref.Value()))
+		}
+	}
+	artifacts := details.ArtifactRefs()
+	if len(artifacts) == 0 {
+		lines = append(lines, Localize("• artifacts: none", "• artifacts: なし"))
+	} else {
+		lines = append(lines, Localizef("• artifacts: %d ref(s)", "• artifacts: %d 件", len(artifacts)))
+		for i, ref := range artifacts {
+			if i >= memoryReviewRefPreviewLimit {
+				lines = append(lines, Localizef("  + %d more (press v to inspect)", "  + 他 %d 件 (v で確認)", len(artifacts)-i))
+				break
+			}
+			lines = append(lines, "  - "+formatMemoryReviewRefLine(ref.Kind().String(), ref.Value()))
+		}
+	}
+	return lines
+}
+
+func memoryReviewDecisionGuidance(details apptypes.MemoryDetails) string {
+	if memoryReviewBlocksAccept(details) {
+		return Localize(
+			"GUIDANCE: accepted memory requires evidence; skip or reject now, or recreate this memory with evidence outside this review.",
+			"判断ガイド: accepted memory には evidence が必要です。ここでは skip / reject するか、review 外で evidence 付きで作り直してください。",
+		)
+	}
+	if memoryReviewRequiresAcceptConfirmation(details) {
+		return Localize(
+			"GUIDANCE: prefer edit/distill or skip until evidence, wording, and scope are clear; accept as-is requires a second confirmation.",
+			"判断ガイド: evidence・文言・scope が明確になるまでは edit/distill または skip を優先。accept as-is には再確認が必要です。",
+		)
+	}
+	return Localize(
+		"GUIDANCE: accept as-is only if the evidence supports the exact wording; use edit/distill to tighten ambiguous wording.",
+		"判断ガイド: evidence が文言をそのまま支える場合だけ accept as-is。曖昧なら edit/distill で整えます。",
+	)
+}
+
+func formatMemoryReviewRefLine(kind string, value string) string {
+	return fmt.Sprintf("%s:%s", kind, sanitizeMemoryReviewRefValue(value))
+}
+
+func sanitizeMemoryReviewRefValue(value string) string {
+	value = strings.ToValidUTF8(value, "�")
+	var b strings.Builder
+	for _, r := range value {
+		switch {
+		case unicode.IsControl(r), unicode.Is(unicode.Cf, r), r == '\u2028', r == '\u2029':
+			if b.Len() > 0 {
+				b.WriteRune(' ')
+			}
+			continue
+		default:
+			b.WriteRune(r)
+		}
+	}
+	safe := strings.Join(strings.Fields(b.String()), " ")
+	runes := []rune(safe)
+	if len(runes) <= memoryReviewRefDisplayMaxRunes {
+		return safe
+	}
+	return string(runes[:memoryReviewRefDisplayMaxRunes-len([]rune(memoryReviewTruncatedRefSuffix))]) + memoryReviewTruncatedRefSuffix
+}
+
 func memoryReviewAcceptChecklist(details apptypes.MemoryDetails) []string {
 	checks := []string{
 		Localize("factual and stable", "事実で安定している"),
@@ -882,10 +1003,23 @@ func memoryReviewAcceptChecklist(details apptypes.MemoryDetails) []string {
 	if len(details.EvidenceRefs()) > 0 {
 		checks = append(checks, Localize("supported by evidence refs", "evidence refs に支えられている"))
 	} else {
-		checks = append(checks, Localize("evidence not shown; inspect before accepting", "evidence 未表示。accept 前に確認してください"))
+		checks = append(checks, Localize("evidence missing; accept as-is is unavailable", "evidence がないため accept as-is は利用できません"))
 	}
 	checks = append(checks, Localize("not duplicate, stale, or superseded", "重複・古い・supersede 済みではない"))
 	return checks
+}
+
+func memoryReviewBrowseHelp(details apptypes.MemoryDetails) string {
+	if memoryReviewBlocksAccept(details) {
+		return Localize(
+			"a unavailable (evidence required) · x reject · s skip · v evidence · ↑/↓ navigate · ? help · q quit",
+			"a 不可 (evidence 必須) · x reject · s skip · v evidence · ↑/↓ 移動 · ? ヘルプ · q 終了",
+		)
+	}
+	return Localize(
+		"a accept as-is · x reject · s skip · e edit/distill · v evidence · ↑/↓ navigate · ? help · q quit",
+		"a accept as-is · x reject · s skip · e edit/distill · v evidence · ↑/↓ 移動 · ? ヘルプ · q 終了",
+	)
 }
 
 // inboxReviewIO resolves the stdin/stdout pair the review TUI should drive.

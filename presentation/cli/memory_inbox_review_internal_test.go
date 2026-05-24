@@ -25,12 +25,13 @@ func buildReviewCandidate(t *testing.T, id string, fact string) apptypes.MemoryD
 }
 
 type reviewCandidateOptions struct {
-	id         string
-	fact       string
-	confidence domtypes.Confidence
-	source     domtypes.MemorySource
-	supersedes domtypes.Optional[domtypes.MemoryID]
-	noEvidence bool
+	id            string
+	fact          string
+	confidence    domtypes.Confidence
+	source        domtypes.MemorySource
+	supersedes    domtypes.Optional[domtypes.MemoryID]
+	noEvidence    bool
+	evidenceValue string
 }
 
 func buildReviewCandidateWithOptions(t *testing.T, opts reviewCandidateOptions) apptypes.MemoryDetails {
@@ -69,7 +70,11 @@ func buildReviewCandidateWithOptions(t *testing.T, opts reviewCandidateOptions) 
 	if opts.noEvidence {
 		return apptypes.MemoryDetailsOf(summary, nil, nil)
 	}
-	evidence, err := domtypes.EvidenceRefFrom(domtypes.EvidenceRefKindFile, "/tmp/MEMORY.md#L1-L2")
+	evidenceValue := opts.evidenceValue
+	if evidenceValue == "" {
+		evidenceValue = "/tmp/MEMORY.md#L1-L2"
+	}
+	evidence, err := domtypes.EvidenceRefFrom(domtypes.EvidenceRefKindFile, evidenceValue)
 	if err != nil {
 		t.Fatalf("EvidenceRefFrom: %v", err)
 	}
@@ -137,6 +142,10 @@ func TestReviewModel_DecisionCardShowsAcceptEvidenceContext(t *testing.T) {
 		"CREATED_AT:             2026-05-07T00:00:00Z",
 		"CANDIDATE_AGE:          48h0m",
 		"DUPLICATE_SUPERSEDE:    supersedes old-memory",
+		"EVIDENCE-FIRST REVIEW",
+		"• evidence: 1 ref(s)",
+		"file:/tmp/MEMORY.md#L1-L2",
+		"GUIDANCE: accept as-is only if the evidence supports the exact wording",
 		"ACCEPT AS-IS CHECKLIST",
 		"factual and stable",
 		"not duplicate, stale, or superseded",
@@ -145,6 +154,68 @@ func TestReviewModel_DecisionCardShowsAcceptEvidenceContext(t *testing.T) {
 		if !strings.Contains(view, must) {
 			t.Fatalf("decision card missing %q:\n%s", must, view)
 		}
+	}
+}
+
+func TestReviewModel_NoEvidenceCandidateBlocksAcceptAsIs(t *testing.T) {
+	t.Parallel()
+
+	model := newReviewTestModel(buildReviewCandidateWithOptions(t, reviewCandidateOptions{
+		id:         "id-no-evidence",
+		fact:       "fact without evidence",
+		confidence: domtypes.ConfidenceHigh,
+		source:     domtypes.MemorySourceManual,
+		noEvidence: true,
+	}))
+
+	first, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	firstM := first.(reviewModel)
+	if len(firstM.Decisions()) != 0 {
+		t.Fatalf("first accept without evidence must not queue decisions, got %+v", firstM.Decisions())
+	}
+	if firstM.acceptConfirmationMatchesCurrent() {
+		t.Fatalf("first accept without evidence must not arm accept confirmation")
+	}
+	view := firstM.View()
+	for _, must := range []string{
+		"evidence: none recorded; accept as-is is unavailable",
+		"accept as-is unavailable",
+		"accepted memory requires evidence",
+	} {
+		if !strings.Contains(view, must) {
+			t.Fatalf("no-evidence accept guard missing %q:\n%s", must, view)
+		}
+	}
+	second, _ := firstM.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	secondM := second.(reviewModel)
+	if len(secondM.Decisions()) != 0 || secondM.acceptConfirmationMatchesCurrent() {
+		t.Fatalf("second accept without evidence must remain blocked, decisions=%+v confirm=%q", secondM.Decisions(), secondM.acceptConfirmID)
+	}
+	edit, _ := secondM.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	editM := edit.(reviewModel)
+	if editM.mode != reviewModeBrowse || len(editM.Decisions()) != 0 {
+		t.Fatalf("edit/distill without evidence must stay in browse without queuing decisions, mode=%v decisions=%+v", editM.mode, editM.Decisions())
+	}
+	if !strings.Contains(editM.statusMsg, "edit/distill is unavailable") {
+		t.Fatalf("edit/distill block status = %q", editM.statusMsg)
+	}
+}
+
+func TestFormatMemoryReviewRefLineSanitizesAndTruncates(t *testing.T) {
+	t.Parallel()
+
+	line := formatMemoryReviewRefLine("file", "path\n\x1b[31m\u009b32m\u202e\u2066\u200b"+strings.Repeat("x", memoryReviewRefDisplayMaxRunes+20))
+	for _, forbidden := range []string{"\n", "\x1b", "\u009b", "\u202e", "\u2066", "\u200b", "\r", "\t"} {
+		if strings.Contains(line, forbidden) {
+			t.Fatalf("ref line contains control sequence %q: %q", forbidden, line)
+		}
+	}
+	if !strings.HasSuffix(line, memoryReviewTruncatedRefSuffix) {
+		t.Fatalf("ref line should be truncated with suffix: %q", line)
+	}
+	value := strings.TrimPrefix(line, "file:")
+	if got := len([]rune(value)); got != memoryReviewRefDisplayMaxRunes {
+		t.Fatalf("sanitized ref value length = %d, want %d: %q", got, memoryReviewRefDisplayMaxRunes, value)
 	}
 }
 
@@ -546,6 +617,25 @@ func TestReviewModel_EvidenceToggle(t *testing.T) {
 	}
 	if !strings.Contains(view, "/tmp/MEMORY.md") {
 		t.Fatalf("evidence view missing ref value, got:\n%s", view)
+	}
+}
+
+func TestReviewModel_EvidenceViewSanitizesRefs(t *testing.T) {
+	t.Parallel()
+
+	model := newReviewTestModel(buildReviewCandidateWithOptions(t, reviewCandidateOptions{
+		id:            "id-unsafe-ref",
+		evidenceValue: "safe\n\x1b[31m\u202eunsafe",
+	}))
+	on, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	view := on.(reviewModel).View()
+	for _, forbidden := range []string{"\n\x1b", "\u202e"} {
+		if strings.Contains(view, forbidden) {
+			t.Fatalf("evidence view contains unsafe ref sequence %q:\n%s", forbidden, view)
+		}
+	}
+	if !strings.Contains(view, "file:safe [31m unsafe") {
+		t.Fatalf("evidence view missing sanitized ref:\n%s", view)
 	}
 }
 

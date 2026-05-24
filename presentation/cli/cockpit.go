@@ -2842,14 +2842,22 @@ func (m cockpitModel) memoryReviewContextualActions() []cockpitAction {
 		}
 	default:
 		acceptDescription := Localize("Accept as-is only when the checklist passes", "checklist を満たす場合だけ accept as-is")
-		if len(m.memoryReview.items) > 0 && m.memoryReview.review.cursor >= 0 && m.memoryReview.review.cursor < len(m.memoryReview.items) && memoryReviewRequiresAcceptConfirmation(m.memoryReview.items[m.memoryReview.review.cursor]) {
-			acceptDescription = Localize("Accept as-is (requires pressing a twice; prefer edit/distill if unsure)", "accept as-is には a を 2 回押す必要があります。不明なら edit/distill を優先")
+		editDescription := Localize("Edit/distill into an operator-authored fact when wording is unclear", "文言が曖昧なら operator-authored fact に edit/distill")
+		if len(m.memoryReview.items) > 0 && m.memoryReview.review.cursor >= 0 && m.memoryReview.review.cursor < len(m.memoryReview.items) {
+			current := m.memoryReview.items[m.memoryReview.review.cursor]
+			switch {
+			case memoryReviewBlocksAccept(current):
+				acceptDescription = Localize("Accept as-is unavailable until evidence exists", "evidence が追加されるまで accept as-is は利用できません")
+				editDescription = Localize("Edit/distill unavailable without source evidence", "source evidence がないため edit/distill は利用できません")
+			case memoryReviewRequiresAcceptConfirmation(current):
+				acceptDescription = Localize("Accept as-is (requires pressing a twice; prefer edit/distill if unsure)", "accept as-is には a を 2 回押す必要があります。不明なら edit/distill を優先")
+			}
 		}
 		actions := []cockpitAction{
 			{key: "a", description: acceptDescription},
 			{key: "x", description: Localize("Reject current candidate", "現在の candidate を reject")},
 			{key: "s", description: Localize("Skip when more context is needed", "追加 context が必要なら skip")},
-			{key: "e", description: Localize("Edit/distill into an operator-authored fact when wording is unclear", "文言が曖昧なら operator-authored fact に edit/distill")},
+			{key: "e", description: editDescription},
 			{key: "v", description: Localize("View evidence and artifact refs", "evidence と artifact refs を表示")},
 			{key: "q", description: Localize("Finish review and apply queued decisions", "review を終了し予約済み判断を適用")},
 			{description: Localize("Accept checklist: factual, stable, useful later, scoped correctly, evidence-backed, not duplicate/stale.", "Accept checklist: 事実で安定、将来有用、scope が正しい、evidence あり、重複/古さなし。")},
@@ -2923,6 +2931,9 @@ func (m cockpitModel) memoryReviewLocalHelp() string {
 	case reviewModeHelp:
 		return Localize("?/esc close help · q finish/apply", "?/esc help を閉じる · q 終了/適用")
 	default:
+		if m.memoryReview.review.cursor >= 0 && m.memoryReview.review.cursor < len(m.memoryReview.items) && memoryReviewBlocksAccept(m.memoryReview.items[m.memoryReview.review.cursor]) {
+			return Localize("a unavailable (evidence required) · x reject · s skip · v evidence · q finish/apply", "a 不可 (evidence 必須) · x reject · s skip · v evidence · q 終了/適用")
+		}
 		return Localize("a accept as-is · x reject · s skip · e edit/distill · v evidence · q finish/apply", "a accept as-is · x reject · s skip · e edit/distill · v evidence · q 終了/適用")
 	}
 }
