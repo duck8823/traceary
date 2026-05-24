@@ -15,7 +15,7 @@ func TestMemoryToolFileDatasource_roundTripThroughRepository(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	db := sqlite.NewDatabase(dbPath, productionSQLiteMigrations(t))
+	db := sqlite.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
 	store := sqlite.NewStoreManagementDatasource(db)
 	if err := store.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
@@ -125,7 +125,7 @@ func mustMemoryToolPath(t *testing.T, raw string) types.MemoryToolPath {
 func newTestMemoryToolFileDatasource(t *testing.T) *sqlite.MemoryToolFileDatasource {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	db := sqlite.NewDatabase(dbPath, productionSQLiteMigrations(t))
+	db := sqlite.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
 	store := sqlite.NewStoreManagementDatasource(db)
 	if err := store.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)

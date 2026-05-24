@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -53,7 +54,7 @@ func TestMigrations_applyToEmptyDatabase(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	ds := newStoreManagementDatasource(t, dbPath, productionSQLiteMigrations(t))
+	ds := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t))
 
 	if err := ds.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
@@ -77,7 +78,7 @@ func TestMigrations_applyToEmptyDatabase(t *testing.T) {
 	}
 
 	// Count migration files dynamically
-	entries, err := os.ReadDir(productionSQLiteMigrationDir(t))
+	entries, err := os.ReadDir(onDiskSQLiteMigrationDir(t))
 	if err != nil {
 		t.Fatalf("ReadDir() error = %v", err)
 	}
@@ -103,13 +104,13 @@ func TestMigration014_addsSessionSpawnMetadataToUpgradedDatabase(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	preV010 := migrationsWithout(t, productionSQLiteMigrationDir(t), "000014_add_session_spawn_metadata.sql")
+	preV010 := migrationsBeforeVersion(t, onDiskSQLiteMigrationDir(t), 14)
 	ds := newStoreManagementDatasource(t, dbPath, preV010)
 	if err := ds.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize(pre-v0.10) error = %v", err)
 	}
 
-	ds = newStoreManagementDatasource(t, dbPath, productionSQLiteMigrations(t))
+	ds = newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t))
 	if err := ds.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize(upgrade) error = %v", err)
 	}
@@ -127,7 +128,7 @@ func TestMigrations_idempotentOnExistingDatabase(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	ds := newStoreManagementDatasource(t, dbPath, productionSQLiteMigrations(t))
+	ds := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t))
 
 	if err := ds.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() first error = %v", err)
@@ -142,7 +143,7 @@ func TestMigrations_idempotentOnExistingDatabase(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	entries, err := os.ReadDir(productionSQLiteMigrationDir(t))
+	entries, err := os.ReadDir(onDiskSQLiteMigrationDir(t))
 	if err != nil {
 		t.Fatalf("ReadDir() error = %v", err)
 	}
@@ -162,13 +163,8 @@ func TestMigrations_idempotentOnExistingDatabase(t *testing.T) {
 	}
 }
 
-func migrationsWithout(t *testing.T, dir string, excludedNames ...string) fstest.MapFS {
+func migrationsBeforeVersion(t *testing.T, dir string, maxVersion int) fstest.MapFS {
 	t.Helper()
-
-	excluded := make(map[string]struct{}, len(excludedNames))
-	for _, name := range excludedNames {
-		excluded[name] = struct{}{}
-	}
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -179,7 +175,15 @@ func migrationsWithout(t *testing.T, dir string, excludedNames ...string) fstest
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
 			continue
 		}
-		if _, ok := excluded[entry.Name()]; ok {
+		versionText, _, ok := strings.Cut(entry.Name(), "_")
+		if !ok {
+			t.Fatalf("migration filename %q missing version separator", entry.Name())
+		}
+		version, err := strconv.Atoi(versionText)
+		if err != nil {
+			t.Fatalf("migration filename %q has invalid version: %v", entry.Name(), err)
+		}
+		if version >= maxVersion {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
@@ -292,7 +296,7 @@ func TestMigrations_backfillPopulatesSessionsFromEvents(t *testing.T) {
 	_ = db.Close()
 
 	// Apply remaining migrations via Initialize
-	ds := newStoreManagementDatasource(t, dbPath, productionSQLiteMigrations(t))
+	ds := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t))
 	if err := ds.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
