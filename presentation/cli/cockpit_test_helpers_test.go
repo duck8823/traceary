@@ -25,16 +25,10 @@ func applyCockpitImmediateMessageForTest(t *testing.T, model cockpitModel, msg t
 		}
 		return model
 	default:
-		updated, followCmd := model.Update(msg)
+		updated, _ := model.Update(msg)
 		next, ok := updated.(cockpitModel)
 		if !ok {
 			t.Fatalf("cockpit update returned %T, want cockpitModel", updated)
-		}
-		if followCmd != nil {
-			followMsg := followCmd()
-			if followMsg != nil {
-				return applyCockpitImmediateMessageForTest(t, next, followMsg)
-			}
 		}
 		return next
 	}

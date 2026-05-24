@@ -571,6 +571,7 @@ func newCockpitModel(keys tui.KeyMap, styles tui.Styles, home cockpitHomeSnapsho
 		live: cockpitLiveState{
 			loadedAt: home.LoadedAt,
 			loading:  true,
+			follow:   true,
 		},
 	}
 }
@@ -663,14 +664,15 @@ func cockpitNavigationSectionLabel(id cockpitSectionID) string {
 }
 
 type cockpitLiveState struct {
-	events     []*model.Event
-	cursor     tailCursor
-	loadedAt   time.Time
-	loading    bool
-	follow     bool
-	selected   int
-	requestSeq uint64
-	err        error
+	events         []*model.Event
+	cursor         tailCursor
+	loadedAt       time.Time
+	loading        bool
+	follow         bool
+	pausedNewCount int
+	selected       int
+	requestSeq     uint64
+	err            error
 }
 
 type cockpitLiveMsg struct {
@@ -771,7 +773,11 @@ func (m cockpitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			if msg.initial {
 				m.live.events = msg.snapshot.Events
+				m.live.pausedNewCount = 0
 			} else {
+				if !m.live.follow && len(msg.snapshot.Events) > 0 {
+					m.live.pausedNewCount += len(msg.snapshot.Events)
+				}
 				m.live.events = append(m.live.events, msg.snapshot.Events...)
 				if len(m.live.events) > cockpitLiveMaxEvents {
 					m.live.events = m.live.events[len(m.live.events)-cockpitLiveMaxEvents:]
@@ -780,17 +786,21 @@ func (m cockpitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.live.cursor = msg.snapshot.Cursor
 			m.live.loadedAt = msg.snapshot.LoadedAt
 			m.clampLiveSelection()
+			if m.live.follow {
+				m.moveCockpitLiveSelectionToNewest()
+				m.live.pausedNewCount = 0
+			}
 		}
 		var markCmd tea.Cmd
 		if msg.err == nil && m.mode == cockpitModeLive {
 			markCmd = m.markCockpitEventsSeenCmd(msg.snapshot)
 		}
-		if m.mode == cockpitModeLive && m.live.follow {
+		if m.mode == cockpitModeLive {
 			return m, tea.Batch(markCmd, m.cockpitLiveTickCmd())
 		}
 		return m, markCmd
 	case cockpitLiveTickMsg:
-		if m.mode == cockpitModeLive && m.live.follow && !m.live.loading {
+		if m.mode == cockpitModeLive && !m.live.loading {
 			return m, m.startCockpitLiveLoad(false)
 		}
 		return m, nil
@@ -985,6 +995,7 @@ func (m cockpitModel) openCockpitSection(section cockpitSectionID) (tea.Model, t
 			m.detailOffset = 0
 		}
 		m.mode = cockpitModeLive
+		m.resumeCockpitLiveFollow()
 		return m, m.startCockpitLiveLoad(true)
 	case cockpitSectionTop:
 		m.mode = cockpitModeTop
@@ -1009,10 +1020,7 @@ func (m cockpitModel) backCockpitSection() (tea.Model, tea.Cmd) {
 		m.mode = cockpitModeLive
 		m.detail = topDetailState{}
 		m.detailOffset = 0
-		if m.live.follow {
-			return m, m.cockpitLiveTickCmd()
-		}
-		return m, nil
+		return m, m.cockpitLiveTickCmd()
 	case cockpitModeLive:
 		return m, nil
 	default:
@@ -1051,25 +1059,34 @@ func (m cockpitModel) updateLiveKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Up):
 		m.live.selected--
 		m.clampLiveSelection()
+		if !m.live.isAtNewest() {
+			m.live.follow = false
+		}
 		return m, nil
 	case key.Matches(msg, m.keys.Down):
 		m.live.selected++
 		m.clampLiveSelection()
+		if !m.live.isAtNewest() {
+			m.live.follow = false
+		}
+		return m, nil
+	case key.Matches(msg, m.keys.Home):
+		m.live.selected = 0
+		m.clampLiveSelection()
+		if !m.live.isAtNewest() {
+			m.live.follow = false
+		}
+		return m, nil
+	case key.Matches(msg, m.keys.End):
+		m.resumeCockpitLiveFollow()
+		if !m.live.loading {
+			return m, m.cockpitLiveTickCmd()
+		}
 		return m, nil
 	case key.Matches(msg, m.keys.Refresh):
 		return m, m.startCockpitLiveLoad(true)
 	case key.Matches(msg, m.keys.Select):
 		return m.openCockpitLiveDetail()
-	}
-	if msg.Type == tea.KeyRunes {
-		switch strings.ToLower(string(msg.Runes)) {
-		case "f":
-			m.live.follow = !m.live.follow
-			if m.live.follow {
-				return m, m.cockpitLiveTickCmd()
-			}
-			return m, nil
-		}
 	}
 	return m, nil
 }
@@ -1098,15 +1115,12 @@ func (m cockpitModel) updateDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = cockpitModeLive
 			m.detail = topDetailState{}
 			m.detailOffset = 0
-			return m, nil
+			return m, m.cockpitLiveTickCmd()
 		case "t", "l":
 			m.mode = cockpitModeLive
 			m.detail = topDetailState{}
 			m.detailOffset = 0
-			if m.live.follow {
-				return m, m.cockpitLiveTickCmd()
-			}
-			return m, nil
+			return m, m.cockpitLiveTickCmd()
 		}
 	}
 	return m, nil
@@ -1235,6 +1249,7 @@ func (m *cockpitModel) startCockpitHomeLoad() tea.Cmd {
 }
 
 func (m *cockpitModel) startCockpitHomeAndLiveLoad() tea.Cmd {
+	m.resumeCockpitLiveFollow()
 	return tea.Batch(m.startCockpitHomeLoad(), m.startCockpitLiveLoad(true))
 }
 
@@ -1395,6 +1410,24 @@ func (m *cockpitModel) clampLiveSelection() {
 	if m.live.selected >= len(m.live.events) {
 		m.live.selected = len(m.live.events) - 1
 	}
+}
+
+func (m *cockpitModel) moveCockpitLiveSelectionToNewest() {
+	if len(m.live.events) == 0 {
+		m.live.selected = 0
+		return
+	}
+	m.live.selected = len(m.live.events) - 1
+}
+
+func (s cockpitLiveState) isAtNewest() bool {
+	return len(s.events) == 0 || s.selected >= len(s.events)-1
+}
+
+func (m *cockpitModel) resumeCockpitLiveFollow() {
+	m.live.follow = true
+	m.live.pausedNewCount = 0
+	m.moveCockpitLiveSelectionToNewest()
 }
 
 func (m *cockpitModel) clampDetailOffset() {
@@ -1566,7 +1599,7 @@ func (m cockpitModel) memoryReviewView() string {
 
 func (m cockpitModel) liveView() string {
 	lines := []string{
-		m.styles.Subtle.Render(fmt.Sprintf("loaded=%s follow=%t rows=%d", formatJSONTime(m.live.loadedAt), m.live.follow, len(m.live.events))),
+		m.styles.Subtle.Render(fmt.Sprintf("loaded=%s auto_follow=%t rows=%d", formatJSONTime(m.live.loadedAt), m.live.follow, len(m.live.events))),
 		"",
 	}
 	if m.statusMsg != "" {
@@ -1575,13 +1608,16 @@ func (m cockpitModel) liveView() string {
 	if m.statusErr != "" {
 		lines = append(lines, m.styles.Error.Render("• "+m.statusErr), "")
 	}
+	if pauseMessage := m.livePauseMessage(); pauseMessage != "" {
+		lines = append(lines, pauseMessage, "")
+	}
 	if m.live.err != nil {
 		lines = append(lines, m.styles.Error.Render(m.live.err.Error()))
 	} else if len(m.live.events) == 0 {
 		if m.live.loading {
 			lines = append(lines, m.styles.Subtle.Render(Localize("Loading live events...", "live event を読み込み中...")))
 		} else {
-			lines = append(lines, m.styles.Subtle.Render(Localize("No recent events. Press r to refresh or f to follow.", "最近の event はありません。r で再取得、f で follow します。")))
+			lines = append(lines, m.styles.Subtle.Render(Localize("No recent events. Press r to refresh.", "最近の event はありません。r で再取得します。")))
 		}
 	} else {
 		for i, event := range m.live.events {
@@ -1597,6 +1633,16 @@ func (m cockpitModel) liveView() string {
 		}
 	}
 	return m.renderCockpitShell(Localize("live tail", "live tail"), lines, m.liveLocalHelp())
+}
+
+func (m cockpitModel) livePauseMessage() string {
+	if m.live.follow {
+		return ""
+	}
+	if m.live.pausedNewCount > 0 {
+		return m.styles.Warning.Render(Localizef("Auto-follow paused · %d newer event(s) available · press End/G for newest", "auto-follow 停止中 · 新しい event %d 件 · End/G で最新へ", m.live.pausedNewCount))
+	}
+	return m.styles.Subtle.Render(Localize("Auto-follow paused · press End/G for newest", "auto-follow 停止中 · End/G で最新へ"))
 }
 
 func (m cockpitModel) detailView() string {
@@ -1958,8 +2004,8 @@ func (m cockpitModel) cockpitContextualActions() []cockpitAction {
 		return actions
 	case cockpitModeLive:
 		actions := []cockpitAction{
-			{key: "r", description: Localize("Refresh live events", "live event を再取得")},
-			{key: "f", description: m.liveFollowActionDescription()},
+			{key: "r", description: Localize("Refresh Tail events", "Tail event を再取得")},
+			{key: "End/G", description: Localize("Jump to newest and resume auto-follow", "最新へ移動して auto-follow を再開")},
 		}
 		if len(m.live.events) > 0 {
 			actions = append(actions, cockpitAction{key: "enter", description: Localize("Open selected event detail", "選択中 event の詳細を開く")})
@@ -2009,13 +2055,6 @@ func cockpitDoctorHasRemediation(snapshot cockpitDoctorSnapshot) bool {
 		}
 	}
 	return false
-}
-
-func (m cockpitModel) liveFollowActionDescription() string {
-	if m.live.follow {
-		return Localize("Pause follow mode", "follow mode を停止")
-	}
-	return Localize("Start follow mode", "follow mode を開始")
 }
 
 func (m cockpitModel) memoryReviewContextualActions() []cockpitAction {
@@ -2078,10 +2117,7 @@ func (m cockpitModel) memoryReviewContextualActions() []cockpitAction {
 }
 
 func (m cockpitModel) liveLocalHelp() string {
-	parts := []string{Localize("r refresh", "r 再取得"), Localize("f follow", "f follow")}
-	if m.live.follow {
-		parts[1] = Localize("f pause", "f 停止")
-	}
+	parts := []string{Localize("r refresh", "r 再取得"), Localize("End/G newest", "End/G 最新")}
 	if len(m.live.events) > 0 {
 		parts = append(parts, Localize("enter detail", "enter 詳細"))
 		if len(m.live.events) > 1 {
