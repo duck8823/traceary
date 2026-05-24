@@ -5,14 +5,24 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
-## [v0.19.0] - Unreleased
+## [v0.19.0] - 2026-05-25
 
 ### Added
-- **Memory review evidence attach path (#1066)** — `traceary memory inbox attach <id> --evidence kind:value` で既存のメモリ候補に support refs を追加できるようになりました。対話的な Memory review TUI でも `r` で attach action を保留してから accept/edit-distill できるため、evidence のない有用な候補が skip/recreate loop に残りにくくなります。
+- **Tail-first cockpit shell (#1053, #1054)** — `traceary tui` は Home triage board ではなく Live/Tail stream から開くようになりました。Claude/Codex に近い tab navigation、row movement、Enter/Esc の drill-in/back、recent Traceary event の live auto-follow semantics を備えます。
+- **専用 Top tab と editable Settings (#1055, #1056)** — cockpit は Tail と Top を別 tab として扱い、Settings では TUI を離れずに language / read / redaction 設定を arrow-key form controls で安全に更新できます。
+- **Evidence-first Memory review hardening (#1057, #1066)** — Memory review は supporting refs が追加されるまで evidence のない accept / edit-distill をブロックします。`traceary memory inbox attach <id> --evidence kind:value [--artifact kind:value]` を追加し、対話的な review TUI でも `r` で attach action を保留してから accept / edit-distill できるようになりました。
+- **日本語 TUI copy refresh (#1058)** — literal command name は英語で copy しやすいまま維持しつつ、日本語 cockpit / Memory review copy を更新しました。
+- **Host-native memory activation file のバージョン管理 (#1050)** — Traceary 管理の Claude/Gemini memory import stub と生成済み project memory projection を repository に含め、dogfood activation state を将来の agent と共有できるようにしました。
 
 ### Changed
-- **subcommand なしの `traceary` が対話 terminal で Tail-first TUI を開くように変更 (#1060)** — stdin/stdout が TTY のとき、subcommand なしの `traceary` は `traceary tui` と同じ Tail-first cockpit を開きます。非対話 caller では deterministic な help / fallback output を維持するため、script からは引き続き `traceary list`、`traceary top --snapshot [--json]`、`traceary doctor --json` などの明示的な script-friendly command を使ってください。
+- **Subcommand なしの `traceary` が対話 terminal で Tail-first TUI を開くように変更 (#1060)** — stdin/stdout が TTY のとき、subcommand なしの `traceary` は `traceary tui` と同じ Tail-first cockpit を開きます。非対話 caller では deterministic な help / fallback output を維持するため、script からは引き続き `traceary list`、`traceary top --snapshot [--json]`、`traceary doctor --json` などの明示的な script-friendly command を使ってください。
+- **Cockpit review invariants を regression coverage 化 (#1059)** — cockpit に関する過去の Codex review findings を regression として固定しました。weak-memory accept confirmation、80x24 dogfood smoke、日本語 narrow snapshot、Settings write safety を含みます。
+- **Latest-session schema test alignment (#1068)** — latest-session test が runtime database と同じ production migration-backed schema path を使うようになりました。
 - **Cockpit のメモリ確認 glossary を整理 (#1070)** — TUI、CLI help、`top --snapshot` の empty state、関連する memory review error message では候補キューを英語で “memory review queue”、日本語で `メモリ候補の確認キュー` と一貫して呼ぶようにしました。一方で、`traceary memory inbox ...` の literal command path、`candidate(inbox)` metric、既存の `top --snapshot` section header は script で copy しやすいよう維持しています。
+
+### Notes
+- v0.19.0 には SQLite schema migration と新しい MCP tools の追加はありません。
+- `Formula/traceary.rb` は tagged release workflow が生成するため、release-preparation PR では編集しません。
 
 ## [v0.18.0] - 2026-05-24
 
