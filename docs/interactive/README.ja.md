@@ -9,7 +9,7 @@
 
 現在の Traceary には、インタラクティブ利用を支える基本機能として次の 3 つがあります。
 
-- operator cockpit entrypoint としての `traceary tui`
+- Tail-first operator cockpit entrypoint としての bare `traceary`（明示的な互換 path として `traceary tui` も維持）
 - shell completion
 - `traceary tail` による live follow
 
@@ -20,20 +20,21 @@
 
 確認したい内容に応じて、次のように使い分けるのがおすすめです。
 
-### 1. 「まず1か所から始めたい」 → `traceary tui`
+### 1. 「まず1か所から始めたい」 → `traceary`
 
-ターミナル上で Traceary の operator cockpit を開きたいときは `tui` を使います。cockpit home は active work、doctor の warning/failure、直近の失敗、前回 live tail 以降の新着 event、前回 memory review 以降の candidate durable memory をまとめて表示します。そこから次の画面へ移動できます。
+対話 terminal で Traceary の Tail-first operator cockpit を開きたいときは bare `traceary` を使います。`traceary tui` は同じ cockpit を明示的に開く互換 entrypoint として残ります。cockpit は active work、doctor の warning/failure、直近の失敗、前回 live tail 以降の新着 event、前回 memory review 以降の candidate durable memory をまとめて表示します。そこから次の画面へ移動できます。
 
 - live event tail
 - doctor details
 - memory inbox review
 
 ```sh
+traceary
 traceary tui
 traceary tui --reset-state
 ```
 
-`traceary tui` は意図的に TTY 専用です。非対話シェルでは `traceary top --snapshot [--json]`、`traceary tail [--json]`、`traceary doctor --json`、`traceary session handoff`、`traceary memory inbox list` を使ってください。
+cockpit は意図的に TTY 専用です。非対話シェルでは `traceary top --snapshot [--json]`、`traceary tail [--json]`、`traceary doctor --json`、`traceary session handoff`、`traceary memory inbox list` を使ってください。非 TTY の bare `traceary` は cockpit を起動せず、help と fallback guidance を表示します。
 
 ### 2. 「今なにが起きたか」をざっと見たい → `traceary list`
 
@@ -122,22 +123,17 @@ traceary completion powershell
 
 `tail` が入った後でも、CLI 全体の発見しやすさを上げる意味で completion を有効にする価値はあります。
 
-## bare `traceary` entrypoint の判断
+## bare `traceary` entrypoint の方針
 
-v0.17.0 では、bare `traceary` の挙動は変更しません。subcommand なしで `traceary` を実行した場合は cockpit を自動起動せず、従来どおり help / usage を表示します。
+v0.19.0 では、stdin/stdout が対話 terminal に接続されている場合、bare `traceary` は Tail-first cockpit を開きます。非 TTY で subcommand なしの `traceary` を実行した場合は、Bubble Tea を起動せず deterministic な help / fallback output を維持します。
 
-現在の dogfooding で支持できるのは「明示的な cockpit entrypoint」であり、「default entrypoint の乗っ取り」ではありません。
+互換性の contract は次の通りです。
 
-- `traceary tui` は home summary、live tail、doctor warnings、memory review という主要な operator loop をすでにカバーしています。
-- cockpit は local last-seen timestamp を永続化するため、script 向け command を変えなくても新着 event / memory candidate に気付けます。
-- 既存の automation、completion、docs example、操作慣れは、no-args の挙動が決定的で予想しやすいことに依存しています。
-
-将来この判断を見直す場合の互換性条件は次の通りです。
-
-- TTY と非 TTY の挙動を別々にテストする。
+- `traceary tui` は、名前付き command を好む operator 向けの安定した明示 entrypoint として残す。
 - 非 TTY の `traceary` は deterministic な help / script behavior を維持する。
 - completion generation と help example を壊さない。
-- 明示的な `traceary tui` entrypoint を好む operator 向けに migration path を release notes に書く。
+- script 向けには `list`、`top --snapshot [--json]`、`doctor --json`、`session handoff`、`memory inbox list` を推奨 path として維持する。
+- release notes には default entrypoint の変更と、明示的な `traceary tui` 互換 path を書く。
 
 ## 今後の改善候補
 

@@ -5,6 +5,11 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.19.0] - Unreleased
+
+### Changed
+- **Bare CLI opens the Tail-first TUI in interactive terminals (#1060)** — running `traceary` with no subcommand now opens the same Tail-first cockpit as `traceary tui` when stdin/stdout are TTY-backed. Non-interactive callers keep deterministic help/fallback output and should continue using explicit script-friendly commands such as `traceary list`, `traceary top --snapshot [--json]`, and `traceary doctor --json`.
+
 ## [v0.18.0] - 2026-05-24
 
 ### Added

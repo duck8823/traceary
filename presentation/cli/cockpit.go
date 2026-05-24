@@ -53,22 +53,26 @@ func (c *RootCLI) newCockpitCommand() *cobra.Command {
 		Aliases: []string{"dashboard"},
 		Short:   Localize("Open the Traceary operator cockpit TUI", "Traceary operator cockpit TUI を開く"),
 		Long: Localize(
-			"Open the Traceary operator cockpit TUI. The cockpit is the explicit interactive entrypoint that will gather top, tail, doctor, handoff, and memory review workflows behind one TTY-only shell. Bare `traceary` behavior is unchanged.",
-			"Traceary operator cockpit TUI を開きます。cockpit は top / tail / doctor / handoff / memory review を 1 つの TTY 専用 shell にまとめる明示的な対話 entrypoint です。bare `traceary` の挙動は変更しません。",
+			"Open the Traceary operator cockpit TUI. It gathers top, tail, doctor, handoff, and memory review workflows behind one TTY-only shell. In an interactive terminal, bare `traceary` opens the same Tail-first TUI by default; `traceary tui` remains the explicit compatibility entrypoint for operators who prefer a named command.",
+			"Traceary operator cockpit TUI を開きます。top / tail / doctor / handoff / memory review を 1 つの TTY 専用 shell にまとめます。対話 terminal では subcommand なしの `traceary` も同じ Tail-first TUI をデフォルトで開きます。`traceary tui` は明示的に呼びたい operator のための互換 entrypoint として残ります。",
 		),
 		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return c.runCockpit(cmd.Context(), cmd.OutOrStdout(), opts)
+			return c.runCockpit(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout(), opts)
 		},
 	}
-	cmd.Flags().StringVar(&opts.dbPath, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().BoolVar(&opts.resetState, "reset-state", false, Localize("reset local cockpit last-seen state before opening", "起動前に cockpit の local last-seen state をリセットする"))
+	bindCockpitFlags(cmd, &opts)
 	return cmd
 }
 
-func (c *RootCLI) runCockpit(ctx context.Context, output io.Writer, opts cockpitCommandOptions) error {
-	stdin, stdout := cockpitIO(output)
-	if !tui.Interactive(stdin, stdout) {
+func bindCockpitFlags(cmd *cobra.Command, opts *cockpitCommandOptions) {
+	cmd.Flags().StringVar(&opts.dbPath, "db-path", "", dbPathFlagUsage())
+	cmd.Flags().BoolVar(&opts.resetState, "reset-state", false, Localize("reset local cockpit last-seen state before opening", "起動前に cockpit の local last-seen state をリセットする"))
+}
+
+func (c *RootCLI) runCockpit(ctx context.Context, input io.Reader, output io.Writer, opts cockpitCommandOptions) error {
+	stdin, stdout, ok := cockpitIO(input, output)
+	if !ok || !c.isCockpitInteractive(stdin, stdout) {
 		return newCockpitNonInteractiveError(output)
 	}
 	if opts.resetState {
@@ -83,6 +87,29 @@ func (c *RootCLI) runCockpit(ctx context.Context, output io.Writer, opts cockpit
 		return xerrors.Errorf("%s: %w", Localize("failed to run cockpit TUI", "cockpit TUI の実行に失敗しました"), err)
 	}
 	return nil
+}
+
+type cockpitInteractiveFunc func(*os.File, *os.File) bool
+
+func (c *RootCLI) isCockpitInteractive(stdin, stdout *os.File) bool {
+	if c.cockpitInteractive != nil {
+		return c.cockpitInteractive(stdin, stdout)
+	}
+	return tui.Interactive(stdin, stdout)
+}
+
+func (c *RootCLI) cockpitRunnerFunc() cockpitRunnerFunc {
+	if c.cockpitRunner != nil {
+		return c.cockpitRunner
+	}
+	return c.runCockpit
+}
+
+func withCockpitRuntimeForTest(interactive cockpitInteractiveFunc, runner cockpitRunnerFunc) RootCLIOption {
+	return func(c *RootCLI) {
+		c.cockpitInteractive = interactive
+		c.cockpitRunner = runner
+	}
 }
 
 type cockpitHomeSnapshot struct {
@@ -554,8 +581,8 @@ func formatCockpitCheckpoint(at time.Time) string {
 
 func newCockpitNonInteractiveError(output io.Writer) error {
 	guidance := Localize(
-		"Traceary cockpit requires an interactive terminal (TTY).\nUse the existing non-interactive commands instead:\n  traceary top --snapshot [--json]\n  traceary tail [--follow]\n  traceary doctor --json\n  traceary session handoff\n  traceary memory inbox list\nRun `traceary tui` from a terminal to open the cockpit.",
-		"Traceary cockpit には対話 terminal (TTY) が必要です。\n非対話 shell では既存 command を使ってください:\n  traceary top --snapshot [--json]\n  traceary tail [--follow]\n  traceary doctor --json\n  traceary session handoff\n  traceary memory inbox list\nterminal から `traceary tui` を実行すると cockpit を開けます。",
+		"Traceary cockpit requires an interactive terminal (TTY).\nUse the existing non-interactive commands instead:\n  traceary list\n  traceary top --snapshot [--json]\n  traceary doctor --json\n  traceary session handoff\n  traceary memory inbox list\nRun `traceary` (or `traceary tui`) from a terminal to open the cockpit.",
+		"Traceary cockpit には対話 terminal (TTY) が必要です。\n非対話 shell では既存 command を使ってください:\n  traceary list\n  traceary top --snapshot [--json]\n  traceary doctor --json\n  traceary session handoff\n  traceary memory inbox list\nterminal から `traceary`（または `traceary tui`）を実行すると cockpit を開けます。",
 	)
 	if output != nil {
 		_, _ = fmt.Fprintln(output, guidance)
@@ -2550,7 +2577,7 @@ func (m cockpitModel) sessionsView() string {
 		m.styles.Subtle.Render(Localize("Available today:", "現在利用可能:")),
 		"traceary top --snapshot [--json]",
 		"traceary session handoff",
-		"traceary tail [--follow]",
+		"traceary tail",
 		"",
 		m.styles.Subtle.Render(Localize("Dedicated session list and handoff drill-down remain compatible with the existing subcommands.", "専用の session list / handoff drill-down までは既存 subcommand への導線を維持します。")),
 	}
@@ -2684,7 +2711,7 @@ func (m cockpitModel) cockpitContextualHelp() []string {
 		"",
 		m.styles.Subtle.Render(Localize("Fallback commands available today:", "現在利用できる fallback command:")),
 		"traceary top --snapshot [--json]",
-		"traceary tail [--follow]",
+		"traceary tail",
 		"traceary doctor --json",
 		"traceary session handoff",
 		"traceary memory inbox review",
@@ -2992,10 +3019,12 @@ func cockpitLiveSeenIDs(snapshot cockpitLiveSnapshot) []string {
 	return seenIDs
 }
 
-// cockpitIO resolves the stdin/stdout pair the cockpit TUI should drive. Tests
-// pass a non-file writer (e.g. *bytes.Buffer), making tui.Interactive refuse
-// the run before any Bubble Tea program is spawned.
-func cockpitIO(output io.Writer) (*os.File, *os.File) {
+// cockpitIO resolves the stdin/stdout pair the cockpit TUI should drive. Cobra
+// hands production runs os.Stdin / os.Stdout; tests or embedded callers may pass
+// wrapped streams, which intentionally refuse the cockpit and keep the command
+// on the non-interactive fallback path.
+func cockpitIO(input io.Reader, output io.Writer) (*os.File, *os.File, bool) {
+	stdin, _ := input.(*os.File)
 	stdout, _ := output.(*os.File)
-	return os.Stdin, stdout
+	return stdin, stdout, stdin != nil && stdout != nil
 }
