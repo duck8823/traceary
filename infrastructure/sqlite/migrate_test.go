@@ -163,6 +163,8 @@ func TestMigrations_idempotentOnExistingDatabase(t *testing.T) {
 	}
 }
 
+// migrationsBeforeVersion returns on-disk migrations whose numeric version is
+// lower than maxVersion, preserving the history shape of an older database.
 func migrationsBeforeVersion(t *testing.T, dir string, maxVersion int) fstest.MapFS {
 	t.Helper()
 

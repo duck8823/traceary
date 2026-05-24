@@ -43,10 +43,9 @@ func findTracearyRepositoryRoot(start string) (string, error) {
 		data, err := os.ReadFile(goModPath)
 		switch {
 		case err == nil:
-			if bytes.Contains(data, []byte("module github.com/duck8823/traceary")) {
+			if isTracearyModule(data) {
 				return dir, nil
 			}
-			return "", errors.New("found go.mod with unexpected module at " + goModPath)
 		case errors.Is(err, os.ErrNotExist):
 			// Continue walking upward.
 		default:
@@ -60,19 +59,29 @@ func findTracearyRepositoryRoot(start string) (string, error) {
 	}
 }
 
+func isTracearyModule(data []byte) bool {
+	for _, line := range bytes.Split(data, []byte("\n")) {
+		if bytes.Equal(bytes.TrimSpace(line), []byte("module github.com/duck8823/traceary")) {
+			return true
+		}
+	}
+	return false
+}
+
 func validateSQLiteMigrationDir(dir string) error {
-	info, err := os.Lstat(dir)
+	info, err := os.Stat(dir)
 	if err != nil {
 		return fmt.Errorf("stat SQLite migrations path %s: %w", dir, err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("SQLite migrations path is a symlink: " + dir)
 	}
 	if !info.IsDir() {
 		return errors.New("SQLite migrations path is not a directory: " + dir)
 	}
-	if _, err := os.Lstat(filepath.Join(dir, "000001_init.sql")); err != nil {
-		return fmt.Errorf("stat initial SQLite migration in %s: %w", dir, err)
+	migrations, err := filepath.Glob(filepath.Join(dir, "*.sql"))
+	if err != nil {
+		return fmt.Errorf("glob SQLite migrations in %s: %w", dir, err)
+	}
+	if len(migrations) == 0 {
+		return errors.New("SQLite migrations path has no .sql files: " + dir)
 	}
 	return nil
 }
