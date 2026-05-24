@@ -184,47 +184,59 @@ type inboxReviewWriter interface {
 // applyInboxReviewDecisions walks the queued decisions in operator order
 // and dispatches each one through the existing application use cases
 // (memory.Accept / memory.Reject / memory.Distill). The function never
-// short-circuits on a single failure: the caller still expects a
-// per-id success/failure breakdown so the operator can see exactly which
-// transitions landed even when one row collides with another reviewer.
+// short-circuits unrelated rows: the caller still expects a per-id
+// success/failure breakdown so the operator can see exactly which transitions
+// landed even when one row collides with another reviewer. A failed attach is
+// the only per-id dependency that suppresses a later accept/distill for the
+// same memory because those operations rely on the queued evidence.
 func applyInboxReviewDecisions(ctx context.Context, writer inboxReviewWriter, decisions []reviewDecision, items []apptypes.MemoryDetails) (memoryInboxReviewResult, error) {
 	byID := make(map[string]apptypes.MemoryDetails, len(items))
 	for _, item := range items {
 		byID[item.Summary().MemoryID().String()] = item
 	}
 	result := memoryInboxReviewResult{}
+	failedAttach := map[string]struct{}{}
 	for _, decision := range decisions {
+		id := decision.memoryID.String()
+		if _, ok := failedAttach[id]; ok && decision.requiresSuccessfulAttach() {
+			result.Failures = append(result.Failures, memoryInboxFailure{
+				ID:    id,
+				Error: Localize("skipped after evidence attach failed", "evidence 追加の失敗後のため skip しました"),
+			})
+			continue
+		}
 		switch decision.kind {
 		case reviewDecisionAttach:
 			details, err := writer.AttachCandidateRefs(ctx, decision.memoryID, decision.evidenceRefs, decision.artifactRefs)
 			if err != nil {
-				result.Failures = append(result.Failures, memoryInboxFailure{ID: decision.memoryID.String(), Error: err.Error()})
+				failedAttach[id] = struct{}{}
+				result.Failures = append(result.Failures, memoryInboxFailure{ID: id, Error: err.Error()})
 				continue
 			}
 			result.Attached = append(result.Attached, details)
 		case reviewDecisionAccept:
 			details, err := writer.Accept(ctx, decision.memoryID, domtypes.None[domtypes.Confidence]())
 			if err != nil {
-				result.Failures = append(result.Failures, memoryInboxFailure{ID: decision.memoryID.String(), Error: err.Error()})
+				result.Failures = append(result.Failures, memoryInboxFailure{ID: id, Error: err.Error()})
 				continue
 			}
 			result.Accepted = append(result.Accepted, details)
 		case reviewDecisionReject:
 			details, err := writer.Reject(ctx, decision.memoryID)
 			if err != nil {
-				result.Failures = append(result.Failures, memoryInboxFailure{ID: decision.memoryID.String(), Error: err.Error()})
+				result.Failures = append(result.Failures, memoryInboxFailure{ID: id, Error: err.Error()})
 				continue
 			}
 			result.Rejected = append(result.Rejected, details)
 		case reviewDecisionDistill:
-			source, ok := byID[decision.memoryID.String()]
+			source, ok := byID[id]
 			if !ok {
-				result.Failures = append(result.Failures, memoryInboxFailure{ID: decision.memoryID.String(), Error: Localize("source memory candidate not found in memory review queue", "メモリ候補の確認キューに source メモリ候補が見つかりません")})
+				result.Failures = append(result.Failures, memoryInboxFailure{ID: id, Error: Localize("source memory candidate not found in memory review queue", "メモリ候補の確認キューに source メモリ候補が見つかりません")})
 				continue
 			}
 			details, err := distillFromReview(ctx, writer, source, decision.fact)
 			if err != nil {
-				result.Failures = append(result.Failures, memoryInboxFailure{ID: decision.memoryID.String(), Error: err.Error()})
+				result.Failures = append(result.Failures, memoryInboxFailure{ID: id, Error: err.Error()})
 				continue
 			}
 			result.Distilled = append(result.Distilled, details)
@@ -260,8 +272,8 @@ func distillFromReview(ctx context.Context, writer inboxReviewWriter, source app
 
 func newInboxReviewNonInteractiveError() error {
 	guidance := Localize(
-		"`memory inbox review` is interactive and requires a TTY. Use the batch commands instead:\n  traceary memory inbox list [--workspace ... --type ... --source ... --include-hidden --limit N]\n  traceary memory inbox accept <memory-id> | --ids id1,id2,...\n  traceary memory inbox reject <memory-id> | --ids id1,id2,...",
-		"`memory inbox review` は対話的コマンドで TTY が必要です。代わりにバッチ用のコマンドを使ってください:\n  traceary memory inbox list [--workspace ... --type ... --source ... --include-hidden --limit N]\n  traceary memory inbox accept <memory-id> | --ids id1,id2,...\n  traceary memory inbox reject <memory-id> | --ids id1,id2,...",
+		"`memory inbox review` is interactive and requires a TTY. Use the batch commands instead:\n  traceary memory inbox list [--workspace ... --type ... --source ... --include-hidden --limit N]\n  traceary memory inbox attach <memory-id> --evidence kind:value\n  traceary memory inbox accept <memory-id> | --ids id1,id2,...\n  traceary memory inbox reject <memory-id> | --ids id1,id2,...",
+		"`memory inbox review` は対話的コマンドで TTY が必要です。代わりにバッチ用のコマンドを使ってください:\n  traceary memory inbox list [--workspace ... --type ... --source ... --include-hidden --limit N]\n  traceary memory inbox attach <memory-id> --evidence kind:value\n  traceary memory inbox accept <memory-id> | --ids id1,id2,...\n  traceary memory inbox reject <memory-id> | --ids id1,id2,...",
 	)
 	return inboxReviewExitError{message: guidance, exitCode: reviewExitCodeNotInteractive}
 }
@@ -279,8 +291,8 @@ type memoryInboxReviewResult struct {
 }
 
 func writeMemoryInboxReviewSummary(output io.Writer, result memoryInboxReviewResult) error {
-	if _, err := fmt.Fprintf(output, "review attached=%d accepted=%d rejected=%d distilled=%d failures=%d\n",
-		len(result.Attached), len(result.Accepted), len(result.Rejected), len(result.Distilled), len(result.Failures)); err != nil {
+	if _, err := fmt.Fprintf(output, "review accepted=%d rejected=%d distilled=%d failures=%d attached=%d\n",
+		len(result.Accepted), len(result.Rejected), len(result.Distilled), len(result.Failures), len(result.Attached)); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print review summary", "review サマリの出力に失敗しました"), err)
 	}
 	for _, details := range result.Attached {
@@ -350,6 +362,10 @@ type reviewDecision struct {
 	// to be non-empty by the model so the application/use case path can
 	// trust the input is operator-authored.
 	fact string
+}
+
+func (d reviewDecision) requiresSuccessfulAttach() bool {
+	return d.kind == reviewDecisionAccept || d.kind == reviewDecisionDistill
 }
 
 // reviewMode encodes the sub-screen the model is showing. Keeping the
@@ -1167,43 +1183,9 @@ func sanitizeMemoryReviewRefValue(value string) string {
 func memoryDetailsWithRefs(details apptypes.MemoryDetails, evidenceRefs []domtypes.EvidenceRef, artifactRefs []domtypes.ArtifactRef) apptypes.MemoryDetails {
 	return apptypes.MemoryDetailsOf(
 		details.Summary(),
-		appendReviewEvidenceRefs(details.EvidenceRefs(), evidenceRefs),
-		appendReviewArtifactRefs(details.ArtifactRefs(), artifactRefs),
+		domtypes.AppendEvidenceRefs(details.EvidenceRefs(), evidenceRefs),
+		domtypes.AppendArtifactRefs(details.ArtifactRefs(), artifactRefs),
 	)
-}
-
-func appendReviewEvidenceRefs(dst []domtypes.EvidenceRef, refs []domtypes.EvidenceRef) []domtypes.EvidenceRef {
-	result := append([]domtypes.EvidenceRef(nil), dst...)
-	seen := make(map[string]struct{}, len(dst)+len(refs))
-	for _, ref := range result {
-		seen[ref.Kind().String()+":"+ref.Value()] = struct{}{}
-	}
-	for _, ref := range refs {
-		key := ref.Kind().String() + ":" + ref.Value()
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		result = append(result, ref)
-	}
-	return result
-}
-
-func appendReviewArtifactRefs(dst []domtypes.ArtifactRef, refs []domtypes.ArtifactRef) []domtypes.ArtifactRef {
-	result := append([]domtypes.ArtifactRef(nil), dst...)
-	seen := make(map[string]struct{}, len(dst)+len(refs))
-	for _, ref := range result {
-		seen[ref.Kind().String()+":"+ref.Value()] = struct{}{}
-	}
-	for _, ref := range refs {
-		key := ref.Kind().String() + ":" + ref.Value()
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		result = append(result, ref)
-	}
-	return result
 }
 
 func memoryReviewAcceptChecklist(details apptypes.MemoryDetails) []string {

@@ -253,6 +253,34 @@ func TestReviewModel_AttachEvidenceThenAcceptQueuesOrderedDecisions(t *testing.T
 	}
 }
 
+func TestReviewModel_AttachEvidenceUnlocksGeneratedCandidateAcceptGate(t *testing.T) {
+	t.Parallel()
+
+	model := newReviewTestModel(buildReviewCandidateWithOptions(t, reviewCandidateOptions{
+		id:         "id-generated",
+		fact:       "generated fact without evidence",
+		confidence: domtypes.ConfidenceLow,
+		source:     domtypes.MemorySourceExtractedHidden,
+		noEvidence: true,
+	}))
+
+	opened, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	attachM := opened.(reviewModel)
+	for _, r := range "event:evt-generated" {
+		updated, _ := attachM.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		attachM = updated.(reviewModel)
+	}
+	queued, _ := attachM.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	queuedM := queued.(reviewModel)
+
+	if queuedM.currentCandidateBlocksAccept() {
+		t.Fatalf("attached evidence should clear the evidence-only accept block")
+	}
+	if !memoryReviewRequiresAcceptConfirmation(queuedM.items[queuedM.cursor]) {
+		t.Fatalf("generated low-confidence candidate should still require accept confirmation")
+	}
+}
+
 func TestFormatMemoryReviewRefLineSanitizesAndTruncates(t *testing.T) {
 	t.Parallel()
 
@@ -738,7 +766,7 @@ func TestReviewModel_NavigationStaysWithinBounds(t *testing.T) {
 func TestReviewMode_DefaultActionKeysNoOverlap(t *testing.T) {
 	t.Parallel()
 	keys := defaultReviewActionKeys()
-	all := []key.Binding{keys.Accept, keys.Reject, keys.Skip, keys.Edit, keys.View, keys.Confirm, keys.Cancel}
+	all := []key.Binding{keys.Accept, keys.Reject, keys.Skip, keys.Edit, keys.Attach, keys.View, keys.Confirm, keys.Cancel}
 	seen := make(map[string]string)
 	for _, b := range all {
 		for _, k := range b.Keys() {
@@ -764,7 +792,7 @@ func TestInboxReviewExitError_CarriesExitCodeTwo(t *testing.T) {
 		t.Fatalf("ExitCode() = %d, want 2", coder.ExitCode())
 	}
 	msg := err.Error()
-	for _, must := range []string{"memory inbox list", "memory inbox accept", "memory inbox reject"} {
+	for _, must := range []string{"memory inbox list", "memory inbox attach", "memory inbox accept", "memory inbox reject"} {
 		if !strings.Contains(msg, must) {
 			t.Fatalf("non-TTY guidance missing %q; got:\n%s", must, msg)
 		}
@@ -795,7 +823,7 @@ func TestWriteMemoryInboxReviewSummary_FailureReturnsError(t *testing.T) {
 	if !strings.Contains(err.Error(), "memory review failed for 1 memory id(s)") {
 		t.Fatalf("unexpected failure error: %v", err)
 	}
-	want := "review attached=0 accepted=1 rejected=0 distilled=0 failures=1\nACCEPT\tid-ok\tcandidate\nFAILED\tid-fail\tsynthetic failure\n"
+	want := "review accepted=1 rejected=0 distilled=0 failures=1 attached=0\nACCEPT\tid-ok\tcandidate\nFAILED\tid-fail\tsynthetic failure\n"
 	if got := out.String(); got != want {
 		t.Fatalf("summary output changed:\n got %q\nwant %q", got, want)
 	}
@@ -821,7 +849,7 @@ func TestFinishMemoryInboxReview_ReturnsFailureError(t *testing.T) {
 	if stub.acceptCalls != 1 {
 		t.Fatalf("acceptCalls = %d, want 1", stub.acceptCalls)
 	}
-	want := "review attached=0 accepted=0 rejected=0 distilled=0 failures=1\nFAILED\tid-1\tsynthetic accept failure\n"
+	want := "review accepted=0 rejected=0 distilled=0 failures=1 attached=0\nFAILED\tid-1\tsynthetic accept failure\n"
 	if got := out.String(); got != want {
 		t.Fatalf("summary output changed:\n got %q\nwant %q", got, want)
 	}
@@ -909,6 +937,36 @@ func TestApplyInboxReviewDecisions_FailureIsRecordedNotPropagated(t *testing.T) 
 	}
 	if len(result.Rejected) != 1 || result.Rejected[0].Summary().MemoryID().String() != "id-2" {
 		t.Fatalf("reject for id-2 must still land after id-1 failure, got %+v", result.Rejected)
+	}
+}
+
+func TestApplyInboxReviewDecisions_SkipsDependentAcceptAfterAttachFailure(t *testing.T) {
+	t.Parallel()
+	candidate := buildReviewCandidateWithOptions(t, reviewCandidateOptions{id: "id-attach-fail", fact: "fact", noEvidence: true})
+	attachRef := mustReviewEvidenceRef(t, domtypes.EvidenceRefKindEvent, "evt-fail")
+	stub := &reviewWriterStub{
+		attachErr: errors.New("attach conflict"),
+	}
+	decisions := []reviewDecision{
+		{kind: reviewDecisionAttach, memoryID: candidate.Summary().MemoryID(), evidenceRefs: []domtypes.EvidenceRef{attachRef}},
+		{kind: reviewDecisionAccept, memoryID: candidate.Summary().MemoryID()},
+	}
+
+	result, err := applyInboxReviewDecisions(context.Background(), stub, decisions, []apptypes.MemoryDetails{candidate})
+	if err != nil {
+		t.Fatalf("applyInboxReviewDecisions returned error %v; failures should be in result instead", err)
+	}
+	if stub.attachCalls != 1 {
+		t.Fatalf("attachCalls = %d, want 1", stub.attachCalls)
+	}
+	if stub.acceptCalls != 0 {
+		t.Fatalf("acceptCalls = %d, want 0 after attach failure", stub.acceptCalls)
+	}
+	if len(result.Failures) != 2 {
+		t.Fatalf("failures = %+v, want attach failure and dependent accept skip", result.Failures)
+	}
+	if !strings.Contains(result.Failures[1].Error, "skipped after evidence attach failed") {
+		t.Fatalf("dependent failure = %+v, want skipped-after-attach message", result.Failures[1])
 	}
 }
 

@@ -362,7 +362,7 @@ func (u *memoryUsecase) AttachCandidateRefs(
 	if err != nil {
 		return apptypes.MemoryDetails{}, err
 	}
-	_, sanitizedEvidenceRefs, sanitizedArtifactRefs, err := u.sanitizeMemoryPayload("", evidenceRefs, artifactRefs)
+	sanitizedEvidenceRefs, sanitizedArtifactRefs, err := sanitizeMemoryRefs(evidenceRefs, artifactRefs, u.extraRedactPatterns)
 	if err != nil {
 		return apptypes.MemoryDetails{}, err
 	}

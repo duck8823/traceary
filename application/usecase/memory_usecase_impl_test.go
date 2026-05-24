@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -292,6 +293,9 @@ func TestMemoryUsecase_AttachCandidateRefsRejectsAcceptedMemory(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("AttachCandidateRefs() error = nil, want invalid state")
+	}
+	if !errors.Is(err, model.ErrInvalidMemoryState) {
+		t.Fatalf("AttachCandidateRefs() error = %v, want ErrInvalidMemoryState", err)
 	}
 	if len(repo.saveCalls) != 0 {
 		t.Fatalf("Save called for rejected attach: %d", len(repo.saveCalls))
