@@ -332,10 +332,10 @@ func TestCockpitDogfoodJapaneseNarrowSmoke(t *testing.T) {
 		"Traceary cockpit · live tail",
 		"タブ:",
 		"[1 Tail]",
-		"live event を読み込み中",
+		"ライブイベントを読み込み中",
 		"端末 80x24",
-		"アクション menu",
-		"Global navigation",
+		"アクションメニュー",
+		"全体ナビゲーション",
 		"1 Tail",
 		"5 設定",
 		"? ヘルプ",
@@ -359,7 +359,7 @@ func TestCockpitDogfoodJapaneseNarrowSmoke(t *testing.T) {
 	updated, _ = memoryModel.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	memoryView := updated.(cockpitModel).View()
 	for _, must := range []string{
-		"Traceary cockpit · メモリ review",
+		"Traceary cockpit · メモリ確認",
 		"判断カード",
 		"判断 context",
 		"信頼度が低い",

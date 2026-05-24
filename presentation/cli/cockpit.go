@@ -2092,15 +2092,15 @@ func (m cockpitModel) memoryReviewView() string {
 	lines := []string{}
 	switch {
 	case m.memoryReview.loading:
-		lines = append(lines, m.styles.Subtle.Render(Localize("Loading memory inbox review queue...", "memory inbox review queue を読み込み中...")))
+		lines = append(lines, m.styles.Subtle.Render(Localize("Loading memory inbox review queue...", "メモリ候補の確認キューを読み込み中...")))
 	case m.memoryReview.applying:
-		lines = append(lines, m.styles.Subtle.Render(Localize("Applying memory review decisions...", "memory review の判断を適用中...")))
+		lines = append(lines, m.styles.Subtle.Render(Localize("Applying memory review decisions...", "メモリ確認の判断を適用中...")))
 	case m.memoryReview.err != nil:
 		lines = append(lines, m.styles.Error.Render(m.memoryReview.err.Error()))
 	default:
 		lines = append(lines, m.memoryReview.review.View())
 	}
-	return m.renderCockpitShell(Localize("memory review", "メモリ review"), lines, m.memoryReviewLocalHelp())
+	return m.renderCockpitShell(Localize("memory review", "メモリ確認"), lines, m.memoryReviewLocalHelp())
 }
 
 func (m cockpitModel) liveView() string {
@@ -2121,9 +2121,9 @@ func (m cockpitModel) liveView() string {
 		lines = append(lines, m.styles.Error.Render(m.live.err.Error()))
 	} else if len(m.live.events) == 0 {
 		if m.live.loading {
-			lines = append(lines, m.styles.Subtle.Render(Localize("Loading live events...", "live event を読み込み中...")))
+			lines = append(lines, m.styles.Subtle.Render(Localize("Loading live events...", "ライブイベントを読み込み中...")))
 		} else {
-			lines = append(lines, m.styles.Subtle.Render(Localize("No recent events. Press r to refresh.", "最近の event はありません。r で再取得します。")))
+			lines = append(lines, m.styles.Subtle.Render(Localize("No recent events. Press r to refresh.", "最近のイベントはありません。r で再取得します。")))
 		}
 	} else {
 		for i, event := range m.live.events {
@@ -2153,9 +2153,9 @@ func (m cockpitModel) livePauseMessage() string {
 
 func formatCockpitPausedNewEvents(count int) string {
 	if count == 1 {
-		return Localize("Auto-follow paused · 1 newer event available · press End/G for newest", "auto-follow 停止中 · 新しい event 1 件 · End/G で最新へ")
+		return Localize("Auto-follow paused · 1 newer event available · press End/G for newest", "auto-follow 停止中 · 新しいイベント 1 件 · End/G で最新へ")
 	}
-	return Localizef("Auto-follow paused · %d newer events available · press End/G for newest", "auto-follow 停止中 · 新しい event %d 件 · End/G で最新へ", count)
+	return Localizef("Auto-follow paused · %d newer events available · press End/G for newest", "auto-follow 停止中 · 新しいイベント %d 件 · End/G で最新へ", count)
 }
 
 func (m cockpitModel) detailView() string {
@@ -2203,25 +2203,25 @@ func (m cockpitModel) topSignals() []cockpitTopSignal {
 	if home.CandidateMemoryCount > 0 || home.NewCandidateMemoryCount > 0 || home.RememberIntentCount > 0 || home.LowQualityMemoryCount > 0 {
 		signals = append(signals, cockpitTopSignal{
 			severity:    cockpitSignalWarning,
-			label:       Localize("Memory inbox needs review", "Memory inbox の確認が必要"),
+			label:       Localize("Memory inbox needs review", "メモリ候補の確認が必要"),
 			description: Localizef("candidate=%d new=%s remember-intent=%d low-quality=%d", "candidate=%d new=%s remember-intent=%d low-quality=%d", home.CandidateMemoryCount, formatCockpitNewCandidateCount(home), home.RememberIntentCount, home.LowQualityMemoryCount),
 			actionKey:   "3",
-			actionLabel: Localize("review Memory inbox", "Memory inbox を review"),
+			actionLabel: Localize("review Memory inbox", "メモリ候補を確認"),
 		})
 	}
 	if home.RecentFailureCount > 0 {
 		signals = append(signals, cockpitTopSignal{
 			severity:    cockpitSignalWarning,
-			label:       Localize("Recent command failures", "最近の command failure"),
+			label:       Localize("Recent command failures", "直近のコマンド失敗"),
 			description: Localizef("recent_failures=%d", "recent_failures=%d", home.RecentFailureCount),
 			actionKey:   "1",
-			actionLabel: Localize("inspect Tail events", "Tail event を確認"),
+			actionLabel: Localize("inspect Tail events", "Tail のイベントを確認"),
 		})
 	}
 	if home.StaleActiveSessionCount > 0 {
 		signals = append(signals, cockpitTopSignal{
 			severity:    cockpitSignalWarning,
-			label:       Localize("Stale active sessions", "古い active session"),
+			label:       Localize("Stale active sessions", "古いアクティブセッション"),
 			description: Localizef("stale_active=%d", "stale_active=%d", home.StaleActiveSessionCount),
 			actionKey:   "4",
 			actionLabel: Localize("open Sessions", "Sessions を開く"),
@@ -2230,7 +2230,7 @@ func (m cockpitModel) topSignals() []cockpitTopSignal {
 	if home.NewEventKnown && home.NewEventCount > 0 {
 		signals = append(signals, cockpitTopSignal{
 			severity:    cockpitSignalInfo,
-			label:       Localize("New Tail events", "新着 Tail event"),
+			label:       Localize("New Tail events", "Tail の新着イベント"),
 			description: Localizef("new_events=%d", "new_events=%d", home.NewEventCount),
 			actionKey:   "1",
 			actionLabel: Localize("open Tail", "Tail を開く"),
@@ -2239,17 +2239,17 @@ func (m cockpitModel) topSignals() []cockpitTopSignal {
 	if home.LargePayloadCount > 0 {
 		signals = append(signals, cockpitTopSignal{
 			severity:    cockpitSignalWarning,
-			label:       Localize("Large payloads", "大きい payload"),
+			label:       Localize("Large payloads", "大きなペイロード"),
 			description: Localizef("large_payloads=%d", "large_payloads=%d", home.LargePayloadCount),
 			actionKey:   "2",
-			actionLabel: Localize("refresh Top summary", "Top summary を再取得"),
+			actionLabel: Localize("refresh Top summary", "Top 概要を再取得"),
 		})
 	}
 	if len(signals) == 0 {
 		signals = append(signals, cockpitTopSignal{
 			severity:    cockpitSignalOK,
-			label:       Localize("No active signals", "Active signal なし"),
-			description: Localize("Tail and Top summaries have no review cues.", "Tail と Top summary に review cue はありません。"),
+			label:       Localize("No active signals", "対応が必要な通知なし"),
+			description: Localize("Tail and Top summaries have no review cues.", "Tail と Top 概要に確認が必要な項目はありません。"),
 		})
 	}
 	return signals
@@ -2298,50 +2298,50 @@ func (m cockpitModel) topTabView() string {
 	lines := []string{
 		m.styles.Subtle.Render(fmt.Sprintf("loaded=%s db=%s", formatJSONTime(m.home.LoadedAt), formatOptionalColumn(m.home.DBPath))),
 		"",
-		m.styles.Subtle.Render(Localize("Top summary", "Top summary")),
-		Localizef("• sessions: stale_active=%d recent_failures=%d recent_commands=%d new_events=%s%s", "• sessions: stale_active=%d recent_failures=%d recent_commands=%d new_events=%s%s", m.home.StaleActiveSessionCount, m.home.RecentFailureCount, m.home.RecentCommandCount, formatCockpitNewEventCount(m.home), eventScanSuffix),
-		Localizef("• memories: accepted(reviewed)=%d candidate(inbox)=%d new=%s remember-intent=%d low-quality=%d stale=%d%s", "• memories: accepted(reviewed)=%d candidate(inbox)=%d new=%s remember-intent=%d low-quality=%d stale=%d%s", m.home.AcceptedMemoryCount, m.home.CandidateMemoryCount, formatCockpitNewCandidateCount(m.home), m.home.RememberIntentCount, m.home.LowQualityMemoryCount, m.home.StaleMemoryCount, memoryScanSuffix),
+		m.styles.Subtle.Render(Localize("Top summary", "Top 概要")),
+		Localizef("• sessions: stale_active=%d recent_failures=%d recent_commands=%d new_events=%s%s", "• セッション: stale_active=%d recent_failures=%d recent_commands=%d new_events=%s%s", m.home.StaleActiveSessionCount, m.home.RecentFailureCount, m.home.RecentCommandCount, formatCockpitNewEventCount(m.home), eventScanSuffix),
+		Localizef("• memories: accepted(reviewed)=%d candidate(inbox)=%d new=%s remember-intent=%d low-quality=%d stale=%d%s", "• メモリ: accepted(reviewed)=%d candidate(inbox)=%d new=%s remember-intent=%d low-quality=%d stale=%d%s", m.home.AcceptedMemoryCount, m.home.CandidateMemoryCount, formatCockpitNewCandidateCount(m.home), m.home.RememberIntentCount, m.home.LowQualityMemoryCount, m.home.StaleMemoryCount, memoryScanSuffix),
 		Localizef("• doctor: pass=%d warn=%d fail=%d", "• doctor: pass=%d warn=%d fail=%d", m.home.DoctorPassCount, m.home.DoctorWarnCount, m.home.DoctorFailCount),
 		Localizef("• hooks/mcp: warn=%d fail=%d", "• hooks/mcp: warn=%d fail=%d", m.home.HookWarnCount, m.home.HookFailCount),
 		Localizef("• payloads: large=%d", "• payloads: large=%d", m.home.LargePayloadCount),
 		"",
-		m.styles.Subtle.Render(Localize("Actionable signals", "対応が必要な signal")),
+		m.styles.Subtle.Render(Localize("Actionable signals", "対応が必要な通知")),
 	}
 	for _, signal := range m.topSignals() {
 		lines = append(lines, m.renderTopSignal(signal))
 	}
 	lines = append(lines,
 		"",
-		m.styles.Subtle.Render(Localize("Signal details", "Signal details")),
+		m.styles.Subtle.Render(Localize("Signal details", "通知の詳細")),
 	)
 	switch {
 	case m.home.NewEventKnown && m.home.NewEventCount > 0:
-		lines = append(lines, Localizef("• new events=%d since %s", "• 新着 event=%d（%s 以降）", m.home.NewEventCount, formatCockpitCheckpoint(m.home.EventLastSeenAt)))
+		lines = append(lines, Localizef("• new events=%d since %s", "• 新着イベント=%d（%s 以降）", m.home.NewEventCount, formatCockpitCheckpoint(m.home.EventLastSeenAt)))
 	case m.home.NewEventKnown:
-		lines = append(lines, Localizef("• no unseen events since %s", "• %s 以降の未確認 event はありません", formatCockpitCheckpoint(m.home.EventLastSeenAt)))
+		lines = append(lines, Localizef("• no unseen events since %s", "• %s 以降の未確認イベントはありません", formatCockpitCheckpoint(m.home.EventLastSeenAt)))
 	default:
-		lines = append(lines, Localize("• new events=untracked until cockpit state is initialized", "• cockpit state 初期化まで新着 event は未追跡"))
+		lines = append(lines, Localize("• new events=untracked until cockpit state is initialized", "• cockpit state 初期化まで新着イベントは未追跡"))
 	}
 	switch {
 	case m.home.NewCandidateMemoryKnown && m.home.NewCandidateMemoryCount > 0:
-		lines = append(lines, Localizef("• new candidate memories=%d", "• 新着 candidate memory=%d", m.home.NewCandidateMemoryCount))
+		lines = append(lines, Localizef("• new candidate memories=%d", "• 新着メモリ候補=%d", m.home.NewCandidateMemoryCount))
 	case m.home.NewCandidateMemoryKnown:
-		lines = append(lines, Localizef("• no unseen candidates since %s", "• %s 以降の未確認 candidate はありません", formatCockpitCheckpoint(m.home.MemoryLastSeenAt)))
+		lines = append(lines, Localizef("• no unseen candidates since %s", "• %s 以降の未確認候補はありません", formatCockpitCheckpoint(m.home.MemoryLastSeenAt)))
 	default:
-		lines = append(lines, Localize("• candidate memory new count=untracked", "• candidate memory new count=未追跡"))
+		lines = append(lines, Localize("• candidate memory new count=untracked", "• メモリ候補の新着数=未追跡"))
 	}
-	lines = append(lines, Localizef("• candidate memories=%d", "• candidate memory=%d", m.home.CandidateMemoryCount))
+	lines = append(lines, Localizef("• candidate memories=%d", "• メモリ候補=%d", m.home.CandidateMemoryCount))
 	if m.home.RememberIntentCount > 0 {
-		lines = append(lines, Localizef("• remember-intent candidates=%d", "• remember-intent candidate=%d", m.home.RememberIntentCount))
+		lines = append(lines, Localizef("• remember-intent candidates=%d", "• remember-intent 候補=%d", m.home.RememberIntentCount))
 	}
 	if m.home.LowQualityMemoryCount > 0 {
-		lines = append(lines, Localizef("• low-quality candidates=%d", "• 低品質 candidate=%d", m.home.LowQualityMemoryCount))
+		lines = append(lines, Localizef("• low-quality candidates=%d", "• 低品質候補=%d", m.home.LowQualityMemoryCount))
 	}
 	if m.home.RecentFailureCount > 0 {
 		lines = append(lines, Localizef("• recent failures=%d", "• 最近の失敗=%d", m.home.RecentFailureCount))
 	}
 	if m.home.StaleActiveSessionCount > 0 {
-		lines = append(lines, Localizef("• stale active sessions=%d", "• 古い active session=%d", m.home.StaleActiveSessionCount))
+		lines = append(lines, Localizef("• stale active sessions=%d", "• 古いアクティブセッション=%d", m.home.StaleActiveSessionCount))
 	}
 	lines = append(lines,
 		"",
@@ -2357,14 +2357,14 @@ func (m cockpitModel) topTabView() string {
 }
 
 func (m cockpitModel) cockpitTopDashboardLines() []string {
-	lines := []string{m.styles.Subtle.Render(Localize("Top dashboard", "Top dashboard"))}
+	lines := []string{m.styles.Subtle.Render(Localize("Top dashboard", "Top ダッシュボード"))}
 	switch {
 	case m.top.loading && !m.top.loaded:
-		return append(lines, m.styles.Subtle.Render(Localize("Loading top dashboard...", "Top dashboard を読み込み中...")))
+		return append(lines, m.styles.Subtle.Render(Localize("Loading top dashboard...", "Top ダッシュボードを読み込み中...")))
 	case m.top.err != nil && !m.top.loaded:
 		return append(lines, m.styles.Error.Render(m.top.err.Error()))
 	case !m.top.loaded:
-		return append(lines, m.styles.Subtle.Render(Localize("Top dashboard has not loaded yet. Press r to refresh.", "Top dashboard はまだ読み込まれていません。r で再取得します。")))
+		return append(lines, m.styles.Subtle.Render(Localize("Top dashboard has not loaded yet. Press r to refresh.", "Top ダッシュボードはまだ読み込まれていません。r で再取得します。")))
 	}
 	if m.top.err != nil {
 		lines = append(lines, m.styles.Error.Render(m.top.err.Error()))
@@ -2372,7 +2372,7 @@ func (m cockpitModel) cockpitTopDashboardLines() []string {
 
 	rows := m.cockpitTopRows()
 	if len(rows) == 0 {
-		return append(lines, m.styles.Subtle.Render(Localize("No top rows available.", "Top row はありません。")))
+		return append(lines, m.styles.Subtle.Render(Localize("No top rows available.", "Top 行はありません。")))
 	}
 	viewport := m.cockpitTopViewportRows()
 	start := m.top.offset
@@ -2567,21 +2567,21 @@ func (m cockpitModel) sessionsView() string {
 		eventScanSuffix = " scan_limited=true"
 	}
 	lines := []string{
-		m.styles.Subtle.Render(Localize("Session and handoff workflows", "Session と handoff workflow")),
+		m.styles.Subtle.Render(Localize("Session and handoff workflows", "セッションと引き継ぎ")),
 		"",
-		Localizef("• stale active sessions=%d", "• 古い active session=%d", m.home.StaleActiveSessionCount),
+		Localizef("• stale active sessions=%d", "• 古いアクティブセッション=%d", m.home.StaleActiveSessionCount),
 		Localizef("• recent failures=%d", "• 最近の失敗=%d", m.home.RecentFailureCount),
-		Localizef("• recent commands=%d", "• 最近の command=%d", m.home.RecentCommandCount),
-		Localizef("• new events=%s%s", "• 新着 event=%s%s", formatCockpitNewEventCount(m.home), eventScanSuffix),
+		Localizef("• recent commands=%d", "• 最近のコマンド=%d", m.home.RecentCommandCount),
+		Localizef("• new events=%s%s", "• 新着イベント=%s%s", formatCockpitNewEventCount(m.home), eventScanSuffix),
 		"",
 		m.styles.Subtle.Render(Localize("Available today:", "現在利用可能:")),
 		"traceary top --snapshot [--json]",
 		"traceary session handoff",
 		"traceary tail",
 		"",
-		m.styles.Subtle.Render(Localize("Dedicated session list and handoff drill-down remain compatible with the existing subcommands.", "専用の session list / handoff drill-down までは既存 subcommand への導線を維持します。")),
+		m.styles.Subtle.Render(Localize("Dedicated session list and handoff drill-down remain compatible with the existing subcommands.", "専用のセッション一覧 / 引き継ぎ詳細が入るまでは、既存 subcommand への導線を維持します。")),
 	}
-	return m.renderCockpitShell(Localize("sessions", "セッション"), lines, Localize("r refresh session summary", "r session summary 再取得"))
+	return m.renderCockpitShell(Localize("sessions", "セッション"), lines, Localize("r refresh session summary", "r セッション概要を再取得"))
 }
 
 func (m cockpitModel) renderCockpitShell(title string, body []string, localHelp string) string {
@@ -2692,10 +2692,10 @@ func (m cockpitModel) cockpitHelpAvailable() bool {
 }
 
 func (m cockpitModel) cockpitContextualHelp() []string {
-	lines := []string{m.styles.Subtle.Render(Localize("Action menu", "アクション menu"))}
+	lines := []string{m.styles.Subtle.Render(Localize("Action menu", "アクションメニュー"))}
 	actions := m.cockpitContextualActions()
 	if len(actions) == 0 {
-		lines = append(lines, "• "+Localize("No local actions are available while this operation is in progress.", "この処理中に利用できる local action はありません。"))
+		lines = append(lines, "• "+Localize("No local actions are available while this operation is in progress.", "この処理中に利用できる画面内アクションはありません。"))
 	} else {
 		for _, action := range actions {
 			if action.key == "" {
@@ -2709,7 +2709,7 @@ func (m cockpitModel) cockpitContextualHelp() []string {
 	lines = append(lines, m.cockpitContextualNavigationLines()...)
 	lines = append(lines,
 		"",
-		m.styles.Subtle.Render(Localize("Fallback commands available today:", "現在利用できる fallback command:")),
+		m.styles.Subtle.Render(Localize("Fallback commands available today:", "現時点で使える代替コマンド:")),
 		"traceary top --snapshot [--json]",
 		"traceary tail",
 		"traceary doctor --json",
@@ -2722,27 +2722,27 @@ func (m cockpitModel) cockpitContextualHelp() []string {
 
 func (m cockpitModel) cockpitContextualNavigationTitle() string {
 	if m.mode == cockpitModeSettings && (m.settings.editingPattern || m.settings.confirmSave) {
-		return Localize("Navigation paused", "Navigation paused")
+		return Localize("Navigation paused", "ナビゲーション停止中")
 	}
-	return Localize("Global navigation", "Global navigation")
+	return Localize("Global navigation", "全体ナビゲーション")
 }
 
 func (m cockpitModel) cockpitContextualNavigationLines() []string {
 	if m.mode == cockpitModeSettings && m.settings.editingPattern {
-		return []string{Localize("Navigation is paused while regex input is active; enter stages the regex and esc cancels.", "regex 入力中は navigation を一時停止します。enter で staged、esc でキャンセルします。")}
+		return []string{Localize("Navigation is paused while regex input is active; enter stages the regex and esc cancels.", "regex 入力中はナビゲーションを一時停止します。enter で候補に追加、esc でキャンセルします。")}
 	}
 	if m.mode == cockpitModeSettings && m.settings.confirmSave {
-		return []string{Localize("Navigation is paused while config write confirmation is active; y saves and n/esc cancels.", "config 書き込み確認中は navigation を一時停止します。y で保存、n/esc でキャンセルします。")}
+		return []string{Localize("Navigation is paused while config write confirmation is active; y saves and n/esc cancels.", "config 書き込み確認中はナビゲーションを一時停止します。y で保存、n/esc でキャンセルします。")}
 	}
 	lines := []string{
-		Localize("1 Tail      live event stream and event details", "1 Tail      live event stream と event 詳細"),
-		Localize("2 Top       dashboard for sessions, failures, commands, memory, and health", "2 Top       session / failure / command / memory / health の dashboard"),
-		Localize("3 Memory    inbox review queue", "3 メモリ      inbox review queue"),
-		Localize("4 Sessions  session and handoff entry points", "4 セッション  session と handoff 導線"),
-		Localize("5 Settings  language, read defaults, redaction diagnostics", "5 設定        language / read 既定 / redaction 診断"),
+		Localize("1 Tail      live event stream and event details", "1 Tail      イベントのライブ表示と詳細確認"),
+		Localize("2 Top       dashboard for sessions, failures, commands, memory, and health", "2 Top       セッション・失敗・コマンド・メモリ・状態の一覧"),
+		Localize("3 Memory    inbox review queue", "3 メモリ     メモリ候補の確認キュー"),
+		Localize("4 Sessions  session and handoff entry points", "4 セッション セッション一覧と引き継ぎ導線"),
+		Localize("5 Settings  language, read defaults, redaction diagnostics", "5 設定       言語・表示既定・redaction 診断"),
 	}
 	if m.mode == cockpitModeSettings {
-		lines = append(lines, Localize("tab / shift+tab cycle tabs; 1-5 jump tabs; ← / → edit selected value rows", "tab / shift+tab でタブ移動。1-5 でタブ選択。← / → は選択中の値 row を編集"))
+		lines = append(lines, Localize("tab / shift+tab cycle tabs; 1-5 jump tabs; ← / → edit selected value rows", "tab / shift+tab でタブ移動。1-5 でタブ選択。← / → は選択中の値行を編集"))
 	} else {
 		lines = append(lines, Localize("← / → cycle tabs; tab / shift+tab remain supported", "← / → でタブ移動。tab / shift+tab も利用可能"))
 	}
@@ -2753,7 +2753,7 @@ func (m cockpitModel) cockpitContextualNavigationLines() []string {
 func (m cockpitModel) cockpitContextualActions() []cockpitAction {
 	switch m.mode {
 	case cockpitModeDoctor:
-		actions := []cockpitAction{{key: "r", description: Localize("Refresh doctor checks", "Doctor check を再取得")}}
+		actions := []cockpitAction{{key: "r", description: Localize("Refresh doctor checks", "Doctor チェックを再取得")}}
 		if len(m.doctorLines()) > 3 {
 			actions = append(actions, cockpitAction{key: "↑/↓", description: Localize("Scroll doctor output", "Doctor 出力を scroll")})
 		}
@@ -2763,13 +2763,13 @@ func (m cockpitModel) cockpitContextualActions() []cockpitAction {
 		return actions
 	case cockpitModeLive:
 		actions := []cockpitAction{
-			{key: "r", description: Localize("Refresh Tail events", "Tail event を再取得")},
+			{key: "r", description: Localize("Refresh Tail events", "Tail のイベントを再取得")},
 			{key: "End/G", description: Localize("Jump to newest and resume auto-follow", "最新へ移動して auto-follow を再開")},
 		}
 		if len(m.live.events) > 0 {
-			actions = append(actions, cockpitAction{key: "enter", description: Localize("Open selected event detail", "選択中 event の詳細を開く")})
+			actions = append(actions, cockpitAction{key: "enter", description: Localize("Open selected event detail", "選択中イベントの詳細を開く")})
 			if len(m.live.events) > 1 {
-				actions = append(actions, cockpitAction{key: "↑/↓", description: Localize("Select an event", "event を選択")})
+				actions = append(actions, cockpitAction{key: "↑/↓", description: Localize("Select an event", "イベントを選択")})
 			}
 		}
 		return actions
@@ -2782,8 +2782,8 @@ func (m cockpitModel) cockpitContextualActions() []cockpitAction {
 			return actions
 		}
 		actions := []cockpitAction{
-			{key: "r", description: Localize("Refresh Top dashboard", "Top dashboard を再取得")},
-			{key: "d", description: Localize("Open Doctor checks", "Doctor check を開く")},
+			{key: "r", description: Localize("Refresh Top dashboard", "Top ダッシュボードを再取得")},
+			{key: "d", description: Localize("Open Doctor checks", "Doctor チェックを開く")},
 		}
 		if cockpitTopHasSelectableRow(m.cockpitTopRows()) {
 			actions = append(actions,
@@ -2795,24 +2795,24 @@ func (m cockpitModel) cockpitContextualActions() []cockpitAction {
 	case cockpitModeDetail:
 		actions := []cockpitAction{{key: "esc", description: Localize("Return to Tail", "Tail に戻る")}}
 		if len(m.detailLines()) > 1 {
-			actions = append(actions, cockpitAction{key: "↑/↓", description: Localize("Scroll event detail", "event 詳細を scroll")})
+			actions = append(actions, cockpitAction{key: "↑/↓", description: Localize("Scroll event detail", "イベント詳細をスクロール")})
 		}
 		return actions
 	case cockpitModeMemoryReview:
 		return m.memoryReviewContextualActions()
 	case cockpitModeSessions:
 		return []cockpitAction{
-			{key: "r", description: Localize("Refresh session summary", "session summary を再取得")},
-			{description: Localize("Use `traceary session handoff` for the full handoff outside the cockpit.", "完全な handoff は cockpit 外で `traceary session handoff` を使ってください。")},
+			{key: "r", description: Localize("Refresh session summary", "セッション概要を再取得")},
+			{description: Localize("Use `traceary session handoff` for the full handoff outside the cockpit.", "完全な引き継ぎは cockpit 外で `traceary session handoff` を使ってください。")},
 		}
 	case cockpitModeSettings:
 		return m.settingsContextualActions()
 	default:
 		return []cockpitAction{
 			{key: "1", description: Localize("Open Tail", "Tail を開く")},
-			{key: "2", description: Localize("Open Top dashboard", "Top dashboard を開く")},
-			{key: "3", description: Localize("Open Memory review", "Memory review を開く")},
-			{key: "4", description: Localize("Open Sessions and handoff entry points", "Sessions と handoff 導線を開く")},
+			{key: "2", description: Localize("Open Top dashboard", "Top ダッシュボードを開く")},
+			{key: "3", description: Localize("Open Memory review", "メモリ確認を開く")},
+			{key: "4", description: Localize("Open Sessions and handoff entry points", "セッションと引き継ぎ導線を開く")},
 			{key: "5", description: Localize("Open Settings", "Settings を開く")},
 		}
 	}
@@ -2833,7 +2833,7 @@ func (m cockpitModel) memoryReviewContextualActions() []cockpitAction {
 	switch {
 	case m.memoryReview.loading:
 		return []cockpitAction{
-			{key: "esc", description: Localize("Return to Tail while the inbox loads", "inbox 読み込み中に Tail へ戻る")},
+			{key: "esc", description: Localize("Return to Tail while the inbox loads", "メモリ候補の読み込み中に Tail へ戻る")},
 			{key: "q", description: Localize("Quit without applying decisions", "判断を適用せず終了")},
 		}
 	case m.memoryReview.applying:
@@ -2846,51 +2846,51 @@ func (m cockpitModel) memoryReviewContextualActions() []cockpitAction {
 	}
 	if len(m.memoryReview.items) == 0 {
 		return []cockpitAction{
-			{key: "q", description: Localize("Finish review and return to Tail", "review を終了して Tail へ戻る")},
+			{key: "q", description: Localize("Finish review and return to Tail", "確認を終了して Tail へ戻る")},
 			{key: "esc", description: Localize("Return to Tail without applying", "適用せず Tail へ戻る")},
 		}
 	}
 	switch m.memoryReview.review.mode {
 	case reviewModeEdit:
 		return []cockpitAction{
-			{key: "enter", description: Localize("Commit operator-authored fact", "operator が書いた fact を確定")},
-			{key: "esc", description: Localize("Cancel edit", "edit をキャンセル")},
-			{key: "backspace", description: Localize("Edit text", "text を編集")},
+			{key: "enter", description: Localize("Commit operator-authored fact", "operator が書いた事実を確定")},
+			{key: "esc", description: Localize("Cancel edit", "編集をキャンセル")},
+			{key: "backspace", description: Localize("Edit text", "テキストを編集")},
 		}
 	case reviewModeViewEvidence:
 		return []cockpitAction{
-			{key: "v / esc", description: Localize("Close evidence view", "evidence view を閉じる")},
-			{key: "q", description: Localize("Finish review and apply queued decisions", "review を終了し予約済み判断を適用")},
+			{key: "v / esc", description: Localize("Close evidence view", "evidence 表示を閉じる")},
+			{key: "q", description: Localize("Finish review and apply queued decisions", "確認を終了し予約済み判断を適用")},
 		}
 	case reviewModeHelp:
 		return []cockpitAction{
-			{key: "? / esc", description: Localize("Close memory review help", "memory review help を閉じる")},
-			{key: "q", description: Localize("Finish review and apply queued decisions", "review を終了し予約済み判断を適用")},
+			{key: "? / esc", description: Localize("Close memory review help", "メモリ確認ヘルプを閉じる")},
+			{key: "q", description: Localize("Finish review and apply queued decisions", "確認を終了し予約済み判断を適用")},
 		}
 	default:
-		acceptDescription := Localize("Accept as-is only when the checklist passes", "checklist を満たす場合だけ accept as-is")
-		editDescription := Localize("Edit/distill into an operator-authored fact when wording is unclear", "文言が曖昧なら operator-authored fact に edit/distill")
+		acceptDescription := Localize("Accept as-is only when the checklist passes", "チェックリストを満たす場合のみ、そのまま採用")
+		editDescription := Localize("Edit/distill into an operator-authored fact when wording is unclear", "文言が曖昧なら operator が書いた事実に編集/要約")
 		if len(m.memoryReview.items) > 0 && m.memoryReview.review.cursor >= 0 && m.memoryReview.review.cursor < len(m.memoryReview.items) {
 			current := m.memoryReview.items[m.memoryReview.review.cursor]
 			switch {
 			case memoryReviewBlocksAccept(current):
-				acceptDescription = Localize("Accept as-is unavailable until evidence exists", "evidence が追加されるまで accept as-is は利用できません")
-				editDescription = Localize("Edit/distill unavailable without source evidence", "source evidence がないため edit/distill は利用できません")
+				acceptDescription = Localize("Accept as-is unavailable until evidence exists", "evidence が追加されるまで、そのまま採用はできません")
+				editDescription = Localize("Edit/distill unavailable without source evidence", "source evidence がないため編集/要約はできません")
 			case memoryReviewRequiresAcceptConfirmation(current):
-				acceptDescription = Localize("Accept as-is (requires pressing a twice; prefer edit/distill if unsure)", "accept as-is には a を 2 回押す必要があります。不明なら edit/distill を優先")
+				acceptDescription = Localize("Accept as-is (requires pressing a twice; prefer edit/distill if unsure)", "そのまま採用するには a を 2 回押します。不明なら編集/要約を優先")
 			}
 		}
 		actions := []cockpitAction{
 			{key: "a", description: acceptDescription},
-			{key: "x", description: Localize("Reject current candidate", "現在の candidate を reject")},
-			{key: "s", description: Localize("Skip when more context is needed", "追加 context が必要なら skip")},
+			{key: "x", description: Localize("Reject current candidate", "現在の候補を却下")},
+			{key: "s", description: Localize("Skip when more context is needed", "追加 context が必要なら保留")},
 			{key: "e", description: editDescription},
 			{key: "v", description: Localize("View evidence and artifact refs", "evidence と artifact refs を表示")},
-			{key: "q", description: Localize("Finish review and apply queued decisions", "review を終了し予約済み判断を適用")},
-			{description: Localize("Accept checklist: factual, stable, useful later, scoped correctly, evidence-backed, not duplicate/stale.", "Accept checklist: 事実で安定、将来有用、scope が正しい、evidence あり、重複/古さなし。")},
+			{key: "q", description: Localize("Finish review and apply queued decisions", "確認を終了し予約済み判断を適用")},
+			{description: Localize("Accept checklist: factual, stable, useful later, scoped correctly, evidence-backed, not duplicate/stale.", "採用チェック: 事実で安定、将来有用、scope が正しい、evidence あり、重複/古さなし。")},
 		}
 		if len(m.memoryReview.items) > 1 {
-			actions = append(actions, cockpitAction{key: "↑/↓", description: Localize("Navigate candidates", "candidate を移動")})
+			actions = append(actions, cockpitAction{key: "↑/↓", description: Localize("Navigate candidates", "候補を移動")})
 		}
 		return actions
 	}
@@ -2911,7 +2911,7 @@ func (m cockpitModel) topLocalHelp() string {
 	if m.cockpitTopDetailOpen() {
 		parts := []string{Localize("esc close detail", "esc 詳細を閉じる")}
 		if len(m.cockpitTopDetailLines()) > 1 {
-			parts = append(parts, Localize("↑/↓ scroll", "↑/↓ scroll"))
+			parts = append(parts, Localize("↑/↓ スクロール", "↑/↓ スクロール"))
 		}
 		return strings.Join(parts, " · ")
 	}
@@ -2929,14 +2929,14 @@ func (m cockpitModel) topLocalHelp() string {
 func (m cockpitModel) doctorLocalHelp() string {
 	parts := []string{Localize("r refresh", "r 再取得")}
 	if len(m.doctorLines()) > 3 {
-		parts = append(parts, Localize("↑/↓ scroll", "↑/↓ scroll"))
+		parts = append(parts, Localize("↑/↓ スクロール", "↑/↓ スクロール"))
 	}
 	return strings.Join(parts, " · ")
 }
 
 func (m cockpitModel) detailLocalHelp() string {
 	if len(m.detailLines()) > 1 {
-		return Localize("↑/↓ scroll", "↑/↓ scroll")
+		return Localize("↑/↓ スクロール", "↑/↓ スクロール")
 	}
 	return ""
 }
@@ -2948,7 +2948,7 @@ func (m cockpitModel) memoryReviewLocalHelp() string {
 	case m.memoryReview.applying:
 		return Localize("applying decisions", "判断を適用中")
 	case len(m.memoryReview.items) == 0:
-		return Localize("q finish review", "q review 終了")
+		return Localize("q finish review", "q 確認終了")
 	}
 	switch m.memoryReview.review.mode {
 	case reviewModeEdit:
@@ -2959,9 +2959,9 @@ func (m cockpitModel) memoryReviewLocalHelp() string {
 		return Localize("?/esc close help · q finish/apply", "?/esc help を閉じる · q 終了/適用")
 	default:
 		if m.memoryReview.review.cursor >= 0 && m.memoryReview.review.cursor < len(m.memoryReview.items) && memoryReviewBlocksAccept(m.memoryReview.items[m.memoryReview.review.cursor]) {
-			return Localize("a unavailable (evidence required) · x reject · s skip · v evidence · q finish/apply", "a 不可 (evidence 必須) · x reject · s skip · v evidence · q 終了/適用")
+			return Localize("a unavailable (evidence required) · x reject · s skip · v evidence · q finish/apply", "a 不可 (evidence 必須) · x 却下 · s 保留 · v evidence · q 終了/適用")
 		}
-		return Localize("a accept as-is · x reject · s skip · e edit/distill · v evidence · q finish/apply", "a accept as-is · x reject · s skip · e edit/distill · v evidence · q 終了/適用")
+		return Localize("a accept as-is · x reject · s skip · e edit/distill · v evidence · q finish/apply", "a そのまま採用 · x 却下 · s 保留 · e 編集/要約 · v evidence · q 終了/適用")
 	}
 }
 
