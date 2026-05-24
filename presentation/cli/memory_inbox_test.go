@@ -94,6 +94,7 @@ func TestMemoryInboxHelp_JapaneseGlossary(t *testing.T) {
 		{"memory", "inbox", "accept", "--help"},
 		{"memory", "inbox", "reject", "--help"},
 		{"memory", "inbox", "cleanup", "--help"},
+		{"memory", "inbox", "review", "--help"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			root := cli.NewRootCLI()

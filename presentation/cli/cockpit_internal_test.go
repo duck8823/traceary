@@ -1371,7 +1371,7 @@ func TestCockpitModel_MemoryReviewEscDismissesEvidenceWithoutApplying(t *testing
 }
 
 func TestCockpitModel_MemoryReviewHelpKeepsGlobalShellDiscoverable(t *testing.T) {
-	t.Parallel()
+	t.Setenv(cliLanguageEnvKey, "en")
 
 	candidate := cockpitMemoryDetailsFixture(t, "mem-help", "show contextual and global help", domtypes.MemoryStatusCandidate)
 	loader := &cockpitLoaderStub{reviewItems: []apptypes.MemoryDetails{candidate}}

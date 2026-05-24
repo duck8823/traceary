@@ -58,16 +58,18 @@ var cockpitNavigationSections = [...]cockpitNavigationSection{
 
 // These zero-length arrays make the build fail if the navigation table and the
 // cockpitSectionID enum drift in count. Keep cockpitSectionCount immediately
-// below the last real section ID; tests additionally pin the id/key/order map.
+// below the last real section ID; the first assertion catches len > count and
+// the second catches len < count. Tests additionally pin the id/key/order map.
 var _ [int(cockpitSectionCount) - len(cockpitNavigationSections)]struct{}
 var _ [len(cockpitNavigationSections) - int(cockpitSectionCount)]struct{}
 
-// cockpitNavigationSectionsList exposes the static metadata as a read-only
-// convention slice for render helpers and tests. Callers must not mutate the
-// returned slice; the package-level count assertions above keep enum drift
-// caught at compile time.
+// cockpitNavigationSectionsList returns a defensive slice copy so render
+// helpers and tests cannot mutate the package-level navigation table; the
+// package-level count assertions above keep enum drift caught at compile time.
 func cockpitNavigationSectionsList() []cockpitNavigationSection {
-	return cockpitNavigationSections[:]
+	sections := make([]cockpitNavigationSection, len(cockpitNavigationSections))
+	copy(sections, cockpitNavigationSections[:])
+	return sections
 }
 
 func (s cockpitNavigationSection) label() string {

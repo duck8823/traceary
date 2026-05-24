@@ -140,7 +140,7 @@ func TestReviewModel_DecisionCardShowsAcceptEvidenceContext(t *testing.T) {
 		"REMEMBERED_BY_OPERATOR: yes (remember-intent)",
 		"EVIDENCE_REFS:          1 (press v to inspect)",
 		"CREATED_AT:             2026-05-07T00:00:00Z",
-		"CANDIDATE_AGE:          48h0m",
+		"MEMORY_CANDIDATE_AGE:   48h0m",
 		"DUPLICATE_SUPERSEDE:    supersedes old-memory",
 		"EVIDENCE-FIRST REVIEW",
 		"• evidence: 1 ref(s)",
@@ -243,7 +243,7 @@ func TestReviewModel_WeakCandidateRequiresDoubleAcceptAsIs(t *testing.T) {
 	if !strings.Contains(firstM.statusMsg, "needs confirmation") {
 		t.Fatalf("first accept status = %q, want confirmation guidance", firstM.statusMsg)
 	}
-	if view := firstM.View(); !strings.Contains(view, "accept confirmation armed") || !strings.Contains(view, "hidden extraction") {
+	if view := firstM.View(); !strings.Contains(view, "accept confirmation armed") || !strings.Contains(view, "source=extracted-hidden") {
 		t.Fatalf("weak candidate view missing confirmation/risk context:\n%s", view)
 	}
 

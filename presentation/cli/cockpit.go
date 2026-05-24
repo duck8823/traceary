@@ -1061,10 +1061,11 @@ func nextCockpitSection(current cockpitSectionID, delta int) cockpitSectionID {
 			break
 		}
 	}
-	// Preserve an unknown section id instead of silently warping focus to Tail;
-	// callers that create the invalid state should keep enough context to debug it.
 	if !found {
-		return current
+		// Invalid section ids should still make forward progress when the
+		// operator presses tab/arrow keys. Falling back to the first navigation
+		// item keeps the cockpit recoverable instead of leaving focus stuck.
+		return sections[0].id
 	}
 	next := (index + delta) % len(sections)
 	if next < 0 {
@@ -2447,6 +2448,9 @@ func cockpitTopSectionLabel(pane topPane, snapshot topDataSnapshot) string {
 	case topPaneRecentCommands:
 		return Localizef("RECENT COMMANDS (%d)", "RECENT COMMANDS (%d)", len(snapshot.RecentCommands))
 	case topPaneCandidates:
+		// The live cockpit uses the operator-facing glossary. Keep
+		// top --snapshot's historical CANDIDATE MEMORIES text header separate
+		// for script compatibility; see writeTopSnapshotTextCandidates.
 		return Localizef("MEMORY CANDIDATES (%d)", "MEMORY CANDIDATES (%d)", len(snapshot.Candidates))
 	case topPaneStaleMemories:
 		return Localizef("STALE MEMORIES (%d)", "STALE MEMORIES (%d)", snapshot.StaleMemories.Count())

@@ -2,8 +2,12 @@ package cli_test
 
 import (
 	"bytes"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -81,7 +85,7 @@ func TestDocumentationAndGoldensDoNotExposeLegacyMemoryCandidateGlossary(t *test
 	}
 }
 
-func TestProductionCliSourcesDoNotExposeLegacyMemoryCandidateGlossary(t *testing.T) {
+func TestProductionCliStringLiteralsDoNotExposeLegacyMemoryCandidateGlossary(t *testing.T) {
 	paths, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatalf("glob production cli sources: %v", err)
@@ -91,16 +95,28 @@ func TestProductionCliSourcesDoNotExposeLegacyMemoryCandidateGlossary(t *testing
 			continue
 		}
 		t.Run(path, func(t *testing.T) {
-			content, err := os.ReadFile(path)
+			fileSet := token.NewFileSet()
+			file, err := parser.ParseFile(fileSet, path, nil, 0)
 			if err != nil {
-				t.Fatalf("read %s: %v", path, err)
+				t.Fatalf("parse %s: %v", path, err)
 			}
-			text := normalizeLegacyGlossaryText(string(content))
-			for _, forbidden := range legacyMemoryCandidateGlossaryTerms() {
-				if strings.Contains(text, forbidden) {
-					t.Fatalf("%s leaked legacy glossary %q:\n%s", path, forbidden, text)
+			ast.Inspect(file, func(node ast.Node) bool {
+				lit, ok := node.(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					return true
 				}
-			}
+				value, err := strconv.Unquote(lit.Value)
+				if err != nil {
+					t.Fatalf("unquote %s: %v", fileSet.Position(lit.Pos()), err)
+				}
+				text := normalizeLegacyGlossaryText(value)
+				for _, forbidden := range legacyMemoryCandidateGlossaryTerms() {
+					if strings.Contains(text, forbidden) {
+						t.Fatalf("%s leaked legacy glossary %q:\n%s", fileSet.Position(lit.Pos()), forbidden, value)
+					}
+				}
+				return true
+			})
 		})
 	}
 }

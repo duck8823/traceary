@@ -361,6 +361,9 @@ func writeTopSnapshotTextEvents(output io.Writer, header string, events []*model
 }
 
 func writeTopSnapshotTextCandidates(output io.Writer, candidates []apptypes.MemorySummary, rememberIntentCount int) error {
+	// This script-facing text header is intentionally stable even though the
+	// live cockpit labels the pane "MEMORY CANDIDATES". Do not rename it
+	// without a top --snapshot contract migration.
 	if _, err := fmt.Fprintf(output, "\nCANDIDATE MEMORIES (count=%d remember_intent=%d):\n", len(candidates), rememberIntentCount); err != nil {
 		return xerrors.Errorf("failed to print candidates header: %w", err)
 	}

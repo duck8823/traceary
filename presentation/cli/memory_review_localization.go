@@ -1,5 +1,7 @@
 package cli
 
+import "strings"
+
 // Memory review localization glossary:
 //   - The user-facing English queue label is "memory review queue".
 //   - The workflow label is "メモリ確認" in Japanese.
@@ -21,6 +23,7 @@ func memoryReviewWorkflowLabel() string {
 // memoryReviewWorkflowTitle appends a suffix that the caller has already
 // localized for the active CLI locale.
 func memoryReviewWorkflowTitle(localizedSuffix string) string {
+	localizedSuffix = strings.TrimSpace(localizedSuffix)
 	if localizedSuffix == "" {
 		return memoryReviewWorkflowLabel()
 	}

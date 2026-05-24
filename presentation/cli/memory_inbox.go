@@ -513,16 +513,21 @@ type memoryInboxCleanupResult struct {
 	Failures  []memoryInboxFailure
 }
 
+type memoryInboxFailureCode string
+
+// memoryInboxFailure is part of the public `memory inbox ... --json` contract.
+// Keep the historical Go-style JSON field names stable; text-mode rendering
+// may localize Error via localizedMemoryInboxFailureError, but JSON Error stays
+// a machine-readable raw error string and ErrorCode is the stable discriminator.
 type memoryInboxFailure struct {
-	ID        string
-	Error     string
-	ErrorCode string `json:"ErrorCode,omitempty"`
+	ID        string                 `json:"ID"`
+	Error     string                 `json:"Error"`
+	ErrorCode memoryInboxFailureCode `json:"ErrorCode,omitempty"`
 }
 
-const (
-	memoryInboxCleanupNonCandidateCode  = "cleanup_non_candidate"
-	memoryInboxCleanupNonCandidateError = "cleanup only modifies memory candidates"
-)
+const memoryInboxCleanupNonCandidateCode memoryInboxFailureCode = "cleanup_non_candidate"
+
+const memoryInboxCleanupNonCandidateError = "cleanup only modifies memory candidates"
 
 // normaliseInboxIDs de-duplicates and trims the --ids slice. StringSliceVar
 // already splits on commas so repeated --ids flags accumulate; the helper

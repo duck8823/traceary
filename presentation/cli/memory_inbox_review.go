@@ -694,10 +694,10 @@ func (m reviewModel) renderBrowse() string {
 	fmt.Fprintf(&b, "%-23s %s\n", Localize("ARTIFACT_REFS:", "ARTIFACT_REFS:"), Localizef("%d (press v to inspect)", "%d (v で確認)", len(current.ArtifactRefs())))
 	fmt.Fprintf(&b, "%-23s %s\n", Localize("CREATED_AT:", "CREATED_AT:"), formatJSONTime(summary.CreatedAt()))
 	fmt.Fprintf(&b, "%-23s %s\n", Localize("UPDATED_AT:", "UPDATED_AT:"), formatJSONTime(summary.UpdatedAt()))
-	fmt.Fprintf(&b, "%-23s %s\n", Localize("CANDIDATE_AGE:", "メモリ候補の経過時間:"), formatMemoryReviewCandidateAge(summary, topNowFunc().UTC()))
+	fmt.Fprintf(&b, "%-23s %s\n", Localize("MEMORY_CANDIDATE_AGE:", "メモリ候補の経過時間:"), formatMemoryReviewCandidateAge(summary, topNowFunc().UTC()))
 	fmt.Fprintf(&b, "%-23s %s\n", Localize("DUPLICATE_SUPERSEDE:", "DUPLICATE_SUPERSEDE:"), memoryReviewDuplicateSupersedeHint(summary))
 	b.WriteString("\n")
-	b.WriteString(m.styles.Active.Render(Localize("CANDIDATE FACT:", "メモリ候補 fact:")))
+	b.WriteString(m.styles.Active.Render(Localize("MEMORY CANDIDATE FACT:", "メモリ候補 fact:")))
 	b.WriteString("\n")
 	b.WriteString(summary.Fact())
 	b.WriteString("\n\n")
@@ -878,9 +878,9 @@ func memoryReviewQualitySignal(details apptypes.MemoryDetails) string {
 	case domtypes.MemorySourceRememberIntent:
 		signals = append(signals, Localize("explicit remember intent", "明示的な remember intent"))
 	case domtypes.MemorySourceExtractedHidden:
-		// Keep this low-level source label in English for copy/paste parity
-		// with memory source filters and exported audit data.
-		signals = append(signals, "hidden extraction")
+		// Keep the exact filter value visible for copy/paste parity with
+		// memory source filters and exported audit data.
+		signals = append(signals, "source=extracted-hidden")
 	case domtypes.MemorySourceExtracted, domtypes.MemorySourceCompactSummary:
 		signals = append(signals, Localize("generated memory candidate", "生成されたメモリ候補"))
 	case domtypes.MemorySourceManual:
