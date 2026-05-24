@@ -7,9 +7,18 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
+	"sync"
 	"testing"
 
 	"github.com/duck8823/traceary/infrastructure/sqlite"
+)
+
+var (
+	sqliteMigrationDirOnce sync.Once
+	sqliteMigrationDir     string
+	sqliteMigrationDirErr  error
 )
 
 // onDiskSQLiteMigrations returns the repository's on-disk migration set for
@@ -21,19 +30,70 @@ func onDiskSQLiteMigrations(t testing.TB) fs.FS {
 
 func onDiskSQLiteMigrationDir(t testing.TB) string {
 	t.Helper()
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get working directory: %v", err)
+	sqliteMigrationDirOnce.Do(func() {
+		sqliteMigrationDir, sqliteMigrationDirErr = resolveOnDiskSQLiteMigrationDir()
+	})
+	if sqliteMigrationDirErr != nil {
+		t.Fatal(sqliteMigrationDirErr)
 	}
-	root, err := findTracearyRepositoryRoot(cwd)
-	if err != nil {
-		t.Fatal(err)
+	return sqliteMigrationDir
+}
+
+func resolveOnDiskSQLiteMigrationDir() (string, error) {
+	starts, startErrs := sqliteMigrationSearchStarts()
+	searchErrs := append([]error(nil), startErrs...)
+	for _, start := range starts {
+		root, err := findTracearyRepositoryRoot(start)
+		if err != nil {
+			searchErrs = append(searchErrs, err)
+			continue
+		}
+		dir := filepath.Join(root, "schema", "sqlite", "migrations")
+		if err := validateSQLiteMigrationDir(dir); err != nil {
+			searchErrs = append(searchErrs, err)
+			continue
+		}
+		return dir, nil
 	}
-	dir := filepath.Join(root, "schema", "sqlite", "migrations")
-	if err := validateSQLiteMigrationDir(dir); err != nil {
-		t.Fatal(err)
+	if len(searchErrs) == 0 {
+		return "", errors.New("no traceary repository search roots available")
 	}
-	return dir
+	return "", fmt.Errorf("resolve SQLite migrations directory: %w", errors.Join(searchErrs...))
+}
+
+func sqliteMigrationSearchStarts() ([]string, []error) {
+	var starts []string
+	var errs []error
+
+	if cwd, err := os.Getwd(); err == nil {
+		starts = appendSearchStart(starts, cwd)
+	} else {
+		errs = append(errs, fmt.Errorf("get working directory: %w", err))
+	}
+
+	if _, file, _, ok := runtime.Caller(0); ok && filepath.IsAbs(file) {
+		starts = appendSearchStart(starts, filepath.Dir(file))
+	}
+
+	return starts, errs
+}
+
+func appendSearchStart(starts []string, start string) []string {
+	start = filepath.Clean(start)
+	starts = appendUniquePath(starts, start)
+	if resolved, err := filepath.EvalSymlinks(start); err == nil {
+		starts = appendUniquePath(starts, resolved)
+	}
+	return starts
+}
+
+func appendUniquePath(paths []string, candidate string) []string {
+	for _, path := range paths {
+		if path == candidate {
+			return paths
+		}
+	}
+	return append(paths, candidate)
 }
 
 func findTracearyRepositoryRoot(start string) (string, error) {
@@ -61,7 +121,15 @@ func findTracearyRepositoryRoot(start string) (string, error) {
 
 func isTracearyModule(data []byte) bool {
 	for _, line := range bytes.Split(data, []byte("\n")) {
-		if bytes.Equal(bytes.TrimSpace(line), []byte("module github.com/duck8823/traceary")) {
+		fields := bytes.Fields(line)
+		if len(fields) < 2 || !bytes.Equal(fields[0], []byte("module")) {
+			continue
+		}
+		modulePath := string(fields[1])
+		if unquoted, err := strconv.Unquote(modulePath); err == nil {
+			modulePath = unquoted
+		}
+		if modulePath == "github.com/duck8823/traceary" {
 			return true
 		}
 	}
@@ -76,14 +144,16 @@ func validateSQLiteMigrationDir(dir string) error {
 	if !info.IsDir() {
 		return errors.New("SQLite migrations path is not a directory: " + dir)
 	}
-	migrations, err := filepath.Glob(filepath.Join(dir, "*.sql"))
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return fmt.Errorf("glob SQLite migrations in %s: %w", dir, err)
+		return fmt.Errorf("read SQLite migrations in %s: %w", dir, err)
 	}
-	if len(migrations) == 0 {
-		return errors.New("SQLite migrations path has no .sql files: " + dir)
+	for _, entry := range entries {
+		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".sql" {
+			return nil
+		}
 	}
-	return nil
+	return errors.New("SQLite migrations path has no .sql files: " + dir)
 }
 
 // newEventDatasource returns an EventDatasource plus a matching

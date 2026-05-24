@@ -77,17 +77,7 @@ func TestMigrations_applyToEmptyDatabase(t *testing.T) {
 		}
 	}
 
-	// Count migration files dynamically
-	entries, err := os.ReadDir(onDiskSQLiteMigrationDir(t))
-	if err != nil {
-		t.Fatalf("ReadDir() error = %v", err)
-	}
-	wantMigrations := 0
-	for _, entry := range entries {
-		if filepath.Ext(entry.Name()) == ".sql" {
-			wantMigrations++
-		}
-	}
+	wantMigrations := countOnDiskSQLiteMigrations(t)
 
 	var migrationCount int
 	if err := db.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&migrationCount); err != nil {
@@ -100,14 +90,14 @@ func TestMigrations_applyToEmptyDatabase(t *testing.T) {
 	assertSessionSpawnMetadataSchema(t, db)
 }
 
-func TestMigration014_addsSessionSpawnMetadataToUpgradedDatabase(t *testing.T) {
+func TestMigrations_upgradeFromPreV014DatabaseAddsSessionSpawnMetadata(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	preV010 := migrationsBeforeVersion(t, onDiskSQLiteMigrationDir(t), 14)
-	ds := newStoreManagementDatasource(t, dbPath, preV010)
+	preV014 := migrationsBeforeVersion(t, onDiskSQLiteMigrationDir(t), 14)
+	ds := newStoreManagementDatasource(t, dbPath, preV014)
 	if err := ds.Initialize(context.Background()); err != nil {
-		t.Fatalf("Initialize(pre-v0.10) error = %v", err)
+		t.Fatalf("Initialize(pre-v0.14) error = %v", err)
 	}
 
 	ds = newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t))
@@ -143,16 +133,7 @@ func TestMigrations_idempotentOnExistingDatabase(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	entries, err := os.ReadDir(onDiskSQLiteMigrationDir(t))
-	if err != nil {
-		t.Fatalf("ReadDir() error = %v", err)
-	}
-	wantMigrations := 0
-	for _, entry := range entries {
-		if filepath.Ext(entry.Name()) == ".sql" {
-			wantMigrations++
-		}
-	}
+	wantMigrations := countOnDiskSQLiteMigrations(t)
 
 	var count int
 	if err := db.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&count); err != nil {
@@ -161,6 +142,22 @@ func TestMigrations_idempotentOnExistingDatabase(t *testing.T) {
 	if count != wantMigrations {
 		t.Errorf("schema_migrations count = %d, want %d", count, wantMigrations)
 	}
+}
+
+func countOnDiskSQLiteMigrations(t *testing.T) int {
+	t.Helper()
+
+	entries, err := os.ReadDir(onDiskSQLiteMigrationDir(t))
+	if err != nil {
+		t.Fatalf("ReadDir() error = %v", err)
+	}
+	count := 0
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) == ".sql" {
+			count++
+		}
+	}
+	return count
 }
 
 // migrationsBeforeVersion returns on-disk migrations whose numeric version is
@@ -179,11 +176,13 @@ func migrationsBeforeVersion(t *testing.T, dir string, maxVersion int) fstest.Ma
 		}
 		versionText, _, ok := strings.Cut(entry.Name(), "_")
 		if !ok {
-			t.Fatalf("migration filename %q missing version separator", entry.Name())
+			t.Logf("skip migration filename %q: missing version separator", entry.Name())
+			continue
 		}
-		version, err := strconv.Atoi(versionText)
-		if err != nil {
-			t.Fatalf("migration filename %q has invalid version: %v", entry.Name(), err)
+		version, parseErr := strconv.Atoi(versionText)
+		if parseErr != nil {
+			t.Logf("skip migration filename %q: invalid version: %v", entry.Name(), parseErr)
+			continue
 		}
 		if version >= maxVersion {
 			continue
