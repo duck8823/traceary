@@ -3,42 +3,42 @@ Traceary cockpit · Top
 
 loaded=2026-05-07T12:00:00Z db=/tmp/traceary.db
 
-Top summary
-• sessions: stale_active=0 recent_failures=0 recent_commands=0 new_events=未追跡
-• memories: accepted(reviewed)=3 candidate(inbox)=4 new=2 remember-intent=1 low-quality=1 stale=0
+Top 概要
+• セッション: stale_active=0 recent_failures=0 recent_commands=0 new_events=未追跡
+• メモリ: accepted(reviewed)=3 candidate(inbox)=4 new=2 remember-intent=1 low-quality=1 stale=0
 • doctor: pass=0 warn=0 fail=0
 • hooks/mcp: warn=0 fail=0
 • payloads: large=0
 
-対応が必要な signal
-• [WARN] Memory inbox の確認が必要 — candidate=4 new=2 remember-intent=1 low-quality=1 (3 Memory inbox を review)
+対応が必要な通知
+• [WARN] メモリ候補の確認が必要 — candidate=4 new=2 remember-intent=1 low-quality=1 (3 メモリ候補を確認)
 
-Signal details
-• cockpit state 初期化まで新着 event は未追跡
-• 新着 candidate memory=2
-• candidate memory=4
-• remember-intent candidate=1
-• 低品質 candidate=1
+通知の詳細
+• cockpit state 初期化まで新着イベントは未追跡
+• 新着メモリ候補=2
+• メモリ候補=4
+• remember-intent 候補=1
+• 低品質候補=1
 
-Top dashboard
-Top dashboard はまだ読み込まれていません。r で再取得します。
+Top ダッシュボード
+Top ダッシュボードはまだ読み込まれていません。r で再取得します。
 
 1-5 タブ · ←/→ タブ · tab/shift+tab 次/前 · 端末 80x24 · esc 戻る · q/ctrl+c 終了 · ? ヘルプ · r 再取得
 
-アクション menu
-• r            Top dashboard を再取得
-• d            Doctor check を開く
+アクションメニュー
+• r            Top ダッシュボードを再取得
+• d            Doctor チェックを開く
 
-Global navigation
-1 Tail      live event stream と event 詳細
-2 Top       session / failure / command / memory / health の dashboard
-3 メモリ      inbox review queue
-4 セッション  session と handoff 導線
-5 設定        language / read 既定 / redaction 診断
+全体ナビゲーション
+1 Tail       イベントのライブ表示と詳細確認
+2 Top        セッション・失敗・コマンド・メモリ・状態の一覧
+3 メモリ     メモリ候補の確認キュー
+4 セッション セッション一覧と引き継ぎ導線
+5 設定       言語・表示既定・redaction 診断
 ← / → でタブ移動。tab / shift+tab も利用可能
 esc で Tail に戻り、q で TUI を終了
 
-現在利用できる fallback command:
+現時点で使える代替コマンド:
 traceary top --snapshot [--json]
 traceary tail
 traceary doctor --json

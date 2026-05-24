@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -1942,6 +1943,189 @@ func TestCockpitModel_ContextualHelpActionMenuByScreen(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestCockpitModel_LocaleSpecificScrollCopy(t *testing.T) {
+	tests := []struct {
+		locale         string
+		want           string
+		ignoreCase     bool
+		forbidEnglish  bool
+		forbidJapanese bool
+	}{
+		{locale: "en", want: "scroll", ignoreCase: true, forbidJapanese: true},
+		{locale: "ja", want: "スクロール", forbidEnglish: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.locale, func(t *testing.T) {
+			resetConfiguredCLILanguageCacheForTest()
+			t.Cleanup(resetConfiguredCLILanguageCacheForTest)
+			t.Setenv(cliLanguageEnvKey, tt.locale)
+
+			for _, tc := range cockpitScrollCopyCases() {
+				t.Run(tc.name, func(t *testing.T) {
+					help := tc.help
+					if tt.ignoreCase {
+						help = strings.ToLower(help)
+					}
+					if !strings.Contains(help, tt.want) {
+						t.Fatalf("%s help = %q, want %q", tc.name, tc.help, tt.want)
+					}
+					if tt.forbidJapanese && containsJapaneseScript(tc.help) {
+						t.Fatalf("%s help leaked Japanese copy in English locale: %q", tc.name, tc.help)
+					}
+					if tt.forbidEnglish && strings.Contains(strings.ToLower(tc.help), "scroll") {
+						t.Fatalf("%s help leaked English copy in Japanese locale: %q", tc.name, tc.help)
+					}
+				})
+			}
+		})
+	}
+}
+
+func cockpitScrollCopyCases() []struct {
+	name string
+	help string
+} {
+	base := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	doctorSnapshot := cockpitDoctorSnapshot{
+		LoadedAt: fixedStartedAt,
+		Sections: []cockpitDoctorSection{{Name: "Checks", Checks: []cockpitDoctorCheck{
+			{Name: "first", Status: doctorStatusPass, Message: "ok"},
+			{Name: "second", Status: doctorStatusPass, Message: "ok"},
+		}}},
+	}
+	return []struct {
+		name string
+		help string
+	}{
+		{
+			name: "top detail",
+			help: func() string {
+				model := base
+				model.mode = cockpitModeTop
+				model.top.detailOpen = true
+				model.top.detail.lines = []string{"first line", "second line"}
+				return model.topLocalHelp()
+			}(),
+		},
+		{
+			name: "top detail action",
+			help: func() string {
+				model := base
+				model.mode = cockpitModeTop
+				model.top.detailOpen = true
+				model.top.detail.lines = []string{"first line", "second line"}
+				return cockpitActionDescriptions(model.cockpitContextualActions())
+			}(),
+		},
+		{
+			name: "doctor",
+			help: func() string {
+				model := base
+				model.mode = cockpitModeDoctor
+				model.doctor.snapshot = doctorSnapshot
+				return model.doctorLocalHelp()
+			}(),
+		},
+		{
+			name: "doctor action",
+			help: func() string {
+				model := base
+				model.mode = cockpitModeDoctor
+				model.doctor.snapshot = doctorSnapshot
+				return cockpitActionDescriptions(model.cockpitContextualActions())
+			}(),
+		},
+		{
+			name: "tail detail",
+			help: func() string {
+				model := base
+				model.mode = cockpitModeDetail
+				model.detail.lines = []string{"first line", "second line"}
+				return model.detailLocalHelp()
+			}(),
+		},
+	}
+}
+
+func cockpitActionDescriptions(actions []cockpitAction) string {
+	descriptions := make([]string, 0, len(actions))
+	for _, action := range actions {
+		descriptions = append(descriptions, action.description)
+	}
+	return strings.Join(descriptions, "\n")
+}
+
+func TestCockpitModel_NavigationLinesAlignByDisplayWidth(t *testing.T) {
+	tests := []struct {
+		locale       string
+		descriptions []string
+		wantWidth    int
+	}{
+		{
+			locale:    "en",
+			wantWidth: 11,
+			descriptions: []string{
+				"live event stream and event details",
+				"dashboard for sessions, failures, commands, memory, and health",
+				"inbox review queue",
+				"session and handoff entry points",
+				"language, read defaults, redaction diagnostics",
+			},
+		},
+		{
+			locale:    "ja",
+			wantWidth: 13,
+			descriptions: []string{
+				"イベントのライブ表示と詳細確認",
+				"セッション・失敗・コマンド・メモリ・状態の一覧",
+				"メモリ候補の確認キュー",
+				"セッション一覧と引き継ぎ導線",
+				"言語・表示既定・redaction 診断",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.locale, func(t *testing.T) {
+			resetConfiguredCLILanguageCacheForTest()
+			t.Cleanup(resetConfiguredCLILanguageCacheForTest)
+			t.Setenv(cliLanguageEnvKey, tt.locale)
+
+			model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+			lines := model.cockpitContextualNavigationLines()
+			if got := cockpitNavigationLabelWidth(cockpitNavigationItems()); got != tt.wantWidth {
+				t.Fatalf("navigation label width = %d, want %d", got, tt.wantWidth)
+			}
+			for i, description := range tt.descriptions {
+				line := lines[i]
+				if !strings.HasSuffix(line, description) {
+					t.Fatalf("navigation line %d missing description %q: %q", i+1, description, line)
+				}
+				prefix := strings.TrimSuffix(line, description)
+				if got := runeWidth(prefix); got != tt.wantWidth {
+					t.Fatalf("navigation line %d prefix display width = %d, want %d: %q", i+1, got, tt.wantWidth, line)
+				}
+				if got := runeWidth(strings.TrimRight(prefix, " ")); got >= tt.wantWidth {
+					t.Fatalf("navigation line %d label width = %d, want room for a separator: %q", i+1, got, line)
+				}
+			}
+		})
+	}
+}
+
+func containsJapaneseScript(value string) bool {
+	for _, r := range value {
+		// Fullwidth Latin/digit/punctuation and halfwidth katakana code points are treated as Japanese-locale leaks on purpose.
+		if unicode.In(r, unicode.Hiragana, unicode.Katakana, unicode.Han) ||
+			(r >= 0x3000 && r <= 0x303f) ||
+			(r >= 0xff00 && r <= 0xffef) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCockpitSettingsViewShowsConfigStatusAndEnvOverrides(t *testing.T) {
