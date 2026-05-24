@@ -26,6 +26,18 @@ const (
 	cockpitSettingsConfigPathError  = "path_error"
 )
 
+const (
+	cockpitSettingsRowLanguage = iota
+	cockpitSettingsRowReadColor
+	cockpitSettingsRowReadFields
+	cockpitSettingsRowAddPattern
+	cockpitSettingsRowRemovePattern
+	cockpitSettingsRowSave
+	cockpitSettingsRowDiscard
+	cockpitSettingsRowReload
+	cockpitSettingsRowCount
+)
+
 type cockpitSettingsState struct {
 	loaded         bool
 	snapshot       cockpitSettingsSnapshot
@@ -301,9 +313,6 @@ func (m cockpitModel) updateSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if section, ok := cockpitSectionFromKey(msg); ok {
 		return m.openCockpitSection(section)
 	}
-	if section, ok := m.cockpitAdjacentSectionFromKey(msg); ok {
-		return m.openCockpitSection(section)
-	}
 	switch {
 	case key.Matches(msg, m.keys.Up):
 		m.settings.cursor--
@@ -313,10 +322,17 @@ func (m cockpitModel) updateSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.settings.cursor++
 		m.clampSettingsCursor()
 		return m, nil
+	case msg.Type == tea.KeyLeft:
+		return m.adjustSelectedSettingsRow(-1)
+	case msg.Type == tea.KeyRight:
+		return m.adjustSelectedSettingsRow(1)
+	case key.Matches(msg, m.keys.Select):
+		return m.activateSelectedSettingsRow()
 	case key.Matches(msg, m.keys.Refresh):
-		m.settings = newCockpitSettingsState()
-		m.settings.info = Localize("Settings reloaded from disk.", "Settings を disk から再読み込みしました。")
-		return m, nil
+		return m.reloadSettings()
+	}
+	if section, ok := m.cockpitAdjacentSectionFromKey(msg); ok {
+		return m.openCockpitSection(section)
 	}
 	if msg.Type != tea.KeyRunes || len(msg.Runes) == 0 {
 		return m, nil
@@ -335,10 +351,7 @@ func (m cockpitModel) updateSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "w":
 		return m.startSettingsSaveConfirmation()
 	case "d":
-		m.settings.draft = m.settings.snapshot.Values.clone()
-		m.settings.info = Localize("Discarded pending settings changes.", "未保存の設定変更を破棄しました。")
-		m.settings.err = ""
-		return m, nil
+		return m.discardSettingsChanges()
 	}
 	return m, nil
 }
@@ -367,7 +380,7 @@ func (m cockpitModel) updateSettingsPatternInputKey(msg tea.KeyMsg) (tea.Model, 
 		m.settings.draft.ExtraPatterns = append(m.settings.draft.ExtraPatterns, pattern)
 		m.settings.editingPattern = false
 		m.settings.patternInput = ""
-		m.settings.info = Localize("Staged redaction pattern. Press w to review and save.", "redaction pattern を staged にしました。w で確認して保存します。")
+		m.settings.info = Localize("Staged redaction pattern. Select Save changes or press w to review and save.", "redaction pattern を staged にしました。「変更を保存」を選ぶか w で確認して保存します。")
 		m.settings.err = ""
 		return m, nil
 	case tea.KeyBackspace, tea.KeyDelete:
@@ -409,41 +422,121 @@ func (m cockpitModel) updateSettingsConfirmKey(msg tea.KeyMsg) (tea.Model, tea.C
 	return m, nil
 }
 
+func (m cockpitModel) adjustSelectedSettingsRow(delta int) (tea.Model, tea.Cmd) {
+	switch m.settings.cursor {
+	case cockpitSettingsRowLanguage:
+		return m.stageSettingsLanguageCycle(delta)
+	case cockpitSettingsRowReadColor:
+		return m.stageSettingsColorCycleBy(delta)
+	case cockpitSettingsRowReadFields:
+		return m.stageSettingsFieldsCycleBy(delta)
+	default:
+		return m, nil
+	}
+}
+
+func (m cockpitModel) activateSelectedSettingsRow() (tea.Model, tea.Cmd) {
+	switch m.settings.cursor {
+	case cockpitSettingsRowLanguage:
+		return m.stageSettingsLanguageCycle(1)
+	case cockpitSettingsRowReadColor:
+		return m.stageSettingsColorCycleBy(1)
+	case cockpitSettingsRowReadFields:
+		return m.stageSettingsFieldsCycleBy(1)
+	case cockpitSettingsRowAddPattern:
+		return m.startSettingsPatternInput()
+	case cockpitSettingsRowRemovePattern:
+		return m.stageSettingsPatternRemove()
+	case cockpitSettingsRowSave:
+		return m.startSettingsSaveConfirmation()
+	case cockpitSettingsRowDiscard:
+		return m.discardSettingsChanges()
+	case cockpitSettingsRowReload:
+		return m.reloadSettings()
+	default:
+		return m, nil
+	}
+}
+
 func (m cockpitModel) stageSettingsLanguageToggle() (tea.Model, tea.Cmd) {
+	return m.stageSettingsLanguageCycle(1)
+}
+
+func (m cockpitModel) stageSettingsLanguageCycle(delta int) (tea.Model, tea.Cmd) {
 	if !m.settings.canEditConfig() {
 		m.settings.err = Localize("Fix config readability/JSON before editing settings.", "設定を編集する前に config の読み込み/JSON を修復してください。")
 		return m, nil
 	}
 	current := normalizeSettingsLanguage(m.settings.draft.UILanguage)
-	if current == "ja" {
-		m.settings.draft.UILanguage = "en"
-	} else {
-		m.settings.draft.UILanguage = "ja"
+	values := []string{"en", "ja"}
+	index := 0
+	for i, value := range values {
+		if current == value {
+			index = i
+			break
+		}
 	}
-	m.settings.info = Localize("Staged UI language change. Press w to review and save.", "UI language 変更を staged にしました。w で確認して保存します。")
+	m.settings.draft.UILanguage = values[cycleSettingsIndex(index, delta, len(values))]
+	if settingsLanguageEquivalent(m.settings.snapshot.Values.UILanguage, m.settings.draft.UILanguage) {
+		m.settings.draft.UILanguage = m.settings.snapshot.Values.UILanguage
+		m.settings.info = ""
+	} else {
+		m.settings.info = Localize("Staged UI language change. Select Save changes to review and save.", "UI language 変更を staged にしました。「変更を保存」を選んで確認・保存します。")
+	}
 	m.settings.err = ""
 	return m, nil
 }
 
 func (m cockpitModel) stageSettingsColorCycle() (tea.Model, tea.Cmd) {
+	return m.stageSettingsColorCycleBy(1)
+}
+
+func (m cockpitModel) stageSettingsColorCycleBy(delta int) (tea.Model, tea.Cmd) {
 	if !m.settings.canEditConfig() {
 		m.settings.err = Localize("Fix config readability/JSON before editing settings.", "設定を編集する前に config の読み込み/JSON を修復してください。")
 		return m, nil
 	}
-	m.settings.draft.ReadColor = nextSettingsColor(m.settings.draft.ReadColor)
-	m.settings.info = Localize("Staged read.color change. Press w to review and save.", "read.color 変更を staged にしました。w で確認して保存します。")
+	m.settings.draft.ReadColor = settingsColorAtOffset(m.settings.draft.ReadColor, delta)
+	if settingsColorEquivalent(m.settings.snapshot.Values.ReadColor, m.settings.draft.ReadColor) {
+		m.settings.draft.ReadColor = m.settings.snapshot.Values.ReadColor
+		m.settings.info = ""
+	} else {
+		m.settings.info = Localize("Staged read.color change. Select Save changes to review and save.", "read.color 変更を staged にしました。「変更を保存」を選んで確認・保存します。")
+	}
 	m.settings.err = ""
 	return m, nil
 }
 
 func (m cockpitModel) stageSettingsFieldsCycle() (tea.Model, tea.Cmd) {
+	return m.stageSettingsFieldsCycleBy(1)
+}
+
+func (m cockpitModel) stageSettingsFieldsCycleBy(delta int) (tea.Model, tea.Cmd) {
 	if !m.settings.canEditConfig() {
 		m.settings.err = Localize("Fix config readability/JSON before editing settings.", "設定を編集する前に config の読み込み/JSON を修復してください。")
 		return m, nil
 	}
-	m.settings.draft.ReadFields = nextSettingsFieldSet(m.settings.draft.ReadFields)
-	m.settings.info = Localize("Staged read.fields change. Press w to review and save.", "read.fields 変更を staged にしました。w で確認して保存します。")
+	m.settings.draft.ReadFields = settingsFieldSetAtOffset(m.settings.draft.ReadFields, delta)
+	if settingsFieldSetEquivalent(m.settings.snapshot.Values.ReadFields, m.settings.draft.ReadFields) {
+		m.settings.draft.ReadFields = slices.Clone(m.settings.snapshot.Values.ReadFields)
+		m.settings.info = ""
+	} else {
+		m.settings.info = Localize("Staged read.fields change. Select Save changes to review and save.", "read.fields 変更を staged にしました。「変更を保存」を選んで確認・保存します。")
+	}
 	m.settings.err = ""
+	return m, nil
+}
+
+func (m cockpitModel) discardSettingsChanges() (tea.Model, tea.Cmd) {
+	m.settings.draft = m.settings.snapshot.Values.clone()
+	m.settings.info = Localize("Discarded pending settings changes.", "未保存の設定変更を破棄しました。")
+	m.settings.err = ""
+	return m, nil
+}
+
+func (m cockpitModel) reloadSettings() (tea.Model, tea.Cmd) {
+	m.settings = newCockpitSettingsState()
+	m.settings.info = Localize("Settings reloaded from disk.", "Settings を disk から再読み込みしました。")
 	return m, nil
 }
 
@@ -470,7 +563,7 @@ func (m cockpitModel) stageSettingsPatternRemove() (tea.Model, tea.Cmd) {
 	}
 	removed := m.settings.draft.ExtraPatterns[len(m.settings.draft.ExtraPatterns)-1]
 	m.settings.draft.ExtraPatterns = m.settings.draft.ExtraPatterns[:len(m.settings.draft.ExtraPatterns)-1]
-	m.settings.info = Localizef("Staged removal of redact.extra_patterns entry %q. Press w to review and save.", "redact.extra_patterns %q の削除を staged にしました。w で確認して保存します。", removed)
+	m.settings.info = Localizef("Staged removal of redact.extra_patterns entry %q. Select Save changes or press w to review and save.", "redact.extra_patterns %q の削除を staged にしました。「変更を保存」を選ぶか w で確認して保存します。", removed)
 	m.settings.err = ""
 	return m, nil
 }
@@ -543,7 +636,7 @@ func (m cockpitModel) settingsView() string {
 	lines = append(lines, "", m.styles.Subtle.Render(Localize("Read-only diagnostics", "読み取り専用 diagnostics")))
 	lines = append(lines, m.settings.settingsEnvLines()...)
 	if len(m.settings.draft.ReadPresets) > 0 {
-		lines = append(lines, "", m.styles.Subtle.Render(Localize("read.presets (view only in v0.18)", "read.presets (v0.18 では表示のみ)")))
+		lines = append(lines, "", m.styles.Subtle.Render(Localize("read.presets (view only in this release)", "read.presets (このリリースでは表示のみ)")))
 		for _, preset := range m.settings.draft.ReadPresets {
 			fields := strings.Join(preset.Fields, ",")
 			if fields == "" {
@@ -557,7 +650,7 @@ func (m cockpitModel) settingsView() string {
 		}
 	}
 	if m.settings.draft.RedactRuleCount > 0 {
-		lines = append(lines, "", m.styles.Subtle.Render(Localize("redact.rules (view only in v0.18)", "redact.rules (v0.18 では表示のみ)")))
+		lines = append(lines, "", m.styles.Subtle.Render(Localize("redact.rules (view only in this release)", "redact.rules (このリリースでは表示のみ)")))
 		for _, name := range m.settings.draft.RedactRuleNames {
 			lines = append(lines, "• "+name)
 		}
@@ -570,18 +663,25 @@ func (m cockpitModel) settingsView() string {
 		lines = append(lines, m.settingsDiffLines()...)
 		lines = append(lines, m.styles.Help.Render(Localize("y save atomically · n/esc cancel", "y atomic save · n/esc キャンセル")))
 	} else if m.settings.dirty() {
-		lines = append(lines, "", m.styles.Warning.Render(Localize("Pending changes are not written yet. Press w to review and save, d to discard.", "未保存の変更があります。w で確認して保存、d で破棄します。")))
+		lines = append(lines, "", m.styles.Warning.Render(Localize("Pending changes are not written yet. Select Save changes or press w to review and save; select Discard or press d to discard.", "未保存の変更があります。「変更を保存」を選ぶか w で確認して保存、「破棄」を選ぶか d で破棄します。")))
 		lines = append(lines, m.settingsDiffLines()...)
 	}
 	return m.renderCockpitShell(Localize("settings", "設定"), lines, m.settingsLocalHelp())
 }
 
 func (s cockpitSettingsState) settingsRows() []string {
+	// Keep this order aligned with cockpitSettingsRow* constants and the
+	// dispatch switches below; TestCockpitSettingsRowsMatchDispatchConstants
+	// guards the contract.
 	return []string{
-		Localize("ui.language: ", "ui.language: ") + formatSettingValue(effectiveSettingsLanguage(s.draft.UILanguage)) + s.languageDirtyMarker(),
-		Localize("read.color: ", "read.color: ") + formatSettingValue(effectiveSettingsColor(s.draft.ReadColor)) + s.settingDirtyMarker(s.snapshot.Values.ReadColor, s.draft.ReadColor),
-		Localize("read.fields: ", "read.fields: ") + formatSettingValue(formatSettingsFields(s.draft.ReadFields)) + s.settingDirtyMarker(strings.Join(s.snapshot.Values.ReadFields, ","), strings.Join(s.draft.ReadFields, ",")),
-		Localize("redact.extra_patterns: ", "redact.extra_patterns: ") + formatSettingValue(formatSettingsPatterns(s.draft.ExtraPatterns)) + s.settingDirtyMarker(strings.Join(s.snapshot.Values.ExtraPatterns, "\x00"), strings.Join(s.draft.ExtraPatterns, "\x00")),
+		Localize("ui.language: ", "ui.language (UI 言語): ") + formatSettingValue(effectiveSettingsLanguage(s.draft.UILanguage)) + s.languageDirtyMarker(),
+		Localize("read.color: ", "read.color (色): ") + formatSettingValue(effectiveSettingsColor(s.draft.ReadColor)) + s.readColorDirtyMarker(),
+		Localize("read.fields: ", "read.fields (表示項目): ") + formatSettingValue(formatSettingsFields(s.draft.ReadFields)) + s.readFieldsDirtyMarker(),
+		Localize("redact.extra_patterns add: ", "redact.extra_patterns を追加: ") + formatSettingValue(formatSettingsPatterns(s.draft.ExtraPatterns)) + s.settingDirtyMarker(strings.Join(s.snapshot.Values.ExtraPatterns, "\x00"), strings.Join(s.draft.ExtraPatterns, "\x00")),
+		Localize("redact.extra_patterns remove last", "最後の redact.extra_patterns を削除"),
+		Localize("save changes", "変更を保存"),
+		Localize("discard pending changes", "未保存の変更を破棄"),
+		Localize("reload settings from disk", "settings を disk から再読み込み"),
 	}
 }
 
@@ -622,9 +722,13 @@ func (s cockpitSettingsState) canEditConfig() bool {
 }
 
 func (s cockpitSettingsState) dirty() bool {
-	return normalizeSettingsLanguage(s.snapshot.Values.UILanguage) != normalizeSettingsLanguage(s.draft.UILanguage) ||
-		strings.TrimSpace(s.snapshot.Values.ReadColor) != strings.TrimSpace(s.draft.ReadColor) ||
-		!slices.Equal(s.snapshot.Values.ReadFields, s.draft.ReadFields) ||
+	// ui.language/read.color/read.fields treat omitted config values as their
+	// runtime defaults so a cycle back to the default does not write noisy
+	// explicit defaults. redact.extra_patterns has no implicit default beyond
+	// the literal empty list, so raw slice equality is intentional there.
+	return !settingsLanguageEquivalent(s.snapshot.Values.UILanguage, s.draft.UILanguage) ||
+		!settingsColorEquivalent(s.snapshot.Values.ReadColor, s.draft.ReadColor) ||
+		!settingsFieldSetEquivalent(s.snapshot.Values.ReadFields, s.draft.ReadFields) ||
 		!slices.Equal(s.snapshot.Values.ExtraPatterns, s.draft.ExtraPatterns)
 }
 
@@ -636,7 +740,21 @@ func (s cockpitSettingsState) settingDirtyMarker(oldValue string, newValue strin
 }
 
 func (s cockpitSettingsState) languageDirtyMarker() string {
-	if normalizeSettingsLanguage(s.snapshot.Values.UILanguage) == normalizeSettingsLanguage(s.draft.UILanguage) {
+	if settingsLanguageEquivalent(s.snapshot.Values.UILanguage, s.draft.UILanguage) {
+		return ""
+	}
+	return Localize("  [staged]", "  [staged]")
+}
+
+func (s cockpitSettingsState) readColorDirtyMarker() string {
+	if settingsColorEquivalent(s.snapshot.Values.ReadColor, s.draft.ReadColor) {
+		return ""
+	}
+	return Localize("  [staged]", "  [staged]")
+}
+
+func (s cockpitSettingsState) readFieldsDirtyMarker() string {
+	if settingsFieldSetEquivalent(s.snapshot.Values.ReadFields, s.draft.ReadFields) {
 		return ""
 	}
 	return Localize("  [staged]", "  [staged]")
@@ -652,10 +770,18 @@ func (m cockpitModel) settingsDiffLines() []string {
 		}
 		lines = append(lines, fmt.Sprintf("• %s: %s -> %s", label, formatSettingValue(before), formatSettingValue(after)))
 	}
-	appendDiff("ui.language", effectiveSettingsLanguage(old.UILanguage), effectiveSettingsLanguage(draft.UILanguage))
-	appendDiff("read.color", effectiveSettingsColor(old.ReadColor), effectiveSettingsColor(draft.ReadColor))
-	appendDiff("read.fields", formatSettingsFields(old.ReadFields), formatSettingsFields(draft.ReadFields))
-	appendDiff("redact.extra_patterns", formatSettingsPatterns(old.ExtraPatterns), formatSettingsPatterns(draft.ExtraPatterns))
+	if !settingsLanguageEquivalent(old.UILanguage, draft.UILanguage) {
+		appendDiff("ui.language", effectiveSettingsLanguage(old.UILanguage), effectiveSettingsLanguage(draft.UILanguage))
+	}
+	if !settingsColorEquivalent(old.ReadColor, draft.ReadColor) {
+		appendDiff("read.color", effectiveSettingsColor(old.ReadColor), effectiveSettingsColor(draft.ReadColor))
+	}
+	if !settingsFieldSetEquivalent(old.ReadFields, draft.ReadFields) {
+		appendDiff("read.fields", formatSettingsFields(old.ReadFields), formatSettingsFields(draft.ReadFields))
+	}
+	if !slices.Equal(old.ExtraPatterns, draft.ExtraPatterns) {
+		appendDiff("redact.extra_patterns", formatSettingsPatterns(old.ExtraPatterns), formatSettingsPatterns(draft.ExtraPatterns))
+	}
 	if len(lines) == 0 {
 		return []string{Localize("• no effective diff", "• 有効な差分はありません")}
 	}
@@ -663,10 +789,7 @@ func (m cockpitModel) settingsDiffLines() []string {
 }
 
 func (m *cockpitModel) clampSettingsCursor() {
-	maxIndex := len(m.settings.settingsRows()) - 1
-	if maxIndex < 0 {
-		maxIndex = 0
-	}
+	maxIndex := cockpitSettingsRowCount - 1
 	if m.settings.cursor < 0 {
 		m.settings.cursor = 0
 	}
@@ -682,7 +805,7 @@ func (m cockpitModel) settingsLocalHelp() string {
 	if m.settings.confirmSave {
 		return Localize("y save · n/esc cancel", "y 保存 · n/esc キャンセル")
 	}
-	return Localize("↑/↓ select · l language · c color · f fields · n/+ add regex · x/- remove regex · w save · d discard · r reload", "↑/↓ 選択 · l language · c color · f fields · n/+ regex 追加 · x/- regex 削除 · w 保存 · d 破棄 · r 再読込")
+	return Localize("↑/↓ select · ←/→ change value rows · enter action · tab/shift+tab tabs · w save · d discard · r reload", "↑/↓ 選択 · ←/→ 値 row を変更 · enter 実行 · tab/shift+tab タブ · w 保存 · d 破棄 · r 再読込")
 }
 
 func (m cockpitModel) settingsContextualActions() []cockpitAction {
@@ -699,14 +822,15 @@ func (m cockpitModel) settingsContextualActions() []cockpitAction {
 		}
 	}
 	return []cockpitAction{
-		{key: "l", description: Localize("Toggle ui.language between en and ja", "ui.language を en / ja で切替")},
-		{key: "c", description: Localize("Cycle read.color auto / always / never", "read.color を auto / always / never で切替")},
-		{key: "f", description: Localize("Cycle safe read.fields presets", "安全な read.fields preset を切替")},
-		{key: "n / +", description: Localize("Add a regex to redact.extra_patterns after validation", "検証後に regex を redact.extra_patterns へ追加")},
-		{key: "x / -", description: Localize("Remove the last redact.extra_patterns entry", "最後の redact.extra_patterns を削除")},
+		{key: "↑/↓", description: Localize("Select a settings row", "settings row を選択")},
+		{key: "←/→", description: Localize("Change ui.language, read.color, or read.fields when those rows are selected", "ui.language / read.color / read.fields の row 選択時に値を変更")},
+		{key: "tab / shift+tab", description: Localize("Move between cockpit tabs while editing settings", "settings 編集中に cockpit タブ間を移動")},
+		{key: "enter", description: Localize("Run the selected settings action", "選択中の settings action を実行")},
 		{key: "w", description: Localize("Review diff and confirm before writing config", "diff を確認してから config 書き込み")},
 		{key: "d", description: Localize("Discard pending settings changes", "未保存の settings 変更を破棄")},
 		{key: "r", description: Localize("Reload settings from config file", "config file から settings を再読込")},
+		{key: "l/c/f", description: Localize("Change language, color, and field presets", "language / color / field preset を変更")},
+		{key: "n/+ x/-", description: Localize("Add or remove redact.extra_patterns entries", "redact.extra_patterns を追加 / 削除")},
 	}
 }
 
@@ -756,16 +880,16 @@ func saveCockpitSettingsDraft(snapshot cockpitSettingsSnapshot, values cockpitSe
 	if raw == nil {
 		raw = map[string]json.RawMessage{}
 	}
-	if normalizeSettingsLanguage(snapshot.Values.UILanguage) != normalizeSettingsLanguage(values.UILanguage) {
+	if !settingsLanguageEquivalent(snapshot.Values.UILanguage, values.UILanguage) {
 		if err := updateCockpitSettingsSection(raw, "ui", map[string]any{"language": normalizeSettingsLanguage(values.UILanguage)}); err != nil {
 			return err
 		}
 	}
 	readUpdates := map[string]any{}
-	if strings.TrimSpace(snapshot.Values.ReadColor) != strings.TrimSpace(values.ReadColor) {
+	if !settingsColorEquivalent(snapshot.Values.ReadColor, values.ReadColor) {
 		readUpdates["color"] = strings.TrimSpace(values.ReadColor)
 	}
-	if !slices.Equal(snapshot.Values.ReadFields, values.ReadFields) {
+	if !settingsFieldSetEquivalent(snapshot.Values.ReadFields, values.ReadFields) {
 		readUpdates["fields"] = values.ReadFields
 	}
 	if len(readUpdates) > 0 {
@@ -857,6 +981,21 @@ func effectiveSettingsLanguage(value string) string {
 	return lang
 }
 
+func comparableSettingsLanguage(value string) string {
+	lang := normalizeSettingsLanguage(value)
+	if lang == "" {
+		// The CLI falls back to English when neither TRACEARY_LANG nor
+		// ui.language is configured; keep this equivalent to
+		// effectiveSettingsLanguage's display default.
+		return "en"
+	}
+	return lang
+}
+
+func settingsLanguageEquivalent(left string, right string) bool {
+	return comparableSettingsLanguage(left) == comparableSettingsLanguage(right)
+}
+
 func effectiveSettingsColor(value string) string {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
@@ -865,11 +1004,34 @@ func effectiveSettingsColor(value string) string {
 	return trimmed
 }
 
+func comparableSettingsColor(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "auto"
+	}
+	return trimmed
+}
+
+func settingsColorEquivalent(left string, right string) bool {
+	return comparableSettingsColor(left) == comparableSettingsColor(right)
+}
+
 func formatSettingsFields(fields []string) string {
 	if len(fields) == 0 {
 		return strings.Join(readFieldIDsToStrings(defaultReadFields), ",") + " (default)"
 	}
 	return strings.Join(fields, ",")
+}
+
+func comparableSettingsFieldSet(fields []string) []string {
+	if len(fields) == 0 {
+		return readFieldIDsToStrings(defaultReadFields)
+	}
+	return fields
+}
+
+func settingsFieldSetEquivalent(left []string, right []string) bool {
+	return slices.Equal(comparableSettingsFieldSet(left), comparableSettingsFieldSet(right))
 }
 
 func formatSettingsPatterns(patterns []string) string {
@@ -896,31 +1058,63 @@ func formatSettingsEnvLine(name string, value string, set bool) string {
 	return "• " + name + "=" + value
 }
 
-func nextSettingsColor(current string) string {
-	switch strings.TrimSpace(current) {
-	case "auto", "":
-		return "always"
-	case "always":
-		return "never"
-	default:
-		return "auto"
+func settingsColorAtOffset(current string, delta int) string {
+	values := []string{"auto", "always", "never"}
+	normalized := strings.TrimSpace(current)
+	if normalized == "" {
+		normalized = "auto"
 	}
+	index := 0
+	for i, value := range values {
+		if normalized == value {
+			index = i
+			break
+		}
+	}
+	return values[cycleSettingsIndex(index, delta, len(values))]
 }
 
-func nextSettingsFieldSet(current []string) []string {
+func settingsFieldSetAtOffset(current []string, delta int) []string {
 	sets := [][]string{
 		readFieldIDsToStrings(defaultReadFields),
 		{"ts", "kind", "exit_code", "session", "ws", "message"},
 		{"ts", "kind", "client", "agent", "id", "message"},
 		{"ts", "kind", "message"},
 	}
-	currentLabel := strings.Join(current, ",")
-	for i, set := range sets {
-		if currentLabel == strings.Join(set, ",") {
-			return slices.Clone(sets[(i+1)%len(sets)])
+	index := 0
+	if len(current) > 0 {
+		currentLabel := strings.Join(current, ",")
+		matched := false
+		for i, set := range sets {
+			if currentLabel == strings.Join(set, ",") {
+				index = i
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			// Custom field lists are order-sensitive because read.fields itself is
+			// an ordered column list. They are not part of the finite preset cycle;
+			// right enters the preset cycle from the start, left from the end, and
+			// repeated keypresses then move through known presets predictably.
+			if delta < 0 {
+				return slices.Clone(sets[len(sets)-1])
+			}
+			return slices.Clone(sets[0])
 		}
 	}
-	return slices.Clone(sets[0])
+	return slices.Clone(sets[cycleSettingsIndex(index, delta, len(sets))])
+}
+
+func cycleSettingsIndex(index int, delta int, total int) int {
+	if total <= 0 {
+		return 0
+	}
+	next := (index + delta) % total
+	if next < 0 {
+		next += total
+	}
+	return next
 }
 
 func readFieldIDsToStrings(fields []readFieldID) []string {
