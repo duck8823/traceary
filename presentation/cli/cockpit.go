@@ -2954,15 +2954,17 @@ func (m cockpitModel) memoryReviewLocalHelp() string {
 	switch m.memoryReview.review.mode {
 	case reviewModeEdit:
 		return Localize("enter commit · esc cancel · backspace edit", "enter 確定 · esc キャンセル · backspace 編集")
+	case reviewModeAttach:
+		return Localize("enter queue evidence · esc cancel", "enter evidence 保留 · esc キャンセル")
 	case reviewModeViewEvidence:
-		return Localize("v/esc close evidence · q finish/apply", "v/esc evidence を閉じる · q 終了/適用")
+		return Localize("r attach evidence · v/esc close evidence · q finish/apply", "r evidence 追加 · v/esc evidence を閉じる · q 終了/適用")
 	case reviewModeHelp:
 		return Localize("?/esc close help · q finish/apply", "?/esc help を閉じる · q 終了/適用")
 	default:
 		if m.memoryReview.review.cursor >= 0 && m.memoryReview.review.cursor < len(m.memoryReview.items) && memoryReviewBlocksAccept(m.memoryReview.items[m.memoryReview.review.cursor]) {
-			return Localize("a unavailable (evidence required) · x reject · s skip · v evidence · q finish/apply", "a 不可 (evidence 必須) · x reject · s skip · v evidence · q 終了/適用")
+			return Localize("a unavailable (evidence required) · r attach evidence · x reject · s skip · v evidence · q finish/apply", "a 不可 (evidence 必須) · r evidence 追加 · x reject · s skip · v evidence · q 終了/適用")
 		}
-		return Localize("a accept as-is · x reject · s skip · e edit/distill · v evidence · q finish/apply", "a accept as-is · x reject · s skip · e edit/distill · v evidence · q 終了/適用")
+		return Localize("a accept as-is · x reject · s skip · e edit/distill · r attach evidence · v evidence · q finish/apply", "a accept as-is · x reject · s skip · e edit/distill · r evidence 追加 · v evidence · q 終了/適用")
 	}
 }
 

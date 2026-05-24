@@ -85,6 +85,15 @@ func newReviewTestModel(items ...apptypes.MemoryDetails) reviewModel {
 	return newReviewModel(items, tui.DefaultKeyMap(), tui.DefaultStyles())
 }
 
+func mustReviewEvidenceRef(t *testing.T, kind domtypes.EvidenceRefKind, value string) domtypes.EvidenceRef {
+	t.Helper()
+	ref, err := domtypes.EvidenceRefFrom(kind, value)
+	if err != nil {
+		t.Fatalf("EvidenceRefFrom: %v", err)
+	}
+	return ref
+}
+
 // TestReviewModel_AcceptQueuesDecisionAndAdvances pins that pressing the
 // accept binding queues an Accept decision and moves the cursor to the
 // next item without calling any usecase. The runner — not the model —
@@ -198,6 +207,49 @@ func TestReviewModel_NoEvidenceCandidateBlocksAcceptAsIs(t *testing.T) {
 	}
 	if !strings.Contains(editM.statusMsg, "edit/distill is unavailable") {
 		t.Fatalf("edit/distill block status = %q", editM.statusMsg)
+	}
+}
+
+func TestReviewModel_AttachEvidenceThenAcceptQueuesOrderedDecisions(t *testing.T) {
+	t.Parallel()
+
+	model := newReviewTestModel(buildReviewCandidateWithOptions(t, reviewCandidateOptions{
+		id:         "id-attach",
+		fact:       "fact without evidence",
+		confidence: domtypes.ConfidenceHigh,
+		source:     domtypes.MemorySourceManual,
+		noEvidence: true,
+	}))
+
+	opened, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	attachM := opened.(reviewModel)
+	if attachM.mode != reviewModeAttach {
+		t.Fatalf("r should open attach mode, got %v", attachM.mode)
+	}
+	for _, r := range "event:evt-1" {
+		updated, _ := attachM.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		attachM = updated.(reviewModel)
+	}
+	queued, _ := attachM.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	queuedM := queued.(reviewModel)
+	if queuedM.mode != reviewModeBrowse {
+		t.Fatalf("enter should return to browse, got %v", queuedM.mode)
+	}
+	if queuedM.currentCandidateBlocksAccept() {
+		t.Fatalf("attached evidence should make accept available")
+	}
+
+	accepted, _ := queuedM.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	acceptedM := accepted.(reviewModel)
+	decisions := acceptedM.Decisions()
+	if len(decisions) != 2 {
+		t.Fatalf("decisions len = %d, want attach+accept: %+v", len(decisions), decisions)
+	}
+	if decisions[0].kind != reviewDecisionAttach || decisions[1].kind != reviewDecisionAccept {
+		t.Fatalf("decisions order = %+v, want attach then accept", decisions)
+	}
+	if len(decisions[0].evidenceRefs) != 1 || decisions[0].evidenceRefs[0].Value() != "evt-1" {
+		t.Fatalf("attach evidence refs = %+v", decisions[0].evidenceRefs)
 	}
 }
 
@@ -743,7 +795,7 @@ func TestWriteMemoryInboxReviewSummary_FailureReturnsError(t *testing.T) {
 	if !strings.Contains(err.Error(), "memory review failed for 1 memory id(s)") {
 		t.Fatalf("unexpected failure error: %v", err)
 	}
-	want := "review accepted=1 rejected=0 distilled=0 failures=1\nACCEPT\tid-ok\tcandidate\nFAILED\tid-fail\tsynthetic failure\n"
+	want := "review attached=0 accepted=1 rejected=0 distilled=0 failures=1\nACCEPT\tid-ok\tcandidate\nFAILED\tid-fail\tsynthetic failure\n"
 	if got := out.String(); got != want {
 		t.Fatalf("summary output changed:\n got %q\nwant %q", got, want)
 	}
@@ -769,7 +821,7 @@ func TestFinishMemoryInboxReview_ReturnsFailureError(t *testing.T) {
 	if stub.acceptCalls != 1 {
 		t.Fatalf("acceptCalls = %d, want 1", stub.acceptCalls)
 	}
-	want := "review accepted=0 rejected=0 distilled=0 failures=1\nFAILED\tid-1\tsynthetic accept failure\n"
+	want := "review attached=0 accepted=0 rejected=0 distilled=0 failures=1\nFAILED\tid-1\tsynthetic accept failure\n"
 	if got := out.String(); got != want {
 		t.Fatalf("summary output changed:\n got %q\nwant %q", got, want)
 	}
@@ -785,25 +837,32 @@ func TestApplyInboxReviewDecisions_DispatchesToUsecases(t *testing.T) {
 	candidate1 := buildReviewCandidate(t, "id-1", "fact 1")
 	candidate2 := buildReviewCandidate(t, "id-2", "fact 2")
 	candidate3 := buildReviewCandidate(t, "id-3", "fact 3")
+	candidate4 := buildReviewCandidateWithOptions(t, reviewCandidateOptions{id: "id-4", fact: "fact 4", noEvidence: true})
+	attachRef := mustReviewEvidenceRef(t, domtypes.EvidenceRefKindEvent, "evt-4")
 	stub := &reviewWriterStub{
 		acceptDetails: candidate1,
 		rejectDetails: candidate2,
 		distillResult: apptypes.MemoryDistillResultOf(candidate3, nil, apptypes.MemoryDistillReplaceSupersede),
+		attachDetails: candidate4,
 	}
 
 	decisions := []reviewDecision{
+		{kind: reviewDecisionAttach, memoryID: candidate4.Summary().MemoryID(), evidenceRefs: []domtypes.EvidenceRef{attachRef}},
 		{kind: reviewDecisionAccept, memoryID: candidate1.Summary().MemoryID()},
 		{kind: reviewDecisionReject, memoryID: candidate2.Summary().MemoryID()},
 		{kind: reviewDecisionDistill, memoryID: candidate3.Summary().MemoryID(), fact: "operator wrote this"},
 	}
-	items := []apptypes.MemoryDetails{candidate1, candidate2, candidate3}
+	items := []apptypes.MemoryDetails{candidate1, candidate2, candidate3, candidate4}
 
 	result, err := applyInboxReviewDecisions(context.Background(), stub, decisions, items)
 	if err != nil {
 		t.Fatalf("applyInboxReviewDecisions: %v", err)
 	}
-	if stub.acceptCalls != 1 || stub.rejectCalls != 1 || stub.distillCalls != 1 {
-		t.Fatalf("usecase call counts (accept=%d reject=%d distill=%d) want all 1", stub.acceptCalls, stub.rejectCalls, stub.distillCalls)
+	if stub.attachCalls != 1 || stub.acceptCalls != 1 || stub.rejectCalls != 1 || stub.distillCalls != 1 {
+		t.Fatalf("usecase call counts (attach=%d accept=%d reject=%d distill=%d) want all 1", stub.attachCalls, stub.acceptCalls, stub.rejectCalls, stub.distillCalls)
+	}
+	if len(stub.lastAttachEvidence) != 1 || stub.lastAttachEvidence[0].Value() != "evt-4" {
+		t.Fatalf("AttachCandidateRefs evidence = %+v", stub.lastAttachEvidence)
 	}
 	if got := stub.lastDistillCriteria.Fact(); got != "operator wrote this" {
 		t.Fatalf("Distill received fact=%q, want operator-authored input", got)
@@ -814,8 +873,8 @@ func TestApplyInboxReviewDecisions_DispatchesToUsecases(t *testing.T) {
 	if got := stub.lastDistillCriteria.MemoryType(); got != candidate3.Summary().MemoryType() {
 		t.Fatalf("Distill memoryType = %v, want %v (inherited from candidate)", got, candidate3.Summary().MemoryType())
 	}
-	if len(result.Accepted) != 1 || len(result.Rejected) != 1 || len(result.Distilled) != 1 {
-		t.Fatalf("result accept/reject/distill = %d/%d/%d, want 1/1/1", len(result.Accepted), len(result.Rejected), len(result.Distilled))
+	if len(result.Attached) != 1 || len(result.Accepted) != 1 || len(result.Rejected) != 1 || len(result.Distilled) != 1 {
+		t.Fatalf("result attach/accept/reject/distill = %d/%d/%d/%d, want 1/1/1/1", len(result.Attached), len(result.Accepted), len(result.Rejected), len(result.Distilled))
 	}
 	if len(result.Failures) != 0 {
 		t.Fatalf("unexpected failures: %+v", result.Failures)
@@ -863,24 +922,39 @@ type reviewWriterStub struct {
 	rejectErr           error
 	distillResult       apptypes.MemoryDistillResult
 	distillErr          error
+	attachDetails       apptypes.MemoryDetails
+	attachErr           error
 	acceptCalls         int
 	rejectCalls         int
 	distillCalls        int
+	attachCalls         int
+	calls               []string
+	lastAttachEvidence  []domtypes.EvidenceRef
 	lastDistillCriteria apptypes.MemoryDistillCriteria
 }
 
 func (s *reviewWriterStub) Accept(_ context.Context, _ domtypes.MemoryID, _ domtypes.Optional[domtypes.Confidence]) (apptypes.MemoryDetails, error) {
 	s.acceptCalls++
+	s.calls = append(s.calls, "accept")
 	return s.acceptDetails, s.acceptErr
 }
 
 func (s *reviewWriterStub) Reject(_ context.Context, _ domtypes.MemoryID) (apptypes.MemoryDetails, error) {
 	s.rejectCalls++
+	s.calls = append(s.calls, "reject")
 	return s.rejectDetails, s.rejectErr
 }
 
 func (s *reviewWriterStub) Distill(_ context.Context, criteria apptypes.MemoryDistillCriteria) (apptypes.MemoryDistillResult, error) {
 	s.distillCalls++
+	s.calls = append(s.calls, "distill")
 	s.lastDistillCriteria = criteria
 	return s.distillResult, s.distillErr
+}
+
+func (s *reviewWriterStub) AttachCandidateRefs(_ context.Context, _ domtypes.MemoryID, evidenceRefs []domtypes.EvidenceRef, _ []domtypes.ArtifactRef) (apptypes.MemoryDetails, error) {
+	s.attachCalls++
+	s.calls = append(s.calls, "attach")
+	s.lastAttachEvidence = append([]domtypes.EvidenceRef(nil), evidenceRefs...)
+	return s.attachDetails, s.attachErr
 }

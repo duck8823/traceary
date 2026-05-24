@@ -292,6 +292,17 @@ func (m *Memory) SetValidity(validFrom types.Optional[time.Time], validTo types.
 	m.updatedAt = m.now()
 }
 
+// AttachRefs appends supporting refs to a candidate memory.
+func (m *Memory) AttachRefs(evidenceRefs []types.EvidenceRef, artifactRefs []types.ArtifactRef) error {
+	if m.status != types.MemoryStatusCandidate {
+		return ErrInvalidMemoryState
+	}
+	m.evidenceRefs = appendEvidenceRefs(m.evidenceRefs, evidenceRefs)
+	m.artifactRefs = appendArtifactRefs(m.artifactRefs, artifactRefs)
+	m.updatedAt = m.now()
+	return nil
+}
+
 // CreatedAt returns when the memory was created.
 func (m *Memory) CreatedAt() time.Time { return m.createdAt }
 
@@ -317,6 +328,40 @@ func (m *Memory) Reject() error {
 	m.status = types.MemoryStatusRejected
 	m.updatedAt = m.now()
 	return nil
+}
+
+func appendEvidenceRefs(dst []types.EvidenceRef, refs []types.EvidenceRef) []types.EvidenceRef {
+	result := append([]types.EvidenceRef(nil), dst...)
+	seen := make(map[string]struct{}, len(dst)+len(refs))
+	for _, ref := range result {
+		seen[ref.Kind().String()+":"+ref.Value()] = struct{}{}
+	}
+	for _, ref := range refs {
+		key := ref.Kind().String() + ":" + ref.Value()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, ref)
+	}
+	return result
+}
+
+func appendArtifactRefs(dst []types.ArtifactRef, refs []types.ArtifactRef) []types.ArtifactRef {
+	result := append([]types.ArtifactRef(nil), dst...)
+	seen := make(map[string]struct{}, len(dst)+len(refs))
+	for _, ref := range result {
+		seen[ref.Kind().String()+":"+ref.Value()] = struct{}{}
+	}
+	for _, ref := range refs {
+		key := ref.Kind().String() + ":" + ref.Value()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, ref)
+	}
+	return result
 }
 
 // MarkSuperseded transitions an accepted memory to superseded.

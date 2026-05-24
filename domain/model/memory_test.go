@@ -296,3 +296,41 @@ func TestNewMemoryCandidate_ClonesSlices(t *testing.T) {
 		t.Fatalf("ArtifactRefs()[0] = (%s, %s), want (%s, %s)", artifactRefsGot[0].Kind(), artifactRefsGot[0].Value(), artifact.Kind(), artifact.Value())
 	}
 }
+
+func TestMemory_AttachRefsCandidateOnly(t *testing.T) {
+	t.Parallel()
+
+	memoryID, _ := types.MemoryIDFrom("mem-attach")
+	memory, err := model.NewMemoryCandidate(
+		memoryID,
+		types.MemoryTypeConstraint,
+		types.WorkspaceScopeOf(types.Workspace("github.com/duck8823/traceary")),
+		"Keep CLI messages in English",
+		types.MemorySourceManual,
+		nil,
+		nil,
+		types.None[types.MemoryID](),
+	)
+	if err != nil {
+		t.Fatalf("NewMemoryCandidate() error = %v", err)
+	}
+	evidence, _ := types.EvidenceRefFrom(types.EvidenceRefKindEvent, "event-1")
+	artifact, _ := types.ArtifactRefFrom(types.ArtifactRefKindPR, "#1073")
+	if err := memory.AttachRefs([]types.EvidenceRef{evidence, evidence}, []types.ArtifactRef{artifact, artifact}); err != nil {
+		t.Fatalf("AttachRefs() error = %v", err)
+	}
+	if got := memory.EvidenceRefs(); len(got) != 1 || got[0].Value() != "event-1" {
+		t.Fatalf("EvidenceRefs() = %+v", got)
+	}
+	if got := memory.ArtifactRefs(); len(got) != 1 || got[0].Value() != "#1073" {
+		t.Fatalf("ArtifactRefs() = %+v", got)
+	}
+
+	if err := memory.Accept(types.ConfidenceVerified); err != nil {
+		t.Fatalf("Accept() error = %v", err)
+	}
+	err = memory.AttachRefs([]types.EvidenceRef{evidence}, nil)
+	if !errors.Is(err, model.ErrInvalidMemoryState) {
+		t.Fatalf("AttachRefs() on accepted memory error = %v, want ErrInvalidMemoryState", err)
+	}
+}

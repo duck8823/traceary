@@ -45,6 +45,15 @@ type MemoryUsecase interface {
 	// Reject rejects an existing candidate memory.
 	Reject(ctx context.Context, memoryID domtypes.MemoryID) (apptypes.MemoryDetails, error)
 
+	// AttachCandidateRefs attaches supporting refs to an existing candidate
+	// memory without changing its lifecycle status.
+	AttachCandidateRefs(
+		ctx context.Context,
+		memoryID domtypes.MemoryID,
+		evidenceRefs []domtypes.EvidenceRef,
+		artifactRefs []domtypes.ArtifactRef,
+	) (apptypes.MemoryDetails, error)
+
 	// Supersede replaces an accepted memory with a new accepted memory.
 	// validFrom / validTo control the replacement's temporal validity
 	// window. Both default to the legacy behaviour (validFrom=now,

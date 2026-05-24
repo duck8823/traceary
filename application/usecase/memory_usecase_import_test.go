@@ -129,6 +129,10 @@ func (s *stubImportMemoryUsecase) Reject(context.Context, domtypes.MemoryID) (ap
 	return apptypes.MemoryDetails{}, nil
 }
 
+func (s *stubImportMemoryUsecase) AttachCandidateRefs(context.Context, domtypes.MemoryID, []domtypes.EvidenceRef, []domtypes.ArtifactRef) (apptypes.MemoryDetails, error) {
+	return apptypes.MemoryDetails{}, nil
+}
+
 func (s *stubImportMemoryUsecase) Supersede(context.Context, domtypes.MemoryID, domtypes.MemoryType, domtypes.MemoryScope, string, domtypes.Optional[domtypes.Confidence], domtypes.MemorySource, []domtypes.EvidenceRef, []domtypes.ArtifactRef, domtypes.Optional[time.Time], domtypes.Optional[time.Time]) (apptypes.MemoryDetails, error) {
 	return apptypes.MemoryDetails{}, nil
 }

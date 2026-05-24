@@ -178,6 +178,7 @@ type inboxReviewWriter interface {
 	Accept(ctx context.Context, memoryID domtypes.MemoryID, confidence domtypes.Optional[domtypes.Confidence]) (apptypes.MemoryDetails, error)
 	Reject(ctx context.Context, memoryID domtypes.MemoryID) (apptypes.MemoryDetails, error)
 	Distill(ctx context.Context, criteria apptypes.MemoryDistillCriteria) (apptypes.MemoryDistillResult, error)
+	AttachCandidateRefs(ctx context.Context, memoryID domtypes.MemoryID, evidenceRefs []domtypes.EvidenceRef, artifactRefs []domtypes.ArtifactRef) (apptypes.MemoryDetails, error)
 }
 
 // applyInboxReviewDecisions walks the queued decisions in operator order
@@ -194,6 +195,13 @@ func applyInboxReviewDecisions(ctx context.Context, writer inboxReviewWriter, de
 	result := memoryInboxReviewResult{}
 	for _, decision := range decisions {
 		switch decision.kind {
+		case reviewDecisionAttach:
+			details, err := writer.AttachCandidateRefs(ctx, decision.memoryID, decision.evidenceRefs, decision.artifactRefs)
+			if err != nil {
+				result.Failures = append(result.Failures, memoryInboxFailure{ID: decision.memoryID.String(), Error: err.Error()})
+				continue
+			}
+			result.Attached = append(result.Attached, details)
 		case reviewDecisionAccept:
 			details, err := writer.Accept(ctx, decision.memoryID, domtypes.None[domtypes.Confidence]())
 			if err != nil {
@@ -263,6 +271,7 @@ func newInboxReviewNonInteractiveError() error {
 // the row) are surfaced verbatim so the operator can re-check the inbox
 // without losing context.
 type memoryInboxReviewResult struct {
+	Attached  []apptypes.MemoryDetails
 	Accepted  []apptypes.MemoryDetails
 	Rejected  []apptypes.MemoryDetails
 	Distilled []apptypes.MemoryDetails
@@ -270,9 +279,15 @@ type memoryInboxReviewResult struct {
 }
 
 func writeMemoryInboxReviewSummary(output io.Writer, result memoryInboxReviewResult) error {
-	if _, err := fmt.Fprintf(output, "review accepted=%d rejected=%d distilled=%d failures=%d\n",
-		len(result.Accepted), len(result.Rejected), len(result.Distilled), len(result.Failures)); err != nil {
+	if _, err := fmt.Fprintf(output, "review attached=%d accepted=%d rejected=%d distilled=%d failures=%d\n",
+		len(result.Attached), len(result.Accepted), len(result.Rejected), len(result.Distilled), len(result.Failures)); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print review summary", "review サマリの出力に失敗しました"), err)
+	}
+	for _, details := range result.Attached {
+		summary := details.Summary()
+		if _, err := fmt.Fprintf(output, "ATTACH\t%s\t%s\tevidence_refs=%d\n", summary.MemoryID(), summary.Status(), len(details.EvidenceRefs())); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print review attach row", "review attach 行の出力に失敗しました"), err)
+		}
 	}
 	for _, details := range result.Accepted {
 		summary := details.Summary()
@@ -320,14 +335,17 @@ const (
 	reviewDecisionAccept reviewDecisionKind = iota
 	reviewDecisionReject
 	reviewDecisionDistill
+	reviewDecisionAttach
 )
 
 // reviewDecision records one operator action queued during the walk. The
 // model never executes use cases itself so it stays trivially testable;
 // the runner walks the queue after Bubble Tea exits.
 type reviewDecision struct {
-	kind     reviewDecisionKind
-	memoryID domtypes.MemoryID
+	kind         reviewDecisionKind
+	memoryID     domtypes.MemoryID
+	evidenceRefs []domtypes.EvidenceRef
+	artifactRefs []domtypes.ArtifactRef
 	// fact is only populated for reviewDecisionDistill and is required
 	// to be non-empty by the model so the application/use case path can
 	// trust the input is operator-authored.
@@ -344,6 +362,7 @@ const (
 	reviewModeViewEvidence
 	reviewModeHelp
 	reviewModeEdit
+	reviewModeAttach
 )
 
 // reviewModel is the testable Bubble Tea model behind `memory inbox
@@ -365,11 +384,13 @@ type reviewModel struct {
 	reviewed []string
 
 	mode reviewMode
-	// editIndex pins which item the edit buffer maps to so a cursor move
-	// during edit cannot retarget the decision.
-	editIndex  int
-	editBuffer string
-	statusMsg  string
+	// editIndex / attachIndex pin which item the input buffer maps to so a
+	// cursor move during entry cannot retarget the decision.
+	editIndex    int
+	editBuffer   string
+	attachIndex  int
+	attachBuffer string
+	statusMsg    string
 
 	acceptConfirmID domtypes.MemoryID
 }
@@ -382,6 +403,7 @@ type reviewActionKeys struct {
 	Reject  key.Binding
 	Skip    key.Binding
 	Edit    key.Binding
+	Attach  key.Binding
 	View    key.Binding
 	Confirm key.Binding
 	Cancel  key.Binding
@@ -393,6 +415,7 @@ func defaultReviewActionKeys() reviewActionKeys {
 		Reject:  key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "reject")),
 		Skip:    key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "skip")),
 		Edit:    key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit/distill")),
+		Attach:  key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "attach evidence")),
 		View:    key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "view evidence")),
 		Confirm: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "confirm")),
 		Cancel:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
@@ -423,6 +446,9 @@ func (m reviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if m.mode == reviewModeEdit {
 		return m.updateEdit(keyMsg)
+	}
+	if m.mode == reviewModeAttach {
+		return m.updateAttach(keyMsg)
 	}
 	return m.updateBrowse(keyMsg)
 }
@@ -498,8 +524,8 @@ func (m reviewModel) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.currentCandidateBlocksAccept() {
 			m.acceptConfirmID = ""
 			m.statusMsg = Localize(
-				"accept as-is is unavailable because accepted memory requires evidence; skip, reject, or add evidence outside this review and retry",
-				"accepted memory には evidence が必要なため accept as-is は利用できません。skip / reject するか、review 外で evidence を追加してから再実行してください",
+				"accept as-is is unavailable because accepted memory requires evidence; press r to attach evidence first",
+				"accepted memory には evidence が必要なため accept as-is は利用できません。先に r で evidence を追加してください",
 			)
 			return m, nil
 		}
@@ -520,11 +546,12 @@ func (m reviewModel) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		idx := m.cursor
 		if idx >= 0 && idx < len(m.items) {
-			// Skip clears any prior decision/review marker for this row so
-			// a revisit-then-skip discards the queued action instead of
-			// silently leaving it for the runner to apply on quit.
-			m.removeDecisionFor(m.items[idx].Summary().MemoryID())
-			m.reviewed[idx] = ""
+			m.removeTerminalDecisionFor(m.items[idx].Summary().MemoryID())
+			if m.hasAttachDecisionFor(m.items[idx].Summary().MemoryID()) {
+				m.reviewed[idx] = decisionLabel(reviewDecisionAttach)
+			} else {
+				m.reviewed[idx] = ""
+			}
 		}
 		m.statusMsg = Localize("skipped", "skip しました")
 		m.acceptConfirmID = ""
@@ -536,8 +563,8 @@ func (m reviewModel) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.currentCandidateBlocksAccept() {
 			m.statusMsg = Localize(
-				"edit/distill is unavailable because the source memory candidate has no evidence to preserve; skip, reject, or recreate with evidence outside this review",
-				"source メモリ候補に引き継ぐ evidence がないため edit/distill は利用できません。skip / reject するか、review 外で evidence 付きで作り直してください",
+				"edit/distill is unavailable because the source memory candidate has no evidence to preserve; press r to attach evidence first",
+				"source メモリ候補に引き継ぐ evidence がないため edit/distill は利用できません。先に r で evidence を追加してください",
 			)
 			m.acceptConfirmID = ""
 			return m, nil
@@ -548,15 +575,25 @@ func (m reviewModel) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.statusMsg = ""
 		m.acceptConfirmID = ""
 		return m, nil
+	case key.Matches(msg, actions.Attach):
+		if len(m.items) == 0 {
+			return m, nil
+		}
+		m.mode = reviewModeAttach
+		m.attachIndex = m.cursor
+		m.attachBuffer = ""
+		m.statusMsg = Localize("enter evidence ref as kind:value (for example event:evt-123)", "kind:value 形式で evidence ref を入力してください (例: event:evt-123)")
+		m.acceptConfirmID = ""
+		return m, nil
 	}
 	return m, nil
 }
 
-// queueDecision records a decision for the current item, marks the row
-// reviewed, and advances the cursor to the next untouched candidate.
-// Multiple decisions for the same id are not allowed: re-queuing on an
-// already-reviewed row replaces the prior entry so the runner only ever
-// sees the operator's last word for a given id.
+// queueDecision records a terminal decision for the current item, marks the row
+// reviewed, and advances the cursor to the next untouched candidate. Attach
+// decisions are preserved for accept/distill so same-session attach -> accept
+// and attach -> distill apply in operator order; reject removes prior attach
+// decisions because the candidate is being discarded.
 func (m reviewModel) queueDecision(kind reviewDecisionKind, fact string) (tea.Model, tea.Cmd) {
 	if len(m.items) == 0 {
 		return m, nil
@@ -566,12 +603,38 @@ func (m reviewModel) queueDecision(kind reviewDecisionKind, fact string) (tea.Mo
 		return m, nil
 	}
 	memoryID := m.items[idx].Summary().MemoryID()
-	m.removeDecisionFor(memoryID)
+	if kind == reviewDecisionReject {
+		m.removeDecisionFor(memoryID)
+	} else {
+		m.removeTerminalDecisionFor(memoryID)
+	}
 	m.decisions = append(m.decisions, reviewDecision{kind: kind, memoryID: memoryID, fact: fact})
 	m.reviewed[idx] = decisionLabel(kind)
 	m.statusMsg = decisionLabel(kind)
 	m.acceptConfirmID = ""
 	m.advanceCursor()
+	return m, nil
+}
+
+func (m reviewModel) queueAttachDecision(evidenceRefs []domtypes.EvidenceRef, artifactRefs []domtypes.ArtifactRef) (tea.Model, tea.Cmd) {
+	if len(m.items) == 0 {
+		return m, nil
+	}
+	idx := m.cursor
+	if idx < 0 || idx >= len(m.items) {
+		return m, nil
+	}
+	memoryID := m.items[idx].Summary().MemoryID()
+	m.decisions = append(m.decisions, reviewDecision{
+		kind:         reviewDecisionAttach,
+		memoryID:     memoryID,
+		evidenceRefs: append([]domtypes.EvidenceRef(nil), evidenceRefs...),
+		artifactRefs: append([]domtypes.ArtifactRef(nil), artifactRefs...),
+	})
+	m.items[idx] = memoryDetailsWithRefs(m.items[idx], evidenceRefs, artifactRefs)
+	m.reviewed[idx] = decisionLabel(reviewDecisionAttach)
+	m.statusMsg = Localize("evidence attach queued; accept/edit is now available for this candidate", "evidence 追加を保留しました。この候補は accept/edit できるようになりました")
+	m.acceptConfirmID = ""
 	return m, nil
 }
 
@@ -586,6 +649,26 @@ func (m *reviewModel) removeDecisionFor(memoryID domtypes.MemoryID) {
 	m.decisions = filtered
 }
 
+func (m *reviewModel) removeTerminalDecisionFor(memoryID domtypes.MemoryID) {
+	filtered := m.decisions[:0]
+	for _, decision := range m.decisions {
+		if decision.memoryID == memoryID && decision.kind != reviewDecisionAttach {
+			continue
+		}
+		filtered = append(filtered, decision)
+	}
+	m.decisions = filtered
+}
+
+func (m reviewModel) hasAttachDecisionFor(memoryID domtypes.MemoryID) bool {
+	for _, decision := range m.decisions {
+		if decision.memoryID == memoryID && decision.kind == reviewDecisionAttach {
+			return true
+		}
+	}
+	return false
+}
+
 func decisionLabel(kind reviewDecisionKind) string {
 	switch kind {
 	case reviewDecisionAccept:
@@ -594,6 +677,8 @@ func decisionLabel(kind reviewDecisionKind) string {
 		return "reject"
 	case reviewDecisionDistill:
 		return "distill"
+	case reviewDecisionAttach:
+		return "attach"
 	}
 	return ""
 }
@@ -649,6 +734,45 @@ func (m reviewModel) updateEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m reviewModel) updateAttach(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	actions := defaultReviewActionKeys()
+	switch {
+	case key.Matches(msg, actions.Cancel):
+		m.mode = reviewModeBrowse
+		m.attachBuffer = ""
+		m.statusMsg = Localize("evidence attach cancelled", "evidence 追加をキャンセルしました")
+		return m, nil
+	case key.Matches(msg, actions.Confirm):
+		rawRef := strings.TrimSpace(m.attachBuffer)
+		if rawRef == "" {
+			m.statusMsg = Localize("attach requires an evidence ref as kind:value", "evidence 追加には kind:value 形式の evidence ref が必要です")
+			return m, nil
+		}
+		evidenceRefs, err := parseEvidenceRefs([]string{rawRef})
+		if err != nil {
+			m.statusMsg = err.Error()
+			return m, nil
+		}
+		m.cursor = m.attachIndex
+		m.mode = reviewModeBrowse
+		m.attachBuffer = ""
+		return m.queueAttachDecision(evidenceRefs, nil)
+	case msg.Type == tea.KeyBackspace || msg.Type == tea.KeyCtrlH:
+		runes := []rune(m.attachBuffer)
+		if len(runes) > 0 {
+			m.attachBuffer = string(runes[:len(runes)-1])
+		}
+		return m, nil
+	case msg.Type == tea.KeySpace:
+		m.attachBuffer += " "
+		return m, nil
+	case msg.Type == tea.KeyRunes:
+		m.attachBuffer += string(msg.Runes)
+		return m, nil
+	}
+	return m, nil
+}
+
 // View renders the current screen. The output is intentionally simple:
 // the contract is "operator-readable" rather than "pixel-perfect"; rich
 // layouts can land in a later refinement once the workflow is exercised
@@ -668,6 +792,8 @@ func (m reviewModel) View() string {
 		return m.renderEvidence()
 	case reviewModeEdit:
 		return m.renderEdit()
+	case reviewModeAttach:
+		return m.renderAttach()
 	}
 	return m.renderBrowse()
 }
@@ -751,6 +877,9 @@ func (m reviewModel) renderEvidence() string {
 	b.WriteString("\n")
 	if len(current.EvidenceRefs()) == 0 {
 		b.WriteString("- -\n")
+		b.WriteString("\n")
+		b.WriteString(memoryReviewAttachGuidance(current))
+		b.WriteString("\n")
 	} else {
 		for _, ref := range current.EvidenceRefs() {
 			fmt.Fprintf(&b, "- %s\n", formatMemoryReviewRefLine(ref.Kind().String(), ref.Value()))
@@ -767,7 +896,7 @@ func (m reviewModel) renderEvidence() string {
 		}
 	}
 	b.WriteString("\n")
-	b.WriteString(m.styles.Help.Render(Localize("v / esc back · q quit", "v / esc 戻る · q 終了")))
+	b.WriteString(m.styles.Help.Render(Localize("r attach evidence · v / esc back · q quit", "r evidence 追加 · v / esc 戻る · q 終了")))
 	return b.String()
 }
 
@@ -780,6 +909,7 @@ func (m reviewModel) renderHelp() string {
 	b.WriteString("  x    " + Localize("reject incorrect, stale, duplicate, or unsafe candidates", "誤り・古い・重複・危険なメモリ候補を reject") + "\n")
 	b.WriteString("  s    " + Localize("skip when more context is needed before deciding", "判断に追加 context が必要な場合は skip") + "\n")
 	b.WriteString("  e    " + Localize("edit / distill when wording is unclear or scope needs tightening (Enter to commit)", "文言が曖昧、または scope 調整が必要なら edit / distill (Enter で確定)") + "\n")
+	b.WriteString("  r    " + Localize("attach one evidence ref to the current memory candidate", "現在のメモリ候補に evidence ref を1つ追加") + "\n")
 	b.WriteString("  v    " + Localize("view evidence and artifact refs", "evidence と artifact refs を表示") + "\n")
 	b.WriteString("  ?    " + Localize("toggle this help", "このヘルプの表示を切り替え") + "\n")
 	b.WriteString("  q    " + Localize("quit and apply queued decisions", "終了して保留中のアクションを実行") + "\n")
@@ -822,6 +952,35 @@ func (m reviewModel) renderEdit() string {
 		"enter commit · esc cancel · backspace edit",
 		"enter 確定 · esc キャンセル · backspace 編集",
 	)))
+	return b.String()
+}
+
+func (m reviewModel) renderAttach() string {
+	current := m.items[m.attachIndex]
+	summary := current.Summary()
+	var b strings.Builder
+	b.WriteString(m.styles.Title.Render(memoryReviewWorkflowTitle(Localize("attach evidence", "evidence 追加"))))
+	b.WriteString("\n\n")
+	fmt.Fprintf(&b, "%-14s %s\n", Localize("MEMORY_ID:", "MEMORY_ID:"), summary.MemoryID())
+	fmt.Fprintf(&b, "%-14s %s\n", Localize("TYPE:", "TYPE:"), summary.MemoryType())
+	fmt.Fprintf(&b, "%-14s %s\n", Localize("SCOPE:", "SCOPE:"), formatMemoryScope(summary.Scope()))
+	fmt.Fprintf(&b, "%-14s %d\n", Localize("EVIDENCE:", "EVIDENCE:"), len(current.EvidenceRefs()))
+	b.WriteString("\n")
+	b.WriteString(m.styles.Subtle.Render(Localize(
+		"Enter one evidence ref as kind:value. Examples: event:evt-123, session:sess-abc, file:/tmp/notes.md#L10-L20, issue:#1070, pr:#1073",
+		"kind:value 形式の evidence ref を1つ入力してください。例: event:evt-123, session:sess-abc, file:/tmp/notes.md#L10-L20, issue:#1070, pr:#1073",
+	)))
+	b.WriteString("\n\n")
+	b.WriteString(m.styles.Active.Render(Localize("EVIDENCE_REF:", "EVIDENCE_REF:")))
+	b.WriteString("\n")
+	b.WriteString("> ")
+	b.WriteString(m.attachBuffer)
+	if m.statusMsg != "" {
+		b.WriteString("\n\n")
+		b.WriteString(m.styles.Warning.Render(m.statusMsg))
+	}
+	b.WriteString("\n\n")
+	b.WriteString(m.styles.Help.Render(Localize("enter queues evidence attach · esc cancel", "enter で evidence 追加を保留 · esc キャンセル")))
 	return b.String()
 }
 
@@ -954,8 +1113,8 @@ func memoryReviewEvidencePreview(details apptypes.MemoryDetails) []string {
 func memoryReviewDecisionGuidance(details apptypes.MemoryDetails) string {
 	if memoryReviewBlocksAccept(details) {
 		return Localize(
-			"GUIDANCE: accepted memory requires evidence; skip or reject now, or recreate this memory with evidence outside this review.",
-			"判断ガイド: accepted memory には evidence が必要です。ここでは skip / reject するか、review 外で evidence 付きで作り直してください。",
+			"GUIDANCE: accepted memory requires evidence; press r to attach evidence, or use the attach command shown in evidence view.",
+			"判断ガイド: accepted memory には evidence が必要です。r で evidence を追加するか、evidence 画面に表示される attach command を使ってください。",
 		)
 	}
 	if memoryReviewRequiresAcceptConfirmation(details) {
@@ -967,6 +1126,15 @@ func memoryReviewDecisionGuidance(details apptypes.MemoryDetails) string {
 	return Localize(
 		"GUIDANCE: accept as-is only if the evidence supports the exact wording; use edit/distill to tighten ambiguous wording.",
 		"判断ガイド: evidence が文言をそのまま支える場合だけ accept as-is。曖昧なら edit/distill で整えます。",
+	)
+}
+
+func memoryReviewAttachGuidance(details apptypes.MemoryDetails) string {
+	id := details.Summary().MemoryID().String()
+	return Localizef(
+		"ATTACH PATH: press r to attach evidence in this review, or run `traceary memory inbox attach %s --evidence event:<event-id>` in another shell and reopen review.",
+		"ATTACH PATH: この review 内では r で evidence を追加できます。別 shell では `traceary memory inbox attach %s --evidence event:<event-id>` を実行してから review を開き直してください。",
+		id,
 	)
 }
 
@@ -996,6 +1164,48 @@ func sanitizeMemoryReviewRefValue(value string) string {
 	return string(runes[:memoryReviewRefDisplayMaxRunes-len([]rune(memoryReviewTruncatedRefSuffix))]) + memoryReviewTruncatedRefSuffix
 }
 
+func memoryDetailsWithRefs(details apptypes.MemoryDetails, evidenceRefs []domtypes.EvidenceRef, artifactRefs []domtypes.ArtifactRef) apptypes.MemoryDetails {
+	return apptypes.MemoryDetailsOf(
+		details.Summary(),
+		appendReviewEvidenceRefs(details.EvidenceRefs(), evidenceRefs),
+		appendReviewArtifactRefs(details.ArtifactRefs(), artifactRefs),
+	)
+}
+
+func appendReviewEvidenceRefs(dst []domtypes.EvidenceRef, refs []domtypes.EvidenceRef) []domtypes.EvidenceRef {
+	result := append([]domtypes.EvidenceRef(nil), dst...)
+	seen := make(map[string]struct{}, len(dst)+len(refs))
+	for _, ref := range result {
+		seen[ref.Kind().String()+":"+ref.Value()] = struct{}{}
+	}
+	for _, ref := range refs {
+		key := ref.Kind().String() + ":" + ref.Value()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, ref)
+	}
+	return result
+}
+
+func appendReviewArtifactRefs(dst []domtypes.ArtifactRef, refs []domtypes.ArtifactRef) []domtypes.ArtifactRef {
+	result := append([]domtypes.ArtifactRef(nil), dst...)
+	seen := make(map[string]struct{}, len(dst)+len(refs))
+	for _, ref := range result {
+		seen[ref.Kind().String()+":"+ref.Value()] = struct{}{}
+	}
+	for _, ref := range refs {
+		key := ref.Kind().String() + ":" + ref.Value()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, ref)
+	}
+	return result
+}
+
 func memoryReviewAcceptChecklist(details apptypes.MemoryDetails) []string {
 	checks := []string{
 		Localize("factual and stable", "事実で安定している"),
@@ -1014,13 +1224,13 @@ func memoryReviewAcceptChecklist(details apptypes.MemoryDetails) []string {
 func memoryReviewBrowseHelp(details apptypes.MemoryDetails) string {
 	if memoryReviewBlocksAccept(details) {
 		return Localize(
-			"a unavailable (evidence required) · x reject · s skip · v evidence · ↑/↓ navigate · ? help · q quit",
-			"a 不可 (evidence 必須) · x reject · s skip · v evidence · ↑/↓ 移動 · ? ヘルプ · q 終了",
+			"a unavailable (evidence required) · r attach evidence · x reject · s skip · v evidence · ↑/↓ navigate · ? help · q quit",
+			"a 不可 (evidence 必須) · r evidence 追加 · x reject · s skip · v evidence · ↑/↓ 移動 · ? ヘルプ · q 終了",
 		)
 	}
 	return Localize(
-		"a accept as-is · x reject · s skip · e edit/distill · v evidence · ↑/↓ navigate · ? help · q quit",
-		"a accept as-is · x reject · s skip · e edit/distill · v evidence · ↑/↓ 移動 · ? ヘルプ · q 終了",
+		"a accept as-is · x reject · s skip · e edit/distill · r attach evidence · v evidence · ↑/↓ navigate · ? help · q quit",
+		"a accept as-is · x reject · s skip · e edit/distill · r evidence 追加 · v evidence · ↑/↓ 移動 · ? ヘルプ · q 終了",
 	)
 }
 

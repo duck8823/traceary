@@ -25,7 +25,7 @@ Maybe the operator prefers short summaries
 EVIDENCE-FIRST REVIEW
 • evidence: none recorded; accept as-is is unavailable until evidence exists
 • artifacts: none
-GUIDANCE: accepted memory requires evidence; skip or reject now, or recreate this memory with evidence outside this review.
+GUIDANCE: accepted memory requires evidence; press r to attach evidence, or use the attach command shown in evidence view.
 
 ACCEPT AS-IS CHECKLIST
 • factual and stable
@@ -36,6 +36,6 @@ ACCEPT AS-IS CHECKLIST
 
 accept as-is unavailable: accepted memory requires at least one evidence ref
 
-a unavailable (evidence required) · x reject · s skip · v evidence · ↑/↓ navigate · ? help · q quit
+a unavailable (evidence required) · r attach evidence · x reject · s skip · v evidence · ↑/↓ navigate · ? help · q quit
 
-1-5 tabs · ←/→ tabs · tab/shift+tab next/prev · esc back · ctrl+c quit · ? help · a unavailable (evidence required) · x reject · s skip · v evidence · q finish/apply
+1-5 tabs · ←/→ tabs · tab/shift+tab next/prev · esc back · ctrl+c quit · ? help · a unavailable (evidence required) · r attach evidence · x reject · s skip · v evidence · q finish/apply

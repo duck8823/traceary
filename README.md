@@ -151,7 +151,7 @@ traceary memory inbox review
 traceary memory inbox review --workspace github.com/duck8823/traceary --type preference --limit 10
 ```
 
-`memory inbox review` is a TTY-only walk-through built on a shared Bubble Tea TUI. Inside the screen `a` accept, `x` reject, `s` skip, `e` edit/distill, `v` view evidence, `?` help, `q` quit. Edit/distill never auto-accepts LLM-authored text — it routes through `traceary memory store distill` and requires you to type the operator-authored fact. Non-interactive shells receive a refusal with exit code `2` and a pointer to the script-friendly fallback (`memory inbox list` plus `memory inbox accept|reject`, both of which now also accept a positional id and `--id-only`).
+`memory inbox review` is a TTY-only walk-through built on a shared Bubble Tea TUI. Inside the screen `a` accept, `x` reject, `s` skip, `e` edit/distill, `r` attach evidence, `v` view evidence, `?` help, `q` quit. Edit/distill never auto-accepts LLM-authored text — it routes through `traceary memory store distill` and requires you to type the operator-authored fact. Non-interactive shells receive a refusal with exit code `2` and a pointer to the script-friendly fallback (`memory inbox list` plus `memory inbox accept|reject`, both of which now also accept a positional id and `--id-only`).
 
 ## Inspect recent and live activity
 

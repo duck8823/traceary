@@ -234,6 +234,70 @@ func TestMemoryUsecase_AcceptRequiresEvidence(t *testing.T) {
 	}
 }
 
+func TestMemoryUsecase_AttachCandidateRefs(t *testing.T) {
+	t.Parallel()
+
+	memoryID := mustMemoryID(t, "memory-candidate-attach")
+	candidate, err := model.NewMemoryCandidate(
+		memoryID,
+		domtypes.MemoryTypeDecision,
+		domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/traceary")),
+		"candidate needs evidence",
+		domtypes.MemorySourceManual,
+		nil,
+		nil,
+		domtypes.None[domtypes.MemoryID](),
+	)
+	if err != nil {
+		t.Fatalf("NewMemoryCandidate() error = %v", err)
+	}
+
+	repo := &memoryRepositoryStub{byID: map[string]*model.Memory{memoryID.String(): candidate}}
+	sut := usecase.NewMemoryUsecase(repo, nil, nil)
+	evidence := mustEvidenceRef(t, domtypes.EvidenceRefKindEvent, "event-attach")
+	artifact := mustArtifactRef(t, domtypes.ArtifactRefKindPR, "#1073")
+
+	details, err := sut.AttachCandidateRefs(context.Background(), memoryID, []domtypes.EvidenceRef{evidence}, []domtypes.ArtifactRef{artifact})
+	if err != nil {
+		t.Fatalf("AttachCandidateRefs() error = %v", err)
+	}
+
+	saved := repo.byID[memoryID.String()]
+	if saved.Status() != domtypes.MemoryStatusCandidate {
+		t.Fatalf("saved status = %s, want candidate", saved.Status())
+	}
+	if got := saved.EvidenceRefs(); len(got) != 1 || got[0].Value() != "event-attach" {
+		t.Fatalf("saved evidence refs = %+v", got)
+	}
+	if got := details.EvidenceRefs(); len(got) != 1 || got[0].Value() != "event-attach" {
+		t.Fatalf("details evidence refs = %+v", got)
+	}
+	if got := details.ArtifactRefs(); len(got) != 1 || got[0].Value() != "#1073" {
+		t.Fatalf("details artifact refs = %+v", got)
+	}
+}
+
+func TestMemoryUsecase_AttachCandidateRefsRejectsAcceptedMemory(t *testing.T) {
+	t.Parallel()
+
+	accepted := mustAcceptedMemory(t, "memory-accepted-attach", "accepted fact")
+	repo := &memoryRepositoryStub{byID: map[string]*model.Memory{accepted.MemoryID().String(): accepted}}
+	sut := usecase.NewMemoryUsecase(repo, nil, nil)
+
+	_, err := sut.AttachCandidateRefs(
+		context.Background(),
+		accepted.MemoryID(),
+		[]domtypes.EvidenceRef{mustEvidenceRef(t, domtypes.EvidenceRefKindEvent, "event-attach")},
+		nil,
+	)
+	if err == nil {
+		t.Fatal("AttachCandidateRefs() error = nil, want invalid state")
+	}
+	if len(repo.saveCalls) != 0 {
+		t.Fatalf("Save called for rejected attach: %d", len(repo.saveCalls))
+	}
+}
+
 func TestMemoryUsecase_Accept(t *testing.T) {
 	t.Parallel()
 

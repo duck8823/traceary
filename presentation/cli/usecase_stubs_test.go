@@ -314,6 +314,8 @@ type memoryUsecaseStub struct {
 	rejectDetailsByID   map[types.MemoryID]apptypes.MemoryDetails
 	rejectErr           error
 	rejectErrByID       map[types.MemoryID]error
+	attachDetails       apptypes.MemoryDetails
+	attachErr           error
 	supersedeDetails    apptypes.MemoryDetails
 	supersedeErr        error
 	expireDetails       apptypes.MemoryDetails
@@ -363,6 +365,12 @@ type memoryUsecaseStub struct {
 		memoryID types.MemoryID
 	}
 	rejectCallCount int
+	attachCall      struct {
+		memoryID     types.MemoryID
+		evidenceRefs []types.EvidenceRef
+		artifactRefs []types.ArtifactRef
+	}
+	attachCallCount int
 
 	setValidityCall struct {
 		memoryID  types.MemoryID
@@ -422,6 +430,14 @@ func (s *memoryUsecaseStub) Reject(_ context.Context, memoryID types.MemoryID) (
 		return details, nil
 	}
 	return s.rejectDetails, s.rejectErr
+}
+
+func (s *memoryUsecaseStub) AttachCandidateRefs(_ context.Context, memoryID types.MemoryID, evidenceRefs []types.EvidenceRef, artifactRefs []types.ArtifactRef) (apptypes.MemoryDetails, error) {
+	s.attachCall.memoryID = memoryID
+	s.attachCall.evidenceRefs = append([]types.EvidenceRef(nil), evidenceRefs...)
+	s.attachCall.artifactRefs = append([]types.ArtifactRef(nil), artifactRefs...)
+	s.attachCallCount++
+	return s.attachDetails, s.attachErr
 }
 
 func (s *memoryUsecaseStub) Supersede(_ context.Context, _ types.MemoryID, _ types.MemoryType, _ types.MemoryScope, _ string, _ types.Optional[types.Confidence], _ types.MemorySource, _ []types.EvidenceRef, _ []types.ArtifactRef, _ types.Optional[time.Time], _ types.Optional[time.Time]) (apptypes.MemoryDetails, error) {
