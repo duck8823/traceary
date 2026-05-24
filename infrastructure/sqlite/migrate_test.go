@@ -99,6 +99,8 @@ func TestMigrations_upgradeFromPreV014DatabaseAddsSessionSpawnMetadata(t *testin
 		t.Fatalf("Initialize(pre-v0.14) error = %v", err)
 	}
 
+	seedPreV014SessionRow(t, dbPath)
+
 	ds = newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t))
 	if err := ds.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize(upgrade) error = %v", err)
@@ -111,6 +113,7 @@ func TestMigrations_upgradeFromPreV014DatabaseAddsSessionSpawnMetadata(t *testin
 	defer func() { _ = db.Close() }()
 
 	assertSessionSpawnMetadataSchema(t, db)
+	assertPreV014SessionMetadataDefaults(t, db)
 }
 
 func TestMigrations_applyMissingMidSequenceMigration(t *testing.T) {
@@ -181,6 +184,73 @@ func countOnDiskSQLiteMigrations(t *testing.T) int {
 		}
 	}
 	return count
+}
+
+func seedPreV014SessionRow(t *testing.T, dbPath string) {
+	t.Helper()
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("Open(pre-v0.14 seed) error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	_, err = db.Exec(`
+INSERT INTO sessions (
+    session_id,
+    started_at,
+    client,
+    agent,
+    workspace,
+    label,
+    summary,
+    parent_session_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
+		"pre-v014-session",
+		"2026-04-11T12:00:00Z",
+		"cli",
+		"codex",
+		"github.com/duck8823/traceary",
+		"pre v0.14 row",
+		"existing summary",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("seed pre-v0.14 session row error = %v", err)
+	}
+}
+
+func assertPreV014SessionMetadataDefaults(t *testing.T, db *sql.DB) {
+	t.Helper()
+
+	var (
+		spawnEventID sql.NullString
+		subagentKind string
+		spawnOrder   sql.NullInt64
+	)
+	if err := db.QueryRow(`
+SELECT spawn_event_id, subagent_kind, spawn_order
+  FROM sessions
+ WHERE session_id = ?;`, "pre-v014-session").Scan(&spawnEventID, &subagentKind, &spawnOrder); err != nil {
+		t.Fatalf("query upgraded pre-v0.14 session row error = %v", err)
+	}
+	if spawnEventID.Valid {
+		t.Errorf("spawn_event_id = %q, want NULL", spawnEventID.String)
+	}
+	if subagentKind != "" {
+		t.Errorf("subagent_kind = %q, want empty string", subagentKind)
+	}
+	if spawnOrder.Valid {
+		t.Errorf("spawn_order = %d, want NULL", spawnOrder.Int64)
+	}
+
+	var applied int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version = 14;`).Scan(&applied); err != nil {
+		t.Fatalf("query migration 14 application error = %v", err)
+	}
+	if applied != 1 {
+		t.Errorf("schema_migrations version 14 count = %d, want 1", applied)
+	}
 }
 
 func migrationsWithoutVersion(t *testing.T, dir string, excludedVersion int) fstest.MapFS {

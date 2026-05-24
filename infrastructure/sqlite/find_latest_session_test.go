@@ -60,7 +60,7 @@ func TestDatasource_FindLatest(t *testing.T) {
 			"session-ended-last",
 			"github.com/duck8823/traceary",
 			"session started",
-			time.Date(2026, 4, 11, 13, 30, 0, 0, time.UTC),
+			time.Date(2026, 4, 11, 12, 30, 0, 0, time.UTC),
 		)
 		saveFindLatestSessionEventFixture(
 			t,
@@ -111,7 +111,7 @@ func TestDatasource_FindLatest(t *testing.T) {
 			"session-ended-later",
 			"github.com/duck8823/traceary",
 			"session started",
-			time.Date(2026, 4, 11, 13, 30, 0, 0, time.UTC),
+			time.Date(2026, 4, 11, 12, 30, 0, 0, time.UTC),
 		)
 		saveFindLatestSessionEventFixture(
 			t,
