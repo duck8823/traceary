@@ -396,6 +396,156 @@ func TestCockpitModelView_SurfacesDoctorUnavailableSignal(t *testing.T) {
 	}
 }
 
+func TestCockpitModelTopTab_LoadsDashboardAndOpensDetail(t *testing.T) {
+	t.Parallel()
+
+	session := sessionSummaryFixture("sess-top", "", fixedStartedAt, "active", domtypes.EventKindTranscript, "top session")
+	failure := mustEvent(t, "evt-top-fail", domtypes.EventKindCommandExecuted, "go test failed in top tab")
+	command := mustEvent(t, "evt-top-command", domtypes.EventKindCommandExecuted, "go test ./...")
+	candidate := memorySummaryFixture(t, "mem-top-candidate", domtypes.MemoryStatusCandidate, "use the dedicated top dashboard")
+	snapshot := topDataSnapshot{
+		Sessions:       buildActiveSessionTreeWithOptions([]apptypes.SessionSummary{session}, false, defaultActiveSessionStaleAfter, fixedStartedAt),
+		Failures:       []*model.Event{failure},
+		RecentCommands: []*model.Event{command},
+		Candidates:     []apptypes.MemorySummary{candidate},
+		Now:            fixedStartedAt,
+	}
+	loader := &cockpitLoaderStub{
+		topResponses: []topDataSnapshot{snapshot},
+		topDetail:    topDetailContent{title: "EVENT evt-top-fail", lines: []string{"failure detail"}},
+	}
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	model.loader = loader
+	model.loaderCtx = context.Background()
+
+	updated, cmd := model.Update(cockpitRuneKey("2"))
+	model = updated.(cockpitModel)
+	if model.mode != cockpitModeTop || cmd == nil {
+		t.Fatalf("open top mode/cmd = %v/%T, want top/load command", model.mode, cmd)
+	}
+	updated, cmd = model.Update(cmd())
+	model = updated.(cockpitModel)
+	if cmd != nil {
+		t.Fatalf("top load returned follow-up command = %T", cmd)
+	}
+	view := model.View()
+	for _, must := range []string{
+		"Top dashboard",
+		"SESSIONS (1)",
+		"RECENT FAILURES (1)",
+		"go test failed in top tab",
+		"CANDIDATE MEMORIES (1)",
+		"use the dedicated top dashboard",
+	} {
+		if !strings.Contains(view, must) {
+			t.Fatalf("top dashboard view missing %q:\n%s", must, view)
+		}
+	}
+	if strings.Contains(view, "run `traceary top`") {
+		t.Fatalf("top dashboard should not point users back to the top subcommand:\n%s", view)
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(cockpitModel)
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(cockpitModel)
+	if cmd == nil {
+		t.Fatalf("enter on top failure row returned nil command")
+	}
+	updated, cmd = model.Update(cmd())
+	model = updated.(cockpitModel)
+	if cmd != nil {
+		t.Fatalf("top detail load returned follow-up command = %T", cmd)
+	}
+	if got := len(loader.topDetails); got != 1 {
+		t.Fatalf("top detail calls = %d, want 1", got)
+	}
+	if got := loader.topDetails[0].target.kind; got != topDetailEvent {
+		t.Fatalf("top detail kind = %v, want event", got)
+	}
+	view = model.View()
+	if !strings.Contains(view, "Traceary cockpit · top detail") || !strings.Contains(view, "failure detail") {
+		t.Fatalf("top detail view missing loaded detail:\n%s", view)
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(cockpitModel)
+	if model.mode != cockpitModeTop || model.cockpitTopDetailOpen() {
+		t.Fatalf("esc from top detail mode/detailOpen = %v/%v, want top/false", model.mode, model.cockpitTopDetailOpen())
+	}
+}
+
+func TestCockpitModelTopTab_RefreshDoesNotResetTailSelection(t *testing.T) {
+	t.Parallel()
+
+	eventA := mustEvent(t, "evt-top-refresh-a", domtypes.EventKindNote, "first")
+	eventB := mustEvent(t, "evt-top-refresh-b", domtypes.EventKindNote, "second")
+	loader := &cockpitLoaderStub{topResponses: []topDataSnapshot{{Now: fixedStartedAt}}}
+	cockpit := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	cockpit.loader = loader
+	cockpit.loaderCtx = context.Background()
+	cockpit.mode = cockpitModeTop
+	cockpit.top.loaded = true
+	cockpit.top.loadedAt = fixedStartedAt
+	cockpit.live.events = []*model.Event{eventA, eventB}
+	cockpit.live.selected = 1
+	cockpit.live.follow = false
+	liveSeq := cockpit.live.requestSeq
+
+	updated, cmd := cockpit.Update(cockpitRuneKey("r"))
+	cockpit = updated.(cockpitModel)
+	if cmd == nil {
+		t.Fatalf("top refresh returned nil command")
+	}
+	if cockpit.live.selected != 1 || cockpit.live.follow {
+		t.Fatalf("tail state after top refresh selected/follow = %d/%v, want 1/false", cockpit.live.selected, cockpit.live.follow)
+	}
+	if cockpit.live.requestSeq != liveSeq {
+		t.Fatalf("live request sequence changed on top refresh: got %d want %d", cockpit.live.requestSeq, liveSeq)
+	}
+	if !cockpit.top.loading {
+		t.Fatalf("top.loading = false, want true after refresh")
+	}
+}
+
+func TestCockpitModelTopTab_IgnoresStaleDetailAfterLeavingTop(t *testing.T) {
+	t.Parallel()
+
+	failure := mustEvent(t, "evt-top-stale-detail", domtypes.EventKindCommandExecuted, "stale detail response")
+	loader := &cockpitLoaderStub{
+		topResponses: []topDataSnapshot{{
+			Failures: []*model.Event{failure},
+			Now:      fixedStartedAt,
+		}},
+		topDetail: topDetailContent{title: "EVENT evt-top-stale-detail", lines: []string{"late detail"}},
+	}
+	cockpit := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	cockpit.loader = loader
+	cockpit.loaderCtx = context.Background()
+
+	updated, cmd := cockpit.Update(cockpitRuneKey("2"))
+	cockpit = updated.(cockpitModel)
+	updated, _ = cockpit.Update(cmd())
+	cockpit = updated.(cockpitModel)
+	updated, cmd = cockpit.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	cockpit = updated.(cockpitModel)
+	if cmd == nil {
+		t.Fatalf("enter on top failure row returned nil command")
+	}
+	updated, liveCmd := cockpit.Update(cockpitRuneKey("1"))
+	cockpit = updated.(cockpitModel)
+	if cockpit.mode != cockpitModeLive || cockpit.cockpitTopDetailOpen() || liveCmd == nil {
+		t.Fatalf("leaving top mode/detail/liveCmd = %v/%v/%T, want live/false/cmd", cockpit.mode, cockpit.cockpitTopDetailOpen(), liveCmd)
+	}
+	updated, staleCmd := cockpit.Update(cmd())
+	cockpit = updated.(cockpitModel)
+	if staleCmd != nil {
+		t.Fatalf("stale top detail returned follow-up command = %T", staleCmd)
+	}
+	if cockpit.mode != cockpitModeLive || cockpit.cockpitTopDetailOpen() {
+		t.Fatalf("stale detail changed mode/detailOpen = %v/%v, want live/false", cockpit.mode, cockpit.cockpitTopDetailOpen())
+	}
+}
+
 func TestCockpitModel_InitLoadsTailEvenWhenTopSummaryFails(t *testing.T) {
 	t.Parallel()
 
@@ -496,8 +646,8 @@ func TestCockpitModel_DoctorPaneRendersPassWarnFailSkipAndFixHints(t *testing.T)
 
 	updated, cmd = model.Update(cockpitRuneKey("2"))
 	model = updated.(cockpitModel)
-	if model.mode != cockpitModeTop || cmd != nil {
-		t.Fatalf("2 from doctor mode/cmd = %v/%T, want top/nil", model.mode, cmd)
+	if model.mode != cockpitModeTop || cmd == nil {
+		t.Fatalf("2 from doctor mode/cmd = %v/%T, want top/top load command", model.mode, cmd)
 	}
 }
 
@@ -856,8 +1006,8 @@ func TestCockpitModel_LiveLoadDoesNotMarkAfterLeavingLive(t *testing.T) {
 	}
 	updated, homeCmd := model.Update(tea.KeyMsg{Type: tea.KeyRight})
 	model = updated.(cockpitModel)
-	if model.mode != cockpitModeTop || homeCmd != nil {
-		t.Fatalf("leaving live mode/cmd = %v/%T, want top/nil", model.mode, homeCmd)
+	if model.mode != cockpitModeTop || homeCmd == nil {
+		t.Fatalf("leaving live mode/cmd = %v/%T, want top/top load command", model.mode, homeCmd)
 	}
 	updated, markCmd := model.Update(cmd())
 	model = updated.(cockpitModel)
@@ -2142,8 +2292,8 @@ func TestCockpitModel_GlobalSectionKeysSwitchWithoutReturningToCLI(t *testing.T)
 
 	updated, cmd := model.Update(cockpitRuneKey("2"))
 	model = updated.(cockpitModel)
-	if model.mode != cockpitModeTop || cmd != nil {
-		t.Fatalf("2 mode/cmd = %v/%T, want top/nil", model.mode, cmd)
+	if model.mode != cockpitModeTop || cmd == nil {
+		t.Fatalf("2 mode/cmd = %v/%T, want top/top load command", model.mode, cmd)
 	}
 
 	updated, cmd = model.Update(cockpitRuneKey("3"))
@@ -2231,8 +2381,8 @@ func TestCockpitModel_EscBacksOutWithoutQuitting(t *testing.T) {
 
 	updated, cmd = model.Update(cockpitRuneKey("2"))
 	model = updated.(cockpitModel)
-	if model.mode != cockpitModeTop || cmd != nil {
-		t.Fatalf("2 mode/cmd = %v/%T, want top/nil", model.mode, cmd)
+	if model.mode != cockpitModeTop || cmd == nil {
+		t.Fatalf("2 mode/cmd = %v/%T, want top/top load command", model.mode, cmd)
 	}
 	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	model = updated.(cockpitModel)
@@ -2266,6 +2416,13 @@ type cockpitLoaderStub struct {
 	homeResponses []cockpitHomeSnapshot
 	homeCalls     int
 	homeErr       error
+
+	topResponses []topDataSnapshot
+	topCalls     []topDataCriteria
+	topErr       error
+	topDetail    topDetailContent
+	topDetailErr error
+	topDetails   []topDetailRequest
 
 	doctorResponses []cockpitDoctorSnapshot
 	doctorCalls     int
@@ -2307,6 +2464,24 @@ func (s *cockpitLoaderStub) loadCockpitHome(context.Context) (cockpitHomeSnapsho
 	next := s.homeResponses[0]
 	s.homeResponses = s.homeResponses[1:]
 	return next, nil
+}
+
+func (s *cockpitLoaderStub) loadCockpitTop(_ context.Context, criteria topDataCriteria) (topDataSnapshot, error) {
+	s.topCalls = append(s.topCalls, criteria)
+	if s.topErr != nil {
+		return topDataSnapshot{}, s.topErr
+	}
+	if len(s.topResponses) == 0 {
+		return topDataSnapshot{Now: fixedStartedAt}, nil
+	}
+	next := s.topResponses[0]
+	s.topResponses = s.topResponses[1:]
+	return next, nil
+}
+
+func (s *cockpitLoaderStub) loadCockpitTopDetail(_ context.Context, req topDetailRequest) (topDetailContent, error) {
+	s.topDetails = append(s.topDetails, req)
+	return s.topDetail, s.topDetailErr
 }
 
 func (s *cockpitLoaderStub) loadCockpitDoctor(context.Context) (cockpitDoctorSnapshot, error) {
