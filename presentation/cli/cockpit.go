@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mattn/go-runewidth"
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
@@ -32,6 +33,7 @@ const cockpitTopSummaryChromeRows = 18
 const cockpitTopMinViewportRows = 5
 const cockpitTopDetailDefaultViewportRows = 16
 const cockpitTopDetailChromeRows = 6
+const cockpitNavigationLabelWidth = 13
 
 type cockpitExitError struct {
 	message  string
@@ -2295,11 +2297,11 @@ func (m cockpitModel) topTabView() string {
 	if m.home.NewEventScanLimited {
 		eventScanSuffix = " scan_limited=true"
 	}
+	// Keep metric identifiers in English for copy/paste parity with CLI output, docs, and issue search.
 	lines := []string{
 		m.styles.Subtle.Render(fmt.Sprintf("loaded=%s db=%s", formatJSONTime(m.home.LoadedAt), formatOptionalColumn(m.home.DBPath))),
 		"",
 		m.styles.Subtle.Render(Localize("Top summary", "Top 概要")),
-		// Keep metric identifiers in English for copy/paste parity with CLI output, docs, and issue search.
 		Localizef("• sessions: stale_active=%d recent_failures=%d recent_commands=%d new_events=%s%s", "• セッション: stale_active=%d recent_failures=%d recent_commands=%d new_events=%s%s", m.home.StaleActiveSessionCount, m.home.RecentFailureCount, m.home.RecentCommandCount, formatCockpitNewEventCount(m.home), eventScanSuffix),
 		Localizef("• memories: accepted(reviewed)=%d candidate(inbox)=%d new=%s remember-intent=%d low-quality=%d stale=%d%s", "• メモリ: accepted(reviewed)=%d candidate(inbox)=%d new=%s remember-intent=%d low-quality=%d stale=%d%s", m.home.AcceptedMemoryCount, m.home.CandidateMemoryCount, formatCockpitNewCandidateCount(m.home), m.home.RememberIntentCount, m.home.LowQualityMemoryCount, m.home.StaleMemoryCount, memoryScanSuffix),
 		Localizef("• doctor: pass=%d warn=%d fail=%d", "• doctor: pass=%d warn=%d fail=%d", m.home.DoctorPassCount, m.home.DoctorWarnCount, m.home.DoctorFailCount),
@@ -2736,11 +2738,11 @@ func (m cockpitModel) cockpitContextualNavigationLines() []string {
 		return []string{Localize("Navigation is paused while config write confirmation is active; y saves and n/esc cancels.", "config 書き込み確認中はナビゲーションを一時停止します。y で保存、n/esc でキャンセルします。")}
 	}
 	lines := []string{
-		Localize("1 Tail      live event stream and event details", "1 Tail      イベントのライブ表示と詳細確認"),
-		Localize("2 Top       dashboard for sessions, failures, commands, memory, and health", "2 Top       セッション・失敗・コマンド・メモリ・状態の一覧"),
-		Localize("3 Memory    inbox review queue", "3 メモリ     メモリ候補の確認キュー"),
-		Localize("4 Sessions  session and handoff entry points", "4 セッション セッション一覧と引き継ぎ導線"),
-		Localize("5 Settings  language, read defaults, redaction diagnostics", "5 設定       言語・表示既定・redaction 診断"),
+		cockpitNavigationLine(1, "Tail", "Tail", "live event stream and event details", "イベントのライブ表示と詳細確認"),
+		cockpitNavigationLine(2, "Top", "Top", "dashboard for sessions, failures, commands, memory, and health", "セッション・失敗・コマンド・メモリ・状態の一覧"),
+		cockpitNavigationLine(3, "Memory", "メモリ", "inbox review queue", "メモリ候補の確認キュー"),
+		cockpitNavigationLine(4, "Sessions", "セッション", "session and handoff entry points", "セッション一覧と引き継ぎ導線"),
+		cockpitNavigationLine(5, "Settings", "設定", "language, read defaults, redaction diagnostics", "言語・表示既定・redaction 診断"),
 	}
 	if m.mode == cockpitModeSettings {
 		lines = append(lines, Localize("tab / shift+tab cycle tabs; 1-5 jump tabs; ← / → edit selected value rows", "tab / shift+tab でタブ移動。1-5 でタブ選択。← / → は選択中の値行を編集"))
@@ -2749,6 +2751,15 @@ func (m cockpitModel) cockpitContextualNavigationLines() []string {
 	}
 	lines = append(lines, Localize("esc backs out to Tail; q exits the TUI", "esc で Tail に戻り、q で TUI を終了"))
 	return lines
+}
+
+func cockpitNavigationLine(index int, englishLabel string, japaneseLabel string, englishDescription string, japaneseDescription string) string {
+	prefix := fmt.Sprintf("%d %s", index, Localize(englishLabel, japaneseLabel))
+	padding := cockpitNavigationLabelWidth - runewidth.StringWidth(prefix)
+	if padding < 1 {
+		padding = 1
+	}
+	return prefix + strings.Repeat(" ", padding) + Localize(englishDescription, japaneseDescription)
 }
 
 func (m cockpitModel) cockpitContextualActions() []cockpitAction {

@@ -1945,71 +1945,53 @@ func TestCockpitModel_ContextualHelpActionMenuByScreen(t *testing.T) {
 	})
 }
 
-func TestCockpitModel_EnglishLocaleKeepsScrollHelpEnglish(t *testing.T) {
-	resetConfiguredCLILanguageCacheForTest()
-	t.Cleanup(resetConfiguredCLILanguageCacheForTest)
-	t.Setenv(cliLanguageEnvKey, "en")
-
-	base := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
-	cases := []struct {
-		name string
-		help string
+func TestCockpitModel_LocaleSpecificScrollHelp(t *testing.T) {
+	tests := []struct {
+		locale         string
+		want           string
+		forbidEnglish  bool
+		forbidJapanese bool
 	}{
-		{
-			name: "top detail",
-			help: func() string {
-				model := base
-				model.mode = cockpitModeTop
-				model.top.detailOpen = true
-				model.top.detail.lines = []string{"first line", "second line"}
-				return model.topLocalHelp()
-			}(),
-		},
-		{
-			name: "doctor",
-			help: func() string {
-				model := base
-				model.mode = cockpitModeDoctor
-				model.doctor.snapshot = cockpitDoctorSnapshot{
-					LoadedAt: fixedStartedAt,
-					Sections: []cockpitDoctorSection{{Name: "Checks", Checks: []cockpitDoctorCheck{
-						{Name: "first", Status: doctorStatusPass, Message: "ok"},
-						{Name: "second", Status: doctorStatusPass, Message: "ok"},
-					}}},
-				}
-				return model.doctorLocalHelp()
-			}(),
-		},
-		{
-			name: "tail detail",
-			help: func() string {
-				model := base
-				model.mode = cockpitModeDetail
-				model.detail.lines = []string{"first line", "second line"}
-				return model.detailLocalHelp()
-			}(),
-		},
+		{locale: "en", want: "↑/↓ scroll", forbidJapanese: true},
+		{locale: "ja", want: "↑/↓ スクロール", forbidEnglish: true},
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if !strings.Contains(tc.help, "↑/↓ scroll") {
-				t.Fatalf("%s help = %q, want English scroll copy", tc.name, tc.help)
-			}
-			if containsJapaneseScript(tc.help) {
-				t.Fatalf("%s help leaked Japanese copy in English locale: %q", tc.name, tc.help)
+	for _, tt := range tests {
+		t.Run(tt.locale, func(t *testing.T) {
+			resetConfiguredCLILanguageCacheForTest()
+			t.Cleanup(resetConfiguredCLILanguageCacheForTest)
+			t.Setenv(cliLanguageEnvKey, tt.locale)
+
+			for _, tc := range cockpitScrollHelpCases() {
+				t.Run(tc.name, func(t *testing.T) {
+					if !strings.Contains(tc.help, tt.want) {
+						t.Fatalf("%s help = %q, want %q", tc.name, tc.help, tt.want)
+					}
+					if tt.forbidJapanese && containsJapaneseScript(tc.help) {
+						t.Fatalf("%s help leaked Japanese copy in English locale: %q", tc.name, tc.help)
+					}
+					if tt.forbidEnglish && strings.Contains(tc.help, "scroll") {
+						t.Fatalf("%s help leaked English copy in Japanese locale: %q", tc.name, tc.help)
+					}
+				})
 			}
 		})
 	}
 }
 
-func TestCockpitModel_JapaneseLocaleKeepsScrollHelpJapanese(t *testing.T) {
-	resetConfiguredCLILanguageCacheForTest()
-	t.Cleanup(resetConfiguredCLILanguageCacheForTest)
-	t.Setenv(cliLanguageEnvKey, "ja")
-
+func cockpitScrollHelpCases() []struct {
+	name string
+	help string
+} {
 	base := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
-	cases := []struct {
+	doctorSnapshot := cockpitDoctorSnapshot{
+		LoadedAt: fixedStartedAt,
+		Sections: []cockpitDoctorSection{{Name: "Checks", Checks: []cockpitDoctorCheck{
+			{Name: "first", Status: doctorStatusPass, Message: "ok"},
+			{Name: "second", Status: doctorStatusPass, Message: "ok"},
+		}}},
+	}
+	return []struct {
 		name string
 		help string
 	}{
@@ -2028,13 +2010,7 @@ func TestCockpitModel_JapaneseLocaleKeepsScrollHelpJapanese(t *testing.T) {
 			help: func() string {
 				model := base
 				model.mode = cockpitModeDoctor
-				model.doctor.snapshot = cockpitDoctorSnapshot{
-					LoadedAt: fixedStartedAt,
-					Sections: []cockpitDoctorSection{{Name: "Checks", Checks: []cockpitDoctorCheck{
-						{Name: "first", Status: doctorStatusPass, Message: "ok"},
-						{Name: "second", Status: doctorStatusPass, Message: "ok"},
-					}}},
-				}
+				model.doctor.snapshot = doctorSnapshot
 				return model.doctorLocalHelp()
 			}(),
 		},
@@ -2048,18 +2024,38 @@ func TestCockpitModel_JapaneseLocaleKeepsScrollHelpJapanese(t *testing.T) {
 			}(),
 		},
 	}
+}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if !strings.Contains(tc.help, "↑/↓ スクロール") {
-				t.Fatalf("%s help = %q, want Japanese scroll copy", tc.name, tc.help)
-			}
-		})
+func TestCockpitModel_JapaneseNavigationLinesAlignByDisplayWidth(t *testing.T) {
+	resetConfiguredCLILanguageCacheForTest()
+	t.Cleanup(resetConfiguredCLILanguageCacheForTest)
+	t.Setenv(cliLanguageEnvKey, "ja")
+
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	lines := model.cockpitContextualNavigationLines()
+	descriptions := []string{
+		"イベントのライブ表示と詳細確認",
+		"セッション・失敗・コマンド・メモリ・状態の一覧",
+		"メモリ候補の確認キュー",
+		"セッション一覧と引き継ぎ導線",
+		"言語・表示既定・redaction 診断",
+	}
+	for i, description := range descriptions {
+		line := lines[i]
+		column := strings.Index(line, description)
+		if column < 0 {
+			t.Fatalf("navigation line %d missing description %q: %q", i+1, description, line)
+		}
+		prefix := line[:column]
+		if got := runeWidth(prefix); got != cockpitNavigationLabelWidth {
+			t.Fatalf("navigation line %d prefix display width = %d, want %d: %q", i+1, got, cockpitNavigationLabelWidth, line)
+		}
 	}
 }
 
 func containsJapaneseScript(value string) bool {
 	for _, r := range value {
+		// Fullwidth Latin/digit/punctuation code points are treated as a Japanese-locale leak on purpose.
 		if unicode.In(r, unicode.Hiragana, unicode.Katakana, unicode.Han) ||
 			(r >= 0x3000 && r <= 0x303f) ||
 			(r >= 0xff00 && r <= 0xffef) {
