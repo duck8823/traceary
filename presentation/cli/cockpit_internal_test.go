@@ -2093,17 +2093,17 @@ func TestCockpitModel_NavigationLinesAlignByDisplayWidth(t *testing.T) {
 
 			model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
 			lines := model.cockpitContextualNavigationLines()
+			wantWidth := cockpitNavigationLabelWidth(cockpitNavigationItems())
 			for i, description := range tt.descriptions {
 				line := lines[i]
-				column := strings.Index(line, description)
-				if column < 0 {
+				if !strings.HasSuffix(line, description) {
 					t.Fatalf("navigation line %d missing description %q: %q", i+1, description, line)
 				}
-				prefix := line[:column]
-				if got := runeWidth(prefix); got != cockpitNavigationLabelWidth {
-					t.Fatalf("navigation line %d prefix display width = %d, want %d: %q", i+1, got, cockpitNavigationLabelWidth, line)
+				prefix := strings.TrimSuffix(line, description)
+				if got := runeWidth(prefix); got != wantWidth {
+					t.Fatalf("navigation line %d prefix display width = %d, want %d: %q", i+1, got, wantWidth, line)
 				}
-				if got := runeWidth(strings.TrimRight(prefix, " ")); got >= cockpitNavigationLabelWidth {
+				if got := runeWidth(strings.TrimRight(prefix, " ")); got >= wantWidth {
 					t.Fatalf("navigation line %d label width = %d, want room for a separator: %q", i+1, got, line)
 				}
 			}
