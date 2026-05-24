@@ -10,7 +10,7 @@ TYPE:                   preference
 SCOPE:                  workspace:github.com/example/repo
 SOURCE:                 extracted-hidden
 CONFIDENCE:             low
-QUALITY_SIGNAL:         low confidence; hidden extraction; no evidence refs; accept requires confirmation
+QUALITY_SIGNAL:         low confidence; hidden extraction; no evidence refs; accept blocked until evidence exists
 REMEMBERED_BY_OPERATOR: no
 EVIDENCE_REFS:          0 (press v to inspect)
 ARTIFACT_REFS:          0 (press v to inspect)
@@ -22,15 +22,20 @@ DUPLICATE_SUPERSEDE:    not checked in cockpit yet; use edit/distill or skip if 
 CANDIDATE FACT:
 Maybe the operator prefers short summaries
 
+EVIDENCE-FIRST REVIEW
+• evidence: none recorded; accept as-is is unavailable until evidence exists
+• artifacts: none
+GUIDANCE: accepted memory requires evidence; skip or reject now, or recreate this memory with evidence outside this review.
+
 ACCEPT AS-IS CHECKLIST
 • factual and stable
 • useful for future sessions
 • scope/type are correct
-• evidence not shown; inspect before accepting
+• evidence missing; accept as-is is unavailable
 • not duplicate, stale, or superseded
-• This weak candidate requires pressing `a` twice to accept as-is; prefer edit/distill when wording is unclear.
 
+accept as-is unavailable: accepted memory requires at least one evidence ref
 
-a accept as-is · x reject · s skip · e edit/distill · v evidence · ↑/↓ navigate · ? help · q quit
+a unavailable (evidence required) · x reject · s skip · v evidence · ↑/↓ navigate · ? help · q quit
 
-1-5 tabs · ←/→ tabs · tab/shift+tab next/prev · esc back · ctrl+c quit · ? help · a accept as-is · x reject · s skip · e edit/distill · v evidence · q finish/apply
+1-5 tabs · ←/→ tabs · tab/shift+tab next/prev · esc back · ctrl+c quit · ? help · a unavailable (evidence required) · x reject · s skip · v evidence · q finish/apply

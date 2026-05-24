@@ -97,8 +97,10 @@ func TestCockpitDogfoodTerminalSizesKeepTaskCues(t *testing.T) {
 			"new events=3",
 		},
 		"memory_ambiguous_candidate": {
-			"accept requires confirmation",
-			"e edit/distill",
+			"accept blocked until evidence exists",
+			"a unavailable (evidence required)",
+			"EVIDENCE-FIRST REVIEW",
+			"GUIDANCE: accepted memory requires evidence",
 			"EVIDENCE_REFS:          0",
 		},
 	}
@@ -206,8 +208,8 @@ func TestCockpitDogfoodKeyboardPaths(t *testing.T) {
 		if cmd != nil || len(model.memoryReview.review.Decisions()) != 0 {
 			t.Fatalf("first accept should not queue ambiguous candidate, cmd=%T decisions=%+v", cmd, model.memoryReview.review.Decisions())
 		}
-		if !strings.Contains(model.View(), "accept confirmation armed") {
-			t.Fatalf("ambiguous memory view missing confirmation guard:\n%s", model.View())
+		if !strings.Contains(model.View(), "accept as-is unavailable") {
+			t.Fatalf("ambiguous memory view missing accept block:\n%s", model.View())
 		}
 	})
 
@@ -361,7 +363,8 @@ func TestCockpitDogfoodJapaneseNarrowSmoke(t *testing.T) {
 		"判断カード",
 		"判断 context",
 		"信頼度が低い",
-		"accept には確認が必要",
+		"evidence 追加まで accept 不可",
+		"evidence 優先 review",
 		"事実で安定している",
 		"q 終了/適用",
 	} {
