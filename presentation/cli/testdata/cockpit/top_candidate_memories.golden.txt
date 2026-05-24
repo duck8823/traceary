@@ -1,0 +1,25 @@
+Traceary cockpit · top
+tabs: 1 Tail  [2 Top]  3 Memory  4 Sessions  5 Settings
+
+loaded=2026-05-07T12:00:00Z db=/tmp/traceary.db
+
+Top summary
+• sessions: stale_active=0 recent_failures=0 recent_commands=0 new_events=untracked
+• memories: accepted(reviewed)=3 candidate(inbox)=4 new=2 remember-intent=1 low-quality=1 stale=0
+• doctor: pass=0 warn=0 fail=0
+• hooks/mcp: warn=0 fail=0
+• payloads: large=0
+
+Actionable signals
+• [WARN] Memory inbox needs review — candidate=4 new=2 remember-intent=1 low-quality=1 (3 review Memory inbox)
+
+Signal details
+• new events=untracked until cockpit state is initialized
+• new candidate memories=2
+• candidate memories=4
+• remember-intent candidates=1
+• low-quality candidates=1
+
+This Top tab shows a compact summary. For the full multi-pane dashboard, run `traceary top`.
+
+1-5 tabs · ←/→ tabs · tab/shift+tab next/prev · esc back · q/ctrl+c quit · ? help · r refresh top summary

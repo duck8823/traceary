@@ -1,0 +1,25 @@
+Traceary cockpit · top
+tabs: 1 Tail  [2 Top]  3 Memory  4 Sessions  5 Settings
+
+loaded=2026-05-07T12:00:00Z db=/tmp/traceary.db
+
+Top summary
+• sessions: stale_active=0 recent_failures=1 recent_commands=2 new_events=3
+• memories: accepted(reviewed)=0 candidate(inbox)=0 new=untracked remember-intent=0 low-quality=0 stale=0
+• doctor: pass=0 warn=0 fail=0
+• hooks/mcp: warn=0 fail=0
+• payloads: large=0
+
+Actionable signals
+• [WARN] Recent command failures — recent_failures=1 (1 inspect Tail events)
+• [INFO] New Tail events — new_events=3 (1 open Tail)
+
+Signal details
+• new events=3 since 2026-05-07T11:30:00Z
+• candidate memory new count=untracked
+• candidate memories=0
+• recent failures=1
+
+This Top tab shows a compact summary. For the full multi-pane dashboard, run `traceary top`.
+
+1-5 tabs · ←/→ tabs · tab/shift+tab next/prev · esc back · q/ctrl+c quit · ? help · r refresh top summary

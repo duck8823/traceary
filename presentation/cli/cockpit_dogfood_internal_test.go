@@ -48,9 +48,10 @@ func TestCockpitDogfoodJapaneseNarrowGoldenSnapshot(t *testing.T) {
 		RememberIntentCount:     1,
 		LowQualityMemoryCount:   1,
 	})
+	model.mode = cockpitModeTop
 	model.showHelp = true
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	assertCockpitDogfoodGolden(t, "home_candidate_memories_ja_narrow", updated.(cockpitModel).View())
+	assertCockpitDogfoodGolden(t, "top_candidate_memories_ja_narrow", updated.(cockpitModel).View())
 }
 
 func TestCockpitDogfoodTerminalSizesKeepTaskCues(t *testing.T) {
@@ -66,30 +67,34 @@ func TestCockpitDogfoodTerminalSizesKeepTaskCues(t *testing.T) {
 		{name: "wide", width: 160, height: 40},
 	}
 	expectations := map[string][]string{
-		"home_all_green": {
-			"ALL GREEN",
-			"2 Live for ongoing work",
-			"4 Memory for periodic review",
-			"3 Doctor before release",
-			"5 Sessions for handoff",
+		"tail_initial": {
+			"Traceary cockpit · live tail",
+			"[1 Tail]",
+			"Loading live events",
 		},
-		"home_doctor_failure": {
-			"[FAIL] Doctor failures",
-			"next: 3 Doctor shows remediation commands",
+		"top_all_green": {
+			"Top summary",
+			"doctor: pass=4 warn=0 fail=0",
+			"memories: accepted(reviewed)=2 candidate(inbox)=0 new=0",
 		},
-		"home_candidate_memories": {
-			"[NEW] Memory review",
+		"top_doctor_failure": {
+			"doctor: pass=2 warn=1 fail=1",
+			"hooks/mcp: warn=0 fail=1",
+		},
+		"top_doctor_unavailable": {
+			"[FAIL] Doctor unavailable",
+			"doctor dependency unavailable",
+		},
+		"top_candidate_memories": {
 			"new candidate memories=2",
-			"edit/distill or skip",
+			"remember-intent candidates=1",
 		},
-		"home_stale_sessions": {
-			"[WARN] Stale active sessions",
-			"traceary session gc --stale-after 24h --dry-run",
+		"top_stale_sessions": {
+			"stale active sessions=2",
 		},
-		"home_new_events_and_failure": {
-			"[WARN] Recent failures",
-			"[NEW] Events",
-			"2 Live opens the event stream",
+		"top_new_events_and_failure": {
+			"recent failures=1",
+			"new events=3",
 		},
 		"memory_ambiguous_candidate": {
 			"accept requires confirmation",
@@ -110,7 +115,7 @@ func TestCockpitDogfoodTerminalSizesKeepTaskCues(t *testing.T) {
 						t.Fatalf("%s %dx%d missing %q:\n%s", scenario.name, size.width, size.height, must, view)
 					}
 				}
-				for _, globalCue := range []string{"sections:", "quit"} {
+				for _, globalCue := range []string{"tabs:", "quit"} {
 					if !strings.Contains(view, globalCue) {
 						t.Fatalf("%s %dx%d missing global cue %q:\n%s", scenario.name, size.width, size.height, globalCue, view)
 					}
@@ -138,14 +143,12 @@ func TestCockpitDogfoodKeyboardPaths(t *testing.T) {
 		model.loader = loader
 		model.loaderCtx = t.Context()
 
-		updated, cmd := model.Update(cockpitRuneKey("2"))
-		model = updated.(cockpitModel)
-		if model.mode != cockpitModeLive || cmd == nil {
-			t.Fatalf("2 mode/cmd = %v/%T, want live/load", model.mode, cmd)
+		cmd := model.Init()
+		if cmd == nil {
+			t.Fatalf("tail init returned nil command, want live/load")
 		}
-		updated, _ = model.Update(cmd())
-		model = updated.(cockpitModel)
-		updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		model = applyCockpitImmediateCommandForTest(t, model, cmd)
+		updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		model = updated.(cockpitModel)
 		if model.mode != cockpitModeDetail || cmd == nil {
 			t.Fatalf("enter mode/cmd = %v/%T, want detail/load", model.mode, cmd)
@@ -174,10 +177,10 @@ func TestCockpitDogfoodKeyboardPaths(t *testing.T) {
 		model.loader = loader
 		model.loaderCtx = t.Context()
 
-		updated, cmd := model.Update(cockpitRuneKey("4"))
+		updated, cmd := model.Update(cockpitRuneKey("3"))
 		model = updated.(cockpitModel)
 		if model.mode != cockpitModeMemoryReview || cmd == nil {
-			t.Fatalf("4 mode/cmd = %v/%T, want memory/load", model.mode, cmd)
+			t.Fatalf("3 mode/cmd = %v/%T, want memory/load", model.mode, cmd)
 		}
 		updated, cmd = model.Update(cmd())
 		model = updated.(cockpitModel)
@@ -221,10 +224,10 @@ func TestCockpitDogfoodKeyboardPaths(t *testing.T) {
 		model.loader = loader
 		model.loaderCtx = t.Context()
 
-		updated, cmd := model.Update(cockpitRuneKey("3"))
+		updated, cmd := model.Update(cockpitRuneKey("d"))
 		model = updated.(cockpitModel)
 		if model.mode != cockpitModeDoctor || cmd == nil {
-			t.Fatalf("3 mode/cmd = %v/%T, want doctor/load", model.mode, cmd)
+			t.Fatalf("d mode/cmd = %v/%T, want doctor/load", model.mode, cmd)
 		}
 		updated, _ = model.Update(cmd())
 		model = updated.(cockpitModel)
@@ -321,17 +324,15 @@ func TestCockpitDogfoodJapaneseNarrowSmoke(t *testing.T) {
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	view := updated.(cockpitModel).View()
 	for _, must := range []string{
-		"Traceary cockpit · ホーム",
-		"セクション:",
-		"トリアージ board",
-		"メモリ inbox",
-		"新着 candidate memory=2",
-		"次:",
+		"Traceary cockpit · live tail",
+		"タブ:",
+		"[1 Tail]",
+		"live event を読み込み中",
 		"端末 80x24",
 		"アクション menu",
 		"Global navigation",
-		"1 ホーム",
-		"6 設定",
+		"1 Tail",
+		"5 設定",
 		"? ヘルプ",
 	} {
 		if !strings.Contains(view, must) {
@@ -411,6 +412,7 @@ func cockpitDogfoodSnapshotScenarios(t *testing.T) []cockpitDogfoodSnapshotScena
 		EventLastSeenAt:         fixedStartedAt.Add(-30 * time.Minute),
 	}
 	doctorFailure := cockpitHomeSnapshot{LoadedAt: fixedStartedAt, DBPath: "/tmp/traceary.db", DoctorPassCount: 2, DoctorWarnCount: 1, DoctorFailCount: 1, HookFailCount: 1}
+	doctorUnavailable := cockpitHomeSnapshot{LoadedAt: fixedStartedAt, DBPath: "/tmp/traceary.db", DoctorError: "doctor dependency unavailable"}
 	candidateMemories := cockpitHomeSnapshot{
 		LoadedAt:                fixedStartedAt,
 		DBPath:                  "/tmp/traceary.db",
@@ -443,12 +445,19 @@ func cockpitDogfoodSnapshotScenarios(t *testing.T) []cockpitDogfoodSnapshotScena
 	memoryModel.mode = cockpitModeMemoryReview
 	memoryModel.memoryReview.items = []apptypes.MemoryDetails{ambiguous}
 	memoryModel.memoryReview.review = newReviewModel(memoryModel.memoryReview.items, memoryModel.keys, memoryModel.styles)
+	topModel := func(home cockpitHomeSnapshot) cockpitModel {
+		model := newCockpitModel(tui.DefaultKeyMap(), styles, home)
+		model.mode = cockpitModeTop
+		return model
+	}
 	return []cockpitDogfoodSnapshotScenario{
-		{name: "home_all_green", model: newCockpitModel(tui.DefaultKeyMap(), styles, allGreen)},
-		{name: "home_doctor_failure", model: newCockpitModel(tui.DefaultKeyMap(), styles, doctorFailure)},
-		{name: "home_candidate_memories", model: newCockpitModel(tui.DefaultKeyMap(), styles, candidateMemories)},
-		{name: "home_stale_sessions", model: newCockpitModel(tui.DefaultKeyMap(), styles, staleSessions)},
-		{name: "home_new_events_and_failure", model: newCockpitModel(tui.DefaultKeyMap(), styles, newEventsAndFailure)},
+		{name: "tail_initial", model: newCockpitModel(tui.DefaultKeyMap(), styles, allGreen)},
+		{name: "top_all_green", model: topModel(allGreen)},
+		{name: "top_doctor_failure", model: topModel(doctorFailure)},
+		{name: "top_doctor_unavailable", model: topModel(doctorUnavailable)},
+		{name: "top_candidate_memories", model: topModel(candidateMemories)},
+		{name: "top_stale_sessions", model: topModel(staleSessions)},
+		{name: "top_new_events_and_failure", model: topModel(newEventsAndFailure)},
 		{name: "memory_ambiguous_candidate", model: memoryModel},
 	}
 }

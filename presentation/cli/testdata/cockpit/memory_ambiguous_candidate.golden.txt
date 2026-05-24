@@ -1,5 +1,5 @@
 Traceary cockpit · memory review
-sections: 1 Home  2 Live  3 Doctor  [4 Memory]  5 Sessions  6 Settings
+tabs: 1 Tail  2 Top  [3 Memory]  4 Sessions  5 Settings
 
 inbox review · decision card
 candidate 1 / 1
@@ -33,4 +33,4 @@ ACCEPT AS-IS CHECKLIST
 
 a accept as-is · x reject · s skip · e edit/distill · v evidence · ↑/↓ navigate · ? help · q quit
 
-1-6 sections · tab/shift+tab next/prev · esc back · ctrl+c quit · ? help · a accept as-is · x reject · s skip · e edit/distill · v evidence · q finish/apply
+1-5 tabs · ←/→ tabs · tab/shift+tab next/prev · esc back · ctrl+c quit · ? help · a accept as-is · x reject · s skip · e edit/distill · v evidence · q finish/apply
