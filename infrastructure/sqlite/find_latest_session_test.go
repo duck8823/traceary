@@ -16,7 +16,7 @@ func TestDatasource_FindLatest(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, productionSQLiteMigrations())
+	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, productionSQLiteMigrations(t))
 	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -224,7 +224,7 @@ func TestDatasource_FindLatest_ignoresBoundariesFromOtherContexts(t *testing.T) 
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, productionSQLiteMigrations())
+	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, productionSQLiteMigrations(t))
 	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -288,7 +288,7 @@ func TestDatasource_FindLatest_activeOnlyIgnoresEndsFromOtherContexts(t *testing
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, productionSQLiteMigrations())
+	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, productionSQLiteMigrations(t))
 	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}

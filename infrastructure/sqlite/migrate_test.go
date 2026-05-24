@@ -53,7 +53,7 @@ func TestMigrations_applyToEmptyDatabase(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	ds := newStoreManagementDatasource(t, dbPath, os.DirFS("../../schema/sqlite/migrations"))
+	ds := newStoreManagementDatasource(t, dbPath, productionSQLiteMigrations(t))
 
 	if err := ds.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
@@ -77,7 +77,7 @@ func TestMigrations_applyToEmptyDatabase(t *testing.T) {
 	}
 
 	// Count migration files dynamically
-	entries, err := os.ReadDir("../../schema/sqlite/migrations")
+	entries, err := os.ReadDir(productionSQLiteMigrationDir(t))
 	if err != nil {
 		t.Fatalf("ReadDir() error = %v", err)
 	}
@@ -103,13 +103,13 @@ func TestMigration014_addsSessionSpawnMetadataToUpgradedDatabase(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	preV010 := migrationsWithout(t, "../../schema/sqlite/migrations", "000014_add_session_spawn_metadata.sql")
+	preV010 := migrationsWithout(t, productionSQLiteMigrationDir(t), "000014_add_session_spawn_metadata.sql")
 	ds := newStoreManagementDatasource(t, dbPath, preV010)
 	if err := ds.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize(pre-v0.10) error = %v", err)
 	}
 
-	ds = newStoreManagementDatasource(t, dbPath, os.DirFS("../../schema/sqlite/migrations"))
+	ds = newStoreManagementDatasource(t, dbPath, productionSQLiteMigrations(t))
 	if err := ds.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize(upgrade) error = %v", err)
 	}
@@ -127,7 +127,7 @@ func TestMigrations_idempotentOnExistingDatabase(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	ds := newStoreManagementDatasource(t, dbPath, os.DirFS("../../schema/sqlite/migrations"))
+	ds := newStoreManagementDatasource(t, dbPath, productionSQLiteMigrations(t))
 
 	if err := ds.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() first error = %v", err)
@@ -142,7 +142,7 @@ func TestMigrations_idempotentOnExistingDatabase(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	entries, err := os.ReadDir("../../schema/sqlite/migrations")
+	entries, err := os.ReadDir(productionSQLiteMigrationDir(t))
 	if err != nil {
 		t.Fatalf("ReadDir() error = %v", err)
 	}
@@ -292,7 +292,7 @@ func TestMigrations_backfillPopulatesSessionsFromEvents(t *testing.T) {
 	_ = db.Close()
 
 	// Apply remaining migrations via Initialize
-	ds := newStoreManagementDatasource(t, dbPath, os.DirFS("../../schema/sqlite/migrations"))
+	ds := newStoreManagementDatasource(t, dbPath, productionSQLiteMigrations(t))
 	if err := ds.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}

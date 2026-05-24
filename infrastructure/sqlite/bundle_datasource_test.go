@@ -2,7 +2,6 @@ package sqlite_test
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,7 +17,7 @@ func TestBundleDatasource_CommandAuditBeforeEventFailsFK(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	db := sqlite.NewDatabase(dbPath, os.DirFS("../../schema/sqlite/migrations"))
+	db := sqlite.NewDatabase(dbPath, productionSQLiteMigrations(t))
 	store := sqlite.NewStoreManagementDatasource(db)
 	if err := store.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
@@ -54,7 +53,7 @@ func TestBundleDatasource_ImportSessionBackfillsMissingParent(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	db := sqlite.NewDatabase(dbPath, os.DirFS("../../schema/sqlite/migrations"))
+	db := sqlite.NewDatabase(dbPath, productionSQLiteMigrations(t))
 	store := sqlite.NewStoreManagementDatasource(db)
 	if err := store.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)

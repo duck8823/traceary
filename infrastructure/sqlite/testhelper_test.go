@@ -3,13 +3,35 @@ package sqlite_test
 import (
 	"io/fs"
 	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
-func productionSQLiteMigrations() fs.FS {
-	return os.DirFS("../../schema/sqlite/migrations")
+// productionSQLiteMigrations returns the on-disk production migration set for
+// tests that intentionally exercise full-schema compatibility.
+func productionSQLiteMigrations(t testing.TB) fs.FS {
+	t.Helper()
+	return os.DirFS(productionSQLiteMigrationDir(t))
+}
+
+func productionSQLiteMigrationDir(t testing.TB) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatalf("runtime.Caller(0) failed")
+	}
+	dir := filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "schema", "sqlite", "migrations"))
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat production SQLite migrations dir %s: %v", dir, err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("production SQLite migrations path %s is not a directory", dir)
+	}
+	return dir
 }
 
 // newEventDatasource returns an EventDatasource plus a matching
