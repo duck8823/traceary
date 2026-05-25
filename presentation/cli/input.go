@@ -423,6 +423,14 @@ type memoryInboxListCommandInput struct {
 	asJSON         bool
 }
 
+// memoryInboxShowCommandInput is the resolved input to `traceary memory
+// inbox show`.
+type memoryInboxShowCommandInput struct {
+	dbPath   string
+	memoryID string
+	asJSON   bool
+}
+
 // memoryInboxBatchCommandInput is the resolved input to `traceary memory
 // inbox accept` and `traceary memory inbox reject`. Batch operations walk
 // the id list in order and report per-id success/failure so the caller can

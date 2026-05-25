@@ -24,6 +24,11 @@ func buildInboxCandidateDetails(t *testing.T, id string, fact string, source dom
 
 func buildInboxMemoryDetails(t *testing.T, id string, fact string, status domtypes.MemoryStatus, source domtypes.MemorySource) apptypes.MemoryDetails {
 	t.Helper()
+	return buildInboxMemoryDetailsWithRefs(t, id, fact, status, source, true)
+}
+
+func buildInboxMemoryDetailsWithRefs(t *testing.T, id string, fact string, status domtypes.MemoryStatus, source domtypes.MemorySource, withEvidence bool) apptypes.MemoryDetails {
+	t.Helper()
 	workspace, err := domtypes.WorkspaceFrom("github.com/example/repo")
 	if err != nil {
 		t.Fatalf("WorkspaceFrom: %v", err)
@@ -45,6 +50,9 @@ func buildInboxMemoryDetails(t *testing.T, id string, fact string, status domtyp
 	)
 	if err != nil {
 		t.Fatalf("MemorySummaryOf: %v", err)
+	}
+	if !withEvidence {
+		return apptypes.MemoryDetailsOf(summary, nil, nil)
 	}
 	evidence, err := domtypes.EvidenceRefFrom(domtypes.EvidenceRefKindFile, "/tmp/MEMORY.md#L1-L2")
 	if err != nil {
@@ -76,12 +84,118 @@ func TestMemoryInboxList_TextOutput(t *testing.T) {
 	}
 
 	out := stdout.String()
-	if !strings.Contains(out, "MEMORY_ID\tTYPE\tSCOPE\tSOURCE\tEVIDENCE\tARTIFACT\tFACT") {
+	if !strings.Contains(out, "MEMORY_ID\tTYPE\tSCOPE\tSOURCE\tCONFIDENCE\tEVIDENCE\tARTIFACT\tREVIEW\tFACT") {
 		t.Fatalf("expected inbox header, got %q", out)
 	}
 	// Status filter must be pinned to candidate on the list call.
 	if got := memoryStub.listCriteria.Statuses(); len(got) != 1 || got[0] != domtypes.MemoryStatusCandidate {
 		t.Fatalf("inbox list should filter to candidate status, got %v", got)
+	}
+}
+
+func TestMemoryInboxList_TextOutputSurfacesDecisionStatus(t *testing.T) {
+	t.Parallel()
+
+	evidenceRich := buildInboxMemoryDetailsWithRefs(t, "memory-rich", "supported memory", domtypes.MemoryStatusCandidate, domtypes.MemorySourceManual, true)
+	evidenceLess := buildInboxMemoryDetailsWithRefs(t, "memory-weak", "unsupported memory", domtypes.MemoryStatusCandidate, domtypes.MemorySourceExtracted, false)
+	memoryStub := &memoryUsecaseStub{
+		listResult: []apptypes.MemorySummary{evidenceRich.Summary(), evidenceLess.Summary()},
+		showDetailsByID: map[domtypes.MemoryID]apptypes.MemoryDetails{
+			evidenceRich.Summary().MemoryID(): evidenceRich,
+			evidenceLess.Summary().MemoryID(): evidenceLess,
+		},
+	}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	stdout := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"memory", "inbox", "list", "--db-path", t.TempDir() + "/t.db"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "memory-rich\tpreference\tworkspace:github.com/example/repo\tmanual\tmedium\t1\t0\tready\t") {
+		t.Fatalf("evidence-rich row missing ready signal:\n%s", out)
+	}
+	if !strings.Contains(out, "memory-weak\tpreference\tworkspace:github.com/example/repo\textracted\tmedium\t0\t0\tblocked:no-evidence\t") {
+		t.Fatalf("evidence-less row missing blocked signal:\n%s", out)
+	}
+}
+
+func TestMemoryInboxShow_TextOutputPrintsEvidenceFirstDecisionCard(t *testing.T) {
+	t.Parallel()
+
+	candidate := buildInboxMemoryDetailsWithRefs(t, "memory-show", "prefer evidence-first review", domtypes.MemoryStatusCandidate, domtypes.MemorySourceRememberIntent, true)
+	eventRef, err := domtypes.EvidenceRefFrom(domtypes.EvidenceRefKindEvent, "evt-123")
+	if err != nil {
+		t.Fatalf("EvidenceRefFrom(event): %v", err)
+	}
+	sessionRef, err := domtypes.EvidenceRefFrom(domtypes.EvidenceRefKindSession, "session-123")
+	if err != nil {
+		t.Fatalf("EvidenceRefFrom(session): %v", err)
+	}
+	candidate = apptypes.MemoryDetailsOf(candidate.Summary(), append(candidate.EvidenceRefs(), eventRef, sessionRef), nil)
+	memoryStub := &memoryUsecaseStub{showDetails: candidate}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	stdout := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"memory", "inbox", "show", "memory-show", "--db-path", t.TempDir() + "/t.db"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	out := stdout.String()
+	for _, want := range []string{
+		"DECISION_CONTEXT:",
+		"REVIEW_STATUS: ready",
+		"QUALITY_SIGNAL:",
+		"FACT:\nprefer evidence-first review",
+		"SOURCE_CONTEXT:",
+		"- event:evt-123",
+		"- session:session-123",
+		"EVIDENCE_REFS:",
+		"ACCEPT_GUIDANCE:",
+		"ACCEPT_AS_IS_CHECKLIST:",
+		"RELATED_MEMORY:",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("memory inbox show output missing %q:\n%s", want, out)
+		}
+	}
+	if got := memoryStub.showMemoryID.String(); got != "memory-show" {
+		t.Fatalf("Show memory id = %q, want memory-show", got)
+	}
+}
+
+func TestMemoryInboxShow_BlocksNonCandidate(t *testing.T) {
+	t.Parallel()
+
+	accepted := buildInboxMemoryDetailsWithRefs(t, "memory-accepted", "already accepted", domtypes.MemoryStatusAccepted, domtypes.MemorySourceManual, true)
+	memoryStub := &memoryUsecaseStub{showDetails: accepted}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"memory", "inbox", "show", "memory-accepted", "--db-path", t.TempDir() + "/t.db"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("execute error = nil, want non-candidate rejection")
+	}
+	if !strings.Contains(err.Error(), "only accepts memory candidates") {
+		t.Fatalf("error = %v, want candidate-only message", err)
 	}
 }
 
@@ -161,6 +275,7 @@ func TestMemoryInboxHelp_JapaneseGlossary(t *testing.T) {
 	for _, args := range [][]string{
 		{"memory", "inbox", "--help"},
 		{"memory", "inbox", "list", "--help"},
+		{"memory", "inbox", "show", "--help"},
 		{"memory", "inbox", "accept", "--help"},
 		{"memory", "inbox", "reject", "--help"},
 		{"memory", "inbox", "cleanup", "--help"},
