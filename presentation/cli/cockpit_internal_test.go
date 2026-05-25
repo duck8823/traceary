@@ -1825,12 +1825,69 @@ func TestFormatCockpitLiveEventRow_TruncatesLargePayload(t *testing.T) {
 	t.Parallel()
 
 	event := mustEvent(t, "evt-large", domtypes.EventKindCommandExecuted, strings.Repeat("x", apptypes.DefaultTopSnapshotBodyLimit+20))
-	row := formatCockpitLiveEventRow(event, time.UTC)
+	row := formatCockpitLiveEventRow(event, time.UTC, 100, compactRowExtras{}, false)
 	if !strings.Contains(row, "[truncated]") {
 		t.Fatalf("row = %q, want truncation marker", row)
 	}
 	if got, limit := len([]rune(row)), apptypes.DefaultTopSnapshotBodyLimit; got >= limit {
 		t.Fatalf("row length = %d, want compact row below body limit %d", got, limit)
+	}
+}
+
+func TestFormatCockpitLiveEventRow_UsesViewportWidth(t *testing.T) {
+	t.Parallel()
+
+	event := mustEvent(t, "evt-long-tail", domtypes.EventKindCommandExecuted, "go test ./presentation/cli -run TestCockpitLiveTailKeepsUsefulContext --count=1 --timeout=30s")
+	widths := []int{80, 100, 120}
+	rows := make([]string, 0, len(widths))
+	for _, width := range widths {
+		row := formatCockpitLiveEventRow(event, time.UTC, width, compactRowExtras{}, false)
+		rows = append(rows, row)
+		if got := runeLen(row); got > width {
+			t.Fatalf("row width at target %d = %d, want <= target:\n%s", width, got, row)
+		}
+		for _, must := range []string{"12:00:00", "command_executed", "sess=", "ws=traceary", "go test"} {
+			if !strings.Contains(row, must) {
+				t.Fatalf("row at width %d missing %q:\n%s", width, must, row)
+			}
+		}
+	}
+	if runeLen(rows[0]) >= runeLen(rows[1]) || runeLen(rows[1]) >= runeLen(rows[2]) {
+		t.Fatalf("rows should preserve more context as width grows:\n80=%q\n100=%q\n120=%q", rows[0], rows[1], rows[2])
+	}
+	if strings.Contains(rows[0], "TestCockpitLiveTa") {
+		t.Fatalf("80-column row unexpectedly kept wide-only context:\n%s", rows[0])
+	}
+	if !strings.Contains(rows[2], "TestCockpitLiveTa") {
+		t.Fatalf("120-column row should keep useful command context:\n%s", rows[2])
+	}
+}
+
+func TestFormatCockpitLiveEventRow_ColorSemanticsMatchTail(t *testing.T) {
+	t.Parallel()
+
+	failed := mustEvent(t, "evt-live-failed-color", domtypes.EventKindCommandExecuted, "go test ./...")
+	failedRow := formatCockpitLiveEventRow(failed, time.UTC, 120, compactRowExtras{exitCode: domtypes.Some(1)}, true)
+	if !strings.HasPrefix(failedRow, ansiRedBold) || !strings.HasSuffix(failedRow, ansiReset) {
+		t.Fatalf("failed command row color = %q, want red/bold wrapper", failedRow)
+	}
+
+	success := mustEvent(t, "evt-live-success-color", domtypes.EventKindCommandExecuted, "go test ./...")
+	successRow := formatCockpitLiveEventRow(success, time.UTC, 120, compactRowExtras{exitCode: domtypes.Some(0)}, true)
+	if strings.Contains(successRow, ansiRedBold) || strings.Contains(successRow, ansiReset) {
+		t.Fatalf("successful command row should stay plain, got %q", successRow)
+	}
+
+	promptBase := mustEvent(t, "evt-live-prompt-color", domtypes.EventKindPrompt, "review this")
+	promptRow := formatCockpitLiveEventRow(promptBase, time.UTC, 120, compactRowExtras{}, true)
+	if !strings.HasPrefix(promptRow, ansiCyan) || !strings.HasSuffix(promptRow, ansiReset) {
+		t.Fatalf("prompt row color = %q, want cyan wrapper", promptRow)
+	}
+
+	summary := mustEvent(t, "evt-live-summary-color", domtypes.EventKindCompactSummary, "summary")
+	summaryRow := formatCockpitLiveEventRow(summary, time.UTC, 120, compactRowExtras{}, true)
+	if !strings.HasPrefix(summaryRow, ansiMagenta) || !strings.HasSuffix(summaryRow, ansiReset) {
+		t.Fatalf("compact summary row color = %q, want magenta wrapper", summaryRow)
 	}
 }
 

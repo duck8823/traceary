@@ -48,6 +48,13 @@ type eventTextFormatOptions struct {
 	// fixed eventCompactTargetWidth default so non-interactive output (pipes,
 	// golden tests) stays byte-stable.
 	targetWidth int
+	// messageMinWidth overrides the compact message floor used when metadata
+	// columns consume most of targetWidth. 0 means use the historical default.
+	messageMinWidth int
+	// hardTargetWidth caps the final compact row at targetWidth. It is opt-in
+	// so legacy non-interactive compact output keeps its historical minimum
+	// message floor even when metadata columns are unusually wide.
+	hardTargetWidth bool
 }
 
 // compactRowExtras carries hydrated data that a specific field needs but is
@@ -132,12 +139,16 @@ func formatEventCompactRow(event *model.Event, opts eventTextFormatOptions, extr
 	if targetWidth <= 0 {
 		targetWidth = eventCompactTargetWidth
 	}
+	messageMinWidth := opts.messageMinWidth
+	if messageMinWidth <= 0 {
+		messageMinWidth = eventCompactMessageMinRunes
+	}
 	prefix := strings.Join(tokens[:messageIndex], sep)
 	if messageIndex > 0 {
 		prefix += sep
 	}
 	remaining := targetWidth - runeLen(prefix)
-	if remaining < eventCompactMessageMinRunes {
+	if remaining < messageMinWidth {
 		for i := 0; i < messageIndex; i++ {
 			if fields[i] == readFieldWorkspace {
 				tokens[i] = "ws=" + truncateNormalized(compactWorkspace(event.Workspace().String()), eventCompactWorkspaceMaxRunes)
@@ -149,11 +160,14 @@ func formatEventCompactRow(event *model.Event, opts eventTextFormatOptions, extr
 			prefix += sep
 		}
 		remaining = targetWidth - runeLen(prefix)
-		if remaining < eventCompactMessageMinRunes {
-			remaining = eventCompactMessageMinRunes
+		if remaining < messageMinWidth {
+			remaining = messageMinWidth
 		}
 	}
 	plain := prefix + truncateNormalized(apptypes.ExtractPlainBody(event.Body()), remaining)
+	if opts.hardTargetWidth && targetWidth > 0 && runeLen(plain) > targetWidth {
+		plain = truncateNormalized(plain, targetWidth)
+	}
 	if opts.colorEnabled {
 		exitCode, exitCodeSet := extras.exitCode.Value()
 		return applyCompactRowHighlight(plain, string(event.Kind()), exitCode, exitCodeSet)
