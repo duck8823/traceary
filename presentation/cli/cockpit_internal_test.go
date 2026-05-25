@@ -1853,9 +1853,6 @@ func TestCockpitModel_GlobalNavigationShellRendersOnEveryScreen(t *testing.T) {
 					t.Fatalf("%s view missing %q:\n%s", tc.name, must, view)
 				}
 			}
-			if tc.name == "settings" && strings.Contains(view, "←/→ tabs") {
-				t.Fatalf("settings footer should reserve ←/→ for value rows, not tabs:\n%s", view)
-			}
 		})
 	}
 }
@@ -2022,16 +2019,16 @@ func TestCockpitModel_ContextualHelpActionMenuByScreen(t *testing.T) {
 		model.settings.draft = model.settings.snapshot.Values.clone()
 		view := model.View()
 		for _, must := range []string{
-			"Change ui.language, read.color, or read.fields when those rows are selected",
+			"Run the selected settings action or stage the selected value change",
 			"tab / shift+tab",
-			"← / → edit selected value rows",
+			"← / → cycle tabs",
 		} {
 			if !strings.Contains(view, must) {
 				t.Fatalf("settings help missing %q:\n%s", must, view)
 			}
 		}
-		if strings.Contains(view, "← / → cycle tabs") {
-			t.Fatalf("settings help should not advertise ←/→ as tab navigation:\n%s", view)
+		if strings.Contains(view, "← / → edit selected value rows") {
+			t.Fatalf("settings help should not advertise ←/→ as value editing:\n%s", view)
 		}
 	})
 
@@ -2062,7 +2059,7 @@ func TestCockpitModel_ContextualHelpActionMenuByScreen(t *testing.T) {
 
 		updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
 		model = updated.(cockpitModel)
-		updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
+		updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		model = updated.(cockpitModel)
 		updated, _ = model.Update(cockpitRuneKey("w"))
 		model = updated.(cockpitModel)
@@ -2609,11 +2606,11 @@ func TestCockpitSettingsArrowKeyWorkflowStagesAndConfirmsSave(t *testing.T) {
 
 	// Row 0: ui.language, Row 1: read.color, Row 2: read.fields.
 	for _, keyMsg := range []tea.KeyMsg{
-		{Type: tea.KeyRight},
+		{Type: tea.KeyEnter},
 		{Type: tea.KeyDown},
-		{Type: tea.KeyRight},
+		{Type: tea.KeyEnter},
 		{Type: tea.KeyDown},
-		{Type: tea.KeyRight},
+		{Type: tea.KeyEnter},
 		{Type: tea.KeyDown},
 		{Type: tea.KeyEnter},
 	} {
@@ -2673,7 +2670,7 @@ func TestCockpitSettingsArrowKeyWorkflowStagesAndConfirmsSave(t *testing.T) {
 	}
 }
 
-func TestCockpitSettingsLeftArrowCyclesEditableRowsBackward(t *testing.T) {
+func TestCockpitSettingsLeftRightMoveTabsWithoutStagingValues(t *testing.T) {
 	resetConfiguredCLILanguageCacheForTest()
 	t.Cleanup(resetConfiguredCLILanguageCacheForTest)
 
@@ -2684,47 +2681,45 @@ func TestCockpitSettingsLeftArrowCyclesEditableRowsBackward(t *testing.T) {
 	updated, _ := model.Update(cockpitRuneKey("5"))
 	model = updated.(cockpitModel)
 
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyLeft})
-	model = updated.(cockpitModel)
-	if got, want := model.settings.draft.UILanguage, "ja"; got != want {
-		t.Fatalf("left on ui.language = %q, want %q", got, want)
+	for _, row := range []int{cockpitSettingsRowLanguage, cockpitSettingsRowReadColor, cockpitSettingsRowReadFields} {
+		model.settings.cursor = row
+		updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRight})
+		next := updated.(cockpitModel)
+		if next.mode != cockpitModeLive || cmd == nil {
+			t.Fatalf("right from settings row %d mode/cmd = %v/%T, want tail/load", row, next.mode, cmd)
+		}
+		if next.settings.dirty() {
+			t.Fatalf("right from settings row %d staged values unexpectedly:\n%s", row, next.View())
+		}
 	}
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
-	model = updated.(cockpitModel)
+
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyLeft})
 	model = updated.(cockpitModel)
-	if got, want := model.settings.draft.ReadColor, "never"; got != want {
-		t.Fatalf("left on read.color = %q, want %q", got, want)
+	if model.mode != cockpitModeSessions {
+		t.Fatalf("left from settings mode = %v, want sessions", model.mode)
 	}
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
-	model = updated.(cockpitModel)
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyLeft})
-	model = updated.(cockpitModel)
-	wantFields := []string{"ts", "kind", "message"}
-	if !slices.Equal(model.settings.draft.ReadFields, wantFields) {
-		t.Fatalf("left on read.fields = %#v, want %#v", model.settings.draft.ReadFields, wantFields)
+	if model.settings.dirty() {
+		t.Fatalf("left from settings staged values unexpectedly:\n%s", model.View())
 	}
 }
 
-func TestCockpitSettingsArrowsStayInsideSettingsRows(t *testing.T) {
+func TestCockpitSettingsEnterStagesEditableRows(t *testing.T) {
 	resetConfiguredCLILanguageCacheForTest()
 	t.Cleanup(resetConfiguredCLILanguageCacheForTest)
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	for row := range cockpitSettingsRowCount {
-		for _, keyMsg := range []tea.KeyMsg{{Type: tea.KeyLeft}, {Type: tea.KeyRight}} {
-			model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
-			updated, _ := model.Update(cockpitRuneKey("5"))
-			model = updated.(cockpitModel)
-			model.settings.cursor = row
+	for _, row := range []int{cockpitSettingsRowLanguage, cockpitSettingsRowReadColor, cockpitSettingsRowReadFields} {
+		model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+		updated, _ := model.Update(cockpitRuneKey("5"))
+		model = updated.(cockpitModel)
+		model.settings.cursor = row
 
-			updated, cmd := model.Update(keyMsg)
-			model = updated.(cockpitModel)
-			if model.mode != cockpitModeSettings || cmd != nil {
-				t.Fatalf("row %d key %v mode/cmd = %v/%T, want settings/nil", row, keyMsg.Type, model.mode, cmd)
-			}
+		updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		model = updated.(cockpitModel)
+		if model.mode != cockpitModeSettings || cmd != nil || !model.settings.dirty() {
+			t.Fatalf("row %d enter mode/cmd/dirty = %v/%T/%v, want settings/nil/dirty", row, model.mode, cmd, model.settings.dirty())
 		}
 	}
 }
@@ -2743,28 +2738,31 @@ func TestCockpitSettingsDefaultCyclesAreSemanticallyReversible(t *testing.T) {
 	for _, step := range []struct {
 		name        string
 		row         int
+		cycles      int
 		defaultText string
 	}{
-		{name: "ui.language", row: cockpitSettingsRowLanguage, defaultText: "ui.language: en (default)"},
-		{name: "read.color", row: cockpitSettingsRowReadColor, defaultText: "read.color: auto (default)"},
-		{name: "read.fields", row: cockpitSettingsRowReadFields, defaultText: "read.fields: ts,kind,agent,session,ws,message (default)"},
+		{name: "ui.language", row: cockpitSettingsRowLanguage, cycles: 2, defaultText: "ui.language: en (default)"},
+		{name: "read.color", row: cockpitSettingsRowReadColor, cycles: 3, defaultText: "read.color: auto (default)"},
+		{name: "read.fields", row: cockpitSettingsRowReadFields, cycles: 4, defaultText: "read.fields: ts,kind,agent,session,ws,message (default)"},
 	} {
 		t.Run(step.name, func(t *testing.T) {
 			cycleModel := model
 			cycleModel.settings.cursor = step.row
-			updated, _ := cycleModel.Update(tea.KeyMsg{Type: tea.KeyRight})
+			updated, _ := cycleModel.Update(tea.KeyMsg{Type: tea.KeyEnter})
 			cycleModel = updated.(cockpitModel)
 			if !cycleModel.settings.dirty() {
-				t.Fatalf("%s right arrow should stage a non-default value", step.name)
+				t.Fatalf("%s enter should stage a non-default value", step.name)
 			}
-			updated, _ = cycleModel.Update(tea.KeyMsg{Type: tea.KeyLeft})
-			cycleModel = updated.(cockpitModel)
+			for range step.cycles - 1 {
+				updated, _ = cycleModel.Update(tea.KeyMsg{Type: tea.KeyEnter})
+				cycleModel = updated.(cockpitModel)
+			}
 			if cycleModel.settings.dirty() {
-				t.Fatalf("%s right then left should return to the semantic default:\n%s", step.name, cycleModel.View())
+				t.Fatalf("%s repeated enter should return to the semantic default:\n%s", step.name, cycleModel.View())
 			}
 			view := cycleModel.View()
 			if !strings.Contains(view, step.defaultText) || strings.Contains(view, "Staged") {
-				t.Fatalf("%s revert should restore default display and clear staged info:\n%s", step.name, view)
+				t.Fatalf("%s repeated enter should restore default display and clear staged info:\n%s", step.name, view)
 			}
 		})
 	}

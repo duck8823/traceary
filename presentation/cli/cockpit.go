@@ -2607,9 +2607,7 @@ func (m cockpitModel) cockpitGlobalFooter(localHelp string) string {
 	parts := []string{}
 	if m.cockpitSectionNavigationAvailable() {
 		parts = append(parts, Localize("1-5 tabs", "1-5 タブ"))
-		if m.mode != cockpitModeSettings {
-			parts = append(parts, Localize("←/→ tabs", "←/→ タブ"))
-		}
+		parts = append(parts, Localize("←/→ tabs", "←/→ タブ"))
 		parts = append(parts, Localize("tab/shift+tab next/prev", "tab/shift+tab 次/前"))
 	}
 	if m.width > 0 && m.height > 0 {
@@ -2722,11 +2720,7 @@ func (m cockpitModel) cockpitContextualNavigationLines() []string {
 	for _, item := range items {
 		lines = append(lines, cockpitNavigationLine(item, labelWidth))
 	}
-	if m.mode == cockpitModeSettings {
-		lines = append(lines, Localize("tab / shift+tab cycle tabs; 1-5 jump tabs; ← / → edit selected value rows", "tab / shift+tab でタブ移動。1-5 でタブ選択。← / → は選択中の設定値を編集"))
-	} else {
-		lines = append(lines, Localize("← / → cycle tabs; tab / shift+tab remain supported", "← / → でタブ移動。tab / shift+tab も利用可能"))
-	}
+	lines = append(lines, Localize("← / → cycle tabs; tab / shift+tab remain supported", "← / → でタブ移動。tab / shift+tab も利用可能"))
 	lines = append(lines, Localize("esc backs out to Tail; q exits the TUI", "esc で Tail に戻り、q で TUI を終了"))
 	return lines
 }
