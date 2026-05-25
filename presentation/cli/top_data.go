@@ -50,6 +50,11 @@ type topDataCriteria struct {
 	// this checkpoint is intentionally outside topDataLoader; callers that do
 	// not have state leave it empty and get total-count metrics only.
 	MemoryLastSeenAt domtypes.Optional[time.Time]
+	// SkipMemoryReliability keeps session/failure/command reliability metrics
+	// while bypassing accepted/candidate memory scans. Interactive cockpit
+	// Sessions uses this because Memory review has its own tab and hidden
+	// memory query failures must not break the session dashboard.
+	SkipMemoryReliability bool
 }
 
 func (l *topDataLoader) loadDetail(ctx context.Context, req topDetailRequest) (topDetailContent, error) {
@@ -528,7 +533,7 @@ func (l *topDataLoader) loadReliabilityMetrics(ctx context.Context, c topDataCri
 		StaleActiveSessionCount: inputs.StaleActiveSessionCount,
 		LargePayloads:           topLargePayloadMetricsOf(inputs.Failures, inputs.RecentCommands, apptypes.DefaultTopSnapshotBodyLimit),
 	}
-	if l.memory == nil {
+	if l.memory == nil || c.SkipMemoryReliability {
 		return metrics, nil
 	}
 	memories, err := l.memory.List(ctx, topReliabilityMemoryCriteria(c))

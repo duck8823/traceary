@@ -51,7 +51,7 @@ func TestCockpitDogfoodJapaneseNarrowGoldenSnapshot(t *testing.T) {
 	model.mode = cockpitModeTop
 	model.showHelp = true
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	assertCockpitDogfoodGolden(t, "top_candidate_memories_ja_narrow", updated.(cockpitModel).View())
+	assertCockpitDogfoodGolden(t, "top_candidate_memories_suppressed_ja_narrow", updated.(cockpitModel).View())
 }
 
 func TestCockpitDogfoodTerminalSizesKeepTaskCues(t *testing.T) {
@@ -75,7 +75,6 @@ func TestCockpitDogfoodTerminalSizesKeepTaskCues(t *testing.T) {
 		"top_all_green": {
 			"Sessions summary",
 			"doctor: pass=4 warn=0 fail=0",
-			"memories: accepted(reviewed)=2 candidate(inbox)=0 new=0",
 		},
 		"top_doctor_failure": {
 			"doctor: pass=2 warn=1 fail=1",
@@ -85,9 +84,10 @@ func TestCockpitDogfoodTerminalSizesKeepTaskCues(t *testing.T) {
 			"[FAIL] Doctor unavailable",
 			"doctor dependency unavailable",
 		},
-		"top_candidate_memories": {
-			"new memory candidates=2",
-			"remember-intent candidates=1",
+		"top_candidate_memories_suppressed": {
+			"Sessions summary",
+			"[OK] No active signals",
+			"3 Memory",
 		},
 		"top_stale_sessions": {
 			"stale active sessions=2",
@@ -120,6 +120,13 @@ func TestCockpitDogfoodTerminalSizesKeepTaskCues(t *testing.T) {
 				for _, globalCue := range []string{"tabs:", "quit"} {
 					if !strings.Contains(view, globalCue) {
 						t.Fatalf("%s %dx%d missing global cue %q:\n%s", scenario.name, size.width, size.height, globalCue, view)
+					}
+				}
+				if strings.HasPrefix(scenario.name, "top_") {
+					for _, memoryCue := range []string{"memories:", "Memory review queue", "new memory candidates", "remember-intent candidates", "low-quality candidates"} {
+						if strings.Contains(view, memoryCue) {
+							t.Fatalf("%s %dx%d should not render memory status %q in Sessions tab:\n%s", scenario.name, size.width, size.height, memoryCue, view)
+						}
 					}
 				}
 				sizeCue := "terminal " + strconv.Itoa(size.width) + "x" + strconv.Itoa(size.height)
@@ -458,7 +465,7 @@ func cockpitDogfoodSnapshotScenarios(t *testing.T) []cockpitDogfoodSnapshotScena
 		{name: "top_all_green", model: topModel(allGreen)},
 		{name: "top_doctor_failure", model: topModel(doctorFailure)},
 		{name: "top_doctor_unavailable", model: topModel(doctorUnavailable)},
-		{name: "top_candidate_memories", model: topModel(candidateMemories)},
+		{name: "top_candidate_memories_suppressed", model: topModel(candidateMemories)},
 		{name: "top_stale_sessions", model: topModel(staleSessions)},
 		{name: "top_new_events_and_failure", model: topModel(newEventsAndFailure)},
 		{name: "memory_ambiguous_candidate", model: memoryModel},

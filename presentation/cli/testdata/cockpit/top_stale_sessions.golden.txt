@@ -5,7 +5,6 @@ loaded=2026-05-07T12:00:00Z db=/tmp/traceary.db
 
 Sessions summary
 • sessions: stale_active=2 recent_failures=0 recent_commands=0 new_events=untracked
-• memories: accepted(reviewed)=0 candidate(inbox)=0 new=untracked remember-intent=0 low-quality=0 stale=0
 • doctor: pass=0 warn=0 fail=0
 • hooks/mcp: warn=0 fail=0
 • payloads: large=0
@@ -15,8 +14,6 @@ Actionable signals
 
 Signal details
 • new events=untracked until cockpit state is initialized
-• memory candidate new count=untracked
-• memory candidates=0
 • stale active sessions=2
 
 Sessions dashboard

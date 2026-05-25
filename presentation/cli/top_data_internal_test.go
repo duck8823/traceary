@@ -78,7 +78,7 @@ func (s *topDataEventStub) Show(_ context.Context, eventID domtypes.EventID) (ap
 }
 
 // topDataMemoryStub satisfies usecase.MemoryUsecase via the embedded
-// interface trick. Only List is exercised by topDataLoader.
+// interface trick. Tests opt into List/ListStale/Show behavior per surface.
 type topDataMemoryStub struct {
 	usecase.MemoryUsecase
 
@@ -1035,6 +1035,39 @@ func TestTopDataLoader_LoadSnapshot_ComputesReliabilityMetrics(t *testing.T) {
 	}
 	if got, want := len(memory.listCriteriaCalls), 2; got != want {
 		t.Fatalf("memory.List calls = %d, want %d (candidate pane + reliability scan)", got, want)
+	}
+}
+
+func TestTopDataLoader_LoadSnapshot_SkipsMemoryReliabilityWhenRequested(t *testing.T) {
+	t.Parallel()
+
+	hugeFailure := mustEvent(t, "evt-skip-huge-fail", domtypes.EventKindCommandExecuted, strings.Repeat("f", apptypes.DefaultTopSnapshotBodyLimit+1))
+	command := mustEvent(t, "evt-skip-cmd", domtypes.EventKindCommandExecuted, "go test ./...")
+	event := &snapshotEventStub{failures: []*model.Event{hugeFailure}, commands: []*model.Event{command}}
+	memory := &topDataMemoryStub{listErr: context.Canceled, staleErr: context.Canceled}
+	loader := newTopDataLoader(nil, event, memory)
+
+	snap, err := loader.loadSnapshot(context.Background(), topDataCriteria{
+		FailureLimit:          1,
+		RecentCommandLimit:    1,
+		CandidateLimit:        0,
+		StaleMemoryLimit:      0,
+		SkipMemoryReliability: true,
+	})
+	if err != nil {
+		t.Fatalf("loadSnapshot() error = %v", err)
+	}
+	if got := memory.listCalls; got != 0 {
+		t.Fatalf("memory.List calls = %d, want 0 when memory reliability is skipped", got)
+	}
+	if got := memory.staleMemoryCalls; got != 0 {
+		t.Fatalf("memory.ListStale calls = %d, want 0 when stale memory pane is disabled", got)
+	}
+	if got, want := snap.Reliability.LargePayloads.Count, 1; got != want {
+		t.Fatalf("LargePayloads.Count = %d, want %d", got, want)
+	}
+	if got := snap.Reliability.CandidateMemoryCount; got != 0 {
+		t.Fatalf("CandidateMemoryCount = %d, want 0 when memory reliability is skipped", got)
 	}
 }
 

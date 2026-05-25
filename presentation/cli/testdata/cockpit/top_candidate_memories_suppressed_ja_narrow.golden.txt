@@ -5,20 +5,15 @@ loaded=2026-05-07T12:00:00Z db=/tmp/traceary.db
 
 Sessions 概要
 • セッション: stale_active=0 recent_failures=0 recent_commands=0 new_events=未追跡
-• メモリ: accepted(reviewed)=3 candidate(inbox)=4 new=2 remember-intent=1 low-quality=1 stale=0
 • doctor: pass=0 warn=0 fail=0
 • hooks/mcp: warn=0 fail=0
 • payloads: large=0
 
 対応が必要な通知
-• [WARN] メモリ候補の確認が必要 — candidate=4 new=2 remember-intent=1 low-quality=1 (3 メモリ確認を開く)
+• [OK] 対応が必要な通知なし — Tail と Sessions 概要に確認が必要な項目はありません。
 
 通知の詳細
 • cockpit state 初期化まで新着イベントは未追跡
-• 新着メモリ候補=2
-• メモリ候補=4
-• remember-intent メモリ候補=1
-• 低品質メモリ候補=1
 
 Sessions ダッシュボード
 Sessions ダッシュボードはまだ読み込まれていません。r で再取得します。
@@ -31,7 +26,7 @@ Sessions ダッシュボードはまだ読み込まれていません。r で再
 
 全体ナビゲーション
 1 Tail       イベントのライブ表示
-2 セッション セッション・失敗・コマンド・メモリ・状態の一覧
+2 セッション セッション・失敗・コマンド・状態の一覧
 3 メモリ     メモリ候補の確認キュー
 4 設定       言語・表示既定・redaction 診断
 ← / → でタブ移動。tab / shift+tab も利用可能

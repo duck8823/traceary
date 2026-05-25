@@ -159,7 +159,7 @@ Traceary ships complementary inspection views so you can switch between "what's 
 
 | When | Command | Use it to |
 |---|---|---|
-| Starting from one operator cockpit | `traceary` (`traceary tui` explicitly) | notice new events / memory candidates and jump into live tail, doctor details, or memory review |
+| Starting from one operator cockpit | `traceary` (`traceary tui` explicitly) | follow live tail, session health, and jump into doctor details or memory review |
 | Watching the workspace dashboard | `traceary top` | browse active sessions, recent failures / commands, memory candidates, and stale memories in one TUI |
 | Following what is happening now | `traceary tail` | confirm hooks are firing, watch failures in real time |
 | Understanding what happened across a span | `traceary timeline` | see gap-separated work blocks with a per-workspace activity summary |
@@ -172,7 +172,7 @@ Traceary ships complementary inspection views so you can switch between "what's 
 traceary tui
 ```
 
-`traceary` opens the Tail-first operator cockpit in an interactive terminal. `traceary tui` remains the explicit compatibility entrypoint for the same cockpit: a TTY-only surface for new events, memory candidates, doctor warnings, and recent failures, with jumps into live tail, doctor details, and memory review. In non-interactive shells, bare `traceary` prints deterministic help/fallback guidance so scripts should continue calling explicit commands such as `traceary list`, `traceary top --snapshot [--json]`, and `traceary doctor --json`.
+`traceary` opens the Tail-first operator cockpit in an interactive terminal. `traceary tui` remains the explicit compatibility entrypoint for the same cockpit: a TTY-only surface for live tail, session health, doctor warnings, and recent failures, with a dedicated Memory tab for candidate review. The cockpit Sessions tab intentionally stays session-centric (sessions, failures, commands, and health); memory candidate and stale-memory review belong in the Memory tab. In non-interactive shells, bare `traceary` prints deterministic help/fallback guidance so scripts should continue calling explicit commands such as `traceary list`, `traceary sessions --snapshot [--json]`, `traceary top --snapshot [--json]`, and `traceary doctor --json`.
 
 ### `traceary top`
 
@@ -180,7 +180,7 @@ traceary tui
 traceary top
 ```
 
-`top` opens a five-pane Bubble Tea dashboard for active sessions, recent failures, recent commands, memory candidates, and stale memories. Use `tab` / `shift+tab` to move between panes, `/` to filter the focused pane incrementally, and Enter to drill into the highlighted session, event, or memory detail. In non-TTY shells, `traceary top --snapshot` and `traceary top --snapshot --json` expose the same data for scripts, including the `stale_memories` envelope key.
+`top` remains the compatibility alias for the standalone Sessions dashboard. It opens a five-pane Bubble Tea dashboard for active sessions, recent failures, recent commands, memory candidates, and stale memories; those memory panes remain here and in `traceary sessions --snapshot [--json]` / `traceary top --snapshot [--json]` for compatibility while the cockpit Sessions tab is narrower. Use `tab` / `shift+tab` to move between panes, `/` to filter the focused pane incrementally, and Enter to drill into the highlighted session, event, or memory detail. In non-TTY shells, `traceary top --snapshot` and `traceary top --snapshot --json` expose the same data for scripts, including the `stale_memories` envelope key.
 
 ### `traceary tail`
 

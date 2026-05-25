@@ -206,18 +206,7 @@ func (c *RootCLI) loadCockpitHome(ctx context.Context, opts cockpitCommandOption
 		home.MemoryLastSeenAt = memoryLastSeenAt
 		home.NewCandidateMemoryKnown = true
 	}
-	criteria := topDataCriteria{
-		SessionLimit:       defaultTopLimit,
-		FailureLimit:       topPaneFailureLimit,
-		RecentCommandLimit: topPaneRecentCommandLimit,
-		CandidateLimit:     topPaneCandidateLimit,
-		StaleMemoryLimit:   topPaneStaleMemoryLimit,
-		StaleAfter:         defaultActiveSessionStaleAfter,
-		Now:                loadedAt,
-	}
-	if home.NewCandidateMemoryKnown {
-		criteria.MemoryLastSeenAt = domtypes.Some(home.MemoryLastSeenAt)
-	}
+	criteria := cockpitSessionsDataCriteriaAt(loadedAt)
 	if eventLastSeen, eventLastSeenKnown, err := c.loadCockpitEventLastSeen(ctx); err == nil && eventLastSeenKnown {
 		home.EventLastSeenAt = eventLastSeen.at
 		home.NewEventCount, home.NewEventScanLimited, home.NewEventKnown = c.countCockpitNewEvents(ctx, eventLastSeen)
@@ -227,19 +216,24 @@ func (c *RootCLI) loadCockpitHome(ctx context.Context, opts cockpitCommandOption
 		return cockpitHomeSnapshot{}, err
 	}
 	home.StaleActiveSessionCount = snap.Reliability.StaleActiveSessionCount
-	home.AcceptedMemoryCount = snap.Reliability.AcceptedMemoryCount
-	home.CandidateMemoryCount = snap.Reliability.CandidateMemoryCount
-	home.NewCandidateMemoryCount = snap.Reliability.NewCandidateCount
-	home.NewCandidateMemoryKnown = snap.Reliability.NewCandidateKnown
-	home.RememberIntentCount = snap.Reliability.RememberIntentCount
-	home.LowQualityMemoryCount = snap.Reliability.LowQualityCount
-	home.MemoryScanLimited = snap.Reliability.MemoryScanLimited
-	home.StaleMemoryCount = snap.StaleMemories.Count()
 	home.RecentFailureCount = len(snap.Failures)
 	home.RecentCommandCount = len(snap.RecentCommands)
 	home.LargePayloadCount = snap.Reliability.LargePayloads.Count
 
 	return home, nil
+}
+
+func cockpitSessionsDataCriteriaAt(now time.Time) topDataCriteria {
+	return topDataCriteria{
+		SessionLimit:          defaultTopLimit,
+		FailureLimit:          topPaneFailureLimit,
+		RecentCommandLimit:    topPaneRecentCommandLimit,
+		CandidateLimit:        0,
+		StaleMemoryLimit:      0,
+		StaleAfter:            defaultActiveSessionStaleAfter,
+		Now:                   now,
+		SkipMemoryReliability: true,
+	}
 }
 
 // CockpitStateReader provides optional local cockpit state. Missing or failing
@@ -1467,19 +1461,7 @@ func (m cockpitModel) fetchCockpitTopCmd(seq uint64) tea.Cmd {
 }
 
 func (m cockpitModel) cockpitTopCriteriaAt(now time.Time) topDataCriteria {
-	criteria := topDataCriteria{
-		SessionLimit:       defaultTopLimit,
-		FailureLimit:       topPaneFailureLimit,
-		RecentCommandLimit: topPaneRecentCommandLimit,
-		CandidateLimit:     topPaneCandidateLimit,
-		StaleMemoryLimit:   topPaneStaleMemoryLimit,
-		StaleAfter:         defaultActiveSessionStaleAfter,
-		Now:                now,
-	}
-	if m.home.NewCandidateMemoryKnown {
-		criteria.MemoryLastSeenAt = domtypes.Some(m.home.MemoryLastSeenAt)
-	}
-	return criteria
+	return cockpitSessionsDataCriteriaAt(now)
 }
 
 func (m *cockpitModel) startCockpitDoctorLoad() tea.Cmd {
@@ -2283,15 +2265,6 @@ func (m cockpitModel) topSignals() []cockpitTopSignal {
 			actionLabel: Localize("open Doctor checks", "Doctor check を開く"),
 		})
 	}
-	if home.CandidateMemoryCount > 0 || home.NewCandidateMemoryCount > 0 || home.RememberIntentCount > 0 || home.LowQualityMemoryCount > 0 {
-		signals = append(signals, cockpitTopSignal{
-			severity:    cockpitSignalWarning,
-			label:       Localize("Memory review queue needs attention", "メモリ候補の確認が必要"),
-			description: Localizef("candidate=%d new=%s remember-intent=%d low-quality=%d", "candidate=%d new=%s remember-intent=%d low-quality=%d", home.CandidateMemoryCount, formatCockpitNewCandidateCount(home), home.RememberIntentCount, home.LowQualityMemoryCount),
-			actionKey:   "3",
-			actionLabel: Localize("open Memory review", "メモリ確認を開く"),
-		})
-	}
 	if home.RecentFailureCount > 0 {
 		signals = append(signals, cockpitTopSignal{
 			severity:    cockpitSignalWarning,
@@ -2370,21 +2343,21 @@ func (m cockpitModel) topTabView() string {
 	if m.cockpitTopDetailOpen() {
 		return m.cockpitTopDetailView()
 	}
-	memoryScanSuffix := ""
-	if m.home.MemoryScanLimited {
-		memoryScanSuffix = " scan_limited=true"
-	}
 	eventScanSuffix := ""
 	if m.home.NewEventScanLimited {
 		eventScanSuffix = " scan_limited=true"
 	}
 	// Keep metric identifiers in English for copy/paste parity with CLI output, docs, and issue search.
+	// The cockpit Sessions tab is intentionally session-focused; memory candidate
+	// and stale memory surfaces belong to the Memory tab (cockpit section 3).
+	// `traceary sessions --snapshot [--json]` and the compatibility
+	// `traceary top --snapshot [--json]` keep their full memory sections for
+	// script consumers and are unaffected by this view.
 	lines := []string{
 		m.styles.Subtle.Render(fmt.Sprintf("loaded=%s db=%s", formatJSONTime(m.home.LoadedAt), formatOptionalColumn(m.home.DBPath))),
 		"",
 		m.styles.Subtle.Render(Localize("Sessions summary", "Sessions 概要")),
 		Localizef("• sessions: stale_active=%d recent_failures=%d recent_commands=%d new_events=%s%s", "• セッション: stale_active=%d recent_failures=%d recent_commands=%d new_events=%s%s", m.home.StaleActiveSessionCount, m.home.RecentFailureCount, m.home.RecentCommandCount, formatCockpitNewEventCount(m.home), eventScanSuffix),
-		Localizef("• memories: accepted(reviewed)=%d candidate(inbox)=%d new=%s remember-intent=%d low-quality=%d stale=%d%s", "• メモリ: accepted(reviewed)=%d candidate(inbox)=%d new=%s remember-intent=%d low-quality=%d stale=%d%s", m.home.AcceptedMemoryCount, m.home.CandidateMemoryCount, formatCockpitNewCandidateCount(m.home), m.home.RememberIntentCount, m.home.LowQualityMemoryCount, m.home.StaleMemoryCount, memoryScanSuffix),
 		Localizef("• doctor: pass=%d warn=%d fail=%d", "• doctor: pass=%d warn=%d fail=%d", m.home.DoctorPassCount, m.home.DoctorWarnCount, m.home.DoctorFailCount),
 		Localizef("• hooks/mcp: warn=%d fail=%d", "• hooks/mcp: warn=%d fail=%d", m.home.HookWarnCount, m.home.HookFailCount),
 		Localizef("• payloads: large=%d", "• payloads: large=%d", m.home.LargePayloadCount),
@@ -2405,21 +2378,6 @@ func (m cockpitModel) topTabView() string {
 		lines = append(lines, Localizef("• no unseen events since %s", "• %s 以降の未確認イベントはありません", formatCockpitCheckpoint(m.home.EventLastSeenAt)))
 	default:
 		lines = append(lines, Localize("• new events=untracked until cockpit state is initialized", "• cockpit state 初期化まで新着イベントは未追跡"))
-	}
-	switch {
-	case m.home.NewCandidateMemoryKnown && m.home.NewCandidateMemoryCount > 0:
-		lines = append(lines, Localizef("• new memory candidates=%d", "• 新着メモリ候補=%d", m.home.NewCandidateMemoryCount))
-	case m.home.NewCandidateMemoryKnown:
-		lines = append(lines, Localizef("• no unseen candidates since %s", "• %s 以降の未確認メモリ候補はありません", formatCockpitCheckpoint(m.home.MemoryLastSeenAt)))
-	default:
-		lines = append(lines, Localize("• memory candidate new count=untracked", "• メモリ候補の新着数=未追跡"))
-	}
-	lines = append(lines, Localizef("• memory candidates=%d", "• メモリ候補=%d", m.home.CandidateMemoryCount))
-	if m.home.RememberIntentCount > 0 {
-		lines = append(lines, Localizef("• remember-intent candidates=%d", "• remember-intent メモリ候補=%d", m.home.RememberIntentCount))
-	}
-	if m.home.LowQualityMemoryCount > 0 {
-		lines = append(lines, Localizef("• low-quality candidates=%d", "• 低品質メモリ候補=%d", m.home.LowQualityMemoryCount))
 	}
 	if m.home.RecentFailureCount > 0 {
 		lines = append(lines, Localizef("• recent failures=%d", "• 最近の失敗=%d", m.home.RecentFailureCount))
@@ -2505,7 +2463,7 @@ func (m cockpitModel) cockpitTopRows() []cockpitTopRow {
 func buildCockpitTopRows(snapshot topDataSnapshot, criteria topDataCriteria, loadedAt time.Time, width int, styles tui.Styles) []cockpitTopRow {
 	renderer := newCockpitTopRowRenderer(snapshot, criteria, loadedAt, width, styles)
 	rows := make([]cockpitTopRow, 0)
-	for _, pane := range []topPane{topPaneSessions, topPaneFailures, topPaneRecentCommands, topPaneCandidates, topPaneStaleMemories} {
+	for _, pane := range cockpitSessionsPanes() {
 		rows = append(rows, cockpitTopRow{
 			line:   styles.Subtle.Render(cockpitTopSectionLabel(pane, snapshot)),
 			pane:   pane,
@@ -2521,6 +2479,15 @@ func buildCockpitTopRows(snapshot topDataSnapshot, criteria topDataCriteria, loa
 		}
 	}
 	return rows
+}
+
+// cockpitSessionsPanes intentionally keeps the cockpit Sessions tab
+// session-centric. Memory candidates / stale memories surface through the
+// dedicated Memory tab. Script-facing snapshots are written by
+// writeTopSnapshotText/writeTopSnapshotJSON and keep their public memory
+// sections for compatibility.
+func cockpitSessionsPanes() []topPane {
+	return []topPane{topPaneSessions, topPaneFailures, topPaneRecentCommands}
 }
 
 func newCockpitTopRowRenderer(snapshot topDataSnapshot, criteria topDataCriteria, loadedAt time.Time, width int, styles tui.Styles) topModel {
