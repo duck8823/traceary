@@ -548,6 +548,87 @@ func TestCockpitModelTopTab_IgnoresStaleDetailAfterLeavingTop(t *testing.T) {
 	}
 }
 
+func TestCockpitTopStickyHeaderLine_BreadcrumbsScrolledSection(t *testing.T) {
+	t.Parallel()
+	rows := []cockpitTopRow{
+		{line: "SESSIONS (3)", pane: topPaneSessions, header: true},
+		{line: "ws-1 ...", pane: topPaneSessions, selectable: true},
+		{line: "ws-2 ...", pane: topPaneSessions, selectable: true},
+		{line: "ws-3 ...", pane: topPaneSessions, selectable: true},
+		{line: "RECENT FAILURES (2)", pane: topPaneFailures, header: true},
+		{line: "fail-1 ...", pane: topPaneFailures, selectable: true},
+		{line: "fail-2 ...", pane: topPaneFailures, selectable: true},
+	}
+	root := sessionSummaryFixture("ws-1", "", fixedStartedAt, "active", domtypes.EventKindNote, "")
+	mid := sessionSummaryFixture("ws-2", "", fixedStartedAt.Add(time.Minute), "active", domtypes.EventKindNote, "")
+	tail := sessionSummaryFixture("ws-3", "", fixedStartedAt.Add(2*time.Minute), "active", domtypes.EventKindNote, "")
+	snapshot := topDataSnapshot{
+		Sessions: buildActiveSessionTreeWithOptions(
+			[]apptypes.SessionSummary{root, mid, tail},
+			false, defaultActiveSessionStaleAfter, fixedStartedAt.Add(time.Hour),
+		),
+	}
+
+	if got := cockpitTopStickyHeaderLine(rows, 0, snapshot); got != "" {
+		t.Fatalf("offset=0 sticky = %q, want empty", got)
+	}
+	if got := cockpitTopStickyHeaderLine(rows, 4, snapshot); got != "" {
+		t.Fatalf("offset at FAILURES header sticky = %q, want empty (header visible)", got)
+	}
+	if got, want := cockpitTopStickyHeaderLine(rows, 2, snapshot), "↑ SESSIONS (3) · row 2/3"; got != want {
+		t.Fatalf("offset within SESSIONS sticky = %q, want %q", got, want)
+	}
+	if got, want := cockpitTopStickyHeaderLine(rows, 6, snapshot), "↑ RECENT FAILURES (0) · row 2/2"; got != want {
+		t.Fatalf("offset within FAILURES sticky = %q, want %q", got, want)
+	}
+}
+
+func TestCockpitModelTopTab_StickyHeaderSurfacesPaneWhenScrolled(t *testing.T) {
+	t.Parallel()
+
+	const sessionCount = 50
+	summaries := make([]apptypes.SessionSummary, 0, sessionCount)
+	for i := 0; i < sessionCount; i++ {
+		summaries = append(summaries, sessionSummaryFixture(
+			fmt.Sprintf("sess-%02d", i),
+			"",
+			fixedStartedAt.Add(time.Duration(i)*time.Minute),
+			"active",
+			domtypes.EventKindNote,
+			fmt.Sprintf("row %d", i),
+		))
+	}
+	now := fixedStartedAt.Add(time.Hour)
+	snapshot := topDataSnapshot{
+		Sessions: buildActiveSessionTreeWithOptions(summaries, false, defaultActiveSessionStaleAfter, now),
+		Now:      now,
+	}
+
+	cockpit := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	cockpit.mode = cockpitModeTop
+	cockpit.top.loaded = true
+	cockpit.top.snapshot = snapshot
+	cockpit.top.criteria = topDataCriteria{Now: now, SessionLimit: defaultTopLimit}
+	cockpit.top.loadedAt = now
+	updated, _ := cockpit.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	cockpit = updated.(cockpitModel)
+
+	initial := cockpit.View()
+	if strings.Contains(initial, "↑ SESSIONS") {
+		t.Fatalf("unscrolled view should not include sticky cue:\n%s", initial)
+	}
+	if !strings.Contains(initial, "SESSIONS (50)") {
+		t.Fatalf("unscrolled view should still surface SESSIONS (50) header:\n%s", initial)
+	}
+
+	cockpit.top.offset = 20
+	cockpit.top.selected = 21
+	scrolled := cockpit.View()
+	if !strings.Contains(scrolled, "↑ SESSIONS (50) · row 20/50") {
+		t.Fatalf("scrolled view missing sticky breadcrumb:\n%s", scrolled)
+	}
+}
+
 func TestCockpitModel_InitLoadsTailEvenWhenTopSummaryFails(t *testing.T) {
 	t.Parallel()
 
