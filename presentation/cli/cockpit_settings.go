@@ -313,6 +313,9 @@ func (m cockpitModel) updateSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if section, ok := cockpitSectionFromKey(msg); ok {
 		return m.openCockpitSection(section)
 	}
+	if section, ok := m.cockpitAdjacentSectionFromKey(msg); ok {
+		return m.openCockpitSection(section)
+	}
 	switch {
 	case key.Matches(msg, m.keys.Up):
 		m.settings.cursor--
@@ -322,17 +325,10 @@ func (m cockpitModel) updateSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.settings.cursor++
 		m.clampSettingsCursor()
 		return m, nil
-	case msg.Type == tea.KeyLeft:
-		return m.adjustSelectedSettingsRow(-1)
-	case msg.Type == tea.KeyRight:
-		return m.adjustSelectedSettingsRow(1)
 	case key.Matches(msg, m.keys.Select):
 		return m.activateSelectedSettingsRow()
 	case key.Matches(msg, m.keys.Refresh):
 		return m.reloadSettings()
-	}
-	if section, ok := m.cockpitAdjacentSectionFromKey(msg); ok {
-		return m.openCockpitSection(section)
 	}
 	if msg.Type != tea.KeyRunes || len(msg.Runes) == 0 {
 		return m, nil
@@ -420,19 +416,6 @@ func (m cockpitModel) updateSettingsConfirmKey(msg tea.KeyMsg) (tea.Model, tea.C
 		return m, nil
 	}
 	return m, nil
-}
-
-func (m cockpitModel) adjustSelectedSettingsRow(delta int) (tea.Model, tea.Cmd) {
-	switch m.settings.cursor {
-	case cockpitSettingsRowLanguage:
-		return m.stageSettingsLanguageCycle(delta)
-	case cockpitSettingsRowReadColor:
-		return m.stageSettingsColorCycleBy(delta)
-	case cockpitSettingsRowReadFields:
-		return m.stageSettingsFieldsCycleBy(delta)
-	default:
-		return m, nil
-	}
 }
 
 func (m cockpitModel) activateSelectedSettingsRow() (tea.Model, tea.Cmd) {
@@ -805,7 +788,7 @@ func (m cockpitModel) settingsLocalHelp() string {
 	if m.settings.confirmSave {
 		return Localize("y save · n/esc cancel", "y 保存 · n/esc キャンセル")
 	}
-	return Localize("↑/↓ select · ←/→ change value rows · enter action · tab/shift+tab tabs · w save · d discard · r reload", "↑/↓ 選択 · ←/→ 値 row を変更 · enter 実行 · tab/shift+tab タブ · w 保存 · d 破棄 · r 再読込")
+	return Localize("↑/↓ select · enter action/change · ←/→ or tab tabs · w save · d discard · r reload", "↑/↓ 選択 · enter 実行/変更 · ←/→ または tab でタブ · w 保存 · d 破棄 · r 再読込")
 }
 
 func (m cockpitModel) settingsContextualActions() []cockpitAction {
@@ -823,9 +806,9 @@ func (m cockpitModel) settingsContextualActions() []cockpitAction {
 	}
 	return []cockpitAction{
 		{key: "↑/↓", description: Localize("Select a settings row", "settings row を選択")},
-		{key: "←/→", description: Localize("Change ui.language, read.color, or read.fields when those rows are selected", "ui.language / read.color / read.fields の row 選択時に値を変更")},
+		{key: "enter", description: Localize("Run the selected settings action or stage the selected value change", "選択中の settings action を実行、または選択中の値変更を staged")},
+		{key: "←/→", description: Localize("Move between cockpit tabs without changing settings values", "settings 値を変更せず cockpit タブ間を移動")},
 		{key: "tab / shift+tab", description: Localize("Move between cockpit tabs while editing settings", "settings 編集中に cockpit タブ間を移動")},
-		{key: "enter", description: Localize("Run the selected settings action", "選択中の settings action を実行")},
 		{key: "w", description: Localize("Review diff and confirm before writing config", "diff を確認してから config 書き込み")},
 		{key: "d", description: Localize("Discard pending settings changes", "未保存の settings 変更を破棄")},
 		{key: "r", description: Localize("Reload settings from config file", "config file から settings を再読込")},
