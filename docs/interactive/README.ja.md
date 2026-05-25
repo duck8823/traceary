@@ -22,7 +22,7 @@
 
 ### 1. 「まず1か所から始めたい」 → `traceary`
 
-対話 terminal で Traceary の Tail-first operator cockpit を開きたいときは bare `traceary` を使います。`traceary tui` は同じ cockpit を明示的に開く互換 entrypoint として残ります。cockpit は active work、doctor の warning/failure、直近の失敗、前回 live tail 以降の新着 event、前回 memory review 以降のメモリ候補をまとめて表示します。そこから次の画面へ移動できます。
+対話 terminal で Traceary の Tail-first operator cockpit を開きたいときは bare `traceary` を使います。`traceary tui` は同じ cockpit を明示的に開く互換 entrypoint として残ります。cockpit は active work、doctor の warning/failure、直近の失敗、前回 live tail 以降の新着 event をまとめて表示します。Sessions タブは session 中心 (session、失敗、コマンド、状態) に保ち、メモリ候補や stale memory cleanup は専用の Memory タブに置きます。そこから次の画面へ移動できます。
 
 - live event tail
 - doctor details
@@ -62,7 +62,7 @@ traceary top --snapshot
 traceary top --snapshot --json
 ```
 
-dashboard 内では `tab` / `shift+tab` でフォーカスペインを切り替え、`↑/↓` (`k/j`) で 1 行ずつスクロール、`pgup/pgdn` でページング、`g/G` で先頭 / 末尾、`r` で snapshot 再取得、`?` でヘルプ切替、`q` / Ctrl-C / Esc は共通の安全網を経由して終了します。非 TTY (パイプ / CI ログ) では自動的に snapshot text 出力にフォールバックします。`--snapshot` / `--snapshot --json` も dashboard の 5 ペインに合わせて拡張されており、テキスト出力は `ACTIVE SESSIONS` / `RECENT FAILURES` / `RECENT COMMANDS` / `CANDIDATE MEMORIES (count=N)` / `STALE MEMORIES (count=N)` のセクション、JSON 出力は `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, items }`) / `stale_memories` (`{ count, items }`) を持つ envelope オブジェクトを返します。
+dashboard 内では `tab` / `shift+tab` でフォーカスペインを切り替え、`↑/↓` (`k/j`) で 1 行ずつスクロール、`pgup/pgdn` でページング、`g/G` で先頭 / 末尾、`r` で snapshot 再取得、`?` でヘルプ切替、`q` / Ctrl-C / Esc は共通の安全網を経由して終了します。この standalone dashboard と非 TTY snapshot は、cockpit の Sessions タブを session-only にした後も互換性のため memory pane を維持します。非 TTY (パイプ / CI ログ) では自動的に snapshot text 出力にフォールバックします。`--snapshot` / `--snapshot --json` も dashboard の 5 ペインに合わせて拡張されており、テキスト出力は `ACTIVE SESSIONS` / `RECENT FAILURES` / `RECENT COMMANDS` / `CANDIDATE MEMORIES (count=N)` / `STALE MEMORIES (count=N)` のセクション、JSON 出力は `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, items }`) / `stale_memories` (`{ count, items }`) を持つ envelope オブジェクトを返します。
 
 ### 4. 「今まさに書き込まれているか」を追いたい → `traceary tail`
 

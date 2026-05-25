@@ -75,9 +75,9 @@ Session resolution follows the same rules as `traceary log`.
 
 Open the Traceary operator cockpit TUI.
 
-Use bare `traceary` in an interactive terminal when you want one terminal surface for the operator loop instead of remembering individual subcommands. `traceary tui` remains the explicit compatibility entrypoint for the same cockpit. The cockpit opens Tail-first and summarizes active work, recent failures, doctor status, new events since the last live-tail visit, and memory candidates queued since the last memory review. From the cockpit you can jump into live tail, doctor details, and memory inbox review.
+Use bare `traceary` in an interactive terminal when you want one terminal surface for the operator loop instead of remembering individual subcommands. `traceary tui` remains the explicit compatibility entrypoint for the same cockpit. The cockpit opens Tail-first and summarizes active work, recent failures, doctor status, and new events since the last live-tail visit. The Sessions tab stays session-centric (sessions, failures, commands, and health); memory candidates and stale-memory cleanup belong in the dedicated Memory tab. From the cockpit you can jump into live tail, doctor details, and memory inbox review.
 
-`traceary tui` requires an interactive terminal. Non-TTY callers receive a refusal with exit code `2` and guidance to use the script-friendly commands instead (`list`, `top --snapshot [--json]`, `doctor --json`, `session handoff`, and `memory inbox list`). Bare non-TTY `traceary` prints help plus fallback guidance rather than starting the cockpit.
+`traceary tui` requires an interactive terminal. Non-TTY callers receive a refusal with exit code `2` and guidance to use the script-friendly commands instead (`list`, `sessions --snapshot [--json]`, `top --snapshot [--json]`, `doctor --json`, `session handoff`, and `memory inbox list`). Bare non-TTY `traceary` prints help plus fallback guidance rather than starting the cockpit.
 
 Useful flags:
 

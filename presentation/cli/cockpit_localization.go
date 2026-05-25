@@ -27,8 +27,8 @@ var cockpitNavigationSections = [...]cockpitNavigationSection{
 		key:                 "2",
 		englishLabel:        "Sessions",
 		japaneseLabel:       "セッション",
-		englishDescription:  "session dashboard for failures, commands, memory, and health",
-		japaneseDescription: "セッション・失敗・コマンド・メモリ・状態の一覧",
+		englishDescription:  "session dashboard for sessions, failures, commands, and health",
+		japaneseDescription: "セッション・失敗・コマンド・状態の一覧",
 	},
 	{
 		id:                  cockpitSectionMemory,

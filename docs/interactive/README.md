@@ -22,7 +22,7 @@ Use the commands below according to the question you are trying to answer.
 
 ### 1. "I want one place to start" → `traceary`
 
-Use bare `traceary` when you are at an interactive terminal and want Traceary to show the Tail-first operator cockpit first. `traceary tui` remains the explicit compatibility entrypoint for the same cockpit. The cockpit summarizes active work, doctor warnings/failures, recent failures, new events since the last live-tail visit, and memory candidates queued since the last memory review. From there you can jump into:
+Use bare `traceary` when you are at an interactive terminal and want Traceary to show the Tail-first operator cockpit first. `traceary tui` remains the explicit compatibility entrypoint for the same cockpit. The cockpit summarizes active work, doctor warnings/failures, recent failures, and new events since the last live-tail visit. The Sessions tab stays session-centric (sessions, failures, commands, and health); memory candidates and stale-memory cleanup belong in the dedicated Memory tab. From there you can jump into:
 
 - live event tail
 - doctor details
@@ -62,7 +62,7 @@ traceary top --snapshot
 traceary top --snapshot --json
 ```
 
-Inside the dashboard `tab` / `shift+tab` cycle the focused pane, `↑/↓` (or `k/j`) scroll it by one row, `pgup/pgdn` page through it, `g/G` jump to the top/bottom, `r` forces a refresh, `?` toggles help, and `q` / Ctrl-C / Esc quit cleanly. Non-TTY callers (pipes, CI logs) fall back to the snapshot text writer automatically. `--snapshot` and `--snapshot --json` mirror the five panes for scripts: the text snapshot prints `ACTIVE SESSIONS`, `RECENT FAILURES`, `RECENT COMMANDS`, `CANDIDATE MEMORIES (count=N)`, and `STALE MEMORIES (count=N)` sections; the JSON snapshot is wrapped in an envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, items }`), and `stale_memories` (`{ count, items }`) keys.
+Inside the dashboard `tab` / `shift+tab` cycle the focused pane, `↑/↓` (or `k/j`) scroll it by one row, `pgup/pgdn` page through it, `g/G` jump to the top/bottom, `r` forces a refresh, `?` toggles help, and `q` / Ctrl-C / Esc quit cleanly. This standalone dashboard and its non-TTY snapshots intentionally keep the memory panes for compatibility even though the cockpit Sessions tab is session-only. Non-TTY callers (pipes, CI logs) fall back to the snapshot text writer automatically. `--snapshot` and `--snapshot --json` mirror the five panes for scripts: the text snapshot prints `ACTIVE SESSIONS`, `RECENT FAILURES`, `RECENT COMMANDS`, `CANDIDATE MEMORIES (count=N)`, and `STALE MEMORIES (count=N)` sections; the JSON snapshot is wrapped in an envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, items }`), and `stale_memories` (`{ count, items }`) keys.
 
 ### 4. "Is the system writing events right now?" → `traceary tail`
 
