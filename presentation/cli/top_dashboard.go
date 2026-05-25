@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mattn/go-runewidth"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	domtypes "github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli/tui"
@@ -29,6 +31,12 @@ const (
 	topPaneRecentCommandLimit = 50
 	topPaneCandidateLimit     = 25
 	topPaneStaleMemoryLimit   = topPaneCandidateLimit
+)
+
+const (
+	dashboardSessionStatusActive = "active"
+	dashboardSessionStatusStale  = "stale"
+	dashboardSessionStatusEnded  = "ended"
 )
 
 // topPane enumerates the focusable panes on the dashboard.
@@ -702,7 +710,7 @@ func (m topModel) sessionRows(width int) []topPaneRow {
 	}
 	now := m.now()
 	out := make([]topPaneRow, 0)
-	for _, root := range m.snapshot.Sessions {
+	for _, root := range dashboardSessionRoots(m.snapshot.Sessions) {
 		out = appendSessionRows(out, root, "", true, false, m.idle, now, m.location, width)
 	}
 	return out
@@ -717,7 +725,7 @@ func appendSessionRows(out []topPaneRow, node *sessionNode, prefix string, isLas
 		connector = ""
 	}
 	linePrefix := prefix + connector
-	line := formatTopNodeLineIn(node, linePrefix, idle, now, loc)
+	line := formatTopDashboardNodeLineIn(node, linePrefix, idle, now, loc, width)
 	summary := node.summary
 	out = append(out, topPaneRow{
 		line: truncateToWidth(line, width),
@@ -739,6 +747,178 @@ func appendSessionRows(out []topPaneRow, node *sessionNode, prefix string, isLas
 		out = appendSessionRows(out, child, childPrefix, i == len(node.children)-1, true, idle, now, loc, width)
 	}
 	return out
+}
+
+func dashboardSessionRoots(roots []*sessionNode) []*sessionNode {
+	if len(roots) == 0 {
+		return nil
+	}
+	cloned := make([]*sessionNode, 0, len(roots))
+	for _, root := range roots {
+		if root == nil {
+			continue
+		}
+		cloned = append(cloned, cloneDashboardSessionNode(root))
+	}
+	sortDashboardSessionNodes(cloned)
+	return cloned
+}
+
+func cloneDashboardSessionNode(node *sessionNode) *sessionNode {
+	if node == nil {
+		return nil
+	}
+	cloned := &sessionNode{summary: node.summary}
+	if len(node.children) > 0 {
+		cloned.children = make([]*sessionNode, 0, len(node.children))
+		for _, child := range node.children {
+			if child == nil {
+				continue
+			}
+			cloned.children = append(cloned.children, cloneDashboardSessionNode(child))
+		}
+	}
+	return cloned
+}
+
+func sortDashboardSessionNodes(nodes []*sessionNode) {
+	priorities := make(map[*sessionNode]dashboardSessionPriority, len(nodes))
+	for _, node := range nodes {
+		dashboardSessionPriorityFor(node, priorities)
+	}
+	sortDashboardSessionNodesWithPriorities(nodes, priorities)
+}
+
+func sortDashboardSessionNodesWithPriorities(nodes []*sessionNode, priorities map[*sessionNode]dashboardSessionPriority) {
+	sort.SliceStable(nodes, func(i, j int) bool {
+		return dashboardSessionNodeLess(nodes[i], nodes[j], priorities)
+	})
+	for _, node := range nodes {
+		sortDashboardSessionNodesWithPriorities(node.children, priorities)
+	}
+}
+
+type dashboardSessionPriority struct {
+	statusRank int
+	latest     time.Time
+}
+
+func dashboardSessionPriorityFor(node *sessionNode, priorities map[*sessionNode]dashboardSessionPriority) dashboardSessionPriority {
+	if node == nil {
+		return dashboardSessionPriority{}
+	}
+	if priority, ok := priorities[node]; ok {
+		return priority
+	}
+	priority := dashboardSessionPriority{
+		statusRank: dashboardStatusRank(node.summary.Status()),
+		latest:     node.summary.LatestEventAt(),
+	}
+	for _, child := range node.children {
+		childPriority := dashboardSessionPriorityFor(child, priorities)
+		priority.statusRank = max(priority.statusRank, childPriority.statusRank)
+		if childPriority.latest.After(priority.latest) {
+			priority.latest = childPriority.latest
+		}
+	}
+	priorities[node] = priority
+	return priority
+}
+
+func dashboardSessionNodeLess(left, right *sessionNode, priorities map[*sessionNode]dashboardSessionPriority) bool {
+	leftPriority := priorities[left]
+	rightPriority := priorities[right]
+	leftRank := leftPriority.statusRank
+	rightRank := rightPriority.statusRank
+	if leftRank != rightRank {
+		return leftRank > rightRank
+	}
+	leftLatest := leftPriority.latest
+	rightLatest := rightPriority.latest
+	if !leftLatest.Equal(rightLatest) {
+		return leftLatest.After(rightLatest)
+	}
+	return sessionNodeLess(left, right)
+}
+
+func dashboardStatusRank(status string) int {
+	switch status {
+	case dashboardSessionStatusActive:
+		return 3
+	case dashboardSessionStatusStale:
+		return 2
+	case dashboardSessionStatusEnded:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func formatTopDashboardNodeLineIn(node *sessionNode, prefix string, idle time.Duration, now time.Time, loc *time.Location, width int) string {
+	s := node.summary
+	latest := s.LatestEventAt()
+	idleFor := now.Sub(latest)
+	idleMarker := ""
+	if idle > 0 && idleFor >= idle {
+		idleMarker = " idle"
+	}
+	agent := extractSubagentType(s.Agents())
+	if agent == "" {
+		agent = "-"
+	}
+	client := s.Client().String()
+	if client == "" {
+		client = "-"
+	}
+	sessionID := s.SessionID().String()
+	if width > 0 && width < 120 {
+		sessionID = shortTopSessionID(sessionID)
+	}
+	displayName := formatTopDashboardSessionDisplayName(s)
+	latestText := "-"
+	if !latest.IsZero() {
+		latestText = latest.In(loc).Format("15:04")
+	}
+	return fmt.Sprintf("%s%s [%s] %s latest=%s ws=%s via=%s/%s last=%s%s",
+		prefix,
+		displayName,
+		sessionID,
+		normalizeTabularColumn(s.Status()),
+		latestText,
+		compactWorkspace(s.Workspace().String()),
+		client,
+		agent,
+		formatTopLatestEvent(s),
+		idleMarker,
+	)
+}
+
+func formatTopDashboardSessionDisplayName(s apptypes.SessionSummary) string {
+	for _, candidate := range []string{s.Label(), s.Summary()} {
+		if name := truncateTopDashboardDisplayName(candidate); name != "" {
+			return name
+		}
+	}
+
+	workspace := compactWorkspace(s.Workspace().String())
+	agent := extractSubagentType(s.Agents())
+	if agent == "" {
+		agent = strings.TrimSpace(s.SubagentKind())
+	}
+	switch {
+	case workspace != "-" && agent != "":
+		return truncateTopDashboardDisplayName(workspace + " · " + agent)
+	case workspace != "-":
+		return truncateTopDashboardDisplayName(workspace)
+	case agent != "":
+		return truncateTopDashboardDisplayName(agent)
+	default:
+		return shortTopSessionID(s.SessionID().String())
+	}
+}
+
+func truncateTopDashboardDisplayName(value string) string {
+	return truncateToWidth(normalizeTabularColumn(value), 24)
 }
 
 // eventLines renders one row per event for the failures and recent-commands

@@ -3,11 +3,13 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mattn/go-runewidth"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
@@ -76,6 +78,30 @@ func dashboardSessionNode(id string, latest time.Time) *sessionNode {
 		"",
 		"",
 		domtypes.SessionID(""),
+		domtypes.Client("claude"),
+		latest,
+		apptypes.SessionSummaryLatestEventOf(domtypes.EventKindTranscript, "row "+id),
+	)
+	return &sessionNode{summary: summary}
+}
+
+func dashboardSessionNodeWith(id string, parent string, started time.Time, status string, label string, latest time.Time) *sessionNode {
+	endedAt := domtypes.None[time.Time]()
+	if status == "ended" {
+		endedAt = domtypes.Some(latest)
+	}
+	summary := apptypes.SessionSummaryOf(
+		domtypes.SessionID(id),
+		domtypes.Workspace("duck8823/traceary"),
+		started,
+		endedAt,
+		status,
+		3,
+		1,
+		[]string{"claude"},
+		label,
+		"",
+		domtypes.SessionID(parent),
 		domtypes.Client("claude"),
 		latest,
 		apptypes.SessionSummaryLatestEventOf(domtypes.EventKindTranscript, "row "+id),
@@ -254,6 +280,148 @@ func TestTopModel_InitialFetchPopulatesSnapshot(t *testing.T) {
 	}
 	if len(m.snapshot.Sessions) != 1 {
 		t.Fatalf("snapshot.Sessions length = %d, want 1", len(m.snapshot.Sessions))
+	}
+}
+
+func TestTopModelSessionRows_PrioritizesRecentActiveSessionsWithManySessions(t *testing.T) {
+	t.Parallel()
+
+	sessions := make([]*sessionNode, 0, 55)
+	for i := 0; i < 55; i++ {
+		id := fmt.Sprintf("session-%03d", i)
+		latest := fixedDashboardNow.Add(time.Duration(i-55) * time.Minute)
+		sessions = append(sessions, dashboardSessionNodeWith(id, "", latest.Add(-10*time.Minute), "active", fmt.Sprintf("work-%03d", i), latest))
+	}
+	m := newDashboardTestModel(t, &stubTopLoader{snapshot: topDataSnapshot{Sessions: sessions}})
+	m = applySnapshot(t, m)
+	m = resize(m, 80, 24)
+
+	rows := m.sessionRows(80)
+	if len(rows) != 55 {
+		t.Fatalf("sessionRows length = %d, want 55", len(rows))
+	}
+	if !strings.Contains(rows[0].line, "session-054") || !strings.Contains(rows[0].line, "work-054") {
+		t.Fatalf("first row should surface newest active session, got %q", rows[0].line)
+	}
+	if strings.Contains(rows[0].line, "session-000") {
+		t.Fatalf("oldest session dominated first row: %q", rows[0].line)
+	}
+	view := m.View()
+	if !strings.Contains(view, "session-054") {
+		t.Fatalf("80x24 view should show newest active session above the fold:\n%s", view)
+	}
+	if !strings.Contains(view, "1-3/55") {
+		t.Fatalf("80x24 view should keep session scroll orientation, got:\n%s", view)
+	}
+}
+
+func TestTopModelSessionRows_DoesNotMutateSnapshotOrder(t *testing.T) {
+	t.Parallel()
+
+	oldChild := dashboardSessionNodeWith("child-old", "root", fixedDashboardNow.Add(-80*time.Minute), "active", "old child", fixedDashboardNow.Add(-70*time.Minute))
+	recentChild := dashboardSessionNodeWith("child-recent", "root", fixedDashboardNow.Add(-30*time.Minute), "active", "recent child", fixedDashboardNow.Add(-time.Minute))
+	root := dashboardSessionNodeWith("root", "", fixedDashboardNow.Add(-2*time.Hour), "ended", "root", fixedDashboardNow.Add(-90*time.Minute))
+	root.children = []*sessionNode{oldChild, recentChild}
+	sessions := []*sessionNode{
+		dashboardSessionNodeWith("session-old", "", fixedDashboardNow.Add(-2*time.Hour), "active", "old root", fixedDashboardNow.Add(-90*time.Minute)),
+		dashboardSessionNodeWith("session-new", "", fixedDashboardNow.Add(-time.Hour), "active", "new root", fixedDashboardNow.Add(-30*time.Second)),
+		root,
+	}
+	m := newDashboardTestModel(t, &stubTopLoader{snapshot: topDataSnapshot{Sessions: sessions}})
+	m = applySnapshot(t, m)
+
+	rows := m.sessionRows(120)
+	if !strings.Contains(rows[0].line, "session-new") {
+		t.Fatalf("rendered rows should prioritize newest root, first row = %q", rows[0].line)
+	}
+	if got, want := m.snapshot.Sessions[0].summary.SessionID().String(), "session-old"; got != want {
+		t.Fatalf("snapshot root order mutated: first root = %q, want %q", got, want)
+	}
+	if got, want := root.children[0].summary.SessionID().String(), "child-old"; got != want {
+		t.Fatalf("snapshot child order mutated: first child = %q, want %q", got, want)
+	}
+}
+
+func TestTopModelSessionRows_KeepsIdentityFieldsAtNarrowWidth(t *testing.T) {
+	t.Parallel()
+
+	node := dashboardSessionNodeWith("session-id-abcdef123456", "", fixedDashboardNow.Add(-20*time.Minute), "active", "QA", fixedDashboardNow.Add(-time.Minute))
+	m := newDashboardTestModel(t, &stubTopLoader{snapshot: topDataSnapshot{Sessions: []*sessionNode{node}}})
+	m = applySnapshot(t, m)
+
+	rows := m.sessionRows(80)
+	if len(rows) != 1 {
+		t.Fatalf("sessionRows length = %d, want 1", len(rows))
+	}
+	line := rows[0].line
+	if got := runewidth.StringWidth(line); got > 80 {
+		t.Fatalf("row width = %d, want <= 80: %q", got, line)
+	}
+	for _, want := range []string{"QA", "[session-id-", "active", "latest=", "ws=traceary", "via=claude/claude"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("narrow session row missing %q: %q", want, line)
+		}
+	}
+}
+
+func TestTopModelSessionRows_PreservesNestedHierarchyAfterPrioritizingChildren(t *testing.T) {
+	t.Parallel()
+
+	root := dashboardSessionNodeWith("root", "", fixedDashboardNow.Add(-2*time.Hour), "ended", "root", fixedDashboardNow.Add(-90*time.Minute))
+	oldChild := dashboardSessionNodeWith("child-old", "root", fixedDashboardNow.Add(-80*time.Minute), "active", "old child", fixedDashboardNow.Add(-70*time.Minute))
+	recentChild := dashboardSessionNodeWith("child-recent", "root", fixedDashboardNow.Add(-30*time.Minute), "active", "recent child", fixedDashboardNow.Add(-time.Minute))
+	grandchild := dashboardSessionNodeWith("grandchild", "child-recent", fixedDashboardNow.Add(-20*time.Minute), "active", "grandchild", fixedDashboardNow.Add(-30*time.Second))
+	recentChild.children = []*sessionNode{grandchild}
+	root.children = []*sessionNode{oldChild, recentChild}
+
+	m := newDashboardTestModel(t, &stubTopLoader{snapshot: topDataSnapshot{Sessions: []*sessionNode{root}}})
+	m = applySnapshot(t, m)
+
+	rows := m.sessionRows(120)
+	if len(rows) != 4 {
+		t.Fatalf("sessionRows length = %d, want 4: %#v", len(rows), rows)
+	}
+	expectations := []struct {
+		index int
+		want  string
+	}{
+		{0, "root"},
+		{1, "├── recent child"},
+		{2, "│   └── grandchild"},
+		{3, "└── old child"},
+	}
+	for _, e := range expectations {
+		if !strings.Contains(rows[e.index].line, e.want) {
+			t.Fatalf("row[%d] = %q, want to contain %q", e.index, rows[e.index].line, e.want)
+		}
+	}
+}
+
+func TestTopModelSessionRows_LongListPageNavigationIsPredictable(t *testing.T) {
+	t.Parallel()
+
+	sessions := make([]*sessionNode, 0, 55)
+	for i := 0; i < 55; i++ {
+		id := fmt.Sprintf("session-%03d", i)
+		latest := fixedDashboardNow.Add(time.Duration(i-55) * time.Minute)
+		sessions = append(sessions, dashboardSessionNodeWith(id, "", latest.Add(-10*time.Minute), "active", fmt.Sprintf("work-%03d", i), latest))
+	}
+	m := newDashboardTestModel(t, &stubTopLoader{snapshot: topDataSnapshot{Sessions: sessions}})
+	m = applySnapshot(t, m)
+	m = resize(m, 80, 24)
+
+	viewport := m.paneContentViewportRows(topPaneSessions)
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyPgDown})
+	if got, want := m.offsets[topPaneSessions], viewport; got != want {
+		t.Fatalf("offset after PgDown = %d, want viewport %d", got, want)
+	}
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnd})
+	if got, want := m.offsets[topPaneSessions], len(sessions)-viewport; got != want {
+		t.Fatalf("offset after End = %d, want %d", got, want)
+	}
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyDown})
+	if got, want := m.offsets[topPaneSessions], len(sessions)-viewport; got != want {
+		t.Fatalf("offset after Down at bottom = %d, want clamp %d", got, want)
 	}
 }
 

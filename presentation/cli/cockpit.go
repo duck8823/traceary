@@ -2400,6 +2400,9 @@ func (m cockpitModel) cockpitTopDashboardLines() []string {
 		scroll = fmt.Sprintf(" rows=%d", len(rows))
 	}
 	lines = append(lines, m.styles.Subtle.Render(fmt.Sprintf("loaded=%s%s", formatJSONTime(m.top.loadedAt), scroll)))
+	if sticky := cockpitTopStickyHeaderLine(rows, start, m.top.snapshot); sticky != "" {
+		lines = append(lines, m.styles.Subtle.Render(sticky))
+	}
 	for i := start; i < end; i++ {
 		row := rows[i]
 		prefix := "  "
@@ -2486,6 +2489,49 @@ func cockpitTopSectionLabel(pane topPane, snapshot topDataSnapshot) string {
 	default:
 		return ""
 	}
+}
+
+// cockpitTopStickyHeaderLine returns a one-line sticky breadcrumb the
+// Sessions dashboard prepends to its visible window when the operator
+// has scrolled past the section header that owns the topmost visible
+// row. With many nested sessions on an 80x24 terminal the SESSIONS
+// pane easily exceeds the ~6-row viewport, so without a sticky cue the
+// operator loses track of which pane they are scrolled into and how
+// far down the section they are. Returns "" when no sticky is needed
+// (window already shows the section header).
+func cockpitTopStickyHeaderLine(rows []cockpitTopRow, start int, snapshot topDataSnapshot) string {
+	if start <= 0 || start >= len(rows) {
+		return ""
+	}
+	if rows[start].header {
+		return ""
+	}
+	headerIdx := -1
+	for i := start - 1; i >= 0; i-- {
+		if rows[i].header {
+			headerIdx = i
+			break
+		}
+	}
+	if headerIdx < 0 {
+		return ""
+	}
+	sectionTotal := 0
+	for i := headerIdx + 1; i < len(rows); i++ {
+		if rows[i].header {
+			break
+		}
+		sectionTotal++
+	}
+	label := cockpitTopSectionLabel(rows[headerIdx].pane, snapshot)
+	if label == "" {
+		return ""
+	}
+	position := start - headerIdx
+	if sectionTotal > 0 {
+		return Localizef("↑ %s · row %d/%d", "↑ %s · 行 %d/%d", label, position, sectionTotal)
+	}
+	return "↑ " + label
 }
 
 func countCockpitTopSessionRows(nodes []*sessionNode) int {
