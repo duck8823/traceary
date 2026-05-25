@@ -1228,7 +1228,7 @@ func writeMemoryReviewSourceContext(output io.Writer, details apptypes.MemoryDet
 	}
 	sourceRefs := memoryReviewSourceContextRefs(details)
 	if len(sourceRefs) == 0 {
-		if _, err := fmt.Fprintln(output, "- no event/session evidence refs recorded"); err != nil {
+		if _, err := fmt.Fprintln(output, "- "+Localize("no event/session evidence refs recorded", "event/session evidence ref は記録されていません")); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print empty source context", "空の source context の出力に失敗しました"), err)
 		}
 		return nil
@@ -1242,7 +1242,7 @@ func writeMemoryReviewSourceContext(output io.Writer, details apptypes.MemoryDet
 }
 
 func memoryReviewSourceContextRefs(details apptypes.MemoryDetails) []string {
-	refs := make([]string, 0)
+	var refs []string
 	for _, ref := range details.EvidenceRefs() {
 		switch ref.Kind() {
 		case domtypes.EvidenceRefKindEvent, domtypes.EvidenceRefKindSession:

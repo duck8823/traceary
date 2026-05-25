@@ -312,7 +312,7 @@ func (c *RootCLI) runMemoryInboxShow(ctx context.Context, output io.Writer, inpu
 		return xerrors.Errorf("%s: %w", Localize("failed to show memory candidate", "メモリ候補の取得に失敗しました"), err)
 	}
 	if details.Summary().Status() != domtypes.MemoryStatusCandidate {
-		return xerrors.Errorf("%s", Localize("memory inbox show only accepts memory candidates; use `traceary memory show` for other statuses", "memory inbox show は memory candidate のみ対象です。他の status は `traceary memory show` を使ってください"))
+		return xerrors.New(Localize("memory inbox show only accepts memory candidates; use `traceary memory show` for other statuses", "memory inbox show は memory candidate のみ対象です。他の status は `traceary memory show` を使ってください"))
 	}
 	if input.asJSON {
 		return writeJSON(output, newMemoryDetailsOutput(details))
