@@ -567,6 +567,10 @@ func TestCockpitTopStickyHeaderLine_BreadcrumbsScrolledSection(t *testing.T) {
 			[]apptypes.SessionSummary{root, mid, tail},
 			false, defaultActiveSessionStaleAfter, fixedStartedAt.Add(time.Hour),
 		),
+		Failures: []*model.Event{
+			mustEvent(t, "evt-sticky-fail-1", domtypes.EventKindCommandExecuted, "failure one"),
+			mustEvent(t, "evt-sticky-fail-2", domtypes.EventKindCommandExecuted, "failure two"),
+		},
 	}
 
 	if got := cockpitTopStickyHeaderLine(rows, 0, snapshot); got != "" {
@@ -578,7 +582,7 @@ func TestCockpitTopStickyHeaderLine_BreadcrumbsScrolledSection(t *testing.T) {
 	if got, want := cockpitTopStickyHeaderLine(rows, 2, snapshot), "↑ SESSIONS (3) · row 2/3"; got != want {
 		t.Fatalf("offset within SESSIONS sticky = %q, want %q", got, want)
 	}
-	if got, want := cockpitTopStickyHeaderLine(rows, 6, snapshot), "↑ RECENT FAILURES (0) · row 2/2"; got != want {
+	if got, want := cockpitTopStickyHeaderLine(rows, 6, snapshot), "↑ RECENT FAILURES (2) · row 2/2"; got != want {
 		t.Fatalf("offset within FAILURES sticky = %q, want %q", got, want)
 	}
 }

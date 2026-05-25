@@ -33,6 +33,12 @@ const (
 	topPaneStaleMemoryLimit   = topPaneCandidateLimit
 )
 
+const (
+	dashboardSessionStatusActive = "active"
+	dashboardSessionStatusStale  = "stale"
+	dashboardSessionStatusEnded  = "ended"
+)
+
 // topPane enumerates the focusable panes on the dashboard.
 //
 // The numeric order matches the visual order so iteration helpers can stay
@@ -837,11 +843,11 @@ func dashboardSessionNodeLess(left, right *sessionNode, priorities map[*sessionN
 
 func dashboardStatusRank(status string) int {
 	switch status {
-	case "active":
+	case dashboardSessionStatusActive:
 		return 3
-	case "stale":
+	case dashboardSessionStatusStale:
 		return 2
-	case "ended":
+	case dashboardSessionStatusEnded:
 		return 1
 	default:
 		return 0
