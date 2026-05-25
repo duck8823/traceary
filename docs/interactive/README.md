@@ -14,7 +14,7 @@ Traceary now ships three baseline interactive conveniences:
 - `traceary tail` for live-follow inspection
 
 That means the interactive read path is no longer limited to one-shot snapshots such as `list` and `search`.
-The cockpit is the recommended starting point when you do not want to remember whether the next action is `top`, `tail`, `doctor`, `session handoff`, or `memory inbox review`.
+The cockpit is the recommended starting point when you do not want to remember whether the next action is `sessions`, `tail`, `doctor`, `session handoff`, or `memory inbox review`; `top` remains a compatibility alias for the Sessions dashboard.
 
 ## Recommended interactive workflow
 
@@ -34,7 +34,7 @@ traceary tui
 traceary tui --reset-state
 ```
 
-The cockpit is intentionally TTY-only. Non-interactive callers should keep using `traceary list`, `traceary top --snapshot [--json]`, `traceary doctor --json`, `traceary session handoff`, and `traceary memory inbox list`. Bare non-TTY `traceary` prints help plus fallback guidance instead of launching the cockpit.
+The cockpit is intentionally TTY-only. Non-interactive callers should keep using `traceary list`, `traceary sessions --snapshot [--json]`, `traceary doctor --json`, `traceary session handoff`, and `traceary memory inbox list`; `traceary top --snapshot [--json]` remains a permanent compatibility alias. Bare non-TTY `traceary` prints help plus fallback guidance instead of launching the cockpit.
 
 ### 2. "What just happened?" → `traceary list`
 
@@ -45,9 +45,11 @@ traceary list --limit 20
 traceary list --workspace github.com/duck8823/traceary --client codex
 ```
 
-### 3. "Which sessions are running right now?" → `traceary top`
+<a id="3-which-sessions-are-running-right-now--traceary-top"></a>
 
-Use `top` to watch a live multi-pane dashboard of the workspace. The screen is split into five panes:
+### 3. "Which sessions are running right now?" → `traceary sessions`
+
+Use `sessions` to watch a live multi-pane dashboard of the workspace. The screen is split into five panes:
 
 - **sessions** — active session tree (workspace, agent role, latest event time, latest event as `<kind>: <message>`)
 - **failures** — recent failed `command_executed` events
@@ -56,13 +58,13 @@ Use `top` to watch a live multi-pane dashboard of the workspace. The screen is s
 - **stale memories** — accepted memories that may need cleanup
 
 ```sh
-traceary top
-traceary top --workspace github.com/duck8823/traceary
-traceary top --snapshot
-traceary top --snapshot --json
+traceary sessions
+traceary sessions --workspace github.com/duck8823/traceary
+traceary sessions --snapshot
+traceary sessions --snapshot --json
 ```
 
-Inside the dashboard `tab` / `shift+tab` cycle the focused pane, `↑/↓` (or `k/j`) scroll it by one row, `pgup/pgdn` page through it, `g/G` jump to the top/bottom, `r` forces a refresh, `?` toggles help, and `q` / Ctrl-C / Esc quit cleanly. This standalone dashboard and its non-TTY snapshots intentionally keep the memory panes for compatibility even though the cockpit Sessions tab is session-only. Non-TTY callers (pipes, CI logs) fall back to the snapshot text writer automatically. `--snapshot` and `--snapshot --json` mirror the five panes for scripts: the text snapshot prints `ACTIVE SESSIONS`, `RECENT FAILURES`, `RECENT COMMANDS`, `CANDIDATE MEMORIES (count=N)`, and `STALE MEMORIES (count=N)` sections; the JSON snapshot is wrapped in an envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, items }`), and `stale_memories` (`{ count, items }`) keys.
+Inside the dashboard `tab` / `shift+tab` cycle the focused pane, `↑/↓` (or `k/j`) scroll it by one row, `pgup/pgdn` page through it, `g/G` jump to the top/bottom, `r` forces a refresh, `?` toggles help, and `q` / Ctrl-C / Esc quit cleanly. This standalone dashboard and its non-TTY snapshots intentionally keep the memory panes for compatibility even though the cockpit Sessions tab is session-only. Non-TTY callers (pipes, CI logs) fall back to the snapshot text writer automatically. `--snapshot` and `--snapshot --json` mirror the dashboard for scripts: the text snapshot starts with `RELIABILITY`, then prints `ACTIVE SESSIONS`, `RECENT FAILURES`, `RECENT COMMANDS`, `CANDIDATE MEMORIES (count=N remember_intent=M)`, and `STALE MEMORIES (count=N)` sections; the JSON snapshot is wrapped in an envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, remember_intent_count, items }`), `stale_memories` (`{ count, items }`), and `reliability` keys. `traceary top` remains available as a permanent compatibility alias.
 
 ### 4. "Is the system writing events right now?" → `traceary tail`
 
@@ -135,7 +137,7 @@ The compatibility contract is:
 - `traceary tui` remains a stable explicit entrypoint for operators who prefer a named command.
 - Non-TTY `traceary` must keep deterministic help/script behavior.
 - Completion generation and help examples must remain stable.
-- Script-facing commands (`top --snapshot`, `tail`, `doctor --json`, `session handoff`, `memory inbox list`) remain the recommended automation path.
+- Script-facing commands (`sessions --snapshot`, `tail`, `doctor --json`, `session handoff`, `memory inbox list`) remain the recommended automation path; `top --snapshot` remains compatible.
 - Release notes must call out the default-entrypoint change and the explicit `traceary tui` compatibility path.
 
 ## Still future-facing
