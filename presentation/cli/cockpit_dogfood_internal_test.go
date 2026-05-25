@@ -134,12 +134,11 @@ func TestCockpitDogfoodTerminalSizesKeepTaskCues(t *testing.T) {
 func TestCockpitDogfoodKeyboardPaths(t *testing.T) {
 	t.Parallel()
 
-	t.Run("find latest failure from home", func(t *testing.T) {
+	t.Run("tail stream does not drill into latest failure", func(t *testing.T) {
 		t.Parallel()
 		failure := mustEvent(t, "evt-dogfood-failure", domtypes.EventKindCommandExecuted, "go test ./... failed")
 		loader := &cockpitLoaderStub{
 			liveResponses: []cockpitLiveSnapshot{{Events: []*model.Event{failure}, Cursor: newTailCursor(failure.CreatedAt()), LoadedAt: fixedStartedAt}},
-			detailContent: topDetailContent{title: "EVENT evt-dogfood-failure", lines: []string{"exit_code=1", "go test ./... failed"}},
 		}
 		model := newCockpitModel(tui.DefaultKeyMap(), tui.Styles{}, cockpitHomeSnapshot{LoadedAt: fixedStartedAt, RecentFailureCount: 1})
 		model.loader = loader
@@ -152,15 +151,13 @@ func TestCockpitDogfoodKeyboardPaths(t *testing.T) {
 		model = applyCockpitImmediateCommandForTest(t, model, cmd)
 		updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		model = updated.(cockpitModel)
-		if model.mode != cockpitModeDetail || cmd == nil {
-			t.Fatalf("enter mode/cmd = %v/%T, want detail/load", model.mode, cmd)
+		if model.mode != cockpitModeLive || cmd != nil {
+			t.Fatalf("enter mode/cmd = %v/%T, want live/nil", model.mode, cmd)
 		}
-		updated, _ = model.Update(cmd())
-		model = updated.(cockpitModel)
 		view := model.View()
-		for _, must := range []string{"EVENT evt-dogfood-failure", "exit_code=1", "go test ./... failed"} {
+		for _, must := range []string{"Traceary cockpit · live tail", "go test ./... failed"} {
 			if !strings.Contains(view, must) {
-				t.Fatalf("failure detail missing %q:\n%s", must, view)
+				t.Fatalf("tail stream missing %q:\n%s", must, view)
 			}
 		}
 	})

@@ -22,6 +22,10 @@ import (
 
 const cockpitExitCodeNotInteractive = 2
 const cockpitLiveMaxEvents = 200
+const cockpitLiveDefaultViewportRows = 12
+const cockpitLiveMinViewportRows = 1
+const cockpitLiveBasePreludeRows = 2
+const cockpitShellChromeRows = 5
 const cockpitDoctorMessageWidth = 160
 const cockpitNewEventLimit = 200
 const cockpitTopUnknownWidth = 120
@@ -1183,19 +1187,18 @@ func (m cockpitModel) updateDoctorKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m cockpitModel) updateLiveKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.Up):
-		m.live.selected--
-		m.clampLiveSelection()
-		if !m.live.isAtNewest() {
-			m.live.follow = false
-		}
+		m.scrollCockpitLiveStreamBy(-1)
 		return m, nil
 	case key.Matches(msg, m.keys.Down):
-		wasFollowing := m.live.follow
-		m.live.selected++
-		m.clampLiveSelection()
-		if !m.live.isAtNewest() {
-			m.live.follow = false
-		} else if !wasFollowing {
+		if m.scrollCockpitLiveStreamBy(1) {
+			return m, m.resumeCockpitLiveFollowCmd()
+		}
+		return m, nil
+	case key.Matches(msg, m.keys.PageUp):
+		m.scrollCockpitLiveStreamBy(-m.cockpitLiveKeyViewportRows())
+		return m, nil
+	case key.Matches(msg, m.keys.PageDown):
+		if m.scrollCockpitLiveStreamBy(m.cockpitLiveKeyViewportRows()) {
 			return m, m.resumeCockpitLiveFollowCmd()
 		}
 		return m, nil
@@ -1210,8 +1213,6 @@ func (m cockpitModel) updateLiveKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.resumeCockpitLiveFollowCmd()
 	case key.Matches(msg, m.keys.Refresh):
 		return m, m.startCockpitLiveLoad(true)
-	case key.Matches(msg, m.keys.Select):
-		return m.openCockpitLiveDetail()
 	}
 	return m, nil
 }
@@ -1582,21 +1583,6 @@ func (m cockpitModel) cockpitLiveTickCmd() tea.Cmd {
 	})
 }
 
-func (m cockpitModel) openCockpitLiveDetail() (tea.Model, tea.Cmd) {
-	if len(m.live.events) == 0 || m.live.selected < 0 || m.live.selected >= len(m.live.events) {
-		return m, nil
-	}
-	event := m.live.events[m.live.selected]
-	if event == nil {
-		return m, nil
-	}
-	req := topDetailRequest{target: topDetailTarget{kind: topDetailEvent, title: fmt.Sprintf("EVENT %s", event.EventID()), eventID: event.EventID()}}
-	m.mode = cockpitModeDetail
-	m.detailOffset = 0
-	m.detail = topDetailState{request: req, title: req.target.title, lines: []string{Localize("Loading...", "読み込み中...")}, loading: true}
-	return m, m.fetchCockpitDetailCmd(req)
-}
-
 func (m cockpitModel) openCockpitTopDetail() (tea.Model, tea.Cmd) {
 	rows := m.cockpitTopRows()
 	if len(rows) == 0 {
@@ -1621,18 +1607,6 @@ func (m cockpitModel) openCockpitTopDetail() (tea.Model, tea.Cmd) {
 		loading: true,
 	}
 	return m, m.fetchCockpitTopDetailCmd(req, m.top.detailSeq)
-}
-
-func (m cockpitModel) fetchCockpitDetailCmd(req topDetailRequest) tea.Cmd {
-	loader := m.loader
-	ctx := m.loaderCtx
-	return func() tea.Msg {
-		if loader == nil {
-			return cockpitDetailLoadedMsg{request: req, err: xerrors.New(Localize("cockpit detail loader is not configured", "cockpit detail 用 loader が設定されていません"))}
-		}
-		content, err := loader.loadCockpitEventDetail(ctx, req.target.eventID)
-		return cockpitDetailLoadedMsg{request: req, content: content, err: err}
-	}
 }
 
 func (m cockpitModel) fetchCockpitTopDetailCmd(req topDetailRequest, seq uint64) tea.Cmd {
@@ -1865,6 +1839,32 @@ func (m *cockpitModel) trimCockpitLiveEventsToLimit() {
 		}
 		overflow--
 	}
+}
+
+func (m *cockpitModel) scrollCockpitLiveStreamBy(delta int) (resumeFollow bool) {
+	if len(m.live.events) == 0 || delta == 0 {
+		return false
+	}
+	viewport := m.cockpitLiveKeyViewportRows()
+	start, _ := m.cockpitLiveVisibleRange(viewport)
+	maxStart := max(len(m.live.events)-viewport, 0)
+	next := start + delta
+	if next <= 0 {
+		m.live.selected = 0
+		m.live.follow = false
+		return false
+	}
+	if next >= maxStart {
+		m.live.selected = maxStart
+		if delta > 0 {
+			return !m.live.follow
+		}
+		m.live.follow = false
+		return false
+	}
+	m.live.selected = next
+	m.live.follow = false
+	return false
 }
 
 func (m *cockpitModel) moveCockpitLiveSelectionToNewest() {
@@ -2103,19 +2103,66 @@ func (m cockpitModel) liveView() string {
 			lines = append(lines, m.styles.Subtle.Render(Localize("No recent events. Press r to refresh.", "最近のイベントはありません。r で再取得します。")))
 		}
 	} else {
-		for i, event := range m.live.events {
-			prefix := "  "
-			if i == m.live.selected {
-				prefix = "> "
-			}
-			line := prefix + formatCockpitLiveEventRow(event, time.Local)
-			if i == m.live.selected {
-				line = m.styles.Active.Render(line)
-			}
-			lines = append(lines, line)
+		viewport := m.cockpitLiveViewportRows(len(lines))
+		if viewport > cockpitLiveMinViewportRows && m.cockpitLiveScrollLine(viewport) != "" {
+			viewport = m.cockpitLiveViewportRows(len(lines) + 1)
+			lines = append(lines, m.cockpitLiveScrollLine(viewport))
+		}
+		start, end := m.cockpitLiveVisibleRange(viewport)
+		for _, event := range m.live.events[start:end] {
+			lines = append(lines, formatCockpitLiveEventRow(event, time.Local))
 		}
 	}
 	return m.renderCockpitShell(Localize("live tail", "live tail"), lines, m.liveLocalHelp())
+}
+
+func (m cockpitModel) cockpitLiveViewportRows(preludeRows int) int {
+	if m.height <= 0 {
+		return cockpitLiveDefaultViewportRows
+	}
+	rows := m.height - cockpitShellChromeRows - preludeRows
+	if rows < cockpitLiveMinViewportRows {
+		return cockpitLiveMinViewportRows
+	}
+	return rows
+}
+
+func (m cockpitModel) cockpitLiveKeyViewportRows() int {
+	return m.cockpitLiveViewportRows(cockpitLiveBasePreludeRows)
+}
+
+func (m cockpitModel) cockpitLiveVisibleRange(viewport int) (int, int) {
+	if viewport < 1 {
+		viewport = 1
+	}
+	total := len(m.live.events)
+	if total == 0 {
+		return 0, 0
+	}
+	if viewport >= total {
+		return 0, total
+	}
+	if m.live.follow {
+		return total - viewport, total
+	}
+	start := m.live.selected
+	if start < 0 {
+		start = 0
+	}
+	maxStart := total - viewport
+	if start > maxStart {
+		start = maxStart
+	}
+	return start, start + viewport
+}
+
+func (m cockpitModel) cockpitLiveScrollLine(viewport int) string {
+	total := len(m.live.events)
+	if total == 0 || viewport >= total {
+		return ""
+	}
+	start, end := m.cockpitLiveVisibleRange(viewport)
+	return m.styles.Subtle.Render(fmt.Sprintf("rows=%d-%d/%d", start+1, end, total))
 }
 
 func (m cockpitModel) livePauseMessage() string {
@@ -2761,12 +2808,10 @@ func (m cockpitModel) cockpitContextualActions() []cockpitAction {
 			{key: "r", description: Localize("Refresh Tail events", "Tail のイベントを再取得")},
 			{key: "End/G", description: Localize("Jump to newest and resume auto-follow", "最新へ移動して auto-follow を再開")},
 		}
-		if len(m.live.events) > 0 {
-			actions = append(actions, cockpitAction{key: "enter", description: Localize("Open selected event detail", "選択中イベントの詳細を開く")})
-			if len(m.live.events) > 1 {
-				actions = append(actions, cockpitAction{key: "↑/↓", description: Localize("Select an event", "イベントを選択")})
-			}
+		if len(m.live.events) > 1 {
+			actions = append(actions, cockpitAction{key: "↑/↓", description: Localize("Scroll Tail stream", "Tail stream をスクロール")})
 		}
+		actions = append(actions, cockpitAction{description: Localize("Tail is read-only; inspect full event payloads from Sessions detail or `traceary show <event_id>`.", "Tail は読み取り専用です。完全なイベント内容は Sessions detail または `traceary show <event_id>` で確認します。")})
 		return actions
 	case cockpitModeTop:
 		if m.cockpitTopDetailOpen() {
@@ -2893,11 +2938,8 @@ func (m cockpitModel) memoryReviewContextualActions() []cockpitAction {
 
 func (m cockpitModel) liveLocalHelp() string {
 	parts := []string{Localize("r refresh", "r 再取得"), Localize("End/G newest", "End/G 最新")}
-	if len(m.live.events) > 0 {
-		parts = append(parts, Localize("enter detail", "enter 詳細"))
-		if len(m.live.events) > 1 {
-			parts = append(parts, Localize("↑/↓ select", "↑/↓ 選択"))
-		}
+	if len(m.live.events) > 1 {
+		parts = append(parts, Localize("↑/↓ scroll", "↑/↓ スクロール"))
 	}
 	return strings.Join(parts, " · ")
 }
