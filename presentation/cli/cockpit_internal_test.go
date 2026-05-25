@@ -764,7 +764,7 @@ func TestCockpitModel_IgnoresStaleDoctorResponses(t *testing.T) {
 	}
 }
 
-func TestCockpitModel_LivePaneRefreshPauseResumeAndDetail(t *testing.T) {
+func TestCockpitModel_LivePaneRefreshPauseResumeAndIgnoresEnter(t *testing.T) {
 	t.Parallel()
 
 	olderEvent := mustEvent(t, "evt-older", domtypes.EventKindNote, "older live event")
@@ -775,10 +775,6 @@ func TestCockpitModel_LivePaneRefreshPauseResumeAndDetail(t *testing.T) {
 			{Events: []*model.Event{olderEvent, initialEvent}, Cursor: newTailCursor(initialEvent.CreatedAt()), LoadedAt: fixedStartedAt},
 			{Events: []*model.Event{olderEvent, initialEvent}, Cursor: newTailCursor(initialEvent.CreatedAt()), LoadedAt: fixedStartedAt.Add(time.Minute)},
 			{Events: []*model.Event{followEvent}, Cursor: newTailCursor(followEvent.CreatedAt()), LoadedAt: fixedStartedAt.Add(2 * time.Minute)},
-		},
-		detailContent: topDetailContent{
-			title: "EVENT evt-follow",
-			lines: []string{"shared detail renderer line", "full event payload"},
 		},
 	}
 	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
@@ -889,28 +885,11 @@ func TestCockpitModel_LivePaneRefreshPauseResumeAndDetail(t *testing.T) {
 
 	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updated.(cockpitModel)
-	if model.mode != cockpitModeDetail || !model.detail.loading {
-		t.Fatalf("opening detail mode/loading = %v/%v, want detail/loading", model.mode, model.detail.loading)
+	if model.mode != cockpitModeLive || cmd != nil {
+		t.Fatalf("enter on live stream mode/cmd = %v/%T, want live/nil", model.mode, cmd)
 	}
-	if cmd == nil {
-		t.Fatalf("opening detail returned nil command")
-	}
-	updated, cmd = model.Update(cmd())
-	model = updated.(cockpitModel)
-	if cmd != nil {
-		t.Fatalf("detail load returned unexpected follow-up command = %T", cmd)
-	}
-	if got, want := loader.detailCalls, []domtypes.EventID{followEvent.EventID()}; len(got) != len(want) || got[0] != want[0] {
-		t.Fatalf("detail calls = %v, want %v", got, want)
-	}
-	if got := model.View(); !strings.Contains(got, "shared detail renderer line") {
-		t.Fatalf("detail view missing shared renderer output:\n%s", got)
-	}
-
-	updated, cmd = model.Update(cockpitRuneKey("t"))
-	model = updated.(cockpitModel)
-	if model.mode != cockpitModeLive || cmd == nil {
-		t.Fatalf("returning to live mode/cmd = %v/%T, want live/tick command", model.mode, cmd)
+	if len(loader.detailCalls) != 0 {
+		t.Fatalf("enter on live stream opened detail unexpectedly: %#v", loader.detailCalls)
 	}
 }
 
@@ -941,6 +920,37 @@ func TestCockpitModel_LiveDownToNewestResumesAutoFollow(t *testing.T) {
 	runFirstCockpitBatchCommandForTest(t, cmd)
 	if got, want := len(loader.eventSeenCalls), 1; got != want {
 		t.Fatalf("event seen calls after down resume = %d, want %d", got, want)
+	}
+}
+
+func TestCockpitModel_LiveViewUsesTerminalViewportWithoutSelectionAffordance(t *testing.T) {
+	t.Parallel()
+
+	events := []*model.Event{
+		mustEvent(t, "evt-live-window-0", domtypes.EventKindNote, "tail row 0"),
+		mustEvent(t, "evt-live-window-1", domtypes.EventKindNote, "tail row 1"),
+		mustEvent(t, "evt-live-window-2", domtypes.EventKindNote, "tail row 2"),
+		mustEvent(t, "evt-live-window-3", domtypes.EventKindNote, "tail row 3"),
+		mustEvent(t, "evt-live-window-4", domtypes.EventKindNote, "tail row 4"),
+	}
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	model.width = 80
+	model.height = 10
+	model.live.events = events
+	model.live.loadedAt = fixedStartedAt
+	model.live.follow = true
+	model.moveCockpitLiveSelectionToNewest()
+
+	view := model.View()
+	for _, must := range []string{"rows=4-5/5", "tail row 3", "tail row 4"} {
+		if !strings.Contains(view, must) {
+			t.Fatalf("live viewport missing %q:\n%s", must, view)
+		}
+	}
+	for _, mustNot := range []string{"tail row 0", "tail row 1", "tail row 2", "\n> "} {
+		if strings.Contains(view, mustNot) {
+			t.Fatalf("live viewport rendered unavailable/selected cue %q:\n%s", mustNot, view)
+		}
 	}
 }
 
@@ -1910,17 +1920,23 @@ func TestCockpitModel_ContextualHelpActionMenuByScreen(t *testing.T) {
 
 	t.Run("live with selection", func(t *testing.T) {
 		event := mustEvent(t, "evt-help-live", domtypes.EventKindNote, "help live event")
+		second := mustEvent(t, "evt-help-live-2", domtypes.EventKindNote, "second help live event")
 		cockpit := base
 		cockpit.mode = cockpitModeLive
 		cockpit.live.loadedAt = fixedStartedAt
-		cockpit.live.events = []*model.Event{event}
+		cockpit.live.events = []*model.Event{event, second}
 		view := cockpit.View()
 		for _, must := range []string{
-			"enter detail",
-			"Open selected event detail",
+			"↑/↓ scroll",
+			"Scroll Tail stream",
 		} {
 			if !strings.Contains(view, must) {
 				t.Fatalf("live selection help missing %q:\n%s", must, view)
+			}
+		}
+		for _, mustNot := range []string{"enter detail", "Open selected event detail"} {
+			if strings.Contains(view, mustNot) {
+				t.Fatalf("live stream help advertised unavailable drill-down %q:\n%s", mustNot, view)
 			}
 		}
 	})
@@ -1933,12 +1949,9 @@ func TestCockpitModel_ContextualHelpActionMenuByScreen(t *testing.T) {
 		cockpit.live.events = []*model.Event{event}
 		cockpit.live.err = context.Canceled
 		view := cockpit.View()
-		for _, must := range []string{
-			"enter detail",
-			"Open selected event detail",
-		} {
-			if !strings.Contains(view, must) {
-				t.Fatalf("live cached-error help missing %q:\n%s", must, view)
+		for _, mustNot := range []string{"enter detail", "Open selected event detail"} {
+			if strings.Contains(view, mustNot) {
+				t.Fatalf("live cached-error help advertised unavailable drill-down %q:\n%s", mustNot, view)
 			}
 		}
 	})
@@ -3230,16 +3243,8 @@ func TestCockpitModel_EscBacksOutWithoutQuitting(t *testing.T) {
 	model.live.selected = 0
 	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updated.(cockpitModel)
-	if model.mode != cockpitModeDetail || cmd == nil {
-		t.Fatalf("enter detail mode/cmd = %v/%T, want detail/load command", model.mode, cmd)
-	}
-	updated, _ = model.Update(cmd())
-	model = updated.(cockpitModel)
-
-	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	model = updated.(cockpitModel)
-	if model.mode != cockpitModeLive || cmd == nil {
-		t.Fatalf("esc from detail mode/cmd = %v/%T, want live/tick command", model.mode, cmd)
+	if model.mode != cockpitModeLive || cmd != nil {
+		t.Fatalf("enter from tail mode/cmd = %v/%T, want live/nil", model.mode, cmd)
 	}
 
 	_, cmd = model.Update(cockpitRuneKey("q"))
