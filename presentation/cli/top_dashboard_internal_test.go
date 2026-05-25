@@ -315,6 +315,33 @@ func TestTopModelSessionRows_PrioritizesRecentActiveSessionsWithManySessions(t *
 	}
 }
 
+func TestTopModelSessionRows_DoesNotMutateSnapshotOrder(t *testing.T) {
+	t.Parallel()
+
+	oldChild := dashboardSessionNodeWith("child-old", "root", fixedDashboardNow.Add(-80*time.Minute), "active", "old child", fixedDashboardNow.Add(-70*time.Minute))
+	recentChild := dashboardSessionNodeWith("child-recent", "root", fixedDashboardNow.Add(-30*time.Minute), "active", "recent child", fixedDashboardNow.Add(-time.Minute))
+	root := dashboardSessionNodeWith("root", "", fixedDashboardNow.Add(-2*time.Hour), "ended", "root", fixedDashboardNow.Add(-90*time.Minute))
+	root.children = []*sessionNode{oldChild, recentChild}
+	sessions := []*sessionNode{
+		dashboardSessionNodeWith("session-old", "", fixedDashboardNow.Add(-2*time.Hour), "active", "old root", fixedDashboardNow.Add(-90*time.Minute)),
+		dashboardSessionNodeWith("session-new", "", fixedDashboardNow.Add(-time.Hour), "active", "new root", fixedDashboardNow.Add(-30*time.Second)),
+		root,
+	}
+	m := newDashboardTestModel(t, &stubTopLoader{snapshot: topDataSnapshot{Sessions: sessions}})
+	m = applySnapshot(t, m)
+
+	rows := m.sessionRows(120)
+	if !strings.Contains(rows[0].line, "session-new") {
+		t.Fatalf("rendered rows should prioritize newest root, first row = %q", rows[0].line)
+	}
+	if got, want := m.snapshot.Sessions[0].summary.SessionID().String(), "session-old"; got != want {
+		t.Fatalf("snapshot root order mutated: first root = %q, want %q", got, want)
+	}
+	if got, want := root.children[0].summary.SessionID().String(), "child-old"; got != want {
+		t.Fatalf("snapshot child order mutated: first child = %q, want %q", got, want)
+	}
+}
+
 func TestTopModelSessionRows_KeepsIdentityFieldsAtNarrowWidth(t *testing.T) {
 	t.Parallel()
 

@@ -776,37 +776,63 @@ func cloneDashboardSessionNode(node *sessionNode) *sessionNode {
 }
 
 func sortDashboardSessionNodes(nodes []*sessionNode) {
+	priorities := make(map[*sessionNode]dashboardSessionPriority, len(nodes))
+	for _, node := range nodes {
+		dashboardSessionPriorityFor(node, priorities)
+	}
+	sortDashboardSessionNodesWithPriorities(nodes, priorities)
+}
+
+func sortDashboardSessionNodesWithPriorities(nodes []*sessionNode, priorities map[*sessionNode]dashboardSessionPriority) {
 	sort.SliceStable(nodes, func(i, j int) bool {
-		return dashboardSessionNodeLess(nodes[i], nodes[j])
+		return dashboardSessionNodeLess(nodes[i], nodes[j], priorities)
 	})
 	for _, node := range nodes {
-		sortDashboardSessionNodes(node.children)
+		sortDashboardSessionNodesWithPriorities(node.children, priorities)
 	}
 }
 
-func dashboardSessionNodeLess(left, right *sessionNode) bool {
-	leftRank := dashboardSubtreeStatusRank(left)
-	rightRank := dashboardSubtreeStatusRank(right)
+type dashboardSessionPriority struct {
+	statusRank int
+	latest     time.Time
+}
+
+func dashboardSessionPriorityFor(node *sessionNode, priorities map[*sessionNode]dashboardSessionPriority) dashboardSessionPriority {
+	if node == nil {
+		return dashboardSessionPriority{}
+	}
+	if priority, ok := priorities[node]; ok {
+		return priority
+	}
+	priority := dashboardSessionPriority{
+		statusRank: dashboardStatusRank(node.summary.Status()),
+		latest:     node.summary.LatestEventAt(),
+	}
+	for _, child := range node.children {
+		childPriority := dashboardSessionPriorityFor(child, priorities)
+		priority.statusRank = max(priority.statusRank, childPriority.statusRank)
+		if childPriority.latest.After(priority.latest) {
+			priority.latest = childPriority.latest
+		}
+	}
+	priorities[node] = priority
+	return priority
+}
+
+func dashboardSessionNodeLess(left, right *sessionNode, priorities map[*sessionNode]dashboardSessionPriority) bool {
+	leftPriority := priorities[left]
+	rightPriority := priorities[right]
+	leftRank := leftPriority.statusRank
+	rightRank := rightPriority.statusRank
 	if leftRank != rightRank {
 		return leftRank > rightRank
 	}
-	leftLatest := dashboardSubtreeLatestAt(left)
-	rightLatest := dashboardSubtreeLatestAt(right)
+	leftLatest := leftPriority.latest
+	rightLatest := rightPriority.latest
 	if !leftLatest.Equal(rightLatest) {
 		return leftLatest.After(rightLatest)
 	}
 	return sessionNodeLess(left, right)
-}
-
-func dashboardSubtreeStatusRank(node *sessionNode) int {
-	if node == nil {
-		return 0
-	}
-	rank := dashboardStatusRank(node.summary.Status())
-	for _, child := range node.children {
-		rank = max(rank, dashboardSubtreeStatusRank(child))
-	}
-	return rank
 }
 
 func dashboardStatusRank(status string) int {
@@ -820,19 +846,6 @@ func dashboardStatusRank(status string) int {
 	default:
 		return 0
 	}
-}
-
-func dashboardSubtreeLatestAt(node *sessionNode) time.Time {
-	if node == nil {
-		return time.Time{}
-	}
-	latest := node.summary.LatestEventAt()
-	for _, child := range node.children {
-		if childLatest := dashboardSubtreeLatestAt(child); childLatest.After(latest) {
-			latest = childLatest
-		}
-	}
-	return latest
 }
 
 func formatTopDashboardNodeLineIn(node *sessionNode, prefix string, idle time.Duration, now time.Time, loc *time.Location, width int) string {

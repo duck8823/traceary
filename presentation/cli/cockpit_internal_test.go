@@ -588,7 +588,7 @@ func TestCockpitModelTopTab_StickyHeaderSurfacesPaneWhenScrolled(t *testing.T) {
 
 	const sessionCount = 50
 	summaries := make([]apptypes.SessionSummary, 0, sessionCount)
-	for i := 0; i < sessionCount; i++ {
+	for i := range sessionCount {
 		summaries = append(summaries, sessionSummaryFixture(
 			fmt.Sprintf("sess-%02d", i),
 			"",
