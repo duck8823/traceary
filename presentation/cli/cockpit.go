@@ -451,6 +451,7 @@ type cockpitLoader interface {
 
 type cockpitLiveSnapshot struct {
 	Events   []*model.Event
+	Extras   map[domtypes.EventID]compactRowExtras
 	Cursor   tailCursor
 	LoadedAt time.Time
 }
@@ -555,7 +556,7 @@ func (c *RootCLI) loadCockpitLive(ctx context.Context, cursor tailCursor, initia
 		} else {
 			cursor = newTailCursor(now)
 		}
-		return cockpitLiveSnapshot{Events: events, Cursor: cursor, LoadedAt: now}, nil
+		return cockpitLiveSnapshot{Events: events, Extras: c.cockpitLiveExtras(ctx, events), Cursor: cursor, LoadedAt: now}, nil
 	}
 	base := apptypes.NewEventListCriteriaBuilder(defaultTailBatchSize).Build()
 	events, err := c.pollTailEvents(ctx, base, cursor, now)
@@ -563,7 +564,25 @@ func (c *RootCLI) loadCockpitLive(ctx context.Context, cursor tailCursor, initia
 		return cockpitLiveSnapshot{}, err
 	}
 	cursor.Advance(events)
-	return cockpitLiveSnapshot{Events: events, Cursor: cursor, LoadedAt: now}, nil
+	return cockpitLiveSnapshot{Events: events, Extras: c.cockpitLiveExtras(ctx, events), Cursor: cursor, LoadedAt: now}, nil
+}
+
+func (c *RootCLI) cockpitLiveExtras(ctx context.Context, events []*model.Event) map[domtypes.EventID]compactRowExtras {
+	resolver := c.makeCompactExtrasResolver(ctx, defaultReadFields, true)
+	if resolver == nil || len(events) == 0 {
+		return nil
+	}
+	extras := make(map[domtypes.EventID]compactRowExtras)
+	for _, event := range events {
+		if event == nil {
+			continue
+		}
+		extras[event.EventID()] = resolver(event)
+	}
+	if len(extras) == 0 {
+		return nil
+	}
+	return extras
 }
 
 func (c *RootCLI) loadCockpitEventDetail(ctx context.Context, eventID domtypes.EventID) (topDetailContent, error) {
@@ -694,6 +713,7 @@ type cockpitTopSignal struct {
 
 type cockpitLiveState struct {
 	events         []*model.Event
+	extras         map[domtypes.EventID]compactRowExtras
 	cursor         tailCursor
 	loadedAt       time.Time
 	loading        bool
@@ -845,12 +865,14 @@ func (m cockpitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			if msg.initial {
 				m.live.events = msg.snapshot.Events
+				m.live.extras = cloneCockpitLiveExtras(msg.snapshot.Extras)
 				m.live.pausedNewCount = 0
 			} else {
 				if !m.live.follow && len(msg.snapshot.Events) > 0 {
 					m.live.pausedNewCount += len(msg.snapshot.Events)
 				}
 				m.live.events = append(m.live.events, msg.snapshot.Events...)
+				m.mergeCockpitLiveExtras(msg.snapshot.Extras)
 				m.trimCockpitLiveEventsToLimit()
 			}
 			m.live.cursor = msg.snapshot.Cursor
@@ -1802,12 +1824,14 @@ func (m *cockpitModel) ensureCockpitTopSelectionVisible(rows []cockpitTopRow) {
 }
 
 func (m *cockpitModel) trimCockpitLiveEventsToLimit() {
+	before := len(m.live.events)
 	overflow := len(m.live.events) - cockpitLiveMaxEvents
 	if overflow <= 0 {
 		return
 	}
 	if m.live.follow {
 		m.live.events = m.live.events[overflow:]
+		m.pruneCockpitLiveExtras()
 		return
 	}
 	m.clampLiveSelection()
@@ -1822,6 +1846,52 @@ func (m *cockpitModel) trimCockpitLiveEventsToLimit() {
 			return
 		}
 		overflow--
+	}
+	if len(m.live.events) != before {
+		m.pruneCockpitLiveExtras()
+	}
+}
+
+func cloneCockpitLiveExtras(in map[domtypes.EventID]compactRowExtras) map[domtypes.EventID]compactRowExtras {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[domtypes.EventID]compactRowExtras, len(in))
+	for id, extras := range in {
+		out[id] = extras
+	}
+	return out
+}
+
+func (m *cockpitModel) mergeCockpitLiveExtras(in map[domtypes.EventID]compactRowExtras) {
+	if len(in) == 0 {
+		return
+	}
+	if m.live.extras == nil {
+		m.live.extras = make(map[domtypes.EventID]compactRowExtras, len(in))
+	}
+	for id, extras := range in {
+		m.live.extras[id] = extras
+	}
+}
+
+func (m *cockpitModel) pruneCockpitLiveExtras() {
+	if len(m.live.extras) == 0 {
+		return
+	}
+	visible := make(map[domtypes.EventID]struct{}, len(m.live.events))
+	for _, event := range m.live.events {
+		if event != nil {
+			visible[event.EventID()] = struct{}{}
+		}
+	}
+	for id := range m.live.extras {
+		if _, ok := visible[id]; !ok {
+			delete(m.live.extras, id)
+		}
+	}
+	if len(m.live.extras) == 0 {
+		m.live.extras = nil
 	}
 }
 
@@ -2092,7 +2162,7 @@ func (m cockpitModel) liveView() string {
 		}
 		start, end := m.cockpitLiveVisibleRange(viewport)
 		for _, event := range m.live.events[start:end] {
-			lines = append(lines, formatCockpitLiveEventRow(event, time.Local))
+			lines = append(lines, m.formatCockpitLiveEventRow(event, time.Local))
 		}
 	}
 	return m.renderCockpitShell(Localize("live tail", "live tail"), lines, m.liveLocalHelp())
@@ -2111,6 +2181,13 @@ func (m cockpitModel) cockpitLiveViewportRows(preludeRows int) int {
 
 func (m cockpitModel) cockpitLiveKeyViewportRows() int {
 	return m.cockpitLiveViewportRows(cockpitLiveBasePreludeRows)
+}
+
+func (m cockpitModel) cockpitLiveRowWidth() int {
+	if m.width <= 0 {
+		return 0
+	}
+	return max(m.width-1, 1)
 }
 
 func (m cockpitModel) cockpitLiveVisibleRange(viewport int) (int, int) {
@@ -2965,15 +3042,23 @@ func (m cockpitModel) detailLines() []string {
 	return m.detail.lines
 }
 
-func formatCockpitLiveEventRow(event *model.Event, loc *time.Location) string {
+func (m cockpitModel) formatCockpitLiveEventRow(event *model.Event, loc *time.Location) string {
+	extras := compactRowExtras{}
+	if event != nil && m.live.extras != nil {
+		extras = m.live.extras[event.EventID()]
+	}
+	return formatCockpitLiveEventRow(event, loc, m.cockpitLiveRowWidth(), extras, true)
+}
+
+func formatCockpitLiveEventRow(event *model.Event, loc *time.Location, targetWidth int, extras compactRowExtras, colorEnabled bool) string {
 	if event == nil {
 		return "-"
 	}
 	displayEvent := event
-	truncated := false
+	truncationMarker := ""
 	out := newTruncatedEventOutput(event, apptypes.DefaultTopSnapshotBodyLimit)
 	if out.Truncated {
-		truncated = true
+		truncationMarker = " [truncated]"
 		displayEvent = model.EventOfWithSourceHook(
 			event.EventID(),
 			event.Kind(),
@@ -2986,11 +3071,12 @@ func formatCockpitLiveEventRow(event *model.Event, loc *time.Location) string {
 			event.SourceHook(),
 		)
 	}
-	row := formatEventCompactRow(displayEvent, eventTextFormatOptions{location: loc}, compactRowExtras{})
-	if truncated {
-		row += " [truncated]"
+	rowWidth := targetWidth
+	if rowWidth > runeLen(truncationMarker)+8 {
+		rowWidth -= runeLen(truncationMarker)
 	}
-	return row
+	row := formatEventCompactRow(displayEvent, eventTextFormatOptions{location: loc, targetWidth: rowWidth, messageMinWidth: 8, hardTargetWidth: true, colorEnabled: colorEnabled}, extras)
+	return row + truncationMarker
 }
 
 func cockpitLiveSeenAt(snapshot cockpitLiveSnapshot) time.Time {
