@@ -31,7 +31,7 @@ func TestCockpitCommand_RefusesNonTTYThroughCobra(t *testing.T) {
 	if coder.ExitCode() != 2 {
 		t.Fatalf("ExitCode() = %d, want 2", coder.ExitCode())
 	}
-	for _, must := range []string{"requires an interactive terminal", "traceary top --snapshot", "traceary memory inbox list", "traceary tui"} {
+	for _, must := range []string{"requires an interactive terminal", "traceary sessions --snapshot", "traceary memory inbox list", "traceary tui"} {
 		if !strings.Contains(err.Error(), must) {
 			t.Fatalf("error guidance missing %q:\n%s", must, err.Error())
 		}

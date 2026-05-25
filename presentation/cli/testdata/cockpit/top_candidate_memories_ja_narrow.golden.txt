@@ -1,9 +1,9 @@
-Traceary cockpit · Top
-タブ: 1 Tail  [2 Top]  3 メモリ  4 セッション  5 設定
+Traceary cockpit · セッション
+タブ: 1 Tail  [2 セッション]  3 メモリ  4 設定
 
 loaded=2026-05-07T12:00:00Z db=/tmp/traceary.db
 
-Top 概要
+Sessions 概要
 • セッション: stale_active=0 recent_failures=0 recent_commands=0 new_events=未追跡
 • メモリ: accepted(reviewed)=3 candidate(inbox)=4 new=2 remember-intent=1 low-quality=1 stale=0
 • doctor: pass=0 warn=0 fail=0
@@ -20,26 +20,26 @@ Top 概要
 • remember-intent メモリ候補=1
 • 低品質メモリ候補=1
 
-Top ダッシュボード
-Top ダッシュボードはまだ読み込まれていません。r で再取得します。
+Sessions ダッシュボード
+Sessions ダッシュボードはまだ読み込まれていません。r で再取得します。
 
-1-5 タブ · ←/→ タブ · tab/shift+tab 次/前 · 端末 80x24 · esc 戻る · q/ctrl+c 終了 · ? ヘルプ · r 再取得
+1-4 タブ · ←/→ タブ · tab/shift+tab 次/前 · 端末 80x24 · esc 戻る · q/ctrl+c 終了 · ? ヘルプ · r 再取得
 
 アクションメニュー
-• r            Top ダッシュボードを再取得
+• r            Sessions ダッシュボードを再取得
 • d            Doctor チェックを開く
 
 全体ナビゲーション
-1 Tail       イベントのライブ表示と詳細確認
-2 Top        セッション・失敗・コマンド・メモリ・状態の一覧
+1 Tail       イベントのライブ表示
+2 セッション セッション・失敗・コマンド・メモリ・状態の一覧
 3 メモリ     メモリ候補の確認キュー
-4 セッション セッション一覧と引き継ぎ導線
-5 設定       言語・表示既定・redaction 診断
+4 設定       言語・表示既定・redaction 診断
 ← / → でタブ移動。tab / shift+tab も利用可能
 esc で Tail に戻り、q で TUI を終了
 
 現時点で使える代替コマンド:
-traceary top --snapshot [--json]
+traceary sessions --snapshot [--json]
+traceary top --snapshot [--json] # compatibility
 traceary tail
 traceary doctor --json
 traceary session handoff

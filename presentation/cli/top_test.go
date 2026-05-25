@@ -464,6 +464,57 @@ func TestRootCLI_TopCommand_SnapshotEmptyJSONGolden(t *testing.T) {
 	assertJSONGolden(t, stdout.Bytes(), filepath.Join("testdata", "top", "snapshot_empty_json.golden.json"))
 }
 
+func TestRootCLI_SessionsCommand_SnapshotEmptyTextGolden(t *testing.T) {
+	prevLocal := time.Local
+	time.Local = time.UTC
+	t.Cleanup(func() { time.Local = prevLocal })
+
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{}),
+		cli.WithEvent(&topPaneEventStub{}),
+		cli.WithMemory(&memoryUsecaseStub{}),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"sessions",
+		"--db-path", "/tmp/test-traceary.db",
+		"--snapshot",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	assertGolden(t, stdout.Bytes(), filepath.Join("testdata", "top", "snapshot_text_empty.golden"))
+}
+
+func TestRootCLI_SessionsCommand_SnapshotEmptyJSONGolden(t *testing.T) {
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{}),
+		cli.WithEvent(&topPaneEventStub{}),
+		cli.WithMemory(&memoryUsecaseStub{}),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"sessions",
+		"--db-path", "/tmp/test-traceary.db",
+		"--snapshot",
+		"--json",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	assertJSONGolden(t, stdout.Bytes(), filepath.Join("testdata", "top", "snapshot_empty_json.golden.json"))
+}
+
 func TestRootCLI_TopCommand_JSONRequiresSnapshot(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(

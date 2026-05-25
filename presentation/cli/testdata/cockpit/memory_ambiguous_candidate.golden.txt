@@ -1,5 +1,5 @@
 Traceary cockpit · memory review
-tabs: 1 Tail  2 Top  [3 Memory]  4 Sessions  5 Settings
+tabs: 1 Tail  2 Sessions  [3 Memory]  4 Settings
 
 memory review · decision card
 candidate 1 / 1
@@ -38,4 +38,4 @@ accept as-is unavailable: accepted memory requires at least one evidence ref
 
 a unavailable (evidence required) · r attach evidence · x reject · s skip · v evidence · ↑/↓ navigate · ? help · q quit
 
-1-5 tabs · ←/→ tabs · tab/shift+tab next/prev · esc back · ctrl+c quit · ? help · a unavailable (evidence required) · r attach evidence · x reject · s skip · v evidence · q finish/apply
+1-4 tabs · ←/→ tabs · tab/shift+tab next/prev · esc back · ctrl+c quit · ? help · a unavailable (evidence required) · r attach evidence · x reject · s skip · v evidence · q finish/apply

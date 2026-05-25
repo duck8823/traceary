@@ -71,7 +71,7 @@ type sessionTreeNode struct {
 }
 
 // topSnapshotPayload is the top-level JSON shape of
-// `traceary top --snapshot --json`. The envelope was introduced in
+// `traceary sessions --snapshot --json` / `traceary top --snapshot --json`. The envelope was introduced in
 // v0.14.0 alongside the multi-pane redesign so the snapshot can carry
 // the dashboard's secondary surfaces (recent failures, recent
 // commands, memory review queue candidates) next to the active
@@ -142,7 +142,7 @@ type topSnapshotLargePayloads struct {
 }
 
 // topSnapshotNode is the JSON shape of a single node in the
-// `traceary top --snapshot --json` output. It is intentionally
+// `traceary sessions --snapshot --json` / `traceary top --snapshot --json` output. It is intentionally
 // independent from sessionTreeNode so the top contract can carry
 // latest_event_* fields without reshaping the session tree contract
 // that other consumers depend on.

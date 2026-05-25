@@ -73,7 +73,7 @@ func TestCockpitDogfoodTerminalSizesKeepTaskCues(t *testing.T) {
 			"Loading live events",
 		},
 		"top_all_green": {
-			"Top summary",
+			"Sessions summary",
 			"doctor: pass=4 warn=0 fail=0",
 			"memories: accepted(reviewed)=2 candidate(inbox)=0 new=0",
 		},
@@ -334,7 +334,7 @@ func TestCockpitDogfoodJapaneseNarrowSmoke(t *testing.T) {
 		"アクションメニュー",
 		"全体ナビゲーション",
 		"1 Tail",
-		"5 設定",
+		"4 設定",
 		"? ヘルプ",
 	} {
 		if !strings.Contains(view, must) {

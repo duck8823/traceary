@@ -57,8 +57,8 @@ func (c *RootCLI) newCockpitCommand() *cobra.Command {
 		Aliases: []string{"dashboard"},
 		Short:   Localize("Open the Traceary operator cockpit TUI", "Traceary operator cockpit TUI を開く"),
 		Long: Localize(
-			"Open the Traceary operator cockpit TUI. It gathers Tail (`tail`), Top (`top`), Doctor (`doctor`), Handoff, and memory review workflows behind one TTY-only shell. In an interactive terminal, bare `traceary` opens the same Tail-first TUI by default; `traceary tui` remains the explicit compatibility entrypoint for operators who prefer a named command.",
-			"Traceary operator cockpit TUI を開きます。Tail (`tail`) / Top (`top`) / Doctor (`doctor`) / Handoff / メモリ確認を 1 つの TTY 専用 shell にまとめます。対話 terminal では subcommand なしの `traceary` も同じ Tail-first TUI をデフォルトで開きます。`traceary tui` は明示的に呼びたい operator のための互換 entrypoint として残ります。",
+			"Open the Traceary operator cockpit TUI. It gathers Tail (`tail`), Sessions (`sessions`), Doctor (`doctor`), Handoff, and memory review workflows behind one TTY-only shell; `traceary top` remains a non-interactive compatibility command. In an interactive terminal, bare `traceary` opens the same Tail-first TUI by default; `traceary tui` remains the explicit compatibility entrypoint for operators who prefer a named command.",
+			"Traceary operator cockpit TUI を開きます。Tail (`tail`) / Sessions (`sessions`) / Doctor (`doctor`) / Handoff / メモリ確認を 1 つの TTY 専用 shell にまとめます。`traceary top` は非対話の互換 command として残ります。対話 terminal では subcommand なしの `traceary` も同じ Tail-first TUI をデフォルトで開きます。`traceary tui` は明示的に呼びたい operator のための互換 entrypoint として残ります。",
 		),
 		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -585,8 +585,8 @@ func formatCockpitCheckpoint(at time.Time) string {
 
 func newCockpitNonInteractiveError(output io.Writer) error {
 	guidance := Localize(
-		"Traceary cockpit requires an interactive terminal (TTY).\nUse the existing non-interactive commands instead:\n  traceary list\n  traceary top --snapshot [--json]\n  traceary doctor --json\n  traceary session handoff\n  traceary memory inbox list\nRun `traceary` (or `traceary tui`) from a terminal to open the cockpit.",
-		"Traceary cockpit には対話 terminal (TTY) が必要です。\n非対話 shell では既存 command を使ってください:\n  traceary list\n  traceary top --snapshot [--json]\n  traceary doctor --json\n  traceary session handoff\n  traceary memory inbox list\nterminal から `traceary`（または `traceary tui`）を実行すると cockpit を開けます。",
+		"Traceary cockpit requires an interactive terminal (TTY).\nUse the existing non-interactive commands instead:\n  traceary list\n  traceary sessions --snapshot [--json]\n  traceary top --snapshot [--json] # compatibility\n  traceary doctor --json\n  traceary session handoff\n  traceary memory inbox list\nRun `traceary` (or `traceary tui`) from a terminal to open the cockpit.",
+		"Traceary cockpit には対話 terminal (TTY) が必要です。\n非対話 shell では既存 command を使ってください:\n  traceary list\n  traceary sessions --snapshot [--json]\n  traceary top --snapshot [--json] # compatibility\n  traceary doctor --json\n  traceary session handoff\n  traceary memory inbox list\nterminal から `traceary`（または `traceary tui`）を実行すると cockpit を開けます。",
 	)
 	if output != nil {
 		_, _ = fmt.Fprintln(output, guidance)
@@ -657,7 +657,6 @@ const (
 	cockpitModeDoctor
 	cockpitModeDetail
 	cockpitModeMemoryReview
-	cockpitModeSessions
 	cockpitModeSettings
 )
 
@@ -667,7 +666,6 @@ const (
 	cockpitSectionLive cockpitSectionID = iota
 	cockpitSectionTop
 	cockpitSectionMemory
-	cockpitSectionSessions
 	cockpitSectionSettings
 	cockpitSectionCount
 )
@@ -986,8 +984,6 @@ func (m cockpitModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateLiveKey(msg)
 	case cockpitModeTop:
 		return m.updateTopKey(msg)
-	case cockpitModeSessions:
-		return m.updateSessionsKey(msg)
 	default:
 		return m.updateLiveKey(msg)
 	}
@@ -1088,8 +1084,6 @@ func (m cockpitModel) activeCockpitSection() cockpitSectionID {
 		return cockpitSectionTop
 	case cockpitModeMemoryReview:
 		return cockpitSectionMemory
-	case cockpitModeSessions:
-		return cockpitSectionSessions
 	case cockpitModeSettings:
 		return cockpitSectionSettings
 	default:
@@ -1133,9 +1127,6 @@ func (m cockpitModel) openCockpitSection(section cockpitSectionID) (tea.Model, t
 	case cockpitSectionMemory:
 		m.mode = cockpitModeMemoryReview
 		return m, m.startCockpitMemoryReviewLoad()
-	case cockpitSectionSessions:
-		m.mode = cockpitModeSessions
-		return m, nil
 	case cockpitSectionSettings:
 		return m.openCockpitSettings()
 	default:
@@ -1296,13 +1287,6 @@ func (m cockpitModel) updateDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.detailOffset = 0
 			return m, m.cockpitLiveTickCmd()
 		}
-	}
-	return m, nil
-}
-
-func (m cockpitModel) updateSessionsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if key.Matches(msg, m.keys.Refresh) {
-		return m, m.startCockpitHomeLoad()
 	}
 	return m, nil
 }
@@ -1614,7 +1598,7 @@ func (m cockpitModel) fetchCockpitTopDetailCmd(req topDetailRequest, seq uint64)
 	ctx := m.loaderCtx
 	return func() tea.Msg {
 		if loader == nil {
-			return cockpitTopDetailLoadedMsg{request: req, seq: seq, err: xerrors.New(Localize("cockpit top detail loader is not configured", "cockpit top detail 用 loader が設定されていません"))}
+			return cockpitTopDetailLoadedMsg{request: req, seq: seq, err: xerrors.New(Localize("cockpit sessions detail loader is not configured", "cockpit sessions detail 用 loader が設定されていません"))}
 		}
 		content, err := loader.loadCockpitTopDetail(ctx, req)
 		return cockpitTopDetailLoadedMsg{request: req, content: content, seq: seq, err: err}
@@ -1951,8 +1935,6 @@ func (m cockpitModel) View() string {
 		return m.detailView()
 	case cockpitModeMemoryReview:
 		return m.memoryReviewView()
-	case cockpitModeSessions:
-		return m.sessionsView()
 	case cockpitModeSettings:
 		return m.settingsView()
 	}
@@ -2007,7 +1989,7 @@ func (m cockpitModel) doctorLines() []string {
 	if len(snapshot.Sections) == 0 {
 		return append(lines,
 			m.styles.Success.Render(Localize("No doctor checks reported.", "Doctor check は報告されていません。")),
-			m.styles.Subtle.Render(Localize("Press r to refresh checks, 1 to return Tail, or 2 to return Top.", "r で check を再取得、1 で Tail、2 で Top へ戻ります。")),
+			m.styles.Subtle.Render(Localize("Press r to refresh checks, 1 to return Tail, or 2 to return Sessions.", "r で check を再取得、1 で Tail、2 で Sessions へ戻ります。")),
 		)
 	}
 	rendered := 0
@@ -2036,7 +2018,7 @@ func (m cockpitModel) doctorLines() []string {
 	if rendered == 0 {
 		lines = append(lines,
 			m.styles.Success.Render(Localize("No doctor checks reported.", "Doctor check は報告されていません。")),
-			m.styles.Subtle.Render(Localize("Press r to refresh checks, 1 to return Tail, or 2 to return Top.", "r で check を再取得、1 で Tail、2 で Top へ戻ります。")),
+			m.styles.Subtle.Render(Localize("Press r to refresh checks, 1 to return Tail, or 2 to return Sessions.", "r で check を再取得、1 で Tail、2 で Sessions へ戻ります。")),
 		)
 	}
 	return lines
@@ -2247,7 +2229,7 @@ func (m cockpitModel) topSignals() []cockpitTopSignal {
 			severity:    cockpitSignalWarning,
 			label:       Localize("Stale active sessions", "古いアクティブセッション"),
 			description: Localizef("stale_active=%d", "stale_active=%d", home.StaleActiveSessionCount),
-			actionKey:   "4",
+			actionKey:   "2",
 			actionLabel: Localize("open Sessions", "セッションを開く"),
 		})
 	}
@@ -2266,14 +2248,14 @@ func (m cockpitModel) topSignals() []cockpitTopSignal {
 			label:       Localize("Large payloads", "大きなペイロード"),
 			description: Localizef("large_payloads=%d", "large_payloads=%d", home.LargePayloadCount),
 			actionKey:   "2",
-			actionLabel: Localize("refresh Top summary", "Top 概要を再取得"),
+			actionLabel: Localize("refresh Sessions summary", "Sessions 概要を再取得"),
 		})
 	}
 	if len(signals) == 0 {
 		signals = append(signals, cockpitTopSignal{
 			severity:    cockpitSignalOK,
 			label:       Localize("No active signals", "対応が必要な通知なし"),
-			description: Localize("Tail and Top summaries have no review cues.", "Tail と Top 概要に確認が必要な項目はありません。"),
+			description: Localize("Tail and Sessions summaries have no review cues.", "Tail と Sessions 概要に確認が必要な項目はありません。"),
 		})
 	}
 	return signals
@@ -2323,7 +2305,7 @@ func (m cockpitModel) topTabView() string {
 	lines := []string{
 		m.styles.Subtle.Render(fmt.Sprintf("loaded=%s db=%s", formatJSONTime(m.home.LoadedAt), formatOptionalColumn(m.home.DBPath))),
 		"",
-		m.styles.Subtle.Render(Localize("Top summary", "Top 概要")),
+		m.styles.Subtle.Render(Localize("Sessions summary", "Sessions 概要")),
 		Localizef("• sessions: stale_active=%d recent_failures=%d recent_commands=%d new_events=%s%s", "• セッション: stale_active=%d recent_failures=%d recent_commands=%d new_events=%s%s", m.home.StaleActiveSessionCount, m.home.RecentFailureCount, m.home.RecentCommandCount, formatCockpitNewEventCount(m.home), eventScanSuffix),
 		Localizef("• memories: accepted(reviewed)=%d candidate(inbox)=%d new=%s remember-intent=%d low-quality=%d stale=%d%s", "• メモリ: accepted(reviewed)=%d candidate(inbox)=%d new=%s remember-intent=%d low-quality=%d stale=%d%s", m.home.AcceptedMemoryCount, m.home.CandidateMemoryCount, formatCockpitNewCandidateCount(m.home), m.home.RememberIntentCount, m.home.LowQualityMemoryCount, m.home.StaleMemoryCount, memoryScanSuffix),
 		Localizef("• doctor: pass=%d warn=%d fail=%d", "• doctor: pass=%d warn=%d fail=%d", m.home.DoctorPassCount, m.home.DoctorWarnCount, m.home.DoctorFailCount),
@@ -2378,18 +2360,18 @@ func (m cockpitModel) topTabView() string {
 	if m.statusErr != "" {
 		lines = append([]string{m.styles.Error.Render("• " + m.statusErr), ""}, lines...)
 	}
-	return m.renderCockpitShell(Localize("top", "Top"), lines, m.topLocalHelp())
+	return m.renderCockpitShell(Localize("sessions", "セッション"), lines, m.topLocalHelp())
 }
 
 func (m cockpitModel) cockpitTopDashboardLines() []string {
-	lines := []string{m.styles.Subtle.Render(Localize("Top dashboard", "Top ダッシュボード"))}
+	lines := []string{m.styles.Subtle.Render(Localize("Sessions dashboard", "Sessions ダッシュボード"))}
 	switch {
 	case m.top.loading && !m.top.loaded:
-		return append(lines, m.styles.Subtle.Render(Localize("Loading top dashboard...", "Top ダッシュボードを読み込み中...")))
+		return append(lines, m.styles.Subtle.Render(Localize("Loading Sessions dashboard...", "Sessions ダッシュボードを読み込み中...")))
 	case m.top.err != nil && !m.top.loaded:
 		return append(lines, m.styles.Error.Render(m.top.err.Error()))
 	case !m.top.loaded:
-		return append(lines, m.styles.Subtle.Render(Localize("Top dashboard has not loaded yet. Press r to refresh.", "Top ダッシュボードはまだ読み込まれていません。r で再取得します。")))
+		return append(lines, m.styles.Subtle.Render(Localize("Sessions dashboard has not loaded yet. Press r to refresh.", "Sessions ダッシュボードはまだ読み込まれていません。r で再取得します。")))
 	}
 	if m.top.err != nil {
 		lines = append(lines, m.styles.Error.Render(m.top.err.Error()))
@@ -2397,7 +2379,7 @@ func (m cockpitModel) cockpitTopDashboardLines() []string {
 
 	rows := m.cockpitTopRows()
 	if len(rows) == 0 {
-		return append(lines, m.styles.Subtle.Render(Localize("No top rows available.", "Top 行はありません。")))
+		return append(lines, m.styles.Subtle.Render(Localize("No session dashboard rows available.", "Sessions ダッシュボード行はありません。")))
 	}
 	viewport := m.cockpitTopViewportRows()
 	start := m.top.offset
@@ -2543,7 +2525,7 @@ func (m cockpitModel) cockpitTopViewportRows() int {
 func (m cockpitModel) cockpitTopDetailView() string {
 	title := m.top.detail.title
 	if title == "" {
-		title = Localize("top detail", "Top detail")
+		title = Localize("sessions detail", "Sessions detail")
 	}
 	lines := m.cockpitTopDetailLines()
 	if len(lines) == 0 {
@@ -2565,7 +2547,7 @@ func (m cockpitModel) cockpitTopDetailView() string {
 	if len(lines) > viewport {
 		body = append([]string{m.styles.Subtle.Render(fmt.Sprintf("rows=%d-%d/%d", start+1, end, len(lines)))}, body...)
 	}
-	return m.renderCockpitShell(Localize("top detail · ", "Top detail · ")+title, body, m.topLocalHelp())
+	return m.renderCockpitShell(Localize("sessions detail · ", "Sessions detail · ")+title, body, m.topLocalHelp())
 }
 
 func (m cockpitModel) cockpitTopDetailLines() []string {
@@ -2587,29 +2569,6 @@ func (m cockpitModel) cockpitTopDetailViewportRows() int {
 		return 1
 	}
 	return rows
-}
-
-func (m cockpitModel) sessionsView() string {
-	eventScanSuffix := ""
-	if m.home.NewEventScanLimited {
-		eventScanSuffix = " scan_limited=true"
-	}
-	lines := []string{
-		m.styles.Subtle.Render(Localize("Session and handoff workflows", "セッションと引き継ぎ")),
-		"",
-		Localizef("• stale active sessions=%d", "• 古いアクティブセッション=%d", m.home.StaleActiveSessionCount),
-		Localizef("• recent failures=%d", "• 最近の失敗=%d", m.home.RecentFailureCount),
-		Localizef("• recent commands=%d", "• 最近のコマンド=%d", m.home.RecentCommandCount),
-		Localizef("• new events=%s%s", "• 新着イベント=%s%s", formatCockpitNewEventCount(m.home), eventScanSuffix),
-		"",
-		m.styles.Subtle.Render(Localize("Available today:", "現在利用可能:")),
-		"traceary top --snapshot [--json]",
-		"traceary session handoff",
-		"traceary tail",
-		"",
-		m.styles.Subtle.Render(Localize("Dedicated session list and handoff drill-down remain compatible with the existing subcommands.", "専用のセッション一覧 / 引き継ぎ詳細が入るまでは、既存 subcommand への導線を維持します。")),
-	}
-	return m.renderCockpitShell(Localize("sessions", "セッション"), lines, Localize("r refresh session summary", "r セッション概要を再取得"))
 }
 
 func (m cockpitModel) renderCockpitShell(title string, body []string, localHelp string) string {
@@ -2653,7 +2612,7 @@ func (m cockpitModel) cockpitGlobalFooter(localHelp string) string {
 	}
 	parts := []string{}
 	if m.cockpitSectionNavigationAvailable() {
-		parts = append(parts, Localize("1-5 tabs", "1-5 タブ"))
+		parts = append(parts, Localize("1-4 tabs", "1-4 タブ"))
 		parts = append(parts, Localize("←/→ tabs", "←/→ タブ"))
 		parts = append(parts, Localize("tab/shift+tab next/prev", "tab/shift+tab 次/前"))
 	}
@@ -2737,7 +2696,8 @@ func (m cockpitModel) cockpitContextualHelp() []string {
 	lines = append(lines,
 		"",
 		m.styles.Subtle.Render(Localize("Fallback commands available today:", "現時点で使える代替コマンド:")),
-		"traceary top --snapshot [--json]",
+		"traceary sessions --snapshot [--json]",
+		"traceary top --snapshot [--json] # compatibility",
 		"traceary tail",
 		"traceary doctor --json",
 		"traceary session handoff",
@@ -2815,20 +2775,20 @@ func (m cockpitModel) cockpitContextualActions() []cockpitAction {
 		return actions
 	case cockpitModeTop:
 		if m.cockpitTopDetailOpen() {
-			actions := []cockpitAction{{key: "esc", description: Localize("Close Top detail", "Top 詳細を閉じる")}}
+			actions := []cockpitAction{{key: "esc", description: Localize("Close Sessions detail", "Sessions 詳細を閉じる")}}
 			if len(m.cockpitTopDetailLines()) > 1 {
-				actions = append(actions, cockpitAction{key: "↑/↓", description: Localize("Scroll Top detail", "Top 詳細をスクロール")})
+				actions = append(actions, cockpitAction{key: "↑/↓", description: Localize("Scroll Sessions detail", "Sessions 詳細をスクロール")})
 			}
 			return actions
 		}
 		actions := []cockpitAction{
-			{key: "r", description: Localize("Refresh Top dashboard", "Top ダッシュボードを再取得")},
+			{key: "r", description: Localize("Refresh Sessions dashboard", "Sessions ダッシュボードを再取得")},
 			{key: "d", description: Localize("Open Doctor checks", "Doctor チェックを開く")},
 		}
 		if cockpitTopHasSelectableRow(m.cockpitTopRows()) {
 			actions = append(actions,
-				cockpitAction{key: "↑/↓", description: Localize("Select a Top row", "Top row を選択")},
-				cockpitAction{key: "enter", description: Localize("Open selected Top detail", "選択中 Top row の詳細を開く")},
+				cockpitAction{key: "↑/↓", description: Localize("Select a Sessions row", "Sessions row を選択")},
+				cockpitAction{key: "enter", description: Localize("Open selected Sessions detail", "選択中 Sessions row の詳細を開く")},
 			)
 		}
 		return actions
@@ -2840,20 +2800,14 @@ func (m cockpitModel) cockpitContextualActions() []cockpitAction {
 		return actions
 	case cockpitModeMemoryReview:
 		return m.memoryReviewContextualActions()
-	case cockpitModeSessions:
-		return []cockpitAction{
-			{key: "r", description: Localize("Refresh session summary", "セッション概要を再取得")},
-			{description: Localize("Use `traceary session handoff` for the full handoff outside the cockpit.", "完全な引き継ぎは cockpit 外で `traceary session handoff` を使ってください。")},
-		}
 	case cockpitModeSettings:
 		return m.settingsContextualActions()
 	default:
 		return []cockpitAction{
 			{key: "1", description: Localize("Open Tail", "Tail を開く")},
-			{key: "2", description: Localize("Open Top dashboard", "Top ダッシュボードを開く")},
+			{key: "2", description: Localize("Open Sessions dashboard", "Sessions ダッシュボードを開く")},
 			{key: "3", description: Localize("Open Memory review", "メモリ確認を開く")},
-			{key: "4", description: Localize("Open Sessions and handoff entry points", "セッションと引き継ぎ導線を開く")},
-			{key: "5", description: Localize("Open Settings", "Settings を開く")},
+			{key: "4", description: Localize("Open Settings", "Settings を開く")},
 		}
 	}
 }
