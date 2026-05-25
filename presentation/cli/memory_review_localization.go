@@ -13,7 +13,7 @@ import "strings"
 //   - Copy/paste-sensitive developer terms and action/command names stay
 //     English: evidence, artifact refs, operator, scope, redaction, staged,
 //     accept/reject/skip, edit/distill.
-//   - Machine-searchable metric identifiers in Top summary rows stay English
+//   - Machine-searchable metric identifiers in Sessions summary rows stay English
 //     (for example accepted(reviewed), candidate(inbox), remember-intent). The
 //     surrounding explanation may be localized.
 func memoryReviewWorkflowLabel() string {

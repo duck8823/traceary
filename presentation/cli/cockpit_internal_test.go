@@ -315,8 +315,8 @@ func TestCockpitModelView_RendersActionableTriageBoard(t *testing.T) {
 	model.mode = cockpitModeTop
 	view := model.View()
 	for _, must := range []string{
-		"Traceary cockpit · top",
-		"Top summary",
+		"Traceary cockpit · sessions",
+		"Sessions summary",
 		"sessions: stale_active=2 recent_failures=2 recent_commands=5 new_events=3",
 		"memories: accepted(reviewed)=0 candidate(inbox)=4 new=2 remember-intent=1 low-quality=1 stale=0",
 		"doctor: pass=3 warn=1 fail=1",
@@ -362,8 +362,8 @@ func TestCockpitModelView_RendersStableEmptyStateAndOverview(t *testing.T) {
 	view := model.View()
 	for _, must := range []string{
 		"Traceary cockpit",
-		"tabs: 1 Tail  [2 Top]  3 Memory  4 Sessions  5 Settings",
-		"Top summary",
+		"tabs: 1 Tail  [2 Sessions]  3 Memory  4 Settings",
+		"Sessions summary",
 		"Actionable signals",
 		"[OK] No active signals",
 		"Signal details",
@@ -432,7 +432,7 @@ func TestCockpitModelTopTab_LoadsDashboardAndOpensDetail(t *testing.T) {
 	}
 	view := model.View()
 	for _, must := range []string{
-		"Top dashboard",
+		"Sessions dashboard",
 		"SESSIONS (1)",
 		"RECENT FAILURES (1)",
 		"go test failed in top tab",
@@ -466,7 +466,7 @@ func TestCockpitModelTopTab_LoadsDashboardAndOpensDetail(t *testing.T) {
 		t.Fatalf("top detail kind = %v, want event", got)
 	}
 	view = model.View()
-	if !strings.Contains(view, "Traceary cockpit · top detail") || !strings.Contains(view, "failure detail") {
+	if !strings.Contains(view, "Traceary cockpit · sessions detail") || !strings.Contains(view, "failure detail") {
 		t.Fatalf("top detail view missing loaded detail:\n%s", view)
 	}
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
@@ -1770,9 +1770,9 @@ func TestCockpitModel_GlobalNavigationShellRendersOnEveryScreen(t *testing.T) {
 				return next
 			}(),
 			expect: []string{
-				"Traceary cockpit · top",
-				"tabs: 1 Tail  [2 Top]  3 Memory  4 Sessions  5 Settings",
-				"Top summary",
+				"Traceary cockpit · sessions",
+				"tabs: 1 Tail  [2 Sessions]  3 Memory  4 Settings",
+				"Sessions summary",
 			},
 		},
 		{
@@ -1785,7 +1785,7 @@ func TestCockpitModel_GlobalNavigationShellRendersOnEveryScreen(t *testing.T) {
 			}(),
 			expect: []string{
 				"Traceary cockpit · live tail",
-				"tabs: [1 Tail]  2 Top  3 Memory  4 Sessions  5 Settings",
+				"tabs: [1 Tail]  2 Sessions  3 Memory  4 Settings",
 				"r refresh",
 			},
 		},
@@ -1800,7 +1800,7 @@ func TestCockpitModel_GlobalNavigationShellRendersOnEveryScreen(t *testing.T) {
 			}(),
 			expect: []string{
 				"Traceary cockpit · EVENT evt-shell",
-				"tabs: [1 Tail]  2 Top  3 Memory  4 Sessions  5 Settings",
+				"tabs: [1 Tail]  2 Sessions  3 Memory  4 Settings",
 				"esc back",
 			},
 		},
@@ -1814,21 +1814,8 @@ func TestCockpitModel_GlobalNavigationShellRendersOnEveryScreen(t *testing.T) {
 			}(),
 			expect: []string{
 				"Traceary cockpit · memory review",
-				"tabs: 1 Tail  2 Top  [3 Memory]  4 Sessions  5 Settings",
+				"tabs: 1 Tail  2 Sessions  [3 Memory]  4 Settings",
 				"Loading memory review queue",
-			},
-		},
-		{
-			name: "sessions",
-			model: func() cockpitModel {
-				next := model
-				next.mode = cockpitModeSessions
-				return next
-			}(),
-			expect: []string{
-				"Traceary cockpit · sessions",
-				"tabs: 1 Tail  2 Top  3 Memory  [4 Sessions]  5 Settings",
-				"traceary session handoff",
 			},
 		},
 		{
@@ -1848,7 +1835,7 @@ func TestCockpitModel_GlobalNavigationShellRendersOnEveryScreen(t *testing.T) {
 			}(),
 			expect: []string{
 				"Traceary cockpit · settings",
-				"tabs: 1 Tail  2 Top  3 Memory  4 Sessions  [5 Settings]",
+				"tabs: 1 Tail  2 Sessions  3 Memory  [4 Settings]",
 				"config status: missing",
 				"tab/shift+tab next/prev",
 			},
@@ -2211,10 +2198,9 @@ func TestCockpitModel_NavigationLinesAlignByDisplayWidth(t *testing.T) {
 			locale:    "en",
 			wantWidth: 11,
 			descriptions: []string{
-				"live event stream and event details",
-				"dashboard for sessions, failures, commands, memory, and health",
+				"live event stream",
+				"session dashboard for failures, commands, memory, and health",
 				"memory review queue",
-				"session and handoff entry points",
 				"language, read defaults, redaction diagnostics",
 			},
 		},
@@ -2222,10 +2208,9 @@ func TestCockpitModel_NavigationLinesAlignByDisplayWidth(t *testing.T) {
 			locale:    "ja",
 			wantWidth: 13,
 			descriptions: []string{
-				"イベントのライブ表示と詳細確認",
+				"イベントのライブ表示",
 				"セッション・失敗・コマンド・メモリ・状態の一覧",
 				"メモリ候補の確認キュー",
-				"セッション一覧と引き継ぎ導線",
 				"言語・表示既定・redaction 診断",
 			},
 		},
@@ -2270,11 +2255,10 @@ func TestCockpitNavigationSectionsCoverKnownSectionIDs(t *testing.T) {
 		englishDescription  string
 		japaneseDescription string
 	}{
-		{cockpitSectionLive, "1", "Tail", "Tail", "live event stream and event details", "イベントのライブ表示と詳細確認"},
-		{cockpitSectionTop, "2", "Top", "Top", "dashboard for sessions, failures, commands, memory, and health", "セッション・失敗・コマンド・メモリ・状態の一覧"},
+		{cockpitSectionLive, "1", "Tail", "Tail", "live event stream", "イベントのライブ表示"},
+		{cockpitSectionTop, "2", "Sessions", "セッション", "session dashboard for failures, commands, memory, and health", "セッション・失敗・コマンド・メモリ・状態の一覧"},
 		{cockpitSectionMemory, "3", "Memory", "メモリ", "memory review queue", "メモリ候補の確認キュー"},
-		{cockpitSectionSessions, "4", "Sessions", "セッション", "session and handoff entry points", "セッション一覧と引き継ぎ導線"},
-		{cockpitSectionSettings, "5", "Settings", "設定", "language, read defaults, redaction diagnostics", "言語・表示既定・redaction 診断"},
+		{cockpitSectionSettings, "4", "Settings", "設定", "language, read defaults, redaction diagnostics", "言語・表示既定・redaction 診断"},
 	}
 	if len(expected) != int(cockpitSectionCount) {
 		t.Fatalf("expected navigation section count = %d, want cockpitSectionCount %d", len(expected), cockpitSectionCount)
@@ -2463,7 +2447,7 @@ func TestCockpitSettingsViewShowsConfigStatusAndEnvOverrides(t *testing.T) {
 	}
 
 	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
-	updated, cmd := model.Update(cockpitRuneKey("5"))
+	updated, cmd := model.Update(cockpitRuneKey("4"))
 	model = updated.(cockpitModel)
 	if cmd != nil {
 		t.Fatalf("opening settings returned cmd = %T, want nil", cmd)
@@ -2533,7 +2517,7 @@ func TestCockpitSettingsStagesValidatesAndSavesConfigAtomically(t *testing.T) {
 		}
 	})
 	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
-	updated, _ := model.Update(cockpitRuneKey("5"))
+	updated, _ := model.Update(cockpitRuneKey("4"))
 	model = updated.(cockpitModel)
 
 	updated, _ = model.Update(cockpitRuneKey("l"))
@@ -2614,7 +2598,7 @@ func TestCockpitSettingsArrowKeyWorkflowStagesAndConfirmsSave(t *testing.T) {
 	t.Setenv(cliLanguageEnvKey, "en")
 
 	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
-	updated, _ := model.Update(cockpitRuneKey("5"))
+	updated, _ := model.Update(cockpitRuneKey("4"))
 	model = updated.(cockpitModel)
 
 	// Row 0: ui.language, Row 1: read.color, Row 2: read.fields.
@@ -2691,7 +2675,7 @@ func TestCockpitSettingsLeftRightMoveTabsWithoutStagingValues(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
-	updated, _ := model.Update(cockpitRuneKey("5"))
+	updated, _ := model.Update(cockpitRuneKey("4"))
 	model = updated.(cockpitModel)
 
 	for _, row := range []int{cockpitSettingsRowLanguage, cockpitSettingsRowReadColor, cockpitSettingsRowReadFields} {
@@ -2706,10 +2690,10 @@ func TestCockpitSettingsLeftRightMoveTabsWithoutStagingValues(t *testing.T) {
 		}
 	}
 
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyLeft})
 	model = updated.(cockpitModel)
-	if model.mode != cockpitModeSessions {
-		t.Fatalf("left from settings mode = %v, want sessions", model.mode)
+	if model.mode != cockpitModeMemoryReview || cmd == nil {
+		t.Fatalf("left from settings mode/cmd = %v/%T, want memory review/load", model.mode, cmd)
 	}
 	if model.settings.dirty() {
 		t.Fatalf("left from settings staged values unexpectedly:\n%s", model.View())
@@ -2725,7 +2709,7 @@ func TestCockpitSettingsEnterStagesEditableRows(t *testing.T) {
 
 	for _, row := range []int{cockpitSettingsRowLanguage, cockpitSettingsRowReadColor, cockpitSettingsRowReadFields} {
 		model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
-		updated, _ := model.Update(cockpitRuneKey("5"))
+		updated, _ := model.Update(cockpitRuneKey("4"))
 		model = updated.(cockpitModel)
 		model.settings.cursor = row
 
@@ -2745,7 +2729,7 @@ func TestCockpitSettingsDefaultCyclesAreSemanticallyReversible(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
-	updated, _ := model.Update(cockpitRuneKey("5"))
+	updated, _ := model.Update(cockpitRuneKey("4"))
 	model = updated.(cockpitModel)
 
 	for _, step := range []struct {
@@ -2807,7 +2791,7 @@ func TestCockpitSettingsEnterActionsRemoveDiscardAndReload(t *testing.T) {
 	}
 
 	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
-	updated, _ := model.Update(cockpitRuneKey("5"))
+	updated, _ := model.Update(cockpitRuneKey("4"))
 	model = updated.(cockpitModel)
 
 	model.settings.cursor = cockpitSettingsRowRemovePattern
@@ -2880,7 +2864,7 @@ func TestCockpitSettingsInvalidConfigIsRecoverableAndNotOverwritten(t *testing.T
 	}
 
 	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
-	updated, _ := model.Update(cockpitRuneKey("5"))
+	updated, _ := model.Update(cockpitRuneKey("4"))
 	model = updated.(cockpitModel)
 	updated, _ = model.Update(cockpitRuneKey("l"))
 	model = updated.(cockpitModel)
@@ -3177,34 +3161,34 @@ func TestCockpitModel_GlobalSectionKeysSwitchWithoutReturningToCLI(t *testing.T)
 
 	updated, cmd = model.Update(cockpitRuneKey("4"))
 	model = updated.(cockpitModel)
-	if model.mode != cockpitModeSessions || cmd != nil {
-		t.Fatalf("4 from memory review mode/cmd = %v/%T, want sessions/nil", model.mode, cmd)
+	if model.mode != cockpitModeSettings || cmd != nil {
+		t.Fatalf("4 from memory review mode/cmd = %v/%T, want settings/nil", model.mode, cmd)
 	}
 	if len(loader.reviewFinishCalls) != 0 {
 		t.Fatalf("global section switch applied memory decisions unexpectedly: %#v", loader.reviewFinishCalls)
 	}
 
-	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyTab})
-	model = updated.(cockpitModel)
-	if model.mode != cockpitModeSettings || cmd != nil {
-		t.Fatalf("tab from sessions mode/cmd = %v/%T, want settings/nil", model.mode, cmd)
-	}
-
 	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 	model = updated.(cockpitModel)
-	if model.mode != cockpitModeSessions || cmd != nil {
-		t.Fatalf("shift+tab from settings mode/cmd = %v/%T, want sessions/nil", model.mode, cmd)
+	if model.mode != cockpitModeMemoryReview || cmd == nil {
+		t.Fatalf("shift+tab from settings mode/cmd = %v/%T, want memory review/load", model.mode, cmd)
 	}
 
 	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyRight})
 	model = updated.(cockpitModel)
 	if model.mode != cockpitModeSettings || cmd != nil {
-		t.Fatalf("right from sessions mode/cmd = %v/%T, want settings/nil", model.mode, cmd)
+		t.Fatalf("right from memory review mode/cmd = %v/%T, want settings/nil", model.mode, cmd)
 	}
-	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyTab})
+
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyRight})
 	model = updated.(cockpitModel)
 	if model.mode != cockpitModeLive || cmd == nil {
-		t.Fatalf("tab from settings mode/cmd = %v/%T, want tail/load", model.mode, cmd)
+		t.Fatalf("right from settings mode/cmd = %v/%T, want tail/load", model.mode, cmd)
+	}
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	model = updated.(cockpitModel)
+	if model.mode != cockpitModeSettings || cmd != nil {
+		t.Fatalf("shift+tab from tail mode/cmd = %v/%T, want settings/nil", model.mode, cmd)
 	}
 }
 

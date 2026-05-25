@@ -165,6 +165,9 @@ type topModel struct {
 	detail   topDetailLoader
 	criteria topDataCriteria
 	idle     time.Duration
+	// commandName is the CLI surface that launched the reusable dashboard
+	// (`sessions` for the primary command, `top` for compatibility).
+	commandName string
 
 	width, height int
 
@@ -210,6 +213,8 @@ type topModelConfig struct {
 	Detail   topDetailLoader
 	Criteria topDataCriteria
 	Idle     time.Duration
+	// CommandName defaults to "top" for compatibility tests and legacy callers.
+	CommandName string
 	// Now defaults to time.Now when nil.
 	Now func() time.Time
 	// Location defaults to time.Local when nil.
@@ -242,6 +247,10 @@ func newTopModel(cfg topModelConfig) topModel {
 	if loaderCtx == nil {
 		loaderCtx = context.Background()
 	}
+	commandName := strings.TrimSpace(cfg.CommandName)
+	if commandName == "" {
+		commandName = "top"
+	}
 	return topModel{
 		keys:            cfg.Keys,
 		actions:         cfg.Actions,
@@ -250,6 +259,7 @@ func newTopModel(cfg topModelConfig) topModel {
 		detail:          cfg.Detail,
 		criteria:        cfg.Criteria,
 		idle:            cfg.Idle,
+		commandName:     commandName,
 		now:             now,
 		location:        loc,
 		refreshInterval: refresh,
@@ -674,7 +684,7 @@ func topPaneRowLines(rows []topPaneRow) []string {
 // sessionLines renders the active session tree to one line per node so
 // the dashboard can window into the result without re-walking the tree.
 // The renderer mirrors the snapshot text formatter so the dashboard rows
-// look identical to `traceary top --snapshot` output, modulo the pane
+// look identical to `traceary sessions --snapshot` / `traceary top --snapshot` output, modulo the pane
 // width truncation that the Bubble Tea renderer applies on display.
 func (m topModel) sessionLines(width int) []string {
 	return topPaneRowLines(m.sessionRows(width))
@@ -918,7 +928,7 @@ func (m topModel) renderDetail() string {
 	} else if len(lines) > 0 {
 		scroll = fmt.Sprintf(" %d", len(lines))
 	}
-	header := m.styles.Title.Render(fmt.Sprintf("traceary top · detail · %s%s", title, scroll))
+	header := m.styles.Title.Render(fmt.Sprintf("traceary %s · detail · %s%s", m.commandName, title, scroll))
 	body := strings.Join(visible, "\n")
 	if body == "" {
 		body = m.styles.Subtle.Render(Localize("(empty)", "(空)"))
@@ -953,7 +963,7 @@ func (m topModel) detailViewportRows() int {
 }
 
 func (m topModel) renderHeader() string {
-	title := m.styles.Title.Render(Localize("traceary top", "traceary top"))
+	title := m.styles.Title.Render(Localizef("traceary %s", "traceary %s", m.commandName))
 	filterLine := fmt.Sprintf("workspace=%s client=%s agent=%s idle=%s refresh=%s",
 		formatFilterValue(m.criteria.Workspace),
 		formatFilterValue(m.criteria.Client),
@@ -988,7 +998,7 @@ func (m topModel) renderFooter() string {
 
 func (m topModel) renderHelp() string {
 	var b strings.Builder
-	b.WriteString(m.styles.Title.Render(Localize("traceary top · help", "traceary top · ヘルプ")))
+	b.WriteString(m.styles.Title.Render(Localizef("traceary %s · help", "traceary %s · ヘルプ", m.commandName)))
 	b.WriteString("\n\n")
 	b.WriteString(Localize("Panes:\n", "ペイン:\n"))
 	b.WriteString("  1 sessions       " + Localize("active session tree (root → child)", "active session tree (root → child)") + "\n")

@@ -31,6 +31,7 @@ func init() {
 }
 
 const defaultTopLimit = 500
+const shortTopSessionIDLength = 12
 
 var topNowFunc = time.Now
 
@@ -52,10 +53,10 @@ func (c *RootCLI) newTopCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "top",
-		Short: Localize("Live active session tree dashboard", "active session tree のライブダッシュボードを表示する"),
+		Short: Localize("Compatibility alias for the Sessions dashboard", "Sessions ダッシュボードの互換 alias"),
 		Long: Localize(
-			"Show a live, auto-refreshing tree of active sessions grouped by root session. Press q or Ctrl-C to quit. Use --snapshot --json for a one-shot top JSON snapshot with latest-event metadata.",
-			"active session を root session ごとにまとめたライブ自動更新 tree を表示します。q または Ctrl-C で終了します。--snapshot --json で latest event metadata を含む top 専用 JSON snapshot を一回出力します。",
+			"`traceary top` remains as a compatibility alias for the Sessions dashboard. New interactive and script usage should prefer `traceary sessions` or `traceary sessions --snapshot [--json]`.",
+			"`traceary top` は Sessions ダッシュボードの互換 alias として残っています。新しい対話操作や script では `traceary sessions` または `traceary sessions --snapshot [--json]` を優先してください。",
 		),
 		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -63,6 +64,34 @@ func (c *RootCLI) newTopCommand() *cobra.Command {
 		},
 	}
 
+	bindTopFlags(cmd, &opts)
+
+	return cmd
+}
+
+func (c *RootCLI) newSessionsCommand() *cobra.Command {
+	var opts topCommandOptions
+
+	cmd := &cobra.Command{
+		Use:   "sessions",
+		Short: Localize("Live Sessions dashboard", "Sessions のライブダッシュボードを表示する"),
+		Long: Localize(
+			"Show a live, auto-refreshing Sessions dashboard for active sessions, failures, commands, memory review, and health. Press q or Ctrl-C to quit. Use --snapshot --json for a one-shot Sessions JSON snapshot with latest-event metadata.",
+			"active session、失敗、コマンド、メモリ確認、状態をまとめた Sessions ダッシュボードをライブ自動更新で表示します。q または Ctrl-C で終了します。--snapshot --json で latest event metadata を含む Sessions JSON snapshot を一回出力します。",
+		),
+		Aliases: []string{"session-top"},
+		Args:    noArgsLocalized(),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return c.runSessions(cmd.Context(), cmd.OutOrStdout(), opts)
+		},
+	}
+
+	bindTopFlags(cmd, &opts)
+
+	return cmd
+}
+
+func bindTopFlags(cmd *cobra.Command, opts *topCommandOptions) {
 	cmd.Flags().StringVar(&opts.dbPath, "db-path", "", dbPathFlagUsage())
 	cmd.Flags().StringVar(&opts.workspace, "workspace", "", Localize("filter by workspace", "ワークスペースでフィルタ"))
 	cmd.Flags().StringVar(&opts.client, "client", "", Localize("filter by client", "記録経路でフィルタ"))
@@ -89,11 +118,17 @@ func (c *RootCLI) newTopCommand() *cobra.Command {
 			"stale な active session も含めて表示し、JSON snapshot に is_stale メタデータを出力する",
 		),
 	)
-
-	return cmd
 }
 
 func (c *RootCLI) runTop(ctx context.Context, output io.Writer, opts topCommandOptions) error {
+	return c.runTopNamed(ctx, output, opts, "top")
+}
+
+func (c *RootCLI) runSessions(ctx context.Context, output io.Writer, opts topCommandOptions) error {
+	return c.runTopNamed(ctx, output, opts, "sessions")
+}
+
+func (c *RootCLI) runTopNamed(ctx context.Context, output io.Writer, opts topCommandOptions, commandName string) error {
 	resolvedDBPath, err := resolveDBPath(opts.dbPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
@@ -122,7 +157,7 @@ func (c *RootCLI) runTop(ctx context.Context, output io.Writer, opts topCommandO
 	if opts.asJSON {
 		return xerrors.Errorf("%s", Localize("--json requires --snapshot", "--json には --snapshot が必要です"))
 	}
-	return c.runTopTUI(ctx, output, opts)
+	return c.runTopTUI(ctx, output, opts, commandName)
 }
 
 // loadTopSnapshot fetches the data slices the redesigned snapshot surfaces
@@ -461,9 +496,10 @@ func formatTopNodeLineIn(node *sessionNode, prefix string, idle time.Duration, n
 	if client == "" {
 		client = "-"
 	}
-	return fmt.Sprintf("%s%s workspace=%s agent=%s client=%s started=%s latest=%s events=%d last=%s%s",
+	return fmt.Sprintf("%s%s name=%q workspace=%s agent=%s client=%s started=%s latest=%s events=%d last=%s%s",
 		prefix,
 		s.SessionID(),
+		formatTopSessionDisplayName(s),
 		compactTopWorkspace(s.Workspace().String()),
 		agent,
 		client,
@@ -473,6 +509,50 @@ func formatTopNodeLineIn(node *sessionNode, prefix string, idle time.Duration, n
 		formatTopLatestEvent(s),
 		idleMarker,
 	)
+}
+
+func formatTopSessionDisplayName(s apptypes.SessionSummary) string {
+	for _, candidate := range []string{s.Label(), s.Summary()} {
+		if name := truncateTopDisplayName(candidate); name != "" {
+			return name
+		}
+	}
+
+	workspace := compactTopWorkspace(s.Workspace().String())
+	agent := extractSubagentType(s.Agents())
+	if agent == "" {
+		agent = strings.TrimSpace(s.SubagentKind())
+	}
+	switch {
+	case workspace != "-" && agent != "":
+		return truncateTopDisplayName(workspace + " · " + agent)
+	case workspace != "-":
+		return truncateTopDisplayName(workspace)
+	case agent != "":
+		return truncateTopDisplayName(agent)
+	default:
+		return shortTopSessionID(s.SessionID().String())
+	}
+}
+
+func truncateTopDisplayName(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	return truncateMessage(value)
+}
+
+func shortTopSessionID(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "-"
+	}
+	runes := []rune(id)
+	if len(runes) <= shortTopSessionIDLength {
+		return id
+	}
+	return string(runes[:shortTopSessionIDLength])
 }
 
 // topWorkspaceMaxWidth is the column budget for the workspace cell
@@ -533,7 +613,7 @@ func formatTopLatestEvent(s apptypes.SessionSummary) string {
 // inherits the shared TUI safety net (TTY guard, terminal restore, signal
 // handling); a non-TTY caller falls back to the snapshot text writer so
 // `traceary top` keeps working when piped into a file or CI log.
-func (c *RootCLI) runTopTUI(ctx context.Context, output io.Writer, opts topCommandOptions) error {
+func (c *RootCLI) runTopTUI(ctx context.Context, output io.Writer, opts topCommandOptions, commandName string) error {
 	loader := c.newTopDataLoader()
 	criteria := topDataCriteria{
 		Workspace:          opts.workspace,
@@ -555,6 +635,7 @@ func (c *RootCLI) runTopTUI(ctx context.Context, output io.Writer, opts topComma
 		Detail:          loader,
 		Criteria:        criteria,
 		Idle:            opts.idle,
+		CommandName:     commandName,
 		Now:             topNowFunc,
 		RefreshInterval: topDashboardRefreshInterval,
 		LoaderCtx:       ctx,

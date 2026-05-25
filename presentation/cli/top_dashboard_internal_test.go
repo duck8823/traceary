@@ -196,6 +196,35 @@ func sendRunes(m topModel, runes string) topModel {
 	return updated.(topModel)
 }
 
+func TestTopModel_CommandNameCustomizesChrome(t *testing.T) {
+	t.Parallel()
+
+	m := newTopModel(topModelConfig{
+		Keys:            tui.DefaultKeyMap(),
+		Actions:         defaultTopPaneActionKeys(),
+		Styles:          tui.DefaultStyles(),
+		CommandName:     "sessions",
+		Now:             func() time.Time { return fixedDashboardNow },
+		Location:        time.UTC,
+		RefreshInterval: 0,
+	})
+
+	if header := m.renderHeader(); !strings.Contains(header, "traceary sessions") {
+		t.Fatalf("sessions header missing command name:\n%s", header)
+	}
+
+	m.mode = topModeHelp
+	if help := m.View(); !strings.Contains(help, "traceary sessions · help") {
+		t.Fatalf("sessions help missing command name:\n%s", help)
+	}
+
+	m.mode = topModeDetail
+	m.detailUI = topDetailState{title: "SESSION session-1", lines: []string{"detail line"}}
+	if detail := m.View(); !strings.Contains(detail, "traceary sessions · detail") {
+		t.Fatalf("sessions detail missing command name:\n%s", detail)
+	}
+}
+
 func detailTargetID(target topDetailTarget) string {
 	switch target.kind {
 	case topDetailSession:

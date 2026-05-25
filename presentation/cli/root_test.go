@@ -74,7 +74,7 @@ func TestRootCLI_NoArgsNonInteractiveShowsHelpAndTuiGuidance(t *testing.T) {
 		"Traceary records and inspects local AI-agent work history",
 		"Tail-first operator cockpit",
 		"traceary list",
-		"traceary top --snapshot",
+		"traceary sessions --snapshot",
 		"traceary doctor --json",
 		"Available Commands:",
 	} {

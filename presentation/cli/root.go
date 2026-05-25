@@ -202,8 +202,8 @@ func (c *RootCLI) Command() *cobra.Command {
 		Use:   "traceary",
 		Short: Localize("Local-first CLI for AI agent work history", "AI エージェントの作業履歴をローカルに記録する CLI"),
 		Long: Localize(
-			"Traceary records and inspects local AI-agent work history. In an interactive terminal, running `traceary` with no subcommand opens the Tail-first operator cockpit. The bare cockpit also accepts the compatibility flags `--db-path` and `--reset-state`; use `traceary tui --help` for the discoverable explicit form. In scripts, pipes, or CI, use explicit read commands such as `traceary list`, `traceary top --snapshot [--json]`, or `traceary doctor --json`; use `traceary --help` to print this help in a terminal.",
-			"Traceary はローカルの AI agent 作業履歴を記録・確認します。対話 terminal では、subcommand なしの `traceary` が Tail-first operator cockpit を開きます。bare cockpit は互換 flag の `--db-path` と `--reset-state` も受け付けます。発見しやすい明示 form は `traceary tui --help` を参照してください。script、pipe、CI では `traceary list`、`traceary top --snapshot [--json]`、`traceary doctor --json` などの明示的な read command を使ってください。terminal で help を表示するには `traceary --help` を使います。",
+			"Traceary records and inspects local AI-agent work history. In an interactive terminal, running `traceary` with no subcommand opens the Tail-first operator cockpit. The bare cockpit also accepts the compatibility flags `--db-path` and `--reset-state`; use `traceary tui --help` for the discoverable explicit form. In scripts, pipes, or CI, use explicit read commands such as `traceary list`, `traceary sessions --snapshot [--json]`, or `traceary doctor --json`; `traceary top --snapshot [--json]` remains available as a compatibility alias.",
+			"Traceary はローカルの AI agent 作業履歴を記録・確認します。対話 terminal では、subcommand なしの `traceary` が Tail-first operator cockpit を開きます。bare cockpit は互換 flag の `--db-path` と `--reset-state` も受け付けます。発見しやすい明示 form は `traceary tui --help` を参照してください。script、pipe、CI では `traceary list`、`traceary sessions --snapshot [--json]`、`traceary doctor --json` などの明示的な read command を使ってください。`traceary top --snapshot [--json]` は互換 alias として引き続き使えます。",
 		),
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -223,6 +223,7 @@ func (c *RootCLI) Command() *cobra.Command {
 	rootCmd.AddCommand(c.newAuditCommand())
 	rootCmd.AddCommand(c.newSearchCommand())
 	rootCmd.AddCommand(c.newTailCommand())
+	rootCmd.AddCommand(c.newSessionsCommand())
 	rootCmd.AddCommand(c.newTopCommand())
 	rootCmd.AddCommand(c.newCockpitCommand())
 	rootCmd.AddCommand(c.newContextCommand())
