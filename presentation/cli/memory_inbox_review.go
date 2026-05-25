@@ -1120,6 +1120,17 @@ func memoryReviewRequiresAcceptConfirmation(details apptypes.MemoryDetails) bool
 	return summary.Source() == domtypes.MemorySourceExtractedHidden || summary.Confidence() == domtypes.ConfidenceLow
 }
 
+func memoryReviewDecisionStatus(details apptypes.MemoryDetails) string {
+	switch {
+	case memoryReviewBlocksAccept(details):
+		return "blocked:no-evidence"
+	case memoryReviewRequiresAcceptConfirmation(details):
+		return "needs-confirmation"
+	default:
+		return "ready"
+	}
+}
+
 func memoryReviewQualitySignal(details apptypes.MemoryDetails) string {
 	summary := details.Summary()
 	signals := make([]string, 0, 4)
@@ -1154,6 +1165,91 @@ func memoryReviewQualitySignal(details apptypes.MemoryDetails) string {
 		signals = append(signals, Localize("accept requires confirmation", "accept には確認が必要"))
 	}
 	return strings.Join(signals, "; ")
+}
+
+func writeMemoryReviewDecisionCard(output io.Writer, details apptypes.MemoryDetails) error {
+	summary := details.Summary()
+	if _, err := fmt.Fprintf(
+		output,
+		"DECISION_CONTEXT:\nMEMORY_ID: %s\nTYPE: %s\nSCOPE: %s\nSTATUS: %s\nCONFIDENCE: %s\nSOURCE: %s\nREVIEW_STATUS: %s\nQUALITY_SIGNAL: %s\nSUPERSEDES: %s\nEXPIRES_AT: %s\nVALID_FROM: %s\nVALID_TO: %s\nCREATED_AT: %s\nUPDATED_AT: %s\nFACT:\n%s\n",
+		summary.MemoryID(),
+		summary.MemoryType(),
+		formatMemoryScope(summary.Scope()),
+		summary.Status(),
+		summary.Confidence(),
+		summary.Source(),
+		memoryReviewDecisionStatus(details),
+		memoryReviewQualitySignal(details),
+		formatOptionalMemoryID(summary.Supersedes()),
+		formatOptionalTime(summary.ExpiresAt()),
+		formatTextTime(summary.ValidFrom()),
+		formatOptionalTime(summary.ValidTo()),
+		formatTextTime(summary.CreatedAt()),
+		formatTextTime(summary.UpdatedAt()),
+		summary.Fact(),
+	); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print memory review decision context", "memory review decision context の出力に失敗しました"), err)
+	}
+	if err := writeMemoryReviewSourceContext(output, details); err != nil {
+		return err
+	}
+	if err := writeEvidenceRefSection(output, details.EvidenceRefs()); err != nil {
+		return err
+	}
+	if err := writeArtifactRefSection(output, details.ArtifactRefs()); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(output, "\nACCEPT_GUIDANCE:"); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print memory review guidance heading", "memory review guidance 見出しの出力に失敗しました"), err)
+	}
+	if _, err := fmt.Fprintln(output, memoryReviewDecisionGuidance(details)); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print memory review guidance", "memory review guidance の出力に失敗しました"), err)
+	}
+	if _, err := fmt.Fprintln(output, "\nACCEPT_AS_IS_CHECKLIST:"); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print memory review checklist heading", "memory review checklist 見出しの出力に失敗しました"), err)
+	}
+	for _, item := range memoryReviewAcceptChecklist(details) {
+		if _, err := fmt.Fprintln(output, "- "+item); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print memory review checklist item", "memory review checklist 項目の出力に失敗しました"), err)
+		}
+	}
+	if _, err := fmt.Fprintln(output, "\nRELATED_MEMORY:"); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print related memory heading", "related memory 見出しの出力に失敗しました"), err)
+	}
+	if _, err := fmt.Fprintln(output, "- "+memoryReviewDuplicateSupersedeHint(summary)); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print related memory hint", "related memory hint の出力に失敗しました"), err)
+	}
+	return nil
+}
+
+func writeMemoryReviewSourceContext(output io.Writer, details apptypes.MemoryDetails) error {
+	if _, err := fmt.Fprintln(output, "\nSOURCE_CONTEXT:"); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print source context heading", "source context 見出しの出力に失敗しました"), err)
+	}
+	sourceRefs := memoryReviewSourceContextRefs(details)
+	if len(sourceRefs) == 0 {
+		if _, err := fmt.Fprintln(output, "- no event/session evidence refs recorded"); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print empty source context", "空の source context の出力に失敗しました"), err)
+		}
+		return nil
+	}
+	for _, ref := range sourceRefs {
+		if _, err := fmt.Fprintln(output, "- "+ref); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print source context ref", "source context ref の出力に失敗しました"), err)
+		}
+	}
+	return nil
+}
+
+func memoryReviewSourceContextRefs(details apptypes.MemoryDetails) []string {
+	refs := make([]string, 0)
+	for _, ref := range details.EvidenceRefs() {
+		switch ref.Kind() {
+		case domtypes.EvidenceRefKindEvent, domtypes.EvidenceRefKindSession:
+			refs = append(refs, formatMemoryReviewRefLine(ref.Kind().String(), ref.Value()))
+		}
+	}
+	return refs
 }
 
 func formatMemoryReviewRememberIntent(summary apptypes.MemorySummary) string {

@@ -26,6 +26,7 @@ func (c *RootCLI) newMemoryInboxCommand() *cobra.Command {
 		Short: Localize("Review memory candidates with provenance", "メモリ候補を provenance 付きで確認する"),
 	}
 	cmd.AddCommand(c.newMemoryInboxListCommand())
+	cmd.AddCommand(c.newMemoryInboxShowCommand())
 	cmd.AddCommand(c.newMemoryInboxAcceptCommand())
 	cmd.AddCommand(c.newMemoryInboxRejectCommand())
 	cmd.AddCommand(c.newMemoryInboxAttachCommand())
@@ -57,6 +58,22 @@ func (c *RootCLI) newMemoryInboxListCommand() *cobra.Command {
 	cmd.Flags().StringVar(&input.quality, "quality", "any", Localize("filter by quality category (any / low / normal)", "品質カテゴリで絞り込む (any / low / normal)"))
 	cmd.Flags().IntVar(&input.limit, "limit", defaultMemoryInboxLimit, Localize("maximum number of candidates to return", "表示件数"))
 	cmd.Flags().IntVar(&input.offset, "offset", 0, Localize("number of candidates to skip before listing", "一覧表示前にスキップする件数"))
+	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
+	return cmd
+}
+
+func (c *RootCLI) newMemoryInboxShowCommand() *cobra.Command {
+	input := memoryInboxShowCommandInput{}
+	cmd := &cobra.Command{
+		Use:   "show <memory-id>",
+		Short: Localize("Show an evidence-first decision card for a memory candidate", "メモリ候補の evidence 優先 decision card を表示する"),
+		Args:  exactArgsLocalized(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			input.memoryID = args[0]
+			return c.runMemoryInboxShow(cmd.Context(), cmd.OutOrStdout(), input)
+		},
+	}
+	cmd.Flags().StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
 	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	return cmd
 }
@@ -275,6 +292,32 @@ func (c *RootCLI) runMemoryInboxList(ctx context.Context, output io.Writer, inpu
 		}
 	}
 	return writeMemoryInboxList(output, items, input.asJSON)
+}
+
+func (c *RootCLI) runMemoryInboxShow(ctx context.Context, output io.Writer, input memoryInboxShowCommandInput) error {
+	if c.storeManagement == nil {
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+	}
+	if c.memory == nil {
+		return xerrors.New(Localize("memory usecase is not configured", "memory ユースケースが設定されていません"))
+	}
+	if strings.TrimSpace(input.memoryID) == "" {
+		return xerrors.New(Localize("memory id must not be empty", "memory id は空にできません"))
+	}
+	if err := c.initializeStore(ctx, input.dbPath); err != nil {
+		return err
+	}
+	details, err := c.memory.Show(ctx, domtypes.MemoryID(strings.TrimSpace(input.memoryID)))
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to show memory candidate", "メモリ候補の取得に失敗しました"), err)
+	}
+	if details.Summary().Status() != domtypes.MemoryStatusCandidate {
+		return xerrors.Errorf("%s", Localize("memory inbox show only accepts memory candidates; use `traceary memory show` for other statuses", "memory inbox show は memory candidate のみ対象です。他の status は `traceary memory show` を使ってください"))
+	}
+	if input.asJSON {
+		return writeJSON(output, newMemoryDetailsOutput(details))
+	}
+	return writeMemoryReviewDecisionCard(output, details)
 }
 
 func (c *RootCLI) runMemoryInboxCleanup(ctx context.Context, output io.Writer, input memoryInboxCleanupCommandInput) error {
@@ -657,20 +700,22 @@ func writeMemoryInboxList(output io.Writer, items []apptypes.MemoryDetails, asJS
 		}
 		return nil
 	}
-	if _, err := fmt.Fprintln(output, "MEMORY_ID\tTYPE\tSCOPE\tSOURCE\tEVIDENCE\tARTIFACT\tFACT"); err != nil {
+	if _, err := fmt.Fprintln(output, "MEMORY_ID\tTYPE\tSCOPE\tSOURCE\tCONFIDENCE\tEVIDENCE\tARTIFACT\tREVIEW\tFACT"); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print memory review queue header", "メモリ候補の確認キューヘッダーの出力に失敗しました"), err)
 	}
 	for _, details := range items {
 		summary := details.Summary()
 		if _, err := fmt.Fprintf(
 			output,
-			"%s\t%s\t%s\t%s\t%d\t%d\t%s\n",
+			"%s\t%s\t%s\t%s\t%s\t%d\t%d\t%s\t%s\n",
 			summary.MemoryID(),
 			summary.MemoryType(),
 			formatMemoryScope(summary.Scope()),
 			summary.Source(),
+			summary.Confidence(),
 			len(details.EvidenceRefs()),
 			len(details.ArtifactRefs()),
+			memoryReviewDecisionStatus(details),
 			truncateMessage(summary.Fact()),
 		); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print memory review queue row", "メモリ候補の確認キュー行の出力に失敗しました"), err)
