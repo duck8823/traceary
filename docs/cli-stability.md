@@ -27,14 +27,14 @@ The tier sets the rules for what may change, when it may change, and what notice
 | **Admin / maintenance** | Listed in `--help` under their namespace (`store`, `memory admin`, etc.) and in `docs/cli/README.md`. | Command path and the documented flag set; `--json` / `--dry-run` / `--apply` semantics where applicable. | Additive between minors. Breaking changes use the same deprecation flow as public commands but may move faster (stderr notice in N, removal in N+1) when the affected audience is operators only. |
 | **Plumbing / hidden / deprecated** | Hidden from `--help` (`Hidden: true`). Documented as "deprecated alias" or "cleanup-only" in the CLI reference. | Argument and flag shape of the canonical replacement they re-route into; stderr deprecation notice format. | May be removed at the next minor release named in the deprecation notice. New plumbing commands should not be introduced unless they exist to bridge an in-flight migration. |
 
-### Public commands (v0.15)
+### Public commands (current)
 
 The public surface is the operator-facing daily-use surface. Public commands keep their command path, flag names, stdout text shape, and `--json` / `--id-only` / NDJSON byte shape stable across minor releases.
 
-Public commands in v0.15 (grouped by intent):
+Current public commands, including compatibility aliases introduced after v0.15, are grouped by intent:
 
 - **Event recording** — `traceary log`, `traceary audit`
-- **Read / inspection** — `traceary list`, `traceary search`, `traceary tail`, `traceary timeline`, `traceary show`, `traceary context`, `traceary top` (and `traceary top --snapshot` / `--snapshot --json`)
+- **Read / inspection** — `traceary list`, `traceary search`, `traceary tail`, `traceary timeline`, `traceary show`, `traceary context`, `traceary sessions` (and `traceary sessions --snapshot` / `--snapshot --json`), plus the permanent compatibility alias `traceary top` (including `traceary top --snapshot` / `--snapshot --json`)
 - **Sessions** — `traceary session start`, `traceary session end`, `traceary session handoff` (including `--compact-only`), `traceary session list`, `traceary session tree`, `traceary session lineage`, `traceary session label`, `traceary session latest`, `traceary session active`
 - **Durable memory daily read** — `traceary memory list`, `traceary memory search`, `traceary memory show`
 - **Durable memory inbox** — `traceary memory inbox list`, `traceary memory inbox accept`, `traceary memory inbox reject`, `traceary memory inbox review` (TTY-only)
@@ -45,7 +45,9 @@ Public commands in v0.15 (grouped by intent):
 - **Replay / archive** — `traceary replay`
 - **Bundle import / export** — `traceary bundle export`, `traceary bundle import`
 
-The `traceary doctor` JSON envelope (`sections` / `summary` / `exit_code` / per-check fields), `traceary top --snapshot --json` envelope (`sessions` / `failures` / `recent_commands` / `candidates` / `stale_memories`), `traceary timeline --json` (`workspace_breakdown`), `traceary session tree --json` lineage fields, and the structured-text `traceary session handoff` field labels are all part of the public contract. They are golden-tested under `presentation/cli/testdata/` — see [JSON and snapshot contract tests](./operations/json-contract-tests.md) for the contract test workflow.
+The `traceary doctor` JSON envelope (`sections` / `summary` / `exit_code` / per-check fields), `traceary sessions --snapshot --json` / `traceary top --snapshot --json` envelope (`sessions` / `failures` / `recent_commands` / `candidates` / `stale_memories`), `traceary timeline --json` (`workspace_breakdown`), `traceary session tree --json` lineage fields, and the structured-text `traceary session handoff` field labels are all part of the public contract. They are golden-tested under `presentation/cli/testdata/` — see [JSON and snapshot contract tests](./operations/json-contract-tests.md) for the contract test workflow.
+
+`traceary top` is not deprecated in v0.19.0; it remains a permanent compatibility alias for every `traceary sessions` form. Removing it later would require the deprecation flow below. The v0.19.0 text snapshot intentionally inserts `name="..."` before the raw `workspace=` / `agent=` metadata for readability; scripts that need a stable machine contract should prefer the unchanged `--json` envelope or parse text fields by key rather than by position.
 
 > Public commands that are TTY-only (currently `traceary memory inbox review`) document the TTY requirement explicitly and exit with a non-zero code that names the scripted fallback when stdin/stdout is not a TTY. Adding a new TTY-only public command requires a documented batch fallback path.
 
@@ -152,7 +154,7 @@ A change does not require a deprecation window when it is purely additive:
 - adding a new public subcommand,
 - adding a new optional flag,
 - adding a new optional field at the end of a JSON object (consumers must tolerate unknown fields),
-- adding a new section to `traceary doctor` or a new pane to `traceary top --snapshot`.
+- adding a new section to `traceary doctor` or a new pane to the canonical `traceary sessions --snapshot` surface (mirrored by the `traceary top --snapshot` compatibility alias).
 
 Removing or renaming any of those is a breaking change and goes through the deprecation flow.
 

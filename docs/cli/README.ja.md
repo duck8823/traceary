@@ -77,7 +77,7 @@ Traceary operator cockpit TUI を開きます。
 
 個別の subcommand を覚える代わりに、operator loop を 1 つのターミナル画面から始めたいときは、対話 terminal で bare `traceary` を使います。`traceary tui` は同じ cockpit を明示的に開く互換 entrypoint として残ります。cockpit は Tail-first で開き、active work、直近の失敗、doctor status、前回 live-tail 以降の新着 event をまとめて表示します。Sessions タブは session 中心 (session、失敗、コマンド、状態) に保ち、メモリ候補や stale memory cleanup は専用の Memory タブに置きます。cockpit から live tail、doctor details、memory inbox review へ移動できます。
 
-`traceary tui` は対話 terminal が必要です。非 TTY で起動した場合は exit code `2` で拒否し、script 向け command (`list`、`sessions --snapshot [--json]`、`top --snapshot [--json]`、`doctor --json`、`session handoff`、`memory inbox list`) の利用を案内します。非 TTY の bare `traceary` は cockpit を起動せず、help と fallback guidance を表示します。
+`traceary tui` は対話 terminal が必要です。非 TTY で起動した場合は exit code `2` で拒否し、script 向け command (`list`、`sessions --snapshot [--json]`、`doctor --json`、`session handoff`、`memory inbox list`。恒久的な互換 path は `top --snapshot [--json]`) の利用を案内します。非 TTY の bare `traceary` は cockpit を起動せず、help と fallback guidance を表示します。
 
 主な flag:
 
@@ -316,7 +316,7 @@ durable memory を一覧表示します。scope flag を明示しない場合は
 
 ### `traceary memory inbox` — candidate review surface
 
-メモリ候補の確認キューをレビューします。`list` はメモリ候補を evidence / artifact ref 件数付きで一覧し、レビュアが provenance を確認してから accept できるようにします。`accept` / `reject` は positional id（対話的に打ち込む典型ケース）か、batch script / MCP caller 向けの `--ids id1,id2,...` のどちらでも受け付けます。partial batch でも id 単位の成功/失敗を返すので、どの id が transition したかが必ず分かります。`--id-only` を指定すると memory id だけが stdout に出力されます (`--json` と排他)。canonical な memory inbox surface は v0.13.x の positional-id 形式の strict superset です。
+メモリ候補の確認キューをレビューします。`list` はメモリ候補を confidence / review-readiness state と evidence / artifact ref 件数付きで一覧し、レビュアが provenance を確認してから accept できるようにします。`show` は単一候補の evidence-first decision card を表示します。`accept` / `reject` は positional id（対話的に打ち込む典型ケース）か、batch script / MCP caller 向けの `--ids id1,id2,...` のどちらでも受け付けます。partial batch でも id 単位の成功/失敗を返すので、どの id が transition したかが必ず分かります。`--id-only` を指定すると memory id だけが stdout に出力されます (`--json` と排他)。canonical な memory inbox surface は v0.13.x の positional-id 形式の strict superset です。
 
 #### `traceary memory inbox list`
 
@@ -327,6 +327,15 @@ durable memory を一覧表示します。scope flag を明示しない場合は
 - `--source imported` は host-native source (Codex 等、`memory admin import codex` 参照) から取り込まれた memory に絞ります。
 - `--source extracted` は `traceary memory admin extract` が session signal から起こした memory に絞ります。
 - `--source extracted-hidden` は audit 用に保存された低品質自動抽出を表示します（既定では除外）。
+
+#### `traceary memory inbox show <memory-id>`
+
+単一のメモリ候補を evidence-first decision card として表示します。text view には candidate fact、source context、confidence / review-readiness state、evidence refs、artifact refs、利用可能な duplicate / supersede hint、accept-as-is checklist が含まれます。`memory inbox list` の `REVIEW` column が `needs-confirmation` または `blocked:no-evidence` の候補を accept する前に使ってください。
+
+主な flag:
+
+- 確認対象の positional `<memory-id>`
+- `--json`
 
 #### `traceary memory inbox accept <memory-id>`
 
@@ -714,22 +723,30 @@ session end 境界を記録し、生成された event ID を出力します。
 - `--id-only`
 - `--json`
 
-### `traceary top`
+<a id="traceary-top"></a>
 
-ワークスペースの状況をライブ multi-pane dashboard で表示します。画面は active sessions (root → child) / 直近の失敗 / 直近の `command_executed` / メモリ候補の確認キュー内のメモリ候補 / stale durable memory の 5 ペイン構成で、それぞれ独立にスクロールできます。`tab` / `shift+tab` でフォーカスペイン切替、`↑/↓` (`k/j`) で 1 行スクロール、`pgup/pgdn` でページング、`g/G` で先頭 / 末尾へ、`r` で snapshot 再取得、`?` でヘルプ overlay 切替、`q` / Ctrl-C は終了します。`/` はフォーカス中ペインの incremental search prompt を開き、Enter で現在の filter を保持、Esc で active filter をクリアします。highlight 中の行で Enter を押すと、session / event / memory の detail modal を開きます。modal は Esc / `q` で閉じ、Ctrl-C は dashboard 全体を終了します。最新 activity が `--idle` より古い session は sessions ペイン内で dim 表示しますが、非表示にはしません。非 TTY 呼び出し (パイプ / CI ログ) では snapshot text 出力に自動でフォールバックします。`traceary session tree` は静的な retrospective view のままです。
+### `traceary sessions`
 
-snapshot 出力は dashboard の 5 ペインに合わせて拡張されており、パイプ / CI / スクリプト経由の利用者も live view と同じデータを取得できます。テキスト snapshot は `ACTIVE SESSIONS` / `RECENT FAILURES` / `RECENT COMMANDS` / `CANDIDATE MEMORIES (count=N)` / `STALE MEMORIES (count=N)` の各セクションに分かれ、空のペインも安定した empty-state 行を 1 行出すためヘッダーは常に出力されます。JSON snapshot は `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, items }`) / `stale_memories` (`{ count, items }`) を持つ envelope オブジェクトでラップされています。各ペインの行上限は dashboard と揃えており (failures 50 / recent commands 50 / candidates 25 / stale memories 25)、session ペインは引き続き `--limit` を使用します。
+ワークスペースの状況をライブ multi-pane dashboard で表示します。画面は active sessions (root → child) / 直近の失敗 / 直近の `command_executed` / メモリ候補の確認キュー内のメモリ候補 / stale durable memory の 5 ペイン構成で、それぞれ独立にスクロールできます。`tab` / `shift+tab` でフォーカスペイン切替、`↑/↓` (`k/j`) で 1 行スクロール、`pgup/pgdn` でページング、`g/G` で先頭 / 末尾へ、`r` で snapshot 再取得、`?` でヘルプ overlay 切替、`q` / Ctrl-C は終了します。`/` はフォーカス中ペインの incremental search prompt を開き、Enter で現在の filter を保持、Esc で active filter をクリアします。highlight 中の行で Enter を押すと、session / event / memory の detail modal を開きます。modal は Esc / `q` で閉じ、Ctrl-C は dashboard 全体を終了します。最新 activity が `--idle` より古い session は sessions ペイン内で dim 表示しますが、非表示にはしません。非 TTY 呼び出し (パイプ / CI ログ) では snapshot text 出力に自動でフォールバックします。`traceary top` は恒久的な互換 alias として引き続き使え、`traceary session tree` は静的な retrospective view のままです。
+
+snapshot 出力は dashboard の各ペインに合わせて拡張されており、パイプ / CI / スクリプト経由の利用者も live view と同じデータを取得できます。テキスト snapshot は先頭の `RELIABILITY` セクションに続いて `ACTIVE SESSIONS` / `RECENT FAILURES` / `RECENT COMMANDS` / `CANDIDATE MEMORIES (count=N remember_intent=M)` / `STALE MEMORIES (count=N)` の各セクションに分かれ、空のペインも安定した empty-state 行を 1 行出すためヘッダーは常に出力されます。JSON snapshot は `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, remember_intent_count, items }`) / `stale_memories` (`{ count, items }`) / `reliability` を持つ envelope オブジェクトでラップされています。各ペインの行上限は dashboard と揃えており (failures 50 / recent commands 50 / candidates 25 / stale memories 25)、session ペインは引き続き `--limit` を使用します。
 
 snapshot 例:
 
 ```sh
-traceary top --snapshot
+traceary sessions --snapshot
 ```
 
 ```text
+RELIABILITY:
+- stale_active_sessions=0 hint="ok"
+- memory_counts accepted=3 candidate=1 accepted_ratio=75% hint="review memory candidates with `traceary memory inbox review` and cleanup old candidates with `traceary memory inbox cleanup --dry-run`"
+- candidate_age count=1 oldest=2026-04-10T12:00:00Z newest=2026-04-10T12:00:00Z avg_age=6h0m hint="prioritize older memory candidates first"
+- large_payloads count=0 recent_commands=0 recent_failures=0 sampled=2 body_limit=500 hint="inspect full payloads with `traceary show <event_id>`; keep command output concise for handoff/top surfaces"
+
 ACTIVE SESSIONS:
-4a70c526 workspace=github.com/duck8823/traceary agent=codex client=claude started=07:06:37 latest=07:06:58 events=165 last=session_ended: duration=29m21s
-└── 7c91a2bf workspace=github.com/duck8823/traceary agent=worker client=claude started=07:03:12 latest=07:06:52 events=42 last=command_executed: go test ./presentation/cli
+4a70c526 name="github.com/duck8823/traceary · codex" workspace=github.com/duck8823/traceary agent=codex client=claude started=07:06:37 latest=07:06:58 events=165 last=transcript: investigating failing tests
+└── 7c91a2bf name="github.com/duck8823/traceary · worker" workspace=github.com/duck8823/traceary agent=worker client=claude started=07:03:12 latest=07:06:52 events=42 last=command_executed: go test ./presentation/cli
 
 RECENT FAILURES:
 07:06:58 command_executed go test ./presentation/cli [exit=1]
@@ -737,7 +754,7 @@ RECENT FAILURES:
 RECENT COMMANDS:
 07:06:52 command_executed go build ./...
 
-CANDIDATE MEMORIES (count=1):
+CANDIDATE MEMORIES (count=1 remember_intent=1):
 mem-1 preference prefer table-driven subtests
 
 STALE MEMORIES (count=1):
@@ -746,6 +763,7 @@ mem-stale-1 decision workspace:duck8823/traceary superseded superseded rollout n
 
 active session の列:
 
+- `name` — raw metadata の前に挿入される operator 向け表示名。`label`、`summary`、`workspace · agent`、workspace、agent、短い session id の順で fallback する。Go の `%q` と同じ quote / escape を使い、message と同じ truncate rule で短縮する
 - `workspace` — 短縮した workspace path。truncate 時は末尾を保持して repo 識別子が読めるようにする
 - `agent` — 最も具体的な agent / subagent role
 - `client` — 記録 client
@@ -761,7 +779,7 @@ active session の列:
 - `--client`
 - `--agent`
 - `--idle <duration>` — threshold より古い行を非表示にせず dim 表示
-- `--snapshot --json` — top 専用 snapshot contract で `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, items }`) / `stale_memories` (`{ count, items }`) の envelope を一回限り出力します。各 session node には標準の session フィールドに加えて `latest_event_kind` / `latest_event_message` / `latest_event_at` が含まれます。failures と recent_commands は標準 event JSON、memory candidates は durable memory summary JSON と同じ shape を再利用します。stale memories は durable memory summary に `reason` を加えた shape です。`traceary session tree --json` は独立した contract を保ち、これらいずれも露出しません
+- `--snapshot --json` — sessions 専用 snapshot contract で `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, remember_intent_count, items }`) / `stale_memories` (`{ count, items }`) / `reliability` の envelope を一回限り出力します。各 session node には標準の session フィールドに加えて `latest_event_kind` / `latest_event_message` / `latest_event_at` が含まれます。failures と recent_commands は標準 event JSON、memory candidates は durable memory summary JSON と同じ shape を再利用します。stale memories は durable memory summary に `reason` を加えた shape です。`traceary session tree --json` は独立した contract を保ち、これらいずれも露出しません
 - `--limit`
 
 ### `traceary session list`
