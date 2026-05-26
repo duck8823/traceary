@@ -5,7 +5,7 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
-## [v0.19.0] - 2026-05-25
+## [v0.19.0] - 2026-05-26
 
 ### Added
 - **Tail-first cockpit shell (#1053, #1054)** — `traceary tui` now opens on the Live/Tail stream instead of a Home triage board, with Claude/Codex-like tab navigation, row movement, Enter/Esc drill-in/back behavior, and live auto-follow semantics for recent Traceary events.
@@ -29,6 +29,8 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 - **CLI session-end attribution inheritance (#1078)** — when ending an existing session, `traceary session end` preserves omitted client, agent, and workspace attribution inherited from the matching session start instead of rewriting the end event to default `cli` / `manual` attribution.
 - **Cockpit Tail rendering parity (#1089)** — cockpit Tail rows now share the compact `traceary tail` color semantics while hard-capping row width before ANSI wrapping, preventing truncated/wrapped lines from corrupting the TUI viewport.
 - **Sessions dashboard scalability (#1090)** — the Sessions surface keeps large session sets usable by sorting dashboard rows by active/recent priority without mutating snapshot output, keeping identity-first rows readable, and caching subtree priorities for the cockpit view.
+- **Cockpit Tail truncation marker cleanup (#1097)** — cockpit Tail rows still compact oversized payloads before rendering, but no longer append a literal `[truncated]` suffix that consumed horizontal space in the live stream.
+- **Sessions inline detail context (#1098)** — opening a Sessions detail now keeps the Sessions summary, selected-row context, and dashboard visible in the same tab, with height budgeting for long details on larger terminals.
 
 ### Notes
 - v0.19.0 has no SQLite schema migration and no new MCP tool additions.
