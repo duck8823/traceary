@@ -32,8 +32,15 @@ const cockpitTopUnknownWidth = 120
 const cockpitTopShellHorizontalPadding = 6
 const cockpitTopRowPrefixWidth = 2
 const cockpitTopDefaultViewportRows = 12
-const cockpitTopSummaryChromeRows = 18
+const cockpitTopDashboardChromeRows = 3
 const cockpitTopMinViewportRows = 5
+const cockpitTopDetailOpenMinViewportRows = 1
+
+// Inline detail viewport rows are capped so detail can share the Sessions tab
+// with the summary and dashboard instead of monopolizing tall terminals.
+const cockpitTopInlineDetailDefaultViewportRows = 6
+const cockpitTopInlineDetailMinViewportRows = 1
+const cockpitTopInlineDetailMaxViewportRows = 8
 const cockpitTopDetailDefaultViewportRows = 16
 const cockpitTopDetailChromeRows = 6
 
@@ -1594,6 +1601,7 @@ func (m cockpitModel) openCockpitTopDetail() (tea.Model, tea.Cmd) {
 		lines:   []string{Localize("Loading...", "読み込み中...")},
 		loading: true,
 	}
+	m.ensureCockpitTopSelectionVisible(rows)
 	return m, m.fetchCockpitTopDetailCmd(req, m.top.detailSeq)
 }
 
@@ -2337,12 +2345,26 @@ func (m *cockpitModel) closeCockpitTopDetail() {
 	m.top.detailOpen = false
 	m.top.detailSeq++
 	m.top.detailOffset = 0
+	m.ensureCockpitTopSelectionVisible(m.cockpitTopRows())
 }
 
 func (m cockpitModel) topTabView() string {
+	lines := m.cockpitTopSummaryLines()
 	if m.cockpitTopDetailOpen() {
-		return m.cockpitTopDetailView()
+		lines = append(lines, m.cockpitTopInlineDetailLines()...)
+		lines = append(lines, "")
 	}
+	lines = append(lines, m.cockpitTopDashboardLines()...)
+	if m.statusMsg != "" {
+		lines = append([]string{m.styles.Success.Render("• " + m.statusMsg), ""}, lines...)
+	}
+	if m.statusErr != "" {
+		lines = append([]string{m.styles.Error.Render("• " + m.statusErr), ""}, lines...)
+	}
+	return m.renderCockpitShell(Localize("sessions", "セッション"), lines, m.topLocalHelp())
+}
+
+func (m cockpitModel) cockpitTopSummaryLines() []string {
 	eventScanSuffix := ""
 	if m.home.NewEventScanLimited {
 		eventScanSuffix = " scan_limited=true"
@@ -2388,14 +2410,7 @@ func (m cockpitModel) topTabView() string {
 	lines = append(lines,
 		"",
 	)
-	lines = append(lines, m.cockpitTopDashboardLines()...)
-	if m.statusMsg != "" {
-		lines = append([]string{m.styles.Success.Render("• " + m.statusMsg), ""}, lines...)
-	}
-	if m.statusErr != "" {
-		lines = append([]string{m.styles.Error.Render("• " + m.statusErr), ""}, lines...)
-	}
-	return m.renderCockpitShell(Localize("sessions", "セッション"), lines, m.topLocalHelp())
+	return lines
 }
 
 func (m cockpitModel) cockpitTopDashboardLines() []string {
@@ -2605,39 +2620,71 @@ func (m cockpitModel) cockpitTopViewportRows() int {
 	if m.height <= 0 {
 		return cockpitTopDefaultViewportRows
 	}
-	rows := m.height - cockpitTopSummaryChromeRows
+	rows := m.height - cockpitShellChromeRows - len(m.cockpitTopSummaryLines()) - cockpitTopDashboardChromeRows
+	if m.cockpitTopDetailOpen() {
+		// The inline detail block is part of the Sessions tab body. Reserve its
+		// actual rendered height plus the blank separator so opening detail does
+		// not silently push the dashboard out of view on taller terminals.
+		rows -= len(m.cockpitTopInlineDetailLines()) + 1
+		if rows < cockpitTopDetailOpenMinViewportRows {
+			return cockpitTopDetailOpenMinViewportRows
+		}
+		return rows
+	}
 	if rows < cockpitTopMinViewportRows {
 		return cockpitTopMinViewportRows
 	}
 	return rows
 }
 
-func (m cockpitModel) cockpitTopDetailView() string {
+func (m cockpitModel) cockpitTopInlineDetailLines() []string {
 	title := m.top.detail.title
 	if title == "" {
-		title = Localize("sessions detail", "Sessions detail")
+		title = Localize("Sessions detail", "セッション詳細")
 	}
-	lines := m.cockpitTopDetailLines()
-	if len(lines) == 0 {
-		lines = []string{m.styles.Subtle.Render(Localize("(empty)", "(空)"))}
+	lines := []string{
+		m.styles.Subtle.Render(Localize("Sessions detail · ", "セッション詳細 · ") + title),
+	}
+	if contextLine := m.cockpitTopSelectedContextLine(); contextLine != "" {
+		lines = append(lines, contextLine)
+	}
+	detailLines := m.cockpitTopDetailLines()
+	if len(detailLines) == 0 {
+		detailLines = []string{m.styles.Subtle.Render(Localize("(empty)", "(空)"))}
 	}
 	viewport := m.cockpitTopDetailViewportRows()
 	start := m.top.detailOffset
 	if start < 0 {
 		start = 0
 	}
-	if start > len(lines) {
-		start = len(lines)
+	if start > len(detailLines) {
+		start = len(detailLines)
 	}
 	end := start + viewport
-	if end > len(lines) {
-		end = len(lines)
+	if end > len(detailLines) {
+		end = len(detailLines)
 	}
-	body := append([]string{}, lines[start:end]...)
-	if len(lines) > viewport {
-		body = append([]string{m.styles.Subtle.Render(fmt.Sprintf("rows=%d-%d/%d", start+1, end, len(lines)))}, body...)
+	if len(detailLines) > viewport {
+		lines = append(lines, m.styles.Subtle.Render(fmt.Sprintf("rows=%d-%d/%d", start+1, end, len(detailLines))))
 	}
-	return m.renderCockpitShell(Localize("sessions detail · ", "Sessions detail · ")+title, body, m.topLocalHelp())
+	lines = append(lines, detailLines[start:end]...)
+	return lines
+}
+
+func (m cockpitModel) cockpitTopSelectedContextLine() string {
+	rows := m.cockpitTopRows()
+	if len(rows) == 0 {
+		return ""
+	}
+	selected := m.top.selected
+	if selected < 0 || selected >= len(rows) {
+		return ""
+	}
+	row := rows[selected]
+	if !row.selectable {
+		return ""
+	}
+	return m.styles.Subtle.Render(Localize("Selected: ", "選択: ")) + row.line
 }
 
 func (m cockpitModel) cockpitTopDetailLines() []string {
@@ -2651,12 +2698,33 @@ func (m cockpitModel) cockpitTopDetailLines() []string {
 }
 
 func (m cockpitModel) cockpitTopDetailViewportRows() int {
+	if m.cockpitTopDetailOpen() {
+		return m.cockpitTopInlineDetailViewportRows()
+	}
 	if m.height <= 0 {
 		return cockpitTopDetailDefaultViewportRows
 	}
 	rows := m.height - cockpitTopDetailChromeRows
 	if rows < 1 {
 		return 1
+	}
+	return rows
+}
+
+func (m cockpitModel) cockpitTopInlineDetailViewportRows() int {
+	if m.height <= 0 {
+		return cockpitTopInlineDetailDefaultViewportRows
+	}
+	// Split the rows that remain after fixed Sessions summary/dashboard chrome
+	// between inline detail and dashboard rows. The dashboard keeps at least one
+	// row via cockpitTopDetailOpenMinViewportRows.
+	available := m.height - cockpitShellChromeRows - len(m.cockpitTopSummaryLines()) - cockpitTopDashboardChromeRows - cockpitTopDetailOpenMinViewportRows - 1
+	rows := available / 2
+	if rows < cockpitTopInlineDetailMinViewportRows {
+		return cockpitTopInlineDetailMinViewportRows
+	}
+	if rows > cockpitTopInlineDetailMaxViewportRows {
+		return cockpitTopInlineDetailMaxViewportRows
 	}
 	return rows
 }

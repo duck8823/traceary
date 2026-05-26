@@ -392,6 +392,8 @@ func TestCockpitModelTopTab_LoadsDashboardAndOpensDetail(t *testing.T) {
 	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
 	model.loader = loader
 	model.loaderCtx = context.Background()
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model = updated.(cockpitModel)
 
 	updated, cmd := model.Update(cockpitRuneKey("2"))
 	model = updated.(cockpitModel)
@@ -442,13 +444,72 @@ func TestCockpitModelTopTab_LoadsDashboardAndOpensDetail(t *testing.T) {
 		t.Fatalf("top detail kind = %v, want event", got)
 	}
 	view = model.View()
-	if !strings.Contains(view, "Traceary cockpit · sessions detail") || !strings.Contains(view, "failure detail") {
-		t.Fatalf("top detail view missing loaded detail:\n%s", view)
+	for _, must := range []string{
+		"Traceary cockpit · sessions",
+		"Sessions summary",
+		"Sessions detail · EVENT evt-top-fail",
+		"Selected:",
+		"failure detail",
+		"Sessions dashboard",
+		"go test failed in top tab",
+	} {
+		if !strings.Contains(view, must) {
+			t.Fatalf("top detail view missing %q:\n%s", must, view)
+		}
+	}
+	if strings.Contains(view, "Traceary cockpit · sessions detail") {
+		t.Fatalf("top detail should stay inside the sessions tab instead of replacing it:\n%s", view)
 	}
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	model = updated.(cockpitModel)
 	if model.mode != cockpitModeTop || model.cockpitTopDetailOpen() {
 		t.Fatalf("esc from top detail mode/detailOpen = %v/%v, want top/false", model.mode, model.cockpitTopDetailOpen())
+	}
+}
+
+func TestCockpitModelTopTab_InlineDetailBudgetsTallViewport(t *testing.T) {
+	t.Parallel()
+
+	failure := mustEvent(t, "evt-top-budget-fail", domtypes.EventKindCommandExecuted, "go test failed with a long detail")
+	longDetail := make([]string, 20)
+	for i := range longDetail {
+		longDetail[i] = fmt.Sprintf("detail line %02d", i+1)
+	}
+	loader := &cockpitLoaderStub{
+		topResponses: []topDataSnapshot{{
+			Failures: []*model.Event{failure},
+			Now:      fixedStartedAt,
+		}},
+		topDetail: topDetailContent{title: "EVENT evt-top-budget-fail", lines: longDetail},
+	}
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.DefaultStyles(), cockpitHomeSnapshot{LoadedAt: fixedStartedAt})
+	model.loader = loader
+	model.loaderCtx = context.Background()
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
+	model = updated.(cockpitModel)
+	updated, cmd := model.Update(cockpitRuneKey("2"))
+	model = updated.(cockpitModel)
+	updated, _ = model.Update(cmd())
+	model = updated.(cockpitModel)
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(cockpitModel)
+	updated, _ = model.Update(cmd())
+	model = updated.(cockpitModel)
+
+	view := model.View()
+	for _, must := range []string{
+		"Sessions summary",
+		"Sessions detail · EVENT evt-top-budget-fail",
+		"rows=1-8/20",
+		"Sessions dashboard",
+		"go test failed with a long detail",
+	} {
+		if !strings.Contains(view, must) {
+			t.Fatalf("inline detail budget view missing %q:\n%s", must, view)
+		}
+	}
+	if got, limit := len(strings.Split(view, "\n")), model.height; got > limit {
+		t.Fatalf("inline detail view lines = %d, want <= terminal height %d:\n%s", got, limit, view)
 	}
 }
 
