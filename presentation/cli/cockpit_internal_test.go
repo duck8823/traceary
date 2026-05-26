@@ -1797,13 +1797,16 @@ func TestCockpitModel_IgnoresStaleHomeRefreshResponses(t *testing.T) {
 	}
 }
 
-func TestFormatCockpitLiveEventRow_TruncatesLargePayload(t *testing.T) {
+func TestFormatCockpitLiveEventRow_OmitsTruncationMarkerForLargePayload(t *testing.T) {
 	t.Parallel()
 
 	event := mustEvent(t, "evt-large", domtypes.EventKindCommandExecuted, strings.Repeat("x", apptypes.DefaultTopSnapshotBodyLimit+20))
 	row := formatCockpitLiveEventRow(event, time.UTC, 100, compactRowExtras{}, false)
-	if !strings.Contains(row, "[truncated]") {
-		t.Fatalf("row = %q, want truncation marker", row)
+	if strings.Contains(row, "[truncated]") {
+		t.Fatalf("row = %q, want no visible truncation marker", row)
+	}
+	if got, limit := runeLen(row), 100; got > limit {
+		t.Fatalf("row length = %d, want <= viewport width %d: %q", got, limit, row)
 	}
 	if got, limit := len([]rune(row)), apptypes.DefaultTopSnapshotBodyLimit; got >= limit {
 		t.Fatalf("row length = %d, want compact row below body limit %d", got, limit)
