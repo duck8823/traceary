@@ -3068,10 +3068,8 @@ func formatCockpitLiveEventRow(event *model.Event, loc *time.Location, targetWid
 		return "-"
 	}
 	displayEvent := event
-	truncationMarker := ""
 	out := newTruncatedEventOutput(event, apptypes.DefaultTopSnapshotBodyLimit)
 	if out.Truncated {
-		truncationMarker = " [truncated]"
 		displayEvent = model.EventOfWithSourceHook(
 			event.EventID(),
 			event.Kind(),
@@ -3084,12 +3082,7 @@ func formatCockpitLiveEventRow(event *model.Event, loc *time.Location, targetWid
 			event.SourceHook(),
 		)
 	}
-	rowWidth := targetWidth
-	if rowWidth > runeLen(truncationMarker)+8 {
-		rowWidth -= runeLen(truncationMarker)
-	}
-	row := formatEventCompactRow(displayEvent, eventTextFormatOptions{location: loc, targetWidth: rowWidth, messageMinWidth: 8, hardTargetWidth: true, colorEnabled: colorEnabled}, extras)
-	return row + truncationMarker
+	return formatEventCompactRow(displayEvent, eventTextFormatOptions{location: loc, targetWidth: targetWidth, messageMinWidth: 8, hardTargetWidth: true, colorEnabled: colorEnabled}, extras)
 }
 
 func cockpitLiveSeenAt(snapshot cockpitLiveSnapshot) time.Time {
