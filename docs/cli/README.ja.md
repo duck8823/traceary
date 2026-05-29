@@ -232,7 +232,7 @@ session metadata、recent commands、compact summary、accepted durable memories
 - `--as-of` (任意): durable memory の validity を指定時刻 (YYYY-MM-DD または RFC3339) で評価する。既定は「現在」
 - `--compact-only` (任意): prompt injection 向けの短い summary を出力 (`compact-summary` の代替)。`--recent` 未指定時は 3 に自動設定
 
-> **v0.14 移行**: 旧 top-level の `traceary handoff` / `traceary compact-summary` alias は v0.14.0 で削除されました。実行すると `traceary session handoff`（必要に応じて `--compact-only`）を案内する usage error で終了します。v0.14 で削除された alias 一覧は [CLI 安定性と非推奨ポリシー](../cli-stability.ja.md) を参照してください。
+> **v0.14 移行**: 旧 top-level の `traceary handoff` / `traceary compact-summary` alias は v0.14.0 で削除されました。実行すると Cobra の generic unknown-command で終了します（具体的な migration-error stub は v0.20.0 で撤去）。`traceary session handoff`（必要に応じて `--compact-only`）を使ってください。v0.14 で削除された alias 一覧は [CLI 安定性と非推奨ポリシー](../cli-stability.ja.md) を参照してください。
 
 ## Durable memory コマンド
 
@@ -948,7 +948,7 @@ alias:
 
 ## Store 管理 (`traceary store ...`)
 
-store 管理コマンドは `store` namespace に集約されています。旧 top-level の `traceary init` / `traceary backup` / `traceary gc` alias は v0.14.0 で削除されました。実行すると canonical な置き換え (`traceary store init` / `traceary store backup ...` / `traceary store gc`) を案内する usage error で終了します。これらの alias は v0.9.0 から v0.13.x まで deprecation 通知付きで動作していました。詳細は [CLI 安定性と非推奨ポリシー](../cli-stability.ja.md) を参照してください。
+store 管理コマンドは `store` namespace に集約されています。旧 top-level の `traceary init` / `traceary backup` / `traceary gc` alias は v0.14.0 で削除されました。実行すると Cobra の unknown-command エラーになります（`traceary store init` / `traceary store backup ...` / `traceary store gc` を使ってください）。これらの alias は v0.9.0 から v0.13.x まで deprecation 通知付きで動作していました。詳細は [CLI 安定性と非推奨ポリシー](../cli-stability.ja.md) を参照してください。
 
 ### `traceary store init`
 

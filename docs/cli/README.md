@@ -232,7 +232,7 @@ Useful flags:
 - `--as-of` (optional): evaluate durable memory validity at the given timestamp (YYYY-MM-DD or RFC3339); defaults to "now"
 - `--compact-only` (optional): emit the short prompt-injection summary form; implicitly sets `--recent=3` unless `--recent` is given explicitly
 
-> **v0.14 migration**: The former top-level `traceary handoff` and `traceary compact-summary` aliases were removed in v0.14.0. Running them now exits with a usage error pointing at `traceary session handoff` (plus `--compact-only` for the compact form). See [CLI stability and deprecation policy](../cli-stability.md) for the full removal list.
+> **v0.14 migration**: The former top-level `traceary handoff` and `traceary compact-summary` aliases were removed in v0.14.0. Running them now falls back to Cobra's generic unknown-command output — the targeted migration-error stubs were retired in v0.20.0. Use `traceary session handoff` (plus `--compact-only` for the compact form). See [CLI stability and deprecation policy](../cli-stability.md) for the full removal list.
 
 ## Durable memory commands
 
@@ -956,7 +956,7 @@ Useful flags:
 
 ## Store administration (`traceary store ...`)
 
-Store administration commands live under the `store` namespace. The old top-level `traceary init`, `traceary backup`, and `traceary gc` aliases were removed in v0.14.0; running them now exits with a usage error that names the canonical replacement (`traceary store init`, `traceary store backup ...`, `traceary store gc`). The aliases shipped a deprecation notice from v0.9.0 through v0.13.x. See [CLI stability and deprecation policy](../cli-stability.md).
+Store administration commands live under the `store` namespace. The old top-level `traceary init`, `traceary backup`, and `traceary gc` aliases were removed in v0.14.0; running them now returns Cobra's unknown-command error (use `traceary store init`, `traceary store backup ...`, `traceary store gc`). The aliases shipped a deprecation notice from v0.9.0 through v0.13.x. See [CLI stability and deprecation policy](../cli-stability.md).
 
 ### `traceary store init`
 

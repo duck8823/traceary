@@ -26,10 +26,6 @@ func (c *RootCLI) newMemoryCommand() *cobra.Command {
 	memoryCmd.AddCommand(c.newMemoryInboxCommand())
 	memoryCmd.AddCommand(c.newMemoryStoreCommand())
 	memoryCmd.AddCommand(c.newMemoryAdminCommand())
-	// Removed v0.14 deprecated aliases: each old flat path is now a
-	// hidden migration stub that exits non-zero pointing at the
-	// canonical `memory inbox|store|admin` replacement (#956).
-	c.addRemovedMemoryAliases(memoryCmd)
 	return memoryCmd
 }
 

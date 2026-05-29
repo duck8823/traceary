@@ -65,7 +65,7 @@ Admin commands in v0.15:
 
 These commands are hidden from `traceary --help`. In v0.15 the hidden surface has two groups:
 
-- **Migration-error stubs for removed names** — former top-level aliases removed in v0.14.0, flat memory aliases removed in v0.15.0, and the retired `integration codex install` / `integration codex uninstall` paths still register hidden stubs that return targeted non-zero migration errors. They are not working aliases: they do not preserve legacy flags, do not execute the old behavior, and exist only so old invocations receive a concrete replacement instead of Cobra's generic unknown-command output.
+- **Migration-error stubs for removed names** — the retired `integration codex install` / `integration codex uninstall` paths register hidden stubs that return targeted non-zero migration errors. They are not working aliases: they do not preserve legacy flags, do not execute the old behavior, and exist only so old invocations receive a concrete replacement instead of Cobra's generic unknown-command output. The former top-level aliases removed in v0.14.0 and the flat memory aliases removed in v0.15.0 no longer register stubs as of v0.20.0. The removed top-level names (`traceary init`, etc.) return Cobra's unknown-command error; the removed `traceary memory <verb>` paths are no longer registered subcommands and print the `memory` command help, the same as any other unrecognized subcommand. See the historical removal log below.
 - **Hook runtime entrypoints** — internal commands called by packaged Traceary hook scripts.
 
 Hidden runtime entrypoints called by packaged Traceary hook scripts (registered with `Hidden: true`, no stderr deprecation notice):

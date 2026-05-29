@@ -93,7 +93,7 @@ traceary doctor
 
 ## クイックスタート
 
-`traceary store init` は必須ではありません。通常コマンドを実行すれば、必要に応じて DB の作成とマイグレーションが自動で行われます。DB パスの事前作成や書き込み権限の確認をしたいときだけ `store init` を使ってください。旧 top-level の `traceary init` alias は v0.14.0 で削除されました。実行すると `traceary store init` を案内する usage error で終了します。v0.14 で削除された alias 一覧と置き換え先は [CLI 安定性と非推奨ポリシー](./docs/cli-stability.ja.md) にまとめています。
+`traceary store init` は必須ではありません。通常コマンドを実行すれば、必要に応じて DB の作成とマイグレーションが自動で行われます。DB パスの事前作成や書き込み権限の確認をしたいときだけ `store init` を使ってください。旧 top-level の `traceary init` alias は v0.14.0 で削除されました。実行すると Cobra の unknown-command エラーになります（`traceary store init` を使ってください）。v0.14 で削除された alias 一覧と置き換え先は [CLI 安定性と非推奨ポリシー](./docs/cli-stability.ja.md) にまとめています。
 
 ### 1. セッションを開始してメモを残す
 
