@@ -5,6 +5,26 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.20.0] - 2026-05-29
+
+### Added
+- **First-class tool-failure capture (#1116, #1117)** — `list --failures` works again. No host exposes a numeric exit code in its post-tool hook payload, so Traceary now records a structural `failed` flag instead: Claude's `PostToolUseFailure` (top-level `error`) and Gemini's spawn-level `tool_response.error` are flagged, while Codex exposes no structured failure signal and is recorded as an unflagged audit. The hook contract docs were corrected to describe what the hosts actually expose.
+- **Cockpit memory inbox backlog (#1115)** — the cockpit Memory tab surfaces inbox curation debt (accepted / candidate / new-since-last-review counts) via a cheap `CountByStatus` query — no expensive reliability scan and no `List`. Memory cues stay in the Memory tab; the session-focused Top/Sessions surfaces remain session-only.
+- **memory inbox cleanup composition summary (#1114)** — `memory inbox cleanup` reports an aggregate `total / by_source / by_type` breakdown of the matched candidates so an operator sees the batch makeup before `--apply`. It stays reject/preview-only; bulk accept is intentionally excluded to respect the evidence-first review rails.
+
+### Changed
+- **True candidate/accepted counts when the reliability scan saturates (#1111)** — the reliability surface reports exact accepted/candidate totals from `CountByStatus` instead of capping at the bounded scan limit.
+- **Tighter extraction noise gate (#1113)** — auto-extraction hides review fix-instruction fragments (`修正案:` / `Fix:` / `**Fix**:`) from the inbox, guarded so a line that carries a durable constraint is not hidden.
+- **Repository tooling migrated to Go (#1118, #1119, #1120, #1121)** — maintainer-only repository verifiers moved from Python to a single `go run ./cmd/repo-tooling ...` entrypoint: `integrations verify`, `docs verify-i18n`, `release verify-changelog`, and `docs verify-landing` replace the four `scripts/verify_*.py` helpers, with CI, the Makefile, the release workflow, and CONTRIBUTING wired to the Go commands. Of the documented migration-order verifiers, only `scripts/bump_version.py` is still Python.
+- **Honest MCP / handoff contract framing (#1106, #1107)** — the cross-machine handoff doc is truthed to the shipped five-table bundle, and the MCP 8-tool surface is described as the current frozen contract.
+
+### Removed
+- **CLI cleanup (#1108, #1109, #1110)** — removed the unreferenced `session-top` alias, retired the v0.14 / v0.15 migration-error command stubs, and deprecated (hid) the empty integration command subtree.
+
+### Notes
+- Schema: additive migration `000017` adds `command_audits.failed` (`NOT NULL DEFAULT 0`); existing rows default to `0`. No MCP tool changes. The `command_executed` JSON output gains an additive, `omitempty` `failed` field that also round-trips through bundle export/import.
+- Tests: the CLI test package pins `TRACEARY_LANG=en` via `TestMain` so golden snapshots stay locale-hermetic (#1105).
+
 ## [v0.19.0] - 2026-05-26
 
 ### Added
