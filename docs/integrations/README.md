@@ -46,7 +46,7 @@ Current automatic fixes cover Traceary-managed hook config installation/upgrade 
 
 Traceary keeps two validation layers for these packages:
 
-1. structural validation in-repo through `python3 scripts/verify_integrations.py`
+1. structural validation in-repo through `go run ./cmd/repo-tooling integrations verify`
 2. local smoke tests for installed CLIs through `./scripts/smoke_test_integrations.sh`
 
 The smoke-test script focuses on the installation surfaces that each host currently exposes. Gemini's link/list flow may open a browser authentication prompt, so it is opt-in for headless release prep:

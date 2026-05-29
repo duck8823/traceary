@@ -113,7 +113,7 @@ GitHub App は `duck8823/traceary` のみに install し、repository permission
 GoReleaser workflow が artifact の公開を自動化しますが、maintainer のローカルで実行する作業も残ります。`vX.Y.Z` をリリースするときは、次の順番で進めてください。
 
 1. **まず両方の changelog を更新する。** `CHANGELOG.md` と `CHANGELOG.ja.md` の双方に `## [vX.Y.Z] - YYYY-MM-DD` セクションを追加します。次のステップの前に両ファイルの release 見出しが一致していないと `scripts/verify_changelog_releases.py` が失敗します。
-2. **manifest を bump する。** `make release/bump VERSION=X.Y.Z` を実行すると、`VERSION`・integration plugin manifest・`docs/landing/` のバージョン表示がまとめて更新され、`scripts/verify_release_manifests.py` と `scripts/verify_integrations.py` も走ります。
+2. **manifest を bump する。** `make release/bump VERSION=X.Y.Z` を実行すると、`VERSION`・integration plugin manifest・`docs/landing/` のバージョン表示がまとめて更新され、`scripts/verify_release_manifests.py` と `go run ./cmd/repo-tooling integrations verify` も走ります。
 3. **ローカル検証。** `python3 scripts/verify_changelog_releases.py` / `python3 scripts/verify_release_manifests.py` / `python3 scripts/verify_landing.py` / `go test ./...` / `go tool golangci-lint run` をすべて通します。これらの Python entrypoint は現時点の release-prep surface であり、Go への移行先は [`../operations/repo-tooling.ja.md`](../operations/repo-tooling.ja.md) に整理しています。
 4. **cockpit を dogfood する。** `traceary tui` を変更する release では、tag 前に `go test ./presentation/cli -run 'TestCockpitDogfood'` を実行し、80x24 smoke を含む [`cockpit dogfood checklist`](../operations/cockpit-dogfood.ja.md) を完了します。
 5. **landing page をプレビューする。** `python3 -m http.server --directory docs/landing 8000` を起動して `http://localhost:8000/` を開き、hero の version eyebrow と brew install の terminal アニメーションが新バージョンになっているかを確認します。`Pages` workflow は GitHub Release の publish 時に自動再 deploy するため、ここが本番反映前の最後のチェックポイントです。
