@@ -5,6 +5,26 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.20.0] - 2026-05-29
+
+### Added
+- **ツール失敗の first-class 捕捉 (#1116, #1117)** — `list --failures` が再び機能します。どの host も post-tool hook payload に数値 exit code を出さないため、Traceary は構造的な `failed` フラグで失敗を記録するようにしました。Claude の `PostToolUseFailure`（トップレベル `error`）と Gemini の spawn レベル `tool_response.error` を failed としてマークし、Codex は構造化された失敗信号を出さないためフラグなし監査として記録します。hook contract docs も host の実態に合わせて修正しました。
+- **cockpit のメモリ inbox backlog (#1115)** — cockpit の Memory タブが inbox の滞留状況（accepted / candidate / new-since-last-review のカウント）を、cheap な `CountByStatus` クエリで表示します（高コストな reliability scan も `List` も使いません）。memory cues は Memory タブに留め、session-focused な Top/Sessions は session 専用のままです。
+- **memory inbox cleanup の composition summary (#1114)** — `memory inbox cleanup` がマッチした候補の `total / by_source / by_type` 集計を表示し、`--apply` の前に batch の内訳を確認できます。reject/preview 専用で、bulk accept は evidence-first review の方針を尊重するため意図的に除外しています。
+
+### Changed
+- **reliability scan 飽和時の真値 candidate/accepted カウント (#1111)** — reliability surface が bounded scan limit で頭打ちにせず、`CountByStatus` から正確な accepted/candidate 総数を報告します。
+- **抽出 noise gate の強化 (#1113)** — auto-extraction がレビューの修正指示断片（`修正案:` / `Fix:` / `**Fix**:`）を inbox から隠します。恒久的な制約を含む行は隠さないよう durable-signal ガードを付けています。
+- **repository tooling の Go 移行 (#1118, #1119, #1120, #1121)** — maintainer 専用の repository verifier を Python から単一の `go run ./cmd/repo-tooling ...` entrypoint に移行しました。`integrations verify` / `docs verify-i18n` / `release verify-changelog` / `docs verify-landing` が4本の `scripts/verify_*.py` を置き換え、CI・Makefile・release workflow・CONTRIBUTING を Go コマンドに配線済み。Python は `scripts/bump_version.py` のみ残ります。
+- **MCP / handoff contract の正直な記述 (#1106, #1107)** — cross-machine handoff doc を実際に出荷している five-table bundle に合わせ、MCP の 8-tool surface を現行の frozen contract として記述しました。
+
+### Removed
+- **CLI 整理 (#1108, #1109, #1110)** — 参照のない `session-top` alias を削除し、v0.14 / v0.15 の migration-error コマンド stub を撤去、空の integration command subtree を deprecate（非表示化）しました。
+
+### Notes
+- スキーマ: additive migration `000017` が `command_audits.failed`（`NOT NULL DEFAULT 0`）を追加します。既存行は `0` になります。MCP tool の変更はありません。`command_executed` の JSON 出力に additive で `omitempty` な `failed` フィールドが加わり、bundle export/import でも round-trip します。
+- テスト: CLI test package は `TestMain` で `TRACEARY_LANG=en` を固定し、golden snapshot を locale-hermetic に保ちます (#1105)。
+
 ## [v0.19.0] - 2026-05-26
 
 ### Added
