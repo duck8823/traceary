@@ -17,7 +17,7 @@ SessionStart → [UserPromptSubmit → PostToolUse]* → (PreCompact → PostCom
 | SessionStart | `*` | `session_started` | Session start with workspace resolution |
 | SessionStart | `compact` | — | Inject compact-summary into new context (stdout) |
 | UserPromptSubmit | `*` | `prompt` | User instruction text |
-| PostToolUse | `Bash` | `command_executed` | Shell command with input/output/exit code |
+| PostToolUse | `Bash` | `command_executed` | Shell command with input/output |
 | PostToolUse | `mcp__.*` | `command_executed` | MCP tool invocation |
 | PostToolUse | built-in tools | `command_executed` | File I/O / search / agent / web / plan-mode exit (`Read`, `NotebookRead`, `Edit`, `MultiEdit`, `Write`, `NotebookEdit`, `Grep`, `Glob`, `Agent`, `Task`, `TodoWrite`, `WebFetch`, `WebSearch`, `ExitPlanMode`). Added in v0.8-6; expanded in v0.8-6b. |
 | PostToolUseFailure | `Bash`, `mcp__.*`, built-in tools | `command_executed` | Failed tool execution (filterable via `failures_only`) |

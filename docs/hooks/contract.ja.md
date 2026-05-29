@@ -12,10 +12,10 @@
 |---|---|---|
 | SessionStart | `*` | セッション開始を記録 |
 | SessionEnd | `*` | セッション終了を記録 |
-| PostToolUse | `Bash` | シェルコマンド監査を exit code 付きで記録 |
+| PostToolUse | `Bash` | シェルコマンド監査を記録 |
 | PostToolUse | `mcp__.*` | MCP ツール監査を記録 |
 | PostToolUse | `Read\|NotebookRead\|Edit\|MultiEdit\|Write\|NotebookEdit\|Grep\|Glob\|Agent\|Task\|TodoWrite\|WebFetch\|WebSearch\|ExitPlanMode` | Claude Code 組み込みツール（ファイル I/O・検索・agent・web・plan モード終了）の呼び出しを記録（v0.8-6 で追加、v0.8-6b で `NotebookRead` と `ExitPlanMode` を追加） |
-| PostToolUseFailure | `Bash`, `mcp__.*`, 組み込みツール | 失敗したツール実行を記録 |
+| PostToolUseFailure | `Bash`, `mcp__.*`, 組み込みツール | 失敗フラグ付きのツール監査を記録。payload はトップレベル `error` 文字列を持ち（`tool_response` も数値 exit code も無い）、exit code を読む代わりに監査を `failed` とマークする。`list --failures` はこのフラグを対象にする |
 | PostCompact | `*` | compact サマリーを記録 |
 | UserPromptSubmit | `*` | ユーザーの指示テキストを記録 |
 | Stop | `*` | `transcript_path` から最後の assistant メッセージを読み取り `transcript` event として記録（既知 secret の redaction + オペレーター設定の `redact.rules` / `redact.extra_patterns` を適用） |
@@ -30,7 +30,7 @@
 | Stop | (全て) | セッション終了を記録し、`last_assistant_message` から最終 assistant メッセージを `transcript` event として記録（既知 secret の redaction + オペレーター設定の `redact.rules` / `redact.extra_patterns` を適用） |
 | PostToolUse | (全て) | ツール監査を記録 |
 
-**制限**: SessionEnd なし（Stop を使用）、compact hooks なし、failure 専用イベントなし。
+**制限**: SessionEnd なし（Stop を使用）、compact hooks なし、failure 専用イベントなし・構造化された失敗信号なし。Codex は非ゼロ終了でも `PostToolUse` を fire するが、`tool_response` は exit code も error フィールドも持たない素の整形済み文字列のため、失敗した実行は通常の（フラグなし）監査として記録される。
 
 ### Tier 3: 基本対応 (Gemini CLI)
 
@@ -43,14 +43,14 @@
 | AfterTool | `*` | ツール監査を記録 |
 | PreCompress | `*` | `compact_summary` marker として記録（`trigger` のみ。Gemini には post-compress digest がない） |
 
-**制限**: post-compress digest はなし（Gemini の `PreCompress` は async marker のみ）、failure 専用イベントなし。Gemini には Stop event が存在しないため、transcript 取得は `AfterAgent` に紐付けている。
+**制限**: post-compress digest はなし（Gemini の `PreCompress` は async marker のみ）、failure 専用イベントなし。Gemini には Stop event が存在しないため、transcript 取得は `AfterAgent` に紐付けている。失敗捕捉は部分的: `AfterTool` の nested `tool_response.error` は spawn/OS レベルエラー時のみ出る（その場合は `failed` とマーク）。通常の非ゼロ終了は `tool_response.llmContent` 内の `Exit Code: N` テキストとしてのみ現れ、Traceary は意図的に parse しないため、それらはフラグなしのまま。
 
 ## 共通動作
 
 全レベル共通:
 - セッション開始時に解決した workspace を state ファイルに保存し、audit はそこから workspace を読み取る
 - エージェントタイプ解決: `agent_type` フィールド → 階層的エージェント名（Claude のみ）
-- `tool_response.exitCode` から exit code を抽出（利用可能時）
+- host が提供する場合は `tool_response.exitCode` から exit code を抽出。ただし現行のどの host も post-tool payload にこのフィールドを出さないため、実際には exit code ではなく構造的に失敗を検出する（上記の失敗フラグ行と下記 fallback 表を参照）
 - MCP ツール名 fallback: `tool_input.command` → `tool_name`
 
 Claude Task subagent capture:
@@ -64,7 +64,7 @@ Claude Task subagent capture:
 | 欠落機能 | フォールバック |
 |---|---|
 | Compact hooks | MCP `get_context` / `session_handoff` でオンデマンド取得 |
-| Failure イベント | audit スクリプトで tool_response の exit code を解析 |
+| Failure イベント | 失敗形状の payload から構造的な `failed` フラグを導出（Claude のトップレベル `error`、Gemini の `tool_response.error`）。`list --failures` は非ゼロ `exit_code` に加えて `failed = 1` も対象にする。構造化された失敗信号を出さない host（Codex、Gemini の通常の非ゼロ終了）はフラグなし監査として記録 |
 | エージェントタイプ | クライアント名のみ使用（例: `codex`, `gemini`） |
 
 ## 2026 Q2 ホスト別機能メモ
