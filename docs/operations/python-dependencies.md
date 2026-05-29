@@ -20,9 +20,15 @@ The only supported Codex install path is Codex CLI's official `/plugins` flow (r
 
 ### Maintainer-only
 
+The documented repo-tooling migration order is now **complete** — every planned
+helper runs through `go run ./cmd/repo-tooling ...` (see the migration order
+below). A few release/CI guards remain Python but were outside that plan:
+
 | Surface | Current entrypoint | Used by | Planned direction |
 | --- | --- | --- | --- |
-| version bump helper | `python3 scripts/bump_version.py` | release prep | migrate last; low user impact |
+| release manifest verification | `python3 scripts/verify_release_manifests.py` | release prep, CI integrations/release jobs | outside the original plan; fold into `cmd/repo-tooling` if revisited |
+| removed-alias doc guard | `python3 scripts/verify_docs_no_removed_aliases.py` | CI docs job | outside the original plan |
+| release-drafter workflow guard | `python3 scripts/verify_release_drafter_workflow.py` | CI docs job | outside the original plan |
 
 ## What is intentionally out of scope
 
@@ -51,10 +57,9 @@ After integration verification, migrate:
 These remain maintainer-only, so correctness matters more than urgency.
 If a shared Go verifier exists by then, they should join it rather than becoming separate tools again.
 
-### 3. Version bump helper
+### 3. Version bump helper — ✅ done (v0.20.0)
 
-`scripts/bump_version.py` is useful but low priority.
-It should move only after the higher-impact checks above have settled.
+`scripts/bump_version.py` has been replaced by `go run ./cmd/repo-tooling release bump-version --version X.Y.Z` and removed. `make release/bump` uses the Go command. This completes the documented migration order.
 
 ## Repository rules going forward
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,14 +16,24 @@ import (
 )
 
 var (
-	semverTagRe        = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
-	changelogHeadingRe = regexp.MustCompile(`(?m)^## \[(v\d+\.\d+\.\d+)\] - `)
+	semverTagRe          = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
+	changelogHeadingRe   = regexp.MustCompile(`(?m)^## \[(v\d+\.\d+\.\d+)\] - `)
+	manifestVersionRe    = regexp.MustCompile(`"version"\s*:\s*"[^"]*"`)
+	landingEyebrowBumpRe = regexp.MustCompile(`(<span class="hero-eyebrow"><span class="dot"></span>)v\d+\.\d+\b`)
 )
+
+// bumpManifests are the plugin/extension manifests whose first "version" field
+// tracks VERSION.
+var bumpManifests = []string{
+	"integrations/claude-plugin/.claude-plugin/plugin.json",
+	"integrations/gemini-extension/gemini-extension.json",
+	"plugins/traceary/.codex-plugin/plugin.json",
+}
 
 func newReleaseCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "release",
-		Short: "Release-preparation checks",
+		Short: "Release-preparation helpers",
 	}
 	verifyChangelog := &cobra.Command{
 		Use:   "verify-changelog",
@@ -46,8 +57,121 @@ func newReleaseCommand() *cobra.Command {
 			return nil
 		},
 	}
+	bumpVersion := &cobra.Command{
+		Use:   "bump-version --version X.Y.Z",
+		Short: "Bump the version across VERSION, plugin manifests, and the landing page",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			version, err := cmd.Flags().GetString("version")
+			if err != nil {
+				return xerrors.Errorf("failed to read --version: %w", err)
+			}
+			root, err := findRepoRoot()
+			if err != nil {
+				return err
+			}
+			return bumpVersionAcrossRepo(cmd.OutOrStdout(), cmd.ErrOrStderr(), root, version)
+		},
+	}
+	bumpVersion.Flags().String("version", "", "target version (X.Y.Z)")
+	if err := bumpVersion.MarkFlagRequired("version"); err != nil {
+		panic(err) // programming error: the flag was just registered
+	}
+
 	cmd.AddCommand(verifyChangelog)
+	cmd.AddCommand(bumpVersion)
 	return cmd
+}
+
+// bumpVersionAcrossRepo reproduces scripts/bump_version.py: it rewrites the
+// VERSION file, the first "version" field of each plugin manifest, and the
+// landing page version markers (hero eyebrow major.minor, Homebrew bottle /
+// Cellar full X.Y.Z). Progress lines go to out; non-fatal "marker not found"
+// warnings go to errOut, matching the Python script.
+func bumpVersionAcrossRepo(out, errOut io.Writer, root, version string) error {
+	if !landingVersionRe.MatchString(version) {
+		return xerrors.Errorf("version must be in X.Y.Z format, got: %s", version)
+	}
+	_, _ = fmt.Fprintf(out, "Bumping version to %s:\n", version)
+
+	if err := os.WriteFile(filepath.Join(root, "VERSION"), []byte(version+"\n"), 0o644); err != nil {
+		return xerrors.Errorf("failed to write VERSION: %w", err)
+	}
+	_, _ = fmt.Fprintf(out, "  VERSION -> %s\n", version)
+
+	for _, manifest := range bumpManifests {
+		path := filepath.Join(root, manifest)
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return xerrors.Errorf("failed to read %s: %w", manifest, err)
+		}
+		updated := replaceFirstRe(manifestVersionRe, string(content), fmt.Sprintf(`"version": "%s"`, version))
+		if updated == string(content) {
+			_, _ = fmt.Fprintf(errOut, "  warning: no version field found in %s\n", manifest)
+		}
+		if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
+			return xerrors.Errorf("failed to write %s: %w", manifest, err)
+		}
+		_, _ = fmt.Fprintf(out, "  %s -> %s\n", manifest, version)
+	}
+
+	if err := bumpLanding(out, errOut, root, version); err != nil {
+		return err
+	}
+
+	_, _ = fmt.Fprintln(out, "Done. Run `python3 scripts/verify_release_manifests.py`, "+
+		"`go run ./cmd/repo-tooling integrations verify`, and "+
+		"`go run ./cmd/repo-tooling docs verify-landing` to verify.")
+	return nil
+}
+
+func bumpLanding(out, errOut io.Writer, root, version string) error {
+	parts := strings.Split(version, ".")
+	majorMinor := parts[0] + "." + parts[1]
+
+	indexPath := filepath.Join("docs", "landing", "index.html")
+	indexContent, err := os.ReadFile(filepath.Join(root, indexPath))
+	if err != nil {
+		return xerrors.Errorf("failed to read %s: %w", indexPath, err)
+	}
+	updatedIndex := replaceFirstRe(landingEyebrowBumpRe, string(indexContent), "${1}v"+majorMinor)
+	if updatedIndex == string(indexContent) {
+		_, _ = fmt.Fprintf(errOut, "  warning: hero eyebrow version marker not found in %s\n", indexPath)
+	}
+	if err := os.WriteFile(filepath.Join(root, indexPath), []byte(updatedIndex), 0o644); err != nil {
+		return xerrors.Errorf("failed to write %s: %w", indexPath, err)
+	}
+	_, _ = fmt.Fprintf(out, "  %s -> v%s\n", indexPath, majorMinor)
+
+	componentsPath := filepath.Join("docs", "landing", "components.jsx")
+	componentsContent, err := os.ReadFile(filepath.Join(root, componentsPath))
+	if err != nil {
+		return xerrors.Errorf("failed to read %s: %w", componentsPath, err)
+	}
+	updatedComponents := landingBottleRe.ReplaceAllString(string(componentsContent), "traceary--"+version)
+	updatedComponents = landingCellarRe.ReplaceAllString(updatedComponents, "/Cellar/traceary/"+version)
+	if updatedComponents == string(componentsContent) {
+		_, _ = fmt.Fprintf(errOut, "  warning: version markers not found in %s\n", componentsPath)
+	}
+	if err := os.WriteFile(filepath.Join(root, componentsPath), []byte(updatedComponents), 0o644); err != nil {
+		return xerrors.Errorf("failed to write %s: %w", componentsPath, err)
+	}
+	_, _ = fmt.Fprintf(out, "  %s -> %s\n", componentsPath, version)
+	return nil
+}
+
+// replaceFirstRe replaces only the first match of re in content, expanding
+// `${n}` group references in replacement (mirrors Python's re.sub count=1).
+func replaceFirstRe(re *regexp.Regexp, content, replacement string) string {
+	loc := re.FindStringSubmatchIndex(content)
+	if loc == nil {
+		return content
+	}
+	result := make([]byte, 0, len(content)+len(replacement))
+	result = append(result, content[:loc[0]]...)
+	result = re.ExpandString(result, replacement, content, loc)
+	result = append(result, content[loc[1]:]...)
+	return string(result)
 }
 
 // verifyChangelogReleases reproduces scripts/verify_changelog_releases.py: the

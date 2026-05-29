@@ -99,15 +99,13 @@ Go 入口は en/ja changelog の整合・現 VERSION・released tag coverage を
 
 Go 入口は hero-eyebrow（major.minor）と Homebrew bottle / Cellar（full X.Y.Z）のバージョンずれ検証を再現し、CI（`.github/workflows/ci.yml`）・release workflow（`.github/workflows/release.yml`）・Makefile（`landing/check`、`release/bump`）に配線済み。Python スクリプトは削除しました。
 
-### 5. version bump helper
+### 5. version bump helper — ✅ 移行済 (v0.20.0)
 
-最後の対象:
+最後の対象（完了）:
 
-- `scripts/bump_version.py`
+- ~~`scripts/bump_version.py`~~ → `go run ./cmd/repo-tooling release bump-version --version X.Y.Z`
 
-置き換え先:
-
-- `go run ./cmd/repo-tooling release bump-version --version X.Y.Z`
+Go 入口は VERSION / plugin manifest / landing marker の書き換えを再現し、`make release/bump` が呼びます。Python スクリプトは削除し、この移行順を完了しました。
 
 ## 今後のルール
 
@@ -120,7 +118,7 @@ Go 入口は hero-eyebrow（major.minor）と Homebrew bottle / Cellar（full X.
 
 ## 現在の状態
 
-移行ステップ 1（integration verification）は完了済み: `go run ./cmd/repo-tooling integrations verify` が CI・Makefile・integration smoke test 内の `scripts/verify_integrations.py` を置き換えました。[`python-dependencies.ja.md`](./python-dependencies.ja.md) に残る helper はまだ Python で、上記の順に移行します。この文書は、それらをどこへ移すのかを先に固定し、場当たり的な script 増殖を防ぐためのものです。
+上記 5 つの移行ステップはすべて完了しました (v0.20.0): integration / docs-i18n / changelog / landing の検証と version-bump helper はすべて `go run ./cmd/repo-tooling ...` 経由になり、CI・Makefile・release workflow・CONTRIBUTING を配線済み。release/CI のガード数本（例: `verify_release_manifests.py`）は Python のまま残りますが、これらは本移行計画の対象外です — [`python-dependencies.ja.md`](./python-dependencies.ja.md) を参照。この文書は、今後の maintainer automation が場当たり的な script を増やさず一つの一貫した surface に収束するための合意先を定義します。
 
 ## 関連文書
 

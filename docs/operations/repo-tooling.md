@@ -112,15 +112,15 @@ The Go entrypoint reproduces the hero-eyebrow (major.minor) and Homebrew bottle
 (`.github/workflows/release.yml`), and the Makefile (`landing/check`,
 `release/bump`). The Python script has been removed.
 
-### 5. Version bump helper
+### 5. Version bump helper — ✅ migrated (v0.20.0)
 
-Final target:
+Final target (done):
 
-- `scripts/bump_version.py`
+- ~~`scripts/bump_version.py`~~ → `go run ./cmd/repo-tooling release bump-version --version X.Y.Z`
 
-Planned replacement:
-
-- `go run ./cmd/repo-tooling release bump-version --version X.Y.Z`
+The Go entrypoint reproduces the VERSION / plugin-manifest / landing-marker
+rewrites; `make release/bump` calls it. The Python script has been removed,
+completing this migration order.
 
 ## Rules for new maintainer automation
 
@@ -133,7 +133,7 @@ Until the migrations above land:
 
 ## Current status
 
-Migration step 1 (integration verification) is done: `go run ./cmd/repo-tooling integrations verify` replaces `scripts/verify_integrations.py` in CI, the Makefile, and the integration smoke test. The remaining helpers listed in [`python-dependencies.md`](./python-dependencies.md) are still Python and migrate in the order above. This page defines the agreed Go destination so that future migrations move toward one consistent surface instead of growing more ad-hoc scripts.
+All five migration-order steps above are complete (v0.20.0): integration / docs-i18n / changelog / landing verification and the version-bump helper all run through `go run ./cmd/repo-tooling ...`, and CI / the Makefile / the release workflow / CONTRIBUTING are wired to them. A few release/CI guards (e.g. `verify_release_manifests.py`) remain Python but were outside this migration plan — see [`python-dependencies.md`](./python-dependencies.md). This page defines the agreed Go destination so that future maintainer automation converges on one consistent surface instead of growing more ad-hoc scripts.
 
 ## Related docs
 

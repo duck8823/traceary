@@ -20,9 +20,13 @@ Codex の唯一サポートされる install path は Codex CLI 公式の `/plug
 
 ### maintainer-only
 
+文書化された repo-tooling 移行順は**完了**しました — 計画上の helper はすべて `go run ./cmd/repo-tooling ...` 経由になりました（下記移行順を参照）。release/CI のガードのうち、計画外で Python が残るものは次のとおりです:
+
 | 対象 | 現在の entrypoint | 利用箇所 | 今後の方向 |
 | --- | --- | --- | --- |
-| version bump helper | `python3 scripts/bump_version.py` | release prep | user 影響が低いので最後に移す |
+| release manifest verification | `python3 scripts/verify_release_manifests.py` | release prep、CI integrations/release jobs | 当初計画外。再検討時に `cmd/repo-tooling` へ統合 |
+| removed-alias doc guard | `python3 scripts/verify_docs_no_removed_aliases.py` | CI docs job | 当初計画外 |
+| release-drafter workflow guard | `python3 scripts/verify_release_drafter_workflow.py` | CI docs job | 当初計画外 |
 
 ## この issue の対象外
 
@@ -52,10 +56,9 @@ Codex の唯一サポートされる install path は Codex CLI 公式の `/plug
 これらは maintainer-only なので、優先度より correctness を重視します。
 共通の Go verifier ができたなら、別々の tool を増やさずそこへ統合します。
 
-### 3. version bump helper
+### 3. version bump helper — ✅ 完了 (v0.20.0)
 
-`scripts/bump_version.py` は便利ですが優先度は低めです。
-上の高優先度項目が固まってから移せば十分です。
+`scripts/bump_version.py` は `go run ./cmd/repo-tooling release bump-version --version X.Y.Z` に置き換えて削除しました。`make release/bump` は Go コマンドを使います。これで文書化された移行順は完了です。
 
 ## 今後の repository rule
 
