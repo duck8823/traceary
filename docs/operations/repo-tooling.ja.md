@@ -83,15 +83,13 @@ Go 入口は Python のチェック（canonical hook コピー、Claude / Codex 
 
 Go 入口は en/ja pairing と冒頭の言語切り替えチェックを再現し、CI（`.github/workflows/ci.yml`）・Makefile（`docs/check`）・`CONTRIBUTING` に配線済み。Python スクリプトは削除しました。
 
-### 3. changelog coverage verification
+### 3. changelog coverage verification — ✅ 移行済 (v0.20.0)
 
-3 番目の対象:
+3 番目の対象（完了）:
 
-- `scripts/verify_changelog_releases.py`
+- ~~`scripts/verify_changelog_releases.py`~~ → `go run ./cmd/repo-tooling release verify-changelog`
 
-置き換え先:
-
-- `go run ./cmd/repo-tooling release verify-changelog`
+Go 入口は en/ja changelog の整合・現 VERSION・released tag coverage を再現し、CI（`.github/workflows/ci.yml`）と release workflow（`.github/workflows/release.yml`）に配線済み。Python スクリプトは削除しました。
 
 ### 4. landing page version drift verification
 

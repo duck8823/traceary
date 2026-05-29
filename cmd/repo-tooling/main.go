@@ -29,5 +29,6 @@ func newRootCommand() *cobra.Command {
 	}
 	root.AddCommand(newIntegrationsCommand())
 	root.AddCommand(newDocsCommand())
+	root.AddCommand(newReleaseCommand())
 	return root
 }

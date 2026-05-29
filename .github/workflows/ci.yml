@@ -31,7 +31,7 @@ jobs:
         run: python3 scripts/verify_docs_no_removed_aliases.py
 
       - name: Verify changelog coverage
-        run: python3 scripts/verify_changelog_releases.py
+        run: go run ./cmd/repo-tooling release verify-changelog
 
       - name: Verify landing page in sync with VERSION
         run: python3 scripts/verify_landing.py
