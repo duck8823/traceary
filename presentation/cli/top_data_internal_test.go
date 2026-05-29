@@ -99,6 +99,7 @@ type topDataMemoryStub struct {
 	countResult         apptypes.MemoryStatusCounts
 	countErr            error
 	countCalls          int
+	countFunc           func(apptypes.MemoryListCriteria) (apptypes.MemoryStatusCounts, error)
 }
 
 func (s *topDataMemoryStub) List(_ context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
@@ -123,8 +124,11 @@ func (s *topDataMemoryStub) Show(_ context.Context, memoryID domtypes.MemoryID) 
 	return s.showDetails, s.showErr
 }
 
-func (s *topDataMemoryStub) CountByStatus(_ context.Context, _ apptypes.MemoryListCriteria) (apptypes.MemoryStatusCounts, error) {
+func (s *topDataMemoryStub) CountByStatus(_ context.Context, criteria apptypes.MemoryListCriteria) (apptypes.MemoryStatusCounts, error) {
 	s.countCalls++
+	if s.countFunc != nil {
+		return s.countFunc(criteria)
+	}
 	return s.countResult, s.countErr
 }
 

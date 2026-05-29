@@ -74,6 +74,65 @@ func TestLoadCockpitHome_AggregatesSessionSignalsWithoutMemoryScans(t *testing.T
 	}
 }
 
+func TestCockpitHome_PopulatesMemoryBacklogViaCountByStatus(t *testing.T) {
+	lastSeenAt := fixedStartedAt.Add(-2 * time.Hour)
+	memory := &topDataMemoryStub{
+		listErr:  context.Canceled,
+		staleErr: context.Canceled,
+		countFunc: func(criteria apptypes.MemoryListCriteria) (apptypes.MemoryStatusCounts, error) {
+			if _, ok := criteria.UpdatedAfter().Value(); ok {
+				return apptypes.MemoryStatusCounts{Candidate: 42}, nil
+			}
+			return apptypes.MemoryStatusCounts{Accepted: 8, Candidate: 5177}, nil
+		},
+	}
+	root := &RootCLI{
+		memory:       memory,
+		cockpitState: cockpitStateReaderStub{at: lastSeenAt, ok: true},
+	}
+
+	home, err := root.loadCockpitHome(context.Background(), cockpitCommandOptions{dbPath: filepath.Join(t.TempDir(), "traceary.db")})
+	if err != nil {
+		t.Fatalf("loadCockpitHome() error = %v", err)
+	}
+
+	if got, want := home.CandidateMemoryCount, 5177; got != want {
+		t.Fatalf("CandidateMemoryCount = %d, want %d (true backlog via CountByStatus)", got, want)
+	}
+	if got, want := home.AcceptedMemoryCount, 8; got != want {
+		t.Fatalf("AcceptedMemoryCount = %d, want %d", got, want)
+	}
+	if got, want := home.NewCandidateMemoryCount, 42; got != want {
+		t.Fatalf("NewCandidateMemoryCount = %d, want %d (candidates since last review)", got, want)
+	}
+	if got := memory.listCalls; got != 0 {
+		t.Fatalf("memory.List calls = %d, want 0 (cockpit backlog must use the cheap CountByStatus path)", got)
+	}
+	if got, want := memory.countCalls, 2; got != want {
+		t.Fatalf("CountByStatus calls = %d, want %d (totals + new-since-last-review)", got, want)
+	}
+}
+
+func TestCockpitMemoryReviewView_RendersInboxBacklogSummary(t *testing.T) {
+	home := cockpitHomeSnapshot{
+		LoadedAt:                fixedStartedAt,
+		CandidateMemoryCount:    5177,
+		AcceptedMemoryCount:     8,
+		NewCandidateMemoryCount: 42,
+		NewCandidateMemoryKnown: true,
+	}
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.Styles{}, home)
+	model.mode = cockpitModeMemoryReview
+	model.memoryReview.loading = true
+	model.memoryReview.review = newReviewModel(nil, model.keys, model.styles)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	view := updated.(cockpitModel).View()
+
+	if !strings.Contains(view, "backlog: candidate=5177 accepted=8 new=42") {
+		t.Fatalf("memory tab missing inbox backlog summary line:\n%s", view)
+	}
+}
+
 func TestCockpitSessionsTab_HidesMemoryNotificationsWhenLastSeenAvailable(t *testing.T) {
 	now := fixedStartedAt.Add(72 * time.Hour)
 	previousTopNow := topNowFunc
