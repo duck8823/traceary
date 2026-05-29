@@ -23,7 +23,6 @@ The only supported Codex install path is Codex CLI's official `/plugins` flow (r
 | Surface | Current entrypoint | Used by | Planned direction |
 | --- | --- | --- | --- |
 | docs pairing verification | `python3 scripts/verify_docs_i18n.py` | local checks, CI docs job | keep short-term; fold into a Go-based repo verifier later |
-| integration package verification | `python3 scripts/verify_integrations.py` | release prep, smoke tests, CI | migrate after the Codex install path |
 | changelog coverage verification | `python3 scripts/verify_changelog_releases.py` | release prep, CI docs/release jobs | migrate after integration verification if a shared Go verifier exists |
 | landing page version drift verification | `python3 scripts/verify_landing.py` | release prep, CI docs job, release workflow | join the shared Go verifier when it exists (e.g. `go run ./cmd/repo-tooling docs verify-landing`) |
 | version bump helper | `python3 scripts/bump_version.py` | release prep | migrate last; low user impact |
@@ -38,13 +37,10 @@ These are *not* part of the Python dependency story this issue is addressing:
 
 ## Preferred migration order
 
-### 1. Integration verification
+### 1. Integration verification — ✅ done (v0.20.0)
 
-Once the public Codex flow is moved, the next best return comes from `scripts/verify_integrations.py` because it is used in release preparation, smoke tests, and CI.
+`scripts/verify_integrations.py` has been replaced by `go run ./cmd/repo-tooling integrations verify` and removed. CI, the Makefile (`integrations/check`, `release/bump`), and the integration smoke test now use the Go entrypoint.
 
-Preferred replacement direction:
-
-- `go run ./cmd/repo-tooling integrations verify`
 - additional repository verifiers should share the same `cmd/repo-tooling` entrypoint instead of growing one-off helpers
 
 ### 2. Changelog and docs verifiers

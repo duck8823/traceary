@@ -61,11 +61,11 @@ The exact package layout can evolve, but the documented entrypoint should stay s
 
 ## Migration order
 
-### 1. Integration verification
+### 1. Integration verification — ✅ migrated (v0.20.0)
 
-First target:
+First target (done):
 
-- `scripts/verify_integrations.py`
+- ~~`scripts/verify_integrations.py`~~ → `go run ./cmd/repo-tooling integrations verify`
 
 Why first:
 
@@ -73,9 +73,11 @@ Why first:
 - it already validates multiple integration packages and their managed files
 - it benefits the most from living next to the Go integration logic it verifies
 
-Planned replacement:
-
-- `go run ./cmd/repo-tooling integrations verify`
+The Go entrypoint reproduces the Python checks (canonical hook copies, Claude /
+Codex / Gemini manifests + managed files, the Codex removed-command stubs, and
+docs i18n pairs) and is wired into CI (`.github/workflows/ci.yml`) and the
+Makefile (`integrations/check`, `release/bump`). The Python script has been
+removed.
 
 ### 2. Docs pairing verification
 
@@ -128,8 +130,7 @@ Until the migrations above land:
 
 ## Current status
 
-Today the repository still uses Python for the helpers listed in [`python-dependencies.md`](./python-dependencies.md).
-This page defines the agreed Go destination so that future migrations move toward one consistent surface instead of growing more ad-hoc scripts.
+Migration step 1 (integration verification) is done: `go run ./cmd/repo-tooling integrations verify` replaces `scripts/verify_integrations.py` in CI, the Makefile, and the integration smoke test. The remaining helpers listed in [`python-dependencies.md`](./python-dependencies.md) are still Python and migrate in the order above. This page defines the agreed Go destination so that future migrations move toward one consistent surface instead of growing more ad-hoc scripts.
 
 ## Related docs
 

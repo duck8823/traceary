@@ -112,7 +112,7 @@ traceary doctor --client codex --json
 maintainer 向けの構造確認（plugin manifest や hook、marketplace を変更したとき）:
 
 ```sh
-python3 scripts/verify_integrations.py
+go run ./cmd/repo-tooling integrations verify
 ```
 
 ## 旧 install/uninstall の削除 (v0.14.0, v0.15.0)

@@ -1,4 +1,5 @@
 /traceary
+/repo-tooling
 *.db
 *.sqlite
 .DS_Store

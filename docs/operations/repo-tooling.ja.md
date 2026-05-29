@@ -61,11 +61,11 @@ maintainer-only の repository automation は性質が異なります。
 
 ## 移行順
 
-### 1. integration verification
+### 1. integration verification — ✅ 移行済 (v0.20.0)
 
-最初の対象:
+最初の対象（完了）:
 
-- `scripts/verify_integrations.py`
+- ~~`scripts/verify_integrations.py`~~ → `go run ./cmd/repo-tooling integrations verify`
 
 これを先にやる理由:
 
@@ -73,9 +73,7 @@ maintainer-only の repository automation は性質が異なります。
 - 複数 integration package と managed file をまたいで検証している
 - 検証対象の Go integration logic の近くへ寄せる価値が高い
 
-置き換え先:
-
-- `go run ./cmd/repo-tooling integrations verify`
+Go 入口は Python のチェック（canonical hook コピー、Claude / Codex / Gemini の manifest + managed file、Codex の削除済みコマンド stub、docs i18n pair）を再現し、CI（`.github/workflows/ci.yml`）と Makefile（`integrations/check`、`release/bump`）に配線済み。Python スクリプトは削除しました。
 
 ### 2. docs pairing verification
 
@@ -128,8 +126,7 @@ maintainer-only の repository automation は性質が異なります。
 
 ## 現在の状態
 
-現時点では、[`python-dependencies.ja.md`](./python-dependencies.ja.md) にある helper がまだ Python で残っています。
-この文書は、それらをどこへ移すのかを先に固定し、場当たり的な script 増殖を防ぐためのものです。
+移行ステップ 1（integration verification）は完了済み: `go run ./cmd/repo-tooling integrations verify` が CI・Makefile・integration smoke test 内の `scripts/verify_integrations.py` を置き換えました。[`python-dependencies.ja.md`](./python-dependencies.ja.md) に残る helper はまだ Python で、上記の順に移行します。この文書は、それらをどこへ移すのかを先に固定し、場当たり的な script 増殖を防ぐためのものです。
 
 ## 関連文書
 

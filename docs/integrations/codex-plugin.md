@@ -123,7 +123,7 @@ traceary doctor --client codex --json
 Structural package validation (for maintainers who change the plugin manifest, hooks, or marketplace entry):
 
 ```sh
-python3 scripts/verify_integrations.py
+go run ./cmd/repo-tooling integrations verify
 ```
 
 ## Legacy install/uninstall removal (v0.14.0, v0.15.0)

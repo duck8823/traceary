@@ -28,7 +28,7 @@ docs/check: ## Verify bilingual documentation pairs
 	@python3 scripts/verify_docs_i18n.py
 
 integrations/check: ## Verify native integration packages
-	@python3 scripts/verify_integrations.py
+	@go run ./cmd/repo-tooling integrations verify
 
 release/check: ## Verify release marketplace and plugin manifests
 	@python3 scripts/verify_release_manifests.py
@@ -46,7 +46,7 @@ release/bump: ## Bump version across all manifests (usage: make release/bump VER
 	@test -n "$(VERSION)" || (echo "Usage: make release/bump VERSION=X.Y.Z" >&2 && exit 1)
 	@python3 scripts/bump_version.py --version "$(VERSION)"
 	@python3 scripts/verify_release_manifests.py
-	@python3 scripts/verify_integrations.py
+	@go run ./cmd/repo-tooling integrations verify
 	@python3 scripts/verify_landing.py
 
 ci: docs/check release/check integrations/check landing/check code/lint code/test ## Run full CI validation

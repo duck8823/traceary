@@ -52,12 +52,12 @@ run_gemini() {
 }
 
 run_codex() {
-  # The Python-side smoke owns both the install-removal assertion
+  # The repo-tooling verifier owns both the install-removal assertion
   # (v0.14.0) and the uninstall-removal assertion (v0.15.0); see
-  # scripts/verify_integrations.py::check_codex. The shell side adds
-  # quick CLI-level guards so regressions that re-register either of
-  # the retired commands would surface here too.
-  python3 "${ROOT_DIR}/scripts/verify_integrations.py"
+  # cmd/repo-tooling/integrations.go (checkCodexRemovedCommands). The
+  # shell side adds quick CLI-level guards so regressions that
+  # re-register either of the retired commands would surface here too.
+  (cd "${ROOT_DIR}" && go run ./cmd/repo-tooling integrations verify)
   local install_output
   if install_output="$(TRACEARY_LANG=en go run . integration codex install 2>&1)"; then
     echo "error: 'go run . integration codex install' unexpectedly succeeded after v0.14.0 removal" >&2
