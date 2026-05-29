@@ -227,6 +227,22 @@ func (c *RootCLI) loadCockpitHome(ctx context.Context, opts cockpitCommandOption
 	home.RecentCommandCount = len(snap.RecentCommands)
 	home.LargePayloadCount = snap.Reliability.LargePayloads.Count
 
+	// Populate the memory inbox backlog via the cheap CountByStatus query (a
+	// COUNT, not the bounded reliability scan or the List path) so the cockpit
+	// Memory tab shows the true accepted/candidate totals — and new-since-last-
+	// review candidates when a checkpoint is known — without an expensive scan.
+	if counter, ok := c.memory.(memoryStatusCounter); ok {
+		if counts, err := counter.CountByStatus(ctx, cockpitMemoryStatusCountCriteria()); err == nil {
+			home.AcceptedMemoryCount = counts.Accepted
+			home.CandidateMemoryCount = counts.Candidate
+		}
+		if memoryLastSeenKnown {
+			if counts, err := counter.CountByStatus(ctx, cockpitNewCandidateCountCriteria(memoryLastSeenAt)); err == nil {
+				home.NewCandidateMemoryCount = counts.Candidate
+			}
+		}
+	}
+
 	return home, nil
 }
 
@@ -241,6 +257,23 @@ func cockpitSessionsDataCriteriaAt(now time.Time) topDataCriteria {
 		Now:                   now,
 		SkipMemoryReliability: true,
 	}
+}
+
+// cockpitMemoryStatusCountCriteria builds the (limit-irrelevant) criteria for
+// the true accepted/candidate totals shown in the cockpit Memory tab.
+func cockpitMemoryStatusCountCriteria() apptypes.MemoryListCriteria {
+	return apptypes.NewMemoryListCriteriaBuilder(1).
+		Statuses([]domtypes.MemoryStatus{domtypes.MemoryStatusAccepted, domtypes.MemoryStatusCandidate}).
+		Build()
+}
+
+// cockpitNewCandidateCountCriteria counts candidate memories updated since the
+// last review checkpoint, for the cockpit's new-since-last-review signal.
+func cockpitNewCandidateCountCriteria(since time.Time) apptypes.MemoryListCriteria {
+	return apptypes.NewMemoryListCriteriaBuilder(1).
+		Statuses([]domtypes.MemoryStatus{domtypes.MemoryStatusCandidate}).
+		UpdatedAfter(since).
+		Build()
 }
 
 // CockpitStateReader provides optional local cockpit state. Missing or failing

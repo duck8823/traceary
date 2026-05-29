@@ -74,6 +74,45 @@ func TestLoadCockpitHome_AggregatesSessionSignalsWithoutMemoryScans(t *testing.T
 	}
 }
 
+func TestCockpitHome_PopulatesMemoryBacklogViaCountByStatus(t *testing.T) {
+	lastSeenAt := fixedStartedAt.Add(-2 * time.Hour)
+	memory := &topDataMemoryStub{
+		listErr:  context.Canceled,
+		staleErr: context.Canceled,
+		countFunc: func(criteria apptypes.MemoryListCriteria) (apptypes.MemoryStatusCounts, error) {
+			if _, ok := criteria.UpdatedAfter().Value(); ok {
+				return apptypes.MemoryStatusCounts{Candidate: 42}, nil
+			}
+			return apptypes.MemoryStatusCounts{Accepted: 8, Candidate: 5177}, nil
+		},
+	}
+	root := &RootCLI{
+		memory:       memory,
+		cockpitState: cockpitStateReaderStub{at: lastSeenAt, ok: true},
+	}
+
+	home, err := root.loadCockpitHome(context.Background(), cockpitCommandOptions{dbPath: filepath.Join(t.TempDir(), "traceary.db")})
+	if err != nil {
+		t.Fatalf("loadCockpitHome() error = %v", err)
+	}
+
+	if got, want := home.CandidateMemoryCount, 5177; got != want {
+		t.Fatalf("CandidateMemoryCount = %d, want %d (true backlog via CountByStatus)", got, want)
+	}
+	if got, want := home.AcceptedMemoryCount, 8; got != want {
+		t.Fatalf("AcceptedMemoryCount = %d, want %d", got, want)
+	}
+	if got, want := home.NewCandidateMemoryCount, 42; got != want {
+		t.Fatalf("NewCandidateMemoryCount = %d, want %d (candidates since last review)", got, want)
+	}
+	if got := memory.listCalls; got != 0 {
+		t.Fatalf("memory.List calls = %d, want 0 (cockpit backlog must use the cheap CountByStatus path)", got)
+	}
+	if got, want := memory.countCalls, 2; got != want {
+		t.Fatalf("CountByStatus calls = %d, want %d (totals + new-since-last-review)", got, want)
+	}
+}
+
 func TestCockpitSessionsTab_HidesMemoryNotificationsWhenLastSeenAvailable(t *testing.T) {
 	now := fixedStartedAt.Add(72 * time.Hour)
 	previousTopNow := topNowFunc
