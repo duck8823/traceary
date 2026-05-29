@@ -454,15 +454,17 @@ func (c *RootCLI) runHookAudit(
 		Build()
 	_, _, err = c.event.Audit(
 		ctx,
-		command,
-		auditInput,
-		auditOutput,
-		types.Client("hook"),
-		agent,
-		sessionID,
-		workspace,
-		hookPayloadExitCode(payload),
-		hookPayloadFailed(payload),
+		apptypes.AuditInput{
+			Command:   command,
+			Input:     auditInput,
+			Output:    auditOutput,
+			Client:    types.Client("hook"),
+			Agent:     agent,
+			SessionID: sessionID,
+			Workspace: workspace,
+			ExitCode:  hookPayloadExitCode(payload),
+			Failed:    hookPayloadFailed(payload),
+		},
 		auditCfg,
 	)
 

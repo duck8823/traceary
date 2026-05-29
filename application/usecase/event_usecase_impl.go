@@ -105,15 +105,15 @@ func (u *eventUsecase) Log(ctx context.Context, message string, kind types.Event
 	return event, nil
 }
 
-func (u *eventUsecase) Audit(ctx context.Context, command string, input string, output string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, exitCode types.Optional[int], failed bool, auditCfg apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
+func (u *eventUsecase) Audit(ctx context.Context, in apptypes.AuditInput, auditCfg apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
 	if u.eventRepo == nil {
 		return nil, nil, xerrors.Errorf("event repository is not configured")
 	}
 
-	if _, err := types.AgentFrom(agent.String()); err != nil {
+	if _, err := types.AgentFrom(in.Agent.String()); err != nil {
 		return nil, nil, xerrors.Errorf("failed to resolve agent: %w", err)
 	}
-	if _, err := types.SessionIDFrom(sessionID.String()); err != nil {
+	if _, err := types.SessionIDFrom(in.SessionID.String()); err != nil {
 		return nil, nil, xerrors.Errorf("failed to resolve session ID: %w", err)
 	}
 	eventID, err := newEventID()
@@ -135,8 +135,8 @@ func (u *eventUsecase) Audit(ctx context.Context, command string, input string, 
 		return nil, nil, xerrors.Errorf("failed to compile redaction rules: %w", err)
 	}
 
-	normalizedInput := input
-	normalizedOutput := output
+	normalizedInput := in.Input
+	normalizedOutput := in.Output
 	var inputRedacted bool
 	var outputRedacted bool
 	if !auditCfg.AllowSecrets() {
@@ -148,7 +148,7 @@ func (u *eventUsecase) Audit(ctx context.Context, command string, input string, 
 	normalizedOutput, outputTruncated := truncateAuditPayload(normalizedOutput, maxOutputBytes)
 	commandAudit, err := model.NewCommandAudit(
 		eventID,
-		command,
+		in.Command,
 		normalizedInput,
 		normalizedOutput,
 		inputTruncated,
@@ -158,16 +158,16 @@ func (u *eventUsecase) Audit(ctx context.Context, command string, input string, 
 		return nil, nil, xerrors.Errorf("failed to build command audit: %w", err)
 	}
 	commandAudit.SetRedaction(inputRedacted, outputRedacted)
-	commandAudit.SetExitCode(exitCode)
-	commandAudit.SetFailed(failed)
+	commandAudit.SetExitCode(in.ExitCode)
+	commandAudit.SetFailed(in.Failed)
 
 	event, err := model.NewEvent(
 		eventID,
 		types.EventKindCommandExecuted,
-		client,
-		agent,
-		sessionID,
-		workspace,
+		in.Client,
+		in.Agent,
+		in.SessionID,
+		in.Workspace,
 		commandAuditEventBody(commandAudit),
 	)
 	if err != nil {

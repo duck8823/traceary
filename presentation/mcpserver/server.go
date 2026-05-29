@@ -375,7 +375,16 @@ func (s *Server) recordEvent() mcp.ToolHandlerFor[recordEventInput, recordEventO
 				return nil, recordEventOutput{}, xerrors.Errorf("record_event type audit requires command")
 			}
 			auditCfg := apptypes.NewAuditRedactionBuilder().ExtraRedactPatterns(s.extraRedactPatterns).StructuredRules(s.structuredRedactRules).Build()
-			event, audit, err := s.event.Audit(ctx, input.Command, input.Input, input.Output, types.Client(resolveValue(input.Client, defaultClientValue)), types.Agent(resolveValue(input.Agent, defaultAgentValue)), types.SessionID(resolveValue(input.SessionID, defaultSessionValue)), types.Workspace(strings.TrimSpace(input.Workspace)), types.None[int](), false, auditCfg)
+			event, audit, err := s.event.Audit(ctx, apptypes.AuditInput{
+				Command:   input.Command,
+				Input:     input.Input,
+				Output:    input.Output,
+				Client:    types.Client(resolveValue(input.Client, defaultClientValue)),
+				Agent:     types.Agent(resolveValue(input.Agent, defaultAgentValue)),
+				SessionID: types.SessionID(resolveValue(input.SessionID, defaultSessionValue)),
+				Workspace: types.Workspace(strings.TrimSpace(input.Workspace)),
+				ExitCode:  types.None[int](),
+			}, auditCfg)
 			if err != nil {
 				return nil, recordEventOutput{}, xerrors.Errorf("failed to record command audit: %w", err)
 			}

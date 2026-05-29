@@ -44,15 +44,17 @@ func TestEventUsecase_Audit(t *testing.T) {
 		sut := usecase.NewEventUsecase(stub, nil)
 
 		event, commandAudit, err := sut.Audit(context.Background(),
-			"go test ./...",
-			"stdin",
-			"stdout",
-			types.Client("cli"),
-			types.Agent("codex"),
-			types.SessionID("session-1"),
-			types.Workspace("duck8823/traceary"),
-			types.None[int](),
-			false,
+			apptypes.AuditInput{
+				Command:   "go test ./...",
+				Input:     "stdin",
+				Output:    "stdout",
+				Client:    types.Client("cli"),
+				Agent:     types.Agent("codex"),
+				SessionID: types.SessionID("session-1"),
+				Workspace: types.Workspace("duck8823/traceary"),
+				ExitCode:  types.None[int](),
+				Failed:    false,
+			},
 			apptypes.NewAuditRedactionBuilder().Build(),
 		)
 		if err != nil {
@@ -85,15 +87,17 @@ func TestEventUsecase_Audit(t *testing.T) {
 		longOutput := strings.Repeat("o", 70*1024)
 
 		_, commandAudit, err := sut.Audit(context.Background(),
-			"go test ./...",
-			longInput,
-			longOutput,
-			types.Client("cli"),
-			types.Agent("codex"),
-			types.SessionID("session-1"),
-			types.Workspace(""),
-			types.None[int](),
-			false,
+			apptypes.AuditInput{
+				Command:   "go test ./...",
+				Input:     longInput,
+				Output:    longOutput,
+				Client:    types.Client("cli"),
+				Agent:     types.Agent("codex"),
+				SessionID: types.SessionID("session-1"),
+				Workspace: types.Workspace(""),
+				ExitCode:  types.None[int](),
+				Failed:    false,
+			},
 			apptypes.NewAuditRedactionBuilder().Build(),
 		)
 		if err != nil {
@@ -120,15 +124,17 @@ func TestEventUsecase_Audit(t *testing.T) {
 		sut := usecase.NewEventUsecase(stub, nil)
 
 		_, commandAudit, err := sut.Audit(context.Background(),
-			"go test ./...",
-			strings.Repeat("i", 32),
-			strings.Repeat("o", 32),
-			types.Client("cli"),
-			types.Agent("codex"),
-			types.SessionID("session-1"),
-			types.Workspace(""),
-			types.None[int](),
-			false,
+			apptypes.AuditInput{
+				Command:   "go test ./...",
+				Input:     strings.Repeat("i", 32),
+				Output:    strings.Repeat("o", 32),
+				Client:    types.Client("cli"),
+				Agent:     types.Agent("codex"),
+				SessionID: types.SessionID("session-1"),
+				Workspace: types.Workspace(""),
+				ExitCode:  types.None[int](),
+				Failed:    false,
+			},
 			apptypes.NewAuditRedactionBuilder().
 				MaxInputBytes(16).
 				MaxOutputBytes(20).
@@ -155,15 +161,17 @@ func TestEventUsecase_Audit(t *testing.T) {
 		sut := usecase.NewEventUsecase(stub, nil)
 
 		_, commandAudit, err := sut.Audit(context.Background(),
-			"curl https://example.test",
-			`{"access_token":"top-secret","note":"keep"}`,
-			"Authorization: Bearer token-value\nexport API_KEY=\"abc123\"",
-			types.Client("cli"),
-			types.Agent("codex"),
-			types.SessionID("session-1"),
-			types.Workspace(""),
-			types.None[int](),
-			false,
+			apptypes.AuditInput{
+				Command:   "curl https://example.test",
+				Input:     `{"access_token":"top-secret","note":"keep"}`,
+				Output:    "Authorization: Bearer token-value\nexport API_KEY=\"abc123\"",
+				Client:    types.Client("cli"),
+				Agent:     types.Agent("codex"),
+				SessionID: types.SessionID("session-1"),
+				Workspace: types.Workspace(""),
+				ExitCode:  types.None[int](),
+				Failed:    false,
+			},
 			apptypes.NewAuditRedactionBuilder().Build(),
 		)
 		if err != nil {
@@ -196,15 +204,17 @@ func TestEventUsecase_Audit(t *testing.T) {
 		sut := usecase.NewEventUsecase(stub, nil)
 
 		_, commandAudit, err := sut.Audit(context.Background(),
-			"curl https://example.test",
-			`{"access_token":"top-secret"}`,
-			"Authorization: Bearer token-value",
-			types.Client("cli"),
-			types.Agent("codex"),
-			types.SessionID("session-1"),
-			types.Workspace(""),
-			types.None[int](),
-			false,
+			apptypes.AuditInput{
+				Command:   "curl https://example.test",
+				Input:     `{"access_token":"top-secret"}`,
+				Output:    "Authorization: Bearer token-value",
+				Client:    types.Client("cli"),
+				Agent:     types.Agent("codex"),
+				SessionID: types.SessionID("session-1"),
+				Workspace: types.Workspace(""),
+				ExitCode:  types.None[int](),
+				Failed:    false,
+			},
 			apptypes.NewAuditRedactionBuilder().
 				AllowSecrets(true).
 				MaxInputBytes(256).
@@ -234,15 +244,17 @@ func TestEventUsecase_Audit(t *testing.T) {
 		sut := usecase.NewEventUsecase(stub, nil)
 
 		_, commandAudit, err := sut.Audit(context.Background(),
-			"curl https://example.test",
-			"my_custom_secret=hunter2",
-			"internal_token: abc123",
-			types.Client("cli"),
-			types.Agent("codex"),
-			types.SessionID("session-1"),
-			types.Workspace(""),
-			types.None[int](),
-			false,
+			apptypes.AuditInput{
+				Command:   "curl https://example.test",
+				Input:     "my_custom_secret=hunter2",
+				Output:    "internal_token: abc123",
+				Client:    types.Client("cli"),
+				Agent:     types.Agent("codex"),
+				SessionID: types.SessionID("session-1"),
+				Workspace: types.Workspace(""),
+				ExitCode:  types.None[int](),
+				Failed:    false,
+			},
 			apptypes.NewAuditRedactionBuilder().
 				ExtraRedactPatterns([]string{"my_custom_secret=\\S+", "internal_token:\\s*\\S+"}).
 				Build(),
@@ -268,15 +280,17 @@ func TestEventUsecase_Audit(t *testing.T) {
 		sut := usecase.NewEventUsecase(stub, nil)
 
 		_, _, err := sut.Audit(context.Background(),
-			"test",
-			"",
-			"",
-			types.Client("cli"),
-			types.Agent("codex"),
-			types.SessionID("session-1"),
-			types.Workspace(""),
-			types.None[int](),
-			false,
+			apptypes.AuditInput{
+				Command:   "test",
+				Input:     "",
+				Output:    "",
+				Client:    types.Client("cli"),
+				Agent:     types.Agent("codex"),
+				SessionID: types.SessionID("session-1"),
+				Workspace: types.Workspace(""),
+				ExitCode:  types.None[int](),
+				Failed:    false,
+			},
 			apptypes.NewAuditRedactionBuilder().
 				ExtraRedactPatterns([]string{"[invalid"}).
 				Build(),
@@ -293,15 +307,17 @@ func TestEventUsecase_Audit(t *testing.T) {
 		sut := usecase.NewEventUsecase(stub, nil)
 
 		_, _, err := sut.Audit(context.Background(),
-			"go test ./...",
-			"stdin",
-			"stdout",
-			types.Client("cli"),
-			types.Agent("codex"),
-			types.SessionID("session-1"),
-			types.Workspace(""),
-			types.None[int](),
-			false,
+			apptypes.AuditInput{
+				Command:   "go test ./...",
+				Input:     "stdin",
+				Output:    "stdout",
+				Client:    types.Client("cli"),
+				Agent:     types.Agent("codex"),
+				SessionID: types.SessionID("session-1"),
+				Workspace: types.Workspace(""),
+				ExitCode:  types.None[int](),
+				Failed:    false,
+			},
 			apptypes.NewAuditRedactionBuilder().
 				MaxInputBytes(-1).
 				Build(),
