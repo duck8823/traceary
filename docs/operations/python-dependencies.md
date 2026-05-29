@@ -22,7 +22,6 @@ The only supported Codex install path is Codex CLI's official `/plugins` flow (r
 
 | Surface | Current entrypoint | Used by | Planned direction |
 | --- | --- | --- | --- |
-| changelog coverage verification | `python3 scripts/verify_changelog_releases.py` | release prep, CI docs/release jobs | migrate after integration verification if a shared Go verifier exists |
 | landing page version drift verification | `python3 scripts/verify_landing.py` | release prep, CI docs job, release workflow | join the shared Go verifier when it exists (e.g. `go run ./cmd/repo-tooling docs verify-landing`) |
 | version bump helper | `python3 scripts/bump_version.py` | release prep | migrate last; low user impact |
 
@@ -46,7 +45,7 @@ These are *not* part of the Python dependency story this issue is addressing:
 
 After integration verification, migrate:
 
-- `scripts/verify_changelog_releases.py`
+- ~~`scripts/verify_changelog_releases.py`~~ → ✅ `go run ./cmd/repo-tooling release verify-changelog` (done, v0.20.0)
 - ~~`scripts/verify_docs_i18n.py`~~ → ✅ `go run ./cmd/repo-tooling docs verify-i18n` (done, v0.20.0)
 - `scripts/verify_landing.py`
 

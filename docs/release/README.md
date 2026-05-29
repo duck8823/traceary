@@ -64,7 +64,7 @@ That workflow:
 
 1. checks out the full git history
 2. sets up Go
-3. verifies changelog coverage with `scripts/verify_changelog_releases.py`
+3. verifies changelog coverage with `go run ./cmd/repo-tooling release verify-changelog`
 4. runs GoReleaser in release mode for tag refs, or snapshot mode for manual branch runs
 5. publishes GitHub release artifacts and checksums for tagged releases
 6. opens or updates a dedicated Homebrew formula PR (`maintenance/homebrew-vX.Y.Z`) with a GitHub App installation token instead of direct-pushing to protected `main`
@@ -75,7 +75,7 @@ That workflow:
 
 Release-preparation PRs may align metadata, docs, and manifests, but they must **not** close the parent release issue. The parent issue stays open until the tagged release workflow finishes successfully.
 
-`scripts/verify_changelog_releases.py` is also enforced from the CI docs job. The guard checks:
+`go run ./cmd/repo-tooling release verify-changelog` is also enforced from the CI docs job. The guard checks:
 
 - the current `VERSION` exists in both `CHANGELOG.md` and `CHANGELOG.ja.md`
 - English and Japanese changelog release headings stay in sync
@@ -113,9 +113,9 @@ The GitHub App should be installed only on `duck8823/traceary` with repository p
 
 The GoReleaser workflow automates artifact publishing, but a handful of steps still have to run from a maintainer's machine. Run them in this order for every `vX.Y.Z` release.
 
-1. **Update both changelogs first.** Edit `CHANGELOG.md` and `CHANGELOG.ja.md` to add a new `## [vX.Y.Z] - YYYY-MM-DD` section. The section must exist in *both* files with matching release headings before the next step, or `scripts/verify_changelog_releases.py` will fail.
+1. **Update both changelogs first.** Edit `CHANGELOG.md` and `CHANGELOG.ja.md` to add a new `## [vX.Y.Z] - YYYY-MM-DD` section. The section must exist in *both* files with matching release headings before the next step, or `go run ./cmd/repo-tooling release verify-changelog` will fail.
 2. **Bump manifests.** Run `make release/bump VERSION=X.Y.Z` — this updates `VERSION`, all integration plugin manifests, the landing page version markers under `docs/landing/`, and runs `scripts/verify_release_manifests.py` plus `go run ./cmd/repo-tooling integrations verify`.
-3. **Verify locally.** `python3 scripts/verify_changelog_releases.py`, `python3 scripts/verify_release_manifests.py`, `python3 scripts/verify_landing.py`, `go test ./...`, and `go tool golangci-lint run` must all pass. These Python entrypoints are still the current release-prep surface; the planned Go replacement is tracked in [`../operations/repo-tooling.md`](../operations/repo-tooling.md).
+3. **Verify locally.** `go run ./cmd/repo-tooling release verify-changelog`, `python3 scripts/verify_release_manifests.py`, `python3 scripts/verify_landing.py`, `go test ./...`, and `go tool golangci-lint run` must all pass. The remaining Python entrypoints are migrating to `cmd/repo-tooling`; the migration order is tracked in [`../operations/repo-tooling.md`](../operations/repo-tooling.md).
 4. **Dogfood the cockpit.** Run `go test ./presentation/cli -run 'TestCockpitDogfood'` and complete the manual [`cockpit dogfood checklist`](../operations/cockpit-dogfood.md), including the 80x24 smoke, before tagging a release that changes `traceary tui`.
 5. **Preview the landing page.** Serve `docs/landing/` locally (`python3 -m http.server --directory docs/landing 8000`) and open `http://localhost:8000/` to confirm the hero version eyebrow and the brew-install terminal animation reflect the new version. The `Pages` workflow re-deploys automatically when the GitHub release is published, so this preview is the last chance to catch landing drift before it goes live.
 6. **Open the release-preparation PR.** Create a `maintenance/release-vX.Y.Z` branch, commit the changelog and bump changes, push, and open a PR targeting `main`. Do **not** include `Closes #<parent>` — the parent release issue is auto-closed by the tagged release workflow, not by the release-prep PR.

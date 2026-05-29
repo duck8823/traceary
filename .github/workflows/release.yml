@@ -56,7 +56,7 @@ jobs:
           python-version: '3.x'
 
       - name: Verify changelog coverage
-        run: python3 scripts/verify_changelog_releases.py
+        run: go run ./cmd/repo-tooling release verify-changelog
 
       - name: Verify release manifests
         run: python3 scripts/verify_release_manifests.py

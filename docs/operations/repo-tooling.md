@@ -89,15 +89,16 @@ The Go entrypoint reproduces the en/ja pairing and top-of-file language-switch
 checks and is wired into CI (`.github/workflows/ci.yml`), the Makefile
 (`docs/check`), and `CONTRIBUTING`. The Python script has been removed.
 
-### 3. Changelog coverage verification
+### 3. Changelog coverage verification — ✅ migrated (v0.20.0)
 
-Third target:
+Third target (done):
 
-- `scripts/verify_changelog_releases.py`
+- ~~`scripts/verify_changelog_releases.py`~~ → `go run ./cmd/repo-tooling release verify-changelog`
 
-Planned replacement:
-
-- `go run ./cmd/repo-tooling release verify-changelog`
+The Go entrypoint reproduces the bilingual changelog parity, current-VERSION,
+and released-tag coverage checks and is wired into CI (`.github/workflows/ci.yml`)
+and the release workflow (`.github/workflows/release.yml`). The Python script
+has been removed.
 
 ### 4. Landing page version drift verification
 
