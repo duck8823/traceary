@@ -506,6 +506,50 @@ func TestMemoryInboxCleanup_DryRunDoesNotReject(t *testing.T) {
 	}
 }
 
+func TestMemoryInboxCleanup_DryRunReportsCompositionSummary(t *testing.T) {
+	t.Parallel()
+
+	a := buildInboxCandidateDetails(t, "memory-sum-a", "git status", domtypes.MemorySourceExtracted)
+	b := buildInboxCandidateDetails(t, "memory-sum-b", "go test ./...", domtypes.MemorySourceExtracted)
+	memoryStub := &memoryUsecaseStub{
+		listResult: []apptypes.MemorySummary{a.Summary(), b.Summary()},
+		showDetailsByID: map[domtypes.MemoryID]apptypes.MemoryDetails{
+			a.Summary().MemoryID(): a,
+			b.Summary().MemoryID(): b,
+		},
+		scanResult: apptypes.MemoryHygieneScanResult{
+			LowQualityCandidateCount: 2,
+			Suggestions: []apptypes.MemoryHygieneSuggestion{
+				{MemoryID: a.Summary().MemoryID(), Kind: apptypes.MemoryHygieneSuggestionLowQualityCandidate},
+				{MemoryID: b.Summary().MemoryID(), Kind: apptypes.MemoryHygieneSuggestionLowQualityCandidate},
+			},
+		},
+	}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	stdout := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"memory", "inbox", "cleanup", "--db-path", t.TempDir() + "/t.db"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "summary total=2") {
+		t.Fatalf("cleanup dry-run missing composition summary total:\n%s", out)
+	}
+	if !strings.Contains(out, "by_source[extracted=2]") {
+		t.Fatalf("cleanup dry-run missing by_source breakdown:\n%s", out)
+	}
+	if !strings.Contains(out, "by_type[preference=2]") {
+		t.Fatalf("cleanup dry-run missing by_type breakdown:\n%s", out)
+	}
+}
+
 func TestMemoryInboxCleanup_ApplyRejectsCandidatesAndReportsFailures(t *testing.T) {
 	t.Parallel()
 

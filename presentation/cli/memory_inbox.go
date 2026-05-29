@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -351,6 +352,7 @@ func (c *RootCLI) runMemoryInboxCleanup(ctx context.Context, output io.Writer, i
 	result := memoryInboxCleanupResult{
 		Action:  "cleanup-reject",
 		DryRun:  !input.apply,
+		Summary: summarizeMemoryInboxCleanup(items),
 		Matched: items,
 	}
 	if !input.apply {
@@ -609,9 +611,49 @@ type memoryInboxBatchResult struct {
 type memoryInboxCleanupResult struct {
 	Action    string
 	DryRun    bool
+	Summary   memoryInboxCleanupSummary
 	Matched   []apptypes.MemoryDetails
 	Processed []apptypes.MemoryDetails
 	Failures  []memoryInboxFailure
+}
+
+// memoryInboxCleanupSummary is the aggregate composition of the matched memory
+// candidates, surfaced before --apply so an operator triaging a large backlog
+// sees the source / type breakdown at a glance instead of scanning every row.
+type memoryInboxCleanupSummary struct {
+	Total    int            `json:"total"`
+	BySource map[string]int `json:"by_source,omitempty"`
+	ByType   map[string]int `json:"by_type,omitempty"`
+}
+
+func summarizeMemoryInboxCleanup(matched []apptypes.MemoryDetails) memoryInboxCleanupSummary {
+	summary := memoryInboxCleanupSummary{Total: len(matched)}
+	if len(matched) == 0 {
+		return summary
+	}
+	summary.BySource = make(map[string]int)
+	summary.ByType = make(map[string]int)
+	for _, details := range matched {
+		s := details.Summary()
+		summary.BySource[s.Source().String()]++
+		summary.ByType[s.MemoryType().String()]++
+	}
+	return summary
+}
+
+// formatMemoryCountMap renders a count map as sorted "key=value" pairs so the
+// text summary is deterministic.
+func formatMemoryCountMap(counts map[string]int) string {
+	keys := make([]string, 0, len(counts))
+	for key := range counts {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", key, counts[key]))
+	}
+	return strings.Join(parts, " ")
 }
 
 type memoryInboxFailureCode string
@@ -794,6 +836,7 @@ func writeMemoryInboxCleanupResult(output io.Writer, result memoryInboxCleanupRe
 		payload := memoryInboxCleanupOutput{
 			Action:    result.Action,
 			DryRun:    result.DryRun,
+			Summary:   result.Summary,
 			Matched:   make([]memoryDetailsOutput, 0, len(result.Matched)),
 			Processed: make([]memoryDetailsOutput, 0, len(result.Processed)),
 			Failures:  result.Failures,
@@ -817,6 +860,11 @@ func writeMemoryInboxCleanupResult(output io.Writer, result memoryInboxCleanupRe
 	}
 	if _, err := fmt.Fprintf(output, "action=%s dry_run=%t matched=%d processed=%d failures=%d\n", result.Action, result.DryRun, len(result.Matched), len(result.Processed), len(result.Failures)); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print memory review queue cleanup summary", "メモリ候補の確認キュー cleanup サマリの出力に失敗しました"), err)
+	}
+	if result.Summary.Total > 0 {
+		if _, err := fmt.Fprintf(output, "summary total=%d by_source[%s] by_type[%s]\n", result.Summary.Total, formatMemoryCountMap(result.Summary.BySource), formatMemoryCountMap(result.Summary.ByType)); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print memory review queue cleanup composition summary", "メモリ候補の確認キュー cleanup 構成サマリの出力に失敗しました"), err)
+		}
 	}
 	if result.DryRun {
 		for _, details := range result.Matched {
