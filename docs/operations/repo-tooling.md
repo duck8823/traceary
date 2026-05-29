@@ -79,15 +79,15 @@ docs i18n pairs) and is wired into CI (`.github/workflows/ci.yml`) and the
 Makefile (`integrations/check`, `release/bump`). The Python script has been
 removed.
 
-### 2. Docs pairing verification
+### 2. Docs pairing verification — ✅ migrated (v0.20.0)
 
-Second target:
+Second target (done):
 
-- `scripts/verify_docs_i18n.py`
+- ~~`scripts/verify_docs_i18n.py`~~ → `go run ./cmd/repo-tooling docs verify-i18n`
 
-Planned replacement:
-
-- `go run ./cmd/repo-tooling docs verify-i18n`
+The Go entrypoint reproduces the en/ja pairing and top-of-file language-switch
+checks and is wired into CI (`.github/workflows/ci.yml`), the Makefile
+(`docs/check`), and `CONTRIBUTING`. The Python script has been removed.
 
 ### 3. Changelog coverage verification
 

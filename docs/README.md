@@ -49,4 +49,4 @@ Human-facing Markdown is maintained in English/Japanese pairs.
 - update both language variants in the same pull request
 - keep the language switch link near the top of each paired document
 
-`python3 scripts/verify_docs_i18n.py` enforces the pairing and top-of-file language links in CI.
+`go run ./cmd/repo-tooling docs verify-i18n` enforces the pairing and top-of-file language links in CI.

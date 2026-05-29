@@ -44,7 +44,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # AI agent instruction files — not user-facing documentation. Excluded to
-# match the scope of scripts/verify_docs_i18n.py.
+# match the scope of cmd/repo-tooling (docs verify-i18n).
 SCOPE_EXCLUDE = {"CLAUDE.md", "AGENTS.md", "GEMINI.md"}
 
 # Removed top-level aliases (v0.14.0). Each pattern matches the literal
@@ -175,7 +175,7 @@ REMOVAL_WORD_RE = re.compile(
 
 
 def is_in_scope(path: Path) -> bool:
-    """Match the same scope as scripts/verify_docs_i18n.py."""
+    """Match the same scope as cmd/repo-tooling (docs verify-i18n)."""
     if path.parts and path.parts[0] == "docs":
         return path.suffix == ".md"
     if path.name in SCOPE_EXCLUDE:

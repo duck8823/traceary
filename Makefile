@@ -25,7 +25,7 @@ code/cover: ## Run tests with coverage report
 	@echo 'HTML report: go tool cover -html=coverage.out'
 
 docs/check: ## Verify bilingual documentation pairs
-	@python3 scripts/verify_docs_i18n.py
+	@go run ./cmd/repo-tooling docs verify-i18n
 
 integrations/check: ## Verify native integration packages
 	@go run ./cmd/repo-tooling integrations verify

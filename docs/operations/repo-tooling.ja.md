@@ -75,15 +75,13 @@ maintainer-only の repository automation は性質が異なります。
 
 Go 入口は Python のチェック（canonical hook コピー、Claude / Codex / Gemini の manifest + managed file、Codex の削除済みコマンド stub、docs i18n pair）を再現し、CI（`.github/workflows/ci.yml`）と Makefile（`integrations/check`、`release/bump`）に配線済み。Python スクリプトは削除しました。
 
-### 2. docs pairing verification
+### 2. docs pairing verification — ✅ 移行済 (v0.20.0)
 
-次の対象:
+次の対象（完了）:
 
-- `scripts/verify_docs_i18n.py`
+- ~~`scripts/verify_docs_i18n.py`~~ → `go run ./cmd/repo-tooling docs verify-i18n`
 
-置き換え先:
-
-- `go run ./cmd/repo-tooling docs verify-i18n`
+Go 入口は en/ja pairing と冒頭の言語切り替えチェックを再現し、CI（`.github/workflows/ci.yml`）・Makefile（`docs/check`）・`CONTRIBUTING` に配線済み。Python スクリプトは削除しました。
 
 ### 3. changelog coverage verification
 

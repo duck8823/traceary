@@ -22,7 +22,7 @@ Run these before opening or updating a pull request.
 ```sh
 go test ./...
 go tool golangci-lint run --timeout=5m
-python3 scripts/verify_docs_i18n.py
+go run ./cmd/repo-tooling docs verify-i18n
 git diff --check
 ```
 
