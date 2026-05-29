@@ -76,6 +76,27 @@ func TestClassifyExtractionNoise(t *testing.T) {
 		{name: "ship it", fact: "Ship it", want: []string{"review_conclusion"}},
 		{name: "japanese problem none", fact: "問題なし", want: []string{"review_conclusion"}},
 		{name: "japanese confirmed problem none with desu", fact: "確認済み・問題なしです", want: []string{"review_conclusion"}},
+
+		// Review fix-instruction fragments (transient review actions tied to a diff)
+		{name: "japanese fix instruction bold", fact: "**修正:** help 文言を bare interactive cockpit only と明示する", want: []string{"review_fix_instruction"}},
+		{name: "japanese fix instruction plain", fact: "修正: filterMigrations を導入する", want: []string{"review_fix_instruction"}},
+		{name: "japanese fix proposal", fact: "修正案: v0.19 の挙動に更新する", want: []string{"review_fix_instruction"}},
+		{name: "japanese fix instruction fullwidth colon", fact: "修正：accept で確認を要求する", want: []string{"review_fix_instruction"}},
+		{name: "english fix instruction bold", fact: "**Fix:** split the refspec by colon", want: []string{"review_fix_instruction"}},
+		{name: "english fix instruction plain", fact: "Fix: validate the PR ticket reference", want: []string{"review_fix_instruction"}},
+		// Prose that mentions 修正 / fix without the label colon must stay visible
+		{name: "japanese fix prose no colon", fact: "修正は必ずレビューを通してからマージする", want: nil},
+		{name: "english fixed past tense prose", fact: "Fixed the flaky test by pinning the locale", want: nil},
+		{name: "english fixes prose", fact: "This PR fixes the memory extraction regression", want: nil},
+		// Bold-wrapped label only (colon outside the bold) must still match
+		{name: "english fix bold label only", fact: "**Fix**: split the refspec by colon", want: []string{"review_fix_instruction"}},
+		{name: "japanese fix bold label only", fact: "**修正**: accept をブロックする", want: []string{"review_fix_instruction"}},
+		// A fix-instruction label that carries a durable signal is a constraint,
+		// not a throwaway action — keep it visible (mirrors isWorkDeclaration).
+		{name: "english fix with durable signal", fact: "Fix: we must always use context.Context", want: nil},
+		{name: "japanese fix with durable signal", fact: "修正: 必ず context.Context を使う", want: nil},
+		// Words that merely contain "fix" must not match the label
+		{name: "affix label is not a fix instruction", fact: "affix: special handling for prefixes", want: nil},
 		{name: "japanese OK desu", fact: "OKです", want: []string{"review_conclusion"}},
 		// Durable continuations after a review-conclusion phrase must NOT be hidden
 		{name: "lgtm with durable continuation", fact: "LGTM and we should also reorganize the test layout", want: nil},

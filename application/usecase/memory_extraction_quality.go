@@ -10,12 +10,13 @@ import (
 // stable string suitable for surfacing through `memory extract --debug-signals`
 // and the candidate hygiene scan (#864).
 const (
-	extractionNoiseDiffFragment      = "diff_fragment"
-	extractionNoiseGeneratedCode     = "generated_code"
-	extractionNoiseStandaloneCommand = "standalone_command"
-	extractionNoiseReviewConclusion  = "review_conclusion"
-	extractionNoiseWorkDeclaration   = "work_declaration"
-	extractionNoiseTransientPRRound  = "transient_pr_round"
+	extractionNoiseDiffFragment         = "diff_fragment"
+	extractionNoiseGeneratedCode        = "generated_code"
+	extractionNoiseStandaloneCommand    = "standalone_command"
+	extractionNoiseReviewConclusion     = "review_conclusion"
+	extractionNoiseWorkDeclaration      = "work_declaration"
+	extractionNoiseTransientPRRound     = "transient_pr_round"
+	extractionNoiseReviewFixInstruction = "review_fix_instruction"
 )
 
 var (
@@ -56,6 +57,14 @@ var (
 			`|^承認(?:済み|済|しました)?[。\.]?\s*$` +
 			`|^異常なし(?:です)?[。\.]?\s*$`,
 	)
+
+	// reviewFixInstructionPattern matches a line that opens with a review-style
+	// "fix instruction" label (`修正:` / `修正案:` / `Fix:`, optionally wrapped in
+	// markdown bold). The colon immediately after the label is required so prose
+	// that merely mentions 修正 / fix in a sentence (e.g. "Fixed the test",
+	// "修正は必ずレビューを通す") is never hidden. These fragments are transient review
+	// actions tied to a specific diff, not durable facts.
+	reviewFixInstructionPattern = regexp.MustCompile(`(?i)^\s*\*{0,2}\s*(?:修正案|修正|fix)\s*\*{0,2}\s*[:：]`)
 
 	workDeclarationEnglishPattern = regexp.MustCompile(`(?i)^` +
 		`(?:` +
@@ -150,6 +159,9 @@ func classifyExtractionNoise(fact string) []string {
 	if isReviewConclusion(trimmed) {
 		reasons = append(reasons, extractionNoiseReviewConclusion)
 	}
+	if isReviewFixInstruction(trimmed) {
+		reasons = append(reasons, extractionNoiseReviewFixInstruction)
+	}
 	if isWorkDeclaration(trimmed) {
 		reasons = append(reasons, extractionNoiseWorkDeclaration)
 	}
@@ -160,6 +172,20 @@ func classifyExtractionNoise(fact string) []string {
 		return nil
 	}
 	return reasons
+}
+
+func isReviewFixInstruction(value string) bool {
+	if !reviewFixInstructionPattern.MatchString(value) {
+		return false
+	}
+	// A fix-instruction label that also carries a durable signal
+	// (must/always/never/...) or durable choice phrasing states a long-lived
+	// constraint, not a throwaway review action — keep it visible, mirroring
+	// the isWorkDeclaration guard.
+	if hasDurableSignalMarker(value) || hasDurableChoicePhrasing(value) {
+		return false
+	}
+	return true
 }
 
 func isDiffFragment(value string) bool {
