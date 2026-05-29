@@ -100,7 +100,7 @@ func (c *RootCLI) newBundleImportCommand() *cobra.Command {
 	cmd.Flags().StringVar(&inPath, "in", "", Localize("input path of the encrypted bundle (required)", "暗号化バンドルの入力パス (必須)"))
 	cmd.Flags().StringVar(&passphraseEnv, "passphrase-env", "TRACEARY_BUNDLE_PASSPHRASE", Localize("environment variable that carries the decryption passphrase", "復号 passphrase を格納した環境変数名"))
 	cmd.Flags().StringVar(&onConflictValue, "on-conflict", "skip", Localize("UNIQUE conflict policy: skip, replace, or error", "UNIQUE 衝突時の方針: skip, replace, error"))
-	cmd.Flags().StringVar(&missingParentValue, "missing-parent", "reject", Localize("missing parent policy for future multi-table imports: reject, skip, or backfill", "将来の複数テーブル import で親がない場合の方針: reject, skip, backfill"))
+	cmd.Flags().StringVar(&missingParentValue, "missing-parent", "reject", Localize("policy when an imported session's parent session is absent: reject, skip, or backfill", "import する session の親 session が無い場合の方針: reject, skip, backfill"))
 	cmd.Flags().StringVar(&orphanEdgesValue, "orphan-edges", "skip", Localize("memory edge orphan endpoint policy: skip or reject", "memory edge の孤立 endpoint 方針: skip または reject"))
 	cmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON result", "JSON 形式で結果を出力する"))
 	_ = cmd.MarkFlagRequired("in")

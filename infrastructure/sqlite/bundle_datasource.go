@@ -228,8 +228,8 @@ SELECT id, from_memory_id, to_memory_id, relation_type, valid_from, valid_to, cr
 }
 
 // BeginBundleImport starts the transaction shared by every table
-// importer in a bundle. v2 only registers events, but sessions /
-// memories / edges can join this transaction in follow-up issues.
+// importer in a bundle (sessions, events, command_audits, memories,
+// and memory_edges).
 func (d *BundleDatasource) BeginBundleImport(ctx context.Context) (usecase.BundleImportTransaction, error) {
 	db, err := d.db.open(ctx)
 	if err != nil {
