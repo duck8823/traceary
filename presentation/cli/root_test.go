@@ -277,6 +277,40 @@ func TestRootCLI_GroupBareInvocationStillShowsHelp(t *testing.T) {
 	}
 }
 
+// TestRootCLI_GroupUnknownSubcommandWithHelpFlagStillShowsHelp pins the
+// intentional exception: an explicit `--help` / `-h` is always honored, even
+// alongside an unrecognized positional, because Cobra processes the help flag
+// before the strict RunE. The strict error applies only to non-help
+// invocations.
+func TestRootCLI_GroupUnknownSubcommandWithHelpFlagStillShowsHelp(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{"memory bogus --help", []string{"memory", "bogus", "--help"}},
+		{"memory inbox bogus -h", []string{"memory", "inbox", "bogus", "-h"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rootCmd := NewRootCLI().Command()
+			var out bytes.Buffer
+			rootCmd.SetOut(&out)
+			rootCmd.SetErr(&bytes.Buffer{})
+			rootCmd.SetArgs(tc.args)
+
+			if err := rootCmd.Execute(); err != nil {
+				t.Fatalf("Execute(%v) error = %v, want help output with no error", tc.args, err)
+			}
+			if !strings.Contains(out.String(), "Available Commands:") && !strings.Contains(out.String(), "Usage:") {
+				t.Fatalf("Execute(%v) did not print help; got:\n%s", tc.args, out.String())
+			}
+		})
+	}
+}
+
 func TestRootCLI_UnknownCommandHelpStillFails(t *testing.T) {
 	t.Parallel()
 

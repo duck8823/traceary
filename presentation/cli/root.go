@@ -266,6 +266,12 @@ func applyStrictGroups(cmd *cobra.Command) {
 	if !cmd.HasSubCommands() || cmd.RunE != nil || cmd.Run != nil {
 		return
 	}
+	// `--help` / `-h` is intentionally still honored even alongside an
+	// unrecognized positional (e.g. `traceary memory bogus --help` prints memory
+	// help): Cobra processes the help flag before RunE, so an explicit help
+	// request short-circuits before this RunE runs. Always honoring `--help` is
+	// the standard CLI convention; the strict error below covers the
+	// typo-in-automation case (`traceary memory bogus` with no help flag).
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return cmd.Help()
