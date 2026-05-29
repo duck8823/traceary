@@ -95,7 +95,7 @@ traceary doctor
 ## Quick start
 
 `traceary store init` is optional. Commands create the database and run migrations on demand.
-Use `store init` only when you want to create the DB path up front or confirm write permissions before a session starts. The v0.8.x top-level alias `traceary init` was removed in v0.14.0; running it now exits with a usage error pointing at `traceary store init`. See the [CLI stability and deprecation policy](./docs/cli-stability.md) for the full list of v0.14 removals and replacements.
+Use `store init` only when you want to create the DB path up front or confirm write permissions before a session starts. The v0.8.x top-level alias `traceary init` was removed in v0.14.0; running it now returns Cobra's unknown-command error (use `traceary store init`). See the [CLI stability and deprecation policy](./docs/cli-stability.md) for the full list of v0.14 removals and replacements.
 
 ### 1. Start a session and write a note
 

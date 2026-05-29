@@ -8,6 +8,7 @@ import (
 
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
+	"github.com/spf13/cobra"
 )
 
 // TestRootCLI_MemoryHelp_HidesDeprecatedFlatVerbs guards the v0.14
@@ -15,8 +16,8 @@ import (
 // must advertise the grouped surface (inbox / store / admin) plus the
 // daily-read commands, and it must NOT advertise the legacy flat
 // implementation verbs (remember / accept / hygiene / graph / etc.) at
-// the top level — those are now hidden removed-alias migration stubs
-// and only reachable via their grouped canonical paths.
+// the top level — those were removed in v0.15.0 and are no longer
+// registered; use the grouped canonical paths instead.
 func TestRootCLI_MemoryHelp_HidesDeprecatedFlatVerbs(t *testing.T) {
 	t.Parallel()
 
@@ -68,172 +69,6 @@ func TestRootCLI_MemoryHelp_HidesDeprecatedFlatVerbs(t *testing.T) {
 				break
 			}
 		}
-	}
-}
-
-// TestRootCLI_MemoryRemovedAliases_ReportReplacement covers the v0.15
-// behavior contract for the retired flat memory paths: each old verb
-// (remember / propose / distill / accept / reject / hygiene / graph /
-// extract / supersede / expire / set-validity / import / export /
-// activate) exits non-zero with a localized migration error that
-// names the canonical replacement under
-// `memory inbox|store|admin`. The stubs do not parse legacy flags or
-// call the old use case — including `--help`, which must surface the
-// removal error rather than the legacy command help.
-func TestRootCLI_MemoryRemovedAliases_ReportReplacement(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name        string
-		args        []string
-		alias       string
-		replacement string
-	}{
-		{
-			name:        "memory remember",
-			args:        []string{"memory", "remember", "--type", "decision", "--fact", "ignored"},
-			alias:       "remember",
-			replacement: "traceary memory store remember",
-		},
-		{
-			name:        "memory propose",
-			args:        []string{"memory", "propose", "--type", "decision", "--fact", "ignored"},
-			alias:       "propose",
-			replacement: "traceary memory store propose",
-		},
-		{
-			name:        "memory distill",
-			args:        []string{"memory", "distill", "--from", "memory-x", "--type", "lesson", "--fact", "ignored"},
-			alias:       "distill",
-			replacement: "traceary memory store distill",
-		},
-		{
-			name:        "memory accept",
-			args:        []string{"memory", "accept", "memory-x"},
-			alias:       "accept",
-			replacement: "traceary memory inbox accept",
-		},
-		{
-			name:        "memory reject",
-			args:        []string{"memory", "reject", "memory-x"},
-			alias:       "reject",
-			replacement: "traceary memory inbox reject",
-		},
-		{
-			name:        "memory extract",
-			args:        []string{"memory", "extract"},
-			alias:       "extract",
-			replacement: "traceary memory admin extract",
-		},
-		{
-			name:        "memory supersede",
-			args:        []string{"memory", "supersede", "memory-x", "--fact", "ignored"},
-			alias:       "supersede",
-			replacement: "traceary memory admin supersede",
-		},
-		{
-			name:        "memory expire",
-			args:        []string{"memory", "expire", "memory-x"},
-			alias:       "expire",
-			replacement: "traceary memory admin expire",
-		},
-		{
-			name:        "memory set-validity",
-			args:        []string{"memory", "set-validity", "memory-x", "--from", "2026-04-20"},
-			alias:       "set-validity",
-			replacement: "traceary memory admin set-validity",
-		},
-		{
-			name:        "memory import codex",
-			args:        []string{"memory", "import", "codex"},
-			alias:       "import",
-			replacement: "traceary memory admin import codex",
-		},
-		{
-			name:        "memory export",
-			args:        []string{"memory", "export", "--target", "codex"},
-			alias:       "export",
-			replacement: "traceary memory admin export",
-		},
-		{
-			name:        "memory import bare parent",
-			args:        []string{"memory", "import", "--help"},
-			alias:       "import",
-			replacement: "traceary memory admin import",
-		},
-		{
-			name:        "memory activate",
-			args:        []string{"memory", "activate", "--target", "codex", "--apply"},
-			alias:       "activate",
-			replacement: "traceary memory admin activate",
-		},
-		{
-			name:        "memory hygiene scan",
-			args:        []string{"memory", "hygiene", "scan"},
-			alias:       "hygiene",
-			replacement: "traceary memory admin hygiene scan",
-		},
-		{
-			name:        "memory graph list",
-			args:        []string{"memory", "graph", "list"},
-			alias:       "graph",
-			replacement: "traceary memory admin graph list",
-		},
-		// `--help` on every retired path must surface the removal
-		// error too — never the legacy command help. DisableFlagParsing
-		// on the stub is what makes this work.
-		{
-			name:        "memory remember --help",
-			args:        []string{"memory", "remember", "--help"},
-			alias:       "remember",
-			replacement: "traceary memory store remember",
-		},
-		{
-			name:        "memory hygiene scan --help",
-			args:        []string{"memory", "hygiene", "scan", "--help"},
-			alias:       "hygiene",
-			replacement: "traceary memory admin hygiene scan",
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			// memoryUsecaseStub is wired so that any accidental fall-
-			// through to the legacy use case shows up as an
-			// unexpected stub call below.
-			stub := &memoryUsecaseStub{}
-			stdout := &bytes.Buffer{}
-			stderr := &bytes.Buffer{}
-			rootCmd := cli.NewRootCLI(
-				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-				cli.WithMemory(stub),
-			).Command()
-			rootCmd.SetOut(stdout)
-			rootCmd.SetErr(stderr)
-			rootCmd.SetArgs(tc.args)
-
-			err := rootCmd.Execute()
-			if err == nil {
-				t.Fatalf("Execute(%v) error = nil, want removed-alias error", tc.args)
-			}
-			msg := err.Error()
-			if !strings.Contains(msg, "removed in v0.15.0") {
-				t.Errorf("error %q missing removal version", msg)
-			}
-			if !strings.Contains(msg, "traceary memory "+tc.alias) {
-				t.Errorf("error %q missing legacy alias name %q", msg, tc.alias)
-			}
-			if !strings.Contains(msg, tc.replacement) {
-				t.Errorf("error %q missing replacement %q", msg, tc.replacement)
-			}
-			// The stub uses zero counters; if any field tracking a
-			// legacy call has incremented, the guard accidentally let
-			// the old use case run.
-			if stub.acceptCallCount != 0 || stub.rejectCallCount != 0 || stub.expireCallCount != 0 || stub.setValidityCallCount != 0 {
-				t.Errorf("legacy use case unexpectedly invoked: %+v", stub)
-			}
-		})
 	}
 }
 
@@ -328,5 +163,37 @@ func TestRootCLI_MemoryGroupedCanonicalPaths_ExecuteSameUseCase(t *testing.T) {
 				t.Errorf("canonical grouped path emitted removal notice: %q", stderr.String())
 			}
 		})
+	}
+}
+
+// TestRootCLI_MemoryRemovedFlatVerbs_NotRegistered guards #1109: the v0.15
+// flat memory verbs were removed and must not reappear as memory subcommands
+// (hidden or visible). The help-hiding test alone would miss a hidden
+// re-registration, so this asserts on the actual subcommand set.
+func TestRootCLI_MemoryRemovedFlatVerbs_NotRegistered(t *testing.T) {
+	t.Parallel()
+
+	rootCmd := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()
+	var memoryCmd *cobra.Command
+	for _, sub := range rootCmd.Commands() {
+		if sub.Name() == "memory" {
+			memoryCmd = sub
+			break
+		}
+	}
+	if memoryCmd == nil {
+		t.Fatal("memory command not found")
+	}
+
+	removed := map[string]bool{
+		"remember": true, "propose": true, "distill": true, "extract": true,
+		"accept": true, "reject": true, "supersede": true, "expire": true,
+		"set-validity": true, "import": true, "export": true, "activate": true,
+		"hygiene": true, "graph": true,
+	}
+	for _, sub := range memoryCmd.Commands() {
+		if removed[sub.Name()] {
+			t.Errorf("removed v0.15 flat verb %q is still registered as a memory subcommand", sub.Name())
+		}
 	}
 }
