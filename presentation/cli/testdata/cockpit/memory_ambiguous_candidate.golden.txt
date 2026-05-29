@@ -1,6 +1,8 @@
 Traceary cockpit · memory review
 tabs: 1 Tail  2 Sessions  [3 Memory]  4 Settings
 
+backlog: candidate=1 accepted=0 new=untracked
+
 memory review · decision card
 candidate 1 / 1
 

@@ -113,6 +113,26 @@ func TestCockpitHome_PopulatesMemoryBacklogViaCountByStatus(t *testing.T) {
 	}
 }
 
+func TestCockpitMemoryReviewView_RendersInboxBacklogSummary(t *testing.T) {
+	home := cockpitHomeSnapshot{
+		LoadedAt:                fixedStartedAt,
+		CandidateMemoryCount:    5177,
+		AcceptedMemoryCount:     8,
+		NewCandidateMemoryCount: 42,
+		NewCandidateMemoryKnown: true,
+	}
+	model := newCockpitModel(tui.DefaultKeyMap(), tui.Styles{}, home)
+	model.mode = cockpitModeMemoryReview
+	model.memoryReview.loading = true
+	model.memoryReview.review = newReviewModel(nil, model.keys, model.styles)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	view := updated.(cockpitModel).View()
+
+	if !strings.Contains(view, "backlog: candidate=5177 accepted=8 new=42") {
+		t.Fatalf("memory tab missing inbox backlog summary line:\n%s", view)
+	}
+}
+
 func TestCockpitSessionsTab_HidesMemoryNotificationsWhenLastSeenAvailable(t *testing.T) {
 	now := fixedStartedAt.Add(72 * time.Hour)
 	previousTopNow := topNowFunc

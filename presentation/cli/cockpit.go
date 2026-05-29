@@ -2142,6 +2142,9 @@ func renderCockpitDoctorCheck(styles tui.Styles, check cockpitDoctorCheck, line 
 
 func (m cockpitModel) memoryReviewView() string {
 	lines := []string{}
+	if summary := m.memoryBacklogSummaryLine(); summary != "" {
+		lines = append(lines, summary, "")
+	}
 	switch {
 	case m.memoryReview.loading:
 		lines = append(lines, m.styles.Subtle.Render(Localize("Loading memory review queue...", "メモリ候補の確認キューを読み込み中...")))
@@ -2153,6 +2156,24 @@ func (m cockpitModel) memoryReviewView() string {
 		lines = append(lines, m.memoryReview.review.View())
 	}
 	return m.renderCockpitShell(memoryReviewWorkflowLabel(), lines, m.memoryReviewLocalHelp())
+}
+
+// memoryBacklogSummaryLine renders the inbox backlog counts — true accepted /
+// candidate totals from CountByStatus, plus new-since-last-review candidates —
+// at the top of the Memory tab so the curation debt is visible where the
+// operator reviews it. Memory cues stay in the Memory tab; the session-focused
+// Top/Sessions surfaces deliberately omit them.
+func (m cockpitModel) memoryBacklogSummaryLine() string {
+	if m.home.CandidateMemoryCount == 0 && m.home.AcceptedMemoryCount == 0 {
+		return ""
+	}
+	return m.styles.Subtle.Render(Localizef(
+		"backlog: candidate=%d accepted=%d new=%s",
+		"backlog: candidate=%d accepted=%d new=%s",
+		m.home.CandidateMemoryCount,
+		m.home.AcceptedMemoryCount,
+		formatCockpitNewCandidateCount(m.home),
+	))
 }
 
 func (m cockpitModel) liveView() string {
