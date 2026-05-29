@@ -12,10 +12,10 @@ This document defines the hook capability tiers across AI agent clients.
 |---|---|---|
 | SessionStart | `*` | Record session start |
 | SessionEnd | `*` | Record session end |
-| PostToolUse | `Bash` | Record shell command audit with exit code |
+| PostToolUse | `Bash` | Record shell command audit |
 | PostToolUse | `mcp__.*` | Record MCP tool audit |
 | PostToolUse | `Read\|NotebookRead\|Edit\|MultiEdit\|Write\|NotebookEdit\|Grep\|Glob\|Agent\|Task\|TodoWrite\|WebFetch\|WebSearch\|ExitPlanMode` | Record built-in Claude Code tool invocations (file I/O, search, agent, web, plan-mode exit). Added in v0.8-6; expanded to include `NotebookRead` and `ExitPlanMode` in v0.8-6b |
-| PostToolUseFailure | `Bash`, `mcp__.*`, built-in tools | Record failed tool execution |
+| PostToolUseFailure | `Bash`, `mcp__.*`, built-in tools | Record a failure-flagged tool audit. The payload carries a top-level `error` string (no `tool_response`, no numeric exit code), so Traceary marks the audit `failed` rather than reading an exit code; `list --failures` matches the flag |
 | PostCompact | `*` | Record compact summary |
 | UserPromptSubmit | `*` | Record user prompt text |
 | Stop | `*` | Record last assistant message from `transcript_path` as a `transcript` event (built-in secret redaction + operator-configured `redact.rules` / `redact.extra_patterns` applied) |
@@ -30,7 +30,7 @@ This document defines the hook capability tiers across AI agent clients.
 | Stop | (all) | Record session end and the final assistant message (from `last_assistant_message`) as a `transcript` event (built-in secret redaction + operator-configured `redact.rules` / `redact.extra_patterns` applied) |
 | PostToolUse | (all) | Record tool audit |
 
-**Limitations**: No SessionEnd (uses Stop instead), no compact hooks, no failure-specific event.
+**Limitations**: No SessionEnd (uses Stop instead), no compact hooks, no failure-specific event and no structured failure signal — Codex fires `PostToolUse` for non-zero exits too, but its `tool_response` is a plain formatted string with no exit code or error field, so failed runs are recorded as ordinary (unflagged) audits.
 
 ### Tier 3: Basic (Gemini CLI)
 
@@ -43,14 +43,14 @@ This document defines the hook capability tiers across AI agent clients.
 | AfterTool | `*` | Record tool audit |
 | PreCompress | `*` | Record a `compact_summary` marker (`trigger` field only — Gemini exposes no post-compress digest) |
 
-**Limitations**: No post-compress digest (Gemini's `PreCompress` is advisory and fires asynchronously), no failure-specific event, no PostCompact/SessionStart(compact). Gemini has no Stop event, so transcript capture is attached to `AfterAgent` instead.
+**Limitations**: No post-compress digest (Gemini's `PreCompress` is advisory and fires asynchronously), no failure-specific event, no PostCompact/SessionStart(compact). Gemini has no Stop event, so transcript capture is attached to `AfterAgent` instead. Failure capture is partial: `AfterTool` exposes a nested `tool_response.error` object only for spawn/OS-level errors (Traceary marks those `failed`); a plain non-zero shell exit surfaces only as `Exit Code: N` text inside `tool_response.llmContent`, which Traceary deliberately does not parse, so those runs stay unflagged.
 
 ## Shared Behavior
 
 All tiers:
 - Session start persists the resolved workspace to the state file; audit reads the workspace from state
 - Agent type resolution: `agent_type` field → hierarchical agent name (Claude only)
-- Exit code extraction from `tool_response.exitCode` when available
+- Exit code extraction from `tool_response.exitCode` when a host provides it. In practice none of the current hosts populate this field in the post-tool payload, so failure is detected structurally instead (see the failure-flag rows above and the fallback table below) rather than from an exit code.
 - MCP tool name fallback: `tool_input.command` → `tool_name`
 
 Claude Task subagent capture:
@@ -64,7 +64,7 @@ Claude Task subagent capture:
 | Missing Capability | Fallback |
 |---|---|
 | Compact hooks | MCP `get_context` / `session_handoff` on demand |
-| Failure event | Parse exit code from tool_response in audit script |
+| Failure event | Derive a structural `failed` flag from the failure-shaped payload (Claude's top-level `error`, Gemini's `tool_response.error`); `list --failures` matches `failed = 1` in addition to a non-zero `exit_code`. Hosts that expose no structured failure signal (Codex; Gemini plain non-zero exits) are recorded as unflagged audits |
 | Agent type | Use client name only (e.g., `codex`, `gemini`) |
 
 ## 2026 Q2 host capability notes

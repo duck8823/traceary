@@ -12,7 +12,7 @@
 |---|---|---|---|
 | `session_started` | エージェントセッション開始 | `SessionStart` (Claude / Codex / Gemini) | workspace + agent 識別子 |
 | `prompt` | ユーザが指示を投入 | `UserPromptSubmit` (Claude / Codex) | 生プロンプト（redact 後） |
-| `command_executed` | tool / shell 呼び出しが成功または失敗で終わる | `PostToolUse`, `PostToolUseFailure`, `AfterTool` | input / output / exit code（compact JSON、redact 後） |
+| `command_executed` | tool / shell 呼び出しが成功または失敗で終わる | `PostToolUse`, `PostToolUseFailure`, `AfterTool` | input / output / 構造的な失敗フラグ（compact JSON、redact 後） |
 | `transcript` | アシスタント応答ターンが推論・説明テキストで閉じる | `Stop` (Claude / Codex) | 最後のアシスタントメッセージ本文（redact 後） |
 | `compact_summary` | ホスト側 context 圧縮で要約が生成される | `PostCompact`（現状 Claude のみ） | 構造化された compact summary |
 | `session_ended` | エージェントセッション終了 | `SessionEnd` (Claude / Gemini) または `Stop` (Codex) | 任意の reason marker |
@@ -41,7 +41,7 @@
   - `command`: `tool_input.command`（Bash 等にある場合）
   - `input`: `tool_input` の compact JSON
   - `output`: `tool_response` の compact JSON、失敗時は `{error, is_interrupt}`
-- 失敗 payload は Claude 側で `PostToolUseFailure` 経由となり、`traceary list events` の `failures_only` で絞り込める。
+- 失敗検出は exit code ベースではなく構造的: どの host も post-tool payload に数値 exit code を出さないため、失敗形状の payload から監査を `failed` とマークする — Claude の `PostToolUseFailure`（トップレベル `error`）と Gemini の `tool_response.error`（spawn エラーのみ）。`traceary list events` の `failures_only` はこのフラグを対象にする。Codex は構造化された失敗信号を出さないため、失敗した実行はフラグなし監査として記録される。
 - 通常セッションで最も件数が多いイベント。検索 / timeline はほぼここを触る。
 
 ### `transcript`

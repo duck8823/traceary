@@ -12,7 +12,7 @@ The full enum lives in [`domain/types/event_kind.go`](../../domain/types/event_k
 |---|---|---|---|
 | `session_started` | A new agent session opens | `SessionStart` (Claude / Codex / Gemini) | workspace + agent identifier (free-text) |
 | `prompt` | The user submits an instruction | `UserPromptSubmit` (Claude / Codex) | raw prompt text (redacted) |
-| `command_executed` | A tool / shell call completes (success or failure) | `PostToolUse`, `PostToolUseFailure`, `AfterTool` | input / output / exit code (compact JSON, redacted) |
+| `command_executed` | A tool / shell call completes (success or failure) | `PostToolUse`, `PostToolUseFailure`, `AfterTool` | input / output / structural failure flag (compact JSON, redacted) |
 | `transcript` | Assistant turn ends with reasoning / explanation text | `Stop` (Claude / Codex) | last assistant-message text blocks (redacted) |
 | `compact_summary` | Host context compression produces a summary | `PostCompact` (Claude only today) | structured compact summary text |
 | `session_ended` | The agent session closes | `SessionEnd` (Claude / Gemini) or `Stop` (Codex) | optional reason marker |
@@ -41,7 +41,7 @@ All event bodies pass through built-in secret redaction plus operator-configured
   - `command`: `tool_input.command` when present (Bash etc.)
   - `input`: compact JSON of `tool_input`
   - `output`: compact JSON of `tool_response`, or `{error, is_interrupt}` for failure payloads
-- Failure payloads are routed via `PostToolUseFailure` (Claude) so they can be filtered with `failures_only` in `traceary list events`.
+- Failure detection is structural, not exit-code based: no host puts a numeric exit code in the post-tool payload, so Traceary marks an audit `failed` from the failure-shaped payload — Claude's `PostToolUseFailure` (top-level `error`) and Gemini's `tool_response.error` (spawn errors only). `failures_only` in `traceary list events` matches that flag. Codex exposes no structured failure signal, so its failed runs are recorded as unflagged audits.
 - This is the highest-volume event kind in a typical session — most search / timeline queries touch it.
 
 ### `transcript`

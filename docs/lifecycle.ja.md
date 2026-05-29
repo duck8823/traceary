@@ -17,7 +17,7 @@ SessionStart → [UserPromptSubmit → PostToolUse]* → (PreCompact → PostCom
 | SessionStart | `*` | `session_started` | セッション開始。workspace 解決もここで行う |
 | SessionStart | `compact` | — | compact-summary を新しいコンテキストへ stdout 経由で注入 |
 | UserPromptSubmit | `*` | `prompt` | ユーザーが送った指示テキスト |
-| PostToolUse | `Bash` | `command_executed` | シェルコマンド（入出力・終了コード付き） |
+| PostToolUse | `Bash` | `command_executed` | シェルコマンド（入出力付き） |
 | PostToolUse | `mcp__.*` | `command_executed` | MCP ツール呼び出し |
 | PostToolUse | 組み込み tools | `command_executed` | ファイル I/O・検索・agent・web・plan モード終了 (`Read`, `NotebookRead`, `Edit`, `MultiEdit`, `Write`, `NotebookEdit`, `Grep`, `Glob`, `Agent`, `Task`, `TodoWrite`, `WebFetch`, `WebSearch`, `ExitPlanMode`)。v0.8-6 で追加、v0.8-6b で拡張。 |
 | PostToolUseFailure | `Bash`, `mcp__.*`, 組み込み tools | `command_executed` | 失敗したツール実行（`failures_only` でフィルタ可能） |
