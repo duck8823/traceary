@@ -65,7 +65,7 @@ v0.15 の admin コマンド：
 
 これらは `traceary --help` から非表示です。v0.15 の hidden surface は 2 種類あります。
 
-- **削除済み名向けの migration-error stub** — 廃止済みの `integration codex install` / `integration codex uninstall` は、具体的な置き換え先を返す hidden stub として登録されています。これは動作する alias ではありません。legacy flag を保持せず、旧挙動も実行せず、古い呼び出しに Cobra の generic unknown-command ではなく具体的な migration error を返すためだけに存在します。v0.14.0 で削除された旧 top-level alias と v0.15.0 で削除された flat memory alias は v0.20.0 時点で stub を登録しなくなりました。削除された top-level 名（`traceary init` など）は Cobra の unknown-command エラーになり、削除された `traceary memory <verb>` 系は登録済みサブコマンドではなくなったため、他の未知サブコマンドと同様に `memory` コマンドの help を表示します。詳細は下の Historical removal log を参照してください。
+- **削除済み名向けの migration-error stub** — 廃止済みの `integration codex install` / `integration codex uninstall` は、具体的な置き換え先を返す hidden stub として登録されています。これは動作する alias ではありません。legacy flag を保持せず、旧挙動も実行せず、古い呼び出しに Cobra の generic unknown-command ではなく具体的な migration error を返すためだけに存在します。v0.14.0 で削除された旧 top-level alias と v0.15.0 で削除された flat memory alias は v0.20.0 時点で stub を登録しなくなりました。削除された top-level 名（`traceary init` など）は Cobra の unknown-command エラーになり、削除された `traceary memory <verb>` 系は登録済みサブコマンドではなくなったため、v0.20.0 以降（#1142）は他の未知サブコマンドと同様に `unknown subcommand` エラー（非ゼロ終了）になります。詳細は下の Historical removal log を参照してください。
 - **hook runtime 入口** — 同梱の Traceary hook スクリプトから呼び出される内部コマンドです。
 
 同梱の Traceary hook スクリプトから呼び出される hidden ランタイム入口（`Hidden: true` で登録、stderr 非推奨通知は出さない）：
