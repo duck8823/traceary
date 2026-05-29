@@ -62,7 +62,7 @@ jobs:
         run: python3 scripts/verify_release_manifests.py
 
       - name: Verify landing page in sync with VERSION
-        run: python3 scripts/verify_landing.py
+        run: go run ./cmd/repo-tooling docs verify-landing
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@9a127d869fb706213d29cdf8eef3a4ea2b869415 # v7

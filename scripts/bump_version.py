@@ -91,7 +91,7 @@ def main() -> None:
     print(
         'Done. Run `python3 scripts/verify_release_manifests.py`, '
         '`go run ./cmd/repo-tooling integrations verify`, and '
-        '`python3 scripts/verify_landing.py` to verify.'
+        '`go run ./cmd/repo-tooling docs verify-landing` to verify.'
     )
 
 
