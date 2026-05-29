@@ -229,6 +229,54 @@ func TestRootCLI_UnknownCommandWithFlagStillFails(t *testing.T) {
 	}
 }
 
+func TestRootCLI_GroupRejectsUnknownSubcommand(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{"memory", []string{"memory", "bogus"}},
+		{"store", []string{"store", "bogus"}},
+		{"session", []string{"session", "bogus"}},
+		{"nested memory inbox", []string{"memory", "inbox", "bogus"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rootCmd := NewRootCLI().Command()
+			rootCmd.SetOut(&bytes.Buffer{})
+			rootCmd.SetErr(&bytes.Buffer{})
+			rootCmd.SetArgs(tc.args)
+
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatalf("Execute(%v) error = nil, want unknown-subcommand error", tc.args)
+			}
+			if !strings.Contains(err.Error(), "unknown subcommand") || !strings.Contains(err.Error(), `"bogus"`) {
+				t.Fatalf("error = %q, want an unknown-subcommand error naming \"bogus\"", err.Error())
+			}
+		})
+	}
+}
+
+func TestRootCLI_GroupBareInvocationStillShowsHelp(t *testing.T) {
+	t.Parallel()
+
+	rootCmd := NewRootCLI().Command()
+	var out bytes.Buffer
+	rootCmd.SetOut(&out)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"memory"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(memory) error = %v, want help output with no error", err)
+	}
+	if !strings.Contains(out.String(), "Available Commands:") {
+		t.Fatalf("bare `memory` did not print help; got:\n%s", out.String())
+	}
+}
+
 func TestRootCLI_UnknownCommandHelpStillFails(t *testing.T) {
 	t.Parallel()
 

@@ -245,7 +245,37 @@ func (c *RootCLI) Command() *cobra.Command {
 	// session-bootstrap helpers moved behind parent commands.
 	rootCmd.AddCommand(c.newStoreCommand())
 
+	// Make every pure group command (e.g. `memory`, `store`, `session`, and
+	// their sub-namespaces) reject unknown subcommands with a usage error
+	// instead of silently printing help and exiting 0. The root keeps its own
+	// RunE (the cockpit + stray-arg guard) and is left untouched.
+	applyStrictGroups(rootCmd)
+
 	return rootCmd
+}
+
+// applyStrictGroups walks the command tree and turns every pure group command
+// — one that has subcommands but no Run/RunE of its own — strict: a bare
+// invocation still prints help (exit 0), but an unrecognized subcommand fails
+// with a usage error (non-zero exit). Commands with their own RunE (leaf
+// commands and the root) are not modified.
+func applyStrictGroups(cmd *cobra.Command) {
+	for _, sub := range cmd.Commands() {
+		applyStrictGroups(sub)
+	}
+	if !cmd.HasSubCommands() || cmd.RunE != nil || cmd.Run != nil {
+		return
+	}
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return cmd.Help()
+		}
+		return xerrors.Errorf("%s", Localizef(
+			"unknown subcommand %q for %q; run %q for available commands",
+			"%q は %q の不明なサブコマンドです。利用可能なコマンドは %q を参照してください",
+			args[0], cmd.CommandPath(), cmd.CommandPath()+" --help",
+		))
+	}
 }
 
 // runRootDefault opens the Tail-first cockpit only when the bare root command
