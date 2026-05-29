@@ -995,6 +995,8 @@ Useful flags:
 
 ## Integration commands
 
+> The entire `integration` command subtree (the `integration` parent and the `codex` group) is hidden from `traceary --help` as of v0.20.0 and is scheduled for full removal in v0.21.0. The entries below are kept only as migration notes; the hidden stubs still exit non-zero with a pointer to Codex's official `/plugins` flow.
+
 ### `traceary integration codex install` (retired, hidden)
 
 Retired in v0.14.0 and **not a supported install surface**. The command is hidden and no longer installs anything; invoking it only prints a hint pointing to Codex's official `/plugins` flow. New installs must go through Codex's official `/plugins` flow (run `codex` inside the repository → `/plugins` → `Traceary Plugins` → `Traceary`). See the [Codex plugin guide](../integrations/codex-plugin.md) for the full setup.

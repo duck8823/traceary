@@ -5,10 +5,17 @@ import (
 	"golang.org/x/xerrors"
 )
 
+// newIntegrationCommand registers the `integration` command subtree. Its only
+// remaining children are hidden migration-error stubs — Codex install was
+// retired in v0.14.0 and uninstall in v0.15.0 in favor of Codex's official
+// `/plugins` flow — so the `integration` parent and the `codex` group are
+// hidden from `traceary --help` as of v0.20.0 (deprecate-first) and are
+// scheduled for full removal in v0.21.0.
 func (c *RootCLI) newIntegrationCommand() *cobra.Command {
 	integrationCmd := &cobra.Command{
-		Use:   "integration",
-		Short: Localize("Manage packaged local agent integrations", "ローカル agent 連携パッケージを管理する"),
+		Use:    "integration",
+		Short:  Localize("Manage packaged local agent integrations", "ローカル agent 連携パッケージを管理する"),
+		Hidden: true,
 	}
 	integrationCmd.AddCommand(c.newIntegrationCodexCommand())
 	return integrationCmd
@@ -16,8 +23,9 @@ func (c *RootCLI) newIntegrationCommand() *cobra.Command {
 
 func (c *RootCLI) newIntegrationCodexCommand() *cobra.Command {
 	codexCmd := &cobra.Command{
-		Use:   "codex",
-		Short: Localize("Manage the packaged Codex integration", "Codex 向けの連携パッケージを管理する"),
+		Use:    "codex",
+		Short:  Localize("Manage the packaged Codex integration", "Codex 向けの連携パッケージを管理する"),
+		Hidden: true,
 	}
 	codexCmd.AddCommand(c.newIntegrationCodexInstallCommand())
 	codexCmd.AddCommand(c.newIntegrationCodexUninstallCommand())
