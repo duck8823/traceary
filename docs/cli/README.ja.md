@@ -391,6 +391,10 @@ durable memory を一覧表示します。scope flag を明示しない場合は
 
 主な flag: `--workspace`, `--agent`, `--session-family`, `--type`, `--source`, `--include-hidden`, `--limit`。
 
+#### `traceary memory inbox cleanup`
+
+古い / 低品質のメモリ候補を一括でプレビューまたは reject します。既定は dry-run で、`--apply` を付けると一致した候補を reject します。フィルタ: `--quality {low|normal|any}`（既定 `low`。`--quality any` はキュー全体の reject を避けるため `--older-than` が必須）、`--source`、`--type`、`--workspace`、`--agent`、`--session-family`、`--older-than` / `--newer-than`、`--include-hidden`、`--limit`。text と `--json` の出力には composition `summary`（`total` と `by_source` / `by_type` の内訳）が含まれ、`--apply` 前に batch の構成が分かります。cleanup は候補を reject するだけで、accept は evidence-first の rails を保つため上記の個別 review 系に委ねます。
+
 ### `traceary memory store` — deliberate writes
 
 `memory store` 配下の verb はすべて durable memory row を書き込みます。row が `accepted` で着地するか `candidate` で着地するかは問いません。

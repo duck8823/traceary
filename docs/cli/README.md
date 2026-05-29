@@ -391,6 +391,10 @@ The command refuses to start without a TTY and exits with code `2`, printing fal
 
 Useful flags: `--workspace`, `--agent`, `--session-family`, `--type`, `--source`, `--include-hidden`, `--limit`.
 
+#### `traceary memory inbox cleanup`
+
+Bulk preview or reject stale / low-quality memory candidates. Dry-run by default; pass `--apply` to reject the matched candidates. Filters: `--quality {low|normal|any}` (default `low`; `--quality any` requires `--older-than` so the whole queue is not rejected), `--source`, `--type`, `--workspace`, `--agent`, `--session-family`, `--older-than` / `--newer-than`, `--include-hidden`, `--limit`. The text and `--json` output include a composition `summary` — `total` plus counts `by_source` and `by_type` — so the batch makeup is visible before `--apply`. Cleanup only rejects candidates; accepting stays on the per-candidate review surfaces above to keep the evidence-first rails intact.
+
 ### `traceary memory store` — deliberate writes
 
 Every command under `memory store` writes a durable-memory row, regardless of whether the row lands as `accepted` or `candidate`.
