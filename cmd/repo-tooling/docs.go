@@ -30,10 +30,9 @@ func newDocsCommand() *cobra.Command {
 		Short: "Documentation checks",
 	}
 	verifyI18n := &cobra.Command{
-		Use:           "verify-i18n",
-		Short:         "Verify English/Japanese documentation pairs",
-		Args:          cobra.NoArgs,
-		SilenceErrors: true,
+		Use:   "verify-i18n",
+		Short: "Verify English/Japanese documentation pairs",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			root, err := findRepoRoot()
 			if err != nil {
@@ -44,11 +43,10 @@ func newDocsCommand() *cobra.Command {
 				return err
 			}
 			if len(problems) > 0 {
-				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "documentation i18n check failed:")
-				for _, problem := range problems {
-					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "- %s\n", problem)
-				}
-				return xerrors.Errorf("documentation i18n check failed")
+				// Fold the aggregate report into the returned error so cobra
+				// surfaces it; SilenceErrors is left off so unexpected
+				// findRepoRoot / walk failures stay visible in CLI/CI too.
+				return xerrors.Errorf("documentation i18n check failed:\n- %s", strings.Join(problems, "\n- "))
 			}
 			if _, err := fmt.Fprintln(cmd.OutOrStdout(), "documentation i18n check passed"); err != nil {
 				return xerrors.Errorf("failed to write verify result: %w", err)
