@@ -665,6 +665,49 @@ func TestMemoryDatasource_List(t *testing.T) {
 	})
 }
 
+func TestMemoryDatasource_CountByStatus(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	sut, storeManager := newMemoryDatasource(t, dbPath, memoryDatasourceTestMigrations())
+	ctx := context.Background()
+	if err := storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	ws := mustWorkspaceScope(t, "github.com/duck8823/traceary")
+	base := time.Date(2026, 4, 12, 8, 0, 0, 0, time.UTC)
+	fixtures := []*model.Memory{
+		memoryOf(t, "acc-1", types.MemoryTypeDecision, ws, "a1", types.MemoryStatusAccepted, types.ConfidenceHigh, types.MemorySourceManual, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), base, base),
+		memoryOf(t, "acc-2", types.MemoryTypeDecision, ws, "a2", types.MemoryStatusAccepted, types.ConfidenceHigh, types.MemorySourceManual, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), base, base),
+		memoryOf(t, "cand-1", types.MemoryTypeLesson, ws, "c1", types.MemoryStatusCandidate, types.ConfidenceLow, types.MemorySourceExtracted, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), base, base),
+		memoryOf(t, "cand-2", types.MemoryTypeLesson, ws, "c2", types.MemoryStatusCandidate, types.ConfidenceLow, types.MemorySourceExtracted, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), base, base),
+		memoryOf(t, "cand-3", types.MemoryTypeLesson, ws, "c3", types.MemoryStatusCandidate, types.ConfidenceLow, types.MemorySourceExtracted, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), base, base),
+		memoryOf(t, "rej-1", types.MemoryTypeConstraint, ws, "r1", types.MemoryStatusRejected, types.ConfidenceMedium, types.MemorySourceManual, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), base, base),
+	}
+	for _, m := range fixtures {
+		if err := sut.Save(ctx, m); err != nil {
+			t.Fatalf("Save(%s) error = %v", m.MemoryID(), err)
+		}
+	}
+
+	// Limit(1) proves CountByStatus ignores the list scan cap and reports the
+	// true totals, and the rejected fixture proves the status filter applies.
+	criteria := apptypes.NewMemoryListCriteriaBuilder(1).
+		Statuses([]types.MemoryStatus{types.MemoryStatusAccepted, types.MemoryStatusCandidate}).
+		Build()
+	counts, err := sut.CountByStatus(ctx, criteria)
+	if err != nil {
+		t.Fatalf("CountByStatus() error = %v", err)
+	}
+	if got, want := counts.Accepted, 2; got != want {
+		t.Fatalf("Accepted = %d, want %d", got, want)
+	}
+	if got, want := counts.Candidate, 3; got != want {
+		t.Fatalf("Candidate = %d, want %d", got, want)
+	}
+}
+
 func TestMemoryDatasource_List_RememberIntentPriorityAppliesBeforePagination(t *testing.T) {
 	t.Parallel()
 

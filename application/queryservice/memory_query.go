@@ -17,6 +17,16 @@ type MemoryQueryService interface {
 	GetDetails(ctx context.Context, memoryID types.MemoryID) (apptypes.MemoryDetails, error)
 }
 
+// MemoryStatusCountQueryService is the additive read-side query used by the
+// reliability pane to report true candidate/accepted totals when the bounded
+// summary scan is saturated. It mirrors the additive StaleMemoryQueryService
+// pattern so implementers opt in without widening MemoryQueryService.
+type MemoryStatusCountQueryService interface {
+	// CountByStatus returns the true per-status row counts matching the
+	// criteria, ignoring its Limit/Offset.
+	CountByStatus(ctx context.Context, criteria apptypes.MemoryListCriteria) (apptypes.MemoryStatusCounts, error)
+}
+
 // StaleMemoryQueryService provides the additive read-side query used by
 // `traceary top --snapshot --json` to surface stale durable memories without
 // introducing a write-side use case.

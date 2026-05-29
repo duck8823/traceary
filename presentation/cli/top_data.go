@@ -528,6 +528,12 @@ type topReliabilityInputs struct {
 	RecentCommands          []*model.Event
 }
 
+// memoryStatusCounter is the optional capability used to report true
+// candidate/accepted totals when the bounded reliability scan is saturated.
+type memoryStatusCounter interface {
+	CountByStatus(ctx context.Context, criteria apptypes.MemoryListCriteria) (apptypes.MemoryStatusCounts, error)
+}
+
 func (l *topDataLoader) loadReliabilityMetrics(ctx context.Context, c topDataCriteria, inputs topReliabilityInputs) (topReliabilityMetrics, error) {
 	metrics := topReliabilityMetrics{
 		StaleActiveSessionCount: inputs.StaleActiveSessionCount,
@@ -560,6 +566,18 @@ func (l *topDataLoader) loadReliabilityMetrics(ctx context.Context, c topDataCri
 				metrics.LowQualityCount++
 			}
 			metrics.CandidateAge = topCandidateAgeMetricsAdd(metrics.CandidateAge, summary.UpdatedAt(), topDataNow(c))
+		}
+	}
+	// When the bounded scan saturated, the per-status totals above undercount.
+	// Replace the accepted/candidate totals with true COUNTs when the memory
+	// service supports it; the finer breakdowns stay scan-limited (signalled by
+	// MemoryScanLimited).
+	if metrics.MemoryScanLimited {
+		if counter, ok := l.memory.(memoryStatusCounter); ok {
+			if counts, err := counter.CountByStatus(ctx, topReliabilityMemoryCriteria(c)); err == nil {
+				metrics.AcceptedMemoryCount = counts.Accepted
+				metrics.CandidateMemoryCount = counts.Candidate
+			}
 		}
 	}
 	return metrics, nil
