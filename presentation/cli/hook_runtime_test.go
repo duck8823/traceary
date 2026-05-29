@@ -615,6 +615,24 @@ func TestRootCLI_HookAuditCommand_FlagsFailureFromErrorPayload(t *testing.T) {
 			payload:    `{"tool_input":{"command":"missing-binary"},"tool_response":{"llmContent":"failed","error":{"type":"shell_execute_error","message":"spawn failed"}}}`,
 			wantFailed: true,
 		},
+		{
+			name:       "empty top-level error is not a failure",
+			client:     "claude",
+			payload:    `{"tool_input":{"command":"go test ./..."},"error":""}`,
+			wantFailed: false,
+		},
+		{
+			name:       "gemini empty tool_response.error is not a failure",
+			client:     "gemini",
+			payload:    `{"tool_input":{"command":"go test ./..."},"tool_response":{"llmContent":"ok","error":""}}`,
+			wantFailed: false,
+		},
+		{
+			name:       "codex raw-string tool_response mentioning error is not flagged",
+			client:     "codex",
+			payload:    `{"tool_input":{"command":"go test ./..."},"tool_response":"error: a test logged the word error but exited 0"}`,
+			wantFailed: false,
+		},
 	}
 
 	for _, tc := range cases {
