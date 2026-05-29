@@ -85,6 +85,7 @@ v0.15 の admin コマンド：
 - v0.14.0 で削除: `traceary init` → `traceary store init`、`traceary backup` → `traceary store backup ...`、`traceary gc` → `traceary store gc`、`traceary handoff` → `traceary session handoff`、`traceary compact-summary` → `traceary session handoff --compact-only`、廃止済み `traceary integration codex install` helper → Codex 公式 `/plugins` flow。
 - v0.15.0 で削除: `traceary memory accept`、`traceary memory reject`、`traceary memory remember`、`traceary memory propose`、`traceary memory distill`、`traceary memory extract`、`traceary memory supersede`、`traceary memory expire`、`traceary memory set-validity`、`traceary memory import codex`、`traceary memory import instructions`、`traceary memory export`、`traceary memory activate`、`traceary memory hygiene scan`、`traceary memory hygiene apply`、`traceary memory graph add`、`traceary memory graph list`。canonical な `memory inbox` / `memory store` / `memory admin` path を CLI リファレンスに従って使ってください。
 - v0.15.0 で削除: `traceary integration codex uninstall` → Codex 公式 `/plugins` flow と `docs/integrations/codex-plugin.md` の手動 cleanup 手順。
+- v0.20.0 で非表示化・v0.21.0 で削除予定: `traceary integration` コマンド subtree（`integration` 親と `codex` group）。子は上記の hidden migration stub のみのため、親は `traceary --help` に表示されなくなりました。stub は v0.21.0 の削除まで migration error を返し続けます。
 
 ## 非推奨通知の出し方
 

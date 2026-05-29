@@ -2,12 +2,17 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 INTEGRATION_VERSION = (ROOT / 'VERSION').read_text(encoding='utf-8').strip()
+# Pin the CLI to English so the removed-command smoke assertions are
+# deterministic regardless of the operator's ui.language / OS locale
+# (mirrors the presentation/cli TestMain locale pin and CI's English default).
+ENGLISH_CLI_ENV = {**os.environ, 'TRACEARY_LANG': 'en'}
 HOOK_SOURCES = [
     ROOT / 'scripts' / 'hooks' / 'common.sh',
     ROOT / 'scripts' / 'hooks' / 'traceary-session.sh',
@@ -146,6 +151,7 @@ def check_codex() -> None:
         cwd=ROOT,
         capture_output=True,
         text=True,
+        env=ENGLISH_CLI_ENV,
     )
     require(install_result.returncode != 0, 'Codex install command must exit non-zero after v0.14.0 removal')
     install_message = install_result.stderr + install_result.stdout
@@ -164,6 +170,7 @@ def check_codex() -> None:
         cwd=ROOT,
         capture_output=True,
         text=True,
+        env=ENGLISH_CLI_ENV,
     )
     require(uninstall_result.returncode != 0, 'Codex uninstall command must exit non-zero after v0.15.0 removal')
     uninstall_message = uninstall_result.stderr + uninstall_result.stdout

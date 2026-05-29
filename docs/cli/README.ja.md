@@ -987,6 +987,8 @@ DB 作成と migration 適用を明示的に先行実行します。通常コマ
 
 ## Integration コマンド
 
+> `integration` コマンド subtree 全体（`integration` 親と `codex` group）は v0.20.0 時点で `traceary --help` から非表示になり、v0.21.0 で完全削除予定です。以下は移行メモとしてのみ掲載しています。非表示の stub は引き続き非ゼロで終了し、Codex 公式の `/plugins` flow を案内します。
+
 ### `traceary integration codex install` (廃止・非表示)
 
 v0.14.0 で廃止されており、**サポート対象の install 面ではありません**。コマンドは非表示扱いとなり、実行しても install は行われず、Codex 公式の `/plugins` flow を案内するヒントのみを返します。新規 install は必ず Codex 公式の `/plugins` flow（リポジトリ内で `codex` を起動 → `/plugins` → `Traceary Plugins` → `Traceary`）を経由してください。詳細は [Codex plugin ガイド](../integrations/codex-plugin.ja.md) を参照してください。

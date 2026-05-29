@@ -59,7 +59,7 @@ run_codex() {
   # the retired commands would surface here too.
   python3 "${ROOT_DIR}/scripts/verify_integrations.py"
   local install_output
-  if install_output="$(go run . integration codex install 2>&1)"; then
+  if install_output="$(TRACEARY_LANG=en go run . integration codex install 2>&1)"; then
     echo "error: 'go run . integration codex install' unexpectedly succeeded after v0.14.0 removal" >&2
     echo "${install_output}" >&2
     return 1
@@ -69,7 +69,7 @@ run_codex() {
     return 1
   fi
   local uninstall_output
-  if uninstall_output="$(go run . integration codex uninstall 2>&1)"; then
+  if uninstall_output="$(TRACEARY_LANG=en go run . integration codex uninstall 2>&1)"; then
     echo "error: 'go run . integration codex uninstall' unexpectedly succeeded after v0.15.0 removal" >&2
     echo "${uninstall_output}" >&2
     return 1
