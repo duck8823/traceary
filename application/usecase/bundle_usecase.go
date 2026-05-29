@@ -4,9 +4,9 @@
 // machines through any file-transport they already have (AirDrop,
 // scp, Syncthing, etc.). Traceary never ships its own transport.
 //
-// v0.9 scope: events only. Memory / session / command-audit
-// portability lands as follow-up work — see docs/operations for the
-// published roadmap.
+// Portability covers all five tables — events, sessions, command_audits,
+// memories, and memory_edges — see docs/operations/cross-machine-handoff
+// for the operator guide.
 package usecase
 
 import (
@@ -85,10 +85,9 @@ func (p BundleConflictPolicy) normalized() (BundleConflictPolicy, error) {
 	}
 }
 
-// BundleMissingParentPolicy is reserved for multi-table bundle imports
-// where child rows can reference parents that are absent from the bundle
-// and the destination store. v2 only ships events, but wiring this now
-// keeps #738/#739/#740 on the same CLI/API surface.
+// BundleMissingParentPolicy controls multi-table bundle imports where a
+// child row (e.g. an imported session) can reference a parent that is
+// absent from both the bundle and the destination store.
 type BundleMissingParentPolicy string
 
 const (
@@ -144,7 +143,7 @@ type BundleImportOptions struct {
 	// OnConflict controls UNIQUE collisions. Empty defaults to skip for
 	// v0.9-compatible idempotent re-imports.
 	OnConflict BundleConflictPolicy
-	// MissingParent is wired for forthcoming sessions importers. Empty defaults to reject.
+	// MissingParent controls how the sessions importer handles an imported session whose parent session is absent. Empty defaults to reject.
 	MissingParent BundleMissingParentPolicy
 	// OrphanEdges controls memory_edges rows whose endpoints are missing after
 	// memories import. Empty defaults to skip-with-warning.

@@ -912,14 +912,14 @@ func TestBundleUsecase_OrphanMemoryEdgeConflictErrorRollsBackBeforeSkip(t *testi
 	}
 }
 
-func TestBundleUsecase_ManifestV2FourTableSpecDocReachable(t *testing.T) {
+func TestBundleUsecase_ManifestV2FiveTableSpecDocReachable(t *testing.T) {
 	t.Parallel()
 	content, err := os.ReadFile(filepath.Join("..", "..", "docs", "operations", "cross-machine-handoff.md"))
 	if err != nil {
 		t.Fatalf("ReadFile(cross-machine-handoff.md): %v", err)
 	}
 	text := string(content)
-	for _, want := range []string{"manifest_version = 2", "events.ndjson", "sessions.ndjson", "memories.ndjson", "memory_edges.ndjson", "Conflict matrix", "Four-table inclusion rules"} {
+	for _, want := range []string{"manifest_version = 2", "events.ndjson", "sessions.ndjson", "command_audits.ndjson", "memories.ndjson", "memory_edges.ndjson", "Conflict matrix", "Five-table inclusion rules"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("doc missing %q", want)
 		}

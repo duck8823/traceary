@@ -12,10 +12,12 @@ Current bundle (manifest_version = 2):
 
 - `manifest.json` — store schema version, creation time, filters used, writer metadata, import defaults, and a per-table registry (`tables`) with `{table_name, file, row_count, checksum}` entries.
 - `events.ndjson` — every event matching `--since` / `--until` / `--workspace`, ordered by `created_at` for deterministic output.
+- `sessions.ndjson` — session boundary records: the sessions matching the export window/workspace filters plus any additional sessions referenced by the exported events, so imported events keep their owning session.
+- `command_audits.ndjson` — shell command audit records, filtered to the exported events.
 - `memories.ndjson` — durable memories with scope, validity window, supersession pointer, evidence refs, and artifact refs.
 - `memory_edges.ndjson` — typed memory graph edges with `id`, `from_memory_id`, `to_memory_id`, `relation_type`, validity window, and `created_at`.
 
-Traceary still imports v0.9.0 `manifest_version = 1` bundles that use `file_checksums`. v2 registers table files through `tables`; current writers include `events`, `memories`, and `memory_edges`. `sessions.ndjson` is reserved in the v2 spec but is not emitted until the sessions follow-up lands.
+Traceary still imports v0.9.0 `manifest_version = 1` bundles that use `file_checksums`. v2 registers table files through `tables`; current writers emit all five tables — `events`, `sessions`, `command_audits`, `memories`, and `memory_edges`.
 
 ## Encryption
 
@@ -76,7 +78,7 @@ traceary bundle import --in ~/Downloads/traceary-*.tbun
 
 Imported memories use the candidate trust default: newly inserted rows are always written as `candidate`, even when the source machine had already accepted them. A memory fact can influence prompt context after acceptance, so importing from another machine keeps the existing memory inbox review step in the loop. Existing destination rows are untouched under the default `skip` policy; re-importing a bundle does not downgrade a memory you already reviewed and accepted locally.
 
-The import command also accepts `--missing-parent {reject,skip,backfill}` for forthcoming session parent handling; the default is `reject`. Memory graph edges use `--orphan-edges {skip,reject}` instead. The default is `skip`: if either endpoint is absent after `memories.ndjson` has imported, Traceary skips the edge and emits a structured warning containing `table=memory_edges`, `edge_id`, both endpoint IDs, and endpoint existence booleans. `--orphan-edges=reject` aborts the import and rolls back the surrounding transaction.
+The import command also accepts `--missing-parent {reject,skip,backfill}` to control how an imported session is handled when its parent session is absent in the destination store; the default is `reject`. Memory graph edges use `--orphan-edges {skip,reject}` instead. The default is `skip`: if either endpoint is absent after `memories.ndjson` has imported, Traceary skips the edge and emits a structured warning containing `table=memory_edges`, `edge_id`, both endpoint IDs, and endpoint existence booleans. `--orphan-edges=reject` aborts the import and rolls back the surrounding transaction.
 
 ## Manifest v2 table registry spec
 
@@ -91,19 +93,21 @@ The import command also accepts `--missing-parent {reject,skip,backfill}` for fo
 }
 ```
 
-Import verifies every registered file checksum before opening the write transaction, rejects unregistered payload files, and applies supported tables in dependency order by table name for the current four-table portability surface:
+Import verifies every registered file checksum before opening the write transaction, rejects unregistered payload files, and applies supported tables in dependency order across the current five-table portability surface:
 
-1. `events.ndjson`
-2. `memories.ndjson`
-3. `memory_edges.ndjson`
-4. `sessions.ndjson` (reserved; not emitted by the current writer)
+1. `sessions.ndjson`
+2. `events.ndjson`
+3. `command_audits.ndjson`
+4. `memories.ndjson`
+5. `memory_edges.ndjson`
 
-### Four-table inclusion rules
+### Five-table inclusion rules
 
 | Table | Current writer | Import requirement |
 |---|---:|---|
 | `events` / `events.ndjson` | Included | Independent rows; idempotent by `events.id`. |
-| `sessions` / `sessions.ndjson` | Reserved | Follow-up table. Session parent handling will use `--missing-parent`. |
+| `sessions` / `sessions.ndjson` | Included | Imported first so owning sessions exist before events; `--missing-parent` controls a session whose parent session is absent in the destination. |
+| `command_audits` / `command_audits.ndjson` | Included | Filtered to the exported events; idempotent by `event_id`. |
 | `memories` / `memories.ndjson` | Included | Imported before `memory_edges`; new rows enter `candidate` status unless already present. |
 | `memory_edges` / `memory_edges.ndjson` | Included | Imported after memories; both endpoints must exist in the destination DB. Existing edge IDs are skipped under default `--on-conflict=skip`. |
 
@@ -112,8 +116,11 @@ Import verifies every registered file checksum before opening the write transact
 | Condition | Default | Strict option | Transaction outcome |
 |---|---|---|---|
 | Existing event ID | Skip and count `events_skipped` | `--on-conflict=error` | Strict mode rolls back. |
+| Existing session ID | Skip and count `sessions_skipped` | `--on-conflict=error` | Strict mode rolls back. |
+| Existing command-audit `event_id` | Skip and count `command_audits_skipped` | `--on-conflict=error` | Strict mode rolls back. |
 | Existing memory ID | Skip and count `memories_skipped` | `--on-conflict=error` | Strict mode rolls back. |
 | Existing memory edge ID | Skip and count `memory_edges_skipped` | `--on-conflict=error` | Strict mode rolls back. |
+| Imported session parent missing | Reject the import (`--missing-parent=reject`) | `--missing-parent=skip` / `backfill` | Reject rolls back; `skip` drops the row, `backfill` reconstructs a placeholder parent. |
 | Memory edge endpoint missing after memories import | Skip, count `memory_edges_skipped`, and log structured warning | `--orphan-edges=reject` | Strict mode rolls back all tables in the bundle import transaction. |
 | Bundle schema newer than local store | Reject | n/a | No write transaction starts. |
 | Manifest checksum / row-count mismatch | Reject | n/a | No write transaction starts. |
@@ -132,5 +139,4 @@ A bundle created on an **older** schema imports cleanly — the destination stor
 
 ## Follow-up (post-v0.9)
 
-- Extend `bundle export` / `bundle import` to sessions, command audits, and graph edges.
 - Public-key mode (recipient pubkey instead of passphrase) for sending a bundle to a collaborator without sharing a passphrase.
