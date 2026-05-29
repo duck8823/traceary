@@ -79,8 +79,7 @@ func (c *RootCLI) newSessionsCommand() *cobra.Command {
 			"Show a live, auto-refreshing Sessions dashboard for active sessions, failures, commands, memory review, and health. Press q or Ctrl-C to quit. Use --snapshot --json for a one-shot Sessions JSON snapshot with latest-event metadata.",
 			"active session、失敗、コマンド、メモリ確認、状態をまとめた Sessions ダッシュボードをライブ自動更新で表示します。q または Ctrl-C で終了します。--snapshot --json で latest event metadata を含む Sessions JSON snapshot を一回出力します。",
 		),
-		Aliases: []string{"session-top"},
-		Args:    noArgsLocalized(),
+		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runSessions(cmd.Context(), cmd.OutOrStdout(), opts)
 		},
