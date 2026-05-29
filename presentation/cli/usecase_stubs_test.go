@@ -64,16 +64,16 @@ func (s *eventUsecaseStub) Log(ctx context.Context, message string, kind types.E
 	s.logCall.sourceHook = apptypes.SourceHookFromContext(ctx)
 	return s.logEvent, s.logErr
 }
-func (s *eventUsecaseStub) Audit(_ context.Context, command string, input string, output string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, exitCode types.Optional[int], failed bool, auditCfg apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
-	s.auditCall.command = command
-	s.auditCall.input = input
-	s.auditCall.output = output
-	s.auditCall.client = client
-	s.auditCall.agent = agent
-	s.auditCall.sessionID = sessionID
-	s.auditCall.workspace = workspace
-	s.auditCall.exitCode = exitCode
-	s.auditCall.failed = failed
+func (s *eventUsecaseStub) Audit(_ context.Context, in apptypes.AuditInput, auditCfg apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
+	s.auditCall.command = in.Command
+	s.auditCall.input = in.Input
+	s.auditCall.output = in.Output
+	s.auditCall.client = in.Client
+	s.auditCall.agent = in.Agent
+	s.auditCall.sessionID = in.SessionID
+	s.auditCall.workspace = in.Workspace
+	s.auditCall.exitCode = in.ExitCode
+	s.auditCall.failed = in.Failed
 	s.auditCall.auditCfg = auditCfg
 	return s.auditEvent, s.auditAudit, s.auditErr
 }

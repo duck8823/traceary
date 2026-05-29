@@ -186,10 +186,18 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		StructuredRules(c.structuredRedactRules).
 		Build()
 	event, commandAudit, err := c.event.Audit(ctx,
-		input.command, input.input, input.output,
-		client, agent, sid, types.Workspace(resolvedRepo),
-		input.exitCode,
-		false, // manual audits carry an explicit exit code; the failure flag is for hosts that omit it
+		apptypes.AuditInput{
+			Command:   input.command,
+			Input:     input.input,
+			Output:    input.output,
+			Client:    client,
+			Agent:     agent,
+			SessionID: sid,
+			Workspace: types.Workspace(resolvedRepo),
+			ExitCode:  input.exitCode,
+			// Failed stays false: manual audits carry an explicit exit code;
+			// the failure flag is for hosts that omit one.
+		},
 		auditCfg,
 	)
 	if err != nil {

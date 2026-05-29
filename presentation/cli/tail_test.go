@@ -27,7 +27,7 @@ func (s *tailEventUsecaseStub) Log(context.Context, string, types.EventKind, typ
 	return nil, nil
 }
 
-func (s *tailEventUsecaseStub) Audit(context.Context, string, string, string, types.Client, types.Agent, types.SessionID, types.Workspace, types.Optional[int], bool, apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
+func (s *tailEventUsecaseStub) Audit(context.Context, apptypes.AuditInput, apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
 	return nil, nil, nil
 }
 

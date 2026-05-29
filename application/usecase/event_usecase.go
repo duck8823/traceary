@@ -18,10 +18,10 @@ type EventUsecase interface {
 	// to re-implement that policy in the presentation layer.
 	Log(ctx context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, logCfg apptypes.LogRedaction) (*model.Event, error)
 
-	// Audit records a command execution audit event. failed marks a
-	// structural failure (e.g. Claude's PostToolUseFailure) independently of
-	// exitCode, since some hosts report failure without a numeric exit code.
-	Audit(ctx context.Context, command string, input string, output string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, exitCode types.Optional[int], failed bool, auditCfg apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error)
+	// Audit records a command execution audit event. The AuditInput value
+	// object carries the command, attribution, exit code, and structural
+	// failure flag; auditCfg carries the redaction policy.
+	Audit(ctx context.Context, in apptypes.AuditInput, auditCfg apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error)
 
 	// Search performs full-text search across events.
 	Search(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error)
