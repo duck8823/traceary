@@ -44,7 +44,7 @@ release/snapshot: ## Build snapshot release artifacts to dist/
 
 release/bump: ## Bump version across all manifests (usage: make release/bump VERSION=X.Y.Z)
 	@test -n "$(VERSION)" || (echo "Usage: make release/bump VERSION=X.Y.Z" >&2 && exit 1)
-	@python3 scripts/bump_version.py --version "$(VERSION)"
+	@go run ./cmd/repo-tooling release bump-version --version "$(VERSION)"
 	@python3 scripts/verify_release_manifests.py
 	@go run ./cmd/repo-tooling integrations verify
 	@go run ./cmd/repo-tooling docs verify-landing
