@@ -377,6 +377,56 @@ func (d *MemoryDatasource) List(ctx context.Context, criteria apptypes.MemoryLis
 	return summaries, nil
 }
 
+// CountByStatus returns the true per-status row counts matching the criteria,
+// ignoring its Limit/Offset. It backs the reliability pane's candidate/accepted
+// totals when the bounded summary scan is saturated.
+func (d *MemoryDatasource) CountByStatus(ctx context.Context, criteria apptypes.MemoryListCriteria) (apptypes.MemoryStatusCounts, error) {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return apptypes.MemoryStatusCounts{}, xerrors.Errorf("failed to open DB for memory count: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	query, args, err := buildMemoryCountByStatusQuery(criteria, d.clock)
+	if err != nil {
+		return apptypes.MemoryStatusCounts{}, xerrors.Errorf("failed to build memory count query: %w", err)
+	}
+
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return apptypes.MemoryStatusCounts{}, xerrors.Errorf("failed to count memories: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	var counts apptypes.MemoryStatusCounts
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return apptypes.MemoryStatusCounts{}, xerrors.Errorf("failed to scan memory count row: %w", err)
+		}
+		switch status {
+		case string(types.MemoryStatusAccepted):
+			counts.Accepted = count
+		case string(types.MemoryStatusCandidate):
+			counts.Candidate = count
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return apptypes.MemoryStatusCounts{}, xerrors.Errorf("failed to iterate memory count rows: %w", err)
+	}
+
+	return counts, nil
+}
+
 // ListStale returns stale memory rows plus the total count before paging.
 func (d *MemoryDatasource) ListStale(ctx context.Context, criteria apptypes.StaleMemoryListCriteria) (apptypes.StaleMemoryListResult, error) {
 	if criteria.Limit() <= 0 {
@@ -822,6 +872,22 @@ func buildMemoryListQuery(criteria apptypes.MemoryListCriteria, clock types.Cloc
 	}
 	builder.WriteString("m.updated_at DESC, m.id DESC LIMIT ? OFFSET ?")
 	args = append(args, criteria.Limit(), criteria.Offset())
+	return builder.String(), args, nil
+}
+
+// buildMemoryCountByStatusQuery builds a per-status COUNT(*) query using the
+// same filters as buildMemoryListQuery but without LIMIT/OFFSET, so it returns
+// the true total counts even when a list scan would be capped.
+func buildMemoryCountByStatusQuery(criteria apptypes.MemoryListCriteria, clock types.Clock) (string, []any, error) {
+	var builder strings.Builder
+	builder.WriteString("SELECT m.status, COUNT(*) FROM memories m WHERE 1 = 1")
+	args, err := appendMemoryFilters(&builder, nil, criteria.Scopes(), criteria.Statuses(), criteria.MemoryTypes(), criteria.Sources())
+	if err != nil {
+		return "", nil, err
+	}
+	args = appendMemoryValidityWindowFilter(&builder, args, criteria.AsOf(), criteria.IncludeExpiredByValidity(), clock)
+	args = appendMemoryUpdatedAtFilter(&builder, args, criteria.UpdatedBefore(), criteria.UpdatedAfter())
+	builder.WriteString(" GROUP BY m.status")
 	return builder.String(), args, nil
 }
 

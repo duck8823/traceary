@@ -96,6 +96,9 @@ type topDataMemoryStub struct {
 	showErr             error
 	showMemoryID        domtypes.MemoryID
 	showCalls           int
+	countResult         apptypes.MemoryStatusCounts
+	countErr            error
+	countCalls          int
 }
 
 func (s *topDataMemoryStub) List(_ context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
@@ -118,6 +121,54 @@ func (s *topDataMemoryStub) Show(_ context.Context, memoryID domtypes.MemoryID) 
 	s.showMemoryID = memoryID
 	s.showCalls++
 	return s.showDetails, s.showErr
+}
+
+func (s *topDataMemoryStub) CountByStatus(_ context.Context, _ apptypes.MemoryListCriteria) (apptypes.MemoryStatusCounts, error) {
+	s.countCalls++
+	return s.countResult, s.countErr
+}
+
+// TestTopDataLoader_LoadSnapshot_UsesTrueCountsWhenScanSaturated guards #1111:
+// when the bounded reliability scan saturates (returns the cap), the snapshot's
+// accepted/candidate totals come from the true CountByStatus query rather than
+// the capped scan count.
+func TestTopDataLoader_LoadSnapshot_UsesTrueCountsWhenScanSaturated(t *testing.T) {
+	t.Parallel()
+
+	now := fixedStartedAt.Add(48 * time.Hour)
+	candidate := memorySummaryWithUpdatedAt(t, "mem-candidate", domtypes.MemoryStatusCandidate, now.Add(-time.Hour))
+	saturated := make([]apptypes.MemorySummary, 0, topReliabilityMemoryScanLimit)
+	for i := 0; i < topReliabilityMemoryScanLimit; i++ {
+		saturated = append(saturated, candidate)
+	}
+	memory := &topDataMemoryStub{
+		listResult:  saturated,
+		countResult: apptypes.MemoryStatusCounts{Accepted: 7, Candidate: 5000},
+	}
+	loader := newTopDataLoader(nil, nil, memory)
+
+	snap, err := loader.loadSnapshot(context.Background(), topDataCriteria{
+		CandidateLimit:   1,
+		StaleMemoryLimit: 1,
+		StaleAfter:       24 * time.Hour,
+		Now:              now,
+	})
+	if err != nil {
+		t.Fatalf("loadSnapshot() error = %v", err)
+	}
+
+	if !snap.Reliability.MemoryScanLimited {
+		t.Fatalf("MemoryScanLimited = false, want true when the scan returns the cap")
+	}
+	if memory.countCalls != 1 {
+		t.Fatalf("CountByStatus calls = %d, want 1 when the scan saturated", memory.countCalls)
+	}
+	if got, want := snap.Reliability.CandidateMemoryCount, 5000; got != want {
+		t.Fatalf("CandidateMemoryCount = %d, want %d (true count, not the capped scan)", got, want)
+	}
+	if got, want := snap.Reliability.AcceptedMemoryCount, 7; got != want {
+		t.Fatalf("AcceptedMemoryCount = %d, want %d (true count)", got, want)
+	}
 }
 
 // fixedStartedAt is the deterministic anchor every fixture in this file
