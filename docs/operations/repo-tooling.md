@@ -100,15 +100,17 @@ and released-tag coverage checks and is wired into CI (`.github/workflows/ci.yml
 and the release workflow (`.github/workflows/release.yml`). The Python script
 has been removed.
 
-### 4. Landing page version drift verification
+### 4. Landing page version drift verification — ✅ migrated (v0.20.0)
 
-Fourth target:
+Fourth target (done):
 
-- `scripts/verify_landing.py`
+- ~~`scripts/verify_landing.py`~~ → `go run ./cmd/repo-tooling docs verify-landing`
 
-Planned replacement:
-
-- `go run ./cmd/repo-tooling docs verify-landing`
+The Go entrypoint reproduces the hero-eyebrow (major.minor) and Homebrew bottle
+/ Cellar (full X.Y.Z) version-drift checks and is wired into CI
+(`.github/workflows/ci.yml`), the release workflow
+(`.github/workflows/release.yml`), and the Makefile (`landing/check`,
+`release/bump`). The Python script has been removed.
 
 ### 5. Version bump helper
 

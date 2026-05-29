@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -54,8 +55,105 @@ func newDocsCommand() *cobra.Command {
 			return nil
 		},
 	}
+	verifyLandingCmd := &cobra.Command{
+		Use:   "verify-landing",
+		Short: "Verify docs/landing/ version markers stay in sync with VERSION",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			root, err := findRepoRoot()
+			if err != nil {
+				return err
+			}
+			version, err := verifyLanding(root)
+			if err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "OK: docs/landing/ in sync with VERSION %s\n", version); err != nil {
+				return xerrors.Errorf("failed to write verify result: %w", err)
+			}
+			return nil
+		},
+	}
 	cmd.AddCommand(verifyI18n)
+	cmd.AddCommand(verifyLandingCmd)
 	return cmd
+}
+
+var (
+	landingVersionRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+	landingEyebrowRe = regexp.MustCompile(`<span class="hero-eyebrow"><span class="dot"></span>v(\d+\.\d+)\b`)
+	landingBottleRe  = regexp.MustCompile(`traceary--(\d+\.\d+\.\d+)`)
+	landingCellarRe  = regexp.MustCompile(`/Cellar/traceary/(\d+\.\d+\.\d+)`)
+)
+
+// verifyLanding reproduces scripts/verify_landing.py: the landing page's hero
+// eyebrow (major.minor) and the Homebrew bottle / Cellar version markers
+// (full X.Y.Z) must stay in sync with VERSION. It returns the validated VERSION
+// string on success.
+func verifyLanding(root string) (string, error) {
+	versionData, err := os.ReadFile(filepath.Join(root, "VERSION"))
+	if err != nil {
+		return "", xerrors.Errorf("missing VERSION")
+	}
+	version := strings.TrimSpace(string(versionData))
+	if !landingVersionRe.MatchString(version) {
+		return "", xerrors.Errorf("VERSION is not X.Y.Z: %q", version)
+	}
+	parts := strings.Split(version, ".")
+	majorMinor := parts[0] + "." + parts[1]
+
+	indexPath := filepath.Join("docs", "landing", "index.html")
+	indexText, err := os.ReadFile(filepath.Join(root, indexPath))
+	if err != nil {
+		return "", xerrors.Errorf("missing %s", indexPath)
+	}
+	eyebrow := landingEyebrowRe.FindStringSubmatch(string(indexText))
+	if eyebrow == nil {
+		return "", xerrors.Errorf("%s: hero eyebrow version marker not found", indexPath)
+	}
+	if eyebrow[1] != majorMinor {
+		return "", xerrors.Errorf("%s: hero eyebrow says v%s but VERSION is %s (expected v%s)", indexPath, eyebrow[1], version, majorMinor)
+	}
+
+	componentsPath := filepath.Join("docs", "landing", "components.jsx")
+	componentsText, err := os.ReadFile(filepath.Join(root, componentsPath))
+	if err != nil {
+		return "", xerrors.Errorf("missing %s", componentsPath)
+	}
+	components := string(componentsText)
+
+	if err := checkLandingMarkerDrift(componentsPath, components, landingBottleRe, version,
+		"no `traceary--X.Y.Z` bottle markers found", "bottle versions"); err != nil {
+		return "", err
+	}
+	if err := checkLandingMarkerDrift(componentsPath, components, landingCellarRe, version,
+		"no `/Cellar/traceary/X.Y.Z` markers found", "Cellar versions"); err != nil {
+		return "", err
+	}
+
+	return version, nil
+}
+
+func checkLandingMarkerDrift(path, text string, pattern *regexp.Regexp, version, emptyMessage, driftLabel string) error {
+	matches := pattern.FindAllStringSubmatch(text, -1)
+	if len(matches) == 0 {
+		return xerrors.Errorf("%s: %s", path, emptyMessage)
+	}
+	driftSet := map[string]bool{}
+	for _, match := range matches {
+		if match[1] != version {
+			driftSet[match[1]] = true
+		}
+	}
+	if len(driftSet) > 0 {
+		drift := make([]string, 0, len(driftSet))
+		for value := range driftSet {
+			drift = append(drift, value)
+		}
+		sort.Strings(drift)
+		return xerrors.Errorf("%s: %s [%s] do not match VERSION %s", path, driftLabel, strings.Join(drift, " "), version)
+	}
+	return nil
 }
 
 // verifyDocsI18n reproduces scripts/verify_docs_i18n.py: every in-scope English

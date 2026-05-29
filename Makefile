@@ -34,7 +34,7 @@ release/check: ## Verify release marketplace and plugin manifests
 	@python3 scripts/verify_release_manifests.py
 
 landing/check: ## Verify docs/landing/ stays in sync with VERSION
-	@python3 scripts/verify_landing.py
+	@go run ./cmd/repo-tooling docs verify-landing
 
 release/gemini-extension: ## Package Gemini CLI extension archive to dist/
 	@./scripts/package_gemini_extension.sh
@@ -47,7 +47,7 @@ release/bump: ## Bump version across all manifests (usage: make release/bump VER
 	@python3 scripts/bump_version.py --version "$(VERSION)"
 	@python3 scripts/verify_release_manifests.py
 	@go run ./cmd/repo-tooling integrations verify
-	@python3 scripts/verify_landing.py
+	@go run ./cmd/repo-tooling docs verify-landing
 
 ci: docs/check release/check integrations/check landing/check code/lint code/test ## Run full CI validation
 
