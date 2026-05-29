@@ -1,0 +1,1 @@
+ALTER TABLE command_audits ADD COLUMN failed INTEGER NOT NULL DEFAULT 0;

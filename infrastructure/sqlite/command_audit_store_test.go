@@ -45,7 +45,8 @@ CREATE TABLE command_audits (
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
     output_truncated INTEGER NOT NULL DEFAULT 0,
-    exit_code INTEGER
+    exit_code INTEGER,
+    failed INTEGER NOT NULL DEFAULT 0
 );`),
 		},
 	}
@@ -125,5 +126,109 @@ SELECT e.kind, a.command_text, a.input_truncated, a.output_truncated
 	}
 	if outputTruncated {
 		t.Fatalf("output_truncated = true, want false")
+	}
+}
+
+// TestDatasource_ListRecent_FailuresOnly_IncludesFailedFlag verifies the
+// failures filter treats the structural failed flag as a failure even when no
+// numeric exit code was captured — the Claude PostToolUseFailure case, where
+// the hook payload carries an "error" string but no exit code. The legacy
+// non-zero exit_code path must still match, and successes must be excluded.
+func TestDatasource_ListRecent_FailuresOnly_IncludesFailedFlag(t *testing.T) {
+	t.Parallel()
+
+	migrations := fstest.MapFS{
+		"000001_init.sql": {
+			Data: []byte(`
+CREATE TABLE events (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    source_hook TEXT
+);`),
+		},
+		"000002_add_event_metadata.sql": {
+			Data: []byte(`
+ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
+ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
+		},
+		"000003_create_command_audits.sql": {
+			Data: []byte(`
+CREATE TABLE command_audits (
+    event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+    command_text TEXT NOT NULL,
+    input_text TEXT NOT NULL,
+    output_text TEXT NOT NULL,
+    input_truncated INTEGER NOT NULL DEFAULT 0,
+    output_truncated INTEGER NOT NULL DEFAULT 0,
+    exit_code INTEGER,
+    failed INTEGER NOT NULL DEFAULT 0
+);`),
+		},
+	}
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	sut, storeManager := newEventDatasource(t, dbPath, migrations)
+	if err := storeManager.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	save := func(id, command string, exitCode types.Optional[int], failed bool) {
+		eventID, err := types.EventIDFrom(id)
+		if err != nil {
+			t.Fatalf("EventIDFrom(%s) error = %v", id, err)
+		}
+		agent, err := types.AgentFrom("claude")
+		if err != nil {
+			t.Fatalf("AgentFrom() error = %v", err)
+		}
+		sessionID, err := types.SessionIDFrom("session-1")
+		if err != nil {
+			t.Fatalf("SessionIDFrom() error = %v", err)
+		}
+		event := model.EventOf(
+			eventID,
+			types.EventKindCommandExecuted,
+			"hook",
+			agent,
+			sessionID,
+			"duck8823/traceary",
+			command,
+			time.Date(2026, 4, 7, 14, 0, 0, 0, time.UTC),
+		)
+		audit, err := model.NewCommandAudit(eventID, command, "stdin", "stdout", false, false)
+		if err != nil {
+			t.Fatalf("NewCommandAudit(%s) error = %v", id, err)
+		}
+		audit.SetExitCode(exitCode)
+		audit.SetFailed(failed)
+		if err := sut.SaveWithAudit(context.Background(), event, audit); err != nil {
+			t.Fatalf("SaveWithAudit(%s) error = %v", id, err)
+		}
+	}
+
+	save("event-failed-flag", "failed tool without exit code", types.None[int](), true)
+	save("event-nonzero-exit", "command with nonzero exit", types.Some(1), false)
+	save("event-success", "successful command", types.None[int](), false)
+
+	events, err := sut.ListRecent(context.Background(), 50, 0, "", "", "", "", "", true, time.Time{}, time.Time{}, "")
+	if err != nil {
+		t.Fatalf("ListRecent(failuresOnly) error = %v", err)
+	}
+
+	got := map[string]bool{}
+	for _, e := range events {
+		got[e.EventID().String()] = true
+	}
+	if !got["event-failed-flag"] {
+		t.Fatalf("failuresOnly omitted failed-flag row (failed=true, exit_code NULL); got %v", got)
+	}
+	if !got["event-nonzero-exit"] {
+		t.Fatalf("failuresOnly omitted nonzero-exit row; got %v", got)
+	}
+	if got["event-success"] {
+		t.Fatalf("failuresOnly returned a success row; got %v", got)
 	}
 }

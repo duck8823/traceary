@@ -161,6 +161,7 @@ func (d *EventDatasource) SaveWithAudit(
 		audit.InputTruncated(),
 		audit.OutputTruncated(),
 		exitCodeSQL,
+		audit.Failed(),
 	); err != nil {
 		return xerrors.Errorf("failed to insert command audit: %w", err)
 	}
@@ -503,6 +504,7 @@ func (d *EventDatasource) GetDetails(
 		inputTruncatedValue  sql.NullBool
 		outputTruncatedValue sql.NullBool
 		exitCodeValue        sql.NullInt64
+		failedValue          sql.NullBool
 	)
 
 	event, err := scanEventWithAudit(
@@ -513,6 +515,7 @@ func (d *EventDatasource) GetDetails(
 		&inputTruncatedValue,
 		&outputTruncatedValue,
 		&exitCodeValue,
+		&failedValue,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -535,6 +538,7 @@ func (d *EventDatasource) GetDetails(
 			inputTruncatedValue.Bool,
 			outputTruncatedValue.Bool,
 			exitCode,
+			failedValue.Bool,
 		)
 		commandAuditOpt = types.Some(commandAudit)
 	}
@@ -762,6 +766,7 @@ func scanEventWithAudit(
 	inputTruncatedValue *sql.NullBool,
 	outputTruncatedValue *sql.NullBool,
 	exitCodeValue *sql.NullInt64,
+	failedValue *sql.NullBool,
 ) (*model.Event, error) {
 	var (
 		eventIDValue    string
@@ -791,6 +796,7 @@ func scanEventWithAudit(
 		inputTruncatedValue,
 		outputTruncatedValue,
 		exitCodeValue,
+		failedValue,
 	); err != nil {
 		return nil, xerrors.Errorf("failed to scan event details row: %w", err)
 	}

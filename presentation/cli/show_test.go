@@ -51,6 +51,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 				true,
 				false,
 				types.None[int](),
+				false,
 			)),
 		)
 		if err != nil {
@@ -151,6 +152,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 				true,
 				false,
 				types.None[int](),
+				false,
 			)),
 		)
 		if err != nil {
@@ -216,6 +218,7 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 				false,
 				false,
 				types.Some(1),
+				false,
 			)),
 		)
 		if err != nil {

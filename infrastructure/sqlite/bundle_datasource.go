@@ -119,7 +119,7 @@ func (d *BundleDatasource) ListBundleCommandAudits(ctx context.Context) ([]*mode
 		}
 	}()
 	rows, err := db.QueryContext(ctx, `
-SELECT event_id, command_text, input_text, output_text, input_truncated, output_truncated, exit_code
+SELECT event_id, command_text, input_text, output_text, input_truncated, output_truncated, exit_code, failed
 FROM command_audits
 ORDER BY event_id`)
 	if err != nil {
@@ -366,15 +366,16 @@ func (t *bundleImportTx) ImportCommandAudit(ctx context.Context, audit *model.Co
 	}
 	query := insertCommandAuditQuery
 	if policy == usecase.BundleConflictReplace {
-		query = `INSERT INTO command_audits(event_id, command_text, input_text, output_text, input_truncated, output_truncated, exit_code)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+		query = `INSERT INTO command_audits(event_id, command_text, input_text, output_text, input_truncated, output_truncated, exit_code, failed)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(event_id) DO UPDATE SET
   command_text = excluded.command_text,
   input_text = excluded.input_text,
   output_text = excluded.output_text,
   input_truncated = excluded.input_truncated,
   output_truncated = excluded.output_truncated,
-  exit_code = excluded.exit_code`
+  exit_code = excluded.exit_code,
+  failed = excluded.failed`
 	}
 	var exitCodeSQL *int
 	if exitCode, ok := audit.ExitCode().Value(); ok {
@@ -390,6 +391,7 @@ ON CONFLICT(event_id) DO UPDATE SET
 		audit.InputTruncated(),
 		audit.OutputTruncated(),
 		exitCodeSQL,
+		audit.Failed(),
 	)
 	if err == nil {
 		return true, nil
@@ -718,6 +720,7 @@ func scanBundleCommandAudit(row interface {
 		inputTruncated  bool
 		outputTruncated bool
 		exitCode        sql.NullInt64
+		failed          sql.NullBool
 	)
 	if err := row.Scan(
 		&eventID,
@@ -727,6 +730,7 @@ func scanBundleCommandAudit(row interface {
 		&inputTruncated,
 		&outputTruncated,
 		&exitCode,
+		&failed,
 	); err != nil {
 		return nil, xerrors.Errorf("scan command audit: %w", err)
 	}
@@ -738,6 +742,7 @@ func scanBundleCommandAudit(row interface {
 		inputTruncated,
 		outputTruncated,
 		optionalIntFromNullInt64(exitCode),
+		failed.Bool,
 	), nil
 }
 

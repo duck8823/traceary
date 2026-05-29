@@ -64,7 +64,7 @@ func TestCommandAuditOf(t *testing.T) {
 
 	eventID, _ := types.EventIDFrom("event-2")
 
-	audit := model.CommandAuditOf(eventID, "go build", "input-data", "output-data", false, true, types.None[int]())
+	audit := model.CommandAuditOf(eventID, "go build", "input-data", "output-data", false, true, types.None[int](), false)
 
 	if diff := cmp.Diff(eventID, audit.EventID()); diff != "" {
 		t.Errorf("EventID() mismatch (-want +got):\n%s", diff)

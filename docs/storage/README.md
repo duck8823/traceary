@@ -53,6 +53,7 @@ Key columns:
 - `input_truncated`: whether Traceary truncated the stored input
 - `output_truncated`: whether Traceary truncated the stored output
 - `exit_code`: captured exit code when available
+- `failed`: structural failure flag, set when a host reports a tool/command failure without a numeric exit code in the hook payload (e.g. Claude's `PostToolUseFailure`); `list --failures` matches `failed = 1` in addition to a non-zero `exit_code`
 
 Because `command_audits.event_id` uses `ON DELETE CASCADE`, deleting an event through `gc` also deletes its audit payload.
 

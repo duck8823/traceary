@@ -53,6 +53,7 @@ Traceary は、ローカル状態を 1 つの SQLite DB ファイルに保存し
 - `input_truncated`: input を切り詰めたかどうか
 - `output_truncated`: output を切り詰めたかどうか
 - `exit_code`: 取得できた場合の終了コード
+- `failed`: 構造的な失敗フラグ。host が hook payload に数値 exit code を出さずに tool/command の失敗を伝える場合（例: Claude の `PostToolUseFailure`）に立つ。`list --failures` は非ゼロ `exit_code` に加えて `failed = 1` も対象にする
 
 `command_audits.event_id` は `ON DELETE CASCADE` なので、`gc` で event を削除すると対応する audit payload も同時に消えます。
 

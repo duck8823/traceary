@@ -870,6 +870,7 @@ func TestTopDataLoader_LoadDetail_EventUsesShowAndFormatsAudit(t *testing.T) {
 		false,
 		false,
 		domtypes.Some(1),
+		false,
 	)
 	details, err := apptypes.EventDetailsOf(event, domtypes.Some(audit))
 	if err != nil {

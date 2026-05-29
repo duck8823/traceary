@@ -33,6 +33,7 @@ type commandAudit struct {
 	InputTruncated  bool   `json:"input_truncated"`
 	OutputTruncated bool   `json:"output_truncated"`
 	ExitCode        *int   `json:"exit_code,omitempty"`
+	Failed          bool   `json:"failed,omitempty"`
 }
 
 // eventDetails is the JSON shape of an event-with-audit pair in CLI output.

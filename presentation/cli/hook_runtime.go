@@ -462,6 +462,7 @@ func (c *RootCLI) runHookAudit(
 		sessionID,
 		workspace,
 		hookPayloadExitCode(payload),
+		hookPayloadFailed(payload),
 		auditCfg,
 	)
 
@@ -1354,6 +1355,33 @@ func hookPayloadExitCode(payload []byte) types.Optional[int] {
 	default:
 		return types.None[int]()
 	}
+}
+
+// hookPayloadFailed derives a structural failure signal from a post-tool hook
+// payload. No host exposes a numeric exit code in the post-tool payload, so
+// failure is detected from the failure-shaped fields each host does provide:
+//
+//   - Claude Code: a top-level "error" string on the PostToolUseFailure
+//     payload (the success PostToolUse payload has no "error" field).
+//   - Gemini CLI: a nested "tool_response.error" object, set only for
+//     spawn/OS-level errors (a plain non-zero shell exit is NOT reported here,
+//     so Gemini failure capture is partial — see docs/hooks/contract.md).
+//
+// Codex exposes no structured failure field, so its failures are not flagged.
+func hookPayloadFailed(payload []byte) bool {
+	if len(payload) == 0 {
+		return false
+	}
+	if hookPayloadString(payload, "error", "") != "" {
+		return true
+	}
+	if value, ok := lookupHookPayloadValue(payload, "tool_response.error"); ok && value != nil {
+		if errString, isString := value.(string); isString {
+			return strings.TrimSpace(errString) != ""
+		}
+		return true
+	}
+	return false
 }
 
 func buildHookFailureOutput(payload []byte) (string, error) {

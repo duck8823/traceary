@@ -19,6 +19,7 @@ type CommandAudit struct {
 	inputRedacted   bool
 	outputRedacted  bool
 	exitCode        types.Optional[int]
+	failed          bool
 }
 
 // NewCommandAudit creates a new CommandAudit.
@@ -54,6 +55,7 @@ func CommandAuditOf(
 	inputTruncated bool,
 	outputTruncated bool,
 	exitCode types.Optional[int],
+	failed bool,
 ) *CommandAudit {
 	return &CommandAudit{
 		eventID:         eventID,
@@ -63,6 +65,7 @@ func CommandAuditOf(
 		inputTruncated:  inputTruncated,
 		outputTruncated: outputTruncated,
 		exitCode:        exitCode,
+		failed:          failed,
 	}
 }
 
@@ -109,4 +112,18 @@ func (a *CommandAudit) SetExitCode(code types.Optional[int]) {
 		return
 	}
 	a.exitCode = code
+}
+
+// Failed reports whether the tool/command execution failed. This is a
+// structural failure signal captured independently of exitCode, because
+// some hosts (e.g. Claude Code's PostToolUseFailure payload) report failure
+// without a numeric exit code in the hook payload. See docs/hooks/contract.md.
+func (a *CommandAudit) Failed() bool { return a.failed }
+
+// SetFailed marks whether the tool/command execution failed.
+func (a *CommandAudit) SetFailed(failed bool) {
+	if a == nil {
+		return
+	}
+	a.failed = failed
 }
