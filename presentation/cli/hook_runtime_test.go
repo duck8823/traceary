@@ -545,6 +545,7 @@ func TestRootCLI_HookAuditCommand_UsesSessionStateAndToolPayload(t *testing.T) {
 			false,
 			false,
 			types.Some(0),
+			false,
 		),
 	}
 
@@ -578,6 +579,93 @@ func TestRootCLI_HookAuditCommand_UsesSessionStateAndToolPayload(t *testing.T) {
 	}
 	if got, ok := eventStub.auditCall.exitCode.Value(); !ok || got != 0 {
 		t.Fatalf("audit exitCode = (%d, %t), want (0, true)", got, ok)
+	}
+	if eventStub.auditCall.failed {
+		t.Fatalf("audit failed = true, want false for a success payload")
+	}
+}
+
+// TestRootCLI_HookAuditCommand_FlagsFailureFromErrorPayload verifies the
+// failure-derivation logic: no host exposes a numeric exit code in the
+// post-tool payload, so a Claude PostToolUseFailure (top-level "error") and a
+// Gemini spawn error (nested "tool_response.error") must each be recorded as a
+// first-class failure (failed=true) even though exitCode stays unset.
+func TestRootCLI_HookAuditCommand_FlagsFailureFromErrorPayload(t *testing.T) {
+	cases := []struct {
+		name       string
+		client     string
+		payload    string
+		wantFailed bool
+	}{
+		{
+			name:       "claude post-tool-use failure with top-level error",
+			client:     "claude",
+			payload:    `{"tool_input":{"command":"go test ./..."},"error":"Exit code 7\nFAIL","is_interrupt":false}`,
+			wantFailed: true,
+		},
+		{
+			name:       "claude success payload is not flagged",
+			client:     "claude",
+			payload:    `{"tool_input":{"command":"go test ./..."},"tool_response":{"interrupted":false,"stdout":"ok","stderr":""}}`,
+			wantFailed: false,
+		},
+		{
+			name:       "gemini spawn error in tool_response.error",
+			client:     "gemini",
+			payload:    `{"tool_input":{"command":"missing-binary"},"tool_response":{"llmContent":"failed","error":{"type":"shell_execute_error","message":"spawn failed"}}}`,
+			wantFailed: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
+
+			homeDir := t.TempDir()
+			cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+			t.Cleanup(cli.ResetUserHomeDirFunc)
+
+			stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+			if err := os.MkdirAll(stateDir, 0o755); err != nil {
+				t.Fatalf("MkdirAll() error = %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(stateDir, tc.client+"-test-key"), []byte("generated-session"), 0o600); err != nil {
+				t.Fatalf("WriteFile(session state) error = %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(stateDir, tc.client+"-test-key-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+				t.Fatalf("WriteFile(workspace state) error = %v", err)
+			}
+
+			eventStub := &eventUsecaseStub{
+				auditEvent: model.EventOf(
+					types.EventID("evt-audit"),
+					types.EventKindCommandExecuted,
+					types.Client("hook"),
+					types.Agent(tc.client),
+					types.SessionID("generated-session"),
+					types.Workspace("github.com/duck8823/traceary"),
+					"command executed",
+					time.Now(),
+				),
+			}
+
+			rootCmd := newTestRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+				cli.WithEvent(eventStub),
+			).Command()
+			rootCmd.SetOut(&bytes.Buffer{})
+			rootCmd.SetErr(&bytes.Buffer{})
+			rootCmd.SetIn(strings.NewReader(tc.payload))
+			rootCmd.SetArgs([]string{"hook", "audit", tc.client})
+
+			if err := rootCmd.Execute(); err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+
+			if got := eventStub.auditCall.failed; got != tc.wantFailed {
+				t.Fatalf("audit failed = %t, want %t", got, tc.wantFailed)
+			}
+		})
 	}
 }
 

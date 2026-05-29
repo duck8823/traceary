@@ -18,7 +18,7 @@ SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.body, e.sou
    AND (? = '' OR e.agent = ?)
    AND (? = '' OR e.session_id = ?)
    AND (? = '' OR e.workspace = ?)
-   AND (? = 0 OR (ca.exit_code IS NOT NULL AND ca.exit_code != 0))
+   AND (? = 0 OR ca.failed = 1 OR (ca.exit_code IS NOT NULL AND ca.exit_code != 0))
    AND (? = '' OR e.created_at >= ?)
    AND (? = '' OR e.created_at < ?)
  ORDER BY e.created_at DESC, e.id DESC

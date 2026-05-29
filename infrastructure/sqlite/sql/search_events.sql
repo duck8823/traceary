@@ -35,6 +35,6 @@ SELECT DISTINCT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.bo
    AND (? = '' OR e.kind = ?)
    AND (? = '' OR e.created_at >= ?)
    AND (? = '' OR e.created_at < ?)
-   AND (? = 0 OR (a.exit_code IS NOT NULL AND a.exit_code != 0))
+   AND (? = 0 OR a.failed = 1 OR (a.exit_code IS NOT NULL AND a.exit_code != 0))
  ORDER BY e.created_at DESC, e.id DESC
  LIMIT ? OFFSET ?

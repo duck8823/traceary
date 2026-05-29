@@ -189,6 +189,7 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		input.command, input.input, input.output,
 		client, agent, sid, types.Workspace(resolvedRepo),
 		input.exitCode,
+		false, // manual audits carry an explicit exit code; the failure flag is for hosts that omit it
 		auditCfg,
 	)
 	if err != nil {

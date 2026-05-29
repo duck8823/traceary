@@ -30,6 +30,7 @@ func TestEventDetailsOf_HappyPath(t *testing.T) {
 		false,
 		false,
 		domtypes.Some(0),
+		false,
 	)
 	auditOpt := domtypes.Some(audit)
 

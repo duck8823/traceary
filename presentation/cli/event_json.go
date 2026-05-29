@@ -91,6 +91,7 @@ func newCommandAuditOutput(audit *model.CommandAudit) *commandAudit {
 		InputTruncated:  audit.InputTruncated(),
 		OutputTruncated: audit.OutputTruncated(),
 		ExitCode:        exitCode,
+		Failed:          audit.Failed(),
 	}
 }
 

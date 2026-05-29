@@ -105,7 +105,7 @@ func (u *eventUsecase) Log(ctx context.Context, message string, kind types.Event
 	return event, nil
 }
 
-func (u *eventUsecase) Audit(ctx context.Context, command string, input string, output string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, exitCode types.Optional[int], auditCfg apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
+func (u *eventUsecase) Audit(ctx context.Context, command string, input string, output string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, exitCode types.Optional[int], failed bool, auditCfg apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
 	if u.eventRepo == nil {
 		return nil, nil, xerrors.Errorf("event repository is not configured")
 	}
@@ -159,6 +159,7 @@ func (u *eventUsecase) Audit(ctx context.Context, command string, input string, 
 	}
 	commandAudit.SetRedaction(inputRedacted, outputRedacted)
 	commandAudit.SetExitCode(exitCode)
+	commandAudit.SetFailed(failed)
 
 	event, err := model.NewEvent(
 		eventID,

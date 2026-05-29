@@ -48,6 +48,7 @@ type eventUsecaseStub struct {
 		sessionID types.SessionID
 		workspace types.Workspace
 		exitCode  types.Optional[int]
+		failed    bool
 		auditCfg  apptypes.AuditRedaction
 	}
 }
@@ -63,7 +64,7 @@ func (s *eventUsecaseStub) Log(ctx context.Context, message string, kind types.E
 	s.logCall.sourceHook = apptypes.SourceHookFromContext(ctx)
 	return s.logEvent, s.logErr
 }
-func (s *eventUsecaseStub) Audit(_ context.Context, command string, input string, output string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, exitCode types.Optional[int], auditCfg apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
+func (s *eventUsecaseStub) Audit(_ context.Context, command string, input string, output string, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, exitCode types.Optional[int], failed bool, auditCfg apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
 	s.auditCall.command = command
 	s.auditCall.input = input
 	s.auditCall.output = output
@@ -72,6 +73,7 @@ func (s *eventUsecaseStub) Audit(_ context.Context, command string, input string
 	s.auditCall.sessionID = sessionID
 	s.auditCall.workspace = workspace
 	s.auditCall.exitCode = exitCode
+	s.auditCall.failed = failed
 	s.auditCall.auditCfg = auditCfg
 	return s.auditEvent, s.auditAudit, s.auditErr
 }

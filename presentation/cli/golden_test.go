@@ -92,6 +92,7 @@ func TestEventShow_JSON_Golden(t *testing.T) {
 			false,
 			false,
 			types.Some(0),
+			false,
 		)),
 	)
 	if err != nil {
@@ -177,6 +178,7 @@ func TestCoreReadJSONGoldens(t *testing.T) {
 			false,
 			true,
 			types.Some(1),
+			false,
 		)
 		audit.SetRedaction(true, true)
 		auditEvent := mustGoldenEvent(t, eventID.String(), types.EventKindCommandExecuted, "cli", "codex", "session-golden-audit", "duck8823/traceary", "curl https://example.test", time.Date(2026, 4, 8, 14, 30, 0, 0, time.UTC), "")

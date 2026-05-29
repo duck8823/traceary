@@ -52,6 +52,7 @@ func TestEventUsecase_Audit(t *testing.T) {
 			types.SessionID("session-1"),
 			types.Workspace("duck8823/traceary"),
 			types.None[int](),
+			false,
 			apptypes.NewAuditRedactionBuilder().Build(),
 		)
 		if err != nil {
@@ -92,6 +93,7 @@ func TestEventUsecase_Audit(t *testing.T) {
 			types.SessionID("session-1"),
 			types.Workspace(""),
 			types.None[int](),
+			false,
 			apptypes.NewAuditRedactionBuilder().Build(),
 		)
 		if err != nil {
@@ -126,6 +128,7 @@ func TestEventUsecase_Audit(t *testing.T) {
 			types.SessionID("session-1"),
 			types.Workspace(""),
 			types.None[int](),
+			false,
 			apptypes.NewAuditRedactionBuilder().
 				MaxInputBytes(16).
 				MaxOutputBytes(20).
@@ -160,6 +163,7 @@ func TestEventUsecase_Audit(t *testing.T) {
 			types.SessionID("session-1"),
 			types.Workspace(""),
 			types.None[int](),
+			false,
 			apptypes.NewAuditRedactionBuilder().Build(),
 		)
 		if err != nil {
@@ -200,6 +204,7 @@ func TestEventUsecase_Audit(t *testing.T) {
 			types.SessionID("session-1"),
 			types.Workspace(""),
 			types.None[int](),
+			false,
 			apptypes.NewAuditRedactionBuilder().
 				AllowSecrets(true).
 				MaxInputBytes(256).
@@ -237,6 +242,7 @@ func TestEventUsecase_Audit(t *testing.T) {
 			types.SessionID("session-1"),
 			types.Workspace(""),
 			types.None[int](),
+			false,
 			apptypes.NewAuditRedactionBuilder().
 				ExtraRedactPatterns([]string{"my_custom_secret=\\S+", "internal_token:\\s*\\S+"}).
 				Build(),
@@ -270,6 +276,7 @@ func TestEventUsecase_Audit(t *testing.T) {
 			types.SessionID("session-1"),
 			types.Workspace(""),
 			types.None[int](),
+			false,
 			apptypes.NewAuditRedactionBuilder().
 				ExtraRedactPatterns([]string{"[invalid"}).
 				Build(),
@@ -294,6 +301,7 @@ func TestEventUsecase_Audit(t *testing.T) {
 			types.SessionID("session-1"),
 			types.Workspace(""),
 			types.None[int](),
+			false,
 			apptypes.NewAuditRedactionBuilder().
 				MaxInputBytes(-1).
 				Build(),

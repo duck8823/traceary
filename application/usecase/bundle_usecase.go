@@ -1030,6 +1030,7 @@ type bundleCommandAuditRow struct {
 	InputTruncated  bool   `json:"input_truncated"`
 	OutputTruncated bool   `json:"output_truncated"`
 	ExitCode        *int   `json:"exit_code,omitempty"`
+	Failed          bool   `json:"failed,omitempty"`
 }
 
 type bundleRefRow struct {
@@ -1231,6 +1232,7 @@ func (r bundleCommandAuditRow) toCommandAudit() (*model.CommandAudit, error) {
 		r.InputTruncated,
 		r.OutputTruncated,
 		exitCode,
+		r.Failed,
 	), nil
 }
 
@@ -1347,6 +1349,7 @@ func encodeCommandAuditsNDJSON(audits []*model.CommandAudit) (*bytes.Buffer, err
 			Output:          audit.Output(),
 			InputTruncated:  audit.InputTruncated(),
 			OutputTruncated: audit.OutputTruncated(),
+			Failed:          audit.Failed(),
 		}
 		if exitCode, ok := audit.ExitCode().Value(); ok {
 			row.ExitCode = &exitCode
