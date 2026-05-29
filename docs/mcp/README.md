@@ -7,7 +7,7 @@ Use MCP when an AI client should read/write Traceary data through tools instead 
 
 ## Exposed tools
 
-Traceary v0.10.0 exposes exactly 8 MCP tools:
+Traceary exposes exactly 8 MCP tools — frozen since v0.10.0 and enforced by a golden snapshot (`presentation/mcpserver/testdata/tool_registry.golden.json`):
 
 | Tool | Actions / shape | Mode |
 |---|---|---|
