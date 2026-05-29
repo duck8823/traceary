@@ -49,4 +49,4 @@
 - 更新するときは同じ PR で両言語をそろえる
 - 言語切り替えリンクは各文書の冒頭付近に置く
 
-CI では `python3 scripts/verify_docs_i18n.py` を実行し、文書ペアと言語切り替えリンクの整合を確認しています。
+CI では `go run ./cmd/repo-tooling docs verify-i18n` を実行し、文書ペアと言語切り替えリンクの整合を確認しています。

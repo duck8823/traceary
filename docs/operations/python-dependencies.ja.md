@@ -22,7 +22,6 @@ Codex の唯一サポートされる install path は Codex CLI 公式の `/plug
 
 | 対象 | 現在の entrypoint | 利用箇所 | 今後の方向 |
 | --- | --- | --- | --- |
-| docs pairing verification | `python3 scripts/verify_docs_i18n.py` | ローカル検証、CI docs job | 当面維持。将来的には Go 製 repo verifier に統合 |
 | changelog coverage verification | `python3 scripts/verify_changelog_releases.py` | release prep、CI docs/release jobs | 共通の Go verifier ができた段階で統合する |
 | landing page version drift verification | `python3 scripts/verify_landing.py` | release prep、CI docs job、release workflow | 共通 Go verifier に合流させる（例: `go run ./cmd/repo-tooling docs verify-landing`） |
 | version bump helper | `python3 scripts/bump_version.py` | release prep | user 影響が低いので最後に移す |
@@ -49,7 +48,7 @@ Codex の唯一サポートされる install path は Codex CLI 公式の `/plug
 その次に移す対象:
 
 - `scripts/verify_changelog_releases.py`
-- `scripts/verify_docs_i18n.py`
+- ~~`scripts/verify_docs_i18n.py`~~ → ✅ `go run ./cmd/repo-tooling docs verify-i18n`（完了、v0.20.0）
 - `scripts/verify_landing.py`
 
 これらは maintainer-only なので、優先度より correctness を重視します。
