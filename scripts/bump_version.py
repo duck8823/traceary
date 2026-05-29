@@ -90,7 +90,7 @@ def main() -> None:
     bump(version)
     print(
         'Done. Run `python3 scripts/verify_release_manifests.py`, '
-        '`python3 scripts/verify_integrations.py`, and '
+        '`go run ./cmd/repo-tooling integrations verify`, and '
         '`python3 scripts/verify_landing.py` to verify.'
     )
 
