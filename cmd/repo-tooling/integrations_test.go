@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestVerifyIntegrations_PassesOnCurrentTree is the Go equivalent of running
 // scripts/verify_integrations.py against the repository: the current tree must
@@ -26,5 +29,52 @@ func TestVerifyIntegrations_FailsWhenRootIncomplete(t *testing.T) {
 
 	if err := verifyIntegrations(t.TempDir(), false); err == nil {
 		t.Fatal("verifyIntegrations() on an empty tree = nil, want an error")
+	}
+}
+
+func TestCheckNoDuplicateTracearyHookEntries_FailsOnDuplicateManagedEntry(t *testing.T) {
+	t.Parallel()
+
+	err := checkNoDuplicateTracearyHookEntries("plugins/traceary/hooks.json", hookFile{
+		Hooks: map[string][]hookEntry{
+			"PostToolUse": {
+				{
+					Matcher: "",
+					Hooks: []hookCommand{
+						{Name: "traceary-audit", Type: "command", Command: "'traceary' 'hook' 'audit' 'codex'"},
+						{Name: "traceary-audit", Type: "command", Command: "'traceary' 'hook' 'audit' 'codex'"},
+						{Name: "user-audit", Type: "command", Command: "echo user"},
+					},
+				},
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("checkNoDuplicateTracearyHookEntries() error = nil, want duplicate error")
+	}
+	if !strings.Contains(err.Error(), "PostToolUse") || !strings.Contains(err.Error(), "duplicate") {
+		t.Fatalf("error = %v, want duplicate PostToolUse message", err)
+	}
+}
+
+func TestCheckNoDuplicateTracearyHookEntries_AllowsDistinctMatchers(t *testing.T) {
+	t.Parallel()
+
+	err := checkNoDuplicateTracearyHookEntries("integrations/claude-plugin/hooks/hooks.json", hookFile{
+		Hooks: map[string][]hookEntry{
+			"PostToolUse": {
+				{
+					Matcher: "Bash",
+					Hooks:   []hookCommand{{Type: "command", Command: "'traceary' 'hook' 'audit' 'claude'"}},
+				},
+				{
+					Matcher: "mcp__.*",
+					Hooks:   []hookCommand{{Type: "command", Command: "'traceary' 'hook' 'audit' 'claude'"}},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("checkNoDuplicateTracearyHookEntries() error = %v, want nil for distinct matchers", err)
 	}
 }

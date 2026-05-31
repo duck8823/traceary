@@ -146,3 +146,69 @@ func TestHooksInspector_Inspect(t *testing.T) {
 		})
 	}
 }
+
+func TestHooksInspector_DuplicateManagedHooks(t *testing.T) {
+	t.Parallel()
+
+	inspector := filesystem.NewHooksInspector()
+	duplicates, err := inspector.DuplicateManagedHooks([]byte(`{
+      "hooks": {
+        "PostToolUse": [
+          {
+            "matcher": "",
+            "hooks": [
+              {"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'codex'"},
+              {"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'codex'"},
+              {"name": "user-audit", "type": "command", "command": "echo user"}
+            ]
+          }
+        ],
+        "SessionStart": [
+          {
+            "hooks": [
+              {"name": "traceary-session-start", "type": "command", "command": "'traceary' 'hook' 'session' 'codex' 'start'"}
+            ]
+          }
+        ]
+      }
+    }`))
+	if err != nil {
+		t.Fatalf("DuplicateManagedHooks() error = %v", err)
+	}
+
+	want := []application.HookDuplicate{{
+		Event:      "PostToolUse",
+		Matcher:    "",
+		ManagedKey: "traceary-audit.sh:codex",
+		Count:      2,
+	}}
+	if diff := cmp.Diff(want, duplicates); diff != "" {
+		t.Fatalf("duplicates mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestHooksInspector_DuplicateManagedHooks_AllowsDistinctMatchers(t *testing.T) {
+	t.Parallel()
+
+	inspector := filesystem.NewHooksInspector()
+	duplicates, err := inspector.DuplicateManagedHooks([]byte(`{
+      "hooks": {
+        "PostToolUse": [
+          {
+            "matcher": "Bash",
+            "hooks": [{"type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}]
+          },
+          {
+            "matcher": "mcp__.*",
+            "hooks": [{"type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}]
+          }
+        ]
+      }
+    }`))
+	if err != nil {
+		t.Fatalf("DuplicateManagedHooks() error = %v", err)
+	}
+	if len(duplicates) != 0 {
+		t.Fatalf("duplicates = %+v, want none for distinct matchers", duplicates)
+	}
+}

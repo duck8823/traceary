@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"encoding/json"
+	"sort"
 
 	"golang.org/x/xerrors"
 
@@ -24,19 +25,12 @@ func NewHooksInspector() *HooksInspector {
 // application.ErrHookConfigInvalidHooksField when the "hooks" field has the
 // wrong shape.
 func (i *HooksInspector) Inspect(content []byte) (bool, bool, error) {
-	root := map[string]json.RawMessage{}
-	if err := json.Unmarshal(content, &root); err != nil {
-		return false, false, xerrors.Errorf("%w: %v", application.ErrHookConfigNotJSONObject, err)
+	hooksMap, ok, err := parseHooksMap(content)
+	if err != nil {
+		return ok, false, err
 	}
-
-	hooksValue, ok := root["hooks"]
 	if !ok {
 		return false, false, nil
-	}
-
-	hooksMap := map[string][]hookMatcherDocument{}
-	if err := json.Unmarshal(hooksValue, &hooksMap); err != nil {
-		return true, false, xerrors.Errorf("%w: %v", application.ErrHookConfigInvalidHooksField, err)
 	}
 
 	for _, matchers := range hooksMap {
@@ -52,10 +46,83 @@ func (i *HooksInspector) Inspect(content []byte) (bool, bool, error) {
 	return true, false, nil
 }
 
+// DuplicateManagedHooks reports Traceary-managed hook registrations that
+// appear more than once for the same host event, matcher, and managed key.
+func (i *HooksInspector) DuplicateManagedHooks(content []byte) ([]application.HookDuplicate, error) {
+	hooksMap, ok, err := parseHooksMap(content)
+	if err != nil || !ok {
+		return nil, err
+	}
+
+	counts := map[string]*application.HookDuplicate{}
+	for event, matchers := range hooksMap {
+		for _, matcher := range matchers {
+			matcherValue := ""
+			if matcher.Matcher != nil {
+				matcherValue = *matcher.Matcher
+			}
+			for _, command := range matcher.Hooks {
+				managedKey := extractTracearyManagedKeyFromEntry(command.Name, command.Command)
+				if managedKey == "" {
+					continue
+				}
+				id := event + "\x00" + matcherValue + "\x00" + managedKey
+				duplicate, ok := counts[id]
+				if !ok {
+					duplicate = &application.HookDuplicate{
+						Event:      event,
+						Matcher:    matcherValue,
+						ManagedKey: managedKey,
+					}
+					counts[id] = duplicate
+				}
+				duplicate.Count++
+			}
+		}
+	}
+
+	duplicates := make([]application.HookDuplicate, 0)
+	for _, duplicate := range counts {
+		if duplicate.Count > 1 {
+			duplicates = append(duplicates, *duplicate)
+		}
+	}
+	sort.Slice(duplicates, func(i, j int) bool {
+		if duplicates[i].Event != duplicates[j].Event {
+			return duplicates[i].Event < duplicates[j].Event
+		}
+		if duplicates[i].Matcher != duplicates[j].Matcher {
+			return duplicates[i].Matcher < duplicates[j].Matcher
+		}
+		return duplicates[i].ManagedKey < duplicates[j].ManagedKey
+	})
+
+	return duplicates, nil
+}
+
 // ExtractManagedKeyFromEntry delegates to the free ExtractTracearyManagedKeyFromEntry
 // function so presentation code can consume the canonical-key extraction
 // through the application.HooksInspector interface without importing the
 // infrastructure package directly.
 func (i *HooksInspector) ExtractManagedKeyFromEntry(name, command string) string {
 	return ExtractTracearyManagedKeyFromEntry(name, command)
+}
+
+func parseHooksMap(content []byte) (map[string][]hookMatcherDocument, bool, error) {
+	root := map[string]json.RawMessage{}
+	if err := json.Unmarshal(content, &root); err != nil {
+		return nil, false, xerrors.Errorf("%w: %v", application.ErrHookConfigNotJSONObject, err)
+	}
+
+	hooksValue, ok := root["hooks"]
+	if !ok {
+		return nil, false, nil
+	}
+
+	hooksMap := map[string][]hookMatcherDocument{}
+	if err := json.Unmarshal(hooksValue, &hooksMap); err != nil {
+		return nil, true, xerrors.Errorf("%w: %v", application.ErrHookConfigInvalidHooksField, err)
+	}
+
+	return hooksMap, true, nil
 }
