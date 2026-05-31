@@ -507,7 +507,7 @@
   },
   {
     "name": "search",
-    "description": "Search events, logs, audits, prompts, transcripts, and summaries by text, time, or workspace.",
+    "description": "Search events by literal text/time/workspace; boolean OR is not parsed as any-match syntax.",
     "annotations": {
       "readOnlyHint": true
     },
@@ -531,7 +531,7 @@
           "type": "integer"
         },
         "query": {
-          "description": "search query",
+          "description": "literal search text; boolean-looking OR is treated as text, not any-match syntax",
           "type": "string"
         },
         "to": {

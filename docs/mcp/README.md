@@ -17,12 +17,18 @@ Traceary exposes exactly 8 MCP tools — frozen since v0.10.0 and enforced by a 
 | `session_status` | `active`, `latest`, `handoff`, `tree` | read |
 | `record_event` | `type="log"` or `type="audit"` | write |
 | `list_events` | event listing; bodies are truncated by default to 500 runes (override with `body_limit` or `full_body=true`) | read |
-| `search` | event search; bodies are truncated by default to 500 runes (override with `body_limit` or `full_body=true`) | read |
+| `search` | literal-text event search; bodies are truncated by default to 500 runes (override with `body_limit` or `full_body=true`) | read |
 | `get_context` | recent-context read; bodies are truncated by default to 500 runes (override with `body_limit` or `full_body=true`) | read |
 
 `manage_memory.ids` accepts either a single string or an array of strings for accept/reject flows. `record_event` returns one uniform shape for both `type="log"` and `type="audit"`.
 
 `session_status(action="tree", session_id="...", depth=N)` returns the JSON session subtree rooted at `session_id` using the same node array shape as `traceary session tree --json`; `depth` is optional and `0` returns only the root.
+
+### Search query semantics
+
+`search.query` is a literal text query, not a boolean query language. A string such as `failure OR timeout` is not interpreted as an any-match expression for `failure` or `timeout`; treat it as one search string. For multi-term inspection, issue multiple narrower `search` calls or save CLI JSON output to a local file and aggregate it with local tools such as `jq`.
+
+Future any-match support should be added as an explicit minor-version contract, for example an additive `any_terms` field, rather than overloading `query`.
 
 ## v0.10.0 migration map (24 → 8 tools)
 
