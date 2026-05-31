@@ -14,6 +14,8 @@ The contract surfaces are:
 
 Starting in v0.19.0, the text snapshot for `traceary sessions --snapshot` (and permanent compatibility `traceary top --snapshot`) includes `name="..."` before the raw `workspace=` / `agent=` metadata. This is covered by the text golden fixture; machine consumers that need positional stability should use the unchanged JSON envelope.
 
+Starting in v0.20.1, JSON and text snapshot writers treat a downstream broken pipe as a normal early-close outcome. Commands such as `traceary sessions --snapshot --json | head -c 1` should exit silently instead of printing a misleading Traceary error, while query and JSON-encoding failures remain loud.
+
 If a CLI command has no fixture for one of its public outputs, add one before merging rather than relying on ad-hoc string assertions. Likewise, do not add or remove an MCP tool without regenerating the registry snapshot in the same change.
 
 ## Run golden tests

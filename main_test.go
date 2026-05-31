@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"os"
 	"runtime/debug"
+	"syscall"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"golang.org/x/xerrors"
 )
 
 func TestWriteCLIError(t *testing.T) {
@@ -40,6 +42,27 @@ func TestWriteCLIError(t *testing.T) {
 type testError string
 
 func (e testError) Error() string { return string(e) }
+
+func TestIsSilentCLIExitError(t *testing.T) {
+	t.Parallel()
+
+	t.Run("recognizes wrapped broken pipe", func(t *testing.T) {
+		t.Parallel()
+
+		err := xerrors.Errorf("failed to execute CLI command: %w", syscall.EPIPE)
+		if !isSilentCLIExitError(err) {
+			t.Fatal("isSilentCLIExitError() = false, want true")
+		}
+	})
+
+	t.Run("keeps ordinary errors loud", func(t *testing.T) {
+		t.Parallel()
+
+		if isSilentCLIExitError(testError("database query failed")) {
+			t.Fatal("isSilentCLIExitError() = true, want false")
+		}
+	})
+}
 
 func TestSetupLogger(t *testing.T) {
 	t.Run("valid LOG_LEVEL is set without error", func(t *testing.T) {

@@ -14,6 +14,8 @@ contract surface は次の 3 種類です。
 
 v0.19.0 以降、`traceary sessions --snapshot`（および恒久的な互換 alias の `traceary top --snapshot`）の text snapshot は raw な `workspace=` / `agent=` metadata の前に `name="..."` を含みます。この形状は text golden fixture で固定されています。位置ベースの安定性が必要な機械 consumer は、変更のない JSON envelope を使ってください。
 
+v0.20.1 以降、JSON / text snapshot writer は downstream の broken pipe を通常の early-close として扱います。`traceary sessions --snapshot --json | head -c 1` のような command は、誤解を招く Traceary error を出さずに silent に終了します。一方で、query や JSON encoding の失敗は従来どおり loud に失敗します。
+
 CLI コマンドの公開出力に対応する fixture が無い場合は、ad-hoc な string assertion ではなく、merge 前に fixture を追加してください。同様に、MCP tool を追加 / 削除 / 改名するときは同じ変更で registry snapshot も再生成してください。
 
 ## golden test の実行
