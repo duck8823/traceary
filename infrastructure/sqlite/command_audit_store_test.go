@@ -129,6 +129,79 @@ SELECT e.kind, a.command_text, a.input_truncated, a.output_truncated
 	}
 }
 
+func TestDatasource_SaveWithAudit_SkipsDuplicateHookAuditsWithinWindow(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	sut, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := storeManager.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	base := time.Date(2026, 5, 31, 1, 0, 0, 0, time.UTC)
+	save := func(id string, at time.Time, output string) {
+		t.Helper()
+
+		eventID, err := types.EventIDFrom(id)
+		if err != nil {
+			t.Fatalf("EventIDFrom(%s) error = %v", id, err)
+		}
+		agent, err := types.AgentFrom("codex")
+		if err != nil {
+			t.Fatalf("AgentFrom() error = %v", err)
+		}
+		sessionID, err := types.SessionIDFrom("session-1")
+		if err != nil {
+			t.Fatalf("SessionIDFrom() error = %v", err)
+		}
+		event := model.EventOfWithSourceHook(
+			eventID,
+			types.EventKindCommandExecuted,
+			types.Client("hook"),
+			agent,
+			sessionID,
+			types.Workspace("github.com/duck8823/dotfiles"),
+			"git status\n\nINPUT:\n{\"command\":\"git status\"}\n\nOUTPUT:\n"+output,
+			at,
+			"post_tool_use",
+		)
+		audit, err := model.NewCommandAudit(eventID, "git status", `{"command":"git status"}`, output, false, false)
+		if err != nil {
+			t.Fatalf("NewCommandAudit(%s) error = %v", id, err)
+		}
+		if err := sut.SaveWithAudit(context.Background(), event, audit); err != nil {
+			t.Fatalf("SaveWithAudit(%s) error = %v", id, err)
+		}
+	}
+
+	save("event-original", base, "same output")
+	save("event-duplicate", base.Add(time.Second), "same output")
+	save("event-different-output", base.Add(2*time.Second), "different output")
+	save("event-later-rerun", base.Add(10*time.Second), "same output")
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM command_audits`).Scan(&count); err != nil {
+		t.Fatalf("command audit count query error = %v", err)
+	}
+	if diff := cmp.Diff(3, count); diff != "" {
+		t.Fatalf("command audit count mismatch (-want +got):\n%s", diff)
+	}
+
+	var duplicateRows int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM events WHERE id = 'event-duplicate'`).Scan(&duplicateRows); err != nil {
+		t.Fatalf("duplicate event count query error = %v", err)
+	}
+	if diff := cmp.Diff(0, duplicateRows); diff != "" {
+		t.Fatalf("duplicate event persisted mismatch (-want +got):\n%s", diff)
+	}
+}
+
 // TestDatasource_ListRecent_FailuresOnly_IncludesFailedFlag verifies the
 // failures filter treats the structural failed flag as a failure even when no
 // numeric exit code was captured — the Claude PostToolUseFailure case, where
