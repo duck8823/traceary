@@ -412,7 +412,7 @@ func (c *RootCLI) runHookAudit(
 	if sessionID == "" {
 		return nil
 	}
-	workspace, err := resolveHookWorkspace(ctx, payload, client, true)
+	workspace, err := resolveHookWorkspaceForAudit(ctx, payload, client)
 	if err != nil {
 		return err
 	}
@@ -1298,6 +1298,28 @@ func resolveHookWorkspace(ctx context.Context, payload []byte, client string, pr
 		return types.Workspace(explicit), nil
 	}
 
+	return resolveHookWorkspaceFromPayload(ctx, payload)
+}
+
+func resolveHookWorkspaceForAudit(ctx context.Context, payload []byte, client string) (types.Workspace, error) {
+	if explicit := strings.TrimSpace(os.Getenv("TRACEARY_WORKSPACE")); explicit != "" {
+		return types.Workspace(explicit), nil
+	}
+
+	if workspace, err := resolveHookWorkspaceFromPayload(ctx, payload); err != nil {
+		return "", err
+	} else if workspace != "" {
+		return workspace, nil
+	}
+
+	workspace, err := readHookWorkspaceState(client)
+	if err != nil {
+		return "", err
+	}
+	return workspace, nil
+}
+
+func resolveHookWorkspaceFromPayload(ctx context.Context, payload []byte) (types.Workspace, error) {
 	cwd := hookPayloadString(payload, "cwd", "")
 	if cwd == "" {
 		return "", nil

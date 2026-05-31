@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -585,6 +587,45 @@ func TestRootCLI_HookAuditCommand_UsesSessionStateAndToolPayload(t *testing.T) {
 	}
 }
 
+func TestRootCLI_HookAuditCommand_PrefersToolCWDWorkspaceOverSessionState(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "workspace-key")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-workspace-key"), []byte("generated-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-workspace-key-repo"), []byte("github.com/duck8823/calorie-balance"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	repoDir := initGitRepoForHookRuntimeTest(t)
+	runGitCommandForHookRuntimeTest(t, repoDir, "remote", "add", "origin", "git@github.com:duck8823/dotfiles.git")
+
+	eventStub := &eventUsecaseStub{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(eventStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"cwd":` + quoteJSONStringForHookRuntimeTest(repoDir) + `,"tool_input":{"command":"git status"},"tool_response":{"stdout":"ok"}}`))
+	rootCmd.SetArgs([]string{"hook", "audit", "codex"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got, want := eventStub.auditCall.workspace, types.Workspace("github.com/duck8823/dotfiles"); got != want {
+		t.Fatalf("audit workspace = %q, want %q", got, want)
+	}
+}
+
 // TestRootCLI_HookAuditCommand_FlagsFailureFromErrorPayload verifies the
 // failure-derivation logic: no host exposes a numeric exit code in the
 // post-tool payload, so a Claude PostToolUseFailure (top-level "error") and a
@@ -685,6 +726,32 @@ func TestRootCLI_HookAuditCommand_FlagsFailureFromErrorPayload(t *testing.T) {
 			}
 		})
 	}
+}
+
+func initGitRepoForHookRuntimeTest(t *testing.T) string {
+	t.Helper()
+
+	repoDir := t.TempDir()
+	runGitCommandForHookRuntimeTest(t, repoDir, "init")
+	return repoDir
+}
+
+func runGitCommandForHookRuntimeTest(t *testing.T, dir string, args ...string) {
+	t.Helper()
+
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v error = %v, output = %s", args, err, string(output))
+	}
+}
+
+func quoteJSONStringForHookRuntimeTest(value string) string {
+	encodedValue, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return string(encodedValue)
 }
 
 func TestRootCLI_HookCompactCommand_SupportsPostCompactAndResume(t *testing.T) {
