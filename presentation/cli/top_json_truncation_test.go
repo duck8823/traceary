@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -78,6 +79,26 @@ func TestWriteTopSnapshotJSON_TruncatesLargeRecentCommandBody(t *testing.T) {
 	if want := apptypes.DefaultTopSnapshotBodyLimit + 1; len([]rune(got.Message)) != want { // limit runes + ellipsis
 		t.Fatalf("len(message) in runes = %d, want %d", len([]rune(got.Message)), want)
 	}
+}
+
+func TestWriteTopSnapshotJSON_RecognizesBrokenPipeWriter(t *testing.T) {
+	t.Parallel()
+
+	err := writeTopSnapshotJSON(brokenPipeWriter{}, topDataSnapshot{
+		Now: time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC),
+	})
+	if err == nil {
+		t.Fatal("writeTopSnapshotJSON() error = nil, want broken pipe")
+	}
+	if !IsBrokenPipeError(err) {
+		t.Fatalf("IsBrokenPipeError(%v) = false, want true", err)
+	}
+}
+
+type brokenPipeWriter struct{}
+
+func (brokenPipeWriter) Write(_ []byte) (int, error) {
+	return 0, syscall.EPIPE
 }
 
 func TestWriteTopSnapshotJSON_LeavesSmallBodiesUntouched(t *testing.T) {

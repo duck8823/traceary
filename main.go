@@ -228,7 +228,11 @@ type cliExitCoder interface {
 }
 
 func main() {
+	configureBrokenPipeSignalHandling()
 	if err := run(); err != nil {
+		if isSilentCLIExitError(err) {
+			return
+		}
 		if writeErr := writeCLIError(os.Stderr, err); writeErr != nil {
 			log.Printf("%s: %v", cli.Localize("failed to print CLI error", "CLI error の出力に失敗しました"), writeErr)
 		}
@@ -239,6 +243,10 @@ func main() {
 		}
 		os.Exit(exitCode)
 	}
+}
+
+func isSilentCLIExitError(err error) bool {
+	return cli.IsBrokenPipeError(err)
 }
 
 func writeCLIError(output io.Writer, err error) error {
