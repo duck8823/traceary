@@ -74,6 +74,12 @@ session end の精度が重要なら、明示的な end hook を持つ client in
 多くの場合、既定の PPID ベース grouping がローカル client process topology に合っていません。
 より安定した grouping key が必要なら、hook 環境で `TRACEARY_HOOK_STATE_KEY` を明示してください。
 
+### Audit reliability の dogfood signal
+
+`traceary doctor` は bounded な recent command-audit window に対して `audit-reliability` check を出します。ここでは duplicate command-audit candidate group と、保存された audit input 内の `cwd` evidence が event の workspace metadata と食い違う workspace-drift candidate を報告します。
+
+これは自動 cleanup ではなく dogfood review の信号として扱ってください。check は count と sample event ID だけを表示し、command input/output body は出しません。process-review の指標に使う前に、sample row を `traceary show <event_id>` で確認し、本当に duplicate / drift なのか、正当な繰り返し作業なのかを切り分けてください。
+
 ### active ingestion 中に cleanup を強く走らせる
 
 `traceary store gc` は古い row を削除したあとに `VACUUM` を実行します。

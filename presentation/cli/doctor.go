@@ -8,12 +8,16 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/application"
+	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
 
@@ -241,6 +245,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			Message: localizef("initialized SQLite store: %s", "SQLite ストアを初期化しました: %s", resolvedDBPath),
 		})
 		report.Checks = append(report.Checks, c.inspectStaleActiveSessions(ctx))
+		report.Checks = append(report.Checks, c.inspectCommandAuditReliability(ctx))
 	}
 
 	resolvedProjectDir, err := resolveHooksProjectDir(input.projectDir)
@@ -363,6 +368,283 @@ func (c *RootCLI) inspectStaleActiveSessions(ctx context.Context) doctorCheck {
 			fixCommand,
 		),
 	}
+}
+
+const commandAuditReliabilityScanLimit = 200
+
+type commandAuditReliabilityFindings struct {
+	ScannedAuditCount     int
+	DuplicateGroups       []commandAuditDuplicateGroup
+	WorkspaceDriftSamples []commandAuditWorkspaceDriftSample
+}
+
+type commandAuditDuplicateGroup struct {
+	EventIDs []string
+	Count    int
+}
+
+type commandAuditDuplicateGroupKey struct {
+	SessionID       string
+	Workspace       string
+	Command         string
+	Input           string
+	Output          string
+	InputTruncated  bool
+	OutputTruncated bool
+	ExitCode        string
+	Failed          bool
+}
+
+type commandAuditWorkspaceDriftSample struct {
+	EventID           string
+	StoredWorkspace   string
+	EvidenceWorkspace string
+	CWD               string
+}
+
+func (c *RootCLI) inspectCommandAuditReliability(ctx context.Context) doctorCheck {
+	const checkName = "audit-reliability"
+	if c.event == nil {
+		return doctorCheck{
+			Name:    checkName,
+			Status:  doctorStatusSkip,
+			Message: localizef("event usecase is not configured", "event usecase が設定されていません"),
+		}
+	}
+	events, err := c.event.List(ctx, apptypes.NewEventListCriteriaBuilder(commandAuditReliabilityScanLimit).
+		Kind(types.EventKindCommandExecuted).
+		Build())
+	if err != nil {
+		return doctorCheck{
+			Name:    checkName,
+			Status:  doctorStatusFail,
+			Message: localizef("failed to list recent command audits: %v", "recent command audit の取得に失敗しました: %v", err),
+		}
+	}
+	details := make([]apptypes.EventDetails, 0, len(events))
+	for _, event := range events {
+		detail, err := c.event.Show(ctx, event.EventID())
+		if err != nil {
+			return doctorCheck{
+				Name:    checkName,
+				Status:  doctorStatusFail,
+				Message: localizef("failed to inspect command audit %s: %v", "command audit %s の検査に失敗しました: %v", event.EventID(), err),
+			}
+		}
+		details = append(details, detail)
+	}
+	return commandAuditReliabilityCheckFromFindings(commandAuditReliabilityFindingsFromDetails(ctx, details))
+}
+
+func commandAuditReliabilityCheckFromFindings(findings commandAuditReliabilityFindings) doctorCheck {
+	const checkName = "audit-reliability"
+	duplicateRecordCount := 0
+	for _, group := range findings.DuplicateGroups {
+		duplicateRecordCount += group.Count
+	}
+	if len(findings.DuplicateGroups) == 0 && len(findings.WorkspaceDriftSamples) == 0 {
+		return doctorCheck{
+			Name:   checkName,
+			Status: doctorStatusPass,
+			Message: localizef(
+				"scanned %d recent command audit(s); no duplicate groups or workspace-drift candidates found",
+				"%d 件の recent command audit を検査しました。duplicate group / workspace drift candidate はありません",
+				findings.ScannedAuditCount,
+			),
+		}
+	}
+
+	return doctorCheck{
+		Name:   checkName,
+		Status: doctorStatusWarn,
+		Hint: Localize(
+			"use this as a dogfood review signal; inspect the sampled event IDs with `traceary show <event_id>` before drawing process conclusions",
+			"dogfood review の信号として扱い、process の結論を出す前に sample event ID を `traceary show <event_id>` で確認してください",
+		),
+		Message: localizef(
+			"scanned %d recent command audit(s); duplicate_groups=%d duplicate_records=%d workspace_drift_candidates=%d samples: duplicates=[%s] drift=[%s]",
+			"%d 件の recent command audit を検査しました。duplicate_groups=%d duplicate_records=%d workspace_drift_candidates=%d samples: duplicates=[%s] drift=[%s]",
+			findings.ScannedAuditCount,
+			len(findings.DuplicateGroups),
+			duplicateRecordCount,
+			len(findings.WorkspaceDriftSamples),
+			formatCommandAuditDuplicateSamples(findings.DuplicateGroups),
+			formatCommandAuditWorkspaceDriftSamples(findings.WorkspaceDriftSamples),
+		),
+	}
+}
+
+func commandAuditReliabilityFindingsFromDetails(ctx context.Context, details []apptypes.EventDetails) commandAuditReliabilityFindings {
+	findings := commandAuditReliabilityFindings{}
+	type groupAccumulator struct {
+		eventIDs []string
+		count    int
+	}
+	groups := map[commandAuditDuplicateGroupKey]*groupAccumulator{}
+	for _, detail := range details {
+		event := detail.Event()
+		audit, ok := detail.CommandAudit().Value()
+		if event == nil || !ok || audit == nil {
+			continue
+		}
+		findings.ScannedAuditCount++
+		key := newCommandAuditDuplicateGroupKey(event, audit)
+		group := groups[key]
+		if group == nil {
+			group = &groupAccumulator{}
+			groups[key] = group
+		}
+		group.count++
+		group.eventIDs = append(group.eventIDs, event.EventID().String())
+
+		if drift, ok := commandAuditWorkspaceDriftFromDetail(ctx, event, audit); ok {
+			findings.WorkspaceDriftSamples = append(findings.WorkspaceDriftSamples, drift)
+		}
+	}
+	for _, group := range groups {
+		if group.count <= 1 {
+			continue
+		}
+		sort.Strings(group.eventIDs)
+		findings.DuplicateGroups = append(findings.DuplicateGroups, commandAuditDuplicateGroup{
+			EventIDs: group.eventIDs,
+			Count:    group.count,
+		})
+	}
+	sort.Slice(findings.DuplicateGroups, func(i, j int) bool {
+		return findings.DuplicateGroups[i].EventIDs[0] < findings.DuplicateGroups[j].EventIDs[0]
+	})
+	sort.Slice(findings.WorkspaceDriftSamples, func(i, j int) bool {
+		return findings.WorkspaceDriftSamples[i].EventID < findings.WorkspaceDriftSamples[j].EventID
+	})
+	return findings
+}
+
+func newCommandAuditDuplicateGroupKey(event *model.Event, audit *model.CommandAudit) commandAuditDuplicateGroupKey {
+	exitCode := "-"
+	if value, ok := audit.ExitCode().Value(); ok {
+		exitCode = strconv.Itoa(value)
+	}
+	return commandAuditDuplicateGroupKey{
+		SessionID:       event.SessionID().String(),
+		Workspace:       event.Workspace().String(),
+		Command:         audit.Command(),
+		Input:           audit.Input(),
+		Output:          audit.Output(),
+		InputTruncated:  audit.InputTruncated(),
+		OutputTruncated: audit.OutputTruncated(),
+		ExitCode:        exitCode,
+		Failed:          audit.Failed(),
+	}
+}
+
+func commandAuditWorkspaceDriftFromDetail(ctx context.Context, event *model.Event, audit *model.CommandAudit) (commandAuditWorkspaceDriftSample, bool) {
+	cwd, ok := commandAuditInputCWD(audit.Input())
+	if !ok {
+		return commandAuditWorkspaceDriftSample{}, false
+	}
+	evidenceWorkspace := commandAuditWorkspaceEvidenceFromCWD(ctx, cwd)
+	storedWorkspace := event.Workspace().String()
+	if storedWorkspace == "" || evidenceWorkspace == "" || storedWorkspace == evidenceWorkspace {
+		return commandAuditWorkspaceDriftSample{}, false
+	}
+	return commandAuditWorkspaceDriftSample{
+		EventID:           event.EventID().String(),
+		StoredWorkspace:   storedWorkspace,
+		EvidenceWorkspace: evidenceWorkspace,
+		CWD:               cwd,
+	}, true
+}
+
+func commandAuditInputCWD(input string) (string, bool) {
+	var value any
+	if err := json.Unmarshal([]byte(input), &value); err != nil {
+		return "", false
+	}
+	return findCWDInJSONValue(value)
+}
+
+func findCWDInJSONValue(value any) (string, bool) {
+	object, ok := value.(map[string]any)
+	if !ok {
+		switch typed := value.(type) {
+		case []any:
+			for _, item := range typed {
+				if cwd, ok := findCWDInJSONValue(item); ok {
+					return cwd, true
+				}
+			}
+		}
+		return "", false
+	}
+	for _, key := range []string{"cwd", "workdir", "working_directory"} {
+		if raw, ok := object[key]; ok {
+			if cwd, ok := raw.(string); ok && strings.TrimSpace(cwd) != "" {
+				return strings.TrimSpace(cwd), true
+			}
+		}
+	}
+	keys := make([]string, 0, len(object))
+	for key := range object {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if cwd, ok := findCWDInJSONValue(object[key]); ok {
+			return cwd, true
+		}
+	}
+	return "", false
+}
+
+func commandAuditWorkspaceEvidenceFromCWD(ctx context.Context, cwd string) string {
+	trimmed := strings.TrimSpace(cwd)
+	if trimmed == "" {
+		return ""
+	}
+	if workspace, err := detectRepoContextFromDir(ctx, trimmed); err == nil && strings.TrimSpace(workspace) != "" {
+		return workspace
+	}
+	return normalizeLocalWorkContextPath(trimmed)
+}
+
+func formatCommandAuditDuplicateSamples(groups []commandAuditDuplicateGroup) string {
+	if len(groups) == 0 {
+		return "-"
+	}
+	limit := len(groups)
+	if limit > 3 {
+		limit = 3
+	}
+	parts := make([]string, 0, limit)
+	for _, group := range groups[:limit] {
+		eventIDs := group.EventIDs
+		if len(eventIDs) > 4 {
+			eventIDs = eventIDs[:4]
+		}
+		parts = append(parts, fmt.Sprintf("count=%d event_ids=%s", group.Count, strings.Join(eventIDs, ",")))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func formatCommandAuditWorkspaceDriftSamples(samples []commandAuditWorkspaceDriftSample) string {
+	if len(samples) == 0 {
+		return "-"
+	}
+	limit := len(samples)
+	if limit > 3 {
+		limit = 3
+	}
+	parts := make([]string, 0, limit)
+	for _, sample := range samples[:limit] {
+		parts = append(parts, fmt.Sprintf(
+			"event_id=%s stored=%q cwd_workspace=%q",
+			sample.EventID,
+			sample.StoredWorkspace,
+			sample.EvidenceWorkspace,
+		))
+	}
+	return strings.Join(parts, "; ")
 }
 
 // inspectClaudePluginCacheStatus compares the cached Traceary Claude
@@ -1182,7 +1464,7 @@ func buildDoctorSections(checks []doctorCheck) []doctorSection {
 
 func doctorSectionNameForCheck(name string) string {
 	switch {
-	case name == "db-path" || name == "db-write" || name == "stale-active-sessions":
+	case name == "db-path" || name == "db-write" || name == "stale-active-sessions" || name == "audit-reliability":
 		return "Database"
 	case name == "config" || name == "project-dir" || name == "version" || name == "path":
 		return "Environment"

@@ -55,6 +55,16 @@
       "auto_fix_available": false
     },
     {
+      "name": "audit-reliability",
+      "status": "skip",
+      "severity": "PASS",
+      "section": "Database",
+      "message": "event usecase is not configured",
+      "hint": "",
+      "fix_command": "",
+      "auto_fix_available": false
+    },
+    {
       "name": "project-dir",
       "status": "pass",
       "severity": "PASS",
@@ -183,6 +193,16 @@
           "hint": "",
           "fix_command": "",
           "auto_fix_available": false
+        },
+        {
+          "name": "audit-reliability",
+          "status": "skip",
+          "severity": "PASS",
+          "section": "Database",
+          "message": "event usecase is not configured",
+          "hint": "",
+          "fix_command": "",
+          "auto_fix_available": false
         }
       ]
     },
@@ -232,7 +252,7 @@
     }
   ],
   "summary": {
-    "pass": 8,
+    "pass": 9,
     "warn": 2,
     "fail": 0
   },

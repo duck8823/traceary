@@ -170,6 +170,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
     ]
   }
 }
+
 `), 0o644); err != nil {
 			t.Fatalf("WriteFile() error = %v", err)
 		}
