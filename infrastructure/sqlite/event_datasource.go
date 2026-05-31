@@ -44,6 +44,8 @@ var getEventDetailsQuery string
 //go:embed sql/list_timeline_blocks.sql
 var listTimelineBlocksQuery string
 
+const duplicateHookCommandAuditWindow = 2 * time.Second
+
 // EventDatasource is the SQLite-backed implementation of the event
 // repository and event query service.
 type EventDatasource struct {
@@ -131,6 +133,14 @@ func (d *EventDatasource) SaveWithAudit(
 		}
 	}()
 
+	duplicate, err := hookCommandAuditDuplicateExists(ctx, tx, event, audit)
+	if err != nil {
+		return err
+	}
+	if duplicate {
+		return nil
+	}
+
 	if _, err := tx.ExecContext(
 		ctx,
 		insertEventQuery,
@@ -171,6 +181,74 @@ func (d *EventDatasource) SaveWithAudit(
 	}
 
 	return nil
+}
+
+func hookCommandAuditDuplicateExists(
+	ctx context.Context,
+	tx *sql.Tx,
+	event *model.Event,
+	audit *model.CommandAudit,
+) (bool, error) {
+	if event.Client().String() != "hook" {
+		return false, nil
+	}
+
+	var exitCodeSQL *int
+	hasExitCode := 0
+	if exitCode, ok := audit.ExitCode().Value(); ok {
+		exitCodeSQL = &exitCode
+		hasExitCode = 1
+	}
+	from := formatTimestamp(event.CreatedAt().Add(-duplicateHookCommandAuditWindow))
+	to := formatTimestamp(event.CreatedAt().Add(duplicateHookCommandAuditWindow))
+
+	var value int
+	err := tx.QueryRowContext(
+		ctx,
+		`SELECT 1
+		   FROM events e
+		   JOIN command_audits ca ON ca.event_id = e.id
+		  WHERE e.kind = ?
+		    AND e.client = ?
+		    AND e.agent = ?
+		    AND e.session_id = ?
+		    AND e.workspace = ?
+		    AND COALESCE(e.source_hook, '') = ?
+		    AND ca.command_text = ?
+		    AND ca.input_text = ?
+		    AND ca.output_text = ?
+		    AND ca.input_truncated = ?
+		    AND ca.output_truncated = ?
+		    AND ((? = 0 AND ca.exit_code IS NULL) OR (? = 1 AND ca.exit_code = ?))
+		    AND ca.failed = ?
+		    AND e.created_at >= ?
+		    AND e.created_at <= ?
+		  LIMIT 1`,
+		event.Kind().String(),
+		event.Client().String(),
+		event.Agent().String(),
+		event.SessionID().String(),
+		event.Workspace().String(),
+		event.SourceHook(),
+		audit.Command(),
+		audit.Input(),
+		audit.Output(),
+		audit.InputTruncated(),
+		audit.OutputTruncated(),
+		hasExitCode,
+		hasExitCode,
+		exitCodeSQL,
+		audit.Failed(),
+		from,
+		to,
+	).Scan(&value)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return false, xerrors.Errorf("failed to check duplicate hook command audit: %w", err)
 }
 
 // ListRecent returns events in descending time order.
@@ -612,18 +690,18 @@ func (d *EventDatasource) ListTimelineBlocks(
 
 	for rows.Next() {
 		var (
-			blockNum             int
-			blockStart           string
-			blockEnd             string
-			blockEventCount      int
-			agents               string
-			workspace            string
-			wsEventCount         int
-			kinds                string
-			wsAgents             string
-			firstPromptBody      string
-			compactSummaryBody   string
-			firstTranscriptBody  string
+			blockNum            int
+			blockStart          string
+			blockEnd            string
+			blockEventCount     int
+			agents              string
+			workspace           string
+			wsEventCount        int
+			kinds               string
+			wsAgents            string
+			firstPromptBody     string
+			compactSummaryBody  string
+			firstTranscriptBody string
 		)
 		if err := rows.Scan(
 			&blockNum,
