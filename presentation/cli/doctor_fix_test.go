@@ -148,6 +148,47 @@ func TestRootCLI_DoctorFix(t *testing.T) {
 			t.Fatalf("--fix unexpectedly removed project hooks:\n%s", content)
 		}
 	})
+
+	t.Run("duplicate codex hooks dry-run does not mutate user hooks", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		setDoctorFixHome(t, homeDir)
+		setTracearyPathToCurrentExecutableAt(t, filepath.Join(t.TempDir(), "bin"))
+		writeCodexDuplicateAuditHook(t, homeDir)
+		codexPath := filepath.Join(homeDir, ".codex", "hooks.json")
+		before, err := os.ReadFile(codexPath)
+		if err != nil {
+			t.Fatalf("ReadFile() error = %v", err)
+		}
+
+		stdout := &bytes.Buffer{}
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--fix", "--dry-run", "--client", "codex", "--project-dir", projectDir, "--json"})
+		executeDoctorAllowWarnings(t, rootCmd)
+		report := decodeDoctorReport(t, stdout.Bytes())
+
+		foundDryRun := false
+		for _, fix := range report.Fixes {
+			if fix.Name == "codex-config" && strings.HasPrefix(fix.Action, "would:") {
+				foundDryRun = true
+			}
+		}
+		if !foundDryRun {
+			t.Fatalf("fixes = %#v, want dry-run preview for codex-config", report.Fixes)
+		}
+		after, err := os.ReadFile(codexPath)
+		if err != nil {
+			t.Fatalf("ReadFile(after) error = %v", err)
+		}
+		if string(before) != string(after) {
+			t.Fatalf("doctor --fix --dry-run mutated codex hooks\nbefore:\n%s\nafter:\n%s", before, after)
+		}
+		if !strings.Contains(string(after), "echo user-hook") {
+			t.Fatalf("user hook disappeared from codex hooks:\n%s", after)
+		}
+	})
 }
 
 func setDoctorFixHome(t *testing.T, homeDir string) {

@@ -250,6 +250,33 @@ func TestRootCLI_Doctor_CodexHasNoGlobalCheck(t *testing.T) {
 	}
 }
 
+func TestRootCLI_Doctor_CodexDuplicateHooksWarns(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+	writeCodexDuplicateAuditHook(t, homeDir)
+
+	report := runDoctorForClient(t, "codex", projectDir)
+	codexCfg := statusByName(report, "codex-config")
+	if codexCfg.Status != "warn" {
+		t.Fatalf("codex-config status = %q, want warn; msg = %q", codexCfg.Status, codexCfg.Message)
+	}
+	if !strings.Contains(codexCfg.Message, "duplicate") || !strings.Contains(codexCfg.Message, "PostToolUse") {
+		t.Fatalf("codex-config message = %q; want duplicate PostToolUse warning", codexCfg.Message)
+	}
+	if !strings.Contains(codexCfg.Hint, "--dry-run") {
+		t.Fatalf("codex-config hint = %q; want dry-run-first guidance", codexCfg.Hint)
+	}
+	if !codexCfg.AutoFixAvailable {
+		t.Fatal("codex-config AutoFixAvailable = false, want true for non-destructive doctor fix preview/apply")
+	}
+	if !strings.Contains(codexCfg.FixCommand, "doctor --fix --dry-run") {
+		t.Fatalf("codex-config FixCommand = %q, want doctor dry-run command", codexCfg.FixCommand)
+	}
+}
+
 func runDoctorForClient(t *testing.T, client, projectDir string) doctorReport {
 	t.Helper()
 	initStub := &storeManagementUsecaseStub{}
@@ -261,6 +288,41 @@ func runDoctorForClient(t *testing.T, client, projectDir string) doctorReport {
 
 	executeDoctorAllowWarnings(t, rootCmd)
 	return decodeDoctorReport(t, stdout.Bytes())
+}
+
+func writeCodexDuplicateAuditHook(t *testing.T, home string) {
+	t.Helper()
+	dir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	content := `{
+  "hooks": {
+    "SessionStart": [
+      {"hooks": [{"name": "traceary-session-start", "type": "command", "command": "'traceary' 'hook' 'session' 'codex' 'start'"}]}
+    ],
+    "UserPromptSubmit": [
+      {"hooks": [{"name": "traceary-prompt", "type": "command", "command": "'traceary' 'hook' 'prompt' 'codex'"}]}
+    ],
+    "Stop": [
+      {"hooks": [
+        {"name": "traceary-transcript", "type": "command", "command": "'traceary' 'hook' 'transcript' 'codex'"},
+        {"name": "traceary-session-stop", "type": "command", "command": "'traceary' 'hook' 'session' 'codex' 'stop'"}
+      ]}
+    ],
+    "PostToolUse": [
+      {"matcher": "", "hooks": [
+        {"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'codex'"},
+        {"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'codex'"},
+        {"name": "user-audit", "type": "command", "command": "echo user-hook"}
+      ]}
+    ]
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "hooks.json"), []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
 }
 
 func writeGeminiGlobalHooksSettings(t *testing.T, home string) {

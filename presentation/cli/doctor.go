@@ -590,11 +590,11 @@ func inspectDoctorConfig() doctorCheck {
 // structurally valid.
 func (c *RootCLI) inspectClaudeOrConfigFile(client, outputPath, projectDir string) doctorCheck {
 	if client != "claude" {
-		return c.inspectDoctorConfigFile(client, outputPath)
+		return c.inspectDoctorConfigFile(client, outputPath, projectDir)
 	}
 
 	detection := c.detectClaudeTracearyPluginForCLI()
-	configCheck := c.inspectDoctorConfigFile(client, outputPath)
+	configCheck := c.inspectDoctorConfigFile(client, outputPath, projectDir)
 
 	if detection.Active {
 		// Structural failures (invalid JSON, malformed hooks field) are
@@ -705,6 +705,29 @@ func (c *RootCLI) inspectGlobalConfigForClient(client string) *doctorCheck {
 			Message: localizef("global %s config is not a valid hooks-shaped JSON object: %s", "global %s config は hooks 形式の JSON として解釈できません: %s", client, globalPath),
 		}
 	}
+	if duplicates, duplicateErr := c.hooksInspector.DuplicateManagedHooks(content); duplicateErr != nil {
+		return &doctorCheck{
+			Name:    checkName,
+			Status:  doctorStatusFail,
+			Message: localizef("global %s config is not a valid hooks-shaped JSON object: %s", "global %s config は hooks 形式の JSON として解釈できません: %s", client, globalPath),
+		}
+	} else if len(duplicates) > 0 {
+		return &doctorCheck{
+			Name:   checkName,
+			Status: doctorStatusWarn,
+			Hint: Localize(
+				"remove the duplicate Traceary-managed entries manually or regenerate the global hooks after reviewing the file; keep non-Traceary hooks",
+				"ファイルを確認した上で Traceary 管理の重複エントリだけを手動削除するか、global hooks を再生成してください。Traceary 以外の hook は残してください",
+			),
+			Message: localizef(
+				"global %s config registers duplicate Traceary-managed hooks (%s). Matching host events can be recorded more than once: %s",
+				"global %s config に Traceary 管理 hook の重複があります (%s)。該当する host event が複数回記録される可能性があります: %s",
+				client,
+				formatHookDuplicateSummary(duplicates),
+				globalPath,
+			),
+		}
+	}
 	if hasTracearyHook {
 		return &doctorCheck{
 			Name:   checkName,
@@ -741,7 +764,7 @@ func (c *RootCLI) claudeConfigHasTracearyHooks(outputPath string) bool {
 	return hasTracearyHook
 }
 
-func (c *RootCLI) inspectDoctorConfigFile(client string, outputPath string) doctorCheck {
+func (c *RootCLI) inspectDoctorConfigFile(client string, outputPath string, projectDir string) doctorCheck {
 	content, err := os.ReadFile(outputPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -806,6 +829,17 @@ func (c *RootCLI) inspectDoctorConfigFile(client string, outputPath string) doct
 	}
 
 	if hasTracearyManagedHook {
+		duplicates, duplicateErr := c.hooksInspector.DuplicateManagedHooks(content)
+		if duplicateErr != nil {
+			return doctorCheck{
+				Name:    client + "-config",
+				Status:  doctorStatusFail,
+				Message: localizef("%s config file must be a hooks-shaped JSON object: %s", "%s の設定ファイルは hooks 形式の JSON object である必要があります: %s", client, outputPath),
+			}
+		}
+		if len(duplicates) > 0 {
+			return duplicateTracearyHookCheck(client, client+"-config", outputPath, projectDir, duplicates)
+		}
 		if client == "codex" {
 			if missing := c.missingTracearyManagedCodexEvents(content); len(missing) > 0 {
 				return doctorCheck{
@@ -844,6 +878,41 @@ func (c *RootCLI) inspectDoctorConfigFile(client string, outputPath string) doct
 			outputPath,
 		),
 	}
+}
+
+func duplicateTracearyHookCheck(client, checkName, outputPath, projectDir string, duplicates []application.HookDuplicate) doctorCheck {
+	summary := formatHookDuplicateSummary(duplicates)
+	dryRunCommand := fmt.Sprintf("traceary doctor --fix --dry-run --client %s --project-dir %s", client, shellQuote(projectDir))
+	return doctorCheck{
+		Name:       checkName,
+		Status:     doctorStatusWarn,
+		FixCommand: dryRunCommand,
+		Hint: localizef(
+			"preview cleanup first with `%s`; the repair refreshes only Traceary-managed entries and preserves non-Traceary hooks",
+			"`%s` で先に cleanup をプレビューしてください。修復は Traceary 管理のエントリだけを更新し、Traceary 以外の hook は保持します",
+			dryRunCommand,
+		),
+		Message: localizef(
+			"%s config registers duplicate Traceary-managed hooks (%s). Matching host events can be recorded more than once. Preview the non-destructive cleanup with `%s`: %s",
+			"%s の設定に Traceary 管理 hook の重複があります (%s)。該当する host event が複数回記録される可能性があります。`%s` で非破壊 cleanup をプレビューしてください: %s",
+			client,
+			summary,
+			dryRunCommand,
+			outputPath,
+		),
+	}
+}
+
+func formatHookDuplicateSummary(duplicates []application.HookDuplicate) string {
+	parts := make([]string, 0, len(duplicates))
+	for _, duplicate := range duplicates {
+		matcher := duplicate.Matcher
+		if matcher == "" {
+			matcher = "<default>"
+		}
+		parts = append(parts, fmt.Sprintf("%s matcher=%q key=%s count=%d", duplicate.Event, matcher, duplicate.ManagedKey, duplicate.Count))
+	}
+	return strings.Join(parts, "; ")
 }
 
 // codexManagedEvents is the canonical list of hook events Traceary installs

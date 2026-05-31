@@ -163,6 +163,9 @@ func checkClaude(root, version string) error {
 	if err != nil {
 		return err
 	}
+	if err := checkNoDuplicateTracearyHookEntries(hooksPath, hooks); err != nil {
+		return err
+	}
 	for _, event := range []string{"SessionStart", "SessionEnd", "PostToolUse", "PostCompact"} {
 		if _, ok := hooks.Hooks[event]; !ok {
 			return xerrors.Errorf("claude hooks must include %s", event)
@@ -261,6 +264,9 @@ func checkCodex(root, version string, runCLISmoke bool) error {
 
 	hooks, hooksRaw, err := readHookFile(root, "plugins/traceary/hooks.json")
 	if err != nil {
+		return err
+	}
+	if err := checkNoDuplicateTracearyHookEntries("plugins/traceary/hooks.json", hooks); err != nil {
 		return err
 	}
 	for _, event := range []string{"SessionStart", "UserPromptSubmit", "Stop", "PostToolUse"} {
@@ -371,6 +377,9 @@ func checkGemini(root, version string) error {
 	if err != nil {
 		return err
 	}
+	if err := checkNoDuplicateTracearyHookEntries("integrations/gemini-extension/hooks/hooks.json", hooks); err != nil {
+		return err
+	}
 	for _, event := range []string{"SessionStart", "SessionEnd", "AfterTool", "BeforeAgent", "PreCompress"} {
 		if _, ok := hooks.Hooks[event]; !ok {
 			return xerrors.Errorf("gemini hooks must include %s", event)
@@ -425,7 +434,14 @@ type hookFile struct {
 }
 
 type hookEntry struct {
-	Matcher string `json:"matcher"`
+	Matcher string        `json:"matcher"`
+	Hooks   []hookCommand `json:"hooks"`
+}
+
+type hookCommand struct {
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Command string `json:"command"`
 }
 
 func hookMatchers(entries []hookEntry) []string {
@@ -446,6 +462,55 @@ func readHookFile(root, rel string) (hookFile, string, error) {
 		return hookFile{}, "", xerrors.Errorf("invalid json in %s: %w", rel, err)
 	}
 	return hf, string(data), nil
+}
+
+func checkNoDuplicateTracearyHookEntries(rel string, hooks hookFile) error {
+	for event, entries := range hooks.Hooks {
+		counts := map[string]int{}
+		for _, entry := range entries {
+			matcher := entry.Matcher
+			for _, command := range entry.Hooks {
+				key := packagedTracearyHookKey(command)
+				if key == "" {
+					continue
+				}
+				countKey := event + "\x00" + matcher + "\x00" + key
+				counts[countKey]++
+				if counts[countKey] > 1 {
+					displayMatcher := matcher
+					if displayMatcher == "" {
+						displayMatcher = "<default>"
+					}
+					return xerrors.Errorf(
+						"%s registers duplicate Traceary hook entry for event=%s matcher=%q command=%s",
+						rel,
+						event,
+						displayMatcher,
+						key,
+					)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func packagedTracearyHookKey(command hookCommand) string {
+	if command.Type != "" && command.Type != "command" {
+		return ""
+	}
+	name := strings.TrimSpace(command.Name)
+	commandText := strings.Join(strings.Fields(command.Command), " ")
+	if name == "" && commandText == "" {
+		return ""
+	}
+	if strings.HasPrefix(name, "traceary-") {
+		return name
+	}
+	if strings.Contains(commandText, "traceary") && strings.Contains(commandText, "hook") {
+		return commandText
+	}
+	return ""
 }
 
 func readJSON(root, rel string, dest any) error {
