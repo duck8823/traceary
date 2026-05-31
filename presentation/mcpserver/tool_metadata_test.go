@@ -57,7 +57,7 @@ func TestServer_ToolMetadata(t *testing.T) {
 		{name: "session_status", want: toolMetadataExpectation{description: "Dispatch session status reads by action: active, latest, handoff, lineage, or tree.", readOnly: true}},
 		{name: "record_event", want: toolMetadataExpectation{description: "Record a log or command audit event by type, returning one uniform event shape.", destructiveFalse: true}},
 		{name: "list_events", want: toolMetadataExpectation{description: "List recent events, logs, audits, prompts, transcripts, and summaries.", readOnly: true}},
-		{name: "search", want: toolMetadataExpectation{description: "Search events, logs, audits, prompts, transcripts, and summaries by text, time, or workspace.", readOnly: true}},
+		{name: "search", want: toolMetadataExpectation{description: "Search events by literal text/time/workspace; boolean OR is not parsed as any-match syntax.", readOnly: true}},
 		{name: "get_context", want: toolMetadataExpectation{description: "Get recent context events, logs, audits, prompts, transcripts, and summaries for a session or workspace.", readOnly: true}},
 	}
 	if diff := cmp.Diff(8, len(listResult.Tools)); diff != "" {

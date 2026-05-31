@@ -128,7 +128,7 @@ type listEventsInput struct {
 
 // searchInput is the MCP input for the search tool.
 type searchInput struct {
-	Query     string `json:"query" jsonschema:"search query"`
+	Query     string `json:"query" jsonschema:"literal search text; boolean-looking OR is treated as text, not any-match syntax"`
 	Workspace string `json:"workspace,omitempty" jsonschema:"work context filter"`
 	From      string `json:"from,omitempty" jsonschema:"start time (YYYY-MM-DD or RFC3339)"`
 	To        string `json:"to,omitempty" jsonschema:"end time (YYYY-MM-DD or RFC3339)"`

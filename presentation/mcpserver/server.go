@@ -132,7 +132,7 @@ func (s *Server) Build(ctx context.Context) (*mcp.Server, error) {
 	}, s.listEvents())
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search",
-		Description: "Search events, logs, audits, prompts, transcripts, and summaries by text, time, or workspace.",
+		Description: "Search events by literal text/time/workspace; boolean OR is not parsed as any-match syntax.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.search())
 	mcp.AddTool(server, &mcp.Tool{
