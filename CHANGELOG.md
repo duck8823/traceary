@@ -5,6 +5,23 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.20.1] - 2026-05-31
+
+### Added
+- **Doctor hook integrity warnings (#1152)** — `traceary doctor` now detects duplicate Traceary-managed hook registrations in host config files, surfaces guided dry-run-first remediation, and the integration verifier rejects packaged hook assets that accidentally ship duplicate managed entries.
+- **Audit reliability dogfood signal (#1153)** — `traceary doctor` adds a bounded `audit-reliability` check that reports duplicate command-audit candidate groups and workspace-drift candidates with counts and sampled event IDs only, without dumping command input/output bodies.
+
+### Changed
+- **MCP search semantics clarified (#1155)** — the MCP search tool schema and docs now spell out that `query` is a literal full-text search string; boolean-looking text such as `OR` is not an any-match operator.
+
+### Fixed
+- **Command-audit workspace attribution and duplicate rows (#1149)** — Codex command audits now prefer explicit workspace/cwd evidence over stale hook session state, and SQLite ingestion suppresses near-identical duplicate command-audit rows in the hook retry window.
+- **Piped JSON and snapshot broken-pipe exits (#1154)** — CLI JSON/snapshot commands now treat downstream closed pipes as a normal Unix pipeline condition instead of surfacing noisy broken-pipe errors.
+- **Traceary self-inspection audit noise (#1150)** — hook audit ingestion now skips Traceary read-only self-inspection commands, Traceary MCP read tools, and explicit `TRACEARY_NO_AUDIT` opt-outs while preserving normal generic tool audits.
+
+### Notes
+- v0.20.1 has no SQLite schema migration and no new MCP tools. It is a patch release focused on audit correctness, hook diagnostics, and dogfood signal quality.
+
 ## [v0.20.0] - 2026-05-29
 
 ### Added

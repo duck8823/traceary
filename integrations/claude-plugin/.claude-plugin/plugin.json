@@ -1,7 +1,7 @@
 {
   "name": "traceary",
   "description": "Local-first Traceary integration for Claude Code with MCP tools and automatic session/audit hooks.",
-  "version": "0.20.0",
+  "version": "0.20.1",
   "author": {
     "name": "Shunsuke Maeda",
     "email": "duck8823@gmail.com"

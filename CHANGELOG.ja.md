@@ -5,6 +5,23 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.20.1] - 2026-05-31
+
+### Added
+- **doctor の hook 整合性 warning (#1152)** — `traceary doctor` が host config 内の Traceary 管理 hook 重複登録を検出し、dry-run-first の remediation guidance を表示します。integration verifier も packaged hook asset に duplicate managed entry が混入した場合に失敗します。
+- **audit reliability の dogfood signal (#1153)** — `traceary doctor` に bounded な `audit-reliability` check を追加しました。duplicate command-audit candidate group と workspace-drift candidate を count と sample event ID だけで報告し、command input/output body は出しません。
+
+### Changed
+- **MCP search semantics の明確化 (#1155)** — MCP search tool schema と docs で、`query` は literal な full-text search string であり、`OR` のような boolean 風の文字列は any-match operator ではないことを明記しました。
+
+### Fixed
+- **command audit の workspace attribution と duplicate row (#1149)** — Codex command audit は stale な hook session state より explicit workspace / cwd evidence を優先します。SQLite ingestion は hook retry window 内のほぼ同一の command-audit row を抑制します。
+- **pipe された JSON / snapshot の broken-pipe exit (#1154)** — CLI の JSON / snapshot command は、downstream pipe が閉じた場合を通常の Unix pipeline condition として扱い、broken-pipe error を noisy に表示しないようにしました。
+- **Traceary self-inspection audit noise (#1150)** — hook audit ingestion は Traceary の read-only self-inspection command、Traceary MCP read tool、明示的な `TRACEARY_NO_AUDIT` opt-out を skip します。一方で通常の generic tool audit は保持します。
+
+### Notes
+- v0.20.1 には SQLite schema migration と新しい MCP tool の追加はありません。audit correctness、hook diagnostics、dogfood signal quality に focused した patch release です。
+
 ## [v0.20.0] - 2026-05-29
 
 ### Added
