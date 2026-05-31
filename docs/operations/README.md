@@ -74,6 +74,12 @@ If session-end fidelity matters, prefer the client integrations that expose an e
 This usually means the default PPID-based grouping does not match your local client process topology.
 Set `TRACEARY_HOOK_STATE_KEY` explicitly in the hook environment when you need a more stable grouping key.
 
+### Audit reliability dogfood signal
+
+`traceary doctor` includes an `audit-reliability` check over a bounded recent command-audit window. It reports duplicate command-audit candidate groups and workspace-drift candidates when `cwd` evidence in the stored audit input conflicts with the event workspace metadata.
+
+Treat this as a dogfood review signal, not as automatic cleanup. The check intentionally prints counts and sampled event IDs only; it does not dump command input/output bodies. Before using process-review metrics, inspect the sampled rows with `traceary show <event_id>` and confirm whether they are real duplicates/drift or legitimate repeated work.
+
 ### Concurrent cleanup versus active ingestion
 
 `traceary store gc` deletes old rows and then runs `VACUUM`.
