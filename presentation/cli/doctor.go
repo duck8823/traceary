@@ -289,9 +289,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			}
 		}
 
-		if hostCheck := inspectHostCapabilityGaps(targetClient, outputPath); hostCheck != nil {
-			report.Checks = append(report.Checks, *hostCheck)
-		}
+		report.Checks = append(report.Checks, inspectHostCapabilityGaps(targetClient, outputPath)...)
 		if targetClient == "codex" {
 			if activationCheck := c.inspectCodexMemoryActivationStatus(ctx, resolvedProjectDir); activationCheck != nil {
 				report.Checks = append(report.Checks, *activationCheck)
@@ -744,16 +742,16 @@ func (c *RootCLI) inspectClaudePluginCacheStatus() *doctorCheck {
 	}
 }
 
-// inspectHostCapabilityGaps surfaces informational notes about 2026 Q2 host
+// inspectHostCapabilityGaps surfaces informational notes about host
 // capabilities that Traceary does not yet wire into its managed hook set.
-// The check intentionally returns pass status with a descriptive message so
+// The checks intentionally return pass status with descriptive messages so
 // the operator sees the gap without treating it as a regression — the
-// content was verified against each host's current official docs during
-// v0.7-4.
-func inspectHostCapabilityGaps(client, configPath string) *doctorCheck {
+// content was verified against each host's bundled hook reference docs
+// (gemini-cli 0.43.0 as of v0.21.0).
+func inspectHostCapabilityGaps(client, configPath string) []doctorCheck {
 	switch client {
 	case "claude":
-		return &doctorCheck{
+		return []doctorCheck{{
 			Name:   "claude-host-capabilities",
 			Status: doctorStatusPass,
 			Message: localizef(
@@ -761,10 +759,10 @@ func inspectHostCapabilityGaps(client, configPath string) *doctorCheck {
 				"claude ホスト: SubagentStop と PreCompact は既存の SessionStart / SessionEnd / Stop / PostCompact と並んで Traceary 管理の hook config に組み込み済みです (hooks config: %s)",
 				configPath,
 			),
-		}
+		}}
 	case "codex":
 		codexConfigPath := describeCodexConfigPath()
-		return &doctorCheck{
+		return []doctorCheck{{
 			Name:   "codex-host-capabilities",
 			Status: doctorStatusPass,
 			Message: localizef(
@@ -772,16 +770,26 @@ func inspectHostCapabilityGaps(client, configPath string) *doctorCheck {
 				"codex ホスト: memory 機能は per-install な feature flag (%s) の背後にあります。flag 名と有効化状態の確認方法は Codex のリリースノートを参照してください。Traceary は flag 状態に関わらず `memory import codex` で取り込み可能です",
 				codexConfigPath,
 			),
-		}
+		}}
 	case "gemini":
-		return &doctorCheck{
-			Name:   "gemini-host-capabilities",
-			Status: doctorStatusPass,
-			Message: localizef(
-				"gemini host: memory manager agent and auto-memory are preview-flag features on Gemini CLI 0.38.x; Traceary's Tier 3 hook coverage (SessionStart / SessionEnd / AfterAgent / AfterTool) does not yet surface those preview signals (hooks config: %s)",
-				"gemini ホスト: memory manager agent / auto-memory は Gemini CLI 0.38.x のプレビュー機能です。Traceary の Tier 3 hook (SessionStart / SessionEnd / AfterAgent / AfterTool) は現時点でそれらの preview 信号を surface しません (hooks config: %s)",
-				configPath,
-			),
+		return []doctorCheck{
+			{
+				Name:   "gemini-host-capabilities",
+				Status: doctorStatusPass,
+				Message: localizef(
+					"gemini host: memory manager agent and auto-memory remain experimental features on Gemini CLI (verified against 0.43.0); Traceary's Tier 3 hook coverage (SessionStart / SessionEnd / BeforeAgent / AfterAgent / AfterTool / PreCompress) does not yet surface those experimental signals (hooks config: %s)",
+					"gemini ホスト: memory manager agent / auto-memory は Gemini CLI の experimental 機能です (0.43.0 で確認済)。Traceary の Tier 3 hook (SessionStart / SessionEnd / BeforeAgent / AfterAgent / AfterTool / PreCompress) は現時点でそれらの experimental 信号を surface しません (hooks config: %s)",
+					configPath,
+				),
+			},
+			{
+				Name:   "gemini-compact-coverage",
+				Status: doctorStatusPass,
+				Message: Localize(
+					"gemini host: compact summaries are captured at the pre-compact boundary only (PreCompress marker). Gemini CLI exposes no post-compress hook — PreCompress is advisory-only and fires asynchronously before compression (verified against the gemini-cli 0.43.0 hook reference) — so a missing post-compact digest is expected upstream behavior, not a broken install",
+					"gemini ホスト: compact summary は pre-compact 境界のみで捕捉します (PreCompress marker)。Gemini CLI に post-compress hook は存在せず、PreCompress は compression 前に非同期で発火する advisory-only hook です (gemini-cli 0.43.0 の hook reference で確認済)。post-compact digest が無いのは upstream の想定挙動であり、インストール不良ではありません",
+				),
+			},
 		}
 	}
 	return nil
