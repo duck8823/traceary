@@ -43,7 +43,7 @@
 | AfterTool | `*` | ツール監査を記録 |
 | PreCompress | `*` | `compact_summary` marker として記録（`trigger` のみ。Gemini には post-compress digest がない） |
 
-**制限**: post-compress digest はなし（Gemini の `PreCompress` は async marker のみ）、failure 専用イベントなし。Gemini には Stop event が存在しないため、transcript 取得は `AfterAgent` に紐付けている。失敗捕捉は部分的: `AfterTool` の nested `tool_response.error` は spawn/OS レベルエラー時のみ出る（その場合は `failed` とマーク）。通常の非ゼロ終了は `tool_response.llmContent` 内の `Exit Code: N` テキストとしてのみ現れ、Traceary は意図的に parse しないため、それらはフラグなしのまま。
+**制限**: post-compress digest はなし — Gemini の `PreCompress` は advisory-only で compression 前に非同期で発火し、gemini-cli 0.43.0 同梱 hook reference の hook surface 全体（`BeforeTool` / `AfterTool` / `BeforeAgent` / `AfterAgent` / `BeforeModel` / `BeforeToolSelection` / `AfterModel` / `SessionStart` / `SessionEnd` / `Notification` / `PreCompress`）に post-compress event は存在しない。failure 専用イベントなし、PostCompact/SessionStart(compact) なし。Gemini には Stop event が存在しないため、transcript 取得は `AfterAgent` に紐付けている。失敗捕捉は部分的: `AfterTool` の nested `tool_response.error` は spawn/OS レベルエラー時のみ出る（その場合は `failed` とマーク）。通常の非ゼロ終了は `tool_response.llmContent` 内の `Exit Code: N` テキストとしてのみ現れ、Traceary は意図的に parse しないため、それらはフラグなしのまま。
 
 ## 共通動作
 
@@ -80,6 +80,6 @@ Traceary の managed hook 集合は、リリースをまたいで安定させる
 | Gemini CLI | `AfterAgent.prompt_response` | wire 済み | Gemini `AfterAgent` event 上で `traceary hook transcript gemini` が起動し `transcript` event として記録 (Gemini には Stop event が存在しない) |
 | Gemini CLI | `BeforeAgent.prompt` | wire 済み | Gemini `BeforeAgent` event 上で `traceary hook prompt gemini` が起動し `prompt` event として記録 (Claude / Codex の `UserPromptSubmit` と同等) |
 | Gemini CLI | `PreCompress.trigger` | wire 済み (marker のみ) | Gemini `PreCompress` event 上で `traceary hook compact gemini pre-compact` が起動し、`source_hook=pre_compact` で `trigger` 値を body にした `compact_summary` event として記録 (Gemini に post-compress digest はない) |
-| Gemini CLI 0.38.x | Memory manager agent / auto-memory | プレビュー | Traceary Tier 3 surface はまだこれらの preview 信号を subscribe していない |
+| Gemini CLI | Memory manager agent / auto-memory | experimental (0.43.0 で再確認済) | Traceary Tier 3 surface はまだこれらの experimental 信号を subscribe していない |
 
 これらの preview 機能を有効化したいオペレーターはクライアント側の公式ドキュメントを参照してください。Traceary は Tier 1-3 表に記載した安定 capability のみを記録し、`doctor` の informational check はギャップを可視化するためのものであり、有効化を強制するものではありません。

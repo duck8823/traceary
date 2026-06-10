@@ -43,7 +43,7 @@ This document defines the hook capability tiers across AI agent clients.
 | AfterTool | `*` | Record tool audit |
 | PreCompress | `*` | Record a `compact_summary` marker (`trigger` field only — Gemini exposes no post-compress digest) |
 
-**Limitations**: No post-compress digest (Gemini's `PreCompress` is advisory and fires asynchronously), no failure-specific event, no PostCompact/SessionStart(compact). Gemini has no Stop event, so transcript capture is attached to `AfterAgent` instead. Failure capture is partial: `AfterTool` exposes a nested `tool_response.error` object only for spawn/OS-level errors (Traceary marks those `failed`); a plain non-zero shell exit surfaces only as `Exit Code: N` text inside `tool_response.llmContent`, which Traceary deliberately does not parse, so those runs stay unflagged.
+**Limitations**: No post-compress digest — Gemini's `PreCompress` is advisory-only and fires asynchronously before compression, and the gemini-cli 0.43.0 bundled hook reference exposes no post-compress event anywhere in its hook surface (`BeforeTool` / `AfterTool` / `BeforeAgent` / `AfterAgent` / `BeforeModel` / `BeforeToolSelection` / `AfterModel` / `SessionStart` / `SessionEnd` / `Notification` / `PreCompress`). No failure-specific event, no PostCompact/SessionStart(compact). Gemini has no Stop event, so transcript capture is attached to `AfterAgent` instead. Failure capture is partial: `AfterTool` exposes a nested `tool_response.error` object only for spawn/OS-level errors (Traceary marks those `failed`); a plain non-zero shell exit surfaces only as `Exit Code: N` text inside `tool_response.llmContent`, which Traceary deliberately does not parse, so those runs stay unflagged.
 
 ## Shared Behavior
 
@@ -84,7 +84,7 @@ runtime under the `<client>-host-capabilities` check.
 | Gemini CLI | `AfterAgent.prompt_response` | wired | persisted as `transcript` event via `traceary hook transcript gemini` on the Gemini `AfterAgent` event (Gemini has no Stop event) |
 | Gemini CLI | `BeforeAgent.prompt` | wired | persisted as `prompt` event via `traceary hook prompt gemini` on the Gemini `BeforeAgent` event (parity with Claude / Codex `UserPromptSubmit`) |
 | Gemini CLI | `PreCompress.trigger` | wired (marker only) | persisted as `compact_summary` event with `source_hook=pre_compact` and the `trigger` value as body via `traceary hook compact gemini pre-compact` (Gemini exposes no post-compress digest) |
-| Gemini CLI 0.38.x | Memory manager agent / auto-memory | preview | Traceary's Tier 3 surface does not yet subscribe to the preview signals |
+| Gemini CLI | Memory manager agent / auto-memory | experimental (re-verified on 0.43.0) | Traceary's Tier 3 surface does not yet subscribe to the experimental signals |
 
 Operators who want to enable any of the preview features above should
 follow the upstream docs for their client. Traceary continues to record
