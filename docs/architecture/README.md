@@ -128,6 +128,7 @@ If the answer to any of these is "no", document the exception explicitly before 
 - [Documentation index](../README.md)
 - [Optional API migration policy](./optional-api.md)
 - [Memory blocks: evaluation and decision](./memory-blocks.md)
+- [Clean My Agent relay compatibility: evaluation and decision](./clean-my-agent-compatibility.md)
 - [Host-native memory activation contract](./host-native-memory-activation.md)
 - [Hook contract](../hooks/contract.md)
 - [Event lifecycle](../lifecycle.md)
