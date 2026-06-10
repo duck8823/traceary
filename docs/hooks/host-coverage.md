@@ -10,7 +10,7 @@ Legend:
 - `○` available in the host but not wired by Traceary yet
 - `✕` not exposed by this host
 
-**Last verified: 2026-04-27.** Refresh this page when bumping Traceary integration packages or when a host CLI release changes its hook surface.
+**Last verified: 2026-04-27 (Gemini CLI re-verified 2026-06-10 against 0.43.0).** Refresh this page when bumping Traceary integration packages or when a host CLI release changes its hook surface.
 
 ## Lifecycle event → host hook matrix
 
@@ -39,7 +39,7 @@ This list excludes hooks that already appear in the lifecycle matrix above.
 
 - Claude Code: https://code.claude.com/docs/en/hooks · packaged config: [`integrations/claude-plugin/hooks/hooks.json`](../../integrations/claude-plugin/hooks/hooks.json)
 - Codex CLI: upstream binary `codex-cli 0.125.0` — hook surface inferred from local install strings (`SessionStart`, `Stop`, `PreToolUse`, `PostToolUse`, `Notification`, `PermissionRequest`, `UserPromptSubmit`). Compact hook tracking: openai/codex#16098. Packaged config: [`plugins/traceary/hooks.json`](../../plugins/traceary/hooks.json)
-- Gemini CLI: hooks reference shipped with the local install at `/opt/homebrew/Cellar/gemini-cli/0.38.2/libexec/lib/node_modules/@google/gemini-cli/bundle/docs/hooks/reference.md`. Packaged config: [`integrations/gemini-extension/hooks/hooks.json`](../../integrations/gemini-extension/hooks/hooks.json)
+- Gemini CLI: hooks reference shipped with the local install at `/opt/homebrew/Cellar/gemini-cli/0.43.0/libexec/lib/node_modules/@google/gemini-cli/bundle/docs/hooks/reference.md` (no post-compress event in the documented hook surface; `PreCompress` is advisory-only and fires asynchronously before compression). Packaged config: [`integrations/gemini-extension/hooks/hooks.json`](../../integrations/gemini-extension/hooks/hooks.json)
 
 ## Maintenance
 

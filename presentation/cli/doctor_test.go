@@ -72,6 +72,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 	t.Cleanup(cli.ResetUserHomeDirFunc)
 
 	t.Run("all clients without config only warns", func(t *testing.T) {
+		t.Setenv("TRACEARY_LANG", "en")
 		initStub := &storeManagementUsecaseStub{}
 		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
 		stdout := &bytes.Buffer{}
@@ -100,6 +101,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 			"claude-host-capabilities": gotStatuses["claude-host-capabilities"],
 			"codex-host-capabilities":  gotStatuses["codex-host-capabilities"],
 			"gemini-host-capabilities": gotStatuses["gemini-host-capabilities"],
+			"gemini-compact-coverage":  gotStatuses["gemini-compact-coverage"],
 		}
 		wantStatuses := map[string]string{
 			"config":                   "pass",
@@ -109,9 +111,21 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 			"claude-host-capabilities": "pass",
 			"codex-host-capabilities":  "pass",
 			"gemini-host-capabilities": "pass",
+			"gemini-compact-coverage":  "pass",
 		}
 		if diff := cmp.Diff(wantStatuses, gotSubset); diff != "" {
 			t.Fatalf("doctor statuses mismatch (-want +got):\n%s", diff)
+		}
+
+		gotMessages := map[string]string{}
+		for _, check := range report.Checks {
+			gotMessages[check.Name] = check.Message
+		}
+		if msg := gotMessages["gemini-compact-coverage"]; !strings.Contains(msg, "no post-compress hook") || !strings.Contains(msg, "PreCompress") {
+			t.Fatalf("gemini-compact-coverage message should explain the missing post-compress hook, got: %q", msg)
+		}
+		if msg := gotMessages["gemini-host-capabilities"]; !strings.Contains(msg, "BeforeAgent") || !strings.Contains(msg, "PreCompress") {
+			t.Fatalf("gemini-host-capabilities message should list the wired BeforeAgent / PreCompress hooks, got: %q", msg)
 		}
 	})
 
