@@ -123,12 +123,74 @@ func TestSummarizeCandidateHygiene(t *testing.T) {
 	}
 }
 
+// TestSummarizeCandidateHygiene_DuplicateRequiresSameScopeAndType locks the
+// duplicate identity to the extraction dedupe key (scope + memory type + fact).
+// The default reliability scan is global, so identical fact text in different
+// workspaces or memory types must not be merged into duplicate_count (which
+// would also wrongly shrink likely_actionable_count).
+func TestSummarizeCandidateHygiene_DuplicateRequiresSameScopeAndType(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 6, 18, 0, 0, 0, 0, time.UTC)
+	staleThreshold := 14 * 24 * time.Hour
+	fresh := now.Add(-time.Hour)
+	fact := "Prefer table-driven tests for new code"
+	workspaceA := domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/traceary"))
+	workspaceB := domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/other"))
+
+	cases := []struct {
+		name      string
+		summaries []apptypes.MemorySummary
+		want      apptypes.CandidateHygieneCounts
+	}{
+		{
+			name: "same fact in different workspaces is not duplicate",
+			summaries: []apptypes.MemorySummary{
+				mustHygieneSummaryFull(t, "m1", fact, domtypes.MemoryTypeLesson, workspaceA, domtypes.MemoryStatusCandidate, domtypes.MemorySourceExtracted, fresh),
+				mustHygieneSummaryFull(t, "m2", fact, domtypes.MemoryTypeLesson, workspaceB, domtypes.MemoryStatusCandidate, domtypes.MemorySourceExtracted, fresh),
+			},
+			want: apptypes.CandidateHygieneCounts{LikelyActionable: 2},
+		},
+		{
+			name: "same fact with different memory types is not duplicate",
+			summaries: []apptypes.MemorySummary{
+				mustHygieneSummaryFull(t, "m1", fact, domtypes.MemoryTypeLesson, workspaceA, domtypes.MemoryStatusCandidate, domtypes.MemorySourceExtracted, fresh),
+				mustHygieneSummaryFull(t, "m2", fact, domtypes.MemoryTypeConstraint, workspaceA, domtypes.MemoryStatusCandidate, domtypes.MemorySourceExtracted, fresh),
+			},
+			want: apptypes.CandidateHygieneCounts{LikelyActionable: 2},
+		},
+		{
+			name: "same fact, scope, and type is duplicate",
+			summaries: []apptypes.MemorySummary{
+				mustHygieneSummaryFull(t, "m1", fact, domtypes.MemoryTypeLesson, workspaceA, domtypes.MemoryStatusCandidate, domtypes.MemorySourceExtracted, fresh),
+				mustHygieneSummaryFull(t, "m2", fact, domtypes.MemoryTypeLesson, workspaceA, domtypes.MemoryStatusCandidate, domtypes.MemorySourceExtracted, fresh),
+			},
+			want: apptypes.CandidateHygieneCounts{Duplicate: 2},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := SummarizeCandidateHygiene(tc.summaries, now, staleThreshold)
+			if got != tc.want {
+				t.Fatalf("SummarizeCandidateHygiene() = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
 func mustHygieneSummary(t *testing.T, id, fact string, status domtypes.MemoryStatus, source domtypes.MemorySource, updatedAt time.Time) apptypes.MemorySummary {
+	t.Helper()
+	return mustHygieneSummaryFull(t, id, fact, domtypes.MemoryTypeLesson, domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/traceary")), status, source, updatedAt)
+}
+
+func mustHygieneSummaryFull(t *testing.T, id, fact string, memoryType domtypes.MemoryType, scope domtypes.MemoryScope, status domtypes.MemoryStatus, source domtypes.MemorySource, updatedAt time.Time) apptypes.MemorySummary {
 	t.Helper()
 	summary, err := apptypes.MemorySummaryOf(
 		domtypes.MemoryID(id),
-		domtypes.MemoryTypeLesson,
-		domtypes.WorkspaceScopeOf(domtypes.Workspace("github.com/duck8823/traceary")),
+		memoryType,
+		scope,
 		fact,
 		status,
 		domtypes.ConfidenceLow,

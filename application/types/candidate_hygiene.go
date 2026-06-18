@@ -14,9 +14,10 @@ package types
 type CandidateHygieneCounts struct {
 	// Stale counts candidates last updated before the staleness threshold.
 	Stale int
-	// Duplicate counts candidates whose fact is exactly repeated within the
-	// scanned window. Similarity / near-duplicate detection stays in
-	// `memory admin hygiene scan`.
+	// Duplicate counts candidates that share an exact identity (same scope,
+	// memory type, and fact) with another candidate in the scanned window,
+	// matching the extraction dedupe key. Similarity / near-duplicate
+	// detection stays in `memory admin hygiene scan`.
 	Duplicate int
 	// FragmentLike counts candidates whose fact looks like a diff fragment or
 	// generated code (the obvious code/diff fragments that should not be

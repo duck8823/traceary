@@ -1,7 +1,6 @@
 package usecase
 
 import (
-	"strings"
 	"time"
 
 	apptypes "github.com/duck8823/traceary/application/types"
@@ -15,17 +14,20 @@ import (
 // candidate together).
 //
 // The four flag dimensions are independent and may overlap; LikelyActionable is
-// the complement (flagged by none). Duplicate detection is exact-fact only,
-// scoped to the supplied window — similarity duplicates stay in the hygiene
-// scan. The classification reuses classifyExtractionNoise so it stays
-// consistent with the extraction-time gate and the cleanup classifier.
+// the complement (flagged by none). Duplicate detection is exact only, keyed by
+// the same scope + memory type + fact identity the extraction dedupe uses
+// (memoryCandidateKey), so identical text in different workspaces or memory
+// types is not falsely merged — the reliability scan is global by default.
+// Similarity duplicates stay in the hygiene scan. The classification reuses
+// classifyExtractionNoise so it stays consistent with the extraction-time gate
+// and the cleanup classifier.
 func SummarizeCandidateHygiene(candidates []apptypes.MemorySummary, now time.Time, staleThreshold time.Duration) apptypes.CandidateHygieneCounts {
-	factCounts := make(map[string]int, len(candidates))
+	identityCounts := make(map[string]int, len(candidates))
 	for _, summary := range candidates {
 		if summary.Status() != domtypes.MemoryStatusCandidate {
 			continue
 		}
-		factCounts[candidateHygieneFactKey(summary.Fact())]++
+		identityCounts[memoryCandidateKey(summary.Scope(), summary.MemoryType(), summary.Fact())]++
 	}
 
 	var counts apptypes.CandidateHygieneCounts
@@ -38,7 +40,7 @@ func SummarizeCandidateHygiene(candidates []apptypes.MemorySummary, now time.Tim
 			counts.Stale++
 			flagged = true
 		}
-		if factCounts[candidateHygieneFactKey(summary.Fact())] > 1 {
+		if identityCounts[memoryCandidateKey(summary.Scope(), summary.MemoryType(), summary.Fact())] > 1 {
 			counts.Duplicate++
 			flagged = true
 		}
@@ -55,12 +57,4 @@ func SummarizeCandidateHygiene(candidates []apptypes.MemorySummary, now time.Tim
 		}
 	}
 	return counts
-}
-
-// candidateHygieneFactKey normalises a fact for exact-duplicate comparison
-// within the scanned window. Trimming surrounding whitespace is enough to fold
-// the common "same note recorded twice" case without the cost of similarity
-// matching.
-func candidateHygieneFactKey(fact string) string {
-	return strings.TrimSpace(fact)
 }
