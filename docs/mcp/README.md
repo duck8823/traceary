@@ -24,6 +24,8 @@ Traceary exposes exactly 8 MCP tools — frozen since v0.10.0 and enforced by a 
 
 `session_status(action="tree", session_id="...", depth=N)` returns the JSON session subtree rooted at `session_id` using the same node array shape as `traceary session tree --json`; `depth` is optional and `0` returns only the root.
 
+`session_status(action="active", ...)` treats a session that received events after its end marker as still active, matching the CLI `sessions --snapshot` `ended_with_late_events` rule. A lone `session_ended` followed by later prompts or audits does not exclude the session from the active result.
+
 ### Search query semantics
 
 `search.query` is a literal text query, not a boolean query language. A string such as `failure OR timeout` is not interpreted as an any-match expression for `failure` or `timeout`; treat it as one search string. For multi-term inspection, issue multiple narrower `search` calls or save CLI JSON output to a local file and aggregate it with local tools such as `jq`.

@@ -870,6 +870,19 @@ Useful flags:
 - `--allow-stale`
 - `--json`
 
+### Session status values
+
+`session list`, `session tree`, and the `sessions --snapshot` / `top --snapshot` JSON `status` field report one of:
+
+| Status | Meaning |
+|--------|---------|
+| `active` | No end marker and within the stale window. |
+| `stale` | No end marker but started before the stale window (default 24h). |
+| `ended` | Has an end marker and no events after it. |
+| `ended_with_late_events` | Has an end marker but later events arrived under the same session. The end marker can come from a `session_ended` event or from `session gc` writing `ended_at` directly. |
+
+The active-only snapshot keeps `active`, `ended_with_late_events`, and (with `--allow-stale`) `stale` sessions. `ended_with_late_events` is what stops `sessions --snapshot` from returning zero sessions when recent workspace events exist even though the session was already closed — for example when a host such as Codex closed the session early but the conversation kept going. CLI snapshot and MCP `session_status(action="active")` apply the same rule, so a session with events after its end marker is surfaced by both.
+
 ## Hooks and diagnostics
 
 ### `traceary completion <bash|zsh|fish|powershell>`
