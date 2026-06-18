@@ -388,7 +388,15 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 		if _, exists := existingKeys[key]; exists {
 			continue
 		}
-		if _, exists := bestCandidateByKey[key]; !exists {
+		bestIndex, exists := bestCandidateByKey[key]
+		if !exists {
+			continue
+		}
+		// Mirror the Extract drop (#1169): obvious code/diff fragments are
+		// removed before they can consume a candidate-limit slot, so this
+		// accounting matches Extract, where the drop precedes the limit break.
+		best := candidates[bestIndex]
+		if !best.explicitRemember && isDroppableExtractionFragment(best.lowQualityReasons) {
 			continue
 		}
 		if emittedCandidates >= criteria.CandidateLimit() {
@@ -411,6 +419,18 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 			decision.Reason = "duplicate_in_run"
 			continue
 		}
+		if !candidate.explicitRemember && isDroppableExtractionFragment(candidate.lowQualityReasons) {
+			// Mirror the Extract drop (#1169): obvious code/diff fragments are
+			// not persisted at all, so report them as dropped rather than
+			// hidden. Checked before the candidate-limit and score / low-quality
+			// branches to match the Extract ordering, where the drop precedes the
+			// limit break and wins regardless of score. The limit-accounting loop
+			// above skips these keys too, so a dropped fragment never consumes a
+			// candidate-limit slot from a real candidate.
+			decision.Decision = "dropped"
+			decision.Reason = "fragment:" + strings.Join(candidate.lowQualityReasons, ",")
+			continue
+		}
 		if _, exists := limitSkippedKeys[candidate.key]; exists {
 			decision.Decision = "skipped"
 			decision.Reason = "candidate_limit"
@@ -419,15 +439,6 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 		if _, exists := selectedKeys[candidate.key]; !exists {
 			decision.Decision = "skipped"
 			decision.Reason = "candidate_limit"
-			continue
-		}
-		if !candidate.explicitRemember && isDroppableExtractionFragment(candidate.lowQualityReasons) {
-			// Mirror the Extract drop (#1169): obvious code/diff fragments are
-			// not persisted at all, so report them as dropped rather than
-			// hidden. Checked before the score / low-quality hide branches to
-			// match the Extract ordering where the drop wins regardless of score.
-			decision.Decision = "dropped"
-			decision.Reason = "fragment:" + strings.Join(candidate.lowQualityReasons, ",")
 			continue
 		}
 		if candidate.score < extractionVisibleScoreThreshold {
