@@ -70,13 +70,15 @@ WITH candidate_sessions AS (
                              ended.created_at > started.created_at OR
                              (ended.created_at = started.created_at AND ended.id > started.id)
                         )
+                        -- The "later event" check is session_id-only so it
+                        -- matches list_sessions.sql's late-event rule exactly.
+                        -- A same-session event from a different agent/workspace
+                        -- after the end marker must keep the session active on
+                        -- both surfaces (CLI snapshot and MCP active).
                         AND NOT EXISTS (
                              SELECT 1
                                FROM events later_ev
                               WHERE later_ev.session_id = started.session_id
-                                AND later_ev.client = started.client
-                                AND later_ev.agent = started.agent
-                                AND later_ev.workspace = started.workspace
                                 AND (
                                      later_ev.created_at > ended.created_at OR
                                      (later_ev.created_at = ended.created_at AND later_ev.id > ended.id)

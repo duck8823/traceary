@@ -510,6 +510,51 @@ func TestDatasource_FindLatest_activeOnlyHonorsSessionsRowEndedAt(t *testing.T) 
 	}
 }
 
+// TestDatasource_FindLatest_activeOnlyKeepsCrossAgentLateEvent asserts the
+// late-event check is session_id-only, matching list_sessions.sql. A session
+// ended by one agent that receives a later event under the same session_id but
+// a different agent must stay active on both the CLI snapshot and the active
+// query (#1172 CLI/MCP agreement).
+func TestDatasource_FindLatest_activeOnlyKeepsCrossAgentLateEvent(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, onDiskSQLiteMigrations(t))
+	ctx := context.Background()
+	if err := storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	const workspace = "github.com/duck8823/traceary"
+	saveFindLatestSessionEventFixture(t, eventDS, "x-start", types.EventKindSessionStarted, "session-x", workspace, "session started", time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC))
+	saveFindLatestSessionEventFixture(t, eventDS, "x-end", types.EventKindSessionEnded, "session-x", workspace, "session ended", time.Date(2026, 4, 12, 10, 30, 0, 0, time.UTC))
+
+	claudeAgent, err := types.AgentFrom("claude")
+	if err != nil {
+		t.Fatalf("AgentFrom() error = %v", err)
+	}
+	lateID, err := types.EventIDFrom("x-late-claude")
+	if err != nil {
+		t.Fatalf("EventIDFrom() error = %v", err)
+	}
+	lateEvent := model.EventOf(lateID, types.EventKindCommandExecuted, types.Client("cli"), claudeAgent, types.SessionID("session-x"), types.Workspace(workspace), "git status", time.Date(2026, 4, 12, 11, 0, 0, 0, time.UTC))
+	if err := eventDS.Save(ctx, lateEvent); err != nil {
+		t.Fatalf("Save(late claude event) error = %v", err)
+	}
+
+	result, err := sessionDS.FindLatest(ctx, types.Client("cli"), types.Agent("codex"), types.Workspace(workspace), true)
+	if err != nil {
+		t.Fatalf("FindLatest() error = %v", err)
+	}
+	event, ok := result.Value()
+	if !ok {
+		t.Fatalf("FindLatest(activeOnly) returned empty; a same-session late event from another agent must keep the session active")
+	}
+	if diff := cmp.Diff("x-start", event.EventID().String()); diff != "" {
+		t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func newFindLatestScenario(t *testing.T) (*sqlite.EventDatasource, *sqlite.SessionDatasource) {
 	t.Helper()
 
