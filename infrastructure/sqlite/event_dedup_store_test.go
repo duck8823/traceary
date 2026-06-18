@@ -144,6 +144,44 @@ func TestDatasource_Save_SkipsDuplicateHookContentEventsWithinWindow(t *testing.
 	}
 }
 
+// TestDatasource_Save_SuppressesDuplicateAcrossFractionalSecondBoundary is a
+// regression test for the variable-width RFC3339Nano comparison bug: a plain
+// TEXT range over created_at sorts "…00.5Z" before "…00Z", so a genuine
+// duplicate 1.5s apart could slip through (and a row just outside 2s could be
+// wrongly suppressed). The fix compares parsed timestamps in Go.
+func TestDatasource_Save_SuppressesDuplicateAcrossFractionalSecondBoundary(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	sut, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	// Original at .5s (variable-width "…00.5Z"); duplicate at a whole second
+	// 1.5s later ("…02Z"). Lexically "…00.5Z" < "…02Z" but also "…00.5Z" < the
+	// naive lower bound "…00Z", so the buggy TEXT range missed it. 1.5s <= 2s,
+	// so it must be suppressed.
+	original := time.Date(2026, 5, 31, 1, 0, 0, 500_000_000, time.UTC)
+	duplicate := time.Date(2026, 5, 31, 1, 0, 2, 0, time.UTC)
+	saveDedupTestEvent(ctx, t, sut, "frac-original", types.EventKindPrompt, "hook", "user_prompt_submit", "same body", original)
+	saveDedupTestEvent(ctx, t, sut, "frac-duplicate", types.EventKindPrompt, "hook", "user_prompt_submit", "same body", duplicate)
+
+	if diff := cmp.Diff(1, countEventsByKind(t, dbPath, types.EventKindPrompt)); diff != "" {
+		t.Fatalf("fractional-boundary duplicate not suppressed (-want +got):\n%s", diff)
+	}
+
+	// A row 2.5s after the original is outside the window and must be kept,
+	// proving the Go comparison does not over-suppress near the boundary.
+	outside := time.Date(2026, 5, 31, 1, 0, 3, 0, time.UTC)
+	saveDedupTestEvent(ctx, t, sut, "frac-outside", types.EventKindPrompt, "hook", "user_prompt_submit", "same body", outside)
+
+	if diff := cmp.Diff(2, countEventsByKind(t, dbPath, types.EventKindPrompt)); diff != "" {
+		t.Fatalf("out-of-window row across fractional boundary was suppressed (-want +got):\n%s", diff)
+	}
+}
+
 // TestDatasource_Save_DoesNotDeduplicateNonHookContentEvents proves the guard is
 // gated on hook origin: a direct CLI/MCP write (client != "hook") is never
 // suppressed even with an identical body within the window.

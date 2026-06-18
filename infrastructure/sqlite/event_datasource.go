@@ -193,14 +193,24 @@ func (d *EventDatasource) saveDedupedHookContentEvent(ctx context.Context, db *s
 // the command_audits join: kind, client, agent, session_id, workspace,
 // source_hook, and body. kind is bound to the event's own kind, so a prompt
 // never deduplicates a transcript.
+//
+// events.created_at is stored as variable-width RFC3339Nano (see
+// formatTimestamp), which is NOT lexically ordered the same as real time: e.g.
+// "…00.5Z" sorts before "…00Z". A plain TEXT range over created_at can thus
+// miss a genuine duplicate or over-suppress near fractional-second boundaries.
+// We therefore coarsely pre-filter on the fixed-width whole-second prefix
+// (substr 1..19 is always "YYYY-MM-DDTHH:MM:SS" for the UTC timestamps
+// formatTimestamp emits), widened by an extra second so it is a guaranteed
+// superset of the true window, then compare parsed timestamps exactly in Go.
 func hookContentEventDuplicateExists(ctx context.Context, tx *sql.Tx, event *model.Event) (bool, error) {
-	from := formatTimestamp(event.CreatedAt().Add(-duplicateHookContentEventWindow))
-	to := formatTimestamp(event.CreatedAt().Add(duplicateHookContentEventWindow))
+	const secondPrefixLayout = "2006-01-02T15:04:05"
+	coarse := duplicateHookContentEventWindow + time.Second
+	lowerPrefix := event.CreatedAt().Add(-coarse).UTC().Format(secondPrefixLayout)
+	upperPrefix := event.CreatedAt().Add(coarse).UTC().Format(secondPrefixLayout)
 
-	var value int
-	err := tx.QueryRowContext(
+	rows, err := tx.QueryContext(
 		ctx,
-		`SELECT 1
+		`SELECT e.created_at
 		   FROM events e
 		  WHERE e.kind = ?
 		    AND e.client = ?
@@ -209,9 +219,8 @@ func hookContentEventDuplicateExists(ctx context.Context, tx *sql.Tx, event *mod
 		    AND e.workspace = ?
 		    AND COALESCE(e.source_hook, '') = ?
 		    AND e.body = ?
-		    AND e.created_at >= ?
-		    AND e.created_at <= ?
-		  LIMIT 1`,
+		    AND substr(e.created_at, 1, 19) >= ?
+		    AND substr(e.created_at, 1, 19) <= ?`,
 		event.Kind().String(),
 		event.Client().String(),
 		event.Agent().String(),
@@ -219,16 +228,46 @@ func hookContentEventDuplicateExists(ctx context.Context, tx *sql.Tx, event *mod
 		event.Workspace().String(),
 		event.SourceHook(),
 		event.Body(),
-		from,
-		to,
-	).Scan(&value)
-	if err == nil {
-		return true, nil
+		lowerPrefix,
+		upperPrefix,
+	)
+	if err != nil {
+		return false, xerrors.Errorf("failed to query duplicate hook content event candidates: %w", err)
 	}
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	for rows.Next() {
+		var createdAtText string
+		if err := rows.Scan(&createdAtText); err != nil {
+			return false, xerrors.Errorf("failed to scan duplicate hook content event candidate: %w", err)
+		}
+		candidateAt, err := time.Parse(time.RFC3339Nano, createdAtText)
+		if err != nil {
+			// A malformed historical timestamp must not block the write; skip it
+			// and keep checking the remaining candidates.
+			slog.Debug("skipping unparseable candidate timestamp", "created_at", createdAtText, "error", err)
+			continue
+		}
+		if absDuration(event.CreatedAt().Sub(candidateAt)) <= duplicateHookContentEventWindow {
+			return true, nil
+		}
 	}
-	return false, xerrors.Errorf("failed to check duplicate hook content event: %w", err)
+	if err := rows.Err(); err != nil {
+		return false, xerrors.Errorf("failed to iterate duplicate hook content event candidates: %w", err)
+	}
+	return false, nil
+}
+
+// absDuration returns the absolute value of d.
+func absDuration(d time.Duration) time.Duration {
+	if d < 0 {
+		return -d
+	}
+	return d
 }
 
 // SaveWithAudit persists an event together with its command audit.
