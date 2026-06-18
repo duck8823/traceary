@@ -7,7 +7,12 @@ WITH
       AND (? = '' OR s.client = ?)
       AND (? = '' OR s.agent = ? OR s.subagent_kind = ? OR EXISTS (SELECT 1 FROM events agent_events WHERE agent_events.session_id = s.session_id AND agent_events.agent = ?))
       AND (? = '' OR s.label = ?)
-      AND (? = 0 OR s.ended_at IS NULL)
+      AND (? = 0 OR s.ended_at IS NULL OR EXISTS (
+            SELECT 1
+              FROM events late_ev
+             WHERE late_ev.session_id = s.session_id
+               AND late_ev.created_at > s.ended_at
+          ))
       AND (? = '' OR s.started_at >= ?)
       AND (? = '' OR s.started_at < ?)
     ORDER BY s.started_at DESC

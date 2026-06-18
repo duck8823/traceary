@@ -585,3 +585,72 @@ func TestRootCLI_TopCommand_AppliesActiveFiltersBeforeLimit(t *testing.T) {
 		t.Fatalf("top output should not contain ended sessions, got:\n%s", output)
 	}
 }
+
+func TestRootCLI_TopCommand_SnapshotKeepsEndedWithLateEvents(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	db := sqliteinfra.NewDatabase(dbPath, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+	eventDS := sqliteinfra.NewEventDatasource(db)
+	sessionDS := sqliteinfra.NewSessionDatasource(db)
+	storeUC := usecase.NewStoreManagementUsecase(sqliteinfra.NewStoreManagementDatasource(db))
+	sessionUC := usecase.NewSessionUsecase(eventDS, sessionDS, sessionDS, eventDS)
+
+	if err := storeUC.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	const sid = types.SessionID("codex-late-events")
+	if _, err := sessionUC.Start(ctx, types.Client("hook"), types.Agent("codex"), sid, types.Workspace("workspace-a"), types.SessionID("")); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if _, err := sessionUC.End(ctx, types.Client("hook"), types.Agent("codex"), sid, types.Workspace("workspace-a"), "ended"); err != nil {
+		t.Fatalf("End() error = %v", err)
+	}
+	// A later command arrives under the same session after the end marker,
+	// reproducing the #1172 dogfood failure (Codex Stop closed the session
+	// while the conversation kept going). The active-only snapshot must still
+	// surface it, labeled ended_with_late_events.
+	lateID, _ := types.EventIDFrom("late-command-after-end")
+	lateEvent := model.EventOf(
+		lateID,
+		types.EventKindCommandExecuted,
+		types.Client("hook"),
+		types.Agent("codex"),
+		sid,
+		types.Workspace("workspace-a"),
+		"git status",
+		time.Now().Add(time.Hour).UTC(),
+	)
+	if err := eventDS.Save(ctx, lateEvent); err != nil {
+		t.Fatalf("Save(late event) error = %v", err)
+	}
+
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(storeUC),
+		cli.WithSession(sessionUC),
+		cli.WithDatabasePathSetter(db.SetPath),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"sessions",
+		"--db-path", dbPath,
+		"--workspace", "workspace-a",
+		"--snapshot",
+		"--json",
+		"--allow-stale",
+		"--limit", "20",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "codex-late-events") {
+		t.Fatalf("snapshot should surface the ended-with-late-events session, got:\n%s", output)
+	}
+	if !strings.Contains(output, "ended_with_late_events") {
+		t.Fatalf("snapshot should label the session ended_with_late_events, got:\n%s", output)
+	}
+}

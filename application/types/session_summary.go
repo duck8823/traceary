@@ -118,7 +118,7 @@ func (s SessionSummary) StartedAt() time.Time { return s.startedAt }
 // EndedAt returns when the session ended.
 func (s SessionSummary) EndedAt() domtypes.Optional[time.Time] { return s.endedAt }
 
-// Status returns the session status (active, ended, stale).
+// Status returns the session status (active, stale, ended, ended_with_late_events).
 func (s SessionSummary) Status() string { return s.status }
 
 // TotalEvents returns the total number of events in the session.

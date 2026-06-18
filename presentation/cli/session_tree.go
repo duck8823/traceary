@@ -247,17 +247,24 @@ func pruneEndedLineages(node *sessionNode, opts staleLineageOptions) bool {
 	return isSessionActive(node.summary) || isSessionStaleAllowed(node.summary, opts) || len(node.children) > 0
 }
 
-// isSessionActive treats only sessions with status=active as live. A
-// session that has not received an end event but has aged past the store
+// isSessionActive treats active and ended_with_late_events sessions as live.
+// A session that has not received an end event but has aged past the store
 // timeout is already marked status=stale by the SQLite datasource, and
 // --ongoing-only explicitly promises "at least one active session" — so
-// stale lineages must not resurface as ongoing work.
+// stale lineages must not resurface as ongoing work. ended_with_late_events
+// counts as live because events arrived after the end marker, meaning the
+// session kept going; dropping it would reproduce the #1172 empty snapshot.
 func isSessionActive(summary apptypes.SessionSummary) bool {
-	return summary.Status() == "active"
+	switch types.SessionStatus(summary.Status()) {
+	case types.SessionStatusActive, types.SessionStatusEndedWithLateEvents:
+		return true
+	default:
+		return false
+	}
 }
 
 func isSessionStale(summary apptypes.SessionSummary) bool {
-	return summary.Status() == "stale"
+	return types.SessionStatus(summary.Status()) == types.SessionStatusStale
 }
 
 func isSessionStaleAllowed(summary apptypes.SessionSummary, opts staleLineageOptions) bool {

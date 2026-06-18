@@ -61,6 +61,22 @@ WITH candidate_sessions AS (
                          ended.created_at > started.created_at OR
                          (ended.created_at = started.created_at AND ended.id > started.id)
                     )
+                    -- A session_ended only terminates the session when no later
+                    -- event follows it. Late events (prompts, audits) after an
+                    -- end marker keep the session active, matching the CLI
+                    -- snapshot's ended_with_late_events rule.
+                    AND NOT EXISTS (
+                         SELECT 1
+                           FROM events later_ev
+                          WHERE later_ev.session_id = started.session_id
+                            AND later_ev.client = started.client
+                            AND later_ev.agent = started.agent
+                            AND later_ev.workspace = started.workspace
+                            AND (
+                                 later_ev.created_at > ended.created_at OR
+                                 (later_ev.created_at = ended.created_at AND later_ev.id > ended.id)
+                            )
+                    )
              )
         )
 )

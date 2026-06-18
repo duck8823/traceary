@@ -140,6 +140,61 @@ func TestDatasource_FindLatest(t *testing.T) {
 		}
 	})
 
+	t.Run("active only keeps a session with events after its end marker", func(t *testing.T) {
+		t.Parallel()
+
+		eventDS, sessionDS := newFindLatestScenario(t)
+		// session-late-events: started -> ended -> command_executed after the end.
+		// The trailing command keeps the session active under activeOnly, so MCP
+		// session_status agrees with the CLI snapshot's ended_with_late_events
+		// rule instead of treating the lone session_ended as terminal (#1172).
+		saveFindLatestSessionEventFixture(
+			t,
+			eventDS,
+			"event-late-start",
+			types.EventKindSessionStarted,
+			"session-late-events",
+			"github.com/duck8823/traceary",
+			"session started",
+			time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC),
+		)
+		saveFindLatestSessionEventFixture(
+			t,
+			eventDS,
+			"event-late-end",
+			types.EventKindSessionEnded,
+			"session-late-events",
+			"github.com/duck8823/traceary",
+			"session ended",
+			time.Date(2026, 4, 12, 10, 30, 0, 0, time.UTC),
+		)
+		saveFindLatestSessionEventFixture(
+			t,
+			eventDS,
+			"event-late-cmd",
+			types.EventKindCommandExecuted,
+			"session-late-events",
+			"github.com/duck8823/traceary",
+			"git status",
+			time.Date(2026, 4, 12, 11, 0, 0, 0, time.UTC),
+		)
+
+		result, err := sessionDS.FindLatest(
+			context.Background(),
+			types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), true,
+		)
+		if err != nil {
+			t.Fatalf("FindLatest() error = %v", err)
+		}
+		if _, ok := result.Value(); !ok {
+			t.Fatalf("FindLatest() returned empty, want present")
+		}
+		event, _ := result.Value()
+		if diff := cmp.Diff("event-late-start", event.EventID().String()); diff != "" {
+			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
 	t.Run("returns newest start when multiple starts exist for same session_id", func(t *testing.T) {
 		t.Parallel()
 
