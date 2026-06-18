@@ -2063,7 +2063,7 @@ func TestMemoryUsecase_ExplainExtraction_DroppedFragmentDoesNotConsumeCandidateL
 
 	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-drop-limit"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"codex"}, "", "", domtypes.SessionID(""))
 	body := strings.Join([]string{
-		"Decision: +def _required_env(name):",
+		"Decision: diff --git a/foo.go b/foo.go",
 		"Remember: Check release workflow before announcing completion.",
 	}, "\n")
 	wantFact := "Check release workflow before announcing completion."
@@ -2104,8 +2104,8 @@ func TestMemoryUsecase_ExplainExtraction_DroppedFragmentDoesNotConsumeCandidateL
 	if len(report.Segments) != 2 {
 		t.Fatalf("segments = %d, want 2", len(report.Segments))
 	}
-	if report.Segments[0].Decision != "dropped" || report.Segments[0].Reason != "fragment:diff_fragment" {
-		t.Fatalf("first decision = %s/%s, want dropped/fragment:diff_fragment", report.Segments[0].Decision, report.Segments[0].Reason)
+	if report.Segments[0].Decision != "dropped" || report.Segments[0].Reason != "fragment:diff_header" {
+		t.Fatalf("first decision = %s/%s, want dropped/fragment:diff_header", report.Segments[0].Decision, report.Segments[0].Reason)
 	}
 	if report.Segments[1].Decision != "proposed" {
 		t.Fatalf("second decision = %s, want proposed (real candidate not charged the limit slot)", report.Segments[1].Decision)
@@ -2113,11 +2113,12 @@ func TestMemoryUsecase_ExplainExtraction_DroppedFragmentDoesNotConsumeCandidateL
 }
 
 // TestMemoryUsecase_Extract_HidesNoisyCandidates verifies the two-tier noise
-// routing: unified-diff fragments are dropped entirely (#1169), while every
-// other noise class (generated-code markers, standalone commands, review-only
-// conclusions, work declarations, PR/Round chatter) is routed to the
-// extracted-hidden source — kept for audit and recoverable via
-// --include-hidden — so the default `memory inbox list` view stays clean (#857).
+// routing: only unambiguous unified-diff headers / git metadata are dropped
+// entirely (#1169), while every other noise class — single +/- content lines
+// (which can be flag-prefixed durable prose), generated-code markers, standalone
+// commands, review-only conclusions, work declarations, PR/Round chatter — is
+// routed to the extracted-hidden source, kept for audit and recoverable via
+// --include-hidden, so the default `memory inbox list` view stays clean (#857).
 func TestMemoryUsecase_Extract_HidesNoisyCandidates(t *testing.T) {
 	t.Parallel()
 
@@ -2128,10 +2129,23 @@ func TestMemoryUsecase_Extract_HidesNoisyCandidates(t *testing.T) {
 		wantDropped bool
 	}{
 		{
-			name:        "diff fragment under structured label is dropped",
-			body:        "Decision: +def _required_env(name):",
-			wantFact:    "+def _required_env(name):",
+			name:        "diff header under structured label is dropped",
+			body:        "Decision: diff --git a/foo.go b/foo.go",
+			wantFact:    "diff --git a/foo.go b/foo.go",
 			wantDropped: true,
+		},
+		{
+			// Codex P2: a single +/- content line can be durable prose that
+			// merely starts with a CLI flag or sign. It is hidden (recoverable),
+			// never dropped, unlike the unambiguous diff_header above.
+			name:     "diff content line under structured label is hidden not dropped",
+			body:     "Decision: +def _required_env(name):",
+			wantFact: "+def _required_env(name):",
+		},
+		{
+			name:     "flag-prefixed durable constraint is hidden not dropped",
+			body:     "Constraint: -race must be enabled for Go tests",
+			wantFact: "-race must be enabled for Go tests",
 		},
 		{
 			name:     "generated code marker under structured label is hidden not dropped",

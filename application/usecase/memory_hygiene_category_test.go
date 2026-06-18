@@ -16,9 +16,10 @@ func TestIsDroppableExtractionFragment(t *testing.T) {
 		reasons []string
 		want    bool
 	}{
-		{name: "diff fragment is droppable", reasons: []string{extractionNoiseDiffFragment}, want: true},
+		{name: "diff header is droppable", reasons: []string{extractionNoiseDiffHeader}, want: true},
+		{name: "diff header among other reasons is droppable", reasons: []string{extractionNoiseStandaloneCommand, extractionNoiseDiffHeader}, want: true},
+		{name: "diff fragment content line is not droppable (can be flag-prefixed prose)", reasons: []string{extractionNoiseDiffFragment}, want: false},
 		{name: "generated code is not droppable (substring matcher can misfire on prose)", reasons: []string{extractionNoiseGeneratedCode}, want: false},
-		{name: "diff among other reasons is droppable", reasons: []string{extractionNoiseStandaloneCommand, extractionNoiseDiffFragment}, want: true},
 		{name: "standalone command is not droppable", reasons: []string{extractionNoiseStandaloneCommand}, want: false},
 		{name: "review conclusion is not droppable", reasons: []string{extractionNoiseReviewConclusion}, want: false},
 		{name: "work declaration is not droppable", reasons: []string{extractionNoiseWorkDeclaration}, want: false},
@@ -43,6 +44,7 @@ func TestIsFragmentLikeNoise(t *testing.T) {
 		reasons []string
 		want    bool
 	}{
+		{name: "diff header is fragment-like", reasons: []string{extractionNoiseDiffHeader}, want: true},
 		{name: "diff fragment is fragment-like", reasons: []string{extractionNoiseDiffFragment}, want: true},
 		{name: "generated code is fragment-like", reasons: []string{extractionNoiseGeneratedCode}, want: true},
 		{name: "diff among other reasons is fragment-like", reasons: []string{extractionNoiseStandaloneCommand, extractionNoiseDiffFragment}, want: true},

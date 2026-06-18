@@ -109,7 +109,7 @@ v0.11.0 以降、hook 経由の session 終了 (`traceary hook session <client> 
 
 長さベースの quality filter により、短い候補 (20 rune 未満。artifact ref は除外) は `source=extracted` ではなく `source=extracted-hidden` で保存されます。hidden 行は audit 用に store に残りますが、`traceary memory inbox list` の既定 view には出ません。`--include-hidden` で surface できます。
 
-v0.21.0 以降、明らかな unified-diff fragment — `+`/`-` の diff 形状の行 — は auto-extraction 時に hidden 候補として保存せず、**完全に drop** します。これにより inbox が durable でない diff fragment で埋まらなくなります。明示的な `remember this:` intent は常に drop を上書きします。それ以外の noise (generated-code marker、standalone command、review-only conclusion、work declaration、PR/round chatter) は drop せず従来どおり **hidden** (audit 用に保持され `--include-hidden` で復旧可能) のままです。特に generated-code marker は loose な substring match で検出するため generated file に *言及* した durable な prose にも反応し得るので、drop せず保持します。この変更前に作られた候補は削除されないため、下記の一括アクションで掃除してください。
+v0.21.0 以降、曖昧さのない unified-diff metadata — hunk header と git-diff marker (`@@`、`diff --git`、`index …`、`+++ `/`--- `、`Binary files …`) — のみ auto-extraction 時に **完全に drop** します。これらの行は durable な prose には決してならないためです。明示的な `remember this:` intent は常に drop を上書きします。それ以外の noise は drop せず **hidden** (audit 用に保持され `--include-hidden` で復旧可能) のままです: 単一の `+`/`-` content 行 (CLI flag や符号で始まる durable prose、例: `-race must be enabled for Go tests` のことがある)、generated-code marker (generated file に *言及* した prose にも反応し得る loose な substring match で検出)、standalone command、review-only conclusion、work declaration、PR/round chatter。これらは下記の operator 確認付き cleanup workflow で意図的に掃除してください。この変更前に作られた候補は削除されません。
 
 #### 候補の hygiene
 
