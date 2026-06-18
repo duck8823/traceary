@@ -44,7 +44,7 @@ func SummarizeCandidateHygiene(candidates []apptypes.MemorySummary, now time.Tim
 			counts.Duplicate++
 			flagged = true
 		}
-		if isDroppableExtractionFragment(classifyExtractionNoise(summary.Fact())) {
+		if isFragmentLikeNoise(classifyExtractionNoise(summary.Fact())) {
 			counts.FragmentLike++
 			flagged = true
 		}

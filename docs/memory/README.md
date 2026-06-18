@@ -109,7 +109,7 @@ Since v0.11.0, the hook-driven session-end path (`traceary hook session <client>
 
 A length-based quality filter routes short memory candidates (under 20 runes; artifact refs are exempt) to `source=extracted-hidden` instead of `source=extracted`. The hidden rows stay in the store for audit but are skipped by the default `traceary memory inbox list` view; `--include-hidden` surfaces them.
 
-Since v0.21.0, obvious code/diff fragments — unified-diff `+`/`-` lines and generated-code markers — are **dropped entirely** during auto-extraction rather than stored as hidden candidates, so the inbox no longer fills with non-durable fragments. Explicit `remember this:` intent always overrides the drop. Softer noise classes (standalone commands, review-only conclusions, work declarations, PR/round chatter) are still **hidden** (kept for audit), not dropped. Candidates created before this change are not deleted; clean them up with the bulk action below.
+Since v0.21.0, obvious unified-diff fragments — lines in `+`/`-` diff shape — are **dropped entirely** during auto-extraction rather than stored as hidden candidates, so the inbox no longer fills with non-durable diff fragments. Explicit `remember this:` intent always overrides the drop. Every other noise class — generated-code markers, standalone commands, review-only conclusions, work declarations, PR/round chatter — is still **hidden** (kept for audit and recoverable via `--include-hidden`), not dropped. Generated-code markers in particular are detected by a loose substring match that can also fire on durable prose about generated files, so they are kept rather than discarded. Candidates created before this change are not deleted; clean them up with the bulk action below.
 
 #### Candidate hygiene
 
