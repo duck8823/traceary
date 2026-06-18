@@ -252,7 +252,7 @@ func hookContentEventDuplicateExists(ctx context.Context, tx *sql.Tx, event *mod
 			slog.Debug("skipping unparseable candidate timestamp", "created_at", createdAtText, "error", err)
 			continue
 		}
-		if absDuration(event.CreatedAt().Sub(candidateAt)) <= duplicateHookContentEventWindow {
+		if event.CreatedAt().Sub(candidateAt).Abs() <= duplicateHookContentEventWindow {
 			return true, nil
 		}
 	}
@@ -260,14 +260,6 @@ func hookContentEventDuplicateExists(ctx context.Context, tx *sql.Tx, event *mod
 		return false, xerrors.Errorf("failed to iterate duplicate hook content event candidates: %w", err)
 	}
 	return false, nil
-}
-
-// absDuration returns the absolute value of d.
-func absDuration(d time.Duration) time.Duration {
-	if d < 0 {
-		return -d
-	}
-	return d
 }
 
 // SaveWithAudit persists an event together with its command audit.
