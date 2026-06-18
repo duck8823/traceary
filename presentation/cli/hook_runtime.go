@@ -222,9 +222,9 @@ func (c *RootCLI) runHookSession(
 
 	// Tag downstream events with which host hook fired so
 	// retrospective queries can tell a Claude SessionEnd apart from
-	// a Codex Stop even though both produce a session_ended row
-	// (#672). start / end map to session_start / session_end; stop
-	// is Codex's session-end-equivalent.
+	// a Codex Stop (#672). start / end map to session_start /
+	// session_end; stop is Codex's per-response turn boundary and no
+	// longer produces a session_ended row (#1170).
 	switch action {
 	case "start":
 		ctx = apptypes.WithSourceHook(ctx, "session_start")
@@ -295,7 +295,7 @@ func (c *RootCLI) runHookSession(
 			}
 		}
 		return nil
-	case "end", "stop":
+	case "end":
 		agent, err := resolveHookAgent(client, payload)
 		if err != nil {
 			return err
@@ -365,6 +365,65 @@ func (c *RootCLI) runHookSession(
 		}
 		if err := markHookSessionEnded(client, sessionID); err != nil {
 			return err
+		}
+		return nil
+	case "stop":
+		// Codex fires Stop after every assistant response, not when the
+		// conversation is over: the same Codex session keeps receiving
+		// turns afterwards (one rollout JSONL spans days), so treating
+		// Stop as a session end closed multi-turn sessions early and
+		// emptied active-session reads (#1170). Stop is a turn boundary:
+		// keep the session row open and the hook state intact so later
+		// prompts and tool audits resolve to the same session. A session
+		// now ends via an explicit end signal (hook end action, MCP
+		// manage_session) or stale GC (`traceary session gc`).
+		sessionID := types.SessionID(hookPayloadString(payload, "session_id", ""))
+		if sessionID == "" {
+			var err error
+			sessionID, err = readHookSessionState(client)
+			if err != nil {
+				return err
+			}
+		}
+		if sessionID == "" {
+			return nil
+		}
+		if alreadyEnded, err := hookSessionEndAlreadyRecorded(client, sessionID); err == nil && alreadyEnded {
+			// The session was already ended explicitly; a late stop only
+			// cleans up leftover state so later events cannot re-attach
+			// to the ended session through stale state.
+			if clearErr := clearHookSessionState(client); clearErr != nil {
+				return clearErr
+			}
+			return clearHookWorkspaceState(client)
+		} else if err != nil {
+			return err
+		}
+		// Memory auto-extract stays on the turn boundary because Codex
+		// exposes no true session-end hook — end-only extraction would
+		// never fire for Codex. The extractor is candidate-only and
+		// dedupes against existing candidate keys, so per-turn re-firing
+		// is safe. See #810.
+		if c.memory == nil {
+			return nil
+		}
+		resolvedDBPath, err := resolveDBPath(dbPath)
+		if err != nil {
+			return err
+		}
+		c.applyDatabasePath(resolvedDBPath)
+		if err := c.storeManagement.Initialize(ctx); err != nil {
+			return xerrors.Errorf("failed to initialize store: %w", err)
+		}
+		workspace, err := resolveHookWorkspace(ctx, payload, client, true)
+		if err != nil {
+			return err
+		}
+		if _, err := c.memory.Extract(ctx, apptypes.NewMemoryExtractionCriteriaBuilder().
+			SessionID(sessionID).
+			Workspace(workspace).
+			Build()); err != nil {
+			slog.Debug("hook turn-boundary auto-extract failed", "client", client, "session_id", sessionID, "error", err)
 		}
 		return nil
 	default:

@@ -28,7 +28,7 @@ SessionStart → [UserPromptSubmit → PostToolUse]* → (PreCompact → PostCom
 ### Codex CLI (Tier 2: 部分対応)
 
 ```
-SessionStart → [UserPromptSubmit → PostToolUse]* → Stop
+SessionStart → [UserPromptSubmit → PostToolUse → Stop]*
 ```
 
 | Hook イベント | Traceary イベント種別 | 説明 |
@@ -36,9 +36,9 @@ SessionStart → [UserPromptSubmit → PostToolUse]* → Stop
 | SessionStart | `session_started` | セッション開始 |
 | UserPromptSubmit | `prompt` | ユーザーの指示テキスト |
 | PostToolUse | `command_executed` | ツール実行 |
-| Stop | `session_ended` | セッション終了（`SessionEnd` ではなく `Stop` を使う） |
+| Stop | `transcript` | 各 turn の最終 assistant メッセージ。セッション終了ではなく turn 境界 (#1170) |
 
-**制限**: `compact` hook はなく、failure 専用イベントもありません。
+**制限**: host レベルのセッション終了信号なし — Codex は assistant 応答ごとに `Stop` を fire するため、Codex session は明示的な終了 (MCP `manage_session`) または stale GC (`traceary session gc`) まで開いたままになります。`compact` hook はなく、failure 専用イベントもありません。
 
 ### Gemini CLI (Tier 3: 基本対応)
 
@@ -65,10 +65,10 @@ SessionStart → [AfterTool]* → SessionEnd
 | `command_executed` | コマンド・ツール実行の記録 | PostToolUse hooks |
 | `reviewed` | レビュー結果 | CLI / MCP |
 | `session_started` | セッション開始境界 | SessionStart hooks |
-| `session_ended` | セッション終了境界 | SessionEnd / Stop hooks |
+| `session_ended` | セッション終了境界 | SessionEnd hooks (Claude / Gemini)。Codex には host のセッション終了信号がない (#1170) |
 | `compact_summary` | コンテキスト圧縮時の構造化サマリー | PostCompact hook |
 | `prompt` | ユーザーの指示テキスト | UserPromptSubmit (Claude / Codex), BeforeAgent (Gemini) hooks |
-| `transcript` | 最後の assistant メッセージの text ブロック（reasoning / 説明）。tool_use ブロックは `command_executed` に寄せるため除外する | Stop hook (Claude Code) |
+| `transcript` | 最後の assistant メッセージの text ブロック（reasoning / 説明）。tool_use ブロックは `command_executed` に寄せるため除外する | Stop hook (Claude Code / Codex), AfterAgent (Gemini) |
 
 ## データフロー
 
@@ -98,5 +98,5 @@ AI クライアント (Claude Code / Codex CLI / Gemini CLI)
 | `traceary hook audit <client>` | コマンド・ツール監査の記録 | 全クライアント |
 | `traceary hook compact <client> <post-compact|session-start-compact>` | compact サマリーの記録 / compact resume 出力 | Claude Code |
 | `traceary hook prompt <client>` | ユーザー prompt の記録 | Claude Code, Codex CLI, Gemini CLI |
-| `traceary hook transcript <client>` | assistant 発話の transcript 記録（Stop hook 経由） | Claude Code |
+| `traceary hook transcript <client>` | assistant 発話の transcript 記録（Claude / Codex は Stop hook、Gemini は AfterAgent 経由） | Claude Code, Codex CLI, Gemini CLI |
 | `scripts/hooks/` 配下の shell wrapper | `traceary hook ...` へ転送する互換レイヤー | packaged integration / 既存導入環境 |

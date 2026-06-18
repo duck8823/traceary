@@ -238,7 +238,7 @@ func TestRootCLI_HookSessionCommand_ExplicitParentOverridesInference(t *testing.
 	}
 }
 
-func TestRootCLI_HookSessionCommand_StopUsesStateAndCreatesEndMarker(t *testing.T) {
+func TestRootCLI_HookSessionCommand_EndUsesStateAndCreatesEndMarker(t *testing.T) {
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
 
 	homeDir := t.TempDir()
@@ -277,7 +277,7 @@ func TestRootCLI_HookSessionCommand_StopUsesStateAndCreatesEndMarker(t *testing.
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetIn(strings.NewReader(`{"agent_type":"planner"}`))
-	rootCmd.SetArgs([]string{"hook", "session", "claude", "stop"})
+	rootCmd.SetArgs([]string{"hook", "session", "claude", "end"})
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -355,9 +355,24 @@ func TestRootCLI_HookSessionCommand_StopFiresMemoryAutoExtract(t *testing.T) {
 	if got, want := memoryStub.extractCriteria.Workspace(), types.Workspace("github.com/duck8823/traceary"); got != want {
 		t.Fatalf("auto-extract workspace = %q, want %q", got, want)
 	}
+	// stop is a turn boundary (#1170): the session must stay open and
+	// the hook state must survive so later prompts/audits resolve to
+	// the same session.
+	if got := sessionStub.endCall.sessionID; got != "" {
+		t.Fatalf("session.End called with %q, want no End on stop", got)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "claude-test-key-extract")); err != nil {
+		t.Fatalf("session state should survive stop: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "claude-test-key-extract-repo")); err != nil {
+		t.Fatalf("workspace state should survive stop: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "ended", "claude-auto-extract-session")); !os.IsNotExist(err) {
+		t.Fatalf("stop must not create an end marker: %v", err)
+	}
 }
 
-func TestRootCLI_HookSessionCommand_StopAutoExtractFailureDoesNotPropagate(t *testing.T) {
+func TestRootCLI_HookSessionCommand_EndAutoExtractFailureDoesNotPropagate(t *testing.T) {
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key-extract-fail")
 
 	homeDir := t.TempDir()
@@ -399,7 +414,7 @@ func TestRootCLI_HookSessionCommand_StopAutoExtractFailureDoesNotPropagate(t *te
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetIn(strings.NewReader(`{}`))
-	rootCmd.SetArgs([]string{"hook", "session", "claude", "stop"})
+	rootCmd.SetArgs([]string{"hook", "session", "claude", "end"})
 
 	// runHookBestEffort swallows the error in production, but the test
 	// runtime returns nil too — auto-extract failure must NEVER block
@@ -409,6 +424,178 @@ func TestRootCLI_HookSessionCommand_StopAutoExtractFailureDoesNotPropagate(t *te
 	}
 	if got, want := sessionStub.endCall.sessionID, types.SessionID("auto-extract-fail-session"); got != want {
 		t.Fatalf("session.End sessionID = %q, want %q (must be invoked even when extract fails)", got, want)
+	}
+}
+
+func TestRootCLI_HookSessionCommand_CodexStopKeepsSessionOpen(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "codex-stop-key")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-codex-stop-key"), []byte("codex-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-codex-stop-key-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	storeStub := &storeManagementUsecaseStub{}
+	sessionStub := &sessionUsecaseStub{}
+	memoryStub := &memoryUsecaseStub{
+		extractErr: errors.New("simulated extract failure"),
+	}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(storeStub),
+		cli.WithSession(sessionStub),
+		cli.WithMemory(memoryStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"session_id":"codex-session"}`))
+	rootCmd.SetArgs([]string{"hook", "session", "codex", "stop"})
+
+	// Codex fires Stop after every assistant response (#1170): the stop
+	// action is a turn boundary, so even an extract failure must leave
+	// the session open and the hook state intact.
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got := sessionStub.endCall.sessionID; got != "" {
+		t.Fatalf("session.End called with %q, want no End on codex stop", got)
+	}
+	if got, want := memoryStub.extractCriteria.SessionID(), types.SessionID("codex-session"); got != want {
+		t.Fatalf("auto-extract session ID = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "codex-codex-stop-key")); err != nil {
+		t.Fatalf("session state should survive codex stop: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "codex-codex-stop-key-repo")); err != nil {
+		t.Fatalf("workspace state should survive codex stop: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "ended", "codex-codex-session")); !os.IsNotExist(err) {
+		t.Fatalf("codex stop must not create an end marker: %v", err)
+	}
+}
+
+// TestRootCLI_HookSessionCommand_CodexMultiTurnSessionStaysActive is the
+// regression fixture for #1170. It models the Codex rollout JSONL shape
+// (session_meta -> response_item/turn_context -> Stop transcript -> later
+// turn_context/response_item) at the hook level with synthetic text:
+// `SessionStart -> Stop/transcript -> Prompt -> PostToolUse` must keep one
+// active session until a real session-end signal or stale GC closes it.
+func TestRootCLI_HookSessionCommand_CodexMultiTurnSessionStaysActive(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "codex-multi-turn-key")
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	t.Setenv("TRACEARY_DB_PATH", dbPath)
+	db := sqliteinfra.NewDatabase(dbPath, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+	eventDS := sqliteinfra.NewEventDatasource(db)
+	sessionDS := sqliteinfra.NewSessionDatasource(db)
+	storeUC := usecase.NewStoreManagementUsecase(sqliteinfra.NewStoreManagementDatasource(db))
+	sessionUC := usecase.NewSessionUsecase(eventDS, sessionDS, sessionDS, eventDS)
+	eventUC := usecase.NewEventUsecase(eventDS, eventDS)
+
+	runHook := func(payload string, args ...string) {
+		t.Helper()
+		rootCmd := newTestRootCLI(
+			cli.WithStoreManagement(storeUC),
+			cli.WithSession(sessionUC),
+			cli.WithEvent(eventUC),
+			cli.WithDatabasePathSetter(db.SetPath),
+		).Command()
+		rootCmd.SetOut(&bytes.Buffer{})
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetIn(strings.NewReader(payload))
+		rootCmd.SetArgs(args)
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute(%v) error = %v", args, err)
+		}
+	}
+
+	// Turn 1: session_meta -> assistant response -> Stop (transcript + stop).
+	runHook(`{"session_id":"codex-multi-turn"}`, "hook", "session", "codex", "start")
+	runHook(`{"session_id":"codex-multi-turn","last_assistant_message":"synthetic assistant reply"}`, "hook", "transcript", "codex")
+	runHook(`{"session_id":"codex-multi-turn"}`, "hook", "session", "codex", "stop")
+	// Turn 2 arrives after the Stop: the same session keeps receiving events.
+	runHook(`{"session_id":"codex-multi-turn","prompt":"synthetic follow-up prompt"}`, "hook", "prompt", "codex")
+	runHook(`{"session_id":"codex-multi-turn","tool_input":{"command":"echo synthetic"},"tool_response":{"exitCode":0,"stdout":"ok","stderr":""}}`, "hook", "audit", "codex")
+
+	sqlDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = sqlDB.Close() }()
+
+	var endedAt sql.NullString
+	if err := sqlDB.QueryRow(`SELECT ended_at FROM sessions WHERE session_id = ?`, "codex-multi-turn").Scan(&endedAt); err != nil {
+		t.Fatalf("query sessions.ended_at error = %v", err)
+	}
+	if endedAt.Valid {
+		t.Fatalf("sessions.ended_at = %q, want NULL (stop must not close a multi-turn session)", endedAt.String)
+	}
+
+	wantKinds := map[string]int{
+		"session_started":  1,
+		"transcript":       1,
+		"prompt":           1,
+		"command_executed": 1,
+		"session_ended":    0,
+	}
+	for kind, want := range wantKinds {
+		var got int
+		if err := sqlDB.QueryRow(`SELECT COUNT(*) FROM events WHERE session_id = ? AND kind = ?`, "codex-multi-turn", kind).Scan(&got); err != nil {
+			t.Fatalf("query %s count error = %v", kind, err)
+		}
+		if got != want {
+			t.Fatalf("%s events = %d, want %d", kind, got, want)
+		}
+	}
+
+	// Active-session reads must include the ongoing session: the
+	// row-based snapshot (sessions --snapshot) and the event-based
+	// active read (session active) have to agree (#1170 acceptance).
+	snapshotOut := &bytes.Buffer{}
+	snapshotCmd := newTestRootCLI(
+		cli.WithStoreManagement(storeUC),
+		cli.WithSession(sessionUC),
+		cli.WithDatabasePathSetter(db.SetPath),
+	).Command()
+	snapshotCmd.SetOut(snapshotOut)
+	snapshotCmd.SetErr(&bytes.Buffer{})
+	snapshotCmd.SetArgs([]string{"sessions", "--snapshot", "--json", "--db-path", dbPath, "--workspace", "github.com/duck8823/traceary"})
+	if err := snapshotCmd.Execute(); err != nil {
+		t.Fatalf("Execute(sessions --snapshot --json) error = %v", err)
+	}
+	if !strings.Contains(snapshotOut.String(), `"session_id": "codex-multi-turn"`) {
+		t.Fatalf("sessions --snapshot should include the ongoing codex session, got: %s", snapshotOut.String())
+	}
+
+	activeOut := &bytes.Buffer{}
+	activeCmd := newTestRootCLI(
+		cli.WithStoreManagement(storeUC),
+		cli.WithSession(sessionUC),
+		cli.WithDatabasePathSetter(db.SetPath),
+	).Command()
+	activeCmd.SetOut(activeOut)
+	activeCmd.SetErr(&bytes.Buffer{})
+	activeCmd.SetArgs([]string{"session", "active", "--json", "--db-path", dbPath, "--workspace", "github.com/duck8823/traceary"})
+	if err := activeCmd.Execute(); err != nil {
+		t.Fatalf("Execute(session active --json) error = %v", err)
+	}
+	if !strings.Contains(activeOut.String(), "codex-multi-turn") {
+		t.Fatalf("session active should return the ongoing codex session, got: %s", activeOut.String())
 	}
 }
 

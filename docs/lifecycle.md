@@ -28,7 +28,7 @@ SessionStart → [UserPromptSubmit → PostToolUse]* → (PreCompact → PostCom
 ### Codex CLI (Tier 2: Partial)
 
 ```
-SessionStart → [UserPromptSubmit → PostToolUse]* → Stop
+SessionStart → [UserPromptSubmit → PostToolUse → Stop]*
 ```
 
 | Hook Event | Traceary Event Kind | Description |
@@ -36,9 +36,9 @@ SessionStart → [UserPromptSubmit → PostToolUse]* → Stop
 | SessionStart | `session_started` | Session start |
 | UserPromptSubmit | `prompt` | User instruction text |
 | PostToolUse | `command_executed` | Tool execution |
-| Stop | `session_ended` | Session end (uses Stop instead of SessionEnd) |
+| Stop | `transcript` | Final assistant message of each turn; a turn boundary, not a session end (#1170) |
 
-**Limitations**: No `compact` hooks, no failure-specific events.
+**Limitations**: No host-level session-end signal — Codex fires `Stop` after every assistant response, so a Codex session stays open until an explicit end (MCP `manage_session`) or stale GC (`traceary session gc`). No `compact` hooks, no failure-specific events.
 
 ### Gemini CLI (Tier 3: Basic)
 
@@ -65,10 +65,10 @@ SessionStart → [AfterTool]* → SessionEnd
 | `command_executed` | Command or tool execution record | PostToolUse hooks |
 | `reviewed` | Review result | CLI / MCP |
 | `session_started` | Session start boundary | SessionStart hooks |
-| `session_ended` | Session end boundary | SessionEnd / Stop hooks |
+| `session_ended` | Session end boundary | SessionEnd hooks (Claude / Gemini); Codex has no host session-end signal (#1170) |
 | `compact_summary` | Structured summary from context compression | PostCompact hook |
 | `prompt` | User instruction text | UserPromptSubmit (Claude / Codex), BeforeAgent (Gemini) hooks |
-| `transcript` | Last assistant-message text blocks (reasoning / explanation). Tool-use blocks are excluded — those are captured by `command_executed`. | Stop hook (Claude Code) |
+| `transcript` | Last assistant-message text blocks (reasoning / explanation). Tool-use blocks are excluded — those are captured by `command_executed`. | Stop hook (Claude Code / Codex), AfterAgent (Gemini) |
 
 ## Data Flow
 
@@ -98,5 +98,5 @@ AI Client (Claude Code / Codex CLI / Gemini CLI)
 | `traceary hook audit <client>` | Command/tool audit | All |
 | `traceary hook compact <client> <post-compact|session-start-compact>` | Compact summary recording / compact resume output | Claude Code |
 | `traceary hook prompt <client>` | User prompt recording | Claude Code, Codex CLI, Gemini CLI |
-| `traceary hook transcript <client>` | Assistant-message transcript recording (Stop hook) | Claude Code |
+| `traceary hook transcript <client>` | Assistant-message transcript recording (Stop hook for Claude / Codex, AfterAgent for Gemini) | Claude Code, Codex CLI, Gemini CLI |
 | packaged shell wrappers under `scripts/hooks/` | Compatibility layer that forwards into `traceary hook ...` | Packaged integrations / legacy installs |

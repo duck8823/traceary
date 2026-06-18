@@ -21,7 +21,7 @@
 | `command_executed` | ● `PostToolUse` + `PostToolUseFailure` (Bash, `mcp__.*`, built-in tool matcher) | ● `PostToolUse` | ● `AfterTool` | `traceary list events --kind command_executed --limit 5` |
 | `transcript` | ● `Stop` | ● `Stop` (`last_assistant_message`) | ● `AfterAgent` | `traceary list events --kind transcript --limit 5` |
 | `compact_summary` | ● `PostCompact` (+ `PreCompact` marker, `SessionStart matcher=compact` で resume) | ✕ Codex 0.125 に compact hook なし (upstream openai/codex#16098) | ● `PreCompress` (marker のみ — Gemini に post-compress 側 hook はない) | `traceary list events --kind compact_summary --limit 5` |
-| `session_ended` | ● `SessionEnd` | ● `Stop` (best effort — Codex に `SessionEnd` は無い) | ● `SessionEnd` | `traceary list events --kind session_ended --limit 5` |
+| `session_ended` | ● `SessionEnd` | ✕ host のセッション終了信号なし — Codex `Stop` は応答ごとの turn 境界でありセッション終了ではない (#1170)。終了は MCP `manage_session` または stale GC 経由 | ● `SessionEnd` | `traceary list events --kind session_ended --limit 5` |
 
 ### Traceary 未配線のホスト hook
 

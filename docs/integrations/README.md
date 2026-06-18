@@ -16,7 +16,7 @@ These packages all share the same runtime contract:
 | Capability | Shared behavior |
 | --- | --- |
 | MCP server | exposes the Traceary read/write tools through `traceary mcp-server` |
-| Session hooks | records session start/end (or `Stop` on Codex) as Traceary events |
+| Session hooks | records session start/end as Traceary events (Codex `Stop` is a per-turn boundary, not a session end — #1170) |
 | Shell audit hooks | records shell-command executions through `traceary audit` |
 | Doctor flow | uses `traceary doctor --client <host>` for troubleshooting; add `--fix` to apply safe hook/MCP remediations and `--dry-run` to preview writes |
 | Versioning | integration packages are published together with Traceary releases |

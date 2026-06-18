@@ -43,7 +43,7 @@ Traceary no longer installs portable hook-script copies under `~/.config/tracear
 | Client | Settings file | Session start | Session end | Audit hook | Notes |
 | --- | --- | --- | --- | --- | --- |
 | Claude Code | `.claude/settings.json` or `~/.claude/settings.json` | `SessionStart` | `SessionEnd` | `PostToolUse` + `PostToolUseFailure` with `matcher: "Bash"`, `matcher: "mcp__.*"`, and the built-in tool matcher (`Read\|NotebookRead\|Edit\|MultiEdit\|Write\|NotebookEdit\|Grep\|Glob\|Agent\|Task\|TodoWrite\|WebFetch\|WebSearch\|ExitPlanMode`) | Anthropic's current docs define `Stop` as a per-response hook, not a session-end hook. |
-| Codex CLI (`codex-cli 0.118.0`) | `~/.codex/hooks.json` | `SessionStart` | `Stop` (best effort) | `PostToolUse` | The installed Codex build exposes `SessionStart`, `Stop`, `PreToolUse`, `PostToolUse`, `Notification`, `PermissionDenied`, `UserPromptSubmit`, and `Elicitation` in local binary strings. A dedicated `SessionEnd` hook was not found locally. |
+| Codex CLI (`codex-cli 0.118.0`) | `~/.codex/hooks.json` | `SessionStart` | none (MCP `manage_session` / stale GC) | `PostToolUse` | The installed Codex build exposes `SessionStart`, `Stop`, `PreToolUse`, `PostToolUse`, `Notification`, `PermissionDenied`, `UserPromptSubmit`, and `Elicitation` in local binary strings. No dedicated `SessionEnd`; `Stop` fires per assistant response so Traceary treats it as a turn-boundary transcript, not a session end (#1170). |
 | Gemini CLI (`gemini-cli 0.36.0`) | `.gemini/settings.json` or `~/.gemini/settings.json` | `SessionStart` | `SessionEnd` | `AfterTool` with `matcher: "run_shell_command"` | Hooks are JSON-over-stdin / JSON-over-stdout and `SessionEnd` is best effort. |
 
 ## What gets recorded
@@ -225,9 +225,8 @@ For SQLite concurrency expectations, PPID-based hook state caveats, and other kn
 1. Copy `examples/hooks/codex.hooks.json` into `~/.codex/hooks.json`.
 2. Ensure `traceary` is available in `PATH`, or regenerate the config with `--traceary-bin` so it uses a pinned binary path.
 3. Start a Codex session and inspect `traceary list --limit 10`.
-4. If `Stop` proves to be per-turn in your installed Codex build, keep the session-start hook and treat the stop hook as best-effort only.
 
-Codex session end capture is intentionally documented as best effort. Traceary can record a useful stop event when the installed Codex build exposes `Stop`, but it does not promise the same session-end fidelity as Claude Code or Gemini CLI.
+Codex `Stop` fires after every assistant response, so Traceary records it as a turn-boundary transcript and keeps the session open (#1170). A Codex session ends only via an explicit end signal (MCP `manage_session`) or stale GC (`traceary session gc`).
 
 ### Gemini CLI
 
