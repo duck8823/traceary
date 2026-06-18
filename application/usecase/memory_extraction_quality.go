@@ -25,28 +25,30 @@ var (
 	// prose, so they are kept hidden (recoverable via --include-hidden) rather
 	// than dropped at extraction (#1169): a single +/- content line (e.g.
 	// "+func handler()" or a fact starting with a CLI flag like "-race must be
-	// enabled"), and file/hunk/binary markers that are NOT in genuine
-	// unified-diff form (e.g. "--- separates YAML documents", "@@ is NumPy's
-	// matmul operator", "Binary files are stored as blobs"). The leading +/-
-	// branch allows tab- and 2+ space-indented fragments (e.g. "+\tfunc
-	// handler()" or "+  func main() {") while still rejecting single-space
-	// markdown bullets like "+ list item".
-	diffContentPrefixPattern = regexp.MustCompile(`^(?:[+-](?:[^\s+\-]|\t| {2,})|(?:---|\+\+\+) |@@ |Binary files )`)
+	// enabled"), and diff/file/hunk/binary tokens that are NOT in genuine
+	// unified-diff form (e.g. "diff --git output must be redacted", "--- separates
+	// YAML documents", "@@ is NumPy's matmul operator", "Binary files are stored
+	// as blobs"). The leading +/- branch allows tab- and 2+ space-indented
+	// fragments (e.g. "+\tfunc handler()" or "+  func main() {") while still
+	// rejecting single-space markdown bullets like "+ list item".
+	diffContentPrefixPattern = regexp.MustCompile(`^(?:[+-](?:[^\s+\-]|\t| {2,})|diff --git |(?:---|\+\+\+) |@@ |Binary files )`)
 
 	// diffHeaderPrefixPattern matches ONLY genuine unified-diff / git metadata
 	// whose structure cannot occur in durable prose, so it is the sole reason
-	// safe to drop silently at extraction (#1169): the `diff --git` command
-	// header, the git `index <hex>..<hex>` blob line, a fully-formed hunk header
-	// (`@@ -N,M +N,M @@`), git file markers whose path is `a/`, `b/`, or
-	// `/dev/null`, and a binary-diff line ending in `differ`. Looser
-	// `---`/`+++`/`@@`/`Binary files` prefixes that can be prose fall through to
-	// diffContentPrefixPattern and stay hidden.
+	// safe to drop silently at extraction (#1169): a `diff --git a/… b/…`
+	// command header, the git `index <hex>..<hex>` blob line, a fully-formed hunk
+	// header (`@@ -N,M +N,M @@`), git file markers whose path is `a/`, `b/`, or
+	// `/dev/null`, and a `Binary files a/… differ` (or `/dev/null`) line. Each
+	// alternative requires the real diff shape — bare `diff --git`/`---`/`+++`/
+	// `@@`/`Binary files` prefixes that can open durable prose (e.g. "diff --git
+	// output must be redacted") fall through to diffContentPrefixPattern and stay
+	// hidden, never dropped.
 	diffHeaderPrefixPattern = regexp.MustCompile(`^(?:` +
-		`diff --git ` +
+		`diff --git a/.+ b/.+` +
 		`|index [0-9a-fA-F]{4,}\.\.[0-9a-fA-F]{4,}` +
 		`|@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@` +
 		`|(?:---|\+\+\+) (?:a/|b/|/dev/null)` +
-		`|Binary files .+ differ$` +
+		`|Binary files (?:a/|/dev/null).+ differ$` +
 		`)`)
 
 	standaloneCommandPattern = regexp.MustCompile(`(?i)^` +
@@ -208,11 +210,12 @@ func classifyExtractionNoise(fact string) []string {
 // isDroppableExtractionFragment reports whether the noise reasons identify a
 // fragment that is safe to silently discard at extraction rather than keep as a
 // durable-memory candidate (#1169). Only diff_header qualifies, and it is
-// matched on full unified-diff / git structure — `diff --git`, a git
+// matched on full unified-diff / git structure — `diff --git a/… b/…`, a git
 // `index <hex>..<hex>` line, a complete hunk header (`@@ -N,M +N,M @@`), a file
-// marker whose path is `a/`, `b/`, or `/dev/null`, or a `Binary files ... differ`
-// line — never on a bare `@@`/`---`/`+++`/`Binary files` prefix that could open
-// durable prose (e.g. "--- separates YAML documents"). Every other noise reason
+// marker whose path is `a/`, `b/`, or `/dev/null`, or a `Binary files a/… differ`
+// line — never on a bare `diff --git`/`@@`/`---`/`+++`/`Binary files` prefix that
+// could open durable prose (e.g. "diff --git output must be redacted", "--- separates
+// YAML documents"). Every other noise reason
 // — including diff_fragment (a single +/- content line, or a loose
 // `@@`/`---`/`+++`/`Binary files` prefix, which can be durable prose starting
 // with a CLI flag, sign, or such a token) and generated_code (a loose substring
