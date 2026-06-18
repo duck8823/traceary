@@ -38,18 +38,19 @@ var (
 	// silently at extraction (#1169): a `diff --git a/<path> b/<path>` command
 	// header, the git `index <hex>..<hex>[ <mode>]` blob line, a hunk header
 	// (`@@ -N,M +N,M @@`), a file marker whose path is `a/<path>`, `b/<path>`, or
-	// `/dev/null`, and a `Binary files a/… differ` (or `/dev/null`) line. The
-	// surrounding ^(?:…)$ anchors every alternative to the whole line and the
-	// paths are non-space, so a real-looking header that continues into prose
-	// (e.g. "diff --git a/foo b/foo output must be redacted", "@@ -1,3 +1,5 @@
-	// marks a hunk") does NOT match and falls through to diffContentPrefixPattern
-	// to stay hidden, never dropped.
+	// `/dev/null`, and a `Binary files <old> and <new> differ` line whose paths
+	// are `a/<path>`/`b/<path>`/`/dev/null`. The surrounding ^(?:…)$ anchors every
+	// alternative to the whole line, every path segment is non-space (no
+	// unbounded `.+`), so a real-looking header that continues into prose (e.g.
+	// "diff --git a/foo b/foo output must be redacted", "@@ -1,3 +1,5 @@ marks a
+	// hunk", "Binary files a/foo and b/foo must not differ") does NOT match and
+	// falls through to diffContentPrefixPattern to stay hidden, never dropped.
 	diffHeaderPrefixPattern = regexp.MustCompile(`^(?:` +
 		`diff --git a/\S+ b/\S+` +
 		`|index [0-9a-fA-F]{4,}\.\.[0-9a-fA-F]{4,}(?: [0-7]{6})?` +
 		`|@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@` +
 		`|(?:---|\+\+\+) (?:a/\S+|b/\S+|/dev/null)` +
-		`|Binary files (?:a/|/dev/null).+ differ` +
+		`|Binary files (?:a/\S+|/dev/null) and (?:b/\S+|/dev/null) differ` +
 		`)$`)
 
 	standaloneCommandPattern = regexp.MustCompile(`(?i)^` +
