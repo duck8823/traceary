@@ -220,6 +220,7 @@ type topReliabilityMetrics struct {
 	LowQualityCount      int
 	MemoryScanLimit      int
 	MemoryScanLimited    bool
+	CandidateHygiene     apptypes.CandidateHygieneCounts
 
 	CandidateAge  topCandidateAgeMetrics
 	LargePayloads topLargePayloadMetrics
@@ -242,6 +243,12 @@ type topLargePayloadMetrics struct {
 }
 
 const topReliabilityMemoryScanLimit = 2000
+
+// candidateHygieneStaleThreshold marks a candidate as stale once it has gone
+// unreviewed past this age. It matches the gc retention for unreviewed
+// extracted candidates (14 days), so a stale candidate here is one the store GC
+// would eventually delete.
+const candidateHygieneStaleThreshold = 14 * 24 * time.Hour
 
 // topDataLoader fetches every data slice the redesigned `traceary top`
 // dashboard needs (active session tree, recent failures, recent
@@ -568,6 +575,10 @@ func (l *topDataLoader) loadReliabilityMetrics(ctx context.Context, c topDataCri
 			metrics.CandidateAge = topCandidateAgeMetricsAdd(metrics.CandidateAge, summary.UpdatedAt(), topDataNow(c))
 		}
 	}
+	// Candidate hygiene composition is summarised over the same bounded scan
+	// (no extra query); when saturated the counts reflect the scanned sample,
+	// signalled by MemoryScanLimited just like the per-status breakdowns.
+	metrics.CandidateHygiene = usecase.SummarizeCandidateHygiene(memories, topDataNow(c), candidateHygieneStaleThreshold)
 	// When the bounded scan saturated, the per-status totals above undercount.
 	// Replace the accepted/candidate totals with true COUNTs when the memory
 	// service supports it; the finer breakdowns stay scan-limited (signalled by

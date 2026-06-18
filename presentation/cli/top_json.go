@@ -91,6 +91,13 @@ func topSnapshotReliabilityMemoryFromMetrics(metrics topReliabilityMetrics) topS
 		CandidateCount:   metrics.CandidateMemoryCount,
 		ScanLimit:        metrics.MemoryScanLimit,
 		ScanLimitReached: metrics.MemoryScanLimited,
+		CandidateHygiene: topSnapshotCandidateHygiene{
+			StaleCount:            metrics.CandidateHygiene.Stale,
+			DuplicateCount:        metrics.CandidateHygiene.Duplicate,
+			FragmentLikeCount:     metrics.CandidateHygiene.FragmentLike,
+			ExtractedHiddenCount:  metrics.CandidateHygiene.ExtractedHidden,
+			LikelyActionableCount: metrics.CandidateHygiene.LikelyActionable,
+		},
 	}
 	total := metrics.AcceptedMemoryCount + metrics.CandidateMemoryCount
 	if total > 0 {
