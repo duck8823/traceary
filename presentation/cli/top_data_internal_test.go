@@ -175,6 +175,85 @@ func TestTopDataLoader_LoadSnapshot_UsesTrueCountsWhenScanSaturated(t *testing.T
 	}
 }
 
+// TestTopDataLoader_LoadSnapshot_HygieneUsesCandidateOnlyScanWhenSaturated
+// guards #1169 (Codex round-6): when the mixed accepted+candidate scan
+// saturates on newer accepted rows, the candidate hygiene summary must come
+// from a bounded candidate-only scan rather than the starved mixed sample, so a
+// nonzero candidate_count is never reported with all-zero hygiene.
+func TestTopDataLoader_LoadSnapshot_HygieneUsesCandidateOnlyScanWhenSaturated(t *testing.T) {
+	t.Parallel()
+
+	now := fixedStartedAt.Add(48 * time.Hour)
+	// The mixed scan saturates entirely on accepted rows; no candidate would
+	// reach the hygiene sample if it reused this slice.
+	accepted := memorySummaryWithUpdatedAt(t, "mem-accepted", domtypes.MemoryStatusAccepted, now.Add(-time.Hour))
+	saturatedAccepted := make([]apptypes.MemorySummary, 0, topReliabilityMemoryScanLimit)
+	for i := 0; i < topReliabilityMemoryScanLimit; i++ {
+		saturatedAccepted = append(saturatedAccepted, accepted)
+	}
+	// The candidate-only scan returns real candidates with hygiene signals: one
+	// fresh actionable note and one stale note.
+	candidateRows := []apptypes.MemorySummary{
+		memorySummaryWithFactAndUpdatedAt(t, "cand-fresh", domtypes.MemoryStatusCandidate, "Prefer table-driven tests for new code", now.Add(-time.Hour)),
+		memorySummaryWithFactAndUpdatedAt(t, "cand-stale", domtypes.MemoryStatusCandidate, "Use cmp.Diff for assertions", now.Add(-30*24*time.Hour)),
+	}
+
+	var hygieneScanCalls int
+	memory := &topDataMemoryStub{
+		countResult: apptypes.MemoryStatusCounts{Accepted: topReliabilityMemoryScanLimit, Candidate: 2},
+		listFunc: func(criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
+			statuses := criteria.Statuses()
+			candidateOnly := len(statuses) == 1 && statuses[0] == domtypes.MemoryStatusCandidate
+			switch {
+			case candidateOnly && !criteria.RememberIntentPriority():
+				// Reliability candidate-only hygiene scan (no remember-intent
+				// ordering, unlike the candidate pane's loadCandidates scan).
+				hygieneScanCalls++
+				return candidateRows, nil
+			case candidateOnly:
+				// Candidate pane (loadCandidates) — also candidate-only but
+				// remember-intent prioritised.
+				return candidateRows, nil
+			default:
+				// Mixed reliability scan on [Accepted, Candidate].
+				return saturatedAccepted, nil
+			}
+		},
+	}
+	loader := newTopDataLoader(nil, nil, memory)
+
+	snap, err := loader.loadSnapshot(context.Background(), topDataCriteria{
+		CandidateLimit:   1,
+		StaleMemoryLimit: 1,
+		StaleAfter:       24 * time.Hour,
+		Now:              now,
+	})
+	if err != nil {
+		t.Fatalf("loadSnapshot() error = %v", err)
+	}
+
+	if !snap.Reliability.MemoryScanLimited {
+		t.Fatalf("MemoryScanLimited = false, want true when the mixed scan returns the cap")
+	}
+	if hygieneScanCalls != 1 {
+		t.Fatalf("candidate-only hygiene scan calls = %d, want 1 when the mixed scan saturated", hygieneScanCalls)
+	}
+	if got, want := snap.Reliability.CandidateMemoryCount, 2; got != want {
+		t.Fatalf("CandidateMemoryCount = %d, want %d (true count)", got, want)
+	}
+	hygiene := snap.Reliability.CandidateHygiene
+	if hygiene.LikelyActionable != 1 {
+		t.Fatalf("CandidateHygiene.LikelyActionable = %d, want 1 (from candidate-only scan, not the starved mixed sample)", hygiene.LikelyActionable)
+	}
+	if hygiene.Stale != 1 {
+		t.Fatalf("CandidateHygiene.Stale = %d, want 1 (from candidate-only scan)", hygiene.Stale)
+	}
+	total := hygiene.Stale + hygiene.Duplicate + hygiene.FragmentLike + hygiene.ExtractedHidden + hygiene.LikelyActionable
+	if total == 0 {
+		t.Fatalf("CandidateHygiene all zero with CandidateMemoryCount=%d — hygiene was starved by the mixed scan", snap.Reliability.CandidateMemoryCount)
+	}
+}
+
 // fixedStartedAt is the deterministic anchor every fixture in this file
 // derives session/event timestamps from. Pinning a single instant keeps
 // table-driven assertions readable without `time.Now()` drift.
