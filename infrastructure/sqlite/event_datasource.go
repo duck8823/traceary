@@ -46,6 +46,15 @@ var listTimelineBlocksQuery string
 
 const duplicateHookCommandAuditWindow = 2 * time.Second
 
+// duplicateHookContentEventWindow bounds the duplicate-suppression window for
+// hook-originated content events (prompt / transcript). Hosts occasionally
+// re-fire these hooks in immediate succession (~1ms apart), producing identical
+// rows that double the noise in context retrieval, memory extraction, and
+// operator review. It is intentionally a separate constant from
+// duplicateHookCommandAuditWindow: command audits keep their own semantics
+// (command re-runs are meaningful), so the two windows must be able to diverge.
+const duplicateHookContentEventWindow = 2 * time.Second
+
 // EventDatasource is the SQLite-backed implementation of the event
 // repository and event query service.
 type EventDatasource struct {
@@ -81,6 +90,10 @@ func (d *EventDatasource) Save(ctx context.Context, event *model.Event) error {
 		}
 	}()
 
+	if isDedupEligibleHookContentEvent(event) {
+		return d.saveDedupedHookContentEvent(ctx, db, event)
+	}
+
 	if _, err := db.ExecContext(
 		ctx,
 		insertEventQuery,
@@ -98,6 +111,155 @@ func (d *EventDatasource) Save(ctx context.Context, event *model.Event) error {
 	}
 
 	return nil
+}
+
+// isDedupEligibleHookContentEvent reports whether an event should pass through
+// the duplicate-window guard. Only hook-originated prompt/transcript content is
+// eligible: direct CLI / MCP writes (non-"hook" client) and other kinds
+// (note, session boundaries, compact_summary, reviewed, command_executed) keep
+// the unconditional insert path. Command audits are handled separately by
+// SaveWithAudit and are deliberately excluded here.
+func isDedupEligibleHookContentEvent(event *model.Event) bool {
+	if event.Client().String() != "hook" {
+		return false
+	}
+	switch event.Kind() {
+	case types.EventKindPrompt, types.EventKindTranscript:
+		return true
+	default:
+		return false
+	}
+}
+
+// saveDedupedHookContentEvent inserts a hook-originated content event unless an
+// identical one already exists within duplicateHookContentEventWindow. The
+// duplicate check and the insert run in a single transaction, mirroring
+// SaveWithAudit, so the guard and the write are atomic.
+func (d *EventDatasource) saveDedupedHookContentEvent(ctx context.Context, db *sql.DB, event *model.Event) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return xerrors.Errorf("failed to begin hook content event transaction: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			slog.Debug("failed to rollback transaction", "error", err)
+		}
+	}()
+
+	duplicate, err := hookContentEventDuplicateExists(ctx, tx, event)
+	if err != nil {
+		return err
+	}
+	if duplicate {
+		slog.Debug(
+			"suppressed duplicate hook content event within window",
+			"kind", event.Kind().String(),
+			"client", event.Client().String(),
+			"agent", event.Agent().String(),
+			"session_id", event.SessionID().String(),
+			"workspace", event.Workspace().String(),
+			"source_hook", event.SourceHook(),
+			"window", duplicateHookContentEventWindow.String(),
+		)
+		return nil
+	}
+
+	if _, err := tx.ExecContext(
+		ctx,
+		insertEventQuery,
+		event.EventID().String(),
+		event.Kind().String(),
+		event.Client().String(),
+		event.Agent().String(),
+		event.SessionID().String(),
+		event.Workspace().String(),
+		event.Body(),
+		formatTimestamp(event.CreatedAt()),
+		nullableString(event.SourceHook()),
+	); err != nil {
+		return xerrors.Errorf("failed to insert event: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return xerrors.Errorf("failed to commit hook content event transaction: %w", err)
+	}
+
+	return nil
+}
+
+// hookContentEventDuplicateExists reports whether an identical hook content
+// event already exists within duplicateHookContentEventWindow of the new
+// event's created_at. The identity tuple matches the audit guard's shape minus
+// the command_audits join: kind, client, agent, session_id, workspace,
+// source_hook, and body. kind is bound to the event's own kind, so a prompt
+// never deduplicates a transcript.
+//
+// events.created_at is stored as variable-width RFC3339Nano (see
+// formatTimestamp), which is NOT lexically ordered the same as real time: e.g.
+// "…00.5Z" sorts before "…00Z". A plain TEXT range over created_at can thus
+// miss a genuine duplicate or over-suppress near fractional-second boundaries.
+// We therefore coarsely pre-filter on the fixed-width whole-second prefix
+// (substr 1..19 is always "YYYY-MM-DDTHH:MM:SS" for the UTC timestamps
+// formatTimestamp emits), widened by an extra second so it is a guaranteed
+// superset of the true window, then compare parsed timestamps exactly in Go.
+func hookContentEventDuplicateExists(ctx context.Context, tx *sql.Tx, event *model.Event) (bool, error) {
+	const secondPrefixLayout = "2006-01-02T15:04:05"
+	coarse := duplicateHookContentEventWindow + time.Second
+	lowerPrefix := event.CreatedAt().Add(-coarse).UTC().Format(secondPrefixLayout)
+	upperPrefix := event.CreatedAt().Add(coarse).UTC().Format(secondPrefixLayout)
+
+	rows, err := tx.QueryContext(
+		ctx,
+		`SELECT e.created_at
+		   FROM events e
+		  WHERE e.kind = ?
+		    AND e.client = ?
+		    AND e.agent = ?
+		    AND e.session_id = ?
+		    AND e.workspace = ?
+		    AND COALESCE(e.source_hook, '') = ?
+		    AND e.body = ?
+		    AND substr(e.created_at, 1, 19) >= ?
+		    AND substr(e.created_at, 1, 19) <= ?`,
+		event.Kind().String(),
+		event.Client().String(),
+		event.Agent().String(),
+		event.SessionID().String(),
+		event.Workspace().String(),
+		event.SourceHook(),
+		event.Body(),
+		lowerPrefix,
+		upperPrefix,
+	)
+	if err != nil {
+		return false, xerrors.Errorf("failed to query duplicate hook content event candidates: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	for rows.Next() {
+		var createdAtText string
+		if err := rows.Scan(&createdAtText); err != nil {
+			return false, xerrors.Errorf("failed to scan duplicate hook content event candidate: %w", err)
+		}
+		candidateAt, err := time.Parse(time.RFC3339Nano, createdAtText)
+		if err != nil {
+			// A malformed historical timestamp must not block the write; skip it
+			// and keep checking the remaining candidates.
+			slog.Debug("skipping unparseable candidate timestamp", "created_at", createdAtText, "error", err)
+			continue
+		}
+		if event.CreatedAt().Sub(candidateAt).Abs() <= duplicateHookContentEventWindow {
+			return true, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, xerrors.Errorf("failed to iterate duplicate hook content event candidates: %w", err)
+	}
+	return false, nil
 }
 
 // SaveWithAudit persists an event together with its command audit.
