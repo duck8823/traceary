@@ -47,6 +47,12 @@ func TestClassifyExtractionNoise(t *testing.T) {
 		// never the droppable diff_header (#1169 Codex round-7 finding).
 		{name: "diff-git prefixed durable decision", fact: "diff --git output must be redacted before sharing logs", want: []string{"diff_fragment"}},
 		{name: "binary files differ prose without paths", fact: "Binary files a and b differ in encoding only", want: []string{"diff_fragment"}},
+		// A real-looking header that then continues into prose must NOT drop:
+		// the drop alternatives are anchored to the whole line (#1169 Codex
+		// round-8 finding).
+		{name: "diff-git header then prose", fact: "diff --git a/foo b/foo output must be redacted before sharing logs", want: []string{"diff_fragment"}},
+		{name: "hunk header then prose", fact: "@@ -1,3 +1,5 @@ marks a hunk", want: []string{"diff_fragment"}},
+		{name: "file header then prose", fact: "--- a/foo.go is the old-file marker", want: []string{"diff_fragment"}},
 		// Genuine diff structure still drops as diff_header.
 		{name: "file header minus dev-null", fact: "--- /dev/null", want: []string{"diff_header"}},
 		{name: "file header plus dev-null", fact: "+++ /dev/null", want: []string{"diff_header"}},

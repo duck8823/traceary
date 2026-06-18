@@ -33,23 +33,24 @@ var (
 	// rejecting single-space markdown bullets like "+ list item".
 	diffContentPrefixPattern = regexp.MustCompile(`^(?:[+-](?:[^\s+\-]|\t| {2,})|diff --git |(?:---|\+\+\+) |@@ |Binary files )`)
 
-	// diffHeaderPrefixPattern matches ONLY genuine unified-diff / git metadata
-	// whose structure cannot occur in durable prose, so it is the sole reason
-	// safe to drop silently at extraction (#1169): a `diff --git a/… b/…`
-	// command header, the git `index <hex>..<hex>` blob line, a fully-formed hunk
-	// header (`@@ -N,M +N,M @@`), git file markers whose path is `a/`, `b/`, or
-	// `/dev/null`, and a `Binary files a/… differ` (or `/dev/null`) line. Each
-	// alternative requires the real diff shape — bare `diff --git`/`---`/`+++`/
-	// `@@`/`Binary files` prefixes that can open durable prose (e.g. "diff --git
-	// output must be redacted") fall through to diffContentPrefixPattern and stay
-	// hidden, never dropped.
+	// diffHeaderPrefixPattern matches ONLY a (trimmed) line that is, in full,
+	// genuine unified-diff / git metadata, so it is the sole reason safe to drop
+	// silently at extraction (#1169): a `diff --git a/<path> b/<path>` command
+	// header, the git `index <hex>..<hex>[ <mode>]` blob line, a hunk header
+	// (`@@ -N,M +N,M @@`), a file marker whose path is `a/<path>`, `b/<path>`, or
+	// `/dev/null`, and a `Binary files a/… differ` (or `/dev/null`) line. The
+	// surrounding ^(?:…)$ anchors every alternative to the whole line and the
+	// paths are non-space, so a real-looking header that continues into prose
+	// (e.g. "diff --git a/foo b/foo output must be redacted", "@@ -1,3 +1,5 @@
+	// marks a hunk") does NOT match and falls through to diffContentPrefixPattern
+	// to stay hidden, never dropped.
 	diffHeaderPrefixPattern = regexp.MustCompile(`^(?:` +
-		`diff --git a/.+ b/.+` +
-		`|index [0-9a-fA-F]{4,}\.\.[0-9a-fA-F]{4,}` +
+		`diff --git a/\S+ b/\S+` +
+		`|index [0-9a-fA-F]{4,}\.\.[0-9a-fA-F]{4,}(?: [0-7]{6})?` +
 		`|@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@` +
-		`|(?:---|\+\+\+) (?:a/|b/|/dev/null)` +
-		`|Binary files (?:a/|/dev/null).+ differ$` +
-		`)`)
+		`|(?:---|\+\+\+) (?:a/\S+|b/\S+|/dev/null)` +
+		`|Binary files (?:a/|/dev/null).+ differ` +
+		`)$`)
 
 	standaloneCommandPattern = regexp.MustCompile(`(?i)^` +
 		`(?:git|gh|npm|npx|yarn|pnpm|make|go|flutter|dart|python3?|pip3?|cargo|brew|docker(?:-compose)?|kubectl|helm|aws|gcloud|terraform|psql|sqlite3?|mkdir|rmdir|rm|mv|cp|cd|ls|ssh|scp|curl|wget|cat|tail|head|sed|awk|grep|rg|bash|zsh|sh|tree|env|export|source|sudo|node|deno|bun|tsx|swift|xcrun|adb|fastlane|gem|bundle|rake|tox|pytest|jest|vitest|mvn|gradle|sbt|cmake|ninja|jq|tar|zip|unzip|gzip|gunzip|hg|svn|nslookup|dig|ping|traceroute|systemctl|service|launchctl|crontab|chmod|chown|kill|pkill|ps|lsof|netstat|whoami|id|uname|date|rtk|traceary|claude|codex|gemini)` +
@@ -210,12 +211,13 @@ func classifyExtractionNoise(fact string) []string {
 // isDroppableExtractionFragment reports whether the noise reasons identify a
 // fragment that is safe to silently discard at extraction rather than keep as a
 // durable-memory candidate (#1169). Only diff_header qualifies, and it is
-// matched on full unified-diff / git structure — `diff --git a/… b/…`, a git
-// `index <hex>..<hex>` line, a complete hunk header (`@@ -N,M +N,M @@`), a file
-// marker whose path is `a/`, `b/`, or `/dev/null`, or a `Binary files a/… differ`
-// line — never on a bare `diff --git`/`@@`/`---`/`+++`/`Binary files` prefix that
-// could open durable prose (e.g. "diff --git output must be redacted", "--- separates
-// YAML documents"). Every other noise reason
+// matched only when the WHOLE (trimmed) line is unified-diff / git structure —
+// `diff --git a/… b/…`, a git `index <hex>..<hex>` line, a hunk header
+// (`@@ -N,M +N,M @@`), a file marker whose path is `a/`, `b/`, or `/dev/null`,
+// or a `Binary files a/… differ` line — never on a bare prefix nor a real-looking
+// header that then continues into prose (e.g. "diff --git a/foo b/foo output must
+// be redacted", "@@ -1,3 +1,5 @@ marks a hunk", "--- separates YAML documents").
+// Every other noise reason
 // — including diff_fragment (a single +/- content line, or a loose
 // `@@`/`---`/`+++`/`Binary files` prefix, which can be durable prose starting
 // with a CLI flag, sign, or such a token) and generated_code (a loose substring
