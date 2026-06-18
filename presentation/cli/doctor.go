@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
@@ -91,6 +92,7 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 		asJSON     bool
 		fix        bool
 		dryRun     bool
+		strict     bool
 	)
 
 	doctorCmd := &cobra.Command{
@@ -107,6 +109,7 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 				asJSON:         asJSON,
 				fix:            fix,
 				dryRun:         dryRun,
+				strict:         strict,
 			})
 		},
 	}
@@ -116,6 +119,7 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 	doctorCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	doctorCmd.Flags().BoolVar(&fix, "fix", false, Localize("apply known safe remediations for warning and failing checks", "警告・失敗チェックに対して既知の安全な修復を適用する"))
 	doctorCmd.Flags().BoolVar(&dryRun, "dry-run", false, Localize("preview --fix actions without writing files", "ファイルを書き込まずに --fix の処理をプレビューする"))
+	doctorCmd.Flags().BoolVar(&strict, "strict", false, Localize("audit-reliability: report every exact duplicate group regardless of time, not only near-simultaneous writes", "audit-reliability: 時間に関係なく完全一致する duplicate group をすべて報告する（near-simultaneous な書き込みだけに限定しない）"))
 
 	return doctorCmd
 }
@@ -245,7 +249,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			Message: localizef("initialized SQLite store: %s", "SQLite ストアを初期化しました: %s", resolvedDBPath),
 		})
 		report.Checks = append(report.Checks, c.inspectStaleActiveSessions(ctx))
-		report.Checks = append(report.Checks, c.inspectCommandAuditReliability(ctx))
+		report.Checks = append(report.Checks, c.inspectCommandAuditReliability(ctx, input.strict))
 	}
 
 	resolvedProjectDir, err := resolveHooksProjectDir(input.projectDir)
@@ -370,6 +374,18 @@ func (c *RootCLI) inspectStaleActiveSessions(ctx context.Context) doctorCheck {
 
 const commandAuditReliabilityScanLimit = 200
 
+// commandAuditDuplicateProximityWindow bounds how close in time two
+// identity-matching command audits must be to count as a likely hook
+// double-write (versus an intentional operator re-run). Genuine hook
+// duplicates land near-simultaneously (the write-side guard suppresses exact
+// repeats within 2s); intentional re-runs of the same command in a review/merge
+// flow are minutes apart. This window sits an order of magnitude above the 2s
+// write guard (to absorb clock skew and slow writes) yet far below the
+// minute-scale spacing of deliberate re-runs, so the default diagnostic stays
+// actionable. `traceary doctor --strict` ignores this window and reports every
+// exact duplicate group for forensic analysis.
+const commandAuditDuplicateProximityWindow = 10 * time.Second
+
 type commandAuditReliabilityFindings struct {
 	ScannedAuditCount     int
 	DuplicateGroups       []commandAuditDuplicateGroup
@@ -382,6 +398,8 @@ type commandAuditDuplicateGroup struct {
 }
 
 type commandAuditDuplicateGroupKey struct {
+	Client          string
+	Agent           string
 	SessionID       string
 	Workspace       string
 	Command         string
@@ -400,7 +418,7 @@ type commandAuditWorkspaceDriftSample struct {
 	CWD               string
 }
 
-func (c *RootCLI) inspectCommandAuditReliability(ctx context.Context) doctorCheck {
+func (c *RootCLI) inspectCommandAuditReliability(ctx context.Context, strict bool) doctorCheck {
 	const checkName = "audit-reliability"
 	if c.event == nil {
 		return doctorCheck{
@@ -431,10 +449,10 @@ func (c *RootCLI) inspectCommandAuditReliability(ctx context.Context) doctorChec
 		}
 		details = append(details, detail)
 	}
-	return commandAuditReliabilityCheckFromFindings(commandAuditReliabilityFindingsFromDetails(ctx, details))
+	return commandAuditReliabilityCheckFromFindings(commandAuditReliabilityFindingsFromDetails(ctx, details, strict), strict)
 }
 
-func commandAuditReliabilityCheckFromFindings(findings commandAuditReliabilityFindings) doctorCheck {
+func commandAuditReliabilityCheckFromFindings(findings commandAuditReliabilityFindings, strict bool) doctorCheck {
 	const checkName = "audit-reliability"
 	duplicateRecordCount := 0
 	for _, group := range findings.DuplicateGroups {
@@ -452,13 +470,21 @@ func commandAuditReliabilityCheckFromFindings(findings commandAuditReliabilityFi
 		}
 	}
 
+	hint := Localize(
+		"likely hook duplicates (identity-matching audits within "+commandAuditDuplicateProximityWindow.String()+"); intentional re-runs minutes apart are excluded. Re-run with --strict to surface every exact duplicate group, then inspect with `traceary show <event_id>`",
+		"hook 由来とみられる duplicate（"+commandAuditDuplicateProximityWindow.String()+" 以内の identity 一致 audit）です。数分離れた意図的な re-run は除外されます。完全一致する duplicate group をすべて見るには --strict を付け、`traceary show <event_id>` で確認してください",
+	)
+	if strict {
+		hint = Localize(
+			"--strict: every exact duplicate group is reported regardless of time gap, so intentional re-runs appear too; inspect the sampled event IDs with `traceary show <event_id>` before drawing process conclusions",
+			"--strict: 時間差に関係なく完全一致する duplicate group をすべて報告します（意図的な re-run も含みます）。process の結論を出す前に sample event ID を `traceary show <event_id>` で確認してください",
+		)
+	}
+
 	return doctorCheck{
 		Name:   checkName,
 		Status: doctorStatusWarn,
-		Hint: Localize(
-			"use this as a dogfood review signal; inspect the sampled event IDs with `traceary show <event_id>` before drawing process conclusions",
-			"dogfood review の信号として扱い、process の結論を出す前に sample event ID を `traceary show <event_id>` で確認してください",
-		),
+		Hint:   hint,
 		Message: localizef(
 			"scanned %d recent command audit(s); duplicate_groups=%d duplicate_records=%d workspace_drift_candidates=%d samples: duplicates=[%s] drift=[%s]",
 			"%d 件の recent command audit を検査しました。duplicate_groups=%d duplicate_records=%d workspace_drift_candidates=%d samples: duplicates=[%s] drift=[%s]",
@@ -472,13 +498,9 @@ func commandAuditReliabilityCheckFromFindings(findings commandAuditReliabilityFi
 	}
 }
 
-func commandAuditReliabilityFindingsFromDetails(ctx context.Context, details []apptypes.EventDetails) commandAuditReliabilityFindings {
+func commandAuditReliabilityFindingsFromDetails(ctx context.Context, details []apptypes.EventDetails, strict bool) commandAuditReliabilityFindings {
 	findings := commandAuditReliabilityFindings{}
-	type groupAccumulator struct {
-		eventIDs []string
-		count    int
-	}
-	groups := map[commandAuditDuplicateGroupKey]*groupAccumulator{}
+	groups := map[commandAuditDuplicateGroupKey][]commandAuditDuplicateRecord{}
 	for _, detail := range details {
 		event := detail.Event()
 		audit, ok := detail.CommandAudit().Value()
@@ -487,27 +509,17 @@ func commandAuditReliabilityFindingsFromDetails(ctx context.Context, details []a
 		}
 		findings.ScannedAuditCount++
 		key := newCommandAuditDuplicateGroupKey(event, audit)
-		group := groups[key]
-		if group == nil {
-			group = &groupAccumulator{}
-			groups[key] = group
-		}
-		group.count++
-		group.eventIDs = append(group.eventIDs, event.EventID().String())
+		groups[key] = append(groups[key], commandAuditDuplicateRecord{
+			eventID:   event.EventID().String(),
+			createdAt: event.CreatedAt(),
+		})
 
 		if drift, ok := commandAuditWorkspaceDriftFromDetail(ctx, event, audit); ok {
 			findings.WorkspaceDriftSamples = append(findings.WorkspaceDriftSamples, drift)
 		}
 	}
-	for _, group := range groups {
-		if group.count <= 1 {
-			continue
-		}
-		sort.Strings(group.eventIDs)
-		findings.DuplicateGroups = append(findings.DuplicateGroups, commandAuditDuplicateGroup{
-			EventIDs: group.eventIDs,
-			Count:    group.count,
-		})
+	for _, records := range groups {
+		findings.DuplicateGroups = append(findings.DuplicateGroups, commandAuditDuplicateGroupsFromRecords(records, strict)...)
 	}
 	sort.Slice(findings.DuplicateGroups, func(i, j int) bool {
 		return findings.DuplicateGroups[i].EventIDs[0] < findings.DuplicateGroups[j].EventIDs[0]
@@ -518,12 +530,76 @@ func commandAuditReliabilityFindingsFromDetails(ctx context.Context, details []a
 	return findings
 }
 
+// commandAuditDuplicateRecord is one identity-matching audit considered for
+// duplicate grouping, carrying the timestamp used for time-proximity clustering.
+type commandAuditDuplicateRecord struct {
+	eventID   string
+	createdAt time.Time
+}
+
+// commandAuditDuplicateGroupsFromRecords turns the identity-matching records of
+// a single group key into reportable duplicate groups. In strict mode any group
+// of 2+ exact matches is reported regardless of time. By default the records are
+// clustered by time proximity (consecutive records within
+// commandAuditDuplicateProximityWindow) so that only near-simultaneous writes —
+// the likely hook duplicates — are reported, and intentional re-runs minutes
+// apart are excluded.
+func commandAuditDuplicateGroupsFromRecords(records []commandAuditDuplicateRecord, strict bool) []commandAuditDuplicateGroup {
+	if len(records) <= 1 {
+		return nil
+	}
+	sort.Slice(records, func(i, j int) bool {
+		if !records[i].createdAt.Equal(records[j].createdAt) {
+			return records[i].createdAt.Before(records[j].createdAt)
+		}
+		return records[i].eventID < records[j].eventID
+	})
+
+	groupFromRun := func(run []commandAuditDuplicateRecord) (commandAuditDuplicateGroup, bool) {
+		if len(run) < 2 {
+			return commandAuditDuplicateGroup{}, false
+		}
+		ids := make([]string, len(run))
+		for i, record := range run {
+			ids[i] = record.eventID
+		}
+		sort.Strings(ids)
+		return commandAuditDuplicateGroup{EventIDs: ids, Count: len(ids)}, true
+	}
+
+	if strict {
+		if group, ok := groupFromRun(records); ok {
+			return []commandAuditDuplicateGroup{group}
+		}
+		return nil
+	}
+
+	var groups []commandAuditDuplicateGroup
+	run := []commandAuditDuplicateRecord{records[0]}
+	for _, record := range records[1:] {
+		if record.createdAt.Sub(run[len(run)-1].createdAt) <= commandAuditDuplicateProximityWindow {
+			run = append(run, record)
+			continue
+		}
+		if group, ok := groupFromRun(run); ok {
+			groups = append(groups, group)
+		}
+		run = []commandAuditDuplicateRecord{record}
+	}
+	if group, ok := groupFromRun(run); ok {
+		groups = append(groups, group)
+	}
+	return groups
+}
+
 func newCommandAuditDuplicateGroupKey(event *model.Event, audit *model.CommandAudit) commandAuditDuplicateGroupKey {
 	exitCode := "-"
 	if value, ok := audit.ExitCode().Value(); ok {
 		exitCode = strconv.Itoa(value)
 	}
 	return commandAuditDuplicateGroupKey{
+		Client:          event.Client().String(),
+		Agent:           event.Agent().String(),
 		SessionID:       event.SessionID().String(),
 		Workspace:       event.Workspace().String(),
 		Command:         audit.Command(),

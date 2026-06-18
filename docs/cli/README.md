@@ -970,6 +970,7 @@ Useful flags:
 - `--client`
 - `--project-dir`
 - `--json`
+- `--strict` — audit-reliability: report every exact duplicate group regardless of time, not only near-simultaneous writes
 
 ## Store administration (`traceary store ...`)
 

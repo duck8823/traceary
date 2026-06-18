@@ -72,6 +72,7 @@ type doctorCommandInput struct {
 	asJSON         bool
 	fix            bool
 	dryRun         bool
+	strict         bool
 }
 
 // gcCommandInput is the resolved input to the `traceary gc` command.
