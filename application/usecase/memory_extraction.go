@@ -184,6 +184,13 @@ func (u *memoryExtractionUsecase) Extract(ctx context.Context, criteria apptypes
 		// declarations, PR/Round chatter) are also routed to
 		// extracted-hidden. The explicit-remember intent is exempt so
 		// user-driven `remember this:` prompts always remain visible.
+		// Obvious code/diff fragments are dropped entirely rather than persisted
+		// (#1169): they are never durable memories and previously flooded the
+		// candidate inbox as extracted-hidden rows. Explicit remember-intent is
+		// exempt so a user-driven `remember this: +foo` still lands.
+		if !spec.intent.explicitRemember && isDroppableExtractionFragment(spec.lowQualityReasons) {
+			continue
+		}
 		source := spec.source
 		hiddenByQuality := spec.signalScore < extractionVisibleScoreThreshold ||
 			(len(spec.lowQualityReasons) > 0 && !spec.intent.explicitRemember)
@@ -412,6 +419,15 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 		if _, exists := selectedKeys[candidate.key]; !exists {
 			decision.Decision = "skipped"
 			decision.Reason = "candidate_limit"
+			continue
+		}
+		if !candidate.explicitRemember && isDroppableExtractionFragment(candidate.lowQualityReasons) {
+			// Mirror the Extract drop (#1169): obvious code/diff fragments are
+			// not persisted at all, so report them as dropped rather than
+			// hidden. Checked before the score / low-quality hide branches to
+			// match the Extract ordering where the drop wins regardless of score.
+			decision.Decision = "dropped"
+			decision.Reason = "fragment:" + strings.Join(candidate.lowQualityReasons, ",")
 			continue
 		}
 		if candidate.score < extractionVisibleScoreThreshold {

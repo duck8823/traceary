@@ -174,6 +174,23 @@ func classifyExtractionNoise(fact string) []string {
 	return reasons
 }
 
+// isDroppableExtractionFragment reports whether the noise reasons identify an
+// obvious code or diff fragment that should not be created as a durable-memory
+// candidate at all (#1169). Only the two clearly-mechanical reasons qualify:
+// diff fragments (leading +/- lines) and generated-code markers. Every other
+// low-quality reason keeps the softer hide-to-extracted-hidden behaviour, since
+// those formats can occasionally carry signal. Explicit remember-intent is
+// handled by the caller and always overrides this drop.
+func isDroppableExtractionFragment(reasons []string) bool {
+	for _, reason := range reasons {
+		switch reason {
+		case extractionNoiseDiffFragment, extractionNoiseGeneratedCode:
+			return true
+		}
+	}
+	return false
+}
+
 func isReviewFixInstruction(value string) bool {
 	if !reviewFixInstructionPattern.MatchString(value) {
 		return false
