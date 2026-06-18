@@ -64,7 +64,7 @@ client 側の process model が変わった場合や、wrapper script により 
 ### client によっては session end が best-effort
 
 - Claude Code: documented integration では dedicated `SessionEnd` を使える
-- Codex CLI: ローカル build では `Stop` しか見えていないため、stop/session-end capture は best-effort
+- Codex CLI: host のセッション終了信号がない — `Stop` は応答ごとの turn 境界 (#1170) であり、Codex session は MCP `manage_session` または stale GC (`traceary session gc`) でのみ終了する
 - Gemini CLI: `SessionEnd` も best-effort 扱い
 
 session end の精度が重要なら、明示的な end hook を持つ client integration を優先してください。

@@ -106,7 +106,7 @@ func buildHooksGuide(c *RootCLI, client string, projectDir string, outputPath st
 		)
 	case "codex":
 		notes = append(notes,
-			Localize("Codex uses Stop as a best-effort session-end hook. Session start is reliable; session end depends on the installed Codex build.", "Codex は session end に Stop を best-effort で使います。session start は安定していますが、session end は installed Codex build に依存します。"),
+			Localize("Codex fires Stop after every assistant response, so Traceary records the turn transcript but keeps the session open. A Codex session ends only via MCP manage_session or stale GC (traceary session gc).", "Codex は assistant 応答ごとに Stop を fire するため、Traceary は turn の transcript を記録しつつ session は開いたままにします。Codex session は MCP manage_session または stale GC (traceary session gc) でのみ終了します。"),
 		)
 	case "gemini":
 		notes = append(notes,
