@@ -33,12 +33,6 @@ const (
 	topPaneStaleMemoryLimit   = topPaneCandidateLimit
 )
 
-const (
-	dashboardSessionStatusActive = "active"
-	dashboardSessionStatusStale  = "stale"
-	dashboardSessionStatusEnded  = "ended"
-)
-
 // topPane enumerates the focusable panes on the dashboard.
 //
 // The numeric order matches the visual order so iteration helpers can stay
@@ -841,13 +835,17 @@ func dashboardSessionNodeLess(left, right *sessionNode, priorities map[*sessionN
 	return sessionNodeLess(left, right)
 }
 
+// dashboardStatusRank orders sessions in the dashboard tree so live work
+// floats to the top. ended_with_late_events ranks alongside stale (above a
+// cleanly ended session) because its trailing events are recent activity the
+// operator likely wants to see, even though the session carries an end marker.
 func dashboardStatusRank(status string) int {
-	switch status {
-	case dashboardSessionStatusActive:
+	switch domtypes.SessionStatus(status) {
+	case domtypes.SessionStatusActive:
 		return 3
-	case dashboardSessionStatusStale:
+	case domtypes.SessionStatusStale, domtypes.SessionStatusEndedWithLateEvents:
 		return 2
-	case dashboardSessionStatusEnded:
+	case domtypes.SessionStatusEnded:
 		return 1
 	default:
 		return 0

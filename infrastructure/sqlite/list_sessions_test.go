@@ -767,6 +767,101 @@ func TestDatasource_ListSummariesLatestEvent(t *testing.T) {
 	})
 }
 
+func TestDatasource_ListSummariesEndedWithLateEvents(t *testing.T) {
+	t.Parallel()
+
+	// Models the dogfood failure in #1172: a Codex session was marked ended by
+	// the Stop hook, then later prompts/commands continued under the same
+	// session. The active-only snapshot must keep surfacing it as
+	// ended_with_late_events instead of dropping it, while a cleanly ended
+	// session with no trailing events stays excluded.
+	const workspace = "duck8823/traceary"
+	started := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	endMarker := started.Add(2 * time.Minute)
+	lateEvent := started.Add(5 * time.Minute)
+
+	newScenario := func(t *testing.T) *listSessionsFixture {
+		t.Helper()
+		fixture := newListSessionsFixture(t, filepath.Join(t.TempDir(), "traceary.db"), listSessionsTestMigrations())
+		ctx := context.Background()
+		if err := fixture.storeManager.Initialize(ctx); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+		// late: session_started -> session_ended -> command_executed (late).
+		saveTestSession(ctx, t, fixture.sessionDS, "late", started, types.Some(endMarker), "codex", workspace)
+		saveListTestEvent(ctx, t, fixture.eventDS, "late-start", types.EventKindSessionStarted, "late", "start", started)
+		saveListTestEvent(ctx, t, fixture.eventDS, "late-end", types.EventKindSessionEnded, "late", "session ended", endMarker)
+		saveListTestEvent(ctx, t, fixture.eventDS, "late-cmd", types.EventKindCommandExecuted, "late", "git status", lateEvent)
+		// clean: session_started -> session_ended, no trailing events.
+		saveTestSession(ctx, t, fixture.sessionDS, "clean", started, types.Some(endMarker), "codex", workspace)
+		saveListTestEvent(ctx, t, fixture.eventDS, "clean-start", types.EventKindSessionStarted, "clean", "start", started)
+		saveListTestEvent(ctx, t, fixture.eventDS, "clean-end", types.EventKindSessionEnded, "clean", "session ended", endMarker)
+		return fixture
+	}
+
+	t.Run("active-only snapshot keeps the ended-with-late-events session", func(t *testing.T) {
+		t.Parallel()
+		fixture := newScenario(t)
+		ctx := context.Background()
+
+		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(workspace), types.Client(""), types.Agent(""), "", true, types.None[time.Time](), types.None[time.Time]())
+		if err != nil {
+			t.Fatalf("ListSummaries() error = %v", err)
+		}
+		if len(summaries) != 1 {
+			t.Fatalf("got %d summaries, want 1 (only the late-events session)", len(summaries))
+		}
+		if diff := cmp.Diff("late", summaries[0].SessionID().String()); diff != "" {
+			t.Fatalf("session id mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(types.SessionStatusEndedWithLateEvents.String(), summaries[0].Status()); diff != "" {
+			t.Fatalf("status mismatch (-want +got):\n%s", diff)
+		}
+		if endedAt, ok := summaries[0].EndedAt().Value(); !ok || !endedAt.Equal(endMarker) {
+			t.Fatalf("EndedAt() = %v (ok=%v), want %v so the late events stay explainable", endedAt, ok, endMarker)
+		}
+		if !summaries[0].LatestEventAt().Equal(lateEvent) {
+			t.Fatalf("LatestEventAt() = %v, want %v", summaries[0].LatestEventAt(), lateEvent)
+		}
+	})
+
+	t.Run("active-only snapshot still drops a cleanly ended session", func(t *testing.T) {
+		t.Parallel()
+		fixture := newScenario(t)
+		ctx := context.Background()
+
+		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID("clean"), types.Workspace(workspace), types.Client(""), types.Agent(""), "", true, types.None[time.Time](), types.None[time.Time]())
+		if err != nil {
+			t.Fatalf("ListSummaries() error = %v", err)
+		}
+		if len(summaries) != 0 {
+			t.Fatalf("got %d summaries, want 0 (cleanly ended sessions stay excluded)", len(summaries))
+		}
+	})
+
+	t.Run("unfiltered listing reports ended vs ended_with_late_events", func(t *testing.T) {
+		t.Parallel()
+		fixture := newScenario(t)
+		ctx := context.Background()
+
+		summaries, err := fixture.sessionDS.ListSummaries(ctx, 10, 0, types.SessionID(""), types.Workspace(workspace), types.Client(""), types.Agent(""), "", false, types.None[time.Time](), types.None[time.Time]())
+		if err != nil {
+			t.Fatalf("ListSummaries() error = %v", err)
+		}
+		statuses := map[string]string{}
+		for _, summary := range summaries {
+			statuses[summary.SessionID().String()] = summary.Status()
+		}
+		want := map[string]string{
+			"late":  types.SessionStatusEndedWithLateEvents.String(),
+			"clean": types.SessionStatusEnded.String(),
+		}
+		if diff := cmp.Diff(want, statuses); diff != "" {
+			t.Fatalf("status map mismatch (-want +got):\n%s", diff)
+		}
+	})
+}
+
 func TestDatasource_LineageAndTreeLatestEventsArePerSession(t *testing.T) {
 	t.Parallel()
 

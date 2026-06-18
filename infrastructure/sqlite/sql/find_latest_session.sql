@@ -49,18 +49,58 @@ WITH candidate_sessions AS (
                 )
         )
         AND (
-             ? = 0 OR NOT EXISTS (
-                 SELECT 1
-                   FROM events ended
-                  WHERE ended.kind = ?
-                    AND ended.session_id = started.session_id
-                    AND ended.client = started.client
-                    AND ended.agent = started.agent
-                    AND ended.workspace = started.workspace
-                    AND (
-                         ended.created_at > started.created_at OR
-                         (ended.created_at = started.created_at AND ended.id > started.id)
-                    )
+             ? = 0 OR (
+                 -- A session is active unless it is terminally ended by EITHER
+                 -- signal, matching the CLI snapshot's row-based rule so MCP
+                 -- session_status(action="active") and `sessions --snapshot`
+                 -- agree on inclusion.
+                 --
+                 -- (1) Event signal: a session_ended event with no later event.
+                 -- Late events (prompts, audits) after the end marker keep the
+                 -- session active (ended_with_late_events).
+                 NOT EXISTS (
+                     SELECT 1
+                       FROM events ended
+                      WHERE ended.kind = ?
+                        AND ended.session_id = started.session_id
+                        AND ended.client = started.client
+                        AND ended.agent = started.agent
+                        AND ended.workspace = started.workspace
+                        AND (
+                             ended.created_at > started.created_at OR
+                             (ended.created_at = started.created_at AND ended.id > started.id)
+                        )
+                        -- The "later event" check is session_id-only so it
+                        -- matches list_sessions.sql's late-event rule exactly.
+                        -- A same-session event from a different agent/workspace
+                        -- after the end marker must keep the session active on
+                        -- both surfaces (CLI snapshot and MCP active).
+                        AND NOT EXISTS (
+                             SELECT 1
+                               FROM events later_ev
+                              WHERE later_ev.session_id = started.session_id
+                                AND (
+                                     later_ev.created_at > ended.created_at OR
+                                     (later_ev.created_at = ended.created_at AND later_ev.id > ended.id)
+                                )
+                        )
+                 )
+                 -- (2) Row signal: sessions.ended_at set with no later event.
+                 -- Covers `session gc`, which writes ended_at directly without a
+                 -- session_ended event; the CLI snapshot already excludes such a
+                 -- session, so the active query must too.
+                 AND NOT EXISTS (
+                     SELECT 1
+                       FROM sessions ended_row
+                      WHERE ended_row.session_id = started.session_id
+                        AND ended_row.ended_at IS NOT NULL
+                        AND NOT EXISTS (
+                             SELECT 1
+                               FROM events row_later
+                              WHERE row_later.session_id = started.session_id
+                                AND row_later.created_at > ended_row.ended_at
+                        )
+                 )
              )
         )
 )

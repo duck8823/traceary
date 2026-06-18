@@ -140,6 +140,61 @@ func TestDatasource_FindLatest(t *testing.T) {
 		}
 	})
 
+	t.Run("active only keeps a session with events after its end marker", func(t *testing.T) {
+		t.Parallel()
+
+		eventDS, sessionDS := newFindLatestScenario(t)
+		// session-late-events: started -> ended -> command_executed after the end.
+		// The trailing command keeps the session active under activeOnly, so MCP
+		// session_status agrees with the CLI snapshot's ended_with_late_events
+		// rule instead of treating the lone session_ended as terminal (#1172).
+		saveFindLatestSessionEventFixture(
+			t,
+			eventDS,
+			"event-late-start",
+			types.EventKindSessionStarted,
+			"session-late-events",
+			"github.com/duck8823/traceary",
+			"session started",
+			time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC),
+		)
+		saveFindLatestSessionEventFixture(
+			t,
+			eventDS,
+			"event-late-end",
+			types.EventKindSessionEnded,
+			"session-late-events",
+			"github.com/duck8823/traceary",
+			"session ended",
+			time.Date(2026, 4, 12, 10, 30, 0, 0, time.UTC),
+		)
+		saveFindLatestSessionEventFixture(
+			t,
+			eventDS,
+			"event-late-cmd",
+			types.EventKindCommandExecuted,
+			"session-late-events",
+			"github.com/duck8823/traceary",
+			"git status",
+			time.Date(2026, 4, 12, 11, 0, 0, 0, time.UTC),
+		)
+
+		result, err := sessionDS.FindLatest(
+			context.Background(),
+			types.Client("cli"), types.Agent("codex"), types.Workspace("github.com/duck8823/traceary"), true,
+		)
+		if err != nil {
+			t.Fatalf("FindLatest() error = %v", err)
+		}
+		if _, ok := result.Value(); !ok {
+			t.Fatalf("FindLatest() returned empty, want present")
+		}
+		event, _ := result.Value()
+		if diff := cmp.Diff("event-late-start", event.EventID().String()); diff != "" {
+			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
 	t.Run("returns newest start when multiple starts exist for same session_id", func(t *testing.T) {
 		t.Parallel()
 
@@ -395,6 +450,107 @@ func TestDatasource_FindLatest_activeOnlyIgnoresEndsFromOtherContexts(t *testing
 	}
 	event, _ := result.Value()
 	if diff := cmp.Diff("event-1", event.EventID().String()); diff != "" {
+		t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestDatasource_FindLatest_activeOnlyHonorsSessionsRowEndedAt asserts the
+// active query consults sessions.ended_at, not just session_ended events, so a
+// session closed by stale GC (which writes ended_at directly without an event)
+// is excluded — matching the CLI snapshot. A GC-closed session that received
+// later events stays active. This is the CLI/MCP agreement gap from #1172.
+func TestDatasource_FindLatest_activeOnlyHonorsSessionsRowEndedAt(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, onDiskSQLiteMigrations(t))
+	ctx := context.Background()
+	if err := storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	const workspace = "github.com/duck8823/traceary"
+	agent, err := types.AgentFrom("codex")
+	if err != nil {
+		t.Fatalf("AgentFrom() error = %v", err)
+	}
+	saveRow := func(sessionID string, startedAt time.Time, endedAt time.Time) {
+		sid, idErr := types.SessionIDFrom(sessionID)
+		if idErr != nil {
+			t.Fatalf("SessionIDFrom() error = %v", idErr)
+		}
+		session := model.SessionOf(sid, startedAt, types.Some(endedAt), types.Client("cli"), agent, types.Workspace(workspace), "", "", types.SessionID(""))
+		if saveErr := sessionDS.SaveSessionBoundaryForTest(ctx, session); saveErr != nil {
+			t.Fatalf("SaveSessionBoundaryForTest(%s) error = %v", sessionID, saveErr)
+		}
+	}
+
+	// session-gc-closed starts latest, so if the active query ignored the row's
+	// ended_at it would win the ORDER BY. Its ended_at is set with no later
+	// events, so it must be excluded.
+	saveFindLatestSessionEventFixture(t, eventDS, "gc-closed-start", types.EventKindSessionStarted, "session-gc-closed", workspace, "session started", time.Date(2026, 4, 12, 13, 0, 0, 0, time.UTC))
+	saveRow("session-gc-closed", time.Date(2026, 4, 12, 13, 0, 0, 0, time.UTC), time.Date(2026, 4, 14, 13, 0, 0, 0, time.UTC))
+
+	// session-gc-late has ended_at set too, but a later command arrived after
+	// it, so it stays active (ended_with_late_events parity).
+	saveFindLatestSessionEventFixture(t, eventDS, "gc-late-start", types.EventKindSessionStarted, "session-gc-late", workspace, "session started", time.Date(2026, 4, 12, 11, 0, 0, 0, time.UTC))
+	saveRow("session-gc-late", time.Date(2026, 4, 12, 11, 0, 0, 0, time.UTC), time.Date(2026, 4, 12, 11, 30, 0, 0, time.UTC))
+	saveFindLatestSessionEventFixture(t, eventDS, "gc-late-cmd", types.EventKindCommandExecuted, "session-gc-late", workspace, "git status", time.Date(2026, 4, 12, 12, 0, 0, 0, time.UTC))
+
+	result, err := sessionDS.FindLatest(ctx, types.Client("cli"), types.Agent("codex"), types.Workspace(workspace), true)
+	if err != nil {
+		t.Fatalf("FindLatest() error = %v", err)
+	}
+	event, ok := result.Value()
+	if !ok {
+		t.Fatalf("FindLatest(activeOnly) returned empty, want the GC-closed-with-late-events session")
+	}
+	if diff := cmp.Diff("gc-late-start", event.EventID().String()); diff != "" {
+		t.Fatalf("EventID() mismatch (-want +got):\n%s\n(a GC-closed session with no later events must be excluded)", diff)
+	}
+}
+
+// TestDatasource_FindLatest_activeOnlyKeepsCrossAgentLateEvent asserts the
+// late-event check is session_id-only, matching list_sessions.sql. A session
+// ended by one agent that receives a later event under the same session_id but
+// a different agent must stay active on both the CLI snapshot and the active
+// query (#1172 CLI/MCP agreement).
+func TestDatasource_FindLatest_activeOnlyKeepsCrossAgentLateEvent(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, onDiskSQLiteMigrations(t))
+	ctx := context.Background()
+	if err := storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	const workspace = "github.com/duck8823/traceary"
+	saveFindLatestSessionEventFixture(t, eventDS, "x-start", types.EventKindSessionStarted, "session-x", workspace, "session started", time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC))
+	saveFindLatestSessionEventFixture(t, eventDS, "x-end", types.EventKindSessionEnded, "session-x", workspace, "session ended", time.Date(2026, 4, 12, 10, 30, 0, 0, time.UTC))
+
+	claudeAgent, err := types.AgentFrom("claude")
+	if err != nil {
+		t.Fatalf("AgentFrom() error = %v", err)
+	}
+	lateID, err := types.EventIDFrom("x-late-claude")
+	if err != nil {
+		t.Fatalf("EventIDFrom() error = %v", err)
+	}
+	lateEvent := model.EventOf(lateID, types.EventKindCommandExecuted, types.Client("cli"), claudeAgent, types.SessionID("session-x"), types.Workspace(workspace), "git status", time.Date(2026, 4, 12, 11, 0, 0, 0, time.UTC))
+	if err := eventDS.Save(ctx, lateEvent); err != nil {
+		t.Fatalf("Save(late claude event) error = %v", err)
+	}
+
+	result, err := sessionDS.FindLatest(ctx, types.Client("cli"), types.Agent("codex"), types.Workspace(workspace), true)
+	if err != nil {
+		t.Fatalf("FindLatest() error = %v", err)
+	}
+	event, ok := result.Value()
+	if !ok {
+		t.Fatalf("FindLatest(activeOnly) returned empty; a same-session late event from another agent must keep the session active")
+	}
+	if diff := cmp.Diff("x-start", event.EventID().String()); diff != "" {
 		t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 	}
 }

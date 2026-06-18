@@ -862,6 +862,19 @@ session の label を設定または更新します。
 - `--allow-stale`
 - `--json`
 
+### Session status の値
+
+`session list` / `session tree` と `sessions --snapshot` / `top --snapshot` の JSON `status` フィールドは以下のいずれかを表示します。
+
+| Status | 意味 |
+|--------|------|
+| `active` | end marker がなく stale window 内。 |
+| `stale` | end marker がないが stale window（default 24h）より前に開始。 |
+| `ended` | end marker があり、その後にイベントがない。 |
+| `ended_with_late_events` | end marker があるが、同じ session で後続イベントが到着した。end marker は `session_ended` イベント由来、または `session gc` が `ended_at` を直接書き込んだものの場合がある。 |
+
+active-only snapshot は `active` / `ended_with_late_events` と（`--allow-stale` 指定時の）`stale` を残します。`ended_with_late_events` は、session が既に close されているのに workspace の直近イベントが存在するとき `sessions --snapshot` が 0 件を返さないようにするための値です（例: Codex のような host が session を早期に close したが会話は継続していた場合）。CLI snapshot と MCP `session_status(action="active")` は同じルールを適用するため、end marker 後にイベントがある session は両方で surface されます。
+
 ## Hooks と診断
 
 ### `traceary completion <bash|zsh|fish|powershell>`

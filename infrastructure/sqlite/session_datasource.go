@@ -666,16 +666,24 @@ func scanSessionSummary(row interface {
 	}
 
 	endedAt := types.None[time.Time]()
-	status := "active"
+	status := types.SessionStatusActive.String()
 	if endedAtStr.Valid {
 		t, err := time.Parse(time.RFC3339Nano, endedAtStr.String)
 		if err != nil {
 			return apptypes.SessionSummary{}, xerrors.Errorf("failed to parse ended_at: %w", err)
 		}
 		endedAt = types.Some(t)
-		status = "ended"
+		// A session whose latest event arrived after its end marker is reported
+		// as ended_with_late_events so snapshots surface it instead of dropping
+		// it. The end marker can come from a session_ended event or from
+		// `session gc` writing ended_at directly without a matching event.
+		if latestEventAt.After(t) {
+			status = types.SessionStatusEndedWithLateEvents.String()
+		} else {
+			status = types.SessionStatusEnded.String()
+		}
 	} else if time.Since(startedAt) > 24*time.Hour {
-		status = "stale"
+		status = types.SessionStatusStale.String()
 	}
 
 	var agents []string
