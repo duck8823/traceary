@@ -109,6 +109,12 @@ Since v0.11.0, the hook-driven session-end path (`traceary hook session <client>
 
 A length-based quality filter routes short memory candidates (under 20 runes; artifact refs are exempt) to `source=extracted-hidden` instead of `source=extracted`. The hidden rows stay in the store for audit but are skipped by the default `traceary memory inbox list` view; `--include-hidden` surfaces them.
 
+Since v0.21.0, obvious code/diff fragments — unified-diff `+`/`-` lines and generated-code markers — are **dropped entirely** during auto-extraction rather than stored as hidden candidates, so the inbox no longer fills with non-durable fragments. Explicit `remember this:` intent always overrides the drop. Softer noise classes (standalone commands, review-only conclusions, work declarations, PR/round chatter) are still **hidden** (kept for audit), not dropped. Candidates created before this change are not deleted; clean them up with the bulk action below.
+
+#### Candidate hygiene
+
+`traceary sessions --snapshot --json` reports `reliability.memory.candidate_hygiene` counts — `stale_count`, `duplicate_count`, `fragment_like_count`, `extracted_hidden_count`, `likely_actionable_count` — so operators can gauge how much of the candidate backlog is actually worth reviewing (`likely_actionable_count`) versus stale, duplicate, fragment-like, or already-hidden noise. The four flag counts may overlap and are subject to the snapshot scan limit (`scan_limit_reached`). To clear low-value candidates, run the dry-run-first `traceary memory inbox cleanup --quality low` to preview, then add `--apply` to reject the matches (cleanup only rejects candidates; it never deletes or auto-accepts). `traceary memory admin hygiene scan` adds similarity-based duplicate detection beyond the snapshot's exact-fact `duplicate_count`.
+
 #### Context-boundary extraction
 
 `traceary memory admin extract` treats meaningful post-compact summaries and clear/reset-equivalent summary events as extraction inputs. Memory candidates from compact-summary style events use `source=compact-summary` and keep the originating event as evidence, so reviewers can inspect the exact host signal before accepting.

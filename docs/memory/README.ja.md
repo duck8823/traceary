@@ -109,6 +109,12 @@ v0.11.0 以降、hook 経由の session 終了 (`traceary hook session <client> 
 
 長さベースの quality filter により、短い候補 (20 rune 未満。artifact ref は除外) は `source=extracted` ではなく `source=extracted-hidden` で保存されます。hidden 行は audit 用に store に残りますが、`traceary memory inbox list` の既定 view には出ません。`--include-hidden` で surface できます。
 
+v0.21.0 以降、明らかな code/diff fragment — unified diff の `+`/`-` 行や generated-code marker — は auto-extraction 時に hidden 候補として保存せず、**完全に drop** します。これにより inbox が durable でない fragment で埋まらなくなります。明示的な `remember this:` intent は常に drop を上書きします。それ以外の softer な noise (standalone command、review-only conclusion、work declaration、PR/round chatter) は drop せず従来どおり **hidden** (audit 用に保持) のままです。この変更前に作られた候補は削除されないため、下記の一括アクションで掃除してください。
+
+#### 候補の hygiene
+
+`traceary sessions --snapshot --json` は `reliability.memory.candidate_hygiene` の各カウント — `stale_count`、`duplicate_count`、`fragment_like_count`、`extracted_hidden_count`、`likely_actionable_count` — を出力します。これにより operator は候補 backlog のうち実際にレビュー価値があるもの (`likely_actionable_count`) と、stale / duplicate / fragment-like / 既に hidden な noise の量を把握できます。4 つの flag カウントは重複しうるもので、snapshot の scan 上限 (`scan_limit_reached`) の影響を受けます。低価値な候補を掃除するには、まず dry-run 既定の `traceary memory inbox cleanup --quality low` でプレビューし、`--apply` を付けて match を reject します (cleanup は候補を reject するだけで、削除や auto-accept はしません)。`traceary memory admin hygiene scan` は snapshot の exact-fact な `duplicate_count` を超えた similarity ベースの重複検出を追加します。
+
 #### context boundary からの抽出
 
 `traceary memory admin extract` は、意味のある post-compact summary と clear/reset 相当の summary event を抽出入力として扱います。compact-summary 系 event からできたメモリ候補は `source=compact-summary` になり、元 event を evidence として保持するため、accept 前に reviewer が実際の host signal を確認できます。
