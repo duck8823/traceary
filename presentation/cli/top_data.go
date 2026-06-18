@@ -220,6 +220,7 @@ type topReliabilityMetrics struct {
 	LowQualityCount      int
 	MemoryScanLimit      int
 	MemoryScanLimited    bool
+	CandidateHygiene     apptypes.CandidateHygieneCounts
 
 	CandidateAge  topCandidateAgeMetrics
 	LargePayloads topLargePayloadMetrics
@@ -242,6 +243,12 @@ type topLargePayloadMetrics struct {
 }
 
 const topReliabilityMemoryScanLimit = 2000
+
+// candidateHygieneStaleThreshold marks a candidate as stale once it has gone
+// unreviewed past this age. It matches the gc retention for unreviewed
+// extracted candidates (14 days), so a stale candidate here is one the store GC
+// would eventually delete.
+const candidateHygieneStaleThreshold = 14 * 24 * time.Hour
 
 // topDataLoader fetches every data slice the redesigned `traceary top`
 // dashboard needs (active session tree, recent failures, recent
@@ -580,12 +587,39 @@ func (l *topDataLoader) loadReliabilityMetrics(ctx context.Context, c topDataCri
 			}
 		}
 	}
+	// Candidate hygiene must reflect actual candidate rows. The mixed
+	// accepted+candidate scan above can saturate on newer accepted memories
+	// before reaching candidates, which would starve the hygiene sample while
+	// candidate_count (the true CountByStatus above) stays nonzero — i.e. a
+	// nonzero backlog reported with all-zero hygiene (#1169). When the mixed
+	// scan saturated, spend a bounded candidate-only scan on the hygiene
+	// summary so the budget reaches candidate rows; otherwise the mixed scan
+	// already holds every candidate, so reuse it (no extra query).
+	hygieneRows := memories
+	if metrics.MemoryScanLimited {
+		candidateRows, err := l.memory.List(ctx, topReliabilityCandidateCriteria(c))
+		if err != nil {
+			return topReliabilityMetrics{}, xerrors.Errorf("%s: %w", Localize("failed to list memory candidates for hygiene metrics", "hygiene metrics 用 memory candidate 一覧の取得に失敗しました"), err)
+		}
+		hygieneRows = candidateRows
+	}
+	metrics.CandidateHygiene = usecase.SummarizeCandidateHygiene(hygieneRows, topDataNow(c), candidateHygieneStaleThreshold)
 	return metrics, nil
 }
 
 func topReliabilityMemoryCriteria(c topDataCriteria) apptypes.MemoryListCriteria {
 	builder := apptypes.NewMemoryListCriteriaBuilder(topReliabilityMemoryScanLimit).
 		Statuses([]domtypes.MemoryStatus{domtypes.MemoryStatusAccepted, domtypes.MemoryStatusCandidate})
+	builder = applyTopMemoryScopes(builder, c)
+	return builder.Build()
+}
+
+// topReliabilityCandidateCriteria bounds a candidate-only scan for the hygiene
+// summary so the scan budget is spent on candidate rows rather than being
+// crowded out by newer accepted memories in the mixed reliability scan (#1169).
+func topReliabilityCandidateCriteria(c topDataCriteria) apptypes.MemoryListCriteria {
+	builder := apptypes.NewMemoryListCriteriaBuilder(topReliabilityMemoryScanLimit).
+		Statuses([]domtypes.MemoryStatus{domtypes.MemoryStatusCandidate})
 	builder = applyTopMemoryScopes(builder, c)
 	return builder.Build()
 }

@@ -2051,32 +2051,119 @@ func TestMemoryUsecase_ExplainExtraction_AppliesCandidateLimitInExtractionKeyOrd
 	}
 }
 
-// TestMemoryUsecase_Extract_HidesNoisyCandidates verifies that diff fragments,
-// standalone commands, generated-code markers, review-only conclusions, work
-// declarations, and PR/Round chatter are routed to the extracted-hidden
-// source so the default `memory inbox list` view stays clean (#857).
+// TestMemoryUsecase_ExplainExtraction_DroppedFragmentDoesNotConsumeCandidateLimit
+// locks the Extract/Explain parity for the #1169 drop: a droppable code/diff
+// fragment that sorts ahead of a real candidate must not consume a
+// candidate-limit slot. Extract drops the fragment before the limit break, so a
+// following real candidate is still proposed even at CandidateLimit(1); Explain
+// must report the same (fragment dropped, real candidate proposed) rather than
+// charging the limit slot to the fragment and skipping the real candidate.
+func TestMemoryUsecase_ExplainExtraction_DroppedFragmentDoesNotConsumeCandidateLimit(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-drop-limit"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"codex"}, "", "", domtypes.SessionID(""))
+	body := strings.Join([]string{
+		"Decision: diff --git a/foo.go b/foo.go",
+		"Remember: Check release workflow before announcing completion.",
+	}, "\n")
+	wantFact := "Check release workflow before announcing completion."
+	criteria := apptypes.NewMemoryExtractionCriteriaBuilder().
+		SessionID(domtypes.SessionID("session-drop-limit")).
+		Workspace(domtypes.Workspace("github.com/duck8823/traceary")).
+		EventLimit(1).
+		CandidateLimit(1).
+		Build()
+
+	// Extract side: the real candidate is proposed despite the leading fragment.
+	promptEvent := mustExtractionEvent(t, "event-drop-limit", domtypes.EventKindPrompt, body)
+	details := mustMemoryDetailsFromSummary(t, "memory-drop-limit", domtypes.MemoryTypeLesson, wantFact)
+	extractMemory := &memoryExtractionMemoryUsecaseStub{proposeResult: []apptypes.MemoryDetails{details}}
+	extractSession := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	extractEvents := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindPrompt: {promptEvent}}}
+	extractSUT := usecase.NewMemoryUsecase(extractMemory, extractMemory, nil, usecase.MemoryUsecaseDependencies{SessionQuery: extractSession, EventQuery: extractEvents})
+	if _, err := extractSUT.Extract(context.Background(), criteria); err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(extractMemory.proposeCalls) != 1 {
+		t.Fatalf("proposeCalls = %d, want 1 (real candidate proposed, fragment dropped without consuming the limit)", len(extractMemory.proposeCalls))
+	}
+	if got := extractMemory.proposeCalls[0].fact; got != wantFact {
+		t.Fatalf("proposed fact = %q, want %q", got, wantFact)
+	}
+
+	// Explain side: matching report — fragment dropped, real candidate proposed.
+	explainEvent := mustExtractionEvent(t, "event-drop-limit", domtypes.EventKindPrompt, body)
+	explainMemory := &memoryExtractionMemoryUsecaseStub{}
+	explainSession := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	explainEvents := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindPrompt: {explainEvent}}}
+	explainSUT := usecase.NewMemoryUsecase(explainMemory, explainMemory, nil, usecase.MemoryUsecaseDependencies{SessionQuery: explainSession, EventQuery: explainEvents})
+	report, err := explainSUT.ExplainExtraction(context.Background(), criteria)
+	if err != nil {
+		t.Fatalf("ExplainExtraction() error = %v", err)
+	}
+	if len(report.Segments) != 2 {
+		t.Fatalf("segments = %d, want 2", len(report.Segments))
+	}
+	if report.Segments[0].Decision != "dropped" || report.Segments[0].Reason != "fragment:diff_header" {
+		t.Fatalf("first decision = %s/%s, want dropped/fragment:diff_header", report.Segments[0].Decision, report.Segments[0].Reason)
+	}
+	if report.Segments[1].Decision != "proposed" {
+		t.Fatalf("second decision = %s, want proposed (real candidate not charged the limit slot)", report.Segments[1].Decision)
+	}
+}
+
+// TestMemoryUsecase_Extract_HidesNoisyCandidates verifies the two-tier noise
+// routing: only unambiguous unified-diff headers / git metadata are dropped
+// entirely (#1169), while every other noise class — single +/- content lines
+// (which can be flag-prefixed durable prose), generated-code markers, standalone
+// commands, review-only conclusions, work declarations, PR/Round chatter — is
+// routed to the extracted-hidden source, kept for audit and recoverable via
+// --include-hidden, so the default `memory inbox list` view stays clean (#857).
 func TestMemoryUsecase_Extract_HidesNoisyCandidates(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name     string
-		body     string
-		wantFact string
+		name        string
+		body        string
+		wantFact    string
+		wantDropped bool
 	}{
 		{
-			name:     "diff fragment under structured label",
+			name:        "diff header under structured label is dropped",
+			body:        "Decision: diff --git a/foo.go b/foo.go",
+			wantFact:    "diff --git a/foo.go b/foo.go",
+			wantDropped: true,
+		},
+		{
+			// Codex P2: a single +/- content line can be durable prose that
+			// merely starts with a CLI flag or sign. It is hidden (recoverable),
+			// never dropped, unlike the unambiguous diff_header above.
+			name:     "diff content line under structured label is hidden not dropped",
 			body:     "Decision: +def _required_env(name):",
 			wantFact: "+def _required_env(name):",
+		},
+		{
+			name:     "flag-prefixed durable constraint is hidden not dropped",
+			body:     "Constraint: -race must be enabled for Go tests",
+			wantFact: "-race must be enabled for Go tests",
+		},
+		{
+			name:     "generated code marker under structured label is hidden not dropped",
+			body:     "Lesson: // Code generated by MockGen. DO NOT EDIT.",
+			wantFact: "// Code generated by MockGen. DO NOT EDIT.",
+		},
+		{
+			// Codex P2: the generated-code substring matcher also fires on
+			// durable prose *about* generated files. Such facts must stay
+			// recoverable as extracted-hidden, never be dropped.
+			name:     "generated-file guidance prose is hidden not dropped",
+			body:     "Decision: Do not edit auto-generated files; regenerate them via build_runner",
+			wantFact: "Do not edit auto-generated files; regenerate them via build_runner",
 		},
 		{
 			name:     "standalone command under structured label",
 			body:     "Lesson: git pull --ff-only origin main",
 			wantFact: "git pull --ff-only origin main",
-		},
-		{
-			name:     "generated code marker under structured label",
-			body:     "Lesson: +// Code generated by MockGen. DO NOT EDIT.",
-			wantFact: "+// Code generated by MockGen. DO NOT EDIT.",
 		},
 		{
 			name:     "review conclusion under structured label",
@@ -2135,6 +2222,12 @@ func TestMemoryUsecase_Extract_HidesNoisyCandidates(t *testing.T) {
 			)
 			if err != nil {
 				t.Fatalf("Extract() error = %v", err)
+			}
+			if tc.wantDropped {
+				if len(memoryUsecase.proposeCalls) != 0 {
+					t.Fatalf("proposeCalls = %d, want 0 (obvious fragment dropped, not persisted)", len(memoryUsecase.proposeCalls))
+				}
+				return
 			}
 			if len(memoryUsecase.proposeCalls) != 1 {
 				t.Fatalf("proposeCalls = %d, want 1 hidden noise candidate", len(memoryUsecase.proposeCalls))

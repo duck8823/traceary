@@ -109,6 +109,12 @@ v0.11.0 以降、hook 経由の session 終了 (`traceary hook session <client> 
 
 長さベースの quality filter により、短い候補 (20 rune 未満。artifact ref は除外) は `source=extracted` ではなく `source=extracted-hidden` で保存されます。hidden 行は audit 用に store に残りますが、`traceary memory inbox list` の既定 view には出ません。`--include-hidden` で surface できます。
 
+v0.21.0 以降、完全な構造を持つ unified-diff / git metadata のみ auto-extraction 時に **完全に drop** します。これらの行は durable な prose には決してならないためです: `diff --git a/… b/…` header、git の `index <hex>..<hex>` 行、完全な hunk header (`@@ -N,M +N,M @@`)、path が `a/`・`b/`・`/dev/null` の file marker (`--- a/…`、`+++ b/…`、`--- /dev/null`)、`Binary files a/… differ` (または `/dev/null`) 行。この match は行全体に anchor されるため、これらの token で *始まるだけ* の durable prose (例: `diff --git output must be redacted`、`--- separates YAML documents`、`@@ is NumPy's matmul operator`、`Binary files are stored in object storage`)、および real-looking な header の後に prose が続くもの (例: `diff --git a/foo b/foo output must be redacted`、`@@ -1,3 +1,5 @@ marks a hunk`、`Binary files a/foo and b/foo must not differ`) は drop **しません**。明示的な `remember this:` intent は常に drop を上書きします。それ以外の noise は drop せず **hidden** (audit 用に保持され `--include-hidden` で復旧可能) のままです: 単一の `+`/`-` content 行 (CLI flag や符号で始まる durable prose、例: `-race must be enabled for Go tests` のことがある)、上記の bare-prefix な diff そっくりさん、generated-code marker (generated file に *言及* した prose にも反応し得る loose な substring match で検出)、standalone command、review-only conclusion、work declaration、PR/round chatter。これらは下記の operator 確認付き cleanup workflow で意図的に掃除してください。この変更前に作られた候補は削除されません。
+
+#### 候補の hygiene
+
+`traceary sessions --snapshot --json` は `reliability.memory.candidate_hygiene` の各カウント — `stale_count`、`duplicate_count`、`fragment_like_count`、`extracted_hidden_count`、`likely_actionable_count` — を出力します。これにより operator は候補 backlog のうち実際にレビュー価値があるもの (`likely_actionable_count`) と、stale / duplicate / fragment-like / 既に hidden な noise の量を把握できます。4 つの flag カウントは重複しうるもので、snapshot の scan 上限 (`scan_limit_reached`) の影響を受けます。低価値な候補を掃除するには、まず dry-run 既定の `traceary memory inbox cleanup --quality low` でプレビューし、`--apply` を付けて match を reject します (cleanup は候補を reject するだけで、削除や auto-accept はしません)。`traceary memory admin hygiene scan` は snapshot の exact な `duplicate_count` (同一 scope・memory type・fact) を超えた similarity ベースの重複検出を追加します。
+
 #### context boundary からの抽出
 
 `traceary memory admin extract` は、意味のある post-compact summary と clear/reset 相当の summary event を抽出入力として扱います。compact-summary 系 event からできたメモリ候補は `source=compact-summary` になり、元 event を evidence として保持するため、accept 前に reviewer が実際の host signal を確認できます。

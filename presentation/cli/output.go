@@ -119,11 +119,24 @@ type topSnapshotReliability struct {
 }
 
 type topSnapshotReliabilityMemory struct {
-	AcceptedCount    int      `json:"accepted_count"`
-	CandidateCount   int      `json:"candidate_count"`
-	AcceptedRatio    *float64 `json:"accepted_ratio,omitempty"`
-	ScanLimit        int      `json:"scan_limit"`
-	ScanLimitReached bool     `json:"scan_limit_reached"`
+	AcceptedCount    int                         `json:"accepted_count"`
+	CandidateCount   int                         `json:"candidate_count"`
+	AcceptedRatio    *float64                    `json:"accepted_ratio,omitempty"`
+	ScanLimit        int                         `json:"scan_limit"`
+	ScanLimitReached bool                        `json:"scan_limit_reached"`
+	CandidateHygiene topSnapshotCandidateHygiene `json:"candidate_hygiene"`
+}
+
+// topSnapshotCandidateHygiene reports the hygiene composition of the scanned
+// candidate window (#1169). The four flag counts are independent diagnostic
+// dimensions and may overlap; likely_actionable_count is the complement
+// (candidates flagged by none). Counts are subject to scan_limit_reached.
+type topSnapshotCandidateHygiene struct {
+	StaleCount            int `json:"stale_count"`
+	DuplicateCount        int `json:"duplicate_count"`
+	FragmentLikeCount     int `json:"fragment_like_count"`
+	ExtractedHiddenCount  int `json:"extracted_hidden_count"`
+	LikelyActionableCount int `json:"likely_actionable_count"`
 }
 
 type topSnapshotCandidateAge struct {

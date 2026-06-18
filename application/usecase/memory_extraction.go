@@ -184,6 +184,13 @@ func (u *memoryExtractionUsecase) Extract(ctx context.Context, criteria apptypes
 		// declarations, PR/Round chatter) are also routed to
 		// extracted-hidden. The explicit-remember intent is exempt so
 		// user-driven `remember this:` prompts always remain visible.
+		// Obvious code/diff fragments are dropped entirely rather than persisted
+		// (#1169): they are never durable memories and previously flooded the
+		// candidate inbox as extracted-hidden rows. Explicit remember-intent is
+		// exempt so a user-driven `remember this: +foo` still lands.
+		if !spec.intent.explicitRemember && isDroppableExtractionFragment(spec.lowQualityReasons) {
+			continue
+		}
 		source := spec.source
 		hiddenByQuality := spec.signalScore < extractionVisibleScoreThreshold ||
 			(len(spec.lowQualityReasons) > 0 && !spec.intent.explicitRemember)
@@ -381,7 +388,15 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 		if _, exists := existingKeys[key]; exists {
 			continue
 		}
-		if _, exists := bestCandidateByKey[key]; !exists {
+		bestIndex, exists := bestCandidateByKey[key]
+		if !exists {
+			continue
+		}
+		// Mirror the Extract drop (#1169): obvious code/diff fragments are
+		// removed before they can consume a candidate-limit slot, so this
+		// accounting matches Extract, where the drop precedes the limit break.
+		best := candidates[bestIndex]
+		if !best.explicitRemember && isDroppableExtractionFragment(best.lowQualityReasons) {
 			continue
 		}
 		if emittedCandidates >= criteria.CandidateLimit() {
@@ -402,6 +417,18 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 		if bestCandidateByKey[candidate.key] != index {
 			decision.Decision = "skipped"
 			decision.Reason = "duplicate_in_run"
+			continue
+		}
+		if !candidate.explicitRemember && isDroppableExtractionFragment(candidate.lowQualityReasons) {
+			// Mirror the Extract drop (#1169): obvious code/diff fragments are
+			// not persisted at all, so report them as dropped rather than
+			// hidden. Checked before the candidate-limit and score / low-quality
+			// branches to match the Extract ordering, where the drop precedes the
+			// limit break and wins regardless of score. The limit-accounting loop
+			// above skips these keys too, so a dropped fragment never consumes a
+			// candidate-limit slot from a real candidate.
+			decision.Decision = "dropped"
+			decision.Reason = "fragment:" + strings.Join(candidate.lowQualityReasons, ",")
 			continue
 		}
 		if _, exists := limitSkippedKeys[candidate.key]; exists {

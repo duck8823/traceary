@@ -10,6 +10,7 @@ import (
 // stable string suitable for surfacing through `memory extract --debug-signals`
 // and the candidate hygiene scan (#864).
 const (
+	extractionNoiseDiffHeader           = "diff_header"
 	extractionNoiseDiffFragment         = "diff_fragment"
 	extractionNoiseGeneratedCode        = "generated_code"
 	extractionNoiseStandaloneCommand    = "standalone_command"
@@ -20,12 +21,37 @@ const (
 )
 
 var (
-	// diffContentPrefixPattern matches a unified-diff added/removed line.
-	// The trailing alternation allows tab- and 2+ space-indented diff
+	// diffContentPrefixPattern matches diff-ish lines that can ALSO be durable
+	// prose, so they are kept hidden (recoverable via --include-hidden) rather
+	// than dropped at extraction (#1169): a single +/- content line (e.g.
+	// "+func handler()" or a fact starting with a CLI flag like "-race must be
+	// enabled"), and diff/file/hunk/binary tokens that are NOT in genuine
+	// unified-diff form (e.g. "diff --git output must be redacted", "--- separates
+	// YAML documents", "@@ is NumPy's matmul operator", "Binary files are stored
+	// as blobs"). The leading +/- branch allows tab- and 2+ space-indented
 	// fragments (e.g. "+\tfunc handler()" or "+  func main() {") while still
 	// rejecting single-space markdown bullets like "+ list item".
-	diffContentPrefixPattern = regexp.MustCompile(`^[+-](?:[^\s+\-]|\t| {2,})`)
-	diffHeaderPrefixPattern  = regexp.MustCompile(`^(?:@@|diff --git\b|index [0-9a-fA-F]{4,}\.\.[0-9a-fA-F]{4,}|\+\+\+ |--- |Binary files )`)
+	diffContentPrefixPattern = regexp.MustCompile(`^(?:[+-](?:[^\s+\-]|\t| {2,})|diff --git |(?:---|\+\+\+) |@@ |Binary files )`)
+
+	// diffHeaderPrefixPattern matches ONLY a (trimmed) line that is, in full,
+	// genuine unified-diff / git metadata, so it is the sole reason safe to drop
+	// silently at extraction (#1169): a `diff --git a/<path> b/<path>` command
+	// header, the git `index <hex>..<hex>[ <mode>]` blob line, a hunk header
+	// (`@@ -N,M +N,M @@`), a file marker whose path is `a/<path>`, `b/<path>`, or
+	// `/dev/null`, and a `Binary files <old> and <new> differ` line whose paths
+	// are `a/<path>`/`b/<path>`/`/dev/null`. The surrounding ^(?:…)$ anchors every
+	// alternative to the whole line, every path segment is non-space (no
+	// unbounded `.+`), so a real-looking header that continues into prose (e.g.
+	// "diff --git a/foo b/foo output must be redacted", "@@ -1,3 +1,5 @@ marks a
+	// hunk", "Binary files a/foo and b/foo must not differ") does NOT match and
+	// falls through to diffContentPrefixPattern to stay hidden, never dropped.
+	diffHeaderPrefixPattern = regexp.MustCompile(`^(?:` +
+		`diff --git a/\S+ b/\S+` +
+		`|index [0-9a-fA-F]{4,}\.\.[0-9a-fA-F]{4,}(?: [0-7]{6})?` +
+		`|@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@` +
+		`|(?:---|\+\+\+) (?:a/\S+|b/\S+|/dev/null)` +
+		`|Binary files (?:a/\S+|/dev/null) and (?:b/\S+|/dev/null) differ` +
+		`)$`)
 
 	standaloneCommandPattern = regexp.MustCompile(`(?i)^` +
 		`(?:git|gh|npm|npx|yarn|pnpm|make|go|flutter|dart|python3?|pip3?|cargo|brew|docker(?:-compose)?|kubectl|helm|aws|gcloud|terraform|psql|sqlite3?|mkdir|rmdir|rm|mv|cp|cd|ls|ssh|scp|curl|wget|cat|tail|head|sed|awk|grep|rg|bash|zsh|sh|tree|env|export|source|sudo|node|deno|bun|tsx|swift|xcrun|adb|fastlane|gem|bundle|rake|tox|pytest|jest|vitest|mvn|gradle|sbt|cmake|ninja|jq|tar|zip|unzip|gzip|gunzip|hg|svn|nslookup|dig|ping|traceroute|systemctl|service|launchctl|crontab|chmod|chown|kill|pkill|ps|lsof|netstat|whoami|id|uname|date|rtk|traceary|claude|codex|gemini)` +
@@ -147,7 +173,16 @@ func classifyExtractionNoise(fact string) []string {
 	}
 	lower := strings.ToLower(trimmed)
 	reasons := make([]string, 0, 2)
-	if isDiffFragment(trimmed) {
+	// A unified-diff header / git-metadata line (diff_header) is unambiguously
+	// machine output and never collides with durable prose, so it is safe to
+	// drop. A single +/- content line (diff_fragment) can also be durable prose
+	// that merely starts with a CLI flag or sign (e.g. "-race must be enabled"),
+	// so it is kept hidden, not dropped. Header takes precedence; the two
+	// patterns are otherwise disjoint.
+	switch {
+	case diffHeaderPrefixPattern.MatchString(trimmed):
+		reasons = append(reasons, extractionNoiseDiffHeader)
+	case diffContentPrefixPattern.MatchString(trimmed):
 		reasons = append(reasons, extractionNoiseDiffFragment)
 	}
 	if isGeneratedCodeMarker(lower) {
@@ -174,6 +209,50 @@ func classifyExtractionNoise(fact string) []string {
 	return reasons
 }
 
+// isDroppableExtractionFragment reports whether the noise reasons identify a
+// fragment that is safe to silently discard at extraction rather than keep as a
+// durable-memory candidate (#1169). Only diff_header qualifies, and it is
+// matched only when the WHOLE (trimmed) line is unified-diff / git structure —
+// `diff --git a/… b/…`, a git `index <hex>..<hex>` line, a hunk header
+// (`@@ -N,M +N,M @@`), a file marker whose path is `a/`, `b/`, or `/dev/null`,
+// or a `Binary files a/… differ` line — never on a bare prefix nor a real-looking
+// header that then continues into prose (e.g. "diff --git a/foo b/foo output must
+// be redacted", "@@ -1,3 +1,5 @@ marks a hunk", "--- separates YAML documents").
+// Every other noise reason
+// — including diff_fragment (a single +/- content line, or a loose
+// `@@`/`---`/`+++`/`Binary files` prefix, which can be durable prose starting
+// with a CLI flag, sign, or such a token) and generated_code (a loose substring
+// match that fires on prose *about* generated files) — is kept hidden and
+// recoverable via `memory inbox --include-hidden`, then cleared deliberately
+// through the operator-confirmed `memory inbox cleanup` workflow. Explicit
+// remember-intent is handled by the caller and always overrides this drop.
+func isDroppableExtractionFragment(reasons []string) bool {
+	for _, reason := range reasons {
+		if reason == extractionNoiseDiffHeader {
+			return true
+		}
+	}
+	return false
+}
+
+// isFragmentLikeNoise reports whether the noise reasons mark a mechanical
+// code/diff fragment for the candidate-hygiene diagnostic (fragment_like_count,
+// #1169). This is intentionally broader than the drop set: it also counts
+// diff_fragment content lines and generated-code markers, which are surfaced as
+// low-value noise even though they are kept (not dropped) because their
+// detectors can misfire on durable prose. The count is non-destructive, so the
+// occasional false positive only nudges a diagnostic number rather than
+// discarding a memory.
+func isFragmentLikeNoise(reasons []string) bool {
+	for _, reason := range reasons {
+		switch reason {
+		case extractionNoiseDiffHeader, extractionNoiseDiffFragment, extractionNoiseGeneratedCode:
+			return true
+		}
+	}
+	return false
+}
+
 func isReviewFixInstruction(value string) bool {
 	if !reviewFixInstructionPattern.MatchString(value) {
 		return false
@@ -186,10 +265,6 @@ func isReviewFixInstruction(value string) bool {
 		return false
 	}
 	return true
-}
-
-func isDiffFragment(value string) bool {
-	return diffContentPrefixPattern.MatchString(value) || diffHeaderPrefixPattern.MatchString(value)
 }
 
 func isGeneratedCodeMarker(lower string) bool {

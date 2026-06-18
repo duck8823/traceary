@@ -16,6 +16,8 @@ Starting in v0.19.0, the text snapshot for `traceary sessions --snapshot` (and p
 
 Starting in v0.20.1, JSON and text snapshot writers treat a downstream broken pipe as a normal early-close outcome. Commands such as `traceary sessions --snapshot --json | head -c 1` should exit silently instead of printing a misleading Traceary error, while query and JSON-encoding failures remain loud.
 
+Starting in v0.21.0, the snapshot's `reliability.memory` object gains an additive `candidate_hygiene` object with `stale_count`, `duplicate_count`, `fragment_like_count`, `extracted_hidden_count`, and `likely_actionable_count`. The field is additive — existing snapshot consumers are unaffected — and is JSON-only (the text snapshot renderer is intentionally unchanged). The counts are bounded by the same memory scan as `scan_limit_reached`; the flag counts may overlap, and `likely_actionable_count` is the complement (a candidate with no hygiene flag set).
+
 If a CLI command has no fixture for one of its public outputs, add one before merging rather than relying on ad-hoc string assertions. Likewise, do not add or remove an MCP tool without regenerating the registry snapshot in the same change.
 
 ## Run golden tests

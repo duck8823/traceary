@@ -115,7 +115,14 @@
       "candidate_count": 1,
       "accepted_ratio": 0,
       "scan_limit": 2000,
-      "scan_limit_reached": false
+      "scan_limit_reached": false,
+      "candidate_hygiene": {
+        "stale_count": 0,
+        "duplicate_count": 0,
+        "fragment_like_count": 0,
+        "extracted_hidden_count": 0,
+        "likely_actionable_count": 1
+      }
     },
     "candidate_age": {
       "count": 1,
