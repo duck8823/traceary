@@ -27,10 +27,10 @@
 |---|---|---|
 | SessionStart | (全て) | セッション開始を記録 |
 | UserPromptSubmit | (全て) | ユーザーの指示テキストを記録 |
-| Stop | (全て) | セッション終了を記録し、`last_assistant_message` から最終 assistant メッセージを `transcript` event として記録（既知 secret の redaction + オペレーター設定の `redact.rules` / `redact.extra_patterns` を適用） |
+| Stop | (全て) | `last_assistant_message` から最終 assistant メッセージを `transcript` event として記録（既知 secret の redaction + オペレーター設定の `redact.rules` / `redact.extra_patterns` を適用）。セッション終了ではなく turn 境界として扱う |
 | PostToolUse | (全て) | ツール監査を記録 |
 
-**制限**: SessionEnd なし（Stop を使用）、compact hooks なし、failure 専用イベントなし・構造化された失敗信号なし。Codex は非ゼロ終了でも `PostToolUse` を fire するが、`tool_response` は exit code も error フィールドも持たない素の整形済み文字列のため、失敗した実行は通常の（フラグなし）監査として記録される。
+**制限**: SessionEnd なし・host レベルのセッション終了信号なし — Codex は会話終了時ではなく assistant 応答ごとに `Stop` を fire するため、Traceary は `Stop` を turn 境界として扱い session を開いたままにする (#1170)。Codex session は明示的な終了信号 (MCP `manage_session`) または stale GC (`traceary session gc`、既定 24h) でのみ終了する。compact hooks なし、failure 専用イベントなし・構造化された失敗信号なし。Codex は非ゼロ終了でも `PostToolUse` を fire するが、`tool_response` は exit code も error フィールドも持たない素の整形済み文字列のため、失敗した実行は通常の（フラグなし）監査として記録される。
 
 ### Tier 3: 基本対応 (Gemini CLI)
 
@@ -75,7 +75,7 @@ Traceary の managed hook 集合は、リリースをまたいで安定させる
 |---|---|---|---|
 | Claude Code | `SubagentStop` (2026-01 から利用可能) | wire 済み | `traceary hook subagent-stop claude` 経由で `session_ended` + `[phase:subagent]` プレフィックスで記録 |
 | Claude Code | `PreCompact` (2026-01 から利用可能) | wire 済み | `traceary hook compact claude pre-compact` 経由で `compact_summary` + `[phase:pre-compact]` プレフィックスで記録。`loadCompactSummary` が prefix を skip するため handoff / memory_pack は引き続き post-compact summary を返す |
-| Codex CLI | `Stop.last_assistant_message` | wire 済み | Codex `Stop` event 上で既存の session-stop hook と並んで `traceary hook transcript codex` が起動し `transcript` event として記録 |
+| Codex CLI | `Stop.last_assistant_message` | wire 済み | Codex `Stop` event 上で `traceary hook transcript codex` が起動し `transcript` event として記録。並走する `hook session codex stop` は session を閉じず turn 境界として動作する (#1170) |
 | Codex CLI | Memory feature flag (`~/.codex/config.toml`) | install 単位で opt-in | `traceary memory admin import codex` は flag 状態に関わらず動作。flag は Codex 側の capture 挙動にしか影響しない |
 | Gemini CLI | `AfterAgent.prompt_response` | wire 済み | Gemini `AfterAgent` event 上で `traceary hook transcript gemini` が起動し `transcript` event として記録 (Gemini には Stop event が存在しない) |
 | Gemini CLI | `BeforeAgent.prompt` | wire 済み | Gemini `BeforeAgent` event 上で `traceary hook prompt gemini` が起動し `prompt` event として記録 (Claude / Codex の `UserPromptSubmit` と同等) |

@@ -21,7 +21,7 @@ Legend:
 | `command_executed` | ● `PostToolUse` + `PostToolUseFailure` (Bash, `mcp__.*`, built-in tool matcher) | ● `PostToolUse` | ● `AfterTool` | `traceary list events --kind command_executed --limit 5` |
 | `transcript` | ● `Stop` | ● `Stop` (`last_assistant_message`) | ● `AfterAgent` | `traceary list events --kind transcript --limit 5` |
 | `compact_summary` | ● `PostCompact` (+ `PreCompact` marker, `SessionStart matcher=compact` resume) | ✕ no compact hook in Codex 0.125 (upstream openai/codex#16098) | ● `PreCompress` (marker only — Gemini exposes no post-compress hook with the resulting summary) | `traceary list events --kind compact_summary --limit 5` |
-| `session_ended` | ● `SessionEnd` | ● `Stop` (best effort — Codex has no dedicated `SessionEnd`) | ● `SessionEnd` | `traceary list events --kind session_ended --limit 5` |
+| `session_ended` | ● `SessionEnd` | ✕ no host session-end signal — Codex `Stop` is a per-response turn boundary, not a session end (#1170); ends via MCP `manage_session` or stale GC | ● `SessionEnd` | `traceary list events --kind session_ended --limit 5` |
 
 ### Other host hooks Traceary does not wire today
 
