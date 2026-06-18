@@ -962,6 +962,7 @@ alias:
 - `--client`
 - `--project-dir`
 - `--json`
+- `--strict` — audit-reliability: 時間に関係なく完全一致する duplicate group をすべて報告する（near-simultaneous な書き込みだけに限定しない）
 
 ## Store 管理 (`traceary store ...`)
 
