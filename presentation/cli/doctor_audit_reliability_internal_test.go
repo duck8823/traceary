@@ -106,6 +106,104 @@ func TestCommandAuditReliabilityFindingsSplitNearAndFarDuplicates(t *testing.T) 
 	}
 }
 
+// TestCommandAuditReliabilityFindingsClusterBoundaryCases pins the time-proximity
+// clustering edges called out in review: equal timestamps, an exactly-at-window
+// gap (inclusive via <=), and two separate near-simultaneous clusters inside one
+// identity group.
+func TestCommandAuditReliabilityFindingsClusterBoundaryCases(t *testing.T) {
+	base := time.Date(2026, 6, 6, 4, 30, 51, 0, time.UTC)
+	command := "go test ./..."
+	input := `{"command":"test"}`
+	makeDetail := func(eventID string, at time.Time) apptypes.EventDetails {
+		return mustAuditDetailForReliability(t, eventID, "session-1", "workspace-1", command, input, "ok", at)
+	}
+
+	tests := map[string]struct {
+		details    []apptypes.EventDetails
+		wantGroups []int
+	}{
+		"equal timestamps cluster together": {
+			details: []apptypes.EventDetails{
+				makeDetail("evt-eq-1", base),
+				makeDetail("evt-eq-2", base),
+			},
+			wantGroups: []int{2},
+		},
+		"exactly window gap is inclusive": {
+			details: []apptypes.EventDetails{
+				makeDetail("evt-win-1", base),
+				makeDetail("evt-win-2", base.Add(commandAuditDuplicateProximityWindow)),
+			},
+			wantGroups: []int{2},
+		},
+		"two near clusters in one identity group": {
+			details: []apptypes.EventDetails{
+				makeDetail("evt-c1-1", base),
+				makeDetail("evt-c1-2", base.Add(time.Second)),
+				makeDetail("evt-c2-1", base.Add(12*time.Minute)),
+				makeDetail("evt-c2-2", base.Add(12*time.Minute+time.Second)),
+			},
+			wantGroups: []int{2, 2},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			findings := commandAuditReliabilityFindingsFromDetails(context.Background(), tc.details, false)
+			gotGroups := make([]int, len(findings.DuplicateGroups))
+			for i, group := range findings.DuplicateGroups {
+				gotGroups[i] = group.Count
+			}
+			if len(gotGroups) != len(tc.wantGroups) {
+				t.Fatalf("DuplicateGroups counts = %v, want %v", gotGroups, tc.wantGroups)
+			}
+			for i, want := range tc.wantGroups {
+				if gotGroups[i] != want {
+					t.Fatalf("DuplicateGroups counts = %v, want %v", gotGroups, tc.wantGroups)
+				}
+			}
+		})
+	}
+}
+
+// TestCommandAuditReliabilityFindingsSeparateGroupsByClientAndAgent pins the
+// identity key: near-simultaneous audits that share command/session/workspace
+// but differ in client or agent are NOT a duplicate group, matching the stated
+// exact-duplicate identity (kind/client/agent/session/workspace/command/...).
+func TestCommandAuditReliabilityFindingsSeparateGroupsByClientAndAgent(t *testing.T) {
+	base := time.Date(2026, 6, 6, 4, 30, 51, 0, time.UTC)
+	command := "go test ./..."
+	input := `{"command":"test"}`
+
+	tests := map[string]struct {
+		details []apptypes.EventDetails
+	}{
+		"different agent": {
+			details: []apptypes.EventDetails{
+				mustAuditDetailWithClientAgent(t, "evt-codex", "hook", "codex", "session-1", "workspace-1", command, input, "ok", base),
+				mustAuditDetailWithClientAgent(t, "evt-claude", "hook", "claude", "session-1", "workspace-1", command, input, "ok", base.Add(time.Second)),
+			},
+		},
+		"different client": {
+			details: []apptypes.EventDetails{
+				mustAuditDetailWithClientAgent(t, "evt-hook", "hook", "codex", "session-1", "workspace-1", command, input, "ok", base),
+				mustAuditDetailWithClientAgent(t, "evt-mcp", "mcp", "codex", "session-1", "workspace-1", command, input, "ok", base.Add(time.Second)),
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			for _, strict := range []bool{false, true} {
+				findings := commandAuditReliabilityFindingsFromDetails(context.Background(), tc.details, strict)
+				if len(findings.DuplicateGroups) != 0 {
+					t.Fatalf("strict=%v DuplicateGroups = %+v, want none for distinct client/agent", strict, findings.DuplicateGroups)
+				}
+			}
+		})
+	}
+}
+
 func TestCommandAuditReliabilityFindingsDetectWorkspaceDrift(t *testing.T) {
 	cwd := filepath.Join(t.TempDir(), "traceary")
 	base := time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC)
@@ -128,11 +226,16 @@ func TestCommandAuditReliabilityFindingsDetectWorkspaceDrift(t *testing.T) {
 
 func mustAuditDetailForReliability(t *testing.T, eventID, sessionID, workspace, command, input, output string, createdAt time.Time) apptypes.EventDetails {
 	t.Helper()
+	return mustAuditDetailWithClientAgent(t, eventID, "hook", "codex", sessionID, workspace, command, input, output, createdAt)
+}
+
+func mustAuditDetailWithClientAgent(t *testing.T, eventID, client, agent, sessionID, workspace, command, input, output string, createdAt time.Time) apptypes.EventDetails {
+	t.Helper()
 	event := model.EventOf(
 		types.EventID(eventID),
 		types.EventKindCommandExecuted,
-		types.Client("hook"),
-		types.Agent("codex"),
+		types.Client(client),
+		types.Agent(agent),
 		types.SessionID(sessionID),
 		types.Workspace(workspace),
 		"command executed",

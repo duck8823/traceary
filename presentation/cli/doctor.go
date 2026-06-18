@@ -398,6 +398,8 @@ type commandAuditDuplicateGroup struct {
 }
 
 type commandAuditDuplicateGroupKey struct {
+	Client          string
+	Agent           string
 	SessionID       string
 	Workspace       string
 	Command         string
@@ -596,6 +598,8 @@ func newCommandAuditDuplicateGroupKey(event *model.Event, audit *model.CommandAu
 		exitCode = strconv.Itoa(value)
 	}
 	return commandAuditDuplicateGroupKey{
+		Client:          event.Client().String(),
+		Agent:           event.Agent().String(),
 		SessionID:       event.SessionID().String(),
 		Workspace:       event.Workspace().String(),
 		Command:         audit.Command(),
