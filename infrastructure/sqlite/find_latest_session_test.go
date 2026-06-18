@@ -454,6 +454,62 @@ func TestDatasource_FindLatest_activeOnlyIgnoresEndsFromOtherContexts(t *testing
 	}
 }
 
+// TestDatasource_FindLatest_activeOnlyHonorsSessionsRowEndedAt asserts the
+// active query consults sessions.ended_at, not just session_ended events, so a
+// session closed by stale GC (which writes ended_at directly without an event)
+// is excluded — matching the CLI snapshot. A GC-closed session that received
+// later events stays active. This is the CLI/MCP agreement gap from #1172.
+func TestDatasource_FindLatest_activeOnlyHonorsSessionsRowEndedAt(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, onDiskSQLiteMigrations(t))
+	ctx := context.Background()
+	if err := storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	const workspace = "github.com/duck8823/traceary"
+	agent, err := types.AgentFrom("codex")
+	if err != nil {
+		t.Fatalf("AgentFrom() error = %v", err)
+	}
+	saveRow := func(sessionID string, startedAt time.Time, endedAt time.Time) {
+		sid, idErr := types.SessionIDFrom(sessionID)
+		if idErr != nil {
+			t.Fatalf("SessionIDFrom() error = %v", idErr)
+		}
+		session := model.SessionOf(sid, startedAt, types.Some(endedAt), types.Client("cli"), agent, types.Workspace(workspace), "", "", types.SessionID(""))
+		if saveErr := sessionDS.SaveSessionBoundaryForTest(ctx, session); saveErr != nil {
+			t.Fatalf("SaveSessionBoundaryForTest(%s) error = %v", sessionID, saveErr)
+		}
+	}
+
+	// session-gc-closed starts latest, so if the active query ignored the row's
+	// ended_at it would win the ORDER BY. Its ended_at is set with no later
+	// events, so it must be excluded.
+	saveFindLatestSessionEventFixture(t, eventDS, "gc-closed-start", types.EventKindSessionStarted, "session-gc-closed", workspace, "session started", time.Date(2026, 4, 12, 13, 0, 0, 0, time.UTC))
+	saveRow("session-gc-closed", time.Date(2026, 4, 12, 13, 0, 0, 0, time.UTC), time.Date(2026, 4, 14, 13, 0, 0, 0, time.UTC))
+
+	// session-gc-late has ended_at set too, but a later command arrived after
+	// it, so it stays active (ended_with_late_events parity).
+	saveFindLatestSessionEventFixture(t, eventDS, "gc-late-start", types.EventKindSessionStarted, "session-gc-late", workspace, "session started", time.Date(2026, 4, 12, 11, 0, 0, 0, time.UTC))
+	saveRow("session-gc-late", time.Date(2026, 4, 12, 11, 0, 0, 0, time.UTC), time.Date(2026, 4, 12, 11, 30, 0, 0, time.UTC))
+	saveFindLatestSessionEventFixture(t, eventDS, "gc-late-cmd", types.EventKindCommandExecuted, "session-gc-late", workspace, "git status", time.Date(2026, 4, 12, 12, 0, 0, 0, time.UTC))
+
+	result, err := sessionDS.FindLatest(ctx, types.Client("cli"), types.Agent("codex"), types.Workspace(workspace), true)
+	if err != nil {
+		t.Fatalf("FindLatest() error = %v", err)
+	}
+	event, ok := result.Value()
+	if !ok {
+		t.Fatalf("FindLatest(activeOnly) returned empty, want the GC-closed-with-late-events session")
+	}
+	if diff := cmp.Diff("gc-late-start", event.EventID().String()); diff != "" {
+		t.Fatalf("EventID() mismatch (-want +got):\n%s\n(a GC-closed session with no later events must be excluded)", diff)
+	}
+}
+
 func newFindLatestScenario(t *testing.T) (*sqlite.EventDatasource, *sqlite.SessionDatasource) {
 	t.Helper()
 

@@ -49,34 +49,56 @@ WITH candidate_sessions AS (
                 )
         )
         AND (
-             ? = 0 OR NOT EXISTS (
-                 SELECT 1
-                   FROM events ended
-                  WHERE ended.kind = ?
-                    AND ended.session_id = started.session_id
-                    AND ended.client = started.client
-                    AND ended.agent = started.agent
-                    AND ended.workspace = started.workspace
-                    AND (
-                         ended.created_at > started.created_at OR
-                         (ended.created_at = started.created_at AND ended.id > started.id)
-                    )
-                    -- A session_ended only terminates the session when no later
-                    -- event follows it. Late events (prompts, audits) after an
-                    -- end marker keep the session active, matching the CLI
-                    -- snapshot's ended_with_late_events rule.
-                    AND NOT EXISTS (
-                         SELECT 1
-                           FROM events later_ev
-                          WHERE later_ev.session_id = started.session_id
-                            AND later_ev.client = started.client
-                            AND later_ev.agent = started.agent
-                            AND later_ev.workspace = started.workspace
-                            AND (
-                                 later_ev.created_at > ended.created_at OR
-                                 (later_ev.created_at = ended.created_at AND later_ev.id > ended.id)
-                            )
-                    )
+             ? = 0 OR (
+                 -- A session is active unless it is terminally ended by EITHER
+                 -- signal, matching the CLI snapshot's row-based rule so MCP
+                 -- session_status(action="active") and `sessions --snapshot`
+                 -- agree on inclusion.
+                 --
+                 -- (1) Event signal: a session_ended event with no later event.
+                 -- Late events (prompts, audits) after the end marker keep the
+                 -- session active (ended_with_late_events).
+                 NOT EXISTS (
+                     SELECT 1
+                       FROM events ended
+                      WHERE ended.kind = ?
+                        AND ended.session_id = started.session_id
+                        AND ended.client = started.client
+                        AND ended.agent = started.agent
+                        AND ended.workspace = started.workspace
+                        AND (
+                             ended.created_at > started.created_at OR
+                             (ended.created_at = started.created_at AND ended.id > started.id)
+                        )
+                        AND NOT EXISTS (
+                             SELECT 1
+                               FROM events later_ev
+                              WHERE later_ev.session_id = started.session_id
+                                AND later_ev.client = started.client
+                                AND later_ev.agent = started.agent
+                                AND later_ev.workspace = started.workspace
+                                AND (
+                                     later_ev.created_at > ended.created_at OR
+                                     (later_ev.created_at = ended.created_at AND later_ev.id > ended.id)
+                                )
+                        )
+                 )
+                 -- (2) Row signal: sessions.ended_at set with no later event.
+                 -- Covers `session gc`, which writes ended_at directly without a
+                 -- session_ended event; the CLI snapshot already excludes such a
+                 -- session, so the active query must too.
+                 AND NOT EXISTS (
+                     SELECT 1
+                       FROM sessions ended_row
+                      WHERE ended_row.session_id = started.session_id
+                        AND ended_row.ended_at IS NOT NULL
+                        AND NOT EXISTS (
+                             SELECT 1
+                               FROM events row_later
+                              WHERE row_later.session_id = started.session_id
+                                AND row_later.created_at > ended_row.ended_at
+                        )
+                 )
              )
         )
 )
