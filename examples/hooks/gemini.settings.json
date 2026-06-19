@@ -28,6 +28,34 @@
         ]
       }
     ],
+    "BeforeAgent": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "traceary-prompt",
+            "type": "command",
+            "command": "'traceary' 'hook' 'prompt' 'gemini'",
+            "timeout": 5000,
+            "description": "Record user prompt as a prompt event"
+          }
+        ]
+      }
+    ],
+    "AfterAgent": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "traceary-transcript",
+            "type": "command",
+            "command": "'traceary' 'hook' 'transcript' 'gemini'",
+            "timeout": 5000,
+            "description": "Record agent response as a transcript event"
+          }
+        ]
+      }
+    ],
     "AfterTool": [
       {
         "matcher": "run_shell_command",
@@ -38,6 +66,20 @@
             "command": "'traceary' 'hook' 'audit' 'gemini'",
             "timeout": 5000,
             "description": "Record shell command audits in Traceary"
+          }
+        ]
+      }
+    ],
+    "PreCompress": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "traceary-pre-compress",
+            "type": "command",
+            "command": "'traceary' 'hook' 'compact' 'gemini' 'pre-compact'",
+            "timeout": 5000,
+            "description": "Record a pre-compact marker (Gemini exposes no post-compress hook)"
           }
         ]
       }

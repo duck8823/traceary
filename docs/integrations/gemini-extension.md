@@ -8,8 +8,10 @@ The Gemini package lives under `integrations/gemini-extension/`. Gemini CLI expe
 
 - `traceary` MCP server via `traceary mcp-server`
 - `SessionStart` / `SessionEnd` hooks
+- `BeforeAgent` prompt hook — records the submitted user prompt as a `prompt` event
 - `AfterAgent` transcript hook — records the agent response as a `transcript` event
 - `AfterTool` shell-audit hook for `run_shell_command`
+- `PreCompress` compact marker hook — records the pre-compress boundary (Gemini exposes no post-compress summary hook)
 - slash commands: `/traceary-help` and `/traceary-doctor`
 - contextual skills: `traceary-session-history`, `traceary-memory-review`, and `traceary-memory-remember`. `traceary-memory-review` triggers on review-intent phrases ("Traceary inbox", "review memory candidates", "session recap") and curates the inbox; `traceary-memory-remember` triggers only on explicit-write phrases ("remember that", "覚えておいて").
 
@@ -112,6 +114,18 @@ Primary runtime check:
 ```sh
 traceary doctor --client gemini --json
 ```
+
+`doctor` now checks two Gemini capture failure modes:
+
+- `gemini-config` warns when the installed Traceary-managed hooks are partial
+  (for example, legacy SessionStart / SessionEnd / AfterTool only) and can be
+  repaired with `traceary doctor --client gemini --fix` for settings.json
+  installs.
+- `gemini-event-coverage` scans recent Gemini sessions and warns when the
+  boundary-only session ratio is above `--coverage-threshold` (default `0.5`).
+  If you rely on the Gemini extension package instead of settings.json, update
+  it with `gemini extensions update traceary` so the packaged BeforeAgent /
+  AfterAgent hooks are refreshed.
 
 Package validation:
 
