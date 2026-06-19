@@ -1531,12 +1531,33 @@ func writeCompleteClaudeProjectHookSettings(t *testing.T, projectDir string) {
 
 func writeClaudePluginCacheHooks(t *testing.T, homeDir, content string) {
 	t.Helper()
-	hooksPath := filepath.Join(homeDir, ".claude", "plugins", "cache", "traceary-plugins", "traceary", "0.20.1", "hooks", "hooks.json")
+	cacheDir := writeClaudePluginCacheVersionDir(t, homeDir)
+	hooksPath := filepath.Join(cacheDir, "hooks", "hooks.json")
 	if err := os.MkdirAll(filepath.Dir(hooksPath), 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 	if err := os.WriteFile(hooksPath, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile(plugin cache hooks) error = %v", err)
+	}
+}
+
+func writeClaudePluginCacheVersionDir(t *testing.T, homeDir string) string {
+	t.Helper()
+	cacheDir := filepath.Join(homeDir, ".claude", "plugins", "cache", "traceary-plugins", "traceary", "0.20.1")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(plugin cache version) error = %v", err)
+	}
+	return cacheDir
+}
+
+func writeClaudePluginMarketplaceHooks(t *testing.T, homeDir, content string) {
+	t.Helper()
+	hooksPath := filepath.Join(homeDir, ".claude", "plugins", "marketplaces", "traceary-plugins", "integrations", "claude-plugin", "hooks", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(hooksPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(plugin marketplace hooks) error = %v", err)
+	}
+	if err := os.WriteFile(hooksPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile(plugin marketplace hooks) error = %v", err)
 	}
 }
 

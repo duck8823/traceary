@@ -957,28 +957,40 @@ func (c *RootCLI) managedCoverageForEventCoverage(outputPath, client string) (ap
 }
 
 func (c *RootCLI) managedCoverageForInstalledClaudePlugin(pluginKey string) (application.HookManagedCoverage, bool) {
+	result := c.inspectInstalledClaudePluginHookCoverage(pluginKey)
+	return result.coverage, result.known
+}
+
+type installedClaudePluginHookCoverage struct {
+	coverage  application.HookManagedCoverage
+	known     bool
+	cachePath string
+}
+
+func (c *RootCLI) inspectInstalledClaudePluginHookCoverage(pluginKey string) installedClaudePluginHookCoverage {
 	if c.pluginCacheInspector == nil || pluginKey == "" {
-		return application.HookManagedCoverage{}, false
+		return installedClaudePluginHookCoverage{}
 	}
 	home, err := userHomeDirFunc()
 	if err != nil {
-		return application.HookManagedCoverage{}, false
+		return installedClaudePluginHookCoverage{}
 	}
 	status := c.pluginCacheInspector.DetectClaudePluginCacheStatus(home, pluginKey)
 	if status.CachePath != "" && status.CachedVersion != "" {
 		cacheHooksPath := filepath.Join(status.CachePath, status.CachedVersion, "hooks", "hooks.json")
 		if coverage, known := c.managedCoverageForConfigFile(cacheHooksPath, "claude"); known {
-			return coverage, true
+			return installedClaudePluginHookCoverage{coverage: coverage, known: true, cachePath: cacheHooksPath}
 		}
+		return installedClaudePluginHookCoverage{cachePath: cacheHooksPath}
 	}
 	if status.MarketplacePath != "" {
 		pluginRoot := filepath.Dir(filepath.Dir(status.MarketplacePath))
 		marketplaceHooksPath := filepath.Join(pluginRoot, "hooks", "hooks.json")
 		if coverage, known := c.managedCoverageForConfigFile(marketplaceHooksPath, "claude"); known {
-			return coverage, true
+			return installedClaudePluginHookCoverage{coverage: coverage, known: true}
 		}
 	}
-	return application.HookManagedCoverage{}, false
+	return installedClaudePluginHookCoverage{}
 }
 
 func claudePluginUpdateCommand(pluginKey string) string {
@@ -1250,8 +1262,9 @@ func (c *RootCLI) inspectClaudeOrConfigFile(client, outputPath, projectDir strin
 				),
 			}
 		}
-		if coverage, known := c.managedCoverageForInstalledClaudePlugin(detection.PluginKey); known {
-			if missing := coverage.MissingEnrichment(); len(missing) > 0 {
+		pluginCoverage := c.inspectInstalledClaudePluginHookCoverage(detection.PluginKey)
+		if pluginCoverage.known {
+			if missing := pluginCoverage.coverage.MissingEnrichment(); len(missing) > 0 {
 				updateCommand := claudePluginUpdateCommand(detection.PluginKey)
 				return doctorCheck{
 					Name:       "claude-config",
@@ -1271,6 +1284,27 @@ func (c *RootCLI) inspectClaudeOrConfigFile(client, outputPath, projectDir strin
 						updateCommand,
 					),
 				}
+			}
+		}
+		if !pluginCoverage.known && pluginCoverage.cachePath != "" {
+			updateCommand := claudePluginUpdateCommand(detection.PluginKey)
+			return doctorCheck{
+				Name:       "claude-config",
+				Status:     doctorStatusWarn,
+				FixCommand: updateCommand,
+				Hint: localizef(
+					"the plugin-managed Claude hook config could not be inspected at %s; update the Claude plugin instead of trusting marketplace source hooks",
+					"plugin-managed Claude hook config を %s で検査できませんでした。marketplace source hook ではなく Claude plugin を更新してください",
+					pluginCoverage.cachePath,
+				),
+				Message: localizef(
+					"claude hooks are delivered by plugin %q (%s), but the installed cached hook config could not be inspected at %s. Update the plugin with `%s`",
+					"claude hooks は plugin %q によって提供されています (%s) が、installed cache の hook config を %s で検査できませんでした。`%s` で plugin を更新してください",
+					detection.PluginKey,
+					detection.SettingsPath,
+					pluginCoverage.cachePath,
+					updateCommand,
+				),
 			}
 		}
 		return doctorCheck{
