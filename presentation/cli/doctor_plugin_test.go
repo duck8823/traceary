@@ -464,8 +464,45 @@ func writeClaudeGlobalHooksSettings(t *testing.T, home string) {
         "matcher": "*",
         "hooks": [
           {
+            "name": "traceary-session-start",
             "type": "command",
             "command": "'traceary' 'hook' 'session' 'claude' 'start'"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "traceary-prompt",
+            "type": "command",
+            "command": "'traceary' 'hook' 'prompt' 'claude'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "traceary-transcript",
+            "type": "command",
+            "command": "'traceary' 'hook' 'transcript' 'claude'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "name": "traceary-audit",
+            "type": "command",
+            "command": "'traceary' 'hook' 'audit' 'claude'"
           }
         ]
       }
@@ -507,29 +544,7 @@ func writePluginEnabledSettings(t *testing.T, home string) {
 
 func writeClaudeProjectHook(t *testing.T, projectDir string) {
 	t.Helper()
-	settingsPath := filepath.Join(projectDir, ".claude", "settings.json")
-	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
-	}
-	content := `{
-  "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "'traceary' 'hook' 'session' 'claude' 'start'"
-          }
-        ]
-      }
-    ]
-  }
-}
-`
-	if err := os.WriteFile(settingsPath, []byte(content), 0o644); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
+	writeCompleteClaudeProjectHookSettings(t, projectDir)
 }
 
 func runDoctor(t *testing.T, projectDir string) doctorReport {

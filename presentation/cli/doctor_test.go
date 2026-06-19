@@ -168,29 +168,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{"redact":{"extra_patterns":["internal_token"]}}`), 0o644); err != nil {
 			t.Fatalf("WriteFile() error = %v", err)
 		}
-		settingsPath := filepath.Join(projectDir, ".claude", "settings.json")
-		if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
-			t.Fatalf("MkdirAll() error = %v", err)
-		}
-		if err := os.WriteFile(settingsPath, []byte(`{
-  "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "'traceary' 'hook' 'session' 'claude' 'start'"
-          }
-        ]
-      }
-    ]
-  }
-}
-
-`), 0o644); err != nil {
-			t.Fatalf("WriteFile() error = %v", err)
-		}
+		writeCompleteClaudeProjectHookSettings(t, projectDir)
 
 		initStub := &storeManagementUsecaseStub{}
 		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
@@ -1078,6 +1056,195 @@ func TestRootCLI_DoctorGeminiCoverage(t *testing.T) {
 	})
 }
 
+func TestRootCLI_DoctorClaudeCoverage(t *testing.T) {
+	t.Run("boundary only recent claude sessions warn in current workspace", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+		writeCompleteClaudeProjectHookSettings(t, projectDir)
+		eventStub := &eventUsecaseStub{listEvents: claudeCoverageEvents(2, 1)}
+
+		rootCmd := newTestRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(eventStub),
+		).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--client", "claude", "--project-dir", projectDir, "--json"})
+
+		executeDoctorAllowWarnings(t, rootCmd)
+
+		report := decodeDoctorReport(t, stdout.Bytes())
+		check := statusByName(report, "claude-event-coverage")
+		if check.Status != "warn" {
+			t.Fatalf("claude-event-coverage status = %q, want warn (message=%q)", check.Status, check.Message)
+		}
+		if !strings.Contains(check.Message, "prompt/transcript") || !strings.Contains(check.Message, "67%") {
+			t.Fatalf("claude-event-coverage message = %q; want ratio evidence", check.Message)
+		}
+		if !strings.Contains(check.Hint, "hook cancellations") {
+			t.Fatalf("claude-event-coverage hint = %q; want hook cancellation diagnostic hint", check.Hint)
+		}
+		if eventStub.listCriteria.Agent() != types.Agent("claude") {
+			t.Fatalf("List criteria agent = %q, want claude", eventStub.listCriteria.Agent())
+		}
+		if wantWorkspace := types.Workspace(filepath.ToSlash(filepath.Clean(projectDir))); eventStub.listCriteria.Workspace() != wantWorkspace {
+			t.Fatalf("List criteria workspace = %q, want %q", eventStub.listCriteria.Workspace(), wantWorkspace)
+		}
+	})
+
+	t.Run("plugin-managed hooks do not suggest writing project settings", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+		writePluginEnabledSettings(t, homeDir)
+		eventStub := &eventUsecaseStub{listEvents: claudeCoverageEvents(2, 1)}
+
+		rootCmd := newTestRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(eventStub),
+		).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--client", "claude", "--project-dir", projectDir, "--json"})
+
+		executeDoctorAllowWarnings(t, rootCmd)
+
+		report := decodeDoctorReport(t, stdout.Bytes())
+		check := statusByName(report, "claude-event-coverage")
+		if check.Status != "warn" {
+			t.Fatalf("claude-event-coverage status = %q, want warn (message=%q)", check.Status, check.Message)
+		}
+		if !strings.Contains(check.Hint, "plugin") {
+			t.Fatalf("claude-event-coverage hint = %q; want plugin-managed diagnostic", check.Hint)
+		}
+		if strings.Contains(check.Hint, "first fix claude-config") || check.FixCommand != "" {
+			t.Fatalf("claude-event-coverage remediation = hint %q fix %q; want no project-settings fix", check.Hint, check.FixCommand)
+		}
+	})
+
+	t.Run("plugin-managed cached hook gaps suggest plugin update", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+		writePluginEnabledSettings(t, homeDir)
+		writeClaudePluginCacheHooks(t, homeDir, `{
+  "hooks": {
+    "SessionStart": [
+      {"matcher": "*", "hooks": [{"name": "traceary-session-start", "type": "command", "command": "'traceary' 'hook' 'session' 'claude' 'start'"}]}
+    ]
+  }
+}`)
+		eventStub := &eventUsecaseStub{listEvents: claudeCoverageEvents(2, 1)}
+
+		rootCmd := newTestRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(eventStub),
+		).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--client", "claude", "--project-dir", projectDir, "--json"})
+
+		executeDoctorAllowWarnings(t, rootCmd)
+
+		report := decodeDoctorReport(t, stdout.Bytes())
+		check := statusByName(report, "claude-event-coverage")
+		if check.Status != "warn" {
+			t.Fatalf("claude-event-coverage status = %q, want warn (message=%q)", check.Status, check.Message)
+		}
+		if !strings.Contains(check.Hint, "plugin-managed") || !strings.Contains(check.FixCommand, "claude plugins update traceary@traceary-plugins") {
+			t.Fatalf("claude-event-coverage remediation = hint %q fix %q; want plugin update", check.Hint, check.FixCommand)
+		}
+		if strings.Contains(check.FixCommand, "traceary doctor") {
+			t.Fatalf("claude-event-coverage FixCommand = %q; want no project settings fix", check.FixCommand)
+		}
+	})
+
+	t.Run("plugin-managed cached hook gaps warn before sample gate", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+		writePluginEnabledSettings(t, homeDir)
+		writeClaudePluginCacheHooks(t, homeDir, `{
+  "hooks": {
+    "SessionStart": [
+      {"matcher": "*", "hooks": [{"name": "traceary-session-start", "type": "command", "command": "'traceary' 'hook' 'session' 'claude' 'start'"}]}
+    ]
+  }
+}`)
+		eventStub := &eventUsecaseStub{listEvents: claudeCoverageEvents(1, 0)}
+
+		rootCmd := newTestRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(eventStub),
+		).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--client", "claude", "--project-dir", projectDir, "--json"})
+
+		executeDoctorAllowWarnings(t, rootCmd)
+
+		report := decodeDoctorReport(t, stdout.Bytes())
+		claudeCfg := statusByName(report, "claude-config")
+		if claudeCfg.Status != "warn" {
+			t.Fatalf("claude-config status = %q, want warn (message=%q)", claudeCfg.Status, claudeCfg.Message)
+		}
+		if !strings.Contains(claudeCfg.Message, "installed plugin hook config") || !strings.Contains(claudeCfg.FixCommand, "claude plugins update traceary@traceary-plugins") {
+			t.Fatalf("claude-config message/fix = %q / %q; want plugin cache remediation", claudeCfg.Message, claudeCfg.FixCommand)
+		}
+		coverage := statusByName(report, "claude-event-coverage")
+		if coverage.Status != "pass" || !strings.Contains(coverage.Message, "not judged yet") {
+			t.Fatalf("claude-event-coverage status/message = %q/%q; want sample gate pass while plugin config still warns", coverage.Status, coverage.Message)
+		}
+	})
+
+	t.Run("settings-managed hook gaps warn before sample gate", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+		writeClaudeProjectSessionOnlyHook(t, projectDir)
+		eventStub := &eventUsecaseStub{listEvents: claudeCoverageEvents(1, 0)}
+
+		rootCmd := newTestRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(eventStub),
+		).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--client", "claude", "--project-dir", projectDir, "--json"})
+
+		executeDoctorAllowWarnings(t, rootCmd)
+
+		report := decodeDoctorReport(t, stdout.Bytes())
+		claudeCfg := statusByName(report, "claude-config")
+		if claudeCfg.Status != "warn" {
+			t.Fatalf("claude-config status = %q, want warn (message=%q)", claudeCfg.Status, claudeCfg.Message)
+		}
+		if !strings.Contains(claudeCfg.Message, "missing enrichment coverage") || !strings.Contains(claudeCfg.FixCommand, "--client claude") {
+			t.Fatalf("claude-config message/fix = %q / %q; want static Claude enrichment remediation", claudeCfg.Message, claudeCfg.FixCommand)
+		}
+		coverage := statusByName(report, "claude-event-coverage")
+		if coverage.Status != "pass" || !strings.Contains(coverage.Message, "not judged yet") {
+			t.Fatalf("claude-event-coverage status/message = %q/%q; want sample gate pass while config still warns", coverage.Status, coverage.Message)
+		}
+	})
+}
+
 func TestRootCLI_DoctorStaleActiveSessions(t *testing.T) {
 	projectDir := t.TempDir()
 	homeDir := t.TempDir()
@@ -1218,8 +1385,45 @@ func writeClaudeHookSettings(t *testing.T, projectDir string) {
         "matcher": "*",
         "hooks": [
           {
+            "name": "traceary-session-start",
             "type": "command",
             "command": "'traceary' 'hook' 'session' 'claude' 'start'"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "traceary-prompt",
+            "type": "command",
+            "command": "'traceary' 'hook' 'prompt' 'claude'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "traceary-transcript",
+            "type": "command",
+            "command": "'traceary' 'hook' 'transcript' 'claude'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "name": "traceary-audit",
+            "type": "command",
+            "command": "'traceary' 'hook' 'audit' 'claude'"
           }
         ]
       }
@@ -1228,6 +1432,78 @@ func writeClaudeHookSettings(t *testing.T, projectDir string) {
 }
 `), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
+	}
+}
+
+func writeClaudeProjectSessionOnlyHook(t *testing.T, projectDir string) {
+	t.Helper()
+	settingsPath := filepath.Join(projectDir, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	content := `{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'traceary' 'hook' 'session' 'claude' 'start'"
+          }
+        ]
+      }
+    ]
+  }
+}
+`
+	if err := os.WriteFile(settingsPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+}
+
+func writeCompleteClaudeProjectHookSettings(t *testing.T, projectDir string) {
+	t.Helper()
+	settingsPath := filepath.Join(projectDir, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	content := `{
+  "hooks": {
+    "SessionStart": [
+      {"matcher": "*", "hooks": [{"name": "traceary-session-start", "type": "command", "command": "'traceary' 'hook' 'session' 'claude' 'start'"}]}
+    ],
+    "SessionEnd": [
+      {"matcher": "*", "hooks": [{"name": "traceary-session-end", "type": "command", "command": "'traceary' 'hook' 'session' 'claude' 'end'"}]}
+    ],
+    "UserPromptSubmit": [
+      {"matcher": "*", "hooks": [{"name": "traceary-prompt", "type": "command", "command": "'traceary' 'hook' 'prompt' 'claude'"}]}
+    ],
+    "Stop": [
+      {"matcher": "*", "hooks": [{"name": "traceary-transcript", "type": "command", "command": "'traceary' 'hook' 'transcript' 'claude'"}]}
+    ],
+    "PostToolUse": [
+      {"matcher": "Bash", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}]}
+    ],
+    "PreCompact": [
+      {"matcher": "*", "hooks": [{"name": "traceary-compact-pre-compact", "type": "command", "command": "'traceary' 'hook' 'compact' 'claude' 'pre-compact'"}]}
+    ]
+  }
+}
+`
+	if err := os.WriteFile(settingsPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile(claude settings) error = %v", err)
+	}
+}
+
+func writeClaudePluginCacheHooks(t *testing.T, homeDir, content string) {
+	t.Helper()
+	hooksPath := filepath.Join(homeDir, ".claude", "plugins", "cache", "traceary-plugins", "traceary", "0.20.1", "hooks", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(hooksPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(hooksPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile(plugin cache hooks) error = %v", err)
 	}
 }
 
@@ -1297,6 +1573,14 @@ func writeCompleteGeminiProjectHookSettings(t *testing.T, projectDir string) {
 }
 
 func geminiCoverageEvents(boundaryOnly, enriched int) []*model.Event {
+	return clientCoverageEvents(types.Agent("gemini"), boundaryOnly, enriched)
+}
+
+func claudeCoverageEvents(boundaryOnly, enriched int) []*model.Event {
+	return clientCoverageEvents(types.Agent("claude"), boundaryOnly, enriched)
+}
+
+func clientCoverageEvents(agent types.Agent, boundaryOnly, enriched int) []*model.Event {
 	events := make([]*model.Event, 0, boundaryOnly*2+enriched*3)
 	createdAt := time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC)
 	appendEvent := func(id string, kind types.EventKind, sessionID string) {
@@ -1304,7 +1588,7 @@ func geminiCoverageEvents(boundaryOnly, enriched int) []*model.Event {
 			types.EventID(id),
 			kind,
 			types.Client("hook"),
-			types.Agent("gemini"),
+			agent,
 			types.SessionID(sessionID),
 			types.Workspace("duck8823/traceary"),
 			"body",
