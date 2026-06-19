@@ -3,14 +3,17 @@ package cli_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
 )
@@ -894,6 +897,154 @@ func TestRootCLI_DoctorGeminiMemoryActivationInvalid(t *testing.T) {
 	}
 }
 
+func TestRootCLI_DoctorGeminiCoverage(t *testing.T) {
+	t.Run("partial gemini config warns with autofix", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+		writeLegacyGeminiProjectHookSettings(t, projectDir)
+
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--client", "gemini", "--project-dir", projectDir, "--json"})
+
+		executeDoctorAllowWarnings(t, rootCmd)
+
+		report := decodeDoctorReport(t, stdout.Bytes())
+		check := statusByName(report, "gemini-config")
+		if check.Status != "warn" {
+			t.Fatalf("gemini-config status = %q, want warn (message=%q)", check.Status, check.Message)
+		}
+		if !strings.Contains(check.Message, "prompt") || !strings.Contains(check.Message, "transcript") {
+			t.Fatalf("gemini-config message = %q; want prompt/transcript gap", check.Message)
+		}
+		if !check.AutoFixAvailable {
+			t.Fatalf("gemini-config AutoFixAvailable = false, want true")
+		}
+		if !strings.Contains(check.FixCommand, "doctor --fix --dry-run") {
+			t.Fatalf("gemini-config FixCommand = %q, want doctor dry-run preview", check.FixCommand)
+		}
+	})
+
+	t.Run("boundary only recent sessions warn when above threshold", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+		writeCompleteGeminiProjectHookSettings(t, projectDir)
+		eventStub := &eventUsecaseStub{listEvents: geminiCoverageEvents(2, 1)}
+
+		rootCmd := newTestRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(eventStub),
+		).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--client", "gemini", "--project-dir", projectDir, "--json"})
+
+		executeDoctorAllowWarnings(t, rootCmd)
+
+		report := decodeDoctorReport(t, stdout.Bytes())
+		check := statusByName(report, "gemini-event-coverage")
+		if check.Status != "warn" {
+			t.Fatalf("gemini-event-coverage status = %q, want warn (message=%q)", check.Status, check.Message)
+		}
+		if !strings.Contains(check.Message, "boundary-only") || !strings.Contains(check.Message, "67%") {
+			t.Fatalf("gemini-event-coverage message = %q; want ratio evidence", check.Message)
+		}
+		if eventStub.listCriteria.Agent() != types.Agent("gemini") {
+			t.Fatalf("List criteria agent = %q, want gemini", eventStub.listCriteria.Agent())
+		}
+		if eventStub.listCriteria.Limit() != 500 {
+			t.Fatalf("List criteria limit = %d, want 500", eventStub.listCriteria.Limit())
+		}
+	})
+
+	t.Run("coverage threshold flag can suppress expected warning", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+		writeCompleteGeminiProjectHookSettings(t, projectDir)
+		eventStub := &eventUsecaseStub{listEvents: geminiCoverageEvents(2, 1)}
+
+		rootCmd := newTestRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(eventStub),
+		).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--client", "gemini", "--project-dir", projectDir, "--coverage-threshold", "0.75", "--json"})
+
+		executeDoctorAllowWarnings(t, rootCmd)
+
+		report := decodeDoctorReport(t, stdout.Bytes())
+		check := statusByName(report, "gemini-event-coverage")
+		if check.Status != "pass" {
+			t.Fatalf("gemini-event-coverage status = %q, want pass (message=%q)", check.Status, check.Message)
+		}
+	})
+
+	t.Run("small samples are reported as pass", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+		writeCompleteGeminiProjectHookSettings(t, projectDir)
+		eventStub := &eventUsecaseStub{listEvents: geminiCoverageEvents(2, 0)}
+
+		rootCmd := newTestRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(eventStub),
+		).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--client", "gemini", "--project-dir", projectDir, "--json"})
+
+		executeDoctorAllowWarnings(t, rootCmd)
+
+		report := decodeDoctorReport(t, stdout.Bytes())
+		check := statusByName(report, "gemini-event-coverage")
+		if check.Status != "pass" {
+			t.Fatalf("gemini-event-coverage status = %q, want pass for small sample (message=%q)", check.Status, check.Message)
+		}
+		if !strings.Contains(check.Message, "minimum sample") {
+			t.Fatalf("gemini-event-coverage message = %q; want minimum sample explanation", check.Message)
+		}
+	})
+
+	t.Run("invalid threshold is rejected", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()
+		rootCmd.SetOut(&bytes.Buffer{})
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--client", "gemini", "--project-dir", projectDir, "--coverage-threshold", "1.5", "--json"})
+
+		err := rootCmd.Execute()
+		if err == nil {
+			t.Fatalf("Execute() error = nil, want invalid threshold error")
+		}
+		if !strings.Contains(err.Error(), "--coverage-threshold") {
+			t.Fatalf("Execute() error = %v, want --coverage-threshold", err)
+		}
+	})
+}
+
 func TestRootCLI_DoctorStaleActiveSessions(t *testing.T) {
 	projectDir := t.TempDir()
 	homeDir := t.TempDir()
@@ -1045,6 +1196,100 @@ func writeClaudeHookSettings(t *testing.T, projectDir string) {
 `), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
+}
+
+func writeLegacyGeminiProjectHookSettings(t *testing.T, projectDir string) {
+	t.Helper()
+	settingsPath := filepath.Join(projectDir, ".gemini", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	content := `{
+  "hooks": {
+    "SessionStart": [
+      {"matcher": "*", "hooks": [{"name": "traceary-session-start", "type": "command", "command": "'traceary' 'hook' 'session' 'gemini' 'start'"}]}
+    ],
+    "SessionEnd": [
+      {"matcher": "*", "hooks": [{"name": "traceary-session-end", "type": "command", "command": "'traceary' 'hook' 'session' 'gemini' 'end'"}]}
+    ],
+    "AfterTool": [
+      {"matcher": "run_shell_command", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'gemini'"}]}
+    ]
+  }
+}
+`
+	if err := os.WriteFile(settingsPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile(gemini legacy settings) error = %v", err)
+	}
+}
+
+func writeCompleteGeminiProjectHookSettings(t *testing.T, projectDir string) {
+	t.Helper()
+	settingsPath := filepath.Join(projectDir, ".gemini", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	content := `{
+  "mcpServers": {
+    "traceary": {
+      "command": "traceary",
+      "args": ["mcp-server"]
+    }
+  },
+  "hooks": {
+    "SessionStart": [
+      {"matcher": "*", "hooks": [{"name": "traceary-session-start", "type": "command", "command": "'traceary' 'hook' 'session' 'gemini' 'start'"}]}
+    ],
+    "SessionEnd": [
+      {"matcher": "*", "hooks": [{"name": "traceary-session-end", "type": "command", "command": "'traceary' 'hook' 'session' 'gemini' 'end'"}]}
+    ],
+    "BeforeAgent": [
+      {"matcher": "*", "hooks": [{"name": "traceary-prompt", "type": "command", "command": "'traceary' 'hook' 'prompt' 'gemini'"}]}
+    ],
+    "AfterAgent": [
+      {"matcher": "*", "hooks": [{"name": "traceary-transcript", "type": "command", "command": "'traceary' 'hook' 'transcript' 'gemini'"}]}
+    ],
+    "AfterTool": [
+      {"matcher": "run_shell_command", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'gemini'"}]}
+    ],
+    "PreCompress": [
+      {"matcher": "*", "hooks": [{"name": "traceary-pre-compress", "type": "command", "command": "'traceary' 'hook' 'compact' 'gemini' 'pre-compact'"}]}
+    ]
+  }
+}
+`
+	if err := os.WriteFile(settingsPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile(gemini settings) error = %v", err)
+	}
+}
+
+func geminiCoverageEvents(boundaryOnly, enriched int) []*model.Event {
+	events := make([]*model.Event, 0, boundaryOnly*2+enriched*3)
+	createdAt := time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC)
+	appendEvent := func(id string, kind types.EventKind, sessionID string) {
+		events = append(events, model.EventOf(
+			types.EventID(id),
+			kind,
+			types.Client("hook"),
+			types.Agent("gemini"),
+			types.SessionID(sessionID),
+			types.Workspace("duck8823/traceary"),
+			"body",
+			createdAt,
+		))
+	}
+	for i := 0; i < boundaryOnly; i++ {
+		sessionID := fmt.Sprintf("boundary-%d", i)
+		appendEvent(fmt.Sprintf("boundary-%d-start", i), types.EventKindSessionStarted, sessionID)
+		appendEvent(fmt.Sprintf("boundary-%d-end", i), types.EventKindSessionEnded, sessionID)
+	}
+	for i := 0; i < enriched; i++ {
+		sessionID := fmt.Sprintf("enriched-%d", i)
+		appendEvent(fmt.Sprintf("enriched-%d-start", i), types.EventKindSessionStarted, sessionID)
+		appendEvent(fmt.Sprintf("enriched-%d-prompt", i), types.EventKindPrompt, sessionID)
+		appendEvent(fmt.Sprintf("enriched-%d-transcript", i), types.EventKindTranscript, sessionID)
+	}
+	return events
 }
 
 func setTracearyPathToCurrentExecutable(t *testing.T) {

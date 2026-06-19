@@ -418,8 +418,9 @@ func (c *RootCLI) loadCockpitDoctorReport(ctx context.Context, opts cockpitComma
 		return nil, xerrors.New(Localize("hooks orchestrator is not configured", "hooks orchestrator が設定されていません"))
 	}
 	return c.buildDoctorReport(ctx, doctorCommandInput{
-		dbPath:         opts.dbPath,
-		currentVersion: "",
+		dbPath:            opts.dbPath,
+		currentVersion:    "",
+		coverageThreshold: defaultDoctorCoverageThreshold,
 	})
 }
 

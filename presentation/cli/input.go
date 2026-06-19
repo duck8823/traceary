@@ -65,14 +65,15 @@ type contextCommandInput struct {
 
 // doctorCommandInput is the resolved input to the `traceary doctor` command.
 type doctorCommandInput struct {
-	dbPath         string
-	client         string
-	projectDir     string
-	currentVersion string
-	asJSON         bool
-	fix            bool
-	dryRun         bool
-	strict         bool
+	dbPath            string
+	client            string
+	projectDir        string
+	currentVersion    string
+	asJSON            bool
+	fix               bool
+	dryRun            bool
+	strict            bool
+	coverageThreshold float64
 }
 
 // gcCommandInput is the resolved input to the `traceary gc` command.

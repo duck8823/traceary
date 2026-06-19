@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/duck8823/traceary/application"
 	apptypes "github.com/duck8823/traceary/application/types"
+	appusecase "github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -31,6 +33,10 @@ const (
 	doctorSeverityPass = "PASS"
 	doctorSeverityWarn = "WARN"
 	doctorSeverityFail = "FAIL"
+
+	defaultDoctorCoverageThreshold = 0.5
+	doctorEventCoverageScanLimit   = 500
+	doctorEventCoverageMinSample   = 3
 )
 
 type doctorCheck struct {
@@ -86,13 +92,14 @@ func (e doctorExitError) ExitCode() int { return e.exitCode }
 
 func (c *RootCLI) newDoctorCommand() *cobra.Command {
 	var (
-		dbPath     string
-		client     string
-		projectDir string
-		asJSON     bool
-		fix        bool
-		dryRun     bool
-		strict     bool
+		dbPath            string
+		client            string
+		projectDir        string
+		asJSON            bool
+		fix               bool
+		dryRun            bool
+		strict            bool
+		coverageThreshold float64
 	)
 
 	doctorCmd := &cobra.Command{
@@ -102,14 +109,15 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 		Args:    noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runDoctor(cmd.Context(), cmd.OutOrStdout(), doctorCommandInput{
-				dbPath:         dbPath,
-				client:         client,
-				projectDir:     projectDir,
-				currentVersion: cmd.Root().Version,
-				asJSON:         asJSON,
-				fix:            fix,
-				dryRun:         dryRun,
-				strict:         strict,
+				dbPath:            dbPath,
+				client:            client,
+				projectDir:        projectDir,
+				currentVersion:    cmd.Root().Version,
+				asJSON:            asJSON,
+				fix:               fix,
+				dryRun:            dryRun,
+				strict:            strict,
+				coverageThreshold: coverageThreshold,
 			})
 		},
 	}
@@ -120,6 +128,7 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 	doctorCmd.Flags().BoolVar(&fix, "fix", false, Localize("apply known safe remediations for warning and failing checks", "警告・失敗チェックに対して既知の安全な修復を適用する"))
 	doctorCmd.Flags().BoolVar(&dryRun, "dry-run", false, Localize("preview --fix actions without writing files", "ファイルを書き込まずに --fix の処理をプレビューする"))
 	doctorCmd.Flags().BoolVar(&strict, "strict", false, Localize("audit-reliability: report every exact duplicate group regardless of time, not only near-simultaneous writes", "audit-reliability: 時間に関係なく完全一致する duplicate group をすべて報告する（near-simultaneous な書き込みだけに限定しない）"))
+	doctorCmd.Flags().Float64Var(&coverageThreshold, "coverage-threshold", defaultDoctorCoverageThreshold, Localize("gemini-event-coverage: warn when the recent boundary-only session ratio is above this value (0.0 to 1.0)", "gemini-event-coverage: recent session の boundary-only 比率がこの値を超えたら警告する (0.0 から 1.0)"))
 
 	return doctorCmd
 }
@@ -127,6 +136,9 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 func (c *RootCLI) runDoctor(ctx context.Context, output io.Writer, input doctorCommandInput) error {
 	if c.storeManagement == nil {
 		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+	}
+	if err := validateDoctorCoverageThreshold(input.coverageThreshold); err != nil {
+		return err
 	}
 
 	report, err := c.buildDoctorReport(ctx, input)
@@ -154,6 +166,17 @@ func (c *RootCLI) runDoctor(ctx context.Context, output io.Writer, input doctorC
 		return doctorExitError{message: message, exitCode: report.ExitCode}
 	}
 
+	return nil
+}
+
+func validateDoctorCoverageThreshold(value float64) error {
+	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 1 {
+		return xerrors.Errorf(
+			"%s: %g",
+			Localize("--coverage-threshold must be between 0.0 and 1.0", "--coverage-threshold は 0.0 から 1.0 の範囲で指定してください"),
+			value,
+		)
+	}
 	return nil
 }
 
@@ -281,6 +304,9 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		check := c.inspectClaudeOrConfigFile(targetClient, outputPath, resolvedProjectDir)
 		c.attachDoctorConfigFix(&check, targetClient, outputPath, resolvedProjectDir)
 		report.Checks = append(report.Checks, check)
+		if targetClient == "gemini" {
+			report.Checks = append(report.Checks, c.inspectClientEventCoverage(ctx, targetClient, outputPath, resolvedProjectDir, input.coverageThreshold))
+		}
 		report.Checks = append(report.Checks, c.inspectMCPRegistrationForClient(targetClient, outputPath))
 
 		if globalCheck := c.inspectGlobalConfigForClient(targetClient); globalCheck != nil {
@@ -721,6 +747,149 @@ func formatCommandAuditWorkspaceDriftSamples(samples []commandAuditWorkspaceDrif
 	return strings.Join(parts, "; ")
 }
 
+func (c *RootCLI) inspectClientEventCoverage(ctx context.Context, client, outputPath, projectDir string, threshold float64) doctorCheck {
+	checkName := client + "-event-coverage"
+	if c.event == nil {
+		return doctorCheck{
+			Name:    checkName,
+			Status:  doctorStatusSkip,
+			Message: localizef("event usecase is not configured", "event usecase が設定されていません"),
+		}
+	}
+
+	events, err := c.event.List(ctx, apptypes.NewEventListCriteriaBuilder(doctorEventCoverageScanLimit).
+		Agent(types.Agent(client)).
+		Build())
+	if err != nil {
+		return doctorCheck{
+			Name:    checkName,
+			Status:  doctorStatusFail,
+			Message: localizef("failed to list recent %s events: %v", "recent %s event の取得に失敗しました: %v", client, err),
+		}
+	}
+
+	inputs := make([]appusecase.EventCoverageInput, 0, len(events))
+	for _, event := range events {
+		if event == nil {
+			continue
+		}
+		inputs = append(inputs, appusecase.EventCoverageInput{
+			SessionID: event.SessionID().String(),
+			Kind:      event.Kind(),
+		})
+	}
+	coverage := appusecase.SummarizeSessionEventCoverage(inputs)
+	ratio := coverage.BoundaryOnlyRatio()
+	if coverage.Sessions < doctorEventCoverageMinSample {
+		return doctorCheck{
+			Name:   checkName,
+			Status: doctorStatusPass,
+			Message: localizef(
+				"scanned %d recent %s event(s); only %d complete session(s) observed (minimum sample %d), so event coverage is not judged yet",
+				"%d 件の recent %s event を検査しました。完全に観測できた session は %d 件だけです (minimum sample %d) のため、event coverage はまだ判定しません",
+				len(events),
+				client,
+				coverage.Sessions,
+				doctorEventCoverageMinSample,
+			),
+		}
+	}
+	if ratio <= threshold {
+		return doctorCheck{
+			Name:   checkName,
+			Status: doctorStatusPass,
+			Message: localizef(
+				"scanned %d recent %s event(s); event coverage is healthy (sessions=%d boundary_only=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d ratio=%.2f threshold=%.2f)",
+				"%d 件の recent %s event を検査しました。event coverage は健全です (sessions=%d boundary_only=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d ratio=%.2f threshold=%.2f)",
+				len(events),
+				client,
+				coverage.Sessions,
+				coverage.BoundaryOnly,
+				coverage.Enriched,
+				coverage.WithPrompt,
+				coverage.WithTranscript,
+				coverage.WithCommand,
+				ratio,
+				threshold,
+			),
+		}
+	}
+
+	configCoverage, configCoverageKnown := c.managedCoverageForConfigFile(outputPath)
+	if configCoverageKnown {
+		if missing := configCoverage.MissingEnrichment(); len(missing) > 0 {
+			fixCommand := fmt.Sprintf("traceary doctor --client %s --project-dir %s --fix", client, shellQuote(projectDir))
+			return doctorCheck{
+				Name:       checkName,
+				Status:     doctorStatusWarn,
+				FixCommand: fixCommand,
+				Hint: localizef(
+					"the installed hook config is missing %s coverage; run `%s` to refresh Traceary-managed hooks without touching user hooks",
+					"インストール済み hook config に %s coverage がありません。`%s` で Traceary 管理 hook を更新できます (user hook は保持)",
+					strings.Join(missing, ", "),
+					fixCommand,
+				),
+				Message: localizef(
+					"scanned %d recent %s event(s); %.0f%% of complete sessions are boundary-only (sessions=%d boundary_only=%d enriched=%d, threshold=%.0f%%). The installed config is missing Traceary-managed %s hooks: %s",
+					"%d 件の recent %s event を検査しました。完全に観測できた session の %.0f%% が boundary-only です (sessions=%d boundary_only=%d enriched=%d, threshold=%.0f%%)。インストール済み config に Traceary 管理の %s hook がありません: %s",
+					len(events),
+					client,
+					ratio*100,
+					coverage.Sessions,
+					coverage.BoundaryOnly,
+					coverage.Enriched,
+					threshold*100,
+					strings.Join(missing, ", "),
+					outputPath,
+				),
+			}
+		}
+	}
+
+	hint := Localize(
+		"hook config appears to include enrichment coverage; inspect hook timeouts, host hook behavior, and recent event IDs with `traceary list --agent gemini`",
+		"hook config には enrichment coverage が含まれているようです。hook timeout、host 側の hook 挙動、recent event ID を `traceary list --agent gemini` で確認してください",
+	)
+	if !configCoverageKnown {
+		hint = localizef(
+			"the project hook config could not be inspected; first fix %s-config, then rerun doctor",
+			"project hook config を検査できませんでした。先に %s-config を修復してから doctor を再実行してください",
+			client,
+		)
+	}
+	return doctorCheck{
+		Name:   checkName,
+		Status: doctorStatusWarn,
+		Hint:   hint,
+		Message: localizef(
+			"scanned %d recent %s event(s); %.0f%% of complete sessions are boundary-only (sessions=%d boundary_only=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d, threshold=%.0f%%)",
+			"%d 件の recent %s event を検査しました。完全に観測できた session の %.0f%% が boundary-only です (sessions=%d boundary_only=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d, threshold=%.0f%%)",
+			len(events),
+			client,
+			ratio*100,
+			coverage.Sessions,
+			coverage.BoundaryOnly,
+			coverage.Enriched,
+			coverage.WithPrompt,
+			coverage.WithTranscript,
+			coverage.WithCommand,
+			threshold*100,
+		),
+	}
+}
+
+func (c *RootCLI) managedCoverageForConfigFile(path string) (application.HookManagedCoverage, bool) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return application.HookManagedCoverage{}, false
+	}
+	coverage, err := c.hooksInspector.ManagedCoverage(content)
+	if err != nil {
+		return application.HookManagedCoverage{}, false
+	}
+	return coverage, true
+}
+
 // inspectClaudePluginCacheStatus compares the cached Traceary Claude
 // Code plugin version against the marketplace manifest the plugin was
 // registered from. A stale cache is the exact failure mode v0.8.0
@@ -1095,6 +1264,20 @@ func (c *RootCLI) inspectGlobalConfigForClient(client string) *doctorCheck {
 		}
 	}
 	if hasTracearyHook {
+		if client == "gemini" {
+			coverage, coverageErr := c.hooksInspector.ManagedCoverage(content)
+			if coverageErr != nil {
+				return &doctorCheck{
+					Name:    checkName,
+					Status:  doctorStatusFail,
+					Message: localizef("global %s config is not a valid hooks-shaped JSON object: %s", "global %s config は hooks 形式の JSON として解釈できません: %s", client, globalPath),
+				}
+			}
+			if missing := coverage.MissingEnrichment(); len(missing) > 0 {
+				check := missingGeminiHookCoverageCheck(checkName, globalPath, home, missing, false)
+				return &check
+			}
+		}
 		return &doctorCheck{
 			Name:   checkName,
 			Status: doctorStatusPass,
@@ -1220,6 +1403,19 @@ func (c *RootCLI) inspectDoctorConfigFile(client string, outputPath string, proj
 				}
 			}
 		}
+		if client == "gemini" {
+			coverage, coverageErr := c.hooksInspector.ManagedCoverage(content)
+			if coverageErr != nil {
+				return doctorCheck{
+					Name:    client + "-config",
+					Status:  doctorStatusFail,
+					Message: localizef("%s config file must be a hooks-shaped JSON object: %s", "%s の設定ファイルは hooks 形式の JSON object である必要があります: %s", client, outputPath),
+				}
+			}
+			if missing := coverage.MissingEnrichment(); len(missing) > 0 {
+				return missingGeminiHookCoverageCheck(client+"-config", outputPath, projectDir, missing, true)
+			}
+		}
 		return doctorCheck{
 			Name:    client + "-config",
 			Status:  doctorStatusPass,
@@ -1264,6 +1460,36 @@ func duplicateTracearyHookCheck(client, checkName, outputPath, projectDir string
 			client,
 			summary,
 			dryRunCommand,
+			outputPath,
+		),
+	}
+}
+
+func missingGeminiHookCoverageCheck(checkName, outputPath, projectDir string, missing []string, projectConfig bool) doctorCheck {
+	joinedMissing := strings.Join(missing, ", ")
+	fixCommand := fmt.Sprintf("traceary doctor --fix --dry-run --client gemini --project-dir %s", shellQuote(projectDir))
+	hint := localizef(
+		"preview the non-destructive refresh with `%s`; it rewrites only Traceary-managed entries and preserves non-Traceary hooks",
+		"`%s` で非破壊 refresh をプレビューしてください。Traceary 管理エントリだけを更新し、Traceary 以外の hook は保持します",
+		fixCommand,
+	)
+	if !projectConfig {
+		fixCommand = "traceary hooks install --client gemini --global --upgrade"
+		hint = localizef(
+			"refresh the user-level Gemini settings with `%s`; if you use the Gemini extension package instead, run `gemini extensions update traceary`",
+			"`%s` で user-level Gemini settings を更新してください。Gemini extension package を使っている場合は `gemini extensions update traceary` を実行してください",
+			fixCommand,
+		)
+	}
+	return doctorCheck{
+		Name:       checkName,
+		Status:     doctorStatusWarn,
+		FixCommand: fixCommand,
+		Hint:       hint,
+		Message: localizef(
+			"gemini config contains Traceary-managed hooks but is missing enrichment coverage (%s). Prompt/transcript gaps make sessions look boundary-only; refresh the managed hooks: %s",
+			"gemini config に Traceary 管理 hook はありますが enrichment coverage (%s) が不足しています。prompt/transcript が欠けると session が boundary-only に見えます。管理 hook を更新してください: %s",
+			joinedMissing,
 			outputPath,
 		),
 	}
