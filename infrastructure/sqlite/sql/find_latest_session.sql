@@ -16,7 +16,7 @@ WITH candidate_sessions AS (
                  AND boundary.agent = started.agent
                  AND boundary.workspace = started.workspace
                  AND boundary.kind IN (?, ?)
-               ORDER BY boundary.created_at DESC, boundary.id DESC
+               ORDER BY ts_norm(boundary.created_at) DESC, boundary.id DESC
                LIMIT 1
             ) AS latest_boundary_created_at,
             (
@@ -27,7 +27,7 @@ WITH candidate_sessions AS (
                  AND boundary.agent = started.agent
                  AND boundary.workspace = started.workspace
                  AND boundary.kind IN (?, ?)
-               ORDER BY boundary.created_at DESC, boundary.id DESC
+               ORDER BY ts_norm(boundary.created_at) DESC, boundary.id DESC
                LIMIT 1
             ) AS latest_boundary_id
        FROM events started
@@ -44,8 +44,8 @@ WITH candidate_sessions AS (
                 AND newer_started.agent = started.agent
                 AND newer_started.workspace = started.workspace
                 AND (
-                     newer_started.created_at > started.created_at OR
-                     (newer_started.created_at = started.created_at AND newer_started.id > started.id)
+                     ts_norm(newer_started.created_at) > ts_norm(started.created_at) OR
+                     (ts_norm(newer_started.created_at) = ts_norm(started.created_at) AND newer_started.id > started.id)
                 )
         )
         AND (
@@ -67,8 +67,8 @@ WITH candidate_sessions AS (
                         AND ended.agent = started.agent
                         AND ended.workspace = started.workspace
                         AND (
-                             ended.created_at > started.created_at OR
-                             (ended.created_at = started.created_at AND ended.id > started.id)
+                             ts_norm(ended.created_at) > ts_norm(started.created_at) OR
+                             (ts_norm(ended.created_at) = ts_norm(started.created_at) AND ended.id > started.id)
                         )
                         -- The "later event" check is session_id-only so it
                         -- matches list_sessions.sql's late-event rule exactly.
@@ -80,8 +80,8 @@ WITH candidate_sessions AS (
                                FROM events later_ev
                               WHERE later_ev.session_id = started.session_id
                                 AND (
-                                     later_ev.created_at > ended.created_at OR
-                                     (later_ev.created_at = ended.created_at AND later_ev.id > ended.id)
+                                     ts_norm(later_ev.created_at) > ts_norm(ended.created_at) OR
+                                     (ts_norm(later_ev.created_at) = ts_norm(ended.created_at) AND later_ev.id > ended.id)
                                 )
                         )
                  )
@@ -98,7 +98,7 @@ WITH candidate_sessions AS (
                              SELECT 1
                                FROM events row_later
                               WHERE row_later.session_id = started.session_id
-                                AND row_later.created_at > ended_row.ended_at
+                                AND ts_norm(row_later.created_at) > ts_norm(ended_row.ended_at)
                         )
                  )
              )
@@ -114,6 +114,6 @@ SELECT id,
        source_hook,
        created_at
   FROM candidate_sessions
- ORDER BY CASE WHEN ? THEN created_at ELSE latest_boundary_created_at END DESC,
+ ORDER BY ts_norm(CASE WHEN ? THEN created_at ELSE latest_boundary_created_at END) DESC,
           CASE WHEN ? THEN id ELSE latest_boundary_id END DESC
  LIMIT 1

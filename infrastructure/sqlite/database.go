@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -13,10 +14,63 @@ import (
 	"sync"
 	"time"
 
-	_ "modernc.org/sqlite" // Required to register the SQLite driver.
+	"modernc.org/sqlite" // Registers the SQLite driver and the ts_norm scalar function (see init).
 
 	"golang.org/x/xerrors"
 )
+
+// sqlTimestampNormalizeFunc is the name of the SQLite scalar function that
+// normalizes a stored RFC3339Nano timestamp to a lexically-orderable
+// fixed-width form for boundary-correct TEXT comparisons. See
+// normalizeRFC3339NanoForCompare and #1185.
+const sqlTimestampNormalizeFunc = "ts_norm"
+
+// init registers ts_norm on the modernc SQLite driver. Registration is global
+// and applies to every connection opened afterwards, so the per-operation
+// connections this package opens all expose the function. It is registered as
+// deterministic so the query planner may cache its result for identical inputs.
+func init() {
+	sqlite.MustRegisterDeterministicScalarFunction(
+		sqlTimestampNormalizeFunc,
+		1,
+		normalizeTimestampSQLFunc,
+	)
+}
+
+// normalizeTimestampSQLFunc adapts normalizeRFC3339NanoForCompare to the
+// SQLite scalar-function signature. NULL and non-text arguments are returned
+// unchanged so wrapping a column in ts_norm never alters its NULL-ness or
+// errors a query over historical/malformed rows.
+func normalizeTimestampSQLFunc(_ *sqlite.FunctionContext, args []driver.Value) (driver.Value, error) {
+	if len(args) != 1 {
+		return nil, xerrors.Errorf("ts_norm expects exactly one argument, got %d", len(args))
+	}
+	raw, ok := args[0].(string)
+	if !ok {
+		return args[0], nil
+	}
+	return normalizeRFC3339NanoForCompare(raw), nil
+}
+
+// normalizeRFC3339NanoForCompare rewrites a variable-width RFC3339Nano
+// timestamp (the shape formatTimestamp emits, which trims trailing fractional
+// zeros) into the fixed-width nine-fractional-digit form used by
+// formatMemoryValidityTimestamp. Variable-width RFC3339Nano is NOT
+// lexicographically ordered the same as real time — e.g. "…00.5Z" sorts before
+// "…00Z" because '.' (0x2E) < 'Z' (0x5A) — so a plain TEXT comparison over
+// created_at / started_at / ended_at can drop an in-range row or include an
+// out-of-range one near a fractional-second boundary. The fixed-width form is
+// lexicographically ordered the same as real time, so TEXT comparisons over it
+// are boundary-correct (see #1185). A value that does not parse as RFC3339 is
+// returned unchanged so historical/malformed rows degrade to the previous
+// lexical behavior rather than erroring the whole query.
+func normalizeRFC3339NanoForCompare(raw string) string {
+	parsed, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		return raw
+	}
+	return formatMemoryValidityTimestamp(parsed)
+}
 
 // Database wraps a SQLite path and provides connection and migration
 // utilities shared by all per-aggregate datasources in this package.

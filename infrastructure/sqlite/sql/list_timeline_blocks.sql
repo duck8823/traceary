@@ -24,11 +24,12 @@ WITH ordered_events AS (
     e.workspace,
     e.body,
     e.created_at,
-    LAG(e.created_at) OVER (ORDER BY e.created_at, e.id) AS prev_created_at
+    ts_norm(e.created_at) AS created_at_norm,
+    LAG(e.created_at) OVER (ORDER BY ts_norm(e.created_at), e.id) AS prev_created_at
   FROM events e
   WHERE (? = '' OR e.workspace = ?)
-    AND (? = '' OR e.created_at >= ?)
-    AND (? = '' OR e.created_at < ?)
+    AND (? = '' OR ts_norm(e.created_at) >= ts_norm(?))
+    AND (? = '' OR ts_norm(e.created_at) < ts_norm(?))
 ),
 blocks AS (
   SELECT
@@ -37,14 +38,14 @@ blocks AS (
       WHEN prev_created_at IS NULL THEN 1
       WHEN (julianday(created_at) - julianday(prev_created_at)) * 86400 > ? THEN 1
       ELSE 0
-    END) OVER (ORDER BY created_at, id) AS block_num
+    END) OVER (ORDER BY created_at_norm, id) AS block_num
   FROM ordered_events
 ),
 block_summary AS (
   SELECT
     block_num,
-    MIN(created_at) AS block_start,
-    MAX(created_at) AS block_end,
+    MIN(created_at_norm) AS block_start,
+    MAX(created_at_norm) AS block_end,
     COUNT(*) AS block_event_count,
     GROUP_CONCAT(DISTINCT agent) AS agents
   FROM blocks
@@ -61,7 +62,7 @@ prompt_ranked AS (
     block_num,
     workspace,
     body,
-    ROW_NUMBER() OVER (PARTITION BY block_num, workspace ORDER BY created_at, id) AS rn
+    ROW_NUMBER() OVER (PARTITION BY block_num, workspace ORDER BY created_at_norm, id) AS rn
   FROM blocks
   WHERE kind = 'prompt'
     AND TRIM(body) != ''
@@ -76,7 +77,7 @@ compact_ranked AS (
     block_num,
     workspace,
     body,
-    ROW_NUMBER() OVER (PARTITION BY block_num, workspace ORDER BY created_at DESC, id DESC) AS rn
+    ROW_NUMBER() OVER (PARTITION BY block_num, workspace ORDER BY created_at_norm DESC, id DESC) AS rn
   FROM blocks
   WHERE kind = 'compact_summary'
     AND TRIM(body) != ''
@@ -91,7 +92,7 @@ transcript_ranked AS (
     block_num,
     workspace,
     body,
-    ROW_NUMBER() OVER (PARTITION BY block_num, workspace ORDER BY created_at, id) AS rn
+    ROW_NUMBER() OVER (PARTITION BY block_num, workspace ORDER BY created_at_norm, id) AS rn
   FROM blocks
   WHERE kind = 'transcript'
     AND TRIM(body) != ''

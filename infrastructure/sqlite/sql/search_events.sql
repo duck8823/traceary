@@ -33,8 +33,11 @@ SELECT DISTINCT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.bo
    AND (? = '' OR e.client = ?)
    AND (? = '' OR e.agent = ?)
    AND (? = '' OR e.kind = ?)
-   AND (? = '' OR e.created_at >= ?)
-   AND (? = '' OR e.created_at < ?)
+   -- created_at is variable-width RFC3339Nano, which is not lexically ordered
+   -- the same as real time; ts_norm() rewrites both sides to a fixed-width
+   -- form so the period bound is boundary-correct (#1185).
+   AND (? = '' OR ts_norm(e.created_at) >= ts_norm(?))
+   AND (? = '' OR ts_norm(e.created_at) < ts_norm(?))
    AND (? = 0 OR a.failed = 1 OR (a.exit_code IS NOT NULL AND a.exit_code != 0))
- ORDER BY e.created_at DESC, e.id DESC
+ ORDER BY ts_norm(e.created_at) DESC, e.id DESC
  LIMIT ? OFFSET ?

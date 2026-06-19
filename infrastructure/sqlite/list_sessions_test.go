@@ -780,7 +780,7 @@ func TestDatasource_ListSummariesEndedWithLateEvents(t *testing.T) {
 	const workspace = "duck8823/traceary"
 	started := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 	endMarker := started.Add(2 * time.Minute)
-	lateEvent := started.Add(5 * time.Minute)
+	lateEvent := endMarker.Add(500 * time.Millisecond)
 
 	newScenario := func(t *testing.T) *listSessionsFixture {
 		t.Helper()

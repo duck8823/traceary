@@ -11,10 +11,10 @@ WITH
             SELECT 1
               FROM events late_ev
              WHERE late_ev.session_id = s.session_id
-               AND late_ev.created_at > s.ended_at
+               AND ts_norm(late_ev.created_at) > ts_norm(s.ended_at)
           ))
-      AND (? = '' OR s.started_at >= ?)
-      AND (? = '' OR s.started_at < ?)
+      AND (? = '' OR ts_norm(s.started_at) >= ts_norm(?))
+      AND (? = '' OR ts_norm(s.started_at) < ts_norm(?))
     ORDER BY s.started_at DESC
     LIMIT ? OFFSET ?
   ),
@@ -23,22 +23,22 @@ WITH
       e.session_id,
       COUNT(*) AS total_events,
       SUM(CASE WHEN e.kind = 'command_executed' THEN 1 ELSE 0 END) AS command_count,
-      GROUP_CONCAT(DISTINCT e.agent) AS agents,
-      MAX(e.created_at) AS latest_event_at
+      GROUP_CONCAT(DISTINCT e.agent) AS agents
     FROM events e
     JOIN filtered_sessions fs ON fs.session_id = e.session_id
     GROUP BY e.session_id
   ),
   latest_events AS (
-    SELECT session_id, kind AS latest_event_kind, body AS latest_event_body
+    SELECT session_id, created_at AS latest_event_at, kind AS latest_event_kind, body AS latest_event_body
     FROM (
       SELECT
         e.session_id,
+        e.created_at,
         e.kind,
         e.body,
         ROW_NUMBER() OVER (
           PARTITION BY e.session_id
-          ORDER BY e.created_at DESC, e.id DESC
+          ORDER BY ts_norm(e.created_at) DESC, e.id DESC
         ) AS rn
       FROM events e
       JOIN filtered_sessions fs ON fs.session_id = e.session_id
@@ -53,7 +53,7 @@ SELECT
   s.ended_at,
   COALESCE(agg.total_events, 0) AS total_events,
   COALESCE(agg.command_count, 0) AS command_count,
-  COALESCE(agg.latest_event_at, s.started_at) AS latest_event_at,
+  COALESCE(latest.latest_event_at, s.started_at) AS latest_event_at,
   COALESCE(agg.agents, '') AS agents,
   s.label,
   s.summary,

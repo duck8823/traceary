@@ -1,7 +1,6 @@
 -- Source_hook filtered query: the primary branch uses
--- `e.source_hook = ?` as a top-level conjunct so the planner can serve
--- the WHERE + ORDER BY from the compound partial index
--- `idx_events_source_hook_time (source_hook, created_at DESC, id DESC)`.
+-- `e.source_hook = ?` as a top-level conjunct so hook-specific filtering stays
+-- out of the general recent-events path.
 -- A UNION ALL branch matches pre-#672 legacy rows via the body prefix
 -- so migration-window data keeps working. See #683.
 --
@@ -19,8 +18,8 @@ SELECT id, kind, client, agent, session_id, workspace, body, source_hook, create
            AND (? = '' OR e.session_id = ?)
            AND (? = '' OR e.workspace = ?)
            AND (? = 0 OR ca.failed = 1 OR (ca.exit_code IS NOT NULL AND ca.exit_code != 0))
-           AND (? = '' OR e.created_at >= ?)
-           AND (? = '' OR e.created_at < ?)
+           AND (? = '' OR ts_norm(e.created_at) >= ts_norm(?))
+           AND (? = '' OR ts_norm(e.created_at) < ts_norm(?))
         UNION ALL
         SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.body, e.source_hook, e.created_at
           FROM events e
@@ -38,8 +37,8 @@ SELECT id, kind, client, agent, session_id, workspace, body, source_hook, create
            AND (? = '' OR e.session_id = ?)
            AND (? = '' OR e.workspace = ?)
            AND (? = 0 OR ca.failed = 1 OR (ca.exit_code IS NOT NULL AND ca.exit_code != 0))
-           AND (? = '' OR e.created_at >= ?)
-           AND (? = '' OR e.created_at < ?)
+           AND (? = '' OR ts_norm(e.created_at) >= ts_norm(?))
+           AND (? = '' OR ts_norm(e.created_at) < ts_norm(?))
        ) events_union
- ORDER BY created_at DESC, id DESC
+ ORDER BY ts_norm(created_at) DESC, id DESC
  LIMIT ? OFFSET ?
