@@ -301,6 +301,196 @@ func TestRootCLI_HookSessionCommand_EndUsesStateAndCreatesEndMarker(t *testing.T
 	if _, err := os.Stat(filepath.Join(stateDir, "ended", "claude-claude-session")); err != nil {
 		t.Fatalf("Stat(end marker) error = %v", err)
 	}
+	diagnosticsDir := filepath.Join(stateDir, "diagnostics")
+	if entries, err := os.ReadDir(diagnosticsDir); err != nil && !os.IsNotExist(err) {
+		t.Fatalf("ReadDir(diagnostics) error = %v", err)
+	} else if len(entries) != 0 {
+		t.Fatalf("diagnostics entries = %d, want none after successful SessionEnd", len(entries))
+	}
+}
+
+func TestRootCLI_HookSessionCommand_EndLeavesCancellationDiagnosticOnFailure(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "cancel-key")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-cancel-key"), []byte("cancelled-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-cancel-key-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{endErr: errors.New("simulated hook cancellation")}),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"agent_type":"planner"}`))
+	rootCmd.SetArgs([]string{"hook", "session", "claude", "end"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v (hook errors must stay best-effort)", err)
+	}
+
+	diagnosticsDir := filepath.Join(stateDir, "diagnostics")
+	entries, err := os.ReadDir(diagnosticsDir)
+	if err != nil {
+		t.Fatalf("ReadDir(diagnostics) error = %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("diagnostics entries = %d, want 1", len(entries))
+	}
+	data, err := os.ReadFile(filepath.Join(diagnosticsDir, entries[0].Name()))
+	if err != nil {
+		t.Fatalf("ReadFile(diagnostic) error = %v", err)
+	}
+	var diagnostic struct {
+		Client      string `json:"client"`
+		HostEvent   string `json:"host_event"`
+		HookCommand string `json:"hook_command"`
+		HookPath    string `json:"hook_path"`
+		Workspace   string `json:"workspace"`
+		SessionID   string `json:"session_id"`
+		Status      string `json:"status"`
+		StartedAt   string `json:"started_at"`
+	}
+	if err := json.Unmarshal(data, &diagnostic); err != nil {
+		t.Fatalf("json.Unmarshal(diagnostic) error = %v", err)
+	}
+	if got, want := diagnostic.Client, "claude"; got != want {
+		t.Fatalf("diagnostic client = %q, want %q", got, want)
+	}
+	if got, want := diagnostic.HostEvent, "SessionEnd"; got != want {
+		t.Fatalf("diagnostic host_event = %q, want %q", got, want)
+	}
+	if got, want := diagnostic.HookCommand, "'traceary' 'hook' 'session' 'claude' 'end'"; got != want {
+		t.Fatalf("diagnostic hook_command = %q, want %q", got, want)
+	}
+	if diagnostic.HookPath == "" {
+		t.Fatal("diagnostic hook_path is empty")
+	}
+	if got, want := diagnostic.Workspace, "github.com/duck8823/traceary"; got != want {
+		t.Fatalf("diagnostic workspace = %q, want %q", got, want)
+	}
+	if got, want := diagnostic.SessionID, "cancelled-session"; got != want {
+		t.Fatalf("diagnostic session_id = %q, want %q", got, want)
+	}
+	if got, want := diagnostic.Status, "started"; got != want {
+		t.Fatalf("diagnostic status = %q, want %q", got, want)
+	}
+	if diagnostic.StartedAt == "" {
+		t.Fatal("diagnostic started_at is empty")
+	}
+	malformedPath := filepath.Join(diagnosticsDir, "claude-SessionEnd-cancelled-session-malformed-20260619T000000.000000000Z.json")
+	if err := os.WriteFile(malformedPath, []byte(`{"client":"claude"`), 0o600); err != nil {
+		t.Fatalf("WriteFile(malformed diagnostic) error = %v", err)
+	}
+
+	successStub := &sessionUsecaseStub{
+		endEvent: model.EventOf(
+			types.EventID("evt-end-after-cancel"),
+			types.EventKindSessionEnded,
+			types.Client("hook"),
+			types.Agent("claude"),
+			types.SessionID("cancelled-session"),
+			types.Workspace("github.com/duck8823/traceary"),
+			"session ended",
+			time.Now(),
+		),
+	}
+	successCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(successStub),
+	).Command()
+	successCmd.SetOut(&bytes.Buffer{})
+	successCmd.SetErr(&bytes.Buffer{})
+	successCmd.SetIn(strings.NewReader(`{"agent_type":"planner"}`))
+	successCmd.SetArgs([]string{"hook", "session", "claude", "end"})
+
+	if err := successCmd.Execute(); err != nil {
+		t.Fatalf("success Execute() error = %v", err)
+	}
+	entries, err = os.ReadDir(diagnosticsDir)
+	if err != nil {
+		t.Fatalf("ReadDir(diagnostics after retry) error = %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("diagnostics entries after successful retry = %d, want none", len(entries))
+	}
+}
+
+func TestRootCLI_HookSessionCommand_EndWritesCancellationDiagnosticBeforeWorkspaceResolution(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "workspace-error-key")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-workspace-error-key"), []byte("workspace-error-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(stateDir, "claude-workspace-error-key-repo"), 0o755); err != nil {
+		t.Fatalf("Mkdir(workspace state path) error = %v", err)
+	}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{}),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"cwd":"/tmp/project"}`))
+	rootCmd.SetArgs([]string{"hook", "session", "claude", "end"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v (hook errors must stay best-effort)", err)
+	}
+
+	diagnosticsDir := filepath.Join(stateDir, "diagnostics")
+	entries, err := os.ReadDir(diagnosticsDir)
+	if err != nil {
+		t.Fatalf("ReadDir(diagnostics) error = %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("diagnostics entries = %d, want 1", len(entries))
+	}
+	data, err := os.ReadFile(filepath.Join(diagnosticsDir, entries[0].Name()))
+	if err != nil {
+		t.Fatalf("ReadFile(diagnostic) error = %v", err)
+	}
+	var diagnostic struct {
+		HostEvent string `json:"host_event"`
+		Workspace string `json:"workspace"`
+		SessionID string `json:"session_id"`
+		Status    string `json:"status"`
+	}
+	if err := json.Unmarshal(data, &diagnostic); err != nil {
+		t.Fatalf("json.Unmarshal(diagnostic) error = %v", err)
+	}
+	if got, want := diagnostic.HostEvent, "SessionEnd"; got != want {
+		t.Fatalf("diagnostic host_event = %q, want %q", got, want)
+	}
+	if got, want := diagnostic.SessionID, "workspace-error-session"; got != want {
+		t.Fatalf("diagnostic session_id = %q, want %q", got, want)
+	}
+	if got, want := diagnostic.Status, "started"; got != want {
+		t.Fatalf("diagnostic status = %q, want %q", got, want)
+	}
+	if diagnostic.Workspace != "" {
+		t.Fatalf("diagnostic workspace = %q, want empty when workspace resolution fails after marker creation", diagnostic.Workspace)
+	}
 }
 
 func TestRootCLI_HookSessionCommand_StopFiresMemoryAutoExtract(t *testing.T) {

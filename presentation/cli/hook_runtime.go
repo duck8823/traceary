@@ -317,11 +317,40 @@ func (c *RootCLI) runHookSession(
 			if clearErr := clearHookWorkspaceState(client); clearErr != nil {
 				return clearErr
 			}
+			if strings.TrimSpace(client) == "claude" {
+				if clearErr := clearHookCancellationDiagnosticsForSession(client, "SessionEnd", sessionID); clearErr != nil {
+					slog.Debug("hook already-ended cancellation diagnostic cleanup failed", "client", client, "session_id", sessionID, "error", clearErr)
+				}
+			}
 			return nil
 		} else if err != nil {
 			return err
 		}
 
+		hookCancellationDiagnosticPath := ""
+		shouldTrackClaudeCancellation := strings.TrimSpace(client) == "claude"
+		if shouldTrackClaudeCancellation {
+			if path, err := beginHookCancellationDiagnostic(
+				client,
+				"SessionEnd",
+				"'traceary' 'hook' 'session' 'claude' 'end'",
+				sessionID,
+				"",
+			); err != nil {
+				slog.Debug("hook session-end cancellation diagnostic failed", "client", client, "session_id", sessionID, "error", err)
+			} else {
+				hookCancellationDiagnosticPath = path
+			}
+		}
+		workspace, err := resolveHookWorkspace(ctx, payload, client, true)
+		if err != nil {
+			return err
+		}
+		if shouldTrackClaudeCancellation {
+			if err := updateHookCancellationDiagnosticWorkspace(hookCancellationDiagnosticPath, workspace); err != nil {
+				slog.Debug("hook session-end cancellation diagnostic workspace update failed", "client", client, "session_id", sessionID, "path", hookCancellationDiagnosticPath, "error", err)
+			}
+		}
 		resolvedDBPath, err := resolveDBPath(dbPath)
 		if err != nil {
 			return err
@@ -329,10 +358,6 @@ func (c *RootCLI) runHookSession(
 		c.applyDatabasePath(resolvedDBPath)
 		if err := c.storeManagement.Initialize(ctx); err != nil {
 			return xerrors.Errorf("failed to initialize store: %w", err)
-		}
-		workspace, err := resolveHookWorkspace(ctx, payload, client, true)
-		if err != nil {
-			return err
 		}
 		if _, err := c.session.End(ctx, types.Client("hook"), agent, sessionID, workspace, ""); err != nil {
 			return xerrors.Errorf("failed to record hook session end: %w", err)
@@ -349,6 +374,12 @@ func (c *RootCLI) runHookSession(
 				Workspace(workspace).
 				Build()); err != nil {
 				slog.Debug("hook session-end auto-extract failed", "client", client, "session_id", sessionID, "error", err)
+			}
+		}
+		if shouldTrackClaudeCancellation {
+			if err := clearHookCancellationDiagnosticsForSession(client, "SessionEnd", sessionID); err != nil {
+				slog.Debug("hook session-end cancellation diagnostic cleanup failed", "client", client, "session_id", sessionID, "path", hookCancellationDiagnosticPath, "error", err)
+				_ = clearHookCancellationDiagnostic(hookCancellationDiagnosticPath)
 			}
 		}
 		if err := clearHookSessionState(client); err != nil {

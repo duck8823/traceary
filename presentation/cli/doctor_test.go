@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -477,6 +478,84 @@ enabled = true
 		}
 		if diff := cmp.Diff(map[string]string{"config": "fail"}, map[string]string{"config": gotStatuses["config"]}); diff != "" {
 			t.Fatalf("doctor statuses mismatch (-want +got):\n%s", diff)
+		}
+	})
+}
+
+func TestRootCLI_DoctorCommand_ClaudeHookCancellationDiagnostics(t *testing.T) {
+	t.Run("passes when no pending marker exists", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		t.Setenv("TRACEARY_LANG", "en")
+		setTracearyPathToCurrentExecutable(t)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+		writeCompleteClaudeProjectHookSettings(t, projectDir)
+
+		report, err := executeDoctorJSON(t, []string{"doctor", "--client", "claude", "--project-dir", projectDir, "--json", "--warnings-ok"})
+		if err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		check := statusByName(report, "claude-hook-cancellations")
+		if got, want := check.Status, "pass"; got != want {
+			t.Fatalf("claude-hook-cancellations status = %q, want %q (message=%q)", got, want, check.Message)
+		}
+	})
+
+	t.Run("warns with durable marker evidence", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		t.Setenv("TRACEARY_LANG", "en")
+		t.Setenv("TRACEARY_HOOK_STATE_KEY", "doctor-cancel-key")
+		setTracearyPathToCurrentExecutable(t)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+		writeCompleteClaudeProjectHookSettings(t, projectDir)
+
+		stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+		if err := os.MkdirAll(stateDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(state) error = %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(stateDir, "claude-doctor-cancel-key"), []byte("doctor-cancelled-session"), 0o600); err != nil {
+			t.Fatalf("WriteFile(session state) error = %v", err)
+		}
+
+		hookCmd := newTestRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithSession(&sessionUsecaseStub{endErr: errors.New("simulated cancellation")}),
+		).Command()
+		hookCmd.SetOut(&bytes.Buffer{})
+		hookCmd.SetErr(&bytes.Buffer{})
+		hookCmd.SetIn(strings.NewReader(fmt.Sprintf(`{"cwd":%q}`, projectDir)))
+		hookCmd.SetArgs([]string{"hook", "session", "claude", "end"})
+		if err := hookCmd.Execute(); err != nil {
+			t.Fatalf("hook Execute() error = %v", err)
+		}
+
+		report, err := executeDoctorJSON(t, []string{"doctor", "--client", "claude", "--project-dir", projectDir, "--json", "--warnings-ok"})
+		if err != nil {
+			t.Fatalf("doctor Execute() error = %v", err)
+		}
+		check := statusByName(report, "claude-hook-cancellations")
+		if got, want := check.Status, "warn"; got != want {
+			t.Fatalf("claude-hook-cancellations status = %q, want %q (message=%q)", got, want, check.Message)
+		}
+		for _, want := range []string{
+			"SessionEnd",
+			"'traceary' 'hook' 'session' 'claude' 'end'",
+			"doctor-cancelled-session",
+			"started_at=",
+			"path=",
+			filepath.Join(stateDir, "diagnostics"),
+		} {
+			if !strings.Contains(check.Message, want) {
+				t.Fatalf("claude-hook-cancellations message = %q, want substring %q", check.Message, want)
+			}
+		}
+		if check.Hint == "" || !strings.Contains(check.Hint, "Traceary reached Claude SessionEnd") {
+			t.Fatalf("claude-hook-cancellations hint = %q, want actionable cancellation hint", check.Hint)
 		}
 	})
 }

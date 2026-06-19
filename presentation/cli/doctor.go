@@ -312,6 +312,9 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		if targetClient == "gemini" || targetClient == "claude" {
 			report.Checks = append(report.Checks, c.inspectClientEventCoverage(ctx, targetClient, outputPath, resolvedProjectDir, input.coverageThreshold))
 		}
+		if targetClient == "claude" {
+			report.Checks = append(report.Checks, inspectClaudeHookCancellationDiagnostics(ctx, resolvedProjectDir))
+		}
 		report.Checks = append(report.Checks, c.inspectMCPRegistrationForClient(targetClient, outputPath))
 
 		if globalCheck := c.inspectGlobalConfigForClient(targetClient); globalCheck != nil {
