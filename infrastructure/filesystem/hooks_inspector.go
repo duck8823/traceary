@@ -3,6 +3,7 @@ package filesystem
 import (
 	"encoding/json"
 	"sort"
+	"strings"
 
 	"golang.org/x/xerrors"
 
@@ -106,6 +107,38 @@ func (i *HooksInspector) DuplicateManagedHooks(content []byte) ([]application.Ho
 // infrastructure package directly.
 func (i *HooksInspector) ExtractManagedKeyFromEntry(name, command string) string {
 	return ExtractTracearyManagedKeyFromEntry(name, command)
+}
+
+// ManagedCoverage reports which Traceary-managed enrichment surfaces are wired
+// in a hook configuration. It uses the same canonical-key extraction as
+// duplicate detection so dev-build installs with a non-`traceary` binary name
+// are still recognized through their Traceary-managed entry names.
+func (i *HooksInspector) ManagedCoverage(content []byte) (application.HookManagedCoverage, error) {
+	hooksMap, ok, err := parseHooksMap(content)
+	if err != nil || !ok {
+		return application.HookManagedCoverage{}, err
+	}
+
+	coverage := application.HookManagedCoverage{}
+	for _, matchers := range hooksMap {
+		for _, matcher := range matchers {
+			for _, command := range matcher.Hooks {
+				managedKey := extractTracearyManagedKeyFromEntry(command.Name, command.Command)
+				switch {
+				case strings.HasPrefix(managedKey, "traceary-prompt.sh:"):
+					coverage.HasPrompt = true
+				case strings.HasPrefix(managedKey, "traceary-transcript.sh:"):
+					coverage.HasTranscript = true
+				case strings.HasPrefix(managedKey, "traceary-audit.sh:"):
+					coverage.HasAudit = true
+				case strings.HasPrefix(managedKey, "traceary-compact.sh:"):
+					coverage.HasCompact = true
+				}
+			}
+		}
+	}
+
+	return coverage, nil
 }
 
 func parseHooksMap(content []byte) (map[string][]hookMatcherDocument, bool, error) {
