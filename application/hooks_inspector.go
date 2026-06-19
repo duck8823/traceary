@@ -65,9 +65,10 @@ type HooksInspector interface {
 	// re-implementing the command parsing.
 	ExtractManagedKeyFromEntry(name, command string) string
 	// ManagedCoverage reports which Traceary-managed enrichment surfaces
-	// (prompt, transcript, shell audit, compact) are wired in the given
-	// hook configuration content. Missing hooks fields or a payload with
-	// no Traceary-managed entries return a zero HookManagedCoverage.
-	// Returned errors are the same sentinels as Inspect.
-	ManagedCoverage(content []byte) (HookManagedCoverage, error)
+	// (prompt, transcript, shell audit, compact) are wired for the given
+	// client in the hook configuration content. Missing hooks fields or a
+	// payload with no matching Traceary-managed entries return a zero
+	// HookManagedCoverage. Returned errors are the same sentinels as
+	// Inspect.
+	ManagedCoverage(content []byte, client string) (HookManagedCoverage, error)
 }

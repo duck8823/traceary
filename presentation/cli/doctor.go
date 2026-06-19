@@ -819,7 +819,7 @@ func (c *RootCLI) inspectClientEventCoverage(ctx context.Context, client, output
 		}
 	}
 
-	configCoverage, configCoverageKnown := c.managedCoverageForConfigFile(outputPath)
+	configCoverage, configCoverageKnown := c.managedCoverageForConfigFile(outputPath, client)
 	if configCoverageKnown {
 		if missing := configCoverage.MissingEnrichment(); len(missing) > 0 {
 			fixCommand := fmt.Sprintf("traceary doctor --client %s --project-dir %s --fix", client, shellQuote(projectDir))
@@ -892,12 +892,12 @@ func resolveDoctorEventCoverageWorkspace(ctx context.Context, projectDir string)
 	return types.Workspace(normalizeLocalWorkContextPath(projectDir))
 }
 
-func (c *RootCLI) managedCoverageForConfigFile(path string) (application.HookManagedCoverage, bool) {
+func (c *RootCLI) managedCoverageForConfigFile(path string, client string) (application.HookManagedCoverage, bool) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return application.HookManagedCoverage{}, false
 	}
-	coverage, err := c.hooksInspector.ManagedCoverage(content)
+	coverage, err := c.hooksInspector.ManagedCoverage(content, client)
 	if err != nil {
 		return application.HookManagedCoverage{}, false
 	}
@@ -1279,7 +1279,7 @@ func (c *RootCLI) inspectGlobalConfigForClient(client string) *doctorCheck {
 	}
 	if hasTracearyHook {
 		if client == "gemini" {
-			coverage, coverageErr := c.hooksInspector.ManagedCoverage(content)
+			coverage, coverageErr := c.hooksInspector.ManagedCoverage(content, client)
 			if coverageErr != nil {
 				return &doctorCheck{
 					Name:    checkName,
@@ -1418,7 +1418,7 @@ func (c *RootCLI) inspectDoctorConfigFile(client string, outputPath string, proj
 			}
 		}
 		if client == "gemini" {
-			coverage, coverageErr := c.hooksInspector.ManagedCoverage(content)
+			coverage, coverageErr := c.hooksInspector.ManagedCoverage(content, client)
 			if coverageErr != nil {
 				return doctorCheck{
 					Name:    client + "-config",

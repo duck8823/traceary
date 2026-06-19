@@ -110,13 +110,17 @@ func (i *HooksInspector) ExtractManagedKeyFromEntry(name, command string) string
 }
 
 // ManagedCoverage reports which Traceary-managed enrichment surfaces are wired
-// in a hook configuration. It uses the same canonical-key extraction as
-// duplicate detection so dev-build installs with a non-`traceary` binary name
-// are still recognized through their Traceary-managed entry names.
-func (i *HooksInspector) ManagedCoverage(content []byte) (application.HookManagedCoverage, error) {
+// for the given client in a hook configuration. It uses the same canonical-key
+// extraction as duplicate detection so dev-build installs with a non-`traceary`
+// binary name are still recognized through their Traceary-managed entry names.
+func (i *HooksInspector) ManagedCoverage(content []byte, client string) (application.HookManagedCoverage, error) {
 	hooksMap, ok, err := parseHooksMap(content)
 	if err != nil || !ok {
 		return application.HookManagedCoverage{}, err
+	}
+	targetClient := strings.TrimSpace(client)
+	if targetClient == "" {
+		return application.HookManagedCoverage{}, nil
 	}
 
 	coverage := application.HookManagedCoverage{}
@@ -125,13 +129,13 @@ func (i *HooksInspector) ManagedCoverage(content []byte) (application.HookManage
 			for _, command := range matcher.Hooks {
 				managedKey := extractTracearyManagedKeyFromEntry(command.Name, command.Command)
 				switch {
-				case strings.HasPrefix(managedKey, "traceary-prompt.sh:"):
+				case managedKey == managedKeyOf("traceary-prompt.sh", targetClient):
 					coverage.HasPrompt = true
-				case strings.HasPrefix(managedKey, "traceary-transcript.sh:"):
+				case managedKey == managedKeyOf("traceary-transcript.sh", targetClient):
 					coverage.HasTranscript = true
-				case strings.HasPrefix(managedKey, "traceary-audit.sh:"):
+				case managedKey == managedKeyOf("traceary-audit.sh", targetClient):
 					coverage.HasAudit = true
-				case strings.HasPrefix(managedKey, "traceary-compact.sh:"):
+				case strings.HasPrefix(managedKey, managedKeyOf("traceary-compact.sh", targetClient)+":"):
 					coverage.HasCompact = true
 				}
 			}

@@ -296,6 +296,17 @@ func TestHooksInspector_ManagedCoverage(t *testing.T) {
 			}`,
 			want: application.HookManagedCoverage{},
 		},
+		{
+			name: "ignores Traceary managed hooks for another client",
+			payload: `{
+			  "hooks": {
+			    "BeforeAgent": [{"hooks": [{"name": "traceary-prompt", "type": "command", "command": "'traceary' 'hook' 'prompt' 'codex'"}]}],
+			    "AfterAgent": [{"hooks": [{"name": "traceary-transcript", "type": "command", "command": "'traceary' 'hook' 'transcript' 'codex'"}]}],
+			    "AfterTool": [{"hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'codex'"}]}]
+			  }
+			}`,
+			want: application.HookManagedCoverage{},
+		},
 	}
 
 	for _, tt := range tests {
@@ -303,7 +314,7 @@ func TestHooksInspector_ManagedCoverage(t *testing.T) {
 			t.Parallel()
 
 			inspector := filesystem.NewHooksInspector()
-			got, err := inspector.ManagedCoverage([]byte(tt.payload))
+			got, err := inspector.ManagedCoverage([]byte(tt.payload), "gemini")
 			if err != nil {
 				t.Fatalf("ManagedCoverage() error = %v", err)
 			}
