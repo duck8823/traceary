@@ -1015,7 +1015,7 @@ func (c *RootCLI) attachDoctorConfigFix(check *doctorCheck, client, outputPath, 
 	}
 	if client == "claude" {
 		detection := c.detectClaudeTracearyPluginForCLI()
-		if detection.Active && c.claudeConfigHasTracearyHooks(outputPath) {
+		if detection.Active {
 			return
 		}
 	}

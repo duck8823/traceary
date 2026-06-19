@@ -1200,6 +1200,10 @@ func TestRootCLI_DoctorClaudeCoverage(t *testing.T) {
 		if strings.Contains(check.FixCommand, "traceary doctor") {
 			t.Fatalf("claude-event-coverage FixCommand = %q; want no project settings fix", check.FixCommand)
 		}
+		claudeCfg := statusByName(report, "claude-config")
+		if claudeCfg.AutoFixAvailable {
+			t.Fatalf("claude-config AutoFixAvailable = true; plugin-managed remediation must not write project settings hooks")
+		}
 	})
 
 	t.Run("plugin active with stale settings hooks does not suggest settings fix", func(t *testing.T) {
