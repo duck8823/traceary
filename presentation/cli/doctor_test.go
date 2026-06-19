@@ -519,6 +519,24 @@ func TestRootCLI_DoctorExitCodeMatrixAndJSONSections(t *testing.T) {
 		assertDoctorSectionShape(t, report)
 	})
 
+	t.Run("warnings-ok makes warning-only report exit zero", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		setTracearyPathToCurrentExecutable(t)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+
+		report, err := executeDoctorJSON(t, []string{"doctor", "--client", "claude", "--project-dir", projectDir, "--json", "--warnings-ok"})
+		if err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		if report.ExitCode != 0 || report.Summary.Warn == 0 || report.Summary.Fail != 0 {
+			t.Fatalf("report summary = %+v exit_code=%d, want warning-only exit 0", report.Summary, report.ExitCode)
+		}
+		assertDoctorSectionShape(t, report)
+	})
+
 	t.Run("fail exits one", func(t *testing.T) {
 		homeDir := t.TempDir()
 		projectDir := t.TempDir()
@@ -528,6 +546,23 @@ func TestRootCLI_DoctorExitCodeMatrixAndJSONSections(t *testing.T) {
 		writeTracearyConfig(t, homeDir, `{invalid}`)
 
 		report, err := executeDoctorJSON(t, []string{"doctor", "--client", "claude", "--project-dir", projectDir, "--json"})
+		if got := doctorErrExitCode(err); got != 1 {
+			t.Fatalf("ExitCode(error) = %d, want 1 (err=%v)", got, err)
+		}
+		if report.ExitCode != 1 || report.Summary.Fail == 0 {
+			t.Fatalf("report summary = %+v exit_code=%d, want fail exit 1", report.Summary, report.ExitCode)
+		}
+	})
+
+	t.Run("warnings-ok does not mask failures", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+		writeTracearyConfig(t, homeDir, `{invalid}`)
+
+		report, err := executeDoctorJSON(t, []string{"doctor", "--client", "claude", "--project-dir", projectDir, "--json", "--warnings-ok"})
 		if got := doctorErrExitCode(err); got != 1 {
 			t.Fatalf("ExitCode(error) = %d, want 1 (err=%v)", got, err)
 		}

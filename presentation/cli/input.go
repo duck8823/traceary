@@ -73,6 +73,7 @@ type doctorCommandInput struct {
 	fix               bool
 	dryRun            bool
 	strict            bool
+	warningsOK        bool
 	coverageThreshold float64
 }
 

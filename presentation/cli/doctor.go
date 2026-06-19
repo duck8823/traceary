@@ -99,6 +99,7 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 		fix               bool
 		dryRun            bool
 		strict            bool
+		warningsOK        bool
 		coverageThreshold float64
 	)
 
@@ -117,6 +118,7 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 				fix:               fix,
 				dryRun:            dryRun,
 				strict:            strict,
+				warningsOK:        warningsOK,
 				coverageThreshold: coverageThreshold,
 			})
 		},
@@ -128,6 +130,7 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 	doctorCmd.Flags().BoolVar(&fix, "fix", false, Localize("apply known safe remediations for warning and failing checks", "警告・失敗チェックに対して既知の安全な修復を適用する"))
 	doctorCmd.Flags().BoolVar(&dryRun, "dry-run", false, Localize("preview --fix actions without writing files", "ファイルを書き込まずに --fix の処理をプレビューする"))
 	doctorCmd.Flags().BoolVar(&strict, "strict", false, Localize("audit-reliability: report every exact duplicate group regardless of time, not only near-simultaneous writes", "audit-reliability: 時間に関係なく完全一致する duplicate group をすべて報告する（near-simultaneous な書き込みだけに限定しない）"))
+	doctorCmd.Flags().BoolVar(&warningsOK, "warnings-ok", false, Localize("exit 0 when doctor finds warnings but no failures (for CI/smoke automation)", "doctor が警告のみを見つけた場合は exit 0 にする（CI / smoke automation 向け）"))
 	doctorCmd.Flags().Float64Var(&coverageThreshold, "coverage-threshold", defaultDoctorCoverageThreshold, Localize("client event coverage: warn when the recent prompt/transcript-missing session ratio is above this value (0.0 to 1.0)", "client event coverage: recent session の prompt/transcript 欠落比率がこの値を超えたら警告する (0.0 から 1.0)"))
 
 	return doctorCmd
@@ -155,7 +158,7 @@ func (c *RootCLI) runDoctor(ctx context.Context, output io.Writer, input doctorC
 		after.Fixes = fixes
 		report = after
 	}
-	if err := writeDoctorReport(output, report, input.asJSON); err != nil {
+	if err := writeDoctorReport(output, report, input.asJSON, input.warningsOK); err != nil {
 		return err
 	}
 	if report.ExitCode != 0 {
@@ -237,7 +240,9 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		Clients: resolvedClients,
 		Checks:  make([]doctorCheck, 0, 8),
 	}
-	defer finalizeDoctorReport(report)
+	defer func() {
+		finalizeDoctorReport(report, input.warningsOK)
+	}()
 
 	resolvedDBPath, err := resolveDBPath(input.dbPath)
 	if err != nil {
@@ -1813,11 +1818,11 @@ func inspectDoctorPluginPackage(projectDir string) doctorCheck {
 	}
 }
 
-func writeDoctorReport(output io.Writer, report *doctorReport, asJSON bool) error {
+func writeDoctorReport(output io.Writer, report *doctorReport, asJSON bool, warningsOK bool) error {
 	if report == nil {
 		return xerrors.New(Localize("doctor report must not be nil", "doctor report は nil にできません"))
 	}
-	finalizeDoctorReport(report)
+	finalizeDoctorReport(report, warningsOK)
 
 	if asJSON {
 		return writeJSON(output, report)
@@ -1871,7 +1876,7 @@ func writeDoctorReport(output io.Writer, report *doctorReport, asJSON bool) erro
 	return nil
 }
 
-func finalizeDoctorReport(report *doctorReport) {
+func finalizeDoctorReport(report *doctorReport, warningsOK bool) {
 	if report == nil {
 		return
 	}
@@ -1894,7 +1899,11 @@ func finalizeDoctorReport(report *doctorReport) {
 	case report.Summary.Fail > 0:
 		report.ExitCode = 1
 	case report.Summary.Warn > 0:
-		report.ExitCode = 2
+		if warningsOK {
+			report.ExitCode = 0
+		} else {
+			report.ExitCode = 2
+		}
 	default:
 		report.ExitCode = 0
 	}

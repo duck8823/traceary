@@ -5,6 +5,11 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [Unreleased]
+
+### Added
+- **automation 向け doctor warning (#1175)** — `traceary doctor` に `--warnings-ok` を追加しました。CI / smoke check では warning-only report を exit code `0` として扱え、failure は引き続き `1`、warning 件数と各 check の severity は JSON report に残ります。
+
 ## [v0.20.1] - 2026-05-31
 
 ### Added
