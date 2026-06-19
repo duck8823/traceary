@@ -955,7 +955,7 @@ func TestRootCLI_DoctorGeminiCoverage(t *testing.T) {
 		if check.Status != "warn" {
 			t.Fatalf("gemini-event-coverage status = %q, want warn (message=%q)", check.Status, check.Message)
 		}
-		if !strings.Contains(check.Message, "boundary-only") || !strings.Contains(check.Message, "67%") {
+		if !strings.Contains(check.Message, "prompt/transcript") || !strings.Contains(check.Message, "67%") {
 			t.Fatalf("gemini-event-coverage message = %q; want ratio evidence", check.Message)
 		}
 		if eventStub.listCriteria.Agent() != types.Agent("gemini") {
@@ -993,6 +993,36 @@ func TestRootCLI_DoctorGeminiCoverage(t *testing.T) {
 		check := statusByName(report, "gemini-event-coverage")
 		if check.Status != "pass" {
 			t.Fatalf("gemini-event-coverage status = %q, want pass (message=%q)", check.Status, check.Message)
+		}
+	})
+
+	t.Run("audit only sessions still warn because prompt transcript coverage is missing", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+		writeCompleteGeminiProjectHookSettings(t, projectDir)
+		eventStub := &eventUsecaseStub{listEvents: geminiAuditOnlyCoverageEvents(3)}
+
+		rootCmd := newTestRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(eventStub),
+		).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--client", "gemini", "--project-dir", projectDir, "--json"})
+
+		executeDoctorAllowWarnings(t, rootCmd)
+
+		report := decodeDoctorReport(t, stdout.Bytes())
+		check := statusByName(report, "gemini-event-coverage")
+		if check.Status != "warn" {
+			t.Fatalf("gemini-event-coverage status = %q, want warn for audit-only sessions (message=%q)", check.Status, check.Message)
+		}
+		if !strings.Contains(check.Message, "prompt/transcript") || !strings.Contains(check.Message, "with_command=3") {
+			t.Fatalf("gemini-event-coverage message = %q; want prompt/transcript gap and command evidence", check.Message)
 		}
 	})
 
@@ -1291,6 +1321,37 @@ func geminiCoverageEvents(boundaryOnly, enriched int) []*model.Event {
 		appendEvent(fmt.Sprintf("enriched-%d-start", i), types.EventKindSessionStarted, sessionID)
 		appendEvent(fmt.Sprintf("enriched-%d-prompt", i), types.EventKindPrompt, sessionID)
 		appendEvent(fmt.Sprintf("enriched-%d-transcript", i), types.EventKindTranscript, sessionID)
+	}
+	return events
+}
+
+func geminiAuditOnlyCoverageEvents(count int) []*model.Event {
+	events := make([]*model.Event, 0, count*2)
+	createdAt := time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < count; i++ {
+		sessionID := fmt.Sprintf("audit-only-%d", i)
+		events = append(events,
+			model.EventOf(
+				types.EventID(fmt.Sprintf("audit-only-%d-start", i)),
+				types.EventKindSessionStarted,
+				types.Client("hook"),
+				types.Agent("gemini"),
+				types.SessionID(sessionID),
+				types.Workspace("duck8823/traceary"),
+				"body",
+				createdAt,
+			),
+			model.EventOf(
+				types.EventID(fmt.Sprintf("audit-only-%d-command", i)),
+				types.EventKindCommandExecuted,
+				types.Client("hook"),
+				types.Agent("gemini"),
+				types.SessionID(sessionID),
+				types.Workspace("duck8823/traceary"),
+				"body",
+				createdAt,
+			),
+		)
 	}
 	return events
 }

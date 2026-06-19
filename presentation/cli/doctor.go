@@ -128,7 +128,7 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 	doctorCmd.Flags().BoolVar(&fix, "fix", false, Localize("apply known safe remediations for warning and failing checks", "警告・失敗チェックに対して既知の安全な修復を適用する"))
 	doctorCmd.Flags().BoolVar(&dryRun, "dry-run", false, Localize("preview --fix actions without writing files", "ファイルを書き込まずに --fix の処理をプレビューする"))
 	doctorCmd.Flags().BoolVar(&strict, "strict", false, Localize("audit-reliability: report every exact duplicate group regardless of time, not only near-simultaneous writes", "audit-reliability: 時間に関係なく完全一致する duplicate group をすべて報告する（near-simultaneous な書き込みだけに限定しない）"))
-	doctorCmd.Flags().Float64Var(&coverageThreshold, "coverage-threshold", defaultDoctorCoverageThreshold, Localize("gemini-event-coverage: warn when the recent boundary-only session ratio is above this value (0.0 to 1.0)", "gemini-event-coverage: recent session の boundary-only 比率がこの値を超えたら警告する (0.0 から 1.0)"))
+	doctorCmd.Flags().Float64Var(&coverageThreshold, "coverage-threshold", defaultDoctorCoverageThreshold, Localize("gemini-event-coverage: warn when the recent prompt/transcript-missing session ratio is above this value (0.0 to 1.0)", "gemini-event-coverage: recent session の prompt/transcript 欠落比率がこの値を超えたら警告する (0.0 から 1.0)"))
 
 	return doctorCmd
 }
@@ -803,8 +803,8 @@ func (c *RootCLI) inspectClientEventCoverage(ctx context.Context, client, output
 			Name:   checkName,
 			Status: doctorStatusPass,
 			Message: localizef(
-				"scanned %d recent %s event(s); event coverage is healthy (sessions=%d boundary_only=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d ratio=%.2f threshold=%.2f)",
-				"%d 件の recent %s event を検査しました。event coverage は健全です (sessions=%d boundary_only=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d ratio=%.2f threshold=%.2f)",
+				"scanned %d recent %s event(s); prompt/transcript coverage is healthy (sessions=%d prompt_transcript_missing=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d ratio=%.2f threshold=%.2f)",
+				"%d 件の recent %s event を検査しました。prompt/transcript coverage は健全です (sessions=%d prompt_transcript_missing=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d ratio=%.2f threshold=%.2f)",
 				len(events),
 				client,
 				coverage.Sessions,
@@ -834,8 +834,8 @@ func (c *RootCLI) inspectClientEventCoverage(ctx context.Context, client, output
 					fixCommand,
 				),
 				Message: localizef(
-					"scanned %d recent %s event(s); %.0f%% of complete sessions are boundary-only (sessions=%d boundary_only=%d enriched=%d, threshold=%.0f%%). The installed config is missing Traceary-managed %s hooks: %s",
-					"%d 件の recent %s event を検査しました。完全に観測できた session の %.0f%% が boundary-only です (sessions=%d boundary_only=%d enriched=%d, threshold=%.0f%%)。インストール済み config に Traceary 管理の %s hook がありません: %s",
+					"scanned %d recent %s event(s); %.0f%% of complete sessions lack prompt/transcript coverage (sessions=%d prompt_transcript_missing=%d enriched=%d, threshold=%.0f%%). The installed config is missing Traceary-managed %s hooks: %s",
+					"%d 件の recent %s event を検査しました。完全に観測できた session の %.0f%% で prompt/transcript coverage が不足しています (sessions=%d prompt_transcript_missing=%d enriched=%d, threshold=%.0f%%)。インストール済み config に Traceary 管理の %s hook がありません: %s",
 					len(events),
 					client,
 					ratio*100,
@@ -866,8 +866,8 @@ func (c *RootCLI) inspectClientEventCoverage(ctx context.Context, client, output
 		Status: doctorStatusWarn,
 		Hint:   hint,
 		Message: localizef(
-			"scanned %d recent %s event(s); %.0f%% of complete sessions are boundary-only (sessions=%d boundary_only=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d, threshold=%.0f%%)",
-			"%d 件の recent %s event を検査しました。完全に観測できた session の %.0f%% が boundary-only です (sessions=%d boundary_only=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d, threshold=%.0f%%)",
+			"scanned %d recent %s event(s); %.0f%% of complete sessions lack prompt/transcript coverage (sessions=%d prompt_transcript_missing=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d, threshold=%.0f%%)",
+			"%d 件の recent %s event を検査しました。完全に観測できた session の %.0f%% で prompt/transcript coverage が不足しています (sessions=%d prompt_transcript_missing=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d, threshold=%.0f%%)",
 			len(events),
 			client,
 			ratio*100,
@@ -1501,8 +1501,8 @@ func missingGeminiHookCoverageCheck(checkName, outputPath, projectDir string, mi
 		FixCommand: fixCommand,
 		Hint:       hint,
 		Message: localizef(
-			"gemini config contains Traceary-managed hooks but is missing enrichment coverage (%s). Prompt/transcript gaps make sessions look boundary-only; refresh the managed hooks: %s",
-			"gemini config に Traceary 管理 hook はありますが enrichment coverage (%s) が不足しています。prompt/transcript が欠けると session が boundary-only に見えます。管理 hook を更新してください: %s",
+			"gemini config contains Traceary-managed hooks but is missing enrichment coverage (%s). Prompt/transcript gaps leave sessions without conversation coverage; refresh the managed hooks: %s",
+			"gemini config に Traceary 管理 hook はありますが enrichment coverage (%s) が不足しています。prompt/transcript が欠けると session に会話内容の coverage が残りません。管理 hook を更新してください: %s",
 			joinedMissing,
 			outputPath,
 		),

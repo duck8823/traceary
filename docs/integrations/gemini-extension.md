@@ -122,7 +122,7 @@ traceary doctor --client gemini --json
   repaired with `traceary doctor --client gemini --fix` for settings.json
   installs.
 - `gemini-event-coverage` scans recent Gemini sessions and warns when the
-  boundary-only session ratio is above `--coverage-threshold` (default `0.5`).
+  prompt/transcript-missing session ratio is above `--coverage-threshold` (default `0.5`). Audit-only sessions still warn because they lack conversation coverage.
   If you rely on the Gemini extension package instead of settings.json, update
   it with `gemini extensions update traceary` so the packaged BeforeAgent /
   AfterAgent hooks are refreshed.

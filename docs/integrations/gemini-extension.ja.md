@@ -100,8 +100,8 @@ traceary doctor --client gemini --json
   SessionStart / SessionEnd / AfterTool のみ）になっている場合に警告します。
   settings.json へ入れている場合は `traceary doctor --client gemini --fix`
   で修復できます。
-- `gemini-event-coverage`: recent Gemini session を見て、boundary-only の
-  session 比率が `--coverage-threshold`（既定 `0.5`）を超えると警告します。
+- `gemini-event-coverage`: recent Gemini session を見て、prompt/transcript が欠けた
+  session 比率が `--coverage-threshold`（既定 `0.5`）を超えると警告します。audit のみの session も会話内容の coverage がないため警告対象です。
   settings.json ではなく Gemini extension package を使っている場合は、
   `gemini extensions update traceary` で package 側の BeforeAgent /
   AfterAgent hook を更新してください。

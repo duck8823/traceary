@@ -71,16 +71,17 @@ func TestSummarizeSessionEventCoverage(t *testing.T) {
 			},
 		},
 		{
-			name: "command only counts as enriched with command",
+			name: "command only is counted but does not satisfy prompt transcript coverage",
 			events: []usecase.EventCoverageInput{
 				{SessionID: "s1", Kind: types.EventKindSessionStarted},
 				{SessionID: "s1", Kind: types.EventKindCommandExecuted},
 			},
 			want: usecase.SessionEventCoverage{
-				Sessions:    1,
-				Enriched:    1,
-				WithCommand: 1,
+				Sessions:     1,
+				BoundaryOnly: 1,
+				WithCommand:  1,
 			},
+			wantRatio: 1,
 		},
 		{
 			name: "neutral events do not enrich a boundary only session",
