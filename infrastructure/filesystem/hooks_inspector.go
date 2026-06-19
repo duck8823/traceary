@@ -191,7 +191,10 @@ func managedCoverageMatchesAudit(event, matcherValue, managedKey, client string)
 	}
 	switch client {
 	case "claude":
-		return event == "PostToolUse" || event == "PostToolUseFailure"
+		if event != "PostToolUse" && event != "PostToolUseFailure" {
+			return false
+		}
+		return claudeAuditMatcherCoversBash(matcherValue)
 	case "codex":
 		return event == "PostToolUse"
 	case "gemini":
@@ -199,6 +202,19 @@ func managedCoverageMatchesAudit(event, matcherValue, managedKey, client string)
 	default:
 		return false
 	}
+}
+
+func claudeAuditMatcherCoversBash(matcherValue string) bool {
+	matcher := strings.TrimSpace(matcherValue)
+	if matcher == "" || matcher == "*" || matcher == "Bash" {
+		return true
+	}
+	for _, part := range strings.Split(matcher, "|") {
+		if strings.TrimSpace(part) == "Bash" {
+			return true
+		}
+	}
+	return false
 }
 
 func managedCoverageMatchesCompact(event, managedKey, client string) bool {

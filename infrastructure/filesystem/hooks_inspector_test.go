@@ -393,6 +393,21 @@ func TestHooksInspector_ManagedCoverage_Claude(t *testing.T) {
 			},
 		},
 		{
+			name: "Claude audit under non-shell matcher is incomplete",
+			payload: `{
+			  "hooks": {
+			    "UserPromptSubmit": [{"matcher": "*", "hooks": [{"name": "traceary-prompt", "type": "command", "command": "'traceary' 'hook' 'prompt' 'claude'"}]}],
+			    "Stop": [{"matcher": "*", "hooks": [{"name": "traceary-transcript", "type": "command", "command": "'traceary' 'hook' 'transcript' 'claude'"}]}],
+			    "PostToolUse": [{"matcher": "Read", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}]}],
+			    "PostToolUseFailure": [{"matcher": "Read", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}]}]
+			  }
+			}`,
+			want: application.HookManagedCoverage{
+				HasPrompt:     true,
+				HasTranscript: true,
+			},
+		},
+		{
 			name: "rejects Gemini event names for Claude",
 			payload: `{
 			  "hooks": {
