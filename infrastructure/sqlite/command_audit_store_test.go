@@ -459,3 +459,70 @@ CREATE TABLE command_audits (
 		t.Fatalf("failuresOnly returned a success row; got %v", got)
 	}
 }
+
+func TestDatasource_SaveWithAudit_SuppressesDuplicateAcrossFractionalSecondBoundary(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	sut, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	agent, err := types.AgentFrom("codex")
+	if err != nil {
+		t.Fatalf("AgentFrom() error = %v", err)
+	}
+	sessionID, err := types.SessionIDFrom("session-1")
+	if err != nil {
+		t.Fatalf("SessionIDFrom() error = %v", err)
+	}
+	workspace := types.Workspace("github.com/duck8823/dotfiles")
+	output := "On branch main\n"
+
+	base := time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC).Add(500 * time.Millisecond)
+
+	save := func(id string, at time.Time) {
+		t.Helper()
+		eventID, err := types.EventIDFrom(id)
+		if err != nil {
+			t.Fatalf("EventIDFrom(%q) error = %v", id, err)
+		}
+		event := model.EventOfWithSourceHook(eventID, types.EventKindCommandExecuted, types.Client("hook"), agent, sessionID, workspace, "git status\n\nINPUT:\n{}\n\nOUTPUT:\n"+output, at, "post_tool_use")
+		audit, err := model.NewCommandAudit(eventID, "git status", "", output, false, false)
+		if err != nil {
+			t.Fatalf("NewCommandAudit() error = %v", err)
+		}
+		if err := sut.SaveWithAudit(ctx, event, audit); err != nil {
+			t.Fatalf("SaveWithAudit() error = %v", err)
+		}
+	}
+
+	countAudits := func() int {
+		t.Helper()
+		db, err := sql.Open("sqlite", dbPath)
+		if err != nil {
+			t.Fatalf("sql.Open() error = %v", err)
+		}
+		defer func() { _ = db.Close() }()
+		var count int
+		if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM command_audits").Scan(&count); err != nil {
+			t.Fatalf("QueryRowContext() error = %v", err)
+		}
+		return count
+	}
+
+	save("event-1", base)
+	save("event-2", base.Add(1500*time.Millisecond))
+
+	if diff := cmp.Diff(1, countAudits()); diff != "" {
+		t.Errorf("command_audits count after duplicate mismatch (-want +got):\n%s", diff)
+	}
+
+	save("event-3", base.Add(2500*time.Millisecond))
+
+	if diff := cmp.Diff(2, countAudits()); diff != "" {
+		t.Errorf("command_audits count after distinct entry mismatch (-want +got):\n%s", diff)
+	}
+}
