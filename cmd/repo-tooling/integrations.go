@@ -380,7 +380,7 @@ func checkGemini(root, version string) error {
 	if err := checkNoDuplicateTracearyHookEntries("integrations/gemini-extension/hooks/hooks.json", hooks); err != nil {
 		return err
 	}
-	for _, event := range []string{"SessionStart", "SessionEnd", "AfterTool", "BeforeAgent", "PreCompress"} {
+	for _, event := range []string{"SessionStart", "SessionEnd", "BeforeAgent", "AfterAgent", "AfterTool", "PreCompress"} {
 		if _, ok := hooks.Hooks[event]; !ok {
 			return xerrors.Errorf("gemini hooks must include %s", event)
 		}
@@ -389,6 +389,7 @@ func checkGemini(root, version string) error {
 		{"'hook' 'session' 'gemini'", "Gemini packaged hooks must invoke traceary hook session directly"},
 		{"'hook' 'audit' 'gemini'", "Gemini packaged hooks must invoke traceary hook audit directly"},
 		{"'hook' 'prompt' 'gemini'", "Gemini packaged hooks must invoke traceary hook prompt directly"},
+		{"'hook' 'transcript' 'gemini'", "Gemini packaged hooks must invoke traceary hook transcript directly"},
 		{"'hook' 'compact' 'gemini' 'pre-compact'", "Gemini packaged hooks must invoke traceary hook compact pre-compact directly"},
 	} {
 		if !strings.Contains(hooksRaw, fragment.sub) {

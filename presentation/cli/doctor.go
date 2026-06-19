@@ -757,9 +757,13 @@ func (c *RootCLI) inspectClientEventCoverage(ctx context.Context, client, output
 		}
 	}
 
-	events, err := c.event.List(ctx, apptypes.NewEventListCriteriaBuilder(doctorEventCoverageScanLimit).
-		Agent(types.Agent(client)).
-		Build())
+	workspace := resolveDoctorEventCoverageWorkspace(ctx, projectDir)
+	criteria := apptypes.NewEventListCriteriaBuilder(doctorEventCoverageScanLimit).
+		Agent(types.Agent(client))
+	if workspace.String() != "" {
+		criteria.Workspace(workspace)
+	}
+	events, err := c.event.List(ctx, criteria.Build())
 	if err != nil {
 		return doctorCheck{
 			Name:    checkName,
@@ -876,6 +880,16 @@ func (c *RootCLI) inspectClientEventCoverage(ctx context.Context, client, output
 			threshold*100,
 		),
 	}
+}
+
+func resolveDoctorEventCoverageWorkspace(ctx context.Context, projectDir string) types.Workspace {
+	if explicit := resolveExplicitWorkspaceValue(""); explicit != "" {
+		return types.Workspace(explicit)
+	}
+	if detected, err := detectRepoContextFromDir(ctx, projectDir); err == nil {
+		return types.Workspace(detected)
+	}
+	return types.Workspace(normalizeLocalWorkContextPath(projectDir))
 }
 
 func (c *RootCLI) managedCoverageForConfigFile(path string) (application.HookManagedCoverage, bool) {

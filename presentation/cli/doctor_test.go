@@ -961,6 +961,9 @@ func TestRootCLI_DoctorGeminiCoverage(t *testing.T) {
 		if eventStub.listCriteria.Agent() != types.Agent("gemini") {
 			t.Fatalf("List criteria agent = %q, want gemini", eventStub.listCriteria.Agent())
 		}
+		if wantWorkspace := types.Workspace(filepath.ToSlash(filepath.Clean(projectDir))); eventStub.listCriteria.Workspace() != wantWorkspace {
+			t.Fatalf("List criteria workspace = %q, want %q", eventStub.listCriteria.Workspace(), wantWorkspace)
+		}
 		if eventStub.listCriteria.Limit() != 500 {
 			t.Fatalf("List criteria limit = %d, want 500", eventStub.listCriteria.Limit())
 		}
