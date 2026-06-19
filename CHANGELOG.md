@@ -7,9 +7,30 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+## [v0.21.0] - 2026-06-20
+
 ### Added
 - **Automation-friendly doctor warnings (#1175)** — `traceary doctor` now accepts `--warnings-ok`, letting CI and smoke checks treat warning-only reports as exit code `0` while failures still exit `1` and JSON reports keep the warning summary and per-check severities.
 - **Bounded command-audit payloads (#1173)** — command-audit input/output payloads now preserve head/tail context when truncated before persistence, expose original byte metadata in CLI/MCP write results, and can be tuned through `audit.max_input_bytes` / `audit.max_output_bytes` config defaults.
+- **Sessions snapshot late-event status (#1172)** — `traceary sessions --snapshot` / `--json` now correctly reflect late-arriving events that land after a session's nominal end, and active-session lookup resolves reliably after GC.
+- **Duplicate hook write suppression (#1167)** — the hook pipeline deduplicates prompt and transcript writes within the retry window, preventing redundant rows from repeated hook firings.
+- **Memory candidate hygiene (#1169)** — `traceary sessions --snapshot --json` (via `reliability.memory.candidate_hygiene`) now reports hygiene counts, and extraction automatically keeps obvious code and diff fragments out of the review queue so operators see only meaningful candidates.
+- **Claude event coverage diagnostics (#1174)** — `traceary doctor` detects Claude event coverage gaps and surfaces missed hook cancellation events as a dedicated diagnostic.
+- **Gemini coverage warnings (#1171)** — `traceary doctor` warns when Gemini session data shows boundary-only or audit-only coverage, signaling potential instrumentation gaps.
+- **Gemini compact instrumentation docs and doctor check (#1176)** — `traceary doctor` verifies Gemini compact event instrumentation and the docs describe how to confirm compact coverage in practice.
+
+### Fixed
+- **Audit-reliability duplicate diagnostics (#1168)** — the audit-reliability doctor check no longer emits duplicate diagnostic entries for the same candidate group.
+- **Claude hook diagnostic cleanup matching (#1174)** — tightened cleanup matching so cancelled Claude hook invocations are captured rather than silently dropped.
+- **SQLite timestamp comparisons (#1185)** — normalized timestamp comparisons in SQLite queries to eliminate boundary mismatches caused by fractional-second format differences.
+
+### Changed
+- **Codex Stop is a turn boundary (#1170)** — docs and diagnostics now correctly describe `Codex Stop` as a turn boundary event rather than a session end, matching actual Codex host behavior.
+- **Clean My Agent compatibility design note (#1177)** — added a design note documenting Traceary's compatibility posture with the Clean My Agent protocol.
+
+### Notes
+- v0.21.0 has no SQLite schema migration and no new MCP tools. It is a dogfood-reliability and observability release focused on hook diagnostics, memory hygiene, audit correctness, and session snapshot fidelity.
+- v0.21.0 dogfood verification was conducted in a live Traceary workspace before release (#1178).
 
 ## [v0.20.1] - 2026-05-31
 
