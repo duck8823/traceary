@@ -4,22 +4,24 @@ import apptypes "github.com/duck8823/traceary/application/types"
 
 // recordEventOutput is the uniform MCP output for record_event type=log|audit.
 type recordEventOutput struct {
-	EventID         string                    `json:"event_id" jsonschema:"saved event ID"`
-	Type            string                    `json:"type" jsonschema:"event write type: log or audit"`
-	Kind            string                    `json:"kind" jsonschema:"event kind"`
-	Client          string                    `json:"client" jsonschema:"recording channel"`
-	Agent           string                    `json:"agent" jsonschema:"actor"`
-	SessionID       string                    `json:"session_id" jsonschema:"session identifier"`
-	Workspace       string                    `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
-	Body            string                    `json:"body,omitempty" jsonschema:"event body plain-text projection"`
-	BodyBlocks      []apptypes.EventBodyBlock `json:"body_blocks,omitempty" jsonschema:"structured block form of transcript body"`
-	Command         string                    `json:"command,omitempty" jsonschema:"executed command for audit records"`
-	InputRedacted   bool                      `json:"input_redacted" jsonschema:"whether input was redacted"`
-	OutputRedacted  bool                      `json:"output_redacted" jsonschema:"whether output was redacted"`
-	InputTruncated  bool                      `json:"input_truncated" jsonschema:"whether input was truncated"`
-	OutputTruncated bool                      `json:"output_truncated" jsonschema:"whether output was truncated"`
-	SourceHook      string                    `json:"source_hook,omitempty" jsonschema:"hook identifier that produced this event"`
-	CreatedAt       string                    `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
+	EventID             string                    `json:"event_id" jsonschema:"saved event ID"`
+	Type                string                    `json:"type" jsonschema:"event write type: log or audit"`
+	Kind                string                    `json:"kind" jsonschema:"event kind"`
+	Client              string                    `json:"client" jsonschema:"recording channel"`
+	Agent               string                    `json:"agent" jsonschema:"actor"`
+	SessionID           string                    `json:"session_id" jsonschema:"session identifier"`
+	Workspace           string                    `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
+	Body                string                    `json:"body,omitempty" jsonschema:"event body plain-text projection"`
+	BodyBlocks          []apptypes.EventBodyBlock `json:"body_blocks,omitempty" jsonschema:"structured block form of transcript body"`
+	Command             string                    `json:"command,omitempty" jsonschema:"executed command for audit records"`
+	InputRedacted       bool                      `json:"input_redacted" jsonschema:"whether input was redacted"`
+	OutputRedacted      bool                      `json:"output_redacted" jsonschema:"whether output was redacted"`
+	InputTruncated      bool                      `json:"input_truncated" jsonschema:"whether input was truncated"`
+	OutputTruncated     bool                      `json:"output_truncated" jsonschema:"whether output was truncated"`
+	InputOriginalBytes  int                       `json:"input_original_bytes,omitempty" jsonschema:"original input byte count when input_truncated is true and known"`
+	OutputOriginalBytes int                       `json:"output_original_bytes,omitempty" jsonschema:"original output byte count when output_truncated is true and known"`
+	SourceHook          string                    `json:"source_hook,omitempty" jsonschema:"hook identifier that produced this event"`
+	CreatedAt           string                    `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
 }
 
 // sessionEventOutput is the MCP output for session tools (start/end/active/latest).
@@ -49,7 +51,7 @@ type eventOutput struct {
 	Workspace     string                    `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
 	Body          string                    `json:"body" jsonschema:"event body as a plain-text projection; for transcript JSON envelopes this joins the text blocks and excludes thinking blocks — use body_blocks for the canonical structured form. May be truncated to body_limit characters; check body_truncated and body_length"`
 	BodyBlocks    []apptypes.EventBodyBlock `json:"body_blocks,omitempty" jsonschema:"structured block form of the body when it is a canonical transcript envelope; populated for list_events only — search and get_context omit it so thinking-block text does not leak through those surfaces; also absent for legacy plain-text bodies, non-envelope JSON bodies, empty envelopes, and rows whose body is truncated"`
-	BodyTruncated bool                      `json:"body_truncated,omitempty" jsonschema:"true when body was truncated to fit body_limit. Re-issue the same call with full_body=true (or a larger body_limit) to retrieve the full content"`
+	BodyTruncated bool                      `json:"body_truncated,omitempty" jsonschema:"true when body was truncated to fit body_limit. Re-issue the same call with full_body=true (or a larger body_limit) to disable response truncation; audit payloads truncated at ingestion stay visibly truncated and are not recoverable"`
 	BodyLength    int                       `json:"body_length,omitempty" jsonschema:"original body length in runes before any truncation; only emitted when body_truncated is true"`
 	SourceHook    string                    `json:"source_hook,omitempty" jsonschema:"hook identifier that produced this event (omitted for non-hook writes)"`
 	CreatedAt     string                    `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`

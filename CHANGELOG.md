@@ -9,6 +9,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ### Added
 - **Automation-friendly doctor warnings (#1175)** — `traceary doctor` now accepts `--warnings-ok`, letting CI and smoke checks treat warning-only reports as exit code `0` while failures still exit `1` and JSON reports keep the warning summary and per-check severities.
+- **Bounded command-audit payloads (#1173)** — command-audit input/output payloads now preserve head/tail context when truncated before persistence, expose original byte metadata in CLI/MCP write results, and can be tuned through `audit.max_input_bytes` / `audit.max_output_bytes` config defaults.
 
 ## [v0.20.1] - 2026-05-31
 

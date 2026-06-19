@@ -122,8 +122,8 @@ type listEventsInput struct {
 	From       string `json:"from,omitempty" jsonschema:"start time (YYYY-MM-DD or RFC3339)"`
 	To         string `json:"to,omitempty" jsonschema:"end time (YYYY-MM-DD or RFC3339)"`
 	SourceHook string `json:"source_hook,omitempty" jsonschema:"filter by hook identifier that produced the event (stop, subagent_stop, pre_compact, post_compact, session_start, session_end, user_prompt_submit, post_tool_use, after_agent, after_tool)"`
-	BodyLimit  int    `json:"body_limit,omitempty" jsonschema:"truncate event body to this many runes; default 500. Set to 0 or pass full_body=true to disable truncation. Truncated rows expose body_truncated=true and body_length so callers can fetch the full body via record_event lookup."`
-	FullBody   bool   `json:"full_body,omitempty" jsonschema:"return the full body even when it is long. Equivalent to body_limit=0"`
+	BodyLimit  int    `json:"body_limit,omitempty" jsonschema:"truncate event body in this response to this many runes; default 500. Set to 0 or pass full_body=true to disable response truncation. Audit payloads truncated at ingestion remain truncated."`
+	FullBody   bool   `json:"full_body,omitempty" jsonschema:"return the full stored body even when it is long. Equivalent to body_limit=0; does not restore audit payload bytes dropped at ingestion"`
 }
 
 // searchInput is the MCP input for the search tool.
@@ -133,8 +133,8 @@ type searchInput struct {
 	From      string `json:"from,omitempty" jsonschema:"start time (YYYY-MM-DD or RFC3339)"`
 	To        string `json:"to,omitempty" jsonschema:"end time (YYYY-MM-DD or RFC3339)"`
 	Limit     int    `json:"limit,omitempty" jsonschema:"result limit (default: 20)"`
-	BodyLimit int    `json:"body_limit,omitempty" jsonschema:"truncate event body to this many runes; default 500. Set to 0 or pass full_body=true to disable truncation."`
-	FullBody  bool   `json:"full_body,omitempty" jsonschema:"return the full body even when it is long. Equivalent to body_limit=0"`
+	BodyLimit int    `json:"body_limit,omitempty" jsonschema:"truncate event body in this response to this many runes; default 500. Set to 0 or pass full_body=true to disable response truncation. Audit payloads truncated at ingestion remain truncated."`
+	FullBody  bool   `json:"full_body,omitempty" jsonschema:"return the full stored body even when it is long. Equivalent to body_limit=0; does not restore audit payload bytes dropped at ingestion"`
 }
 
 // getContextInput is the MCP input for the get_context tool.
@@ -142,8 +142,8 @@ type getContextInput struct {
 	Workspace string `json:"workspace,omitempty" jsonschema:"work context filter"`
 	SessionID string `json:"session_id,omitempty" jsonschema:"session identifier filter"`
 	Limit     int    `json:"limit,omitempty" jsonschema:"result limit (default: 20)"`
-	BodyLimit int    `json:"body_limit,omitempty" jsonschema:"truncate event body to this many runes; default 500. Set to 0 or pass full_body=true to disable truncation."`
-	FullBody  bool   `json:"full_body,omitempty" jsonschema:"return the full body even when it is long. Equivalent to body_limit=0"`
+	BodyLimit int    `json:"body_limit,omitempty" jsonschema:"truncate event body in this response to this many runes; default 500. Set to 0 or pass full_body=true to disable response truncation. Audit payloads truncated at ingestion remain truncated."`
+	FullBody  bool   `json:"full_body,omitempty" jsonschema:"return the full stored body even when it is long. Equivalent to body_limit=0; does not restore audit payload bytes dropped at ingestion"`
 }
 
 // sessionHandoffInput is the MCP input for the session_handoff tool.

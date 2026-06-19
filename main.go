@@ -148,6 +148,8 @@ func run() error {
 	cfg := presentation.LoadConfig()
 	extraRedactPatterns := cfg.ExtraRedactPatterns
 	structuredRedactRules := cfg.StructuredRedactRules
+	auditMaxInputBytes := cfg.AuditMaxInputBytes
+	auditMaxOutputBytes := cfg.AuditMaxOutputBytes
 	defaultReadFields := cfg.ReadFields
 	readPresets := cfg.ReadPresets
 	defaultReadColor := cfg.ReadColor
@@ -172,6 +174,8 @@ func run() error {
 		resolvedVersion,
 		extraRedactPatterns,
 		structuredRedactRules,
+		auditMaxInputBytes,
+		auditMaxOutputBytes,
 		eventUsecase,
 		sessionUsecase,
 		memoryUsecase,
@@ -208,6 +212,7 @@ func run() error {
 		cli.WithCockpitStateReader(cli.NewFileCockpitStateStore()),
 		cli.WithExtraRedactPatterns(extraRedactPatterns),
 		cli.WithStructuredRedactRules(structuredRedactRules),
+		cli.WithDefaultAuditPayloadLimits(auditMaxInputBytes, auditMaxOutputBytes),
 		cli.WithDefaultReadFields(defaultReadFields),
 		cli.WithReadPresets(readPresets),
 		cli.WithDefaultReadColor(defaultReadColor),

@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"golang.org/x/xerrors"
 
@@ -135,28 +136,31 @@ func (u *eventUsecase) Audit(ctx context.Context, in apptypes.AuditInput, auditC
 		return nil, nil, xerrors.Errorf("failed to compile redaction rules: %w", err)
 	}
 
+	normalizedCommand := in.Command
 	normalizedInput := in.Input
 	normalizedOutput := in.Output
 	var inputRedacted bool
 	var outputRedacted bool
 	if !auditCfg.AllowSecrets() {
+		normalizedCommand, _ = redaction.ApplyWithRules(normalizedCommand, rules, "audit.command")
 		normalizedInput, inputRedacted = redaction.ApplyWithRules(normalizedInput, rules, "audit.input")
 		normalizedOutput, outputRedacted = redaction.ApplyWithRules(normalizedOutput, rules, "audit.output")
 	}
 
-	normalizedInput, inputTruncated := truncateAuditPayload(normalizedInput, maxInputBytes)
-	normalizedOutput, outputTruncated := truncateAuditPayload(normalizedOutput, maxOutputBytes)
+	inputPayload := truncateAuditPayload(normalizedInput, maxInputBytes)
+	outputPayload := truncateAuditPayload(normalizedOutput, maxOutputBytes)
 	commandAudit, err := model.NewCommandAudit(
 		eventID,
-		in.Command,
-		normalizedInput,
-		normalizedOutput,
-		inputTruncated,
-		outputTruncated,
+		normalizedCommand,
+		inputPayload.Body,
+		outputPayload.Body,
+		inputPayload.Truncated,
+		outputPayload.Truncated,
 	)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("failed to build command audit: %w", err)
 	}
+	commandAudit.SetOriginalPayloadBytes(inputPayload.OriginalBytes, outputPayload.OriginalBytes)
 	commandAudit.SetRedaction(inputRedacted, outputRedacted)
 	commandAudit.SetExitCode(in.ExitCode)
 	commandAudit.SetFailed(in.Failed)
@@ -202,7 +206,12 @@ func commandAuditEventBody(commandAudit *model.CommandAudit) string {
 	if commandAudit.Input() != "" || commandAudit.InputTruncated() {
 		builder.WriteString("\nINPUT")
 		if commandAudit.InputTruncated() {
-			builder.WriteString(" (truncated)")
+			builder.WriteString(" (truncated")
+			if originalBytes := commandAudit.InputOriginalBytes(); originalBytes > 0 {
+				builder.WriteString(", original_bytes=")
+				builder.WriteString(strconv.Itoa(originalBytes))
+			}
+			builder.WriteString(")")
 		}
 		builder.WriteString(":\n")
 		builder.WriteString(commandAudit.Input())
@@ -211,7 +220,12 @@ func commandAuditEventBody(commandAudit *model.CommandAudit) string {
 	if commandAudit.Output() != "" || commandAudit.OutputTruncated() {
 		builder.WriteString("\nOUTPUT")
 		if commandAudit.OutputTruncated() {
-			builder.WriteString(" (truncated)")
+			builder.WriteString(" (truncated")
+			if originalBytes := commandAudit.OutputOriginalBytes(); originalBytes > 0 {
+				builder.WriteString(", original_bytes=")
+				builder.WriteString(strconv.Itoa(originalBytes))
+			}
+			builder.WriteString(")")
 		}
 		builder.WriteString(":\n")
 		builder.WriteString(commandAudit.Output())
@@ -343,20 +357,83 @@ func resolveOptionalSearchKind(value string) (types.EventKind, error) {
 	return kind, nil
 }
 
-func truncateAuditPayload(value string, limit int) (string, bool) {
+type auditPayloadTruncation struct {
+	Body          string
+	Truncated     bool
+	OriginalBytes int
+}
+
+func truncateAuditPayload(value string, limit int) auditPayloadTruncation {
+	originalBytes := len(value)
 	if limit <= 0 {
-		return value, false
+		return auditPayloadTruncation{Body: value, OriginalBytes: originalBytes}
+	}
+	if originalBytes <= limit {
+		return auditPayloadTruncation{Body: value, OriginalBytes: originalBytes}
+	}
+
+	marker := "\n" + model.AuditPayloadTruncationMarker(originalBytes) + "\n"
+	if limit <= len(marker) {
+		return auditPayloadTruncation{
+			Body:          takeUTF8PrefixBytes(marker, limit),
+			Truncated:     true,
+			OriginalBytes: originalBytes,
+		}
+	}
+
+	payloadBudget := limit - len(marker)
+	headBudget := payloadBudget / 2
+	tailBudget := payloadBudget - headBudget
+	head := takeUTF8PrefixBytes(value, headBudget)
+	tail := takeUTF8SuffixBytes(value, tailBudget)
+
+	return auditPayloadTruncation{
+		Body:          head + marker + tail,
+		Truncated:     true,
+		OriginalBytes: originalBytes,
+	}
+}
+
+func takeUTF8PrefixBytes(value string, limit int) string {
+	if limit <= 0 {
+		return ""
 	}
 	if len(value) <= limit {
-		return value, false
+		return value
 	}
-
-	const suffix = "\n...[truncated]"
-	if limit <= len(suffix) {
-		return suffix[:limit], true
+	end := 0
+	for end < len(value) {
+		r, size := utf8.DecodeRuneInString(value[end:])
+		if r == utf8.RuneError && size == 0 {
+			break
+		}
+		if end+size > limit {
+			break
+		}
+		end += size
 	}
+	return value[:end]
+}
 
-	return value[:limit-len(suffix)] + suffix, true
+func takeUTF8SuffixBytes(value string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	if len(value) <= limit {
+		return value
+	}
+	start := len(value)
+	for start > 0 {
+		r, size := utf8.DecodeLastRuneInString(value[:start])
+		if r == utf8.RuneError && size == 0 {
+			break
+		}
+		if len(value)-start+size > limit {
+			break
+		}
+		start -= size
+	}
+	return value[start:]
 }
 
 func resolveAuditPayloadLimit(value int, defaultValue int) (int, error) {

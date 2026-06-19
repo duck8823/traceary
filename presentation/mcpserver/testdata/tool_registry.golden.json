@@ -9,11 +9,11 @@
       "additionalProperties": false,
       "properties": {
         "body_limit": {
-          "description": "truncate event body to this many runes; default 500. Set to 0 or pass full_body=true to disable truncation.",
+          "description": "truncate event body in this response to this many runes; default 500. Set to 0 or pass full_body=true to disable response truncation. Audit payloads truncated at ingestion remain truncated.",
           "type": "integer"
         },
         "full_body": {
-          "description": "return the full body even when it is long. Equivalent to body_limit=0",
+          "description": "return the full stored body even when it is long. Equivalent to body_limit=0; does not restore audit payload bytes dropped at ingestion",
           "type": "boolean"
         },
         "limit": {
@@ -46,7 +46,7 @@
           "type": "string"
         },
         "body_limit": {
-          "description": "truncate event body to this many runes; default 500. Set to 0 or pass full_body=true to disable truncation. Truncated rows expose body_truncated=true and body_length so callers can fetch the full body via record_event lookup.",
+          "description": "truncate event body in this response to this many runes; default 500. Set to 0 or pass full_body=true to disable response truncation. Audit payloads truncated at ingestion remain truncated.",
           "type": "integer"
         },
         "client": {
@@ -58,7 +58,7 @@
           "type": "string"
         },
         "full_body": {
-          "description": "return the full body even when it is long. Equivalent to body_limit=0",
+          "description": "return the full stored body even when it is long. Equivalent to body_limit=0; does not restore audit payload bytes dropped at ingestion",
           "type": "boolean"
         },
         "kind": {
@@ -515,7 +515,7 @@
       "additionalProperties": false,
       "properties": {
         "body_limit": {
-          "description": "truncate event body to this many runes; default 500. Set to 0 or pass full_body=true to disable truncation.",
+          "description": "truncate event body in this response to this many runes; default 500. Set to 0 or pass full_body=true to disable response truncation. Audit payloads truncated at ingestion remain truncated.",
           "type": "integer"
         },
         "from": {
@@ -523,7 +523,7 @@
           "type": "string"
         },
         "full_body": {
-          "description": "return the full body even when it is long. Equivalent to body_limit=0",
+          "description": "return the full stored body even when it is long. Equivalent to body_limit=0; does not restore audit payload bytes dropped at ingestion",
           "type": "boolean"
         },
         "limit": {

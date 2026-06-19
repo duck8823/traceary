@@ -33,6 +33,8 @@ type Server struct {
 	serverVersion         string
 	extraRedactPatterns   []string
 	structuredRedactRules []redaction.RuleConfig
+	auditMaxInputBytes    int
+	auditMaxOutputBytes   int
 	event                 usecase.EventUsecase
 	session               usecase.SessionUsecase
 	memory                usecase.MemoryUsecase
@@ -45,6 +47,8 @@ func NewServer(
 	serverVersion string,
 	extraRedactPatterns []string,
 	structuredRedactRules []redaction.RuleConfig,
+	auditMaxInputBytes int,
+	auditMaxOutputBytes int,
 	event usecase.EventUsecase,
 	session usecase.SessionUsecase,
 	memory usecase.MemoryUsecase,
@@ -77,6 +81,8 @@ func NewServer(
 		serverVersion:         trimmedVersion,
 		extraRedactPatterns:   extraRedactPatterns,
 		structuredRedactRules: structuredRedactRules,
+		auditMaxInputBytes:    auditMaxInputBytes,
+		auditMaxOutputBytes:   auditMaxOutputBytes,
 		event:                 event,
 		session:               session,
 		memory:                memory,
@@ -374,7 +380,12 @@ func (s *Server) recordEvent() mcp.ToolHandlerFor[recordEventInput, recordEventO
 			if strings.TrimSpace(input.Command) == "" {
 				return nil, recordEventOutput{}, xerrors.Errorf("record_event type audit requires command")
 			}
-			auditCfg := apptypes.NewAuditRedactionBuilder().ExtraRedactPatterns(s.extraRedactPatterns).StructuredRules(s.structuredRedactRules).Build()
+			auditCfg := apptypes.NewAuditRedactionBuilder().
+				MaxInputBytes(s.auditMaxInputBytes).
+				MaxOutputBytes(s.auditMaxOutputBytes).
+				ExtraRedactPatterns(s.extraRedactPatterns).
+				StructuredRules(s.structuredRedactRules).
+				Build()
 			event, audit, err := s.event.Audit(ctx, apptypes.AuditInput{
 				Command:   input.Command,
 				Input:     input.Input,
@@ -388,7 +399,7 @@ func (s *Server) recordEvent() mcp.ToolHandlerFor[recordEventInput, recordEventO
 			if err != nil {
 				return nil, recordEventOutput{}, xerrors.Errorf("failed to record command audit: %w", err)
 			}
-			return nil, recordEventOutput{EventID: event.EventID().String(), Type: "audit", Kind: event.Kind().String(), Client: event.Client().String(), Agent: event.Agent().String(), SessionID: event.SessionID().String(), Workspace: event.Workspace().String(), Body: apptypes.ExtractPlainBody(event.Body()), Command: audit.Command(), InputRedacted: audit.InputRedacted(), OutputRedacted: audit.OutputRedacted(), InputTruncated: audit.InputTruncated(), OutputTruncated: audit.OutputTruncated(), SourceHook: event.SourceHook(), CreatedAt: event.CreatedAt().UTC().Format(time.RFC3339Nano)}, nil
+			return nil, recordEventOutput{EventID: event.EventID().String(), Type: "audit", Kind: event.Kind().String(), Client: event.Client().String(), Agent: event.Agent().String(), SessionID: event.SessionID().String(), Workspace: event.Workspace().String(), Body: apptypes.ExtractPlainBody(event.Body()), Command: audit.Command(), InputRedacted: audit.InputRedacted(), OutputRedacted: audit.OutputRedacted(), InputTruncated: audit.InputTruncated(), OutputTruncated: audit.OutputTruncated(), InputOriginalBytes: audit.InputOriginalBytes(), OutputOriginalBytes: audit.OutputOriginalBytes(), SourceHook: event.SourceHook(), CreatedAt: event.CreatedAt().UTC().Format(time.RFC3339Nano)}, nil
 		default:
 			return nil, recordEventOutput{}, xerrors.Errorf("record_event type must be one of log, audit")
 		}

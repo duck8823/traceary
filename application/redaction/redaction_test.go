@@ -45,6 +45,36 @@ func TestApply_ReportsWhetherSubstitutionFired(t *testing.T) {
 	}
 }
 
+func TestApplyBuiltin_RedactsCommandSecretShapes(t *testing.T) {
+	t.Parallel()
+
+	input := "API_KEY=env-secret curl --token flag-secret --password=eq-secret --api-key=\"quoted-secret\" --client-secret 'single-secret' https://example.test?access_token=query-secret"
+	got := redaction.ApplyBuiltin(input)
+	for _, leaked := range []string{"env-secret", "flag-secret", "eq-secret", "quoted-secret", "single-secret", "query-secret"} {
+		if strings.Contains(got, leaked) {
+			t.Fatalf("ApplyBuiltin() = %q, leaked %q", got, leaked)
+		}
+	}
+	for _, want := range []string{"API_KEY=[REDACTED]", "--token [REDACTED]", "--password=[REDACTED]", "--api-key=\"[REDACTED]\"", "--client-secret '[REDACTED]'", "access_token=[REDACTED]"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("ApplyBuiltin() = %q, want %q", got, want)
+		}
+	}
+}
+
+func TestApplyBuiltin_DoesNotRedactFollowingFlagAsSecretValue(t *testing.T) {
+	t.Parallel()
+
+	input := "tool --password --verbose --token token-secret"
+	got := redaction.ApplyBuiltin(input)
+	if !strings.Contains(got, "--password --verbose") {
+		t.Fatalf("ApplyBuiltin() = %q, want following flag to stay visible", got)
+	}
+	if strings.Contains(got, "token-secret") {
+		t.Fatalf("ApplyBuiltin() = %q, leaked token value", got)
+	}
+}
+
 func TestApply_AppliesExtraRedactors(t *testing.T) {
 	t.Parallel()
 

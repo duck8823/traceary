@@ -69,6 +69,9 @@ func TestEventUsecase_Audit(t *testing.T) {
 		if stub.savedCommandAudit != commandAudit {
 			t.Fatalf("saved command audit mismatch")
 		}
+		if commandAudit.InputOriginalBytes() != 0 || commandAudit.OutputOriginalBytes() != 0 {
+			t.Fatalf("original bytes = (%d, %d), want zero for untruncated payloads", commandAudit.InputOriginalBytes(), commandAudit.OutputOriginalBytes())
+		}
 		if diff := cmp.Diff("command_executed", event.Kind().String()); diff != "" {
 			t.Fatalf("Kind() mismatch (-want +got):\n%s", diff)
 		}
@@ -78,15 +81,50 @@ func TestEventUsecase_Audit(t *testing.T) {
 		}
 	})
 
+	t.Run("redacts command secret shapes before saving", func(t *testing.T) {
+		t.Parallel()
+
+		stub := &commandAuditSaverStub{}
+		sut := usecase.NewEventUsecase(stub, nil)
+
+		event, commandAudit, err := sut.Audit(context.Background(),
+			apptypes.AuditInput{
+				Command:   "API_KEY=env-secret curl --token flag-secret https://example.test?access_token=query-secret",
+				Input:     "stdin",
+				Output:    "stdout",
+				Client:    types.Client("cli"),
+				Agent:     types.Agent("codex"),
+				SessionID: types.SessionID("session-1"),
+				Workspace: types.Workspace(""),
+				ExitCode:  types.None[int](),
+				Failed:    false,
+			},
+			apptypes.NewAuditRedactionBuilder().Build(),
+		)
+		if err != nil {
+			t.Fatalf("Audit() error = %v", err)
+		}
+		for _, leaked := range []string{"env-secret", "flag-secret", "query-secret"} {
+			if strings.Contains(commandAudit.Command(), leaked) || strings.Contains(event.Body(), leaked) {
+				t.Fatalf("command secret %q leaked: command=%q body=%q", leaked, commandAudit.Command(), event.Body())
+			}
+		}
+		for _, want := range []string{"API_KEY=[REDACTED]", "--token [REDACTED]", "access_token=%5BREDACTED%5D"} {
+			if !strings.Contains(commandAudit.Command(), want) {
+				t.Fatalf("Command() = %q, want %q", commandAudit.Command(), want)
+			}
+		}
+	})
+
 	t.Run("truncates long input/output before saving", func(t *testing.T) {
 		t.Parallel()
 
 		stub := &commandAuditSaverStub{}
 		sut := usecase.NewEventUsecase(stub, nil)
-		longInput := strings.Repeat("i", 70*1024)
-		longOutput := strings.Repeat("o", 70*1024)
+		longInput := "input-head-" + strings.Repeat("i", 70*1024) + "-input-tail"
+		longOutput := "output-head-" + strings.Repeat("o", 70*1024) + "-output-tail"
 
-		_, commandAudit, err := sut.Audit(context.Background(),
+		event, commandAudit, err := sut.Audit(context.Background(),
 			apptypes.AuditInput{
 				Command:   "go test ./...",
 				Input:     longInput,
@@ -109,11 +147,26 @@ func TestEventUsecase_Audit(t *testing.T) {
 		if !commandAudit.OutputTruncated() {
 			t.Fatalf("OutputTruncated() = false, want true")
 		}
-		if !strings.HasSuffix(commandAudit.Input(), "\n...[truncated]") {
-			t.Fatalf("Input() suffix = %q, want truncated suffix", commandAudit.Input()[len(commandAudit.Input())-16:])
+		if commandAudit.InputOriginalBytes() != len(longInput) {
+			t.Fatalf("InputOriginalBytes() = %d, want %d", commandAudit.InputOriginalBytes(), len(longInput))
 		}
-		if !strings.HasSuffix(commandAudit.Output(), "\n...[truncated]") {
-			t.Fatalf("Output() suffix = %q, want truncated suffix", commandAudit.Output()[len(commandAudit.Output())-16:])
+		if commandAudit.OutputOriginalBytes() != len(longOutput) {
+			t.Fatalf("OutputOriginalBytes() = %d, want %d", commandAudit.OutputOriginalBytes(), len(longOutput))
+		}
+		for _, want := range []string{"input-head-", "-input-tail", "truncated original_bytes="} {
+			if !strings.Contains(commandAudit.Input(), want) {
+				t.Fatalf("Input() missing %q in truncated head/tail payload", want)
+			}
+		}
+		for _, want := range []string{"output-head-", "-output-tail", "truncated original_bytes="} {
+			if !strings.Contains(commandAudit.Output(), want) {
+				t.Fatalf("Output() missing %q in truncated head/tail payload", want)
+			}
+		}
+		for _, want := range []string{"INPUT (truncated, original_bytes=", "OUTPUT (truncated, original_bytes="} {
+			if !strings.Contains(event.Body(), want) {
+				t.Fatalf("event body missing truncation metadata %q: %s", want, event.Body())
+			}
 		}
 	})
 

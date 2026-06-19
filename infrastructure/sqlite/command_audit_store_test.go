@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -11,6 +12,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	_ "modernc.org/sqlite"
 
+	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -45,6 +48,8 @@ CREATE TABLE command_audits (
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
     output_truncated INTEGER NOT NULL DEFAULT 0,
+    input_original_bytes INTEGER NOT NULL DEFAULT 0,
+    output_original_bytes INTEGER NOT NULL DEFAULT 0,
     exit_code INTEGER,
     failed INTEGER NOT NULL DEFAULT 0
 );`),
@@ -202,6 +207,153 @@ func TestDatasource_SaveWithAudit_SkipsDuplicateHookAuditsWithinWindow(t *testin
 	}
 }
 
+func TestDatasource_SaveWithAudit_DoesNotDeduplicateDifferentOriginalPayloadSizes(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	sut, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := storeManager.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	base := time.Date(2026, 5, 31, 1, 0, 0, 0, time.UTC)
+	save := func(id string, at time.Time, originalBytes int) {
+		t.Helper()
+
+		eventID, err := types.EventIDFrom(id)
+		if err != nil {
+			t.Fatalf("EventIDFrom(%s) error = %v", id, err)
+		}
+		agent, err := types.AgentFrom("codex")
+		if err != nil {
+			t.Fatalf("AgentFrom() error = %v", err)
+		}
+		sessionID, err := types.SessionIDFrom("session-1")
+		if err != nil {
+			t.Fatalf("SessionIDFrom() error = %v", err)
+		}
+		const truncatedOutput = "same-truncated-output"
+		event := model.EventOfWithSourceHook(
+			eventID,
+			types.EventKindCommandExecuted,
+			types.Client("hook"),
+			agent,
+			sessionID,
+			types.Workspace("github.com/duck8823/dotfiles"),
+			"git status\n\nOUTPUT (truncated):\n"+truncatedOutput,
+			at,
+			"post_tool_use",
+		)
+		audit, err := model.NewCommandAudit(eventID, "git status", "", truncatedOutput, false, true)
+		if err != nil {
+			t.Fatalf("NewCommandAudit(%s) error = %v", id, err)
+		}
+		audit.SetOriginalPayloadBytes(0, originalBytes)
+		if err := sut.SaveWithAudit(context.Background(), event, audit); err != nil {
+			t.Fatalf("SaveWithAudit(%s) error = %v", id, err)
+		}
+	}
+
+	save("event-truncated-a", base, 1000)
+	save("event-truncated-b", base.Add(time.Second), 2000)
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM command_audits`).Scan(&count); err != nil {
+		t.Fatalf("command audit count query error = %v", err)
+	}
+	if diff := cmp.Diff(2, count); diff != "" {
+		t.Fatalf("command audit count mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestDatasource_AuditLargeOutputPersistsBoundedRows(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	eventDS, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	longOutput := "output-head-" + strings.Repeat("o", 1024*1024) + "-output-tail"
+	sut := usecase.NewEventUsecase(eventDS, nil)
+	event, _, err := sut.Audit(ctx,
+		apptypes.AuditInput{
+			Command:   "printf large-output",
+			Input:     "",
+			Output:    longOutput,
+			Client:    types.Client("cli"),
+			Agent:     types.Agent("codex"),
+			SessionID: types.SessionID("session-large"),
+			Workspace: types.Workspace("duck8823/traceary"),
+			ExitCode:  types.None[int](),
+			Failed:    false,
+		},
+		apptypes.NewAuditRedactionBuilder().
+			MaxOutputBytes(4096).
+			Build(),
+	)
+	if err != nil {
+		t.Fatalf("Audit() error = %v", err)
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var outputTextBytes, outputOriginalBytes, eventBodyBytes int
+	if err := db.QueryRow(`SELECT length(output_text) FROM command_audits WHERE event_id = ?`, event.EventID().String()).Scan(&outputTextBytes); err != nil {
+		t.Fatalf("command_audits length query error = %v", err)
+	}
+	if err := db.QueryRow(`SELECT output_original_bytes FROM command_audits WHERE event_id = ?`, event.EventID().String()).Scan(&outputOriginalBytes); err != nil {
+		t.Fatalf("command_audits original bytes query error = %v", err)
+	}
+	if err := db.QueryRow(`SELECT length(body) FROM events WHERE id = ?`, event.EventID().String()).Scan(&eventBodyBytes); err != nil {
+		t.Fatalf("events length query error = %v", err)
+	}
+	if outputTextBytes > 4096 {
+		t.Fatalf("output_text length = %d, want <= 4096", outputTextBytes)
+	}
+	if outputOriginalBytes != len(longOutput) {
+		t.Fatalf("output_original_bytes = %d, want %d", outputOriginalBytes, len(longOutput))
+	}
+	if eventBodyBytes > 4600 {
+		t.Fatalf("event body length = %d, want <= 4600", eventBodyBytes)
+	}
+
+	details, err := eventDS.GetDetails(ctx, event.EventID())
+	if err != nil {
+		t.Fatalf("GetDetails() error = %v", err)
+	}
+	audit, ok := details.CommandAudit().Value()
+	if !ok {
+		t.Fatalf("CommandAudit() is empty, want command audit")
+	}
+	if !audit.OutputTruncated() {
+		t.Fatalf("OutputTruncated() = false, want true")
+	}
+	if audit.OutputOriginalBytes() != len(longOutput) {
+		t.Fatalf("OutputOriginalBytes() = %d, want %d", audit.OutputOriginalBytes(), len(longOutput))
+	}
+	if len(audit.Output()) > 4096 {
+		t.Fatalf("len(Output()) = %d, want <= 4096", len(audit.Output()))
+	}
+	for _, want := range []string{"output-head-", "-output-tail", "truncated original_bytes="} {
+		if !strings.Contains(audit.Output(), want) {
+			t.Fatalf("Output() missing %q", want)
+		}
+	}
+}
+
 // TestDatasource_ListRecent_FailuresOnly_IncludesFailedFlag verifies the
 // failures filter treats the structural failed flag as a failure even when no
 // numeric exit code was captured — the Claude PostToolUseFailure case, where
@@ -237,6 +389,8 @@ CREATE TABLE command_audits (
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
     output_truncated INTEGER NOT NULL DEFAULT 0,
+    input_original_bytes INTEGER NOT NULL DEFAULT 0,
+    output_original_bytes INTEGER NOT NULL DEFAULT 0,
     exit_code INTEGER,
     failed INTEGER NOT NULL DEFAULT 0
 );`),

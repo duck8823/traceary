@@ -13,9 +13,15 @@ import (
 // configFile mirrors the on-disk JSON layout. It is intentionally unexported
 // because callers receive the loaded values through Config.
 type configFile struct {
+	Audit  auditSection  `json:"audit"`
 	UI     uiSection     `json:"ui"`
 	Redact redactSection `json:"redact"`
 	Read   readSection   `json:"read"`
+}
+
+type auditSection struct {
+	MaxInputBytes  int `json:"max_input_bytes"`
+	MaxOutputBytes int `json:"max_output_bytes"`
 }
 
 type uiSection struct {
@@ -68,6 +74,12 @@ type Config struct {
 	// StructuredRedactRules are named/configurable redaction rules applied
 	// alongside ExtraRedactPatterns. Nil / empty means "no configured structured rules".
 	StructuredRedactRules []redaction.RuleConfig
+	// AuditMaxInputBytes and AuditMaxOutputBytes override the built-in
+	// command-audit persistence limits when positive. Zero means "fall back to
+	// the built-in default"; runtime command flags and environment variables
+	// may still override these config defaults.
+	AuditMaxInputBytes  int
+	AuditMaxOutputBytes int
 	// ReadFields is the default column order applied to tail / list / search
 	// text output when the user does not pass --fields. Nil / empty means
 	// "fall back to the built-in default column order".
@@ -112,6 +124,8 @@ func LoadConfig() Config {
 		return Config{}
 	}
 	return Config{
+		AuditMaxInputBytes:    file.Audit.MaxInputBytes,
+		AuditMaxOutputBytes:   file.Audit.MaxOutputBytes,
 		UILanguage:            file.UI.Language,
 		ExtraRedactPatterns:   file.Redact.ExtraPatterns,
 		StructuredRedactRules: file.Redact.Rules,

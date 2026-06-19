@@ -27,13 +27,15 @@ type event struct {
 
 // commandAudit is the JSON shape of a command audit in CLI output.
 type commandAudit struct {
-	Command         string `json:"command"`
-	Input           string `json:"input"`
-	Output          string `json:"output"`
-	InputTruncated  bool   `json:"input_truncated"`
-	OutputTruncated bool   `json:"output_truncated"`
-	ExitCode        *int   `json:"exit_code,omitempty"`
-	Failed          bool   `json:"failed,omitempty"`
+	Command             string `json:"command"`
+	Input               string `json:"input"`
+	Output              string `json:"output"`
+	InputTruncated      bool   `json:"input_truncated"`
+	OutputTruncated     bool   `json:"output_truncated"`
+	InputOriginalBytes  int    `json:"input_original_bytes,omitempty"`
+	OutputOriginalBytes int    `json:"output_original_bytes,omitempty"`
+	ExitCode            *int   `json:"exit_code,omitempty"`
+	Failed              bool   `json:"failed,omitempty"`
 }
 
 // eventDetails is the JSON shape of an event-with-audit pair in CLI output.

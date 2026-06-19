@@ -1023,14 +1023,16 @@ type bundleSessionRow struct {
 }
 
 type bundleCommandAuditRow struct {
-	EventID         string `json:"event_id"`
-	Command         string `json:"command"`
-	Input           string `json:"input"`
-	Output          string `json:"output"`
-	InputTruncated  bool   `json:"input_truncated"`
-	OutputTruncated bool   `json:"output_truncated"`
-	ExitCode        *int   `json:"exit_code,omitempty"`
-	Failed          bool   `json:"failed,omitempty"`
+	EventID             string `json:"event_id"`
+	Command             string `json:"command"`
+	Input               string `json:"input"`
+	Output              string `json:"output"`
+	InputTruncated      bool   `json:"input_truncated"`
+	OutputTruncated     bool   `json:"output_truncated"`
+	InputOriginalBytes  int    `json:"input_original_bytes,omitempty"`
+	OutputOriginalBytes int    `json:"output_original_bytes,omitempty"`
+	ExitCode            *int   `json:"exit_code,omitempty"`
+	Failed              bool   `json:"failed,omitempty"`
 }
 
 type bundleRefRow struct {
@@ -1224,7 +1226,7 @@ func (r bundleCommandAuditRow) toCommandAudit() (*model.CommandAudit, error) {
 	if r.ExitCode != nil {
 		exitCode = types.Some(*r.ExitCode)
 	}
-	return model.CommandAuditOf(
+	audit := model.CommandAuditOf(
 		eventID,
 		r.Command,
 		r.Input,
@@ -1233,7 +1235,9 @@ func (r bundleCommandAuditRow) toCommandAudit() (*model.CommandAudit, error) {
 		r.OutputTruncated,
 		exitCode,
 		r.Failed,
-	), nil
+	)
+	audit.SetOriginalPayloadBytes(r.InputOriginalBytes, r.OutputOriginalBytes)
+	return audit, nil
 }
 
 func (r bundleEventRow) toEvent() (*model.Event, error) {
@@ -1343,13 +1347,15 @@ func encodeCommandAuditsNDJSON(audits []*model.CommandAudit) (*bytes.Buffer, err
 	enc := json.NewEncoder(buf)
 	for _, audit := range sorted {
 		row := bundleCommandAuditRow{
-			EventID:         audit.EventID().String(),
-			Command:         audit.Command(),
-			Input:           audit.Input(),
-			Output:          audit.Output(),
-			InputTruncated:  audit.InputTruncated(),
-			OutputTruncated: audit.OutputTruncated(),
-			Failed:          audit.Failed(),
+			EventID:             audit.EventID().String(),
+			Command:             audit.Command(),
+			Input:               audit.Input(),
+			Output:              audit.Output(),
+			InputTruncated:      audit.InputTruncated(),
+			OutputTruncated:     audit.OutputTruncated(),
+			InputOriginalBytes:  audit.InputOriginalBytes(),
+			OutputOriginalBytes: audit.OutputOriginalBytes(),
+			Failed:              audit.Failed(),
 		}
 		if exitCode, ok := audit.ExitCode().Value(); ok {
 			row.ExitCode = &exitCode

@@ -119,7 +119,7 @@ func (d *BundleDatasource) ListBundleCommandAudits(ctx context.Context) ([]*mode
 		}
 	}()
 	rows, err := db.QueryContext(ctx, `
-SELECT event_id, command_text, input_text, output_text, input_truncated, output_truncated, exit_code, failed
+SELECT event_id, command_text, input_text, output_text, input_truncated, output_truncated, input_original_bytes, output_original_bytes, exit_code, failed
 FROM command_audits
 ORDER BY event_id`)
 	if err != nil {
@@ -366,14 +366,16 @@ func (t *bundleImportTx) ImportCommandAudit(ctx context.Context, audit *model.Co
 	}
 	query := insertCommandAuditQuery
 	if policy == usecase.BundleConflictReplace {
-		query = `INSERT INTO command_audits(event_id, command_text, input_text, output_text, input_truncated, output_truncated, exit_code, failed)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		query = `INSERT INTO command_audits(event_id, command_text, input_text, output_text, input_truncated, output_truncated, input_original_bytes, output_original_bytes, exit_code, failed)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(event_id) DO UPDATE SET
   command_text = excluded.command_text,
   input_text = excluded.input_text,
   output_text = excluded.output_text,
   input_truncated = excluded.input_truncated,
   output_truncated = excluded.output_truncated,
+  input_original_bytes = excluded.input_original_bytes,
+  output_original_bytes = excluded.output_original_bytes,
   exit_code = excluded.exit_code,
   failed = excluded.failed`
 	}
@@ -390,6 +392,8 @@ ON CONFLICT(event_id) DO UPDATE SET
 		audit.Output(),
 		audit.InputTruncated(),
 		audit.OutputTruncated(),
+		audit.InputOriginalBytes(),
+		audit.OutputOriginalBytes(),
 		exitCodeSQL,
 		audit.Failed(),
 	)
@@ -719,6 +723,8 @@ func scanBundleCommandAudit(row interface {
 		outputText      string
 		inputTruncated  bool
 		outputTruncated bool
+		inputOriginal   int
+		outputOriginal  int
 		exitCode        sql.NullInt64
 		failed          sql.NullBool
 	)
@@ -729,12 +735,14 @@ func scanBundleCommandAudit(row interface {
 		&outputText,
 		&inputTruncated,
 		&outputTruncated,
+		&inputOriginal,
+		&outputOriginal,
 		&exitCode,
 		&failed,
 	); err != nil {
 		return nil, xerrors.Errorf("scan command audit: %w", err)
 	}
-	return model.CommandAuditOf(
+	audit := model.CommandAuditOf(
 		types.EventID(eventID),
 		commandText,
 		inputText,
@@ -743,7 +751,9 @@ func scanBundleCommandAudit(row interface {
 		outputTruncated,
 		optionalIntFromNullInt64(exitCode),
 		failed.Bool,
-	), nil
+	)
+	audit.SetOriginalPayloadBytes(inputOriginal, outputOriginal)
+	return audit, nil
 }
 
 // ensure sql import stays referenced; datasource uses it indirectly
