@@ -124,18 +124,22 @@ func (i *HooksInspector) ManagedCoverage(content []byte, client string) (applica
 	}
 
 	coverage := application.HookManagedCoverage{}
-	for _, matchers := range hooksMap {
+	for event, matchers := range hooksMap {
 		for _, matcher := range matchers {
+			matcherValue := ""
+			if matcher.Matcher != nil {
+				matcherValue = *matcher.Matcher
+			}
 			for _, command := range matcher.Hooks {
 				managedKey := extractTracearyManagedKeyFromEntry(command.Name, command.Command)
 				switch {
-				case managedKey == managedKeyOf("traceary-prompt.sh", targetClient):
+				case event == "BeforeAgent" && managedKey == managedKeyOf("traceary-prompt.sh", targetClient):
 					coverage.HasPrompt = true
-				case managedKey == managedKeyOf("traceary-transcript.sh", targetClient):
+				case event == "AfterAgent" && managedKey == managedKeyOf("traceary-transcript.sh", targetClient):
 					coverage.HasTranscript = true
-				case managedKey == managedKeyOf("traceary-audit.sh", targetClient):
+				case event == "AfterTool" && matcherValue == "run_shell_command" && managedKey == managedKeyOf("traceary-audit.sh", targetClient):
 					coverage.HasAudit = true
-				case strings.HasPrefix(managedKey, managedKeyOf("traceary-compact.sh", targetClient)+":"):
+				case event == "PreCompress" && strings.HasPrefix(managedKey, managedKeyOf("traceary-compact.sh", targetClient)+":"):
 					coverage.HasCompact = true
 				}
 			}

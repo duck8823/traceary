@@ -258,7 +258,7 @@ func TestHooksInspector_ManagedCoverage(t *testing.T) {
 			  "hooks": {
 			    "BeforeAgent": [{"hooks": [{"name": "traceary-prompt", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'prompt' 'gemini'"}]}],
 			    "AfterAgent": [{"hooks": [{"name": "traceary-transcript", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'transcript' 'gemini'"}]}],
-			    "AfterTool": [{"hooks": [{"name": "traceary-audit", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'audit' 'gemini'"}]}]
+			    "AfterTool": [{"matcher": "run_shell_command", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'audit' 'gemini'"}]}]
 			  }
 			}`,
 			want: application.HookManagedCoverage{
@@ -268,7 +268,7 @@ func TestHooksInspector_ManagedCoverage(t *testing.T) {
 			},
 		},
 		{
-			name: "recognizes legacy script-form transcript hooks",
+			name: "recognizes legacy script-form prompt and transcript hooks",
 			payload: `{
 			  "hooks": {
 			    "BeforeAgent": [{"hooks": [{"type": "command", "command": "bash '/scripts/traceary-prompt.sh' 'gemini'"}]}],
@@ -279,7 +279,21 @@ func TestHooksInspector_ManagedCoverage(t *testing.T) {
 			want: application.HookManagedCoverage{
 				HasPrompt:     true,
 				HasTranscript: true,
-				HasAudit:      true,
+			},
+		},
+
+		{
+			name: "ignores stale wildcard Gemini audit matcher",
+			payload: `{
+			  "hooks": {
+			    "BeforeAgent": [{"hooks": [{"name": "traceary-prompt", "type": "command", "command": "'traceary' 'hook' 'prompt' 'gemini'"}]}],
+			    "AfterAgent": [{"hooks": [{"name": "traceary-transcript", "type": "command", "command": "'traceary' 'hook' 'transcript' 'gemini'"}]}],
+			    "AfterTool": [{"matcher": "*", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'gemini'"}]}]
+			  }
+			}`,
+			want: application.HookManagedCoverage{
+				HasPrompt:     true,
+				HasTranscript: true,
 			},
 		},
 		{
