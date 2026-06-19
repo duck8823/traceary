@@ -11,23 +11,25 @@ type EventCoverageInput struct {
 	Kind      types.EventKind
 }
 
-// SessionEventCoverage reports how many recent sessions captured prompt or
-// transcript events versus sessions that only have non-conversation metadata.
-// Command audits are counted separately, but they do not make a session healthy
-// for this diagnostic: a stale install that wires only session boundaries plus
-// AfterTool still misses the core prompt/transcript capture.
+// SessionEventCoverage reports how many recent sessions captured prompt and
+// transcript events versus sessions that are missing either conversation
+// surface. Command audits are counted separately, but they do not make a
+// session healthy for this diagnostic: a stale install that wires only session
+// boundaries plus AfterTool still misses the core prompt/transcript capture.
 type SessionEventCoverage struct {
 	// Sessions counts only sessions whose session_started event was
 	// observed in the scanned window. List queries return newest-first, so
 	// observing the start means every subsequent event of that session is
 	// also in the window — this avoids misclassifying a truncated session
 	// (start out of window) as prompt/transcript-missing.
-	Sessions       int
-	BoundaryOnly   int
-	Enriched       int
-	WithPrompt     int
-	WithTranscript int
-	WithCommand    int
+	Sessions                int
+	BoundaryOnly            int
+	Enriched                int
+	Complete                int
+	PromptTranscriptMissing int
+	WithPrompt              int
+	WithTranscript          int
+	WithCommand             int
 }
 
 // BoundaryOnlyRatio returns BoundaryOnly / Sessions, or 0 when no sessions
@@ -40,14 +42,27 @@ func (s SessionEventCoverage) BoundaryOnlyRatio() float64 {
 	return float64(s.BoundaryOnly) / float64(s.Sessions)
 }
 
+// PromptTranscriptMissingRatio returns the fraction of observed complete
+// sessions that are missing either the prompt or transcript event. This is the
+// stricter health signal used by doctor: a prompt-only or transcript-only
+// session still indicates a hook coverage gap even though it is not boundary
+// only.
+func (s SessionEventCoverage) PromptTranscriptMissingRatio() float64 {
+	if s.Sessions == 0 {
+		return 0
+	}
+	return float64(s.PromptTranscriptMissing) / float64(s.Sessions)
+}
+
 // SummarizeSessionEventCoverage classifies the given event observations into
 // per-session coverage counts. Prompt and transcript are the conversation
 // enrichment kinds. Command audits are useful evidence and are counted in
-// WithCommand, but command-only sessions are still reported as prompt/transcript-missing
-// for the coverage ratio because they lack the prompt/transcript data this
-// diagnostic is meant to protect. Everything else (session boundaries, compact
-// summaries, notes, …) is neutral. The function is pure and client-agnostic so
-// the same classifier can back the gemini and claude coverage diagnostics.
+// WithCommand, but command-only, prompt-only, and transcript-only sessions are
+// still reported as prompt/transcript-missing for the strict coverage ratio
+// because they lack part of the data this diagnostic is meant to protect.
+// Everything else (session boundaries, compact summaries, notes, …) is neutral.
+// The function is pure and client-agnostic so the same classifier can back the
+// gemini and claude coverage diagnostics.
 func SummarizeSessionEventCoverage(events []EventCoverageInput) SessionEventCoverage {
 	type sessionState struct {
 		started    bool
@@ -96,6 +111,11 @@ func SummarizeSessionEventCoverage(events []EventCoverageInput) SessionEventCove
 			summary.Enriched++
 		} else {
 			summary.BoundaryOnly++
+		}
+		if state.prompt && state.transcript {
+			summary.Complete++
+		} else {
+			summary.PromptTranscriptMissing++
 		}
 	}
 	return summary

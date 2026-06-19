@@ -128,7 +128,7 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 	doctorCmd.Flags().BoolVar(&fix, "fix", false, Localize("apply known safe remediations for warning and failing checks", "警告・失敗チェックに対して既知の安全な修復を適用する"))
 	doctorCmd.Flags().BoolVar(&dryRun, "dry-run", false, Localize("preview --fix actions without writing files", "ファイルを書き込まずに --fix の処理をプレビューする"))
 	doctorCmd.Flags().BoolVar(&strict, "strict", false, Localize("audit-reliability: report every exact duplicate group regardless of time, not only near-simultaneous writes", "audit-reliability: 時間に関係なく完全一致する duplicate group をすべて報告する（near-simultaneous な書き込みだけに限定しない）"))
-	doctorCmd.Flags().Float64Var(&coverageThreshold, "coverage-threshold", defaultDoctorCoverageThreshold, Localize("gemini-event-coverage: warn when the recent prompt/transcript-missing session ratio is above this value (0.0 to 1.0)", "gemini-event-coverage: recent session の prompt/transcript 欠落比率がこの値を超えたら警告する (0.0 から 1.0)"))
+	doctorCmd.Flags().Float64Var(&coverageThreshold, "coverage-threshold", defaultDoctorCoverageThreshold, Localize("client event coverage: warn when the recent prompt/transcript-missing session ratio is above this value (0.0 to 1.0)", "client event coverage: recent session の prompt/transcript 欠落比率がこの値を超えたら警告する (0.0 から 1.0)"))
 
 	return doctorCmd
 }
@@ -304,7 +304,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		check := c.inspectClaudeOrConfigFile(targetClient, outputPath, resolvedProjectDir)
 		c.attachDoctorConfigFix(&check, targetClient, outputPath, resolvedProjectDir)
 		report.Checks = append(report.Checks, check)
-		if targetClient == "gemini" {
+		if targetClient == "gemini" || targetClient == "claude" {
 			report.Checks = append(report.Checks, c.inspectClientEventCoverage(ctx, targetClient, outputPath, resolvedProjectDir, input.coverageThreshold))
 		}
 		report.Checks = append(report.Checks, c.inspectMCPRegistrationForClient(targetClient, outputPath))
@@ -783,7 +783,7 @@ func (c *RootCLI) inspectClientEventCoverage(ctx context.Context, client, output
 		})
 	}
 	coverage := appusecase.SummarizeSessionEventCoverage(inputs)
-	ratio := coverage.BoundaryOnlyRatio()
+	ratio := coverage.PromptTranscriptMissingRatio()
 	if coverage.Sessions < doctorEventCoverageMinSample {
 		return doctorCheck{
 			Name:   checkName,
@@ -803,12 +803,13 @@ func (c *RootCLI) inspectClientEventCoverage(ctx context.Context, client, output
 			Name:   checkName,
 			Status: doctorStatusPass,
 			Message: localizef(
-				"scanned %d recent %s event(s); prompt/transcript coverage is healthy (sessions=%d prompt_transcript_missing=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d ratio=%.2f threshold=%.2f)",
-				"%d 件の recent %s event を検査しました。prompt/transcript coverage は健全です (sessions=%d prompt_transcript_missing=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d ratio=%.2f threshold=%.2f)",
+				"scanned %d recent %s event(s); prompt/transcript coverage is healthy (sessions=%d prompt_transcript_missing=%d complete=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d ratio=%.2f threshold=%.2f)",
+				"%d 件の recent %s event を検査しました。prompt/transcript coverage は健全です (sessions=%d prompt_transcript_missing=%d complete=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d ratio=%.2f threshold=%.2f)",
 				len(events),
 				client,
 				coverage.Sessions,
-				coverage.BoundaryOnly,
+				coverage.PromptTranscriptMissing,
+				coverage.Complete,
 				coverage.Enriched,
 				coverage.WithPrompt,
 				coverage.WithTranscript,
@@ -819,9 +820,35 @@ func (c *RootCLI) inspectClientEventCoverage(ctx context.Context, client, output
 		}
 	}
 
-	configCoverage, configCoverageKnown := c.managedCoverageForConfigFile(outputPath, client)
+	configCoverage, configCoverageKnown, pluginManaged, pluginKey := c.managedCoverageForEventCoverage(outputPath, client)
 	if configCoverageKnown {
 		if missing := configCoverage.MissingEnrichment(); len(missing) > 0 {
+			if pluginManaged {
+				updateCommand := claudePluginUpdateCommand(pluginKey)
+				return doctorCheck{
+					Name:       checkName,
+					Status:     doctorStatusWarn,
+					FixCommand: updateCommand,
+					Hint: localizef(
+						"the plugin-managed Claude hook config is missing %s coverage; update the Claude plugin instead of writing project settings hooks",
+						"plugin-managed Claude hook config に %s coverage がありません。project settings hook を書き込まず Claude plugin を更新してください",
+						strings.Join(missing, ", "),
+					),
+					Message: localizef(
+						"scanned %d recent %s event(s); %.0f%% of complete sessions lack prompt/transcript coverage (sessions=%d prompt_transcript_missing=%d complete=%d enriched=%d, threshold=%.0f%%). The plugin-managed config is missing Traceary-managed %s hooks",
+						"%d 件の recent %s event を検査しました。完全に観測できた session の %.0f%% で prompt/transcript coverage が不足しています (sessions=%d prompt_transcript_missing=%d complete=%d enriched=%d, threshold=%.0f%%)。plugin-managed config に Traceary 管理の %s hook がありません",
+						len(events),
+						client,
+						ratio*100,
+						coverage.Sessions,
+						coverage.PromptTranscriptMissing,
+						coverage.Complete,
+						coverage.Enriched,
+						threshold*100,
+						strings.Join(missing, ", "),
+					),
+				}
+			}
 			fixCommand := fmt.Sprintf("traceary doctor --client %s --project-dir %s --fix", client, shellQuote(projectDir))
 			return doctorCheck{
 				Name:       checkName,
@@ -834,13 +861,14 @@ func (c *RootCLI) inspectClientEventCoverage(ctx context.Context, client, output
 					fixCommand,
 				),
 				Message: localizef(
-					"scanned %d recent %s event(s); %.0f%% of complete sessions lack prompt/transcript coverage (sessions=%d prompt_transcript_missing=%d enriched=%d, threshold=%.0f%%). The installed config is missing Traceary-managed %s hooks: %s",
-					"%d 件の recent %s event を検査しました。完全に観測できた session の %.0f%% で prompt/transcript coverage が不足しています (sessions=%d prompt_transcript_missing=%d enriched=%d, threshold=%.0f%%)。インストール済み config に Traceary 管理の %s hook がありません: %s",
+					"scanned %d recent %s event(s); %.0f%% of complete sessions lack prompt/transcript coverage (sessions=%d prompt_transcript_missing=%d complete=%d enriched=%d, threshold=%.0f%%). The installed config is missing Traceary-managed %s hooks: %s",
+					"%d 件の recent %s event を検査しました。完全に観測できた session の %.0f%% で prompt/transcript coverage が不足しています (sessions=%d prompt_transcript_missing=%d complete=%d enriched=%d, threshold=%.0f%%)。インストール済み config に Traceary 管理の %s hook がありません: %s",
 					len(events),
 					client,
 					ratio*100,
 					coverage.Sessions,
-					coverage.BoundaryOnly,
+					coverage.PromptTranscriptMissing,
+					coverage.Complete,
 					coverage.Enriched,
 					threshold*100,
 					strings.Join(missing, ", "),
@@ -851,28 +879,40 @@ func (c *RootCLI) inspectClientEventCoverage(ctx context.Context, client, output
 	}
 
 	hint := Localize(
-		"hook config appears to include enrichment coverage; inspect hook timeouts, host hook behavior, and recent event IDs with `traceary list --agent gemini`",
-		"hook config には enrichment coverage が含まれているようです。hook timeout、host 側の hook 挙動、recent event ID を `traceary list --agent gemini` で確認してください",
+		fmt.Sprintf("hook config appears to include enrichment coverage; inspect hook timeouts, host hook cancellations, host behavior, and recent event IDs with `traceary list --agent %s`", client),
+		fmt.Sprintf("hook config には enrichment coverage が含まれているようです。hook timeout、host 側の hook cancellation、host 側の挙動、recent event ID を `traceary list --agent %s` で確認してください", client),
 	)
 	if !configCoverageKnown {
-		hint = localizef(
-			"the project hook config could not be inspected; first fix %s-config, then rerun doctor",
-			"project hook config を検査できませんでした。先に %s-config を修復してから doctor を再実行してください",
-			client,
-		)
+		if pluginManaged {
+			updateCommand := claudePluginUpdateCommand(pluginKey)
+			hint = localizef(
+				"Claude hooks appear to be plugin-managed by %q; project settings hooks are intentionally absent. Inspect plugin cache/update state (`%s`), host hook cancellations/timeouts, and recent event IDs with `traceary list --agent %s`",
+				"Claude hooks は plugin %q によって管理されているようです。project settings hook がないのは意図された状態です。plugin cache/update 状態 (`%s`)、host 側の hook cancellation/timeout、recent event ID を `traceary list --agent %s` で確認してください",
+				pluginKey,
+				updateCommand,
+				client,
+			)
+		} else {
+			hint = localizef(
+				"the project hook config could not be inspected; first fix %s-config, then rerun doctor",
+				"project hook config を検査できませんでした。先に %s-config を修復してから doctor を再実行してください",
+				client,
+			)
+		}
 	}
 	return doctorCheck{
 		Name:   checkName,
 		Status: doctorStatusWarn,
 		Hint:   hint,
 		Message: localizef(
-			"scanned %d recent %s event(s); %.0f%% of complete sessions lack prompt/transcript coverage (sessions=%d prompt_transcript_missing=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d, threshold=%.0f%%)",
-			"%d 件の recent %s event を検査しました。完全に観測できた session の %.0f%% で prompt/transcript coverage が不足しています (sessions=%d prompt_transcript_missing=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d, threshold=%.0f%%)",
+			"scanned %d recent %s event(s); %.0f%% of complete sessions lack prompt/transcript coverage (sessions=%d prompt_transcript_missing=%d complete=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d, threshold=%.0f%%)",
+			"%d 件の recent %s event を検査しました。完全に観測できた session の %.0f%% で prompt/transcript coverage が不足しています (sessions=%d prompt_transcript_missing=%d complete=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d, threshold=%.0f%%)",
 			len(events),
 			client,
 			ratio*100,
 			coverage.Sessions,
-			coverage.BoundaryOnly,
+			coverage.PromptTranscriptMissing,
+			coverage.Complete,
 			coverage.Enriched,
 			coverage.WithPrompt,
 			coverage.WithTranscript,
@@ -904,6 +944,62 @@ func (c *RootCLI) managedCoverageForConfigFile(path string, client string) (appl
 	return coverage, true
 }
 
+func (c *RootCLI) managedCoverageForEventCoverage(outputPath, client string) (application.HookManagedCoverage, bool, bool, string) {
+	if client == "claude" {
+		detection := c.detectClaudeTracearyPluginForCLI()
+		if detection.Active {
+			coverage, known := c.managedCoverageForInstalledClaudePlugin(detection.PluginKey)
+			return coverage, known, true, detection.PluginKey
+		}
+	}
+	coverage, known := c.managedCoverageForConfigFile(outputPath, client)
+	return coverage, known, false, ""
+}
+
+func (c *RootCLI) managedCoverageForInstalledClaudePlugin(pluginKey string) (application.HookManagedCoverage, bool) {
+	result := c.inspectInstalledClaudePluginHookCoverage(pluginKey)
+	return result.coverage, result.known
+}
+
+type installedClaudePluginHookCoverage struct {
+	coverage  application.HookManagedCoverage
+	known     bool
+	cachePath string
+}
+
+func (c *RootCLI) inspectInstalledClaudePluginHookCoverage(pluginKey string) installedClaudePluginHookCoverage {
+	if c.pluginCacheInspector == nil || pluginKey == "" {
+		return installedClaudePluginHookCoverage{}
+	}
+	home, err := userHomeDirFunc()
+	if err != nil {
+		return installedClaudePluginHookCoverage{}
+	}
+	status := c.pluginCacheInspector.DetectClaudePluginCacheStatus(home, pluginKey)
+	if status.CachePath != "" && status.CachedVersion != "" {
+		cacheHooksPath := filepath.Join(status.CachePath, status.CachedVersion, "hooks", "hooks.json")
+		if coverage, known := c.managedCoverageForConfigFile(cacheHooksPath, "claude"); known {
+			return installedClaudePluginHookCoverage{coverage: coverage, known: true, cachePath: cacheHooksPath}
+		}
+		return installedClaudePluginHookCoverage{cachePath: cacheHooksPath}
+	}
+	if status.MarketplacePath != "" {
+		pluginRoot := filepath.Dir(filepath.Dir(status.MarketplacePath))
+		marketplaceHooksPath := filepath.Join(pluginRoot, "hooks", "hooks.json")
+		if coverage, known := c.managedCoverageForConfigFile(marketplaceHooksPath, "claude"); known {
+			return installedClaudePluginHookCoverage{coverage: coverage, known: true}
+		}
+	}
+	return installedClaudePluginHookCoverage{}
+}
+
+func claudePluginUpdateCommand(pluginKey string) string {
+	if pluginKey == "" {
+		return "claude plugins update"
+	}
+	return "claude plugins update " + pluginKey
+}
+
 // inspectClaudePluginCacheStatus compares the cached Traceary Claude
 // Code plugin version against the marketplace manifest the plugin was
 // registered from. A stale cache is the exact failure mode v0.8.0
@@ -919,7 +1015,7 @@ func (c *RootCLI) attachDoctorConfigFix(check *doctorCheck, client, outputPath, 
 	}
 	if client == "claude" {
 		detection := c.detectClaudeTracearyPluginForCLI()
-		if detection.Active && c.claudeConfigHasTracearyHooks(outputPath) {
+		if detection.Active {
 			return
 		}
 	}
@@ -1166,6 +1262,51 @@ func (c *RootCLI) inspectClaudeOrConfigFile(client, outputPath, projectDir strin
 				),
 			}
 		}
+		pluginCoverage := c.inspectInstalledClaudePluginHookCoverage(detection.PluginKey)
+		if pluginCoverage.known {
+			if missing := pluginCoverage.coverage.MissingEnrichment(); len(missing) > 0 {
+				updateCommand := claudePluginUpdateCommand(detection.PluginKey)
+				return doctorCheck{
+					Name:       "claude-config",
+					Status:     doctorStatusWarn,
+					FixCommand: updateCommand,
+					Hint: localizef(
+						"the plugin-managed Claude hook config is missing %s coverage; update the Claude plugin instead of writing project settings hooks",
+						"plugin-managed Claude hook config に %s coverage がありません。project settings hook を書き込まず Claude plugin を更新してください",
+						strings.Join(missing, ", "),
+					),
+					Message: localizef(
+						"claude hooks are delivered by plugin %q (%s), but the installed plugin hook config is missing Traceary-managed enrichment coverage (%s). Update the plugin with `%s`",
+						"claude hooks は plugin %q によって提供されています (%s) が、installed plugin hook config に Traceary 管理の enrichment coverage (%s) がありません。`%s` で plugin を更新してください",
+						detection.PluginKey,
+						detection.SettingsPath,
+						strings.Join(missing, ", "),
+						updateCommand,
+					),
+				}
+			}
+		}
+		if !pluginCoverage.known && pluginCoverage.cachePath != "" {
+			updateCommand := claudePluginUpdateCommand(detection.PluginKey)
+			return doctorCheck{
+				Name:       "claude-config",
+				Status:     doctorStatusWarn,
+				FixCommand: updateCommand,
+				Hint: localizef(
+					"the plugin-managed Claude hook config could not be inspected at %s; update the Claude plugin instead of trusting marketplace source hooks",
+					"plugin-managed Claude hook config を %s で検査できませんでした。marketplace source hook ではなく Claude plugin を更新してください",
+					pluginCoverage.cachePath,
+				),
+				Message: localizef(
+					"claude hooks are delivered by plugin %q (%s), but the installed cached hook config could not be inspected at %s. Update the plugin with `%s`",
+					"claude hooks は plugin %q によって提供されています (%s) が、installed cache の hook config を %s で検査できませんでした。`%s` で plugin を更新してください",
+					detection.PluginKey,
+					detection.SettingsPath,
+					pluginCoverage.cachePath,
+					updateCommand,
+				),
+			}
+		}
 		return doctorCheck{
 			Name:   "claude-config",
 			Status: doctorStatusPass,
@@ -1278,7 +1419,7 @@ func (c *RootCLI) inspectGlobalConfigForClient(client string) *doctorCheck {
 		}
 	}
 	if hasTracearyHook {
-		if client == "gemini" {
+		if client == "gemini" || client == "claude" {
 			coverage, coverageErr := c.hooksInspector.ManagedCoverage(content, client)
 			if coverageErr != nil {
 				return &doctorCheck{
@@ -1288,7 +1429,7 @@ func (c *RootCLI) inspectGlobalConfigForClient(client string) *doctorCheck {
 				}
 			}
 			if missing := coverage.MissingEnrichment(); len(missing) > 0 {
-				check := missingGeminiHookCoverageCheck(checkName, globalPath, home, missing, false)
+				check := missingClientHookCoverageCheck(client, checkName, globalPath, home, missing, false)
 				return &check
 			}
 		}
@@ -1417,7 +1558,7 @@ func (c *RootCLI) inspectDoctorConfigFile(client string, outputPath string, proj
 				}
 			}
 		}
-		if client == "gemini" {
+		if client == "gemini" || client == "claude" {
 			coverage, coverageErr := c.hooksInspector.ManagedCoverage(content, client)
 			if coverageErr != nil {
 				return doctorCheck{
@@ -1427,7 +1568,7 @@ func (c *RootCLI) inspectDoctorConfigFile(client string, outputPath string, proj
 				}
 			}
 			if missing := coverage.MissingEnrichment(); len(missing) > 0 {
-				return missingGeminiHookCoverageCheck(client+"-config", outputPath, projectDir, missing, true)
+				return missingClientHookCoverageCheck(client, client+"-config", outputPath, projectDir, missing, true)
 			}
 		}
 		return doctorCheck{
@@ -1479,21 +1620,30 @@ func duplicateTracearyHookCheck(client, checkName, outputPath, projectDir string
 	}
 }
 
-func missingGeminiHookCoverageCheck(checkName, outputPath, projectDir string, missing []string, projectConfig bool) doctorCheck {
+func missingClientHookCoverageCheck(client, checkName, outputPath, projectDir string, missing []string, projectConfig bool) doctorCheck {
 	joinedMissing := strings.Join(missing, ", ")
-	fixCommand := fmt.Sprintf("traceary doctor --fix --dry-run --client gemini --project-dir %s", shellQuote(projectDir))
+	fixCommand := fmt.Sprintf("traceary doctor --fix --dry-run --client %s --project-dir %s", client, shellQuote(projectDir))
 	hint := localizef(
 		"preview the non-destructive refresh with `%s`; it rewrites only Traceary-managed entries and preserves non-Traceary hooks",
 		"`%s` で非破壊 refresh をプレビューしてください。Traceary 管理エントリだけを更新し、Traceary 以外の hook は保持します",
 		fixCommand,
 	)
 	if !projectConfig {
-		fixCommand = "traceary hooks install --client gemini --global --upgrade"
-		hint = localizef(
-			"refresh the user-level Gemini settings with `%s`; if you use the Gemini extension package instead, run `gemini extensions update traceary`",
-			"`%s` で user-level Gemini settings を更新してください。Gemini extension package を使っている場合は `gemini extensions update traceary` を実行してください",
-			fixCommand,
-		)
+		fixCommand = fmt.Sprintf("traceary hooks install --client %s --global --upgrade", client)
+		if client == "gemini" {
+			hint = localizef(
+				"refresh the user-level Gemini settings with `%s`; if you use the Gemini extension package instead, run `gemini extensions update traceary`",
+				"`%s` で user-level Gemini settings を更新してください。Gemini extension package を使っている場合は `gemini extensions update traceary` を実行してください",
+				fixCommand,
+			)
+		} else {
+			hint = localizef(
+				"refresh the user-level %s settings with `%s`; if the host uses plugin-managed hooks instead, update the plugin package",
+				"user-level %s settings を `%s` で更新してください。host が plugin-managed hooks を使う場合は plugin package を更新してください",
+				client,
+				fixCommand,
+			)
+		}
 	}
 	return doctorCheck{
 		Name:       checkName,
@@ -1501,8 +1651,9 @@ func missingGeminiHookCoverageCheck(checkName, outputPath, projectDir string, mi
 		FixCommand: fixCommand,
 		Hint:       hint,
 		Message: localizef(
-			"gemini config contains Traceary-managed hooks but is missing enrichment coverage (%s). Prompt/transcript gaps leave sessions without conversation coverage; refresh the managed hooks: %s",
-			"gemini config に Traceary 管理 hook はありますが enrichment coverage (%s) が不足しています。prompt/transcript が欠けると session に会話内容の coverage が残りません。管理 hook を更新してください: %s",
+			"%s config contains Traceary-managed hooks but is missing enrichment coverage (%s). Prompt/transcript gaps leave sessions without conversation coverage; refresh the managed hooks: %s",
+			"%s config に Traceary 管理 hook はありますが enrichment coverage (%s) が不足しています。prompt/transcript が欠けると session に会話内容の coverage が残りません。管理 hook を更新してください: %s",
+			client,
 			joinedMissing,
 			outputPath,
 		),

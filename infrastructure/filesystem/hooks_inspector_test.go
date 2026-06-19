@@ -348,3 +348,117 @@ func TestHookManagedCoverage_MissingEnrichment(t *testing.T) {
 		t.Fatalf("MissingEnrichment() mismatch (-want +got):\n%s", diff)
 	}
 }
+
+func TestHooksInspector_ManagedCoverage_Claude(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload string
+		want    application.HookManagedCoverage
+	}{
+		{
+			name: "complete generated Claude coverage",
+			payload: `{
+			  "hooks": {
+			    "SessionStart": [
+			      {"matcher": "*", "hooks": [{"name": "traceary-session-start", "type": "command", "command": "'traceary' 'hook' 'session' 'claude' 'start'"}]},
+			      {"matcher": "compact", "hooks": [{"name": "traceary-compact-session-start", "type": "command", "command": "'traceary' 'hook' 'compact' 'claude' 'session-start-compact'"}]}
+			    ],
+			    "UserPromptSubmit": [{"matcher": "*", "hooks": [{"name": "traceary-prompt", "type": "command", "command": "'traceary' 'hook' 'prompt' 'claude'"}]}],
+			    "Stop": [{"matcher": "*", "hooks": [{"name": "traceary-transcript", "type": "command", "command": "'traceary' 'hook' 'transcript' 'claude'"}]}],
+			    "PostToolUse": [{"matcher": "Bash", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}]}],
+			    "PostToolUseFailure": [{"matcher": "Bash", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}]}],
+			    "PreCompact": [{"matcher": "*", "hooks": [{"name": "traceary-compact-pre-compact", "type": "command", "command": "'traceary' 'hook' 'compact' 'claude' 'pre-compact'"}]}],
+			    "PostCompact": [{"matcher": "*", "hooks": [{"name": "traceary-compact-post-compact", "type": "command", "command": "'traceary' 'hook' 'compact' 'claude' 'post-compact'"}]}]
+			  }
+			}`,
+			want: application.HookManagedCoverage{
+				HasPrompt:     true,
+				HasTranscript: true,
+				HasAudit:      true,
+				HasCompact:    true,
+			},
+		},
+		{
+			name: "single Claude audit event is incomplete",
+			payload: `{
+			  "hooks": {
+			    "UserPromptSubmit": [{"matcher": "*", "hooks": [{"name": "traceary-prompt", "type": "command", "command": "'traceary' 'hook' 'prompt' 'claude'"}]}],
+			    "Stop": [{"matcher": "*", "hooks": [{"name": "traceary-transcript", "type": "command", "command": "'traceary' 'hook' 'transcript' 'claude'"}]}],
+			    "PostToolUse": [{"matcher": "Bash", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}]}]
+			  }
+			}`,
+			want: application.HookManagedCoverage{
+				HasPrompt:     true,
+				HasTranscript: true,
+			},
+		},
+		{
+			name: "Claude audit under non-shell matcher is incomplete",
+			payload: `{
+			  "hooks": {
+			    "UserPromptSubmit": [{"matcher": "*", "hooks": [{"name": "traceary-prompt", "type": "command", "command": "'traceary' 'hook' 'prompt' 'claude'"}]}],
+			    "Stop": [{"matcher": "*", "hooks": [{"name": "traceary-transcript", "type": "command", "command": "'traceary' 'hook' 'transcript' 'claude'"}]}],
+			    "PostToolUse": [{"matcher": "Read", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}]}],
+			    "PostToolUseFailure": [{"matcher": "Read", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}]}]
+			  }
+			}`,
+			want: application.HookManagedCoverage{
+				HasPrompt:     true,
+				HasTranscript: true,
+			},
+		},
+		{
+			name: "rejects Gemini event names for Claude",
+			payload: `{
+			  "hooks": {
+			    "BeforeAgent": [{"matcher": "*", "hooks": [{"name": "traceary-prompt", "type": "command", "command": "'traceary' 'hook' 'prompt' 'claude'"}]}],
+			    "AfterAgent": [{"matcher": "*", "hooks": [{"name": "traceary-transcript", "type": "command", "command": "'traceary' 'hook' 'transcript' 'claude'"}]}],
+			    "AfterTool": [{"matcher": "run_shell_command", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}]}],
+			    "PreCompress": [{"matcher": "*", "hooks": [{"name": "traceary-pre-compress", "type": "command", "command": "'traceary' 'hook' 'compact' 'claude' 'pre-compact'"}]}]
+			  }
+			}`,
+			want: application.HookManagedCoverage{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			inspector := filesystem.NewHooksInspector()
+			got, err := inspector.ManagedCoverage([]byte(tt.payload), "claude")
+			if err != nil {
+				t.Fatalf("ManagedCoverage() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Fatalf("coverage mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestHooksInspector_ManagedCoverage_Codex(t *testing.T) {
+	t.Parallel()
+
+	payload := `{
+	  "hooks": {
+	    "UserPromptSubmit": [{"matcher": "", "hooks": [{"name": "traceary-prompt", "type": "command", "command": "'traceary' 'hook' 'prompt' 'codex'"}]}],
+	    "Stop": [{"matcher": "", "hooks": [{"name": "traceary-transcript", "type": "command", "command": "'traceary' 'hook' 'transcript' 'codex'"}]}],
+	    "PostToolUse": [{"matcher": "", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'codex'"}]}]
+	  }
+	}`
+
+	inspector := filesystem.NewHooksInspector()
+	got, err := inspector.ManagedCoverage([]byte(payload), "codex")
+	if err != nil {
+		t.Fatalf("ManagedCoverage() error = %v", err)
+	}
+	want := application.HookManagedCoverage{
+		HasPrompt:     true,
+		HasTranscript: true,
+		HasAudit:      true,
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Fatalf("coverage mismatch (-want +got):\n%s", diff)
+	}
+}

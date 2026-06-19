@@ -124,6 +124,7 @@ func (i *HooksInspector) ManagedCoverage(content []byte, client string) (applica
 	}
 
 	coverage := application.HookManagedCoverage{}
+	claudeAuditEvents := map[string]bool{}
 	for event, matchers := range hooksMap {
 		for _, matcher := range matchers {
 			matcherValue := ""
@@ -133,20 +134,101 @@ func (i *HooksInspector) ManagedCoverage(content []byte, client string) (applica
 			for _, command := range matcher.Hooks {
 				managedKey := extractTracearyManagedKeyFromEntry(command.Name, command.Command)
 				switch {
-				case event == "BeforeAgent" && managedKey == managedKeyOf("traceary-prompt.sh", targetClient):
+				case managedCoverageMatchesPrompt(event, managedKey, targetClient):
 					coverage.HasPrompt = true
-				case event == "AfterAgent" && managedKey == managedKeyOf("traceary-transcript.sh", targetClient):
+				case managedCoverageMatchesTranscript(event, managedKey, targetClient):
 					coverage.HasTranscript = true
-				case event == "AfterTool" && matcherValue == "run_shell_command" && managedKey == managedKeyOf("traceary-audit.sh", targetClient):
-					coverage.HasAudit = true
-				case event == "PreCompress" && strings.HasPrefix(managedKey, managedKeyOf("traceary-compact.sh", targetClient)+":"):
+				case managedCoverageMatchesAudit(event, matcherValue, managedKey, targetClient):
+					if targetClient == "claude" {
+						claudeAuditEvents[event] = true
+					} else {
+						coverage.HasAudit = true
+					}
+				case managedCoverageMatchesCompact(event, managedKey, targetClient):
 					coverage.HasCompact = true
 				}
 			}
 		}
 	}
+	if targetClient == "claude" {
+		coverage.HasAudit = claudeAuditEvents["PostToolUse"] && claudeAuditEvents["PostToolUseFailure"]
+	}
 
 	return coverage, nil
+}
+
+func managedCoverageMatchesPrompt(event, managedKey, client string) bool {
+	if managedKey != managedKeyOf("traceary-prompt.sh", client) {
+		return false
+	}
+	switch client {
+	case "claude", "codex":
+		return event == "UserPromptSubmit"
+	case "gemini":
+		return event == "BeforeAgent"
+	default:
+		return false
+	}
+}
+
+func managedCoverageMatchesTranscript(event, managedKey, client string) bool {
+	if managedKey != managedKeyOf("traceary-transcript.sh", client) {
+		return false
+	}
+	switch client {
+	case "claude", "codex":
+		return event == "Stop"
+	case "gemini":
+		return event == "AfterAgent"
+	default:
+		return false
+	}
+}
+
+func managedCoverageMatchesAudit(event, matcherValue, managedKey, client string) bool {
+	if managedKey != managedKeyOf("traceary-audit.sh", client) {
+		return false
+	}
+	switch client {
+	case "claude":
+		if event != "PostToolUse" && event != "PostToolUseFailure" {
+			return false
+		}
+		return claudeAuditMatcherCoversBash(matcherValue)
+	case "codex":
+		return event == "PostToolUse"
+	case "gemini":
+		return event == "AfterTool" && matcherValue == "run_shell_command"
+	default:
+		return false
+	}
+}
+
+func claudeAuditMatcherCoversBash(matcherValue string) bool {
+	matcher := strings.TrimSpace(matcherValue)
+	if matcher == "" || matcher == "*" || matcher == "Bash" {
+		return true
+	}
+	for _, part := range strings.Split(matcher, "|") {
+		if strings.TrimSpace(part) == "Bash" {
+			return true
+		}
+	}
+	return false
+}
+
+func managedCoverageMatchesCompact(event, managedKey, client string) bool {
+	if !strings.HasPrefix(managedKey, managedKeyOf("traceary-compact.sh", client)+":") {
+		return false
+	}
+	switch client {
+	case "claude":
+		return event == "PreCompact" || event == "PostCompact" || event == "SessionStart"
+	case "gemini":
+		return event == "PreCompress"
+	default:
+		return false
+	}
 }
 
 func parseHooksMap(content []byte) (map[string][]hookMatcherDocument, bool, error) {

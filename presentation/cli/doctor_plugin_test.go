@@ -66,6 +66,77 @@ func TestRootCLI_Doctor_ClaudePluginInteractions(t *testing.T) {
 		}
 	})
 
+	t.Run("plugin active with unreadable cached hooks warns without marketplace fallback", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+
+		writePluginEnabledSettings(t, homeDir)
+		cacheDir := writeClaudePluginCacheVersionDir(t, homeDir)
+		writeClaudePluginMarketplaceHooks(t, homeDir, `{
+  "hooks": {
+    "UserPromptSubmit": [
+      {"matcher": "*", "hooks": [{"name": "traceary-prompt", "type": "command", "command": "'traceary' 'hook' 'prompt' 'claude'"}]}
+    ],
+    "Stop": [
+      {"matcher": "*", "hooks": [{"name": "traceary-transcript", "type": "command", "command": "'traceary' 'hook' 'transcript' 'claude'"}]}
+    ],
+    "PostToolUse": [
+      {"matcher": "Bash", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}]}
+    ],
+    "PostToolUseFailure": [
+      {"matcher": "Bash", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}]}
+    ]
+  }
+}`)
+
+		report := runDoctor(t, projectDir)
+		claudeCfg := statusByName(report, "claude-config")
+		if claudeCfg.Status != "warn" {
+			t.Fatalf("claude-config status = %q, want warn; msg = %q", claudeCfg.Status, claudeCfg.Message)
+		}
+		if !strings.Contains(claudeCfg.Message, filepath.Join(cacheDir, "hooks", "hooks.json")) {
+			t.Fatalf("claude-config message = %q; want cached hooks path", claudeCfg.Message)
+		}
+		if !strings.Contains(claudeCfg.Hint, "marketplace") || !strings.Contains(claudeCfg.FixCommand, "claude plugins update traceary@traceary-plugins") {
+			t.Fatalf("claude-config hint/fix = %q / %q; want no marketplace fallback and plugin update", claudeCfg.Hint, claudeCfg.FixCommand)
+		}
+	})
+
+	t.Run("plugin active with complete cached hooks passes", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+
+		writePluginEnabledSettings(t, homeDir)
+		writeClaudePluginCacheHooks(t, homeDir, `{
+  "hooks": {
+    "UserPromptSubmit": [
+      {"matcher": "*", "hooks": [{"name": "traceary-prompt", "type": "command", "command": "'traceary' 'hook' 'prompt' 'claude'"}]}
+    ],
+    "Stop": [
+      {"matcher": "*", "hooks": [{"name": "traceary-transcript", "type": "command", "command": "'traceary' 'hook' 'transcript' 'claude'"}]}
+    ],
+    "PostToolUse": [
+      {"matcher": "Bash", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}]}
+    ],
+    "PostToolUseFailure": [
+      {"matcher": "Bash", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}]}
+    ]
+  }
+}`)
+
+		report := runDoctor(t, projectDir)
+		claudeCfg := statusByName(report, "claude-config")
+		if claudeCfg.Status != "pass" {
+			t.Fatalf("claude-config status = %q, want pass; msg = %q", claudeCfg.Status, claudeCfg.Message)
+		}
+	})
+
 	t.Run("plugin inactive with settings hooks passes", func(t *testing.T) {
 		homeDir := t.TempDir()
 		projectDir := t.TempDir()
@@ -464,8 +535,57 @@ func writeClaudeGlobalHooksSettings(t *testing.T, home string) {
         "matcher": "*",
         "hooks": [
           {
+            "name": "traceary-session-start",
             "type": "command",
             "command": "'traceary' 'hook' 'session' 'claude' 'start'"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "traceary-prompt",
+            "type": "command",
+            "command": "'traceary' 'hook' 'prompt' 'claude'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "traceary-transcript",
+            "type": "command",
+            "command": "'traceary' 'hook' 'transcript' 'claude'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "name": "traceary-audit",
+            "type": "command",
+            "command": "'traceary' 'hook' 'audit' 'claude'"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "name": "traceary-audit",
+            "type": "command",
+            "command": "'traceary' 'hook' 'audit' 'claude'"
           }
         ]
       }
@@ -507,29 +627,7 @@ func writePluginEnabledSettings(t *testing.T, home string) {
 
 func writeClaudeProjectHook(t *testing.T, projectDir string) {
 	t.Helper()
-	settingsPath := filepath.Join(projectDir, ".claude", "settings.json")
-	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
-	}
-	content := `{
-  "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "'traceary' 'hook' 'session' 'claude' 'start'"
-          }
-        ]
-      }
-    ]
-  }
-}
-`
-	if err := os.WriteFile(settingsPath, []byte(content), 0o644); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
+	writeCompleteClaudeProjectHookSettings(t, projectDir)
 }
 
 func runDoctor(t *testing.T, projectDir string) doctorReport {
