@@ -944,6 +944,12 @@ Exit codes:
 - `1`: at least one check is `FAIL`
 - `2`: at least one check is `WARN` and no checks are `FAIL`
 
+The default warning-only exit code stays non-zero so interactive and strict
+automation notice drift. CI and smoke checks that only need to fail on broken
+states should use `traceary doctor --json --warnings-ok`; warning counts and
+per-check `WARN` statuses remain available in the JSON report, and failures
+still exit `1`.
+
 `--json` keeps the legacy top-level `checks` list and adds a sectioned structure:
 
 ```json
@@ -970,6 +976,7 @@ Useful flags:
 - `--client`
 - `--project-dir`
 - `--json`
+- `--warnings-ok` — return exit code `0` for warning-only reports while keeping failures at exit code `1`
 - `--strict` — audit-reliability: report every exact duplicate group regardless of time, not only near-simultaneous writes
 
 ## Store administration (`traceary store ...`)

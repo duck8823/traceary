@@ -5,6 +5,11 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [Unreleased]
+
+### Added
+- **Automation-friendly doctor warnings (#1175)** — `traceary doctor` now accepts `--warnings-ok`, letting CI and smoke checks treat warning-only reports as exit code `0` while failures still exit `1` and JSON reports keep the warning summary and per-check severities.
+
 ## [v0.20.1] - 2026-05-31
 
 ### Added

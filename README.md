@@ -92,6 +92,10 @@ For the integration overview, use the [native integrations guide](./docs/integra
 traceary doctor
 ```
 
+For CI or smoke checks that should fail only on broken states, use
+`traceary doctor --json --warnings-ok`. Warning-only reports then exit `0`,
+while failures still exit `1` and the JSON report keeps the warning counts.
+
 ## Quick start
 
 `traceary store init` is optional. Commands create the database and run migrations on demand.

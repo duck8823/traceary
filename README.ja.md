@@ -91,6 +91,9 @@ bash <(curl -sL https://raw.githubusercontent.com/duck8823/traceary/main/scripts
 traceary doctor
 ```
 
+壊れた状態だけを CI / smoke check で失敗扱いにしたい場合は
+`traceary doctor --json --warnings-ok` を使ってください。warning-only report は exit code `0` になり、failure は引き続き exit code `1`、warning 件数は JSON report に残ります。
+
 ## クイックスタート
 
 `traceary store init` は必須ではありません。通常コマンドを実行すれば、必要に応じて DB の作成とマイグレーションが自動で行われます。DB パスの事前作成や書き込み権限の確認をしたいときだけ `store init` を使ってください。旧 top-level の `traceary init` alias は v0.14.0 で削除されました。実行すると Cobra の unknown-command エラーになります（`traceary store init` を使ってください）。v0.14 で削除された alias 一覧と置き換え先は [CLI 安定性と非推奨ポリシー](./docs/cli-stability.ja.md) にまとめています。
