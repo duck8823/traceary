@@ -8,8 +8,10 @@ Gemini 向け package は `integrations/gemini-extension/` にあります。Gem
 
 - `traceary mcp-server` を使う `traceary` MCP server
 - `SessionStart` / `SessionEnd` hook
+- `BeforeAgent` prompt hook（送信された user prompt を `prompt` event として記録）
 - `AfterAgent` transcript hook（agent の応答を `transcript` event として記録）
 - `run_shell_command` 向け `AfterTool` audit hook
+- `PreCompress` compact marker hook（Gemini に post-compress summary hook がないため、圧縮前の境界だけを記録）
 - slash command の `/traceary-help` と `/traceary-doctor`
 - 文脈で効く `traceary-session-history` / `traceary-memory-review` / `traceary-memory-remember` skill。`traceary-memory-review` は review 意図の発話 (「Traceary inbox」「review memory candidates」「session recap」など) で発火し inbox の curate を案内、`traceary-memory-remember` は明示 write 発話 (「覚えておいて」「remember that」など) のみで発火します。
 
@@ -91,6 +93,18 @@ gemini extensions uninstall traceary
 ```sh
 traceary doctor --client gemini --json
 ```
+
+`doctor` は Gemini capture について次の 2 つを確認します。
+
+- `gemini-config`: Traceary 管理の hook が一部だけ（例: 旧式の
+  SessionStart / SessionEnd / AfterTool のみ）になっている場合に警告します。
+  settings.json へ入れている場合は `traceary doctor --client gemini --fix`
+  で修復できます。
+- `gemini-event-coverage`: recent Gemini session を見て、prompt/transcript が欠けた
+  session 比率が `--coverage-threshold`（既定 `0.5`）を超えると警告します。audit のみの session も会話内容の coverage がないため警告対象です。
+  settings.json ではなく Gemini extension package を使っている場合は、
+  `gemini extensions update traceary` で package 側の BeforeAgent /
+  AfterAgent hook を更新してください。
 
 package 自体の validate は次です。
 

@@ -373,26 +373,34 @@ func checkGemini(root, version string) error {
 		return xerrors.Errorf("gemini extension must expose GEMINI.md as context file")
 	}
 
-	hooks, hooksRaw, err := readHookFile(root, "integrations/gemini-extension/hooks/hooks.json")
+	hooksPath := "integrations/gemini-extension/hooks/hooks.json"
+	hooks, _, err := readHookFile(root, hooksPath)
 	if err != nil {
 		return err
 	}
-	if err := checkNoDuplicateTracearyHookEntries("integrations/gemini-extension/hooks/hooks.json", hooks); err != nil {
+	if err := checkNoDuplicateTracearyHookEntries(hooksPath, hooks); err != nil {
 		return err
 	}
-	for _, event := range []string{"SessionStart", "SessionEnd", "AfterTool", "BeforeAgent", "PreCompress"} {
+	for _, event := range []string{"SessionStart", "SessionEnd", "BeforeAgent", "AfterAgent", "AfterTool", "PreCompress"} {
 		if _, ok := hooks.Hooks[event]; !ok {
 			return xerrors.Errorf("gemini hooks must include %s", event)
 		}
 	}
-	for _, fragment := range []struct{ sub, msg string }{
-		{"'hook' 'session' 'gemini'", "Gemini packaged hooks must invoke traceary hook session directly"},
-		{"'hook' 'audit' 'gemini'", "Gemini packaged hooks must invoke traceary hook audit directly"},
-		{"'hook' 'prompt' 'gemini'", "Gemini packaged hooks must invoke traceary hook prompt directly"},
-		{"'hook' 'compact' 'gemini' 'pre-compact'", "Gemini packaged hooks must invoke traceary hook compact pre-compact directly"},
+	for _, required := range []struct {
+		event           string
+		matcher         string
+		name            string
+		commandFragment string
+	}{
+		{"SessionStart", "*", "traceary-session-start", "'hook' 'session' 'gemini' 'start'"},
+		{"SessionEnd", "*", "traceary-session-end", "'hook' 'session' 'gemini' 'end'"},
+		{"BeforeAgent", "*", "traceary-prompt", "'hook' 'prompt' 'gemini'"},
+		{"AfterAgent", "*", "traceary-transcript", "'hook' 'transcript' 'gemini'"},
+		{"AfterTool", "run_shell_command", "traceary-audit", "'hook' 'audit' 'gemini'"},
+		{"PreCompress", "*", "traceary-pre-compress", "'hook' 'compact' 'gemini' 'pre-compact'"},
 	} {
-		if !strings.Contains(hooksRaw, fragment.sub) {
-			return xerrors.Errorf("%s", fragment.msg)
+		if err := requirePackagedHookCommand(hooksPath, hooks, required.event, required.matcher, required.name, required.commandFragment); err != nil {
+			return err
 		}
 	}
 	for _, rel := range []struct{ path, msg string }{
@@ -450,6 +458,38 @@ func hookMatchers(entries []hookEntry) []string {
 		matchers = append(matchers, entry.Matcher)
 	}
 	return matchers
+}
+
+func requirePackagedHookCommand(rel string, hooks hookFile, event, matcher, name, commandFragment string) error {
+	entries, ok := hooks.Hooks[event]
+	if !ok {
+		return xerrors.Errorf("%s must include %s", rel, event)
+	}
+	for _, entry := range entries {
+		if entry.Matcher != matcher {
+			continue
+		}
+		for _, command := range entry.Hooks {
+			if command.Name != name {
+				continue
+			}
+			if command.Type != "command" {
+				return xerrors.Errorf("%s %s/%s must use command hook type, got %q", rel, event, name, command.Type)
+			}
+			if strings.Contains(command.Command, commandFragment) {
+				return nil
+			}
+		}
+	}
+	return xerrors.Errorf(
+		"%s must include %s matcher %q hook %q invoking %s (got matchers %v)",
+		rel,
+		event,
+		matcher,
+		name,
+		commandFragment,
+		hookMatchers(entries),
+	)
 }
 
 func readHookFile(root, rel string) (hookFile, string, error) {

@@ -3,6 +3,7 @@ package filesystem
 import (
 	"encoding/json"
 	"sort"
+	"strings"
 
 	"golang.org/x/xerrors"
 
@@ -106,6 +107,46 @@ func (i *HooksInspector) DuplicateManagedHooks(content []byte) ([]application.Ho
 // infrastructure package directly.
 func (i *HooksInspector) ExtractManagedKeyFromEntry(name, command string) string {
 	return ExtractTracearyManagedKeyFromEntry(name, command)
+}
+
+// ManagedCoverage reports which Traceary-managed enrichment surfaces are wired
+// for the given client in a hook configuration. It uses the same canonical-key
+// extraction as duplicate detection so dev-build installs with a non-`traceary`
+// binary name are still recognized through their Traceary-managed entry names.
+func (i *HooksInspector) ManagedCoverage(content []byte, client string) (application.HookManagedCoverage, error) {
+	hooksMap, ok, err := parseHooksMap(content)
+	if err != nil || !ok {
+		return application.HookManagedCoverage{}, err
+	}
+	targetClient := strings.TrimSpace(client)
+	if targetClient == "" {
+		return application.HookManagedCoverage{}, nil
+	}
+
+	coverage := application.HookManagedCoverage{}
+	for event, matchers := range hooksMap {
+		for _, matcher := range matchers {
+			matcherValue := ""
+			if matcher.Matcher != nil {
+				matcherValue = *matcher.Matcher
+			}
+			for _, command := range matcher.Hooks {
+				managedKey := extractTracearyManagedKeyFromEntry(command.Name, command.Command)
+				switch {
+				case event == "BeforeAgent" && managedKey == managedKeyOf("traceary-prompt.sh", targetClient):
+					coverage.HasPrompt = true
+				case event == "AfterAgent" && managedKey == managedKeyOf("traceary-transcript.sh", targetClient):
+					coverage.HasTranscript = true
+				case event == "AfterTool" && matcherValue == "run_shell_command" && managedKey == managedKeyOf("traceary-audit.sh", targetClient):
+					coverage.HasAudit = true
+				case event == "PreCompress" && strings.HasPrefix(managedKey, managedKeyOf("traceary-compact.sh", targetClient)+":"):
+					coverage.HasCompact = true
+				}
+			}
+		}
+	}
+
+	return coverage, nil
 }
 
 func parseHooksMap(content []byte) (map[string][]hookMatcherDocument, bool, error) {

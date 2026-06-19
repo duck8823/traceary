@@ -247,7 +247,7 @@ func isTracearyManagedHookCommandDocument(command hookCommandDocument, desiredDi
 	return managed
 }
 
-var tracearyHookScriptPattern = regexp.MustCompile(`traceary-(session|audit|compact|prompt)\.sh`)
+var tracearyHookScriptPattern = regexp.MustCompile(`traceary-(session|audit|compact|prompt|transcript)\.sh`)
 
 // ExtractTracearyManagedKey is the exported counterpart of
 // extractTracearyManagedKey. Higher-level diagnostics (for example

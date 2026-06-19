@@ -78,3 +78,46 @@ func TestCheckNoDuplicateTracearyHookEntries_AllowsDistinctMatchers(t *testing.T
 		t.Fatalf("checkNoDuplicateTracearyHookEntries() error = %v, want nil for distinct matchers", err)
 	}
 }
+
+func TestRequirePackagedHookCommand_FailsOnMatcherDrift(t *testing.T) {
+	t.Parallel()
+
+	err := requirePackagedHookCommand("integrations/gemini-extension/hooks/hooks.json", hookFile{
+		Hooks: map[string][]hookEntry{
+			"AfterTool": {
+				{
+					Matcher: "*",
+					Hooks: []hookCommand{
+						{Name: "traceary-audit", Type: "command", Command: "'traceary' 'hook' 'audit' 'gemini'"},
+					},
+				},
+			},
+		},
+	}, "AfterTool", "run_shell_command", "traceary-audit", "'hook' 'audit' 'gemini'")
+	if err == nil {
+		t.Fatal("requirePackagedHookCommand() error = nil, want matcher drift error")
+	}
+	if !strings.Contains(err.Error(), "AfterTool") || !strings.Contains(err.Error(), "run_shell_command") {
+		t.Fatalf("error = %v, want AfterTool/run_shell_command drift message", err)
+	}
+}
+
+func TestRequirePackagedHookCommand_PassesOnExpectedCommand(t *testing.T) {
+	t.Parallel()
+
+	err := requirePackagedHookCommand("integrations/gemini-extension/hooks/hooks.json", hookFile{
+		Hooks: map[string][]hookEntry{
+			"AfterTool": {
+				{
+					Matcher: "run_shell_command",
+					Hooks: []hookCommand{
+						{Name: "traceary-audit", Type: "command", Command: "'traceary' 'hook' 'audit' 'gemini'"},
+					},
+				},
+			},
+		},
+	}, "AfterTool", "run_shell_command", "traceary-audit", "'hook' 'audit' 'gemini'")
+	if err != nil {
+		t.Fatalf("requirePackagedHookCommand() error = %v, want nil", err)
+	}
+}

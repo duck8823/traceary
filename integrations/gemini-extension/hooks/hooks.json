@@ -58,14 +58,14 @@
     ],
     "AfterTool": [
       {
-        "matcher": "*",
+        "matcher": "run_shell_command",
         "hooks": [
           {
             "name": "traceary-audit",
             "type": "command",
             "command": "'traceary' 'hook' 'audit' 'gemini'",
             "timeout": 5000,
-            "description": "Record tool execution audits in Traceary"
+            "description": "Record shell command audits in Traceary"
           }
         ]
       }

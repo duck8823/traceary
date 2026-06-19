@@ -27,6 +27,7 @@ type eventUsecaseStub struct {
 	contextErr       error
 	timelineBlocks   []apptypes.TimelineBlock
 	timelineErr      error
+	listCriteria     apptypes.EventListCriteria
 	timelineCriteria apptypes.TimelineCriteria
 
 	logCall struct {
@@ -80,7 +81,8 @@ func (s *eventUsecaseStub) Audit(_ context.Context, in apptypes.AuditInput, audi
 func (s *eventUsecaseStub) Search(_ context.Context, _ apptypes.EventSearchCriteria) ([]*model.Event, error) {
 	return s.searchEvents, s.searchErr
 }
-func (s *eventUsecaseStub) List(_ context.Context, _ apptypes.EventListCriteria) ([]*model.Event, error) {
+func (s *eventUsecaseStub) List(_ context.Context, criteria apptypes.EventListCriteria) ([]*model.Event, error) {
+	s.listCriteria = criteria
 	return s.listEvents, s.listErr
 }
 func (s *eventUsecaseStub) ListWindow(_ context.Context, _ apptypes.EventListCriteria) ([]*model.Event, error) {

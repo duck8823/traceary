@@ -217,6 +217,28 @@ func TestRootCLI_Doctor_GeminiGlobalConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("reports partial gemini global config as warn", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+
+		writeGeminiPartialGlobalHooksSettings(t, homeDir)
+
+		report := runDoctorForClient(t, "gemini", projectDir)
+		globalCfg := statusByName(report, "gemini-global-config")
+		if globalCfg.Status != "warn" {
+			t.Fatalf("gemini-global-config status = %q, want warn; msg = %q", globalCfg.Status, globalCfg.Message)
+		}
+		if !strings.Contains(globalCfg.Message, "prompt") || !strings.Contains(globalCfg.Message, "transcript") {
+			t.Fatalf("gemini-global-config message = %q; want prompt/transcript gap", globalCfg.Message)
+		}
+		if !strings.Contains(globalCfg.FixCommand, "--global --upgrade") {
+			t.Fatalf("gemini-global-config FixCommand = %q; want global upgrade command", globalCfg.FixCommand)
+		}
+	})
+
 	t.Run("reports missing gemini global config as skip", func(t *testing.T) {
 		homeDir := t.TempDir()
 		projectDir := t.TempDir()
@@ -338,8 +360,85 @@ func writeGeminiGlobalHooksSettings(t *testing.T, home string) {
         "matcher": "*",
         "hooks": [
           {
+            "name": "traceary-session-start",
             "type": "command",
             "command": "'traceary' 'hook' 'session' 'gemini' 'start'"
+          }
+        ]
+      }
+    ],
+    "BeforeAgent": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "traceary-prompt",
+            "type": "command",
+            "command": "'traceary' 'hook' 'prompt' 'gemini'"
+          }
+        ]
+      }
+    ],
+    "AfterAgent": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "traceary-transcript",
+            "type": "command",
+            "command": "'traceary' 'hook' 'transcript' 'gemini'"
+          }
+        ]
+      }
+    ],
+    "AfterTool": [
+      {
+        "matcher": "run_shell_command",
+        "hooks": [
+          {
+            "name": "traceary-audit",
+            "type": "command",
+            "command": "'traceary' 'hook' 'audit' 'gemini'"
+          }
+        ]
+      }
+    ]
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+}
+
+func writeGeminiPartialGlobalHooksSettings(t *testing.T, home string) {
+	t.Helper()
+	dir := filepath.Join(home, ".gemini")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	content := `{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "traceary-session-start",
+            "type": "command",
+            "command": "'traceary' 'hook' 'session' 'gemini' 'start'"
+          }
+        ]
+      }
+    ],
+    "AfterTool": [
+      {
+        "matcher": "run_shell_command",
+        "hooks": [
+          {
+            "name": "traceary-audit",
+            "type": "command",
+            "command": "'traceary' 'hook' 'audit' 'gemini'"
           }
         ]
       }
