@@ -332,6 +332,8 @@ func (d *EventDatasource) SaveWithAudit(
 		audit.Output(),
 		audit.InputTruncated(),
 		audit.OutputTruncated(),
+		audit.InputOriginalBytes(),
+		audit.OutputOriginalBytes(),
 		exitCodeSQL,
 		audit.Failed(),
 	); err != nil {
@@ -381,6 +383,8 @@ func hookCommandAuditDuplicateExists(
 		    AND ca.output_text = ?
 		    AND ca.input_truncated = ?
 		    AND ca.output_truncated = ?
+		    AND ca.input_original_bytes = ?
+		    AND ca.output_original_bytes = ?
 		    AND ((? = 0 AND ca.exit_code IS NULL) OR (? = 1 AND ca.exit_code = ?))
 		    AND ca.failed = ?
 		    AND e.created_at >= ?
@@ -397,6 +401,8 @@ func hookCommandAuditDuplicateExists(
 		audit.Output(),
 		audit.InputTruncated(),
 		audit.OutputTruncated(),
+		audit.InputOriginalBytes(),
+		audit.OutputOriginalBytes(),
 		hasExitCode,
 		hasExitCode,
 		exitCodeSQL,
@@ -743,6 +749,8 @@ func (d *EventDatasource) GetDetails(
 		outputTextValue      sql.NullString
 		inputTruncatedValue  sql.NullBool
 		outputTruncatedValue sql.NullBool
+		inputOriginalBytes   sql.NullInt64
+		outputOriginalBytes  sql.NullInt64
 		exitCodeValue        sql.NullInt64
 		failedValue          sql.NullBool
 	)
@@ -754,6 +762,8 @@ func (d *EventDatasource) GetDetails(
 		&outputTextValue,
 		&inputTruncatedValue,
 		&outputTruncatedValue,
+		&inputOriginalBytes,
+		&outputOriginalBytes,
 		&exitCodeValue,
 		&failedValue,
 	)
@@ -780,6 +790,7 @@ func (d *EventDatasource) GetDetails(
 			exitCode,
 			failedValue.Bool,
 		)
+		commandAudit.SetOriginalPayloadBytes(int(inputOriginalBytes.Int64), int(outputOriginalBytes.Int64))
 		commandAuditOpt = types.Some(commandAudit)
 	}
 
@@ -1005,6 +1016,8 @@ func scanEventWithAudit(
 	outputTextValue *sql.NullString,
 	inputTruncatedValue *sql.NullBool,
 	outputTruncatedValue *sql.NullBool,
+	inputOriginalBytes *sql.NullInt64,
+	outputOriginalBytes *sql.NullInt64,
 	exitCodeValue *sql.NullInt64,
 	failedValue *sql.NullBool,
 ) (*model.Event, error) {
@@ -1035,6 +1048,8 @@ func scanEventWithAudit(
 		outputTextValue,
 		inputTruncatedValue,
 		outputTruncatedValue,
+		inputOriginalBytes,
+		outputOriginalBytes,
 		exitCodeValue,
 		failedValue,
 	); err != nil {

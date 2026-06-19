@@ -452,6 +452,132 @@ func TestRootCLI_AuditCommand_TruncationNotice(t *testing.T) {
 	}
 }
 
+func TestRootCLI_AuditCommand_UsesConfiguredAuditLimits(t *testing.T) {
+	t.Setenv("TRACEARY_SESSION_ID", "session-env")
+
+	eventID, err := types.EventIDFrom("event-config-limit")
+	if err != nil {
+		t.Fatalf("EventIDFrom() error = %v", err)
+	}
+	agent, err := types.AgentFrom("codex")
+	if err != nil {
+		t.Fatalf("AgentFrom() error = %v", err)
+	}
+	sessionID, err := types.SessionIDFrom("session-env")
+	if err != nil {
+		t.Fatalf("SessionIDFrom() error = %v", err)
+	}
+	commandAudit, err := model.NewCommandAudit(eventID, "go test ./...", "stdin", "stdout", false, false)
+	if err != nil {
+		t.Fatalf("NewCommandAudit() error = %v", err)
+	}
+
+	eventStub := &eventUsecaseStub{
+		auditEvent: model.EventOf(
+			eventID,
+			types.EventKindCommandExecuted,
+			"cli",
+			agent,
+			sessionID,
+			"duck8823/traceary",
+			"go test ./...",
+			time.Date(2026, 4, 7, 15, 0, 0, 0, time.UTC),
+		),
+		auditAudit: commandAudit,
+	}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(eventStub),
+		cli.WithDefaultAuditPayloadLimits(256, 512),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"audit",
+		"--db-path", "/tmp/traceary.db",
+		"--agent", "codex",
+		"--client", "cli",
+		"--workspace", "duck8823/traceary",
+		"go test ./...",
+		"stdin",
+		"stdout",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got := eventStub.auditCall.auditCfg.MaxInputBytes(); got != 256 {
+		t.Fatalf("MaxInputBytes() = %d, want 256", got)
+	}
+	if got := eventStub.auditCall.auditCfg.MaxOutputBytes(); got != 512 {
+		t.Fatalf("MaxOutputBytes() = %d, want 512", got)
+	}
+}
+
+func TestRootCLI_AuditCommand_ExplicitZeroLimitUsesBuiltinDefault(t *testing.T) {
+	t.Setenv("TRACEARY_SESSION_ID", "session-env")
+
+	eventID, err := types.EventIDFrom("event-config-zero-limit")
+	if err != nil {
+		t.Fatalf("EventIDFrom() error = %v", err)
+	}
+	agent, err := types.AgentFrom("codex")
+	if err != nil {
+		t.Fatalf("AgentFrom() error = %v", err)
+	}
+	sessionID, err := types.SessionIDFrom("session-env")
+	if err != nil {
+		t.Fatalf("SessionIDFrom() error = %v", err)
+	}
+	commandAudit, err := model.NewCommandAudit(eventID, "go test ./...", "stdin", "stdout", false, false)
+	if err != nil {
+		t.Fatalf("NewCommandAudit() error = %v", err)
+	}
+
+	eventStub := &eventUsecaseStub{
+		auditEvent: model.EventOf(
+			eventID,
+			types.EventKindCommandExecuted,
+			"cli",
+			agent,
+			sessionID,
+			"duck8823/traceary",
+			"go test ./...",
+			time.Date(2026, 4, 7, 15, 0, 0, 0, time.UTC),
+		),
+		auditAudit: commandAudit,
+	}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(eventStub),
+		cli.WithDefaultAuditPayloadLimits(256, 512),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"audit",
+		"--db-path", "/tmp/traceary.db",
+		"--agent", "codex",
+		"--client", "cli",
+		"--workspace", "duck8823/traceary",
+		"--max-input-bytes", "0",
+		"--max-output-bytes", "0",
+		"go test ./...",
+		"stdin",
+		"stdout",
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got := eventStub.auditCall.auditCfg.MaxInputBytes(); got != 0 {
+		t.Fatalf("MaxInputBytes() = %d, want 0", got)
+	}
+	if got := eventStub.auditCall.auditCfg.MaxOutputBytes(); got != 0 {
+		t.Fatalf("MaxOutputBytes() = %d, want 0", got)
+	}
+}
+
 func TestRootCLI_AuditCommand_RedactionNotice(t *testing.T) {
 	t.Setenv("TRACEARY_SESSION_ID", "session-env")
 

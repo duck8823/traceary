@@ -15,27 +15,29 @@ import (
 
 // RootCLI provides the Traceary root command.
 type RootCLI struct {
-	event                 usecase.EventUsecase
-	session               usecase.SessionUsecase
-	memory                usecase.MemoryUsecase
-	memoryEdge            usecase.MemoryEdgeUsecase
-	bundle                usecase.BundleUsecase
-	context               usecase.ContextUsecase
-	replay                usecase.ReplayUsecase
-	storeManagement       usecase.StoreManagementUsecase
-	mcpServerRunner       MCPServerRunner
-	hooksOrchestrator     application.HooksOrchestrator
-	hooksInspector        application.HooksInspector
-	pluginCacheInspector  application.PluginCacheInspector
-	pluginDetector        application.ClaudePluginDetector
-	cockpitState          CockpitStateReader
-	cockpitInteractive    cockpitInteractiveFunc
-	cockpitRunner         cockpitRunnerFunc
-	extraRedactPatterns   []string
-	structuredRedactRules []redaction.RuleConfig
-	defaultReadFields     []string
-	readPresets           map[string]presentation.ReadPreset
-	defaultReadColor      string
+	event                      usecase.EventUsecase
+	session                    usecase.SessionUsecase
+	memory                     usecase.MemoryUsecase
+	memoryEdge                 usecase.MemoryEdgeUsecase
+	bundle                     usecase.BundleUsecase
+	context                    usecase.ContextUsecase
+	replay                     usecase.ReplayUsecase
+	storeManagement            usecase.StoreManagementUsecase
+	mcpServerRunner            MCPServerRunner
+	hooksOrchestrator          application.HooksOrchestrator
+	hooksInspector             application.HooksInspector
+	pluginCacheInspector       application.PluginCacheInspector
+	pluginDetector             application.ClaudePluginDetector
+	cockpitState               CockpitStateReader
+	cockpitInteractive         cockpitInteractiveFunc
+	cockpitRunner              cockpitRunnerFunc
+	extraRedactPatterns        []string
+	structuredRedactRules      []redaction.RuleConfig
+	defaultAuditMaxInputBytes  int
+	defaultAuditMaxOutputBytes int
+	defaultReadFields          []string
+	readPresets                map[string]presentation.ReadPreset
+	defaultReadColor           string
 	// databasePathSetter is invoked by each subcommand's RunE after it
 	// resolves --db-path / TRACEARY_DB_PATH, so the shared Database
 	// instance opens the user-specified path instead of the composition-
@@ -140,6 +142,16 @@ func WithExtraRedactPatterns(patterns []string) RootCLIOption {
 // WithStructuredRedactRules injects named/configurable redaction rules.
 func WithStructuredRedactRules(rules []redaction.RuleConfig) RootCLIOption {
 	return func(c *RootCLI) { c.structuredRedactRules = rules }
+}
+
+// WithDefaultAuditPayloadLimits injects config-backed command-audit
+// persistence limits. Command flags and TRACEARY_MAX_AUDIT_* environment
+// variables still override these defaults at runtime.
+func WithDefaultAuditPayloadLimits(maxInputBytes int, maxOutputBytes int) RootCLIOption {
+	return func(c *RootCLI) {
+		c.defaultAuditMaxInputBytes = maxInputBytes
+		c.defaultAuditMaxOutputBytes = maxOutputBytes
+	}
 }
 
 // WithDefaultReadFields injects the default column order used by tail / list

@@ -49,6 +49,8 @@ CREATE TABLE command_audits (
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
     output_truncated INTEGER NOT NULL DEFAULT 0,
+    input_original_bytes INTEGER NOT NULL DEFAULT 0,
+    output_original_bytes INTEGER NOT NULL DEFAULT 0,
     exit_code INTEGER,
     failed INTEGER NOT NULL DEFAULT 0
 );`),
@@ -147,6 +149,8 @@ CREATE TABLE command_audits (
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
     output_truncated INTEGER NOT NULL DEFAULT 0,
+    input_original_bytes INTEGER NOT NULL DEFAULT 0,
+    output_original_bytes INTEGER NOT NULL DEFAULT 0,
     exit_code INTEGER,
     failed INTEGER NOT NULL DEFAULT 0
 );`),
@@ -217,6 +221,8 @@ CREATE TABLE command_audits (
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
     output_truncated INTEGER NOT NULL DEFAULT 0,
+    input_original_bytes INTEGER NOT NULL DEFAULT 0,
+    output_original_bytes INTEGER NOT NULL DEFAULT 0,
     exit_code INTEGER,
     failed INTEGER NOT NULL DEFAULT 0
 );`),
@@ -290,6 +296,8 @@ CREATE TABLE command_audits (
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
     output_truncated INTEGER NOT NULL DEFAULT 0,
+    input_original_bytes INTEGER NOT NULL DEFAULT 0,
+    output_original_bytes INTEGER NOT NULL DEFAULT 0,
     exit_code INTEGER,
     failed INTEGER NOT NULL DEFAULT 0
 );`),
@@ -359,6 +367,8 @@ CREATE TABLE command_audits (
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
     output_truncated INTEGER NOT NULL DEFAULT 0,
+    input_original_bytes INTEGER NOT NULL DEFAULT 0,
+    output_original_bytes INTEGER NOT NULL DEFAULT 0,
     exit_code INTEGER,
     failed INTEGER NOT NULL DEFAULT 0
 );`),
@@ -541,6 +551,8 @@ CREATE TABLE command_audits (
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
     output_truncated INTEGER NOT NULL DEFAULT 0,
+    input_original_bytes INTEGER NOT NULL DEFAULT 0,
+    output_original_bytes INTEGER NOT NULL DEFAULT 0,
     exit_code INTEGER,
     failed INTEGER NOT NULL DEFAULT 0
 );`),
@@ -648,6 +660,8 @@ CREATE TABLE command_audits (
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
     output_truncated INTEGER NOT NULL DEFAULT 0,
+    input_original_bytes INTEGER NOT NULL DEFAULT 0,
+    output_original_bytes INTEGER NOT NULL DEFAULT 0,
     exit_code INTEGER,
     failed INTEGER NOT NULL DEFAULT 0
 );`),
@@ -698,6 +712,8 @@ CREATE TABLE command_audits (
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
     output_truncated INTEGER NOT NULL DEFAULT 0,
+    input_original_bytes INTEGER NOT NULL DEFAULT 0,
+    output_original_bytes INTEGER NOT NULL DEFAULT 0,
     exit_code INTEGER,
     failed INTEGER NOT NULL DEFAULT 0
 );`),
@@ -771,6 +787,8 @@ CREATE TABLE command_audits (
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
     output_truncated INTEGER NOT NULL DEFAULT 0,
+    input_original_bytes INTEGER NOT NULL DEFAULT 0,
+    output_original_bytes INTEGER NOT NULL DEFAULT 0,
     exit_code INTEGER,
     failed INTEGER NOT NULL DEFAULT 0
 );`),

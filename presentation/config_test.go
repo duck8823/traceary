@@ -72,6 +72,7 @@ func TestLoadConfig_returnsReadFieldsAlongsideRedact(t *testing.T) {
 		t.Fatal(err)
 	}
 	configJSON := `{
+		"audit": {"max_input_bytes": 1024, "max_output_bytes": 2048},
 		"redact": {"extra_patterns": ["secret"]},
 		"read": {"fields": ["ts", "kind", "message"]}
 	}`
@@ -86,6 +87,9 @@ func TestLoadConfig_returnsReadFieldsAlongsideRedact(t *testing.T) {
 	}
 	if diff := cmp.Diff([]string{"ts", "kind", "message"}, cfg.ReadFields); diff != "" {
 		t.Fatalf("ReadFields mismatch (-want +got):\n%s", diff)
+	}
+	if cfg.AuditMaxInputBytes != 1024 || cfg.AuditMaxOutputBytes != 2048 {
+		t.Fatalf("audit limits = (%d, %d), want (1024, 2048)", cfg.AuditMaxInputBytes, cfg.AuditMaxOutputBytes)
 	}
 }
 

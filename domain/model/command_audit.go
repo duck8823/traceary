@@ -1,6 +1,7 @@
 package model
 
 import (
+	"strconv"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -8,18 +9,25 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
+const (
+	auditTruncationMarkerPrefix = "...[truncated original_bytes="
+	auditTruncationMarkerSuffix = "]..."
+)
+
 // CommandAudit holds detailed audit information for a command execution.
 type CommandAudit struct {
-	eventID         types.EventID
-	command         string
-	input           string
-	output          string
-	inputTruncated  bool
-	outputTruncated bool
-	inputRedacted   bool
-	outputRedacted  bool
-	exitCode        types.Optional[int]
-	failed          bool
+	eventID             types.EventID
+	command             string
+	input               string
+	output              string
+	inputTruncated      bool
+	outputTruncated     bool
+	inputOriginalBytes  int
+	outputOriginalBytes int
+	inputRedacted       bool
+	outputRedacted      bool
+	exitCode            types.Optional[int]
+	failed              bool
 }
 
 // NewCommandAudit creates a new CommandAudit.
@@ -37,12 +45,14 @@ func NewCommandAudit(
 	}
 
 	return &CommandAudit{
-		eventID:         eventID,
-		command:         trimmedCommand,
-		input:           input,
-		output:          output,
-		inputTruncated:  inputTruncated,
-		outputTruncated: outputTruncated,
+		eventID:             eventID,
+		command:             trimmedCommand,
+		input:               input,
+		output:              output,
+		inputTruncated:      inputTruncated,
+		outputTruncated:     outputTruncated,
+		inputOriginalBytes:  inferAuditPayloadOriginalBytes(input, inputTruncated),
+		outputOriginalBytes: inferAuditPayloadOriginalBytes(output, outputTruncated),
 	}, nil
 }
 
@@ -58,14 +68,16 @@ func CommandAuditOf(
 	failed bool,
 ) *CommandAudit {
 	return &CommandAudit{
-		eventID:         eventID,
-		command:         command,
-		input:           input,
-		output:          output,
-		inputTruncated:  inputTruncated,
-		outputTruncated: outputTruncated,
-		exitCode:        exitCode,
-		failed:          failed,
+		eventID:             eventID,
+		command:             command,
+		input:               input,
+		output:              output,
+		inputTruncated:      inputTruncated,
+		outputTruncated:     outputTruncated,
+		inputOriginalBytes:  inferAuditPayloadOriginalBytes(input, inputTruncated),
+		outputOriginalBytes: inferAuditPayloadOriginalBytes(output, outputTruncated),
+		exitCode:            exitCode,
+		failed:              failed,
 	}
 }
 
@@ -86,6 +98,29 @@ func (a *CommandAudit) InputTruncated() bool { return a.inputTruncated }
 
 // OutputTruncated reports whether output was truncated.
 func (a *CommandAudit) OutputTruncated() bool { return a.outputTruncated }
+
+// SetOriginalPayloadBytes records the pre-truncation payload sizes when known.
+func (a *CommandAudit) SetOriginalPayloadBytes(inputBytes int, outputBytes int) {
+	if a == nil {
+		return
+	}
+	if a.inputTruncated && inputBytes > 0 {
+		a.inputOriginalBytes = inputBytes
+	}
+	if a.outputTruncated && outputBytes > 0 {
+		a.outputOriginalBytes = outputBytes
+	}
+}
+
+// InputOriginalBytes returns the original input byte count when the input was
+// truncated and the count is known. It returns 0 for untruncated or legacy
+// truncated rows without size metadata.
+func (a *CommandAudit) InputOriginalBytes() int { return a.inputOriginalBytes }
+
+// OutputOriginalBytes returns the original output byte count when the output
+// was truncated and the count is known. It returns 0 for untruncated or legacy
+// truncated rows without size metadata.
+func (a *CommandAudit) OutputOriginalBytes() int { return a.outputOriginalBytes }
 
 // SetRedaction sets whether redaction was applied during capture.
 func (a *CommandAudit) SetRedaction(inputRedacted bool, outputRedacted bool) {
@@ -126,4 +161,43 @@ func (a *CommandAudit) SetFailed(failed bool) {
 		return
 	}
 	a.failed = failed
+}
+
+func inferAuditPayloadOriginalBytes(payload string, truncated bool) int {
+	if !truncated {
+		return 0
+	}
+	return AuditPayloadOriginalBytesFromTruncationMarker(payload)
+}
+
+// AuditPayloadTruncationMarker returns the canonical marker embedded between
+// the preserved head and tail of an ingest-truncated command-audit payload.
+func AuditPayloadTruncationMarker(originalBytes int) string {
+	if originalBytes <= 0 {
+		return auditTruncationMarkerPrefix + "0" + auditTruncationMarkerSuffix
+	}
+	return auditTruncationMarkerPrefix + strconv.Itoa(originalBytes) + auditTruncationMarkerSuffix
+}
+
+// AuditPayloadOriginalBytesFromTruncationMarker restores the original byte
+// count from the canonical truncation marker. When multiple markers are
+// present because user-controlled head text contains marker-looking content,
+// the last marker wins because Traceary appends its canonical marker between
+// the preserved head and tail.
+func AuditPayloadOriginalBytesFromTruncationMarker(payload string) int {
+	markerIndex := strings.LastIndex(payload, auditTruncationMarkerPrefix)
+	if markerIndex < 0 {
+		return 0
+	}
+	valueStart := markerIndex + len(auditTruncationMarkerPrefix)
+	suffixIndex := strings.Index(payload[valueStart:], auditTruncationMarkerSuffix)
+	if suffixIndex < 0 {
+		return 0
+	}
+	valueText := payload[valueStart : valueStart+suffixIndex]
+	value, err := strconv.Atoi(valueText)
+	if err != nil {
+		return 0
+	}
+	return value
 }

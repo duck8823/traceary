@@ -104,6 +104,30 @@ var builtinRedactors = []Redactor{
 		Replacement: `${1}` + redactedAuditValue,
 	},
 	{
+		Pattern:     regexp.MustCompile(`(?i)((?:^|[\s])--(?:access-token|refresh-token|id-token|token|api-key|api_key|apikey|secret|client-secret|client_secret|password|passwd|session-token|session_token)=)([^\s"']+)`),
+		Replacement: `${1}` + redactedAuditValue,
+	},
+	{
+		Pattern:     regexp.MustCompile(`(?i)((?:^|[\s])--(?:access-token|refresh-token|id-token|token|api-key|api_key|apikey|secret|client-secret|client_secret|password|passwd|session-token|session_token)=")([^"]*)(")`),
+		Replacement: `${1}` + redactedAuditValue + `${3}`,
+	},
+	{
+		Pattern:     regexp.MustCompile(`(?i)((?:^|[\s])--(?:access-token|refresh-token|id-token|token|api-key|api_key|apikey|secret|client-secret|client_secret|password|passwd|session-token|session_token)=')([^']*)(')`),
+		Replacement: `${1}` + redactedAuditValue + `${3}`,
+	},
+	{
+		Pattern:     regexp.MustCompile(`(?i)((?:^|[\s])--(?:access-token|refresh-token|id-token|token|api-key|api_key|apikey|secret|client-secret|client_secret|password|passwd|session-token|session_token)\s+")([^"]*)(")`),
+		Replacement: `${1}` + redactedAuditValue + `${3}`,
+	},
+	{
+		Pattern:     regexp.MustCompile(`(?i)((?:^|[\s])--(?:access-token|refresh-token|id-token|token|api-key|api_key|apikey|secret|client-secret|client_secret|password|passwd|session-token|session_token)\s+')([^']*)(')`),
+		Replacement: `${1}` + redactedAuditValue + `${3}`,
+	},
+	{
+		Pattern:     regexp.MustCompile(`(?i)((?:^|[\s])--(?:access-token|refresh-token|id-token|token|api-key|api_key|apikey|secret|client-secret|client_secret|password|passwd|session-token|session_token)\s+)([^-\s"'][^\s"']*)`),
+		Replacement: `${1}` + redactedAuditValue,
+	},
+	{
 		Pattern:     regexp.MustCompile(`(?i)([?&](?:access_token|refresh_token|id_token|token|api[_-]?key|secret|client_secret|password|passwd|session[_-]?token)=)([^&\s]+)`),
 		Replacement: `${1}` + redactedAuditValue,
 	},

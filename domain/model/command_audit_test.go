@@ -49,6 +49,64 @@ func TestNewCommandAudit(t *testing.T) {
 		}
 	})
 
+	t.Run("restores original byte metadata from truncation marker", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := model.NewCommandAudit(
+			eventID,
+			"go test ./...",
+			"head\n...[truncated original_bytes=12345]...\ntail",
+			"stdout",
+			true,
+			false,
+		)
+		if err != nil {
+			t.Fatalf("NewCommandAudit() error = %v", err)
+		}
+		if got.InputOriginalBytes() != 12345 {
+			t.Fatalf("InputOriginalBytes() = %d, want 12345", got.InputOriginalBytes())
+		}
+	})
+
+	t.Run("ignores original byte text outside truncation marker", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := model.NewCommandAudit(
+			eventID,
+			"go test ./...",
+			"user text ...[truncated original_bytes=999]...\n...[truncated original_bytes=12345]...\ntail",
+			"stdout",
+			true,
+			false,
+		)
+		if err != nil {
+			t.Fatalf("NewCommandAudit() error = %v", err)
+		}
+		if got.InputOriginalBytes() != 12345 {
+			t.Fatalf("InputOriginalBytes() = %d, want 12345", got.InputOriginalBytes())
+		}
+	})
+
+	t.Run("ignores original byte metadata for untruncated payloads", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := model.NewCommandAudit(
+			eventID,
+			"go test ./...",
+			"stdin",
+			"stdout",
+			false,
+			false,
+		)
+		if err != nil {
+			t.Fatalf("NewCommandAudit() error = %v", err)
+		}
+		got.SetOriginalPayloadBytes(5, 6)
+		if got.InputOriginalBytes() != 0 || got.OutputOriginalBytes() != 0 {
+			t.Fatalf("original bytes = (%d, %d), want zero", got.InputOriginalBytes(), got.OutputOriginalBytes())
+		}
+	})
+
 	t.Run("returns error for empty command", func(t *testing.T) {
 		t.Parallel()
 

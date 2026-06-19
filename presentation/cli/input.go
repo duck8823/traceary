@@ -33,7 +33,9 @@ type auditCommandInput struct {
 	asJSON         bool
 	allowSecrets   bool
 	maxInputBytes  int
+	maxInputSet    bool
 	maxOutputBytes int
+	maxOutputSet   bool
 }
 
 // backupCreateCommandInput is the resolved input to `traceary backup create`.

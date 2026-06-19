@@ -83,7 +83,9 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 				asJSON:         asJSON,
 				allowSecrets:   allowSecrets,
 				maxInputBytes:  maxInputBytes,
+				maxInputSet:    cmd.Flags().Changed("max-input-bytes"),
 				maxOutputBytes: maxOutputBytes,
+				maxOutputSet:   cmd.Flags().Changed("max-output-bytes"),
 			})
 		},
 	}
@@ -162,11 +164,11 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		return err
 	}
 
-	maxInputBytes, err := resolveAuditMaxBytes(input.maxInputBytes, "TRACEARY_MAX_AUDIT_INPUT_BYTES")
+	maxInputBytes, err := resolveAuditMaxBytes(input.maxInputBytes, input.maxInputSet, "TRACEARY_MAX_AUDIT_INPUT_BYTES", c.defaultAuditMaxInputBytes)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve input byte limit", "input 上限の解決に失敗しました"), err)
 	}
-	maxOutputBytes, err := resolveAuditMaxBytes(input.maxOutputBytes, "TRACEARY_MAX_AUDIT_OUTPUT_BYTES")
+	maxOutputBytes, err := resolveAuditMaxBytes(input.maxOutputBytes, input.maxOutputSet, "TRACEARY_MAX_AUDIT_OUTPUT_BYTES", c.defaultAuditMaxOutputBytes)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve output byte limit", "output 上限の解決に失敗しました"), err)
 	}
@@ -324,8 +326,8 @@ func resolveAuditPayloadField(
 	return "", nil
 }
 
-func resolveAuditMaxBytes(flagValue int, envKey string) (int, error) {
-	if flagValue != 0 {
+func resolveAuditMaxBytes(flagValue int, flagSet bool, envKey string, configValue int) (int, error) {
+	if flagSet {
 		if flagValue < 0 {
 			return 0, xerrors.New(Localize("value must be greater than or equal to 0", "0 以上で指定してください"))
 		}
@@ -334,12 +336,18 @@ func resolveAuditMaxBytes(flagValue int, envKey string) (int, error) {
 
 	envValue, exists := os.LookupEnv(envKey)
 	if !exists {
-		return 0, nil
+		if configValue < 0 {
+			return 0, xerrors.New(Localize("configured audit byte limit must be greater than or equal to 0", "設定された audit byte 上限は 0 以上で指定してください"))
+		}
+		return configValue, nil
 	}
 
 	trimmedEnvValue := strings.TrimSpace(envValue)
 	if trimmedEnvValue == "" {
-		return 0, nil
+		if configValue < 0 {
+			return 0, xerrors.New(Localize("configured audit byte limit must be greater than or equal to 0", "設定された audit byte 上限は 0 以上で指定してください"))
+		}
+		return configValue, nil
 	}
 
 	parsedValue, err := strconv.Atoi(trimmedEnvValue)

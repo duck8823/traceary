@@ -85,13 +85,15 @@ func newCommandAuditOutput(audit *model.CommandAudit) *commandAudit {
 		exitCode = &ec
 	}
 	return &commandAudit{
-		Command:         audit.Command(),
-		Input:           audit.Input(),
-		Output:          audit.Output(),
-		InputTruncated:  audit.InputTruncated(),
-		OutputTruncated: audit.OutputTruncated(),
-		ExitCode:        exitCode,
-		Failed:          audit.Failed(),
+		Command:             audit.Command(),
+		Input:               audit.Input(),
+		Output:              audit.Output(),
+		InputTruncated:      audit.InputTruncated(),
+		OutputTruncated:     audit.OutputTruncated(),
+		InputOriginalBytes:  audit.InputOriginalBytes(),
+		OutputOriginalBytes: audit.OutputOriginalBytes(),
+		ExitCode:            exitCode,
+		Failed:              audit.Failed(),
 	}
 }
 

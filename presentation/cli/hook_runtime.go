@@ -513,7 +513,18 @@ func (c *RootCLI) runHookAudit(
 		}
 	}
 
+	maxInputBytes, err := resolveAuditMaxBytes(0, false, "TRACEARY_MAX_AUDIT_INPUT_BYTES", c.defaultAuditMaxInputBytes)
+	if err != nil {
+		return xerrors.Errorf("failed to resolve input byte limit: %w", err)
+	}
+	maxOutputBytes, err := resolveAuditMaxBytes(0, false, "TRACEARY_MAX_AUDIT_OUTPUT_BYTES", c.defaultAuditMaxOutputBytes)
+	if err != nil {
+		return xerrors.Errorf("failed to resolve output byte limit: %w", err)
+	}
+
 	auditCfg := apptypes.NewAuditRedactionBuilder().
+		MaxInputBytes(maxInputBytes).
+		MaxOutputBytes(maxOutputBytes).
 		ExtraRedactPatterns(c.extraRedactPatterns).
 		StructuredRules(c.structuredRedactRules).
 		Build()

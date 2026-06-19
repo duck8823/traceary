@@ -52,8 +52,12 @@ Key columns:
 - `output_text`: stored command output payload
 - `input_truncated`: whether Traceary truncated the stored input
 - `output_truncated`: whether Traceary truncated the stored output
+- `input_original_bytes`: original input byte count when `input_truncated` is true and known
+- `output_original_bytes`: original output byte count when `output_truncated` is true and known
 - `exit_code`: captured exit code when available
 - `failed`: structural failure flag, set when a host reports a tool/command failure without a numeric exit code in the hook payload (e.g. Claude's `PostToolUseFailure`); `list --failures` matches `failed = 1` in addition to a non-zero `exit_code`
+
+When `input_truncated` or `output_truncated` is true, the stored payload is already a bounded head/tail projection, the corresponding `*_original_bytes` column records the original size for new rows, and the body also includes an `original_bytes` marker for human-readable context. The omitted bytes are not recoverable from historical rows.
 
 Because `command_audits.event_id` uses `ON DELETE CASCADE`, deleting an event through `gc` also deletes its audit payload.
 
