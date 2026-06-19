@@ -783,7 +783,7 @@ func (c *RootCLI) inspectClientEventCoverage(ctx context.Context, client, output
 		})
 	}
 	coverage := appusecase.SummarizeSessionEventCoverage(inputs)
-	ratio := coverage.BoundaryOnlyRatio()
+	ratio := coverage.PromptTranscriptMissingRatio()
 	if coverage.Sessions < doctorEventCoverageMinSample {
 		return doctorCheck{
 			Name:   checkName,
@@ -803,12 +803,13 @@ func (c *RootCLI) inspectClientEventCoverage(ctx context.Context, client, output
 			Name:   checkName,
 			Status: doctorStatusPass,
 			Message: localizef(
-				"scanned %d recent %s event(s); prompt/transcript coverage is healthy (sessions=%d prompt_transcript_missing=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d ratio=%.2f threshold=%.2f)",
-				"%d 件の recent %s event を検査しました。prompt/transcript coverage は健全です (sessions=%d prompt_transcript_missing=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d ratio=%.2f threshold=%.2f)",
+				"scanned %d recent %s event(s); prompt/transcript coverage is healthy (sessions=%d prompt_transcript_missing=%d complete=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d ratio=%.2f threshold=%.2f)",
+				"%d 件の recent %s event を検査しました。prompt/transcript coverage は健全です (sessions=%d prompt_transcript_missing=%d complete=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d ratio=%.2f threshold=%.2f)",
 				len(events),
 				client,
 				coverage.Sessions,
-				coverage.BoundaryOnly,
+				coverage.PromptTranscriptMissing,
+				coverage.Complete,
 				coverage.Enriched,
 				coverage.WithPrompt,
 				coverage.WithTranscript,
@@ -834,13 +835,14 @@ func (c *RootCLI) inspectClientEventCoverage(ctx context.Context, client, output
 						strings.Join(missing, ", "),
 					),
 					Message: localizef(
-						"scanned %d recent %s event(s); %.0f%% of complete sessions lack prompt/transcript coverage (sessions=%d prompt_transcript_missing=%d enriched=%d, threshold=%.0f%%). The plugin-managed config is missing Traceary-managed %s hooks",
-						"%d 件の recent %s event を検査しました。完全に観測できた session の %.0f%% で prompt/transcript coverage が不足しています (sessions=%d prompt_transcript_missing=%d enriched=%d, threshold=%.0f%%)。plugin-managed config に Traceary 管理の %s hook がありません",
+						"scanned %d recent %s event(s); %.0f%% of complete sessions lack prompt/transcript coverage (sessions=%d prompt_transcript_missing=%d complete=%d enriched=%d, threshold=%.0f%%). The plugin-managed config is missing Traceary-managed %s hooks",
+						"%d 件の recent %s event を検査しました。完全に観測できた session の %.0f%% で prompt/transcript coverage が不足しています (sessions=%d prompt_transcript_missing=%d complete=%d enriched=%d, threshold=%.0f%%)。plugin-managed config に Traceary 管理の %s hook がありません",
 						len(events),
 						client,
 						ratio*100,
 						coverage.Sessions,
-						coverage.BoundaryOnly,
+						coverage.PromptTranscriptMissing,
+						coverage.Complete,
 						coverage.Enriched,
 						threshold*100,
 						strings.Join(missing, ", "),
@@ -859,13 +861,14 @@ func (c *RootCLI) inspectClientEventCoverage(ctx context.Context, client, output
 					fixCommand,
 				),
 				Message: localizef(
-					"scanned %d recent %s event(s); %.0f%% of complete sessions lack prompt/transcript coverage (sessions=%d prompt_transcript_missing=%d enriched=%d, threshold=%.0f%%). The installed config is missing Traceary-managed %s hooks: %s",
-					"%d 件の recent %s event を検査しました。完全に観測できた session の %.0f%% で prompt/transcript coverage が不足しています (sessions=%d prompt_transcript_missing=%d enriched=%d, threshold=%.0f%%)。インストール済み config に Traceary 管理の %s hook がありません: %s",
+					"scanned %d recent %s event(s); %.0f%% of complete sessions lack prompt/transcript coverage (sessions=%d prompt_transcript_missing=%d complete=%d enriched=%d, threshold=%.0f%%). The installed config is missing Traceary-managed %s hooks: %s",
+					"%d 件の recent %s event を検査しました。完全に観測できた session の %.0f%% で prompt/transcript coverage が不足しています (sessions=%d prompt_transcript_missing=%d complete=%d enriched=%d, threshold=%.0f%%)。インストール済み config に Traceary 管理の %s hook がありません: %s",
 					len(events),
 					client,
 					ratio*100,
 					coverage.Sessions,
-					coverage.BoundaryOnly,
+					coverage.PromptTranscriptMissing,
+					coverage.Complete,
 					coverage.Enriched,
 					threshold*100,
 					strings.Join(missing, ", "),
@@ -902,13 +905,14 @@ func (c *RootCLI) inspectClientEventCoverage(ctx context.Context, client, output
 		Status: doctorStatusWarn,
 		Hint:   hint,
 		Message: localizef(
-			"scanned %d recent %s event(s); %.0f%% of complete sessions lack prompt/transcript coverage (sessions=%d prompt_transcript_missing=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d, threshold=%.0f%%)",
-			"%d 件の recent %s event を検査しました。完全に観測できた session の %.0f%% で prompt/transcript coverage が不足しています (sessions=%d prompt_transcript_missing=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d, threshold=%.0f%%)",
+			"scanned %d recent %s event(s); %.0f%% of complete sessions lack prompt/transcript coverage (sessions=%d prompt_transcript_missing=%d complete=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d, threshold=%.0f%%)",
+			"%d 件の recent %s event を検査しました。完全に観測できた session の %.0f%% で prompt/transcript coverage が不足しています (sessions=%d prompt_transcript_missing=%d complete=%d enriched=%d with_prompt=%d with_transcript=%d with_command=%d, threshold=%.0f%%)",
 			len(events),
 			client,
 			ratio*100,
 			coverage.Sessions,
-			coverage.BoundaryOnly,
+			coverage.PromptTranscriptMissing,
+			coverage.Complete,
 			coverage.Enriched,
 			coverage.WithPrompt,
 			coverage.WithTranscript,

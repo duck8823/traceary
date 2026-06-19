@@ -13,10 +13,11 @@ func TestSummarizeSessionEventCoverage(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		events    []usecase.EventCoverageInput
-		want      usecase.SessionEventCoverage
-		wantRatio float64
+		name                             string
+		events                           []usecase.EventCoverageInput
+		want                             usecase.SessionEventCoverage
+		wantRatio                        float64
+		wantPromptTranscriptMissingRatio float64
 	}{
 		{
 			name:      "empty input yields zero counts and zero ratio",
@@ -40,35 +41,41 @@ func TestSummarizeSessionEventCoverage(t *testing.T) {
 				{SessionID: "s1", Kind: types.EventKindSessionEnded},
 			},
 			want: usecase.SessionEventCoverage{
-				Sessions:     1,
-				BoundaryOnly: 1,
+				Sessions:                1,
+				BoundaryOnly:            1,
+				PromptTranscriptMissing: 1,
 			},
-			wantRatio: 1,
+			wantRatio:                        1,
+			wantPromptTranscriptMissingRatio: 1,
 		},
 		{
-			name: "prompt only counts as enriched with prompt",
+			name: "prompt only counts as enriched but still misses transcript",
 			events: []usecase.EventCoverageInput{
 				{SessionID: "s1", Kind: types.EventKindSessionStarted},
 				{SessionID: "s1", Kind: types.EventKindPrompt},
 			},
 			want: usecase.SessionEventCoverage{
-				Sessions:   1,
-				Enriched:   1,
-				WithPrompt: 1,
+				Sessions:                1,
+				Enriched:                1,
+				PromptTranscriptMissing: 1,
+				WithPrompt:              1,
 			},
-			wantRatio: 0,
+			wantRatio:                        0,
+			wantPromptTranscriptMissingRatio: 1,
 		},
 		{
-			name: "transcript only counts as enriched with transcript",
+			name: "transcript only counts as enriched but still misses prompt",
 			events: []usecase.EventCoverageInput{
 				{SessionID: "s1", Kind: types.EventKindSessionStarted},
 				{SessionID: "s1", Kind: types.EventKindTranscript},
 			},
 			want: usecase.SessionEventCoverage{
-				Sessions:       1,
-				Enriched:       1,
-				WithTranscript: 1,
+				Sessions:                1,
+				Enriched:                1,
+				PromptTranscriptMissing: 1,
+				WithTranscript:          1,
 			},
+			wantPromptTranscriptMissingRatio: 1,
 		},
 		{
 			name: "command only is counted but does not satisfy prompt transcript coverage",
@@ -77,11 +84,13 @@ func TestSummarizeSessionEventCoverage(t *testing.T) {
 				{SessionID: "s1", Kind: types.EventKindCommandExecuted},
 			},
 			want: usecase.SessionEventCoverage{
-				Sessions:     1,
-				BoundaryOnly: 1,
-				WithCommand:  1,
+				Sessions:                1,
+				BoundaryOnly:            1,
+				PromptTranscriptMissing: 1,
+				WithCommand:             1,
 			},
-			wantRatio: 1,
+			wantRatio:                        1,
+			wantPromptTranscriptMissingRatio: 1,
 		},
 		{
 			name: "neutral events do not enrich a boundary only session",
@@ -91,10 +100,12 @@ func TestSummarizeSessionEventCoverage(t *testing.T) {
 				{SessionID: "s1", Kind: types.EventKindNote},
 			},
 			want: usecase.SessionEventCoverage{
-				Sessions:     1,
-				BoundaryOnly: 1,
+				Sessions:                1,
+				BoundaryOnly:            1,
+				PromptTranscriptMissing: 1,
 			},
-			wantRatio: 1,
+			wantRatio:                        1,
+			wantPromptTranscriptMissingRatio: 1,
 		},
 		{
 			name: "mixed sessions report ratio",
@@ -109,14 +120,17 @@ func TestSummarizeSessionEventCoverage(t *testing.T) {
 				{SessionID: "truncated", Kind: types.EventKindPrompt},
 			},
 			want: usecase.SessionEventCoverage{
-				Sessions:       3,
-				BoundaryOnly:   2,
-				Enriched:       1,
-				WithPrompt:     1,
-				WithTranscript: 1,
-				WithCommand:    1,
+				Sessions:                3,
+				BoundaryOnly:            2,
+				Enriched:                1,
+				Complete:                1,
+				PromptTranscriptMissing: 2,
+				WithPrompt:              1,
+				WithTranscript:          1,
+				WithCommand:             1,
 			},
-			wantRatio: float64(2) / float64(3),
+			wantRatio:                        float64(2) / float64(3),
+			wantPromptTranscriptMissingRatio: float64(2) / float64(3),
 		},
 		{
 			name: "events with empty session id are ignored",
@@ -138,6 +152,9 @@ func TestSummarizeSessionEventCoverage(t *testing.T) {
 			}
 			if gotRatio := got.BoundaryOnlyRatio(); gotRatio != tt.wantRatio {
 				t.Fatalf("BoundaryOnlyRatio() = %v, want %v", gotRatio, tt.wantRatio)
+			}
+			if gotRatio := got.PromptTranscriptMissingRatio(); gotRatio != tt.wantPromptTranscriptMissingRatio {
+				t.Fatalf("PromptTranscriptMissingRatio() = %v, want %v", gotRatio, tt.wantPromptTranscriptMissingRatio)
 			}
 		})
 	}

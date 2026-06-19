@@ -1096,6 +1096,39 @@ func TestRootCLI_DoctorClaudeCoverage(t *testing.T) {
 		}
 	})
 
+	t.Run("prompt only recent claude sessions warn about transcript gap", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+		writeCompleteClaudeProjectHookSettings(t, projectDir)
+		eventStub := &eventUsecaseStub{listEvents: claudePromptOnlyCoverageEvents(3)}
+
+		rootCmd := newTestRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(eventStub),
+		).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--client", "claude", "--project-dir", projectDir, "--json"})
+
+		executeDoctorAllowWarnings(t, rootCmd)
+
+		report := decodeDoctorReport(t, stdout.Bytes())
+		check := statusByName(report, "claude-event-coverage")
+		if check.Status != "warn" {
+			t.Fatalf("claude-event-coverage status = %q, want warn (message=%q)", check.Status, check.Message)
+		}
+		if !strings.Contains(check.Message, "100%") || !strings.Contains(check.Message, "with_prompt=3") || !strings.Contains(check.Message, "with_transcript=0") {
+			t.Fatalf("claude-event-coverage message = %q; want prompt-only transcript gap evidence", check.Message)
+		}
+		if !strings.Contains(check.Hint, "hook cancellations") {
+			t.Fatalf("claude-event-coverage hint = %q; want hook cancellation diagnostic hint", check.Hint)
+		}
+	})
+
 	t.Run("plugin-managed hooks do not suggest writing project settings", func(t *testing.T) {
 		homeDir := t.TempDir()
 		projectDir := t.TempDir()
@@ -1578,6 +1611,37 @@ func geminiCoverageEvents(boundaryOnly, enriched int) []*model.Event {
 
 func claudeCoverageEvents(boundaryOnly, enriched int) []*model.Event {
 	return clientCoverageEvents(types.Agent("claude"), boundaryOnly, enriched)
+}
+
+func claudePromptOnlyCoverageEvents(count int) []*model.Event {
+	events := make([]*model.Event, 0, count*2)
+	createdAt := time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < count; i++ {
+		sessionID := fmt.Sprintf("prompt-only-%d", i)
+		events = append(events,
+			model.EventOf(
+				types.EventID(fmt.Sprintf("prompt-only-%d-start", i)),
+				types.EventKindSessionStarted,
+				types.Client("hook"),
+				types.Agent("claude"),
+				types.SessionID(sessionID),
+				types.Workspace("duck8823/traceary"),
+				"body",
+				createdAt,
+			),
+			model.EventOf(
+				types.EventID(fmt.Sprintf("prompt-only-%d-prompt", i)),
+				types.EventKindPrompt,
+				types.Client("hook"),
+				types.Agent("claude"),
+				types.SessionID(sessionID),
+				types.Workspace("duck8823/traceary"),
+				"body",
+				createdAt,
+			),
+		)
+	}
+	return events
 }
 
 func clientCoverageEvents(agent types.Agent, boundaryOnly, enriched int) []*model.Event {
