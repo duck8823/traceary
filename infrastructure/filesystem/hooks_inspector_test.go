@@ -366,6 +366,7 @@ func TestHooksInspector_ManagedCoverage_Claude(t *testing.T) {
 			    "UserPromptSubmit": [{"matcher": "*", "hooks": [{"name": "traceary-prompt", "type": "command", "command": "'traceary' 'hook' 'prompt' 'claude'"}]}],
 			    "Stop": [{"matcher": "*", "hooks": [{"name": "traceary-transcript", "type": "command", "command": "'traceary' 'hook' 'transcript' 'claude'"}]}],
 			    "PostToolUse": [{"matcher": "Bash", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}]}],
+			    "PostToolUseFailure": [{"matcher": "Bash", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}]}],
 			    "PreCompact": [{"matcher": "*", "hooks": [{"name": "traceary-compact-pre-compact", "type": "command", "command": "'traceary' 'hook' 'compact' 'claude' 'pre-compact'"}]}],
 			    "PostCompact": [{"matcher": "*", "hooks": [{"name": "traceary-compact-post-compact", "type": "command", "command": "'traceary' 'hook' 'compact' 'claude' 'post-compact'"}]}]
 			  }
@@ -375,6 +376,20 @@ func TestHooksInspector_ManagedCoverage_Claude(t *testing.T) {
 				HasTranscript: true,
 				HasAudit:      true,
 				HasCompact:    true,
+			},
+		},
+		{
+			name: "single Claude audit event is incomplete",
+			payload: `{
+			  "hooks": {
+			    "UserPromptSubmit": [{"matcher": "*", "hooks": [{"name": "traceary-prompt", "type": "command", "command": "'traceary' 'hook' 'prompt' 'claude'"}]}],
+			    "Stop": [{"matcher": "*", "hooks": [{"name": "traceary-transcript", "type": "command", "command": "'traceary' 'hook' 'transcript' 'claude'"}]}],
+			    "PostToolUse": [{"matcher": "Bash", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}]}]
+			  }
+			}`,
+			want: application.HookManagedCoverage{
+				HasPrompt:     true,
+				HasTranscript: true,
 			},
 		},
 		{

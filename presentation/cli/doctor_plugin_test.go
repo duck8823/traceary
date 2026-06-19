@@ -85,6 +85,9 @@ func TestRootCLI_Doctor_ClaudePluginInteractions(t *testing.T) {
     ],
     "PostToolUse": [
       {"matcher": "Bash", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}]}
+    ],
+    "PostToolUseFailure": [
+      {"matcher": "Bash", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}]}
     ]
   }
 }`)
@@ -119,6 +122,9 @@ func TestRootCLI_Doctor_ClaudePluginInteractions(t *testing.T) {
       {"matcher": "*", "hooks": [{"name": "traceary-transcript", "type": "command", "command": "'traceary' 'hook' 'transcript' 'claude'"}]}
     ],
     "PostToolUse": [
+      {"matcher": "Bash", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}]}
+    ],
+    "PostToolUseFailure": [
       {"matcher": "Bash", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}]}
     ]
   }
@@ -561,6 +567,18 @@ func writeClaudeGlobalHooksSettings(t *testing.T, home string) {
       }
     ],
     "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "name": "traceary-audit",
+            "type": "command",
+            "command": "'traceary' 'hook' 'audit' 'claude'"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
       {
         "matcher": "Bash",
         "hooks": [

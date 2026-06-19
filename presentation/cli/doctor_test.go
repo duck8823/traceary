@@ -1509,6 +1509,18 @@ func writeClaudeHookSettings(t *testing.T, projectDir string) {
           }
         ]
       }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "name": "traceary-audit",
+            "type": "command",
+            "command": "'traceary' 'hook' 'audit' 'claude'"
+          }
+        ]
+      }
     ]
   }
 }
@@ -1565,6 +1577,9 @@ func writeCompleteClaudeProjectHookSettings(t *testing.T, projectDir string) {
       {"matcher": "*", "hooks": [{"name": "traceary-transcript", "type": "command", "command": "'traceary' 'hook' 'transcript' 'claude'"}]}
     ],
     "PostToolUse": [
+      {"matcher": "Bash", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}]}
+    ],
+    "PostToolUseFailure": [
       {"matcher": "Bash", "hooks": [{"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'claude'"}]}
     ],
     "PreCompact": [

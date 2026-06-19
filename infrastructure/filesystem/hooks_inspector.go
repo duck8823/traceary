@@ -124,6 +124,7 @@ func (i *HooksInspector) ManagedCoverage(content []byte, client string) (applica
 	}
 
 	coverage := application.HookManagedCoverage{}
+	claudeAuditEvents := map[string]bool{}
 	for event, matchers := range hooksMap {
 		for _, matcher := range matchers {
 			matcherValue := ""
@@ -138,12 +139,19 @@ func (i *HooksInspector) ManagedCoverage(content []byte, client string) (applica
 				case managedCoverageMatchesTranscript(event, managedKey, targetClient):
 					coverage.HasTranscript = true
 				case managedCoverageMatchesAudit(event, matcherValue, managedKey, targetClient):
-					coverage.HasAudit = true
+					if targetClient == "claude" {
+						claudeAuditEvents[event] = true
+					} else {
+						coverage.HasAudit = true
+					}
 				case managedCoverageMatchesCompact(event, managedKey, targetClient):
 					coverage.HasCompact = true
 				}
 			}
 		}
+	}
+	if targetClient == "claude" {
+		coverage.HasAudit = claudeAuditEvents["PostToolUse"] && claudeAuditEvents["PostToolUseFailure"]
 	}
 
 	return coverage, nil
