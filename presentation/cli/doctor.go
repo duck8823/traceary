@@ -947,7 +947,7 @@ func (c *RootCLI) managedCoverageForConfigFile(path string, client string) (appl
 func (c *RootCLI) managedCoverageForEventCoverage(outputPath, client string) (application.HookManagedCoverage, bool, bool, string) {
 	if client == "claude" {
 		detection := c.detectClaudeTracearyPluginForCLI()
-		if detection.Active && !c.claudeConfigHasTracearyHooks(outputPath) {
+		if detection.Active {
 			coverage, known := c.managedCoverageForInstalledClaudePlugin(detection.PluginKey)
 			return coverage, known, true, detection.PluginKey
 		}

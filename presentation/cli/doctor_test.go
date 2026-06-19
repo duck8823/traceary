@@ -1202,6 +1202,51 @@ func TestRootCLI_DoctorClaudeCoverage(t *testing.T) {
 		}
 	})
 
+	t.Run("plugin active with stale settings hooks does not suggest settings fix", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+		writePluginEnabledSettings(t, homeDir)
+		writeClaudeProjectSessionOnlyHook(t, projectDir)
+		writeClaudePluginCacheHooks(t, homeDir, `{
+  "hooks": {
+    "SessionStart": [
+      {"matcher": "*", "hooks": [{"name": "traceary-session-start", "type": "command", "command": "'traceary' 'hook' 'session' 'claude' 'start'"}]}
+    ]
+  }
+}`)
+		eventStub := &eventUsecaseStub{listEvents: claudeCoverageEvents(2, 1)}
+
+		rootCmd := newTestRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(eventStub),
+		).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--client", "claude", "--project-dir", projectDir, "--json"})
+
+		executeDoctorAllowWarnings(t, rootCmd)
+
+		report := decodeDoctorReport(t, stdout.Bytes())
+		configCheck := statusByName(report, "claude-config")
+		if configCheck.Status != "warn" || !strings.Contains(configCheck.Message, "twice") {
+			t.Fatalf("claude-config status/message = %q/%q; want double-registration warning", configCheck.Status, configCheck.Message)
+		}
+		coverage := statusByName(report, "claude-event-coverage")
+		if coverage.Status != "warn" {
+			t.Fatalf("claude-event-coverage status = %q, want warn (message=%q)", coverage.Status, coverage.Message)
+		}
+		if strings.Contains(coverage.FixCommand, "traceary doctor") {
+			t.Fatalf("claude-event-coverage remediation = hint %q fix %q; want plugin/double-registration path, not settings fix", coverage.Hint, coverage.FixCommand)
+		}
+		if !strings.Contains(coverage.FixCommand, "claude plugins update traceary@traceary-plugins") {
+			t.Fatalf("claude-event-coverage FixCommand = %q; want plugin update", coverage.FixCommand)
+		}
+	})
+
 	t.Run("plugin-managed cached hook gaps warn before sample gate", func(t *testing.T) {
 		homeDir := t.TempDir()
 		projectDir := t.TempDir()
