@@ -3,9 +3,12 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -389,7 +392,9 @@ func TestRootCLI_HookSessionCommand_EndLeavesCancellationDiagnosticOnFailure(t *
 	if diagnostic.StartedAt == "" {
 		t.Fatal("diagnostic started_at is empty")
 	}
-	malformedPath := filepath.Join(diagnosticsDir, "claude-SessionEnd-cancelled-session-malformed-20260619T000000.000000000Z.json")
+	malformedHash := hookCancellationDiagnosticSessionHashForTest("claude", "SessionEnd", "cancelled-session")
+	malformedName := fmt.Sprintf("claude-SessionEnd-cancelled-session-%s-malformed-20260619T000000.000000000Z.json", malformedHash)
+	malformedPath := filepath.Join(diagnosticsDir, malformedName)
 	if err := os.WriteFile(malformedPath, []byte(`{"client":"claude"`), 0o600); err != nil {
 		t.Fatalf("WriteFile(malformed diagnostic) error = %v", err)
 	}
@@ -425,6 +430,19 @@ func TestRootCLI_HookSessionCommand_EndLeavesCancellationDiagnosticOnFailure(t *
 	if len(entries) != 0 {
 		t.Fatalf("diagnostics entries after successful retry = %d, want none", len(entries))
 	}
+}
+
+// hookCancellationDiagnosticSessionHashForTest mirrors the production hash
+// embedded in diagnostic filenames so malformed-marker fixtures use the same
+// scheme that unreadable cleanup matches against.
+func hookCancellationDiagnosticSessionHashForTest(client, hostEvent, sessionID string) string {
+	seed := strings.Join([]string{
+		strings.TrimSpace(client),
+		strings.TrimSpace(hostEvent),
+		strings.TrimSpace(sessionID),
+	}, "\x00")
+	sum := sha256.Sum256([]byte(seed))
+	return "s" + hex.EncodeToString(sum[:])[:12]
 }
 
 func TestRootCLI_HookSessionCommand_EndWritesCancellationDiagnosticBeforeWorkspaceResolution(t *testing.T) {

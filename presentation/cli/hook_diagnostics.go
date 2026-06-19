@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -19,6 +21,11 @@ const (
 	hookCancellationDiagnosticSchemaVersion = 1
 	hookCancellationDiagnosticStatusStarted = "started"
 	hookDiagnosticsDirName                  = "diagnostics"
+	// hookCancellationDiagnosticSessionHashLen is the number of hex characters
+	// kept from the session hash embedded in diagnostic filenames. Twelve hex
+	// characters (48 bits) make accidental collisions between distinct sessions
+	// in a single diagnostics directory negligible while staying short.
+	hookCancellationDiagnosticSessionHashLen = 12
 )
 
 type hookCancellationDiagnostic struct {
@@ -209,17 +216,38 @@ func clearHookCancellationDiagnosticsForSession(client, hostEvent string, sessio
 	return nil
 }
 
+// hookCancellationDiagnosticPathMatchesSession reports whether an unreadable
+// diagnostic file belongs to the given (client, hostEvent, session) by matching
+// the stable hash segment embedded in the filename. Matching a delimited hash
+// segment — rather than a hyphenated client/event/session prefix — keeps cleanup
+// exact even when session IDs themselves contain hyphens, which a prefix match
+// would overmatch (e.g. session "cancelled" overmatching "cancelled-session").
 func hookCancellationDiagnosticPathMatchesSession(path, client, hostEvent string, sessionID types.SessionID) bool {
 	fileName := filepath.Base(strings.TrimSpace(path))
-	if fileName == "" {
+	if !strings.HasSuffix(fileName, ".json") {
 		return false
 	}
-	prefix := strings.Join([]string{
-		sanitizeHookStateKey(client),
-		sanitizeHookStateKey(hostEvent),
-		sanitizeHookStateKey(sessionID.String()),
-	}, "-") + "-"
-	return strings.HasPrefix(fileName, prefix) && strings.HasSuffix(fileName, ".json")
+	hash := hookCancellationDiagnosticSessionHash(client, hostEvent, sessionID.String())
+	for _, segment := range strings.Split(strings.TrimSuffix(fileName, ".json"), "-") {
+		if segment == hash {
+			return true
+		}
+	}
+	return false
+}
+
+// hookCancellationDiagnosticSessionHash derives the stable filename segment that
+// identifies a diagnostic's (client, hostEvent, session) tuple. The inputs are
+// trimmed to match the values stored on the record, so generation and cleanup
+// always agree on the same hash.
+func hookCancellationDiagnosticSessionHash(client, hostEvent, sessionID string) string {
+	seed := strings.Join([]string{
+		strings.TrimSpace(client),
+		strings.TrimSpace(hostEvent),
+		strings.TrimSpace(sessionID),
+	}, "\x00")
+	sum := sha256.Sum256([]byte(seed))
+	return "s" + hex.EncodeToString(sum[:])[:hookCancellationDiagnosticSessionHashLen]
 }
 
 func emptyAsDash(value string) string {
@@ -321,6 +349,7 @@ func hookCancellationDiagnosticFileName(record hookCancellationDiagnostic, start
 		record.Client,
 		record.HostEvent,
 		record.SessionID,
+		hookCancellationDiagnosticSessionHash(record.Client, record.HostEvent, record.SessionID),
 		resolveHookStateKey(),
 		startedAt.UTC().Format("20060102T150405.000000000Z"),
 	}
