@@ -81,8 +81,34 @@ func topSnapshotReliabilityFromMetrics(metrics topReliabilityMetrics) topSnapsho
 			RecentFailureCount: metrics.LargePayloads.RecentFailureCount,
 			SampledEventCount:  metrics.LargePayloads.SampledEventCount,
 			BodyLimitRunes:     metrics.LargePayloads.BodyLimitRunes,
+			Samples:            topSnapshotLargePayloadSamplesFromMetrics(metrics.LargePayloads.Samples),
 		},
 	}
+}
+
+func topSnapshotLargePayloadSamplesFromMetrics(samples []topLargePayloadSample) []topSnapshotLargePayloadSample {
+	if len(samples) == 0 {
+		return nil
+	}
+	out := make([]topSnapshotLargePayloadSample, 0, len(samples))
+	for _, sample := range samples {
+		out = append(out, topSnapshotLargePayloadSample{
+			EventID:       sample.EventID,
+			Kind:          sample.Kind,
+			Source:        sample.Source,
+			MessageLength: sample.MessageLength,
+			MessageBytes:  sample.MessageBytes,
+			FirstLine:     sample.FirstLine,
+			RetrievalHint: largePayloadRetrievalHint(sample.EventID),
+		})
+	}
+	return out
+}
+
+// largePayloadRetrievalHint renders the explicit detail-read command that
+// returns the full, untruncated body for an event id.
+func largePayloadRetrievalHint(eventID string) string {
+	return "traceary show " + eventID
 }
 
 func topSnapshotReliabilityMemoryFromMetrics(metrics topReliabilityMetrics) topSnapshotReliabilityMemory {
@@ -137,6 +163,12 @@ func topSnapshotNodeFromSessionNode(node *sessionNode, depth int, staleCtx snaps
 
 func topSnapshotNodeFromSessionNodeWithVisited(node *sessionNode, depth int, visited map[string]bool, staleCtx snapshotStaleContext) *topSnapshotNode {
 	s := node.summary
+	// Apply the shared list-surface body cap to latest_event_message so a
+	// noisy command_executed / tool payload in the latest event does not get
+	// re-amplified into the next agent's context through the snapshot. The
+	// full body stays retrievable via `traceary show <latest_event_id>`,
+	// which bypasses this limit.
+	latestMessage := apptypes.TruncateCommandPayload(s.LatestEventMessage(), apptypes.DefaultTopSnapshotBodyLimit)
 	jn := &topSnapshotNode{
 		SessionID:          s.SessionID().String(),
 		ParentSessionID:    s.ParentSessionID().String(),
@@ -145,7 +177,8 @@ func topSnapshotNodeFromSessionNodeWithVisited(node *sessionNode, depth int, vis
 		Depth:              depth,
 		Workspace:          s.Workspace().String(),
 		LatestEventKind:    s.LatestEventKind().String(),
-		LatestEventMessage: s.LatestEventMessage(),
+		LatestEventID:      s.LatestEventID().String(),
+		LatestEventMessage: latestMessage.Body,
 		LatestEventAt:      formatJSONTime(s.LatestEventAt()),
 		Label:              s.Label(),
 		Summary:            s.Summary(),
@@ -156,6 +189,11 @@ func topSnapshotNodeFromSessionNodeWithVisited(node *sessionNode, depth int, vis
 		Agents:             s.Agents(),
 		SubagentType:       extractSubagentType(s.Agents()),
 		Children:           make([]*topSnapshotNode, 0, len(node.children)),
+	}
+	if latestMessage.Truncated {
+		jn.LatestEventMessageTruncated = true
+		jn.LatestEventMessageLength = latestMessage.OriginalRuneCount
+		jn.LatestEventMessageBytes = latestMessage.OriginalByteCount
 	}
 	if spawnOrder, ok := s.SpawnOrder().Value(); ok {
 		jn.SpawnOrder = &spawnOrder

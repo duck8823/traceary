@@ -240,7 +240,35 @@ type topLargePayloadMetrics struct {
 	RecentFailureCount int
 	SampledEventCount  int
 	BodyLimitRunes     int
+	Samples            []topLargePayloadSample
 }
+
+// topLargePayloadSample is body-safe metadata about a single oversized event.
+// It never holds the full body; FirstLine is whitespace-collapsed and
+// rune-bounded so the sample can be surfaced without re-amplifying the payload.
+type topLargePayloadSample struct {
+	EventID       string
+	Kind          string
+	Source        string
+	MessageLength int
+	MessageBytes  int
+	FirstLine     string
+}
+
+const (
+	// topLargePayloadSampleLimit bounds how many large-payload samples the
+	// snapshot embeds so a flood of oversized events cannot itself balloon
+	// the snapshot.
+	topLargePayloadSampleLimit = 10
+	// topLargePayloadFirstLineRuneLimit bounds the first_line excerpt so a
+	// single very long first line stays body-safe.
+	topLargePayloadFirstLineRuneLimit = 200
+)
+
+const (
+	largePayloadSourceFailure       = "failure"
+	largePayloadSourceRecentCommand = "recent_command"
+)
 
 const topReliabilityMemoryScanLimit = 2000
 
@@ -660,6 +688,9 @@ func topLargePayloadMetricsOf(failures []*model.Event, commands []*model.Event, 
 	metrics.RecentFailureCount = countLargePayloadEvents(failures, limit)
 	metrics.RecentCommandCount = countLargePayloadEvents(commands, limit)
 	metrics.Count = metrics.RecentFailureCount + metrics.RecentCommandCount
+	// Failures are sampled before recent commands so the same event surfacing
+	// in both panes keeps its failure source label and yields a single row.
+	metrics.Samples = collectLargePayloadSamples(failures, commands, limit)
 	return metrics
 }
 
@@ -674,6 +705,64 @@ func countLargePayloadEvents(events []*model.Event, limit int) int {
 		}
 	}
 	return count
+}
+
+// collectLargePayloadSamples builds body-safe samples for the oversized events
+// in the failure / recent-command panes, deduped by event id and capped at
+// topLargePayloadSampleLimit. Only events whose body exceeds the body cap are
+// sampled, matching the counts above.
+func collectLargePayloadSamples(failures []*model.Event, commands []*model.Event, limit int) []topLargePayloadSample {
+	samples := make([]topLargePayloadSample, 0, topLargePayloadSampleLimit)
+	seen := make(map[string]struct{})
+	appendSamples := func(events []*model.Event, source string) {
+		for _, ev := range events {
+			if ev == nil {
+				continue
+			}
+			if len(samples) >= topLargePayloadSampleLimit {
+				return
+			}
+			body := apptypes.ExtractPlainBody(ev.Body())
+			truncation := apptypes.TruncateCommandPayload(body, limit)
+			if !truncation.Truncated {
+				continue
+			}
+			eventID := ev.EventID().String()
+			if _, ok := seen[eventID]; ok {
+				continue
+			}
+			seen[eventID] = struct{}{}
+			samples = append(samples, topLargePayloadSample{
+				EventID:       eventID,
+				Kind:          ev.Kind().String(),
+				Source:        source,
+				MessageLength: truncation.OriginalRuneCount,
+				MessageBytes:  truncation.OriginalByteCount,
+				FirstLine:     boundedFirstLine(body, topLargePayloadFirstLineRuneLimit),
+			})
+		}
+	}
+	appendSamples(failures, largePayloadSourceFailure)
+	appendSamples(commands, largePayloadSourceRecentCommand)
+	if len(samples) == 0 {
+		return nil
+	}
+	return samples
+}
+
+// boundedFirstLine returns the first non-empty line of body, whitespace-
+// collapsed and bounded to limit runes, so a large-payload sample stays
+// body-safe.
+func boundedFirstLine(body string, limit int) string {
+	for _, line := range strings.Split(body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		trimmed = strings.Join(strings.Fields(trimmed), " ")
+		return apptypes.TruncateCommandPayload(trimmed, limit).Body
+	}
+	return ""
 }
 
 func countCandidatesBySource(candidates []apptypes.MemorySummary, source domtypes.MemorySource) int {

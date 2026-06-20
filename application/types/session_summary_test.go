@@ -33,7 +33,7 @@ func TestSessionSummaryOf_Getters(t *testing.T) {
 		"task",
 		domtypes.Some(4),
 		startedAt.Add(30*time.Minute),
-		apptypes.SessionSummaryLatestEventOf(domtypes.EventKindTranscript, "assistant reply"),
+		apptypes.SessionSummaryLatestEventOf(domtypes.EventID("latest-event"), domtypes.EventKindTranscript, "assistant reply"),
 	)
 
 	if diff := cmp.Diff(domtypes.SessionID("session-1"), summary.SessionID()); diff != "" {
@@ -86,6 +86,9 @@ func TestSessionSummaryOf_Getters(t *testing.T) {
 	}
 	if !summary.LatestEventAt().Equal(startedAt.Add(30 * time.Minute)) {
 		t.Errorf("LatestEventAt() = %v, want %v", summary.LatestEventAt(), startedAt.Add(30*time.Minute))
+	}
+	if diff := cmp.Diff(domtypes.EventID("latest-event"), summary.LatestEventID()); diff != "" {
+		t.Errorf("LatestEventID() mismatch (-want +got):\n%s", diff)
 	}
 	if diff := cmp.Diff(domtypes.EventKindTranscript, summary.LatestEventKind()); diff != "" {
 		t.Errorf("LatestEventKind() mismatch (-want +got):\n%s", diff)

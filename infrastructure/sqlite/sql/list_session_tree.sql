@@ -26,10 +26,11 @@ WITH RECURSIVE
     GROUP BY e.session_id
   ),
   latest_events AS (
-    SELECT session_id, created_at AS latest_event_at, kind AS latest_event_kind, body AS latest_event_body
+    SELECT session_id, id AS latest_event_id, created_at AS latest_event_at, kind AS latest_event_kind, body AS latest_event_body
     FROM (
       SELECT
         e.session_id,
+        e.id,
         e.created_at,
         e.kind,
         e.body,
@@ -59,6 +60,7 @@ SELECT
   s.subagent_kind,
   s.spawn_order,
   COALESCE(latest.latest_event_kind, '') AS latest_event_kind,
+  COALESCE(latest.latest_event_id, '') AS latest_event_id,
   COALESCE(latest.latest_event_body, '') AS latest_event_body
 FROM sessions s
 JOIN selected_ids ON selected_ids.session_id = s.session_id

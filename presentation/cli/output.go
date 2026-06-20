@@ -150,11 +150,28 @@ type topSnapshotCandidateAge struct {
 }
 
 type topSnapshotLargePayloads struct {
-	Count              int `json:"count"`
-	RecentCommandCount int `json:"recent_command_count"`
-	RecentFailureCount int `json:"recent_failure_count"`
-	SampledEventCount  int `json:"sampled_event_count"`
-	BodyLimitRunes     int `json:"body_limit_runes"`
+	Count              int                             `json:"count"`
+	RecentCommandCount int                             `json:"recent_command_count"`
+	RecentFailureCount int                             `json:"recent_failure_count"`
+	SampledEventCount  int                             `json:"sampled_event_count"`
+	BodyLimitRunes     int                             `json:"body_limit_runes"`
+	Samples            []topSnapshotLargePayloadSample `json:"samples,omitempty"`
+}
+
+// topSnapshotLargePayloadSample carries body-safe metadata about a single
+// large event so an operator (or host agent) can decide whether to fetch the
+// full body, without the snapshot re-emitting that body into context. It
+// never carries the full payload — first_line is whitespace-collapsed and
+// rune-bounded, and retrieval_hint points at the explicit `traceary show`
+// surface that intentionally bypasses the body cap.
+type topSnapshotLargePayloadSample struct {
+	EventID       string `json:"event_id"`
+	Kind          string `json:"kind"`
+	Source        string `json:"source"`
+	MessageLength int    `json:"message_length"`
+	MessageBytes  int    `json:"message_bytes"`
+	FirstLine     string `json:"first_line,omitempty"`
+	RetrievalHint string `json:"retrieval_hint"`
 }
 
 // topSnapshotNode is the JSON shape of a single node in the
@@ -169,30 +186,40 @@ type topSnapshotLargePayloads struct {
 // optional — they only appear when the node is in the stale-active
 // state, so existing tooling that does not yet read them is unaffected.
 type topSnapshotNode struct {
-	SessionID          string             `json:"session_id"`
-	ParentSessionID    string             `json:"parent_session_id,omitempty"`
-	SpawnEventID       string             `json:"spawn_event_id,omitempty"`
-	SubagentKind       string             `json:"subagent_kind,omitempty"`
-	SpawnOrder         *int               `json:"spawn_order,omitempty"`
-	Depth              int                `json:"depth"`
-	Workspace          string             `json:"workspace,omitempty"`
-	LatestEventKind    string             `json:"latest_event_kind"`
-	LatestEventMessage string             `json:"latest_event_message"`
-	LatestEventAt      string             `json:"latest_event_at"`
-	Label              string             `json:"label,omitempty"`
-	Summary            string             `json:"summary,omitempty"`
-	StartedAt          string             `json:"started_at"`
-	EndedAt            *string            `json:"ended_at,omitempty"`
-	Status             string             `json:"status"`
-	DurationSec        *float64           `json:"duration_sec,omitempty"`
-	TotalEvents        int                `json:"total_events"`
-	CommandCount       int                `json:"command_count"`
-	Agents             []string           `json:"agents"`
-	SubagentType       string             `json:"subagent_type,omitempty"`
-	IsStale            bool               `json:"is_stale,omitempty"`
-	StaleAfterSec      *float64           `json:"stale_after_seconds,omitempty"`
-	StaleAgeSec        *float64           `json:"stale_age_seconds,omitempty"`
-	Children           []*topSnapshotNode `json:"children"`
+	SessionID          string `json:"session_id"`
+	ParentSessionID    string `json:"parent_session_id,omitempty"`
+	SpawnEventID       string `json:"spawn_event_id,omitempty"`
+	SubagentKind       string `json:"subagent_kind,omitempty"`
+	SpawnOrder         *int   `json:"spawn_order,omitempty"`
+	Depth              int    `json:"depth"`
+	Workspace          string `json:"workspace,omitempty"`
+	LatestEventKind    string `json:"latest_event_kind"`
+	LatestEventID      string `json:"latest_event_id,omitempty"`
+	LatestEventMessage string `json:"latest_event_message"`
+	// LatestEventMessageTruncated / Length / Bytes are additive metadata
+	// that appear only when the snapshot renderer cut latest_event_message
+	// under the shared body cap. Consumers fetch the full body explicitly
+	// with `traceary show <latest_event_id>`; legacy consumers that only
+	// read latest_event_message keep working.
+	LatestEventMessageTruncated bool `json:"latest_event_message_truncated,omitempty"`
+	LatestEventMessageLength    int  `json:"latest_event_message_length,omitempty"`
+	LatestEventMessageBytes     int  `json:"latest_event_message_bytes,omitempty"`
+
+	LatestEventAt string             `json:"latest_event_at"`
+	Label         string             `json:"label,omitempty"`
+	Summary       string             `json:"summary,omitempty"`
+	StartedAt     string             `json:"started_at"`
+	EndedAt       *string            `json:"ended_at,omitempty"`
+	Status        string             `json:"status"`
+	DurationSec   *float64           `json:"duration_sec,omitempty"`
+	TotalEvents   int                `json:"total_events"`
+	CommandCount  int                `json:"command_count"`
+	Agents        []string           `json:"agents"`
+	SubagentType  string             `json:"subagent_type,omitempty"`
+	IsStale       bool               `json:"is_stale,omitempty"`
+	StaleAfterSec *float64           `json:"stale_after_seconds,omitempty"`
+	StaleAgeSec   *float64           `json:"stale_age_seconds,omitempty"`
+	Children      []*topSnapshotNode `json:"children"`
 }
 
 // memorySummaryOutput is the JSON shape of a durable memory summary in CLI output.

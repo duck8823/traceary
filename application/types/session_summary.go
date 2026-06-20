@@ -25,19 +25,21 @@ type SessionSummary struct {
 	subagentKind       string
 	spawnOrder         domtypes.Optional[int]
 	latestEventAt      time.Time
+	latestEventID      domtypes.EventID
 	latestEventKind    domtypes.EventKind
 	latestEventMessage string
 }
 
 // SessionSummaryLatestEvent carries latest-event metadata for SessionSummaryOf.
 type SessionSummaryLatestEvent struct {
+	ID      domtypes.EventID
 	Kind    domtypes.EventKind
 	Message string
 }
 
 // SessionSummaryLatestEventOf creates latest-event metadata for SessionSummaryOf.
-func SessionSummaryLatestEventOf(kind domtypes.EventKind, message string) SessionSummaryLatestEvent {
-	return SessionSummaryLatestEvent{Kind: kind, Message: message}
+func SessionSummaryLatestEventOf(id domtypes.EventID, kind domtypes.EventKind, message string) SessionSummaryLatestEvent {
+	return SessionSummaryLatestEvent{ID: id, Kind: kind, Message: message}
 }
 
 // SessionSummaryOf creates a SessionSummary.
@@ -60,6 +62,7 @@ func SessionSummaryOf(
 		subagentKind       string
 		spawnOrder         domtypes.Optional[int]
 		latestEventAt      = startedAt
+		latestEventID      domtypes.EventID
 		latestEventKind    domtypes.EventKind
 		latestEventMessage string
 		client             domtypes.Client
@@ -77,6 +80,7 @@ func SessionSummaryOf(
 		case time.Time:
 			latestEventAt = value
 		case SessionSummaryLatestEvent:
+			latestEventID = value.ID
 			latestEventKind = value.Kind
 			latestEventMessage = value.Message
 		}
@@ -98,6 +102,7 @@ func SessionSummaryOf(
 		subagentKind:       subagentKind,
 		spawnOrder:         spawnOrder,
 		latestEventAt:      latestEventAt,
+		latestEventID:      latestEventID,
 		latestEventKind:    latestEventKind,
 		latestEventMessage: latestEventMessage,
 	}
@@ -150,6 +155,11 @@ func (s SessionSummary) SpawnOrder() domtypes.Optional[int] { return s.spawnOrde
 
 // LatestEventAt returns the latest recorded event timestamp in the session.
 func (s SessionSummary) LatestEventAt() time.Time { return s.latestEventAt }
+
+// LatestEventID returns the identifier of the latest recorded event in the
+// session, or empty when the session has no events. It is the retrieval hint
+// for fetching the full body explicitly via `traceary show <event_id>`.
+func (s SessionSummary) LatestEventID() domtypes.EventID { return s.latestEventID }
 
 // LatestEventKind returns the kind of the latest recorded event in the session.
 func (s SessionSummary) LatestEventKind() domtypes.EventKind { return s.latestEventKind }
