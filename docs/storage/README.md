@@ -170,6 +170,35 @@ Practical implications:
 - use `--target events` for legacy event-only cleanup
 - if you care about long-term audit history, take a backup before an aggressive cleanup
 
+## Reversible historical content dedupe
+
+**Requirement.** Early hook firings could write the same prompt/transcript twice. The current write path already suppresses fresh duplicates within a short window (`isDedupEligibleHookContentEvent`), so this never grows from new writes — but historical rows remain and inflate `doctor`'s `content-event-reliability` warning and context size. Cleanup must be **explicit and reversible**: ordinary upgrade/migration must never move, delete, or rewrite `events` rows, and nothing may be hard-deleted without a recoverable trail (#1227).
+
+**Command.** `traceary store dedupe content-events`
+
+- default is a **dry-run** — it reports candidate groups and changes nothing;
+- `--apply` quarantines the duplicates (moves them out of `events`);
+- `--restore <run-id>` reverses an apply run;
+- `--client codex` (default) scopes to Codex; `--client all` covers every agent. Hook duplicates are written with `client=hook`, so the selector filters by `agent`;
+- `--strict` reports every exact duplicate group regardless of time gap;
+- `--json` is available for dry-run, apply, and restore.
+
+**Conceptual model.** A duplicate group is the identity tuple `kind, client, agent, session_id, workspace, source_hook, TrimSpace(body)` — the same identity the `content-event-reliability` diagnostic uses (the write-side guard uses exact body without trimming). Only `client='hook'` rows with `kind in (prompt, transcript)` participate; **command audits are never touched**. By default a group is eligible only when its members land near-simultaneously (within a 10s proximity window that clusters consecutive records pairwise, matching the diagnostic), so deliberate repeats far apart are excluded; `--strict` drops the window. The **canonical** row kept per group is the earliest parsed `created_at`, tie-broken by the smallest event id. `created_at` is parsed in Go as RFC3339Nano (never ordered lexically — `formatTimestamp` emits variable-width fractional seconds). A group containing a malformed timestamp is **skipped and reported**, never mutated.
+
+**Responsibilities.** The CLI (`presentation/cli/store_dedupe.go`) parses flags and formats text/JSON. The usecase (`StoreManagementUsecase.DedupeContentEvents` / `RestoreContentEventDedupeRun`) mints the run id and `archived_at` timestamp on apply and validates input. The SQLite datasource (`StoreManagementDatasource`) does the transactional read/group/move and restore.
+
+**Quarantine table.** Migration `000019` adds `event_content_dedupe_archive` (additive only — it never touches `events`). Each quarantined row preserves enough to restore the original `events` row verbatim: `id, kind, client, agent, session_id, workspace, body` (original, not normalized), `created_at, source_hook`, plus provenance `kept_event_id` (duplicate_of), `dedupe_run_id`, `archived_at`, `group_key`, and `reason`.
+
+**Apply / restore semantics.**
+
+- Apply runs in a single transaction (insert into archive + delete from `events`) and is **idempotent**: a second apply finds no duplicates left in `events` for an already-cleaned group, so it moves nothing.
+- Restore is **all-or-nothing** and refuses to overwrite: if any original event id already exists in `events`, the whole restore fails and nothing changes.
+- Because duplicates are moved *out* of `events`, normal `list`, `sessions --snapshot`, `doctor`, `context`, and MCP read surfaces stop showing them automatically.
+
+**Rollback.** To undo an apply, run `traceary store dedupe content-events --restore <run-id>` (the run id is printed by `--apply` and stored on every archived row). If you need a belt-and-braces copy, take a `traceary store backup create` before `--apply`.
+
+**Behavior tests.** Dry-run reporting and no-mutation, apply + idempotency, restore + overwrite refusal, malformed-timestamp skip, command-audit/non-hook exclusion, strict vs. proximity scope, and read-surface exclusion are covered in `infrastructure/sqlite/content_event_dedupe_test.go`; flag wiring and JSON/text output in `presentation/cli/store_dedupe_test.go`; run-id minting in `application/usecase/store_dedupe_test.go`.
+
 ## Backup defaults
 
 The supported backup story is intentionally simple:

@@ -169,6 +169,35 @@ target ごとの policy:
 - 従来どおり event だけを掃除したい場合は `--target events` を使ってください
 - 長期の監査履歴を残したい場合は、強めの cleanup の前に backup を取ってください
 
+## 履歴 content の可逆的な dedupe
+
+**要件。** 初期の hook 発火で、同じ prompt/transcript が二重に書き込まれることがありました。現在の write path は短い window 内の新規 duplicate をすでに抑止している（`isDedupEligibleHookContentEvent`）ため、新しい書き込みでこれが増えることはありません。しかし履歴上の行は残り、`doctor` の `content-event-reliability` 警告や context size を膨らませます。クリーンアップは **明示的かつ可逆** でなければなりません。通常の upgrade/migration が `events` 行を移動・削除・書き換えることは決してなく、復元可能な証跡なしに hard delete することもありません（#1227）。
+
+**コマンド。** `traceary store dedupe content-events`
+
+- 既定は **dry-run** で、候補グループを報告するだけで何も変更しません。
+- `--apply` で duplicate を隔離します（`events` から移動）。
+- `--restore <run-id>` で apply を取り消します。
+- `--client codex`（既定）は Codex に限定し、`--client all` はすべての agent を対象にします。hook 由来の duplicate は `client=hook` で書かれるため、セレクタは `agent` で絞り込みます。
+- `--strict` は時間差に関係なく完全一致する duplicate group をすべて報告します。
+- `--json` は dry-run / apply / restore で利用できます。
+
+**概念モデル。** duplicate group は identity tuple `kind, client, agent, session_id, workspace, source_hook, TrimSpace(body)` です。これは `content-event-reliability` 診断が使う identity と同じです（write-side guard は trimming なしの exact body を使うため異なります）。対象は `client='hook'` かつ `kind in (prompt, transcript)` の行のみで、**command audit は対象外** です。既定では、メンバーがほぼ同時（診断と同様に連続レコードをペアで cluster する 10s の近接 window 内）に書かれた group のみが対象になり、離れた意図的な再送は除外されます。`--strict` はこの window を外します。group ごとに残す **canonical** 行は、parse した `created_at` が最も早いもの（同値は event id が小さい方）です。`created_at` は Go 側で RFC3339Nano として parse します（`formatTimestamp` は可変幅の小数秒を出力するため、辞書順では並びません）。malformed な timestamp を含む group は **スキップして報告** し、変更しません。
+
+**責務。** CLI（`presentation/cli/store_dedupe.go`）が flag を解析し text/JSON を整形します。usecase（`StoreManagementUsecase.DedupeContentEvents` / `RestoreContentEventDedupeRun`）が apply 時に run id と `archived_at` を採番し、入力を検証します。SQLite datasource（`StoreManagementDatasource`）が transaction 内での read/group/move と restore を担います。
+
+**隔離テーブル。** migration `000019` が `event_content_dedupe_archive` を追加します（additive のみで `events` には触れません）。隔離された各行は、元の `events` 行をそのまま復元できる情報を保持します。`id, kind, client, agent, session_id, workspace, body`（正規化前の original）、`created_at, source_hook`、加えて来歴の `kept_event_id`（duplicate_of）、`dedupe_run_id`、`archived_at`、`group_key`、`reason` です。
+
+**apply / restore のセマンティクス。**
+
+- apply は単一 transaction（archive への insert ＋ `events` からの delete）で実行され、**冪等** です。2 回目の apply は、すでにクリーンアップ済みの group について `events` に duplicate が残っていないため、何も移動しません。
+- restore は **all-or-nothing** で上書きを拒否します。元の event id がすでに `events` に存在する場合、restore 全体が失敗し何も変更しません。
+- duplicate は `events` の *外* へ移動されるため、通常の `list`、`sessions --snapshot`、`doctor`、`context`、MCP の read surface からは自動的に見えなくなります。
+
+**rollback。** apply を取り消すには `traceary store dedupe content-events --restore <run-id>` を実行します（run id は `--apply` が出力し、隔離した各行にも記録されます）。念のためのコピーが欲しい場合は、`--apply` の前に `traceary store backup create` を取得してください。
+
+**振る舞いテスト。** dry-run の報告と非変更、apply ＋冪等性、restore ＋上書き拒否、malformed timestamp のスキップ、command-audit / 非 hook の除外、strict と近接スコープ、read surface の除外は `infrastructure/sqlite/content_event_dedupe_test.go` で、flag 配線と JSON/text 出力は `presentation/cli/store_dedupe_test.go` で、run id の採番は `application/usecase/store_dedupe_test.go` でカバーしています。
+
 ## backup の既定動作
 
 サポートする backup 導線は意図的にシンプルです。

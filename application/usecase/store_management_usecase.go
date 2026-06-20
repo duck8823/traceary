@@ -23,4 +23,12 @@ type StoreManagementUsecase interface {
 
 	// CloseStaleSessions closes sessions active beyond the given duration.
 	CloseStaleSessions(ctx context.Context, staleAfter time.Duration, dryRun bool) (apptypes.CloseStaleSessionsResult, error)
+
+	// DedupeContentEvents reports (dry-run) or quarantines (apply) historical
+	// hook-originated prompt/transcript duplicate rows.
+	DedupeContentEvents(ctx context.Context, params apptypes.ContentEventDedupeParams) (apptypes.ContentEventDedupeResult, error)
+
+	// RestoreContentEventDedupeRun reverses a quarantine run, moving its rows
+	// back into events.
+	RestoreContentEventDedupeRun(ctx context.Context, runID string) (apptypes.ContentEventDedupeRestoreResult, error)
 }

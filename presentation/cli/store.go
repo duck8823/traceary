@@ -15,5 +15,6 @@ func (c *RootCLI) newStoreCommand() *cobra.Command {
 	storeCmd.AddCommand(c.newStoreInitCommand())
 	storeCmd.AddCommand(c.newStoreBackupCommand())
 	storeCmd.AddCommand(c.newStoreGCCommand())
+	storeCmd.AddCommand(c.newStoreDedupeCommand())
 	return storeCmd
 }

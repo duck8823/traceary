@@ -84,6 +84,12 @@ func (s *restoreStoreBackupUsecaseForTest) CollectGarbage(_ context.Context, _ t
 func (s *restoreStoreBackupUsecaseForTest) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool) (apptypes.CloseStaleSessionsResult, error) {
 	return apptypes.CloseStaleSessionsResult{}, nil
 }
+func (s *restoreStoreBackupUsecaseForTest) DedupeContentEvents(_ context.Context, _ apptypes.ContentEventDedupeParams) (apptypes.ContentEventDedupeResult, error) {
+	return apptypes.ContentEventDedupeResult{}, nil
+}
+func (s *restoreStoreBackupUsecaseForTest) RestoreContentEventDedupeRun(_ context.Context, _ string) (apptypes.ContentEventDedupeRestoreResult, error) {
+	return apptypes.ContentEventDedupeRestoreResult{}, nil
+}
 
 func TestRunBackupRestore_InteractiveConfirmation(t *testing.T) {
 	t.Parallel()

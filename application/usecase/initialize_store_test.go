@@ -30,6 +30,12 @@ func (s *storeInitializerStub) CollectGarbage(_ context.Context, _ time.Time, _ 
 func (s *storeInitializerStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool) (int, error) {
 	return 0, nil
 }
+func (s *storeInitializerStub) DedupeContentEvents(_ context.Context, _ apptypes.ContentEventDedupeParams) (apptypes.ContentEventDedupeResult, error) {
+	return apptypes.ContentEventDedupeResult{}, nil
+}
+func (s *storeInitializerStub) RestoreContentEventDedupeRun(_ context.Context, _ string) (apptypes.ContentEventDedupeRestoreResult, error) {
+	return apptypes.ContentEventDedupeRestoreResult{}, nil
+}
 
 func TestStoreManagementUsecase_Initialize(t *testing.T) {
 	t.Parallel()

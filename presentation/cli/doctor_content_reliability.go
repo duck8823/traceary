@@ -228,13 +228,13 @@ func contentEventReliabilityCheckFromFindings(findings contentEventReliabilityFi
 	}
 
 	hint := Localize(
-		"likely hook duplicates (identity-matching prompt/transcript content within "+contentEventDuplicateProximityWindow.String()+"); deliberate repeats farther apart are excluded. Re-run with --strict to surface every exact duplicate group, then inspect with `traceary show <event_id>`. No automatic cleanup is performed",
-		"hook 由来とみられる duplicate（"+contentEventDuplicateProximityWindow.String()+" 以内の identity 一致 prompt/transcript content）です。離れた意図的な再送は除外されます。完全一致する duplicate group をすべて見るには --strict を付け、`traceary show <event_id>` で確認してください。自動的な削除は行いません",
+		"likely hook duplicates (identity-matching prompt/transcript content within "+contentEventDuplicateProximityWindow.String()+"); deliberate repeats farther apart are excluded. These are historical rows: the current write paths already suppress known fresh duplicates, so this never grows from new writes. Preview a reversible cleanup with `traceary store dedupe content-events` (dry-run; add --apply to quarantine, --restore <run-id> to reverse), and inspect individual rows with `traceary show <event_id>`. No automatic cleanup is performed",
+		"hook 由来とみられる duplicate（"+contentEventDuplicateProximityWindow.String()+" 以内の identity 一致 prompt/transcript content）です。離れた意図的な再送は除外されます。これらは履歴上の行です。現在の write path は既知の新規 duplicate をすでに抑止しているため、新しい書き込みで増えることはありません。可逆的なクリーンアップは `traceary store dedupe content-events`（dry-run。隔離するには --apply、取り消すには --restore <run-id>）で確認でき、個別の行は `traceary show <event_id>` で確認できます。自動的な削除は行いません",
 	)
 	if strict {
 		hint = Localize(
-			"--strict: every exact duplicate content group is reported regardless of time gap, so deliberate repeats appear too; inspect the sampled event IDs with `traceary show <event_id>` before drawing conclusions. No automatic cleanup is performed",
-			"--strict: 時間差に関係なく完全一致する duplicate content group をすべて報告します（意図的な再送も含みます）。結論を出す前に sample event ID を `traceary show <event_id>` で確認してください。自動的な削除は行いません",
+			"--strict: every exact duplicate content group is reported regardless of time gap, so deliberate repeats appear too. These are historical rows; current write paths already suppress known fresh duplicates. Inspect the sampled event IDs with `traceary show <event_id>`, and preview a reversible cleanup with `traceary store dedupe content-events --strict` (dry-run; add --apply to quarantine, --restore <run-id> to reverse) before drawing conclusions. No automatic cleanup is performed",
+			"--strict: 時間差に関係なく完全一致する duplicate content group をすべて報告します（意図的な再送も含みます）。これらは履歴上の行で、現在の write path は既知の新規 duplicate をすでに抑止しています。結論を出す前に sample event ID を `traceary show <event_id>` で確認し、可逆的なクリーンアップは `traceary store dedupe content-events --strict`（dry-run。隔離するには --apply、取り消すには --restore <run-id>）で確認してください。自動的な削除は行いません",
 		)
 	}
 

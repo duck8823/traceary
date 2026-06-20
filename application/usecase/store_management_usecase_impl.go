@@ -69,6 +69,46 @@ func (u *storeManagementUsecase) CollectGarbage(
 	return apptypes.CollectGarbageResultOf(deletedCount, before, dryRun), nil
 }
 
+func (u *storeManagementUsecase) DedupeContentEvents(
+	ctx context.Context,
+	params apptypes.ContentEventDedupeParams,
+) (apptypes.ContentEventDedupeResult, error) {
+	params.Agent = strings.TrimSpace(params.Agent)
+	if params.Apply {
+		// The run id and archived_at stamp are minted here so the apply is
+		// fully reproducible from the result and so the infrastructure layer
+		// stays free of clock/ID concerns. A dry-run never archives, so it
+		// needs neither.
+		runID, err := newContentEventDedupeRunID()
+		if err != nil {
+			return apptypes.ContentEventDedupeResult{}, xerrors.Errorf("failed to mint dedupe run id: %w", err)
+		}
+		params.RunID = runID
+		params.Now = time.Now().UTC()
+	}
+
+	result, err := u.storeManager.DedupeContentEvents(ctx, params)
+	if err != nil {
+		return apptypes.ContentEventDedupeResult{}, xerrors.Errorf("failed to dedupe content events: %w", err)
+	}
+	return result, nil
+}
+
+func (u *storeManagementUsecase) RestoreContentEventDedupeRun(
+	ctx context.Context,
+	runID string,
+) (apptypes.ContentEventDedupeRestoreResult, error) {
+	trimmed := strings.TrimSpace(runID)
+	if trimmed == "" {
+		return apptypes.ContentEventDedupeRestoreResult{}, xerrors.Errorf("dedupe run id must not be empty")
+	}
+	result, err := u.storeManager.RestoreContentEventDedupeRun(ctx, trimmed)
+	if err != nil {
+		return apptypes.ContentEventDedupeRestoreResult{}, xerrors.Errorf("failed to restore dedupe run: %w", err)
+	}
+	return result, nil
+}
+
 func (u *storeManagementUsecase) CloseStaleSessions(
 	ctx context.Context,
 	staleAfter time.Duration,

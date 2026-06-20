@@ -543,6 +543,12 @@ type storeManagementUsecaseStub struct {
 	restoreErr      error
 	gcResult        apptypes.CollectGarbageResult
 	gcErr           error
+	dedupeResult    apptypes.ContentEventDedupeResult
+	dedupeErr       error
+	dedupeParams    []apptypes.ContentEventDedupeParams
+	restoreResult   apptypes.ContentEventDedupeRestoreResult
+	restoreRunErr   error
+	restoreRunIDs   []string
 	staleResult     apptypes.CloseStaleSessionsResult
 	staleErr        error
 	staleCalls      []struct {
@@ -563,6 +569,14 @@ func (s *storeManagementUsecaseStub) RestoreBackup(_ context.Context, _ string, 
 }
 func (s *storeManagementUsecaseStub) CollectGarbage(_ context.Context, _ time.Time, _ apptypes.GarbageCollectionTarget, _ bool) (apptypes.CollectGarbageResult, error) {
 	return s.gcResult, s.gcErr
+}
+func (s *storeManagementUsecaseStub) DedupeContentEvents(_ context.Context, params apptypes.ContentEventDedupeParams) (apptypes.ContentEventDedupeResult, error) {
+	s.dedupeParams = append(s.dedupeParams, params)
+	return s.dedupeResult, s.dedupeErr
+}
+func (s *storeManagementUsecaseStub) RestoreContentEventDedupeRun(_ context.Context, runID string) (apptypes.ContentEventDedupeRestoreResult, error) {
+	s.restoreRunIDs = append(s.restoreRunIDs, runID)
+	return s.restoreResult, s.restoreRunErr
 }
 func (s *storeManagementUsecaseStub) CloseStaleSessions(_ context.Context, staleAfter time.Duration, dryRun bool) (apptypes.CloseStaleSessionsResult, error) {
 	s.staleCalls = append(s.staleCalls, struct {
