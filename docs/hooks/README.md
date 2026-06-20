@@ -232,7 +232,7 @@ Codex `Stop` fires after every assistant response, so Traceary records it as a t
 
 ### Gemini CLI *(legacy compatibility)*
 
-> Gemini CLI is the legacy hook path. Antigravity does not have a Traceary hook config in v0.21.0. To check the current Antigravity capability state, run `traceary doctor --client antigravity --json` — on a machine with `/Applications/Antigravity.app` installed, the state will be `tool_unavailable` until Google exposes a supported CLI/hook contract (tracked in #1196).
+> Gemini CLI is the legacy hook path. Antigravity does not have a Traceary hook config in v0.21.0, and v0.21.0 intentionally ships no Antigravity hook, package, or release asset (decided in #1196) because no supported public CLI/hook contract is confirmed. To check the current Antigravity capability state, run `traceary doctor --client antigravity --json` — on a machine with `/Applications/Antigravity.app` installed, the state will be `tool_unavailable` until Google exposes a supported public CLI/hook contract.
 
 1. Merge `examples/hooks/gemini.settings.json` into `.gemini/settings.json` or `~/.gemini/settings.json`.
 2. Ensure `hooksConfig.enabled` is already `true`. Traceary does not toggle this for you.

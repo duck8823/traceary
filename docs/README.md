@@ -20,7 +20,7 @@ This page is the detailed docs index for Traceary. Start here when the top-level
 ## Integrations
 
 - [Native integrations](./integrations/README.md): packaged Claude / Codex / Gemini (legacy) integration bundles, install flows, and smoke tests
-- [Antigravity migration status](./integrations/antigravity.md): local discovery, #1195 capability detection (implemented), and #1196 hook/package follow-up
+- [Antigravity migration status](./integrations/antigravity.md): local discovery, #1195 capability detection (implemented), and the #1196 decision to intentionally ship no Antigravity package/hook/release asset in v0.21.0
 - [Hooks guide](./hooks/README.md): Claude Code / Codex / Gemini (legacy) hook setup, install flow, and troubleshooting
 - [MCP guide](./mcp/README.md): running `traceary mcp-server`, tool surface, and host-client integration notes
 - [Interactive workflows](./interactive/README.md): how to inspect live and recent activity with `list`, `tail`, `search`, `show`, and `handoff`

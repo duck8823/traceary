@@ -2,9 +2,9 @@
 
 [日本語](./antigravity.ja.md)
 
-Antigravity is Google's successor to Gemini CLI as an AI agent host. This page describes what Traceary has discovered locally about Antigravity in v0.21.0 and what remains as follow-up work.
+Antigravity is Google's successor to Gemini CLI as an AI agent host. This page describes what Traceary has discovered locally about Antigravity in v0.21.0 and the resulting decision.
 
-> **Summary:** No supported public CLI/hook contract for Antigravity has been confirmed in v0.21.0. Antigravity capability detection is implemented in #1195; hook and package implementation remains tracked in #1196. The existing [Gemini CLI extension](./gemini-extension.md) remains available for existing Gemini CLI installs.
+> **Summary:** No supported public CLI/hook contract for Antigravity has been confirmed in v0.21.0. Antigravity capability detection is implemented in #1195. After that investigation, **v0.21.0 intentionally ships no Antigravity hook, package, or release asset** — Traceary will not fabricate a hook contract that Google has not published. Future support requires a supported public CLI/hook contract. The existing [Gemini CLI extension](./gemini-extension.md) remains available for existing Gemini CLI installs.
 
 ## Local discovery (v0.21.0)
 
@@ -47,9 +47,9 @@ Antigravity is not included in the default doctor client list (`["claude","codex
 - No extension/plugin install mechanism equivalent to `gemini extensions install` has been confirmed.
 - No hook event schema (session lifecycle, tool audit, prompt capture) has been established for Traceary.
 
-## Follow-up
+## Decision and follow-up
 
 - **#1195** ✓ — Antigravity capability detection (`traceary doctor --client antigravity --json`) — implemented in v0.21.0
-- **#1196** — Antigravity hook wiring and extension package for Traceary
+- **#1196** ✓ — Decision: v0.21.0 intentionally ships **no** Antigravity hook, package, generated metadata, or release asset. The acceptance criteria allowed a package **only if** a supported public hook/plugin/MCP/headless CLI surface was confirmed; #1195 confirmed none, so Traceary documents the intentionally omitted package and keeps the doctor `tool_unavailable` state instead of shipping a fake package.
 
-Until #1196 is resolved, Antigravity sessions will not appear in Traceary's event log. If you are migrating from Gemini CLI to Antigravity, continue using the [Gemini CLI extension](./gemini-extension.md) for Gemini CLI sessions in the meantime.
+A real Antigravity package will be added under a future issue **only once** Google publishes a supported public CLI/hook contract. Until then, Antigravity sessions will not appear in Traceary's event log. If you are migrating from Gemini CLI to Antigravity, continue using the [Gemini CLI extension](./gemini-extension.md) for Gemini CLI sessions in the meantime.

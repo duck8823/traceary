@@ -2,9 +2,9 @@
 
 [English](./antigravity.md)
 
-Antigravity は、Google の AI エージェントホストとして Gemini CLI の後継です。このページでは、v0.21.0 時点で Traceary がローカルで把握している Antigravity の情報と、残っているフォローアップ作業を説明します。
+Antigravity は、Google の AI エージェントホストとして Gemini CLI の後継です。このページでは、v0.21.0 時点で Traceary がローカルで把握している Antigravity の情報と、その結果としての判断を説明します。
 
-> **まとめ:** v0.21.0 では Antigravity の公開 CLI / hook contract は確認されていません。Antigravity の capability detection は #1195 で実装済みです。hook / package 実装は #1196 で引き続き追跡中です。既存の Gemini CLI インストールでは、引き続き [Gemini CLI extension](./gemini-extension.ja.md) を使用できます。
+> **まとめ:** v0.21.0 では Antigravity の公開 CLI / hook contract は確認されていません。Antigravity の capability detection は #1195 で実装済みです。この調査の結果、**v0.21.0 では Antigravity の hook / package / release asset を意図的に提供しません** — Google が公開していない hook contract を Traceary が捏造することはありません。将来のサポートにはサポートされた公開 CLI/hook contract が必要です。既存の Gemini CLI インストールでは、引き続き [Gemini CLI extension](./gemini-extension.ja.md) を使用できます。
 
 ## ローカルでの調査結果（v0.21.0）
 
@@ -47,9 +47,9 @@ Antigravity はデフォルトの doctor クライアントリスト（`["claude
 - `gemini extensions install` に相当する extension / plugin インストール機構は確認されていません。
 - Traceary 向けの hook イベントスキーマ（セッションライフサイクル、ツール監査、プロンプト/トランスクリプト取得）は未確立です。
 
-## フォローアップ
+## 判断とフォローアップ
 
 - **#1195** ✓ — Antigravity 機能検出（`traceary doctor --client antigravity --json`）— v0.21.0 で実装済み
-- **#1196** — Antigravity hook 配線と Traceary 向け extension package
+- **#1196** ✓ — 判断: v0.21.0 では Antigravity の hook / package / 生成メタデータ / release asset を**意図的に提供しません**。受け入れ条件では、サポートされた公開 hook/plugin/MCP/headless CLI サーフェスが確認できた**場合にのみ** package を追加することになっていました。#1195 で確認できなかったため、fake package を出荷せず、意図的に省略した package を文書化し、doctor の `tool_unavailable` ステートを維持します。
 
-#1196 が解決されるまで、Antigravity セッションは Traceary のイベントログに記録されません。Gemini CLI から Antigravity へ移行中の場合は、Gemini CLI セッションについては引き続き [Gemini CLI extension](./gemini-extension.ja.md) を使用してください。
+実際の Antigravity package は、Google がサポートされた公開 CLI/hook contract を公開した時点で、将来の issue で**初めて**追加します。それまでは、Antigravity セッションは Traceary のイベントログに記録されません。Gemini CLI から Antigravity へ移行中の場合は、Gemini CLI セッションについては引き続き [Gemini CLI extension](./gemini-extension.ja.md) を使用してください。

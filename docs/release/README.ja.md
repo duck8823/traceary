@@ -42,7 +42,7 @@ GitHub Releases から自分の platform に合う archive を取得し、展開
 
 タグ付き release では、Claude Code / Codex 向け package を repository 内で version をそろえて同じ release tag で管理・公開します。Gemini CLI extension archive（`traceary.tar.gz`）も既存 Gemini CLI 導入環境向けのレガシー互換として release asset に含まれます。
 
-v0.21.0 では Antigravity 向けパッケージ・release asset は公開していません。
+v0.21.0 では Antigravity 向けパッケージ・release asset は公開していません。この省略は意図的なものです（#1196 で判断）。Antigravity のサポートされた公開 CLI/hook contract が確認されていないため、Traceary は捏造した hook contract や package を出荷しません。doctor のステートは `tool_unavailable` のまま（#1195）であり、実際の package は Google がサポートされた公開 CLI/hook contract を公開した時点で、将来の issue で初めて追加します。
 
 host ごとの install 手順は [ネイティブ連携ガイド](../integrations/README.ja.md) を参照してください。
 
@@ -120,7 +120,11 @@ GoReleaser workflow が artifact の公開を自動化しますが、maintainer 
 4. **cockpit を dogfood する。** `traceary tui` を変更する release では、tag 前に `go test ./presentation/cli -run 'TestCockpitDogfood'` を実行し、80x24 smoke を含む [`cockpit dogfood checklist`](../operations/cockpit-dogfood.ja.md) を完了します。
 5. **landing page をプレビューする。** `python3 -m http.server --directory docs/landing 8000` を起動して `http://localhost:8000/` を開き、hero の version eyebrow と brew install の terminal アニメーションが新バージョンになっているかを確認します。`Pages` workflow は GitHub Release の publish 時に自動再 deploy するため、ここが本番反映前の最後のチェックポイントです。
 6. **release-preparation PR を開く。** `maintenance/release-vX.Y.Z` ブランチを作成し、changelog と bump を commit・push して `main` 向けに PR を開きます。**`Closes #<parent>` は書かない**でください。親 release issue は release workflow が閉じるため、release-prep PR からは閉じません。
-7. **Multi-AI レビュー + merge。** release-prep PR も通常の PR と同じく、最新 head に対する Claude / Gemini のレビューを取り、そのうえで PR 上の Codex app review が返るのを待ってから merge commit でマージします。
+7. **レビュー + merge。** release-prep PR も通常の PR と同じレビューゲートを通します。v0.21.0 のゲートは **Claude レビュー + ローカル dogfood + tests/CI** です。
+   - Gemini レビューは**不要**です（Gemini CLI は retired / 利用不可）。
+   - Codex の実装・レビューは、ローカルポリシーやユーザー指示で無効化されている場合は**不要**です。Codex が有効かつ利用可能な場合にのみ Codex app review を取得します。
+   - 最新 head に対する Claude レビューを取得し、ローカル dogfood と `go test ./...` / `golangci-lint` / CI が green であることを確認してから merge commit でマージします。
+   - Antigravity は v0.21.0 で release asset を持たず、将来サポートされた公開 CLI/hook contract が現れない限り doctor ステートは `tool_unavailable` のままです（上記「ネイティブ連携パッケージ」を参照）。
 8. **tag を打って push する。** release-prep PR が merge されたら、`git checkout main && git pull --ff-only && git tag vX.Y.Z && git push origin vX.Y.Z` を実行します。`v*` tag が `.github/workflows/release.yml` を起動します。
 9. **release workflow を監視する。** tag run に対して `gh run watch` を実行し、成功後に `gh release view vX.Y.Z` で公開を確認します。GitHub Release が publish されると `.github/workflows/pages.yml` も発火し、`docs/landing/` を GitHub Pages に再 deploy します。その run が成功し、`https://duck8823.github.io/traceary/`（CNAME 経由で `https://duck8823.net/traceary/`）が新バージョンを反映していることを確認してください。
 10. **Homebrew formula PR を確認する。** release workflow が `maintenance/homebrew-vX.Y.Z` PR を開いて auto-merge を有効化します。実際に merge されたか確認し、`brew update && brew upgrade traceary && traceary -v` で新バージョンを確かめます。

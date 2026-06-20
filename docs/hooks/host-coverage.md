@@ -12,7 +12,7 @@ Legend:
 
 **Last verified: 2026-04-27 (Gemini CLI re-verified 2026-06-10 against 0.43.0).** Refresh this page when bumping Traceary integration packages or when a host CLI release changes its hook surface.
 
-> **v0.21.0 note:** Gemini CLI hook coverage in this matrix is **legacy compatibility only**. Gemini CLI is the legacy Google AI agent host; Antigravity (`/Applications/Antigravity.app`) is the active successor. **Antigravity has no confirmed or supported hook coverage in v0.21.0.** Antigravity capability detection is implemented in #1195; hook wiring remains a follow-up in #1196. No Antigravity column appears in this matrix until #1196 is resolved.
+> **v0.21.0 note:** Gemini CLI hook coverage in this matrix is **legacy compatibility only**. Gemini CLI is the legacy Google AI agent host; Antigravity (`/Applications/Antigravity.app`) is the active successor. **Antigravity has no confirmed or supported hook coverage in v0.21.0.** Antigravity capability detection is implemented in #1195. After that investigation (#1196), v0.21.0 intentionally ships no Antigravity hook, package, or release asset because no supported public CLI/hook contract is confirmed. No Antigravity column appears in this matrix until Google exposes a supported public CLI/hook contract.
 
 ## Lifecycle event → host hook matrix
 

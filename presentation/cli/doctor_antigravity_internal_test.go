@@ -122,7 +122,7 @@ func TestBuildAntigravityCapabilityCheck(t *testing.T) {
 		}
 	})
 
-	t.Run("tool_unavailable yields warn with tool_unavailable in message", func(t *testing.T) {
+	t.Run("tool_unavailable yields warn with explicit no-package decision", func(t *testing.T) {
 		check := buildAntigravityCapabilityCheck(antigravityStateToolUnavailable)
 		if check.Name != "antigravity-capability" {
 			t.Fatalf("Name = %q, want antigravity-capability", check.Name)
@@ -132,6 +132,17 @@ func TestBuildAntigravityCapabilityCheck(t *testing.T) {
 		}
 		if !strings.Contains(check.Message, "tool_unavailable") {
 			t.Fatalf("tool_unavailable message must contain 'tool_unavailable', got: %q", check.Message)
+		}
+		// v0.21.0 intentionally ships no Antigravity package; the message must state the
+		// decision rather than tracking it as outstanding implementation work.
+		if !strings.Contains(check.Message, "intentionally ships no Antigravity") {
+			t.Fatalf("tool_unavailable message must state the intentional no-package decision, got: %q", check.Message)
+		}
+		if !strings.Contains(check.Message, "supported public CLI/hook contract") {
+			t.Fatalf("tool_unavailable message must state future support requires a supported public CLI/hook contract, got: %q", check.Message)
+		}
+		if strings.Contains(check.Message, "#1196") {
+			t.Fatalf("tool_unavailable message must not track package work in #1196, got: %q", check.Message)
 		}
 	})
 

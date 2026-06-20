@@ -4,7 +4,7 @@
 
 Traceary は、Claude Code / Codex / Gemini CLI（レガシー）向けにネイティブ連携パッケージを用意しています。
 
-> **v0.21.0 注記:** Gemini CLI はレガシーの Google AI エージェントホストです。**Antigravity**（`/Applications/Antigravity.app`）が後継ホストとして位置づけられており、capability detection は #1195 で実装済みです。hook / package サポートは #1196 で引き続き追跡中で、v0.21.0 では未対応です。ローカルで把握している情報は [Antigravity 移行状況](./antigravity.ja.md) を参照してください。
+> **v0.21.0 注記:** Gemini CLI はレガシーの Google AI エージェントホストです。**Antigravity**（`/Applications/Antigravity.app`）が後継ホストとして位置づけられており、capability detection は #1195 で実装済みです。この調査（#1196）の結果、v0.21.0 では Antigravity の hook / package / release asset を**意図的に提供しません** — サポートされた公開 CLI/hook contract が確認されていないためです。ローカルで把握している情報は [Antigravity 移行状況](./antigravity.ja.md) を参照してください。
 
 これらのパッケージは、次の共通ランタイム契約でそろえています。
 
@@ -30,7 +30,7 @@ Traceary は、Claude Code / Codex / Gemini CLI（レガシー）向けにネイ
 | Claude Code | `integrations/claude-plugin/` | `.claude-plugin/marketplace.json` を基点にした Claude marketplace |
 | Codex | `plugins/traceary/` | Codex CLI 公式の `/plugins` flow を使い、リポジトリ内の marketplace `.agents/plugins/marketplace.json` から install。plugin manifest で同梱 `hooks.json` を参照するため session / prompt / audit hook が自動配線される。`traceary integration codex install` helper は v0.14.0 で、cleanup 専用 `traceary integration codex uninstall` は v0.15.0 で廃止。いずれも非表示の stub になり、Codex 公式の `/plugins` flow と [docs/integrations/codex-plugin.ja.md](./codex-plugin.ja.md) の手動 cleanup 手順を案内するのみ。 |
 | Gemini CLI | `integrations/gemini-extension/` | `gemini-extension.json` を root にした Gemini extension archive — v0.21.0 以降は**レガシー互換のみ**。アクティブな委譲パスではない |
-| Antigravity | — | v0.21.0 では対応 package / hook contract なし（#1196）。`traceary doctor --client antigravity --json` で現在の機能ステートを確認できます（#1195）。 |
+| Antigravity | — | サポートされた公開 CLI/hook contract は未確認。v0.21.0 では package / hook / release asset を意図的に提供しません（#1196 で判断）。`traceary doctor --client antigravity --json` で現在の機能ステートを確認できます（#1195）。 |
 
 ## host 別ガイド
 
