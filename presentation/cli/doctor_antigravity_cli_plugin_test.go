@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,7 +47,7 @@ func TestClassifyAntigravityCLIPluginProbe(t *testing.T) {
 		},
 		{
 			name:  "healthy when hooks.json carries the antigravity top-level group",
-			probe: antigravityCLIPluginProbe{DirExists: true, PluginSchema: antigravityPluginSchema, HooksJSON: []byte(healthyAntigravityHooksJSON)},
+			probe: antigravityCLIPluginProbe{DirExists: true, HooksJSON: []byte(healthyAntigravityHooksJSON)},
 			want:  antigravityCLIPluginHealthy,
 		},
 		{
@@ -104,9 +105,6 @@ func TestProbeAndClassifyAntigravityCLIPluginFromDisk(t *testing.T) {
 		writeFile(t, filepath.Join(dir, "hooks.json"), healthyAntigravityHooksJSON)
 
 		probe := probeAntigravityCLIPlugin(dir)
-		if probe.PluginSchema != antigravityPluginSchema {
-			t.Fatalf("PluginSchema = %q, want %q", probe.PluginSchema, antigravityPluginSchema)
-		}
 		if got := classifyAntigravityCLIPluginProbe(probe); got != antigravityCLIPluginHealthy {
 			t.Fatalf("shape = %v, want healthy", got)
 		}
@@ -166,6 +164,26 @@ func TestBuildAntigravityCLIPluginCheck(t *testing.T) {
 			t.Fatalf("Status = %q, want warn", check.Status)
 		}
 	})
+}
+
+func TestInspectAntigravityCLIPluginSkipsWhenHomeUnresolved(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	orig := userHomeDirFunc
+	t.Cleanup(func() { userHomeDirFunc = orig })
+	userHomeDirFunc = func() (string, error) {
+		return "", errors.New("no home")
+	}
+
+	check := inspectAntigravityCLIPlugin()
+	if check.Name != "antigravity-cli-plugin" {
+		t.Fatalf("Name = %q, want antigravity-cli-plugin", check.Name)
+	}
+	if check.Status != doctorStatusSkip {
+		t.Fatalf("Status = %q, want skip", check.Status)
+	}
+	if !strings.Contains(check.Message, "no home") {
+		t.Fatalf("message should surface the home-resolution error: %q", check.Message)
+	}
 }
 
 func writeFile(t *testing.T, path, content string) {

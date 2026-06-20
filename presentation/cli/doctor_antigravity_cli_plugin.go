@@ -7,10 +7,6 @@ import (
 	"strings"
 )
 
-// antigravityPluginSchema is the $schema value the packaged Antigravity CLI
-// plugin (integrations/antigravity-plugin/plugin.json) declares.
-const antigravityPluginSchema = "https://antigravity.google/schemas/v1/plugin.json"
-
 // antigravityCLIPluginShape classifies the package found in the Antigravity CLI
 // plugin directory that `agy plugin install` imports into.
 type antigravityCLIPluginShape int
@@ -40,19 +36,20 @@ func antigravityCLIPluginDir(home string) string {
 	return filepath.Join(home, ".gemini", "antigravity-cli", "plugins", "traceary")
 }
 
-// antigravityCLIPluginProbe captures the plugin-config files doctor reads to
-// classify the CLI plugin package. Only plugin.json and hooks files are read;
-// no transcripts or credentials are touched.
+// antigravityCLIPluginProbe captures the hooks documents doctor reads to
+// classify the CLI plugin package. Only the hooks files are read; no
+// transcripts or credentials are touched. (plugin.json is not read because its
+// $schema cannot discriminate a stale Gemini-imported package from a healthy
+// one — `agy plugin install` keeps the Antigravity plugin.json shell while
+// leaving the hooks subtree stale — so only the hooks shape is authoritative.)
 type antigravityCLIPluginProbe struct {
 	DirExists       bool
-	PluginSchema    string // $schema value from plugin.json ("" if absent/unreadable)
 	HooksJSON       []byte // contents of hooks.json (nil if absent)
 	LegacyHooksJSON []byte // contents of hooks/hooks.json (nil if absent)
 }
 
-// probeAntigravityCLIPlugin reads the plugin config files under dir. It only
-// reads plugin.json, hooks.json, and hooks/hooks.json — never transcripts or
-// credentials.
+// probeAntigravityCLIPlugin reads the hooks documents under dir. It only reads
+// hooks.json and hooks/hooks.json — never transcripts or credentials.
 func probeAntigravityCLIPlugin(dir string) antigravityCLIPluginProbe {
 	probe := antigravityCLIPluginProbe{}
 	info, err := os.Stat(dir)
@@ -60,14 +57,6 @@ func probeAntigravityCLIPlugin(dir string) antigravityCLIPluginProbe {
 		return probe
 	}
 	probe.DirExists = true
-	if data, err := os.ReadFile(filepath.Join(dir, "plugin.json")); err == nil { // #nosec G304 -- resolved plugin path
-		var manifest struct {
-			Schema string `json:"$schema"`
-		}
-		if json.Unmarshal(data, &manifest) == nil {
-			probe.PluginSchema = manifest.Schema
-		}
-	}
 	if data, err := os.ReadFile(filepath.Join(dir, "hooks.json")); err == nil { // #nosec G304 -- resolved plugin path
 		probe.HooksJSON = data
 	}
@@ -82,6 +71,11 @@ func probeAntigravityCLIPlugin(dir string) antigravityCLIPluginProbe {
 // the gemini hook host (`traceary hook ... gemini`). A supported Antigravity
 // document is a top-level hook-group map with no "hooks" key and commands that
 // target the antigravity host, so the gemini substring is a reliable signal.
+//
+// The substring match is intentionally case-sensitive: the host token Traceary
+// emits is always the lowercase literal "gemini" (see the `traceary hook ...
+// gemini` command line), so a case-insensitive scan would only add the risk of
+// matching unrelated text (e.g. a "Gemini" mention in a comment or path).
 func hooksContentIsStaleGemini(data []byte) bool {
 	if len(data) == 0 {
 		return false
