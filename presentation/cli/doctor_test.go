@@ -1928,3 +1928,113 @@ func decodeDoctorReport(t *testing.T, data []byte) doctorReport {
 	}
 	return report
 }
+
+func TestRootCLI_DoctorAntigravity(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	projectDir := t.TempDir()
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	// Ensure antigravity is not resolvable on PATH so the detector uses
+	// bundle-path probing only (injected via package-level execLookPathFunc
+	// through the production inspectAntigravityCapability path).
+	t.Setenv("PATH", t.TempDir())
+
+	initStub := &storeManagementUsecaseStub{}
+
+	t.Run("doctor --client antigravity reports capability check and correct clients", func(t *testing.T) {
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--client", "antigravity", "--project-dir", projectDir, "--json"})
+
+		executeDoctorAllowWarnings(t, rootCmd)
+
+		report := decodeDoctorReport(t, stdout.Bytes())
+
+		if diff := cmp.Diff([]string{"antigravity"}, report.Clients); diff != "" {
+			t.Fatalf("report.Clients mismatch (-want +got):\n%s", diff)
+		}
+
+		checkNames := make([]string, 0, len(report.Checks))
+		for _, check := range report.Checks {
+			checkNames = append(checkNames, check.Name)
+		}
+
+		// Must include the capability check.
+		foundCapability := false
+		for _, name := range checkNames {
+			if name == "antigravity-capability" {
+				foundCapability = true
+			}
+		}
+		if !foundCapability {
+			t.Fatalf("antigravity-capability check not found in report; checks: %v", checkNames)
+		}
+
+		// Must NOT include hook-config or coverage checks for other clients.
+		forbidden := []string{"antigravity-config", "claude-config", "codex-config", "gemini-config"}
+		for _, name := range checkNames {
+			for _, f := range forbidden {
+				if name == f {
+					t.Fatalf("unexpected check %q found in antigravity doctor report; checks: %v", name, checkNames)
+				}
+			}
+		}
+
+		// The capability check must be warn (no supported surface in test env).
+		for _, check := range report.Checks {
+			if check.Name == "antigravity-capability" {
+				if check.Status != "warn" {
+					t.Fatalf("antigravity-capability status = %q, want warn", check.Status)
+				}
+			}
+		}
+	})
+
+	t.Run("doctor default clients unchanged by antigravity addition", func(t *testing.T) {
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--project-dir", projectDir, "--json"})
+
+		executeDoctorAllowWarnings(t, rootCmd)
+
+		report := decodeDoctorReport(t, stdout.Bytes())
+		if diff := cmp.Diff([]string{"claude", "codex", "gemini"}, report.Clients); diff != "" {
+			t.Fatalf("default clients mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("not_installed path warns with non-empty capability message", func(t *testing.T) {
+		// PATH is cleared and no bundle is created, so this exercises the
+		// not_installed path via the production inspectAntigravityCapability
+		// route (or tool_unavailable on platforms where bundles exist).
+		// The pure detector state assertions live in the internal unit tests;
+		// this E2E subtest only validates the overall warn shape and message presence.
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--client", "antigravity", "--project-dir", projectDir, "--json"})
+
+		executeDoctorAllowWarnings(t, rootCmd)
+
+		report := decodeDoctorReport(t, stdout.Bytes())
+		for _, check := range report.Checks {
+			if check.Name != "antigravity-capability" {
+				continue
+			}
+			if check.Status != "warn" {
+				t.Fatalf("antigravity-capability status = %q, want warn", check.Status)
+			}
+			if check.Message == "" {
+				t.Fatalf("antigravity-capability message is empty")
+			}
+		}
+	})
+}
