@@ -1,6 +1,6 @@
 {
   "name": "traceary",
-  "version": "0.21.3",
+  "version": "0.21.4",
   "description": "Local-first Traceary integration for Gemini CLI with shared MCP tools and automatic session/audit hooks.",
   "mcpServers": {
     "traceary": {

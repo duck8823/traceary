@@ -5,6 +5,17 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.21.4] - 2026-06-20
+
+### Added
+- **Antigravity doctor の導入経路の明確化 (#1236)** — `traceary doctor --client antigravity` は Antigravity hook の導入状態を、独立した経路として `antigravity-hooks-workspace`、`antigravity-hooks-user`、`antigravity-cli-plugin`、および集約サマリー `antigravity-hooks` で報告するようになりました。user-level または CLI plugin の経路が健全な場合、存在しない workspace `.agents/hooks.json` は `warn` ではなく `skip` になります。サポート対象のどの経路にも `traceary` グループがない場合だけ warning を出し、存在する経路の設定が Antigravity で読み込めないほど壊れている場合は failure として報告します。
+- **Antigravity の記録レベル status (#1235)** — doctor に `antigravity-capture-levels` を追加しました。これは常に `pass` の status 専用 check で、`start_supported`、`tool_audit_supported`、`final_turn_supported`、`final_turn_unavailable` を区別して報告します。これにより `agy --print` の挙動が明確になります。print mode では session start と `run_command` audit は記録されますが、host がその mode で `Stop` / finalization hook を発行しないため、最終 transcript / turn 境界は記録できません。
+
+### Documentation
+- Antigravity integration、lifecycle、hook README、hook contract docs に短い `agy --print` capture matrix を追加し、Antigravity が `transcriptPath` 付き `Stop` を発行した場合にのみ transcript を記録することを明確化しました。
+
+このリリースには SQLite schema migration はなく、新しい MCP tool もありません。
+
 ## [v0.21.3] - 2026-06-20
 
 ### Added
