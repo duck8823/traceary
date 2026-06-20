@@ -1,0 +1,5 @@
+{
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "name": "traceary",
+  "description": "Local-first Traceary integration for Antigravity with automatic session/audit hooks."
+}

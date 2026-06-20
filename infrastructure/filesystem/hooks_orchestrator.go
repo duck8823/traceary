@@ -16,12 +16,26 @@ import (
 )
 
 var hooksClientAliases = map[string]string{
-	"claude":      "claude",
-	"claude-code": "claude",
-	"codex":       "codex",
-	"codex-cli":   "codex",
-	"gemini":      "gemini",
-	"gemini-cli":  "gemini",
+	"claude":          "claude",
+	"claude-code":     "claude",
+	"codex":           "codex",
+	"codex-cli":       "codex",
+	"gemini":          "gemini",
+	"gemini-cli":      "gemini",
+	"antigravity":     "antigravity",
+	"agy":             "antigravity",
+	"antigravity-cli": "antigravity",
+}
+
+// rawHookDocumentHandler is the optional interface a client handler implements
+// when its hook configuration document does not fit the shared
+// `{"hooks": {...}}` shape and the model.Hooks marshaller. Antigravity uses a
+// top-level map of hook-group name to event configs, so its handler renders and
+// merges its own document. The orchestrator dispatches to this interface before
+// falling back to the model.Hooks path.
+type rawHookDocumentHandler interface {
+	renderDocument(tracearyBin string) ([]byte, error)
+	mergeDocument(existing []byte, tracearyBin string) ([]byte, hookMergeDiff, error)
 }
 
 // HooksOrchestrator implements application.HooksOrchestrator using filesystem
@@ -61,6 +75,14 @@ func (o *HooksOrchestrator) GenerateWithMatcher(
 	handler, err := o.resolveHandler(client)
 	if err != nil {
 		return nil, err
+	}
+
+	if rawHandler, ok := handler.(rawHookDocumentHandler); ok {
+		encoded, err := rawHandler.renderDocument(tracearyBin)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to render hook document: %w", err)
+		}
+		return encoded, nil
 	}
 
 	return marshalHooks(buildHooksForInstall(handler, tracearyBin, matcherPreset))
@@ -143,8 +165,7 @@ func (o *HooksOrchestrator) installWithDiff(
 		return "", hookMergeDiff{}, err
 	}
 
-	hooks := buildHooksForInstall(handler, tracearyBin, matcherPreset)
-	encoded, diff, err := renderInstallContent(resolvedOutputPath, hooks, force)
+	encoded, diff, err := o.renderInstallContentForHandler(handler, resolvedOutputPath, tracearyBin, matcherPreset, force)
 	if err != nil {
 		return "", hookMergeDiff{}, err
 	}
@@ -165,6 +186,48 @@ func (o *HooksOrchestrator) installWithDiff(
 // their audit hook so they fall back to the default Build(bin).
 type matcherPresetHandler interface {
 	BuildWithMatcher(tracearyBin string, preset ClaudeMatcherPreset) model.Hooks
+}
+
+// renderInstallContentForHandler renders the bytes to write for the given
+// handler, dispatching to the raw-document path for handlers whose document
+// shape is incompatible with the shared model.Hooks marshaller (Antigravity).
+func (o *HooksOrchestrator) renderInstallContentForHandler(
+	handler application.HooksClientHandler,
+	resolvedOutputPath string,
+	tracearyBin string,
+	matcherPreset string,
+	force bool,
+) ([]byte, hookMergeDiff, error) {
+	rawHandler, ok := handler.(rawHookDocumentHandler)
+	if !ok {
+		hooks := buildHooksForInstall(handler, tracearyBin, matcherPreset)
+		return renderInstallContent(resolvedOutputPath, hooks, force)
+	}
+
+	if force {
+		encoded, err := rawHandler.renderDocument(tracearyBin)
+		if err != nil {
+			return nil, hookMergeDiff{}, xerrors.Errorf("failed to render hook document: %w", err)
+		}
+		return encoded, hookMergeDiff{}, nil
+	}
+
+	existingContent, err := safeReadFile(resolvedOutputPath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			encoded, diff, mergeErr := rawHandler.mergeDocument(nil, tracearyBin)
+			if mergeErr != nil {
+				return nil, hookMergeDiff{}, xerrors.Errorf("failed to render hook document: %w", mergeErr)
+			}
+			return encoded, diff, nil
+		}
+		return nil, hookMergeDiff{}, xerrors.Errorf("failed to read existing hooks file: %w", err)
+	}
+	encoded, diff, mergeErr := rawHandler.mergeDocument(existingContent, tracearyBin)
+	if mergeErr != nil {
+		return nil, hookMergeDiff{}, xerrors.Errorf("failed to merge hook document: %w", mergeErr)
+	}
+	return encoded, diff, nil
 }
 
 func buildHooksForInstall(handler application.HooksClientHandler, tracearyBin string, matcherPreset string) model.Hooks {
@@ -236,7 +299,7 @@ func normalizeHooksClient(handlers map[string]application.HooksClientHandler, cl
 	}
 
 	return "", xerrors.Errorf(
-		"unsupported client: %s (valid values: claude, codex, gemini; aliases: claude-code, codex-cli, gemini-cli)",
+		"unsupported client: %s (valid values: claude, codex, gemini, antigravity; aliases: claude-code, codex-cli, gemini-cli, agy, antigravity-cli)",
 		client,
 	)
 }

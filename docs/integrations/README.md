@@ -2,9 +2,9 @@
 
 [日本語](./README.ja.md)
 
-Traceary ships native integration packages for Claude Code, Codex, and Gemini CLI (legacy).
+Traceary ships native integration packages for Claude Code, Codex, Gemini CLI (legacy), and Antigravity.
 
-> **v0.21.0 note:** Gemini CLI is the legacy Google AI agent host. **Antigravity** (`/Applications/Antigravity.app`) is the active successor, with capability detection implemented in #1195. After that investigation (#1196), v0.21.0 **intentionally ships no Antigravity hook, package, or release asset** — no supported public CLI/hook contract is confirmed. See the [Antigravity migration status](./antigravity.md) for what is known locally.
+> **v0.21.1 note:** Gemini CLI is the legacy Google AI agent host. **Antigravity** (`/Applications/Antigravity.app`) is the active successor. As of v0.21.1, Traceary supports Antigravity as a real hook client with a packaged plugin against the documented public hook surface. See the [Antigravity hooks and plugin guide](./antigravity.md).
 
 These packages all share the same runtime contract:
 
@@ -36,14 +36,14 @@ Current automatic fixes cover Traceary-managed hook config installation/upgrade 
 | Claude Code | `integrations/claude-plugin/` | Claude marketplace rooted at `.claude-plugin/marketplace.json` |
 | Codex | `plugins/traceary/` | Installed via Codex CLI's official `/plugins` flow against the repo-local marketplace at `.agents/plugins/marketplace.json`; the plugin manifest declares the bundled `hooks.json` so Codex wires session / prompt / audit hooks automatically. The `traceary integration codex install` helper was retired in v0.14.0 and the cleanup-only `traceary integration codex uninstall` was retired in v0.15.0; both are now hidden stubs that point at Codex's official `/plugins` flow plus the manual cleanup steps in [docs/integrations/codex-plugin.md](./codex-plugin.md). |
 | Gemini CLI | `integrations/gemini-extension/` | Gemini extension archive rooted at `gemini-extension.json` — **legacy compatibility only** as of v0.21.0; not the active delegation path |
-| Antigravity | — | No supported public CLI/hook contract confirmed; v0.21.0 intentionally ships no package, hook, or release asset (decided in #1196). `traceary doctor --client antigravity --json` reports the current capability state (#1195). |
+| Antigravity | `integrations/antigravity-plugin/` | Supported in v0.21.1. Hooks install to `<project>/.agents/hooks.json` (workspace) or `~/.gemini/config/hooks.json` (`--global`) via `traceary hooks install --client antigravity`; the packaged plugin ships the same `traceary` hook group plus a `plugin.json` following the official Antigravity plugin schema. `traceary doctor --client antigravity --json` reports capability + config state. |
 
 ## Per-host guides
 
 - [Claude Code plugin](./claude-plugin.md)
 - [Codex plugin](./codex-plugin.md)
 - [Gemini CLI extension (legacy)](./gemini-extension.md)
-- [Antigravity migration status](./antigravity.md)
+- [Antigravity hooks and plugin](./antigravity.md)
 - [Anthropic native memory tool (experimental)](./anthropic-memory-tool.md)
 
 ## Validation and smoke tests

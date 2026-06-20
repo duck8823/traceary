@@ -26,6 +26,22 @@ func ResetUserHomeDirFunc() {
 	userHomeDirFunc = os.UserHomeDir
 }
 
+// SetAntigravityBundleExistsFunc replaces the Antigravity bundle existence
+// probe for tests so the not_installed / installed capability path can be
+// exercised deterministically regardless of the host machine.
+func SetAntigravityBundleExistsFunc(f func(string) bool) {
+	antigravityBundleExistsFunc = f
+}
+
+// ResetAntigravityBundleExistsFunc restores the default Antigravity bundle
+// existence probe.
+func ResetAntigravityBundleExistsFunc() {
+	antigravityBundleExistsFunc = func(path string) bool {
+		_, err := os.Stat(path)
+		return err == nil
+	}
+}
+
 // SetGCNowFunc replaces the current-time function for tests.
 func SetGCNowFunc(f func() time.Time) {
 	gcNowFunc = f

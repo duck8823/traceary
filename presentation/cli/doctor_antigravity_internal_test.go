@@ -76,29 +76,40 @@ func TestDetectAntigravityCapability(t *testing.T) {
 		}
 	})
 
-	t.Run("tool_unavailable when app bundle exists but no CLI", func(t *testing.T) {
+	t.Run("available when app bundle exists (Traceary supports the hooks/plugin contract)", func(t *testing.T) {
 		// Use detectAntigravityCapabilityWithBundlePaths with an explicit fake path so
 		// bundle detection is exercised on all platforms (antigravityBundlePaths returns
 		// nil on non-macOS, which would skip the hasBundle predicate).
 		state := detectAntigravityCapabilityWithBundlePaths(noPath, hasBundle, []string{"/fake/Antigravity.app"})
-		if state != antigravityStateToolUnavailable {
-			t.Fatalf("state = %v, want tool_unavailable", state)
+		if state != antigravityStateAvailable {
+			t.Fatalf("state = %v, want available", state)
 		}
 	})
 
-	t.Run("tool_unavailable when CLI on PATH (no confirmed hook contract)", func(t *testing.T) {
-		// Even with a CLI present, no supported public hook/automation
-		// contract is confirmed for Antigravity yet.
+	t.Run("available when antigravity CLI on PATH", func(t *testing.T) {
 		state := detectAntigravityCapability(hasPath, noBundle)
-		if state != antigravityStateToolUnavailable {
-			t.Fatalf("state = %v, want tool_unavailable", state)
+		if state != antigravityStateAvailable {
+			t.Fatalf("state = %v, want available", state)
 		}
 	})
 
-	t.Run("tool_unavailable when both CLI and bundle exist", func(t *testing.T) {
+	t.Run("available when agy CLI on PATH", func(t *testing.T) {
+		agyOnPath := func(cmd string) (string, error) {
+			if cmd == "agy" {
+				return "/usr/local/bin/agy", nil
+			}
+			return "", errors.New("not found")
+		}
+		state := detectAntigravityCapability(agyOnPath, noBundle)
+		if state != antigravityStateAvailable {
+			t.Fatalf("state = %v, want available", state)
+		}
+	})
+
+	t.Run("available when both CLI and bundle exist", func(t *testing.T) {
 		state := detectAntigravityCapabilityWithBundlePaths(hasPath, hasBundle, []string{"/fake/Antigravity.app"})
-		if state != antigravityStateToolUnavailable {
-			t.Fatalf("state = %v, want tool_unavailable", state)
+		if state != antigravityStateAvailable {
+			t.Fatalf("state = %v, want available", state)
 		}
 	})
 }
@@ -133,16 +144,13 @@ func TestBuildAntigravityCapabilityCheck(t *testing.T) {
 		if !strings.Contains(check.Message, "tool_unavailable") {
 			t.Fatalf("tool_unavailable message must contain 'tool_unavailable', got: %q", check.Message)
 		}
-		// v0.21.0 intentionally ships no Antigravity package; the message must state the
-		// decision rather than tracking it as outstanding implementation work.
-		if !strings.Contains(check.Message, "intentionally ships no Antigravity") {
-			t.Fatalf("tool_unavailable message must state the intentional no-package decision, got: %q", check.Message)
+		// v0.21.1 ships Antigravity hook/plugin support; the message must point
+		// at the supported contract rather than the retired no-package decision.
+		if !strings.Contains(check.Message, "hooks/plugin contract") {
+			t.Fatalf("tool_unavailable message must reference the supported hooks/plugin contract, got: %q", check.Message)
 		}
-		if !strings.Contains(check.Message, "supported public CLI/hook contract") {
-			t.Fatalf("tool_unavailable message must state future support requires a supported public CLI/hook contract, got: %q", check.Message)
-		}
-		if strings.Contains(check.Message, "#1196") {
-			t.Fatalf("tool_unavailable message must not track package work in #1196, got: %q", check.Message)
+		if strings.Contains(check.Message, "intentionally ships no Antigravity") {
+			t.Fatalf("tool_unavailable message must not keep the retired no-package decision, got: %q", check.Message)
 		}
 	})
 

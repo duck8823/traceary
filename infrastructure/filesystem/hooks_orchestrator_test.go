@@ -25,6 +25,155 @@ func newTestOrchestrator(homeDir string) *filesystem.HooksOrchestrator {
 	})
 }
 
+func newAntigravityOrchestrator() *filesystem.HooksOrchestrator {
+	return filesystem.NewHooksOrchestrator(map[string]application.HooksClientHandler{
+		"antigravity": filesystem.NewAntigravityHooksHandler(),
+	})
+}
+
+func TestHooksOrchestrator_AntigravityGenerateRendersGroupDocument(t *testing.T) {
+	t.Parallel()
+
+	orchestrator := newAntigravityOrchestrator()
+
+	for _, client := range []string{"antigravity", "agy", "antigravity-cli"} {
+		t.Run(client, func(t *testing.T) {
+			t.Parallel()
+
+			encoded, err := orchestrator.Generate(context.Background(), client, "traceary")
+			if err != nil {
+				t.Fatalf("Generate(%q) error = %v", client, err)
+			}
+			root := map[string]json.RawMessage{}
+			if err := json.Unmarshal(encoded, &root); err != nil {
+				t.Fatalf("json.Unmarshal() error = %v", err)
+			}
+			// Antigravity uses a top-level hook-group map, not the shared
+			// {"hooks": {...}} envelope.
+			if _, ok := root["hooks"]; ok {
+				t.Fatalf("antigravity document must not use the shared hooks envelope: %s", encoded)
+			}
+			if _, ok := root["traceary"]; !ok {
+				t.Fatalf("antigravity document missing the traceary group: %s", encoded)
+			}
+			if !strings.Contains(string(encoded), "'hook' 'antigravity' 'pre-invocation'") {
+				t.Fatalf("antigravity document missing runtime command: %s", encoded)
+			}
+		})
+	}
+}
+
+func TestHooksOrchestrator_AntigravityNormalizeClient(t *testing.T) {
+	t.Parallel()
+
+	orchestrator := newAntigravityOrchestrator()
+
+	for _, alias := range []string{"antigravity", "agy", "antigravity-cli"} {
+		t.Run(alias, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := orchestrator.NormalizeClient(alias)
+			if err != nil {
+				t.Fatalf("NormalizeClient(%q) error = %v", alias, err)
+			}
+			if got != "antigravity" {
+				t.Fatalf("NormalizeClient(%q) = %q, want antigravity", alias, got)
+			}
+		})
+	}
+}
+
+func TestHooksOrchestrator_AntigravityInstallWritesAgentsPath(t *testing.T) {
+	t.Parallel()
+
+	projectDir := t.TempDir()
+	orchestrator := newAntigravityOrchestrator()
+
+	resolved, err := orchestrator.Install(
+		context.Background(),
+		"antigravity", "traceary",
+		projectDir,
+		types.None[string](),
+		false,
+	)
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+	if got, want := resolved, filepath.Join(projectDir, ".agents", "hooks.json"); got != want {
+		t.Fatalf("Install() = %q, want %q", got, want)
+	}
+
+	content, err := os.ReadFile(resolved)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", resolved, err)
+	}
+	root := map[string]json.RawMessage{}
+	if err := json.Unmarshal(content, &root); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if _, ok := root["traceary"]; !ok {
+		t.Fatalf("installed antigravity hooks missing the traceary group: %s", content)
+	}
+}
+
+func TestHooksOrchestrator_AntigravityInstallPreservesForeignGroup(t *testing.T) {
+	t.Parallel()
+
+	projectDir := t.TempDir()
+	orchestrator := newAntigravityOrchestrator()
+
+	hooksPath := filepath.Join(projectDir, ".agents", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(hooksPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	existing := []byte(`{
+  "vendor-x": {
+    "PreInvocation": [
+      {"type": "command", "command": "vendor-x audit"}
+    ]
+  }
+}
+`)
+	if err := os.WriteFile(hooksPath, existing, 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	if _, err := orchestrator.Install(
+		context.Background(),
+		"antigravity", "traceary",
+		projectDir,
+		types.None[string](),
+		false,
+	); err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+
+	content, err := os.ReadFile(hooksPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if !strings.Contains(string(content), "vendor-x audit") {
+		t.Fatalf("install dropped the foreign hook group: %s", content)
+	}
+	if !strings.Contains(string(content), `"traceary"`) {
+		t.Fatalf("install did not add the traceary group: %s", content)
+	}
+}
+
+func TestHooksOrchestrator_AntigravityResolveInstallPath(t *testing.T) {
+	t.Parallel()
+
+	orchestrator := newAntigravityOrchestrator()
+
+	resolved, err := orchestrator.ResolveInstallPath("agy", "/project", types.None[string]())
+	if err != nil {
+		t.Fatalf("ResolveInstallPath() error = %v", err)
+	}
+	if want := filepath.Join("/project", ".agents", "hooks.json"); resolved != want {
+		t.Fatalf("ResolveInstallPath() = %q, want %q", resolved, want)
+	}
+}
+
 func TestHooksOrchestrator_GenerateReturnsClientSpecificJSON(t *testing.T) {
 	t.Parallel()
 

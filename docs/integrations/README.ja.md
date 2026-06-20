@@ -2,9 +2,9 @@
 
 [English](./README.md)
 
-Traceary は、Claude Code / Codex / Gemini CLI（レガシー）向けにネイティブ連携パッケージを用意しています。
+Traceary は、Claude Code / Codex / Gemini CLI（レガシー）/ Antigravity 向けにネイティブ連携パッケージを用意しています。
 
-> **v0.21.0 注記:** Gemini CLI はレガシーの Google AI エージェントホストです。**Antigravity**（`/Applications/Antigravity.app`）が後継ホストとして位置づけられており、capability detection は #1195 で実装済みです。この調査（#1196）の結果、v0.21.0 では Antigravity の hook / package / release asset を**意図的に提供しません** — サポートされた公開 CLI/hook contract が確認されていないためです。ローカルで把握している情報は [Antigravity 移行状況](./antigravity.ja.md) を参照してください。
+> **v0.21.1 注記:** Gemini CLI はレガシーの Google AI エージェントホストです。**Antigravity**（`/Applications/Antigravity.app`）が後継ホストです。v0.21.1 以降、Traceary は Antigravity を実際の hook client としてサポートし、文書化された公開 hook surface に対する packaged plugin を提供します。詳細は [Antigravity hooks / plugin ガイド](./antigravity.ja.md) を参照してください。
 
 これらのパッケージは、次の共通ランタイム契約でそろえています。
 
@@ -30,14 +30,14 @@ Traceary は、Claude Code / Codex / Gemini CLI（レガシー）向けにネイ
 | Claude Code | `integrations/claude-plugin/` | `.claude-plugin/marketplace.json` を基点にした Claude marketplace |
 | Codex | `plugins/traceary/` | Codex CLI 公式の `/plugins` flow を使い、リポジトリ内の marketplace `.agents/plugins/marketplace.json` から install。plugin manifest で同梱 `hooks.json` を参照するため session / prompt / audit hook が自動配線される。`traceary integration codex install` helper は v0.14.0 で、cleanup 専用 `traceary integration codex uninstall` は v0.15.0 で廃止。いずれも非表示の stub になり、Codex 公式の `/plugins` flow と [docs/integrations/codex-plugin.ja.md](./codex-plugin.ja.md) の手動 cleanup 手順を案内するのみ。 |
 | Gemini CLI | `integrations/gemini-extension/` | `gemini-extension.json` を root にした Gemini extension archive — v0.21.0 以降は**レガシー互換のみ**。アクティブな委譲パスではない |
-| Antigravity | — | サポートされた公開 CLI/hook contract は未確認。v0.21.0 では package / hook / release asset を意図的に提供しません（#1196 で判断）。`traceary doctor --client antigravity --json` で現在の機能ステートを確認できます（#1195）。 |
+| Antigravity | `integrations/antigravity-plugin/` | v0.21.1 でサポート。`traceary hooks install --client antigravity` で `<project>/.agents/hooks.json`（workspace）または `~/.gemini/config/hooks.json`（`--global`）に hook を install。同梱 plugin は同じ `traceary` hook グループに加え、公式 Antigravity plugin スキーマに従う `plugin.json` を提供。`traceary doctor --client antigravity --json` で capability + config ステートを確認できます。 |
 
 ## host 別ガイド
 
 - [Claude Code plugin](./claude-plugin.ja.md)
 - [Codex plugin](./codex-plugin.ja.md)
 - [Gemini CLI extension（レガシー）](./gemini-extension.ja.md)
-- [Antigravity 移行状況](./antigravity.ja.md)
+- [Antigravity hooks / plugin](./antigravity.ja.md)
 - [Anthropic native memory tool (experimental)](./anthropic-memory-tool.ja.md)
 
 ## 検証と smoke test

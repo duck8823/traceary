@@ -42,7 +42,7 @@ Download the archive that matches your platform from the GitHub Releases page an
 
 Tagged releases publish Claude Code and Codex packages versioned in-repo and tracked in the same release tag. The Gemini CLI extension archive (`traceary.tar.gz`) is also published as a release asset for legacy compatibility with existing Gemini CLI installs.
 
-No Antigravity package or release asset is published in v0.21.0. This omission is intentional (decided in #1196): no supported public CLI/hook contract for Antigravity is confirmed, so Traceary will not ship a fabricated hook contract or package. The doctor state stays `tool_unavailable` (#1195) and a real package will be added under a future issue only once Google publishes a supported public CLI/hook contract.
+As of v0.21.1, Traceary ships an Antigravity plugin package (`integrations/antigravity-plugin/`) against the documented public Antigravity hook/plugin surface. Install the hooks with `traceary hooks install --client antigravity` (workspace `.agents/hooks.json`) or `--global` (`~/.gemini/config/hooks.json`). See the [Antigravity hooks and plugin guide](../integrations/antigravity.md).
 
 See the [native integrations guide](../integrations/README.md) for the host-specific install flows.
 
@@ -124,7 +124,7 @@ The GoReleaser workflow automates artifact publishing, but a handful of steps st
    - Gemini review is **not** required — Gemini CLI is retired/unavailable.
    - Codex implementation/review is **not** required when local policy or a user instruction disables it; obtain a Codex app review only when Codex is enabled and available.
    - Obtain a fresh Claude review on the latest head, confirm local dogfood plus `go test ./...` / `golangci-lint` / CI are green, then merge with a merge commit.
-   - Antigravity has no release asset in v0.21.0 and its doctor state stays `tool_unavailable` (see "Native agent packages" above) unless a future supported public CLI/hook contract appears.
+   - Antigravity is supported from v0.21.1 and ships `integrations/antigravity-plugin/`; doctor reports `antigravity-capability` and `antigravity-config` (see "Native agent packages" above).
 8. **Tag and push.** After the release-prep PR merges, run `git checkout main && git pull --ff-only && git tag vX.Y.Z && git push origin vX.Y.Z`. The `v*` tag triggers `.github/workflows/release.yml`.
 9. **Watch the release workflow.** `gh run watch` against the tag run. On success, verify with `gh release view vX.Y.Z`. Publishing the GitHub Release also triggers `.github/workflows/pages.yml`, which re-deploys `docs/landing/` to GitHub Pages — confirm that run succeeds and that `https://duck8823.github.io/traceary/` (CNAME-redirected to `https://duck8823.net/traceary/`) reflects the new version.
 10. **Confirm the Homebrew formula PR.** The release workflow opens `maintenance/homebrew-vX.Y.Z` and enables auto-merge, but confirm it actually merged. `brew update && brew upgrade traceary && traceary -v` should report the new version.
