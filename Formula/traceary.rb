@@ -11,7 +11,7 @@ class Traceary < Formula
   on_macos do
     if Hardware::CPU.intel?
       url "https://github.com/duck8823/traceary/releases/download/v0.21.0/traceary_0.21.0_darwin_amd64.tar.gz"
-      sha256 "982a48cdc9db3dc118574e88f56e1b043a7950af5ff59700a8e593ec2880c414"
+      sha256 "4a2a1e55c1fdab47ab1775158b2e85a5266b75e16593b6094acfbf4c0c1bbea9"
 
       define_method(:install) do
         bin.install "traceary"
@@ -19,7 +19,7 @@ class Traceary < Formula
     end
     if Hardware::CPU.arm?
       url "https://github.com/duck8823/traceary/releases/download/v0.21.0/traceary_0.21.0_darwin_arm64.tar.gz"
-      sha256 "2b427e18ee6b6194e8395b9c104b70895c64e10d92918e361b05d9b8cf7709b9"
+      sha256 "5ce24367626a0e217a685bd330c06ac5828c67b368f8c6e413f9c4f5a19f869b"
 
       define_method(:install) do
         bin.install "traceary"
@@ -30,14 +30,14 @@ class Traceary < Formula
   on_linux do
     if Hardware::CPU.intel? && Hardware::CPU.is_64_bit?
       url "https://github.com/duck8823/traceary/releases/download/v0.21.0/traceary_0.21.0_linux_amd64.tar.gz"
-      sha256 "19f696049e86ad89f1569c69fd158716f38ec62300c821643cbd002911668116"
+      sha256 "ee186e5850dd7ba3535686c2781f8e0b00c3e1ccb3a343263d7e3171b986bb2d"
       define_method(:install) do
         bin.install "traceary"
       end
     end
     if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
       url "https://github.com/duck8823/traceary/releases/download/v0.21.0/traceary_0.21.0_linux_arm64.tar.gz"
-      sha256 "ee9fc05c7ec37a9cfa58cff5bbd9b07a4a09a064f75353de944d55668a383f54"
+      sha256 "35fa4100384a412c7c00f760d8a7fdb12e9293cb7c5947643b2d7068b0d496bd"
       define_method(:install) do
         bin.install "traceary"
       end
