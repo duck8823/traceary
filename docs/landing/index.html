@@ -45,7 +45,7 @@
       <div>
         <span class="hero-eyebrow"><span class="dot"></span>v0.21 · local-first · OSS</span>
         <h1>Memory substrate for <span class="accent">AI coding agents</span>.</h1>
-        <p class="lead">Traceary records session lifecycle, shell command audits, and — where the host hooks expose them — prompts and compact summaries from Claude, Codex, and Gemini into a single local SQLite store, so context survives <code class="inl">/clear</code>, <code class="inl">/compact</code>, and the gaps between agents.</p>
+        <p class="lead">Traceary records session lifecycle, shell command audits, and — where the host hooks expose them — prompts and compact summaries from Claude Code and Codex (plus legacy Gemini CLI compatibility) into a single local SQLite store, so context survives <code class="inl">/clear</code>, <code class="inl">/compact</code>, and the gaps between agents.</p>
         <div class="hero-ctas">
           <a class="btn btn-primary btn-mono" href="#install">$ brew install traceary</a>
           <a class="btn btn-ghost" href="https://github.com/duck8823/traceary" target="_blank" rel="noopener">
@@ -87,8 +87,8 @@
         </div>
         <div class="why-card">
           <div class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M6 8v2a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V8M12 13v3"/></svg></div>
-          <h3>Three agents, three logs</h3>
-          <p>Claude, Codex, and Gemini each keep their own state. Cross-tool history needs one home.</p>
+          <h3>Multiple agents, scattered logs</h3>
+          <p>Claude Code and Codex each keep their own state. Cross-tool history needs one home — and new hosts like Antigravity will add to the fragmentation.</p>
         </div>
         <div class="why-card">
           <div class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/></svg></div>
@@ -178,7 +178,7 @@ go install github.com/duck8823/traceary@latest</pre>
           <div class="step-head">
             <div class="step-num">STEP <span>02</span></div>
             <h3 class="step-title">Wire your agent</h3>
-            <p class="step-desc">Plugins for Claude Code, Codex, and Gemini CLI.</p>
+            <p class="step-desc">Active packages for Claude Code and Codex; legacy Gemini CLI compatibility. Antigravity: no package in v0.21.0.</p>
           </div>
           <div id="install-tabs-mount"></div>
         </div>
@@ -205,7 +205,7 @@ traceary search boom --json</pre>
   <section style="border-top:1px solid var(--line);">
     <div class="container">
       <div class="section-eyebrow">Host capture matrix</div>
-      <h2 class="section-title">One query surface. Three capture tiers.</h2>
+      <h2 class="section-title">One query surface. Two active capture tiers.</h2>
       <p class="section-lead">Once installed, every host shares the same CLI and MCP commands. What differs is how much each one captures automatically through hooks.</p>
       <table class="matrix">
         <thead>
@@ -236,15 +236,24 @@ traceary search boom --json</pre>
             <td><span class="tier partial">PARTIAL</span></td>
           </tr>
           <tr>
-            <td class="host">Gemini CLI</td>
+            <td class="host">Gemini CLI <span style="font-size:0.75em;opacity:0.6;">(legacy)</span></td>
             <td>SessionStart + End</td>
             <td>Tool hooks</td>
             <td><span class="dash">—</span></td>
             <td><span class="dash">—</span></td>
             <td><span class="tier basic">BASIC</span></td>
           </tr>
+          <tr>
+            <td class="host">Antigravity</td>
+            <td><span class="dash">—</span></td>
+            <td><span class="dash">—</span></td>
+            <td><span class="dash">—</span></td>
+            <td><span class="dash">—</span></td>
+            <td style="font-size:0.8em;opacity:0.6;">no package v0.21</td>
+          </tr>
         </tbody>
       </table>
+      <p style="margin-top:0.75rem;font-size:0.85rem;opacity:0.6;">Gemini CLI details are legacy compatibility for existing installs. Antigravity has no confirmed hook contract or release asset in v0.21.0.</p>
     </div>
   </section>
 
@@ -268,7 +277,7 @@ traceary search boom --json</pre>
         <a class="doc-card" href="https://github.com/duck8823/traceary/blob/main/docs/integrations/README.md" target="_blank" rel="noopener">
           <span class="arrow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M7 17 17 7M9 7h8v8"/></svg></span>
           <h4>Native integrations</h4>
-          <p>Claude Code, Codex, Gemini CLI, and Anthropic memory tool.</p>
+          <p>Claude Code and Codex packages, legacy Gemini CLI compatibility, and Anthropic memory tool.</p>
         </a>
         <a class="doc-card" href="https://github.com/duck8823/traceary/blob/main/docs/architecture/README.md" target="_blank" rel="noopener">
           <span class="arrow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M7 17 17 7M9 7h8v8"/></svg></span>

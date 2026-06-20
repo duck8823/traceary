@@ -32,7 +32,7 @@ This document defines the hook capability tiers across AI agent clients.
 
 **Limitations**: No SessionEnd and no host-level session-end signal — Codex fires `Stop` after every assistant response, not when the conversation ends, so Traceary treats `Stop` as a turn boundary and keeps the session open (#1170). A Codex session ends only via an explicit end signal (MCP `manage_session`) or stale GC (`traceary session gc`, default 24h). No compact hooks, no failure-specific event and no structured failure signal — Codex fires `PostToolUse` for non-zero exits too, but its `tool_response` is a plain formatted string with no exit code or error field, so failed runs are recorded as ordinary (unflagged) audits.
 
-### Tier 3: Basic (Gemini CLI)
+### Tier 3: Basic (Gemini CLI) — *legacy compatibility*
 
 | Hook Event | Matcher | Behavior |
 |---|---|---|
@@ -44,6 +44,8 @@ This document defines the hook capability tiers across AI agent clients.
 | PreCompress | `*` | Record a `compact_summary` marker (`trigger` field only — Gemini exposes no post-compress digest) |
 
 **Limitations**: No post-compress digest — Gemini's `PreCompress` is advisory-only and fires asynchronously before compression, and the gemini-cli 0.43.0 bundled hook reference exposes no post-compress event anywhere in its hook surface (`BeforeTool` / `AfterTool` / `BeforeAgent` / `AfterAgent` / `BeforeModel` / `BeforeToolSelection` / `AfterModel` / `SessionStart` / `SessionEnd` / `Notification` / `PreCompress`). No failure-specific event, no PostCompact/SessionStart(compact). Gemini has no Stop event, so transcript capture is attached to `AfterAgent` instead. Failure capture is partial: `AfterTool` exposes a nested `tool_response.error` object only for spawn/OS-level errors (Traceary marks those `failed`); a plain non-zero shell exit surfaces only as `Exit Code: N` text inside `tool_response.llmContent`, which Traceary deliberately does not parse, so those runs stay unflagged.
+
+> **v0.21 note**: The successor host, Antigravity, has no confirmed hook contract or support tier in v0.21.0 and emits no Traceary lifecycle events yet. The Gemini CLI details above are legacy compatibility and are preserved for existing installs. See [Antigravity integration status](../integrations/antigravity.md).
 
 ## Shared Behavior
 

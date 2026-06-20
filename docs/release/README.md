@@ -40,8 +40,9 @@ Download the archive that matches your platform from the GitHub Releases page an
 
 ### Native agent packages
 
-Tagged releases also publish the Traceary Gemini CLI extension archive as `traceary.tar.gz`.
-Claude Code and Codex packages are versioned in-repo and tracked in the same release tag.
+Tagged releases publish Claude Code and Codex packages versioned in-repo and tracked in the same release tag. The Gemini CLI extension archive (`traceary.tar.gz`) is also published as a release asset for legacy compatibility with existing Gemini CLI installs.
+
+No Antigravity package or release asset is published in v0.21.0.
 
 See the [native integrations guide](../integrations/README.md) for the host-specific install flows.
 
@@ -68,7 +69,7 @@ That workflow:
 4. runs GoReleaser in release mode for tag refs, or snapshot mode for manual branch runs
 5. publishes GitHub release artifacts and checksums for tagged releases
 6. opens or updates a dedicated Homebrew formula PR (`maintenance/homebrew-vX.Y.Z`) with a GitHub App installation token instead of direct-pushing to protected `main`
-7. packages and uploads the Gemini CLI extension archive (`traceary.tar.gz`)
+7. packages and uploads the Gemini CLI extension archive (`traceary.tar.gz`) for legacy compatibility
 8. closes the matching open parent release issue (`vX.Y.Z: ...`) only after the tagged GitHub Release succeeds
 
 `workflow_dispatch` is mainly for dry-running the pipeline on a branch. It also accepts an optional `tag` input so you can rerun release completion for an existing `v*` tag after fixing workflow problems.

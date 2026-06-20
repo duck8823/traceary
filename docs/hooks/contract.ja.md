@@ -32,7 +32,7 @@
 
 **制限**: SessionEnd なし・host レベルのセッション終了信号なし — Codex は会話終了時ではなく assistant 応答ごとに `Stop` を fire するため、Traceary は `Stop` を turn 境界として扱い session を開いたままにする (#1170)。Codex session は明示的な終了信号 (MCP `manage_session`) または stale GC (`traceary session gc`、既定 24h) でのみ終了する。compact hooks なし、failure 専用イベントなし・構造化された失敗信号なし。Codex は非ゼロ終了でも `PostToolUse` を fire するが、`tool_response` は exit code も error フィールドも持たない素の整形済み文字列のため、失敗した実行は通常の（フラグなし）監査として記録される。
 
-### Tier 3: 基本対応 (Gemini CLI)
+### Tier 3: 基本対応 (Gemini CLI) — *レガシー互換*
 
 | Hook イベント | Matcher | 動作 |
 |---|---|---|
@@ -44,6 +44,8 @@
 | PreCompress | `*` | `compact_summary` marker として記録（`trigger` のみ。Gemini には post-compress digest がない） |
 
 **制限**: post-compress digest はなし — Gemini の `PreCompress` は advisory-only で compression 前に非同期で発火し、gemini-cli 0.43.0 同梱 hook reference の hook surface 全体（`BeforeTool` / `AfterTool` / `BeforeAgent` / `AfterAgent` / `BeforeModel` / `BeforeToolSelection` / `AfterModel` / `SessionStart` / `SessionEnd` / `Notification` / `PreCompress`）に post-compress event は存在しない。failure 専用イベントなし、PostCompact/SessionStart(compact) なし。Gemini には Stop event が存在しないため、transcript 取得は `AfterAgent` に紐付けている。失敗捕捉は部分的: `AfterTool` の nested `tool_response.error` は spawn/OS レベルエラー時のみ出る（その場合は `failed` とマーク）。通常の非ゼロ終了は `tool_response.llmContent` 内の `Exit Code: N` テキストとしてのみ現れ、Traceary は意図的に parse しないため、それらはフラグなしのまま。
+
+> **v0.21 注**: 後継ホストの Antigravity は v0.21.0 時点でフック契約・サポートレベルが未確定であり、Traceary のライフサイクルイベントをまだ発火しません。上記 Gemini CLI の情報はレガシー互換として既存導入環境向けに残しています。詳細は [Antigravity 統合状況](../integrations/antigravity.ja.md) を参照してください。
 
 ## 共通動作
 
