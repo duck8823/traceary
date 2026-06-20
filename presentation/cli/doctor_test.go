@@ -2131,6 +2131,66 @@ func TestRootCLI_DoctorAntigravity(t *testing.T) {
 			t.Fatalf("summary should note workspace hooks are optional: %q", summary.Message)
 		}
 	})
+
+	t.Run("invalid workspace route fails the summary even with a healthy user route", func(t *testing.T) {
+		// Safe semantics: a malformed workspace .agents/hooks.json is rejected
+		// by Antigravity regardless of the healthy user-level route, so the
+		// aggregate antigravity-hooks summary must FAIL rather than be masked
+		// by the healthy sibling.
+		freshHome := t.TempDir()
+		cli.SetUserHomeDirFunc(func() (string, error) { return freshHome, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+
+		userHooks := filepath.Join(freshHome, ".gemini", "config", "hooks.json")
+		if err := os.MkdirAll(filepath.Dir(userHooks), 0o755); err != nil {
+			t.Fatalf("mkdir user hooks: %v", err)
+		}
+		const healthyUserHooks = `{
+  "traceary": {
+    "PreInvocation": [
+      {"type": "command", "command": "'traceary' 'hook' 'antigravity' 'pre-invocation'", "timeout": 10}
+    ]
+  }
+}`
+		if err := os.WriteFile(userHooks, []byte(healthyUserHooks), 0o600); err != nil {
+			t.Fatalf("write user hooks: %v", err)
+		}
+
+		workspaceDir := t.TempDir()
+		workspaceHooks := filepath.Join(workspaceDir, ".agents", "hooks.json")
+		if err := os.MkdirAll(filepath.Dir(workspaceHooks), 0o755); err != nil {
+			t.Fatalf("mkdir workspace hooks: %v", err)
+		}
+		// Not a JSON object — Antigravity will reject it.
+		if err := os.WriteFile(workspaceHooks, []byte(`["not", "an", "object"]`), 0o600); err != nil {
+			t.Fatalf("write workspace hooks: %v", err)
+		}
+
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--client", "antigravity", "--project-dir", workspaceDir, "--json"})
+
+		executeDoctorAllowWarnings(t, rootCmd)
+
+		report := decodeDoctorReport(t, stdout.Bytes())
+		byName := indexDoctorChecks(report.Checks)
+
+		if got := byName["antigravity-hooks-user"].Status; got != "pass" {
+			t.Fatalf("user route status = %q, want pass", got)
+		}
+		if got := byName["antigravity-hooks-workspace"].Status; got != "fail" {
+			t.Fatalf("workspace route status = %q, want fail (malformed config)", got)
+		}
+		summary := byName["antigravity-hooks"]
+		if summary.Status != "fail" {
+			t.Fatalf("summary status = %q, want fail; message: %q", summary.Status, summary.Message)
+		}
+		if !strings.Contains(summary.Message, "invalid") {
+			t.Fatalf("summary should explain the invalid route: %q", summary.Message)
+		}
+	})
 }
 
 func indexDoctorChecks(checks []doctorCheck) map[string]doctorCheck {

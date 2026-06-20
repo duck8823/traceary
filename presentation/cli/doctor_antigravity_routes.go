@@ -21,6 +21,7 @@ const (
 
 	antigravityRouteWorkspaceCheck = "antigravity-hooks-workspace"
 	antigravityRouteUserCheck      = "antigravity-hooks-user"
+	antigravityRoutePluginCheck    = "antigravity-cli-plugin"
 	antigravityRouteSummaryCheck   = "antigravity-hooks"
 )
 
@@ -59,6 +60,12 @@ func classifyAntigravityHookFile(data []byte, readErr error) antigravityHookFile
 	}
 	var groups map[string]json.RawMessage
 	if err := json.Unmarshal(data, &groups); err != nil {
+		return antigravityHookFileInvalid
+	}
+	if groups == nil {
+		// JSON null (or any document that decodes to a nil map) is not a usable
+		// hook-group object — Antigravity cannot read a traceary group out of
+		// it — so treat it as invalid rather than a benign group-less object.
 		return antigravityHookFileInvalid
 	}
 	if _, ok := groups["traceary"]; !ok {
@@ -128,24 +135,23 @@ func inspectAntigravityHookFileRoute(label, checkName, path string) antigravityH
 	return antigravityHookRoute{Label: label, Healthy: healthy, Present: present, Check: check}
 }
 
-// antigravityCLIPluginRoute observes the Antigravity CLI plugin route, reusing
-// the existing probe/classify/build trio and mapping its shape into the route
-// model. The plugin builder keeps its rich stale/unknown WARN and FixCommand.
+// antigravityCLIPluginRoute observes the Antigravity CLI plugin route once and
+// derives both the route flags and the per-route check from the same shape, so
+// the probe/classify never runs twice. The plugin builder keeps its rich
+// stale/unknown WARN and FixCommand.
 func antigravityCLIPluginRoute() antigravityHookRoute {
-	check := inspectAntigravityCLIPlugin()
-	home, err := userHomeDirFunc()
-	if err != nil {
-		// Home could not be resolved; inspectAntigravityCLIPlugin already
-		// returned a SKIP describing the failure. The route is neither healthy
-		// nor known to be present.
-		return antigravityHookRoute{Label: antigravityRoutePluginLabel, Check: check}
+	obs := observeAntigravityCLIPlugin()
+	if !obs.Resolved {
+		// Home could not be resolved; the observation's SKIP check already
+		// describes the failure. The route is neither healthy nor known to be
+		// present.
+		return antigravityHookRoute{Label: antigravityRoutePluginLabel, Check: obs.Check}
 	}
-	shape := classifyAntigravityCLIPluginProbe(probeAntigravityCLIPlugin(antigravityCLIPluginDir(home)))
 	return antigravityHookRoute{
 		Label:   antigravityRoutePluginLabel,
-		Healthy: shape == antigravityCLIPluginHealthy,
-		Present: shape != antigravityCLIPluginAbsent,
-		Check:   check,
+		Healthy: obs.Shape == antigravityCLIPluginHealthy,
+		Present: obs.Shape != antigravityCLIPluginAbsent,
+		Check:   obs.Check,
 	}
 }
 
@@ -195,18 +201,42 @@ func antigravityRouteInstallHint() string {
 }
 
 // antigravityHookRouteSummary collapses the observed routes into the single
-// antigravity-hooks check. Any healthy route is a PASS; otherwise it is a WARN
-// with an actionable install message. The summary is the only place that needs
-// the cross-route view, keeping the per-route checks sibling-independent.
+// antigravity-hooks check. A malformed/unreadable route (its per-route check is
+// FAIL) makes the summary FAIL even when another route is healthy, because
+// Antigravity rejects the bad config regardless; otherwise any healthy route is
+// a PASS and the remaining cases WARN with an actionable install message. The
+// summary is the only place that needs the cross-route view, keeping the
+// per-route checks sibling-independent.
 func antigravityHookRouteSummary(routes []antigravityHookRoute) doctorCheck {
 	healthy := make([]string, 0, len(routes))
 	presentNotHealthy := make([]string, 0, len(routes))
+	failed := make([]string, 0, len(routes))
 	for _, route := range routes {
+		if route.Check.Status == doctorStatusFail {
+			failed = append(failed, route.Label)
+		}
 		switch {
 		case route.Healthy:
 			healthy = append(healthy, route.Label)
 		case route.Present:
 			presentNotHealthy = append(presentNotHealthy, route.Label)
+		}
+	}
+
+	// Safe semantics: an invalid route config is a host-level failure. Antigravity
+	// rejects a malformed hooks.json regardless of whether another route is
+	// healthy, so the aggregate summary must fail to stay aligned with overall
+	// host readiness — never let a healthy sibling mask a broken config.
+	if len(failed) > 0 {
+		return doctorCheck{
+			Name:       antigravityRouteSummaryCheck,
+			Status:     doctorStatusFail,
+			FixCommand: "traceary hooks install --client antigravity",
+			Message: localizef(
+				"one or more Antigravity hook routes are invalid and Antigravity will reject them: %s (see the per-route checks above). Fix or reinstall them even if another route is healthy. "+antigravityRouteInstallHint(),
+				"1 つ以上の Antigravity hook 経路が不正で Antigravity が読み込めません: %s（上の経路別チェックを参照）。別の経路が健全でも修正または再インストールしてください。"+antigravityRouteInstallHint(),
+				strings.Join(failed, ", "),
+			),
 		}
 	}
 

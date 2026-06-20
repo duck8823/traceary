@@ -100,7 +100,7 @@ traceary doctor --client antigravity --json
 - `antigravity-hooks-workspace` — workspace 経路（`<project>/.agents/hooks.json`）。
 - `antigravity-hooks-user` — user-level 経路（`~/.gemini/config/hooks.json`）。
 - `antigravity-cli-plugin` — `agy plugin install` が import する CLI plugin 経路のディレクトリ `~/.gemini/antigravity-cli/plugins/traceary` を検査します。サポートされた Antigravity の top-level hook-group 形式なら `pass`、**古い Gemini 形式のパッケージ**（legacy な top-level `{"hooks": ...}` 形式、または `traceary hook ... gemini` を呼び出す command）を見つけると `warn` を報告します。この check は `plugin.json`・`hooks.json`・`hooks/hooks.json` のみを読み取り、transcript や認証情報は読みません。
-- `antigravity-hooks` — 集約サマリー。**いずれか**の経路が健全なら `pass`、**どの**経路も健全でない場合のみ、導入手順を案内する actionable な `warn` を報告します。
+- `antigravity-hooks` — 集約サマリー。**いずれか**の経路の config が不正（経路別 check が `fail`）な場合は、別の経路が健全でも Antigravity が読み込めないため `fail` を報告します。それ以外では、**いずれか**の経路が健全なら `pass`、**どの**経路も健全でない場合のみ、導入手順を案内する actionable な `warn` を報告します。
 
 **各経路は単体では任意です。** 経路が無い場合は `warn` ではなく `skip` を報告します。たとえば user-level または CLI plugin の経路が健全であれば、存在しない workspace `.agents/hooks.json` は `skip` 扱いとなり、`antigravity-hooks` サマリーは `pass` のままです。doctor が hook coverage について warn するのは、3 経路のいずれも `traceary` グループを登録していないときだけです。経路ファイルが存在するが不正（JSON オブジェクトでない）な場合は、他経路の状態に関わらず Antigravity 自体が読み込めないため `fail` を報告します。
 

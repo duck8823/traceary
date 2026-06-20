@@ -39,6 +39,11 @@ func TestClassifyAntigravityHookFile(t *testing.T) {
 			data: []byte(`["not", "an", "object"]`),
 			want: antigravityHookFileInvalid,
 		},
+		{
+			name: "invalid when document is JSON null (decodes to a nil map, not a usable object)",
+			data: []byte(`null`),
+			want: antigravityHookFileInvalid,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -102,6 +107,17 @@ func presentUnhealthyRoute(label string) antigravityHookRoute {
 	return antigravityHookRoute{Label: label, Healthy: false, Present: true}
 }
 
+// failedRoute models a present route whose per-route check is FAIL because its
+// config file is malformed/unreadable.
+func failedRoute(label string) antigravityHookRoute {
+	return antigravityHookRoute{
+		Label:   label,
+		Healthy: false,
+		Present: true,
+		Check:   doctorCheck{Name: "antigravity-hooks-" + label, Status: doctorStatusFail},
+	}
+}
+
 func TestAntigravityHookRouteSummary(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
 
@@ -160,6 +176,16 @@ func TestAntigravityHookRouteSummary(t *testing.T) {
 			},
 			wantStatus:   doctorStatusWarn,
 			wantContains: []string{antigravityRoutePluginLabel, "per-route checks"},
+		},
+		{
+			name: "invalid route fails the summary even when another route is healthy",
+			routes: []antigravityHookRoute{
+				healthyRoute(antigravityRouteUserLabel),
+				failedRoute(antigravityRouteWorkspaceLabel),
+				absentRoute(antigravityRoutePluginLabel),
+			},
+			wantStatus:   doctorStatusFail,
+			wantContains: []string{antigravityRouteWorkspaceLabel, "invalid", "per-route checks"},
 		},
 	}
 	for _, tt := range tests {
