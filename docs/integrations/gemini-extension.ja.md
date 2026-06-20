@@ -2,7 +2,7 @@
 
 [English](./gemini-extension.md)
 
-> **v0.21.0 — レガシー注記:** Gemini CLI はレガシーの Google AI エージェントホストであり、Traceary のアクティブな委譲パスではなくなっています。後継ホストは **Antigravity** です。Antigravity の capability detection は #1195 で実装済みです。hook / package サポートは #1196 で引き続き追跡中です。このページは既に Gemini CLI を使用している既存インストール向けに Gemini extension package を説明します。Antigravity サポートの現状は [Antigravity 移行状況](./antigravity.ja.md) を参照してください。
+> **v0.21.0 — レガシー注記:** Gemini CLI はレガシーの Google AI エージェントホストであり、Traceary のアクティブな委譲パスではなくなっています。後継ホストは **Antigravity** です。Antigravity の capability detection は #1195 で実装済みですが、サポートされた公開 CLI/hook contract が確認されていないため、v0.21.0 では Antigravity の hook / package / release asset を**意図的に提供しません**（#1196 で判断）。このページは既に Gemini CLI を使用している既存インストール向けに Gemini extension package を説明します。Antigravity サポートの現状は [Antigravity 移行状況](./antigravity.ja.md) を参照してください。
 
 Gemini 向け package は `integrations/gemini-extension/` にあります。Gemini CLI は install された extension の root に `gemini-extension.json` があることを前提にするため、Traceary では tagged release ごとにこの package を専用 archive として配布します。
 

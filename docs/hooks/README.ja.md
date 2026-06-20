@@ -232,7 +232,7 @@ Codex の `Stop` は assistant 応答ごとに発火するため、Traceary は 
 
 ### Gemini CLI *（レガシー互換）*
 
-> Gemini CLI はレガシー hook パスです。Antigravity は v0.21.0 時点で Traceary の hook 設定を持っていません。現在の Antigravity 機能ステートを確認するには `traceary doctor --client antigravity --json` を実行してください。`/Applications/Antigravity.app` がインストールされている環境では、Google が対応 CLI/hook contract を公開するまでステートは `tool_unavailable` になります（#1196 で追跡中）。
+> Gemini CLI はレガシー hook パスです。Antigravity は v0.21.0 時点で Traceary の hook 設定を持っておらず、サポートされた公開 CLI/hook contract が確認されていないため、v0.21.0 では Antigravity の hook / package / release asset を意図的に提供しません（#1196 で判断）。現在の Antigravity 機能ステートを確認するには `traceary doctor --client antigravity --json` を実行してください。`/Applications/Antigravity.app` がインストールされている環境では、Google がサポートされた公開 CLI/hook contract を公開するまでステートは `tool_unavailable` になります。
 
 1. `examples/hooks/gemini.settings.json` を `.gemini/settings.json` または `~/.gemini/settings.json` にマージする
 2. `hooksConfig.enabled` が既に `true` になっていることを確認する。Traceary はここを自動変更しません

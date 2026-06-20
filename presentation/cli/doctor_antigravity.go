@@ -129,10 +129,12 @@ func buildAntigravityCapabilityCheck(state antigravityCapabilityState) doctorChe
 			Message: Localize(
 				"Antigravity app is installed but no supported public headless/hook/package surface is confirmed (tool_unavailable). "+
 					"Traceary cannot capture Antigravity sessions until Google exposes a supported CLI/hook contract. "+
-					"Hook and package implementation is tracked in #1196.",
+					"v0.21.0 intentionally ships no Antigravity hook/package/release asset while the public automation surface is unavailable; "+
+					"future support requires a supported public CLI/hook contract.",
 				"Antigravity アプリはインストールされていますが、公開済みの headless/hook/package サーフェスは確認されていません (tool_unavailable)。"+
 					"Google が CLI/hook contract を公開するまで、Traceary は Antigravity セッションをキャプチャできません。"+
-					"hook / package 実装は #1196 で追跡中です。",
+					"v0.21.0 では、公開された automation サーフェスが利用できない間は Antigravity の hook / package / release asset を意図的に提供しません。"+
+					"将来のサポートにはサポートされた公開 CLI/hook contract が必要です。",
 			),
 		}
 	default: // antigravityStateNotInstalled

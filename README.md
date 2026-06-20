@@ -79,7 +79,7 @@ codex   # then, inside Codex: /plugins -> Traceary Plugins -> Traceary
 The `traceary integration codex install` helper was retired in v0.14.0 and the cleanup-only `traceary integration codex uninstall` surface was removed in v0.15.0. Use Codex CLI's official `/plugins` flow shown above for install / uninstall. See the [Codex plugin guide](./docs/integrations/codex-plugin.md) for migration details and manual cleanup steps for legacy installs.
 
 **Gemini CLI** — legacy / not the active delegation path as of v0.21.0.
-Gemini CLI is being superseded by **Antigravity** as Google's AI agent host. The Traceary Gemini extension package (`integrations/gemini-extension/`) remains available for existing installs. Antigravity capability detection is implemented in #1195; hook and package support remains a follow-up tracked in #1196.
+Gemini CLI is being superseded by **Antigravity** as Google's AI agent host. The Traceary Gemini extension package (`integrations/gemini-extension/`) remains available for existing installs. Antigravity capability detection is implemented in #1195, but v0.21.0 intentionally ships no Antigravity hook, package, or release asset (decided in #1196) because no supported public CLI/hook contract is confirmed.
 See the [Gemini extension guide (legacy)](./docs/integrations/gemini-extension.md) and the [Antigravity migration status](./docs/integrations/antigravity.md).
 
 For the integration overview, use the [native integrations guide](./docs/integrations/README.md). Direct Anthropic API users can also try the experimental [native memory-tool backend](./docs/integrations/anthropic-memory-tool.md).
@@ -219,9 +219,9 @@ The query surface is shared: once Traceary is installed, every host can use the 
 | Claude Code | Full | Bash + MCP + failure hooks | Yes | Yes | Full |
 | Codex | Full (`SessionStart` + `Stop`) | Tool hooks | Yes | No | Partial |
 | Gemini CLI | Full (`SessionStart` + `SessionEnd`) | Tool hooks | No | No | Basic (legacy) |
-| Antigravity | — | — | — | — | Doctor: `tool_unavailable` (#1195); hook/package: follow-up (#1196) |
+| Antigravity | — | — | — | — | Doctor: `tool_unavailable` (#1195); no package/hook/asset shipped in v0.21.0 (#1196) |
 
-> **v0.21.0 note:** Gemini CLI is the legacy Google AI agent host. Antigravity (`/Applications/Antigravity.app`, bundle ID `com.google.antigravity`, version 2.1.4) is the active successor, with capability detection implemented in #1195; hook and package support remains a follow-up in #1196. The Gemini CLI extension package remains available for existing installs. See the [Antigravity migration status](./docs/integrations/antigravity.md) for what is known locally.
+> **v0.21.0 note:** Gemini CLI is the legacy Google AI agent host. Antigravity (`/Applications/Antigravity.app`, bundle ID `com.google.antigravity`, version 2.1.4) is the active successor, with capability detection implemented in #1195. After that investigation (#1196), v0.21.0 intentionally ships no Antigravity hook, package, or release asset because no supported public CLI/hook contract is confirmed. The Gemini CLI extension package remains available for existing installs. See the [Antigravity migration status](./docs/integrations/antigravity.md) for what is known locally.
 >
 > 2026 Q2 note: Claude Code's `SubagentStop` / `PreCompact` hooks are available but not wired into Traceary's managed hook set. The Codex memory feature flag in `~/.codex/config.toml` changes Codex's own capture behaviour, not Traceary's — `traceary memory admin import codex` works regardless. `traceary doctor` surfaces the same notes under `<client>-host-capabilities`, and the full list lives in the [hook contract](./docs/hooks/contract.md#2026-q2-host-capability-notes).
 
