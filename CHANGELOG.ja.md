@@ -5,7 +5,7 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
-## [Unreleased]
+## [v0.21.3] - 2026-06-20
 
 ### Added
 - **履歴上の hook content の可逆的 dedupe (#1227)** — `traceary store dedupe content-events` は履歴上の hook 由来 `prompt`/`transcript` の duplicate 行を監査し、`--apply` を付けると hard delete せず復元可能な archive へ隔離します。既定は何も変更しない dry-run です。`--restore <run-id>` は apply を取り消し（all-or-nothing で、既存 event id の上書きを拒否）、`--client codex|all` で agent スコープを指定し、`--strict` は時間差に関係なく完全一致 duplicate group をすべて報告し、`--json` はすべての mode で利用できます。duplicate の identity は `content-event-reliability` 診断と一致します（`kind, client, agent, session_id, workspace, source_hook, trim 済み body`）。write-side guard は trimming なしの exact body を使うため異なります。既定ではほぼ同時（診断と同様に連続レコードをペアで cluster する 10s の近接 window）の group のみが対象で、group ごとに残す canonical 行は Go 側で parse した最も早い RFC3339Nano の `created_at`（同値は event id で tie-break）です。malformed timestamp の group はスキップして報告し、command audit は対象外です。apply は transaction 安全かつ冪等で、隔離した行は `events` の外へ移動されるため通常の `list`、`sessions --snapshot`、`doctor`、`context`、MCP の read surface から消えます。additive な schema migration `000019` が `event_content_dedupe_archive` テーブルを追加し、既存の `events` 行を移動・削除・書き換えしません。通常の upgrade/migration は自動クリーンアップを行いません。`content-event-reliability` の doctor チェックは新しい dry-run コマンドを案内し、現在の write path が新規 duplicate をすでに抑止していることを明記します。設計メモと rollback 手順は `docs/storage/README.ja.md` を参照してください。
