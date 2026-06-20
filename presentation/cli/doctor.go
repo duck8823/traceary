@@ -296,6 +296,13 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 	})
 
 	for _, targetClient := range resolvedClients {
+		if targetClient == "antigravity" {
+			// Antigravity has no hook install path or config contract yet.
+			// Run only the capability detection check and skip all hook checks.
+			report.Checks = append(report.Checks, inspectAntigravityCapability())
+			continue
+		}
+
 		outputPath, pathErr := c.hooksOrchestrator.ResolveInstallPath(targetClient, resolvedProjectDir, types.None[string]())
 		if pathErr != nil {
 			report.Checks = append(report.Checks, doctorCheck{
@@ -1174,6 +1181,12 @@ func describeCodexConfigPath() string {
 func resolveDoctorClients(c *RootCLI, client string) ([]string, error) {
 	if strings.TrimSpace(client) == "" {
 		return []string{"claude", "codex", "gemini"}, nil
+	}
+
+	// antigravity is a doctor-only diagnostic client: it has no hook
+	// install path and is not registered with the hooks orchestrator.
+	if strings.EqualFold(strings.TrimSpace(client), "antigravity") {
+		return []string{"antigravity"}, nil
 	}
 
 	resolvedClient, err := c.hooksOrchestrator.NormalizeClient(client)
