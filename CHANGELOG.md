@@ -5,6 +5,17 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.21.4] - 2026-06-20
+
+### Added
+- **Antigravity doctor route clarity (#1236)** — `traceary doctor --client antigravity` now reports Antigravity hook installation as independent routes: `antigravity-hooks-workspace`, `antigravity-hooks-user`, and `antigravity-cli-plugin`, plus an aggregate `antigravity-hooks` summary. Missing workspace `.agents/hooks.json` is now `skip` rather than `warn` when a user-level or CLI-plugin route is healthy; doctor warns only when no supported route registers the `traceary` group, and fails when a present route config is malformed enough for Antigravity to reject it.
+- **Antigravity capture-level status (#1235)** — doctor now includes `antigravity-capture-levels`, a status-only `pass` check that distinguishes `start_supported`, `tool_audit_supported`, `final_turn_supported`, and `final_turn_unavailable`. This makes the `agy --print` behavior explicit: print mode records session start and `run_command` audits, but the final transcript/turn boundary is unavailable because the host emits no `Stop`/finalization hook in that mode.
+
+### Documentation
+- Updated the Antigravity integration, lifecycle, hook README, and hook contract docs with a short `agy --print` capture matrix and clarified that transcripts are captured only when Antigravity emits `Stop` with `transcriptPath`.
+
+This release contains no SQLite schema migration and no new MCP tools.
+
 ## [v0.21.3] - 2026-06-20
 
 ### Added
