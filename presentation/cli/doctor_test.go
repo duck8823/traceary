@@ -1966,13 +1966,20 @@ func TestRootCLI_DoctorAntigravity(t *testing.T) {
 
 		// Must include the capability check.
 		foundCapability := false
+		foundCaptureLevels := false
 		for _, name := range checkNames {
 			if name == "antigravity-capability" {
 				foundCapability = true
 			}
+			if name == "antigravity-capture-levels" {
+				foundCaptureLevels = true
+			}
 		}
 		if !foundCapability {
 			t.Fatalf("antigravity-capability check not found in report; checks: %v", checkNames)
+		}
+		if !foundCaptureLevels {
+			t.Fatalf("antigravity-capture-levels check not found in report; checks: %v", checkNames)
 		}
 
 		// Must NOT include hook-config or coverage checks for OTHER clients.

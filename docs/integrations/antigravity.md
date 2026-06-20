@@ -29,18 +29,18 @@ Antigravity payloads use camelCase fields (`conversationId`, `workspacePaths`, `
 
 ## Capture level in headless print mode (`agy --print`)
 
-Headless `agy --print` runs capture **session start + run_command audit only**:
+Headless `agy --print` runs capture **session start + run_command audit only**. `traceary doctor --client antigravity` reports these as the `antigravity-capture-levels` check using the capture-level tokens below:
 
-| Antigravity event | Headless `agy --print` |
-| --- | --- |
-| `PreInvocation` (session start) | ● fires — session start/refresh keyed by `conversationId` |
-| `PreToolUse` + `PostToolUse` (`run_command`) | ● fires — command audit when the run uses `run_command` |
-| `Stop` (transcript + turn boundary) | ✕ not emitted by the host in print mode |
+| Antigravity event | Capture level | Headless `agy --print` | Interactive |
+| --- | --- | --- | --- |
+| `PreInvocation` (session start) | `start_supported` | ● fires — session start/refresh keyed by `conversationId` | ● fires |
+| `PreToolUse` + `PostToolUse` (`run_command`) | `tool_audit_supported` | ● fires — command audit when the run uses `run_command` | ● fires |
+| `Stop` (transcript + turn boundary) | `final_turn_supported` / `final_turn_unavailable` | ✕ `final_turn_unavailable` — not emitted by the host in print mode | ● `final_turn_supported` |
 
 In headless print mode the host does **not** emit a `Stop` (or any other
 finalization) hook, so Traceary records no `transcript` event and no turn
 boundary for that run. This was verified by dogfooding on 2026-06-20 (Traceary
-0.21.2, `agy` 1.0.10): a clean `agy --print` smoke recorded `session_started`
+0.21.3, `agy` 1.0.10): a clean `agy --print` smoke recorded `session_started`
 (and `command_executed` when a `run_command` ran) but no `transcript` event. The
 final transcript/turn boundary is captured **only** when the host emits `Stop`
 with a `transcriptPath` — i.e. on interactive runs. This is the expected capture
@@ -101,6 +101,7 @@ traceary doctor --client antigravity --json
 - `antigravity-hooks-user` — the user-level route (`~/.gemini/config/hooks.json`).
 - `antigravity-cli-plugin` — the CLI plugin route directory `~/.gemini/antigravity-cli/plugins/traceary` that `agy plugin install` imports into. It `pass`es when the package uses the supported Antigravity top-level hook-group format and `warn`s when it finds a **stale Gemini-shaped package** — a legacy top-level `{"hooks": ...}` envelope or commands that call `traceary hook ... gemini`. The check reads only `plugin.json`, `hooks.json`, and `hooks/hooks.json`; it never reads transcripts or credentials.
 - `antigravity-hooks` — the aggregate summary. It `fail`s when **any** route's config is malformed (a per-route `fail`), even if another route is healthy, because Antigravity rejects the bad config regardless; otherwise it `pass`es when **any** route is healthy and `warn`s with an actionable install message only when **no** route is healthy.
+- `antigravity-capture-levels` — always `pass`. A status-only check that reports the host-mode **capture levels** so doctor never implies full transcript capture just because the hooks are installed. It is separate from route install health (`antigravity-hooks` above) and reports: `start_supported` (PreInvocation) and `tool_audit_supported` (PreToolUse+PostToolUse `run_command`) in every mode, and `final_turn_supported` (Stop → transcript + turn boundary) on interactive runs only. Headless `agy --print` is `final_turn_unavailable` because the host emits no `Stop`/finalization hook in print mode — this is the expected print-mode capture level, not an install failure, so the check stays `pass`.
 
 **Each route is optional on its own.** A missing route is reported as `skip`, never `warn`: for example, if the user-level or CLI-plugin route is healthy, the absent workspace `.agents/hooks.json` is `skip`ped and the `antigravity-hooks` summary stays `pass`. Doctor only warns about hook coverage when none of the three routes registers the `traceary` group. A route file that is present but malformed (not a JSON object) is reported as `fail`, since Antigravity itself rejects it regardless of the other routes.
 

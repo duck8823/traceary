@@ -68,9 +68,9 @@ SessionStart → [AfterTool]* → SessionEnd
 | PreInvocation | `session_started` | Idempotent session start/refresh keyed by `conversationId` (Antigravity has no `SessionStart`) |
 | PreToolUse (`run_command`) | — | Persists the proposed `{CommandLine, Cwd}` keyed by `conversationId + stepIdx`; never blocks |
 | PostToolUse (`run_command`) | `command_executed` | Pairs the command from `PreToolUse` for the same step and records the audit (with step `error`) |
-| Stop | `transcript` | Turn transcript from `transcriptPath` plus a turn boundary; does not close the session (#1170) |
+| Stop | `transcript` | Turn transcript from `transcriptPath` plus a turn boundary when the host emits `Stop`; does not close the session (#1170) |
 
-**Limitations**: No `SessionStart` (first signal is `PreInvocation`) and no host session-end signal — like Codex, `Stop` is a per-execution turn boundary, so an Antigravity session stays open until an explicit end (MCP `manage_session`) or stale GC (`traceary session gc`). Only `run_command` tool calls are audited; transcript extraction is best effort.
+**Limitations**: No `SessionStart` (first signal is `PreInvocation`) and no host session-end signal — like Codex, `Stop` is a per-execution turn boundary, so an Antigravity session stays open until an explicit end (MCP `manage_session`) or stale GC (`traceary session gc`). Only `run_command` tool calls are audited; transcript extraction is best effort. `Stop` fires on interactive runs only — headless `agy --print` emits no `Stop`, so a print run captures session start + `run_command` audit only, with no `transcript` event or turn boundary. See the [capture matrix](./integrations/antigravity.md) and the `antigravity-capture-levels` doctor check.
 
 > **v0.21 note**: Gemini CLI is the legacy compatibility path. The successor host, Antigravity, became a supported Traceary hook client in v0.21.1 (capability diagnostics only in v0.21.0). See [Antigravity integration status](./integrations/antigravity.md).
 
