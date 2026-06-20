@@ -7,6 +7,16 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+## [v0.21.1] - 2026-06-20
+
+### Added
+- **First-class Antigravity hook and plugin support (#1213)** — Antigravity is now a real Traceary hook client instead of diagnostics-only. `traceary hooks print/install --client antigravity` renders and merges Antigravity's hook-group `hooks.json` shape (workspace `.agents/hooks.json` or user-level `~/.gemini/config/hooks.json`), preserving every non-`traceary` hook group, and the repository ships a packaged `integrations/antigravity-plugin/` with the same `traceary` hook group plus a `plugin.json` manifest following the official Antigravity plugin schema.
+- **Antigravity event coverage** — `PreToolUse`/`PostToolUse` are paired across `stepIdx` to record `run_command` audits, `PreInvocation` drives an idempotent session start/refresh keyed by `conversationId`, and `Stop` records the turn transcript and a turn boundary without closing the session.
+- **Antigravity doctor checks** — `traceary doctor --client antigravity` reports `antigravity-capability` (CLI/app-bundle detection, no credential reads or browser automation) and `antigravity-config` (whether the resolved `hooks.json` registers the `traceary` group, with an `--upgrade` remediation).
+- **Docs** — the integration, hooks, lifecycle, and release docs now describe Antigravity as a supported host, including the `PreToolUse`/`PostToolUse` pairing, the `Stop` transcript/turn boundary, and the limitations of the public hook surface.
+
+This release contains no SQLite schema migration and no new MCP tools.
+
 ## [v0.21.0] - 2026-06-20
 
 ### Added

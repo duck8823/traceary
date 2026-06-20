@@ -120,7 +120,7 @@ GoReleaser workflow が artifact の公開を自動化しますが、maintainer 
 4. **cockpit を dogfood する。** `traceary tui` を変更する release では、tag 前に `go test ./presentation/cli -run 'TestCockpitDogfood'` を実行し、80x24 smoke を含む [`cockpit dogfood checklist`](../operations/cockpit-dogfood.ja.md) を完了します。
 5. **landing page をプレビューする。** `python3 -m http.server --directory docs/landing 8000` を起動して `http://localhost:8000/` を開き、hero の version eyebrow と brew install の terminal アニメーションが新バージョンになっているかを確認します。`Pages` workflow は GitHub Release の publish 時に自動再 deploy するため、ここが本番反映前の最後のチェックポイントです。
 6. **release-preparation PR を開く。** `maintenance/release-vX.Y.Z` ブランチを作成し、changelog と bump を commit・push して `main` 向けに PR を開きます。**`Closes #<parent>` は書かない**でください。親 release issue は release workflow が閉じるため、release-prep PR からは閉じません。
-7. **レビュー + merge。** release-prep PR も通常の PR と同じレビューゲートを通します。v0.21.0 のゲートは **Claude レビュー + ローカル dogfood + tests/CI** です。
+7. **レビュー + merge。** release-prep PR も通常の PR と同じレビューゲートを通します。v0.21.1 のゲートは **Claude レビュー + ローカル dogfood + tests/CI** です。
    - Gemini レビューは**不要**です（Gemini CLI は retired / 利用不可）。
    - Codex の実装・レビューは、ローカルポリシーやユーザー指示で無効化されている場合は**不要**です。Codex が有効かつ利用可能な場合にのみ Codex app review を取得します。
    - 最新 head に対する Claude レビューを取得し、ローカル dogfood と `go test ./...` / `golangci-lint` / CI が green であることを確認してから merge commit でマージします。
