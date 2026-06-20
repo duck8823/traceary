@@ -62,11 +62,17 @@
 - Claude / Gemini は専用の `SessionEnd` を持つ。Codex は `SessionEnd` を公開しておらず、`Stop` は assistant 応答ごとに発火する turn 境界（セッション終了ではない）であるため、Codex session は明示的な信号 (MCP `manage_session`) または stale GC (`traceary session gc`) でのみ終了する（[host-coverage.ja.md](./host-coverage.ja.md) と #1170 参照）。
 - best-effort: ホストが hook を発火させずに終了するケース（kill -9、シェルクラッシュ）もあり、dangling session は L2 reconciliation で吸収し、長時間アイドルな open session は stale GC で閉じる。
 
-## Antigravity（v0.21.0）
+## Antigravity（v0.21.1+）
 
-Antigravity は Gemini CLI に代わる Traceary 連携ホストとして計画されています。v0.21.0 時点では Antigravity に対する確認済みの公開 hook・イベント契約はなく、Traceary は Antigravity セッションのライフサイクルイベントをまだ発行しません。上記の Gemini CLI hook カバレッジはレガシー互換パスのみを示しています。
+Antigravity は Gemini CLI に代わる Traceary 連携ホストです。v0.21.1 からサポート対象の hook クライアントになりました（v0.21.0 は capability 診断のみ）。Tier 2 host と同様に canonical event kind へマッピングされます。
 
-最新状況は [Antigravity 連携ステータス](../integrations/antigravity.ja.md) を参照してください。
+- `session_started` — `PreInvocation` から（Antigravity に `SessionStart` はない）。`conversationId` をキーに冪等。
+- `command_executed` — `PostToolUse`（`run_command` のみ）から。直前の `PreToolUse` が同一 `stepIdx` で保存した args と突き合わせる。
+- `transcript` — `Stop` から `transcriptPath` を best-effort で読む。`Stop` は execution 単位の turn 境界であり session 終了ではない (#1170) ため、`session_ended` は発行しない。
+
+Antigravity からは `prompt` / `compact_summary` / `session_ended` イベントは発行されません。上記の Gemini CLI hook カバレッジはレガシー互換パスを示します。
+
+完全な契約と制限は [Antigravity hooks / plugin ガイド](../integrations/antigravity.ja.md) を参照してください。
 
 ## 関連ドキュメント
 

@@ -57,7 +57,22 @@ SessionStart → [AfterTool]* → SessionEnd
 
 **Limitations**: No post-compress digest (Gemini fires `PreCompress` async only), no failure-specific events.
 
-> **v0.21 note**: Gemini CLI is the legacy compatibility path. The successor host, Antigravity, has no confirmed hook or event contract in v0.21.0 and emits no Traceary lifecycle events yet. See [Antigravity integration status](./integrations/antigravity.md).
+### Antigravity (Tier 2: Partial)
+
+```
+[PreInvocation → PreToolUse → PostToolUse → Stop]*
+```
+
+| Hook Event | Traceary Event Kind | Description |
+|---|---|---|
+| PreInvocation | `session_started` | Idempotent session start/refresh keyed by `conversationId` (Antigravity has no `SessionStart`) |
+| PreToolUse (`run_command`) | — | Persists the proposed `{CommandLine, Cwd}` keyed by `conversationId + stepIdx`; never blocks |
+| PostToolUse (`run_command`) | `command_executed` | Pairs the command from `PreToolUse` for the same step and records the audit (with step `error`) |
+| Stop | `transcript` | Turn transcript from `transcriptPath` plus a turn boundary; does not close the session (#1170) |
+
+**Limitations**: No `SessionStart` (first signal is `PreInvocation`) and no host session-end signal — like Codex, `Stop` is a per-execution turn boundary, so an Antigravity session stays open until an explicit end (MCP `manage_session`) or stale GC (`traceary session gc`). Only `run_command` tool calls are audited; transcript extraction is best effort.
+
+> **v0.21 note**: Gemini CLI is the legacy compatibility path. The successor host, Antigravity, became a supported Traceary hook client in v0.21.1 (capability diagnostics only in v0.21.0). See [Antigravity integration status](./integrations/antigravity.md).
 
 ## Event Kinds
 
@@ -66,11 +81,11 @@ SessionStart → [AfterTool]* → SessionEnd
 | `note` | Free-text log entry | CLI `traceary log` / MCP `record_event(type="log")` |
 | `command_executed` | Command or tool execution record | PostToolUse hooks |
 | `reviewed` | Review result | CLI / MCP |
-| `session_started` | Session start boundary | SessionStart hooks |
-| `session_ended` | Session end boundary | SessionEnd hooks (Claude / Gemini); Codex has no host session-end signal (#1170) |
+| `session_started` | Session start boundary | SessionStart hooks (Claude / Codex / Gemini); PreInvocation (Antigravity) |
+| `session_ended` | Session end boundary | SessionEnd hooks (Claude / Gemini); Codex and Antigravity have no host session-end signal (#1170) |
 | `compact_summary` | Structured summary from context compression | PostCompact hook |
 | `prompt` | User instruction text | UserPromptSubmit (Claude / Codex), BeforeAgent (Gemini) hooks |
-| `transcript` | Last assistant-message text blocks (reasoning / explanation). Tool-use blocks are excluded — those are captured by `command_executed`. | Stop hook (Claude Code / Codex), AfterAgent (Gemini) |
+| `transcript` | Last assistant-message text blocks (reasoning / explanation). Tool-use blocks are excluded — those are captured by `command_executed`. | Stop hook (Claude Code / Codex / Antigravity), AfterAgent (Gemini) |
 
 ## Data Flow
 
@@ -100,5 +115,5 @@ AI Client (Claude Code / Codex CLI / Gemini CLI)
 | `traceary hook audit <client>` | Command/tool audit | All |
 | `traceary hook compact <client> <post-compact|session-start-compact>` | Compact summary recording / compact resume output | Claude Code |
 | `traceary hook prompt <client>` | User prompt recording | Claude Code, Codex CLI, Gemini CLI |
-| `traceary hook transcript <client>` | Assistant-message transcript recording (Stop hook for Claude / Codex, AfterAgent for Gemini) | Claude Code, Codex CLI, Gemini CLI |
+| `traceary hook transcript <client>` | Assistant-message transcript recording (Stop hook for Claude / Codex / Antigravity, AfterAgent for Gemini) | Claude Code, Codex CLI, Gemini CLI, Antigravity |
 | packaged shell wrappers under `scripts/hooks/` | Compatibility layer that forwards into `traceary hook ...` | Packaged integrations / legacy installs |

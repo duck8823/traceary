@@ -62,11 +62,17 @@ All event bodies pass through built-in secret redaction plus operator-configured
 - Claude / Gemini use a dedicated `SessionEnd` hook. Codex exposes no `SessionEnd` and its `Stop` fires after every assistant response (a turn boundary, not a session end), so a Codex session ends only via an explicit signal (MCP `manage_session`) or stale GC (`traceary session gc`) — see [host-coverage.md](./host-coverage.md) and #1170.
 - Best-effort: hosts may exit without firing the hook (kill -9, crashed shell). L2 reconciliation tolerates dangling sessions, and stale GC closes long-idle open sessions.
 
-## Antigravity (v0.21.0)
+## Antigravity (v0.21.1+)
 
-Antigravity is the planned successor to Gemini CLI as a Traceary-integrated host. In v0.21.0, there is no confirmed public hook or event contract for Antigravity. Traceary does not emit any lifecycle events from Antigravity sessions yet. Gemini CLI hook coverage above reflects the legacy compatibility path only.
+Antigravity is the successor to Gemini CLI as a Traceary-integrated host. As of v0.21.1 it is a supported hook client (capability diagnostics only in v0.21.0). It maps onto the canonical event kinds like a Tier 2 host:
 
-See [Antigravity integration status](../integrations/antigravity.md) for the current state.
+- `session_started` — from `PreInvocation` (Antigravity has no `SessionStart`), idempotent and keyed by `conversationId`.
+- `command_executed` — from `PostToolUse` (`run_command` only), paired with the args persisted by the preceding `PreToolUse` for the same `stepIdx`.
+- `transcript` — from `Stop`, read best-effort from `transcriptPath`; `Stop` is a per-execution turn boundary, not a session end (#1170), so it emits no `session_ended`.
+
+There is no `prompt`, `compact_summary`, or `session_ended` event from Antigravity. Gemini CLI hook coverage above reflects the legacy compatibility path.
+
+See [Antigravity hooks and plugin](../integrations/antigravity.md) for the full contract and limitations.
 
 ## Where to go next
 

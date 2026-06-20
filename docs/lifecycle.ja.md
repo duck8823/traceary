@@ -57,7 +57,22 @@ SessionStart → [AfterTool]* → SessionEnd
 
 **制限**: post-compress digest はなし（Gemini の `PreCompress` は async marker のみ）、failure 専用イベントもありません。
 
-> **v0.21 注**: Gemini CLI はレガシー互換パスです。後継ホストの Antigravity は v0.21.0 時点でフック・イベント契約が未確定であり、Traceary のライフサイクルイベントをまだ発火しません。詳細は [Antigravity 統合状況](./integrations/antigravity.ja.md) を参照してください。
+### Antigravity (Tier 2: 部分対応)
+
+```
+[PreInvocation → PreToolUse → PostToolUse → Stop]*
+```
+
+| Hook イベント | Traceary イベント種別 | 説明 |
+|---|---|---|
+| PreInvocation | `session_started` | `conversationId` をキーにした冪等なセッション開始・更新（Antigravity に `SessionStart` はない） |
+| PreToolUse (`run_command`) | — | 提案された `{CommandLine, Cwd}` を `conversationId + stepIdx` をキーに保存。block しない |
+| PostToolUse (`run_command`) | `command_executed` | 同一 step の `PreToolUse` のコマンドと突き合わせて監査を記録（step の `error` 付き） |
+| Stop | `transcript` | `transcriptPath` の turn transcript と turn 境界。セッションは閉じない (#1170) |
+
+**制限**: `SessionStart` がなく（最初の信号は `PreInvocation`）、host のセッション終了信号もありません — Codex 同様 `Stop` は execution 単位の turn 境界なので、Antigravity session は明示的な終了 (MCP `manage_session`) または stale GC (`traceary session gc`) まで開いたままです。audit 対象は `run_command` tool のみで、transcript 抽出は best-effort です。
+
+> **v0.21 注**: Gemini CLI はレガシー互換パスです。後継ホストの Antigravity は v0.21.1 で Traceary のサポート対象 hook クライアントになりました（v0.21.0 は capability 診断のみ）。詳細は [Antigravity 統合状況](./integrations/antigravity.ja.md) を参照してください。
 
 ## イベント種別
 
@@ -66,11 +81,11 @@ SessionStart → [AfterTool]* → SessionEnd
 | `note` | 自由テキストログ | CLI `traceary log` / MCP `record_event(type="log")` |
 | `command_executed` | コマンド・ツール実行の記録 | PostToolUse hooks |
 | `reviewed` | レビュー結果 | CLI / MCP |
-| `session_started` | セッション開始境界 | SessionStart hooks |
-| `session_ended` | セッション終了境界 | SessionEnd hooks (Claude / Gemini)。Codex には host のセッション終了信号がない (#1170) |
+| `session_started` | セッション開始境界 | SessionStart hooks (Claude / Codex / Gemini)。PreInvocation (Antigravity) |
+| `session_ended` | セッション終了境界 | SessionEnd hooks (Claude / Gemini)。Codex と Antigravity には host のセッション終了信号がない (#1170) |
 | `compact_summary` | コンテキスト圧縮時の構造化サマリー | PostCompact hook |
 | `prompt` | ユーザーの指示テキスト | UserPromptSubmit (Claude / Codex), BeforeAgent (Gemini) hooks |
-| `transcript` | 最後の assistant メッセージの text ブロック（reasoning / 説明）。tool_use ブロックは `command_executed` に寄せるため除外する | Stop hook (Claude Code / Codex), AfterAgent (Gemini) |
+| `transcript` | 最後の assistant メッセージの text ブロック（reasoning / 説明）。tool_use ブロックは `command_executed` に寄せるため除外する | Stop hook (Claude Code / Codex / Antigravity), AfterAgent (Gemini) |
 
 ## データフロー
 
@@ -100,5 +115,5 @@ AI クライアント (Claude Code / Codex CLI / Gemini CLI)
 | `traceary hook audit <client>` | コマンド・ツール監査の記録 | 全クライアント |
 | `traceary hook compact <client> <post-compact|session-start-compact>` | compact サマリーの記録 / compact resume 出力 | Claude Code |
 | `traceary hook prompt <client>` | ユーザー prompt の記録 | Claude Code, Codex CLI, Gemini CLI |
-| `traceary hook transcript <client>` | assistant 発話の transcript 記録（Claude / Codex は Stop hook、Gemini は AfterAgent 経由） | Claude Code, Codex CLI, Gemini CLI |
+| `traceary hook transcript <client>` | assistant 発話の transcript 記録（Claude / Codex / Antigravity は Stop hook、Gemini は AfterAgent 経由） | Claude Code, Codex CLI, Gemini CLI, Antigravity |
 | `scripts/hooks/` 配下の shell wrapper | `traceary hook ...` へ転送する互換レイヤー | packaged integration / 既存導入環境 |
