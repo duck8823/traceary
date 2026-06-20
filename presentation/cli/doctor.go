@@ -306,6 +306,11 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			if outputPath, pathErr := c.hooksOrchestrator.ResolveInstallPath(targetClient, resolvedProjectDir, types.None[string]()); pathErr == nil {
 				report.Checks = append(report.Checks, inspectAntigravityConfigFile(outputPath))
 			}
+			// A `agy plugin install` can leave a stale Gemini-imported
+			// package under ~/.gemini/antigravity-cli/plugins/traceary that
+			// keeps Antigravity sessions wired to the Gemini hook runtime, so
+			// inspect that directory separately from the hooks config.
+			report.Checks = append(report.Checks, inspectAntigravityCLIPlugin())
 			continue
 		}
 
