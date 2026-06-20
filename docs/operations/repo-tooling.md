@@ -54,6 +54,7 @@ The repository should converge on subcommands shaped like these:
 
 - `go run ./cmd/repo-tooling integrations verify`
 - `go run ./cmd/repo-tooling docs verify-i18n`
+- `go run ./cmd/repo-tooling docs verify-antigravity-status`
 - `go run ./cmd/repo-tooling release verify-changelog`
 - `go run ./cmd/repo-tooling release bump-version --version X.Y.Z`
 
