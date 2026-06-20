@@ -80,6 +80,12 @@ Set `TRACEARY_HOOK_STATE_KEY` explicitly in the hook environment when you need a
 
 Treat this as a dogfood review signal, not as automatic cleanup. The check intentionally prints counts and sampled event IDs only; it does not dump command input/output bodies. Before using process-review metrics, inspect the sampled rows with `traceary show <event_id>` and confirm whether they are real duplicates/drift or legitimate repeated work.
 
+### Content event reliability dogfood signal
+
+`traceary doctor` also includes a `content-event-reliability` check over a bounded recent prompt/transcript hook window. It reports duplicate content candidate groups when the same captured prompt or transcript content is recorded more than once within that window.
+
+Treat this as a dogfood review signal, not as automatic cleanup. The check intentionally prints counts and sampled event IDs only; it does not dump captured content bodies. Before acting on the metric, inspect the sampled rows with `traceary show <event_id>` and confirm whether they are real duplicates or legitimate repeated content.
+
 ### Concurrent cleanup versus active ingestion
 
 `traceary store gc` deletes old rows and then runs `VACUUM`.

@@ -129,7 +129,7 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 	doctorCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	doctorCmd.Flags().BoolVar(&fix, "fix", false, Localize("apply known safe remediations for warning and failing checks", "警告・失敗チェックに対して既知の安全な修復を適用する"))
 	doctorCmd.Flags().BoolVar(&dryRun, "dry-run", false, Localize("preview --fix actions without writing files", "ファイルを書き込まずに --fix の処理をプレビューする"))
-	doctorCmd.Flags().BoolVar(&strict, "strict", false, Localize("audit-reliability: report every exact duplicate group regardless of time, not only near-simultaneous writes", "audit-reliability: 時間に関係なく完全一致する duplicate group をすべて報告する（near-simultaneous な書き込みだけに限定しない）"))
+	doctorCmd.Flags().BoolVar(&strict, "strict", false, Localize("audit-reliability / content-event-reliability: report every exact duplicate group regardless of time, not only near-simultaneous writes", "audit-reliability / content-event-reliability: 時間に関係なく完全一致する duplicate group をすべて報告する（near-simultaneous な書き込みだけに限定しない）"))
 	doctorCmd.Flags().BoolVar(&warningsOK, "warnings-ok", false, Localize("exit 0 when doctor finds warnings but no failures (for CI/smoke automation)", "doctor が警告のみを見つけた場合は exit 0 にする（CI / smoke automation 向け）"))
 	doctorCmd.Flags().Float64Var(&coverageThreshold, "coverage-threshold", defaultDoctorCoverageThreshold, Localize("client event coverage: warn when the recent prompt/transcript-missing session ratio is above this value (0.0 to 1.0)", "client event coverage: recent session の prompt/transcript 欠落比率がこの値を超えたら警告する (0.0 から 1.0)"))
 
@@ -278,6 +278,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		})
 		report.Checks = append(report.Checks, c.inspectStaleActiveSessions(ctx))
 		report.Checks = append(report.Checks, c.inspectCommandAuditReliability(ctx, input.strict))
+		report.Checks = append(report.Checks, c.inspectContentEventReliability(ctx, input.strict))
 	}
 
 	resolvedProjectDir, err := resolveHooksProjectDir(input.projectDir)
@@ -1964,7 +1965,7 @@ func buildDoctorSections(checks []doctorCheck) []doctorSection {
 
 func doctorSectionNameForCheck(name string) string {
 	switch {
-	case name == "db-path" || name == "db-write" || name == "stale-active-sessions" || name == "audit-reliability":
+	case name == "db-path" || name == "db-write" || name == "stale-active-sessions" || name == "audit-reliability" || name == "content-event-reliability":
 		return "Database"
 	case name == "config" || name == "project-dir" || name == "version" || name == "path":
 		return "Environment"
