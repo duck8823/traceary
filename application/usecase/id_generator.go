@@ -64,6 +64,18 @@ func newMemoryEdgeID() (types.MemoryEdgeID, error) {
 	return edgeID, nil
 }
 
+// newContentEventDedupeRunID mints the identifier recorded on every row a
+// `store dedupe content-events --apply` run quarantines. The `dedupe-` prefix
+// keeps it visually distinct from event/session/memory ids in archive metadata
+// and `--restore <run-id>` arguments.
+func newContentEventDedupeRunID() (string, error) {
+	value, err := newRandomHexString(16)
+	if err != nil {
+		return "", xerrors.Errorf("failed to generate dedupe run ID: %w", err)
+	}
+	return "dedupe-" + value, nil
+}
+
 func newRandomHexString(size int) (string, error) {
 	raw := make([]byte, size)
 	if _, err := rand.Read(raw); err != nil {

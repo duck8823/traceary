@@ -28,6 +28,12 @@ func (s *garbageCollectorStub) RestoreBackup(_ context.Context, _ string, _ bool
 func (s *garbageCollectorStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool) (int, error) {
 	return 0, nil
 }
+func (s *garbageCollectorStub) DedupeContentEvents(_ context.Context, _ apptypes.ContentEventDedupeParams) (apptypes.ContentEventDedupeResult, error) {
+	return apptypes.ContentEventDedupeResult{}, nil
+}
+func (s *garbageCollectorStub) RestoreContentEventDedupeRun(_ context.Context, _ string) (apptypes.ContentEventDedupeRestoreResult, error) {
+	return apptypes.ContentEventDedupeRestoreResult{}, nil
+}
 
 func (s *garbageCollectorStub) CollectGarbage(
 	_ context.Context,

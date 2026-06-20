@@ -92,6 +92,12 @@ func (tailStoreManagementStub) CollectGarbage(context.Context, time.Time, apptyp
 func (tailStoreManagementStub) CloseStaleSessions(context.Context, time.Duration, bool) (apptypes.CloseStaleSessionsResult, error) {
 	return apptypes.CloseStaleSessionsResult{}, nil
 }
+func (tailStoreManagementStub) DedupeContentEvents(context.Context, apptypes.ContentEventDedupeParams) (apptypes.ContentEventDedupeResult, error) {
+	return apptypes.ContentEventDedupeResult{}, nil
+}
+func (tailStoreManagementStub) RestoreContentEventDedupeRun(context.Context, string) (apptypes.ContentEventDedupeRestoreResult, error) {
+	return apptypes.ContentEventDedupeRestoreResult{}, nil
+}
 
 type fakeTailTicker struct {
 	ch chan time.Time
