@@ -245,7 +245,7 @@ Codex `Stop` fires after every assistant response, so Traceary records it as a t
 1. Install the Traceary hooks: `traceary hooks install --client antigravity --project-dir .` (workspace `.agents/hooks.json`) or `--global` (`~/.gemini/config/hooks.json`). The `agy` and `antigravity-cli` aliases also work.
 2. Start an Antigravity conversation and run at least one `run_command` tool call.
 3. Verify the resulting events with `traceary list --limit 10`.
-4. Check the install with `traceary doctor --client antigravity --json` (reports `antigravity-capability` and `antigravity-config`).
+4. Check the install with `traceary doctor --client antigravity --json`. Doctor reports `antigravity-capability` plus one check per install route (`antigravity-hooks-workspace`, `antigravity-hooks-user`, `antigravity-cli-plugin`) and an `antigravity-hooks` summary. Each route is optional: a missing workspace `.agents/hooks.json` is `skip`ped (not a warning) when the user-level or CLI-plugin route is healthy, and doctor only warns when no route registers the `traceary` group.
 
 Antigravity has no `SessionStart`: Traceary starts the session idempotently from `PreInvocation`. Like Codex, `Stop` is a per-execution turn boundary, so the session stays open and ends via MCP `manage_session` or stale GC. Only `run_command` tool calls are audited (the command args from `PreToolUse` are paired with the result from `PostToolUse`). See the [Antigravity hooks and plugin guide](../integrations/antigravity.md).
 

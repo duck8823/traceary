@@ -128,7 +128,7 @@ func classifyAntigravityCLIPluginProbe(p antigravityCLIPluginProbe) antigravityC
 // "antigravity-cli-plugin" based on the classified shape. The dir argument is
 // used only to reference the path in user-facing messages.
 func buildAntigravityCLIPluginCheck(shape antigravityCLIPluginShape, dir string) doctorCheck {
-	const checkName = "antigravity-cli-plugin"
+	const checkName = antigravityRoutePluginCheck
 	switch shape {
 	case antigravityCLIPluginHealthy:
 		return doctorCheck{
@@ -175,19 +175,46 @@ func buildAntigravityCLIPluginCheck(shape antigravityCLIPluginShape, dir string)
 	}
 }
 
-// inspectAntigravityCLIPlugin is the doctor-facing entry point. It resolves the
-// CLI plugin directory under the user's home, reads only its plugin config
-// files, and returns the classified check.
-func inspectAntigravityCLIPlugin() doctorCheck {
+// antigravityCLIPluginObservation is a single probe + classification of the CLI
+// plugin route. Both the doctor-facing check and the route flags are derived
+// from the same Shape, so the route never re-probes or re-classifies. Resolved
+// is false when the home directory could not be resolved; Check then carries
+// the SKIP describing that failure and Shape/Dir are unset.
+type antigravityCLIPluginObservation struct {
+	Shape    antigravityCLIPluginShape
+	Dir      string
+	Check    doctorCheck
+	Resolved bool
+}
+
+// observeAntigravityCLIPlugin resolves the CLI plugin directory under the user's
+// home, reads only its plugin config files, classifies the shape once, and
+// builds the doctorCheck from that same shape. It is the single source the
+// doctor check and the route model both read, so probing/classification happen
+// exactly once per doctor run.
+func observeAntigravityCLIPlugin() antigravityCLIPluginObservation {
 	home, err := userHomeDirFunc()
 	if err != nil {
-		return doctorCheck{
-			Name:    "antigravity-cli-plugin",
-			Status:  doctorStatusSkip,
-			Message: localizef("could not resolve home directory: %v", "ホームディレクトリを解決できませんでした: %v", err),
+		return antigravityCLIPluginObservation{
+			Check: doctorCheck{
+				Name:    antigravityRoutePluginCheck,
+				Status:  doctorStatusSkip,
+				Message: localizef("could not resolve home directory: %v", "ホームディレクトリを解決できませんでした: %v", err),
+			},
 		}
 	}
 	dir := antigravityCLIPluginDir(home)
-	probe := probeAntigravityCLIPlugin(dir)
-	return buildAntigravityCLIPluginCheck(classifyAntigravityCLIPluginProbe(probe), dir)
+	shape := classifyAntigravityCLIPluginProbe(probeAntigravityCLIPlugin(dir))
+	return antigravityCLIPluginObservation{
+		Shape:    shape,
+		Dir:      dir,
+		Check:    buildAntigravityCLIPluginCheck(shape, dir),
+		Resolved: true,
+	}
+}
+
+// inspectAntigravityCLIPlugin is the doctor-facing entry point. It returns the
+// classified check from a single shared observation.
+func inspectAntigravityCLIPlugin() doctorCheck {
+	return observeAntigravityCLIPlugin().Check
 }

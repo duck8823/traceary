@@ -245,7 +245,7 @@ Codex の `Stop` は assistant 応答ごとに発火するため、Traceary は 
 1. Traceary hook をインストールする: `traceary hooks install --client antigravity --project-dir .`（workspace は `.agents/hooks.json`）または `--global`（`~/.gemini/config/hooks.json`）。`agy` / `antigravity-cli` alias も使えます
 2. Antigravity の conversation を開始し、少なくとも 1 回 `run_command` tool を実行する
 3. `traceary list --limit 10` で記録結果を確認する
-4. `traceary doctor --client antigravity --json` で install を確認する（`antigravity-capability` と `antigravity-config` を報告）
+4. `traceary doctor --client antigravity --json` で install を確認する。doctor は `antigravity-capability` に加えて install 経路ごとの check（`antigravity-hooks-workspace`・`antigravity-hooks-user`・`antigravity-cli-plugin`）と集約サマリー `antigravity-hooks` を報告します。各経路は任意で、user-level または CLI plugin の経路が健全なら、存在しない workspace `.agents/hooks.json` は `warn` ではなく `skip` 扱いです。doctor が warn するのは、どの経路も `traceary` グループを登録していないときだけです
 
 Antigravity に `SessionStart` はなく、Traceary は `PreInvocation` から session を冪等に開始します。Codex 同様 `Stop` は execution 単位の turn 境界なので session は開いたままで、MCP `manage_session` または stale GC で終了します。audit 対象は `run_command` tool のみです（`PreToolUse` の command args と `PostToolUse` の結果を突き合わせます）。詳細は [Antigravity hooks / plugin ガイド](../integrations/antigravity.ja.md) を参照してください。
 

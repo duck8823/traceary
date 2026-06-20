@@ -94,11 +94,15 @@ This prints the install command, the doctor command, the expected config path, a
 traceary doctor --client antigravity --json
 ```
 
-`doctor` reports three checks for Antigravity:
+`doctor` reports the Antigravity capability plus one check per **hook install route**, because Antigravity supports three independent routes and any one of them is enough:
 
 - `antigravity-capability` — `pass` when an Antigravity install is detected (the `agy`/`antigravity` CLI on PATH or the app bundle), since Traceary supports the public hooks/plugin contract and needs no Traceary-side authentication. It reports `not_installed` (warn) when neither the CLI nor the bundle is present. This check does not launch the app, perform browser automation, or read credentials.
-- `antigravity-config` — reports whether the resolved `hooks.json` registers the `traceary` hook group, with the `--upgrade` remediation when the group is missing.
-- `antigravity-cli-plugin` — inspects the CLI plugin directory `~/.gemini/antigravity-cli/plugins/traceary` that `agy plugin install` imports into. It `skip`s when the directory is absent (so users who wire hooks via `traceary hooks install` are never failed), `pass`es when the package uses the supported Antigravity top-level hook-group format, and `warn`s when it finds a **stale Gemini-shaped package** — a legacy top-level `{"hooks": ...}` envelope or commands that call `traceary hook ... gemini`. The check reads only `plugin.json`, `hooks.json`, and `hooks/hooks.json`; it never reads transcripts or credentials.
+- `antigravity-hooks-workspace` — the workspace route (`<project>/.agents/hooks.json`).
+- `antigravity-hooks-user` — the user-level route (`~/.gemini/config/hooks.json`).
+- `antigravity-cli-plugin` — the CLI plugin route directory `~/.gemini/antigravity-cli/plugins/traceary` that `agy plugin install` imports into. It `pass`es when the package uses the supported Antigravity top-level hook-group format and `warn`s when it finds a **stale Gemini-shaped package** — a legacy top-level `{"hooks": ...}` envelope or commands that call `traceary hook ... gemini`. The check reads only `plugin.json`, `hooks.json`, and `hooks/hooks.json`; it never reads transcripts or credentials.
+- `antigravity-hooks` — the aggregate summary. It `fail`s when **any** route's config is malformed (a per-route `fail`), even if another route is healthy, because Antigravity rejects the bad config regardless; otherwise it `pass`es when **any** route is healthy and `warn`s with an actionable install message only when **no** route is healthy.
+
+**Each route is optional on its own.** A missing route is reported as `skip`, never `warn`: for example, if the user-level or CLI-plugin route is healthy, the absent workspace `.agents/hooks.json` is `skip`ped and the `antigravity-hooks` summary stays `pass`. Doctor only warns about hook coverage when none of the three routes registers the `traceary` group. A route file that is present but malformed (not a JSON object) is reported as `fail`, since Antigravity itself rejects it regardless of the other routes.
 
 Antigravity is not in the default doctor client list (`["claude","codex","gemini"]`); pass `--client antigravity` explicitly.
 
