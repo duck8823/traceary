@@ -80,6 +80,12 @@ session end の精度が重要なら、明示的な end hook を持つ client in
 
 これは自動 cleanup ではなく dogfood review の信号として扱ってください。check は count と sample event ID だけを表示し、command input/output body は出しません。process-review の指標に使う前に、sample row を `traceary show <event_id>` で確認し、本当に duplicate / drift なのか、正当な繰り返し作業なのかを切り分けてください。
 
+### Content event reliability の dogfood signal
+
+`traceary doctor` は bounded な recent prompt/transcript hook window に対して `content-event-reliability` check も出します。ここでは、同じ prompt / transcript の content がその window 内で複数回記録されている duplicate content candidate group を報告します。
+
+これも自動 cleanup ではなく dogfood review の信号として扱ってください。check は count と sample event ID だけを表示し、captured content body は出しません。指標に使う前に、sample row を `traceary show <event_id>` で確認し、本当に duplicate なのか、正当な繰り返し content なのかを切り分けてください。
+
 ### active ingestion 中に cleanup を強く走らせる
 
 `traceary store gc` は古い row を削除したあとに `VACUUM` を実行します。

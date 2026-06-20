@@ -65,6 +65,16 @@
       "auto_fix_available": false
     },
     {
+      "name": "content-event-reliability",
+      "status": "skip",
+      "severity": "PASS",
+      "section": "Database",
+      "message": "event usecase is not configured",
+      "hint": "",
+      "fix_command": "",
+      "auto_fix_available": false
+    },
+    {
       "name": "project-dir",
       "status": "pass",
       "severity": "PASS",
@@ -203,6 +213,16 @@
           "hint": "",
           "fix_command": "",
           "auto_fix_available": false
+        },
+        {
+          "name": "content-event-reliability",
+          "status": "skip",
+          "severity": "PASS",
+          "section": "Database",
+          "message": "event usecase is not configured",
+          "hint": "",
+          "fix_command": "",
+          "auto_fix_available": false
         }
       ]
     },
@@ -252,7 +272,7 @@
     }
   ],
   "summary": {
-    "pass": 9,
+    "pass": 10,
     "warn": 2,
     "fail": 0
   },
