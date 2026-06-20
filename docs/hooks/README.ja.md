@@ -232,12 +232,21 @@ Codex の `Stop` は assistant 応答ごとに発火するため、Traceary は 
 
 ### Gemini CLI *（レガシー互換）*
 
-> Gemini CLI はレガシー hook パスです。Antigravity は v0.21.0 時点で Traceary の hook 設定を持っておらず、サポートされた公開 CLI/hook contract が確認されていないため、v0.21.0 では Antigravity の hook / package / release asset を意図的に提供しません（#1196 で判断）。現在の Antigravity 機能ステートを確認するには `traceary doctor --client antigravity --json` を実行してください。`/Applications/Antigravity.app` がインストールされている環境では、Google がサポートされた公開 CLI/hook contract を公開するまでステートは `tool_unavailable` になります。
+> Gemini CLI はレガシー hook パスです。後継の Antigravity は v0.21.1 からサポートされています（下記参照）。
 
 1. `examples/hooks/gemini.settings.json` を `.gemini/settings.json` または `~/.gemini/settings.json` にマージする
 2. `hooksConfig.enabled` が既に `true` になっていることを確認する。Traceary はここを自動変更しません
 3. Gemini CLI を起動して、少なくとも 1 回 shell command を実行する
 4. `traceary list --limit 10` または `traceary search "<command>"` で記録結果を確認する
+
+### Antigravity
+
+1. Traceary hook をインストールする: `traceary hooks install --client antigravity --project-dir .`（workspace は `.agents/hooks.json`）または `--global`（`~/.gemini/config/hooks.json`）。`agy` / `antigravity-cli` alias も使えます
+2. Antigravity の conversation を開始し、少なくとも 1 回 `run_command` tool を実行する
+3. `traceary list --limit 10` で記録結果を確認する
+4. `traceary doctor --client antigravity --json` で install を確認する（`antigravity-capability` と `antigravity-config` を報告）
+
+Antigravity に `SessionStart` はなく、Traceary は `PreInvocation` から session を冪等に開始します。Codex 同様 `Stop` は execution 単位の turn 境界なので session は開いたままで、MCP `manage_session` または stale GC で終了します。audit 対象は `run_command` tool のみです（`PreToolUse` の command args と `PostToolUse` の結果を突き合わせます）。詳細は [Antigravity hooks / plugin ガイド](../integrations/antigravity.ja.md) を参照してください。
 
 Traceary CLI が失敗したときの stderr は plain `Error: ...` です。wrapper 経由の hook 実行でも、exit code と stderr text をそのまま扱えます。
 

@@ -1,0 +1,251 @@
+package cli_test
+
+import (
+	"bytes"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/duck8823/traceary/domain/types"
+	cli "github.com/duck8823/traceary/presentation/cli"
+)
+
+// runAntigravityHook executes a hidden `hook antigravity <event>` subcommand
+// with the given payload and returns the JSON the runtime wrote to stdout. The
+// runtime entrypoints are fail-soft, so Execute() is expected to succeed and
+// the test asserts the output contract plus any recorded usecase calls.
+func runAntigravityHook(t *testing.T, event, payload string, opts ...cli.RootCLIOption) (string, *eventUsecaseStub, *sessionUsecaseStub) {
+	t.Helper()
+
+	eventStub := &eventUsecaseStub{}
+	sessionStub := &sessionUsecaseStub{}
+	base := []cli.RootCLIOption{
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(eventStub),
+		cli.WithSession(sessionStub),
+	}
+	rootCmd := newTestRootCLI(append(base, opts...)...).Command()
+
+	stdout := &bytes.Buffer{}
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(payload))
+	rootCmd.SetArgs([]string{"hook", "antigravity", event})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(hook antigravity %s) error = %v", event, err)
+	}
+	return stdout.String(), eventStub, sessionStub
+}
+
+func TestRootCLI_HookAntigravityPreInvocation(t *testing.T) {
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	out, _, sessionStub := runAntigravityHook(t, "pre-invocation",
+		`{"conversationId":"conv-1","workspacePaths":["/repo"]}`)
+
+	if out != "{}" {
+		t.Fatalf("PreInvocation output = %q, want {}", out)
+	}
+	if got, want := sessionStub.startCall.sessionID, types.SessionID("conv-1"); got != want {
+		t.Fatalf("session start sessionID = %q, want %q", got, want)
+	}
+	if got, want := sessionStub.startCall.agent, types.Agent("antigravity"); got != want {
+		t.Fatalf("session start agent = %q, want %q", got, want)
+	}
+	if got, want := sessionStub.startCall.workspace, types.Workspace("github.com/duck8823/traceary"); got != want {
+		t.Fatalf("session start workspace = %q, want %q", got, want)
+	}
+}
+
+func TestRootCLI_HookAntigravityPreInvocationMissingConversationIsNoop(t *testing.T) {
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	out, _, sessionStub := runAntigravityHook(t, "pre-invocation", `{"workspacePaths":["/repo"]}`)
+
+	if out != "{}" {
+		t.Fatalf("PreInvocation output = %q, want {}", out)
+	}
+	if sessionStub.startCall.sessionID != "" {
+		t.Fatalf("session should not start without conversationId, got %q", sessionStub.startCall.sessionID)
+	}
+}
+
+func TestRootCLI_HookAntigravityToolUsePairing(t *testing.T) {
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	// PreToolUse persists the run_command details keyed by conversationId+stepIdx.
+	preOut, _, _ := runAntigravityHook(t, "pre-tool-use",
+		`{"conversationId":"conv-1","stepIdx":"3","toolCall":{"name":"run_command","args":{"CommandLine":"go test ./...","Cwd":"/repo"}}}`)
+	if preOut != `{"decision":"allow"}` {
+		t.Fatalf("PreToolUse output = %q, want {\"decision\":\"allow\"}", preOut)
+	}
+
+	// PostToolUse — carrying only stepIdx/error — pairs the persisted command
+	// and records a command audit.
+	postOut, eventStub, _ := runAntigravityHook(t, "post-tool-use",
+		`{"conversationId":"conv-1","stepIdx":"3","error":""}`)
+	if postOut != "{}" {
+		t.Fatalf("PostToolUse output = %q, want {}", postOut)
+	}
+	if got, want := eventStub.auditCall.command, "go test ./..."; got != want {
+		t.Fatalf("audit command = %q, want %q", got, want)
+	}
+	if got, want := eventStub.auditCall.agent, types.Agent("antigravity"); got != want {
+		t.Fatalf("audit agent = %q, want %q", got, want)
+	}
+	if got, want := eventStub.auditCall.sessionID, types.SessionID("conv-1"); got != want {
+		t.Fatalf("audit sessionID = %q, want %q", got, want)
+	}
+	if eventStub.auditCall.failed {
+		t.Fatalf("audit should not be flagged failed for an empty error field")
+	}
+}
+
+func TestRootCLI_HookAntigravityToolUsePairingNumericStepIdx(t *testing.T) {
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	// Antigravity may emit stepIdx as a JSON number rather than a string. Both
+	// Pre/PostToolUse key pending state on the same rendered value, so the
+	// numeric form still pairs and records an audit.
+	if preOut, _, _ := runAntigravityHook(t, "pre-tool-use",
+		`{"conversationId":"conv-num","stepIdx":5,"toolCall":{"name":"run_command","args":{"CommandLine":"go vet ./...","Cwd":"/repo"}}}`); preOut != `{"decision":"allow"}` {
+		t.Fatalf("PreToolUse output = %q, want allow", preOut)
+	}
+
+	_, eventStub, _ := runAntigravityHook(t, "post-tool-use",
+		`{"conversationId":"conv-num","stepIdx":5,"error":""}`)
+	if got, want := eventStub.auditCall.command, "go vet ./..."; got != want {
+		t.Fatalf("audit command = %q, want %q", got, want)
+	}
+	if got, want := eventStub.auditCall.sessionID, types.SessionID("conv-num"); got != want {
+		t.Fatalf("audit sessionID = %q, want %q", got, want)
+	}
+}
+
+func TestRootCLI_HookAntigravityPrunesStalePendingCommands(t *testing.T) {
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	now := time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC)
+	cli.SetAntigravityPendingNowFunc(func() time.Time { return now })
+	t.Cleanup(cli.ResetAntigravityPendingNowFunc)
+
+	// A PreToolUse persists a pending command for a step that never receives a
+	// matching PostToolUse.
+	if preOut, _, _ := runAntigravityHook(t, "pre-tool-use",
+		`{"conversationId":"stale-conv","stepIdx":"1","toolCall":{"name":"run_command","args":{"CommandLine":"sleep 1","Cwd":"/repo"}}}`); preOut != `{"decision":"allow"}` {
+		t.Fatalf("PreToolUse output = %q, want allow", preOut)
+	}
+
+	stalePath, err := cli.AntigravityPendingCommandPath("stale-conv", "1")
+	if err != nil {
+		t.Fatalf("AntigravityPendingCommandPath error = %v", err)
+	}
+	// Age the unpaired file beyond the TTL relative to the pinned clock.
+	old := now.Add(-48 * time.Hour)
+	if err := os.Chtimes(stalePath, old, old); err != nil {
+		t.Fatalf("Chtimes error = %v", err)
+	}
+
+	// A later PreToolUse for a different step opportunistically prunes the stale
+	// sibling while persisting its own fresh state.
+	if preOut, _, _ := runAntigravityHook(t, "pre-tool-use",
+		`{"conversationId":"fresh-conv","stepIdx":"1","toolCall":{"name":"run_command","args":{"CommandLine":"go build ./...","Cwd":"/repo"}}}`); preOut != `{"decision":"allow"}` {
+		t.Fatalf("PreToolUse output = %q, want allow", preOut)
+	}
+
+	if _, err := os.Stat(stalePath); !os.IsNotExist(err) {
+		t.Fatalf("stale pending command should be pruned, stat err = %v", err)
+	}
+	freshPath, err := cli.AntigravityPendingCommandPath("fresh-conv", "1")
+	if err != nil {
+		t.Fatalf("AntigravityPendingCommandPath error = %v", err)
+	}
+	if _, err := os.Stat(freshPath); err != nil {
+		t.Fatalf("fresh pending command should persist, stat err = %v", err)
+	}
+}
+
+func TestRootCLI_HookAntigravityToolUsePairingFlagsError(t *testing.T) {
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	if preOut, _, _ := runAntigravityHook(t, "pre-tool-use",
+		`{"conversationId":"conv-2","stepIdx":"7","toolCall":{"name":"run_command","args":{"CommandLine":"false","Cwd":"/repo"}}}`); preOut != `{"decision":"allow"}` {
+		t.Fatalf("PreToolUse output = %q, want allow", preOut)
+	}
+
+	_, eventStub, _ := runAntigravityHook(t, "post-tool-use",
+		`{"conversationId":"conv-2","stepIdx":"7","error":"command exited with status 1"}`)
+	if !eventStub.auditCall.failed {
+		t.Fatalf("audit should be flagged failed when PostToolUse carries an error")
+	}
+}
+
+func TestRootCLI_HookAntigravityPostToolUseWithoutPendingIsNoop(t *testing.T) {
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	// No PreToolUse ran for this step, so there is no pending command to pair.
+	out, eventStub, _ := runAntigravityHook(t, "post-tool-use",
+		`{"conversationId":"conv-3","stepIdx":"1","error":""}`)
+	if out != "{}" {
+		t.Fatalf("PostToolUse output = %q, want {}", out)
+	}
+	if eventStub.auditCall.command != "" {
+		t.Fatalf("PostToolUse without pending state must not record an audit, got command %q", eventStub.auditCall.command)
+	}
+}
+
+func TestRootCLI_HookAntigravityPreToolUseNonRunCommandIsNoop(t *testing.T) {
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	// A non-run_command tool persists nothing; a following PostToolUse for the
+	// same step therefore records no audit.
+	preOut, _, _ := runAntigravityHook(t, "pre-tool-use",
+		`{"conversationId":"conv-4","stepIdx":"2","toolCall":{"name":"read_file","args":{"Path":"README.md"}}}`)
+	if preOut != `{"decision":"allow"}` {
+		t.Fatalf("PreToolUse output = %q, want allow", preOut)
+	}
+
+	out, eventStub, _ := runAntigravityHook(t, "post-tool-use",
+		`{"conversationId":"conv-4","stepIdx":"2","error":""}`)
+	if out != "{}" {
+		t.Fatalf("PostToolUse output = %q, want {}", out)
+	}
+	if eventStub.auditCall.command != "" {
+		t.Fatalf("non-run_command tool must not record an audit, got command %q", eventStub.auditCall.command)
+	}
+}
+
+func TestRootCLI_HookAntigravityStopOutputContract(t *testing.T) {
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	out, _, _ := runAntigravityHook(t, "stop",
+		`{"conversationId":"conv-1","workspacePaths":["/repo"],"terminationReason":"completed"}`)
+	if out != `{"decision":""}` {
+		t.Fatalf("Stop output = %q, want {\"decision\":\"\"}", out)
+	}
+}

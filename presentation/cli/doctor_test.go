@@ -1975,8 +1975,10 @@ func TestRootCLI_DoctorAntigravity(t *testing.T) {
 			t.Fatalf("antigravity-capability check not found in report; checks: %v", checkNames)
 		}
 
-		// Must NOT include hook-config or coverage checks for other clients.
-		forbidden := []string{"antigravity-config", "claude-config", "codex-config", "gemini-config"}
+		// Must NOT include hook-config or coverage checks for OTHER clients.
+		// antigravity-config IS expected now that Antigravity hooks are
+		// supported (v0.21.1).
+		forbidden := []string{"claude-config", "codex-config", "gemini-config"}
 		for _, name := range checkNames {
 			for _, f := range forbidden {
 				if name == f {
@@ -1985,11 +1987,13 @@ func TestRootCLI_DoctorAntigravity(t *testing.T) {
 			}
 		}
 
-		// The capability check must be warn (no supported surface in test env).
+		// The capability check is pass when an Antigravity install is detected
+		// (the supported hooks/plugin contract) and warn otherwise; both are
+		// valid depending on the test environment.
 		for _, check := range report.Checks {
 			if check.Name == "antigravity-capability" {
-				if check.Status != "warn" {
-					t.Fatalf("antigravity-capability status = %q, want warn", check.Status)
+				if check.Status != "warn" && check.Status != "pass" {
+					t.Fatalf("antigravity-capability status = %q, want warn or pass", check.Status)
 				}
 			}
 		}
@@ -2011,11 +2015,15 @@ func TestRootCLI_DoctorAntigravity(t *testing.T) {
 	})
 
 	t.Run("not_installed path warns with non-empty capability message", func(t *testing.T) {
-		// PATH is cleared and no bundle is created, so this exercises the
-		// not_installed path via the production inspectAntigravityCapability
-		// route (or tool_unavailable on platforms where bundles exist).
+		// PATH is cleared (so no agy/antigravity CLI resolves) and the bundle
+		// probe is forced to report "missing" so this subtest deterministically
+		// exercises the not_installed path regardless of whether the host
+		// machine actually has Antigravity installed.
 		// The pure detector state assertions live in the internal unit tests;
 		// this E2E subtest only validates the overall warn shape and message presence.
+		cli.SetAntigravityBundleExistsFunc(func(string) bool { return false })
+		t.Cleanup(cli.ResetAntigravityBundleExistsFunc)
+
 		rootCmd := newTestRootCLI(cli.WithStoreManagement(initStub)).Command()
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)

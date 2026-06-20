@@ -112,6 +112,11 @@ func buildHooksGuide(c *RootCLI, client string, projectDir string, outputPath st
 		notes = append(notes,
 			Localize("Gemini requires hooksConfig.enabled=true before Traceary hooks can run.", "Gemini では Traceary hook が動く前に hooksConfig.enabled=true が必要です。"),
 		)
+	case "antigravity":
+		notes = append(notes,
+			Localize("Antigravity has no SessionStart hook: Traceary starts/refreshes the session idempotently from PreInvocation (keyed by conversationId). Like Codex, Stop is a per-execution boundary, so the session stays open and ends only via MCP manage_session or stale GC (traceary session gc).", "Antigravity には SessionStart hook がありません: Traceary は PreInvocation (conversationId 単位) から session を冪等に開始/更新します。Codex 同様 Stop は execution 単位の境界なので session は開いたままで、MCP manage_session または stale GC (traceary session gc) でのみ終了します。"),
+			Localize("Command audits are paired across PreToolUse (carries the command) and PostToolUse (carries the result), so only run_command tool calls are recorded. Use --global to install to ~/.gemini/config/hooks.json instead of the workspace .agents/hooks.json.", "command audit は PreToolUse (command を保持) と PostToolUse (結果を保持) を突き合わせて記録するため、run_command tool 呼び出しのみが対象です。workspace の .agents/hooks.json ではなく ~/.gemini/config/hooks.json に入れる場合は --global を使ってください。"),
+		)
 	}
 
 	return &hooksGuide{

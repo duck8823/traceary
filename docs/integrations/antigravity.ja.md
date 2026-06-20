@@ -1,55 +1,107 @@
-# Antigravity 移行状況
+# Antigravity hooks / plugin
 
 [English](./antigravity.md)
 
-Antigravity は、Google の AI エージェントホストとして Gemini CLI の後継です。このページでは、v0.21.0 時点で Traceary がローカルで把握している Antigravity の情報と、その結果としての判断を説明します。
+Antigravity は、Google の AI エージェントホストとして Gemini CLI の後継です。**v0.21.1** 以降、Traceary は Antigravity を実際の hook client としてサポートし、packaged plugin を提供します。利用するのは公開されている hook/plugin サーフェスのみで、認証情報の読み取り・アプリ内部の非公開フォーマット・ブラウザ自動操作は一切行いません。
 
-> **まとめ:** v0.21.0 では Antigravity の公開 CLI / hook contract は確認されていません。Antigravity の capability detection は #1195 で実装済みです。この調査の結果、**v0.21.0 では Antigravity の hook / package / release asset を意図的に提供しません** — Google が公開していない hook contract を Traceary が捏造することはありません。将来のサポートにはサポートされた公開 CLI/hook contract が必要です。既存の Gemini CLI インストールでは、引き続き [Gemini CLI extension](./gemini-extension.ja.md) を使用できます。
+> **v0.21.0 からの変更点:** v0.21.0 では Antigravity の capability **診断のみ**（`doctor --client antigravity` → `tool_unavailable`）を提供し、当時は公開 contract が確認できなかったため hook / package を意図的に提供しませんでした。その後 Google が公開 Antigravity hook/plugin/CLI サーフェスを公開したため、v0.21.1 では Antigravity を診断専用ホストからサポート対象の hook client へと切り替えます。
 
-## ローカルでの調査結果（v0.21.0）
+## 自動配線される内容
 
-開発環境で確認された情報：
+Antigravity の `hooks.json` は *hook-group 名* から event config への top-level map（Traceary は `traceary` グループを所有）で、他ホストが共有する `{"hooks": {...}}` 形式とは異なります。Traceary はこのホスト向けに独自の document を render / merge します。
 
-| プロパティ | 値 |
+| Antigravity event | Traceary の効果 |
 | --- | --- |
-| アプリケーションパス | `/Applications/Antigravity.app` |
-| Bundle ID | `com.google.antigravity` |
-| バージョン | 2.1.4 |
-| URL スキーム | `antigravity://` |
-| PATH 上の CLI | 見つからず |
-| ユーザーデータディレクトリ | `~/Library/Application Support/Antigravity` |
-| 状態ヒント | `~/.gemini/antigravity`、`~/.gemini/config/config.json` |
+| `PreInvocation` | `conversationId` を key にした冪等な session 開始/更新（Antigravity に `SessionStart` はありません）。最初の workspace path を workspace とする |
+| `PreToolUse` (`run_command`) | 提案された `{CommandLine, Cwd}` を `conversationId + stepIdx` で永続化。ブロックしない（`{"decision":"allow"}`） |
+| `PostToolUse` (`run_command`) | 同一 step の `PreToolUse` が永続化した command を突き合わせ、`command_executed` audit を記録（step の `error` 付き）。pending が無ければ fail soft |
+| `Stop` | `transcriptPath` から turn の transcript（best effort）と turn 境界を記録。session は**閉じない** |
 
-## 機能検出（v0.21.0）
+Antigravity の payload は camelCase フィールド（`conversationId`, `workspacePaths`, `transcriptPath`, `toolCall.name`, `toolCall.args.CommandLine`, `toolCall.args.Cwd`, `stepIdx`, `terminationReason`）を使います。Traceary は共有 runtime（session / audit / transcript）を再利用する前に、これらを内部形式へ正規化します。
 
-`traceary doctor --client antigravity --json` は Antigravity のインストール状況を調査し、以下の 4 つの機能ステートのいずれかを報告します：
+## 制限事項
 
-| ステート | 意味 |
-| --- | --- |
-| `not_installed` | アプリバンドル（`/Applications/Antigravity.app`）も PATH 上の `antigravity` CLI も見つからない |
-| `tool_unavailable` | アプリまたは CLI は見つかったが、サポートされた公開 headless/hook/package サーフェスが未確認 |
-| `not_authenticated` | サポートされたサーフェスでインストールされているが、認証または設定が完了していない（将来/予約済み。v0.21.0 では未到達。認証情報を読み取るのではなく、サポートされた CLI/contract チェックで検出） |
-| `available` | サポートされた CLI/hook contract が確認・設定済み（v0.21.0 では未到達） |
+- **`SessionStart` が無い。** conversation 単位で最初に発火するのは `PreInvocation`（毎回のモデル呼び出し前に発火）なので、Traceary はこれを `conversationId` を key にした冪等な session 開始/更新として使います。
+- **`Stop` は execution 単位の境界であり session 終了ではない**（Codex と同じモデル — #1170）。session 行は開いたままで（memory auto-extract は発火）、MCP `manage_session` または stale GC（`traceary session gc`）でのみ終了します。
+- **audit 対象は `run_command` tool 呼び出しのみ。** `PostToolUse` は `stepIdx`/`error` のみを持ち command args を持たないため、args を持つ `PreToolUse` と step 単位で突き合わせます。`run_command` 以外の tool は何も記録しません。
+- **transcript 抽出は best effort。** 文書化された `transcriptPath` のファイルは `transcript.jsonl` ですが、その行ごとのスキーマは公開 hook contract の一部ではないため、抽出器は複数の妥当な JSONL 形状から assistant の text/thinking ブロックを寛容に走査し、それ以外は黙ってスキップします。
+- **認証情報・keychain・cookie・ブラウザストレージは一切読みません。** ディスクから読むのは文書化された `transcriptPath` hook フィールドのみです。
 
-ローカル開発環境での現在のステートは **`tool_unavailable`** です：`/Applications/Antigravity.app`（バージョン 2.1.4）はインストールされていますが、公開 CLI や hook contract は確認されていません。実行例：
+## インストール
+
+1. まず Traceary CLI をインストールします。
+
+```sh
+brew tap duck8823/traceary https://github.com/duck8823/traceary
+brew install traceary
+# または
+GO111MODULE=on go install github.com/duck8823/traceary@latest
+```
+
+2. Antigravity 向けの Traceary hook をインストールします。
+
+```sh
+# workspace レベル → <project>/.agents/hooks.json
+traceary hooks install --client antigravity --project-dir .
+
+# または user レベル → ~/.gemini/config/hooks.json
+traceary hooks install --client antigravity --global
+```
+
+alias `agy` と `antigravity-cli` は canonical な `antigravity` client に解決されます。インストールは非破壊で、置換されるのは `traceary` hook グループのみ、その他の top-level hook グループはそのまま保持されます。`--upgrade` で再実行すると、ユーザー追加グループを保持したまま managed グループを更新します。
+
+代わりに、同梱の plugin（[`integrations/antigravity-plugin/`](../../integrations/antigravity-plugin/)）を追加することもできます。これは同じ `traceary` hook グループを `hooks.json` として、公式 Antigravity plugin スキーマに従う `plugin.json` manifest とともに同梱しています。
+
+## セットアップガイド
+
+```sh
+traceary hooks guide --client antigravity --project-dir .
+```
+
+install command、doctor command、想定 config path、および Antigravity 固有の注記（PreInvocation の session モデル、Stop の turn 境界、run_command の突き合わせ）を表示します。
+
+## Doctor
 
 ```sh
 traceary doctor --client antigravity --json
 ```
 
-このチェックはアプリを起動したり、ブラウザ自動操作や認証情報の読み取りを行いません。アプリバンドルと PATH 上の CLI バイナリの存在のみを確認します。
+`doctor` は Antigravity 向けに 2 つの check を報告します。
 
-Antigravity はデフォルトの doctor クライアントリスト（`["claude","codex","gemini"]`）に含まれていません。`--client antigravity` を明示的に指定してください。
+- `antigravity-capability` — Antigravity のインストール（PATH 上の `agy`/`antigravity` CLI、またはアプリバンドル）を検出すると `pass`。Traceary は公開 hooks/plugin contract をサポートし、Traceary 側の認証は不要なためです。CLI もバンドルも無い場合は `not_installed`（warn）。この check はアプリを起動せず、ブラウザ自動操作も認証情報の読み取りも行いません。
+- `antigravity-config` — 解決された `hooks.json` に `traceary` hook グループが登録されているかを報告し、グループが無い場合は `--upgrade` での修復を案内します。
 
-## v0.21.0 で未確認の事項
+Antigravity はデフォルトの doctor client 一覧（`["claude","codex","gemini"]`）に含まれません。明示的に `--client antigravity` を指定してください。
 
-- 公開 CLI バイナリや hook contract は確認されていません。`antigravity` コマンドは PATH 上にありません。
-- `gemini extensions install` に相当する extension / plugin インストール機構は確認されていません。
-- Traceary 向けの hook イベントスキーマ（セッションライフサイクル、ツール監査、プロンプト/トランスクリプト取得）は未確立です。
+## ローカルでの調査結果
 
-## 判断とフォローアップ
+ローカル開発環境で観測した内容です。
 
-- **#1195** ✓ — Antigravity 機能検出（`traceary doctor --client antigravity --json`）— v0.21.0 で実装済み
-- **#1196** ✓ — 判断: v0.21.0 では Antigravity の hook / package / 生成メタデータ / release asset を**意図的に提供しません**。受け入れ条件では、サポートされた公開 hook/plugin/MCP/headless CLI サーフェスが確認できた**場合にのみ** package を追加することになっていました。#1195 で確認できなかったため、fake package を出荷せず、意図的に省略した package を文書化し、doctor の `tool_unavailable` ステートを維持します。
+| プロパティ | 値 |
+| --- | --- |
+| アプリパス | `/Applications/Antigravity.app` |
+| Bundle ID | `com.google.antigravity` |
+| URL スキーム | `antigravity://` |
+| workspace hooks パス | `<project>/.agents/hooks.json` |
+| global hooks パス | `~/.gemini/config/hooks.json` |
 
-実際の Antigravity package は、Google がサポートされた公開 CLI/hook contract を公開した時点で、将来の issue で**初めて**追加します。それまでは、Antigravity セッションは Traceary のイベントログに記録されません。Gemini CLI から Antigravity へ移行中の場合は、Gemini CLI セッションについては引き続き [Gemini CLI extension](./gemini-extension.ja.md) を使用してください。
+## パッケージ検証
+
+```sh
+agy plugin validate integrations/antigravity-plugin
+# リポジトリ内の構造検証:
+go run ./cmd/repo-tooling integrations verify
+```
+
+## 公式リファレンス
+
+2026-06-20 JST に確認:
+
+- Antigravity 2.0 hooks: https://antigravity.google/assets/docs/antigravity-2-0/hooks.md
+- Antigravity IDE hooks: https://antigravity.google/assets/docs/editor/ide-hooks.md
+- Antigravity CLI plugins: https://antigravity.google/assets/docs/cli/cli-plugins.md
+- Antigravity 2.0 plugins: https://antigravity.google/assets/docs/antigravity-2-0/plugins.md
+- Antigravity IDE plugins: https://antigravity.google/assets/docs/editor/ide-plugins.md
+- Antigravity CLI install: https://antigravity.google/assets/docs/cli/cli-install.md
+
+Gemini CLI から移行する場合、既存の Gemini CLI インストールでは引き続き [Gemini CLI extension](./gemini-extension.ja.md) を使用できます。

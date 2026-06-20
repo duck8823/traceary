@@ -1,9 +1,54 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"runtime"
 )
+
+// inspectAntigravityConfigFile reports whether the Antigravity hooks config at
+// outputPath registers the Traceary hook group. Antigravity's hooks.json is a
+// top-level map of hook-group name to event configs, so this checks for the
+// "traceary" group rather than the shared {"hooks": {...}} shape.
+func inspectAntigravityConfigFile(outputPath string) doctorCheck {
+	const checkName = "antigravity-config"
+	data, err := os.ReadFile(outputPath) // #nosec G304 -- resolved install path
+	if err != nil {
+		return doctorCheck{
+			Name:   checkName,
+			Status: doctorStatusWarn,
+			Message: localizef(
+				"no Antigravity hooks config at %s. Install with: traceary hooks install --client antigravity",
+				"%s に Antigravity hooks config がありません。導入: traceary hooks install --client antigravity",
+				outputPath,
+			),
+		}
+	}
+	var groups map[string]json.RawMessage
+	if err := json.Unmarshal(data, &groups); err != nil {
+		return doctorCheck{
+			Name:    checkName,
+			Status:  doctorStatusFail,
+			Message: localizef("invalid Antigravity hooks config at %s: %v", "%s の Antigravity hooks config が不正です: %v", outputPath, err),
+		}
+	}
+	if _, ok := groups["traceary"]; !ok {
+		return doctorCheck{
+			Name:   checkName,
+			Status: doctorStatusWarn,
+			Message: localizef(
+				"Antigravity hooks config at %s has no traceary group. Run: traceary hooks install --client antigravity --upgrade",
+				"%s の Antigravity hooks config に traceary グループがありません。実行: traceary hooks install --client antigravity --upgrade",
+				outputPath,
+			),
+		}
+	}
+	return doctorCheck{
+		Name:    checkName,
+		Status:  doctorStatusPass,
+		Message: localizef("Antigravity hooks config registers the traceary group: %s", "Antigravity hooks config に traceary グループが登録されています: %s", outputPath),
+	}
+}
 
 // antigravityCapabilityState represents the detected installation and
 // automation-surface state of the Antigravity application.
@@ -63,17 +108,23 @@ func antigravityProbeToState(p antigravityCapabilityProbe) antigravityCapability
 // lookPath is exec.LookPath-compatible; bundlePathExists reports whether a
 // given filesystem path exists, accepting os.Stat-compatible semantics.
 //
-// As of v0.21.0, no supported public CLI/hook contract for Antigravity is
-// confirmed, so SupportedSurfaceConfirmed is always false and even a
-// PATH-resolvable binary yields tool_unavailable.
+// As of v0.21.1, Traceary ships a documented Antigravity hooks/plugin contract
+// (workspace .agents/hooks.json, global ~/.gemini/config/hooks.json, and the
+// packaged integrations/antigravity-plugin). A present install — the `agy` CLI
+// on PATH or the app bundle — therefore confirms a supported surface. The hook
+// contract needs no Traceary-side authentication and Traceary does not read
+// credentials, so a present install is considered ready (available).
 func detectAntigravityCapabilityWithBundlePaths(
 	lookPath func(string) (string, error),
 	bundlePathExists func(string) bool,
 	bundlePaths []string,
 ) antigravityCapabilityState {
 	probe := antigravityCapabilityProbe{}
-	if _, err := lookPath("antigravity"); err == nil {
-		probe.CLIFound = true
+	for _, binary := range []string{"agy", "antigravity"} {
+		if _, err := lookPath(binary); err == nil {
+			probe.CLIFound = true
+			break
+		}
 	}
 	for _, bundlePath := range bundlePaths {
 		if bundlePathExists(bundlePath) {
@@ -81,8 +132,10 @@ func detectAntigravityCapabilityWithBundlePaths(
 			break
 		}
 	}
-	// No supported public hook/automation contract is confirmed for Antigravity
-	// in v0.21.0; SupportedSurfaceConfirmed stays false.
+	if probe.CLIFound || probe.BundleFound {
+		probe.SupportedSurfaceConfirmed = true
+		probe.AuthenticatedOrConfigured = true
+	}
 	return antigravityProbeToState(probe)
 }
 
@@ -105,8 +158,14 @@ func buildAntigravityCapabilityCheck(state antigravityCapabilityState) doctorChe
 			Name:   checkName,
 			Status: doctorStatusPass,
 			Message: Localize(
-				"Antigravity CLI/hook contract is available and configured.",
-				"Antigravity CLI/hook contract は利用可能で設定済みです。",
+				"Antigravity is installed and Traceary supports its public hooks/plugin contract. "+
+					"Install hooks with: traceary hooks install --client antigravity (workspace .agents/hooks.json) "+
+					"or --global (~/.gemini/config/hooks.json), or add the packaged integrations/antigravity-plugin. "+
+					"Traceary does not read Antigravity credentials.",
+				"Antigravity はインストールされており、Traceary は公開された hooks/plugin contract をサポートしています。"+
+					"hook の導入: traceary hooks install --client antigravity (workspace は .agents/hooks.json) "+
+					"または --global (~/.gemini/config/hooks.json)、もしくは同梱の integrations/antigravity-plugin を追加してください。"+
+					"Traceary は Antigravity の認証情報を読み取りません。",
 			),
 		}
 	case antigravityStateNotAuthenticated:
@@ -127,14 +186,10 @@ func buildAntigravityCapabilityCheck(state antigravityCapabilityState) doctorChe
 			Name:   checkName,
 			Status: doctorStatusWarn,
 			Message: Localize(
-				"Antigravity app is installed but no supported public headless/hook/package surface is confirmed (tool_unavailable). "+
-					"Traceary cannot capture Antigravity sessions until Google exposes a supported CLI/hook contract. "+
-					"v0.21.0 intentionally ships no Antigravity hook/package/release asset while the public automation surface is unavailable; "+
-					"future support requires a supported public CLI/hook contract.",
-				"Antigravity アプリはインストールされていますが、公開済みの headless/hook/package サーフェスは確認されていません (tool_unavailable)。"+
-					"Google が CLI/hook contract を公開するまで、Traceary は Antigravity セッションをキャプチャできません。"+
-					"v0.21.0 では、公開された automation サーフェスが利用できない間は Antigravity の hook / package / release asset を意図的に提供しません。"+
-					"将来のサポートにはサポートされた公開 CLI/hook contract が必要です。",
+				"Antigravity is installed but no supported public surface was detected (tool_unavailable). "+
+					"Traceary supports the public Antigravity hooks/plugin contract; reinstall the `agy` CLI or app bundle and re-run doctor.",
+				"Antigravity はインストールされていますが、サポートされた公開サーフェスを検出できませんでした (tool_unavailable)。"+
+					"Traceary は公開された Antigravity hooks/plugin contract をサポートしています。`agy` CLI またはアプリバンドルを再インストールし、doctor を再実行してください。",
 			),
 		}
 	default: // antigravityStateNotInstalled
@@ -151,14 +206,18 @@ func buildAntigravityCapabilityCheck(state antigravityCapabilityState) doctorChe
 	}
 }
 
+// antigravityBundleExistsFunc reports whether an Antigravity app bundle exists
+// at the given path. It is a package-level var so tests can force a
+// deterministic installed/not-installed state regardless of the host machine.
+var antigravityBundleExistsFunc = func(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 // inspectAntigravityCapability is the doctor-facing entry point. It wires
 // the production path lookup (execLookPathFunc) and bundle existence check
-// (os.Stat) into detectAntigravityCapability.
+// (antigravityBundleExistsFunc) into detectAntigravityCapability.
 func inspectAntigravityCapability() doctorCheck {
-	bundleExists := func(path string) bool {
-		_, err := os.Stat(path)
-		return err == nil
-	}
-	state := detectAntigravityCapability(execLookPathFunc, bundleExists)
+	state := detectAntigravityCapability(execLookPathFunc, antigravityBundleExistsFunc)
 	return buildAntigravityCapabilityCheck(state)
 }

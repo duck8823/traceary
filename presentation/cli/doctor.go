@@ -298,9 +298,14 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 
 	for _, targetClient := range resolvedClients {
 		if targetClient == "antigravity" {
-			// Antigravity has no hook install path or config contract yet.
-			// Run only the capability detection check and skip all hook checks.
+			// Antigravity uses a top-level hook-group document
+			// (.agents/hooks.json workspace, ~/.gemini/config/hooks.json
+			// global) that does not fit the shared config inspector, so run
+			// the capability detection plus a dedicated config-file check.
 			report.Checks = append(report.Checks, inspectAntigravityCapability())
+			if outputPath, pathErr := c.hooksOrchestrator.ResolveInstallPath(targetClient, resolvedProjectDir, types.None[string]()); pathErr == nil {
+				report.Checks = append(report.Checks, inspectAntigravityConfigFile(outputPath))
+			}
 			continue
 		}
 

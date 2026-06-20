@@ -232,12 +232,21 @@ Codex `Stop` fires after every assistant response, so Traceary records it as a t
 
 ### Gemini CLI *(legacy compatibility)*
 
-> Gemini CLI is the legacy hook path. Antigravity does not have a Traceary hook config in v0.21.0, and v0.21.0 intentionally ships no Antigravity hook, package, or release asset (decided in #1196) because no supported public CLI/hook contract is confirmed. To check the current Antigravity capability state, run `traceary doctor --client antigravity --json` — on a machine with `/Applications/Antigravity.app` installed, the state will be `tool_unavailable` until Google exposes a supported public CLI/hook contract.
+> Gemini CLI is the legacy hook path; Antigravity is the active successor (supported from v0.21.1 — see below).
 
 1. Merge `examples/hooks/gemini.settings.json` into `.gemini/settings.json` or `~/.gemini/settings.json`.
 2. Ensure `hooksConfig.enabled` is already `true`. Traceary does not toggle this for you.
 3. Start Gemini CLI and run at least one shell command.
 4. Verify the resulting events with `traceary list --limit 10` or `traceary search "<command>"`.
+
+### Antigravity
+
+1. Install the Traceary hooks: `traceary hooks install --client antigravity --project-dir .` (workspace `.agents/hooks.json`) or `--global` (`~/.gemini/config/hooks.json`). The `agy` and `antigravity-cli` aliases also work.
+2. Start an Antigravity conversation and run at least one `run_command` tool call.
+3. Verify the resulting events with `traceary list --limit 10`.
+4. Check the install with `traceary doctor --client antigravity --json` (reports `antigravity-capability` and `antigravity-config`).
+
+Antigravity has no `SessionStart`: Traceary starts the session idempotently from `PreInvocation`. Like Codex, `Stop` is a per-execution turn boundary, so the session stays open and ends via MCP `manage_session` or stale GC. Only `run_command` tool calls are audited (the command args from `PreToolUse` are paired with the result from `PostToolUse`). See the [Antigravity hooks and plugin guide](../integrations/antigravity.md).
 
 When a Traceary CLI command fails, stderr is a plain `Error: ...` line. Hook wrappers can rely on the exit code and stderr text without stripping structured JSON logs.
 

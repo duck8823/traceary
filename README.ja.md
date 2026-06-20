@@ -78,8 +78,8 @@ codex   # Codex 内で /plugins を開き、Traceary Plugins から Traceary を
 `traceary integration codex install` ヘルパーは v0.14.0 で廃止され、cleanup 専用 `traceary integration codex uninstall` surface は v0.15.0 で削除されました。install / uninstall は上記の Codex CLI 公式 `/plugins` flow を使ってください。移行方法と旧 install を残した環境の手動 cleanup 手順は [Codex plugin ガイド](./docs/integrations/codex-plugin.ja.md) を参照してください。
 
 **Gemini CLI** — v0.21.0 時点でレガシー / アクティブな委譲パスではありません。
-Gemini CLI は Google の AI エージェントホストとして **Antigravity** に移行中です。Traceary の Gemini extension package（`integrations/gemini-extension/`）は既存インストール向けに引き続き提供されます。Antigravity の capability detection は #1195 で実装済みですが、サポートされた公開 CLI/hook contract が確認されていないため、v0.21.0 では Antigravity の hook / package / release asset を意図的に提供しません（#1196 で判断）。
-詳細は [Gemini extension ガイド（レガシー）](./docs/integrations/gemini-extension.ja.md) と [Antigravity 移行状況](./docs/integrations/antigravity.ja.md) を参照してください。
+Gemini CLI は Google の AI エージェントホストとして **Antigravity** に移行中です。Traceary の Gemini extension package（`integrations/gemini-extension/`）は既存インストール向けに引き続き提供されます。v0.21.1 以降、Antigravity は packaged plugin（`integrations/antigravity-plugin/`）を持つサポート対象の hook client です。`traceary hooks install --client antigravity` で導入できます。
+詳細は [Gemini extension ガイド（レガシー）](./docs/integrations/gemini-extension.ja.md) と [Antigravity hooks / plugin ガイド](./docs/integrations/antigravity.ja.md) を参照してください。
 
 全体像は [ネイティブ連携ガイド](./docs/integrations/README.ja.md) にまとめています。Anthropic API を直接使う場合は experimental な [native memory-tool backend](./docs/integrations/anthropic-memory-tool.ja.md) も試せます。
 
@@ -216,9 +216,9 @@ $ traceary timeline --limit 2
 | Claude Code | 完全対応 | Bash + MCP + failure hook | あり | あり | Full |
 | Codex | 完全対応（`SessionStart` + `Stop`） | tool hook | あり | なし | Partial |
 | Gemini CLI | 完全対応（`SessionStart` + `SessionEnd`） | tool hook | なし | なし | Basic（レガシー） |
-| Antigravity | — | — | — | — | Doctor: `tool_unavailable` (#1195); v0.21.0 では package/hook/asset 未提供 (#1196) |
+| Antigravity | 完全対応（`PreInvocation` 開始 / `Stop` turn 境界） | `run_command` hook（`PreToolUse` + `PostToolUse` を突き合わせ） | なし | なし | Partial |
 
-> **v0.21.0 メモ:** Gemini CLI は Google の旧 AI エージェントホストです。Antigravity（`/Applications/Antigravity.app`、bundle ID `com.google.antigravity`、バージョン 2.1.4）が現行の後継であり、capability detection は #1195 で実装済みです。この調査（#1196）の結果、サポートされた公開 CLI/hook contract が確認されていないため、v0.21.0 では Antigravity の hook / package / release asset を意図的に提供しません。Gemini CLI extension package は既存インストール向けに引き続き提供されます。現時点で判明している内容は [Antigravity 移行状況](./docs/integrations/antigravity.ja.md) を参照してください。
+> **v0.21.1 メモ:** Gemini CLI は Google の旧 AI エージェントホストです。Antigravity（`/Applications/Antigravity.app`、bundle ID `com.google.antigravity`）が現行の後継です。v0.21.1 以降、Traceary は Antigravity を実際の hook client としてサポートし、文書化された公開 hook surface に対する packaged plugin（`integrations/antigravity-plugin/`）を提供します。`traceary hooks install --client antigravity` で導入できます。Gemini CLI extension package は既存インストール向けに引き続き提供されます。詳細は [Antigravity hooks / plugin ガイド](./docs/integrations/antigravity.ja.md) を参照してください。
 >
 > 2026 Q2 メモ: Claude Code の `SubagentStop` / `PreCompact` hook は利用可能ですが、Traceary の managed hook 集合には wire していません。Codex の memory feature flag (`~/.codex/config.toml`) は Codex 側の capture 挙動にのみ影響し、Traceary の `memory admin import codex` は flag 状態に関わらず動作します。`traceary doctor` は同じ内容を `<client>-host-capabilities` として surface します。詳細は [hook contract](./docs/hooks/contract.ja.md#2026-q2-ホスト別機能メモ) を参照。
 

@@ -21,9 +21,10 @@ func newTestHooksOptions() []cli.RootCLIOption {
 
 	return []cli.RootCLIOption{
 		cli.WithHooksOrchestrator(filesystem.NewHooksOrchestrator(map[string]application.HooksClientHandler{
-			"claude": filesystem.NewClaudeHooksHandler(),
-			"codex":  filesystem.NewCodexHooksHandlerWithHomeDirFunc(homeDirFunc),
-			"gemini": filesystem.NewGeminiHooksHandler(),
+			"claude":      filesystem.NewClaudeHooksHandler(),
+			"codex":       filesystem.NewCodexHooksHandlerWithHomeDirFunc(homeDirFunc),
+			"gemini":      filesystem.NewGeminiHooksHandler(),
+			"antigravity": filesystem.NewAntigravityHooksHandler(),
 		})),
 		cli.WithHooksInspector(filesystem.NewHooksInspector()),
 		cli.WithPluginCacheInspector(filesystem.NewPluginCacheInspector()),

@@ -20,7 +20,7 @@
 ## 連携まわり
 
 - [ネイティブ連携ガイド](./integrations/README.ja.md): Claude / Codex / Gemini（レガシー）向けパッケージ、導入手順、smoke test
-- [Antigravity 移行状況](./integrations/antigravity.ja.md): Antigravity のローカル調査、#1195 capability detection（実装済み）、v0.21.0 で Antigravity の package / hook / release asset を意図的に提供しないという #1196 の判断
+- [Antigravity hooks / plugin](./integrations/antigravity.ja.md): v0.21.1 の hook client サポート、packaged plugin、install パス、制限事項、公式 hook/plugin リファレンス
 - [Hooks ガイド](./hooks/README.ja.md): Claude Code / Codex / Gemini（レガシー）の hook 設定、導入手順、トラブルシュート
 - [MCP ガイド](./mcp/README.ja.md): `traceary mcp-server` の起動方法、ツール一覧、MCP クライアント連携
 - [インタラクティブ運用ガイド](./interactive/README.ja.md): `list`、`tail`、`search`、`show`、`handoff` の使い分け

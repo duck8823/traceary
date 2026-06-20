@@ -42,7 +42,7 @@ GitHub Releases から自分の platform に合う archive を取得し、展開
 
 タグ付き release では、Claude Code / Codex 向け package を repository 内で version をそろえて同じ release tag で管理・公開します。Gemini CLI extension archive（`traceary.tar.gz`）も既存 Gemini CLI 導入環境向けのレガシー互換として release asset に含まれます。
 
-v0.21.0 では Antigravity 向けパッケージ・release asset は公開していません。この省略は意図的なものです（#1196 で判断）。Antigravity のサポートされた公開 CLI/hook contract が確認されていないため、Traceary は捏造した hook contract や package を出荷しません。doctor のステートは `tool_unavailable` のまま（#1195）であり、実際の package は Google がサポートされた公開 CLI/hook contract を公開した時点で、将来の issue で初めて追加します。
+v0.21.1 以降、Traceary は文書化された公開 Antigravity hook/plugin surface に対する Antigravity plugin package（`integrations/antigravity-plugin/`）を提供します。hook の導入は `traceary hooks install --client antigravity`（workspace は `.agents/hooks.json`）または `--global`（`~/.gemini/config/hooks.json`）で行います。詳細は [Antigravity hooks / plugin ガイド](../integrations/antigravity.ja.md) を参照してください。
 
 host ごとの install 手順は [ネイティブ連携ガイド](../integrations/README.ja.md) を参照してください。
 
@@ -124,7 +124,7 @@ GoReleaser workflow が artifact の公開を自動化しますが、maintainer 
    - Gemini レビューは**不要**です（Gemini CLI は retired / 利用不可）。
    - Codex の実装・レビューは、ローカルポリシーやユーザー指示で無効化されている場合は**不要**です。Codex が有効かつ利用可能な場合にのみ Codex app review を取得します。
    - 最新 head に対する Claude レビューを取得し、ローカル dogfood と `go test ./...` / `golangci-lint` / CI が green であることを確認してから merge commit でマージします。
-   - Antigravity は v0.21.0 で release asset を持たず、将来サポートされた公開 CLI/hook contract が現れない限り doctor ステートは `tool_unavailable` のままです（上記「ネイティブ連携パッケージ」を参照）。
+   - Antigravity は v0.21.1 以降サポート対象であり、`integrations/antigravity-plugin/` を同梱します。doctor は `antigravity-capability` と `antigravity-config` を報告します（上記「ネイティブ連携パッケージ」を参照）。
 8. **tag を打って push する。** release-prep PR が merge されたら、`git checkout main && git pull --ff-only && git tag vX.Y.Z && git push origin vX.Y.Z` を実行します。`v*` tag が `.github/workflows/release.yml` を起動します。
 9. **release workflow を監視する。** tag run に対して `gh run watch` を実行し、成功後に `gh release view vX.Y.Z` で公開を確認します。GitHub Release が publish されると `.github/workflows/pages.yml` も発火し、`docs/landing/` を GitHub Pages に再 deploy します。その run が成功し、`https://duck8823.github.io/traceary/`（CNAME 経由で `https://duck8823.net/traceary/`）が新バージョンを反映していることを確認してください。
 10. **Homebrew formula PR を確認する。** release workflow が `maintenance/homebrew-vX.Y.Z` PR を開いて auto-merge を有効化します。実際に merge されたか確認し、`brew update && brew upgrade traceary && traceary -v` で新バージョンを確かめます。

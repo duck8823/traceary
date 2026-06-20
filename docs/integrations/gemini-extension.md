@@ -2,7 +2,7 @@
 
 [日本語](./gemini-extension.ja.md)
 
-> **v0.21.0 — Legacy notice:** Gemini CLI is the legacy Google AI agent host and is no longer the active delegation path for Traceary. **Antigravity** is the active successor. Antigravity capability detection is implemented in #1195, but v0.21.0 **intentionally ships no Antigravity hook, package, or release asset** (decided in #1196) because no supported public CLI/hook contract is confirmed. This page describes the existing Gemini extension package, which remains available for installs already using Gemini CLI. For the current state of Antigravity support, see the [Antigravity migration status](./antigravity.md).
+> **Legacy notice:** Gemini CLI is the legacy Google AI agent host and is no longer the active delegation path for Traceary. **Antigravity** is the active successor and, as of v0.21.1, is a supported hook client with a packaged plugin. This page describes the existing Gemini extension package, which remains available for installs already using Gemini CLI. For Antigravity, see the [Antigravity hooks and plugin guide](./antigravity.md).
 
 The Gemini package lives under `integrations/gemini-extension/`. Gemini CLI expects `gemini-extension.json` at the root of the installed extension, so Traceary ships this package as a dedicated extension archive on tagged releases.
 

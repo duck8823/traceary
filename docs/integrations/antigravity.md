@@ -1,12 +1,79 @@
-# Antigravity migration status
+# Antigravity hooks and plugin
 
 [日本語](./antigravity.ja.md)
 
-Antigravity is Google's successor to Gemini CLI as an AI agent host. This page describes what Traceary has discovered locally about Antigravity in v0.21.0 and the resulting decision.
+Antigravity is Google's successor to Gemini CLI as an AI agent host. As of **v0.21.1**, Traceary supports Antigravity as a real hook client with a packaged plugin, using only the documented public hook/plugin surface — no credential reads, no private app-internal formats, no browser automation.
 
-> **Summary:** No supported public CLI/hook contract for Antigravity has been confirmed in v0.21.0. Antigravity capability detection is implemented in #1195. After that investigation, **v0.21.0 intentionally ships no Antigravity hook, package, or release asset** — Traceary will not fabricate a hook contract that Google has not published. Future support requires a supported public CLI/hook contract. The existing [Gemini CLI extension](./gemini-extension.md) remains available for existing Gemini CLI installs.
+> **What changed from v0.21.0:** v0.21.0 shipped Antigravity capability **diagnostics only** (`doctor --client antigravity` → `tool_unavailable`) and intentionally shipped no hook or package, because no public contract was confirmed at the time. Google has since published the public Antigravity hook/plugin/CLI surface, so v0.21.1 converts Antigravity from a diagnostic-only host into a supported hook client.
 
-## Local discovery (v0.21.0)
+## What it wires automatically
+
+Antigravity's `hooks.json` is a top-level map of *hook-group name* to event configs (Traceary owns the `traceary` group), which differs from the `{"hooks": {...}}` shape the other hosts share. Traceary renders and merges its own document for this host.
+
+| Antigravity event | Traceary effect |
+| --- | --- |
+| `PreInvocation` | Idempotent session start/refresh keyed by `conversationId` (Antigravity has no `SessionStart`); the first workspace path becomes the workspace |
+| `PreToolUse` (`run_command`) | Persists the proposed `{CommandLine, Cwd}` keyed by `conversationId + stepIdx`; never blocks (`{"decision":"allow"}`) |
+| `PostToolUse` (`run_command`) | Pairs the command persisted by `PreToolUse` for the same step and records a `command_executed` audit (with the step `error`); fails soft when no pending command exists |
+| `Stop` | Records the turn transcript from `transcriptPath` (best effort) and a turn boundary; **does not** close the session |
+
+Antigravity payloads use camelCase fields (`conversationId`, `workspacePaths`, `transcriptPath`, `toolCall.name`, `toolCall.args.CommandLine`, `toolCall.args.Cwd`, `stepIdx`, `terminationReason`). Traceary normalizes these into its internal shape before reusing the shared session / audit / transcript runtime.
+
+## Limitations
+
+- **No `SessionStart`.** The earliest per-conversation signal is `PreInvocation`, which fires before every model call, so Traceary uses it as an idempotent session start/refresh keyed by `conversationId`.
+- **`Stop` is a per-execution boundary, not a session end** (the same model as Codex — #1170). The session row stays open (memory auto-extract still fires) and ends only via MCP `manage_session` or stale GC (`traceary session gc`).
+- **Only `run_command` tool calls are audited.** `PostToolUse` carries only `stepIdx`/`error`, not the command args; the args arrive on `PreToolUse`, so Traceary pairs the two across the step. Non-`run_command` tools record nothing.
+- **Transcript extraction is best effort.** The documented `transcriptPath` file is `transcript.jsonl`, but its per-line schema is not part of the public hook contract, so the extractor leniently scans for assistant text/thinking blocks across several plausible JSONL shapes and silently skips otherwise.
+- **No credential, keychain, cookie, or browser-storage reads.** Only the documented `transcriptPath` hook field is read from disk.
+
+## Install
+
+1. Install the Traceary CLI first.
+
+```sh
+brew tap duck8823/traceary https://github.com/duck8823/traceary
+brew install traceary
+# or
+GO111MODULE=on go install github.com/duck8823/traceary@latest
+```
+
+2. Install the Traceary hooks for Antigravity.
+
+```sh
+# workspace-level install → <project>/.agents/hooks.json
+traceary hooks install --client antigravity --project-dir .
+
+# or user-level install → ~/.gemini/config/hooks.json
+traceary hooks install --client antigravity --global
+```
+
+Aliases `agy` and `antigravity-cli` resolve to the same canonical `antigravity` client. The install is non-destructive: only the `traceary` hook group is replaced, and every other top-level hook group is preserved verbatim. Re-run with `--upgrade` to refresh the managed group while preserving user-added groups.
+
+Alternatively, add the packaged plugin under [`integrations/antigravity-plugin/`](../../integrations/antigravity-plugin/), which ships the same `traceary` hook group as `hooks.json` plus a `plugin.json` manifest following the official Antigravity plugin schema.
+
+## Setup guide
+
+```sh
+traceary hooks guide --client antigravity --project-dir .
+```
+
+This prints the install command, the doctor command, the expected config path, and the Antigravity-specific notes (PreInvocation session model, Stop turn boundary, run_command pairing).
+
+## Doctor
+
+```sh
+traceary doctor --client antigravity --json
+```
+
+`doctor` reports two checks for Antigravity:
+
+- `antigravity-capability` — `pass` when an Antigravity install is detected (the `agy`/`antigravity` CLI on PATH or the app bundle), since Traceary supports the public hooks/plugin contract and needs no Traceary-side authentication. It reports `not_installed` (warn) when neither the CLI nor the bundle is present. This check does not launch the app, perform browser automation, or read credentials.
+- `antigravity-config` — reports whether the resolved `hooks.json` registers the `traceary` hook group, with the `--upgrade` remediation when the group is missing.
+
+Antigravity is not in the default doctor client list (`["claude","codex","gemini"]`); pass `--client antigravity` explicitly.
+
+## Local discovery
 
 The following was observed in the local development environment:
 
@@ -14,42 +81,27 @@ The following was observed in the local development environment:
 | --- | --- |
 | Application path | `/Applications/Antigravity.app` |
 | Bundle ID | `com.google.antigravity` |
-| Version | 2.1.4 |
 | URL scheme | `antigravity://` |
-| CLI on PATH | Not found |
-| User data directory | `~/Library/Application Support/Antigravity` |
-| State hints | `~/.gemini/antigravity`, `~/.gemini/config/config.json` |
+| Workspace hooks path | `<project>/.agents/hooks.json` |
+| Global hooks path | `~/.gemini/config/hooks.json` |
 
-## Capability detection (v0.21.0)
-
-`traceary doctor --client antigravity --json` probes for Antigravity installation and reports one of four capability states:
-
-| State | Meaning |
-| --- | --- |
-| `not_installed` | No app bundle (`/Applications/Antigravity.app`) and no `antigravity` CLI found on PATH |
-| `tool_unavailable` | App or CLI found but no supported public headless/hook/package surface is confirmed |
-| `not_authenticated` | Installed with a supported surface but not authenticated or configured (future/reserved; not reachable in v0.21.0 — detected via a supported CLI/contract check, not by reading credentials) |
-| `available` | Supported CLI/hook contract confirmed and configured (not yet reachable in v0.21.0) |
-
-In the local development environment, the current state is **`tool_unavailable`**: `/Applications/Antigravity.app` (version 2.1.4) is installed, but no public CLI or hook contract is confirmed. Run:
+## Package validation
 
 ```sh
-traceary doctor --client antigravity --json
+agy plugin validate integrations/antigravity-plugin
+# structural validation in-repo:
+go run ./cmd/repo-tooling integrations verify
 ```
 
-This check does not launch the app, perform browser automation, or read credentials — it only checks for the presence of the app bundle and a CLI binary on PATH.
+## Official references
 
-Antigravity is not included in the default doctor client list (`["claude","codex","gemini"]`). Pass `--client antigravity` explicitly.
+Verified 2026-06-20 JST:
 
-## What is not confirmed in v0.21.0
+- Antigravity 2.0 hooks: https://antigravity.google/assets/docs/antigravity-2-0/hooks.md
+- Antigravity IDE hooks: https://antigravity.google/assets/docs/editor/ide-hooks.md
+- Antigravity CLI plugins: https://antigravity.google/assets/docs/cli/cli-plugins.md
+- Antigravity 2.0 plugins: https://antigravity.google/assets/docs/antigravity-2-0/plugins.md
+- Antigravity IDE plugins: https://antigravity.google/assets/docs/editor/ide-plugins.md
+- Antigravity CLI install: https://antigravity.google/assets/docs/cli/cli-install.md
 
-- No public CLI binary or hook contract is confirmed. There is no `antigravity` command on PATH.
-- No extension/plugin install mechanism equivalent to `gemini extensions install` has been confirmed.
-- No hook event schema (session lifecycle, tool audit, prompt capture) has been established for Traceary.
-
-## Decision and follow-up
-
-- **#1195** ✓ — Antigravity capability detection (`traceary doctor --client antigravity --json`) — implemented in v0.21.0
-- **#1196** ✓ — Decision: v0.21.0 intentionally ships **no** Antigravity hook, package, generated metadata, or release asset. The acceptance criteria allowed a package **only if** a supported public hook/plugin/MCP/headless CLI surface was confirmed; #1195 confirmed none, so Traceary documents the intentionally omitted package and keeps the doctor `tool_unavailable` state instead of shipping a fake package.
-
-A real Antigravity package will be added under a future issue **only once** Google publishes a supported public CLI/hook contract. Until then, Antigravity sessions will not appear in Traceary's event log. If you are migrating from Gemini CLI to Antigravity, continue using the [Gemini CLI extension](./gemini-extension.md) for Gemini CLI sessions in the meantime.
+If you are migrating from Gemini CLI, the [Gemini CLI extension](./gemini-extension.md) remains available for existing Gemini CLI installs.

@@ -76,6 +76,9 @@ func verifyIntegrations(root string, runCLISmoke bool) error {
 	if err := checkGemini(root, version); err != nil {
 		return err
 	}
+	if err := checkAntigravity(root); err != nil {
+		return err
+	}
 	return checkDocs(root)
 }
 
@@ -419,12 +422,66 @@ func checkGemini(root, version string) error {
 		"Gemini traceary-memory-capture skill stub must be removed (replaced by traceary-memory-review and traceary-memory-remember)")
 }
 
+// checkAntigravity validates the packaged Antigravity plugin. Antigravity's
+// hooks.json uses a top-level hook-group map (Traceary owns the "traceary"
+// group) rather than the shared {"hooks": {...}} shape, so it is validated with
+// a dedicated parser. The plugin.json follows the official Antigravity schema
+// (name + description only), so no version field is tracked here.
+func checkAntigravity(root string) error {
+	var manifest struct {
+		Schema      string `json:"$schema"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	if err := readJSON(root, "integrations/antigravity-plugin/plugin.json", &manifest); err != nil {
+		return err
+	}
+	if manifest.Name != "traceary" {
+		return xerrors.Errorf("unexpected Antigravity plugin name")
+	}
+	if manifest.Schema != "https://antigravity.google/schemas/v1/plugin.json" {
+		return xerrors.Errorf("antigravity plugin must declare the official plugin.json schema")
+	}
+
+	hooksPath := "integrations/antigravity-plugin/hooks.json"
+	data, err := os.ReadFile(filepath.Join(root, hooksPath))
+	if err != nil {
+		return xerrors.Errorf("missing file: %s", hooksPath)
+	}
+	var groups map[string]map[string]json.RawMessage
+	if err := json.Unmarshal(data, &groups); err != nil {
+		return xerrors.Errorf("invalid json in %s: %w", hooksPath, err)
+	}
+	group, ok := groups["traceary"]
+	if !ok {
+		return xerrors.Errorf("antigravity hooks must define the traceary group")
+	}
+	for _, event := range []string{"PreInvocation", "PreToolUse", "PostToolUse", "Stop"} {
+		if _, ok := group[event]; !ok {
+			return xerrors.Errorf("antigravity traceary group must include %s", event)
+		}
+	}
+	raw := string(data)
+	for _, fragment := range []string{
+		"'hook' 'antigravity' 'pre-invocation'",
+		"'hook' 'antigravity' 'pre-tool-use'",
+		"'hook' 'antigravity' 'post-tool-use'",
+		"'hook' 'antigravity' 'stop'",
+	} {
+		if !strings.Contains(raw, fragment) {
+			return xerrors.Errorf("antigravity packaged hooks must invoke %s", fragment)
+		}
+	}
+	return nil
+}
+
 func checkDocs(root string) error {
 	pairs := []string{
 		"docs/integrations/README.md",
 		"docs/integrations/claude-plugin.md",
 		"docs/integrations/codex-plugin.md",
 		"docs/integrations/gemini-extension.md",
+		"docs/integrations/antigravity.md",
 	}
 	for _, english := range pairs {
 		japanese := strings.TrimSuffix(english, ".md") + ".ja.md"

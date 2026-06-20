@@ -124,6 +124,55 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("prints Antigravity group document", func(t *testing.T) {
+		// Antigravity uses a top-level hook-group map (Traceary owns the
+		// "traceary" group), not the shared {"hooks": {...}} envelope, so the
+		// printed document is parsed with a dedicated shape.
+		rootCmd := newTestRootCLI().Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"hooks", "print", "--client", "antigravity", "--traceary-bin", tracearyBin})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		var doc map[string]map[string]json.RawMessage
+		if err := json.Unmarshal(stdout.Bytes(), &doc); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v\n%s", err, stdout.Bytes())
+		}
+		group, ok := doc["traceary"]
+		if !ok {
+			t.Fatalf("printed Antigravity document missing the traceary group:\n%s", stdout.Bytes())
+		}
+		for _, event := range []string{"PreInvocation", "PreToolUse", "PostToolUse", "Stop"} {
+			if _, ok := group[event]; !ok {
+				t.Fatalf("printed Antigravity group missing %s event:\n%s", event, stdout.Bytes())
+			}
+		}
+		if !strings.Contains(stdout.String(), `'/tmp/traceary bin/traceary' 'hook' 'antigravity' 'pre-invocation'`) {
+			t.Fatalf("printed Antigravity document missing the PreInvocation runtime command:\n%s", stdout.Bytes())
+		}
+	})
+
+	t.Run("prints Antigravity group document with agy alias", func(t *testing.T) {
+		rootCmd := newTestRootCLI().Command()
+		stdout := &bytes.Buffer{}
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"hooks", "print", "--client", "agy", "--traceary-bin", tracearyBin})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		var doc map[string]json.RawMessage
+		if err := json.Unmarshal(stdout.Bytes(), &doc); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v\n%s", err, stdout.Bytes())
+		}
+		if _, ok := doc["traceary"]; !ok {
+			t.Fatalf("agy alias did not print the traceary group:\n%s", stdout.Bytes())
+		}
+	})
+
 	t.Run("uses stable command name when traceary-bin is not specified", func(t *testing.T) {
 		settings := executeHooksPrintWithoutTracearyBin(t, "claude")
 		if diff := cmp.Diff(`'traceary' 'hook' 'session' 'claude' 'start'`, settings.Hooks["SessionStart"][0].Hooks[0].Command); diff != "" {

@@ -187,9 +187,10 @@ func run() error {
 	}
 
 	hooksOrchestrator := filesystem.NewHooksOrchestrator(map[string]application.HooksClientHandler{
-		"claude": filesystem.NewClaudeHooksHandler(),
-		"codex":  filesystem.NewCodexHooksHandler(),
-		"gemini": filesystem.NewGeminiHooksHandler(),
+		"claude":      filesystem.NewClaudeHooksHandler(),
+		"codex":       filesystem.NewCodexHooksHandler(),
+		"gemini":      filesystem.NewGeminiHooksHandler(),
+		"antigravity": filesystem.NewAntigravityHooksHandler(),
 	})
 	hooksInspector := filesystem.NewHooksInspector()
 	pluginCacheInspector := filesystem.NewPluginCacheInspector()
