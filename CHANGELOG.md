@@ -7,6 +7,14 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+## [v0.21.2] - 2026-06-20
+
+### Added
+- **Stale Gemini-imported Antigravity CLI plugin detection (#1220)** — `traceary doctor --client antigravity` now runs an `antigravity-cli-plugin` check that reads only the Antigravity CLI plugin config files (`plugin.json`, `hooks.json`, `hooks/hooks.json`) under `~/.gemini/antigravity-cli/plugins/traceary`. It warns when legacy Gemini-shaped plugin files remain after migrating to the supported Antigravity hook runtime, with remediation steps, passes on the supported top-level `traceary` hook group, and skips absent CLI plugin directories so `traceary hooks install --client antigravity` users are not failed.
+- **Docs** — the English/Japanese Antigravity integration docs now document the stale Gemini-imported CLI plugin migration path.
+
+This release contains no SQLite schema migration and no new MCP tools.
+
 ## [v0.21.1] - 2026-06-20
 
 ### Added
