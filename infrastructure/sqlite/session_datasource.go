@@ -630,6 +630,7 @@ func scanSessionSummary(row interface {
 		subagentKind       string
 		spawnOrder         sql.NullInt64
 		latestEventKindStr string
+		latestEventID      string
 		latestEventRawBody string
 	)
 
@@ -650,6 +651,7 @@ func scanSessionSummary(row interface {
 		&subagentKind,
 		&spawnOrder,
 		&latestEventKindStr,
+		&latestEventID,
 		&latestEventRawBody,
 	); err != nil {
 		return apptypes.SessionSummary{}, xerrors.Errorf("failed to scan session summary: %w", err)
@@ -708,7 +710,7 @@ func scanSessionSummary(row interface {
 		subagentKind,
 		optionalIntFromNullInt64(spawnOrder),
 		latestEventAt,
-		apptypes.SessionSummaryLatestEventOf(types.EventKind(latestEventKindStr), apptypes.ExtractPlainBody(latestEventRawBody)),
+		apptypes.SessionSummaryLatestEventOf(types.EventID(latestEventID), types.EventKind(latestEventKindStr), apptypes.ExtractPlainBody(latestEventRawBody)),
 	), nil
 }
 

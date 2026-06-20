@@ -59,7 +59,7 @@ func TestRootCLI_TopCommand_SnapshotJSONGolden(t *testing.T) {
 			types.SessionID(""),
 			types.Client("claude"),
 			endedAt,
-			apptypes.SessionSummaryLatestEventOf(types.EventKindSessionEnded, "Root session ended."),
+			apptypes.SessionSummaryLatestEventOf(types.EventID(""), types.EventKindSessionEnded, "Root session ended."),
 		),
 		apptypes.SessionSummaryOf(
 			types.SessionID("top-child"),
@@ -78,7 +78,7 @@ func TestRootCLI_TopCommand_SnapshotJSONGolden(t *testing.T) {
 			"task",
 			types.Some(1),
 			startedAt.Add(20*time.Minute),
-			apptypes.SessionSummaryLatestEventOf(types.EventKindTranscript, "Working on active child."),
+			apptypes.SessionSummaryLatestEventOf(types.EventID(""), types.EventKindTranscript, "Working on active child."),
 		),
 		apptypes.SessionSummaryOf(
 			types.SessionID("top-ended-only"),
@@ -244,7 +244,7 @@ func TestRootCLI_TopCommand_SnapshotTextGolden(t *testing.T) {
 			types.SessionID(""),
 			types.Client("claude"),
 			startedAt.Add(15*time.Minute),
-			apptypes.SessionSummaryLatestEventOf(types.EventKindCommandExecuted, "go test ./..."),
+			apptypes.SessionSummaryLatestEventOf(types.EventID(""), types.EventKindCommandExecuted, "go test ./..."),
 		),
 		apptypes.SessionSummaryOf(
 			types.SessionID("ws-empty"),
@@ -278,7 +278,7 @@ func TestRootCLI_TopCommand_SnapshotTextGolden(t *testing.T) {
 			types.SessionID(""),
 			types.Client("claude"),
 			startedAt.Add(3*time.Hour+30*time.Minute),
-			apptypes.SessionSummaryLatestEventOf(types.EventKindSessionEnded, "duration=29m21s"),
+			apptypes.SessionSummaryLatestEventOf(types.EventID(""), types.EventKindSessionEnded, "duration=29m21s"),
 		),
 		apptypes.SessionSummaryOf(
 			types.SessionID("ws-child-active"),
@@ -297,7 +297,7 @@ func TestRootCLI_TopCommand_SnapshotTextGolden(t *testing.T) {
 			"task",
 			types.Some(1),
 			startedAt.Add(3*time.Hour+25*time.Minute),
-			apptypes.SessionSummaryLatestEventOf(types.EventKindTranscript, "investigating panic in usecase layer"),
+			apptypes.SessionSummaryLatestEventOf(types.EventID(""), types.EventKindTranscript, "investigating panic in usecase layer"),
 		),
 	}}
 

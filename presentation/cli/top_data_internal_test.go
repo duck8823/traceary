@@ -278,7 +278,7 @@ func sessionSummaryFixture(id string, parent string, started time.Time, status s
 		domtypes.SessionID(parent),
 		domtypes.Client("claude"),
 		started.Add(5*time.Minute),
-		apptypes.SessionSummaryLatestEventOf(latestKind, latestMessage),
+		apptypes.SessionSummaryLatestEventOf(domtypes.EventID("evt-"+id), latestKind, latestMessage),
 	)
 }
 

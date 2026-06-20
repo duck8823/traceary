@@ -80,7 +80,7 @@ func dashboardSessionNode(id string, latest time.Time) *sessionNode {
 		domtypes.SessionID(""),
 		domtypes.Client("claude"),
 		latest,
-		apptypes.SessionSummaryLatestEventOf(domtypes.EventKindTranscript, "row "+id),
+		apptypes.SessionSummaryLatestEventOf(domtypes.EventID("evt-"+id), domtypes.EventKindTranscript, "row "+id),
 	)
 	return &sessionNode{summary: summary}
 }
@@ -104,7 +104,7 @@ func dashboardSessionNodeWith(id string, parent string, started time.Time, statu
 		domtypes.SessionID(parent),
 		domtypes.Client("claude"),
 		latest,
-		apptypes.SessionSummaryLatestEventOf(domtypes.EventKindTranscript, "row "+id),
+		apptypes.SessionSummaryLatestEventOf(domtypes.EventID("evt-"+id), domtypes.EventKindTranscript, "row "+id),
 	)
 	return &sessionNode{summary: summary}
 }

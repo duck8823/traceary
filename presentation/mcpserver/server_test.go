@@ -1309,6 +1309,95 @@ func TestServer_BuildAndTools(t *testing.T) {
 	})
 }
 
+// get_context must respect the default body budget end-to-end: a caller that
+// passes no body_limit still gets a capped, body_truncated projection so a
+// noisy command/tool payload is not re-amplified into the next agent context.
+// The full body stays retrievable by re-issuing with full_body=true.
+func TestServer_GetContextDefaultBodyLimitCaps(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	ctx := context.Background()
+	mcpServer, err := server.Build(ctx)
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := mcpServer.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatalf("Connect(server) error = %v", err)
+	}
+	defer func() { _ = serverSession.Wait() }()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v1.0.0"}, nil)
+	clientSession, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("Connect(client) error = %v", err)
+	}
+	defer func() { _ = clientSession.Close() }()
+
+	huge := strings.Repeat("x", mcpserver.DefaultListEventBodyLimit+300)
+	if _, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "record_event",
+		Arguments: map[string]any{
+			"type":       "log",
+			"message":    huge,
+			"agent":      "claude",
+			"session_id": "ctx-budget-session",
+			"workspace":  "github.com/duck8823/traceary",
+		},
+	}); err != nil {
+		t.Fatalf("CallTool(record_event) error = %v", err)
+	}
+
+	result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "get_context",
+		Arguments: map[string]any{
+			"session_id": "ctx-budget-session",
+			"limit":      10,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(get_context) error = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("CallTool(get_context) returned tool error")
+	}
+
+	events := decodeJSONEventsField(t, result)
+	if len(events) == 0 {
+		t.Fatalf("get_context returned no events")
+	}
+	ev := events[0]
+	if truncated, _ := ev["body_truncated"].(bool); !truncated {
+		t.Fatalf("get_context default must truncate large bodies: %+v", ev)
+	}
+	body, _ := ev["body"].(string)
+	if got := len([]rune(body)); got > mcpserver.DefaultListEventBodyLimit+1 { // limit runes + ellipsis
+		t.Fatalf("get_context default body length = %d runes, want <= %d", got, mcpserver.DefaultListEventBodyLimit+1)
+	}
+	if strings.Contains(body, huge) {
+		t.Fatalf("get_context default leaked the full body")
+	}
+}
+
+func decodeJSONEventsField(t *testing.T, result *mcp.CallToolResult) []map[string]any {
+	t.Helper()
+	payload := decodeJSONPayload(t, result)
+	rawEvents, ok := payload["events"].([]any)
+	if !ok {
+		t.Fatalf("payload has no events array: %v", payload)
+	}
+	events := make([]map[string]any, 0, len(rawEvents))
+	for _, raw := range rawEvents {
+		event, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("event is not an object: %T", raw)
+		}
+		events = append(events, event)
+	}
+	return events
+}
+
 func assertNoLatestEventFieldLeak(t *testing.T, payload any) {
 	t.Helper()
 	marshaled, err := json.Marshal(payload)
@@ -1316,7 +1405,7 @@ func assertNoLatestEventFieldLeak(t *testing.T, payload any) {
 		t.Fatalf("json.Marshal(payload) error = %v", err)
 	}
 	body := string(marshaled)
-	for _, forbidden := range []string{"latest_event_kind", "latest_event_message", "latestEventKind", "latestEventMessage"} {
+	for _, forbidden := range []string{"latest_event_kind", "latest_event_message", "latestEventKind", "latestEventMessage", "latest_event_id", "latestEventID"} {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("payload contains forbidden latest event field %q: %s", forbidden, body)
 		}
