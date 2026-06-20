@@ -1966,20 +1966,30 @@ func TestRootCLI_DoctorAntigravity(t *testing.T) {
 
 		// Must include the capability check.
 		foundCapability := false
-		foundCaptureLevels := false
+		var captureLevels doctorCheck
 		for _, name := range checkNames {
 			if name == "antigravity-capability" {
 				foundCapability = true
 			}
-			if name == "antigravity-capture-levels" {
-				foundCaptureLevels = true
+		}
+		for _, check := range report.Checks {
+			if check.Name == "antigravity-capture-levels" {
+				captureLevels = check
 			}
 		}
 		if !foundCapability {
 			t.Fatalf("antigravity-capability check not found in report; checks: %v", checkNames)
 		}
-		if !foundCaptureLevels {
+		if captureLevels.Name == "" {
 			t.Fatalf("antigravity-capture-levels check not found in report; checks: %v", checkNames)
+		}
+		if captureLevels.Status != "pass" {
+			t.Fatalf("antigravity-capture-levels status = %q, want pass", captureLevels.Status)
+		}
+		for _, want := range []string{"start_supported", "tool_audit_supported", "final_turn_unavailable", "agy --print"} {
+			if !strings.Contains(captureLevels.Message, want) {
+				t.Fatalf("antigravity-capture-levels message missing %q: %q", want, captureLevels.Message)
+			}
 		}
 
 		// Must NOT include hook-config or coverage checks for OTHER clients.

@@ -38,14 +38,15 @@ func buildAntigravityCaptureLevelsCheck() doctorCheck {
 		Name:   antigravityCaptureLevelsCheck,
 		Status: doctorStatusPass,
 		Message: localizef(
-			"Antigravity capture levels are a host-mode trait, separate from hook install health (route installation is checked by `antigravity-hooks`). "+
+			"Antigravity capture levels are a host-mode trait, separate from hook install health (route installation is checked by `%s`). "+
 				"Every mode captures `%s` (PreInvocation → session start/refresh) and `%s` (PreToolUse+PostToolUse run_command → command audit). "+
 				"`%s` (Stop → transcript event + turn boundary) is captured only on interactive runs; headless `agy --print` is `%s` because the host emits no Stop or other finalization hook in print mode, so a print run records no transcript event and no turn boundary. "+
 				"A healthy hook install therefore does NOT imply full session transcript capture in print mode — this is the expected print-mode capture level, not an install failure.",
-			"Antigravity の記録レベルは実行モードの性質であり、hook 導入経路の健全性とは別です（導入経路は `antigravity-hooks` が検査します）。"+
+			"Antigravity の記録レベルは実行モードの性質であり、hook 導入経路の健全性とは別です（導入経路は `%s` が検査します）。"+
 				"すべてのモードで `%s`（PreInvocation → セッション開始/更新）と `%s`（PreToolUse+PostToolUse run_command → コマンド監査）を記録します。"+
 				"`%s`（Stop → transcript event + turn 境界）は対話実行でのみ記録され、headless `agy --print` ではホストが print mode で Stop その他の finalization hook を発行しないため `%s` となり、その実行では transcript event も turn 境界も記録されません。"+
 				"したがって hook 導入が健全でも、print mode でセッション transcript を完全に記録することは保証されません。これは print mode における想定どおりの記録レベルであり、導入失敗ではありません。",
+			antigravityRouteSummaryCheck,
 			antigravityCaptureStartSupported,
 			antigravityCaptureToolAuditSupported,
 			antigravityCaptureFinalTurnSupported,
