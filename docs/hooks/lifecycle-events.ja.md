@@ -68,7 +68,7 @@ Antigravity は Gemini CLI に代わる Traceary 連携ホストです。v0.21.1
 
 - `session_started` — `PreInvocation` から（Antigravity に `SessionStart` はない）。`conversationId` をキーに冪等。
 - `command_executed` — `PostToolUse`（`run_command` のみ）から。直前の `PreToolUse` が同一 `stepIdx` で保存した args と突き合わせる。
-- `transcript` — `Stop` から `transcriptPath` を best-effort で読む。`Stop` は execution 単位の turn 境界であり session 終了ではない (#1170) ため、`session_ended` は発行しない。
+- `transcript` — `Stop` から `transcriptPath` を best-effort で読む。`Stop` は execution 単位の turn 境界であり session 終了ではない (#1170) ため、`session_ended` は発行しない。`Stop` が発火するのは interactive 実行のみで、headless `agy --print` は `Stop`（その他の finalization hook も含む）を発行しないため、print 実行では session start + `run_command` audit のみが記録され、`transcript` event も turn 境界も記録されない。詳細は [capture matrix](../integrations/antigravity.ja.md) と `antigravity-capture-levels` doctor チェックを参照。
 
 Antigravity からは `prompt` / `compact_summary` / `session_ended` イベントは発行されません。上記の Gemini CLI hook カバレッジはレガシー互換パスを示します。
 

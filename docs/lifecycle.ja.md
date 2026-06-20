@@ -68,9 +68,9 @@ SessionStart → [AfterTool]* → SessionEnd
 | PreInvocation | `session_started` | `conversationId` をキーにした冪等なセッション開始・更新（Antigravity に `SessionStart` はない） |
 | PreToolUse (`run_command`) | — | 提案された `{CommandLine, Cwd}` を `conversationId + stepIdx` をキーに保存。block しない |
 | PostToolUse (`run_command`) | `command_executed` | 同一 step の `PreToolUse` のコマンドと突き合わせて監査を記録（step の `error` 付き） |
-| Stop | `transcript` | `transcriptPath` の turn transcript と turn 境界。セッションは閉じない (#1170) |
+| Stop | `transcript` | ホストが `Stop` を発行した場合の `transcriptPath` の turn transcript と turn 境界。セッションは閉じない (#1170) |
 
-**制限**: `SessionStart` がなく（最初の信号は `PreInvocation`）、host のセッション終了信号もありません — Codex 同様 `Stop` は execution 単位の turn 境界なので、Antigravity session は明示的な終了 (MCP `manage_session`) または stale GC (`traceary session gc`) まで開いたままです。audit 対象は `run_command` tool のみで、transcript 抽出は best-effort です。
+**制限**: `SessionStart` がなく（最初の信号は `PreInvocation`）、host のセッション終了信号もありません — Codex 同様 `Stop` は execution 単位の turn 境界なので、Antigravity session は明示的な終了 (MCP `manage_session`) または stale GC (`traceary session gc`) まで開いたままです。audit 対象は `run_command` tool のみで、transcript 抽出は best-effort です。`Stop` が発火するのは interactive 実行のみで、headless `agy --print` は `Stop` を発行しないため、print 実行では session start + `run_command` audit のみが記録され、`transcript` event も turn 境界も記録されません。詳細は [capture matrix](./integrations/antigravity.ja.md) と `antigravity-capture-levels` doctor チェックを参照してください。
 
 > **v0.21 注**: Gemini CLI はレガシー互換パスです。後継ホストの Antigravity は v0.21.1 で Traceary のサポート対象 hook クライアントになりました（v0.21.0 は capability 診断のみ）。詳細は [Antigravity 統合状況](./integrations/antigravity.ja.md) を参照してください。
 

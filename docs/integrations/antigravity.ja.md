@@ -29,22 +29,22 @@ Antigravity の payload は camelCase フィールド（`conversationId`, `works
 
 ## headless print mode (`agy --print`) の capture level
 
-headless な `agy --print` 実行で記録されるのは **session start + run_command audit のみ**です:
+headless な `agy --print` 実行で記録されるのは **session start + run_command audit のみ**です。`traceary doctor --client antigravity` はこれを `antigravity-capture-levels` チェックとして、以下の記録レベルのトークンで報告します:
 
-| Antigravity event | headless `agy --print` |
-| --- | --- |
-| `PreInvocation`（session start） | ● 発火 — `conversationId` を key にした session 開始/更新 |
-| `PreToolUse` + `PostToolUse`（`run_command`） | ● 発火 — 実行が `run_command` を使う場合に command audit |
-| `Stop`（transcript + turn 境界） | ✕ print mode では host が発行しない |
+| Antigravity event | 記録レベル | headless `agy --print` | interactive |
+| --- | --- | --- | --- |
+| `PreInvocation`（session start） | `start_supported` | ● 発火 — `conversationId` を key にした session 開始/更新 | ● 発火 |
+| `PreToolUse` + `PostToolUse`（`run_command`） | `tool_audit_supported` | ● 発火 — 実行が `run_command` を使う場合に command audit | ● 発火 |
+| `Stop`（transcript + turn 境界） | `final_turn_supported` / `final_turn_unavailable` | ✕ `final_turn_unavailable` — print mode では host が発行しない | ● `final_turn_supported` |
 
 headless print mode では host が `Stop`（その他の finalization hook も含む）を
 **発行しない**ため、その実行に対して Traceary は `transcript` event も turn 境界も
-記録しません。これは 2026-06-20 の dogfooding（Traceary 0.21.2、`agy` 1.0.10）で
+記録しません。これは 2026-06-20 の dogfooding（Traceary 0.21.3、`agy` 1.0.10）で
 確認済みです: クリーンな `agy --print` smoke では `session_started`（`run_command`
 が走れば `command_executed` も）は記録されましたが、`transcript` event は出ませんでした。
 最終 transcript / turn 境界が記録されるのは host が `transcriptPath` 付き `Stop` を
 発行したとき、すなわち interactive 実行に限られます。これは print mode の想定どおりの
-capture level であり、Traceary の install 失敗ではありません: 4 つの hook が正しく
+記録レベルであり、Traceary の install 失敗ではありません: 4 つの hook が正しく
 登録されていれば `doctor --client antigravity` は引き続き `pass` し、print mode で host
 `Stop` が無いことは host 側のモード特性です。
 
@@ -101,6 +101,7 @@ traceary doctor --client antigravity --json
 - `antigravity-hooks-user` — user-level 経路（`~/.gemini/config/hooks.json`）。
 - `antigravity-cli-plugin` — `agy plugin install` が import する CLI plugin 経路のディレクトリ `~/.gemini/antigravity-cli/plugins/traceary` を検査します。サポートされた Antigravity の top-level hook-group 形式なら `pass`、**古い Gemini 形式のパッケージ**（legacy な top-level `{"hooks": ...}` 形式、または `traceary hook ... gemini` を呼び出す command）を見つけると `warn` を報告します。この check は `plugin.json`・`hooks.json`・`hooks/hooks.json` のみを読み取り、transcript や認証情報は読みません。
 - `antigravity-hooks` — 集約サマリー。**いずれか**の経路の config が不正（経路別 check が `fail`）な場合は、別の経路が健全でも Antigravity が読み込めないため `fail` を報告します。それ以外では、**いずれか**の経路が健全なら `pass`、**どの**経路も健全でない場合のみ、導入手順を案内する actionable な `warn` を報告します。
+- `antigravity-capture-levels` — 常に `pass`。hook が導入されているだけで transcript 完全記録を暗示しないよう、実行モードごとの **記録レベル** を報告する status 専用 check です。経路の導入健全性（上の `antigravity-hooks`）とは別物で、`start_supported`（PreInvocation）と `tool_audit_supported`（PreToolUse+PostToolUse `run_command`）はすべてのモードで、`final_turn_supported`（Stop → transcript + turn 境界）は対話実行でのみ記録されることを報告します。headless `agy --print` では host が print mode で `Stop`/finalization hook を発行しないため `final_turn_unavailable` となります。これは print mode における想定どおりの記録レベルであり導入失敗ではないため、check は `pass` のままです。
 
 **各経路は単体では任意です。** 経路が無い場合は `warn` ではなく `skip` を報告します。たとえば user-level または CLI plugin の経路が健全であれば、存在しない workspace `.agents/hooks.json` は `skip` 扱いとなり、`antigravity-hooks` サマリーは `pass` のままです。doctor が hook coverage について warn するのは、3 経路のいずれも `traceary` グループを登録していないときだけです。経路ファイルが存在するが不正（JSON オブジェクトでない）な場合は、他経路の状態に関わらず Antigravity 自体が読み込めないため `fail` を報告します。
 

@@ -68,7 +68,7 @@ Antigravity is the successor to Gemini CLI as a Traceary-integrated host. As of 
 
 - `session_started` — from `PreInvocation` (Antigravity has no `SessionStart`), idempotent and keyed by `conversationId`.
 - `command_executed` — from `PostToolUse` (`run_command` only), paired with the args persisted by the preceding `PreToolUse` for the same `stepIdx`.
-- `transcript` — from `Stop`, read best-effort from `transcriptPath`; `Stop` is a per-execution turn boundary, not a session end (#1170), so it emits no `session_ended`.
+- `transcript` — from `Stop`, read best-effort from `transcriptPath`; `Stop` is a per-execution turn boundary, not a session end (#1170), so it emits no `session_ended`. `Stop` fires on interactive runs only — headless `agy --print` emits no `Stop` (or any finalization hook), so a print run records session start + `run_command` audit only, with no `transcript` event or turn boundary. See the [capture matrix](../integrations/antigravity.md) and the `antigravity-capture-levels` doctor check.
 
 There is no `prompt`, `compact_summary`, or `session_ended` event from Antigravity. Gemini CLI hook coverage above reflects the legacy compatibility path.
 
