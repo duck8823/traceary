@@ -1,54 +1,9 @@
 package cli
 
 import (
-	"encoding/json"
 	"os"
 	"runtime"
 )
-
-// inspectAntigravityConfigFile reports whether the Antigravity hooks config at
-// outputPath registers the Traceary hook group. Antigravity's hooks.json is a
-// top-level map of hook-group name to event configs, so this checks for the
-// "traceary" group rather than the shared {"hooks": {...}} shape.
-func inspectAntigravityConfigFile(outputPath string) doctorCheck {
-	const checkName = "antigravity-config"
-	data, err := os.ReadFile(outputPath) // #nosec G304 -- resolved install path
-	if err != nil {
-		return doctorCheck{
-			Name:   checkName,
-			Status: doctorStatusWarn,
-			Message: localizef(
-				"no Antigravity hooks config at %s. Install with: traceary hooks install --client antigravity",
-				"%s に Antigravity hooks config がありません。導入: traceary hooks install --client antigravity",
-				outputPath,
-			),
-		}
-	}
-	var groups map[string]json.RawMessage
-	if err := json.Unmarshal(data, &groups); err != nil {
-		return doctorCheck{
-			Name:    checkName,
-			Status:  doctorStatusFail,
-			Message: localizef("invalid Antigravity hooks config at %s: %v", "%s の Antigravity hooks config が不正です: %v", outputPath, err),
-		}
-	}
-	if _, ok := groups["traceary"]; !ok {
-		return doctorCheck{
-			Name:   checkName,
-			Status: doctorStatusWarn,
-			Message: localizef(
-				"Antigravity hooks config at %s has no traceary group. Run: traceary hooks install --client antigravity --upgrade",
-				"%s の Antigravity hooks config に traceary グループがありません。実行: traceary hooks install --client antigravity --upgrade",
-				outputPath,
-			),
-		}
-	}
-	return doctorCheck{
-		Name:    checkName,
-		Status:  doctorStatusPass,
-		Message: localizef("Antigravity hooks config registers the traceary group: %s", "Antigravity hooks config に traceary グループが登録されています: %s", outputPath),
-	}
-}
 
 // antigravityCapabilityState represents the detected installation and
 // automation-surface state of the Antigravity application.

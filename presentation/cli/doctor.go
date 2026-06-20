@@ -298,19 +298,15 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 
 	for _, targetClient := range resolvedClients {
 		if targetClient == "antigravity" {
-			// Antigravity uses a top-level hook-group document
-			// (.agents/hooks.json workspace, ~/.gemini/config/hooks.json
-			// global) that does not fit the shared config inspector, so run
-			// the capability detection plus a dedicated config-file check.
+			// Antigravity supports three independent hook install routes
+			// (workspace .agents/hooks.json, user-level
+			// ~/.gemini/config/hooks.json, and the `agy` CLI plugin). Each is
+			// optional on its own, so a missing workspace file must not warn
+			// when another route is healthy. inspectAntigravityHookRoutes
+			// reports each route separately plus an aggregate summary that
+			// carries the actionable install message when no route is healthy.
 			report.Checks = append(report.Checks, inspectAntigravityCapability())
-			if outputPath, pathErr := c.hooksOrchestrator.ResolveInstallPath(targetClient, resolvedProjectDir, types.None[string]()); pathErr == nil {
-				report.Checks = append(report.Checks, inspectAntigravityConfigFile(outputPath))
-			}
-			// A `agy plugin install` can leave a stale Gemini-imported
-			// package under ~/.gemini/antigravity-cli/plugins/traceary that
-			// keeps Antigravity sessions wired to the Gemini hook runtime, so
-			// inspect that directory separately from the hooks config.
-			report.Checks = append(report.Checks, inspectAntigravityCLIPlugin())
+			report.Checks = append(report.Checks, c.inspectAntigravityHookRoutes(resolvedProjectDir)...)
 			continue
 		}
 
