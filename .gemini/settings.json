@@ -1,5 +1,19 @@
 {
   "hooks": {
+    "AfterAgent": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "traceary-transcript",
+            "type": "command",
+            "command": "'traceary' 'hook' 'transcript' 'gemini'",
+            "timeout": 5000,
+            "description": "Record agent response as a transcript event"
+          }
+        ]
+      }
+    ],
     "AfterTool": [
       {
         "matcher": "run_shell_command",
@@ -7,9 +21,37 @@
           {
             "name": "traceary-audit",
             "type": "command",
-            "command": "TRACEARY_BIN='traceary' bash '/Users/duck8823/.config/traceary/hook-scripts/traceary-audit.sh' 'gemini'",
+            "command": "'traceary' 'hook' 'audit' 'gemini'",
             "timeout": 5000,
             "description": "Record shell command audits in Traceary"
+          }
+        ]
+      }
+    ],
+    "BeforeAgent": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "traceary-prompt",
+            "type": "command",
+            "command": "'traceary' 'hook' 'prompt' 'gemini'",
+            "timeout": 5000,
+            "description": "Record user prompt as a prompt event"
+          }
+        ]
+      }
+    ],
+    "PreCompress": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "traceary-pre-compress",
+            "type": "command",
+            "command": "'traceary' 'hook' 'compact' 'gemini' 'pre-compact'",
+            "timeout": 5000,
+            "description": "Record a pre-compact marker (Gemini exposes no post-compress hook)"
           }
         ]
       }
@@ -21,7 +63,7 @@
           {
             "name": "traceary-session-end",
             "type": "command",
-            "command": "TRACEARY_BIN='traceary' bash '/Users/duck8823/.config/traceary/hook-scripts/traceary-session.sh' 'gemini' 'end'",
+            "command": "'traceary' 'hook' 'session' 'gemini' 'end'",
             "timeout": 5000,
             "description": "Finish a Traceary session"
           }
@@ -35,7 +77,7 @@
           {
             "name": "traceary-session-start",
             "type": "command",
-            "command": "TRACEARY_BIN='traceary' bash '/Users/duck8823/.config/traceary/hook-scripts/traceary-session.sh' 'gemini' 'start'",
+            "command": "'traceary' 'hook' 'session' 'gemini' 'start'",
             "timeout": 5000,
             "description": "Start a Traceary session"
           }
