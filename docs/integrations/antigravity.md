@@ -66,12 +66,28 @@ This prints the install command, the doctor command, the expected config path, a
 traceary doctor --client antigravity --json
 ```
 
-`doctor` reports two checks for Antigravity:
+`doctor` reports three checks for Antigravity:
 
 - `antigravity-capability` — `pass` when an Antigravity install is detected (the `agy`/`antigravity` CLI on PATH or the app bundle), since Traceary supports the public hooks/plugin contract and needs no Traceary-side authentication. It reports `not_installed` (warn) when neither the CLI nor the bundle is present. This check does not launch the app, perform browser automation, or read credentials.
 - `antigravity-config` — reports whether the resolved `hooks.json` registers the `traceary` hook group, with the `--upgrade` remediation when the group is missing.
+- `antigravity-cli-plugin` — inspects the CLI plugin directory `~/.gemini/antigravity-cli/plugins/traceary` that `agy plugin install` imports into. It `skip`s when the directory is absent (so users who wire hooks via `traceary hooks install` are never failed), `pass`es when the package uses the supported Antigravity top-level hook-group format, and `warn`s when it finds a **stale Gemini-shaped package** — a legacy top-level `{"hooks": ...}` envelope or commands that call `traceary hook ... gemini`. The check reads only `plugin.json`, `hooks.json`, and `hooks/hooks.json`; it never reads transcripts or credentials.
 
 Antigravity is not in the default doctor client list (`["claude","codex","gemini"]`); pass `--client antigravity` explicitly.
+
+## Migrating a stale Gemini-imported plugin
+
+If you previously imported the Traceary plugin through Gemini CLI, `~/.gemini/antigravity-cli/plugins/traceary` may still hold the **legacy Gemini shape**: a top-level `{"hooks": ...}` document whose commands call `traceary hook ... gemini`. In that state `agy plugin install` can report success without replacing the package, so Antigravity sessions stay wired to the Gemini hook runtime instead of the Antigravity one. The supported package instead uses a top-level hook-group document with a `traceary` group invoking `traceary hook antigravity ...`.
+
+`traceary doctor --client antigravity` surfaces this as the `antigravity-cli-plugin` warning. To remediate, remove the stale directory and reinstall the supported package:
+
+```sh
+rm -rf ~/.gemini/antigravity-cli/plugins/traceary
+agy plugin install integrations/antigravity-plugin
+# or wire hooks directly without the CLI plugin:
+traceary hooks install --client antigravity --upgrade
+```
+
+Re-run `traceary doctor --client antigravity` to confirm the check flips to `pass`.
 
 ## Local discovery
 
