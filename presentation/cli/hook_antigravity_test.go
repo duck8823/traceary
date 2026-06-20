@@ -2,8 +2,10 @@ package cli_test
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/duck8823/traceary/domain/types"
 	cli "github.com/duck8823/traceary/presentation/cli"
@@ -106,6 +108,75 @@ func TestRootCLI_HookAntigravityToolUsePairing(t *testing.T) {
 	}
 	if eventStub.auditCall.failed {
 		t.Fatalf("audit should not be flagged failed for an empty error field")
+	}
+}
+
+func TestRootCLI_HookAntigravityToolUsePairingNumericStepIdx(t *testing.T) {
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	// Antigravity may emit stepIdx as a JSON number rather than a string. Both
+	// Pre/PostToolUse key pending state on the same rendered value, so the
+	// numeric form still pairs and records an audit.
+	if preOut, _, _ := runAntigravityHook(t, "pre-tool-use",
+		`{"conversationId":"conv-num","stepIdx":5,"toolCall":{"name":"run_command","args":{"CommandLine":"go vet ./...","Cwd":"/repo"}}}`); preOut != `{"decision":"allow"}` {
+		t.Fatalf("PreToolUse output = %q, want allow", preOut)
+	}
+
+	_, eventStub, _ := runAntigravityHook(t, "post-tool-use",
+		`{"conversationId":"conv-num","stepIdx":5,"error":""}`)
+	if got, want := eventStub.auditCall.command, "go vet ./..."; got != want {
+		t.Fatalf("audit command = %q, want %q", got, want)
+	}
+	if got, want := eventStub.auditCall.sessionID, types.SessionID("conv-num"); got != want {
+		t.Fatalf("audit sessionID = %q, want %q", got, want)
+	}
+}
+
+func TestRootCLI_HookAntigravityPrunesStalePendingCommands(t *testing.T) {
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	now := time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC)
+	cli.SetAntigravityPendingNowFunc(func() time.Time { return now })
+	t.Cleanup(cli.ResetAntigravityPendingNowFunc)
+
+	// A PreToolUse persists a pending command for a step that never receives a
+	// matching PostToolUse.
+	if preOut, _, _ := runAntigravityHook(t, "pre-tool-use",
+		`{"conversationId":"stale-conv","stepIdx":"1","toolCall":{"name":"run_command","args":{"CommandLine":"sleep 1","Cwd":"/repo"}}}`); preOut != `{"decision":"allow"}` {
+		t.Fatalf("PreToolUse output = %q, want allow", preOut)
+	}
+
+	stalePath, err := cli.AntigravityPendingCommandPath("stale-conv", "1")
+	if err != nil {
+		t.Fatalf("AntigravityPendingCommandPath error = %v", err)
+	}
+	// Age the unpaired file beyond the TTL relative to the pinned clock.
+	old := now.Add(-48 * time.Hour)
+	if err := os.Chtimes(stalePath, old, old); err != nil {
+		t.Fatalf("Chtimes error = %v", err)
+	}
+
+	// A later PreToolUse for a different step opportunistically prunes the stale
+	// sibling while persisting its own fresh state.
+	if preOut, _, _ := runAntigravityHook(t, "pre-tool-use",
+		`{"conversationId":"fresh-conv","stepIdx":"1","toolCall":{"name":"run_command","args":{"CommandLine":"go build ./...","Cwd":"/repo"}}}`); preOut != `{"decision":"allow"}` {
+		t.Fatalf("PreToolUse output = %q, want allow", preOut)
+	}
+
+	if _, err := os.Stat(stalePath); !os.IsNotExist(err) {
+		t.Fatalf("stale pending command should be pruned, stat err = %v", err)
+	}
+	freshPath, err := cli.AntigravityPendingCommandPath("fresh-conv", "1")
+	if err != nil {
+		t.Fatalf("AntigravityPendingCommandPath error = %v", err)
+	}
+	if _, err := os.Stat(freshPath); err != nil {
+		t.Fatalf("fresh pending command should persist, stat err = %v", err)
 	}
 }
 

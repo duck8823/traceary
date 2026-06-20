@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
@@ -95,7 +96,7 @@ func (c *RootCLI) runHookAntigravityPreInvocation(ctx context.Context, output io
 		return err
 	}
 
-	normalized := normalizeAntigravityPayload(payload, antigravityNormalizeOptions{
+	normalized := normalizeAntigravityPayload(antigravityNormalizeOptions{
 		sessionID: sessionID.String(),
 		cwd:       antigravityWorkspaceCwd(payload),
 	})
@@ -194,7 +195,7 @@ func (c *RootCLI) runHookAntigravityPostToolUse(ctx context.Context, output io.W
 	}
 	// Pair the persisted command with the PostToolUse error/cwd and reuse the
 	// shared audit path through a normalized snake_case payload.
-	normalized := normalizeAntigravityPayload(payload, antigravityNormalizeOptions{
+	normalized := normalizeAntigravityPayload(antigravityNormalizeOptions{
 		sessionID:   conversationID,
 		cwd:         firstNonEmpty(pending.Cwd, antigravityWorkspaceCwd(payload)),
 		toolName:    "run_command",
@@ -220,7 +221,7 @@ func (c *RootCLI) runHookAntigravityStop(ctx context.Context, output io.Writer, 
 		return err
 	}
 	sessionID := strings.TrimSpace(hookPayloadString(payload, "conversationId", ""))
-	normalized := normalizeAntigravityPayload(payload, antigravityNormalizeOptions{
+	normalized := normalizeAntigravityPayload(antigravityNormalizeOptions{
 		sessionID:      sessionID,
 		cwd:            antigravityWorkspaceCwd(payload),
 		transcriptPath: hookPayloadString(payload, "transcriptPath", ""),
@@ -249,7 +250,7 @@ type antigravityNormalizeOptions struct {
 // Antigravity camelCase payload so the shared runtime helpers
 // (resolveHookSessionID, resolveHookWorkspace, runHookAudit, runHookTranscript)
 // can consume it unchanged.
-func normalizeAntigravityPayload(_ []byte, opts antigravityNormalizeOptions) []byte {
+func normalizeAntigravityPayload(opts antigravityNormalizeOptions) []byte {
 	normalized := map[string]any{}
 	if opts.sessionID != "" {
 		normalized["session_id"] = opts.sessionID
@@ -327,6 +328,17 @@ type antigravityPendingCommand struct {
 	Cwd     string `json:"cwd,omitempty"`
 }
 
+// antigravityPendingStaleAfter bounds how long an unpaired PreToolUse pending
+// command file is kept. PostToolUse normally consumes and clears it within
+// seconds, but a cancelled, interrupted, or never-delivered PostToolUse would
+// otherwise leak the file forever. Writes opportunistically prune siblings
+// older than this so the antigravity-pending directory does not grow unbounded.
+const antigravityPendingStaleAfter = 24 * time.Hour
+
+// antigravityPendingNowFunc returns the current time used for pending-state TTL
+// pruning. It is a package var so tests can pin a deterministic clock.
+var antigravityPendingNowFunc = time.Now
+
 func antigravityPendingCommandPath(conversationID, stepIdx string) (string, error) {
 	stateDir, err := resolveHookStateDir()
 	if err != nil {
@@ -344,6 +356,9 @@ func writeAntigravityPendingCommand(conversationID, stepIdx string, pending anti
 	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
 		return xerrors.Errorf("failed to create antigravity pending state directory: %w", err)
 	}
+	// Opportunistically drop stale siblings left by PreToolUse steps whose
+	// PostToolUse never paired them (cancelled / interrupted / missing).
+	pruneStaleAntigravityPendingCommands(filepath.Dir(statePath))
 	data, err := json.Marshal(pending)
 	if err != nil {
 		return xerrors.Errorf("failed to encode antigravity pending command: %w", err)
@@ -382,6 +397,31 @@ func clearAntigravityPendingCommand(conversationID, stepIdx string) error {
 		return xerrors.Errorf("failed to clear antigravity pending command: %w", err)
 	}
 	return nil
+}
+
+// pruneStaleAntigravityPendingCommands removes pending command files in
+// pendingDir whose modification time is older than antigravityPendingStaleAfter.
+// It is best effort: directory and per-file errors are ignored so a cleanup
+// failure never blocks recording the current step.
+func pruneStaleAntigravityPendingCommands(pendingDir string) {
+	entries, err := os.ReadDir(pendingDir)
+	if err != nil {
+		return
+	}
+	now := antigravityPendingNowFunc()
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		if now.Sub(info.ModTime()) <= antigravityPendingStaleAfter {
+			continue
+		}
+		_ = os.Remove(filepath.Join(pendingDir, entry.Name()))
+	}
 }
 
 // extractAntigravityTranscript resolves the Antigravity transcriptPath and

@@ -63,6 +63,24 @@ func ResetTopNowFunc() {
 	topNowFunc = time.Now
 }
 
+// SetAntigravityPendingNowFunc replaces the current-time function used for
+// Antigravity pending-state TTL pruning for tests.
+func SetAntigravityPendingNowFunc(f func() time.Time) {
+	antigravityPendingNowFunc = f
+}
+
+// ResetAntigravityPendingNowFunc restores the default current-time function
+// used for Antigravity pending-state TTL pruning.
+func ResetAntigravityPendingNowFunc() {
+	antigravityPendingNowFunc = time.Now
+}
+
+// AntigravityPendingCommandPath exposes the resolved pending-state file path for
+// a conversation/step pair so tests can age or inspect it directly.
+func AntigravityPendingCommandPath(conversationID, stepIdx string) (string, error) {
+	return antigravityPendingCommandPath(conversationID, stepIdx)
+}
+
 // SetDetectRepoContextFunc replaces the work-context resolver for tests.
 func SetDetectRepoContextFunc(f func(context.Context) (string, error)) {
 	detectRepoContextFunc = f

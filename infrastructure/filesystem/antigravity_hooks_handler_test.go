@@ -1,6 +1,7 @@
 package filesystem
 
 import (
+	"bytes"
 	"encoding/json"
 	"path/filepath"
 	"sort"
@@ -22,6 +23,29 @@ func parseAntigravityDoc(t *testing.T, data []byte) antigravityDoc {
 		t.Fatalf("failed to parse rendered Antigravity document: %v\n%s", err, data)
 	}
 	return doc
+}
+
+// topLevelKeyOrder returns the top-level object keys of a rendered document in
+// document order so order-sensitive assertions do not depend on map iteration.
+func topLevelKeyOrder(t *testing.T, data []byte) []string {
+	t.Helper()
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if _, err := decoder.Token(); err != nil { // opening '{'
+		t.Fatalf("failed to read document open token: %v\n%s", err, data)
+	}
+	var keys []string
+	for decoder.More() {
+		token, err := decoder.Token()
+		if err != nil {
+			t.Fatalf("failed to read document key: %v\n%s", err, data)
+		}
+		keys = append(keys, token.(string))
+		var skip json.RawMessage
+		if err := decoder.Decode(&skip); err != nil {
+			t.Fatalf("failed to skip document value: %v\n%s", err, data)
+		}
+	}
+	return keys
 }
 
 func TestAntigravityHooksHandler_DefaultInstallPath(t *testing.T) {
@@ -215,6 +239,65 @@ func TestAntigravityHooksHandler_MergeDocument(t *testing.T) {
 		}
 		if cmpDiff := cmp.Diff([]string{"PostToolUse", "PreInvocation", "PreToolUse"}, sortedStrings(diff.AddedEvents)); cmpDiff != "" {
 			t.Fatalf("AddedEvents mismatch (-want +got):\n%s", cmpDiff)
+		}
+	})
+
+	t.Run("preserves the original top-level group order", func(t *testing.T) {
+		t.Parallel()
+
+		// Groups are in non-alphabetical document order; the merge must keep
+		// this order rather than re-sorting alphabetically.
+		existing := []byte(`{
+  "zzz-vendor": {
+    "Stop": [
+      {"type": "command", "command": "zzz stop"}
+    ]
+  },
+  "traceary": {
+    "Stop": [
+      {"type": "command", "command": "old-traceary stop"}
+    ]
+  },
+  "aaa-vendor": {
+    "Stop": [
+      {"type": "command", "command": "aaa stop"}
+    ]
+  }
+}`)
+
+		encoded, _, err := handler.mergeDocument(existing, "traceary")
+		if err != nil {
+			t.Fatalf("MergeDocument returned error: %v", err)
+		}
+		want := []string{"zzz-vendor", "traceary", "aaa-vendor"}
+		if cmpDiff := cmp.Diff(want, topLevelKeyOrder(t, encoded)); cmpDiff != "" {
+			t.Fatalf("top-level group order mismatch (-want +got):\n%s", cmpDiff)
+		}
+	})
+
+	t.Run("appends a newly introduced traceary group after foreign groups", func(t *testing.T) {
+		t.Parallel()
+
+		existing := []byte(`{
+  "zzz-vendor": {
+    "Stop": [
+      {"type": "command", "command": "zzz stop"}
+    ]
+  },
+  "aaa-vendor": {
+    "Stop": [
+      {"type": "command", "command": "aaa stop"}
+    ]
+  }
+}`)
+
+		encoded, _, err := handler.mergeDocument(existing, "traceary")
+		if err != nil {
+			t.Fatalf("MergeDocument returned error: %v", err)
+		}
+		want := []string{"zzz-vendor", "aaa-vendor", "traceary"}
+		if cmpDiff := cmp.Diff(want, topLevelKeyOrder(t, encoded)); cmpDiff != "" {
+			t.Fatalf("top-level group order mismatch (-want +got):\n%s", cmpDiff)
 		}
 	})
 

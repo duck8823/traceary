@@ -109,10 +109,12 @@ func (h *AntigravityHooksHandler) renderDocument(tracearyBin string) ([]byte, er
 }
 
 // mergeDocument replaces the Traceary group in an existing Antigravity
-// hooks.json while preserving every other top-level hook group verbatim. A nil
-// or whitespace-only existing document renders a fresh file. The diff reports
-// per-event Added / Refreshed / Preserved / Removed for the Traceary group. It
-// satisfies the package-internal rawHookDocumentHandler interface.
+// hooks.json while preserving every other top-level hook group verbatim and in
+// its original document order. A nil or whitespace-only existing document
+// renders a fresh file. A newly introduced Traceary group is appended after the
+// existing groups. The diff reports per-event Added / Refreshed / Preserved /
+// Removed for the Traceary group. It satisfies the package-internal
+// rawHookDocumentHandler interface.
 func (h *AntigravityHooksHandler) mergeDocument(existing []byte, tracearyBin string) ([]byte, hookMergeDiff, error) {
 	group, err := buildAntigravityGroup(tracearyBin)
 	if err != nil {
@@ -136,15 +138,20 @@ func (h *AntigravityHooksHandler) mergeDocument(existing []byte, tracearyBin str
 	}
 
 	diff := antigravityGroupDiff(root[antigravityManagedGroup], group)
+	_, hadManagedGroup := root[antigravityManagedGroup]
 	root[antigravityManagedGroup] = group
 
-	keys := make([]string, 0, len(root))
-	for key := range root {
-		keys = append(keys, key)
+	// Preserve the original top-level group order so foreign hook groups stay
+	// where the user put them. A newly introduced Traceary group is appended.
+	order, err := orderedTopLevelKeys(existing)
+	if err != nil {
+		return nil, hookMergeDiff{}, err
 	}
-	sort.Strings(keys)
-	fields := make([]orderedJSONField, 0, len(keys))
-	for _, key := range keys {
+	if !hadManagedGroup {
+		order = append(order, antigravityManagedGroup)
+	}
+	fields := make([]orderedJSONField, 0, len(order))
+	for _, key := range order {
 		fields = append(fields, orderedJSONField{Key: key, Value: root[key]})
 	}
 	encoded, err := marshalOrderedJSONObject(fields)
@@ -152,6 +159,73 @@ func (h *AntigravityHooksHandler) mergeDocument(existing []byte, tracearyBin str
 		return nil, hookMergeDiff{}, err
 	}
 	return encoded, diff, nil
+}
+
+// orderedTopLevelKeys returns the keys of a JSON object in document order. It
+// streams the top-level tokens rather than decoding into a map so the original
+// group ordering is preserved. An empty document yields no keys.
+func orderedTopLevelKeys(document []byte) ([]string, error) {
+	decoder := json.NewDecoder(bytes.NewReader(document))
+	openBrace, err := decoder.Token()
+	if err != nil {
+		return nil, xerrors.Errorf("failed to read Antigravity hooks document: %w", err)
+	}
+	if delim, ok := openBrace.(json.Delim); !ok || delim != '{' {
+		return nil, xerrors.Errorf("existing Antigravity hooks file must contain a JSON object")
+	}
+	var keys []string
+	for decoder.More() {
+		token, err := decoder.Token()
+		if err != nil {
+			return nil, xerrors.Errorf("failed to read Antigravity hooks key: %w", err)
+		}
+		key, ok := token.(string)
+		if !ok {
+			return nil, xerrors.Errorf("Antigravity hooks document key must be a string")
+		}
+		keys = append(keys, key)
+		// Skip the value associated with this key (object/array/scalar).
+		if err := skipJSONValue(decoder); err != nil {
+			return nil, err
+		}
+	}
+	return keys, nil
+}
+
+// skipJSONValue consumes exactly one JSON value (scalar, object, or array) from
+// the decoder, descending through nested delimiters until balanced.
+func skipJSONValue(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return xerrors.Errorf("failed to read Antigravity hooks value: %w", err)
+	}
+	delim, ok := token.(json.Delim)
+	if !ok {
+		return nil
+	}
+	switch delim {
+	case '{':
+		// Object: each entry is a key token followed by its value.
+		for decoder.More() {
+			if _, err := decoder.Token(); err != nil {
+				return xerrors.Errorf("failed to read Antigravity hooks key: %w", err)
+			}
+			if err := skipJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+	case '[':
+		// Array: each entry is a bare value.
+		for decoder.More() {
+			if err := skipJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := decoder.Token(); err != nil {
+		return xerrors.Errorf("failed to read Antigravity hooks value: %w", err)
+	}
+	return nil
 }
 
 // antigravityGroupEventNames returns the sorted event keys present in a
