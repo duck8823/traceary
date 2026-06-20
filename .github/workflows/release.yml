@@ -58,6 +58,9 @@ jobs:
       - name: Verify changelog coverage
         run: go run ./cmd/repo-tooling release verify-changelog
 
+      - name: Verify Antigravity current-state wording
+        run: go run ./cmd/repo-tooling docs verify-antigravity-status
+
       - name: Verify release manifests
         run: python3 scripts/verify_release_manifests.py
 

@@ -6,7 +6,7 @@ function HeroTerminal() {
   // Version markers are release-prep controlled; bottle file count/size are illustrative until release artifacts are published.
   const lines = [
     { type: 'cmd', text: 'brew install traceary' },
-    { type: 'out', text: '==> Installing traceary from duck8823/traceary\n==> Pouring traceary--0.21.0.arm64_sequoia.bottle.tar.gz\n🍺  /opt/homebrew/Cellar/traceary/0.21.0: 12 files, 18.4MB' },
+    { type: 'out', text: '==> Installing traceary from duck8823/traceary\n==> Pouring traceary--0.21.1.arm64_sequoia.bottle.tar.gz\n🍺  /opt/homebrew/Cellar/traceary/0.21.1: 12 files, 18.4MB' },
     { type: 'cmd', text: 'traceary sessions --snapshot' },
     { type: 'out', html: true, text:
       '<span class="kind">RELIABILITY:</span>\n- stale_active_sessions=0 hint="ok"\n\n<span class="kind">ACTIVE SESSIONS:</span>\n' +
@@ -222,6 +222,7 @@ function InstallTabs() {
   const tabs = [
     { id: 'claude', label: 'Claude Code' },
     { id: 'codex', label: 'Codex' },
+    { id: 'antigravity', label: 'Antigravity' },
     { id: 'gemini', label: 'Gemini CLI (legacy)' },
   ];
   const blocks = {
@@ -240,9 +241,17 @@ cd <span className="var">~/src/traceary</span> && codex{'\n'}
 <span className="cmt"># inside Codex: /plugins → Traceary Plugins → Traceary</span>
       </pre>
     ),
+    antigravity: (
+      <pre className="code-block">
+<span className="cmt"># workspace-level install → .agents/hooks.json</span>{'\n'}
+traceary hooks install --client antigravity --project-dir .{'\n'}
+<span className="cmt"># or user-level → ~/.gemini/config/hooks.json</span>{'\n'}
+traceary hooks install --client antigravity --global
+      </pre>
+    ),
     gemini: (
       <>
-        <p style={{fontSize:'0.82rem', opacity:0.6, marginBottom:'0.5rem'}}>Legacy compatibility for existing Gemini CLI installs. No Antigravity package is available in v0.21.0.</p>
+        <p style={{fontSize:'0.82rem', opacity:0.6, marginBottom:'0.5rem'}}>Legacy compatibility for existing Gemini CLI installs.</p>
         <pre className="code-block">
 <span className="cmt"># one-line installer (legacy Gemini CLI only)</span>{'\n'}
 bash <span className="kw">&lt;</span>(curl -sL https://raw.githubusercontent.com/duck8823/traceary/main/scripts/install-gemini-extension.sh)

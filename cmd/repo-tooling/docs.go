@@ -74,9 +74,90 @@ func newDocsCommand() *cobra.Command {
 			return nil
 		},
 	}
+	verifyAntigravityCmd := &cobra.Command{
+		Use:   "verify-antigravity-status",
+		Short: "Verify current docs no longer describe Antigravity as a no-hook/no-capture host",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			root, err := findRepoRoot()
+			if err != nil {
+				return err
+			}
+			problems, err := verifyAntigravityStatus(root)
+			if err != nil {
+				return err
+			}
+			if len(problems) > 0 {
+				return xerrors.Errorf("stale Antigravity status wording found (update to the v0.21.1 supported state; keep historical context in CHANGELOG only):\n- %s", strings.Join(problems, "\n- "))
+			}
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Antigravity docs status check passed"); err != nil {
+				return xerrors.Errorf("failed to write verify result: %w", err)
+			}
+			return nil
+		},
+	}
 	cmd.AddCommand(verifyI18n)
 	cmd.AddCommand(verifyLandingCmd)
+	cmd.AddCommand(verifyAntigravityCmd)
 	return cmd
+}
+
+// staleAntigravityPatterns lists current-state claims that became false once
+// Antigravity became a supported hook client in v0.21.1. Each pattern matches a
+// stale "no hook / no capture" phrasing; legitimate historical wording (e.g.
+// "no public contract was confirmed at the time") is intentionally not matched.
+// Historical context belongs in CHANGELOG.md / CHANGELOG.ja.md, which are
+// excluded from this scan.
+var staleAntigravityPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)emits no Traceary lifecycle events`),
+	regexp.MustCompile(`(?i)does not yet capture lifecycle events`),
+	regexp.MustCompile(`(?i)does not emit any lifecycle events`),
+	regexp.MustCompile(`(?i)no confirmed public hook or event contract`),
+	regexp.MustCompile(`(?i)does not have a confirmed hook config or install flow`),
+	regexp.MustCompile(`(?i)does not have a Traceary hook contract`),
+	regexp.MustCompile(`ライフサイクルイベントをまだ発行しません`),
+	regexp.MustCompile(`ライフサイクルイベントをまだ記録しません`),
+	regexp.MustCompile(`hook 契約を持っていません`),
+	regexp.MustCompile(`フック・イベント契約が未確定`),
+}
+
+// antigravityStatusExclude lists doc basenames whose Antigravity wording is
+// intentionally historical and exempt from the stale-status scan.
+var antigravityStatusExclude = map[string]bool{
+	"CHANGELOG.md":    true,
+	"CHANGELOG.ja.md": true,
+}
+
+// verifyAntigravityStatus scans in-scope markdown for stale Antigravity
+// no-hook/no-capture current-state wording and returns the offending
+// `path:line: text` entries (empty means the check passed).
+func verifyAntigravityStatus(root string) ([]string, error) {
+	english, japanese, err := collectMarkdownFiles(root)
+	if err != nil {
+		return nil, err
+	}
+	paths := append(append([]string{}, english...), japanese...)
+	sort.Strings(paths)
+
+	var problems []string
+	for _, rel := range paths {
+		if antigravityStatusExclude[filepath.Base(rel)] {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(root, rel))
+		if err != nil {
+			return nil, xerrors.Errorf("failed to read %s: %w", rel, err)
+		}
+		for i, line := range strings.Split(string(data), "\n") {
+			for _, pattern := range staleAntigravityPatterns {
+				if pattern.MatchString(line) {
+					problems = append(problems, fmt.Sprintf("%s:%d: %s", rel, i+1, strings.TrimSpace(line)))
+					break
+				}
+			}
+		}
+	}
+	return problems, nil
 }
 
 var (

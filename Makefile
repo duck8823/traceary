@@ -24,8 +24,9 @@ code/cover: ## Run tests with coverage report
 	@go tool cover -func=coverage.out | tail -1
 	@echo 'HTML report: go tool cover -html=coverage.out'
 
-docs/check: ## Verify bilingual documentation pairs
+docs/check: ## Verify bilingual documentation pairs and current-state wording
 	@go run ./cmd/repo-tooling docs verify-i18n
+	@go run ./cmd/repo-tooling docs verify-antigravity-status
 
 integrations/check: ## Verify native integration packages
 	@go run ./cmd/repo-tooling integrations verify

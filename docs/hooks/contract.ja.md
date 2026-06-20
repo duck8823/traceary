@@ -45,7 +45,7 @@
 
 **制限**: post-compress digest はなし — Gemini の `PreCompress` は advisory-only で compression 前に非同期で発火し、gemini-cli 0.43.0 同梱 hook reference の hook surface 全体（`BeforeTool` / `AfterTool` / `BeforeAgent` / `AfterAgent` / `BeforeModel` / `BeforeToolSelection` / `AfterModel` / `SessionStart` / `SessionEnd` / `Notification` / `PreCompress`）に post-compress event は存在しない。failure 専用イベントなし、PostCompact/SessionStart(compact) なし。Gemini には Stop event が存在しないため、transcript 取得は `AfterAgent` に紐付けている。失敗捕捉は部分的: `AfterTool` の nested `tool_response.error` は spawn/OS レベルエラー時のみ出る（その場合は `failed` とマーク）。通常の非ゼロ終了は `tool_response.llmContent` 内の `Exit Code: N` テキストとしてのみ現れ、Traceary は意図的に parse しないため、それらはフラグなしのまま。
 
-> **v0.21 注**: 後継ホストの Antigravity は v0.21.0 時点でフック契約・サポートレベルが未確定であり、Traceary のライフサイクルイベントをまだ発火しません。上記 Gemini CLI の情報はレガシー互換として既存導入環境向けに残しています。詳細は [Antigravity 統合状況](../integrations/antigravity.ja.md) を参照してください。
+> **v0.21 注**: 後継ホストの Antigravity は v0.21.1 から、文書化された公開 hook/plugin surface に対する hook client としてサポートしています（`PreInvocation` のセッション開始 / リフレッシュ、`PreToolUse` / `PostToolUse` の `run_command` 対応付け、`Stop` の transcript / turn boundary）。上記 Gemini CLI の情報はレガシー互換として既存導入環境向けに残しています。詳細は [Antigravity hook / plugin](../integrations/antigravity.ja.md) を参照してください。
 
 ## 共通動作
 

@@ -178,7 +178,7 @@ go install github.com/duck8823/traceary@latest</pre>
           <div class="step-head">
             <div class="step-num">STEP <span>02</span></div>
             <h3 class="step-title">Wire your agent</h3>
-            <p class="step-desc">Active packages for Claude Code and Codex; legacy Gemini CLI compatibility. Antigravity: no package in v0.21.0.</p>
+            <p class="step-desc">Active packages for Claude Code, Codex, and Antigravity; legacy Gemini CLI compatibility.</p>
           </div>
           <div id="install-tabs-mount"></div>
         </div>
@@ -245,15 +245,15 @@ traceary search boom --json</pre>
           </tr>
           <tr>
             <td class="host">Antigravity</td>
+            <td>PreInvocation + Stop</td>
+            <td>run_command hooks</td>
             <td><span class="dash">—</span></td>
             <td><span class="dash">—</span></td>
-            <td><span class="dash">—</span></td>
-            <td><span class="dash">—</span></td>
-            <td style="font-size:0.8em;opacity:0.6;">no package v0.21</td>
+            <td><span class="tier partial">PARTIAL</span></td>
           </tr>
         </tbody>
       </table>
-      <p style="margin-top:0.75rem;font-size:0.85rem;opacity:0.6;">Gemini CLI details are legacy compatibility for existing installs. Antigravity has no confirmed hook contract or release asset in v0.21.0.</p>
+      <p style="margin-top:0.75rem;font-size:0.85rem;opacity:0.6;">Gemini CLI details are legacy compatibility for existing installs. Antigravity uses the documented public hook/plugin surface only.</p>
     </div>
   </section>
 
