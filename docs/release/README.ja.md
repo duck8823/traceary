@@ -40,7 +40,9 @@ GitHub Releases から自分の platform に合う archive を取得し、展開
 
 ### ネイティブ連携パッケージ
 
-タグ付き release では、Gemini CLI extension 用の `traceary.tar.gz` も公開します。Claude Code / Codex 向け package は repository 内で version をそろえ、同じ release tag で管理します。
+タグ付き release では、Claude Code / Codex 向け package を repository 内で version をそろえて同じ release tag で管理・公開します。Gemini CLI extension archive（`traceary.tar.gz`）も既存 Gemini CLI 導入環境向けのレガシー互換として release asset に含まれます。
+
+v0.21.0 では Antigravity 向けパッケージ・release asset は公開していません。
 
 host ごとの install 手順は [ネイティブ連携ガイド](../integrations/README.ja.md) を参照してください。
 
@@ -67,7 +69,7 @@ Traceary は `traceary --version` で version metadata を表示します。
 4. tag ref では release mode、手動で branch から起動したときは snapshot mode で GoReleaser を実行する
 5. tag release のときに GitHub Releases へ成果物とチェックサムを公開する
 6. 保護された `main` へ直接 push せず、GitHub App installation token を使って Homebrew formula 更新用の専用 PR（`maintenance/homebrew-vX.Y.Z`）を作成または更新する
-7. Gemini CLI extension archive (`traceary.tar.gz`) を package して release asset に追加する
+7. Gemini CLI extension archive (`traceary.tar.gz`) をレガシー互換として package して release asset に追加する
 8. tag 付き GitHub Release が成功したあとで、対応する open 状態の親 release issue（`vX.Y.Z: ...`）を閉じる
 
 `workflow_dispatch` は主にブランチ上でパイプラインを dry-run するために使いますが、`tag` input を渡せば既存の `v*` tag に対する release 完了処理の再実行にも使えます。

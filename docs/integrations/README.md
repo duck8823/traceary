@@ -2,7 +2,9 @@
 
 [日本語](./README.ja.md)
 
-Traceary ships native integration packages for Claude Code, Codex, and Gemini CLI.
+Traceary ships native integration packages for Claude Code, Codex, and Gemini CLI (legacy).
+
+> **v0.21.0 note:** Gemini CLI is the legacy Google AI agent host. **Antigravity** (`/Applications/Antigravity.app`) is the active successor. Traceary hook and package support for Antigravity is a follow-up tracked in #1195 and #1196 and is not available in v0.21.0. See the [Antigravity migration status](./antigravity.md) for what is known locally.
 
 These packages all share the same runtime contract:
 
@@ -33,13 +35,15 @@ Current automatic fixes cover Traceary-managed hook config installation/upgrade 
 | --- | --- | --- |
 | Claude Code | `integrations/claude-plugin/` | Claude marketplace rooted at `.claude-plugin/marketplace.json` |
 | Codex | `plugins/traceary/` | Installed via Codex CLI's official `/plugins` flow against the repo-local marketplace at `.agents/plugins/marketplace.json`; the plugin manifest declares the bundled `hooks.json` so Codex wires session / prompt / audit hooks automatically. The `traceary integration codex install` helper was retired in v0.14.0 and the cleanup-only `traceary integration codex uninstall` was retired in v0.15.0; both are now hidden stubs that point at Codex's official `/plugins` flow plus the manual cleanup steps in [docs/integrations/codex-plugin.md](./codex-plugin.md). |
-| Gemini CLI | `integrations/gemini-extension/` | Gemini extension archive rooted at `gemini-extension.json` |
+| Gemini CLI | `integrations/gemini-extension/` | Gemini extension archive rooted at `gemini-extension.json` — **legacy compatibility only** as of v0.21.0; not the active delegation path |
+| Antigravity | — | No supported package or hook contract confirmed in v0.21.0; follow-up in #1195/#1196 |
 
 ## Per-host guides
 
 - [Claude Code plugin](./claude-plugin.md)
 - [Codex plugin](./codex-plugin.md)
-- [Gemini CLI extension](./gemini-extension.md)
+- [Gemini CLI extension (legacy)](./gemini-extension.md)
+- [Antigravity migration status](./antigravity.md)
 - [Anthropic native memory tool (experimental)](./anthropic-memory-tool.md)
 
 ## Validation and smoke tests

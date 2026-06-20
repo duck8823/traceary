@@ -20,7 +20,7 @@ AI-assisted development gets messy quickly when:
 - session context disappears after `clear` or `compact`
 - Git history explains what changed, but not always why
 - shell command output is hard to connect back to the right agent or session
-- work is split across Claude, Codex, Gemini, and manual terminal steps
+- work is split across Claude, Codex, Antigravity (Gemini CLI for legacy installs), and manual terminal steps
 - multiple sessions and worktree moves make the timeline harder to follow
 
 Traceary keeps those records in one local SQLite store so the same history can be reused from the CLI, hooks, and MCP clients.
@@ -78,11 +78,9 @@ codex   # then, inside Codex: /plugins -> Traceary Plugins -> Traceary
 
 The `traceary integration codex install` helper was retired in v0.14.0 and the cleanup-only `traceary integration codex uninstall` surface was removed in v0.15.0. Use Codex CLI's official `/plugins` flow shown above for install / uninstall. See the [Codex plugin guide](./docs/integrations/codex-plugin.md) for migration details and manual cleanup steps for legacy installs.
 
-**Gemini CLI** ([guide](./docs/integrations/gemini-extension.md))
-
-```sh
-bash <(curl -sL https://raw.githubusercontent.com/duck8823/traceary/main/scripts/install-gemini-extension.sh)
-```
+**Gemini CLI** — legacy / not the active delegation path as of v0.21.0.
+Gemini CLI is being superseded by **Antigravity** as Google's AI agent host. The Traceary Gemini extension package (`integrations/gemini-extension/`) remains available for existing installs, but new Antigravity hook and package support is a follow-up tracked in #1195 and #1196.
+See the [Gemini extension guide (legacy)](./docs/integrations/gemini-extension.md) and the [Antigravity migration status](./docs/integrations/antigravity.md).
 
 For the integration overview, use the [native integrations guide](./docs/integrations/README.md). Direct Anthropic API users can also try the experimental [native memory-tool backend](./docs/integrations/anthropic-memory-tool.md).
 
@@ -220,9 +218,12 @@ The query surface is shared: once Traceary is installed, every host can use the 
 |---|---|---|---|---|---|
 | Claude Code | Full | Bash + MCP + failure hooks | Yes | Yes | Full |
 | Codex | Full (`SessionStart` + `Stop`) | Tool hooks | Yes | No | Partial |
-| Gemini CLI | Full (`SessionStart` + `SessionEnd`) | Tool hooks | No | No | Basic |
+| Gemini CLI | Full (`SessionStart` + `SessionEnd`) | Tool hooks | No | No | Basic (legacy) |
+| Antigravity | — | — | — | — | Follow-up (#1195/#1196) |
 
-> 2026 Q2 note: Claude Code's `SubagentStop` / `PreCompact` hooks and Gemini CLI 0.38.x's memory-manager preview are available but not wired into Traceary's managed hook set. The Codex memory feature flag in `~/.codex/config.toml` changes Codex's own capture behaviour, not Traceary's — `traceary memory admin import codex` works regardless. `traceary doctor` surfaces the same notes under `<client>-host-capabilities`, and the full list lives in the [hook contract](./docs/hooks/contract.md#2026-q2-host-capability-notes).
+> **v0.21.0 note:** Gemini CLI is the legacy Google AI agent host. Antigravity (`/Applications/Antigravity.app`, bundle ID `com.google.antigravity`, version 2.1.4) is the active successor, but Traceary hook and package support for Antigravity is not confirmed for v0.21 — it is tracked in #1195 and #1196. The Gemini CLI extension package remains available for existing installs. See the [Antigravity migration status](./docs/integrations/antigravity.md) for what is known locally.
+>
+> 2026 Q2 note: Claude Code's `SubagentStop` / `PreCompact` hooks are available but not wired into Traceary's managed hook set. The Codex memory feature flag in `~/.codex/config.toml` changes Codex's own capture behaviour, not Traceary's — `traceary memory admin import codex` works regardless. `traceary doctor` surfaces the same notes under `<client>-host-capabilities`, and the full list lives in the [hook contract](./docs/hooks/contract.md#2026-q2-host-capability-notes).
 
 For the full contract and hook semantics, see the [hook contract](./docs/hooks/contract.md) and [event lifecycle](./docs/lifecycle.md).
 

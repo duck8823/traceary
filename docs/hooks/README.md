@@ -10,6 +10,8 @@ Current generated hook configs merge into existing supported client config files
 
 If you want host-native packages instead of manual hook wiring, start with the [native integrations guide](../integrations/README.md).
 
+> **v0.21 — Gemini CLI → Antigravity transition**: Gemini CLI is now a **legacy compatibility path**. Existing Gemini CLI hook installs continue to work unchanged. The successor host, Antigravity, does not have a confirmed hook config or install flow in v0.21.0 — Traceary does not yet capture lifecycle events from Antigravity sessions. See [Antigravity integration status](../integrations/antigravity.md) for the current state.
+
 ## Files
 
 - `scripts/hooks/*.sh`: compatibility wrappers that delegate to `traceary hook ...`
@@ -44,7 +46,7 @@ Traceary no longer installs portable hook-script copies under `~/.config/tracear
 | --- | --- | --- | --- | --- | --- |
 | Claude Code | `.claude/settings.json` or `~/.claude/settings.json` | `SessionStart` | `SessionEnd` | `PostToolUse` + `PostToolUseFailure` with `matcher: "Bash"`, `matcher: "mcp__.*"`, and the built-in tool matcher (`Read\|NotebookRead\|Edit\|MultiEdit\|Write\|NotebookEdit\|Grep\|Glob\|Agent\|Task\|TodoWrite\|WebFetch\|WebSearch\|ExitPlanMode`) | Anthropic's current docs define `Stop` as a per-response hook, not a session-end hook. |
 | Codex CLI (`codex-cli 0.118.0`) | `~/.codex/hooks.json` | `SessionStart` | none (MCP `manage_session` / stale GC) | `PostToolUse` | The installed Codex build exposes `SessionStart`, `Stop`, `PreToolUse`, `PostToolUse`, `Notification`, `PermissionDenied`, `UserPromptSubmit`, and `Elicitation` in local binary strings. No dedicated `SessionEnd`; `Stop` fires per assistant response so Traceary treats it as a turn-boundary transcript, not a session end (#1170). |
-| Gemini CLI (`gemini-cli 0.36.0`) | `.gemini/settings.json` or `~/.gemini/settings.json` | `SessionStart` | `SessionEnd` | `AfterTool` with `matcher: "run_shell_command"` | Hooks are JSON-over-stdin / JSON-over-stdout and `SessionEnd` is best effort. |
+| Gemini CLI (`gemini-cli 0.36.0`) *(legacy compatibility)* | `.gemini/settings.json` or `~/.gemini/settings.json` | `SessionStart` | `SessionEnd` | `AfterTool` with `matcher: "run_shell_command"` | Hooks are JSON-over-stdin / JSON-over-stdout and `SessionEnd` is best effort. Gemini CLI is the legacy path; Antigravity does not have a Traceary hook contract in v0.21.0. |
 
 ## What gets recorded
 
@@ -228,7 +230,9 @@ For SQLite concurrency expectations, PPID-based hook state caveats, and other kn
 
 Codex `Stop` fires after every assistant response, so Traceary records it as a turn-boundary transcript and keeps the session open (#1170). A Codex session ends only via an explicit end signal (MCP `manage_session`) or stale GC (`traceary session gc`).
 
-### Gemini CLI
+### Gemini CLI *(legacy compatibility)*
+
+> Gemini CLI is the legacy hook path. Antigravity does not have a Traceary hook config in v0.21.0.
 
 1. Merge `examples/hooks/gemini.settings.json` into `.gemini/settings.json` or `~/.gemini/settings.json`.
 2. Ensure `hooksConfig.enabled` is already `true`. Traceary does not toggle this for you.

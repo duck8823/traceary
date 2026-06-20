@@ -10,12 +10,12 @@
 
 | Kind | 発行タイミング | 主な hook | Body |
 |---|---|---|---|
-| `session_started` | エージェントセッション開始 | `SessionStart` (Claude / Codex / Gemini) | workspace + agent 識別子 |
+| `session_started` | エージェントセッション開始 | `SessionStart` (Claude / Codex / Gemini *（レガシー）*) | workspace + agent 識別子 |
 | `prompt` | ユーザが指示を投入 | `UserPromptSubmit` (Claude / Codex) | 生プロンプト（redact 後） |
-| `command_executed` | tool / shell 呼び出しが成功または失敗で終わる | `PostToolUse`, `PostToolUseFailure`, `AfterTool` | input / output / 構造的な失敗フラグ（compact JSON、redact 後） |
+| `command_executed` | tool / shell 呼び出しが成功または失敗で終わる | `PostToolUse`, `PostToolUseFailure`, `AfterTool` *（Gemini レガシー）* | input / output / 構造的な失敗フラグ（compact JSON、redact 後） |
 | `transcript` | アシスタント応答ターンが推論・説明テキストで閉じる | `Stop` (Claude / Codex) | 最後のアシスタントメッセージ本文（redact 後） |
 | `compact_summary` | ホスト側 context 圧縮で要約が生成される | `PostCompact`（現状 Claude のみ） | 構造化された compact summary |
-| `session_ended` | エージェントセッション終了 | `SessionEnd` (Claude / Gemini)。Codex には host のセッション終了信号がない (#1170) | 任意の reason marker |
+| `session_ended` | エージェントセッション終了 | `SessionEnd` (Claude / Gemini *（レガシー）*)。Codex には host のセッション終了信号がない (#1170) | 任意の reason marker |
 
 すべての event body は永続化前に built-in secret redaction と operator 設定の `redact.rules` / `redact.extra_patterns` を通る。
 
@@ -61,6 +61,12 @@
 - `sessions` 行の終了境界として記録される。
 - Claude / Gemini は専用の `SessionEnd` を持つ。Codex は `SessionEnd` を公開しておらず、`Stop` は assistant 応答ごとに発火する turn 境界（セッション終了ではない）であるため、Codex session は明示的な信号 (MCP `manage_session`) または stale GC (`traceary session gc`) でのみ終了する（[host-coverage.ja.md](./host-coverage.ja.md) と #1170 参照）。
 - best-effort: ホストが hook を発火させずに終了するケース（kill -9、シェルクラッシュ）もあり、dangling session は L2 reconciliation で吸収し、長時間アイドルな open session は stale GC で閉じる。
+
+## Antigravity（v0.21.0）
+
+Antigravity は Gemini CLI に代わる Traceary 連携ホストとして計画されています。v0.21.0 時点では Antigravity に対する確認済みの公開 hook・イベント契約はなく、Traceary は Antigravity セッションのライフサイクルイベントをまだ発行しません。上記の Gemini CLI hook カバレッジはレガシー互換パスのみを示しています。
+
+最新状況は [Antigravity 連携ステータス](../integrations/antigravity.ja.md) を参照してください。
 
 ## 関連ドキュメント
 

@@ -222,7 +222,7 @@ function InstallTabs() {
   const tabs = [
     { id: 'claude', label: 'Claude Code' },
     { id: 'codex', label: 'Codex' },
-    { id: 'gemini', label: 'Gemini CLI' },
+    { id: 'gemini', label: 'Gemini CLI (legacy)' },
   ];
   const blocks = {
     claude: (
@@ -241,10 +241,13 @@ cd <span className="var">~/src/traceary</span> && codex{'\n'}
       </pre>
     ),
     gemini: (
-      <pre className="code-block">
-<span className="cmt"># one-line installer</span>{'\n'}
+      <>
+        <p style={{fontSize:'0.82rem', opacity:0.6, marginBottom:'0.5rem'}}>Legacy compatibility for existing Gemini CLI installs. No Antigravity package is available in v0.21.0.</p>
+        <pre className="code-block">
+<span className="cmt"># one-line installer (legacy Gemini CLI only)</span>{'\n'}
 bash <span className="kw">&lt;</span>(curl -sL https://raw.githubusercontent.com/duck8823/traceary/main/scripts/install-gemini-extension.sh)
-      </pre>
+        </pre>
+      </>
     )
   };
   return (

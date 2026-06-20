@@ -40,7 +40,7 @@ SessionStart → [UserPromptSubmit → PostToolUse → Stop]*
 
 **制限**: host レベルのセッション終了信号なし — Codex は assistant 応答ごとに `Stop` を fire するため、Codex session は明示的な終了 (MCP `manage_session`) または stale GC (`traceary session gc`) まで開いたままになります。`compact` hook はなく、failure 専用イベントもありません。
 
-### Gemini CLI (Tier 3: 基本対応)
+### Gemini CLI (Tier 3: 基本対応) — *レガシー互換*
 
 ```
 SessionStart → [AfterTool]* → SessionEnd
@@ -56,6 +56,8 @@ SessionStart → [AfterTool]* → SessionEnd
 | SessionEnd | `session_ended` | セッション終了 |
 
 **制限**: post-compress digest はなし（Gemini の `PreCompress` は async marker のみ）、failure 専用イベントもありません。
+
+> **v0.21 注**: Gemini CLI はレガシー互換パスです。後継ホストの Antigravity は v0.21.0 時点でフック・イベント契約が未確定であり、Traceary のライフサイクルイベントをまだ発火しません。詳細は [Antigravity 統合状況](./integrations/antigravity.ja.md) を参照してください。
 
 ## イベント種別
 

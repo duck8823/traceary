@@ -12,6 +12,8 @@
 
 **最終確認日: 2026-04-27 (Gemini CLI は 2026-06-10 に 0.43.0 で再確認済).** Traceary 統合パッケージのバンプ、もしくは host CLI のリリースで hook surface が変化したときに更新する。
 
+> **v0.21.0 注記:** このマトリクスに掲載されている Gemini CLI の hook カバレッジは**レガシー互換のみ**です。Gemini CLI はレガシーの Google AI エージェントホストであり、後継は Antigravity（`/Applications/Antigravity.app`）です。**Antigravity は v0.21.0 において確認・サポートされた hook カバレッジはありません。** Antigravity の hook 配線は #1195 で追跡中のため、解決まで Antigravity の列はこのマトリクスに追加しません。
+
 ## ライフサイクルイベント → ホスト hook マトリクス
 
 | Traceary lifecycle event | Claude Code (`claude-plugin`) | Codex CLI 0.125 (`plugins/traceary`) | Gemini CLI (`gemini-extension`) | 確認方法 |

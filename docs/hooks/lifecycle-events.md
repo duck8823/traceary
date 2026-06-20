@@ -10,12 +10,12 @@ The full enum lives in [`domain/types/event_kind.go`](../../domain/types/event_k
 
 | Kind | When emitted | Typical source hook | Body |
 |---|---|---|---|
-| `session_started` | A new agent session opens | `SessionStart` (Claude / Codex / Gemini) | workspace + agent identifier (free-text) |
+| `session_started` | A new agent session opens | `SessionStart` (Claude / Codex / Gemini *(legacy)*) | workspace + agent identifier (free-text) |
 | `prompt` | The user submits an instruction | `UserPromptSubmit` (Claude / Codex) | raw prompt text (redacted) |
-| `command_executed` | A tool / shell call completes (success or failure) | `PostToolUse`, `PostToolUseFailure`, `AfterTool` | input / output / structural failure flag (compact JSON, redacted) |
+| `command_executed` | A tool / shell call completes (success or failure) | `PostToolUse`, `PostToolUseFailure`, `AfterTool` *(Gemini legacy)* | input / output / structural failure flag (compact JSON, redacted) |
 | `transcript` | Assistant turn ends with reasoning / explanation text | `Stop` (Claude / Codex) | last assistant-message text blocks (redacted) |
 | `compact_summary` | Host context compression produces a summary | `PostCompact` (Claude only today) | structured compact summary text |
-| `session_ended` | The agent session closes | `SessionEnd` (Claude / Gemini); Codex has no host session-end signal (#1170) | optional reason marker |
+| `session_ended` | The agent session closes | `SessionEnd` (Claude / Gemini *(legacy)*); Codex has no host session-end signal (#1170) | optional reason marker |
 
 All event bodies pass through built-in secret redaction plus operator-configured `redact.rules` / `redact.extra_patterns` before being persisted.
 
@@ -61,6 +61,12 @@ All event bodies pass through built-in secret redaction plus operator-configured
 - Marks the close boundary of a session row.
 - Claude / Gemini use a dedicated `SessionEnd` hook. Codex exposes no `SessionEnd` and its `Stop` fires after every assistant response (a turn boundary, not a session end), so a Codex session ends only via an explicit signal (MCP `manage_session`) or stale GC (`traceary session gc`) — see [host-coverage.md](./host-coverage.md) and #1170.
 - Best-effort: hosts may exit without firing the hook (kill -9, crashed shell). L2 reconciliation tolerates dangling sessions, and stale GC closes long-idle open sessions.
+
+## Antigravity (v0.21.0)
+
+Antigravity is the planned successor to Gemini CLI as a Traceary-integrated host. In v0.21.0, there is no confirmed public hook or event contract for Antigravity. Traceary does not emit any lifecycle events from Antigravity sessions yet. Gemini CLI hook coverage above reflects the legacy compatibility path only.
+
+See [Antigravity integration status](../integrations/antigravity.md) for the current state.
 
 ## Where to go next
 

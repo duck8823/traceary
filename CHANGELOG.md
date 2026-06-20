@@ -27,6 +27,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ### Changed
 - **Codex Stop is a turn boundary (#1170)** — docs and diagnostics now correctly describe `Codex Stop` as a turn boundary event rather than a session end, matching actual Codex host behavior.
 - **Clean My Agent compatibility design note (#1177)** — added a design note documenting Traceary's compatibility posture with the Clean My Agent protocol.
+- **Gemini CLI marked legacy; Antigravity migration status added (#1197)** — README, integration guides, and the Gemini extension docs now state that Gemini CLI is the legacy Google AI agent host and Antigravity is the active successor. A new [Antigravity migration status page](./docs/integrations/antigravity.md) documents local discovery (app path, bundle ID, version, URL scheme, user data directory) and makes clear that no supported public CLI/hook contract is confirmed in v0.21.0; Antigravity hook and package implementation remains follow-up in #1195/#1196. The Gemini CLI extension package continues to be available for existing installs.
 
 ### Notes
 - v0.21.0 has no SQLite schema migration and no new MCP tools. It is a dogfood-reliability and observability release focused on hook diagnostics, memory hygiene, audit correctness, and session snapshot fidelity.

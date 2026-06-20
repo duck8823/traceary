@@ -40,7 +40,7 @@ SessionStart → [UserPromptSubmit → PostToolUse → Stop]*
 
 **Limitations**: No host-level session-end signal — Codex fires `Stop` after every assistant response, so a Codex session stays open until an explicit end (MCP `manage_session`) or stale GC (`traceary session gc`). No `compact` hooks, no failure-specific events.
 
-### Gemini CLI (Tier 3: Basic)
+### Gemini CLI (Tier 3: Basic) — *legacy compatibility*
 
 ```
 SessionStart → [AfterTool]* → SessionEnd
@@ -56,6 +56,8 @@ SessionStart → [AfterTool]* → SessionEnd
 | SessionEnd | `session_ended` | Session end |
 
 **Limitations**: No post-compress digest (Gemini fires `PreCompress` async only), no failure-specific events.
+
+> **v0.21 note**: Gemini CLI is the legacy compatibility path. The successor host, Antigravity, has no confirmed hook or event contract in v0.21.0 and emits no Traceary lifecycle events yet. See [Antigravity integration status](./integrations/antigravity.md).
 
 ## Event Kinds
 
