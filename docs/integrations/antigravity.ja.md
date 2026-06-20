@@ -27,6 +27,34 @@ Antigravity の payload は camelCase フィールド（`conversationId`, `works
 - **transcript 抽出は best effort。** 文書化された `transcriptPath` のファイルは `transcript.jsonl` ですが、その行ごとのスキーマは公開 hook contract の一部ではないため、抽出器は複数の妥当な JSONL 形状から assistant の text/thinking ブロックを寛容に走査し、それ以外は黙ってスキップします。
 - **認証情報・keychain・cookie・ブラウザストレージは一切読みません。** ディスクから読むのは文書化された `transcriptPath` hook フィールドのみです。
 
+## headless print mode (`agy --print`) の capture level
+
+headless な `agy --print` 実行で記録されるのは **session start + run_command audit のみ**です:
+
+| Antigravity event | headless `agy --print` |
+| --- | --- |
+| `PreInvocation`（session start） | ● 発火 — `conversationId` を key にした session 開始/更新 |
+| `PreToolUse` + `PostToolUse`（`run_command`） | ● 発火 — 実行が `run_command` を使う場合に command audit |
+| `Stop`（transcript + turn 境界） | ✕ print mode では host が発行しない |
+
+headless print mode では host が `Stop`（その他の finalization hook も含む）を
+**発行しない**ため、その実行に対して Traceary は `transcript` event も turn 境界も
+記録しません。これは 2026-06-20 の dogfooding（Traceary 0.21.2、`agy` 1.0.10）で
+確認済みです: クリーンな `agy --print` smoke では `session_started`（`run_command`
+が走れば `command_executed` も）は記録されましたが、`transcript` event は出ませんでした。
+最終 transcript / turn 境界が記録されるのは host が `transcriptPath` 付き `Stop` を
+発行したとき、すなわち interactive 実行に限られます。これは print mode の想定どおりの
+capture level であり、Traceary の install 失敗ではありません: 4 つの hook が正しく
+登録されていれば `doctor --client antigravity` は引き続き `pass` し、print mode で host
+`Stop` が無いことは host 側のモード特性です。
+
+> 記録された event の確認方法: hook 由来の Antigravity event は `client=hook`,
+> `agent=antigravity` で保存されます。`traceary list --agent antigravity` で読み取って
+> ください。`traceary list --client antigravity` ではこれらの event は 0 件になります
+> （記録された client が文字どおり `antigravity` の event しか一致しないため）。`doctor` /
+> `hooks install` の `--client antigravity` selector は別物で、どの host の checks/config を
+> 実行するかを選ぶものです。
+
 ## インストール
 
 1. まず Traceary CLI をインストールします。

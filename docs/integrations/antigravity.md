@@ -27,6 +27,34 @@ Antigravity payloads use camelCase fields (`conversationId`, `workspacePaths`, `
 - **Transcript extraction is best effort.** The documented `transcriptPath` file is `transcript.jsonl`, but its per-line schema is not part of the public hook contract, so the extractor leniently scans for assistant text/thinking blocks across several plausible JSONL shapes and silently skips otherwise.
 - **No credential, keychain, cookie, or browser-storage reads.** Only the documented `transcriptPath` hook field is read from disk.
 
+## Capture level in headless print mode (`agy --print`)
+
+Headless `agy --print` runs capture **session start + run_command audit only**:
+
+| Antigravity event | Headless `agy --print` |
+| --- | --- |
+| `PreInvocation` (session start) | ● fires — session start/refresh keyed by `conversationId` |
+| `PreToolUse` + `PostToolUse` (`run_command`) | ● fires — command audit when the run uses `run_command` |
+| `Stop` (transcript + turn boundary) | ✕ not emitted by the host in print mode |
+
+In headless print mode the host does **not** emit a `Stop` (or any other
+finalization) hook, so Traceary records no `transcript` event and no turn
+boundary for that run. This was verified by dogfooding on 2026-06-20 (Traceary
+0.21.2, `agy` 1.0.10): a clean `agy --print` smoke recorded `session_started`
+(and `command_executed` when a `run_command` ran) but no `transcript` event. The
+final transcript/turn boundary is captured **only** when the host emits `Stop`
+with a `transcriptPath` — i.e. on interactive runs. This is the expected capture
+level for print mode, not a Traceary install failure: `doctor --client antigravity`
+still passes when the hooks are wired, because the four hooks are registered
+correctly and the absence of a host `Stop` in print mode is a host-mode trait.
+
+> Inspecting recorded events: hook-originated Antigravity events are stored with
+> `client=hook` and `agent=antigravity`. Use `traceary list --agent antigravity`
+> to read them. `traceary list --client antigravity` returns no rows for these
+> events (it would only match events whose recorded client is literally
+> `antigravity`). The `--client antigravity` selector on `doctor` / `hooks install`
+> is unrelated — it selects which host's checks/config to run.
+
 ## Install
 
 1. Install the Traceary CLI first.

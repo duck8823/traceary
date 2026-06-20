@@ -25,6 +25,8 @@
 | `compact_summary` | ● `PostCompact` (+ `PreCompact` marker, `SessionStart matcher=compact` で resume) | ✕ Codex 0.125 に compact hook なし (upstream openai/codex#16098) | ● `PreCompress` (marker のみ — Gemini に post-compress 側 hook はない) | ✕ 文書化された compact hook なし | `traceary list events --kind compact_summary --limit 5` |
 | `session_ended` | ● `SessionEnd` | ✕ host のセッション終了信号なし — Codex `Stop` は応答ごとの turn 境界でありセッション終了ではない (#1170)。終了は MCP `manage_session` または stale GC 経由 | ● `SessionEnd` | ✕ host のセッション終了信号なし — Antigravity `Stop` は execution 単位の境界でありセッション終了ではない (#1170)。終了は MCP `manage_session` または stale GC 経由 | `traceary list events --kind session_ended --limit 5` |
 
+> **Antigravity headless `agy --print`:** print mode は `PreInvocation` と（`run_command` 時の）`PreToolUse`/`PostToolUse` を発火しますが、host が `Stop` を発行しないため、print mode 実行では `transcript` 行は記録されません。記録されるのは host が `transcriptPath` 付き `Stop` を発行する interactive 実行のみです。[headless print mode の capture level](../integrations/antigravity.ja.md#headless-print-mode-agy---print-の-capture-level) を参照してください。hook event は `client=hook`, `agent=antigravity` で記録されるため、`--client antigravity` ではなく `traceary list --agent antigravity` で確認してください。
+
 ### Traceary 未配線のホスト hook
 
 上のライフサイクルマトリクスに既出の hook はここでは省略している。

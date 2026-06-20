@@ -25,6 +25,8 @@ Legend:
 | `compact_summary` | ● `PostCompact` (+ `PreCompact` marker, `SessionStart matcher=compact` resume) | ✕ no compact hook in Codex 0.125 (upstream openai/codex#16098) | ● `PreCompress` (marker only — Gemini exposes no post-compress hook with the resulting summary) | ✕ no documented compact hook | `traceary list events --kind compact_summary --limit 5` |
 | `session_ended` | ● `SessionEnd` | ✕ no host session-end signal — Codex `Stop` is a per-response turn boundary, not a session end (#1170); ends via MCP `manage_session` or stale GC | ● `SessionEnd` | ✕ no host session-end signal — Antigravity `Stop` is a per-execution boundary, not a session end (#1170); ends via MCP `manage_session` or stale GC | `traceary list events --kind session_ended --limit 5` |
 
+> **Antigravity headless `agy --print`:** print mode emits `PreInvocation` and (for `run_command`) `PreToolUse`/`PostToolUse`, but the host emits no `Stop`, so the `transcript` row is **not** captured for print-mode runs — only on interactive runs where the host emits `Stop` with `transcriptPath`. See [Capture level in headless print mode](../integrations/antigravity.md#capture-level-in-headless-print-mode-agy---print). Hook events are recorded with `client=hook`, `agent=antigravity`, so verify them with `traceary list --agent antigravity` rather than `--client antigravity`.
+
 ### Other host hooks Traceary does not wire today
 
 This list excludes hooks that already appear in the lifecycle matrix above.

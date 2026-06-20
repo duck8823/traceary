@@ -7,6 +7,9 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+### Documentation
+- **Antigravity headless `agy --print` capture level (#1225)** — documented that headless `agy --print` runs capture session start (`PreInvocation`) and `run_command` audits (`PreToolUse` + `PostToolUse`) only; print mode emits no `Stop`, so the final transcript/turn boundary is recorded only on interactive runs where the host emits `Stop` with `transcriptPath`. This is the expected capture level, not an install failure — confirmed by dogfooding (Traceary 0.21.2, `agy` 1.0.10). The English/Japanese Antigravity integration docs and the host-coverage matrix now state this precisely, and read-side examples now use `traceary list --agent antigravity` (hook events are recorded with `client=hook`, `agent=antigravity`, so `--client antigravity` returns no rows). Added a regression test pinning the documented print-mode capture level without launching `agy` or reading a real transcript.
+
 ## [v0.21.2] - 2026-06-20
 
 ### Added
