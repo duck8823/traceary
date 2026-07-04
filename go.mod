@@ -3,7 +3,7 @@ module github.com/duck8823/traceary
 go 1.26.1
 
 require (
-	github.com/anthropics/anthropic-sdk-go v1.52.0
+	github.com/anthropics/anthropic-sdk-go v1.56.0
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
