@@ -122,8 +122,7 @@ func TestProbeGrokDoctorStateDoesNotTrustProvidesHooksBoolean(t *testing.T) {
 	}
 	hooks := file["hooks"].(map[string]any)
 	routes := hooks["PostCompact"].([]any)
-	commands := routes[0].(map[string]any)["hooks"].([]any)
-	commands[0].(map[string]any)["command"] = `"${GROK_PLUGIN_ROOT}/scripts/traceary-grok.sh" "stop"`
+	routes[0].(map[string]any)["matcher"] = "unexpected"
 	data, err = json.Marshal(file)
 	if err != nil {
 		t.Fatalf("Marshal() error = %v", err)

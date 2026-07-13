@@ -130,7 +130,8 @@ func grokHookFileHasVerifiedCoverage(path string) bool {
 		Timeout int    `json:"timeout"`
 	}
 	type route struct {
-		Hooks []command `json:"hooks"`
+		Matcher string    `json:"matcher"`
+		Hooks   []command `json:"hooks"`
 	}
 	var file struct {
 		Hooks map[string][]route `json:"hooks"`
@@ -152,7 +153,7 @@ func grokHookFileHasVerifiedCoverage(path string) bool {
 	}
 	for event, contract := range contracts {
 		routes, ok := file.Hooks[event]
-		if !ok || len(routes) != 1 || len(routes[0].Hooks) != 1 {
+		if !ok || len(routes) != 1 || routes[0].Matcher != "" || len(routes[0].Hooks) != 1 {
 			return false
 		}
 		got := routes[0].Hooks[0]
