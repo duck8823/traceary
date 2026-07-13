@@ -15,7 +15,7 @@ Antigravity の `hooks.json` は *hook-group 名* から event config への top
 | `PreInvocation` | `conversationId` を key にした冪等な session 開始/更新（Antigravity に `SessionStart` はありません）。最初の workspace path を workspace とする |
 | `PreToolUse` (`run_command`) | 提案された `{CommandLine, Cwd}` を `conversationId + stepIdx` で永続化。ブロックしない（`{"decision":"allow"}`） |
 | `PostToolUse` (`run_command`) | 同一 step の `PreToolUse` が永続化した command を突き合わせ、`command_executed` audit を記録（step の `error` 付き）。pending が無ければ fail soft |
-| `Stop` | `transcriptPath` から turn の transcript（best effort）と turn 境界を記録。session は**閉じない** |
+| `Stop` | `transcriptPath` から最新の user prompt と model response を復元し、`prompt` + `transcript`、続いて turn 境界を記録。session は**閉じない** |
 
 Antigravity の payload は camelCase フィールド（`conversationId`, `workspacePaths`, `transcriptPath`, `toolCall.name`, `toolCall.args.CommandLine`, `toolCall.args.Cwd`, `stepIdx`, `terminationReason`）を使います。Traceary は共有 runtime（session / audit / transcript）を再利用する前に、これらを内部形式へ正規化します。
 
@@ -26,36 +26,25 @@ packaged plugin は `mcp_config.json` を通じてローカルの `traceary mcp-
 - **`SessionStart` が無い。** conversation 単位で最初に発火するのは `PreInvocation`（毎回のモデル呼び出し前に発火）なので、Traceary はこれを `conversationId` を key にした冪等な session 開始/更新として使います。
 - **`Stop` は execution 単位の境界であり session 終了ではない**（Codex と同じモデル — #1170）。session 行は開いたままで（memory auto-extract は発火）、MCP `manage_session` または stale GC（`traceary session gc`）でのみ終了します。
 - **audit 対象は `run_command` tool 呼び出しのみ。** `PostToolUse` は `stepIdx`/`error` のみを持ち command args を持たないため、args を持つ `PreToolUse` と step 単位で突き合わせます。`run_command` 以外の tool は何も記録しません。
-- **transcript 抽出は best effort。** 文書化された `transcriptPath` のファイルは `transcript.jsonl` ですが、その行ごとのスキーマは公開 hook contract の一部ではないため、抽出器は複数の妥当な JSONL 形状から assistant の text/thinking ブロックを寛容に走査し、それ以外は黙ってスキップします。
+- **prompt 本文は直接の hook field ではありません。** 公開 hook payload は `transcriptPath` を提供します。Traceary は Stop 時に最新の `USER_INPUT` / `USER_EXPLICIT` 行を復元します。
+- **transcript 抽出は best effort。** 文書化された `transcriptPath` のファイルは `transcript.jsonl` です。Traceary は現在の CLI の `MODEL` / `*_RESPONSE` 行と従来の nested/flat 形式を処理し、thinking/text を分離して保持します。未知の形式は黙ってスキップします。
 - **認証情報・keychain・cookie・ブラウザストレージは一切読みません。** ディスクから読むのは文書化された `transcriptPath` hook フィールドのみです。
 
 ## headless print mode (`agy --print`) の capture level
 
-headless な `agy --print` 実行で記録されるのは **session start + run_command audit のみ**です。`traceary doctor --client antigravity` はこれを `antigravity-capture-levels` チェックとして、以下の記録レベルのトークンで報告します:
+現在の Antigravity hooks は headless と interactive で同じ lifecycle signal を提供します。
 
 | Antigravity event | 記録レベル | headless `agy --print` | interactive |
 | --- | --- | --- | --- |
-| `PreInvocation`（session start） | `start_supported` | ● 発火 — `conversationId` を key にした session 開始/更新 | ● 発火 |
-| `PreToolUse` + `PostToolUse`（`run_command`） | `tool_audit_supported` | ● 発火 — 実行が `run_command` を使う場合に command audit | ● 発火 |
-| `Stop`（transcript + turn 境界） | `final_turn_supported` / `final_turn_unavailable` | ✕ `final_turn_unavailable` — print mode では host が発行しない | ● `final_turn_supported` |
+| `PreInvocation`（session start） | `start_supported` | ● `conversationId` 単位の開始/更新 | ● |
+| `PreToolUse` + `PostToolUse`（`run_command`） | `tool_audit_supported` | ● `run_command` 使用時 | ● |
+| `Stop`（`prompt` + `transcript` + turn 境界） | `final_turn_supported` | ● 現行 CLI は `transcriptPath` 付き Stop を発行 | ● |
 
-headless print mode では host が `Stop`（その他の finalization hook も含む）を
-**発行しない**ため、その実行に対して Traceary は `transcript` event も turn 境界も
-記録しません。これは 2026-06-20 の dogfooding（Traceary 0.21.3、`agy` 1.0.10）で
-確認済みです: クリーンな `agy --print` smoke では `session_started`（`run_command`
-が走れば `command_executed` も）は記録されましたが、`transcript` event は出ませんでした。
-最終 transcript / turn 境界が記録されるのは host が `transcriptPath` 付き `Stop` を
-発行したとき、すなわち interactive 実行に限られます。これは print mode の想定どおりの
-記録レベルであり、Traceary の install 失敗ではありません: 4 つの hook が正しく
-登録されていれば `doctor --client antigravity` は引き続き `pass` し、print mode で host
-`Stop` が無いことは host 側のモード特性です。
+2026-07-13 に `agy` 1.1.1 と現行の公式 hook contract で再確認しました。公開 payload は prompt 本文を直接持ちませんが、すべての hook が `transcriptPath` を受け取ります。Traceary は Stop 時にそのファイルから最新の明示 user input と model response を読み取ります。hook 設定が健全でも file の読み取りや event 永続化までは証明できないため、`antigravity-event-coverage` が recent DB 証拠を検査し、transcript coverage が設定 threshold を下回ると警告します。
 
 > 記録された event の確認方法: hook 由来の Antigravity event は `client=hook`,
 > `agent=antigravity` で保存されます。`traceary list --agent antigravity` で読み取って
-> ください。`traceary list --client antigravity` ではこれらの event は 0 件になります
-> （記録された client が文字どおり `antigravity` の event しか一致しないため）。`doctor` /
-> `hooks install` の `--client antigravity` selector は別物で、どの host の checks/config を
-> 実行するかを選ぶものです。
+> ください。`traceary list --client antigravity` ではこれらの event は 0 件になります。
 
 ## インストール
 
@@ -104,7 +93,8 @@ traceary doctor --client antigravity --json
 - `antigravity-cli-plugin` — `agy plugin install` が import する CLI plugin 経路のディレクトリ `~/.gemini/antigravity-cli/plugins/traceary` を検査します。サポートされた Antigravity の top-level hook-group 形式なら `pass`、**古い Gemini 形式のパッケージ**（legacy な top-level `{"hooks": ...}` 形式、または `traceary hook ... gemini` を呼び出す command）を見つけると `warn` を報告します。この check は `plugin.json`・`hooks.json`・`hooks/hooks.json` のみを読み取り、transcript や認証情報は読みません。
 - `antigravity-mcp` — 導入済み CLI plugin の `mcp_config.json` に `traceary mcp-server` 登録があれば `pass` します。plugin はあるが登録がなければ `warn`、plugin 経路自体がなければ `skip` します。hook の直接設定は MCP tool を提供しないためです。
 - `antigravity-hooks` — 集約サマリー。**いずれか**の経路の config が不正（経路別 check が `fail`）な場合は、別の経路が健全でも Antigravity が読み込めないため `fail` を報告します。それ以外では、**いずれか**の経路が健全なら `pass`、**どの**経路も健全でない場合のみ、導入手順を案内する actionable な `warn` を報告します。
-- `antigravity-capture-levels` — 常に `pass`。hook が導入されているだけで transcript 完全記録を暗示しないよう、実行モードごとの **記録レベル** を報告する status 専用 check です。経路の導入健全性（上の `antigravity-hooks`）とは別物で、`start_supported`（PreInvocation）と `tool_audit_supported`（PreToolUse+PostToolUse `run_command`）はすべてのモードで、`final_turn_supported`（Stop → transcript + turn 境界）は対話実行でのみ記録されることを報告します。headless `agy --print` では host が print mode で `Stop`/finalization hook を発行しないため `final_turn_unavailable` となります。これは print mode における想定どおりの記録レベルであり導入失敗ではないため、check は `pass` のままです。
+- `antigravity-capture-levels` — 常に `pass`。公開 hook の設定上の capability として、interactive と現行 headless CLI の `start_supported`、`tool_audit_supported`、`final_turn_supported` を報告します。
+- `antigravity-event-coverage` — recent な `agent=antigravity` の DB 証拠を検査します。hook 導入経路がすべて健全でも、十分な sample の開始済み session に transcript event が無ければ警告します。
 - `antigravity-plugin-version` — 導入済み plugin manifest と実行中 Traceary release の version を比較し、不一致なら `warn` を報告します。Traceary 更新後は packaged plugin も再導入してください。
 
 **各経路は単体では任意です。** 経路が無い場合は `warn` ではなく `skip` を報告します。たとえば user-level または CLI plugin の経路が健全であれば、存在しない workspace `.agents/hooks.json` は `skip` 扱いとなり、`antigravity-hooks` サマリーは `pass` のままです。doctor が hook coverage について warn するのは、3 経路のいずれも `traceary` グループを登録していないときだけです。経路ファイルが存在するが不正（JSON オブジェクトでない）な場合は、他経路の状態に関わらず Antigravity 自体が読み込めないため `fail` を報告します。
