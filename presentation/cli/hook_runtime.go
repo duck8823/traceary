@@ -65,6 +65,7 @@ func (c *RootCLI) newHookCommand() *cobra.Command {
 	hookCmd.AddCommand(c.newHookPromptCommand())
 	hookCmd.AddCommand(c.newHookTranscriptCommand())
 	hookCmd.AddCommand(c.newHookAntigravityCommand())
+	hookCmd.AddCommand(c.newHookMemoryExtractWorkerCommand())
 
 	return hookCmd
 }
@@ -363,20 +364,11 @@ func (c *RootCLI) runHookSession(
 		if _, err := c.session.End(ctx, types.Client("hook"), agent, sessionID, workspace, ""); err != nil {
 			return xerrors.Errorf("failed to record hook session end: %w", err)
 		}
-		// Auto-extract memory candidates at session end so the
-		// next session sees fresh inbox candidates without requiring
-		// the agent to ask. Best-effort: any error here must not block
-		// the session-end record from committing. The extractor is
-		// candidate-only (no auto-accept) and dedupes against existing
-		// candidate keys, so re-firing is safe. See #810.
-		if c.memory != nil {
-			if _, err := c.memory.Extract(ctx, apptypes.NewMemoryExtractionCriteriaBuilder().
-				SessionID(sessionID).
-				Workspace(workspace).
-				Build()); err != nil {
-				slog.Debug("hook session-end auto-extract failed", "client", client, "session_id", sessionID, "error", err)
-			}
-		}
+		// Extraction runs after the durable boundary commit in a detached,
+		// retryable worker so host hook timeouts cannot discard its result.
+		c.scheduleHookMemoryExtract(hookMemoryExtractRequest{
+			SessionID: sessionID, Workspace: workspace, DBPath: resolvedDBPath, SourceBoundary: "session_end",
+		})
 		if shouldTrackClaudeCancellation {
 			if err := clearHookCancellationDiagnosticsForSession(client, "SessionEnd", sessionID); err != nil {
 				slog.Debug("hook session-end cancellation diagnostic cleanup failed", "client", client, "session_id", sessionID, "path", hookCancellationDiagnosticPath, "error", err)
@@ -431,11 +423,9 @@ func (c *RootCLI) runHookSession(
 		} else if err != nil {
 			return err
 		}
-		// Memory auto-extract stays on the turn boundary because Codex
-		// exposes no true session-end hook — end-only extraction would
-		// never fire for Codex. The extractor is candidate-only and
-		// dedupes against existing candidate keys, so per-turn re-firing
-		// is safe. See #810.
+		// Codex exposes no true session-end hook, so keep requesting
+		// extraction at each turn boundary. The durable queue coalesces
+		// repeated requests and moves extraction outside the host budget.
 		if c.memory == nil {
 			return nil
 		}
@@ -443,20 +433,13 @@ func (c *RootCLI) runHookSession(
 		if err != nil {
 			return err
 		}
-		c.applyDatabasePath(resolvedDBPath)
-		if err := c.storeManagement.Initialize(ctx); err != nil {
-			return xerrors.Errorf("failed to initialize store: %w", err)
-		}
 		workspace, err := resolveHookWorkspace(ctx, payload, client, true)
 		if err != nil {
 			return err
 		}
-		if _, err := c.memory.Extract(ctx, apptypes.NewMemoryExtractionCriteriaBuilder().
-			SessionID(sessionID).
-			Workspace(workspace).
-			Build()); err != nil {
-			slog.Debug("hook turn-boundary auto-extract failed", "client", client, "session_id", sessionID, "error", err)
-		}
+		c.scheduleHookMemoryExtract(hookMemoryExtractRequest{
+			SessionID: sessionID, Workspace: workspace, DBPath: resolvedDBPath, SourceBoundary: "turn_boundary",
+		})
 		return nil
 	default:
 		return xerrors.Errorf("unsupported hook session action: %s", action)
@@ -1014,17 +997,11 @@ func (c *RootCLI) runHookSubagentStop(
 		if _, err := c.session.End(ctx, types.Client("hook"), types.Agent(""), childSessionID, workspace, ""); err != nil {
 			return xerrors.Errorf("failed to end subagent session: %w", err)
 		}
-		// Subagent-end auto-extract parity with main session-end
-		// (#810, #832). Best-effort: errors must not block the
-		// boundary record.
-		if c.memory != nil {
-			if _, extractErr := c.memory.Extract(ctx, apptypes.NewMemoryExtractionCriteriaBuilder().
-				SessionID(childSessionID).
-				Workspace(workspace).
-				Build()); extractErr != nil {
-				slog.Debug("hook subagent-stop auto-extract failed", "client", client, "child_session_id", childSessionID, "error", extractErr)
-			}
-		}
+		// Preserve main-session extraction parity without sharing the host
+		// SubagentStop time budget.
+		c.scheduleHookMemoryExtract(hookMemoryExtractRequest{
+			SessionID: childSessionID, Workspace: workspace, DBPath: resolvedDBPath, SourceBoundary: "subagent_stop",
+		})
 		if activeParentSessionID != "" {
 			parentSessionID = activeParentSessionID
 		}

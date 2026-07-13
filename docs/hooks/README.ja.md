@@ -204,6 +204,12 @@ traceary hooks install --client codex --upgrade
 
 SQLite が writer 競合を待つのは最大1秒です。packaged host hook の budget は必ずこの待機時間を上回る必要があります。Gemini の生成・同梱 hook timeout は10秒で、DB attempt が失敗して spool record を保持したまま host deadline より前に制御を戻せます。この関係は意図的です: `SQLite busy_timeout < host hook timeout`。
 
+### メモリ抽出キュー
+
+session end、turn boundary、subagent stop の hook は、主要な event を先に commit してから、メモリ自動抽出を `~/.config/traceary/hooks/memory-extract/` に enqueue します。job に入るのは抽出条件と運用 metadata だけで、mode は `0600` です。同じ database・session・workspace への繰り返し要求は1件にまとめます。host hook が終了した後、分離した内部 worker が既存の extractor を呼び出します。成功時は job を削除し、失敗または中断された場合は再試行できる状態で残します。これにより、抽出処理は host hook timeout を消費せず、主要 event の commit を遅らせません。
+
+`traceary doctor` は `hook-memory-extract` check で、未処理件数、以前失敗した件数、読めない件数、最古の経過時間を報告します。抽出内容や保存された条件は表示しません。次に同じ対象の hook 要求が来ると worker が再起動します。警告が残り続ける場合は debug log を確認してください。
+
 ## トラブルシュート
 
 hooks やローカル SQLite ストアの挙動がおかしいときは `traceary doctor --client <claude|codex|gemini>` を実行してください。
