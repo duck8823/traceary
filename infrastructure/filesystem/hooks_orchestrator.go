@@ -41,6 +41,14 @@ type rawHookDocumentHandler interface {
 	mergeDocument(existing []byte, tracearyBin string) ([]byte, hookMergeDiff, error)
 }
 
+// hookInstallValidator is implemented by handlers whose client identity and
+// printable boundary are available before hook installation is supported.
+// Validation runs before resolving an explicit output path so callers cannot
+// bypass a fail-closed handler with --output, --force, or --upgrade.
+type hookInstallValidator interface {
+	validateInstall() error
+}
+
 // HooksOrchestrator implements application.HooksOrchestrator using filesystem
 // persistence and a configurable registry of client handlers.
 type HooksOrchestrator struct {
@@ -189,6 +197,11 @@ func (o *HooksOrchestrator) installWithDiff(
 	handler, err := o.resolveHandler(client)
 	if err != nil {
 		return "", hookMergeDiff{}, err
+	}
+	if validator, ok := handler.(hookInstallValidator); ok {
+		if err := validator.validateInstall(); err != nil {
+			return "", hookMergeDiff{}, err
+		}
 	}
 
 	resolvedOutputPath, err := resolveInstallOutputPath(handler, projectDir, outputPath)

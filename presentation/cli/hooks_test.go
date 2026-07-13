@@ -245,18 +245,57 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 	t.Cleanup(cli.ResetUserHomeDirFunc)
 
 	t.Run("fails closed for Grok until native runtime support lands", func(t *testing.T) {
-		rootCmd := newTestRootCLI().Command()
-		rootCmd.SetOut(&bytes.Buffer{})
-		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{
-			"hooks", "install",
-			"--client", "grok",
-			"--project-dir", projectDir,
-			"--traceary-bin", "traceary",
-		})
-		err := rootCmd.Execute()
-		if err == nil || !strings.Contains(err.Error(), "native runtime support") {
-			t.Fatalf("Execute() error = %v, want fail-closed native runtime support error", err)
+		for _, tc := range []struct {
+			name       string
+			extraArgs  []string
+			seedOutput bool
+		}{
+			{name: "default path"},
+			{name: "explicit output", extraArgs: []string{"--output", filepath.Join(t.TempDir(), "hooks.json")}},
+			{name: "force with explicit output", extraArgs: []string{"--output", filepath.Join(t.TempDir(), "hooks.json"), "--force"}, seedOutput: true},
+			{name: "upgrade with explicit output", extraArgs: []string{"--output", filepath.Join(t.TempDir(), "hooks.json"), "--upgrade"}, seedOutput: true},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				args := []string{
+					"hooks", "install",
+					"--client", "grok",
+					"--project-dir", projectDir,
+					"--traceary-bin", "traceary",
+				}
+				args = append(args, tc.extraArgs...)
+				var outputPath string
+				for i, arg := range args {
+					if arg == "--output" {
+						outputPath = args[i+1]
+					}
+				}
+				const original = `{"user":"content"}`
+				if tc.seedOutput {
+					if err := os.WriteFile(outputPath, []byte(original), 0o600); err != nil {
+						t.Fatalf("seed output: %v", err)
+					}
+				}
+
+				rootCmd := newTestRootCLI().Command()
+				rootCmd.SetOut(&bytes.Buffer{})
+				rootCmd.SetErr(&bytes.Buffer{})
+				rootCmd.SetArgs(args)
+				err := rootCmd.Execute()
+				if err == nil || !strings.Contains(err.Error(), "native runtime support") {
+					t.Fatalf("Execute() error = %v, want fail-closed native runtime support error", err)
+				}
+				if outputPath == "" {
+					return
+				}
+				content, readErr := os.ReadFile(outputPath)
+				if tc.seedOutput {
+					if readErr != nil || string(content) != original {
+						t.Fatalf("output after failed install = %q, %v; want unchanged", content, readErr)
+					}
+				} else if !os.IsNotExist(readErr) {
+					t.Fatalf("output created after failed install: content=%q, error=%v", content, readErr)
+				}
+			})
 		}
 	})
 

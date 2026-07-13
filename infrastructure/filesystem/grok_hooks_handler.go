@@ -26,5 +26,13 @@ func (h *GrokHooksHandler) Build(_ string) model.Hooks {
 // DefaultInstallPath fails closed until the Grok hook configuration contract
 // and runtime event mapping are implemented.
 func (h *GrokHooksHandler) DefaultInstallPath(_ string) (string, error) {
-	return "", xerrors.Errorf("grok hook installation is not available until native runtime support is implemented")
+	return "", grokInstallUnavailableError()
+}
+
+func (h *GrokHooksHandler) validateInstall() error {
+	return grokInstallUnavailableError()
+}
+
+func grokInstallUnavailableError() error {
+	return xerrors.Errorf("grok hook installation is not available until native runtime support is implemented")
 }
