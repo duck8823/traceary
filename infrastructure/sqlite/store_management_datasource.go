@@ -359,7 +359,7 @@ func (d *StoreManagementDatasource) CloseStaleSessions(
 		if err := db.QueryRowContext(
 			ctx,
 			countStaleSessionsQuery,
-			cutoff,
+			cutoff, cutoff,
 		).Scan(&count); err != nil {
 			return 0, xerrors.Errorf("failed to count stale sessions: %w", err)
 		}
@@ -370,7 +370,7 @@ func (d *StoreManagementDatasource) CloseStaleSessions(
 	result, err := db.ExecContext(
 		ctx,
 		updateStaleSessionsQuery,
-		now, cutoff,
+		now, cutoff, cutoff,
 	)
 	if err != nil {
 		return 0, xerrors.Errorf("failed to close stale sessions: %w", err)
