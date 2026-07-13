@@ -222,14 +222,14 @@ func (c *RootCLI) runHookAntigravityStop(ctx context.Context, output io.Writer, 
 	}
 	sessionID := strings.TrimSpace(hookPayloadString(payload, "conversationId", ""))
 	transcriptPath := hookPayloadString(payload, "transcriptPath", "")
-	turn, _ := readLastAntigravityCompletedTurn(transcriptPath)
+	turn, turnState := readLastAntigravityCompletedTurn(transcriptPath)
 	normalized := normalizeAntigravityPayload(antigravityNormalizeOptions{
 		sessionID:        sessionID,
 		cwd:              antigravityWorkspaceCwd(payload),
 		transcriptPath:   transcriptPath,
 		promptText:       turn.Prompt,
 		transcriptBlocks: turn.Blocks,
-		turnResolved:     true,
+		turnResolved:     turnState != antigravityTurnSchemaAbsent,
 	})
 
 	// Antigravity exposes no direct prompt field on PreInvocation. Recover the
@@ -535,10 +535,18 @@ type antigravityCompletedTurn struct {
 	Blocks []apptypes.EventBodyBlock
 }
 
-func readLastAntigravityCompletedTurn(path string) (antigravityCompletedTurn, bool) {
+type antigravityTurnScanState uint8
+
+const (
+	antigravityTurnSchemaAbsent antigravityTurnScanState = iota
+	antigravityTurnIncomplete
+	antigravityTurnComplete
+)
+
+func readLastAntigravityCompletedTurn(path string) (antigravityCompletedTurn, antigravityTurnScanState) {
 	file, err := os.Open(strings.TrimSpace(path)) // #nosec G304 -- path supplied by the host Stop hook
 	if err != nil {
-		return antigravityCompletedTurn{}, false
+		return antigravityCompletedTurn{}, antigravityTurnSchemaAbsent
 	}
 	defer func() { _ = file.Close() }()
 
@@ -549,11 +557,15 @@ func readLastAntigravityCompletedTurn(path string) (antigravityCompletedTurn, bo
 		latestGeneration int
 		turnGeneration   int
 		candidate        antigravityCompletedTurn
+		sawCurrentSchema bool
 	)
 	for scanner.Scan() {
 		var entry antigravityTranscriptLine
 		if json.Unmarshal(scanner.Bytes(), &entry) != nil {
 			continue
+		}
+		if entry.isCurrentSchemaRow() {
+			sawCurrentSchema = true
 		}
 		if entry.isExplicitUserInput() {
 			blocks := antigravityContentBlocks(entry.Content)
@@ -563,7 +575,7 @@ func readLastAntigravityCompletedTurn(path string) (antigravityCompletedTurn, bo
 			}
 			continue
 		}
-		if latestPrompt == "" || !entry.isAssistant() {
+		if latestPrompt == "" || !entry.isCurrentAssistantResponse() {
 			continue
 		}
 		if blocks := entry.blocks(); len(blocks) > 0 {
@@ -571,10 +583,27 @@ func readLastAntigravityCompletedTurn(path string) (antigravityCompletedTurn, bo
 			turnGeneration = latestGeneration
 		}
 	}
-	if scanner.Err() != nil || turnGeneration == 0 || turnGeneration != latestGeneration {
-		return antigravityCompletedTurn{}, false
+	if scanner.Err() != nil {
+		return antigravityCompletedTurn{}, antigravityTurnIncomplete
 	}
-	return candidate, true
+	if !sawCurrentSchema {
+		return antigravityCompletedTurn{}, antigravityTurnSchemaAbsent
+	}
+	if turnGeneration == 0 || turnGeneration != latestGeneration {
+		return antigravityCompletedTurn{}, antigravityTurnIncomplete
+	}
+	return candidate, antigravityTurnComplete
+}
+
+func (l antigravityTranscriptLine) isCurrentSchemaRow() bool {
+	return strings.EqualFold(l.Type, "USER_INPUT") ||
+		(strings.EqualFold(l.Source, "MODEL") && strings.HasSuffix(strings.ToUpper(l.Type), "_RESPONSE"))
+}
+
+func (l antigravityTranscriptLine) isCurrentAssistantResponse() bool {
+	return strings.EqualFold(l.Source, "MODEL") &&
+		strings.HasSuffix(strings.ToUpper(l.Type), "_RESPONSE") &&
+		(l.Status == "" || strings.EqualFold(l.Status, "DONE"))
 }
 
 func (l antigravityTranscriptLine) isExplicitUserInput() bool {
@@ -595,9 +624,7 @@ func (l antigravityTranscriptLine) isAssistant() bool {
 	if l.Message != nil && strings.EqualFold(l.Message.Role, "assistant") {
 		return true
 	}
-	return strings.EqualFold(l.Source, "MODEL") &&
-		strings.HasSuffix(strings.ToUpper(l.Type), "_RESPONSE") &&
-		(l.Status == "" || strings.EqualFold(l.Status, "DONE"))
+	return l.isCurrentAssistantResponse()
 }
 
 func (l antigravityTranscriptLine) blocks() []apptypes.EventBodyBlock {
@@ -623,8 +650,8 @@ func (l antigravityTranscriptLine) blocks() []apptypes.EventBodyBlock {
 // Antigravity's documented transcriptPath. Current CLI transcripts represent
 // it as USER_INPUT / USER_EXPLICIT with a flat string content field.
 func extractAntigravityPrompt(path string) (string, bool) {
-	turn, ok := readLastAntigravityCompletedTurn(path)
-	return turn.Prompt, ok
+	turn, state := readLastAntigravityCompletedTurn(path)
+	return turn.Prompt, state == antigravityTurnComplete
 }
 
 // antigravityContentBlocks parses a content value that may be a plain string or

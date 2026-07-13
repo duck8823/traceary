@@ -73,6 +73,14 @@ func TestReadLastAntigravityCompletedTurn(t *testing.T) {
 			},
 			wantOK: false,
 		},
+		{
+			name: "does not pair current prompt with legacy response row",
+			lines: []string{
+				`{"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","content":"unfinished"}`,
+				`{"role":"assistant","content":"legacy stale response"}`,
+			},
+			wantOK: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -80,9 +88,10 @@ func TestReadLastAntigravityCompletedTurn(t *testing.T) {
 			if err := os.WriteFile(path, []byte(strings.Join(tt.lines, "\n")+"\n"), 0o600); err != nil {
 				t.Fatalf("WriteFile() error = %v", err)
 			}
-			turn, ok := readLastAntigravityCompletedTurn(path)
+			turn, state := readLastAntigravityCompletedTurn(path)
+			ok := state == antigravityTurnComplete
 			if ok != tt.wantOK {
-				t.Fatalf("ok = %v, want %v (turn=%#v)", ok, tt.wantOK, turn)
+				t.Fatalf("state = %v, want completed=%v (turn=%#v)", state, tt.wantOK, turn)
 			}
 			if !tt.wantOK {
 				return
@@ -99,7 +108,10 @@ func TestReadLastAntigravityCompletedTurn(t *testing.T) {
 
 func TestExtractAntigravityTranscriptDoesNotFallBackAfterTurnResolution(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "transcript.jsonl")
-	if err := os.WriteFile(path, []byte(`{"role":"assistant","content":"stale response"}`+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(strings.Join([]string{
+		`{"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","content":"unfinished"}`,
+		`{"role":"assistant","content":"stale response"}`,
+	}, "\n")+"\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
