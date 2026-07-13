@@ -45,7 +45,7 @@ Traceary no longer installs portable hook-script copies under `~/.config/tracear
 | Client | Settings file | Session start | Session end | Audit hook | Notes |
 | --- | --- | --- | --- | --- | --- |
 | Claude Code | `.claude/settings.json` or `~/.claude/settings.json` | `SessionStart` | `SessionEnd` | `PostToolUse` + `PostToolUseFailure` with `matcher: "Bash"`, `matcher: "mcp__.*"`, and the built-in tool matcher (`Read\|NotebookRead\|Edit\|MultiEdit\|Write\|NotebookEdit\|Grep\|Glob\|Agent\|Task\|TodoWrite\|WebFetch\|WebSearch\|ExitPlanMode`) | Anthropic's current docs define `Stop` as a per-response hook, not a session-end hook. |
-| Codex CLI (`codex-cli 0.118.0`) | `~/.codex/hooks.json` | `SessionStart` | none (MCP `manage_session` / stale GC) | `PostToolUse` | The installed Codex build exposes `SessionStart`, `Stop`, `PreToolUse`, `PostToolUse`, `Notification`, `PermissionDenied`, `UserPromptSubmit`, and `Elicitation` in local binary strings. No dedicated `SessionEnd`; `Stop` fires per assistant response so Traceary treats it as a turn-boundary transcript, not a session end (#1170). |
+| Codex CLI (`codex-cli 0.144.1`) | `~/.codex/hooks.json` | `SessionStart` | none (MCP `manage_session` / stale GC) | `PostToolUse` | The official Codex CLI 0.144.1 hook reference exposes `SessionStart`, `SubagentStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStop`, and `Stop`. No dedicated `SessionEnd`; `Stop` fires per assistant response so Traceary treats it as a turn-boundary transcript, not a session end (#1170). |
 | Gemini CLI (`gemini-cli 0.36.0`) *(legacy compatibility)* | `.gemini/settings.json` or `~/.gemini/settings.json` | `SessionStart` | `SessionEnd` | `AfterTool` with `matcher: "run_shell_command"` | Hooks are JSON-over-stdin / JSON-over-stdout and `SessionEnd` is best effort. Gemini CLI is the legacy path; Antigravity is the active successor (supported from v0.21.1). |
 | Antigravity (supported from v0.21.1) | `.agents/hooks.json` or `~/.gemini/config/hooks.json` | `PreInvocation` (no `SessionStart`) | none (MCP `manage_session` / stale GC) | `PreToolUse` + `PostToolUse` paired across `stepIdx` (`run_command` only) | `hooks.json` is a top-level hook-group map (not the shared `{"hooks": {...}}` shape). `Stop` is a per-execution turn boundary, not a session end (#1170). See [Antigravity hooks and plugin](../integrations/antigravity.md). |
 
@@ -101,6 +101,10 @@ The hook exits successfully without recording anything when:
 ### PreCompact (Claude Code 2026-01+)
 
 `traceary hook compact claude pre-compact` fires on Claude Code's `PreCompact` hook — before Claude actually compacts the conversation. It persists a `compact_summary` event prefixed with `[phase:pre-compact]` so handoff / replay surfaces can tell the before-compact snapshot apart from the post-compact digest. The `loadCompactSummary` path skips pre-compact rows, so `session_handoff` / `memory_pack` still return the latest post-compact summary even when a cancelled compact cycle leaves a pre-compact snapshot behind as the newest `compact_summary` row.
+
+### Codex compact and subagent hooks (Codex CLI 0.144.1+)
+
+`PreCompact` and `PostCompact` call `traceary hook compact codex` with the corresponding phase. Codex supplies only `trigger` (`manual` or `auto`), not the resulting compacted summary, so Traceary stores phase-specific `compact_summary` boundary markers. `SubagentStart` and `SubagentStop` call the shared child-session runtime; `agent_id` is the correlation key and `agent_type` names the child agent.
 
 ## Installation flow
 

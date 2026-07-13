@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/spf13/cobra"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
@@ -1877,6 +1878,41 @@ func TestRootCLI_HookCompactCommand_RecordsPreCompactSnapshot(t *testing.T) {
 	}
 }
 
+func TestRootCLI_HookCompactCommand_RecordsCodexPostCompactMarker(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-test-key"), []byte("codex-compact-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-test-key-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+	eventStub := &eventUsecaseStub{logEvent: model.EventOf(types.EventID("evt-codex-post-compact"), types.EventKindCompactSummary, types.Client("hook"), types.Agent("codex"), types.SessionID("codex-compact-session"), types.Workspace("github.com/duck8823/traceary"), "auto", time.Now())}
+	rootCmd := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithEvent(eventStub)).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"session_id":"codex-compact-session","trigger":"auto"}`))
+	rootCmd.SetArgs([]string{"hook", "compact", "codex", "post-compact"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(post-compact) error = %v", err)
+	}
+	if got, want := eventStub.logCall.kind, types.EventKindCompactSummary; got != want {
+		t.Fatalf("post-compact log kind = %q, want %q", got, want)
+	}
+	if got, want := eventStub.logCall.message, "auto"; got != want {
+		t.Fatalf("post-compact log message = %q, want %q", got, want)
+	}
+	if got, want := eventStub.logCall.sourceHook, "post_compact"; got != want {
+		t.Fatalf("post-compact source_hook = %q, want %q", got, want)
+	}
+}
+
 func TestRootCLI_HookCompactCommand_PreCompactSyncsSessionSummaryWhenEmpty(t *testing.T) {
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
 
@@ -2087,6 +2123,84 @@ func TestRootCLI_HookSubagentStartCommand_CreatesChildAndActiveState(t *testing.
 	stateJSON := string(data)
 	if !strings.Contains(stateJSON, `"toolu_1"`) || !strings.Contains(stateJSON, `"child_session_id":"parent-session:sub:toolu_1"`) {
 		t.Fatalf("active child state = %s, want JSON entry for toolu_1", stateJSON)
+	}
+}
+
+func TestRootCLI_HookSubagentStartCommand_UsesCodexAgentFields(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "codex-start-key")
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-codex-start-key"), []byte("codex-parent"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-codex-start-key-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+	sessionStub := &sessionUsecaseStub{}
+	rootCmd := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithSession(sessionStub)).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"agent_id":"019-agent","agent_type":"reviewer"}`))
+	rootCmd.SetArgs([]string{"hook", "subagent-start", "codex"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(subagent-start) error = %v", err)
+	}
+	if got, want := sessionStub.startChildCall.parent, types.SessionID("codex-parent"); got != want {
+		t.Fatalf("StartChild parent = %q, want %q", got, want)
+	}
+	if got, want := sessionStub.startChildCall.childID, types.SessionID("codex-parent:sub:agent-019-agent"); got != want {
+		t.Fatalf("StartChild childID = %q, want %q", got, want)
+	}
+	if got, want := sessionStub.startChildCall.agent, types.Agent("codex/reviewer"); got != want {
+		t.Fatalf("StartChild agent = %q, want %q", got, want)
+	}
+}
+
+func TestRootCLI_HookSubagentCommands_CorrelateCodexAgentID(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "codex-lifecycle-key")
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-codex-lifecycle-key"), []byte("codex-parent"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-codex-lifecycle-key-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+	sessionStub := &sessionUsecaseStub{}
+	eventStub := &eventUsecaseStub{}
+	newCommand := func(payload string, args ...string) *cobra.Command {
+		cmd := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithSession(sessionStub), cli.WithEvent(eventStub)).Command()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetIn(strings.NewReader(payload))
+		cmd.SetArgs(args)
+		return cmd
+	}
+	payload := `{"session_id":"codex-parent","agent_id":"019-agent","agent_type":"reviewer"}`
+	if err := newCommand(payload, "hook", "subagent-start", "codex").Execute(); err != nil {
+		t.Fatalf("Execute(subagent-start) error = %v", err)
+	}
+	if err := newCommand(payload, "hook", "subagent-stop", "codex").Execute(); err != nil {
+		t.Fatalf("Execute(subagent-stop) error = %v", err)
+	}
+	if got, want := sessionStub.endCall.sessionID, types.SessionID("codex-parent:sub:agent-019-agent"); got != want {
+		t.Fatalf("End child sessionID = %q, want %q", got, want)
+	}
+	activePath := filepath.Join(stateDir, "active-subagents", "codex-codex-parent")
+	if data, err := os.ReadFile(activePath); err == nil && strings.Contains(string(data), "agent-019-agent") {
+		t.Fatalf("active state still contains stopped Codex agent: %s", data)
+	} else if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("ReadFile(active state) error = %v", err)
 	}
 }
 

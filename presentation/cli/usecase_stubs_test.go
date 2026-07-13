@@ -12,6 +12,17 @@ import (
 )
 
 // eventUsecaseStub implements usecase.EventUsecase for testing.
+type eventLogCall struct {
+	message    string
+	kind       types.EventKind
+	client     types.Client
+	agent      types.Agent
+	sessionID  types.SessionID
+	workspace  types.Workspace
+	logCfg     apptypes.LogRedaction
+	sourceHook string
+}
+
 type eventUsecaseStub struct {
 	logEvent         *model.Event
 	logErr           error
@@ -31,16 +42,8 @@ type eventUsecaseStub struct {
 	listCriteria     apptypes.EventListCriteria
 	timelineCriteria apptypes.TimelineCriteria
 
-	logCall struct {
-		message    string
-		kind       types.EventKind
-		client     types.Client
-		agent      types.Agent
-		sessionID  types.SessionID
-		workspace  types.Workspace
-		logCfg     apptypes.LogRedaction
-		sourceHook string
-	}
+	logCall   eventLogCall
+	logCalls  []eventLogCall
 	auditCall struct {
 		command   string
 		input     string
@@ -64,6 +67,7 @@ func (s *eventUsecaseStub) Log(ctx context.Context, message string, kind types.E
 	s.logCall.workspace = workspace
 	s.logCall.logCfg = logCfg
 	s.logCall.sourceHook = apptypes.SourceHookFromContext(ctx)
+	s.logCalls = append(s.logCalls, s.logCall)
 	return s.logEvent, s.logErr
 }
 func (s *eventUsecaseStub) Audit(_ context.Context, in apptypes.AuditInput, auditCfg apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {

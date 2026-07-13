@@ -272,7 +272,7 @@ func checkCodex(root, version string, runCLISmoke bool) error {
 	if err := checkNoDuplicateTracearyHookEntries("plugins/traceary/hooks.json", hooks); err != nil {
 		return err
 	}
-	for _, event := range []string{"SessionStart", "UserPromptSubmit", "Stop", "PostToolUse"} {
+	for _, event := range []string{"SessionStart", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact", "UserPromptSubmit", "Stop", "PostToolUse"} {
 		if _, ok := hooks.Hooks[event]; !ok {
 			return xerrors.Errorf("codex hooks must include %s", event)
 		}
@@ -281,6 +281,10 @@ func checkCodex(root, version string, runCLISmoke bool) error {
 		{"'hook' 'session' 'codex'", "Codex packaged hooks must invoke traceary hook session directly"},
 		{"'hook' 'prompt' 'codex'", "Codex packaged hooks must invoke traceary hook prompt directly"},
 		{"'hook' 'audit' 'codex'", "Codex packaged hooks must invoke traceary hook audit directly"},
+		{"'hook' 'compact' 'codex' 'pre-compact'", "Codex packaged hooks must invoke traceary pre-compact directly"},
+		{"'hook' 'compact' 'codex' 'post-compact'", "Codex packaged hooks must invoke traceary post-compact directly"},
+		{"'hook' 'subagent-start' 'codex'", "Codex packaged hooks must invoke traceary subagent-start directly"},
+		{"'hook' 'subagent-stop' 'codex'", "Codex packaged hooks must invoke traceary subagent-stop directly"},
 	} {
 		if !strings.Contains(hooksRaw, fragment.sub) {
 			return xerrors.Errorf("%s", fragment.msg)
@@ -425,12 +429,14 @@ func checkGemini(root, version string) error {
 // checkAntigravity validates the packaged Antigravity plugin. Antigravity's
 // hooks.json uses a top-level hook-group map (Traceary owns the "traceary"
 // group) rather than the shared {"hooks": {...}} shape, so it is validated with
-// a dedicated parser. The plugin.json follows the official Antigravity schema
-// (name + description only), so no version field is tracked here.
+// a dedicated parser. The package also carries validator-native skills and
+// mcp_config.json files so the host discovers the same memory/context surface
+// as Traceary's other supported plugins.
 func checkAntigravity(root string) error {
 	var manifest struct {
 		Schema      string `json:"$schema"`
 		Name        string `json:"name"`
+		Version     string `json:"version"`
 		Description string `json:"description"`
 	}
 	if err := readJSON(root, "integrations/antigravity-plugin/plugin.json", &manifest); err != nil {
@@ -441,6 +447,29 @@ func checkAntigravity(root string) error {
 	}
 	if manifest.Schema != "https://antigravity.google/schemas/v1/plugin.json" {
 		return xerrors.Errorf("antigravity plugin must declare the official plugin.json schema")
+	}
+	if strings.TrimSpace(manifest.Version) == "" {
+		return xerrors.Errorf("antigravity plugin manifest must declare a version")
+	}
+
+	var mcpConfig struct {
+		MCPServers map[string]struct {
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+		} `json:"mcpServers"`
+	}
+	if err := readJSON(root, "integrations/antigravity-plugin/mcp_config.json", &mcpConfig); err != nil {
+		return err
+	}
+	server, ok := mcpConfig.MCPServers["traceary"]
+	if !ok || server.Command != "traceary" || len(server.Args) != 1 || server.Args[0] != "mcp-server" {
+		return xerrors.Errorf("antigravity plugin must expose the traceary mcp-server")
+	}
+	for _, skill := range []string{"traceary-session-history", "traceary-memory-review", "traceary-memory-remember"} {
+		path := filepath.Join("integrations/antigravity-plugin/skills", skill, "SKILL.md")
+		if err := requireExists(root, path, "missing Antigravity "+skill+" skill"); err != nil {
+			return err
+		}
 	}
 
 	hooksPath := "integrations/antigravity-plugin/hooks.json"

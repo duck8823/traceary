@@ -36,12 +36,36 @@ func (h *CodexHooksHandler) Build(tracearyBin string) model.Hooks {
 	auditCommand := newHookRuntimeCommand(tracearyBin, "hook", "audit", "codex")
 	promptCommand := newHookRuntimeCommand(tracearyBin, "hook", "prompt", "codex")
 	transcriptCommand := newHookRuntimeCommand(tracearyBin, "hook", "transcript", "codex")
+	compactPreCommand := newHookRuntimeCommand(tracearyBin, "hook", "compact", "codex", "pre-compact")
+	compactPostCommand := newHookRuntimeCommand(tracearyBin, "hook", "compact", "codex", "post-compact")
+	subagentStartCommand := newHookRuntimeCommand(tracearyBin, "hook", "subagent-start", "codex")
+	subagentStopCommand := newHookRuntimeCommand(tracearyBin, "hook", "subagent-stop", "codex")
 
-	eventOrder := []string{"SessionStart", "UserPromptSubmit", "Stop", "PostToolUse"}
+	eventOrder := []string{"SessionStart", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact", "UserPromptSubmit", "Stop", "PostToolUse"}
 	events := map[string][]model.HookEntry{
 		"SessionStart": {
 			model.HookEntryOf(types.None[string](), []model.HookCommand{
 				model.HookCommandOf("traceary-session-start", "command", sessionStartCommand, types.None[int](), "", managedKeyOf("traceary-session.sh", "codex", "start")),
+			}),
+		},
+		"SubagentStart": {
+			model.HookEntryOf(types.None[string](), []model.HookCommand{
+				model.HookCommandOf("traceary-subagent-start", "command", subagentStartCommand, types.None[int](), "", managedKeyOf("traceary-subagent-start.sh", "codex")),
+			}),
+		},
+		"SubagentStop": {
+			model.HookEntryOf(types.None[string](), []model.HookCommand{
+				model.HookCommandOf("traceary-subagent-stop", "command", subagentStopCommand, types.None[int](), "", managedKeyOf("traceary-subagent-stop.sh", "codex")),
+			}),
+		},
+		"PreCompact": {
+			model.HookEntryOf(types.None[string](), []model.HookCommand{
+				model.HookCommandOf("traceary-compact-pre-compact", "command", compactPreCommand, types.None[int](), "", managedKeyOf("traceary-compact.sh", "codex", "pre-compact")),
+			}),
+		},
+		"PostCompact": {
+			model.HookEntryOf(types.None[string](), []model.HookCommand{
+				model.HookCommandOf("traceary-compact-post-compact", "command", compactPostCommand, types.None[int](), "", managedKeyOf("traceary-compact.sh", "codex", "post-compact")),
 			}),
 		},
 		"UserPromptSubmit": {
