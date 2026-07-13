@@ -776,8 +776,11 @@ func (c *RootCLI) runHookCompact(
 		body := compactSummary
 		kind := types.EventKindCompactSummary
 		if body == "" {
-			body = "compact triggered"
-			kind = types.EventKind("")
+			body = hookPayloadString(payload, "trigger", "")
+			if body == "" {
+				body = "compact triggered"
+				kind = types.EventKind("")
+			}
 		}
 		_, err = c.event.Log(ctx, body, kind, types.Client("hook"), agent, sessionID, workspace, apptypes.LogRedaction{})
 		if err != nil {
@@ -855,7 +858,11 @@ func (c *RootCLI) runHookSubagentStart(
 	if c.session == nil {
 		return xerrors.Errorf("session usecase is not configured")
 	}
-	ctx = apptypes.WithSourceHook(ctx, "pre_tool_use")
+	if client == "codex" {
+		ctx = apptypes.WithSourceHook(ctx, "subagent_start")
+	} else {
+		ctx = apptypes.WithSourceHook(ctx, "pre_tool_use")
+	}
 
 	payload, err := readHookPayload(input)
 	if err != nil {
@@ -873,6 +880,9 @@ func (c *RootCLI) runHookSubagentStart(
 		return nil
 	}
 	subagentType := hookPayloadString(payload, "subagent_type", "")
+	if subagentType == "" {
+		subagentType = hookPayloadString(payload, "agent_type", "")
+	}
 	if subagentType == "" {
 		subagentType = hookPayloadString(payload, "tool_input.subagent_type", "")
 	}
@@ -1412,6 +1422,9 @@ func resolveHookAgent(client string, payload []byte) (types.Agent, error) {
 func resolveHookSubagentAgentOrDefault(client string, payload []byte, defaultAgent types.Agent) types.Agent {
 	subagentType := hookPayloadString(payload, "subagent_type", "")
 	if subagentType == "" {
+		subagentType = hookPayloadString(payload, "agent_type", "")
+	}
+	if subagentType == "" {
 		subagentType = hookPayloadString(payload, "tool_input.subagent_type", "")
 	}
 	if strings.TrimSpace(subagentType) == "" {
@@ -1522,6 +1535,9 @@ func resolveHookToolUseID(payload []byte) string {
 	}
 	if eventID := strings.TrimSpace(hookPayloadString(payload, "event_id", "")); eventID != "" {
 		return "event-" + eventID
+	}
+	if agentID := strings.TrimSpace(hookPayloadString(payload, "agent_id", "")); agentID != "" {
+		return "agent-" + agentID
 	}
 	return ""
 }

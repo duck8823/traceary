@@ -14,9 +14,40 @@ func TestCodexHooksHandler_Build(t *testing.T) {
 	handler := filesystem.NewCodexHooksHandler()
 	hooks := handler.Build("traceary")
 
-	wantEventOrder := []string{"SessionStart", "UserPromptSubmit", "Stop", "PostToolUse"}
+	wantEventOrder := []string{"SessionStart", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact", "UserPromptSubmit", "Stop", "PostToolUse"}
 	if diff := cmp.Diff(wantEventOrder, hooks.EventOrder()); diff != "" {
 		t.Fatalf("EventOrder() mismatch (-want +got):\n%s", diff)
+	}
+
+	for _, tc := range []struct {
+		event, name, key, command string
+	}{
+		{"SubagentStart", "traceary-subagent-start", "traceary-subagent-start.sh:codex", `'traceary' 'hook' 'subagent-start' 'codex'`},
+		{"SubagentStop", "traceary-subagent-stop", "traceary-subagent-stop.sh:codex", `'traceary' 'hook' 'subagent-stop' 'codex'`},
+		{"PreCompact", "traceary-compact-pre-compact", "traceary-compact.sh:codex:pre-compact", `'traceary' 'hook' 'compact' 'codex' 'pre-compact'`},
+		{"PostCompact", "traceary-compact-post-compact", "traceary-compact.sh:codex:post-compact", `'traceary' 'hook' 'compact' 'codex' 'post-compact'`},
+	} {
+		tc := tc
+		t.Run(tc.event+" references its runtime", func(t *testing.T) {
+			t.Parallel()
+			entries := hooks.Entries(tc.event)
+			if diff := cmp.Diff(1, len(entries)); diff != "" {
+				t.Fatalf("len(%s entries) mismatch (-want +got):\n%s", tc.event, diff)
+			}
+			if _, ok := entries[0].Matcher().Value(); ok {
+				t.Fatalf("%s matcher should be empty", tc.event)
+			}
+			command := entries[0].Commands()[0]
+			if diff := cmp.Diff(tc.name, command.Name()); diff != "" {
+				t.Fatalf("%s name mismatch (-want +got):\n%s", tc.event, diff)
+			}
+			if diff := cmp.Diff(tc.key, command.ManagedKey()); diff != "" {
+				t.Fatalf("%s managed key mismatch (-want +got):\n%s", tc.event, diff)
+			}
+			if diff := cmp.Diff(tc.command, command.Command()); diff != "" {
+				t.Fatalf("%s command mismatch (-want +got):\n%s", tc.event, diff)
+			}
+		})
 	}
 
 	t.Run("UserPromptSubmit references prompt runtime", func(t *testing.T) {

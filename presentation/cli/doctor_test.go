@@ -208,6 +208,10 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 		legacy := `{
 			"hooks": {
 				"SessionStart": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'session' 'codex' 'start'"}]}],
+				"SubagentStart": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'subagent-start' 'codex'"}]}],
+				"SubagentStop": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'subagent-stop' 'codex'"}]}],
+				"PreCompact": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'compact' 'codex' 'pre-compact'"}]}],
+				"PostCompact": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'compact' 'codex' 'post-compact'"}]}],
 				"Stop": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'session' 'codex' 'stop'"}]}],
 				"PostToolUse": [{"matcher": "", "hooks": [{"type": "command", "command": "'traceary' 'hook' 'audit' 'codex'"}]}]
 			}
@@ -258,6 +262,10 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 		userManaged := `{
 			"hooks": {
 				"SessionStart": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'session' 'codex' 'start'"}]}],
+				"SubagentStart": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'subagent-start' 'codex'"}]}],
+				"SubagentStop": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'subagent-stop' 'codex'"}]}],
+				"PreCompact": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'compact' 'codex' 'pre-compact'"}]}],
+				"PostCompact": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'compact' 'codex' 'post-compact'"}]}],
 				"UserPromptSubmit": [{"hooks": [{"type": "command", "command": "'/usr/local/bin/custom-cli' 'hook' 'prompt' 'codex'"}]}],
 				"Stop": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'session' 'codex' 'stop'"}]}],
 				"PostToolUse": [{"matcher": "", "hooks": [{"type": "command", "command": "'traceary' 'hook' 'audit' 'codex'"}]}]
@@ -300,6 +308,10 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 		complete := `{
 			"hooks": {
 				"SessionStart": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'session' 'codex' 'start'"}]}],
+				"SubagentStart": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'subagent-start' 'codex'"}]}],
+				"SubagentStop": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'subagent-stop' 'codex'"}]}],
+				"PreCompact": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'compact' 'codex' 'pre-compact'"}]}],
+				"PostCompact": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'compact' 'codex' 'post-compact'"}]}],
 				"UserPromptSubmit": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'prompt' 'codex'"}]}],
 				"Stop": [{"hooks": [
 					{"type": "command", "command": "'traceary' 'hook' 'transcript' 'codex'"},
@@ -346,6 +358,10 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 		complete := `{
 			"hooks": {
 				"SessionStart": [{"hooks": [{"name": "traceary-session-start", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'session' 'codex' 'start'"}]}],
+				"SubagentStart": [{"hooks": [{"name": "traceary-subagent-start", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'subagent-start' 'codex'"}]}],
+				"SubagentStop": [{"hooks": [{"name": "traceary-subagent-stop", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'subagent-stop' 'codex'"}]}],
+				"PreCompact": [{"hooks": [{"name": "traceary-compact-pre-compact", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'compact' 'codex' 'pre-compact'"}]}],
+				"PostCompact": [{"hooks": [{"name": "traceary-compact-post-compact", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'compact' 'codex' 'post-compact'"}]}],
 				"UserPromptSubmit": [{"hooks": [{"name": "traceary-prompt", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'prompt' 'codex'"}]}],
 				"Stop": [{"hooks": [
 					{"name": "traceary-transcript", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'transcript' 'codex'"},
