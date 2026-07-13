@@ -364,11 +364,6 @@ func (c *RootCLI) runHookSession(
 		if _, err := c.session.End(ctx, types.Client("hook"), agent, sessionID, workspace, ""); err != nil {
 			return xerrors.Errorf("failed to record hook session end: %w", err)
 		}
-		// Extraction runs after the durable boundary commit in a detached,
-		// retryable worker so host hook timeouts cannot discard its result.
-		c.scheduleHookMemoryExtract(hookMemoryExtractRequest{
-			SessionID: sessionID, Workspace: workspace, DBPath: resolvedDBPath, SourceBoundary: "session_end",
-		})
 		if shouldTrackClaudeCancellation {
 			if err := clearHookCancellationDiagnosticsForSession(client, "SessionEnd", sessionID); err != nil {
 				slog.Debug("hook session-end cancellation diagnostic cleanup failed", "client", client, "session_id", sessionID, "path", hookCancellationDiagnosticPath, "error", err)
@@ -390,6 +385,11 @@ func (c *RootCLI) runHookSession(
 		if err := markHookSessionEnded(client, sessionID); err != nil {
 			return err
 		}
+		// Schedule only after every primary event and hook-state transition is
+		// complete, so worker startup cannot consume the cleanup budget.
+		c.scheduleHookMemoryExtract(hookMemoryExtractRequest{
+			SessionID: sessionID, Workspace: workspace, DBPath: resolvedDBPath, SourceBoundary: "session_end",
+		})
 		return nil
 	case "stop":
 		// Codex fires Stop after every assistant response, not when the
@@ -960,6 +960,7 @@ func (c *RootCLI) runHookSubagentStop(
 	activeParentSessionID := types.SessionID("")
 	childWasActive := false
 	lazySynthesizedChild := false
+	var memoryExtractRequest *hookMemoryExtractRequest
 	if toolUseID != "" {
 		active, findErr := findHookActiveSubagentStateForTool(client, parentSessionID, toolUseID)
 		if findErr != nil {
@@ -997,11 +998,10 @@ func (c *RootCLI) runHookSubagentStop(
 		if _, err := c.session.End(ctx, types.Client("hook"), types.Agent(""), childSessionID, workspace, ""); err != nil {
 			return xerrors.Errorf("failed to end subagent session: %w", err)
 		}
-		// Preserve main-session extraction parity without sharing the host
-		// SubagentStop time budget.
-		c.scheduleHookMemoryExtract(hookMemoryExtractRequest{
+		request := hookMemoryExtractRequest{
 			SessionID: childSessionID, Workspace: workspace, DBPath: resolvedDBPath, SourceBoundary: "subagent_stop",
-		})
+		}
+		memoryExtractRequest = &request
 		if activeParentSessionID != "" {
 			parentSessionID = activeParentSessionID
 		}
@@ -1015,12 +1015,18 @@ func (c *RootCLI) runHookSubagentStop(
 	// events; the legacy `[phase:subagent]` body prefix is retired on
 	// write but readers still match it for pre-#672 rows.
 	if lazySynthesizedChild {
+		if memoryExtractRequest != nil {
+			c.scheduleHookMemoryExtract(*memoryExtractRequest)
+		}
 		return nil
 	}
 	subagentType := hookPayloadString(payload, "subagent_type", "")
 	_, err = c.event.Log(ctx, subagentType, types.EventKindSessionEnded, types.Client("hook"), agent, parentSessionID, workspace, apptypes.LogRedaction{})
 	if err != nil {
 		return xerrors.Errorf("failed to record subagent-stop event: %w", err)
+	}
+	if memoryExtractRequest != nil {
+		c.scheduleHookMemoryExtract(*memoryExtractRequest)
 	}
 	return nil
 }

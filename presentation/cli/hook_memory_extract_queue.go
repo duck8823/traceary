@@ -74,15 +74,19 @@ func (c *RootCLI) scheduleHookMemoryExtract(request hookMemoryExtractRequest) {
 		slog.Debug("hook memory extraction enqueue failed", "session_id", request.SessionID, "source_boundary", request.SourceBoundary, "error", err)
 		return
 	}
-	launcher := c.hookMemoryExtractLauncher
-	if launcher == nil {
-		launcher = launchDetachedHookMemoryExtractWorker
-	}
-	if err := launcher(jobPath); err != nil {
+	if err := c.launchHookMemoryExtractWorker(jobPath); err != nil {
 		// The durable job remains pending. A later hook invocation can launch
 		// another worker, and doctor surfaces the backlog in the meantime.
 		slog.Debug("hook memory extraction worker launch failed", "job", jobPath, "error", err)
 	}
+}
+
+func (c *RootCLI) launchHookMemoryExtractWorker(jobPath string) error {
+	launcher := c.hookMemoryExtractLauncher
+	if launcher == nil {
+		launcher = launchDetachedHookMemoryExtractWorker
+	}
+	return launcher(jobPath)
 }
 
 func hookMemoryExtractQueueDir() (string, error) {
@@ -142,11 +146,17 @@ func enqueueHookMemoryExtract(request hookMemoryExtractRequest, requestedAt time
 		RequestedAt:    requestedAt,
 	}
 	if existing, readErr := readHookMemoryExtractJob(jobPath); readErr == nil {
+		if existing.RequestedAt.Before(job.RequestedAt) {
+			job.RequestedAt = existing.RequestedAt
+		}
 		job.Attempts = existing.Attempts
 		job.LastAttemptAt = existing.LastAttemptAt
 		job.LastError = existing.LastError
 	} else if !errors.Is(readErr, os.ErrNotExist) {
-		return "", readErr
+		corruptPath := fmt.Sprintf("%s.%s.corrupt.json", jobPath, requestedAt.Format("20060102T150405.000000000Z"))
+		if renameErr := os.Rename(jobPath, corruptPath); renameErr != nil {
+			return "", xerrors.Errorf("failed to quarantine unreadable memory extraction job: %w", renameErr)
+		}
 	}
 	if err := writeHookMemoryExtractJob(jobPath, job); err != nil {
 		return "", err
@@ -170,8 +180,22 @@ func (c *RootCLI) runHookMemoryExtractWorker(ctx context.Context, jobPath string
 		return err
 	}
 	insideQueue, err := filepath.Rel(queueDir, resolvedJobPath)
-	if err != nil || insideQueue == "." || strings.HasPrefix(insideQueue, ".."+string(filepath.Separator)) || filepath.IsAbs(insideQueue) {
+	if err != nil || insideQueue == "." || filepath.Dir(insideQueue) != "." || filepath.IsAbs(insideQueue) {
 		return xerrors.Errorf("memory extraction job is outside the queue directory")
+	}
+	name := filepath.Base(insideQueue)
+	if len(name) != 69 || !strings.HasSuffix(name, ".json") {
+		return xerrors.Errorf("memory extraction job name is invalid")
+	}
+	if _, decodeErr := hex.DecodeString(strings.TrimSuffix(name, ".json")); decodeErr != nil {
+		return xerrors.Errorf("memory extraction job name is invalid: %w", decodeErr)
+	}
+	info, statErr := os.Lstat(resolvedJobPath)
+	if statErr == nil && !info.Mode().IsRegular() {
+		return xerrors.Errorf("memory extraction job is not a regular file")
+	}
+	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return xerrors.Errorf("failed to inspect memory extraction job: %w", statErr)
 	}
 
 	jobLock := flock.New(resolvedJobPath + ".lock")
@@ -182,7 +206,12 @@ func (c *RootCLI) runHookMemoryExtractWorker(ctx context.Context, jobPath string
 	if !locked {
 		return nil
 	}
-	defer func() { _ = jobLock.Unlock() }()
+	lockHeld := true
+	defer func() {
+		if lockHeld {
+			_ = jobLock.Unlock()
+		}
+	}()
 
 	for run := 0; run < hookMemoryExtractMaxRunsPerWorker; run++ {
 		job, readErr := readHookMemoryExtractJob(resolvedJobPath)
@@ -191,6 +220,13 @@ func (c *RootCLI) runHookMemoryExtractWorker(ctx context.Context, jobPath string
 		}
 		if readErr != nil {
 			return readErr
+		}
+		attemptedAt := time.Now().UTC()
+		job.Attempts++
+		job.LastAttemptAt = &attemptedAt
+		job.LastError = ""
+		if writeErr := writeHookMemoryExtractJob(resolvedJobPath, job); writeErr != nil {
+			return writeErr
 		}
 		resolvedDBPath, resolveErr := resolveDBPath(job.DBPath)
 		if resolveErr != nil {
@@ -214,6 +250,16 @@ func (c *RootCLI) runHookMemoryExtractWorker(ctx context.Context, jobPath string
 			if writeErr := writeHookMemoryExtractJob(resolvedJobPath, job); writeErr != nil {
 				return writeErr
 			}
+			if run+1 >= hookMemoryExtractMaxRunsPerWorker {
+				if unlockErr := jobLock.Unlock(); unlockErr != nil {
+					return xerrors.Errorf("failed to release memory extraction job before handoff: %w", unlockErr)
+				}
+				lockHeld = false
+				if launchErr := c.launchHookMemoryExtractWorker(resolvedJobPath); launchErr != nil {
+					return xerrors.Errorf("failed to hand off pending memory extraction job: %w", launchErr)
+				}
+				return nil
+			}
 			continue
 		} else if !os.IsNotExist(rerunErr) {
 			return xerrors.Errorf("failed to inspect memory extraction rerun marker: %w", rerunErr)
@@ -227,9 +273,6 @@ func (c *RootCLI) runHookMemoryExtractWorker(ctx context.Context, jobPath string
 }
 
 func (c *RootCLI) failHookMemoryExtractJob(path string, job hookMemoryExtractJob, cause error) error {
-	now := time.Now().UTC()
-	job.Attempts++
-	job.LastAttemptAt = &now
 	job.LastError = truncateHookMemoryExtractError(cause.Error())
 	if err := writeHookMemoryExtractJob(path, job); err != nil {
 		return xerrors.Errorf("memory extraction failed (%v) and job metadata update failed: %w", cause, err)
@@ -272,6 +315,10 @@ func writeHookMemoryExtractJob(path string, job hookMemoryExtractJob) error {
 	if _, err := tmp.Write(encoded); err != nil {
 		_ = tmp.Close()
 		return xerrors.Errorf("failed to write memory extraction job: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return xerrors.Errorf("failed to sync memory extraction job: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
 		return xerrors.Errorf("failed to close memory extraction job: %w", err)

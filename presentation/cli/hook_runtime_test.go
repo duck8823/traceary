@@ -656,6 +656,7 @@ func TestRootCLI_HookSessionCommand_EndQueuesMemoryAutoExtractWithoutBlocking(t 
 		extractErr: errors.New("simulated extract failure"),
 	}
 	var launchedJobPath string
+	primaryCleanupCompleteAtLaunch := false
 	sessionStub := &sessionUsecaseStub{
 		endEvent: model.EventOf(
 			types.EventID("evt-end-extract-fail"),
@@ -675,6 +676,10 @@ func TestRootCLI_HookSessionCommand_EndQueuesMemoryAutoExtractWithoutBlocking(t 
 		cli.WithMemory(memoryStub),
 		cli.WithHookMemoryExtractLauncher(func(path string) error {
 			launchedJobPath = path
+			_, sessionErr := os.Stat(filepath.Join(stateDir, "claude-test-key-extract-fail"))
+			_, workspaceErr := os.Stat(filepath.Join(stateDir, "claude-test-key-extract-fail-repo"))
+			_, markerErr := os.Stat(filepath.Join(stateDir, "ended", "claude-auto-extract-fail-session"))
+			primaryCleanupCompleteAtLaunch = os.IsNotExist(sessionErr) && os.IsNotExist(workspaceErr) && markerErr == nil
 			return nil
 		}),
 	).Command()
@@ -691,6 +696,9 @@ func TestRootCLI_HookSessionCommand_EndQueuesMemoryAutoExtractWithoutBlocking(t 
 	}
 	if got, want := sessionStub.endCall.sessionID, types.SessionID("auto-extract-fail-session"); got != want {
 		t.Fatalf("session.End sessionID = %q, want %q (must be invoked even when extract fails)", got, want)
+	}
+	if !primaryCleanupCompleteAtLaunch {
+		t.Fatal("worker launched before session-end hook state cleanup completed")
 	}
 	job := readHookMemoryExtractJobForTest(t, launchedJobPath)
 	if got, want := job.SourceBoundary, "session_end"; got != want {
@@ -715,13 +723,14 @@ func TestRootCLI_HookSessionCommand_EndQueuesMemoryAutoExtractWithoutBlocking(t 
 		t.Fatalf("ReadFile(failed job) error = %v", err)
 	}
 	var failedJob struct {
-		Attempts  int    `json:"attempts"`
-		LastError string `json:"last_error"`
+		Attempts      int    `json:"attempts"`
+		LastAttemptAt string `json:"last_attempt_at"`
+		LastError     string `json:"last_error"`
 	}
 	if err := json.Unmarshal(data, &failedJob); err != nil {
 		t.Fatalf("json.Unmarshal(failed job) error = %v", err)
 	}
-	if failedJob.Attempts != 1 || !strings.Contains(failedJob.LastError, "simulated extract failure") {
+	if failedJob.Attempts != 1 || failedJob.LastAttemptAt == "" || !strings.Contains(failedJob.LastError, "simulated extract failure") {
 		t.Fatalf("failed job metadata = %+v, want retryable attempt", failedJob)
 	}
 	memoryStub.extractErr = nil
@@ -856,6 +865,94 @@ func TestRootCLI_HookSessionCommand_RepeatedStopsCoalesceMemoryExtractionJob(t *
 	}
 	if jsonCount != 1 {
 		t.Fatalf("memory extraction JSON jobs = %d, want 1", jsonCount)
+	}
+}
+
+func TestRootCLI_HookMemoryExtractWorkerHandsOffRerunAtRunLimit(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "rerun-limit-key")
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-rerun-limit-key"), []byte("rerun-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-rerun-limit-key-repo"), []byte("traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	var jobPath string
+	queueCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{}),
+		cli.WithMemory(&memoryUsecaseStub{}),
+		cli.WithHookMemoryExtractLauncher(func(path string) error {
+			jobPath = path
+			return nil
+		}),
+	).Command()
+	queueCmd.SetOut(&bytes.Buffer{})
+	queueCmd.SetErr(&bytes.Buffer{})
+	queueCmd.SetIn(strings.NewReader(`{"session_id":"rerun-session"}`))
+	queueCmd.SetArgs([]string{"hook", "session", "codex", "stop"})
+	if err := queueCmd.Execute(); err != nil {
+		t.Fatalf("queue Execute() error = %v", err)
+	}
+
+	memoryStub := &memoryUsecaseStub{}
+	memoryStub.extractFunc = func(context.Context, apptypes.MemoryExtractionCriteria) ([]apptypes.MemoryDetails, error) {
+		if err := os.WriteFile(jobPath+".rerun", []byte("rerun\n"), 0o600); err != nil {
+			t.Fatalf("WriteFile(rerun marker) error = %v", err)
+		}
+		return nil, nil
+	}
+	var handedOffPath string
+	workerCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+		cli.WithHookMemoryExtractLauncher(func(path string) error {
+			handedOffPath = path
+			return nil
+		}),
+	).Command()
+	workerCmd.SetOut(&bytes.Buffer{})
+	workerCmd.SetErr(&bytes.Buffer{})
+	workerCmd.SetArgs([]string{"hook", "memory-extract-worker", "--job", jobPath})
+	if err := workerCmd.Execute(); err != nil {
+		t.Fatalf("worker Execute() error = %v", err)
+	}
+	if memoryStub.extractCallCount != 2 {
+		t.Fatalf("extract calls = %d, want bounded 2", memoryStub.extractCallCount)
+	}
+	if handedOffPath != jobPath {
+		t.Fatalf("handoff path = %q, want %q", handedOffPath, jobPath)
+	}
+	if _, err := os.Stat(jobPath); err != nil {
+		t.Fatalf("handed-off job must remain pending: %v", err)
+	}
+}
+
+func TestRootCLI_HookMemoryExtractWorkerRejectsJobOutsideQueue(t *testing.T) {
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+	outsidePath := filepath.Join(t.TempDir(), strings.Repeat("a", 64)+".json")
+	if err := os.WriteFile(outsidePath, []byte(`{"schema_version":1,"session_id":"outside"}`), 0o600); err != nil {
+		t.Fatalf("WriteFile(outside job) error = %v", err)
+	}
+	workerCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(&memoryUsecaseStub{}),
+	).Command()
+	workerCmd.SetOut(&bytes.Buffer{})
+	workerCmd.SetErr(&bytes.Buffer{})
+	workerCmd.SetArgs([]string{"hook", "memory-extract-worker", "--job", outsidePath})
+	err := workerCmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "outside the queue directory") {
+		t.Fatalf("worker error = %v, want outside-queue rejection", err)
 	}
 }
 
@@ -2162,6 +2259,7 @@ func TestRootCLI_HookSubagentStopCommand_EndsChildAndClearsActiveState(t *testin
 	eventStub := &eventUsecaseStub{}
 	memoryStub := &memoryUsecaseStub{}
 	var launchedJobPath string
+	primaryEventCompleteAtLaunch := false
 	rootCmd := newTestRootCLI(
 		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 		cli.WithSession(sessionStub),
@@ -2169,6 +2267,7 @@ func TestRootCLI_HookSubagentStopCommand_EndsChildAndClearsActiveState(t *testin
 		cli.WithMemory(memoryStub),
 		cli.WithHookMemoryExtractLauncher(func(path string) error {
 			launchedJobPath = path
+			primaryEventCompleteAtLaunch = eventStub.logCall.sessionID == types.SessionID("parent-session")
 			return nil
 		}),
 	).Command()
@@ -2185,6 +2284,9 @@ func TestRootCLI_HookSubagentStopCommand_EndsChildAndClearsActiveState(t *testin
 	}
 	if got, want := eventStub.logCall.sessionID, types.SessionID("parent-session"); got != want {
 		t.Fatalf("back-compat log sessionID = %q, want %q", got, want)
+	}
+	if !primaryEventCompleteAtLaunch {
+		t.Fatal("worker launched before subagent-stop primary event completed")
 	}
 	job := readHookMemoryExtractJobForTest(t, launchedJobPath)
 	if got, want := job.SessionID, "parent-session:sub:toolu_1"; got != want {

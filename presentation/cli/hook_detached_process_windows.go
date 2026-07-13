@@ -2,6 +2,15 @@
 
 package cli
 
-import "os/exec"
+import (
+	"os/exec"
+	"syscall"
 
-func configureDetachedHookProcess(_ *exec.Cmd) {}
+	"golang.org/x/sys/windows"
+)
+
+func configureDetachedHookProcess(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | windows.DETACHED_PROCESS | windows.CREATE_BREAKAWAY_FROM_JOB,
+	}
+}
