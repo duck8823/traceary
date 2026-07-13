@@ -328,7 +328,19 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			continue
 		}
 
-		check := c.inspectClaudeOrConfigFile(ctx, targetClient, outputPath, resolvedProjectDir)
+		var check doctorCheck
+		if targetClient == "codex" {
+			pluginState := c.detectCodexPluginHookFallback()
+			if pluginState.PluginEnabled {
+				trust := codexPluginHookTrustProbeFunc(ctx, resolvedProjectDir, pluginState.PluginKey)
+				report.Checks = append(report.Checks, codexPluginHookTrustCheck(trust))
+				check = c.inspectCodexConfigWithHookTrust(ctx, outputPath, resolvedProjectDir, trust)
+			} else {
+				check = c.inspectClaudeOrConfigFile(ctx, targetClient, outputPath, resolvedProjectDir)
+			}
+		} else {
+			check = c.inspectClaudeOrConfigFile(ctx, targetClient, outputPath, resolvedProjectDir)
+		}
 		c.attachDoctorConfigFix(&check, targetClient, outputPath, resolvedProjectDir)
 		report.Checks = append(report.Checks, check)
 		if targetClient == "gemini" || targetClient == "claude" {
@@ -1287,7 +1299,7 @@ func (c *RootCLI) inspectClaudeOrConfigFile(ctx context.Context, client, outputP
 		if configCheck.Status == doctorStatusFail {
 			return configCheck
 		}
-		if c.claudeConfigHasTracearyHooks(outputPath) {
+		if c.configHasTracearyHooks(outputPath) {
 			return doctorCheck{
 				Name:   "claude-config",
 				Status: doctorStatusWarn,
@@ -1490,12 +1502,12 @@ func (c *RootCLI) inspectGlobalConfigForClient(client string) *doctorCheck {
 	}
 }
 
-// claudeConfigHasTracearyHooks returns true iff the Claude settings file
-// at outputPath is a valid JSON object with a hooks field that contains
-// at least one Traceary-managed hook entry. Missing files, unreadable
-// files, and malformed JSON all return false so the plugin-detection
-// branch interprets them as "no Traceary hook registered here".
-func (c *RootCLI) claudeConfigHasTracearyHooks(outputPath string) bool {
+// configHasTracearyHooks returns true iff the host hook file at outputPath is
+// a valid JSON object with a hooks field that contains at least one
+// Traceary-managed hook entry. Missing files, unreadable files, and malformed
+// JSON all return false so host-specific plugin detection can interpret them
+// as "no manual Traceary hook registered here".
+func (c *RootCLI) configHasTracearyHooks(outputPath string) bool {
 	content, err := os.ReadFile(outputPath)
 	if err != nil {
 		return false
@@ -1507,17 +1519,10 @@ func (c *RootCLI) claudeConfigHasTracearyHooks(outputPath string) bool {
 	return hasTracearyHook
 }
 
-func (c *RootCLI) inspectDoctorConfigFile(ctx context.Context, client string, outputPath string, projectDir string) doctorCheck {
+func (c *RootCLI) inspectDoctorConfigFile(_ context.Context, client string, outputPath string, projectDir string) doctorCheck {
 	content, err := os.ReadFile(outputPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			if client == "codex" {
-				if state := c.detectCodexPluginHookFallback(); state.pluginHooksConfirmedActive() {
-					return codexPluginManagedHooksCheck(state, outputPath)
-				} else if state.PluginEnabled {
-					return codexPluginHookFallbackCheck(state, outputPath, localizef("does not exist", "が存在しません"))
-				}
-			}
 			return doctorCheck{
 				Name:   client + "-config",
 				Status: doctorStatusWarn,
@@ -1555,13 +1560,6 @@ func (c *RootCLI) inspectDoctorConfigFile(ctx context.Context, client string, ou
 	}
 
 	if !hasHooksField {
-		if client == "codex" {
-			if state := c.detectCodexPluginHookFallback(); state.pluginHooksConfirmedActive() {
-				return codexPluginManagedHooksCheck(state, outputPath)
-			} else if state.PluginEnabled {
-				return codexPluginHookFallbackCheck(state, outputPath, localizef("has no hooks field", "には hooks フィールドがありません"))
-			}
-		}
 		return doctorCheck{
 			Name:   client + "-config",
 			Status: doctorStatusWarn,
@@ -1576,11 +1574,6 @@ func (c *RootCLI) inspectDoctorConfigFile(ctx context.Context, client string, ou
 	}
 
 	if hasTracearyManagedHook {
-		if client == "codex" {
-			if state := c.detectCodexPluginHookFallback(); state.pluginHooksConfirmedActive() {
-				return c.codexDuplicateRegistrationCheck(ctx, state, outputPath)
-			}
-		}
 		duplicates, duplicateErr := c.hooksInspector.DuplicateManagedHooks(content)
 		if duplicateErr != nil {
 			return doctorCheck{
@@ -1623,14 +1616,6 @@ func (c *RootCLI) inspectDoctorConfigFile(ctx context.Context, client string, ou
 			Name:    client + "-config",
 			Status:  doctorStatusPass,
 			Message: localizef("%s config contains Traceary-managed hooks: %s", "%s の設定には Traceary 管理下の hook があります: %s", client, outputPath),
-		}
-	}
-
-	if client == "codex" {
-		if state := c.detectCodexPluginHookFallback(); state.pluginHooksConfirmedActive() {
-			return codexPluginManagedHooksCheck(state, outputPath)
-		} else if state.PluginEnabled {
-			return codexPluginHookFallbackCheck(state, outputPath, localizef("has hook entries but none are Traceary-managed", "には hook エントリはありますが Traceary 管理のものがありません"))
 		}
 	}
 
@@ -1742,6 +1727,19 @@ var codexManagedEventKeys = map[string][]string{
 	"UserPromptSubmit": []string{"traceary-prompt.sh:codex"},
 	"Stop":             []string{"traceary-transcript.sh:codex", "traceary-session.sh:codex:stop"},
 	"PostToolUse":      []string{"traceary-audit.sh:codex"},
+}
+
+// expectedCodexPluginHookCount returns the number of command hooks in the
+// current packaged Codex contract. Codex app-server currently exposes plugin
+// identity and trust state per command, but not the event or command identity,
+// so exact cardinality is the fail-closed completeness boundary available to
+// doctor before it permits removal of the manual fallback.
+func expectedCodexPluginHookCount() int {
+	count := 0
+	for _, keys := range codexManagedEventKeys {
+		count += len(keys)
+	}
+	return count
 }
 
 // missingTracearyManagedCodexEvents returns the subset of Traceary-managed
