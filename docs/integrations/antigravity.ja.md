@@ -19,6 +19,8 @@ Antigravity の `hooks.json` は *hook-group 名* から event config への top
 
 Antigravity の payload は camelCase フィールド（`conversationId`, `workspacePaths`, `transcriptPath`, `toolCall.name`, `toolCall.args.CommandLine`, `toolCall.args.Cwd`, `stepIdx`, `terminationReason`）を使います。Traceary は共有 runtime（session / audit / transcript）を再利用する前に、これらを内部形式へ正規化します。
 
+packaged plugin は `mcp_config.json` を通じてローカルの `traceary mcp-server` も公開し、`traceary-session-history`、`traceary-memory-review`、`traceary-memory-remember` の文脈 skill を同梱します。`traceary hooks install` の直接設定は hook のみを導入します。Antigravity に MCP tool と skill を自動検出させる場合は packaged plugin を使用してください。
+
 ## 制限事項
 
 - **`SessionStart` が無い。** conversation 単位で最初に発火するのは `PreInvocation`（毎回のモデル呼び出し前に発火）なので、Traceary はこれを `conversationId` を key にした冪等な session 開始/更新として使います。
@@ -78,7 +80,7 @@ traceary hooks install --client antigravity --global
 
 alias `agy` と `antigravity-cli` は canonical な `antigravity` client に解決されます。インストールは非破壊で、置換されるのは `traceary` hook グループのみ、その他の top-level hook グループはそのまま保持されます。`--upgrade` で再実行すると、ユーザー追加グループを保持したまま managed グループを更新します。
 
-代わりに、同梱の plugin（[`integrations/antigravity-plugin/`](../../integrations/antigravity-plugin/)）を追加することもできます。これは同じ `traceary` hook グループを `hooks.json` として、公式 Antigravity plugin スキーマに従う `plugin.json` manifest とともに同梱しています。
+代わりに、同梱の plugin（[`integrations/antigravity-plugin/`](../../integrations/antigravity-plugin/)）を導入できます。同じ `traceary` hook グループに加え、公式 Antigravity スキーマに従う version 付き `plugin.json`、Traceary MCP server 用の `mcp_config.json`、共有の memory/session skill 3 件を同梱しています。
 
 ## セットアップガイド
 
@@ -100,8 +102,10 @@ traceary doctor --client antigravity --json
 - `antigravity-hooks-workspace` — workspace 経路（`<project>/.agents/hooks.json`）。
 - `antigravity-hooks-user` — user-level 経路（`~/.gemini/config/hooks.json`）。
 - `antigravity-cli-plugin` — `agy plugin install` が import する CLI plugin 経路のディレクトリ `~/.gemini/antigravity-cli/plugins/traceary` を検査します。サポートされた Antigravity の top-level hook-group 形式なら `pass`、**古い Gemini 形式のパッケージ**（legacy な top-level `{"hooks": ...}` 形式、または `traceary hook ... gemini` を呼び出す command）を見つけると `warn` を報告します。この check は `plugin.json`・`hooks.json`・`hooks/hooks.json` のみを読み取り、transcript や認証情報は読みません。
+- `antigravity-mcp` — 導入済み CLI plugin の `mcp_config.json` に `traceary mcp-server` 登録があれば `pass` します。plugin はあるが登録がなければ `warn`、plugin 経路自体がなければ `skip` します。hook の直接設定は MCP tool を提供しないためです。
 - `antigravity-hooks` — 集約サマリー。**いずれか**の経路の config が不正（経路別 check が `fail`）な場合は、別の経路が健全でも Antigravity が読み込めないため `fail` を報告します。それ以外では、**いずれか**の経路が健全なら `pass`、**どの**経路も健全でない場合のみ、導入手順を案内する actionable な `warn` を報告します。
 - `antigravity-capture-levels` — 常に `pass`。hook が導入されているだけで transcript 完全記録を暗示しないよう、実行モードごとの **記録レベル** を報告する status 専用 check です。経路の導入健全性（上の `antigravity-hooks`）とは別物で、`start_supported`（PreInvocation）と `tool_audit_supported`（PreToolUse+PostToolUse `run_command`）はすべてのモードで、`final_turn_supported`（Stop → transcript + turn 境界）は対話実行でのみ記録されることを報告します。headless `agy --print` では host が print mode で `Stop`/finalization hook を発行しないため `final_turn_unavailable` となります。これは print mode における想定どおりの記録レベルであり導入失敗ではないため、check は `pass` のままです。
+- `antigravity-plugin-version` — 導入済み plugin manifest と実行中 Traceary release の version を比較し、不一致なら `warn` を報告します。Traceary 更新後は packaged plugin も再導入してください。
 
 **各経路は単体では任意です。** 経路が無い場合は `warn` ではなく `skip` を報告します。たとえば user-level または CLI plugin の経路が健全であれば、存在しない workspace `.agents/hooks.json` は `skip` 扱いとなり、`antigravity-hooks` サマリーは `pass` のままです。doctor が hook coverage について warn するのは、3 経路のいずれも `traceary` グループを登録していないときだけです。経路ファイルが存在するが不正（JSON オブジェクトでない）な場合は、他経路の状態に関わらず Antigravity 自体が読み込めないため `fail` を報告します。
 
@@ -141,6 +145,8 @@ agy plugin validate integrations/antigravity-plugin
 # リポジトリ内の構造検証:
 go run ./cmd/repo-tooling integrations verify
 ```
+
+Antigravity validator では skill が `3 processed`、MCP server と hook group がそれぞれ `1 processed` と表示されます。
 
 ## 公式リファレンス
 
