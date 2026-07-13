@@ -49,6 +49,36 @@ func (c *RootCLI) inspectMCPRegistrationForClient(client, outputPath string) doc
 	}
 }
 
+func (c *RootCLI) inspectAntigravityMCPRegistration() doctorCheck {
+	const (
+		name = "antigravity-mcp"
+		fix  = "cd <traceary-repository> && agy plugin install integrations/antigravity-plugin"
+	)
+	home, err := userHomeDirFunc()
+	if err != nil {
+		return doctorCheck{Name: name, Status: doctorStatusFail, Message: localizef("failed to resolve home directory for Antigravity MCP registration: %v", "Antigravity MCP registration 用のホームディレクトリを解決できませんでした: %v", err)}
+	}
+	pluginDir := antigravityCLIPluginDir(home)
+	info, err := os.Stat(pluginDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return doctorCheck{Name: name, Status: doctorStatusSkip, Message: localizef("Antigravity CLI plugin is not installed at %s; direct hook installations do not provide MCP tools", "%s に Antigravity CLI plugin がありません。hook の直接設定では MCP tool は提供されません", pluginDir)}
+		}
+		return doctorCheck{Name: name, Status: doctorStatusFail, Message: localizef("failed to inspect Antigravity CLI plugin directory: %v", "Antigravity CLI plugin directory の確認に失敗しました: %v", err)}
+	}
+	if !info.IsDir() {
+		return doctorCheck{Name: name, Status: doctorStatusFail, Message: localizef("Antigravity CLI plugin path is not a directory: %s", "Antigravity CLI plugin path が directory ではありません: %s", pluginDir)}
+	}
+	mcpPath := filepath.Join(pluginDir, "mcp_config.json")
+	if _, err := os.Stat(mcpPath); err != nil {
+		if os.IsNotExist(err) {
+			return doctorCheck{Name: name, Status: doctorStatusWarn, Message: localizef("Antigravity CLI plugin is installed but does not include the Traceary MCP configuration: %s", "Antigravity CLI plugin は導入済みですが Traceary MCP configuration がありません: %s", mcpPath), Hint: "reinstall the Antigravity CLI plugin with MCP support", FixCommand: fix}
+		}
+		return doctorCheck{Name: name, Status: doctorStatusFail, Message: localizef("failed to inspect Antigravity MCP configuration: %v", "Antigravity MCP configuration の確認に失敗しました: %v", err)}
+	}
+	return c.inspectJSONMCPRegistration(name, "antigravity", []string{mcpPath}, fix)
+}
+
 func inspectJSONMCPRegistration(name, client string, paths []string, fix string) doctorCheck {
 	return (&RootCLI{}).inspectJSONMCPRegistration(name, client, paths, fix)
 }

@@ -19,6 +19,8 @@ Antigravity's `hooks.json` is a top-level map of *hook-group name* to event conf
 
 Antigravity payloads use camelCase fields (`conversationId`, `workspacePaths`, `transcriptPath`, `toolCall.name`, `toolCall.args.CommandLine`, `toolCall.args.Cwd`, `stepIdx`, `terminationReason`). Traceary normalizes these into its internal shape before reusing the shared session / audit / transcript runtime.
 
+The packaged plugin also exposes the local `traceary mcp-server` through `mcp_config.json` and includes the `traceary-session-history`, `traceary-memory-review`, and `traceary-memory-remember` contextual skills. Direct `traceary hooks install` routes install hooks only; use the packaged plugin when Antigravity should discover the MCP tools and skills automatically.
+
 ## Limitations
 
 - **No `SessionStart`.** The earliest per-conversation signal is `PreInvocation`, which fires before every model call, so Traceary uses it as an idempotent session start/refresh keyed by `conversationId`.
@@ -70,7 +72,7 @@ traceary hooks install --client antigravity --global
 
 Aliases `agy` and `antigravity-cli` resolve to the same canonical `antigravity` client. The install is non-destructive: only the `traceary` hook group is replaced, and every other top-level hook group is preserved verbatim. Re-run with `--upgrade` to refresh the managed group while preserving user-added groups.
 
-Alternatively, add the packaged plugin under [`integrations/antigravity-plugin/`](../../integrations/antigravity-plugin/), which ships the same `traceary` hook group as `hooks.json` plus a `plugin.json` manifest following the official Antigravity plugin schema.
+Alternatively, install the packaged plugin under [`integrations/antigravity-plugin/`](../../integrations/antigravity-plugin/). It ships the same `traceary` hook group, a versioned `plugin.json` manifest following the official Antigravity schema, `mcp_config.json` for the Traceary MCP server, and the three shared memory/session skills.
 
 ## Setup guide
 
@@ -92,9 +94,11 @@ traceary doctor --client antigravity --json
 - `antigravity-hooks-workspace` — the workspace route (`<project>/.agents/hooks.json`).
 - `antigravity-hooks-user` — the user-level route (`~/.gemini/config/hooks.json`).
 - `antigravity-cli-plugin` — the CLI plugin route directory `~/.gemini/antigravity-cli/plugins/traceary` that `agy plugin install` imports into. It `pass`es when the package uses the supported Antigravity top-level hook-group format and `warn`s when it finds a **stale Gemini-shaped package** — a legacy top-level `{"hooks": ...}` envelope or commands that call `traceary hook ... gemini`. The check reads only `plugin.json`, `hooks.json`, and `hooks/hooks.json`; it never reads transcripts or credentials.
+- `antigravity-mcp` — `pass`es when an installed CLI plugin contains `mcp_config.json` with the `traceary mcp-server` registration. It `warn`s when the plugin exists without that configuration and `skip`s when the plugin route is not installed, because direct hook installations intentionally provide no MCP tools.
 - `antigravity-hooks` — the aggregate summary. It `fail`s when **any** route's config is malformed (a per-route `fail`), even if another route is healthy, because Antigravity rejects the bad config regardless; otherwise it `pass`es when **any** route is healthy and `warn`s with an actionable install message only when **no** route is healthy.
 - `antigravity-capture-levels` — always `pass`. Reports the configured public hook capabilities: `start_supported`, `tool_audit_supported`, and `final_turn_supported` for interactive and current headless CLI runs.
 - `antigravity-event-coverage` — checks recent `agent=antigravity` database evidence. It warns when a sufficient sample of started sessions lacks transcript events, even if all hook install routes are healthy.
+- `antigravity-plugin-version` — compares the installed plugin manifest version with the running Traceary release and warns when they differ. Reinstall the packaged plugin after upgrading Traceary.
 
 **Each route is optional on its own.** A missing route is reported as `skip`, never `warn`: for example, if the user-level or CLI-plugin route is healthy, the absent workspace `.agents/hooks.json` is `skip`ped and the `antigravity-hooks` summary stays `pass`. Doctor only warns about hook coverage when none of the three routes registers the `traceary` group. A route file that is present but malformed (not a JSON object) is reported as `fail`, since Antigravity itself rejects it regardless of the other routes.
 
@@ -134,6 +138,8 @@ agy plugin validate integrations/antigravity-plugin
 # structural validation in-repo:
 go run ./cmd/repo-tooling integrations verify
 ```
+
+The Antigravity validator should report `3 processed` skills, `1 processed` MCP server, and `1 processed` hook group.
 
 ## Official references
 

@@ -309,6 +309,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			// carries the actionable install message when no route is healthy.
 			report.Checks = append(report.Checks, inspectAntigravityCapability())
 			report.Checks = append(report.Checks, c.inspectAntigravityHookRoutes(resolvedProjectDir)...)
+			report.Checks = append(report.Checks, c.inspectAntigravityMCPRegistration())
 			// Configured capture levels and observed event coverage are reported
 			// separately from route health. A valid hooks file does not prove that
 			// transcriptPath was readable or events reached the database.
