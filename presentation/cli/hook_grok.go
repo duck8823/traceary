@@ -24,7 +24,7 @@ const grokHookClient = "grok"
 // event semantics to the existing shared hook runtime.
 func (c *RootCLI) newHookGrokCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:    "grok <session-start|user-prompt-submit|pre-tool-use|post-tool-use|stop>",
+		Use:    "grok <session-start|user-prompt-submit|pre-tool-use|post-tool-use|stop|pre-compact|post-compact>",
 		Short:  "Runtime entrypoints for Grok Build hooks",
 		Hidden: true,
 	}
@@ -33,8 +33,46 @@ func (c *RootCLI) newHookGrokCommand() *cobra.Command {
 	cmd.AddCommand(c.newHookGrokEventCommand("pre-tool-use", c.runHookGrokPreToolUse))
 	cmd.AddCommand(c.newHookGrokEventCommand("post-tool-use", c.runHookGrokPostToolUse))
 	cmd.AddCommand(c.newHookGrokEventCommand("stop", c.runHookGrokStop))
+	cmd.AddCommand(c.newHookGrokEventCommand("pre-compact", c.runHookGrokPreCompact))
+	cmd.AddCommand(c.newHookGrokEventCommand("post-compact", c.runHookGrokPostCompact))
 	cmd.AddCommand(c.newHookGrokTranscriptWorkerCommand())
 	return cmd
+}
+
+func (c *RootCLI) runHookGrokPreCompact(ctx context.Context, input io.Reader, dbPath string) error {
+	return c.runHookGrokCompact(ctx, input, "pre-compact", dbPath)
+}
+
+func (c *RootCLI) runHookGrokPostCompact(ctx context.Context, input io.Reader, dbPath string) error {
+	return c.runHookGrokCompact(ctx, input, "post-compact", dbPath)
+}
+
+func (c *RootCLI) runHookGrokCompact(ctx context.Context, input io.Reader, action string, dbPath string) error {
+	normalized, err := normalizeGrokHookPayload(input)
+	if err != nil {
+		return err
+	}
+	normalized, err = ensureGrokCompactTrigger(normalized)
+	if err != nil {
+		return err
+	}
+	return c.runHookCompact(ctx, nil, bytes.NewReader(normalized), grokHookClient, action, dbPath)
+}
+
+func ensureGrokCompactTrigger(payload []byte) ([]byte, error) {
+	var normalized map[string]any
+	if err := json.Unmarshal(payload, &normalized); err != nil {
+		return nil, xerrors.Errorf("failed to decode normalized Grok compact payload: %w", err)
+	}
+	trigger, ok := normalized["trigger"].(string)
+	if !ok || strings.TrimSpace(trigger) == "" {
+		normalized["trigger"] = "unavailable"
+	}
+	encoded, err := marshalStableJSON(normalized)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to normalize Grok compact trigger: %w", err)
+	}
+	return encoded, nil
 }
 
 func (c *RootCLI) newHookGrokEventCommand(
@@ -144,6 +182,7 @@ func normalizeGrokHookPayload(input io.Reader) ([]byte, error) {
 	copyGrokHookField(normalized, "transcript_path", source, "transcriptPath")
 	copyGrokHookField(normalized, "prompt", source, "prompt")
 	copyGrokHookField(normalized, "prompt_id", source, "promptId")
+	copyGrokHookField(normalized, "trigger", source, "source")
 	copyGrokHookField(normalized, "tool_name", source, "toolName")
 	copyGrokHookField(normalized, "tool_use_id", source, "toolUseId")
 	copyGrokHookField(normalized, "tool_input", source, "toolInput")

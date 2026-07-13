@@ -30,6 +30,8 @@ func (h *GrokHooksHandler) Build(tracearyBin string) model.Hooks {
 		{event: "PreToolUse", action: "pre-tool-use", name: "traceary-tool-pre"},
 		{event: "PostToolUse", action: "post-tool-use", name: "traceary-audit"},
 		{event: "Stop", action: "stop", name: "traceary-stop"},
+		{event: "PreCompact", action: "pre-compact", name: "traceary-compact-pre"},
+		{event: "PostCompact", action: "post-compact", name: "traceary-compact-post"},
 	}
 
 	eventOrder := make([]string, 0, len(actionByEvent))

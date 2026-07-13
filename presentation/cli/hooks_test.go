@@ -194,6 +194,8 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 				"PreToolUse":       "pre-tool-use",
 				"PostToolUse":      "post-tool-use",
 				"Stop":             "stop",
+				"PreCompact":       "pre-compact",
+				"PostCompact":      "post-compact",
 			}
 			if len(settings.Hooks) != len(wantCommands) {
 				t.Fatalf("Grok hooks = %v, want exactly %v", settings.Hooks, wantCommands)
