@@ -52,9 +52,8 @@ type grokInspectDocument struct {
 		Name     string `json:"name"`
 		Enabled  bool   `json:"enabled"`
 		Provides struct {
-			Skills     int  `json:"skills"`
-			Hooks      bool `json:"hooks"`
-			MCPServers int  `json:"mcpServers"`
+			Skills     int `json:"skills"`
+			MCPServers int `json:"mcpServers"`
 		} `json:"provides"`
 	} `json:"plugins"`
 }
@@ -103,7 +102,6 @@ func probeGrokDoctorState(ctx context.Context, projectDir string) (grokDoctorSta
 		state.PluginEnabled = plugin.Enabled
 		state.MCPServers = plugin.Provides.MCPServers
 		state.Skills = plugin.Provides.Skills
-		state.NativeHooks = plugin.Provides.Hooks
 	}
 	for _, hook := range document.Hooks {
 		if hook.Source.Type == "project" {
