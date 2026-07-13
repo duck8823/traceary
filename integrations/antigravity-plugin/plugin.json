@@ -1,6 +1,6 @@
 {
   "$schema": "https://antigravity.google/schemas/v1/plugin.json",
   "name": "traceary",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "description": "Local-first Traceary integration for Antigravity with automatic session/audit hooks."
 }

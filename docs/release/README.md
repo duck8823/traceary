@@ -44,6 +44,8 @@ Tagged releases publish Claude Code and Codex packages versioned in-repo and tra
 
 As of v0.21.1, Traceary ships an Antigravity plugin package (`integrations/antigravity-plugin/`) against the documented public Antigravity hook/plugin surface. Install the hooks with `traceary hooks install --client antigravity` (workspace `.agents/hooks.json`) or `--global` (`~/.gemini/config/hooks.json`). See the [Antigravity hooks and plugin guide](../integrations/antigravity.md).
 
+As of v0.23.0, Traceary also ships a native Grok Build package (`integrations/grok-plugin/`) with the verified lifecycle hooks, Traceary MCP server, and shared memory/session skills. Install the package from a checkout of the matching release tag with `scripts/install-grok-plugin.sh`, then verify it with `traceary doctor --client grok`. See the [Grok Build plugin guide](../integrations/grok-plugin.md).
+
 See the [native integrations guide](../integrations/README.md) for the host-specific install flows.
 
 ## Version metadata
@@ -90,7 +92,7 @@ The docs job now checks out the full git history so the tag coverage check can c
 
 - `.claude-plugin/marketplace.json` exists and points to `./integrations/claude-plugin`
 - `.agents/plugins/marketplace.json` exists and points to `./plugins/traceary`
-- `integrations/claude-plugin/.claude-plugin/plugin.json`, `integrations/gemini-extension/gemini-extension.json`, and `plugins/traceary/.codex-plugin/plugin.json` all have a `version` equal to the root `VERSION` file
+- `integrations/claude-plugin/.claude-plugin/plugin.json`, `integrations/antigravity-plugin/plugin.json`, `integrations/gemini-extension/gemini-extension.json`, `integrations/grok-plugin/plugin.json`, and `plugins/traceary/.codex-plugin/plugin.json` all have a `version` equal to the root `VERSION` file
 
 If it fails, run `make release/bump VERSION=X.Y.Z` for the intended release or update `VERSION` and the affected manifest together. The check runs in CI, in `.github/workflows/release.yml` before GoReleaser, and from `make release/bump`.
 
