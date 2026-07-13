@@ -39,6 +39,7 @@ type RootCLI struct {
 	readPresets                map[string]presentation.ReadPreset
 	defaultReadColor           string
 	hookMemoryExtractLauncher  func(string) error
+	hookGrokTranscriptLauncher func(string) error
 	hookMemoryBeforeJobRemoval func()
 	hookMemoryAfterFinalCheck  func()
 	// databasePathSetter is invoked by each subcommand's RunE after it
@@ -186,6 +187,13 @@ func WithDefaultReadColor(value string) RootCLIOption {
 // tests; production callers use the default process launcher.
 func WithHookMemoryExtractLauncher(launcher func(string) error) RootCLIOption {
 	return func(c *RootCLI) { c.hookMemoryExtractLauncher = launcher }
+}
+
+// WithHookGrokTranscriptLauncher overrides the detached Grok transcript
+// worker launcher. Production callers use the default detached process;
+// tests can capture the durable job path and run the worker deterministically.
+func WithHookGrokTranscriptLauncher(launcher func(string) error) RootCLIOption {
+	return func(c *RootCLI) { c.hookGrokTranscriptLauncher = launcher }
 }
 
 // WithHookMemoryBeforeJobRemoval installs a deterministic synchronization

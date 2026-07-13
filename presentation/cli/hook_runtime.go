@@ -65,6 +65,7 @@ func (c *RootCLI) newHookCommand() *cobra.Command {
 	hookCmd.AddCommand(c.newHookPromptCommand())
 	hookCmd.AddCommand(c.newHookTranscriptCommand())
 	hookCmd.AddCommand(c.newHookAntigravityCommand())
+	hookCmd.AddCommand(c.newHookGrokCommand())
 	hookCmd.AddCommand(c.newHookMemoryExtractWorkerCommand())
 
 	return hookCmd
@@ -1238,6 +1239,8 @@ func transcriptExtractorFor(client string) (transcriptExtractor, bool) {
 		return extractGeminiTranscript, true
 	case "antigravity":
 		return extractAntigravityTranscript, true
+	case "grok":
+		return extractGrokTranscript, true
 	default:
 		return nil, false
 	}
