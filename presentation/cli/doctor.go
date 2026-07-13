@@ -389,7 +389,7 @@ func (c *RootCLI) inspectStaleActiveSessions(ctx context.Context) doctorCheck {
 			Message: localizef("store management usecase is not configured", "ストア管理ユースケースが設定されていません"),
 		}
 	}
-	result, err := c.storeManagement.CloseStaleSessions(ctx, defaultActiveSessionStaleAfter, true, types.SessionID(""))
+	result, err := c.storeManagement.CloseStaleSessions(ctx, defaultActiveSessionStaleAfter, true, nil)
 	if err != nil {
 		return doctorCheck{
 			Name:    checkName,

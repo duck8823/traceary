@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -143,6 +144,100 @@ func TestRootCLI_HookAntigravityPreInvocationProtectsCurrentSessionFromGC(t *tes
 	}
 	if endedAt.Valid {
 		t.Fatalf("current Antigravity session was closed at %s", endedAt.String)
+	}
+}
+
+func TestRootCLI_HookAntigravityConcurrentPreInvocationsProtectAllActiveSessions(t *testing.T) {
+	if os.Getenv("TRACEARY_ANTIGRAVITY_GC_HELPER") == "1" {
+		dbPath := os.Getenv("TRACEARY_DB_PATH")
+		db := sqliteinfra.NewDatabase(dbPath, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+		eventDS := sqliteinfra.NewEventDatasource(db)
+		sessionDS := sqliteinfra.NewSessionDatasource(db)
+		storeUC := usecase.NewStoreManagementUsecase(sqliteinfra.NewStoreManagementDatasource(db))
+		sessionUC := usecase.NewSessionUsecase(eventDS, sessionDS, sessionDS, eventDS)
+		rootCmd := newTestRootCLI(
+			cli.WithStoreManagement(storeUC),
+			cli.WithSession(sessionUC),
+			cli.WithDatabasePathSetter(db.SetPath),
+		).Command()
+		rootCmd.SetOut(&bytes.Buffer{})
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetIn(strings.NewReader(os.Getenv("TRACEARY_ANTIGRAVITY_GC_PAYLOAD")))
+		rootCmd.SetArgs([]string{"hook", "antigravity", "pre-invocation"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("helper PreInvocation error = %v", err)
+		}
+		return
+	}
+
+	stateDir := t.TempDir()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	db := sqliteinfra.NewDatabase(dbPath, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+	storeUC := usecase.NewStoreManagementUsecase(sqliteinfra.NewStoreManagementDatasource(db))
+	if err := storeUC.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	sqlDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	old := time.Now().UTC().Add(-48 * time.Hour).Format(time.RFC3339Nano)
+	for _, sessionID := range []string{"conv-a", "conv-b", "abandoned"} {
+		if _, err := sqlDB.Exec(`INSERT INTO sessions(session_id, started_at) VALUES (?, ?)`, sessionID, old); err != nil {
+			t.Fatalf("insert %s: %v", sessionID, err)
+		}
+	}
+	for key, sessionID := range map[string]string{"key-a": "conv-a", "key-b": "conv-b"} {
+		if err := os.WriteFile(filepath.Join(stateDir, "antigravity-"+key), []byte(sessionID), 0o600); err != nil {
+			t.Fatalf("write %s state: %v", sessionID, err)
+		}
+	}
+
+	type helperProcess struct {
+		cmd    *exec.Cmd
+		output *bytes.Buffer
+	}
+	commands := make([]helperProcess, 0, 2)
+	for key, sessionID := range map[string]string{"key-a": "conv-a", "key-b": "conv-b"} {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestRootCLI_HookAntigravityConcurrentPreInvocationsProtectAllActiveSessions$")
+		cmd.Env = append(os.Environ(),
+			"TRACEARY_ANTIGRAVITY_GC_HELPER=1",
+			"TRACEARY_ANTIGRAVITY_GC_PAYLOAD={\"conversationId\":\""+sessionID+"\",\"workspacePaths\":[\"/repo\"]}",
+			"TRACEARY_HOOK_STATE_DIR="+stateDir,
+			"TRACEARY_HOOK_STATE_KEY="+key,
+			"TRACEARY_DB_PATH="+dbPath,
+			"TRACEARY_WORKSPACE=github.com/duck8823/traceary",
+		)
+		output := &bytes.Buffer{}
+		cmd.Stdout = output
+		cmd.Stderr = output
+		if err := cmd.Start(); err != nil {
+			t.Fatalf("start %s helper: %v", sessionID, err)
+		}
+		commands = append(commands, helperProcess{cmd: cmd, output: output})
+	}
+	for _, helper := range commands {
+		if err := helper.cmd.Wait(); err != nil {
+			t.Fatalf("helper error = %v\n%s", err, helper.output.Bytes())
+		}
+	}
+
+	for _, tc := range []struct {
+		sessionID  string
+		wantClosed bool
+	}{
+		{sessionID: "conv-a", wantClosed: false},
+		{sessionID: "conv-b", wantClosed: false},
+		{sessionID: "abandoned", wantClosed: true},
+	} {
+		var endedAt sql.NullString
+		if err := sqlDB.QueryRow(`SELECT ended_at FROM sessions WHERE session_id = ?`, tc.sessionID).Scan(&endedAt); err != nil {
+			t.Fatalf("select %s ended_at: %v", tc.sessionID, err)
+		}
+		if endedAt.Valid != tc.wantClosed {
+			t.Fatalf("%s closed = %v, want %v", tc.sessionID, endedAt.Valid, tc.wantClosed)
+		}
 	}
 }
 

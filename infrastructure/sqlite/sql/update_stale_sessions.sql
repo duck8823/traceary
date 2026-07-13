@@ -1,7 +1,7 @@
 UPDATE sessions
 SET ended_at = ?
 WHERE ended_at IS NULL
-  AND session_id <> ?
+  /* protected sessions */
   AND ts_norm(started_at) < ts_norm(?)
   AND NOT EXISTS (
       SELECT 1

@@ -6,8 +6,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
-
-	"github.com/duck8823/traceary/domain/types"
 )
 
 func (c *RootCLI) newSessionGCCommand() *cobra.Command {
@@ -38,7 +36,7 @@ func (c *RootCLI) newSessionGCCommand() *cobra.Command {
 				return xerrors.Errorf("--stale-after must be greater than 0")
 			}
 
-			result, err := c.storeManagement.CloseStaleSessions(ctx, staleAfter, dryRun, types.SessionID(""))
+			result, err := c.storeManagement.CloseStaleSessions(ctx, staleAfter, dryRun, nil)
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to close stale sessions", "stale セッションの終了に失敗しました"), err)
 			}

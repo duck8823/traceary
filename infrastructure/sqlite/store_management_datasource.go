@@ -342,7 +342,7 @@ func (d *StoreManagementDatasource) CloseStaleSessions(
 	ctx context.Context,
 	staleAfter time.Duration,
 	dryRun bool,
-	protectedSessionID types.SessionID,
+	protectedSessionIDs []types.SessionID,
 ) (int, error) {
 	db, err := d.db.open(ctx)
 	if err != nil {
@@ -355,13 +355,16 @@ func (d *StoreManagementDatasource) CloseStaleSessions(
 	}()
 
 	cutoff := formatTimestamp(time.Now().Add(-staleAfter))
+	countQuery, protectedArgs := staleSessionsQueryWithProtection(countStaleSessionsQuery, "s.session_id", protectedSessionIDs)
+	updateQuery, _ := staleSessionsQueryWithProtection(updateStaleSessionsQuery, "session_id", protectedSessionIDs)
 
 	if dryRun {
+		args := append(protectedArgs, cutoff, cutoff)
 		var count int
 		if err := db.QueryRowContext(
 			ctx,
-			countStaleSessionsQuery,
-			protectedSessionID.String(), cutoff, cutoff,
+			countQuery,
+			args...,
 		).Scan(&count); err != nil {
 			return 0, xerrors.Errorf("failed to count stale sessions: %w", err)
 		}
@@ -369,10 +372,12 @@ func (d *StoreManagementDatasource) CloseStaleSessions(
 	}
 
 	now := formatTimestamp(time.Now())
+	args := append([]any{now}, protectedArgs...)
+	args = append(args, cutoff, cutoff)
 	result, err := db.ExecContext(
 		ctx,
-		updateStaleSessionsQuery,
-		now, protectedSessionID.String(), cutoff, cutoff,
+		updateQuery,
+		args...,
 	)
 	if err != nil {
 		return 0, xerrors.Errorf("failed to close stale sessions: %w", err)
@@ -384,6 +389,29 @@ func (d *StoreManagementDatasource) CloseStaleSessions(
 	}
 
 	return int(rowsAffected), nil
+}
+
+func staleSessionsQueryWithProtection(query string, sessionIDColumn string, protectedSessionIDs []types.SessionID) (string, []any) {
+	const marker = "/* protected sessions */"
+	seen := make(map[types.SessionID]struct{}, len(protectedSessionIDs))
+	args := make([]any, 0, len(protectedSessionIDs))
+	placeholders := make([]string, 0, len(protectedSessionIDs))
+	for _, sessionID := range protectedSessionIDs {
+		if sessionID == "" {
+			continue
+		}
+		if _, ok := seen[sessionID]; ok {
+			continue
+		}
+		seen[sessionID] = struct{}{}
+		placeholders = append(placeholders, "?")
+		args = append(args, sessionID.String())
+	}
+	predicate := ""
+	if len(placeholders) > 0 {
+		predicate = "AND " + sessionIDColumn + " NOT IN (" + strings.Join(placeholders, ", ") + ")"
+	}
+	return strings.Replace(query, marker, predicate, 1), args
 }
 
 func validateDistinctDBPaths(firstPath string, secondPath string) (string, string, error) {

@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -159,8 +160,8 @@ func TestRootCLI_HookSessionCommand_StartRunsRateLimitedSessionGC(t *testing.T) 
 	}
 	if call := storeStub.staleCalls[0]; call.staleAfter != 24*time.Hour || call.dryRun {
 		t.Fatalf("CloseStaleSessions call = %+v, want 24h non-dry-run", call)
-	} else if call.protectedSessionID != "gc-session" {
-		t.Fatalf("protected session ID = %q, want gc-session", call.protectedSessionID)
+	} else if !slices.Contains(call.protectedSessionIDs, types.SessionID("gc-session")) {
+		t.Fatalf("protected session IDs = %q, want gc-session", call.protectedSessionIDs)
 	}
 	markers, err := filepath.Glob(filepath.Join(os.Getenv("TRACEARY_HOOK_STATE_DIR"), "session-gc", "*.stamp"))
 	if err != nil || len(markers) != 1 {

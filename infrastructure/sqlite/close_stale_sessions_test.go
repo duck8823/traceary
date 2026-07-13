@@ -52,14 +52,14 @@ func TestStoreManagementDatasource_CloseStaleSessions_UsesLatestActivity(t *test
 				}
 			}
 
-			dryRunCount, err := store.CloseStaleSessions(context.Background(), 24*time.Hour, true, types.SessionID(""))
+			dryRunCount, err := store.CloseStaleSessions(context.Background(), 24*time.Hour, true, nil)
 			if err != nil {
 				t.Fatalf("CloseStaleSessions(dry-run) error = %v", err)
 			}
 			if dryRunCount != tt.wantClosed {
 				t.Fatalf("dry-run count = %d, want %d", dryRunCount, tt.wantClosed)
 			}
-			closedCount, err := store.CloseStaleSessions(context.Background(), 24*time.Hour, false, types.SessionID(""))
+			closedCount, err := store.CloseStaleSessions(context.Background(), 24*time.Hour, false, nil)
 			if err != nil {
 				t.Fatalf("CloseStaleSessions() error = %v", err)
 			}
@@ -97,14 +97,14 @@ func TestStoreManagementDatasource_CloseStaleSessions_ProtectsCurrentSession(t *
 		}
 	}
 
-	dryRunCount, err := store.CloseStaleSessions(context.Background(), 24*time.Hour, true, types.SessionID("current-session"))
+	dryRunCount, err := store.CloseStaleSessions(context.Background(), 24*time.Hour, true, []types.SessionID{"current-session"})
 	if err != nil {
 		t.Fatalf("CloseStaleSessions(dry-run) error = %v", err)
 	}
 	if dryRunCount != 1 {
 		t.Fatalf("dry-run count = %d, want 1", dryRunCount)
 	}
-	closedCount, err := store.CloseStaleSessions(context.Background(), 24*time.Hour, false, types.SessionID("current-session"))
+	closedCount, err := store.CloseStaleSessions(context.Background(), 24*time.Hour, false, []types.SessionID{"current-session"})
 	if err != nil {
 		t.Fatalf("CloseStaleSessions() error = %v", err)
 	}

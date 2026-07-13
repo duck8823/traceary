@@ -22,7 +22,7 @@ const hookSessionGCInterval = 6 * time.Hour
 // adding a scheduler or making host hooks depend on maintenance succeeding.
 // The marker is keyed by database path so concurrent clients sharing one store
 // perform at most one pass per interval.
-func (c *RootCLI) runOpportunisticSessionGC(ctx context.Context, dbPath string, protectedSessionID types.SessionID) {
+func (c *RootCLI) runOpportunisticSessionGC(ctx context.Context, dbPath string, currentSessionID types.SessionID) {
 	if c.storeManagement == nil || strings.TrimSpace(dbPath) == "" {
 		return
 	}
@@ -56,8 +56,14 @@ func (c *RootCLI) runOpportunisticSessionGC(ctx context.Context, dbPath string, 
 	if hookSessionGCRecentlyCompleted(markerPath, now) {
 		return
 	}
+	protectedSessionIDs, err := activeHookSessionIDs()
+	if err != nil {
+		slog.Debug("opportunistic session GC active-session discovery failed", "error", err)
+		return
+	}
+	protectedSessionIDs = append(protectedSessionIDs, currentSessionID)
 
-	result, err := c.storeManagement.CloseStaleSessions(ctx, defaultActiveSessionStaleAfter, false, protectedSessionID)
+	result, err := c.storeManagement.CloseStaleSessions(ctx, defaultActiveSessionStaleAfter, false, protectedSessionIDs)
 	if err != nil {
 		slog.Debug("opportunistic session GC failed", "error", err)
 		return
@@ -67,6 +73,49 @@ func (c *RootCLI) runOpportunisticSessionGC(ctx context.Context, dbPath string, 
 		return
 	}
 	slog.Debug("opportunistic session GC completed", "closed_sessions", result.ClosedCount())
+}
+
+func activeHookSessionIDs() ([]types.SessionID, error) {
+	stateDir, err := resolveHookStateDir()
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(stateDir)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to read hook state directory: %w", err)
+	}
+	clientPrefixes := []string{"claude-", "codex-", "gemini-", "antigravity-", "grok-"}
+	result := make([]types.SessionID, 0, len(entries))
+	seen := make(map[types.SessionID]struct{}, len(entries))
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() || strings.HasSuffix(entry.Name(), "-repo") {
+			continue
+		}
+		isSessionState := false
+		for _, prefix := range clientPrefixes {
+			if strings.HasPrefix(entry.Name(), prefix) {
+				isSessionState = true
+				break
+			}
+		}
+		if !isSessionState {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(stateDir, entry.Name()))
+		if err != nil {
+			return nil, xerrors.Errorf("failed to read active hook session state: %w", err)
+		}
+		sessionID := types.SessionID(strings.TrimSpace(string(data)))
+		if sessionID == "" {
+			continue
+		}
+		if _, ok := seen[sessionID]; ok {
+			continue
+		}
+		seen[sessionID] = struct{}{}
+		result = append(result, sessionID)
+	}
+	return result, nil
 }
 
 func hookSessionGCMarkerPath(dbPath string) (string, error) {

@@ -114,9 +114,9 @@ func (u *storeManagementUsecase) CloseStaleSessions(
 	ctx context.Context,
 	staleAfter time.Duration,
 	dryRun bool,
-	protectedSessionID types.SessionID,
+	protectedSessionIDs []types.SessionID,
 ) (apptypes.CloseStaleSessionsResult, error) {
-	closedCount, err := u.storeManager.CloseStaleSessions(ctx, staleAfter, dryRun, protectedSessionID)
+	closedCount, err := u.storeManager.CloseStaleSessions(ctx, staleAfter, dryRun, protectedSessionIDs)
 	if err != nil {
 		return apptypes.CloseStaleSessionsResult{}, xerrors.Errorf("failed to close stale sessions: %w", err)
 	}

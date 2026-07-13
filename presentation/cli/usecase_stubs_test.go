@@ -564,9 +564,9 @@ type storeManagementUsecaseStub struct {
 	staleResult     apptypes.CloseStaleSessionsResult
 	staleErr        error
 	staleCalls      []struct {
-		staleAfter         time.Duration
-		dryRun             bool
-		protectedSessionID types.SessionID
+		staleAfter          time.Duration
+		dryRun              bool
+		protectedSessionIDs []types.SessionID
 	}
 }
 
@@ -593,13 +593,13 @@ func (s *storeManagementUsecaseStub) RestoreContentEventDedupeRun(_ context.Cont
 	s.restoreRunIDs = append(s.restoreRunIDs, runID)
 	return s.restoreResult, s.restoreRunErr
 }
-func (s *storeManagementUsecaseStub) CloseStaleSessions(_ context.Context, staleAfter time.Duration, dryRun bool, protectedSessionID types.SessionID) (apptypes.CloseStaleSessionsResult, error) {
+func (s *storeManagementUsecaseStub) CloseStaleSessions(_ context.Context, staleAfter time.Duration, dryRun bool, protectedSessionIDs []types.SessionID) (apptypes.CloseStaleSessionsResult, error) {
 	s.staleMu.Lock()
 	s.staleCalls = append(s.staleCalls, struct {
-		staleAfter         time.Duration
-		dryRun             bool
-		protectedSessionID types.SessionID
-	}{staleAfter: staleAfter, dryRun: dryRun, protectedSessionID: protectedSessionID})
+		staleAfter          time.Duration
+		dryRun              bool
+		protectedSessionIDs []types.SessionID
+	}{staleAfter: staleAfter, dryRun: dryRun, protectedSessionIDs: append([]types.SessionID(nil), protectedSessionIDs...)})
 	s.staleMu.Unlock()
 	if s.staleDelay > 0 {
 		time.Sleep(s.staleDelay)

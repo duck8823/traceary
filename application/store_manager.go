@@ -19,8 +19,8 @@ type StoreManager interface {
 	// CollectGarbage removes events older than the given time. Returns the count of deleted events.
 	CollectGarbage(ctx context.Context, before time.Time, target apptypes.GarbageCollectionTarget, dryRun bool) (int, error)
 	// CloseStaleSessions closes sessions that started before the threshold and
-	// have no activity inside it, excluding the currently protected session.
-	CloseStaleSessions(ctx context.Context, staleAfter time.Duration, dryRun bool, protectedSessionID types.SessionID) (int, error)
+	// have no activity inside it, excluding the protected active sessions.
+	CloseStaleSessions(ctx context.Context, staleAfter time.Duration, dryRun bool, protectedSessionIDs []types.SessionID) (int, error)
 	// DedupeContentEvents reports (and, when params.Apply is set, quarantines)
 	// historical hook-originated prompt/transcript duplicate rows. It never hard-
 	// deletes: duplicates are moved into the reversible quarantine archive.

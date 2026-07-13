@@ -23,8 +23,8 @@ type StoreManagementUsecase interface {
 	CollectGarbage(ctx context.Context, before time.Time, target apptypes.GarbageCollectionTarget, dryRun bool) (apptypes.CollectGarbageResult, error)
 
 	// CloseStaleSessions closes sessions that started before the threshold and
-	// have no activity inside it, excluding the currently protected session.
-	CloseStaleSessions(ctx context.Context, staleAfter time.Duration, dryRun bool, protectedSessionID types.SessionID) (apptypes.CloseStaleSessionsResult, error)
+	// have no activity inside it, excluding the protected active sessions.
+	CloseStaleSessions(ctx context.Context, staleAfter time.Duration, dryRun bool, protectedSessionIDs []types.SessionID) (apptypes.CloseStaleSessionsResult, error)
 
 	// DedupeContentEvents reports (dry-run) or quarantines (apply) historical
 	// hook-originated prompt/transcript duplicate rows.

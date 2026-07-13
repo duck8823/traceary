@@ -32,7 +32,7 @@ func (s *dedupeStoreManagerStub) RestoreBackup(context.Context, string, bool) er
 func (s *dedupeStoreManagerStub) CollectGarbage(context.Context, time.Time, apptypes.GarbageCollectionTarget, bool) (int, error) {
 	return 0, nil
 }
-func (s *dedupeStoreManagerStub) CloseStaleSessions(context.Context, time.Duration, bool, types.SessionID) (int, error) {
+func (s *dedupeStoreManagerStub) CloseStaleSessions(context.Context, time.Duration, bool, []types.SessionID) (int, error) {
 	return 0, nil
 }
 func (s *dedupeStoreManagerStub) DedupeContentEvents(_ context.Context, params apptypes.ContentEventDedupeParams) (apptypes.ContentEventDedupeResult, error) {
