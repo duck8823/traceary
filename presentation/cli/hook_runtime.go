@@ -291,7 +291,7 @@ func (c *RootCLI) runHookSession(
 		} else if err := clearHookWorkspaceState(client); err != nil {
 			return err
 		}
-		c.runOpportunisticSessionGC(ctx, resolvedDBPath)
+		c.runOpportunisticSessionGC(ctx, resolvedDBPath, event.SessionID())
 		if output != nil {
 			if _, err := fmt.Fprintln(output, event.SessionID()); err != nil {
 				return xerrors.Errorf("failed to print session ID: %w", err)

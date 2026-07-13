@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	apptypes "github.com/duck8823/traceary/application/types"
@@ -546,6 +547,8 @@ func (s *memoryUsecaseStub) ActivationStatus(_ context.Context, criteria apptype
 
 // storeManagementUsecaseStub implements usecase.StoreManagementUsecase for testing.
 type storeManagementUsecaseStub struct {
+	staleMu         sync.Mutex
+	staleDelay      time.Duration
 	initCalled      bool
 	initErr         error
 	createBackupErr error
@@ -561,12 +564,15 @@ type storeManagementUsecaseStub struct {
 	staleResult     apptypes.CloseStaleSessionsResult
 	staleErr        error
 	staleCalls      []struct {
-		staleAfter time.Duration
-		dryRun     bool
+		staleAfter         time.Duration
+		dryRun             bool
+		protectedSessionID types.SessionID
 	}
 }
 
 func (s *storeManagementUsecaseStub) Initialize(_ context.Context) error {
+	s.staleMu.Lock()
+	defer s.staleMu.Unlock()
 	s.initCalled = true
 	return s.initErr
 }
@@ -587,10 +593,16 @@ func (s *storeManagementUsecaseStub) RestoreContentEventDedupeRun(_ context.Cont
 	s.restoreRunIDs = append(s.restoreRunIDs, runID)
 	return s.restoreResult, s.restoreRunErr
 }
-func (s *storeManagementUsecaseStub) CloseStaleSessions(_ context.Context, staleAfter time.Duration, dryRun bool) (apptypes.CloseStaleSessionsResult, error) {
+func (s *storeManagementUsecaseStub) CloseStaleSessions(_ context.Context, staleAfter time.Duration, dryRun bool, protectedSessionID types.SessionID) (apptypes.CloseStaleSessionsResult, error) {
+	s.staleMu.Lock()
 	s.staleCalls = append(s.staleCalls, struct {
-		staleAfter time.Duration
-		dryRun     bool
-	}{staleAfter: staleAfter, dryRun: dryRun})
+		staleAfter         time.Duration
+		dryRun             bool
+		protectedSessionID types.SessionID
+	}{staleAfter: staleAfter, dryRun: dryRun, protectedSessionID: protectedSessionID})
+	s.staleMu.Unlock()
+	if s.staleDelay > 0 {
+		time.Sleep(s.staleDelay)
+	}
 	return s.staleResult, s.staleErr
 }

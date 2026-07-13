@@ -12,6 +12,8 @@ import (
 
 	"github.com/gofrs/flock"
 	"golang.org/x/xerrors"
+
+	"github.com/duck8823/traceary/domain/types"
 )
 
 const hookSessionGCInterval = 6 * time.Hour
@@ -20,7 +22,7 @@ const hookSessionGCInterval = 6 * time.Hour
 // adding a scheduler or making host hooks depend on maintenance succeeding.
 // The marker is keyed by database path so concurrent clients sharing one store
 // perform at most one pass per interval.
-func (c *RootCLI) runOpportunisticSessionGC(ctx context.Context, dbPath string) {
+func (c *RootCLI) runOpportunisticSessionGC(ctx context.Context, dbPath string, protectedSessionID types.SessionID) {
 	if c.storeManagement == nil || strings.TrimSpace(dbPath) == "" {
 		return
 	}
@@ -55,7 +57,7 @@ func (c *RootCLI) runOpportunisticSessionGC(ctx context.Context, dbPath string) 
 		return
 	}
 
-	result, err := c.storeManagement.CloseStaleSessions(ctx, defaultActiveSessionStaleAfter, false)
+	result, err := c.storeManagement.CloseStaleSessions(ctx, defaultActiveSessionStaleAfter, false, protectedSessionID)
 	if err != nil {
 		slog.Debug("opportunistic session GC failed", "error", err)
 		return

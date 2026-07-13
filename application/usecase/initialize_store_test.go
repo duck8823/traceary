@@ -7,6 +7,7 @@ import (
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 type storeInitializerStub struct {
@@ -27,7 +28,7 @@ func (s *storeInitializerStub) RestoreBackup(_ context.Context, _ string, _ bool
 func (s *storeInitializerStub) CollectGarbage(_ context.Context, _ time.Time, _ apptypes.GarbageCollectionTarget, _ bool) (int, error) {
 	return 0, nil
 }
-func (s *storeInitializerStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool) (int, error) {
+func (s *storeInitializerStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool, _ types.SessionID) (int, error) {
 	return 0, nil
 }
 func (s *storeInitializerStub) DedupeContentEvents(_ context.Context, _ apptypes.ContentEventDedupeParams) (apptypes.ContentEventDedupeResult, error) {

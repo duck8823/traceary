@@ -17,6 +17,7 @@ import (
 
 	"github.com/duck8823/traceary/application"
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 //go:embed sql/delete_old_events.sql
@@ -341,6 +342,7 @@ func (d *StoreManagementDatasource) CloseStaleSessions(
 	ctx context.Context,
 	staleAfter time.Duration,
 	dryRun bool,
+	protectedSessionID types.SessionID,
 ) (int, error) {
 	db, err := d.db.open(ctx)
 	if err != nil {
@@ -359,7 +361,7 @@ func (d *StoreManagementDatasource) CloseStaleSessions(
 		if err := db.QueryRowContext(
 			ctx,
 			countStaleSessionsQuery,
-			cutoff, cutoff,
+			protectedSessionID.String(), cutoff, cutoff,
 		).Scan(&count); err != nil {
 			return 0, xerrors.Errorf("failed to count stale sessions: %w", err)
 		}
@@ -370,7 +372,7 @@ func (d *StoreManagementDatasource) CloseStaleSessions(
 	result, err := db.ExecContext(
 		ctx,
 		updateStaleSessionsQuery,
-		now, cutoff, cutoff,
+		now, protectedSessionID.String(), cutoff, cutoff,
 	)
 	if err != nil {
 		return 0, xerrors.Errorf("failed to close stale sessions: %w", err)

@@ -9,6 +9,7 @@ import (
 
 	"github.com/duck8823/traceary/application"
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 type storeManagementUsecase struct {
@@ -113,8 +114,9 @@ func (u *storeManagementUsecase) CloseStaleSessions(
 	ctx context.Context,
 	staleAfter time.Duration,
 	dryRun bool,
+	protectedSessionID types.SessionID,
 ) (apptypes.CloseStaleSessionsResult, error) {
-	closedCount, err := u.storeManager.CloseStaleSessions(ctx, staleAfter, dryRun)
+	closedCount, err := u.storeManager.CloseStaleSessions(ctx, staleAfter, dryRun, protectedSessionID)
 	if err != nil {
 		return apptypes.CloseStaleSessionsResult{}, xerrors.Errorf("failed to close stale sessions: %w", err)
 	}

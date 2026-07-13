@@ -2,13 +2,20 @@ package cli_test
 
 import (
 	"bytes"
+	"context"
+	"database/sql"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/types"
+	sqliteinfra "github.com/duck8823/traceary/infrastructure/sqlite"
 	cli "github.com/duck8823/traceary/presentation/cli"
+
+	_ "modernc.org/sqlite"
 )
 
 // runAntigravityHook executes a hidden `hook antigravity <event>` subcommand
@@ -74,6 +81,68 @@ func TestRootCLI_HookAntigravityPreInvocationMissingConversationIsNoop(t *testin
 	}
 	if sessionStub.startCall.sessionID != "" {
 		t.Fatalf("session should not start without conversationId, got %q", sessionStub.startCall.sessionID)
+	}
+}
+
+func TestRootCLI_HookAntigravityPreInvocationProtectsCurrentSessionFromGC(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "antigravity-gc-protection")
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	t.Setenv("TRACEARY_DB_PATH", dbPath)
+
+	db := sqliteinfra.NewDatabase(dbPath, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+	eventDS := sqliteinfra.NewEventDatasource(db)
+	sessionDS := sqliteinfra.NewSessionDatasource(db)
+	storeDS := sqliteinfra.NewStoreManagementDatasource(db)
+	storeUC := usecase.NewStoreManagementUsecase(storeDS)
+	if err := storeUC.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	sessionUC := usecase.NewSessionUsecase(eventDS, sessionDS, sessionDS, eventDS)
+	opts := []cli.RootCLIOption{
+		cli.WithStoreManagement(storeUC),
+		cli.WithSession(sessionUC),
+		cli.WithDatabasePathSetter(db.SetPath),
+	}
+	payload := `{"conversationId":"conv-current","workspacePaths":["/repo"]}`
+	if out, _, _ := runAntigravityHook(t, "pre-invocation", payload, opts...); out != "{}" {
+		t.Fatalf("initial PreInvocation output = %q, want {}", out)
+	}
+
+	sqlDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	old := time.Now().UTC().Add(-48 * time.Hour).Format(time.RFC3339Nano)
+	if _, err := sqlDB.Exec(`UPDATE sessions SET started_at = ? WHERE session_id = 'conv-current'`, old); err != nil {
+		t.Fatalf("age current session: %v", err)
+	}
+	if _, err := sqlDB.Exec(`UPDATE events SET created_at = ? WHERE session_id = 'conv-current'`, old); err != nil {
+		t.Fatalf("age current events: %v", err)
+	}
+	markers, err := filepath.Glob(filepath.Join(os.Getenv("TRACEARY_HOOK_STATE_DIR"), "session-gc", "*.stamp"))
+	if err != nil || len(markers) != 1 {
+		t.Fatalf("session GC markers = %v, err = %v, want one", markers, err)
+	}
+	markerExpired := time.Now().Add(-7 * time.Hour)
+	if err := os.Chtimes(markers[0], markerExpired, markerExpired); err != nil {
+		t.Fatalf("expire GC marker: %v", err)
+	}
+
+	if out, _, _ := runAntigravityHook(t, "pre-invocation", payload, opts...); out != "{}" {
+		t.Fatalf("current PreInvocation output = %q, want {}", out)
+	}
+	var endedAt sql.NullString
+	if err := sqlDB.QueryRow(`SELECT ended_at FROM sessions WHERE session_id = 'conv-current'`).Scan(&endedAt); err != nil {
+		t.Fatalf("select current ended_at: %v", err)
+	}
+	if endedAt.Valid {
+		t.Fatalf("current Antigravity session was closed at %s", endedAt.String)
 	}
 }
 

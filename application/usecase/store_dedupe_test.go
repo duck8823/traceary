@@ -8,20 +8,21 @@ import (
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 // dedupeStoreManagerStub captures the params the usecase forwards so tests can
 // assert on the run-id/timestamp minting and pass-through behavior.
 type dedupeStoreManagerStub struct {
-	dedupeParams   []apptypes.ContentEventDedupeParams
-	dedupeResult   apptypes.ContentEventDedupeResult
-	dedupeErr      error
-	restoreRunIDs  []string
-	restoreResult  apptypes.ContentEventDedupeRestoreResult
-	restoreErr     error
+	dedupeParams  []apptypes.ContentEventDedupeParams
+	dedupeResult  apptypes.ContentEventDedupeResult
+	dedupeErr     error
+	restoreRunIDs []string
+	restoreResult apptypes.ContentEventDedupeRestoreResult
+	restoreErr    error
 }
 
-func (s *dedupeStoreManagerStub) Initialize(context.Context) error             { return nil }
+func (s *dedupeStoreManagerStub) Initialize(context.Context) error { return nil }
 func (s *dedupeStoreManagerStub) CreateBackup(context.Context, string, bool) error {
 	return nil
 }
@@ -31,7 +32,7 @@ func (s *dedupeStoreManagerStub) RestoreBackup(context.Context, string, bool) er
 func (s *dedupeStoreManagerStub) CollectGarbage(context.Context, time.Time, apptypes.GarbageCollectionTarget, bool) (int, error) {
 	return 0, nil
 }
-func (s *dedupeStoreManagerStub) CloseStaleSessions(context.Context, time.Duration, bool) (int, error) {
+func (s *dedupeStoreManagerStub) CloseStaleSessions(context.Context, time.Duration, bool, types.SessionID) (int, error) {
 	return 0, nil
 }
 func (s *dedupeStoreManagerStub) DedupeContentEvents(_ context.Context, params apptypes.ContentEventDedupeParams) (apptypes.ContentEventDedupeResult, error) {

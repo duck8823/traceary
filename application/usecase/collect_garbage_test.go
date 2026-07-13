@@ -9,6 +9,7 @@ import (
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 type garbageCollectorStub struct {
@@ -25,7 +26,7 @@ func (s *garbageCollectorStub) CreateBackup(_ context.Context, _ string, _ bool)
 func (s *garbageCollectorStub) RestoreBackup(_ context.Context, _ string, _ bool) error {
 	return nil
 }
-func (s *garbageCollectorStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool) (int, error) {
+func (s *garbageCollectorStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool, _ types.SessionID) (int, error) {
 	return 0, nil
 }
 func (s *garbageCollectorStub) DedupeContentEvents(_ context.Context, _ apptypes.ContentEventDedupeParams) (apptypes.ContentEventDedupeResult, error) {
