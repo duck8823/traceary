@@ -52,7 +52,7 @@ func (c *RootCLI) inspectMCPRegistrationForClient(client, outputPath string) doc
 func (c *RootCLI) inspectAntigravityMCPRegistration() doctorCheck {
 	const (
 		name = "antigravity-mcp"
-		fix  = "agy plugin install integrations/antigravity-plugin"
+		fix  = "cd <traceary-repository> && agy plugin install integrations/antigravity-plugin"
 	)
 	home, err := userHomeDirFunc()
 	if err != nil {

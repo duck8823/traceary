@@ -45,7 +45,7 @@ func (c *RootCLI) detectPluginInstalls() []doctorPluginInstall {
 		}
 	}
 	installs = append(installs, detectManifestInstalls(filepath.Join(home, ".codex", "plugins", "cache", "*", "traceary", "*", ".codex-plugin", "plugin.json"), "codex", "reinstall plugin to align")...)
-	installs = append(installs, detectManifestInstalls(filepath.Join(home, ".gemini", "antigravity-cli", "plugins", "traceary", "plugin.json"), "antigravity", "agy plugin install integrations/antigravity-plugin")...)
+	installs = append(installs, detectManifestInstalls(filepath.Join(home, ".gemini", "antigravity-cli", "plugins", "traceary", "plugin.json"), "antigravity", "cd <traceary-repository> && agy plugin install integrations/antigravity-plugin")...)
 	installs = append(installs, detectManifestInstalls(filepath.Join(home, ".gemini", "extensions", "traceary", "gemini-extension.json"), "gemini", "gemini extensions update traceary")...)
 	return installs
 }
