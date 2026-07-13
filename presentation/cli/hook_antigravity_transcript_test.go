@@ -81,6 +81,15 @@ func TestReadLastAntigravityCompletedTurn(t *testing.T) {
 			},
 			wantOK: false,
 		},
+		{
+			name: "error user row invalidates prior completed turn",
+			lines: []string{
+				`{"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","content":"first"}`,
+				`{"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","content":"old answer"}`,
+				`{"source":"USER_EXPLICIT","type":"USER_INPUT","status":"ERROR","content":"failed input"}`,
+			},
+			wantOK: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

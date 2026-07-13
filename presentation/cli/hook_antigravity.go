@@ -567,11 +567,14 @@ func readLastAntigravityCompletedTurn(path string) (antigravityCompletedTurn, an
 		if entry.isCurrentSchemaRow() {
 			sawCurrentSchema = true
 		}
-		if entry.isExplicitUserInput() {
-			blocks := antigravityContentBlocks(entry.Content)
-			if len(blocks) == 1 && blocks[0].Type == apptypes.EventBodyBlockTypeText {
-				latestPrompt = blocks[0].Text
-				latestGeneration++
+		if entry.isExplicitUserInputRow() {
+			latestGeneration++
+			latestPrompt = ""
+			if entry.Status == "" || strings.EqualFold(entry.Status, "DONE") {
+				blocks := antigravityContentBlocks(entry.Content)
+				if len(blocks) == 1 && blocks[0].Type == apptypes.EventBodyBlockTypeText {
+					latestPrompt = blocks[0].Text
+				}
 			}
 			continue
 		}
@@ -606,10 +609,9 @@ func (l antigravityTranscriptLine) isCurrentAssistantResponse() bool {
 		(l.Status == "" || strings.EqualFold(l.Status, "DONE"))
 }
 
-func (l antigravityTranscriptLine) isExplicitUserInput() bool {
+func (l antigravityTranscriptLine) isExplicitUserInputRow() bool {
 	return strings.EqualFold(l.Type, "USER_INPUT") &&
-		strings.EqualFold(l.Source, "USER_EXPLICIT") &&
-		(l.Status == "" || strings.EqualFold(l.Status, "DONE"))
+		strings.EqualFold(l.Source, "USER_EXPLICIT")
 }
 
 type antigravityTranscriptMessage struct {
