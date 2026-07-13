@@ -100,45 +100,76 @@ func checkGrok(root, version string) error {
 		return xerrors.Errorf("grok plugin version must track v%s", version)
 	}
 
-	var mcp struct {
-		Traceary struct {
-			Command string   `json:"command"`
-			Args    []string `json:"args"`
-		} `json:"traceary"`
+	var mcp map[string]struct {
+		Command string   `json:"command"`
+		Args    []string `json:"args"`
 	}
 	if err := readJSON(root, "integrations/grok-plugin/.mcp.json", &mcp); err != nil {
 		return err
 	}
-	if mcp.Traceary.Command != "traceary" || !equalStrings(mcp.Traceary.Args, []string{"mcp-server"}) {
+	server, ok := mcp["traceary"]
+	if len(mcp) != 1 || !ok || server.Command != "traceary" || !equalStrings(server.Args, []string{"mcp-server"}) {
 		return xerrors.Errorf("grok plugin must expose traceary mcp-server")
 	}
 
 	hooksPath := "integrations/grok-plugin/hooks/hooks.json"
-	hooks, raw, err := readHookFile(root, hooksPath)
+	hooks, _, err := readHookFile(root, hooksPath)
 	if err != nil {
 		return err
 	}
 	if err := checkNoDuplicateTracearyHookEntries(hooksPath, hooks); err != nil {
 		return err
 	}
-	for event, action := range map[string]string{
-		"SessionStart": "session-start", "UserPromptSubmit": "user-prompt-submit",
-		"PreToolUse": "pre-tool-use", "PostToolUse": "post-tool-use", "Stop": "stop",
-		"PreCompact": "pre-compact", "PostCompact": "post-compact",
-	} {
-		if _, ok := hooks.Hooks[event]; !ok {
-			return xerrors.Errorf("grok hooks must include %s", event)
-		}
-		if !strings.Contains(raw, "${GROK_PLUGIN_ROOT}/scripts/traceary-grok.sh") || !strings.Contains(raw, `\"`+action+`\"`) {
-			return xerrors.Errorf("grok %s hook must use the plugin-root wrapper action %s", event, action)
-		}
+	if err := checkGrokHooks(hooksPath, hooks); err != nil {
+		return err
 	}
 	if err := requireExists(root, "integrations/grok-plugin/scripts/traceary-grok.sh", "missing Grok hook wrapper"); err != nil {
 		return err
 	}
-	for _, skill := range []string{"traceary-session-history", "traceary-memory-review", "traceary-memory-remember"} {
+	expectedSkills := []string{"traceary-memory-remember", "traceary-memory-review", "traceary-session-history"}
+	entries, err := os.ReadDir(filepath.Join(root, "integrations/grok-plugin/skills"))
+	if err != nil {
+		return xerrors.Errorf("failed to read Grok skills: %w", err)
+	}
+	actualSkills := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			actualSkills = append(actualSkills, entry.Name())
+		}
+	}
+	if !equalStrings(actualSkills, expectedSkills) {
+		return xerrors.Errorf("grok plugin skills must be exactly %v, got %v", expectedSkills, actualSkills)
+	}
+	for _, skill := range expectedSkills {
 		if err := requireExists(root, "integrations/grok-plugin/skills/"+skill+"/SKILL.md", "missing Grok "+skill+" skill"); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func checkGrokHooks(path string, hooks hookFile) error {
+	required := []struct{ event, name, action string }{
+		{"SessionStart", "traceary-session-start", "session-start"},
+		{"UserPromptSubmit", "traceary-prompt", "user-prompt-submit"},
+		{"PreToolUse", "traceary-tool-pre", "pre-tool-use"},
+		{"PostToolUse", "traceary-audit", "post-tool-use"},
+		{"Stop", "traceary-stop", "stop"},
+		{"PreCompact", "traceary-compact-pre", "pre-compact"},
+		{"PostCompact", "traceary-compact-post", "post-compact"},
+	}
+	if len(hooks.Hooks) != len(required) {
+		return xerrors.Errorf("%s must expose exactly %d verified events", path, len(required))
+	}
+	for _, want := range required {
+		entries := hooks.Hooks[want.event]
+		if len(entries) != 1 || entries[0].Matcher != "" || len(entries[0].Hooks) != 1 {
+			return xerrors.Errorf("%s %s must contain exactly one unfiltered command", path, want.event)
+		}
+		command := entries[0].Hooks[0]
+		expectedCommand := `"${GROK_PLUGIN_ROOT}/scripts/traceary-grok.sh" "` + want.action + `"`
+		if command.Name != want.name || command.Type != "command" || command.Command != expectedCommand || command.Timeout != 5 {
+			return xerrors.Errorf("%s %s command drifted from the verified Grok contract", path, want.event)
 		}
 	}
 	return nil
@@ -598,6 +629,7 @@ type hookCommand struct {
 	Name    string `json:"name"`
 	Type    string `json:"type"`
 	Command string `json:"command"`
+	Timeout int    `json:"timeout"`
 }
 
 func hookMatchers(entries []hookEntry) []string {

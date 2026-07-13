@@ -121,3 +121,45 @@ func TestRequirePackagedHookCommand_PassesOnExpectedCommand(t *testing.T) {
 		t.Fatalf("requirePackagedHookCommand() error = %v, want nil", err)
 	}
 }
+
+func TestCheckGrokHooksRejectsContractDrift(t *testing.T) {
+	t.Parallel()
+	valid := grokHookFixture()
+	if err := checkGrokHooks("hooks.json", valid); err != nil {
+		t.Fatalf("checkGrokHooks(valid) error = %v", err)
+	}
+
+	valid.Hooks["Stop"][0].Hooks[0].Command = `"${GROK_PLUGIN_ROOT}/scripts/traceary-grok.sh" "pre-compact"`
+	if err := checkGrokHooks("hooks.json", valid); err == nil {
+		t.Fatal("checkGrokHooks(action swap) error = nil")
+	}
+	valid = grokHookFixture()
+	valid.Hooks["Stop"][0].Hooks[0].Timeout = 4
+	if err := checkGrokHooks("hooks.json", valid); err == nil {
+		t.Fatal("checkGrokHooks(timeout drift) error = nil")
+	}
+	valid = grokHookFixture()
+	valid.Hooks["SubagentStart"] = valid.Hooks["SessionStart"]
+	if err := checkGrokHooks("hooks.json", valid); err == nil {
+		t.Fatal("checkGrokHooks(extra event) error = nil")
+	}
+}
+
+func grokHookFixture() hookFile {
+	hooks := map[string][]hookEntry{}
+	for _, spec := range []struct{ event, name, action string }{
+		{"SessionStart", "traceary-session-start", "session-start"},
+		{"UserPromptSubmit", "traceary-prompt", "user-prompt-submit"},
+		{"PreToolUse", "traceary-tool-pre", "pre-tool-use"},
+		{"PostToolUse", "traceary-audit", "post-tool-use"},
+		{"Stop", "traceary-stop", "stop"},
+		{"PreCompact", "traceary-compact-pre", "pre-compact"},
+		{"PostCompact", "traceary-compact-post", "post-compact"},
+	} {
+		hooks[spec.event] = []hookEntry{{Hooks: []hookCommand{{
+			Name: spec.name, Type: "command", Timeout: 5,
+			Command: `"${GROK_PLUGIN_ROOT}/scripts/traceary-grok.sh" "` + spec.action + `"`,
+		}}}}
+	}
+	return hookFile{Hooks: hooks}
+}
