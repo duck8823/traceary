@@ -93,10 +93,10 @@ func inspectHookGrokTranscriptDiagnostics(now time.Time) doctorCheck {
 		Status: doctorStatusWarn,
 		Message: localizef(
 			"found %d pending Grok transcript job(s), %d previously failed job(s), and %d unreadable job(s); oldest age %s",
-			"未処理の Grok transcript job が %d 件、以前失敗した job が %d 件、読めない job が %d 件あります。最古 age %s",
+			"未処理の Grok transcript job が %d 件、以前失敗した job が %d 件、読めない job が %d 件あります。最古の経過時間は %s です",
 			len(jobs), failed, len(unreadable), oldestAge.Round(time.Second),
 		),
-		Hint: Localize("the final Grok transcript remained unavailable after Stop; enable TRACEARY_HOOK_DEBUG for the next turn and remove a pending job only after confirming it is stale", "Stop 後も最終 Grok transcript を取得できませんでした。次の turn で TRACEARY_HOOK_DEBUG を有効にし、未処理 job は stale と確認してから削除してください"),
+		Hint: Localize("the final Grok transcript remained unavailable after Stop; enable TRACEARY_HOOK_DEBUG for the next turn and remove a pending job only after confirming it is stale", "Stop 後も最終 Grok transcript を取得できませんでした。次の turn で TRACEARY_HOOK_DEBUG を有効にし、未処理 job は不要と確認してから削除してください"),
 	}
 }
 
@@ -267,7 +267,7 @@ func readHookGrokTranscriptJob(path string) (hookGrokTranscriptJob, error) {
 	if err := json.Unmarshal(data, &job); err != nil {
 		return hookGrokTranscriptJob{}, xerrors.Errorf("failed to decode Grok transcript job: %w", err)
 	}
-	if job.SchemaVersion != hookGrokTranscriptJobSchemaVersion || strings.TrimSpace(job.Payload) == "" {
+	if job.SchemaVersion != hookGrokTranscriptJobSchemaVersion || strings.TrimSpace(job.Payload) == "" || job.RequestedAt.IsZero() || job.Attempts < 0 {
 		return hookGrokTranscriptJob{}, xerrors.Errorf("Grok transcript job has an unsupported shape")
 	}
 	return job, nil

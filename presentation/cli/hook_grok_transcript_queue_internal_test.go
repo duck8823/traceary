@@ -53,3 +53,28 @@ func TestInspectHookGrokTranscriptDiagnosticsPassesWithoutJobs(t *testing.T) {
 		t.Fatalf("check = %+v, want pass", check)
 	}
 }
+
+func TestScanHookGrokTranscriptJobsRejectsInvalidMetadata(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	dir := filepath.Join(stateDir, "grok-transcript")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	for name, contents := range map[string]string{
+		"zero-time.json":         `{"schema_version":1,"payload":"{}"}`,
+		"negative-attempts.json": `{"schema_version":1,"payload":"{}","requested_at":"2026-07-14T12:00:00Z","attempts":-1}`,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(contents), 0o600); err != nil {
+			t.Fatalf("WriteFile(%s) error = %v", name, err)
+		}
+	}
+
+	jobs, unreadable, err := scanHookGrokTranscriptJobs()
+	if err != nil {
+		t.Fatalf("scanHookGrokTranscriptJobs() error = %v", err)
+	}
+	if len(jobs) != 0 || len(unreadable) != 2 {
+		t.Fatalf("jobs=%d unreadable=%d, want zero jobs and two unreadable", len(jobs), len(unreadable))
+	}
+}
