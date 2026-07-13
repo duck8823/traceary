@@ -1523,13 +1523,6 @@ func (c *RootCLI) inspectDoctorConfigFile(ctx context.Context, client string, ou
 	content, err := os.ReadFile(outputPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			if client == "codex" {
-				if state := c.detectCodexPluginHookFallback(); state.pluginHooksConfirmedActive() {
-					return codexPluginManagedHooksCheck(state, outputPath)
-				} else if state.PluginEnabled {
-					return codexPluginHookFallbackCheck(state, outputPath, localizef("does not exist", "が存在しません"))
-				}
-			}
 			return doctorCheck{
 				Name:   client + "-config",
 				Status: doctorStatusWarn,
@@ -1567,13 +1560,6 @@ func (c *RootCLI) inspectDoctorConfigFile(ctx context.Context, client string, ou
 	}
 
 	if !hasHooksField {
-		if client == "codex" {
-			if state := c.detectCodexPluginHookFallback(); state.pluginHooksConfirmedActive() {
-				return codexPluginManagedHooksCheck(state, outputPath)
-			} else if state.PluginEnabled {
-				return codexPluginHookFallbackCheck(state, outputPath, localizef("has no hooks field", "には hooks フィールドがありません"))
-			}
-		}
 		return doctorCheck{
 			Name:   client + "-config",
 			Status: doctorStatusWarn,
@@ -1588,11 +1574,6 @@ func (c *RootCLI) inspectDoctorConfigFile(ctx context.Context, client string, ou
 	}
 
 	if hasTracearyManagedHook {
-		if client == "codex" {
-			if state := c.detectCodexPluginHookFallback(); state.pluginHooksConfirmedActive() {
-				return c.codexDuplicateRegistrationCheck(ctx, state, outputPath)
-			}
-		}
 		duplicates, duplicateErr := c.hooksInspector.DuplicateManagedHooks(content)
 		if duplicateErr != nil {
 			return doctorCheck{
@@ -1635,14 +1616,6 @@ func (c *RootCLI) inspectDoctorConfigFile(ctx context.Context, client string, ou
 			Name:    client + "-config",
 			Status:  doctorStatusPass,
 			Message: localizef("%s config contains Traceary-managed hooks: %s", "%s の設定には Traceary 管理下の hook があります: %s", client, outputPath),
-		}
-	}
-
-	if client == "codex" {
-		if state := c.detectCodexPluginHookFallback(); state.pluginHooksConfirmedActive() {
-			return codexPluginManagedHooksCheck(state, outputPath)
-		} else if state.PluginEnabled {
-			return codexPluginHookFallbackCheck(state, outputPath, localizef("has hook entries but none are Traceary-managed", "には hook エントリはありますが Traceary 管理のものがありません"))
 		}
 	}
 
@@ -1754,6 +1727,19 @@ var codexManagedEventKeys = map[string][]string{
 	"UserPromptSubmit": []string{"traceary-prompt.sh:codex"},
 	"Stop":             []string{"traceary-transcript.sh:codex", "traceary-session.sh:codex:stop"},
 	"PostToolUse":      []string{"traceary-audit.sh:codex"},
+}
+
+// expectedCodexPluginHookCount returns the number of command hooks in the
+// current packaged Codex contract. Codex app-server currently exposes plugin
+// identity and trust state per command, but not the event or command identity,
+// so exact cardinality is the fail-closed completeness boundary available to
+// doctor before it permits removal of the manual fallback.
+func expectedCodexPluginHookCount() int {
+	count := 0
+	for _, keys := range codexManagedEventKeys {
+		count += len(keys)
+	}
+	return count
 }
 
 // missingTracearyManagedCodexEvents returns the subset of Traceary-managed

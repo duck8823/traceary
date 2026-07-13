@@ -240,6 +240,56 @@ func TestRootCLI_DoctorFix(t *testing.T) {
 		}
 	})
 
+	t.Run("incomplete trusted codex plugin hooks retain manual fallback entries", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		setDoctorFixHome(t, homeDir)
+		binDir := filepath.Join(t.TempDir(), "bin")
+		setTracearyPathToCurrentExecutableAt(t, binDir)
+		writeCodexAppServerWithTrustedHookCount(t, binDir, projectDir, "traceary@local-traceary-plugins", cli.ExpectedCodexPluginHookCount()-1)
+		codexPath := filepath.Join(homeDir, ".codex", "hooks.json")
+		installCmd := newTestRootCLI().Command()
+		installCmd.SetOut(&bytes.Buffer{})
+		installCmd.SetErr(&bytes.Buffer{})
+		installCmd.SetArgs([]string{"hooks", "install", "--client", "codex", "--output", codexPath, "--traceary-bin", "traceary", "--force"})
+		if err := installCmd.Execute(); err != nil {
+			t.Fatalf("install current Codex fallback: %v", err)
+		}
+		writeCodexPluginHookFeature(t, homeDir, "true")
+
+		before, err := os.ReadFile(codexPath)
+		if err != nil {
+			t.Fatalf("ReadFile(before) error = %v", err)
+		}
+		stdout := &bytes.Buffer{}
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--fix", "--client", "codex", "--project-dir", projectDir, "--json"})
+		executeDoctorAllowWarnings(t, rootCmd)
+		report := decodeDoctorReport(t, stdout.Bytes())
+		if got := doctorStatuses(report)["codex-plugin-hooks"]; got != "warn" {
+			t.Fatalf("codex-plugin-hooks status = %q, want warn; report=%s", got, stdout.String())
+		}
+		for _, fix := range report.Fixes {
+			if fix.Name == "codex-config" && strings.Contains(fix.Action, "remove manual Traceary hooks") {
+				t.Fatalf("fixes = %#v, must not remove fallback for incomplete plugin hooks", report.Fixes)
+			}
+		}
+		after, err := os.ReadFile(codexPath)
+		if err != nil {
+			t.Fatalf("ReadFile(after) error = %v", err)
+		}
+		if string(after) != string(before) {
+			t.Fatalf("doctor --fix mutated fallback for incomplete plugin hooks\nbefore:\n%s\nafter:\n%s", before, after)
+		}
+		for _, event := range []string{"SubagentStart", "SubagentStop", "PreCompact", "PostCompact"} {
+			if !strings.Contains(string(after), `"`+event+`"`) {
+				t.Fatalf("manual fallback lost %s for incomplete plugin hooks:\n%s", event, after)
+			}
+		}
+	})
+
 	t.Run("disabled codex plugin hooks retain manual fallback entries", func(t *testing.T) {
 		homeDir := t.TempDir()
 		projectDir := t.TempDir()
@@ -293,6 +343,11 @@ func TestRootCLI_DoctorFix(t *testing.T) {
 
 func writeTrustedCodexAppServer(t *testing.T, binDir, projectDir, pluginKey string) {
 	t.Helper()
+	writeCodexAppServerWithTrustedHookCount(t, binDir, projectDir, pluginKey, cli.ExpectedCodexPluginHookCount())
+}
+
+func writeCodexAppServerWithTrustedHookCount(t *testing.T, binDir, projectDir, pluginKey string, hookCount int) {
+	t.Helper()
 	script := `#!/usr/bin/python3
 import json
 import sys
@@ -306,7 +361,7 @@ assert hooks_list["id"] == 1 and hooks_list["method"] == "hooks/list"
 assert hooks_list["params"]["cwds"] == [` + fmt.Sprintf("%q", projectDir) + `]
 print(json.dumps({"id": 1, "result": {"data": [{
     "cwd": ` + fmt.Sprintf("%q", projectDir) + `,
-    "hooks": [{"pluginId": ` + fmt.Sprintf("%q", pluginKey) + `, "enabled": True, "trustStatus": "trusted"}],
+    "hooks": [{"pluginId": ` + fmt.Sprintf("%q", pluginKey) + `, "enabled": True, "trustStatus": "trusted"}] * ` + fmt.Sprintf("%d", hookCount) + `,
     "warnings": [],
     "errors": []
 }]}}), flush=True)

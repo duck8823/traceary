@@ -12,10 +12,6 @@ import (
 	"golang.org/x/xerrors"
 )
 
-func (s codexPluginHookFallbackState) pluginHooksConfirmedActive() bool {
-	return s.PluginEnabled && s.PluginHooksFeature != nil && *s.PluginHooksFeature
-}
-
 func codexPluginManagedHooksCheck(state codexPluginHookFallbackState, hooksPath string) doctorCheck {
 	pluginKey := state.PluginKey
 	if pluginKey == "" {
@@ -182,32 +178,31 @@ func (c *RootCLI) inspectCodexConfigWithHookTrust(
 	if configCheck.Status == doctorStatusFail {
 		return configCheck
 	}
+	state := c.detectCodexPluginHookFallback()
 
 	switch trust.Status {
 	case codexPluginHookTrustTrusted:
-		state := c.detectCodexPluginHookFallback()
 		confirmed := true
 		state.PluginHooksFeature = &confirmed
 		if c.configHasTracearyHooks(outputPath) {
 			return c.codexDuplicateRegistrationCheck(ctx, state, outputPath)
 		}
 		return codexPluginManagedHooksCheck(state, outputPath)
-	case codexPluginHookTrustUntrusted, codexPluginHookTrustModified, codexPluginHookTrustDisabled:
-		// A healthy manual registration remains a valid compatibility path,
-		// but it does not make the separate plugin trust warning disappear.
+	default:
+		// Any result other than a complete, trusted current plugin contract is
+		// ineligible for destructive duplicate cleanup. A healthy manual route
+		// remains authoritative; if it is absent, surface the fallback install
+		// instead of implying that plugin_hooks=true alone proves coverage.
 		if c.configHasTracearyHooks(outputPath) {
 			return configCheck
 		}
-		return doctorCheck{
-			Name:   "codex-config",
-			Status: doctorStatusSkip,
-			Message: localizef(
-				"manual Codex hooks are not registered; the enabled Traceary plugin owns this route after its current hooks are reviewed in `/hooks`: %s",
-				"Codex の手動 hook は登録されていません。有効な Traceary plugin の現在の hook を `/hooks` で確認した後は plugin がこの経路を担当します: %s",
-				outputPath,
+		return codexPluginHookFallbackCheck(
+			state,
+			outputPath,
+			localizef(
+				"does not contain a complete Traceary-managed manual fallback",
+				"には完全な Traceary 管理の手動 fallback がありません",
 			),
-		}
-	default:
-		return configCheck
+		)
 	}
 }

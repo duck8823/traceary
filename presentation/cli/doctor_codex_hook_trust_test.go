@@ -3,8 +3,10 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -27,7 +29,7 @@ assert hooks_list["method"] == "hooks/list"
 assert hooks_list["params"]["cwds"] == ["/tmp/project"]
 print(json.dumps({"id": 1, "result": {"data": [{
     "cwd": "/tmp/project",
-    "hooks": [{"pluginId": "traceary@market", "enabled": True, "trustStatus": "trusted"}],
+    "hooks": [{"pluginId": "traceary@market", "enabled": True, "trustStatus": "trusted"}] * ` + fmt.Sprintf("%d", expectedCodexPluginHookCount()) + `,
     "warnings": [],
     "errors": []
 }]}}), flush=True)
@@ -38,7 +40,7 @@ print(json.dumps({"id": 1, "result": {"data": [{
 	t.Setenv("PATH", binDir)
 
 	got := probeCodexPluginHookTrust(context.Background(), "/tmp/project", "traceary@market")
-	if got.Status != codexPluginHookTrustTrusted || got.HookCount != 1 {
+	if got.Status != codexPluginHookTrustTrusted || got.HookCount != expectedCodexPluginHookCount() {
 		t.Fatalf("probeCodexPluginHookTrust() = %+v, want trusted hook", got)
 	}
 }
@@ -70,14 +72,22 @@ func TestClassifyCodexPluginHookTrust(t *testing.T) {
 		wantCount  int
 	}{
 		{
-			name: "all current hooks trusted",
-			hooksJSON: `{"data":[{"hooks":[
-				{"pluginId":"traceary@market","enabled":true,"trustStatus":"trusted"},
-				{"pluginId":"traceary@market","enabled":true,"trustStatus":"trusted"},
-				{"pluginId":"other@market","enabled":true,"trustStatus":"untrusted"}
-			]}]}`,
+			name:       "all current hooks trusted",
+			hooksJSON:  trustedCodexHooksJSON("traceary@market", expectedCodexPluginHookCount()),
 			wantStatus: codexPluginHookTrustTrusted,
-			wantCount:  2,
+			wantCount:  expectedCodexPluginHookCount(),
+		},
+		{
+			name:       "trusted obsolete hook set is incomplete",
+			hooksJSON:  trustedCodexHooksJSON("traceary@market", expectedCodexPluginHookCount()-1),
+			wantStatus: codexPluginHookTrustIncomplete,
+			wantCount:  expectedCodexPluginHookCount() - 1,
+		},
+		{
+			name:       "unexpected extra trusted hook is incomplete",
+			hooksJSON:  trustedCodexHooksJSON("traceary@market", expectedCodexPluginHookCount()+1),
+			wantStatus: codexPluginHookTrustIncomplete,
+			wantCount:  expectedCodexPluginHookCount() + 1,
 		},
 		{
 			name:       "untrusted hook",
@@ -146,6 +156,7 @@ func TestCodexPluginHookTrustCheck(t *testing.T) {
 		wantFix     string
 	}{
 		{name: "trusted", status: codexPluginHookTrustTrusted, wantDoctor: doctorStatusPass, wantMessage: "enabled and trusted"},
+		{name: "incomplete", status: codexPluginHookTrustIncomplete, wantDoctor: doctorStatusWarn, wantMessage: "incomplete", wantFix: "codex"},
 		{name: "untrusted", status: codexPluginHookTrustUntrusted, wantDoctor: doctorStatusWarn, wantMessage: "untrusted", wantFix: "codex"},
 		{name: "modified", status: codexPluginHookTrustModified, wantDoctor: doctorStatusWarn, wantMessage: "modified", wantFix: "codex"},
 		{name: "disabled", status: codexPluginHookTrustDisabled, wantDoctor: doctorStatusWarn, wantMessage: "disabled", wantFix: "codex"},
@@ -168,4 +179,12 @@ func TestCodexPluginHookTrustCheck(t *testing.T) {
 			}
 		})
 	}
+}
+
+func trustedCodexHooksJSON(pluginKey string, count int) string {
+	hooks := make([]string, count)
+	for i := range hooks {
+		hooks[i] = `{"pluginId":` + strconv.Quote(pluginKey) + `,"enabled":true,"trustStatus":"trusted"}`
+	}
+	return `{"data":[{"hooks":[` + strings.Join(hooks, ",") + `]}]}`
 }

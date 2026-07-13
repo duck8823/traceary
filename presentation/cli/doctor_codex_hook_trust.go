@@ -18,6 +18,7 @@ type codexPluginHookTrustStatus string
 const (
 	codexPluginHookTrustAbsent       codexPluginHookTrustStatus = "absent"
 	codexPluginHookTrustTrusted      codexPluginHookTrustStatus = "trusted"
+	codexPluginHookTrustIncomplete   codexPluginHookTrustStatus = "incomplete"
 	codexPluginHookTrustUntrusted    codexPluginHookTrustStatus = "untrusted"
 	codexPluginHookTrustModified     codexPluginHookTrustStatus = "modified"
 	codexPluginHookTrustDisabled     codexPluginHookTrustStatus = "disabled"
@@ -199,6 +200,14 @@ func classifyCodexPluginHookTrust(pluginKey string, response codexHooksListRespo
 			}
 		}
 	}
+	if result.Status == codexPluginHookTrustTrusted && result.HookCount != expectedCodexPluginHookCount() {
+		result.Status = codexPluginHookTrustIncomplete
+		result.Reason = fmt.Sprintf(
+			"Codex returned %d Traceary plugin hook commands; the current package requires exactly %d",
+			result.HookCount,
+			expectedCodexPluginHookCount(),
+		)
+	}
 	return result
 }
 
@@ -213,6 +222,19 @@ func codexPluginHookTrustCheck(result codexPluginHookTrustResult) doctorCheck {
 			"Codex は現在の定義に対する Traceary plugin hook %d 件をすべて有効かつ trusted と報告しています: %s",
 			result.HookCount, result.PluginKey,
 		)}
+	case codexPluginHookTrustIncomplete:
+		return doctorCheck{
+			Name: name, Status: doctorStatusWarn, FixCommand: "codex",
+			Hint: Localize(
+				"update the Traceary Codex plugin, open `/hooks`, then review and trust every current hook before removing the manual fallback",
+				"Traceary Codex plugin を更新し、`/hooks` を開いて現在の hook をすべて確認・trust してから手動 fallback を削除してください",
+			),
+			Message: localizef(
+				"Traceary plugin hook coverage is incomplete: Codex reports %d command(s), but the current package requires exactly %d; manual fallback hooks will be preserved: %s",
+				"Traceary plugin hook の coverage が不完全です。Codex は %d command を報告していますが、現在の package には正確に %d 件必要です。手動 fallback hook は保持されます: %s",
+				result.HookCount, expectedCodexPluginHookCount(), result.PluginKey,
+			),
+		}
 	case codexPluginHookTrustUntrusted, codexPluginHookTrustModified, codexPluginHookTrustDisabled:
 		return doctorCheck{
 			Name: name, Status: doctorStatusWarn, FixCommand: "codex",
