@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -95,6 +96,9 @@ func probeGrokDoctorState(ctx context.Context, projectDir string) (grokDoctorSta
 		return state, xerrors.Errorf("failed to decode Grok inspection: %w", err)
 	}
 	state.ProjectTrusted = document.ProjectTrusted
+	if info, statErr := os.Stat(filepath.Join(projectDir, ".grok", "hooks", "traceary.json")); statErr == nil && info.Mode().IsRegular() {
+		state.ProjectHooks = true
+	}
 	for _, plugin := range document.Plugins {
 		if plugin.Name != "traceary" {
 			continue
@@ -119,14 +123,41 @@ func grokHookFileHasVerifiedCoverage(path string) bool {
 	if err != nil {
 		return false
 	}
+	type command struct {
+		Name    string `json:"name"`
+		Type    string `json:"type"`
+		Command string `json:"command"`
+		Timeout int    `json:"timeout"`
+	}
+	type route struct {
+		Hooks []command `json:"hooks"`
+	}
 	var file struct {
-		Hooks map[string]json.RawMessage `json:"hooks"`
+		Hooks map[string][]route `json:"hooks"`
 	}
 	if json.Unmarshal(data, &file) != nil || len(file.Hooks) != 7 {
 		return false
 	}
-	for _, event := range []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "PreCompact", "PostCompact"} {
-		if _, ok := file.Hooks[event]; !ok {
+	contracts := map[string]struct {
+		name   string
+		action string
+	}{
+		"SessionStart":     {name: "traceary-session-start", action: "session-start"},
+		"UserPromptSubmit": {name: "traceary-prompt", action: "user-prompt-submit"},
+		"PreToolUse":       {name: "traceary-tool-pre", action: "pre-tool-use"},
+		"PostToolUse":      {name: "traceary-audit", action: "post-tool-use"},
+		"Stop":             {name: "traceary-stop", action: "stop"},
+		"PreCompact":       {name: "traceary-compact-pre", action: "pre-compact"},
+		"PostCompact":      {name: "traceary-compact-post", action: "post-compact"},
+	}
+	for event, contract := range contracts {
+		routes, ok := file.Hooks[event]
+		if !ok || len(routes) != 1 || len(routes[0].Hooks) != 1 {
+			return false
+		}
+		got := routes[0].Hooks[0]
+		wantCommand := `"${GROK_PLUGIN_ROOT}/scripts/traceary-grok.sh" "` + contract.action + `"`
+		if got.Name != contract.name || got.Type != "command" || got.Command != wantCommand || got.Timeout != 5 {
 			return false
 		}
 	}
