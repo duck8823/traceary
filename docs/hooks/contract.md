@@ -4,7 +4,7 @@
 
 This document defines the hook capability tiers across AI agent clients.
 
-The versioned, machine-readable live contract for Grok Build 0.2.99 is [`host-contract.json`](./host-contract.json). It separates upstream-documented hooks from live-observed payloads and requires a sanitized fixture before Traceary classifies an event as `supported` or `best_effort`. Grok runtime wiring remains outside this contract-verification change and is tracked in #1275 and #1276.
+The versioned, machine-readable live contract for Grok Build 0.2.99 is [`host-contract.json`](./host-contract.json). It separates upstream-documented hooks from live-observed payloads and requires a sanitized fixture before Traceary classifies an event as `supported` or `best_effort`. The core native runtime is wired for the supported session, prompt, tool, and Stop events; compact and subagent enrichment remains tracked in #1276.
 
 ## Capability Tiers
 
@@ -37,6 +37,18 @@ The versioned, machine-readable live contract for Grok Build 0.2.99 is [`host-co
 | PostToolUse | (all) | Record tool audit |
 
 **Limitations**: No SessionEnd and no host-level session-end signal — Codex fires `Stop` after every assistant response, not when the conversation ends, so Traceary treats `Stop` as a turn boundary and keeps the session open (#1170). A Codex session ends only via an explicit end signal (MCP `manage_session`) or stale GC (`traceary session gc`, default 24h). `PreCompact` / `PostCompact` expose only the `manual` / `auto` trigger, not the compacted summary body, so both rows are boundary markers. There is no failure-specific event or structured failure signal — Codex fires `PostToolUse` for non-zero exits too, but its `tool_response` is a plain formatted string with no exit code or error field, so failed runs are recorded as ordinary (unflagged) audits.
+
+### Tier 2: Partial (Grok Build 0.2.99)
+
+| Hook Event | Matcher | Behavior |
+|---|---|---|
+| SessionStart | (all) | Record a session start with native `agent=grok` identity |
+| UserPromptSubmit | (all) | Record user prompt text |
+| PreToolUse | (all) | Validate the live payload and allow by exit code 0; no duplicate pre-completion audit is recorded |
+| PostToolUse | (all) | Record one completed tool audit from `toolInput` and `toolResult`; `FileNotFound` and `PermissionDenied` result variants are marked failed |
+| Stop | (all) | Read the current prompt's `agent_message_chunk` rows from `updates.jsonl` as a best-effort transcript, then record a turn boundary; if Grok has not appended the final message yet, a durable detached job retries outside the host hook budget |
+
+**Limitations**: Grok Build 0.2.99 did not emit `SessionEnd`, `PostToolUseFailure`, or standalone `PermissionDenied` in the verified probes. Traceary does not generate those hooks or infer their payloads. `Stop` is therefore a turn boundary; explicit MCP session management or stale GC ends the session. The hook payload carries no assistant body or model, so transcript capture depends on the host-provided `transcriptPath`. Grok appends the final message after Stop hooks complete; Traceary therefore queues a 0600 detached job and retries for up to two seconds. A still-unavailable transcript leaves the job as a diagnostic artifact instead of blocking the host. Compact and subagent events remain outside this core runtime until #1276.
 
 ### Tier 3: Basic (Gemini CLI) — *legacy compatibility*
 
@@ -72,7 +84,7 @@ Claude Task subagent capture:
 | Missing Capability | Fallback |
 |---|---|
 | Compact hooks | MCP `get_context` / `session_handoff` on demand |
-| Failure event | Derive a structural `failed` flag from the failure-shaped payload (Claude's top-level `error`, Gemini's `tool_response.error`); `list --failures` matches `failed = 1` in addition to a non-zero `exit_code`. Hosts that expose no structured failure signal (Codex; Gemini plain non-zero exits) are recorded as unflagged audits |
+| Failure event | Derive a structural `failed` flag from the failure-shaped payload (Claude's top-level `error`, Gemini's `tool_response.error`, Grok's observed `PostToolUse.toolResult.FileNotFound` / `.PermissionDenied` variants); `list --failures` matches `failed = 1` in addition to a non-zero `exit_code`. Hosts that expose no structured failure signal (Codex; Gemini plain non-zero exits) are recorded as unflagged audits |
 | Agent type | Use client name only (e.g., `codex`, `gemini`) |
 
 ## 2026 Q2 host capability notes

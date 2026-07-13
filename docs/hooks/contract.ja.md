@@ -4,7 +4,7 @@
 
 このページでは、AI エージェントごとに hook でどこまで自動記録できるかを整理しています。
 
-Grok Build 0.2.99 の versioned かつ機械可読な live contract は [`host-contract.json`](./host-contract.json) にあります。upstream で文書化された hook と live で観測した payload を分離し、sanitized fixture がある event だけを `supported` または `best_effort` と分類します。Grok runtime の配線はこの contract 検証には含めず、#1275 と #1276 で扱います。
+Grok Build 0.2.99 の versioned かつ機械可読な live contract は [`host-contract.json`](./host-contract.json) にあります。upstream で文書化された hook と live で観測した payload を分離し、sanitized fixture がある event だけを `supported` または `best_effort` と分類します。session、prompt、tool、Stop の対応済み event は native runtime に配線済みで、compact と subagent の補足は #1276 で扱います。
 
 ## 対応レベル
 
@@ -37,6 +37,18 @@ Grok Build 0.2.99 の versioned かつ機械可読な live contract は [`host-c
 | PostToolUse | (全て) | ツール監査を記録 |
 
 **制限**: SessionEnd なし・host レベルのセッション終了信号なし — Codex は会話終了時ではなく assistant 応答ごとに `Stop` を fire するため、Traceary は `Stop` を turn 境界として扱い session を開いたままにする (#1170)。Codex session は明示的な終了信号 (MCP `manage_session`) または stale GC (`traceary session gc`、既定 24h) でのみ終了する。`PreCompact` / `PostCompact` は `manual` / `auto` の trigger のみを公開し、圧縮後サマリー本文は含まないため、どちらも境界 marker として記録する。failure 専用イベントも構造化された失敗信号もない。Codex は非ゼロ終了でも `PostToolUse` を fire するが、`tool_response` は exit code も error フィールドも持たない素の整形済み文字列のため、失敗した実行は通常の（フラグなし）監査として記録される。
+
+### Tier 2: 部分対応 (Grok Build 0.2.99)
+
+| Hook イベント | Matcher | 動作 |
+|---|---|---|
+| SessionStart | (全て) | native の `agent=grok` 識別子でセッション開始を記録 |
+| UserPromptSubmit | (全て) | ユーザーの指示テキストを記録 |
+| PreToolUse | (全て) | live payload を検証し、exit code 0 で許可。完了前の重複監査は記録しない |
+| PostToolUse | (全て) | `toolInput` と `toolResult` から完了済み tool audit を1件記録。`FileNotFound` と `PermissionDenied` の result variant は失敗扱い |
+| Stop | (全て) | `updates.jsonl` から現在の prompt に対応する `agent_message_chunk` を best-effort transcript として読み取り、turn 境界を記録。Grok が最終メッセージをまだ追記していない場合は、durable な detached job が host hook の時間枠外で再試行 |
+
+**制限**: 検証した Grok Build 0.2.99 では `SessionEnd`、`PostToolUseFailure`、単独の `PermissionDenied` が発火しませんでした。Traceary はこれらの hook を生成せず、payload も推測しません。そのため `Stop` は turn 境界として扱い、明示的な MCP session 管理または stale GC が session を終了します。hook payload に assistant 本文や model はないため、transcript 取得は host が渡す `transcriptPath` に依存します。Grok は Stop hook 完了後に最終メッセージを追記するため、Traceary は 0600 の detached job を queue に置き、最長2秒再試行します。それでも取得できない場合は host を停止させず、job を診断用 artifact として残します。compact と subagent event は #1276 まで core runtime の対象外です。
 
 ### Tier 3: 基本対応 (Gemini CLI) — *レガシー互換*
 
@@ -72,7 +84,7 @@ Claude Task subagent capture:
 | 欠落機能 | フォールバック |
 |---|---|
 | Compact hooks | MCP `get_context` / `session_handoff` でオンデマンド取得 |
-| Failure イベント | 失敗形状の payload から構造的な `failed` フラグを導出（Claude のトップレベル `error`、Gemini の `tool_response.error`）。`list --failures` は非ゼロ `exit_code` に加えて `failed = 1` も対象にする。構造化された失敗信号を出さない host（Codex、Gemini の通常の非ゼロ終了）はフラグなし監査として記録 |
+| Failure イベント | 失敗形状の payload から構造的な `failed` フラグを導出（Claude のトップレベル `error`、Gemini の `tool_response.error`、Grok で観測した `PostToolUse.toolResult.FileNotFound` / `.PermissionDenied` variant）。`list --failures` は非ゼロ `exit_code` に加えて `failed = 1` も対象にする。構造化された失敗信号を出さない host（Codex、Gemini の通常の非ゼロ終了）はフラグなし監査として記録 |
 | エージェントタイプ | クライアント名のみ使用（例: `codex`, `gemini`） |
 
 ## 2026 Q2 ホスト別機能メモ
