@@ -113,7 +113,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 		if diff := cmp.Diff("traceary-session-start", gotHook.Name); diff != "" {
 			t.Fatalf("SessionStart hook name mismatch (-want +got):\n%s", diff)
 		}
-		if diff := cmp.Diff(5000, gotHook.Timeout); diff != "" {
+		if diff := cmp.Diff(10000, gotHook.Timeout); diff != "" {
 			t.Fatalf("SessionStart hook timeout mismatch (-want +got):\n%s", diff)
 		}
 		if diff := cmp.Diff("*", *settings.Hooks["AfterAgent"][0].Matcher); diff != "" {

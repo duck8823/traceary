@@ -182,11 +182,11 @@ func (d *Database) initializeAt(ctx context.Context, snapshot string) (err error
 	return nil
 }
 
-// sqliteBusyTimeout is the SQLite busy-wait window in milliseconds
-// applied via the busy_timeout pragma. Five seconds is long enough to
-// absorb routine hook/MCP write contention while still surfacing real
-// deadlocks to the caller.
-const sqliteBusyTimeout = 5000
+// sqliteBusyTimeout is deliberately shorter than every packaged host hook
+// budget. Contention therefore returns control while the hook process still
+// has time to retain its write-ahead spool record instead of being killed at
+// the same instant SQLite's wait expires.
+const sqliteBusyTimeout = 1000
 
 func sqliteDSN(dbPath string) string {
 	values := url.Values{}

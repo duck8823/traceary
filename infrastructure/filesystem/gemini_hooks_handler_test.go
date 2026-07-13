@@ -34,7 +34,7 @@ func TestGeminiHooksHandler_Build(t *testing.T) {
 		if diff := cmp.Diff(true, ok); diff != "" {
 			t.Fatalf("SessionStart timeout presence mismatch (-want +got):\n%s", diff)
 		}
-		if diff := cmp.Diff(5000, timeout); diff != "" {
+		if diff := cmp.Diff(10000, timeout); diff != "" {
 			t.Fatalf("SessionStart timeout mismatch (-want +got):\n%s", diff)
 		}
 		if diff := cmp.Diff("Start a Traceary session", command.Description()); diff != "" {
@@ -76,7 +76,7 @@ func TestGeminiHooksHandler_Build(t *testing.T) {
 		if diff := cmp.Diff(true, hasTimeout); diff != "" {
 			t.Fatalf("BeforeAgent timeout presence mismatch (-want +got):\n%s", diff)
 		}
-		if diff := cmp.Diff(5000, timeout); diff != "" {
+		if diff := cmp.Diff(10000, timeout); diff != "" {
 			t.Fatalf("BeforeAgent timeout mismatch (-want +got):\n%s", diff)
 		}
 	})
@@ -109,7 +109,7 @@ func TestGeminiHooksHandler_Build(t *testing.T) {
 		if diff := cmp.Diff(true, hasTimeout); diff != "" {
 			t.Fatalf("AfterAgent timeout presence mismatch (-want +got):\n%s", diff)
 		}
-		if diff := cmp.Diff(5000, timeout); diff != "" {
+		if diff := cmp.Diff(10000, timeout); diff != "" {
 			t.Fatalf("AfterAgent timeout mismatch (-want +got):\n%s", diff)
 		}
 	})

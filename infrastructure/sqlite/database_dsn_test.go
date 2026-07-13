@@ -23,7 +23,7 @@ func TestSQLiteDSN_IncludesConcurrencyPragmas(t *testing.T) {
 	wants := []string{
 		"journal_mode%28WAL%29",
 		"synchronous%28NORMAL%29",
-		"busy_timeout%285000%29",
+		"busy_timeout%281000%29",
 		"foreign_keys%281%29",
 	}
 	for _, want := range wants {
@@ -60,7 +60,7 @@ func TestSQLiteDSN_AppliesPragmasOnOpen(t *testing.T) {
 	}{
 		{"journal_mode", "wal"},
 		{"synchronous", "1"}, // NORMAL
-		{"busy_timeout", "5000"},
+		{"busy_timeout", "1000"},
 		{"foreign_keys", "1"},
 	}
 	for _, tt := range tests {

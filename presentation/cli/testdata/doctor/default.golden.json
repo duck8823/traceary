@@ -85,6 +85,16 @@
       "auto_fix_available": false
     },
     {
+      "name": "hook-spool",
+      "status": "pass",
+      "severity": "PASS",
+      "section": "Hooks",
+      "message": "no pending hook spool records found",
+      "hint": "",
+      "fix_command": "",
+      "auto_fix_available": false
+    },
+    {
       "name": "codex-config",
       "status": "warn",
       "severity": "WARN",
@@ -259,6 +269,16 @@
       "name": "Hooks",
       "checks": [
         {
+          "name": "hook-spool",
+          "status": "pass",
+          "severity": "PASS",
+          "section": "Hooks",
+          "message": "no pending hook spool records found",
+          "hint": "",
+          "fix_command": "",
+          "auto_fix_available": false
+        },
+        {
           "name": "codex-config",
           "status": "warn",
           "severity": "WARN",
@@ -272,7 +292,7 @@
     }
   ],
   "summary": {
-    "pass": 10,
+    "pass": 11,
     "warn": 2,
     "fail": 0
   },

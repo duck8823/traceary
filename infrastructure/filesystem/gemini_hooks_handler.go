@@ -7,7 +7,9 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-const geminiHooksDefaultTimeoutMillis = 5000
+// Keep host timeout comfortably above SQLite's one-second busy timeout so a
+// contended write can fail soft while its durable spool record remains.
+const geminiHooksDefaultTimeoutMillis = 10000
 
 // GeminiHooksHandler installs Traceary hooks for the Gemini CLI.
 type GeminiHooksHandler struct{}

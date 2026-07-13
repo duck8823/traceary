@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"errors"
 	"fmt"
@@ -11,9 +12,11 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"os/signal"
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"syscall"
 
 	"golang.org/x/xerrors"
 
@@ -221,12 +224,31 @@ func run() error {
 	).Command()
 	rootCmd.Version = versionString()
 	rootCmd.SetVersionTemplate("{{.Name}} {{.Version}}\n")
+	commandCtx, stopSignals := commandContext(os.Args)
+	defer stopSignals()
+	rootCmd.SetContext(commandCtx)
 
 	if err := rootCmd.Execute(); err != nil {
 		return xerrors.Errorf("failed to execute CLI command: %w", err)
 	}
 
 	return nil
+}
+
+func commandContext(args []string) (context.Context, context.CancelFunc) {
+	if isHookCommandArgs(args) {
+		return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	}
+	return context.WithCancel(context.Background())
+}
+
+func isHookCommandArgs(args []string) bool {
+	for _, arg := range args[1:] {
+		if arg == "hook" {
+			return true
+		}
+	}
+	return false
 }
 
 type cliExitCoder interface {
