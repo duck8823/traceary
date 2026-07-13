@@ -328,6 +328,16 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			})
 			continue
 		}
+		if targetClient == "grok" {
+			state, probeErr := probeGrokDoctorState(ctx, resolvedProjectDir)
+			if probeErr != nil {
+				report.Checks = append(report.Checks, doctorCheck{Name: "grok-inspect", Status: doctorStatusWarn, Message: localizef("failed to inspect Grok installation: %v", "Grok installation の検査に失敗しました: %v", probeErr), Hint: Localize("run `grok inspect --json` and retry doctor after resolving the host error", "`grok inspect --json` のエラーを解消してから doctor を再実行してください")})
+			} else {
+				report.Checks = append(report.Checks, buildGrokDoctorChecks(state, input.currentVersion)...)
+			}
+			report.Checks = append(report.Checks, c.inspectClientEventCoverage(ctx, targetClient, outputPath, resolvedProjectDir, input.coverageThreshold))
+			continue
+		}
 
 		var check doctorCheck
 		if targetClient == "codex" {
