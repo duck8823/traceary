@@ -79,7 +79,7 @@ codex   # Codex 内で /plugins を開き、Traceary Plugins から Traceary を
 
 **Google のエージェントホスト:** 組織で Gemini Code Assist Standard/Enterprise または有料 API キー経由の Gemini CLI を使用している場合を除き、**Antigravity** プラグインを導入してください。Google は 2026-06-18 に無料版および Google AI Pro/Ultra 向け Gemini CLI の提供を終了し、Antigravity への移行を案内しています。このため、Traceary は企業契約および有料 API 利用者向けに Gemini 拡張機能の保守を続けますが、無料版・Pro・Ultra の新規環境には推奨しません。詳細は [Google の移行告知](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/) を参照してください。
 
-Antigravity では `traceary hooks install --client antigravity` でプラグインを導入します。詳しくは [Antigravity hooks / plugin ガイド](./docs/integrations/antigravity.ja.md) を参照してください。サポート対象の Gemini CLI を既に使用している場合は、移行手順を含む [Gemini 拡張機能の保守ガイド](./docs/integrations/gemini-extension.ja.md) を参照してください。
+Antigravity へ最短で導入するには、`traceary hooks install --client antigravity` で Traceary の hook を直接設定します。[Antigravity hooks / plugin ガイド](./docs/integrations/antigravity.ja.md) では、この直接設定と `agy plugin install` による packaged plugin の導入を区別して説明しています。サポート対象の Gemini CLI を既に使用している場合は、移行手順を含む [Gemini 拡張機能の保守ガイド](./docs/integrations/gemini-extension.ja.md) を参照してください。
 
 全体像は [ネイティブ連携ガイド](./docs/integrations/README.ja.md) にまとめています。Anthropic API を直接使う場合は experimental な [native memory-tool backend](./docs/integrations/anthropic-memory-tool.ja.md) も試せます。
 

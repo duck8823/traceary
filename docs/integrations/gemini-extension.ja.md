@@ -53,10 +53,10 @@ traceary memory admin activate --target gemini --apply
 
 ### サポート対象の経路を選ぶ
 
-- **無料版、Google AI Pro、Google AI Ultra:** Antigravity へ移行してください。Traceary CLI を導入した後、`traceary hooks install --client antigravity` を実行し、`traceary doctor --client antigravity` で確認します。[Antigravity ガイド](./antigravity.ja.md) ではプラグインの導入と古い Gemini 形式パッケージの削除を説明しています。
+- **無料版、Google AI Pro、Google AI Ultra:** Antigravity へ移行してください。Traceary CLI を導入した後、`traceary hooks install --client antigravity` で Traceary の hook を直接設定し、`traceary doctor --client antigravity` で確認します。[Antigravity ガイド](./antigravity.ja.md) では、別経路となる `agy plugin install` での packaged plugin 導入と、古い Gemini 形式パッケージの削除も説明しています。
 - **Gemini Code Assist Standard/Enterprise または有料 API キー:** この Gemini 拡張機能を引き続き使用できます。Traceary では保守モードの連携として、互換性・不具合・セキュリティの修正を継続します。Google ホスト向けの新機能開発は Antigravity を対象にします。
 
-Gemini 拡張機能をインストールしたままでも、その hook や設定は Antigravity へ自動移行されません。Antigravity プラグインを別途導入して動作確認し、Gemini CLI が不要になってから Gemini 拡張機能を削除してください。
+Gemini 拡張機能をインストールしたままでも、その hook や設定は Antigravity へ自動移行されません。Antigravity 連携を別途設定して動作確認し、Gemini CLI が不要になってから Gemini 拡張機能を削除してください。
 
 1. 先に Traceary CLI を入れます。
 

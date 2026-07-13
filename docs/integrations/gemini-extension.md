@@ -74,10 +74,10 @@ commands.
 
 ### Choose the supported route
 
-- **Free, Google AI Pro, or Google AI Ultra:** migrate to Antigravity. Install the Traceary CLI, then run `traceary hooks install --client antigravity`. Verify the result with `traceary doctor --client antigravity`; the [Antigravity guide](./antigravity.md) covers plugin installation and cleanup of stale Gemini-shaped packages.
+- **Free, Google AI Pro, or Google AI Ultra:** migrate to Antigravity. Install the Traceary CLI, then run `traceary hooks install --client antigravity` to configure Traceary hooks directly. Verify the result with `traceary doctor --client antigravity`; the [Antigravity guide](./antigravity.md) also documents the separate packaged-plugin route through `agy plugin install` and cleanup of stale Gemini-shaped packages.
 - **Gemini Code Assist Standard/Enterprise or a paid API key:** you may continue using this Gemini extension. Traceary treats it as a maintenance-mode integration: compatibility, bug, and security fixes continue, while new Google-host integration work targets Antigravity.
 
-Keeping the Gemini extension installed does not migrate its hooks or settings into Antigravity. Install the Antigravity plugin separately, verify it, and remove the Gemini extension only after you no longer need Gemini CLI.
+Keeping the Gemini extension installed does not migrate its hooks or settings into Antigravity. Configure the Antigravity integration separately, verify it, and remove the Gemini extension only after you no longer need Gemini CLI.
 
 1. Install the Traceary CLI first.
 

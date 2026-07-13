@@ -80,7 +80,7 @@ The `traceary integration codex install` helper was retired in v0.14.0 and the c
 
 **Google agent hosts:** install the **Antigravity** plugin unless your organization still uses Gemini CLI through Gemini Code Assist Standard/Enterprise or a paid API key. Google stopped serving Gemini CLI to free and Google AI Pro/Ultra users on 2026-06-18 and directs them to Antigravity. Traceary therefore maintains the Gemini extension for those enterprise and paid-API installations, but does not recommend it for new free/Pro/Ultra setups. See [Google's transition announcement](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/).
 
-For Antigravity, install the packaged plugin with `traceary hooks install --client antigravity`; see the [Antigravity hooks and plugin guide](./docs/integrations/antigravity.md). Existing supported Gemini CLI installations can continue with the [Gemini extension maintenance guide](./docs/integrations/gemini-extension.md), which includes the migration path.
+For Antigravity, the quickest route is to install Traceary's hooks directly with `traceary hooks install --client antigravity`. The [Antigravity hooks and plugin guide](./docs/integrations/antigravity.md) distinguishes that route from installing the packaged plugin through `agy plugin install`. Existing supported Gemini CLI installations can continue with the [Gemini extension maintenance guide](./docs/integrations/gemini-extension.md), which includes the migration path.
 
 For the integration overview, use the [native integrations guide](./docs/integrations/README.md). Direct Anthropic API users can also try the experimental [native memory-tool backend](./docs/integrations/anthropic-memory-tool.md).
 
