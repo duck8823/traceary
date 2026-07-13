@@ -121,7 +121,7 @@ GoReleaser workflow が artifact の公開を自動化しますが、maintainer 
 5. **landing page をプレビューする。** `python3 -m http.server --directory docs/landing 8000` を起動して `http://localhost:8000/` を開き、hero の version eyebrow と brew install の terminal アニメーションが新バージョンになっているかを確認します。`Pages` workflow は GitHub Release の publish 時に自動再 deploy するため、ここが本番反映前の最後のチェックポイントです。
 6. **release-preparation PR を開く。** `maintenance/release-vX.Y.Z` ブランチを作成し、changelog と bump を commit・push して `main` 向けに PR を開きます。**`Closes #<parent>` は書かない**でください。親 release issue は release workflow が閉じるため、release-prep PR からは閉じません。
 7. **レビュー + merge。** release-prep PR も通常の PR と同じレビューゲートを通します。v0.21.1 のゲートは **Claude レビュー + ローカル dogfood + tests/CI** です。
-   - Gemini レビューは**不要**です（Gemini CLI は retired / 利用不可）。
+   - Gemini レビューは release gate の対象外です。Traceary の Gemini CLI 連携は、継続対象の有料 / enterprise tier 向け maintenance mode であり、Google host の主要経路は Antigravity です。
    - Codex の実装・レビューは、ローカルポリシーやユーザー指示で無効化されている場合は**不要**です。Codex が有効かつ利用可能な場合にのみ Codex app review を取得します。
    - 最新 head に対する Claude レビューを取得し、ローカル dogfood と `go test ./...` / `golangci-lint` / CI が green であることを確認してから merge commit でマージします。
    - Antigravity は v0.21.1 以降サポート対象であり、`integrations/antigravity-plugin/` を同梱します。doctor は `antigravity-capability` と `antigravity-config` を報告します（上記「ネイティブ連携パッケージ」を参照）。

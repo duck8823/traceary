@@ -10,7 +10,7 @@ Current generated hook configs merge into existing supported client config files
 
 If you want host-native packages instead of manual hook wiring, start with the [native integrations guide](../integrations/README.md).
 
-> **v0.21 — Gemini CLI → Antigravity transition**: Gemini CLI is now a **legacy compatibility path**. Existing Gemini CLI hook installs continue to work unchanged. The successor host, Antigravity, is a supported Traceary hook client from v0.21.1 (capability diagnostics only in v0.21.0) — `traceary hooks install --client antigravity` wires its `hooks.json` and Traceary captures `command_executed` events plus transcripts only when the host emits `Stop`. Headless `agy --print` captures start/tool-audit events but no final transcript; see [Antigravity hooks and plugin](../integrations/antigravity.md) for the current state.
+> **v0.21 — Gemini CLI → Antigravity transition**: Gemini CLI is now a **legacy compatibility path**. Existing Gemini CLI hook installs continue to work unchanged. The successor host, Antigravity, is a supported Traceary hook client from v0.21.1 (capability diagnostics only in v0.21.0) — `traceary hooks install --client antigravity` wires its `hooks.json`, and Traceary captures session start and tool audits. When `Stop` supplies a readable `transcriptPath`, Traceary also captures final-turn prompt/transcript events. Current headless `agy --print` emits that `Stop` payload; see [Antigravity hooks and plugin](../integrations/antigravity.md) for the current state.
 
 ## Files
 
