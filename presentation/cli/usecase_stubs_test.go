@@ -200,6 +200,9 @@ func (s *sessionUsecaseStub) List(_ context.Context, criteria apptypes.SessionLi
 	s.listCriteria = criteria
 	return s.listResult, s.listErr
 }
+func (s *sessionUsecaseStub) FindEndedSessionIDs(_ context.Context, _ []types.SessionID) (map[types.SessionID]struct{}, error) {
+	return map[types.SessionID]struct{}{}, nil
+}
 func (s *sessionUsecaseStub) Tree(_ context.Context, _ types.Workspace, _ types.SessionID, _ int) ([]apptypes.SessionSummary, error) {
 	if s.treeResult == nil && s.treeErr == nil {
 		return s.listResult, s.listErr

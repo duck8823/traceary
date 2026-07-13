@@ -47,7 +47,16 @@ type hookCancellationDiagnosticScan struct {
 	Unreadable []string
 }
 
-func inspectClaudeHookCancellationDiagnostics(ctx context.Context, projectDir string) doctorCheck {
+type hookDiagnosticSessionLookup interface {
+	FindEndedSessionIDs(context.Context, []types.SessionID) (map[types.SessionID]struct{}, error)
+}
+
+type hookCancellationDiagnosticClassification struct {
+	Actionable []hookCancellationDiagnostic
+	Resolved   []hookCancellationDiagnostic
+}
+
+func (c *RootCLI) inspectClaudeHookCancellationDiagnostics(ctx context.Context, projectDir string) doctorCheck {
 	const checkName = "claude-hook-cancellations"
 	workspace := resolveDoctorEventCoverageWorkspace(ctx, projectDir)
 	scan, err := scanHookCancellationDiagnostics("claude", "SessionEnd", workspace)
@@ -69,8 +78,16 @@ func inspectClaudeHookCancellationDiagnostics(ctx context.Context, projectDir st
 			),
 		}
 	}
+	classification, err := classifyHookCancellationDiagnostics(ctx, scan.Records, c.session)
+	if err != nil {
+		return doctorCheck{
+			Name:    checkName,
+			Status:  doctorStatusFail,
+			Message: localizef("failed to resolve Claude hook cancellation diagnostics against session state: %v", "Claude hook cancellation diagnostic と session state の照合に失敗しました: %v", err),
+		}
+	}
 
-	if len(scan.Records) == 0 {
+	if len(classification.Actionable) == 0 && len(classification.Resolved) == 0 {
 		return doctorCheck{
 			Name:   checkName,
 			Status: doctorStatusWarn,
@@ -85,19 +102,39 @@ func inspectClaudeHookCancellationDiagnostics(ctx context.Context, projectDir st
 			),
 		}
 	}
+	fix := resolvedHookCancellationDiagnosticFix(classification.Resolved)
+	fixCommand := ""
+	if len(classification.Resolved) > 0 {
+		fixCommand = fmt.Sprintf("traceary doctor --client claude --project-dir %s --fix --dry-run", shellQuote(projectDir))
+	}
+	if len(classification.Actionable) == 0 && len(scan.Unreadable) == 0 {
+		return doctorCheck{
+			Name:             checkName,
+			Status:           doctorStatusWarn,
+			Hint:             Localize("the referenced sessions have ended; preview the safe marker cleanup with the fix command", "参照先 session は終了済みです。fix command で安全な marker cleanup を preview してください"),
+			Message:          localizef("found %d resolved Claude SessionEnd hook cancellation diagnostic(s) eligible for cleanup", "cleanup 可能な解決済み Claude SessionEnd hook cancellation diagnostic が %d 件あります", len(classification.Resolved)),
+			FixCommand:       fixCommand,
+			AutoFixAvailable: true,
+			FixFunc:          fix,
+		}
+	}
 
-	latest := scan.Records[0]
-	return doctorCheck{
+	check := doctorCheck{
 		Name:   checkName,
 		Status: doctorStatusWarn,
 		Hint: Localize(
 			"the marker means Traceary reached Claude SessionEnd but did not complete cleanly; inspect the file and recent `traceary list --agent claude` output, then remove the marker after confirming it is stale. If Claude cancels before Traceary starts, no marker can be written.",
 			"この marker は Traceary が Claude SessionEnd まで到達したものの正常完了していないことを示します。file と最近の `traceary list --agent claude` を確認し、stale と判断できたら marker を削除してください。Claude が Traceary 起動前に cancel した場合、marker は書けません。",
 		),
-		Message: localizef(
-			"found %d pending Claude SessionEnd hook cancellation diagnostic(s); latest host_event=%s hook_command=%s hook_path=%s workspace=%s session_id=%s started_at=%s path=%s%s",
-			"未完了の Claude SessionEnd hook cancellation diagnostic が %d 件あります。latest host_event=%s hook_command=%s hook_path=%s workspace=%s session_id=%s started_at=%s path=%s%s",
-			len(scan.Records),
+		Message: localizef("found unreadable Claude hook cancellation diagnostic file(s): %s", "読めない Claude hook cancellation diagnostic file があります: %s", strings.Join(scan.Unreadable, ", ")),
+	}
+	if len(classification.Actionable) > 0 {
+		latest := classification.Actionable[0]
+		check.Message = localizef(
+			"found %d actionable Claude SessionEnd hook cancellation diagnostic(s) and %d resolved marker(s); latest host_event=%s hook_command=%s hook_path=%s workspace=%s session_id=%s started_at=%s path=%s%s",
+			"対応が必要な Claude SessionEnd hook cancellation diagnostic が %d 件、解決済み marker が %d 件あります。latest host_event=%s hook_command=%s hook_path=%s workspace=%s session_id=%s started_at=%s path=%s%s",
+			len(classification.Actionable),
+			len(classification.Resolved),
 			emptyAsDash(latest.HostEvent),
 			emptyAsDash(latest.HookCommand),
 			emptyAsDash(latest.HookPath),
@@ -106,7 +143,72 @@ func inspectClaudeHookCancellationDiagnostics(ctx context.Context, projectDir st
 			formatHookDiagnosticTime(latest.StartedAt),
 			latest.Path,
 			formatUnreadableHookDiagnosticsSuffix(scan.Unreadable),
-		),
+		)
+	} else if len(classification.Resolved) > 0 && len(scan.Unreadable) > 0 {
+		check.Message = localizef(
+			"found %d resolved Claude SessionEnd hook cancellation diagnostic(s) eligible for cleanup and unreadable diagnostic file(s): %s",
+			"cleanup 可能な解決済み Claude SessionEnd hook cancellation diagnostic が %d 件、読めない diagnostic file があります: %s",
+			len(classification.Resolved),
+			strings.Join(scan.Unreadable, ", "),
+		)
+	}
+	if len(classification.Resolved) > 0 {
+		check.FixCommand = fixCommand
+		check.AutoFixAvailable = true
+		check.FixFunc = fix
+	}
+	return check
+}
+
+func classifyHookCancellationDiagnostics(
+	ctx context.Context,
+	records []hookCancellationDiagnostic,
+	sessions hookDiagnosticSessionLookup,
+) (hookCancellationDiagnosticClassification, error) {
+	classification := hookCancellationDiagnosticClassification{}
+	if sessions == nil {
+		classification.Actionable = append(classification.Actionable, records...)
+		return classification, nil
+	}
+	ids := make([]types.SessionID, 0, len(records))
+	for _, record := range records {
+		if strings.TrimSpace(record.SessionID) != "" {
+			ids = append(ids, types.SessionID(record.SessionID))
+		}
+	}
+	endedIDs, err := sessions.FindEndedSessionIDs(ctx, ids)
+	if err != nil {
+		return hookCancellationDiagnosticClassification{}, xerrors.Errorf("failed to inspect ended sessions: %w", err)
+	}
+	for _, record := range records {
+		if strings.TrimSpace(record.SessionID) == "" {
+			classification.Actionable = append(classification.Actionable, record)
+			continue
+		}
+		if _, ended := endedIDs[types.SessionID(record.SessionID)]; ended {
+			classification.Resolved = append(classification.Resolved, record)
+			continue
+		}
+		classification.Actionable = append(classification.Actionable, record)
+	}
+	return classification, nil
+}
+
+func resolvedHookCancellationDiagnosticFix(records []hookCancellationDiagnostic) doctorFixFunc {
+	paths := make([]string, 0, len(records))
+	for _, record := range records {
+		paths = append(paths, record.Path)
+	}
+	return func(_ context.Context, dryRun bool) (string, error) {
+		if dryRun {
+			return fmt.Sprintf("would remove %d resolved Claude SessionEnd hook cancellation diagnostic(s)", len(paths)), nil
+		}
+		for _, path := range paths {
+			if err := clearHookCancellationDiagnostic(path); err != nil {
+				return "", err
+			}
+		}
+		return fmt.Sprintf("removed %d resolved Claude SessionEnd hook cancellation diagnostic(s)", len(paths)), nil
 	}
 }
 

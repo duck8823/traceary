@@ -254,6 +254,17 @@ func (u *sessionUsecase) List(ctx context.Context, criteria apptypes.SessionList
 	return summaries, nil
 }
 
+func (u *sessionUsecase) FindEndedSessionIDs(ctx context.Context, sessionIDs []types.SessionID) (map[types.SessionID]struct{}, error) {
+	if u.sessionRepo == nil {
+		return nil, xerrors.Errorf("session repository is not configured")
+	}
+	ended, err := u.sessionRepo.FindEndedSessionIDs(ctx, sessionIDs)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to find ended sessions: %w", err)
+	}
+	return ended, nil
+}
+
 func (u *sessionUsecase) Tree(ctx context.Context, workspace types.Workspace, rootSessionID types.SessionID, limit int) ([]apptypes.SessionSummary, error) {
 	if limit <= 0 {
 		return nil, xerrors.Errorf("limit must be greater than or equal to 1")

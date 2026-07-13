@@ -402,6 +402,22 @@ func (s *sessionRepositoryStub) FindByID(
 	return types.Some(s.session), nil
 }
 
+func (s *sessionRepositoryStub) FindEndedSessionIDs(_ context.Context, sessionIDs []types.SessionID) (map[types.SessionID]struct{}, error) {
+	ended := make(map[types.SessionID]struct{})
+	if s.session == nil {
+		return ended, nil
+	}
+	if _, ok := s.session.EndedAt().Value(); !ok {
+		return ended, nil
+	}
+	for _, sessionID := range sessionIDs {
+		if sessionID == s.session.SessionID() {
+			ended[sessionID] = struct{}{}
+		}
+	}
+	return ended, nil
+}
+
 func (s *sessionRepositoryStub) Save(_ context.Context, session *model.Session) error {
 	s.saveCalled = true
 	s.saved = session

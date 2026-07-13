@@ -332,7 +332,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			report.Checks = append(report.Checks, c.inspectClientEventCoverage(ctx, targetClient, outputPath, resolvedProjectDir, input.coverageThreshold))
 		}
 		if targetClient == "claude" {
-			report.Checks = append(report.Checks, inspectClaudeHookCancellationDiagnostics(ctx, resolvedProjectDir))
+			report.Checks = append(report.Checks, c.inspectClaudeHookCancellationDiagnostics(ctx, resolvedProjectDir))
 		}
 		report.Checks = append(report.Checks, c.inspectMCPRegistrationForClient(targetClient, outputPath))
 
