@@ -331,6 +331,8 @@ type memoryUsecaseStub struct {
 	setValidityErr      error
 	extractDetails      []apptypes.MemoryDetails
 	extractErr          error
+	extractFunc         func(context.Context, apptypes.MemoryExtractionCriteria) ([]apptypes.MemoryDetails, error)
+	extractCallCount    int
 	importResult        apptypes.MemoryImportResult
 	importErr           error
 	bridgeImportResult  apptypes.MemoryBridgeImportResult
@@ -491,8 +493,12 @@ func (s *memoryUsecaseStub) Show(_ context.Context, memoryID types.MemoryID) (ap
 	return s.showDetails, s.showErr
 }
 
-func (s *memoryUsecaseStub) Extract(_ context.Context, criteria apptypes.MemoryExtractionCriteria) ([]apptypes.MemoryDetails, error) {
+func (s *memoryUsecaseStub) Extract(ctx context.Context, criteria apptypes.MemoryExtractionCriteria) ([]apptypes.MemoryDetails, error) {
 	s.extractCriteria = criteria
+	s.extractCallCount++
+	if s.extractFunc != nil {
+		return s.extractFunc(ctx, criteria)
+	}
 	return s.extractDetails, s.extractErr
 }
 

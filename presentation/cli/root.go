@@ -38,6 +38,9 @@ type RootCLI struct {
 	defaultReadFields          []string
 	readPresets                map[string]presentation.ReadPreset
 	defaultReadColor           string
+	hookMemoryExtractLauncher  func(string) error
+	hookMemoryBeforeJobRemoval func()
+	hookMemoryAfterFinalCheck  func()
 	// databasePathSetter is invoked by each subcommand's RunE after it
 	// resolves --db-path / TRACEARY_DB_PATH, so the shared Database
 	// instance opens the user-specified path instead of the composition-
@@ -176,6 +179,25 @@ func WithReadPresets(presets map[string]presentation.ReadPreset) RootCLIOption {
 // falls back to the built-in auto behavior.
 func WithDefaultReadColor(value string) RootCLIOption {
 	return func(c *RootCLI) { c.defaultReadColor = value }
+}
+
+// WithHookMemoryExtractLauncher overrides the detached worker launcher used by
+// hook-driven memory extraction. It is primarily intended for deterministic
+// tests; production callers use the default process launcher.
+func WithHookMemoryExtractLauncher(launcher func(string) error) RootCLIOption {
+	return func(c *RootCLI) { c.hookMemoryExtractLauncher = launcher }
+}
+
+// WithHookMemoryBeforeJobRemoval installs a deterministic synchronization
+// point for queue race tests. Production callers must leave it unset.
+func WithHookMemoryBeforeJobRemoval(hook func()) RootCLIOption {
+	return func(c *RootCLI) { c.hookMemoryBeforeJobRemoval = hook }
+}
+
+// WithHookMemoryAfterFinalCheck installs a deterministic synchronization
+// point after the worker's final marker check but before unlock.
+func WithHookMemoryAfterFinalCheck(hook func()) RootCLIOption {
+	return func(c *RootCLI) { c.hookMemoryAfterFinalCheck = hook }
 }
 
 // WithDatabasePathSetter injects a callback invoked by every subcommand
