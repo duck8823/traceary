@@ -114,6 +114,15 @@
           "fixture": null,
           "note": "External Grok subagents remained disabled; no parent/child field contract is claimed."
         },
+        "Notification": {
+          "documented": true,
+          "observed": false,
+          "verification": "not_probed_no_traceary_mapping",
+          "traceary_support": "unavailable",
+          "traceary_event": null,
+          "fixture": null,
+          "note": "Notification has no Traceary lifecycle mapping and was not included in the live contract probe."
+        },
         "PreCompact": {
           "documented": true,
           "observed": true,

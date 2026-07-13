@@ -44,6 +44,7 @@ This list excludes hooks that already appear in the lifecycle matrix above.
 | Antigravity | `PreToolUse` for non-`run_command` tools | ○ available | only `run_command` is audited |
 | Grok Build | `PostToolUseFailure`, `PermissionDenied`, `SessionEnd`, `StopFailure` | ○ documented, not live-confirmed on 0.2.99 | unavailable to Traceary until a live payload is observed; tool denial currently arrives through `PostToolUse` |
 | Grok Build | `SubagentStart`, `SubagentStop` | ○ documented, policy-gated probe pending | no parent/child field contract is claimed |
+| Grok Build | `Notification` | ○ documented, not probed | no Traceary lifecycle mapping; unavailable |
 
 ## Per-host references
 
