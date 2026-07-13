@@ -9,6 +9,7 @@ import (
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 type storeBackupCreatorStub struct {
@@ -32,7 +33,7 @@ func (s *storeBackupCreatorStub) RestoreBackup(_ context.Context, _ string, _ bo
 func (s *storeBackupCreatorStub) CollectGarbage(_ context.Context, _ time.Time, _ apptypes.GarbageCollectionTarget, _ bool) (int, error) {
 	return 0, nil
 }
-func (s *storeBackupCreatorStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool) (int, error) {
+func (s *storeBackupCreatorStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool, _ []types.SessionID) (int, error) {
 	return 0, nil
 }
 func (s *storeBackupCreatorStub) DedupeContentEvents(_ context.Context, _ apptypes.ContentEventDedupeParams) (apptypes.ContentEventDedupeResult, error) {
@@ -63,7 +64,7 @@ func (s *storeBackupRestorerStub) RestoreBackup(_ context.Context, inputPath str
 func (s *storeBackupRestorerStub) CollectGarbage(_ context.Context, _ time.Time, _ apptypes.GarbageCollectionTarget, _ bool) (int, error) {
 	return 0, nil
 }
-func (s *storeBackupRestorerStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool) (int, error) {
+func (s *storeBackupRestorerStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool, _ []types.SessionID) (int, error) {
 	return 0, nil
 }
 func (s *storeBackupRestorerStub) DedupeContentEvents(_ context.Context, _ apptypes.ContentEventDedupeParams) (apptypes.ContentEventDedupeResult, error) {

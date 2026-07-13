@@ -40,6 +40,18 @@ The tasks below assume **Claude Code's own scheduling** (the `/schedule` skill, 
 
 A single manual trigger should either open an issue or finish silently with no errors. Re-running on the same day should not duplicate an existing open issue (the agent should match on title prefix).
 
+## Daily stale-session GC fallback
+
+Normal hook activity already runs activity-aware stale-session GC after session start (and after Antigravity `PreInvocation`), at most once every six hours per database. A session is closed only when it has been open for more than 24 hours **and** has no event inside that 24-hour window, so a long-running session with recent activity stays active.
+
+If hooks are disabled or the workstation goes for long periods without starting an agent session, schedule this command once per day as a fallback:
+
+```sh
+traceary session gc --stale-after 24h
+```
+
+Use `--dry-run` first when adopting the task. Verify with `traceary doctor --json`: the `stale-active-sessions` check should become `pass` after the next normal hook start or scheduled run. The command is idempotent and only sets `ended_at`; it does not delete session events.
+
 ## Conventions
 
 - A scheduled agent that has nothing to report **must exit silently** so the operator's inbox does not fill with empty runs.

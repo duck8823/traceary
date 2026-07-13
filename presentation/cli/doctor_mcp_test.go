@@ -70,6 +70,58 @@ func TestInspectMCPRegistration(t *testing.T) {
 
 }
 
+func TestInspectAntigravityMCPRegistration(t *testing.T) {
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, pluginDir string)
+		wantStatus string
+	}{
+		{name: "absent plugin skips", wantStatus: doctorStatusSkip},
+		{
+			name: "installed plugin without mcp warns",
+			setup: func(t *testing.T, pluginDir string) {
+				t.Helper()
+				if err := os.MkdirAll(pluginDir, 0o755); err != nil {
+					t.Fatalf("MkdirAll() error = %v", err)
+				}
+			},
+			wantStatus: doctorStatusWarn,
+		},
+		{
+			name: "installed plugin mcp passes",
+			setup: func(t *testing.T, pluginDir string) {
+				t.Helper()
+				if err := os.MkdirAll(pluginDir, 0o755); err != nil {
+					t.Fatalf("MkdirAll() error = %v", err)
+				}
+				content := `{"mcpServers":{"traceary":{"command":"traceary","args":["mcp-server"]}}}`
+				if err := os.WriteFile(filepath.Join(pluginDir, "mcp_config.json"), []byte(content), 0o600); err != nil {
+					t.Fatalf("WriteFile() error = %v", err)
+				}
+			},
+			wantStatus: doctorStatusPass,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := t.TempDir()
+			SetUserHomeDirFunc(func() (string, error) { return home, nil })
+			t.Cleanup(ResetUserHomeDirFunc)
+			pluginDir := antigravityCLIPluginDir(home)
+			if tt.setup != nil {
+				tt.setup(t, pluginDir)
+			}
+			check := (&RootCLI{}).inspectAntigravityMCPRegistration()
+			if check.Name != "antigravity-mcp" || check.Status != tt.wantStatus {
+				t.Fatalf("check = %+v, want status %q", check, tt.wantStatus)
+			}
+			if tt.wantStatus == doctorStatusWarn && check.FixCommand == "" {
+				t.Fatalf("warning must include reinstall command: %+v", check)
+			}
+		})
+	}
+}
+
 func TestWriteJSONMCPRegistrationPreservesExistingServerFields(t *testing.T) {
 	settings := filepath.Join(t.TempDir(), "settings.json")
 	if err := os.WriteFile(settings, []byte(`{

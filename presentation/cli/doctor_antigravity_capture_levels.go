@@ -12,27 +12,22 @@ package cli
 //
 //   - start_supported       — PreInvocation fires in every mode (session start/refresh).
 //   - tool_audit_supported   — PreToolUse+PostToolUse (run_command) fire in every mode.
-//   - final_turn_supported   — Stop (transcript + turn boundary) fires only on
-//     interactive runs.
-//   - final_turn_unavailable — headless `agy --print` emits no Stop/finalization
-//     hook, so no transcript event or turn boundary is recorded for that run.
+//   - final_turn_supported   — Stop supplies transcriptPath in interactive and
+//     current headless CLI runs; actual persistence is checked from DB evidence.
 const (
 	antigravityCaptureLevelsCheck = "antigravity-capture-levels"
 
 	// Capture-level tokens surfaced verbatim in the doctor message and the docs
 	// capture matrix so status output and documentation stay in lock-step.
-	antigravityCaptureStartSupported       = "start_supported"
-	antigravityCaptureToolAuditSupported   = "tool_audit_supported"
-	antigravityCaptureFinalTurnSupported   = "final_turn_supported"
-	antigravityCaptureFinalTurnUnavailable = "final_turn_unavailable"
+	antigravityCaptureStartSupported     = "start_supported"
+	antigravityCaptureToolAuditSupported = "tool_audit_supported"
+	antigravityCaptureFinalTurnSupported = "final_turn_supported"
 )
 
 // buildAntigravityCaptureLevelsCheck returns the additive antigravity-capture-levels
 // doctor check. It is always PASS: a working install legitimately captures the
-// start and tool-audit levels in every mode, and the absence of a Stop hook in
-// headless `agy --print` is a host-mode trait, not a Traceary install failure, so
-// it must not warn. The message reports the capture-level vocabulary and makes the
-// print-mode `final_turn_unavailable` reality explicit.
+// configured hook surface. Actual transcript delivery is judged separately by
+// antigravity-event-coverage so a healthy config cannot hide a runtime gap.
 func buildAntigravityCaptureLevelsCheck() doctorCheck {
 	return doctorCheck{
 		Name:   antigravityCaptureLevelsCheck,
@@ -40,17 +35,16 @@ func buildAntigravityCaptureLevelsCheck() doctorCheck {
 		Message: localizef(
 			"Antigravity capture levels are a host-mode trait, separate from hook install health (route installation is checked by `%s`). "+
 				"Every mode captures `%s` (PreInvocation → session start/refresh) and `%s` (PreToolUse+PostToolUse run_command → command audit). "+
-				"`%s` (Stop → transcript event + turn boundary) is captured only on interactive runs; headless `agy --print` is `%s` because the host emits no Stop or other finalization hook in print mode, so a print run records no transcript event and no turn boundary. "+
-				"A healthy hook install therefore does NOT imply full session transcript capture in print mode — this is the expected print-mode capture level, not an install failure.",
+				"Current Antigravity hooks expose `%s` in interactive and headless `agy --print` runs (Stop → transcript-derived prompt + transcript event + turn boundary). "+
+				"Runtime delivery is verified separately by `antigravity-event-coverage`; a healthy hook install alone does not prove transcript persistence.",
 			"Antigravity の記録レベルは実行モードの性質であり、hook 導入経路の健全性とは別です（導入経路は `%s` が検査します）。"+
 				"すべてのモードで `%s`（PreInvocation → セッション開始/更新）と `%s`（PreToolUse+PostToolUse run_command → コマンド監査）を記録します。"+
-				"`%s`（Stop → transcript event + turn 境界）は対話実行でのみ記録され、headless `agy --print` ではホストが print mode で Stop その他の finalization hook を発行しないため `%s` となり、その実行では transcript event も turn 境界も記録されません。"+
-				"したがって hook 導入が健全でも、print mode でセッション transcript を完全に記録することは保証されません。これは print mode における想定どおりの記録レベルであり、導入失敗ではありません。",
+				"現在の Antigravity hooks は interactive と headless `agy --print` の両方で `%s` を提供します（Stop → transcript 由来 prompt + transcript event + turn 境界）。"+
+				"実行時の配送は `antigravity-event-coverage` が別途検証します。hook 導入が健全なだけでは transcript 永続化の証明にはなりません。",
 			antigravityRouteSummaryCheck,
 			antigravityCaptureStartSupported,
 			antigravityCaptureToolAuditSupported,
 			antigravityCaptureFinalTurnSupported,
-			antigravityCaptureFinalTurnUnavailable,
 		),
 	}
 }

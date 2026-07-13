@@ -165,6 +165,27 @@ func TestInspectPluginVersionReleaseTaggedBuildMatch(t *testing.T) {
 	}
 }
 
+func TestDetectPluginInstallsIncludesAntigravityManifest(t *testing.T) {
+	home := t.TempDir()
+	SetUserHomeDirFunc(func() (string, error) { return home, nil })
+	t.Cleanup(ResetUserHomeDirFunc)
+	manifest := filepath.Join(home, ".gemini", "antigravity-cli", "plugins", "traceary", "plugin.json")
+	if err := os.MkdirAll(filepath.Dir(manifest), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(manifest, []byte(`{"name":"traceary","version":"0.21.4"}`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	installs := (&RootCLI{}).detectPluginInstalls()
+	for _, install := range installs {
+		if install.Client == "antigravity" && install.ManifestPath == manifest {
+			return
+		}
+	}
+	t.Fatalf("detectPluginInstalls() = %+v, want Antigravity manifest", installs)
+}
+
 func TestNormalizeDoctorVersion(t *testing.T) {
 	tests := map[string]string{
 		"0.9.0 (commit=abc, date=2026, go=1.24)": "0.9.0",

@@ -9,6 +9,10 @@ import (
 // ResolveDBPath exposes resolveDBPath for tests.
 var ResolveDBPath = resolveDBPath
 
+// ExpectedCodexPluginHookCount exposes the current packaged hook cardinality
+// so black-box doctor tests cannot silently drift from the production contract.
+var ExpectedCodexPluginHookCount = expectedCodexPluginHookCount
+
 // SetUserHomeDirFunc replaces the home-directory lookup function for tests.
 func SetUserHomeDirFunc(f func() (string, error)) {
 	userHomeDirFunc = f

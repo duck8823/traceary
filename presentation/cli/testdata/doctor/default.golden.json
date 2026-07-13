@@ -49,7 +49,7 @@
       "status": "pass",
       "severity": "PASS",
       "section": "Database",
-      "message": "no active sessions older than 24h0m0s",
+      "message": "no active sessions idle for more than 24h0m0s",
       "hint": "",
       "fix_command": "",
       "auto_fix_available": false
@@ -129,7 +129,7 @@
       "status": "pass",
       "severity": "PASS",
       "section": "MCP",
-      "message": "codex host: memory features ship behind a per-install feature flag in /tmp/traceary-json-golden-home/.codex/config.toml; consult the Codex release notes for the exact flag name and your enablement state. Traceary's `memory import codex` works regardless of the flag state",
+      "message": "codex host: Codex CLI 0.144.1 compact and subagent hooks are wired (PreCompact / PostCompact markers and SubagentStart / SubagentStop child sessions). Memory features still depend on the per-install feature flag in /tmp/traceary-json-golden-home/.codex/config.toml; Traceary's `memory import codex` works regardless of that flag",
       "hint": "",
       "fix_command": "",
       "auto_fix_available": false
@@ -219,7 +219,7 @@
           "status": "pass",
           "severity": "PASS",
           "section": "Database",
-          "message": "no active sessions older than 24h0m0s",
+          "message": "no active sessions idle for more than 24h0m0s",
           "hint": "",
           "fix_command": "",
           "auto_fix_available": false
@@ -268,7 +268,7 @@
           "status": "pass",
           "severity": "PASS",
           "section": "MCP",
-          "message": "codex host: memory features ship behind a per-install feature flag in /tmp/traceary-json-golden-home/.codex/config.toml; consult the Codex release notes for the exact flag name and your enablement state. Traceary's `memory import codex` works regardless of the flag state",
+          "message": "codex host: Codex CLI 0.144.1 compact and subagent hooks are wired (PreCompact / PostCompact markers and SubagentStart / SubagentStop child sessions). Memory features still depend on the per-install feature flag in /tmp/traceary-json-golden-home/.codex/config.toml; Traceary's `memory import codex` works regardless of that flag",
           "hint": "",
           "fix_command": "",
           "auto_fix_available": false

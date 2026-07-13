@@ -12,10 +12,6 @@ import (
 	"golang.org/x/xerrors"
 )
 
-func (s codexPluginHookFallbackState) pluginHooksConfirmedActive() bool {
-	return s.PluginEnabled && s.PluginHooksFeature != nil && *s.PluginHooksFeature
-}
-
 func codexPluginManagedHooksCheck(state codexPluginHookFallbackState, hooksPath string) doctorCheck {
 	pluginKey := state.PluginKey
 	if pluginKey == "" {
@@ -25,8 +21,8 @@ func codexPluginManagedHooksCheck(state codexPluginHookFallbackState, hooksPath 
 		Name:   "codex-config",
 		Status: doctorStatusPass,
 		Message: localizef(
-			"codex plugin %q has confirmed plugin-managed hooks (`[features].plugin_hooks = true`); no manual Traceary entries are required in %s",
-			"codex plugin %q では plugin-managed hook が有効です (`[features].plugin_hooks = true`)。%s に手動 Traceary エントリは不要です",
+			"codex plugin %q has confirmed active plugin-managed hooks; no manual Traceary entries are required in %s",
+			"codex plugin %q では plugin-managed hook が有効であることを確認済みです。%s に手動 Traceary エントリは不要です",
 			pluginKey,
 			hooksPath,
 		),
@@ -169,5 +165,44 @@ func codexPluginHookFallbackCheck(state codexPluginHookFallbackState, hooksPath,
 		Hint:       "fall back to a manual hook install while plugin-managed hooks are unavailable; remove the manual entries before re-enabling plugin hooks to avoid duplicate capture",
 		Message:    message,
 		FixCommand: "traceary hooks install --client codex --upgrade --traceary-bin $(command -v traceary)",
+	}
+}
+
+func (c *RootCLI) inspectCodexConfigWithHookTrust(
+	ctx context.Context,
+	outputPath string,
+	projectDir string,
+	trust codexPluginHookTrustResult,
+) doctorCheck {
+	configCheck := c.inspectDoctorConfigFile(ctx, "codex", outputPath, projectDir)
+	if configCheck.Status == doctorStatusFail {
+		return configCheck
+	}
+	state := c.detectCodexPluginHookFallback()
+
+	switch trust.Status {
+	case codexPluginHookTrustTrusted:
+		confirmed := true
+		state.PluginHooksFeature = &confirmed
+		if c.configHasTracearyHooks(outputPath) {
+			return c.codexDuplicateRegistrationCheck(ctx, state, outputPath)
+		}
+		return codexPluginManagedHooksCheck(state, outputPath)
+	default:
+		// Any result other than a complete, trusted current plugin contract is
+		// ineligible for destructive duplicate cleanup. A healthy manual route
+		// remains authoritative; if it is absent, surface the fallback install
+		// instead of implying that plugin_hooks=true alone proves coverage.
+		if c.configHasTracearyHooks(outputPath) {
+			return configCheck
+		}
+		return codexPluginHookFallbackCheck(
+			state,
+			outputPath,
+			localizef(
+				"does not contain a complete Traceary-managed manual fallback",
+				"には完全な Traceary 管理の手動 fallback がありません",
+			),
+		)
 	}
 }
