@@ -17,6 +17,7 @@ import (
 )
 
 const hookSessionGCInterval = 6 * time.Hour
+const hookSessionActivityLeaseTTL = time.Minute
 
 // runOpportunisticSessionGC keeps abandoned hook sessions bounded without
 // adding a scheduler or making host hooks depend on maintenance succeeding.
@@ -24,6 +25,10 @@ const hookSessionGCInterval = 6 * time.Hour
 // perform at most one pass per interval.
 func (c *RootCLI) runOpportunisticSessionGC(ctx context.Context, dbPath string, currentSessionID types.SessionID) {
 	if c.storeManagement == nil || strings.TrimSpace(dbPath) == "" {
+		return
+	}
+	if err := recordHookSessionActivity(currentSessionID); err != nil {
+		slog.Debug("opportunistic session GC activity registration failed", "error", err)
 		return
 	}
 	markerPath, err := hookSessionGCMarkerPath(dbPath)
@@ -56,7 +61,7 @@ func (c *RootCLI) runOpportunisticSessionGC(ctx context.Context, dbPath string, 
 	if hookSessionGCRecentlyCompleted(markerPath, now) {
 		return
 	}
-	protectedSessionIDs, err := activeHookSessionIDs()
+	protectedSessionIDs, err := activeHookSessionIDs(now)
 	if err != nil {
 		slog.Debug("opportunistic session GC active-session discovery failed", "error", err)
 		return
@@ -75,35 +80,59 @@ func (c *RootCLI) runOpportunisticSessionGC(ctx context.Context, dbPath string, 
 	slog.Debug("opportunistic session GC completed", "closed_sessions", result.ClosedCount())
 }
 
-func activeHookSessionIDs() ([]types.SessionID, error) {
+func recordHookSessionActivity(sessionID types.SessionID) error {
+	if sessionID == "" {
+		return nil
+	}
+	stateDir, err := resolveHookStateDir()
+	if err != nil {
+		return err
+	}
+	activityDir := filepath.Join(stateDir, "session-activity")
+	if err := os.MkdirAll(activityDir, 0o700); err != nil {
+		return xerrors.Errorf("failed to create hook session activity directory: %w", err)
+	}
+	digest := sha256.Sum256([]byte(sessionID))
+	path := filepath.Join(activityDir, hex.EncodeToString(digest[:])+".lease")
+	if err := os.WriteFile(path, []byte(sessionID), 0o600); err != nil {
+		return xerrors.Errorf("failed to write hook session activity lease: %w", err)
+	}
+	return nil
+}
+
+func activeHookSessionIDs(now time.Time) ([]types.SessionID, error) {
 	stateDir, err := resolveHookStateDir()
 	if err != nil {
 		return nil, err
 	}
-	entries, err := os.ReadDir(stateDir)
+	activityDir := filepath.Join(stateDir, "session-activity")
+	entries, err := os.ReadDir(activityDir)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to read hook state directory: %w", err)
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, xerrors.Errorf("failed to read hook session activity directory: %w", err)
 	}
-	clientPrefixes := []string{"claude-", "codex-", "gemini-", "antigravity-", "grok-"}
 	result := make([]types.SessionID, 0, len(entries))
 	seen := make(map[types.SessionID]struct{}, len(entries))
 	for _, entry := range entries {
-		if !entry.Type().IsRegular() || strings.HasSuffix(entry.Name(), "-repo") {
+		if !entry.Type().IsRegular() || !strings.HasSuffix(entry.Name(), ".lease") {
 			continue
 		}
-		isSessionState := false
-		for _, prefix := range clientPrefixes {
-			if strings.HasPrefix(entry.Name(), prefix) {
-				isSessionState = true
-				break
-			}
-		}
-		if !isSessionState {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(stateDir, entry.Name()))
+		info, err := entry.Info()
 		if err != nil {
-			return nil, xerrors.Errorf("failed to read active hook session state: %w", err)
+			return nil, xerrors.Errorf("failed to inspect hook session activity lease: %w", err)
+		}
+		path := filepath.Join(activityDir, entry.Name())
+		if now.Sub(info.ModTime()) >= hookSessionActivityLeaseTTL {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				slog.Debug("stale hook session activity lease cleanup failed", "error", err)
+			}
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to read hook session activity lease: %w", err)
 		}
 		sessionID := types.SessionID(strings.TrimSpace(string(data)))
 		if sessionID == "" {

@@ -3,7 +3,9 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -188,9 +190,32 @@ func TestRootCLI_HookAntigravityConcurrentPreInvocationsProtectAllActiveSessions
 			t.Fatalf("insert %s: %v", sessionID, err)
 		}
 	}
-	for key, sessionID := range map[string]string{"key-a": "conv-a", "key-b": "conv-b"} {
-		if err := os.WriteFile(filepath.Join(stateDir, "antigravity-"+key), []byte(sessionID), 0o600); err != nil {
+	routingStates := map[string]string{"key-a": "conv-a", "key-b": "conv-b", "abandoned-key": "abandoned"}
+	for key, sessionID := range routingStates {
+		path := filepath.Join(stateDir, "antigravity-"+key)
+		if err := os.WriteFile(path, []byte(sessionID), 0o600); err != nil {
 			t.Fatalf("write %s state: %v", sessionID, err)
+		}
+		if sessionID == "abandoned" {
+			if err := os.Chtimes(path, time.Now().Add(-96*time.Hour), time.Now().Add(-96*time.Hour)); err != nil {
+				t.Fatalf("age abandoned routing state: %v", err)
+			}
+		}
+	}
+	activityDir := filepath.Join(stateDir, "session-activity")
+	if err := os.MkdirAll(activityDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll(activityDir) error = %v", err)
+	}
+	for _, sessionID := range []string{"conv-a", "conv-b", "abandoned"} {
+		digest := sha256.Sum256([]byte(sessionID))
+		path := filepath.Join(activityDir, hex.EncodeToString(digest[:])+".lease")
+		if err := os.WriteFile(path, []byte(sessionID), 0o600); err != nil {
+			t.Fatalf("write %s activity lease: %v", sessionID, err)
+		}
+		if sessionID == "abandoned" {
+			if err := os.Chtimes(path, time.Now().Add(-2*time.Minute), time.Now().Add(-2*time.Minute)); err != nil {
+				t.Fatalf("age abandoned activity lease: %v", err)
+			}
 		}
 	}
 
@@ -221,6 +246,11 @@ func TestRootCLI_HookAntigravityConcurrentPreInvocationsProtectAllActiveSessions
 		if err := helper.cmd.Wait(); err != nil {
 			t.Fatalf("helper error = %v\n%s", err, helper.output.Bytes())
 		}
+	}
+	abandonedDigest := sha256.Sum256([]byte("abandoned"))
+	abandonedLeasePath := filepath.Join(activityDir, hex.EncodeToString(abandonedDigest[:])+".lease")
+	if _, err := os.Stat(abandonedLeasePath); !os.IsNotExist(err) {
+		t.Fatalf("expired abandoned activity lease must be pruned, stat error = %v", err)
 	}
 
 	for _, tc := range []struct {
