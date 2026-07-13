@@ -3,7 +3,7 @@
 [日本語](./codex-plugin.ja.md)
 
 Traceary ships a Codex plugin under `plugins/traceary/` that plugs into Codex CLI's official `/plugins` flow.
-Codex picks up the MCP server, the slash commands, and the session-history skill automatically as soon as the plugin is installed through the official flow. Hook registration is conditional: it works on Codex builds where the `plugin_hooks` feature is enabled and stable. On builds where `plugin_hooks` is still under development or explicitly disabled (`codex features list` shows `plugin_hooks` as `under development`, or `~/.codex/config.toml` has `[features].plugin_hooks = false`), the plugin's hook manifest is not materialized into `~/.codex/hooks.json` and a manual hook install is required — see the **Hook fallback when plugin_hooks is unavailable** section below.
+Codex picks up the MCP server, slash commands, and session-history skill as soon as the plugin is installed through the official flow. Plugin hooks require one additional security step: Codex skips non-managed hooks until the user reviews and trusts their current definition. Open `/hooks` after installation (and after any plugin update that changes a hook), review the Traceary entries, and trust them. `traceary doctor --client codex` checks the effective trust state through Codex and warns when a hook is untrusted, modified, or disabled.
 
 ## Install via Codex's official /plugins flow (primary)
 
@@ -29,9 +29,11 @@ cd ~/src/traceary
 codex
 ```
 
-4. Inside Codex, open `/plugins`, choose `Traceary Plugins` as the marketplace, and install the `Traceary` plugin. Codex materializes the plugin into its managed cache and registers the hooks declared in the plugin manifest.
+4. Inside Codex, open `/plugins`, choose `Traceary Plugins` as the marketplace, and install the `Traceary` plugin. Codex materializes the plugin into its managed cache and discovers the hooks declared in the plugin manifest.
 
-5. Open a new thread and verify:
+5. Open `/hooks`, review the Traceary plugin hook commands, and trust the current definitions. Installation alone does not trust plugin-bundled hooks; changed definitions require review again.
+
+6. Open a new thread and verify:
 
 ```sh
 traceary doctor --client codex --json
@@ -40,23 +42,22 @@ traceary doctor --client codex --json
 ## What the official flow wires automatically
 
 - `traceary` MCP server via `traceary mcp-server`
-- `SessionStart`, `UserPromptSubmit`, `Stop` (turn-boundary transcript; not a session end — #1170), and `PostToolUse` hooks (declared in `plugins/traceary/hooks.json` and referenced from the plugin manifest) — **only when `plugin_hooks` is enabled on your Codex build**; otherwise see the fallback below
+- `SessionStart`, `UserPromptSubmit`, `Stop` (turn-boundary transcript; not a session end — #1170), and `PostToolUse` hooks (declared in `plugins/traceary/hooks.json` and referenced from the plugin manifest). Codex runs them only after their current definitions are trusted in `/hooks`.
 - slash commands: `/traceary:help` and `/traceary:doctor`
 - contextual skills: `traceary-session-history`, `traceary-memory-review`, and `traceary-memory-remember`. `traceary-memory-review` triggers on review-intent phrases ("Traceary inbox", "review memory candidates", "session recap") and curates the inbox; `traceary-memory-remember` triggers only on explicit-write phrases ("remember that", "覚えておいて").
 
-## Hook fallback when plugin_hooks is unavailable
+## Hook trust diagnostics and legacy fallback
 
-Codex's plugin-managed hook support shipped behind the `plugin_hooks` feature flag and is still marked `under development` on some builds. When the feature is unavailable, Codex will not materialize the plugin manifest's hook declarations into `~/.codex/hooks.json`, so `traceary tail` and durable-memory extraction will see no Codex events even though `/plugins` lists the Traceary plugin as enabled.
+Current Codex builds expose the effective hook state through `/hooks`: `trusted` hooks run, while `untrusted`, changed (`modified`), and disabled hooks do not. Traceary delegates the current-definition hash comparison to Codex instead of attempting to reproduce Codex's private hash algorithm.
 
 Diagnose with:
 
 ```sh
-codex features list                          # is plugin_hooks stable + on?
-cat ~/.codex/config.toml                     # does [features].plugin_hooks = false exist?
-traceary doctor --client codex --json        # surfaces the actionable fallback warning
+traceary doctor --client codex --json        # checks effective plugin hook trust
+codex                                        # open /hooks and review Traceary entries
 ```
 
-If `plugin_hooks` is unavailable, install the hooks manually so events are still captured:
+If an older Codex build cannot expose plugin hook state, doctor reports the state as unverified rather than passing it. Upgrade Codex first. The manual registration remains a compatibility fallback when plugin-managed hooks genuinely cannot be loaded:
 
 ```sh
 traceary hooks install --client codex --upgrade --traceary-bin "$(command -v traceary)"
@@ -67,7 +68,7 @@ The fallback writes Traceary-managed entries directly into `~/.codex/hooks.json`
 
 ### Duplicate-capture warning
 
-If a future Codex build enables `plugin_hooks` for your install (the plugin manifest's hooks start firing automatically) while these manual entries remain in `~/.codex/hooks.json`, **every session/prompt/transcript/audit event will be recorded twice**. After setting `[features].plugin_hooks = true`, let doctor detect and remove the obsolete manual path:
+If trusted plugin hooks and these manual entries are both active, **every session/prompt/transcript/audit event will be recorded twice**. Let doctor detect and remove the obsolete manual path:
 
 ```sh
 traceary doctor --client codex --json
@@ -75,7 +76,7 @@ traceary doctor --fix --dry-run --client codex
 traceary doctor --fix --client codex
 ```
 
-Doctor only offers this cleanup when the Traceary plugin is enabled and `plugin_hooks = true` explicitly confirms plugin-managed hooks. It removes the named Traceary-managed entries (`traceary-session-start`, `traceary-prompt`, `traceary-transcript`, `traceary-session-stop`, and `traceary-audit`) while preserving unrelated hooks and top-level fields. When the feature is false or unspecified, doctor keeps the manual fallback intact.
+Doctor only offers this cleanup when Codex reports the current Traceary plugin hook definitions as trusted. It removes the named Traceary-managed entries (`traceary-session-start`, `traceary-prompt`, `traceary-transcript`, `traceary-session-stop`, and `traceary-audit`) while preserving unrelated hooks and top-level fields. When trust is unverified, untrusted, modified, or disabled, doctor keeps the manual fallback intact.
 
 After cleanup, re-run `traceary doctor --client codex --json` to confirm only one registration path is active.
 

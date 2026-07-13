@@ -171,3 +171,43 @@ func codexPluginHookFallbackCheck(state codexPluginHookFallbackState, hooksPath,
 		FixCommand: "traceary hooks install --client codex --upgrade --traceary-bin $(command -v traceary)",
 	}
 }
+
+func (c *RootCLI) inspectCodexConfigWithHookTrust(
+	ctx context.Context,
+	outputPath string,
+	projectDir string,
+	trust codexPluginHookTrustResult,
+) doctorCheck {
+	configCheck := c.inspectDoctorConfigFile(ctx, "codex", outputPath, projectDir)
+	if configCheck.Status == doctorStatusFail {
+		return configCheck
+	}
+
+	switch trust.Status {
+	case codexPluginHookTrustTrusted:
+		state := c.detectCodexPluginHookFallback()
+		confirmed := true
+		state.PluginHooksFeature = &confirmed
+		if c.claudeConfigHasTracearyHooks(outputPath) {
+			return c.codexDuplicateRegistrationCheck(ctx, state, outputPath)
+		}
+		return codexPluginManagedHooksCheck(state, outputPath)
+	case codexPluginHookTrustUntrusted, codexPluginHookTrustModified, codexPluginHookTrustDisabled:
+		// A healthy manual registration remains a valid compatibility path,
+		// but it does not make the separate plugin trust warning disappear.
+		if c.claudeConfigHasTracearyHooks(outputPath) {
+			return configCheck
+		}
+		return doctorCheck{
+			Name:   "codex-config",
+			Status: doctorStatusSkip,
+			Message: localizef(
+				"manual Codex hooks are not registered; the enabled Traceary plugin owns this route after its current hooks are reviewed in `/hooks`: %s",
+				"Codex の手動 hook は登録されていません。有効な Traceary plugin の現在の hook を `/hooks` で確認した後は plugin がこの経路を担当します: %s",
+				outputPath,
+			),
+		}
+	default:
+		return configCheck
+	}
+}

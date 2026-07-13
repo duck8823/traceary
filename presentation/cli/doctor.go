@@ -327,7 +327,19 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			continue
 		}
 
-		check := c.inspectClaudeOrConfigFile(ctx, targetClient, outputPath, resolvedProjectDir)
+		var check doctorCheck
+		if targetClient == "codex" {
+			pluginState := c.detectCodexPluginHookFallback()
+			if pluginState.PluginEnabled && pluginState.PluginHooksFeature == nil {
+				trust := codexPluginHookTrustProbeFunc(ctx, resolvedProjectDir, pluginState.PluginKey)
+				report.Checks = append(report.Checks, codexPluginHookTrustCheck(trust))
+				check = c.inspectCodexConfigWithHookTrust(ctx, outputPath, resolvedProjectDir, trust)
+			} else {
+				check = c.inspectClaudeOrConfigFile(ctx, targetClient, outputPath, resolvedProjectDir)
+			}
+		} else {
+			check = c.inspectClaudeOrConfigFile(ctx, targetClient, outputPath, resolvedProjectDir)
+		}
 		c.attachDoctorConfigFix(&check, targetClient, outputPath, resolvedProjectDir)
 		report.Checks = append(report.Checks, check)
 		if targetClient == "gemini" || targetClient == "claude" {
