@@ -5,6 +5,26 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.22.0] - 2026-07-14
+
+### Added
+- **Antigravity plugin の機能同等化 (#1287)** — 配布する Antigravity plugin に hooks だけでなく Traceary MCP server と memory skills を同梱しました。doctor は MCP 登録と配布版・インストール版のバージョン一致を検証し、古い plugin が残る場合は再インストール手順を示します。
+- **現行 Antigravity の capture coverage (#1285)** — Antigravity hooks が現行 payload の prompt と transcript を関連付け、turn 全体の coverage を記録するようになりました。不完全な turn は無効化しつつ、旧形式の transcript data は保持します。doctor は transcript 本文を露出せず、件数を制限した metadata から coverage を報告します。
+- **Codex compact と subagent の境界 (#1289)** — Codex plugin が `PreCompact` / `PostCompact` の境界 marker を捕捉し、subagent の stop event を親 session と関連付けます。対応する境界 semantics を docs と regression test で固定しました。
+- **Codex plugin hook の trust 診断 (#1284)** — doctor は現行 Codex plugin hook 一式が完全に信頼されている場合だけ healthy と報告します。trust 状態が不完全または確認不能な場合は安全側に倒し、完全な信頼を確認するまで手動 fallback hook を保持します。
+- **activity-aware な session 自動 GC (#1290)** — hook ingestion が開始時刻ではなく最新 activity に基づく、rate limit 付き stale-session cleanup を実行します。process 間 activity lease は atomic に公開され、自動的に期限切れとなり、同時実行中の session を cleanup race から保護します。
+- **hook write path の durable queue (#1281, #1282)** — host の timeout kill で中断された hook event を durable spool に保持し、turn ごとの memory extraction を durable な非同期 queue で実行します。同期 capture path から timeout と extraction latency の影響を外しつつ、待機中の処理を失いません。
+- **Codex hook 重複登録の修復 (#1283)** — doctor が Codex hook の重複登録を検出し、無関係な hook 設定を維持したまま lossless かつ atomic に修復できるようになりました。
+
+### Fixed
+- **Claude SessionEnd cancellation の reconciliation (#1280)** — 解決済みの Claude hook cancellation marker を照合し、doctor が現在対応すべき SessionEnd failure だけを表示するようになりました。
+
+### Changed
+- **Gemini CLI の maintenance mode (#1286)** — Gemini extension は既存 install 向けに維持しますが、Google による Antigravity CLI への移行後は maintenance-only とし、新規 install には Antigravity plugin を案内するよう docs を更新しました。
+
+### Notes
+- 新しい MCP tool はありません。破壊的な data migration は追加しておらず、新しい queue と cleanup path が使う reliability state は追加のみで migration-safe です。
+
 ## [v0.21.4] - 2026-06-20
 
 ### Added
