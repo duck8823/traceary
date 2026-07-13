@@ -117,7 +117,7 @@ func TestClassifyCodexPluginHookTrust(t *testing.T) {
 		},
 		{
 			name:       "partial load error prevents trusted result",
-			hooksJSON:  `{"data":[{"hooks":[{"pluginId":"traceary@market","enabled":true,"trustStatus":"trusted"}],"errors":["synthetic error"]}]}`,
+			hooksJSON:  `{"data":[{"hooks":[{"pluginId":"traceary@market","enabled":true,"trustStatus":"trusted"}],"errors":[{"path":"/tmp/plugin/hooks.json","message":"synthetic error"}]}]}`,
 			wantStatus: codexPluginHookTrustUndetectable,
 			wantCount:  0,
 		},

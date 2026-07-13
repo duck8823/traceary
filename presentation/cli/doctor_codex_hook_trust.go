@@ -37,11 +37,16 @@ type codexHookListMetadata struct {
 	TrustState string `json:"trustStatus"`
 }
 
+type codexHookErrorInfo struct {
+	Path    string `json:"path"`
+	Message string `json:"message"`
+}
+
 type codexHooksListResponse struct {
 	Data []struct {
 		Hooks    []codexHookListMetadata `json:"hooks"`
 		Warnings []string                `json:"warnings"`
-		Errors   []string                `json:"errors"`
+		Errors   []codexHookErrorInfo    `json:"errors"`
 	} `json:"data"`
 }
 
