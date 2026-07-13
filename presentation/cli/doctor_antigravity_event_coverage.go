@@ -38,20 +38,20 @@ func buildAntigravityEventCoverageCheck(eventCount int, coverage appusecase.Sess
 	const checkName = "antigravity-event-coverage"
 	if coverage.Sessions < doctorEventCoverageMinSample {
 		return doctorCheck{Name: checkName, Status: doctorStatusPass, Message: localizef(
-			"scanned %d recent Antigravity event(s); only %d complete session(s) observed (minimum sample %d), so transcript coverage is not judged yet",
-			"%d 件の recent Antigravity event を検査しました。完全に観測できた session は %d 件だけです (minimum sample %d) のため、transcript coverage はまだ判定しません",
+			"scanned %d recent Antigravity event(s); only %d session(s) observed (minimum sample %d), so prompt/transcript coverage is not judged yet",
+			"%d 件の recent Antigravity event を検査しました。観測できた session は %d 件だけです (minimum sample %d) のため、prompt/transcript coverage はまだ判定しません",
 			eventCount, coverage.Sessions, doctorEventCoverageMinSample,
 		)}
 	}
 
-	missing := coverage.Sessions - coverage.WithTranscript
-	ratio := float64(missing) / float64(coverage.Sessions)
-	details := fmt.Sprintf("sessions=%d transcript_missing=%d with_transcript=%d with_command=%d ratio=%.2f threshold=%.2f",
-		coverage.Sessions, missing, coverage.WithTranscript, coverage.WithCommand, ratio, threshold)
+	missing := coverage.PromptTranscriptMissing
+	ratio := coverage.PromptTranscriptMissingRatio()
+	details := fmt.Sprintf("sessions=%d complete=%d prompt_or_transcript_missing=%d with_prompt=%d with_transcript=%d with_command=%d ratio=%.2f threshold=%.2f",
+		coverage.Sessions, coverage.Complete, missing, coverage.WithPrompt, coverage.WithTranscript, coverage.WithCommand, ratio, threshold)
 	if ratio <= threshold {
 		return doctorCheck{Name: checkName, Status: doctorStatusPass, Message: localizef(
-			"scanned %d recent Antigravity event(s); transcript coverage is healthy (%s)",
-			"%d 件の recent Antigravity event を検査しました。transcript coverage は健全です (%s)",
+			"scanned %d recent Antigravity event(s); prompt/transcript coverage is healthy (%s)",
+			"%d 件の recent Antigravity event を検査しました。prompt/transcript coverage は健全です (%s)",
 			eventCount, details,
 		)}
 	}
@@ -63,8 +63,8 @@ func buildAntigravityEventCoverageCheck(eventCount int, coverage appusecase.Sess
 			"Antigravity は prompt/response 本文を直接の prompt field ではなく transcriptPath 経由で提供します。Stop hook の配送、transcript file の読み取り、recent event ID を `traceary list --agent antigravity` で確認してください。",
 		),
 		Message: localizef(
-			"scanned %d recent Antigravity event(s); transcript coverage is below the configured threshold (%s)",
-			"%d 件の recent Antigravity event を検査しました。transcript coverage が設定 threshold を下回っています (%s)",
+			"scanned %d recent Antigravity event(s); prompt/transcript coverage is below the configured threshold (%s)",
+			"%d 件の recent Antigravity event を検査しました。prompt/transcript coverage が設定 threshold を下回っています (%s)",
 			eventCount, details,
 		),
 	}

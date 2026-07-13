@@ -14,8 +14,9 @@ func TestBuildAntigravityEventCoverageCheck(t *testing.T) {
 		want     string
 	}{
 		{name: "small sample passes without judging", coverage: appusecase.SessionEventCoverage{Sessions: doctorEventCoverageMinSample - 1}, want: doctorStatusPass},
-		{name: "missing transcripts warn", coverage: appusecase.SessionEventCoverage{Sessions: 20, WithTranscript: 0, WithCommand: 8}, want: doctorStatusWarn},
-		{name: "healthy transcript ratio passes", coverage: appusecase.SessionEventCoverage{Sessions: 20, WithTranscript: 19, WithCommand: 8}, want: doctorStatusPass},
+		{name: "missing transcripts warn", coverage: appusecase.SessionEventCoverage{Sessions: 20, PromptTranscriptMissing: 20, WithTranscript: 0, WithCommand: 8}, want: doctorStatusWarn},
+		{name: "missing prompts warn despite transcripts", coverage: appusecase.SessionEventCoverage{Sessions: 20, PromptTranscriptMissing: 20, WithPrompt: 0, WithTranscript: 19, WithCommand: 8}, want: doctorStatusWarn},
+		{name: "healthy complete-turn ratio passes", coverage: appusecase.SessionEventCoverage{Sessions: 20, Complete: 19, PromptTranscriptMissing: 1, WithPrompt: 19, WithTranscript: 19, WithCommand: 8}, want: doctorStatusPass},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
