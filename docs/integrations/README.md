@@ -2,7 +2,7 @@
 
 [日本語](./README.ja.md)
 
-Traceary ships native integration packages for Claude Code, Codex, Gemini CLI (legacy), and Antigravity.
+Traceary ships native integration packages for Claude Code, Codex, Gemini CLI (legacy), Antigravity, and Grok Build.
 
 > **v0.21.1 note:** Gemini CLI is the legacy Google AI agent host. **Antigravity** (`/Applications/Antigravity.app`) is the active successor. As of v0.21.1, Traceary supports Antigravity as a real hook client with a packaged plugin against the documented public hook surface. See the [Antigravity hooks and plugin guide](./antigravity.md).
 
@@ -37,6 +37,7 @@ Current automatic fixes cover Traceary-managed hook config installation/upgrade 
 | Codex | `plugins/traceary/` | Installed via Codex CLI's official `/plugins` flow against the repo-local marketplace at `.agents/plugins/marketplace.json`; the plugin manifest declares the bundled `hooks.json` so Codex wires session / prompt / audit hooks automatically. The `traceary integration codex install` helper was retired in v0.14.0 and the cleanup-only `traceary integration codex uninstall` was retired in v0.15.0; both are now hidden stubs that point at Codex's official `/plugins` flow plus the manual cleanup steps in [docs/integrations/codex-plugin.md](./codex-plugin.md). |
 | Gemini CLI | `integrations/gemini-extension/` | Gemini extension archive rooted at `gemini-extension.json` — **legacy compatibility only** as of v0.21.0; not the active delegation path |
 | Antigravity | `integrations/antigravity-plugin/` | Supported in v0.21.1. Direct hook installs target `<project>/.agents/hooks.json` or `~/.gemini/config/hooks.json`; the packaged plugin adds a versioned manifest, Traceary MCP server, and three shared memory/session skills. `traceary doctor --client antigravity --json` reports hook routes, MCP registration, and plugin version parity. |
+| Grok Build | `integrations/grok-plugin/` | Supported in v0.23.0. The native plugin contains seven live-verified lifecycle hooks, one Traceary MCP server, and three shared memory/session skills. Install it with `scripts/install-grok-plugin.sh`, then verify the installed hook contract, trust, inventory, and version parity with `traceary doctor --client grok --json`. |
 
 ## Per-host guides
 
@@ -44,6 +45,7 @@ Current automatic fixes cover Traceary-managed hook config installation/upgrade 
 - [Codex plugin](./codex-plugin.md)
 - [Gemini CLI extension (legacy)](./gemini-extension.md)
 - [Antigravity hooks and plugin](./antigravity.md)
+- [Grok Build plugin](./grok-plugin.md)
 - [Anthropic native memory tool (experimental)](./anthropic-memory-tool.md)
 
 ## Validation and smoke tests
@@ -58,3 +60,4 @@ The smoke-test script focuses on the installation surfaces that each host curren
 - Claude Code: marketplace validation + install into a temporary home
 - Gemini CLI: authenticated extension validation + link flow in a temporary home when `TRACEARY_ENABLE_GEMINI_RUNTIME_SMOKE=1` is set
 - Codex: structural verification of the plugin manifest (`hooks: "./hooks.json"`, commands, skills) plus the retired-stub probes for both `traceary integration codex install` (v0.14.0 removal) and `traceary integration codex uninstall` (v0.15.0 removal) so the migration hints stay accurate
+- Grok Build: native package validation plus install, inventory inspection, and uninstall in a temporary home
