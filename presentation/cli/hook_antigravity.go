@@ -221,14 +221,22 @@ func (c *RootCLI) runHookAntigravityStop(ctx context.Context, output io.Writer, 
 		return err
 	}
 	sessionID := strings.TrimSpace(hookPayloadString(payload, "conversationId", ""))
+	transcriptPath := hookPayloadString(payload, "transcriptPath", "")
+	promptText, _ := extractAntigravityPrompt(transcriptPath)
 	normalized := normalizeAntigravityPayload(antigravityNormalizeOptions{
 		sessionID:      sessionID,
 		cwd:            antigravityWorkspaceCwd(payload),
-		transcriptPath: hookPayloadString(payload, "transcriptPath", ""),
+		transcriptPath: transcriptPath,
+		promptText:     promptText,
 	})
 
-	// Transcript first so the turn's transcript event is recorded before any
-	// turn-boundary side effects, keeping the event order chronological.
+	// Antigravity exposes no direct prompt field on PreInvocation. Recover the
+	// latest USER_INPUT at Stop, then persist prompt and response in their
+	// conversational order before recording the turn boundary.
+	promptErr := c.runHookPrompt(ctx, bytes.NewReader(normalized), antigravityHookClient, dbPath)
+	if promptErr != nil {
+		slog.Debug("antigravity stop prompt failed", "session_id", sessionID, "error", promptErr)
+	}
 	transcriptErr := c.runHookTranscript(ctx, bytes.NewReader(normalized), antigravityHookClient, dbPath)
 	if transcriptErr != nil {
 		slog.Debug("antigravity stop transcript failed", "session_id", sessionID, "error", transcriptErr)
@@ -236,7 +244,7 @@ func (c *RootCLI) runHookAntigravityStop(ctx context.Context, output io.Writer, 
 	if err := c.runHookSession(ctx, nil, bytes.NewReader(normalized), antigravityHookClient, "stop", dbPath); err != nil {
 		return err
 	}
-	return transcriptErr
+	return errors.Join(promptErr, transcriptErr)
 }
 
 // antigravityNormalizeOptions carries the resolved values used to build a
@@ -245,6 +253,7 @@ type antigravityNormalizeOptions struct {
 	sessionID      string
 	cwd            string
 	transcriptPath string
+	promptText     string
 	toolName       string
 	toolCommand    string
 	errMessage     string
@@ -264,6 +273,9 @@ func normalizeAntigravityPayload(opts antigravityNormalizeOptions) []byte {
 	}
 	if opts.transcriptPath != "" {
 		normalized["transcript_path"] = opts.transcriptPath
+	}
+	if opts.promptText != "" {
+		normalized["prompt"] = opts.promptText
 	}
 	if opts.toolName != "" {
 		normalized["tool_name"] = opts.toolName
@@ -488,11 +500,14 @@ func readLastAssistantTranscriptBlocksLenient(path string) ([]apptypes.EventBody
 // antigravityTranscriptLine is a lenient view over a JSONL transcript row. It
 // accepts both the nested Claude-style envelope and a flat role/content shape.
 type antigravityTranscriptLine struct {
-	Type    string                        `json:"type"`
-	Role    string                        `json:"role"`
-	Text    string                        `json:"text"`
-	Content json.RawMessage               `json:"content"`
-	Message *antigravityTranscriptMessage `json:"message"`
+	Type     string                        `json:"type"`
+	Source   string                        `json:"source"`
+	Status   string                        `json:"status"`
+	Role     string                        `json:"role"`
+	Text     string                        `json:"text"`
+	Thinking string                        `json:"thinking"`
+	Content  json.RawMessage               `json:"content"`
+	Message  *antigravityTranscriptMessage `json:"message"`
 }
 
 type antigravityTranscriptMessage struct {
@@ -504,7 +519,12 @@ func (l antigravityTranscriptLine) isAssistant() bool {
 	if strings.EqualFold(l.Type, "assistant") || strings.EqualFold(l.Role, "assistant") {
 		return true
 	}
-	return l.Message != nil && strings.EqualFold(l.Message.Role, "assistant")
+	if l.Message != nil && strings.EqualFold(l.Message.Role, "assistant") {
+		return true
+	}
+	return strings.EqualFold(l.Source, "MODEL") &&
+		strings.HasSuffix(strings.ToUpper(l.Type), "_RESPONSE") &&
+		(l.Status == "" || strings.EqualFold(l.Status, "DONE"))
 }
 
 func (l antigravityTranscriptLine) blocks() []apptypes.EventBodyBlock {
@@ -513,15 +533,49 @@ func (l antigravityTranscriptLine) blocks() []apptypes.EventBodyBlock {
 			return blocks
 		}
 	}
+	var blocks []apptypes.EventBodyBlock
+	if thinking := strings.TrimSpace(l.Thinking); thinking != "" {
+		blocks = append(blocks, apptypes.EventBodyBlock{Type: apptypes.EventBodyBlockTypeThinking, Text: thinking})
+	}
 	if len(l.Content) > 0 {
-		if blocks := antigravityContentBlocks(l.Content); len(blocks) > 0 {
-			return blocks
-		}
+		blocks = append(blocks, antigravityContentBlocks(l.Content)...)
 	}
 	if text := strings.TrimSpace(l.Text); text != "" {
-		return []apptypes.EventBodyBlock{{Type: apptypes.EventBodyBlockTypeText, Text: text}}
+		blocks = append(blocks, apptypes.EventBodyBlock{Type: apptypes.EventBodyBlockTypeText, Text: text})
 	}
-	return nil
+	return blocks
+}
+
+// extractAntigravityPrompt returns the most recent explicit user input from
+// Antigravity's documented transcriptPath. Current CLI transcripts represent
+// it as USER_INPUT / USER_EXPLICIT with a flat string content field.
+func extractAntigravityPrompt(path string) (string, bool) {
+	file, err := os.Open(strings.TrimSpace(path)) // #nosec G304 -- path supplied by the host Stop hook
+	if err != nil {
+		return "", false
+	}
+	defer func() { _ = file.Close() }()
+
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	var last string
+	for scanner.Scan() {
+		var entry antigravityTranscriptLine
+		if json.Unmarshal(scanner.Bytes(), &entry) != nil ||
+			!strings.EqualFold(entry.Type, "USER_INPUT") ||
+			!strings.EqualFold(entry.Source, "USER_EXPLICIT") ||
+			(entry.Status != "" && !strings.EqualFold(entry.Status, "DONE")) {
+			continue
+		}
+		blocks := antigravityContentBlocks(entry.Content)
+		if len(blocks) == 1 && blocks[0].Type == apptypes.EventBodyBlockTypeText {
+			last = blocks[0].Text
+		}
+	}
+	if scanner.Err() != nil || strings.TrimSpace(last) == "" {
+		return "", false
+	}
+	return last, true
 }
 
 // antigravityContentBlocks parses a content value that may be a plain string or

@@ -1046,9 +1046,14 @@ func (c *RootCLI) runHookPrompt(
 	// Gemini delivers prompts on `BeforeAgent`, while Claude / Codex use
 	// `UserPromptSubmit`. Persist the host-specific source_hook so the
 	// distinction remains recoverable downstream.
-	if client == "gemini" {
+	switch client {
+	case "gemini":
 		ctx = apptypes.WithSourceHook(ctx, "before_agent")
-	} else {
+	case "antigravity":
+		// Antigravity does not expose prompt text directly on PreInvocation.
+		// The Stop adapter recovers the latest USER_INPUT from transcriptPath.
+		ctx = apptypes.WithSourceHook(ctx, "stop_transcript")
+	default:
 		ctx = apptypes.WithSourceHook(ctx, "user_prompt_submit")
 	}
 
