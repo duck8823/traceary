@@ -1,23 +1,40 @@
 package filesystem_test
 
 import (
-	"strings"
+	"path/filepath"
 	"testing"
 
 	"github.com/duck8823/traceary/infrastructure/filesystem"
 )
 
-func TestGrokHooksHandler_ExposesFailClosedBoundary(t *testing.T) {
+func TestGrokHooksHandler_BuildsVerifiedCoreHooks(t *testing.T) {
 	t.Parallel()
 
 	handler := filesystem.NewGrokHooksHandler()
 	if got := handler.Name(); got != "grok" {
 		t.Fatalf("Name() = %q, want grok", got)
 	}
-	if got := handler.Build("traceary").Events(); len(got) != 0 {
-		t.Fatalf("Build().Events() = %v, want empty until runtime support lands", got)
+	hooks := handler.Build("traceary")
+	wantEvents := []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"}
+	if got := hooks.EventOrder(); len(got) != len(wantEvents) {
+		t.Fatalf("Build().EventOrder() = %v, want %v", got, wantEvents)
 	}
-	if _, err := handler.DefaultInstallPath(t.TempDir()); err == nil || !strings.Contains(err.Error(), "native runtime support") {
-		t.Fatalf("DefaultInstallPath() error = %v, want fail-closed runtime support error", err)
+	for index, event := range wantEvents {
+		if got := hooks.EventOrder()[index]; got != event {
+			t.Fatalf("Build().EventOrder()[%d] = %q, want %q", index, got, event)
+		}
+		entries := hooks.Entries(event)
+		if len(entries) != 1 || len(entries[0].Commands()) != 1 {
+			t.Fatalf("Build().Entries(%q) = %v, want one command", event, entries)
+		}
+	}
+
+	projectDir := t.TempDir()
+	path, err := handler.DefaultInstallPath(projectDir)
+	if err != nil {
+		t.Fatalf("DefaultInstallPath() error = %v", err)
+	}
+	if want := filepath.Join(projectDir, ".grok", "hooks", "traceary.json"); path != want {
+		t.Fatalf("DefaultInstallPath() = %q, want %q", path, want)
 	}
 }

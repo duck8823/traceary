@@ -49,6 +49,40 @@ func TestHooksInstall_GlobalClaudeWritesToHomeConfig(t *testing.T) {
 	}
 }
 
+func TestHooksInstall_GlobalGrokWritesPersonalHookFile(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	rootCmd := newTestRootCLI().Command()
+	stdout := &bytes.Buffer{}
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"hooks", "install",
+		"--client", "grok",
+		"--project-dir", projectDir,
+		"--traceary-bin", "traceary",
+		"--global",
+	})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	globalPath := filepath.Join(homeDir, ".grok", "hooks", "traceary.json")
+	if _, err := os.Stat(globalPath); err != nil {
+		t.Fatalf("global Grok hook file should be written; stat err = %v", err)
+	}
+	projectPath := filepath.Join(projectDir, ".grok", "hooks", "traceary.json")
+	if _, err := os.Stat(projectPath); !os.IsNotExist(err) {
+		t.Errorf("project Grok hook file should not be written under --global; stat err = %v", err)
+	}
+	if !strings.Contains(stdout.String(), globalPath) {
+		t.Errorf("stdout = %q; want mention of global path %q", stdout.String(), globalPath)
+	}
+}
+
 // TestHooksInstall_GlobalAndOutputMutuallyExclusive asserts that passing
 // both --global and --output produces a clear error rather than silently
 // preferring one.

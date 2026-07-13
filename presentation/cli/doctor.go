@@ -297,6 +297,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 	})
 	report.Checks = append(report.Checks, inspectHookSpoolDiagnostics(resolvedClients))
 	report.Checks = append(report.Checks, inspectHookMemoryExtractDiagnostics(time.Now().UTC()))
+	report.Checks = append(report.Checks, inspectHookGrokTranscriptDiagnostics(time.Now().UTC()))
 
 	for _, targetClient := range resolvedClients {
 		if targetClient == "antigravity" {

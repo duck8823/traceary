@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -174,7 +175,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 	})
 
 	for _, client := range []string{"grok", "grok-build", "grok-cli"} {
-		t.Run("reaches empty Grok boundary with "+client, func(t *testing.T) {
+		t.Run("prints native Grok hooks with "+client, func(t *testing.T) {
 			rootCmd := newTestRootCLI().Command()
 			stdout := &bytes.Buffer{}
 			rootCmd.SetOut(stdout)
@@ -187,8 +188,28 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 			if err := json.Unmarshal(stdout.Bytes(), &settings); err != nil {
 				t.Fatalf("json.Unmarshal() error = %v\n%s", err, stdout.Bytes())
 			}
-			if len(settings.Hooks) != 0 {
-				t.Fatalf("Grok hooks = %v, want empty boundary before runtime support", settings.Hooks)
+			wantCommands := map[string]string{
+				"SessionStart":     "session-start",
+				"UserPromptSubmit": "user-prompt-submit",
+				"PreToolUse":       "pre-tool-use",
+				"PostToolUse":      "post-tool-use",
+				"Stop":             "stop",
+			}
+			if len(settings.Hooks) != len(wantCommands) {
+				t.Fatalf("Grok hooks = %v, want exactly %v", settings.Hooks, wantCommands)
+			}
+			for event, action := range wantCommands {
+				entries := settings.Hooks[event]
+				if len(entries) != 1 || len(entries[0].Hooks) != 1 {
+					t.Fatalf("Grok %s entries = %v, want one command", event, entries)
+				}
+				want := fmt.Sprintf(`'/tmp/traceary bin/traceary' 'hook' 'grok' '%s'`, action)
+				if diff := cmp.Diff(want, entries[0].Hooks[0].Command); diff != "" {
+					t.Fatalf("Grok %s command mismatch (-want +got):\n%s", event, diff)
+				}
+				if diff := cmp.Diff(5, entries[0].Hooks[0].Timeout); diff != "" {
+					t.Fatalf("Grok %s timeout mismatch (-want +got):\n%s", event, diff)
+				}
 			}
 		})
 	}
@@ -244,60 +265,35 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 	})
 	t.Cleanup(cli.ResetUserHomeDirFunc)
 
-	t.Run("fails closed for Grok until native runtime support lands", func(t *testing.T) {
+	t.Run("installs native Grok hooks at the project path", func(t *testing.T) {
 		for _, client := range []string{"grok", "grok-build", "grok-cli"} {
-			for _, tc := range []struct {
-				name       string
-				extraArgs  []string
-				seedOutput bool
-			}{
-				{name: "default path"},
-				{name: "explicit output", extraArgs: []string{"--output", filepath.Join(t.TempDir(), "hooks.json")}},
-				{name: "force with explicit output", extraArgs: []string{"--output", filepath.Join(t.TempDir(), "hooks.json"), "--force"}, seedOutput: true},
-				{name: "upgrade with explicit output", extraArgs: []string{"--output", filepath.Join(t.TempDir(), "hooks.json"), "--upgrade"}, seedOutput: true},
-			} {
-				t.Run(client+"/"+tc.name, func(t *testing.T) {
-					args := []string{
-						"hooks", "install",
-						"--client", client,
-						"--project-dir", projectDir,
-						"--traceary-bin", "traceary",
-					}
-					args = append(args, tc.extraArgs...)
-					var outputPath string
-					for i, arg := range args {
-						if arg == "--output" {
-							outputPath = args[i+1]
-						}
-					}
-					const original = `{"user":"content"}`
-					if tc.seedOutput {
-						if err := os.WriteFile(outputPath, []byte(original), 0o600); err != nil {
-							t.Fatalf("seed output: %v", err)
-						}
-					}
-
-					rootCmd := newTestRootCLI().Command()
-					rootCmd.SetOut(&bytes.Buffer{})
-					rootCmd.SetErr(&bytes.Buffer{})
-					rootCmd.SetArgs(args)
-					err := rootCmd.Execute()
-					if err == nil || !strings.Contains(err.Error(), "native runtime support") {
-						t.Fatalf("Execute() error = %v, want fail-closed native runtime support error", err)
-					}
-					if outputPath == "" {
-						return
-					}
-					content, readErr := os.ReadFile(outputPath)
-					if tc.seedOutput {
-						if readErr != nil || string(content) != original {
-							t.Fatalf("output after failed install = %q, %v; want unchanged", content, readErr)
-						}
-					} else if !os.IsNotExist(readErr) {
-						t.Fatalf("output created after failed install: content=%q, error=%v", content, readErr)
-					}
+			t.Run(client, func(t *testing.T) {
+				clientProjectDir := t.TempDir()
+				rootCmd := newTestRootCLI().Command()
+				rootCmd.SetOut(&bytes.Buffer{})
+				rootCmd.SetErr(&bytes.Buffer{})
+				rootCmd.SetArgs([]string{
+					"hooks", "install",
+					"--client", client,
+					"--project-dir", clientProjectDir,
+					"--traceary-bin", "traceary",
 				})
-			}
+				if err := rootCmd.Execute(); err != nil {
+					t.Fatalf("Execute() error = %v", err)
+				}
+				outputPath := filepath.Join(clientProjectDir, ".grok", "hooks", "traceary.json")
+				content, err := os.ReadFile(outputPath)
+				if err != nil {
+					t.Fatalf("ReadFile(%s) error = %v", outputPath, err)
+				}
+				var settings printedHooksSettings
+				if err := json.Unmarshal(content, &settings); err != nil {
+					t.Fatalf("json.Unmarshal() error = %v", err)
+				}
+				if _, ok := settings.Hooks["SessionStart"]; !ok {
+					t.Fatal("installed Grok hooks missing SessionStart")
+				}
+			})
 		}
 	})
 
