@@ -1,0 +1,18 @@
+{
+  "hookEventName": "post_tool_use",
+  "sessionId": "019f0000-0000-7000-8000-000000000002",
+  "cwd": "/workspace/traceary-contract-probe",
+  "workspaceRoot": "/workspace/traceary-contract-probe",
+  "timestamp": "2026-07-14T00:01:03Z",
+  "transcriptPath": "/workspace/.grok/sessions/contract-probe/events.jsonl",
+  "toolName": "read_file",
+  "toolUseId": "tool-contract-probe-2",
+  "toolInput": {"target_file": "MISSING_CONTRACT_PROBE.txt"},
+  "toolInputTruncated": false,
+  "toolResult": {
+    "type": "ReadFile",
+    "FileNotFound": "Error: /workspace/traceary-contract-probe/MISSING_CONTRACT_PROBE.txt does not exist.\nNote: your current working directory is /workspace/traceary-contract-probe"
+  },
+  "toolResultTruncated": false,
+  "isBackgrounded": false
+}

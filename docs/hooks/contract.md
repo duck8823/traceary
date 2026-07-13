@@ -4,6 +4,8 @@
 
 This document defines the hook capability tiers across AI agent clients.
 
+The versioned, machine-readable live contract for Grok Build 0.2.99 is [`host-contract.json`](./host-contract.json). It separates upstream-documented hooks from live-observed payloads and requires a sanitized fixture before Traceary classifies an event as `supported` or `best_effort`. Grok runtime wiring remains outside this contract-verification change and is tracked in #1275 and #1276.
+
 ## Capability Tiers
 
 ### Tier 1: Full (Claude Code)

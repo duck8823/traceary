@@ -1,0 +1,13 @@
+{
+  "hookEventName": "pre_tool_use",
+  "sessionId": "019f0000-0000-7000-8000-000000000001",
+  "cwd": "/workspace/traceary-contract-probe",
+  "workspaceRoot": "/workspace/traceary-contract-probe",
+  "timestamp": "2026-07-14T00:00:02Z",
+  "transcriptPath": "/workspace/.grok/sessions/contract-probe/events.jsonl",
+  "toolName": "read_file",
+  "toolUseId": "tool-contract-probe-1",
+  "toolInput": {"target_file": "VERSION"},
+  "toolInputTruncated": false,
+  "permissionMode": "auto"
+}

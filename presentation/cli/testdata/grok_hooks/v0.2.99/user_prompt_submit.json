@@ -1,0 +1,10 @@
+{
+  "hookEventName": "user_prompt_submit",
+  "sessionId": "019f0000-0000-7000-8000-000000000001",
+  "cwd": "/workspace/traceary-contract-probe",
+  "workspaceRoot": "/workspace/traceary-contract-probe",
+  "timestamp": "2026-07-14T00:00:01Z",
+  "transcriptPath": "/workspace/.grok/sessions/contract-probe/events.jsonl",
+  "promptId": "prompt-contract-probe-1",
+  "prompt": "contract probe"
+}

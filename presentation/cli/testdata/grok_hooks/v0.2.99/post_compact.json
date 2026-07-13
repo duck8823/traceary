@@ -1,0 +1,9 @@
+{
+  "hookEventName": "post_compact",
+  "sessionId": "019f0000-0000-7000-8000-000000000004",
+  "cwd": "/workspace/traceary-contract-probe",
+  "workspaceRoot": "/workspace/traceary-contract-probe",
+  "timestamp": "2026-07-14T00:03:03Z",
+  "transcriptPath": "/workspace/.grok/sessions/contract-probe/events.jsonl",
+  "source": "manual"
+}

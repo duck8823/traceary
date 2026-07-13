@@ -1,0 +1,25 @@
+{
+  "hookEventName": "post_tool_use",
+  "sessionId": "019f0000-0000-7000-8000-000000000001",
+  "cwd": "/workspace/traceary-contract-probe",
+  "workspaceRoot": "/workspace/traceary-contract-probe",
+  "timestamp": "2026-07-14T00:00:03Z",
+  "transcriptPath": "/workspace/.grok/sessions/contract-probe/events.jsonl",
+  "toolName": "read_file",
+  "toolUseId": "tool-contract-probe-1",
+  "toolInput": {"target_file": "VERSION"},
+  "toolInputTruncated": false,
+  "toolResult": {
+    "type": "ReadFile",
+    "FileContent": {
+      "content": "1→0.0.0-contract-probe\n",
+      "content_concise": "1→0.0.0-contract-probe\n",
+      "absolute_path": "/workspace/traceary-contract-probe/VERSION",
+      "offset": null,
+      "raw_output": "0.0.0-contract-probe\n",
+      "total_lines": 2
+    }
+  },
+  "toolResultTruncated": false,
+  "isBackgrounded": false
+}

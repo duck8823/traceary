@@ -4,6 +4,8 @@
 
 このページでは、AI エージェントごとに hook でどこまで自動記録できるかを整理しています。
 
+Grok Build 0.2.99 の versioned かつ機械可読な live contract は [`host-contract.json`](./host-contract.json) にあります。upstream で文書化された hook と live で観測した payload を分離し、sanitized fixture がある event だけを `supported` または `best_effort` と分類します。Grok runtime の配線はこの contract 検証には含めず、#1275 と #1276 で扱います。
+
 ## 対応レベル
 
 ### Tier 1: フル対応 (Claude Code)

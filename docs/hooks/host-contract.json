@@ -1,0 +1,147 @@
+{
+  "schema_version": 1,
+  "last_verified": "2026-07-14",
+  "hosts": {
+    "grok": {
+      "host_version": "0.2.99",
+      "host_build": "b1b49ccb71a7",
+      "official_contract": "https://docs.x.ai/build/features/hooks",
+      "verification_method": "Live hooks captured from sanitized empty workspaces; raw payloads remained outside the repository.",
+      "field_availability": {
+        "session_id": "present on every observed event",
+        "cwd": "present on every observed event",
+        "workspace_root": "present on every observed event",
+        "transcript_path": "present on prompt, tool, stop, and compact events; absent on SessionStart",
+        "model": "unavailable on every observed hook payload",
+        "tool_input": "present on PreToolUse and PostToolUse",
+        "tool_result": "present on PostToolUse; failed and denied reads are nested result variants",
+        "failure_details": "no top-level failure field observed; FileNotFound and PermissionDenied are nested PostToolUse result variants",
+        "compact_summary": "unavailable; compact hooks expose source and transcriptPath only",
+        "subagent_parent_id": "unavailable because subagent hooks were not live-probed under the external-agent policy gate"
+      },
+      "events": {
+        "SessionStart": {
+          "documented": true,
+          "observed": true,
+          "verification": "live_observed",
+          "traceary_support": "supported",
+          "traceary_event": "session_started",
+          "fixture": "presentation/cli/testdata/grok_hooks/v0.2.99/session_start.json",
+          "note": "source=new; no transcriptPath or model field"
+        },
+        "UserPromptSubmit": {
+          "documented": true,
+          "observed": true,
+          "verification": "live_observed",
+          "traceary_support": "supported",
+          "traceary_event": "prompt",
+          "fixture": "presentation/cli/testdata/grok_hooks/v0.2.99/user_prompt_submit.json",
+          "note": "prompt, promptId, and transcriptPath are present"
+        },
+        "PreToolUse": {
+          "documented": true,
+          "observed": true,
+          "verification": "live_observed",
+          "traceary_support": "supported",
+          "traceary_event": "command_executed",
+          "fixture": "presentation/cli/testdata/grok_hooks/v0.2.99/pre_tool_use.json",
+          "note": "toolUseId correlates with PostToolUse"
+        },
+        "PostToolUse": {
+          "documented": true,
+          "observed": true,
+          "verification": "live_observed",
+          "traceary_support": "supported",
+          "traceary_event": "command_executed",
+          "fixture": "presentation/cli/testdata/grok_hooks/v0.2.99/post_tool_use.json",
+          "variant_fixtures": [
+            "presentation/cli/testdata/grok_hooks/v0.2.99/post_tool_use_missing.json",
+            "presentation/cli/testdata/grok_hooks/v0.2.99/post_tool_use_denied.json"
+          ],
+          "note": "Missing and sandbox-denied reads still emit PostToolUse with FileNotFound or PermissionDenied result variants."
+        },
+        "PostToolUseFailure": {
+          "documented": true,
+          "observed": false,
+          "verification": "live_not_emitted",
+          "traceary_support": "unavailable",
+          "traceary_event": null,
+          "fixture": null,
+          "note": "Not emitted by missing-file or sandbox-denied read probes in 0.2.99; those failures arrived through PostToolUse."
+        },
+        "PermissionDenied": {
+          "documented": true,
+          "observed": false,
+          "verification": "live_not_emitted",
+          "traceary_support": "unavailable",
+          "traceary_event": null,
+          "fixture": null,
+          "note": "A kernel-sandbox denied read emitted PostToolUse with a PermissionDenied result variant instead."
+        },
+        "Stop": {
+          "documented": true,
+          "observed": true,
+          "verification": "live_observed",
+          "traceary_support": "best_effort",
+          "traceary_event": "transcript",
+          "fixture": "presentation/cli/testdata/grok_hooks/v0.2.99/stop.json",
+          "note": "Turn boundary with promptId, reason, and transcriptPath; no assistant body or model field."
+        },
+        "StopFailure": {
+          "documented": true,
+          "observed": false,
+          "verification": "not_safely_triggered",
+          "traceary_support": "unavailable",
+          "traceary_event": null,
+          "fixture": null,
+          "note": "No API failure was intentionally induced in the live probe."
+        },
+        "SubagentStart": {
+          "documented": true,
+          "observed": false,
+          "verification": "not_probed_policy_gate",
+          "traceary_support": "unavailable",
+          "traceary_event": null,
+          "fixture": null,
+          "note": "External Grok subagents remained disabled; no parent/child field contract is claimed."
+        },
+        "SubagentStop": {
+          "documented": true,
+          "observed": false,
+          "verification": "not_probed_policy_gate",
+          "traceary_support": "unavailable",
+          "traceary_event": null,
+          "fixture": null,
+          "note": "External Grok subagents remained disabled; no parent/child field contract is claimed."
+        },
+        "PreCompact": {
+          "documented": true,
+          "observed": true,
+          "verification": "live_observed",
+          "traceary_support": "best_effort",
+          "traceary_event": "compact_summary",
+          "fixture": "presentation/cli/testdata/grok_hooks/v0.2.99/pre_compact.json",
+          "note": "Manual compact marker; no summary body is exposed."
+        },
+        "PostCompact": {
+          "documented": true,
+          "observed": true,
+          "verification": "live_observed",
+          "traceary_support": "best_effort",
+          "traceary_event": "compact_summary",
+          "fixture": "presentation/cli/testdata/grok_hooks/v0.2.99/post_compact.json",
+          "note": "Manual compact completion marker; no summary body is exposed."
+        },
+        "SessionEnd": {
+          "documented": true,
+          "observed": false,
+          "verification": "live_not_emitted",
+          "traceary_support": "unavailable",
+          "traceary_event": null,
+          "fixture": null,
+          "note": "Not emitted on headless completion, TUI /quit, or TUI /new in 0.2.99."
+        }
+      }
+    }
+  }
+}
