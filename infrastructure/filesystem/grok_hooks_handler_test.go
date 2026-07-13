@@ -15,7 +15,7 @@ func TestGrokHooksHandler_BuildsVerifiedCoreHooks(t *testing.T) {
 		t.Fatalf("Name() = %q, want grok", got)
 	}
 	hooks := handler.Build("traceary")
-	wantEvents := []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"}
+	wantEvents := []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "PreCompact", "PostCompact"}
 	if got := hooks.EventOrder(); len(got) != len(wantEvents) {
 		t.Fatalf("Build().EventOrder() = %v, want %v", got, wantEvents)
 	}

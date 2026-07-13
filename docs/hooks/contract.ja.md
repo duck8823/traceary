@@ -48,7 +48,7 @@ Grok Build 0.2.99 の versioned かつ機械可読な live contract は [`host-c
 | PostToolUse | (全て) | `toolInput` と `toolResult` から完了済み tool audit を1件記録。`FileNotFound` と `PermissionDenied` の result variant は失敗扱い |
 | Stop | (全て) | `updates.jsonl` から現在の prompt に対応する `agent_message_chunk` を best-effort transcript として読み取り、turn 境界を記録。Grok が最終メッセージをまだ追記していない場合は、durable な detached job が host hook の時間枠外で再試行 |
 
-**制限**: 検証した Grok Build 0.2.99 では `SessionEnd`、`PostToolUseFailure`、単独の `PermissionDenied` が発火しませんでした。Traceary はこれらの hook を生成せず、payload も推測しません。そのため `Stop` は turn 境界として扱い、明示的な MCP session 管理または stale GC が session を終了します。hook payload に assistant 本文や model はないため、transcript 取得は host が渡す `transcriptPath` に依存します。Grok は Stop hook 完了後に最終メッセージを追記するため、Traceary は 0600 の detached job を queue に置き、最長2秒再試行します。それでも取得できない場合は host を停止させず、`traceary doctor` が報告する診断用 artifact として job を残します。compact と subagent event は #1276 まで core runtime の対象外です。
+**制限**: 検証した Grok Build 0.2.99 では `SessionEnd`、`PostToolUseFailure`、単独の `PermissionDenied` が発火しませんでした。Traceary はこれらの hook を生成せず、payload も推測しません。そのため `Stop` は turn 境界として扱い、明示的な MCP session 管理または stale GC が session を終了します。hook payload に assistant 本文や model はないため、transcript 取得は host が渡す `transcriptPath` に依存します。Grok は Stop hook 完了後に最終メッセージを追記するため、Traceary は 0600 の detached job を queue に置き、最長2秒再試行します。それでも取得できない場合は host を停止させず、`traceary doctor` が報告する診断用 artifact として job を残します。`PreCompact` と `PostCompact` は `source` から phase 別 marker として保存します。summary 本文は公開されず、source が欠けた場合は `unavailable` と明示して記録します。subagent hook は external-agent policy gate のため parent/child identifier payload を検証できておらず、引き続き利用不可です。Traceary はその関係を合成しません。
 
 ### Tier 3: 基本対応 (Gemini CLI) — *レガシー互換*
 

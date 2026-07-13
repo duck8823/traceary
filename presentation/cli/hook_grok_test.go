@@ -162,6 +162,55 @@ func TestRootCLI_HookGrokStopRecordsBestEffortTranscript(t *testing.T) {
 	}
 }
 
+func TestRootCLI_HookGrokCompactRecordsObservedMarkers(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "grok-compact")
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+
+	for _, tc := range []struct {
+		command    string
+		fixture    string
+		sourceHook string
+	}{
+		{command: "pre-compact", fixture: "pre_compact.json", sourceHook: "pre_compact"},
+		{command: "post-compact", fixture: "post_compact.json", sourceHook: "post_compact"},
+	} {
+		t.Run(tc.command, func(t *testing.T) {
+			stdout, eventStub, _ := runGrokHook(t, tc.command, readGrokFixture(t, tc.fixture), nil, nil)
+			if stdout != "" {
+				t.Fatalf("%s output = %q, want empty passive-hook output", tc.command, stdout)
+			}
+			if got, want := eventStub.logCall.kind, types.EventKindCompactSummary; got != want {
+				t.Fatalf("compact kind = %q, want %q", got, want)
+			}
+			if got, want := eventStub.logCall.message, "manual"; got != want {
+				t.Fatalf("compact marker = %q, want %q", got, want)
+			}
+			if got, want := eventStub.logCall.sourceHook, tc.sourceHook; got != want {
+				t.Fatalf("compact source hook = %q, want %q", got, want)
+			}
+			if got, want := eventStub.logCall.agent, types.Agent("grok"); got != want {
+				t.Fatalf("compact agent = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestRootCLI_HookGrokCompactDegradesWhenSummaryAndSourceAreMissing(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "grok-compact-missing-source")
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+
+	payload := grokFixtureWithoutField(t, "post_compact.json", "source")
+	_, eventStub, _ := runGrokHook(t, "post-compact", payload, nil, nil)
+	if got, want := eventStub.logCall.kind, types.EventKindCompactSummary; got != want {
+		t.Fatalf("compact kind = %q, want %q", got, want)
+	}
+	if got, want := eventStub.logCall.message, "unavailable"; got != want {
+		t.Fatalf("missing compact marker = %q, want explicit %q degradation", got, want)
+	}
+}
+
 func TestRootCLI_HookGrokStopDefersTranscriptUntilHostAppendsFinalMessage(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv("TRACEARY_HOOK_STATE_DIR", stateDir)
