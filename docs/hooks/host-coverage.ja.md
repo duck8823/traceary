@@ -16,13 +16,13 @@
 
 ## ライフサイクルイベント → ホスト hook マトリクス
 
-| Traceary lifecycle event | Claude Code (`claude-plugin`) | Codex CLI 0.125 (`plugins/traceary`) | Gemini CLI (`gemini-extension`) | Antigravity (`antigravity-plugin`) | 確認方法 |
+| Traceary lifecycle event | Claude Code (`claude-plugin`) | Codex CLI 0.144.1 (`plugins/traceary`) | Gemini CLI (`gemini-extension`) | Antigravity (`antigravity-plugin`) | 確認方法 |
 |---|---|---|---|---|---|
 | `session_started` | ● `SessionStart` | ● `SessionStart` | ● `SessionStart` | ● `PreInvocation`（`conversationId` を key にした冪等開始。Antigravity に `SessionStart` はない） | `traceary list events --kind session_started --limit 5` |
 | `prompt` | ● `UserPromptSubmit` | ● `UserPromptSubmit` | ● `BeforeAgent` | ✕ 文書化された user-prompt hook なし | `traceary list events --kind prompt --limit 5` |
 | `command_executed` | ● `PostToolUse` + `PostToolUseFailure` (Bash, `mcp__.*`, built-in tool matcher) | ● `PostToolUse` | ● `AfterTool` | ● `PreToolUse` + `PostToolUse`（`run_command`。command args は `conversationId + stepIdx` で 2 event をまたいで突き合わせ） | `traceary list events --kind command_executed --limit 5` |
 | `transcript` | ● `Stop` | ● `Stop` (`last_assistant_message`) | ● `AfterAgent` | ● `Stop`（`transcriptPath`、best-effort な寛容 JSONL 走査） | `traceary list events --kind transcript --limit 5` |
-| `compact_summary` | ● `PostCompact` (+ `PreCompact` marker, `SessionStart matcher=compact` で resume) | ✕ Codex 0.125 に compact hook なし (upstream openai/codex#16098) | ● `PreCompress` (marker のみ — Gemini に post-compress 側 hook はない) | ✕ 文書化された compact hook なし | `traceary list events --kind compact_summary --limit 5` |
+| `compact_summary` | ● `PostCompact` (+ `PreCompact` marker, `SessionStart matcher=compact` で resume) | ● `PreCompact` + `PostCompact` marker（`trigger` のみ。Codex は圧縮後サマリー本文を公開しない） | ● `PreCompress` (marker のみ — Gemini に post-compress 側 hook はない) | ✕ 文書化された compact hook なし | `traceary list events --kind compact_summary --limit 5` |
 | `session_ended` | ● `SessionEnd` | ✕ host のセッション終了信号なし — Codex `Stop` は応答ごとの turn 境界でありセッション終了ではない (#1170)。終了は MCP `manage_session` または stale GC 経由 | ● `SessionEnd` | ✕ host のセッション終了信号なし — Antigravity `Stop` は execution 単位の境界でありセッション終了ではない (#1170)。終了は MCP `manage_session` または stale GC 経由 | `traceary list events --kind session_ended --limit 5` |
 
 > **Antigravity headless `agy --print`:** print mode は `PreInvocation` と（`run_command` 時の）`PreToolUse`/`PostToolUse` を発火しますが、host が `Stop` を発行しないため、print mode 実行では `transcript` 行は記録されません。記録されるのは host が `transcriptPath` 付き `Stop` を発行する interactive 実行のみです。[headless print mode の capture level](../integrations/antigravity.ja.md#headless-print-mode-agy---print-の-capture-level) を参照してください。hook event は `client=hook`, `agent=antigravity` で記録されるため、`--client antigravity` ではなく `traceary list --agent antigravity` で確認してください。
@@ -36,14 +36,15 @@
 | Claude Code | `SubagentStart` (`PreToolUse matcher=Task\|Agent`) | ● 配線済（subagent 補足、lifecycle event ではない） | `note` body marker として記録 |
 | Claude Code | `SubagentStop` | ● 配線済（subagent 補足） | 同上 |
 | Claude Code | `Notification`, `PreToolUse` (他 matcher), `StopFailure`, `UserPromptExpansion`, `PermissionRequest`, `PermissionDenied`, `PostToolBatch`, `TaskCreated`, `TaskCompleted`, `TeammateIdle`, `InstructionsLoaded`, `ConfigChange`, `CwdChanged`, `FileChanged`, `WorktreeCreate`, `WorktreeRemove`, `Elicitation`, `ElicitationResult` | ○ 利用可 | 現行パッケージでは未配線 |
-| Codex CLI | `PreToolUse`, `PermissionRequest`, `Notification` | ○ 利用可 | 未配線 |
+| Codex CLI | `SubagentStart`, `SubagentStop` | ● 配線済（child session capture） | `agent_id` で対応付け、`agent_type` を child agent 名に使用 |
+| Codex CLI | `PreToolUse`, `PermissionRequest` | ○ 利用可 | 未配線 |
 | Gemini CLI | `BeforeTool`, `BeforeToolSelection`, `BeforeModel`, `AfterModel`, `Notification` | ○ 利用可 | 未配線 |
 | Antigravity | `run_command` 以外の tool に対する `PreToolUse` | ○ 利用可 | audit 対象は `run_command` のみ |
 
 ## ホスト別参照
 
 - Claude Code: https://code.claude.com/docs/en/hooks · パッケージ config: [`integrations/claude-plugin/hooks/hooks.json`](../../integrations/claude-plugin/hooks/hooks.json)
-- Codex CLI: upstream binary `codex-cli 0.125.0` — hook surface はローカルインストールのバイナリ文字列 (`SessionStart`, `Stop`, `PreToolUse`, `PostToolUse`, `Notification`, `PermissionRequest`, `UserPromptSubmit`) から推定。compact hook tracking: openai/codex#16098. パッケージ config: [`plugins/traceary/hooks.json`](../../plugins/traceary/hooks.json)
+- Codex CLI: Codex CLI 0.144.1 の公式 hook reference（`SessionStart`, `SubagentStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStop`, `Stop`）。 パッケージ config: [`plugins/traceary/hooks.json`](../../plugins/traceary/hooks.json)
 - Gemini CLI: ローカルインストール同梱の hooks reference (`/opt/homebrew/Cellar/gemini-cli/0.43.0/libexec/lib/node_modules/@google/gemini-cli/bundle/docs/hooks/reference.md`。文書化された hook surface に post-compress event はなく、`PreCompress` は compression 前に非同期で発火する advisory-only hook). パッケージ config: [`integrations/gemini-extension/hooks/hooks.json`](../../integrations/gemini-extension/hooks/hooks.json)
 - Antigravity: 公開 hook surface は https://antigravity.google/assets/docs/antigravity-2-0/hooks.md および https://antigravity.google/assets/docs/editor/ide-hooks.md、plugin packaging は https://antigravity.google/assets/docs/cli/cli-plugins.md に文書化（2026-06-20 JST 確認）。パッケージ config: [`integrations/antigravity-plugin/hooks.json`](../../integrations/antigravity-plugin/hooks.json)
 
