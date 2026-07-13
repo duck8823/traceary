@@ -44,6 +44,8 @@ Tagged releases publish Claude Code and Codex packages versioned in-repo and tra
 
 As of v0.21.1, Traceary ships an Antigravity plugin package (`integrations/antigravity-plugin/`) against the documented public Antigravity hook/plugin surface. Install the hooks with `traceary hooks install --client antigravity` (workspace `.agents/hooks.json`) or `--global` (`~/.gemini/config/hooks.json`). See the [Antigravity hooks and plugin guide](../integrations/antigravity.md).
 
+As of v0.23.0, Traceary also ships a native Grok Build package (`integrations/grok-plugin/`) with the verified lifecycle hooks, Traceary MCP server, and shared memory/session skills. Install the package from a checkout of the matching release tag with `scripts/install-grok-plugin.sh`, then verify it with `traceary doctor --client grok`. See the [Grok Build plugin guide](../integrations/grok-plugin.md).
+
 See the [native integrations guide](../integrations/README.md) for the host-specific install flows.
 
 ## Version metadata
@@ -90,7 +92,7 @@ The docs job now checks out the full git history so the tag coverage check can c
 
 - `.claude-plugin/marketplace.json` exists and points to `./integrations/claude-plugin`
 - `.agents/plugins/marketplace.json` exists and points to `./plugins/traceary`
-- `integrations/claude-plugin/.claude-plugin/plugin.json`, `integrations/gemini-extension/gemini-extension.json`, and `plugins/traceary/.codex-plugin/plugin.json` all have a `version` equal to the root `VERSION` file
+- `integrations/claude-plugin/.claude-plugin/plugin.json`, `integrations/antigravity-plugin/plugin.json`, `integrations/gemini-extension/gemini-extension.json`, `integrations/grok-plugin/plugin.json`, and `plugins/traceary/.codex-plugin/plugin.json` all have a `version` equal to the root `VERSION` file
 
 If it fails, run `make release/bump VERSION=X.Y.Z` for the intended release or update `VERSION` and the affected manifest together. The check runs in CI, in `.github/workflows/release.yml` before GoReleaser, and from `make release/bump`.
 
@@ -120,11 +122,11 @@ The GoReleaser workflow automates artifact publishing, but a handful of steps st
 4. **Dogfood the cockpit.** Run `go test ./presentation/cli -run 'TestCockpitDogfood'` and complete the manual [`cockpit dogfood checklist`](../operations/cockpit-dogfood.md), including the 80x24 smoke, before tagging a release that changes `traceary tui`.
 5. **Preview the landing page.** Serve `docs/landing/` locally (`python3 -m http.server --directory docs/landing 8000`) and open `http://localhost:8000/` to confirm the hero version eyebrow and the brew-install terminal animation reflect the new version. The `Pages` workflow re-deploys automatically when the GitHub release is published, so this preview is the last chance to catch landing drift before it goes live.
 6. **Open the release-preparation PR.** Create a `maintenance/release-vX.Y.Z` branch, commit the changelog and bump changes, push, and open a PR targeting `main`. Do **not** include `Closes #<parent>` — the parent release issue is auto-closed by the tagged release workflow, not by the release-prep PR.
-7. **Review + merge.** The release-prep PR must pass the same review gate as any other PR. For v0.21.1 the gate is **Claude review + local dogfood + tests/CI**:
-   - Gemini review is **not** part of the release gate. Traceary's Gemini CLI integration is in maintenance mode for the remaining supported paid/enterprise tiers; Antigravity is the primary Google-host path.
-   - Codex implementation/review is **not** required when local policy or a user instruction disables it; obtain a Codex app review only when Codex is enabled and available.
-   - Obtain a fresh Claude review on the latest head, confirm local dogfood plus `go test ./...` / `golangci-lint` / CI are green, then merge with a merge commit.
-   - Antigravity is supported from v0.21.1 and ships `integrations/antigravity-plugin/`; doctor reports `antigravity-capability` and `antigravity-config` (see "Native agent packages" above).
+7. **Review + merge.** The release-prep PR must pass the same review gate as any other PR: independent AI review when available, local dogfood, tests, lint, and CI.
+   - Obtain a fresh independent review on the latest head and record the reviewing AI plus its validation evidence. Do not substitute an engine that local policy disables.
+   - Triage every finding. Release-blocking, security, data-loss, and contract findings must be fixed or explicitly overruled with evidence before merge.
+   - Re-run the relevant host smoke test when the release changes an integration package. Confirm `go test ./...`, `go tool golangci-lint run`, and CI are green, then merge with a merge commit.
+   - Antigravity and Grok Build ship release-coupled packages; verify their package manifests and host-specific doctor/smoke paths when either package changes.
 8. **Tag and push.** After the release-prep PR merges, run `git checkout main && git pull --ff-only && git tag vX.Y.Z && git push origin vX.Y.Z`. The `v*` tag triggers `.github/workflows/release.yml`.
 9. **Watch the release workflow.** `gh run watch` against the tag run. On success, verify with `gh release view vX.Y.Z`. Publishing the GitHub Release also triggers `.github/workflows/pages.yml`, which re-deploys `docs/landing/` to GitHub Pages — confirm that run succeeds and that `https://duck8823.github.io/traceary/` (CNAME-redirected to `https://duck8823.net/traceary/`) reflects the new version.
 10. **Confirm the Homebrew formula PR.** The release workflow opens `maintenance/homebrew-vX.Y.Z` and enables auto-merge, but confirm it actually merged. `brew update && brew upgrade traceary && traceary -v` should report the new version.
