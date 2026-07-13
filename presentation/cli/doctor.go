@@ -1519,7 +1519,7 @@ func (c *RootCLI) configHasTracearyHooks(outputPath string) bool {
 	return hasTracearyHook
 }
 
-func (c *RootCLI) inspectDoctorConfigFile(ctx context.Context, client string, outputPath string, projectDir string) doctorCheck {
+func (c *RootCLI) inspectDoctorConfigFile(_ context.Context, client string, outputPath string, projectDir string) doctorCheck {
 	content, err := os.ReadFile(outputPath)
 	if err != nil {
 		if os.IsNotExist(err) {
