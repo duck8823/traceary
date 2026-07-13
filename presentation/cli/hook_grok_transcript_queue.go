@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -32,6 +33,71 @@ type hookGrokTranscriptJob struct {
 	Attempts      int       `json:"attempts,omitempty"`
 	LastAttemptAt time.Time `json:"last_attempt_at,omitempty"`
 	LastError     string    `json:"last_error,omitempty"`
+}
+
+func scanHookGrokTranscriptJobs() ([]hookGrokTranscriptJob, []string, error) {
+	dir, err := hookGrokTranscriptQueueDir()
+	if err != nil {
+		return nil, nil, err
+	}
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, xerrors.Errorf("failed to read Grok transcript queue: %w", err)
+	}
+	jobs := []hookGrokTranscriptJob{}
+	unreadable := []string{}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		job, readErr := readHookGrokTranscriptJob(path)
+		if readErr != nil {
+			unreadable = append(unreadable, path)
+			continue
+		}
+		jobs = append(jobs, job)
+	}
+	sort.Slice(jobs, func(i, j int) bool { return jobs[i].RequestedAt.Before(jobs[j].RequestedAt) })
+	sort.Strings(unreadable)
+	return jobs, unreadable, nil
+}
+
+func inspectHookGrokTranscriptDiagnostics(now time.Time) doctorCheck {
+	const name = "hook-grok-transcript"
+	jobs, unreadable, err := scanHookGrokTranscriptJobs()
+	if err != nil {
+		return doctorCheck{Name: name, Status: doctorStatusFail, Message: localizef("failed to inspect Grok transcript queue: %v", "Grok transcript queue の検査に失敗しました: %v", err)}
+	}
+	if len(jobs) == 0 && len(unreadable) == 0 {
+		return doctorCheck{Name: name, Status: doctorStatusPass, Message: Localize("no pending Grok transcript jobs found", "未処理の Grok transcript job はありません")}
+	}
+	failed := 0
+	oldestAge := time.Duration(0)
+	if len(jobs) > 0 {
+		oldestAge = now.Sub(jobs[0].RequestedAt)
+		if oldestAge < 0 {
+			oldestAge = 0
+		}
+	}
+	for _, job := range jobs {
+		if job.Attempts > 0 {
+			failed++
+		}
+	}
+	return doctorCheck{
+		Name:   name,
+		Status: doctorStatusWarn,
+		Message: localizef(
+			"found %d pending Grok transcript job(s), %d previously failed job(s), and %d unreadable job(s); oldest age %s",
+			"未処理の Grok transcript job が %d 件、以前失敗した job が %d 件、読めない job が %d 件あります。最古 age %s",
+			len(jobs), failed, len(unreadable), oldestAge.Round(time.Second),
+		),
+		Hint: Localize("the final Grok transcript remained unavailable after Stop; enable TRACEARY_HOOK_DEBUG for the next turn and remove a pending job only after confirming it is stale", "Stop 後も最終 Grok transcript を取得できませんでした。次の turn で TRACEARY_HOOK_DEBUG を有効にし、未処理 job は stale と確認してから削除してください"),
+	}
 }
 
 func (c *RootCLI) newHookGrokTranscriptWorkerCommand() *cobra.Command {

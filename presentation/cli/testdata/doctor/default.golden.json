@@ -105,6 +105,16 @@
       "auto_fix_available": false
     },
     {
+      "name": "hook-grok-transcript",
+      "status": "pass",
+      "severity": "PASS",
+      "section": "Hooks",
+      "message": "no pending Grok transcript jobs found",
+      "hint": "",
+      "fix_command": "",
+      "auto_fix_available": false
+    },
+    {
       "name": "codex-config",
       "status": "warn",
       "severity": "WARN",
@@ -299,6 +309,16 @@
           "auto_fix_available": false
         },
         {
+          "name": "hook-grok-transcript",
+          "status": "pass",
+          "severity": "PASS",
+          "section": "Hooks",
+          "message": "no pending Grok transcript jobs found",
+          "hint": "",
+          "fix_command": "",
+          "auto_fix_available": false
+        },
+        {
           "name": "codex-config",
           "status": "warn",
           "severity": "WARN",
@@ -312,7 +332,7 @@
     }
   ],
   "summary": {
-    "pass": 12,
+    "pass": 13,
     "warn": 2,
     "fail": 0
   },
