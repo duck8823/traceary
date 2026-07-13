@@ -940,6 +940,7 @@ Additional doctor checks:
 - `path` confirms `traceary` resolves on `PATH` and reports the directory. Missing is `FAIL`; multiple matches are `WARN`.
 - `<client>-mcp` checks Claude Code, Codex, and Gemini config/plugin registration for the `traceary mcp-server` MCP server.
 - `<client>-plugin-version` compares detected installed plugin manifests/caches with the running binary version and suggests reinstalling/updating the plugin when they drift.
+- `claude-hook-cancellations` separates actionable SessionEnd cancellation markers from markers whose referenced session has subsequently ended. `doctor --fix --dry-run` previews removal of resolved markers; `doctor --fix` removes only those proven resolved and leaves active, missing-session, or unreadable evidence untouched.
 - `codex-memory-activation` / `claude-memory-activation` / `gemini-memory-activation` check whether accepted durable memories are missing, stale, in sync, or invalid in the host's native activation target. `missing` and `stale` are reported as `WARN` with exact `memory admin activate --dry-run --diff` (preview) and `memory admin activate --apply` (refresh) remediation commands; `invalid` is reported as `FAIL` with a hint to inspect the host file before applying. Run with `--client <claude|codex|gemini>` to scope the report and with `--project-dir <dir>` to pin the Claude/Gemini activation root to a specific repository instead of the doctor process's working directory.
 
 Exit codes:
@@ -980,6 +981,8 @@ Useful flags:
 - `--client`
 - `--project-dir`
 - `--json`
+- `--fix` — apply available safe remediations
+- `--dry-run` — preview `--fix` without writing
 - `--warnings-ok` — return exit code `0` for warning-only reports while keeping failures at exit code `1`
 - `--strict` — audit-reliability: report every exact duplicate group regardless of time, not only near-simultaneous writes
 

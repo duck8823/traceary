@@ -69,6 +69,52 @@ func TestSessionDatasource_SaveBoundary_Start(t *testing.T) {
 	}
 }
 
+func TestSessionDatasource_FindEndedSessionIDs(t *testing.T) {
+	t.Parallel()
+
+	db := infra.NewDatabase(filepath.Join(t.TempDir(), "traceary.db"), listSessionsTestMigrations())
+	ctx := context.Background()
+	if err := infra.NewStoreManagementDatasource(db).Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	ds := infra.NewSessionDatasource(db)
+	agent, _ := types.AgentFrom("claude")
+	startedAt := time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC)
+	activeID := types.SessionID("active-session")
+	endedID := types.SessionID("ended-session")
+	for _, sessionID := range []types.SessionID{activeID, endedID} {
+		session := model.NewSession(sessionID, startedAt, types.Client("cli"), agent, types.Workspace("workspace"))
+		event := model.EventOf(types.EventID("start-"+sessionID.String()), types.EventKindSessionStarted, types.Client("cli"), agent, sessionID, types.Workspace("workspace"), "started", startedAt)
+		if err := ds.SaveBoundary(ctx, session, event); err != nil {
+			t.Fatalf("SaveBoundary(start %s) error = %v", sessionID, err)
+		}
+	}
+	ended, err := ds.FindByID(ctx, endedID)
+	if err != nil {
+		t.Fatalf("FindByID() error = %v", err)
+	}
+	endedSession, ok := ended.Value()
+	if !ok {
+		t.Fatal("ended session is missing")
+	}
+	endedAt := startedAt.Add(time.Minute)
+	if err := endedSession.End(endedAt, "done"); err != nil {
+		t.Fatalf("End() error = %v", err)
+	}
+	endEvent := model.EventOf(types.EventID("end-ended-session"), types.EventKindSessionEnded, types.Client("cli"), agent, endedID, types.Workspace("workspace"), "ended", endedAt)
+	if err := ds.SaveBoundary(ctx, endedSession, endEvent); err != nil {
+		t.Fatalf("SaveBoundary(end) error = %v", err)
+	}
+
+	got, err := ds.FindEndedSessionIDs(ctx, []types.SessionID{activeID, endedID, "missing-session"})
+	if err != nil {
+		t.Fatalf("FindEndedSessionIDs() error = %v", err)
+	}
+	if diff := cmp.Diff(map[types.SessionID]struct{}{endedID: {}}, got); diff != "" {
+		t.Fatalf("ended IDs mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestSessionDatasource_SaveBoundary_RoundTripsSpawnMetadata(t *testing.T) {
 	t.Parallel()
 

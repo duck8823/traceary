@@ -351,6 +351,60 @@ func (d *SessionDatasource) FindByID(ctx context.Context, sessionID types.Sessio
 	)), nil
 }
 
+// FindEndedSessionIDs returns ended session IDs in bounded batches so callers
+// can reconcile diagnostic markers without issuing one aggregate query per ID.
+func (d *SessionDatasource) FindEndedSessionIDs(ctx context.Context, sessionIDs []types.SessionID) (map[types.SessionID]struct{}, error) {
+	result := make(map[types.SessionID]struct{})
+	if len(sessionIDs) == 0 {
+		return result, nil
+	}
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to open DB for ended session lookup: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	const batchSize = 900
+	for start := 0; start < len(sessionIDs); start += batchSize {
+		end := min(start+batchSize, len(sessionIDs))
+		batch := sessionIDs[start:end]
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(batch)), ",")
+		args := make([]any, 0, len(batch))
+		for _, sessionID := range batch {
+			args = append(args, sessionID.String())
+		}
+		if err := func() (resultErr error) {
+			rows, err := db.QueryContext(ctx, "SELECT session_id FROM sessions WHERE ended_at IS NOT NULL AND session_id IN ("+placeholders+")", args...)
+			if err != nil {
+				return xerrors.Errorf("failed to query ended sessions: %w", err)
+			}
+			defer func() {
+				if err := rows.Close(); err != nil && resultErr == nil {
+					resultErr = xerrors.Errorf("failed to close ended session rows: %w", err)
+				}
+			}()
+			for rows.Next() {
+				var sessionID string
+				if err := rows.Scan(&sessionID); err != nil {
+					return xerrors.Errorf("failed to scan ended session ID: %w", err)
+				}
+				result[types.SessionID(sessionID)] = struct{}{}
+			}
+			if err := rows.Err(); err != nil {
+				return xerrors.Errorf("failed to iterate ended session IDs: %w", err)
+			}
+			return nil
+		}(); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
+}
+
 // NextChildSpawnOrder returns one greater than the current maximum
 // spawn_order among the parent's children.
 func (d *SessionDatasource) NextChildSpawnOrder(ctx context.Context, parentSessionID types.SessionID) (int, error) {

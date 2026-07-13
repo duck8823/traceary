@@ -29,6 +29,9 @@ type SessionUsecase interface {
 	// List returns session summaries matching the criteria.
 	List(ctx context.Context, criteria apptypes.SessionListCriteria) ([]apptypes.SessionSummary, error)
 
+	// FindEndedSessionIDs returns the subset of sessionIDs that have a persisted end boundary.
+	FindEndedSessionIDs(ctx context.Context, sessionIDs []types.SessionID) (map[types.SessionID]struct{}, error)
+
 	// Tree returns session summaries as a hierarchy for the given workspace.
 	// Zero-value workspace returns sessions across all workspaces. When rootSessionID
 	// is set, the requested root is included regardless of the limit window.
