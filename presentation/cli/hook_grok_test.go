@@ -201,13 +201,40 @@ func TestRootCLI_HookGrokCompactDegradesWhenSummaryAndSourceAreMissing(t *testin
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "grok-compact-missing-source")
 	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
 
-	payload := grokFixtureWithoutField(t, "post_compact.json", "source")
-	_, eventStub, _ := runGrokHook(t, "post-compact", payload, nil, nil)
-	if got, want := eventStub.logCall.kind, types.EventKindCompactSummary; got != want {
-		t.Fatalf("compact kind = %q, want %q", got, want)
-	}
-	if got, want := eventStub.logCall.message, "unavailable"; got != want {
-		t.Fatalf("missing compact marker = %q, want explicit %q degradation", got, want)
+	for _, tc := range []struct {
+		name    string
+		command string
+		fixture string
+		source  any
+	}{
+		{name: "pre compact missing both fields", command: "pre-compact", fixture: "pre_compact.json", source: nil},
+		{name: "post compact missing both fields", command: "post-compact", fixture: "post_compact.json", source: nil},
+		{name: "post compact non-string source", command: "post-compact", fixture: "post_compact.json", source: map[string]any{"unexpected": true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := grokFixtureWithoutField(t, tc.fixture, "hookEventName")
+			if tc.source == nil {
+				var decoded map[string]any
+				if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
+					t.Fatalf("decode compact payload: %v", err)
+				}
+				delete(decoded, "source")
+				encoded, err := json.Marshal(decoded)
+				if err != nil {
+					t.Fatalf("encode compact payload: %v", err)
+				}
+				payload = string(encoded)
+			} else {
+				payload = grokJSONWithField(t, payload, "source", tc.source)
+			}
+			_, eventStub, _ := runGrokHook(t, tc.command, payload, nil, nil)
+			if got, want := eventStub.logCall.kind, types.EventKindCompactSummary; got != want {
+				t.Fatalf("compact kind = %q, want %q", got, want)
+			}
+			if got, want := eventStub.logCall.message, "unavailable"; got != want {
+				t.Fatalf("missing compact marker = %q, want explicit %q degradation", got, want)
+			}
+		})
 	}
 }
 
@@ -390,14 +417,19 @@ func readGrokFixture(t *testing.T, name string) string {
 
 func grokFixtureWithField(t *testing.T, name, field string, value any) string {
 	t.Helper()
+	return grokJSONWithField(t, readGrokFixture(t, name), field, value)
+}
+
+func grokJSONWithField(t *testing.T, input, field string, value any) string {
+	t.Helper()
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(readGrokFixture(t, name)), &payload); err != nil {
-		t.Fatalf("decode Grok fixture %s: %v", name, err)
+	if err := json.Unmarshal([]byte(input), &payload); err != nil {
+		t.Fatalf("decode Grok JSON: %v", err)
 	}
 	payload[field] = value
 	encoded, err := json.Marshal(payload)
 	if err != nil {
-		t.Fatalf("encode Grok fixture %s with %s=%v: %v", name, field, value, err)
+		t.Fatalf("encode Grok JSON with %s=%v: %v", field, value, err)
 	}
 	return string(encoded)
 }

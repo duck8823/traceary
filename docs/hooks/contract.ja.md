@@ -4,7 +4,7 @@
 
 このページでは、AI エージェントごとに hook でどこまで自動記録できるかを整理しています。
 
-Grok Build 0.2.99 の versioned かつ機械可読な live contract は [`host-contract.json`](./host-contract.json) にあります。upstream で文書化された hook と live で観測した payload を分離し、sanitized fixture がある event だけを `supported` または `best_effort` と分類します。session、prompt、tool、Stop の対応済み event は native runtime に配線済みで、compact と subagent の補足は #1276 で扱います。
+Grok Build 0.2.99 の versioned かつ機械可読な live contract は [`host-contract.json`](./host-contract.json) にあります。upstream で文書化された hook と live で観測した payload を分離し、sanitized fixture がある event だけを `supported` または `best_effort` と分類します。session、prompt、tool、Stop、compact の対応済み event は native runtime に配線済みです。subagent の補足は parent/child identifier payload を検証するまで利用不可です。
 
 ## 対応レベル
 
@@ -47,6 +47,8 @@ Grok Build 0.2.99 の versioned かつ機械可読な live contract は [`host-c
 | PreToolUse | (全て) | live payload を検証し、exit code 0 で許可。完了前の重複監査は記録しない |
 | PostToolUse | (全て) | `toolInput` と `toolResult` から完了済み tool audit を1件記録。`FileNotFound` と `PermissionDenied` の result variant は失敗扱い |
 | Stop | (全て) | `updates.jsonl` から現在の prompt に対応する `agent_message_chunk` を best-effort transcript として読み取り、turn 境界を記録。Grok が最終メッセージをまだ追記していない場合は、durable な detached job が host hook の時間枠外で再試行 |
+| PreCompact | (全て) | `source` から `source_hook=pre_compact` の `compact_summary` 境界 marker を記録。source が欠落または不正な場合は `unavailable` を使用 |
+| PostCompact | (全て) | `source` から `source_hook=post_compact` の `compact_summary` 境界 marker を記録。source が欠落または不正な場合は `unavailable` を使用 |
 
 **制限**: 検証した Grok Build 0.2.99 では `SessionEnd`、`PostToolUseFailure`、単独の `PermissionDenied` が発火しませんでした。Traceary はこれらの hook を生成せず、payload も推測しません。そのため `Stop` は turn 境界として扱い、明示的な MCP session 管理または stale GC が session を終了します。hook payload に assistant 本文や model はないため、transcript 取得は host が渡す `transcriptPath` に依存します。Grok は Stop hook 完了後に最終メッセージを追記するため、Traceary は 0600 の detached job を queue に置き、最長2秒再試行します。それでも取得できない場合は host を停止させず、`traceary doctor` が報告する診断用 artifact として job を残します。`PreCompact` と `PostCompact` は `source` から phase 別 marker として保存します。summary 本文は公開されず、source が欠けた場合は `unavailable` と明示して記録します。subagent hook は external-agent policy gate のため parent/child identifier payload を検証できておらず、引き続き利用不可です。Traceary はその関係を合成しません。
 

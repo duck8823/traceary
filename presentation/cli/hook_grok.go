@@ -52,7 +52,27 @@ func (c *RootCLI) runHookGrokCompact(ctx context.Context, input io.Reader, actio
 	if err != nil {
 		return err
 	}
+	normalized, err = ensureGrokCompactTrigger(normalized)
+	if err != nil {
+		return err
+	}
 	return c.runHookCompact(ctx, nil, bytes.NewReader(normalized), grokHookClient, action, dbPath)
+}
+
+func ensureGrokCompactTrigger(payload []byte) ([]byte, error) {
+	var normalized map[string]any
+	if err := json.Unmarshal(payload, &normalized); err != nil {
+		return nil, xerrors.Errorf("failed to decode normalized Grok compact payload: %w", err)
+	}
+	trigger, ok := normalized["trigger"].(string)
+	if !ok || strings.TrimSpace(trigger) == "" {
+		normalized["trigger"] = "unavailable"
+	}
+	encoded, err := marshalStableJSON(normalized)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to normalize Grok compact trigger: %w", err)
+	}
+	return encoded, nil
 }
 
 func (c *RootCLI) newHookGrokEventCommand(
@@ -163,11 +183,6 @@ func normalizeGrokHookPayload(input io.Reader) ([]byte, error) {
 	copyGrokHookField(normalized, "prompt", source, "prompt")
 	copyGrokHookField(normalized, "prompt_id", source, "promptId")
 	copyGrokHookField(normalized, "trigger", source, "source")
-	if hookEventName, _ := source["hookEventName"].(string); strings.Contains(hookEventName, "compact") {
-		if _, ok := normalized["trigger"]; !ok {
-			normalized["trigger"] = "unavailable"
-		}
-	}
 	copyGrokHookField(normalized, "tool_name", source, "toolName")
 	copyGrokHookField(normalized, "tool_use_id", source, "toolUseId")
 	copyGrokHookField(normalized, "tool_input", source, "toolInput")

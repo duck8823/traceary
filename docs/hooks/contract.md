@@ -4,7 +4,7 @@
 
 This document defines the hook capability tiers across AI agent clients.
 
-The versioned, machine-readable live contract for Grok Build 0.2.99 is [`host-contract.json`](./host-contract.json). It separates upstream-documented hooks from live-observed payloads and requires a sanitized fixture before Traceary classifies an event as `supported` or `best_effort`. The core native runtime is wired for the supported session, prompt, tool, and Stop events; compact and subagent enrichment remains tracked in #1276.
+The versioned, machine-readable live contract for Grok Build 0.2.99 is [`host-contract.json`](./host-contract.json). It separates upstream-documented hooks from live-observed payloads and requires a sanitized fixture before Traceary classifies an event as `supported` or `best_effort`. The native runtime is wired for the supported session, prompt, tool, Stop, and compact events. Subagent enrichment remains unavailable until a parent/child identifier payload is verified.
 
 ## Capability Tiers
 
@@ -47,6 +47,8 @@ The versioned, machine-readable live contract for Grok Build 0.2.99 is [`host-co
 | PreToolUse | (all) | Validate the live payload and allow by exit code 0; no duplicate pre-completion audit is recorded |
 | PostToolUse | (all) | Record one completed tool audit from `toolInput` and `toolResult`; `FileNotFound` and `PermissionDenied` result variants are marked failed |
 | Stop | (all) | Read the current prompt's `agent_message_chunk` rows from `updates.jsonl` as a best-effort transcript, then record a turn boundary; if Grok has not appended the final message yet, a durable detached job retries outside the host hook budget |
+| PreCompact | (all) | Record a `compact_summary` boundary marker from `source` with `source_hook=pre_compact`; use `unavailable` when source is absent or invalid |
+| PostCompact | (all) | Record a `compact_summary` boundary marker from `source` with `source_hook=post_compact`; use `unavailable` when source is absent or invalid |
 
 **Limitations**: Grok Build 0.2.99 did not emit `SessionEnd`, `PostToolUseFailure`, or standalone `PermissionDenied` in the verified probes. Traceary does not generate those hooks or infer their payloads. `Stop` is therefore a turn boundary; explicit MCP session management or stale GC ends the session. The hook payload carries no assistant body or model, so transcript capture depends on the host-provided `transcriptPath`. Grok appends the final message after Stop hooks complete; Traceary therefore queues a 0600 detached job and retries for up to two seconds. A still-unavailable transcript leaves the job as a diagnostic artifact reported by `traceary doctor` instead of blocking the host. `PreCompact` and `PostCompact` are stored as phase-specific markers from `source`; no summary body is exposed, and a missing source is recorded explicitly as `unavailable`. Subagent hooks remain unavailable because the parent/child identifier payload was not verified under the external-agent policy gate; Traceary does not synthesize that relationship.
 
