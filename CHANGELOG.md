@@ -8,19 +8,19 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [v0.22.0] - 2026-07-14
 
 ### Added
-- **Antigravity plugin parity (#1287)** — the packaged Antigravity plugin now includes the Traceary MCP server and memory skills alongside hooks. Doctor verifies MCP registration and packaged/install version alignment, and reports actionable reinstall guidance for stale plugin copies.
-- **Current Antigravity capture coverage (#1285)** — Antigravity hooks now correlate current prompt and transcript payloads, record complete turn coverage, and invalidate incomplete turns without discarding legacy transcript data. Doctor reports transcript coverage from bounded metadata rather than exposing transcript bodies.
-- **Codex compact and subagent boundaries (#1289)** — the Codex plugin captures `PreCompact`/`PostCompact` boundary markers and correlates subagent stop events with their parent session. Documentation and regression tests define the supported boundary semantics.
-- **Codex plugin-hook trust diagnostics (#1284)** — doctor verifies the complete current Codex plugin hook set before reporting trust as healthy. Incomplete or undiscoverable trust state fails closed, and manual fallback hooks are preserved until the full trusted set is confirmed.
-- **Activity-aware automatic session GC (#1290)** — hook ingestion runs rate-limited stale-session cleanup using latest activity rather than start time. Cross-process activity leases are published atomically, expire automatically, and protect concurrently active sessions from cleanup races.
-- **Durable hook write-path queues (#1281, #1282)** — interrupted hook events are preserved in a durable spool, while per-turn memory extraction runs through a durable asynchronous queue. This keeps host timeout kills and extraction latency out of the synchronous capture path without losing queued work.
-- **Duplicate Codex hook remediation (#1283)** — doctor detects duplicate Codex hook registrations and provides lossless, atomic remediation that preserves unrelated hook configuration.
+- **Antigravity plugin parity (#1249)** — the packaged Antigravity plugin now includes the Traceary MCP server and memory skills alongside hooks. Doctor verifies MCP registration and packaged/install version alignment, and reports actionable reinstall guidance for stale plugin copies.
+- **Current Antigravity capture coverage (#1250)** — Antigravity hooks now correlate current prompt and transcript payloads, record complete turn coverage, and invalidate incomplete turns without discarding legacy transcript data. Doctor reports transcript coverage from bounded metadata rather than exposing transcript bodies.
+- **Codex compact and subagent boundaries (#1251)** — the Codex plugin captures `PreCompact`/`PostCompact` boundary markers and correlates subagent stop events with their parent session. Documentation and regression tests define the supported boundary semantics.
+- **Codex plugin-hook trust diagnostics (#1252)** — doctor verifies the complete current Codex plugin hook set before reporting trust as healthy. Incomplete or undiscoverable trust state fails closed, and manual fallback hooks are preserved until the full trusted set is confirmed.
+- **Activity-aware automatic session GC (#1253)** — hook ingestion runs rate-limited stale-session cleanup using latest activity rather than start time. Cross-process activity leases are published atomically, expire automatically, and protect concurrently active sessions from cleanup races.
+- **Durable hook write-path queues (#1269, #1270)** — interrupted hook events are preserved in a durable spool, while per-turn memory extraction runs through a durable asynchronous queue. This keeps host timeout kills and extraction latency out of the synchronous capture path without losing queued work.
+- **Duplicate Codex hook remediation (#1271)** — doctor detects duplicate Codex hook registrations and provides lossless, atomic remediation that preserves unrelated hook configuration.
 
 ### Fixed
-- **Claude SessionEnd cancellation reconciliation (#1280)** — resolved Claude hook cancellation markers are reconciled so doctor surfaces only currently actionable SessionEnd failures.
+- **Claude SessionEnd cancellation reconciliation (#1254)** — resolved Claude hook cancellation markers are reconciled so doctor surfaces only currently actionable SessionEnd failures.
 
 ### Changed
-- **Gemini CLI maintenance mode (#1286)** — the Gemini extension remains available for existing installs, but documentation now treats it as maintenance-only after Google's Antigravity CLI transition and directs new installations to the Antigravity plugin.
+- **Gemini CLI maintenance mode (#1255)** — the Gemini extension remains available for existing installs, but documentation now treats it as maintenance-only after Google's Antigravity CLI transition and directs new installations to the Antigravity plugin.
 
 ### Notes
 - This release contains no new MCP tools. It adds no destructive data migration; reliability state used by the new queues and cleanup paths is additive and migration-safe.
