@@ -25,6 +25,9 @@ var hooksClientAliases = map[string]string{
 	"antigravity":     "antigravity",
 	"agy":             "antigravity",
 	"antigravity-cli": "antigravity",
+	"grok":            "grok",
+	"grok-build":      "grok",
+	"grok-cli":        "grok",
 }
 
 // rawHookDocumentHandler is the optional interface a client handler implements
@@ -327,7 +330,7 @@ func normalizeHooksClient(handlers map[string]application.HooksClientHandler, cl
 	}
 
 	return "", xerrors.Errorf(
-		"unsupported client: %s (valid values: claude, codex, gemini, antigravity; aliases: claude-code, codex-cli, gemini-cli, agy, antigravity-cli)",
+		"unsupported client: %s (valid values: claude, codex, gemini, antigravity, grok; aliases: claude-code, codex-cli, gemini-cli, agy, antigravity-cli, grok-build, grok-cli)",
 		client,
 	)
 }

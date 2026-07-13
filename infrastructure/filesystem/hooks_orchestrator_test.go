@@ -22,6 +22,7 @@ func newTestOrchestrator(homeDir string) *filesystem.HooksOrchestrator {
 			return homeDir, nil
 		}),
 		"gemini": filesystem.NewGeminiHooksHandler(),
+		"grok":   filesystem.NewGrokHooksHandler(),
 	})
 }
 
@@ -198,7 +199,7 @@ func TestHooksOrchestrator_GenerateHandlesAliases(t *testing.T) {
 
 	orchestrator := newTestOrchestrator(t.TempDir())
 
-	aliases := []string{"claude-code", "codex-cli", "gemini-cli"}
+	aliases := []string{"claude-code", "codex-cli", "gemini-cli", "grok-build", "grok-cli"}
 	for _, alias := range aliases {
 		t.Run(alias, func(t *testing.T) {
 			t.Parallel()
@@ -380,7 +381,7 @@ func TestHooksOrchestrator_SupportedClients(t *testing.T) {
 
 	orchestrator := newTestOrchestrator(t.TempDir())
 
-	if diff := cmp.Diff([]string{"claude", "codex", "gemini"}, orchestrator.SupportedClients()); diff != "" {
+	if diff := cmp.Diff([]string{"claude", "codex", "gemini", "grok"}, orchestrator.SupportedClients()); diff != "" {
 		t.Fatalf("SupportedClients() mismatch (-want +got):\n%s", diff)
 	}
 }
@@ -398,6 +399,9 @@ func TestHooksOrchestrator_NormalizeClient(t *testing.T) {
 		{"claude-code", "claude"},
 		{"codex-cli", "codex"},
 		{"gemini-cli", "gemini"},
+		{"grok", "grok"},
+		{"grok-build", "grok"},
+		{"grok-cli", "grok"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {

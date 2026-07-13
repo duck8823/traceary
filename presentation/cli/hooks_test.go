@@ -173,6 +173,26 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 		}
 	})
 
+	for _, client := range []string{"grok", "grok-build", "grok-cli"} {
+		t.Run("reaches empty Grok boundary with "+client, func(t *testing.T) {
+			rootCmd := newTestRootCLI().Command()
+			stdout := &bytes.Buffer{}
+			rootCmd.SetOut(stdout)
+			rootCmd.SetErr(&bytes.Buffer{})
+			rootCmd.SetArgs([]string{"hooks", "print", "--client", client, "--traceary-bin", tracearyBin})
+			if err := rootCmd.Execute(); err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			var settings printedHooksSettings
+			if err := json.Unmarshal(stdout.Bytes(), &settings); err != nil {
+				t.Fatalf("json.Unmarshal() error = %v\n%s", err, stdout.Bytes())
+			}
+			if len(settings.Hooks) != 0 {
+				t.Fatalf("Grok hooks = %v, want empty boundary before runtime support", settings.Hooks)
+			}
+		})
+	}
+
 	t.Run("uses stable command name when traceary-bin is not specified", func(t *testing.T) {
 		settings := executeHooksPrintWithoutTracearyBin(t, "claude")
 		if diff := cmp.Diff(`'traceary' 'hook' 'session' 'claude' 'start'`, settings.Hooks["SessionStart"][0].Hooks[0].Command); diff != "" {

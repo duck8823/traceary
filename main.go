@@ -194,6 +194,7 @@ func run() error {
 		"codex":       filesystem.NewCodexHooksHandler(),
 		"gemini":      filesystem.NewGeminiHooksHandler(),
 		"antigravity": filesystem.NewAntigravityHooksHandler(),
+		"grok":        filesystem.NewGrokHooksHandler(),
 	})
 	hooksInspector := filesystem.NewHooksInspector()
 	pluginCacheInspector := filesystem.NewPluginCacheInspector()
