@@ -18,6 +18,7 @@ import (
 
 const hookSessionGCInterval = 6 * time.Hour
 const hookSessionActivityLeaseTTL = time.Minute
+const hookSessionActivityLeasePruneTTL = 5 * time.Minute
 
 // runOpportunisticSessionGC keeps abandoned hook sessions bounded without
 // adding a scheduler or making host hooks depend on maintenance succeeding.
@@ -124,9 +125,12 @@ func activeHookSessionIDs(now time.Time) ([]types.SessionID, error) {
 			return nil, xerrors.Errorf("failed to inspect hook session activity lease: %w", err)
 		}
 		path := filepath.Join(activityDir, entry.Name())
-		if now.Sub(info.ModTime()) >= hookSessionActivityLeaseTTL {
-			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-				slog.Debug("stale hook session activity lease cleanup failed", "error", err)
+		leaseAge := now.Sub(info.ModTime())
+		if leaseAge >= hookSessionActivityLeaseTTL {
+			if leaseAge >= hookSessionActivityLeasePruneTTL {
+				if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+					slog.Debug("stale hook session activity lease cleanup failed", "error", err)
+				}
 			}
 			continue
 		}

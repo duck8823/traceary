@@ -213,7 +213,7 @@ func TestRootCLI_HookAntigravityConcurrentPreInvocationsProtectAllActiveSessions
 			t.Fatalf("write %s activity lease: %v", sessionID, err)
 		}
 		if sessionID == "abandoned" {
-			if err := os.Chtimes(path, time.Now().Add(-2*time.Minute), time.Now().Add(-2*time.Minute)); err != nil {
+			if err := os.Chtimes(path, time.Now().Add(-10*time.Minute), time.Now().Add(-10*time.Minute)); err != nil {
 				t.Fatalf("age abandoned activity lease: %v", err)
 			}
 		}
