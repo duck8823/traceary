@@ -2,7 +2,7 @@
 
 [English](./gemini-extension.md)
 
-> **レガシー注記:** Gemini CLI はレガシーの Google AI エージェントホストであり、Traceary のアクティブな委譲パスではなくなっています。後継ホストは **Antigravity** で、v0.21.1 以降は packaged plugin を持つサポート対象の hook client です。このページは既に Gemini CLI を使用している既存インストール向けに Gemini extension package を説明します。Antigravity については [Antigravity hooks / plugin ガイド](./antigravity.ja.md) を参照してください。
+> **保守モードの案内:** Google は 2026-06-18 に無料版および Google AI Pro/Ultra 向け Gemini CLI の提供を終了し、**Antigravity** への移行を案内しています。Gemini Code Assist Standard/Enterprise および有料 API の利用者に対する Google 側の Gemini CLI サポートは継続します。このため、Traceary は該当環境向けに Gemini 拡張機能の提供と保守を続けますが、無料版・Pro・Ultra の新規利用者は [Antigravity プラグイン](./antigravity.ja.md) を導入してください。詳細は [Google の移行告知](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/) を参照してください。
 
 Gemini 向け package は `integrations/gemini-extension/` にあります。Gemini CLI は install された extension の root に `gemini-extension.json` があることを前提にするため、Traceary では tagged release ごとにこの package を専用 archive として配布します。
 
@@ -50,6 +50,13 @@ traceary memory admin activate --target gemini --apply
 `--root <dir>` / `--path <file>` で上書き可能です。managed marker layout・status state・tracked-file policy などの全契約は v0.13 host-native memory activation [ADR](../architecture/host-native-memory-activation.ja.md) を参照してください。`invalid` からの復旧は [durable memory ガイド](../memory/README.ja.md#invalid-からの復旧)にまとめています。`traceary doctor --client gemini` には同じ dry-run / apply 再実行 command を持つ `gemini-memory-activation` check が surface されます。
 
 ## Install
+
+### サポート対象の経路を選ぶ
+
+- **無料版、Google AI Pro、Google AI Ultra:** Antigravity へ移行してください。Traceary CLI を導入した後、`traceary hooks install --client antigravity` を実行し、`traceary doctor --client antigravity` で確認します。[Antigravity ガイド](./antigravity.ja.md) ではプラグインの導入と古い Gemini 形式パッケージの削除を説明しています。
+- **Gemini Code Assist Standard/Enterprise または有料 API キー:** この Gemini 拡張機能を引き続き使用できます。Traceary では保守モードの連携として、互換性・不具合・セキュリティの修正を継続します。Google ホスト向けの新機能開発は Antigravity を対象にします。
+
+Gemini 拡張機能をインストールしたままでも、その hook や設定は Antigravity へ自動移行されません。Antigravity プラグインを別途導入して動作確認し、Gemini CLI が不要になってから Gemini 拡張機能を削除してください。
 
 1. 先に Traceary CLI を入れます。
 

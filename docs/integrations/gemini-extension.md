@@ -2,7 +2,7 @@
 
 [日本語](./gemini-extension.ja.md)
 
-> **Legacy notice:** Gemini CLI is the legacy Google AI agent host and is no longer the active delegation path for Traceary. **Antigravity** is the active successor and, as of v0.21.1, is a supported hook client with a packaged plugin. This page describes the existing Gemini extension package, which remains available for installs already using Gemini CLI. For Antigravity, see the [Antigravity hooks and plugin guide](./antigravity.md).
+> **Maintenance-mode notice:** Google stopped serving Gemini CLI to free and Google AI Pro/Ultra users on 2026-06-18 and directs them to **Antigravity**. Gemini CLI remains supported upstream for Gemini Code Assist Standard/Enterprise and paid-API users. Traceary therefore keeps this extension available and maintained for those installations, but new free/Pro/Ultra users should install the [Antigravity plugin](./antigravity.md) instead. See [Google's transition announcement](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/).
 
 The Gemini package lives under `integrations/gemini-extension/`. Gemini CLI expects `gemini-extension.json` at the root of the installed extension, so Traceary ships this package as a dedicated extension archive on tagged releases.
 
@@ -71,6 +71,13 @@ for `invalid` recovery steps. `traceary doctor --client gemini` surfaces a
 commands.
 
 ## Install
+
+### Choose the supported route
+
+- **Free, Google AI Pro, or Google AI Ultra:** migrate to Antigravity. Install the Traceary CLI, then run `traceary hooks install --client antigravity`. Verify the result with `traceary doctor --client antigravity`; the [Antigravity guide](./antigravity.md) covers plugin installation and cleanup of stale Gemini-shaped packages.
+- **Gemini Code Assist Standard/Enterprise or a paid API key:** you may continue using this Gemini extension. Traceary treats it as a maintenance-mode integration: compatibility, bug, and security fixes continue, while new Google-host integration work targets Antigravity.
+
+Keeping the Gemini extension installed does not migrate its hooks or settings into Antigravity. Install the Antigravity plugin separately, verify it, and remove the Gemini extension only after you no longer need Gemini CLI.
 
 1. Install the Traceary CLI first.
 
