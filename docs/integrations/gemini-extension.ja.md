@@ -2,7 +2,7 @@
 
 [English](./gemini-extension.md)
 
-> **保守モードの案内:** Google は 2026-06-18 に無料版および Google AI Pro/Ultra 向け Gemini CLI の提供を終了し、**Antigravity** への移行を案内しています。Gemini Code Assist Standard/Enterprise および有料 API の利用者に対する Google 側の Gemini CLI サポートは継続します。このため、Traceary は該当環境向けに Gemini 拡張機能の提供と保守を続けますが、無料版・Pro・Ultra の新規利用者は [Antigravity プラグイン](./antigravity.ja.md) を導入してください。詳細は [Google の移行告知](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/) を参照してください。
+> **保守モードの案内:** Google は 2026-06-18 に無料版および Google AI Pro/Ultra 向け Gemini CLI の提供を終了し、**Antigravity** への移行を案内しています。Gemini Code Assist Standard/Enterprise、および有料の Gemini API キーか Gemini Enterprise Agent Platform API キーの利用者に対する Google 側の Gemini CLI サポートは継続します。このため、Traceary は該当環境向けに Gemini 拡張機能の提供と保守を続けますが、無料版・Pro・Ultra の新規利用者は [Antigravity プラグイン](./antigravity.ja.md) を導入してください。詳細は [Google の移行告知](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/) を参照してください。
 
 Gemini 向け package は `integrations/gemini-extension/` にあります。Gemini CLI は install された extension の root に `gemini-extension.json` があることを前提にするため、Traceary では tagged release ごとにこの package を専用 archive として配布します。
 
@@ -54,7 +54,7 @@ traceary memory admin activate --target gemini --apply
 ### サポート対象の経路を選ぶ
 
 - **無料版、Google AI Pro、Google AI Ultra:** Antigravity へ移行してください。Traceary CLI を導入した後、`traceary hooks install --client antigravity` で Traceary の hook を直接設定し、`traceary doctor --client antigravity` で確認します。[Antigravity ガイド](./antigravity.ja.md) では、別経路となる `agy plugin install` での packaged plugin 導入と、古い Gemini 形式パッケージの削除も説明しています。
-- **Gemini Code Assist Standard/Enterprise または有料 API キー:** この Gemini 拡張機能を引き続き使用できます。Traceary では保守モードの連携として、互換性・不具合・セキュリティの修正を継続します。Google ホスト向けの新機能開発は Antigravity を対象にします。
+- **Gemini Code Assist Standard/Enterprise、または有料の Gemini API キーか Gemini Enterprise Agent Platform API キー:** この Gemini 拡張機能を引き続き使用できます。Traceary では保守モードの連携として、互換性・不具合・セキュリティの修正を継続します。Google ホスト向けの新機能開発は Antigravity を対象にします。
 
 Gemini 拡張機能をインストールしたままでも、その hook や設定は Antigravity へ自動移行されません。Antigravity 連携を別途設定して動作確認し、Gemini CLI が不要になってから Gemini 拡張機能を削除してください。
 
