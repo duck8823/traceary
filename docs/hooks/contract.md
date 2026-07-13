@@ -26,11 +26,15 @@ This document defines the hook capability tiers across AI agent clients.
 | Hook Event | Matcher | Behavior |
 |---|---|---|
 | SessionStart | (all) | Record session start |
+| SubagentStart | (all) | Start a child session correlated by `agent_id`; use `agent_type` for the child agent name |
+| SubagentStop | (all) | End the child session correlated by `agent_id` |
+| PreCompact | (all) | Record a `compact_summary` boundary marker from `trigger` with `source_hook=pre_compact` |
+| PostCompact | (all) | Record a `compact_summary` boundary marker from `trigger` with `source_hook=post_compact` |
 | UserPromptSubmit | (all) | Record user prompt text |
 | Stop | (all) | Record the final assistant message (from `last_assistant_message`) as a `transcript` event (built-in secret redaction + operator-configured `redact.rules` / `redact.extra_patterns` applied); treated as a turn boundary, not a session end |
 | PostToolUse | (all) | Record tool audit |
 
-**Limitations**: No SessionEnd and no host-level session-end signal — Codex fires `Stop` after every assistant response, not when the conversation ends, so Traceary treats `Stop` as a turn boundary and keeps the session open (#1170). A Codex session ends only via an explicit end signal (MCP `manage_session`) or stale GC (`traceary session gc`, default 24h). No compact hooks, no failure-specific event and no structured failure signal — Codex fires `PostToolUse` for non-zero exits too, but its `tool_response` is a plain formatted string with no exit code or error field, so failed runs are recorded as ordinary (unflagged) audits.
+**Limitations**: No SessionEnd and no host-level session-end signal — Codex fires `Stop` after every assistant response, not when the conversation ends, so Traceary treats `Stop` as a turn boundary and keeps the session open (#1170). A Codex session ends only via an explicit end signal (MCP `manage_session`) or stale GC (`traceary session gc`, default 24h). `PreCompact` / `PostCompact` expose only the `manual` / `auto` trigger, not the compacted summary body, so both rows are boundary markers. There is no failure-specific event or structured failure signal — Codex fires `PostToolUse` for non-zero exits too, but its `tool_response` is a plain formatted string with no exit code or error field, so failed runs are recorded as ordinary (unflagged) audits.
 
 ### Tier 3: Basic (Gemini CLI) — *legacy compatibility*
 
@@ -51,7 +55,7 @@ This document defines the hook capability tiers across AI agent clients.
 
 All tiers:
 - Session start persists the resolved workspace to the state file; audit reads the workspace from state
-- Agent type resolution: `agent_type` field → hierarchical agent name (Claude only)
+- Agent type resolution: `agent_type` field → hierarchical agent name (Claude and Codex subagent hooks)
 - Exit code extraction from `tool_response.exitCode` when a host provides it. In practice none of the current hosts populate this field in the post-tool payload, so failure is detected structurally instead (see the failure-flag rows above and the fallback table below) rather than from an exit code.
 - MCP tool name fallback: `tool_input.command` → `tool_name`
 
@@ -82,6 +86,8 @@ runtime under the `<client>-host-capabilities` check.
 | Claude Code | `SubagentStop` (available since 2026-01) | wired | persisted as `session_ended` with `[phase:subagent]` body prefix via `traceary hook subagent-stop claude` |
 | Claude Code | `PreCompact` (available since 2026-01) | wired | persisted as `compact_summary` with `[phase:pre-compact]` body prefix via `traceary hook compact claude pre-compact`; `loadCompactSummary` filters the marker so handoff / memory_pack keep returning the latest post-compact digest |
 | Codex CLI | `Stop.last_assistant_message` | wired | persisted as `transcript` event via `traceary hook transcript codex` on the Codex `Stop` event; the paired `hook session codex stop` runs as a turn boundary (keeps the session open) rather than a session end (#1170) |
+| Codex CLI | `PreCompact` / `PostCompact` | wired (marker only) | persisted as phase-specific `compact_summary` markers from `trigger`; the payload has no summary body |
+| Codex CLI | `SubagentStart` / `SubagentStop` | wired | child sessions are correlated by `agent_id` and named from `agent_type` |
 | Codex CLI | Memory feature flag (`~/.codex/config.toml`) | opt-in per install | import path `traceary memory admin import codex` works regardless of the flag — the flag only changes Codex's own capture behaviour |
 | Gemini CLI | `AfterAgent.prompt_response` | wired | persisted as `transcript` event via `traceary hook transcript gemini` on the Gemini `AfterAgent` event (Gemini has no Stop event) |
 | Gemini CLI | `BeforeAgent.prompt` | wired | persisted as `prompt` event via `traceary hook prompt gemini` on the Gemini `BeforeAgent` event (parity with Claude / Codex `UserPromptSubmit`) |

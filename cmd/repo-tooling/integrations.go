@@ -272,7 +272,7 @@ func checkCodex(root, version string, runCLISmoke bool) error {
 	if err := checkNoDuplicateTracearyHookEntries("plugins/traceary/hooks.json", hooks); err != nil {
 		return err
 	}
-	for _, event := range []string{"SessionStart", "UserPromptSubmit", "Stop", "PostToolUse"} {
+	for _, event := range []string{"SessionStart", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact", "UserPromptSubmit", "Stop", "PostToolUse"} {
 		if _, ok := hooks.Hooks[event]; !ok {
 			return xerrors.Errorf("codex hooks must include %s", event)
 		}
@@ -281,6 +281,10 @@ func checkCodex(root, version string, runCLISmoke bool) error {
 		{"'hook' 'session' 'codex'", "Codex packaged hooks must invoke traceary hook session directly"},
 		{"'hook' 'prompt' 'codex'", "Codex packaged hooks must invoke traceary hook prompt directly"},
 		{"'hook' 'audit' 'codex'", "Codex packaged hooks must invoke traceary hook audit directly"},
+		{"'hook' 'compact' 'codex' 'pre-compact'", "Codex packaged hooks must invoke traceary pre-compact directly"},
+		{"'hook' 'compact' 'codex' 'post-compact'", "Codex packaged hooks must invoke traceary post-compact directly"},
+		{"'hook' 'subagent-start' 'codex'", "Codex packaged hooks must invoke traceary subagent-start directly"},
+		{"'hook' 'subagent-stop' 'codex'", "Codex packaged hooks must invoke traceary subagent-stop directly"},
 	} {
 		if !strings.Contains(hooksRaw, fragment.sub) {
 			return xerrors.Errorf("%s", fragment.msg)

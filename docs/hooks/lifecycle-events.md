@@ -53,7 +53,7 @@ All event bodies pass through built-in secret redaction plus operator-configured
 ### `compact_summary`
 
 - Emitted when the host compresses its in-memory context window.
-- Claude Code (`PostCompact`) emits a digest body. Gemini CLI (`PreCompress`) records a marker only because Gemini exposes no post-compress event with the resulting summary. Codex 0.125 has no compact hook at all (upstream `openai/codex#16098`).
+- Claude Code (`PostCompact`) emits a digest body. Gemini CLI (`PreCompress`) records a marker only because Gemini exposes no post-compress event with the resulting summary. Codex CLI 0.144.1 exposes `PreCompact` and `PostCompact`, but their payload contains only `trigger`; Traceary records phase-specific markers rather than claiming a compacted summary body.
 - Used by L2 to seed a `sessions.summary` value when a session is later resumed via `SessionStart` matcher `compact`.
 
 ### `session_ended`

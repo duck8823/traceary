@@ -1154,8 +1154,8 @@ func inspectHostCapabilityGaps(client, configPath string) []doctorCheck {
 			Name:   "codex-host-capabilities",
 			Status: doctorStatusPass,
 			Message: localizef(
-				"codex host: memory features ship behind a per-install feature flag in %s; consult the Codex release notes for the exact flag name and your enablement state. Traceary's `memory import codex` works regardless of the flag state",
-				"codex ホスト: memory 機能は per-install な feature flag (%s) の背後にあります。flag 名と有効化状態の確認方法は Codex のリリースノートを参照してください。Traceary は flag 状態に関わらず `memory import codex` で取り込み可能です",
+				"codex host: Codex CLI 0.144.1 compact and subagent hooks are wired (PreCompact / PostCompact markers and SubagentStart / SubagentStop child sessions). Memory features still depend on the per-install feature flag in %s; Traceary's `memory import codex` works regardless of that flag",
+				"codex ホスト: Codex CLI 0.144.1 の compact / subagent hook を配線済みです (PreCompact / PostCompact marker、SubagentStart / SubagentStop child session)。memory 機能は引き続き per-install feature flag (%s) に依存しますが、Traceary の `memory import codex` は flag 状態に関わらず動作します",
 				codexConfigPath,
 			),
 		}}
@@ -1725,7 +1725,7 @@ func formatHookDuplicateSummary(duplicates []application.HookDuplicate) string {
 // codexManagedEvents is the canonical list of hook events Traceary installs
 // into Codex CLI. Doctor uses this to flag a partial install that predates
 // the v0.7 UserPromptSubmit rollout.
-var codexManagedEvents = []string{"SessionStart", "UserPromptSubmit", "Stop", "PostToolUse"}
+var codexManagedEvents = []string{"SessionStart", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact", "UserPromptSubmit", "Stop", "PostToolUse"}
 
 // codexManagedEventKeys maps each expected Codex event to the stable managed
 // key the Traceary hook runtime installs for it. The key is reused as the
@@ -1735,6 +1735,10 @@ var codexManagedEvents = []string{"SessionStart", "UserPromptSubmit", "Stop", "P
 // "codex".
 var codexManagedEventKeys = map[string][]string{
 	"SessionStart":     []string{"traceary-session.sh:codex:start"},
+	"SubagentStart":    []string{"traceary-subagent-start.sh:codex"},
+	"SubagentStop":     []string{"traceary-subagent-stop.sh:codex"},
+	"PreCompact":       []string{"traceary-compact.sh:codex:pre-compact"},
+	"PostCompact":      []string{"traceary-compact.sh:codex:post-compact"},
 	"UserPromptSubmit": []string{"traceary-prompt.sh:codex"},
 	"Stop":             []string{"traceary-transcript.sh:codex", "traceary-session.sh:codex:stop"},
 	"PostToolUse":      []string{"traceary-audit.sh:codex"},
