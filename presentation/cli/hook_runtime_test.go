@@ -997,6 +997,85 @@ func TestRootCLI_HookMemoryExtractWorkerHandsOffRerunPublishedBeforeRemoval(t *t
 	}
 }
 
+func TestRootCLI_HookMemoryExtractWorkerHandsOffEnqueueAfterFinalCheck(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "post-check-race-key")
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-post-check-race-key"), []byte("post-check-race-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-post-check-race-key-repo"), []byte("traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	var jobPath string
+	queueCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{}),
+		cli.WithMemory(&memoryUsecaseStub{}),
+		cli.WithHookMemoryExtractLauncher(func(path string) error {
+			jobPath = path
+			return nil
+		}),
+	).Command()
+	queueCmd.SetOut(&bytes.Buffer{})
+	queueCmd.SetErr(&bytes.Buffer{})
+	queueCmd.SetIn(strings.NewReader(`{"session_id":"post-check-race-session"}`))
+	queueCmd.SetArgs([]string{"hook", "session", "codex", "stop"})
+	if err := queueCmd.Execute(); err != nil {
+		t.Fatalf("queue Execute() error = %v", err)
+	}
+
+	contendingLaunches := 0
+	handoffLaunches := 0
+	workerCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(&memoryUsecaseStub{}),
+		cli.WithHookMemoryAfterFinalCheck(func() {
+			contendingCmd := newTestRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+				cli.WithSession(&sessionUsecaseStub{}),
+				cli.WithMemory(&memoryUsecaseStub{}),
+				cli.WithHookMemoryExtractLauncher(func(string) error {
+					contendingLaunches++
+					return nil
+				}),
+			).Command()
+			contendingCmd.SetOut(&bytes.Buffer{})
+			contendingCmd.SetErr(&bytes.Buffer{})
+			contendingCmd.SetIn(strings.NewReader(`{"session_id":"post-check-race-session"}`))
+			contendingCmd.SetArgs([]string{"hook", "session", "codex", "stop"})
+			if err := contendingCmd.Execute(); err != nil {
+				t.Fatalf("contending Execute() error = %v", err)
+			}
+		}),
+		cli.WithHookMemoryExtractLauncher(func(path string) error {
+			if path != jobPath {
+				t.Fatalf("handoff path = %q, want %q", path, jobPath)
+			}
+			handoffLaunches++
+			return nil
+		}),
+	).Command()
+	workerCmd.SetOut(&bytes.Buffer{})
+	workerCmd.SetErr(&bytes.Buffer{})
+	workerCmd.SetArgs([]string{"hook", "memory-extract-worker", "--job", jobPath})
+	if err := workerCmd.Execute(); err != nil {
+		t.Fatalf("worker Execute() error = %v", err)
+	}
+	if contendingLaunches != 1 || handoffLaunches != 1 {
+		t.Fatalf("launches = contending:%d handoff:%d, want 1 each", contendingLaunches, handoffLaunches)
+	}
+	if _, err := os.Stat(jobPath); err != nil {
+		t.Fatalf("post-check race job must remain pending: %v", err)
+	}
+}
+
 func TestRootCLI_HookMemoryExtractWorkerRejectsJobOutsideQueue(t *testing.T) {
 	homeDir := t.TempDir()
 	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })

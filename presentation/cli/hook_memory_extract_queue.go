@@ -309,6 +309,23 @@ func (c *RootCLI) runHookMemoryExtractWorker(ctx context.Context, jobPath string
 		} else if !os.IsNotExist(rerunErr) {
 			return xerrors.Errorf("failed to inspect post-completion memory extraction rerun marker: %w", rerunErr)
 		}
+		if c.hookMemoryAfterFinalCheck != nil {
+			c.hookMemoryAfterFinalCheck()
+		}
+		if unlockErr := jobLock.Unlock(); unlockErr != nil {
+			return xerrors.Errorf("failed to release completed memory extraction job: %w", unlockErr)
+		}
+		lockHeld = false
+		// Close the final lost-wakeup window: an enqueue that observed the
+		// old lock after our post-remove check may have recreated the job and
+		// launched a worker that exited before this unlock. Relaunch it here.
+		if _, statErr := os.Stat(resolvedJobPath); statErr == nil {
+			if launchErr := c.launchHookMemoryExtractWorker(resolvedJobPath); launchErr != nil {
+				return xerrors.Errorf("failed to hand off post-completion memory extraction job: %w", launchErr)
+			}
+		} else if !errors.Is(statErr, os.ErrNotExist) {
+			return xerrors.Errorf("failed to inspect post-unlock memory extraction job: %w", statErr)
+		}
 		return nil
 	}
 	return nil
@@ -372,23 +389,41 @@ func writeHookMemoryExtractJob(path string, job hookMemoryExtractJob) error {
 }
 
 func publishHookMemoryExtractRerun(path string, requestedAt time.Time) error {
-	marker, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(err, os.ErrExist) {
-		return nil
-	}
+	return publishHookMemoryExtractRerunWithHook(path, requestedAt, nil)
+}
+
+func publishHookMemoryExtractRerunWithHook(path string, requestedAt time.Time, beforePublish func()) error {
+	marker, err := os.CreateTemp(filepath.Dir(path), ".memory-extract-rerun-*.tmp")
 	if err != nil {
 		return xerrors.Errorf("failed to create memory extraction rerun marker: %w", err)
 	}
+	tmpPath := marker.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if err := marker.Chmod(0o600); err != nil {
+		_ = marker.Close()
+		return xerrors.Errorf("failed to protect memory extraction rerun marker: %w", err)
+	}
 	if _, err := marker.WriteString(requestedAt.Format(time.RFC3339Nano) + "\n"); err != nil {
 		_ = marker.Close()
+		_ = os.Remove(tmpPath)
 		return xerrors.Errorf("failed to write memory extraction rerun marker: %w", err)
 	}
 	if err := marker.Sync(); err != nil {
 		_ = marker.Close()
+		_ = os.Remove(tmpPath)
 		return xerrors.Errorf("failed to sync memory extraction rerun marker: %w", err)
 	}
 	if err := marker.Close(); err != nil {
+		_ = os.Remove(tmpPath)
 		return xerrors.Errorf("failed to close memory extraction rerun marker: %w", err)
+	}
+	if beforePublish != nil {
+		beforePublish()
+	}
+	if err := os.Link(tmpPath, path); errors.Is(err, os.ErrExist) {
+		return nil
+	} else if err != nil {
+		return xerrors.Errorf("failed to publish memory extraction rerun marker: %w", err)
 	}
 	return nil
 }

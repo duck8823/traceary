@@ -143,3 +143,22 @@ func TestEnqueueHookMemoryExtractPreservesOldestContendedRerunTime(t *testing.T)
 		t.Fatalf("rerun requested_at = %s, want oldest %s", got, oldestRerun)
 	}
 }
+
+func TestPublishHookMemoryExtractRerunIsCompleteBeforeVisibility(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "job.rerun")
+	requestedAt := time.Date(2026, 7, 13, 11, 0, 0, 123, time.UTC)
+	if err := publishHookMemoryExtractRerunWithHook(path, requestedAt, func() {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("marker became visible before atomic publish: %v", err)
+		}
+	}); err != nil {
+		t.Fatalf("publishHookMemoryExtractRerunWithHook() error = %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(marker) error = %v", err)
+	}
+	if got := strings.TrimSpace(string(data)); got != requestedAt.Format(time.RFC3339Nano) {
+		t.Fatalf("marker = %q, want %q", got, requestedAt.Format(time.RFC3339Nano))
+	}
+}
