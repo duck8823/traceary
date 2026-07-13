@@ -37,13 +37,9 @@ func execAntigravityHook(t *testing.T, event, payload string, eventStub *eventUs
 	return stdout.String()
 }
 
-// TestRootCLI_HookAntigravityHeadlessPrintCaptureLevel pins the documented
-// headless `agy --print` capture level (#1225): print mode delivers
-// PreInvocation (session start) and run_command audits (PreToolUse +
-// PostToolUse), but emits no Stop/finalization hook, so no transcript event and
-// no turn boundary are recorded. This is a behavior contract, not a real
-// Antigravity run — no `agy` is launched and no private transcript is read.
-func TestRootCLI_HookAntigravityHeadlessPrintCaptureLevel(t *testing.T) {
+// TestRootCLI_HookAntigravityWithoutStopCapturesOnlyAvailableSignals verifies
+// fail-soft behavior when an older host or interrupted execution omits Stop.
+func TestRootCLI_HookAntigravityWithoutStopCapturesOnlyAvailableSignals(t *testing.T) {
 	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
 	homeDir := t.TempDir()
 	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
@@ -96,11 +92,8 @@ func TestRootCLI_HookAntigravityHeadlessPrintCaptureLevel(t *testing.T) {
 	}
 }
 
-// TestRootCLI_HookAntigravityStopRecordsTranscriptWhenHostEmitsStop documents
-// that finalization is conditional on the host signal, not broken: when the host
-// DOES emit Stop with a transcriptPath (interactive runs), Traceary records a
-// transcript event. The transcript file is synthesized in a temp dir — it is not
-// a real Antigravity transcript.
+// TestRootCLI_HookAntigravityStopRecordsTranscriptWhenHostEmitsStop verifies
+// current interactive and headless CLI finalization from transcriptPath.
 func TestRootCLI_HookAntigravityStopRecordsTranscriptWhenHostEmitsStop(t *testing.T) {
 	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
 	homeDir := t.TempDir()
@@ -109,7 +102,10 @@ func TestRootCLI_HookAntigravityStopRecordsTranscriptWhenHostEmitsStop(t *testin
 
 	transcriptPath := filepath.Join(t.TempDir(), "transcript.jsonl")
 	if err := os.WriteFile(transcriptPath,
-		[]byte(`{"role":"assistant","content":[{"type":"text","text":"final print answer"}]}`+"\n"), 0o600); err != nil {
+		[]byte(strings.Join([]string{
+			`{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","content":"current prompt"}`,
+			`{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","thinking":"brief reasoning","content":"final print answer"}`,
+		}, "\n")+"\n"), 0o600); err != nil {
 		t.Fatalf("write synthetic transcript: %v", err)
 	}
 
@@ -131,5 +127,34 @@ func TestRootCLI_HookAntigravityStopRecordsTranscriptWhenHostEmitsStop(t *testin
 	}
 	if got, want := eventStub.logCall.agent, types.Agent("antigravity"); got != want {
 		t.Fatalf("Stop transcript agent = %q, want %q", got, want)
+	}
+	if len(eventStub.logCalls) != 2 {
+		t.Fatalf("Stop log calls = %d, want prompt and transcript", len(eventStub.logCalls))
+	}
+	if got := eventStub.logCalls[0]; got.kind != types.EventKindPrompt || got.message != "current prompt" || got.sourceHook != "stop_transcript" {
+		t.Fatalf("Stop prompt call = %+v, want transcript-derived prompt", got)
+	}
+}
+
+func TestRootCLI_HookAntigravityStopPreservesLegacyTranscriptFallback(t *testing.T) {
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	transcriptPath := filepath.Join(t.TempDir(), "transcript.jsonl")
+	if err := os.WriteFile(transcriptPath, []byte(`{"role":"assistant","content":"legacy final answer"}`+"\n"), 0o600); err != nil {
+		t.Fatalf("write legacy transcript: %v", err)
+	}
+
+	eventStub := &eventUsecaseStub{}
+	sessionStub := &sessionUsecaseStub{}
+	payload := fmt.Sprintf(`{"conversationId":"legacy-conv","workspacePaths":["/repo"],"transcriptPath":%q}`, transcriptPath)
+	if out := execAntigravityHook(t, "stop", payload, eventStub, sessionStub); out != `{"decision":""}` {
+		t.Fatalf("Stop output = %q, want decision contract", out)
+	}
+	if len(eventStub.logCalls) != 1 || eventStub.logCalls[0].kind != types.EventKindTranscript ||
+		!strings.Contains(eventStub.logCalls[0].message, "legacy final answer") {
+		t.Fatalf("Stop legacy log calls = %+v, want one transcript", eventStub.logCalls)
 	}
 }

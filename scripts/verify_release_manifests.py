@@ -16,6 +16,7 @@ MARKETPLACE_MANIFESTS = [
 
 PLUGIN_MANIFESTS = [
     ROOT / 'integrations' / 'claude-plugin' / '.claude-plugin' / 'plugin.json',
+    ROOT / 'integrations' / 'antigravity-plugin' / 'plugin.json',
     ROOT / 'integrations' / 'gemini-extension' / 'gemini-extension.json',
     ROOT / 'plugins' / 'traceary' / '.codex-plugin' / 'plugin.json',
 ]

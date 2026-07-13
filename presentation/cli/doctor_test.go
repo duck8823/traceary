@@ -2002,7 +2002,7 @@ func TestRootCLI_DoctorAntigravity(t *testing.T) {
 		if captureLevels.Status != "pass" {
 			t.Fatalf("antigravity-capture-levels status = %q, want pass", captureLevels.Status)
 		}
-		for _, want := range []string{"start_supported", "tool_audit_supported", "final_turn_unavailable", "agy --print"} {
+		for _, want := range []string{"start_supported", "tool_audit_supported", "final_turn_supported", "agy --print", "antigravity-event-coverage"} {
 			if !strings.Contains(captureLevels.Message, want) {
 				t.Fatalf("antigravity-capture-levels message missing %q: %q", want, captureLevels.Message)
 			}
