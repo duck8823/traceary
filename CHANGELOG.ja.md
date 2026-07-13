@@ -5,6 +5,21 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.23.0] - 2026-07-14
+
+### Added
+- **Grok Build 契約の検証 (#1273)** — Grok Build 0.2.99 の実環境 payload を機密情報を除いて取得し、version 付き fixture で session、prompt、tool、Stop、compact の対応 field を固定しました。未観測の独立した失敗、session end、subagent の関係は推測せず、利用不可と明示します。
+- **Grok のネイティブ識別子と core runtime (#1274, #1275)** — `grok` を Traceary の正式な host とし、session、prompt、tool audit、Stop のネイティブ hook entrypoint を追加しました。Stop の transcript 取得は host が渡す `updates.jsonl` を読み、Grok が hook 完了後に最終メッセージを追記する場合は durable な分離 retry job で再試行します。
+- **Grok compact lifecycle marker (#1276)** — `PreCompact` と `PostCompact` は検証済みの `source` field から前後の phase marker を別々に記録します。source がない場合は unavailable として保存し、summary 本文や未検証の subagent 関係を生成しません。
+- **Grok ネイティブ plugin (#1277)** — 検証済みの hook 7件、ローカル Traceary MCP server 1件、共通の memory/session skill 3件をリポジトリ内パッケージに同梱し、決定的な構造検証と隔離した install smoke test を追加しました。
+- **Grok doctor check (#1278)** — `traceary doctor --client grok` が CLI、plugin の有効状態とバージョン一致、project hook の trust、導入済み hook の厳密な契約、MCP/skill の内容、直近 event coverage を確認します。private path や transcript 本文は表示しません。
+
+### Documentation
+- **導入・dogfood ガイド (#1279)** — Grok Build のインストール、更新、trust、トラブルシュート、対応範囲、最小化した dogfood 証拠を英語・日本語で文書化しました。
+
+### Notes
+- v0.23.0 に破壊的な SQLite migration はなく、新しい MCP tool もありません。Grok plugin は既存の Traceary MCP server を再利用します。`Stop` は turn 境界であり session end ではありません。Grok Build 0.2.99 は、文書化された `SessionEnd`、独立した失敗、policy gate 対象の subagent payload を検証時に実環境で発行しなかったため、このリリースでは対応を主張しません。今後の作業は #1299、#1300、#1301 で追跡します。
+
 ## [v0.22.0] - 2026-07-14
 
 ### Added

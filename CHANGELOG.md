@@ -5,6 +5,21 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.23.0] - 2026-07-14
+
+### Added
+- **Verified Grok Build contract (#1273)** — live, sanitized Grok Build 0.2.99 payloads and versioned fixtures define the supported session, prompt, tool, Stop, and compact fields. Unobserved standalone failure, session-end, and subagent relationships remain explicitly unavailable rather than inferred.
+- **Native Grok identity and core runtime (#1274, #1275)** — `grok` is a canonical Traceary host with native hook entrypoints for session, prompt, tool audit, and Stop. Stop transcript capture reads the host-provided `updates.jsonl` path and uses a durable detached retry job when Grok appends the final message after hooks finish.
+- **Grok compact lifecycle markers (#1276)** — `PreCompact` and `PostCompact` record distinct phase markers from the verified `source` field. Missing source data is stored as unavailable; no summary body or synthetic subagent relationship is claimed.
+- **Native Grok plugin (#1277)** — the repository package contains the exact seven verified hooks, one local Traceary MCP server, and the three shared memory/session skills, with deterministic structural and isolated-install smoke validation.
+- **Grok doctor checks (#1278)** — `traceary doctor --client grok` verifies the CLI, plugin enablement and version parity, project-hook trust, the exact installed hook contract, MCP/skill inventory, and recent event coverage without exposing private paths or transcript bodies.
+
+### Documentation
+- **Install and dogfood guide (#1279)** — bilingual Grok Build documentation covers installation, updates, trust, troubleshooting, the supported coverage matrix, and minimized dogfood evidence.
+
+### Notes
+- v0.23.0 has no destructive SQLite migration and adds no MCP tools. The Grok plugin reuses the existing Traceary MCP server. `Stop` is a turn boundary, not a session end. Grok Build 0.2.99 did not live-emit the documented `SessionEnd`, standalone failure, or policy-gated subagent payloads in the verified probes, so Traceary does not claim those capabilities in this release. Follow-ups are tracked in #1299, #1300, and #1301.
+
 ## [v0.22.0] - 2026-07-14
 
 ### Added

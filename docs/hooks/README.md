@@ -216,7 +216,7 @@ Session-end, turn-boundary, and subagent-stop hooks commit their primary event f
 
 ## Troubleshooting
 
-Run `traceary doctor --client <claude|codex|gemini>` when hooks or the local SQLite store do not behave as expected.
+Run `traceary doctor --client <claude|codex|gemini|antigravity|grok>` when hooks or the local SQLite store do not behave as expected. Antigravity and Grok must be selected explicitly because they are not in the default client list.
 
 The diagnostic command checks:
 
