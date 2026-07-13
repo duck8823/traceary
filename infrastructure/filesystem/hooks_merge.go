@@ -9,6 +9,7 @@ import (
 
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/domain/model"
 )
 
@@ -145,6 +146,76 @@ func mergeHooksDocumentWithDiff(existingContent []byte, hooks model.Hooks) ([]by
 	}
 
 	return encodedRoot, diff, nil
+}
+
+func removeTracearyManagedHooks(existingContent []byte) ([]byte, []application.HookManagedEntry, error) {
+	root := map[string]json.RawMessage{}
+	if err := json.Unmarshal(existingContent, &root); err != nil {
+		return nil, nil, xerrors.Errorf("existing settings file must contain a JSON object: %w", err)
+	}
+
+	hooksValue, ok := root["hooks"]
+	if !ok {
+		return existingContent, nil, nil
+	}
+	hooks := map[string][]hookMatcherDocument{}
+	if err := json.Unmarshal(hooksValue, &hooks); err != nil {
+		return nil, nil, xerrors.Errorf("existing hooks field must be a JSON object whose values are hook arrays: %w", err)
+	}
+
+	removed := make([]application.HookManagedEntry, 0)
+	for event, matchers := range hooks {
+		keptMatchers := make([]hookMatcherDocument, 0, len(matchers))
+		for _, matcher := range matchers {
+			matcherValue := ""
+			if matcher.Matcher != nil {
+				matcherValue = *matcher.Matcher
+			}
+			keptCommands := make([]hookCommandDocument, 0, len(matcher.Hooks))
+			for _, command := range matcher.Hooks {
+				managedKey := extractTracearyManagedKeyFromEntry(command.Name, command.Command)
+				if managedKey == "" {
+					keptCommands = append(keptCommands, command)
+					continue
+				}
+				removed = append(removed, application.HookManagedEntry{
+					Event: event, Matcher: matcherValue, Name: command.Name, ManagedKey: managedKey,
+				})
+			}
+			if len(keptCommands) > 0 {
+				matcher.Hooks = keptCommands
+				keptMatchers = append(keptMatchers, matcher)
+			}
+		}
+		if len(keptMatchers) == 0 {
+			delete(hooks, event)
+		} else {
+			hooks[event] = keptMatchers
+		}
+	}
+	sort.Slice(removed, func(i, j int) bool {
+		if removed[i].Event != removed[j].Event {
+			return removed[i].Event < removed[j].Event
+		}
+		if removed[i].Matcher != removed[j].Matcher {
+			return removed[i].Matcher < removed[j].Matcher
+		}
+		if removed[i].Name != removed[j].Name {
+			return removed[i].Name < removed[j].Name
+		}
+		return removed[i].ManagedKey < removed[j].ManagedKey
+	})
+
+	encodedHooks, err := json.MarshalIndent(hooks, "", "  ")
+	if err != nil {
+		return nil, nil, xerrors.Errorf("failed to marshal filtered hooks JSON: %w", err)
+	}
+	root["hooks"] = encodedHooks
+	encodedRoot, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return nil, nil, xerrors.Errorf("failed to marshal filtered settings JSON: %w", err)
+	}
+	return encodedRoot, removed, nil
 }
 
 // hasTracearyManagedCommands reports whether the matcher list contains at

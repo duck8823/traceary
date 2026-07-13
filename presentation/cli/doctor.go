@@ -1042,6 +1042,9 @@ func (c *RootCLI) attachDoctorConfigFix(check *doctorCheck, client, outputPath, 
 	if check == nil || check.Name != client+"-config" || check.Status != doctorStatusWarn {
 		return
 	}
+	if check.AutoFixAvailable || check.FixFunc != nil {
+		return
+	}
 	if client == "claude" {
 		detection := c.detectClaudeTracearyPluginForCLI()
 		if detection.Active {
@@ -1508,7 +1511,9 @@ func (c *RootCLI) inspectDoctorConfigFile(client string, outputPath string, proj
 	if err != nil {
 		if os.IsNotExist(err) {
 			if client == "codex" {
-				if state := c.detectCodexPluginHookFallback(); state.PluginEnabled {
+				if state := c.detectCodexPluginHookFallback(); state.pluginHooksConfirmedActive() {
+					return codexPluginManagedHooksCheck(state, outputPath)
+				} else if state.PluginEnabled {
 					return codexPluginHookFallbackCheck(state, outputPath, localizef("does not exist", "が存在しません"))
 				}
 			}
@@ -1550,7 +1555,9 @@ func (c *RootCLI) inspectDoctorConfigFile(client string, outputPath string, proj
 
 	if !hasHooksField {
 		if client == "codex" {
-			if state := c.detectCodexPluginHookFallback(); state.PluginEnabled {
+			if state := c.detectCodexPluginHookFallback(); state.pluginHooksConfirmedActive() {
+				return codexPluginManagedHooksCheck(state, outputPath)
+			} else if state.PluginEnabled {
 				return codexPluginHookFallbackCheck(state, outputPath, localizef("has no hooks field", "には hooks フィールドがありません"))
 			}
 		}
@@ -1568,6 +1575,11 @@ func (c *RootCLI) inspectDoctorConfigFile(client string, outputPath string, proj
 	}
 
 	if hasTracearyManagedHook {
+		if client == "codex" {
+			if state := c.detectCodexPluginHookFallback(); state.pluginHooksConfirmedActive() {
+				return c.codexDuplicateRegistrationCheck(state, outputPath)
+			}
+		}
 		duplicates, duplicateErr := c.hooksInspector.DuplicateManagedHooks(content)
 		if duplicateErr != nil {
 			return doctorCheck{
@@ -1614,7 +1626,9 @@ func (c *RootCLI) inspectDoctorConfigFile(client string, outputPath string, proj
 	}
 
 	if client == "codex" {
-		if state := c.detectCodexPluginHookFallback(); state.PluginEnabled {
+		if state := c.detectCodexPluginHookFallback(); state.pluginHooksConfirmedActive() {
+			return codexPluginManagedHooksCheck(state, outputPath)
+		} else if state.PluginEnabled {
 			return codexPluginHookFallbackCheck(state, outputPath, localizef("has hook entries but none are Traceary-managed", "には hook エントリはありますが Traceary 管理のものがありません"))
 		}
 	}

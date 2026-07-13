@@ -67,13 +67,15 @@ The fallback writes Traceary-managed entries directly into `~/.codex/hooks.json`
 
 ### Duplicate-capture warning
 
-If a future Codex build enables `plugin_hooks` for your install (the plugin manifest's hooks start firing automatically) while these manual entries remain in `~/.codex/hooks.json`, **every session/prompt/transcript/audit event will be recorded twice**. Before enabling plugin-managed hooks on an install that previously used the fallback, remove the manual entries:
+If a future Codex build enables `plugin_hooks` for your install (the plugin manifest's hooks start firing automatically) while these manual entries remain in `~/.codex/hooks.json`, **every session/prompt/transcript/audit event will be recorded twice**. After setting `[features].plugin_hooks = true`, let doctor detect and remove the obsolete manual path:
 
 ```sh
-# Inspect ~/.codex/hooks.json and delete the named entries the fallback created:
-#   traceary-session-start, traceary-prompt, traceary-transcript,
-#   traceary-session-stop, traceary-audit
+traceary doctor --client codex --json
+traceary doctor --fix --dry-run --client codex
+traceary doctor --fix --client codex
 ```
+
+Doctor only offers this cleanup when the Traceary plugin is enabled and `plugin_hooks = true` explicitly confirms plugin-managed hooks. It removes the named Traceary-managed entries (`traceary-session-start`, `traceary-prompt`, `traceary-transcript`, `traceary-session-stop`, and `traceary-audit`) while preserving unrelated hooks and top-level fields. When the feature is false or unspecified, doctor keeps the manual fallback intact.
 
 After cleanup, re-run `traceary doctor --client codex --json` to confirm only one registration path is active.
 

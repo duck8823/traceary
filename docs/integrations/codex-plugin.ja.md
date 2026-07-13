@@ -67,13 +67,15 @@ fallback は `~/.codex/hooks.json` に Traceary 管理のエントリ (`traceary
 
 ### 二重記録の注意点
 
-将来 Codex 側で `plugin_hooks` が有効化されると、plugin manifest 経由の hook が自動で発火するようになります。このとき `~/.codex/hooks.json` に fallback で書き込まれた手動エントリがそのまま残っていると、**session / prompt / transcript / audit の各 event が二重に記録されます**。fallback を経由した install で plugin-managed hook を改めて有効化する前に、手動エントリを削除してください:
+将来 Codex 側で `plugin_hooks` が有効化されると、plugin manifest 経由の hook が自動で発火するようになります。このとき `~/.codex/hooks.json` に fallback で書き込まれた手動エントリがそのまま残っていると、**session / prompt / transcript / audit の各 event が二重に記録されます**。`[features].plugin_hooks = true` を設定した後、doctor で古い手動経路を検出・削除してください:
 
 ```sh
-# ~/.codex/hooks.json を開き、fallback が追加した次の名前付きエントリを削除:
-#   traceary-session-start / traceary-prompt / traceary-transcript /
-#   traceary-session-stop / traceary-audit
+traceary doctor --client codex --json
+traceary doctor --fix --dry-run --client codex
+traceary doctor --fix --client codex
 ```
+
+doctor が cleanup を提示するのは、Traceary plugin が enabled で、かつ `plugin_hooks = true` により plugin-managed hook の有効化を明示確認できた場合だけです。名前付きの Traceary 管理エントリ (`traceary-session-start` / `traceary-prompt` / `traceary-transcript` / `traceary-session-stop` / `traceary-audit`) だけを削除し、Traceary 以外の hook と top-level field は保持します。feature が false または未指定の場合は手動 fallback を残します。
 
 cleanup 後に `traceary doctor --client codex --json` を再実行し、登録経路が一つだけになっていることを確認してください。
 

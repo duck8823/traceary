@@ -1,12 +1,89 @@
 package cli
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
+	"golang.org/x/xerrors"
 )
+
+func (s codexPluginHookFallbackState) pluginHooksConfirmedActive() bool {
+	return s.PluginEnabled && s.PluginHooksFeature != nil && *s.PluginHooksFeature
+}
+
+func codexPluginManagedHooksCheck(state codexPluginHookFallbackState, hooksPath string) doctorCheck {
+	pluginKey := state.PluginKey
+	if pluginKey == "" {
+		pluginKey = "traceary@<marketplace>"
+	}
+	return doctorCheck{
+		Name:   "codex-config",
+		Status: doctorStatusPass,
+		Message: localizef(
+			"codex plugin %q has confirmed plugin-managed hooks (`[features].plugin_hooks = true`); no manual Traceary entries are required in %s",
+			"codex plugin %q では plugin-managed hook が有効です (`[features].plugin_hooks = true`)。%s に手動 Traceary エントリは不要です",
+			pluginKey,
+			hooksPath,
+		),
+	}
+}
+
+func (c *RootCLI) codexDuplicateRegistrationCheck(state codexPluginHookFallbackState, hooksPath string) doctorCheck {
+	const checkName = "codex-config"
+	entries, err := c.hooksOrchestrator.RemoveManaged(context.Background(), hooksPath, true)
+	if err != nil {
+		return doctorCheck{
+			Name: checkName, Status: doctorStatusFail,
+			Message: localizef("failed to inspect manual Codex hook entries: %v", "Codex の手動 hook エントリを検査できませんでした: %v", err),
+		}
+	}
+	if len(entries) == 0 {
+		return codexPluginManagedHooksCheck(state, hooksPath)
+	}
+	entryNames := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		name := strings.TrimSpace(entry.Name)
+		if name == "" {
+			name = entry.ManagedKey
+		}
+		entryNames = append(entryNames, fmt.Sprintf("%s:%s", entry.Event, name))
+	}
+	sort.Strings(entryNames)
+	joined := strings.Join(entryNames, ", ")
+	check := doctorCheck{
+		Name: checkName, Status: doctorStatusWarn, AutoFixAvailable: true,
+		FixCommand: "traceary doctor --fix --dry-run --client codex",
+		Hint: Localize(
+			"preview the cleanup with `traceary doctor --fix --dry-run --client codex`; only Traceary-managed manual entries are removed",
+			"`traceary doctor --fix --dry-run --client codex` で cleanup を確認してください。Traceary 管理の手動エントリだけを削除します",
+		),
+		Message: localizef(
+			"Codex plugin hooks are confirmed active, but manual Traceary hooks are also registered in %s; matching events will be captured twice. Remove these manual entries: %s",
+			"Codex plugin hook は有効ですが、%s に手動 Traceary hook も登録されています。該当 event が二重記録されます。次の手動エントリを削除してください: %s",
+			hooksPath, joined,
+		),
+	}
+	check.FixFunc = func(ctx context.Context, dryRun bool) (string, error) {
+		action := fmt.Sprintf("remove manual Traceary hooks from %s: %s", hooksPath, joined)
+		if dryRun {
+			return "would: " + action, nil
+		}
+		removed, err := c.hooksOrchestrator.RemoveManaged(ctx, hooksPath, false)
+		if err != nil {
+			return action, xerrors.Errorf("remove manual Traceary hooks: %w", err)
+		}
+		if len(removed) == 0 {
+			return "skip: manual Traceary hooks already absent", nil
+		}
+		return action, nil
+	}
+	return check
+}
 
 // codexPluginHookFallbackState captures the subset of ~/.codex/config.toml
 // that doctor needs to surface the v0.15.1 plugin_hooks fallback warning.

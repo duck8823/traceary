@@ -189,6 +189,85 @@ func TestRootCLI_DoctorFix(t *testing.T) {
 			t.Fatalf("user hook disappeared from codex hooks:\n%s", after)
 		}
 	})
+
+	t.Run("confirmed codex plugin hooks remove only manual Traceary entries", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		setDoctorFixHome(t, homeDir)
+		setTracearyPathToCurrentExecutableAt(t, filepath.Join(t.TempDir(), "bin"))
+		writeCodexDuplicateAuditHook(t, homeDir)
+		writeCodexPluginHookFeature(t, homeDir, "true")
+
+		stdout := &bytes.Buffer{}
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--fix", "--client", "codex", "--project-dir", projectDir, "--json"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v\n%s", err, stdout.String())
+		}
+		report := decodeDoctorReport(t, stdout.Bytes())
+		if got := doctorStatuses(report)["codex-config"]; got != "pass" {
+			t.Fatalf("codex-config status = %q, want pass; report=%s", got, stdout.String())
+		}
+		foundRemoval := false
+		for _, fix := range report.Fixes {
+			if fix.Name == "codex-config" && strings.Contains(fix.Action, "remove manual Traceary hooks") {
+				foundRemoval = true
+			}
+		}
+		if !foundRemoval {
+			t.Fatalf("fixes = %#v, want manual hook removal", report.Fixes)
+		}
+		content, err := os.ReadFile(filepath.Join(homeDir, ".codex", "hooks.json"))
+		if err != nil {
+			t.Fatalf("ReadFile() error = %v", err)
+		}
+		if strings.Contains(string(content), "traceary-") || strings.Contains(string(content), "'traceary'") {
+			t.Fatalf("manual Traceary hooks remain after fix:\n%s", content)
+		}
+		if !strings.Contains(string(content), "echo user-hook") {
+			t.Fatalf("user hook disappeared after fix:\n%s", content)
+		}
+		if !strings.Contains(string(content), `"custom"`) || !strings.Contains(string(content), `"keep": true`) {
+			t.Fatalf("top-level user configuration disappeared after fix:\n%s", content)
+		}
+	})
+
+	t.Run("disabled codex plugin hooks retain manual fallback entries", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		setDoctorFixHome(t, homeDir)
+		setTracearyPathToCurrentExecutableAt(t, filepath.Join(t.TempDir(), "bin"))
+		writeCodexDuplicateAuditHook(t, homeDir)
+		writeCodexPluginHookFeature(t, homeDir, "false")
+
+		stdout := &bytes.Buffer{}
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--fix", "--client", "codex", "--project-dir", projectDir, "--json"})
+		executeDoctorAllowWarnings(t, rootCmd)
+		content, err := os.ReadFile(filepath.Join(homeDir, ".codex", "hooks.json"))
+		if err != nil {
+			t.Fatalf("ReadFile() error = %v", err)
+		}
+		if !strings.Contains(string(content), "traceary-session-start") || !strings.Contains(string(content), "traceary-audit") {
+			t.Fatalf("manual fallback hooks were removed while plugin_hooks=false:\n%s", content)
+		}
+	})
+}
+
+func writeCodexPluginHookFeature(t *testing.T, homeDir, value string) {
+	t.Helper()
+	codexDir := filepath.Join(homeDir, ".codex")
+	if err := os.MkdirAll(codexDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	content := "[features]\nplugin_hooks = " + value + "\n\n[plugins.\"traceary@local-traceary-plugins\"]\nenabled = true\n"
+	if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile(config.toml) error = %v", err)
+	}
 }
 
 func setDoctorFixHome(t *testing.T, homeDir string) {
