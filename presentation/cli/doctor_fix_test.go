@@ -232,6 +232,9 @@ func TestRootCLI_DoctorFix(t *testing.T) {
 		if !strings.Contains(string(content), `"custom"`) || !strings.Contains(string(content), `"keep": true`) {
 			t.Fatalf("top-level user configuration disappeared after fix:\n%s", content)
 		}
+		if !strings.Contains(string(content), `"matcherExtension"`) || !strings.Contains(string(content), `"futureCommandField"`) {
+			t.Fatalf("unknown user hook fields disappeared after fix:\n%s", content)
+		}
 	})
 
 	t.Run("disabled codex plugin hooks retain manual fallback entries", func(t *testing.T) {
@@ -254,6 +257,33 @@ func TestRootCLI_DoctorFix(t *testing.T) {
 		}
 		if !strings.Contains(string(content), "traceary-session-start") || !strings.Contains(string(content), "traceary-audit") {
 			t.Fatalf("manual fallback hooks were removed while plugin_hooks=false:\n%s", content)
+		}
+	})
+
+	t.Run("unspecified codex plugin hooks retain manual fallback entries", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		setDoctorFixHome(t, homeDir)
+		setTracearyPathToCurrentExecutableAt(t, filepath.Join(t.TempDir(), "bin"))
+		writeCodexDuplicateAuditHook(t, homeDir)
+		codexDir := filepath.Join(homeDir, ".codex")
+		config := "[plugins.\"traceary@local-traceary-plugins\"]\nenabled = true\n"
+		if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte(config), 0o644); err != nil {
+			t.Fatalf("WriteFile(config.toml) error = %v", err)
+		}
+
+		stdout := &bytes.Buffer{}
+		rootCmd := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"doctor", "--fix", "--client", "codex", "--project-dir", projectDir, "--json"})
+		executeDoctorAllowWarnings(t, rootCmd)
+		content, err := os.ReadFile(filepath.Join(codexDir, "hooks.json"))
+		if err != nil {
+			t.Fatalf("ReadFile() error = %v", err)
+		}
+		if !strings.Contains(string(content), "traceary-session-start") || !strings.Contains(string(content), "traceary-audit") {
+			t.Fatalf("manual fallback hooks were removed while plugin_hooks was unspecified:\n%s", content)
 		}
 	})
 }

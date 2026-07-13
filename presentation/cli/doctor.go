@@ -327,7 +327,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			continue
 		}
 
-		check := c.inspectClaudeOrConfigFile(targetClient, outputPath, resolvedProjectDir)
+		check := c.inspectClaudeOrConfigFile(ctx, targetClient, outputPath, resolvedProjectDir)
 		c.attachDoctorConfigFix(&check, targetClient, outputPath, resolvedProjectDir)
 		report.Checks = append(report.Checks, check)
 		if targetClient == "gemini" || targetClient == "claude" {
@@ -1271,13 +1271,13 @@ func inspectDoctorConfig() doctorCheck {
 // run the file-level inspection first and only short-circuit to the
 // plugin-managed pass branch when the file is either missing or
 // structurally valid.
-func (c *RootCLI) inspectClaudeOrConfigFile(client, outputPath, projectDir string) doctorCheck {
+func (c *RootCLI) inspectClaudeOrConfigFile(ctx context.Context, client, outputPath, projectDir string) doctorCheck {
 	if client != "claude" {
-		return c.inspectDoctorConfigFile(client, outputPath, projectDir)
+		return c.inspectDoctorConfigFile(ctx, client, outputPath, projectDir)
 	}
 
 	detection := c.detectClaudeTracearyPluginForCLI()
-	configCheck := c.inspectDoctorConfigFile(client, outputPath, projectDir)
+	configCheck := c.inspectDoctorConfigFile(ctx, client, outputPath, projectDir)
 
 	if detection.Active {
 		// Structural failures (invalid JSON, malformed hooks field) are
@@ -1506,7 +1506,7 @@ func (c *RootCLI) claudeConfigHasTracearyHooks(outputPath string) bool {
 	return hasTracearyHook
 }
 
-func (c *RootCLI) inspectDoctorConfigFile(client string, outputPath string, projectDir string) doctorCheck {
+func (c *RootCLI) inspectDoctorConfigFile(ctx context.Context, client string, outputPath string, projectDir string) doctorCheck {
 	content, err := os.ReadFile(outputPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -1577,7 +1577,7 @@ func (c *RootCLI) inspectDoctorConfigFile(client string, outputPath string, proj
 	if hasTracearyManagedHook {
 		if client == "codex" {
 			if state := c.detectCodexPluginHookFallback(); state.pluginHooksConfirmedActive() {
-				return c.codexDuplicateRegistrationCheck(state, outputPath)
+				return c.codexDuplicateRegistrationCheck(ctx, state, outputPath)
 			}
 		}
 		duplicates, duplicateErr := c.hooksInspector.DuplicateManagedHooks(content)

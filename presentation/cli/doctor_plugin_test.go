@@ -405,10 +405,10 @@ func writeCodexDuplicateAuditHook(t *testing.T, home string) {
       ]}
     ],
     "PostToolUse": [
-      {"matcher": "", "hooks": [
+      {"matcher": "", "matcherExtension": {"keep": true}, "hooks": [
         {"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'codex'"},
         {"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'codex'"},
-        {"name": "user-audit", "type": "command", "command": "echo user-hook"}
+        {"name": "user-audit", "type": "command", "command": "echo user-hook", "futureCommandField": {"keep": true}}
       ]}
     ]
   }

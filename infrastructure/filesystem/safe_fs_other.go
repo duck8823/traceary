@@ -4,9 +4,47 @@ package filesystem
 
 import (
 	"os"
+	"path/filepath"
 
 	"golang.org/x/xerrors"
 )
+
+func safeWriteFileAtomic(absPath string, data []byte, fallbackPerm os.FileMode) (retErr error) {
+	if !filepath.IsAbs(absPath) {
+		return xerrors.Errorf("path must be absolute: %s", absPath)
+	}
+	perm := fallbackPerm.Perm()
+	if info, err := os.Stat(absPath); err == nil {
+		perm = info.Mode().Perm()
+	} else if !os.IsNotExist(err) {
+		return xerrors.Errorf("failed to inspect %s: %w", absPath, err)
+	}
+	temp, err := os.CreateTemp(filepath.Dir(absPath), "."+filepath.Base(absPath)+".tmp-*")
+	if err != nil {
+		return xerrors.Errorf("failed to create temporary file for %s: %w", absPath, err)
+	}
+	tempPath := temp.Name()
+	defer func() {
+		_ = temp.Close()
+		_ = os.Remove(tempPath)
+	}()
+	if err := temp.Chmod(perm); err != nil {
+		return xerrors.Errorf("failed to preserve permissions for %s: %w", absPath, err)
+	}
+	if _, err := temp.Write(data); err != nil {
+		return xerrors.Errorf("failed to write temporary file for %s: %w", absPath, err)
+	}
+	if err := temp.Sync(); err != nil {
+		return xerrors.Errorf("failed to sync temporary file for %s: %w", absPath, err)
+	}
+	if err := temp.Close(); err != nil {
+		return xerrors.Errorf("failed to close temporary file for %s: %w", absPath, err)
+	}
+	if err := os.Rename(tempPath, absPath); err != nil {
+		return xerrors.Errorf("failed to atomically replace %s: %w", absPath, err)
+	}
+	return nil
+}
 
 // safeMkdirAll creates the directory tree at absPath. The Unix
 // implementation pins every component with O_NOFOLLOW; on non-Unix

@@ -165,7 +165,7 @@ func (o *HooksOrchestrator) RemoveManaged(
 	if dryRun || len(removed) == 0 {
 		return removed, nil
 	}
-	if err := safeWriteFile(outputPath, append(filtered, '\n'), 0o644); err != nil {
+	if err := safeWriteFileAtomic(outputPath, append(filtered, '\n'), 0o644); err != nil {
 		return nil, xerrors.Errorf("failed to write hook configuration: %w", err)
 	}
 	return removed, nil

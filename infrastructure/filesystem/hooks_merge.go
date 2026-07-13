@@ -158,33 +158,68 @@ func removeTracearyManagedHooks(existingContent []byte) ([]byte, []application.H
 	if !ok {
 		return existingContent, nil, nil
 	}
-	hooks := map[string][]hookMatcherDocument{}
+	hooks := map[string][]json.RawMessage{}
 	if err := json.Unmarshal(hooksValue, &hooks); err != nil {
 		return nil, nil, xerrors.Errorf("existing hooks field must be a JSON object whose values are hook arrays: %w", err)
 	}
 
 	removed := make([]application.HookManagedEntry, 0)
 	for event, matchers := range hooks {
-		keptMatchers := make([]hookMatcherDocument, 0, len(matchers))
-		for _, matcher := range matchers {
-			matcherValue := ""
-			if matcher.Matcher != nil {
-				matcherValue = *matcher.Matcher
+		keptMatchers := make([]json.RawMessage, 0, len(matchers))
+		for _, matcherRaw := range matchers {
+			matcher := map[string]json.RawMessage{}
+			if err := json.Unmarshal(matcherRaw, &matcher); err != nil {
+				return nil, nil, xerrors.Errorf("hook matcher for event %s must be a JSON object: %w", event, err)
 			}
-			keptCommands := make([]hookCommandDocument, 0, len(matcher.Hooks))
-			for _, command := range matcher.Hooks {
+			matcherValue := ""
+			if rawMatcher, ok := matcher["matcher"]; ok {
+				if err := json.Unmarshal(rawMatcher, &matcherValue); err != nil {
+					return nil, nil, xerrors.Errorf("hook matcher value for event %s must be a string: %w", event, err)
+				}
+			}
+			commandsRaw, ok := matcher["hooks"]
+			if !ok {
+				return nil, nil, xerrors.Errorf("hook matcher for event %s must contain a hooks array", event)
+			}
+			commands := []json.RawMessage{}
+			if err := json.Unmarshal(commandsRaw, &commands); err != nil {
+				return nil, nil, xerrors.Errorf("hook commands for event %s must be an array: %w", event, err)
+			}
+			keptCommands := make([]json.RawMessage, 0, len(commands))
+			matcherChanged := false
+			for _, commandRaw := range commands {
+				var command struct {
+					Name    string `json:"name"`
+					Command string `json:"command"`
+				}
+				if err := json.Unmarshal(commandRaw, &command); err != nil {
+					return nil, nil, xerrors.Errorf("hook command for event %s must be a JSON object: %w", event, err)
+				}
 				managedKey := extractTracearyManagedKeyFromEntry(command.Name, command.Command)
 				if managedKey == "" {
-					keptCommands = append(keptCommands, command)
+					keptCommands = append(keptCommands, commandRaw)
 					continue
 				}
+				matcherChanged = true
 				removed = append(removed, application.HookManagedEntry{
 					Event: event, Matcher: matcherValue, Name: command.Name, ManagedKey: managedKey,
 				})
 			}
 			if len(keptCommands) > 0 {
-				matcher.Hooks = keptCommands
-				keptMatchers = append(keptMatchers, matcher)
+				if !matcherChanged {
+					keptMatchers = append(keptMatchers, matcherRaw)
+					continue
+				}
+				encodedCommands, err := json.Marshal(keptCommands)
+				if err != nil {
+					return nil, nil, xerrors.Errorf("failed to marshal retained hook commands: %w", err)
+				}
+				matcher["hooks"] = encodedCommands
+				encodedMatcher, err := json.Marshal(matcher)
+				if err != nil {
+					return nil, nil, xerrors.Errorf("failed to marshal retained hook matcher: %w", err)
+				}
+				keptMatchers = append(keptMatchers, encodedMatcher)
 			}
 		}
 		if len(keptMatchers) == 0 {
@@ -206,7 +241,7 @@ func removeTracearyManagedHooks(existingContent []byte) ([]byte, []application.H
 		return removed[i].ManagedKey < removed[j].ManagedKey
 	})
 
-	encodedHooks, err := json.MarshalIndent(hooks, "", "  ")
+	encodedHooks, err := json.Marshal(hooks)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("failed to marshal filtered hooks JSON: %w", err)
 	}

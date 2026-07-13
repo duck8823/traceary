@@ -33,9 +33,9 @@ func codexPluginManagedHooksCheck(state codexPluginHookFallbackState, hooksPath 
 	}
 }
 
-func (c *RootCLI) codexDuplicateRegistrationCheck(state codexPluginHookFallbackState, hooksPath string) doctorCheck {
+func (c *RootCLI) codexDuplicateRegistrationCheck(ctx context.Context, state codexPluginHookFallbackState, hooksPath string) doctorCheck {
 	const checkName = "codex-config"
-	entries, err := c.hooksOrchestrator.RemoveManaged(context.Background(), hooksPath, true)
+	entries, err := c.hooksOrchestrator.RemoveManaged(ctx, hooksPath, true)
 	if err != nil {
 		return doctorCheck{
 			Name: checkName, Status: doctorStatusFail,
